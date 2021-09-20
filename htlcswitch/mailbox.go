@@ -66,6 +66,14 @@ type MailBox interface {
 	// Reset the packet head to point at the first element in the list.
 	ResetPackets() error
 
+	// SetDustLimits sets the local and remote dust limits so that
+	// DustPackets can be called.
+	SetDustLimits(local, remote lnwire.MilliSatoshi)
+
+	// DustPackets returns the dust sum for Adds in the mailbox for the
+	// local and remote dust limits.
+	DustPackets() (lnwire.MilliSatoshi, lnwire.MilliSatoshi)
+
 	// Start starts the mailbox and any goroutines it needs to operate
 	// properly.
 	Start()
@@ -131,6 +139,15 @@ type memoryMailBox struct {
 	wireShutdown chan struct{}
 	pktShutdown  chan struct{}
 	quit         chan struct{}
+
+	// These are set when the link attaches the mailbox.
+	localDustLimit  lnwire.MilliSatoshi
+	remoteDustLimit lnwire.MilliSatoshi
+
+	// These counters keep track of the mailbox dust sum, using the dust
+	// limits above.
+	localDustSum  lnwire.MilliSatoshi
+	remoteDustSum lnwire.MilliSatoshi
 }
 
 // newMemoryMailBox creates a new instance of the memoryMailBox.
@@ -273,6 +290,10 @@ func (m *memoryMailBox) AckPacket(inKey CircuitKey) bool {
 
 		m.addPkts.Remove(entry)
 		delete(m.addIndex, inKey)
+
+		// Attempt to decrement the dust sums.
+		removedEntry := entry.Value.(*pktWithExpiry)
+		m.decrementDustSums(removedEntry.pkt.amount)
 
 		return true
 	}
@@ -597,6 +618,9 @@ func (m *memoryMailBox) AddPacket(pkt *htlcPacket) error {
 			m.addHead = entry
 		}
 
+		// Attempt to increment the dust sums.
+		m.incrementDustSums(pkt.amount)
+
 	default:
 		m.pktCond.L.Unlock()
 		return fmt.Errorf("unknown htlc type: %T", htlc)
@@ -608,6 +632,62 @@ func (m *memoryMailBox) AddPacket(pkt *htlcPacket) error {
 	m.pktCond.Signal()
 
 	return nil
+}
+
+// incrementDustSums takes an amount and increments the dust sum variables if
+// the amount is below the associated dust limit. This function should be
+// called with the pktCond's underlying lock held.
+func (m *memoryMailBox) incrementDustSums(amt lnwire.MilliSatoshi) {
+	if amt >= m.localDustLimit && amt >= m.remoteDustLimit {
+		return
+	}
+
+	if amt < m.localDustLimit {
+		m.localDustSum += amt
+	}
+
+	if amt < m.remoteDustLimit {
+		m.remoteDustSum += amt
+	}
+}
+
+// decrementDustSums takes an amount and decrements the dust sum variables if
+// the amount is below the associated dust limit. This function should be
+// called with the pktCond's underlying lock held.
+func (m *memoryMailBox) decrementDustSums(amt lnwire.MilliSatoshi) {
+	if amt >= m.localDustLimit && amt >= m.remoteDustLimit {
+		return
+	}
+
+	if amt < m.localDustLimit {
+		m.localDustSum -= amt
+	}
+
+	if amt < m.remoteDustLimit {
+		m.remoteDustSum -= amt
+	}
+}
+
+// SetDustLimits sets the local and remote dust limit member variables.
+func (m *memoryMailBox) SetDustLimits(local, remote lnwire.MilliSatoshi) {
+	m.pktCond.L.Lock()
+	defer m.pktCond.L.Unlock()
+
+	m.localDustLimit = local
+	m.remoteDustLimit = remote
+}
+
+// DustPackets returns the dust sum for add packets in the mailbox. The first
+// return value is the local dust sum and the second is the remote dust sum.
+// This will keep track of a given dust HTLC from the time it is added via
+// AddPacket until it is removed via AckPacket.
+func (m *memoryMailBox) DustPackets() (lnwire.MilliSatoshi,
+	lnwire.MilliSatoshi) {
+
+	m.pktCond.L.Lock()
+	defer m.pktCond.L.Unlock()
+
+	return m.localDustSum, m.remoteDustSum
 }
 
 // FailAdd fails an UpdateAddHTLC that exists within the mailbox, removing it

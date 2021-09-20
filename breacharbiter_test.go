@@ -987,7 +987,7 @@ func initBreachedState(t *testing.T) (*breachArbiter,
 	contractBreaches := make(chan *ContractBreachEvent)
 
 	brar, cleanUpArb, err := createTestArbiter(
-		t, contractBreaches, alice.State().Db,
+		t, contractBreaches, alice.State().Db.GetParentDB(),
 	)
 	if err != nil {
 		t.Fatalf("unable to initialize test breach arbiter: %v", err)
@@ -1164,7 +1164,7 @@ func TestBreachHandoffFail(t *testing.T) {
 	assertNotPendingClosed(t, alice)
 
 	brar, cleanUpArb, err := createTestArbiter(
-		t, contractBreaches, alice.State().Db,
+		t, contractBreaches, alice.State().Db.GetParentDB(),
 	)
 	if err != nil {
 		t.Fatalf("unable to initialize test breach arbiter: %v", err)
@@ -1802,7 +1802,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	}
 
 	// Assert that the channel is fully resolved.
-	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db)
+	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db.GetParentDB())
 }
 
 // TestBreachDelayedJusticeConfirmation tests that the breach arbiter will
@@ -2012,7 +2012,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	}
 
 	// Assert that the channel is fully resolved.
-	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db)
+	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db.GetParentDB())
 }
 
 // findInputIndex returns the index of the input that spends from the given
@@ -2375,7 +2375,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
-		Db:                      dbAlice,
+		Db:                      &dbAlice.ChannelStateDB,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 		FundingTxn:              channels.TestFundingTx,
 	}
@@ -2393,7 +2393,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
-		Db:                      dbBob,
+		Db:                      &dbBob.ChannelStateDB,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 

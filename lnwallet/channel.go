@@ -4976,6 +4976,46 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 	return pd.HtlcIndex, nil
 }
 
+// GetDustSum takes in a boolean that determines which commitment to evaluate
+// the dust sum on. The return value is the sum of dust on the desired
+// commitment tx.
+//
+// NOTE: This over-estimates the dust exposure.
+func (lc *LightningChannel) GetDustSum(remote bool) lnwire.MilliSatoshi {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	var dustSum lnwire.MilliSatoshi
+
+	dustLimit := lc.channelState.LocalChanCfg.DustLimit
+	if remote {
+		// Calculate dust sum on the remote's commitment.
+		dustLimit = lc.channelState.RemoteChanCfg.DustLimit
+	}
+
+	// Grab all of our HTLCs and evaluate against the dust limit.
+	for e := lc.localUpdateLog.Front(); e != nil; e = e.Next() {
+		pd := e.Value.(*PaymentDescriptor)
+		// If the satoshi amount is under the dust limit, add the msat
+		// amount to the dust sum.
+		if pd.EntryType == Add && pd.Amount.ToSatoshis() < dustLimit {
+			dustSum += pd.Amount
+		}
+	}
+
+	// Grab all of their HTLCs and evaluate against the dust limit.
+	for e := lc.remoteUpdateLog.Front(); e != nil; e = e.Next() {
+		pd := e.Value.(*PaymentDescriptor)
+		// If the satoshi amount is under the dust limit, add the msat
+		// amount to the dust sum.
+		if pd.EntryType == Add && pd.Amount.ToSatoshis() < dustLimit {
+			dustSum += pd.Amount
+		}
+	}
+
+	return dustSum
+}
+
 // MayAddOutgoingHtlc validates whether we can add an outgoing htlc to this
 // channel. We don't have a value or circuit for this htlc, because we just
 // want to test that we have slots for a potential htlc so we use a "mock"

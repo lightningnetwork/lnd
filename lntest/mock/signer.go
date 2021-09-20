@@ -7,8 +7,12 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
+)
+
+var (
+	idKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
 )
 
 // DummySignature is a dummy Signature implementation.
@@ -46,6 +50,7 @@ func (d *DummySigner) ComputeInputScript(tx *wire.MsgTx,
 // everything with a single private key.
 type SingleSigner struct {
 	Privkey *btcec.PrivateKey
+	KeyLoc  keychain.KeyLocator
 }
 
 // SignOutputRaw generates a signature for the passed transaction using the
@@ -110,10 +115,15 @@ func (s *SingleSigner) ComputeInputScript(tx *wire.MsgTx,
 
 // SignMessage takes a public key and a message and only signs the message
 // with the stored private key if the public key matches the private key.
-func (s *SingleSigner) SignMessage(pubKey *btcec.PublicKey,
-	msg []byte) (input.Signature, error) {
+func (s *SingleSigner) SignMessage(keyLoc keychain.KeyLocator,
+	msg []byte) (*btcec.Signature, error) {
 
-	if !pubKey.IsEqual(s.Privkey.PubKey()) {
+	mockKeyLoc := s.KeyLoc
+	if s.KeyLoc.IsEmpty() {
+		mockKeyLoc = idKeyLoc
+	}
+
+	if keyLoc != mockKeyLoc {
 		return nil, fmt.Errorf("unknown public key")
 	}
 

@@ -27,6 +27,45 @@ var (
 	ErrUnlockTimeout = errors.New("got no unlock message before timeout")
 )
 
+// WalletUnlockParams holds the variables used to parameterize the unlocking of
+// lnd's wallet after it has already been created.
+type WalletUnlockParams struct {
+	// Password is the public and private wallet passphrase.
+	Password []byte
+
+	// Birthday specifies the approximate time that this wallet was created.
+	// This is used to bound any rescans on startup.
+	Birthday time.Time
+
+	// RecoveryWindow specifies the address lookahead when entering recovery
+	// mode. A recovery will be attempted if this value is non-zero.
+	RecoveryWindow uint32
+
+	// Wallet is the loaded and unlocked Wallet. This is returned
+	// from the unlocker service to avoid it being unlocked twice (once in
+	// the unlocker service to check if the password is correct and again
+	// later when lnd actually uses it). Because unlocking involves scrypt
+	// which is resource intensive, we want to avoid doing it twice.
+	Wallet *wallet.Wallet
+
+	// ChansToRestore a set of static channel backups that should be
+	// restored before the main server instance starts up.
+	ChansToRestore ChannelsToRecover
+
+	// UnloadWallet is a function for unloading the wallet, which should
+	// be called on shutdown.
+	UnloadWallet func() error
+
+	// StatelessInit signals that the user requested the daemon to be
+	// initialized stateless, which means no unencrypted macaroons should be
+	// written to disk.
+	StatelessInit bool
+
+	// MacResponseChan is the channel for sending back the admin macaroon to
+	// the WalletUnlocker service.
+	MacResponseChan chan []byte
+}
+
 // ChannelsToRecover wraps any set of packed (serialized+encrypted) channel
 // back ups together. These can be passed in when unlocking the wallet, or
 // creating a new wallet for the first time with an existing seed.

@@ -2,7 +2,7 @@ package mock
 
 import (
 	"github.com/btcsuite/btcd/btcec"
-
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -12,8 +12,8 @@ type SecretKeyRing struct {
 }
 
 // DeriveNextKey currently returns dummy values.
-func (s *SecretKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (
-	keychain.KeyDescriptor, error) {
+func (s *SecretKeyRing) DeriveNextKey(
+	_ keychain.KeyFamily) (keychain.KeyDescriptor, error) {
 
 	return keychain.KeyDescriptor{
 		PubKey: s.RootKey.PubKey(),
@@ -21,36 +21,40 @@ func (s *SecretKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (
 }
 
 // DeriveKey currently returns dummy values.
-func (s *SecretKeyRing) DeriveKey(keyLoc keychain.KeyLocator) (keychain.KeyDescriptor,
-	error) {
+func (s *SecretKeyRing) DeriveKey(
+	_ keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+
 	return keychain.KeyDescriptor{
 		PubKey: s.RootKey.PubKey(),
 	}, nil
 }
 
 // DerivePrivKey currently returns dummy values.
-func (s *SecretKeyRing) DerivePrivKey(keyDesc keychain.KeyDescriptor) (*btcec.PrivateKey,
-	error) {
+func (s *SecretKeyRing) DerivePrivKey(
+	_ keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
+
 	return s.RootKey, nil
 }
 
 // ECDH currently returns dummy values.
-func (s *SecretKeyRing) ECDH(_ keychain.KeyDescriptor, pubKey *btcec.PublicKey) ([32]byte,
-	error) {
+func (s *SecretKeyRing) ECDH(_ keychain.KeyDescriptor,
+	_ *btcec.PublicKey) ([32]byte, error) {
 
 	return [32]byte{}, nil
 }
 
-// SignDigest signs the passed digest and ignores the KeyDescriptor.
-func (s *SecretKeyRing) SignDigest(_ keychain.KeyDescriptor,
-	digest [32]byte) (*btcec.Signature, error) {
+// SignMessage signs the passed message and ignores the KeyDescriptor.
+func (s *SecretKeyRing) SignMessage(_ keychain.KeyLocator,
+	msg []byte) (*btcec.Signature, error) {
 
-	return s.RootKey.Sign(digest[:])
+	digest := chainhash.DoubleHashB(msg)
+	return s.RootKey.Sign(digest)
 }
 
-// SignDigestCompact signs the passed digest.
-func (s *SecretKeyRing) SignDigestCompact(_ keychain.KeyDescriptor,
-	digest [32]byte) ([]byte, error) {
+// SignMessageCompact signs the passed message.
+func (s *SecretKeyRing) SignMessageCompact(_ keychain.KeyLocator,
+	msg []byte) ([]byte, error) {
 
-	return btcec.SignCompact(btcec.S256(), s.RootKey, digest[:], true)
+	digest := chainhash.DoubleHashB(msg)
+	return btcec.SignCompact(btcec.S256(), s.RootKey, digest, true)
 }

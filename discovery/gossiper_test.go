@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/mock"
@@ -46,11 +47,15 @@ var (
 		R: new(big.Int),
 		S: new(big.Int),
 	}
-	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
-	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+	_, _       = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
+	_, _       = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+	testKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
 
 	selfKeyPriv, _ = btcec.NewPrivateKey(btcec.S256())
-	selfKeyPub     = selfKeyPriv.PubKey()
+	selfKeyDesc    = &keychain.KeyDescriptor{
+		PubKey:     selfKeyPriv.PubKey(),
+		KeyLocator: testKeyLoc,
+	}
 
 	bitcoinKeyPriv1, _ = btcec.NewPrivateKey(btcec.S256())
 	bitcoinKeyPub1     = bitcoinKeyPriv1.PubKey()
@@ -568,7 +573,7 @@ func createNodeAnnouncement(priv *btcec.PrivateKey,
 	}
 
 	signer := mock.SingleSigner{Privkey: priv}
-	sig, err := netann.SignAnnouncement(&signer, priv.PubKey(), a)
+	sig, err := netann.SignAnnouncement(&signer, testKeyLoc, a)
 	if err != nil {
 		return nil, err
 	}
@@ -618,9 +623,8 @@ func createUpdateAnnouncement(blockHeight uint32,
 }
 
 func signUpdate(nodeKey *btcec.PrivateKey, a *lnwire.ChannelUpdate) error {
-	pub := nodeKey.PubKey()
 	signer := mock.SingleSigner{Privkey: nodeKey}
-	sig, err := netann.SignAnnouncement(&signer, pub, a)
+	sig, err := netann.SignAnnouncement(&signer, testKeyLoc, a)
 	if err != nil {
 		return err
 	}
@@ -667,9 +671,8 @@ func createChannelAnnouncement(blockHeight uint32, key1, key2 *btcec.PrivateKey,
 
 	a := createAnnouncementWithoutProof(blockHeight, key1.PubKey(), key2.PubKey(), extraBytes...)
 
-	pub := key1.PubKey()
 	signer := mock.SingleSigner{Privkey: key1}
-	sig, err := netann.SignAnnouncement(&signer, pub, a)
+	sig, err := netann.SignAnnouncement(&signer, testKeyLoc, a)
 	if err != nil {
 		return nil, err
 	}
@@ -678,9 +681,8 @@ func createChannelAnnouncement(blockHeight uint32, key1, key2 *btcec.PrivateKey,
 		return nil, err
 	}
 
-	pub = key2.PubKey()
 	signer = mock.SingleSigner{Privkey: key2}
-	sig, err = netann.SignAnnouncement(&signer, pub, a)
+	sig, err = netann.SignAnnouncement(&signer, testKeyLoc, a)
 	if err != nil {
 		return nil, err
 	}
@@ -689,9 +691,8 @@ func createChannelAnnouncement(blockHeight uint32, key1, key2 *btcec.PrivateKey,
 		return nil, err
 	}
 
-	pub = bitcoinKeyPriv1.PubKey()
 	signer = mock.SingleSigner{Privkey: bitcoinKeyPriv1}
-	sig, err = netann.SignAnnouncement(&signer, pub, a)
+	sig, err = netann.SignAnnouncement(&signer, testKeyLoc, a)
 	if err != nil {
 		return nil, err
 	}
@@ -700,9 +701,8 @@ func createChannelAnnouncement(blockHeight uint32, key1, key2 *btcec.PrivateKey,
 		return nil, err
 	}
 
-	pub = bitcoinKeyPriv2.PubKey()
 	signer = mock.SingleSigner{Privkey: bitcoinKeyPriv2}
-	sig, err = netann.SignAnnouncement(&signer, pub, a)
+	sig, err = netann.SignAnnouncement(&signer, testKeyLoc, a)
 	if err != nil {
 		return nil, err
 	}
@@ -785,7 +785,7 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 		MinimumBatchSize:      10,
 		MaxChannelUpdateBurst: DefaultMaxChannelUpdateBurst,
 		ChannelUpdateInterval: DefaultChannelUpdateInterval,
-	}, selfKeyPub)
+	}, selfKeyDesc)
 
 	if err := gossiper.Start(); err != nil {
 		cleanUpDb()
@@ -1480,7 +1480,10 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		NumActiveSyncers:     3,
 		MinimumBatchSize:     10,
 		SubBatchDelay:        time.Second * 5,
-	}, ctx.gossiper.selfKey)
+	}, &keychain.KeyDescriptor{
+		PubKey:     ctx.gossiper.selfKey,
+		KeyLocator: ctx.gossiper.selfKeyLoc,
+	})
 	if err != nil {
 		t.Fatalf("unable to recreate gossiper: %v", err)
 	}
@@ -2056,7 +2059,9 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 	// We'll start off by processing a channel announcement without a proof
 	// (i.e., an unadvertised channel), followed by a node announcement for
 	// this same channel announcement.
-	chanAnn := createAnnouncementWithoutProof(startingHeight-2, selfKeyPub, remoteKeyPub1)
+	chanAnn := createAnnouncementWithoutProof(
+		startingHeight-2, selfKeyDesc.PubKey, remoteKeyPub1,
+	)
 	pubKey := remoteKeyPriv1.PubKey()
 
 	select {
@@ -3671,8 +3676,12 @@ func TestProcessChannelAnnouncementOptionalMsgFields(t *testing.T) {
 	}
 	defer cleanup()
 
-	chanAnn1 := createAnnouncementWithoutProof(100, selfKeyPub, remoteKeyPub1)
-	chanAnn2 := createAnnouncementWithoutProof(101, selfKeyPub, remoteKeyPub1)
+	chanAnn1 := createAnnouncementWithoutProof(
+		100, selfKeyDesc.PubKey, remoteKeyPub1,
+	)
+	chanAnn2 := createAnnouncementWithoutProof(
+		101, selfKeyDesc.PubKey, remoteKeyPub1,
+	)
 
 	// assertOptionalMsgFields is a helper closure that ensures the optional
 	// message fields were set as intended.

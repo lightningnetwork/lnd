@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -390,31 +391,39 @@ func (b *BtcWalletKeyRing) ECDH(keyDesc KeyDescriptor,
 	return h, nil
 }
 
-// SignDigest signs the given SHA256 message digest with the private key
-// described in the key descriptor.
+// SignMessage signs the given message, double-SHA256 hashing it first, with the
+// private key described in the key locator.
 //
-// NOTE: This is part of the keychain.DigestSignerRing interface.
-func (b *BtcWalletKeyRing) SignDigest(keyDesc KeyDescriptor,
-	digest [32]byte) (*btcec.Signature, error) {
+// NOTE: This is part of the keychain.MessageSignerRing interface.
+func (b *BtcWalletKeyRing) SignMessage(keyLoc KeyLocator,
+	msg []byte) (*btcec.Signature, error) {
 
-	privKey, err := b.DerivePrivKey(keyDesc)
+	privKey, err := b.DerivePrivKey(KeyDescriptor{
+		KeyLocator: keyLoc,
+	})
 	if err != nil {
 		return nil, err
 	}
-	return privKey.Sign(digest[:])
+
+	digest := chainhash.DoubleHashB(msg)
+	return privKey.Sign(digest)
 }
 
-// SignDigestCompact signs the given SHA256 message digest with the private key
-// described in the key descriptor and returns the signature in the compact,
-// public key recoverable format.
+// SignMessageCompact signs the given message, double-SHA256 hashing it first,
+// with the private key described in the key locator and returns the signature
+// in the compact, public key recoverable format.
 //
-// NOTE: This is part of the keychain.DigestSignerRing interface.
-func (b *BtcWalletKeyRing) SignDigestCompact(keyDesc KeyDescriptor,
-	digest [32]byte) ([]byte, error) {
+// NOTE: This is part of the keychain.MessageSignerRing interface.
+func (b *BtcWalletKeyRing) SignMessageCompact(keyLoc KeyLocator,
+	msg []byte) ([]byte, error) {
 
-	privKey, err := b.DerivePrivKey(keyDesc)
+	privKey, err := b.DerivePrivKey(KeyDescriptor{
+		KeyLocator: keyLoc,
+	})
 	if err != nil {
 		return nil, err
 	}
-	return btcec.SignCompact(btcec.S256(), privKey, digest[:], true)
+
+	digest := chainhash.DoubleHashB(msg)
+	return btcec.SignCompact(btcec.S256(), privKey, digest, true)
 }

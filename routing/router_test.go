@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -4274,6 +4275,7 @@ func TestBlockDifferenceFix(t *testing.T) {
 	t.Parallel()
 
 	initialBlockHeight := uint32(0)
+
 	// Starting height here is set to 0, which is behind where we want to be.
 	ctx, cleanup := createTestCtxSingleNode(t, initialBlockHeight)
 	defer cleanup()
@@ -4330,9 +4332,17 @@ func TestBlockDifferenceFix(t *testing.T) {
 		<-ctx.chainView.notifyBlockAck
 	}
 
-	// Then router height should be updated to the latest block.
-	if atomic.LoadUint32(&ctx.router.bestHeight) != newBlockHeight {
-		t.Fatalf("height should have been updated to %v, instead got "+
-			"%v", newBlockHeight, ctx.router.bestHeight)
+	err := wait.NoError(func() error {
+		// Then router height should be updated to the latest block.
+		if atomic.LoadUint32(&ctx.router.bestHeight) != newBlockHeight {
+			return fmt.Errorf("height should have been updated "+
+				"to %v, instead got %v", newBlockHeight,
+				ctx.router.bestHeight)
+		}
+
+		return nil
+	}, testTimeout)
+	if err != nil {
+		t.Fatalf("block height wasn't updated: %v", err)
 	}
 }

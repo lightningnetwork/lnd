@@ -24,7 +24,7 @@ type SessionSource struct {
 	// to be traversed. If the link isn't available, then a value of zero
 	// should be returned. Otherwise, the current up to date knowledge of
 	// the available bandwidth of the link should be returned.
-	QueryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+	QueryBandwidth func(*channeldb.DirectedChannel) lnwire.MilliSatoshi
 
 	// MissionControl is a shared memory of sorts that executions of payment
 	// path finding use in order to remember which vertexes/edges were
@@ -65,7 +65,9 @@ func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 	getBandwidthHints := func() (map[uint64]lnwire.MilliSatoshi,
 		error) {
 
-		return generateBandwidthHints(sourceNode, m.QueryBandwidth)
+		return generateBandwidthHints(
+			sourceNode.PubKeyBytes, m.Graph, m.QueryBandwidth,
+		)
 	}
 
 	session, err := newPaymentSession(

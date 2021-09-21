@@ -1,3 +1,4 @@
+//go:build !rpctest
 // +build !rpctest
 
 package sweep

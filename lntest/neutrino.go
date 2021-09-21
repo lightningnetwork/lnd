@@ -1,3 +1,4 @@
+//go:build neutrino
 // +build neutrino
 
 package lntest

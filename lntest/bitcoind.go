@@ -1,5 +1,5 @@
-// +build bitcoind
-// +build !notxindex
+//go:build bitcoind && !notxindex
+// +build bitcoind,!notxindex
 
 package lntest
 

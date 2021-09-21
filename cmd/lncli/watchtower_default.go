@@ -1,3 +1,4 @@
+//go:build !watchtowerrpc
 // +build !watchtowerrpc
 
 package main

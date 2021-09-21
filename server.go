@@ -2527,7 +2527,7 @@ func (s *server) establishPersistentConnections() error {
 	// Iterate through the list of LinkNodes to find addresses we should
 	// attempt to connect to based on our set of previous connections. Set
 	// the reconnection port to the default peer port.
-	linkNodes, err := s.chanStateDB.FetchAllLinkNodes()
+	linkNodes, err := s.chanStateDB.LinkNodeDB().FetchAllLinkNodes()
 	if err != nil && err != channeldb.ErrLinkNodesNotFound {
 		return err
 	}

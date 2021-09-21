@@ -210,8 +210,8 @@ func TestAddrsForNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to recv node pub: %v", err)
 	}
-	linkNode := cdb.NewLinkNode(
-		wire.MainNet, nodePub, anotherAddr,
+	linkNode := NewLinkNode(
+		cdb.linkNodeDB, wire.MainNet, nodePub, anotherAddr,
 	)
 	if err := linkNode.Sync(); err != nil {
 		t.Fatalf("unable to sync link node: %v", err)
@@ -423,7 +423,9 @@ func TestRestoreChannelShells(t *testing.T) {
 
 	// We should also be able to find the link node that was inserted by
 	// its public key.
-	linkNode, err := cdb.FetchLinkNode(channelShell.Chan.IdentityPub)
+	linkNode, err := cdb.linkNodeDB.FetchLinkNode(
+		channelShell.Chan.IdentityPub,
+	)
 	if err != nil {
 		t.Fatalf("unable to fetch link node: %v", err)
 	}

@@ -217,6 +217,9 @@ var (
 type DB struct {
 	kvdb.Backend
 
+	// linkNodeDB separates all DB operations on LinkNodes.
+	linkNodeDB *LinkNodeDB
+
 	dbPath string
 	graph  *ChannelGraph
 	clock  clock.Clock
@@ -265,9 +268,13 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, 
 
 	chanDB := &DB{
 		Backend: backend,
-		clock:   opts.clock,
-		dryRun:  opts.dryRun,
+		linkNodeDB: &LinkNodeDB{
+			backend: backend,
+		},
+		clock:  opts.clock,
+		dryRun: opts.dryRun,
 	}
+
 	chanDB.graph = newChannelGraph(
 		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
 		opts.BatchCommitInterval,
@@ -915,7 +922,11 @@ func (d *DB) FetchClosedChannelForID(cid lnwire.ChannelID) (
 // the pending funds in a channel that has been forcibly closed have been
 // swept.
 func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
-	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+	var (
+		openChannels  []*OpenChannel
+		pruneLinkNode *btcec.PublicKey
+	)
+	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
 		var b bytes.Buffer
 		if err := writeOutpoint(&b, chanPoint); err != nil {
 			return err
@@ -961,19 +972,33 @@ func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 		// other open channels with this peer. If we don't we'll
 		// garbage collect it to ensure we don't establish persistent
 		// connections to peers without open channels.
-		return d.pruneLinkNode(tx, chanSummary.RemotePub)
-	}, func() {})
+		pruneLinkNode = chanSummary.RemotePub
+		openChannels, err = d.fetchOpenChannels(tx, pruneLinkNode)
+		if err != nil {
+			return fmt.Errorf("unable to fetch open channels for "+
+				"peer %x: %v",
+				pruneLinkNode.SerializeCompressed(), err)
+		}
+
+		return nil
+	}, func() {
+		openChannels = nil
+		pruneLinkNode = nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Decide whether we want to remove the link node, based upon the number
+	// of still open channels.
+	return d.pruneLinkNode(openChannels, pruneLinkNode)
 }
 
 // pruneLinkNode determines whether we should garbage collect a link node from
 // the database due to no longer having any open channels with it. If there are
 // any left, then this acts as a no-op.
-func (d *DB) pruneLinkNode(tx kvdb.RwTx, remotePub *btcec.PublicKey) error {
-	openChannels, err := d.fetchOpenChannels(tx, remotePub)
-	if err != nil {
-		return fmt.Errorf("unable to fetch open channels for peer %x: "+
-			"%v", remotePub.SerializeCompressed(), err)
-	}
+func (d *DB) pruneLinkNode(openChannels []*OpenChannel,
+	remotePub *btcec.PublicKey) error {
 
 	if len(openChannels) > 0 {
 		return nil
@@ -982,27 +1007,42 @@ func (d *DB) pruneLinkNode(tx kvdb.RwTx, remotePub *btcec.PublicKey) error {
 	log.Infof("Pruning link node %x with zero open channels from database",
 		remotePub.SerializeCompressed())
 
-	return d.deleteLinkNode(tx, remotePub)
+	return d.linkNodeDB.DeleteLinkNode(remotePub)
 }
 
 // PruneLinkNodes attempts to prune all link nodes found within the databse with
 // whom we no longer have any open channels with.
 func (d *DB) PruneLinkNodes() error {
-	return kvdb.Update(d, func(tx kvdb.RwTx) error {
-		linkNodes, err := d.fetchAllLinkNodes(tx)
+	allLinkNodes, err := d.linkNodeDB.FetchAllLinkNodes()
+	if err != nil {
+		return err
+	}
+
+	for _, linkNode := range allLinkNodes {
+		var (
+			openChannels []*OpenChannel
+			linkNode     = linkNode
+		)
+		err := kvdb.View(d, func(tx kvdb.RTx) error {
+			var err error
+			openChannels, err = d.fetchOpenChannels(
+				tx, linkNode.IdentityPub,
+			)
+			return err
+		}, func() {
+			openChannels = nil
+		})
 		if err != nil {
 			return err
 		}
 
-		for _, linkNode := range linkNodes {
-			err := d.pruneLinkNode(tx, linkNode.IdentityPub)
-			if err != nil {
-				return err
-			}
+		err = d.pruneLinkNode(openChannels, linkNode.IdentityPub)
+		if err != nil {
+			return err
 		}
+	}
 
-		return nil
-	}, func() {})
+	return nil
 }
 
 // ChannelShell is a shell of a channel that is meant to be used for channel
@@ -1060,19 +1100,13 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 // AddrsForNode consults the graph and channel database for all addresses known
 // to the passed node public key.
 func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error) {
-	var (
-		linkNode  *LinkNode
-		graphNode LightningNode
-	)
+	linkNode, err := d.linkNodeDB.FetchLinkNode(nodePub)
+	if err != nil {
+		return nil, err
+	}
 
-	dbErr := kvdb.View(d, func(tx kvdb.RTx) error {
-		var err error
-
-		linkNode, err = fetchLinkNode(tx, nodePub)
-		if err != nil {
-			return err
-		}
-
+	var graphNode LightningNode
+	err = kvdb.View(d, func(tx kvdb.RTx) error {
 		// We'll also query the graph for this peer to see if they have
 		// any addresses that we don't currently have stored within the
 		// link node database.
@@ -1092,8 +1126,8 @@ func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error) {
 	}, func() {
 		linkNode = nil
 	})
-	if dbErr != nil {
-		return nil, dbErr
+	if err != nil {
+		return nil, err
 	}
 
 	// Now that we have both sources of addrs for this node, we'll use a
@@ -1236,9 +1270,14 @@ func (d *DB) syncVersions(versions []version) error {
 	}, func() {})
 }
 
-// ChannelGraph returns a new instance of the directed channel graph.
+// ChannelGraph returns the current instance of the directed channel graph.
 func (d *DB) ChannelGraph() *ChannelGraph {
 	return d.graph
+}
+
+// LinkNodeDB returns the current instance of the link node database.
+func (d *DB) LinkNodeDB() *LinkNodeDB {
+	return d.linkNodeDB
 }
 
 func getLatestDBVersion(versions []version) uint32 {

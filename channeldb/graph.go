@@ -188,7 +188,8 @@ type ChannelGraph struct {
 // NewChannelGraph allocates a new ChannelGraph backed by a DB instance. The
 // returned instance has its own unique reject cache and channel cache.
 func NewChannelGraph(db kvdb.Backend, rejectCacheSize, chanCacheSize int,
-	batchCommitInterval time.Duration) (*ChannelGraph, error) {
+	batchCommitInterval time.Duration,
+	preAllocCacheNumNodes int) (*ChannelGraph, error) {
 
 	if err := initChannelGraph(db); err != nil {
 		return nil, err
@@ -198,7 +199,7 @@ func NewChannelGraph(db kvdb.Backend, rejectCacheSize, chanCacheSize int,
 		db:          db,
 		rejectCache: newRejectCache(rejectCacheSize),
 		chanCache:   newChannelCache(chanCacheSize),
-		graphCache:  NewGraphCache(),
+		graphCache:  NewGraphCache(preAllocCacheNumNodes),
 	}
 	g.chanScheduler = batch.NewTimeScheduler(
 		db, &g.cacheMu, batchCommitInterval,

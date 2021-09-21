@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wallet"
@@ -1679,14 +1680,27 @@ func initializeDatabases(ctx context.Context,
 			"instances")
 	}
 
-	// Otherwise, we'll open two instances, one for the state we only need
-	// locally, and the other for things we want to ensure are replicated.
-	dbs.graphDB, err = channeldb.CreateWithBackend(
-		databaseBackends.GraphDB,
+	dbOptions := []channeldb.OptionModifier{
 		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
 		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
 		channeldb.OptionSetBatchCommitInterval(cfg.DB.BatchCommitInterval),
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
+	}
+
+	// We want to pre-allocate the channel graph cache according to what we
+	// expect for mainnet to speed up memory allocation.
+	if cfg.ActiveNetParams.Name == chaincfg.MainNetParams.Name {
+		dbOptions = append(
+			dbOptions, channeldb.OptionSetPreAllocCacheNumNodes(
+				channeldb.DefaultPreAllocCacheNumNodes,
+			),
+		)
+	}
+
+	// Otherwise, we'll open two instances, one for the state we only need
+	// locally, and the other for things we want to ensure are replicated.
+	dbs.graphDB, err = channeldb.CreateWithBackend(
+		databaseBackends.GraphDB, dbOptions...,
 	)
 	switch {
 	// Give the DB a chance to dry run the migration. Since we know that

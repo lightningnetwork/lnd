@@ -175,10 +175,19 @@ type GraphCache struct {
 }
 
 // NewGraphCache creates a new graphCache.
-func NewGraphCache() *GraphCache {
+func NewGraphCache(preAllocNumNodes int) *GraphCache {
 	return &GraphCache{
-		nodeChannels: make(map[route.Vertex]map[uint64]*DirectedChannel),
-		nodeFeatures: make(map[route.Vertex]*lnwire.FeatureVector),
+		nodeChannels: make(
+			map[route.Vertex]map[uint64]*DirectedChannel,
+			// A channel connects two nodes, so we can look it up
+			// from both sides, meaning we get double the number of
+			// entries.
+			preAllocNumNodes*2,
+		),
+		nodeFeatures: make(
+			map[route.Vertex]*lnwire.FeatureVector,
+			preAllocNumNodes,
+		),
 	}
 }
 

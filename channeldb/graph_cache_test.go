@@ -97,7 +97,7 @@ func TestGraphCacheAddNode(t *testing.T) {
 			outPolicies: []*ChannelEdgePolicy{outPolicy1},
 			inPolicies:  []*ChannelEdgePolicy{inPolicy1},
 		}
-		cache := NewGraphCache()
+		cache := NewGraphCache(10)
 		require.NoError(t, cache.AddNode(nil, node))
 
 		var fromChannels, toChannels []*DirectedChannel

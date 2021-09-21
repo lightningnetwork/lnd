@@ -3979,7 +3979,7 @@ func (r *rpcServer) createRPCClosedChannel(
 		CloseInitiator:    closeInitiator,
 	}
 
-	reports, err := r.server.chanStateDB.FetchChannelReports(
+	reports, err := r.server.miscDB.FetchChannelReports(
 		*r.cfg.ActiveNetParams.GenesisHash, &dbChannel.ChanPoint,
 	)
 	switch err {
@@ -5142,7 +5142,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 		PendingOnly:    req.PendingOnly,
 		Reversed:       req.Reversed,
 	}
-	invoiceSlice, err := r.server.chanStateDB.QueryInvoices(q)
+	invoiceSlice, err := r.server.miscDB.QueryInvoices(q)
 	if err != nil {
 		return nil, fmt.Errorf("unable to query invoices: %v", err)
 	}
@@ -5944,7 +5944,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		query.MaxPayments = math.MaxUint64
 	}
 
-	paymentsQuerySlice, err := r.server.chanStateDB.QueryPayments(query)
+	paymentsQuerySlice, err := r.server.miscDB.QueryPayments(query)
 	if err != nil {
 		return nil, err
 	}
@@ -5985,9 +5985,7 @@ func (r *rpcServer) DeletePayment(ctx context.Context,
 	rpcsLog.Infof("[DeletePayment] payment_identifier=%v, "+
 		"failed_htlcs_only=%v", hash, req.FailedHtlcsOnly)
 
-	err = r.server.chanStateDB.DeletePayment(
-		hash, req.FailedHtlcsOnly,
-	)
+	err = r.server.miscDB.DeletePayment(hash, req.FailedHtlcsOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -6004,7 +6002,7 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 		"failed_htlcs_only=%v", req.FailedPaymentsOnly,
 		req.FailedHtlcsOnly)
 
-	err := r.server.chanStateDB.DeletePayments(
+	err := r.server.miscDB.DeletePayments(
 		req.FailedPaymentsOnly, req.FailedHtlcsOnly,
 	)
 	if err != nil {
@@ -6166,7 +6164,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 		return nil, err
 	}
 
-	fwdEventLog := r.server.chanStateDB.ForwardingLog()
+	fwdEventLog := r.server.miscDB.ForwardingLog()
 
 	// computeFeeSum is a helper function that computes the total fees for
 	// a particular time slice described by a forwarding event query.
@@ -6407,7 +6405,7 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		IndexOffset:  req.IndexOffset,
 		NumMaxEvents: numEvents,
 	}
-	timeSlice, err := r.server.chanStateDB.ForwardingLog().Query(eventQuery)
+	timeSlice, err := r.server.miscDB.ForwardingLog().Query(eventQuery)
 	if err != nil {
 		return nil, fmt.Errorf("unable to query forwarding log: %v", err)
 	}

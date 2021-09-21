@@ -222,9 +222,13 @@ type server struct {
 
 	graphDB *channeldb.ChannelGraph
 
-	chanStateDB *channeldb.DB
+	chanStateDB *channeldb.ChannelStateDB
 
 	addrSource chanbackup.AddressSource
+
+	// miscDB is the DB that contains all "other" databases within the main
+	// channel DB that haven't been separated out yet.
+	miscDB *channeldb.DB
 
 	htlcSwitch *htlcswitch.Switch
 
@@ -434,15 +438,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s := &server{
 		cfg:            cfg,
 		graphDB:        dbs.graphDB.ChannelGraph(),
-		chanStateDB:    dbs.chanStateDB,
+		chanStateDB:    dbs.chanStateDB.ChannelStateDB(),
 		addrSource:     dbs.chanStateDB,
+		miscDB:         dbs.chanStateDB,
 		cc:             cc,
 		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
 		writePool:      writePool,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
 
-		channelNotifier: channelnotifier.New(dbs.chanStateDB),
+		channelNotifier: channelnotifier.New(
+			dbs.chanStateDB.ChannelStateDB(),
+		),
 
 		identityECDH: nodeKeyECDH,
 		nodeSigner:   netann.NewNodeSigner(nodeKeySigner),
@@ -494,7 +501,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
-		DB: dbs.chanStateDB,
+		DB:                   dbs.chanStateDB,
+		FetchAllOpenChannels: s.chanStateDB.FetchAllOpenChannels,
+		FetchClosedChannels:  s.chanStateDB.FetchClosedChannels,
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
 
@@ -536,7 +545,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MessageSigner:            s.nodeSigner,
 		IsChannelActive:          s.htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
-		DB:                       dbs.chanStateDB,
+		DB:                       s.chanStateDB,
 		Graph:                    dbs.graphDB.ChannelGraph(),
 	}
 
@@ -804,11 +813,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	chanSeries := discovery.NewChanSeries(s.graphDB)
-	gossipMessageStore, err := discovery.NewMessageStore(s.chanStateDB)
+	gossipMessageStore, err := discovery.NewMessageStore(dbs.chanStateDB)
 	if err != nil {
 		return nil, err
 	}
-	waitingProofStore, err := channeldb.NewWaitingProofStore(s.chanStateDB)
+	waitingProofStore, err := channeldb.NewWaitingProofStore(dbs.chanStateDB)
 	if err != nil {
 		return nil, err
 	}
@@ -890,8 +899,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s.utxoNursery = contractcourt.NewUtxoNursery(&contractcourt.NurseryConfig{
 		ChainIO:             cc.ChainIO,
 		ConfDepth:           1,
-		FetchClosedChannels: dbs.chanStateDB.FetchClosedChannels,
-		FetchClosedChannel:  dbs.chanStateDB.FetchClosedChannel,
+		FetchClosedChannels: s.chanStateDB.FetchClosedChannels,
+		FetchClosedChannel:  s.chanStateDB.FetchClosedChannel,
 		Notifier:            cc.ChainNotifier,
 		PublishTransaction:  cc.Wallet.PublishTransaction,
 		Store:               utxnStore,
@@ -1017,7 +1026,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.breachArbiter = contractcourt.NewBreachArbiter(&contractcourt.BreachConfig{
 		CloseLink:          closeLink,
-		DB:                 dbs.chanStateDB,
+		DB:                 s.chanStateDB,
 		Estimator:          s.cc.FeeEstimator,
 		GenSweepScript:     newSweepPkScriptGen(cc.Wallet),
 		Notifier:           cc.ChainNotifier,
@@ -1074,7 +1083,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FindChannel: func(chanID lnwire.ChannelID) (
 			*channeldb.OpenChannel, error) {
 
-			dbChannels, err := dbs.chanStateDB.FetchAllChannels()
+			dbChannels, err := s.chanStateDB.FetchAllChannels()
 			if err != nil {
 				return nil, err
 			}
@@ -1246,7 +1255,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// static backup of the latest channel state.
 	chanNotifier := &channelNotifier{
 		chanNotifier: s.channelNotifier,
-		addrs:        s.chanStateDB,
+		addrs:        dbs.chanStateDB,
 	}
 	backupFile := chanbackup.NewMultiFile(cfg.BackupFilePath)
 	startingChans, err := chanbackup.FetchStaticChanBackups(
@@ -1276,8 +1285,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 		GetOpenChannels: s.chanStateDB.FetchAllOpenChannels,
 		Clock:           clock.NewDefaultClock(),
-		ReadFlapCount:   s.chanStateDB.ReadFlapCount,
-		WriteFlapCount:  s.chanStateDB.WriteFlapCounts,
+		ReadFlapCount:   s.miscDB.ReadFlapCount,
+		WriteFlapCount:  s.miscDB.WriteFlapCounts,
 		FlapCountTicker: ticker.New(chanfitness.FlapCountFlushRate),
 	})
 

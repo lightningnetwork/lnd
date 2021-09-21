@@ -103,8 +103,11 @@ func newCircuitMap(t *testing.T) (*htlcswitch.CircuitMapConfig,
 
 	onionProcessor := newOnionProcessor(t)
 
+	db := makeCircuitDB(t, "")
 	circuitMapCfg := &htlcswitch.CircuitMapConfig{
-		DB:                    makeCircuitDB(t, ""),
+		DB:                    db,
+		FetchAllOpenChannels:  db.ChannelStateDB().FetchAllOpenChannels,
+		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
 		ExtractErrorEncrypter: onionProcessor.ExtractErrorEncrypter,
 	}
 
@@ -634,13 +637,17 @@ func makeCircuitDB(t *testing.T, path string) *channeldb.DB {
 func restartCircuitMap(t *testing.T, cfg *htlcswitch.CircuitMapConfig) (
 	*htlcswitch.CircuitMapConfig, htlcswitch.CircuitMap) {
 
-	// Record the current temp path and close current db.
-	dbPath := cfg.DB.Path()
+	// Record the current temp path and close current db. We know we have
+	// a full channeldb.DB here since we created it just above.
+	dbPath := cfg.DB.(*channeldb.DB).Path()
 	cfg.DB.Close()
 
 	// Reinitialize circuit map with same db path.
+	db := makeCircuitDB(t, dbPath)
 	cfg2 := &htlcswitch.CircuitMapConfig{
-		DB:                    makeCircuitDB(t, dbPath),
+		DB:                    db,
+		FetchAllOpenChannels:  db.ChannelStateDB().FetchAllOpenChannels,
+		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
 	}
 	cm2, err := htlcswitch.NewCircuitMap(cfg2)

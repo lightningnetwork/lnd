@@ -1756,12 +1756,6 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		err := routingTx.close()
-		if err != nil {
-			log.Errorf("Error closing db tx: %v", err)
-		}
-	}()
 
 	path, err := findPath(
 		&graphParams{
@@ -2763,12 +2757,6 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		err := routingTx.close()
-		if err != nil {
-			log.Errorf("Error closing db tx: %v", err)
-		}
-	}()
 
 	// Traverse hops backwards to accumulate fees in the running amounts.
 	source := r.selfNode.PubKeyBytes

@@ -359,14 +359,12 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 	g routingGraph) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
 
 	var max, total lnwire.MilliSatoshi
-	cb := func(edgeInfo *channeldb.ChannelEdgeInfo, outEdge,
-		_ *channeldb.ChannelEdgePolicy) error {
-
-		if outEdge == nil {
+	cb := func(channel *channeldb.DirectedChannel) error {
+		if channel.OutPolicy == nil {
 			return nil
 		}
 
-		chanID := outEdge.ChannelID
+		chanID := channel.ChannelID
 
 		// Enforce outgoing channel restriction.
 		if outgoingChans != nil {
@@ -381,9 +379,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 		// This can happen when a channel is added to the graph after
 		// we've already queried the bandwidth hints.
 		if !ok {
-			bandwidth = lnwire.NewMSatFromSatoshis(
-				edgeInfo.Capacity,
-			)
+			bandwidth = lnwire.NewMSatFromSatoshis(channel.Capacity)
 		}
 
 		if bandwidth > max {
@@ -889,7 +885,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// Determine the next hop forward using the next map.
 		currentNodeWithDist, ok := distance[currentNode]
 		if !ok {
-			// If the node doesnt have a next hop it means we didn't find a path.
+			// If the node doesn't have a next hop it means we
+			// didn't find a path.
 			return nil, errNoPathFound
 		}
 

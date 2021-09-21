@@ -182,10 +182,10 @@ func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
 		// Call the per channel callback.
 		err := cb(
 			&channeldb.DirectedChannel{
-				ChannelID: channel.id,
-				IsNode1:   nodePub == node1,
-				OtherNode: peer,
-				Capacity:  channel.capacity,
+				ChannelID:    channel.id,
+				IsNode1:      nodePub == node1,
+				OtherNode:    peer,
+				Capacity:     channel.capacity,
 				OutPolicySet: true,
 				InPolicy: &channeldb.CachedEdgePolicy{
 					ChannelID: channel.id,
@@ -193,7 +193,7 @@ func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
 						return nodePub
 					},
 					ToNodeFeatures: lnwire.EmptyFeatureVector(),
-					FeeBaseMSat: peerNode.baseFee,
+					FeeBaseMSat:    peerNode.baseFee,
 				},
 			},
 		)

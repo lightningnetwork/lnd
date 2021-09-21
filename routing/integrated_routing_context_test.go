@@ -162,11 +162,7 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 	}
 
 	session, err := newPaymentSession(
-		&payment, getBandwidthHints,
-		func() (routingGraph, func(), error) {
-			return c.graph, func() {}, nil
-		},
-		mc, c.pathFindingCfg,
+		&payment, getBandwidthHints, c.graph, mc, c.pathFindingCfg,
 	)
 	if err != nil {
 		c.t.Fatal(err)

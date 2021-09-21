@@ -380,6 +380,8 @@ type Config struct {
 
 	Cluster *lncfg.Cluster `group:"cluster" namespace:"cluster"`
 
+	RPCMiddleware *lncfg.RPCMiddleware `group:"rpcmiddleware" namespace:"rpcmiddleware"`
+
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
@@ -550,6 +552,7 @@ func DefaultConfig() Config {
 		LogWriter:               build.NewRotatingLogWriter(),
 		DB:                      lncfg.DefaultDB(),
 		Cluster:                 lncfg.DefaultCluster(),
+		RPCMiddleware:           lncfg.DefaultRPCMiddleware(),
 		registeredChains:        chainreg.NewChainRegistry(),
 		ActiveNetParams:         chainreg.BitcoinTestNetParams,
 		ChannelCommitInterval:   defaultChannelCommitInterval,
@@ -639,6 +642,7 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 // normalized. The cleaned up config is returned on success.
 func ValidateConfig(cfg Config, usageMessage string,
 	interceptor signal.Interceptor) (*Config, error) {
+
 	// If the provided lnd directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
 	lndDir := CleanAndExpandPath(cfg.LndDir)
@@ -1477,6 +1481,7 @@ func ValidateConfig(cfg Config, usageMessage string,
 		cfg.DB,
 		cfg.Cluster,
 		cfg.HealthChecks,
+		cfg.RPCMiddleware,
 	)
 	if err != nil {
 		return nil, err

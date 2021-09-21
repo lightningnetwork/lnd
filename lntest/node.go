@@ -802,7 +802,7 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 		return err
 	}
 
-	if err := hn.waitUntilStarted(conn, DefaultTimeout); err != nil {
+	if err := hn.WaitUntilStarted(conn, DefaultTimeout); err != nil {
 		return err
 	}
 
@@ -818,8 +818,8 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 	return hn.initLightningClient(conn)
 }
 
-// waitUntilStarted waits until the wallet state flips from "WAITING_TO_START".
-func (hn *HarnessNode) waitUntilStarted(conn grpc.ClientConnInterface,
+// WaitUntilStarted waits until the wallet state flips from "WAITING_TO_START".
+func (hn *HarnessNode) WaitUntilStarted(conn grpc.ClientConnInterface,
 	timeout time.Duration) error {
 
 	stateClient := lnrpc.NewStateClient(conn)
@@ -840,6 +840,7 @@ func (hn *HarnessNode) waitUntilStarted(conn grpc.ClientConnInterface,
 			resp, err := stateStream.Recv()
 			if err != nil {
 				errChan <- err
+				return
 			}
 
 			if resp.State != lnrpc.WalletState_WAITING_TO_START {
@@ -880,7 +881,7 @@ func (hn *HarnessNode) WaitUntilLeader(timeout time.Duration) error {
 	}
 	timeout -= time.Since(startTs)
 
-	if err := hn.waitUntilStarted(conn, timeout); err != nil {
+	if err := hn.WaitUntilStarted(conn, timeout); err != nil {
 		return err
 	}
 
@@ -1195,7 +1196,10 @@ func (hn *HarnessNode) ConnectRPCWithMacaroon(mac *macaroon.Macaroon) (
 	if mac == nil {
 		return grpc.DialContext(ctx, hn.Cfg.RPCAddr(), opts...)
 	}
-	macCred := macaroons.NewMacaroonCredential(mac)
+	macCred, err := macaroons.NewMacaroonCredential(mac)
+	if err != nil {
+		return nil, fmt.Errorf("error cloning mac: %v", err)
+	}
 	opts = append(opts, grpc.WithPerRPCCredentials(macCred))
 
 	return grpc.DialContext(ctx, hn.Cfg.RPCAddr(), opts...)
@@ -1291,7 +1295,9 @@ func (hn *HarnessNode) stop() error {
 	// Close any attempts at further grpc connections.
 	if hn.conn != nil {
 		err := hn.conn.Close()
-		if err != nil {
+		if err != nil &&
+			!strings.Contains(err.Error(), "connection is closing") {
+
 			return fmt.Errorf("error attempting to stop grpc "+
 				"client: %v", err)
 		}

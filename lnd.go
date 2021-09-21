@@ -111,7 +111,10 @@ func AdminAuthOptions(cfg *Config, skipMacaroons bool) ([]grpc.DialOption, error
 		}
 
 		// Now we append the macaroon credentials to the dial options.
-		cred := macaroons.NewMacaroonCredential(mac)
+		cred, err := macaroons.NewMacaroonCredential(mac)
+		if err != nil {
+			return nil, fmt.Errorf("error cloning mac: %v", err)
+		}
 		opts = append(opts, grpc.WithPerRPCCredentials(cred))
 	}
 
@@ -349,7 +352,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	// Create a new RPC interceptor that we'll add to the GRPC server. This
 	// will be used to log the API calls invoked on the GRPC server.
 	interceptorChain := rpcperms.NewInterceptorChain(
-		rpcsLog, cfg.NoMacaroons,
+		rpcsLog, cfg.NoMacaroons, cfg.RPCMiddleware.Mandatory,
 	)
 	if err := interceptorChain.Start(); err != nil {
 		return err
@@ -579,6 +582,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		macaroonService, err = macaroons.NewService(
 			dbs.macaroonDB, "lnd", walletInitParams.StatelessInit,
 			macaroons.IPLockChecker,
+			macaroons.CustomChecker(interceptorChain),
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to set up macaroon "+

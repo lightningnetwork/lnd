@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-
 	"github.com/lightningnetwork/lnd/kvdb"
 	"google.golang.org/grpc/metadata"
-
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
 	macaroon "gopkg.in/macaroon.v2"
@@ -152,34 +150,31 @@ func (svc *Service) ValidateMacaroon(ctx context.Context,
 	requiredPermissions []bakery.Op, fullMethod string) error {
 
 	// Get macaroon bytes from context and unmarshal into macaroon.
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return fmt.Errorf("unable to get metadata from context")
+	macHex, err := RawMacaroonFromContext(ctx)
+	if err != nil {
+		return err
 	}
-	if len(md["macaroon"]) != 1 {
-		return fmt.Errorf("expected 1 macaroon, got %d",
-			len(md["macaroon"]))
+
+	// With the macaroon obtained, we'll now decode the hex-string encoding.
+	macBytes, err := hex.DecodeString(macHex)
+	if err != nil {
+		return err
 	}
 
 	return svc.CheckMacAuth(
-		ctx, md["macaroon"][0], requiredPermissions, fullMethod,
+		ctx, macBytes, requiredPermissions, fullMethod,
 	)
 }
 
 // CheckMacAuth checks that the macaroon is not disobeying any caveats and is
 // authorized to perform the operation the user wants to perform.
-func (svc *Service) CheckMacAuth(ctx context.Context, macStr string,
+func (svc *Service) CheckMacAuth(ctx context.Context, macBytes []byte,
 	requiredPermissions []bakery.Op, fullMethod string) error {
 
-	// With the macaroon obtained, we'll now decode the hex-string
-	// encoding, then unmarshal it from binary into its concrete struct
-	// representation.
-	macBytes, err := hex.DecodeString(macStr)
-	if err != nil {
-		return err
-	}
+	// With the macaroon obtained, we'll now unmarshal it from binary into
+	// its concrete struct representation.
 	mac := &macaroon.Macaroon{}
-	err = mac.UnmarshalBinary(macBytes)
+	err := mac.UnmarshalBinary(macBytes)
 	if err != nil {
 		return err
 	}
@@ -263,4 +258,38 @@ func (svc *Service) GenerateNewRootKey() error {
 // returns the result.
 func (svc *Service) ChangePassword(oldPw, newPw []byte) error {
 	return svc.rks.ChangePassword(oldPw, newPw)
+}
+
+// RawMacaroonFromContext is a helper function that extracts a raw macaroon
+// from the given incoming gRPC request context.
+func RawMacaroonFromContext(ctx context.Context) (string, error) {
+	// Get macaroon bytes from context and unmarshal into macaroon.
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return "", fmt.Errorf("unable to get metadata from context")
+	}
+	if len(md["macaroon"]) != 1 {
+		return "", fmt.Errorf("expected 1 macaroon, got %d",
+			len(md["macaroon"]))
+	}
+
+	return md["macaroon"][0], nil
+}
+
+// SafeCopyMacaroon creates a copy of a macaroon that is safe to be used and
+// modified. This is necessary because the macaroon library's own Clone() method
+// is unsafe for certain edge cases, resulting in both the cloned and the
+// original macaroons to be modified.
+func SafeCopyMacaroon(mac *macaroon.Macaroon) (*macaroon.Macaroon, error) {
+	macBytes, err := mac.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	newMac := &macaroon.Macaroon{}
+	if err := newMac.UnmarshalBinary(macBytes); err != nil {
+		return nil, err
+	}
+
+	return newMac, nil
 }

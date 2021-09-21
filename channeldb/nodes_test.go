@@ -34,8 +34,8 @@ func TestLinkNodeEncodeDecode(t *testing.T) {
 
 	// Create two fresh link node instances with the above dummy data, then
 	// fully sync both instances to disk.
-	node1 := cdb.NewLinkNode(wire.MainNet, pub1, addr1)
-	node2 := cdb.NewLinkNode(wire.TestNet3, pub2, addr2)
+	node1 := NewLinkNode(cdb.linkNodeDB, wire.MainNet, pub1, addr1)
+	node2 := NewLinkNode(cdb.linkNodeDB, wire.TestNet3, pub2, addr2)
 	if err := node1.Sync(); err != nil {
 		t.Fatalf("unable to sync node: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestLinkNodeEncodeDecode(t *testing.T) {
 	// Fetch all current link nodes from the database, they should exactly
 	// match the two created above.
 	originalNodes := []*LinkNode{node2, node1}
-	linkNodes, err := cdb.FetchAllLinkNodes()
+	linkNodes, err := cdb.linkNodeDB.FetchAllLinkNodes()
 	if err != nil {
 		t.Fatalf("unable to fetch nodes: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestLinkNodeEncodeDecode(t *testing.T) {
 	}
 
 	// Fetch the same node from the database according to its public key.
-	node1DB, err := cdb.FetchLinkNode(pub1)
+	node1DB, err := cdb.linkNodeDB.FetchLinkNode(pub1)
 	if err != nil {
 		t.Fatalf("unable to find node: %v", err)
 	}
@@ -121,20 +121,20 @@ func TestDeleteLinkNode(t *testing.T) {
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 1337,
 	}
-	linkNode := cdb.NewLinkNode(wire.TestNet3, pubKey, addr)
+	linkNode := NewLinkNode(cdb.linkNodeDB, wire.TestNet3, pubKey, addr)
 	if err := linkNode.Sync(); err != nil {
 		t.Fatalf("unable to write link node to db: %v", err)
 	}
 
-	if _, err := cdb.FetchLinkNode(pubKey); err != nil {
+	if _, err := cdb.linkNodeDB.FetchLinkNode(pubKey); err != nil {
 		t.Fatalf("unable to find link node: %v", err)
 	}
 
-	if err := cdb.DeleteLinkNode(pubKey); err != nil {
+	if err := cdb.linkNodeDB.DeleteLinkNode(pubKey); err != nil {
 		t.Fatalf("unable to delete link node from db: %v", err)
 	}
 
-	if _, err := cdb.FetchLinkNode(pubKey); err == nil {
+	if _, err := cdb.linkNodeDB.FetchLinkNode(pubKey); err == nil {
 		t.Fatal("should not have found link node in db, but did")
 	}
 }

@@ -174,7 +174,7 @@ const (
 // independently. Edge removal results in the deletion of all edge information
 // for that edge.
 type ChannelGraph struct {
-	db *DB
+	db kvdb.Backend
 
 	cacheMu     sync.RWMutex
 	rejectCache *rejectCache
@@ -186,7 +186,7 @@ type ChannelGraph struct {
 
 // newChannelGraph allocates a new ChannelGraph backed by a DB instance. The
 // returned instance has its own unique reject cache and channel cache.
-func newChannelGraph(db *DB, rejectCacheSize, chanCacheSize int,
+func newChannelGraph(db kvdb.Backend, rejectCacheSize, chanCacheSize int,
 	batchCommitInterval time.Duration) *ChannelGraph {
 
 	g := &ChannelGraph{
@@ -195,17 +195,17 @@ func newChannelGraph(db *DB, rejectCacheSize, chanCacheSize int,
 		chanCache:   newChannelCache(chanCacheSize),
 	}
 	g.chanScheduler = batch.NewTimeScheduler(
-		db.Backend, &g.cacheMu, batchCommitInterval,
+		db, &g.cacheMu, batchCommitInterval,
 	)
 	g.nodeScheduler = batch.NewTimeScheduler(
-		db.Backend, nil, batchCommitInterval,
+		db, nil, batchCommitInterval,
 	)
 
 	return g
 }
 
 // Database returns a pointer to the underlying database.
-func (c *ChannelGraph) Database() *DB {
+func (c *ChannelGraph) Database() kvdb.Backend {
 	return c.db
 }
 
@@ -2232,7 +2232,7 @@ type LightningNode struct {
 	// compatible manner.
 	ExtraOpaqueData []byte
 
-	db *DB
+	db kvdb.Backend
 
 	// TODO(roasbeef): discovery will need storage to keep it's last IP
 	// address and re-announce if interface changes?
@@ -2460,7 +2460,7 @@ func (c *ChannelGraph) HasLightningNode(nodePub [33]byte) (time.Time, bool, erro
 
 // nodeTraversal is used to traverse all channels of a node given by its
 // public key and passes channel information into the specified callback.
-func nodeTraversal(tx kvdb.RTx, nodePub []byte, db *DB,
+func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 	cb func(kvdb.RTx, *ChannelEdgeInfo, *ChannelEdgePolicy, *ChannelEdgePolicy) error) error {
 
 	traversal := func(tx kvdb.RTx) error {
@@ -2627,7 +2627,7 @@ type ChannelEdgeInfo struct {
 	// compatible manner.
 	ExtraOpaqueData []byte
 
-	db *DB
+	db kvdb.Backend
 }
 
 // AddNodeKeys is a setter-like method that can be used to replace the set of
@@ -2988,7 +2988,7 @@ type ChannelEdgePolicy struct {
 	// compatible manner.
 	ExtraOpaqueData []byte
 
-	db *DB
+	db kvdb.Backend
 }
 
 // Signature is a channel announcement signature, which is needed for proper
@@ -3406,7 +3406,7 @@ func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
 
-	err := kvdb.Batch(c.db.Backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
 		edges := tx.ReadWriteBucket(edgeBucket)
 		if edges == nil {
 			return ErrGraphNoEdgesFound
@@ -4102,7 +4102,7 @@ func fetchChanEdgePolicy(edges kvdb.RBucket, chanID []byte,
 
 func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
 	nodes kvdb.RBucket, chanID []byte,
-	db *DB) (*ChannelEdgePolicy, *ChannelEdgePolicy, error) {
+	db kvdb.Backend) (*ChannelEdgePolicy, *ChannelEdgePolicy, error) {
 
 	edgeInfo := edgeIndex.Get(chanID)
 	if edgeInfo == nil {

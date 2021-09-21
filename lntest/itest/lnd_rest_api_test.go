@@ -43,13 +43,16 @@ var (
 	}
 	urlEnc          = base64.URLEncoding
 	webSocketDialer = &websocket.Dialer{
-		HandshakeTimeout: 45 * time.Second,
+		HandshakeTimeout: time.Second,
 		TLSClientConfig:  insecureTransport.TLSClientConfig,
 	}
 	resultPattern = regexp.MustCompile("{\"result\":(.*)}")
 	closeMsg      = websocket.FormatCloseMessage(
 		websocket.CloseNormalClosure, "done",
 	)
+
+	pingInterval = time.Millisecond * 200
+	pongWait     = time.Millisecond * 50
 )
 
 // testRestAPI tests that the most important features of the REST API work
@@ -201,11 +204,18 @@ func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
 	}, {
 		name: "websocket bi-directional subscription",
 		run:  wsTestCaseBiDirectionalSubscription,
+	}, {
+		name: "websocket ping and pong timeout",
+		run:  wsTestPingPongTimeout,
 	}}
 
 	// Make sure Alice allows all CORS origins. Bob will keep the default.
+	// We also make sure the ping/pong messages are sent very often, so we
+	// can test them without waiting half a minute.
 	net.Alice.Cfg.ExtraArgs = append(
 		net.Alice.Cfg.ExtraArgs, "--restcors=\"*\"",
+		fmt.Sprintf("--ws-ping-interval=%s", pingInterval),
+		fmt.Sprintf("--ws-pong-wait=%s", pongWait),
 	)
 	err := net.RestartNode(net.Alice, nil)
 	if err != nil {
@@ -432,7 +442,9 @@ func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
 		_ = conn.Close()
 	}()
 
-	msgChan := make(chan *lnrpc.ChannelAcceptResponse)
+	// Buffer the message channel to make sure we're always blocking on
+	// conn.ReadMessage() to allow the ping/pong mechanism to work.
+	msgChan := make(chan *lnrpc.ChannelAcceptResponse, 1)
 	errChan := make(chan error)
 	done := make(chan struct{})
 	timeout := time.After(defaultTimeout)
@@ -518,6 +530,111 @@ func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
 		case <-timeout:
 			ht.t.Fatalf("Timeout before message was received")
 		}
+	}
+	close(done)
+}
+
+func wsTestPingPongTimeout(ht *harnessTest, net *lntest.NetworkHarness) {
+	initialRequest := &lnrpc.InvoiceSubscription{
+		AddIndex: 1, SettleIndex: 1,
+	}
+	url := "/v1/invoices/subscribe"
+
+	// This time we send the macaroon in the special header
+	// Sec-Websocket-Protocol which is the only header field available to
+	// browsers when opening a WebSocket.
+	mac, err := net.Alice.ReadMacaroon(
+		net.Alice.AdminMacPath(), defaultTimeout,
+	)
+	require.NoError(ht.t, err, "read admin mac")
+	macBytes, err := mac.MarshalBinary()
+	require.NoError(ht.t, err, "marshal admin mac")
+
+	customHeader := make(http.Header)
+	customHeader.Set(lnrpc.HeaderWebSocketProtocol, fmt.Sprintf(
+		"Grpc-Metadata-Macaroon+%s", hex.EncodeToString(macBytes),
+	))
+	conn, err := openWebSocket(
+		net.Alice, url, "GET", initialRequest, customHeader,
+	)
+	require.Nil(ht.t, err, "websocket")
+	defer func() {
+		err := conn.WriteMessage(websocket.CloseMessage, closeMsg)
+		require.NoError(ht.t, err)
+		_ = conn.Close()
+	}()
+
+	// We want to be able to read invoices for a long time, making sure we
+	// can continue to read even after we've gone through several ping/pong
+	// cycles.
+	invoices := make(chan *lnrpc.Invoice, 1)
+	errors := make(chan error)
+	done := make(chan struct{})
+	go func() {
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				errors <- err
+				return
+			}
+
+			// The chunked/streamed responses come wrapped in either
+			// a {"result":{}} or {"error":{}} wrapper which we'll
+			// get rid of here.
+			msgStr := string(msg)
+			if !strings.Contains(msgStr, "\"result\":") {
+				errors <- fmt.Errorf("invalid msg: %s", msgStr)
+				return
+			}
+			msgStr = resultPattern.ReplaceAllString(msgStr, "${1}")
+
+			// Make sure we can parse the unwrapped message into the
+			// expected proto message.
+			protoMsg := &lnrpc.Invoice{}
+			err = jsonpb.UnmarshalString(msgStr, protoMsg)
+			if err != nil {
+				errors <- err
+				return
+			}
+
+			invoices <- protoMsg
+
+			// Make sure we exit the loop once we've sent through
+			// all expected test messages.
+			select {
+			case <-done:
+				return
+			default:
+			}
+		}
+	}()
+
+	// Let's create five invoices and wait for them to arrive. We'll wait
+	// for at least one ping/pong cycle between each invoice.
+	ctxb := context.Background()
+	const numInvoices = 5
+	const value = 123
+	const memo = "websocket"
+	for i := 0; i < numInvoices; i++ {
+		_, err := net.Alice.AddInvoice(ctxb, &lnrpc.Invoice{
+			Value: value,
+			Memo:  memo,
+		})
+		require.NoError(ht.t, err)
+
+		select {
+		case streamMsg := <-invoices:
+			require.Equal(ht.t, int64(value), streamMsg.Value)
+			require.Equal(ht.t, memo, streamMsg.Memo)
+
+		case err := <-errors:
+			require.Fail(ht.t, "Error reading invoice: %v", err)
+		}
+
+		// Let's wait for at least a whole ping/pong cycle to happen, so
+		// we can be sure the read/write deadlines are set correctly.
+		// We double the pong wait just to add some extra margin.
+		time.Sleep(pingInterval + 2*pongWait)
 	}
 	close(done)
 }

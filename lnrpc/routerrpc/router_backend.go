@@ -55,7 +55,7 @@ type RouterBackend struct {
 	FindRoute func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		destCustomRecords record.CustomSet,
-		routeHints map[route.Vertex][]*channeldb.ChannelEdgePolicy,
+		routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
 		finalExpiry uint16) (*route.Route, error)
 
 	MissionControl MissionControl

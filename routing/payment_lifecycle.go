@@ -898,7 +898,7 @@ func (p *shardHandler) handleFailureMessage(rt *route.Route,
 
 	var (
 		isAdditionalEdge bool
-		policy           *channeldb.ChannelEdgePolicy
+		policy           *channeldb.CachedEdgePolicy
 	)
 
 	// Before we apply the channel update, we need to decide whether the

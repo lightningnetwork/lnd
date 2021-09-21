@@ -2446,7 +2446,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	addPkt.outgoingChanID = carolChanID
 	addPkt.outgoingHTLCID = 0
 
-	err = coreLink.cfg.Switch.openCircuits(addPkt.keystone())
+	err = coreLink.cfg.Circuits.OpenCircuits(addPkt.keystone())
 	if err != nil {
 		t.Fatalf("unable to set keystone: %v", err)
 	}
@@ -2554,7 +2554,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	addPkt.outgoingChanID = carolChanID
 	addPkt.outgoingHTLCID = 1
 
-	err = coreLink.cfg.Switch.openCircuits(addPkt.keystone())
+	err = coreLink.cfg.Circuits.OpenCircuits(addPkt.keystone())
 	if err != nil {
 		t.Fatalf("unable to set keystone: %v", err)
 	}
@@ -5370,6 +5370,10 @@ func (m *mockPackager) LoadFwdPkgs(tx kvdb.RTx) ([]*channeldb.FwdPkg, error) {
 }
 
 func (*mockPackager) RemovePkg(tx kvdb.RwTx, height uint64) error {
+	return nil
+}
+
+func (*mockPackager) Wipe(tx kvdb.RwTx) error {
 	return nil
 }
 

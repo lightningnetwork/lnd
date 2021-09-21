@@ -130,6 +130,25 @@ func remoteHtlcsOption(htlcs []HTLC) testChannelOption {
 	}
 }
 
+// loadFwdPkgs is a helper method that reads all forwarding packages for a
+// particular packager.
+func loadFwdPkgs(t *testing.T, db kvdb.Backend,
+	packager FwdPackager) []*FwdPkg {
+
+	var (
+		fwdPkgs []*FwdPkg
+		err     error
+	)
+
+	err = kvdb.View(db, func(tx kvdb.RTx) error {
+		fwdPkgs, err = packager.LoadFwdPkgs(tx)
+		return err
+	}, func() {})
+	require.NoError(t, err, "unable to load fwd pkgs")
+
+	return fwdPkgs
+}
+
 // localShutdownOption is an option which sets the local upfront shutdown
 // script for the channel.
 func localShutdownOption(addr lnwire.DeliveryAddress) testChannelOption {
@@ -822,6 +841,10 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("revocation state was not synced")
 	}
 
+	// At this point, we should have 2 forwarding packages added.
+	fwdPkgs := loadFwdPkgs(t, cdb, channel.Packager)
+	require.Len(t, fwdPkgs, 2, "wrong number of forwarding packages")
+
 	// Now attempt to delete the channel from the database.
 	closeSummary := &ChannelCloseSummary{
 		ChanPoint:         channel.FundingOutpoint,
@@ -852,6 +875,10 @@ func TestChannelStateTransition(t *testing.T) {
 	if err == nil {
 		t.Fatal("revocation log search should have failed")
 	}
+
+	// All forwarding packages of this channel has been deleted too.
+	fwdPkgs = loadFwdPkgs(t, cdb, channel.Packager)
+	require.Empty(t, fwdPkgs, "no forwarding packages should exist")
 }
 
 func TestFetchPendingChannels(t *testing.T) {

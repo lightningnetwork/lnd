@@ -83,7 +83,7 @@ func deserializeNetworkResult(r io.Reader) (*networkResult, error) {
 // is back. The Switch will checkpoint any received result to the store, and
 // the store will keep results and notify the callers about them.
 type networkResultStore struct {
-	db *channeldb.DB
+	backend kvdb.Backend
 
 	// results is a map from paymentIDs to channels where subscribers to
 	// payment results will be notified.
@@ -96,9 +96,9 @@ type networkResultStore struct {
 	paymentIDMtx *multimutex.Mutex
 }
 
-func newNetworkResultStore(db *channeldb.DB) *networkResultStore {
+func newNetworkResultStore(db kvdb.Backend) *networkResultStore {
 	return &networkResultStore{
-		db:           db,
+		backend:      db,
 		results:      make(map[uint64][]chan *networkResult),
 		paymentIDMtx: multimutex.NewMutex(),
 	}
@@ -126,7 +126,7 @@ func (store *networkResultStore) storeResult(paymentID uint64,
 	var paymentIDBytes [8]byte
 	binary.BigEndian.PutUint64(paymentIDBytes[:], paymentID)
 
-	err := kvdb.Batch(store.db.Backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Batch(store.backend, func(tx kvdb.RwTx) error {
 		networkResults, err := tx.CreateTopLevelBucket(
 			networkResultStoreBucketKey,
 		)
@@ -171,7 +171,7 @@ func (store *networkResultStore) subscribeResult(paymentID uint64) (
 		resultChan = make(chan *networkResult, 1)
 	)
 
-	err := kvdb.View(store.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
 		var err error
 		result, err = fetchResult(tx, paymentID)
 		switch {
@@ -219,7 +219,7 @@ func (store *networkResultStore) getResult(pid uint64) (
 	*networkResult, error) {
 
 	var result *networkResult
-	err := kvdb.View(store.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
 		var err error
 		result, err = fetchResult(tx, pid)
 		return err
@@ -260,7 +260,7 @@ func fetchResult(tx kvdb.RTx, pid uint64) (*networkResult, error) {
 // concurrently while this process is ongoing, as its result might end up being
 // deleted.
 func (store *networkResultStore) cleanStore(keep map[uint64]struct{}) error {
-	return kvdb.Update(store.db.Backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
 		networkResults, err := tx.CreateTopLevelBucket(
 			networkResultStoreBucketKey,
 		)

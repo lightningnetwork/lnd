@@ -697,7 +697,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		BtcdMode:                    cfg.BtcdMode,
 		LtcdMode:                    cfg.LtcdMode,
 		HeightHintDB:                dbs.heightHintDB,
-		ChanStateDB:                 dbs.chanStateDB,
+		ChanStateDB:                 dbs.chanStateDB.ChannelStateDB(),
 		PrivateWalletPw:             privateWalletPw,
 		PublicWalletPw:              publicWalletPw,
 		Birthday:                    walletInitParams.Birthday,

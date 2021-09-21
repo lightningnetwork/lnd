@@ -75,7 +75,7 @@ type Config struct {
 
 	// ChanStateDB is a pointer to the database that stores the channel
 	// state.
-	ChanStateDB *channeldb.DB
+	ChanStateDB *channeldb.ChannelStateDB
 
 	// BlockCacheSize is the size (in bytes) of blocks kept in memory.
 	BlockCacheSize uint64

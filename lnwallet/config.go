@@ -18,7 +18,7 @@ type Config struct {
 	// Database is a wrapper around a namespace within boltdb reserved for
 	// ln-based wallet metadata. See the 'channeldb' package for further
 	// information.
-	Database *channeldb.DB
+	Database *channeldb.ChannelStateDB
 
 	// Notifier is used by in order to obtain notifications about funding
 	// transaction reaching a specified confirmation depth, and to catch

@@ -135,9 +135,13 @@ type Config struct {
 	// subsystem.
 	LocalChannelClose func(pubKey []byte, request *ChanClose)
 
-	// DB is the channeldb instance that will be used to back the switch's
+	// DB is the database backend that will be used to back the switch's
 	// persistent circuit map.
-	DB *channeldb.DB
+	DB kvdb.Backend
+
+	// FetchAllOpenChannels is a function that fetches all currently open
+	// channels from the channel database.
+	FetchAllOpenChannels func() ([]*channeldb.OpenChannel, error)
 
 	// SwitchPackager provides access to the forwarding packages of all
 	// active channels. This gives the switch the ability to read arbitrary
@@ -295,6 +299,7 @@ type Switch struct {
 func New(cfg Config, currentHeight uint32) (*Switch, error) {
 	circuitMap, err := NewCircuitMap(&CircuitMapConfig{
 		DB:                    cfg.DB,
+		FetchAllOpenChannels:  cfg.FetchAllOpenChannels,
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
 	})
 	if err != nil {
@@ -1388,7 +1393,7 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 // we're the originator of the payment, so the link stops attempting to
 // re-broadcast.
 func (s *Switch) ackSettleFail(settleFailRefs ...channeldb.SettleFailRef) error {
-	return kvdb.Batch(s.cfg.DB.Backend, func(tx kvdb.RwTx) error {
+	return kvdb.Batch(s.cfg.DB, func(tx kvdb.RwTx) error {
 		return s.cfg.SwitchPackager.AckSettleFails(tx, settleFailRefs...)
 	})
 }
@@ -1791,7 +1796,7 @@ func (s *Switch) Start() error {
 // forwarding packages and reforwards any Settle or Fail HTLCs found. This is
 // used to resurrect the switch's mailboxes after a restart.
 func (s *Switch) reforwardResponses() error {
-	openChannels, err := s.cfg.DB.FetchAllOpenChannels()
+	openChannels, err := s.cfg.FetchAllOpenChannels()
 	if err != nil {
 		return err
 	}

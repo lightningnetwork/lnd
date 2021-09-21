@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -59,7 +58,7 @@ type GossipMessageStore interface {
 // version of a message (like in the case of multiple ChannelUpdate's) for a
 // channel with a peer.
 type MessageStore struct {
-	db *channeldb.DB
+	db kvdb.Backend
 }
 
 // A compile-time assertion to ensure messageStore implements the
@@ -67,8 +66,8 @@ type MessageStore struct {
 var _ GossipMessageStore = (*MessageStore)(nil)
 
 // NewMessageStore creates a new message store backed by a channeldb instance.
-func NewMessageStore(db *channeldb.DB) (*MessageStore, error) {
-	err := kvdb.Batch(db.Backend, func(tx kvdb.RwTx) error {
+func NewMessageStore(db kvdb.Backend) (*MessageStore, error) {
+	err := kvdb.Batch(db, func(tx kvdb.RwTx) error {
 		_, err := tx.CreateTopLevelBucket(messageStoreBucket)
 		return err
 	})
@@ -124,7 +123,7 @@ func (s *MessageStore) AddMessage(msg lnwire.Message, peerPubKey [33]byte) error
 		return err
 	}
 
-	return kvdb.Batch(s.db.Backend, func(tx kvdb.RwTx) error {
+	return kvdb.Batch(s.db, func(tx kvdb.RwTx) error {
 		messageStore := tx.ReadWriteBucket(messageStoreBucket)
 		if messageStore == nil {
 			return ErrCorruptedMessageStore
@@ -145,7 +144,7 @@ func (s *MessageStore) DeleteMessage(msg lnwire.Message,
 		return err
 	}
 
-	return kvdb.Batch(s.db.Backend, func(tx kvdb.RwTx) error {
+	return kvdb.Batch(s.db, func(tx kvdb.RwTx) error {
 		messageStore := tx.ReadWriteBucket(messageStoreBucket)
 		if messageStore == nil {
 			return ErrCorruptedMessageStore

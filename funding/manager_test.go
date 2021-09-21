@@ -261,7 +261,7 @@ func (n *testNode) AddNewChannel(channel *channeldb.OpenChannel,
 	}
 }
 
-func createTestWallet(cdb *channeldb.DB, netParams *chaincfg.Params,
+func createTestWallet(cdb *channeldb.ChannelStateDB, netParams *chaincfg.Params,
 	notifier chainntnfs.ChainNotifier, wc lnwallet.WalletController,
 	signer input.Signer, keyRing keychain.SecretKeyRing,
 	bio lnwallet.BlockChainIO,
@@ -329,10 +329,12 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	}
 
 	dbDir := filepath.Join(tempTestDir, "cdb")
-	cdb, err := channeldb.Open(dbDir)
+	fullDB, err := channeldb.Open(dbDir)
 	if err != nil {
 		return nil, err
 	}
+
+	cdb := fullDB.ChannelStateDB()
 
 	keyRing := &mock.SecretKeyRing{
 		RootKey: alicePrivKey,

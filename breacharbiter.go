@@ -92,7 +92,7 @@ type BreachConfig struct {
 	// DB provides access to the user's channels, allowing the breach
 	// arbiter to determine the current state of a user's channels, and how
 	// it should respond to channel closure.
-	DB *channeldb.DB
+	DB *channeldb.ChannelStateDB
 
 	// Estimator is used by the breach arbiter to determine an appropriate
 	// fee level when generating, signing, and broadcasting sweep
@@ -1418,11 +1418,11 @@ type RetributionStore interface {
 // store is to ensure that we can recover from a restart in the middle of a
 // breached contract retribution.
 type retributionStore struct {
-	db *channeldb.DB
+	db kvdb.Backend
 }
 
 // newRetributionStore creates a new instance of a retributionStore.
-func newRetributionStore(db *channeldb.DB) *retributionStore {
+func newRetributionStore(db kvdb.Backend) *retributionStore {
 	return &retributionStore{
 		db: db,
 	}

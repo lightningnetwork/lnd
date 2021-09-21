@@ -23,7 +23,6 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -550,19 +549,6 @@ const (
 	addedToRouterGraph
 )
 
-var (
-	// channelOpeningStateBucket is the database bucket used to store the
-	// channelOpeningState for each channel that is currently in the process
-	// of being opened.
-	channelOpeningStateBucket = []byte("channelOpeningState")
-
-	// ErrChannelNotFound is an error returned when a channel is not known
-	// to us. In this case of the fundingManager, this error is returned
-	// when the channel in question is not considered being in an opening
-	// state.
-	ErrChannelNotFound = fmt.Errorf("channel not found")
-)
-
 // NewFundingManager creates and initializes a new instance of the
 // fundingManager.
 func NewFundingManager(cfg Config) (*Manager, error) {
@@ -887,7 +873,7 @@ func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
 		channelState, shortChanID, err := f.getChannelOpeningState(
 			&channel.FundingOutpoint,
 		)
-		if err == ErrChannelNotFound {
+		if err == channeldb.ErrChannelNotFound {
 			// Channel not in fundingManager's opening database,
 			// meaning it was successfully announced to the
 			// network.
@@ -3539,26 +3525,20 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 // chanPoint to the channelOpeningStateBucket.
 func (f *Manager) saveChannelOpeningState(chanPoint *wire.OutPoint,
 	state channelOpeningState, shortChanID *lnwire.ShortChannelID) error {
-	return kvdb.Update(f.cfg.Wallet.Cfg.Database, func(tx kvdb.RwTx) error {
 
-		bucket, err := tx.CreateTopLevelBucket(channelOpeningStateBucket)
-		if err != nil {
-			return err
-		}
+	var outpointBytes bytes.Buffer
+	if err := WriteOutpoint(&outpointBytes, chanPoint); err != nil {
+		return err
+	}
 
-		var outpointBytes bytes.Buffer
-		if err = WriteOutpoint(&outpointBytes, chanPoint); err != nil {
-			return err
-		}
-
-		// Save state and the uint64 representation of the shortChanID
-		// for later use.
-		scratch := make([]byte, 10)
-		byteOrder.PutUint16(scratch[:2], uint16(state))
-		byteOrder.PutUint64(scratch[2:], shortChanID.ToUint64())
-
-		return bucket.Put(outpointBytes.Bytes(), scratch)
-	}, func() {})
+	// Save state and the uint64 representation of the shortChanID
+	// for later use.
+	scratch := make([]byte, 10)
+	byteOrder.PutUint16(scratch[:2], uint16(state))
+	byteOrder.PutUint64(scratch[2:], shortChanID.ToUint64())
+	return f.cfg.Wallet.Cfg.Database.SaveChannelOpeningState(
+		outpointBytes.Bytes(), scratch,
+	)
 }
 
 // getChannelOpeningState fetches the channelOpeningState for the provided
@@ -3567,51 +3547,31 @@ func (f *Manager) saveChannelOpeningState(chanPoint *wire.OutPoint,
 func (f *Manager) getChannelOpeningState(chanPoint *wire.OutPoint) (
 	channelOpeningState, *lnwire.ShortChannelID, error) {
 
-	var state channelOpeningState
-	var shortChanID lnwire.ShortChannelID
-	err := kvdb.View(f.cfg.Wallet.Cfg.Database, func(tx kvdb.RTx) error {
+	var outpointBytes bytes.Buffer
+	if err := WriteOutpoint(&outpointBytes, chanPoint); err != nil {
+		return 0, nil, err
+	}
 
-		bucket := tx.ReadBucket(channelOpeningStateBucket)
-		if bucket == nil {
-			// If the bucket does not exist, it means we never added
-			//  a channel to the db, so return ErrChannelNotFound.
-			return ErrChannelNotFound
-		}
-
-		var outpointBytes bytes.Buffer
-		if err := WriteOutpoint(&outpointBytes, chanPoint); err != nil {
-			return err
-		}
-
-		value := bucket.Get(outpointBytes.Bytes())
-		if value == nil {
-			return ErrChannelNotFound
-		}
-
-		state = channelOpeningState(byteOrder.Uint16(value[:2]))
-		shortChanID = lnwire.NewShortChanIDFromInt(byteOrder.Uint64(value[2:]))
-		return nil
-	}, func() {})
+	value, err := f.cfg.Wallet.Cfg.Database.GetChannelOpeningState(
+		outpointBytes.Bytes(),
+	)
 	if err != nil {
 		return 0, nil, err
 	}
 
+	state := channelOpeningState(byteOrder.Uint16(value[:2]))
+	shortChanID := lnwire.NewShortChanIDFromInt(byteOrder.Uint64(value[2:]))
 	return state, &shortChanID, nil
 }
 
 // deleteChannelOpeningState removes any state for chanPoint from the database.
 func (f *Manager) deleteChannelOpeningState(chanPoint *wire.OutPoint) error {
-	return kvdb.Update(f.cfg.Wallet.Cfg.Database, func(tx kvdb.RwTx) error {
-		bucket := tx.ReadWriteBucket(channelOpeningStateBucket)
-		if bucket == nil {
-			return fmt.Errorf("bucket not found")
-		}
+	var outpointBytes bytes.Buffer
+	if err := WriteOutpoint(&outpointBytes, chanPoint); err != nil {
+		return err
+	}
 
-		var outpointBytes bytes.Buffer
-		if err := WriteOutpoint(&outpointBytes, chanPoint); err != nil {
-			return err
-		}
-
-		return bucket.Delete(outpointBytes.Bytes())
-	}, func() {})
+	return f.cfg.Wallet.Cfg.Database.DeleteChannelOpeningState(
+		outpointBytes.Bytes(),
+	)
 }

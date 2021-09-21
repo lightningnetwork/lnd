@@ -209,6 +209,11 @@ var (
 	// Big endian is the preferred byte order, due to cursor scans over
 	// integer keys iterating in order.
 	byteOrder = binary.BigEndian
+
+	// channelOpeningStateBucket is the database bucket used to store the
+	// channelOpeningState for each channel that is currently in the process
+	// of being opened.
+	channelOpeningStateBucket = []byte("channelOpeningState")
 )
 
 // DB is the primary datastore for the lnd daemon. The database stores
@@ -1195,6 +1200,56 @@ func (d *DB) AbandonChannel(chanPoint *wire.OutPoint, bestHeight uint32) error {
 	// caller. We set ourselves as the close initiator because we abandoned
 	// the channel.
 	return dbChan.CloseChannel(summary, ChanStatusLocalCloseInitiator)
+}
+
+// SaveChannelOpeningState saves the serialized channel state for the provided
+// chanPoint to the channelOpeningStateBucket.
+func (d *DB) SaveChannelOpeningState(outPoint, serializedState []byte) error {
+	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+		bucket, err := tx.CreateTopLevelBucket(channelOpeningStateBucket)
+		if err != nil {
+			return err
+		}
+
+		return bucket.Put(outPoint, serializedState)
+	}, func() {})
+}
+
+// GetChannelOpeningState fetches the serialized channel state for the provided
+// outPoint from the database, or returns ErrChannelNotFound if the channel
+// is not found.
+func (d *DB) GetChannelOpeningState(outPoint []byte) ([]byte, error) {
+	var serializedState []byte
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
+		bucket := tx.ReadBucket(channelOpeningStateBucket)
+		if bucket == nil {
+			// If the bucket does not exist, it means we never added
+			//  a channel to the db, so return ErrChannelNotFound.
+			return ErrChannelNotFound
+		}
+
+		serializedState = bucket.Get(outPoint)
+		if serializedState == nil {
+			return ErrChannelNotFound
+		}
+
+		return nil
+	}, func() {
+		serializedState = nil
+	})
+	return serializedState, err
+}
+
+// DeleteChannelOpeningState removes any state for outPoint from the database.
+func (d *DB) DeleteChannelOpeningState(outPoint []byte) error {
+	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+		bucket := tx.ReadWriteBucket(channelOpeningStateBucket)
+		if bucket == nil {
+			return ErrChannelNotFound
+		}
+
+		return bucket.Delete(outPoint)
+	}, func() {})
 }
 
 // syncVersions function is used for safe db version synchronization. It

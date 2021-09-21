@@ -85,6 +85,10 @@ replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0
 // This replace is for https://github.com/advisories/GHSA-w73w-5m7g-f7qc
 replace github.com/dgrijalva/jwt-go => github.com/golang-jwt/jwt v3.2.1+incompatible
 
+// This replace is for
+// https://deps.dev/advisory/OSV/GO-2021-0053?from=%2Fgo%2Fgithub.com%252Fgogo%252Fprotobuf%2Fv1.3.1
+replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
+
 // If you change this please also update .github/pull_request_template.md and
 // docs/INSTALL.md.
 go 1.15

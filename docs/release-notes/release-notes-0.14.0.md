@@ -255,6 +255,7 @@ you.
 
 * [Order of the start/stop on subsystems are changed to promote better safety](https://github.com/lightningnetwork/lnd/pull/1783).
 
+* [Replace reference to protobuf library with OSV](https://github.com/lightningnetwork/lnd/pull/5759)
 ## Database
 
 * [Ensure single writer for legacy

@@ -186,20 +186,13 @@ func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
 				IsNode1:   nodePub == node1,
 				OtherNode: peer,
 				Capacity:  channel.capacity,
-				OutPolicy: &channeldb.ChannelEdgePolicy{
+				OutPolicySet: true,
+				InPolicy: &channeldb.CachedEdgePolicy{
 					ChannelID: channel.id,
-					Node: &channeldb.LightningNode{
-						PubKeyBytes: peer,
-						Features:    lnwire.EmptyFeatureVector(),
+					ToNodePubKey: func() route.Vertex {
+						return nodePub
 					},
-					FeeBaseMSat: node.baseFee,
-				},
-				InPolicy: &channeldb.ChannelEdgePolicy{
-					ChannelID: channel.id,
-					Node: &channeldb.LightningNode{
-						PubKeyBytes: nodePub,
-						Features:    lnwire.EmptyFeatureVector(),
-					},
+					ToNodeFeatures: lnwire.EmptyFeatureVector(),
 					FeeBaseMSat: peerNode.baseFee,
 				},
 			},

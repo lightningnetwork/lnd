@@ -93,9 +93,9 @@ func (m *SessionSource) NewPaymentSessionEmpty() PaymentSession {
 // RouteHintsToEdges converts a list of invoice route hints to an edge map that
 // can be passed into pathfinding.
 func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
-	map[route.Vertex][]*channeldb.ChannelEdgePolicy, error) {
+	map[route.Vertex][]*channeldb.CachedEdgePolicy, error) {
 
-	edges := make(map[route.Vertex][]*channeldb.ChannelEdgePolicy)
+	edges := make(map[route.Vertex][]*channeldb.CachedEdgePolicy)
 
 	// Traverse through all of the available hop hints and include them in
 	// our edges map, indexed by the public key of the channel's starting
@@ -125,9 +125,12 @@ func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
 			// Finally, create the channel edge from the hop hint
 			// and add it to list of edges corresponding to the node
 			// at the start of the channel.
-			edge := &channeldb.ChannelEdgePolicy{
-				Node:      endNode,
-				ChannelID: hopHint.ChannelID,
+			edge := &channeldb.CachedEdgePolicy{
+				ToNodePubKey: func() route.Vertex {
+					return endNode.PubKeyBytes
+				},
+				ToNodeFeatures: lnwire.EmptyFeatureVector(),
+				ChannelID:      hopHint.ChannelID,
 				FeeBaseMSat: lnwire.MilliSatoshi(
 					hopHint.FeeBaseMSat,
 				),

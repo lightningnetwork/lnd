@@ -144,13 +144,13 @@ type PaymentSession interface {
 	// a boolean to indicate whether the update has been applied without
 	// error.
 	UpdateAdditionalEdge(msg *lnwire.ChannelUpdate, pubKey *btcec.PublicKey,
-		policy *channeldb.ChannelEdgePolicy) bool
+		policy *channeldb.CachedEdgePolicy) bool
 
 	// GetAdditionalEdgePolicy uses the public key and channel ID to query
 	// the ephemeral channel edge policy for additional edges. Returns a nil
 	// if nothing found.
 	GetAdditionalEdgePolicy(pubKey *btcec.PublicKey,
-		channelID uint64) *channeldb.ChannelEdgePolicy
+		channelID uint64) *channeldb.CachedEdgePolicy
 }
 
 // paymentSession is used during an HTLC routings session to prune the local
@@ -162,7 +162,7 @@ type PaymentSession interface {
 // loop if payment attempts take long enough. An additional set of edges can
 // also be provided to assist in reaching the payment's destination.
 type paymentSession struct {
-	additionalEdges map[route.Vertex][]*channeldb.ChannelEdgePolicy
+	additionalEdges map[route.Vertex][]*channeldb.CachedEdgePolicy
 
 	getBandwidthHints func() (map[uint64]lnwire.MilliSatoshi, error)
 
@@ -403,7 +403,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 // updates to the supplied policy. It returns a boolean to indicate whether
 // there's an error when applying the updates.
 func (p *paymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate,
-	pubKey *btcec.PublicKey, policy *channeldb.ChannelEdgePolicy) bool {
+	pubKey *btcec.PublicKey, policy *channeldb.CachedEdgePolicy) bool {
 
 	// Validate the message signature.
 	if err := VerifyChannelUpdateSignature(msg, pubKey); err != nil {
@@ -428,7 +428,7 @@ func (p *paymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate,
 // ephemeral channel edge policy for additional edges. Returns a nil if nothing
 // found.
 func (p *paymentSession) GetAdditionalEdgePolicy(pubKey *btcec.PublicKey,
-	channelID uint64) *channeldb.ChannelEdgePolicy {
+	channelID uint64) *channeldb.CachedEdgePolicy {
 
 	target := route.NewVertex(pubKey)
 

@@ -63,18 +63,25 @@ func TestGraphCacheAddNode(t *testing.T) {
 	runTest := func(nodeA, nodeB route.Vertex) {
 		t.Helper()
 
+		channelFlagA, channelFlagB := 0, 1
+		if nodeA == pubKey2 {
+			channelFlagA, channelFlagB = 1, 0
+		}
+
 		outPolicy1 := &ChannelEdgePolicy{
 			ChannelID:    1000,
-			ChannelFlags: 0,
+			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagA),
 			Node: &LightningNode{
 				PubKeyBytes: nodeB,
+				Features:    lnwire.EmptyFeatureVector(),
 			},
 		}
 		inPolicy1 := &ChannelEdgePolicy{
 			ChannelID:    1000,
-			ChannelFlags: 1,
+			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagB),
 			Node: &LightningNode{
 				PubKeyBytes: nodeA,
+				Features:    lnwire.EmptyFeatureVector(),
 			},
 		}
 		node := &node{
@@ -93,18 +100,48 @@ func TestGraphCacheAddNode(t *testing.T) {
 		cache := NewGraphCache()
 		require.NoError(t, cache.AddNode(nil, node))
 
-		fromChannels := cache.nodeChannels[nodeA]
-		toChannels := cache.nodeChannels[nodeB]
+		var fromChannels, toChannels []*DirectedChannel
+		_ = cache.ForEachChannel(nodeA, func(c *DirectedChannel) error {
+			fromChannels = append(fromChannels, c)
+			return nil
+		})
+		_ = cache.ForEachChannel(nodeB, func(c *DirectedChannel) error {
+			toChannels = append(toChannels, c)
+			return nil
+		})
 
 		require.Len(t, fromChannels, 1)
 		require.Len(t, toChannels, 1)
 
-		require.Equal(t, outPolicy1, fromChannels[0].OutPolicy)
-		require.Equal(t, inPolicy1, fromChannels[0].InPolicy)
+		require.Equal(t, outPolicy1 != nil, fromChannels[0].OutPolicySet)
+		assertCachedPolicyEqual(t, inPolicy1, fromChannels[0].InPolicy)
 
-		require.Equal(t, inPolicy1, toChannels[0].OutPolicy)
-		require.Equal(t, outPolicy1, toChannels[0].InPolicy)
+		require.Equal(t, inPolicy1 != nil, toChannels[0].OutPolicySet)
+		assertCachedPolicyEqual(t, outPolicy1, toChannels[0].InPolicy)
 	}
+
 	runTest(pubKey1, pubKey2)
 	runTest(pubKey2, pubKey1)
+}
+
+func assertCachedPolicyEqual(t *testing.T, original *ChannelEdgePolicy,
+	cached *CachedEdgePolicy) {
+
+	require.Equal(t, original.ChannelID, cached.ChannelID)
+	require.Equal(t, original.MessageFlags, cached.MessageFlags)
+	require.Equal(t, original.ChannelFlags, cached.ChannelFlags)
+	require.Equal(t, original.TimeLockDelta, cached.TimeLockDelta)
+	require.Equal(t, original.MinHTLC, cached.MinHTLC)
+	require.Equal(t, original.MaxHTLC, cached.MaxHTLC)
+	require.Equal(t, original.FeeBaseMSat, cached.FeeBaseMSat)
+	require.Equal(
+		t, original.FeeProportionalMillionths,
+		cached.FeeProportionalMillionths,
+	)
+	require.Equal(
+		t,
+		route.Vertex(original.Node.PubKeyBytes),
+		cached.ToNodePubKey(),
+	)
+	require.Equal(t, original.Node.Features, cached.ToNodeFeatures)
 }

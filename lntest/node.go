@@ -3,6 +3,7 @@ package lntest
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -26,6 +27,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
+	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -63,6 +65,8 @@ const (
 
 	// NeutrinoBackendName is the name of the neutrino backend.
 	NeutrinoBackendName = "neutrino"
+
+	postgresDsn = "postgres://postgres:postgres@localhost:6432/%s?sslmode=disable"
 )
 
 var (
@@ -93,6 +97,10 @@ var (
 		"btcdexec", "", "full path to btcd binary",
 	)
 )
+
+func postgresDatabaseDsn(dbName string) string {
+	return fmt.Sprintf(postgresDsn, dbName)
+}
 
 // NextAvailablePort returns the first port that is available for listening by
 // a new node. It panics if no port is found and the maximum available TCP port
@@ -223,7 +231,8 @@ type NodeConfig struct {
 
 	FeeURL string
 
-	DbBackend DatabaseBackend
+	DbBackend   DatabaseBackend
+	PostgresDsn string
 }
 
 func (cfg NodeConfig) P2PAddr() string {
@@ -311,7 +320,8 @@ func (cfg NodeConfig) genArgs() []string {
 		args = append(args, "--accept-amp")
 	}
 
-	if cfg.DbBackend == BackendEtcd {
+	switch cfg.DbBackend {
+	case BackendEtcd:
 		args = append(args, "--db.backend=etcd")
 		args = append(args, "--db.etcd.embedded")
 		args = append(
@@ -332,6 +342,10 @@ func (cfg NodeConfig) genArgs() []string {
 				path.Join(cfg.LogDir, "etcd.log"),
 			),
 		)
+
+	case BackendPostgres:
+		args = append(args, "--db.backend=postgres")
+		args = append(args, "--db.postgres.dsn="+cfg.PostgresDsn)
 	}
 
 	if cfg.FeeURL != "" {
@@ -421,6 +435,10 @@ type HarnessNode struct {
 
 	// backupDbDir is the path where a database backup is stored, if any.
 	backupDbDir string
+
+	// postgresDbName is the name of the postgres database where lnd data is
+	// stored in.
+	postgresDbName string
 }
 
 // Assert *HarnessNode implements the lnrpc.LightningClient interface.
@@ -456,6 +474,17 @@ func newNode(cfg NodeConfig) (*HarnessNode, error) {
 	// enabled.
 	cfg.AcceptKeySend = true
 
+	// Create temporary database.
+	var dbName string
+	if cfg.DbBackend == BackendPostgres {
+		var err error
+		dbName, err = createTempPgDb()
+		if err != nil {
+			return nil, err
+		}
+		cfg.PostgresDsn = postgresDatabaseDsn(dbName)
+	}
+
 	numActiveNodesMtx.Lock()
 	nodeNum := numActiveNodes
 	numActiveNodes++
@@ -472,7 +501,41 @@ func newNode(cfg NodeConfig) (*HarnessNode, error) {
 		closeChanWatchers: make(map[wire.OutPoint][]chan struct{}),
 
 		policyUpdates: policyUpdateMap{},
+
+		postgresDbName: dbName,
 	}, nil
+}
+
+func createTempPgDb() (string, error) {
+	// Create random database name.
+	randBytes := make([]byte, 8)
+	_, err := rand.Read(randBytes)
+	if err != nil {
+		return "", err
+	}
+	dbName := "itest_" + hex.EncodeToString(randBytes)
+
+	// Create database.
+	err = executePgQuery("CREATE DATABASE " + dbName)
+	if err != nil {
+		return "", err
+	}
+
+	return dbName, nil
+}
+
+func executePgQuery(query string) error {
+	pool, err := pgxpool.Connect(
+		context.Background(),
+		postgresDatabaseDsn("postgres"),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to connect to database: %v", err)
+	}
+	defer pool.Close()
+
+	_, err = pool.Exec(context.Background(), query)
+	return err
 }
 
 // NewMiner creates a new miner using btcd backend. The baseLogDir specifies

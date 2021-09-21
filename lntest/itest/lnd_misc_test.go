@@ -927,6 +927,10 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 			t.Fatalf("unable to copy database files: %v", err)
 		}
 
+		// Reconnect the peers after the restart that was needed for the db
+		// backup.
+		net.EnsureConnected(t.t, carol, node)
+
 		// Finally, send more payments from , using the remaining
 		// payment hashes.
 		err = completePaymentRequests(

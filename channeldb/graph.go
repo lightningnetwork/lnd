@@ -184,10 +184,14 @@ type ChannelGraph struct {
 	nodeScheduler batch.Scheduler
 }
 
-// newChannelGraph allocates a new ChannelGraph backed by a DB instance. The
+// NewChannelGraph allocates a new ChannelGraph backed by a DB instance. The
 // returned instance has its own unique reject cache and channel cache.
-func newChannelGraph(db kvdb.Backend, rejectCacheSize, chanCacheSize int,
-	batchCommitInterval time.Duration) *ChannelGraph {
+func NewChannelGraph(db kvdb.Backend, rejectCacheSize, chanCacheSize int,
+	batchCommitInterval time.Duration) (*ChannelGraph, error) {
+
+	if err := initChannelGraph(db); err != nil {
+		return nil, err
+	}
 
 	g := &ChannelGraph{
 		db:          db,
@@ -201,7 +205,85 @@ func newChannelGraph(db kvdb.Backend, rejectCacheSize, chanCacheSize int,
 		db, nil, batchCommitInterval,
 	)
 
-	return g
+	return g, nil
+}
+
+var graphTopLevelBuckets = [][]byte{
+	nodeBucket,
+	edgeBucket,
+	edgeIndexBucket,
+	graphMetaBucket,
+}
+
+// Wipe completely deletes all saved state within all used buckets within the
+// database. The deletion is done in a single transaction, therefore this
+// operation is fully atomic.
+func (c *ChannelGraph) Wipe() error {
+	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+		for _, tlb := range graphTopLevelBuckets {
+			err := tx.DeleteTopLevelBucket(tlb)
+			if err != nil && err != kvdb.ErrBucketNotFound {
+				return err
+			}
+		}
+		return nil
+	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	return initChannelGraph(c.db)
+}
+
+// createChannelDB creates and initializes a fresh version of channeldb. In
+// the case that the target path has not yet been created or doesn't yet exist,
+// then the path is created. Additionally, all required top-level buckets used
+// within the database are created.
+func initChannelGraph(db kvdb.Backend) error {
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		for _, tlb := range graphTopLevelBuckets {
+			if _, err := tx.CreateTopLevelBucket(tlb); err != nil {
+				return err
+			}
+		}
+
+		nodes := tx.ReadWriteBucket(nodeBucket)
+		_, err := nodes.CreateBucketIfNotExists(aliasIndexBucket)
+		if err != nil {
+			return err
+		}
+		_, err = nodes.CreateBucketIfNotExists(nodeUpdateIndexBucket)
+		if err != nil {
+			return err
+		}
+
+		edges := tx.ReadWriteBucket(edgeBucket)
+		_, err = edges.CreateBucketIfNotExists(edgeIndexBucket)
+		if err != nil {
+			return err
+		}
+		_, err = edges.CreateBucketIfNotExists(edgeUpdateIndexBucket)
+		if err != nil {
+			return err
+		}
+		_, err = edges.CreateBucketIfNotExists(channelPointBucket)
+		if err != nil {
+			return err
+		}
+		_, err = edges.CreateBucketIfNotExists(zombieBucket)
+		if err != nil {
+			return err
+		}
+
+		graphMeta := tx.ReadWriteBucket(graphMetaBucket)
+		_, err = graphMeta.CreateBucketIfNotExists(pruneLogBucket)
+		return err
+	}, func() {})
+	if err != nil {
+		return fmt.Errorf("unable to create new channel graph: %v", err)
+	}
+
+	return nil
 }
 
 // Database returns a pointer to the underlying database.
@@ -218,7 +300,9 @@ func (c *ChannelGraph) Database() kvdb.Backend {
 // NOTE: If an edge can't be found, or wasn't advertised, then a nil pointer
 // for that particular channel edge routing policy will be passed into the
 // callback.
-func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdgeInfo, *ChannelEdgePolicy, *ChannelEdgePolicy) error) error {
+func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdgeInfo,
+	*ChannelEdgePolicy, *ChannelEdgePolicy) error) error {
+
 	// TODO(roasbeef): ptr map to reduce # of allocs? no duplicates
 
 	return kvdb.View(c.db, func(tx kvdb.RTx) error {
@@ -2356,17 +2440,11 @@ func (l *LightningNode) isPublic(tx kvdb.RTx, sourcePubKey []byte) (bool, error)
 // FetchLightningNode attempts to look up a target node by its identity public
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
 // returned.
-//
-// If the caller wishes to re-use an existing boltdb transaction, then it
-// should be passed as the first argument.  Otherwise the first argument should
-// be nil and a fresh transaction will be created to execute the graph
-// traversal.
-func (c *ChannelGraph) FetchLightningNode(tx kvdb.RTx, nodePub route.Vertex) (
+func (c *ChannelGraph) FetchLightningNode(nodePub route.Vertex) (
 	*LightningNode, error) {
 
 	var node *LightningNode
-
-	fetchNode := func(tx kvdb.RTx) error {
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
 		nodes := tx.ReadBucket(nodeBucket)
@@ -2393,14 +2471,9 @@ func (c *ChannelGraph) FetchLightningNode(tx kvdb.RTx, nodePub route.Vertex) (
 		node = &n
 
 		return nil
-	}
-
-	var err error
-	if tx == nil {
-		err = kvdb.View(c.db, fetchNode, func() {})
-	} else {
-		err = fetchNode(tx)
-	}
+	}, func() {
+		node = nil
+	})
 	if err != nil {
 		return nil, err
 	}

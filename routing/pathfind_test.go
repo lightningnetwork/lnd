@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -148,26 +149,36 @@ type testChan struct {
 // makeTestGraph creates a new instance of a channeldb.ChannelGraph for testing
 // purposes. A callback which cleans up the created temporary directories is
 // also returned and intended to be executed after the test completes.
-func makeTestGraph() (*channeldb.ChannelGraph, func(), error) {
+func makeTestGraph() (*channeldb.ChannelGraph, kvdb.Backend, func(), error) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
 	tempDirName, err := ioutil.TempDir("", "channeldb")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	// Next, create channeldb for the first time.
-	cdb, err := channeldb.Open(tempDirName)
+	// Next, create channelgraph for the first time.
+	backend, backendCleanup, err := kvdb.GetTestBackend(tempDirName, "cgr")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	cleanUp := func() {
-		cdb.Close()
-		os.RemoveAll(tempDirName)
+		backendCleanup()
+		_ = os.RemoveAll(tempDirName)
 	}
 
-	return cdb.ChannelGraph(), cleanUp, nil
+	opts := channeldb.DefaultOptions()
+	graph, err := channeldb.NewChannelGraph(
+		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
+		opts.BatchCommitInterval,
+	)
+	if err != nil {
+		cleanUp()
+		return nil, nil, nil, err
+	}
+
+	return graph, backend, cleanUp, nil
 }
 
 // parseTestGraph returns a fully populated ChannelGraph given a path to a JSON
@@ -197,7 +208,7 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph, cleanUp, err := makeTestGraph()
+	graph, graphBackend, cleanUp, err := makeTestGraph()
 	if err != nil {
 		return nil, err
 	}
@@ -381,11 +392,12 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 	}
 
 	return &testGraphInstance{
-		graph:      graph,
-		cleanUp:    cleanUp,
-		aliasMap:   aliasMap,
-		privKeyMap: privKeyMap,
-		channelIDs: channelIDs,
+		graph:        graph,
+		graphBackend: graphBackend,
+		cleanUp:      cleanUp,
+		aliasMap:     aliasMap,
+		privKeyMap:   privKeyMap,
+		channelIDs:   channelIDs,
 	}, nil
 }
 
@@ -447,8 +459,9 @@ type testChannel struct {
 }
 
 type testGraphInstance struct {
-	graph   *channeldb.ChannelGraph
-	cleanUp func()
+	graph        *channeldb.ChannelGraph
+	graphBackend kvdb.Backend
+	cleanUp      func()
 
 	// aliasMap is a map from a node's alias to its public key. This type is
 	// provided in order to allow easily look up from the human memorable alias
@@ -482,7 +495,7 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph, cleanUp, err := makeTestGraph()
+	graph, graphBackend, cleanUp, err := makeTestGraph()
 	if err != nil {
 		return nil, err
 	}
@@ -671,10 +684,11 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 	}
 
 	return &testGraphInstance{
-		graph:      graph,
-		cleanUp:    cleanUp,
-		aliasMap:   aliasMap,
-		privKeyMap: privKeyMap,
+		graph:        graph,
+		graphBackend: graphBackend,
+		cleanUp:      cleanUp,
+		aliasMap:     aliasMap,
+		privKeyMap:   privKeyMap,
 	}, nil
 }
 
@@ -2120,7 +2134,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Carol, so we set "B" as the source node so path finding starts from
 	// Bob.
 	bob := ctx.aliases["B"]
-	bobNode, err := ctx.graph.FetchLightningNode(nil, bob)
+	bobNode, err := ctx.graph.FetchLightningNode(bob)
 	if err != nil {
 		t.Fatalf("unable to find bob: %v", err)
 	}
@@ -2170,7 +2184,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Next, we'll set A as the source node so we can assert that we create
 	// the proper route for any queries starting with Alice.
 	alice := ctx.aliases["A"]
-	aliceNode, err := ctx.graph.FetchLightningNode(nil, alice)
+	aliceNode, err := ctx.graph.FetchLightningNode(alice)
 	if err != nil {
 		t.Fatalf("unable to find alice: %v", err)
 	}

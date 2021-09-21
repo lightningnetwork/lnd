@@ -243,6 +243,8 @@ you.
 
 * [Replace reference to JWT library with CVE](https://github.com/lightningnetwork/lnd/pull/5737)
 
+* [Replace reference to mongo library with CVE](https://github.com/lightningnetwork/lnd/pull/5761)
+
 * [Fixed restore backup file test flake with bitcoind](https://github.com/lightningnetwork/lnd/pull/5637).
 
 * [Timing fix in AMP itest](https://github.com/lightningnetwork/lnd/pull/5725).

@@ -757,6 +757,7 @@ func (f *mockChannelLink) ChannelPoint() *wire.OutPoint                 { return
 func (f *mockChannelLink) Stop()                                        {}
 func (f *mockChannelLink) EligibleToForward() bool                      { return f.eligible }
 func (f *mockChannelLink) MayAddOutgoingHtlc() error                    { return nil }
+func (f *mockChannelLink) ShutdownIfChannelClean() error                { return nil }
 func (f *mockChannelLink) setLiveShortChanID(sid lnwire.ShortChannelID) { f.shortChanID = sid }
 func (f *mockChannelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 	f.eligible = true

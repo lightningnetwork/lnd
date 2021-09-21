@@ -54,7 +54,8 @@ var noUpdate = func(a, b *channeldb.OpenChannel) {}
 // an updateChan function which can be used to modify the default values on
 // the channel states for each peer.
 func createTestPeer(notifier chainntnfs.ChainNotifier,
-	publTx chan *wire.MsgTx, updateChan func(a, b *channeldb.OpenChannel)) (
+	publTx chan *wire.MsgTx, updateChan func(a, b *channeldb.OpenChannel),
+	mockSwitch *mockMessageSwitch) (
 	*Brontide, *lnwallet.LightningChannel, func(), error) {
 
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
@@ -306,7 +307,11 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		},
 	}
 
-	htlcSwitch := &mockMessageSwitch{}
+	// If mockSwitch is not set by the caller, set it to the default as the
+	// caller does not need to control it.
+	if mockSwitch == nil {
+		mockSwitch = &mockMessageSwitch{}
+	}
 
 	nodeSignerAlice := netann.NewNodeSigner(aliceKeySigner)
 
@@ -349,7 +354,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		PubKeyBytes: pubKey,
 		ErrorBuffer: errBuffer,
 		ChainIO:     chainIO,
-		Switch:      htlcSwitch,
+		Switch:      mockSwitch,
 
 		ChanActiveTimeout: chanActiveTimeout,
 		InterceptSwitch:   htlcswitch.NewInterceptableSwitch(nil),
@@ -375,7 +380,9 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 // mockMessageSwitch is a mock implementation of the messageSwitch interface
 // used for testing without relying on a *htlcswitch.Switch in unit tests.
-type mockMessageSwitch struct{}
+type mockMessageSwitch struct {
+	links []htlcswitch.ChannelUpdateHandler
+}
 
 // BestHeight currently returns a dummy value.
 func (m *mockMessageSwitch) BestHeight() uint32 {
@@ -397,12 +404,43 @@ func (m *mockMessageSwitch) CreateAndAddLink(cfg htlcswitch.ChannelLinkConfig,
 	return nil
 }
 
-// GetLinksByInterface currently returns dummy values.
+// GetLinksByInterface returns the active links.
 func (m *mockMessageSwitch) GetLinksByInterface(pub [33]byte) (
 	[]htlcswitch.ChannelUpdateHandler, error) {
 
-	return nil, nil
+	return m.links, nil
 }
+
+// mockUpdateHandler is a mock implementation of the ChannelUpdateHandler
+// interface. It is used in mockMessageSwitch's GetLinksByInterface method.
+type mockUpdateHandler struct {
+	cid lnwire.ChannelID
+}
+
+// newMockUpdateHandler creates a new mockUpdateHandler.
+func newMockUpdateHandler(cid lnwire.ChannelID) *mockUpdateHandler {
+	return &mockUpdateHandler{
+		cid: cid,
+	}
+}
+
+// HandleChannelUpdate currently does nothing.
+func (m *mockUpdateHandler) HandleChannelUpdate(msg lnwire.Message) {}
+
+// ChanID returns the mockUpdateHandler's cid.
+func (m *mockUpdateHandler) ChanID() lnwire.ChannelID { return m.cid }
+
+// Bandwidth currently returns a dummy value.
+func (m *mockUpdateHandler) Bandwidth() lnwire.MilliSatoshi { return 0 }
+
+// EligibleToForward currently returns a dummy value.
+func (m *mockUpdateHandler) EligibleToForward() bool { return false }
+
+// MayAddOutgoingHtlc currently returns nil.
+func (m *mockUpdateHandler) MayAddOutgoingHtlc() error { return nil }
+
+// ShutdownIfChannelClean currently returns nil.
+func (m *mockUpdateHandler) ShutdownIfChannelClean() error { return nil }
 
 type mockMessageConn struct {
 	t *testing.T

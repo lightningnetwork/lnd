@@ -665,8 +665,7 @@ func testStatelessInit(net *lntest.NetworkHarness, t *harnessTest) {
 		NewPassword:     newPw,
 		StatelessInit:   true,
 	}
-	ctxb := context.Background()
-	response, err := carol.InitChangePassword(ctxb, changePwReq)
+	response, err := carol.InitChangePassword(changePwReq)
 	require.NoError(t.t, err)
 
 	// Again, make  sure no macaroon files have been created by the node

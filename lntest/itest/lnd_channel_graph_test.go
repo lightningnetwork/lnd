@@ -63,15 +63,13 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for Alice and Bob to receive the channel edge from the
 	// funding manager.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err := alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err := alice.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->bob channel before "+
 			"timeout: %v", err)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = bob.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("bob didn't see the bob->alice channel before "+
 			"timeout: %v", err)
@@ -91,12 +89,9 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	assertChannelUpdate := func(node *lntest.HarnessNode,
 		policy *lnrpc.RoutingPolicy) {
 
-		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-		defer cancel()
-
 		require.NoError(
 			t.t, carol.WaitForChannelPolicyUpdate(
-				ctxt, node.PubKeyStr, policy, chanPoint, false,
+				node.PubKeyStr, policy, chanPoint, false,
 			), "error while waiting for channel update",
 		)
 	}
@@ -109,7 +104,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 			ChanPoint: chanPoint,
 			Action:    action,
 		}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 		_, err = node.RouterClient.UpdateChanStatus(ctxt, req)
 		if err != nil {
 			t.Fatalf("unable to call UpdateChanStatus for %s's node: %v",
@@ -127,7 +122,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 			req := &lnrpc.ChannelGraphRequest{
 				IncludeUnannounced: true,
 			}
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 			chanGraph, err := node.DescribeGraph(ctxt, req)
 			if err != nil {
 				predErr = fmt.Errorf("unable to query node %v's graph: %v", node, err)

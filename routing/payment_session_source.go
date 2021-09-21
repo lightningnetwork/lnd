@@ -47,12 +47,7 @@ func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return routingTx, func() {
-		err := routingTx.close()
-		if err != nil {
-			log.Errorf("Error closing db tx: %v", err)
-		}
-	}, nil
+	return routingTx, func() {}, nil
 }
 
 // NewPaymentSession creates a new payment session backed by the latest prune

@@ -69,24 +69,18 @@ func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
 // addGraphPolicies adds all policies that are known for the toNode in the
 // graph.
 func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
-	cb := func(edgeInfo *channeldb.ChannelEdgeInfo, _,
-		inEdge *channeldb.ChannelEdgePolicy) error {
-
+	cb := func(channel *channeldb.DirectedChannel) error {
 		// If there is no edge policy for this candidate node, skip.
 		// Note that we are searching backwards so this node would have
 		// come prior to the pivot node in the route.
-		if inEdge == nil {
+		if channel.InPolicy == nil {
 			return nil
 		}
 
-		// The node on the other end of this channel is the from node.
-		fromNode, err := edgeInfo.OtherNodeKeyBytes(u.toNode[:])
-		if err != nil {
-			return err
-		}
-
 		// Add this policy to the unified policies map.
-		u.addPolicy(fromNode, inEdge, edgeInfo.Capacity)
+		u.addPolicy(
+			channel.OtherNode, channel.InPolicy, channel.Capacity,
+		)
 
 		return nil
 	}

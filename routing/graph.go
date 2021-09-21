@@ -85,7 +85,7 @@ func (g *dbRoutingTx) sourceNode() route.Vertex {
 func (g *dbRoutingTx) fetchNodeFeatures(nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
-	targetNode, err := g.graph.FetchLightningNode(g.tx, nodePub)
+	targetNode, err := g.graph.FetchLightningNode(nodePub)
 	switch err {
 
 	// If the node exists and has features, return them directly.

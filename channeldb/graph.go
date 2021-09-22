@@ -341,7 +341,7 @@ func (c *ChannelGraph) DisabledChannelIDs() ([]uint64, error) {
 //
 // TODO(roasbeef): add iterator interface to allow for memory efficient graph
 // traversal when graph gets mega
-func (c *ChannelGraph) ForEachNode(cb func(kvdb.RTx, *LightningNode) error) error { // nolint:interfacer
+func (c *ChannelGraph) ForEachNode(cb func(kvdb.RTx, *LightningNode) error) error {
 	traversal := func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
@@ -570,7 +570,6 @@ func (c *ChannelGraph) deleteLightningNode(nodes kvdb.RwBucket,
 	}
 
 	if err := nodes.Delete(compressedPubKey); err != nil {
-
 		return err
 	}
 
@@ -684,7 +683,6 @@ func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx, edge *ChannelEdgeInfo) error
 		if err != nil {
 			return fmt.Errorf("unable to create shell node "+
 				"for: %x", edge.NodeKey1Bytes)
-
 		}
 	case node1Err != nil:
 		return err
@@ -701,7 +699,6 @@ func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx, edge *ChannelEdgeInfo) error
 		if err != nil {
 			return fmt.Errorf("unable to create shell node "+
 				"for: %x", edge.NodeKey2Bytes)
-
 		}
 	case node2Err != nil:
 		return err
@@ -716,8 +713,10 @@ func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx, edge *ChannelEdgeInfo) error
 
 	// Mark edge policies for both sides as unknown. This is to enable
 	// efficient incoming channel lookup for a node.
-	for _, key := range []*[33]byte{&edge.NodeKey1Bytes,
-		&edge.NodeKey2Bytes} {
+	for _, key := range []*[33]byte{
+		&edge.NodeKey1Bytes,
+		&edge.NodeKey2Bytes,
+	} {
 
 		err := putChanEdgePolicyUnknown(edges, edge.ChannelID,
 			key[:])
@@ -2142,7 +2141,6 @@ func updateEdgePolicy(tx kvdb.RwTx, edge *ChannelEdgePolicy) (bool, error) {
 	edges := tx.ReadWriteBucket(edgeBucket)
 	if edges == nil {
 		return false, ErrEdgeNotFound
-
 	}
 	edgeIndex := edges.NestedReadWriteBucket(edgeIndexBucket)
 	if edgeIndex == nil {
@@ -2634,7 +2632,6 @@ type ChannelEdgeInfo struct {
 // keys for the target ChannelEdgeInfo.
 func (c *ChannelEdgeInfo) AddNodeKeys(nodeKey1, nodeKey2, bitcoinKey1,
 	bitcoinKey2 *btcec.PublicKey) {
-
 	c.nodeKey1 = nodeKey1
 	copy(c.NodeKey1Bytes[:], c.nodeKey1.SerializeCompressed())
 
@@ -2751,7 +2748,6 @@ func (c *ChannelEdgeInfo) OtherNodeKeyBytes(thisNodeKey []byte) (
 // one of the nodes, and wishes to obtain the full LightningNode for the other
 // end of the channel.
 func (c *ChannelEdgeInfo) FetchOtherNode(tx kvdb.RTx, thisNodeKey []byte) (*LightningNode, error) {
-
 	// Ensure that the node passed in is actually a member of the channel.
 	var targetNodeBytes [33]byte
 	switch {

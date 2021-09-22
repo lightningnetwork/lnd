@@ -58,6 +58,9 @@ linters:
   # Init functions are used by loggers throughout the codebase.
   - gochecknoinits
 
+  # interfacer has been archived.
+  - interfacer
+
 issues:
   # Only show newly introduced problems.
   new-from-rev: 01f696afce2f9c0d4ed854edefa3846891d01d8a

@@ -70,7 +70,7 @@ the remote peer supports said channel type and agrees, the previous implicit
 negotiation based on the shared set of feature bits is bypassed, and the
 proposed channel type is used.
 
-## RPC Server
+## RPC Server & `lncli`
 
 * [Return payment address and add index from
   addholdinvoice call](https://github.com/lightningnetwork/lnd/pull/5533).
@@ -105,6 +105,10 @@ proposed channel type is used.
   allows external tools to hook into `lnd`'s RPC server and intercept any
   requests made with custom macaroons (and also the responses to those
   requests).
+
+  * [A new lncli command has been added to expose the RPC command to delete
+    payments over the command
+    line](https://github.com/lightningnetwork/lnd/pull/5778): `delpayments`.
 
 ### Batched channel funding
 

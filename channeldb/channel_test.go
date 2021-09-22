@@ -164,7 +164,7 @@ var channelIDOption = func(chanID lnwire.ShortChannelID) testChannelOption {
 // createTestChannel writes a test channel to the database. It takes a set of
 // functional options which can be used to overwrite the default of creating
 // a pending channel that was broadcast at height 100.
-func createTestChannel(t *testing.T, cdb *DB,
+func createTestChannel(t *testing.T, cdb *ChannelStateDB,
 	opts ...testChannelOption) *OpenChannel {
 
 	// Create a default set of parameters.
@@ -202,7 +202,7 @@ func createTestChannel(t *testing.T, cdb *DB,
 	return params.channel
 }
 
-func createTestChannelState(t *testing.T, cdb *DB) *OpenChannel {
+func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 	// Simulate 1000 channel updates.
 	producer, err := shachain.NewRevocationProducerFromBytes(key[:])
 	if err != nil {
@@ -340,11 +340,13 @@ func createTestChannelState(t *testing.T, cdb *DB) *OpenChannel {
 func TestOpenChannelPutGetDelete(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanUp, err := MakeTestDB()
+	fullDB, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
 	defer cleanUp()
+
+	cdb := fullDB.ChannelStateDB()
 
 	// Create the test channel state, with additional htlcs on the local
 	// and remote commitment.
@@ -489,11 +491,13 @@ func TestOptionalShutdown(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			cdb, cleanUp, err := MakeTestDB()
+			fullDB, cleanUp, err := MakeTestDB()
 			if err != nil {
 				t.Fatalf("unable to make test database: %v", err)
 			}
 			defer cleanUp()
+
+			cdb := fullDB.ChannelStateDB()
 
 			// Create a channel with upfront scripts set as
 			// specified in the test.
@@ -546,11 +550,13 @@ func assertCommitmentEqual(t *testing.T, a, b *ChannelCommitment) {
 func TestChannelStateTransition(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanUp, err := MakeTestDB()
+	fullDB, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
 	defer cleanUp()
+
+	cdb := fullDB.ChannelStateDB()
 
 	// First create a minimal channel, then perform a full sync in order to
 	// persist the data.
@@ -857,11 +863,13 @@ func TestChannelStateTransition(t *testing.T) {
 func TestFetchPendingChannels(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanUp, err := MakeTestDB()
+	fullDB, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
 	defer cleanUp()
+
+	cdb := fullDB.ChannelStateDB()
 
 	// Create a pending channel that was broadcast at height 99.
 	const broadcastHeight = 99
@@ -936,11 +944,13 @@ func TestFetchPendingChannels(t *testing.T) {
 func TestFetchClosedChannels(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanUp, err := MakeTestDB()
+	fullDB, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
 	defer cleanUp()
+
+	cdb := fullDB.ChannelStateDB()
 
 	// Create an open channel in the database.
 	state := createTestChannel(t, cdb, openChannelOption())
@@ -1027,18 +1037,20 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 	// We'll start by creating two channels within our test database. One of
 	// them will have their funding transaction confirmed on-chain, while
 	// the other one will remain unconfirmed.
-	db, cleanUp, err := MakeTestDB()
+	fullDB, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
 	defer cleanUp()
+
+	cdb := fullDB.ChannelStateDB()
 
 	channels := make([]*OpenChannel, numChannels)
 	for i := 0; i < numChannels; i++ {
 		// Create a pending channel in the database at the broadcast
 		// height.
 		channels[i] = createTestChannel(
-			t, db, pendingHeightOption(broadcastHeight),
+			t, cdb, pendingHeightOption(broadcastHeight),
 		)
 	}
 
@@ -1089,7 +1101,7 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 	// Now, we'll fetch all the channels waiting to be closed from the
 	// database. We should expect to see both channels above, even if any of
 	// them haven't had their funding transaction confirm on-chain.
-	waitingCloseChannels, err := db.FetchWaitingCloseChannels()
+	waitingCloseChannels, err := cdb.FetchWaitingCloseChannels()
 	if err != nil {
 		t.Fatalf("unable to fetch all waiting close channels: %v", err)
 	}
@@ -1142,11 +1154,13 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 func TestRefreshShortChanID(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanUp, err := MakeTestDB()
+	fullDB, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
 	defer cleanUp()
+
+	cdb := fullDB.ChannelStateDB()
 
 	// First create a test channel.
 	state := createTestChannel(t, cdb)
@@ -1290,12 +1304,14 @@ func TestCloseInitiator(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			cdb, cleanUp, err := MakeTestDB()
+			fullDB, cleanUp, err := MakeTestDB()
 			if err != nil {
 				t.Fatalf("unable to make test database: %v",
 					err)
 			}
 			defer cleanUp()
+
+			cdb := fullDB.ChannelStateDB()
 
 			// Create an open channel.
 			channel := createTestChannel(
@@ -1335,12 +1351,14 @@ func TestCloseInitiator(t *testing.T) {
 // TestCloseChannelStatus tests setting of a channel status on the historical
 // channel on channel close.
 func TestCloseChannelStatus(t *testing.T) {
-	cdb, cleanUp, err := MakeTestDB()
+	fullDB, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v",
 			err)
 	}
 	defer cleanUp()
+
+	cdb := fullDB.ChannelStateDB()
 
 	// Create an open channel.
 	channel := createTestChannel(
@@ -1400,7 +1418,7 @@ func TestBalanceAtHeight(t *testing.T) {
 	putRevokedState := func(c *OpenChannel, height uint64, local,
 		remote lnwire.MilliSatoshi) error {
 
-		err := kvdb.Update(c.Db, func(tx kvdb.RwTx) error {
+		err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
 			chanBucket, err := fetchChanBucketRw(
 				tx, c.IdentityPub, &c.FundingOutpoint,
 				c.ChainHash,
@@ -1481,12 +1499,14 @@ func TestBalanceAtHeight(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			cdb, cleanUp, err := MakeTestDB()
+			fullDB, cleanUp, err := MakeTestDB()
 			if err != nil {
 				t.Fatalf("unable to make test database: %v",
 					err)
 			}
 			defer cleanUp()
+
+			cdb := fullDB.ChannelStateDB()
 
 			// Create options to set the heights and balances of
 			// our local and remote commitments.

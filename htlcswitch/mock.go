@@ -169,8 +169,9 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 	}
 
 	cfg := Config{
-		DB:             db,
-		SwitchPackager: channeldb.NewSwitchPackager(),
+		DB:                   db,
+		FetchAllOpenChannels: db.ChannelStateDB().FetchAllOpenChannels,
+		SwitchPackager:       channeldb.NewSwitchPackager(),
 		FwdingLog: &mockForwardingLog{
 			events: make(map[time.Time]channeldb.ForwardingEvent),
 		},

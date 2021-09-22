@@ -58,7 +58,7 @@ func copyChannelState(state *channeldb.OpenChannel) (
 	*channeldb.OpenChannel, func(), error) {
 
 	// Make a copy of the DB.
-	dbFile := filepath.Join(state.Db.Path(), "channel.db")
+	dbFile := filepath.Join(state.Db.GetParentDB().Path(), "channel.db")
 	tempDbPath, err := ioutil.TempDir("", "past-state")
 	if err != nil {
 		return nil, nil, err
@@ -81,7 +81,7 @@ func copyChannelState(state *channeldb.OpenChannel) (
 		return nil, nil, err
 	}
 
-	chans, err := newDb.FetchAllChannels()
+	chans, err := newDb.ChannelStateDB().FetchAllChannels()
 	if err != nil {
 		cleanup()
 		return nil, nil, err

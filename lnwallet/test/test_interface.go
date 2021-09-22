@@ -327,13 +327,13 @@ func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
 	signer input.Signer, bio lnwallet.BlockChainIO) (*lnwallet.LightningWallet, error) {
 
 	dbDir := filepath.Join(tempTestDir, "cdb")
-	cdb, err := channeldb.Open(dbDir)
+	fullDB, err := channeldb.Open(dbDir)
 	if err != nil {
 		return nil, err
 	}
 
 	cfg := lnwallet.Config{
-		Database:         cdb,
+		Database:         fullDB.ChannelStateDB(),
 		Notifier:         notifier,
 		SecretKeyRing:    keyRing,
 		WalletController: wc,
@@ -2944,11 +2944,11 @@ func clearWalletStates(a, b *lnwallet.LightningWallet) error {
 	a.ResetReservations()
 	b.ResetReservations()
 
-	if err := a.Cfg.Database.Wipe(); err != nil {
+	if err := a.Cfg.Database.GetParentDB().Wipe(); err != nil {
 		return err
 	}
 
-	return b.Cfg.Database.Wipe()
+	return b.Cfg.Database.GetParentDB().Wipe()
 }
 
 func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {

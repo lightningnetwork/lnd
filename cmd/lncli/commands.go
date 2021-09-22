@@ -2822,3 +2822,74 @@ func restoreChanBackup(ctx *cli.Context) error {
 
 	return nil
 }
+
+var deletePaymentsCommand = cli.Command{
+	Name:     "delpayments",
+	Category: "payments",
+	Usage:    "Delete all payments, only failed payments, or only the HTLCs associated with faild payments",
+	Description: ` 
+    Delete payments on disk to free up disk space. Failed payments include the
+    1.3KB onion route associated with each payment route so over time they can
+    take up space. Repeated payment attempt result in
+    failed payments that are never automatically deleted. 
+
+    This command allows you to either delete all payments, only failed
+    payments, or only the HTLCs associated with failed payments.
+    `,
+	ArgsUsage: "[--all | --failed | --filed_htlc]",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "all",
+			Usage: "delete ALL payments, which includes successful and failed ones",
+		},
+		cli.BoolFlag{
+			Name:  "failed",
+			Usage: "only delete FAILED payments",
+		},
+		cli.BoolFlag{
+			Name:  "failed_htlc",
+			Usage: "only delete the HTLC data associated with failed payments",
+		},
+	},
+	Action: deletePayments,
+}
+
+func deletePayments(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	// Show command help if no arguments provided
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "delpayments")
+		return nil
+	}
+
+	req := &lnrpc.DeleteAllPaymentsRequest{}
+	var delType string
+	switch {
+	case ctx.Bool("all"):
+		delType = "all payments"
+		break
+
+	case ctx.Bool("failed"):
+		delType = "failed payments"
+		req.FailedPaymentsOnly = true
+
+	case ctx.Bool("failed_htlc"):
+		delType = "failed HTLCs"
+		req.FailedHtlcsOnly = true
+
+	default:
+		return fmt.Errorf("must specify one of the selector flags")
+	}
+
+	fmt.Printf("Deleting %v...\n", delType)
+	_, err := client.DeleteAllPayments(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%v successfully deleted!\n", delType)
+	return nil
+}

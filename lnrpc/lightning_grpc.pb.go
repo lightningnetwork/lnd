@@ -252,7 +252,7 @@ type LightningClient interface {
 	//DeletePayment deletes an outgoing payment from DB. Note that it will not
 	//attempt to delete an In-Flight payment, since that would be unsafe.
 	DeletePayment(ctx context.Context, in *DeletePaymentRequest, opts ...grpc.CallOption) (*DeletePaymentResponse, error)
-	//
+	// lncli: `delpayments`
 	//DeleteAllPayments deletes all outgoing payments from DB. Note that it will
 	//not attempt to delete In-Flight payments, since that would be unsafe.
 	DeleteAllPayments(ctx context.Context, in *DeleteAllPaymentsRequest, opts ...grpc.CallOption) (*DeleteAllPaymentsResponse, error)
@@ -1492,7 +1492,7 @@ type LightningServer interface {
 	//DeletePayment deletes an outgoing payment from DB. Note that it will not
 	//attempt to delete an In-Flight payment, since that would be unsafe.
 	DeletePayment(context.Context, *DeletePaymentRequest) (*DeletePaymentResponse, error)
-	//
+	// lncli: `delpayments`
 	//DeleteAllPayments deletes all outgoing payments from DB. Note that it will
 	//not attempt to delete In-Flight payments, since that would be unsafe.
 	DeleteAllPayments(context.Context, *DeleteAllPaymentsRequest) (*DeleteAllPaymentsResponse, error)

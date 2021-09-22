@@ -1859,7 +1859,7 @@
         ]
       },
       "delete": {
-        "summary": "DeleteAllPayments deletes all outgoing payments from DB. Note that it will\nnot attempt to delete In-Flight payments, since that would be unsafe.",
+        "summary": "lncli: `delpayments`\nDeleteAllPayments deletes all outgoing payments from DB. Note that it will\nnot attempt to delete In-Flight payments, since that would be unsafe.",
         "operationId": "Lightning_DeleteAllPayments",
         "responses": {
           "200": {

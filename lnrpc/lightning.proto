@@ -345,7 +345,7 @@ service Lightning {
     */
     rpc DeletePayment (DeletePaymentRequest) returns (DeletePaymentResponse);
 
-    /*
+    /* lncli: `delpayments`
     DeleteAllPayments deletes all outgoing payments from DB. Note that it will
     not attempt to delete In-Flight payments, since that would be unsafe.
     */

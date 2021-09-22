@@ -382,6 +382,9 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 	defer r.Unlock()
 
 	r.partialState.NumConfsRequired = numConfs
+	if numConfs == 0 {
+		r.partialState.ChanType |= channeldb.ZeroConfBit
+	}
 }
 
 // CommitConstraints takes the constraints that the remote party specifies for

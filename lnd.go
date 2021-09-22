@@ -170,6 +170,10 @@ type ListenerWithSignal struct {
 
 	// Ready will be closed by the server listening on Listener.
 	Ready chan struct{}
+
+	// MacChan is an optional way to pass the admin macaroon to the program
+	// that started lnd.
+	MacChan chan []byte
 }
 
 // ListenerCfg is a wrapper around custom listeners that can be passed to lnd
@@ -186,6 +190,10 @@ type ListenerCfg struct {
 	// ExternalRestRegistrar is optional and specifies the registration
 	// callback to register external REST subservers.
 	ExternalRestRegistrar RestRegistrar
+
+	// BufListener is an optional field for passing in a grpc bufconn to
+	// listen for RPC requests on and make calls in-memory.
+	BufListener *ListenerWithSignal
 }
 
 var errStreamIsolationWithProxySkip = errors.New(
@@ -344,6 +352,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 					Ready:    make(chan struct{}),
 				})
 		}
+	}
+
+	if lisCfg.BufListener != nil {
+		grpcListeners = append(
+			grpcListeners, lisCfg.BufListener,
+		)
 	}
 
 	// Create a new RPC interceptor that we'll add to the GRPC server. This
@@ -614,6 +628,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 			// The channel is buffered by one element so writing
 			// should not block here.
 			walletInitParams.MacResponseChan <- adminMacBytes
+
+			if lisCfg.BufListener.MacChan != nil {
+				lisCfg.BufListener.MacChan <- adminMacBytes
+			}
 		}
 
 		// If the user requested a stateless initialization, no macaroon

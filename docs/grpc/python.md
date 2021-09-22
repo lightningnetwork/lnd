@@ -60,7 +60,9 @@ lnd ⛰  python -m grpc_tools.protoc --proto_path=googleapis:. --python_out=. --
 ### Imports and Client
 
 Every time you use Python gRPC, you will have to import the generated rpc modules
-and set up a channel and stub to your connect to your `lnd` node:
+and set up a channel and stub to your connect to your `lnd` node.
+
+Note that when an IP address is used to connect to the node (e.g. 192.168.1.21 instead of localhost) you need to add `--tlsextraip=192.168.1.21` to your `lnd` configuration and re-generate the certificate (delete tls.cert and tls.key and restart lnd).
 
 ```python
 import lightning_pb2 as ln

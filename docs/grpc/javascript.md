@@ -22,7 +22,9 @@ sources](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/lightning.pro
 ### Imports and Client
 
 Every time you work with Javascript gRPC, you will have to import `@grpc/grpc-js`, load
-`lightning.proto`, and create a connection to your client like so:
+`lightning.proto`, and create a connection to your client like so.
+
+Note that when an IP address is used to connect to the node (e.g. 192.168.1.21 instead of localhost) you need to add `--tlsextraip=192.168.1.21` to your `lnd` configuration and re-generate the certificate (delete tls.cert and tls.key and restart lnd).
 
 ```js
 const grpc = require('@grpc/grpc-js');

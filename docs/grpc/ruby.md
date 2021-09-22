@@ -52,6 +52,8 @@ We assume that `lnd` runs on the default `localhost:10009`.
 
 We further assume you run `lnd` with `--no-macaroons`.
 
+Note that when an IP address is used to connect to the node (e.g. 192.168.1.21 instead of localhost) you need to add `--tlsextraip=192.168.1.21` to your `lnd` configuration and re-generate the certificate (delete tls.cert and tls.key and restart lnd).
+
 ```ruby
 #!/usr/bin/env ruby
 

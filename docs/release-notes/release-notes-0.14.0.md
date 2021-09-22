@@ -276,6 +276,8 @@ you.
 
 * [Order of the start/stop on subsystems are changed to promote better safety](https://github.com/lightningnetwork/lnd/pull/1783).
 
+* [Respect minimum relay fee during commitment fee updates](https://github.com/lightningnetwork/lnd/pull/5483).
+
 ## Database
 
 * [Ensure single writer for legacy
@@ -369,6 +371,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * Alyssa Hertig
 * Andras Banki-Horvath
 * de6df1re
+* Elle Mouton
 * ErikEk
 * Eugene Siegel
 * Harsha Goli

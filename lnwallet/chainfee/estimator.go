@@ -125,11 +125,11 @@ type BtcdEstimator struct {
 	// produce fee estimates.
 	fallbackFeePerKW SatPerKWeight
 
-	// minFeePerKW is the minimum fee, in sat/kw, that we should enforce.
-	// This will be used as the default fee rate for a transaction when the
-	// estimated fee rate is too low to allow the transaction to propagate
-	// through the network.
-	minFeePerKW SatPerKWeight
+	// minFeeManager is used to query the current minimum fee, in sat/kw,
+	// that we should enforce. This will be used to determine fee rate for
+	// a transaction when the estimated fee rate is too low to allow the
+	// transaction to propagate through the network.
+	minFeeManager *minFeeManager
 
 	btcdConn *rpcclient.Client
 }
@@ -164,34 +164,36 @@ func (b *BtcdEstimator) Start() error {
 		return err
 	}
 
-	// Once the connection to the backend node has been established, we'll
-	// query it for its minimum relay fee.
-	info, err := b.btcdConn.GetInfo()
+	// Once the connection to the backend node has been established, we
+	// can initialise the minimum relay fee manager which queries the
+	// chain backend for the minimum relay fee on construction.
+	minRelayFeeManager, err := newMinFeeManager(
+		defaultUpdateInterval, b.fetchMinRelayFee,
+	)
 	if err != nil {
 		return err
+	}
+	b.minFeeManager = minRelayFeeManager
+
+	return nil
+}
+
+// fetchMinRelayFee fetches and returns the minimum relay fee in sat/kb from
+// the btcd backend.
+func (b *BtcdEstimator) fetchMinRelayFee() (SatPerKWeight, error) {
+	info, err := b.btcdConn.GetInfo()
+	if err != nil {
+		return 0, err
 	}
 
 	relayFee, err := btcutil.NewAmount(info.RelayFee)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	// The fee rate is expressed in sat/kb, so we'll manually convert it to
 	// our desired sat/kw rate.
-	minRelayFeePerKw := SatPerKVByte(relayFee).FeePerKWeight()
-
-	// By default, we'll use the backend node's minimum relay fee as the
-	// minimum fee rate we'll propose for transacations. However, if this
-	// happens to be lower than our fee floor, we'll enforce that instead.
-	b.minFeePerKW = minRelayFeePerKw
-	if b.minFeePerKW < FeePerKwFloor {
-		b.minFeePerKW = FeePerKwFloor
-	}
-
-	log.Debugf("Using minimum fee rate of %v sat/kw",
-		int64(b.minFeePerKW))
-
-	return nil
+	return SatPerKVByte(relayFee).FeePerKWeight(), nil
 }
 
 // Stop stops any spawned goroutines and cleans up the resources used
@@ -230,7 +232,7 @@ func (b *BtcdEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, error
 //
 // NOTE: This method is part of the Estimator interface.
 func (b *BtcdEstimator) RelayFeePerKW() SatPerKWeight {
-	return b.minFeePerKW
+	return b.minFeeManager.fetchMinFee()
 }
 
 // fetchEstimate returns a fee estimate for a transaction to be confirmed in
@@ -254,11 +256,11 @@ func (b *BtcdEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, error) 
 	satPerKw := SatPerKVByte(satPerKB).FeePerKWeight()
 
 	// Finally, we'll enforce our fee floor.
-	if satPerKw < b.minFeePerKW {
+	if satPerKw < b.minFeeManager.fetchMinFee() {
 		log.Debugf("Estimated fee rate of %v sat/kw is too low, "+
 			"using fee floor of %v sat/kw instead", satPerKw,
-			b.minFeePerKW)
-		satPerKw = b.minFeePerKW
+			b.minFeeManager)
+		satPerKw = b.minFeeManager.fetchMinFee()
 	}
 
 	log.Debugf("Returning %v sat/kw for conf target of %v",
@@ -280,11 +282,11 @@ type BitcoindEstimator struct {
 	// produce fee estimates.
 	fallbackFeePerKW SatPerKWeight
 
-	// minFeePerKW is the minimum fee, in sat/kw, that we should enforce.
-	// This will be used as the default fee rate for a transaction when the
-	// estimated fee rate is too low to allow the transaction to propagate
-	// through the network.
-	minFeePerKW SatPerKWeight
+	// minFeeManager is used to keep track of the minimum fee, in sat/kw,
+	// that we should enforce. This will be used as the default fee rate
+	// for a transaction when the estimated fee rate is too low to allow
+	// the transaction to propagate through the network.
+	minFeeManager *minFeeManager
 
 	// feeMode is the estimate_mode to use when calling "estimatesmartfee".
 	// It can be either "ECONOMICAL" or "CONSERVATIVE", and it's default
@@ -324,43 +326,47 @@ func NewBitcoindEstimator(rpcConfig rpcclient.ConnConfig, feeMode string,
 // NOTE: This method is part of the Estimator interface.
 func (b *BitcoindEstimator) Start() error {
 	// Once the connection to the backend node has been established, we'll
-	// query it for its minimum relay fee. Since the `getinfo` RPC has been
-	// deprecated for `bitcoind`, we'll need to send a `getnetworkinfo`
-	// command as a raw request.
-	resp, err := b.bitcoindConn.RawRequest("getnetworkinfo", nil)
+	// initialise the minimum relay fee manager which will query
+	// the backend node for its minimum mempool fee.
+	relayFeeManager, err := newMinFeeManager(
+		defaultUpdateInterval,
+		b.fetchMinMempoolFee,
+	)
 	if err != nil {
 		return err
 	}
+	b.minFeeManager = relayFeeManager
 
-	// Parse the response to retrieve the relay fee in sat/KB.
+	return nil
+}
+
+// fetchMinMempoolFee is used to fetch the minimum fee that the backend node
+// requires for a tx to enter its mempool. The returned fee will be the
+// maximum of the minimum relay fee and the minimum mempool fee.
+func (b *BitcoindEstimator) fetchMinMempoolFee() (SatPerKWeight, error) {
+	resp, err := b.bitcoindConn.RawRequest("getmempoolinfo", nil)
+	if err != nil {
+		return 0, err
+	}
+
+	// Parse the response to retrieve the min mempool fee in sat/KB.
+	// mempoolminfee is the maximum of minrelaytxfee and
+	// minimum mempool fee
 	info := struct {
-		RelayFee float64 `json:"relayfee"`
+		MempoolMinFee float64 `json:"mempoolminfee"`
 	}{}
 	if err := json.Unmarshal(resp, &info); err != nil {
-		return err
+		return 0, err
 	}
 
-	relayFee, err := btcutil.NewAmount(info.RelayFee)
+	minMempoolFee, err := btcutil.NewAmount(info.MempoolMinFee)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	// The fee rate is expressed in sat/kb, so we'll manually convert it to
 	// our desired sat/kw rate.
-	minRelayFeePerKw := SatPerKVByte(relayFee).FeePerKWeight()
-
-	// By default, we'll use the backend node's minimum relay fee as the
-	// minimum fee rate we'll propose for transacations. However, if this
-	// happens to be lower than our fee floor, we'll enforce that instead.
-	b.minFeePerKW = minRelayFeePerKw
-	if b.minFeePerKW < FeePerKwFloor {
-		b.minFeePerKW = FeePerKwFloor
-	}
-
-	log.Debugf("Using minimum fee rate of %v sat/kw",
-		int64(b.minFeePerKW))
-
-	return nil
+	return SatPerKVByte(minMempoolFee).FeePerKWeight(), nil
 }
 
 // Stop stops any spawned goroutines and cleans up the resources used
@@ -406,7 +412,7 @@ func (b *BitcoindEstimator) EstimateFeePerKW(
 //
 // NOTE: This method is part of the Estimator interface.
 func (b *BitcoindEstimator) RelayFeePerKW() SatPerKWeight {
-	return b.minFeePerKW
+	return b.minFeeManager.fetchMinFee()
 }
 
 // fetchEstimate returns a fee estimate for a transaction to be confirmed in
@@ -453,12 +459,13 @@ func (b *BitcoindEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, err
 	satPerKw := SatPerKVByte(satPerKB).FeePerKWeight()
 
 	// Finally, we'll enforce our fee floor.
-	if satPerKw < b.minFeePerKW {
+	minRelayFee := b.minFeeManager.fetchMinFee()
+	if satPerKw < minRelayFee {
 		log.Debugf("Estimated fee rate of %v sat/kw is too low, "+
 			"using fee floor of %v sat/kw instead", satPerKw,
-			b.minFeePerKW)
+			minRelayFee)
 
-		satPerKw = b.minFeePerKW
+		satPerKw = minRelayFee
 	}
 
 	log.Debugf("Returning %v sat/kw for conf target of %v",

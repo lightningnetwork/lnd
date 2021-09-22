@@ -1009,7 +1009,14 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 		return nil, err
 	}
 
-	_, err = r.server.cc.Wallet.CheckReservedValueTx(authoredTx.Tx)
+	// Check the authored transaction and use the explicitly set change index
+	// to make sure that the wallet reserved balance is not invalidated.
+	_, err = r.server.cc.Wallet.CheckReservedValueTx(
+		lnwallet.CheckReservedValueTxReq{
+			Tx:          authoredTx.Tx,
+			ChangeIndex: &authoredTx.ChangeIndex,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1243,7 +1250,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		err = wallet.WithCoinSelectLock(func() error {
 			var err error
 			reservedVal, err = wallet.CheckReservedValueTx(
-				sweepTxPkg.SweepTx,
+				lnwallet.CheckReservedValueTxReq{
+					Tx: sweepTxPkg.SweepTx,
+				},
 			)
 			return err
 		})
@@ -1293,7 +1302,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			// Sanity check the new tx by re-doing the check.
 			err = wallet.WithCoinSelectLock(func() error {
 				_, err := wallet.CheckReservedValueTx(
-					sweepTxPkg.SweepTx,
+					lnwallet.CheckReservedValueTxReq{
+						Tx: sweepTxPkg.SweepTx,
+					},
 				)
 				return err
 			})

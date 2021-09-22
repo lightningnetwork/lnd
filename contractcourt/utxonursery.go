@@ -1,4 +1,4 @@
-package lnd
+package contractcourt
 
 import (
 	"bytes"
@@ -198,13 +198,13 @@ type NurseryConfig struct {
 
 	// Store provides access to and modification of the persistent state
 	// maintained about the utxo nursery's incubating outputs.
-	Store NurseryStore
+	Store NurseryStorer
 
 	// Sweep sweeps an input back to the wallet.
 	SweepInput func(input.Input, sweep.Params) (chan sweep.Result, error)
 }
 
-// utxoNursery is a system dedicated to incubating time-locked outputs created
+// UtxoNursery is a system dedicated to incubating time-locked outputs created
 // by the broadcast of a commitment transaction either by us, or the remote
 // peer. The nursery accepts outputs and "incubates" them until they've reached
 // maturity, then sweep the outputs into the source wallet. An output is
@@ -212,7 +212,7 @@ type NurseryConfig struct {
 // passed. As outputs reach their maturity age, they're swept in batches into
 // the source wallet, returning the outputs so they can be used within future
 // channels, or regular Bitcoin transactions.
-type utxoNursery struct {
+type UtxoNursery struct {
 	started uint32 // To be used atomically.
 	stopped uint32 // To be used atomically.
 
@@ -225,23 +225,23 @@ type utxoNursery struct {
 	wg   sync.WaitGroup
 }
 
-// newUtxoNursery creates a new instance of the utxoNursery from a
+// NewUtxoNursery creates a new instance of the UtxoNursery from a
 // ChainNotifier and LightningWallet instance.
-func newUtxoNursery(cfg *NurseryConfig) *utxoNursery {
-	return &utxoNursery{
+func NewUtxoNursery(cfg *NurseryConfig) *UtxoNursery {
+	return &UtxoNursery{
 		cfg:  cfg,
 		quit: make(chan struct{}),
 	}
 }
 
-// Start launches all goroutines the utxoNursery needs to properly carry out
+// Start launches all goroutines the UtxoNursery needs to properly carry out
 // its duties.
-func (u *utxoNursery) Start() error {
+func (u *UtxoNursery) Start() error {
 	if !atomic.CompareAndSwapUint32(&u.started, 0, 1) {
 		return nil
 	}
 
-	utxnLog.Tracef("Starting UTXO nursery")
+	log.Tracef("Starting UTXO nursery")
 
 	// Retrieve the currently best known block. This is needed to have the
 	// state machine catch up with the blocks we missed when we were down.
@@ -311,13 +311,13 @@ func (u *utxoNursery) Start() error {
 }
 
 // Stop gracefully shuts down any lingering goroutines launched during normal
-// operation of the utxoNursery.
-func (u *utxoNursery) Stop() error {
+// operation of the UtxoNursery.
+func (u *UtxoNursery) Stop() error {
 	if !atomic.CompareAndSwapUint32(&u.stopped, 0, 1) {
 		return nil
 	}
 
-	utxnLog.Infof("UTXO nursery shutting down")
+	log.Infof("UTXO nursery shutting down")
 
 	close(u.quit)
 	u.wg.Wait()
@@ -325,11 +325,11 @@ func (u *utxoNursery) Stop() error {
 	return nil
 }
 
-// IncubateOutputs sends a request to the utxoNursery to incubate a set of
+// IncubateOutputs sends a request to the UtxoNursery to incubate a set of
 // outputs from an existing commitment transaction. Outputs need to incubate if
 // they're CLTV absolute time locked, or if they're CSV relative time locked.
 // Once all outputs reach maturity, they'll be swept back into the wallet.
-func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
+func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	outgoingHtlcs []lnwallet.OutgoingHtlcResolution,
 	incomingHtlcs []lnwallet.IncomingHtlcResolution,
 	broadcastHeight uint32) error {
@@ -412,7 +412,7 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	//  * need ability to cancel in the case that we learn of pre-image or
 	//    remote party pulls
 
-	utxnLog.Infof("Incubating Channel(%s) num-htlcs=%d",
+	log.Infof("Incubating Channel(%s) num-htlcs=%d",
 		chanPoint, numHtlcs)
 
 	u.mu.Lock()
@@ -420,7 +420,7 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 
 	// 2. Persist the outputs we intended to sweep in the nursery store
 	if err := u.cfg.Store.Incubate(kidOutputs, babyOutputs); err != nil {
-		utxnLog.Errorf("unable to begin incubation of Channel(%s): %v",
+		log.Errorf("unable to begin incubation of Channel(%s): %v",
 			chanPoint, err)
 		return err
 	}
@@ -468,16 +468,16 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 // outpoint. A nursery report details the maturity/sweeping progress for a
 // contract that was previously force closed. If a report entry for the target
 // chanPoint is unable to be constructed, then an error will be returned.
-func (u *utxoNursery) NurseryReport(
-	chanPoint *wire.OutPoint) (*contractMaturityReport, error) {
+func (u *UtxoNursery) NurseryReport(
+	chanPoint *wire.OutPoint) (*ContractMaturityReport, error) {
 
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	utxnLog.Debugf("NurseryReport: building nursery report for channel %v",
+	log.Debugf("NurseryReport: building nursery report for channel %v",
 		chanPoint)
 
-	var report *contractMaturityReport
+	var report *ContractMaturityReport
 
 	if err := u.cfg.Store.ForChanOutputs(chanPoint, func(k, v []byte) error {
 		switch {
@@ -577,7 +577,7 @@ func (u *utxoNursery) NurseryReport(
 
 		return nil
 	}, func() {
-		report = &contractMaturityReport{}
+		report = &ContractMaturityReport{}
 	}); err != nil {
 		return nil, err
 	}
@@ -587,7 +587,7 @@ func (u *utxoNursery) NurseryReport(
 
 // reloadPreschool re-initializes the chain notifier with all of the outputs
 // that had been saved to the "preschool" database bucket prior to shutdown.
-func (u *utxoNursery) reloadPreschool() error {
+func (u *UtxoNursery) reloadPreschool() error {
 	psclOutputs, err := u.cfg.Store.FetchPreschools()
 	if err != nil {
 		return err
@@ -606,7 +606,7 @@ func (u *utxoNursery) reloadPreschool() error {
 			// This should never happen since the close summary
 			// should only be removed after the channel has been
 			// swept completely.
-			utxnLog.Warnf("Close summary not found for "+
+			log.Warnf("Close summary not found for "+
 				"chan_point=%v, can't determine height hint"+
 				"to sweep commit txn", chanPoint)
 			continue
@@ -634,7 +634,7 @@ func (u *utxoNursery) reloadPreschool() error {
 // This allows the nursery to reinitialize all state to continue sweeping
 // outputs, even in the event that we missed blocks while offline. reloadClasses
 // is called during the startup of the UTXO Nursery.
-func (u *utxoNursery) reloadClasses(bestHeight uint32) error {
+func (u *UtxoNursery) reloadClasses(bestHeight uint32) error {
 	// Loading all active heights up to and including the current block.
 	activeHeights, err := u.cfg.Store.HeightsBelowOrEqual(
 		uint32(bestHeight))
@@ -647,23 +647,23 @@ func (u *utxoNursery) reloadClasses(bestHeight uint32) error {
 		return nil
 	}
 
-	utxnLog.Infof("(Re)-sweeping %d heights below height=%d",
+	log.Infof("(Re)-sweeping %d heights below height=%d",
 		len(activeHeights), bestHeight)
 
 	// Attempt to re-register notifications for any outputs still at these
 	// heights.
 	for _, classHeight := range activeHeights {
-		utxnLog.Debugf("Attempting to sweep outputs at height=%v",
+		log.Debugf("Attempting to sweep outputs at height=%v",
 			classHeight)
 
 		if err = u.graduateClass(classHeight); err != nil {
-			utxnLog.Errorf("Failed to sweep outputs at "+
+			log.Errorf("Failed to sweep outputs at "+
 				"height=%v: %v", classHeight, err)
 			return err
 		}
 	}
 
-	utxnLog.Infof("UTXO Nursery is now fully synced")
+	log.Infof("UTXO Nursery is now fully synced")
 
 	return nil
 }
@@ -674,7 +674,7 @@ func (u *utxoNursery) reloadClasses(bestHeight uint32) error {
 // confirmation of these spends will either 1) move a crib output into the
 // kindergarten bucket or 2) move a kindergarten output into the graduated
 // bucket.
-func (u *utxoNursery) incubator(newBlockChan *chainntnfs.BlockEpochEvent) {
+func (u *UtxoNursery) incubator(newBlockChan *chainntnfs.BlockEpochEvent) {
 	defer u.wg.Done()
 	defer newBlockChan.Cancel()
 
@@ -706,7 +706,7 @@ func (u *utxoNursery) incubator(newBlockChan *chainntnfs.BlockEpochEvent) {
 			atomic.StoreUint32(&u.bestHeight, height)
 
 			if err := u.graduateClass(height); err != nil {
-				utxnLog.Errorf("error while graduating "+
+				log.Errorf("error while graduating "+
 					"class at height=%d: %v", height, err)
 
 				// TODO(conner): signal fatal error to daemon
@@ -722,7 +722,7 @@ func (u *utxoNursery) incubator(newBlockChan *chainntnfs.BlockEpochEvent) {
 // CLTV delay expires at the nursery's current height. This method is called
 // each time a new block arrives, or during startup to catch up on heights we
 // may have missed while the nursery was offline.
-func (u *utxoNursery) graduateClass(classHeight uint32) error {
+func (u *UtxoNursery) graduateClass(classHeight uint32) error {
 	// Record this height as the nursery's current best height.
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -735,7 +735,7 @@ func (u *utxoNursery) graduateClass(classHeight uint32) error {
 		return err
 	}
 
-	utxnLog.Infof("Attempting to graduate height=%v: num_kids=%v, "+
+	log.Infof("Attempting to graduate height=%v: num_kids=%v, "+
 		"num_babies=%v", classHeight, len(kgtnOutputs), len(cribOutputs))
 
 	// Offer the outputs to the sweeper and set up notifications that will
@@ -743,7 +743,7 @@ func (u *utxoNursery) graduateClass(classHeight uint32) error {
 	// outputs.
 	if len(kgtnOutputs) > 0 {
 		if err := u.sweepMatureOutputs(classHeight, kgtnOutputs); err != nil {
-			utxnLog.Errorf("Failed to sweep %d kindergarten "+
+			log.Errorf("Failed to sweep %d kindergarten "+
 				"outputs at height=%d: %v",
 				len(kgtnOutputs), classHeight, err)
 			return err
@@ -755,7 +755,7 @@ func (u *utxoNursery) graduateClass(classHeight uint32) error {
 	for i := range cribOutputs {
 		err := u.sweepCribOutput(classHeight, &cribOutputs[i])
 		if err != nil {
-			utxnLog.Errorf("Failed to sweep first-stage HTLC "+
+			log.Errorf("Failed to sweep first-stage HTLC "+
 				"(CLTV-delayed) output %v",
 				cribOutputs[i].OutPoint())
 			return err
@@ -769,10 +769,10 @@ func (u *utxoNursery) graduateClass(classHeight uint32) error {
 // control of funds from a prior channel commitment transaction to the user's
 // wallet. The outputs swept were previously time locked (either absolute or
 // relative), but are not mature enough to sweep into the wallet.
-func (u *utxoNursery) sweepMatureOutputs(classHeight uint32,
+func (u *UtxoNursery) sweepMatureOutputs(classHeight uint32,
 	kgtnOutputs []kidOutput) error {
 
-	utxnLog.Infof("Sweeping %v CSV-delayed outputs with sweep tx for "+
+	log.Infof("Sweeping %v CSV-delayed outputs with sweep tx for "+
 		"height %v", len(kgtnOutputs), classHeight)
 
 	feePref := sweep.FeePreference{ConfTarget: kgtnOutputConfTarget}
@@ -799,7 +799,7 @@ func (u *utxoNursery) sweepMatureOutputs(classHeight uint32,
 // received, the nursery will mark those outputs as fully graduated, and proceed
 // to mark any mature channels as fully closed in channeldb.
 // NOTE(conner): this method MUST be called as a go routine.
-func (u *utxoNursery) waitForSweepConf(classHeight uint32,
+func (u *UtxoNursery) waitForSweepConf(classHeight uint32,
 	output *kidOutput, resultChan chan sweep.Result) {
 
 	defer u.wg.Done()
@@ -807,7 +807,7 @@ func (u *utxoNursery) waitForSweepConf(classHeight uint32,
 	select {
 	case result, ok := <-resultChan:
 		if !ok {
-			utxnLog.Errorf("Notification chan closed, can't" +
+			log.Errorf("Notification chan closed, can't" +
 				" advance graduating output")
 			return
 		}
@@ -815,13 +815,13 @@ func (u *utxoNursery) waitForSweepConf(classHeight uint32,
 		// In case of a remote spend, still graduate the output. There
 		// is no way to sweep it anymore.
 		if result.Err == sweep.ErrRemoteSpend {
-			utxnLog.Infof("Output %v was spend by remote party",
+			log.Infof("Output %v was spend by remote party",
 				output.OutPoint())
 			break
 		}
 
 		if result.Err != nil {
-			utxnLog.Errorf("Failed to sweep %v at "+
+			log.Errorf("Failed to sweep %v at "+
 				"height=%d", output.OutPoint(),
 				classHeight)
 			return
@@ -838,19 +838,19 @@ func (u *utxoNursery) waitForSweepConf(classHeight uint32,
 
 	// Mark the confirmed kindergarten output as graduated.
 	if err := u.cfg.Store.GraduateKinder(classHeight, output); err != nil {
-		utxnLog.Errorf("Unable to graduate kindergarten output %v: %v",
+		log.Errorf("Unable to graduate kindergarten output %v: %v",
 			output.OutPoint(), err)
 		return
 	}
 
-	utxnLog.Infof("Graduated kindergarten output from height=%d",
+	log.Infof("Graduated kindergarten output from height=%d",
 		classHeight)
 
 	// Attempt to close the channel, only doing so if all of the channel's
 	// outputs have been graduated.
 	chanPoint := output.OriginChanPoint()
 	if err := u.closeAndRemoveIfMature(chanPoint); err != nil {
-		utxnLog.Errorf("Failed to close and remove channel %v",
+		log.Errorf("Failed to close and remove channel %v",
 			*chanPoint)
 		return
 	}
@@ -859,8 +859,8 @@ func (u *utxoNursery) waitForSweepConf(classHeight uint32,
 // sweepCribOutput broadcasts the crib output's htlc timeout txn, and sets up a
 // notification that will advance it to the kindergarten bucket upon
 // confirmation.
-func (u *utxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) error {
-	utxnLog.Infof("Publishing CLTV-delayed HTLC output using timeout tx "+
+func (u *UtxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) error {
+	log.Infof("Publishing CLTV-delayed HTLC output using timeout tx "+
 		"(txid=%v): %v", baby.timeoutTx.TxHash(),
 		newLogClosure(func() string {
 			return spew.Sdump(baby.timeoutTx)
@@ -872,7 +872,7 @@ func (u *utxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 	label := labels.MakeLabel(labels.LabelTypeSweepTransaction, nil)
 	err := u.cfg.PublishTransaction(baby.timeoutTx, label)
 	if err != nil && err != lnwallet.ErrDoubleSpend {
-		utxnLog.Errorf("Unable to broadcast baby tx: "+
+		log.Errorf("Unable to broadcast baby tx: "+
 			"%v, %v", err, spew.Sdump(baby.timeoutTx))
 		return err
 	}
@@ -884,7 +884,7 @@ func (u *utxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 // notification for an htlc timeout transaction. If successful, a goroutine
 // will be spawned that will transition the provided baby output into the
 // kindergarten state within the nursery store.
-func (u *utxoNursery) registerTimeoutConf(baby *babyOutput, heightHint uint32) error {
+func (u *UtxoNursery) registerTimeoutConf(baby *babyOutput, heightHint uint32) error {
 
 	birthTxID := baby.timeoutTx.TxHash()
 
@@ -897,7 +897,7 @@ func (u *utxoNursery) registerTimeoutConf(baby *babyOutput, heightHint uint32) e
 		return err
 	}
 
-	utxnLog.Infof("Htlc output %v registered for promotion "+
+	log.Infof("Htlc output %v registered for promotion "+
 		"notification.", baby.OutPoint())
 
 	u.wg.Add(1)
@@ -909,7 +909,7 @@ func (u *utxoNursery) registerTimeoutConf(baby *babyOutput, heightHint uint32) e
 // waitForTimeoutConf watches for the confirmation of an htlc timeout
 // transaction, and attempts to move the htlc output from the crib bucket to the
 // kindergarten bucket upon success.
-func (u *utxoNursery) waitForTimeoutConf(baby *babyOutput,
+func (u *UtxoNursery) waitForTimeoutConf(baby *babyOutput,
 	confChan *chainntnfs.ConfirmationEvent) {
 
 	defer u.wg.Done()
@@ -917,7 +917,7 @@ func (u *utxoNursery) waitForTimeoutConf(baby *babyOutput,
 	select {
 	case txConfirmation, ok := <-confChan.Confirmed:
 		if !ok {
-			utxnLog.Debugf("Notification chan "+
+			log.Debugf("Notification chan "+
 				"closed, can't advance baby output %v",
 				baby.OutPoint())
 			return
@@ -936,12 +936,12 @@ func (u *utxoNursery) waitForTimeoutConf(baby *babyOutput,
 
 	err := u.cfg.Store.CribToKinder(baby)
 	if err != nil {
-		utxnLog.Errorf("Unable to move htlc output from "+
+		log.Errorf("Unable to move htlc output from "+
 			"crib to kindergarten bucket: %v", err)
 		return
 	}
 
-	utxnLog.Infof("Htlc output %v promoted to "+
+	log.Infof("Htlc output %v promoted to "+
 		"kindergarten", baby.OutPoint())
 }
 
@@ -950,7 +950,7 @@ func (u *utxoNursery) waitForTimeoutConf(baby *babyOutput,
 // HTLC on our commitment transaction.. If successful, the provided preschool
 // output will be moved persistently into the kindergarten state within the
 // nursery store.
-func (u *utxoNursery) registerPreschoolConf(kid *kidOutput, heightHint uint32) error {
+func (u *UtxoNursery) registerPreschoolConf(kid *kidOutput, heightHint uint32) error {
 	txID := kid.OutPoint().Hash
 
 	// TODO(roasbeef): ensure we don't already have one waiting, need to
@@ -972,7 +972,7 @@ func (u *utxoNursery) registerPreschoolConf(kid *kidOutput, heightHint uint32) e
 		outputType = "Commitment"
 	}
 
-	utxnLog.Infof("%v outpoint %v registered for "+
+	log.Infof("%v outpoint %v registered for "+
 		"confirmation notification.", outputType, kid.OutPoint())
 
 	u.wg.Add(1)
@@ -988,7 +988,7 @@ func (u *utxoNursery) registerPreschoolConf(kid *kidOutput, heightHint uint32) e
 // will delete the output from the "preschool" database bucket and atomically
 // add it to the "kindergarten" database bucket.  This is the second step in
 // the output incubation process.
-func (u *utxoNursery) waitForPreschoolConf(kid *kidOutput,
+func (u *UtxoNursery) waitForPreschoolConf(kid *kidOutput,
 	confChan *chainntnfs.ConfirmationEvent) {
 
 	defer u.wg.Done()
@@ -996,7 +996,7 @@ func (u *utxoNursery) waitForPreschoolConf(kid *kidOutput,
 	select {
 	case txConfirmation, ok := <-confChan.Confirmed:
 		if !ok {
-			utxnLog.Errorf("Notification chan "+
+			log.Errorf("Notification chan "+
 				"closed, can't advance output %v",
 				kid.OutPoint())
 			return
@@ -1023,120 +1023,127 @@ func (u *utxoNursery) waitForPreschoolConf(kid *kidOutput,
 	bestHeight := atomic.LoadUint32(&u.bestHeight)
 	err := u.cfg.Store.PreschoolToKinder(kid, bestHeight)
 	if err != nil {
-		utxnLog.Errorf("Unable to move %v output "+
+		log.Errorf("Unable to move %v output "+
 			"from preschool to kindergarten bucket: %v",
 			outputType, err)
 		return
 	}
 }
 
-// contractMaturityReport is a report that details the maturity progress of a
+// RemoveChannel channel erases all entries from the channel bucket for the
+// provided channel point.
+func (u *UtxoNursery) RemoveChannel(op *wire.OutPoint) error {
+	return u.cfg.Store.RemoveChannel(op)
+}
+
+// ContractMaturityReport is a report that details the maturity progress of a
 // particular force closed contract.
-type contractMaturityReport struct {
+type ContractMaturityReport struct {
 	// limboBalance is the total number of frozen coins within this
 	// contract.
-	limboBalance btcutil.Amount
+	LimboBalance btcutil.Amount
 
 	// recoveredBalance is the total value that has been successfully swept
 	// back to the user's wallet.
-	recoveredBalance btcutil.Amount
+	RecoveredBalance btcutil.Amount
+
 	// htlcs records a maturity report for each htlc output in this channel.
-	htlcs []htlcMaturityReport
+	Htlcs []HtlcMaturityReport
 }
 
-// htlcMaturityReport provides a summary of a single htlc output, and is
-// embedded as party of the overarching contractMaturityReport
-type htlcMaturityReport struct {
-	// outpoint is the final output that will be swept back to the wallet.
-	outpoint wire.OutPoint
+// HtlcMaturityReport provides a summary of a single htlc output, and is
+// embedded as party of the overarching ContractMaturityReport
+type HtlcMaturityReport struct {
+	// Outpoint is the final output that will be swept back to the wallet.
+	Outpoint wire.OutPoint
 
-	// amount is the final value that will be swept in back to the wallet.
-	amount btcutil.Amount
+	// Amount is the final value that will be swept in back to the wallet.
+	Amount btcutil.Amount
 
-	// maturityHeight is the absolute block height that this output will
+	// MaturityHeight is the absolute block height that this output will
 	// mature at.
-	maturityHeight uint32
+	MaturityHeight uint32
 
-	// stage indicates whether the htlc is in the CLTV-timeout stage (1) or
+	// Stage indicates whether the htlc is in the CLTV-timeout stage (1) or
 	// the CSV-delay stage (2). A stage 1 htlc's maturity height will be set
 	// to its expiry height, while a stage 2 htlc's maturity height will be
 	// set to its confirmation height plus the maturity requirement.
-	stage uint32
+	Stage uint32
 }
 
 // AddLimboStage1TimeoutHtlc adds an htlc crib output to the maturity report's
 // htlcs, and contributes its amount to the limbo balance.
-func (c *contractMaturityReport) AddLimboStage1TimeoutHtlc(baby *babyOutput) {
-	c.limboBalance += baby.Amount()
+func (c *ContractMaturityReport) AddLimboStage1TimeoutHtlc(baby *babyOutput) {
+	c.LimboBalance += baby.Amount()
 
 	// TODO(roasbeef): bool to indicate stage 1 vs stage 2?
-	c.htlcs = append(c.htlcs, htlcMaturityReport{
-		outpoint:       *baby.OutPoint(),
-		amount:         baby.Amount(),
-		maturityHeight: baby.expiry,
-		stage:          1,
+	c.Htlcs = append(c.Htlcs, HtlcMaturityReport{
+		Outpoint:       *baby.OutPoint(),
+		Amount:         baby.Amount(),
+		MaturityHeight: baby.expiry,
+		Stage:          1,
 	})
 }
 
 // AddLimboDirectHtlc adds a direct HTLC on the commitment transaction of the
 // remote party to the maturity report. This a CLTV time-locked output that
 // has or hasn't expired yet.
-func (c *contractMaturityReport) AddLimboDirectHtlc(kid *kidOutput) {
-	c.limboBalance += kid.Amount()
+func (c *ContractMaturityReport) AddLimboDirectHtlc(kid *kidOutput) {
+	c.LimboBalance += kid.Amount()
 
-	htlcReport := htlcMaturityReport{
-		outpoint:       *kid.OutPoint(),
-		amount:         kid.Amount(),
-		maturityHeight: kid.absoluteMaturity,
-		stage:          2,
+	htlcReport := HtlcMaturityReport{
+		Outpoint:       *kid.OutPoint(),
+		Amount:         kid.Amount(),
+		MaturityHeight: kid.absoluteMaturity,
+		Stage:          2,
 	}
 
-	c.htlcs = append(c.htlcs, htlcReport)
+	c.Htlcs = append(c.Htlcs, htlcReport)
 }
 
 // AddLimboStage1SuccessHtlcHtlc adds an htlc crib output to the maturity
 // report's set of HTLC's. We'll use this to report any incoming HTLC sweeps
 // where the second level transaction hasn't yet confirmed.
-func (c *contractMaturityReport) AddLimboStage1SuccessHtlc(kid *kidOutput) {
-	c.limboBalance += kid.Amount()
+func (c *ContractMaturityReport) AddLimboStage1SuccessHtlc(kid *kidOutput) {
+	c.LimboBalance += kid.Amount()
 
-	c.htlcs = append(c.htlcs, htlcMaturityReport{
-		outpoint: *kid.OutPoint(),
-		amount:   kid.Amount(),
-		stage:    1,
+	c.Htlcs = append(c.Htlcs, HtlcMaturityReport{
+		Outpoint: *kid.OutPoint(),
+		Amount:   kid.Amount(),
+		Stage:    1,
 	})
 }
 
 // AddLimboStage2Htlc adds an htlc kindergarten output to the maturity report's
 // htlcs, and contributes its amount to the limbo balance.
-func (c *contractMaturityReport) AddLimboStage2Htlc(kid *kidOutput) {
-	c.limboBalance += kid.Amount()
+func (c *ContractMaturityReport) AddLimboStage2Htlc(kid *kidOutput) {
+	c.LimboBalance += kid.Amount()
 
-	htlcReport := htlcMaturityReport{
-		outpoint: *kid.OutPoint(),
-		amount:   kid.Amount(),
-		stage:    2,
+	htlcReport := HtlcMaturityReport{
+		Outpoint: *kid.OutPoint(),
+		Amount:   kid.Amount(),
+		Stage:    2,
 	}
 
 	// If the confirmation height is set, then this means the first stage
 	// has been confirmed, and we know the final maturity height of the CSV
 	// delay.
 	if kid.ConfHeight() != 0 {
-		htlcReport.maturityHeight = kid.ConfHeight() + kid.BlocksToMaturity()
+		htlcReport.MaturityHeight = kid.ConfHeight() + kid.BlocksToMaturity()
 	}
 
-	c.htlcs = append(c.htlcs, htlcReport)
+	c.Htlcs = append(c.Htlcs, htlcReport)
 }
 
 // AddRecoveredHtlc adds a graduate output to the maturity report's htlcs, and
 // contributes its amount to the recovered balance.
-func (c *contractMaturityReport) AddRecoveredHtlc(kid *kidOutput) {
-	c.recoveredBalance += kid.Amount()
+func (c *ContractMaturityReport) AddRecoveredHtlc(kid *kidOutput) {
+	c.RecoveredBalance += kid.Amount()
 
-	c.htlcs = append(c.htlcs, htlcMaturityReport{
-		outpoint:       *kid.OutPoint(),
-		amount:         kid.Amount(),
-		maturityHeight: kid.ConfHeight() + kid.BlocksToMaturity(),
+	c.Htlcs = append(c.Htlcs, HtlcMaturityReport{
+		Outpoint:       *kid.OutPoint(),
+		Amount:         kid.Amount(),
+		MaturityHeight: kid.ConfHeight() + kid.BlocksToMaturity(),
 	})
 }
 
@@ -1144,12 +1151,12 @@ func (c *contractMaturityReport) AddRecoveredHtlc(kid *kidOutput) {
 // if and only if all of its outputs have been marked graduated. If the channel
 // still has ungraduated outputs, the method will succeed without altering the
 // database state.
-func (u *utxoNursery) closeAndRemoveIfMature(chanPoint *wire.OutPoint) error {
+func (u *UtxoNursery) closeAndRemoveIfMature(chanPoint *wire.OutPoint) error {
 	isMature, err := u.cfg.Store.IsMatureChannel(chanPoint)
 	if err == ErrContractNotFound {
 		return nil
 	} else if err != nil {
-		utxnLog.Errorf("Unable to determine maturity of "+
+		log.Errorf("Unable to determine maturity of "+
 			"channel=%s", chanPoint)
 		return err
 	}
@@ -1164,12 +1171,12 @@ func (u *utxoNursery) closeAndRemoveIfMature(chanPoint *wire.OutPoint) error {
 	// a channel unless it is mature, as this is the only place the utxo
 	// nursery removes a channel.
 	if err := u.cfg.Store.RemoveChannel(chanPoint); err != nil {
-		utxnLog.Errorf("Unable to remove channel=%s from "+
+		log.Errorf("Unable to remove channel=%s from "+
 			"nursery store: %v", chanPoint, err)
 		return err
 	}
 
-	utxnLog.Infof("Removed channel %v from nursery store", chanPoint)
+	log.Infof("Removed channel %v from nursery store", chanPoint)
 
 	return nil
 }

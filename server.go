@@ -238,7 +238,7 @@ type server struct {
 
 	witnessBeacon contractcourt.WitnessBeacon
 
-	breachArbiter *breachArbiter
+	breachArbiter *contractcourt.BreachArbiter
 
 	missionControl *routing.MissionControl
 
@@ -250,7 +250,7 @@ type server struct {
 
 	localChanMgr *localchans.Manager
 
-	utxoNursery *utxoNursery
+	utxoNursery *contractcourt.UtxoNursery
 
 	sweeper *sweep.UtxoSweeper
 
@@ -848,7 +848,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FetchChannel:              s.chanStateDB.FetchChannel,
 	}
 
-	utxnStore, err := newNurseryStore(
+	utxnStore, err := contractcourt.NewNurseryStore(
 		s.cfg.ActiveNetParams.GenesisHash, dbs.chanStateDB,
 	)
 	if err != nil {
@@ -884,7 +884,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FeeRateBucketSize:    sweep.DefaultFeeRateBucketSize,
 	})
 
-	s.utxoNursery = newUtxoNursery(&NurseryConfig{
+	s.utxoNursery = contractcourt.NewUtxoNursery(&contractcourt.NurseryConfig{
 		ChainIO:             cc.ChainIO,
 		ConfDepth:           1,
 		FetchClosedChannels: dbs.chanStateDB.FetchClosedChannels,
@@ -897,7 +897,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	// Construct a closure that wraps the htlcswitch's CloseLink method.
 	closeLink := func(chanPoint *wire.OutPoint,
-		closureType htlcswitch.ChannelCloseType) {
+		closureType contractcourt.ChannelCloseType) {
 		// TODO(conner): Properly respect the update and error channels
 		// returned by CloseLink.
 
@@ -909,7 +909,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	// We will use the following channel to reliably hand off contract
 	// breach events from the ChannelArbitrator to the breachArbiter,
-	contractBreaches := make(chan *ContractBreachEvent, 1)
+	contractBreaches := make(chan *contractcourt.ContractBreachEvent, 1)
 
 	s.chainArb = contractcourt.NewChainArbitrator(contractcourt.ChainArbitratorConfig{
 		ChainHash:              *s.cfg.ActiveNetParams.GenesisHash,
@@ -976,7 +976,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				finalErr <- markClosed()
 			}
 
-			event := &ContractBreachEvent{
+			event := &contractcourt.ContractBreachEvent{
 				ChanPoint:         chanPoint,
 				ProcessACK:        processACK,
 				BreachRetribution: breachRet,
@@ -1012,7 +1012,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Clock:                         clock.NewDefaultClock(),
 	}, dbs.chanStateDB)
 
-	s.breachArbiter = newBreachArbiter(&BreachConfig{
+	s.breachArbiter = contractcourt.NewBreachArbiter(&contractcourt.BreachConfig{
 		CloseLink:          closeLink,
 		DB:                 dbs.chanStateDB,
 		Estimator:          s.cc.FeeEstimator,
@@ -1021,7 +1021,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PublishTransaction: cc.Wallet.PublishTransaction,
 		ContractBreaches:   contractBreaches,
 		Signer:             cc.Wallet.Cfg.Signer,
-		Store:              newRetributionStore(dbs.chanStateDB),
+		Store: contractcourt.NewRetributionStore(
+			dbs.chanStateDB,
+		),
 	})
 
 	// Select the configuration and furnding parameters for Bitcoin or

@@ -276,6 +276,8 @@ you.
 
 * [Order of the start/stop on subsystems are changed to promote better safety](https://github.com/lightningnetwork/lnd/pull/1783).
 
+* [Restricted permissions to GitHub main action](https://github.com/lightningnetwork/lnd/pull/5744)
+
 ## Database
 
 * [Ensure single writer for legacy

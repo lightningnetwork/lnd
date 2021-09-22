@@ -6,47 +6,6 @@ import (
 	"io"
 )
 
-// FundingError represents a set of errors that can be encountered and sent
-// during the funding workflow.
-type FundingError uint8
-
-const (
-	// ErrMaxPendingChannels is returned by remote peer when the number of
-	// active pending channels exceeds their maximum policy limit.
-	ErrMaxPendingChannels FundingError = 1
-
-	// ErrSynchronizingChain is returned by a remote peer that receives a
-	// channel update or a funding request while it's still syncing to the
-	// latest state of the blockchain.
-	ErrSynchronizingChain FundingError = 2
-
-	// ErrChanTooLarge is returned by a remote peer that receives a
-	// FundingOpen request for a channel that is above their current
-	// soft-limit.
-	ErrChanTooLarge FundingError = 3
-)
-
-// String returns a human readable version of the target FundingError.
-func (e FundingError) String() string {
-	switch e {
-	case ErrMaxPendingChannels:
-		return "Number of pending channels exceed maximum"
-	case ErrSynchronizingChain:
-		return "Synchronizing blockchain"
-	case ErrChanTooLarge:
-		return "channel too large"
-	default:
-		return "unknown error"
-	}
-}
-
-// Error returns the human readable version of the target FundingError.
-//
-// NOTE: Satisfies the Error interface.
-func (e FundingError) Error() string {
-	return e.String()
-}
-
 // ErrorData is a set of bytes associated with a particular sent error. A
 // receiving node SHOULD only print out data verbatim if the string is composed
 // solely of printable ASCII characters. For reference, the printable character
@@ -66,6 +25,11 @@ type Error struct {
 	// Data is the attached error data that describes the exact failure
 	// which caused the error message to be sent.
 	Data ErrorData
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
 }
 
 // NewError creates a new Error message.
@@ -97,6 +61,7 @@ func (c *Error) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
 		&c.ChanID,
 		&c.Data,
+		&c.ExtraData,
 	)
 }
 
@@ -109,7 +74,11 @@ func (c *Error) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	return WriteErrorData(w, c.Data)
+	if err := WriteErrorData(w, c.Data); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, c.ExtraData)
 }
 
 // MsgType returns the integer uniquely identifying an Error message on the

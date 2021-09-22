@@ -36,38 +36,10 @@ var (
 	ErrNoWindow = fmt.Errorf("unable to sign new commitment, the current" +
 		" revocation window is exhausted")
 
-	// ErrMaxWeightCost is returned when the cost/weight (see segwit)
-	// exceeds the widely used maximum allowed policy weight limit. In this
-	// case the commitment transaction can't be propagated through the
-	// network.
-	ErrMaxWeightCost = fmt.Errorf("commitment transaction exceed max " +
-		"available cost")
-
-	// ErrMaxHTLCNumber is returned when a proposed HTLC would exceed the
-	// maximum number of allowed HTLC's if committed in a state transition
-	ErrMaxHTLCNumber = fmt.Errorf("commitment transaction exceed max " +
-		"htlc number")
-
-	// ErrMaxPendingAmount is returned when a proposed HTLC would exceed
-	// the overall maximum pending value of all HTLCs if committed in a
-	// state transition.
-	ErrMaxPendingAmount = fmt.Errorf("commitment transaction exceed max" +
-		"overall pending htlc value")
-
 	// ErrBelowChanReserve is returned when a proposed HTLC would cause
 	// one of the peer's funds to dip below the channel reserve limit.
 	ErrBelowChanReserve = fmt.Errorf("commitment transaction dips peer " +
 		"below chan reserve")
-
-	// ErrBelowMinHTLC is returned when a proposed HTLC has a value that
-	// is below the minimum HTLC value constraint for either us or our
-	// peer depending on which flags are set.
-	ErrBelowMinHTLC = fmt.Errorf("proposed HTLC value is below minimum " +
-		"allowed HTLC value")
-
-	// ErrInvalidHTLCAmt signals that a proposed HTLC has a value that is
-	// not positive.
-	ErrInvalidHTLCAmt = fmt.Errorf("proposed HTLC value must be positive")
 
 	// ErrCannotSyncCommitChains is returned if, upon receiving a ChanSync
 	// message, the state machine deems that is unable to properly
@@ -3442,13 +3414,20 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 
 				// Check that the HTLC amount is positive.
 				if entry.Amount == 0 {
-					return ErrInvalidHTLCAmt
+					return lnwire.NewStructuredError(
+						lnwire.MsgUpdateAddHTLC,
+						2, entry.Amount, nil,
+					)
 				}
 
 				// Check that the value of the HTLC they added
 				// is above our minimum.
 				if entry.Amount < constraints.MinHTLC {
-					return ErrBelowMinHTLC
+					return lnwire.NewStructuredError(
+						lnwire.MsgUpdateAddHTLC,
+						2, entry.Amount,
+						constraints.MinHTLC,
+					)
 				}
 			}
 		}
@@ -3456,14 +3435,14 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 		// Now that we know the total value of added HTLCs, we check
 		// that this satisfy the MaxPendingAmont contraint.
 		if amtInFlight > constraints.MaxPendingAmount {
-			return ErrMaxPendingAmount
+			return lnwire.MaxPendingAmountExceeded
 		}
 
 		// In this step, we verify that the total number of active
 		// HTLCs does not exceed the constraint of the maximum number
 		// of HTLCs in flight.
 		if numInFlight > constraints.MaxAcceptedHtlcs {
-			return ErrMaxHTLCNumber
+			return lnwire.MaxPendingHtlcsExceeded
 		}
 
 		return nil

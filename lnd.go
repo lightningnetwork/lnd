@@ -173,14 +173,19 @@ type ListenerWithSignal struct {
 
 	// Ready will be closed by the server listening on Listener.
 	Ready chan struct{}
+
+	// MacChan is an optional way to pass the admin macaroon to the program
+	// that started lnd. The channel should be buffered to avoid lnd being
+	// blocked on sending to the channel.
+	MacChan chan []byte
 }
 
 // ListenerCfg is a wrapper around custom listeners that can be passed to lnd
 // when calling its main method.
 type ListenerCfg struct {
-	// RPCListener can be set to the listener to use for the RPC server. If
-	// nil a regular network listener will be created.
-	RPCListener *ListenerWithSignal
+	// RPCListeners can be set to the listeners to use for the RPC server.
+	// If empty a regular network listener will be created.
+	RPCListeners []*ListenerWithSignal
 
 	// ExternalRPCSubserverCfg is optional and specifies the registration
 	// callback and permissions to register external gRPC subservers.
@@ -325,8 +330,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	// If we have chosen to start with a dedicated listener for the
 	// rpc server, we set it directly.
 	var grpcListeners []*ListenerWithSignal
-	if lisCfg.RPCListener != nil {
-		grpcListeners = []*ListenerWithSignal{lisCfg.RPCListener}
+	if len(lisCfg.RPCListeners) > 0 {
+		grpcListeners = append(grpcListeners, lisCfg.RPCListeners...)
 	} else {
 		// Otherwise we create listeners from the RPCListeners defined
 		// in the config.
@@ -618,6 +623,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 			// The channel is buffered by one element so writing
 			// should not block here.
 			walletInitParams.MacResponseChan <- adminMacBytes
+
+			for _, lis := range grpcListeners {
+				if lis.MacChan != nil {
+					lis.MacChan <- adminMacBytes
+				}
+			}
 		}
 
 		// If the user requested a stateless initialization, no macaroon
@@ -678,6 +689,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	// we did not return the admin macaroon above. This will be the case if
 	// --no-macaroons is used.
 	close(walletInitParams.MacResponseChan)
+
+	// We'll also close all the macaroon channels since lnd is done sending
+	// macaroon data over it.
+	for _, lis := range grpcListeners {
+		if lis.MacChan != nil {
+			close(lis.MacChan)
+		}
+	}
 
 	// With the information parsed from the configuration, create valid
 	// instances of the pertinent interfaces required to operate the

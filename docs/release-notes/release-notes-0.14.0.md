@@ -276,6 +276,8 @@ you.
 
 * [Order of the start/stop on subsystems are changed to promote better safety](https://github.com/lightningnetwork/lnd/pull/1783).
 
+* [Included Codeql scanning to increase the security posture](https://github.com/lightningnetwork/lnd/pull/5735)
+
 ## Database
 
 * [Ensure single writer for legacy

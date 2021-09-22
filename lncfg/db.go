@@ -12,11 +12,12 @@ import (
 )
 
 const (
-	channelDBName     = "channel.db"
-	macaroonDBName    = "macaroons.db"
-	decayedLogDbName  = "sphinxreplay.db"
-	towerClientDBName = "wtclient.db"
-	towerServerDBName = "watchtower.db"
+	ChannelDBName     = "channel.db"
+	MacaroonDBName    = "macaroons.db"
+	DecayedLogDbName  = "sphinxreplay.db"
+	TowerClientDBName = "wtclient.db"
+	TowerServerDBName = "watchtower.db"
+	WalletDBName      = "wallet.db"
 
 	BoltBackend                = "bolt"
 	EtcdBackend                = "etcd"
@@ -362,7 +363,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 	// We're using all bbolt based databases by default.
 	boltBackend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
 		DBPath:            chanDBPath,
-		DBFileName:        channelDBName,
+		DBFileName:        ChannelDBName,
 		DBTimeout:         db.Bolt.DBTimeout,
 		NoFreelistSync:    !db.Bolt.SyncFreelist,
 		AutoCompact:       db.Bolt.AutoCompact,
@@ -375,7 +376,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 
 	macaroonBackend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
 		DBPath:            walletDBPath,
-		DBFileName:        macaroonDBName,
+		DBFileName:        MacaroonDBName,
 		DBTimeout:         db.Bolt.DBTimeout,
 		NoFreelistSync:    !db.Bolt.SyncFreelist,
 		AutoCompact:       db.Bolt.AutoCompact,
@@ -388,7 +389,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 
 	decayedLogBackend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
 		DBPath:            chanDBPath,
-		DBFileName:        decayedLogDbName,
+		DBFileName:        DecayedLogDbName,
 		DBTimeout:         db.Bolt.DBTimeout,
 		NoFreelistSync:    !db.Bolt.SyncFreelist,
 		AutoCompact:       db.Bolt.AutoCompact,
@@ -406,7 +407,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		towerClientBackend, err = kvdb.GetBoltBackend(
 			&kvdb.BoltBackendConfig{
 				DBPath:            chanDBPath,
-				DBFileName:        towerClientDBName,
+				DBFileName:        TowerClientDBName,
 				DBTimeout:         db.Bolt.DBTimeout,
 				NoFreelistSync:    !db.Bolt.SyncFreelist,
 				AutoCompact:       db.Bolt.AutoCompact,
@@ -427,7 +428,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		towerServerBackend, err = kvdb.GetBoltBackend(
 			&kvdb.BoltBackendConfig{
 				DBPath:            towerServerDBPath,
-				DBFileName:        towerServerDBName,
+				DBFileName:        TowerServerDBName,
 				DBTimeout:         db.Bolt.DBTimeout,
 				NoFreelistSync:    !db.Bolt.SyncFreelist,
 				AutoCompact:       db.Bolt.AutoCompact,

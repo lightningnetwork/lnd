@@ -4,7 +4,13 @@
 # /dev.Dockerfile
 # /.github/workflows/main.yml
 # /.github/workflows/release.yml
-FROM golang:1.16.3-buster
+# using the SHA256 instead of tags
+# https://github.com/opencontainers/image-spec/blob/main/descriptor.md#digests
+# https://cloud.google.com/architecture/using-container-images
+# https://github.com/google/go-containerregistry/blob/main/cmd/crane/README.md
+#crane digest golang:1.16.3-buster
+# sha256:9d64369fd3c633df71d7465d67d43f63bb31192193e671742fa1c26ebc3a6210
+FROM golang@sha256:9d64369fd3c633df71d7465d67d43f63bb31192193e671742fa1c26ebc3a6210
 
 MAINTAINER Olaoluwa Osuntokun <laolu@lightning.engineering>
 

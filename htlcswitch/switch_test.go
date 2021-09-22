@@ -13,10 +13,12 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/stretchr/testify/require"
 )
 
 var zeroCircuit = channeldb.CircuitKey{}
@@ -3317,4 +3319,300 @@ func TestSwitchHoldForward(t *testing.T) {
 	assertOutgoingLinkReceive(t, bobChannelLink, false)
 	assertOutgoingLinkReceive(t, aliceChannelLink, true)
 	assertNumCircuits(t, s, 0, 0)
+}
+
+// TestSwitchDustForwarding tests that the switch properly fails HTLC's which
+// have incoming or outgoing links that breach their dust thresholds.
+func TestSwitchDustForwarding(t *testing.T) {
+	t.Parallel()
+
+	// We'll create a three-hop network:
+	// - Alice has a dust limit of 200sats with Bob
+	// - Bob has a dust limit of 800sats with Alice
+	// - Bob has a dust limit of 200sats with Carol
+	// - Carol has a dust limit of 800sats with Bob
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin, btcutil.SatoshiPerBitcoin,
+	)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	n := newThreeHopNetwork(
+		t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight,
+	)
+	err = n.start()
+	require.NoError(t, err)
+
+	// We'll also put Alice and Bob into hodl.ExitSettle mode, such that
+	// they won't settle incoming exit-hop HTLC's automatically.
+	n.aliceChannelLink.cfg.HodlMask = hodl.ExitSettle.Mask()
+	n.firstBobChannelLink.cfg.HodlMask = hodl.ExitSettle.Mask()
+
+	// We'll test that once the default threshold is exceeded on the
+	// Alice -> Bob channel, either side's calls to SendHTLC will fail.
+	// This does not rely on the mailbox sum since there's no intermediate
+	// hop.
+	//
+	// Alice will send 357 HTLC's of 700sats. Bob will also send 357 HTLC's
+	// of 700sats. If either side attempts to send a dust HTLC, it will
+	// fail so amounts below 800sats will breach the dust threshold.
+	// Non-dust amounts are fine to send since neither side is at the max
+	// htlc in flight limit.
+	aliceCount := 357
+	bobCount := 357
+	amt := lnwire.NewMSatFromSatoshis(700)
+
+	// Create the hops that Alice will use to send payments to Bob.
+	htlcAmt, totalTimelock, aliceHops := generateHops(
+		amt, testStartingHeight, n.firstBobChannelLink,
+	)
+	firstHop := n.aliceChannelLink.ShortChanID()
+
+	// Convert the hops to a blob that will be put in the Add message.
+	aliceBlob, err := generateRoute(aliceHops...)
+	require.NoError(t, err)
+
+	// Create a slice to store the preimages used in making Alice's dust
+	// payments to Bob.
+	alicePreimages := make([]lntypes.Preimage, aliceCount)
+
+	// Initialize alice's attempt ID.
+	aliceAttemptID := 0
+
+	// Generate Alice's preimages that will be used to send hold payments.
+	for i := 0; i < aliceCount; i++ {
+		// Deterministically generate preimages. Avoid the all-zeroes
+		// preimage because that will be rejected by the database.
+		alicePreimages[i] = lntypes.Preimage{byte(i >> 8), byte(i), 1}
+	}
+
+	// Alice calls SendHTLC in a loop for aliceCount HTLC's.
+	for i := 0; i < aliceCount; i++ {
+		// Construct the htlc packet.
+		hash := alicePreimages[i].Hash()
+
+		htlc := &lnwire.UpdateAddHTLC{
+			PaymentHash: hash,
+			Amount:      htlcAmt,
+			Expiry:      totalTimelock,
+			OnionBlob:   aliceBlob,
+		}
+
+		err = n.aliceServer.htlcSwitch.SendHTLC(
+			firstHop, uint64(aliceAttemptID), htlc,
+		)
+		require.NoError(t, err)
+		aliceAttemptID++
+	}
+
+	// Create the hops that Bob will use to send payments to Alice.
+	_, _, bobHops := generateHops(
+		amt, testStartingHeight, n.aliceChannelLink,
+	)
+
+	// Convert the hops to a blob that will be put in the Add message.
+	bobBlob, err := generateRoute(bobHops...)
+	require.NoError(t, err)
+
+	// Create a slice to store the preimages.
+	bobPreimages := make([]lntypes.Preimage, bobCount)
+
+	// Initialize bob's attempt ID.
+	bobAttemptID := 0
+
+	// Generate Bob's preimages to be able to send hold payments.
+	for i := 0; i < bobCount; i++ {
+		// Deterministically generate preimages. We want to avoid
+		// conflicting with the preimages that Alice generated, so the
+		// third byte is 2.
+		bobPreimages[i] = lntypes.Preimage{byte(i >> 8), byte(i), 2}
+	}
+
+	// Call SendHTLC in a loop for bobCount HTLC's.
+	for i := 0; i < bobCount; i++ {
+		// Construct the htlc packet.
+		hash := bobPreimages[i].Hash()
+
+		htlc := &lnwire.UpdateAddHTLC{
+			PaymentHash: hash,
+			Amount:      htlcAmt,
+			Expiry:      totalTimelock,
+			OnionBlob:   bobBlob,
+		}
+
+		err = n.bobServer.htlcSwitch.SendHTLC(
+			firstHop, uint64(bobAttemptID), htlc,
+		)
+		require.NoError(t, err)
+		bobAttemptID++
+	}
+
+	// Assert that if Bob sends a dust HTLC it will fail.
+	failingPreimage := lntypes.Preimage{0, 0, 3}
+	failingHash := failingPreimage.Hash()
+	failingHtlc := &lnwire.UpdateAddHTLC{
+		PaymentHash: failingHash,
+		Amount:      htlcAmt,
+		Expiry:      totalTimelock,
+		OnionBlob:   bobBlob,
+	}
+
+	// Assert that the HTLC is failed due to the dust threshold.
+	err = n.bobServer.htlcSwitch.SendHTLC(
+		firstHop, uint64(bobAttemptID), failingHtlc,
+	)
+	require.ErrorIs(t, err, errDustThresholdExceeded)
+	bobAttemptID++
+
+	// Now attempt to send an HTLC above Bob's dust limit. It should
+	// succeed.
+	nondustAmt := lnwire.NewMSatFromSatoshis(10_000)
+	_, _, bobHops = generateHops(
+		nondustAmt, testStartingHeight, n.aliceChannelLink,
+	)
+
+	bobBlob, err = generateRoute(bobHops...)
+	require.NoError(t, err)
+
+	nondustPreimage := lntypes.Preimage{0, 0, 4}
+	nondustHash := nondustPreimage.Hash()
+	nondustHtlc := &lnwire.UpdateAddHTLC{
+		PaymentHash: nondustHash,
+		Amount:      nondustAmt,
+		Expiry:      totalTimelock,
+		OnionBlob:   bobBlob,
+	}
+
+	// Assert that SendHTLC succeeds and evaluateDustThreshold returns
+	// false.
+	err = n.bobServer.htlcSwitch.SendHTLC(
+		firstHop, uint64(bobAttemptID), nondustHtlc,
+	)
+	require.NoError(t, err)
+
+	// Introduce Carol into the mix and assert that sending a multi-hop
+	// dust HTLC to Alice will fail. Bob should fail back the HTLC with a
+	// temporary channel failure.
+	carolAmt, carolTimelock, carolHops := generateHops(
+		amt, testStartingHeight, n.secondBobChannelLink,
+		n.aliceChannelLink,
+	)
+
+	carolBlob, err := generateRoute(carolHops...)
+	require.NoError(t, err)
+
+	carolPreimage := lntypes.Preimage{0, 0, 5}
+	carolHash := carolPreimage.Hash()
+	carolHtlc := &lnwire.UpdateAddHTLC{
+		PaymentHash: carolHash,
+		Amount:      carolAmt,
+		Expiry:      carolTimelock,
+		OnionBlob:   carolBlob,
+	}
+
+	// Initialize Carol's attempt ID.
+	carolAttemptID := 0
+
+	err = n.carolServer.htlcSwitch.SendHTLC(
+		n.carolChannelLink.ShortChanID(), uint64(carolAttemptID),
+		carolHtlc,
+	)
+	require.NoError(t, err)
+	carolAttemptID++
+
+	carolResultChan, err := n.carolServer.htlcSwitch.GetPaymentResult(
+		uint64(carolAttemptID-1), carolHash, newMockDeobfuscator(),
+	)
+	require.NoError(t, err)
+
+	select {
+	case result, ok := <-carolResultChan:
+		require.True(t, ok)
+		assertFailureCode(
+			t, result.Error, lnwire.CodeTemporaryChannelFailure,
+		)
+
+	case <-time.After(5 * time.Second):
+		t.Fatal("no result arrived for carol's dust htlc")
+	}
+
+	// Send an HTLC from Alice to Carol and assert that it is failed at the
+	// call to SendHTLC.
+	htlcAmt, totalTimelock, aliceHops = generateHops(
+		amt, testStartingHeight, n.firstBobChannelLink,
+		n.carolChannelLink,
+	)
+
+	aliceBlob, err = generateRoute(aliceHops...)
+	require.NoError(t, err)
+
+	aliceMultihopPreimage := lntypes.Preimage{0, 0, 6}
+	aliceMultihopHash := aliceMultihopPreimage.Hash()
+	aliceMultihopHtlc := &lnwire.UpdateAddHTLC{
+		PaymentHash: aliceMultihopHash,
+		Amount:      htlcAmt,
+		Expiry:      totalTimelock,
+		OnionBlob:   aliceBlob,
+	}
+
+	err = n.aliceServer.htlcSwitch.SendHTLC(
+		n.aliceChannelLink.ShortChanID(), uint64(aliceAttemptID),
+		aliceMultihopHtlc,
+	)
+	require.ErrorIs(t, err, errDustThresholdExceeded)
+
+	// Carol's mailboxes internal routines should not be touching the dust
+	// sums, so we just set them here without a lock.
+	carolMailbox := n.carolChannelLink.mailBox.(*memoryMailBox)
+	carolMailbox.localDustSum = lnwire.MilliSatoshi(499_500_000)
+
+	// Carol sending a dust payment to Bob greater than 500sats should
+	// fail.
+	carolAmt, carolTimelock, carolHops = generateHops(
+		amt, testStartingHeight, n.secondBobChannelLink,
+	)
+
+	carolBlob, err = generateRoute(carolHops...)
+	require.NoError(t, err)
+
+	carolPreimage2 := lntypes.Preimage{0, 0, 7}
+	carolHash2 := carolPreimage2.Hash()
+	carolHtlc2 := &lnwire.UpdateAddHTLC{
+		PaymentHash: carolHash2,
+		Amount:      carolAmt,
+		Expiry:      carolTimelock,
+		OnionBlob:   carolBlob,
+	}
+
+	err = n.carolServer.htlcSwitch.SendHTLC(
+		n.carolChannelLink.ShortChanID(), uint64(carolAttemptID),
+		carolHtlc2,
+	)
+	require.ErrorIs(t, err, errDustThresholdExceeded)
+	carolAttemptID++
+
+	// Sending a dust payment to Bob of 500sats should succeed.
+	smallAmt := lnwire.MilliSatoshi(500_000)
+	carolAmt, carolTimelock, carolHops = generateHops(
+		smallAmt, testStartingHeight, n.secondBobChannelLink,
+	)
+
+	carolBlob, err = generateRoute(carolHops...)
+	require.NoError(t, err)
+
+	carolPreimage3 := lntypes.Preimage{0, 0, 8}
+	carolHash3 := carolPreimage3.Hash()
+	carolHtlc3 := &lnwire.UpdateAddHTLC{
+		PaymentHash: carolHash3,
+		Amount:      carolAmt,
+		Expiry:      carolTimelock,
+		OnionBlob:   carolBlob,
+	}
+
+	err = n.carolServer.htlcSwitch.SendHTLC(
+		n.carolChannelLink.ShortChanID(), uint64(carolAttemptID),
+		carolHtlc3,
+	)
+	require.NoError(t, err)
 }

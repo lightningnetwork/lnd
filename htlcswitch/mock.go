@@ -716,6 +716,16 @@ func (f *mockChannelLink) handleLocalAddPacket(pkt *htlcPacket) error {
 	return nil
 }
 
+func (f *mockChannelLink) getDustSum(remote bool) lnwire.MilliSatoshi {
+	return 0
+}
+
+func (f *mockChannelLink) getDustLimits() (lnwire.MilliSatoshi,
+	lnwire.MilliSatoshi) {
+
+	return 0, 0
+}
+
 func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 }
 

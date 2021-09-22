@@ -93,6 +93,9 @@ var (
 		0xc5, 0x6c, 0xbb, 0xac, 0x46, 0x22, 0x08, 0x22,
 		0x21, 0xa8, 0x76, 0x8d, 0x1d, 0x09,
 	}
+
+	aliceDustLimit = btcutil.Amount(200)
+	bobDustLimit   = btcutil.Amount(1300)
 )
 
 // CreateTestChannels creates to fully populated channels to be used within
@@ -112,8 +115,6 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 	}
 
 	channelBal := channelCapacity / 2
-	aliceDustLimit := btcutil.Amount(200)
-	bobDustLimit := btcutil.Amount(1300)
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
 

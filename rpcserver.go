@@ -258,6 +258,11 @@ func calculateFeeRate(satPerByte, satPerVByte uint64, targetConf uint32,
 
 }
 
+// GetAllPermissions returns all the permissions required to interact with lnd.
+func GetAllPermissions() ([]bakery.Op, []bakery.Op) {
+	return readPermissions, writePermissions
+}
+
 // MainRPCServerPermissions returns a mapping of the main RPC server calls to
 // the permissions they require.
 func MainRPCServerPermissions() map[string][]bakery.Op {

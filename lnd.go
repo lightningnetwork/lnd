@@ -5,7 +5,6 @@
 package lnd
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -21,9 +20,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcwallet/wallet"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"github.com/lightninglabs/neutrino"
 	"golang.org/x/crypto/acme/autocert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -32,17 +29,14 @@ import (
 	"gopkg.in/macaroon.v2"
 
 	"github.com/lightningnetwork/lnd/autopilot"
-	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
-	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/rpcperms"
@@ -228,46 +222,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	defer cleanUp()
 
-	// Initialize a new block cache.
-	blockCache := blockcache.NewBlockCache(cfg.BlockCacheSize)
-
-	// Before starting the wallet, we'll create and start our Neutrino
-	// light client instance, if enabled, in order to allow it to sync
-	// while the rest of the daemon continues startup.
-	mainChain := cfg.Bitcoin
-	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
-		mainChain = cfg.Litecoin
-	}
-	var neutrinoCS *neutrino.ChainService
-	if mainChain.Node == "neutrino" {
-		neutrinoBackend, neutrinoCleanUp, err := initNeutrinoBackend(
-			cfg, mainChain.ChainDir, blockCache,
-		)
-		if err != nil {
-			err := fmt.Errorf("unable to initialize neutrino "+
-				"backend: %v", err)
-			ltndLog.Error(err)
-			return err
-		}
-		defer neutrinoCleanUp()
-		neutrinoCS = neutrinoBackend
-	}
-
-	var (
-		walletInitParams = walletunlocker.WalletUnlockParams{
-			// In case we do auto-unlock, we need to be able to send
-			// into the channel without blocking so we buffer it.
-			MacResponseChan: make(chan []byte, 1),
-		}
-		privateWalletPw = lnwallet.DefaultPrivatePassphrase
-		publicWalletPw  = lnwallet.DefaultPublicPassphrase
-	)
-
-	// If the user didn't request a seed, then we'll manually assume a
-	// wallet birthday of now, as otherwise the seed would've specified
-	// this information.
-	walletInitParams.Birthday = time.Now()
-
 	// If we have chosen to start with a dedicated listener for the
 	// rpc server, we set it directly.
 	var grpcListeners []*ListenerWithSignal
@@ -320,10 +274,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// We'll also register the RPC interceptor chain as the StateServer, as
 	// it can be used to query for the current state of the wallet.
 	lnrpc.RegisterStateServer(grpcServer, interceptorChain)
-
-	// Register the WalletUnlockerService with the GRPC server.
-	pwService := createWalletUnlockerService(cfg)
-	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
 
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
@@ -411,310 +361,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	defer cleanUp()
 
-	pwService.SetLoaderOpts([]btcwallet.LoaderOption{dbs.WalletDB})
-	pwService.SetMacaroonDB(dbs.MacaroonDB)
-	walletExists, err := pwService.WalletExists()
-	if err != nil {
-		return err
-	}
-
-	if !walletExists {
-		interceptorChain.SetWalletNotCreated()
-	} else {
-		interceptorChain.SetWalletLocked()
-	}
-
-	// If we've started in auto unlock mode, then a wallet should already
-	// exist because we don't want to enable the RPC unlocker in that case
-	// for security reasons (an attacker could inject their seed since the
-	// RPC is unauthenticated). Only if the user explicitly wants to allow
-	// wallet creation we don't error out here.
-	if cfg.WalletUnlockPasswordFile != "" && !walletExists &&
-		!cfg.WalletUnlockAllowCreate {
-
-		return fmt.Errorf("wallet unlock password file was specified " +
-			"but wallet does not exist; initialize the wallet " +
-			"before using auto unlocking")
-	}
-
-	// What wallet mode are we running in? We've already made sure the no
-	// seed backup and auto unlock aren't both set during config parsing.
-	switch {
-	// No seed backup means we're also using the default password.
-	case cfg.NoSeedBackup:
-		// We continue normally, the default password has already been
-		// set above.
-
-	// A password for unlocking is provided in a file.
-	case cfg.WalletUnlockPasswordFile != "" && walletExists:
-		ltndLog.Infof("Attempting automatic wallet unlock with " +
-			"password provided in file")
-		pwBytes, err := ioutil.ReadFile(cfg.WalletUnlockPasswordFile)
-		if err != nil {
-			return fmt.Errorf("error reading password from file "+
-				"%s: %v", cfg.WalletUnlockPasswordFile, err)
-		}
-
-		// Remove any newlines at the end of the file. The lndinit tool
-		// won't ever write a newline but maybe the file was provisioned
-		// by another process or user.
-		pwBytes = bytes.TrimRight(pwBytes, "\r\n")
-
-		// We have the password now, we can ask the unlocker service to
-		// do the unlock for us.
-		unlockedWallet, unloadWalletFn, err := pwService.LoadAndUnlock(
-			pwBytes, 0,
-		)
-		if err != nil {
-			return fmt.Errorf("error unlocking wallet with "+
-				"password from file: %v", err)
-		}
-
-		defer func() {
-			if err := unloadWalletFn(); err != nil {
-				ltndLog.Errorf("Could not unload wallet: %v",
-					err)
-			}
-		}()
-
-		privateWalletPw = pwBytes
-		publicWalletPw = pwBytes
-		walletInitParams.Wallet = unlockedWallet
-		walletInitParams.UnloadWallet = unloadWalletFn
-
-	// If none of the automatic startup options are selected, we fall back
-	// to the default behavior of waiting for the wallet creation/unlocking
-	// over RPC.
-	default:
-		if err := interceptor.Notifier.NotifyReady(false); err != nil {
-			return err
-		}
-
-		params, err := waitForWalletPassword(
-			cfg, pwService, []btcwallet.LoaderOption{dbs.WalletDB},
-			interceptor.ShutdownChannel(),
-		)
-		if err != nil {
-			err := fmt.Errorf("unable to set up wallet password "+
-				"listeners: %v", err)
-			ltndLog.Error(err)
-			return err
-		}
-
-		walletInitParams = *params
-		privateWalletPw = walletInitParams.Password
-		publicWalletPw = walletInitParams.Password
-		defer func() {
-			if err := walletInitParams.UnloadWallet(); err != nil {
-				ltndLog.Errorf("Could not unload wallet: %v", err)
-			}
-		}()
-
-		if walletInitParams.RecoveryWindow > 0 {
-			ltndLog.Infof("Wallet recovery mode enabled with "+
-				"address lookahead of %d addresses",
-				walletInitParams.RecoveryWindow)
-		}
-	}
-
-	var macaroonService *macaroons.Service
-	if !cfg.NoMacaroons {
-		// Create the macaroon authentication/authorization service.
-		macaroonService, err = macaroons.NewService(
-			dbs.MacaroonDB, "lnd", walletInitParams.StatelessInit,
-			macaroons.IPLockChecker,
-			macaroons.CustomChecker(interceptorChain),
-		)
-		if err != nil {
-			err := fmt.Errorf("unable to set up macaroon "+
-				"authentication: %v", err)
-			ltndLog.Error(err)
-			return err
-		}
-		defer macaroonService.Close()
-
-		// Try to unlock the macaroon store with the private password.
-		// Ignore ErrAlreadyUnlocked since it could be unlocked by the
-		// wallet unlocker.
-		err = macaroonService.CreateUnlock(&privateWalletPw)
-		if err != nil && err != macaroons.ErrAlreadyUnlocked {
-			err := fmt.Errorf("unable to unlock macaroons: %v", err)
-			ltndLog.Error(err)
-			return err
-		}
-
-		// In case we actually needed to unlock the wallet, we now need
-		// to create an instance of the admin macaroon and send it to
-		// the unlocker so it can forward it to the user. In no seed
-		// backup mode, there's nobody listening on the channel and we'd
-		// block here forever.
-		if !cfg.NoSeedBackup {
-			adminMacBytes, err := bakeMacaroon(
-				ctx, macaroonService, adminPermissions(),
-			)
-			if err != nil {
-				return err
-			}
-
-			// The channel is buffered by one element so writing
-			// should not block here.
-			walletInitParams.MacResponseChan <- adminMacBytes
-
-			for _, lis := range grpcListeners {
-				if lis.MacChan != nil {
-					lis.MacChan <- adminMacBytes
-				}
-			}
-		}
-
-		// If the user requested a stateless initialization, no macaroon
-		// files should be created.
-		if !walletInitParams.StatelessInit &&
-			!fileExists(cfg.AdminMacPath) &&
-			!fileExists(cfg.ReadMacPath) &&
-			!fileExists(cfg.InvoiceMacPath) {
-
-			// Create macaroon files for lncli to use if they don't
-			// exist.
-			err = genMacaroons(
-				ctx, macaroonService, cfg.AdminMacPath,
-				cfg.ReadMacPath, cfg.InvoiceMacPath,
-			)
-			if err != nil {
-				err := fmt.Errorf("unable to create macaroons "+
-					"%v", err)
-				ltndLog.Error(err)
-				return err
-			}
-		}
-
-		// As a security service to the user, if they requested
-		// stateless initialization and there are macaroon files on disk
-		// we log a warning.
-		if walletInitParams.StatelessInit {
-			msg := "Found %s macaroon on disk (%s) even though " +
-				"--stateless_init was requested. Unencrypted " +
-				"state is accessible by the host system. You " +
-				"should change the password and use " +
-				"--new_mac_root_key with --stateless_init to " +
-				"clean up and invalidate old macaroons."
-
-			if fileExists(cfg.AdminMacPath) {
-				ltndLog.Warnf(msg, "admin", cfg.AdminMacPath)
-			}
-			if fileExists(cfg.ReadMacPath) {
-				ltndLog.Warnf(msg, "readonly", cfg.ReadMacPath)
-			}
-			if fileExists(cfg.InvoiceMacPath) {
-				ltndLog.Warnf(msg, "invoice", cfg.InvoiceMacPath)
-			}
-		}
-
-		// We add the macaroon service to our RPC interceptor. This
-		// will start checking macaroons against permissions on every
-		// RPC invocation.
-		interceptorChain.AddMacaroonService(macaroonService)
-	}
-
-	// Now that the wallet password has been provided, transition the RPC
-	// state into Unlocked.
-	interceptorChain.SetWalletUnlocked()
-
-	// Since calls to the WalletUnlocker service wait for a response on the
-	// macaroon channel, we close it here to make sure they return in case
-	// we did not return the admin macaroon above. This will be the case if
-	// --no-macaroons is used.
-	close(walletInitParams.MacResponseChan)
-
-	// We'll also close all the macaroon channels since lnd is done sending
-	// macaroon data over it.
-	for _, lis := range grpcListeners {
-		if lis.MacChan != nil {
-			close(lis.MacChan)
-		}
-	}
-
-	// With the information parsed from the configuration, create valid
-	// instances of the pertinent interfaces required to operate the
-	// Lightning Network Daemon.
-	//
-	// When we create the chain control, we need storage for the height
-	// hints and also the wallet itself, for these two we want them to be
-	// replicated, so we'll pass in the remote channel DB instance.
-	chainControlCfg := &chainreg.Config{
-		Bitcoin:                     cfg.Bitcoin,
-		Litecoin:                    cfg.Litecoin,
-		PrimaryChain:                cfg.registeredChains.PrimaryChain,
-		HeightHintCacheQueryDisable: cfg.HeightHintCacheQueryDisable,
-		NeutrinoMode:                cfg.NeutrinoMode,
-		BitcoindMode:                cfg.BitcoindMode,
-		LitecoindMode:               cfg.LitecoindMode,
-		BtcdMode:                    cfg.BtcdMode,
-		LtcdMode:                    cfg.LtcdMode,
-		HeightHintDB:                dbs.HeightHintDB,
-		ChanStateDB:                 dbs.ChanStateDB.ChannelStateDB(),
-		NeutrinoCS:                  neutrinoCS,
-		ActiveNetParams:             cfg.ActiveNetParams,
-		FeeURL:                      cfg.FeeURL,
-		Dialer: func(addr string) (net.Conn, error) {
-			return cfg.net.Dial("tcp", addr, cfg.ConnectionTimeout)
-		},
-		BlockCache: blockCache,
-	}
-
-	// Let's go ahead and create the partial chain control now that is only
-	// dependent on our configuration and doesn't require any wallet
-	// specific information.
-	partialChainControl, cleanup, err := chainreg.NewPartialChainControl(
-		chainControlCfg,
+	activeChainControl, cleanUp, err := implCfg.BuildChainControl(
+		ctx, dbs, interceptorChain, grpcListeners,
 	)
-	if cleanup != nil {
-		defer cleanup()
-	}
 	if err != nil {
-		err := fmt.Errorf("unable to create partial chain control: %v",
-			err)
-		ltndLog.Error(err)
-		return err
+		return fmt.Errorf("error loading chain control: %v", err)
 	}
 
-	walletConfig := &btcwallet.Config{
-		PrivatePass:    privateWalletPw,
-		PublicPass:     publicWalletPw,
-		Birthday:       walletInitParams.Birthday,
-		RecoveryWindow: walletInitParams.RecoveryWindow,
-		NetParams:      cfg.ActiveNetParams.Params,
-		CoinType:       cfg.ActiveNetParams.CoinType,
-		Wallet:         walletInitParams.Wallet,
-		LoaderOptions:  []btcwallet.LoaderOption{dbs.WalletDB},
-	}
-
-	// Parse coin selection strategy.
-	switch cfg.CoinSelectionStrategy {
-	case "largest":
-		walletConfig.CoinSelectionStrategy = wallet.CoinSelectionLargest
-
-	case "random":
-		walletConfig.CoinSelectionStrategy = wallet.CoinSelectionRandom
-
-	default:
-		return fmt.Errorf("unknown coin selection strategy %v",
-			cfg.CoinSelectionStrategy)
-	}
-
-	// We've created the wallet configuration now, so we can finish
-	// initializing the main chain control.
-	activeChainControl, cleanup, err := chainreg.NewChainControl(
-		walletConfig, partialChainControl,
-	)
-	if cleanup != nil {
-		defer cleanup()
-	}
-	if err != nil {
-		err := fmt.Errorf("unable to create chain control: %v", err)
-		ltndLog.Error(err)
-		return err
-	}
+	defer cleanUp()
 
 	// Finally before we start the server, we'll register the "holy
 	// trinity" of interface for our current "home chain" with the active
@@ -841,7 +495,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// connections.
 	server, err := newServer(
 		cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
-		walletInitParams.ChansToRestore, chainedAcceptor, torController,
+		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
+		chainedAcceptor, torController,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create server: %v", err)
@@ -1340,14 +995,7 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer, restDialOpts []grpc.DialO
 	mux := proxy.NewServeMux(customMarshalerOption)
 
 	// Register our services with the REST proxy.
-	err := lnrpc.RegisterWalletUnlockerHandlerFromEndpoint(
-		ctx, mux, restProxyDest, restDialOpts,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	err = lnrpc.RegisterStateHandlerFromEndpoint(
+	err := lnrpc.RegisterStateHandlerFromEndpoint(
 		ctx, mux, restProxyDest, restDialOpts,
 	)
 	if err != nil {

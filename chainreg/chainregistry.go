@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
+	"github.com/lightningnetwork/lnd/walletunlocker"
 )
 
 // Config houses necessary fields that a chainControl instance needs to
@@ -78,6 +79,10 @@ type Config struct {
 
 	// BlockCache is the main cache for storing block information.
 	BlockCache *blockcache.BlockCache
+
+	// WalletUnlockParams are the parameters that were used for unlocking
+	// the main wallet.
+	WalletUnlockParams *walletunlocker.WalletUnlockParams
 
 	// NeutrinoCS is a pointer to a neutrino ChainService. Must be non-nil if
 	// using neutrino.

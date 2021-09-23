@@ -1,8 +1,10 @@
 package lnd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -19,12 +21,17 @@ import (
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightninglabs/neutrino/headerfs"
 	"github.com/lightningnetwork/lnd/blockcache"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/rpcperms"
+	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/lightningnetwork/lnd/watchtower"
@@ -79,6 +86,17 @@ type DatabaseBuilder interface {
 	BuildDatabase(ctx context.Context) (*DatabaseInstances, func(), error)
 }
 
+// ChainControlBuilder is an interface that must be satisfied by a custom wallet
+// implementation.
+type ChainControlBuilder interface {
+	// BuildChainControl is responsible for creating or unlocking and then
+	// fully initializing a wallet and returning it as part of a fully
+	// populated chain control instance.
+	BuildChainControl(context.Context, *DatabaseInstances,
+		*rpcperms.InterceptorChain,
+		[]*ListenerWithSignal) (*chainreg.ChainControl, func(), error)
+}
+
 // ImplementationCfg is a struct that holds all configuration items for
 // components that can be implemented outside lnd itself.
 type ImplementationCfg struct {
@@ -97,11 +115,32 @@ type ImplementationCfg struct {
 	// DatabaseBuilder is a type that can provide lnd's main database
 	// backend instances.
 	DatabaseBuilder
+
+	// ChainControlBuilder is a type that can provide a custom wallet
+	// implementation.
+	ChainControlBuilder
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet
 // backed configuration.
 type DefaultWalletImpl struct {
+	cfg         *Config
+	logger      btclog.Logger
+	interceptor signal.Interceptor
+
+	pwService *walletunlocker.UnlockerService
+}
+
+// NewDefaultWalletImpl creates a new default wallet implementation.
+func NewDefaultWalletImpl(cfg *Config, logger btclog.Logger,
+	interceptor signal.Interceptor) *DefaultWalletImpl {
+
+	return &DefaultWalletImpl{
+		cfg:         cfg,
+		logger:      logger,
+		interceptor: interceptor,
+		pwService:   createWalletUnlockerService(cfg),
+	}
 }
 
 // RegisterRestSubserver is called after lnd creates the main proxy.ServeMux
@@ -109,10 +148,13 @@ type DefaultWalletImpl struct {
 // their own REST proxy stubs to the main server instance.
 //
 // NOTE: This is part of the GrpcRegistrar interface.
-func (d *DefaultWalletImpl) RegisterRestSubserver(context.Context,
-	*proxy.ServeMux, string, []grpc.DialOption) error {
+func (d *DefaultWalletImpl) RegisterRestSubserver(ctx context.Context,
+	mux *proxy.ServeMux, restProxyDest string,
+	restDialOpts []grpc.DialOption) error {
 
-	return nil
+	return lnrpc.RegisterWalletUnlockerHandlerFromEndpoint(
+		ctx, mux, restProxyDest, restDialOpts,
+	)
 }
 
 // RegisterGrpcSubserver is called for each net.Listener on which lnd creates a
@@ -120,7 +162,9 @@ func (d *DefaultWalletImpl) RegisterRestSubserver(context.Context,
 // register their own gRPC server structs to the main server instance.
 //
 // NOTE: This is part of the GrpcRegistrar interface.
-func (d *DefaultWalletImpl) RegisterGrpcSubserver(*grpc.Server) error {
+func (d *DefaultWalletImpl) RegisterGrpcSubserver(s *grpc.Server) error {
+	lnrpc.RegisterWalletUnlockerServer(s, d.pwService)
+
 	return nil
 }
 
@@ -149,6 +193,393 @@ func (d *DefaultWalletImpl) ValidateMacaroon(ctx context.Context,
 // NOTE: This is part of the ExternalValidator interface.
 func (d *DefaultWalletImpl) Permissions() map[string][]bakery.Op {
 	return nil
+}
+
+// BuildChainControl is responsible for creating or unlocking and then fully
+// initializing a wallet and returning it as part of a fully populated chain
+// control instance.
+//
+// NOTE: This is part of the ChainControlBuilder interface.
+func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
+	dbs *DatabaseInstances, interceptorChain *rpcperms.InterceptorChain,
+	grpcListeners []*ListenerWithSignal) (*chainreg.ChainControl, func(),
+	error) {
+
+	// Keep track of our various cleanup functions. We use a defer function
+	// as well to not repeat ourselves with every return statement.
+	var (
+		cleanUpTasks []func()
+		earlyExit    = true
+		cleanUp      = func() {
+			for _, fn := range cleanUpTasks {
+				if fn == nil {
+					continue
+				}
+
+				fn()
+			}
+		}
+	)
+	defer func() {
+		if earlyExit {
+			cleanUp()
+		}
+	}()
+
+	// Initialize a new block cache.
+	blockCache := blockcache.NewBlockCache(d.cfg.BlockCacheSize)
+
+	// Before starting the wallet, we'll create and start our Neutrino
+	// light client instance, if enabled, in order to allow it to sync
+	// while the rest of the daemon continues startup.
+	mainChain := d.cfg.Bitcoin
+	if d.cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
+		mainChain = d.cfg.Litecoin
+	}
+	var neutrinoCS *neutrino.ChainService
+	if mainChain.Node == "neutrino" {
+		neutrinoBackend, neutrinoCleanUp, err := initNeutrinoBackend(
+			d.cfg, mainChain.ChainDir, blockCache,
+		)
+		if err != nil {
+			err := fmt.Errorf("unable to initialize neutrino "+
+				"backend: %v", err)
+			d.logger.Error(err)
+			return nil, nil, err
+		}
+		cleanUpTasks = append(cleanUpTasks, neutrinoCleanUp)
+		neutrinoCS = neutrinoBackend
+	}
+
+	var (
+		walletInitParams = walletunlocker.WalletUnlockParams{
+			// In case we do auto-unlock, we need to be able to send
+			// into the channel without blocking so we buffer it.
+			MacResponseChan: make(chan []byte, 1),
+		}
+		privateWalletPw = lnwallet.DefaultPrivatePassphrase
+		publicWalletPw  = lnwallet.DefaultPublicPassphrase
+	)
+
+	// If the user didn't request a seed, then we'll manually assume a
+	// wallet birthday of now, as otherwise the seed would've specified
+	// this information.
+	walletInitParams.Birthday = time.Now()
+
+	d.pwService.SetLoaderOpts([]btcwallet.LoaderOption{dbs.WalletDB})
+	d.pwService.SetMacaroonDB(dbs.MacaroonDB)
+	walletExists, err := d.pwService.WalletExists()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if !walletExists {
+		interceptorChain.SetWalletNotCreated()
+	} else {
+		interceptorChain.SetWalletLocked()
+	}
+
+	// If we've started in auto unlock mode, then a wallet should already
+	// exist because we don't want to enable the RPC unlocker in that case
+	// for security reasons (an attacker could inject their seed since the
+	// RPC is unauthenticated). Only if the user explicitly wants to allow
+	// wallet creation we don't error out here.
+	if d.cfg.WalletUnlockPasswordFile != "" && !walletExists &&
+		!d.cfg.WalletUnlockAllowCreate {
+
+		return nil, nil, fmt.Errorf("wallet unlock password file was " +
+			"specified but wallet does not exist; initialize the " +
+			"wallet before using auto unlocking")
+	}
+
+	// What wallet mode are we running in? We've already made sure the no
+	// seed backup and auto unlock aren't both set during config parsing.
+	switch {
+	// No seed backup means we're also using the default password.
+	case d.cfg.NoSeedBackup:
+		// We continue normally, the default password has already been
+		// set above.
+
+	// A password for unlocking is provided in a file.
+	case d.cfg.WalletUnlockPasswordFile != "" && walletExists:
+		d.logger.Infof("Attempting automatic wallet unlock with " +
+			"password provided in file")
+		pwBytes, err := ioutil.ReadFile(d.cfg.WalletUnlockPasswordFile)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error reading password "+
+				"from file %s: %v",
+				d.cfg.WalletUnlockPasswordFile, err)
+		}
+
+		// Remove any newlines at the end of the file. The lndinit tool
+		// won't ever write a newline but maybe the file was provisioned
+		// by another process or user.
+		pwBytes = bytes.TrimRight(pwBytes, "\r\n")
+
+		// We have the password now, we can ask the unlocker service to
+		// do the unlock for us.
+		unlockedWallet, unloadWalletFn, err := d.pwService.LoadAndUnlock(
+			pwBytes, 0,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error unlocking wallet "+
+				"with password from file: %v", err)
+		}
+
+		cleanUpTasks = append(cleanUpTasks, func() {
+			if err := unloadWalletFn(); err != nil {
+				d.logger.Errorf("Could not unload wallet: %v",
+					err)
+			}
+		})
+
+		privateWalletPw = pwBytes
+		publicWalletPw = pwBytes
+		walletInitParams.Wallet = unlockedWallet
+		walletInitParams.UnloadWallet = unloadWalletFn
+
+	// If none of the automatic startup options are selected, we fall back
+	// to the default behavior of waiting for the wallet creation/unlocking
+	// over RPC.
+	default:
+		if err := d.interceptor.Notifier.NotifyReady(false); err != nil {
+			return nil, nil, err
+		}
+
+		params, err := waitForWalletPassword(
+			d.cfg, d.pwService, []btcwallet.LoaderOption{dbs.WalletDB},
+			d.interceptor.ShutdownChannel(),
+		)
+		if err != nil {
+			err := fmt.Errorf("unable to set up wallet password "+
+				"listeners: %v", err)
+			d.logger.Error(err)
+			return nil, nil, err
+		}
+
+		walletInitParams = *params
+		privateWalletPw = walletInitParams.Password
+		publicWalletPw = walletInitParams.Password
+		cleanUpTasks = append(cleanUpTasks, func() {
+			if err := walletInitParams.UnloadWallet(); err != nil {
+				d.logger.Errorf("Could not unload wallet: %v",
+					err)
+			}
+		})
+
+		if walletInitParams.RecoveryWindow > 0 {
+			d.logger.Infof("Wallet recovery mode enabled with "+
+				"address lookahead of %d addresses",
+				walletInitParams.RecoveryWindow)
+		}
+	}
+
+	var macaroonService *macaroons.Service
+	if !d.cfg.NoMacaroons {
+		// Create the macaroon authentication/authorization service.
+		macaroonService, err = macaroons.NewService(
+			dbs.MacaroonDB, "lnd", walletInitParams.StatelessInit,
+			macaroons.IPLockChecker,
+			macaroons.CustomChecker(interceptorChain),
+		)
+		if err != nil {
+			err := fmt.Errorf("unable to set up macaroon "+
+				"authentication: %v", err)
+			d.logger.Error(err)
+			return nil, nil, err
+		}
+		cleanUpTasks = append(cleanUpTasks, func() {
+			if err := macaroonService.Close(); err != nil {
+				d.logger.Errorf("Could not close macaroon "+
+					"service: %v", err)
+			}
+		})
+
+		// Try to unlock the macaroon store with the private password.
+		// Ignore ErrAlreadyUnlocked since it could be unlocked by the
+		// wallet unlocker.
+		err = macaroonService.CreateUnlock(&privateWalletPw)
+		if err != nil && err != macaroons.ErrAlreadyUnlocked {
+			err := fmt.Errorf("unable to unlock macaroons: %v", err)
+			d.logger.Error(err)
+			return nil, nil, err
+		}
+
+		// In case we actually needed to unlock the wallet, we now need
+		// to create an instance of the admin macaroon and send it to
+		// the unlocker so it can forward it to the user. In no seed
+		// backup mode, there's nobody listening on the channel and we'd
+		// block here forever.
+		if !d.cfg.NoSeedBackup {
+			adminMacBytes, err := bakeMacaroon(
+				ctx, macaroonService, adminPermissions(),
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			// The channel is buffered by one element so writing
+			// should not block here.
+			walletInitParams.MacResponseChan <- adminMacBytes
+
+			for _, lis := range grpcListeners {
+				if lis.MacChan != nil {
+					lis.MacChan <- adminMacBytes
+				}
+			}
+		}
+
+		// If the user requested a stateless initialization, no macaroon
+		// files should be created.
+		if !walletInitParams.StatelessInit &&
+			!fileExists(d.cfg.AdminMacPath) &&
+			!fileExists(d.cfg.ReadMacPath) &&
+			!fileExists(d.cfg.InvoiceMacPath) {
+
+			// Create macaroon files for lncli to use if they don't
+			// exist.
+			err = genMacaroons(
+				ctx, macaroonService, d.cfg.AdminMacPath,
+				d.cfg.ReadMacPath, d.cfg.InvoiceMacPath,
+			)
+			if err != nil {
+				err := fmt.Errorf("unable to create macaroons "+
+					"%v", err)
+				d.logger.Error(err)
+				return nil, nil, err
+			}
+		}
+
+		// As a security service to the user, if they requested
+		// stateless initialization and there are macaroon files on disk
+		// we log a warning.
+		if walletInitParams.StatelessInit {
+			msg := "Found %s macaroon on disk (%s) even though " +
+				"--stateless_init was requested. Unencrypted " +
+				"state is accessible by the host system. You " +
+				"should change the password and use " +
+				"--new_mac_root_key with --stateless_init to " +
+				"clean up and invalidate old macaroons."
+
+			if fileExists(d.cfg.AdminMacPath) {
+				d.logger.Warnf(msg, "admin", d.cfg.AdminMacPath)
+			}
+			if fileExists(d.cfg.ReadMacPath) {
+				d.logger.Warnf(msg, "readonly", d.cfg.ReadMacPath)
+			}
+			if fileExists(d.cfg.InvoiceMacPath) {
+				d.logger.Warnf(msg, "invoice", d.cfg.InvoiceMacPath)
+			}
+		}
+
+		// We add the macaroon service to our RPC interceptor. This
+		// will start checking macaroons against permissions on every
+		// RPC invocation.
+		interceptorChain.AddMacaroonService(macaroonService)
+	}
+
+	// Now that the wallet password has been provided, transition the RPC
+	// state into Unlocked.
+	interceptorChain.SetWalletUnlocked()
+
+	// Since calls to the WalletUnlocker service wait for a response on the
+	// macaroon channel, we close it here to make sure they return in case
+	// we did not return the admin macaroon above. This will be the case if
+	// --no-macaroons is used.
+	close(walletInitParams.MacResponseChan)
+
+	// We'll also close all the macaroon channels since lnd is done sending
+	// macaroon data over it.
+	for _, lis := range grpcListeners {
+		if lis.MacChan != nil {
+			close(lis.MacChan)
+		}
+	}
+
+	// With the information parsed from the configuration, create valid
+	// instances of the pertinent interfaces required to operate the
+	// Lightning Network Daemon.
+	//
+	// When we create the chain control, we need storage for the height
+	// hints and also the wallet itself, for these two we want them to be
+	// replicated, so we'll pass in the remote channel DB instance.
+	chainControlCfg := &chainreg.Config{
+		Bitcoin:                     d.cfg.Bitcoin,
+		Litecoin:                    d.cfg.Litecoin,
+		PrimaryChain:                d.cfg.registeredChains.PrimaryChain,
+		HeightHintCacheQueryDisable: d.cfg.HeightHintCacheQueryDisable,
+		NeutrinoMode:                d.cfg.NeutrinoMode,
+		BitcoindMode:                d.cfg.BitcoindMode,
+		LitecoindMode:               d.cfg.LitecoindMode,
+		BtcdMode:                    d.cfg.BtcdMode,
+		LtcdMode:                    d.cfg.LtcdMode,
+		HeightHintDB:                dbs.HeightHintDB,
+		ChanStateDB:                 dbs.ChanStateDB.ChannelStateDB(),
+		NeutrinoCS:                  neutrinoCS,
+		ActiveNetParams:             d.cfg.ActiveNetParams,
+		FeeURL:                      d.cfg.FeeURL,
+		Dialer: func(addr string) (net.Conn, error) {
+			return d.cfg.net.Dial(
+				"tcp", addr, d.cfg.ConnectionTimeout,
+			)
+		},
+		BlockCache:         blockCache,
+		WalletUnlockParams: &walletInitParams,
+	}
+
+	// Let's go ahead and create the partial chain control now that is only
+	// dependent on our configuration and doesn't require any wallet
+	// specific information.
+	partialChainControl, pccCleanup, err := chainreg.NewPartialChainControl(
+		chainControlCfg,
+	)
+	cleanUpTasks = append(cleanUpTasks, pccCleanup)
+	if err != nil {
+		err := fmt.Errorf("unable to create partial chain control: %v",
+			err)
+		d.logger.Error(err)
+		return nil, nil, err
+	}
+
+	walletConfig := &btcwallet.Config{
+		PrivatePass:    privateWalletPw,
+		PublicPass:     publicWalletPw,
+		Birthday:       walletInitParams.Birthday,
+		RecoveryWindow: walletInitParams.RecoveryWindow,
+		NetParams:      d.cfg.ActiveNetParams.Params,
+		CoinType:       d.cfg.ActiveNetParams.CoinType,
+		Wallet:         walletInitParams.Wallet,
+		LoaderOptions:  []btcwallet.LoaderOption{dbs.WalletDB},
+		ChainSource:    partialChainControl.ChainSource,
+	}
+
+	// Parse coin selection strategy.
+	switch d.cfg.CoinSelectionStrategy {
+	case "largest":
+		walletConfig.CoinSelectionStrategy = wallet.CoinSelectionLargest
+
+	case "random":
+		walletConfig.CoinSelectionStrategy = wallet.CoinSelectionRandom
+
+	default:
+		return nil, nil, fmt.Errorf("unknown coin selection strategy "+
+			"%v", d.cfg.CoinSelectionStrategy)
+	}
+
+	// We've created the wallet configuration now, so we can finish
+	// initializing the main chain control.
+	activeChainControl, ccCleanup, err := chainreg.NewChainControl(
+		walletConfig, partialChainControl,
+	)
+	cleanUpTasks = append(cleanUpTasks, ccCleanup)
+	if err != nil {
+		err := fmt.Errorf("unable to create chain control: %v", err)
+		d.logger.Error(err)
+		return nil, nil, err
+	}
+
+	earlyExit = false
+	return activeChainControl, cleanUp, nil
 }
 
 // DatabaseInstances is a struct that holds all instances to the actual
@@ -630,7 +1061,8 @@ func initNeutrinoBackend(cfg *Config, chainDir string,
 
 	cleanUp := func() {
 		if err := neutrinoCS.Stop(); err != nil {
-			ltndLog.Infof("Unable to stop neutrino light client: %v", err)
+			ltndLog.Infof("Unable to stop neutrino light client: "+
+				"%v", err)
 		}
 		db.Close()
 	}

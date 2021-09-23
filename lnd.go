@@ -718,36 +718,59 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		LtcdMode:                    cfg.LtcdMode,
 		HeightHintDB:                dbs.heightHintDB,
 		ChanStateDB:                 dbs.chanStateDB.ChannelStateDB(),
-		PrivateWalletPw:             privateWalletPw,
-		PublicWalletPw:              publicWalletPw,
-		Birthday:                    walletInitParams.Birthday,
-		RecoveryWindow:              walletInitParams.RecoveryWindow,
-		Wallet:                      walletInitParams.Wallet,
 		NeutrinoCS:                  neutrinoCS,
 		ActiveNetParams:             cfg.ActiveNetParams,
 		FeeURL:                      cfg.FeeURL,
 		Dialer: func(addr string) (net.Conn, error) {
 			return cfg.net.Dial("tcp", addr, cfg.ConnectionTimeout)
 		},
-		BlockCache:    blockCache,
-		LoaderOptions: []btcwallet.LoaderOption{dbs.walletDB},
+		BlockCache: blockCache,
+	}
+
+	// Let's go ahead and create the partial chain control now that is only
+	// dependent on our configuration and doesn't require any wallet
+	// specific information.
+	partialChainControl, cleanup, err := chainreg.NewPartialChainControl(
+		chainControlCfg,
+	)
+	if cleanup != nil {
+		defer cleanup()
+	}
+	if err != nil {
+		err := fmt.Errorf("unable to create partial chain control: %v",
+			err)
+		ltndLog.Error(err)
+		return err
+	}
+
+	walletConfig := &btcwallet.Config{
+		PrivatePass:    privateWalletPw,
+		PublicPass:     publicWalletPw,
+		Birthday:       walletInitParams.Birthday,
+		RecoveryWindow: walletInitParams.RecoveryWindow,
+		NetParams:      cfg.ActiveNetParams.Params,
+		CoinType:       cfg.ActiveNetParams.CoinType,
+		Wallet:         walletInitParams.Wallet,
+		LoaderOptions:  []btcwallet.LoaderOption{dbs.walletDB},
 	}
 
 	// Parse coin selection strategy.
 	switch cfg.CoinSelectionStrategy {
 	case "largest":
-		chainControlCfg.CoinSelectionStrategy = wallet.CoinSelectionLargest
+		walletConfig.CoinSelectionStrategy = wallet.CoinSelectionLargest
 
 	case "random":
-		chainControlCfg.CoinSelectionStrategy = wallet.CoinSelectionRandom
+		walletConfig.CoinSelectionStrategy = wallet.CoinSelectionRandom
 
 	default:
 		return fmt.Errorf("unknown coin selection strategy %v",
 			cfg.CoinSelectionStrategy)
 	}
 
+	// We've created the wallet configuration now, so we can finish
+	// initializing the main chain control.
 	activeChainControl, cleanup, err := chainreg.NewChainControl(
-		chainControlCfg,
+		walletConfig, partialChainControl,
 	)
 	if cleanup != nil {
 		defer cleanup()

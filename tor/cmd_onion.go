@@ -244,6 +244,9 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 		}
 	}
 
+	c.activeServiceID = serviceID
+	log.Debugf("serviceID:%s added to tor controller", serviceID)
+
 	// Finally, we'll return the onion address composed of the service ID,
 	// along with the onion suffix, and the port this onion service can be
 	// reached at externally.
@@ -251,4 +254,48 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 		OnionService: serviceID + ".onion",
 		Port:         cfg.VirtualPort,
 	}, nil
+}
+
+// DelOnion tells the Tor daemon to remove an onion service, which satisfies
+// either,
+//   - the onion service was created on the same control connection as the
+//     "DEL_ONION" command.
+//   - the onion service was created using the "Detach" flag.
+func (c *Controller) DelOnion(serviceID string) error {
+	log.Debugf("removing serviceID:%s from tor controller", serviceID)
+
+	cmd := fmt.Sprintf("DEL_ONION %s", serviceID)
+
+	// Send the command to create the onion service to the Tor server and
+	// await its response.
+	code, _, err := c.sendCommand(cmd)
+
+	// Tor replies with "250 OK" on success, or a 512 if there are an
+	// invalid number of arguments, or a 552 if it doesn't recognize the
+	// ServiceID.
+	switch code {
+	// Replied 250 OK.
+	case success:
+		return nil
+
+	// Replied 512 for invalid arguments. This is most likely that the
+	// serviceID is not set(empty string).
+	case invalidNumOfArguments:
+		return fmt.Errorf("invalid arguments: %w", err)
+
+	// Replied 552, which means either,
+	//   - the serviceID is invalid.
+	//   - the onion service is not owned by the current control connection
+	//     and,
+	//   - the onion service is not a detached service.
+	// In either case, we will ignore the error and log a warning as there
+	// not much we can do from the controller side.
+	case serviceIDNotRecognized:
+		log.Warnf("removing serviceID:%v not found", serviceID)
+		return nil
+
+	default:
+		return fmt.Errorf("undefined response code: %v, err: %w",
+			code, err)
+	}
 }

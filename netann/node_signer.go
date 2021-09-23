@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -24,15 +23,15 @@ func NewNodeSigner(keySigner keychain.SingleKeyMessageSigner) *NodeSigner {
 }
 
 // SignMessage signs a double-sha256 digest of the passed msg under the
-// resident node's private key. If the target public key is _not_ the node's
-// private key, then an error will be returned.
-func (n *NodeSigner) SignMessage(pubKey *btcec.PublicKey,
-	msg []byte) (input.Signature, error) {
+// resident node's private key described in the key locator. If the target key
+// locator is _not_ the node's private key, then an error will be returned.
+func (n *NodeSigner) SignMessage(keyLoc keychain.KeyLocator,
+	msg []byte) (*btcec.Signature, error) {
 
 	// If this isn't our identity public key, then we'll exit early with an
 	// error as we can't sign with this key.
-	if !pubKey.IsEqual(n.keySigner.PubKey()) {
-		return nil, fmt.Errorf("unknown public key")
+	if keyLoc != n.keySigner.KeyLocator() {
+		return nil, fmt.Errorf("unknown public key locator")
 	}
 
 	// Otherwise, we'll sign the double-sha256 of the target message.

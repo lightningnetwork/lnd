@@ -157,6 +157,9 @@ type server struct {
 	// to authenticate any incoming connections.
 	identityECDH keychain.SingleKeyECDH
 
+	// identityKeyLoc is the key locator for the above wrapped identity key.
+	identityKeyLoc keychain.KeyLocator
+
 	// nodeSigner is an implementation of the MessageSigner implementation
 	// that's backed by the identity private key of the running lnd node.
 	nodeSigner *netann.NodeSigner
@@ -473,7 +476,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	var serializedPubKey [33]byte
-	copy(serializedPubKey[:], nodeKeyECDH.PubKey().SerializeCompressed())
+	copy(serializedPubKey[:], nodeKeyDesc.PubKey.SerializeCompressed())
 
 	// Initialize the sphinx router.
 	replayLog := htlcswitch.NewDecayedLog(
@@ -538,8 +541,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			dbs.chanStateDB.ChannelStateDB(),
 		),
 
-		identityECDH: nodeKeyECDH,
-		nodeSigner:   netann.NewNodeSigner(nodeKeySigner),
+		identityECDH:   nodeKeyECDH,
+		identityKeyLoc: nodeKeyDesc.KeyLocator,
+		nodeSigner:     netann.NewNodeSigner(nodeKeySigner),
 
 		listenAddrs: listenAddrs,
 
@@ -633,7 +637,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		ChanStatusSampleInterval: cfg.ChanStatusSampleInterval,
 		ChanEnableTimeout:        cfg.ChanEnableTimeout,
 		ChanDisableTimeout:       cfg.ChanDisableTimeout,
-		OurPubKey:                nodeKeyECDH.PubKey(),
+		OurPubKey:                nodeKeyDesc.PubKey,
+		OurKeyLoc:                nodeKeyDesc.KeyLocator,
 		MessageSigner:            s.nodeSigner,
 		IsChannelActive:          s.htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
@@ -761,7 +766,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Features:             s.featureMgr.Get(feature.SetNodeAnn),
 		Color:                color,
 	}
-	copy(selfNode.PubKeyBytes[:], nodeKeyECDH.PubKey().SerializeCompressed())
+	copy(selfNode.PubKeyBytes[:], nodeKeyDesc.PubKey.SerializeCompressed())
 
 	// Based on the disk representation of the node announcement generated
 	// above, we'll generate a node announcement that can go out on the
@@ -774,7 +779,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// With the announcement generated, we'll sign it to properly
 	// authenticate the message on the network.
 	authSig, err := netann.SignAnnouncement(
-		s.nodeSigner, nodeKeyECDH.PubKey(), nodeAnn,
+		s.nodeSigner, nodeKeyDesc.KeyLocator, nodeAnn,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate signature for "+
@@ -945,9 +950,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PinnedSyncers:           cfg.Gossip.PinnedSyncers,
 		MaxChannelUpdateBurst:   cfg.Gossip.MaxChannelUpdateBurst,
 		ChannelUpdateInterval:   cfg.Gossip.ChannelUpdateInterval,
-	},
-		nodeKeyECDH.PubKey(),
-	)
+	}, nodeKeyDesc)
 
 	s.localChanMgr = &localchans.Manager{
 		ForAllOutgoingChannels:    s.chanRouter.ForAllOutgoingChannels,
@@ -1153,7 +1156,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.fundingMgr, err = funding.NewFundingManager(funding.Config{
 		NoWumboChans:       !cfg.ProtocolOptions.Wumbo(),
-		IDKey:              nodeKeyECDH.PubKey(),
+		IDKey:              nodeKeyDesc.PubKey,
+		IDKeyLoc:           nodeKeyDesc.KeyLocator,
 		Wallet:             cc.Wallet,
 		PublishTransaction: cc.Wallet.PublishTransaction,
 		UpdateLabel: func(hash chainhash.Hash, label string) error {
@@ -1161,15 +1165,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 		Notifier:     cc.ChainNotifier,
 		FeeEstimator: cc.FeeEstimator,
-		SignMessage: func(pubKey *btcec.PublicKey,
-			msg []byte) (input.Signature, error) {
-
-			if pubKey.IsEqual(nodeKeyECDH.PubKey()) {
-				return s.nodeSigner.SignMessage(pubKey, msg)
-			}
-
-			return cc.MsgSigner.SignMessage(pubKey, msg)
-		},
+		SignMessage:  cc.MsgSigner.SignMessage,
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return s.genNodeAnnouncement(true)
 		},
@@ -2616,7 +2612,7 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	// Otherwise, we'll sign a new update after applying all of the passed
 	// modifiers.
 	err := netann.SignNodeAnnouncement(
-		s.nodeSigner, s.identityECDH.PubKey(), s.currentNodeAnn,
+		s.nodeSigner, s.identityKeyLoc, s.currentNodeAnn,
 		modifiers...,
 	)
 	if err != nil {

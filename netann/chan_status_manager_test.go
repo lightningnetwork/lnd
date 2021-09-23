@@ -19,6 +19,10 @@ import (
 	"github.com/lightningnetwork/lnd/netann"
 )
 
+var (
+	testKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
+)
+
 // randOutpoint creates a random wire.Outpoint.
 func randOutpoint(t *testing.T) wire.OutPoint {
 	t.Helper()
@@ -310,7 +314,7 @@ func newManagerCfg(t *testing.T, numChannels int,
 	if err != nil {
 		t.Fatalf("unable to generate key pair: %v", err)
 	}
-	privKeySigner := &keychain.PrivKeyMessageSigner{PrivKey: privKey}
+	privKeySigner := keychain.NewPrivKeyMessageSigner(privKey, testKeyLoc)
 
 	graph := newMockGraph(
 		t, numChannels, startEnabled, startEnabled, privKey.PubKey(),
@@ -322,6 +326,7 @@ func newManagerCfg(t *testing.T, numChannels int,
 		ChanEnableTimeout:        500 * time.Millisecond,
 		ChanDisableTimeout:       time.Second,
 		OurPubKey:                privKey.PubKey(),
+		OurKeyLoc:                testKeyLoc,
 		MessageSigner:            netann.NewNodeSigner(privKeySigner),
 		IsChannelActive:          htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       graph.ApplyChannelUpdate,

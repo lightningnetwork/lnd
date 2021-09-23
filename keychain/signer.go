@@ -25,6 +25,10 @@ func (p *PubKeyMessageSigner) PubKey() *btcec.PublicKey {
 	return p.pubKey
 }
 
+func (p *PubKeyMessageSigner) KeyLocator() KeyLocator {
+	return p.keyLoc
+}
+
 func (p *PubKeyMessageSigner) SignMessage(message []byte,
 	doubleHash bool) (*btcec.Signature, error) {
 
@@ -37,12 +41,26 @@ func (p *PubKeyMessageSigner) SignMessageCompact(msg []byte,
 	return p.digestSigner.SignMessageCompact(p.keyLoc, msg, doubleHash)
 }
 
+func NewPrivKeyMessageSigner(privKey *btcec.PrivateKey,
+	keyLoc KeyLocator) *PrivKeyMessageSigner {
+
+	return &PrivKeyMessageSigner{
+		privKey: privKey,
+		keyLoc:  keyLoc,
+	}
+}
+
 type PrivKeyMessageSigner struct {
-	PrivKey *btcec.PrivateKey
+	keyLoc  KeyLocator
+	privKey *btcec.PrivateKey
 }
 
 func (p *PrivKeyMessageSigner) PubKey() *btcec.PublicKey {
-	return p.PrivKey.PubKey()
+	return p.privKey.PubKey()
+}
+
+func (p *PrivKeyMessageSigner) KeyLocator() KeyLocator {
+	return p.keyLoc
 }
 
 func (p *PrivKeyMessageSigner) SignMessage(msg []byte,
@@ -54,7 +72,7 @@ func (p *PrivKeyMessageSigner) SignMessage(msg []byte,
 	} else {
 		digest = chainhash.HashB(msg)
 	}
-	return p.PrivKey.Sign(digest)
+	return p.privKey.Sign(digest)
 }
 
 func (p *PrivKeyMessageSigner) SignMessageCompact(msg []byte,
@@ -66,7 +84,7 @@ func (p *PrivKeyMessageSigner) SignMessageCompact(msg []byte,
 	} else {
 		digest = chainhash.HashB(msg)
 	}
-	return btcec.SignCompact(btcec.S256(), p.PrivKey, digest, true)
+	return btcec.SignCompact(btcec.S256(), p.privKey, digest, true)
 }
 
 var _ SingleKeyMessageSigner = (*PubKeyMessageSigner)(nil)

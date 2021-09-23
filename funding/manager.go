@@ -294,6 +294,10 @@ type Config struct {
 	// Lightning Network.
 	IDKey *btcec.PublicKey
 
+	// IDKeyLoc is the locator for the key that is used to identify this
+	// node within the LightningNetwork.
+	IDKeyLoc keychain.KeyLocator
+
 	// Wallet handles the parts of the funding process that involves moving
 	// funds from on-chain transaction outputs into Lightning channels.
 	Wallet *lnwallet.LightningWallet
@@ -322,8 +326,8 @@ type Config struct {
 	//
 	// TODO(roasbeef): should instead pass on this responsibility to a
 	// distinct sub-system?
-	SignMessage func(pubKey *btcec.PublicKey,
-		msg []byte) (input.Signature, error)
+	SignMessage func(keyLoc keychain.KeyLocator,
+		msg []byte) (*btcec.Signature, error)
 
 	// CurrentNodeAnnouncement should return the latest, fully signed node
 	// announcement from the backing Lightning Network node.
@@ -2523,7 +2527,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 
 	ann, err := f.newChanAnnouncement(
 		f.cfg.IDKey, completeChan.IdentityPub,
-		completeChan.LocalChanCfg.MultiSigKey.PubKey,
+		&completeChan.LocalChanCfg.MultiSigKey,
 		completeChan.RemoteChanCfg.MultiSigKey.PubKey, *shortChanID,
 		chanID, fwdMinHTLC, fwdMaxHTLC,
 	)
@@ -2686,7 +2690,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		// public and usable for other nodes for routing.
 		err = f.announceChannel(
 			f.cfg.IDKey, completeChan.IdentityPub,
-			completeChan.LocalChanCfg.MultiSigKey.PubKey,
+			&completeChan.LocalChanCfg.MultiSigKey,
 			completeChan.RemoteChanCfg.MultiSigKey.PubKey,
 			*shortChanID, chanID,
 		)
@@ -2826,10 +2830,11 @@ type chanAnnouncement struct {
 // identity pub keys of both parties to the channel, and the second segment is
 // authenticated only by us and contains our directional routing policy for the
 // channel.
-func (f *Manager) newChanAnnouncement(localPubKey, remotePubKey,
-	localFundingKey, remoteFundingKey *btcec.PublicKey,
-	shortChanID lnwire.ShortChannelID, chanID lnwire.ChannelID,
-	fwdMinHTLC, fwdMaxHTLC lnwire.MilliSatoshi) (*chanAnnouncement, error) {
+func (f *Manager) newChanAnnouncement(localPubKey,
+	remotePubKey *btcec.PublicKey, localFundingKey *keychain.KeyDescriptor,
+	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
+	chanID lnwire.ChannelID, fwdMinHTLC,
+	fwdMaxHTLC lnwire.MilliSatoshi) (*chanAnnouncement, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 
@@ -2857,7 +2862,7 @@ func (f *Manager) newChanAnnouncement(localPubKey, remotePubKey,
 	if bytes.Compare(selfBytes, remoteBytes) == -1 {
 		copy(chanAnn.NodeID1[:], localPubKey.SerializeCompressed())
 		copy(chanAnn.NodeID2[:], remotePubKey.SerializeCompressed())
-		copy(chanAnn.BitcoinKey1[:], localFundingKey.SerializeCompressed())
+		copy(chanAnn.BitcoinKey1[:], localFundingKey.PubKey.SerializeCompressed())
 		copy(chanAnn.BitcoinKey2[:], remoteFundingKey.SerializeCompressed())
 
 		// If we're the first node then update the chanFlags to
@@ -2867,7 +2872,7 @@ func (f *Manager) newChanAnnouncement(localPubKey, remotePubKey,
 		copy(chanAnn.NodeID1[:], remotePubKey.SerializeCompressed())
 		copy(chanAnn.NodeID2[:], localPubKey.SerializeCompressed())
 		copy(chanAnn.BitcoinKey1[:], remoteFundingKey.SerializeCompressed())
-		copy(chanAnn.BitcoinKey2[:], localFundingKey.SerializeCompressed())
+		copy(chanAnn.BitcoinKey2[:], localFundingKey.PubKey.SerializeCompressed())
 
 		// If we're the second node then update the chanFlags to
 		// indicate the "direction" of the update.
@@ -2906,7 +2911,7 @@ func (f *Manager) newChanAnnouncement(localPubKey, remotePubKey,
 	if err != nil {
 		return nil, err
 	}
-	sig, err := f.cfg.SignMessage(f.cfg.IDKey, chanUpdateMsg)
+	sig, err := f.cfg.SignMessage(f.cfg.IDKeyLoc, chanUpdateMsg)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate channel "+
 			"update announcement signature: %v", err)
@@ -2928,12 +2933,14 @@ func (f *Manager) newChanAnnouncement(localPubKey, remotePubKey,
 	if err != nil {
 		return nil, err
 	}
-	nodeSig, err := f.cfg.SignMessage(f.cfg.IDKey, chanAnnMsg)
+	nodeSig, err := f.cfg.SignMessage(f.cfg.IDKeyLoc, chanAnnMsg)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate node "+
 			"signature for channel announcement: %v", err)
 	}
-	bitcoinSig, err := f.cfg.SignMessage(localFundingKey, chanAnnMsg)
+	bitcoinSig, err := f.cfg.SignMessage(
+		localFundingKey.KeyLocator, chanAnnMsg,
+	)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate bitcoin "+
 			"signature for node public key: %v", err)
@@ -2969,7 +2976,8 @@ func (f *Manager) newChanAnnouncement(localPubKey, remotePubKey,
 // the network during its next trickle.
 // This method is synchronous and will return when all the network requests
 // finish, either successfully or with an error.
-func (f *Manager) announceChannel(localIDKey, remoteIDKey, localFundingKey,
+func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
+	localFundingKey *keychain.KeyDescriptor,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
 	chanID lnwire.ChannelID) error {
 

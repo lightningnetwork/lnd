@@ -52,7 +52,9 @@ var _ OnionStore = (*OnionFile)(nil)
 
 // NewOnionFile creates a file-based implementation of the OnionStore interface
 // to store an onion service's private key.
-func NewOnionFile(privateKeyPath string, privateKeyPerm os.FileMode) *OnionFile {
+func NewOnionFile(privateKeyPath string,
+	privateKeyPerm os.FileMode) *OnionFile {
+
 	return &OnionFile{
 		privateKeyPath: privateKeyPath,
 		privateKeyPerm: privateKeyPerm,
@@ -64,8 +66,8 @@ func (f *OnionFile) StorePrivateKey(_ OnionType, privateKey []byte) error {
 	return ioutil.WriteFile(f.privateKeyPath, privateKey, f.privateKeyPerm)
 }
 
-// PrivateKey retrieves the private key from its expected path. If the file does
-// not exist, then ErrNoPrivateKey is returned.
+// PrivateKey retrieves the private key from its expected path. If the file
+// does not exist, then ErrNoPrivateKey is returned.
 func (f *OnionFile) PrivateKey(_ OnionType) ([]byte, error) {
 	if _, err := os.Stat(f.privateKeyPath); os.IsNotExist(err) {
 		return nil, ErrNoPrivateKey
@@ -78,8 +80,8 @@ func (f *OnionFile) DeletePrivateKey(_ OnionType) error {
 	return os.Remove(f.privateKeyPath)
 }
 
-// AddOnionConfig houses all of the required parameters in order to successfully
-// create a new onion service or restore an existing one.
+// AddOnionConfig houses all of the required parameters in order to
+// successfully create a new onion service or restore an existing one.
 type AddOnionConfig struct {
 	// Type denotes the type of the onion service that should be created.
 	Type OnionType
@@ -87,9 +89,9 @@ type AddOnionConfig struct {
 	// VirtualPort is the externally reachable port of the onion address.
 	VirtualPort int
 
-	// TargetPorts is the set of ports that the service will be listening on
-	// locally. The Tor server will use choose a random port from this set
-	// to forward the traffic from the virtual port.
+	// TargetPorts is the set of ports that the service will be listening
+	// on locally. The Tor server will use choose a random port from this
+	// set to forward the traffic from the virtual port.
 	//
 	// NOTE: If nil/empty, the virtual port will be used as the only target
 	// port.
@@ -116,10 +118,11 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 		}
 	}
 
-	// We'll start off by checking if the store contains an existing private
-	// key. If it does not, then we should request the server to create a
-	// new onion service and return its private key. Otherwise, we'll
-	// request the server to recreate the onion server from our private key.
+	// We'll start off by checking if the store contains an existing
+	// private key. If it does not, then we should request the server to
+	// create a new onion service and return its private key. Otherwise,
+	// we'll request the server to recreate the onion server from our
+	// private key.
 	var keyParam string
 	switch cfg.Type {
 	case V2:
@@ -155,8 +158,8 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 			portParam += fmt.Sprintf("Port=%d,%d ", cfg.VirtualPort,
 				targetPort)
 		} else {
-			portParam += fmt.Sprintf("Port=%d,%s:%d ", cfg.VirtualPort,
-				c.targetIPAddress, targetPort)
+			portParam += fmt.Sprintf("Port=%d,%s:%d ",
+				cfg.VirtualPort, c.targetIPAddress, targetPort)
 		}
 	}
 

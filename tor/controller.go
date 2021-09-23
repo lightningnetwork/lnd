@@ -114,9 +114,9 @@ func NewController(controlAddr string, targetIPAddress string,
 	}
 }
 
-// Start establishes and authenticates the connection between the controller and
-// a Tor server. Once done, the controller will be able to send commands and
-// expect responses.
+// Start establishes and authenticates the connection between the controller
+// and a Tor server. Once done, the controller will be able to send commands
+// and expect responses.
 func (c *Controller) Start() error {
 	if !atomic.CompareAndSwapInt32(&c.started, 0, 1) {
 		return nil

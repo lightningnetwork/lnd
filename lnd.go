@@ -729,8 +729,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		Dialer: func(addr string) (net.Conn, error) {
 			return cfg.net.Dial("tcp", addr, cfg.ConnectionTimeout)
 		},
-		BlockCacheSize: cfg.BlockCacheSize,
-		LoaderOptions:  []btcwallet.LoaderOption{dbs.walletDB},
+		BlockCache:    blockCache,
+		LoaderOptions: []btcwallet.LoaderOption{dbs.walletDB},
 	}
 
 	// Parse coin selection strategy.
@@ -747,7 +747,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	}
 
 	activeChainControl, cleanup, err := chainreg.NewChainControl(
-		chainControlCfg, blockCache,
+		chainControlCfg,
 	)
 	if cleanup != nil {
 		defer cleanup()

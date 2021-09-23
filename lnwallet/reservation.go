@@ -205,6 +205,9 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		feeMSat += 2 * lnwire.NewMSatFromSatoshis(anchorSize)
 	}
 
+	// Used to cut down on verbosity.
+	defaultDust := wallet.Cfg.DefaultConstraints.DustLimit
+
 	// If we're the responder to a single-funder reservation, then we have
 	// no initial balance in the channel unless the remote party is pushing
 	// some funds to us within the first commitment state.
@@ -218,7 +221,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		if int64(theirBalance) < 0 {
 			return nil, ErrFunderBalanceDust(
 				int64(commitFee), int64(theirBalance.ToSatoshis()),
-				int64(2*DefaultDustLimit()),
+				int64(2*defaultDust),
 			)
 		}
 	} else {
@@ -247,7 +250,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		if int64(ourBalance) < 0 {
 			return nil, ErrFunderBalanceDust(
 				int64(commitFee), int64(ourBalance),
-				int64(2*DefaultDustLimit()),
+				int64(2*defaultDust),
 			)
 		}
 	}
@@ -257,21 +260,21 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// reject this channel creation request.
 	//
 	// TODO(roasbeef): reject if 30% goes to fees? dust channel
-	if initiator && ourBalance.ToSatoshis() <= 2*DefaultDustLimit() {
+	if initiator && ourBalance.ToSatoshis() <= 2*defaultDust {
 		return nil, ErrFunderBalanceDust(
 			int64(commitFee),
 			int64(ourBalance.ToSatoshis()),
-			int64(2*DefaultDustLimit()),
+			int64(2*defaultDust),
 		)
 	}
 
 	// Similarly we ensure their balance is reasonable if we are not the
 	// initiator.
-	if !initiator && theirBalance.ToSatoshis() <= 2*DefaultDustLimit() {
+	if !initiator && theirBalance.ToSatoshis() <= 2*defaultDust {
 		return nil, ErrFunderBalanceDust(
 			int64(commitFee),
 			int64(theirBalance.ToSatoshis()),
-			int64(2*DefaultDustLimit()),
+			int64(2*defaultDust),
 		)
 	}
 

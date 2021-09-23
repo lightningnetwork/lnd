@@ -3114,19 +3114,10 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		maxCSV = f.cfg.MaxLocalCSVDelay
 	}
 
-	// We'll determine our dust limit depending on which chain is active.
-	var ourDustLimit btcutil.Amount
-	switch f.cfg.RegisteredChains.PrimaryChain() {
-	case chainreg.BitcoinChain:
-		ourDustLimit = lnwallet.DefaultDustLimit()
-	case chainreg.LitecoinChain:
-		ourDustLimit = chainreg.DefaultLitecoinDustLimit
-	}
 	log.Infof("Initiating fundingRequest(local_amt=%v "+
 		"(subtract_fees=%v), push_amt=%v, chain_hash=%v, peer=%x, "+
-		"dust_limit=%v, min_confs=%v)", localAmt, msg.SubtractFees,
-		msg.PushAmt, msg.ChainHash, peerKey.SerializeCompressed(),
-		ourDustLimit, msg.MinConfs)
+		"min_confs=%v)", localAmt, msg.SubtractFees, msg.PushAmt,
+		msg.ChainHash, peerKey.SerializeCompressed(), msg.MinConfs)
 
 	// We set the channel flags to indicate whether we want this channel to
 	// be announced to the network.
@@ -3300,6 +3291,12 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// request to the remote peer, kicking off the funding workflow.
 	ourContribution := reservation.OurContribution()
 
+	// Fetch our dust limit which is part of the default channel
+	// constraints, and log it.
+	ourDustLimit := ourContribution.DustLimit
+
+	log.Infof("Dust limit for pendingID(%x): %v", chanID, ourDustLimit)
+
 	// Finally, we'll use the current value of the channels and our default
 	// policy to determine of required commitment constraints for the
 	// remote party.
@@ -3313,7 +3310,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		PendingChannelID:      chanID,
 		FundingAmount:         capacity,
 		PushAmount:            msg.PushAmt,
-		DustLimit:             ourContribution.DustLimit,
+		DustLimit:             ourDustLimit,
 		MaxValueInFlight:      maxValue,
 		ChannelReserve:        chanReserve,
 		HtlcMinimum:           minHtlcIn,

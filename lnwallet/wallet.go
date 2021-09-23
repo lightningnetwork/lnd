@@ -689,12 +689,15 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// If no chanFunder was provided, then we'll assume the default
 	// assembler, which is backed by the wallet's internal coin selection.
 	if req.ChanFunder == nil {
+		// We use the P2WSH dust limit since it is larger than the
+		// P2WPKH dust limit and to avoid threading through two
+		// different dust limits.
 		cfg := chanfunding.WalletConfig{
 			CoinSource:       &CoinSource{l},
 			CoinSelectLocker: l,
 			CoinLocker:       l,
 			Signer:           l.Cfg.Signer,
-			DustLimit:        DefaultDustLimit(),
+			DustLimit:        DustLimitForSize(input.P2WSHSize),
 		}
 		req.ChanFunder = chanfunding.NewWalletAssembler(cfg)
 	}

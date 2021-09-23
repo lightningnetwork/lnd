@@ -304,7 +304,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 
 		// Sanity check: The addition of the outputs should not lead to the
 		// creation of dust.
-		if changeAmt != 0 && changeAmt <= w.cfg.DustLimit {
+		if changeAmt != 0 && changeAmt < w.cfg.DustLimit {
 			return fmt.Errorf("change amount(%v) after coin "+
 				"select is below dust limit(%v)", changeAmt,
 				w.cfg.DustLimit)

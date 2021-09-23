@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -37,8 +38,8 @@ type inputSet []input.Input
 // inputs are skipped. No input sets with a total value after fees below the
 // dust limit are returned.
 func generateInputPartitionings(sweepableInputs []txInput,
-	relayFeePerKW, feePerKW chainfee.SatPerKWeight,
-	maxInputsPerTx int, wallet Wallet) ([]inputSet, error) {
+	feePerKW chainfee.SatPerKWeight, maxInputsPerTx int,
+	wallet Wallet) ([]inputSet, error) {
 
 	// Sort input by yield. We will start constructing input sets starting
 	// with the highest yield inputs. This is to prevent the construction
@@ -85,9 +86,7 @@ func generateInputPartitionings(sweepableInputs []txInput,
 		// Start building a set of positive-yield tx inputs under the
 		// condition that the tx will be published with the specified
 		// fee rate.
-		txInputs := newTxInputSet(
-			wallet, feePerKW, relayFeePerKW, maxInputsPerTx,
-		)
+		txInputs := newTxInputSet(wallet, feePerKW, maxInputsPerTx)
 
 		// From the set of sweepable inputs, keep adding inputs to the
 		// input set until the tx output value no longer goes up or the
@@ -111,10 +110,12 @@ func generateInputPartitionings(sweepableInputs []txInput,
 		// continuing with the remaining inputs will only lead to sets
 		// with an even lower output value.
 		if !txInputs.enoughInput() {
+			// The change output is always a p2wpkh here.
+			dl := lnwallet.DustLimitForSize(input.P2WPKHSize)
 			log.Debugf("Set value %v (r=%v, c=%v) below dust "+
 				"limit of %v", txInputs.totalOutput(),
 				txInputs.requiredOutput, txInputs.changeOutput,
-				txInputs.dustLimit)
+				dl)
 			return sets, nil
 		}
 
@@ -135,8 +136,8 @@ func generateInputPartitionings(sweepableInputs []txInput,
 // sending any leftover change to the change script.
 func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	changePkScript []byte, currentBlockHeight uint32,
-	feePerKw chainfee.SatPerKWeight, dustLimit btcutil.Amount,
-	signer input.Signer) (*wire.MsgTx, error) {
+	feePerKw chainfee.SatPerKWeight, signer input.Signer) (*wire.MsgTx,
+	error) {
 
 	inputs, estimator := getWeightEstimate(inputs, outputs, feePerKw)
 	txFee := estimator.fee()
@@ -227,16 +228,20 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	// sweep tx has a change output.
 	changeAmt := totalInput - requiredOutput - txFee
 
+	// We'll calculate the dust limit for the given changePkScript since it
+	// is variable.
+	changeLimit := lnwallet.DustLimitForSize(len(changePkScript))
+
 	// The txn will sweep the amount after fees to the pkscript generated
 	// above.
-	if changeAmt >= dustLimit {
+	if changeAmt >= changeLimit {
 		sweepTx.AddTxOut(&wire.TxOut{
 			PkScript: changePkScript,
 			Value:    int64(changeAmt),
 		})
 	} else {
 		log.Infof("Change amt %v below dustlimit %v, not adding "+
-			"change output", changeAmt, dustLimit)
+			"change output", changeAmt, changeLimit)
 	}
 
 	// We'll default to using the current block height as locktime, if none

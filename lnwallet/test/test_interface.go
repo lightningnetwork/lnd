@@ -446,7 +446,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	}
 	aliceChanReservation.SetNumConfsRequired(numReqConfs)
 	channelConstraints := &channeldb.ChannelConstraints{
-		DustLimit:        lnwallet.DefaultDustLimit(),
+		DustLimit:        alice.Cfg.DefaultConstraints.DustLimit,
 		ChanReserve:      fundingAmount / 100,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(fundingAmount),
 		MinHTLC:          1,
@@ -896,7 +896,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	}
 	aliceChanReservation.SetNumConfsRequired(numReqConfs)
 	channelConstraints := &channeldb.ChannelConstraints{
-		DustLimit:        lnwallet.DefaultDustLimit(),
+		DustLimit:        alice.Cfg.DefaultConstraints.DustLimit,
 		ChanReserve:      fundingAmt / 100,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(fundingAmt),
 		MinHTLC:          1,

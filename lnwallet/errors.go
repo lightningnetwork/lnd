@@ -152,6 +152,14 @@ func ErrChanTooLarge(chanSize, maxChanSize btcutil.Amount) ReservationError {
 	}
 }
 
+// ErrInvalidDustLimit returns an error indicating that a proposed DustLimit
+// was rejected.
+func ErrInvalidDustLimit(dustLimit btcutil.Amount) ReservationError {
+	return ReservationError{
+		fmt.Errorf("dust limit %v is invalid", dustLimit),
+	}
+}
+
 // ErrHtlcIndexAlreadyFailed is returned when the HTLC index has already been
 // failed, but has not been committed by our commitment state.
 type ErrHtlcIndexAlreadyFailed uint64

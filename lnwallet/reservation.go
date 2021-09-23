@@ -394,7 +394,7 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 // will also attempt to verify the constraints for sanity, returning an error
 // if the parameters are seemed unsound.
 func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
-	maxLocalCSVDelay uint16) error {
+	maxLocalCSVDelay uint16, responder bool) error {
 	r.Lock()
 	defer r.Unlock()
 
@@ -407,6 +407,13 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
 	// limit. The reservation request should be denied if otherwise.
 	if c.DustLimit > c.ChanReserve {
 		return ErrChanReserveTooSmall(c.ChanReserve, c.DustLimit)
+	}
+
+	// Validate against the maximum-sized witness script dust limit, and
+	// also ensure that the DustLimit is not too large.
+	maxWitnessLimit := DustLimitForSize(input.UnknownWitnessSize)
+	if c.DustLimit < maxWitnessLimit || c.DustLimit > 3*maxWitnessLimit {
+		return ErrInvalidDustLimit(c.DustLimit)
 	}
 
 	// Fail if we consider the channel reserve to be too large.  We
@@ -449,7 +456,7 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
 
 	// Our dust limit should always be less than or equal to our proposed
 	// channel reserve.
-	if r.ourContribution.DustLimit > c.ChanReserve {
+	if responder && r.ourContribution.DustLimit > c.ChanReserve {
 		r.ourContribution.DustLimit = c.ChanReserve
 	}
 
@@ -460,6 +467,31 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
 	r.ourContribution.CsvDelay = c.CsvDelay
 
 	return nil
+}
+
+// validateReserveBounds checks that both ChannelReserve values are above both
+// DustLimit values. This not only avoids stuck channels, but is also mandated
+// by BOLT#02 even if it's not explicit. This returns true if the bounds are
+// valid. This function should be called with the lock held.
+func (r *ChannelReservation) validateReserveBounds() bool {
+	ourDustLimit := r.ourContribution.DustLimit
+	ourRequiredReserve := r.ourContribution.ChanReserve
+	theirDustLimit := r.theirContribution.DustLimit
+	theirRequiredReserve := r.theirContribution.ChanReserve
+
+	// We take the smaller of the two ChannelReserves and compare it
+	// against the larger of the two DustLimits.
+	minChanReserve := ourRequiredReserve
+	if minChanReserve > theirRequiredReserve {
+		minChanReserve = theirRequiredReserve
+	}
+
+	maxDustLimit := ourDustLimit
+	if maxDustLimit < theirDustLimit {
+		maxDustLimit = theirDustLimit
+	}
+
+	return minChanReserve >= maxDustLimit
 }
 
 // OurContribution returns the wallet's fully populated contribution to the

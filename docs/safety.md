@@ -20,7 +20,8 @@
   - [Prevent data corruption](#prevent-data-corruption)
   - [Don't interrupt `lncli` commands](#dont-interrupt-lncli-commands)
   - [Regular accounting/monitoring](#regular-accountingmonitoring)
-  - [Pruned bitcoind node](#pruned-bitcoind-node)
+  - [The `-txindex` flag](#the--txindex-flag)
+  - [Running multiple lnd nodes](#running-multiple-lnd-nodes)
   - [The `--noseedbackup` flag](#the---noseedbackup-flag)
   
 ## Overview
@@ -415,20 +416,13 @@ Regular monitoring of a node and keeping track of the movement of funds can help
 prevent problems. Tools like [`lndmon`](https://github.com/lightninglabs/lndmon)
 can assist with these tasks.
 
-### Pruned bitcoind node
-
-Running `lnd` connected to a `bitcoind` node that is running in prune mode is
-not supported! `lnd` needs to verify the funding transaction of every channel
-in the network and be able to retrieve that information from `bitcoind` which
-it cannot deliver when that information is pruned away.
-
-In theory pruning away all blocks _before_ the SegWit activation would work
-as LN channels rely on SegWit. But this has neither been tested nor would it
-be recommended/supported.
+### The `-txindex` flag
 
 In addition to not running a pruned node, it is recommended to run `bitcoind`
 with the `-txindex` flag for performance reasons, though this is not strictly
 required.
+
+### Running multiple lnd nodes
 
 Multiple `lnd` nodes can run off of a single `bitcoind` instance. There will be
 connection/thread/performance limits at some number of `lnd` nodes but in

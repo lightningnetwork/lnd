@@ -36,10 +36,8 @@ func (n *NodeSigner) SignMessage(pubKey *btcec.PublicKey,
 		return nil, fmt.Errorf("unknown public key")
 	}
 
-	// Otherwise, we'll sign the dsha256 of the target message.
-	var digest [32]byte
-	copy(digest[:], chainhash.DoubleHashB(msg))
-	sig, err := n.keySigner.SignDigest(digest)
+	// Otherwise, we'll sign the double-sha256 of the target message.
+	sig, err := n.keySigner.SignMessage(msg, true)
 	if err != nil {
 		return nil, fmt.Errorf("can't sign the message: %v", err)
 	}

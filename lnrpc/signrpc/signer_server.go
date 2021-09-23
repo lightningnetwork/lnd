@@ -446,7 +446,7 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 
 // SignMessage signs a message with the key specified in the key locator. The
 // returned signature is fixed-size LN wire format encoded.
-func (s *Server) SignMessage(ctx context.Context,
+func (s *Server) SignMessage(_ context.Context,
 	in *SignMessageReq) (*SignMessageResp, error) {
 
 	if in.Msg == nil {
@@ -464,13 +464,11 @@ func (s *Server) SignMessage(ctx context.Context,
 		},
 	}
 
-	// The signature is over the sha256 hash of the message.
-	var digest [32]byte
-	copy(digest[:], chainhash.HashB(in.Msg))
-
 	// Create the raw ECDSA signature first and convert it to the final wire
 	// format after.
-	sig, err := s.cfg.KeyRing.SignDigest(keyDescriptor, digest)
+	sig, err := s.cfg.KeyRing.SignMessage(
+		keyDescriptor, in.Msg, in.DoubleHash,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("can't sign the hash: %v", err)
 	}

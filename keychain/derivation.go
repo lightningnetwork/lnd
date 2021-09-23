@@ -191,10 +191,10 @@ type SecretKeyRing interface {
 // DigestSignerRing is an interface that abstracts away basic low-level ECDSA
 // signing on keys within a key ring.
 type DigestSignerRing interface {
-	// SignDigest signs the given SHA256 message digest with the private key
-	// described in the key descriptor.
-	SignDigest(keyDesc KeyDescriptor, digest [32]byte) (*btcec.Signature,
-		error)
+	// SignMessage signs the given message, single or double SHA256 hashing
+	// it first, with the private key described in the key descriptor.
+	SignMessage(keyDesc KeyDescriptor, message []byte,
+		doubleHash bool) (*btcec.Signature, error)
 
 	// SignDigestCompact signs the given SHA256 message digest with the
 	// private key described in the key descriptor and returns the signature
@@ -209,9 +209,9 @@ type SingleKeyDigestSigner interface {
 	// PubKey returns the public key of the wrapped private key.
 	PubKey() *btcec.PublicKey
 
-	// SignDigest signs the given SHA256 message digest with the wrapped
-	// private key.
-	SignDigest(digest [32]byte) (*btcec.Signature, error)
+	// SignMessage signs the given message, single or double SHA256 hashing
+	// it first, with the wrapped private key.
+	SignMessage(message []byte, doubleHash bool) (*btcec.Signature, error)
 
 	// SignDigestCompact signs the given SHA256 message digest with the
 	// wrapped private key and returns the signature in the compact, public

@@ -917,8 +917,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	// Now we have created all dependencies necessary to populate and
 	// start the RPC server.
 	err = rpcServer.addDeps(
-		server, macaroonService, cfg.SubRPCServers, atplManager,
-		server.invoices, tower, chainedAcceptor,
+		server, interceptorChain.MacaroonService(), cfg.SubRPCServers,
+		atplManager, server.invoices, tower, chainedAcceptor,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to add deps to RPC server: %v", err)

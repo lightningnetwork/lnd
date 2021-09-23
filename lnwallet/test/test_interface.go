@@ -454,7 +454,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 		CsvDelay:         csvDelay,
 	}
 	err = aliceChanReservation.CommitConstraints(
-		channelConstraints, defaultMaxLocalCsvDelay,
+		channelConstraints, defaultMaxLocalCsvDelay, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to verify constraints: %v", err)
@@ -490,7 +490,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 		t.Fatalf("bob unable to init channel reservation: %v", err)
 	}
 	err = bobChanReservation.CommitConstraints(
-		channelConstraints, defaultMaxLocalCsvDelay,
+		channelConstraints, defaultMaxLocalCsvDelay, true,
 	)
 	if err != nil {
 		t.Fatalf("unable to verify constraints: %v", err)
@@ -904,7 +904,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 		CsvDelay:         csvDelay,
 	}
 	err = aliceChanReservation.CommitConstraints(
-		channelConstraints, defaultMaxLocalCsvDelay,
+		channelConstraints, defaultMaxLocalCsvDelay, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to verify constraints: %v", err)
@@ -947,7 +947,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 		t.Fatalf("unable to create bob reservation: %v", err)
 	}
 	err = bobChanReservation.CommitConstraints(
-		channelConstraints, defaultMaxLocalCsvDelay,
+		channelConstraints, defaultMaxLocalCsvDelay, true,
 	)
 	if err != nil {
 		t.Fatalf("unable to verify constraints: %v", err)

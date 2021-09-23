@@ -31,11 +31,12 @@ func main() {
 		// Help was requested, exit normally.
 		os.Exit(0)
 	}
+	implCfg := loadedConfig.ImplementationConfig()
 
 	// Call the "real" main in a nested manner so the defers will properly
 	// be executed in the case of a graceful shutdown.
 	if err = lnd.Main(
-		loadedConfig, lnd.ListenerCfg{}, shutdownInterceptor,
+		loadedConfig, lnd.ListenerCfg{}, implCfg, shutdownInterceptor,
 	); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

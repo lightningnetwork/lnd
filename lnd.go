@@ -122,51 +122,6 @@ func AdminAuthOptions(cfg *Config, skipMacaroons bool) ([]grpc.DialOption, error
 	return opts, nil
 }
 
-// GrpcRegistrar is an interface that must be satisfied by an external subserver
-// that wants to be able to register its own gRPC server onto lnd's main
-// grpc.Server instance.
-type GrpcRegistrar interface {
-	// RegisterGrpcSubserver is called for each net.Listener on which lnd
-	// creates a grpc.Server instance. External subservers implementing this
-	// method can then register their own gRPC server structs to the main
-	// server instance.
-	RegisterGrpcSubserver(*grpc.Server) error
-}
-
-// RestRegistrar is an interface that must be satisfied by an external subserver
-// that wants to be able to register its own REST mux onto lnd's main
-// proxy.ServeMux instance.
-type RestRegistrar interface {
-	// RegisterRestSubserver is called after lnd creates the main
-	// proxy.ServeMux instance. External subservers implementing this method
-	// can then register their own REST proxy stubs to the main server
-	// instance.
-	RegisterRestSubserver(context.Context, *proxy.ServeMux, string,
-		[]grpc.DialOption) error
-}
-
-// RPCSubserverConfig is a struct that can be used to register an external
-// subserver with the custom permissions that map to the gRPC server that is
-// going to be registered with the GrpcRegistrar.
-type RPCSubserverConfig struct {
-	// Registrar is a callback that is invoked for each net.Listener on
-	// which lnd creates a grpc.Server instance.
-	Registrar GrpcRegistrar
-
-	// Permissions is the permissions required for the external subserver.
-	// It is a map between the full HTTP URI of each RPC and its required
-	// macaroon permissions. If multiple action/entity tuples are specified
-	// per URI, they are all required. See rpcserver.go for a list of valid
-	// action and entity values.
-	Permissions map[string][]bakery.Op
-
-	// MacaroonValidator is a custom macaroon validator that should be used
-	// instead of the default lnd validator. If specified, the custom
-	// validator is used for all URIs specified in the above Permissions
-	// map.
-	MacaroonValidator macaroons.MacaroonValidator
-}
-
 // ListenerWithSignal is a net.Listener that has an additional Ready channel that
 // will be closed when a server starts listening.
 type ListenerWithSignal struct {
@@ -187,14 +142,6 @@ type ListenerCfg struct {
 	// RPCListeners can be set to the listeners to use for the RPC server.
 	// If empty a regular network listener will be created.
 	RPCListeners []*ListenerWithSignal
-
-	// ExternalRPCSubserverCfg is optional and specifies the registration
-	// callback and permissions to register external gRPC subservers.
-	ExternalRPCSubserverCfg *RPCSubserverConfig
-
-	// ExternalRestRegistrar is optional and specifies the registration
-	// callback to register external REST subservers.
-	ExternalRestRegistrar RestRegistrar
 }
 
 var errStreamIsolationWithProxySkip = errors.New(
@@ -205,7 +152,9 @@ var errStreamIsolationWithProxySkip = errors.New(
 // validated main configuration struct and an optional listener config struct.
 // This function starts all main system components then blocks until a signal
 // is received on the shutdownChan at which point everything is shut down again.
-func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error {
+func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
+	interceptor signal.Interceptor) error {
+
 	defer func() {
 		ltndLog.Info("Shutdown complete\n")
 		err := cfg.LogWriter.Close()
@@ -387,12 +336,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
-	rpcServer := newRPCServer(
-		cfg, interceptorChain, lisCfg.ExternalRPCSubserverCfg,
-		lisCfg.ExternalRestRegistrar,
-		interceptor,
-	)
-
+	rpcServer := newRPCServer(cfg, interceptorChain, implCfg, interceptor)
 	err = rpcServer.RegisterWithGrpcServer(grpcServer)
 	if err != nil {
 		return err

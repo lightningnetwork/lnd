@@ -219,11 +219,20 @@ type ChainControl struct {
 	// handles all of the lightning operations.
 	Wallet *lnwallet.LightningWallet
 
+	// ChainSource is the primary chain interface. This is used to operate
+	// the wallet and do things such as rescanning, sending transactions,
+	// notifications for received funds, etc.
+	ChainSource chain.Interface
+
 	// RoutingPolicy is the routing policy we have decided to use.
 	RoutingPolicy htlcswitch.ForwardingPolicy
 
 	// MinHtlcIn is the minimum HTLC we will accept.
 	MinHtlcIn lnwire.MilliSatoshi
+
+	// ChannelConstraints is the set of default constraints that will be
+	// used for any incoming or outgoing channel reservation requests.
+	ChannelConstraints channeldb.ChannelConstraints
 }
 
 // GenDefaultBtcChannelConstraints generates the default set of channel
@@ -286,18 +295,6 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 			"unknown", cfg.PrimaryChain())
 	}
 
-	walletConfig := &btcwallet.Config{
-		PrivatePass:           cfg.PrivateWalletPw,
-		PublicPass:            cfg.PublicWalletPw,
-		Birthday:              cfg.Birthday,
-		RecoveryWindow:        cfg.RecoveryWindow,
-		NetParams:             cfg.ActiveNetParams.Params,
-		CoinType:              cfg.ActiveNetParams.CoinType,
-		Wallet:                cfg.Wallet,
-		LoaderOptions:         cfg.LoaderOptions,
-		CoinSelectionStrategy: cfg.CoinSelectionStrategy,
-	}
-
 	var err error
 
 	heightHintCacheConfig := chainntnfs.CacheConfig{
@@ -345,13 +342,13 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 			cfg.FeeURL = cfg.NeutrinoMode.FeeURL
 		}
 
-		walletConfig.ChainSource = chain.NewNeutrinoClient(
+		cc.ChainSource = chain.NewNeutrinoClient(
 			cfg.ActiveNetParams.Params, cfg.NeutrinoCS,
 		)
 
 		// Get our best block as a health check.
 		cc.HealthCheck = func() error {
-			_, _, err := walletConfig.ChainSource.GetBestBlock()
+			_, _, err := cc.ChainSource.GetBestBlock()
 			return err
 		}
 
@@ -435,7 +432,7 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 		cc.ChainView = chainview.NewBitcoindFilteredChainView(
 			bitcoindConn, cfg.BlockCache,
 		)
-		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient()
+		cc.ChainSource = bitcoindConn.NewBitcoindClient()
 
 		// If we're not in regtest mode, then we'll attempt to use a
 		// proper fee estimator for testnet.
@@ -586,11 +583,11 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 			return nil, nil, err
 		}
 
-		walletConfig.ChainSource = chainRPC
+		cc.ChainSource = chainRPC
 
 		// Use a query for our best block as a health check.
 		cc.HealthCheck = func() error {
-			_, _, err := walletConfig.ChainSource.GetBestBlock()
+			_, _, err := cc.ChainSource.GetBestBlock()
 			return err
 		}
 
@@ -664,6 +661,25 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 		return nil, nil, err
 	}
 
+	// Select the default channel constraints for the primary chain.
+	cc.ChannelConstraints = GenDefaultBtcConstraints()
+	if cfg.PrimaryChain() == LitecoinChain {
+		cc.ChannelConstraints = DefaultLtcChannelConstraints
+	}
+
+	walletConfig := &btcwallet.Config{
+		PrivatePass:           cfg.PrivateWalletPw,
+		PublicPass:            cfg.PublicWalletPw,
+		Birthday:              cfg.Birthday,
+		RecoveryWindow:        cfg.RecoveryWindow,
+		NetParams:             cfg.ActiveNetParams.Params,
+		CoinType:              cfg.ActiveNetParams.CoinType,
+		Wallet:                cfg.Wallet,
+		LoaderOptions:         cfg.LoaderOptions,
+		CoinSelectionStrategy: cfg.CoinSelectionStrategy,
+		ChainSource:           cc.ChainSource,
+	}
+
 	wc, err := btcwallet.New(*walletConfig, cfg.BlockCache)
 	if err != nil {
 		fmt.Printf("unable to create wallet controller: %v\n", err)
@@ -674,12 +690,6 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 	cc.Signer = wc
 	cc.ChainIO = wc
 	cc.Wc = wc
-
-	// Select the default channel constraints for the primary chain.
-	channelConstraints := GenDefaultBtcConstraints()
-	if cfg.PrimaryChain() == LitecoinChain {
-		channelConstraints = DefaultLtcChannelConstraints
-	}
 
 	keyRing := keychain.NewBtcWalletKeyRing(
 		wc.InternalWallet(), cfg.ActiveNetParams.CoinType,
@@ -696,7 +706,7 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 		FeeEstimator:       cc.FeeEstimator,
 		SecretKeyRing:      keyRing,
 		ChainIO:            cc.ChainIO,
-		DefaultConstraints: channelConstraints,
+		DefaultConstraints: cc.ChannelConstraints,
 		NetParams:          *cfg.ActiveNetParams.Params,
 	}
 	lnWallet, err := lnwallet.NewLightningWallet(walletCfg)

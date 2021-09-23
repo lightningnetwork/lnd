@@ -445,7 +445,7 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
 func newServer(cfg *Config, listenAddrs []net.Addr,
-	dbs *databaseInstances, cc *chainreg.ChainControl,
+	dbs *DatabaseInstances, cc *chainreg.ChainControl,
 	nodeKeyDesc *keychain.KeyDescriptor,
 	chansToRestore walletunlocker.ChannelsToRecover,
 	chanPredicate chanacceptor.ChannelAcceptor,
@@ -480,7 +480,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	// Initialize the sphinx router.
 	replayLog := htlcswitch.NewDecayedLog(
-		dbs.decayedLogDB, cc.ChainNotifier,
+		dbs.DecayedLogDB, cc.ChainNotifier,
 	)
 	sphinxRouter := sphinx.NewRouter(
 		nodeKeyECDH, cfg.ActiveNetParams.Params, replayLog,
@@ -527,10 +527,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s := &server{
 		cfg:            cfg,
-		graphDB:        dbs.graphDB.ChannelGraph(),
-		chanStateDB:    dbs.chanStateDB.ChannelStateDB(),
-		addrSource:     dbs.chanStateDB,
-		miscDB:         dbs.chanStateDB,
+		graphDB:        dbs.GraphDB.ChannelGraph(),
+		chanStateDB:    dbs.ChanStateDB.ChannelStateDB(),
+		addrSource:     dbs.ChanStateDB,
+		miscDB:         dbs.ChanStateDB,
 		cc:             cc,
 		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
 		writePool:      writePool,
@@ -538,7 +538,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		chansToRestore: chansToRestore,
 
 		channelNotifier: channelnotifier.New(
-			dbs.chanStateDB.ChannelStateDB(),
+			dbs.ChanStateDB.ChannelStateDB(),
 		),
 
 		identityECDH:   nodeKeyECDH,
@@ -573,7 +573,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.witnessBeacon = &preimageBeacon{
-		wCache:      dbs.chanStateDB.NewWitnessCache(),
+		wCache:      dbs.ChanStateDB.NewWitnessCache(),
 		subscribers: make(map[uint64]*preimageSubscriber),
 	}
 
@@ -587,7 +587,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		uint32(currentHeight), currentHash, cc.ChainNotifier,
 	)
 	s.invoices = invoices.NewRegistry(
-		dbs.chanStateDB, expiryWatcher, &registryConfig,
+		dbs.ChanStateDB, expiryWatcher, &registryConfig,
 	)
 
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
@@ -596,7 +596,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	thresholdMSats := lnwire.NewMSatFromSatoshis(thresholdSats)
 
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
-		DB:                   dbs.chanStateDB,
+		DB:                   dbs.ChanStateDB,
 		FetchAllOpenChannels: s.chanStateDB.FetchAllOpenChannels,
 		FetchClosedChannels:  s.chanStateDB.FetchClosedChannels,
 		LocalChannelClose: func(pubKey []byte,
@@ -613,7 +613,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 			peer.HandleLocalCloseChanReqs(request)
 		},
-		FwdingLog:              dbs.chanStateDB.ForwardingLog(),
+		FwdingLog:              dbs.ChanStateDB.ForwardingLog(),
 		SwitchPackager:         channeldb.NewSwitchPackager(),
 		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
@@ -643,7 +643,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		IsChannelActive:          s.htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
 		DB:                       s.chanStateDB,
-		Graph:                    dbs.graphDB.ChannelGraph(),
+		Graph:                    dbs.GraphDB.ChannelGraph(),
 	}
 
 	chanStatusMgr, err := netann.NewChanStatusManager(chanStatusMgrCfg)
@@ -735,7 +735,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	// As the graph can be obtained at anytime from the network, we won't
 	// replicate it, and instead it'll only be stored locally.
-	chanGraph := dbs.graphDB.ChannelGraph()
+	chanGraph := dbs.GraphDB.ChannelGraph()
 
 	// We'll now reconstruct a node announcement based on our current
 	// configuration so we can send it out as a sort of heart beat within
@@ -802,7 +802,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	// The router will get access to the payment ID sequencer, such that it
 	// can generate unique payment IDs.
-	sequencer, err := htlcswitch.NewPersistentSequencer(dbs.chanStateDB)
+	sequencer, err := htlcswitch.NewPersistentSequencer(dbs.ChanStateDB)
 	if err != nil {
 		return nil, err
 	}
@@ -847,7 +847,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.missionControl, err = routing.NewMissionControl(
-		dbs.chanStateDB, selfNode.PubKeyBytes,
+		dbs.ChanStateDB, selfNode.PubKeyBytes,
 		&routing.MissionControlConfig{
 			ProbabilityEstimatorCfg: estimatorCfg,
 			MaxMcHistory:            routingConfig.MaxMcHistory,
@@ -884,7 +884,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PathFindingConfig: pathFindingConfig,
 	}
 
-	paymentControl := channeldb.NewPaymentControl(dbs.chanStateDB)
+	paymentControl := channeldb.NewPaymentControl(dbs.ChanStateDB)
 
 	s.controlTower = routing.NewControlTower(paymentControl)
 
@@ -914,11 +914,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	chanSeries := discovery.NewChanSeries(s.graphDB)
-	gossipMessageStore, err := discovery.NewMessageStore(dbs.chanStateDB)
+	gossipMessageStore, err := discovery.NewMessageStore(dbs.ChanStateDB)
 	if err != nil {
 		return nil, err
 	}
-	waitingProofStore, err := channeldb.NewWaitingProofStore(dbs.chanStateDB)
+	waitingProofStore, err := channeldb.NewWaitingProofStore(dbs.ChanStateDB)
 	if err != nil {
 		return nil, err
 	}
@@ -960,7 +960,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	utxnStore, err := contractcourt.NewNurseryStore(
-		s.cfg.ActiveNetParams.GenesisHash, dbs.chanStateDB,
+		s.cfg.ActiveNetParams.GenesisHash, dbs.ChanStateDB,
 	)
 	if err != nil {
 		srvrLog.Errorf("unable to create nursery store: %v", err)
@@ -971,7 +971,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		sweep.DefaultBatchWindowDuration)
 
 	sweeperStore, err := sweep.NewSweeperStore(
-		dbs.chanStateDB, s.cfg.ActiveNetParams.GenesisHash,
+		dbs.ChanStateDB, s.cfg.ActiveNetParams.GenesisHash,
 	)
 	if err != nil {
 		srvrLog.Errorf("unable to create sweeper store: %v", err)
@@ -1121,7 +1121,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PaymentsExpirationGracePeriod: cfg.PaymentsExpirationGracePeriod,
 		IsForwardedHTLC:               s.htlcSwitch.IsForwardedHTLC,
 		Clock:                         clock.NewDefaultClock(),
-	}, dbs.chanStateDB)
+	}, dbs.ChanStateDB)
 
 	s.breachArbiter = contractcourt.NewBreachArbiter(&contractcourt.BreachConfig{
 		CloseLink:          closeLink,
@@ -1133,7 +1133,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		ContractBreaches:   contractBreaches,
 		Signer:             cc.Wallet.Cfg.Signer,
 		Store: contractcourt.NewRetributionStore(
-			dbs.chanStateDB,
+			dbs.ChanStateDB,
 		),
 	})
 
@@ -1347,7 +1347,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// static backup of the latest channel state.
 	chanNotifier := &channelNotifier{
 		chanNotifier: s.channelNotifier,
-		addrs:        dbs.chanStateDB,
+		addrs:        dbs.ChanStateDB,
 	}
 	backupFile := chanbackup.NewMultiFile(cfg.BackupFilePath)
 	startingChans, err := chanbackup.FetchStaticChanBackups(
@@ -1415,7 +1415,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			SecretKeyRing:  s.cc.KeyRing,
 			Dial:           cfg.net.Dial,
 			AuthDial:       authDial,
-			DB:             dbs.towerClientDB,
+			DB:             dbs.TowerClientDB,
 			Policy:         policy,
 			ChainHash:      *s.cfg.ActiveNetParams.GenesisHash,
 			MinBackoff:     10 * time.Second,
@@ -1438,7 +1438,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			SecretKeyRing:  s.cc.KeyRing,
 			Dial:           cfg.net.Dial,
 			AuthDial:       authDial,
-			DB:             dbs.towerClientDB,
+			DB:             dbs.TowerClientDB,
 			Policy:         anchorPolicy,
 			ChainHash:      *s.cfg.ActiveNetParams.GenesisHash,
 			MinBackoff:     10 * time.Second,

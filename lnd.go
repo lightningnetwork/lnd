@@ -22,7 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wallet"
@@ -45,7 +44,6 @@ import (
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -57,8 +55,6 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/lightningnetwork/lnd/watchtower"
-	"github.com/lightningnetwork/lnd/watchtower/wtclient"
-	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
 const (
@@ -409,7 +405,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		ltndLog.Infof("Elected as leader (%v)", cfg.Cluster.ID)
 	}
 
-	dbs, cleanUp, err := initializeDatabases(ctx, cfg)
+	dbs, cleanUp, err := implCfg.DatabaseBuilder.BuildDatabase(ctx)
 	switch {
 	case err == channeldb.ErrDryRunMigrationOK:
 		ltndLog.Infof("%v, exiting", err)
@@ -420,8 +416,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	defer cleanUp()
 
-	pwService.SetLoaderOpts([]btcwallet.LoaderOption{dbs.walletDB})
-	pwService.SetMacaroonDB(dbs.macaroonDB)
+	pwService.SetLoaderOpts([]btcwallet.LoaderOption{dbs.WalletDB})
+	pwService.SetMacaroonDB(dbs.MacaroonDB)
 	walletExists, err := pwService.WalletExists()
 	if err != nil {
 		return err
@@ -500,7 +496,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		}
 
 		params, err := waitForWalletPassword(
-			cfg, pwService, []btcwallet.LoaderOption{dbs.walletDB},
+			cfg, pwService, []btcwallet.LoaderOption{dbs.WalletDB},
 			interceptor.ShutdownChannel(),
 		)
 		if err != nil {
@@ -530,7 +526,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	if !cfg.NoMacaroons {
 		// Create the macaroon authentication/authorization service.
 		macaroonService, err = macaroons.NewService(
-			dbs.macaroonDB, "lnd", walletInitParams.StatelessInit,
+			dbs.MacaroonDB, "lnd", walletInitParams.StatelessInit,
 			macaroons.IPLockChecker,
 			macaroons.CustomChecker(interceptorChain),
 		)
@@ -660,8 +656,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		LitecoindMode:               cfg.LitecoindMode,
 		BtcdMode:                    cfg.BtcdMode,
 		LtcdMode:                    cfg.LtcdMode,
-		HeightHintDB:                dbs.heightHintDB,
-		ChanStateDB:                 dbs.chanStateDB.ChannelStateDB(),
+		HeightHintDB:                dbs.HeightHintDB,
+		ChanStateDB:                 dbs.ChanStateDB.ChannelStateDB(),
 		NeutrinoCS:                  neutrinoCS,
 		ActiveNetParams:             cfg.ActiveNetParams,
 		FeeURL:                      cfg.FeeURL,
@@ -695,7 +691,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		NetParams:      cfg.ActiveNetParams.Params,
 		CoinType:       cfg.ActiveNetParams.CoinType,
 		Wallet:         walletInitParams.Wallet,
-		LoaderOptions:  []btcwallet.LoaderOption{dbs.walletDB},
+		LoaderOptions:  []btcwallet.LoaderOption{dbs.WalletDB},
 	}
 
 	// Parse coin selection strategy.
@@ -797,7 +793,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 		wtCfg := &watchtower.Config{
 			BlockFetcher:   activeChainControl.ChainIO,
-			DB:             dbs.towerServerDB,
+			DB:             dbs.TowerServerDB,
 			EpochRegistrar: activeChainControl.ChainNotifier,
 			Net:            cfg.net,
 			NewAddress: func() (btcutil.Address, error) {
@@ -1558,163 +1554,6 @@ func waitForWalletPassword(cfg *Config,
 	case <-shutdownChan:
 		return nil, fmt.Errorf("shutting down")
 	}
-}
-
-// databaseInstances is a struct that holds all instances to the actual
-// databases that are used in lnd.
-type databaseInstances struct {
-	graphDB       *channeldb.DB
-	chanStateDB   *channeldb.DB
-	heightHintDB  kvdb.Backend
-	macaroonDB    kvdb.Backend
-	decayedLogDB  kvdb.Backend
-	towerClientDB wtclient.DB
-	towerServerDB watchtower.DB
-	walletDB      btcwallet.LoaderOption
-}
-
-// initializeDatabases extracts the current databases that we'll use for normal
-// operation in the daemon. A function closure that closes all opened databases
-// is also returned.
-func initializeDatabases(ctx context.Context,
-	cfg *Config) (*databaseInstances, func(), error) {
-
-	ltndLog.Infof("Opening the main database, this might take a few " +
-		"minutes...")
-
-	if cfg.DB.Backend == lncfg.BoltBackend {
-		ltndLog.Infof("Opening bbolt database, sync_freelist=%v, "+
-			"auto_compact=%v", !cfg.DB.Bolt.NoFreelistSync,
-			cfg.DB.Bolt.AutoCompact)
-	}
-
-	startOpenTime := time.Now()
-
-	databaseBackends, err := cfg.DB.GetBackends(
-		ctx, cfg.graphDatabaseDir(), cfg.networkDir, filepath.Join(
-			cfg.Watchtower.TowerDir,
-			cfg.registeredChains.PrimaryChain().String(),
-			lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
-		), cfg.WtClient.Active, cfg.Watchtower.Active,
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to obtain database "+
-			"backends: %v", err)
-	}
-
-	// With the full remote mode we made sure both the graph and channel
-	// state DB point to the same local or remote DB and the same namespace
-	// within that DB.
-	dbs := &databaseInstances{
-		heightHintDB: databaseBackends.HeightHintDB,
-		macaroonDB:   databaseBackends.MacaroonDB,
-		decayedLogDB: databaseBackends.DecayedLogDB,
-		walletDB:     databaseBackends.WalletDB,
-	}
-	cleanUp := func() {
-		// We can just close the returned close functions directly. Even
-		// if we decorate the channel DB with an additional struct, its
-		// close function still just points to the kvdb backend.
-		for name, closeFunc := range databaseBackends.CloseFuncs {
-			if err := closeFunc(); err != nil {
-				ltndLog.Errorf("Error closing %s "+
-					"database: %v", name, err)
-			}
-		}
-	}
-	if databaseBackends.Remote {
-		ltndLog.Infof("Using remote %v database! Creating "+
-			"graph and channel state DB instances", cfg.DB.Backend)
-	} else {
-		ltndLog.Infof("Creating local graph and channel state DB " +
-			"instances")
-	}
-
-	dbOptions := []channeldb.OptionModifier{
-		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
-		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
-		channeldb.OptionSetBatchCommitInterval(cfg.DB.BatchCommitInterval),
-		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
-	}
-
-	// We want to pre-allocate the channel graph cache according to what we
-	// expect for mainnet to speed up memory allocation.
-	if cfg.ActiveNetParams.Name == chaincfg.MainNetParams.Name {
-		dbOptions = append(
-			dbOptions, channeldb.OptionSetPreAllocCacheNumNodes(
-				channeldb.DefaultPreAllocCacheNumNodes,
-			),
-		)
-	}
-
-	// Otherwise, we'll open two instances, one for the state we only need
-	// locally, and the other for things we want to ensure are replicated.
-	dbs.graphDB, err = channeldb.CreateWithBackend(
-		databaseBackends.GraphDB, dbOptions...,
-	)
-	switch {
-	// Give the DB a chance to dry run the migration. Since we know that
-	// both the channel state and graph DBs are still always behind the same
-	// backend, we know this would be applied to both of those DBs.
-	case err == channeldb.ErrDryRunMigrationOK:
-		ltndLog.Infof("Graph DB dry run migration successful")
-		return nil, nil, err
-
-	case err != nil:
-		cleanUp()
-
-		err := fmt.Errorf("unable to open graph DB: %v", err)
-		ltndLog.Error(err)
-		return nil, nil, err
-	}
-
-	// For now, we don't _actually_ split the graph and channel state DBs on
-	// the code level. Since they both are based upon the *channeldb.DB
-	// struct it will require more refactoring to fully separate them. With
-	// the full remote mode we at least know for now that they both point to
-	// the same DB backend (and also namespace within that) so we only need
-	// to apply any migration once.
-	//
-	// TODO(guggero): Once the full separation of anything graph related
-	// from the channeldb.DB is complete, the decorated instance of the
-	// channel state DB should be created here individually instead of just
-	// using the same struct (and DB backend) instance.
-	dbs.chanStateDB = dbs.graphDB
-
-	// Wrap the watchtower client DB and make sure we clean up.
-	if cfg.WtClient.Active {
-		dbs.towerClientDB, err = wtdb.OpenClientDB(
-			databaseBackends.TowerClientDB,
-		)
-		if err != nil {
-			cleanUp()
-
-			err := fmt.Errorf("unable to open %s database: %v",
-				lncfg.NSTowerClientDB, err)
-			ltndLog.Error(err)
-			return nil, nil, err
-		}
-	}
-
-	// Wrap the watchtower server DB and make sure we clean up.
-	if cfg.Watchtower.Active {
-		dbs.towerServerDB, err = wtdb.OpenTowerDB(
-			databaseBackends.TowerServerDB,
-		)
-		if err != nil {
-			cleanUp()
-
-			err := fmt.Errorf("unable to open %s database: %v",
-				lncfg.NSTowerServerDB, err)
-			ltndLog.Error(err)
-			return nil, nil, err
-		}
-	}
-
-	openTime := time.Since(startOpenTime)
-	ltndLog.Infof("Database(s) now open (time_to_open=%v)!", openTime)
-
-	return dbs, cleanUp, nil
 }
 
 // initNeutrinoBackend inits a new instance of the neutrino light client

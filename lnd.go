@@ -894,7 +894,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	// Set up an autopilot manager from the current config. This will be
 	// used to manage the underlying autopilot agent, starting and stopping
 	// it at will.
-	atplCfg, err := initAutoPilot(server, cfg.Autopilot, mainChain, cfg.ActiveNetParams)
+	atplCfg, err := initAutoPilot(
+		server, cfg.Autopilot, activeChainControl.MinHtlcIn,
+		cfg.ActiveNetParams,
+	)
 	if err != nil {
 		err := fmt.Errorf("unable to initialize autopilot: %v", err)
 		ltndLog.Error(err)

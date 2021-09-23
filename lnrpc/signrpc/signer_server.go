@@ -457,17 +457,15 @@ func (s *Server) SignMessage(_ context.Context,
 	}
 
 	// Describe the private key we'll be using for signing.
-	keyDescriptor := keychain.KeyDescriptor{
-		KeyLocator: keychain.KeyLocator{
-			Family: keychain.KeyFamily(in.KeyLoc.KeyFamily),
-			Index:  uint32(in.KeyLoc.KeyIndex),
-		},
+	keyLocator := keychain.KeyLocator{
+		Family: keychain.KeyFamily(in.KeyLoc.KeyFamily),
+		Index:  uint32(in.KeyLoc.KeyIndex),
 	}
 
 	// Create the raw ECDSA signature first and convert it to the final wire
 	// format after.
 	sig, err := s.cfg.KeyRing.SignMessage(
-		keyDescriptor, in.Msg, in.DoubleHash,
+		keyLocator, in.Msg, in.DoubleHash,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("can't sign the hash: %v", err)

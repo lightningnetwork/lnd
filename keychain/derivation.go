@@ -192,15 +192,15 @@ type SecretKeyRing interface {
 // signing on keys within a key ring.
 type MessageSignerRing interface {
 	// SignMessage signs the given message, single or double SHA256 hashing
-	// it first, with the private key described in the key descriptor.
-	SignMessage(keyDesc KeyDescriptor, message []byte,
+	// it first, with the private key described in the key locator.
+	SignMessage(keyLoc KeyLocator, msg []byte,
 		doubleHash bool) (*btcec.Signature, error)
 
 	// SignMessageCompact signs the given message, single or double SHA256
-	// hashing it first, with the private key described in the key
-	// descriptor and returns the signature in the compact, public key
-	// recoverable format.
-	SignMessageCompact(keyDesc KeyDescriptor, message []byte,
+	// hashing it first, with the private key described in the key locator
+	// and returns the signature in the compact, public key recoverable
+	// format.
+	SignMessageCompact(keyLoc KeyLocator, msg []byte,
 		doubleHash bool) ([]byte, error)
 }
 

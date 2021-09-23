@@ -449,10 +449,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	torController *tor.Controller) (*server, error) {
 
 	var (
-		err           error
-		nodeKeyECDH   = keychain.NewPubKeyECDH(*nodeKeyDesc, cc.KeyRing)
+		err         error
+		nodeKeyECDH = keychain.NewPubKeyECDH(*nodeKeyDesc, cc.KeyRing)
+
+		// We just derived the full descriptor, so we know the public
+		// key is set on it.
 		nodeKeySigner = keychain.NewPubKeyMessageSigner(
-			*nodeKeyDesc, cc.KeyRing,
+			nodeKeyDesc.PubKey, nodeKeyDesc.KeyLocator, cc.KeyRing,
 		)
 	)
 

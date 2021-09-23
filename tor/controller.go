@@ -122,6 +122,8 @@ func (c *Controller) Start() error {
 		return nil
 	}
 
+	log.Info("Starting tor controller")
+
 	conn, err := textproto.Dial("tcp", c.controlAddr)
 	if err != nil {
 		return fmt.Errorf("unable to connect to Tor server: %v", err)
@@ -138,6 +140,8 @@ func (c *Controller) Stop() error {
 		return nil
 	}
 
+	log.Info("Stopping tor controller")
+
 	return c.conn.Close()
 }
 
@@ -151,7 +155,12 @@ func (c *Controller) sendCommand(command string) (int, string, error) {
 	// We'll use ReadResponse as it has built-in support for multi-line
 	// text protocol responses.
 	code, reply, err := c.conn.Reader.ReadResponse(success)
+	log.Tracef("sendCommand: %v got <code:%v>, <reply:%v>",
+		command, code, reply)
+
 	if err != nil {
+		log.Debugf("sendCommand:%s got err:%v, reply:%v",
+			command, err, reply)
 		return code, reply, err
 	}
 

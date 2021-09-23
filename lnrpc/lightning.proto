@@ -1086,6 +1086,12 @@ message SignMessageRequest {
     base64.
     */
     bytes msg = 1;
+
+    /*
+    Instead of the default double-SHA256 hashing of the message before signing,
+    only use one round of hashing instead.
+    */
+    bool single_hash = 2;
 }
 message SignMessageResponse {
     // The signature for the given message

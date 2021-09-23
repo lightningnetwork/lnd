@@ -61,7 +61,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
 		btcec.S256(), channels.AlicesPrivKey,
 	)
-	aliceKeySigner := &keychain.PrivKeyDigestSigner{PrivKey: aliceKeyPriv}
+	aliceKeySigner := &keychain.PrivKeyMessageSigner{PrivKey: aliceKeyPriv}
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(
 		btcec.S256(), channels.BobsPrivKey,
 	)

@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -13,12 +12,12 @@ import (
 // NodeSigner is an implementation of the MessageSigner interface backed by the
 // identity private key of running lnd node.
 type NodeSigner struct {
-	keySigner keychain.SingleKeyDigestSigner
+	keySigner keychain.SingleKeyMessageSigner
 }
 
 // NewNodeSigner creates a new instance of the NodeSigner backed by the target
 // private key.
-func NewNodeSigner(keySigner keychain.SingleKeyDigestSigner) *NodeSigner {
+func NewNodeSigner(keySigner keychain.SingleKeyMessageSigner) *NodeSigner {
 	return &NodeSigner{
 		keySigner: keySigner,
 	}
@@ -45,29 +44,13 @@ func (n *NodeSigner) SignMessage(pubKey *btcec.PublicKey,
 	return sig, nil
 }
 
-// SignCompact signs a double-sha256 digest of the msg parameter under the
-// resident node's private key. The returned signature is a pubkey-recoverable
-// signature.
-func (n *NodeSigner) SignCompact(msg []byte) ([]byte, error) {
-	// We'll sign the dsha256 of the target message.
-	digest := chainhash.DoubleHashB(msg)
+// SignMessageCompact signs a single or double sha256 digest of the msg
+// parameter under the resident node's private key. The returned signature is a
+// pubkey-recoverable signature.
+func (n *NodeSigner) SignMessageCompact(msg []byte, doubleHash bool) ([]byte,
+	error) {
 
-	return n.SignDigestCompact(digest)
-}
-
-// SignDigestCompact signs the provided message digest under the resident
-// node's private key. The returned signature is a pubkey-recoverable signature.
-func (n *NodeSigner) SignDigestCompact(hash []byte) ([]byte, error) {
-	var digest [32]byte
-	copy(digest[:], hash)
-
-	// keychain.SignDigestCompact returns a pubkey-recoverable signature.
-	sig, err := n.keySigner.SignDigestCompact(digest)
-	if err != nil {
-		return nil, fmt.Errorf("can't sign the hash: %v", err)
-	}
-
-	return sig, nil
+	return n.keySigner.SignMessageCompact(msg, doubleHash)
 }
 
 // A compile time check to ensure that NodeSigner implements the MessageSigner

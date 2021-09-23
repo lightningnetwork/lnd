@@ -54,9 +54,15 @@ func (s *SecretKeyRing) SignMessage(_ keychain.KeyDescriptor,
 	return s.RootKey.Sign(digest)
 }
 
-// SignDigestCompact signs the passed digest.
-func (s *SecretKeyRing) SignDigestCompact(_ keychain.KeyDescriptor,
-	digest [32]byte) ([]byte, error) {
+// SignMessageCompact signs the passed message.
+func (s *SecretKeyRing) SignMessageCompact(_ keychain.KeyDescriptor,
+	msg []byte, doubleHash bool) ([]byte, error) {
 
-	return btcec.SignCompact(btcec.S256(), s.RootKey, digest[:], true)
+	var digest []byte
+	if doubleHash {
+		digest = chainhash.DoubleHashB(msg)
+	} else {
+		digest = chainhash.HashB(msg)
+	}
+	return btcec.SignCompact(btcec.S256(), s.RootKey, digest, true)
 }

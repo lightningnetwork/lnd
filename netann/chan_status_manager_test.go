@@ -310,7 +310,7 @@ func newManagerCfg(t *testing.T, numChannels int,
 	if err != nil {
 		t.Fatalf("unable to generate key pair: %v", err)
 	}
-	privKeySigner := &keychain.PrivKeyDigestSigner{PrivKey: privKey}
+	privKeySigner := &keychain.PrivKeyMessageSigner{PrivKey: privKey}
 
 	graph := newMockGraph(
 		t, numChannels, startEnabled, startEnabled, privKey.PubKey(),

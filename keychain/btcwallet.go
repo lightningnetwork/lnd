@@ -394,7 +394,7 @@ func (b *BtcWalletKeyRing) ECDH(keyDesc KeyDescriptor,
 // SignMessage signs the given message, single or double SHA256 hashing it
 // first, with the private key described in the key descriptor.
 //
-// NOTE: This is part of the keychain.DigestSignerRing interface.
+// NOTE: This is part of the keychain.MessageSignerRing interface.
 func (b *BtcWalletKeyRing) SignMessage(keyDesc KeyDescriptor,
 	msg []byte, doubleHash bool) (*btcec.Signature, error) {
 
@@ -412,17 +412,24 @@ func (b *BtcWalletKeyRing) SignMessage(keyDesc KeyDescriptor,
 	return privKey.Sign(digest)
 }
 
-// SignDigestCompact signs the given SHA256 message digest with the private key
-// described in the key descriptor and returns the signature in the compact,
-// public key recoverable format.
+// SignMessageCompact signs the given message, single or double SHA256 hashing
+// it first, with the private key described in the key descriptor and returns
+// the signature in the compact, public key recoverable format.
 //
-// NOTE: This is part of the keychain.DigestSignerRing interface.
-func (b *BtcWalletKeyRing) SignDigestCompact(keyDesc KeyDescriptor,
-	digest [32]byte) ([]byte, error) {
+// NOTE: This is part of the keychain.MessageSignerRing interface.
+func (b *BtcWalletKeyRing) SignMessageCompact(keyDesc KeyDescriptor,
+	msg []byte, doubleHash bool) ([]byte, error) {
 
 	privKey, err := b.DerivePrivKey(keyDesc)
 	if err != nil {
 		return nil, err
 	}
-	return btcec.SignCompact(btcec.S256(), privKey, digest[:], true)
+
+	var digest []byte
+	if doubleHash {
+		digest = chainhash.DoubleHashB(msg)
+	} else {
+		digest = chainhash.HashB(msg)
+	}
+	return btcec.SignCompact(btcec.S256(), privKey, digest, true)
 }

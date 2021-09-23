@@ -1522,7 +1522,7 @@ var (
 // SignMessage signs a message with the resident node's private key. The
 // returned signature string is zbase32 encoded and pubkey recoverable, meaning
 // that only the message digest and signature are needed for verification.
-func (r *rpcServer) SignMessage(ctx context.Context,
+func (r *rpcServer) SignMessage(_ context.Context,
 	in *lnrpc.SignMessageRequest) (*lnrpc.SignMessageResponse, error) {
 
 	if in.Msg == nil {
@@ -1530,7 +1530,9 @@ func (r *rpcServer) SignMessage(ctx context.Context,
 	}
 
 	in.Msg = append(signedMsgPrefix, in.Msg...)
-	sigBytes, err := r.server.nodeSigner.SignCompact(in.Msg)
+	sigBytes, err := r.server.nodeSigner.SignMessageCompact(
+		in.Msg, !in.SingleHash,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -451,7 +451,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	var (
 		err           error
 		nodeKeyECDH   = keychain.NewPubKeyECDH(*nodeKeyDesc, cc.KeyRing)
-		nodeKeySigner = keychain.NewPubKeyDigestSigner(
+		nodeKeySigner = keychain.NewPubKeyMessageSigner(
 			*nodeKeyDesc, cc.KeyRing,
 		)
 	)

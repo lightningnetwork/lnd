@@ -209,7 +209,7 @@ func serializeReport(w io.Writer, report *ResolverReport) error {
 }
 
 // FetchChannelReports fetches the set of reports for a channel.
-func (d DB) FetchChannelReports(chainHash chainhash.Hash,
+func (d *DB) FetchChannelReports(chainHash chainhash.Hash,
 	outPoint *wire.OutPoint) ([]*ResolverReport, error) {
 
 	var reports []*ResolverReport

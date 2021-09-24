@@ -88,6 +88,7 @@ type DatabaseBackend int
 const (
 	BackendBbolt DatabaseBackend = iota
 	BackendEtcd
+	BackendPostgres
 )
 
 // NewNetworkHarness creates a new network test harness.
@@ -756,7 +757,7 @@ func (n *NetworkHarness) DisconnectNodes(a, b *HarnessNode) error {
 func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error,
 	chanBackups ...*lnrpc.ChanBackupSnapshot) error {
 
-	err := n.RestartNodeNoUnlock(node, callback)
+	err := n.RestartNodeNoUnlock(node, callback, true)
 	if err != nil {
 		return err
 	}
@@ -794,7 +795,7 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error,
 // the callback parameter is non-nil, then the function will be executed after
 // the node shuts down, but *before* the process has been started up again.
 func (n *NetworkHarness) RestartNodeNoUnlock(node *HarnessNode,
-	callback func() error) error {
+	callback func() error, wait bool) error {
 
 	if err := node.stop(); err != nil {
 		return err
@@ -806,7 +807,7 @@ func (n *NetworkHarness) RestartNodeNoUnlock(node *HarnessNode,
 		}
 	}
 
-	return node.start(n.lndBinary, n.lndErrorChan, true)
+	return node.start(n.lndBinary, n.lndErrorChan, wait)
 }
 
 // SuspendNode stops the given node and returns a callback that can be used to
@@ -1263,56 +1264,52 @@ func (n *NetworkHarness) CloseChannel(lnNode *HarnessNode,
 		}
 	}
 
-	closeReq := &lnrpc.CloseChannelRequest{
-		ChannelPoint: cp,
-		Force:        force,
-	}
-	closeRespStream, err := lnNode.CloseChannel(ctx, closeReq)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to close channel: %v", err)
-	}
+	var (
+		closeRespStream lnrpc.Lightning_CloseChannelClient
+		closeTxid       *chainhash.Hash
+	)
 
-	errChan := make(chan error)
-	fin := make(chan *chainhash.Hash)
-	go func() {
-		// Consume the "channel close" update in order to wait for the closing
-		// transaction to be broadcast, then wait for the closing tx to be seen
-		// within the network.
+	err = wait.NoError(func() error {
+		closeReq := &lnrpc.CloseChannelRequest{
+			ChannelPoint: cp, Force: force,
+		}
+		closeRespStream, err = lnNode.CloseChannel(ctx, closeReq)
+		if err != nil {
+			return fmt.Errorf("unable to close channel: %v", err)
+		}
+
+		// Consume the "channel close" update in order to wait for the
+		// closing transaction to be broadcast, then wait for the
+		// closing tx to be seen within the network.
 		closeResp, err := closeRespStream.Recv()
 		if err != nil {
-			errChan <- fmt.Errorf("unable to recv() from close "+
+			return fmt.Errorf("unable to recv() from close "+
 				"stream: %v", err)
-			return
 		}
 		pendingClose, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
 		if !ok {
-			errChan <- fmt.Errorf("expected channel close update, "+
+			return fmt.Errorf("expected channel close update, "+
 				"instead got %v", pendingClose)
-			return
 		}
 
-		closeTxid, err := chainhash.NewHash(pendingClose.ClosePending.Txid)
+		closeTxid, err = chainhash.NewHash(
+			pendingClose.ClosePending.Txid,
+		)
 		if err != nil {
-			errChan <- fmt.Errorf("unable to decode closeTxid: "+
+			return fmt.Errorf("unable to decode closeTxid: "+
 				"%v", err)
-			return
 		}
 		if err := n.waitForTxInMempool(ctx, *closeTxid); err != nil {
-			errChan <- fmt.Errorf("error while waiting for "+
+			return fmt.Errorf("error while waiting for "+
 				"broadcast tx: %v", err)
-			return
 		}
-		fin <- closeTxid
-	}()
-
-	// Wait until either the deadline for the context expires, an error
-	// occurs, or the channel close update is received.
-	select {
-	case err := <-errChan:
+		return nil
+	}, ChannelCloseTimeout)
+	if err != nil {
 		return nil, nil, err
-	case closeTxid := <-fin:
-		return closeRespStream, closeTxid, nil
 	}
+
+	return closeRespStream, closeTxid, nil
 }
 
 // WaitForChannelClose waits for a notification from the passed channel close
@@ -1645,36 +1642,77 @@ func (n *NetworkHarness) BackupDb(hn *HarnessNode) error {
 		return errors.New("backup already created")
 	}
 
-	// Backup files.
-	tempDir, err := ioutil.TempDir("", "past-state")
+	restart, err := n.SuspendNode(hn)
 	if err != nil {
-		return fmt.Errorf("unable to create temp db folder: %v", err)
+		return err
 	}
 
-	if err := copyAll(tempDir, hn.DBDir()); err != nil {
-		return fmt.Errorf("unable to copy database files: %v", err)
+	if hn.postgresDbName != "" {
+		// Backup database.
+		backupDbName := hn.postgresDbName + "_backup"
+		err := executePgQuery(
+			"CREATE DATABASE " + backupDbName + " WITH TEMPLATE " +
+				hn.postgresDbName,
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Backup files.
+		tempDir, err := ioutil.TempDir("", "past-state")
+		if err != nil {
+			return fmt.Errorf("unable to create temp db folder: %v",
+				err)
+		}
+
+		if err := copyAll(tempDir, hn.DBDir()); err != nil {
+			return fmt.Errorf("unable to copy database files: %v",
+				err)
+		}
+
+		hn.backupDbDir = tempDir
 	}
 
-	hn.backupDbDir = tempDir
+	err = restart()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
 // RestoreDb restores a database backup.
 func (n *NetworkHarness) RestoreDb(hn *HarnessNode) error {
-	if hn.backupDbDir == "" {
-		return errors.New("no database backup created")
-	}
+	if hn.postgresDbName != "" {
+		// Restore database.
+		backupDbName := hn.postgresDbName + "_backup"
+		err := executePgQuery(
+			"DROP DATABASE " + hn.postgresDbName,
+		)
+		if err != nil {
+			return err
+		}
+		err = executePgQuery(
+			"ALTER DATABASE " + backupDbName + " RENAME TO " + hn.postgresDbName,
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Restore files.
+		if hn.backupDbDir == "" {
+			return errors.New("no database backup created")
+		}
 
-	// Restore files.
-	if err := copyAll(hn.DBDir(), hn.backupDbDir); err != nil {
-		return fmt.Errorf("unable to copy database files: %v", err)
-	}
+		if err := copyAll(hn.DBDir(), hn.backupDbDir); err != nil {
+			return fmt.Errorf("unable to copy database files: %v", err)
+		}
 
-	if err := os.RemoveAll(hn.backupDbDir); err != nil {
-		return fmt.Errorf("unable to remove backup dir: %v", err)
+		if err := os.RemoveAll(hn.backupDbDir); err != nil {
+			return fmt.Errorf("unable to remove backup dir: %v", err)
+		}
+		hn.backupDbDir = ""
 	}
-	hn.backupDbDir = ""
 
 	return nil
 }

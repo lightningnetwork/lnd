@@ -131,6 +131,7 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		// from a previous execution of the batched db transaction.
 		updateErr = nil
 
+		prefetchPayment(tx, paymentHash)
 		bucket, err := createPaymentBucket(tx, paymentHash)
 		if err != nil {
 			return err
@@ -292,6 +293,7 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 
 	var payment *MPPayment
 	err = kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+		prefetchPayment(tx, paymentHash)
 		bucket, err := fetchPaymentBucketUpdate(tx, paymentHash)
 		if err != nil {
 			return err
@@ -430,6 +432,7 @@ func (p *PaymentControl) updateHtlcKey(paymentHash lntypes.Hash,
 	err := kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
 		payment = nil
 
+		prefetchPayment(tx, paymentHash)
 		bucket, err := fetchPaymentBucketUpdate(tx, paymentHash)
 		if err != nil {
 			return err
@@ -500,6 +503,7 @@ func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
 		updateErr = nil
 		payment = nil
 
+		prefetchPayment(tx, paymentHash)
 		bucket, err := fetchPaymentBucketUpdate(tx, paymentHash)
 		if err == ErrPaymentNotInitiated {
 			updateErr = ErrPaymentNotInitiated
@@ -550,6 +554,7 @@ func (p *PaymentControl) FetchPayment(paymentHash lntypes.Hash) (
 
 	var payment *MPPayment
 	err := kvdb.View(p.db, func(tx kvdb.RTx) error {
+		prefetchPayment(tx, paymentHash)
 		bucket, err := fetchPaymentBucket(tx, paymentHash)
 		if err != nil {
 			return err
@@ -566,6 +571,26 @@ func (p *PaymentControl) FetchPayment(paymentHash lntypes.Hash) (
 	}
 
 	return payment, nil
+}
+
+// prefetchPayment attempts to prefetch as much of the payment as possible to
+// reduce DB roundtrips.
+func prefetchPayment(tx kvdb.RTx, paymentHash lntypes.Hash) {
+	rb := kvdb.RootBucket(tx)
+	kvdb.Prefetch(
+		rb,
+		[]string{
+			// Prefetch all keys in the payment's bucket.
+			string(paymentsRootBucket),
+			string(paymentHash[:]),
+		},
+		[]string{
+			// Prefetch all keys in the payment's htlc bucket.
+			string(paymentsRootBucket),
+			string(paymentHash[:]),
+			string(paymentHtlcsBucket),
+		},
+	)
 }
 
 // createPaymentBucket creates or fetches the sub-bucket assigned to this

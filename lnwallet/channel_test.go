@@ -9669,3 +9669,150 @@ func TestMayAddOutgoingHtlcZeroValue(t *testing.T) {
 	require.NoError(t, aliceChannel.MayAddOutgoingHtlc())
 	require.NoError(t, bobChannel.MayAddOutgoingHtlc())
 }
+
+// TestIsChannelClean tests that IsChannelClean returns the expected values
+// in different channel states.
+func TestIsChannelClean(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(
+		channeldb.ZeroHtlcTxFeeBit,
+	)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	// Channel state should be clean at the start of the test.
+	assertCleanOrDirty(true, aliceChannel, bobChannel, t)
+
+	// Assert that neither side considers the channel clean when alice
+	// sends an htlc.
+	// ---add--->
+	htlc, preimage := createHTLC(0, lnwire.MilliSatoshi(5000000))
+	_, err = aliceChannel.AddHTLC(htlc, nil)
+	require.NoError(t, err)
+	_, err = bobChannel.ReceiveHTLC(htlc)
+	require.NoError(t, err)
+	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
+
+	// Assert that the channel remains dirty until the HTLC is completely
+	// removed from both commitments.
+
+	// ---sig--->
+	aliceSig, aliceHtlcSigs, _, err := aliceChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	require.NoError(t, err)
+	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
+
+	// <---rev---
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	require.NoError(t, err)
+	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
+
+	// <---sig---
+	bobSig, bobHtlcSigs, _, err := bobChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	require.NoError(t, err)
+	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
+
+	// ---rev--->
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	require.NoError(t, err)
+	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
+
+	// <--settle--
+	err = bobChannel.SettleHTLC(preimage, 0, nil, nil, nil)
+	require.NoError(t, err)
+	err = aliceChannel.ReceiveHTLCSettle(preimage, 0)
+	require.NoError(t, err)
+	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
+
+	// <---sig---
+	bobSig, bobHtlcSigs, _, err = bobChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	require.NoError(t, err)
+	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
+
+	// ---rev--->
+	aliceRevocation, _, err = aliceChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	require.NoError(t, err)
+	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
+
+	// ---sig--->
+	aliceSig, aliceHtlcSigs, _, err = aliceChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	require.NoError(t, err)
+	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
+
+	// <---rev---
+	bobRevocation, _, err = bobChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	require.NoError(t, err)
+	assertCleanOrDirty(true, aliceChannel, bobChannel, t)
+
+	// Now we check that update_fee is handled and state is dirty until it
+	// is completely locked in.
+	// ---fee--->
+	fee := chainfee.SatPerKWeight(333)
+	err = aliceChannel.UpdateFee(fee)
+	require.NoError(t, err)
+	err = bobChannel.ReceiveUpdateFee(fee)
+	require.NoError(t, err)
+	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
+
+	// ---sig--->
+	aliceSig, aliceHtlcSigs, _, err = aliceChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	require.NoError(t, err)
+	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
+
+	// <---rev---
+	bobRevocation, _, err = bobChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	require.NoError(t, err)
+	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
+
+	// <---sig---
+	bobSig, bobHtlcSigs, _, err = bobChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	require.NoError(t, err)
+	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
+
+	// The state should finally be clean after alice sends her revocation.
+	// ---rev--->
+	aliceRevocation, _, err = aliceChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	require.NoError(t, err)
+	assertCleanOrDirty(true, aliceChannel, bobChannel, t)
+}
+
+// assertCleanOrDirty is a helper function that asserts that both channels are
+// clean if clean is true, and dirty if clean is false.
+func assertCleanOrDirty(clean bool, alice, bob *LightningChannel,
+	t *testing.T) {
+
+	t.Helper()
+
+	if clean {
+		require.True(t, alice.IsChannelClean())
+		require.True(t, bob.IsChannelClean())
+		return
+	}
+
+	require.False(t, alice.IsChannelClean())
+	require.False(t, bob.IsChannelClean())
+}

@@ -389,6 +389,20 @@ type LightningClient interface {
 	//imposed on the macaroon and that the macaroon is authorized to follow the
 	//provided permissions.
 	CheckMacaroonPermissions(ctx context.Context, in *CheckMacPermRequest, opts ...grpc.CallOption) (*CheckMacPermResponse, error)
+	//
+	//RegisterRPCMiddleware adds a new gRPC middleware to the interceptor chain. A
+	//gRPC middleware is software component external to lnd that aims to add
+	//additional business logic to lnd by observing/intercepting/validating
+	//incoming gRPC client requests and (if needed) replacing/overwriting outgoing
+	//messages before they're sent to the client. When registering the middleware
+	//must identify itself and indicate what custom macaroon caveats it wants to
+	//be responsible for. Only requests that contain a macaroon with that specific
+	//custom caveat are then sent to the middleware for inspection. The other
+	//option is to register for the read-only mode in which all requests/responses
+	//are forwarded for interception to the middleware but the middleware is not
+	//allowed to modify any responses. As a security measure, _no_ middleware can
+	//modify responses for requests made with _unencumbered_ macaroons!
+	RegisterRPCMiddleware(ctx context.Context, opts ...grpc.CallOption) (Lightning_RegisterRPCMiddlewareClient, error)
 }
 
 type lightningClient struct {
@@ -1209,6 +1223,37 @@ func (c *lightningClient) CheckMacaroonPermissions(ctx context.Context, in *Chec
 	return out, nil
 }
 
+func (c *lightningClient) RegisterRPCMiddleware(ctx context.Context, opts ...grpc.CallOption) (Lightning_RegisterRPCMiddlewareClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[11], "/lnrpc.Lightning/RegisterRPCMiddleware", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &lightningRegisterRPCMiddlewareClient{stream}
+	return x, nil
+}
+
+type Lightning_RegisterRPCMiddlewareClient interface {
+	Send(*RPCMiddlewareResponse) error
+	Recv() (*RPCMiddlewareRequest, error)
+	grpc.ClientStream
+}
+
+type lightningRegisterRPCMiddlewareClient struct {
+	grpc.ClientStream
+}
+
+func (x *lightningRegisterRPCMiddlewareClient) Send(m *RPCMiddlewareResponse) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *lightningRegisterRPCMiddlewareClient) Recv() (*RPCMiddlewareRequest, error) {
+	m := new(RPCMiddlewareRequest)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // LightningServer is the server API for Lightning service.
 // All implementations must embed UnimplementedLightningServer
 // for forward compatibility
@@ -1584,6 +1629,20 @@ type LightningServer interface {
 	//imposed on the macaroon and that the macaroon is authorized to follow the
 	//provided permissions.
 	CheckMacaroonPermissions(context.Context, *CheckMacPermRequest) (*CheckMacPermResponse, error)
+	//
+	//RegisterRPCMiddleware adds a new gRPC middleware to the interceptor chain. A
+	//gRPC middleware is software component external to lnd that aims to add
+	//additional business logic to lnd by observing/intercepting/validating
+	//incoming gRPC client requests and (if needed) replacing/overwriting outgoing
+	//messages before they're sent to the client. When registering the middleware
+	//must identify itself and indicate what custom macaroon caveats it wants to
+	//be responsible for. Only requests that contain a macaroon with that specific
+	//custom caveat are then sent to the middleware for inspection. The other
+	//option is to register for the read-only mode in which all requests/responses
+	//are forwarded for interception to the middleware but the middleware is not
+	//allowed to modify any responses. As a security measure, _no_ middleware can
+	//modify responses for requests made with _unencumbered_ macaroons!
+	RegisterRPCMiddleware(Lightning_RegisterRPCMiddlewareServer) error
 	mustEmbedUnimplementedLightningServer()
 }
 
@@ -1776,6 +1835,9 @@ func (UnimplementedLightningServer) ListPermissions(context.Context, *ListPermis
 }
 func (UnimplementedLightningServer) CheckMacaroonPermissions(context.Context, *CheckMacPermRequest) (*CheckMacPermResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CheckMacaroonPermissions not implemented")
+}
+func (UnimplementedLightningServer) RegisterRPCMiddleware(Lightning_RegisterRPCMiddlewareServer) error {
+	return status.Errorf(codes.Unimplemented, "method RegisterRPCMiddleware not implemented")
 }
 func (UnimplementedLightningServer) mustEmbedUnimplementedLightningServer() {}
 
@@ -2954,6 +3016,32 @@ func _Lightning_CheckMacaroonPermissions_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Lightning_RegisterRPCMiddleware_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(LightningServer).RegisterRPCMiddleware(&lightningRegisterRPCMiddlewareServer{stream})
+}
+
+type Lightning_RegisterRPCMiddlewareServer interface {
+	Send(*RPCMiddlewareRequest) error
+	Recv() (*RPCMiddlewareResponse, error)
+	grpc.ServerStream
+}
+
+type lightningRegisterRPCMiddlewareServer struct {
+	grpc.ServerStream
+}
+
+func (x *lightningRegisterRPCMiddlewareServer) Send(m *RPCMiddlewareRequest) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *lightningRegisterRPCMiddlewareServer) Recv() (*RPCMiddlewareResponse, error) {
+	m := new(RPCMiddlewareResponse)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // Lightning_ServiceDesc is the grpc.ServiceDesc for Lightning service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3224,6 +3312,12 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "SubscribeChannelBackups",
 			Handler:       _Lightning_SubscribeChannelBackups_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "RegisterRPCMiddleware",
+			Handler:       _Lightning_RegisterRPCMiddleware_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "lightning.proto",

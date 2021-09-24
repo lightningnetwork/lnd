@@ -153,4 +153,6 @@ http:
     - selector: lnrpc.Lightning.CheckMacaroonPermissions
       post: "/v1/macaroon/checkpermissions"
       body: "*"
-
+    - selector: lnrpc.Lightning.RegisterRPCMiddleware
+      post: "/v1/middleware"
+      body: "*"

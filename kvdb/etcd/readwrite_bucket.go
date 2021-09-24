@@ -371,3 +371,37 @@ func (b *readWriteBucket) Sequence() uint64 {
 
 	return num
 }
+
+func flattenMap(m map[string]struct{}) []string {
+	result := make([]string, len(m))
+	i := 0
+
+	for key := range m {
+		result[i] = key
+		i++
+	}
+
+	return result
+}
+
+// Prefetch will prefetch all keys in the passed paths as well as all bucket
+// keys along the paths.
+func (b *readWriteBucket) Prefetch(paths ...[]string) {
+	keys := make(map[string]struct{})
+	ranges := make(map[string]struct{})
+
+	for _, path := range paths {
+		parent := b.id
+		for _, bucket := range path {
+			bucketKey := makeBucketKey(parent, []byte(bucket))
+			keys[string(bucketKey[:])] = struct{}{}
+
+			id := makeBucketID(bucketKey)
+			parent = id[:]
+		}
+
+		ranges[string(parent)] = struct{}{}
+	}
+
+	b.tx.stm.Prefetch(flattenMap(keys), flattenMap(ranges))
+}

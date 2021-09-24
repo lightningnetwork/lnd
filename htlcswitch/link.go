@@ -301,6 +301,13 @@ type localUpdateAddMsg struct {
 	err chan error
 }
 
+// shutdownReq contains an error channel that will be used by the channelLink
+// to send an error if shutdown failed. If shutdown succeeded, the channel will
+// be closed.
+type shutdownReq struct {
+	err chan error
+}
+
 // channelLink is the service which drives a channel's commitment update
 // state-machine. In the event that an HTLC needs to be propagated to another
 // link, the forward handler from config is used which sends HTLC to the
@@ -369,6 +376,10 @@ type channelLink struct {
 	// sub-systems with the latest set of active HTLC's on our channel.
 	htlcUpdates chan *contractcourt.ContractUpdate
 
+	// shutdownRequest is a channel that the channelLink will listen on to
+	// service shutdown requests from ShutdownIfChannelClean calls.
+	shutdownRequest chan *shutdownReq
+
 	// updateFeeTimer is the timer responsible for updating the link's
 	// commitment fee every time it fires.
 	updateFeeTimer *time.Timer
@@ -414,12 +425,13 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		channel:     channel,
 		shortChanID: channel.ShortChanID(),
 		// TODO(roasbeef): just do reserve here?
-		htlcUpdates:    make(chan *contractcourt.ContractUpdate),
-		hodlMap:        make(map[channeldb.CircuitKey]hodlHtlc),
-		hodlQueue:      queue.NewConcurrentQueue(10),
-		log:            build.NewPrefixLog(logPrefix, log),
-		quit:           make(chan struct{}),
-		localUpdateAdd: make(chan *localUpdateAddMsg),
+		htlcUpdates:     make(chan *contractcourt.ContractUpdate),
+		shutdownRequest: make(chan *shutdownReq),
+		hodlMap:         make(map[channeldb.CircuitKey]hodlHtlc),
+		hodlQueue:       queue.NewConcurrentQueue(10),
+		log:             build.NewPrefixLog(logPrefix, log),
+		quit:            make(chan struct{}),
+		localUpdateAdd:  make(chan *localUpdateAddMsg),
 	}
 }
 
@@ -1175,6 +1187,20 @@ func (l *channelLink) htlcManager() {
 				)
 				return
 			}
+
+		case req := <-l.shutdownRequest:
+			// If the channel is clean, we send nil on the err chan
+			// and return to prevent the htlcManager goroutine from
+			// processing any more updates. The full link shutdown
+			// will be triggered by RemoveLink in the peer.
+			if l.channel.IsChannelClean() {
+				req.err <- nil
+				return
+			}
+
+			// Otherwise, the channel has lingering updates, send
+			// an error and continue.
+			req.err <- ErrLinkFailedShutdown
 
 		case <-l.quit:
 			return
@@ -2432,6 +2458,29 @@ func (l *channelLink) handleLocalAddPacket(pkt *htlcPacket) error {
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) HandleChannelUpdate(message lnwire.Message) {
 	l.mailBox.AddMessage(message)
+}
+
+// ShutdownIfChannelClean triggers a link shutdown if the channel is in a clean
+// state and errors if the channel has lingering updates.
+//
+// NOTE: Part of the ChannelUpdateHandler interface.
+func (l *channelLink) ShutdownIfChannelClean() error {
+	errChan := make(chan error, 1)
+
+	select {
+	case l.shutdownRequest <- &shutdownReq{
+		err: errChan,
+	}:
+	case <-l.quit:
+		return ErrLinkShuttingDown
+	}
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-l.quit:
+		return ErrLinkShuttingDown
+	}
 }
 
 // updateChannelFee updates the commitment fee-per-kw on this channel by

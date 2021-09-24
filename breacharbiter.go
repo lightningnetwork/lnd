@@ -176,6 +176,7 @@ func (b *breachArbiter) start() error {
 	}, func() {
 		breachRetInfos = make(map[wire.OutPoint]retributionInfo)
 	}); err != nil {
+		brarLog.Errorf("Unable to create retribution info: %v", err)
 		return err
 	}
 
@@ -190,6 +191,9 @@ func (b *breachArbiter) start() error {
 		return err
 	}
 
+	brarLog.Debugf("Found %v closing channels, %v retribution records",
+		len(closedChans), len(breachRetInfos))
+
 	// Using the set of non-pending, closed channels, reconcile any
 	// discrepancies between the channeldb and the retribution store by
 	// removing any retribution information for which we have already
@@ -199,6 +203,9 @@ func (b *breachArbiter) start() error {
 	// TODO(halseth): no need continue on IsPending once closed channels
 	// actually means close transaction is confirmed.
 	for _, chanSummary := range closedChans {
+		brarLog.Debugf("Working on close channel: %v, is_pending: %v",
+			chanSummary.ChanPoint, chanSummary.IsPending)
+
 		if chanSummary.IsPending {
 			continue
 		}
@@ -212,6 +219,9 @@ func (b *breachArbiter) start() error {
 				return err
 			}
 			delete(breachRetInfos, *chanPoint)
+
+			brarLog.Debugf("Skipped closed channel: %v",
+				chanSummary.ChanPoint)
 		}
 	}
 
@@ -219,6 +229,9 @@ func (b *breachArbiter) start() error {
 	// that were loaded from the retribution store.
 	for chanPoint := range breachRetInfos {
 		retInfo := breachRetInfos[chanPoint]
+
+		brarLog.Debugf("Handling breach handoff on startup "+
+			"for ChannelPoint(%v)", chanPoint)
 
 		// Register for a notification when the breach transaction is
 		// confirmed on chain.

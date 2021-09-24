@@ -990,7 +990,7 @@ func (c *ChannelArbitrator) stateStep(
 		}
 
 		// If the resolution is empty, and we have no HTLCs at all to
-		// tend to, then we're done here. We don't need to launch any
+		// send to, then we're done here. We don't need to launch any
 		// resolvers, and can go straight to our final state.
 		if contractResolutions.IsEmpty() && confCommitSet.IsEmpty() {
 			log.Infof("ChannelArbitrator(%v): contract "+
@@ -1001,7 +1001,7 @@ func (c *ChannelArbitrator) stateStep(
 		}
 
 		// Now that we know we'll need to act, we'll process the htlc
-		// actions, wen create the structures we need to resolve all
+		// actions, then create the structures we need to resolve all
 		// outstanding contracts.
 		htlcResolvers, pktsToSend, err := c.prepContractResolutions(
 			contractResolutions, triggerHeight, trigger,

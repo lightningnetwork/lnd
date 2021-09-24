@@ -65,6 +65,10 @@ var (
 	// message from the controller.
 	controllerKey = []byte("Tor safe cookie authentication " +
 		"controller-to-server hash")
+
+	// errCodeNotMatch is used when an expected response code is not
+	// returned.
+	errCodeNotMatch = errors.New("unexpected code")
 )
 
 // Controller is an implementation of the Tor Control protocol. This is used in
@@ -168,22 +172,136 @@ func (c *Controller) Stop() error {
 // sendCommand sends a command to the Tor server and returns its response, as a
 // single space-delimited string, and code.
 func (c *Controller) sendCommand(command string) (int, string, error) {
-	if err := c.conn.Writer.PrintfLine(command); err != nil {
+	id, err := c.conn.Cmd(command)
+	if err != nil {
 		return 0, "", err
 	}
 
-	// We'll use ReadResponse as it has built-in support for multi-line
-	// text protocol responses.
-	code, reply, err := c.conn.Reader.ReadResponse(success)
-	log.Tracef("sendCommand: %v got <code:%v>, <reply:%v>",
-		command, code, reply)
+	// Make sure our reader only process the response returned from the
+	// above command.
+	c.conn.StartResponse(id)
+	defer c.conn.EndResponse(id)
 
+	code, reply, err := c.readResponse(success)
 	if err != nil {
 		log.Debugf("sendCommand:%s got err:%v, reply:%v",
 			command, err, reply)
 		return code, reply, err
 	}
 
+	return code, reply, nil
+}
+
+// readResponse reads the replies from Tor to the controller. The reply has the
+// following format,
+//
+//   Reply = SyncReply / AsyncReply
+//   SyncReply = *(MidReplyLine / DataReplyLine) EndReplyLine
+//   AsyncReply = *(MidReplyLine / DataReplyLine) EndReplyLine
+//
+//   MidReplyLine = StatusCode "-" ReplyLine
+//   DataReplyLine = StatusCode "+" ReplyLine CmdData
+//   EndReplyLine = StatusCode SP ReplyLine
+//   ReplyLine = [ReplyText] CRLF
+//   ReplyText = XXXX
+//   StatusCode = 3DIGIT
+//
+// Unless specified otherwise, multiple lines in a single reply from Tor daemon
+// to the controller are guaranteed to share the same status code. Read more on
+// this topic:
+//   https://gitweb.torproject.org/torspec.git/tree/control-spec.txt#n158
+//
+// NOTE: this code is influenced by https://github.com/Yawning/bulb.
+func (c *Controller) readResponse(expected int) (int, string, error) {
+	// Clean the buffer inside the conn. This is needed when we encountered
+	// an error while reading the response, the remaining lines need to be
+	// cleaned before next read.
+	defer func() {
+		if _, err := c.conn.R.Discard(c.conn.R.Buffered()); err != nil {
+			log.Errorf("clean read buffer failed: %v", err)
+		}
+	}()
+
+	reply, code := "", 0
+	hasMoreLines := true
+
+	for hasMoreLines {
+		line, err := c.conn.Reader.ReadLine()
+		if err != nil {
+			return 0, reply, err
+		}
+		log.Tracef("Reading line: %v", line)
+
+		// Line being shortter than 4 is not allowed.
+		if len(line) < 4 {
+			err = textproto.ProtocolError("short line: " + line)
+			return 0, reply, err
+		}
+
+		// Parse the status code.
+		code, err = strconv.Atoi(line[0:3])
+		if err != nil {
+			return code, reply, err
+		}
+
+		switch line[3] {
+		// EndReplyLine = StatusCode SP ReplyLine.
+		// Example: 250 OK
+		// This is the end of the response, so we mark hasMoreLines to
+		// be false to exit the loop.
+		case ' ':
+			reply += line[4:]
+			hasMoreLines = false
+
+		// MidReplyLine = StatusCode "-" ReplyLine.
+		// Example: 250-version=...
+		// This is a continued response, so we keep reading the next
+		// line.
+		case '-':
+			reply += line[4:]
+
+		// DataReplyLine = StatusCode "+" ReplyLine CmdData.
+		// Example: 250+config-text=
+		//	    line1
+		//	    line2
+		//          more lines...
+		//          .
+		// This is a data response, meaning the following multiple
+		// lines are the actual data, and a dot(.) in the end means the
+		// end of the data response. The response will be formatted as,
+		// 	key=line1,line2,...
+		// The above example will then be,
+		// 	config-text=line1,line2,...
+		case '+':
+			// Add the key(config-text=)
+			reply += line[4:]
+
+			// Add the values.
+			resp, err := c.conn.Reader.ReadDotLines()
+			if err != nil {
+				return code, reply, err
+			}
+			reply += strings.Join(resp, ",")
+
+		// Invalid line separator found.
+		default:
+			err = textproto.ProtocolError("invalid line: " + line)
+			return code, reply, err
+		}
+
+		// We check the code here so that the error message is parsed
+		// from the line.
+		if code != expected {
+			return code, reply, errCodeNotMatch
+		}
+
+		// Separate each line using "\n".
+		if hasMoreLines {
+			reply += "\n"
+		}
+	}
+
+	log.Tracef("Parsed reply: %v", reply)
 	return code, reply, nil
 }
 
@@ -224,6 +342,8 @@ func (c *Controller) authenticate() error {
 	if err != nil {
 		return err
 	}
+
+	log.Debugf("received protocol info: %v", protocolInfo)
 
 	// With the version retrieved, we'll cache it now in case it needs to be
 	// used later on.

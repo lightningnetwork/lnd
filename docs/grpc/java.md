@@ -29,7 +29,7 @@ with lnd in Java. We'll be using Maven as our build tool.
 ```
 Note the ***proto*** folder, where all the proto files are kept.
 
- - [rpc.proto](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/rpc.proto)
+ - [lightning.proto](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/lightning.proto)
  - [annotations.proto](https://github.com/grpc-ecosystem/grpc-gateway/blob/master/third_party/googleapis/google/api/annotations.proto)
  - [http.proto](https://github.com/grpc-ecosystem/grpc-gateway/blob/master/third_party/googleapis/google/api/http.proto)
 

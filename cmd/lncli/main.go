@@ -19,7 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/urfave/cli"
 
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -406,7 +406,7 @@ func readPassword(text string) ([]byte, error) {
 	// The variable syscall.Stdin is of a different type in the Windows API
 	// that's why we need the explicit cast. And of course the linter
 	// doesn't like it either.
-	pw, err := terminal.ReadPassword(int(syscall.Stdin)) // nolint:unconvert
+	pw, err := term.ReadPassword(int(syscall.Stdin)) // nolint:unconvert
 	fmt.Println()
 	return pw, err
 }

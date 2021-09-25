@@ -39,6 +39,38 @@ var (
 	// fwdPackagesKey is the root-level bucket that all forwarding packages
 	// are written. This bucket is further subdivided based on the short
 	// channel ID of each channel.
+	//
+	// Bucket hierarchy:
+	//
+	// fwdPackagesKey(root-bucket)
+	//     	|
+	//     	|-- <shortChannelID>
+	//     	|       |
+	//     	|       |-- <height>
+	//     	|       |       |-- ackFilterKey: <encoded bytes of PkgFilter>
+	//     	|       |       |-- settleFailFilterKey: <encoded bytes of PkgFilter>
+	//     	|       |       |-- fwdFilterKey: <encoded bytes of PkgFilter>
+	//     	|       |       |
+	//     	|       |       |-- addBucketKey
+	//     	|       |       |        |-- <index of LogUpdate>: <encoded bytes of LogUpdate>
+	//     	|       |       |        |-- <index of LogUpdate>: <encoded bytes of LogUpdate>
+	//     	|       |       |        ...
+	//     	|       |       |
+	//     	|       |       |-- failSettleBucketKey
+	//     	|       |                |-- <index of LogUpdate>: <encoded bytes of LogUpdate>
+	//     	|       |                |-- <index of LogUpdate>: <encoded bytes of LogUpdate>
+	//     	|       |                ...
+	//     	|       |
+	//     	|       |-- <height>
+	//     	|       |       |
+	//     	|       ...     ...
+	//     	|
+	//     	|
+	//     	|-- <shortChannelID>
+	//     	|       |
+	//	|       ...
+	// 	...
+	//
 	fwdPackagesKey = []byte("fwd-packages")
 
 	// addBucketKey is the bucket to which all Add log updates are written.
@@ -401,6 +433,9 @@ type FwdPackager interface {
 	// RemovePkg deletes a forwarding package owned by this channel at
 	// the provided remote `height`.
 	RemovePkg(tx kvdb.RwTx, height uint64) error
+
+	// Wipe deletes all the forwarding packages owned by this channel.
+	Wipe(tx kvdb.RwTx) error
 }
 
 // ChannelPackager is used by a channel to manage the lifecycle of its forwarding
@@ -910,6 +945,24 @@ func (p *ChannelPackager) RemovePkg(tx kvdb.RwTx, height uint64) error {
 	heightKey := makeLogKey(height)
 
 	return sourceBkt.DeleteNestedBucket(heightKey[:])
+}
+
+// Wipe deletes all the channel's forwarding packages, if any.
+func (p *ChannelPackager) Wipe(tx kvdb.RwTx) error {
+	// If the root bucket doesn't exist, there's no need to delete.
+	fwdPkgBkt := tx.ReadWriteBucket(fwdPackagesKey)
+	if fwdPkgBkt == nil {
+		return nil
+	}
+
+	sourceBytes := makeLogKey(p.source.ToUint64())
+
+	// If the nested bucket doesn't exist, there's no need to delete.
+	if fwdPkgBkt.NestedReadWriteBucket(sourceBytes[:]) == nil {
+		return nil
+	}
+
+	return fwdPkgBkt.DeleteNestedBucket(sourceBytes[:])
 }
 
 // uint16Key writes the provided 16-bit unsigned integer to a 2-byte slice.

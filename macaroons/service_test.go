@@ -253,3 +253,58 @@ func TestDeleteMacaroonID(t *testing.T) {
 	ids, _ := service.ListMacaroonIDs(ctxb)
 	require.Equal(t, expectedIDs[1:], ids, "root key IDs mismatch")
 }
+
+// TestCloneMacaroons tests that macaroons can be cloned correctly and that
+// modifications to the copy don't affect the original.
+func TestCloneMacaroons(t *testing.T) {
+	// Get a configured version of the constraint function.
+	constraintFunc := macaroons.TimeoutConstraint(3)
+
+	// Now we need a dummy macaroon that we can apply the constraint
+	// function to.
+	testMacaroon := createDummyMacaroon(t)
+	err := constraintFunc(testMacaroon)
+	require.NoError(t, err)
+
+	// Check that the caveat has an empty location.
+	require.Equal(
+		t, "", testMacaroon.Caveats()[0].Location,
+		"expected caveat location to be empty, found: %s",
+		testMacaroon.Caveats()[0].Location,
+	)
+
+	// Make a copy of the macaroon.
+	newMacCred, err := macaroons.NewMacaroonCredential(testMacaroon)
+	require.NoError(t, err)
+
+	newMac := newMacCred.Macaroon
+	require.Equal(
+		t, "", newMac.Caveats()[0].Location,
+		"expected new caveat location to be empty, found: %s",
+		newMac.Caveats()[0].Location,
+	)
+
+	// They should be deep equal as well.
+	testMacaroonBytes, err := testMacaroon.MarshalBinary()
+	require.NoError(t, err)
+	newMacBytes, err := newMac.MarshalBinary()
+	require.NoError(t, err)
+	require.Equal(t, testMacaroonBytes, newMacBytes)
+
+	// Modify the caveat location on the old macaroon.
+	testMacaroon.Caveats()[0].Location = "mars"
+
+	// The old macaroon's caveat location should be changed.
+	require.Equal(
+		t, "mars", testMacaroon.Caveats()[0].Location,
+		"expected caveat location to be empty, found: %s",
+		testMacaroon.Caveats()[0].Location,
+	)
+
+	// The new macaroon's caveat location should stay untouched.
+	require.Equal(
+		t, "", newMac.Caveats()[0].Location,
+		"expected new caveat location to be empty, found: %s",
+		newMac.Caveats()[0].Location,
+	)
+}

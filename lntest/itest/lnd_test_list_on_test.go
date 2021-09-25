@@ -338,4 +338,12 @@ var allTestCases = []*testCase{
 		name: "max htlc pathfind",
 		test: testMaxHtlcPathfind,
 	},
+	{
+		name: "rpc middleware interceptor",
+		test: testRPCMiddlewareInterceptor,
+	},
+	{
+		name: "wipe forwarding packages",
+		test: testWipeForwardingPackages,
+	},
 }

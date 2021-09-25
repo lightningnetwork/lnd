@@ -135,6 +135,11 @@ func TestEtcd(t *testing.T) {
 			test:       testTxRollback,
 			expectedDb: map[string]string{},
 		},
+		{
+			name:       "prefetch",
+			test:       testPrefetch,
+			expectedDb: map[string]string{},
+		},
 	}
 
 	for _, test := range tests {

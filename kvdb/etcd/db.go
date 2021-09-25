@@ -219,7 +219,8 @@ func (db *db) View(f func(tx walletdb.ReadTx) error, reset func()) error {
 		return f(newReadWriteTx(stm, etcdDefaultRootBucketId, nil))
 	}
 
-	return RunSTM(db.cli, apply, db.txQueue, db.getSTMOptions()...)
+	_, err := RunSTM(db.cli, apply, db.txQueue, db.getSTMOptions()...)
+	return err
 }
 
 // Update opens a database read/write transaction and executes the function f
@@ -240,7 +241,8 @@ func (db *db) Update(f func(tx walletdb.ReadWriteTx) error, reset func()) error 
 		return f(newReadWriteTx(stm, etcdDefaultRootBucketId, nil))
 	}
 
-	return RunSTM(db.cli, apply, db.txQueue, db.getSTMOptions()...)
+	_, err := RunSTM(db.cli, apply, db.txQueue, db.getSTMOptions()...)
+	return err
 }
 
 // PrintStats returns all collected stats pretty printed into a string.

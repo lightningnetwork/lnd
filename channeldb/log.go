@@ -7,6 +7,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
 	"github.com/lightningnetwork/lnd/channeldb/migration13"
 	"github.com/lightningnetwork/lnd/channeldb/migration16"
+	"github.com/lightningnetwork/lnd/channeldb/migration24"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/kvdb"
 )
@@ -36,5 +37,6 @@ func UseLogger(logger btclog.Logger) {
 	migration12.UseLogger(logger)
 	migration13.UseLogger(logger)
 	migration16.UseLogger(logger)
+	migration24.UseLogger(logger)
 	kvdb.UseLogger(logger)
 }

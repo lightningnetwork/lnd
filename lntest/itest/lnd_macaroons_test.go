@@ -657,7 +657,7 @@ func testStatelessInit(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// As a second part, shut down the node and then try to change the
 	// password when we start it up again.
-	if err := net.RestartNodeNoUnlock(carol, nil); err != nil {
+	if err := net.RestartNodeNoUnlock(carol, nil, true); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 	changePwReq := &lnrpc.ChangePasswordRequest{

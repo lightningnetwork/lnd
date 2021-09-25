@@ -7,6 +7,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
+	"github.com/lightningnetwork/lnd/kvdb/postgres"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 )
 
@@ -19,6 +20,7 @@ const (
 
 	BoltBackend                = "bolt"
 	EtcdBackend                = "etcd"
+	PostgresBackend            = "postgres"
 	DefaultBatchCommitInterval = 500 * time.Millisecond
 
 	// NSChannelDB is the namespace name that we use for the combined graph
@@ -53,6 +55,8 @@ type DB struct {
 	Etcd *etcd.Config `group:"etcd" namespace:"etcd" description:"Etcd settings."`
 
 	Bolt *kvdb.BoltConfig `group:"bolt" namespace:"bolt" description:"Bolt settings."`
+
+	Postgres *postgres.Config `group:"postgres" namespace:"postgres" description:"Postgres settings."`
 }
 
 // DefaultDB creates and returns a new default DB config.
@@ -71,6 +75,10 @@ func DefaultDB() *DB {
 func (db *DB) Validate() error {
 	switch db.Backend {
 	case BoltBackend:
+	case PostgresBackend:
+		if db.Postgres.Dsn == "" {
+			return fmt.Errorf("postgres dsn must be set")
+		}
 
 	case EtcdBackend:
 		if !db.Etcd.Embedded && db.Etcd.Host == "" {
@@ -175,7 +183,8 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}
 	}()
 
-	if db.Backend == EtcdBackend {
+	switch db.Backend {
+	case EtcdBackend:
 		// As long as the graph data, channel state and height hint
 		// cache are all still in the channel.db file in bolt, we
 		// replicate the same behavior here and use the same etcd
@@ -262,6 +271,88 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 			// state.
 			WalletDB: btcwallet.LoaderWithExternalWalletDB(
 				etcdWalletBackend,
+			),
+			Remote:     true,
+			CloseFuncs: closeFuncs,
+		}, nil
+
+	case PostgresBackend:
+		postgresBackend, err := kvdb.Open(
+			kvdb.PostgresBackendName, ctx,
+			db.Postgres, NSChannelDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening postgres graph "+
+				"DB: %v", err)
+		}
+		closeFuncs[NSChannelDB] = postgresBackend.Close
+
+		postgresMacaroonBackend, err := kvdb.Open(
+			kvdb.PostgresBackendName, ctx,
+			db.Postgres, NSMacaroonDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening postgres "+
+				"macaroon DB: %v", err)
+		}
+		closeFuncs[NSMacaroonDB] = postgresMacaroonBackend.Close
+
+		postgresDecayedLogBackend, err := kvdb.Open(
+			kvdb.PostgresBackendName, ctx,
+			db.Postgres, NSDecayedLogDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening postgres "+
+				"decayed log DB: %v", err)
+		}
+		closeFuncs[NSDecayedLogDB] = postgresDecayedLogBackend.Close
+
+		postgresTowerClientBackend, err := kvdb.Open(
+			kvdb.PostgresBackendName, ctx,
+			db.Postgres, NSTowerClientDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening postgres tower "+
+				"client DB: %v", err)
+		}
+		closeFuncs[NSTowerClientDB] = postgresTowerClientBackend.Close
+
+		postgresTowerServerBackend, err := kvdb.Open(
+			kvdb.PostgresBackendName, ctx,
+			db.Postgres, NSTowerServerDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening postgres tower "+
+				"server DB: %v", err)
+		}
+		closeFuncs[NSTowerServerDB] = postgresTowerServerBackend.Close
+
+		postgresWalletBackend, err := kvdb.Open(
+			kvdb.PostgresBackendName, ctx,
+			db.Postgres, NSWalletDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening postgres macaroon "+
+				"DB: %v", err)
+		}
+		closeFuncs[NSWalletDB] = postgresWalletBackend.Close
+
+		returnEarly = false
+		return &DatabaseBackends{
+			GraphDB:       postgresBackend,
+			ChanStateDB:   postgresBackend,
+			HeightHintDB:  postgresBackend,
+			MacaroonDB:    postgresMacaroonBackend,
+			DecayedLogDB:  postgresDecayedLogBackend,
+			TowerClientDB: postgresTowerClientBackend,
+			TowerServerDB: postgresTowerServerBackend,
+			// The wallet loader will attempt to use/create the
+			// wallet in the replicated remote DB if we're running
+			// in a clustered environment. This will ensure that all
+			// members of the cluster have access to the same wallet
+			// state.
+			WalletDB: btcwallet.LoaderWithExternalWalletDB(
+				postgresWalletBackend,
 			),
 			Remote:     true,
 			CloseFuncs: closeFuncs,

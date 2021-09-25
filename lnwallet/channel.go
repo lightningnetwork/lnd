@@ -4470,6 +4470,50 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	return nil
 }
 
+// IsChannelClean returns true if neither side has pending commitments, neither
+// side has HTLC's, and all updates are locked in irrevocably. Internally, it
+// utilizes the oweCommitment function by calling it for local and remote
+// evaluation. We check if we have a pending commitment for our local state
+// since this function may be called by sub-systems that are not the link (e.g.
+// the rpcserver), and the ReceiveNewCommitment & RevokeCurrentCommitment calls
+// are not atomic, even though link processing ensures no updates can happen in
+// between.
+func (lc *LightningChannel) IsChannelClean() bool {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	// Check whether we have a pending commitment for our local state.
+	if lc.localCommitChain.hasUnackedCommitment() {
+		return false
+	}
+
+	// Check whether our counterparty has a pending commitment for their
+	// state.
+	if lc.remoteCommitChain.hasUnackedCommitment() {
+		return false
+	}
+
+	// We call ActiveHtlcs to ensure there are no HTLCs on either
+	// commitment.
+	if len(lc.channelState.ActiveHtlcs()) != 0 {
+		return false
+	}
+
+	// Now check that both local and remote commitments are signing the
+	// same updates.
+	if lc.oweCommitment(true) {
+		return false
+	}
+
+	if lc.oweCommitment(false) {
+		return false
+	}
+
+	// If we reached this point, the channel has no HTLCs and both
+	// commitments sign the same updates.
+	return true
+}
+
 // OweCommitment returns a boolean value reflecting whether we need to send
 // out a commitment signature because there are outstanding local updates and/or
 // updates in the local commit tx that aren't reflected in the remote commit tx

@@ -251,11 +251,6 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 	for _, channelType := range commitTypes {
 		testName := fmt.Sprintf("committype=%v", channelType)
-		logLine := fmt.Sprintf(
-			"---- channel force close subtest %s ----\n",
-			testName,
-		)
-		AddToNodeLog(t.t, net.Alice, logLine)
 
 		channelType := channelType
 		success := t.t.Run(testName, func(t *testing.T) {

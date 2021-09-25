@@ -118,6 +118,8 @@ func (b *BitcoindNotifier) Stop() error {
 		return nil
 	}
 
+	chainntnfs.Log.Info("bitcoind notifier shutting down")
+
 	// Shutdown the rpc client, this gracefully disconnects from bitcoind,
 	// and cleans up all related resources.
 	b.chainConn.Stop()

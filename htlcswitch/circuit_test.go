@@ -1312,8 +1312,8 @@ func TestCircuitMapDeleteUnopenedCircuit(t *testing.T) {
 	}
 }
 
-// TestCircuitMapDeleteUnopenedCircuit checks that an open circuit can be
-// removed persistently from the circuit map.
+// TestCircuitMapDeleteOpenCircuit checks that an open circuit can be removed
+// persistently from the circuit map.
 func TestCircuitMapDeleteOpenCircuit(t *testing.T) {
 	t.Parallel()
 

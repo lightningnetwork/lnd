@@ -2446,7 +2446,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	addPkt.outgoingChanID = carolChanID
 	addPkt.outgoingHTLCID = 0
 
-	err = coreLink.cfg.Switch.openCircuits(addPkt.keystone())
+	err = coreLink.cfg.Circuits.OpenCircuits(addPkt.keystone())
 	if err != nil {
 		t.Fatalf("unable to set keystone: %v", err)
 	}
@@ -2554,7 +2554,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	addPkt.outgoingChanID = carolChanID
 	addPkt.outgoingHTLCID = 1
 
-	err = coreLink.cfg.Switch.openCircuits(addPkt.keystone())
+	err = coreLink.cfg.Circuits.OpenCircuits(addPkt.keystone())
 	if err != nil {
 		t.Fatalf("unable to set keystone: %v", err)
 	}
@@ -5373,6 +5373,10 @@ func (*mockPackager) RemovePkg(tx kvdb.RwTx, height uint64) error {
 	return nil
 }
 
+func (*mockPackager) Wipe(tx kvdb.RwTx) error {
+	return nil
+}
+
 func (*mockPackager) AckSettleFails(tx kvdb.RwTx,
 	settleFailRefs ...channeldb.SettleFailRef) error {
 	return nil
@@ -6529,6 +6533,91 @@ func TestPendingCommitTicker(t *testing.T) {
 
 	case <-time.After(time.Second):
 		t.Fatalf("did not receive failure")
+	}
+}
+
+// TestShutdownIfChannelClean tests that a link will exit the htlcManager loop
+// if and only if the underlying channel state is clean.
+func TestShutdownIfChannelClean(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	require.NoError(t, err)
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	shutdownAssert := func(expectedErr error) {
+		err = aliceLink.ShutdownIfChannelClean()
+		if expectedErr != nil {
+			require.Error(t, err, expectedErr)
+		} else {
+			require.NoError(t, err)
+		}
+	}
+
+	err = start()
+	require.NoError(t, err)
+	defer cleanUp()
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		bobChannel: bobChannel,
+		aliceMsgs:  aliceMsgs,
+	}
+
+	// First send an HTLC from Bob to Alice and assert that the link can't
+	// be shutdown while the update is outstanding.
+	htlc := generateHtlc(t, coreLink, 0)
+
+	// <---add-----
+	ctx.sendHtlcBobToAlice(htlc)
+	// <---sig-----
+	ctx.sendCommitSigBobToAlice(1)
+	// ----rev---->
+	ctx.receiveRevAndAckAliceToBob()
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// ----sig---->
+	ctx.receiveCommitSigAliceToBob(1)
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// <---rev-----
+	ctx.sendRevAndAckBobToAlice()
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// ---settle-->
+	ctx.receiveSettleAliceToBob()
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// ----sig---->
+	ctx.receiveCommitSigAliceToBob(0)
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// <---rev-----
+	ctx.sendRevAndAckBobToAlice()
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// <---sig-----
+	ctx.sendCommitSigBobToAlice(0)
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// ----rev---->
+	ctx.receiveRevAndAckAliceToBob()
+	shutdownAssert(nil)
+
+	// Now that the link has exited the htlcManager loop, attempt to
+	// trigger the batch ticker. It should not be possible.
+	select {
+	case batchTicker <- time.Now():
+		t.Fatalf("expected batch ticker to be inactive")
+	case <-time.After(5 * time.Second):
 	}
 }
 

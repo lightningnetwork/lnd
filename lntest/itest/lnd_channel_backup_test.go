@@ -1346,14 +1346,11 @@ func copyPorts(oldNode *lntest.HarnessNode) lntest.NodeOption {
 	}
 }
 
-func rpcPointToWirePoint(t *harnessTest, chanPoint *lnrpc.ChannelPoint) wire.OutPoint {
-	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
+func rpcPointToWirePoint(t *harnessTest,
+	chanPoint *lnrpc.ChannelPoint) wire.OutPoint {
 
-	return wire.OutPoint{
-		Hash:  *txid,
-		Index: chanPoint.OutputIndex,
-	}
+	op, err := lntest.MakeOutpoint(chanPoint)
+	require.NoError(t.t, err, "unable to get txid")
+
+	return op
 }

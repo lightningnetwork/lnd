@@ -91,6 +91,7 @@ func (h *HtlcNotifier) Start() error {
 func (h *HtlcNotifier) Stop() error {
 	var err error
 	h.stopped.Do(func() {
+		log.Info("HtlcNotifier shutting down")
 		if err = h.ntfnServer.Stop(); err != nil {
 			log.Warnf("error stopping htlc notifier: %v", err)
 		}

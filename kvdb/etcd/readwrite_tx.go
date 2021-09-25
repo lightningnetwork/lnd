@@ -41,6 +41,13 @@ func rootBucket(tx *readWriteTx) *readWriteBucket {
 	return newReadWriteBucket(tx, tx.rootBucketID[:], tx.rootBucketID[:])
 }
 
+// RootBucket will return a handle to the root bucket. This is not a real handle
+// but just a wrapper around the root bucket ID to allow derivation of child
+// keys.
+func (tx *readWriteTx) RootBucket() walletdb.ReadBucket {
+	return rootBucket(tx)
+}
+
 // ReadBucket opens the root bucket for read only access.  If the bucket
 // described by the key does not exist, nil is returned.
 func (tx *readWriteTx) ReadBucket(key []byte) walletdb.ReadBucket {

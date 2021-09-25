@@ -38,6 +38,27 @@ instantaneous. Read the [guide on leader
 election](https://github.com/lightningnetwork/lnd/blob/master/docs/leader_election.md)
 for more information.
 
+### Postgres database support
+
+This release adds [support for Postgres as a database
+backend](https://github.com/lightningnetwork/lnd/pull/5366) to lnd. Postgres
+has several advantages over the default bbolt backend:
+* Better handling of large data sets.
+* On-the-fly database compaction (auto vacuum).
+* Database replication.
+* Inspect data while lnd is running (bbolt opens the database exclusively).
+* Usage of industry-standard tools to manage the stored data, get performance
+  metrics, etc.
+
+Furthermore, the SQL platform opens up possibilities to improve lnd's
+performance in the future. Bbolt's single-writer model is a severe performance
+bottleneck, whereas Postgres offers a variety of locking models. Additionally,
+structured tables reduce the need for custom serialization/deserialization code
+in `lnd`, saving developer time and limiting the potential for bugs.
+
+Instructions for enabling Postgres can be found in
+[docs/postgres.md](../postgres.md).
+
 ## Protocol Extensions
 
 ### Explicit Channel Negotiation
@@ -62,6 +83,9 @@ proposed channel type is used.
 * [Stub code for interacting with `lnrpc` from a WASM context through JSON 
   messages was added](https://github.com/lightningnetwork/lnd/pull/5601).
 
+* The updatechanpolicy call now [detects invalid and pending channels, and 
+  returns a policy update failure report](https://github.com/lightningnetwork/lnd/pull/5405).
+
 * LND now [reports to systemd](https://github.com/lightningnetwork/lnd/pull/5536)
   that RPC is ready (port bound, certificate generated, macaroons created,
   in case of `wallet-unlock-password-file` wallet unlocked). This can be used to
@@ -75,6 +99,12 @@ proposed channel type is used.
   and all its subservers have been fully started or not.
 
 * [Adds an option to the BakeMacaroon rpc "allow-external-permissions,"](https://github.com/lightningnetwork/lnd/pull/5304) which makes it possible to bake a macaroon with external permissions. That way, the baked macaroons can be used for services beyond LND. Also adds a new CheckMacaroonPermissions rpc that checks that the macaroon permissions and other restrictions are being followed. It can also check permissions not native to LND.
+
+* [A new RPC middleware
+  interceptor](https://github.com/lightningnetwork/lnd/pull/5101) was added that
+  allows external tools to hook into `lnd`'s RPC server and intercept any
+  requests made with custom macaroons (and also the responses to those
+  requests).
 
 ### Batched channel funding
 
@@ -128,6 +158,8 @@ you.
 * Locally force closed channels are now [kept in the channel.backup file until
   their time lock has fully matured](https://github.com/lightningnetwork/lnd/pull/5528).
 
+* [Cooperative closes optimistically shutdown the associated `link` before closing the channel.](https://github.com/lightningnetwork/lnd/pull/5618)
+
 ## Build System
 
 * [A new pre-submit check has been
@@ -155,10 +187,12 @@ you.
 * [Reduce the number of parallel itest runs to 2 on
   ARM](https://github.com/lightningnetwork/lnd/pull/5731).
 
+* [Fix Travis itest parallelism](https://github.com/lightningnetwork/lnd/pull/5734)
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**
-  support pruning](https://github.com/lightningnetwork/lnd/pull/5553)
+  support pruning](https://github.com/lightningnetwork/lnd/pull/5553).
 
 * [Clarified 'ErrReservedValueInvalidated' error string](https://github.com/lightningnetwork/lnd/pull/5577)
    to explain that the error is triggered by a transaction that would deplete
@@ -215,22 +249,32 @@ you.
 
 * [Missing dots in cmd interface](https://github.com/lightningnetwork/lnd/pull/5535).
 
-* [Link channel point logging](https://github.com/lightningnetwork/lnd/pull/5508)
+* [Link channel point logging](https://github.com/lightningnetwork/lnd/pull/5508).
 
-* [Canceling the chain notifier no longer logs certain errors](https://github.com/lightningnetwork/lnd/pull/5676)
+* [Canceling the chain notifier no longer logs certain errors](https://github.com/lightningnetwork/lnd/pull/5676).
 
 * [Fixed context leak in integration tests, and properly handled context
   timeout](https://github.com/lightningnetwork/lnd/pull/5646).
 
-* [Removed nested db tx](https://github.com/lightningnetwork/lnd/pull/5643)
+* [Removed nested db tx](https://github.com/lightningnetwork/lnd/pull/5643).
 
-* [Fixed wallet recovery itests on Travis ARM](https://github.com/lightningnetwork/lnd/pull/5688)
+* [Fixed wallet recovery itests on Travis ARM](https://github.com/lightningnetwork/lnd/pull/5688).
 
-* [Integration tests save embedded etcd logs to help debugging flakes](https://github.com/lightningnetwork/lnd/pull/5702)
+* [Integration tests save embedded etcd logs to help debugging flakes](https://github.com/lightningnetwork/lnd/pull/5702).
+
+* [Replace reference to JWT library with CVE](https://github.com/lightningnetwork/lnd/pull/5737)
 
 * [Fixed restore backup file test flake with bitcoind](https://github.com/lightningnetwork/lnd/pull/5637).
 
-* [Timing fix in AMP itest](https://github.com/lightningnetwork/lnd/pull/5725)
+* [Timing fix in AMP itest](https://github.com/lightningnetwork/lnd/pull/5725).
+
+* [Upgraded miekg/dns to improve the security posture](https://github.com/lightningnetwork/lnd/pull/5738).
+
+* [server.go: dedupe pubkey output in debug/log msgs](https://github.com/lightningnetwork/lnd/pull/5722).
+
+* [Fixed flakes caused by graph topology subcription](https://github.com/lightningnetwork/lnd/pull/5611).
+
+* [Order of the start/stop on subsystems are changed to promote better safety](https://github.com/lightningnetwork/lnd/pull/1783).
 
 * [Included Codeql scanning to increase the security posture](https://github.com/lightningnetwork/lnd/pull/5735)
 
@@ -239,6 +283,10 @@ you.
 * [Ensure single writer for legacy
   code](https://github.com/lightningnetwork/lnd/pull/5547) when using etcd
   backend.
+* When starting/restarting, `lnd` will [clean forwarding packages, payment
+  circuits and keystones](https://github.com/lightningnetwork/lnd/pull/4364)
+  for closed channels, which will potentially free up disk space for long
+  running nodes that have lots of closed channels.
 
 * [Optimized payment sequence generation](https://github.com/lightningnetwork/lnd/pull/5514/)
   to make LNDs payment throughput (and latency) with better when using etcd.
@@ -253,6 +301,9 @@ you.
   (10+ million). Be careful and backup your `channel.db` if you have that many
   payments. Deleting all failed payments beforehand makes migration safer and
   faster too.
+
+* [Prefetch payments on hot paths](https://github.com/lightningnetwork/lnd/pull/5640)
+  to reduce roundtrips to the remote DB backend.
 
 ## Performance improvements
 
@@ -282,17 +333,37 @@ you.
 
 ## Bug Fixes
 
-A bug has been fixed that would cause `lnd` to [try to bootstrap using the
-currnet DNS seeds when in SigNet
-mode](https://github.com/lightningnetwork/lnd/pull/5564).
+* A bug has been fixed that would cause `lnd` to [try to bootstrap using the
+  currnet DNS seeds when in SigNet
+  mode](https://github.com/lightningnetwork/lnd/pull/5564).
 
-[A validation check for sane `CltvLimit` and `FinalCltvDelta` has been added for `REST`-initiated payments.](https://github.com/lightningnetwork/lnd/pull/5591)
+* [A validation check for sane `CltvLimit` and `FinalCltvDelta` has been added
+  for `REST`-initiated
+  payments](https://github.com/lightningnetwork/lnd/pull/5591).
 
-[A bug has been fixed with Neutrino's `RegisterConfirmationsNtfn` and `RegisterSpendNtfn` calls that would cause notifications to be missed.](https://github.com/lightningnetwork/lnd/pull/5453)
+* [A bug has been fixed with Neutrino's `RegisterConfirmationsNtfn` and
+  `RegisterSpendNtfn` calls that would cause notifications to be
+  missed](https://github.com/lightningnetwork/lnd/pull/5453).
 
-[A bug has been fixed when registering for spend notifications in the `txnotifier`. A re-org notification would previously not be dispatched in certain scenarios.](https://github.com/lightningnetwork/lnd/pull/5465)
+* [A bug has been fixed when registering for spend notifications in the 
+  `txnotifier`. A re-org notification would previously not be dispatched in
+  certain scenarios](https://github.com/lightningnetwork/lnd/pull/5465).
 
-[Catches up on blocks in the router](https://github.com/lightningnetwork/lnd/pull/5315) in order to fix an "out of order" error that crops up.
+* [Catches up on blocks in the
+  router](https://github.com/lightningnetwork/lnd/pull/5315) in order to fix an
+  "out of order" error that [crops up](https://github.com/lightningnetwork/lnd/pull/5748).
+
+* [Fix healthcheck might be running after the max number of attempts are
+  reached](https://github.com/lightningnetwork/lnd/pull/5686).
+
+* [Fix crash with empty AMP or MPP record in
+  invoice](https://github.com/lightningnetwork/lnd/pull/5743).
+
+* The underlying gRPC connection of a WebSocket is now [properly closed when the
+  WebSocket end of a connection is
+  closed](https://github.com/lightningnetwork/lnd/pull/5683). A bug with the
+  write deadline that caused connections to suddenly break was also fixed in the
+  same PR.
 
 ## Documentation 
 
@@ -308,6 +379,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * Eugene Siegel
 * Harsha Goli
 * Martin Habovstiak
+* Naveen Srinivasan
 * Oliver Gugger
 * Wilmer Paulino
 * xanoni

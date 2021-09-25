@@ -88,6 +88,11 @@ type ChannelUpdateHandler interface {
 	// MayAddOutgoingHtlc returns an error if we may not add an outgoing
 	// htlc to the channel.
 	MayAddOutgoingHtlc() error
+
+	// ShutdownIfChannelClean shuts the link down if the channel state is
+	// clean. This can be used with dynamic commitment negotiation or coop
+	// close negotiation which require a clean channel state.
+	ShutdownIfChannelClean() error
 }
 
 // ChannelLink is an interface which represents the subsystem for managing the

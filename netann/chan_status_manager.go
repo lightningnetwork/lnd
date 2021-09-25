@@ -217,6 +217,7 @@ func (m *ChanStatusManager) start() error {
 // Stop safely shuts down the ChanStatusManager.
 func (m *ChanStatusManager) Stop() error {
 	m.stopped.Do(func() {
+		log.Info("Channel Status Manager shutting down")
 		close(m.quit)
 		m.wg.Wait()
 	})

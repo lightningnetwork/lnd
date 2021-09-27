@@ -14,15 +14,19 @@ import (
 
 // TestInterface performs all interfaces tests for this database driver.
 func TestInterface(t *testing.T) {
-	f := NewFixture(t)
-	defer f.Cleanup()
+	stop, err := StartEmbeddedPostgres()
+	require.NoError(t, err)
+	defer stop()
+
+	f, err := NewFixture("")
+	require.NoError(t, err)
 
 	// dbType is the database type name for this driver.
 	const dbType = "postgres"
 
 	ctx := context.Background()
 	cfg := &Config{
-		Dsn: testDsn,
+		Dsn: f.Dsn,
 	}
 
 	walletdbtest.TestInterface(t, dbType, ctx, cfg, prefix)
@@ -30,17 +34,19 @@ func TestInterface(t *testing.T) {
 
 // TestPanic tests recovery from panic conditions.
 func TestPanic(t *testing.T) {
-	f := NewFixture(t)
-	defer f.Cleanup()
+	stop, err := StartEmbeddedPostgres()
+	require.NoError(t, err)
+	defer stop()
 
-	d := f.NewBackend()
+	f, err := NewFixture("")
+	require.NoError(t, err)
 
-	err := d.(*db).Update(func(tx walletdb.ReadWriteTx) error {
+	err = f.Db.(*db).Update(func(tx walletdb.ReadWriteTx) error {
 		bucket, err := tx.CreateTopLevelBucket([]byte("test"))
 		require.NoError(t, err)
 
 		// Stop database server.
-		f.Cleanup()
+		stop()
 
 		// Keep trying to get data until Get panics because the
 		// connection is lost.

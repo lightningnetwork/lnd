@@ -4,87 +4,118 @@ package postgres
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
-	"testing"
+	"encoding/hex"
+	"fmt"
+	"strings"
 
 	"github.com/btcsuite/btcwallet/walletdb"
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
-	"github.com/stretchr/testify/require"
 )
 
 const (
-	testDsn = "postgres://postgres:postgres@localhost:9876/postgres?sslmode=disable"
-	prefix  = "test"
+	testDsnTemplate = "postgres://postgres:postgres@localhost:9876/%v?sslmode=disable"
+	prefix          = "test"
 )
 
-func clearTestDb(t *testing.T) {
-	dbConn, err := sql.Open("pgx", testDsn)
-	require.NoError(t, err)
-
-	_, err = dbConn.ExecContext(context.Background(), "DROP SCHEMA IF EXISTS public CASCADE;")
-	require.NoError(t, err)
+func getTestDsn(dbName string) string {
+	return fmt.Sprintf(testDsnTemplate, dbName)
 }
 
-func openTestDb(t *testing.T) *db {
-	clearTestDb(t)
+var testPostgres *embeddedpostgres.EmbeddedPostgres
 
-	db, err := newPostgresBackend(
-		context.Background(),
-		&Config{
-			Dsn: testDsn,
-		},
-		prefix,
-	)
-	require.NoError(t, err)
-
-	return db
-}
-
-type fixture struct {
-	t        *testing.T
-	tempDir  string
-	postgres *embeddedpostgres.EmbeddedPostgres
-}
-
-func NewFixture(t *testing.T) *fixture {
+// StartEmbeddedPostgres starts an embedded postgres instance. This only needs
+// to be done once, because NewFixture will create random new databases on every
+// call. It returns a stop closure that stops the database if called.
+func StartEmbeddedPostgres() (func() error, error) {
 	postgres := embeddedpostgres.NewDatabase(
 		embeddedpostgres.DefaultConfig().
 			Port(9876))
 
 	err := postgres.Start()
-	require.NoError(t, err)
+	if err != nil {
+		return nil, err
+	}
+
+	testPostgres = postgres
+
+	return testPostgres.Stop, nil
+}
+
+// NewFixture returns a new postgres test database. The database name is
+// randomly generated.
+func NewFixture(dbName string) (*fixture, error) {
+	if dbName == "" {
+		// Create random database name.
+		randBytes := make([]byte, 8)
+		_, err := rand.Read(randBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		dbName = "test_" + hex.EncodeToString(randBytes)
+	}
+
+	// Create database if it doesn't exist yet.
+	dbConn, err := sql.Open("pgx", getTestDsn("postgres"))
+	if err != nil {
+		return nil, err
+	}
+	defer dbConn.Close()
+
+	_, err = dbConn.ExecContext(
+		context.Background(), "CREATE DATABASE "+dbName,
+	)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return nil, err
+	}
+
+	// Open database
+	dsn := getTestDsn(dbName)
+	db, err := newPostgresBackend(
+		context.Background(),
+		&Config{
+			Dsn: dsn,
+		},
+		prefix,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &fixture{
-		t:        t,
-		postgres: postgres,
+		Dsn: dsn,
+		Db:  db,
+	}, nil
+}
+
+type fixture struct {
+	Dsn string
+	Db  walletdb.DB
+}
+
+// Dump returns the raw contents of the database.
+func (b *fixture) Dump() (map[string]interface{}, error) {
+	dbConn, err := sql.Open("pgx", b.Dsn)
+	if err != nil {
+		return nil, err
 	}
-}
-
-func (b *fixture) Cleanup() {
-	b.postgres.Stop()
-}
-
-func (b *fixture) NewBackend() walletdb.DB {
-	clearTestDb(b.t)
-	db := openTestDb(b.t)
-
-	return db
-}
-
-func (b *fixture) Dump() map[string]interface{} {
-	dbConn, err := sql.Open("pgx", testDsn)
-	require.NoError(b.t, err)
 
 	rows, err := dbConn.Query(
 		"SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname='public'",
 	)
-	require.NoError(b.t, err)
+	if err != nil {
+		return nil, err
+	}
 
 	var tables []string
 	for rows.Next() {
 		var table string
 		err := rows.Scan(&table)
-		require.NoError(b.t, err)
+		if err != nil {
+			return nil, err
+		}
 
 		tables = append(tables, table)
 	}
@@ -93,10 +124,14 @@ func (b *fixture) Dump() map[string]interface{} {
 
 	for _, table := range tables {
 		rows, err := dbConn.Query("SELECT * FROM " + table)
-		require.NoError(b.t, err)
+		if err != nil {
+			return nil, err
+		}
 
 		cols, err := rows.Columns()
-		require.NoError(b.t, err)
+		if err != nil {
+			return nil, err
+		}
 		colCount := len(cols)
 
 		var tableRows []map[string]interface{}
@@ -108,7 +143,9 @@ func (b *fixture) Dump() map[string]interface{} {
 			}
 
 			err := rows.Scan(valuePtrs...)
-			require.NoError(b.t, err)
+			if err != nil {
+				return nil, err
+			}
 
 			tableData := make(map[string]interface{})
 			for i, v := range values {
@@ -127,5 +164,5 @@ func (b *fixture) Dump() map[string]interface{} {
 		result[table] = tableRows
 	}
 
-	return result
+	return result, nil
 }

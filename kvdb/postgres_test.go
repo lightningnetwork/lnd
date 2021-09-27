@@ -13,8 +13,9 @@ import (
 type m = map[string]interface{}
 
 func TestPostgres(t *testing.T) {
-	f := postgres.NewFixture(t)
-	defer f.Cleanup()
+	stop, err := postgres.StartEmbeddedPostgres()
+	require.NoError(t, err)
+	defer stop()
 
 	tests := []struct {
 		name       string
@@ -173,10 +174,14 @@ func TestPostgres(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			test.test(t, f.NewBackend())
+			f, err := postgres.NewFixture("")
+			require.NoError(t, err)
+
+			test.test(t, f.Db)
 
 			if test.expectedDb != nil {
-				dump := f.Dump()
+				dump, err := f.Dump()
+				require.NoError(t, err)
 				require.Equal(t, test.expectedDb, dump)
 			}
 		})

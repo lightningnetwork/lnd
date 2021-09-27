@@ -276,3 +276,87 @@ func TestReadResponse(t *testing.T) {
 		})
 	}
 }
+
+// TestReconnectTCMustBeRunning checks that the tor controller must be running
+// while calling Reconnect.
+func TestReconnectTCMustBeRunning(t *testing.T) {
+	// Create a dummy controller.
+	c := &Controller{}
+
+	// Reconnect should fail because the TC is not started.
+	require.Equal(t, errTCNotStarted, c.Reconnect())
+
+	// Set the started flag.
+	c.started = 1
+
+	// Set the stopped flag so the TC is stopped.
+	c.stopped = 1
+
+	// Reconnect should fail because the TC is stopped.
+	require.Equal(t, errTCStopped, c.Reconnect())
+}
+
+// TestReconnectSucceed tests a reconnection will succeed when the tor
+// controller is up and running.
+func TestReconnectSucceed(t *testing.T) {
+	// Create mock server and client connection.
+	proxy := createTestProxy(t)
+	defer proxy.cleanUp()
+
+	// Create a tor controller and mark the controller as started.
+	c := &Controller{
+		conn:        proxy.clientConn,
+		started:     1,
+		controlAddr: proxy.serverAddr,
+	}
+
+	// Accept the connection inside a goroutine. We will also write some
+	// data so that the reconnection can succeed. We will mock three writes
+	// and two reads inside our proxy server,
+	//   - write protocol info
+	//   - read auth info
+	//   - write auth challenge
+	//   - read auth challenge
+	//   - write OK
+	go func() {
+		// Accept the new connection.
+		server, err := proxy.server.Accept()
+		require.NoError(t, err, "failed to accept")
+
+		// Write the protocol info.
+		resp := "250-PROTOCOLINFO 1\n" +
+			"250-AUTH METHODS=NULL\n" +
+			"250 OK\n"
+		_, err = server.Write([]byte(resp))
+		require.NoErrorf(t, err, "failed to write protocol info")
+
+		// Read the auth info from the client.
+		buf := make([]byte, 65535)
+		_, err = server.Read(buf)
+		require.NoError(t, err)
+
+		// Write the auth challenge.
+		resp = "250 AUTHCHALLENGE SERVERHASH=fake\n"
+		_, err = server.Write([]byte(resp))
+		require.NoErrorf(t, err, "failed to write auth challenge")
+
+		// Read the auth challenge resp from the client.
+		_, err = server.Read(buf)
+		require.NoError(t, err)
+
+		// Write OK resp.
+		resp = "250 OK\n"
+		_, err = server.Write([]byte(resp))
+		require.NoErrorf(t, err, "failed to write response auth")
+	}()
+
+	// Reconnect should succeed.
+	require.NoError(t, c.Reconnect())
+
+	// Check that the old connection is closed.
+	_, err := proxy.clientConn.ReadLine()
+	require.Contains(t, err.Error(), "use of closed network connection")
+
+	// Check that the connection has been updated.
+	require.NotEqual(t, proxy.clientConn, c.conn)
+}

@@ -69,6 +69,14 @@ var (
 	// errCodeNotMatch is used when an expected response code is not
 	// returned.
 	errCodeNotMatch = errors.New("unexpected code")
+
+	// errTCNotStarted is used when we require the tor controller to be
+	// started while it's not.
+	errTCNotStarted = errors.New("tor controller must be started")
+
+	// errTCNotStarted is used when we require the tor controller to be
+	// not stopped while it is.
+	errTCStopped = errors.New("tor controller must not be stopped")
 )
 
 // Controller is an implementation of the Tor Control protocol. This is used in
@@ -167,6 +175,60 @@ func (c *Controller) Stop() error {
 	c.activeServiceID = ""
 
 	return c.conn.Close()
+}
+
+// Reconnect makes a new socket connection between the tor controller and
+// daemon. It will attempt to close the old connection, make a new connection
+// and authenticate, and finally reset the activeServiceID that the controller
+// is aware of.
+//
+// NOTE: Any old onion services will be removed once this function is called.
+// In the case of a Tor daemon restart, previously created onion services will
+// no longer be there. If the function is called without a Tor daemon restart,
+// because the control connection is reset, all the onion services belonging to
+// the old connection will be removed.
+func (c *Controller) Reconnect() error {
+	// Require the tor controller to be running when we want to reconnect.
+	// This means the started flag must be 1 and the stopped flag must be
+	// 0.
+	if c.started != 1 {
+		return errTCNotStarted
+	}
+	if c.stopped != 0 {
+		return errTCStopped
+	}
+
+	log.Info("Re-connectting tor controller")
+
+	// If we have an old connection, try to close it. We might receive an
+	// error if the connection has already been closed by Tor daemon(ie,
+	// daemon restarted), so we ignore the error here.
+	if c.conn != nil {
+		if err := c.conn.Close(); err != nil {
+			log.Debugf("closing old conn got err: %v", err)
+		}
+	}
+
+	// Make a new connection and authenticate.
+	conn, err := textproto.Dial("tcp", c.controlAddr)
+	if err != nil {
+		return fmt.Errorf("unable to connect to Tor server: %w", err)
+	}
+
+	c.conn = conn
+
+	// Authenticate the connection between the controller and Tor daemon.
+	if err := c.authenticate(); err != nil {
+		return err
+	}
+
+	// Reset the activeServiceID. This value would only be set if a
+	// previous onion service was created. Because the old connection has
+	// been closed at this point, the old onion service is no longer
+	// active.
+	c.activeServiceID = ""
+
+	return nil
 }
 
 // sendCommand sends a command to the Tor server and returns its response, as a

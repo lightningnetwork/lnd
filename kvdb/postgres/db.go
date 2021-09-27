@@ -151,8 +151,15 @@ func (db *db) getPrefixedTableName(table string) string {
 func catchPanic(f func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = r.(error)
-			log.Criticalf("Caught unhandled error: %v", err)
+			log.Criticalf("Caught unhandled error: %v", r)
+
+			switch data := r.(type) {
+			case error:
+				err = data
+
+			default:
+				err = errors.New(fmt.Sprintf("%v", data))
+			}
 		}
 	}()
 

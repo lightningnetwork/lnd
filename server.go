@@ -3531,39 +3531,43 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	// within the peer's address for reconnection purposes.
 	//
 	// TODO(roasbeef): use them all?
-	if p.Inbound() {
-		advertisedAddr, err := s.fetchNodeAdvertisedAddr(pubKey)
-		switch {
-		// We found an advertised address, so use it.
-		case err == nil:
-			p.SetAddress(advertisedAddr)
+	advertisedAddr, err := s.fetchNodeAdvertisedAddr(pubKey)
+	switch {
+	// We found an advertised address, so use it.
+	case err == nil:
+		p.SetAddress(advertisedAddr)
 
-		// The peer doesn't have an advertised address.
-		case err == errNoAdvertisedAddr:
-			// Fall back to the existing peer address if
-			// we're not accepting connections over Tor.
-			if s.torController == nil {
-				break
-			}
-
-			// If we are, the peer's address won't be known
-			// to us (we'll see a private address, which is
-			// the address used by our onion service to dial
-			// to lnd), so we don't have enough information
-			// to attempt a reconnect.
-			srvrLog.Debugf("Ignoring reconnection attempt "+
-				"to inbound peer %v without "+
-				"advertised address", p)
-			return
-
-		// We came across an error retrieving an advertised
-		// address, log it, and fall back to the existing peer
-		// address.
-		default:
-			srvrLog.Errorf("Unable to retrieve advertised "+
-				"address for node %x: %v", p.PubKey(),
-				err)
+	// The peer doesn't have an advertised address.
+	case err == errNoAdvertisedAddr:
+		// If it is an outbound peer then we fall back to the existing
+		// peer address.
+		if !p.Inbound() {
+			break
 		}
+
+		// Fall back to the existing peer address if
+		// we're not accepting connections over Tor.
+		if s.torController == nil {
+			break
+		}
+
+		// If we are, the peer's address won't be known
+		// to us (we'll see a private address, which is
+		// the address used by our onion service to dial
+		// to lnd), so we don't have enough information
+		// to attempt a reconnect.
+		srvrLog.Debugf("Ignoring reconnection attempt "+
+			"to inbound peer %v without "+
+			"advertised address", p)
+		return
+
+	// We came across an error retrieving an advertised
+	// address, log it, and fall back to the existing peer
+	// address.
+	default:
+		srvrLog.Errorf("Unable to retrieve advertised "+
+			"address for node %x: %v", p.PubKey(),
+			err)
 	}
 
 	// Otherwise, we'll launch a new connection request in order to

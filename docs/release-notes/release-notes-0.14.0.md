@@ -353,6 +353,10 @@ you.
 * [Only upload itest logs on failure, fix more
   flakes](https://github.com/lightningnetwork/lnd/pull/5833).
 
+* [The interfaces for signing messages and the code for initializing a wallet 
+  was refactored as a preparation for supporting remote
+  signing](https://github.com/lightningnetwork/lnd/pull/5708).
+
 ## Database
 
 * [Ensure single writer for legacy

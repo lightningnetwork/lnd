@@ -3517,95 +3517,96 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	s.removePeer(p)
 
 	// Next, check to see if this is a persistent peer or not.
-	_, ok := s.persistentPeers[pubStr]
-	if ok {
-		// We'll only need to re-launch a connection request if one
-		// isn't already currently pending.
-		if _, ok := s.persistentConnReqs[pubStr]; ok {
+	if _, ok := s.persistentPeers[pubStr]; !ok {
+		return
+	}
+
+	// We'll only need to re-launch a connection request if one
+	// isn't already currently pending.
+	if _, ok := s.persistentConnReqs[pubStr]; ok {
+		return
+	}
+
+	// We'll ensure that we locate an advertised address to use
+	// within the peer's address for reconnection purposes.
+	//
+	// TODO(roasbeef): use them all?
+	if p.Inbound() {
+		advertisedAddr, err := s.fetchNodeAdvertisedAddr(pubKey)
+		switch {
+		// We found an advertised address, so use it.
+		case err == nil:
+			p.SetAddress(advertisedAddr)
+
+		// The peer doesn't have an advertised address.
+		case err == errNoAdvertisedAddr:
+			// Fall back to the existing peer address if
+			// we're not accepting connections over Tor.
+			if s.torController == nil {
+				break
+			}
+
+			// If we are, the peer's address won't be known
+			// to us (we'll see a private address, which is
+			// the address used by our onion service to dial
+			// to lnd), so we don't have enough information
+			// to attempt a reconnect.
+			srvrLog.Debugf("Ignoring reconnection attempt "+
+				"to inbound peer %v without "+
+				"advertised address", p)
+			return
+
+		// We came across an error retrieving an advertised
+		// address, log it, and fall back to the existing peer
+		// address.
+		default:
+			srvrLog.Errorf("Unable to retrieve advertised "+
+				"address for node %x: %v", p.PubKey(),
+				err)
+		}
+	}
+
+	// Otherwise, we'll launch a new connection request in order to
+	// attempt to maintain a persistent connection with this peer.
+	connReq := &connmgr.ConnReq{
+		Addr:      p.NetAddress(),
+		Permanent: true,
+	}
+	s.persistentConnReqs[pubStr] = append(
+		s.persistentConnReqs[pubStr], connReq)
+
+	// Record the computed backoff in the backoff map.
+	backoff := s.nextPeerBackoff(pubStr, p.StartTime())
+	s.persistentPeersBackoff[pubStr] = backoff
+
+	// Initialize a retry canceller for this peer if one does not
+	// exist.
+	cancelChan, ok := s.persistentRetryCancels[pubStr]
+	if !ok {
+		cancelChan = make(chan struct{})
+		s.persistentRetryCancels[pubStr] = cancelChan
+	}
+
+	// We choose not to wait group this go routine since the Connect
+	// call can stall for arbitrarily long if we shutdown while an
+	// outbound connection attempt is being made.
+	go func() {
+		srvrLog.Debugf("Scheduling connection re-establishment to "+
+			"persistent peer %v in %s", p, backoff)
+
+		select {
+		case <-time.After(backoff):
+		case <-cancelChan:
+			return
+		case <-s.quit:
 			return
 		}
 
-		// We'll ensure that we locate an advertised address to use
-		// within the peer's address for reconnection purposes.
-		//
-		// TODO(roasbeef): use them all?
-		if p.Inbound() {
-			advertisedAddr, err := s.fetchNodeAdvertisedAddr(pubKey)
-			switch {
-			// We found an advertised address, so use it.
-			case err == nil:
-				p.SetAddress(advertisedAddr)
+		srvrLog.Debugf("Attempting to re-establish persistent "+
+			"connection to peer %v", p)
 
-			// The peer doesn't have an advertised address.
-			case err == errNoAdvertisedAddr:
-				// Fall back to the existing peer address if
-				// we're not accepting connections over Tor.
-				if s.torController == nil {
-					break
-				}
-
-				// If we are, the peer's address won't be known
-				// to us (we'll see a private address, which is
-				// the address used by our onion service to dial
-				// to lnd), so we don't have enough information
-				// to attempt a reconnect.
-				srvrLog.Debugf("Ignoring reconnection attempt "+
-					"to inbound peer %v without "+
-					"advertised address", p)
-				return
-
-			// We came across an error retrieving an advertised
-			// address, log it, and fall back to the existing peer
-			// address.
-			default:
-				srvrLog.Errorf("Unable to retrieve advertised "+
-					"address for node %x: %v", p.PubKey(),
-					err)
-			}
-		}
-
-		// Otherwise, we'll launch a new connection request in order to
-		// attempt to maintain a persistent connection with this peer.
-		connReq := &connmgr.ConnReq{
-			Addr:      p.NetAddress(),
-			Permanent: true,
-		}
-		s.persistentConnReqs[pubStr] = append(
-			s.persistentConnReqs[pubStr], connReq)
-
-		// Record the computed backoff in the backoff map.
-		backoff := s.nextPeerBackoff(pubStr, p.StartTime())
-		s.persistentPeersBackoff[pubStr] = backoff
-
-		// Initialize a retry canceller for this peer if one does not
-		// exist.
-		cancelChan, ok := s.persistentRetryCancels[pubStr]
-		if !ok {
-			cancelChan = make(chan struct{})
-			s.persistentRetryCancels[pubStr] = cancelChan
-		}
-
-		// We choose not to wait group this go routine since the Connect
-		// call can stall for arbitrarily long if we shutdown while an
-		// outbound connection attempt is being made.
-		go func() {
-			srvrLog.Debugf("Scheduling connection re-establishment to "+
-				"persistent peer %v in %s", p, backoff)
-
-			select {
-			case <-time.After(backoff):
-			case <-cancelChan:
-				return
-			case <-s.quit:
-				return
-			}
-
-			srvrLog.Debugf("Attempting to re-establish persistent "+
-				"connection to peer %v", p)
-
-			s.connMgr.Connect(connReq)
-		}()
-	}
+		s.connMgr.Connect(connReq)
+	}()
 }
 
 // removePeer removes the passed peer from the server's state of all active

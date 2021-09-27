@@ -211,6 +211,11 @@ you.
   with the `addInvoice` rpc interface. However, now the function has been
   [exposed in the go package `invoicesrpc`](https://github.com/lightningnetwork/lnd/pull/5697).
 
+* The `DeleteAllPayments` and `DeletePayment` RPC methods can now be called from
+  the command line with the [new 
+  `lncli deletepayments`](https://github.com/lightningnetwork/lnd/pull/5699)
+  command.
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes

@@ -194,6 +194,7 @@ type server struct {
 
 	persistentPeers        map[string]bool
 	persistentPeersBackoff map[string]time.Duration
+	persistentPeerAddrs    map[string][]*lnwire.NetAddress
 	persistentConnReqs     map[string][]*connmgr.ConnReq
 	persistentRetryCancels map[string]chan struct{}
 
@@ -465,6 +466,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		persistentPeers:         make(map[string]bool),
 		persistentPeersBackoff:  make(map[string]time.Duration),
 		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
+		persistentPeerAddrs:     make(map[string][]*lnwire.NetAddress),
 		persistentRetryCancels:  make(map[string]chan struct{}),
 		peerErrors:              make(map[string]*queue.CircularBuffer),
 		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
@@ -3521,21 +3523,18 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 		return
 	}
 
-	// We'll only need to re-launch a connection request if one
-	// isn't already currently pending.
-	if _, ok := s.persistentConnReqs[pubStr]; ok {
-		return
+	// Get the last address that we used to connect to the peer.
+	addrs := []net.Addr{
+		p.NetAddress().Address,
 	}
 
-	// We'll ensure that we locate an advertised address to use
-	// within the peer's address for reconnection purposes.
-	//
-	// TODO(roasbeef): use them all?
-	advertisedAddr, err := s.fetchNodeAdvertisedAddr(pubKey)
+	// We'll ensure that we locate all the peers advertised addresses for
+	// reconnection purposes.
+	advertisedAddrs, err := s.fetchNodeAdvertisedAddrs(pubKey)
 	switch {
-	// We found an advertised address, so use it.
+	// We found advertised addresses, so use them.
 	case err == nil:
-		p.SetAddress(advertisedAddr)
+		addrs = advertisedAddrs
 
 	// The peer doesn't have an advertised address.
 	case err == errNoAdvertisedAddr:
@@ -3570,14 +3569,28 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 			err)
 	}
 
-	// Otherwise, we'll launch a new connection request in order to
-	// attempt to maintain a persistent connection with this peer.
-	connReq := &connmgr.ConnReq{
-		Addr:      p.NetAddress(),
-		Permanent: true,
+	// Make an easy lookup map so that we can check if an address
+	// is already in the address list that we have stored for this peer.
+	existingAddrs := make(map[string]bool)
+	for _, addr := range s.persistentPeerAddrs[pubStr] {
+		existingAddrs[addr.String()] = true
 	}
-	s.persistentConnReqs[pubStr] = append(
-		s.persistentConnReqs[pubStr], connReq)
+
+	// Add any missing addresses for this peer to persistentPeerAddr.
+	for _, addr := range addrs {
+		if existingAddrs[addr.String()] {
+			continue
+		}
+
+		s.persistentPeerAddrs[pubStr] = append(
+			s.persistentPeerAddrs[pubStr],
+			&lnwire.NetAddress{
+				IdentityKey: p.IdentityKey(),
+				Address:     addr,
+				ChainNet:    p.NetAddress().ChainNet,
+			},
+		)
+	}
 
 	// Record the computed backoff in the backoff map.
 	backoff := s.nextPeerBackoff(pubStr, p.StartTime())
@@ -3596,7 +3609,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	// outbound connection attempt is being made.
 	go func() {
 		srvrLog.Debugf("Scheduling connection re-establishment to "+
-			"persistent peer %v in %s", p, backoff)
+			"persistent peer %v in %s", p.IdentityKey(), backoff)
 
 		select {
 		case <-time.After(backoff):
@@ -3607,10 +3620,81 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 		}
 
 		srvrLog.Debugf("Attempting to re-establish persistent "+
-			"connection to peer %v", p)
+			"connection to peer %v", p.IdentityKey())
 
-		s.connMgr.Connect(connReq)
+		s.connectToPersistentPeer(pubStr)
 	}()
+}
+
+// connectToPersistentPeer uses all the stored addresses for a peer to attempt
+// to connect to the peer. It creates connection requests if there are
+// currently none for a given address and it removes old connection requests
+// if the associated address is no longer in the latest address list for the
+// peer.
+func (s *server) connectToPersistentPeer(pubKeyStr string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Create an easy lookup map of the addresses we have stored for the
+	// peer. We will remove entries from this map if we have existing
+	// connection requests for the associated address and then any leftover
+	// entries will indicate which addresses we should create new
+	// connection requests for.
+	addrMap := make(map[string]*lnwire.NetAddress)
+	for _, addr := range s.persistentPeerAddrs[pubKeyStr] {
+		addrMap[addr.String()] = addr
+	}
+
+	// Go through each of the existing connection requests and
+	// check if they correspond to the latest set of addresses. If
+	// there is a connection requests that does not use one of the latest
+	// advertised addresses then remove that connection request.
+	var updatedConnReqs []*connmgr.ConnReq
+	for _, connReq := range s.persistentConnReqs[pubKeyStr] {
+		lnAddr := connReq.Addr.(*lnwire.NetAddress).Address.String()
+
+		switch _, ok := addrMap[lnAddr]; ok {
+		// If the existing connection request is using one of the
+		// latest advertised addresses for the peer then we add it to
+		// updatedConnReqs and remove the associated address from
+		// addrMap so that we don't recreate this connReq later on.
+		case true:
+			updatedConnReqs = append(
+				updatedConnReqs, connReq,
+			)
+			delete(addrMap, lnAddr)
+
+		// If the existing connection request is using an address that
+		// is not one of the latest advertised addresses for the peer
+		// then we remove the connecting request from the connection
+		// manager.
+		case false:
+			srvrLog.Info(
+				"Removing conn req:", connReq.Addr.String(),
+			)
+			s.connMgr.Remove(connReq.ID())
+		}
+	}
+
+	s.persistentConnReqs[pubKeyStr] = updatedConnReqs
+
+	// Any addresses left in addrMap are new ones that we have not made
+	// connection requests for. So create new connection requests for those.
+	for _, addr := range s.persistentPeerAddrs[pubKeyStr] {
+		if _, ok := addrMap[addr.String()]; !ok {
+			continue
+		}
+
+		connReq := &connmgr.ConnReq{
+			Addr:      addr,
+			Permanent: true,
+		}
+
+		s.persistentConnReqs[pubKeyStr] = append(
+			s.persistentConnReqs[pubKeyStr], connReq,
+		)
+		go s.connMgr.Connect(connReq)
+	}
 }
 
 // removePeer removes the passed peer from the server's state of all active
@@ -3927,8 +4011,8 @@ func computeNextBackoff(currBackoff, maxBackoff time.Duration) time.Duration {
 // advertised address of a node, but they don't have one.
 var errNoAdvertisedAddr = errors.New("no advertised address found")
 
-// fetchNodeAdvertisedAddr attempts to fetch an advertised address of a node.
-func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error) {
+// fetchNodeAdvertisedAddrs attempts to fetch the advertised addresses of a node.
+func (s *server) fetchNodeAdvertisedAddrs(pub *btcec.PublicKey) ([]net.Addr, error) {
 	vertex, err := route.NewVertexFromBytes(pub.SerializeCompressed())
 	if err != nil {
 		return nil, err
@@ -3943,7 +4027,7 @@ func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error)
 		return nil, errNoAdvertisedAddr
 	}
 
-	return node.Addresses[0], nil
+	return node.Addresses, nil
 }
 
 // fetchLastChanUpdate returns a function which is able to retrieve our latest

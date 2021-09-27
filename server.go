@@ -309,6 +309,89 @@ type server struct {
 	wg sync.WaitGroup
 }
 
+// updatePersistentPeerAddrs subscribes to topology changes and stores
+// advertised addresses for any NodeAnnouncements from our persisted peers.
+func (s *server) updatePersistentPeerAddrs() error {
+	graphSub, err := s.chanRouter.SubscribeTopology()
+	if err != nil {
+		return err
+	}
+
+	s.wg.Add(1)
+	go func() {
+		defer func() {
+			graphSub.Cancel()
+			s.wg.Done()
+		}()
+
+		for {
+			select {
+
+			case <-s.quit:
+				return
+
+			case topChange, ok := <-graphSub.TopologyChanges:
+				// If the router is shutting down, then we will
+				// as well.
+				if !ok {
+					return
+				}
+
+				for _, update := range topChange.NodeUpdates {
+					pubKeyStr := string(
+						update.IdentityKey.
+							SerializeCompressed(),
+					)
+
+					// We only care about updates from
+					// our persistentPeers.
+					s.mu.RLock()
+					_, ok := s.persistentPeers[pubKeyStr]
+					s.mu.RUnlock()
+					if !ok {
+						continue
+					}
+
+					addrs := make([]*lnwire.NetAddress, 0,
+						len(update.Addresses))
+
+					for _, addr := range update.Addresses {
+						addrs = append(addrs,
+							&lnwire.NetAddress{
+								IdentityKey: update.IdentityKey,
+								Address:     addr,
+								ChainNet:    s.cfg.ActiveNetParams.Net,
+							},
+						)
+					}
+
+					s.mu.Lock()
+
+					// Update the stored addresses for this
+					// to peer to reflect the new set.
+					s.persistentPeerAddrs[pubKeyStr] = addrs
+
+					// If there are no outstanding
+					// connection requests for this peer
+					// then our work is done since we are
+					// not currently trying to connect to
+					// them.
+					if len(s.persistentConnReqs[pubKeyStr]) == 0 {
+						s.mu.Unlock()
+						continue
+					}
+
+					s.mu.Unlock()
+
+					s.connectToPersistentPeer(pubKeyStr)
+				}
+			}
+		}
+	}()
+
+	return nil
+}
+
 // parseAddr parses an address from its string format to a net.Addr.
 func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 	var (
@@ -1741,6 +1824,13 @@ func (s *server) Start() error {
 			s.connMgr.Stop()
 			return nil
 		})
+
+		// Subscribe to NodeAnnouncements that advertise new addresses
+		// our persistent peers.
+		if err := s.updatePersistentPeerAddrs(); err != nil {
+			startErr = err
+			return
+		}
 
 		// With all the relevant sub-systems started, we'll now attempt
 		// to establish persistent connections to our direct channel

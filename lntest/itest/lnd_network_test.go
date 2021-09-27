@@ -221,10 +221,10 @@ func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 		[]string{fmt.Sprintf("127.0.0.1:%d", dave.Cfg.P2PPort)},
 	)
 
-	// assert that Dave and Charlie do not reconnect after Dave changes
-	// his P2P address to one not listed in Dave's original advertised list
-	// of addresses. This is a bug that will be fixed in a follow-up commit.
-	assertNotConnected(t, dave, charlie)
+	// assert that Dave and Charlie do reconnect after Dave changes his P2P
+	// address to one not listed in Dave's original advertised list of
+	// addresses.
+	assertConnected(t, dave, charlie)
 }
 
 // assertTimeoutError asserts that a connection timeout error is raised. A

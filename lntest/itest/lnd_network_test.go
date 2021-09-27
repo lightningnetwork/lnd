@@ -197,6 +197,34 @@ func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 	// assert that Dave and Charlie reconnect successfully after Dave
 	// changes to his second advertised address.
 	assertConnected(t, dave, charlie)
+
+	// Next we test the case where Dave changes his listening address to one
+	// that was not listed in his original advertised addresses. The desired
+	// behaviour is that Charlie will update his connection requests to Dave
+	// when he receives the Node Announcement from Dave with his updated
+	// address.
+
+	// Change Dave's listening port and restart.
+	dave.Cfg.P2PPort = lntest.NextAvailablePort()
+	dave.Cfg.ExtraArgs = []string{
+		fmt.Sprintf(
+			"--externalip=127.0.0.1:%d", dave.Cfg.P2PPort,
+		),
+	}
+	err = net.RestartNode(dave, nil)
+	require.NoError(t.t, err)
+
+	// Show that Charlie does receive Dave's new listening address in
+	// a Node Announcement.
+	waitForNodeAnnouncement(
+		charlieSub, dave.PubKeyStr,
+		[]string{fmt.Sprintf("127.0.0.1:%d", dave.Cfg.P2PPort)},
+	)
+
+	// assert that Dave and Charlie do not reconnect after Dave changes
+	// his P2P address to one not listed in Dave's original advertised list
+	// of addresses. This is a bug that will be fixed in a follow-up commit.
+	assertNotConnected(t, dave, charlie)
 }
 
 // assertTimeoutError asserts that a connection timeout error is raised. A

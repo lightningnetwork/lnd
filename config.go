@@ -139,6 +139,15 @@ const (
 	defaultTLSBackoff  = time.Minute
 	defaultTLSAttempts = 0
 
+	// Set defaults for a health check which ensures that the tor
+	// connection is alive. Although this check is off by default (not all
+	// setups require it), we still set the other default values so that
+	// the health check can be easily enabled with sane defaults.
+	defaultTCInterval = time.Minute
+	defaultTCTimeout  = time.Second * 5
+	defaultTCBackoff  = time.Minute
+	defaultTCAttempts = 0
+
 	// defaultRemoteMaxHtlcs specifies the default limit for maximum
 	// concurrent HTLCs the remote party may add to commitment transactions.
 	// This value can be overridden with --default-remote-max-htlcs.
@@ -540,6 +549,12 @@ func DefaultConfig() Config {
 				Timeout:  defaultTLSTimeout,
 				Attempts: defaultTLSAttempts,
 				Backoff:  defaultTLSBackoff,
+			},
+			TorConnection: &lncfg.CheckConfig{
+				Interval: defaultTCInterval,
+				Timeout:  defaultTCTimeout,
+				Attempts: defaultTCAttempts,
+				Backoff:  defaultTCBackoff,
 			},
 		},
 		Gossip: &lncfg.Gossip{

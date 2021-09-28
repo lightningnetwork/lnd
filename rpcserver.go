@@ -3234,22 +3234,22 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				historical.ChanType,
 			)
 
+			// Get the number of forwarding packages from the
+			// historical channel.
+			fwdPkgs, err := historical.LoadFwdPkgs()
+			if err != nil {
+				rpcsLog.Errorf("unable to load forwarding "+
+					"packages for channel:%s, %v",
+					historical.ShortChannelID, err)
+				return nil, err
+			}
+			channel.NumForwardingPackages = int64(len(fwdPkgs))
+
 		// If the error is non-nil, and not due to older versions of lnd
 		// not persisting historical channels, return it.
 		default:
 			return nil, err
 		}
-
-		// Get the number of forwarding packages from the historical
-		// channel.
-		fwdPkgs, err := historical.LoadFwdPkgs()
-		if err != nil {
-			rpcsLog.Errorf("unable to load forwarding packages "+
-				"for channel:%s, %v",
-				historical.ShortChannelID, err)
-			return nil, err
-		}
-		channel.NumForwardingPackages = int64(len(fwdPkgs))
 
 		closeTXID := pendingClose.ClosingTXID.String()
 

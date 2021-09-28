@@ -5101,7 +5101,10 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 	rpcsLog.Tracef("[lookupinvoice] searching for invoice %x", payHash[:])
 
 	invoice, err := r.server.invoices.LookupInvoice(payHash)
-	if err != nil {
+	switch {
+	case err == channeldb.ErrInvoiceNotFound:
+		return nil, status.Error(codes.NotFound, err.Error())
+	case err != nil:
 		return nil, err
 	}
 

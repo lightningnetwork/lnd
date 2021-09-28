@@ -105,6 +105,8 @@ proposed channel type is used.
   allows external tools to hook into `lnd`'s RPC server and intercept any
   requests made with custom macaroons (and also the responses to those
   requests).
+  
+* [Adds NOT_FOUND status code for LookupInvoice](https://github.com/lightningnetwork/lnd/pull/5768)
 
 ### Batched channel funding
 
@@ -393,6 +395,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * Martin Habovstiak
 * Naveen Srinivasan
 * Oliver Gugger
+* Priyansh Rastogi
 * Wilmer Paulino
 * xanoni
 * Yong Yu

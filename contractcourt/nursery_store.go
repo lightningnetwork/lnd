@@ -1,4 +1,4 @@
-package lnd
+package contractcourt
 
 import (
 	"bytes"
@@ -79,7 +79,7 @@ import (
 // Concretely, it stores commitment and htlc outputs until any time-bounded
 // constraints have fully matured. The store exposes methods for enumerating its
 // contents, and persisting state transitions detected by the utxo nursery.
-type NurseryStore interface {
+type NurseryStorer interface {
 	// Incubate registers a set of CSV delayed outputs (incoming HTLC's on
 	// our commitment transaction, or a commitment output), and a slice of
 	// outgoing htlc outputs to be swept back into the user's wallet. The
@@ -229,20 +229,20 @@ func prefixOutputKey(statePrefix []byte,
 	return pfxOutputBuffer.Bytes(), nil
 }
 
-// nurseryStore is a concrete instantiation of a NurseryStore that is backed by
+// NurseryStore is a concrete instantiation of a NurseryStore that is backed by
 // a channeldb.DB instance.
-type nurseryStore struct {
+type NurseryStore struct {
 	chainHash chainhash.Hash
 	db        *channeldb.DB
 
 	pfxChainKey []byte
 }
 
-// newNurseryStore accepts a chain hash and a channeldb.DB instance, returning
-// an instance of nurseryStore who's database is properly segmented for the
+// NewNurseryStore accepts a chain hash and a channeldb.DB instance, returning
+// an instance of NurseryStore who's database is properly segmented for the
 // given chain.
-func newNurseryStore(chainHash *chainhash.Hash,
-	db *channeldb.DB) (*nurseryStore, error) {
+func NewNurseryStore(chainHash *chainhash.Hash,
+	db *channeldb.DB) (*NurseryStore, error) {
 
 	// Prefix the provided chain hash with "utxn" to create the key for the
 	// nursery store's root bucket, ensuring each one has proper chain
@@ -252,7 +252,7 @@ func newNurseryStore(chainHash *chainhash.Hash,
 		return nil, err
 	}
 
-	return &nurseryStore{
+	return &NurseryStore{
 		chainHash:   *chainHash,
 		db:          db,
 		pfxChainKey: pfxChainKey,
@@ -262,7 +262,7 @@ func newNurseryStore(chainHash *chainhash.Hash,
 // Incubate persists the beginning of the incubation process for the
 // CSV-delayed outputs (commitment and incoming HTLC's), commitment output and
 // a list of outgoing two-stage htlc outputs.
-func (ns *nurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
+func (ns *NurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
 	return kvdb.Update(ns.db, func(tx kvdb.RwTx) error {
 		// If we have any kid outputs to incubate, then we'll attempt
 		// to add each of them to the nursery store. Any duplicate
@@ -289,7 +289,7 @@ func (ns *nurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
 // CribToKinder atomically moves a babyOutput in the crib bucket to the
 // kindergarten bucket. The now mature kidOutput contained in the babyOutput
 // will be stored as it waits out the kidOutput's CSV delay.
-func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
+func (ns *NurseryStore) CribToKinder(bby *babyOutput) error {
 	return kvdb.Update(ns.db, func(tx kvdb.RwTx) error {
 
 		// First, retrieve or create the channel bucket corresponding to
@@ -371,7 +371,7 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 // PreschoolToKinder atomically moves a kidOutput from the preschool bucket to
 // the kindergarten bucket. This transition should be executed after receiving
 // confirmation of the preschool output's commitment transaction.
-func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput,
+func (ns *NurseryStore) PreschoolToKinder(kid *kidOutput,
 	lastGradHeight uint32) error {
 
 	return kvdb.Update(ns.db, func(tx kvdb.RwTx) error {
@@ -470,7 +470,7 @@ func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput,
 // graduated status. This involves removing the kindergarten entries from both
 // the height and channel indexes. The height bucket will be opportunistically
 // pruned from the height index as outputs are removed.
-func (ns *nurseryStore) GraduateKinder(height uint32, kid *kidOutput) error {
+func (ns *NurseryStore) GraduateKinder(height uint32, kid *kidOutput) error {
 	return kvdb.Update(ns.db, func(tx kvdb.RwTx) error {
 
 		hghtBucket := ns.getHeightBucket(tx, height)
@@ -532,8 +532,8 @@ func (ns *nurseryStore) GraduateKinder(height uint32, kid *kidOutput) error {
 // delay expires at the provided block height.
 // FetchClass returns a list of the kindergarten and crib outputs whose timeouts
 // are expiring
-func (ns *nurseryStore) FetchClass(
-	height uint32) ([]kidOutput, []babyOutput, error) {
+func (ns *NurseryStore) FetchClass(
+	height uint32) ([]kidOutput, []babyOutput, error) { // nolint:golint
 
 	// Construct list of all crib and kindergarten outputs that need to be
 	// processed at the provided block height.
@@ -594,7 +594,7 @@ func (ns *nurseryStore) FetchClass(
 
 // FetchPreschools returns a list of all outputs currently stored in the
 // preschool bucket.
-func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
+func (ns *NurseryStore) FetchPreschools() ([]kidOutput, error) { // nolint:golint
 	var kids []kidOutput
 	if err := kvdb.View(ns.db, func(tx kvdb.RTx) error {
 
@@ -669,7 +669,7 @@ func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
 
 // HeightsBelowOrEqual returns a slice of all non-empty heights in the height
 // index at or below the provided upper bound.
-func (ns *nurseryStore) HeightsBelowOrEqual(height uint32) ([]uint32, error) {
+func (ns *NurseryStore) HeightsBelowOrEqual(height uint32) ([]uint32, error) {
 	var activeHeights []uint32
 	err := kvdb.View(ns.db, func(tx kvdb.RTx) error {
 		// Ensure that the chain bucket for this nursery store exists.
@@ -715,7 +715,7 @@ func (ns *nurseryStore) HeightsBelowOrEqual(height uint32) ([]uint32, error) {
 // inferred from the key's prefix.
 // NOTE: The callback should not modify the provided byte slices and is
 // preferably non-blocking.
-func (ns *nurseryStore) ForChanOutputs(chanPoint *wire.OutPoint,
+func (ns *NurseryStore) ForChanOutputs(chanPoint *wire.OutPoint,
 	callback func([]byte, []byte) error, reset func()) error {
 
 	return kvdb.View(ns.db, func(tx kvdb.RTx) error {
@@ -724,7 +724,7 @@ func (ns *nurseryStore) ForChanOutputs(chanPoint *wire.OutPoint,
 }
 
 // ListChannels returns all channels the nursery is currently tracking.
-func (ns *nurseryStore) ListChannels() ([]wire.OutPoint, error) {
+func (ns *NurseryStore) ListChannels() ([]wire.OutPoint, error) {
 	var activeChannels []wire.OutPoint
 	if err := kvdb.View(ns.db, func(tx kvdb.RTx) error {
 		// Retrieve the existing chain bucket for this nursery store.
@@ -761,7 +761,7 @@ func (ns *nurseryStore) ListChannels() ([]wire.OutPoint, error) {
 
 // IsMatureChannel determines the whether or not all of the outputs in a
 // particular channel bucket have been marked as graduated.
-func (ns *nurseryStore) IsMatureChannel(chanPoint *wire.OutPoint) (bool, error) {
+func (ns *NurseryStore) IsMatureChannel(chanPoint *wire.OutPoint) (bool, error) {
 	err := kvdb.View(ns.db, func(tx kvdb.RTx) error {
 		// Iterate over the contents of the channel bucket, computing
 		// both total number of outputs, and those that have the grad
@@ -790,7 +790,7 @@ var ErrImmatureChannel = errors.New("cannot remove immature channel, " +
 // RemoveChannel channel erases all entries from the channel bucket for the
 // provided channel point.
 // NOTE: The channel's entries in the height index are assumed to be removed.
-func (ns *nurseryStore) RemoveChannel(chanPoint *wire.OutPoint) error {
+func (ns *NurseryStore) RemoveChannel(chanPoint *wire.OutPoint) error {
 	return kvdb.Update(ns.db, func(tx kvdb.RwTx) error {
 		// Retrieve the existing chain bucket for this nursery store.
 		chainBucket := tx.ReadWriteBucket(ns.pfxChainKey)
@@ -853,7 +853,7 @@ func (ns *nurseryStore) RemoveChannel(chanPoint *wire.OutPoint) error {
 // its two-stage process of sweeping funds back to the user's wallet. These
 // outputs are persisted in the nursery store in the crib state, and will be
 // revisited after the first-stage output's CLTV has expired.
-func (ns *nurseryStore) enterCrib(tx kvdb.RwTx, baby *babyOutput) error {
+func (ns *NurseryStore) enterCrib(tx kvdb.RwTx, baby *babyOutput) error {
 	// First, retrieve or create the channel bucket corresponding to the
 	// baby output's origin channel point.
 	chanPoint := baby.OriginChanPoint()
@@ -910,7 +910,7 @@ func (ns *nurseryStore) enterCrib(tx kvdb.RwTx, baby *babyOutput) error {
 // through a single stage before sweeping. Outputs are stored in the preschool
 // bucket until the commitment transaction has been confirmed, at which point
 // they will be moved to the kindergarten bucket.
-func (ns *nurseryStore) enterPreschool(tx kvdb.RwTx, kid *kidOutput) error {
+func (ns *NurseryStore) enterPreschool(tx kvdb.RwTx, kid *kidOutput) error {
 	// First, retrieve or create the channel bucket corresponding to the
 	// baby output's origin channel point.
 	chanPoint := kid.OriginChanPoint()
@@ -943,7 +943,7 @@ func (ns *nurseryStore) enterPreschool(tx kvdb.RwTx, kid *kidOutput) error {
 
 // createChannelBucket creates or retrieves a channel bucket for the provided
 // channel point.
-func (ns *nurseryStore) createChannelBucket(tx kvdb.RwTx,
+func (ns *NurseryStore) createChannelBucket(tx kvdb.RwTx,
 	chanPoint *wire.OutPoint) (kvdb.RwBucket, error) {
 
 	// Ensure that the chain bucket for this nursery store exists.
@@ -974,7 +974,7 @@ func (ns *nurseryStore) createChannelBucket(tx kvdb.RwTx,
 // getChannelBucket retrieves an existing channel bucket from the nursery store,
 // using the given channel point.  If the bucket does not exist, or any bucket
 // along its path does not exist, a nil value is returned.
-func (ns *nurseryStore) getChannelBucket(tx kvdb.RTx,
+func (ns *NurseryStore) getChannelBucket(tx kvdb.RTx,
 	chanPoint *wire.OutPoint) kvdb.RBucket {
 
 	// Retrieve the existing chain bucket for this nursery store.
@@ -1002,7 +1002,7 @@ func (ns *nurseryStore) getChannelBucket(tx kvdb.RTx,
 // getChannelBucketWrite retrieves an existing channel bucket from the nursery store,
 // using the given channel point.  If the bucket does not exist, or any bucket
 // along its path does not exist, a nil value is returned.
-func (ns *nurseryStore) getChannelBucketWrite(tx kvdb.RwTx,
+func (ns *NurseryStore) getChannelBucketWrite(tx kvdb.RwTx,
 	chanPoint *wire.OutPoint) kvdb.RwBucket {
 
 	// Retrieve the existing chain bucket for this nursery store.
@@ -1029,7 +1029,7 @@ func (ns *nurseryStore) getChannelBucketWrite(tx kvdb.RwTx,
 
 // createHeightBucket creates or retrieves an existing bucket from the height
 // index, corresponding to the provided height.
-func (ns *nurseryStore) createHeightBucket(tx kvdb.RwTx,
+func (ns *NurseryStore) createHeightBucket(tx kvdb.RwTx,
 	height uint32) (kvdb.RwBucket, error) {
 
 	// Ensure that the chain bucket for this nursery store exists.
@@ -1057,7 +1057,7 @@ func (ns *nurseryStore) createHeightBucket(tx kvdb.RwTx,
 // getHeightBucketPath retrieves an existing height bucket from the nursery
 // store, using the provided block height. If the bucket does not exist, or any
 // bucket along its path does not exist, a nil value is returned.
-func (ns *nurseryStore) getHeightBucketPath(tx kvdb.RTx,
+func (ns *NurseryStore) getHeightBucketPath(tx kvdb.RTx,
 	height uint32) (kvdb.RBucket, kvdb.RBucket, kvdb.RBucket) {
 
 	// Retrieve the existing chain bucket for this nursery store.
@@ -1083,7 +1083,7 @@ func (ns *nurseryStore) getHeightBucketPath(tx kvdb.RTx,
 // getHeightBucketPathWrite retrieves an existing height bucket from the nursery
 // store, using the provided block height. If the bucket does not exist, or any
 // bucket along its path does not exist, a nil value is returned.
-func (ns *nurseryStore) getHeightBucketPathWrite(tx kvdb.RwTx,
+func (ns *NurseryStore) getHeightBucketPathWrite(tx kvdb.RwTx,
 	height uint32) (kvdb.RwBucket, kvdb.RwBucket, kvdb.RwBucket) {
 
 	// Retrieve the existing chain bucket for this nursery store.
@@ -1111,7 +1111,7 @@ func (ns *nurseryStore) getHeightBucketPathWrite(tx kvdb.RwTx,
 // getHeightBucket retrieves an existing height bucket from the nursery store,
 // using the provided block height. If the bucket does not exist, or any bucket
 // along its path does not exist, a nil value is returned.
-func (ns *nurseryStore) getHeightBucket(tx kvdb.RTx,
+func (ns *NurseryStore) getHeightBucket(tx kvdb.RTx,
 	height uint32) kvdb.RBucket {
 	_, _, hghtBucket := ns.getHeightBucketPath(tx, height)
 
@@ -1121,7 +1121,7 @@ func (ns *nurseryStore) getHeightBucket(tx kvdb.RTx,
 // getHeightBucketWrite retrieves an existing height bucket from the nursery store,
 // using the provided block height. If the bucket does not exist, or any bucket
 // along its path does not exist, a nil value is returned.
-func (ns *nurseryStore) getHeightBucketWrite(tx kvdb.RwTx,
+func (ns *NurseryStore) getHeightBucketWrite(tx kvdb.RwTx,
 	height uint32) kvdb.RwBucket {
 
 	_, _, hghtBucket := ns.getHeightBucketPathWrite(tx, height)
@@ -1132,7 +1132,7 @@ func (ns *nurseryStore) getHeightBucketWrite(tx kvdb.RwTx,
 // createHeightChanBucket creates or retrieves an existing height-channel bucket
 // for the provided block height and channel point. This method will attempt to
 // instantiate all buckets along the path if required.
-func (ns *nurseryStore) createHeightChanBucket(tx kvdb.RwTx,
+func (ns *NurseryStore) createHeightChanBucket(tx kvdb.RwTx,
 	height uint32, chanPoint *wire.OutPoint) (kvdb.RwBucket, error) {
 
 	// Ensure that the height bucket for this nursery store exists.
@@ -1158,7 +1158,7 @@ func (ns *nurseryStore) createHeightChanBucket(tx kvdb.RwTx,
 // nursery store, using the provided block height and channel point. if the
 // bucket does not exist, or any bucket along its path does not exist, a nil
 // value is returned.
-func (ns *nurseryStore) getHeightChanBucketWrite(tx kvdb.RwTx,
+func (ns *NurseryStore) getHeightChanBucketWrite(tx kvdb.RwTx,
 	height uint32, chanPoint *wire.OutPoint) kvdb.RwBucket {
 
 	// Retrieve the existing height bucket from this nursery store.
@@ -1185,7 +1185,7 @@ func (ns *nurseryStore) getHeightChanBucketWrite(tx kvdb.RwTx,
 // enumerate crib and kindergarten outputs at a particular height. The callback
 // is invoked with serialized bytes retrieved for each output of interest,
 // allowing the caller to deserialize them into the appropriate type.
-func (ns *nurseryStore) forEachHeightPrefix(tx kvdb.RTx, prefix []byte,
+func (ns *NurseryStore) forEachHeightPrefix(tx kvdb.RTx, prefix []byte,
 	height uint32, callback func([]byte) error) error {
 
 	// Start by retrieving the height bucket corresponding to the provided
@@ -1273,7 +1273,7 @@ func (ns *nurseryStore) forEachHeightPrefix(tx kvdb.RTx, prefix []byte,
 // provided callback. The callback accepts a key-value pair of byte slices
 // corresponding to the prefixed-output key and the serialized output,
 // respectively.
-func (ns *nurseryStore) forChanOutputs(tx kvdb.RTx, chanPoint *wire.OutPoint,
+func (ns *NurseryStore) forChanOutputs(tx kvdb.RTx, chanPoint *wire.OutPoint,
 	callback func([]byte, []byte) error) error {
 
 	chanBucket := ns.getChannelBucket(tx, chanPoint)
@@ -1291,7 +1291,7 @@ var errBucketNotEmpty = errors.New("bucket is not empty, cannot be pruned")
 // removeOutputFromHeight will delete the given output from the specified
 // height-channel bucket, and attempt to prune the upstream directories if they
 // are empty.
-func (ns *nurseryStore) removeOutputFromHeight(tx kvdb.RwTx, height uint32,
+func (ns *NurseryStore) removeOutputFromHeight(tx kvdb.RwTx, height uint32,
 	chanPoint *wire.OutPoint, pfxKey []byte) error {
 
 	// Retrieve the height-channel bucket and delete the prefixed output.
@@ -1343,7 +1343,7 @@ func (ns *nurseryStore) removeOutputFromHeight(tx kvdb.RwTx, height uint32,
 // all active outputs at this height have been removed from their respective
 // height-channel buckets. The returned boolean value indicated whether or not
 // this invocation successfully pruned the height bucket.
-func (ns *nurseryStore) pruneHeight(tx kvdb.RwTx, height uint32) (bool, error) {
+func (ns *NurseryStore) pruneHeight(tx kvdb.RwTx, height uint32) (bool, error) {
 	// Fetch the existing height index and height bucket.
 	_, hghtIndex, hghtBucket := ns.getHeightBucketPathWrite(tx, height)
 	if hghtBucket == nil {
@@ -1427,5 +1427,5 @@ func isBucketEmpty(parent kvdb.RBucket) error {
 	})
 }
 
-// Compile-time constraint to ensure nurseryStore implements NurseryStore.
-var _ NurseryStore = (*nurseryStore)(nil)
+// Compile-time constraint to ensure NurseryStore implements NurseryStorer.
+var _ NurseryStorer = (*NurseryStore)(nil)

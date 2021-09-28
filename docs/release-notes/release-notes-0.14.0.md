@@ -229,6 +229,8 @@ you.
 
 * [Refactor the interaction between the `htlcswitch` and `peer` packages for cleaner separation.](https://github.com/lightningnetwork/lnd/pull/5603)
 
+* [Moved the original breach handling and timelock UTXO handling into the contract court package](https://github.com/lightningnetwork/lnd/pull/5745)
+
 * [Unused error check 
   removed](https://github.com/lightningnetwork/lnd/pull/5537).
 

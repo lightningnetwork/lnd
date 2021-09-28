@@ -7,6 +7,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 )
@@ -39,6 +40,75 @@ type InvoiceDatabase interface {
 
 	// HodlUnsubscribeAll unsubscribes from all htlc resolutions.
 	HodlUnsubscribeAll(subscriber chan<- interface{})
+}
+
+// packetHandler is an interface used exclusively by the Switch to handle
+// htlcPacket and pass them to the link implementation.
+type packetHandler interface {
+	// handleSwitchPacket handles the switch packets. These packets might
+	// be forwarded to us from another channel link in case the htlc
+	// update came from another peer or if the update was created by user
+	// initially.
+	//
+	// NOTE: This function should block as little as possible.
+	handleSwitchPacket(*htlcPacket) error
+
+	// handleLocalAddPacket handles a locally-initiated UpdateAddHTLC
+	// packet. It will be processed synchronously.
+	handleLocalAddPacket(*htlcPacket) error
+}
+
+// dustHandler is an interface used exclusively by the Switch to evaluate
+// whether a link has too much dust exposure.
+type dustHandler interface {
+	// getDustSum returns the dust sum on either the local or remote
+	// commitment.
+	getDustSum(remote bool) lnwire.MilliSatoshi
+
+	// getFeeRate returns the current channel feerate.
+	getFeeRate() chainfee.SatPerKWeight
+
+	// getDustClosure returns a closure that can evaluate whether a passed
+	// HTLC is dust.
+	getDustClosure() dustClosure
+}
+
+// ChannelUpdateHandler is an interface that provides methods that allow
+// sending lnwire.Message to the underlying link as well as querying state.
+type ChannelUpdateHandler interface {
+	// HandleChannelUpdate handles the htlc requests as settle/add/fail
+	// which sent to us from remote peer we have a channel with.
+	//
+	// NOTE: This function MUST be non-blocking (or block as little as
+	// possible).
+	HandleChannelUpdate(lnwire.Message)
+
+	// ChanID returns the channel ID for the channel link. The channel ID
+	// is a more compact representation of a channel's full outpoint.
+	ChanID() lnwire.ChannelID
+
+	// Bandwidth returns the amount of milli-satoshis which current link
+	// might pass through channel link. The value returned from this method
+	// represents the up to date available flow through the channel. This
+	// takes into account any forwarded but un-cleared HTLC's, and any
+	// HTLC's which have been set to the over flow queue.
+	Bandwidth() lnwire.MilliSatoshi
+
+	// EligibleToForward returns a bool indicating if the channel is able
+	// to actively accept requests to forward HTLC's. A channel may be
+	// active, but not able to forward HTLC's if it hasn't yet finalized
+	// the pre-channel operation protocol with the remote peer. The switch
+	// will use this function in forwarding decisions accordingly.
+	EligibleToForward() bool
+
+	// MayAddOutgoingHtlc returns an error if we may not add an outgoing
+	// htlc to the channel.
+	MayAddOutgoingHtlc() error
+
+	// ShutdownIfChannelClean shuts the link down if the channel state is
+	// clean. This can be used with dynamic commitment negotiation or coop
+	// close negotiation which require a clean channel state.
+	ShutdownIfChannelClean() error
 }
 
 // ChannelLink is an interface which represents the subsystem for managing the
@@ -81,6 +151,9 @@ type ChannelLink interface {
 	// NOTE: This function MUST be non-blocking (or block as little as
 	// possible).
 	HandleChannelUpdate(lnwire.Message)
+
+	// Embed the dustHandler interface.
+	dustHandler
 
 	// ChannelPoint returns the channel outpoint for the channel link.
 	ChannelPoint() *wire.OutPoint

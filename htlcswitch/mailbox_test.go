@@ -6,9 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 const testExpiry = time.Minute
@@ -534,6 +538,126 @@ func TestMailBoxDuplicateAddPacket(t *testing.T) {
 		incomingHTLCID: 2,
 		htlc:           &lnwire.UpdateFailHTLC{},
 	})
+}
+
+// TestMailBoxDustHandling tests that DustPackets returns the expected values
+// for the local and remote dust sum after calling SetFeeRate and
+// SetDustClosure.
+func TestMailBoxDustHandling(t *testing.T) {
+	t.Run("tweakless mailbox dust", func(t *testing.T) {
+		testMailBoxDust(t, channeldb.SingleFunderTweaklessBit)
+	})
+	t.Run("zero htlc fee anchors mailbox dust", func(t *testing.T) {
+		testMailBoxDust(t, channeldb.SingleFunderTweaklessBit|
+			channeldb.AnchorOutputsBit|
+			channeldb.ZeroHtlcTxFeeBit,
+		)
+	})
+}
+
+func testMailBoxDust(t *testing.T, chantype channeldb.ChannelType) {
+	t.Parallel()
+
+	ctx := newMailboxContext(t, time.Now(), testExpiry)
+	defer ctx.mailbox.Stop()
+
+	_, _, aliceID, bobID := genIDs()
+
+	// It should not be the case that the MailBox has packets before the
+	// feeRate or dustClosure is set. This is because the mailbox is always
+	// created *with* its associated link and attached via AttachMailbox,
+	// where these parameters will be set. Even though the lifetime is
+	// longer than the link, the setting will persist across multiple link
+	// creations.
+	ctx.mailbox.SetFeeRate(chainfee.SatPerKWeight(253))
+
+	localDustLimit := btcutil.Amount(400)
+	remoteDustLimit := btcutil.Amount(500)
+	isDust := dustHelper(chantype, localDustLimit, remoteDustLimit)
+	ctx.mailbox.SetDustClosure(isDust)
+
+	// The first packet will be dust according to the remote dust limit,
+	// but not the local. We set a different amount if this is a zero fee
+	// htlc channel type.
+	firstAmt := lnwire.MilliSatoshi(600_000)
+
+	if chantype.ZeroHtlcTxFee() {
+		firstAmt = lnwire.MilliSatoshi(450_000)
+	}
+
+	firstPkt := &htlcPacket{
+		outgoingChanID: aliceID,
+		outgoingHTLCID: 0,
+		incomingChanID: bobID,
+		incomingHTLCID: 0,
+		amount:         firstAmt,
+		htlc: &lnwire.UpdateAddHTLC{
+			ID: uint64(0),
+		},
+	}
+
+	err := ctx.mailbox.AddPacket(firstPkt)
+	require.NoError(t, err)
+
+	// Assert that the local sum is 0, and the remote sum accounts for this
+	// added packet.
+	localSum, remoteSum := ctx.mailbox.DustPackets()
+	require.Equal(t, lnwire.MilliSatoshi(0), localSum)
+	require.Equal(t, firstAmt, remoteSum)
+
+	// The next packet will be dust according to both limits.
+	secondAmt := lnwire.MilliSatoshi(300_000)
+	secondPkt := &htlcPacket{
+		outgoingChanID: aliceID,
+		outgoingHTLCID: 1,
+		incomingChanID: bobID,
+		incomingHTLCID: 1,
+		amount:         secondAmt,
+		htlc: &lnwire.UpdateAddHTLC{
+			ID: uint64(1),
+		},
+	}
+
+	err = ctx.mailbox.AddPacket(secondPkt)
+	require.NoError(t, err)
+
+	// Assert that both the local and remote sums have increased by the
+	// second amount.
+	localSum, remoteSum = ctx.mailbox.DustPackets()
+	require.Equal(t, secondAmt, localSum)
+	require.Equal(t, firstAmt+secondAmt, remoteSum)
+
+	// Now we pull both packets off of the queue.
+	for i := 0; i < 2; i++ {
+		select {
+		case <-ctx.mailbox.PacketOutBox():
+		case <-time.After(50 * time.Millisecond):
+			ctx.t.Fatalf("did not receive packet in time")
+		}
+	}
+
+	// Assert that the sums haven't changed.
+	localSum, remoteSum = ctx.mailbox.DustPackets()
+	require.Equal(t, secondAmt, localSum)
+	require.Equal(t, firstAmt+secondAmt, remoteSum)
+
+	// Remove the first packet from the mailbox.
+	removed := ctx.mailbox.AckPacket(firstPkt.inKey())
+	require.True(t, removed)
+
+	// Assert that the remote sum does not include the firstAmt.
+	localSum, remoteSum = ctx.mailbox.DustPackets()
+	require.Equal(t, secondAmt, localSum)
+	require.Equal(t, secondAmt, remoteSum)
+
+	// Remove the second packet from the mailbox.
+	removed = ctx.mailbox.AckPacket(secondPkt.inKey())
+	require.True(t, removed)
+
+	// Assert that both sums are equal to 0.
+	localSum, remoteSum = ctx.mailbox.DustPackets()
+	require.Equal(t, lnwire.MilliSatoshi(0), localSum)
+	require.Equal(t, lnwire.MilliSatoshi(0), remoteSum)
 }
 
 // TestMailOrchestrator asserts that the orchestrator properly buffers packets

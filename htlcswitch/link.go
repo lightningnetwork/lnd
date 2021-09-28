@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/build"
@@ -2190,6 +2191,36 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 // this channel.
 func (l *channelLink) MayAddOutgoingHtlc() error {
 	return l.channel.MayAddOutgoingHtlc()
+}
+
+// dustClosure is a function that evaluates whether an HTLC is dust. It returns
+// true if the HTLC is dust. It takes in a feerate, a boolean denoting whether
+// the HTLC is incoming (i.e. one that the remote sent), a boolean denoting
+// whether to evaluate on the local or remote commit, and finally an HTLC
+// amount to test.
+type dustClosure func(chainfee.SatPerKWeight, bool, bool, btcutil.Amount) bool
+
+// dustHelper is used to construct the dustClosure.
+func dustHelper(chantype channeldb.ChannelType, localDustLimit,
+	remoteDustLimit btcutil.Amount) dustClosure {
+
+	isDust := func(feerate chainfee.SatPerKWeight, incoming,
+		localCommit bool, amt btcutil.Amount) bool {
+
+		if localCommit {
+			return lnwallet.HtlcIsDust(
+				chantype, incoming, true, feerate, amt,
+				localDustLimit,
+			)
+		}
+
+		return lnwallet.HtlcIsDust(
+			chantype, incoming, false, feerate, amt,
+			remoteDustLimit,
+		)
+	}
+
+	return isDust
 }
 
 // AttachMailBox updates the current mailbox used by this link, and hooks up

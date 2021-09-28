@@ -14,8 +14,11 @@ PKG="github.com/lightningnetwork/lnd"
 PACKAGE=lnd
 
 # Needed for setting file timestamps to get reproducible archives.
-BUILD_DATE="2020-01-01 00:00:00"
-BUILD_DATE_STAMP="202001010000.00"
+# https://reproducible-builds.org/docs/source-date-epoch/
+# https://mirrors.edge.kernel.org/pub/software/scm/git/docs/git-log.html
+SOURCE_DATE_EPOCH=$(git log -1 --pretty=format:"%ad" --date=format:'%Y-%m-%d %H:%M:%S')
+BUILD_DATE=$SOURCE_DATE_EPOCH
+BUILD_DATE_STAMP=$(git log -1 --pretty=format:"%ad" --date=format:'%Y%m%d%H%M.%S')
 
 # reproducible_tar_gzip creates a reproducible tar.gz file of a directory. This
 # includes setting all file timestamps and ownership settings uniformly.

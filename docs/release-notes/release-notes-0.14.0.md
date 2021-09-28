@@ -196,6 +196,8 @@ you.
 
 * [Fix Travis itest parallelism](https://github.com/lightningnetwork/lnd/pull/5734)
 
+* [Reproducible builds](https://github.com/lightningnetwork/lnd/pull/5801)
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

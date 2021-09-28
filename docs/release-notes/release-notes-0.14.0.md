@@ -223,6 +223,10 @@ you.
   `lncli deletepayments`](https://github.com/lightningnetwork/lnd/pull/5699)
   command.
 
+* [Add more verbose error printed to
+  console](https://github.com/lightningnetwork/lnd/pull/5802) when `lnd` fails
+  loading the user specified config.
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes

@@ -44,7 +44,7 @@ require (
 	github.com/lightningnetwork/lnd/cert v1.0.3
 	github.com/lightningnetwork/lnd/clock v1.0.1
 	github.com/lightningnetwork/lnd/healthcheck v1.0.2
-	github.com/lightningnetwork/lnd/kvdb v1.0.3
+	github.com/lightningnetwork/lnd/kvdb v1.1.0
 	github.com/lightningnetwork/lnd/queue v1.0.4
 	github.com/lightningnetwork/lnd/ticker v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
@@ -60,6 +60,7 @@ require (
 	golang.org/x/net v0.0.0-20210913180222-943fd674d43e
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/sys v0.0.0-20210915083310-ed5796bab164 // indirect
+	golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
 	google.golang.org/grpc v1.38.0
 	google.golang.org/protobuf v1.26.0

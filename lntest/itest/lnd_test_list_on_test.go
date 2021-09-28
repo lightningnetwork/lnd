@@ -342,4 +342,8 @@ var allTestCases = []*testCase{
 		name: "rpc middleware interceptor",
 		test: testRPCMiddlewareInterceptor,
 	},
+	{
+		name: "wipe forwarding packages",
+		test: testWipeForwardingPackages,
+	},
 }

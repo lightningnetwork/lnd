@@ -80,26 +80,12 @@ type plexPacket struct {
 	err chan error
 }
 
-// ChannelCloseType is an enum which signals the type of channel closure the
-// peer should execute.
-type ChannelCloseType uint8
-
-const (
-	// CloseRegular indicates a regular cooperative channel closure
-	// should be attempted.
-	CloseRegular ChannelCloseType = iota
-
-	// CloseBreach indicates that a channel breach has been detected, and
-	// the link should immediately be marked as unavailable.
-	CloseBreach
-)
-
 // ChanClose represents a request which close a particular channel specified by
 // its id.
 type ChanClose struct {
 	// CloseType is a variable which signals the type of channel closure the
 	// peer should execute.
-	CloseType ChannelCloseType
+	CloseType contractcourt.ChannelCloseType
 
 	// ChanPoint represent the id of the channel which should be closed.
 	ChanPoint *wire.OutPoint
@@ -219,8 +205,8 @@ type Switch struct {
 	cfg *Config
 
 	// networkResults stores the results of payments initiated by the user.
-	// results. The store is used to later look up the payments and notify
-	// the user of the result when they are complete. Each payment attempt
+	// The store is used to later look up the payments and notify the
+	// user of the result when they are complete. Each payment attempt
 	// should be given a unique integer ID when it is created, otherwise
 	// results might be overwritten.
 	networkResults *networkResultStore
@@ -375,9 +361,9 @@ func (s *Switch) GetPaymentResult(attemptID uint64, paymentHash lntypes.Hash,
 	deobfuscator ErrorDecrypter) (<-chan *PaymentResult, error) {
 
 	var (
-		nChan  <-chan *networkResult
-		err    error
-		outKey = CircuitKey{
+		nChan <-chan *networkResult
+		err   error
+		inKey = CircuitKey{
 			ChanID: hop.Source,
 			HtlcID: attemptID,
 		}
@@ -386,7 +372,7 @@ func (s *Switch) GetPaymentResult(attemptID uint64, paymentHash lntypes.Hash,
 	// If the payment is not found in the circuit map, check whether a
 	// result is already available.
 	// Assumption: no one will add this payment ID other than the caller.
-	if s.circuits.LookupCircuit(outKey) == nil {
+	if s.circuits.LookupCircuit(inKey) == nil {
 		res, err := s.networkResults.getResult(attemptID)
 		if err != nil {
 			return nil, err
@@ -1454,7 +1440,8 @@ func (s *Switch) teardownCircuit(pkt *htlcPacket) error {
 // a starting point for close negotiation. The deliveryScript parameter is an
 // optional parameter which sets a user specified script to close out to.
 func (s *Switch) CloseLink(chanPoint *wire.OutPoint,
-	closeType ChannelCloseType, targetFeePerKw chainfee.SatPerKWeight,
+	closeType contractcourt.ChannelCloseType,
+	targetFeePerKw chainfee.SatPerKWeight,
 	deliveryScript lnwire.DeliveryAddress) (chan interface{}, chan error) {
 
 	// TODO(roasbeef) abstract out the close updates.
@@ -2232,18 +2219,6 @@ func (s *Switch) commitCircuits(circuits ...*PaymentCircuit) (
 	*CircuitFwdActions, error) {
 
 	return s.circuits.CommitCircuits(circuits...)
-}
-
-// openCircuits preemptively writes the keystones for Adds that are about to be
-// added to a commitment txn.
-func (s *Switch) openCircuits(keystones ...Keystone) error {
-	return s.circuits.OpenCircuits(keystones...)
-}
-
-// deleteCircuits persistently removes the circuit, and keystone if present,
-// from the circuit map.
-func (s *Switch) deleteCircuits(inKeys ...CircuitKey) error {
-	return s.circuits.DeleteCircuits(inKeys...)
 }
 
 // FlushForwardingEvents flushes out the set of pending forwarding events to

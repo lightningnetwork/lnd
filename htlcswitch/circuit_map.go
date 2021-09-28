@@ -137,11 +137,31 @@ var (
 	// a packet to the source link, potentially including an error
 	// encrypter for applying this hop's encryption to the payload in the
 	// reverse direction.
+	//
+	// Bucket hierarchy:
+	//
+	// circuitAddKey(root-bucket)
+	//     	|
+	//     	|-- <incoming-circuit-key>: <encoded bytes of PaymentCircuit>
+	//     	|-- <incoming-circuit-key>: <encoded bytes of PaymentCircuit>
+	//     	|
+	//     	...
+	//
 	circuitAddKey = []byte("circuit-adds")
 
 	// circuitKeystoneKey is used to retrieve the bucket containing circuit
 	// keystones, which are set in place once a forwarded packet is
 	// assigned an index on an outgoing commitment txn.
+	//
+	// Bucket hierarchy:
+	//
+	// circuitKeystoneKey(root-bucket)
+	//     	|
+	//     	|-- <outgoing-circuit-key>: <incoming-circuit-key>
+	//     	|-- <outgoing-circuit-key>: <incoming-circuit-key>
+	//     	|
+	//     	...
+	//
 	circuitKeystoneKey = []byte("circuit-keystones")
 )
 
@@ -199,6 +219,11 @@ func NewCircuitMap(cfg *CircuitMapConfig) (CircuitMap, error) {
 		return nil, err
 	}
 
+	// Delete old circuits and keystones of closed channels.
+	if err := cm.cleanClosedChannels(); err != nil {
+		return nil, err
+	}
+
 	// Load any previously persisted circuit into back into memory.
 	if err := cm.restoreMemState(); err != nil {
 		return nil, err
@@ -228,6 +253,216 @@ func (cm *circuitMap) initBuckets() error {
 		_, err = tx.CreateTopLevelBucket(circuitAddKey)
 		return err
 	}, func() {})
+}
+
+// cleanClosedChannels deletes all circuits and keystones related to closed
+// channels. It first reads all the closed channels and caches the ShortChanIDs
+// into a map for fast lookup. Then it iterates the circuit bucket and keystone
+// bucket and deletes items whose ChanID matches the ShortChanID.
+//
+// NOTE: this operation can also be built into restoreMemState since the latter
+// already opens and iterates the two root buckets, circuitAddKey and
+// circuitKeystoneKey. Depending on the size of the buckets, this marginal gain
+// may be worth investigating. Atm, for clarity, this operation is wrapped into
+// its own function.
+func (cm *circuitMap) cleanClosedChannels() error {
+	log.Infof("Cleaning circuits from disk for closed channels")
+
+	// closedChanIDSet stores the short channel IDs for closed channels.
+	closedChanIDSet := make(map[lnwire.ShortChannelID]struct{})
+
+	// circuitKeySet stores the incoming circuit keys of the payment
+	// circuits that need to be deleted.
+	circuitKeySet := make(map[CircuitKey]struct{})
+
+	// keystoneKeySet stores the outgoing keys of the keystones that need
+	// to be deleted.
+	keystoneKeySet := make(map[CircuitKey]struct{})
+
+	// isClosedChannel is a helper closure that returns a bool indicating
+	// the chanID belongs to a closed channel.
+	isClosedChannel := func(chanID lnwire.ShortChannelID) bool {
+		// Skip if the channel ID is zero value. This has the effect
+		// that a zero value incoming or outgoing key will never be
+		// matched and its corresponding circuits or keystones are not
+		// deleted.
+		if chanID.ToUint64() == 0 {
+			return false
+		}
+
+		_, ok := closedChanIDSet[chanID]
+		return ok
+	}
+
+	// Find closed channels and cache their ShortChannelIDs into a map.
+	// This map will be used for looking up relative circuits and keystones.
+	closedChannels, err := cm.cfg.DB.FetchClosedChannels(false)
+	if err != nil {
+		return err
+	}
+
+	for _, closedChannel := range closedChannels {
+		// Skip if the channel close is pending.
+		if closedChannel.IsPending {
+			continue
+		}
+
+		closedChanIDSet[closedChannel.ShortChanID] = struct{}{}
+	}
+
+	log.Debugf("Found %v closed channels", len(closedChanIDSet))
+
+	// Exit early if there are no closed channels.
+	if len(closedChanIDSet) == 0 {
+		log.Infof("Finished cleaning: no closed channels found, " +
+			"no actions taken.",
+		)
+		return nil
+	}
+
+	// Find the payment circuits and keystones that need to be deleted.
+	if err := kvdb.View(cm.cfg.DB, func(tx kvdb.RTx) error {
+		circuitBkt := tx.ReadBucket(circuitAddKey)
+		if circuitBkt == nil {
+			return ErrCorruptedCircuitMap
+		}
+		keystoneBkt := tx.ReadBucket(circuitKeystoneKey)
+		if keystoneBkt == nil {
+			return ErrCorruptedCircuitMap
+		}
+
+		// If a circuit's incoming/outgoing key prefix matches the
+		// ShortChanID, it will be deleted. However, if the ShortChanID
+		// of the incoming key is zero, the circuit will be kept as it
+		// indicates a locally initiated payment.
+		if err := circuitBkt.ForEach(func(_, v []byte) error {
+			circuit, err := cm.decodeCircuit(v)
+			if err != nil {
+				return err
+			}
+
+			// Check if the incoming channel ID can be found in the
+			// closed channel ID map.
+			if !isClosedChannel(circuit.Incoming.ChanID) {
+				return nil
+			}
+
+			circuitKeySet[circuit.Incoming] = struct{}{}
+
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		// If a keystone's InKey or OutKey matches the short channel id
+		// in the closed channel ID map, it will be deleted.
+		err := keystoneBkt.ForEach(func(k, v []byte) error {
+			var (
+				inKey  CircuitKey
+				outKey CircuitKey
+			)
+
+			// Decode the incoming and outgoing circuit keys.
+			if err := inKey.SetBytes(v); err != nil {
+				return err
+			}
+			if err := outKey.SetBytes(k); err != nil {
+				return err
+			}
+
+			// Check if the incoming channel ID can be found in the
+			// closed channel ID map.
+			if isClosedChannel(inKey.ChanID) {
+				// If the incoming channel is closed, we can
+				// skip checking on outgoing channel ID because
+				// this keystone will be deleted.
+				keystoneKeySet[outKey] = struct{}{}
+
+				// Technically the incoming keys found in
+				// keystone bucket should be a subset of
+				// circuit bucket. So a previous loop should
+				// have this inKey put inside circuitAddKey map
+				// already. We do this again to be sure the
+				// circuits are properly cleaned. Even this
+				// inKey doesn't exist in circuit bucket, we
+				// are fine as db deletion is a noop.
+				circuitKeySet[inKey] = struct{}{}
+				return nil
+			}
+
+			// Check if the outgoing channel ID can be found in the
+			// closed channel ID map. Notice that we need to store
+			// the outgoing key because it's used for db query.
+			if isClosedChannel(outKey.ChanID) {
+				keystoneKeySet[outKey] = struct{}{}
+
+				// Also update circuitKeySet to mark the
+				// payment circuit needs to be deleted.
+				circuitKeySet[inKey] = struct{}{}
+			}
+
+			return nil
+		})
+		return err
+
+	}, func() {
+		// Reset the sets.
+		circuitKeySet = make(map[CircuitKey]struct{})
+		keystoneKeySet = make(map[CircuitKey]struct{})
+	}); err != nil {
+		return err
+	}
+
+	log.Debugf("To be deleted: num_circuits=%v, num_keystones=%v",
+		len(circuitKeySet), len(keystoneKeySet),
+	)
+
+	numCircuitsDeleted := 0
+	numKeystonesDeleted := 0
+
+	// Delete all the circuits and keystones for closed channels.
+	if err := kvdb.Update(cm.cfg.DB, func(tx kvdb.RwTx) error {
+		circuitBkt := tx.ReadWriteBucket(circuitAddKey)
+		if circuitBkt == nil {
+			return ErrCorruptedCircuitMap
+		}
+		keystoneBkt := tx.ReadWriteBucket(circuitKeystoneKey)
+		if keystoneBkt == nil {
+			return ErrCorruptedCircuitMap
+		}
+
+		// Delete the ciruit.
+		for inKey := range circuitKeySet {
+			if err := circuitBkt.Delete(inKey.Bytes()); err != nil {
+				return err
+			}
+
+			numCircuitsDeleted++
+		}
+
+		// Delete the keystone using the outgoing key.
+		for outKey := range keystoneKeySet {
+			err := keystoneBkt.Delete(outKey.Bytes())
+			if err != nil {
+				return err
+			}
+
+			numKeystonesDeleted++
+		}
+
+		return nil
+	}, func() {}); err != nil {
+		numCircuitsDeleted = 0
+		numKeystonesDeleted = 0
+		return err
+	}
+
+	log.Infof("Finished cleaning: num_closed_channel=%v, "+
+		"num_circuits=%v, num_keystone=%v",
+		len(closedChannels), numCircuitsDeleted, numKeystonesDeleted,
+	)
+
+	return nil
 }
 
 // restoreMemState loads the contents of the half circuit and full circuit
@@ -489,8 +724,8 @@ func (cm *circuitMap) TrimOpenCircuits(chanID lnwire.ShortChannelID,
 	}, func() {})
 }
 
-// LookupByHTLC looks up the payment circuit by the outgoing channel and HTLC
-// IDs. Returns nil if there is no such circuit.
+// LookupCircuit queries the circuit map for the circuit identified by its
+// incoming circuit key. Returns nil if there is no such circuit.
 func (cm *circuitMap) LookupCircuit(inKey CircuitKey) *PaymentCircuit {
 	cm.mtx.RLock()
 	defer cm.mtx.RUnlock()

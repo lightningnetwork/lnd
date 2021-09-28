@@ -2401,7 +2401,8 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		}
 
 		updateChan, errChan = r.server.htlcSwitch.CloseLink(
-			chanPoint, htlcswitch.CloseRegular, feeRate, deliveryScript,
+			chanPoint, contractcourt.CloseRegular, feeRate,
+			deliveryScript,
 		)
 	}
 out:
@@ -2518,8 +2519,8 @@ func (r *rpcServer) abandonChan(chanPoint *wire.OutPoint,
 	// close, then it's possible that the nursery is hanging on to some
 	// state. To err on the side of caution, we'll now attempt to wipe any
 	// state for this channel from the nursery.
-	err = r.server.utxoNursery.cfg.Store.RemoveChannel(chanPoint)
-	if err != nil && err != ErrContractNotFound {
+	err = r.server.utxoNursery.RemoveChannel(chanPoint)
+	if err != nil && err != contractcourt.ErrContractNotFound {
 		return err
 	}
 
@@ -3233,6 +3234,17 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				historical.ChanType,
 			)
 
+			// Get the number of forwarding packages from the
+			// historical channel.
+			fwdPkgs, err := historical.LoadFwdPkgs()
+			if err != nil {
+				rpcsLog.Errorf("unable to load forwarding "+
+					"packages for channel:%s, %v",
+					historical.ShortChannelID, err)
+				return nil, err
+			}
+			channel.NumForwardingPackages = int64(len(fwdPkgs))
+
 		// If the error is non-nil, and not due to older versions of lnd
 		// not persisting historical channels, return it.
 		default:
@@ -3350,16 +3362,25 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			)
 		}
 
+		fwdPkgs, err := waitingClose.LoadFwdPkgs()
+		if err != nil {
+			rpcsLog.Errorf("unable to load forwarding packages "+
+				"for channel:%s, %v",
+				waitingClose.ShortChannelID, err)
+			return nil, err
+		}
+
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
-			RemoteNodePub:        hex.EncodeToString(pub),
-			ChannelPoint:         chanPoint.String(),
-			Capacity:             int64(waitingClose.Capacity),
-			LocalBalance:         int64(waitingClose.LocalCommitment.LocalBalance.ToSatoshis()),
-			RemoteBalance:        int64(waitingClose.LocalCommitment.RemoteBalance.ToSatoshis()),
-			LocalChanReserveSat:  int64(waitingClose.LocalChanCfg.ChanReserve),
-			RemoteChanReserveSat: int64(waitingClose.RemoteChanCfg.ChanReserve),
-			Initiator:            rpcInitiator(waitingClose.IsInitiator),
-			CommitmentType:       rpcCommitmentType(waitingClose.ChanType),
+			RemoteNodePub:         hex.EncodeToString(pub),
+			ChannelPoint:          chanPoint.String(),
+			Capacity:              int64(waitingClose.Capacity),
+			LocalBalance:          int64(waitingClose.LocalCommitment.LocalBalance.ToSatoshis()),
+			RemoteBalance:         int64(waitingClose.LocalCommitment.RemoteBalance.ToSatoshis()),
+			LocalChanReserveSat:   int64(waitingClose.LocalChanCfg.ChanReserve),
+			RemoteChanReserveSat:  int64(waitingClose.RemoteChanCfg.ChanReserve),
+			Initiator:             rpcInitiator(waitingClose.IsInitiator),
+			CommitmentType:        rpcCommitmentType(waitingClose.ChanType),
+			NumForwardingPackages: int64(len(fwdPkgs)),
 		}
 
 		waitingCloseResp := &lnrpc.PendingChannelsResponse_WaitingCloseChannel{
@@ -3475,7 +3496,7 @@ func (r *rpcServer) nurseryPopulateForceCloseResp(chanPoint *wire.OutPoint,
 	// didn't have any time-locked outputs, then the nursery may not know of
 	// the contract.
 	nurseryInfo, err := r.server.utxoNursery.NurseryReport(chanPoint)
-	if err == ErrContractNotFound {
+	if err == contractcourt.ErrContractNotFound {
 		return nil
 	}
 	if err != nil {
@@ -3488,18 +3509,18 @@ func (r *rpcServer) nurseryPopulateForceCloseResp(chanPoint *wire.OutPoint,
 	// information detailing exactly how much funds are time locked and also
 	// the height in which we can ultimately sweep the funds into the
 	// wallet.
-	forceClose.LimboBalance = int64(nurseryInfo.limboBalance)
-	forceClose.RecoveredBalance = int64(nurseryInfo.recoveredBalance)
+	forceClose.LimboBalance = int64(nurseryInfo.LimboBalance)
+	forceClose.RecoveredBalance = int64(nurseryInfo.RecoveredBalance)
 
-	for _, htlcReport := range nurseryInfo.htlcs {
+	for _, htlcReport := range nurseryInfo.Htlcs {
 		// TODO(conner) set incoming flag appropriately after handling
 		// incoming incubation
 		htlc := &lnrpc.PendingHTLC{
 			Incoming:       false,
-			Amount:         int64(htlcReport.amount),
-			Outpoint:       htlcReport.outpoint.String(),
-			MaturityHeight: htlcReport.maturityHeight,
-			Stage:          htlcReport.stage,
+			Amount:         int64(htlcReport.Amount),
+			Outpoint:       htlcReport.Outpoint.String(),
+			MaturityHeight: htlcReport.MaturityHeight,
+			Stage:          htlcReport.Stage,
 		}
 
 		if htlc.MaturityHeight != 0 {

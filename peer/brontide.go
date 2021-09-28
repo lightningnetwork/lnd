@@ -2519,7 +2519,7 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	// A type of CloseRegular indicates that the user has opted to close
 	// out this channel on-chain, so we execute the cooperative channel
 	// closure workflow.
-	case htlcswitch.CloseRegular:
+	case contractcourt.CloseRegular:
 		// First, we'll choose a delivery address that we'll use to send the
 		// funds to in the case of a successful negotiation.
 
@@ -2604,7 +2604,7 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 
 	// A type of CloseBreach indicates that the counterparty has breached
 	// the channel therefore we need to clean up our local state.
-	case htlcswitch.CloseBreach:
+	case contractcourt.CloseBreach:
 		// TODO(roasbeef): no longer need with newer beach logic?
 		peerLog.Infof("ChannelPoint(%v) has been breached, wiping "+
 			"channel", req.ChanPoint)

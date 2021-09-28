@@ -142,6 +142,13 @@ documentation](../psbt.md#use-the-batchopenchannel-rpc-for-safe-batch-channel-fu
 
 ## Security 
 
+* The release signature verification script [was overhauled to fix some possible
+  attack vectors and user
+  errors](https://github.com/lightningnetwork/lnd/pull/5053). The public keys
+  used to verify the signatures against are no longer downloaded form Keybase
+  but instead are kept in the `lnd` git repository. This allows for a more
+  transparent way of keeping track of changes to the signing keys.
+
 ### Admin macaroon permissions
 
 The default file permissions of admin.macaroon were [changed from 0600 to
@@ -211,11 +218,18 @@ you.
   with the `addInvoice` rpc interface. However, now the function has been
   [exposed in the go package `invoicesrpc`](https://github.com/lightningnetwork/lnd/pull/5697).
 
+* The `DeleteAllPayments` and `DeletePayment` RPC methods can now be called from
+  the command line with the [new 
+  `lncli deletepayments`](https://github.com/lightningnetwork/lnd/pull/5699)
+  command.
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes
 
 * [Refactor the interaction between the `htlcswitch` and `peer` packages for cleaner separation.](https://github.com/lightningnetwork/lnd/pull/5603)
+
+* [Moved the original breach handling and timelock UTXO handling into the contract court package](https://github.com/lightningnetwork/lnd/pull/5745)
 
 * [Unused error check 
   removed](https://github.com/lightningnetwork/lnd/pull/5537).
@@ -281,6 +295,10 @@ you.
 * [Ensure single writer for legacy
   code](https://github.com/lightningnetwork/lnd/pull/5547) when using etcd
   backend.
+* When starting/restarting, `lnd` will [clean forwarding packages, payment
+  circuits and keystones](https://github.com/lightningnetwork/lnd/pull/4364)
+  for closed channels, which will potentially free up disk space for long
+  running nodes that have lots of closed channels.
 
 * [Optimized payment sequence generation](https://github.com/lightningnetwork/lnd/pull/5514/)
   to make LNDs payment throughput (and latency) with better when using etcd.

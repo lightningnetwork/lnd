@@ -1930,6 +1930,10 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				"error receiving fee update: %v", err)
 			return
 		}
+
+		// Update the mailbox's feerate as well.
+		l.mailBox.SetFeeRate(fee)
+
 	case *lnwire.Error:
 		// Error received from remote, MUST fail channel, but should
 		// only print the contents of the error message if all
@@ -2193,6 +2197,34 @@ func (l *channelLink) MayAddOutgoingHtlc() error {
 	return l.channel.MayAddOutgoingHtlc()
 }
 
+// getDustSum is a wrapper method that calls the underlying channel's dust sum
+// method.
+//
+// NOTE: Part of the dustHandler interface.
+func (l *channelLink) getDustSum(remote bool) lnwire.MilliSatoshi {
+	return l.channel.GetDustSum(remote)
+}
+
+// getFeeRate is a wrapper method that retrieves the underlying channel's
+// feerate.
+//
+// NOTE: Part of the dustHandler interface.
+func (l *channelLink) getFeeRate() chainfee.SatPerKWeight {
+	return l.channel.CommitFeeRate()
+}
+
+// getDustClosure returns a closure that can be used by the switch or mailbox
+// to evaluate whether a given HTLC is dust.
+//
+// NOTE: Part of the dustHandler interface.
+func (l *channelLink) getDustClosure() dustClosure {
+	localDustLimit := l.channel.State().LocalChanCfg.DustLimit
+	remoteDustLimit := l.channel.State().RemoteChanCfg.DustLimit
+	chanType := l.channel.State().ChanType
+
+	return dustHelper(chanType, localDustLimit, remoteDustLimit)
+}
+
 // dustClosure is a function that evaluates whether an HTLC is dust. It returns
 // true if the HTLC is dust. It takes in a feerate, a boolean denoting whether
 // the HTLC is incoming (i.e. one that the remote sent), a boolean denoting
@@ -2232,6 +2264,14 @@ func (l *channelLink) AttachMailBox(mailbox MailBox) {
 	l.upstream = mailbox.MessageOutBox()
 	l.downstream = mailbox.PacketOutBox()
 	l.Unlock()
+
+	// Set the mailbox's fee rate. This may be refreshing a feerate that was
+	// never committed.
+	l.mailBox.SetFeeRate(l.getFeeRate())
+
+	// Also set the mailbox's dust closure so that it can query whether HTLC's
+	// are dust given the current feerate.
+	l.mailBox.SetDustClosure(l.getDustClosure())
 }
 
 // UpdateForwardingPolicy updates the forwarding policy for the target
@@ -2531,6 +2571,10 @@ func (l *channelLink) updateChannelFee(feePerKw chainfee.SatPerKWeight) error {
 	if err := l.channel.UpdateFee(feePerKw); err != nil {
 		return err
 	}
+
+	// The fee passed the channel's validation checks, so we update the
+	// mailbox feerate.
+	l.mailBox.SetFeeRate(feePerKw)
 
 	// We'll then attempt to send a new UpdateFee message, and also lock it
 	// in immediately by triggering a commitment update.

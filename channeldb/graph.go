@@ -211,8 +211,8 @@ func NewChannelGraph(db kvdb.Backend, rejectCacheSize, chanCacheSize int,
 	startTime := time.Now()
 	log.Debugf("Populating in-memory channel graph, this might take a " +
 		"while...")
-	err := g.ForEachNode(func(tx kvdb.RTx, node *LightningNode) error {
-		return g.graphCache.AddNode(tx, &graphCacheNode{node})
+	err := g.ForEachNodeCacheable(func(tx kvdb.RTx, node GraphCacheNode) error {
+		return g.graphCache.AddNode(tx, node)
 	})
 	if err != nil {
 		return nil, err
@@ -468,6 +468,47 @@ func (c *ChannelGraph) ForEachNode(cb func(kvdb.RTx, *LightningNode) error) erro
 	return kvdb.View(c.db, traversal, func() {})
 }
 
+// ForEachNodeCacheable iterates through all the stored vertices/nodes in the
+// graph, executing the passed callback with each node encountered. If the
+// callback returns an error, then the transaction is aborted and the iteration
+// stops early.
+func (c *ChannelGraph) ForEachNodeCacheable(cb func(kvdb.RTx,
+	GraphCacheNode) error) error {
+
+	traversal := func(tx kvdb.RTx) error {
+		// First grab the nodes bucket which stores the mapping from
+		// pubKey to node information.
+		nodes := tx.ReadBucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNotFound
+		}
+
+		cacheableNode := newGraphCacheNode(route.Vertex{}, nil)
+		return nodes.ForEach(func(pubKey, nodeBytes []byte) error {
+			// If this is the source key, then we skip this
+			// iteration as the value for this key is a pubKey
+			// rather than raw node information.
+			if bytes.Equal(pubKey, sourceKey) || len(pubKey) != 33 {
+				return nil
+			}
+
+			nodeReader := bytes.NewReader(nodeBytes)
+			err := deserializeLightningNodeCacheable(
+				nodeReader, cacheableNode,
+			)
+			if err != nil {
+				return err
+			}
+
+			// Execute the callback, the transaction will abort if
+			// this returns an error.
+			return cb(tx, cacheableNode)
+		})
+	}
+
+	return kvdb.View(c.db, traversal, func() {})
+}
+
 // SourceNode returns the source node of the graph. The source node is treated
 // as the center node within a star-graph. This method may be used to kick off
 // a path finding algorithm in order to explore the reachability of another
@@ -559,8 +600,10 @@ func (c *ChannelGraph) AddLightningNode(node *LightningNode,
 
 	r := &batch.Request{
 		Update: func(tx kvdb.RwTx) error {
-			wNode := &graphCacheNode{node}
-			if err := c.graphCache.AddNode(tx, wNode); err != nil {
+			cNode := newGraphCacheNode(
+				node.PubKeyBytes, node.Features,
+			)
+			if err := c.graphCache.AddNode(tx, cNode); err != nil {
 				return err
 			}
 
@@ -2532,17 +2575,30 @@ func (c *ChannelGraph) FetchLightningNode(nodePub route.Vertex) (
 // graphCacheNode is a struct that wraps a LightningNode in a way that it can be
 // cached in the graph cache.
 type graphCacheNode struct {
-	lnNode *LightningNode
+	pubKeyBytes route.Vertex
+	features    *lnwire.FeatureVector
+
+	nodeScratch [8]byte
+}
+
+// newGraphCacheNode returns a new cache optimized node.
+func newGraphCacheNode(pubKey route.Vertex,
+	features *lnwire.FeatureVector) *graphCacheNode {
+
+	return &graphCacheNode{
+		pubKeyBytes: pubKey,
+		features:    features,
+	}
 }
 
 // PubKey returns the node's public identity key.
-func (w *graphCacheNode) PubKey() route.Vertex {
-	return w.lnNode.PubKeyBytes
+func (n *graphCacheNode) PubKey() route.Vertex {
+	return n.pubKeyBytes
 }
 
 // Features returns the node's features.
-func (w *graphCacheNode) Features() *lnwire.FeatureVector {
-	return w.lnNode.Features
+func (n *graphCacheNode) Features() *lnwire.FeatureVector {
+	return n.features
 }
 
 // ForEachChannel iterates through all channels of this node, executing the
@@ -2553,11 +2609,11 @@ func (w *graphCacheNode) Features() *lnwire.FeatureVector {
 // halted with the error propagated back up to the caller.
 //
 // Unknown policies are passed into the callback as nil values.
-func (w *graphCacheNode) ForEachChannel(tx kvdb.RTx,
+func (n *graphCacheNode) ForEachChannel(tx kvdb.RTx,
 	cb func(kvdb.RTx, *ChannelEdgeInfo, *ChannelEdgePolicy,
 		*ChannelEdgePolicy) error) error {
 
-	return w.lnNode.ForEachChannel(tx, cb)
+	return nodeTraversal(tx, n.pubKeyBytes[:], nil, cb)
 }
 
 var _ GraphCacheNode = (*graphCacheNode)(nil)
@@ -3863,6 +3919,53 @@ func fetchLightningNode(nodeBucket kvdb.RBucket,
 
 	nodeReader := bytes.NewReader(nodeBytes)
 	return deserializeLightningNode(nodeReader)
+}
+
+func deserializeLightningNodeCacheable(r io.Reader, node *graphCacheNode) error {
+	// Always populate a feature vector, even if we don't have a node
+	// announcement and short circuit below.
+	node.features = lnwire.EmptyFeatureVector()
+
+	// Skip ahead:
+	// - LastUpdate (8 bytes)
+	if _, err := r.Read(node.nodeScratch[:]); err != nil {
+		return err
+	}
+
+	if _, err := io.ReadFull(r, node.pubKeyBytes[:]); err != nil {
+		return err
+	}
+
+	// Read the node announcement flag.
+	if _, err := r.Read(node.nodeScratch[:2]); err != nil {
+		return err
+	}
+	hasNodeAnn := byteOrder.Uint16(node.nodeScratch[:2])
+
+	// The rest of the data is optional, and will only be there if we got a
+	// node announcement for this node.
+	if hasNodeAnn == 0 {
+		return nil
+	}
+
+	// We did get a node announcement for this node, so we'll have the rest
+	// of the data available.
+	var rgb uint8
+	if err := binary.Read(r, byteOrder, &rgb); err != nil {
+		return err
+	}
+	if err := binary.Read(r, byteOrder, &rgb); err != nil {
+		return err
+	}
+	if err := binary.Read(r, byteOrder, &rgb); err != nil {
+		return err
+	}
+
+	if _, err := wire.ReadVarString(r, 0); err != nil {
+		return err
+	}
+
+	return node.features.Decode(r)
 }
 
 func deserializeLightningNode(r io.Reader) (LightningNode, error) {

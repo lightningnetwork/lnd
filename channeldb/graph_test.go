@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1145,6 +1146,58 @@ func TestGraphTraversal(t *testing.T) {
 	require.Equal(t, numChannels, numNodeChans)
 }
 
+// TestGraphTraversalCacheable tests that the memory optimized node traversal is
+// working correctly.
+func TestGraphTraversalCacheable(t *testing.T) {
+	t.Parallel()
+
+	graph, cleanUp, err := MakeTestGraph()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	// We'd like to test some of the graph traversal capabilities within
+	// the DB, so we'll create a series of fake nodes to insert into the
+	// graph. And we'll create 5 channels between the first two nodes.
+	const numNodes = 20
+	const numChannels = 5
+	chanIndex, _ := fillTestGraph(t, graph, numNodes, numChannels)
+
+	// Create a map of all nodes with the iteration we know works (because
+	// it is tested in another test).
+	nodeMap := make(map[route.Vertex]struct{})
+	err = graph.ForEachNode(func(tx kvdb.RTx, n *LightningNode) error {
+		nodeMap[n.PubKeyBytes] = struct{}{}
+
+		return nil
+	})
+	require.NoError(t, err)
+	require.Len(t, nodeMap, numNodes)
+
+	// Iterate through all the known channels within the graph DB by
+	// iterating over each node, once again if the map is empty that
+	// indicates that all edges have properly been reached.
+	err = graph.ForEachNodeCacheable(
+		func(tx kvdb.RTx, node GraphCacheNode) error {
+			delete(nodeMap, node.PubKey())
+
+			return node.ForEachChannel(
+				tx, func(tx kvdb.RTx, info *ChannelEdgeInfo,
+					policy *ChannelEdgePolicy,
+					policy2 *ChannelEdgePolicy) error {
+
+					delete(chanIndex, info.ChannelID)
+					return nil
+				},
+			)
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, nodeMap, 0)
+	require.Len(t, chanIndex, 0)
+}
+
 func TestGraphCacheTraversal(t *testing.T) {
 	t.Parallel()
 
@@ -1164,6 +1217,8 @@ func TestGraphCacheTraversal(t *testing.T) {
 	// properly been reached.
 	numNodeChans := 0
 	for _, node := range nodeList {
+		node := node
+
 		err = graph.graphCache.ForEachChannel(
 			node.PubKeyBytes, func(d *DirectedChannel) error {
 				delete(chanIndex, d.ChannelID)
@@ -1197,7 +1252,7 @@ func TestGraphCacheTraversal(t *testing.T) {
 	require.Equal(t, numChannels*2*(numNodes-1), numNodeChans)
 }
 
-func fillTestGraph(t *testing.T, graph *ChannelGraph, numNodes,
+func fillTestGraph(t require.TestingT, graph *ChannelGraph, numNodes,
 	numChannels int) (map[uint64]struct{}, []*LightningNode) {
 
 	nodes := make([]*LightningNode, numNodes)
@@ -1237,7 +1292,7 @@ func fillTestGraph(t *testing.T, graph *ChannelGraph, numNodes,
 
 		for i := 0; i < numChannels; i++ {
 			txHash := sha256.Sum256([]byte{byte(i)})
-			chanID := uint64((n << 4) + i + 1)
+			chanID := uint64((n << 8) + i + 1)
 			op := wire.OutPoint{
 				Hash:  txHash,
 				Index: 0,
@@ -3590,5 +3645,49 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 	for i := 0; i < len(updates); i++ {
 		err := <-errChan
 		require.Nil(t, err)
+	}
+}
+
+// BenchmarkForEachChannel is a benchmark test that measures the number of
+// allocations and the total memory consumed by the full graph traversal.
+func BenchmarkForEachChannel(b *testing.B) {
+	graph, cleanUp, err := MakeTestGraph()
+	require.Nil(b, err)
+	defer cleanUp()
+
+	const numNodes = 100
+	const numChannels = 4
+	_, _ = fillTestGraph(b, graph, numNodes, numChannels)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var (
+			totalCapacity btcutil.Amount
+			maxHTLCs      lnwire.MilliSatoshi
+		)
+		err := graph.ForEachNodeCacheable(
+			func(tx kvdb.RTx, n GraphCacheNode) error {
+				return n.ForEachChannel(
+					tx, func(tx kvdb.RTx,
+						info *ChannelEdgeInfo,
+						policy *ChannelEdgePolicy,
+						policy2 *ChannelEdgePolicy) error {
+
+						// We need to do something with
+						// the data here, otherwise the
+						// compiler is going to optimize
+						// this away, and we get bogus
+						// results.
+						totalCapacity += info.Capacity
+						maxHTLCs += policy.MaxHTLC
+						maxHTLCs += policy2.MaxHTLC
+
+						return nil
+					},
+				)
+			},
+		)
+		require.NoError(b, err)
 	}
 }

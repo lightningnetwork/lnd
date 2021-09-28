@@ -189,6 +189,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		HtlcNotifier:   &mockHTLCNotifier{},
 		Clock:          clock.NewDefaultClock(),
 		HTLCExpiry:     time.Hour,
+		DustThreshold:  DefaultDustThreshold,
 	}
 
 	return New(cfg, startingHeight)

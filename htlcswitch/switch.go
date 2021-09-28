@@ -77,9 +77,9 @@ var (
 	// threshold.
 	errDustThresholdExceeded = errors.New("dust threshold exceeded")
 
-	// defaultDustThreshold is the default threshold after which we'll fail
-	// payments if they are dust. This is currently set to 500k sats.
-	defaultDustThreshold = lnwire.MilliSatoshi(500_000_000)
+	// DefaultDustThreshold is the default threshold after which we'll fail
+	// payments if they are dust. This is currently set to 500m msats.
+	DefaultDustThreshold = lnwire.MilliSatoshi(500_000_000)
 )
 
 // plexPacket encapsulates switch packet and adds error channel to receive
@@ -187,6 +187,10 @@ type Config struct {
 	// will expiry this long after the Adds are added to a mailbox via
 	// AddPacket.
 	HTLCExpiry time.Duration
+
+	// DustThreshold is the threshold in milli-satoshis after which we'll
+	// fail incoming or outgoing dust payments for a particular channel.
+	DustThreshold lnwire.MilliSatoshi
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -2375,7 +2379,7 @@ func (s *Switch) evaluateDustThreshold(link ChannelLink,
 		}
 
 		// Finally check against the defined dust threshold.
-		if localSum > defaultDustThreshold {
+		if localSum > s.cfg.DustThreshold {
 			return true
 		}
 	}
@@ -2393,7 +2397,7 @@ func (s *Switch) evaluateDustThreshold(link ChannelLink,
 		}
 
 		// Finally check against the defined dust threshold.
-		if remoteSum > defaultDustThreshold {
+		if remoteSum > s.cfg.DustThreshold {
 			return true
 		}
 	}

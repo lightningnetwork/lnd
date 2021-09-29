@@ -1340,7 +1340,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		CsvDelay:         msg.CsvDelay,
 	}
 	err = reservation.CommitConstraints(
-		channelConstraints, f.cfg.MaxLocalCSVDelay,
+		channelConstraints, f.cfg.MaxLocalCSVDelay, true,
 	)
 	if err != nil {
 		log.Errorf("Unacceptable channel constraints: %v", err)
@@ -1386,7 +1386,19 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		remoteCsvDelay = acceptorResp.CSVDelay
 	}
 
-	chanReserve := f.cfg.RequiredRemoteChanReserve(amt, msg.DustLimit)
+	// If our default dust limit was above their ChannelReserve, we change
+	// it to the ChannelReserve. We must make sure the ChannelReserve we
+	// send in the AcceptChannel message is above both dust limits.
+	// Therefore, take the maximum of msg.DustLimit and our dust limit.
+	//
+	// NOTE: Even with this bounding, the ChannelAcceptor may return an
+	// BOLT#02-invalid ChannelReserve.
+	maxDustLimit := reservation.OurContribution().DustLimit
+	if msg.DustLimit > maxDustLimit {
+		maxDustLimit = msg.DustLimit
+	}
+
+	chanReserve := f.cfg.RequiredRemoteChanReserve(amt, maxDustLimit)
 	if acceptorResp.Reserve != 0 {
 		chanReserve = acceptorResp.Reserve
 	}
@@ -1576,7 +1588,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		CsvDelay:         msg.CsvDelay,
 	}
 	err = resCtx.reservation.CommitConstraints(
-		channelConstraints, resCtx.maxLocalCsv,
+		channelConstraints, resCtx.maxLocalCsv, false,
 	)
 	if err != nil {
 		log.Warnf("Unacceptable channel constraints: %v", err)
@@ -1586,8 +1598,11 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 
 	// As they've accepted our channel constraints, we'll regenerate them
 	// here so we can properly commit their accepted constraints to the
-	// reservation.
-	chanReserve := f.cfg.RequiredRemoteChanReserve(resCtx.chanAmt, msg.DustLimit)
+	// reservation. Also make sure that we re-generate the ChannelReserve
+	// with our dust limit or we can get stuck channels.
+	chanReserve := f.cfg.RequiredRemoteChanReserve(
+		resCtx.chanAmt, resCtx.reservation.OurContribution().DustLimit,
+	)
 
 	// The remote node has responded with their portion of the channel
 	// contribution. At this point, we can process their contribution which
@@ -3114,19 +3129,10 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		maxCSV = f.cfg.MaxLocalCSVDelay
 	}
 
-	// We'll determine our dust limit depending on which chain is active.
-	var ourDustLimit btcutil.Amount
-	switch f.cfg.RegisteredChains.PrimaryChain() {
-	case chainreg.BitcoinChain:
-		ourDustLimit = lnwallet.DefaultDustLimit()
-	case chainreg.LitecoinChain:
-		ourDustLimit = chainreg.DefaultLitecoinDustLimit
-	}
 	log.Infof("Initiating fundingRequest(local_amt=%v "+
 		"(subtract_fees=%v), push_amt=%v, chain_hash=%v, peer=%x, "+
-		"dust_limit=%v, min_confs=%v)", localAmt, msg.SubtractFees,
-		msg.PushAmt, msg.ChainHash, peerKey.SerializeCompressed(),
-		ourDustLimit, msg.MinConfs)
+		"min_confs=%v)", localAmt, msg.SubtractFees, msg.PushAmt,
+		msg.ChainHash, peerKey.SerializeCompressed(), msg.MinConfs)
 
 	// We set the channel flags to indicate whether we want this channel to
 	// be announced to the network.
@@ -3300,6 +3306,12 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// request to the remote peer, kicking off the funding workflow.
 	ourContribution := reservation.OurContribution()
 
+	// Fetch our dust limit which is part of the default channel
+	// constraints, and log it.
+	ourDustLimit := ourContribution.DustLimit
+
+	log.Infof("Dust limit for pendingID(%x): %v", chanID, ourDustLimit)
+
 	// Finally, we'll use the current value of the channels and our default
 	// policy to determine of required commitment constraints for the
 	// remote party.
@@ -3313,7 +3325,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		PendingChannelID:      chanID,
 		FundingAmount:         capacity,
 		PushAmount:            msg.PushAmt,
-		DustLimit:             ourContribution.DustLimit,
+		DustLimit:             ourDustLimit,
 		MaxValueInFlight:      maxValue,
 		ChannelReserve:        chanReserve,
 		HtlcMinimum:           minHtlcIn,

@@ -276,7 +276,7 @@ func createTestWallet(cdb *channeldb.DB, netParams *chaincfg.Params,
 		ChainIO:            bio,
 		FeeEstimator:       estimator,
 		NetParams:          *netParams,
-		DefaultConstraints: chainreg.DefaultBtcChannelConstraints,
+		DefaultConstraints: chainreg.GenDefaultBtcConstraints(),
 	})
 	if err != nil {
 		return nil, err

@@ -209,6 +209,11 @@ you.
    CPFP) and that more information (e.g., specific sat amounts) can be found
    in the debug logs.
 
+* [Updated C# grpc docs to use Grpc.Net.Client](https://github.com/lightningnetwork/lnd/pull/5766).
+  The Grpc.Core NuGet package is in maintenance mode. Grpc.Net.Client is now the 
+  [recommended](https://github.com/grpc/grpc-dotnet#grpc-for-net-is-now-the-recommended-implementation)
+  implementation.
+
 ## Misc
 
 * The direct use of certain syscalls in packages such as `bbolt` or `lnd`'s own
@@ -395,6 +400,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * ErikEk
 * Eugene Siegel
 * Harsha Goli
+* Jesse de Wit
 * Martin Habovstiak
 * Naveen Srinivasan
 * Oliver Gugger

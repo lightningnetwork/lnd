@@ -128,7 +128,7 @@ func NewBoltBackendCreator(active bool, dbPath,
 		cfg := &kvdb.BoltBackendConfig{
 			DBPath:            dbPath,
 			DBFileName:        dbFileName,
-			NoFreelistSync:    !boltCfg.SyncFreelist,
+			NoFreelistSync:    boltCfg.NoFreelistSync,
 			AutoCompact:       boltCfg.AutoCompact,
 			AutoCompactMinAge: boltCfg.AutoCompactMinAge,
 			DBTimeout:         boltCfg.DBTimeout,

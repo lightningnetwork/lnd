@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -604,7 +605,9 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 	// Next, load any additional configuration options from the file.
 	var configFileError error
 	cfg := preCfg
-	if err := flags.IniParse(configFilePath, &cfg); err != nil {
+	fileParser := flags.NewParser(&cfg, flags.Default)
+	err := flags.NewIniParser(fileParser).ParseFile(configFilePath)
+	if err != nil {
 		// If it's a parsing related error, then we'll return
 		// immediately, otherwise we can proceed as possibly the config
 		// file doesn't exist which is OK.
@@ -617,12 +620,14 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 
 	// Finally, parse the remaining command line options again to ensure
 	// they take precedence.
-	if _, err := flags.Parse(&cfg); err != nil {
+	flagParser := flags.NewParser(&cfg, flags.Default)
+	if _, err := flagParser.Parse(); err != nil {
 		return nil, err
 	}
 
 	// Make sure everything we just loaded makes sense.
-	cleanCfg, err := ValidateConfig(cfg, usageMessage, interceptor)
+	cleanCfg, err := ValidateConfig(cfg, usageMessage, interceptor,
+		fileParser, flagParser)
 	if err != nil {
 		return nil, err
 	}
@@ -641,8 +646,8 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 // illegal values or combination of values are set. All file system paths are
 // normalized. The cleaned up config is returned on success.
 func ValidateConfig(cfg Config, usageMessage string,
-	interceptor signal.Interceptor) (*Config, error) {
-
+	interceptor signal.Interceptor, fileParser,
+	flagParser *flags.Parser) (*Config, error) {
 	// If the provided lnd directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
 	lndDir := CleanAndExpandPath(cfg.LndDir)
@@ -686,6 +691,26 @@ func ValidateConfig(cfg Config, usageMessage string,
 		}
 
 		return nil
+	}
+
+	// IsSet returns true if an option has been set in either the config
+	// file or by a flag.
+	isSet := func(field string) bool {
+		fieldname, ok := reflect.TypeOf(Config{}).FieldByName(field)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "could not find field %s\n", field)
+			return false
+		}
+
+		long, ok := fieldname.Tag.Lookup("long")
+		if !ok {
+			fmt.Fprintf(os.Stderr,
+				"field %s does not have a long tag\n", field)
+			return false
+		}
+
+		return fileParser.FindOptionByLongName(long).IsSet() ||
+			flagParser.FindOptionByLongName(long).IsSet()
 	}
 
 	// As soon as we're done parsing configuration options, ensure all paths
@@ -1444,8 +1469,8 @@ func ValidateConfig(cfg Config, usageMessage string,
 	// parameters. However we want to also allow existing users to use the
 	// value on the top-level config. If the outer config value is set,
 	// then we'll use that directly.
-	if cfg.SyncFreelist {
-		cfg.DB.Bolt.SyncFreelist = cfg.SyncFreelist
+	if isSet("SyncFreelist") {
+		cfg.DB.Bolt.NoFreelistSync = !cfg.SyncFreelist
 	}
 
 	// Ensure that the user hasn't chosen a remote-max-htlc value greater

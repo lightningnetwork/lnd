@@ -606,6 +606,14 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice,
 	return i.cdb.LookupInvoice(ref)
 }
 
+// LookupInvoiceByRef looks up an invoice by the given reference, if found
+// then we're able to pull the funds pending within an HTLC.
+func (i *InvoiceRegistry) LookupInvoiceByRef(
+	ref channeldb.InvoiceRef) (channeldb.Invoice, error) {
+
+	return i.cdb.LookupInvoice(ref)
+}
+
 // startHtlcTimer starts a new timer via the invoice registry main loop that
 // cancels a single htlc on an invoice when the htlc hold duration has passed.
 func (i *InvoiceRegistry) startHtlcTimer(invoiceRef channeldb.InvoiceRef,

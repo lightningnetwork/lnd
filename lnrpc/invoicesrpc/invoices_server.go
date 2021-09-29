@@ -5,11 +5,14 @@ package invoicesrpc
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -56,6 +59,10 @@ var (
 			Action: "write",
 		}},
 		"/invoicesrpc.Invoices/AddHoldInvoice": {{
+			Entity: "invoices",
+			Action: "write",
+		}},
+		"/invoicesrpc.Invoices/LookupInvoiceV2": {{
 			Entity: "invoices",
 			Action: "write",
 		}},
@@ -362,4 +369,56 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		PaymentRequest: string(dbInvoice.PaymentRequest),
 		PaymentAddr:    dbInvoice.Terms.PaymentAddr[:],
 	}, nil
+}
+
+// LookupInvoiceV2 attempts to look up at invoice. An invoice can be referenced
+// using either its payment hash, payment address, or set ID.
+func (s *Server) LookupInvoiceV2(ctx context.Context,
+	req *LookupInvoiceMsg) (*lnrpc.Invoice, error) {
+
+	var invoiceRef channeldb.InvoiceRef
+
+	// First, we'll attempt to parse out the invoice ref from the proto
+	// oneof.  If none of the three currently supported types was
+	// specified, then we'll exit with an error.
+	switch {
+	case req.GetPaymentHash() != nil:
+		payHash, err := lntypes.MakeHash(req.GetPaymentHash())
+		if err != nil {
+			return nil, status.Error(
+				codes.InvalidArgument,
+				fmt.Sprintf("unable to parse pay hash: %v", err),
+			)
+		}
+
+		invoiceRef = channeldb.InvoiceRefByHash(payHash)
+
+	case req.GetPaymentAddr() != nil:
+		var payAddr [32]byte
+		copy(payAddr[:], req.GetPaymentAddr())
+
+		invoiceRef = channeldb.InvoiceRefByAddr(payAddr)
+
+	case req.GetSetId() != nil:
+		var setID [32]byte
+		copy(setID[:], req.GetSetId())
+
+		invoiceRef = channeldb.InvoiceRefBySetID(setID)
+
+	default:
+		return nil, status.Error(codes.InvalidArgument,
+			"invoice ref must be set")
+	}
+
+	// Attempt to locate the invoice, returning a nice "not found" error if
+	// we can't find it in the database.
+	invoice, err := s.cfg.InvoiceRegistry.LookupInvoiceByRef(invoiceRef)
+	switch {
+	case err == channeldb.ErrInvoiceNotFound:
+		return nil, status.Error(codes.NotFound, err.Error())
+	case err != nil:
+		return nil, err
+	}
+
+	return CreateRPCInvoice(&invoice, s.cfg.ChainParams)
 }

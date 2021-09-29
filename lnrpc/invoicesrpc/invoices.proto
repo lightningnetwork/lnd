@@ -35,6 +35,12 @@ service Invoices {
     settled, this call will succeed.
     */
     rpc SettleInvoice (SettleInvoiceMsg) returns (SettleInvoiceResp);
+
+    /*
+    LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
+    using either its payment hash, payment address, or set ID.
+    */
+    rpc LookupInvoiceV2 (LookupInvoiceMsg) returns (lnrpc.Invoice);
 }
 
 message CancelInvoiceMsg {
@@ -134,4 +140,12 @@ message SubscribeSingleInvoiceRequest {
 
     // Hash corresponding to the (hold) invoice to subscribe to.
     bytes r_hash = 2;
+}
+
+message LookupInvoiceMsg {
+    oneof invoice_ref {
+        bytes payment_hash = 1;
+        bytes payment_addr = 2;
+        bytes set_id = 3;
+    }
 }

@@ -297,6 +297,8 @@ you.
 
 * [Order of the start/stop on subsystems are changed to promote better safety](https://github.com/lightningnetwork/lnd/pull/1783).
 
+* [Fixed flake that occurred when testing the new optimistic link shutdown.](https://github.com/lightningnetwork/lnd/pull/5808)
+
 ## Database
 
 * [Ensure single writer for legacy

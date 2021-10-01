@@ -35,4 +35,8 @@ replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.8
 // https://deps.dev/advisory/OSV/GO-2021-0053?from=%2Fgo%2Fgithub.com%252Fgogo%252Fprotobuf%2Fv1.3.1
 replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 
+// This replace is for
+// https://deps.dev/advisory/OSV/GO-2020-0008
+replace github.com/miekg/dns => github.com/miekg/dns v1.1.43
+
 go 1.15

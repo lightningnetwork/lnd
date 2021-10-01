@@ -64,7 +64,7 @@ jobs:
     - name: Bitcoind Integration with postgres (txindex enabled)
       script:
         - bash ./scripts/install_bitcoind.sh
-        - make itest-parallel backend=bitcoind dbbackend=postgres
+        - make itest-parallel backend=bitcoind dbbackend=postgres POSTGRES_START_DELAY=10
 
     - name: Bitcoind Integration (txindex disabled)
       script:

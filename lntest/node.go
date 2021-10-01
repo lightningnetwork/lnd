@@ -554,6 +554,8 @@ func NewMiner(baseLogDir, logFilename string, netParams *chaincfg.Params,
 		"--debuglevel=debug",
 		"--logdir=" + baseLogDir,
 		"--trickleinterval=100ms",
+		// Don't disconnect if a reply takes too long.
+		"--nostalldetect",
 	}
 
 	miner, err := rpctest.New(netParams, handler, args, btcdBinary)

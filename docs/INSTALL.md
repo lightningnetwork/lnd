@@ -208,7 +208,7 @@ On FreeBSD, use gmake instead of make.
 Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
 used directly:
 ```shell
-⛰  GO111MODULE=on go install -v ./...
+⛰  go install -v ./...
 ```
 
 **Updating**
@@ -228,7 +228,7 @@ used directly:
 ```shell
 ⛰  cd $GOPATH/src/github.com/lightningnetwork/lnd
 ⛰  git pull
-⛰  GO111MODULE=on go install -v ./...
+⛰  go install -v ./...
 ```
 
 **Tests**

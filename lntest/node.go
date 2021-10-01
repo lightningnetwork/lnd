@@ -1599,6 +1599,15 @@ func (hn *HarnessNode) WaitForChannelPolicyUpdate(ctx context.Context,
 		select {
 		// Send a watch request every second.
 		case <-ticker.C:
+			// Did the event can close in the meantime? We want to
+			// avoid a "close of closed channel" panic since we're
+			// re-using the same event chan for multiple requests.
+			select {
+			case <-eventChan:
+				return nil
+			default:
+			}
+
 			hn.chanWatchRequests <- &chanWatchRequest{
 				chanPoint:          op,
 				eventChan:          eventChan,

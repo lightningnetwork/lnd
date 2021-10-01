@@ -9816,3 +9816,178 @@ func assertCleanOrDirty(clean bool, alice, bob *LightningChannel,
 	require.False(t, alice.IsChannelClean())
 	require.False(t, bob.IsChannelClean())
 }
+
+// TestChannelGetDustSum tests that we correctly calculate the channel's dust
+// sum for the local and remote commitments.
+func TestChannelGetDustSum(t *testing.T) {
+	t.Run("dust sum tweakless", func(t *testing.T) {
+		testGetDustSum(t, channeldb.SingleFunderTweaklessBit)
+	})
+	t.Run("dust sum anchors zero htlc fee", func(t *testing.T) {
+		testGetDustSum(t, channeldb.SingleFunderTweaklessBit|
+			channeldb.AnchorOutputsBit|
+			channeldb.ZeroHtlcTxFeeBit,
+		)
+	})
+}
+
+func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
+	t.Parallel()
+
+	// This makes a channel with Alice's dust limit set to 200sats and
+	// Bob's dust limit set to 1300sats.
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(chantype)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	// Use a function closure to assert the dust sum for a passed channel's
+	// local and remote commitments match the expected values.
+	checkDust := func(c *LightningChannel, expLocal,
+		expRemote lnwire.MilliSatoshi) {
+
+		localDustSum := c.GetDustSum(false)
+		require.Equal(t, expLocal, localDustSum)
+		remoteDustSum := c.GetDustSum(true)
+		require.Equal(t, expRemote, remoteDustSum)
+	}
+
+	// We'll lower the fee from 6000sats/kWU to 253sats/kWU for our test.
+	fee := chainfee.SatPerKWeight(253)
+	err = aliceChannel.UpdateFee(fee)
+	require.NoError(t, err)
+	err = bobChannel.ReceiveUpdateFee(fee)
+	require.NoError(t, err)
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+
+	// Create an HTLC that Bob will send to Alice which is above Alice's
+	// dust limit and below Bob's dust limit. This takes into account dust
+	// trimming for non-zero-fee channels.
+	htlc1Amt := lnwire.MilliSatoshi(700_000)
+	htlc1, preimage1 := createHTLC(0, htlc1Amt)
+
+	_, err = bobChannel.AddHTLC(htlc1, nil)
+	require.NoError(t, err)
+	_, err = aliceChannel.ReceiveHTLC(htlc1)
+	require.NoError(t, err)
+
+	// Assert that GetDustSum from Alice's perspective does not consider
+	// the HTLC dust on her commitment, but does on Bob's commitment.
+	checkDust(aliceChannel, lnwire.MilliSatoshi(0), htlc1Amt)
+
+	// Assert that GetDustSum from Bob's perspective results in the same
+	// conditions above holding.
+	checkDust(bobChannel, htlc1Amt, lnwire.MilliSatoshi(0))
+
+	// Forcing a state transition to occur should not change the dust sum.
+	err = ForceStateTransition(bobChannel, aliceChannel)
+	require.NoError(t, err)
+	checkDust(aliceChannel, lnwire.MilliSatoshi(0), htlc1Amt)
+	checkDust(bobChannel, htlc1Amt, lnwire.MilliSatoshi(0))
+
+	// Settling the HTLC back from Alice to Bob should not change the dust
+	// sum because the HTLC is counted until it's removed from the update
+	// logs via compactLogs.
+	err = aliceChannel.SettleHTLC(preimage1, uint64(0), nil, nil, nil)
+	require.NoError(t, err)
+	err = bobChannel.ReceiveHTLCSettle(preimage1, uint64(0))
+	require.NoError(t, err)
+	checkDust(aliceChannel, lnwire.MilliSatoshi(0), htlc1Amt)
+	checkDust(bobChannel, htlc1Amt, lnwire.MilliSatoshi(0))
+
+	// Forcing a state transition will remove the HTLC in-memory for Bob
+	// since ReceiveRevocation is called which calls compactLogs. Bob
+	// should have a zero dust sum at this point. Alice will see Bob as
+	// having the original dust sum since compactLogs hasn't been called.
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+	checkDust(aliceChannel, lnwire.MilliSatoshi(0), htlc1Amt)
+	checkDust(bobChannel, lnwire.MilliSatoshi(0), lnwire.MilliSatoshi(0))
+
+	// Alice now sends an HTLC of 100sats, which is below both sides' dust
+	// limits.
+	htlc2Amt := lnwire.MilliSatoshi(100_000)
+	htlc2, _ := createHTLC(0, htlc2Amt)
+
+	_, err = aliceChannel.AddHTLC(htlc2, nil)
+	require.NoError(t, err)
+	_, err = bobChannel.ReceiveHTLC(htlc2)
+	require.NoError(t, err)
+
+	// Assert that GetDustSum from Alice's perspective includes the new
+	// HTLC as dust on both commitments.
+	checkDust(aliceChannel, htlc2Amt, htlc1Amt+htlc2Amt)
+
+	// Assert that GetDustSum from Bob's perspective also includes the HTLC
+	// on both commitments.
+	checkDust(bobChannel, htlc2Amt, htlc2Amt)
+
+	// Alice signs for this HTLC and neither perspective should change.
+	aliceSig, aliceHtlcSigs, _, err := aliceChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	require.NoError(t, err)
+	checkDust(aliceChannel, htlc2Amt, htlc1Amt+htlc2Amt)
+	checkDust(bobChannel, htlc2Amt, htlc2Amt)
+
+	// Bob now sends a revocation for his prior commitment, and this should
+	// change Alice's perspective to no longer include the first HTLC as
+	// dust.
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	require.NoError(t, err)
+	checkDust(aliceChannel, htlc2Amt, htlc2Amt)
+	checkDust(bobChannel, htlc2Amt, htlc2Amt)
+
+	// The rest of the dance is completed and neither perspective should
+	// change.
+	bobSig, bobHtlcSigs, _, err := bobChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	require.NoError(t, err)
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	require.NoError(t, err)
+	checkDust(aliceChannel, htlc2Amt, htlc2Amt)
+	checkDust(bobChannel, htlc2Amt, htlc2Amt)
+
+	// We'll now assert that if Alice sends an HTLC above her dust limit
+	// and then updates the fee of the channel to trigger the trimmed to
+	// dust mechanism, Alice will count this HTLC in the dust sum for her
+	// commitment in the non-zero-fee case.
+	htlc3Amt := lnwire.MilliSatoshi(400_000)
+	htlc3, _ := createHTLC(1, htlc3Amt)
+
+	_, err = aliceChannel.AddHTLC(htlc3, nil)
+	require.NoError(t, err)
+	_, err = bobChannel.ReceiveHTLC(htlc3)
+	require.NoError(t, err)
+
+	// Assert that this new HTLC is not counted on Alice's local commitment
+	// in the dust sum. Bob's commitment should count it.
+	checkDust(aliceChannel, htlc2Amt, htlc2Amt+htlc3Amt)
+	checkDust(bobChannel, htlc2Amt+htlc3Amt, htlc2Amt)
+
+	// Alice will now send UpdateFee with a large feerate and neither
+	// perspective should change.
+	fee = chainfee.SatPerKWeight(50_000)
+	err = aliceChannel.UpdateFee(fee)
+	require.NoError(t, err)
+	err = bobChannel.ReceiveUpdateFee(fee)
+	require.NoError(t, err)
+	checkDust(aliceChannel, htlc2Amt, htlc2Amt+htlc3Amt)
+	checkDust(bobChannel, htlc2Amt+htlc3Amt, htlc2Amt)
+
+	// Forcing a state transition should change in the non-zero-fee case.
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+	if chantype.ZeroHtlcTxFee() {
+		checkDust(aliceChannel, htlc2Amt, htlc2Amt+htlc3Amt)
+		checkDust(bobChannel, htlc2Amt+htlc3Amt, htlc2Amt)
+	} else {
+		checkDust(aliceChannel, htlc2Amt+htlc3Amt, htlc2Amt+htlc3Amt)
+		checkDust(bobChannel, htlc2Amt+htlc3Amt, htlc2Amt+htlc3Amt)
+	}
+}

@@ -7,7 +7,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcwallet/wallet/txrules"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -109,9 +108,6 @@ func (t *txInputSetState) clone() txInputSetState {
 type txInputSet struct {
 	txInputSetState
 
-	// dustLimit is the minimum output value of the tx.
-	dustLimit btcutil.Amount
-
 	// maxInputs is the maximum number of inputs that will be accepted in
 	// the set.
 	maxInputs int
@@ -121,25 +117,15 @@ type txInputSet struct {
 	wallet Wallet
 }
 
-func dustLimit(relayFee chainfee.SatPerKWeight) btcutil.Amount {
-	return txrules.GetDustThreshold(
-		input.P2WPKHSize,
-		btcutil.Amount(relayFee.FeePerKVByte()),
-	)
-}
-
 // newTxInputSet constructs a new, empty input set.
-func newTxInputSet(wallet Wallet, feePerKW,
-	relayFee chainfee.SatPerKWeight, maxInputs int) *txInputSet {
-
-	dustLimit := dustLimit(relayFee)
+func newTxInputSet(wallet Wallet, feePerKW chainfee.SatPerKWeight,
+	maxInputs int) *txInputSet {
 
 	state := txInputSetState{
 		feeRate: feePerKW,
 	}
 
 	b := txInputSet{
-		dustLimit:       dustLimit,
 		maxInputs:       maxInputs,
 		wallet:          wallet,
 		txInputSetState: state,
@@ -153,7 +139,7 @@ func newTxInputSet(wallet Wallet, feePerKW,
 func (t *txInputSet) enoughInput() bool {
 	// If we have a change output above dust, then we certainly have enough
 	// inputs to the transaction.
-	if t.changeOutput >= t.dustLimit {
+	if t.changeOutput >= lnwallet.DustLimitForSize(input.P2WPKHSize) {
 		return true
 	}
 
@@ -192,8 +178,12 @@ func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *tx
 	// If the input comes with a required tx out that is below dust, we
 	// won't add it.
 	reqOut := inp.RequiredTxOut()
-	if reqOut != nil && btcutil.Amount(reqOut.Value) < t.dustLimit {
-		return nil
+	if reqOut != nil {
+		// Fetch the dust limit for this output.
+		dustLimit := lnwallet.DustLimitForSize(len(reqOut.PkScript))
+		if btcutil.Amount(reqOut.Value) < dustLimit {
+			return nil
+		}
 	}
 
 	// Clone the current set state.

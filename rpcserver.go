@@ -1009,7 +1009,14 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 		return nil, err
 	}
 
-	_, err = r.server.cc.Wallet.CheckReservedValueTx(authoredTx.Tx)
+	// Check the authored transaction and use the explicitly set change index
+	// to make sure that the wallet reserved balance is not invalidated.
+	_, err = r.server.cc.Wallet.CheckReservedValueTx(
+		lnwallet.CheckReservedValueTxReq{
+			Tx:          authoredTx.Tx,
+			ChangeIndex: &authoredTx.ChangeIndex,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1227,8 +1234,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// pay to the change address created above if we needed to
 		// reserve any value, the rest will go to targetAddr.
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
-			feePerKw, lnwallet.DefaultDustLimit(),
-			uint32(bestHeight), nil, targetAddr, wallet,
+			feePerKw, uint32(bestHeight), nil, targetAddr, wallet,
 			wallet, wallet.WalletController,
 			r.server.cc.FeeEstimator, r.server.cc.Signer,
 			minConfs,
@@ -1243,7 +1249,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		err = wallet.WithCoinSelectLock(func() error {
 			var err error
 			reservedVal, err = wallet.CheckReservedValueTx(
-				sweepTxPkg.SweepTx,
+				lnwallet.CheckReservedValueTxReq{
+					Tx: sweepTxPkg.SweepTx,
+				},
 			)
 			return err
 		})
@@ -1280,9 +1288,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			}
 
 			sweepTxPkg, err = sweep.CraftSweepAllTx(
-				feePerKw, lnwallet.DefaultDustLimit(),
-				uint32(bestHeight), outputs, targetAddr, wallet,
-				wallet, wallet.WalletController,
+				feePerKw, uint32(bestHeight), outputs,
+				targetAddr, wallet, wallet,
+				wallet.WalletController,
 				r.server.cc.FeeEstimator, r.server.cc.Signer,
 				minConfs,
 			)
@@ -1293,7 +1301,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			// Sanity check the new tx by re-doing the check.
 			err = wallet.WithCoinSelectLock(func() error {
 				_, err := wallet.CheckReservedValueTx(
-					sweepTxPkg.SweepTx,
+					lnwallet.CheckReservedValueTxReq{
+						Tx: sweepTxPkg.SweepTx,
+					},
 				)
 				return err
 			})
@@ -5101,7 +5111,10 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 	rpcsLog.Tracef("[lookupinvoice] searching for invoice %x", payHash[:])
 
 	invoice, err := r.server.invoices.LookupInvoice(payHash)
-	if err != nil {
+	switch {
+	case err == channeldb.ErrInvoiceNotFound:
+		return nil, status.Error(codes.NotFound, err.Error())
+	case err != nil:
 		return nil, err
 	}
 

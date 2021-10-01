@@ -13,7 +13,7 @@ This section enumerates what you need to do to write a client that communicates 
 
 `lnd` uses the `gRPC` protocol for communication with clients like `lncli`.
 
-.NET natively supports gRPC proto files and generates the necessary C# classes. You can see the official Microsoft gRPC documentation [here](https://docs.microsoft.com/en-gb/aspnet/core/grpc/?view=aspnetcore-3.1)
+.NET natively supports gRPC proto files and generates the necessary C# classes. You can see the official Microsoft gRPC documentation [here](https://docs.microsoft.com/en-gb/aspnet/core/grpc/?view=aspnetcore-5.0)
 
 This assumes you are using a Windows machine, but it applies equally to Mac and Linux.
 
@@ -26,12 +26,12 @@ Create a folder `Grpc` in the root of your project and fetch the lnd proto files
 ⛰  curl -o Grpc/lightning.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/lightning.proto
 ```
 
-Install `Grpc.Tools`, `Google.Protobuf`, `Grpc.Core` using NuGet or manually with `dotnet add`:
+Install `Grpc.Tools`, `Google.Protobuf`, `Grpc.Net.Client` using NuGet or manually with `dotnet add`:
 
 ```shell
 ⛰  dotnet add package Grpc.Tools
 ⛰  dotnet add package Google.Protobuf
-⛰  dotnet add package Grpc.Core
+⛰  dotnet add package Grpc.Net.Client
 ```
 
 Add the `lightning.proto` file to the `.csproj` file in an ItemGroup. (In Visual Studio you can do this by unloading the project, editing the `.csproj` file and then reloading it)
@@ -42,18 +42,29 @@ Add the `lightning.proto` file to the `.csproj` file in an ItemGroup. (In Visual
 </ItemGroup>
 ```
 
+To add a proto that references `lightning.proto` make sure to reference the protoRoot directory (in this case `Grpc`) so it can locate the referenced file.
+
+```xml
+<ItemGroup>
+   <Protobuf Include="Grpc\lightning.proto" GrpcServices="Client" />
+   <Protobuf Include="Grpc\router.proto" GrpcServices="Client" protoRoot="Grpc" />
+</ItemGroup>
+```
+
 You're done! Build the project and verify that it works.
 
 #### Imports and Client
 
-Use the code below to set up a channel and client to connect to your `lnd` node:
+Use the code below to set up a channel and client to connect to your `lnd` node.
+
+Note that when an IP address is used to connect to the node (e.g. 192.168.1.21 instead of localhost) you need to add `--tlsextraip=192.168.1.21` to your `lnd` configuration and re-generate the certificate (delete tls.cert and tls.key and restart lnd).
 
 ```cs
-using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Lnrpc;
+using Grpc.Net.Client;
 ...
 
 // Due to updated ECDSA generated tls.cert we need to let gprc know that
@@ -63,10 +74,22 @@ System.Environment.SetEnvironmentVariable("GRPC_SSL_CIPHER_SUITES", "HIGH+ECDSA"
             
 // Lnd cert is at AppData/Local/Lnd/tls.cert on Windows
 // ~/.lnd/tls.cert on Linux and ~/Library/Application Support/Lnd/tls.cert on Mac
-var cert = File.ReadAllText(<Tls_Cert_Location>);
+var rawCert = File.ReadAllBytes(<Tls_Cert_Location>);
+var x509Cert = new X509Certificate2(rawCert);
+var httpClientHandler = new HttpClientHandler
+{
+    // HttpClientHandler will validate certificate chain trust by default. This won't work for a self-signed cert.
+    // Therefore validate the certificate directly
+    ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErrors) 
+        => x509Cert.Equals(cert)
+};
 
-var sslCreds = new SslCredentials(cert);
-var channel = new Grpc.Core.Channel("localhost:10009", sslCreds);
+var channel = GrpcChannel.ForAddress(
+    "localhost:10009",
+    new GrpcChannelOptions
+    {
+        HttpHandler = httpClientHandler,
+    });
 var client = new Lnrpc.Lightning.LightningClient(channel);
 ```
 
@@ -169,21 +192,24 @@ client.GetInfo(new GetInfoRequest(), new Metadata() { new Metadata.Entry("macaro
 However, this can get tiresome to do for each request, so to avoid explicitly including the macaroon we can update the credentials to include it automatically.
 
 ```cs
-// build ssl credentials using the cert the same as before
-var sslCreds = new SslCredentials(cert);
-
-// combine the cert credentials and the macaroon auth credentials using interceptors
-// so every call is properly encrypted and authenticated
+// add the macaroon auth credentials using an interceptor
+// so every call is properly authenticated
 Task AddMacaroon(AuthInterceptorContext context, Metadata metadata)
 {
     metadata.Add(new Metadata.Entry("macaroon", macaroon));
     return Task.CompletedTask;
 }
-var macaroonInterceptor = new AsyncAuthInterceptor(AddMacaroon);
-var combinedCreds = ChannelCredentials.Create(sslCreds, CallCredentials.FromInterceptor(macaroonInterceptor));
+var credentials = ChannelCredentials.Create(new SslCredentials(), CallCredentials.FromInterceptor(AddMacaroon));
 
-// finally pass in the combined credentials when creating a channel
-var channel = new Grpc.Core.Channel("localhost:10009", combinedCreds);
+// finally pass in the credentials and handler when creating a channel
+var channel = GrpcChannel.ForAddress(
+    "localhost:10009",
+    new GrpcChannelOptions
+    {
+        // Add the HttpClientHandler same as before
+        HttpHandler = httpClientHandler,
+        Credentials = credentials
+    });
 var client = new Lnrpc.Lightning.LightningClient(channel);
 
 // now every call will be made with the macaroon already included

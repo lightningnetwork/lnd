@@ -6604,9 +6604,13 @@ func TestShutdownIfChannelClean(t *testing.T) {
 	ctx.sendRevAndAckBobToAlice()
 	shutdownAssert(ErrLinkFailedShutdown)
 
+	// There is currently no controllable breakpoint between Alice
+	// receiving the CommitSig and her sending out the RevokeAndAck. As
+	// soon as the RevokeAndAck is generated, the channel becomes clean.
+	// This can happen right after the CommitSig is received, so there is
+	// no shutdown assertion here.
 	// <---sig-----
 	ctx.sendCommitSigBobToAlice(0)
-	shutdownAssert(ErrLinkFailedShutdown)
 
 	// ----rev---->
 	ctx.receiveRevAndAckAliceToBob()

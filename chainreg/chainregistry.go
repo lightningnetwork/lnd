@@ -174,15 +174,6 @@ const (
 	BtcToLtcConversionRate = 60
 )
 
-// DefaultBtcChannelConstraints is the default set of channel constraints that are
-// meant to be used when initially funding a Bitcoin channel.
-//
-// TODO(halseth): make configurable at startup?
-var DefaultBtcChannelConstraints = channeldb.ChannelConstraints{
-	DustLimit:        lnwallet.DefaultDustLimit(),
-	MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-}
-
 // DefaultLtcChannelConstraints is the default set of channel constraints that are
 // meant to be used when initially funding a Litecoin channel.
 var DefaultLtcChannelConstraints = channeldb.ChannelConstraints{
@@ -233,6 +224,19 @@ type ChainControl struct {
 
 	// MinHtlcIn is the minimum HTLC we will accept.
 	MinHtlcIn lnwire.MilliSatoshi
+}
+
+// GenDefaultBtcChannelConstraints generates the default set of channel
+// constraints that are to be used when funding a Bitcoin channel.
+func GenDefaultBtcConstraints() channeldb.ChannelConstraints {
+	// We use the dust limit for the maximally sized witness program with
+	// a 40-byte data push.
+	dustLimit := lnwallet.DustLimitForSize(input.UnknownWitnessSize)
+
+	return channeldb.ChannelConstraints{
+		DustLimit:        dustLimit,
+		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
+	}
 }
 
 // NewChainControl attempts to create a ChainControl instance according
@@ -674,7 +678,7 @@ func NewChainControl(cfg *Config, blockCache *blockcache.BlockCache) (
 	cc.Wc = wc
 
 	// Select the default channel constraints for the primary chain.
-	channelConstraints := DefaultBtcChannelConstraints
+	channelConstraints := GenDefaultBtcConstraints()
 	if cfg.PrimaryChain() == LitecoinChain {
 		channelConstraints = DefaultLtcChannelConstraints
 	}

@@ -542,16 +542,19 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		Privkeys: []*btcec.PrivateKey{aliceKeyPriv},
 	}
 
+	// Calculate the dust limit we'll use for the test.
+	dustLimit := DustLimitForSize(input.UnknownWitnessSize)
+
 	aliceChanCfg := &channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit: DefaultDustLimit(),
+			DustLimit: dustLimit,
 			CsvDelay:  csvTimeout,
 		},
 	}
 
 	bobChanCfg := &channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit: DefaultDustLimit(),
+			DustLimit: dustLimit,
 			CsvDelay:  csvTimeout,
 		},
 	}

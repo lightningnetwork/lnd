@@ -23,6 +23,7 @@ func main() {
 	if err != nil {
 		if e, ok := err.(*flags.Error); !ok || e.Type != flags.ErrHelp {
 			// Print error if not due to help request.
+			err = fmt.Errorf("failed to load config: %w", err)
 			_, _ = fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

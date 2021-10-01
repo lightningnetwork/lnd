@@ -35,7 +35,8 @@ func NormalizeAddresses(addrs []string, defaultPort string,
 			addr, defaultPort, tcpResolver,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("parse address %s failed: %w",
+				addr, err)
 		}
 
 		if _, ok := seen[parsedAddr.String()]; !ok {

@@ -383,7 +383,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
-						Value:    int64(fundingFee(feeRate, 1, false) + dustLimit),
+						Value:    int64(fundingFee(feeRate, 1, false) + dustLimit - 1),
 					},
 				},
 			},

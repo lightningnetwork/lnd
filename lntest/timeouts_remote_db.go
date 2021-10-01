@@ -1,3 +1,4 @@
+//go:build kvdb_etcd || kvdb_postgres
 // +build kvdb_etcd kvdb_postgres
 
 package lntest

@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
@@ -165,10 +166,9 @@ func (p *Policy) ComputeAltruistOutput(totalAmt btcutil.Amount,
 	sweepAmt := totalAmt - txFee
 
 	// TODO(conner): replace w/ configurable dust limit
-	dustLimit := lnwallet.DefaultDustLimit()
-
-	// Check that the created outputs won't be dusty.
-	if sweepAmt <= dustLimit {
+	// Check that the created outputs won't be dusty. The sweep pkscript is
+	// currently a p2wpkh, so we'll use that script's dust limit.
+	if sweepAmt < lnwallet.DustLimitForSize(input.P2WPKHSize) {
 		return 0, ErrCreatesDust
 	}
 
@@ -199,10 +199,9 @@ func (p *Policy) ComputeRewardOutputs(totalAmt btcutil.Amount,
 	sweepAmt := totalAmt - rewardAmt - txFee
 
 	// TODO(conner): replace w/ configurable dust limit
-	dustLimit := lnwallet.DefaultDustLimit()
-
-	// Check that the created outputs won't be dusty.
-	if sweepAmt <= dustLimit {
+	// Check that the created outputs won't be dusty. The sweep pkscript is
+	// currently a p2wpkh, so we'll use that script's dust limit.
+	if sweepAmt < lnwallet.DustLimitForSize(input.P2WPKHSize) {
 		return 0, 0, ErrCreatesDust
 	}
 

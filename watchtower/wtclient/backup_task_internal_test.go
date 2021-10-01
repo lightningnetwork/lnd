@@ -300,7 +300,7 @@ func TestBackupTask(t *testing.T) {
 			expSweepCommitRewardLocal      int64                  = 197390
 			expSweepCommitRewardRemote     int64                  = 98437
 			sweepFeeRateNoRewardRemoteDust chainfee.SatPerKWeight = 227500
-			sweepFeeRateRewardRemoteDust   chainfee.SatPerKWeight = 175000
+			sweepFeeRateRewardRemoteDust   chainfee.SatPerKWeight = 175350
 		)
 		if chanType.HasAnchors() {
 			expSweepCommitNoRewardBoth = 299236
@@ -309,8 +309,8 @@ func TestBackupTask(t *testing.T) {
 			expSweepCommitRewardBoth = 296112
 			expSweepCommitRewardLocal = 197389
 			expSweepCommitRewardRemote = 98433
-			sweepFeeRateNoRewardRemoteDust = 225000
-			sweepFeeRateRewardRemoteDust = 173750
+			sweepFeeRateNoRewardRemoteDust = 225400
+			sweepFeeRateRewardRemoteDust = 174100
 		}
 
 		backupTaskTests = append(backupTaskTests, []backupTaskTest{

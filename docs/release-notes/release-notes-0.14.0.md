@@ -393,6 +393,12 @@ you.
   write deadline that caused connections to suddenly break was also fixed in the
   same PR.
 
+* [A bug has been fixed in 
+  Neutrino](https://github.com/lightninglabs/neutrino/pull/226) that would 
+  result in transactions being rebroadcast even after they had been confirmed. 
+  [Lnd is updated to use the version of Neutrino containing this 
+  fix](https://github.com/lightningnetwork/lnd/pull/5807).
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

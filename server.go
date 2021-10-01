@@ -490,6 +490,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 
+	thresholdSats := btcutil.Amount(cfg.DustThreshold)
+	thresholdMSats := lnwire.NewMSatFromSatoshis(thresholdSats)
+
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
 		DB: dbs.chanStateDB,
 		LocalChannelClose: func(pubKey []byte,
@@ -519,6 +522,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		RejectHTLC:             cfg.RejectHTLC,
 		Clock:                  clock.NewDefaultClock(),
 		HTLCExpiry:             htlcswitch.DefaultHTLCExpiry,
+		DustThreshold:          thresholdMSats,
 	}, uint32(currentHeight))
 	if err != nil {
 		return nil, err

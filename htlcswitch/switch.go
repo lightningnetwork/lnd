@@ -71,6 +71,15 @@ var (
 	// ErrLocalAddFailed signals that the ADD htlc for a local payment
 	// failed to be processed.
 	ErrLocalAddFailed = errors.New("local add HTLC failed")
+
+	// errDustThresholdExceeded is only surfaced to callers of SendHTLC and
+	// signals that sending the HTLC would exceed the outgoing link's dust
+	// threshold.
+	errDustThresholdExceeded = errors.New("dust threshold exceeded")
+
+	// DefaultDustThreshold is the default threshold after which we'll fail
+	// payments if they are dust. This is currently set to 500m msats.
+	DefaultDustThreshold = lnwire.MilliSatoshi(500_000_000)
 )
 
 // plexPacket encapsulates switch packet and adds error channel to receive
@@ -178,6 +187,10 @@ type Config struct {
 	// will expiry this long after the Adds are added to a mailbox via
 	// AddPacket.
 	HTLCExpiry time.Duration
+
+	// DustThreshold is the threshold in milli-satoshis after which we'll
+	// fail incoming or outgoing dust payments for a particular channel.
+	DustThreshold lnwire.MilliSatoshi
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -455,6 +468,51 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 		htlc:           htlc,
 	}
 
+	// Attempt to fetch the target link before creating a circuit so that
+	// we don't leave dangling circuits. The getLocalLink method does not
+	// require the circuit variable to be set on the *htlcPacket.
+	link, linkErr := s.getLocalLink(packet, htlc)
+	if linkErr != nil {
+		// Notify the htlc notifier of a link failure on our outgoing
+		// link. Incoming timelock/amount values are not set because
+		// they are not present for local sends.
+		s.cfg.HtlcNotifier.NotifyLinkFailEvent(
+			newHtlcKey(packet),
+			HtlcInfo{
+				OutgoingTimeLock: htlc.Expiry,
+				OutgoingAmt:      htlc.Amount,
+			},
+			HtlcEventTypeSend,
+			linkErr,
+			false,
+		)
+
+		return linkErr
+	}
+
+	// Evaluate whether this HTLC would increase our exposure to dust. If
+	// it does, don't send it out and instead return an error.
+	if s.evaluateDustThreshold(link, htlc.Amount, false) {
+		// Notify the htlc notifier of a link failure on our outgoing
+		// link. We use the FailTemporaryChannelFailure in place of a
+		// more descriptive error message.
+		linkErr := NewLinkError(
+			&lnwire.FailTemporaryChannelFailure{},
+		)
+		s.cfg.HtlcNotifier.NotifyLinkFailEvent(
+			newHtlcKey(packet),
+			HtlcInfo{
+				OutgoingTimeLock: htlc.Expiry,
+				OutgoingAmt:      htlc.Amount,
+			},
+			HtlcEventTypeSend,
+			linkErr,
+			false,
+		)
+
+		return errDustThresholdExceeded
+	}
+
 	circuit := newPaymentCircuit(&htlc.PaymentHash, packet)
 	actions, err := s.circuits.CommitCircuits(circuit)
 	if err != nil {
@@ -473,27 +531,6 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 
 	// Send packet to link.
 	packet.circuit = circuit
-
-	// User has created the htlc update therefore we should find the
-	// appropriate channel link and send the payment over this link.
-	link, linkErr := s.getLocalLink(packet, htlc)
-	if linkErr != nil {
-		// Notify the htlc notifier of a link failure on our
-		// outgoing link. Incoming timelock/amount values are
-		// not set because they are not present for local sends.
-		s.cfg.HtlcNotifier.NotifyLinkFailEvent(
-			newHtlcKey(packet),
-			HtlcInfo{
-				OutgoingTimeLock: htlc.Expiry,
-				OutgoingAmt:      htlc.Amount,
-			},
-			HtlcEventTypeSend,
-			linkErr,
-			false,
-		)
-
-		return linkErr
-	}
 
 	return link.handleLocalAddPacket(packet)
 }
@@ -1083,6 +1120,50 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// distribute the htlc load without making assumptions about
 		// what the best channel is.
 		destination := destinations[rand.Intn(len(destinations))]
+
+		// Retrieve the incoming link by its ShortChannelID. Note that
+		// the incomingChanID is never set to hop.Source here.
+		s.indexMtx.RLock()
+		incomingLink, err := s.getLinkByShortID(packet.incomingChanID)
+		s.indexMtx.RUnlock()
+		if err != nil {
+			// If we couldn't find the incoming link, we can't
+			// evaluate the incoming's exposure to dust, so we just
+			// fail the HTLC back.
+			linkErr := NewLinkError(
+				&lnwire.FailTemporaryChannelFailure{},
+			)
+
+			return s.failAddPacket(packet, linkErr)
+		}
+
+		// Evaluate whether this HTLC would increase our exposure to
+		// dust on the incoming link. If it does, fail it backwards.
+		if s.evaluateDustThreshold(
+			incomingLink, packet.incomingAmount, true,
+		) {
+			// The incoming dust exceeds the threshold, so we fail
+			// the add back.
+			linkErr := NewLinkError(
+				&lnwire.FailTemporaryChannelFailure{},
+			)
+
+			return s.failAddPacket(packet, linkErr)
+		}
+
+		// Also evaluate whether this HTLC would increase our exposure
+		// to dust on the destination link. If it does, fail it back.
+		if s.evaluateDustThreshold(
+			destination, packet.amount, false,
+		) {
+			// The outgoing dust exceeds the threshold, so we fail
+			// the add back.
+			linkErr := NewLinkError(
+				&lnwire.FailTemporaryChannelFailure{},
+			)
+
+			return s.failAddPacket(packet, linkErr)
+		}
 
 		// Send the packet to the destination channel link which
 		// manages the channel.
@@ -2253,4 +2334,74 @@ func (s *Switch) FlushForwardingEvents() error {
 // BestHeight returns the best height known to the switch.
 func (s *Switch) BestHeight() uint32 {
 	return atomic.LoadUint32(&s.bestHeight)
+}
+
+// evaluateDustThreshold takes in a ChannelLink, HTLC amount, and a boolean to
+// determine whether the default dust threshold has been exceeded. This
+// heuristic takes into account the trimmed-to-dust mechanism. The sum of the
+// commitment's dust with the mailbox's dust with the amount is checked against
+// the default threshold. If incoming is true, then the amount is not included
+// in the sum as it was already included in the commitment's dust. A boolean is
+// returned telling the caller whether the HTLC should be failed back.
+func (s *Switch) evaluateDustThreshold(link ChannelLink,
+	amount lnwire.MilliSatoshi, incoming bool) bool {
+
+	// Retrieve the link's current commitment feerate and dustClosure.
+	feeRate := link.getFeeRate()
+	isDust := link.getDustClosure()
+
+	// Evaluate if the HTLC is dust on either sides' commitment.
+	isLocalDust := isDust(feeRate, incoming, true, amount.ToSatoshis())
+	isRemoteDust := isDust(feeRate, incoming, false, amount.ToSatoshis())
+
+	if !(isLocalDust || isRemoteDust) {
+		// If the HTLC is not dust on either commitment, it's fine to
+		// forward.
+		return false
+	}
+
+	// Fetch the dust sums currently in the mailbox for this link.
+	cid := link.ChanID()
+	sid := link.ShortChanID()
+	mailbox := s.mailOrchestrator.GetOrCreateMailBox(cid, sid)
+	localMailDust, remoteMailDust := mailbox.DustPackets()
+
+	// If the htlc is dust on the local commitment, we'll obtain the dust
+	// sum for it.
+	if isLocalDust {
+		localSum := link.getDustSum(false)
+		localSum += localMailDust
+
+		// Optionally include the HTLC amount only for outgoing
+		// HTLCs.
+		if !incoming {
+			localSum += amount
+		}
+
+		// Finally check against the defined dust threshold.
+		if localSum > s.cfg.DustThreshold {
+			return true
+		}
+	}
+
+	// Also check if the htlc is dust on the remote commitment, if we've
+	// reached this point.
+	if isRemoteDust {
+		remoteSum := link.getDustSum(true)
+		remoteSum += remoteMailDust
+
+		// Optionally include the HTLC amount only for outgoing
+		// HTLCs.
+		if !incoming {
+			remoteSum += amount
+		}
+
+		// Finally check against the defined dust threshold.
+		if remoteSum > s.cfg.DustThreshold {
+			return true
+		}
+	}
+
+	// If we reached this point, this HTLC is fine to forward.
+	return false
 }

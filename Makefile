@@ -39,10 +39,10 @@ LINT_COMMIT := v1.18.0
 GOACC_COMMIT :=80342ae2e0fcf265e99e76bcc4efd022c7c3811b 
 GOFUZZ_COMMIT := b1f3d6f
 
-DEPGET := cd /tmp && GO111MODULE=on go get -v
-GOBUILD := GO111MODULE=on go build -v
-GOINSTALL := GO111MODULE=on go install -v
-GOTEST := GO111MODULE=on go test 
+DEPGET := cd /tmp && go get -v
+GOBUILD := go build -v
+GOINSTALL := go install -v
+GOTEST := go test 
 
 GOVERSION := $(shell go version | awk '{print $$3}')
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -name "*pb.go" -not -name "*pb.gw.go")
@@ -317,7 +317,7 @@ mobile-rpc:
 
 vendor:
 	@$(call print, "Re-creating vendor directory.")
-	rm -r vendor/; GO111MODULE=on go mod vendor
+	rm -r vendor/; go mod vendor
 
 ios: vendor mobile-rpc
 	@$(call print, "Building iOS framework ($(IOS_BUILD)).")

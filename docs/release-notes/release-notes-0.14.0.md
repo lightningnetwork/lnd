@@ -224,6 +224,9 @@ you.
   1.17.1](https://github.com/lightningnetwork/lnd/pull/5650). All build tags have
   been updated accordingly to comply with the new Go 1.17.1 requirements.
 
+* [All integration tests (except the ARM itests) were moved from Travis CI to
+  GitHub Actions](https://github.com/lightningnetwork/lnd/pull/5811).
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

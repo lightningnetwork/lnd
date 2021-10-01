@@ -47,35 +47,7 @@ jobs:
         - GOGC=30 make lint
 
     - stage: Integration Test
-      name: Btcd Integration
-      script:
-        - make itest-parallel
-
-    - name: Bitcoind Integration (txindex enabled)
-      script:
-        - bash ./scripts/install_bitcoind.sh
-        - make itest-parallel backend=bitcoind
-
-    - name: Bitcoind Integration with etcd (txindex enabled)
-      script:
-        - bash ./scripts/install_bitcoind.sh
-        - make itest-parallel backend=bitcoind dbbackend=etcd
-
-    - name: Bitcoind Integration with postgres (txindex enabled)
-      script:
-        - bash ./scripts/install_bitcoind.sh
-        - make itest-parallel backend=bitcoind dbbackend=postgres POSTGRES_START_DELAY=10
-
-    - name: Bitcoind Integration (txindex disabled)
-      script:
-        - bash ./scripts/install_bitcoind.sh
-        - make itest-parallel backend="bitcoind notxindex"
-
-    - name: Neutrino Integration
-      script:
-        - make itest-parallel backend=neutrino
-
-    - name: Bitcoind Integration ARM
+      name: Bitcoind Integration ARM
       script:
         - bash ./scripts/install_bitcoind.sh
         - GOARM=7 GOARCH=arm GOOS=linux make itest-parallel backend=bitcoind tranches=2 parallel=2
@@ -83,35 +55,8 @@ jobs:
       services:
         - docker
 
-    - name: Btcd Integration Windows
-      script:
-        # The windows VM seems to be slower than the other Travis VMs. We only
-        # run 2 test suites in parallel instead of the default 4.
-        - make itest-parallel windows=1 tranches=2 parallel=2
-      os: windows
-      before_install:
-        - choco upgrade --no-progress -y make netcat curl findutils
-        - export MAKE=mingw32-make
-      after_failure:
-        - |-
-          case $TRAVIS_OS_NAME in
-            windows)
-              echo "Uploading to termbin.com..."
-              LOG_FILES=$(find ./lntest/itest -name '*.log')
-              for f in $LOG_FILES; do echo -n $f; cat $f | nc termbin.com 9999 | xargs -r0 printf ' uploaded to %s'; done
-              ;;
-          esac
-
 after_failure:
   - |-
-    case $TRAVIS_OS_NAME in
-      windows)
-        # Needs other commands, see after_script of the Windows build
-        ;;
-
-      *)
-        LOG_FILES=$(find ./lntest/itest -name '*.log')
-        echo "Uploading to termbin.com..." && for f in $LOG_FILES; do echo -n $f; cat $f | nc termbin.com 9999 | xargs -r0 printf ' uploaded to %s'; done
-        echo "Uploading to file.io..." && tar -zcvO $LOG_FILES | curl -s -F 'file=@-;filename=logs.tar.gz' https://file.io | xargs -r0 printf 'logs.tar.gz uploaded to %s\n'
-        ;;
-    esac
+    LOG_FILES=$(find ./lntest/itest -name '*.log')
+    echo "Uploading to termbin.com..." && for f in $LOG_FILES; do echo -n $f; cat $f | nc termbin.com 9999 | xargs -r0 printf ' uploaded to %s'; done
+    echo "Uploading to file.io..." && tar -zcvO $LOG_FILES | curl -s -F 'file=@-;filename=logs.tar.gz' https://file.io | xargs -r0 printf 'logs.tar.gz uploaded to %s\n'

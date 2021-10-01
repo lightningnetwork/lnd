@@ -405,6 +405,9 @@ you.
   [Lnd is updated to use the version of Neutrino containing this 
   fix](https://github.com/lightningnetwork/lnd/pull/5807).
 
+* [Use the change output index when validating the reserved wallet balance for
+  SendCoins/SendMany calls](https://github.com/lightningnetwork/lnd/pull/5665)
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

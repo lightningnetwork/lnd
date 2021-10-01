@@ -1,3 +1,4 @@
+//go:build nolog
 // +build nolog
 
 package build

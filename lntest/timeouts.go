@@ -1,3 +1,4 @@
+//go:build !darwin && !kvdb_etcd && !kvdb_postgres
 // +build !darwin,!kvdb_etcd,!kvdb_postgres
 
 package lntest

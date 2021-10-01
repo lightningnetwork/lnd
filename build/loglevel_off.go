@@ -1,3 +1,4 @@
+//go:build dev && off
 // +build dev,off
 
 package build

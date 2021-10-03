@@ -150,7 +150,7 @@ func (r *forwardInterceptor) holdAndForwardToClient(
 	htlc := forward.Packet()
 	inKey := htlc.IncomingCircuit
 
-	// ignore already held htlcs.
+	// Ignore already held htlcs.
 	if _, ok := r.holdForwards[inKey]; ok {
 		return nil
 	}

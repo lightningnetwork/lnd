@@ -42,22 +42,6 @@ type InvoiceDatabase interface {
 	HodlUnsubscribeAll(subscriber chan<- interface{})
 }
 
-// packetHandler is an interface used exclusively by the Switch to handle
-// htlcPacket and pass them to the link implementation.
-type packetHandler interface {
-	// handleSwitchPacket handles the switch packets. These packets might
-	// be forwarded to us from another channel link in case the htlc
-	// update came from another peer or if the update was created by user
-	// initially.
-	//
-	// NOTE: This function should block as little as possible.
-	handleSwitchPacket(*htlcPacket) error
-
-	// handleLocalAddPacket handles a locally-initiated UpdateAddHTLC
-	// packet. It will be processed synchronously.
-	handleLocalAddPacket(*htlcPacket) error
-}
-
 // dustHandler is an interface used exclusively by the Switch to evaluate
 // whether a link has too much dust exposure.
 type dustHandler interface {

@@ -312,8 +312,12 @@ var allTestCases = []*testCase{
 		test: testRestAPI,
 	},
 	{
-		name: "intercept forwarded htlc packets",
-		test: testForwardInterceptor,
+		name: "forward interceptor",
+		test: testForwardInterceptorBasic,
+	},
+	{
+		name: "forward interceptor dedup htlcs",
+		test: testForwardInterceptorDedupHtlc,
 	},
 	{
 		name: "wumbo channels",

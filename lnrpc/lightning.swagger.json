@@ -4616,6 +4616,11 @@
             "format": "byte"
           },
           "description": "An optional set of key-value TLV records. This is useful within the context\nof the SendToRoute call as it allows callers to specify arbitrary K-V pairs\nto drop off at each hop within the onion."
+        },
+        "metadata": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment metadata to send along with the payment to the payee."
         }
       }
     },

@@ -1,5 +1,16 @@
 # Release Notes
 
+## Payments
+
+Support according to the
+[spec](https://github.com/lightningnetwork/lightning-rfc/pull/912) has been
+added for [payment metadata in
+invoices](https://github.com/lightningnetwork/lnd/pull/5810). If metadata is
+present in the invoice, it is encoded as a tlv record for the receiver.
+
+This functionality unlocks future features such as [stateless
+invoices](https://lists.linuxfoundation.org/pipermail/lightning-dev/2021-September/003236.html).
+
 ## Security
 
 * [Misconfigured ZMQ

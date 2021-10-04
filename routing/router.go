@@ -1971,6 +1971,10 @@ type LightningPayment struct {
 	// optimize for fees only, to 1 to optimize for reliability only or a
 	// value in between for a mix.
 	TimePref float64
+
+	// Metadata is additional data that is sent along with the payment to
+	// the payee.
+	Metadata []byte
 }
 
 // AMPOptions houses information that must be known in order to send an AMP

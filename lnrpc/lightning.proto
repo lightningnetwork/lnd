@@ -2792,6 +2792,9 @@ message Hop {
     to drop off at each hop within the onion.
     */
     map<uint64, bytes> custom_records = 11;
+
+    // The payment metadata to send along with the payment to the payee.
+    bytes metadata = 13;
 }
 
 message MPPRecord {

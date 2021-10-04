@@ -17,14 +17,14 @@ var _ PaymentSessionSource = (*SessionSource)(nil)
 type SessionSource struct {
 	// Graph is the channel graph that will be used to gather metrics from
 	// and also to carry out path finding queries.
-	Graph *channeldb.ChannelGraph
+	Graph routingGraph
 
 	// QueryBandwidth is a method that allows querying the lower link layer
 	// to determine the up to date available bandwidth at a prospective link
 	// to be traversed. If the link isn't available, then a value of zero
 	// should be returned. Otherwise, the current up to date knowledge of
 	// the available bandwidth of the link should be returned.
-	QueryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+	QueryBandwidth func(*channeldb.DirectedChannel) lnwire.MilliSatoshi
 
 	// MissionControl is a shared memory of sorts that executions of payment
 	// path finding use in order to remember which vertexes/edges were
@@ -40,21 +40,6 @@ type SessionSource struct {
 	PathFindingConfig PathFindingConfig
 }
 
-// getRoutingGraph returns a routing graph and a clean-up function for
-// pathfinding.
-func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
-	routingTx, err := newDbRoutingTx(m.Graph)
-	if err != nil {
-		return nil, nil, err
-	}
-	return routingTx, func() {
-		err := routingTx.close()
-		if err != nil {
-			log.Errorf("Error closing db tx: %v", err)
-		}
-	}, nil
-}
-
 // NewPaymentSession creates a new payment session backed by the latest prune
 // view from Mission Control. An optional set of routing hints can be provided
 // in order to populate additional edges to explore when finding a path to the
@@ -62,19 +47,16 @@ func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
 func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 	PaymentSession, error) {
 
-	sourceNode, err := m.Graph.SourceNode()
-	if err != nil {
-		return nil, err
-	}
-
 	getBandwidthHints := func() (map[uint64]lnwire.MilliSatoshi,
 		error) {
 
-		return generateBandwidthHints(sourceNode, m.QueryBandwidth)
+		return generateBandwidthHints(
+			m.Graph.sourceNode(), m.Graph, m.QueryBandwidth,
+		)
 	}
 
 	session, err := newPaymentSession(
-		p, getBandwidthHints, m.getRoutingGraph,
+		p, getBandwidthHints, m.Graph,
 		m.MissionControl, m.PathFindingConfig,
 	)
 	if err != nil {
@@ -96,9 +78,9 @@ func (m *SessionSource) NewPaymentSessionEmpty() PaymentSession {
 // RouteHintsToEdges converts a list of invoice route hints to an edge map that
 // can be passed into pathfinding.
 func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
-	map[route.Vertex][]*channeldb.ChannelEdgePolicy, error) {
+	map[route.Vertex][]*channeldb.CachedEdgePolicy, error) {
 
-	edges := make(map[route.Vertex][]*channeldb.ChannelEdgePolicy)
+	edges := make(map[route.Vertex][]*channeldb.CachedEdgePolicy)
 
 	// Traverse through all of the available hop hints and include them in
 	// our edges map, indexed by the public key of the channel's starting
@@ -128,9 +110,12 @@ func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
 			// Finally, create the channel edge from the hop hint
 			// and add it to list of edges corresponding to the node
 			// at the start of the channel.
-			edge := &channeldb.ChannelEdgePolicy{
-				Node:      endNode,
-				ChannelID: hopHint.ChannelID,
+			edge := &channeldb.CachedEdgePolicy{
+				ToNodePubKey: func() route.Vertex {
+					return endNode.PubKeyBytes
+				},
+				ToNodeFeatures: lnwire.EmptyFeatureVector(),
+				ChannelID:      hopHint.ChannelID,
 				FeeBaseMSat: lnwire.MilliSatoshi(
 					hopHint.FeeBaseMSat,
 				),

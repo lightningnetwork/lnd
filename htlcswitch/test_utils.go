@@ -306,7 +306,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
 		ShortChannelID:          chanID,
-		Db:                      dbAlice,
+		Db:                      dbAlice.ChannelStateDB(),
 		Packager:                channeldb.NewChannelPackager(chanID),
 		FundingTxn:              channels.TestFundingTx,
 	}
@@ -325,7 +325,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
 		ShortChannelID:          chanID,
-		Db:                      dbBob,
+		Db:                      dbBob.ChannelStateDB(),
 		Packager:                channeldb.NewChannelPackager(chanID),
 	}
 
@@ -384,7 +384,8 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	}
 
 	restoreAlice := func() (*lnwallet.LightningChannel, error) {
-		aliceStoredChannels, err := dbAlice.FetchOpenChannels(aliceKeyPub)
+		aliceStoredChannels, err := dbAlice.ChannelStateDB().
+			FetchOpenChannels(aliceKeyPub)
 		switch err {
 		case nil:
 		case kvdb.ErrDatabaseNotOpen:
@@ -394,7 +395,8 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 					"db: %v", err)
 			}
 
-			aliceStoredChannels, err = dbAlice.FetchOpenChannels(aliceKeyPub)
+			aliceStoredChannels, err = dbAlice.ChannelStateDB().
+				FetchOpenChannels(aliceKeyPub)
 			if err != nil {
 				return nil, errors.Errorf("unable to fetch alice "+
 					"channel: %v", err)
@@ -428,7 +430,8 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	}
 
 	restoreBob := func() (*lnwallet.LightningChannel, error) {
-		bobStoredChannels, err := dbBob.FetchOpenChannels(bobKeyPub)
+		bobStoredChannels, err := dbBob.ChannelStateDB().
+			FetchOpenChannels(bobKeyPub)
 		switch err {
 		case nil:
 		case kvdb.ErrDatabaseNotOpen:
@@ -438,7 +441,8 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 					"db: %v", err)
 			}
 
-			bobStoredChannels, err = dbBob.FetchOpenChannels(bobKeyPub)
+			bobStoredChannels, err = dbBob.ChannelStateDB().
+				FetchOpenChannels(bobKeyPub)
 			if err != nil {
 				return nil, errors.Errorf("unable to fetch bob "+
 					"channel: %v", err)
@@ -950,9 +954,9 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	secondBobChannel, carolChannel *lnwallet.LightningChannel,
 	startingHeight uint32, opts ...serverOption) *threeHopNetwork {
 
-	aliceDb := aliceChannel.State().Db
-	bobDb := firstBobChannel.State().Db
-	carolDb := carolChannel.State().Db
+	aliceDb := aliceChannel.State().Db.GetParentDB()
+	bobDb := firstBobChannel.State().Db.GetParentDB()
+	carolDb := carolChannel.State().Db.GetParentDB()
 
 	hopNetwork := newHopNetwork()
 
@@ -1201,8 +1205,8 @@ func newTwoHopNetwork(t testing.TB,
 	aliceChannel, bobChannel *lnwallet.LightningChannel,
 	startingHeight uint32) *twoHopNetwork {
 
-	aliceDb := aliceChannel.State().Db
-	bobDb := bobChannel.State().Db
+	aliceDb := aliceChannel.State().Db.GetParentDB()
+	bobDb := bobChannel.State().Db.GetParentDB()
 
 	hopNetwork := newHopNetwork()
 

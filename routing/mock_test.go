@@ -173,13 +173,13 @@ func (m *mockPaymentSessionOld) RequestRoute(_, _ lnwire.MilliSatoshi,
 }
 
 func (m *mockPaymentSessionOld) UpdateAdditionalEdge(_ *lnwire.ChannelUpdate,
-	_ *btcec.PublicKey, _ *channeldb.ChannelEdgePolicy) bool {
+	_ *btcec.PublicKey, _ *channeldb.CachedEdgePolicy) bool {
 
 	return false
 }
 
 func (m *mockPaymentSessionOld) GetAdditionalEdgePolicy(_ *btcec.PublicKey,
-	_ uint64) *channeldb.ChannelEdgePolicy {
+	_ uint64) *channeldb.CachedEdgePolicy {
 
 	return nil
 }
@@ -637,17 +637,17 @@ func (m *mockPaymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 }
 
 func (m *mockPaymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate,
-	pubKey *btcec.PublicKey, policy *channeldb.ChannelEdgePolicy) bool {
+	pubKey *btcec.PublicKey, policy *channeldb.CachedEdgePolicy) bool {
 
 	args := m.Called(msg, pubKey, policy)
 	return args.Bool(0)
 }
 
 func (m *mockPaymentSession) GetAdditionalEdgePolicy(pubKey *btcec.PublicKey,
-	channelID uint64) *channeldb.ChannelEdgePolicy {
+	channelID uint64) *channeldb.CachedEdgePolicy {
 
 	args := m.Called(pubKey, channelID)
-	return args.Get(0).(*channeldb.ChannelEdgePolicy)
+	return args.Get(0).(*channeldb.CachedEdgePolicy)
 }
 
 type mockControlTower struct {

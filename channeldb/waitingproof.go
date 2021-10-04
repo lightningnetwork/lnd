@@ -36,12 +36,12 @@ type WaitingProofStore struct {
 	// cache is used in order to reduce the number of redundant get
 	// calls, when object isn't stored in it.
 	cache map[WaitingProofKey]struct{}
-	db    *DB
+	db    kvdb.Backend
 	mu    sync.RWMutex
 }
 
 // NewWaitingProofStore creates new instance of proofs storage.
-func NewWaitingProofStore(db *DB) (*WaitingProofStore, error) {
+func NewWaitingProofStore(db kvdb.Backend) (*WaitingProofStore, error) {
 	s := &WaitingProofStore{
 		db: db,
 	}

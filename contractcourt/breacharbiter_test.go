@@ -987,7 +987,7 @@ func initBreachedState(t *testing.T) (*BreachArbiter,
 	contractBreaches := make(chan *ContractBreachEvent)
 
 	brar, cleanUpArb, err := createTestArbiter(
-		t, contractBreaches, alice.State().Db,
+		t, contractBreaches, alice.State().Db.GetParentDB(),
 	)
 	if err != nil {
 		t.Fatalf("unable to initialize test breach arbiter: %v", err)
@@ -1164,7 +1164,7 @@ func TestBreachHandoffFail(t *testing.T) {
 	assertNotPendingClosed(t, alice)
 
 	brar, cleanUpArb, err := createTestArbiter(
-		t, contractBreaches, alice.State().Db,
+		t, contractBreaches, alice.State().Db.GetParentDB(),
 	)
 	if err != nil {
 		t.Fatalf("unable to initialize test breach arbiter: %v", err)
@@ -2075,7 +2075,7 @@ func assertNoArbiterBreach(t *testing.T, brar *BreachArbiter,
 // assertBrarCleanup blocks until the given channel point has been removed the
 // retribution store and the channel is fully closed in the database.
 func assertBrarCleanup(t *testing.T, brar *BreachArbiter,
-	chanPoint *wire.OutPoint, db *channeldb.DB) {
+	chanPoint *wire.OutPoint, db *channeldb.ChannelStateDB) {
 
 	t.Helper()
 
@@ -2174,7 +2174,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 	notifier := mock.MakeMockSpendNotifier()
 	ba := NewBreachArbiter(&BreachConfig{
 		CloseLink:          func(_ *wire.OutPoint, _ ChannelCloseType) {},
-		DB:                 db,
+		DB:                 db.ChannelStateDB(),
 		Estimator:          chainfee.NewStaticEstimator(12500, 0),
 		GenSweepScript:     func() ([]byte, error) { return nil, nil },
 		ContractBreaches:   contractBreaches,
@@ -2375,7 +2375,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
-		Db:                      dbAlice,
+		Db:                      dbAlice.ChannelStateDB(),
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 		FundingTxn:              channels.TestFundingTx,
 	}
@@ -2393,7 +2393,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
-		Db:                      dbBob,
+		Db:                      dbBob.ChannelStateDB(),
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 

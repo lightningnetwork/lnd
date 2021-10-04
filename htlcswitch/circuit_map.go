@@ -199,9 +199,16 @@ type circuitMap struct {
 // parameterize an instance of circuitMap.
 type CircuitMapConfig struct {
 	// DB provides the persistent storage engine for the circuit map.
-	// TODO(conner): create abstraction to allow for the substitution of
-	// other persistence engines.
-	DB *channeldb.DB
+	DB kvdb.Backend
+
+	// FetchAllOpenChannels is a function that fetches all currently open
+	// channels from the channel database.
+	FetchAllOpenChannels func() ([]*channeldb.OpenChannel, error)
+
+	// FetchClosedChannels is a function that fetches all closed channels
+	// from the channel database.
+	FetchClosedChannels func(
+		pendingOnly bool) ([]*channeldb.ChannelCloseSummary, error)
 
 	// ExtractErrorEncrypter derives the shared secret used to encrypt
 	// errors from the obfuscator's ephemeral public key.
@@ -296,7 +303,7 @@ func (cm *circuitMap) cleanClosedChannels() error {
 
 	// Find closed channels and cache their ShortChannelIDs into a map.
 	// This map will be used for looking up relative circuits and keystones.
-	closedChannels, err := cm.cfg.DB.FetchClosedChannels(false)
+	closedChannels, err := cm.cfg.FetchClosedChannels(false)
 	if err != nil {
 		return err
 	}
@@ -629,7 +636,7 @@ func (cm *circuitMap) decodeCircuit(v []byte) (*PaymentCircuit, error) {
 // channels. Therefore, it must be called before any links are created to avoid
 // interfering with normal operation.
 func (cm *circuitMap) trimAllOpenCircuits() error {
-	activeChannels, err := cm.cfg.DB.FetchAllOpenChannels()
+	activeChannels, err := cm.cfg.FetchAllOpenChannels()
 	if err != nil {
 		return err
 	}
@@ -860,7 +867,7 @@ func (cm *circuitMap) CommitCircuits(circuits ...*PaymentCircuit) (
 	// Write the entire batch of circuits to the persistent circuit bucket
 	// using bolt's Batch write. This method must be called from multiple,
 	// distinct goroutines to have any impact on performance.
-	err := kvdb.Batch(cm.cfg.DB.Backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Batch(cm.cfg.DB, func(tx kvdb.RwTx) error {
 		circuitBkt := tx.ReadWriteBucket(circuitAddKey)
 		if circuitBkt == nil {
 			return ErrCorruptedCircuitMap
@@ -1091,7 +1098,7 @@ func (cm *circuitMap) DeleteCircuits(inKeys ...CircuitKey) error {
 	}
 	cm.mtx.Unlock()
 
-	err := kvdb.Batch(cm.cfg.DB.Backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Batch(cm.cfg.DB, func(tx kvdb.RwTx) error {
 		for _, circuit := range removedCircuits {
 			// If this htlc made it to an outgoing link, load the
 			// keystone bucket from which we will remove the

@@ -59,6 +59,18 @@ in `lnd`, saving developer time and limiting the potential for bugs.
 Instructions for enabling Postgres can be found in
 [docs/postgres.md](../postgres.md).
 
+### In-memory path finding
+
+Finding a path through the channel graph for sending a payment doesn't involve
+any database queries anymore. The [channel graph is now kept fully
+in-memory](https://github.com/lightningnetwork/lnd/pull/5642) for up a massive
+performance boost when calling `QueryRoutes` or any of the `SendPayment`
+variants. Keeping the full graph in memory naturally comes with increased RAM
+usage. Users running `lnd` on low-memory systems are advised to run with the
+`routing.strictgraphpruning=true` configuration option that more aggressively
+removes zombie channels from the graph, reducing the number of channels that
+need to be kept in memory.
+
 ## Protocol Extensions
 
 ### Explicit Channel Negotiation
@@ -294,6 +306,8 @@ you.
 * [Replace reference to JWT library with CVE](https://github.com/lightningnetwork/lnd/pull/5737)
 
 * [Replace reference to XZ library with CVE](https://github.com/lightningnetwork/lnd/pull/5789)
+
+* [Replace reference to mongo library with CVE](https://github.com/lightningnetwork/lnd/pull/5761)
 
 * [Fixed restore backup file test flake with bitcoind](https://github.com/lightningnetwork/lnd/pull/5637).
 

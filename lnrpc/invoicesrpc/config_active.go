@@ -51,7 +51,7 @@ type Config struct {
 
 	// ChanStateDB is a possibly replicated db instance which contains the
 	// channel state
-	ChanStateDB *channeldb.DB
+	ChanStateDB *channeldb.ChannelStateDB
 
 	// GenInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated invoices.

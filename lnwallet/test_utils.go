@@ -323,7 +323,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         aliceLocalCommit,
 		RemoteCommitment:        aliceRemoteCommit,
-		Db:                      dbAlice,
+		Db:                      dbAlice.ChannelStateDB(),
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 		FundingTxn:              testTx,
 	}
@@ -341,7 +341,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         bobLocalCommit,
 		RemoteCommitment:        bobRemoteCommit,
-		Db:                      dbBob,
+		Db:                      dbBob.ChannelStateDB(),
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 

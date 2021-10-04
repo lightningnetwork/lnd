@@ -20,7 +20,7 @@ func TestUnifiedPolicies(t *testing.T) {
 	u := newUnifiedPolicies(source, toNode, nil)
 
 	// Add two channels between the pair of nodes.
-	p1 := channeldb.ChannelEdgePolicy{
+	p1 := channeldb.CachedEdgePolicy{
 		FeeProportionalMillionths: 100000,
 		FeeBaseMSat:               30,
 		TimeLockDelta:             60,
@@ -28,7 +28,7 @@ func TestUnifiedPolicies(t *testing.T) {
 		MaxHTLC:                   500,
 		MinHTLC:                   100,
 	}
-	p2 := channeldb.ChannelEdgePolicy{
+	p2 := channeldb.CachedEdgePolicy{
 		FeeProportionalMillionths: 190000,
 		FeeBaseMSat:               10,
 		TimeLockDelta:             40,
@@ -39,7 +39,7 @@ func TestUnifiedPolicies(t *testing.T) {
 	u.addPolicy(fromNode, &p1, 7)
 	u.addPolicy(fromNode, &p2, 7)
 
-	checkPolicy := func(policy *channeldb.ChannelEdgePolicy,
+	checkPolicy := func(policy *channeldb.CachedEdgePolicy,
 		feeBase lnwire.MilliSatoshi, feeRate lnwire.MilliSatoshi,
 		timeLockDelta uint16) {
 

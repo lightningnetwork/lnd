@@ -391,7 +391,7 @@ you.
 ## Bug Fixes
 
 * A bug has been fixed that would cause `lnd` to [try to bootstrap using the
-  currnet DNS seeds when in SigNet
+  current DNS seeds when in SigNet
   mode](https://github.com/lightningnetwork/lnd/pull/5564).
 
 * [A validation check for sane `CltvLimit` and `FinalCltvDelta` has been added
@@ -430,6 +430,10 @@ you.
   result in transactions being rebroadcast even after they had been confirmed. 
   [Lnd is updated to use the version of Neutrino containing this 
   fix](https://github.com/lightningnetwork/lnd/pull/5807).
+ 
+* A bug has been fixed that would result in nodes not [reconnecting to their
+  persistent outbound peers if the peer's IP
+  address changed](https://github.com/lightningnetwork/lnd/pull/5538).
 
 * [Use the change output index when validating the reserved wallet balance for
   SendCoins/SendMany calls](https://github.com/lightningnetwork/lnd/pull/5665)
@@ -444,6 +448,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * Alyssa Hertig
 * Andras Banki-Horvath
 * de6df1re
+* Elle Mouton
 * ErikEk
 * Eugene Siegel
 * Harsha Goli

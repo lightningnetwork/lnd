@@ -127,6 +127,10 @@ type Hop struct {
 	// understand the new TLV payload, so we must instead use the legacy
 	// payload.
 	LegacyPayload bool
+
+	// Metadata is additional data that is sent along with the payment to
+	// the payee.
+	Metadata []byte
 }
 
 // Copy returns a deep copy of the Hop.
@@ -205,6 +209,13 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 		}
 	}
 
+	// If metadata is specified, generate a tlv record for it.
+	if h.Metadata != nil {
+		records = append(records,
+			record.NewMetadataRecord(&h.Metadata),
+		)
+	}
+
 	// Append any custom types destined for this hop.
 	tlvRecords := tlv.MapToRecords(h.CustomRecords)
 	records = append(records, tlvRecords...)
@@ -257,6 +268,11 @@ func (h *Hop) PayloadSize(nextChanID uint64) uint64 {
 	// Add amp if present.
 	if h.AMP != nil {
 		addRecord(record.AMPOnionType, h.AMP.PayloadSize())
+	}
+
+	// Add metadata if present.
+	if h.Metadata != nil {
+		addRecord(record.MetadataOnionType, uint64(len(h.Metadata)))
 	}
 
 	// Add custom records.

@@ -1141,6 +1141,10 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 		records = append(records, h.MPP.Record())
 	}
 
+	if h.Metadata != nil {
+		records = append(records, record.NewMetadataRecord(&h.Metadata))
+	}
+
 	// Final sanity check to absolutely rule out custom records that are not
 	// custom and write into the standard range.
 	if err := h.CustomRecords.Validate(); err != nil {
@@ -1253,6 +1257,13 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 			return nil, err
 		}
 		h.MPP = mpp
+	}
+
+	metadataType := uint64(record.MetadataOnionType)
+	if metadata, ok := tlvMap[metadataType]; ok {
+		delete(tlvMap, metadataType)
+
+		h.Metadata = metadata
 	}
 
 	h.CustomRecords = tlvMap

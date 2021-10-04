@@ -89,6 +89,10 @@ type finalHopParams struct {
 	cltvDelta   uint16
 	records     record.CustomSet
 	paymentAddr *[32]byte
+
+	// metadata is additional data that is sent along with the payment to
+	// the payee.
+	metadata []byte
 }
 
 // newRoute constructs a route using the provided path and final hop constraints.
@@ -138,6 +142,7 @@ func newRoute(sourceVertex route.Vertex,
 			tlvPayload       bool
 			customRecords    record.CustomSet
 			mpp              *record.MPP
+			metadata         []byte
 		)
 
 		// Define a helper function that checks this edge's feature
@@ -202,6 +207,8 @@ func newRoute(sourceVertex route.Vertex,
 					*finalHop.paymentAddr,
 				)
 			}
+
+			metadata = finalHop.metadata
 		} else {
 			// The amount that the current hop needs to forward is
 			// equal to the incoming amount of the next hop.
@@ -232,6 +239,7 @@ func newRoute(sourceVertex route.Vertex,
 			LegacyPayload:    !tlvPayload,
 			CustomRecords:    customRecords,
 			MPP:              mpp,
+			Metadata:         metadata,
 		}
 
 		hops = append([]*route.Hop{currentHop}, hops...)
@@ -330,6 +338,10 @@ type RestrictParams struct {
 	// mitigate probing vectors and payment sniping attacks on overpaid
 	// invoices.
 	PaymentAddr *[32]byte
+
+	// Metadata is additional data that is sent along with the payment to
+	// the payee.
+	Metadata []byte
 }
 
 // PathFindingConfig defines global parameters that control the trade-off in
@@ -474,6 +486,14 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		return nil, errNoPaymentAddr
 	}
 
+	// If the caller needs to send custom records, check that our
+	// destination feature vector supports TLV.
+	if r.Metadata != nil &&
+		!features.HasFeature(lnwire.TLVOnionPayloadOptional) {
+
+		return nil, errNoTlvPayload
+	}
+
 	// Set up outgoing channel map for quicker access.
 	var outgoingChanMap map[uint64]struct{}
 	if len(r.OutgoingChannelIDs) > 0 {
@@ -547,7 +567,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		LegacyPayload: !features.HasFeature(
 			lnwire.TLVOnionPayloadOptional,
 		),
-		MPP: mpp,
+		MPP:      mpp,
+		Metadata: r.Metadata,
 	}
 
 	// We can't always assume that the end destination is publicly

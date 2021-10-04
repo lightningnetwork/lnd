@@ -4602,6 +4602,7 @@ type rpcPaymentIntent struct {
 	destFeatures       *lnwire.FeatureVector
 	paymentAddr        *[32]byte
 	payReq             []byte
+	metadata           []byte
 
 	destCustomRecords record.CustomSet
 
@@ -4735,6 +4736,7 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 		payIntent.payReq = []byte(rpcPayReq.PaymentRequest)
 		payIntent.destFeatures = payReq.Features
 		payIntent.paymentAddr = payReq.PaymentAddr
+		payIntent.metadata = payReq.Metadata
 
 		if err := validateDest(payIntent.dest); err != nil {
 			return payIntent, err
@@ -4889,6 +4891,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 			DestCustomRecords:  payIntent.destCustomRecords,
 			DestFeatures:       payIntent.destFeatures,
 			PaymentAddr:        payIntent.paymentAddr,
+			Metadata:           payIntent.metadata,
 
 			// Don't enable multi-part payments on the main rpc.
 			// Users need to use routerrpc for that.

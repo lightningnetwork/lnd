@@ -155,6 +155,16 @@ const (
 	// TODO: Decide on actual feature bit value.
 	ExplicitChannelTypeOptional = 45
 
+	// PaymentMetadataRequired is a required bit that denotes that if an
+	// invoice contains metadata, it must be passed along with the payment
+	// htlc(s).
+	PaymentMetadataRequired = 48
+
+	// PaymentMetadataOptional is an optional bit that denotes that if an
+	// invoice contains metadata, it may be passed along with the payment
+	// htlc(s).
+	PaymentMetadataOptional = 49
+
 	// ScriptEnforcedLeaseOptional is an optional feature bit that signals
 	// that the node requires channels having zero-fee second-level HTLC
 	// transactions, which also imply anchor commitments, along with an
@@ -218,6 +228,8 @@ var Features = map[FeatureBit]string{
 	WumboChannelsOptional:         "wumbo-channels",
 	AMPRequired:                   "amp",
 	AMPOptional:                   "amp",
+	PaymentMetadataOptional:       "payment-metadata",
+	PaymentMetadataRequired:       "payment-metadata",
 	ExplicitChannelTypeOptional:   "explicit-commitment-type",
 	ExplicitChannelTypeRequired:   "explicit-commitment-type",
 	ScriptEnforcedLeaseRequired:   "script-enforced-lease",

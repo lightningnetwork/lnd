@@ -436,6 +436,8 @@ messages directly. There is no routing/path finding involved.
 
 * [Fix missing label on sweep transactions](https://github.com/lightningnetwork/lnd/pull/5895).
 
+* [Fixed flake that occurred with the switch dust forwarding test under the data race unit build.](https://github.com/lightningnetwork/lnd/pull/5828)
+
 ## Database
 
 * [Ensure single writer for legacy

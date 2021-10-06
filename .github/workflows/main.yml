@@ -286,8 +286,9 @@ jobs:
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v2
+        if: ${{ failure() }}
         with:
-          name: logs
+          name: logs-itest-${{ job.id }}
           path: lntest/itest/**/*.log
           retention-days: 5
 
@@ -325,8 +326,9 @@ jobs:
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v2
+        if: ${{ failure() }}
         with:
-          name: logs
+          name: logs-itest-windows
           path: lntest/itest/**/*.log
           retention-days: 5
 

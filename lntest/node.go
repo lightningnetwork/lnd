@@ -887,6 +887,27 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 func (hn *HarnessNode) WaitUntilStarted(conn grpc.ClientConnInterface,
 	timeout time.Duration) error {
 
+	return hn.waitForState(conn, timeout, func(s lnrpc.WalletState) bool {
+		return s != lnrpc.WalletState_WAITING_TO_START
+	})
+}
+
+// WaitUntilStateReached waits until the given wallet state (or one of the
+// states following it) has been reached.
+func (hn *HarnessNode) WaitUntilStateReached(conn grpc.ClientConnInterface,
+	timeout time.Duration, desiredState lnrpc.WalletState) error {
+
+	return hn.waitForState(conn, timeout, func(s lnrpc.WalletState) bool {
+		return s >= desiredState
+	})
+}
+
+// waitForState waits until the current node state fulfills the given
+// predicate.
+func (hn *HarnessNode) waitForState(conn grpc.ClientConnInterface,
+	timeout time.Duration,
+	predicate func(state lnrpc.WalletState) bool) error {
+
 	stateClient := lnrpc.NewStateClient(conn)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -908,7 +929,7 @@ func (hn *HarnessNode) WaitUntilStarted(conn grpc.ClientConnInterface,
 				return
 			}
 
-			if resp.State != lnrpc.WalletState_WAITING_TO_START {
+			if predicate(resp.State) {
 				close(started)
 				return
 			}

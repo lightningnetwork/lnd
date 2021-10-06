@@ -443,6 +443,10 @@ you.
 * [Use the change output index when validating the reserved wallet balance for
   SendCoins/SendMany calls](https://github.com/lightningnetwork/lnd/pull/5665)
 
+* A [bug](https://github.com/lightningnetwork/lnd/pull/5834) has been fixed where
+  certain channels couldn't be passed to `lncli getchaninfo` due to their 8-byte 
+  compact ID being too large for an int64. 
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

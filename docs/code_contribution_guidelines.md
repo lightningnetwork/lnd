@@ -271,7 +271,7 @@ a good thing.
   subtract 4 columns for the indent on the left and 4 more for symmetry on the
   right, we’re left with 72 columns.
 - git format-patch --stdout converts a series of commits to a series of emails,
-  using the messages for the message body.  Good email netiquette dictates we
+  using the messages for the message body.  Good email etiquette dictates we
   wrap our plain text emails such that there’s room for a few levels of nested
   reply indicators without overflow in an 80 column terminal.
   

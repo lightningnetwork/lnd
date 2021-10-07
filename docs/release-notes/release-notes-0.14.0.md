@@ -340,6 +340,9 @@ you.
 
 * [Replace reference to protobuf library with OSV](https://github.com/lightningnetwork/lnd/pull/5759)
 
+* [Only upload itest logs on failure, fix more
+  flakes](https://github.com/lightningnetwork/lnd/pull/5833).
+
 ## Database
 
 * [Ensure single writer for legacy

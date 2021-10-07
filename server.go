@@ -3699,7 +3699,8 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	// outbound connection attempt is being made.
 	go func() {
 		srvrLog.Debugf("Scheduling connection re-establishment to "+
-			"persistent peer %v in %s", p.IdentityKey(), backoff)
+			"persistent peer %x in %s",
+			p.IdentityKey().SerializeCompressed(), backoff)
 
 		select {
 		case <-time.After(backoff):
@@ -3710,7 +3711,8 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 		}
 
 		srvrLog.Debugf("Attempting to re-establish persistent "+
-			"connection to peer %v", p.IdentityKey())
+			"connection to peer %x",
+			p.IdentityKey().SerializeCompressed())
 
 		s.connectToPersistentPeer(pubStr)
 	}()

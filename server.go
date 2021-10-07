@@ -3772,11 +3772,7 @@ func (s *server) connectToPersistentPeer(pubKeyStr string) {
 
 	// Any addresses left in addrMap are new ones that we have not made
 	// connection requests for. So create new connection requests for those.
-	for _, addr := range s.persistentPeerAddrs[pubKeyStr] {
-		if _, ok := addrMap[addr.String()]; !ok {
-			continue
-		}
-
+	for _, addr := range addrMap {
 		connReq := &connmgr.ConnReq{
 			Addr:      addr,
 			Permanent: true,

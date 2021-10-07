@@ -460,6 +460,9 @@ you.
   certain channels couldn't be passed to `lncli getchaninfo` due to their 8-byte 
   compact ID being too large for an int64. 
 
+* [Dedup stored peer addresses before creating connection requests to prevent
+  redundant connection requests](https://github.com/lightningnetwork/lnd/pull/5839)
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

@@ -263,6 +263,10 @@ you.
   console](https://github.com/lightningnetwork/lnd/pull/5802) when `lnd` fails
   loading the user specified config.
 
+* [Make it possible to add more than one RPC Listener when calling lnd.Main](https://github.com/lightningnetwork/lnd/pull/5777). And
+  add MacChan field for passing back lnd's admin macaroon back to the program 
+  calling lnd, when needed.
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes

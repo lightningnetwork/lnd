@@ -258,6 +258,42 @@ func calculateFeeRate(satPerByte, satPerVByte uint64, targetConf uint32,
 
 }
 
+// GetAllPermissions returns all the permissions required to interact with lnd.
+func GetAllPermissions() []bakery.Op {
+	allPerms := make([]bakery.Op, 0)
+
+	// The map will help keep track of which specific permission pairs have
+	// already been added to the slice.
+	allPermsMap := make(map[string]map[string]struct{})
+
+	for _, perms := range MainRPCServerPermissions() {
+		for _, perm := range perms {
+			entity := perm.Entity
+			action := perm.Action
+
+			// If this specific entity-action permission pair isn't
+			// in the map yet. Add it to map, and the permission
+			// slice.
+			if acts, ok := allPermsMap[entity]; ok {
+				if _, ok := acts[action]; !ok {
+					allPermsMap[entity][action] = struct{}{}
+
+					allPerms = append(
+						allPerms, perm,
+					)
+				}
+
+			} else {
+				allPermsMap[entity] = make(map[string]struct{})
+				allPermsMap[entity][action] = struct{}{}
+				allPerms = append(allPerms, perm)
+			}
+		}
+	}
+
+	return allPerms
+}
+
 // MainRPCServerPermissions returns a mapping of the main RPC server calls to
 // the permissions they require.
 func MainRPCServerPermissions() map[string][]bakery.Op {

@@ -94,10 +94,10 @@ func Start(extraArgs string, rpcReady Callback) {
 	// We call the main method with the custom in-memory listener called by
 	// the mobile APIs, such that the grpc server will use it.
 	cfg := lnd.ListenerCfg{
-		RPCListener: &lnd.ListenerWithSignal{
+		RPCListeners: []*lnd.ListenerWithSignal{{
 			Listener: lightningLis,
 			Ready:    rpcListening,
-		},
+		}},
 	}
 
 	// Call the "real" main in a nested manner so the defers will properly

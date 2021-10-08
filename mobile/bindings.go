@@ -99,6 +99,7 @@ func Start(extraArgs string, rpcReady Callback) {
 			Ready:    rpcListening,
 		}},
 	}
+	implCfg := loadedConfig.ImplementationConfig(shutdownInterceptor)
 
 	// Call the "real" main in a nested manner so the defers will properly
 	// be executed in the case of a graceful shutdown.
@@ -107,7 +108,7 @@ func Start(extraArgs string, rpcReady Callback) {
 		defer close(quit)
 
 		if err := lnd.Main(
-			loadedConfig, cfg, shutdownInterceptor,
+			loadedConfig, cfg, implCfg, shutdownInterceptor,
 		); err != nil {
 			if e, ok := err.(*flags.Error); ok &&
 				e.Type == flags.ErrHelp {

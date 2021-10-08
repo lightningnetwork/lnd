@@ -354,6 +354,10 @@
         "key_loc": {
           "$ref": "#/definitions/signrpcKeyLocator",
           "description": "The key locator that identifies which key to use for signing."
+        },
+        "double_hash": {
+          "type": "boolean",
+          "description": "Double-SHA256 hash instead of just the default single round."
         }
       }
     },

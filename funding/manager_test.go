@@ -110,6 +110,8 @@ var (
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
 
+	testKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
+
 	fundingNetParams = chainreg.BitcoinTestNetParams
 )
 
@@ -355,11 +357,12 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 	fundingCfg := Config{
 		IDKey:        privKey.PubKey(),
+		IDKeyLoc:     testKeyLoc,
 		Wallet:       lnw,
 		Notifier:     chainNotifier,
 		FeeEstimator: estimator,
-		SignMessage: func(pubKey *btcec.PublicKey,
-			msg []byte) (input.Signature, error) {
+		SignMessage: func(_ keychain.KeyLocator,
+			_ []byte) (*btcec.Signature, error) {
 
 			return testSig, nil
 		},
@@ -502,11 +505,13 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 
 	f, err := NewFundingManager(Config{
 		IDKey:        oldCfg.IDKey,
+		IDKeyLoc:     oldCfg.IDKeyLoc,
 		Wallet:       oldCfg.Wallet,
 		Notifier:     oldCfg.Notifier,
 		FeeEstimator: oldCfg.FeeEstimator,
-		SignMessage: func(pubKey *btcec.PublicKey,
-			msg []byte) (input.Signature, error) {
+		SignMessage: func(_ keychain.KeyLocator,
+			_ []byte) (*btcec.Signature, error) {
+
 			return testSig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message,

@@ -6187,6 +6187,10 @@
           "type": "string",
           "format": "byte",
           "description": "The message to be signed. When using REST, this field must be encoded as\nbase64."
+        },
+        "single_hash": {
+          "type": "boolean",
+          "description": "Instead of the default double-SHA256 hashing of the message before signing,\nonly use one round of hashing instead."
         }
       }
     },

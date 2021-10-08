@@ -1536,6 +1536,21 @@ func (c *Config) graphDatabaseDir() string {
 	)
 }
 
+// ImplementationConfig returns the configuration of what actual implementations
+// should be used when creating the main lnd instance.
+func (c *Config) ImplementationConfig(
+	interceptor signal.Interceptor) *ImplementationCfg {
+
+	defaultImpl := NewDefaultWalletImpl(c, ltndLog, interceptor)
+	return &ImplementationCfg{
+		GrpcRegistrar:       defaultImpl,
+		RestRegistrar:       defaultImpl,
+		ExternalValidator:   defaultImpl,
+		DatabaseBuilder:     NewDefaultDatabaseBuilder(c, ltndLog),
+		ChainControlBuilder: defaultImpl,
+	}
+}
+
 // CleanAndExpandPath expands environment variables and leading ~ in the
 // passed path, cleans the result, and returns it.
 // This function is taken from https://github.com/btcsuite/btcd

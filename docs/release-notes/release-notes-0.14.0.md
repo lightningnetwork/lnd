@@ -227,6 +227,12 @@ you.
 * [All integration tests (except the ARM itests) were moved from Travis CI to
   GitHub Actions](https://github.com/lightningnetwork/lnd/pull/5811).
 
+* [The LndMobile iOS build has been updated to work
+  with newer gomobile versions](https://github.com/lightningnetwork/lnd/pull/5842)
+  that output in the `xcframework` packaging format.
+  Applications that use the iOS build will have to be updated to include
+  an `xcframework` instead of a `framework`.
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**
@@ -467,6 +473,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * Elle Mouton
 * ErikEk
 * Eugene Siegel
+* Hampus Sjöberg
 * Harsha Goli
 * Jesse de Wit
 * Martin Habovstiak

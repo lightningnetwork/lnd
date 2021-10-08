@@ -251,13 +251,19 @@ jobs:
       # Allow other tests in the matrix to continue if one fails.
       fail-fast: false
       matrix:
-        integration_type:
-          - backend=btcd
-          - backend=bitcoind
-          - backend="bitcoind notxindex"
-          - backend=bitcoind dbbackend=etcd
-          - backend=bitcoind dbbackend=postgres
-          - backend=neutrino
+        include:
+          - name: btcd
+            args: backend=btcd
+          - name: bitcoind
+            args: backend=bitcoind
+          - name: bitcoind-notxindex
+            args: backend="bitcoind notxindex"
+          - name: bitcoind-etcd
+            args: backend=bitcoind dbbackend=etcd
+          - name: bitcoind-postgres
+            args: backend=bitcoind dbbackend=postgres
+          - name: neutrino
+            args: backend=neutrino
     steps:
       - name: git checkout
         uses: actions/checkout@v2
@@ -281,15 +287,19 @@ jobs:
       - name: install bitcoind
         run: ./scripts/install_bitcoind.sh
 
-      - name: run ${{ matrix.unit_type }}
-        run: make itest-parallel ${{ matrix.unit_type }}
+      - name: run ${{ matrix.name }}
+        run: make itest-parallel ${{ matrix.args }}
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v2
+      - name: Zip log files on failure
+        if: ${{ failure() }}
+        run: 7z a logs-itest-${{ matrix.name }}.zip lntest/itest/**/*.log
+
+      - name: Upload log files on failure
+        uses: actions/upload-artifact@v2.2.4
         if: ${{ failure() }}
         with:
-          name: logs-itest-${{ job.id }}
-          path: lntest/itest/**/*.log
+          name: logs-itest-${{ matrix.name }}
+          path: logs-itest-${{ matrix.name }}.zip
           retention-days: 5
 
   ########################
@@ -324,12 +334,16 @@ jobs:
       - name: run itest
         run: make itest-parallel windows=1 tranches=2 parallel=2
 
-      - name: Upload Artifact
+      - name: Zip log files on failure
+        if: ${{ failure() }}
+        run: 7z a logs-itest-windows.zip lntest/itest/**/*.log
+
+      - name: Upload log files on failure
         uses: actions/upload-artifact@v2
         if: ${{ failure() }}
         with:
           name: logs-itest-windows
-          path: lntest/itest/**/*.log
+          path: logs-itest-windows.zip
           retention-days: 5
 
   ########################

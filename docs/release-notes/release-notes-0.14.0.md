@@ -2,10 +2,31 @@
 
 ## Networking & Tor
 
+### Connectivity mode
+
 A new flag has been added to enable a hybrid tor connectivity mode, where tor
 is only used for onion address connections, and clearnet for everything else.
 This new behavior can be added using the `tor.skip-proxy-for-clearnet-targets`
 flag.
+
+### Onion service
+
+The Onion service created upon lnd startup is [now deleted during lnd shutdown
+using `DEL_ONION`](https://github.com/lightningnetwork/lnd/pull/5794). 
+
+### Tor connection
+
+A new health check, tor connection, [is added to lnd's liveness monitor upon
+startup](https://github.com/lightningnetwork/lnd/pull/5794). This check will
+ensure the liveness of the connection between the Tor daemon and lnd's tor
+controller. To enable it, please use the following flags,
+```
+healthcheck.torconnection.attempts=xxx
+healthcheck.torconnection.timeout=xxx
+healthcheck.torconnection.backoff=xxx
+healthcheck.torconnection.internal=xxx
+```
+Read more about the usage of the flags in the `sample-lnd.conf`.
 
 ## LN Peer-to-Peer Netowrk
 

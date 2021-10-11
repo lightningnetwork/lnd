@@ -1470,9 +1470,40 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		})
 	}
 
-	// Create a set of health checks using our configured values. If a
-	// health check has been disabled by setting attempts to 0, our monitor
-	// will not run it.
+	// Create liveliness monitor.
+	s.createLivenessMonitor(cfg, cc)
+
+	// Create the connection manager which will be responsible for
+	// maintaining persistent outbound connections and also accepting new
+	// incoming connections
+	cmgr, err := connmgr.New(&connmgr.Config{
+		Listeners:      listeners,
+		OnAccept:       s.InboundPeerConnected,
+		RetryDuration:  time.Second * 5,
+		TargetOutbound: 100,
+		Dial: noiseDial(
+			nodeKeyECDH, s.cfg.net, s.cfg.ConnectionTimeout,
+		),
+		OnConnection: s.OutboundPeerConnected,
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.connMgr = cmgr
+
+	return s, nil
+}
+
+// createLivenessMonitor creates a set of health checks using our configured
+// values and uses these checks to create a liveliness monitor. Available
+// health checks,
+//   - chainHealthCheck
+//   - diskCheck
+//   - tlsHealthCheck
+//   - torController, only created when tor is enabled.
+// If a health check has been disabled by setting attempts to 0, our monitor
+// will not run it.
+func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl) {
 	chainHealthCheck := healthcheck.NewObservation(
 		"chain backend",
 		cc.HealthCheck,
@@ -1521,11 +1552,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// If the current time is passed the certificate's
 			// expiry time, then it is considered expired
 			if time.Now().After(parsedCert.NotAfter) {
-				return fmt.Errorf("TLS certificate is expired as of %v", parsedCert.NotAfter)
+				return fmt.Errorf("TLS certificate is "+
+					"expired as of %v", parsedCert.NotAfter)
 			}
 
-			// If the certificate is not outdated, no error needs to
-			// be returned
+			// If the certificate is not outdated, no error needs
+			// to be returned
 			return nil
 		},
 		cfg.HealthChecks.TLSCheck.Interval,
@@ -1534,36 +1566,36 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		cfg.HealthChecks.TLSCheck.Attempts,
 	)
 
+	checks := []*healthcheck.Observation{
+		chainHealthCheck, diskCheck, tlsHealthCheck,
+	}
+
+	// If Tor is enabled, add the healthcheck for tor connection.
+	if s.torController != nil {
+		torConnectionCheck := healthcheck.NewObservation(
+			"tor connection",
+			func() error {
+				return healthcheck.CheckTorServiceStatus(
+					s.torController,
+					s.createNewHiddenService,
+				)
+			},
+			cfg.HealthChecks.TorConnection.Interval,
+			cfg.HealthChecks.TorConnection.Timeout,
+			cfg.HealthChecks.TorConnection.Backoff,
+			cfg.HealthChecks.TorConnection.Attempts,
+		)
+		checks = append(checks, torConnectionCheck)
+	}
+
 	// If we have not disabled all of our health checks, we create a
 	// liveliness monitor with our configured checks.
 	s.livelinessMonitor = healthcheck.NewMonitor(
 		&healthcheck.Config{
-			Checks: []*healthcheck.Observation{
-				chainHealthCheck, diskCheck, tlsHealthCheck,
-			},
+			Checks:   checks,
 			Shutdown: srvrLog.Criticalf,
 		},
 	)
-
-	// Create the connection manager which will be responsible for
-	// maintaining persistent outbound connections and also accepting new
-	// incoming connections
-	cmgr, err := connmgr.New(&connmgr.Config{
-		Listeners:      listeners,
-		OnAccept:       s.InboundPeerConnected,
-		RetryDuration:  time.Second * 5,
-		TargetOutbound: 100,
-		Dial: noiseDial(
-			nodeKeyECDH, s.cfg.net, s.cfg.ConnectionTimeout,
-		),
-		OnConnection: s.OutboundPeerConnected,
-	})
-	if err != nil {
-		return nil, err
-	}
-	s.connMgr = cmgr
-
-	return s, nil
 }
 
 // Started returns true if the server has been started, and false otherwise.

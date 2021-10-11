@@ -323,7 +323,7 @@ Examples of common patterns w.r.t commit structures within the project:
     
 ## Sign your git commits
 
-When contributing to `lnd` please sign your
+When contributing to `lnd` it is recommended to sign your
 git commits. This is easy to do and will help in assuring the
 integrity of the tree.
 
@@ -366,6 +366,9 @@ commits - make sure that you re-sign as the signatures will be lost.
 Use git log with show-signature,
 
     git log --show-signature
+    
+You can also pass the --show-signature option to `git show` to check a
+single commit.
 
 ## Code Spacing 
 

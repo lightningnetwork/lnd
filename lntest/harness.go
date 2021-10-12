@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -93,6 +94,118 @@ func (h *HarnessTest) NewNode(name string, extraArgs []string) *HarnessNode {
 	require.NoErrorf(h, err, "unable to create new node for %s", name)
 
 	return node
+}
+
+// NewNodeWithSeedEtcd starts a new node with seed that'll use an external
+// etcd database as its (remote) channel and wallet DB. The passsed cluster
+// flag indicates that we'd like the node to join the cluster leader election.
+func (h *HarnessTest) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
+	password []byte, entropy []byte, statelessInit, cluster bool,
+	leaderSessionTTL int) (*HarnessNode, []string, []byte) {
+
+	// We don't want to use the embedded etcd instance.
+	const dbBackend = BackendBbolt
+
+	extraArgs := extraArgsEtcd(etcdCfg, name, cluster, leaderSessionTTL)
+	node, seed, mac, err := h.net.newNodeWithSeed(
+		name, extraArgs, password, entropy, statelessInit, dbBackend,
+	)
+	require.NoError(h, err, "failed to create new node with seed etcd")
+
+	return node, seed, mac
+}
+
+// NewNodeWithSeedEtcd starts a new node with seed that'll use an external
+// etcd database as its (remote) channel and wallet DB. The passsed cluster
+// flag indicates that we'd like the node to join the cluster leader election.
+// If the wait flag is false then we won't wait until RPC is available (this is
+// useful when the node is not expected to become the leader right away).
+func (h *HarnessTest) NewNodeEtcd(name string, etcdCfg *etcd.Config,
+	password []byte, cluster, wait bool,
+	leaderSessionTTL int) *HarnessNode {
+
+	// We don't want to use the embedded etcd instance.
+	const dbBackend = BackendBbolt
+
+	extraArgs := extraArgsEtcd(etcdCfg, name, cluster, leaderSessionTTL)
+	node, err := h.net.newNode(
+		name, extraArgs, true, password, dbBackend, wait,
+	)
+	require.NoError(h, err, "failed to create new node with etcd")
+
+	return node
+}
+
+// NewNodeWithSeed fully initializes a new HarnessNode after creating a fresh
+// aezeed. The provided password is used as both the aezeed password and the
+// wallet password. The generated mnemonic is returned along with the
+// initialized harness node.
+func (h *HarnessTest) NewNodeWithSeed(name string,
+	extraArgs []string, password []byte,
+	statelessInit bool) (*HarnessNode, []string, []byte) {
+
+	node, seed, mac, err := h.net.newNodeWithSeed(
+		name, extraArgs, password, nil, statelessInit, h.net.dbBackend,
+	)
+	require.NoError(h, err, "failed to create new node with seed")
+
+	return node, seed, mac
+}
+
+// RestoreNodeWithSeed fully initializes a HarnessNode using a chosen mnemonic,
+// password, recovery window, and optionally a set of static channel backups.
+// After providing the initialization request to unlock the node, this method
+// will finish initializing the LightningClient such that the HarnessNode can
+// be used for regular rpc operations.
+func (h *HarnessTest) RestoreNodeWithSeed(name string, extraArgs []string,
+	password []byte, mnemonic []string, rootKey string,
+	recoveryWindow int32, chanBackups *lnrpc.ChanBackupSnapshot,
+	opts ...NodeOption) *HarnessNode {
+
+	node, err := h.net.newNode(
+		name, extraArgs, true, password, h.net.dbBackend, true, opts...,
+	)
+	require.NoError(h, err, "restore node failed to create new node")
+
+	initReq := &lnrpc.InitWalletRequest{
+		WalletPassword:     password,
+		CipherSeedMnemonic: mnemonic,
+		AezeedPassphrase:   password,
+		ExtendedMasterKey:  rootKey,
+		RecoveryWindow:     recoveryWindow,
+		ChannelBackups:     chanBackups,
+	}
+
+	_, err = node.Init(initReq)
+	require.NoError(h, err, "restore node failed to init node")
+
+	// With the node started, we can now record its public key within the
+	// global mapping.
+	h.net.RegisterNode(node)
+
+	return node
+}
+
+// GetBestBlock makes a RPC request to miner and asserts.
+func (h *HarnessTest) GetBestBlock() (*chainhash.Hash, int32) {
+	blockHash, height, err := h.net.Miner.Client.GetBestBlock()
+	require.NoError(h, err, "failed to GetBestBlock")
+	return blockHash, height
+}
+
+// GetRecoveryInfo uses the specifies node to make a RPC call to
+// GetRecoveryInfo and asserts.
+func (h *HarnessTest) GetRecoveryInfo(
+	hn *HarnessNode) *lnrpc.GetRecoveryInfoResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.GetRecoveryInfoRequest{}
+	resp, err := hn.rpc.LN.GetRecoveryInfo(ctxt, req)
+	require.NoError(h, err, "failed to GetRecoveryInfo")
+
+	return resp
 }
 
 // Shutdown shuts down the given node and asserts that no errors occur.
@@ -225,6 +338,29 @@ func (h *HarnessTest) SendCoins(amt btcutil.Amount, hn *HarnessNode) {
 		amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, true,
 	)
 	require.NoErrorf(h, err, "unable to send coins for %s", hn.Cfg.Name)
+}
+
+// SendCoinsUnconfirmed sends coins from the internal mining node to the target
+// lightning node using a P2WPKH address. No blocks are mined after, so the
+// transaction remains unconfirmed.
+func (h *HarnessTest) SendCoinsUnconfirmed(amt btcutil.Amount,
+	hn *HarnessNode) {
+
+	err := h.net.SendCoinsOfType(
+		amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, false,
+	)
+	require.NoErrorf(h, err, "unable to send unconfirmed coins for %s",
+		hn.Cfg.Name)
+}
+
+// SendCoinsNP2WKH attempts to send amt satoshis from the internal mining node
+// to the targeted lightning node using a NP2WKH address.
+func (h *HarnessTest) SendCoinsNP2WKH(amt btcutil.Amount, target *HarnessNode) {
+	err := h.net.SendCoinsOfType(
+		amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH, true,
+	)
+	require.NoErrorf(h, err, "unable to send NP2WKH coins for %s",
+		target.Cfg.Name)
 }
 
 // OpenChannelParams houses the params to specify when opening a new channel.
@@ -1130,6 +1266,28 @@ func (h *HarnessTest) AssertHTLCStage(hn *HarnessNode, stage uint32) {
 
 	require.NoErrorf(h, wait.NoError(checkStage, DefaultTimeout),
 		"timeout waiting for htlc stage")
+}
+
+// NewMinerAddress creates a new address for the miner and asserts.
+func (h *HarnessTest) NewMinerAddress() btcutil.Address {
+	addr, err := h.net.Miner.NewAddress()
+	require.NoError(h, err, "failed to create new miner address")
+	return addr
+}
+
+// GetTransactions makes a RPC call to GetTransactions and asserts.
+func (h *HarnessTest) GetTransactions(
+	hn *HarnessNode) *lnrpc.TransactionDetails {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.LN.GetTransactions(
+		ctxt, &lnrpc.GetTransactionsRequest{},
+	)
+	require.NoError(h, err, "failed to GetTransactions for %s", hn.Name())
+
+	return resp
 }
 
 // txStr returns the string representation of the channel's funding transaction.

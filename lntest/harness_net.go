@@ -372,7 +372,7 @@ func (n *NetworkHarness) newNodeWithSeed(name string, extraArgs []string,
 		name, extraArgs, true, password, dbBackend, true,
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("create new node: %w", err)
 	}
 
 	// Create a request to generate a new aezeed. The new seed will have the
@@ -390,7 +390,7 @@ func (n *NetworkHarness) newNodeWithSeed(name string, extraArgs []string,
 		genSeedResp, err = node.GenSeed(ctxt, genSeedReq)
 		return err
 	}, DefaultTimeout); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("failed to gen seed: %w", err)
 	}
 
 	// With the seed created, construct the init request to the node,
@@ -406,7 +406,7 @@ func (n *NetworkHarness) newNodeWithSeed(name string, extraArgs []string,
 	// also initialize the macaroon-authenticated LightningClient.
 	response, err := node.Init(initReq)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("failed init node: %w", err)
 	}
 
 	// With the node started, we can now record its public key within the
@@ -1378,6 +1378,7 @@ func (n *NetworkHarness) DumpLogs(node *HarnessNode) (string, error) {
 // SendCoins attempts to send amt satoshis from the internal mining node to the
 // targeted lightning node using a P2WKH address. 6 blocks are mined after in
 // order to confirm the transaction.
+// TODO(yy): remove.
 func (n *NetworkHarness) SendCoins(t *testing.T, amt btcutil.Amount,
 	target *HarnessNode) {
 
@@ -1390,6 +1391,7 @@ func (n *NetworkHarness) SendCoins(t *testing.T, amt btcutil.Amount,
 // SendCoinsUnconfirmed sends coins from the internal mining node to the target
 // lightning node using a P2WPKH address. No blocks are mined after, so the
 // transaction remains unconfirmed.
+// TODO(yy): remove.
 func (n *NetworkHarness) SendCoinsUnconfirmed(t *testing.T, amt btcutil.Amount,
 	target *HarnessNode) {
 
@@ -1404,6 +1406,7 @@ func (n *NetworkHarness) SendCoinsUnconfirmed(t *testing.T, amt btcutil.Amount,
 
 // SendCoinsNP2WKH attempts to send amt satoshis from the internal mining node
 // to the targeted lightning node using a NP2WKH address.
+// TODO(yy): remove.
 func (n *NetworkHarness) SendCoinsNP2WKH(t *testing.T, amt btcutil.Amount,
 	target *HarnessNode) {
 

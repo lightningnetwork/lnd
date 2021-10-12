@@ -14,10 +14,10 @@ var allTestCases = []*lntest.TestCase{
 	// 	name: "sweep coins",
 	// 	test: testSweepAllCoins,
 	// },
-	// {
-	// 	name: "recovery info",
-	// 	test: testGetRecoveryInfo,
-	// },
+	{
+		Name:     "recovery info",
+		TestFunc: testGetRecoveryInfo,
+	},
 	// {
 	// 	name: "onchain fund recovery",
 	// 	test: testOnchainFundRecovery,

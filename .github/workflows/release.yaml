@@ -58,8 +58,7 @@ jobs:
             In order to verify the release, you'll need to have `gpg` or `gpg2` installed on your system. Once you've obtained a copy (and hopefully verified that as well), you'll first need to import the keys that have signed this release if you haven't done so already: 
 
             ```
-            curl https://keybase.io/bitconner/pgp_keys.asc | gpg --import
-            curl https://keybase.io/roasbeef/pgp_keys.asc | gpg --import
+            curl https://raw.githubusercontent.com/lightningnetwork/lnd/master/scripts/keys/roasbeef.asc | gpg --import
             ```
 
             Once you have the required PGP keys, you can verify the release (assuming `manifest-roasbeef-${{ env.RELEASE_VERSION }}.sig` and `manifest-${{ env.RELEASE_VERSION }}.txt` are in the current directory) with:
@@ -72,7 +71,7 @@ jobs:
 
             ```
             gpg: Signature made Wed Sep 30 17:35:20 2020 PDT
-            gpg:                using RSA key 4AB7F8DA6FAEBB3B70B1F903BC13F65E2DC84465
+            gpg:                using RSA key 60A1FA7DA5BFF08BDCBBE7903BBD59E99B280306
             gpg: Good signature from "Olaoluwa Osuntokun <laolu32@gmail.com>" [ultimate]
             ```
 
@@ -104,7 +103,7 @@ jobs:
             ```
             $ git verify-tag ${{ env.RELEASE_VERSION }}
             gpg: Signature made Tue Sep 15 18:55:00 2020 PDT
-            gpg:                using RSA key 4AB7F8DA6FAEBB3B70B1F903BC13F65E2DC84465
+            gpg:                using RSA key 60A1FA7DA5BFF08BDCBBE7903BBD59E99B280306
             gpg: Good signature from "Olaoluwa Osuntokun <laolu32@gmail.com>" [ultimate]
             ```
 

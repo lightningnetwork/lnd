@@ -94,9 +94,6 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 	// calculateSweepFeeRate runs multiple steps to calculate the fee rate
 	// used in sweeping the transactions.
 	calculateSweepFeeRate := func(expectedSweepTxNum int) int64 {
-		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-		defer cancel()
-
 		// Create two nodes, Alice and Bob.
 		alice := setupNode("Alice")
 		defer shutdownAndAssert(net, t, alice)
@@ -118,6 +115,8 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 		// Send a payment with a specified finalCTLVDelta, which will
 		// be used as our deadline later on when Alice force closes the
 		// channel.
+		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
 		_, err := alice.RouterClient.SendPaymentV2(
 			ctxt, &routerrpc.SendPaymentRequest{
 				Dest:           bob.PubKey[:],
@@ -145,6 +144,8 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 		// Now that the channel has been force closed, it should show
 		// up in the PendingChannels RPC under the waiting close
 		// section.
+		ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
 		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 		pendingChanResp, err := alice.PendingChannels(
 			ctxt, pendingChansRequest,

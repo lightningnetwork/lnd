@@ -1,56 +1,91 @@
 package keychain
 
-import "github.com/btcsuite/btcd/btcec"
+import (
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+)
 
-func NewPubKeyDigestSigner(keyDesc KeyDescriptor,
-	signer DigestSignerRing) *PubKeyDigestSigner {
+func NewPubKeyMessageSigner(pubKey *btcec.PublicKey, keyLoc KeyLocator,
+	signer MessageSignerRing) *PubKeyMessageSigner {
 
-	return &PubKeyDigestSigner{
-		keyDesc:      keyDesc,
+	return &PubKeyMessageSigner{
+		pubKey:       pubKey,
+		keyLoc:       keyLoc,
 		digestSigner: signer,
 	}
 }
 
-type PubKeyDigestSigner struct {
-	keyDesc      KeyDescriptor
-	digestSigner DigestSignerRing
+type PubKeyMessageSigner struct {
+	pubKey       *btcec.PublicKey
+	keyLoc       KeyLocator
+	digestSigner MessageSignerRing
 }
 
-func (p *PubKeyDigestSigner) PubKey() *btcec.PublicKey {
-	return p.keyDesc.PubKey
+func (p *PubKeyMessageSigner) PubKey() *btcec.PublicKey {
+	return p.pubKey
 }
 
-func (p *PubKeyDigestSigner) SignDigest(digest [32]byte) (*btcec.Signature,
-	error) {
-
-	return p.digestSigner.SignDigest(p.keyDesc, digest)
+func (p *PubKeyMessageSigner) KeyLocator() KeyLocator {
+	return p.keyLoc
 }
 
-func (p *PubKeyDigestSigner) SignDigestCompact(digest [32]byte) ([]byte,
-	error) {
+func (p *PubKeyMessageSigner) SignMessage(message []byte,
+	doubleHash bool) (*btcec.Signature, error) {
 
-	return p.digestSigner.SignDigestCompact(p.keyDesc, digest)
+	return p.digestSigner.SignMessage(p.keyLoc, message, doubleHash)
 }
 
-type PrivKeyDigestSigner struct {
-	PrivKey *btcec.PrivateKey
+func (p *PubKeyMessageSigner) SignMessageCompact(msg []byte,
+	doubleHash bool) ([]byte, error) {
+
+	return p.digestSigner.SignMessageCompact(p.keyLoc, msg, doubleHash)
 }
 
-func (p *PrivKeyDigestSigner) PubKey() *btcec.PublicKey {
-	return p.PrivKey.PubKey()
+func NewPrivKeyMessageSigner(privKey *btcec.PrivateKey,
+	keyLoc KeyLocator) *PrivKeyMessageSigner {
+
+	return &PrivKeyMessageSigner{
+		privKey: privKey,
+		keyLoc:  keyLoc,
+	}
 }
 
-func (p *PrivKeyDigestSigner) SignDigest(digest [32]byte) (*btcec.Signature,
-	error) {
-
-	return p.PrivKey.Sign(digest[:])
+type PrivKeyMessageSigner struct {
+	keyLoc  KeyLocator
+	privKey *btcec.PrivateKey
 }
 
-func (p *PrivKeyDigestSigner) SignDigestCompact(digest [32]byte) ([]byte,
-	error) {
-
-	return btcec.SignCompact(btcec.S256(), p.PrivKey, digest[:], true)
+func (p *PrivKeyMessageSigner) PubKey() *btcec.PublicKey {
+	return p.privKey.PubKey()
 }
 
-var _ SingleKeyDigestSigner = (*PubKeyDigestSigner)(nil)
-var _ SingleKeyDigestSigner = (*PrivKeyDigestSigner)(nil)
+func (p *PrivKeyMessageSigner) KeyLocator() KeyLocator {
+	return p.keyLoc
+}
+
+func (p *PrivKeyMessageSigner) SignMessage(msg []byte,
+	doubleHash bool) (*btcec.Signature, error) {
+
+	var digest []byte
+	if doubleHash {
+		digest = chainhash.DoubleHashB(msg)
+	} else {
+		digest = chainhash.HashB(msg)
+	}
+	return p.privKey.Sign(digest)
+}
+
+func (p *PrivKeyMessageSigner) SignMessageCompact(msg []byte,
+	doubleHash bool) ([]byte, error) {
+
+	var digest []byte
+	if doubleHash {
+		digest = chainhash.DoubleHashB(msg)
+	} else {
+		digest = chainhash.HashB(msg)
+	}
+	return btcec.SignCompact(btcec.S256(), p.privKey, digest, true)
+}
+
+var _ SingleKeyMessageSigner = (*PubKeyMessageSigner)(nil)
+var _ SingleKeyMessageSigner = (*PrivKeyMessageSigner)(nil)

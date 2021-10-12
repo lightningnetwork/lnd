@@ -386,6 +386,15 @@ func (r *InterceptorChain) AddMacaroonService(svc *macaroons.Service) {
 	r.svc = svc
 }
 
+// MacaroonService returns the currently registered macaroon service. This might
+// be nil if none was registered (yet).
+func (r *InterceptorChain) MacaroonService() *macaroons.Service {
+	r.RLock()
+	defer r.RUnlock()
+
+	return r.svc
+}
+
 // AddPermission adds a new macaroon rule for the given method.
 func (r *InterceptorChain) AddPermission(method string, ops []bakery.Op) error {
 	r.Lock()

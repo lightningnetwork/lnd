@@ -451,11 +451,15 @@ func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
 
 	// We want to read messages over and over again. We just accept any
 	// channels that are opened.
+	defer close(done)
 	go func() {
 		for {
 			_, msg, err := conn.ReadMessage()
 			if err != nil {
-				errChan <- err
+				select {
+				case errChan <- err:
+				case <-done:
+				}
 				return
 			}
 
@@ -464,7 +468,11 @@ func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
 			// get rid of here.
 			msgStr := string(msg)
 			if !strings.Contains(msgStr, "\"result\":") {
-				errChan <- fmt.Errorf("invalid msg: %s", msgStr)
+				select {
+				case errChan <- fmt.Errorf("invalid msg: %s",
+					msgStr):
+				case <-done:
+				}
 				return
 			}
 			msgStr = resultPattern.ReplaceAllString(msgStr, "${1}")
@@ -474,7 +482,10 @@ func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
 			protoMsg := &lnrpc.ChannelAcceptRequest{}
 			err = jsonpb.UnmarshalString(msgStr, protoMsg)
 			if err != nil {
-				errChan <- err
+				select {
+				case errChan <- err:
+				case <-done:
+				}
 				return
 			}
 
@@ -485,14 +496,20 @@ func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
 			}
 			resMsg, err := jsonMarshaler.MarshalToString(res)
 			if err != nil {
-				errChan <- err
+				select {
+				case errChan <- err:
+				case <-done:
+				}
 				return
 			}
 			err = conn.WriteMessage(
 				websocket.TextMessage, []byte(resMsg),
 			)
 			if err != nil {
-				errChan <- err
+				select {
+				case errChan <- err:
+				case <-done:
+				}
 				return
 			}
 
@@ -531,7 +548,6 @@ func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
 			ht.t.Fatalf("Timeout before message was received")
 		}
 	}
-	close(done)
 }
 
 func wsTestPingPongTimeout(ht *harnessTest, net *lntest.NetworkHarness) {

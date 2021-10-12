@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -55,7 +56,7 @@ func ChanUpdSetTimestamp(update *lnwire.ChannelUpdate) {
 // monotonically increase from the prior.
 //
 // NOTE: This method modifies the given update.
-func SignChannelUpdate(signer lnwallet.MessageSigner, pubKey *btcec.PublicKey,
+func SignChannelUpdate(signer lnwallet.MessageSigner, keyLoc keychain.KeyLocator,
 	update *lnwire.ChannelUpdate, mods ...ChannelUpdateModifier) error {
 
 	// Apply the requested changes to the channel update.
@@ -64,7 +65,7 @@ func SignChannelUpdate(signer lnwallet.MessageSigner, pubKey *btcec.PublicKey,
 	}
 
 	// Create the DER-encoded ECDSA signature over the message digest.
-	sig, err := SignAnnouncement(signer, pubKey, update)
+	sig, err := SignAnnouncement(signer, keyLoc, update)
 	if err != nil {
 		return err
 	}

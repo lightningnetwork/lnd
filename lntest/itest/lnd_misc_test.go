@@ -49,7 +49,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	net.ConnectNodes(t.t, alice, bob)
 
 	// Check existing connection.
-	assertNumConnections(t, alice, bob, 1)
+	assertConnected(t, alice, bob)
 
 	// Give Alice some coins so she can fund a channel.
 	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
@@ -82,7 +82,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	time.Sleep(time.Millisecond * 300)
 
 	// Assert that the connection was torn down.
-	assertNumConnections(t, alice, bob, 0)
+	assertNotConnected(t, alice, bob)
 
 	fundingTxID, err := chainhash.NewHash(pendingUpdate.Txid)
 	if err != nil {
@@ -128,7 +128,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Check existing connection.
-	assertNumConnections(t, alice, bob, 0)
+	assertNotConnected(t, alice, bob)
 
 	// Reconnect both nodes before force closing the channel.
 	net.ConnectNodes(t.t, alice, bob)
@@ -152,14 +152,14 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 			err)
 	}
 
-	// Check zero peer connections.
-	assertNumConnections(t, alice, bob, 0)
+	// Check that the nodes not connected.
+	assertNotConnected(t, alice, bob)
 
 	// Finally, re-connect both nodes.
 	net.ConnectNodes(t.t, alice, bob)
 
 	// Check existing connection.
-	assertNumConnections(t, alice, net.Bob, 1)
+	assertConnected(t, alice, bob)
 
 	// Cleanup by mining the force close and sweep transaction.
 	cleanupForceClose(t, net, alice, chanPoint)

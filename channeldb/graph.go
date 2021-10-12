@@ -376,7 +376,8 @@ func (c *ChannelGraph) ForEachNodeChannel(node route.Vertex,
 	return c.graphCache.ForEachChannel(node, cb)
 }
 
-// FetchNodeFeatures returns the features of a given node.
+// FetchNodeFeatures returns the features of a given node. If no features are
+// known for the node, an empty feature vector is returned.
 func (c *ChannelGraph) FetchNodeFeatures(
 	node route.Vertex) (*lnwire.FeatureVector, error) {
 

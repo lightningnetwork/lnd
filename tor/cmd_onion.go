@@ -52,7 +52,9 @@ var _ OnionStore = (*OnionFile)(nil)
 
 // NewOnionFile creates a file-based implementation of the OnionStore interface
 // to store an onion service's private key.
-func NewOnionFile(privateKeyPath string, privateKeyPerm os.FileMode) *OnionFile {
+func NewOnionFile(privateKeyPath string,
+	privateKeyPerm os.FileMode) *OnionFile {
+
 	return &OnionFile{
 		privateKeyPath: privateKeyPath,
 		privateKeyPerm: privateKeyPerm,
@@ -64,8 +66,8 @@ func (f *OnionFile) StorePrivateKey(_ OnionType, privateKey []byte) error {
 	return ioutil.WriteFile(f.privateKeyPath, privateKey, f.privateKeyPerm)
 }
 
-// PrivateKey retrieves the private key from its expected path. If the file does
-// not exist, then ErrNoPrivateKey is returned.
+// PrivateKey retrieves the private key from its expected path. If the file
+// does not exist, then ErrNoPrivateKey is returned.
 func (f *OnionFile) PrivateKey(_ OnionType) ([]byte, error) {
 	if _, err := os.Stat(f.privateKeyPath); os.IsNotExist(err) {
 		return nil, ErrNoPrivateKey
@@ -78,8 +80,8 @@ func (f *OnionFile) DeletePrivateKey(_ OnionType) error {
 	return os.Remove(f.privateKeyPath)
 }
 
-// AddOnionConfig houses all of the required parameters in order to successfully
-// create a new onion service or restore an existing one.
+// AddOnionConfig houses all of the required parameters in order to
+// successfully create a new onion service or restore an existing one.
 type AddOnionConfig struct {
 	// Type denotes the type of the onion service that should be created.
 	Type OnionType
@@ -87,9 +89,9 @@ type AddOnionConfig struct {
 	// VirtualPort is the externally reachable port of the onion address.
 	VirtualPort int
 
-	// TargetPorts is the set of ports that the service will be listening on
-	// locally. The Tor server will use choose a random port from this set
-	// to forward the traffic from the virtual port.
+	// TargetPorts is the set of ports that the service will be listening
+	// on locally. The Tor server will use choose a random port from this
+	// set to forward the traffic from the virtual port.
 	//
 	// NOTE: If nil/empty, the virtual port will be used as the only target
 	// port.
@@ -103,25 +105,17 @@ type AddOnionConfig struct {
 	Store OnionStore
 }
 
-// AddOnion creates an onion service and returns its onion address. Once
-// created, the new onion service will remain active until the connection
-// between the controller and the Tor server is closed.
-func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
-	// Before sending the request to create an onion service to the Tor
-	// server, we'll make sure that it supports V3 onion services if that
-	// was the type requested.
-	if cfg.Type == V3 {
-		if err := supportsV3(c.version); err != nil {
-			return nil, err
-		}
-	}
-
-	// We'll start off by checking if the store contains an existing private
-	// key. If it does not, then we should request the server to create a
-	// new onion service and return its private key. Otherwise, we'll
-	// request the server to recreate the onion server from our private key.
+// prepareKeyparam takes a config and prepares the key param to be used inside
+// ADD_ONION.
+func (c *Controller) prepareKeyparam(cfg AddOnionConfig) (string, error) {
+	// We'll start off by checking if the store contains an existing
+	// private key. If it does not, then we should request the server to
+	// create a new onion service and return its private key. Otherwise,
+	// we'll request the server to recreate the onion server from our
+	// private key.
 	var keyParam string
 	switch cfg.Type {
+	// TODO(yy): drop support for v2.
 	case V2:
 		keyParam = "NEW:RSA1024"
 	case V3:
@@ -139,8 +133,20 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 			keyParam = string(privateKey)
 
 		default:
-			return nil, err
+			return "", err
 		}
+	}
+
+	return keyParam, nil
+}
+
+// prepareAddOnion constructs a cmd command string based on the specified
+// config.
+func (c *Controller) prepareAddOnion(cfg AddOnionConfig) (string, error) {
+	// Create the keyParam.
+	keyParam, err := c.prepareKeyparam(cfg)
+	if err != nil {
+		return "", err
 	}
 
 	// Now, we'll create a mapping from the virtual port to each target
@@ -155,8 +161,8 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 			portParam += fmt.Sprintf("Port=%d,%d ", cfg.VirtualPort,
 				targetPort)
 		} else {
-			portParam += fmt.Sprintf("Port=%d,%s:%d ", cfg.VirtualPort,
-				c.targetIPAddress, targetPort)
+			portParam += fmt.Sprintf("Port=%d,%s:%d ",
+				cfg.VirtualPort, c.targetIPAddress, targetPort)
 		}
 	}
 
@@ -171,6 +177,37 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 	// Send the command to create the onion service to the Tor server and
 	// await its response.
 	cmd := fmt.Sprintf("ADD_ONION %s %s", keyParam, portParam)
+
+	return cmd, nil
+}
+
+// AddOnion creates an ephemeral onion service and returns its onion address.
+// Once created, the new onion service will remain active until either,
+//   - the onion service is removed via `DEL_ONION`.
+//   - the Tor daemon terminates.
+//   - the controller connection that originated the `ADD_ONION` is closed.
+// Each connection can only see its own ephemeral services. If a service needs
+// to survive beyond current controller connection, use the "Detach" flag when
+// creating new service via `ADD_ONION`.
+func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
+	// Before sending the request to create an onion service to the Tor
+	// server, we'll make sure that it supports V3 onion services if that
+	// was the type requested.
+	// TODO(yy): drop support for v2.
+	if cfg.Type == V3 {
+		if err := supportsV3(c.version); err != nil {
+			return nil, err
+		}
+	}
+
+	// Construct the cmd command.
+	cmd, err := c.prepareAddOnion(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Send the command to create the onion service to the Tor server and
+	// await its response.
 	_, reply, err := c.sendCommand(cmd)
 	if err != nil {
 		return nil, err
@@ -207,6 +244,9 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 		}
 	}
 
+	c.activeServiceID = serviceID
+	log.Debugf("serviceID:%s added to tor controller", serviceID)
+
 	// Finally, we'll return the onion address composed of the service ID,
 	// along with the onion suffix, and the port this onion service can be
 	// reached at externally.
@@ -214,4 +254,48 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 		OnionService: serviceID + ".onion",
 		Port:         cfg.VirtualPort,
 	}, nil
+}
+
+// DelOnion tells the Tor daemon to remove an onion service, which satisfies
+// either,
+//   - the onion service was created on the same control connection as the
+//     "DEL_ONION" command.
+//   - the onion service was created using the "Detach" flag.
+func (c *Controller) DelOnion(serviceID string) error {
+	log.Debugf("removing serviceID:%s from tor controller", serviceID)
+
+	cmd := fmt.Sprintf("DEL_ONION %s", serviceID)
+
+	// Send the command to create the onion service to the Tor server and
+	// await its response.
+	code, _, err := c.sendCommand(cmd)
+
+	// Tor replies with "250 OK" on success, or a 512 if there are an
+	// invalid number of arguments, or a 552 if it doesn't recognize the
+	// ServiceID.
+	switch code {
+	// Replied 250 OK.
+	case success:
+		return nil
+
+	// Replied 512 for invalid arguments. This is most likely that the
+	// serviceID is not set(empty string).
+	case invalidNumOfArguments:
+		return fmt.Errorf("invalid arguments: %w", err)
+
+	// Replied 552, which means either,
+	//   - the serviceID is invalid.
+	//   - the onion service is not owned by the current control connection
+	//     and,
+	//   - the onion service is not a detached service.
+	// In either case, we will ignore the error and log a warning as there
+	// not much we can do from the controller side.
+	case serviceIDNotRecognized:
+		log.Warnf("removing serviceID:%v not found", serviceID)
+		return nil
+
+	default:
+		return fmt.Errorf("undefined response code: %v, err: %w",
+			code, err)
+	}
 }

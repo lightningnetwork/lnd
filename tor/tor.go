@@ -66,14 +66,15 @@ func (c *proxyConn) RemoteAddr() net.Addr {
 // around net.Conn in order to expose the actual remote address we're dialing,
 // rather than the proxy's address.
 func Dial(address, socksAddr string, streamIsolation bool,
-	skipProxyForClearNetTargets bool, timeout time.Duration) (net.Conn, error) {
+	skipProxyForClearNetTargets bool,
+	timeout time.Duration) (net.Conn, error) {
 
-	conn, err := dial(
+	conn, err := dialProxy(
 		address, socksAddr, streamIsolation,
 		skipProxyForClearNetTargets, timeout,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dial proxy failed: %w", err)
 	}
 
 	// Now that the connection is established, we'll create our internal
@@ -90,7 +91,7 @@ func Dial(address, socksAddr string, streamIsolation bool,
 	}, nil
 }
 
-// dial establishes a connection to the address via the provided TOR SOCKS
+// dialProxy establishes a connection to the address via the provided TOR SOCKS
 // proxy. Only TCP traffic may be routed via Tor.
 //
 // streamIsolation determines if we should force stream isolation for this new
@@ -100,8 +101,9 @@ func Dial(address, socksAddr string, streamIsolation bool,
 // skipProxyForClearNetTargets argument allows the dialer to directly connect
 // to the provided address if it does not represent an union service, skipping
 // the SOCKS proxy.
-func dial(address, socksAddr string, streamIsolation bool,
-	skipProxyForClearNetTargets bool, timeout time.Duration) (net.Conn, error) {
+func dialProxy(address, socksAddr string, streamIsolation bool,
+	skipProxyForClearNetTargets bool,
+	timeout time.Duration) (net.Conn, error) {
 
 	// If we were requested to force stream isolation for this connection,
 	// we'll populate the authentication credentials with random data as
@@ -136,7 +138,7 @@ func dial(address, socksAddr string, streamIsolation bool,
 	// Establish the connection through Tor's SOCKS proxy.
 	dialer, err := proxy.SOCKS5("tcp", socksAddr, auth, clearDialer)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("establish sock proxy: %w", err)
 	}
 
 	return dialer.Dial("tcp", address)
@@ -163,7 +165,7 @@ func LookupSRV(service, proto, name, socksAddr,
 	timeout time.Duration) (string, []*net.SRV, error) {
 
 	// Connect to the DNS server we'll be using to query SRV records.
-	conn, err := dial(
+	conn, err := dialProxy(
 		dnsServer, socksAddr, streamIsolation,
 		skipProxyForClearNetTargets, timeout,
 	)

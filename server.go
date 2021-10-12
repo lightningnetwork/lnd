@@ -222,7 +222,13 @@ type server struct {
 
 	graphDB *channeldb.ChannelGraph
 
-	chanStateDB *channeldb.DB
+	chanStateDB *channeldb.ChannelStateDB
+
+	addrSource chanbackup.AddressSource
+
+	// miscDB is the DB that contains all "other" databases within the main
+	// channel DB that haven't been separated out yet.
+	miscDB *channeldb.DB
 
 	htlcSwitch *htlcswitch.Switch
 
@@ -238,7 +244,7 @@ type server struct {
 
 	witnessBeacon contractcourt.WitnessBeacon
 
-	breachArbiter *breachArbiter
+	breachArbiter *contractcourt.BreachArbiter
 
 	missionControl *routing.MissionControl
 
@@ -250,7 +256,7 @@ type server struct {
 
 	localChanMgr *localchans.Manager
 
-	utxoNursery *utxoNursery
+	utxoNursery *contractcourt.UtxoNursery
 
 	sweeper *sweep.UtxoSweeper
 
@@ -432,14 +438,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s := &server{
 		cfg:            cfg,
 		graphDB:        dbs.graphDB.ChannelGraph(),
-		chanStateDB:    dbs.chanStateDB,
+		chanStateDB:    dbs.chanStateDB.ChannelStateDB(),
+		addrSource:     dbs.chanStateDB,
+		miscDB:         dbs.chanStateDB,
 		cc:             cc,
 		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
 		writePool:      writePool,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
 
-		channelNotifier: channelnotifier.New(dbs.chanStateDB),
+		channelNotifier: channelnotifier.New(
+			dbs.chanStateDB.ChannelStateDB(),
+		),
 
 		identityECDH: nodeKeyECDH,
 		nodeSigner:   netann.NewNodeSigner(nodeKeySigner),
@@ -490,8 +500,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 
+	thresholdSats := btcutil.Amount(cfg.DustThreshold)
+	thresholdMSats := lnwire.NewMSatFromSatoshis(thresholdSats)
+
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
-		DB: dbs.chanStateDB,
+		DB:                   dbs.chanStateDB,
+		FetchAllOpenChannels: s.chanStateDB.FetchAllOpenChannels,
+		FetchClosedChannels:  s.chanStateDB.FetchClosedChannels,
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
 
@@ -519,6 +534,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		RejectHTLC:             cfg.RejectHTLC,
 		Clock:                  clock.NewDefaultClock(),
 		HTLCExpiry:             htlcswitch.DefaultHTLCExpiry,
+		DustThreshold:          thresholdMSats,
 	}, uint32(currentHeight))
 	if err != nil {
 		return nil, err
@@ -533,7 +549,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MessageSigner:            s.nodeSigner,
 		IsChannelActive:          s.htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
-		DB:                       dbs.chanStateDB,
+		DB:                       s.chanStateDB,
 		Graph:                    dbs.graphDB.ChannelGraph(),
 	}
 
@@ -698,9 +714,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	queryBandwidth := func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
-		cid := lnwire.NewChanIDFromOutPoint(&edge.ChannelPoint)
-		link, err := s.htlcSwitch.GetLink(cid)
+	queryBandwidth := func(c *channeldb.DirectedChannel) lnwire.MilliSatoshi {
+		cid := lnwire.NewShortChanIDFromInt(c.ChannelID)
+		link, err := s.htlcSwitch.GetLinkByShortID(cid)
 		if err != nil {
 			// If the link isn't online, then we'll report
 			// that it has zero bandwidth to the router.
@@ -764,8 +780,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MinProbability: routingConfig.MinRouteProbability,
 	}
 
+	cachedGraph, err := routing.NewCachedGraph(chanGraph)
+	if err != nil {
+		return nil, err
+	}
 	paymentSessionSource := &routing.SessionSource{
-		Graph:             chanGraph,
+		Graph:             cachedGraph,
 		MissionControl:    s.missionControl,
 		QueryBandwidth:    queryBandwidth,
 		PathFindingConfig: pathFindingConfig,
@@ -801,11 +821,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	chanSeries := discovery.NewChanSeries(s.graphDB)
-	gossipMessageStore, err := discovery.NewMessageStore(s.chanStateDB)
+	gossipMessageStore, err := discovery.NewMessageStore(dbs.chanStateDB)
 	if err != nil {
 		return nil, err
 	}
-	waitingProofStore, err := channeldb.NewWaitingProofStore(s.chanStateDB)
+	waitingProofStore, err := channeldb.NewWaitingProofStore(dbs.chanStateDB)
 	if err != nil {
 		return nil, err
 	}
@@ -848,7 +868,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FetchChannel:              s.chanStateDB.FetchChannel,
 	}
 
-	utxnStore, err := newNurseryStore(
+	utxnStore, err := contractcourt.NewNurseryStore(
 		s.cfg.ActiveNetParams.GenesisHash, dbs.chanStateDB,
 	)
 	if err != nil {
@@ -884,11 +904,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FeeRateBucketSize:    sweep.DefaultFeeRateBucketSize,
 	})
 
-	s.utxoNursery = newUtxoNursery(&NurseryConfig{
+	s.utxoNursery = contractcourt.NewUtxoNursery(&contractcourt.NurseryConfig{
 		ChainIO:             cc.ChainIO,
 		ConfDepth:           1,
-		FetchClosedChannels: dbs.chanStateDB.FetchClosedChannels,
-		FetchClosedChannel:  dbs.chanStateDB.FetchClosedChannel,
+		FetchClosedChannels: s.chanStateDB.FetchClosedChannels,
+		FetchClosedChannel:  s.chanStateDB.FetchClosedChannel,
 		Notifier:            cc.ChainNotifier,
 		PublishTransaction:  cc.Wallet.PublishTransaction,
 		Store:               utxnStore,
@@ -897,7 +917,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	// Construct a closure that wraps the htlcswitch's CloseLink method.
 	closeLink := func(chanPoint *wire.OutPoint,
-		closureType htlcswitch.ChannelCloseType) {
+		closureType contractcourt.ChannelCloseType) {
 		// TODO(conner): Properly respect the update and error channels
 		// returned by CloseLink.
 
@@ -909,7 +929,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	// We will use the following channel to reliably hand off contract
 	// breach events from the ChannelArbitrator to the breachArbiter,
-	contractBreaches := make(chan *ContractBreachEvent, 1)
+	contractBreaches := make(chan *contractcourt.ContractBreachEvent, 1)
 
 	s.chainArb = contractcourt.NewChainArbitrator(contractcourt.ChainArbitratorConfig{
 		ChainHash:              *s.cfg.ActiveNetParams.GenesisHash,
@@ -976,7 +996,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				finalErr <- markClosed()
 			}
 
-			event := &ContractBreachEvent{
+			event := &contractcourt.ContractBreachEvent{
 				ChanPoint:         chanPoint,
 				ProcessACK:        processACK,
 				BreachRetribution: breachRet,
@@ -1012,16 +1032,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Clock:                         clock.NewDefaultClock(),
 	}, dbs.chanStateDB)
 
-	s.breachArbiter = newBreachArbiter(&BreachConfig{
+	s.breachArbiter = contractcourt.NewBreachArbiter(&contractcourt.BreachConfig{
 		CloseLink:          closeLink,
-		DB:                 dbs.chanStateDB,
+		DB:                 s.chanStateDB,
 		Estimator:          s.cc.FeeEstimator,
 		GenSweepScript:     newSweepPkScriptGen(cc.Wallet),
 		Notifier:           cc.ChainNotifier,
 		PublishTransaction: cc.Wallet.PublishTransaction,
 		ContractBreaches:   contractBreaches,
 		Signer:             cc.Wallet.Cfg.Signer,
-		Store:              newRetributionStore(dbs.chanStateDB),
+		Store: contractcourt.NewRetributionStore(
+			dbs.chanStateDB,
+		),
 	})
 
 	// Select the configuration and furnding parameters for Bitcoin or
@@ -1069,7 +1091,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FindChannel: func(chanID lnwire.ChannelID) (
 			*channeldb.OpenChannel, error) {
 
-			dbChannels, err := dbs.chanStateDB.FetchAllChannels()
+			dbChannels, err := s.chanStateDB.FetchAllChannels()
 			if err != nil {
 				return nil, err
 			}
@@ -1241,10 +1263,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// static backup of the latest channel state.
 	chanNotifier := &channelNotifier{
 		chanNotifier: s.channelNotifier,
-		addrs:        s.chanStateDB,
+		addrs:        dbs.chanStateDB,
 	}
 	backupFile := chanbackup.NewMultiFile(cfg.BackupFilePath)
-	startingChans, err := chanbackup.FetchStaticChanBackups(s.chanStateDB)
+	startingChans, err := chanbackup.FetchStaticChanBackups(
+		s.chanStateDB, s.addrSource,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1269,8 +1293,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 		GetOpenChannels: s.chanStateDB.FetchAllOpenChannels,
 		Clock:           clock.NewDefaultClock(),
-		ReadFlapCount:   s.chanStateDB.ReadFlapCount,
-		WriteFlapCount:  s.chanStateDB.WriteFlapCounts,
+		ReadFlapCount:   s.miscDB.ReadFlapCount,
+		WriteFlapCount:  s.miscDB.WriteFlapCounts,
 		FlapCountTicker: ticker.New(chanfitness.FlapCountFlushRate),
 	})
 
@@ -2525,7 +2549,7 @@ func (s *server) establishPersistentConnections() error {
 	// Iterate through the list of LinkNodes to find addresses we should
 	// attempt to connect to based on our set of previous connections. Set
 	// the reconnection port to the default peer port.
-	linkNodes, err := s.chanStateDB.FetchAllLinkNodes()
+	linkNodes, err := s.chanStateDB.LinkNodeDB().FetchAllLinkNodes()
 	if err != nil && err != channeldb.ErrLinkNodesNotFound {
 		return err
 	}
@@ -3905,7 +3929,7 @@ func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error)
 		return nil, err
 	}
 
-	node, err := s.graphDB.FetchLightningNode(nil, vertex)
+	node, err := s.graphDB.FetchLightningNode(vertex)
 	if err != nil {
 		return nil, err
 	}

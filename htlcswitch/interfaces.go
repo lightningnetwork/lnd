@@ -7,6 +7,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 )
@@ -55,6 +56,21 @@ type packetHandler interface {
 	// handleLocalAddPacket handles a locally-initiated UpdateAddHTLC
 	// packet. It will be processed synchronously.
 	handleLocalAddPacket(*htlcPacket) error
+}
+
+// dustHandler is an interface used exclusively by the Switch to evaluate
+// whether a link has too much dust exposure.
+type dustHandler interface {
+	// getDustSum returns the dust sum on either the local or remote
+	// commitment.
+	getDustSum(remote bool) lnwire.MilliSatoshi
+
+	// getFeeRate returns the current channel feerate.
+	getFeeRate() chainfee.SatPerKWeight
+
+	// getDustClosure returns a closure that can evaluate whether a passed
+	// HTLC is dust.
+	getDustClosure() dustClosure
 }
 
 // ChannelUpdateHandler is an interface that provides methods that allow
@@ -121,6 +137,9 @@ type ChannelLink interface {
 
 	// Embed the ChannelUpdateHandler interface.
 	ChannelUpdateHandler
+
+	// Embed the dustHandler interface.
+	dustHandler
 
 	// ChannelPoint returns the channel outpoint for the channel link.
 	ChannelPoint() *wire.OutPoint

@@ -219,7 +219,7 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 
 	// If the the output is too small after subtracting the fee, the coin
 	// selection cannot be performed with an amount this small.
-	if outputAmt <= dustLimit {
+	if outputAmt < dustLimit {
 		return nil, 0, 0, fmt.Errorf("output amount(%v) after "+
 			"subtracting fees(%v) below dust limit(%v)", outputAmt,
 			requiredFeeNoChange, dustLimit)
@@ -233,7 +233,7 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	// If adding a change output leads to both outputs being above
 	// the dust limit, we'll add the change output. Otherwise we'll
 	// go with the no change tx we originally found.
-	if newChange > dustLimit && newOutput > dustLimit {
+	if newChange >= dustLimit && newOutput >= dustLimit {
 		outputAmt = newOutput
 		changeAmt = newChange
 	}

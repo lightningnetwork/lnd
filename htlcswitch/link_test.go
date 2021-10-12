@@ -1938,7 +1938,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 
 	pCache := newMockPreimageCache()
 
-	aliceDb := aliceLc.channel.State().Db
+	aliceDb := aliceLc.channel.State().Db.GetParentDB()
 	aliceSwitch, err := initSwitchWithDB(testStartingHeight, aliceDb)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, err
@@ -4438,7 +4438,7 @@ func (h *persistentLinkHarness) restartLink(
 		pCache = newMockPreimageCache()
 	)
 
-	aliceDb := aliceChannel.State().Db
+	aliceDb := aliceChannel.State().Db.GetParentDB()
 	aliceSwitch := h.coreLink.cfg.Switch
 	if restartSwitch {
 		var err error
@@ -6604,9 +6604,13 @@ func TestShutdownIfChannelClean(t *testing.T) {
 	ctx.sendRevAndAckBobToAlice()
 	shutdownAssert(ErrLinkFailedShutdown)
 
+	// There is currently no controllable breakpoint between Alice
+	// receiving the CommitSig and her sending out the RevokeAndAck. As
+	// soon as the RevokeAndAck is generated, the channel becomes clean.
+	// This can happen right after the CommitSig is received, so there is
+	// no shutdown assertion here.
 	// <---sig-----
 	ctx.sendCommitSigBobToAlice(0)
-	shutdownAssert(ErrLinkFailedShutdown)
 
 	// ----rev---->
 	ctx.receiveRevAndAckAliceToBob()

@@ -16,6 +16,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -169,8 +170,10 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 	}
 
 	cfg := Config{
-		DB:             db,
-		SwitchPackager: channeldb.NewSwitchPackager(),
+		DB:                   db,
+		FetchAllOpenChannels: db.ChannelStateDB().FetchAllOpenChannels,
+		FetchClosedChannels:  db.ChannelStateDB().FetchClosedChannels,
+		SwitchPackager:       channeldb.NewSwitchPackager(),
 		FwdingLog: &mockForwardingLog{
 			events: make(map[time.Time]channeldb.ForwardingEvent),
 		},
@@ -188,6 +191,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		HtlcNotifier:   &mockHTLCNotifier{},
 		Clock:          clock.NewDefaultClock(),
 		HTLCExpiry:     time.Hour,
+		DustThreshold:  DefaultDustThreshold,
 	}
 
 	return New(cfg, startingHeight)
@@ -717,6 +721,21 @@ func (f *mockChannelLink) handleLocalAddPacket(pkt *htlcPacket) error {
 	return nil
 }
 
+func (f *mockChannelLink) getDustSum(remote bool) lnwire.MilliSatoshi {
+	return 0
+}
+
+func (f *mockChannelLink) getFeeRate() chainfee.SatPerKWeight {
+	return 0
+}
+
+func (f *mockChannelLink) getDustClosure() dustClosure {
+	dustLimit := btcutil.Amount(400)
+	return dustHelper(
+		channeldb.SingleFunderTweaklessBit, dustLimit, dustLimit,
+	)
+}
+
 func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 }
 
@@ -742,6 +761,7 @@ func (f *mockChannelLink) Stats() (uint64, lnwire.MilliSatoshi, lnwire.MilliSato
 func (f *mockChannelLink) AttachMailBox(mailBox MailBox) {
 	f.mailBox = mailBox
 	f.packets = mailBox.PacketOutBox()
+	mailBox.SetDustClosure(f.getDustClosure())
 }
 
 func (f *mockChannelLink) Start() error {

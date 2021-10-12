@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -65,6 +66,17 @@ type MailBox interface {
 
 	// Reset the packet head to point at the first element in the list.
 	ResetPackets() error
+
+	// SetDustClosure takes in a closure that is used to evaluate whether
+	// mailbox HTLC's are dust.
+	SetDustClosure(isDust dustClosure)
+
+	// SetFeeRate sets the feerate to be used when evaluating dust.
+	SetFeeRate(feerate chainfee.SatPerKWeight)
+
+	// DustPackets returns the dust sum for Adds in the mailbox for the
+	// local and remote commitments.
+	DustPackets() (lnwire.MilliSatoshi, lnwire.MilliSatoshi)
 
 	// Start starts the mailbox and any goroutines it needs to operate
 	// properly.
@@ -131,6 +143,17 @@ type memoryMailBox struct {
 	wireShutdown chan struct{}
 	pktShutdown  chan struct{}
 	quit         chan struct{}
+
+	// feeRate is set when the link receives or sends out fee updates. It
+	// is refreshed when AttachMailBox is called in case a fee update did
+	// not get committed. In some cases it may be out of sync with the
+	// channel's feerate, but it should eventually get back in sync.
+	feeRate chainfee.SatPerKWeight
+
+	// isDust is set when AttachMailBox is called and serves to evaluate
+	// the outstanding dust in the memoryMailBox given the current set
+	// feeRate.
+	isDust dustClosure
 }
 
 // newMemoryMailBox creates a new instance of the memoryMailBox.
@@ -608,6 +631,61 @@ func (m *memoryMailBox) AddPacket(pkt *htlcPacket) error {
 	m.pktCond.Signal()
 
 	return nil
+}
+
+// SetFeeRate sets the memoryMailBox's feerate for use in DustPackets.
+func (m *memoryMailBox) SetFeeRate(feeRate chainfee.SatPerKWeight) {
+	m.pktCond.L.Lock()
+	defer m.pktCond.L.Unlock()
+
+	m.feeRate = feeRate
+}
+
+// SetDustClosure sets the memoryMailBox's dustClosure for use in DustPackets.
+func (m *memoryMailBox) SetDustClosure(isDust dustClosure) {
+	m.pktCond.L.Lock()
+	defer m.pktCond.L.Unlock()
+
+	m.isDust = isDust
+}
+
+// DustPackets returns the dust sum for add packets in the mailbox. The first
+// return value is the local dust sum and the second is the remote dust sum.
+// This will keep track of a given dust HTLC from the time it is added via
+// AddPacket until it is removed via AckPacket.
+func (m *memoryMailBox) DustPackets() (lnwire.MilliSatoshi,
+	lnwire.MilliSatoshi) {
+
+	m.pktCond.L.Lock()
+	defer m.pktCond.L.Unlock()
+
+	var (
+		localDustSum  lnwire.MilliSatoshi
+		remoteDustSum lnwire.MilliSatoshi
+	)
+
+	// Run through the map of HTLC's and determine the dust sum with calls
+	// to the memoryMailBox's isDust closure. Note that all mailbox packets
+	// are outgoing so the second argument to isDust will be false.
+	for _, e := range m.addIndex {
+		addPkt := e.Value.(*pktWithExpiry).pkt
+
+		// Evaluate whether this HTLC is dust on the local commitment.
+		if m.isDust(
+			m.feeRate, false, true, addPkt.amount.ToSatoshis(),
+		) {
+			localDustSum += addPkt.amount
+		}
+
+		// Evaluate whether this HTLC is dust on the remote commitment.
+		if m.isDust(
+			m.feeRate, false, false, addPkt.amount.ToSatoshis(),
+		) {
+			remoteDustSum += addPkt.amount
+		}
+	}
+
+	return localDustSum, remoteDustSum
 }
 
 // FailAdd fails an UpdateAddHTLC that exists within the mailbox, removing it

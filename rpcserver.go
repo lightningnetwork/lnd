@@ -1009,7 +1009,14 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 		return nil, err
 	}
 
-	_, err = r.server.cc.Wallet.CheckReservedValueTx(authoredTx.Tx)
+	// Check the authored transaction and use the explicitly set change index
+	// to make sure that the wallet reserved balance is not invalidated.
+	_, err = r.server.cc.Wallet.CheckReservedValueTx(
+		lnwallet.CheckReservedValueTxReq{
+			Tx:          authoredTx.Tx,
+			ChangeIndex: &authoredTx.ChangeIndex,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1227,8 +1234,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// pay to the change address created above if we needed to
 		// reserve any value, the rest will go to targetAddr.
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
-			feePerKw, lnwallet.DefaultDustLimit(),
-			uint32(bestHeight), nil, targetAddr, wallet,
+			feePerKw, uint32(bestHeight), nil, targetAddr, wallet,
 			wallet, wallet.WalletController,
 			r.server.cc.FeeEstimator, r.server.cc.Signer,
 			minConfs,
@@ -1243,7 +1249,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		err = wallet.WithCoinSelectLock(func() error {
 			var err error
 			reservedVal, err = wallet.CheckReservedValueTx(
-				sweepTxPkg.SweepTx,
+				lnwallet.CheckReservedValueTxReq{
+					Tx: sweepTxPkg.SweepTx,
+				},
 			)
 			return err
 		})
@@ -1280,9 +1288,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			}
 
 			sweepTxPkg, err = sweep.CraftSweepAllTx(
-				feePerKw, lnwallet.DefaultDustLimit(),
-				uint32(bestHeight), outputs, targetAddr, wallet,
-				wallet, wallet.WalletController,
+				feePerKw, uint32(bestHeight), outputs,
+				targetAddr, wallet, wallet,
+				wallet.WalletController,
 				r.server.cc.FeeEstimator, r.server.cc.Signer,
 				minConfs,
 			)
@@ -1293,7 +1301,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			// Sanity check the new tx by re-doing the check.
 			err = wallet.WithCoinSelectLock(func() error {
 				_, err := wallet.CheckReservedValueTx(
-					sweepTxPkg.SweepTx,
+					lnwallet.CheckReservedValueTxReq{
+						Tx: sweepTxPkg.SweepTx,
+					},
 				)
 				return err
 			})
@@ -2401,7 +2411,8 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		}
 
 		updateChan, errChan = r.server.htlcSwitch.CloseLink(
-			chanPoint, htlcswitch.CloseRegular, feeRate, deliveryScript,
+			chanPoint, contractcourt.CloseRegular, feeRate,
+			deliveryScript,
 		)
 	}
 out:
@@ -2518,8 +2529,8 @@ func (r *rpcServer) abandonChan(chanPoint *wire.OutPoint,
 	// close, then it's possible that the nursery is hanging on to some
 	// state. To err on the side of caution, we'll now attempt to wipe any
 	// state for this channel from the nursery.
-	err = r.server.utxoNursery.cfg.Store.RemoveChannel(chanPoint)
-	if err != nil && err != ErrContractNotFound {
+	err = r.server.utxoNursery.RemoveChannel(chanPoint)
+	if err != nil && err != contractcourt.ErrContractNotFound {
 		return err
 	}
 
@@ -3233,22 +3244,22 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				historical.ChanType,
 			)
 
+			// Get the number of forwarding packages from the
+			// historical channel.
+			fwdPkgs, err := historical.LoadFwdPkgs()
+			if err != nil {
+				rpcsLog.Errorf("unable to load forwarding "+
+					"packages for channel:%s, %v",
+					historical.ShortChannelID, err)
+				return nil, err
+			}
+			channel.NumForwardingPackages = int64(len(fwdPkgs))
+
 		// If the error is non-nil, and not due to older versions of lnd
 		// not persisting historical channels, return it.
 		default:
 			return nil, err
 		}
-
-		// Get the number of forwarding packages from the historical
-		// channel.
-		fwdPkgs, err := historical.LoadFwdPkgs()
-		if err != nil {
-			rpcsLog.Errorf("unable to load forwarding packages "+
-				"for channel:%s, %v",
-				historical.ShortChannelID, err)
-			return nil, err
-		}
-		channel.NumForwardingPackages = int64(len(fwdPkgs))
 
 		closeTXID := pendingClose.ClosingTXID.String()
 
@@ -3495,7 +3506,7 @@ func (r *rpcServer) nurseryPopulateForceCloseResp(chanPoint *wire.OutPoint,
 	// didn't have any time-locked outputs, then the nursery may not know of
 	// the contract.
 	nurseryInfo, err := r.server.utxoNursery.NurseryReport(chanPoint)
-	if err == ErrContractNotFound {
+	if err == contractcourt.ErrContractNotFound {
 		return nil
 	}
 	if err != nil {
@@ -3508,18 +3519,18 @@ func (r *rpcServer) nurseryPopulateForceCloseResp(chanPoint *wire.OutPoint,
 	// information detailing exactly how much funds are time locked and also
 	// the height in which we can ultimately sweep the funds into the
 	// wallet.
-	forceClose.LimboBalance = int64(nurseryInfo.limboBalance)
-	forceClose.RecoveredBalance = int64(nurseryInfo.recoveredBalance)
+	forceClose.LimboBalance = int64(nurseryInfo.LimboBalance)
+	forceClose.RecoveredBalance = int64(nurseryInfo.RecoveredBalance)
 
-	for _, htlcReport := range nurseryInfo.htlcs {
+	for _, htlcReport := range nurseryInfo.Htlcs {
 		// TODO(conner) set incoming flag appropriately after handling
 		// incoming incubation
 		htlc := &lnrpc.PendingHTLC{
 			Incoming:       false,
-			Amount:         int64(htlcReport.amount),
-			Outpoint:       htlcReport.outpoint.String(),
-			MaturityHeight: htlcReport.maturityHeight,
-			Stage:          htlcReport.stage,
+			Amount:         int64(htlcReport.Amount),
+			Outpoint:       htlcReport.Outpoint.String(),
+			MaturityHeight: htlcReport.MaturityHeight,
+			Stage:          htlcReport.Stage,
 		}
 
 		if htlc.MaturityHeight != 0 {
@@ -3978,7 +3989,7 @@ func (r *rpcServer) createRPCClosedChannel(
 		CloseInitiator:    closeInitiator,
 	}
 
-	reports, err := r.server.chanStateDB.FetchChannelReports(
+	reports, err := r.server.miscDB.FetchChannelReports(
 		*r.cfg.ActiveNetParams.GenesisHash, &dbChannel.ChanPoint,
 	)
 	switch err {
@@ -5100,7 +5111,10 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 	rpcsLog.Tracef("[lookupinvoice] searching for invoice %x", payHash[:])
 
 	invoice, err := r.server.invoices.LookupInvoice(payHash)
-	if err != nil {
+	switch {
+	case err == channeldb.ErrInvoiceNotFound:
+		return nil, status.Error(codes.NotFound, err.Error())
+	case err != nil:
 		return nil, err
 	}
 
@@ -5138,7 +5152,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 		PendingOnly:    req.PendingOnly,
 		Reversed:       req.Reversed,
 	}
-	invoiceSlice, err := r.server.chanStateDB.QueryInvoices(q)
+	invoiceSlice, err := r.server.miscDB.QueryInvoices(q)
 	if err != nil {
 		return nil, fmt.Errorf("unable to query invoices: %v", err)
 	}
@@ -5535,7 +5549,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// With the public key decoded, attempt to fetch the node corresponding
 	// to this public key. If the node cannot be found, then an error will
 	// be returned.
-	node, err := graph.FetchLightningNode(nil, pubKey)
+	node, err := graph.FetchLightningNode(pubKey)
 	switch {
 	case err == channeldb.ErrGraphNodeNotFound:
 		return nil, status.Error(codes.NotFound, err.Error())
@@ -5940,7 +5954,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		query.MaxPayments = math.MaxUint64
 	}
 
-	paymentsQuerySlice, err := r.server.chanStateDB.QueryPayments(query)
+	paymentsQuerySlice, err := r.server.miscDB.QueryPayments(query)
 	if err != nil {
 		return nil, err
 	}
@@ -5981,9 +5995,7 @@ func (r *rpcServer) DeletePayment(ctx context.Context,
 	rpcsLog.Infof("[DeletePayment] payment_identifier=%v, "+
 		"failed_htlcs_only=%v", hash, req.FailedHtlcsOnly)
 
-	err = r.server.chanStateDB.DeletePayment(
-		hash, req.FailedHtlcsOnly,
-	)
+	err = r.server.miscDB.DeletePayment(hash, req.FailedHtlcsOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -6000,7 +6012,7 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 		"failed_htlcs_only=%v", req.FailedPaymentsOnly,
 		req.FailedHtlcsOnly)
 
-	err := r.server.chanStateDB.DeletePayments(
+	err := r.server.miscDB.DeletePayments(
 		req.FailedPaymentsOnly, req.FailedHtlcsOnly,
 	)
 	if err != nil {
@@ -6162,7 +6174,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 		return nil, err
 	}
 
-	fwdEventLog := r.server.chanStateDB.ForwardingLog()
+	fwdEventLog := r.server.miscDB.ForwardingLog()
 
 	// computeFeeSum is a helper function that computes the total fees for
 	// a particular time slice described by a forwarding event query.
@@ -6403,7 +6415,7 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		IndexOffset:  req.IndexOffset,
 		NumMaxEvents: numEvents,
 	}
-	timeSlice, err := r.server.chanStateDB.ForwardingLog().Query(eventQuery)
+	timeSlice, err := r.server.miscDB.ForwardingLog().Query(eventQuery)
 	if err != nil {
 		return nil, fmt.Errorf("unable to query forwarding log: %v", err)
 	}
@@ -6465,7 +6477,7 @@ func (r *rpcServer) ExportChannelBackup(ctx context.Context,
 	// the database. If this channel has been closed, or the outpoint is
 	// unknown, then we'll return an error
 	unpackedBackup, err := chanbackup.FetchBackupForChan(
-		chanPoint, r.server.chanStateDB,
+		chanPoint, r.server.chanStateDB, r.server.addrSource,
 	)
 	if err != nil {
 		return nil, err
@@ -6635,7 +6647,7 @@ func (r *rpcServer) ExportAllChannelBackups(ctx context.Context,
 	// First, we'll attempt to read back ups for ALL currently opened
 	// channels from disk.
 	allUnpackedBackups, err := chanbackup.FetchStaticChanBackups(
-		r.server.chanStateDB,
+		r.server.chanStateDB, r.server.addrSource,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch all static chan "+
@@ -6762,7 +6774,7 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 			// we'll obtains the current set of single channel
 			// backups from disk.
 			chanBackups, err := chanbackup.FetchStaticChanBackups(
-				r.server.chanStateDB,
+				r.server.chanStateDB, r.server.addrSource,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to fetch all "+

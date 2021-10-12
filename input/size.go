@@ -41,11 +41,20 @@ const (
 	//      - P2WSHWitnessProgram: 34 bytes
 	NestedP2WSHSize = 1 + P2WSHSize
 
+	// UnknownWitnessSize 42 bytes
+	//      - OP_x: 1 byte
+	//      - OP_DATA: 1 byte (max-size length)
+	//      - max-size: 40 bytes
+	UnknownWitnessSize = 1 + 1 + 40
+
+	// P2PKHSize 25 bytes
+	P2PKHSize = 25
+
 	// P2PKHOutputSize 34 bytes
 	//      - value: 8 bytes
 	//      - var_int: 1 byte (pkscript_length)
 	//      - pkscript (p2pkh): 25 bytes
-	P2PKHOutputSize = 8 + 1 + 25
+	P2PKHOutputSize = 8 + 1 + P2PKHSize
 
 	// P2WKHOutputSize 31 bytes
 	//      - value: 8 bytes
@@ -59,11 +68,14 @@ const (
 	//      - pkscript (p2wsh): 34 bytes
 	P2WSHOutputSize = 8 + 1 + P2WSHSize
 
+	// P2SHSize 23 bytes
+	P2SHSize = 23
+
 	// P2SHOutputSize 32 bytes
 	//      - value: 8 bytes
 	//      - var_int: 1 byte (pkscript_length)
 	//      - pkscript (p2sh): 23 bytes
-	P2SHOutputSize = 8 + 1 + 23
+	P2SHOutputSize = 8 + 1 + P2SHSize
 
 	// P2PKHScriptSigSize 108 bytes
 	//      - OP_DATA: 1 byte (signature length)

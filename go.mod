@@ -5,18 +5,18 @@ require (
 	github.com/NebulousLabs/fastrand v0.0.0-20181203155948-6fb6489aac4e // indirect
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20180114000226-4dad034d9db2
-	github.com/btcsuite/btcd v0.22.0-beta.0.20210803133449-f5a1fb9965e4
+	github.com/btcsuite/btcd v0.22.0-beta.0.20210916191717-f8e6854197cd
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v1.0.3-0.20210527170813-e2ba6805a890
 	github.com/btcsuite/btcutil/psbt v1.0.3-0.20210527170813-e2ba6805a890
 	github.com/btcsuite/btcwallet v0.12.1-0.20210826004415-4ef582f76b02
-	github.com/btcsuite/btcwallet/wallet/txauthor v1.0.2-0.20210803004036-eebed51155ec
-	github.com/btcsuite/btcwallet/wallet/txrules v1.0.0
+	github.com/btcsuite/btcwallet/wallet/txauthor v1.1.0
+	github.com/btcsuite/btcwallet/wallet/txrules v1.1.0
+	github.com/btcsuite/btcwallet/wallet/txsizes v1.1.0 // indirect
 	github.com/btcsuite/btcwallet/walletdb v1.3.6-0.20210803004036-eebed51155ec
 	github.com/btcsuite/btcwallet/wtxmgr v1.3.1-0.20210822222949-9b5a201c344c
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f
 	github.com/davecgh/go-spew v1.1.1
-	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/go-errors/errors v1.0.1
 	github.com/go-openapi/strfmt v0.19.5 // indirect
 	github.com/golang/protobuf v1.5.2
@@ -37,8 +37,8 @@ require (
 	github.com/juju/testing v0.0.0-20190723135506-ce30eb24acd2 // indirect
 	github.com/juju/utils v0.0.0-20180820210520-bf9cc5bdd62d // indirect
 	github.com/juju/version v0.0.0-20180108022336-b64dbd566305 // indirect
-	github.com/kkdai/bstream v0.0.0-20181106074824-b3251f7901ec
-	github.com/lightninglabs/neutrino v0.12.1
+	github.com/kkdai/bstream v1.0.0
+	github.com/lightninglabs/neutrino v0.12.3
 	github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display
 	github.com/lightningnetwork/lightning-onion v1.0.2-0.20210520211913-522b799e65b1
 	github.com/lightningnetwork/lnd/cert v1.0.3
@@ -56,7 +56,7 @@ require (
 	github.com/urfave/cli v1.20.0
 	go.etcd.io/etcd/client/pkg/v3 v3.5.0
 	go.etcd.io/etcd/client/v3 v3.5.0
-	golang.org/x/crypto v0.0.0-20210711020723-a769d52b0f97
+	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519
 	golang.org/x/net v0.0.0-20210913180222-943fd674d43e
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/sys v0.0.0-20210915083310-ed5796bab164 // indirect
@@ -82,11 +82,24 @@ replace github.com/lightningnetwork/lnd/healthcheck => ./healthcheck
 
 replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
 
+// This replace is for addressing the CVE https://github.com/advisories/GHSA-f6mq-5m25-4r72
+// This is a indirect dependency that cannot be upgraded directly.
+replace go.mongodb.org/mongo-driver => go.mongodb.org/mongo-driver v1.5.1
+
 replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e
 
 // This replace is for https://github.com/advisories/GHSA-w73w-5m7g-f7qc
 replace github.com/dgrijalva/jwt-go => github.com/golang-jwt/jwt v3.2.1+incompatible
 
+// This replace is for https://github.com/advisories/GHSA-25xm-hr59-7c27
+replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.8
+
+// This replace is for
+// https://deps.dev/advisory/OSV/GO-2021-0053?from=%2Fgo%2Fgithub.com%252Fgogo%252Fprotobuf%2Fv1.3.1
+replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
+
 // If you change this please also update .github/pull_request_template.md and
 // docs/INSTALL.md.
-go 1.15
+go 1.16
+
+retract v0.0.2

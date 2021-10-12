@@ -288,8 +288,8 @@ func TestCraftSweepAllTxCoinSelectFail(t *testing.T) {
 	utxoLocker := newMockOutpointLocker()
 
 	_, err := CraftSweepAllTx(
-		0, 100, 10, nil, nil, coinSelectLocker, utxoSource,
-		utxoLocker, nil, nil, 0,
+		0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker, nil,
+		nil, 0,
 	)
 
 	// Since we instructed the coin select locker to fail above, we should
@@ -314,8 +314,8 @@ func TestCraftSweepAllTxUnknownWitnessType(t *testing.T) {
 	utxoLocker := newMockOutpointLocker()
 
 	_, err := CraftSweepAllTx(
-		0, 100, 10, nil, nil, coinSelectLocker, utxoSource,
-		utxoLocker, nil, nil, 0,
+		0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker, nil,
+		nil, 0,
 	)
 
 	// Since passed in a p2wsh output, which is unknown, we should fail to
@@ -349,7 +349,7 @@ func TestCraftSweepAllTx(t *testing.T) {
 	utxoLocker := newMockOutpointLocker()
 
 	sweepPkg, err := CraftSweepAllTx(
-		0, 100, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
+		0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
 		utxoLocker, feeEstimator, signer, 0,
 	)
 	if err != nil {

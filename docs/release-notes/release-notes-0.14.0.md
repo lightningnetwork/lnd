@@ -59,6 +59,18 @@ in `lnd`, saving developer time and limiting the potential for bugs.
 Instructions for enabling Postgres can be found in
 [docs/postgres.md](../postgres.md).
 
+### In-memory path finding
+
+Finding a path through the channel graph for sending a payment doesn't involve
+any database queries anymore. The [channel graph is now kept fully
+in-memory](https://github.com/lightningnetwork/lnd/pull/5642) for up a massive
+performance boost when calling `QueryRoutes` or any of the `SendPayment`
+variants. Keeping the full graph in memory naturally comes with increased RAM
+usage. Users running `lnd` on low-memory systems are advised to run with the
+`routing.strictgraphpruning=true` configuration option that more aggressively
+removes zombie channels from the graph, reducing the number of channels that
+need to be kept in memory.
+
 ## Protocol Extensions
 
 ### Explicit Channel Negotiation
@@ -105,6 +117,8 @@ proposed channel type is used.
   allows external tools to hook into `lnd`'s RPC server and intercept any
   requests made with custom macaroons (and also the responses to those
   requests).
+  
+* [Adds NOT_FOUND status code for LookupInvoice](https://github.com/lightningnetwork/lnd/pull/5768)
 
 ### Batched channel funding
 
@@ -141,6 +155,13 @@ documentation](../psbt.md#use-the-batchopenchannel-rpc-for-safe-batch-channel-fu
   something developers need to watch out from this release.
 
 ## Security 
+
+* The release signature verification script [was overhauled to fix some possible
+  attack vectors and user
+  errors](https://github.com/lightningnetwork/lnd/pull/5053). The public keys
+  used to verify the signatures against are no longer downloaded form Keybase
+  but instead are kept in the `lnd` git repository. This allows for a more
+  transparent way of keeping track of changes to the signing keys.
 
 ### Admin macaroon permissions
 
@@ -189,6 +210,10 @@ you.
 
 * [Fix Travis itest parallelism](https://github.com/lightningnetwork/lnd/pull/5734)
 
+* [All CI, containers, and automated release artifact building now all use Go
+  1.17.1](https://github.com/lightningnetwork/lnd/pull/5650). All build tags have
+  been updated accordingly to comply with the new Go 1.17.1 requirements.
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**
@@ -199,6 +224,11 @@ you.
    funds already reserved for potential future anchor channel closings (via
    CPFP) and that more information (e.g., specific sat amounts) can be found
    in the debug logs.
+
+* [Updated C# grpc docs to use Grpc.Net.Client](https://github.com/lightningnetwork/lnd/pull/5766).
+  The Grpc.Core NuGet package is in maintenance mode. Grpc.Net.Client is now the 
+  [recommended](https://github.com/grpc/grpc-dotnet#grpc-for-net-is-now-the-recommended-implementation)
+  implementation.
 
 ## Misc
 
@@ -211,11 +241,22 @@ you.
   with the `addInvoice` rpc interface. However, now the function has been
   [exposed in the go package `invoicesrpc`](https://github.com/lightningnetwork/lnd/pull/5697).
 
+* The `DeleteAllPayments` and `DeletePayment` RPC methods can now be called from
+  the command line with the [new 
+  `lncli deletepayments`](https://github.com/lightningnetwork/lnd/pull/5699)
+  command.
+
+* [Add more verbose error printed to
+  console](https://github.com/lightningnetwork/lnd/pull/5802) when `lnd` fails
+  loading the user specified config.
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes
 
 * [Refactor the interaction between the `htlcswitch` and `peer` packages for cleaner separation.](https://github.com/lightningnetwork/lnd/pull/5603)
+
+* [Moved the original breach handling and timelock UTXO handling into the contract court package](https://github.com/lightningnetwork/lnd/pull/5745)
 
 * [Unused error check 
   removed](https://github.com/lightningnetwork/lnd/pull/5537).
@@ -264,6 +305,10 @@ you.
 
 * [Replace reference to JWT library with CVE](https://github.com/lightningnetwork/lnd/pull/5737)
 
+* [Replace reference to XZ library with CVE](https://github.com/lightningnetwork/lnd/pull/5789)
+
+* [Replace reference to mongo library with CVE](https://github.com/lightningnetwork/lnd/pull/5761)
+
 * [Fixed restore backup file test flake with bitcoind](https://github.com/lightningnetwork/lnd/pull/5637).
 
 * [Timing fix in AMP itest](https://github.com/lightningnetwork/lnd/pull/5725).
@@ -276,7 +321,13 @@ you.
 
 * [Order of the start/stop on subsystems are changed to promote better safety](https://github.com/lightningnetwork/lnd/pull/1783).
 
+
 * [Included Codeql scanning to increase the security posture](https://github.com/lightningnetwork/lnd/pull/5735)
+
+* [Fixed flake that occurred when testing the new optimistic link shutdown.](https://github.com/lightningnetwork/lnd/pull/5808)
+
+* [Replace reference to protobuf library with OSV](https://github.com/lightningnetwork/lnd/pull/5759)
+
 
 ## Database
 
@@ -359,11 +410,23 @@ you.
 * [Fix crash with empty AMP or MPP record in
   invoice](https://github.com/lightningnetwork/lnd/pull/5743).
 
+* [Config setting sync-freelist was ignored in certain
+  cases](https://github.com/lightningnetwork/lnd/pull/5527).
+
 * The underlying gRPC connection of a WebSocket is now [properly closed when the
   WebSocket end of a connection is
   closed](https://github.com/lightningnetwork/lnd/pull/5683). A bug with the
   write deadline that caused connections to suddenly break was also fixed in the
   same PR.
+
+* [A bug has been fixed in 
+  Neutrino](https://github.com/lightninglabs/neutrino/pull/226) that would 
+  result in transactions being rebroadcast even after they had been confirmed. 
+  [Lnd is updated to use the version of Neutrino containing this 
+  fix](https://github.com/lightningnetwork/lnd/pull/5807).
+
+* [Use the change output index when validating the reserved wallet balance for
+  SendCoins/SendMany calls](https://github.com/lightningnetwork/lnd/pull/5665)
 
 ## Documentation 
 
@@ -378,9 +441,11 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * ErikEk
 * Eugene Siegel
 * Harsha Goli
+* Jesse de Wit
 * Martin Habovstiak
 * Naveen Srinivasan
 * Oliver Gugger
+* Priyansh Rastogi
 * Wilmer Paulino
 * xanoni
 * Yong Yu

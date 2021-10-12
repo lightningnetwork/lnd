@@ -25,24 +25,20 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
 	// Create two fresh nodes and open a channel between them.
-	alice := net.NewNode(
-		t.t, "Alice", []string{
-			"--minbackoff=10s",
-			"--chan-enable-timeout=1.5s",
-			"--chan-disable-timeout=3s",
-			"--chan-status-sample-interval=.5s",
-		},
-	)
+	alice := net.NewNode(t.t, "Alice", []string{
+		"--minbackoff=10s",
+		"--chan-enable-timeout=1.5s",
+		"--chan-disable-timeout=3s",
+		"--chan-status-sample-interval=.5s",
+	})
 	defer shutdownAndAssert(net, t, alice)
 
-	bob := net.NewNode(
-		t.t, "Bob", []string{
-			"--minbackoff=10s",
-			"--chan-enable-timeout=1.5s",
-			"--chan-disable-timeout=3s",
-			"--chan-status-sample-interval=.5s",
-		},
-	)
+	bob := net.NewNode(t.t, "Bob", []string{
+		"--minbackoff=10s",
+		"--chan-enable-timeout=1.5s",
+		"--chan-disable-timeout=3s",
+		"--chan-status-sample-interval=.5s",
+	})
 	defer shutdownAndAssert(net, t, bob)
 
 	// Connect Alice to Bob.
@@ -55,36 +51,32 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
 	chanPoint := openChannelAndAssert(
-		t, net, alice, bob,
-		lntest.OpenChannelParams{
+		t, net, alice, bob, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
 
 	// Wait for Alice and Bob to receive the channel edge from the
 	// funding manager.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 	err := alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
-	if err != nil {
-		t.Fatalf("alice didn't see the alice->bob channel before "+
-			"timeout: %v", err)
-	}
+	require.NoError(t.t, err, "alice didn't see the alice->bob channel")
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
-	if err != nil {
-		t.Fatalf("bob didn't see the bob->alice channel before "+
-			"timeout: %v", err)
-	}
+	require.NoError(t.t, err, "bob didn't see the alice->bob channel")
 
-	// Launch a node for Carol which will connect to Alice and Bob in
-	// order to receive graph updates. This will ensure that the
-	// channel updates are propagated throughout the network.
+	// Launch a node for Carol which will connect to Alice and Bob in order
+	// to receive graph updates. This will ensure that the channel updates
+	// are propagated throughout the network.
 	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
+	// Connect both Alice and Bob to the new node Carol, so she can sync her
+	// graph.
 	net.ConnectNodes(t.t, alice, carol)
 	net.ConnectNodes(t.t, bob, carol)
+	waitForGraphSync(t, carol)
 
 	// assertChannelUpdate checks that the required policy update has
 	// happened on the given node.
@@ -109,12 +101,11 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 			ChanPoint: chanPoint,
 			Action:    action,
 		}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
+
 		_, err = node.RouterClient.UpdateChanStatus(ctxt, req)
-		if err != nil {
-			t.Fatalf("unable to call UpdateChanStatus for %s's node: %v",
-				node.Name(), err)
-		}
+		require.NoErrorf(t.t, err, "UpdateChanStatus")
 	}
 
 	// assertEdgeDisabled ensures that a given node has the correct
@@ -122,26 +113,30 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	assertEdgeDisabled := func(node *lntest.HarnessNode,
 		chanPoint *lnrpc.ChannelPoint, disabled bool) {
 
-		var predErr error
-		err = wait.Predicate(func() bool {
+		outPoint, err := lntest.MakeOutpoint(chanPoint)
+		require.NoError(t.t, err)
+
+		err = wait.NoError(func() error {
 			req := &lnrpc.ChannelGraphRequest{
 				IncludeUnannounced: true,
 			}
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+			ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+			defer cancel()
+
 			chanGraph, err := node.DescribeGraph(ctxt, req)
 			if err != nil {
-				predErr = fmt.Errorf("unable to query node %v's graph: %v", node, err)
-				return false
+				return fmt.Errorf("unable to query node %v's "+
+					"graph: %v", node, err)
 			}
 			numEdges := len(chanGraph.Edges)
 			if numEdges != 1 {
-				predErr = fmt.Errorf("expected to find 1 edge in the graph, found %d", numEdges)
-				return false
+				return fmt.Errorf("expected to find 1 edge in "+
+					"the graph, found %d", numEdges)
 			}
 			edge := chanGraph.Edges[0]
-			if edge.ChanPoint != chanPoint.GetFundingTxidStr() {
-				predErr = fmt.Errorf("expected chan_point %v, got %v",
-					chanPoint.GetFundingTxidStr(), edge.ChanPoint)
+			if edge.ChanPoint != outPoint.String() {
+				return fmt.Errorf("expected chan_point %v, "+
+					"got %v", outPoint, edge.ChanPoint)
 			}
 			var policy *lnrpc.RoutingPolicy
 			if node.PubKeyStr == edge.Node1Pub {
@@ -150,15 +145,14 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 				policy = edge.Node2Policy
 			}
 			if disabled != policy.Disabled {
-				predErr = fmt.Errorf("expected policy.Disabled to be %v, "+
-					"but policy was %v", disabled, policy)
-				return false
+				return fmt.Errorf("expected policy.Disabled "+
+					"to be %v, but policy was %v", disabled,
+					policy)
 			}
-			return true
+
+			return nil
 		}, defaultTimeout)
-		if err != nil {
-			t.Fatalf("%v", predErr)
-		}
+		require.NoError(t.t, err)
 	}
 
 	// When updating the state of the channel between Alice and Bob, we
@@ -193,9 +187,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// disconnections from automatically disabling the channel again
 	// (we don't want to clutter the network with channels that are
 	// falsely advertised as enabled when they don't work).
-	if err := net.DisconnectNodes(alice, bob); err != nil {
-		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
-	}
+	require.NoError(t.t, net.DisconnectNodes(alice, bob))
 	expectedPolicy.Disabled = true
 	assertChannelUpdate(alice, expectedPolicy)
 	assertChannelUpdate(bob, expectedPolicy)
@@ -217,9 +209,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	expectedPolicy.Disabled = true
 	assertChannelUpdate(alice, expectedPolicy)
 
-	if err := net.DisconnectNodes(alice, bob); err != nil {
-		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
-	}
+	require.NoError(t.t, net.DisconnectNodes(alice, bob))
 
 	// Bob sends a "Disabled = true" update upon detecting the
 	// disconnect.
@@ -237,9 +227,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// note the asymmetry between manual enable and manual disable!
 	assertEdgeDisabled(alice, chanPoint, true)
 
-	if err := net.DisconnectNodes(alice, bob); err != nil {
-		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
-	}
+	require.NoError(t.t, net.DisconnectNodes(alice, bob))
 
 	// Bob sends a "Disabled = true" update upon detecting the
 	// disconnect.

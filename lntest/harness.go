@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/grpclog"
 )
 
@@ -163,17 +164,22 @@ func (n *NetworkHarness) SetUp(t *testing.T,
 
 	// Start the initial seeder nodes within the test network, then connect
 	// their respective RPC clients.
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		n.Alice = n.NewNode(t, "Alice", lndArgs)
-	}()
-	go func() {
-		defer wg.Done()
-		n.Bob = n.NewNode(t, "Bob", lndArgs)
-	}()
-	wg.Wait()
+	eg := errgroup.Group{}
+	eg.Go(func() error {
+		var err error
+		n.Alice, err = n.newNode(
+			"Alice", lndArgs, false, nil, n.dbBackend, true,
+		)
+		return err
+	})
+	eg.Go(func() error {
+		var err error
+		n.Bob, err = n.newNode(
+			"Bob", lndArgs, false, nil, n.dbBackend, true,
+		)
+		return err
+	})
+	require.NoError(t, eg.Wait())
 
 	// First, make a connection between the two nodes. This will wait until
 	// both nodes are fully started since the Connect RPC is guarded behind

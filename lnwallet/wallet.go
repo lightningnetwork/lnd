@@ -272,6 +272,20 @@ type addSingleFunderSigsMsg struct {
 	err chan error
 }
 
+// CheckReservedValueTxReq is the request struct used to call
+// CheckReservedValueTx with. It contains the transaction to check as well as
+// an optional explicitly defined index to denote a change output that is not
+// watched by the wallet.
+type CheckReservedValueTxReq struct {
+	// Tx is the transaction to check the outputs for.
+	Tx *wire.MsgTx
+
+	// ChangeIndex denotes an optional output index that can be explicitly
+	// set for a change that is not being watched by the wallet and would
+	// otherwise not be recognized as a change output.
+	ChangeIndex *int
+}
+
 // LightningWallet is a domain specific, yet general Bitcoin wallet capable of
 // executing workflow required to interact with the Lightning Network. It is
 // domain specific in the sense that it understands all the fancy scripts used
@@ -689,12 +703,15 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// If no chanFunder was provided, then we'll assume the default
 	// assembler, which is backed by the wallet's internal coin selection.
 	if req.ChanFunder == nil {
+		// We use the P2WSH dust limit since it is larger than the
+		// P2WPKH dust limit and to avoid threading through two
+		// different dust limits.
 		cfg := chanfunding.WalletConfig{
 			CoinSource:       &CoinSource{l},
 			CoinSelectLocker: l,
 			CoinLocker:       l,
 			Signer:           l.Cfg.Signer,
-			DustLimit:        DefaultDustLimit(),
+			DustLimit:        DustLimitForSize(input.P2WSHSize),
 		}
 		req.ChanFunder = chanfunding.NewWalletAssembler(cfg)
 	}
@@ -1033,8 +1050,8 @@ func (l *LightningWallet) CheckReservedValue(in []wire.OutPoint,
 // database.
 //
 // NOTE: This method should only be run with the CoinSelectLock held.
-func (l *LightningWallet) CheckReservedValueTx(tx *wire.MsgTx) (btcutil.Amount,
-	error) {
+func (l *LightningWallet) CheckReservedValueTx(req CheckReservedValueTxReq) (
+	btcutil.Amount, error) {
 
 	numAnchors, err := l.currentNumAnchorChans()
 	if err != nil {
@@ -1042,11 +1059,44 @@ func (l *LightningWallet) CheckReservedValueTx(tx *wire.MsgTx) (btcutil.Amount,
 	}
 
 	var inputs []wire.OutPoint
-	for _, txIn := range tx.TxIn {
+	for _, txIn := range req.Tx.TxIn {
 		inputs = append(inputs, txIn.PreviousOutPoint)
 	}
 
-	return l.CheckReservedValue(inputs, tx.TxOut, numAnchors)
+	reservedVal, err := l.CheckReservedValue(
+		inputs, req.Tx.TxOut, numAnchors,
+	)
+	switch {
+
+	// If the error returned from CheckReservedValue is
+	// ErrReservedValueInvalidated, then it did nonetheless return
+	// the required reserved value and we check for the optional
+	// change index.
+	case errors.Is(err, ErrReservedValueInvalidated):
+		// Without a change index provided there is nothing more to
+		// check and the error is returned.
+		if req.ChangeIndex == nil {
+			return reservedVal, err
+		}
+
+		// If a change index was provided we make only sure that it
+		// would leave sufficient funds for the reserved balance value.
+		//
+		// Note: This is used if a change output index is explicitly set
+		// but that may not be watched by the wallet and therefore is
+		// not picked up by the call to CheckReservedValue above.
+		chIdx := *req.ChangeIndex
+		if chIdx < 0 || chIdx >= len(req.Tx.TxOut) ||
+			req.Tx.TxOut[chIdx].Value < int64(reservedVal) {
+
+			return reservedVal, err
+		}
+
+	case err != nil:
+		return reservedVal, err
+	}
+
+	return reservedVal, nil
 }
 
 // initOurContribution initializes the given ChannelReservation with our coins
@@ -1262,6 +1312,13 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation.theirContribution = req.contribution
 	theirContribution := req.contribution
 	ourContribution := pendingReservation.ourContribution
+
+	// Perform bounds-checking on both ChannelReserve and DustLimit
+	// parameters.
+	if !pendingReservation.validateReserveBounds() {
+		req.err <- fmt.Errorf("invalid reserve and dust bounds")
+		return
+	}
 
 	var (
 		chanPoint *wire.OutPoint
@@ -1561,9 +1618,6 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	pendingReservation.Lock()
 	defer pendingReservation.Unlock()
 
-	// TODO(roasbeef): verify sanity of remote party's parameters, fail if
-	// disagree
-
 	// Validate that the remote's UpfrontShutdownScript is a valid script
 	// if it's set.
 	shutdown := req.contribution.UpfrontShutdown
@@ -1580,6 +1634,14 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	pendingReservation.theirContribution = req.contribution
 	theirContribution := pendingReservation.theirContribution
 	chanState := pendingReservation.partialState
+
+	// Perform bounds checking on both ChannelReserve and DustLimit
+	// parameters. The ChannelReserve may have been changed by the
+	// ChannelAcceptor RPC, so this is necessary.
+	if !pendingReservation.validateReserveBounds() {
+		req.err <- fmt.Errorf("invalid reserve and dust bounds")
+		return
+	}
 
 	// Initialize an empty sha-chain for them, tracking the current pending
 	// revocation hash (we don't yet know the preimage so we can't add it

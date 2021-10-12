@@ -1,3 +1,4 @@
+//go:build bitcoind
 // +build bitcoind
 
 package lntest

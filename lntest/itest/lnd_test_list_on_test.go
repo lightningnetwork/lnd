@@ -18,10 +18,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "recovery info",
 		TestFunc: testGetRecoveryInfo,
 	},
-	// {
-	// 	name: "onchain fund recovery",
-	// 	test: testOnchainFundRecovery,
-	// },
+	{
+		Name:     "onchain fund recovery",
+		TestFunc: testOnchainFundRecovery,
+	},
 	// {
 	// 	name: "basic funding flow",
 	// 	test: testBasicChannelFunding,

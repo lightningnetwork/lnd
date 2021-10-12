@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -360,6 +361,16 @@ func (h *HarnessTest) SendCoinsNP2WKH(amt btcutil.Amount, target *HarnessNode) {
 		amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH, true,
 	)
 	require.NoErrorf(h, err, "unable to send NP2WKH coins for %s",
+		target.Cfg.Name)
+}
+
+// SendCoinsP2TR attempts to send amt satoshis from the internal mining node to
+// the targeted lightning node using a P2TR address.
+func (h *HarnessTest) SendCoinsP2TR(amt btcutil.Amount, target *HarnessNode) {
+	err := h.net.SendCoinsOfType(
+		amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true,
+	)
+	require.NoErrorf(h, err, "unable to send P2TR coins for %s",
 		target.Cfg.Name)
 }
 
@@ -1301,4 +1312,67 @@ func txStr(chanPoint *lnrpc.ChannelPoint) string {
 		Index: chanPoint.OutputIndex,
 	}
 	return cp.String()
+}
+
+// GetWalletBalance makes a RPC call to WalletBalance and asserts.
+func (h *HarnessTest) GetWalletBalance(
+	hn *HarnessNode) *lnrpc.WalletBalanceResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.WalletBalanceRequest{}
+	resp, err := hn.rpc.LN.WalletBalance(ctxt, req)
+	require.NoError(h, err, "failed to get wallet balance for node %s",
+		hn.Name())
+
+	return resp
+}
+
+// ListUnspent makes a RPC call to ListUnspent and asserts.
+func (h *HarnessTest) ListUnspent(hn *HarnessNode) *lnrpc.ListUnspentResponse {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.ListUnspentRequest{
+		MaxConfs: math.MaxInt32,
+	}
+	resp, err := hn.rpc.LN.ListUnspent(ctxt, req)
+	require.NoError(h, err, "failed to list utxo for node %s", hn.Name())
+
+	return resp
+}
+
+// NewAddress makes a RPC call to NewAddress and asserts.
+func (h *HarnessTest) NewAddress(hn *HarnessNode,
+	addrType lnrpc.AddressType) *lnrpc.NewAddressResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.NewAddressRequest{Type: addrType}
+	resp, err := hn.rpc.LN.NewAddress(ctxt, req)
+	require.NoError(h, err, "failed to create new address for node %s",
+		hn.Name())
+
+	return resp
+}
+
+// SendCoinToAddr sends a given amount of money to the specified address from
+// the passed node.
+func (h *HarnessTest) SendCoinToAddr(hn *HarnessNode, addr string,
+	amt int64) *lnrpc.SendCoinsResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.SendCoinsRequest{
+		Addr:   addr,
+		Amount: amt,
+	}
+	resp, err := hn.rpc.LN.SendCoins(ctxt, req)
+	require.NoError(h, err, "node %s failed to send coins to address %s",
+		hn.Name(), addr)
+
+	return resp
 }

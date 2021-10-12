@@ -1421,6 +1421,7 @@ func (n *NetworkHarness) SendCoinsNP2WKH(t *testing.T, amt btcutil.Amount,
 
 // SendCoinsP2TR attempts to send amt satoshis from the internal mining node
 // to the targeted lightning node using a P2TR address.
+// TODO(yy): remove.
 func (n *NetworkHarness) SendCoinsP2TR(t *testing.T, amt btcutil.Amount,
 	target *HarnessNode) {
 

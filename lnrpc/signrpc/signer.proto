@@ -190,6 +190,9 @@ message SignMessageReq {
 
     // The key locator that identifies which key to use for signing.
     KeyLocator key_loc = 2;
+
+    // Double-SHA256 hash instead of just the default single round.
+    bool double_hash = 3;
 }
 message SignMessageResp {
     /*

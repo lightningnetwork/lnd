@@ -41,6 +41,10 @@ var allTestCases = []*testCase{
 		test: testDisconnectingTargetPeer,
 	},
 	{
+		name: "reconnect after ip change",
+		test: testReconnectAfterIPChange,
+	},
+	{
 		name: "graph topology notifications",
 		test: testGraphTopologyNotifications,
 	},
@@ -274,6 +278,10 @@ var allTestCases = []*testCase{
 	{
 		name: "psbt channel funding",
 		test: testPsbtChanFunding,
+	},
+	{
+		name: "psbt channel funding external",
+		test: testPsbtChanFundingExternal,
 	},
 	{
 		name: "batch channel funding",

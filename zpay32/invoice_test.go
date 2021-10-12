@@ -102,8 +102,10 @@ var (
 
 	testMessageSigner = MessageSigner{
 		SignCompact: func(msg []byte) ([]byte, error) {
-			sig, err := btcec.SignCompact(btcec.S256(),
-				testPrivKey, chainhash.HashB(msg), true)
+			hash := chainhash.HashB(msg)
+			sig, err := btcec.SignCompact(
+				btcec.S256(), testPrivKey, hash, true,
+			)
 			if err != nil {
 				return nil, fmt.Errorf("can't sign the "+
 					"message: %v", err)

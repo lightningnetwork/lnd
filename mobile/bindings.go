@@ -94,11 +94,12 @@ func Start(extraArgs string, rpcReady Callback) {
 	// We call the main method with the custom in-memory listener called by
 	// the mobile APIs, such that the grpc server will use it.
 	cfg := lnd.ListenerCfg{
-		RPCListener: &lnd.ListenerWithSignal{
+		RPCListeners: []*lnd.ListenerWithSignal{{
 			Listener: lightningLis,
 			Ready:    rpcListening,
-		},
+		}},
 	}
+	implCfg := loadedConfig.ImplementationConfig(shutdownInterceptor)
 
 	// Call the "real" main in a nested manner so the defers will properly
 	// be executed in the case of a graceful shutdown.
@@ -107,7 +108,7 @@ func Start(extraArgs string, rpcReady Callback) {
 		defer close(quit)
 
 		if err := lnd.Main(
-			loadedConfig, cfg, shutdownInterceptor,
+			loadedConfig, cfg, implCfg, shutdownInterceptor,
 		); err != nil {
 			if e, ok := err.(*flags.Error); ok &&
 				e.Type == flags.ErrHelp {

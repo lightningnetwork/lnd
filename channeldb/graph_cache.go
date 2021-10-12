@@ -415,9 +415,12 @@ func (c *GraphCache) ForEachChannel(node route.Vertex,
 
 	features, ok := c.nodeFeatures[node]
 	if !ok {
-		log.Warnf("Node %v has no features defined, falling back to "+
-			"default feature vector for path finding", node)
-
+		// If the features were set to nil explicitly, that's fine here.
+		// The router will overwrite the features of the destination
+		// node with those found in the invoice if necessary. But if we
+		// didn't yet get a node announcement we want to mimic the
+		// behavior of the old DB based code that would always set an
+		// empty feature vector instead of leaving it nil.
 		features = lnwire.EmptyFeatureVector()
 	}
 
@@ -444,7 +447,8 @@ func (c *GraphCache) ForEachChannel(node route.Vertex,
 	return nil
 }
 
-// GetFeatures returns the features of the node with the given ID.
+// GetFeatures returns the features of the node with the given ID. If no
+// features are known for the node, an empty feature vector is returned.
 func (c *GraphCache) GetFeatures(node route.Vertex) *lnwire.FeatureVector {
 	c.mtx.RLock()
 	defer c.mtx.RUnlock()

@@ -2,10 +2,31 @@
 
 ## Networking & Tor
 
+### Connectivity mode
+
 A new flag has been added to enable a hybrid tor connectivity mode, where tor
 is only used for onion address connections, and clearnet for everything else.
 This new behavior can be added using the `tor.skip-proxy-for-clearnet-targets`
 flag.
+
+### Onion service
+
+The Onion service created upon lnd startup is [now deleted during lnd shutdown
+using `DEL_ONION`](https://github.com/lightningnetwork/lnd/pull/5794). 
+
+### Tor connection
+
+A new health check, tor connection, [is added to lnd's liveness monitor upon
+startup](https://github.com/lightningnetwork/lnd/pull/5794). This check will
+ensure the liveness of the connection between the Tor daemon and lnd's tor
+controller. To enable it, please use the following flags,
+```
+healthcheck.torconnection.attempts=xxx
+healthcheck.torconnection.timeout=xxx
+healthcheck.torconnection.backoff=xxx
+healthcheck.torconnection.internal=xxx
+```
+Read more about the usage of the flags in the `sample-lnd.conf`.
 
 ## LN Peer-to-Peer Netowrk
 
@@ -120,6 +141,16 @@ proposed channel type is used.
   
 * [Adds NOT_FOUND status code for LookupInvoice](https://github.com/lightningnetwork/lnd/pull/5768)
 
+* The `FundingPsbtFinalize` step is a safety measure that assures the final
+  signed funding transaction has the same TXID as was registered during
+  the funding flow and was used for the commitment transactions.
+  This step is cumbersome to use if the whole funding process is completed
+  external to lnd. [We allow the finalize step to be
+  skipped](https://github.com/lightningnetwork/lnd/pull/5363) for such cases.
+  The API user/script will need to make sure things are verified (and possibly
+  cleaned up) properly. An example script was added to the [PSBT
+  documentation](../psbt.md) to show the simplified process.
+
 ### Batched channel funding
 
 [Multiple channels can now be opened in a single
@@ -214,6 +245,15 @@ you.
   1.17.1](https://github.com/lightningnetwork/lnd/pull/5650). All build tags have
   been updated accordingly to comply with the new Go 1.17.1 requirements.
 
+* [All integration tests (except the ARM itests) were moved from Travis CI to
+  GitHub Actions](https://github.com/lightningnetwork/lnd/pull/5811).
+
+* [The LndMobile iOS build has been updated to work
+  with newer gomobile versions](https://github.com/lightningnetwork/lnd/pull/5842)
+  that output in the `xcframework` packaging format.
+  Applications that use the iOS build will have to be updated to include
+  an `xcframework` instead of a `framework`.
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**
@@ -249,6 +289,10 @@ you.
 * [Add more verbose error printed to
   console](https://github.com/lightningnetwork/lnd/pull/5802) when `lnd` fails
   loading the user specified config.
+
+* [Make it possible to add more than one RPC Listener when calling lnd.Main](https://github.com/lightningnetwork/lnd/pull/5777). And
+  add MacChan field for passing back lnd's admin macaroon back to the program 
+  calling lnd, when needed.
 
 ## Code Health
 
@@ -325,8 +369,18 @@ you.
 * [Included Codeql scanning to increase the security posture](https://github.com/lightningnetwork/lnd/pull/5735)
 
 * [Fixed flake that occurred when testing the new optimistic link shutdown.](https://github.com/lightningnetwork/lnd/pull/5808)
+ 
+* [Respect minimum relay fee during commitment fee updates](https://github.com/lightningnetwork/lnd/pull/5483).
 
 * [Replace reference to protobuf library with OSV](https://github.com/lightningnetwork/lnd/pull/5759)
+
+
+* [Only upload itest logs on failure, fix more
+  flakes](https://github.com/lightningnetwork/lnd/pull/5833).
+
+* [The interfaces for signing messages and the code for initializing a wallet 
+  was refactored as a preparation for supporting remote
+  signing](https://github.com/lightningnetwork/lnd/pull/5708).
 
 
 ## Database
@@ -385,7 +439,7 @@ you.
 ## Bug Fixes
 
 * A bug has been fixed that would cause `lnd` to [try to bootstrap using the
-  currnet DNS seeds when in SigNet
+  current DNS seeds when in SigNet
   mode](https://github.com/lightningnetwork/lnd/pull/5564).
 
 * [A validation check for sane `CltvLimit` and `FinalCltvDelta` has been added
@@ -424,9 +478,20 @@ you.
   result in transactions being rebroadcast even after they had been confirmed. 
   [Lnd is updated to use the version of Neutrino containing this 
   fix](https://github.com/lightningnetwork/lnd/pull/5807).
+ 
+* A bug has been fixed that would result in nodes not [reconnecting to their
+  persistent outbound peers if the peer's IP
+  address changed](https://github.com/lightningnetwork/lnd/pull/5538).
 
 * [Use the change output index when validating the reserved wallet balance for
   SendCoins/SendMany calls](https://github.com/lightningnetwork/lnd/pull/5665)
+
+* A [bug](https://github.com/lightningnetwork/lnd/pull/5834) has been fixed where
+  certain channels couldn't be passed to `lncli getchaninfo` due to their 8-byte 
+  compact ID being too large for an int64. 
+
+* [Dedup stored peer addresses before creating connection requests to prevent
+  redundant connection requests](https://github.com/lightningnetwork/lnd/pull/5839)
 
 ## Documentation 
 
@@ -438,8 +503,10 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * Alyssa Hertig
 * Andras Banki-Horvath
 * de6df1re
+* Elle Mouton
 * ErikEk
 * Eugene Siegel
+* Hampus Sjöberg
 * Harsha Goli
 * Jesse de Wit
 * Martin Habovstiak

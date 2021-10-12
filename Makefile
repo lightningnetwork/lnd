@@ -22,7 +22,7 @@ GOFUZZ_BIN := $(GO_BIN)/go-fuzz
 
 MOBILE_BUILD_DIR :=${GOPATH}/src/$(MOBILE_PKG)/build
 IOS_BUILD_DIR := $(MOBILE_BUILD_DIR)/ios
-IOS_BUILD := $(IOS_BUILD_DIR)/Lndmobile.framework
+IOS_BUILD := $(IOS_BUILD_DIR)/Lndmobile.xcframework
 ANDROID_BUILD_DIR := $(MOBILE_BUILD_DIR)/android
 ANDROID_BUILD := $(ANDROID_BUILD_DIR)/Lndmobile.aar
 
@@ -194,10 +194,11 @@ ifeq ($(dbbackend),postgres)
 
 	# Start a fresh postgres instance. Allow a maximum of 500 connections.
 	# This is required for the async benchmark to pass.
-	docker run --name lnd-postgres -e POSTGRES_PASSWORD=postgres -p 6432:5432 -d postgres -N 500
+	docker run --name lnd-postgres -e POSTGRES_PASSWORD=postgres -p 6432:5432 -d postgres:13-alpine -N 500
+	docker logs -f lnd-postgres &
 
 	# Wait for the instance to be started.
-	sleep 3
+	sleep $(POSTGRES_START_DELAY)
 endif
 
 itest-only: db-instance

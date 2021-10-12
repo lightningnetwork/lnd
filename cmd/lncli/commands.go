@@ -1557,7 +1557,7 @@ var getChanInfoCommand = cli.Command{
 		"particular channel",
 	ArgsUsage: "chan_id",
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		cli.Uint64Flag{
 			Name:  "chan_id",
 			Usage: "the 8-byte compact channel ID to query for",
 		},
@@ -1571,15 +1571,15 @@ func getChanInfo(ctx *cli.Context) error {
 	defer cleanUp()
 
 	var (
-		chanID int64
+		chanID uint64
 		err    error
 	)
 
 	switch {
 	case ctx.IsSet("chan_id"):
-		chanID = ctx.Int64("chan_id")
+		chanID = ctx.Uint64("chan_id")
 	case ctx.Args().Present():
-		chanID, err = strconv.ParseInt(ctx.Args().First(), 10, 64)
+		chanID, err = strconv.ParseUint(ctx.Args().First(), 10, 64)
 		if err != nil {
 			return fmt.Errorf("error parsing chan_id: %s", err)
 		}
@@ -1588,7 +1588,7 @@ func getChanInfo(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.ChanInfoRequest{
-		ChanId: uint64(chanID),
+		ChanId: chanID,
 	}
 
 	chanInfo, err := client.GetChanInfo(ctxc, req)

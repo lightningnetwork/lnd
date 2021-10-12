@@ -22,10 +22,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "onchain fund recovery",
 		TestFunc: testOnchainFundRecovery,
 	},
-	// {
-	// 	name: "basic funding flow",
-	// 	test: testBasicChannelFunding,
-	// },
+	{
+		Name:     "basic funding flow",
+		TestFunc: testBasicChannelFunding,
+	},
 	// {
 	// 	name: "unconfirmed channel funding",
 	// 	test: testUnconfirmedChannelFunding,
@@ -273,10 +273,10 @@ var allTestCases = []*lntest.TestCase{
 	// 	name: "immediate payment after channel opened",
 	// 	test: testPaymentFollowingChannelOpen,
 	// },
-	// {
-	// 	name: "external channel funding",
-	// 	test: testExternalFundingChanPoint,
-	// },
+	{
+		Name:     "external channel funding",
+		TestFunc: testExternalFundingChanPoint,
+	},
 	// {
 	// 	name: "psbt channel funding",
 	// 	test: testPsbtChanFunding,

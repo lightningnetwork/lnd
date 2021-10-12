@@ -963,13 +963,14 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	default:
 		var fundingShim *lnrpc.FundingShim
 		if testCase.commitmentType == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-			_, minerHeight, err := net.Miner.Client.GetBestBlock()
-			require.NoError(t.t, err)
-			thawHeight := uint32(minerHeight + 144)
+			// TODO(yy): bring it back
+			// _, minerHeight, err := net.Miner.Client.GetBestBlock()
+			// require.NoError(t.t, err)
+			// thawHeight := uint32(minerHeight + 144)
 
-			fundingShim, _, _ = deriveFundingShim(
-				net, t, from, to, chanAmt, thawHeight, true,
-			)
+			// fundingShim, _, _ = deriveFundingShim(
+			// 	net, t, from, to, chanAmt, thawHeight, true,
+			// )
 		}
 		chanPoint = openChannelAndAssert(
 			t, net, from, to, lntest.OpenChannelParams{

@@ -19,11 +19,13 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 // TestCase defines a test case that's been used in the integration test.
@@ -372,6 +374,30 @@ func (h *HarnessTest) SendCoinsP2TR(amt btcutil.Amount, target *HarnessNode) {
 	)
 	require.NoErrorf(h, err, "unable to send P2TR coins for %s",
 		target.Cfg.Name)
+}
+
+// SendOutputsWithoutChange uses the miner to send the given outputs using the
+// specified fee rate and returns the txid.
+func (h *HarnessTest) SendOutputsWithoutChange(
+	outputs []*wire.TxOut, feeRate btcutil.Amount) *chainhash.Hash {
+
+	txid, err := h.net.Miner.SendOutputsWithoutChange(
+		outputs, feeRate,
+	)
+	require.NoError(h, err, "failed to send output")
+
+	return txid
+}
+
+// CreateTransaction uses the miner to create a transaction using the given
+// outputs using the specified fee rate and returns the transaction.
+func (h *HarnessTest) CreateTransaction(
+	outputs []*wire.TxOut, feeRate btcutil.Amount) *wire.MsgTx {
+
+	tx, err := h.net.Miner.CreateTransaction(outputs, feeRate, false)
+	require.NoError(h, err, "failed to create transaction")
+
+	return tx
 }
 
 // OpenChannelParams houses the params to specify when opening a new channel.
@@ -974,6 +1000,17 @@ func (h *HarnessTest) CloseChannelAndAssertType(node *HarnessNode,
 	)
 }
 
+// CloseChannelAssertErr closes the given channel and asserts an error
+// returned.
+func (h *HarnessTest) CloseChannelAssertErr(hn *HarnessNode,
+	fundingChanPoint *lnrpc.ChannelPoint, force bool) {
+
+	_, _, err := h.net.CloseChannel(
+		hn, fundingChanPoint, force,
+	)
+	require.Error(h, err, "expect close channel to return an error")
+}
+
 // assertChannelPolicyUpdate checks that the required policy update has
 // happened on the given node.
 func (h *HarnessTest) assertChannelPolicyUpdate(node *HarnessNode,
@@ -1373,6 +1410,133 @@ func (h *HarnessTest) SendCoinToAddr(hn *HarnessNode, addr string,
 	resp, err := hn.rpc.LN.SendCoins(ctxt, req)
 	require.NoError(h, err, "node %s failed to send coins to address %s",
 		hn.Name(), addr)
+
+	return resp
+}
+
+// GetChannelBalance gets the channel balance and asserts.
+func (h *HarnessTest) GetChannelBalance(
+	hn *HarnessNode) *lnrpc.ChannelBalanceResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.ChannelBalanceRequest{}
+	resp, err := hn.rpc.LN.ChannelBalance(ctxt, req)
+
+	require.NoError(h, err, "unable to get balance for node %s", hn.Name())
+	return resp
+}
+
+// AssertChannelBalanceResp makes a ChannelBalance request and checks the
+// returned response matches the expected.
+func (h *HarnessTest) AssertChannelBalanceResp(hn *HarnessNode,
+	expected *lnrpc.ChannelBalanceResponse) { // nolint:interfacer
+
+	resp := h.GetChannelBalance(hn)
+	require.True(h, proto.Equal(expected, resp), "balance is incorrect "+
+		"got: %v, want: %v", resp, expected,
+	)
+}
+
+// GetChannelCommitType retrieves the active channel commitment type for the
+// given chan point.
+func (h *HarnessTest) GetChannelCommitType(hn *HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) lnrpc.CommitmentType {
+
+	channels := h.ListChannels(hn)
+	for _, c := range channels.Channels {
+		if c.ChannelPoint == txStr(chanPoint) {
+			return c.CommitmentType
+		}
+	}
+
+	require.Fail(h, "get channel commit type failed", "channel point %v "+
+		"not found", chanPoint)
+
+	return 0
+}
+
+// DeriveKey makes a RPC call the DeriveKey and asserts.
+func (h *HarnessTest) DeriveKey(hn *HarnessNode,
+	kl *signrpc.KeyLocator) *signrpc.KeyDescriptor {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	key, err := hn.rpc.WalletKit.DeriveKey(ctxt, kl)
+	require.NoError(h, err, "failed to derive key for node %s", hn.Name())
+
+	return key
+}
+
+// FundingStateStep makes a RPC call to FundingStateStep and asserts.
+func (h *HarnessTest) FundingStateStep(hn *HarnessNode,
+	msg *lnrpc.FundingTransitionMsg) *lnrpc.FundingStateStepResp {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.LN.FundingStateStep(ctxt, msg)
+	require.NoError(h, err, "failed to step state")
+
+	return resp
+}
+
+// FundingStateStepAssertErr makes a RPC call to FundingStateStep and asserts
+// there's an error.
+func (h *HarnessTest) FundingStateStepAssertErr(hn *HarnessNode,
+	msg *lnrpc.FundingTransitionMsg) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := hn.rpc.LN.FundingStateStep(ctxt, msg)
+	require.Error(h, err, "duplicate pending channel ID funding shim "+
+		"registration should trigger an error")
+}
+
+// AssertNumOpenChannelsPending asserts that a pair of nodes have the expected
+// number of pending channels between them.
+func (h *HarnessTest) AssertNumOpenChannelsPending(alice, bob *HarnessNode,
+	expected int) {
+
+	err := wait.NoError(func() error {
+		aliceChans := h.GetPendingChannels(alice)
+		bobChans := h.GetPendingChannels(bob)
+
+		aliceNumChans := len(aliceChans.PendingOpenChannels)
+		bobNumChans := len(bobChans.PendingOpenChannels)
+
+		aliceStateCorrect := aliceNumChans == expected
+		if !aliceStateCorrect {
+			return fmt.Errorf("number of pending channels for "+
+				"alice incorrect. expected %v, got %v",
+				expected, aliceNumChans)
+		}
+
+		bobStateCorrect := bobNumChans == expected
+		if !bobStateCorrect {
+			return fmt.Errorf("number of pending channels for bob "+
+				"incorrect. expected %v, got %v", expected,
+				bobNumChans)
+		}
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "num of pending open channels not match")
+}
+
+// AbandonChannel makes a RPC call to AbandonChannel and asserts.
+func (h *HarnessTest) AbandonChannel(hn *HarnessNode,
+	req *lnrpc.AbandonChannelRequest) *lnrpc.AbandonChannelResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.LN.AbandonChannel(ctxt, req)
+	require.NoError(h, err, "abandon channel failed")
 
 	return resp
 }

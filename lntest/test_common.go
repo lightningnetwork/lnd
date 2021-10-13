@@ -185,3 +185,18 @@ func CopyFile(dest, src string) error {
 
 	return d.Close()
 }
+
+// FindForceClosedChannel searches a pending channel response for a particular
+// channel, returning the force closed channel upon success.
+func FindForceClosedChannel(pendingChanResp *lnrpc.PendingChannelsResponse,
+	op fmt.Stringer) (*lnrpc.PendingChannelsResponse_ForceClosedChannel,
+	error) {
+
+	for _, forceClose := range pendingChanResp.PendingForceClosingChannels {
+		if forceClose.Channel.ChannelPoint == op.String() {
+			return forceClose, nil
+		}
+	}
+
+	return nil, errors.New("channel not marked as force closed")
+}

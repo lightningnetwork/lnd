@@ -252,6 +252,14 @@ func (h *HarnessTest) ConnectNodes(a, b *HarnessNode) {
 	h.assertPeerConnected(a, b)
 }
 
+// DisconnectNodes disconnects the given two nodes and asserts the
+// disconnection is succeeded. The request is made from node a and sent to node
+// b.
+func (h *HarnessTest) DisconnectNodes(a, b *HarnessNode) {
+	err := h.net.DisconnectNodes(a, b)
+	require.NoError(h, err, "failed to disconnect nodes")
+}
+
 // GetInfo calls the GetInfo RPC on a given node and asserts there's no error.
 func (h *HarnessTest) GetInfo(n *HarnessNode) *lnrpc.GetInfoResponse {
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
@@ -1692,4 +1700,57 @@ func (h *HarnessTest) UpdateChannelPolicy(hn *HarnessNode,
 	require.NoError(h, err, "failed to update policy")
 
 	return resp
+}
+
+// CleanupForceClose mines a force close commitment found in the mempool and
+// the following sweep transaction from the force closing node.
+func (h *HarnessTest) CleanupForceClose(hn *HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) {
+
+	// Wait for the channel to be marked pending force close.
+	h.WaitForChannelPendingForceClose(hn, chanPoint)
+
+	// Mine enough blocks for the node to sweep its funds from the force
+	// closed channel.
+	//
+	// The commit sweep resolver is able to broadcast the sweep tx up to
+	// one block before the CSV elapses, so wait until defaulCSV-1.
+	h.MineBlocks(DefaultCSV - 1)
+
+	// The node should now sweep the funds, clean up by mining the sweeping
+	// tx.
+	h.MineBlocksAndAssertTx(1, 1)
+}
+
+// WaitForChannelPendingForceClose waits for the node to report that the
+// channel is pending force close, and that the UTXO nursery is aware of it.
+func (h *HarnessTest) WaitForChannelPendingForceClose(hn *HarnessNode,
+	fundingChanPoint *lnrpc.ChannelPoint) {
+
+	txid, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
+	require.NoError(h, err, "failed to get chan point from txid")
+
+	op := wire.OutPoint{
+		Hash:  *txid,
+		Index: fundingChanPoint.OutputIndex,
+	}
+
+	err = wait.NoError(func() error {
+		pendingChanResp := h.GetPendingChannels(hn)
+
+		forceClose, err := FindForceClosedChannel(pendingChanResp, &op)
+		if err != nil {
+			return err
+		}
+
+		// We must wait until the UTXO nursery has received the channel
+		// and is aware of its maturity height.
+		if forceClose.MaturityHeight == 0 {
+			return fmt.Errorf("channel had maturity height of 0")
+		}
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout while finding force closed channels")
 }

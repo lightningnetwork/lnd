@@ -221,10 +221,10 @@ var allTestCases = []*lntest.TestCase{
 	// 	name: "route fee cutoff",
 	// 	test: testRouteFeeCutoff,
 	// },
-	// {
-	// 	name: "send update disable channel",
-	// 	test: testSendUpdateDisableChannel,
-	// },
+	{
+		Name:     "send update disable channel",
+		TestFunc: testSendUpdateDisableChannel,
+	},
 	// {
 	// 	name: "streaming channel backup update",
 	// 	test: testChannelBackupUpdates,

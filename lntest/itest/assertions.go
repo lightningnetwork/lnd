@@ -279,6 +279,7 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 
 // findForceClosedChannel searches a pending channel response for a particular
 // channel, returning the force closed channel upon success.
+// TODO(yy): remove
 func findForceClosedChannel(pendingChanResp *lnrpc.PendingChannelsResponse,
 	op fmt.Stringer) (*lnrpc.PendingChannelsResponse_ForceClosedChannel,
 	error) {

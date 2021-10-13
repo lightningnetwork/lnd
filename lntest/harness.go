@@ -93,6 +93,17 @@ func (h *HarnessTest) Bob() *HarnessNode {
 	return h.net.Bob
 }
 
+func (h *HarnessTest) Miner() *HarnessMiner {
+	return h.net.Miner
+}
+
+// IsNeutrinoBackend returns a bool indicating whether the node is using a
+// neutrino as its backend. This is useful when we want to skip certain tests
+// which cannot be done with a neutrino backend.
+func (h *HarnessTest) IsNeutrinoBackend() bool {
+	return h.net.BackendCfg.Name() == NeutrinoBackendName
+}
+
 // Subtest creates a child HarnessTest.
 func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	return NewHarnessTest(t, h.net)
@@ -659,6 +670,19 @@ func (h *HarnessTest) MineBlocks(num uint32) []*wire.MsgBlock {
 	return blocks
 }
 
+// ConnectMiner connects the miner with the chain backend in the network.
+func (h *HarnessTest) ConnectMiner() {
+	err := h.net.BackendCfg.ConnectMiner()
+	require.NoError(h, err, "failed to connect miner")
+}
+
+// DisconnectMiner removes the connection between the miner and the chain
+// backend in the network.
+func (h *HarnessTest) DisconnectMiner() {
+	err := h.net.BackendCfg.DisconnectMiner()
+	require.NoError(h, err, "failed to disconnect miner")
+}
+
 // AssertTxInBlock asserts that a given txid can be found in the passed block.
 func (h *HarnessTest) AssertTxInBlock(block *wire.MsgBlock,
 	txid *chainhash.Hash) {
@@ -1050,10 +1074,26 @@ func (h *HarnessTest) CloseChannelAndAssertType(node *HarnessNode,
 func (h *HarnessTest) CloseChannelAssertErr(hn *HarnessNode,
 	fundingChanPoint *lnrpc.ChannelPoint, force bool) {
 
-	_, _, err := h.net.CloseChannel(
-		hn, fundingChanPoint, force,
-	)
+	_, _, err := h.net.CloseChannel(hn, fundingChanPoint, force)
 	require.Error(h, err, "expect close channel to return an error")
+}
+
+// closeReorgedChannelAndAssert attempts to close a channel identified by the
+// passed channel point owned by the passed Lightning node. Once the channel
+// has been detected as closed, an assertion checks that the transaction is
+// found within a block.
+//
+// NOTE: This method does not verify that the node sends a disable update for
+// the closed channel.
+func (h *HarnessTest) CloseReorgedChannel(hn *HarnessNode,
+	fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
+
+	closeUpdates, _, err := h.net.CloseChannel(hn, fundingChanPoint, force)
+	require.NoError(h, err, "unable to close channel")
+
+	return h.assertChannelClosed(
+		hn, fundingChanPoint, false, closeUpdates,
+	)
 }
 
 // AssertChannelPolicyUpdate checks that the required policy update has
@@ -1154,17 +1194,10 @@ func (h *HarnessTest) getChannelPolicies(hn *HarnessNode,
 	advertisingNode string,
 	chanPoints ...*lnrpc.ChannelPoint) []*lnrpc.RoutingPolicy {
 
-	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
-	defer cancel()
-
-	descReq := &lnrpc.ChannelGraphRequest{
-		IncludeUnannounced: true,
-	}
-	chanGraph, err := hn.rpc.LN.DescribeGraph(ctxt, descReq)
-	require.NoError(h, err, "unable to query for alice's graph")
+	chanGraph := h.DescribeGraph(hn, true)
 
 	var policies []*lnrpc.RoutingPolicy
-	err = wait.NoError(func() error {
+	err := wait.NoError(func() error {
 	out:
 		for _, chanPoint := range chanPoints {
 			for _, e := range chanGraph.Edges {
@@ -1805,4 +1838,53 @@ func (h *HarnessTest) AssertAmountPaid(channelName string, hn *HarnessNode,
 	// balance return the error.
 	err := wait.NoError(checkAmountPaid, DefaultTimeout)
 	require.NoError(h, err, "timeout while checking amount paid")
+}
+
+// WaitForNodeBlockHeight queries the node for its current block height until
+// it reaches the passed height.
+func (h *HarnessTest) WaitForNodeBlockHeight(hn *HarnessNode, height int32) {
+	err := wait.NoError(func() error {
+		info := h.GetInfo(hn)
+		if int32(info.BlockHeight) != height {
+			return fmt.Errorf("expected block height to "+
+				"be %v, was %v", height, info.BlockHeight)
+		}
+		return nil
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout while waiting for height")
+}
+
+// DescribeGraph makes a RPC call to the node's DescribeGraph and asserts. It
+// takes a bool to indicate whether we want to include private edges or not.
+func (h *HarnessTest) DescribeGraph(hn *HarnessNode,
+	includeUnannounced bool) *lnrpc.ChannelGraph {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.ChannelGraphRequest{
+		IncludeUnannounced: includeUnannounced,
+	}
+	resp, err := hn.rpc.LN.DescribeGraph(ctxt, req)
+	require.NoError(h, err, "failed to describe graph")
+
+	return resp
+}
+
+// AssertNumEdges checks that an expected number of edges can be found in the
+// node specified.
+func (h *HarnessTest) AssertNumEdges(hn *HarnessNode, expected int) {
+	err := wait.NoError(func() error {
+		chanGraph := h.DescribeGraph(hn, true)
+
+		if len(chanGraph.Edges) == expected {
+			return nil
+		}
+
+		return fmt.Errorf("expected to find %d edge in the graph, "+
+			"found %d", expected, len(chanGraph.Edges))
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout while checking for edges")
 }

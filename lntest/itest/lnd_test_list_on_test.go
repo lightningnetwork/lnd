@@ -57,10 +57,11 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChannelFundingPersistence,
 	},
 
-	// {
-	// 	name: "open channel reorg test",
-	// 	test: testOpenChannelAfterReorg,
-	// },
+	// Open channel related tests.
+	{
+		Name:     "open channel reorg test",
+		TestFunc: testOpenChannelAfterReorg,
+	},
 	// {
 	// 	name: "disconnecting target peer",
 	// 	test: testDisconnectingTargetPeer,

@@ -1026,7 +1026,7 @@ func (h *HarnessTest) CloseChannelAndAssertType(node *HarnessNode,
 	// received the disabled update.
 	if expectDisable {
 		curPolicy.Disabled = true
-		h.assertChannelPolicyUpdate(
+		h.AssertChannelPolicyUpdate(
 			node, node.PubKeyStr,
 			curPolicy, fundingChanPoint, false,
 		)
@@ -1048,9 +1048,9 @@ func (h *HarnessTest) CloseChannelAssertErr(hn *HarnessNode,
 	require.Error(h, err, "expect close channel to return an error")
 }
 
-// assertChannelPolicyUpdate checks that the required policy update has
+// AssertChannelPolicyUpdate checks that the required policy update has
 // happened on the given node.
-func (h *HarnessTest) assertChannelPolicyUpdate(node *HarnessNode,
+func (h *HarnessTest) AssertChannelPolicyUpdate(node *HarnessNode,
 	advertisingNode string, policy *lnrpc.RoutingPolicy,
 	chanPoint *lnrpc.ChannelPoint, includeUnannounced bool) {
 
@@ -1640,4 +1640,56 @@ func (h *HarnessTest) BatchOpenChannelAssertErr(hn *HarnessNode,
 	require.Error(h, err, "expecte batch open channel fail")
 
 	return err
+}
+
+// AssertChannelPolicy asserts that the passed node's known channel policy for
+// the passed chanPoint is consistent with the expected policy values.
+func (h *HarnessTest) AssertChannelPolicy(hn *HarnessNode,
+	advertisingNode string, expectedPolicy *lnrpc.RoutingPolicy,
+	chanPoints ...*lnrpc.ChannelPoint) {
+
+	policies := h.getChannelPolicies(hn, advertisingNode, chanPoints...)
+	for _, policy := range policies {
+		err := CheckChannelPolicy(policy, expectedPolicy)
+		require.NoError(h, err, "check policy failed")
+	}
+}
+
+// QueryRoutes makes a RPC call to QueryRoutes and asserts.
+func (h *HarnessTest) QueryRoutes(hn *HarnessNode,
+	req *lnrpc.QueryRoutesRequest) *lnrpc.QueryRoutesResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	routes, err := hn.rpc.LN.QueryRoutes(ctxt, req)
+	require.NoError(h, err, "failed to query routes")
+
+	return routes
+}
+
+// SendToRoute makes a RPC call to SendToRoute and asserts.
+func (h *HarnessTest) SendToRoute(
+	hn *HarnessNode) lnrpc.Lightning_SendToRouteClient {
+
+	// SendToRoute needs to have the context alive for the entire test case
+	// as the returned client will be used for send and receive payment
+	// stream. Thus we use runCtx here instead of a timeout context.
+	client, err := hn.rpc.LN.SendToRoute(h.runCtx) // nolint:staticcheck
+	require.NoError(h, err, "failed to send to route")
+
+	return client
+}
+
+// UpdateChannelPolicy makes a RPC call to UpdateChannelPolicy and asserts.
+func (h *HarnessTest) UpdateChannelPolicy(hn *HarnessNode,
+	req *lnrpc.PolicyUpdateRequest) *lnrpc.PolicyUpdateResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.LN.UpdateChannelPolicy(ctxt, req)
+	require.NoError(h, err, "failed to update policy")
+
+	return resp
 }

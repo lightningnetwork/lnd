@@ -30,10 +30,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "unconfirmed channel funding",
 		TestFunc: testUnconfirmedChannelFunding,
 	},
-	// {
-	// 	name: "update channel policy",
-	// 	test: testUpdateChannelPolicy,
-	// },
+	{
+		Name:     "update channel policy",
+		TestFunc: testUpdateChannelPolicy,
+	},
 	// {
 	// 	name: "open channel reorg test",
 	// 	test: testOpenChannelAfterReorg,

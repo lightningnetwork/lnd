@@ -10,10 +10,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "test multi-hop htlc",
 		TestFunc: testMultiHopHtlcClaims,
 	},
-	// {
-	// 	name: "sweep coins",
-	// 	test: testSweepAllCoins,
-	// },
+
+	// Recovery related tests.
 	{
 		Name:     "recovery info",
 		TestFunc: testGetRecoveryInfo,
@@ -22,6 +20,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "onchain fund recovery",
 		TestFunc: testOnchainFundRecovery,
 	},
+
+	// Funding related tests.
 	{
 		Name:     "basic funding flow",
 		TestFunc: testBasicChannelFunding,
@@ -31,9 +31,32 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testUnconfirmedChannelFunding,
 	},
 	{
+		Name:     "external channel funding",
+		TestFunc: testExternalFundingChanPoint,
+	},
+	{
+		Name:     "batch channel funding",
+		TestFunc: testBatchChanFunding,
+	},
+
+	// Channel Policy related tests.
+	{
 		Name:     "update channel policy",
 		TestFunc: testUpdateChannelPolicy,
 	},
+	{
+		Name:     "private channel update policy",
+		TestFunc: testUpdateChannelPolicyForPrivateChannel,
+	},
+	{
+		Name:     "send update disable channel",
+		TestFunc: testSendUpdateDisableChannel,
+	},
+	{
+		Name:     "funding flow persistence",
+		TestFunc: testChannelFundingPersistence,
+	},
+
 	// {
 	// 	name: "open channel reorg test",
 	// 	test: testOpenChannelAfterReorg,
@@ -50,10 +73,10 @@ var allTestCases = []*lntest.TestCase{
 	// 	name: "graph topology notifications",
 	// 	test: testGraphTopologyNotifications,
 	// },
-	{
-		Name:     "funding flow persistence",
-		TestFunc: testChannelFundingPersistence,
-	},
+	// {
+	// 	name: "sweep coins",
+	// 	test: testSweepAllCoins,
+	// },
 	// {
 	// 	name: "channel force closure",
 	// 	test: testChannelForceClosure,
@@ -113,10 +136,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "private channels",
 	// 	test: testPrivateChannels,
-	// },
-	// {
-	// 	name: "private channel update policy",
-	// 	test: testUpdateChannelPolicyForPrivateChannel,
 	// },
 	// {
 	// 	name: "invoice routing hints",
@@ -221,10 +240,6 @@ var allTestCases = []*lntest.TestCase{
 	// 	name: "route fee cutoff",
 	// 	test: testRouteFeeCutoff,
 	// },
-	{
-		Name:     "send update disable channel",
-		TestFunc: testSendUpdateDisableChannel,
-	},
 	// {
 	// 	name: "streaming channel backup update",
 	// 	test: testChannelBackupUpdates,
@@ -273,10 +288,6 @@ var allTestCases = []*lntest.TestCase{
 	// 	name: "immediate payment after channel opened",
 	// 	test: testPaymentFollowingChannelOpen,
 	// },
-	{
-		Name:     "external channel funding",
-		TestFunc: testExternalFundingChanPoint,
-	},
 	// {
 	// 	name: "psbt channel funding",
 	// 	test: testPsbtChanFunding,
@@ -285,10 +296,6 @@ var allTestCases = []*lntest.TestCase{
 	// 	name: "psbt channel funding external",
 	// 	test: testPsbtChanFundingExternal,
 	// },
-	{
-		Name:     "batch channel funding",
-		TestFunc: testBatchChanFunding,
-	},
 	// {
 	// 	name: "psbt channel funding single step",
 	// 	test: testPsbtChanFundingSingleStep,

@@ -1287,19 +1287,28 @@ func (h *HarnessTest) ListInvoices(hn *HarnessNode,
 	return resp
 }
 
-// AssertPaymentStatus asserts that the given node list a payment with the
-// given preimage has the expected status.
-func (h *HarnessTest) AssertPaymentStatus(hn *HarnessNode,
-	preimage lntypes.Preimage, status lnrpc.Payment_PaymentStatus) {
+// ListPayments lists the node's payments and asserts.
+func (h *HarnessTest) ListPayments(hn *HarnessNode,
+	includeIncomplete bool) *lnrpc.ListPaymentsResponse {
 
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
 	req := &lnrpc.ListPaymentsRequest{
-		IncludeIncomplete: true,
+		IncludeIncomplete: includeIncomplete,
 	}
-	paymentsResp, err := hn.rpc.LN.ListPayments(ctxt, req)
+	resp, err := hn.rpc.LN.ListPayments(ctxt, req)
 	require.NoError(h, err, "failed to list payments")
+
+	return resp
+}
+
+// AssertPaymentStatus asserts that the given node list a payment with the
+// given preimage has the expected status.
+func (h *HarnessTest) AssertPaymentStatus(hn *HarnessNode,
+	preimage lntypes.Preimage, status lnrpc.Payment_PaymentStatus) {
+
+	paymentsResp := h.ListPayments(hn, true)
 
 	payHash := preimage.Hash()
 	var found bool
@@ -1753,4 +1762,47 @@ func (h *HarnessTest) WaitForChannelPendingForceClose(hn *HarnessNode,
 	}, DefaultTimeout)
 
 	require.NoError(h, err, "timeout while finding force closed channels")
+}
+
+// AssertAmountPaid checks that the ListChannels command of the provided
+// node list the total amount sent and received as expected for the
+// provided channel.
+func (h *HarnessTest) AssertAmountPaid(channelName string, hn *HarnessNode,
+	chanPoint wire.OutPoint, amountSent, amountReceived int64) { // nolint:interfacer
+
+	checkAmountPaid := func() error {
+		resp := h.ListChannels(hn)
+
+		for _, channel := range resp.Channels {
+			if channel.ChannelPoint != chanPoint.String() {
+				continue
+			}
+
+			if channel.TotalSatoshisSent != amountSent {
+				return fmt.Errorf("%v: incorrect amount"+
+					" sent: %v != %v", channelName,
+					channel.TotalSatoshisSent,
+					amountSent)
+			}
+			if channel.TotalSatoshisReceived !=
+				amountReceived {
+				return fmt.Errorf("%v: incorrect amount"+
+					" received: %v != %v",
+					channelName,
+					channel.TotalSatoshisReceived,
+					amountReceived)
+			}
+
+			return nil
+		}
+
+		return fmt.Errorf("channel not found")
+	}
+
+	// As far as HTLC inclusion in commitment transaction might be
+	// postponed we will try to check the balance couple of times,
+	// and then if after some period of time we receive wrong
+	// balance return the error.
+	err := wait.NoError(checkAmountPaid, DefaultTimeout)
+	require.NoError(h, err, "timeout while checking amount paid")
 }

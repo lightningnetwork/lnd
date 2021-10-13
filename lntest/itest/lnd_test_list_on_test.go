@@ -26,10 +26,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "basic funding flow",
 		TestFunc: testBasicChannelFunding,
 	},
-	// {
-	// 	name: "unconfirmed channel funding",
-	// 	test: testUnconfirmedChannelFunding,
-	// },
+	{
+		Name:     "unconfirmed channel funding",
+		TestFunc: testUnconfirmedChannelFunding,
+	},
 	// {
 	// 	name: "update channel policy",
 	// 	test: testUpdateChannelPolicy,
@@ -50,10 +50,10 @@ var allTestCases = []*lntest.TestCase{
 	// 	name: "graph topology notifications",
 	// 	test: testGraphTopologyNotifications,
 	// },
-	// {
-	// 	name: "funding flow persistence",
-	// 	test: testChannelFundingPersistence,
-	// },
+	{
+		Name:     "funding flow persistence",
+		TestFunc: testChannelFundingPersistence,
+	},
 	// {
 	// 	name: "channel force closure",
 	// 	test: testChannelForceClosure,
@@ -285,10 +285,10 @@ var allTestCases = []*lntest.TestCase{
 	// 	name: "psbt channel funding external",
 	// 	test: testPsbtChanFundingExternal,
 	// },
-	// {
-	// 	name: "batch channel funding",
-	// 	test: testBatchChanFunding,
-	// },
+	{
+		Name:     "batch channel funding",
+		TestFunc: testBatchChanFunding,
+	},
 	// {
 	// 	name: "psbt channel funding single step",
 	// 	test: testPsbtChanFundingSingleStep,

@@ -83,6 +83,16 @@ func (h *HarnessTest) FailNow() {
 	h.T.FailNow()
 }
 
+// Alice returns the pre-defined node Alice on the harness net.
+func (h *HarnessTest) Alice() *HarnessNode {
+	return h.net.Alice
+}
+
+// Bob returns the pre-defined node Bob on the harness net.
+func (h *HarnessTest) Bob() *HarnessNode {
+	return h.net.Bob
+}
+
 // Subtest creates a child HarnessTest.
 func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	return NewHarnessTest(t, h.net)
@@ -465,6 +475,27 @@ func (h *HarnessTest) OpenChannelStreamAndAssert(a, b *HarnessNode,
 	return chanOpenUpdate
 }
 
+// WaitForChannelOpen takes a open channel client and consumes the stream to
+// assert the channel is open.
+func (h *HarnessTest) WaitForChannelOpen(
+	client OpenChanClient) *lnrpc.ChannelPoint {
+
+	fundingChanPoint, err := h.net.WaitForChannelOpen(client)
+	require.NoError(h, err, "error while waiting for channel open")
+
+	return fundingChanPoint
+}
+
+// OpenPendingChannel opens a channel between the two nodes and asserts it's
+// pending.
+func (h *HarnessTest) OpenPendingChannel(from, to *HarnessNode,
+	chanAmt, pushAmt btcutil.Amount) *lnrpc.PendingUpdate {
+
+	update, err := h.net.OpenPendingChannel(from, to, chanAmt, pushAmt)
+	require.NoError(h, err, "unable to open channel")
+	return update
+}
+
 // OpenChannel attempts to open a channel with the specified parameters
 // extended from Alice to Bob. Additionally, the following items are asserted,
 //   * the funding transaction should be found within a block
@@ -481,8 +512,7 @@ func (h *HarnessTest) OpenChannel(alice, bob *HarnessNode,
 	// case that the channel is public, it is announced to the network.
 	block := h.MineBlocksAndAssertTx(6, 1)[0]
 
-	fundingChanPoint, err := h.net.WaitForChannelOpen(chanOpenUpdate)
-	require.NoError(h, err, "error while waiting for channel open")
+	fundingChanPoint := h.WaitForChannelOpen(chanOpenUpdate)
 
 	fundingTxID, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
 	require.NoError(h, err, "unable to get txid")
@@ -520,21 +550,26 @@ func (h *HarnessTest) AssertChannelOpen(n *HarnessNode,
 // AssertChannelExists asserts that an active channel identified by the
 // specified channel point exists from the point-of-view of the node.
 func (h *HarnessTest) AssertChannelExists(hn *HarnessNode,
-	cp *wire.OutPoint) { //nolint: interfacer
+	cp *wire.OutPoint) *lnrpc.Channel { //nolint: interfacer
+
+	var channel *lnrpc.Channel
 
 	err := wait.NoError(func() error {
 		// We require the RPC call to be succeeded and won't wait for
 		// it as it's an unexpected behavior.
 		resp := h.ListChannels(hn)
 
-		for _, channel := range resp.Channels {
-			if channel.ChannelPoint == cp.String() {
+		for _, ch := range resp.Channels {
+			if ch.ChannelPoint == cp.String() {
+				// Assign the channel found.
+				channel = ch
 				// Check whether our channel is active, failing
 				// early if it is not.
 				if channel.Active {
 					return nil
 				}
 				return fmt.Errorf("channel point not active")
+
 			}
 		}
 
@@ -542,6 +577,8 @@ func (h *HarnessTest) AssertChannelExists(hn *HarnessNode,
 	}, DefaultTimeout)
 
 	require.NoError(h, err, "timeout checking for channel point: %v", cp)
+
+	return channel
 }
 
 // AssertInvoiceState asserts that a given invoice has became the desired
@@ -1539,4 +1576,68 @@ func (h *HarnessTest) AbandonChannel(hn *HarnessNode,
 	require.NoError(h, err, "abandon channel failed")
 
 	return resp
+}
+
+// RestartNode restarts a given node and asserts.
+func (h *HarnessTest) RestartNode(hn *HarnessNode, callback func() error,
+	chanBackups ...*lnrpc.ChanBackupSnapshot) {
+
+	err := h.net.RestartNode(hn, callback, chanBackups...)
+	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
+}
+
+// AssertTxAtHeight gets all of the transactions that a node's wallet has a
+// record of at the target height, and finds and returns the tx with the target
+// txid, failing if it is not found.
+func (h *HarnessTest) AssertTxAtHeight(hn *HarnessNode, height int32,
+	txid string) *lnrpc.Transaction {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	txns, err := hn.rpc.LN.GetTransactions(
+		ctxt, &lnrpc.GetTransactionsRequest{
+			StartHeight: height,
+			EndHeight:   height,
+		},
+	)
+	require.NoError(h, err, "could not get transactions")
+
+	for _, tx := range txns.Transactions {
+		if tx.TxHash == txid {
+			return tx
+		}
+	}
+
+	require.Failf(h, "fail to find tx", "tx:%v not found at height:%v",
+		txid, height)
+
+	return nil
+}
+
+// BatchOpenChannel makes a RPC call to BatchOpenChannel and asserts.
+func (h *HarnessTest) BatchOpenChannel(hn *HarnessNode,
+	req *lnrpc.BatchOpenChannelRequest) *lnrpc.BatchOpenChannelResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.LN.BatchOpenChannel(ctxt, req)
+	require.NoError(h, err, "failed to batch open channel")
+
+	return resp
+}
+
+// BatchOpenChannelAssertErr makes a RPC call to BatchOpenChannel and asserts
+// there's an error returned.
+func (h *HarnessTest) BatchOpenChannelAssertErr(hn *HarnessNode,
+	req *lnrpc.BatchOpenChannelRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := hn.rpc.LN.BatchOpenChannel(ctxt, req)
+	require.Error(h, err, "expecte batch open channel fail")
+
+	return err
 }

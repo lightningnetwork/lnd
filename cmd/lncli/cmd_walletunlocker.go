@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
 )
@@ -636,6 +638,129 @@ func changePassword(ctx *cli.Context) error {
 	}
 
 	return nil
+}
+
+var createWatchOnlyCommand = cli.Command{
+	Name:      "createwatchonly",
+	Category:  "Startup",
+	ArgsUsage: "accounts-json-file",
+	Usage: "Initialize a watch-only wallet after starting lnd for the " +
+		"first time.",
+	Description: `
+	The create command is used to initialize an lnd wallet from scratch for
+	the very first time, in watch-only mode. Watch-only means, there will be
+	no private keys in lnd's wallet. This is only useful in combination with
+	a remote signer or when lnd should be used as an on-chain wallet with
+	PSBT interaction only.
+
+	This is an interactive command that takes a JSON file as its first and
+	only argument. The JSON is in the same format as the output of the
+	'lncli wallet accounts list' command. This makes it easy to initialize
+	the remote signer with the seed, then export the extended public account
+	keys (xpubs) to import the watch-only wallet.
+
+	Example JSON (non-mandatory or ignored fields are omitted):
+	{
+	    "accounts": [
+		{
+		    "extended_public_key": "upub5Eep7....",
+		    "derivation_path": "m/49'/0'/0'"
+		},
+		{
+		    "extended_public_key": "vpub5ZU1PH...",
+		    "derivation_path": "m/84'/0'/0'"
+		},
+		{
+		    "extended_public_key": "tpubDDXFH...",
+		    "derivation_path": "m/1017'/1'/0'"
+		},
+	        ...
+		{
+		    "extended_public_key": "tpubDDXFH...",
+		    "derivation_path": "m/1017'/1'/9'"
+		}
+	   ]
+	}
+
+	There must be an account for each of the existing key families that lnd
+	uses internally (currently 0-9, see keychain/derivation.go).
+
+	Read the documentation under docs/remote-signing.md for more information
+	on how to set up a remote signing node over RPC.
+	`,
+	Action: actionDecorator(createWatchOnly),
+}
+
+func createWatchOnly(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getWalletUnlockerClient(ctx)
+	defer cleanUp()
+
+	if ctx.NArg() != 1 {
+		return cli.ShowCommandHelp(ctx, "createwatchonly")
+	}
+
+	jsonFile := lncfg.CleanAndExpandPath(ctx.Args().First())
+	jsonBytes, err := ioutil.ReadFile(jsonFile)
+	if err != nil {
+		return fmt.Errorf("error reading JSON from file %v: %v",
+			jsonFile, err)
+	}
+
+	jsonAccts := &walletrpc.ListAccountsResponse{}
+	err = jsonpb.Unmarshal(bytes.NewReader(jsonBytes), jsonAccts)
+	if err != nil {
+		return fmt.Errorf("error parsing JSON: %v", err)
+	}
+	if len(jsonAccts.Accounts) == 0 {
+		return fmt.Errorf("cannot import empty account list")
+	}
+
+	walletPassword, err := capturePassword(
+		"Input wallet password: ", false,
+		walletunlocker.ValidatePassword,
+	)
+	if err != nil {
+		return err
+	}
+
+	extendedRootKeyBirthday, err := askBirthdayTimestamp()
+	if err != nil {
+		return err
+	}
+
+	recoveryWindow, err := askRecoveryWindow()
+	if err != nil {
+		return err
+	}
+
+	rpcAccounts, err := walletrpc.AccountsToWatchOnly(jsonAccts.Accounts)
+	if err != nil {
+		return err
+	}
+
+	rpcResp := &lnrpc.WatchOnly{
+		MasterKeyBirthdayTimestamp: extendedRootKeyBirthday,
+		Accounts:                   rpcAccounts,
+	}
+
+	// We assume that all accounts were exported from the same master root
+	// key. So if one is set, we just forward that. If other accounts should
+	// be watched later on, they should be imported into the watch-only
+	// node, that then also forwards the import request to the remote
+	// signer.
+	for _, acct := range jsonAccts.Accounts {
+		if len(acct.MasterKeyFingerprint) > 0 {
+			rpcResp.MasterKeyFingerprint = acct.MasterKeyFingerprint
+		}
+	}
+
+	_, err = client.InitWallet(ctxc, &lnrpc.InitWalletRequest{
+		WalletPassword: walletPassword,
+		WatchOnly:      rpcResp,
+		RecoveryWindow: recoveryWindow,
+	})
+	return err
 }
 
 // storeOrPrintAdminMac either stores the admin macaroon to a file specified or

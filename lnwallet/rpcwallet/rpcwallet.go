@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	btcwallet "github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
@@ -348,6 +349,56 @@ func (r *RPCKeyRing) SendOutputs(outputs []*wire.TxOut,
 	}
 
 	return tx, r.WalletController.PublishTransaction(tx, label)
+}
+
+// FinalizePsbt expects a partial transaction with all inputs and outputs fully
+// declared and tries to sign all inputs that belong to the specified account.
+// Lnd must be the last signer of the transaction. That means, if there are any
+// unsigned non-witness inputs or inputs without UTXO information attached or
+// inputs without witness data that do not belong to lnd's wallet, this method
+// will fail. If no error is returned, the PSBT is ready to be extracted and the
+// final TX within to be broadcast.
+//
+// NOTE: This method does NOT publish the transaction after it's been
+// finalized successfully.
+//
+// This is a part of the WalletController interface.
+func (r *RPCKeyRing) FinalizePsbt(packet *psbt.Packet, accountName string) error {
+	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
+	defer cancel()
+
+	var buf bytes.Buffer
+	if err := packet.Serialize(&buf); err != nil {
+		return fmt.Errorf("error serializing PSBT: %v", err)
+	}
+
+	resp, err := r.walletClient.FinalizePsbt(
+		ctxt, &walletrpc.FinalizePsbtRequest{
+			FundedPsbt: buf.Bytes(),
+			Account:    accountName,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("error finalizing PSBT in remote signer "+
+			"instance: %v", err)
+	}
+
+	signedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(resp.SignedPsbt), false,
+	)
+	if err != nil {
+		return fmt.Errorf("error parsing signed PSBT: %v", err)
+	}
+
+	// The caller expects the packet to be modified instead of a new
+	// instance to be returned. So we just overwrite all fields in the
+	// original packet.
+	packet.UnsignedTx = signedPacket.UnsignedTx
+	packet.Inputs = signedPacket.Inputs
+	packet.Outputs = signedPacket.Outputs
+	packet.Unknowns = signedPacket.Unknowns
+
+	return nil
 }
 
 // DeriveNextKey attempts to derive the *next* key within the key family

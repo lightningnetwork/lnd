@@ -358,6 +358,10 @@
         "double_hash": {
           "type": "boolean",
           "description": "Double-SHA256 hash instead of just the default single round."
+        },
+        "compact_sig": {
+          "type": "boolean",
+          "description": "Use the compact (pubkey recoverable) format instead of the raw lnwire\nformat."
         }
       }
     },

@@ -164,6 +164,13 @@ documentation](../psbt.md#use-the-batchopenchannel-rpc-for-safe-batch-channel-fu
   take longer to start a `lnd` node when running in `simnet` or `regtest`,
   something developers need to watch out from this release.
 
+### Remote signing
+
+It is now possible to delegate any operation that needs access to private keys
+to a [remote signer that serves signing requests over
+RPC](https://github.com/lightningnetwork/lnd/pull/5689). More information can be
+found [in the new remote signing document](../remote-signing.md).
+
 ## Security 
 
 * The release signature verification script [was overhauled to fix some possible

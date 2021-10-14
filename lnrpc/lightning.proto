@@ -3056,12 +3056,30 @@ message HopHint {
     uint32 cltv_expiry_delta = 5;
 }
 
+message SetID {
+    bytes set_id = 1;
+}
+
 message RouteHint {
     /*
     A list of hop hints that when chained together can assist in reaching a
     specific destination.
     */
     repeated HopHint hop_hints = 1;
+}
+
+message AMPInvoiceState {
+    // The state the HTLCs associated with this setID are in.
+    InvoiceHTLCState state = 1;
+
+    // The settle index of this HTLC set, if the invoice state is settled.
+    uint64 settle_index = 2;
+
+    // The time this HTLC set was settled expressed in unix epoch.
+    int64 settle_time = 3;
+
+    // The total amount paid for the sub-invoice expressed in milli satoshis.
+    int64 amt_paid_msat = 5;
 }
 
 message Invoice {
@@ -3209,7 +3227,7 @@ message Invoice {
 
     /*
     The payment address of this invoice. This value will be used in MPP
-    payments, and also for newer invoies that always require the MPP paylaod
+    payments, and also for newer invoices that always require the MPP payload
     for added end-to-end security.
     */
     bytes payment_addr = 26;
@@ -3218,6 +3236,16 @@ message Invoice {
     Signals whether or not this is an AMP invoice.
     */
     bool is_amp = 27;
+
+    /*
+    [EXPERIMENTAL]:
+
+    Maps a 32-byte hex-encoded set ID to the sub-invoice AMP state for the
+    given set ID. This field is always populated for AMP invoices, and can be
+    used along side LookupInvoice to obtain the HTLC information related to a
+    given sub-invoice.
+    */
+    map<string, AMPInvoiceState> amp_invoice_state = 28;
 }
 
 enum InvoiceHTLCState {

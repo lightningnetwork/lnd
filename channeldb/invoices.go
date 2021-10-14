@@ -2710,13 +2710,12 @@ func updateHtlc(resolveTime time.Time, htlc *InvoiceHTLC,
 			}
 
 			htlcState = HtlcStateSettled
-		} else {
-			htlcState = HtlcStateCanceled
 		}
 
 		// Only persist the changes if the invoice is moving to the
-		// settled state.
-		if persist {
+		// settled state, and we're actually updating the state to
+		// settled.
+		if persist && htlcState == HtlcStateSettled {
 			htlc.State = htlcState
 			htlc.ResolveTime = resolveTime
 		}

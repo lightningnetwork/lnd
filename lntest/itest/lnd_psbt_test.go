@@ -19,9 +19,6 @@ import (
 // by using a Partially Signed Bitcoin Transaction that funds the channel
 // multisig funding output.
 func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-	const chanSize = funding.MaxBtcFundingAmount
-
 	// First, we'll create two new nodes that we'll use to open channels
 	// between for this test. Dave gets some coins that will be used to
 	// fund the PSBT, just to make sure that Carol has an empty wallet.
@@ -31,6 +28,17 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	dave := net.NewNode(t.t, "dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
+	runPsbtChanFunding(net, t, carol, dave)
+}
+
+// runPsbtChanFunding makes sure a channel can be opened between carol and dave
+// by using a Partially Signed Bitcoin Transaction that funds the channel
+// multisig funding output.
+func runPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest, carol,
+	dave *lntest.HarnessNode) {
+
+	ctxb := context.Background()
+	const chanSize = funding.MaxBtcFundingAmount
 	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
 
 	// Before we start the test, we'll ensure both sides are connected so

@@ -16,6 +16,14 @@ import (
 // the node's pubkey and a customized public key to check the validity of the
 // result.
 func testDeriveSharedKey(net *lntest.NetworkHarness, t *harnessTest) {
+	runDeriveSharedKey(t, net.Alice)
+}
+
+// runDeriveSharedKey checks the ECDH performed by the endpoint
+// DeriveSharedKey. It creates an ephemeral private key, performing an ECDH with
+// the node's pubkey and a customized public key to check the validity of the
+// result.
+func runDeriveSharedKey(t *harnessTest, alice *lntest.HarnessNode) {
 	ctxb := context.Background()
 
 	// Create an ephemeral key, extracts its public key, and make a
@@ -32,7 +40,7 @@ func testDeriveSharedKey(net *lntest.NetworkHarness, t *harnessTest) {
 		req *signrpc.SharedKeyRequest) {
 
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		resp, err := net.Alice.SignerClient.DeriveSharedKey(ctxt, req)
+		resp, err := alice.SignerClient.DeriveSharedKey(ctxt, req)
 		require.NoError(t.t, err, "calling DeriveSharedKey failed")
 
 		sharedKey, _ := privKeyECDH.ECDH(pub)
@@ -42,13 +50,13 @@ func testDeriveSharedKey(net *lntest.NetworkHarness, t *harnessTest) {
 		)
 	}
 
-	nodePub, err := btcec.ParsePubKey(net.Alice.PubKey[:], btcec.S256())
+	nodePub, err := btcec.ParsePubKey(alice.PubKey[:], btcec.S256())
 	require.NoError(t.t, err, "failed to parse node pubkey")
 
 	customizedKeyFamily := int32(keychain.KeyFamilyMultiSig)
 	customizedIndex := int32(1)
 	customizedPub, err := deriveCustomizedKey(
-		ctxb, net.Alice, customizedKeyFamily, customizedIndex,
+		ctxb, alice, customizedKeyFamily, customizedIndex,
 	)
 	require.NoError(t.t, err, "failed to create customized pubkey")
 
@@ -85,7 +93,7 @@ func testDeriveSharedKey(net *lntest.NetworkHarness, t *harnessTest) {
 	req = &signrpc.SharedKeyRequest{
 		EphemeralPubkey: ephemeralPubBytes,
 		KeyDesc: &signrpc.KeyDescriptor{
-			RawKeyBytes: net.Alice.PubKey[:],
+			RawKeyBytes: alice.PubKey[:],
 			KeyLoc: &signrpc.KeyLocator{
 				KeyFamily: int32(keychain.KeyFamilyNodeKey),
 			},
@@ -135,7 +143,7 @@ func testDeriveSharedKey(net *lntest.NetworkHarness, t *harnessTest) {
 	// params, the expected error is returned.
 	assertErrorMatch := func(match string, req *signrpc.SharedKeyRequest) {
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		_, err := net.Alice.SignerClient.DeriveSharedKey(ctxt, req)
+		_, err := alice.SignerClient.DeriveSharedKey(ctxt, req)
 		require.Error(t.t, err, "expected to have an error")
 		require.Contains(
 			t.t, err.Error(), match, "error failed to match",
@@ -163,7 +171,7 @@ func testDeriveSharedKey(net *lntest.NetworkHarness, t *harnessTest) {
 	req = &signrpc.SharedKeyRequest{
 		EphemeralPubkey: ephemeralPubBytes,
 		KeyDesc: &signrpc.KeyDescriptor{
-			RawKeyBytes: net.Alice.PubKey[:],
+			RawKeyBytes: alice.PubKey[:],
 		},
 	}
 	assertErrorMatch("key_desc.key_loc must also be set", req)

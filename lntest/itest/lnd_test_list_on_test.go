@@ -355,4 +355,8 @@ var allTestCases = []*testCase{
 		name: "wipe forwarding packages",
 		test: testWipeForwardingPackages,
 	},
+	{
+		name: "remote signer",
+		test: testRemoteSigner,
+	},
 }

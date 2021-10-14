@@ -427,6 +427,39 @@ func (n *NetworkHarness) newNodeWithSeed(name string, extraArgs []string,
 	return node, genSeedResp.CipherSeedMnemonic, response.AdminMacaroon, nil
 }
 
+func (n *NetworkHarness) NewNodeRemoteSigner(name string, extraArgs []string,
+	password []byte, watchOnly *lnrpc.WatchOnly) (*HarnessNode, error) {
+
+	node, err := n.newNode(
+		name, extraArgs, true, password, n.dbBackend, true,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	ctxb := context.Background()
+
+	// With the seed created, construct the init request to the node,
+	// including the newly generated seed.
+	initReq := &lnrpc.InitWalletRequest{
+		WalletPassword: password,
+		WatchOnly:      watchOnly,
+	}
+
+	// Pass the init request via rpc to finish unlocking the node. This will
+	// also initialize the macaroon-authenticated LightningClient.
+	_, err = node.Init(ctxb, initReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// With the node started, we can now record its public key within the
+	// global mapping.
+	n.RegisterNode(node)
+
+	return node, nil
+}
+
 // RestoreNodeWithSeed fully initializes a HarnessNode using a chosen mnemonic,
 // password, recovery window, and optionally a set of static channel backups.
 // After providing the initialization request to unlock the node, this method

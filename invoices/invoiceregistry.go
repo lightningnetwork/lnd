@@ -672,14 +672,39 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
 		}
 
 		// Lookup the current status of the htlc in the database.
+		var (
+			htlcState channeldb.HtlcState
+			setID     *channeldb.SetID
+		)
 		htlc, ok := invoice.Htlcs[key]
 		if !ok {
-			return nil, fmt.Errorf("htlc %v not found", key)
+			// If this is an AMP invoice, then all the HTLCs won't
+			// be read out, so we'll consult the other mapping to
+			// try to find the HTLC state in question here.
+			var found bool
+			for ampSetID, htlcSet := range invoice.AMPState {
+				ampSetID := ampSetID
+				for htlcKey := range htlcSet.InvoiceKeys {
+					if htlcKey == key {
+						htlcState = htlcSet.State
+						setID = &ampSetID
+
+						found = true
+						break
+					}
+				}
+			}
+
+			if !found {
+				return nil, fmt.Errorf("htlc %v not found", key)
+			}
+		} else {
+			htlcState = htlc.State
 		}
 
 		// Cancelation is only possible if the htlc wasn't already
 		// resolved.
-		if htlc.State != channeldb.HtlcStateAccepted {
+		if htlcState != channeldb.HtlcStateAccepted {
 			log.Debugf("cancelSingleHtlc: htlc %v on invoice %v "+
 				"is already resolved", key, invoiceRef)
 
@@ -697,6 +722,7 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
 
 		return &channeldb.InvoiceUpdateDesc{
 			CancelHtlcs: canceledHtlcs,
+			SetID:       setID,
 		}, nil
 	}
 

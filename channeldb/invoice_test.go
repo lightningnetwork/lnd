@@ -509,6 +509,169 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 	}
 }
 
+// TestInvoiceCancelSingleHtlcAMP tests that it's possible to cancel a single
+// invoice of an AMP HTLC across multiple set IDs, and also have that update
+// the amount paid and other related fields as well.
+func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := MakeTestDB(OptionClock(testClock))
+	defer cleanUp()
+	require.NoError(t, err, "unable to make test db: %v", err)
+
+	// We'll start out by creating an invoice and writing it to the DB.
+	amt := lnwire.NewMSatFromSatoshis(1000)
+	invoice, err := randInvoice(amt)
+	require.Nil(t, err)
+
+	// Set AMP-specific features so that we can settle with HTLC-level
+	// preimages.
+	invoice.Terms.Features = ampFeatures
+
+	preimage := *invoice.Terms.PaymentPreimage
+	payHash := preimage.Hash()
+	_, err = db.AddInvoice(invoice, payHash)
+	require.Nil(t, err)
+
+	// Add two HTLC sets, one with one HTLC and the other with two.
+	setID1 := &[32]byte{1}
+	setID2 := &[32]byte{2}
+
+	ref := InvoiceRefByHashAndAddr(payHash, invoice.Terms.PaymentAddr)
+
+	// The first set ID with a single HTLC added.
+	_, err = db.UpdateInvoice(
+		ref, (*SetID)(setID1), updateAcceptAMPHtlc(0, amt, setID1, true),
+	)
+	require.Nil(t, err)
+
+	// The second set ID with two HTLCs added.
+	_, err = db.UpdateInvoice(
+		ref, (*SetID)(setID2), updateAcceptAMPHtlc(1, amt, setID2, true),
+	)
+	require.Nil(t, err)
+	dbInvoice, err := db.UpdateInvoice(
+		ref, (*SetID)(setID2), updateAcceptAMPHtlc(2, amt, setID2, true),
+	)
+	require.Nil(t, err)
+
+	// At this point, we should detect that 3k satoshis total has been
+	// paid.
+	require.Equal(t, dbInvoice.AmtPaid, amt*3)
+
+	// Now we'll cancel a single invoice, and assert that the amount paid
+	// is decremented, and the state for that HTLC set reflects that is
+	// been cancelled.
+	_, err = db.UpdateInvoice(ref, (*SetID)(setID1),
+		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
+			return &InvoiceUpdateDesc{
+				CancelHtlcs: map[CircuitKey]struct{}{
+					{HtlcID: 0}: {},
+				},
+				SetID: (*SetID)(setID1),
+			}, nil
+		})
+	if err != nil {
+		t.Fatalf("unable to cancel htlc: %v", err)
+	}
+
+	freshInvoice, err := db.LookupInvoice(ref)
+	require.Nil(t, err)
+	dbInvoice = &freshInvoice
+
+	// The amount paid should reflect that an invoice was cancelled.
+	require.Equal(t, dbInvoice.AmtPaid, amt*2)
+
+	// The HTLC and AMP state should also show that only one HTLC set is
+	// left.
+	invoice.State = ContractOpen
+	invoice.AmtPaid = 2 * amt
+	invoice.SettleDate = dbInvoice.SettleDate
+	invoice.Htlcs = map[CircuitKey]*InvoiceHTLC{
+		{HtlcID: 0}: makeAMPInvoiceHTLC(amt, *setID1, payHash, &preimage),
+		{HtlcID: 1}: makeAMPInvoiceHTLC(amt, *setID2, payHash, &preimage),
+		{HtlcID: 2}: makeAMPInvoiceHTLC(amt, *setID2, payHash, &preimage),
+	}
+	invoice.AMPState[*setID1] = InvoiceStateAMP{
+		State: HtlcStateCanceled,
+		InvoiceKeys: map[CircuitKey]struct{}{
+			{HtlcID: 0}: {},
+		},
+	}
+	invoice.AMPState[*setID2] = InvoiceStateAMP{
+		State:   HtlcStateAccepted,
+		AmtPaid: amt * 2,
+		InvoiceKeys: map[CircuitKey]struct{}{
+			{HtlcID: 1}: {},
+			{HtlcID: 2}: {},
+		},
+	}
+
+	invoice.Htlcs[CircuitKey{HtlcID: 0}].State = HtlcStateCanceled
+	invoice.Htlcs[CircuitKey{HtlcID: 0}].ResolveTime = time.Unix(1, 0)
+
+	require.Equal(t, invoice, dbInvoice)
+
+	// Next, we'll cancel the _other_ HTLCs active, but we'll do them one
+	// by one.
+	_, err = db.UpdateInvoice(ref, (*SetID)(setID2),
+		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
+			return &InvoiceUpdateDesc{
+				CancelHtlcs: map[CircuitKey]struct{}{
+					{HtlcID: 1}: {},
+				},
+				SetID: (*SetID)(setID2),
+			}, nil
+		})
+	if err != nil {
+		t.Fatalf("unable to cancel htlc: %v", err)
+	}
+
+	freshInvoice, err = db.LookupInvoice(ref)
+	require.Nil(t, err)
+	dbInvoice = &freshInvoice
+
+	invoice.Htlcs[CircuitKey{HtlcID: 1}].State = HtlcStateCanceled
+	invoice.Htlcs[CircuitKey{HtlcID: 1}].ResolveTime = time.Unix(1, 0)
+	invoice.AmtPaid = amt
+
+	ampState := invoice.AMPState[*setID2]
+	ampState.State = HtlcStateCanceled
+	ampState.AmtPaid = amt
+	invoice.AMPState[*setID2] = ampState
+
+	require.Equal(t, invoice, dbInvoice)
+
+	// Now we'll cancel the final HTLC, which should cause all the active
+	// HTLCs to transition to the cancelled state.
+	_, err = db.UpdateInvoice(ref, (*SetID)(setID2),
+		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
+			return &InvoiceUpdateDesc{
+				CancelHtlcs: map[CircuitKey]struct{}{
+					{HtlcID: 2}: {},
+				},
+				SetID: (*SetID)(setID2),
+			}, nil
+		})
+	if err != nil {
+		t.Fatalf("unable to cancel htlc: %v", err)
+	}
+
+	freshInvoice, err = db.LookupInvoice(ref)
+	require.Nil(t, err)
+	dbInvoice = &freshInvoice
+
+	ampState = invoice.AMPState[*setID2]
+	ampState.AmtPaid = 0
+	invoice.AMPState[*setID2] = ampState
+
+	invoice.Htlcs[CircuitKey{HtlcID: 2}].State = HtlcStateCanceled
+	invoice.Htlcs[CircuitKey{HtlcID: 2}].ResolveTime = time.Unix(1, 0)
+	invoice.AmtPaid = 0
+
+	require.Equal(t, invoice, dbInvoice)
+}
+
 // TestInvoiceTimeSeries tests that newly added invoices invoices, as well as
 // settled invoices are added to the database are properly placed in the add
 // add or settle index which serves as an event time series.

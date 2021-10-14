@@ -309,6 +309,10 @@
           "type": "string",
           "format": "uint64",
           "description": "extended_master_key_birthday_timestamp is the optional unix timestamp in\nseconds to use as the wallet's birthday when using an extended master key\nto restore the wallet. lnd will only start scanning for funds in blocks that\nare after the birthday which can speed up the process significantly. If the\nbirthday is not known, this should be left at its default value of 0 in\nwhich case lnd will start scanning from the first SegWit block (481824 on\nmainnet)."
+        },
+        "watch_only": {
+          "$ref": "#/definitions/lnrpcWatchOnly",
+          "description": "watch_only is the third option of initializing a wallet: by importing\naccount xpubs only and therefore creating a watch-only wallet that does not\ncontain any private keys. That means the wallet won't be able to sign for\nany of the keys and _needs_ to be run with a remote signer that has the\ncorresponding private keys and can serve signing RPC requests."
         }
       }
     },
@@ -364,6 +368,52 @@
     },
     "lnrpcUnlockWalletResponse": {
       "type": "object"
+    },
+    "lnrpcWatchOnly": {
+      "type": "object",
+      "properties": {
+        "master_key_birthday_timestamp": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unix timestamp in seconds of when the master key was created. lnd will\nonly start scanning for funds in blocks that are after the birthday which\ncan speed up the process significantly. If the birthday is not known, this\nshould be left at its default value of 0 in which case lnd will start\nscanning from the first SegWit block (481824 on mainnet)."
+        },
+        "master_key_fingerprint": {
+          "type": "string",
+          "format": "byte",
+          "description": "The fingerprint of the root key (also known as the key with derivation path\nm/) from which the account public keys were derived from. This may be\nrequired by some hardware wallets for proper identification and signing. The\nbytes must be in big-endian order."
+        },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcWatchOnlyAccount"
+          },
+          "description": "The list of accounts to import. There _must_ be an account for all of lnd's\nmain key scopes: BIP49/BIP84 (m/49'/0'/0', m/84'/0'/0', note that the\ncoin type is always 0, even for testnet/regtest) and lnd's internal key\nscope (m/1017'/\u003ccoin_type\u003e'/\u003caccount\u003e'), where account is the key family as\ndefined in `keychain/derivation.go` (currently indices 0 to 9)."
+        }
+      }
+    },
+    "lnrpcWatchOnlyAccount": {
+      "type": "object",
+      "properties": {
+        "purpose": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Purpose is the first number in the derivation path, must be either 49, 84\nor 1017."
+        },
+        "coin_type": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Coin type is the second number in the derivation path, this is _always_ 0\nfor purposes 49 and 84. It only needs to be set to 1 for purpose 1017 on\ntestnet or regtest."
+        },
+        "account": {
+          "type": "integer",
+          "format": "int64",
+          "title": "Account is the third number in the derivation path. For purposes 49 and 84\nat least the default account (index 0) needs to be created but optional\nadditional accounts are allowed. For purpose 1017 there needs to be exactly\none account for each of the key families defined in `keychain/derivation.go`\n(currently indices 0 to 9)"
+        },
+        "xpub": {
+          "type": "string",
+          "description": "The extended public key at depth 3 for the given account."
+        }
+      }
     },
     "protobufAny": {
       "type": "object",

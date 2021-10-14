@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -952,6 +954,7 @@ func waitForWalletPassword(cfg *Config,
 		password := initMsg.Passphrase
 		cipherSeed := initMsg.WalletSeed
 		extendedKey := initMsg.WalletExtendedKey
+		watchOnlyAccounts := initMsg.WatchOnlyAccounts
 		recoveryWindow := initMsg.RecoveryWindow
 
 		// Before we proceed, we'll check the internal version of the
@@ -999,6 +1002,26 @@ func waitForWalletPassword(cfg *Config,
 			newWallet, err = loader.CreateNewWalletExtendedKey(
 				password, password, extendedKey, birthday,
 			)
+
+		// Neither seed nor extended private key was given, so maybe the
+		// third option was chosen, the watch-only initialization. In
+		// this case we need to import each of the xpubs individually.
+		case watchOnlyAccounts != nil:
+			if !cfg.RemoteSigner.Enable {
+				return nil, fmt.Errorf("cannot initialize " +
+					"watch only wallet with remote " +
+					"signer config disabled")
+			}
+
+			birthday = initMsg.ExtendedKeyBirthday
+			newWallet, err = loader.CreateNewWatchingOnlyWallet(
+				password, birthday,
+			)
+			if err != nil {
+				break
+			}
+
+			err = importWatchOnlyAccounts(newWallet, initMsg)
 
 		default:
 			// The unlocker service made sure either the cipher seed
@@ -1063,6 +1086,51 @@ func waitForWalletPassword(cfg *Config,
 	case <-shutdownChan:
 		return nil, fmt.Errorf("shutting down")
 	}
+}
+
+// importWatchOnlyAccounts imports all individual account xpubs into our wallet
+// which we created as watch-only.
+func importWatchOnlyAccounts(wallet *wallet.Wallet,
+	initMsg *walletunlocker.WalletInitMsg) error {
+
+	scopes := make([]waddrmgr.ScopedIndex, 0, len(initMsg.WatchOnlyAccounts))
+	for scope := range initMsg.WatchOnlyAccounts {
+		scopes = append(scopes, scope)
+	}
+
+	// We need to import the accounts in the correct order, otherwise the
+	// indices will be incorrect.
+	sort.Slice(scopes, func(i, j int) bool {
+		return scopes[i].Scope.Purpose < scopes[j].Scope.Purpose ||
+			scopes[i].Index < scopes[j].Index
+	})
+
+	for _, scope := range scopes {
+		addrSchema := waddrmgr.ScopeAddrMap[waddrmgr.KeyScopeBIP0084]
+		if scope.Scope.Purpose == waddrmgr.KeyScopeBIP0049Plus.Purpose {
+			addrSchema = waddrmgr.ScopeAddrMap[scope.Scope]
+		}
+
+		// We want a human-readable account name. But for the default
+		// on-chain wallet we actually need to call it "default" to make
+		// sure everything works correctly.
+		name := fmt.Sprintf("%s/%d'", scope.Scope.String(), scope.Index)
+		if scope.Index == 0 {
+			name = "default"
+		}
+
+		_, err := wallet.ImportAccountWithScope(
+			name, initMsg.WatchOnlyAccounts[scope],
+			initMsg.WatchOnlyMasterFingerprint, scope.Scope,
+			addrSchema,
+		)
+		if err != nil {
+			return fmt.Errorf("could not import account %v: %v",
+				name, err)
+		}
+	}
+
+	return nil
 }
 
 // initNeutrinoBackend inits a new instance of the neutrino light client

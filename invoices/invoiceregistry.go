@@ -236,7 +236,6 @@ func (i *InvoiceRegistry) Start() error {
 	// Start InvoiceExpiryWatcher and prepopulate it with existing active
 	// invoices.
 	err := i.expiryWatcher.Start(i.cancelInvoiceImpl)
-
 	if err != nil {
 		return err
 	}
@@ -273,6 +272,7 @@ func (i *InvoiceRegistry) Stop() error {
 type invoiceEvent struct {
 	hash    lntypes.Hash
 	invoice *channeldb.Invoice
+	setID   *[32]byte
 }
 
 // tickAt returns a channel that ticks at the specified time. If the time has
@@ -422,8 +422,10 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 			continue
 
 		// Similarly, if we've already sent this add to
-		// the client then we can skip this one.
-		case state == channeldb.ContractOpen &&
+		// the client then we can skip this one, but only if this isn't
+		// an AMP invoice. AMP invoices always remain in the settle
+		// state as a base invoice.
+		case event.setID == nil && state == channeldb.ContractOpen &&
 			client.addIndex >= invoice.AddIndex:
 			continue
 
@@ -450,6 +452,7 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 		select {
 		case client.ntfnQueue.ChanIn() <- &invoiceEvent{
 			invoice: invoice,
+			setID:   event.setID,
 		}:
 		case <-i.quit:
 			return
@@ -459,11 +462,24 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 		// the latest add/settle index it has. We'll use this to ensure
 		// we don't send a notification twice, which can happen if a new
 		// event is added while we're catching up a new client.
-		switch event.invoice.State {
-		case channeldb.ContractSettled:
+		invState := event.invoice.State
+		switch {
+
+		case invState == channeldb.ContractSettled:
 			client.settleIndex = invoice.SettleIndex
-		case channeldb.ContractOpen:
+
+		case invState == channeldb.ContractOpen && event.setID == nil:
 			client.addIndex = invoice.AddIndex
+
+		// If this is an AMP invoice, then we'll need to use the set ID
+		// to keep track of the settle index of the client. AMP
+		// invoices never go to the open state, but if a setID is
+		// passed, then we know it was just settled and will track the
+		// highest settle index so far.
+		case invState == channeldb.ContractOpen && event.setID != nil:
+			setID := *event.setID
+			client.settleIndex = invoice.AMPState[setID].SettleIndex
+
 		default:
 			log.Errorf("unexpected invoice state: %v",
 				event.invoice.State)
@@ -579,7 +595,7 @@ func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice,
 
 	// Now that we've added the invoice, we'll send dispatch a message to
 	// notify the clients of this new invoice.
-	i.notifyClients(paymentHash, invoice)
+	i.notifyClients(paymentHash, invoice, nil)
 	i.Unlock()
 
 	// InvoiceExpiryWatcher.AddInvoice must not be locked by InvoiceRegistry
@@ -1088,6 +1104,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		// the HTLCs immediately. As a result of the settle, the HTLCs
 		// in other HTLC sets are automatically converted to a canceled
 		// state when updating the invoice.
+		//
+		// TODO(roasbeef): can remove now??
 		canceledHtlcSet := invoice.HTLCSetCompliment(
 			setID, channeldb.HtlcStateCanceled,
 		)
@@ -1126,7 +1144,6 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		if invoice.State == channeldb.ContractOpen {
 			res.acceptTime = invoiceHtlc.AcceptTime
 			res.autoRelease = true
-
 		}
 
 		// If we have fully accepted the set of htlcs for this invoice,
@@ -1149,7 +1166,14 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	// HTLCs, we'll go ahead and notify any clients wiaiting on the invoice
 	// state changes.
 	if updateSubscribers {
-		i.notifyClients(ctx.hash, invoice)
+		// We'll add a setID onto the notification, but only if this is
+		// an AMP invoice being settled.
+		var setID *[32]byte
+		if _, ok := resolution.(*HtlcSettleResolution); ok {
+			setID = ctx.setID()
+		}
+
+		i.notifyClients(ctx.hash, invoice, setID)
 	}
 
 	return resolution, nil
@@ -1210,7 +1234,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 
 		i.notifyHodlSubscribers(resolution)
 	}
-	i.notifyClients(hash, invoice)
+	i.notifyClients(hash, invoice, nil)
 
 	return nil
 }
@@ -1303,7 +1327,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 			),
 		)
 	}
-	i.notifyClients(payHash, invoice)
+	i.notifyClients(payHash, invoice, nil)
 
 	// Attempt to also delete the invoice if requested through the registry
 	// config.
@@ -1337,11 +1361,12 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 // notifyClients notifies all currently registered invoice notification clients
 // of a newly added/settled invoice.
 func (i *InvoiceRegistry) notifyClients(hash lntypes.Hash,
-	invoice *channeldb.Invoice) {
+	invoice *channeldb.Invoice, setID *[32]byte) {
 
 	event := &invoiceEvent{
 		invoice: invoice,
 		hash:    hash,
+		setID:   setID,
 	}
 
 	select {
@@ -1479,11 +1504,19 @@ func (i *InvoiceRegistry) SubscribeNotifications(
 
 				var targetChan chan *channeldb.Invoice
 				state := invoiceEvent.invoice.State
-				switch state {
-				case channeldb.ContractOpen:
-					targetChan = client.NewInvoices
-				case channeldb.ContractSettled:
+				switch {
+				// AMP invoices never move to settled, but will
+				// be sent with a set ID if an HTLC set is
+				// being settled.
+				case state == channeldb.ContractOpen &&
+					invoiceEvent.setID != nil:
+					fallthrough
+				case state == channeldb.ContractSettled:
 					targetChan = client.SettledInvoices
+
+				case state == channeldb.ContractOpen:
+					targetChan = client.NewInvoices
+
 				default:
 					log.Errorf("unknown invoice "+
 						"state: %v", state)

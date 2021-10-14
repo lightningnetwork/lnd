@@ -385,6 +385,8 @@ type Config struct {
 
 	RPCMiddleware *lncfg.RPCMiddleware `group:"rpcmiddleware" namespace:"rpcmiddleware"`
 
+	RemoteSigner *lncfg.RemoteSigner `group:"remotesigner" namespace:"remotesigner"`
+
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
@@ -562,6 +564,7 @@ func DefaultConfig() Config {
 		ChannelCommitInterval:   defaultChannelCommitInterval,
 		ChannelCommitBatchSize:  defaultChannelCommitBatchSize,
 		CoinSelectionStrategy:   defaultCoinSelectionStrategy,
+		RemoteSigner:            &lncfg.RemoteSigner{},
 	}
 }
 
@@ -1541,7 +1544,24 @@ func (c *Config) graphDatabaseDir() string {
 func (c *Config) ImplementationConfig(
 	interceptor signal.Interceptor) *ImplementationCfg {
 
-	defaultImpl := NewDefaultWalletImpl(c, ltndLog, interceptor)
+	// If we're using a remote signer, we still need the base wallet as a
+	// watch-only source of chain and address data. But we don't need any
+	// private key material in that btcwallet base wallet.
+	if c.RemoteSigner.Enable {
+		rpcImpl := NewRPCSignerWalletImpl(c, ltndLog, interceptor)
+		return &ImplementationCfg{
+			GrpcRegistrar:     rpcImpl,
+			RestRegistrar:     rpcImpl,
+			ExternalValidator: rpcImpl,
+			DatabaseBuilder: NewDefaultDatabaseBuilder(
+				c, ltndLog,
+			),
+			WalletConfigBuilder: rpcImpl,
+			ChainControlBuilder: rpcImpl,
+		}
+	}
+
+	defaultImpl := NewDefaultWalletImpl(c, ltndLog, interceptor, false)
 	return &ImplementationCfg{
 		GrpcRegistrar:       defaultImpl,
 		RestRegistrar:       defaultImpl,

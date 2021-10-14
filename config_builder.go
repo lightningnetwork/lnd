@@ -29,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
@@ -141,17 +142,19 @@ type DefaultWalletImpl struct {
 	logger      btclog.Logger
 	interceptor signal.Interceptor
 
+	watchOnly bool
 	pwService *walletunlocker.UnlockerService
 }
 
 // NewDefaultWalletImpl creates a new default wallet implementation.
 func NewDefaultWalletImpl(cfg *Config, logger btclog.Logger,
-	interceptor signal.Interceptor) *DefaultWalletImpl {
+	interceptor signal.Interceptor, watchOnly bool) *DefaultWalletImpl {
 
 	return &DefaultWalletImpl{
 		cfg:         cfg,
 		logger:      logger,
 		interceptor: interceptor,
+		watchOnly:   watchOnly,
 		pwService:   createWalletUnlockerService(cfg),
 	}
 }
@@ -563,6 +566,7 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 		Wallet:         walletInitParams.Wallet,
 		LoaderOptions:  []btcwallet.LoaderOption{dbs.WalletDB},
 		ChainSource:    partialChainControl.ChainSource,
+		WatchOnly:      d.watchOnly,
 	}
 
 	// Parse coin selection strategy.
@@ -621,6 +625,91 @@ func (d *DefaultWalletImpl) BuildChainControl(
 	// initializing the main chain control.
 	activeChainControl, cleanUp, err := chainreg.NewChainControl(
 		lnWalletConfig, walletController, partialChainControl,
+	)
+	if err != nil {
+		err := fmt.Errorf("unable to create chain control: %v", err)
+		d.logger.Error(err)
+		return nil, nil, err
+	}
+
+	return activeChainControl, cleanUp, nil
+}
+
+// RPCSignerWalletImpl is a wallet implementation that uses a remote signer over
+// an RPC interface.
+type RPCSignerWalletImpl struct {
+	// DefaultWalletImpl is the embedded instance of the default
+	// implementation that the remote signer uses as its watch-only wallet
+	// for keeping track of addresses and UTXOs.
+	*DefaultWalletImpl
+}
+
+// NewRPCSignerWalletImpl creates a new instance of the remote signing wallet
+// implementation.
+func NewRPCSignerWalletImpl(cfg *Config, logger btclog.Logger,
+	interceptor signal.Interceptor) *RPCSignerWalletImpl {
+
+	return &RPCSignerWalletImpl{
+		DefaultWalletImpl: &DefaultWalletImpl{
+			cfg:         cfg,
+			logger:      logger,
+			interceptor: interceptor,
+			watchOnly:   true,
+			pwService:   createWalletUnlockerService(cfg),
+		},
+	}
+}
+
+// BuildChainControl is responsible for creating or unlocking and then fully
+// initializing a wallet and returning it as part of a fully populated chain
+// control instance.
+//
+// NOTE: This is part of the ChainControlBuilder interface.
+func (d *RPCSignerWalletImpl) BuildChainControl(
+	partialChainControl *chainreg.PartialChainControl,
+	walletConfig *btcwallet.Config) (*chainreg.ChainControl, func(), error) {
+
+	walletController, err := btcwallet.New(
+		*walletConfig, partialChainControl.Cfg.BlockCache,
+	)
+	if err != nil {
+		fmt.Printf("unable to create wallet controller: %v\n", err)
+		d.logger.Error(err)
+		return nil, nil, err
+	}
+
+	baseKeyRing := keychain.NewBtcWalletKeyRing(
+		walletController.InternalWallet(), walletConfig.CoinType,
+	)
+
+	rpcKeyRing, err := rpcwallet.NewRPCKeyRing(
+		baseKeyRing, d.DefaultWalletImpl.cfg.RemoteSigner,
+		rpcwallet.DefaultRPCTimeout,
+	)
+	if err != nil {
+		fmt.Printf("unable to create RPC remote signing wallet %v", err)
+		d.logger.Error(err)
+		return nil, nil, err
+	}
+
+	// Create, and start the lnwallet, which handles the core payment
+	// channel logic, and exposes control via proxy state machines.
+	lnWalletConfig := lnwallet.Config{
+		Database:           partialChainControl.Cfg.ChanStateDB,
+		Notifier:           partialChainControl.ChainNotifier,
+		WalletController:   walletController,
+		Signer:             rpcKeyRing,
+		FeeEstimator:       partialChainControl.FeeEstimator,
+		SecretKeyRing:      rpcKeyRing,
+		ChainIO:            walletController,
+		DefaultConstraints: partialChainControl.ChannelConstraints,
+		NetParams:          *walletConfig.NetParams,
+	}
+
+	// We've created the wallet configuration now, so we can finish
+	// initializing the main chain control.
+	activeChainControl, cleanUp, err := chainreg.NewChainControl(
+		lnWalletConfig, rpcKeyRing, partialChainControl,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create chain control: %v", err)

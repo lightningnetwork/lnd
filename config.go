@@ -1547,6 +1547,7 @@ func (c *Config) ImplementationConfig(
 		RestRegistrar:       defaultImpl,
 		ExternalValidator:   defaultImpl,
 		DatabaseBuilder:     NewDefaultDatabaseBuilder(c, ltndLog),
+		WalletConfigBuilder: defaultImpl,
 		ChainControlBuilder: defaultImpl,
 	}
 }

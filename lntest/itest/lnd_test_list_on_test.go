@@ -62,6 +62,11 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "open channel reorg test",
 		TestFunc: testOpenChannelAfterReorg,
 	},
+	{
+		Name:     "multiple channel creation and update subscription",
+		TestFunc: testBasicChannelCreationAndUpdates,
+	},
+
 	// {
 	// 	name: "disconnecting target peer",
 	// 	test: testDisconnectingTargetPeer,
@@ -145,10 +150,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "multi-hop payments over private channels",
 	// 	test: testMultiHopOverPrivateChannels,
-	// },
-	// {
-	// 	name: "multiple channel creation and update subscription",
-	// 	test: testBasicChannelCreationAndUpdates,
 	// },
 	// {
 	// 	name: "invoice update subscription",

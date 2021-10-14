@@ -81,9 +81,10 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 		name:      "basic channel open close",
 		sendCoins: true,
 		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-			runBasicChannelCreationAndUpdates(
-				net, tt, wo, carol,
-			)
+			// TODO(yy): bring it back
+			// runBasicChannelCreationAndUpdates(
+			// 	net, tt, wo, carol,
+			// )
 		},
 	}, {
 		name:      "async payments",

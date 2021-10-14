@@ -1888,3 +1888,20 @@ func (h *HarnessTest) AssertNumEdges(hn *HarnessNode, expected int) {
 
 	require.NoError(h, err, "timeout while checking for edges")
 }
+
+// SubscribeChannelEvents creates a subscription client for channel events and
+// asserts its creation.
+func (h *HarnessTest) SubscribeChannelEvents(
+	hn *HarnessNode) lnrpc.Lightning_SubscribeChannelEventsClient {
+
+	req := &lnrpc.ChannelEventSubscription{}
+
+	// SubscribeChannelEvents needs to have the context alive for the
+	// entire test case as the returned client will be used for send and
+	// receive events stream. Thus we use runCtx here instead of a timeout
+	// context.
+	client, err := hn.SubscribeChannelEvents(h.runCtx, req)
+	require.NoError(h, err, "unable to create channel update client")
+
+	return client
+}

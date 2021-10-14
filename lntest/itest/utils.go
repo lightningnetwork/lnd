@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -368,75 +367,6 @@ func getTxFee(miner *rpcclient.Client, tx *wire.MsgTx) (btcutil.Amount, error) {
 	}
 
 	return balance, nil
-}
-
-// channelSubscription houses the proxied update and error chans for a node's
-// channel subscriptions.
-type channelSubscription struct {
-	updateChan chan *lnrpc.ChannelEventUpdate
-	errChan    chan error
-	quit       chan struct{}
-}
-
-// subscribeChannelNotifications subscribes to channel updates and launches a
-// goroutine that forwards these to the returned channel.
-func subscribeChannelNotifications(ctxb context.Context, t *harnessTest,
-	node *lntest.HarnessNode) channelSubscription {
-
-	// We'll first start by establishing a notification client which will
-	// send us notifications upon channels becoming active, inactive or
-	// closed.
-	req := &lnrpc.ChannelEventSubscription{}
-	ctx, cancelFunc := context.WithCancel(ctxb)
-
-	chanUpdateClient, err := node.SubscribeChannelEvents(ctx, req)
-	if err != nil {
-		t.Fatalf("unable to create channel update client: %v", err)
-	}
-
-	// We'll launch a goroutine that will be responsible for proxying all
-	// notifications recv'd from the client into the channel below.
-	errChan := make(chan error, 1)
-	quit := make(chan struct{})
-	chanUpdates := make(chan *lnrpc.ChannelEventUpdate, 20)
-	go func() {
-		defer cancelFunc()
-		for {
-			select {
-			case <-quit:
-				return
-			default:
-				chanUpdate, err := chanUpdateClient.Recv()
-				select {
-				case <-quit:
-					return
-				default:
-				}
-
-				if err == io.EOF {
-					return
-				} else if err != nil {
-					select {
-					case errChan <- err:
-					case <-quit:
-					}
-					return
-				}
-
-				select {
-				case chanUpdates <- chanUpdate:
-				case <-quit:
-					return
-				}
-			}
-		}
-	}()
-
-	return channelSubscription{
-		updateChan: chanUpdates,
-		errChan:    errChan,
-		quit:       quit,
-	}
 }
 
 // findTxAtHeight gets all of the transactions that a node's wallet has a record

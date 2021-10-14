@@ -304,6 +304,10 @@ var allTestCases = []*testCase{
 		test: testSendPaymentAMPInvoice,
 	},
 	{
+		name: "sendpayment amp invoice repeat",
+		test: testSendPaymentAMPInvoiceRepeat,
+	},
+	{
 		name: "send multi path payment",
 		test: testSendMultiPathPayment,
 	},

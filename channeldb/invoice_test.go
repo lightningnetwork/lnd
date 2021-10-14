@@ -828,7 +828,167 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 	}
 }
 
-// TestScanInvoices tests that ScanInvoices scans trough all stored invoices
+// TestSettleIndexAmpPayments tests that repeated settles of the same invoice
+// end up properly adding entries to the settle index, and the
+// InvoicesSettledSince will emit a "projected" version of the invoice w/
+// _just_ that HTLC information.
+func TestSettleIndexAmpPayments(t *testing.T) {
+	t.Parallel()
+
+	testClock := clock.NewTestClock(testNow)
+	db, cleanUp, err := MakeTestDB(OptionClock(testClock))
+	defer cleanUp()
+	require.Nil(t, err)
+
+	// First, we'll make a sample invoice that'll be paid to several times
+	// below.
+	amt := lnwire.NewMSatFromSatoshis(1000)
+	testInvoice, err := randInvoice(amt)
+	require.Nil(t, err)
+	testInvoice.Terms.Features = ampFeatures
+
+	// Add the invoice to the DB, we use a dummy payment hash here but the
+	// invoice will have a valid payment address set.
+	preimage := *testInvoice.Terms.PaymentPreimage
+	payHash := preimage.Hash()
+	_, err = db.AddInvoice(testInvoice, payHash)
+	require.Nil(t, err)
+
+	// Now that we have the invoice, we'll simulate 3 different HTLC sets
+	// being attached to the invoice. These represent 3 different
+	// concurrent payments.
+	setID1 := &[32]byte{1}
+	setID2 := &[32]byte{2}
+	setID3 := &[32]byte{3}
+
+	ref := InvoiceRefByHashAndAddr(payHash, testInvoice.Terms.PaymentAddr)
+	_, err = db.UpdateInvoice(
+		ref, (*SetID)(setID1), updateAcceptAMPHtlc(1, amt, setID1, true),
+	)
+	require.Nil(t, err)
+	_, err = db.UpdateInvoice(
+		ref, (*SetID)(setID2), updateAcceptAMPHtlc(2, amt, setID2, true),
+	)
+	require.Nil(t, err)
+	_, err = db.UpdateInvoice(
+		ref, (*SetID)(setID3), updateAcceptAMPHtlc(3, amt, setID3, true),
+	)
+	require.Nil(t, err)
+
+	// Now that the invoices have been accepted, we'll exercise the
+	// behavior of the LookupInvoice call that allows us to modify exactly
+	// how we query for invoices.
+	//
+	// First, we'll query for the invoice with just the payment addr, but
+	// specify no HTLcs are to be included.
+	refNoHtlcs := InvoiceRefByAddrBlankHtlc(testInvoice.Terms.PaymentAddr)
+	invoiceNoHTLCs, err := db.LookupInvoice(refNoHtlcs)
+	require.Nil(t, err)
+
+	require.Equal(t, 0, len(invoiceNoHTLCs.Htlcs))
+
+	// We'll now look up the HTLCs based on the individual setIDs added
+	// above.
+	for i, setID := range []*[32]byte{setID1, setID2, setID3} {
+		refFiltered := InvoiceRefBySetIDFiltered(*setID)
+		invoiceFiltered, err := db.LookupInvoice(refFiltered)
+		require.Nil(t, err)
+
+		// Only a single HTLC should be present.
+		require.Equal(t, 1, len(invoiceFiltered.Htlcs))
+
+		// The set ID for the HTLC should match the queried set ID.
+		key := CircuitKey{HtlcID: uint64(i + 1)}
+		htlc := invoiceFiltered.Htlcs[key]
+		require.Equal(t, *setID, htlc.AMP.Record.SetID())
+
+		// The HTLC should show that it's in the accepted state.
+		require.Equal(t, htlc.State, HtlcStateAccepted)
+	}
+
+	// Now that we know the invoices are in the proper state, we'll settle
+	// them on by one in distinct updates.
+	_, err = db.UpdateInvoice(
+		ref, (*SetID)(setID1),
+		getUpdateInvoiceAMPSettle(
+			setID1, preimage, CircuitKey{HtlcID: 1},
+		),
+	)
+	require.Nil(t, err)
+	_, err = db.UpdateInvoice(
+		ref, (*SetID)(setID2),
+		getUpdateInvoiceAMPSettle(
+			setID2, preimage, CircuitKey{HtlcID: 2},
+		),
+	)
+	require.Nil(t, err)
+	_, err = db.UpdateInvoice(
+		ref, (*SetID)(setID3),
+		getUpdateInvoiceAMPSettle(
+			setID3, preimage, CircuitKey{HtlcID: 3},
+		),
+	)
+	require.Nil(t, err)
+
+	// Now that all the invoices have been settled, we'll ensure that the
+	// settle index was updated properly by obtaining all the currently
+	// settled invoices in the time series. We use a value of 1 here to
+	// ensure we get _all_ the invoices back.
+	settledInvoices, err := db.InvoicesSettledSince(1)
+	require.Nil(t, err)
+
+	// To get around the settle index quirk, we'll fetch the very first
+	// invoice in the HTLC filtered mode and append it to the set of
+	// invoices.
+	firstInvoice, err := db.LookupInvoice(InvoiceRefBySetIDFiltered(*setID1))
+	require.Nil(t, err)
+	settledInvoices = append([]Invoice{firstInvoice}, settledInvoices...)
+
+	// There should be 3 invoices settled, as we created 3 "sub-invoices"
+	// above.
+	numInvoices := 3
+	require.Equal(t, numInvoices, len(settledInvoices))
+
+	// Each invoice should match the set of invoices we settled above, and
+	// the AMPState should be set accordingly.
+	for i, settledInvoice := range settledInvoices {
+		// Only one HTLC should be projected for this settled index.
+		require.Equal(t, 1, len(settledInvoice.Htlcs))
+
+		// The invoice should show up as settled, and match the settle
+		// index increment.
+		invSetID := &[32]byte{byte(i + 1)}
+		subInvoiceState, ok := settledInvoice.AMPState[*invSetID]
+		require.True(t, ok)
+
+		require.Equal(t, subInvoiceState.State, HtlcStateSettled)
+		require.Equal(t, int(subInvoiceState.SettleIndex), i+1)
+
+		invoiceKey := CircuitKey{HtlcID: uint64(i + 1)}
+		_, keyFound := subInvoiceState.InvoiceKeys[invoiceKey]
+		require.True(t, keyFound)
+	}
+
+	// If we attempt to look up the invoice by the payment addr, with all
+	// the HTLCs, the main invoice should have 3 HTLCs present.
+	refWithHtlcs := InvoiceRefByAddr(testInvoice.Terms.PaymentAddr)
+	invoiceWithHTLCs, err := db.LookupInvoice(refWithHtlcs)
+	require.Nil(t, err)
+	require.Equal(t, numInvoices, len(invoiceWithHTLCs.Htlcs))
+
+	// Finally, delete the invoice. If we query again, then nothing should
+	// be found.
+	err = db.DeleteInvoice([]InvoiceDeleteRef{
+		{
+			PayHash:  payHash,
+			PayAddr:  &testInvoice.Terms.PaymentAddr,
+			AddIndex: testInvoice.AddIndex,
+		},
+	})
+	require.Nil(t, err)
+}
+
+// TestScanInvoices tests that ScanInvoices scans through all stored invoices
 // correctly.
 func TestScanInvoices(t *testing.T) {
 	t.Parallel()
@@ -1357,6 +1517,10 @@ func testInvoiceHtlcAMPFields(t *testing.T, isAMP bool) {
 
 	testInvoice, err := randInvoice(1000)
 	require.Nil(t, err)
+
+	if isAMP {
+		testInvoice.Terms.Features = ampFeatures
+	}
 
 	payHash := testInvoice.Terms.PaymentPreimage.Hash()
 	_, err = db.AddInvoice(testInvoice, payHash)

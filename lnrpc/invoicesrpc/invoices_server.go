@@ -393,11 +393,27 @@ func (s *Server) LookupInvoiceV2(ctx context.Context,
 
 		invoiceRef = channeldb.InvoiceRefByHash(payHash)
 
+	case req.GetPaymentAddr() != nil &&
+		req.LookupModifier == LookupModifier_HTLC_SET_BLANK:
+
+		var payAddr [32]byte
+		copy(payAddr[:], req.GetPaymentAddr())
+
+		invoiceRef = channeldb.InvoiceRefByAddrBlankHtlc(payAddr)
+
 	case req.GetPaymentAddr() != nil:
 		var payAddr [32]byte
 		copy(payAddr[:], req.GetPaymentAddr())
 
 		invoiceRef = channeldb.InvoiceRefByAddr(payAddr)
+
+	case req.GetSetId() != nil &&
+		req.LookupModifier == LookupModifier_HTLC_SET_ONLY:
+
+		var setID [32]byte
+		copy(setID[:], req.GetSetId())
+
+		invoiceRef = channeldb.InvoiceRefBySetIDFiltered(setID)
 
 	case req.GetSetId() != nil:
 		var setID [32]byte

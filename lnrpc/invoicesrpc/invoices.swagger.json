@@ -121,6 +121,19 @@
             "required": false,
             "type": "string",
             "format": "byte"
+          },
+          {
+            "name": "lookup_modifier",
+            "description": " - DEFAULT: The default look up modifier, no look up behavior is changed.\n - HTLC_SET_ONLY: Indicates that when a look up is done based on a set_id, then only that set\nof HTLCs related to that set ID should be returned.\n - HTLC_SET_BLANK: Indicates that when a look up is done using a payment_addr, then no HTLCs\nrelated to the payment_addr should be returned. This is useful when one\nwants to be able to obtain the set of associated setIDs with a given\ninvoice, then look up the sub-invoices \"projected\" by that set ID.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "DEFAULT",
+              "HTLC_SET_ONLY",
+              "HTLC_SET_BLANK"
+            ],
+            "default": "DEFAULT"
           }
         ],
         "tags": [
@@ -302,6 +315,16 @@
     },
     "invoicesrpcCancelInvoiceResp": {
       "type": "object"
+    },
+    "invoicesrpcLookupModifier": {
+      "type": "string",
+      "enum": [
+        "DEFAULT",
+        "HTLC_SET_ONLY",
+        "HTLC_SET_BLANK"
+      ],
+      "default": "DEFAULT",
+      "description": " - DEFAULT: The default look up modifier, no look up behavior is changed.\n - HTLC_SET_ONLY: Indicates that when a look up is done based on a set_id, then only that set\nof HTLCs related to that set ID should be returned.\n - HTLC_SET_BLANK: Indicates that when a look up is done using a payment_addr, then no HTLCs\nrelated to the payment_addr should be returned. This is useful when one\nwants to be able to obtain the set of associated setIDs with a given\ninvoice, then look up the sub-invoices \"projected\" by that set ID."
     },
     "invoicesrpcSettleInvoiceMsg": {
       "type": "object",

@@ -227,6 +227,26 @@ const (
 	ampStateAmtPaidType     tlv.Type = 5
 )
 
+// RefModifier is a modification on top of a base invoice ref. It allows the
+// caller to opt to skip out on HTLCs for a given payAddr, or only return the
+// set of specified HTLCs for a given setID.
+type RefModifier uint8
+
+const (
+	// DefaultModifier is the base modifier that doesn't change any behavior.
+	DefaultModifier RefModifier = iota
+
+	// HtlcSetOnlyModifier can only be used with a setID based invoice ref, and
+	// specifies that only the set of HTLCs related to that setID are to be
+	// returned.
+	HtlcSetOnlyModifier
+
+	// HtlcSetOnlyModifier can only be used with a payAddr based invoice ref,
+	// and specifies that the returned invoice shouldn't include any HTLCs at
+	// all.
+	HtlcSetBlankModifier
+)
+
 // InvoiceRef is a composite identifier for invoices. Invoices can be referenced
 // by various combinations of payment hash and payment addr, in certain contexts
 // only some of these are known. An InvoiceRef and its constructors thus
@@ -252,6 +272,10 @@ type InvoiceRef struct {
 	// invoice registry will always query for the invoice by
 	// payHash+payAddr.
 	setID *[32]byte
+
+	// refModifier allows an invoice ref to include or exclude specific
+	// HTLC sets based on the payAddr or setId.
+	refModifier RefModifier
 }
 
 // InvoiceRefByHash creates an InvoiceRef that queries for an invoice only by
@@ -282,12 +306,32 @@ func InvoiceRefByAddr(addr [32]byte) InvoiceRef {
 	}
 }
 
+// InvoiceRefByAddrBlankHtlc creates an InvoiceRef that queries the payment addr index
+// for an invoice with the provided payment address, but excludes any of the
+// core HTLC information.
+func InvoiceRefByAddrBlankHtlc(addr [32]byte) InvoiceRef {
+	return InvoiceRef{
+		payAddr:     &addr,
+		refModifier: HtlcSetBlankModifier,
+	}
+}
+
 // InvoiceRefBySetID creates an InvoiceRef that queries the set id index for an
 // invoice with the provided setID. If the invoice is not found, the query will
 // not fallback to payHash or payAddr.
 func InvoiceRefBySetID(setID [32]byte) InvoiceRef {
 	return InvoiceRef{
 		setID: &setID,
+	}
+}
+
+// InvoiceRefBySetIDFiltered is similar to the InvoiceRefBySetID identifier,
+// but it specifies that the returned set of HTLCs should be filtered to only
+// include HTLCs that are part of that set.
+func InvoiceRefBySetIDFiltered(setID [32]byte) InvoiceRef {
+	return InvoiceRef{
+		setID:       &setID,
+		refModifier: HtlcSetOnlyModifier,
 	}
 }
 
@@ -322,6 +366,12 @@ func (r InvoiceRef) SetID() *[32]byte {
 		return &id
 	}
 	return nil
+}
+
+// Modifier defines the set of available modifications to the base invoice ref
+// look up that are available.
+func (r InvoiceRef) Modifier() RefModifier {
+	return r.refModifier
 }
 
 // String returns a human-readable representation of an InvoiceRef.
@@ -775,6 +825,11 @@ type InvoiceUpdateDesc struct {
 	// AddHtlcs describes the newly accepted htlcs that need to be added to
 	// the invoice.
 	AddHtlcs map[CircuitKey]*HtlcAcceptDesc
+
+	// SetID is an optional set ID for AMP invoices that allows operations
+	// to be more efficient by ensuring we don't need to read out the
+	// entire HTLC set each timee an HTLC is to be cancelled.
+	SetID *SetID
 }
 
 // InvoiceStateUpdateDesc describes an invoice-level state transition.
@@ -1023,9 +1078,25 @@ func (d *DB) LookupInvoice(ref InvoiceRef) (Invoice, error) {
 			return err
 		}
 
+		var setID *SetID
+		switch {
+		// If this is a payment address ref, and the blank modified was
+		// specified, then we'll use the zero set ID to indicate that
+		// we won't want any HTLCs returned.
+		case ref.PayAddr() != nil && ref.Modifier() == HtlcSetBlankModifier:
+			var zeroSetID SetID
+			setID = &zeroSetID
+
+		// If this is a set ID ref, and the htlc set only modified was
+		// specified, then we'll pass through the specified setID so
+		// only that will be returned.
+		case ref.SetID() != nil && ref.Modifier() == HtlcSetOnlyModifier:
+			setID = (*SetID)(ref.SetID())
+		}
+
 		// An invoice was found, retrieve the remainder of the invoice
 		// body.
-		i, err := fetchInvoice(invoiceNum, invoices)
+		i, err := fetchInvoice(invoiceNum, invoices, setID)
 		if err != nil {
 			return err
 		}
@@ -1147,6 +1218,7 @@ func (d *DB) ScanInvoices(
 				return nil
 			}
 
+			// Skip sub-buckets.
 			if v == nil {
 				return nil
 			}
@@ -1304,7 +1376,7 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 // The update is performed inside the same database transaction that fetches the
 // invoice and is therefore atomic. The fields to update are controlled by the
 // supplied callback.
-func (d *DB) UpdateInvoice(ref InvoiceRef,
+func (d *DB) UpdateInvoice(ref InvoiceRef, setIDHint *SetID,
 	callback InvoiceUpdateCallback) (*Invoice, error) {
 
 	var updatedInvoice *Invoice
@@ -1339,7 +1411,7 @@ func (d *DB) UpdateInvoice(ref InvoiceRef,
 
 		payHash := ref.PayHash()
 		updatedInvoice, err = d.updateInvoice(
-			payHash, invoices, settleIndex, setIDIndex,
+			payHash, setIDHint, invoices, settleIndex, setIDIndex,
 			invoiceNum, callback,
 		)
 
@@ -1819,7 +1891,6 @@ func fetchInvoice(invoiceNum []byte, invoices kvdb.RBucket, setIDs ...*SetID) (I
 
 	invoiceReader := bytes.NewReader(invoiceBytes)
 
-	return deserializeInvoice(invoiceReader)
 	invoice, err := deserializeInvoice(invoiceReader)
 	if err != nil {
 		return Invoice{}, err
@@ -2538,11 +2609,19 @@ func settleHtlcsAmp(invoice *Invoice,
 
 // updateInvoice fetches the invoice, obtains the update descriptor from the
 // callback and applies the updates in a single db transaction.
-func (d *DB) updateInvoice(hash *lntypes.Hash, invoices,
+func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *SetID, invoices,
 	settleIndex, setIDIndex kvdb.RwBucket, invoiceNum []byte,
 	callback InvoiceUpdateCallback) (*Invoice, error) {
 
-	invoice, err := fetchInvoice(invoiceNum, invoices)
+	// If the set ID is non-nil, then we'll use that to filter out the
+	// HTLCs for AMP invoice so we don't need to read them all out to
+	// satisfy the invoice callback below. If it's nil, then we pass in the
+	// zero set ID which means no HTLCs will be read out.
+	var invSetID SetID
+	if refSetID != nil {
+		invSetID = *refSetID
+	}
+	invoice, err := fetchInvoice(invoiceNum, invoices, &invSetID)
 	if err != nil {
 		return nil, err
 	}
@@ -2573,6 +2652,11 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, invoices,
 	if update.State != nil {
 		setID = update.State.SetID
 		newState = update.State.NewState
+	} else if update.SetID != nil {
+		// When we go to cancel HTLCs, there's no new state, but the
+		// set of HTLCs to be cancelled along with the setID affected
+		// will be passed in.
+		setID = (*[32]byte)(update.SetID)
 	}
 
 	now := d.clock.Now()
@@ -2741,7 +2825,6 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, invoices,
 			// identical.
 			case ok && *htlc.AMP.Preimage != preimage:
 				return nil, ErrHTLCPreimageAlreadyExists
-
 			}
 		}
 

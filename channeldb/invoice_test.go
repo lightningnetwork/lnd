@@ -215,7 +215,7 @@ func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 	// now have the settled bit toggle to true and a non-default
 	// SettledDate
 	payAmt := fakeInvoice.Terms.Value * 2
-	_, err = db.UpdateInvoice(ref, getUpdateInvoice(payAmt))
+	_, err = db.UpdateInvoice(ref, nil, getUpdateInvoice(payAmt))
 	if err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestInvRefEquivocation(t *testing.T) {
 	nop := func(_ *Invoice) (*InvoiceUpdateDesc, error) {
 		return nil, nil
 	}
-	_, err = db.UpdateInvoice(ref, nop)
+	_, err = db.UpdateInvoice(ref, nil, nop)
 	require.Error(t, err, ErrInvRefEquivocation)
 }
 
@@ -471,7 +471,7 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 	}
 
 	ref := InvoiceRefByHash(paymentHash)
-	invoice, err := db.UpdateInvoice(ref,
+	invoice, err := db.UpdateInvoice(ref, nil,
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 			return &InvoiceUpdateDesc{
 				AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
@@ -490,7 +490,7 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 	}
 
 	// Cancel the htlc again.
-	invoice, err = db.UpdateInvoice(ref,
+	invoice, err = db.UpdateInvoice(ref, nil,
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 			return &InvoiceUpdateDesc{
 				CancelHtlcs: map[CircuitKey]struct{}{
@@ -608,7 +608,7 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 
 		ref := InvoiceRefByHash(paymentHash)
 		_, err := db.UpdateInvoice(
-			ref, getUpdateInvoice(invoice.Terms.Value),
+			ref, nil, getUpdateInvoice(invoice.Terms.Value),
 		)
 		if err != nil {
 			t.Fatalf("unable to settle invoice: %v", err)
@@ -753,7 +753,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 
 	// With the invoice in the DB, we'll now attempt to settle the invoice.
 	ref := InvoiceRefByHash(payHash)
-	dbInvoice, err := db.UpdateInvoice(ref, getUpdateInvoice(amt))
+	dbInvoice, err := db.UpdateInvoice(ref, nil, getUpdateInvoice(amt))
 	if err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
 	}
@@ -779,7 +779,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 
 	// If we try to settle the invoice again, then we should get the very
 	// same invoice back, but with an error this time.
-	dbInvoice, err = db.UpdateInvoice(ref, getUpdateInvoice(amt))
+	dbInvoice, err = db.UpdateInvoice(ref, nil, getUpdateInvoice(amt))
 	if err != ErrInvoiceAlreadySettled {
 		t.Fatalf("expected ErrInvoiceAlreadySettled")
 	}
@@ -827,7 +827,7 @@ func TestQueryInvoices(t *testing.T) {
 		// We'll only settle half of all invoices created.
 		if i%2 == 0 {
 			ref := InvoiceRefByHash(paymentHash)
-			_, err := db.UpdateInvoice(ref, getUpdateInvoice(amt))
+			_, err := db.UpdateInvoice(ref, nil, getUpdateInvoice(amt))
 			if err != nil {
 				t.Fatalf("unable to settle invoice: %v", err)
 			}
@@ -1143,7 +1143,7 @@ func TestCustomRecords(t *testing.T) {
 	}
 
 	ref := InvoiceRefByHash(paymentHash)
-	_, err = db.UpdateInvoice(ref,
+	_, err = db.UpdateInvoice(ref, nil,
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 			return &InvoiceUpdateDesc{
 				AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
@@ -1216,7 +1216,7 @@ func testInvoiceHtlcAMPFields(t *testing.T, isAMP bool) {
 	}
 
 	ref := InvoiceRefByHash(payHash)
-	_, err = db.UpdateInvoice(ref,
+	_, err = db.UpdateInvoice(ref, nil,
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 			return &InvoiceUpdateDesc{
 				AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
@@ -1411,7 +1411,7 @@ func TestSetIDIndex(t *testing.T) {
 	// invoice.
 	ref := InvoiceRefByHashAndAddr(payHash, invoice.Terms.PaymentAddr)
 	dbInvoice, err := db.UpdateInvoice(
-		ref, updateAcceptAMPHtlc(0, amt, setID, true),
+		ref, (*SetID)(setID), updateAcceptAMPHtlc(0, amt, setID, true),
 	)
 	require.Nil(t, err)
 
@@ -1456,7 +1456,7 @@ func TestSetIDIndex(t *testing.T) {
 
 	ref2 := InvoiceRefByHashAndAddr(payHash2, invoice2.Terms.PaymentAddr)
 	_, err = db.UpdateInvoice(
-		ref2, updateAcceptAMPHtlc(0, amt, setID, true),
+		ref2, (*SetID)(setID), updateAcceptAMPHtlc(0, amt, setID, true),
 	)
 	require.Equal(t, ErrDuplicateSetID{setID: *setID}, err)
 
@@ -1465,11 +1465,11 @@ func TestSetIDIndex(t *testing.T) {
 	setID2 := &[32]byte{2}
 
 	_, err = db.UpdateInvoice(
-		ref, updateAcceptAMPHtlc(1, amt, setID2, false),
+		ref, (*SetID)(setID2), updateAcceptAMPHtlc(1, amt, setID2, false),
 	)
 	require.Nil(t, err)
 	dbInvoice, err = db.UpdateInvoice(
-		ref, updateAcceptAMPHtlc(2, amt, setID2, false),
+		ref, (*SetID)(setID2), updateAcceptAMPHtlc(2, amt, setID2, false),
 	)
 	require.Nil(t, err)
 
@@ -1518,7 +1518,7 @@ func TestSetIDIndex(t *testing.T) {
 	// Now attempt to settle a non-existent HTLC set, this set ID is the
 	// zero setID so it isn't used for anything internally.
 	_, err = db.UpdateInvoice(
-		ref,
+		ref, nil,
 		getUpdateInvoiceAMPSettle(&[32]byte{}, [32]byte{}, CircuitKey{HtlcID: 99}),
 	)
 	require.Equal(t, ErrEmptyHTLCSet, err)
@@ -1527,7 +1527,7 @@ func TestSetIDIndex(t *testing.T) {
 	// the accepted state and shouldn't be canceled, since we permit an
 	// invoice to be settled multiple times.
 	_, err = db.UpdateInvoice(
-		ref,
+		ref, (*SetID)(setID),
 		getUpdateInvoiceAMPSettle(setID, preimage, CircuitKey{HtlcID: 0}),
 	)
 	require.Nil(t, err)
@@ -1557,7 +1557,7 @@ func TestSetIDIndex(t *testing.T) {
 	// If we try to settle the same set ID again, then we should get an
 	// error, as it's already been settled.
 	_, err = db.UpdateInvoice(
-		ref,
+		ref, (*SetID)(setID),
 		getUpdateInvoiceAMPSettle(setID, preimage, CircuitKey{HtlcID: 0}),
 	)
 	require.Equal(t, ErrEmptyHTLCSet, err)
@@ -1567,7 +1567,7 @@ func TestSetIDIndex(t *testing.T) {
 	// settle an invoice with a new setID after one has already been fully
 	// settled.
 	_, err = db.UpdateInvoice(
-		ref,
+		ref, (*SetID)(setID2),
 		getUpdateInvoiceAMPSettle(
 			setID2, preimage, CircuitKey{HtlcID: 1}, CircuitKey{HtlcID: 2},
 		),
@@ -1714,7 +1714,7 @@ func TestUnexpectedInvoicePreimage(t *testing.T) {
 	// in order to settle an MPP invoice, the InvoiceRef must present a
 	// payment hash against which to validate the preimage.
 	_, err = db.UpdateInvoice(
-		InvoiceRefByAddr(invoice.Terms.PaymentAddr),
+		InvoiceRefByAddr(invoice.Terms.PaymentAddr), nil,
 		getUpdateInvoice(invoice.Terms.Value),
 	)
 
@@ -1780,7 +1780,7 @@ func testUpdateHTLCPreimages(t *testing.T, test updateHTLCPreimageTestCase) {
 	// invoice.
 	ref := InvoiceRefByAddr(invoice.Terms.PaymentAddr)
 	dbInvoice, err := db.UpdateInvoice(
-		ref, updateAcceptAMPHtlc(0, amt, setID, true),
+		ref, (*SetID)(setID), updateAcceptAMPHtlc(0, amt, setID, true),
 	)
 	require.Nil(t, err)
 
@@ -1809,7 +1809,7 @@ func testUpdateHTLCPreimages(t *testing.T, test updateHTLCPreimageTestCase) {
 	}
 
 	// Now settle the HTLC set and assert the resulting error.
-	_, err = db.UpdateInvoice(ref, updateInvoice)
+	_, err = db.UpdateInvoice(ref, (*SetID)(setID), updateInvoice)
 	require.Equal(t, test.expError, err)
 }
 
@@ -2477,7 +2477,7 @@ func TestUpdateHTLC(t *testing.T) {
 
 func testUpdateHTLC(t *testing.T, test updateHTLCTest) {
 	htlc := test.input.Copy()
-	err, _ := updateHtlc(testNow, htlc, test.invState, test.setID)
+	_, err := updateHtlc(testNow, htlc, test.invState, test.setID)
 	require.Equal(t, test.expErr, err)
 	require.Equal(t, test.output, *htlc)
 }
@@ -2506,7 +2506,7 @@ func TestDeleteInvoices(t *testing.T) {
 		// Settle the second invoice.
 		if i == 1 {
 			invoice, err = db.UpdateInvoice(
-				InvoiceRefByHash(paymentHash),
+				InvoiceRefByHash(paymentHash), nil,
 				getUpdateInvoice(invoice.Terms.Value),
 			)
 			require.NoError(t, err, "unable to settle invoice")
@@ -2564,7 +2564,6 @@ func TestDeleteInvoices(t *testing.T) {
 	// Delete should succeed with all the valid references.
 	require.NoError(t, db.DeleteInvoice(invoicesToDelete))
 	assertInvoiceCount(0)
-
 }
 
 // TestAddInvoiceInvalidFeatureDeps asserts that inserting an invoice with

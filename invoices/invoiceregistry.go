@@ -688,7 +688,7 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
 	// Intercept the update descriptor to set the local updated variable. If
 	// no invoice update is performed, we can return early.
 	var updated bool
-	invoice, err := i.cdb.UpdateInvoice(invoiceRef,
+	invoice, err := i.cdb.UpdateInvoice(invoiceRef, nil,
 		func(invoice *channeldb.Invoice) (
 			*channeldb.InvoiceUpdateDesc, error) {
 
@@ -979,6 +979,7 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	)
 	invoice, err := i.cdb.UpdateInvoice(
 		ctx.invoiceRef(),
+		(*channeldb.SetID)(ctx.setID()),
 		func(inv *channeldb.Invoice) (
 			*channeldb.InvoiceUpdateDesc, error) {
 
@@ -1181,7 +1182,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 
 	hash := preimage.Hash()
 	invoiceRef := channeldb.InvoiceRefByHash(hash)
-	invoice, err := i.cdb.UpdateInvoice(invoiceRef, updateInvoice)
+	invoice, err := i.cdb.UpdateInvoice(invoiceRef, nil, updateInvoice)
 	if err != nil {
 		log.Errorf("SettleHodlInvoice with preimage %v: %v",
 			preimage, err)
@@ -1265,7 +1266,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 	}
 
 	invoiceRef := channeldb.InvoiceRefByHash(payHash)
-	invoice, err := i.cdb.UpdateInvoice(invoiceRef, updateInvoice)
+	invoice, err := i.cdb.UpdateInvoice(invoiceRef, nil, updateInvoice)
 
 	// Implement idempotency by returning success if the invoice was already
 	// canceled.

@@ -442,9 +442,9 @@ type MessageSigner interface {
 	// SignMessage attempts to sign a target message with the private key
 	// described in the key locator. If the target private key is unable to
 	// be found, then an error will be returned. The actual digest signed is
-	// the double SHA-256 of the passed message.
-	SignMessage(keyLoc keychain.KeyLocator, msg []byte) (*btcec.Signature,
-		error)
+	// the single or double SHA-256 of the passed message.
+	SignMessage(keyLoc keychain.KeyLocator, msg []byte,
+		doubleHash bool) (*btcec.Signature, error)
 }
 
 // WalletDriver represents a "driver" for a particular concrete

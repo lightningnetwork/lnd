@@ -116,7 +116,7 @@ func (s *SingleSigner) ComputeInputScript(tx *wire.MsgTx,
 // SignMessage takes a public key and a message and only signs the message
 // with the stored private key if the public key matches the private key.
 func (s *SingleSigner) SignMessage(keyLoc keychain.KeyLocator,
-	msg []byte) (*btcec.Signature, error) {
+	msg []byte, doubleHash bool) (*btcec.Signature, error) {
 
 	mockKeyLoc := s.KeyLoc
 	if s.KeyLoc.IsEmpty() {
@@ -127,7 +127,12 @@ func (s *SingleSigner) SignMessage(keyLoc keychain.KeyLocator,
 		return nil, fmt.Errorf("unknown public key")
 	}
 
-	digest := chainhash.DoubleHashB(msg)
+	var digest []byte
+	if doubleHash {
+		digest = chainhash.DoubleHashB(msg)
+	} else {
+		digest = chainhash.HashB(msg)
+	}
 	sign, err := s.Privkey.Sign(digest)
 	if err != nil {
 		return nil, fmt.Errorf("can't sign the message: %v", err)

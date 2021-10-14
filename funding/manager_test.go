@@ -362,7 +362,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		Notifier:     chainNotifier,
 		FeeEstimator: estimator,
 		SignMessage: func(_ keychain.KeyLocator,
-			_ []byte) (*btcec.Signature, error) {
+			_ []byte, _ bool) (*btcec.Signature, error) {
 
 			return testSig, nil
 		},
@@ -510,7 +510,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		Notifier:     oldCfg.Notifier,
 		FeeEstimator: oldCfg.FeeEstimator,
 		SignMessage: func(_ keychain.KeyLocator,
-			_ []byte) (*btcec.Signature, error) {
+			_ []byte, _ bool) (*btcec.Signature, error) {
 
 			return testSig, nil
 		},

@@ -11,16 +11,20 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	btcwallet "github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
@@ -137,6 +141,26 @@ func (r *RPCKeyRing) NewAddress(addrType lnwallet.AddressType, change bool,
 	}
 
 	return localAddr, nil
+}
+
+// LastUnusedAddress returns the last *unused* address known by the wallet. An
+// address is unused if it hasn't received any payments. This can be useful in
+// UIs in order to continually show the "freshest" address without having to
+// worry about "address inflation" caused by continual refreshing. Similar to
+// NewAddress it can derive a specified address type, and also optionally a
+// change address. The account parameter must be non-empty as it determines
+// which account the address should be generated from.
+func (r *RPCKeyRing) LastUnusedAddress(lnwallet.AddressType,
+	string) (btcutil.Address, error) {
+
+	// Because the underlying wallet will create a new address if the last
+	// derived address has been used in the meantime, we would need to proxy
+	// that call as well. But since that's deep within the btcwallet code,
+	// we cannot easily proxy it without more refactoring. Since this is an
+	// address type that is probably not widely used we can probably get
+	// away with not supporting it.
+	return nil, fmt.Errorf("unused address types are not supported when " +
+		"remote signing is enabled")
 }
 
 // ImportAccount imports an account backed by an account extended public key.
@@ -263,6 +287,67 @@ func (r *RPCKeyRing) ImportPublicKey(pubKey *btcec.PublicKey,
 	}
 
 	return nil
+}
+
+// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying out to
+// the specified outputs. In the case the wallet has insufficient funds, or the
+// outputs are non-standard, a non-nil error will be returned.
+//
+// NOTE: This method requires the global coin selection lock to be held.
+//
+// This is a part of the WalletController interface.
+func (r *RPCKeyRing) SendOutputs(outputs []*wire.TxOut,
+	feeRate chainfee.SatPerKWeight, minConfs int32,
+	label string) (*wire.MsgTx, error) {
+
+	tx, err := r.WalletController.SendOutputs(
+		outputs, feeRate, minConfs, label,
+	)
+	if err != nil && err != btcwallet.ErrTxUnsigned {
+		return nil, err
+	}
+	if err == nil {
+		// This shouldn't happen since our wallet controller is watch-
+		// only and can't sign the TX.
+		return tx, nil
+	}
+
+	// We know at this point that we only have inputs from our own wallet.
+	// So we can just compute the input script using the remote signer.
+	signDesc := input.SignDescriptor{
+		HashType:  txscript.SigHashAll,
+		SigHashes: txscript.NewTxSigHashes(tx),
+	}
+	for i, txIn := range tx.TxIn {
+		// We can only sign this input if it's ours, so we'll ask the
+		// watch-only wallet if it can map this outpoint into a coin we
+		// own. If not, then we can't continue because our wallet state
+		// is out of sync.
+		info, err := r.coinFromOutPoint(txIn.PreviousOutPoint)
+		if err != nil {
+			return nil, fmt.Errorf("error looking up utxo: %v", err)
+		}
+
+		// Now that we know the input is ours, we'll populate the
+		// signDesc with the per input unique information.
+		signDesc.Output = &wire.TxOut{
+			Value:    info.Value,
+			PkScript: info.PkScript,
+		}
+		signDesc.InputIndex = i
+
+		// Finally, we'll sign the input as is, and populate the input
+		// with the witness and sigScript (if needed).
+		inputScript, err := r.ComputeInputScript(tx, &signDesc)
+		if err != nil {
+			return nil, err
+		}
+
+		txIn.SignatureScript = inputScript.SigScript
+		txIn.Witness = inputScript.Witness
+	}
+
+	return tx, r.WalletController.PublishTransaction(tx, label)
 }
 
 // DeriveNextKey attempts to derive the *next* key within the key family
@@ -531,6 +616,26 @@ func (r *RPCKeyRing) ComputeInputScript(tx *wire.MsgTx,
 	return &input.Script{
 		Witness:   resp.InputScripts[0].Witness,
 		SigScript: resp.InputScripts[0].SigScript,
+	}, nil
+}
+
+// coinFromOutPoint attempts to locate details pertaining to a coin based on
+// its outpoint. If the coin isn't under the control of the backing watch-only
+// wallet, then an error is returned.
+func (r *RPCKeyRing) coinFromOutPoint(op wire.OutPoint) (*chanfunding.Coin,
+	error) {
+
+	inputInfo, err := r.WalletController.FetchInputInfo(&op)
+	if err != nil {
+		return nil, err
+	}
+
+	return &chanfunding.Coin{
+		TxOut: wire.TxOut{
+			Value:    int64(inputInfo.Value),
+			PkScript: inputInfo.PkScript,
+		},
+		OutPoint: inputInfo.OutPoint,
 	}, nil
 }
 

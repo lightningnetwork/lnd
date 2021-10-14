@@ -1118,7 +1118,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		// lock any coins but might still change the wallet DB by
 		// generating a new change address.
 		changeIndex, err = w.cfg.Wallet.FundPsbt(
-			packet, feeSatPerKW, account,
+			packet, minConfs, feeSatPerKW, account,
 		)
 		if err != nil {
 			return fmt.Errorf("wallet couldn't fund PSBT: %v", err)

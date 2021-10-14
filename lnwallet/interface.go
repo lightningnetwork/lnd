@@ -350,8 +350,8 @@ type WalletController interface {
 	// fee rate, an error is returned. No lock lease is acquired for any of
 	// the selected/validated inputs. It is in the caller's responsibility
 	// to lock the inputs before handing them out.
-	FundPsbt(packet *psbt.Packet, feeRate chainfee.SatPerKWeight,
-		account string) (int32, error)
+	FundPsbt(packet *psbt.Packet, minConfs int32,
+		feeRate chainfee.SatPerKWeight, account string) (int32, error)
 
 	// FinalizePsbt expects a partial transaction with all inputs and
 	// outputs fully declared and tries to sign all inputs that belong to

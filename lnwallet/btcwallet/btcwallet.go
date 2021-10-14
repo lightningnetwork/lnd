@@ -642,7 +642,8 @@ func (b *BtcWallet) ImportPublicKey(pubKey *btcec.PublicKey,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight, minConfs int32, label string) (*wire.MsgTx, error) {
+	feeRate chainfee.SatPerKWeight, minConfs int32,
+	label string) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
@@ -1080,7 +1081,7 @@ func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 // responsibility to lock the inputs before handing them out.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) FundPsbt(packet *psbt.Packet,
+func (b *BtcWallet) FundPsbt(packet *psbt.Packet, minConfs int32,
 	feeRate chainfee.SatPerKWeight, accountName string) (int32, error) {
 
 	// The fee rate is passed in using units of sat/kw, so we'll convert
@@ -1115,7 +1116,7 @@ func (b *BtcWallet) FundPsbt(packet *psbt.Packet,
 	// Let the wallet handle coin selection and/or fee estimation based on
 	// the partial TX information in the packet.
 	return b.wallet.FundPsbt(
-		packet, keyScope, accountNum, feeSatPerKB,
+		packet, keyScope, minConfs, accountNum, feeSatPerKB,
 		b.cfg.CoinSelectionStrategy,
 	)
 }

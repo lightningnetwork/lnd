@@ -291,10 +291,14 @@ func (b *BtcWallet) Start() error {
 	// We'll start by unlocking the wallet and ensuring that the KeyScope:
 	// (1017, 1) exists within the internal waddrmgr. We'll need this in
 	// order to properly generate the keys required for signing various
-	// contracts.
-	if err := b.wallet.Unlock(b.cfg.PrivatePass, nil); err != nil {
-		return err
+	// contracts. If this is a watch-only wallet, we don't have any private
+	// keys and therefore unlocking is not necessary.
+	if !b.cfg.WatchOnly {
+		if err := b.wallet.Unlock(b.cfg.PrivatePass, nil); err != nil {
+			return err
+		}
 	}
+
 	_, err := b.wallet.Manager.FetchScopedKeyManager(b.chainKeyScope)
 	if err != nil {
 		// If the scope hasn't yet been created (it wouldn't been

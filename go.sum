@@ -91,8 +91,8 @@ github.com/btcsuite/btcutil v1.0.3-0.20210527170813-e2ba6805a890/go.mod h1:0DVlH
 github.com/btcsuite/btcutil/psbt v1.0.3-0.20201208143702-a53e38424cce/go.mod h1:LVveMu4VaNSkIRTZu2+ut0HDBRuYjqGocxDMNS1KuGQ=
 github.com/btcsuite/btcutil/psbt v1.0.3-0.20210527170813-e2ba6805a890 h1:0xUNvvwJ7RjzBs4nCF+YrK28S5P/b4uHkpPxY1ovGY4=
 github.com/btcsuite/btcutil/psbt v1.0.3-0.20210527170813-e2ba6805a890/go.mod h1:LVveMu4VaNSkIRTZu2+ut0HDBRuYjqGocxDMNS1KuGQ=
-github.com/btcsuite/btcwallet v0.12.1-0.20210826004415-4ef582f76b02 h1:Q8Scm1SXNRyiXzD3a7O1C6bLFIUxUQSnWAd9aat8Xd0=
-github.com/btcsuite/btcwallet v0.12.1-0.20210826004415-4ef582f76b02/go.mod h1:SdqXKJoEEi5LJq6zU67PcKiyqF97AcUOfBfyQHC7rqQ=
+github.com/btcsuite/btcwallet v0.12.1-0.20210916213031-d0868cb9dd94 h1:Bx+xu606h2sZNn5VaZMWvI0GtlGE+y+dHI4hbL5Ld6k=
+github.com/btcsuite/btcwallet v0.12.1-0.20210916213031-d0868cb9dd94/go.mod h1:gHFk6GQ4IP/a8z6mfwK85GagUPxvAxCmgFy/whrBXhI=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.0.0/go.mod h1:VufDts7bd/zs3GV13f/lXc/0lXrPnvxD/NvmpG/FEKU=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.0.1-0.20210329233242-e0607006dce6/go.mod h1:VufDts7bd/zs3GV13f/lXc/0lXrPnvxD/NvmpG/FEKU=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.1.0 h1:8pO0pvPX1rFRfRiol4oV6kX7dY5y4chPwhfVwUfvwtk=

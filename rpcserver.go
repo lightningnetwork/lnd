@@ -3019,6 +3019,13 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 		default:
 		}
 
+		// There now also are the accounts for the internal channel
+		// related keys. We skip those as they'll never have any direct
+		// balance.
+		if account.KeyScope.Purpose == keychain.BIP0043Purpose {
+			continue
+		}
+
 		// Get total balance, from txs that have >= 0 confirmations.
 		totalBal, err := r.server.cc.Wallet.ConfirmedBalance(
 			0, account.AccountName,

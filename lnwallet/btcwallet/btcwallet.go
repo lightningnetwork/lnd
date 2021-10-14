@@ -299,7 +299,7 @@ func (b *BtcWallet) Start() error {
 		}
 	}
 
-	_, err := b.wallet.Manager.FetchScopedKeyManager(b.chainKeyScope)
+	scope, err := b.wallet.Manager.FetchScopedKeyManager(b.chainKeyScope)
 	if err != nil {
 		// If the scope hasn't yet been created (it wouldn't been
 		// loaded by default if it was), then we'll manually create the
@@ -307,7 +307,7 @@ func (b *BtcWallet) Start() error {
 		err := walletdb.Update(b.db, func(tx walletdb.ReadWriteTx) error {
 			addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
 
-			_, err := b.wallet.Manager.NewScopedKeyManager(
+			scope, err = b.wallet.Manager.NewScopedKeyManager(
 				addrmgrNs, b.chainKeyScope, lightningAddrSchema,
 			)
 			return err
@@ -315,6 +315,43 @@ func (b *BtcWallet) Start() error {
 		if err != nil {
 			return err
 		}
+	}
+
+	// Now that the wallet is unlocked, we'll go ahead and make sure we
+	// create accounts for all the key families we're going to use. This
+	// will make it possible to list all the account/family xpubs in the
+	// wallet list RPC.
+	err = walletdb.Update(b.db, func(tx walletdb.ReadWriteTx) error {
+		addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
+
+		for _, keyFam := range keychain.VersionZeroKeyFamilies {
+			// If this is the multi-sig key family, then we can
+			// return early as this is the default account that's
+			// created.
+			if keyFam == keychain.KeyFamilyMultiSig {
+				continue
+			}
+
+			// Otherwise, we'll check if the account already exists,
+			// if so, we can once again bail early.
+			_, err := scope.AccountName(addrmgrNs, uint32(keyFam))
+			if err == nil {
+				continue
+			}
+
+			// If we reach this point, then the account hasn't yet
+			// been created, so we'll need to create it before we
+			// can proceed.
+			err = scope.NewRawAccount(addrmgrNs, uint32(keyFam))
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	// Establish an RPC connection in addition to starting the goroutines
@@ -549,6 +586,18 @@ func (b *BtcWallet) ListAccounts(name string,
 		}
 
 		accounts, err = b.wallet.Accounts(waddrmgr.KeyScopeBIP0084)
+		if err != nil {
+			return nil, err
+		}
+		for _, account := range accounts.Accounts {
+			account := account
+			res = append(res, &account.AccountProperties)
+		}
+
+		accounts, err = b.wallet.Accounts(waddrmgr.KeyScope{
+			Purpose: keychain.BIP0043Purpose,
+			Coin:    b.cfg.CoinType,
+		})
 		if err != nil {
 			return nil, err
 		}

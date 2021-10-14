@@ -1,6 +1,7 @@
 package channeldb
 
 import (
+	"bytes"
 	"crypto/rand"
 	"fmt"
 	"math"
@@ -12,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,7 +51,8 @@ func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 			Value:           value,
 			Features:        emptyFeatures,
 		},
-		Htlcs: map[CircuitKey]*InvoiceHTLC{},
+		Htlcs:    map[CircuitKey]*InvoiceHTLC{},
+		AMPState: map[SetID]InvoiceStateAMP{},
 	}
 	i.Memo = []byte("memo")
 
@@ -2473,4 +2476,90 @@ func TestAddInvoiceInvalidFeatureDeps(t *testing.T) {
 	require.Error(t, err, feature.NewErrMissingFeatureDep(
 		lnwire.PaymentAddrOptional,
 	))
+}
+
+// TestEncodeDecodeAmpInvoiceState asserts that the nested TLV
+// encoding+decoding for the AMPInvoiceState struct works as expected.
+func TestEncodeDecodeAmpInvoiceState(t *testing.T) {
+	t.Parallel()
+
+	setID1 := [32]byte{1}
+	setID2 := [32]byte{2}
+	setID3 := [32]byte{3}
+
+	circuitKey1 := CircuitKey{
+		ChanID: lnwire.NewShortChanIDFromInt(1), HtlcID: 1,
+	}
+	circuitKey2 := CircuitKey{
+		ChanID: lnwire.NewShortChanIDFromInt(2), HtlcID: 2,
+	}
+	circuitKey3 := CircuitKey{
+		ChanID: lnwire.NewShortChanIDFromInt(2), HtlcID: 3,
+	}
+
+	// Make a sample invoice state map that we'll encode then decode to
+	// assert equality of.
+	ampState := AMPInvoiceState{
+		setID1: InvoiceStateAMP{
+			State:       HtlcStateSettled,
+			SettleDate:  testNow,
+			SettleIndex: 1,
+			InvoiceKeys: map[CircuitKey]struct{}{
+				circuitKey1: struct{}{},
+				circuitKey2: struct{}{},
+			},
+		},
+		setID2: InvoiceStateAMP{
+			State:       HtlcStateCanceled,
+			SettleDate:  testNow,
+			SettleIndex: 2,
+			InvoiceKeys: map[CircuitKey]struct{}{
+				circuitKey1: struct{}{},
+			},
+		},
+		setID3: InvoiceStateAMP{
+			State:       HtlcStateAccepted,
+			SettleDate:  testNow,
+			SettleIndex: 3,
+			InvoiceKeys: map[CircuitKey]struct{}{
+				circuitKey1: struct{}{},
+				circuitKey2: struct{}{},
+				circuitKey3: struct{}{},
+			},
+		},
+	}
+
+	// We'll now make a sample invoice stream, and use that to encode the
+	// amp state we created above.
+	tlvStream, err := tlv.NewStream(
+		tlv.MakeDynamicRecord(
+			invoiceAmpStateType, &ampState, ampState.recordSize,
+			ampStateEncoder, ampStateDecoder,
+		),
+	)
+	require.Nil(t, err)
+
+	// Next encode the stream into a set of raw bytes.
+	var b bytes.Buffer
+	err = tlvStream.Encode(&b)
+	require.Nil(t, err)
+
+	// Now create a new blank ampState map, which we'll use to decode the
+	// bytes into.
+	ampState2 := make(AMPInvoiceState)
+
+	// Decode from the raw stream into this blank mpa.
+	tlvStream, err = tlv.NewStream(
+		tlv.MakeDynamicRecord(
+			invoiceAmpStateType, &ampState2, nil,
+			ampStateEncoder, ampStateDecoder,
+		),
+	)
+	require.Nil(t, err)
+
+	err = tlvStream.Decode(&b)
+	require.Nil(t, err)
+
+	// The two states should match.
+	require.Equal(t, ampState, ampState2)
 }

@@ -507,9 +507,17 @@ func (w *WalletKit) NextAddr(ctx context.Context,
 		account = req.Account
 	}
 
-	addr, err := w.cfg.Wallet.NewAddress(
-		lnwallet.WitnessPubKey, false, account,
-	)
+	addrType := lnwallet.WitnessPubKey
+	switch req.Type {
+	case AddressType_NESTED_WITNESS_PUBKEY_HASH:
+		addrType = lnwallet.NestedWitnessPubKey
+
+	case AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
+		return nil, fmt.Errorf("invalid address type for next "+
+			"address: %v", req.Type)
+	}
+
+	addr, err := w.cfg.Wallet.NewAddress(addrType, req.Change, account)
 	if err != nil {
 		return nil, err
 	}

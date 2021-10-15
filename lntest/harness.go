@@ -1260,6 +1260,46 @@ func (h *HarnessTest) assertPeerConnected(a, b *HarnessNode) {
 		a.Name(), b.Name(), DefaultTimeout)
 }
 
+// AssertConnected asserts that two peers are connected.
+func (h *HarnessTest) AssertConnected(a, b *HarnessNode) {
+	h.assertPeerConnected(a, b)
+	h.assertPeerConnected(b, a)
+}
+
+// assertPeerNotConnected asserts that the given node b is not connected to a.
+func (h *HarnessTest) assertPeerNotConnected(a, b *HarnessNode) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	err := wait.NoError(func() error {
+		resp, err := a.rpc.LN.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
+		// We require the RPC call to be succeeded and won't wait for
+		// it as it's an unexpected behavior.
+		require.NoErrorf(h, err, "%s ListPeers failed with: %v",
+			a.Name(), err)
+
+		// If node B is seen in the ListPeers response from node A,
+		// then we return false as the connection has been fully
+		// established.
+		for _, peer := range resp.Peers {
+			if peer.PubKey == b.PubKeyStr {
+				return fmt.Errorf("peers %s and %s still "+
+					"connected", a.Name(), b.Name())
+			}
+		}
+		return nil
+
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout checking peers not connected")
+}
+
+// AssertNotConnected asserts that two peers are not connected.
+func (h *HarnessTest) AssertNotConnected(a, b *HarnessNode) {
+	h.assertPeerNotConnected(a, b)
+	h.assertPeerNotConnected(b, a)
+}
+
 // AddHoldInvoice adds a hold invoice for the given node and asserts.
 func (h *HarnessTest) AddHoldInvoice(
 	req *invoicesrpc.AddHoldInvoiceRequest,
@@ -1900,7 +1940,7 @@ func (h *HarnessTest) SubscribeChannelEvents(
 	// entire test case as the returned client will be used for send and
 	// receive events stream. Thus we use runCtx here instead of a timeout
 	// context.
-	client, err := hn.SubscribeChannelEvents(h.runCtx, req)
+	client, err := hn.rpc.LN.SubscribeChannelEvents(h.runCtx, req)
 	require.NoError(h, err, "unable to create channel update client")
 
 	return client

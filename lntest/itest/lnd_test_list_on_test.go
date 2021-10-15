@@ -67,10 +67,12 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBasicChannelCreationAndUpdates,
 	},
 
-	// {
-	// 	name: "disconnecting target peer",
-	// 	test: testDisconnectingTargetPeer,
-	// },
+	// Connection related tests.
+	{
+		Name:     "disconnecting target peer",
+		TestFunc: testDisconnectingTargetPeer,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,

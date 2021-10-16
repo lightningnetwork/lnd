@@ -73,6 +73,22 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testDisconnectingTargetPeer,
 	},
 
+	// Onion related tests.
+	{
+		Name:     "sphinx replay persistence",
+		TestFunc: testSphinxReplayPersistence,
+	},
+
+	// RPC endpoint tests.
+	// This category focuses on testing the endpoints return the expected
+	// response given different requests. Testing logic should be simple
+	// and straight forward, that we only validate the responses by
+	// altering the requests.
+	{
+		Name:     "list channels",
+		TestFunc: testListChannels,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
@@ -100,14 +116,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "single hop invoice",
 	// 	test: testSingleHopInvoice,
-	// },
-	// {
-	// 	name: "sphinx replay persistence",
-	// 	test: testSphinxReplayPersistence,
-	// },
-	// {
-	// 	name: "list channels",
-	// 	test: testListChannels,
 	// },
 	// {
 	// 	name: "update channel status",

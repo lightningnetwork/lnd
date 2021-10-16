@@ -1945,3 +1945,37 @@ func (h *HarnessTest) SubscribeChannelEvents(
 
 	return client
 }
+
+// LookupInvoice queries the node's invoices using the specified rHash.
+func (h *HarnessTest) LookupInvoice(hn *HarnessNode,
+	rHash []byte) *lnrpc.Invoice {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	payHash := &lnrpc.PaymentHash{RHash: rHash}
+	resp, err := hn.rpc.LN.LookupInvoice(ctxt, payHash)
+	require.NoError(h, err, "unable to lookup invoice")
+
+	return resp
+}
+
+// AssertLastHTLCError checks that the last sent HTLC of the last payment sent
+// by the given node failed with the expected failure code.
+func (h *HarnessTest) AssertLastHTLCError(hn *HarnessNode,
+	code lnrpc.Failure_FailureCode) {
+
+	paymentsResp := h.ListPayments(hn, true)
+
+	payments := paymentsResp.Payments
+	require.NotZero(h, len(payments), "no payments found")
+
+	payment := payments[len(payments)-1]
+	htlcs := payment.Htlcs
+	require.NotZero(h, len(htlcs), "no htlcs")
+
+	htlc := htlcs[len(htlcs)-1]
+	require.NotNil(h, htlc.Failure, "expected htlc failure")
+
+	require.Equal(h, code, htlc.Failure.Code, "unexpected failure code")
+}

@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
@@ -140,56 +139,53 @@ func testDisconnectingTargetPeer(ht *lntest.HarnessTest) {
 	ht.CleanupForceClose(alice, chanPoint)
 }
 
-// testSphinxReplayPersistence verifies that replayed onion packets are rejected
-// by a remote peer after a restart. We use a combination of unsafe
-// configuration arguments to force Carol to replay the same sphinx packet after
-// reconnecting to Dave, and compare the returned failure message with what we
-// expect for replayed onion packets.
-func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	// Open a channel with 100k satoshis between Carol and Dave with Carol being
-	// the sole funder of the channel.
+// testSphinxReplayPersistence verifies that replayed onion packets are
+// rejected by a remote peer after a restart. We use a combination of unsafe
+// configuration arguments to force Carol to replay the same sphinx packet
+// after reconnecting to Dave, and compare the returned failure message with
+// what we expect for replayed onion packets.
+func testSphinxReplayPersistence(ht *lntest.HarnessTest) {
+	// Open a channel with 100k satoshis between Carol and Dave with Carol
+	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
 
 	// First, we'll create Dave, the receiver, and start him in hodl mode.
-	dave := net.NewNode(t.t, "Dave", []string{"--hodl.exit-settle"})
+	dave := ht.NewNode("Dave", []string{"--hodl.exit-settle"})
 
 	// We must remember to shutdown the nodes we created for the duration
 	// of the tests, only leaving the two seed nodes (Alice and Bob) within
 	// our test network.
-	defer shutdownAndAssert(net, t, dave)
+	defer ht.Shutdown(dave)
 
 	// Next, we'll create Carol and establish a channel to from her to
 	// Dave. Carol is started in both unsafe-replay which will cause her to
 	// replay any pending Adds held in memory upon reconnection.
-	carol := net.NewNode(t.t, "Carol", []string{"--unsafe-replay"})
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", []string{"--unsafe-replay"})
+	defer ht.Shutdown(carol)
 
-	net.ConnectNodes(t.t, carol, dave)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+	ht.ConnectNodes(carol, dave)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
 
-	chanPoint := openChannelAndAssert(
-		t, net, carol, dave,
-		lntest.OpenChannelParams{
+	chanPoint := ht.OpenChannel(
+		carol, dave, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
+	carolFundPoint := ht.OutPointFromChannelPoint(chanPoint)
 
 	// Next, we'll create Fred who is going to initiate the payment and
 	// establish a channel to from him to Carol. We can't perform this test
 	// by paying from Carol directly to Dave, because the '--unsafe-replay'
 	// setup doesn't apply to locally added htlcs. In that case, the
 	// mailbox, that is responsible for generating the replay, is bypassed.
-	fred := net.NewNode(t.t, "Fred", nil)
-	defer shutdownAndAssert(net, t, fred)
+	fred := ht.NewNode("Fred", nil)
+	defer ht.Shutdown(fred)
 
-	net.ConnectNodes(t.t, fred, carol)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, fred)
+	ht.ConnectNodes(fred, carol)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, fred)
 
-	chanPointFC := openChannelAndAssert(
-		t, net, fred, carol,
-		lntest.OpenChannelParams{
+	chanPointFC := ht.OpenChannel(
+		fred, carol, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -204,144 +200,87 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		RPreimage: preimage,
 		Value:     paymentAmt,
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	invoiceResp, err := dave.AddInvoice(ctxt, invoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
+	invoiceResp := ht.AddInvoice(invoice, dave)
 
 	// Wait for all channels to be recognized and advertized.
-	err = carol.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("alice didn't advertise channel before "+
-			"timeout: %v", err)
-	}
-	err = dave.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("bob didn't advertise channel before "+
-			"timeout: %v", err)
-	}
-	err = carol.WaitForNetworkChannelOpen(chanPointFC)
-	if err != nil {
-		t.Fatalf("alice didn't advertise channel before "+
-			"timeout: %v", err)
-	}
-	err = fred.WaitForNetworkChannelOpen(chanPointFC)
-	if err != nil {
-		t.Fatalf("bob didn't advertise channel before "+
-			"timeout: %v", err)
-	}
+	ht.AssertChannelOpen(carol, chanPoint)
+	ht.AssertChannelOpen(dave, chanPoint)
+	ht.AssertChannelOpen(carol, chanPointFC)
+	ht.AssertChannelOpen(fred, chanPointFC)
 
 	// With the invoice for Dave added, send a payment from Fred paying
 	// to the above generated invoice.
-	ctx, cancel := context.WithCancel(ctxb)
-	defer cancel()
-
-	payStream, err := fred.RouterClient.SendPaymentV2(
-		ctx,
-		&routerrpc.SendPaymentRequest{
-			PaymentRequest: invoiceResp.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
-	)
-	if err != nil {
-		t.Fatalf("unable to open payment stream: %v", err)
+	req := &routerrpc.SendPaymentRequest{
+		PaymentRequest: invoiceResp.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
 	}
-
-	time.Sleep(200 * time.Millisecond)
+	payStream := ht.SendPayment(fred, req)
 
 	// Dave's invoice should not be marked as settled.
-	payHash := &lnrpc.PaymentHash{
-		RHash: invoiceResp.RHash,
-	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	dbInvoice, err := dave.LookupInvoice(ctxt, payHash)
-	if err != nil {
-		t.Fatalf("unable to lookup invoice: %v", err)
-	}
-	if dbInvoice.Settled { // nolint:staticcheck
-		t.Fatalf("dave's invoice should not be marked as settled: %v",
-			spew.Sdump(dbInvoice))
-	}
+	dbInvoice := ht.LookupInvoice(dave, invoiceResp.RHash)
+	require.NotEqual(ht, lnrpc.InvoiceHTLCState_SETTLED, dbInvoice.State,
+		"dave's invoice should not be marked as settled")
 
 	// With the payment sent but hedl, all balance related stats should not
 	// have changed.
-	err = wait.InvariantNoError(
-		assertAmountSent(0, carol, dave), 3*time.Second,
-	)
-	if err != nil {
-		t.Fatalf(err.Error())
-	}
+	ht.AssertAmountPaid("carol => dave", carol, carolFundPoint, 0, 0)
+	ht.AssertAmountPaid("dave <= carol", dave, carolFundPoint, 0, 0)
 
 	// With the first payment sent, restart dave to make sure he is
 	// persisting the information required to detect replayed sphinx
 	// packets.
-	if err := net.RestartNode(dave, nil); err != nil {
-		t.Fatalf("unable to restart dave: %v", err)
-	}
+	ht.RestartNode(dave, nil)
 
 	// Carol should retransmit the Add hedl in her mailbox on startup. Dave
 	// should not accept the replayed Add, and actually fail back the
 	// pending payment. Even though he still holds the original settle, if
 	// he does fail, it is almost certainly caused by the sphinx replay
 	// protection, as it is the only validation we do in hodl mode.
-	result, err := getPaymentResult(payStream)
-	if err != nil {
-		t.Fatalf("unable to receive payment response: %v", err)
-	}
-
+	//
 	// Assert that Fred receives the expected failure after Carol sent a
 	// duplicate packet that fails due to sphinx replay detection.
-	if result.Status == lnrpc.Payment_SUCCEEDED {
-		t.Fatalf("expected payment error")
-	}
-	assertLastHTLCError(t, fred, lnrpc.Failure_INVALID_ONION_KEY)
+	ht.AssertPaymentStatusFromStream(payStream, lnrpc.Payment_FAILED)
+	ht.AssertLastHTLCError(fred, lnrpc.Failure_INVALID_ONION_KEY)
 
 	// Since the payment failed, the balance should still be left
 	// unaltered.
-	err = wait.InvariantNoError(
-		assertAmountSent(0, carol, dave), 3*time.Second,
-	)
-	if err != nil {
-		t.Fatalf(err.Error())
-	}
+	ht.AssertAmountPaid("carol => dave", carol, carolFundPoint, 0, 0)
+	ht.AssertAmountPaid("dave <= carol", dave, carolFundPoint, 0, 0)
 
-	closeChannelAndAssert(t, net, carol, chanPoint, true)
+	ht.CloseChannel(carol, chanPoint, true)
 
 	// Cleanup by mining the force close and sweep transaction.
-	cleanupForceClose(t, net, carol, chanPoint)
+	ht.CleanupForceClose(carol, chanPoint)
 }
 
 // testListChannels checks that the response from ListChannels is correct. It
 // tests the values in all ChannelConstraints are returned as expected. Once
 // ListChannels becomes mature, a test against all fields in ListChannels
 // should be performed.
-func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testListChannels(ht *lntest.HarnessTest) {
 	const aliceRemoteMaxHtlcs = 50
 	const bobRemoteMaxHtlcs = 100
 
 	// Create two fresh nodes and open a channel between them.
-	alice := net.NewNode(t.t, "Alice", nil)
-	defer shutdownAndAssert(net, t, alice)
+	alice := ht.NewNode("Alice", nil)
+	defer ht.Shutdown(alice)
 
-	bob := net.NewNode(
-		t.t, "Bob", []string{
+	bob := ht.NewNode(
+		"Bob", []string{
 			fmt.Sprintf(
 				"--default-remote-max-htlcs=%v",
 				bobRemoteMaxHtlcs,
 			),
 		},
 	)
-	defer shutdownAndAssert(net, t, bob)
+	defer ht.Shutdown(bob)
 
 	// Connect Alice to Bob.
-	net.ConnectNodes(t.t, alice, bob)
+	ht.ConnectNodes(alice, bob)
 
 	// Give Alice some coins so she can fund a channel.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel. The minial HTLC amount is set
@@ -350,8 +289,8 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	chanAmt := btcutil.Amount(100000)
 	pushAmt := btcutil.Amount(1000)
-	chanPoint := openChannelAndAssert(
-		t, net, alice, bob,
+	chanPoint := ht.OpenChannel(
+		alice, bob,
 		lntest.OpenChannelParams{
 			Amt:            chanAmt,
 			PushAmt:        pushAmt,
@@ -359,34 +298,21 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 			RemoteMaxHtlcs: aliceRemoteMaxHtlcs,
 		},
 	)
+	defer ht.CloseChannel(alice, chanPoint, false)
 
-	// Wait for Alice and Bob to receive the channel edge from the
-	// funding manager.
-	err := alice.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("alice didn't see the alice->bob channel before "+
-			"timeout: %v", err)
-	}
-
-	err = bob.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("bob didn't see the bob->alice channel before "+
-			"timeout: %v", err)
-	}
+	// Wait for Alice and Bob to receive the channel edge from the funding
+	// manager.
+	ht.AssertChannelOpen(alice, chanPoint)
+	ht.AssertChannelOpen(bob, chanPoint)
 
 	// Alice should have one channel opened with Bob.
-	assertNodeNumChannels(t, alice, 1)
+	ht.AssertNodeNumChannels(alice, 1)
 	// Bob should have one channel opened with Alice.
-	assertNodeNumChannels(t, bob, 1)
+	ht.AssertNodeNumChannels(bob, 1)
 
 	// Get the ListChannel response from Alice.
-	listReq := &lnrpc.ListChannelsRequest{}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := alice.ListChannels(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("unable to query for %s's channel list: %v",
-			alice.Name(), err)
-	}
+	resp := ht.ListChannels(alice)
+	require.NotEmpty(ht, resp)
 
 	// Check the returned response is correct.
 	aliceChannel := resp.Channels[0]
@@ -395,9 +321,9 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	aliceBalance := int64(chanAmt) - aliceChannel.CommitFee - int64(pushAmt)
 
 	// Check the balance related fields are correct.
-	require.Equal(t.t, aliceBalance, aliceChannel.LocalBalance)
-	require.EqualValues(t.t, pushAmt, aliceChannel.RemoteBalance)
-	require.EqualValues(t.t, pushAmt, aliceChannel.PushAmountSat)
+	require.Equal(ht, aliceBalance, aliceChannel.LocalBalance)
+	require.EqualValues(ht, pushAmt, aliceChannel.RemoteBalance)
+	require.EqualValues(ht, pushAmt, aliceChannel.PushAmountSat)
 
 	// Calculate the dust limit we'll use for the test.
 	dustLimit := lnwallet.DustLimitForSize(input.UnknownWitnessSize)
@@ -413,13 +339,13 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		MaxAcceptedHtlcs:  bobRemoteMaxHtlcs,
 	}
 	assertChannelConstraintsEqual(
-		t, defaultConstraints, aliceChannel.LocalConstraints,
+		ht, defaultConstraints, aliceChannel.LocalConstraints,
 	)
 
-	// customizedConstraints is a ChannelConstraints with customized values.
-	// Ideally, all these values can be passed in when creating the channel.
-	// Currently, only the MinHtlcMsat is customized. It is used to check
-	// against Alice's remote channel constratins.
+	// customizedConstraints is a ChannelConstraints with customized
+	// values. Ideally, all these values can be passed in when creating the
+	// channel. Currently, only the MinHtlcMsat is customized. It is used
+	// to check against Alice's remote channel constratins.
 	customizedConstraints := &lnrpc.ChannelConstraints{
 		CsvDelay:          4,
 		ChanReserveSat:    1000,
@@ -429,39 +355,30 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		MaxAcceptedHtlcs:  aliceRemoteMaxHtlcs,
 	}
 	assertChannelConstraintsEqual(
-		t, customizedConstraints, aliceChannel.RemoteConstraints,
+		ht, customizedConstraints, aliceChannel.RemoteConstraints,
 	)
 
 	// Get the ListChannel response for Bob.
-	listReq = &lnrpc.ListChannelsRequest{}
-	ctxb = context.Background()
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	resp, err = bob.ListChannels(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("unable to query for %s's channel "+
-			"list: %v", bob.Name(), err)
-	}
+	resp = ht.ListChannels(bob)
+	require.NotEmpty(ht, resp)
 
 	bobChannel := resp.Channels[0]
-	if bobChannel.ChannelPoint != aliceChannel.ChannelPoint {
-		t.Fatalf("Bob's channel point mismatched, want: %s, got: %s",
-			chanPoint.String(), bobChannel.ChannelPoint,
-		)
-	}
+	require.Equal(ht, aliceChannel.ChannelPoint, bobChannel.ChannelPoint,
+		"Bob's channel point mismatched")
 
 	// Check the balance related fields are correct.
-	require.Equal(t.t, aliceBalance, bobChannel.RemoteBalance)
-	require.EqualValues(t.t, pushAmt, bobChannel.LocalBalance)
-	require.EqualValues(t.t, pushAmt, bobChannel.PushAmountSat)
+	require.Equal(ht, aliceBalance, bobChannel.RemoteBalance)
+	require.EqualValues(ht, pushAmt, bobChannel.LocalBalance)
+	require.EqualValues(ht, pushAmt, bobChannel.PushAmountSat)
 
 	// Check channel constraints match. Alice's local channel constraint
 	// should be equal to Bob's remote channel constraint, and her remote
 	// one should be equal to Bob's local one.
 	assertChannelConstraintsEqual(
-		t, aliceChannel.LocalConstraints, bobChannel.RemoteConstraints,
+		ht, aliceChannel.LocalConstraints, bobChannel.RemoteConstraints,
 	)
 	assertChannelConstraintsEqual(
-		t, aliceChannel.RemoteConstraints, bobChannel.LocalConstraints,
+		ht, aliceChannel.RemoteConstraints, bobChannel.LocalConstraints,
 	)
 }
 
@@ -1647,4 +1564,25 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 	if err == nil {
 		t.Fatalf("sweep attempt should fail")
 	}
+}
+
+func assertChannelConstraintsEqual(ht *lntest.HarnessTest,
+	want, got *lnrpc.ChannelConstraints) {
+
+	require.Equal(ht, want.CsvDelay, got.CsvDelay, "CsvDelay mismatched")
+
+	require.Equal(ht, want.ChanReserveSat, got.ChanReserveSat,
+		"ChanReserveSat mismatched")
+
+	require.Equal(ht, want.DustLimitSat, got.DustLimitSat,
+		"DustLimitSat mismatched")
+
+	require.Equal(ht, want.MaxPendingAmtMsat, got.MaxPendingAmtMsat,
+		"MaxPendingAmtMsat mismatched")
+
+	require.Equal(ht, want.MinHtlcMsat, got.MinHtlcMsat,
+		"MinHtlcMsat mismatched")
+
+	require.Equal(ht, want.MaxAcceptedHtlcs, got.MaxAcceptedHtlcs,
+		"MaxAcceptedHtlcs mismatched")
 }

@@ -590,9 +590,6 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 	)
 	defer ht.CloseChannel(alice, chanPointAliceBob, false)
 
-	// Get Alice's funding point.
-	aliceFundPoint := ht.OutPointFromChannelPoint(chanPointAliceBob)
-
 	// Create a new node Carol.
 	carol := ht.NewNode("Carol", nil)
 	defer ht.Shutdown(carol)
@@ -608,9 +605,6 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 		},
 	)
 	defer ht.CloseChannel(bob, chanPointBobCarol, false)
-
-	// Get Bob's funding point.
-	bobFundPoint := ht.OutPointFromChannelPoint(chanPointBobCarol)
 
 	// We should have the following topology now,
 	// Alice <--public:100k--> Bob <--private:100k--> Carol
@@ -666,22 +660,22 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 
 	// Carol should have received 20k satoshis from Bob.
 	ht.AssertAmountPaid("Carol(remote) [<=private] Bob(local)",
-		carol, bobFundPoint, 0, paymentAmt)
+		carol, chanPointBobCarol, 0, paymentAmt)
 
 	// Bob should have sent 20k satoshis to Carol.
 	ht.AssertAmountPaid("Bob(local) [private=>] Carol(remote)",
-		bob, bobFundPoint, paymentAmt, 0)
+		bob, chanPointBobCarol, paymentAmt, 0)
 
 	// Calculate the amount in satoshis.
 	amtExpected := int64(paymentAmt + baseFeeMSat/1000)
 
 	// Bob should have received 20k satoshis + fee from Alice.
 	ht.AssertAmountPaid("Bob(remote) <= Alice(local)",
-		bob, aliceFundPoint, 0, amtExpected)
+		bob, chanPointAliceBob, 0, amtExpected)
 
 	// Alice should have sent 20k satoshis + fee to Bob.
 	ht.AssertAmountPaid("Alice(local) => Bob(remote)",
-		alice, aliceFundPoint, amtExpected, 0)
+		alice, chanPointAliceBob, amtExpected, 0)
 }
 
 // testUpdateChannelPolicyFeeRateAccuracy tests that updating the channel policy

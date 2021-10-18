@@ -89,6 +89,18 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testListChannels,
 	},
 
+	// Channel config related tests.
+	{
+		Name:     "max pending channel",
+		TestFunc: testMaxPendingChannels,
+	},
+
+	// Link related tests.
+	{
+		Name:     "garbage collect link nodes",
+		TestFunc: testGarbageCollectLinkNodes,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
@@ -124,10 +136,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "list outgoing payments",
 	// 	test: testListPayments,
-	// },
-	// {
-	// 	name: "max pending channel",
-	// 	test: testMaxPendingChannels,
 	// },
 	// {
 	// 	name: "multi-hop payments",
@@ -219,10 +227,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "failing link",
 	// 	test: testFailingChannel,
-	// },
-	// {
-	// 	name: "garbage collect link nodes",
-	// 	test: testGarbageCollectLinkNodes,
 	// },
 	// {
 	// 	name: "abandonchannel",

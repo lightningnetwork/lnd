@@ -200,3 +200,16 @@ func FindForceClosedChannel(pendingChanResp *lnrpc.PendingChannelsResponse,
 
 	return nil, errors.New("channel not marked as force closed")
 }
+
+// ChanPointFromPendingUpdate constructs a channel point from a lnrpc pending
+// update.
+func ChanPointFromPendingUpdate(pu *lnrpc.PendingUpdate) *lnrpc.ChannelPoint {
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: pu.Txid,
+		},
+		OutputIndex: pu.OutputIndex,
+	}
+
+	return chanPoint
+}

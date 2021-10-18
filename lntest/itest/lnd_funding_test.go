@@ -654,17 +654,14 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 
 	// The channel should be listed in the peer information returned by
 	// both peers.
-	outPoint := wire.OutPoint{
-		Hash:  *fundingTxID,
-		Index: pendingUpdate.OutputIndex,
-	}
+	chanPoint := lntest.ChanPointFromPendingUpdate(pendingUpdate)
 
 	// Re-lookup our transaction in the block that it confirmed in.
 	tx = ht.AssertTxAtHeight(alice, height, fundingTxStr)
 
 	// Check both nodes to ensure that the channel is ready for operation.
-	chanAlice := ht.AssertChannelExists(alice, &outPoint)
-	ht.AssertChannelExists(carol, &outPoint)
+	chanAlice := ht.AssertChannelExists(alice, chanPoint)
+	ht.AssertChannelExists(carol, chanPoint)
 
 	// Create an additional check for our channel assertion that will
 	// check that our label is as expected.
@@ -675,12 +672,6 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 	// Finally, immediately close the channel. This function will also
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
-	chanPoint := &lnrpc.ChannelPoint{
-		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-			FundingTxidBytes: pendingUpdate.Txid,
-		},
-		OutputIndex: pendingUpdate.OutputIndex,
-	}
 	ht.CloseChannel(alice, chanPoint, false)
 }
 

@@ -533,17 +533,11 @@ func (h *HarnessTest) OpenChannel(alice, bob *HarnessNode,
 
 	fundingChanPoint := h.WaitForChannelOpen(chanOpenUpdate)
 
-	fundingTxID, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
-	require.NoError(h, err, "unable to get txid")
-
+	fundingTxID := h.GetChanPointFundingTxid(fundingChanPoint)
 	h.AssertTxInBlock(block, fundingTxID)
 
 	// The channel should be listed in the peer information returned by
 	// both peers.
-	chanPoint := wire.OutPoint{
-		Hash:  *fundingTxID,
-		Index: fundingChanPoint.OutputIndex,
-	}
 
 	// Check that both alice and bob have seen the channel from
 	// their channel watch request.
@@ -551,10 +545,34 @@ func (h *HarnessTest) OpenChannel(alice, bob *HarnessNode,
 	h.AssertChannelOpen(bob, fundingChanPoint)
 
 	// Finally, check that the channel can be seen in their ListChannels.
-	h.AssertChannelExists(alice, &chanPoint)
-	h.AssertChannelExists(bob, &chanPoint)
+	h.AssertChannelExists(alice, fundingChanPoint)
+	h.AssertChannelExists(bob, fundingChanPoint)
 
 	return fundingChanPoint
+}
+
+// OpenChannelAssertErr opens a channel between node a and b, asserts that the
+// expected error is returned from the channel opening.
+func (h *HarnessTest) OpenChannelAssertErr(a, b *HarnessNode,
+	p OpenChannelParams, expectedErr error) {
+
+	err := wait.NoError(func() error {
+		_, err := h.net.OpenChannel(a, b, p)
+		if err == nil {
+			return fmt.Errorf("no error returned")
+		}
+
+		// Use string comparison here as we haven't codified all the
+		// RPC errors yet.
+		if strings.Contains(err.Error(), expectedErr.Error()) {
+			return nil
+		}
+
+		return fmt.Errorf("unexpected error returned, want %v, got %v",
+			expectedErr, err)
+	}, ChannelOpenTimeout)
+
+	require.NoError(h, err, "timeout checking error from open channel")
 }
 
 // AssertChannelOpen asserts that a given channel outpoint is seen by the
@@ -569,30 +587,26 @@ func (h *HarnessTest) AssertChannelOpen(n *HarnessNode,
 // AssertChannelExists asserts that an active channel identified by the
 // specified channel point exists from the point-of-view of the node.
 func (h *HarnessTest) AssertChannelExists(hn *HarnessNode,
-	cp *wire.OutPoint) *lnrpc.Channel { //nolint: interfacer
+	cp *lnrpc.ChannelPoint) *lnrpc.Channel {
 
-	var channel *lnrpc.Channel
+	var (
+		channel *lnrpc.Channel
+		err     error
+	)
 
-	err := wait.NoError(func() error {
-		// We require the RPC call to be succeeded and won't wait for
-		// it as it's an unexpected behavior.
-		resp := h.ListChannels(hn)
-
-		for _, ch := range resp.Channels {
-			if ch.ChannelPoint == cp.String() {
-				// Assign the channel found.
-				channel = ch
-				// Check whether our channel is active, failing
-				// early if it is not.
-				if channel.Active {
-					return nil
-				}
-				return fmt.Errorf("channel point not active")
-
-			}
+	err = wait.NoError(func() error {
+		channel, err = h.findChannel(hn, cp)
+		if err != nil {
+			return err
 		}
 
-		return fmt.Errorf("outpoint %v not found", cp)
+		// Check whether our channel is active, exit early if it is.
+		if channel.Active {
+			return nil
+		}
+
+		return fmt.Errorf("channel point not active")
+
 	}, DefaultTimeout)
 
 	require.NoError(h, err, "timeout checking for channel point: %v", cp)
@@ -915,9 +929,7 @@ func (h *HarnessTest) AssertActiveHtlcs(hn *HarnessNode, payHashes ...[]byte) {
 func (h *HarnessTest) OutPointFromChannelPoint(
 	cp *lnrpc.ChannelPoint) wire.OutPoint {
 
-	txid, err := lnrpc.GetChanPointFundingTxid(cp)
-	require.NoError(h, err, "failed to get funding txid")
-
+	txid := h.GetChanPointFundingTxid(cp)
 	return wire.OutPoint{
 		Hash:  *txid,
 		Index: cp.OutputIndex,
@@ -1116,8 +1128,7 @@ func (h *HarnessTest) assertChannelClosed(hn *HarnessNode,
 	fundingChanPoint *lnrpc.ChannelPoint, anchors bool,
 	closeUpdates lnrpc.Lightning_CloseChannelClient) *chainhash.Hash {
 
-	txid, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
-	require.NoError(h, err, "unable to get txid")
+	txid := h.GetChanPointFundingTxid(fundingChanPoint)
 	chanPointStr := fmt.Sprintf("%v:%v", txid, fundingChanPoint.OutputIndex)
 
 	// If the channel appears in list channels, ensure that its state
@@ -1841,35 +1852,31 @@ func (h *HarnessTest) WaitForChannelPendingForceClose(hn *HarnessNode,
 // node list the total amount sent and received as expected for the
 // provided channel.
 func (h *HarnessTest) AssertAmountPaid(channelName string, hn *HarnessNode,
-	chanPoint wire.OutPoint, amountSent, amountReceived int64) { // nolint:interfacer
+	chanPoint *lnrpc.ChannelPoint, amountSent, amountReceived int64) {
 
 	checkAmountPaid := func() error {
-		resp := h.ListChannels(hn)
-
-		for _, channel := range resp.Channels {
-			if channel.ChannelPoint != chanPoint.String() {
-				continue
-			}
-
-			if channel.TotalSatoshisSent != amountSent {
-				return fmt.Errorf("%v: incorrect amount"+
-					" sent: %v != %v", channelName,
-					channel.TotalSatoshisSent,
-					amountSent)
-			}
-			if channel.TotalSatoshisReceived !=
-				amountReceived {
-				return fmt.Errorf("%v: incorrect amount"+
-					" received: %v != %v",
-					channelName,
-					channel.TotalSatoshisReceived,
-					amountReceived)
-			}
-
-			return nil
+		// Find the targeted channel.
+		channel, err := h.findChannel(hn, chanPoint)
+		if err != nil {
+			return fmt.Errorf("assert amount failed: %v", err)
 		}
 
-		return fmt.Errorf("channel not found")
+		if channel.TotalSatoshisSent != amountSent {
+			return fmt.Errorf("%v: incorrect amount"+
+				" sent: %v != %v", channelName,
+				channel.TotalSatoshisSent,
+				amountSent)
+		}
+		if channel.TotalSatoshisReceived !=
+			amountReceived {
+			return fmt.Errorf("%v: incorrect amount"+
+				" received: %v != %v",
+				channelName,
+				channel.TotalSatoshisReceived,
+				amountReceived)
+		}
+
+		return nil
 	}
 
 	// As far as HTLC inclusion in commitment transaction might be
@@ -1978,4 +1985,34 @@ func (h *HarnessTest) AssertLastHTLCError(hn *HarnessNode,
 	require.NotNil(h, htlc.Failure, "expected htlc failure")
 
 	require.Equal(h, code, htlc.Failure.Code, "unexpected failure code")
+}
+
+// GetChanPointFundingTxid takes a channel point and converts it into a chain
+// hash.
+func (h *HarnessTest) GetChanPointFundingTxid(
+	cp *lnrpc.ChannelPoint) *chainhash.Hash {
+
+	txid, err := lnrpc.GetChanPointFundingTxid(cp)
+	require.NoError(h, err, "unable to get txid")
+
+	return txid
+}
+
+// findChannel tries to find a target channel in the node using the given
+// channel point.
+func (h *HarnessTest) findChannel(hn *HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) (*lnrpc.Channel, error) {
+
+	// Get the funding point.
+	fp := h.OutPointFromChannelPoint(chanPoint)
+	channelInfo := h.ListChannels(hn)
+
+	// Find the target channel first.
+	for _, channel := range channelInfo.Channels {
+		if channel.ChannelPoint == fp.String() {
+			return channel, nil
+		}
+	}
+
+	return nil, fmt.Errorf("channel not found")
 }

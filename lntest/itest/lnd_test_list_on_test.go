@@ -106,6 +106,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "data loss protection",
 		TestFunc: testDataLossProtection,
 	},
+	{
+		Name:     "channel backup restore",
+		TestFunc: testChannelBackupRestore,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
@@ -265,10 +269,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "export channel backup",
 	// 	test: testExportChannelBackup,
-	// },
-	// {
-	// 	name: "channel backup restore",
-	// 	test: testChannelBackupRestore,
 	// },
 	// {
 	// 	name: "hold invoice sender persistence",

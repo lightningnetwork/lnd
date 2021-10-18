@@ -998,7 +998,7 @@ func (n *NetworkHarness) OpenChannel(srcNode, destNode *HarnessNode,
 	respStream, err := srcNode.OpenChannel(n.runCtx, openReq)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open channel between "+
-			"alice and bob: %v", err)
+			"%s and %s: %v", srcNode.Name(), destNode.Name(), err)
 	}
 
 	chanOpen := make(chan struct{})

@@ -9,6 +9,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -20,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -206,7 +208,10 @@ func (h *HarnessTest) RestoreNodeWithSeed(name string, extraArgs []string,
 		ChannelBackups:     chanBackups,
 	}
 
-	_, err = node.Init(initReq)
+	err = wait.NoError(func() error {
+		_, err := node.Init(initReq)
+		return err
+	}, DefaultTimeout)
 	require.NoError(h, err, "restore node failed to init node")
 
 	// With the node started, we can now record its public key within the
@@ -481,23 +486,19 @@ type OpenChanClient lnrpc.Lightning_OpenChannelClient
 func (h *HarnessTest) OpenChannelStreamAndAssert(a, b *HarnessNode,
 	p OpenChannelParams) OpenChanClient {
 
+	var client OpenChanClient
 	// Wait until we are able to fund a channel successfully. This wait
 	// prevents us from erroring out when trying to create a channel while
 	// the node is starting up.
-	var (
-		chanOpenUpdate OpenChanClient
-		err            error
-	)
-
-	err = wait.NoError(func() error {
-		chanOpenUpdate, err = h.net.OpenChannel(a, b, p)
+	err := wait.NoError(func() error {
+		chanOpenUpdate, err := h.net.OpenChannel(a, b, p)
+		client = chanOpenUpdate
 		return err
 	}, ChannelOpenTimeout)
+	require.NoError(h, err, "timeout when open channel between %s "+
+		"and %s", a.Name(), b.Name())
 
-	require.NoError(h, err, "unable to open channel between %s and %s",
-		a.Cfg.Name, b.Cfg.Name)
-
-	return chanOpenUpdate
+	return client
 }
 
 // WaitForChannelOpen takes a open channel client and consumes the stream to
@@ -579,6 +580,81 @@ func (h *HarnessTest) OpenChannelAssertErr(a, b *HarnessNode,
 	}, ChannelOpenTimeout)
 
 	require.NoError(h, err, "timeout checking error from open channel")
+}
+
+// OpenChannelPsbt attempts to open a channel between srcNode and destNode with
+// the passed channel funding parameters. It will assert if the expected step
+// of funding the PSBT is not received from the source node.
+func (h *HarnessTest) OpenChannelPsbt(srcNode, destNode *HarnessNode,
+	p OpenChannelParams) (OpenChanClient, []byte) {
+
+	// Wait until srcNode and destNode have the latest chain synced.
+	// Otherwise, we may run into a check within the funding manager that
+	// prevents any funding workflows from being kicked off if the chain
+	// isn't yet synced.
+	err := srcNode.WaitForBlockchainSync()
+	require.NoError(h, err, "unable to sync srcNode chain")
+	err = destNode.WaitForBlockchainSync()
+	require.NoError(h, err, "unable to sync destNode chain")
+
+	// Send the request to open a channel to the source node now. This will
+	// open a long-lived stream where we'll receive status updates about
+	// the progress of the channel.
+	// respStream := h.OpenChannelStreamAndAssert(srcNode, destNode, p)
+	req := &lnrpc.OpenChannelRequest{
+		NodePubkey:         destNode.PubKey[:],
+		LocalFundingAmount: int64(p.Amt),
+		PushSat:            int64(p.PushAmt),
+		Private:            p.Private,
+		SpendUnconfirmed:   p.SpendUnconfirmed,
+		MinHtlcMsat:        int64(p.MinHtlc),
+		FundingShim:        p.FundingShim,
+	}
+	respStream, err := srcNode.OpenChannel(h.runCtx, req)
+	require.NoErrorf(h, err, "unable to open channel between "+
+		"%s and %s", srcNode.Name(), destNode.Name())
+
+	// Consume the "PSBT funding ready" update. This waits until the node
+	// notifies us that the PSBT can now be funded.
+	resp := h.ReceiveChanUpdate(respStream)
+	upd, ok := resp.Update.(*lnrpc.OpenStatusUpdate_PsbtFund)
+	require.Truef(h, ok, "expected PSBT funding update, got %v", resp)
+
+	return respStream, upd.PsbtFund.Psbt
+}
+
+// ReceiveChanUpdate waits until a message is received on the stream or the
+// timeout is reached.
+func (h *HarnessTest) ReceiveChanUpdate(
+	stream OpenChanClient) *lnrpc.OpenStatusUpdate {
+
+	chanMsg := make(chan *lnrpc.OpenStatusUpdate)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout before chan pending "+
+			"update sent")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
 }
 
 // AssertChannelOpen asserts that a given channel outpoint is seen by the
@@ -1160,6 +1236,41 @@ func (h *HarnessTest) CloseReorgedChannel(hn *HarnessNode,
 	)
 }
 
+type CloseChanClient lnrpc.Lightning_CloseChannelClient
+
+// CloseChannelStreamAndAssert blocks until an CloseChannel request for a
+// given channel point succeeds. If it does, a stream client is returned
+// to receive events about the closing channel.
+func (h *HarnessTest) CloseChannelStreamAndAssert(hn *HarnessNode,
+	chanPoint *lnrpc.ChannelPoint, force bool) CloseChanClient {
+
+	var (
+		client CloseChanClient
+		err    error
+	)
+
+	req := &lnrpc.CloseChannelRequest{
+		ChannelPoint: chanPoint,
+		Force:        force,
+	}
+
+	err = wait.NoError(func() error {
+
+		// Use runCtx here instead of a timeout context to keep the
+		// client alive for the entire test case.
+		client, err = hn.CloseChannel(h.runCtx, req)
+		if err != nil {
+			return fmt.Errorf("unable to close channel for node %s"+
+				" with channel point %s", hn.Name(), chanPoint)
+		}
+		return nil
+	}, ChannelCloseTimeout)
+
+	require.NoError(h, err, "timeout closing channel")
+
+	return client
+}
+
 // AssertChannelPolicyUpdate checks that the required policy update has
 // happened on the given node.
 func (h *HarnessTest) AssertChannelPolicyUpdate(node *HarnessNode,
@@ -1557,12 +1668,15 @@ func (h *HarnessTest) GetWalletBalance(
 }
 
 // ListUnspent makes a RPC call to ListUnspent and asserts.
-func (h *HarnessTest) ListUnspent(hn *HarnessNode) *lnrpc.ListUnspentResponse {
+func (h *HarnessTest) ListUnspent(hn *HarnessNode,
+	max, min int32) *lnrpc.ListUnspentResponse {
+
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
 	req := &lnrpc.ListUnspentRequest{
-		MaxConfs: math.MaxInt32,
+		MaxConfs: max,
+		MinConfs: min,
 	}
 	resp, err := hn.rpc.LN.ListUnspent(ctxt, req)
 	require.NoError(h, err, "failed to list utxo for node %s", hn.Name())
@@ -2231,4 +2345,97 @@ func (h *HarnessTest) AssertNumUpdates(hn *HarnessNode,
 	require.NoError(h, err, "unable to find channel")
 
 	require.Equal(h, num, target.NumUpdates, "NumUpdates not matched")
+}
+
+// ExportAllChanBackups makes a RPC call to the node's ExportAllChannelBackups
+// and asserts.
+func (h *HarnessTest) ExportAllChanBackups(
+	hn *HarnessNode) *lnrpc.ChanBackupSnapshot {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.ChanBackupExportRequest{}
+	chanBackup, err := hn.rpc.LN.ExportAllChannelBackups(ctxt, req)
+	require.NoError(h, err, "unable to obtain channel backup")
+
+	return chanBackup
+}
+
+// ExportChanBackup makes a RPC call to the node's ExportChannelBackup
+// and asserts.
+func (h *HarnessTest) ExportChanBackup(hn *HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) *lnrpc.ChannelBackup {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.ExportChannelBackupRequest{
+		ChanPoint: chanPoint,
+	}
+	chanBackup, err := hn.rpc.LN.ExportChannelBackup(ctxt, req)
+	require.NoError(h, err, "unable to obtain channel backup")
+
+	return chanBackup
+}
+
+// RestoreChanBackups makes a RPC call to the node's RestoreChannelBackups and
+// asserts.
+func (h *HarnessTest) RestoreChanBackups(hn *HarnessNode,
+	req *lnrpc.RestoreChanBackupRequest) *lnrpc.RestoreBackupResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.LN.RestoreChannelBackups(ctxt, req)
+	require.NoError(h, err, "unable to restore backups")
+
+	return resp
+}
+
+// FundPsbt makes a RPC call to node's FundPsbt and asserts.
+func (h *HarnessTest) FundPsbt(hn *HarnessNode,
+	req *walletrpc.FundPsbtRequest) *walletrpc.FundPsbtResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.WalletKit.FundPsbt(ctxt, req)
+	require.NoError(h, err, "fund psbt failed")
+
+	return resp
+}
+
+// FinalizePsbt makes a RPC call to node's FundPsbt and asserts.
+func (h *HarnessTest) FinalizePsbt(hn *HarnessNode,
+	req *walletrpc.FinalizePsbtRequest) *walletrpc.FinalizePsbtResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.WalletKit.FinalizePsbt(ctxt, req)
+	require.NoError(h, err, "finalize psbt failed")
+
+	return resp
+}
+
+// AssertNodeStarted waits until the node is fully started or asserts a timeout
+// error.
+func (h *HarnessTest) AssertNodeStarted(hn *HarnessNode) {
+	require.NoError(h, hn.WaitUntilServerActive())
+}
+
+// AssertNumUTXOs waits for the given number of UTXOs to be available or fails
+// if that isn't the case before the default timeout.
+func (h *HarnessTest) AssertNumUTXOs(hn *HarnessNode, expectedUtxos int) {
+	err := wait.NoError(func() error {
+		resp := h.ListUnspent(hn, math.MaxInt32, 1)
+		if len(resp.Utxos) != expectedUtxos {
+			return fmt.Errorf("not enough UTXOs, got %d wanted %d",
+				len(resp.Utxos), expectedUtxos)
+		}
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout waiting for UTXOs")
 }

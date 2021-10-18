@@ -1052,6 +1052,7 @@ func deriveInternalKey(ctx context.Context, t *harnessTest,
 // then if the timeout is reached before the channel pending notification is
 // received, an error is returned. An error is returned if the expected step
 // of funding the PSBT is not received from the source node.
+// TODO(yy): delete
 func openChannelPsbt(ctx context.Context, srcNode, destNode *lntest.HarnessNode,
 	p lntest.OpenChannelParams) (lnrpc.Lightning_OpenChannelClient, []byte,
 	error) {
@@ -1104,6 +1105,7 @@ func openChannelPsbt(ctx context.Context, srcNode, destNode *lntest.HarnessNode,
 // receiveChanUpdate waits until a message is received on the stream or the
 // context is canceled. The context must have a timeout or must be canceled
 // in case no message is received, otherwise this function will block forever.
+// TODO(yy): delete
 func receiveChanUpdate(ctx context.Context,
 	stream lnrpc.Lightning_OpenChannelClient) (*lnrpc.OpenStatusUpdate,
 	error) {

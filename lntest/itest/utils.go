@@ -26,6 +26,7 @@ import (
 // completePaymentRequests sends payments from a lightning node to complete all
 // payment requests. If the awaitResponse parameter is true, this function
 // does not return until all payments successfully complete without errors.
+// TODO(yy): delete
 func completePaymentRequests(client lnrpc.LightningClient,
 	routerClient routerrpc.RouterClient, paymentRequests []string,
 	awaitResponse bool) error {
@@ -150,6 +151,7 @@ func makeFakePayHash(t *harnessTest) []byte {
 
 // createPayReqs is a helper method that will create a slice of payment
 // requests for the given node.
+// TODO(yy): delete
 func createPayReqs(node *lntest.HarnessNode, paymentAmt btcutil.Amount,
 	numInvoices int) ([]string, [][]byte, []*lnrpc.Invoice, error) {
 
@@ -190,6 +192,7 @@ func createPayReqs(node *lntest.HarnessNode, paymentAmt btcutil.Amount,
 
 // getChanInfo is a helper method for getting channel info for a node's sole
 // channel.
+// TODO(yy): delete
 func getChanInfo(node *lntest.HarnessNode) (*lnrpc.Channel, error) {
 	ctxb := context.Background()
 	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)

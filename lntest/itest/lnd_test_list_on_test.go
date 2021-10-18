@@ -101,6 +101,12 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testGarbageCollectLinkNodes,
 	},
 
+	// DLP(data loss protection) relatd tests.
+	{
+		Name:     "data loss protection",
+		TestFunc: testDataLossProtection,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
@@ -243,10 +249,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "revoked uncooperative close retribution altruist watchtower",
 	// 	test: testRevokedCloseRetributionAltruistWatchtower,
-	// },
-	// {
-	// 	name: "data loss protection",
-	// 	test: testDataLossProtection,
 	// },
 	// {
 	// 	name: "query routes",

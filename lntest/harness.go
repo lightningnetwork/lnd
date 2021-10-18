@@ -28,6 +28,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const (
+	// noFeeLimitMsat is used to specify we will put no requirements on fee
+	// charged when choosing a route path.
+	noFeeLimitMsat = math.MaxInt64
+)
+
 // TestCase defines a test case that's been used in the integration test.
 type TestCase struct {
 	// Name specifies the test name.
@@ -1031,6 +1037,52 @@ func (h *HarnessTest) AssertNumChannelPendingForceClose(hn *HarnessNode,
 	require.NoError(h, err, "assert num pending force close timed out")
 }
 
+// AssertNumWaitingCloseChannels waits for the node to report a certain
+// number of channels in state waiting close.
+func (h *HarnessTest) AssertNumWaitingCloseChannels(hn *HarnessNode,
+	expectedNum int) {
+
+	err := wait.NoError(func() error {
+		resp := h.GetPendingChannels(hn)
+
+		waitingClose := resp.WaitingCloseChannels
+		if len(waitingClose) != expectedNum {
+			return fmt.Errorf("%v should have %d waiting "+
+				"close channels but has %d",
+				hn.Name(), expectedNum,
+				len(waitingClose))
+		}
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(h, err, "assert num waiting close timed out")
+}
+
+// AssertNumPendingCloseChannels checks that a PendingChannels response from
+// the node reports the expected number of pending force channels and waiting
+// close channels.
+func (h *HarnessTest) AssertNumPendingCloseChannels(hn *HarnessNode,
+	expWaitingClose, expPendingForceClose int) {
+
+	err := wait.NoError(func() error {
+		pendingChanResp := h.GetPendingChannels(hn)
+		n := len(pendingChanResp.WaitingCloseChannels)
+		if n != expWaitingClose {
+			return fmt.Errorf("expected to find %d channels "+
+				"waiting close, found %d", expWaitingClose, n)
+		}
+
+		n = len(pendingChanResp.PendingForceClosingChannels)
+		if n != expPendingForceClose {
+			return fmt.Errorf("expected to find %d channel "+
+				"pending force close, found %d", expPendingForceClose, n)
+		}
+		return nil
+	}, DefaultTimeout)
+
+	require.NoErrorf(h, err, "assert pending channels timeout")
+}
+
 // closeChannel attempts to close a channel identified by the passed channel
 // point owned by the passed Lightning node. A fully blocking channel closure
 // is attempted, therefore the passed context should be a child derived via
@@ -2015,4 +2067,168 @@ func (h *HarnessTest) findChannel(hn *HarnessNode,
 	}
 
 	return nil, fmt.Errorf("channel not found")
+}
+
+// CreatePayReqs is a helper method that will create a slice of payment
+// requests for the given node.
+func (h *HarnessTest) CreatePayReqs(hn *HarnessNode, paymentAmt btcutil.Amount,
+	numInvoices int) ([]string, [][]byte, []*lnrpc.Invoice) {
+
+	payReqs := make([]string, numInvoices)
+	rHashes := make([][]byte, numInvoices)
+	invoices := make([]*lnrpc.Invoice, numInvoices)
+	for i := 0; i < numInvoices; i++ {
+		preimage := make([]byte, 32)
+		_, err := rand.Read(preimage)
+		require.NoError(h, err, "unable to generate preimage")
+
+		invoice := &lnrpc.Invoice{
+			Memo:      "testing",
+			RPreimage: preimage,
+			Value:     int64(paymentAmt),
+		}
+		resp := h.AddInvoice(invoice, hn)
+
+		// Set the payment address in the invoice so the caller can
+		// properly use it.
+		invoice.PaymentAddr = resp.PaymentAddr
+
+		payReqs[i] = resp.PaymentRequest
+		rHashes[i] = resp.RHash
+		invoices[i] = invoice
+	}
+
+	return payReqs, rHashes, invoices
+}
+
+// CompletePaymentRequests sends payments from a lightning node to complete all
+// payment requests. If the awaitResponse parameter is true, this function does
+// not return until all payments successfully complete without errors.
+func (h *HarnessTest) CompletePaymentRequests(hn *HarnessNode,
+	paymentRequests []string, awaitResponse bool) {
+
+	// We start by getting the current state of the client's channels. This
+	// is needed to ensure the payments actually have been committed before
+	// we return.
+	listResp := h.ListChannels(hn)
+
+	// send sends a payment and asserts if it doesn't succeeded.
+	send := func(payReq string) {
+		payStream := h.SendPayment(
+			hn,
+			&routerrpc.SendPaymentRequest{
+				PaymentRequest: payReq,
+				TimeoutSeconds: 60,
+				FeeLimitMsat:   noFeeLimitMsat,
+			},
+		)
+
+		// If we are not waiting for response, exit early.
+		if !awaitResponse {
+			return
+		}
+
+		h.AssertPaymentStatusFromStream(
+			payStream, lnrpc.Payment_SUCCEEDED,
+		)
+	}
+
+	// Launch all payments simultaneously.
+	for _, payReq := range paymentRequests {
+		payReqCopy := payReq
+		go send(payReqCopy)
+	}
+
+	// We are not waiting for feedback in the form of a response, but we
+	// should still wait long enough for the server to receive and handle
+	// the send before cancelling the request. We wait for the number of
+	// updates to one of our channels has increased before we return.
+	err := wait.NoError(func() error {
+		newListResp := h.ListChannels(hn)
+
+		// If the number of open channels is now lower than before
+		// attempting the payments, it means one of the payments
+		// triggered a force closure (for example, due to an incorrect
+		// preimage). Return early since it's clear the payment was
+		// attempted.
+		if len(newListResp.Channels) < len(listResp.Channels) {
+			return nil
+		}
+
+		for _, c1 := range listResp.Channels {
+			for _, c2 := range newListResp.Channels {
+				if c1.ChannelPoint != c2.ChannelPoint {
+					continue
+				}
+
+				// If this channel has an increased numbr of
+				// updates, we assume the payments are
+				// committed, and we can return.
+				if c2.NumUpdates > c1.NumUpdates {
+					return nil
+				}
+			}
+		}
+
+		return fmt.Errorf("channel not updated after sending payments")
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout while checking for channel updates")
+}
+
+// AssertLocalBalance checks the local balance of the given channel is
+// expected. The channel found using the specified channel point is returned.
+func (h *HarnessTest) AssertLocalBalance(hn *HarnessNode,
+	cp *lnrpc.ChannelPoint, balance int64) *lnrpc.Channel {
+
+	var result *lnrpc.Channel
+
+	// Get the funding point.
+	err := wait.NoError(func() error {
+		// Find the target channel first.
+		target, err := h.findChannel(hn, cp)
+
+		// Exit early if the channel is not found.
+		if err != nil {
+			return fmt.Errorf("check balance failed: %v", err)
+		}
+
+		result = target
+
+		// Check local balance.
+		if target.LocalBalance == balance {
+			return nil
+		}
+
+		return fmt.Errorf("balance is incorrect, got %v, expected %v",
+			target.LocalBalance, balance)
+
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout while chekcing for balance")
+
+	return result
+}
+
+// BackupDb created a db backup for the specified node and asserts.
+func (h *HarnessTest) BackupDb(hn *HarnessNode) {
+	require.NoError(h, h.net.BackupDb(hn), "failed to copy db files")
+}
+
+// RestoreDb restores a db backup for the specified node and asserts.
+func (h *HarnessTest) RestoreDb(hn *HarnessNode) {
+	require.NoError(h, h.net.RestoreDb(hn), "failed to restore db")
+}
+
+// AssertNumUpdates checks the num of updates is expected from the given
+// channel.
+//
+// NOTE: doesn't wait.
+func (h *HarnessTest) AssertNumUpdates(hn *HarnessNode,
+	num uint64, cp *lnrpc.ChannelPoint) {
+
+	// Find the target channel first.
+	target, err := h.findChannel(hn, cp)
+	require.NoError(h, err, "unable to find channel")
+
+	require.Equal(h, num, target.NumUpdates, "NumUpdates not matched")
 }

@@ -101,7 +101,7 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testGarbageCollectLinkNodes,
 	},
 
-	// DLP(data loss protection) relatd tests.
+	// Channel backup relatd tests.
 	{
 		Name:     "data loss protection",
 		TestFunc: testDataLossProtection,
@@ -109,6 +109,14 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "channel backup restore",
 		TestFunc: testChannelBackupRestore,
+	},
+	{
+		Name:     "streaming channel backup update",
+		TestFunc: testChannelBackupUpdates,
+	},
+	{
+		Name:     "export channel backup",
+		TestFunc: testExportChannelBackup,
 	},
 
 	// {
@@ -261,14 +269,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "route fee cutoff",
 	// 	test: testRouteFeeCutoff,
-	// },
-	// {
-	// 	name: "streaming channel backup update",
-	// 	test: testChannelBackupUpdates,
-	// },
-	// {
-	// 	name: "export channel backup",
-	// 	test: testExportChannelBackup,
 	// },
 	// {
 	// 	name: "hold invoice sender persistence",

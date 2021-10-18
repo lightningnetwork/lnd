@@ -2439,3 +2439,32 @@ func (h *HarnessTest) AssertNumUTXOs(hn *HarnessNode, expectedUtxos int) {
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout waiting for UTXOs")
 }
+
+type BackupSubscriber lnrpc.Lightning_SubscribeChannelBackupsClient
+
+// SubscribeChannelBackups creates a client to listen to channel backup stream.
+func (h *HarnessTest) SubscribeChannelBackups(
+	hn *HarnessNode) BackupSubscriber {
+
+	// Use runCtx here instead of timeout context to keep the stream client
+	// alive.
+	backupStream, err := hn.rpc.LN.SubscribeChannelBackups(
+		h.runCtx, &lnrpc.ChannelBackupSubscription{},
+	)
+	require.NoError(h, err, "unable to create backup stream")
+
+	return backupStream
+}
+
+// VerifyChanBackup makes a RPC call to node's VerifyChanBackup and asserts.
+func (h *HarnessTest) VerifyChanBackup(hn *HarnessNode,
+	ss *lnrpc.ChanBackupSnapshot) *lnrpc.VerifyChanBackupResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.LN.VerifyChanBackup(ctxt, ss)
+	require.NoError(h, err, "unable to verify backup")
+
+	return resp
+}

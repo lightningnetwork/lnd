@@ -401,6 +401,8 @@ messages directly. There is no routing/path finding involved.
   was refactored as a preparation for supporting remote
   signing](https://github.com/lightningnetwork/lnd/pull/5708).
 
+* [Include htlc amount in bandwidth hints](https://github.com/lightningnetwork/lnd/pull/5512).
+
 ## Database
 
 * [Ensure single writer for legacy

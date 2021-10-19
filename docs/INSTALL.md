@@ -5,6 +5,7 @@
   * [Building a development version from source](#building-a-development-version-from-source)
     * [Preliminaries](#preliminaries-for-installing-from-source)
     * [Installing lnd](#installing-lnd-from-source)
+    * [Using lnd as a library](#using-lnd-as-library)
 * [Available Backend Operating Modes](#available-backend-operating-modes)
   * [btcd Options](#btcd-options)
   * [Neutrino Options](#neutrino-options)
@@ -240,6 +241,14 @@ To check that `lnd` was installed properly run the following command:
 
 This command requires `bitcoind` (almost any version should do) to be available
 in the system's `$PATH` variable. Otherwise some of the tests will fail.
+
+### Using lnd as library
+
+To use lnd as a library use `go get` command with a tagged version 
+`go get github.com/lightningnetwork/lnd@v0.13.1-beta`. 
+To the go.mod add this 
+`replace go.etcd.io/etcd => go.etcd.io/etcd v0.5.0-alpha.5.0.20201125193152-8a03d2e9614b` 
+if the `go get` fails.
 
 # Available Backend Operating Modes
 

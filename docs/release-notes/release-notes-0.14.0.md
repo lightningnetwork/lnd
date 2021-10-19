@@ -277,6 +277,8 @@ messages directly. There is no routing/path finding involved.
   Applications that use the iOS build will have to be updated to include
   an `xcframework` instead of a `framework`.
 
+* [Upgrade the sub packages to 1.16](https://github.com/lightningnetwork/lnd/pull/5813)
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

@@ -388,11 +388,15 @@ messages directly. There is no routing/path finding involved.
 
 * [Order of the start/stop on subsystems are changed to promote better safety](https://github.com/lightningnetwork/lnd/pull/1783).
 
+
+* [Included Codeql scanning to increase the security posture](https://github.com/lightningnetwork/lnd/pull/5735)
+
 * [Fixed flake that occurred when testing the new optimistic link shutdown.](https://github.com/lightningnetwork/lnd/pull/5808)
  
 * [Respect minimum relay fee during commitment fee updates](https://github.com/lightningnetwork/lnd/pull/5483).
 
 * [Replace reference to protobuf library with OSV](https://github.com/lightningnetwork/lnd/pull/5759)
+
 
 * [Only upload itest logs on failure, fix more
   flakes](https://github.com/lightningnetwork/lnd/pull/5833).
@@ -400,6 +404,7 @@ messages directly. There is no routing/path finding involved.
 * [The interfaces for signing messages and the code for initializing a wallet 
   was refactored as a preparation for supporting remote
   signing](https://github.com/lightningnetwork/lnd/pull/5708).
+
 
 ## Database
 

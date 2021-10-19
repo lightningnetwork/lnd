@@ -241,7 +241,12 @@ func testUnconfirmedChannelFunding(ht *lntest.HarnessTest) {
 	// Now let Carol send some funds to herself, making a unconfirmed
 	// change output.
 	resp := ht.NewAddress(carol, lnrpc.AddressType_WITNESS_PUBKEY_HASH)
-	ht.SendCoinToAddr(carol, resp.Address, int64(chanAmt)/5)
+	ht.SendCoinFromNode(
+		carol, &lnrpc.SendCoinsRequest{
+			Addr:   resp.Address,
+			Amount: int64(chanAmt) / 5,
+		},
+	)
 
 	// Make sure the unconfirmed tx is seen in the mempool.
 	ht.AssertNumTxsInMempool(1)

@@ -1707,23 +1707,31 @@ func (h *HarnessTest) NewAddress(hn *HarnessNode,
 	return resp
 }
 
-// SendCoinToAddr sends a given amount of money to the specified address from
+// SendCoinFromNode sends a given amount of money to the specified address from
 // the passed node.
-func (h *HarnessTest) SendCoinToAddr(hn *HarnessNode, addr string,
-	amt int64) *lnrpc.SendCoinsResponse {
+func (h *HarnessTest) SendCoinFromNode(hn *HarnessNode,
+	req *lnrpc.SendCoinsRequest) *lnrpc.SendCoinsResponse {
 
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
-	req := &lnrpc.SendCoinsRequest{
-		Addr:   addr,
-		Amount: amt,
-	}
 	resp, err := hn.rpc.LN.SendCoins(ctxt, req)
 	require.NoError(h, err, "node %s failed to send coins to address %s",
-		hn.Name(), addr)
+		hn.Name(), req.Addr)
 
 	return resp
+}
+
+// SendCoinFromNodeErr sends a given amount of money to the specified address
+// from the passed node and asserts an error has returned.
+func (h *HarnessTest) SendCoinFromNodeErr(hn *HarnessNode,
+	req *lnrpc.SendCoinsRequest) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := hn.rpc.LN.SendCoins(ctxt, req)
+	require.Error(h, err, "node %s didn't not return an error", hn.Name())
 }
 
 // GetChannelBalance gets the channel balance and asserts.
@@ -2191,6 +2199,16 @@ func (h *HarnessTest) findChannel(hn *HarnessNode,
 	return nil, fmt.Errorf("channel not found")
 }
 
+// QueryChannelByChanPoint tries to find a channel matching the channel point
+// and asserts. It returns the channel found.
+func (h *HarnessTest) QueryChannelByChanPoint(hn *HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) *lnrpc.Channel {
+
+	channel, err := h.findChannel(hn, chanPoint)
+	require.NoError(h, err, "failed to query channel")
+	return channel
+}
+
 // CreatePayReqs is a helper method that will create a slice of payment
 // requests for the given node.
 func (h *HarnessTest) CreatePayReqs(hn *HarnessNode, paymentAmt btcutil.Amount,
@@ -2503,5 +2521,70 @@ func (h *HarnessTest) VerifyMessage(hn *HarnessNode, msg []byte,
 	require.NoError(h, err, "VerifyMessage failed")
 
 	return resp
+}
 
+// ClosedChannels makes a RPC call to node's ClosedChannels and asserts.
+func (h *HarnessTest) ClosedChannels(hn *HarnessNode,
+	abandoned bool) *lnrpc.ClosedChannelsResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.ClosedChannelsRequest{
+		Abandoned: abandoned,
+	}
+	resp, err := hn.rpc.LN.ClosedChannels(ctxt, req)
+	require.NoError(h, err, "list closed channels failed")
+
+	return resp
+}
+
+// AssertZombieChannel asserts that a given channel found using the chanID is
+// marked as zombie.
+func (h *HarnessTest) AssertZombieChannel(hn *HarnessNode, chanID uint64) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	err := wait.NoError(func() error {
+		_, err := hn.rpc.LN.GetChanInfo(
+			ctxt, &lnrpc.ChanInfoRequest{ChanId: chanID},
+		)
+		if err == nil {
+			return fmt.Errorf("expected error but got nil")
+		}
+
+		if !strings.Contains(err.Error(), "marked as zombie") {
+			return fmt.Errorf("expected error to contain '%s' but "+
+				"was '%v'", "marked as zombie", err)
+		}
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout while checking zombie channel")
+}
+
+// LabelTransactionAssertErr makes a RPC call to the node's LabelTransaction
+// and asserts an error is returned. It then returns the error.
+func (h *HarnessTest) LabelTransactionAssertErr(hn *HarnessNode,
+	req *walletrpc.LabelTransactionRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := hn.rpc.WalletKit.LabelTransaction(ctxt, req)
+	require.Error(h, err, "expected error returned")
+
+	return err
+}
+
+// LabelTransaction makes a RPC call to the node's LabelTransaction
+// and asserts no error is returned.
+func (h *HarnessTest) LabelTransaction(hn *HarnessNode,
+	req *walletrpc.LabelTransactionRequest) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := hn.rpc.WalletKit.LabelTransaction(ctxt, req)
+	require.NoError(h, err, "failed to label transaction")
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/lightningnetwork/lnd/aezeed"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -234,7 +235,12 @@ func testOnchainFundRecovery(ht *lntest.HarnessTest) {
 		ht.Helper()
 
 		minerAddr := ht.NewMinerAddress()
-		resp := ht.SendCoinToAddr(node, minerAddr.String(), minerAmt)
+		resp := ht.SendCoinFromNode(
+			node, &lnrpc.SendCoinsRequest{
+				Addr:   minerAddr.String(),
+				Amount: minerAmt,
+			},
+		)
 
 		txid := ht.AssertNumTxsInMempool(1)[0]
 		require.Equal(ht, txid.String(), resp.Txid)

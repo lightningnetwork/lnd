@@ -1256,31 +1256,6 @@ func getSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
 	}
 }
 
-// assertTxLabel is a helper function which finds a target tx in our set
-// of transactions and checks that it has the desired label.
-func assertTxLabel(t *harnessTest, node *lntest.HarnessNode,
-	targetTx, label string) {
-
-	// List all transactions relevant to our wallet, and find the tx so that
-	// we can check the correct label has been set.
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-
-	txResp, err := node.GetTransactions(
-		ctxt, &lnrpc.GetTransactionsRequest{},
-	)
-	require.NoError(t.t, err, "could not get transactions")
-
-	// Find our transaction in the set of transactions returned and check
-	// its label.
-	for _, txn := range txResp.Transactions {
-		if txn.TxHash == targetTx {
-			require.Equal(t.t, label, txn.Label, "labels not match")
-		}
-	}
-}
-
 // sendAndAssertSuccess sends the given payment requests and asserts that the
 // payment completes successfully.
 func sendAndAssertSuccess(t *harnessTest, node *lntest.HarnessNode,

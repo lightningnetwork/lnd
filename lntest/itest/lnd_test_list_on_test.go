@@ -92,6 +92,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "node sign verify",
 		TestFunc: testNodeSignVerify,
 	},
+	{
+		Name:     "sweep coins",
+		TestFunc: testSweepAllCoins,
+	},
 
 	// Node config related tests.
 	{
@@ -127,6 +131,12 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testExportChannelBackup,
 	},
 
+	// Misc - uncategorized tests.
+	{
+		Name:     "abandon channel",
+		TestFunc: testAbandonChannel,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
@@ -134,10 +144,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "graph topology notifications",
 	// 	test: testGraphTopologyNotifications,
-	// },
-	// {
-	// 	name: "sweep coins",
-	// 	test: testSweepAllCoins,
 	// },
 	// {
 	// 	name: "channel force closure",
@@ -245,10 +251,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "failing link",
 	// 	test: testFailingChannel,
-	// },
-	// {
-	// 	name: "abandonchannel",
-	// 	test: testAbandonChannel,
 	// },
 	// {
 	// 	name: "revoked uncooperative close retribution zero value remote output",

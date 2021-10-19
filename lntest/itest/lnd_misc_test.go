@@ -2,11 +2,9 @@ package itest
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"fmt"
 	"io/ioutil"
-	"strings"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -721,116 +719,63 @@ func testNodeSignVerify(ht *lntest.HarnessTest) {
 	ht.CloseChannel(alice, aliceBobCh, false)
 }
 
-// testAbandonChannel abandones a channel and asserts that it is no
-// longer open and not in one of the pending closure states. It also
-// verifies that the abandoned channel is reported as closed with close
-// type 'abandoned'.
-func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
+// testAbandonChannel abandones a channel and asserts that it is no longer open
+// and not in one of the pending closure states. It also verifies that the
+// abandoned channel is reported as closed with close type 'abandoned'.
+func testAbandonChannel(ht *lntest.HarnessTest) {
+	alice, bob := ht.Alice(), ht.Bob()
 
 	// First establish a channel between Alice and Bob.
 	channelParam := lntest.OpenChannelParams{
 		Amt:     funding.MaxBtcFundingAmount,
 		PushAmt: btcutil.Amount(100000),
 	}
-
-	chanPoint := openChannelAndAssert(
-		t, net, net.Alice, net.Bob, channelParam,
-	)
-	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-	require.NoError(t.t, err, "alice bob get channel funding txid")
-	chanPointStr := fmt.Sprintf("%v:%v", txid, chanPoint.OutputIndex)
+	chanPoint := ht.OpenChannel(alice, bob, channelParam)
 
 	// Wait for channel to be confirmed open.
-	err = net.Alice.WaitForNetworkChannelOpen(chanPoint)
-	require.NoError(t.t, err, "alice wait for network channel open")
-	err = net.Bob.WaitForNetworkChannelOpen(chanPoint)
-	require.NoError(t.t, err, "bob wait for network channel open")
+	ht.AssertChannelOpen(alice, chanPoint)
+	ht.AssertChannelOpen(bob, chanPoint)
 
 	// Now that the channel is open, we'll obtain its channel ID real quick
 	// so we can use it to query the graph below.
-	listReq := &lnrpc.ListChannelsRequest{}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	aliceChannelList, err := net.Alice.ListChannels(ctxt, listReq)
-	require.NoError(t.t, err)
-	var chanID uint64
-	for _, channel := range aliceChannelList.Channels {
-		if channel.ChannelPoint == chanPointStr {
-			chanID = channel.ChanId
-		}
-	}
+	chanID := ht.QueryChannelByChanPoint(alice, chanPoint).ChanId
+	require.NotZero(ht, chanID, "unable to find channel")
 
-	require.NotZero(t.t, chanID, "unable to find channel")
-
-	// To make sure the channel is removed from the backup file as well when
-	// being abandoned, grab a backup snapshot so we can compare it with the
-	// later state.
-	bkupBefore, err := ioutil.ReadFile(net.Alice.ChanBackupPath())
-	require.NoError(t.t, err, "channel backup before abandoning channel")
+	// To make sure the channel is removed from the backup file as well
+	// when being abandoned, grab a backup snapshot so we can compare it
+	// with the later state.
+	bkupBefore, err := ioutil.ReadFile(alice.ChanBackupPath())
+	require.NoError(ht, err, "channel backup before abandoning channel")
 
 	// Send request to abandon channel.
 	abandonChannelRequest := &lnrpc.AbandonChannelRequest{
 		ChannelPoint: chanPoint,
 	}
-
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = net.Alice.AbandonChannel(ctxt, abandonChannelRequest)
-	require.NoError(t.t, err, "abandon channel")
+	ht.AbandonChannel(alice, abandonChannelRequest)
 
 	// Assert that channel in no longer open.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceChannelList, err = net.Alice.ListChannels(ctxt, listReq)
-	require.NoError(t.t, err, "list channels")
-	require.Zero(t.t, len(aliceChannelList.Channels), "alice open channels")
+	aliceChannelList := ht.ListChannels(alice)
+	require.Zero(ht, len(aliceChannelList.Channels), "alice open channels")
 
 	// Assert that channel is not pending closure.
-	pendingReq := &lnrpc.PendingChannelsRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	alicePendingList, err := net.Alice.PendingChannels(ctxt, pendingReq)
-	require.NoError(t.t, err, "alice list pending channels")
-	require.Zero(
-		t.t, len(alicePendingList.PendingClosingChannels), //nolint:staticcheck
-		"alice pending channels",
-	)
-	require.Zero(
-		t.t, len(alicePendingList.PendingForceClosingChannels),
-		"alice pending force close channels",
-	)
-	require.Zero(
-		t.t, len(alicePendingList.WaitingCloseChannels),
-		"alice waiting close channels",
-	)
+	alicePendingList := ht.GetPendingChannels(alice)
+	require.Zero(ht, len(alicePendingList.PendingClosingChannels), //nolint:staticcheck
+		"alice pending channels")
+	require.Zero(ht, len(alicePendingList.PendingForceClosingChannels),
+		"alice pending force close channels")
+	require.Zero(ht, len(alicePendingList.WaitingCloseChannels),
+		"alice waiting close channels")
 
 	// Assert that channel is listed as abandoned.
-	closedReq := &lnrpc.ClosedChannelsRequest{
-		Abandoned: true,
-	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceClosedList, err := net.Alice.ClosedChannels(ctxt, closedReq)
-	require.NoError(t.t, err, "alice list closed channels")
-	require.Len(t.t, aliceClosedList.Channels, 1, "alice closed channels")
+	aliceClosedList := ht.ClosedChannels(alice, true)
+	require.Len(ht, aliceClosedList.Channels, 1, "alice closed channels")
 
 	// Ensure that the channel can no longer be found in the channel graph.
-	err = wait.NoError(func() error {
-		_, err := net.Alice.GetChanInfo(ctxb, &lnrpc.ChanInfoRequest{
-			ChanId: chanID,
-		})
-		if err == nil {
-			return fmt.Errorf("expected error but got nil")
-		}
-
-		if !strings.Contains(err.Error(), "marked as zombie") {
-			return fmt.Errorf("expected error to contain '%s' but "+
-				"was '%v'", "marked as zombie", err)
-		}
-
-		return nil
-	}, defaultTimeout)
-	require.NoError(t.t, err, "marked as zombie")
+	ht.AssertZombieChannel(alice, chanID)
 
 	// Make sure the channel is no longer in the channel backup list.
 	err = wait.NoError(func() error {
-		bkupAfter, err := ioutil.ReadFile(net.Alice.ChanBackupPath())
+		bkupAfter, err := ioutil.ReadFile(alice.ChanBackupPath())
 		if err != nil {
 			return fmt.Errorf("could not get channel backup "+
 				"before abandoning channel: %v", err)
@@ -843,45 +788,37 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 		return nil
 	}, defaultTimeout)
-	require.NoError(t.t, err, "channel removed from backup file")
+	require.NoError(ht, err, "channel removed from backup file")
 
 	// Calling AbandonChannel again, should result in no new errors, as the
 	// channel has already been removed.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = net.Alice.AbandonChannel(ctxt, abandonChannelRequest)
-	require.NoError(t.t, err, "abandon channel second time")
+	ht.AbandonChannel(alice, abandonChannelRequest)
 
 	// Now that we're done with the test, the channel can be closed. This
 	// is necessary to avoid unexpected outcomes of other tests that use
 	// Bob's lnd instance.
-	closeChannelAndAssert(t, net, net.Bob, chanPoint, true)
+	ht.CloseChannel(bob, chanPoint, true)
 
 	// Cleanup by mining the force close and sweep transaction.
-	cleanupForceClose(t, net, net.Bob, chanPoint)
+	ht.CleanupForceClose(bob, chanPoint)
 }
 
 // testSweepAllCoins tests that we're able to properly sweep all coins from the
 // wallet into a single target address at the specified fee rate.
-func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// First, we'll make a new node, ainz who'll we'll use to test wallet
 	// sweeping.
-	ainz := net.NewNode(t.t, "Ainz", nil)
-	defer shutdownAndAssert(net, t, ainz)
+	ainz := ht.NewNode("Ainz", nil)
+	defer ht.Shutdown(ainz)
 
 	// Next, we'll give Ainz exactly 2 utxos of 1 BTC each, with one of
 	// them being p2wkh and the other being a n2wpkh address.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, ainz)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, ainz)
 
-	net.SendCoinsNP2WKH(t.t, btcutil.SatoshiPerBitcoin, ainz)
+	ht.SendCoinsNP2WKH(btcutil.SatoshiPerBitcoin, ainz)
 
 	// Ensure that we can't send coins to our own Pubkey.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	info, err := ainz.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
-	if err != nil {
-		t.Fatalf("unable to get node info: %v", err)
-	}
+	info := ht.GetInfo(ainz)
 
 	// Create a label that we will used to label the transaction with.
 	sendCoinsLabel := "send all coins"
@@ -891,26 +828,17 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 		SendAll: true,
 		Label:   sendCoinsLabel,
 	}
-	_, err = ainz.SendCoins(ctxt, sweepReq)
-	if err == nil {
-		t.Fatalf("expected SendCoins to users own pubkey to fail")
-	}
+	ht.SendCoinFromNodeErr(ainz, sweepReq)
 
 	// Ensure that we can't send coins to another users Pubkey.
-	info, err = net.Alice.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
-	if err != nil {
-		t.Fatalf("unable to get node info: %v", err)
-	}
+	info = ht.GetInfo(ht.Alice())
 
 	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:    info.IdentityPubkey,
 		SendAll: true,
 		Label:   sendCoinsLabel,
 	}
-	_, err = ainz.SendCoins(ctxt, sweepReq)
-	if err == nil {
-		t.Fatalf("expected SendCoins to Alices pubkey to fail")
-	}
+	ht.SendCoinFromNodeErr(ainz, sweepReq)
 
 	// With the two coins above mined, we'll now instruct ainz to sweep all
 	// the coins to an external address not under its control.
@@ -920,142 +848,113 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 	// same network as the user.
 
 	// Send coins to a testnet3 address.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:    "tb1qfc8fusa98jx8uvnhzavxccqlzvg749tvjw82tg",
 		SendAll: true,
 		Label:   sendCoinsLabel,
 	}
-	_, err = ainz.SendCoins(ctxt, sweepReq)
-	if err == nil {
-		t.Fatalf("expected SendCoins to different network to fail")
-	}
+	ht.SendCoinFromNodeErr(ainz, sweepReq)
 
 	// Send coins to a mainnet address.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:    "1MPaXKp5HhsLNjVSqaL7fChE3TVyrTMRT3",
 		SendAll: true,
 		Label:   sendCoinsLabel,
 	}
-	_, err = ainz.SendCoins(ctxt, sweepReq)
-	if err == nil {
-		t.Fatalf("expected SendCoins to different network to fail")
-	}
+	ht.SendCoinFromNodeErr(ainz, sweepReq)
 
 	// Send coins to a compatible address.
-	minerAddr, err := net.Miner.NewAddress()
-	if err != nil {
-		t.Fatalf("unable to create new miner addr: %v", err)
-	}
-
+	minerAddr := ht.NewMinerAddress()
 	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:    minerAddr.String(),
 		SendAll: true,
 		Label:   sendCoinsLabel,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = ainz.SendCoins(ctxt, sweepReq)
-	if err != nil {
-		t.Fatalf("unable to sweep coins: %v", err)
-	}
+	ht.SendCoinFromNode(ainz, sweepReq)
 
 	// We'll mine a block which should include the sweep transaction we
 	// generated above.
-	block := mineBlocks(t, net, 1, 1)[0]
+	block := ht.MineBlocksAndAssertTx(1, 1)[0]
 
 	// The sweep transaction should have exactly two inputs as we only had
 	// two UTXOs in the wallet.
 	sweepTx := block.Transactions[1]
-	if len(sweepTx.TxIn) != 2 {
-		t.Fatalf("expected 2 inputs instead have %v", len(sweepTx.TxIn))
+	require.Len(ht, sweepTx.TxIn, 2, "expected 2 inputs")
+
+	// assertTxLabel is a helper function which finds a target tx in our
+	// set of transactions and checks that it has the desired label.
+	assertTxLabel := func(targetTx, label string) {
+
+		// List all transactions relevant to our wallet, and find the
+		// tx so that we can check the correct label has been set.
+		txResp := ht.GetTransactions(ainz)
+
+		// Find our transaction in the set of transactions returned and
+		// check its label.
+		for _, txn := range txResp.Transactions {
+			if txn.TxHash == targetTx {
+				require.Equal(ht, label, txn.Label,
+					"labels not match")
+			}
+		}
 	}
 
 	sweepTxStr := sweepTx.TxHash().String()
-	assertTxLabel(t, ainz, sweepTxStr, sendCoinsLabel)
+	assertTxLabel(sweepTxStr, sendCoinsLabel)
 
-	// While we are looking at labels, we test our label transaction command
-	// to make sure it is behaving as expected. First, we try to label our
-	// transaction with an empty label, and check that we fail as expected.
+	// While we are looking at labels, we test our label transaction
+	// command to make sure it is behaving as expected. First, we try to
+	// label our transaction with an empty label, and check that we fail as
+	// expected.
 	sweepHash := sweepTx.TxHash()
-	_, err = ainz.WalletKitClient.LabelTransaction(
-		ctxt, &walletrpc.LabelTransactionRequest{
-			Txid:      sweepHash[:],
-			Label:     "",
-			Overwrite: false,
-		},
-	)
-	if err == nil {
-		t.Fatalf("expected error for zero transaction label")
+	req := &walletrpc.LabelTransactionRequest{
+		Txid:      sweepHash[:],
+		Label:     "",
+		Overwrite: false,
 	}
+	err := ht.LabelTransactionAssertErr(ainz, req)
 
 	// Our error will be wrapped in a rpc error, so we check that it
 	// contains the error we expect.
 	errZeroLabel := "cannot label transaction with empty label"
-	if !strings.Contains(err.Error(), errZeroLabel) {
-		t.Fatalf("expected: zero label error, got: %v", err)
-	}
+	require.Contains(ht, err.Error(), errZeroLabel,
+		"expected: zero label errorv")
 
 	// Next, we try to relabel our transaction without setting the overwrite
 	// boolean. We expect this to fail, because the wallet requires setting
 	// of this param to prevent accidental overwrite of labels.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = ainz.WalletKitClient.LabelTransaction(
-		ctxt, &walletrpc.LabelTransactionRequest{
-			Txid:      sweepHash[:],
-			Label:     "label that will not work",
-			Overwrite: false,
-		},
-	)
-	if err == nil {
-		t.Fatalf("expected error for tx already labelled")
+	req = &walletrpc.LabelTransactionRequest{
+		Txid:      sweepHash[:],
+		Label:     "label that will not work",
+		Overwrite: false,
 	}
+	err = ht.LabelTransactionAssertErr(ainz, req)
 
 	// Our error will be wrapped in a rpc error, so we check that it
 	// contains the error we expect.
-	if !strings.Contains(err.Error(), wallet.ErrTxLabelExists.Error()) {
-		t.Fatalf("expected: label exists, got: %v", err)
-	}
+	require.Contains(ht, err.Error(), wallet.ErrTxLabelExists.Error())
 
 	// Finally, we overwrite our label with a new label, which should not
 	// fail.
 	newLabel := "new sweep tx label"
-	_, err = ainz.WalletKitClient.LabelTransaction(
-		ctxt, &walletrpc.LabelTransactionRequest{
-			Txid:      sweepHash[:],
-			Label:     newLabel,
-			Overwrite: true,
-		},
-	)
-	if err != nil {
-		t.Fatalf("could not label tx: %v", err)
+	req = &walletrpc.LabelTransactionRequest{
+		Txid:      sweepHash[:],
+		Label:     newLabel,
+		Overwrite: true,
 	}
+	ht.LabelTransaction(ainz, req)
 
-	assertTxLabel(t, ainz, sweepTxStr, newLabel)
+	assertTxLabel(sweepTxStr, newLabel)
 
 	// Finally, Ainz should now have no coins at all within his wallet.
-	balReq := &lnrpc.WalletBalanceRequest{}
-	resp, err := ainz.WalletBalance(ctxt, balReq)
-	if err != nil {
-		t.Fatalf("unable to get ainz's balance: %v", err)
-	}
-	switch {
-	case resp.ConfirmedBalance != 0:
-		t.Fatalf("expected no confirmed balance, instead have %v",
-			resp.ConfirmedBalance)
-
-	case resp.UnconfirmedBalance != 0:
-		t.Fatalf("expected no unconfirmed balance, instead have %v",
-			resp.UnconfirmedBalance)
-	}
+	resp := ht.GetWalletBalance(ainz)
+	require.Zero(ht, resp.ConfirmedBalance, "wrong confirmed balance")
+	require.Zero(ht, resp.UnconfirmedBalance, "wrong unconfirmed balance")
 
 	// If we try again, but this time specifying an amount, then the call
 	// should fail.
 	sweepReq.Amount = 10000
-	_, err = ainz.SendCoins(ctxt, sweepReq)
-	if err == nil {
-		t.Fatalf("sweep attempt should fail")
-	}
+	ht.SendCoinFromNodeErr(ainz, sweepReq)
 }
 
 func assertChannelConstraintsEqual(ht *lntest.HarnessTest,

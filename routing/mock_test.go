@@ -741,3 +741,25 @@ func (m *mockControlTower) SubscribePayment(paymentHash lntypes.Hash) (
 	args := m.Called(paymentHash)
 	return args.Get(0).(*ControlTowerSubscriber), args.Error(1)
 }
+
+type mockLink struct {
+	htlcswitch.ChannelLink
+	bandwidth         lnwire.MilliSatoshi
+	mayAddOutgoingErr error
+	ineligible        bool
+}
+
+// Bandwidth returns the bandwidth the mock was configured with.
+func (m *mockLink) Bandwidth() lnwire.MilliSatoshi {
+	return m.bandwidth
+}
+
+// EligibleToForward returns the mock's configured eligibility.
+func (m *mockLink) EligibleToForward() bool {
+	return !m.ineligible
+}
+
+// MayAddOutgoingHtlc returns the error configured in our mock.
+func (m *mockLink) MayAddOutgoingHtlc() error {
+	return m.mayAddOutgoingErr
+}

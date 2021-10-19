@@ -150,6 +150,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "graph topology notifications",
 		TestFunc: testGraphTopologyNotifications,
 	},
+	{
+		Name:     "node announcement",
+		TestFunc: testNodeAnnouncement,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
@@ -216,10 +220,6 @@ var allTestCases = []*lntest.TestCase{
 	// 	test: testHtlcErrorPropagation,
 	// },
 	// // TODO(roasbeef): multi-path integration test
-	// {
-	// 	name: "node announcement",
-	// 	test: testNodeAnnouncement,
-	// },
 	// {
 	// 	name: "derive shared key",
 	// 	test: testDeriveSharedKey,

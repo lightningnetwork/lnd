@@ -96,6 +96,8 @@ var (
 
 	aliceDustLimit = btcutil.Amount(200)
 	bobDustLimit   = btcutil.Amount(1300)
+
+	testChannelCapacity float64 = 10
 )
 
 // CreateTestChannels creates to fully populated channels to be used within
@@ -109,7 +111,7 @@ var (
 func CreateTestChannels(chanType channeldb.ChannelType) (
 	*LightningChannel, *LightningChannel, func(), error) {
 
-	channelCapacity, err := btcutil.NewAmount(10)
+	channelCapacity, err := btcutil.NewAmount(testChannelCapacity)
 	if err != nil {
 		return nil, nil, nil, err
 	}

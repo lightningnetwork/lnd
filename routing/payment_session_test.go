@@ -116,10 +116,8 @@ func TestUpdateAdditionalEdge(t *testing.T) {
 	// Create the paymentsession.
 	session, err := newPaymentSession(
 		payment,
-		func() (map[uint64]lnwire.MilliSatoshi,
-			error) {
-
-			return nil, nil
+		func() (bandwidthHints, error) {
+			return &mockBandwidthHints{}, nil
 		},
 		&sessionGraph{},
 		&MissionControl{},
@@ -196,10 +194,8 @@ func TestRequestRoute(t *testing.T) {
 
 	session, err := newPaymentSession(
 		payment,
-		func() (map[uint64]lnwire.MilliSatoshi,
-			error) {
-
-			return nil, nil
+		func() (bandwidthHints, error) {
+			return &mockBandwidthHints{}, nil
 		},
 		&sessionGraph{},
 		&MissionControl{},

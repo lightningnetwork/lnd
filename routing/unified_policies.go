@@ -170,7 +170,7 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 		// channel. The bandwidth hint is expected to be
 		// available.
 		bandwidth, ok := bandwidthHints.availableChanBandwidth(
-			edge.policy.ChannelID,
+			edge.policy.ChannelID, amt,
 		)
 		if !ok {
 			bandwidth = lnwire.MaxMilliSatoshi

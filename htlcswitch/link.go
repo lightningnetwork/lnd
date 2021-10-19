@@ -2203,10 +2203,12 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 	return l.channel.AvailableBalance()
 }
 
-// MayAddOutgoingHtlc indicates whether we may add any more outgoing htlcs to
-// this channel.
-func (l *channelLink) MayAddOutgoingHtlc() error {
-	return l.channel.MayAddOutgoingHtlc()
+// MayAddOutgoingHtlc indicates whether we can add an outgoing htlc with the
+// amount provided to the link. This check does not reserve a space, since
+// forwards or other payments may use the available slot, so it should be
+// considered best-effort.
+func (l *channelLink) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
+	return l.channel.MayAddOutgoingHtlc(amt)
 }
 
 // getDustSum is a wrapper method that calls the underlying channel's dust sum

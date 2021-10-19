@@ -760,6 +760,6 @@ func (m *mockLink) EligibleToForward() bool {
 }
 
 // MayAddOutgoingHtlc returns the error configured in our mock.
-func (m *mockLink) MayAddOutgoingHtlc() error {
+func (m *mockLink) MayAddOutgoingHtlc(_ lnwire.MilliSatoshi) error {
 	return m.mayAddOutgoingErr
 }

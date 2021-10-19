@@ -102,8 +102,9 @@ type ChannelUpdateHandler interface {
 	EligibleToForward() bool
 
 	// MayAddOutgoingHtlc returns an error if we may not add an outgoing
-	// htlc to the channel.
-	MayAddOutgoingHtlc() error
+	// htlc to the channel, taking the amount of the htlc to add as a
+	// parameter.
+	MayAddOutgoingHtlc(lnwire.MilliSatoshi) error
 
 	// ShutdownIfChannelClean shuts the link down if the channel state is
 	// clean. This can be used with dynamic commitment negotiation or coop

@@ -445,7 +445,7 @@ func (m *mockUpdateHandler) Bandwidth() lnwire.MilliSatoshi { return 0 }
 func (m *mockUpdateHandler) EligibleToForward() bool { return false }
 
 // MayAddOutgoingHtlc currently returns nil.
-func (m *mockUpdateHandler) MayAddOutgoingHtlc() error { return nil }
+func (m *mockUpdateHandler) MayAddOutgoingHtlc(lnwire.MilliSatoshi) error { return nil }
 
 // ShutdownIfChannelClean currently returns nil.
 func (m *mockUpdateHandler) ShutdownIfChannelClean() error { return nil }

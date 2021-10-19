@@ -119,7 +119,7 @@ func TestBandwidthManager(t *testing.T) {
 			require.NoError(t, err)
 
 			bandwidth, found := m.availableChanBandwidth(
-				testCase.channelID,
+				testCase.channelID, 10,
 			)
 			require.Equal(t, testCase.expectedBandwidth, bandwidth)
 			require.Equal(t, testCase.expectFound, found)

@@ -361,8 +361,17 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	defer cleanUp()
 
-	activeChainControl, cleanUp, err := implCfg.BuildChainControl(
+	partialChainControl, walletConfig, cleanUp, err := implCfg.BuildWalletConfig(
 		ctx, dbs, interceptorChain, grpcListeners,
+	)
+	if err != nil {
+		return fmt.Errorf("error creating wallet config: %v", err)
+	}
+
+	defer cleanUp()
+
+	activeChainControl, cleanUp, err := implCfg.BuildChainControl(
+		partialChainControl, walletConfig,
 	)
 	if err != nil {
 		return fmt.Errorf("error loading chain control: %v", err)

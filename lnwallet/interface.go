@@ -350,8 +350,8 @@ type WalletController interface {
 	// fee rate, an error is returned. No lock lease is acquired for any of
 	// the selected/validated inputs. It is in the caller's responsibility
 	// to lock the inputs before handing them out.
-	FundPsbt(packet *psbt.Packet, feeRate chainfee.SatPerKWeight,
-		account string) (int32, error)
+	FundPsbt(packet *psbt.Packet, minConfs int32,
+		feeRate chainfee.SatPerKWeight, account string) (int32, error)
 
 	// FinalizePsbt expects a partial transaction with all inputs and
 	// outputs fully declared and tries to sign all inputs that belong to
@@ -442,9 +442,9 @@ type MessageSigner interface {
 	// SignMessage attempts to sign a target message with the private key
 	// described in the key locator. If the target private key is unable to
 	// be found, then an error will be returned. The actual digest signed is
-	// the double SHA-256 of the passed message.
-	SignMessage(keyLoc keychain.KeyLocator, msg []byte) (*btcec.Signature,
-		error)
+	// the single or double SHA-256 of the passed message.
+	SignMessage(keyLoc keychain.KeyLocator, msg []byte,
+		doubleHash bool) (*btcec.Signature, error)
 }
 
 // WalletDriver represents a "driver" for a particular concrete

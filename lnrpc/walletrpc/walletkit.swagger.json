@@ -902,6 +902,14 @@
         "account": {
           "type": "string",
           "description": "The name of the account to retrieve the next address of. If empty, the\ndefault wallet account is used."
+        },
+        "type": {
+          "$ref": "#/definitions/walletrpcAddressType",
+          "description": "The type of address to derive."
+        },
+        "change": {
+          "type": "boolean",
+          "description": "Whether a change address should be derived."
         }
       }
     },

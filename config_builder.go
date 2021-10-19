@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -29,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
@@ -86,15 +89,24 @@ type DatabaseBuilder interface {
 	BuildDatabase(ctx context.Context) (*DatabaseInstances, func(), error)
 }
 
+// WalletConfigBuilder is an interface that must be satisfied by a custom wallet
+// implementation.
+type WalletConfigBuilder interface {
+	// BuildWalletConfig is responsible for creating or unlocking and then
+	// fully initializing a wallet.
+	BuildWalletConfig(context.Context, *DatabaseInstances,
+		*rpcperms.InterceptorChain,
+		[]*ListenerWithSignal) (*chainreg.PartialChainControl,
+		*btcwallet.Config, func(), error)
+}
+
 // ChainControlBuilder is an interface that must be satisfied by a custom wallet
 // implementation.
 type ChainControlBuilder interface {
-	// BuildChainControl is responsible for creating or unlocking and then
-	// fully initializing a wallet and returning it as part of a fully
-	// populated chain control instance.
-	BuildChainControl(context.Context, *DatabaseInstances,
-		*rpcperms.InterceptorChain,
-		[]*ListenerWithSignal) (*chainreg.ChainControl, func(), error)
+	// BuildChainControl is responsible for creating a fully populated chain
+	// control instance from a wallet.
+	BuildChainControl(*chainreg.PartialChainControl,
+		*btcwallet.Config) (*chainreg.ChainControl, func(), error)
 }
 
 // ImplementationCfg is a struct that holds all configuration items for
@@ -116,6 +128,10 @@ type ImplementationCfg struct {
 	// backend instances.
 	DatabaseBuilder
 
+	// WalletConfigBuilder is a type that can provide a wallet configuration
+	// with a fully loaded and unlocked wallet.
+	WalletConfigBuilder
+
 	// ChainControlBuilder is a type that can provide a custom wallet
 	// implementation.
 	ChainControlBuilder
@@ -128,17 +144,19 @@ type DefaultWalletImpl struct {
 	logger      btclog.Logger
 	interceptor signal.Interceptor
 
+	watchOnly bool
 	pwService *walletunlocker.UnlockerService
 }
 
 // NewDefaultWalletImpl creates a new default wallet implementation.
 func NewDefaultWalletImpl(cfg *Config, logger btclog.Logger,
-	interceptor signal.Interceptor) *DefaultWalletImpl {
+	interceptor signal.Interceptor, watchOnly bool) *DefaultWalletImpl {
 
 	return &DefaultWalletImpl{
 		cfg:         cfg,
 		logger:      logger,
 		interceptor: interceptor,
+		watchOnly:   watchOnly,
 		pwService:   createWalletUnlockerService(cfg),
 	}
 }
@@ -195,15 +213,14 @@ func (d *DefaultWalletImpl) Permissions() map[string][]bakery.Op {
 	return nil
 }
 
-// BuildChainControl is responsible for creating or unlocking and then fully
-// initializing a wallet and returning it as part of a fully populated chain
-// control instance.
+// BuildWalletConfig is responsible for creating or unlocking and then
+// fully initializing a wallet.
 //
-// NOTE: This is part of the ChainControlBuilder interface.
-func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
+// NOTE: This is part of the WalletConfigBuilder interface.
+func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 	dbs *DatabaseInstances, interceptorChain *rpcperms.InterceptorChain,
-	grpcListeners []*ListenerWithSignal) (*chainreg.ChainControl, func(),
-	error) {
+	grpcListeners []*ListenerWithSignal) (*chainreg.PartialChainControl,
+	*btcwallet.Config, func(), error) {
 
 	// Keep track of our various cleanup functions. We use a defer function
 	// as well to not repeat ourselves with every return statement.
@@ -245,7 +262,7 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 			err := fmt.Errorf("unable to initialize neutrino "+
 				"backend: %v", err)
 			d.logger.Error(err)
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		cleanUpTasks = append(cleanUpTasks, neutrinoCleanUp)
 		neutrinoCS = neutrinoBackend
@@ -270,7 +287,7 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 	d.pwService.SetMacaroonDB(dbs.MacaroonDB)
 	walletExists, err := d.pwService.WalletExists()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	if !walletExists {
@@ -287,9 +304,9 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 	if d.cfg.WalletUnlockPasswordFile != "" && !walletExists &&
 		!d.cfg.WalletUnlockAllowCreate {
 
-		return nil, nil, fmt.Errorf("wallet unlock password file was " +
-			"specified but wallet does not exist; initialize the " +
-			"wallet before using auto unlocking")
+		return nil, nil, nil, fmt.Errorf("wallet unlock password file " +
+			"was specified but wallet does not exist; initialize " +
+			"the wallet before using auto unlocking")
 	}
 
 	// What wallet mode are we running in? We've already made sure the no
@@ -306,8 +323,8 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 			"password provided in file")
 		pwBytes, err := ioutil.ReadFile(d.cfg.WalletUnlockPasswordFile)
 		if err != nil {
-			return nil, nil, fmt.Errorf("error reading password "+
-				"from file %s: %v",
+			return nil, nil, nil, fmt.Errorf("error reading "+
+				"password from file %s: %v",
 				d.cfg.WalletUnlockPasswordFile, err)
 		}
 
@@ -322,8 +339,8 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 			pwBytes, 0,
 		)
 		if err != nil {
-			return nil, nil, fmt.Errorf("error unlocking wallet "+
-				"with password from file: %v", err)
+			return nil, nil, nil, fmt.Errorf("error unlocking "+
+				"wallet with password from file: %v", err)
 		}
 
 		cleanUpTasks = append(cleanUpTasks, func() {
@@ -343,7 +360,7 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 	// over RPC.
 	default:
 		if err := d.interceptor.Notifier.NotifyReady(false); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		params, err := waitForWalletPassword(
@@ -354,7 +371,7 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 			err := fmt.Errorf("unable to set up wallet password "+
 				"listeners: %v", err)
 			d.logger.Error(err)
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		walletInitParams = *params
@@ -386,7 +403,7 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 			err := fmt.Errorf("unable to set up macaroon "+
 				"authentication: %v", err)
 			d.logger.Error(err)
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		cleanUpTasks = append(cleanUpTasks, func() {
 			if err := macaroonService.Close(); err != nil {
@@ -402,7 +419,7 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 		if err != nil && err != macaroons.ErrAlreadyUnlocked {
 			err := fmt.Errorf("unable to unlock macaroons: %v", err)
 			d.logger.Error(err)
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		// In case we actually needed to unlock the wallet, we now need
@@ -415,7 +432,7 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 				ctx, macaroonService, adminPermissions(),
 			)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 
 			// The channel is buffered by one element so writing
@@ -446,7 +463,7 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 				err := fmt.Errorf("unable to create macaroons "+
 					"%v", err)
 				d.logger.Error(err)
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 		}
 
@@ -538,7 +555,7 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 		err := fmt.Errorf("unable to create partial chain control: %v",
 			err)
 		d.logger.Error(err)
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	walletConfig := &btcwallet.Config{
@@ -551,6 +568,7 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 		Wallet:         walletInitParams.Wallet,
 		LoaderOptions:  []btcwallet.LoaderOption{dbs.WalletDB},
 		ChainSource:    partialChainControl.ChainSource,
+		WatchOnly:      d.watchOnly,
 	}
 
 	// Parse coin selection strategy.
@@ -562,23 +580,146 @@ func (d *DefaultWalletImpl) BuildChainControl(ctx context.Context,
 		walletConfig.CoinSelectionStrategy = wallet.CoinSelectionRandom
 
 	default:
-		return nil, nil, fmt.Errorf("unknown coin selection strategy "+
-			"%v", d.cfg.CoinSelectionStrategy)
+		return nil, nil, nil, fmt.Errorf("unknown coin selection "+
+			"strategy %v", d.cfg.CoinSelectionStrategy)
+	}
+
+	earlyExit = false
+	return partialChainControl, walletConfig, cleanUp, nil
+}
+
+// BuildChainControl is responsible for creating a fully populated chain
+// control instance from a wallet.
+//
+// NOTE: This is part of the ChainControlBuilder interface.
+func (d *DefaultWalletImpl) BuildChainControl(
+	partialChainControl *chainreg.PartialChainControl,
+	walletConfig *btcwallet.Config) (*chainreg.ChainControl, func(), error) {
+
+	walletController, err := btcwallet.New(
+		*walletConfig, partialChainControl.Cfg.BlockCache,
+	)
+	if err != nil {
+		fmt.Printf("unable to create wallet controller: %v\n", err)
+		d.logger.Error(err)
+		return nil, nil, err
+	}
+
+	keyRing := keychain.NewBtcWalletKeyRing(
+		walletController.InternalWallet(), walletConfig.CoinType,
+	)
+
+	// Create, and start the lnwallet, which handles the core payment
+	// channel logic, and exposes control via proxy state machines.
+	lnWalletConfig := lnwallet.Config{
+		Database:           partialChainControl.Cfg.ChanStateDB,
+		Notifier:           partialChainControl.ChainNotifier,
+		WalletController:   walletController,
+		Signer:             walletController,
+		FeeEstimator:       partialChainControl.FeeEstimator,
+		SecretKeyRing:      keyRing,
+		ChainIO:            walletController,
+		DefaultConstraints: partialChainControl.ChannelConstraints,
+		NetParams:          *walletConfig.NetParams,
 	}
 
 	// We've created the wallet configuration now, so we can finish
 	// initializing the main chain control.
-	activeChainControl, ccCleanup, err := chainreg.NewChainControl(
-		walletConfig, partialChainControl,
+	activeChainControl, cleanUp, err := chainreg.NewChainControl(
+		lnWalletConfig, walletController, partialChainControl,
 	)
-	cleanUpTasks = append(cleanUpTasks, ccCleanup)
 	if err != nil {
 		err := fmt.Errorf("unable to create chain control: %v", err)
 		d.logger.Error(err)
 		return nil, nil, err
 	}
 
-	earlyExit = false
+	return activeChainControl, cleanUp, nil
+}
+
+// RPCSignerWalletImpl is a wallet implementation that uses a remote signer over
+// an RPC interface.
+type RPCSignerWalletImpl struct {
+	// DefaultWalletImpl is the embedded instance of the default
+	// implementation that the remote signer uses as its watch-only wallet
+	// for keeping track of addresses and UTXOs.
+	*DefaultWalletImpl
+}
+
+// NewRPCSignerWalletImpl creates a new instance of the remote signing wallet
+// implementation.
+func NewRPCSignerWalletImpl(cfg *Config, logger btclog.Logger,
+	interceptor signal.Interceptor) *RPCSignerWalletImpl {
+
+	return &RPCSignerWalletImpl{
+		DefaultWalletImpl: &DefaultWalletImpl{
+			cfg:         cfg,
+			logger:      logger,
+			interceptor: interceptor,
+			watchOnly:   true,
+			pwService:   createWalletUnlockerService(cfg),
+		},
+	}
+}
+
+// BuildChainControl is responsible for creating or unlocking and then fully
+// initializing a wallet and returning it as part of a fully populated chain
+// control instance.
+//
+// NOTE: This is part of the ChainControlBuilder interface.
+func (d *RPCSignerWalletImpl) BuildChainControl(
+	partialChainControl *chainreg.PartialChainControl,
+	walletConfig *btcwallet.Config) (*chainreg.ChainControl, func(), error) {
+
+	walletController, err := btcwallet.New(
+		*walletConfig, partialChainControl.Cfg.BlockCache,
+	)
+	if err != nil {
+		fmt.Printf("unable to create wallet controller: %v\n", err)
+		d.logger.Error(err)
+		return nil, nil, err
+	}
+
+	baseKeyRing := keychain.NewBtcWalletKeyRing(
+		walletController.InternalWallet(), walletConfig.CoinType,
+	)
+
+	rpcKeyRing, err := rpcwallet.NewRPCKeyRing(
+		baseKeyRing, walletController,
+		d.DefaultWalletImpl.cfg.RemoteSigner,
+		rpcwallet.DefaultRPCTimeout,
+	)
+	if err != nil {
+		fmt.Printf("unable to create RPC remote signing wallet %v", err)
+		d.logger.Error(err)
+		return nil, nil, err
+	}
+
+	// Create, and start the lnwallet, which handles the core payment
+	// channel logic, and exposes control via proxy state machines.
+	lnWalletConfig := lnwallet.Config{
+		Database:           partialChainControl.Cfg.ChanStateDB,
+		Notifier:           partialChainControl.ChainNotifier,
+		WalletController:   rpcKeyRing,
+		Signer:             rpcKeyRing,
+		FeeEstimator:       partialChainControl.FeeEstimator,
+		SecretKeyRing:      rpcKeyRing,
+		ChainIO:            walletController,
+		DefaultConstraints: partialChainControl.ChannelConstraints,
+		NetParams:          *walletConfig.NetParams,
+	}
+
+	// We've created the wallet configuration now, so we can finish
+	// initializing the main chain control.
+	activeChainControl, cleanUp, err := chainreg.NewChainControl(
+		lnWalletConfig, rpcKeyRing, partialChainControl,
+	)
+	if err != nil {
+		err := fmt.Errorf("unable to create chain control: %v", err)
+		d.logger.Error(err)
+		return nil, nil, err
+	}
+
 	return activeChainControl, cleanUp, nil
 }
 
@@ -813,6 +954,7 @@ func waitForWalletPassword(cfg *Config,
 		password := initMsg.Passphrase
 		cipherSeed := initMsg.WalletSeed
 		extendedKey := initMsg.WalletExtendedKey
+		watchOnlyAccounts := initMsg.WatchOnlyAccounts
 		recoveryWindow := initMsg.RecoveryWindow
 
 		// Before we proceed, we'll check the internal version of the
@@ -860,6 +1002,26 @@ func waitForWalletPassword(cfg *Config,
 			newWallet, err = loader.CreateNewWalletExtendedKey(
 				password, password, extendedKey, birthday,
 			)
+
+		// Neither seed nor extended private key was given, so maybe the
+		// third option was chosen, the watch-only initialization. In
+		// this case we need to import each of the xpubs individually.
+		case watchOnlyAccounts != nil:
+			if !cfg.RemoteSigner.Enable {
+				return nil, fmt.Errorf("cannot initialize " +
+					"watch only wallet with remote " +
+					"signer config disabled")
+			}
+
+			birthday = initMsg.ExtendedKeyBirthday
+			newWallet, err = loader.CreateNewWatchingOnlyWallet(
+				password, birthday,
+			)
+			if err != nil {
+				break
+			}
+
+			err = importWatchOnlyAccounts(newWallet, initMsg)
 
 		default:
 			// The unlocker service made sure either the cipher seed
@@ -924,6 +1086,51 @@ func waitForWalletPassword(cfg *Config,
 	case <-shutdownChan:
 		return nil, fmt.Errorf("shutting down")
 	}
+}
+
+// importWatchOnlyAccounts imports all individual account xpubs into our wallet
+// which we created as watch-only.
+func importWatchOnlyAccounts(wallet *wallet.Wallet,
+	initMsg *walletunlocker.WalletInitMsg) error {
+
+	scopes := make([]waddrmgr.ScopedIndex, 0, len(initMsg.WatchOnlyAccounts))
+	for scope := range initMsg.WatchOnlyAccounts {
+		scopes = append(scopes, scope)
+	}
+
+	// We need to import the accounts in the correct order, otherwise the
+	// indices will be incorrect.
+	sort.Slice(scopes, func(i, j int) bool {
+		return scopes[i].Scope.Purpose < scopes[j].Scope.Purpose ||
+			scopes[i].Index < scopes[j].Index
+	})
+
+	for _, scope := range scopes {
+		addrSchema := waddrmgr.ScopeAddrMap[waddrmgr.KeyScopeBIP0084]
+		if scope.Scope.Purpose == waddrmgr.KeyScopeBIP0049Plus.Purpose {
+			addrSchema = waddrmgr.ScopeAddrMap[scope.Scope]
+		}
+
+		// We want a human-readable account name. But for the default
+		// on-chain wallet we actually need to call it "default" to make
+		// sure everything works correctly.
+		name := fmt.Sprintf("%s/%d'", scope.Scope.String(), scope.Index)
+		if scope.Index == 0 {
+			name = "default"
+		}
+
+		_, err := wallet.ImportAccountWithScope(
+			name, initMsg.WatchOnlyAccounts[scope],
+			initMsg.WatchOnlyMasterFingerprint, scope.Scope,
+			addrSchema,
+		)
+		if err != nil {
+			return fmt.Errorf("could not import account %v: %v",
+				name, err)
+		}
+	}
+
+	return nil
 }
 
 // initNeutrinoBackend inits a new instance of the neutrino light client

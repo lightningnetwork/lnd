@@ -462,6 +462,23 @@ func (s *Server) SignMessage(_ context.Context,
 		Index:  uint32(in.KeyLoc.KeyIndex),
 	}
 
+	// To allow a watch-only wallet to forward the SignMessageCompact to an
+	// endpoint that doesn't add the message prefix, we allow this RPC to
+	// also return the compact signature format instead of adding a flag to
+	// the lnrpc.SignMessage call that removes the message prefix.
+	if in.CompactSig {
+		sigBytes, err := s.cfg.KeyRing.SignMessageCompact(
+			keyLocator, in.Msg, in.DoubleHash,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("can't sign the hash: %v", err)
+		}
+
+		return &SignMessageResp{
+			Signature: sigBytes,
+		}, nil
+	}
+
 	// Create the raw ECDSA signature first and convert it to the final wire
 	// format after.
 	sig, err := s.cfg.KeyRing.SignMessage(

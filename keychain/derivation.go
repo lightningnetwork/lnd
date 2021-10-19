@@ -105,6 +105,21 @@ const (
 	KeyFamilyTowerID KeyFamily = 9
 )
 
+// VersionZeroKeyFamilies is a slice of all the known key families for first
+// version of the key derivation schema defined in this package.
+var VersionZeroKeyFamilies = []KeyFamily{
+	KeyFamilyMultiSig,
+	KeyFamilyRevocationBase,
+	KeyFamilyHtlcBase,
+	KeyFamilyPaymentBase,
+	KeyFamilyDelayBase,
+	KeyFamilyRevocationRoot,
+	KeyFamilyNodeKey,
+	KeyFamilyStaticBackup,
+	KeyFamilyTowerSession,
+	KeyFamilyTowerID,
+}
+
 // KeyLocator is a two-tuple that can be used to derive *any* key that has ever
 // been used under the key derivation mechanisms described in this file.
 // Version 0 of our key derivation schema uses the following BIP43-like

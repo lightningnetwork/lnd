@@ -169,7 +169,7 @@ func (w *WalletController) ListLeasedOutputs() ([]*wtxmgr.LockedOutput, error) {
 }
 
 // FundPsbt currently does nothing.
-func (w *WalletController) FundPsbt(_ *psbt.Packet,
+func (w *WalletController) FundPsbt(_ *psbt.Packet, _ int32,
 	_ chainfee.SatPerKWeight, _ string) (int32, error) {
 
 	return 0, nil

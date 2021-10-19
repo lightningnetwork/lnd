@@ -22,6 +22,14 @@ import (
 //
 // TODO(wilmer): Add RBF case once btcd supports it.
 func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
+	runCPFP(net, t, net.Alice, net.Bob)
+}
+
+// runCPFP ensures that the daemon can bump an unconfirmed  transaction's fee
+// rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction.
+func runCPFP(net *lntest.NetworkHarness, t *harnessTest,
+	alice, bob *lntest.HarnessNode) {
+
 	// Skip this test for neutrino, as it's not aware of mempool
 	// transactions.
 	if net.BackendCfg.Name() == lntest.NeutrinoBackendName {
@@ -31,14 +39,14 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 	// We'll start the test by sending Alice some coins, which she'll use to
 	// send to Bob.
 	ctxb := context.Background()
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, net.Alice)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
 
 	// Create an address for Bob to send the coins to.
 	addrReq := &lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := net.Bob.NewAddress(ctxt, addrReq)
+	resp, err := bob.NewAddress(ctxt, addrReq)
 	if err != nil {
 		t.Fatalf("unable to get new address for bob: %v", err)
 	}
@@ -50,7 +58,7 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 		Amount: btcutil.SatoshiPerBitcoin,
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if _, err = net.Alice.SendCoins(ctxt, sendReq); err != nil {
+	if _, err = alice.SendCoins(ctxt, sendReq); err != nil {
 		t.Fatalf("unable to send coins to bob: %v", err)
 	}
 
@@ -88,7 +96,7 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 		TxidBytes:   txid[:],
 		OutputIndex: uint32(bobOutputIdx),
 	}
-	assertWalletUnspent(t, net.Bob, op)
+	assertWalletUnspent(t, bob, op)
 
 	// We'll attempt to bump the fee of this transaction by performing a
 	// CPFP from Alice's point of view.
@@ -99,7 +107,7 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 		),
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = net.Bob.WalletKitClient.BumpFee(ctxt, bumpFeeReq)
+	_, err = bob.WalletKitClient.BumpFee(ctxt, bumpFeeReq)
 	if err != nil {
 		t.Fatalf("unable to bump fee: %v", err)
 	}
@@ -115,7 +123,7 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 	// UtxoSweeper. We'll ensure it's using the fee rate specified.
 	pendingSweepsReq := &walletrpc.PendingSweepsRequest{}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	pendingSweepsResp, err := net.Bob.WalletKitClient.PendingSweeps(
+	pendingSweepsResp, err := bob.WalletKitClient.PendingSweeps(
 		ctxt, pendingSweepsReq,
 	)
 	if err != nil {
@@ -146,7 +154,7 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 	err = wait.NoError(func() error {
 		req := &walletrpc.PendingSweepsRequest{}
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		resp, err := net.Bob.WalletKitClient.PendingSweeps(ctxt, req)
+		resp, err := bob.WalletKitClient.PendingSweeps(ctxt, req)
 		if err != nil {
 			return fmt.Errorf("unable to retrieve bob's pending "+
 				"sweeps: %v", err)

@@ -176,6 +176,15 @@ message InitWalletRequest {
     mainnet).
     */
     uint64 extended_master_key_birthday_timestamp = 8;
+
+    /*
+    watch_only is the third option of initializing a wallet: by importing
+    account xpubs only and therefore creating a watch-only wallet that does not
+    contain any private keys. That means the wallet won't be able to sign for
+    any of the keys and _needs_ to be run with a remote signer that has the
+    corresponding private keys and can serve signing RPC requests.
+    */
+    WatchOnly watch_only = 9;
 }
 message InitWalletResponse {
     /*
@@ -186,6 +195,63 @@ message InitWalletResponse {
     daemon, together with other macaroon files.
     */
     bytes admin_macaroon = 1;
+}
+
+message WatchOnly {
+    /*
+    The unix timestamp in seconds of when the master key was created. lnd will
+    only start scanning for funds in blocks that are after the birthday which
+    can speed up the process significantly. If the birthday is not known, this
+    should be left at its default value of 0 in which case lnd will start
+    scanning from the first SegWit block (481824 on mainnet).
+    */
+    uint64 master_key_birthday_timestamp = 1;
+
+    /*
+    The fingerprint of the root key (also known as the key with derivation path
+    m/) from which the account public keys were derived from. This may be
+    required by some hardware wallets for proper identification and signing. The
+    bytes must be in big-endian order.
+    */
+    bytes master_key_fingerprint = 2;
+
+    /*
+    The list of accounts to import. There _must_ be an account for all of lnd's
+    main key scopes: BIP49/BIP84 (m/49'/0'/0', m/84'/0'/0', note that the
+    coin type is always 0, even for testnet/regtest) and lnd's internal key
+    scope (m/1017'/<coin_type>'/<account>'), where account is the key family as
+    defined in `keychain/derivation.go` (currently indices 0 to 9).
+     */
+    repeated WatchOnlyAccount accounts = 3;
+}
+
+message WatchOnlyAccount {
+    /*
+    Purpose is the first number in the derivation path, must be either 49, 84
+    or 1017.
+    */
+    uint32 purpose = 1;
+
+    /*
+    Coin type is the second number in the derivation path, this is _always_ 0
+    for purposes 49 and 84. It only needs to be set to 1 for purpose 1017 on
+    testnet or regtest.
+    */
+    uint32 coin_type = 2;
+
+    /*
+    Account is the third number in the derivation path. For purposes 49 and 84
+    at least the default account (index 0) needs to be created but optional
+    additional accounts are allowed. For purpose 1017 there needs to be exactly
+    one account for each of the key families defined in `keychain/derivation.go`
+    (currently indices 0 to 9)
+    */
+    uint32 account = 3;
+
+    /*
+    The extended public key at depth 3 for the given account.
+    */
+    string xpub = 4;
 }
 
 message UnlockWalletRequest {

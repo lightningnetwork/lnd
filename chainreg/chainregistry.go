@@ -30,7 +30,6 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
@@ -664,11 +663,17 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 // full-node, another backed by a running bitcoind full-node, and the other
 // backed by a running neutrino light client instance. When running with a
 // neutrino light client instance, `neutrinoCS` must be non-nil.
-func NewChainControl(walletConfig *btcwallet.Config,
+func NewChainControl(walletConfig lnwallet.Config,
+	msgSigner lnwallet.MessageSigner,
 	pcc *PartialChainControl) (*ChainControl, func(), error) {
 
 	cc := &ChainControl{
 		PartialChainControl: pcc,
+		MsgSigner:           msgSigner,
+		Signer:              walletConfig.Signer,
+		ChainIO:             walletConfig.ChainIO,
+		Wc:                  walletConfig.WalletController,
+		KeyRing:             walletConfig.SecretKeyRing,
 	}
 
 	ccCleanup := func() {
@@ -679,36 +684,7 @@ func NewChainControl(walletConfig *btcwallet.Config,
 		}
 	}
 
-	wc, err := btcwallet.New(*walletConfig, pcc.Cfg.BlockCache)
-	if err != nil {
-		fmt.Printf("unable to create wallet controller: %v\n", err)
-		return nil, ccCleanup, err
-	}
-
-	cc.MsgSigner = wc
-	cc.Signer = wc
-	cc.ChainIO = wc
-	cc.Wc = wc
-
-	keyRing := keychain.NewBtcWalletKeyRing(
-		wc.InternalWallet(), walletConfig.CoinType,
-	)
-	cc.KeyRing = keyRing
-
-	// Create, and start the lnwallet, which handles the core payment
-	// channel logic, and exposes control via proxy state machines.
-	walletCfg := lnwallet.Config{
-		Database:           pcc.Cfg.ChanStateDB,
-		Notifier:           cc.ChainNotifier,
-		WalletController:   wc,
-		Signer:             cc.Signer,
-		FeeEstimator:       cc.FeeEstimator,
-		SecretKeyRing:      keyRing,
-		ChainIO:            cc.ChainIO,
-		DefaultConstraints: cc.ChannelConstraints,
-		NetParams:          *walletConfig.NetParams,
-	}
-	lnWallet, err := lnwallet.NewLightningWallet(walletCfg)
+	lnWallet, err := lnwallet.NewLightningWallet(walletConfig)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
 		return nil, ccCleanup, err

@@ -327,7 +327,7 @@ type Config struct {
 	// TODO(roasbeef): should instead pass on this responsibility to a
 	// distinct sub-system?
 	SignMessage func(keyLoc keychain.KeyLocator,
-		msg []byte) (*btcec.Signature, error)
+		msg []byte, doubleHash bool) (*btcec.Signature, error)
 
 	// CurrentNodeAnnouncement should return the latest, fully signed node
 	// announcement from the backing Lightning Network node.
@@ -2911,7 +2911,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	if err != nil {
 		return nil, err
 	}
-	sig, err := f.cfg.SignMessage(f.cfg.IDKeyLoc, chanUpdateMsg)
+	sig, err := f.cfg.SignMessage(f.cfg.IDKeyLoc, chanUpdateMsg, true)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate channel "+
 			"update announcement signature: %v", err)
@@ -2933,13 +2933,13 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	if err != nil {
 		return nil, err
 	}
-	nodeSig, err := f.cfg.SignMessage(f.cfg.IDKeyLoc, chanAnnMsg)
+	nodeSig, err := f.cfg.SignMessage(f.cfg.IDKeyLoc, chanAnnMsg, true)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate node "+
 			"signature for channel announcement: %v", err)
 	}
 	bitcoinSig, err := f.cfg.SignMessage(
-		localFundingKey.KeyLocator, chanAnnMsg,
+		localFundingKey.KeyLocator, chanAnnMsg, true,
 	)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate bitcoin "+

@@ -193,6 +193,12 @@ message SignMessageReq {
 
     // Double-SHA256 hash instead of just the default single round.
     bool double_hash = 3;
+
+    /*
+    Use the compact (pubkey recoverable) format instead of the raw lnwire
+    format.
+    */
+    bool compact_sig = 4;
 }
 message SignMessageResp {
     /*

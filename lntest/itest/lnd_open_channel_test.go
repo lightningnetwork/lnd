@@ -259,6 +259,15 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 // and ensures that if a node is subscribed to channel updates they will be
 // received correctly for both cooperative and force closed channels.
 func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTest) {
+	runBasicChannelCreationAndUpdates(net, t, net.Alice, net.Bob)
+}
+
+// runBasicChannelCreationAndUpdates tests multiple channel opening and closing,
+// and ensures that if a node is subscribed to channel updates they will be
+// received correctly for both cooperative and force closed channels.
+func runBasicChannelCreationAndUpdates(net *lntest.NetworkHarness,
+	t *harnessTest, alice, bob *lntest.HarnessNode) {
+
 	ctxb := context.Background()
 	const (
 		numChannels = 2
@@ -266,10 +275,10 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 	)
 
 	// Subscribe Bob and Alice to channel event notifications.
-	bobChanSub := subscribeChannelNotifications(ctxb, t, net.Bob)
+	bobChanSub := subscribeChannelNotifications(ctxb, t, bob)
 	defer close(bobChanSub.quit)
 
-	aliceChanSub := subscribeChannelNotifications(ctxb, t, net.Alice)
+	aliceChanSub := subscribeChannelNotifications(ctxb, t, alice)
 	defer close(aliceChanSub.quit)
 
 	// Open the channels between Alice and Bob, asserting that the channels
@@ -277,8 +286,7 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 	chanPoints := make([]*lnrpc.ChannelPoint, numChannels)
 	for i := 0; i < numChannels; i++ {
 		chanPoints[i] = openChannelAndAssert(
-			t, net, net.Alice, net.Bob,
-			lntest.OpenChannelParams{
+			t, net, alice, bob, lntest.OpenChannelParams{
 				Amt: amount,
 			},
 		)
@@ -346,9 +354,9 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 	for i, chanPoint := range chanPoints {
 		// Force close the first of the two channels.
 		force := i%2 == 0
-		closeChannelAndAssert(t, net, net.Alice, chanPoint, force)
+		closeChannelAndAssert(t, net, alice, chanPoint, force)
 		if force {
-			cleanupForceClose(t, net, net.Alice, chanPoint)
+			cleanupForceClose(t, net, alice, chanPoint)
 		}
 	}
 

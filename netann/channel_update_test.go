@@ -18,7 +18,7 @@ type mockSigner struct {
 }
 
 func (m *mockSigner) SignMessage(_ keychain.KeyLocator,
-	_ []byte) (*btcec.Signature, error) {
+	_ []byte, _ bool) (*btcec.Signature, error) {
 
 	if m.err != nil {
 		return nil, m.err

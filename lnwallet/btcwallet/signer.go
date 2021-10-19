@@ -267,7 +267,7 @@ var _ input.Signer = (*BtcWallet)(nil)
 //
 // NOTE: This is a part of the MessageSigner interface.
 func (b *BtcWallet) SignMessage(keyLoc keychain.KeyLocator,
-	msg []byte) (*btcec.Signature, error) {
+	msg []byte, doubleHash bool) (*btcec.Signature, error) {
 
 	// First attempt to fetch the private key which corresponds to the
 	// specified public key.
@@ -279,7 +279,12 @@ func (b *BtcWallet) SignMessage(keyLoc keychain.KeyLocator,
 	}
 
 	// Double hash and sign the data.
-	msgDigest := chainhash.DoubleHashB(msg)
+	var msgDigest []byte
+	if doubleHash {
+		msgDigest = chainhash.DoubleHashB(msg)
+	} else {
+		msgDigest = chainhash.HashB(msg)
+	}
 	sign, err := privKey.Sign(msgDigest)
 	if err != nil {
 		return nil, errors.Errorf("unable sign the message: %v", err)

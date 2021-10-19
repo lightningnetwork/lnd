@@ -291,11 +291,15 @@ func (b *BtcWallet) Start() error {
 	// We'll start by unlocking the wallet and ensuring that the KeyScope:
 	// (1017, 1) exists within the internal waddrmgr. We'll need this in
 	// order to properly generate the keys required for signing various
-	// contracts.
-	if err := b.wallet.Unlock(b.cfg.PrivatePass, nil); err != nil {
-		return err
+	// contracts. If this is a watch-only wallet, we don't have any private
+	// keys and therefore unlocking is not necessary.
+	if !b.cfg.WatchOnly {
+		if err := b.wallet.Unlock(b.cfg.PrivatePass, nil); err != nil {
+			return err
+		}
 	}
-	_, err := b.wallet.Manager.FetchScopedKeyManager(b.chainKeyScope)
+
+	scope, err := b.wallet.Manager.FetchScopedKeyManager(b.chainKeyScope)
 	if err != nil {
 		// If the scope hasn't yet been created (it wouldn't been
 		// loaded by default if it was), then we'll manually create the
@@ -303,7 +307,7 @@ func (b *BtcWallet) Start() error {
 		err := walletdb.Update(b.db, func(tx walletdb.ReadWriteTx) error {
 			addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
 
-			_, err := b.wallet.Manager.NewScopedKeyManager(
+			scope, err = b.wallet.Manager.NewScopedKeyManager(
 				addrmgrNs, b.chainKeyScope, lightningAddrSchema,
 			)
 			return err
@@ -311,6 +315,43 @@ func (b *BtcWallet) Start() error {
 		if err != nil {
 			return err
 		}
+	}
+
+	// Now that the wallet is unlocked, we'll go ahead and make sure we
+	// create accounts for all the key families we're going to use. This
+	// will make it possible to list all the account/family xpubs in the
+	// wallet list RPC.
+	err = walletdb.Update(b.db, func(tx walletdb.ReadWriteTx) error {
+		addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
+
+		for _, keyFam := range keychain.VersionZeroKeyFamilies {
+			// If this is the multi-sig key family, then we can
+			// return early as this is the default account that's
+			// created.
+			if keyFam == keychain.KeyFamilyMultiSig {
+				continue
+			}
+
+			// Otherwise, we'll check if the account already exists,
+			// if so, we can once again bail early.
+			_, err := scope.AccountName(addrmgrNs, uint32(keyFam))
+			if err == nil {
+				continue
+			}
+
+			// If we reach this point, then the account hasn't yet
+			// been created, so we'll need to create it before we
+			// can proceed.
+			err = scope.NewRawAccount(addrmgrNs, uint32(keyFam))
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	// Establish an RPC connection in addition to starting the goroutines
@@ -552,6 +593,18 @@ func (b *BtcWallet) ListAccounts(name string,
 			account := account
 			res = append(res, &account.AccountProperties)
 		}
+
+		accounts, err = b.wallet.Accounts(waddrmgr.KeyScope{
+			Purpose: keychain.BIP0043Purpose,
+			Coin:    b.cfg.CoinType,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, account := range accounts.Accounts {
+			account := account
+			res = append(res, &account.AccountProperties)
+		}
 	}
 
 	return res, nil
@@ -638,7 +691,8 @@ func (b *BtcWallet) ImportPublicKey(pubKey *btcec.PublicKey,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight, minConfs int32, label string) (*wire.MsgTx, error) {
+	feeRate chainfee.SatPerKWeight, minConfs int32,
+	label string) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
@@ -1076,7 +1130,7 @@ func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 // responsibility to lock the inputs before handing them out.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) FundPsbt(packet *psbt.Packet,
+func (b *BtcWallet) FundPsbt(packet *psbt.Packet, minConfs int32,
 	feeRate chainfee.SatPerKWeight, accountName string) (int32, error) {
 
 	// The fee rate is passed in using units of sat/kw, so we'll convert
@@ -1111,7 +1165,7 @@ func (b *BtcWallet) FundPsbt(packet *psbt.Packet,
 	// Let the wallet handle coin selection and/or fee estimation based on
 	// the partial TX information in the packet.
 	return b.wallet.FundPsbt(
-		packet, keyScope, accountNum, feeSatPerKB,
+		packet, keyScope, minConfs, accountNum, feeSatPerKB,
 		b.cfg.CoinSelectionStrategy,
 	)
 }

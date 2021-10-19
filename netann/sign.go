@@ -33,5 +33,5 @@ func SignAnnouncement(signer lnwallet.MessageSigner, keyLoc keychain.KeyLocator,
 		return nil, fmt.Errorf("unable to get data to sign: %v", err)
 	}
 
-	return signer.SignMessage(keyLoc, data)
+	return signer.SignMessage(keyLoc, data, true)
 }

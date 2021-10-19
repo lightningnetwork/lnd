@@ -310,6 +310,14 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 	return subServer, macPermissions, nil
 }
 
+// internalScope returns the internal key scope.
+func (w *WalletKit) internalScope() waddrmgr.KeyScope {
+	return waddrmgr.KeyScope{
+		Purpose: keychain.BIP0043Purpose,
+		Coin:    w.cfg.ChainParams.HDCoinType,
+	}
+}
+
 // ListUnspent returns useful information about each unspent output owned by the
 // wallet, as reported by the underlying `ListUnspentWitness`; the information
 // returned is: outpoint, amount in satoshis, address, address type,
@@ -507,9 +515,17 @@ func (w *WalletKit) NextAddr(ctx context.Context,
 		account = req.Account
 	}
 
-	addr, err := w.cfg.Wallet.NewAddress(
-		lnwallet.WitnessPubKey, false, account,
-	)
+	addrType := lnwallet.WitnessPubKey
+	switch req.Type {
+	case AddressType_NESTED_WITNESS_PUBKEY_HASH:
+		addrType = lnwallet.NestedWitnessPubKey
+
+	case AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
+		return nil, fmt.Errorf("invalid address type for next "+
+			"address: %v", req.Type)
+	}
+
+	addr, err := w.cfg.Wallet.NewAddress(addrType, req.Change, account)
 	if err != nil {
 		return nil, err
 	}
@@ -1110,7 +1126,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		// lock any coins but might still change the wallet DB by
 		// generating a new change address.
 		changeIndex, err = w.cfg.Wallet.FundPsbt(
-			packet, feeSatPerKW, account,
+			packet, minConfs, feeSatPerKW, account,
 		)
 		if err != nil {
 			return fmt.Errorf("wallet couldn't fund PSBT: %v", err)
@@ -1237,7 +1253,9 @@ func (w *WalletKit) FinalizePsbt(_ context.Context,
 
 // marshalWalletAccount converts the properties of an account into its RPC
 // representation.
-func marshalWalletAccount(account *waddrmgr.AccountProperties) (*Account, error) {
+func marshalWalletAccount(internalScope waddrmgr.KeyScope,
+	account *waddrmgr.AccountProperties) (*Account, error) {
+
 	var addrType AddressType
 	switch account.KeyScope {
 	case waddrmgr.KeyScopeBIP0049Plus:
@@ -1251,12 +1269,19 @@ func marshalWalletAccount(account *waddrmgr.AccountProperties) (*Account, error)
 		switch *account.AddrSchema {
 		case waddrmgr.KeyScopeBIP0049AddrSchema:
 			addrType = AddressType_NESTED_WITNESS_PUBKEY_HASH
+
+		case waddrmgr.ScopeAddrMap[waddrmgr.KeyScopeBIP0049Plus]:
+			addrType = AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH
+
 		default:
 			return nil, fmt.Errorf("unsupported address schema %v",
 				*account.AddrSchema)
 		}
 
 	case waddrmgr.KeyScopeBIP0084:
+		addrType = AddressType_WITNESS_PUBKEY_HASH
+
+	case internalScope:
 		addrType = AddressType_WITNESS_PUBKEY_HASH
 
 	default:
@@ -1332,7 +1357,9 @@ func (w *WalletKit) ListAccounts(ctx context.Context,
 			continue
 		}
 
-		rpcAccount, err := marshalWalletAccount(account)
+		rpcAccount, err := marshalWalletAccount(
+			w.internalScope(), account,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -1423,7 +1450,7 @@ func (w *WalletKit) ImportAccount(ctx context.Context,
 		return nil, err
 	}
 
-	rpcAccount, err := marshalWalletAccount(accountProps)
+	rpcAccount, err := marshalWalletAccount(w.internalScope(), accountProps)
 	if err != nil {
 		return nil, err
 	}

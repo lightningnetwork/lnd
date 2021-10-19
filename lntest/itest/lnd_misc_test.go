@@ -565,41 +565,39 @@ func testGarbageCollectLinkNodes(ht *lntest.HarnessTest) {
 // testRejectHTLC tests that a node can be created with the flag --rejecthtlc.
 // This means that the node will reject all forwarded HTLCs but can still
 // accept direct HTLCs as well as send HTLCs.
-func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
+func testRejectHTLC(ht *lntest.HarnessTest) {
 	//             RejectHTLC
 	// Alice ------> Carol ------> Bob
 	//
 	const chanAmt = btcutil.Amount(1000000)
-	ctxb := context.Background()
+	alice, bob := ht.Alice(), ht.Bob()
 
 	// Create Carol with reject htlc flag.
-	carol := net.NewNode(t.t, "Carol", []string{"--rejecthtlc"})
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", []string{"--rejecthtlc"})
+	defer ht.Shutdown(carol)
 
 	// Connect Alice to Carol.
-	net.ConnectNodes(t.t, net.Alice, carol)
+	ht.ConnectNodes(alice, carol)
 
 	// Connect Carol to Bob.
-	net.ConnectNodes(t.t, carol, net.Bob)
+	ht.ConnectNodes(carol, bob)
 
 	// Send coins to Carol.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// Send coins to Alice.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcent, net.Alice)
+	ht.SendCoins(btcutil.SatoshiPerBitcent, alice)
 
 	// Open a channel between Alice and Carol.
-	chanPointAlice := openChannelAndAssert(
-		t, net, net.Alice, carol,
-		lntest.OpenChannelParams{
+	chanPointAlice := ht.OpenChannel(
+		alice, carol, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
 
 	// Open a channel between Carol and Bob.
-	chanPointCarol := openChannelAndAssert(
-		t, net, carol, net.Bob,
-		lntest.OpenChannelParams{
+	chanPointCarol := ht.OpenChannel(
+		carol, bob, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -612,172 +610,115 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 		preimage := make([]byte, 32)
 
 		_, err := rand.Read(preimage)
-		if err != nil {
-			t.Fatalf("unable to generate preimage: %v", err)
-		}
+		require.NoError(ht, err, "unable to generate preimage")
 
 		return preimage
 	}
 
 	// Create an invoice from Carol of 100 satoshis.
 	// We expect Alice to be able to pay this invoice.
-	preimage := genPreImage()
-
 	carolInvoice := &lnrpc.Invoice{
 		Memo:      "testing - alice should pay carol",
-		RPreimage: preimage,
+		RPreimage: genPreImage(),
 		Value:     payAmt,
 	}
 
 	// Carol adds the invoice to her database.
-	resp, err := carol.AddInvoice(ctxb, carolInvoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
+	resp := ht.AddInvoice(carolInvoice, carol)
 
 	// Alice pays Carols invoice.
-	err = completePaymentRequests(
-		net.Alice, net.Alice.RouterClient,
-		[]string{resp.PaymentRequest}, true,
-	)
-	if err != nil {
-		t.Fatalf("unable to send payments from alice to carol: %v", err)
-	}
+	ht.CompletePaymentRequests(alice, []string{resp.PaymentRequest}, true)
 
 	// Create an invoice from Bob of 100 satoshis.
 	// We expect Carol to be able to pay this invoice.
-	preimage = genPreImage()
-
 	bobInvoice := &lnrpc.Invoice{
 		Memo:      "testing - carol should pay bob",
-		RPreimage: preimage,
+		RPreimage: genPreImage(),
 		Value:     payAmt,
 	}
 
 	// Bob adds the invoice to his database.
-	resp, err = net.Bob.AddInvoice(ctxb, bobInvoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
+	resp = ht.AddInvoice(bobInvoice, bob)
 
 	// Carol pays Bobs invoice.
-	err = completePaymentRequests(
-		carol, carol.RouterClient,
-		[]string{resp.PaymentRequest}, true,
-	)
-	if err != nil {
-		t.Fatalf("unable to send payments from carol to bob: %v", err)
-	}
+	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest}, true)
 
 	// Create an invoice from Bob of 100 satoshis.
 	// Alice attempts to pay Bob but this should fail, since we are
 	// using Carol as a hop and her node will reject onward HTLCs.
-	preimage = genPreImage()
-
 	bobInvoice = &lnrpc.Invoice{
 		Memo:      "testing - alice tries to pay bob",
-		RPreimage: preimage,
+		RPreimage: genPreImage(),
 		Value:     payAmt,
 	}
 
 	// Bob adds the invoice to his database.
-	resp, err = net.Bob.AddInvoice(ctxb, bobInvoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
+	resp = ht.AddInvoice(bobInvoice, bob)
 
-	// Alice attempts to pay Bobs invoice. This payment should be rejected since
-	// we are using Carol as an intermediary hop, Carol is running lnd with
-	// --rejecthtlc.
-	err = completePaymentRequests(
-		net.Alice, net.Alice.RouterClient,
-		[]string{resp.PaymentRequest}, true,
+	// Alice attempts to pay Bobs invoice. This payment should be rejected
+	// since we are using Carol as an intermediary hop, Carol is running
+	// lnd with --rejecthtlc.
+	payStream := ht.SendPayment(
+		alice, &routerrpc.SendPaymentRequest{
+			PaymentRequest: resp.PaymentRequest,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		},
 	)
-	if err == nil {
-		t.Fatalf(
-			"should have been rejected, carol will not accept forwarded htlcs",
-		)
-	}
+	ht.AssertPaymentStatusFromStream(payStream, lnrpc.Payment_FAILED)
 
-	assertLastHTLCError(t, net.Alice, lnrpc.Failure_CHANNEL_DISABLED)
+	ht.AssertLastHTLCError(alice, lnrpc.Failure_CHANNEL_DISABLED)
 
 	// Close all channels.
-	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
-	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
+	ht.CloseChannel(alice, chanPointAlice, false)
+	ht.CloseChannel(carol, chanPointCarol, false)
 }
 
-func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+// testNodeSignVerify checks that only connected nodes are allow to perform
+// signing and verifying messages.
+func testNodeSignVerify(ht *lntest.HarnessTest) {
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
+	alice, bob := ht.Alice(), ht.Bob()
 
 	// Create a channel between alice and bob.
-	aliceBobCh := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
+	aliceBobCh := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 		},
 	)
 
-	aliceMsg := []byte("alice msg")
-
 	// alice signs "alice msg" and sends her signature to bob.
-	sigReq := &lnrpc.SignMessageRequest{Msg: aliceMsg}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	sigResp, err := net.Alice.SignMessage(ctxt, sigReq)
-	if err != nil {
-		t.Fatalf("SignMessage rpc call failed: %v", err)
-	}
+	aliceMsg := []byte("alice msg")
+	sigResp := ht.SignMessage(alice, aliceMsg)
 	aliceSig := sigResp.Signature
 
-	// bob verifying alice's signature should succeed since alice and bob are
-	// connected.
-	verifyReq := &lnrpc.VerifyMessageRequest{Msg: aliceMsg, Signature: aliceSig}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	verifyResp, err := net.Bob.VerifyMessage(ctxt, verifyReq)
-	if err != nil {
-		t.Fatalf("VerifyMessage failed: %v", err)
-	}
-	if !verifyResp.Valid {
-		t.Fatalf("alice's signature didn't validate")
-	}
-	if verifyResp.Pubkey != net.Alice.PubKeyStr {
-		t.Fatalf("alice's signature doesn't contain alice's pubkey.")
-	}
+	// bob verifying alice's signature should succeed since alice and bob
+	// are connected.
+	verifyResp := ht.VerifyMessage(bob, aliceMsg, aliceSig)
+	require.True(ht, verifyResp.Valid, "alice's signature didn't validate")
+	require.Equal(ht, verifyResp.Pubkey, alice.PubKeyStr,
+		"alice's signature doesn't contain alice's pubkey.")
 
 	// carol is a new node that is unconnected to alice or bob.
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
-
-	carolMsg := []byte("carol msg")
+	carol := ht.NewNode("Carol", nil)
+	defer ht.Shutdown(carol)
 
 	// carol signs "carol msg" and sends her signature to bob.
-	sigReq = &lnrpc.SignMessageRequest{Msg: carolMsg}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	sigResp, err = carol.SignMessage(ctxt, sigReq)
-	if err != nil {
-		t.Fatalf("SignMessage rpc call failed: %v", err)
-	}
+	carolMsg := []byte("carol msg")
+	sigResp = ht.SignMessage(carol, carolMsg)
 	carolSig := sigResp.Signature
 
-	// bob verifying carol's signature should fail since they are not connected.
-	verifyReq = &lnrpc.VerifyMessageRequest{Msg: carolMsg, Signature: carolSig}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	verifyResp, err = net.Bob.VerifyMessage(ctxt, verifyReq)
-	if err != nil {
-		t.Fatalf("VerifyMessage failed: %v", err)
-	}
-	if verifyResp.Valid {
-		t.Fatalf("carol's signature should not be valid")
-	}
-	if verifyResp.Pubkey != carol.PubKeyStr {
-		t.Fatalf("carol's signature doesn't contain her pubkey")
-	}
+	// bob verifying carol's signature should fail since they are not
+	// connected.
+	verifyResp = ht.VerifyMessage(bob, carolMsg, carolSig)
+	require.False(ht, verifyResp.Valid, "carol's signature didn't validate")
+	require.Equal(ht, verifyResp.Pubkey, carol.PubKeyStr,
+		"carol's signature doesn't contain alice's pubkey.")
 
 	// Close the channel between alice and bob.
-	closeChannelAndAssert(t, net, net.Alice, aliceBobCh, false)
+	ht.CloseChannel(alice, aliceBobCh, false)
 }
 
 // testAbandonChannel abandones a channel and asserts that it is no

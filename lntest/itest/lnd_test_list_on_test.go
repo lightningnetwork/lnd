@@ -88,11 +88,19 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "list channels",
 		TestFunc: testListChannels,
 	},
+	{
+		Name:     "node sign verify",
+		TestFunc: testNodeSignVerify,
+	},
 
-	// Channel config related tests.
+	// Node config related tests.
 	{
 		Name:     "max pending channel",
 		TestFunc: testMaxPendingChannels,
+	},
+	{
+		Name:     "reject onward htlc",
+		TestFunc: testRejectHTLC,
 	},
 
 	// Link related tests.
@@ -195,18 +203,10 @@ var allTestCases = []*lntest.TestCase{
 	// 	name: "multi-hop htlc error propagation",
 	// 	test: testHtlcErrorPropagation,
 	// },
-	// {
-	// 	name: "reject onward htlc",
-	// 	test: testRejectHTLC,
-	// },
 	// // TODO(roasbeef): multi-path integration test
 	// {
 	// 	name: "node announcement",
 	// 	test: testNodeAnnouncement,
-	// },
-	// {
-	// 	name: "node sign verify",
-	// 	test: testNodeSignVerify,
 	// },
 	// {
 	// 	name: "derive shared key",

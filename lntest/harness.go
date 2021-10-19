@@ -892,27 +892,35 @@ func (h *HarnessTest) SendPayment(hn *HarnessNode,
 func (h *HarnessTest) AssertPaymentStatusFromStream(stream PaymentClient,
 	status lnrpc.Payment_PaymentStatus) *lnrpc.Payment {
 
-	var (
-		payment *lnrpc.Payment
-		err     error
-	)
+	var target *lnrpc.Payment
+	err := wait.NoError(func() error {
+		// Consume one message. This will block until the
+		// message is received.
+		payment, err := stream.Recv()
 
-	checkStatus := func() error {
-		payment, err = stream.Recv()
+		// We will not wait if there's an error returned from
+		// the stream.
 		if err != nil {
-			return fmt.Errorf("payment stream got: %w", err)
+			return fmt.Errorf("payment stream "+
+				"got err: %w", err)
 		}
 
+		// Return if the desired payment state is reached.
 		if payment.Status == status {
+			target = payment
 			return nil
 		}
 
+		// Return the err so that it can be used for debugging
+		// when timeout is reached.
 		return fmt.Errorf("payment status, got %v, want %v",
 			payment.Status, status)
-	}
-	require.NoError(h, wait.NoError(checkStatus, DefaultTimeout))
 
-	return payment
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout while waiting payment")
+
+	return target
 }
 
 // assertNodeNumChannels polls the provided node's list channels rpc until it
@@ -2247,10 +2255,10 @@ func (h *HarnessTest) CompletePaymentRequests(hn *HarnessNode,
 		)
 	}
 
-	// Launch all payments simultaneously.
+	// Launch all payments sequentially.
 	for _, payReq := range paymentRequests {
 		payReqCopy := payReq
-		go send(payReqCopy)
+		send(payReqCopy)
 	}
 
 	// We are not waiting for feedback in the form of a response, but we
@@ -2467,4 +2475,33 @@ func (h *HarnessTest) VerifyChanBackup(hn *HarnessNode,
 	require.NoError(h, err, "unable to verify backup")
 
 	return resp
+}
+
+// SignMessage makes a RPC call to node's SignMessage and asserts.
+func (h *HarnessTest) SignMessage(hn *HarnessNode,
+	msg []byte) *lnrpc.SignMessageResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.SignMessageRequest{Msg: msg}
+	resp, err := hn.rpc.LN.SignMessage(ctxt, req)
+	require.NoError(h, err, "SignMessage rpc call failed")
+
+	return resp
+}
+
+// VerifyMessage makes a RPC call to node's VerifyMessage and asserts.
+func (h *HarnessTest) VerifyMessage(hn *HarnessNode, msg []byte,
+	sig string) *lnrpc.VerifyMessageResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.VerifyMessageRequest{Msg: msg, Signature: sig}
+	resp, err := hn.rpc.LN.VerifyMessage(ctxt, req)
+	require.NoError(h, err, "VerifyMessage failed")
+
+	return resp
+
 }

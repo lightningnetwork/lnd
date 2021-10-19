@@ -851,6 +851,71 @@
         ]
       }
     },
+    "/v1/custommessage": {
+      "post": {
+        "summary": "lncli: `sendcustom`\nSendCustomMessage sends a custom peer message.",
+        "operationId": "Lightning_SendCustomMessage",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendCustomMessageResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendCustomMessageRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/custommessage/subscribe": {
+      "get": {
+        "summary": "lncli: `subscribecustom`\nSubscribeCustomMessages subscribes to a stream of incoming custom peer\nmessages.",
+        "operationId": "Lightning_SubscribeCustomMessages",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/lnrpcCustomMessage"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of lnrpcCustomMessage"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/debuglevel": {
       "post": {
         "summary": "lncli: `debuglevel`\nDebugLevel allows a caller to programmatically set the logging verbosity of\nlnd. The logging can be targeted according to a coarse daemon-wide logging\nlevel, or in a granular fashion to specify the logging for a target\nsub-system.",
@@ -1702,17 +1767,6 @@
             }
           }
         },
-        "parameters": [
-          {
-            "name": "body",
-            "description": " (streaming inputs)",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/lnrpcRPCMiddlewareResponse"
-            }
-          }
-        ],
         "tags": [
           "Lightning"
         ]
@@ -3808,6 +3862,26 @@
     "lnrpcConnectPeerResponse": {
       "type": "object"
     },
+    "lnrpcCustomMessage": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "format": "byte",
+          "title": "Peer from which the message originates"
+        },
+        "type": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Message type. This value will be in the custom range (\u003e= 32768)."
+        },
+        "data": {
+          "type": "string",
+          "format": "byte",
+          "title": "Raw message data"
+        }
+      }
+    },
     "lnrpcDebugLevelRequest": {
       "type": "object",
       "properties": {
@@ -5766,24 +5840,6 @@
         }
       }
     },
-    "lnrpcRPCMiddlewareResponse": {
-      "type": "object",
-      "properties": {
-        "request_id": {
-          "type": "string",
-          "format": "uint64",
-          "description": "The unique ID of the intercepted request that this response refers to. Must\nalways be set when giving feedback to an intercept but is ignored for the\ninitial registration message."
-        },
-        "register": {
-          "$ref": "#/definitions/lnrpcMiddlewareRegistration",
-          "title": "The registration message identifies the middleware that's being\nregistered in lnd. The registration message must be sent immediately\nafter initiating the RegisterRpcMiddleware stream, otherwise lnd will\ntime out the attempt and terminate the request. NOTE: The middleware\nwill only receive interception messages for requests that contain a\nmacaroon with the custom caveat that the middleware declares it is\nresponsible for handling in the registration message! As a security\nmeasure, _no_ middleware can intercept requests made with _unencumbered_\nmacaroons!"
-        },
-        "feedback": {
-          "$ref": "#/definitions/lnrpcInterceptFeedback",
-          "description": "The middleware received an interception request and gives feedback to\nit. The request_id indicates what message the feedback refers to."
-        }
-      }
-    },
     "lnrpcReadyForPsbtFunding": {
       "type": "object",
       "properties": {
@@ -6007,6 +6063,29 @@
           "title": "The transaction ID of the transaction"
         }
       }
+    },
+    "lnrpcSendCustomMessageRequest": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "format": "byte",
+          "title": "Peer to send the message to"
+        },
+        "type": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Message type. This value needs to be in the custom range (\u003e= 32768)."
+        },
+        "data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Raw message data."
+        }
+      }
+    },
+    "lnrpcSendCustomMessageResponse": {
+      "type": "object"
     },
     "lnrpcSendManyRequest": {
       "type": "object",

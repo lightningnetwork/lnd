@@ -307,6 +307,8 @@ type server struct {
 	// livelinessMonitor monitors that lnd has access to critical resources.
 	livelinessMonitor *healthcheck.Monitor
 
+	customMessageServer *subscribe.Server
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -393,6 +395,15 @@ func (s *server) updatePersistentPeerAddrs() error {
 	}()
 
 	return nil
+}
+
+// CustomMessage is a custom message that is received from a peer.
+type CustomMessage struct {
+	// Peer is the peer pubkey
+	Peer [33]byte
+
+	// Msg is the custom wire message.
+	Msg *lnwire.Custom
 }
 
 // parseAddr parses an address from its string format to a net.Addr.
@@ -567,6 +578,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		outboundPeers:             make(map[string]*peer.Brontide),
 		peerConnectedListeners:    make(map[string][]chan<- lnpeer.Peer),
 		peerDisconnectedListeners: make(map[string][]chan<- struct{}),
+
+		customMessageServer: subscribe.NewServer(),
 
 		featureMgr: featureMgr,
 		quit:       make(chan struct{}),
@@ -1637,6 +1650,11 @@ func (s *server) Start() error {
 	cleanup := cleaner{}
 
 	s.start.Do(func() {
+		if err := s.customMessageServer.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.customMessageServer.Stop)
 
 		if s.hostAnn != nil {
 			if err := s.hostAnn.Start(); err != nil {
@@ -3336,6 +3354,24 @@ func (s *server) cancelConnReqs(pubStr string, skip *uint64) {
 	delete(s.persistentConnReqs, pubStr)
 }
 
+// handleCustomMessage dispatches an incoming custom peers message to
+// subscribers.
+func (s *server) handleCustomMessage(peer [33]byte, msg *lnwire.Custom) error {
+	srvrLog.Debugf("Custom message received: peer=%x, type=%d",
+		peer, msg.Type)
+
+	return s.customMessageServer.SendUpdate(&CustomMessage{
+		Peer: peer,
+		Msg:  msg,
+	})
+}
+
+// SubscribeCustomMessages subscribes to a stream of incoming custom peer
+// messages.
+func (s *server) SubscribeCustomMessages() (*subscribe.Client, error) {
+	return s.customMessageServer.Subscribe()
+}
+
 // peerConnected is a function that handles initialization a newly connected
 // peer by adding it to the server's global list of all active peers, and
 // starting all the goroutines the peer needs to function properly. The inbound
@@ -3431,6 +3467,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
 		ChannelCommitInterval:  s.cfg.ChannelCommitInterval,
 		ChannelCommitBatchSize: s.cfg.ChannelCommitBatchSize,
+		HandleCustomMessage:    s.handleCustomMessage,
 		Quit:                   s.quit,
 	}
 
@@ -4177,6 +4214,35 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate) error {
 	case <-s.quit:
 		return ErrServerShuttingDown
 	}
+}
+
+// SendCustomMessage sends a custom message to the peer with the specified
+// pubkey.
+func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
+	data []byte) error {
+
+	peer, err := s.FindPeerByPubStr(string(peerPub[:]))
+	if err != nil {
+		return err
+	}
+
+	// We'll wait until the peer is active.
+	select {
+	case <-peer.ActiveSignal():
+	case <-peer.QuitSignal():
+		return fmt.Errorf("peer %x disconnected", peerPub)
+	case <-s.quit:
+		return ErrServerShuttingDown
+	}
+
+	msg, err := lnwire.NewCustom(msgType, data)
+	if err != nil {
+		return err
+	}
+
+	// Send the message as low-priority. For now we assume that all
+	// application-defined message are low priority.
+	return peer.SendMessageLazy(true, msg)
 }
 
 // newSweepPkScriptGen creates closure that generates a new public key script

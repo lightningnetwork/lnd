@@ -447,6 +447,30 @@ func (c *GraphCache) ForEachChannel(node route.Vertex,
 	return nil
 }
 
+// ForEachNode iterates over the adjacency list of the graph, executing the
+// call back for each node and the set of channels that emanate from the given
+// node.
+//
+// NOTE: This method should be considered _read only_, the channels or nodes
+// passed in MUST NOT be modified.
+func (c *GraphCache) ForEachNode(cb func(node route.Vertex,
+	channels map[uint64]*DirectedChannel) error) error {
+
+	c.mtx.RLock()
+	defer c.mtx.RUnlock()
+
+	for node, channels := range c.nodeChannels {
+		// We don't make a copy here since this is a read-only RPC
+		// call. We also don't need the node features either for this
+		// call.
+		if err := cb(node, channels); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // GetFeatures returns the features of the node with the given ID. If no
 // features are known for the node, an empty feature vector is returned.
 func (c *GraphCache) GetFeatures(node route.Vertex) *lnwire.FeatureVector {

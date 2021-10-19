@@ -458,6 +458,72 @@ func (c *ChannelGraph) FetchNodeFeatures(
 	}
 }
 
+// ForEachNodeCached is similar to ForEachNode, but it utilizes the channel
+// graph cache instead. Note that this doesn't return all the information the
+// regular ForEachNode method does.
+//
+// NOTE: The callback contents MUST not be modified.
+func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
+	chans map[uint64]*DirectedChannel) error) error {
+
+	if c.graphCache != nil {
+		return c.graphCache.ForEachNode(cb)
+	}
+
+	// Otherwise call back to a version that uses the database directly.
+	// We'll iterate over each node, then the set of channels for each
+	// node, and construct a similar callback functiopn signature as the
+	// main funcotin expects.
+	return c.ForEachNode(func(tx kvdb.RTx, node *LightningNode) error {
+		channels := make(map[uint64]*DirectedChannel)
+
+		err := node.ForEachChannel(tx, func(tx kvdb.RTx,
+			e *ChannelEdgeInfo, p1 *ChannelEdgePolicy,
+			p2 *ChannelEdgePolicy) error {
+
+			toNodeCallback := func() route.Vertex {
+				return node.PubKeyBytes
+			}
+			toNodeFeatures, err := c.FetchNodeFeatures(
+				node.PubKeyBytes,
+			)
+			if err != nil {
+				return err
+			}
+
+			var cachedInPolicy *CachedEdgePolicy
+			if p2 != nil {
+				cachedInPolicy := NewCachedPolicy(p2)
+				cachedInPolicy.ToNodePubKey = toNodeCallback
+				cachedInPolicy.ToNodeFeatures = toNodeFeatures
+			}
+
+			directedChannel := &DirectedChannel{
+				ChannelID:    e.ChannelID,
+				IsNode1:      node.PubKeyBytes == e.NodeKey1Bytes,
+				OtherNode:    e.NodeKey2Bytes,
+				Capacity:     e.Capacity,
+				OutPolicySet: p1 != nil,
+				InPolicy:     cachedInPolicy,
+			}
+
+			if node.PubKeyBytes == e.NodeKey2Bytes {
+				directedChannel.OtherNode = e.NodeKey1Bytes
+			}
+
+			channels[e.ChannelID] = directedChannel
+
+			return nil
+
+		})
+		if err != nil {
+			return err
+		}
+
+		return cb(node.PubKeyBytes, channels)
+	})
+}
+
 // DisabledChannelIDs returns the channel ids of disabled channels.
 // A channel is disabled when two of the associated ChanelEdgePolicies
 // have their disabled bit on.

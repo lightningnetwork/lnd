@@ -1103,6 +1103,34 @@ func TestGraphTraversal(t *testing.T) {
 	const numChannels = 5
 	chanIndex, nodeList := fillTestGraph(t, graph, numNodes, numChannels)
 
+	// Make an index of the node list for easy look up below.
+	nodeIndex := make(map[route.Vertex]struct{})
+	for _, node := range nodeList {
+		nodeIndex[node.PubKeyBytes] = struct{}{}
+	}
+
+	// If we turn the channel graph cache _off_, then iterate through the
+	// set of channels (to force the fall back), we should find all the
+	// channel as well as the nodes included.
+	graph.graphCache = nil
+	err = graph.ForEachNodeCached(func(node route.Vertex,
+		chans map[uint64]*DirectedChannel) error {
+
+		if _, ok := nodeIndex[node]; !ok {
+			return fmt.Errorf("node %x not found in graph", node)
+		}
+
+		for chanID := range chans {
+			if _, ok := chanIndex[chanID]; !ok {
+				return fmt.Errorf("chan %v not found in "+
+					"graph", chanID)
+			}
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
+
 	// Iterate through all the known channels within the graph DB, once
 	// again if the map is empty that indicates that all edges have
 	// properly been reached.

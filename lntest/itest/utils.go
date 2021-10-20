@@ -138,7 +138,8 @@ func completePaymentRequests(client lnrpc.LightningClient,
 	return nil
 }
 
-// makeFakePayHash creates random pre image hash.
+// makeFakePayHash creates random pre image hash
+// TODO(yy): delete
 func makeFakePayHash(t *harnessTest) []byte {
 	randBuf := make([]byte, 32)
 
@@ -348,28 +349,6 @@ func getNTxsFromMempool(miner *rpcclient.Client, n int,
 		txes = append(txes, tx.MsgTx())
 	}
 	return txes, nil
-}
-
-// getTxFee retrieves parent transactions and reconstructs the fee paid.
-func getTxFee(miner *rpcclient.Client, tx *wire.MsgTx) (btcutil.Amount, error) {
-	var balance btcutil.Amount
-	for _, in := range tx.TxIn {
-		parentHash := in.PreviousOutPoint.Hash
-		rawTx, err := miner.GetRawTransaction(&parentHash)
-		if err != nil {
-			return 0, err
-		}
-		parent := rawTx.MsgTx()
-		balance += btcutil.Amount(
-			parent.TxOut[in.PreviousOutPoint.Index].Value,
-		)
-	}
-
-	for _, out := range tx.TxOut {
-		balance -= btcutil.Amount(out.Value)
-	}
-
-	return balance, nil
 }
 
 // findTxAtHeight gets all of the transactions that a node's wallet has a record

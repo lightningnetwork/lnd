@@ -37,7 +37,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 
 	// We'll now send a single HTLC across our multi-hop network.
 	carolPubKey := carol.PubKey[:]
-	payHash := ht.MakeFakePayHash()
+	payHash := ht.Random32Bytes()
 	req := &routerrpc.SendPaymentRequest{
 		Dest:           carolPubKey,
 		Amt:            int64(htlcAmt),

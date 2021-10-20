@@ -2,7 +2,6 @@ package itest
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"testing"
 
@@ -716,9 +715,7 @@ func deriveFundingShim(ht *lntest.HarnessTest,
 	// At this point, we can being our external channel funding workflow.
 	// We'll start by generating a pending channel ID externally that will
 	// be used to track this new funding type.
-	var pendingChanID [32]byte
-	_, err = rand.Read(pendingChanID[:])
-	require.NoError(ht, err)
+	pendingChanID := ht.Random32Bytes()
 
 	// Now that we have the pending channel ID, Dave (our responder) will
 	// register the intent to receive a new channel funding workflow using
@@ -739,7 +736,7 @@ func deriveFundingShim(ht *lntest.HarnessTest,
 			},
 		},
 		RemoteKey:     carolFundingKey.RawKeyBytes,
-		PendingChanId: pendingChanID[:],
+		PendingChanId: pendingChanID,
 		ThawHeight:    thawHeight,
 	}
 	fundingShim := &lnrpc.FundingShim{

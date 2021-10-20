@@ -40,8 +40,8 @@ func testMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 	// We'll create two random payment hashes unknown to carol, then send
 	// each of them by manually specifying the HTLC details.
 	carolPubKey := carol.PubKey[:]
-	dustPayHash := ht.MakeFakePayHash()
-	payHash := ht.MakeFakePayHash()
+	dustPayHash := ht.Random32Bytes()
+	payHash := ht.Random32Bytes()
 
 	ht.SendPayment(
 		alice, &routerrpc.SendPaymentRequest{

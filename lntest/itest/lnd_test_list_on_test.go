@@ -159,6 +159,12 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testUpdateNodeAnnouncement,
 	},
 
+	// Close channel related tests.
+	{
+		Name:     "commitment deadline",
+		TestFunc: testCommitmentTransactionDeadline,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
@@ -289,10 +295,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "hold invoice force close",
 	// 	test: testHoldInvoiceForceClose,
-	// },
-	// {
-	// 	name: "commitment deadline",
-	// 	test: testCommitmentTransactionDeadline,
 	// },
 	// {
 	// 	name: "cpfp",

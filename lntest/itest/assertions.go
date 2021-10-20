@@ -720,6 +720,7 @@ func checkNumForceClosedChannels(pendingChanResp *lnrpc.PendingChannelsResponse,
 
 // checkNumWaitingCloseChannels checks that a pending channel response has the
 // expected number of channels waiting for closing tx to confirm.
+// TODO(yy): delete
 func checkNumWaitingCloseChannels(pendingChanResp *lnrpc.PendingChannelsResponse,
 	expectedNumChans int) error {
 

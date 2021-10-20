@@ -299,6 +299,14 @@ func (h *HarnessTest) SetFeeEstimate(fee chainfee.SatPerKWeight) {
 	h.net.feeService.setFee(fee)
 }
 
+// SetFeeEstimateWithConf sets a fee rate of a specified conf target to be
+// returned from fee estimator.
+func (h *HarnessTest) SetFeeEstimateWithConf(
+	fee chainfee.SatPerKWeight, conf uint32) {
+
+	h.net.feeService.setFeeWithConf(fee, conf)
+}
+
 // EnsureConnected will try to connect to two nodes, returning no error if they
 // are already connected. If the nodes were not connected previously, this will
 // behave the same as ConnectNodes. If a pending connection request has already
@@ -814,10 +822,9 @@ func (h *HarnessTest) AssertTxInMempool(op wire.OutPoint) *wire.MsgTx {
 		}
 
 		for _, txid := range mempool {
-			tx, err := h.net.Miner.Client.GetRawTransaction(txid)
 			// We require the RPC call to be succeeded and won't
 			// wait for it as it's an unexpected behavior.
-			require.NoErrorf(h, err, "unable to fetch tx: %v", txid)
+			tx := h.GetRawTransaction(txid)
 
 			msgTx = tx.MsgTx()
 			for _, txIn := range msgTx.TxIn {
@@ -862,8 +869,9 @@ func (h *HarnessTest) AssertNumTxsInMempool(n int) []*chainhash.Hash {
 	return mempool
 }
 
-// makeFakePayHash creates random pre image hash
-func (h *HarnessTest) MakeFakePayHash() []byte {
+// Random32Bytes generates a random 32 bytes which can be used as a pay hash,
+// preimage, etc.
+func (h *HarnessTest) Random32Bytes() []byte {
 	randBuf := make([]byte, 32)
 
 	_, err := rand.Read(randBuf)
@@ -1034,11 +1042,18 @@ func (h *HarnessTest) GetNumTxsFromMempool(n int) []*wire.MsgTx {
 
 	var txes []*wire.MsgTx
 	for _, txid := range txids {
-		tx, err := h.net.Miner.Client.GetRawTransaction(txid)
-		require.NoErrorf(h, err, "failed to get raw tx: %v", txid)
+		tx := h.GetRawTransaction(txid)
 		txes = append(txes, tx.MsgTx())
 	}
 	return txes
+}
+
+// GetRawTransaction makes a RPC call to the miner's GetRawTransaction and
+// asserts.
+func (h *HarnessTest) GetRawTransaction(txid *chainhash.Hash) *btcutil.Tx {
+	tx, err := h.net.Miner.Client.GetRawTransaction(txid)
+	require.NoErrorf(h, err, "failed to get raw tx: %v", txid)
+	return tx
 }
 
 // assertAllTxesSpendFrom asserts that all txes in the list spend from the
@@ -2223,9 +2238,7 @@ func (h *HarnessTest) CreatePayReqs(hn *HarnessNode, paymentAmt btcutil.Amount,
 	rHashes := make([][]byte, numInvoices)
 	invoices := make([]*lnrpc.Invoice, numInvoices)
 	for i := 0; i < numInvoices; i++ {
-		preimage := make([]byte, 32)
-		_, err := rand.Read(preimage)
-		require.NoError(h, err, "unable to generate preimage")
+		preimage := h.Random32Bytes()
 
 		invoice := &lnrpc.Invoice{
 			Memo:      "testing",

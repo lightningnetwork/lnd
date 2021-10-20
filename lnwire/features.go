@@ -145,19 +145,15 @@ const (
 	// negotiation methods. With this bit, there is no longer a "default"
 	// implicit channel commitment type, allowing a connection to
 	// open/maintain types of several channels over its lifetime.
-	//
-	// TODO: Decide on actual feature bit value.
-	ExplicitChannelTypeRequired = 2020
+	ExplicitChannelTypeRequired = 44
 
 	// ExplicitChannelTypeOptional is an optional bit that denotes that a
 	// connection established with this node is to use explicit channel
 	// commitment types for negotiation instead of the existing implicit
 	// negotiation methods. With this bit, there is no longer a "default"
 	// implicit channel commitment type, allowing a connection to
-	// open/maintain types of several channels over its lifetime.
-	//
 	// TODO: Decide on actual feature bit value.
-	ExplicitChannelTypeOptional = 2021
+	ExplicitChannelTypeOptional = 45
 
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//

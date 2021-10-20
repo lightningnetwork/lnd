@@ -101,7 +101,9 @@ need to be kept in memory.
 initiator to signal their desired channel type to use with the remote peer. If
 the remote peer supports said channel type and agrees, the previous implicit
 negotiation based on the shared set of feature bits is bypassed, and the
-proposed channel type is used.
+proposed channel type is used. [Feature bits 44/45 are used to
+signal](https://github.com/lightningnetwork/lnd/pull/5874) this new feature.
+
 
 ## RPC Server
 

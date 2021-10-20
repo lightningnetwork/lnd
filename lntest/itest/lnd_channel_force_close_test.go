@@ -133,7 +133,7 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 		// Now that the channel has been force closed, it should show
 		// up in the PendingChannels RPC under the waiting close
 		// section.
-		ht.AssertNumWaitingCloseChannels(alice, 1)
+		ht.AssertChannelWaitingClose(alice, chanPoint)
 
 		// Check our sweep transactions can be found in mempool.
 		sweepTxns := ht.GetNumTxsFromMempool(expectedSweepTxNum)

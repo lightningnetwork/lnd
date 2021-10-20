@@ -174,7 +174,7 @@ func testMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 
 	// Once this transaction has been confirmed, Bob should detect that he
 	// no longer has any pending channels.
-	ht.AssertNumChannelPendingForceClose(bob, 0)
+	ht.AssertNumPendingCloseChannels(bob, 0, 0)
 
 	// Coop close channel, expect no anchors.
 	ht.CloseChannel(alice, aliceChanPoint, false)

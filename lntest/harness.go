@@ -1116,46 +1116,63 @@ func (h *HarnessTest) GetPendingChannels(
 	return resp
 }
 
-// AssertNumChannelPendingForceClose waits for the node to report a certain
-// number of channels in state pending force close.
-func (h *HarnessTest) AssertNumChannelPendingForceClose(hn *HarnessNode,
-	expectedNum int) {
+type PendingForceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel
+
+// AssertChannelPendingForceClose asserts that the given channel found in the
+// node is pending force close. Returns the PendingForceClose if found.
+func (h *HarnessTest) AssertChannelPendingForceClose(hn *HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) PendingForceClose {
+
+	var target PendingForceClose
+
+	op := h.OutPointFromChannelPoint(chanPoint)
 
 	err := wait.NoError(func() error {
 		resp := h.GetPendingChannels(hn)
 
 		forceCloseChans := resp.PendingForceClosingChannels
-		if len(forceCloseChans) != expectedNum {
-			return fmt.Errorf("%v should have %d pending "+
-				"force close channels but has %d",
-				hn.Name(), expectedNum,
-				len(forceCloseChans))
+		for _, ch := range forceCloseChans {
+			if ch.Channel.ChannelPoint == op.String() {
+				target = ch
+				return nil
+			}
 		}
 
-		return nil
+		return fmt.Errorf("%v: channel %s not found in pending "+
+			"force close", hn.Name(), chanPoint)
 	}, DefaultTimeout)
-	require.NoError(h, err, "assert num pending force close timed out")
+	require.NoError(h, err, "assert pending force close timed out")
+
+	return target
 }
 
-// AssertNumWaitingCloseChannels waits for the node to report a certain
-// number of channels in state waiting close.
-func (h *HarnessTest) AssertNumWaitingCloseChannels(hn *HarnessNode,
-	expectedNum int) {
+type WaitingCloseChannel *lnrpc.PendingChannelsResponse_WaitingCloseChannel
+
+// AssertChannelWaitingClose asserts that the given channel found in the node
+// is waiting close. Returns the WaitingCloseChannel if found.
+func (h *HarnessTest) AssertChannelWaitingClose(hn *HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) WaitingCloseChannel {
+
+	var target WaitingCloseChannel
+
+	op := h.OutPointFromChannelPoint(chanPoint)
 
 	err := wait.NoError(func() error {
 		resp := h.GetPendingChannels(hn)
 
-		waitingClose := resp.WaitingCloseChannels
-		if len(waitingClose) != expectedNum {
-			return fmt.Errorf("%v should have %d waiting "+
-				"close channels but has %d",
-				hn.Name(), expectedNum,
-				len(waitingClose))
+		for _, waitingClose := range resp.WaitingCloseChannels {
+			if waitingClose.Channel.ChannelPoint == op.String() {
+				target = waitingClose
+				return nil
+			}
 		}
 
-		return nil
+		return fmt.Errorf("%v: channel %s not found in waiting close",
+			hn.Name(), chanPoint)
 	}, DefaultTimeout)
-	require.NoError(h, err, "assert num waiting close timed out")
+	require.NoError(h, err, "assert channel waiting close timed out")
+
+	return target
 }
 
 // AssertNumPendingCloseChannels checks that a PendingChannels response from
@@ -1165,18 +1182,21 @@ func (h *HarnessTest) AssertNumPendingCloseChannels(hn *HarnessNode,
 	expWaitingClose, expPendingForceClose int) {
 
 	err := wait.NoError(func() error {
-		pendingChanResp := h.GetPendingChannels(hn)
-		n := len(pendingChanResp.WaitingCloseChannels)
+		resp := h.GetPendingChannels(hn)
+
+		n := len(resp.WaitingCloseChannels)
 		if n != expWaitingClose {
 			return fmt.Errorf("expected to find %d channels "+
 				"waiting close, found %d", expWaitingClose, n)
 		}
 
-		n = len(pendingChanResp.PendingForceClosingChannels)
+		n = len(resp.PendingForceClosingChannels)
 		if n != expPendingForceClose {
 			return fmt.Errorf("expected to find %d channel "+
-				"pending force close, found %d", expPendingForceClose, n)
+				"pending force close, found %d",
+				expPendingForceClose, n)
 		}
+
 		return nil
 	}, DefaultTimeout)
 

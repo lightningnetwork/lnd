@@ -75,7 +75,7 @@ func testMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 	)
 
 	// Wait for the channel to be marked pending force close.
-	ht.AssertNumChannelPendingForceClose(alice, 1)
+	ht.AssertNumPendingCloseChannels(alice, 0, 1)
 
 	// After closeChannelAndAssertType returns, it has mined a block so now
 	// bob will attempt to redeem his anchor commitment (if the channel
@@ -204,8 +204,8 @@ func testMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 		aliceBobPendingChansLeft = 1
 	}
 	for _, node := range []*lntest.HarnessNode{alice, bob} {
-		ht.AssertNumChannelPendingForceClose(
-			node, aliceBobPendingChansLeft,
+		ht.AssertNumPendingCloseChannels(
+			node, 0, aliceBobPendingChansLeft,
 		)
 	}
 
@@ -218,7 +218,7 @@ func testMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 	// channels.
 	block = ht.MineBlocksAndAssertTx(1, 1)[0]
 	ht.AssertTxInBlock(block, carolSweep)
-	ht.AssertNumChannelPendingForceClose(carol, 0)
+	ht.AssertNumPendingCloseChannels(carol, 0, 0)
 
 	// With the script-enforced lease commitment type, Alice and Bob still
 	// haven't been able to sweep their respective commit outputs due to the
@@ -255,7 +255,7 @@ func testMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 		// Alice and Bob should not show any pending channels anymore as
 		// they have been fully resolved.
 		for _, node := range []*lntest.HarnessNode{alice, bob} {
-			ht.AssertNumChannelPendingForceClose(node, 0)
+			ht.AssertNumPendingCloseChannels(node, 0, 0)
 		}
 	}
 

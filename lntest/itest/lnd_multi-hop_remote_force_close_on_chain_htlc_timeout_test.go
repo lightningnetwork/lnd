@@ -75,7 +75,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 
 	// At this point, Bob should have a pending force close channel as
 	// Carol has gone directly to chain.
-	ht.AssertNumChannelPendingForceClose(bob, 1)
+	ht.AssertNumPendingCloseChannels(bob, 0, 1)
 
 	var expectedTxes int
 	switch c {
@@ -159,7 +159,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 		block := ht.MineBlocksAndAssertTx(1, 1)[0]
 		ht.AssertTxInBlock(block, &bobCommitSweepTxid)
 	}
-	ht.AssertNumChannelPendingForceClose(bob, 0)
+	ht.AssertNumPendingCloseChannels(bob, 0, 0)
 
 	// While we're here, we assert that our expired invoice's state is
 	// correctly updated, and can no longer be settled.

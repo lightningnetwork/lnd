@@ -276,7 +276,7 @@ func testMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	// At this point, Bob should have broadcast his second layer success
 	// transaction, and should have sent it to the nursery for incubation,
 	// or to the sweeper for sweeping.
-	ht.AssertNumChannelPendingForceClose(bob, 1)
+	ht.AssertNumPendingCloseChannels(bob, 0, 1)
 
 	// For this channel, we also check the number of HTLCs and the stage
 	// are correct.
@@ -365,13 +365,13 @@ func testMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	// this just resolved it by the confirmation of the sweep transaction.
 	block = ht.MineBlocksAndAssertTx(1, 1)[0]
 	ht.AssertTxInBlock(block, &bobSweep)
-	ht.AssertNumChannelPendingForceClose(bob, 0)
+	ht.AssertNumPendingCloseChannels(bob, 0, 0)
 
 	// THe channel with Alice is still open.
 	ht.AssertNodeNumChannels(bob, 1)
 
 	// Carol should have no channels left (open nor pending).
-	ht.AssertNumChannelPendingForceClose(carol, 0)
+	ht.AssertNumPendingCloseChannels(carol, 0, 0)
 	ht.AssertNodeNumChannels(carol, 0)
 
 	// Coop close, no anchors.

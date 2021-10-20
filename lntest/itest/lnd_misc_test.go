@@ -543,8 +543,8 @@ func testGarbageCollectLinkNodes(ht *lntest.HarnessTest) {
 
 	// Before we test reconnection, we'll ensure that the channel has been
 	// fully cleaned up for both Carol and Alice.
-	ht.AssertNumChannelPendingForceClose(alice, 0)
-	ht.AssertNumChannelPendingForceClose(carol, 0)
+	ht.AssertNumPendingCloseChannels(alice, 0, 0)
+	ht.AssertNumPendingCloseChannels(carol, 0, 0)
 
 	testReconnection(carol)
 

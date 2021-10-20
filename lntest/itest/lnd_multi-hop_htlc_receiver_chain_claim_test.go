@@ -166,7 +166,7 @@ func testMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 	// transactions, Carol should not show a pending channel in her report
 	// afterwards.
 	ht.MineBlocks(1)
-	ht.AssertNumChannelPendingForceClose(carol, 0)
+	ht.AssertNumPendingCloseChannels(carol, 0, 0)
 
 	// The invoice should show as settled for Carol, indicating that it was
 	// swept on-chain.
@@ -207,7 +207,7 @@ func testMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 		ht.MineBlocks(1)
 	}
 
-	ht.AssertNumChannelPendingForceClose(bob, 0)
+	ht.AssertNumPendingCloseChannels(bob, 0, 0)
 
 	// We'll close out the channel between Alice and Bob, then shutdown
 	// carol to conclude the test.

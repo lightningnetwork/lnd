@@ -200,7 +200,7 @@ func testMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
 		numPendingChans++
 	}
-	ht.AssertNumChannelPendingForceClose(bob, numPendingChans)
+	ht.AssertNumPendingCloseChannels(bob, 0, numPendingChans)
 	ht.AssertHTLCStage(bob, 1)
 
 	// We'll now mine a block which should confirm Bob's second layer
@@ -247,7 +247,7 @@ func testMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	// expire and prompt their sweep.
 	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
 		for _, node := range []*lntest.HarnessNode{alice, bob} {
-			ht.AssertNumChannelPendingForceClose(node, 1)
+			ht.AssertNumPendingCloseChannels(node, 0, 1)
 		}
 
 		// Due to the way the test is set up, Alice and Bob share the
@@ -282,7 +282,7 @@ func testMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 
 	// All nodes should show zero pending and open channels.
 	for _, node := range []*lntest.HarnessNode{alice, bob, carol} {
-		ht.AssertNumChannelPendingForceClose(node, 0)
+		ht.AssertNumPendingCloseChannels(node, 0, 0)
 		ht.AssertNodeNumChannels(node, 0)
 	}
 

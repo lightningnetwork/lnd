@@ -17,7 +17,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -671,39 +670,6 @@ func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 	}
 }
 
-func checkCommitmentMaturity(
-	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel,
-	maturityHeight uint32, blocksTilMaturity int32) error {
-
-	if forceClose.MaturityHeight != maturityHeight {
-		return fmt.Errorf("expected commitment maturity height to be "+
-			"%d, found %d instead", maturityHeight,
-			forceClose.MaturityHeight)
-	}
-	if forceClose.BlocksTilMaturity != blocksTilMaturity {
-		return fmt.Errorf("expected commitment blocks til maturity to "+
-			"be %d, found %d instead", blocksTilMaturity,
-			forceClose.BlocksTilMaturity)
-	}
-
-	return nil
-}
-
-// checkForceClosedChannelNumHtlcs verifies that a force closed channel has the
-// proper number of htlcs.
-func checkPendingChannelNumHtlcs(
-	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel,
-	expectedNumHtlcs int) error {
-
-	if len(forceClose.PendingHtlcs) != expectedNumHtlcs {
-		return fmt.Errorf("expected force closed channel to have %d "+
-			"pending htlcs, found %d instead", expectedNumHtlcs,
-			len(forceClose.PendingHtlcs))
-	}
-
-	return nil
-}
-
 // checkNumForceClosedChannels checks that a pending channel response has the
 // expected number of force closed channels.
 func checkNumForceClosedChannels(pendingChanResp *lnrpc.PendingChannelsResponse,
@@ -731,128 +697,6 @@ func checkNumWaitingCloseChannels(pendingChanResp *lnrpc.PendingChannelsResponse
 	}
 
 	return nil
-}
-
-// checkPendingHtlcStageAndMaturity uniformly tests all pending htlc's belonging
-// to a force closed channel, testing for the expected stage number, blocks till
-// maturity, and the maturity height.
-func checkPendingHtlcStageAndMaturity(
-	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel,
-	stage, maturityHeight uint32, blocksTillMaturity int32) error {
-
-	for _, pendingHtlc := range forceClose.PendingHtlcs {
-		if pendingHtlc.Stage != stage {
-			return fmt.Errorf("expected pending htlc to be stage "+
-				"%d, found %d", stage, pendingHtlc.Stage)
-		}
-		if pendingHtlc.MaturityHeight != maturityHeight {
-			return fmt.Errorf("expected pending htlc maturity "+
-				"height to be %d, instead has %d",
-				maturityHeight, pendingHtlc.MaturityHeight)
-		}
-		if pendingHtlc.BlocksTilMaturity != blocksTillMaturity {
-			return fmt.Errorf("expected pending htlc blocks til "+
-				"maturity to be %d, instead has %d",
-				blocksTillMaturity,
-				pendingHtlc.BlocksTilMaturity)
-		}
-	}
-
-	return nil
-}
-
-// assertReports checks that the count of resolutions we have present per
-// type matches a set of expected resolutions.
-func assertReports(t *harnessTest, node *lntest.HarnessNode,
-	channelPoint wire.OutPoint, expected map[string]*lnrpc.Resolution) {
-
-	// Get our node's closed channels.
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-
-	closed, err := node.ClosedChannels(
-		ctxt, &lnrpc.ClosedChannelsRequest{},
-	)
-	require.NoError(t.t, err)
-
-	var resolutions []*lnrpc.Resolution
-	for _, close := range closed.Channels {
-		if close.ChannelPoint == channelPoint.String() {
-			resolutions = close.Resolutions
-			break
-		}
-	}
-
-	require.NotNil(t.t, resolutions)
-	require.Equal(t.t, len(expected), len(resolutions))
-
-	for _, res := range resolutions {
-		outPointStr := fmt.Sprintf("%v:%v", res.Outpoint.TxidStr,
-			res.Outpoint.OutputIndex)
-
-		expected, ok := expected[outPointStr]
-		require.True(t.t, ok)
-		require.Equal(t.t, expected, res)
-	}
-}
-
-// assertSweepFound looks up a sweep in a nodes list of broadcast sweeps.
-func assertSweepFound(t *testing.T, node *lntest.HarnessNode,
-	sweep string, verbose bool) {
-
-	// List all sweeps that alice's node had broadcast.
-	ctxb := context.Background()
-	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	sweepResp, err := node.WalletKitClient.ListSweeps(
-		ctx, &walletrpc.ListSweepsRequest{
-			Verbose: verbose,
-		},
-	)
-	require.NoError(t, err)
-
-	var found bool
-	if verbose {
-		found = findSweepInDetails(t, sweep, sweepResp)
-	} else {
-		found = findSweepInTxids(t, sweep, sweepResp)
-	}
-
-	require.True(t, found, "sweep: %v not found", sweep)
-}
-
-func findSweepInTxids(t *testing.T, sweepTxid string,
-	sweepResp *walletrpc.ListSweepsResponse) bool {
-
-	sweepTxIDs := sweepResp.GetTransactionIds()
-	require.NotNil(t, sweepTxIDs, "expected transaction ids")
-	require.Nil(t, sweepResp.GetTransactionDetails())
-
-	// Check that the sweep tx we have just produced is present.
-	for _, tx := range sweepTxIDs.TransactionIds {
-		if tx == sweepTxid {
-			return true
-		}
-	}
-
-	return false
-}
-
-func findSweepInDetails(t *testing.T, sweepTxid string,
-	sweepResp *walletrpc.ListSweepsResponse) bool {
-
-	sweepDetails := sweepResp.GetTransactionDetails()
-	require.NotNil(t, sweepDetails, "expected transaction details")
-	require.Nil(t, sweepResp.GetTransactionIds())
-
-	for _, tx := range sweepDetails.Transactions {
-		if tx.TxHash == sweepTxid {
-			return true
-		}
-	}
-
-	return false
 }
 
 // assertAmountSent generates a closure which queries listchannels for sndr and

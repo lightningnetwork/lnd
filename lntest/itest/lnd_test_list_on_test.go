@@ -164,14 +164,14 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "commitment deadline",
 		TestFunc: testCommitmentTransactionDeadline,
 	},
+	{
+		Name:     "channel force closure",
+		TestFunc: testChannelForceClosure,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "channel force closure",
-	// 	test: testChannelForceClosure,
 	// },
 	// {
 	// 	name: "channel balance",

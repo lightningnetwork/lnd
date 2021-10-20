@@ -2702,3 +2702,17 @@ func (h *HarnessTest) UpdateNodeAnnouncementErr(hn *HarnessNode, req AnnReq) {
 	_, err := hn.rpc.Peer.UpdateNodeAnnouncement(ctxt, req)
 	require.Error(h, err, "expect an error from update announcement")
 }
+
+// ListSweeps makes a ListSweeps RPC call to the node's WalletKit client.
+func (h *HarnessTest) ListSweeps(hn *HarnessNode,
+	verbose bool) *walletrpc.ListSweepsResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &walletrpc.ListSweepsRequest{Verbose: verbose}
+	resp, err := hn.rpc.WalletKit.ListSweeps(ctxt, req)
+	require.NoError(h, err, "failed to ListSweeps")
+
+	return resp
+}

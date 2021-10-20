@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
 
@@ -404,4 +405,10 @@ func getOutputIndex(t *harnessTest, miner *lntest.HarnessMiner,
 	require.Greater(t.t, p2trOutputIndex, -1)
 
 	return p2trOutputIndex
+}
+
+// padCLTV is a small helper function that pads a cltv value with a block
+// padding.
+func padCLTV(cltv uint32) uint32 {
+	return cltv + uint32(routing.BlockPadding)
 }

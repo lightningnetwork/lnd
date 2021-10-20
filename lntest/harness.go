@@ -2716,3 +2716,17 @@ func (h *HarnessTest) ListSweeps(hn *HarnessNode,
 
 	return resp
 }
+
+// ConnectPeerAssertErr makes a RPC call to ConnectPeer and asserts an error
+// returned.
+func (h *HarnessTest) ConnectPeerAssertErr(hn *HarnessNode,
+	req *lnrpc.ConnectPeerRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := hn.rpc.LN.ConnectPeer(ctxt, req)
+	require.Error(h, err, "expected an error from ConnectPeer")
+
+	return err
+}

@@ -106,6 +106,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "reject onward htlc",
 		TestFunc: testRejectHTLC,
 	},
+	{
+		Name:     "connection timeout",
+		TestFunc: testNetworkConnectionTimeout,
+	},
 
 	// Link related tests.
 	{
@@ -167,6 +171,10 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "channel force closure",
 		TestFunc: testChannelForceClosure,
+	},
+	{
+		Name:     "failing link",
+		TestFunc: testFailingChannel,
 	},
 
 	// {
@@ -263,10 +271,6 @@ var allTestCases = []*lntest.TestCase{
 	// 	// is borked since we trick him into attempting to cheat Alice?
 	// 	name: "revoked uncooperative close retribution",
 	// 	test: testRevokedCloseRetribution,
-	// },
-	// {
-	// 	name: "failing link",
-	// 	test: testFailingChannel,
 	// },
 	// {
 	// 	name: "revoked uncooperative close retribution zero value remote output",
@@ -375,10 +379,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "maximum channel size",
 	// 	test: testMaxChannelSize,
-	// },
-	// {
-	// 	name: "connection timeout",
-	// 	test: testNetworkConnectionTimeout,
 	// },
 	// {
 	// 	name: "stateless init",

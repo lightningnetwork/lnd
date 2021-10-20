@@ -2,7 +2,6 @@ package itest
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"testing"
 
@@ -1027,30 +1026,25 @@ func findCommitAndAnchor(ht *lntest.HarnessTest,
 	return commitSweep, anchorSweep
 }
 
-// testFailingChannel tests that we will fail the channel by force closing ii
+// testFailingChannel tests that we will fail the channel by force closing it
 // in the case where a counterparty tries to settle an HTLC with the wrong
 // preimage.
-func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	const (
-		paymentAmt = 10000
-	)
+func testFailingChannel(ht *lntest.HarnessTest) {
+	const paymentAmt = 10000
 
 	chanAmt := lnd.MaxFundingAmount
 
 	// We'll introduce Carol, which will settle any incoming invoice with a
 	// totally unrelated preimage.
-	carol := net.NewNode(t.t, "Carol", []string{"--hodl.bogus-settle"})
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", []string{"--hodl.bogus-settle"})
+	defer ht.Shutdown(carol)
+
+	alice := ht.Alice()
+	ht.ConnectNodes(alice, carol)
 
 	// Let Alice connect and open a channel to Carol,
-	net.ConnectNodes(t.t, net.Alice, carol)
-	chanPoint := openChannelAndAssert(
-		t, net, net.Alice, carol,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	chanPoint := ht.OpenChannel(
+		alice, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// With the channel open, we'll create a invoice for Carol that Alice
@@ -1061,159 +1055,44 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		RPreimage: preimage,
 		Value:     paymentAmt,
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := carol.AddInvoice(ctxt, invoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
+	resp := ht.AddInvoice(invoice, carol)
 	carolPayReqs := []string{resp.PaymentRequest}
 
 	// Wait for Alice to receive the channel edge from the funding manager.
-	err = net.Alice.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("alice didn't see the alice->carol channel before "+
-			"timeout: %v", err)
-	}
+	ht.AssertChannelOpen(alice, chanPoint)
 
 	// Send the payment from Alice to Carol. We expect Carol to attempt to
 	// settle this payment with the wrong preimage.
-	err = completePaymentRequests(
-		net.Alice, net.Alice.RouterClient, carolPayReqs, false,
-	)
-	if err != nil {
-		t.Fatalf("unable to send payments: %v", err)
-	}
+	ht.CompletePaymentRequests(alice, carolPayReqs, false)
 
 	// Since Alice detects that Carol is trying to trick her by providing a
 	// fake preimage, she should fail and force close the channel.
-	var predErr error
-	err = wait.Predicate(func() bool {
-		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Alice.PendingChannels(ctxt,
-			pendingChansRequest)
-		if err != nil {
-			predErr = fmt.Errorf("unable to query for pending "+
-				"channels: %v", err)
-			return false
-		}
-		n := len(pendingChanResp.WaitingCloseChannels)
-		if n != 1 {
-			predErr = fmt.Errorf("expected to find %d channels "+
-				"waiting close, found %d", 1, n)
-			return false
-		}
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("%v", predErr)
-	}
+	ht.AssertNumPendingCloseChannels(alice, 1, 0)
 
 	// Mine a block to confirm the broadcasted commitment.
-	block := mineBlocks(t, net, 1, 1)[0]
-	if len(block.Transactions) != 2 {
-		t.Fatalf("transaction wasn't mined")
-	}
+	block := ht.MineBlocksAndAssertTx(1, 1)[0]
+	require.Len(ht, block.Transactions, 2, "transaction wasn't mined")
 
 	// The channel should now show up as force closed both for Alice and
 	// Carol.
-	err = wait.Predicate(func() bool {
-		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Alice.PendingChannels(ctxt,
-			pendingChansRequest)
-		if err != nil {
-			predErr = fmt.Errorf("unable to query for pending "+
-				"channels: %v", err)
-			return false
-		}
-		n := len(pendingChanResp.WaitingCloseChannels)
-		if n != 0 {
-			predErr = fmt.Errorf("expected to find %d channels "+
-				"waiting close, found %d", 0, n)
-			return false
-		}
-		n = len(pendingChanResp.PendingForceClosingChannels)
-		if n != 1 {
-			predErr = fmt.Errorf("expected to find %d channel "+
-				"pending force close, found %d", 1, n)
-			return false
-		}
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("%v", predErr)
-	}
-
-	err = wait.Predicate(func() bool {
-		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := carol.PendingChannels(ctxt,
-			pendingChansRequest)
-		if err != nil {
-			predErr = fmt.Errorf("unable to query for pending "+
-				"channels: %v", err)
-			return false
-		}
-		n := len(pendingChanResp.PendingForceClosingChannels)
-		if n != 1 {
-			predErr = fmt.Errorf("expected to find %d channel "+
-				"pending force close, found %d", 1, n)
-			return false
-		}
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("%v", predErr)
-	}
+	ht.AssertNumPendingCloseChannels(alice, 0, 1)
+	ht.AssertNumPendingCloseChannels(carol, 0, 1)
 
 	// Carol will use the correct preimage to resolve the HTLC on-chain.
-	_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("unable to find Carol's resolve tx in mempool: %v", err)
-	}
+	ht.AssertNumTxsInMempool(1)
 
 	// Mine enough blocks for Alice to sweep her funds from the force
 	// closed channel.
-	_, err = net.Miner.Client.Generate(defaultCSV - 1)
-	if err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
-	}
+	ht.MineBlocks(defaultCSV - 1)
 
 	// Wait for the sweeping tx to be broadcast.
-	_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("unable to find Alice's sweep tx in mempool: %v", err)
-	}
+	ht.AssertNumTxsInMempool(1)
 
 	// Mine the sweep.
-	_, err = net.Miner.Client.Generate(1)
-	if err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
-	}
+	ht.MineBlocks(1)
 
 	// No pending channels should be left.
-	err = wait.Predicate(func() bool {
-		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Alice.PendingChannels(ctxt,
-			pendingChansRequest)
-		if err != nil {
-			predErr = fmt.Errorf("unable to query for pending "+
-				"channels: %v", err)
-			return false
-		}
-		n := len(pendingChanResp.PendingForceClosingChannels)
-		if n != 0 {
-			predErr = fmt.Errorf("expected to find %d channel "+
-				"pending force close, found %d", 0, n)
-			return false
-		}
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("%v", predErr)
-	}
+	ht.AssertNumPendingCloseChannels(alice, 0, 0)
 }
 
 // calculateTxnsFeeRate takes a list of transactions and estimates the fee rate

@@ -220,7 +220,8 @@ func (cmd *compacter) walk(db *bbolt.DB, walkFn walkFunc) error {
 		return tx.ForEach(func(name []byte, b *bbolt.Bucket) error {
 			// This will log the top level buckets only to give the
 			// user some sense of progress.
-			log.Debugf("Compacting top level bucket %s", name)
+			log.Debugf("Compacting top level bucket '%s'",
+				LoggableKeyName(name))
 
 			return cmd.walkBucket(
 				b, nil, name, nil, b.Sequence(), walkFn,

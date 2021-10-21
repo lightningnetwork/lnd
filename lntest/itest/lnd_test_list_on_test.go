@@ -187,13 +187,19 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChannelUnsettledBalance,
 	},
 
+	// Routing related tests.
+	{
+		Name:     "single hop invoice",
+		TestFunc: testSingleHopInvoice,
+	},
+	{
+		Name:     "multi-hop payments",
+		TestFunc: testMultiHopPayments,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "single hop invoice",
-	// 	test: testSingleHopInvoice,
 	// },
 	// {
 	// 	name: "update channel status",
@@ -202,10 +208,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "list outgoing payments",
 	// 	test: testListPayments,
-	// },
-	// {
-	// 	name: "multi-hop payments",
-	// 	test: testMultiHopPayments,
 	// },
 	// {
 	// 	name: "single-hop send to route",

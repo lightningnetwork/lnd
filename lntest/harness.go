@@ -932,6 +932,14 @@ func (h *HarnessTest) AssertPaymentStatusFromStream(stream PaymentClient,
 	return target
 }
 
+// SendPaymentAndAssert sends a payment from the passed node and asserts the
+// payment being succeeded.
+func (h *HarnessTest) SendPaymentAndAssert(hn *HarnessNode,
+	req *routerrpc.SendPaymentRequest) *lnrpc.Payment {
+	stream := h.SendPayment(hn, req)
+	return h.AssertPaymentStatusFromStream(stream, lnrpc.Payment_SUCCEEDED)
+}
+
 // assertNodeNumChannels polls the provided node's list channels rpc until it
 // reaches the desired number of total channels.
 func (h *HarnessTest) AssertNodeNumChannels(hn *HarnessNode, numChannels int) {
@@ -2729,4 +2737,100 @@ func (h *HarnessTest) ConnectPeerAssertErr(hn *HarnessNode,
 	require.Error(h, err, "expected an error from ConnectPeer")
 
 	return err
+}
+
+// DecodePayReq makes a RPC call to node's DecodePayReq and asserts.
+func (h *HarnessTest) DecodePayReq(hn *HarnessNode, req string) *lnrpc.PayReq {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	payReq := &lnrpc.PayReqString{PayReq: req}
+	resp, err := hn.DecodePayReq(ctxt, payReq)
+	require.NoError(h, err, "failed to decode pay req")
+
+	return resp
+}
+
+type HtlcEventsClient routerrpc.Router_SubscribeHtlcEventsClient
+
+// SubscribeHtlcEvents makes a subscription to the HTLC events and returns a
+// htlc event client.
+func (h *HarnessTest) SubscribeHtlcEvents(hn *HarnessNode) HtlcEventsClient {
+	// Use runCtx here to keep the client alive for the scope of the test.
+	client, err := hn.rpc.Router.SubscribeHtlcEvents(
+		h.runCtx, &routerrpc.SubscribeHtlcEventsRequest{},
+	)
+	require.NoError(h, err, "could not subscribe events")
+
+	return client
+}
+
+// AssertHtlcEvents consumes events from a client and ensures that they are of
+// the expected type and contain the expected number of forwards, forward
+// failures and settles.
+func (h *HarnessTest) AssertHtlcEvents(fwdCount, fwdFailCount, settleCount int,
+	userType routerrpc.HtlcEvent_EventType, client HtlcEventsClient) {
+
+	var forwards, forwardFails, settles int
+
+	numEvents := fwdCount + fwdFailCount + settleCount
+	for i := 0; i < numEvents; i++ {
+		event, err := client.Recv()
+		require.NoError(h, err, "failed to get htlc event")
+
+		require.Equal(h, userType, event.EventType, "wrong event type")
+
+		switch event.Event.(type) {
+		case *routerrpc.HtlcEvent_ForwardEvent:
+			forwards++
+
+		case *routerrpc.HtlcEvent_ForwardFailEvent:
+			forwardFails++
+
+		case *routerrpc.HtlcEvent_SettleEvent:
+			settles++
+
+		default:
+			require.Fail(h, "assert event fail",
+				"unexpected event: %T", event.Event)
+		}
+	}
+
+	require.Equal(h, fwdCount, forwards, "num of forwards mismatch")
+	require.Equal(h, fwdFailCount, forwardFails,
+		"num of forward fails mismatch")
+	require.Equal(h, settleCount, settles, "num of settles mismatch")
+}
+
+// AssertFeeReport checks that the fee report from the given node has the
+// desired day, week, and month sum values.
+func (h *HarnessTest) AssertFeeReport(hn *HarnessNode,
+	day, week, month int) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	feeReport, err := hn.FeeReport(ctxt, &lnrpc.FeeReportRequest{})
+	require.NoError(h, err, "unable to query for fee report")
+
+	require.EqualValues(h, day, feeReport.DayFeeSum, "day fee mismatch")
+	require.EqualValues(h, week, feeReport.DayFeeSum, "day week mismatch")
+	require.EqualValues(h, month, feeReport.DayFeeSum, "day month mismatch")
+
+}
+
+// ForwardingHistory makes a RPC call to the node's ForwardingHistory and
+// asserts.
+func (h *HarnessTest) ForwardingHistory(
+	hn *HarnessNode) *lnrpc.ForwardingHistoryResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.ForwardingHistory(
+		ctxt, &lnrpc.ForwardingHistoryRequest{},
+	)
+	require.NoError(h, err, "failed to query forwarding history")
+
+	return resp
 }

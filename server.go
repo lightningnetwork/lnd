@@ -860,12 +860,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MinProbability: routingConfig.MinRouteProbability,
 	}
 
-	cachedGraph, err := routing.NewCachedGraph(chanGraph)
+	sourceNode, err := chanGraph.SourceNode()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error getting source node: %v", err)
 	}
 	paymentSessionSource := &routing.SessionSource{
-		Graph:             cachedGraph,
+		Graph:             chanGraph,
+		SourceNode:        sourceNode,
 		MissionControl:    s.missionControl,
 		GetLink:           s.htlcSwitch.GetLinkByShortID,
 		PathFindingConfig: pathFindingConfig,

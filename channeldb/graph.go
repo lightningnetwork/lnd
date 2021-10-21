@@ -308,6 +308,16 @@ func initChannelGraph(db kvdb.Backend) error {
 	return nil
 }
 
+// NewPathFindTx returns a new read transaction that can be used for a single
+// path finding session. Will return nil if the graph cache is enabled.
+func (c *ChannelGraph) NewPathFindTx() (kvdb.RTx, error) {
+	if c.graphCache != nil {
+		return nil, nil
+	}
+
+	return c.db.BeginReadTx()
+}
+
 // ForEachChannel iterates through all the channel edges stored within the
 // graph and invokes the passed callback for each edge. The callback takes two
 // edges as since this is a directed graph, both the in/out edges are visited.
@@ -376,7 +386,7 @@ func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdgeInfo,
 // halted with the error propagated back up to the caller.
 //
 // Unknown policies are passed into the callback as nil values.
-func (c *ChannelGraph) ForEachNodeChannel(node route.Vertex,
+func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, node route.Vertex,
 	cb func(channel *DirectedChannel) error) error {
 
 	if c.graphCache != nil {
@@ -414,7 +424,7 @@ func (c *ChannelGraph) ForEachNodeChannel(node route.Vertex,
 
 		return cb(directedChannel)
 	}
-	return nodeTraversal(nil, node[:], c.db, dbCallback)
+	return nodeTraversal(tx, node[:], c.db, dbCallback)
 }
 
 // FetchNodeFeatures returns the features of a given node. If no features are

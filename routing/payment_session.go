@@ -164,7 +164,7 @@ type PaymentSession interface {
 type paymentSession struct {
 	additionalEdges map[route.Vertex][]*channeldb.CachedEdgePolicy
 
-	getBandwidthHints func() (bandwidthHints, error)
+	getBandwidthHints func(routingGraph) (bandwidthHints, error)
 
 	payment *LightningPayment
 
@@ -172,7 +172,7 @@ type paymentSession struct {
 
 	pathFinder pathFinder
 
-	routingGraph routingGraph
+	getRoutingGraph func() (routingGraph, func(), error)
 
 	// pathFindingConfig defines global parameters that control the
 	// trade-off in path finding between fees and probabiity.
@@ -192,8 +192,8 @@ type paymentSession struct {
 
 // newPaymentSession instantiates a new payment session.
 func newPaymentSession(p *LightningPayment,
-	getBandwidthHints func() (bandwidthHints, error),
-	routingGraph routingGraph,
+	getBandwidthHints func(routingGraph) (bandwidthHints, error),
+	getRoutingGraph func() (routingGraph, func(), error),
 	missionControl MissionController, pathFindingConfig PathFindingConfig) (
 	*paymentSession, error) {
 
@@ -209,7 +209,7 @@ func newPaymentSession(p *LightningPayment,
 		getBandwidthHints: getBandwidthHints,
 		payment:           p,
 		pathFinder:        findPath,
-		routingGraph:      routingGraph,
+		getRoutingGraph:   getRoutingGraph,
 		pathFindingConfig: pathFindingConfig,
 		missionControl:    missionControl,
 		minShardAmt:       DefaultShardMinAmt,
@@ -274,32 +274,41 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	}
 
 	for {
+		// Get a routing graph.
+		routingGraph, cleanup, err := p.getRoutingGraph()
+		if err != nil {
+			return nil, err
+		}
+
 		// We'll also obtain a set of bandwidthHints from the lower
 		// layer for each of our outbound channels. This will allow the
 		// path finding to skip any links that aren't active or just
 		// don't have enough bandwidth to carry the payment. New
 		// bandwidth hints are queried for every new path finding
 		// attempt, because concurrent payments may change balances.
-		bandwidthHints, err := p.getBandwidthHints()
+		bandwidthHints, err := p.getBandwidthHints(routingGraph)
 		if err != nil {
 			return nil, err
 		}
 
 		p.log.Debugf("pathfinding for amt=%v", maxAmt)
 
-		sourceVertex := p.routingGraph.sourceNode()
+		sourceVertex := routingGraph.sourceNode()
 
 		// Find a route for the current amount.
 		path, err := p.pathFinder(
 			&graphParams{
 				additionalEdges: p.additionalEdges,
 				bandwidthHints:  bandwidthHints,
-				graph:           p.routingGraph,
+				graph:           routingGraph,
 			},
 			restrictions, &p.pathFindingConfig,
 			sourceVertex, p.payment.Target,
 			maxAmt, finalHtlcExpiry,
 		)
+
+		// Close routing graph.
+		cleanup()
 
 		switch {
 		case err == errNoPathFound:

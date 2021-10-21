@@ -129,11 +129,11 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	)
 	require.NoError(t, err, "failed to create missioncontrol")
 
-	cachedGraph, err := NewCachedGraph(graphInstance.graph)
+	sourceNode, err := graphInstance.graph.SourceNode()
 	require.NoError(t, err)
-
 	sessionSource := &SessionSource{
-		Graph:             cachedGraph,
+		Graph:             graphInstance.graph,
+		SourceNode:        sourceNode,
 		GetLink:           graphInstance.getLink,
 		PathFindingConfig: pathFindingConfig,
 		MissionControl:    mc,

@@ -96,6 +96,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "sweep coins",
 		TestFunc: testSweepAllCoins,
 	},
+	{
+		Name:     "list outgoing payments",
+		TestFunc: testListPayments,
+	},
 
 	// Node config related tests.
 	{
@@ -200,14 +204,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "update channel status",
-	// 	test: testUpdateChanStatus,
-	// },
-	// {
-	// 	name: "list outgoing payments",
-	// 	test: testListPayments,
 	// },
 	// {
 	// 	name: "single-hop send to route",

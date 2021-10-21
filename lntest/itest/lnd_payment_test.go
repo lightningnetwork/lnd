@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"reflect"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -18,38 +17,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
+func testListPayments(ht *lntest.HarnessTest) {
+	alice, bob := ht.Alice(), ht.Bob()
 
 	// First start by deleting all payments that Alice knows of. This will
 	// allow us to execute the test with a clean state for Alice.
-	delPaymentsReq := &lnrpc.DeleteAllPaymentsRequest{}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if _, err := net.Alice.DeleteAllPayments(ctxt, delPaymentsReq); err != nil {
-		t.Fatalf("unable to delete payments: %v", err)
-	}
+	ht.DeleteAllPayments(alice)
 
 	// Check that there are no payments before test.
-	reqInit := &lnrpc.ListPaymentsRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	paymentsRespInit, err := net.Alice.ListPayments(ctxt, reqInit)
-	if err != nil {
-		t.Fatalf("error when obtaining Alice payments: %v", err)
-	}
-	if len(paymentsRespInit.Payments) != 0 {
-		t.Fatalf("incorrect number of payments, got %v, want %v",
-			len(paymentsRespInit.Payments), 0)
-	}
+	paymentsRespInit := ht.ListPayments(alice, true)
+	require.Zero(ht, paymentsRespInit.Payments, "wrong num of payments")
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
-	chanPoint := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	chanPoint := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
+	defer ht.CloseChannel(alice, chanPoint, false)
 
 	// Now that the channel is open, create an invoice for Bob which
 	// expects a payment of 1000 satoshis from Alice paid via a particular
@@ -61,101 +46,54 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		RPreimage: preimage,
 		Value:     paymentAmt,
 	}
-	addInvoiceCtxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	invoiceResp, err := net.Bob.AddInvoice(addInvoiceCtxt, invoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
-
-	// Wait for Alice to recognize and advertise the new channel generated
-	// above.
-	if err = net.Alice.WaitForNetworkChannelOpen(chanPoint); err != nil {
-		t.Fatalf("alice didn't advertise channel before "+
-			"timeout: %v", err)
-	}
-	if err = net.Bob.WaitForNetworkChannelOpen(chanPoint); err != nil {
-		t.Fatalf("bob didn't advertise channel before "+
-			"timeout: %v", err)
-	}
+	invoiceResp := ht.AddInvoice(invoice, bob)
 
 	// With the invoice for Bob added, send a payment towards Alice paying
 	// to the above generated invoice.
-	sendAndAssertSuccess(
-		t, net.Alice, &routerrpc.SendPaymentRequest{
-			PaymentRequest: invoiceResp.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitSat:    1000000,
-		},
-	)
+	req := &routerrpc.SendPaymentRequest{
+		PaymentRequest: invoiceResp.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitSat:    1000000,
+	}
+	ht.SendPaymentAndAssert(alice, req)
 
 	// Grab Alice's list of payments, she should show the existence of
 	// exactly one payment.
-	req := &lnrpc.ListPaymentsRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	paymentsResp, err := net.Alice.ListPayments(ctxt, req)
-	if err != nil {
-		t.Fatalf("error when obtaining Alice payments: %v", err)
-	}
-	if len(paymentsResp.Payments) != 1 {
-		t.Fatalf("incorrect number of payments, got %v, want %v",
-			len(paymentsResp.Payments), 1)
-	}
-	p := paymentsResp.Payments[0] // nolint:staticcheck
+	paymentsResp := ht.ListPayments(alice, true)
+	require.Len(ht, paymentsResp.Payments, 1, "wrong num of payments")
+	p := paymentsResp.Payments[0]
 	path := p.Htlcs[len(p.Htlcs)-1].Route.Hops
 
 	// Ensure that the stored path shows a direct payment to Bob with no
 	// other nodes in-between.
-	if len(path) != 1 || path[0].PubKey != net.Bob.PubKeyStr {
-		t.Fatalf("incorrect path")
-	}
+	require.Len(ht, path, 1, "wrong number of routes in path")
+	require.Equal(ht, bob.PubKeyStr, path[0].PubKey, "wrong pub key")
 
 	// The payment amount should also match our previous payment directly.
-	if p.Value != paymentAmt { // nolint:staticcheck
-		t.Fatalf("incorrect amount, got %v, want %v",
-			p.Value, paymentAmt) // nolint:staticcheck
-	}
+	require.EqualValues(ht, paymentAmt, p.ValueSat, "incorrect sat amount")
+	require.EqualValues(ht, paymentAmt*1000, p.ValueMsat,
+		"incorrect msat amount")
 
 	// The payment hash (or r-hash) should have been stored correctly.
 	correctRHash := hex.EncodeToString(invoiceResp.RHash)
-	if !reflect.DeepEqual(p.PaymentHash, correctRHash) {
-		t.Fatalf("incorrect RHash, got %v, want %v",
-			p.PaymentHash, correctRHash)
-	}
+	require.Equal(ht, correctRHash, p.PaymentHash, "incorrect RHash")
 
-	// As we made a single-hop direct payment, there should have been no fee
-	// applied.
-	if p.Fee != 0 { // nolint:staticcheck
-		t.Fatalf("incorrect Fee, got %v, want %v", p.Fee, 0) // nolint:staticcheck
-	}
+	// As we made a single-hop direct payment, there should have been no
+	// fee applied.
+	require.Zero(ht, p.FeeSat, "fee should be 0")
+	require.Zero(ht, p.FeeMsat, "fee should be 0")
 
 	// Finally, verify that the payment request returned by the rpc matches
 	// the invoice that we paid.
-	if p.PaymentRequest != invoiceResp.PaymentRequest {
-		t.Fatalf("incorrect payreq, got: %v, want: %v",
-			p.PaymentRequest, invoiceResp.PaymentRequest)
-	}
+	require.Equal(ht, invoiceResp.PaymentRequest, p.PaymentRequest,
+		"incorrect payreq")
 
 	// Delete all payments from Alice. DB should have no payments.
-	delReq := &lnrpc.DeleteAllPaymentsRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = net.Alice.DeleteAllPayments(ctxt, delReq)
-	if err != nil {
-		t.Fatalf("Can't delete payments at the end: %v", err)
-	}
+	ht.DeleteAllPayments(alice)
 
 	// Check that there are no payments after test.
-	listReq := &lnrpc.ListPaymentsRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	paymentsResp, err = net.Alice.ListPayments(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("error when obtaining Alice payments: %v", err)
-	}
-	if len(paymentsResp.Payments) != 0 {
-		t.Fatalf("incorrect number of payments, got %v, want %v",
-			len(paymentsResp.Payments), 0)
-	}
-
-	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+	paymentsResp = ht.ListPayments(alice, true)
+	require.Zero(ht, paymentsResp.Payments, "wrong num of payments")
 }
 
 // testPaymentFollowingChannelOpen tests that the channel transition from

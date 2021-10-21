@@ -2834,3 +2834,14 @@ func (h *HarnessTest) ForwardingHistory(
 
 	return resp
 }
+
+// DeleteAllPayments makes a RPC call to the node's DeleteAllPayments and
+// asserts.
+func (h *HarnessTest) DeleteAllPayments(hn *HarnessNode) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.DeleteAllPaymentsRequest{}
+	_, err := hn.DeleteAllPayments(ctxt, req)
+	require.NoError(h, err, "unable to delete payments")
+}

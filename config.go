@@ -717,21 +717,43 @@ func ValidateConfig(cfg Config, usageMessage string,
 	// IsSet returns true if an option has been set in either the config
 	// file or by a flag.
 	isSet := func(field string) bool {
-		fieldname, ok := reflect.TypeOf(Config{}).FieldByName(field)
+		fieldName, ok := reflect.TypeOf(Config{}).FieldByName(field)
 		if !ok {
-			fmt.Fprintf(os.Stderr, "could not find field %s\n", field)
+			str := "%s: could not find field %s"
+			err := fmt.Errorf(str, funcName, field)
+			_, _ = fmt.Fprintln(os.Stderr, err)
 			return false
 		}
 
-		long, ok := fieldname.Tag.Lookup("long")
+		long, ok := fieldName.Tag.Lookup("long")
 		if !ok {
-			fmt.Fprintf(os.Stderr,
-				"field %s does not have a long tag\n", field)
+			str := "%s: field %s does not have a long tag"
+			err := fmt.Errorf(str, funcName, field)
+			_, _ = fmt.Fprintln(os.Stderr, err)
 			return false
 		}
 
-		return fileParser.FindOptionByLongName(long).IsSet() ||
-			flagParser.FindOptionByLongName(long).IsSet()
+		// The user has the option to set the flag in either the config
+		// file or as a command line flag. If any is set, we consider it
+		// to be set, not applying any precedence rules here (since it
+		// is a boolean the default is false anyway which would screw up
+		// any precedence rules). Additionally, we need to also support
+		// the use case where the config struct is embedded _within_
+		// another struct with a prefix (as is the case with
+		// lightning-terminal).
+		fileOption := fileParser.FindOptionByLongName(long)
+		fileOptionNested := fileParser.FindOptionByLongName(
+			"lnd." + long,
+		)
+		flagOption := flagParser.FindOptionByLongName(long)
+		flagOptionNested := flagParser.FindOptionByLongName(
+			"lnd." + long,
+		)
+
+		return (fileOption != nil && fileOption.IsSet()) ||
+			(fileOptionNested != nil && fileOptionNested.IsSet()) ||
+			(flagOption != nil && flagOption.IsSet()) ||
+			(flagOptionNested != nil && flagOptionNested.IsSet())
 	}
 
 	// As soon as we're done parsing configuration options, ensure all paths

@@ -291,6 +291,7 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, 
 	chanDB.graph, err = NewChannelGraph(
 		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
 		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
+		opts.UseGraphCache,
 	)
 	if err != nil {
 		return nil, err

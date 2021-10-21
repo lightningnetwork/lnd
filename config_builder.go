@@ -847,6 +847,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
 		channeldb.OptionSetBatchCommitInterval(cfg.DB.BatchCommitInterval),
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
+		channeldb.OptionSetUseGraphCache(!cfg.DB.NoGraphCache),
 	}
 
 	// We want to pre-allocate the channel graph cache according to what we

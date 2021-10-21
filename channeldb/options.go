@@ -45,6 +45,11 @@ type Options struct {
 	// graph cache, so we can pre-allocate the map accordingly.
 	PreAllocCacheNumNodes int
 
+	// UseGraphCache denotes whether the in-memory graph cache should be
+	// used or a fallback version that uses the underlying database for
+	// path finding.
+	UseGraphCache bool
+
 	// clock is the time source used by the database.
 	clock clock.Clock
 
@@ -65,6 +70,7 @@ func DefaultOptions() Options {
 		RejectCacheSize:       DefaultRejectCacheSize,
 		ChannelCacheSize:      DefaultChannelCacheSize,
 		PreAllocCacheNumNodes: DefaultPreAllocCacheNumNodes,
+		UseGraphCache:         true,
 		clock:                 clock.NewDefaultClock(),
 	}
 }
@@ -90,6 +96,13 @@ func OptionSetChannelCacheSize(n int) OptionModifier {
 func OptionSetPreAllocCacheNumNodes(n int) OptionModifier {
 	return func(o *Options) {
 		o.PreAllocCacheNumNodes = n
+	}
+}
+
+// OptionSetUseGraphCache sets the UseGraphCache option to the given value.
+func OptionSetUseGraphCache(use bool) OptionModifier {
+	return func(o *Options) {
+		o.UseGraphCache = use
 	}
 }
 

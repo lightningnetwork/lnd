@@ -180,7 +180,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		}, 2),
 	}
 
-	testGraph, err := createTestGraphFromChannels(testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}

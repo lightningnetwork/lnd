@@ -665,11 +665,12 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for all responses to be back, and check that they all
 	// succeeded.
+	timer := time.After(defaultTimeout)
 	for range sendRoutes {
 		var resp *lnrpc.HTLCAttempt
 		select {
 		case resp = <-responses:
-		case <-time.After(defaultTimeout):
+		case <-timer:
 			t.Fatalf("response not received")
 		}
 

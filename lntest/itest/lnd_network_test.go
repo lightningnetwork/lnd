@@ -148,6 +148,7 @@ func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 	waitForNodeAnnouncement := func(graphSub graphSubscription,
 		nodePubKey string, addrs []string) {
 
+		timer := time.After(defaultTimeout)
 		for {
 			select {
 			case graphUpdate := <-graphSub.updateChan:
@@ -174,7 +175,7 @@ func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 			case err := <-graphSub.errChan:
 				t.Fatalf("unable to recv graph update: %v", err)
 
-			case <-time.After(defaultTimeout):
+			case <-timer:
 				t.Fatalf("did not receive node ann update")
 			}
 		}

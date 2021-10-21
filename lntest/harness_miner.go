@@ -133,6 +133,7 @@ func (h *HarnessMiner) saveLogs() error {
 // then an error is returned.
 func (h *HarnessMiner) waitForTxInMempool(txid chainhash.Hash) error {
 	ticker := time.NewTicker(50 * time.Millisecond)
+	timer := time.After(DefaultTimeout)
 	defer ticker.Stop()
 
 	var mempool []*chainhash.Hash
@@ -140,7 +141,7 @@ func (h *HarnessMiner) waitForTxInMempool(txid chainhash.Hash) error {
 		select {
 		case <-h.runCtx.Done():
 			return fmt.Errorf("NetworkHarness has been torn down")
-		case <-time.After(DefaultTimeout):
+		case <-timer:
 			return fmt.Errorf("wanted %v, found %v txs "+
 				"in mempool: %v", txid, len(mempool), mempool)
 

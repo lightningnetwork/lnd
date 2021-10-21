@@ -917,6 +917,7 @@ func (hn *HarnessNode) waitTillServerState(
 	}()
 
 	var lastErr error
+	timer := time.After(NodeStartTimeout)
 	for {
 		select {
 		case err := <-errChan:
@@ -925,7 +926,7 @@ func (hn *HarnessNode) waitTillServerState(
 		case <-done:
 			return nil
 
-		case <-time.After(NodeStartTimeout):
+		case <-timer:
 			return fmt.Errorf("timeout waiting for state, "+
 				"got err from stream: %v", lastErr)
 		}

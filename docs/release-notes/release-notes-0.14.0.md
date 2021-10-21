@@ -92,6 +92,14 @@ usage. Users running `lnd` on low-memory systems are advised to run with the
 removes zombie channels from the graph, reducing the number of channels that
 need to be kept in memory.
 
+There is a [fallback option](https://github.com/lightningnetwork/lnd/pull/5840)
+`db.no-graph-cache=true` that can be used when running a Bolt (`bbolt`) based
+database backend. Using the database for path finding is considerably slower
+than using the in-memory graph cache but uses less RAM. The fallback option is
+not available for `etcd` or Postgres database backends because of the way they
+handle long-running database transactions that are required for the path finding
+operations.
+
 ## Protocol Extensions
 
 ### Explicit Channel Negotiation

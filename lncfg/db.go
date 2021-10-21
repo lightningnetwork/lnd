@@ -57,6 +57,8 @@ type DB struct {
 	Bolt *kvdb.BoltConfig `group:"bolt" namespace:"bolt" description:"Bolt settings."`
 
 	Postgres *postgres.Config `group:"postgres" namespace:"postgres" description:"Postgres settings."`
+
+	NoGraphCache bool `long:"no-graph-cache" description:"Don't use the in-memory graph cache for path finding. Much slower but uses less RAM. Can only be used with a bolt database backend."`
 }
 
 // DefaultDB creates and returns a new default DB config.
@@ -87,8 +89,21 @@ func (db *DB) Validate() error {
 		}
 
 	default:
-		return fmt.Errorf("unknown backend, must be either \"%v\" or \"%v\"",
-			BoltBackend, EtcdBackend)
+		return fmt.Errorf("unknown backend, must be either '%v' or "+
+			"'%v'", BoltBackend, EtcdBackend)
+	}
+
+	// The path finding uses a manual read transaction that's open for a
+	// potentially long time. That works fine with the locking model of
+	// bbolt but can lead to locks or rolled back transactions with etcd or
+	// postgres. And since we already have a smaller memory footprint for
+	// remote database setups (due to not needing to memory-map the bbolt DB
+	// files), we can keep the graph in memory instead. But for mobile
+	// devices the tradeoff between a smaller memory footprint and the
+	// longer time needed for path finding might be a desirable one.
+	if db.NoGraphCache && db.Backend != BoltBackend {
+		return fmt.Errorf("cannot use no-graph-cache with database "+
+			"backend '%v'", db.Backend)
 	}
 
 	return nil

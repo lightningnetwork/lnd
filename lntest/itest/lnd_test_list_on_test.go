@@ -177,17 +177,19 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testFailingChannel,
 	},
 
+	// Channel balance related tests.
+	{
+		Name:     "channel balance",
+		TestFunc: testChannelBalance,
+	},
+	{
+		Name:     "channel unsettled balance",
+		TestFunc: testChannelUnsettledBalance,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "channel balance",
-	// 	test: testChannelBalance,
-	// },
-	// {
-	// 	name: "channel unsettled balance",
-	// 	test: testChannelUnsettledBalance,
 	// },
 	// {
 	// 	name: "single hop invoice",

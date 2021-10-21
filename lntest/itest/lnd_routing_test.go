@@ -746,9 +746,7 @@ func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 
 // testMultiHopOverPrivateChannels tests that private channels can be used as
 // intermediate hops in a route for payments.
-func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testMultiHopOverPrivateChannels(ht *lntest.HarnessTest) {
 	// We'll test that multi-hop payments over private channels work as
 	// intended. To do so, we'll create the following topology:
 	//         private        public           private
@@ -757,115 +755,46 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 
 	// First, we'll open a private channel between Alice and Bob with Alice
 	// being the funder.
-	chanPointAlice := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
+	alice, bob := ht.Alice(), ht.Bob()
+	chanPointAlice := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			Private: true,
 		},
 	)
 
-	err := net.Alice.WaitForNetworkChannelOpen(chanPointAlice)
-	if err != nil {
-		t.Fatalf("alice didn't see the channel alice <-> bob before "+
-			"timeout: %v", err)
-	}
-	err = net.Bob.WaitForNetworkChannelOpen(chanPointAlice)
-	if err != nil {
-		t.Fatalf("bob didn't see the channel alice <-> bob before "+
-			"timeout: %v", err)
-	}
-
-	// Retrieve Alice's funding outpoint.
-	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
-	aliceFundPoint := wire.OutPoint{
-		Hash:  *aliceChanTXID,
-		Index: chanPointAlice.OutputIndex,
-	}
-
 	// Next, we'll create Carol's node and open a public channel between
 	// her and Bob with Bob being the funder.
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", nil)
+	defer ht.Shutdown(carol)
 
-	net.ConnectNodes(t.t, net.Bob, carol)
-	chanPointBob := openChannelAndAssert(
-		t, net, net.Bob, carol,
-		lntest.OpenChannelParams{
+	ht.ConnectNodes(bob, carol)
+	chanPointBob := ht.OpenChannel(
+		bob, carol, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
 
-	err = net.Bob.WaitForNetworkChannelOpen(chanPointBob)
-	if err != nil {
-		t.Fatalf("bob didn't see the channel bob <-> carol before "+
-			"timeout: %v", err)
-	}
-	err = carol.WaitForNetworkChannelOpen(chanPointBob)
-	if err != nil {
-		t.Fatalf("carol didn't see the channel bob <-> carol before "+
-			"timeout: %v", err)
-	}
-	err = net.Alice.WaitForNetworkChannelOpen(chanPointBob)
-	if err != nil {
-		t.Fatalf("alice didn't see the channel bob <-> carol before "+
-			"timeout: %v", err)
-	}
+	// Alice should know the new channel from Bob.
+	ht.AssertChannelOpen(alice, chanPointBob)
 
-	// Retrieve Bob's funding outpoint.
-	bobChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointBob)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
-	bobFundPoint := wire.OutPoint{
-		Hash:  *bobChanTXID,
-		Index: chanPointBob.OutputIndex,
-	}
+	// Next, we'll create Dave's node and open a private channel between
+	// him and Carol with Carol being the funder.
+	dave := ht.NewNode("Dave", nil)
+	defer ht.Shutdown(dave)
 
-	// Next, we'll create Dave's node and open a private channel between him
-	// and Carol with Carol being the funder.
-	dave := net.NewNode(t.t, "Dave", nil)
-	defer shutdownAndAssert(net, t, dave)
+	ht.ConnectNodes(carol, dave)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
 
-	net.ConnectNodes(t.t, carol, dave)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
-
-	chanPointCarol := openChannelAndAssert(
-		t, net, carol, dave,
-		lntest.OpenChannelParams{
+	chanPointCarol := ht.OpenChannel(
+		carol, dave, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			Private: true,
 		},
 	)
 
-	err = carol.WaitForNetworkChannelOpen(chanPointCarol)
-	if err != nil {
-		t.Fatalf("carol didn't see the channel carol <-> dave before "+
-			"timeout: %v", err)
-	}
-	err = dave.WaitForNetworkChannelOpen(chanPointCarol)
-	if err != nil {
-		t.Fatalf("dave didn't see the channel carol <-> dave before "+
-			"timeout: %v", err)
-	}
-	err = dave.WaitForNetworkChannelOpen(chanPointBob)
-	if err != nil {
-		t.Fatalf("dave didn't see the channel bob <-> carol before "+
-			"timeout: %v", err)
-	}
-
-	// Retrieve Carol's funding point.
-	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
-	carolFundPoint := wire.OutPoint{
-		Hash:  *carolChanTXID,
-		Index: chanPointCarol.OutputIndex,
-	}
+	// Dave should know the channel[Bob<->Carol] from Carol.
+	ht.AssertChannelOpen(dave, chanPointBob)
 
 	// Now that all the channels are set up according to the topology from
 	// above, we can proceed to test payments. We'll create an invoice for
@@ -880,21 +809,11 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 		Value:   paymentAmt,
 		Private: true,
 	}
-
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := dave.AddInvoice(ctxt, invoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice for dave: %v", err)
-	}
+	resp := ht.AddInvoice(invoice, dave)
 
 	// Let Alice pay the invoice.
 	payReqs := []string{resp.PaymentRequest}
-	err = completePaymentRequests(
-		net.Alice, net.Alice.RouterClient, payReqs, true,
-	)
-	if err != nil {
-		t.Fatalf("unable to send payments from alice to dave: %v", err)
-	}
+	ht.CompletePaymentRequests(alice, payReqs, true)
 
 	// When asserting the amount of satoshis moved, we'll factor in the
 	// default base fee, as we didn't modify the fee structure when opening
@@ -902,34 +821,34 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 	const baseFee = 1
 
 	// Dave should have received 20k satoshis from Carol.
-	assertAmountPaid(t, "Carol(local) [private=>] Dave(remote)",
-		dave, carolFundPoint, 0, paymentAmt)
+	ht.AssertAmountPaid("Carol(local) [private=>] Dave(remote)",
+		dave, chanPointCarol, 0, paymentAmt)
 
 	// Carol should have sent 20k satoshis to Dave.
-	assertAmountPaid(t, "Carol(local) [private=>] Dave(remote)",
-		carol, carolFundPoint, paymentAmt, 0)
+	ht.AssertAmountPaid("Carol(local) [private=>] Dave(remote)",
+		carol, chanPointCarol, paymentAmt, 0)
 
 	// Carol should have received 20k satoshis + fee for one hop from Bob.
-	assertAmountPaid(t, "Bob(local) => Carol(remote)",
-		carol, bobFundPoint, 0, paymentAmt+baseFee)
+	ht.AssertAmountPaid("Bob(local) => Carol(remote)",
+		carol, chanPointBob, 0, paymentAmt+baseFee)
 
 	// Bob should have sent 20k satoshis + fee for one hop to Carol.
-	assertAmountPaid(t, "Bob(local) => Carol(remote)",
-		net.Bob, bobFundPoint, paymentAmt+baseFee, 0)
+	ht.AssertAmountPaid("Bob(local) => Carol(remote)",
+		bob, chanPointBob, paymentAmt+baseFee, 0)
 
 	// Bob should have received 20k satoshis + fee for two hops from Alice.
-	assertAmountPaid(t, "Alice(local) [private=>] Bob(remote)", net.Bob,
-		aliceFundPoint, 0, paymentAmt+baseFee*2)
+	ht.AssertAmountPaid("Alice(local) [private=>] Bob(remote)", bob,
+		chanPointAlice, 0, paymentAmt+baseFee*2)
 
 	// Alice should have sent 20k satoshis + fee for two hops to Bob.
-	assertAmountPaid(t, "Alice(local) [private=>] Bob(remote)", net.Alice,
-		aliceFundPoint, paymentAmt+baseFee*2, 0)
+	ht.AssertAmountPaid("Alice(local) [private=>] Bob(remote)", alice,
+		chanPointAlice, paymentAmt+baseFee*2, 0)
 
 	// At this point, the payment was successful. We can now close all the
 	// channels and shutdown the nodes created throughout this test.
-	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
-	closeChannelAndAssert(t, net, net.Bob, chanPointBob, false)
-	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
+	ht.CloseChannel(alice, chanPointAlice, false)
+	ht.CloseChannel(bob, chanPointBob, false)
+	ht.CloseChannel(carol, chanPointCarol, false)
 }
 
 // computeFee calculates the payment fee as specified in BOLT07.

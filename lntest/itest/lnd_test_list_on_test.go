@@ -220,14 +220,14 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "invoice routing hints",
 		TestFunc: testInvoiceRoutingHints,
 	},
+	{
+		Name:     "multi-hop payments over private channels",
+		TestFunc: testMultiHopOverPrivateChannels,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "multi-hop payments over private channels",
-	// 	test: testMultiHopOverPrivateChannels,
 	// },
 	// {
 	// 	name: "invoice update subscription",

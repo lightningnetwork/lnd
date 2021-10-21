@@ -3,7 +3,6 @@ package itest
 import (
 	"context"
 	"encoding/hex"
-	"fmt"
 	"testing"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
-	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -631,9 +629,7 @@ func testPrivateChannels(ht *lntest.HarnessTest) {
 
 // testInvoiceRoutingHints tests that the routing hints for an invoice are
 // created properly.
-func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
 	// Throughout this test, we'll be opening a channel between Alice and
@@ -642,96 +638,79 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	// First, we'll create a private channel between Alice and Bob. This
 	// will be the only channel that will be considered as a routing hint
 	// throughout this test. We'll include a push amount since we currently
-	// require channels to have enough remote balance to cover the invoice's
-	// payment.
-	chanPointBob := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
+	// require channels to have enough remote balance to cover the
+	// invoice's payment.
+	alice, bob := ht.Alice(), ht.Bob()
+	chanPointBob := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: chanAmt / 2,
 			Private: true,
 		},
 	)
+	defer ht.CloseChannel(alice, chanPointBob, false)
 
-	// Then, we'll create Carol's node and open a public channel between her
-	// and Alice. This channel will not be considered as a routing hint due
-	// to it being public.
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	// Then, we'll create Carol's node and open a public channel between
+	// her and Alice. This channel will not be considered as a routing hint
+	// due to it being public.
+	carol := ht.NewNode("Carol", nil)
+	defer ht.Shutdown(carol)
 
-	net.ConnectNodes(t.t, net.Alice, carol)
-	chanPointCarol := openChannelAndAssert(
-		t, net, net.Alice, carol,
-		lntest.OpenChannelParams{
+	ht.ConnectNodes(alice, carol)
+	chanPointCarol := ht.OpenChannel(
+		alice, carol, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: chanAmt / 2,
 		},
 	)
+	defer ht.CloseChannel(alice, chanPointCarol, false)
 
 	// We'll also create a public channel between Bob and Carol to ensure
-	// that Bob gets selected as the only routing hint. We do this as
-	// we should only include routing hints for nodes that are publicly
+	// that Bob gets selected as the only routing hint. We do this as we
+	// should only include routing hints for nodes that are publicly
 	// advertised, otherwise we'd end up leaking information about nodes
 	// that wish to stay unadvertised.
-	net.ConnectNodes(t.t, net.Bob, carol)
-	chanPointBobCarol := openChannelAndAssert(
-		t, net, net.Bob, carol,
-		lntest.OpenChannelParams{
+	ht.ConnectNodes(bob, carol)
+	chanPointBobCarol := ht.OpenChannel(
+		bob, carol, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: chanAmt / 2,
 		},
 	)
+	defer ht.CloseChannel(bob, chanPointBobCarol, false)
 
-	// Then, we'll create Dave's node and open a private channel between him
-	// and Alice. We will not include a push amount in order to not consider
-	// this channel as a routing hint as it will not have enough remote
-	// balance for the invoice's amount.
-	dave := net.NewNode(t.t, "Dave", nil)
-	defer shutdownAndAssert(net, t, dave)
+	// Then, we'll create Dave's node and open a private channel between
+	// him and Alice. We will not include a push amount in order to not
+	// consider this channel as a routing hint as it will not have enough
+	// remote balance for the invoice's amount.
+	dave := ht.NewNode("Dave", nil)
+	defer ht.Shutdown(dave)
 
-	net.ConnectNodes(t.t, net.Alice, dave)
-	chanPointDave := openChannelAndAssert(
-		t, net, net.Alice, dave,
-		lntest.OpenChannelParams{
+	ht.ConnectNodes(alice, dave)
+	chanPointDave := ht.OpenChannel(
+		alice, dave, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			Private: true,
 		},
 	)
+	defer ht.CloseChannel(alice, chanPointDave, false)
 
 	// Finally, we'll create Eve's node and open a private channel between
-	// her and Alice. This time though, we'll take Eve's node down after the
-	// channel has been created to avoid populating routing hints for
+	// her and Alice. This time though, we'll take Eve's node down after
+	// the channel has been created to avoid populating routing hints for
 	// inactive channels.
-	eve := net.NewNode(t.t, "Eve", nil)
-	net.ConnectNodes(t.t, net.Alice, eve)
-	chanPointEve := openChannelAndAssert(
-		t, net, net.Alice, eve,
-		lntest.OpenChannelParams{
+	eve := ht.NewNode("Eve", nil)
+	ht.ConnectNodes(alice, eve)
+	chanPointEve := ht.OpenChannel(
+		alice, eve, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: chanAmt / 2,
 			Private: true,
 		},
 	)
 
-	// Make sure all the channels have been opened.
-	chanNames := []string{
-		"alice-bob", "alice-carol", "bob-carol", "alice-dave",
-		"alice-eve",
-	}
-	aliceChans := []*lnrpc.ChannelPoint{
-		chanPointBob, chanPointCarol, chanPointBobCarol, chanPointDave,
-		chanPointEve,
-	}
-	for i, chanPoint := range aliceChans {
-		err := net.Alice.WaitForNetworkChannelOpen(chanPoint)
-		if err != nil {
-			t.Fatalf("timed out waiting for channel open %s: %v",
-				chanNames[i], err)
-		}
-	}
-
 	// Now that the channels are open, we'll take down Eve's node.
-	shutdownAndAssert(net, t, eve)
+	ht.Shutdown(eve)
 
 	// Create an invoice for Alice that will populate the routing hints.
 	invoice := &lnrpc.Invoice{
@@ -742,84 +721,27 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Due to the way the channels were set up above, the channel between
 	// Alice and Bob should be the only channel used as a routing hint.
-	var predErr error
-	var decoded *lnrpc.PayReq
-	err := wait.Predicate(func() bool {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		resp, err := net.Alice.AddInvoice(ctxt, invoice)
-		if err != nil {
-			predErr = fmt.Errorf("unable to add invoice: %v", err)
-			return false
-		}
+	resp := ht.AddInvoice(invoice, alice)
 
-		// We'll decode the invoice's payment request to determine which
-		// channels were used as routing hints.
-		payReq := &lnrpc.PayReqString{
-			PayReq: resp.PaymentRequest,
-		}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		decoded, err = net.Alice.DecodePayReq(ctxt, payReq)
-		if err != nil {
-			predErr = fmt.Errorf("unable to decode payment "+
-				"request: %v", err)
-			return false
-		}
-
-		if len(decoded.RouteHints) != 1 {
-			predErr = fmt.Errorf("expected one route hint, got %d",
-				len(decoded.RouteHints))
-			return false
-		}
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf(predErr.Error())
-	}
+	// We'll decode the invoice's payment request to determine
+	// which channels were used as routing hints.
+	decoded := ht.DecodePayReq(alice, resp.PaymentRequest)
+	require.Len(ht, decoded.RouteHints, 1, "expected one route hint")
 
 	hops := decoded.RouteHints[0].HopHints
-	if len(hops) != 1 {
-		t.Fatalf("expected one hop in route hint, got %d", len(hops))
-	}
-	chanID := hops[0].ChanId
+	require.Len(ht, hops, 1, "expected one hop in route hint")
 
 	// We'll need the short channel ID of the channel between Alice and Bob
 	// to make sure the routing hint is for this channel.
-	listReq := &lnrpc.ListChannelsRequest{}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	listResp, err := net.Alice.ListChannels(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("unable to retrieve alice's channels: %v", err)
-	}
-
-	var aliceBobChanID uint64
-	for _, channel := range listResp.Channels {
-		if channel.RemotePubkey == net.Bob.PubKeyStr {
-			aliceBobChanID = channel.ChanId
-		}
-	}
-
-	if aliceBobChanID == 0 {
-		t.Fatalf("channel between alice and bob not found")
-	}
-
-	if chanID != aliceBobChanID {
-		t.Fatalf("expected channel ID %d, got %d", aliceBobChanID,
-			chanID)
-	}
-
-	// Now that we've confirmed the routing hints were added correctly, we
-	// can close all the channels and shut down all the nodes created.
-	closeChannelAndAssert(t, net, net.Alice, chanPointBob, false)
-	closeChannelAndAssert(t, net, net.Alice, chanPointCarol, false)
-	closeChannelAndAssert(t, net, net.Bob, chanPointBobCarol, false)
-	closeChannelAndAssert(t, net, net.Alice, chanPointDave, false)
+	aliceBobChanID := ht.QueryChannelByChanPoint(alice, chanPointBob).ChanId
+	require.Equal(ht, hops[0].ChanId, aliceBobChanID, "chanID mismatch")
 
 	// The channel between Alice and Eve should be force closed since Eve
 	// is offline.
-	closeChannelAndAssert(t, net, net.Alice, chanPointEve, true)
+	ht.CloseChannel(alice, chanPointEve, true)
 
 	// Cleanup by mining the force close and sweep transaction.
-	cleanupForceClose(t, net, net.Alice, chanPointEve)
+	ht.CleanupForceClose(alice, chanPointEve)
 }
 
 // testMultiHopOverPrivateChannels tests that private channels can be used as

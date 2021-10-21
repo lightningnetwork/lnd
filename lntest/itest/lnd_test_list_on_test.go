@@ -208,18 +208,18 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "multi-hop send to route",
 		TestFunc: testMultiHopSendToRoute,
 	},
+	{
+		Name:     "send to route error propagation",
+		TestFunc: testSendToRouteErrorPropagation,
+	},
+	{
+		Name:     "private channels",
+		TestFunc: testPrivateChannels,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "send to route error propagation",
-	// 	test: testSendToRouteErrorPropagation,
-	// },
-	// {
-	// 	name: "private channels",
-	// 	test: testPrivateChannels,
 	// },
 	// {
 	// 	name: "invoice routing hints",

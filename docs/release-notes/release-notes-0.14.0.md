@@ -103,6 +103,18 @@ the remote peer supports said channel type and agrees, the previous implicit
 negotiation based on the shared set of feature bits is bypassed, and the
 proposed channel type is used.
 
+### Script Enforced Channel Leases
+
+[A new channel commitment type that builds upon the recently introduced anchors
+commitment format has been introduced to back channel leases resulting from
+Lightning Pool](https://github.com/lightningnetwork/lnd/pull/5709). This new
+channel commitment type features an additional spend requirement on any
+commitment and HTLC outputs that pay directly to the channel initiator. The
+channel initiator must now wait for the channel lease maturity, expressed as an
+absolute height of the chain, to be met before being able to sweep their funds,
+on top of the usual CSV delay requirement. See the linked pull request for more
+details.
+
 ## RPC Server
 
 * [Return payment address and add index from

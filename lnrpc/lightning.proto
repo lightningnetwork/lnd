@@ -875,6 +875,9 @@ message ChannelAcceptRequest {
     // A bit-field which the initiator uses to specify proposed channel
     // behavior.
     uint32 channel_flags = 13;
+
+    // The commitment type the initiator wishes to use for the proposed channel.
+    CommitmentType commitment_type = 14;
 }
 
 message ChannelAcceptResponse {
@@ -1229,6 +1232,15 @@ enum CommitmentType {
     been broadcast.
     */
     ANCHORS = 3;
+
+    /*
+    A channel that uses a commitment type that builds upon the anchors
+    commitment format, but in addition requires a CLTV clause to spend outputs
+    paying to the channel initiator. This is intended for use on leased channels
+    to guarantee that the channel initiator has no incentives to close a leased
+    channel before its maturity date.
+    */
+    SCRIPT_ENFORCED_LEASE = 4;
 }
 
 message ChannelConstraints {

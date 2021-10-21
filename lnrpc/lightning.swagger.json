@@ -3303,6 +3303,10 @@
           "type": "integer",
           "format": "int64",
           "description": "A bit-field which the initiator uses to specify proposed channel\nbehavior."
+        },
+        "commitment_type": {
+          "$ref": "#/definitions/lnrpcCommitmentType",
+          "description": "The commitment type the initiator wishes to use for the proposed channel."
         }
       }
     },
@@ -3836,10 +3840,11 @@
         "UNKNOWN_COMMITMENT_TYPE",
         "LEGACY",
         "STATIC_REMOTE_KEY",
-        "ANCHORS"
+        "ANCHORS",
+        "SCRIPT_ENFORCED_LEASE"
       ],
       "default": "UNKNOWN_COMMITMENT_TYPE",
-      "description": " - UNKNOWN_COMMITMENT_TYPE: Returned when the commitment type isn't known or unavailable.\n - LEGACY: A channel using the legacy commitment format having tweaked to_remote\nkeys.\n - STATIC_REMOTE_KEY: A channel that uses the modern commitment format where the key in the\noutput of the remote party does not change each state. This makes back\nup and recovery easier as when the channel is closed, the funds go\ndirectly to that key.\n - ANCHORS: A channel that uses a commitment format that has anchor outputs on the\ncommitments, allowing fee bumping after a force close transaction has\nbeen broadcast."
+      "description": " - UNKNOWN_COMMITMENT_TYPE: Returned when the commitment type isn't known or unavailable.\n - LEGACY: A channel using the legacy commitment format having tweaked to_remote\nkeys.\n - STATIC_REMOTE_KEY: A channel that uses the modern commitment format where the key in the\noutput of the remote party does not change each state. This makes back\nup and recovery easier as when the channel is closed, the funds go\ndirectly to that key.\n - ANCHORS: A channel that uses a commitment format that has anchor outputs on the\ncommitments, allowing fee bumping after a force close transaction has\nbeen broadcast.\n - SCRIPT_ENFORCED_LEASE: A channel that uses a commitment type that builds upon the anchors\ncommitment format, but in addition requires a CLTV clause to spend outputs\npaying to the channel initiator. This is intended for use on leased channels\nto guarantee that the channel initiator has no incentives to close a leased\nchannel before its maturity date."
     },
     "lnrpcConnectPeerRequest": {
       "type": "object",

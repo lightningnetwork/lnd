@@ -50,6 +50,23 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType,
 	channelFeatures := lnwire.RawFeatureVector(channelType)
 
 	switch {
+	// Lease script enforcement + anchors zero fee + static remote key
+	// features only.
+	case channelFeatures.OnlyContains(
+		lnwire.ScriptEnforcedLeaseRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+		lnwire.StaticRemoteKeyRequired,
+	):
+		if !hasFeatures(
+			local, remote,
+			lnwire.ScriptEnforcedLeaseOptional,
+			lnwire.AnchorsZeroFeeHtlcTxOptional,
+			lnwire.StaticRemoteKeyOptional,
+		) {
+			return 0, errUnsupportedChannelType
+		}
+		return lnwallet.CommitmentTypeScriptEnforcedLease, nil
+
 	// Anchors zero fee + static remote key features only.
 	case channelFeatures.OnlyContains(
 		lnwire.AnchorsZeroFeeHtlcTxRequired,

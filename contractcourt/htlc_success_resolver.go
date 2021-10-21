@@ -626,6 +626,13 @@ func (h *htlcSuccessResolver) Supplement(htlc channeldb.HTLC) {
 	h.htlc = htlc
 }
 
+// SupplementState allows the user of a ContractResolver to supplement it with
+// state required for the proper resolution of a contract.
+//
+// NOTE: Part of the ContractResolver interface.
+func (h *htlcSuccessResolver) SupplementState(_ *channeldb.OpenChannel) {
+}
+
 // HtlcPoint returns the htlc's outpoint on the commitment tx.
 //
 // NOTE: Part of the htlcContractResolver interface.

@@ -1,6 +1,7 @@
 package lnwallet
 
 import (
+	"errors"
 	"net"
 	"sync"
 
@@ -34,7 +35,39 @@ const (
 	// requires second-level HTLC transactions to be signed using a
 	// zero-fee.
 	CommitmentTypeAnchorsZeroFeeHtlcTx
+
+	// CommitmentTypeScriptEnforcedLease is a commitment type that builds
+	// upon CommitmentTypeTweakless and CommitmentTypeAnchorsZeroFeeHtlcTx,
+	// which in addition requires a CLTV clause to spend outputs paying to
+	// the channel initiator. This is intended for use on leased channels to
+	// guarantee that the channel initiator has no incentives to close a
+	// leased channel before its maturity date.
+	CommitmentTypeScriptEnforcedLease
 )
+
+// HasStaticRemoteKey returns whether the commitment type supports remote
+// outputs backed by static keys.
+func (c CommitmentType) HasStaticRemoteKey() bool {
+	switch c {
+	case CommitmentTypeTweakless,
+		CommitmentTypeAnchorsZeroFeeHtlcTx,
+		CommitmentTypeScriptEnforcedLease:
+		return true
+	default:
+		return false
+	}
+}
+
+// HasAnchors returns whether the commitment type supports anchor outputs.
+func (c CommitmentType) HasAnchors() bool {
+	switch c {
+	case CommitmentTypeAnchorsZeroFeeHtlcTx,
+		CommitmentTypeScriptEnforcedLease:
+		return true
+	default:
+		return false
+	}
+}
 
 // String returns the name of the CommitmentType.
 func (c CommitmentType) String() string {
@@ -45,6 +78,8 @@ func (c CommitmentType) String() string {
 		return "tweakless"
 	case CommitmentTypeAnchorsZeroFeeHtlcTx:
 		return "anchors-zero-fee-second-level"
+	case CommitmentTypeScriptEnforcedLease:
+		return "script-enforced-lease"
 	default:
 		return "invalid"
 	}
@@ -188,8 +223,8 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// Based on the channel type, we determine the initial commit weight
 	// and fee.
 	commitWeight := int64(input.CommitWeight)
-	if commitType == CommitmentTypeAnchorsZeroFeeHtlcTx {
-		commitWeight = input.AnchorCommitWeight
+	if commitType.HasAnchors() {
+		commitWeight = int64(input.AnchorCommitWeight)
 	}
 	commitFee := commitFeePerKw.FeeForWeight(commitWeight)
 
@@ -201,7 +236,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// The total fee paid by the initiator will be the commitment fee in
 	// addition to the two anchor outputs.
 	feeMSat := lnwire.NewMSatFromSatoshis(commitFee)
-	if commitType == CommitmentTypeAnchorsZeroFeeHtlcTx {
+	if commitType.HasAnchors() {
 		feeMSat += 2 * lnwire.NewMSatFromSatoshis(anchorSize)
 	}
 
@@ -288,8 +323,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	if ourBalance == 0 || theirBalance == 0 || pushMSat != 0 {
 		// Both the tweakless type and the anchor type is tweakless,
 		// hence set the bit.
-		if commitType == CommitmentTypeTweakless ||
-			commitType == CommitmentTypeAnchorsZeroFeeHtlcTx {
+		if commitType.HasStaticRemoteKey() {
 			chanType |= channeldb.SingleFunderTweaklessBit
 		} else {
 			chanType |= channeldb.SingleFunderBit
@@ -325,14 +359,20 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 
 	// We are adding anchor outputs to our commitment. We only support this
 	// in combination with zero-fee second-levels HTLCs.
-	if commitType == CommitmentTypeAnchorsZeroFeeHtlcTx {
+	if commitType.HasAnchors() {
 		chanType |= channeldb.AnchorOutputsBit
 		chanType |= channeldb.ZeroHtlcTxFeeBit
 	}
 
-	// If the channel is meant to be frozen, then we'll set the frozen bit
-	// now so once the channel is open, it can be interpreted properly.
-	if thawHeight != 0 {
+	// Set the appropriate LeaseExpiration/Frozen bit based on the
+	// reservation parameters.
+	if commitType == CommitmentTypeScriptEnforcedLease {
+		if thawHeight == 0 {
+			return nil, errors.New("missing absolute expiration " +
+				"for script enforced lease commitment type")
+		}
+		chanType |= channeldb.LeaseExpirationBit
+	} else if thawHeight > 0 {
 		chanType |= channeldb.FrozenBit
 	}
 
@@ -717,6 +757,16 @@ func (r *ChannelReservation) Capacity() btcutil.Amount {
 	r.RLock()
 	defer r.RUnlock()
 	return r.partialState.Capacity
+}
+
+// LeaseExpiry returns the absolute expiration height for a leased channel using
+// the script enforced commitment type. A zero value is returned when the
+// channel is not using a script enforced lease commitment type.
+func (r *ChannelReservation) LeaseExpiry() uint32 {
+	if !r.partialState.ChanType.HasLeaseExpiration() {
+		return 0
+	}
+	return r.partialState.ThawHeight
 }
 
 // Cancel abandons this channel reservation. This method should be called in

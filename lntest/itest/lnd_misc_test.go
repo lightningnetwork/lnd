@@ -1014,7 +1014,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	// on chain, and both of them properly carry out the DLP protocol.
 	assertDLPExecuted(
 		net, t, carol, carolStartingBalance, dave, daveStartingBalance,
-		false,
+		lnrpc.CommitmentType_STATIC_REMOTE_KEY,
 	)
 
 	// As a second part of this test, we will test the scenario where a

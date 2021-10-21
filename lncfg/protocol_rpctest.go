@@ -24,6 +24,12 @@ type ProtocolOptions struct {
 	// Anchors enables anchor commitments.
 	// TODO(halseth): transition itests to anchors instead!
 	Anchors bool `long:"anchors" description:"enable support for anchor commitments"`
+
+	// ScriptEnforcedLease enables script enforced commitments for channel
+	// leases.
+	//
+	// TODO: Move to experimental?
+	ScriptEnforcedLease bool `long:"script-enforced-lease" description:"enable support for script enforced lease commitments"`
 }
 
 // Wumbo returns true if lnd should permit the creation and acceptance of wumbo
@@ -36,4 +42,10 @@ func (l *ProtocolOptions) Wumbo() bool {
 // commitment type.
 func (l *ProtocolOptions) NoAnchorCommitments() bool {
 	return !l.Anchors
+}
+
+// NoScriptEnforcementLease returns true if we have disabled support for the
+// script enforcement commitment type for leased channels.
+func (l *ProtocolOptions) NoScriptEnforcementLease() bool {
+	return !l.ScriptEnforcedLease
 }

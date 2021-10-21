@@ -1990,6 +1990,14 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 			lnwire.AnchorsZeroFeeHtlcTxRequired,
 		))
 
+	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
+		channelType = new(lnwire.ChannelType)
+		*channelType = lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+			lnwire.StaticRemoteKeyRequired,
+			lnwire.AnchorsZeroFeeHtlcTxRequired,
+			lnwire.ScriptEnforcedLeaseRequired,
+		))
+
 	default:
 		return nil, fmt.Errorf("unhandled request channel type %v",
 			in.CommitmentType)
@@ -3737,6 +3745,10 @@ func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
 	// Extract the commitment type from the channel type flags. We must
 	// first check whether it has anchors, since in that case it would also
 	// be tweakless.
+	if chanType.HasLeaseExpiration() {
+		return lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE
+	}
+
 	if chanType.HasAnchors() {
 		return lnrpc.CommitmentType_ANCHORS
 	}

@@ -777,6 +777,12 @@ func (r *InterceptorChain) middlewareUnaryServerInterceptor() grpc.UnaryServerIn
 			return nil, err
 		}
 
+		// If there is no middleware registered, we don't need to
+		// intercept anything.
+		if !r.middlewareRegistered() {
+			return handler(ctx, req)
+		}
+
 		msg, err := NewMessageInterceptionRequest(
 			ctx, TypeRequest, false, info.FullMethod, req,
 		)
@@ -820,6 +826,12 @@ func (r *InterceptorChain) middlewareStreamServerInterceptor() grpc.StreamServer
 		// called.
 		if err := r.checkMandatoryMiddleware(fullMethod); err != nil {
 			return err
+		}
+
+		// If there is no middleware registered, we don't need to
+		// intercept anything.
+		if !r.middlewareRegistered() {
+			return handler(srv, ss)
 		}
 
 		// To give the middleware a chance to accept or reject the
@@ -873,6 +885,15 @@ func (r *InterceptorChain) checkMandatoryMiddleware(fullMethod string) error {
 	}
 
 	return nil
+}
+
+// middlewareRegistered returns true if there is at least one middleware
+// currently registered.
+func (r *InterceptorChain) middlewareRegistered() bool {
+	r.RLock()
+	defer r.RUnlock()
+
+	return len(r.registeredMiddleware) > 0
 }
 
 // acceptRequest sends an intercept request to all middlewares that have

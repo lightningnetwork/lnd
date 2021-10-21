@@ -200,18 +200,18 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "multi-hop payments",
 		TestFunc: testMultiHopPayments,
 	},
+	{
+		Name:     "single-hop send to route",
+		TestFunc: testSingleHopSendToRoute,
+	},
+	{
+		Name:     "multi-hop send to route",
+		TestFunc: testMultiHopSendToRoute,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "single-hop send to route",
-	// 	test: testSingleHopSendToRoute,
-	// },
-	// {
-	// 	name: "multi-hop send to route",
-	// 	test: testMultiHopSendToRoute,
 	// },
 	// {
 	// 	name: "send to route error propagation",

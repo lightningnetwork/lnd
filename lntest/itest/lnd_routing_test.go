@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -66,23 +65,23 @@ var singleHopSendToRouteCases = []singleHopSendToRouteCase{
 // by feeding the route back into the various SendToRoute RPC methods. Here we
 // test all three SendToRoute endpoints, forcing each to perform both a regular
 // payment and an MPP payment.
-func testSingleHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
+func testSingleHopSendToRoute(ht *lntest.HarnessTest) {
 	for _, test := range singleHopSendToRouteCases {
 		test := test
 
-		t.t.Run(test.name, func(t1 *testing.T) {
-			ht := newHarnessTest(t1, t.lndHarness)
-			ht.RunTestCase(&testCase{
-				name: test.name,
-				test: func(_ *lntest.NetworkHarness, tt *harnessTest) {
-					testSingleHopSendToRouteCase(net, tt, test)
+		ht.Run(test.name, func(t1 *testing.T) {
+			st := ht.Subtest(t1)
+			st.RunTestCase(&lntest.TestCase{
+				Name: test.name,
+				TestFunc: func(tt *lntest.HarnessTest) {
+					testSingleHopSendToRouteCase(tt, test)
 				},
 			})
 		})
 	}
 }
 
-func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
+func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
 	test singleHopSendToRouteCase) {
 
 	const chanAmt = btcutil.Amount(100000)
@@ -90,96 +89,42 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	const numPayments = 5
 	const amountPaid = int64(numPayments * paymentAmtSat)
 
-	ctxb := context.Background()
-	var networkChans []*lnrpc.ChannelPoint
-
 	// Create Carol and Dave, then establish a channel between them. Carol
 	// is the sole funder of the channel with 100k satoshis. The network
 	// topology should look like:
 	// Carol -> 100k -> Dave
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", nil)
+	defer ht.Shutdown(carol)
 
-	dave := net.NewNode(t.t, "Dave", nil)
-	defer shutdownAndAssert(net, t, dave)
+	dave := ht.NewNode("Dave", nil)
+	defer ht.Shutdown(dave)
 
-	net.ConnectNodes(t.t, carol, dave)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+	ht.ConnectNodes(carol, dave)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// Open a channel with 100k satoshis between Carol and Dave with Carol
 	// being the sole funder of the channel.
-	chanPointCarol := openChannelAndAssert(
-		t, net, carol, dave,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	chanPointCarol := ht.OpenChannel(
+		carol, dave, lntest.OpenChannelParams{Amt: chanAmt},
 	)
-	networkChans = append(networkChans, chanPointCarol)
-
-	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
-	carolFundPoint := wire.OutPoint{
-		Hash:  *carolChanTXID,
-		Index: chanPointCarol.OutputIndex,
-	}
-
-	// Wait for all nodes to have seen all channels.
-	nodes := []*lntest.HarnessNode{carol, dave}
-	for _, chanPoint := range networkChans {
-		for _, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-			if err != nil {
-				t.Fatalf("unable to get txid: %v", err)
-			}
-			point := wire.OutPoint{
-				Hash:  *txid,
-				Index: chanPoint.OutputIndex,
-			}
-
-			err = node.WaitForNetworkChannelOpen(chanPoint)
-			if err != nil {
-				t.Fatalf("%s(%d): timeout waiting for "+
-					"channel(%s) open: %v", node.Name(),
-					node.NodeID, point, err)
-			}
-		}
-	}
+	defer ht.CloseChannel(carol, chanPointCarol, false)
 
 	// Create invoices for Dave, which expect a payment from Carol.
-	payReqs, rHashes, _, err := createPayReqs(
-		dave, paymentAmtSat, numPayments,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
-	}
+	payReqs, rHashes, _ := ht.CreatePayReqs(dave, paymentAmtSat, numPayments)
 
 	// Reconstruct payment addresses.
 	var payAddrs [][]byte
 	for _, payReq := range payReqs {
-		ctx, _ := context.WithTimeout(
-			context.Background(), defaultTimeout,
-		)
-		resp, err := dave.DecodePayReq(
-			ctx,
-			&lnrpc.PayReqString{PayReq: payReq},
-		)
-		if err != nil {
-			t.Fatalf("decode pay req: %v", err)
-		}
+		resp := ht.DecodePayReq(dave, payReq)
 		payAddrs = append(payAddrs, resp.PaymentAddr)
 	}
 
 	// Assert Carol and Dave are synced to the chain before proceeding, to
 	// ensure the queried route will have a valid final CLTV once the HTLC
 	// reaches Dave.
-	_, minerHeight, err := net.Miner.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get best height: %v", err)
-	}
-	require.NoError(t.t, waitForNodeBlockHeight(carol, minerHeight))
-	require.NoError(t.t, waitForNodeBlockHeight(dave, minerHeight))
+	_, minerHeight := ht.GetBestBlock()
+	ht.WaitForNodeBlockHeight(carol, minerHeight)
+	ht.WaitForNodeBlockHeight(dave, minerHeight)
 
 	// Query for routes to pay from Carol to Dave using the default CLTV
 	// config.
@@ -187,12 +132,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 		PubKey: dave.PubKeyStr,
 		Amt:    paymentAmtSat,
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	routes, err := carol.QueryRoutes(ctxt, routesReq)
-	if err != nil {
-		t.Fatalf("unable to get route from %s: %v",
-			carol.Name(), err)
-	}
+	routes := ht.QueryRoutes(carol, routesReq)
 
 	// There should only be one route to try, so take the first item.
 	r := routes.Routes[0]
@@ -220,27 +160,14 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 				PaymentHash: rHash,
 				Route:       r,
 			}
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-			resp, err := carol.SendToRouteSync(
-				ctxt, sendReq,
-			)
-			if err != nil {
-				t.Fatalf("unable to send to route for "+
-					"%s: %v", carol.Name(), err)
-			}
-			if resp.PaymentError != "" {
-				t.Fatalf("received payment error from %s: %v",
-					carol.Name(), resp.PaymentError)
-			}
+			resp := ht.SendToRouteSync(carol, sendReq)
+			require.Emptyf(ht, resp.PaymentError,
+				"received payment error from %s: %v",
+				carol.Name(), resp.PaymentError)
 		}
 	}
 	sendToRouteStream := func() {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		alicePayStream, err := carol.SendToRoute(ctxt) // nolint:staticcheck
-		if err != nil {
-			t.Fatalf("unable to create payment stream for "+
-				"carol: %v", err)
-		}
+		alicePayStream := ht.SendToRoute(carol)
 
 		for i, rHash := range rHashes {
 			setMPPFields(i)
@@ -250,19 +177,13 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 				Route:       routes.Routes[0],
 			}
 			err := alicePayStream.Send(sendReq)
-
-			if err != nil {
-				t.Fatalf("unable to send payment: %v", err)
-			}
+			require.NoError(ht, err, "unable to send payment")
 
 			resp, err := alicePayStream.Recv()
-			if err != nil {
-				t.Fatalf("unable to send payment: %v", err)
-			}
-			if resp.PaymentError != "" {
-				t.Fatalf("received payment error: %v",
-					resp.PaymentError)
-			}
+			require.NoError(ht, err, "unable to receive stream")
+			require.Emptyf(ht, resp.PaymentError,
+				"received payment error from %s: %v",
+				carol.Name(), resp.PaymentError)
 		}
 	}
 	sendToRouteRouterRPC := func() {
@@ -273,18 +194,9 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 				PaymentHash: rHash,
 				Route:       r,
 			}
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-			resp, err := carol.RouterClient.SendToRouteV2(
-				ctxt, sendReq,
-			)
-			if err != nil {
-				t.Fatalf("unable to send to route for "+
-					"%s: %v", carol.Name(), err)
-			}
-			if resp.Failure != nil {
-				t.Fatalf("received payment error from %s: %v",
-					carol.Name(), resp.Failure)
-			}
+			resp := ht.SendToRouteV2(carol, sendReq)
+			require.Nilf(ht, resp.Failure, "received payment "+
+				"error from %s", carol.Name())
 		}
 	}
 
@@ -299,118 +211,74 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	case test.routerrpc && !test.streaming:
 		sendToRouteRouterRPC()
 	default:
-		t.Fatalf("routerrpc does not support streaming send_to_route")
+		require.Fail(ht, "routerrpc does not support "+
+			"streaming send_to_route")
 	}
 
 	// Verify that the payment's from Carol's PoV have the correct payment
 	// hash and amount.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	paymentsResp, err := carol.ListPayments(
-		ctxt, &lnrpc.ListPaymentsRequest{},
-	)
-	if err != nil {
-		t.Fatalf("error when obtaining %s payments: %v",
-			carol.Name(), err)
-	}
-	if len(paymentsResp.Payments) != numPayments {
-		t.Fatalf("incorrect number of payments, got %v, want %v",
-			len(paymentsResp.Payments), numPayments)
-	}
+	paymentsResp := ht.ListPayments(carol, false)
+	require.Len(ht, paymentsResp.Payments, numPayments,
+		"incorrect number of payments")
 
 	for i, p := range paymentsResp.Payments {
 		// Assert that the payment hashes for each payment match up.
 		rHashHex := hex.EncodeToString(rHashes[i])
-		if p.PaymentHash != rHashHex {
-			t.Fatalf("incorrect payment hash for payment %d, "+
-				"want: %s got: %s",
-				i, rHashHex, p.PaymentHash)
-		}
+		require.Equalf(ht, rHashHex, p.PaymentHash,
+			"incorrect payment hash for payment %d", i)
 
-		// Assert that each payment has no invoice since the payment was
-		// completed using SendToRoute.
-		if p.PaymentRequest != "" {
-			t.Fatalf("incorrect payment request for payment: %d, "+
-				"want: \"\", got: %s",
-				i, p.PaymentRequest)
-		}
+		// Assert that each payment has no invoice since the payment
+		// was completed using SendToRoute.
+		require.Emptyf(ht, p.PaymentRequest,
+			"incorrect payment request for payment: %d", i)
 
 		// Assert the payment amount is correct.
-		if p.ValueSat != paymentAmtSat {
-			t.Fatalf("incorrect payment amt for payment %d, "+
-				"want: %d, got: %d",
-				i, paymentAmtSat, p.ValueSat)
-		}
+		require.EqualValues(ht, paymentAmtSat, p.ValueSat,
+			"incorrect payment amt for payment %d, ", i)
 
 		// Assert exactly one htlc was made.
-		if len(p.Htlcs) != 1 {
-			t.Fatalf("expected 1 htlc for payment %d, got: %d",
-				i, len(p.Htlcs))
-		}
+		require.Lenf(ht, p.Htlcs, 1,
+			"expected 1 htlc for payment %d", i)
 
 		// Assert the htlc's route is populated.
 		htlc := p.Htlcs[0]
-		if htlc.Route == nil {
-			t.Fatalf("expected route for payment %d", i)
-		}
+		require.NotNilf(ht, htlc.Route,
+			"expected route for payment %d", i)
 
 		// Assert the hop has exactly one hop.
-		if len(htlc.Route.Hops) != 1 {
-			t.Fatalf("expected 1 hop for payment %d, got: %d",
-				i, len(htlc.Route.Hops))
-		}
+		require.Lenf(ht, htlc.Route.Hops, 1,
+			"expected 1 hop for payment %d", i)
 
 		// If this is an MPP test, assert the MPP record's fields are
 		// properly populated. Otherwise the hop should not have an MPP
 		// record.
 		hop := htlc.Route.Hops[0]
-		if hop.MppRecord == nil {
-			t.Fatalf("expected mpp record for mpp payment")
-		}
+		require.NotNilf(ht, hop.MppRecord,
+			"expected mpp record for mpp payment %d", i)
 
-		if hop.MppRecord.TotalAmtMsat != paymentAmtSat*1000 {
-			t.Fatalf("incorrect mpp total msat for payment %d "+
-				"want: %d, got: %d",
-				i, paymentAmtSat*1000,
-				hop.MppRecord.TotalAmtMsat)
-		}
+		require.EqualValues(ht, paymentAmtSat*1000,
+			hop.MppRecord.TotalAmtMsat,
+			"incorrect mpp total msat for payment %d", i)
 
 		expAddr := payAddrs[i]
-		if !bytes.Equal(hop.MppRecord.PaymentAddr, expAddr) {
-			t.Fatalf("incorrect mpp payment addr for payment %d "+
-				"want: %x, got: %x",
-				i, expAddr, hop.MppRecord.PaymentAddr)
-		}
+		require.Equal(ht, expAddr, hop.MppRecord.PaymentAddr,
+			"incorrect mpp payment addr for payment %d ", i)
 	}
 
 	// Verify that the invoices's from Dave's PoV have the correct payment
 	// hash and amount.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	invoicesResp, err := dave.ListInvoices(
-		ctxt, &lnrpc.ListInvoiceRequest{},
-	)
-	if err != nil {
-		t.Fatalf("error when obtaining %s payments: %v",
-			dave.Name(), err)
-	}
-	if len(invoicesResp.Invoices) != numPayments {
-		t.Fatalf("incorrect number of invoices, got %v, want %v",
-			len(invoicesResp.Invoices), numPayments)
-	}
+	invoicesResp := ht.ListInvoices(dave)
+	require.Len(ht, invoicesResp.Invoices, numPayments,
+		"incorrect number of invoices")
 
 	for i, inv := range invoicesResp.Invoices {
 		// Assert that the payment hashes match up.
-		if !bytes.Equal(inv.RHash, rHashes[i]) {
-			t.Fatalf("incorrect payment hash for invoice %d, "+
-				"want: %x got: %x",
-				i, rHashes[i], inv.RHash)
-		}
+		require.Equal(ht, rHashes[i], inv.RHash,
+			"incorrect payment hash for invoice %d", i)
 
 		// Assert that the amount paid to the invoice is correct.
-		if inv.AmtPaidSat != paymentAmtSat {
-			t.Fatalf("incorrect payment amt for invoice %d, "+
-				"want: %d, got %d",
-				i, paymentAmtSat, inv.AmtPaidSat)
-		}
+		require.EqualValues(ht, paymentAmtSat, inv.AmtPaidSat,
+			"incorrect payment amt for invoice %d, ", i)
 	}
 
 	// At this point all the channels within our proto network should be
@@ -418,12 +286,10 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	// payment flow generated above. The order of asserts corresponds to
 	// increasing of time is needed to embed the HTLC in commitment
 	// transaction, in channel Carol->Dave, order is Dave and then Carol.
-	assertAmountPaid(t, "Carol(local) => Dave(remote)", dave,
-		carolFundPoint, int64(0), amountPaid)
-	assertAmountPaid(t, "Carol(local) => Dave(remote)", carol,
-		carolFundPoint, amountPaid, int64(0))
-
-	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
+	ht.AssertAmountPaid("Carol(local) => Dave(remote)", dave,
+		chanPointCarol, int64(0), amountPaid)
+	ht.AssertAmountPaid("Carol(local) => Dave(remote)", carol,
+		chanPointCarol, amountPaid, int64(0))
 }
 
 // testMultiHopSendToRoute tests that payments are properly processed
@@ -431,15 +297,15 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 //      Alice --100k--> Bob --100k--> Carol
 // We'll query the daemon for routes from Alice to Carol and then
 // send payments through the routes.
-func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
-	t.t.Run("with cache", func(tt *testing.T) {
-		ht := newHarnessTest(tt, t.lndHarness)
-		runMultiHopSendToRoute(net, ht, true)
+func testMultiHopSendToRoute(ht *lntest.HarnessTest) {
+	ht.Run("with cache", func(tt *testing.T) {
+		st := ht.Subtest(tt)
+		runMultiHopSendToRoute(st, true)
 	})
 	if *dbBackendFlag == "bbolt" {
-		t.t.Run("without cache", func(tt *testing.T) {
-			ht := newHarnessTest(tt, t.lndHarness)
-			runMultiHopSendToRoute(net, ht, false)
+		ht.Run("without cache", func(tt *testing.T) {
+			st := ht.Subtest(tt)
+			runMultiHopSendToRoute(st, false)
 		})
 	}
 }
@@ -449,104 +315,50 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 //      Alice --100k--> Bob --100k--> Carol
 // We'll query the daemon for routes from Alice to Carol and then
 // send payments through the routes.
-func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
-	useGraphCache bool) {
-
-	ctxb := context.Background()
-
+func runMultiHopSendToRoute(ht *lntest.HarnessTest, useGraphCache bool) {
 	var opts []string
 	if !useGraphCache {
 		opts = append(opts, "--db.no-graph-cache")
 	}
 
-	alice := net.NewNode(t.t, "Alice", opts)
-	defer shutdownAndAssert(net, t, alice)
+	alice := ht.NewNode("Alice", opts)
+	defer ht.Shutdown(alice)
 
-	net.ConnectNodes(t.t, alice, net.Bob)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
+	bob := ht.Bob()
+	ht.ConnectNodes(alice, bob)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
 
 	const chanAmt = btcutil.Amount(100000)
-	var networkChans []*lnrpc.ChannelPoint
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
-	chanPointAlice := openChannelAndAssert(
-		t, net, alice, net.Bob,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	chanPointAlice := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
-	networkChans = append(networkChans, chanPointAlice)
+	defer ht.CloseChannel(alice, chanPointAlice, false)
 
-	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
-	aliceFundPoint := wire.OutPoint{
-		Hash:  *aliceChanTXID,
-		Index: chanPointAlice.OutputIndex,
-	}
-
-	// Create Carol and establish a channel from Bob. Bob is the sole funder
-	// of the channel with 100k satoshis. The network topology should look like:
+	// Create Carol and establish a channel from Bob. Bob is the sole
+	// funder of the channel with 100k satoshis. The network topology
+	// should look like:
 	// Alice -> Bob -> Carol
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", nil)
+	defer ht.Shutdown(carol)
 
-	net.ConnectNodes(t.t, carol, net.Bob)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, net.Bob)
+	ht.ConnectNodes(carol, bob)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, bob)
 
-	chanPointBob := openChannelAndAssert(
-		t, net, net.Bob, carol,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	chanPointBob := ht.OpenChannel(
+		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
-	networkChans = append(networkChans, chanPointBob)
-	bobChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointBob)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
-	bobFundPoint := wire.OutPoint{
-		Hash:  *bobChanTXID,
-		Index: chanPointBob.OutputIndex,
-	}
+	defer ht.CloseChannel(carol, chanPointBob, false)
 
-	// Wait for all nodes to have seen all channels.
-	nodes := []*lntest.HarnessNode{alice, net.Bob, carol}
-	nodeNames := []string{"Alice", "Bob", "Carol"}
-	for _, chanPoint := range networkChans {
-		for i, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-			if err != nil {
-				t.Fatalf("unable to get txid: %v", err)
-			}
-			point := wire.OutPoint{
-				Hash:  *txid,
-				Index: chanPoint.OutputIndex,
-			}
-
-			err = node.WaitForNetworkChannelOpen(chanPoint)
-			if err != nil {
-				t.Fatalf("%s(%d): timeout waiting for "+
-					"channel(%s) open: %v", nodeNames[i],
-					node.NodeID, point, err)
-			}
-		}
-	}
-
-	// Create 5 invoices for Carol, which expect a payment from Alice for 1k
-	// satoshis with a different preimage each time.
+	// Create 5 invoices for Carol, which expect a payment from Alice for
+	// 1k satoshis with a different preimage each time.
 	const (
 		numPayments = 5
 		paymentAmt  = 1000
 	)
-	_, rHashes, invoices, err := createPayReqs(
-		carol, paymentAmt, numPayments,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
-	}
+	_, rHashes, invoices := ht.CreatePayReqs(carol, paymentAmt, numPayments)
 
 	// Construct a route from Alice to Carol for each of the invoices
 	// created above.  We set FinalCltvDelta to 40 since by default
@@ -557,30 +369,15 @@ func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
 		Amt:            paymentAmt,
 		FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	routes, err := alice.QueryRoutes(ctxt, routesReq)
-	if err != nil {
-		t.Fatalf("unable to get route: %v", err)
-	}
-
-	// We'll wait for all parties to recognize the new channels within the
-	// network.
-	err = carol.WaitForNetworkChannelOpen(chanPointBob)
-	if err != nil {
-		t.Fatalf("bob didn't advertise his channel in time: %v", err)
-	}
-
-	time.Sleep(time.Millisecond * 50)
+	routes := ht.QueryRoutes(alice, routesReq)
 
 	// Using Alice as the source, pay to the 5 invoices from Carol created
 	// above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-
 	for i, rHash := range rHashes {
 		// Manually set the MPP payload a new for each payment since
 		// the payment addr will change with each invoice, although we
 		// can re-use the route itself.
-		route := *routes.Routes[0]
+		route := routes.Routes[0]
 		route.Hops[len(route.Hops)-1].TlvPayload = true
 		route.Hops[len(route.Hops)-1].MppRecord = &lnrpc.MPPRecord{
 			PaymentAddr: invoices[i].PaymentAddr,
@@ -591,16 +388,10 @@ func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
 
 		sendReq := &routerrpc.SendToRouteRequest{
 			PaymentHash: rHash,
-			Route:       &route,
+			Route:       route,
 		}
-		resp, err := alice.RouterClient.SendToRouteV2(ctxt, sendReq)
-		if err != nil {
-			t.Fatalf("unable to send payment: %v", err)
-		}
-
-		if resp.Failure != nil {
-			t.Fatalf("received payment error: %v", resp.Failure)
-		}
+		resp := ht.SendToRouteV2(alice, sendReq)
+		require.Nil(ht, resp.Failure, "received payment error")
 	}
 
 	// When asserting the amount of satoshis moved, we'll factor in the
@@ -609,23 +400,20 @@ func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
 	const baseFee = 1
 
 	// At this point all the channels within our proto network should be
-	// shifted by 5k satoshis in the direction of Carol, the sink within the
-	// payment flow generated above. The order of asserts corresponds to
-	// increasing of time is needed to embed the HTLC in commitment
+	// shifted by 5k satoshis in the direction of Carol, the sink within
+	// the payment flow generated above. The order of asserts corresponds
+	// to increasing of time is needed to embed the HTLC in commitment
 	// transaction, in channel Alice->Bob->Carol, order is Carol, Bob,
 	// Alice.
 	const amountPaid = int64(5000)
-	assertAmountPaid(t, "Bob(local) => Carol(remote)", carol,
-		bobFundPoint, int64(0), amountPaid)
-	assertAmountPaid(t, "Bob(local) => Carol(remote)", net.Bob,
-		bobFundPoint, amountPaid, int64(0))
-	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Bob,
-		aliceFundPoint, int64(0), amountPaid+(baseFee*numPayments))
-	assertAmountPaid(t, "Alice(local) => Bob(remote)", alice,
-		aliceFundPoint, amountPaid+(baseFee*numPayments), int64(0))
-
-	closeChannelAndAssert(t, net, alice, chanPointAlice, false)
-	closeChannelAndAssert(t, net, carol, chanPointBob, false)
+	ht.AssertAmountPaid("Bob(local) => Carol(remote)", carol,
+		chanPointBob, int64(0), amountPaid)
+	ht.AssertAmountPaid("Bob(local) => Carol(remote)", bob,
+		chanPointBob, amountPaid, int64(0))
+	ht.AssertAmountPaid("Alice(local) => Bob(remote)", bob,
+		chanPointAlice, int64(0), amountPaid+(baseFee*numPayments))
+	ht.AssertAmountPaid("Alice(local) => Bob(remote)", alice,
+		chanPointAlice, amountPaid+(baseFee*numPayments), int64(0))
 }
 
 // testSendToRouteErrorPropagation tests propagation of errors that occur

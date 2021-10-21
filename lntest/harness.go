@@ -1576,12 +1576,11 @@ func (h *HarnessTest) SettleInvoice(hn *HarnessNode,
 }
 
 // ListInvoices list the node's invoice using the request and asserts.
-func (h *HarnessTest) ListInvoices(hn *HarnessNode,
-	req *lnrpc.ListInvoiceRequest) *lnrpc.ListInvoiceResponse {
-
+func (h *HarnessTest) ListInvoices(hn *HarnessNode) *lnrpc.ListInvoiceResponse {
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
+	req := &lnrpc.ListInvoiceRequest{}
 	resp, err := hn.rpc.LN.ListInvoices(ctxt, req)
 	require.NoErrorf(h, err, "list invoice failed")
 
@@ -2008,6 +2007,32 @@ func (h *HarnessTest) SendToRoute(
 	require.NoError(h, err, "failed to send to route")
 
 	return client
+}
+
+// SendToRouteSync makes a RPC call to SendToRouteSync and asserts.
+func (h *HarnessTest) SendToRouteSync(hn *HarnessNode,
+	req *lnrpc.SendToRouteRequest) *lnrpc.SendResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.LN.SendToRouteSync(ctxt, req)
+	require.NoErrorf(h, err, "unable to send to route for %s", hn.Name())
+
+	return resp
+}
+
+// SendToRouteV2 makes a RPC call to SendToRouteV2 and asserts.
+func (h *HarnessTest) SendToRouteV2(hn *HarnessNode,
+	req *routerrpc.SendToRouteRequest) *lnrpc.HTLCAttempt {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Router.SendToRouteV2(ctxt, req)
+	require.NoErrorf(h, err, "unable to send to route v2 for %s", hn.Name())
+
+	return resp
 }
 
 // UpdateChannelPolicy makes a RPC call to UpdateChannelPolicy and asserts.

@@ -170,8 +170,7 @@ func testMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 
 	// The invoice should show as settled for Carol, indicating that it was
 	// swept on-chain.
-	invoicesReq := &lnrpc.ListInvoiceRequest{}
-	invoicesResp := ht.ListInvoices(carol, invoicesReq)
+	invoicesResp := ht.ListInvoices(carol)
 
 	require.Len(ht, invoicesResp.Invoices, 1)
 	invoice := invoicesResp.Invoices[0]

@@ -167,16 +167,14 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 	// which will act as the first leg for out multi-hop HTLC.
 	const chanAmt = 1000000
 	var aliceFundingShim *lnrpc.FundingShim
-	// TODO(yy): bring it back
-	// var thawHeight uint32
-	// if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-	// 	_, minerHeight, err := net.Miner.Client.GetBestBlock()
-	// 	require.NoError(t.t, err)
-	// 	thawHeight = uint32(minerHeight + 144)
-	// 	aliceFundingShim, _, _ = deriveFundingShim(
-	// 		net, t, alice, bob, chanAmt, thawHeight, true,
-	// 	)
-	// }
+	var thawHeight uint32
+	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
+		_, minerHeight := ht.GetBestBlock()
+		thawHeight = uint32(minerHeight + 144)
+		aliceFundingShim, _, _ = deriveFundingShim(
+			ht, alice, bob, chanAmt, thawHeight, true,
+		)
+	}
 	aliceChanPoint := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{
 			Amt:            chanAmt,
@@ -207,12 +205,11 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 	// We'll then create a channel from Bob to Carol. After this channel is
 	// open, our topology looks like:  A -> B -> C.
 	var bobFundingShim *lnrpc.FundingShim
-	// TODO(yy): bring it back
-	// if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-	// 	bobFundingShim, _, _ = deriveFundingShim(
-	// 		net, t, bob, carol, chanAmt, thawHeight, true,
-	// 	)
-	// }
+	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
+		bobFundingShim, _, _ = deriveFundingShim(
+			ht, bob, carol, chanAmt, thawHeight, true,
+		)
+	}
 	bobChanPoint := ht.OpenChannel(
 		bob, carol, lntest.OpenChannelParams{
 			Amt:            chanAmt,

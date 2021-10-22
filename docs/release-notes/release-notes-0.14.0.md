@@ -335,6 +335,8 @@ messages directly. There is no routing/path finding involved.
 
 ### Code cleanup, refactor, typo fixes
 
+* [Fix logging typo to log channel point on cooperative closes](https://github.com/lightningnetwork/lnd/pull/5881)
+
 * [Refactor the interaction between the `htlcswitch` and `peer` packages for cleaner separation.](https://github.com/lightningnetwork/lnd/pull/5603)
 
 * [Moved the original breach handling and timelock UTXO handling into the contract court package](https://github.com/lightningnetwork/lnd/pull/5745)
@@ -534,6 +536,7 @@ requirements surrounding updating the release notes for each new
 change](https://github.com/lightningnetwork/lnd/pull/5613). 
 
 # Contributors (Alphabetical Order)
+* Alex Bosworth
 * Alyssa Hertig
 * Andras Banki-Horvath
 * de6df1re

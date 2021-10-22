@@ -3312,7 +3312,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		// state. We log a warning that the channel will not be included
 		// in the now deprecated pending close channels field.
 		case channeldb.CooperativeClose:
-			rpcsLog.Warn("channel %v cooperatively closed and "+
+			rpcsLog.Warnf("channel %v cooperatively closed and "+
 				"in pending close state",
 				pendingClose.ChanPoint)
 

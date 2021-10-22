@@ -1412,17 +1412,24 @@ func (h *HarnessTest) getChannelPolicies(hn *HarnessNode,
 	return policies
 }
 
-// assertPeerConnected asserts that the given node b is connected to a.
-func (h *HarnessTest) assertPeerConnected(a, b *HarnessNode) {
+// ListPeers makes a RPC call to the node's ListPeers and asserts.
+func (h *HarnessTest) ListPeers(hn *HarnessNode) *lnrpc.ListPeersResponse {
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
+	resp, err := hn.rpc.LN.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
+	require.NoErrorf(h, err, "%s ListPeers failed with: %v",
+		hn.Name(), err)
+
+	return resp
+}
+
+// assertPeerConnected asserts that the given node b is connected to a.
+func (h *HarnessTest) assertPeerConnected(a, b *HarnessNode) {
 	err := wait.NoError(func() error {
-		resp, err := a.rpc.LN.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
 		// We require the RPC call to be succeeded and won't wait for
 		// it as it's an unexpected behavior.
-		require.NoErrorf(h, err, "%s ListPeers failed with: %v",
-			a.Name(), err)
+		resp := h.ListPeers(a)
 
 		// If node B is seen in the ListPeers response from node A,
 		// then we can return true as the connection has been fully
@@ -1450,15 +1457,10 @@ func (h *HarnessTest) AssertConnected(a, b *HarnessNode) {
 
 // assertPeerNotConnected asserts that the given node b is not connected to a.
 func (h *HarnessTest) assertPeerNotConnected(a, b *HarnessNode) {
-	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
-	defer cancel()
-
 	err := wait.NoError(func() error {
-		resp, err := a.rpc.LN.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
 		// We require the RPC call to be succeeded and won't wait for
 		// it as it's an unexpected behavior.
-		require.NoErrorf(h, err, "%s ListPeers failed with: %v",
-			a.Name(), err)
+		resp := h.ListPeers(a)
 
 		// If node B is seen in the ListPeers response from node A,
 		// then we return false as the connection has been fully
@@ -2587,4 +2589,18 @@ func (h *HarnessTest) LabelTransaction(hn *HarnessNode,
 
 	_, err := hn.rpc.WalletKit.LabelTransaction(ctxt, req)
 	require.NoError(h, err, "failed to label transaction")
+}
+
+// UpdateChanStatus makes a UpdateChanStatus RPC call to node's RouterClient
+// and asserts.
+func (h *HarnessTest) UpdateChanStatus(hn *HarnessNode,
+	req *routerrpc.UpdateChanStatusRequest) *routerrpc.UpdateChanStatusResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Router.UpdateChanStatus(ctxt, req)
+	require.NoErrorf(h, err, "UpdateChanStatus failed")
+
+	return resp
 }

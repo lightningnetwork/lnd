@@ -137,6 +137,12 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testAbandonChannel,
 	},
 
+	// Channel graph related tests.
+	{
+		Name:     "update channel status",
+		TestFunc: testUpdateChanStatus,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,

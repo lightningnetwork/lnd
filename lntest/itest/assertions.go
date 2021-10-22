@@ -93,20 +93,6 @@ func openChannelAndAssert(t *harnessTest, net *lntest.NetworkHarness,
 	return fundingChanPoint
 }
 
-func waitForGraphSync(t *harnessTest, node *lntest.HarnessNode) {
-	t.t.Helper()
-
-	err := wait.Predicate(func() bool {
-		ctxb := context.Background()
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		resp, err := node.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
-		require.NoError(t.t, err)
-
-		return resp.SyncedToGraph
-	}, defaultTimeout)
-	require.NoError(t.t, err)
-}
-
 // closeChannelAndAssert attempts to close a channel identified by the passed
 // channel point owned by the passed Lightning node. A fully blocking channel
 // closure is attempted, therefore the passed context should be a child derived

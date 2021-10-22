@@ -224,6 +224,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "multi-hop payments over private channels",
 		TestFunc: testMultiHopOverPrivateChannels,
 	},
+	{
+		Name:     "query routes",
+		TestFunc: testQueryRoutes,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
@@ -283,10 +287,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "revoked uncooperative close retribution altruist watchtower",
 	// 	test: testRevokedCloseRetributionAltruistWatchtower,
-	// },
-	// {
-	// 	name: "query routes",
-	// 	test: testQueryRoutes,
 	// },
 	// {
 	// 	name: "route fee cutoff",

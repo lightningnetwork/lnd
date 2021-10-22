@@ -2870,3 +2870,80 @@ func (h *HarnessTest) DeleteAllPayments(hn *HarnessNode) {
 	_, err := hn.DeleteAllPayments(ctxt, req)
 	require.NoError(h, err, "unable to delete payments")
 }
+
+// GetMissionControlConfig makes a RPC call to the node's
+// GetMissionControlConfig and asserts.
+func (h *HarnessTest) GetMissionControlConfig(
+	hn *HarnessNode) *routerrpc.GetMissionControlConfigResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &routerrpc.GetMissionControlConfigRequest{}
+	resp, err := hn.rpc.Router.GetMissionControlConfig(ctxt, req)
+	require.NoError(h, err, "get mission control failed")
+
+	return resp
+}
+
+// SetMissionControlConfig makes a RPC call to the node's
+// SetMissionControlConfig and asserts.
+func (h *HarnessTest) SetMissionControlConfig(hn *HarnessNode,
+	config *routerrpc.MissionControlConfig) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &routerrpc.SetMissionControlConfigRequest{Config: config}
+	_, err := hn.rpc.Router.SetMissionControlConfig(ctxt, req)
+	require.NoError(h, err, "set mission control failed")
+}
+
+// ResetMissionControl makes a RPC call to the node's ResetMissionControl and
+// asserts.
+func (h *HarnessTest) ResetMissionControl(hn *HarnessNode) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &routerrpc.ResetMissionControlRequest{}
+	_, err := hn.rpc.Router.ResetMissionControl(ctxt, req)
+	require.NoError(h, err, "reset mission control failed")
+}
+
+// QueryProbability makes a RPC call to the node's QueryProbability and
+// asserts.
+func (h *HarnessTest) QueryProbability(hn *HarnessNode,
+	req *routerrpc.QueryProbabilityRequest) *routerrpc.QueryProbabilityResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Router.QueryProbability(ctxt, req)
+	require.NoError(h, err, "query probability failed")
+
+	return resp
+}
+
+// XImportMissionControl makes a RPC call to the node's XImportMissionControl
+// and asserts.
+func (h *HarnessTest) XImportMissionControl(hn *HarnessNode,
+	req *routerrpc.XImportMissionControlRequest) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := hn.rpc.Router.XImportMissionControl(ctxt, req)
+	require.NoError(h, err, "x import mission control failed")
+}
+
+// XImportMissionControlAssertErr makes a RPC call to the node's XImportMissionControl
+// and asserts an error occurred.
+func (h *HarnessTest) XImportMissionControlAssertErr(hn *HarnessNode,
+	req *routerrpc.XImportMissionControlRequest) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := hn.rpc.Router.XImportMissionControl(ctxt, req)
+	require.Error(h, err, "expect an error from x import mission control")
+}

@@ -142,6 +142,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "update channel status",
 		TestFunc: testUpdateChanStatus,
 	},
+	{
+		Name:     "unannounced channels",
+		TestFunc: testUnannouncedChannels,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
@@ -190,10 +194,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "send to route error propagation",
 	// 	test: testSendToRouteErrorPropagation,
-	// },
-	// {
-	// 	name: "unannounced channels",
-	// 	test: testUnannouncedChannels,
 	// },
 	// {
 	// 	name: "private channels",

@@ -2105,9 +2105,11 @@ func (h *HarnessTest) DescribeGraph(hn *HarnessNode,
 
 // AssertNumEdges checks that an expected number of edges can be found in the
 // node specified.
-func (h *HarnessTest) AssertNumEdges(hn *HarnessNode, expected int) {
+func (h *HarnessTest) AssertNumEdges(hn *HarnessNode,
+	expected int, includeUnannounced bool) {
+
 	err := wait.NoError(func() error {
-		chanGraph := h.DescribeGraph(hn, true)
+		chanGraph := h.DescribeGraph(hn, includeUnannounced)
 
 		if len(chanGraph.Edges) == expected {
 			return nil

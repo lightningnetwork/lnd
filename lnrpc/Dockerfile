@@ -20,12 +20,12 @@ RUN cd /tmp \
   && mkdir -p /tmp/build/.cache \
   && mkdir -p /tmp/build/.modcache \
   && export GO111MODULE=on \
-  && go get google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOBUF_VERSION} \
-  && go get google.golang.org/grpc/cmd/protoc-gen-go-grpc@${PROTOC_GEN_GO_GRPC_VERSION} \
-  && go get github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@${GRPC_GATEWAY_VERSION} \
-  && go get github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@${GRPC_GATEWAY_VERSION} \
-  && go get github.com/lightninglabs/falafel@${FALAFEL_VERSION} \
-  && go get golang.org/x/tools/cmd/goimports \
+  && go install google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOBUF_VERSION} \
+  && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@${PROTOC_GEN_GO_GRPC_VERSION} \
+  && go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@${GRPC_GATEWAY_VERSION} \
+  && go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@${GRPC_GATEWAY_VERSION} \
+  && go install github.com/lightninglabs/falafel@${FALAFEL_VERSION} \
+  && go install golang.org/x/tools/cmd/goimports@v0.1.7 \
   && chmod -R 777 /tmp/build/
 
 WORKDIR /build

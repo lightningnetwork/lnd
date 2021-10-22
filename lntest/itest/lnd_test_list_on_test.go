@@ -146,14 +146,14 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "unannounced channels",
 		TestFunc: testUnannouncedChannels,
 	},
+	{
+		Name:     "graph topology notifications",
+		TestFunc: testGraphTopologyNotifications,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "graph topology notifications",
-	// 	test: testGraphTopologyNotifications,
 	// },
 	// {
 	// 	name: "channel force closure",

@@ -2606,3 +2606,36 @@ func (h *HarnessTest) UpdateChanStatus(hn *HarnessNode,
 
 	return resp
 }
+
+// AssertNumChannelUpdates asserts that a given number of channel updates has
+// been seen in the specified node.
+func (h *HarnessTest) AssertNumChannelUpdates(hn *HarnessNode,
+	chanPoint *lnrpc.ChannelPoint, num int) {
+
+	op := h.OutPointFromChannelPoint(chanPoint)
+	err := hn.WaitForNetworkNumChanUpdates(op, num)
+	require.NoError(h, err, "failed to assert num of channel updates")
+}
+
+// AssertNumNodeAnns asserts that a given number of node announcements has been
+// seen in the specified node.
+func (h *HarnessTest) AssertNumNodeAnns(hn *HarnessNode,
+	pubkey string, num int) {
+
+	// We will get the current number of channel updates first and add it
+	// to our expected number of newly created channel updates.
+	err := hn.WaitForNetworkNumNodeUpdates(pubkey, num)
+	require.NoError(h, err, "failed to assert num of channel updates")
+}
+
+// AssertChannelClosedFromGraph asserts a given channel is closed by checking
+// the graph topology subscription of the specified node. Returns the closed
+// channel update if found.
+func (h *HarnessTest) AssertChannelClosedFromGraph(hn *HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) *lnrpc.ClosedChannelUpdate {
+
+	closedChan, err := hn.WaitForNetworkChannelClose(chanPoint)
+	require.NoError(h, err, "failed to wait for channel close")
+
+	return closedChan
+}

@@ -270,6 +270,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "switch offline delivery persistence",
 		TestFunc: testSwitchOfflineDeliveryPersistence,
 	},
+	{
+		Name:     "switch offline delivery outgoing offline",
+		TestFunc: testSwitchOfflineDeliveryOutgoingOffline,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
@@ -279,10 +283,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "derive shared key",
 	// 	test: testDeriveSharedKey,
-	// },
-	// {
-	// 	name: "switch offline delivery outgoing offline",
-	// 	test: testSwitchOfflineDeliveryOutgoingOffline,
 	// },
 	// {
 	// 	// TODO(roasbeef): test always needs to be last as Bob's state

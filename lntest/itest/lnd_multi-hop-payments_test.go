@@ -154,24 +154,24 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	// We expect Carol to have successful forwards and settles for
 	// her sends.
 	ht.AssertHtlcEvents(
-		numPayments, 0, numPayments, routerrpc.HtlcEvent_SEND,
-		carolEvents,
+		carolEvents, numPayments, 0, numPayments,
+		0, routerrpc.HtlcEvent_SEND,
 	)
 
 	// Dave and Alice should both have forwards and settles for
 	// their role as forwarding nodes.
 	ht.AssertHtlcEvents(
-		numPayments, 0, numPayments, routerrpc.HtlcEvent_FORWARD,
-		daveEvents,
+		daveEvents, numPayments, 0, numPayments,
+		0, routerrpc.HtlcEvent_FORWARD,
 	)
 	ht.AssertHtlcEvents(
-		numPayments, 0, numPayments, routerrpc.HtlcEvent_FORWARD,
-		aliceEvents,
+		aliceEvents, numPayments, 0, numPayments,
+		0, routerrpc.HtlcEvent_FORWARD,
 	)
 
 	// Bob should only have settle events for his receives.
 	ht.AssertHtlcEvents(
-		0, 0, numPayments, routerrpc.HtlcEvent_RECEIVE, bobEvents,
+		bobEvents, 0, 0, numPayments, 0, routerrpc.HtlcEvent_RECEIVE,
 	)
 
 	ht.CloseChannel(alice, chanPointAlice, false)

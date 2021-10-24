@@ -940,6 +940,20 @@ func (h *HarnessTest) SendPaymentAndAssert(hn *HarnessNode,
 	return h.AssertPaymentStatusFromStream(stream, lnrpc.Payment_SUCCEEDED)
 }
 
+// SendPaymentAssertFail sends a payment from the passed node and asserts the
+// payment is failed with the specified failure reason .
+func (h *HarnessTest) SendPaymentAssertFail(hn *HarnessNode,
+	req *routerrpc.SendPaymentRequest,
+	reason lnrpc.PaymentFailureReason) *lnrpc.Payment {
+
+	stream := h.SendPayment(hn, req)
+	payment := h.AssertPaymentStatusFromStream(stream, lnrpc.Payment_FAILED)
+	require.Equal(h, reason, payment.FailureReason,
+		"payment failureReason not matched")
+
+	return payment
+}
+
 // assertNodeNumChannels polls the provided node's list channels rpc until it
 // reaches the desired number of total channels.
 func (h *HarnessTest) AssertNodeNumChannels(hn *HarnessNode, numChannels int) {
@@ -2835,20 +2849,59 @@ func (h *HarnessTest) SubscribeHtlcEvents(hn *HarnessNode) HtlcEventsClient {
 	return client
 }
 
+// ReceiveHtlcEvent waits until a message is received on the subscribe
+// htlc event stream or the timeout is reached.
+func (h *HarnessTest) ReceiveHtlcEvent(
+	stream HtlcEventsClient) *routerrpc.HtlcEvent {
+
+	chanMsg := make(chan *routerrpc.HtlcEvent)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout receiving htlc "+
+			"event update")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}
+
 // AssertHtlcEvents consumes events from a client and ensures that they are of
 // the expected type and contain the expected number of forwards, forward
 // failures and settles.
-func (h *HarnessTest) AssertHtlcEvents(fwdCount, fwdFailCount, settleCount int,
-	userType routerrpc.HtlcEvent_EventType, client HtlcEventsClient) {
+func (h *HarnessTest) AssertHtlcEvents(client HtlcEventsClient,
+	fwdCount, fwdFailCount, settleCount, linkFailCount int,
+	userType routerrpc.HtlcEvent_EventType) []*routerrpc.HtlcEvent {
 
-	var forwards, forwardFails, settles int
+	var forwards, forwardFails, settles, linkFails int
 
-	numEvents := fwdCount + fwdFailCount + settleCount
+	numEvents := fwdCount + fwdFailCount + settleCount + linkFailCount
+	events := make([]*routerrpc.HtlcEvent, 0)
+
 	for i := 0; i < numEvents; i++ {
-		event, err := client.Recv()
-		require.NoError(h, err, "failed to get htlc event")
+		event := h.ReceiveHtlcEvent(client)
+		require.Equalf(h, userType, event.EventType,
+			"wrong event type, want %v got %v",
+			userType, event.EventType)
 
-		require.Equal(h, userType, event.EventType, "wrong event type")
+		events = append(events, event)
 
 		switch event.Event.(type) {
 		case *routerrpc.HtlcEvent_ForwardEvent:
@@ -2860,6 +2913,9 @@ func (h *HarnessTest) AssertHtlcEvents(fwdCount, fwdFailCount, settleCount int,
 		case *routerrpc.HtlcEvent_SettleEvent:
 			settles++
 
+		case *routerrpc.HtlcEvent_LinkFailEvent:
+			linkFails++
+
 		default:
 			require.Fail(h, "assert event fail",
 				"unexpected event: %T", event.Event)
@@ -2870,6 +2926,9 @@ func (h *HarnessTest) AssertHtlcEvents(fwdCount, fwdFailCount, settleCount int,
 	require.Equal(h, fwdFailCount, forwardFails,
 		"num of forward fails mismatch")
 	require.Equal(h, settleCount, settles, "num of settles mismatch")
+	require.Equal(h, linkFailCount, linkFails, "num of link fails mismatch")
+
+	return events
 }
 
 // AssertFeeReport checks that the fee report from the given node has the

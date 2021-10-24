@@ -251,13 +251,15 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testInvoiceSubscriptions,
 	},
 
+	// HTLC related tests.
+	{
+		Name:     "multi-hop htlc error propagation",
+		TestFunc: testHtlcErrorPropagation,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "multi-hop htlc error propagation",
-	// 	test: testHtlcErrorPropagation,
 	// },
 	// // TODO(roasbeef): multi-path integration test
 	// {

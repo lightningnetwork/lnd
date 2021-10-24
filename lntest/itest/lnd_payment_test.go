@@ -2,7 +2,6 @@ package itest
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"time"
@@ -330,19 +329,20 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 	ht.CloseChannel(alice, chanPoint, false)
 }
 
-func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testInvoiceSubscriptions(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(500000)
 
 	// Open a channel with 500k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
-	chanPoint := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	alice, bob := ht.Alice(), ht.Bob()
+	chanPoint := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
+
+	// Create a new invoice subscription client for Bob, the notification
+	// should be dispatched shortly below.
+	req := &lnrpc.InvoiceSubscription{}
+	bobInvoiceSubscription := ht.SubscribeInvoices(bob, req)
 
 	// Next create a new invoice for Bob requesting 1k satoshis.
 	// TODO(roasbeef): make global list of invoices for each node to re-use
@@ -350,73 +350,16 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 	const paymentAmt = 1000
 	invoice := &lnrpc.Invoice{
 		Memo:      "testing",
-		RPreimage: makeFakePayHash(t),
+		RPreimage: ht.Random32Bytes(),
 		Value:     paymentAmt,
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	invoiceResp, err := net.Bob.AddInvoice(ctxt, invoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
+	invoiceResp := ht.AddInvoice(invoice, bob)
 	lastAddIndex := invoiceResp.AddIndex
 
-	// Create a new invoice subscription client for Bob, the notification
-	// should be dispatched shortly below.
-	req := &lnrpc.InvoiceSubscription{}
-	ctx, cancelInvoiceSubscription := context.WithCancel(ctxb)
-	bobInvoiceSubscription, err := net.Bob.SubscribeInvoices(ctx, req)
-	if err != nil {
-		t.Fatalf("unable to subscribe to bob's invoice updates: %v", err)
-	}
-
-	var settleIndex uint64
-	quit := make(chan struct{})
-	updateSent := make(chan struct{})
-	go func() {
-		invoiceUpdate, err := bobInvoiceSubscription.Recv()
-		select {
-		case <-quit:
-			// Received cancellation
-			return
-		default:
-		}
-
-		if err != nil {
-			t.Fatalf("unable to recv invoice update: %v", err)
-		}
-
-		// The invoice update should exactly match the invoice created
-		// above, but should now be settled and have SettleDate
-		if !invoiceUpdate.Settled { // nolint:staticcheck
-			t.Fatalf("invoice not settled but should be")
-		}
-		if invoiceUpdate.SettleDate == 0 {
-			t.Fatalf("invoice should have non zero settle date, but doesn't")
-		}
-
-		if !bytes.Equal(invoiceUpdate.RPreimage, invoice.RPreimage) {
-			t.Fatalf("payment preimages don't match: expected %v, got %v",
-				invoice.RPreimage, invoiceUpdate.RPreimage)
-		}
-
-		if invoiceUpdate.SettleIndex == 0 {
-			t.Fatalf("invoice should have settle index")
-		}
-
-		settleIndex = invoiceUpdate.SettleIndex
-
-		close(updateSent)
-	}()
-
-	// Wait for the channel to be recognized by both Alice and Bob before
-	// continuing the rest of the test.
-	err = net.Alice.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		// TODO(roasbeef): will need to make num blocks to advertise a
-		// node param
-		close(quit)
-		t.Fatalf("channel not seen by alice before timeout: %v", err)
-	}
+	// With the above invoice added, we should receive an update event.
+	invoiceUpdate := ht.ReceiveInvoiceUpdate(bobInvoiceSubscription)
+	require.NotEqual(ht, lnrpc.Invoice_SETTLED, invoiceUpdate.State,
+		"invoice should not be settled")
 
 	// With the assertion above set up, send a payment from Alice to Bob
 	// which should finalize and settle the invoice.
@@ -425,87 +368,53 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	stream, err := net.Alice.RouterClient.SendPaymentV2(ctxt, sendReq)
-	if err != nil {
-		close(quit)
-		t.Fatalf("unable to send payment: %v", err)
-	}
-	result, err := getPaymentResult(stream)
-	if err != nil {
-		close(quit)
-		t.Fatalf("cannot get payment result: %v", err)
-	}
-	if result.Status != lnrpc.Payment_SUCCEEDED {
-		close(quit)
-		t.Fatalf("error when attempting recv: %v", result.Status)
-	}
+	ht.SendPaymentAndAssert(alice, sendReq)
 
-	select {
-	case <-time.After(time.Second * 10):
-		close(quit)
-		t.Fatalf("update not sent after 10 seconds")
-	case <-updateSent: // Fall through on success
-	}
-
-	// With the base case working, we'll now cancel Bob's current
-	// subscription in order to exercise the backlog fill behavior.
-	cancelInvoiceSubscription()
+	// The invoice update should exactly match the invoice created
+	// above, but should now be settled and have SettleDate
+	invoiceUpdate = ht.ReceiveInvoiceUpdate(bobInvoiceSubscription)
+	require.Equal(ht, lnrpc.Invoice_SETTLED, invoiceUpdate.State,
+		"invoice not settled but should be")
+	require.NotZero(ht, invoiceUpdate.SettleDate,
+		"invoice should have non zero settle date, but doesn't")
+	require.Equal(ht, invoice.RPreimage, invoiceUpdate.RPreimage,
+		"payment preimages don't match")
+	require.NotZero(ht, invoiceUpdate.SettleIndex,
+		"invoice should have settle index")
+	settleIndex := invoiceUpdate.SettleIndex
 
 	// We'll now add 3 more invoices to Bob's invoice registry.
 	const numInvoices = 3
-	payReqs, _, newInvoices, err := createPayReqs(
-		net.Bob, paymentAmt, numInvoices,
+	payReqs, _, newInvoices := ht.CreatePayReqs(
+		bob, paymentAmt, numInvoices,
 	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
-	}
 
 	// Now that the set of invoices has been added, we'll re-register for
 	// streaming invoice notifications for Bob, this time specifying the
 	// add invoice of the last prior invoice.
-	req = &lnrpc.InvoiceSubscription{
-		AddIndex: lastAddIndex,
-	}
-	ctx, cancelInvoiceSubscription = context.WithCancel(ctxb)
-	bobInvoiceSubscription, err = net.Bob.SubscribeInvoices(ctx, req)
-	if err != nil {
-		t.Fatalf("unable to subscribe to bob's invoice updates: %v", err)
-	}
+	req = &lnrpc.InvoiceSubscription{AddIndex: lastAddIndex}
+	bobInvoiceSubscription = ht.SubscribeInvoices(bob, req)
 
 	// Since we specified a value of the prior add index above, we should
 	// now immediately get the invoices we just added as we should get the
 	// backlog of notifications.
 	for i := 0; i < numInvoices; i++ {
-		invoiceUpdate, err := bobInvoiceSubscription.Recv()
-		if err != nil {
-			t.Fatalf("unable to receive subscription")
-		}
+		invoiceUpdate := ht.ReceiveInvoiceUpdate(bobInvoiceSubscription)
 
 		// We should now get the ith invoice we added, as they should
 		// be returned in order.
-		if invoiceUpdate.Settled { // nolint:staticcheck
-			t.Fatalf("should have only received add events")
-		}
+		require.NotEqual(ht, lnrpc.Invoice_SETTLED, invoiceUpdate.State,
+			"should have only received add events")
+
 		originalInvoice := newInvoices[i]
 		rHash := sha256.Sum256(originalInvoice.RPreimage)
-		if !bytes.Equal(invoiceUpdate.RHash, rHash[:]) {
-			t.Fatalf("invoices have mismatched payment hashes: "+
-				"expected %x, got %x", rHash[:],
-				invoiceUpdate.RHash)
-		}
+		require.Equal(ht, rHash[:], invoiceUpdate.RHash,
+			"invoices have mismatched payment hashes")
 	}
-
-	cancelInvoiceSubscription()
 
 	// We'll now have Bob settle out the remainder of these invoices so we
 	// can test that all settled invoices are properly notified.
-	err = completePaymentRequests(
-		net.Alice, net.Alice.RouterClient, payReqs, true,
-	)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
+	ht.CompletePaymentRequests(alice, payReqs, true)
 
 	// With the set of invoices paid, we'll now cancel the old
 	// subscription, and create a new one for Bob, this time using the
@@ -513,13 +422,7 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 	req = &lnrpc.InvoiceSubscription{
 		SettleIndex: settleIndex,
 	}
-	ctx, cancelInvoiceSubscription = context.WithCancel(ctxb)
-	bobInvoiceSubscription, err = net.Bob.SubscribeInvoices(ctx, req)
-	if err != nil {
-		t.Fatalf("unable to subscribe to bob's invoice updates: %v", err)
-	}
-
-	defer cancelInvoiceSubscription()
+	bobInvoiceSubscription = ht.SubscribeInvoices(bob, req)
 
 	// As we specified the index of the past settle index, we should now
 	// receive notifications for the three HTLCs that we just settled. As
@@ -531,30 +434,23 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 		settledInvoices[rHash] = struct{}{}
 	}
 	for i := 0; i < numInvoices; i++ {
-		invoiceUpdate, err := bobInvoiceSubscription.Recv()
-		if err != nil {
-			t.Fatalf("unable to receive subscription")
-		}
+		invoiceUpdate := ht.ReceiveInvoiceUpdate(bobInvoiceSubscription)
 
 		// We should now get the ith invoice we added, as they should
 		// be returned in order.
-		if !invoiceUpdate.Settled { // nolint:staticcheck
-			t.Fatalf("should have only received settle events")
-		}
+		require.Equal(ht, lnrpc.Invoice_SETTLED, invoiceUpdate.State,
+			"should have only received settle events")
 
 		var rHash [32]byte
 		copy(rHash[:], invoiceUpdate.RHash)
-		if _, ok := settledInvoices[rHash]; !ok {
-			t.Fatalf("unknown invoice settled: %x", rHash)
-		}
+		require.Contains(ht, settledInvoices, rHash,
+			"unknown invoice settled")
 
 		delete(settledInvoices, rHash)
 	}
 
 	// At this point, all the invoices should be fully settled.
-	if len(settledInvoices) != 0 {
-		t.Fatalf("not all invoices settled")
-	}
+	require.Empty(ht, settledInvoices, "not all invoices settled")
 
-	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+	ht.CloseChannel(alice, chanPoint, false)
 }

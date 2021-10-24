@@ -2992,3 +2992,53 @@ func (h *HarnessTest) XImportMissionControlAssertErr(hn *HarnessNode,
 	_, err := hn.rpc.Router.XImportMissionControl(ctxt, req)
 	require.Error(h, err, "expect an error from x import mission control")
 }
+
+type InvoiceUpdateClient lnrpc.Lightning_SubscribeInvoicesClient
+
+// SubscribeInvoices creates a subscription client for invoice events and
+// asserts its creation.
+func (h *HarnessTest) SubscribeInvoices(hn *HarnessNode,
+	req *lnrpc.InvoiceSubscription) InvoiceUpdateClient {
+
+	// SubscribeInvoices needs to have the context alive for the
+	// entire test case as the returned client will be used for send and
+	// receive events stream. Thus we use runCtx here instead of a timeout
+	// context.
+	client, err := hn.rpc.LN.SubscribeInvoices(h.runCtx, req)
+	require.NoError(h, err, "unable to create invoice subscription client")
+
+	return client
+}
+
+// ReceiveInvoiceUpdate waits until a message is received on the subscribe
+// invoice stream or the timeout is reached.
+func (h *HarnessTest) ReceiveInvoiceUpdate(
+	stream InvoiceUpdateClient) *lnrpc.Invoice {
+
+	chanMsg := make(chan *lnrpc.Invoice)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout receiving invoice update")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}

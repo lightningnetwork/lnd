@@ -246,14 +246,14 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "async bidirectional payments",
 		TestFunc: testBidirectionalAsyncPayments,
 	},
+	{
+		Name:     "invoice update subscription",
+		TestFunc: testInvoiceSubscriptions,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "invoice update subscription",
-	// 	test: testInvoiceSubscriptions,
 	// },
 	// {
 	// 	name: "multi-hop htlc error propagation",

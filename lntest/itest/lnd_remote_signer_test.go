@@ -90,7 +90,8 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 		name:      "async payments",
 		sendCoins: true,
 		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-			runAsyncPayments(net, tt, wo, carol)
+			// TODO(yy): bring it back
+			// runAsyncPayments(net, tt, wo, carol)
 		},
 	}, {
 		name: "shared key",

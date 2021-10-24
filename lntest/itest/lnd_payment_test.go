@@ -158,35 +158,23 @@ func testPaymentFollowingChannelOpen(ht *lntest.HarnessTest) {
 }
 
 // testAsyncPayments tests the performance of the async payments.
-func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
-	runAsyncPayments(net, t, net.Alice, net.Bob)
+func testAsyncPayments(ht *lntest.HarnessTest) {
+	runAsyncPayments(ht, ht.Alice(), ht.Bob())
 }
 
 // runAsyncPayments tests the performance of the async payments.
-func runAsyncPayments(net *lntest.NetworkHarness, t *harnessTest, alice,
-	bob *lntest.HarnessNode) {
-
-	ctxb := context.Background()
-
-	const (
-		paymentAmt = 100
-	)
+func runAsyncPayments(ht *lntest.HarnessTest, alice, bob *lntest.HarnessNode) {
+	const paymentAmt = 100
 
 	// First establish a channel with a capacity equals to the overall
 	// amount of payments, between Alice and Bob, at the end of the test
 	// Alice should send all money from her side to Bob.
 	channelCapacity := btcutil.Amount(paymentAmt * 2000)
-	chanPoint := openChannelAndAssert(
-		t, net, alice, bob,
-		lntest.OpenChannelParams{
-			Amt: channelCapacity,
-		},
+	chanPoint := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: channelCapacity},
 	)
 
-	info, err := getChanInfo(alice)
-	if err != nil {
-		t.Fatalf("unable to get alice channel info: %v", err)
-	}
+	info := ht.QueryChannelByChanPoint(alice, chanPoint)
 
 	// We'll create a number of invoices equal the max number of HTLCs that
 	// can be carried in one direction. The number on the commitment will
@@ -200,128 +188,59 @@ func runAsyncPayments(net *lntest.NetworkHarness, t *harnessTest, alice,
 
 	// With the channel open, we'll create invoices for Bob that Alice
 	// will pay to in order to advance the state of the channel.
-	bobPayReqs, _, _, err := createPayReqs(
-		bob, paymentAmt, numInvoices,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
-	}
+	bobPayReqs, _, _ := ht.CreatePayReqs(bob, paymentAmt, numInvoices)
 
-	// Wait for Alice to receive the channel edge from the funding manager.
-	err = alice.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("alice didn't see the alice->bob channel before "+
-			"timeout: %v", err)
-	}
-
-	// Simultaneously send payments from Alice to Bob using of Bob's payment
-	// hashes generated above.
+	// Simultaneously send payments from Alice to Bob using of Bob's
+	// payment hashes generated above.
 	now := time.Now()
-	errChan := make(chan error)
-	statusChan := make(chan *lnrpc.Payment)
+
+	settled := make(chan struct{})
+	defer close(settled)
 	for i := 0; i < numInvoices; i++ {
 		payReq := bobPayReqs[i]
 		go func() {
-			ctxt, _ := context.WithTimeout(ctxb, lntest.AsyncBenchmarkTimeout)
-			stream, err := alice.RouterClient.SendPaymentV2(
-				ctxt,
-				&routerrpc.SendPaymentRequest{
-					PaymentRequest: payReq,
-					TimeoutSeconds: 60,
-					FeeLimitMsat:   noFeeLimitMsat,
-				},
-			)
-			if err != nil {
-				errChan <- err
+			req := &routerrpc.SendPaymentRequest{
+				PaymentRequest: payReq,
+				TimeoutSeconds: 60,
+				FeeLimitMsat:   noFeeLimitMsat,
 			}
-			result, err := getPaymentResult(stream)
-			if err != nil {
-				errChan <- err
-			}
+			// SendPaymentAndAssert will assert that the
+			// payment is settled.
+			ht.SendPaymentAndAssert(alice, req)
 
-			statusChan <- result
+			settled <- struct{}{}
 		}()
 	}
 
 	// Wait until all the payments have settled.
+	timer := time.After(lntest.AsyncBenchmarkTimeout)
 	for i := 0; i < numInvoices; i++ {
 		select {
-		case result := <-statusChan:
-			if result.Status == lnrpc.Payment_SUCCEEDED {
-				continue
-			}
-
-		case err := <-errChan:
-			t.Fatalf("payment error: %v", err)
+		case <-settled:
+		case <-timer:
+			require.Fail(ht, "timeout", "wait payment failed")
 		}
 	}
 
 	// All payments have been sent, mark the finish time.
 	timeTaken := time.Since(now)
 
-	// Next query for Bob's and Alice's channel states, in order to confirm
-	// that all payment have been successful transmitted.
-
 	// Wait for the revocation to be received so alice no longer has pending
 	// htlcs listed and has correct balances. This is needed due to the fact
 	// that we now pipeline the settles.
-	err = wait.Predicate(func() bool {
-		aliceChan, err := getChanInfo(alice)
-		if err != nil {
-			return false
-		}
-		if len(aliceChan.PendingHtlcs) != 0 {
-			return false
-		}
-		if aliceChan.RemoteBalance != bobAmt {
-			return false
-		}
-		if aliceChan.LocalBalance != aliceAmt {
-			return false
-		}
-
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("failed to assert alice's pending htlcs and/or remote/local balance")
-	}
+	ht.AssertChannelState(alice, chanPoint, aliceAmt, bobAmt, 0)
 
 	// Wait for Bob to receive revocation from Alice.
-	err = wait.NoError(func() error {
-		bobChan, err := getChanInfo(bob)
-		if err != nil {
-			t.Fatalf("unable to get bob's channel info: %v", err)
-		}
+	ht.AssertChannelState(bob, chanPoint, bobAmt, aliceAmt, 0)
 
-		if len(bobChan.PendingHtlcs) != 0 {
-			return fmt.Errorf("bob's pending htlcs is incorrect, "+
-				"got %v, expected %v",
-				len(bobChan.PendingHtlcs), 0)
-		}
-
-		if bobChan.LocalBalance != bobAmt {
-			return fmt.Errorf("bob's local balance is incorrect, "+
-				"got %v, expected %v", bobChan.LocalBalance,
-				bobAmt)
-		}
-
-		if bobChan.RemoteBalance != aliceAmt {
-			return fmt.Errorf("bob's remote balance is incorrect, "+
-				"got %v, expected %v", bobChan.RemoteBalance,
-				aliceAmt)
-		}
-
-		return nil
-	}, defaultTimeout)
-	require.NoError(t.t, err)
-
-	t.Log("\tBenchmark info: Elapsed time: ", timeTaken)
-	t.Log("\tBenchmark info: TPS: ", float64(numInvoices)/timeTaken.Seconds())
+	ht.Log("\tBenchmark info: Elapsed time: ", timeTaken)
+	ht.Log("\tBenchmark info: TPS: ",
+		float64(numInvoices)/timeTaken.Seconds())
 
 	// Finally, immediately close the channel. This function will also
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
-	closeChannelAndAssert(t, net, alice, chanPoint, false)
+	ht.CloseChannel(alice, chanPoint, false)
 }
 
 // testBidirectionalAsyncPayments tests that nodes are able to send the

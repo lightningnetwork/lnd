@@ -2420,6 +2420,51 @@ func (h *HarnessTest) AssertLocalBalance(hn *HarnessNode,
 	return result
 }
 
+// AssertChannelState asserts the channel state by checking the values in
+// fields, LocalBalance, RemoteBalance and num of PendingHtlcs.
+func (h *HarnessTest) AssertChannelState(hn *HarnessNode,
+	cp *lnrpc.ChannelPoint, localBalance,
+	remoteBalance int64, numPendingHtlcs int) *lnrpc.Channel {
+
+	var result *lnrpc.Channel
+
+	// Get the funding point.
+	err := wait.NoError(func() error {
+		// Find the target channel first.
+		target, err := h.findChannel(hn, cp)
+
+		// Exit early if the channel is not found.
+		if err != nil {
+			return fmt.Errorf("check balance failed: %v", err)
+		}
+
+		if len(target.PendingHtlcs) != numPendingHtlcs {
+			return fmt.Errorf("pending htlcs is "+
+				"incorrect, got %v, expected %v",
+				len(target.PendingHtlcs), 0)
+		}
+
+		if target.LocalBalance != localBalance {
+			return fmt.Errorf("local balance is "+
+				"incorrect, got %v, expected %v",
+				target.LocalBalance, localBalance)
+		}
+
+		if target.RemoteBalance != remoteBalance {
+			return fmt.Errorf("remote balance is "+
+				"incorrect, got %v, expected %v",
+				target.RemoteBalance, remoteBalance)
+		}
+
+		result = target
+		return nil
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout while chekcing for balance")
+
+	return result
+}
+
 // BackupDb created a db backup for the specified node and asserts.
 func (h *HarnessTest) BackupDb(hn *HarnessNode) {
 	require.NoError(h, h.net.BackupDb(hn), "failed to copy db files")

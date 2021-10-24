@@ -238,6 +238,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "immediate payment after channel open",
 		TestFunc: testPaymentFollowingChannelOpen,
 	},
+	{
+		Name:     "async payments benchmark",
+		TestFunc: testAsyncPayments,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
@@ -255,10 +259,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "derive shared key",
 	// 	test: testDeriveSharedKey,
-	// },
-	// {
-	// 	name: "async payments benchmark",
-	// 	test: testAsyncPayments,
 	// },
 	// {
 	// 	name: "async bidirectional payments",

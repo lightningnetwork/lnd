@@ -228,6 +228,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "query routes",
 		TestFunc: testQueryRoutes,
 	},
+	{
+		Name:     "route fee cutoff",
+		TestFunc: testRouteFeeCutoff,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
@@ -287,10 +291,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "revoked uncooperative close retribution altruist watchtower",
 	// 	test: testRevokedCloseRetributionAltruistWatchtower,
-	// },
-	// {
-	// 	name: "route fee cutoff",
-	// 	test: testRouteFeeCutoff,
 	// },
 	// {
 	// 	name: "hold invoice sender persistence",

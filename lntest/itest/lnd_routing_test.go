@@ -1,13 +1,11 @@
 package itest
 
 import (
-	"context"
 	"encoding/hex"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -1068,9 +1066,7 @@ func testMissionControlImport(ht *lntest.HarnessTest, hn *lntest.HarnessNode,
 
 // testRouteFeeCutoff tests that we are able to prevent querying routes and
 // sending payments that incur a fee higher than the fee limit.
-func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 	// For this test, we'll create the following topology:
 	//
 	//              --- Bob ---
@@ -1085,75 +1081,49 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
 	// Open a channel between Alice and Bob.
-	chanPointAliceBob := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	alice, bob := ht.Alice(), ht.Bob()
+	chanPointAliceBob := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Create Carol's node and open a channel between her and Alice with
 	// Alice being the funder.
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", nil)
+	defer ht.Shutdown(carol)
 
-	net.ConnectNodes(t.t, carol, net.Alice)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+	ht.ConnectNodes(carol, alice)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
 
-	chanPointAliceCarol := openChannelAndAssert(
-		t, net, net.Alice, carol,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	chanPointAliceCarol := ht.OpenChannel(
+		alice, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Create Dave's node and open a channel between him and Bob with Bob
 	// being the funder.
-	dave := net.NewNode(t.t, "Dave", nil)
-	defer shutdownAndAssert(net, t, dave)
+	dave := ht.NewNode("Dave", nil)
+	defer ht.Shutdown(dave)
 
-	net.ConnectNodes(t.t, dave, net.Bob)
-	chanPointBobDave := openChannelAndAssert(
-		t, net, net.Bob, dave,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	ht.ConnectNodes(dave, bob)
+	chanPointBobDave := ht.OpenChannel(
+		bob, dave, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Open a channel between Carol and Dave.
-	net.ConnectNodes(t.t, carol, dave)
-	chanPointCarolDave := openChannelAndAssert(
-		t, net, carol, dave,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	ht.ConnectNodes(carol, dave)
+	chanPointCarolDave := ht.OpenChannel(
+		carol, dave, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Now that all the channels were set up, we'll wait for all the nodes
 	// to have seen all the channels.
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave}
-	nodeNames := []string{"alice", "bob", "carol", "dave"}
+	nodes := []*lntest.HarnessNode{alice, bob, carol, dave}
 	networkChans := []*lnrpc.ChannelPoint{
 		chanPointAliceBob, chanPointAliceCarol, chanPointBobDave,
 		chanPointCarolDave,
 	}
 	for _, chanPoint := range networkChans {
-		for i, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-			if err != nil {
-				t.Fatalf("unable to get txid: %v", err)
-			}
-			outpoint := wire.OutPoint{
-				Hash:  *txid,
-				Index: chanPoint.OutputIndex,
-			}
-
-			err = node.WaitForNetworkChannelOpen(chanPoint)
-			if err != nil {
-				t.Fatalf("%s(%d) timed out waiting for "+
-					"channel(%s) open: %v", nodeNames[i],
-					node.NodeID, outpoint, err)
-			}
+		for _, node := range nodes {
+			ht.AssertChannelOpen(node, chanPoint)
 		}
 	}
 
@@ -1184,56 +1154,41 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 			ChanPoint: chanPointCarolDave,
 		},
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if _, err := carol.UpdateChannelPolicy(ctxt, updateFeeReq); err != nil {
-		t.Fatalf("unable to update chan policy: %v", err)
-	}
+	ht.UpdateChannelPolicy(carol, updateFeeReq)
 
 	// Wait for Alice to receive the channel update from Carol.
-	assertChannelPolicyUpdate(
-		t.t, net.Alice, carol.PubKeyStr,
+	ht.AssertChannelPolicyUpdate(
+		alice, carol.PubKeyStr,
 		expectedPolicy, chanPointCarolDave, false,
 	)
 
 	// We'll also need the channel IDs for Bob's channels in order to
 	// confirm the route of the payments.
-	listReq := &lnrpc.ListChannelsRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	listResp, err := net.Bob.ListChannels(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("unable to retrieve bob's channels: %v", err)
-	}
-
+	listResp := ht.ListChannels(bob)
 	var aliceBobChanID, bobDaveChanID uint64
 	for _, channel := range listResp.Channels {
 		switch channel.RemotePubkey {
-		case net.Alice.PubKeyStr:
+		case alice.PubKeyStr:
 			aliceBobChanID = channel.ChanId
 		case dave.PubKeyStr:
 			bobDaveChanID = channel.ChanId
 		}
 	}
 
-	if aliceBobChanID == 0 {
-		t.Fatalf("channel between alice and bob not found")
-	}
-	if bobDaveChanID == 0 {
-		t.Fatalf("channel between bob and dave not found")
-	}
+	require.NotZero(ht, aliceBobChanID,
+		"channel between alice and bob not found")
+	require.NotZero(ht, bobDaveChanID,
+		"channel between bob and dave not found")
 	hopChanIDs := []uint64{aliceBobChanID, bobDaveChanID}
 
 	// checkRoute is a helper closure to ensure the route contains the
 	// correct intermediate hops.
 	checkRoute := func(route *lnrpc.Route) {
-		if len(route.Hops) != 2 {
-			t.Fatalf("expected two hops, got %d", len(route.Hops))
-		}
+		require.Len(ht, route.Hops, 2, "expected two hops")
 
 		for i, hop := range route.Hops {
-			if hop.ChanId != hopChanIDs[i] {
-				t.Fatalf("expected chan id %d, got %d",
-					hopChanIDs[i], hop.ChanId)
-			}
+			require.Equal(ht, hopChanIDs[i], hop.ChanId,
+				"hop chan id not match")
 		}
 	}
 
@@ -1252,20 +1207,12 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 			Amt:      paymentAmt,
 			FeeLimit: feeLimit,
 		}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		routesResp, err := net.Alice.QueryRoutes(ctxt, queryRoutesReq)
-		if err != nil {
-			t.Fatalf("unable to get routes: %v", err)
-		}
+		routesResp := ht.QueryRoutes(alice, queryRoutesReq)
 
 		checkRoute(routesResp.Routes[0])
 
 		invoice := &lnrpc.Invoice{Value: paymentAmt}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		invoiceResp, err := dave.AddInvoice(ctxt, invoice)
-		if err != nil {
-			t.Fatalf("unable to create invoice: %v", err)
-		}
+		invoiceResp := ht.AddInvoice(invoice, dave)
 
 		sendReq := &routerrpc.SendPaymentRequest{
 			PaymentRequest: invoiceResp.PaymentRequest,
@@ -1279,7 +1226,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 			sendReq.FeeLimitMsat = 1000 * paymentAmt * limit.Percent / 100
 		}
 
-		result := sendAndAssertSuccess(t, net.Alice, sendReq)
+		result := ht.SendPaymentAndAssert(alice, sendReq)
 
 		checkRoute(result.Htlcs[0].Route)
 	}
@@ -1306,8 +1253,8 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Once we're done, close the channels and shut down the nodes created
 	// throughout this test.
-	closeChannelAndAssert(t, net, net.Alice, chanPointAliceBob, false)
-	closeChannelAndAssert(t, net, net.Alice, chanPointAliceCarol, false)
-	closeChannelAndAssert(t, net, net.Bob, chanPointBobDave, false)
-	closeChannelAndAssert(t, net, carol, chanPointCarolDave, false)
+	ht.CloseChannel(alice, chanPointAliceBob, false)
+	ht.CloseChannel(alice, chanPointAliceCarol, false)
+	ht.CloseChannel(bob, chanPointBobDave, false)
+	ht.CloseChannel(carol, chanPointCarolDave, false)
 }

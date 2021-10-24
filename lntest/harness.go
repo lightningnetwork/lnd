@@ -995,7 +995,7 @@ func (h *HarnessTest) AssertNumActiveHtlcs(hn *HarnessNode, num int) {
 		return nil
 	}, DefaultTimeout)
 
-	require.NoError(h, err, "assert active htlcs timed out")
+	require.NoErrorf(h, err, "%s assert active htlcs timed out", hn.Name())
 }
 
 // AssertActiveHtlcs makes sure all the passed nodes have the _exact_ HTLCs

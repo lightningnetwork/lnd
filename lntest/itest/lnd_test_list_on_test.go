@@ -242,6 +242,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "async payments benchmark",
 		TestFunc: testAsyncPayments,
 	},
+	{
+		Name:     "async bidirectional payments",
+		TestFunc: testBidirectionalAsyncPayments,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
@@ -259,10 +263,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "derive shared key",
 	// 	test: testDeriveSharedKey,
-	// },
-	// {
-	// 	name: "async bidirectional payments",
-	// 	test: testBidirectionalAsyncPayments,
 	// },
 	// {
 	// 	name: "switch circuit persistence",

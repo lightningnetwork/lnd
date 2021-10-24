@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -13,7 +12,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
-	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -245,28 +243,21 @@ func runAsyncPayments(ht *lntest.HarnessTest, alice, bob *lntest.HarnessNode) {
 
 // testBidirectionalAsyncPayments tests that nodes are able to send the
 // payments to each other in async manner without blocking.
-func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	const (
-		paymentAmt = 1000
-	)
+func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
+	const paymentAmt = 1000
 
 	// First establish a channel with a capacity equals to the overall
 	// amount of payments, between Alice and Bob, at the end of the test
 	// Alice should send all money from her side to Bob.
-	chanPoint := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
+	alice, bob := ht.Alice(), ht.Bob()
+	chanPoint := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{
 			Amt:     paymentAmt * 2000,
 			PushAmt: paymentAmt * 1000,
 		},
 	)
 
-	info, err := getChanInfo(net.Alice)
-	if err != nil {
-		t.Fatalf("unable to get alice channel info: %v", err)
-	}
+	info := ht.QueryChannelByChanPoint(alice, chanPoint)
 
 	// We'll create a number of invoices equal the max number of HTLCs that
 	// can be carried in one direction. The number on the commitment will
@@ -282,155 +273,61 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 
 	// With the channel open, we'll create invoices for Bob that Alice
 	// will pay to in order to advance the state of the channel.
-	bobPayReqs, _, _, err := createPayReqs(
-		net.Bob, paymentAmt, numInvoices,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
-	}
+	bobPayReqs, _, _ := ht.CreatePayReqs(bob, paymentAmt, numInvoices)
 
 	// With the channel open, we'll create invoices for Alice that Bob
 	// will pay to in order to advance the state of the channel.
-	alicePayReqs, _, _, err := createPayReqs(
-		net.Alice, paymentAmt, numInvoices,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
-	}
-
-	// Wait for Alice to receive the channel edge from the funding manager.
-	if err = net.Alice.WaitForNetworkChannelOpen(chanPoint); err != nil {
-		t.Fatalf("alice didn't see the alice->bob channel before "+
-			"timeout: %v", err)
-	}
-	if err = net.Bob.WaitForNetworkChannelOpen(chanPoint); err != nil {
-		t.Fatalf("bob didn't see the bob->alice channel before "+
-			"timeout: %v", err)
-	}
+	alicePayReqs, _, _ := ht.CreatePayReqs(alice, paymentAmt, numInvoices)
 
 	// Reset mission control to prevent previous payment results from
 	// interfering with this test. A new channel has been opened, but
 	// mission control operates on node pairs.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	_, err = net.Alice.RouterClient.ResetMissionControl(
-		ctxt, &routerrpc.ResetMissionControlRequest{},
-	)
-	if err != nil {
-		t.Fatalf("unable to reset mc for alice: %v", err)
-	}
+	ht.ResetMissionControl(alice)
 
 	// Send payments from Alice to Bob and from Bob to Alice in async
 	// manner.
-	errChan := make(chan error)
-	statusChan := make(chan *lnrpc.Payment)
-
+	settled := make(chan struct{})
+	defer close(settled)
 	send := func(node *lntest.HarnessNode, payReq string) {
 		go func() {
-			ctxt, _ = context.WithTimeout(
-				ctxb, lntest.AsyncBenchmarkTimeout,
-			)
-			stream, err := node.RouterClient.SendPaymentV2(
-				ctxt,
-				&routerrpc.SendPaymentRequest{
-					PaymentRequest: payReq,
-					TimeoutSeconds: 60,
-					FeeLimitMsat:   noFeeLimitMsat,
-				},
-			)
-			if err != nil {
-				errChan <- err
+			req := &routerrpc.SendPaymentRequest{
+				PaymentRequest: payReq,
+				TimeoutSeconds: 60,
+				FeeLimitMsat:   noFeeLimitMsat,
 			}
-			result, err := getPaymentResult(stream)
-			if err != nil {
-				errChan <- err
-			}
+			ht.SendPaymentAndAssert(node, req)
 
-			statusChan <- result
+			settled <- struct{}{}
 		}()
 	}
 
 	for i := 0; i < numInvoices; i++ {
-		send(net.Bob, alicePayReqs[i])
-		send(net.Alice, bobPayReqs[i])
+		send(bob, alicePayReqs[i])
+		send(alice, bobPayReqs[i])
 	}
 
 	// Expect all payments to succeed.
+	timer := time.After(lntest.AsyncBenchmarkTimeout)
 	for i := 0; i < 2*numInvoices; i++ {
 		select {
-		case result := <-statusChan:
-			if result.Status != lnrpc.Payment_SUCCEEDED {
-				t.Fatalf("payment error: %v", result.Status)
-			}
-
-		case err := <-errChan:
-			t.Fatalf("payment error: %v", err)
+		case <-settled:
+		case <-timer:
+			require.Fail(ht, "timeout", "wait payment failed")
 		}
 	}
 
 	// Wait for Alice and Bob to receive revocations messages, and update
 	// states, i.e. balance info.
-	err = wait.NoError(func() error {
-		aliceInfo, err := getChanInfo(net.Alice)
-		if err != nil {
-			t.Fatalf("unable to get alice's channel info: %v", err)
-		}
-
-		if aliceInfo.RemoteBalance != bobAmt {
-			return fmt.Errorf("alice's remote balance is incorrect, "+
-				"got %v, expected %v", aliceInfo.RemoteBalance,
-				bobAmt)
-		}
-
-		if aliceInfo.LocalBalance != aliceAmt {
-			return fmt.Errorf("alice's local balance is incorrect, "+
-				"got %v, expected %v", aliceInfo.LocalBalance,
-				aliceAmt)
-		}
-
-		if len(aliceInfo.PendingHtlcs) != 0 {
-			return fmt.Errorf("alice's pending htlcs is incorrect, "+
-				"got %v expected %v",
-				len(aliceInfo.PendingHtlcs), 0)
-		}
-
-		return nil
-	}, defaultTimeout)
-	require.NoError(t.t, err)
+	ht.AssertChannelState(alice, chanPoint, aliceAmt, bobAmt, 0)
 
 	// Next query for Bob's and Alice's channel states, in order to confirm
 	// that all payment have been successful transmitted.
-	err = wait.NoError(func() error {
-		bobInfo, err := getChanInfo(net.Bob)
-		if err != nil {
-			t.Fatalf("unable to get bob's channel info: %v", err)
-		}
-
-		if bobInfo.LocalBalance != bobAmt {
-			return fmt.Errorf("bob's local balance is incorrect, "+
-				"got %v, expected %v", bobInfo.LocalBalance,
-				bobAmt)
-		}
-
-		if bobInfo.RemoteBalance != aliceAmt {
-			return fmt.Errorf("bob's remote balance is incorrect, "+
-				"got %v, expected %v", bobInfo.RemoteBalance,
-				aliceAmt)
-		}
-
-		if len(bobInfo.PendingHtlcs) != 0 {
-			return fmt.Errorf("bob's pending htlcs is incorrect, "+
-				"got %v, expected %v",
-				len(bobInfo.PendingHtlcs), 0)
-		}
-
-		return nil
-	}, defaultTimeout)
-	require.NoError(t.t, err)
+	ht.AssertChannelState(bob, chanPoint, bobAmt, aliceAmt, 0)
 
 	// Finally, immediately close the channel. This function will also
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
-	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+	ht.CloseChannel(alice, chanPoint, false)
 }
 
 func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {

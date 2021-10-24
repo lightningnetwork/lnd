@@ -362,6 +362,7 @@ var resultTestCases = []resultTestCase{
 			pairResults: map[DirectedNodePair]pairResult{
 				getTestPair(1, 2): failPairResult(0),
 				getTestPair(2, 1): failPairResult(0),
+				getTestPair(0, 1): successPairResult(100),
 			},
 			policyFailure: getPolicyFailure(1, 2),
 		},

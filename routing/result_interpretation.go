@@ -348,6 +348,10 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 
 		reportOutgoing()
 
+		// All nodes up to the failing pair must have forwarded
+		// successfully.
+		i.successPairRange(route, 0, errorSourceIdx-1)
+
 	// If we get a permanent channel, we'll prune the channel set in both
 	// directions and continue with the rest of the routes.
 	case *lnwire.FailPermanentChannelFailure:

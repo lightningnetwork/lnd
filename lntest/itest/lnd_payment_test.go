@@ -101,70 +101,49 @@ func testListPayments(ht *lntest.HarnessTest) {
 // subsystems trying to update the channel state in the db. We follow this
 // transition with a payment that updates the commitment state and verify that
 // the pending state is up to date.
-func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testPaymentFollowingChannelOpen(ht *lntest.HarnessTest) {
 	const paymentAmt = btcutil.Amount(100)
 	channelCapacity := paymentAmt * 1000
 
 	// We first establish a channel between Alice and Bob.
-	pendingUpdate, err := net.OpenPendingChannel(
-		net.Alice, net.Bob, channelCapacity, 0,
-	)
-	if err != nil {
-		t.Fatalf("unable to open channel: %v", err)
-	}
+	alice, bob := ht.Alice(), ht.Bob()
+	pendingUpdate := ht.OpenPendingChannel(alice, bob, channelCapacity, 0)
 
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed. Alice and Bob's nodes
 	// should reflect this when queried via RPC.
-	assertNumOpenChannelsPending(t, net.Alice, net.Bob, 1)
+	ht.AssertNumOpenChannelsPending(alice, bob, 1)
 
 	// We are restarting Bob's node to let the link be created for the
 	// pending channel.
-	if err := net.RestartNode(net.Bob, nil); err != nil {
-		t.Fatalf("Bob restart failed: %v", err)
-	}
+	ht.RestartNode(bob, nil)
 
 	// We ensure that Bob reconnects to Alice.
-	net.EnsureConnected(t.t, net.Bob, net.Alice)
+	ht.EnsureConnected(bob, alice)
 
 	// We mine one block for the channel to be confirmed.
-	_ = mineBlocks(t, net, 6, 1)[0]
+	ht.MineBlocksAndAssertTx(6, 1)
 
 	// We verify that the channel is open from both nodes point of view.
-	assertNumOpenChannelsPending(t, net.Alice, net.Bob, 0)
+	ht.AssertNumOpenChannelsPending(alice, bob, 0)
 
 	// With the channel open, we'll create invoices for Bob that Alice will
 	// pay to in order to advance the state of the channel.
-	bobPayReqs, _, _, err := createPayReqs(
-		net.Bob, paymentAmt, 1,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
-	}
+	bobPayReqs, _, _ := ht.CreatePayReqs(bob, paymentAmt, 1)
 
 	// Send payment to Bob so that a channel update to disk will be
 	// executed.
-	sendAndAssertSuccess(
-		t, net.Alice, &routerrpc.SendPaymentRequest{
-			PaymentRequest: bobPayReqs[0],
-			TimeoutSeconds: 60,
-			FeeLimitSat:    1000000,
-		},
-	)
+	req := &routerrpc.SendPaymentRequest{
+		PaymentRequest: bobPayReqs[0],
+		TimeoutSeconds: 60,
+		FeeLimitSat:    1000000,
+	}
+	ht.SendPaymentAndAssert(alice, req)
 
 	// At this point we want to make sure the channel is opened and not
 	// pending.
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	res, err := net.Bob.ListChannels(ctxt, &lnrpc.ListChannelsRequest{})
-	if err != nil {
-		t.Fatalf("unable to list bob channels: %v", err)
-	}
-	if len(res.Channels) == 0 {
-		t.Fatalf("bob list of channels is empty")
-	}
+	res := ht.ListChannels(bob)
+	require.NotEmpty(ht, res.Channels, "bob list of channels is empty")
 
 	// Finally, immediately close the channel. This function will also
 	// block until the channel is closed and will additionally assert the
@@ -175,7 +154,7 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 		},
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
-	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+	ht.CloseChannel(alice, chanPoint, false)
 }
 
 // testAsyncPayments tests the performance of the async payments.

@@ -233,6 +233,12 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testRouteFeeCutoff,
 	},
 
+	// Payment related tests.
+	{
+		Name:     "immediate payment after channel open",
+		TestFunc: testPaymentFollowingChannelOpen,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
@@ -319,10 +325,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "delete macaroon id",
 	// 	test: testDeleteMacaroonID,
-	// },
-	// {
-	// 	name: "immediate payment after channel opened",
-	// 	test: testPaymentFollowingChannelOpen,
 	// },
 	// {
 	// 	name: "psbt channel funding",

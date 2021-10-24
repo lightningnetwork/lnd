@@ -1928,6 +1928,12 @@ func (h *HarnessTest) RestartNode(hn *HarnessNode, callback func() error,
 	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
 }
 
+// StopNode stops a given node and asserts.
+func (h *HarnessTest) StopNode(hn *HarnessNode) {
+	err := h.net.StopNode(hn)
+	require.NoErrorf(h, err, "failed to stop node %s", hn.Name())
+}
+
 // AssertTxAtHeight gets all of the transactions that a node's wallet has a
 // record of at the target height, and finds and returns the tx with the target
 // txid, failing if it is not found.

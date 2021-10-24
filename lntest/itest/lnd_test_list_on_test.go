@@ -266,6 +266,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "switch offline delivery",
 		TestFunc: testSwitchOfflineDelivery,
 	},
+	{
+		Name:     "switch offline delivery persistence",
+		TestFunc: testSwitchOfflineDeliveryPersistence,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
@@ -275,10 +279,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "derive shared key",
 	// 	test: testDeriveSharedKey,
-	// },
-	// {
-	// 	name: "switch offline delivery persistence",
-	// 	test: testSwitchOfflineDeliveryPersistence,
 	// },
 	// {
 	// 	name: "switch offline delivery outgoing offline",

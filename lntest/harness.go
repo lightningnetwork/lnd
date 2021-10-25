@@ -814,8 +814,7 @@ func (h *HarnessTest) AssertTxInMempool(op wire.OutPoint) *wire.MsgTx {
 	err := wait.NoError(func() error {
 		// We require the RPC call to be succeeded and won't wait for
 		// it as it's an unexpected behavior.
-		mempool, err := h.net.Miner.Client.GetRawMempool()
-		require.NoError(h, err, "unable to get mempool")
+		mempool := h.GetRawMempool()
 
 		if len(mempool) == 0 {
 			return fmt.Errorf("empty mempool")
@@ -854,10 +853,10 @@ func (h *HarnessTest) AssertNumTxsInMempool(n int) []*chainhash.Hash {
 	err = wait.NoError(func() error {
 		// We require the RPC call to be succeeded and won't wait for
 		// it as it's an unexpected behavior.
-		mempool, err = h.net.Miner.Client.GetRawMempool()
-		require.NoError(h, err, "unable to get mempool")
+		mem := h.GetRawMempool()
 
-		if len(mempool) == n {
+		if len(mem) == n {
+			mempool = mem
 			return nil
 		}
 
@@ -1076,6 +1075,14 @@ func (h *HarnessTest) GetRawTransaction(txid *chainhash.Hash) *btcutil.Tx {
 	tx, err := h.net.Miner.Client.GetRawTransaction(txid)
 	require.NoErrorf(h, err, "failed to get raw tx: %v", txid)
 	return tx
+}
+
+// GetRawMempool makes a RPC call to the miner's GetRawMempool and
+// asserts.
+func (h *HarnessTest) GetRawMempool() []*chainhash.Hash {
+	mempool, err := h.net.Miner.Client.GetRawMempool()
+	require.NoError(h, err, "unable to get mempool")
+	return mempool
 }
 
 // assertAllTxesSpendFrom asserts that all txes in the list spend from the

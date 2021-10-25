@@ -419,6 +419,9 @@ messages directly. There is no routing/path finding involved.
 
 * [Include htlc amount in bandwidth hints](https://github.com/lightningnetwork/lnd/pull/5512).
 
+* [Fix REST/WebSocket API itest that lead to overall test
+  timeout](https://github.com/lightningnetwork/lnd/pull/5845).
+
 ## Database
 
 * [Ensure single writer for legacy

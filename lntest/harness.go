@@ -23,6 +23,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -3136,4 +3138,48 @@ func (h *HarnessTest) ReceiveInvoiceUpdate(
 	}
 
 	return nil
+}
+
+// GetInfoWatchtower makes a RPC call to the watchtower of the given node and
+// asserts.
+func (h *HarnessTest) GetInfoWatchtower(
+	hn *HarnessNode) *watchtowerrpc.GetInfoResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &watchtowerrpc.GetInfoRequest{}
+	info, err := hn.rpc.Watchtower.GetInfo(ctxt, req)
+	require.NoError(h, err, "failed to GetInfo from watchtower")
+
+	return info
+}
+
+// AddTower makes a RPC call to the WatchtowerClient of the given node and
+// asserts.
+func (h *HarnessTest) AddTower(hn *HarnessNode,
+	req *wtclientrpc.AddTowerRequest) *wtclientrpc.AddTowerResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.WatchtowerClient.AddTower(ctxt, req)
+	require.NoError(h, err, "failed to AddTower")
+
+	return resp
+}
+
+// WatchtowerStats makes a RPC call to the WatchtowerClient of the given node
+// and asserts.
+func (h *HarnessTest) WatchtowerStats(
+	hn *HarnessNode) *wtclientrpc.StatsResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &wtclientrpc.StatsRequest{}
+	resp, err := hn.rpc.WatchtowerClient.Stats(ctxt, req)
+	require.NoError(h, err, "failed to call Stats")
+
+	return resp
 }

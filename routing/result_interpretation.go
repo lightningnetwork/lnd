@@ -335,6 +335,23 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 	case *lnwire.FailUnknownNextPeer:
 		reportOutgoing()
 
+	// Some implementations use this error when the next hop is offline, so we
+	// do the same as FailUnknownNextPeer and also process the channel update.
+	case *lnwire.FailChannelDisabled:
+
+		// Set the node pair for which a channel update may be out of
+		// date. The second chance logic uses the policyFailure field.
+		i.policyFailure = &DirectedNodePair{
+			From: route.Hops[errorSourceIdx-1].PubKeyBytes,
+			To:   route.Hops[errorSourceIdx].PubKeyBytes,
+		}
+
+		reportOutgoing()
+
+		// All nodes up to the failing pair must have forwarded
+		// successfully.
+		i.successPairRange(route, 0, errorSourceIdx-1)
+
 	// If we get a permanent channel, we'll prune the channel set in both
 	// directions and continue with the rest of the routes.
 	case *lnwire.FailPermanentChannelFailure:
@@ -349,8 +366,7 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 	// control.
 	case *lnwire.FailAmountBelowMinimum,
 		*lnwire.FailFeeInsufficient,
-		*lnwire.FailIncorrectCltvExpiry,
-		*lnwire.FailChannelDisabled:
+		*lnwire.FailIncorrectCltvExpiry:
 
 		// Set the node pair for which a channel update may be out of
 		// date. The second chance logic uses the policyFailure field.

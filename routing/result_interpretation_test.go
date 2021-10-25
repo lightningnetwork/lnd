@@ -349,6 +349,24 @@ var resultTestCases = []resultTestCase{
 			nodeFailure: nil,
 		},
 	},
+
+	// Test a channel disabled failure from the final hop in two hops. Only the
+	// disabled channel should be penalized for any amount.
+	{
+		name:          "two hop channel disabled",
+		route:         &routeTwoHop,
+		failureSrcIdx: 1,
+		failure:       &lnwire.FailChannelDisabled{},
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(1, 2): failPairResult(0),
+				getTestPair(2, 1): failPairResult(0),
+				getTestPair(0, 1): successPairResult(100),
+			},
+			policyFailure: getPolicyFailure(1, 2),
+		},
+	},
 }
 
 // TestResultInterpretation executes a list of test cases that test the result

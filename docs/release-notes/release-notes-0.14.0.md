@@ -479,6 +479,12 @@ messages directly. There is no routing/path finding involved.
 * [Save compressed log files from logrorate during 
   itest](https://github.com/lightningnetwork/lnd/pull/5354).
 
+## Mission control
+
+* [Interpretation of channel disabled errors was changed to only penalize t
+  he destination node to consider mobile wallets with hub 
+  nodes.](https://github.com/lightningnetwork/lnd/pull/5598)
+
 ## Bug Fixes
 
 * A bug has been fixed that would cause `lnd` to [try to bootstrap using the

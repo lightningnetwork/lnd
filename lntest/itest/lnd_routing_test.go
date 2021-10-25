@@ -433,7 +433,38 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 // We'll query the daemon for routes from Alice to Carol and then
 // send payments through the routes.
 func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
+	t.t.Run("with cache", func(tt *testing.T) {
+		ht := newHarnessTest(tt, t.lndHarness)
+		runMultiHopSendToRoute(net, ht, true)
+	})
+	if *dbBackendFlag == "bbolt" {
+		t.t.Run("without cache", func(tt *testing.T) {
+			ht := newHarnessTest(tt, t.lndHarness)
+			runMultiHopSendToRoute(net, ht, false)
+		})
+	}
+}
+
+// runMultiHopSendToRoute tests that payments are properly processed
+// through a provided route. We'll create the following network topology:
+//      Alice --100k--> Bob --100k--> Carol
+// We'll query the daemon for routes from Alice to Carol and then
+// send payments through the routes.
+func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
+	useGraphCache bool) {
+
 	ctxb := context.Background()
+
+	var opts []string
+	if !useGraphCache {
+		opts = append(opts, "--db.no-graph-cache")
+	}
+
+	alice := net.NewNode(t.t, "Alice", opts)
+	defer shutdownAndAssert(net, t, alice)
+
+	net.ConnectNodes(t.t, alice, net.Bob)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
 
 	const chanAmt = btcutil.Amount(100000)
 	var networkChans []*lnrpc.ChannelPoint
@@ -441,7 +472,7 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	chanPointAlice := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
+		t, net, alice, net.Bob,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
@@ -483,7 +514,7 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Wait for all nodes to have seen all channels.
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol}
+	nodes := []*lntest.HarnessNode{alice, net.Bob, carol}
 	nodeNames := []string{"Alice", "Bob", "Carol"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
@@ -529,7 +560,7 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 		FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
 	}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	routes, err := net.Alice.QueryRoutes(ctxt, routesReq)
+	routes, err := alice.QueryRoutes(ctxt, routesReq)
 	if err != nil {
 		t.Fatalf("unable to get route: %v", err)
 	}
@@ -565,7 +596,7 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 			PaymentHash: rHash,
 			Route:       &route,
 		}
-		resp, err := net.Alice.RouterClient.SendToRouteV2(ctxt, sendReq)
+		resp, err := alice.RouterClient.SendToRouteV2(ctxt, sendReq)
 		if err != nil {
 			t.Fatalf("unable to send payment: %v", err)
 		}
@@ -593,10 +624,10 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 		bobFundPoint, amountPaid, int64(0))
 	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Bob,
 		aliceFundPoint, int64(0), amountPaid+(baseFee*numPayments))
-	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Alice,
+	assertAmountPaid(t, "Alice(local) => Bob(remote)", alice,
 		aliceFundPoint, amountPaid+(baseFee*numPayments), int64(0))
 
-	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, alice, chanPointAlice, false)
 	closeChannelAndAssert(t, net, carol, chanPointBob, false)
 }
 

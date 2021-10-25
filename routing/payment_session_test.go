@@ -116,10 +116,12 @@ func TestUpdateAdditionalEdge(t *testing.T) {
 	// Create the paymentsession.
 	session, err := newPaymentSession(
 		payment,
-		func() (bandwidthHints, error) {
+		func(routingGraph) (bandwidthHints, error) {
 			return &mockBandwidthHints{}, nil
 		},
-		&sessionGraph{},
+		func() (routingGraph, func(), error) {
+			return &sessionGraph{}, func() {}, nil
+		},
 		&MissionControl{},
 		PathFindingConfig{},
 	)
@@ -194,10 +196,12 @@ func TestRequestRoute(t *testing.T) {
 
 	session, err := newPaymentSession(
 		payment,
-		func() (bandwidthHints, error) {
+		func(routingGraph) (bandwidthHints, error) {
 			return &mockBandwidthHints{}, nil
 		},
-		&sessionGraph{},
+		func() (routingGraph, func(), error) {
+			return &sessionGraph{}, func() {}, nil
+		},
 		&MissionControl{},
 		PathFindingConfig{},
 	)

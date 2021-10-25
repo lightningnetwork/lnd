@@ -2,6 +2,7 @@ package routing
 
 import (
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -25,6 +26,7 @@ type routingGraph interface {
 // database.
 type CachedGraph struct {
 	graph  *channeldb.ChannelGraph
+	tx     kvdb.RTx
 	source route.Vertex
 }
 
@@ -32,18 +34,31 @@ type CachedGraph struct {
 // interface.
 var _ routingGraph = (*CachedGraph)(nil)
 
-// NewCachedGraph instantiates a new db-connected routing graph. It implictly
+// NewCachedGraph instantiates a new db-connected routing graph. It implicitly
 // instantiates a new read transaction.
-func NewCachedGraph(graph *channeldb.ChannelGraph) (*CachedGraph, error) {
-	sourceNode, err := graph.SourceNode()
+func NewCachedGraph(sourceNode *channeldb.LightningNode,
+	graph *channeldb.ChannelGraph) (*CachedGraph, error) {
+
+	tx, err := graph.NewPathFindTx()
 	if err != nil {
 		return nil, err
 	}
 
 	return &CachedGraph{
 		graph:  graph,
+		tx:     tx,
 		source: sourceNode.PubKeyBytes,
 	}, nil
+}
+
+// close attempts to close the underlying db transaction. This is a no-op in
+// case the underlying graph uses an in-memory cache.
+func (g *CachedGraph) close() error {
+	if g.tx == nil {
+		return nil
+	}
+
+	return g.tx.Rollback()
 }
 
 // forEachNodeChannel calls the callback for every channel of the given node.
@@ -52,7 +67,7 @@ func NewCachedGraph(graph *channeldb.ChannelGraph) (*CachedGraph, error) {
 func (g *CachedGraph) forEachNodeChannel(nodePub route.Vertex,
 	cb func(channel *channeldb.DirectedChannel) error) error {
 
-	return g.graph.ForEachNodeChannel(nodePub, cb)
+	return g.graph.ForEachNodeChannel(g.tx, nodePub, cb)
 }
 
 // sourceNode returns the source node of the graph.

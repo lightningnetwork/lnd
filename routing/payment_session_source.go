@@ -17,7 +17,10 @@ var _ PaymentSessionSource = (*SessionSource)(nil)
 type SessionSource struct {
 	// Graph is the channel graph that will be used to gather metrics from
 	// and also to carry out path finding queries.
-	Graph routingGraph
+	Graph *channeldb.ChannelGraph
+
+	// SourceNode is the graph's source node.
+	SourceNode *channeldb.LightningNode
 
 	// GetLink is a method that allows querying the lower link layer
 	// to determine the up to date available bandwidth at a prospective link
@@ -40,6 +43,21 @@ type SessionSource struct {
 	PathFindingConfig PathFindingConfig
 }
 
+// getRoutingGraph returns a routing graph and a clean-up function for
+// pathfinding.
+func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
+	routingTx, err := NewCachedGraph(m.SourceNode, m.Graph)
+	if err != nil {
+		return nil, nil, err
+	}
+	return routingTx, func() {
+		err := routingTx.close()
+		if err != nil {
+			log.Errorf("Error closing db tx: %v", err)
+		}
+	}, nil
+}
+
 // NewPaymentSession creates a new payment session backed by the latest prune
 // view from Mission Control. An optional set of routing hints can be provided
 // in order to populate additional edges to explore when finding a path to the
@@ -47,14 +65,14 @@ type SessionSource struct {
 func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 	PaymentSession, error) {
 
-	sourceNode := m.Graph.sourceNode()
-
-	getBandwidthHints := func() (bandwidthHints, error) {
-		return newBandwidthManager(m.Graph, sourceNode, m.GetLink)
+	getBandwidthHints := func(graph routingGraph) (bandwidthHints, error) {
+		return newBandwidthManager(
+			graph, m.SourceNode.PubKeyBytes, m.GetLink,
+		)
 	}
 
 	session, err := newPaymentSession(
-		p, getBandwidthHints, m.Graph,
+		p, getBandwidthHints, m.getRoutingGraph,
 		m.MissionControl, m.PathFindingConfig,
 	)
 	if err != nil {

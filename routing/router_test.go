@@ -129,11 +129,11 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	)
 	require.NoError(t, err, "failed to create missioncontrol")
 
-	cachedGraph, err := NewCachedGraph(graphInstance.graph)
+	sourceNode, err := graphInstance.graph.SourceNode()
 	require.NoError(t, err)
-
 	sessionSource := &SessionSource{
-		Graph:             cachedGraph,
+		Graph:             graphInstance.graph,
+		SourceNode:        sourceNode,
 		GetLink:           graphInstance.getLink,
 		PathFindingConfig: pathFindingConfig,
 		MissionControl:    mc,
@@ -190,7 +190,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 func createTestCtxSingleNode(t *testing.T,
 	startingHeight uint32) (*testCtx, func()) {
 
-	graph, graphBackend, cleanup, err := makeTestGraph()
+	graph, graphBackend, cleanup, err := makeTestGraph(true)
 	require.NoError(t, err, "failed to make test graph")
 
 	sourceNode, err := createTestNode()
@@ -216,7 +216,7 @@ func createTestCtxFromFile(t *testing.T,
 
 	// We'll attempt to locate and parse out the file
 	// that encodes the graph that our tests should be run against.
-	graphInstance, err := parseTestGraph(testGraph)
+	graphInstance, err := parseTestGraph(true, testGraph)
 	require.NoError(t, err, "unable to create test graph")
 
 	return createTestCtxFromGraphInstance(
@@ -387,7 +387,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 		}, 2),
 	}
 
-	testGraph, err := createTestGraphFromChannels(testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
 	require.NoError(t, err, "unable to create graph")
 	defer testGraph.cleanUp()
 
@@ -1246,7 +1246,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 	// Setup an initially empty network.
 	testChannels := []*testChannel{}
 	testGraph, err := createTestGraphFromChannels(
-		testChannels, "roasbeef",
+		true, testChannels, "roasbeef",
 	)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
@@ -2260,7 +2260,9 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 	for _, strictPruning := range []bool{true, false} {
 		// We'll create our test graph and router backed with these test
 		// channels we've created.
-		testGraph, err := createTestGraphFromChannels(testChannels, "a")
+		testGraph, err := createTestGraphFromChannels(
+			true, testChannels, "a",
+		)
 		if err != nil {
 			t.Fatalf("unable to create test graph: %v", err)
 		}
@@ -2390,7 +2392,9 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 
 	// We'll create our test graph and router backed with these test
 	// channels we've created.
-	testGraph, err := createTestGraphFromChannels(testChannels, "self")
+	testGraph, err := createTestGraphFromChannels(
+		true, testChannels, "self",
+	)
 	if err != nil {
 		t.Fatalf("unable to create test graph: %v", err)
 	}
@@ -2760,7 +2764,7 @@ func TestUnknownErrorSource(t *testing.T) {
 		}, 4),
 	}
 
-	testGraph, err := createTestGraphFromChannels(testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
 	defer testGraph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
@@ -2896,7 +2900,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 		}, 2),
 	}
 
-	testGraph, err := createTestGraphFromChannels(testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -3145,7 +3149,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 		}, 1),
 	}
 
-	testGraph, err := createTestGraphFromChannels(testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -3256,7 +3260,7 @@ func TestBuildRoute(t *testing.T) {
 		}, 4),
 	}
 
-	testGraph, err := createTestGraphFromChannels(testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -3496,7 +3500,7 @@ func createDummyTestGraph(t *testing.T) *testGraphInstance {
 		}, 2),
 	}
 
-	testGraph, err := createTestGraphFromChannels(testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
 	require.NoError(t, err, "failed to create graph")
 	return testGraph
 }

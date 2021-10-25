@@ -150,7 +150,9 @@ type testChan struct {
 // makeTestGraph creates a new instance of a channeldb.ChannelGraph for testing
 // purposes. A callback which cleans up the created temporary directories is
 // also returned and intended to be executed after the test completes.
-func makeTestGraph() (*channeldb.ChannelGraph, kvdb.Backend, func(), error) {
+func makeTestGraph(useCache bool) (*channeldb.ChannelGraph, kvdb.Backend,
+	func(), error) {
+
 	// First, create a temporary directory to be used for the duration of
 	// this test.
 	tempDirName, err := ioutil.TempDir("", "channeldb")
@@ -173,6 +175,7 @@ func makeTestGraph() (*channeldb.ChannelGraph, kvdb.Backend, func(), error) {
 	graph, err := channeldb.NewChannelGraph(
 		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
 		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
+		useCache,
 	)
 	if err != nil {
 		cleanUp()
@@ -184,7 +187,7 @@ func makeTestGraph() (*channeldb.ChannelGraph, kvdb.Backend, func(), error) {
 
 // parseTestGraph returns a fully populated ChannelGraph given a path to a JSON
 // file which encodes a test graph.
-func parseTestGraph(path string) (*testGraphInstance, error) {
+func parseTestGraph(useCache bool, path string) (*testGraphInstance, error) {
 	graphJSON, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -209,7 +212,7 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph, graphBackend, cleanUp, err := makeTestGraph()
+	graph, graphBackend, cleanUp, err := makeTestGraph(useCache)
 	if err != nil {
 		return nil, err
 	}
@@ -528,8 +531,8 @@ func (g *testGraphInstance) getLink(chanID lnwire.ShortChannelID) (
 // a deterministical way and added to the channel graph. A list of nodes is
 // not required and derived from the channel data. The goal is to keep
 // instantiating a test channel graph as light weight as possible.
-func createTestGraphFromChannels(testChannels []*testChannel, source string) (
-	*testGraphInstance, error) {
+func createTestGraphFromChannels(useCache bool, testChannels []*testChannel,
+	source string) (*testGraphInstance, error) {
 
 	// We'll use this fake address for the IP address of all the nodes in
 	// our tests. This value isn't needed for path finding so it doesn't
@@ -542,7 +545,7 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph, graphBackend, cleanUp, err := makeTestGraph()
+	graph, graphBackend, cleanUp, err := makeTestGraph(useCache)
 	if err != nil {
 		return nil, err
 	}
@@ -768,13 +771,106 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 	}, nil
 }
 
-// TestFindLowestFeePath tests that out of two routes with identical total
+// TestPathFinding tests all path finding related cases both with the in-memory
+// graph cached turned on and off.
+func TestPathFinding(t *testing.T) {
+	testCases := []struct {
+		name string
+		fn   func(t *testing.T, useCache bool)
+	}{{
+		name: "lowest fee path",
+		fn:   runFindLowestFeePath,
+	}, {
+		name: "basic graph path finding",
+		fn:   runBasicGraphPathFinding,
+	}, {
+		name: "path finding with additional edges",
+		fn:   runPathFindingWithAdditionalEdges,
+	}, {
+		name: "new route path too long",
+		fn:   runNewRoutePathTooLong,
+	}, {
+		name: "path not available",
+		fn:   runPathNotAvailable,
+	}, {
+		name: "destination tlv graph fallback",
+		fn:   runDestTLVGraphFallback,
+	}, {
+		name: "missing feature dependency",
+		fn:   runMissingFeatureDep,
+	}, {
+		name: "unknown required features",
+		fn:   runUnknownRequiredFeatures,
+	}, {
+		name: "destination payment address",
+		fn:   runDestPaymentAddr,
+	}, {
+		name: "path insufficient capacity",
+		fn:   runPathInsufficientCapacity,
+	}, {
+		name: "route fail min HTLC",
+		fn:   runRouteFailMinHTLC,
+	}, {
+		name: "route fail max HTLC",
+		fn:   runRouteFailMaxHTLC,
+	}, {
+		name: "route fail disabled edge",
+		fn:   runRouteFailDisabledEdge,
+	}, {
+		name: "path source edges bandwidth",
+		fn:   runPathSourceEdgesBandwidth,
+	}, {
+		name: "restrict outgoing channel",
+		fn:   runRestrictOutgoingChannel,
+	}, {
+		name: "restrict last hop",
+		fn:   runRestrictLastHop,
+	}, {
+		name: "CLTV limit",
+		fn:   runCltvLimit,
+	}, {
+		name: "probability routing",
+		fn:   runProbabilityRouting,
+	}, {
+		name: "equal cost route selection",
+		fn:   runEqualCostRouteSelection,
+	}, {
+		name: "no cycle",
+		fn:   runNoCycle,
+	}, {
+		name: "route to self",
+		fn:   runRouteToSelf,
+	}}
+
+	// Run with graph cache enabled.
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run("cache=true/"+tc.name, func(tt *testing.T) {
+			tt.Parallel()
+
+			tc.fn(tt, true)
+		})
+	}
+
+	// And with the DB fallback to make sure everything works the same
+	// still.
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run("cache=false/"+tc.name, func(tt *testing.T) {
+			tt.Parallel()
+
+			tc.fn(tt, false)
+		})
+	}
+}
+
+// runFindLowestFeePath tests that out of two routes with identical total
 // time lock values, the route with the lowest total fee should be returned.
 // The fee rates are chosen such that the test failed on the previous edge
 // weight function where one of the terms was fee squared.
-func TestFindLowestFeePath(t *testing.T) {
-	t.Parallel()
-
+func runFindLowestFeePath(t *testing.T, useCache bool) {
 	// Set up a test graph with two paths from roasbeef to target. Both
 	// paths have equal total time locks, but the path through b has lower
 	// fees (700 compared to 800 for the path through a).
@@ -811,7 +907,7 @@ func TestFindLowestFeePath(t *testing.T) {
 		}),
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "roasbeef")
 	defer ctx.cleanup()
 
 	const (
@@ -916,10 +1012,8 @@ var basicGraphPathFindingTests = []basicGraphPathFindingTestCase{
 		expectFailureNoPath: true,
 	}}
 
-func TestBasicGraphPathFinding(t *testing.T) {
-	t.Parallel()
-
-	testGraphInstance, err := parseTestGraph(basicGraphFilePath)
+func runBasicGraphPathFinding(t *testing.T, useCache bool) {
+	testGraphInstance, err := parseTestGraph(useCache, basicGraphFilePath)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -1091,14 +1185,12 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	}
 }
 
-// TestPathFindingWithAdditionalEdges asserts that we are able to find paths to
+// runPathFindingWithAdditionalEdges asserts that we are able to find paths to
 // nodes that do not exist in the graph by way of hop hints. We also test that
 // the path can support custom TLV records for the receiver under the
 // appropriate circumstances.
-func TestPathFindingWithAdditionalEdges(t *testing.T) {
-	t.Parallel()
-
-	graph, err := parseTestGraph(basicGraphFilePath)
+func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
+	graph, err := parseTestGraph(useCache, basicGraphFilePath)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -1502,9 +1594,7 @@ func TestNewRoute(t *testing.T) {
 	}
 }
 
-func TestNewRoutePathTooLong(t *testing.T) {
-	t.Parallel()
-
+func runNewRoutePathTooLong(t *testing.T, useCache bool) {
 	var testChannels []*testChannel
 
 	// Setup a linear network of 21 hops.
@@ -1522,7 +1612,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		fromNode = toNode
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "start")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "start")
 	defer ctx.cleanup()
 
 	// Assert that we can find 20 hop routes.
@@ -1552,10 +1642,8 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	}
 }
 
-func TestPathNotAvailable(t *testing.T) {
-	t.Parallel()
-
-	graph, err := parseTestGraph(basicGraphFilePath)
+func runPathNotAvailable(t *testing.T, useCache bool) {
+	graph, err := parseTestGraph(useCache, basicGraphFilePath)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -1587,12 +1675,10 @@ func TestPathNotAvailable(t *testing.T) {
 	}
 }
 
-// TestDestTLVGraphFallback asserts that we properly detect when we can send TLV
+// runDestTLVGraphFallback asserts that we properly detect when we can send TLV
 // records to a receiver, and also that we fallback to the receiver's node
 // announcement if we don't have an invoice features.
-func TestDestTLVGraphFallback(t *testing.T) {
-	t.Parallel()
-
+func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 	testChannels := []*testChannel{
 		asymmetricTestChannel("roasbeef", "luoji", 100000,
 			&testChannelPolicy{
@@ -1621,7 +1707,7 @@ func TestDestTLVGraphFallback(t *testing.T) {
 			}, 0),
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "roasbeef")
 	defer ctx.cleanup()
 
 	sourceNode, err := ctx.graph.SourceNode()
@@ -1689,12 +1775,10 @@ func TestDestTLVGraphFallback(t *testing.T) {
 	assertExpectedPath(t, ctx.testGraphInstance.aliasMap, path, "luoji")
 }
 
-// TestMissingFeatureDep asserts that we fail path finding when the
+// runMissingFeatureDep asserts that we fail path finding when the
 // destination's features are broken, in that the feature vector doesn't signal
 // all transitive dependencies.
-func TestMissingFeatureDep(t *testing.T) {
-	t.Parallel()
-
+func runMissingFeatureDep(t *testing.T, useCache bool) {
 	testChannels := []*testChannel{
 		asymmetricTestChannel("roasbeef", "conner", 100000,
 			&testChannelPolicy{
@@ -1728,7 +1812,7 @@ func TestMissingFeatureDep(t *testing.T) {
 		),
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "roasbeef")
 	defer ctx.cleanup()
 
 	// Conner's node in the graph has a broken feature vector, since it
@@ -1766,12 +1850,10 @@ func TestMissingFeatureDep(t *testing.T) {
 	}
 }
 
-// TestUnknownRequiredFeatures asserts that we fail path finding when the
+// runUnknownRequiredFeatures asserts that we fail path finding when the
 // destination requires an unknown required feature, and that we skip
 // intermediaries that signal unknown required features.
-func TestUnknownRequiredFeatures(t *testing.T) {
-	t.Parallel()
-
+func runUnknownRequiredFeatures(t *testing.T, useCache bool) {
 	testChannels := []*testChannel{
 		asymmetricTestChannel("roasbeef", "conner", 100000,
 			&testChannelPolicy{
@@ -1805,7 +1887,7 @@ func TestUnknownRequiredFeatures(t *testing.T) {
 		),
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "roasbeef")
 	defer ctx.cleanup()
 
 	conner := ctx.keyFromAlias("conner")
@@ -1832,12 +1914,10 @@ func TestUnknownRequiredFeatures(t *testing.T) {
 	}
 }
 
-// TestDestPaymentAddr asserts that we properly detect when we can send a
+// runDestPaymentAddr asserts that we properly detect when we can send a
 // payment address to a receiver, and also that we fallback to the receiver's
 // node announcement if we don't have an invoice features.
-func TestDestPaymentAddr(t *testing.T) {
-	t.Parallel()
-
+func runDestPaymentAddr(t *testing.T, useCache bool) {
 	testChannels := []*testChannel{
 		symmetricTestChannel("roasbeef", "luoji", 100000,
 			&testChannelPolicy{
@@ -1849,7 +1929,7 @@ func TestDestPaymentAddr(t *testing.T) {
 		),
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "roasbeef")
 	defer ctx.cleanup()
 
 	luoji := ctx.keyFromAlias("luoji")
@@ -1877,10 +1957,8 @@ func TestDestPaymentAddr(t *testing.T) {
 	assertExpectedPath(t, ctx.testGraphInstance.aliasMap, path, "luoji")
 }
 
-func TestPathInsufficientCapacity(t *testing.T) {
-	t.Parallel()
-
-	graph, err := parseTestGraph(basicGraphFilePath)
+func runPathInsufficientCapacity(t *testing.T, useCache bool) {
+	graph, err := parseTestGraph(useCache, basicGraphFilePath)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -1912,12 +1990,10 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	}
 }
 
-// TestRouteFailMinHTLC tests that if we attempt to route an HTLC which is
+// runRouteFailMinHTLC tests that if we attempt to route an HTLC which is
 // smaller than the advertised minHTLC of an edge, then path finding fails.
-func TestRouteFailMinHTLC(t *testing.T) {
-	t.Parallel()
-
-	graph, err := parseTestGraph(basicGraphFilePath)
+func runRouteFailMinHTLC(t *testing.T, useCache bool) {
+	graph, err := parseTestGraph(useCache, basicGraphFilePath)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -1943,11 +2019,9 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	}
 }
 
-// TestRouteFailMaxHTLC tests that if we attempt to route an HTLC which is
+// runRouteFailMaxHTLC tests that if we attempt to route an HTLC which is
 // larger than the advertised max HTLC of an edge, then path finding fails.
-func TestRouteFailMaxHTLC(t *testing.T) {
-	t.Parallel()
-
+func runRouteFailMaxHTLC(t *testing.T, useCache bool) {
 	// Set up a test graph:
 	// roasbeef <--> firstHop <--> secondHop <--> target
 	// We will be adjusting the max HTLC of the edge between the first and
@@ -1974,7 +2048,7 @@ func TestRouteFailMaxHTLC(t *testing.T) {
 		}),
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "roasbeef")
 	defer ctx.cleanup()
 
 	// First, attempt to send a payment greater than the max HTLC we are
@@ -2007,15 +2081,13 @@ func TestRouteFailMaxHTLC(t *testing.T) {
 	}
 }
 
-// TestRouteFailDisabledEdge tests that if we attempt to route to an edge
+// runRouteFailDisabledEdge tests that if we attempt to route to an edge
 // that's disabled, then that edge is disqualified, and the routing attempt
 // will fail. We also test that this is true only for non-local edges, as we'll
 // ignore the disable flags, with the assumption that the correct bandwidth is
 // found among the bandwidth hints.
-func TestRouteFailDisabledEdge(t *testing.T) {
-	t.Parallel()
-
-	graph, err := parseTestGraph(basicGraphFilePath)
+func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
+	graph, err := parseTestGraph(useCache, basicGraphFilePath)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -2089,13 +2161,11 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	}
 }
 
-// TestPathSourceEdgesBandwidth tests that explicitly passing in a set of
+// runPathSourceEdgesBandwidth tests that explicitly passing in a set of
 // bandwidth hints is used by the path finding algorithm to consider whether to
 // use a local channel.
-func TestPathSourceEdgesBandwidth(t *testing.T) {
-	t.Parallel()
-
-	graph, err := parseTestGraph(basicGraphFilePath)
+func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
+	graph, err := parseTestGraph(useCache, basicGraphFilePath)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -2390,11 +2460,9 @@ func TestNewRouteFromEmptyHops(t *testing.T) {
 	}
 }
 
-// TestRestrictOutgoingChannel asserts that a outgoing channel restriction is
+// runRestrictOutgoingChannel asserts that a outgoing channel restriction is
 // obeyed by the path finding algorithm.
-func TestRestrictOutgoingChannel(t *testing.T) {
-	t.Parallel()
-
+func runRestrictOutgoingChannel(t *testing.T, useCache bool) {
 	// Define channel id constants
 	const (
 		chanSourceA      = 1
@@ -2430,7 +2498,7 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 		}, chanSourceTarget),
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "roasbeef")
 	defer ctx.cleanup()
 
 	const (
@@ -2473,11 +2541,9 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 	}
 }
 
-// TestRestrictLastHop asserts that a last hop restriction is obeyed by the path
+// runRestrictLastHop asserts that a last hop restriction is obeyed by the path
 // finding algorithm.
-func TestRestrictLastHop(t *testing.T) {
-	t.Parallel()
-
+func runRestrictLastHop(t *testing.T, useCache bool) {
 	// Set up a test graph with three possible paths from roasbeef to
 	// target. The path via channel 1 and 2 is the lowest cost path.
 	testChannels := []*testChannel{
@@ -2497,7 +2563,7 @@ func TestRestrictLastHop(t *testing.T) {
 		}, 4),
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "source")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "source")
 	defer ctx.cleanup()
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
@@ -2518,15 +2584,23 @@ func TestRestrictLastHop(t *testing.T) {
 	}
 }
 
-// TestCltvLimit asserts that a cltv limit is obeyed by the path finding
+// runCltvLimit asserts that a cltv limit is obeyed by the path finding
 // algorithm.
-func TestCltvLimit(t *testing.T) {
-	t.Run("no limit", func(t *testing.T) { testCltvLimit(t, 2016, 1) })
-	t.Run("no path", func(t *testing.T) { testCltvLimit(t, 50, 0) })
-	t.Run("force high cost", func(t *testing.T) { testCltvLimit(t, 80, 3) })
+func runCltvLimit(t *testing.T, useCache bool) {
+	t.Run("no limit", func(t *testing.T) {
+		testCltvLimit(t, useCache, 2016, 1)
+	})
+	t.Run("no path", func(t *testing.T) {
+		testCltvLimit(t, useCache, 50, 0)
+	})
+	t.Run("force high cost", func(t *testing.T) {
+		testCltvLimit(t, useCache, 80, 3)
+	})
 }
 
-func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
+func testCltvLimit(t *testing.T, useCache bool, limit uint32,
+	expectedChannel uint64) {
+
 	t.Parallel()
 
 	// Set up a test graph with three possible paths to the target. The path
@@ -2560,7 +2634,7 @@ func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
 		}),
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "roasbeef")
 	defer ctx.cleanup()
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
@@ -2603,11 +2677,9 @@ func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
 	}
 }
 
-// TestProbabilityRouting asserts that path finding not only takes into account
+// runProbabilityRouting asserts that path finding not only takes into account
 // fees but also success probability.
-func TestProbabilityRouting(t *testing.T) {
-	t.Parallel()
-
+func runProbabilityRouting(t *testing.T, useCache bool) {
 	testCases := []struct {
 		name           string
 		p10, p11, p20  float64
@@ -2693,15 +2765,16 @@ func TestProbabilityRouting(t *testing.T) {
 
 		t.Run(tc.name, func(t *testing.T) {
 			testProbabilityRouting(
-				t, tc.amount, tc.p10, tc.p11, tc.p20,
+				t, useCache, tc.amount, tc.p10, tc.p11, tc.p20,
 				tc.minProbability, tc.expectedChan,
 			)
 		})
 	}
 }
 
-func testProbabilityRouting(t *testing.T, paymentAmt btcutil.Amount,
-	p10, p11, p20, minProbability float64, expectedChan uint64) {
+func testProbabilityRouting(t *testing.T, useCache bool,
+	paymentAmt btcutil.Amount, p10, p11, p20, minProbability float64,
+	expectedChan uint64) {
 
 	t.Parallel()
 
@@ -2728,7 +2801,7 @@ func testProbabilityRouting(t *testing.T, paymentAmt btcutil.Amount,
 		}, 20),
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "roasbeef")
 	defer ctx.cleanup()
 
 	alias := ctx.testGraphInstance.aliasMap
@@ -2782,11 +2855,9 @@ func testProbabilityRouting(t *testing.T, paymentAmt btcutil.Amount,
 	}
 }
 
-// TestEqualCostRouteSelection asserts that route probability will be used as a
+// runEqualCostRouteSelection asserts that route probability will be used as a
 // tie breaker in case the path finding probabilities are equal.
-func TestEqualCostRouteSelection(t *testing.T) {
-	t.Parallel()
-
+func runEqualCostRouteSelection(t *testing.T, useCache bool) {
 	// Set up a test graph with two possible paths to the target: via a and
 	// via b. The routing fees and probabilities are chosen such that the
 	// algorithm will first explore target->a->source (backwards search).
@@ -2811,7 +2882,7 @@ func TestEqualCostRouteSelection(t *testing.T) {
 		}, 2),
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "source")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "source")
 	defer ctx.cleanup()
 
 	alias := ctx.testGraphInstance.aliasMap
@@ -2848,11 +2919,9 @@ func TestEqualCostRouteSelection(t *testing.T) {
 	}
 }
 
-// TestNoCycle tries to guide the path finding algorithm into reconstructing an
+// runNoCycle tries to guide the path finding algorithm into reconstructing an
 // endless route. It asserts that the algorithm is able to handle this properly.
-func TestNoCycle(t *testing.T) {
-	t.Parallel()
-
+func runNoCycle(t *testing.T, useCache bool) {
 	// Set up a test graph with two paths: source->a->target and
 	// source->b->c->target. The fees are setup such that, searching
 	// backwards, the algorithm will evaluate the following end of the route
@@ -2882,7 +2951,7 @@ func TestNoCycle(t *testing.T) {
 		}, 5),
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "source")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "source")
 	defer ctx.cleanup()
 
 	const (
@@ -2922,10 +2991,8 @@ func TestNoCycle(t *testing.T) {
 	}
 }
 
-// TestRouteToSelf tests that it is possible to find a route to the self node.
-func TestRouteToSelf(t *testing.T) {
-	t.Parallel()
-
+// runRouteToSelf tests that it is possible to find a route to the self node.
+func runRouteToSelf(t *testing.T, useCache bool) {
 	testChannels := []*testChannel{
 		symmetricTestChannel("source", "a", 100000, &testChannelPolicy{
 			Expiry:      144,
@@ -2941,7 +3008,7 @@ func TestRouteToSelf(t *testing.T) {
 		}, 3),
 	}
 
-	ctx := newPathFindingTestContext(t, testChannels, "source")
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "source")
 	defer ctx.cleanup()
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
@@ -2979,11 +3046,11 @@ type pathFindingTestContext struct {
 	source            route.Vertex
 }
 
-func newPathFindingTestContext(t *testing.T, testChannels []*testChannel,
-	source string) *pathFindingTestContext {
+func newPathFindingTestContext(t *testing.T, useCache bool,
+	testChannels []*testChannel, source string) *pathFindingTestContext {
 
 	testGraphInstance, err := createTestGraphFromChannels(
-		testChannels, source,
+		useCache, testChannels, source,
 	)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
@@ -3059,10 +3126,21 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 	source, target route.Vertex, amt lnwire.MilliSatoshi,
 	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
 
-	routingGraph, err := NewCachedGraph(graph)
+	sourceNode, err := graph.SourceNode()
 	if err != nil {
 		return nil, err
 	}
+
+	routingGraph, err := NewCachedGraph(sourceNode, graph)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		if err := routingGraph.close(); err != nil {
+			log.Errorf("Error closing db tx: %v", err)
+		}
+	}()
 
 	return findPath(
 		&graphParams{

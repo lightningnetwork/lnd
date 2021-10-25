@@ -1298,7 +1298,7 @@ func (n *NetworkHarness) WaitForChannelClose(
 		closeFin, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ChanClose)
 		if !ok {
 			errChan <- fmt.Errorf("expected channel close update, "+
-				"instead got %v", closeFin)
+				"instead got %v", closeResp)
 			return
 		}
 

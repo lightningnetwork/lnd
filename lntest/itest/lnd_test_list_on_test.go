@@ -275,6 +275,12 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSwitchOfflineDeliveryOutgoingOffline,
 	},
 
+	// Revocation related tests.
+	{
+		Name:     "revoked uncooperative close retribution",
+		TestFunc: testRevokedCloseRetribution,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
@@ -283,12 +289,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "derive shared key",
 	// 	test: testDeriveSharedKey,
-	// },
-	// {
-	// 	// TODO(roasbeef): test always needs to be last as Bob's state
-	// 	// is borked since we trick him into attempting to cheat Alice?
-	// 	name: "revoked uncooperative close retribution",
-	// 	test: testRevokedCloseRetribution,
 	// },
 	// {
 	// 	name: "revoked uncooperative close retribution zero value remote output",

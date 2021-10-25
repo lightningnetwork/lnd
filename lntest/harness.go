@@ -1351,6 +1351,23 @@ func (h *HarnessTest) AssertChannelPolicyUpdate(node *HarnessNode,
 	)
 }
 
+// WaitForChannelClose will consume a close channel stream and asserts the
+// channel is closed, return the closing txid if succeeded.
+func (h *HarnessTest) WaitForChannelClose(
+	closeUpdates CloseChanClient) *chainhash.Hash {
+
+	var txid *chainhash.Hash
+
+	err := wait.NoError(func() error {
+		closingTxid, err := h.net.WaitForChannelClose(closeUpdates)
+		txid = closingTxid
+		return err
+	}, ChannelCloseTimeout)
+	require.NoError(h, err, "error while waiting for channel close")
+
+	return txid
+}
+
 // assertChannelClosed asserts that the channel is properly cleaned up after
 // initiating a cooperative or local close.
 func (h *HarnessTest) assertChannelClosed(hn *HarnessNode,
@@ -1401,15 +1418,13 @@ func (h *HarnessTest) assertChannelClosed(hn *HarnessNode,
 
 	block := h.MineBlocksAndAssertTx(1, expectedTxes)[0]
 
-	closingTxid, err := h.net.WaitForChannelClose(closeUpdates)
-	require.NoError(h, err, "error while waiting for channel close")
-
+	closingTxid := h.WaitForChannelClose(closeUpdates)
 	h.AssertTxInBlock(block, closingTxid)
 
 	// Finally, the transaction should no longer be in the waiting close
 	// state as we've just mined a block that should include the closing
 	// transaction.
-	err = wait.NoError(func() error {
+	err := wait.NoError(func() error {
 		pendingChanResp := h.GetPendingChannels(hn)
 
 		for _, pending := range pendingChanResp.WaitingCloseChannels {

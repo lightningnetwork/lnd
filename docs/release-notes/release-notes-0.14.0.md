@@ -534,6 +534,10 @@ messages directly. There is no routing/path finding involved.
 * [Dedup stored peer addresses before creating connection requests to prevent
   redundant connection requests](https://github.com/lightningnetwork/lnd/pull/5839)
 
+* A [`concurrent map writes` crash was
+  fixed](https://github.com/lightningnetwork/lnd/pull/5893) in the
+ [`btcwallet` dependency](https://github.com/btcsuite/btcwallet/pull/773).
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

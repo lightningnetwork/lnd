@@ -280,6 +280,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "revoked uncooperative close retribution",
 		TestFunc: testRevokedCloseRetribution,
 	},
+	{
+		Name:     "revoked uncooperative close retribution zero value remote output",
+		TestFunc: testRevokedCloseRetributionZeroValueRemoteOutput,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
@@ -289,10 +293,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "derive shared key",
 	// 	test: testDeriveSharedKey,
-	// },
-	// {
-	// 	name: "revoked uncooperative close retribution zero value remote output",
-	// 	test: testRevokedCloseRetributionZeroValueRemoteOutput,
 	// },
 	// {
 	// 	name: "revoked uncooperative close retribution remote hodl",

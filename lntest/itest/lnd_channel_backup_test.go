@@ -145,9 +145,7 @@ func testChannelBackupRestore(ht *lntest.HarnessTest) {
 						copyPorts(oldNode),
 					)
 
-					st.RestartNode(
-						newNode, nil, backupSnapshot,
-					)
+					st.RestartNode(newNode, backupSnapshot)
 
 					return newNode
 				}
@@ -1227,11 +1225,7 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 		// current most up to date state. With this, we essentially
 		// force the node to travel back in time within the channel's
 		// history.
-		// TODO(yy): change the callback signature.
-		ht.RestartNode(node, func() error {
-			ht.RestoreDb(node)
-			return nil
-		})
+		ht.RestartNodeAndRestoreDb(node)
 
 		// Make sure the channel is still there from the PoV of the
 		// node.
@@ -1388,7 +1382,7 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 
 	// Restart Dave to make sure he is able to sweep the funds after
 	// shutdown.
-	ht.RestartNode(dave, nil)
+	ht.RestartNode(dave)
 
 	// Generate a single block, which should confirm the closing tx.
 	ht.MineBlocksAndAssertTx(1, expectedTxes)

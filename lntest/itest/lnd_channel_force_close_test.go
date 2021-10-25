@@ -361,7 +361,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// state when the system comes back on line. This restart tests state
 	// persistence at the beginning of the process, when the commitment
 	// transaction has been broadcast but not yet confirmed in a block.
-	ht.RestartNode(alice, nil)
+	ht.RestartNode(alice)
 
 	// To give the neutrino backend some time to catch up with the chain, we
 	// wait here until we have enough UTXOs to actually sweep the local and
@@ -451,7 +451,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// force close commitment transaction have been persisted once the
 	// transaction has been confirmed, but before the outputs are spendable
 	// (the "kindergarten" bucket.)
-	ht.RestartNode(alice, nil)
+	ht.RestartNode(alice)
 
 	// Carol's sweep tx should be in the mempool already, as her output is
 	// not timelocked. If there are anchors, we also expect Carol's anchor
@@ -495,7 +495,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// The following restart checks to ensure that outputs in the
 	// kindergarten bucket are persisted while waiting for the required
 	// number of confirmations to be reported.
-	ht.RestartNode(alice, nil)
+	ht.RestartNode(alice)
 
 	// Alice should see the channel in her set of pending force closed
 	// channels with her funds still in limbo.
@@ -587,7 +587,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Restart Alice to ensure that she resumes watching the finalized
 	// commitment sweep txid.
-	ht.RestartNode(alice, nil)
+	ht.RestartNode(alice)
 
 	// Next, we mine an additional block which should include the sweep
 	// transaction as the input scripts and the sequence locks on the
@@ -646,7 +646,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// We now restart Alice, to ensure that she will broadcast the presigned
 	// htlc timeout txns after the delay expires after experiencing a while
 	// waiting for the htlc outputs to incubate.
-	ht.RestartNode(alice, nil)
+	ht.RestartNode(alice)
 
 	// Alice should now see the channel in her set of pending force closed
 	// channels with one pending HTLC.
@@ -801,7 +801,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// With the htlc timeout txns still in the mempool, we restart Alice to
 	// verify that she can resume watching the htlc txns she broadcasted
 	// before crashing.
-	ht.RestartNode(alice, nil)
+	ht.RestartNode(alice)
 
 	// Generate a block that mines the htlc timeout txns. Doing so now
 	// activates the 2nd-stage CSV delayed outputs.
@@ -810,7 +810,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// Alice is restarted here to ensure that she promptly moved the crib
 	// outputs to the kindergarten bucket after the htlc timeout txns were
 	// confirmed.
-	ht.RestartNode(alice, nil)
+	ht.RestartNode(alice)
 
 	// Advance the chain until just before the 2nd-layer CSV delays expire.
 	// For anchor channels thhis is one block earlier.
@@ -822,7 +822,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Restart Alice to ensure that she can recover from a failure before
 	// having graduated the htlc outputs in the kindergarten bucket.
-	ht.RestartNode(alice, nil)
+	ht.RestartNode(alice)
 
 	// Now that the channel has been fully swept, it should no longer show
 	// incubated, check to see that Alice's node still reports the channel
@@ -902,7 +902,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// The following restart checks to ensure that the nursery store is
 	// storing the txid of the previously broadcast htlc sweep txn, and that
 	// it begins watching that txid after restarting.
-	ht.RestartNode(alice, nil)
+	ht.RestartNode(alice)
 
 	// Now that the channel has been fully swept, it should no longer show
 	// incubated, check to see that Alice's node still reports the channel

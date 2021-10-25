@@ -113,7 +113,7 @@ func testPaymentFollowingChannelOpen(ht *lntest.HarnessTest) {
 
 	// We are restarting Bob's node to let the link be created for the
 	// pending channel.
-	ht.RestartNode(bob, nil)
+	ht.RestartNode(bob)
 
 	// We ensure that Bob reconnects to Alice.
 	ht.EnsureConnected(bob, alice)

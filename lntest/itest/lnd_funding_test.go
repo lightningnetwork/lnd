@@ -606,8 +606,8 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 
 	// Restart both nodes to test that the appropriate state has been
 	// persisted and that both nodes recover gracefully.
-	ht.RestartNode(alice, nil)
-	ht.RestartNode(carol, nil)
+	ht.RestartNode(alice)
+	ht.RestartNode(carol)
 
 	fundingTxID, err := chainhash.NewHash(pendingUpdate.Txid)
 	require.NoError(ht, err, "unable to convert funding txid "+
@@ -625,8 +625,8 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 
 	// Restart both nodes to test that the appropriate state has been
 	// persisted and that both nodes recover gracefully.
-	ht.RestartNode(alice, nil)
-	ht.RestartNode(carol, nil)
+	ht.RestartNode(alice)
+	ht.RestartNode(carol)
 
 	// The following block ensures that after both nodes have restarted,
 	// they have reconnected before the execution of the next test.

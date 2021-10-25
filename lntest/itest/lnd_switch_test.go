@@ -29,9 +29,9 @@ func testSwitchCircuitPersistence(ht *lntest.HarnessTest) {
 	defer s.cleanUp()
 
 	// Restart the intermediaries and the sender.
-	ht.RestartNode(s.dave, nil)
-	ht.RestartNode(s.alice, nil)
-	ht.RestartNode(s.bob, nil)
+	ht.RestartNode(s.dave)
+	ht.RestartNode(s.alice)
+	ht.RestartNode(s.bob)
 
 	// Ensure all of the intermediate links are reconnected.
 	ht.EnsureConnected(s.alice, s.dave)
@@ -43,7 +43,7 @@ func testSwitchCircuitPersistence(ht *lntest.HarnessTest) {
 	// Now restart carol without hodl mode, to settle back the outstanding
 	// payments.
 	s.carol.SetExtraArgs(nil)
-	ht.RestartNode(s.carol, nil)
+	ht.RestartNode(s.carol)
 
 	ht.EnsureConnected(s.dave, s.carol)
 
@@ -116,7 +116,7 @@ func testSwitchOfflineDelivery(ht *lntest.HarnessTest) {
 	// Now restart carol without hodl mode, to settle back the outstanding
 	// payments.
 	s.carol.SetExtraArgs(nil)
-	ht.RestartNode(s.carol, nil)
+	ht.RestartNode(s.carol)
 
 	// Wait for Carol to report no outstanding htlcs.
 	ht.AssertNumActiveHtlcs(s.carol, 0)
@@ -184,7 +184,7 @@ func testSwitchOfflineDeliveryPersistence(ht *lntest.HarnessTest) {
 	// Now restart carol without hodl mode, to settle back the outstanding
 	// payments.
 	s.carol.SetExtraArgs(nil)
-	ht.RestartNode(s.carol, nil)
+	ht.RestartNode(s.carol)
 
 	// Make Carol and Dave are reconnected before waiting for the htlcs to
 	// clear.
@@ -201,7 +201,7 @@ func testSwitchOfflineDeliveryPersistence(ht *lntest.HarnessTest) {
 
 	// Finally, restart dave who received the settles, but was unable to
 	// deliver them to Alice since they were disconnected.
-	ht.RestartNode(s.dave, nil)
+	ht.RestartNode(s.dave)
 	require.NoErrorf(ht, restartAlice(), "restart alice failed")
 
 	// Force Dave and Alice to reconnect before waiting for the htlcs to
@@ -273,7 +273,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(ht *lntest.HarnessTest) {
 	// Now restart carol without hodl mode, to settle back the outstanding
 	// payments.
 	s.carol.SetExtraArgs(nil)
-	ht.RestartNode(s.carol, nil)
+	ht.RestartNode(s.carol)
 
 	// Wait for Carol to report no outstanding htlcs.
 	ht.AssertNumActiveHtlcs(s.carol, 0)
@@ -301,7 +301,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(ht *lntest.HarnessTest) {
 
 	// Now restart Dave, ensuring he is both persisting the settles, and is
 	// able to reforward them to Alice after recovering from a restart.
-	ht.RestartNode(s.dave, nil)
+	ht.RestartNode(s.dave)
 	require.NoErrorf(ht, restartAlice(), "restart alice failed")
 
 	// Ensure that Dave is reconnected to Alice before waiting for the

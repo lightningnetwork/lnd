@@ -215,7 +215,7 @@ func testSphinxReplayPersistence(ht *lntest.HarnessTest) {
 	// With the first payment sent, restart dave to make sure he is
 	// persisting the information required to detect replayed sphinx
 	// packets.
-	ht.RestartNode(dave, nil)
+	ht.RestartNode(dave)
 
 	// Carol should retransmit the Add hedl in her mailbox on startup. Dave
 	// should not accept the replayed Add, and actually fail back the
@@ -490,15 +490,15 @@ func testGarbageCollectLinkNodes(ht *lntest.HarnessTest) {
 
 	// Restart both Bob and Carol to ensure Alice is able to reconnect to
 	// them.
-	ht.RestartNode(bob, nil)
-	ht.RestartNode(carol, nil)
+	ht.RestartNode(bob)
+	ht.RestartNode(carol)
 
 	ht.AssertConnected(alice, bob)
 	ht.AssertConnected(alice, carol)
 
 	// We'll also restart Alice to ensure she can reconnect to her peers
 	// with open channels.
-	ht.RestartNode(alice, nil)
+	ht.RestartNode(alice)
 
 	ht.AssertConnected(alice, bob)
 	ht.AssertConnected(alice, carol)
@@ -511,14 +511,14 @@ func testGarbageCollectLinkNodes(ht *lntest.HarnessTest) {
 	// channel together.
 	testReconnection := func(node *lntest.HarnessNode) {
 		// Restart both nodes, to trigger the pruning logic.
-		ht.RestartNode(node, nil)
-		ht.RestartNode(alice, nil)
+		ht.RestartNode(node)
+		ht.RestartNode(alice)
 
 		// Now restart both nodes and make sure they don't reconnect.
-		ht.RestartNode(node, nil)
+		ht.RestartNode(node)
 		ht.AssertNotConnected(alice, node)
 
-		ht.RestartNode(alice, nil)
+		ht.RestartNode(alice)
 		ht.AssertConnected(alice, dave)
 		ht.AssertNotConnected(alice, node)
 	}

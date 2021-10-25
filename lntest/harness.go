@@ -1921,10 +1921,18 @@ func (h *HarnessTest) AbandonChannel(hn *HarnessNode,
 }
 
 // RestartNode restarts a given node and asserts.
-func (h *HarnessTest) RestartNode(hn *HarnessNode, callback func() error,
+func (h *HarnessTest) RestartNode(hn *HarnessNode,
 	chanBackups ...*lnrpc.ChanBackupSnapshot) {
 
-	err := h.net.RestartNode(hn, callback, chanBackups...)
+	err := h.net.RestartNode(hn, nil, chanBackups...)
+	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
+}
+
+// RestartNodeAndRestoreDb restarts a given node with a callback to restore the
+// db.
+func (h *HarnessTest) RestartNodeAndRestoreDb(hn *HarnessNode) {
+	cb := func() error { return h.net.RestoreDb(hn) }
+	err := h.net.RestartNode(hn, cb)
 	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
 }
 

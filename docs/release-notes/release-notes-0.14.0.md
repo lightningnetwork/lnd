@@ -331,6 +331,8 @@ messages directly. There is no routing/path finding involved.
   add MacChan field for passing back lnd's admin macaroon back to the program 
   calling lnd, when needed.
 
+* Using `go get` to install go executables is now deprecated. Migrate to `go install` our lnrpc proto dockerfile [Migrate `go get` to `go install`](https://github.com/lightningnetwork/lnd/pull/5879)
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes
@@ -544,6 +546,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * Harsha Goli
 * Jesse de Wit
 * Joost Jager
+* Jordi Montes
 * Martin Habovstiak
 * Naveen Srinivasan
 * Oliver Gugger

@@ -312,7 +312,7 @@ func assertTxInBlock(t *harnessTest, block *wire.MsgBlock, txid *chainhash.Hash)
 	t.Fatalf("tx was not included in block")
 }
 
-func assertWalletUnspent(t *harnessTest, node *lntest.HarnessNode, out *lnrpc.OutPoint) {
+func assertWalletUnspentOld(t *harnessTest, node *lntest.HarnessNode, out *lnrpc.OutPoint) {
 	t.t.Helper()
 
 	err := wait.NoError(func() error {

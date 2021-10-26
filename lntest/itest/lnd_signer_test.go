@@ -376,11 +376,12 @@ func assertSignOutputRaw(t *harnessTest, net *lntest.NetworkHarness,
 	p2wkhOutputIndex := getOutputIndex(
 		t, net.Miner, txid, p2wkhAdrr.String(),
 	)
+
 	op := &lnrpc.OutPoint{
 		TxidBytes:   txid[:],
 		OutputIndex: uint32(p2wkhOutputIndex),
 	}
-	assertWalletUnspent(t, alice, op)
+	assertWalletUnspentOld(t, alice, op)
 
 	// Mine another block to clean up the mempool and to make sure the spend
 	// tx is actually included in a block.

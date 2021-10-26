@@ -94,7 +94,7 @@ func testTaprootComputeInputScriptKeySpendBip86(ctxt context.Context,
 		TxidBytes:   txid[:],
 		OutputIndex: uint32(p2trOutputIndex),
 	}
-	assertWalletUnspent(t, alice, op)
+	assertWalletUnspentOld(t, alice, op)
 
 	// Mine a block to clean up the mempool.
 	mineBlocks(t, net, 1, 1)
@@ -1183,7 +1183,7 @@ func confirmAddress(ctx context.Context, t *harnessTest,
 		TxidBytes:   txid[:],
 		OutputIndex: uint32(addrOutputIndex),
 	}
-	assertWalletUnspent(t, node, op)
+	assertWalletUnspentOld(t, node, op)
 
 	// Before we confirm the transaction, let's register a confirmation
 	// listener for it, which we expect to fire after mining a block.

@@ -3333,3 +3333,31 @@ func (h *HarnessTest) DeriveSharedKeyErr(hn *HarnessNode,
 	require.Error(h, err, "expected error from calling DeriveSharedKey")
 	return err
 }
+
+// BumpFee makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessTest) BumpFee(hn *HarnessNode,
+	req *walletrpc.BumpFeeRequest) *walletrpc.BumpFeeResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.WalletKit.BumpFee(ctxt, req)
+	require.NoError(h, err, "unable to bump fee")
+
+	return resp
+}
+
+// PendingSweeps makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessTest) PendingSweeps(
+	hn *HarnessNode) *walletrpc.PendingSweepsResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &walletrpc.PendingSweepsRequest{}
+
+	resp, err := hn.rpc.WalletKit.PendingSweeps(ctxt, req)
+	require.NoError(h, err, "unable to get pending sweeps")
+
+	return resp
+}

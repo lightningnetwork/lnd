@@ -305,14 +305,15 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testHoldInvoiceForceClose,
 	},
 
+	// Anchor related tests.
+	{
+		Name:     "cpfp",
+		TestFunc: testCPFP,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// // TODO(roasbeef): multi-path integration test
-	// {
-	// 	name: "cpfp",
-	// 	test: testCPFP,
 	// },
 	// {
 	// 	name: "anchors reserved value",

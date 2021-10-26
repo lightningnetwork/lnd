@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -22,35 +24,25 @@ import (
 // rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction.
 //
 // TODO(wilmer): Add RBF case once btcd supports it.
-func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
-	runCPFP(net, t, net.Alice, net.Bob)
+func testCPFP(ht *lntest.HarnessTest) {
+	runCPFP(ht, ht.Alice(), ht.Bob())
 }
 
 // runCPFP ensures that the daemon can bump an unconfirmed  transaction's fee
 // rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction.
-func runCPFP(net *lntest.NetworkHarness, t *harnessTest,
-	alice, bob *lntest.HarnessNode) {
-
+func runCPFP(ht *lntest.HarnessTest, alice, bob *lntest.HarnessNode) {
 	// Skip this test for neutrino, as it's not aware of mempool
 	// transactions.
-	if net.BackendCfg.Name() == lntest.NeutrinoBackendName {
-		t.Skipf("skipping CPFP test for neutrino backend")
+	if ht.IsNeutrinoBackend() {
+		ht.Skipf("skipping CPFP test for neutrino backend")
 	}
 
-	// We'll start the test by sending Alice some coins, which she'll use to
-	// send to Bob.
-	ctxb := context.Background()
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
+	// We'll start the test by sending Alice some coins, which she'll use
+	// to send to Bob.
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
 
 	// Create an address for Bob to send the coins to.
-	addrReq := &lnrpc.NewAddressRequest{
-		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
-	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := bob.NewAddress(ctxt, addrReq)
-	if err != nil {
-		t.Fatalf("unable to get new address for bob: %v", err)
-	}
+	resp := ht.NewAddress(bob, lnrpc.AddressType_WITNESS_PUBKEY_HASH)
 
 	// Send the coins from Alice to Bob. We should expect a transaction to
 	// be broadcast and seen in the mempool.
@@ -58,46 +50,33 @@ func runCPFP(net *lntest.NetworkHarness, t *harnessTest,
 		Addr:   resp.Address,
 		Amount: btcutil.SatoshiPerBitcoin,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if _, err = alice.SendCoins(ctxt, sendReq); err != nil {
-		t.Fatalf("unable to send coins to bob: %v", err)
-	}
-
-	txid, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("expected one mempool transaction: %v", err)
-	}
+	ht.SendCoinFromNode(alice, sendReq)
+	txid := ht.AssertNumTxsInMempool(1)[0]
 
 	// We'll then extract the raw transaction from the mempool in order to
 	// determine the index of Bob's output.
-	tx, err := net.Miner.Client.GetRawTransaction(txid)
-	if err != nil {
-		t.Fatalf("unable to extract raw transaction from mempool: %v",
-			err)
-	}
+	tx := ht.GetRawTransaction(txid)
 	bobOutputIdx := -1
 	for i, txOut := range tx.MsgTx().TxOut {
 		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-			txOut.PkScript, net.Miner.ActiveNet,
+			txOut.PkScript, ht.Miner().ActiveNet,
 		)
-		if err != nil {
-			t.Fatalf("unable to extract address from pkScript=%x: "+
-				"%v", txOut.PkScript, err)
-		}
+		require.NoErrorf(ht, err, "unable to extract address "+
+			"from pkScript=%x: %v", txOut.PkScript, err)
+
 		if addrs[0].String() == resp.Address {
 			bobOutputIdx = i
 		}
 	}
-	if bobOutputIdx == -1 {
-		t.Fatalf("bob's output was not found within the transaction")
-	}
+	require.NotEqual(ht, -1, bobOutputIdx, "bob's output was not found "+
+		"within the transaction")
 
 	// Wait until bob has seen the tx and considers it as owned.
 	op := &lnrpc.OutPoint{
 		TxidBytes:   txid[:],
 		OutputIndex: uint32(bobOutputIdx),
 	}
-	assertWalletUnspent(t, bob, op)
+	assertWalletUnspent(ht, bob, op)
 
 	// We'll attempt to bump the fee of this transaction by performing a
 	// CPFP from Alice's point of view.
@@ -107,68 +86,38 @@ func runCPFP(net *lntest.NetworkHarness, t *harnessTest,
 			sweep.DefaultMaxFeeRate.FeePerKVByte() / 2000,
 		),
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = bob.WalletKitClient.BumpFee(ctxt, bumpFeeReq)
-	if err != nil {
-		t.Fatalf("unable to bump fee: %v", err)
-	}
+	ht.BumpFee(bob, bumpFeeReq)
 
 	// We should now expect to see two transactions within the mempool, a
 	// parent and its child.
-	_, err = waitForNTxsInMempool(net.Miner.Client, 2, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("expected two mempool transactions: %v", err)
-	}
+	ht.AssertNumTxsInMempool(2)
 
 	// We should also expect to see the output being swept by the
 	// UtxoSweeper. We'll ensure it's using the fee rate specified.
-	pendingSweepsReq := &walletrpc.PendingSweepsRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	pendingSweepsResp, err := bob.WalletKitClient.PendingSweeps(
-		ctxt, pendingSweepsReq,
-	)
-	if err != nil {
-		t.Fatalf("unable to retrieve pending sweeps: %v", err)
-	}
-	if len(pendingSweepsResp.PendingSweeps) != 1 {
-		t.Fatalf("expected to find %v pending sweep(s), found %v", 1,
-			len(pendingSweepsResp.PendingSweeps))
-	}
+	pendingSweepsResp := ht.PendingSweeps(bob)
+	require.Len(ht, pendingSweepsResp.PendingSweeps, 1,
+		"expected to find 1 pending sweep")
 	pendingSweep := pendingSweepsResp.PendingSweeps[0]
-	if !bytes.Equal(pendingSweep.Outpoint.TxidBytes, op.TxidBytes) {
-		t.Fatalf("expected output txid %x, got %x", op.TxidBytes,
-			pendingSweep.Outpoint.TxidBytes)
-	}
-	if pendingSweep.Outpoint.OutputIndex != op.OutputIndex {
-		t.Fatalf("expected output index %v, got %v", op.OutputIndex,
-			pendingSweep.Outpoint.OutputIndex)
-	}
-	if pendingSweep.SatPerVbyte != bumpFeeReq.SatPerVbyte {
-		t.Fatalf("expected sweep sat per vbyte %v, got %v",
-			bumpFeeReq.SatPerVbyte, pendingSweep.SatPerVbyte)
-	}
+	require.Equal(ht, pendingSweep.Outpoint.TxidBytes, op.TxidBytes,
+		"output txid not matched")
+	require.Equal(ht, pendingSweep.Outpoint.OutputIndex, op.OutputIndex,
+		"output index not matched")
+	require.Equal(ht, pendingSweep.SatPerVbyte, bumpFeeReq.SatPerVbyte,
+		"sweep sat per vbyte not matched")
 
 	// Mine a block to clean up the unconfirmed transactions.
-	mineBlocks(t, net, 1, 2)
+	ht.MineBlocksAndAssertTx(1, 2)
 
 	// The input used to CPFP should no longer be pending.
-	err = wait.NoError(func() error {
-		req := &walletrpc.PendingSweepsRequest{}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		resp, err := bob.WalletKitClient.PendingSweeps(ctxt, req)
-		if err != nil {
-			return fmt.Errorf("unable to retrieve bob's pending "+
-				"sweeps: %v", err)
-		}
+	err := wait.NoError(func() error {
+		resp := ht.PendingSweeps(bob)
 		if len(resp.PendingSweeps) != 0 {
 			return fmt.Errorf("expected 0 pending sweeps, found %d",
 				len(resp.PendingSweeps))
 		}
 		return nil
 	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf(err.Error())
-	}
+	require.NoError(ht, err, "timeout checking bob's pending sweeps")
 }
 
 // testAnchorReservedValue tests that we won't allow sending transactions when
@@ -616,4 +565,36 @@ func testAnchorThirdPartySpend(net *lntest.NetworkHarness, t *harnessTest) {
 	//	t.Fatalf("unable to generate block: %v", err)
 	//}
 	//assertNumPendingChannels(t, alice, 0, 0)
+}
+
+// assertWalletUnspent checks that a given outpoint is not spent.
+//
+// NOTE: only used in current test.
+func assertWalletUnspent(ht *lntest.HarnessTest,
+	hn *lntest.HarnessNode, out *lnrpc.OutPoint) {
+
+	err := wait.NoError(func() error {
+		unspent := ht.ListUnspent(hn, math.MaxInt32, 0)
+
+		err := errors.New("tx with wanted txhash never found")
+		for _, utxo := range unspent.Utxos {
+			if !bytes.Equal(
+				utxo.Outpoint.TxidBytes, out.TxidBytes,
+			) {
+
+				continue
+			}
+
+			err = errors.New("wanted output is not a wallet utxo")
+			if utxo.Outpoint.OutputIndex != out.OutputIndex {
+				continue
+			}
+
+			return nil
+		}
+
+		return err
+	}, defaultTimeout)
+	require.NoErrorf(ht, err, "outpoint %s not unspent by %s's "+
+		"wallet: %v", out, hn.Name(), err)
 }

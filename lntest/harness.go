@@ -933,12 +933,22 @@ func (h *HarnessTest) AssertPaymentStatusFromStream(stream PaymentClient,
 	return target
 }
 
+// SendPaymentAndAssertStatus sends a payment from the passed node and asserts
+// the desired status is reached.
+func (h *HarnessTest) SendPaymentAndAssertStatus(hn *HarnessNode,
+	req *routerrpc.SendPaymentRequest,
+	status lnrpc.Payment_PaymentStatus) *lnrpc.Payment {
+
+	stream := h.SendPayment(hn, req)
+	return h.AssertPaymentStatusFromStream(stream, status)
+}
+
 // SendPaymentAndAssert sends a payment from the passed node and asserts the
 // payment being succeeded.
 func (h *HarnessTest) SendPaymentAndAssert(hn *HarnessNode,
 	req *routerrpc.SendPaymentRequest) *lnrpc.Payment {
-	stream := h.SendPayment(hn, req)
-	return h.AssertPaymentStatusFromStream(stream, lnrpc.Payment_SUCCEEDED)
+
+	return h.SendPaymentAndAssertStatus(hn, req, lnrpc.Payment_SUCCEEDED)
 }
 
 // SendPaymentAssertFail sends a payment from the passed node and asserts the
@@ -947,8 +957,7 @@ func (h *HarnessTest) SendPaymentAssertFail(hn *HarnessNode,
 	req *routerrpc.SendPaymentRequest,
 	reason lnrpc.PaymentFailureReason) *lnrpc.Payment {
 
-	stream := h.SendPayment(hn, req)
-	payment := h.AssertPaymentStatusFromStream(stream, lnrpc.Payment_FAILED)
+	payment := h.SendPaymentAndAssertStatus(hn, req, lnrpc.Payment_FAILED)
 	require.Equal(h, reason, payment.FailureReason,
 		"payment failureReason not matched")
 
@@ -1602,11 +1611,12 @@ func (h *HarnessTest) SuspendNode(hn *HarnessNode) func() error {
 
 // SettleInvoice settles a given invoice and asserts.
 func (h *HarnessTest) SettleInvoice(hn *HarnessNode,
-	req *invoicesrpc.SettleInvoiceMsg) *invoicesrpc.SettleInvoiceResp {
+	preimage []byte) *invoicesrpc.SettleInvoiceResp {
 
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
+	req := &invoicesrpc.SettleInvoiceMsg{Preimage: preimage}
 	resp, err := hn.rpc.Invoice.SettleInvoice(ctxt, req)
 	require.NoError(h, err)
 

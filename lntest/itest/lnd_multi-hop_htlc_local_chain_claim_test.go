@@ -104,9 +104,7 @@ func testMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	// this test, it is important to actually settle and not leave the
 	// invoice in the accepted state, because without a known preimage, the
 	// channel arbitrator won't go to chain.
-	ht.SettleInvoice(carol, &invoicesrpc.SettleInvoiceMsg{
-		Preimage: preimage[:],
-	})
+	ht.SettleInvoice(carol, preimage[:])
 
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.

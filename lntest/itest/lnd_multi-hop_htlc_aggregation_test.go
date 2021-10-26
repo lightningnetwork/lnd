@@ -204,9 +204,7 @@ func testMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	// has no other option than to broadcast his second-level transactions
 	// to claim the money.
 	for _, preimage := range alicePreimages {
-		ht.SettleInvoice(alice, &invoicesrpc.SettleInvoiceMsg{
-			Preimage: preimage[:],
-		})
+		ht.SettleInvoice(alice, preimage[:])
 	}
 
 	switch c {

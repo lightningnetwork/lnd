@@ -71,8 +71,7 @@ func testMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 	// this test, it is important to actually settle and not leave the
 	// invoice in the accepted state, because without a known preimage, the
 	// channel arbitrator won't go to chain.
-	settleReq := &invoicesrpc.SettleInvoiceMsg{Preimage: preimage[:]}
-	ht.SettleInvoice(carol, settleReq)
+	ht.SettleInvoice(carol, preimage[:])
 
 	// Increase the fee estimate so that the following force close tx will
 	// be cpfp'ed.

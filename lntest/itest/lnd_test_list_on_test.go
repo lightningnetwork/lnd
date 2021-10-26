@@ -100,6 +100,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "list outgoing payments",
 		TestFunc: testListPayments,
 	},
+	{
+		Name:     "derive shared key",
+		TestFunc: testDeriveSharedKey,
+	},
 
 	// Node config related tests.
 	{
@@ -306,10 +310,6 @@ var allTestCases = []*lntest.TestCase{
 	// 	test: testReconnectAfterIPChange,
 	// },
 	// // TODO(roasbeef): multi-path integration test
-	// {
-	// 	name: "derive shared key",
-	// 	test: testDeriveSharedKey,
-	// },
 	// {
 	// 	name: "cpfp",
 	// 	test: testCPFP,

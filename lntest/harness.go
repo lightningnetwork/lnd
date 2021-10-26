@@ -3308,3 +3308,28 @@ func (h *HarnessTest) WaitForBlockchainSync(hn *HarnessNode) {
 	err := hn.WaitForBlockchainSync()
 	require.NoError(h, err, "timeout waiting for blockchain sync")
 }
+
+// DeriveSharedKey makes a RPC call to the node's SignerClient and asserts.
+func (h *HarnessTest) DeriveSharedKey(hn *HarnessNode,
+	req *signrpc.SharedKeyRequest) *signrpc.SharedKeyResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Signer.DeriveSharedKey(ctxt, req)
+	require.NoError(h, err, "calling DeriveSharedKey failed")
+	return resp
+}
+
+// DeriveSharedKeyErr makes a RPC call to the node's SignerClient and asserts
+// there is an error.
+func (h *HarnessTest) DeriveSharedKeyErr(hn *HarnessNode,
+	req *signrpc.SharedKeyRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := hn.rpc.Signer.DeriveSharedKey(ctxt, req)
+	require.Error(h, err, "expected error from calling DeriveSharedKey")
+	return err
+}

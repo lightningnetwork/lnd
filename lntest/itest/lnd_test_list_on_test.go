@@ -310,14 +310,14 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "cpfp",
 		TestFunc: testCPFP,
 	},
+	{
+		Name:     "anchors reserved value",
+		TestFunc: testAnchorReservedValue,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "anchors reserved value",
-	// 	test: testAnchorReservedValue,
 	// },
 	// {
 	// 	name: "macaroon authentication",

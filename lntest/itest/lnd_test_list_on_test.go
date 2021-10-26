@@ -315,21 +315,27 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testAnchorReservedValue,
 	},
 
+	// Macaroon related tests.
+	{
+		Name:     "macaroon authentication",
+		TestFunc: testMacaroonAuthentication,
+	},
+	{
+		Name:     "bake macaroon",
+		TestFunc: testBakeMacaroon,
+	},
+	{
+		Name:     "delete macaroon id",
+		TestFunc: testDeleteMacaroonID,
+	},
+	{
+		Name:     "stateless init",
+		TestFunc: testStatelessInit,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "macaroon authentication",
-	// 	test: testMacaroonAuthentication,
-	// },
-	// {
-	// 	name: "bake macaroon",
-	// 	test: testBakeMacaroon,
-	// },
-	// {
-	// 	name: "delete macaroon id",
-	// 	test: testDeleteMacaroonID,
 	// },
 	// {
 	// 	name: "psbt channel funding",
@@ -386,10 +392,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "maximum channel size",
 	// 	test: testMaxChannelSize,
-	// },
-	// {
-	// 	name: "stateless init",
-	// 	test: testStatelessInit,
 	// },
 	// {
 	// 	name: "wallet import account",

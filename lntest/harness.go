@@ -110,6 +110,22 @@ func (h *HarnessTest) Miner() *HarnessMiner {
 	return h.net.Miner
 }
 
+// Context returns the run context used in this test. Usaually it should be
+// managed by the test itself otherwise undefined behaviors will occur. It can
+// be used, however, when a test needs to have its own context being managed
+// differently. In that case, instead of using a background context, the run
+// context should be used such that the test context scope can be fully
+// controlled.
+func (h *HarnessTest) Context() context.Context {
+	return h.runCtx
+}
+
+// RPCClients returns all the rpc clients of a given node. This should only be
+// used for RPC related tests.
+func (h *HarnessTest) RPCClients(hn *HarnessNode) *RPCClients {
+	return hn.rpc
+}
+
 // IsNeutrinoBackend returns a bool indicating whether the node is using a
 // neutrino as its backend. This is useful when we want to skip certain tests
 // which cannot be done with a neutrino backend.
@@ -2017,6 +2033,12 @@ func (h *HarnessTest) RestartNode(hn *HarnessNode,
 	chanBackups ...*lnrpc.ChanBackupSnapshot) {
 
 	err := h.net.RestartNode(hn, nil, chanBackups...)
+	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
+}
+
+// RestartNodeNoUnlock restarts a given node without unlocking it and asserts.
+func (h *HarnessTest) RestartNodeNoUnlock(hn *HarnessNode, wait bool) {
+	err := h.net.RestartNodeNoUnlock(hn, nil, wait)
 	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
 }
 

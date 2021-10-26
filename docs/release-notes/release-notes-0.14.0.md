@@ -434,6 +434,8 @@ messages directly. There is no routing/path finding involved.
 * [Fix REST/WebSocket API itest that lead to overall test
   timeout](https://github.com/lightningnetwork/lnd/pull/5845).
 
+* [Fix missing label on sweep transactions](https://github.com/lightningnetwork/lnd/pull/5895).
+
 ## Database
 
 * [Ensure single writer for legacy

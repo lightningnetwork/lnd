@@ -296,6 +296,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "revoked uncooperative close retribution altruist watchtower",
 		TestFunc: testRevokedCloseRetributionAltruistWatchtower,
 	},
+	{
+		Name:     "hold invoice force close",
+		TestFunc: testHoldInvoiceForceClose,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
@@ -305,10 +309,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "derive shared key",
 	// 	test: testDeriveSharedKey,
-	// },
-	// {
-	// 	name: "hold invoice force close",
-	// 	test: testHoldInvoiceForceClose,
 	// },
 	// {
 	// 	name: "cpfp",

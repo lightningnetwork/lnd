@@ -37,6 +37,8 @@ const (
 	// noFeeLimitMsat is used to specify we will put no requirements on fee
 	// charged when choosing a route path.
 	noFeeLimitMsat = math.MaxInt64
+
+	slowMineDelay = 20 * time.Millisecond
 )
 
 // TestCase defines a test case that's been used in the integration test.
@@ -770,6 +772,30 @@ func (h *HarnessTest) MineBlocks(num uint32) []*wire.MsgBlock {
 	for i, blockHash := range blockHashes {
 		block, err := h.net.Miner.Client.GetBlock(blockHash)
 		require.NoError(h, err, "unable to get block")
+
+		blocks[i] = block
+	}
+
+	return blocks
+}
+
+// MineBlocksSlow mines 'num' of blocks. Between each mined block an artificial
+// delay is introduced to give all network participants time to catch up.
+func (h *HarnessTest) MineBlocksSlow(num uint32) []*wire.MsgBlock {
+	blocks := make([]*wire.MsgBlock, num)
+	blockHashes := make([]*chainhash.Hash, 0, num)
+
+	for i := uint32(0); i < num; i++ {
+		generatedHashes, err := h.net.Miner.Client.Generate(1)
+		require.NoError(h, err, "unable to generate blocks")
+		blockHashes = append(blockHashes, generatedHashes...)
+
+		time.Sleep(slowMineDelay)
+	}
+
+	for i, blockHash := range blockHashes {
+		block, err := h.net.Miner.Client.GetBlock(blockHash)
+		require.NoError(h, err, "get blocks")
 
 		blocks[i] = block
 	}
@@ -3275,4 +3301,10 @@ func (h *HarnessTest) ReceiveTrackPayment(
 	}
 
 	return nil
+}
+
+// WaitForBlockchainSync waits until the node is synced to chain.
+func (h *HarnessTest) WaitForBlockchainSync(hn *HarnessNode) {
+	err := hn.WaitForBlockchainSync()
+	require.NoError(h, err, "timeout waiting for blockchain sync")
 }

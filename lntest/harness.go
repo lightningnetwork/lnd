@@ -1623,6 +1623,20 @@ func (h *HarnessTest) SettleInvoice(hn *HarnessNode,
 	return resp
 }
 
+// CancelInvoice cancels a given invoice and asserts.
+func (h *HarnessTest) CancelInvoice(hn *HarnessNode,
+	preimage []byte) *invoicesrpc.CancelInvoiceResp {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &invoicesrpc.CancelInvoiceMsg{PaymentHash: preimage}
+	resp, err := hn.rpc.Invoice.CancelInvoice(ctxt, req)
+	require.NoError(h, err)
+
+	return resp
+}
+
 // ListInvoices list the node's invoice using the request and asserts.
 func (h *HarnessTest) ListInvoices(hn *HarnessNode) *lnrpc.ListInvoiceResponse {
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
@@ -1651,42 +1665,60 @@ func (h *HarnessTest) ListPayments(hn *HarnessNode,
 	return resp
 }
 
-// AssertPaymentStatus asserts that the given node list a payment with the
-// given preimage has the expected status.
-func (h *HarnessTest) AssertPaymentStatus(hn *HarnessNode,
-	preimage lntypes.Preimage, status lnrpc.Payment_PaymentStatus) {
+// findPayment queries the payment from the node's ListPayments which matches
+// the specified preimage hash.
+func (h *HarnessTest) findPayment(hn *HarnessNode,
+	preimage lntypes.Preimage) *lnrpc.Payment {
 
 	paymentsResp := h.ListPayments(hn, true)
 
 	payHash := preimage.Hash()
-	var found bool
 	for _, p := range paymentsResp.Payments {
 		if p.PaymentHash != payHash.String() {
 			continue
 		}
-
-		require.Equal(h, status, p.Status, "payment status not match")
-
-		found = true
-
-		switch status {
-
-		// If this expected status is SUCCEEDED, we expect the final
-		// preimage.
-		case lnrpc.Payment_SUCCEEDED:
-			require.Equal(h, preimage.String(), p.PaymentPreimage,
-				"preimage not match")
-
-			// Otherwise we expect an all-zero preimage.
-		default:
-			require.Equal(h, (lntypes.Preimage{}).String(),
-				p.PaymentPreimage, "expected zero preimage")
-		}
-
+		return p
 	}
 
-	require.Truef(h, found, "payment with payment hash %v not found "+
-		"in response", payHash)
+	require.Fail(h, "payment not found")
+	return nil
+}
+
+// AssertPaymentStatus asserts that the given node list a payment with the
+// given preimage has the expected status. It also checks that the payment has
+// the expected preimage, which is empty when it's not settled and matches the
+// given preimage when it's succeeded.
+func (h *HarnessTest) AssertPaymentStatus(hn *HarnessNode,
+	preimage lntypes.Preimage,
+	status lnrpc.Payment_PaymentStatus) *lnrpc.Payment {
+
+	var target *lnrpc.Payment
+
+	err := wait.NoError(func() error {
+		p := h.findPayment(hn, preimage)
+		if status == p.Status {
+			target = p
+			return nil
+		}
+		return fmt.Errorf("payment status not match, want %s "+"got %s",
+			status, p.Status)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking payment status")
+
+	switch status {
+	// If this expected status is SUCCEEDED, we expect the final
+	// preimage.
+	case lnrpc.Payment_SUCCEEDED:
+		require.Equal(h, preimage.String(), target.PaymentPreimage,
+			"preimage not match")
+
+	// Otherwise we expect an all-zero preimage.
+	default:
+		require.Equal(h, (lntypes.Preimage{}).String(),
+			target.PaymentPreimage, "expected zero preimage")
+	}
+
+	return target
 }
 
 // AssertHTLCStage asserts the HTLC is in the expected stage or timeout.
@@ -3192,4 +3224,55 @@ func (h *HarnessTest) WatchtowerStats(
 	require.NoError(h, err, "failed to call Stats")
 
 	return resp
+}
+
+type TrackPaymentClient routerrpc.Router_TrackPaymentV2Client
+
+// TrackPaymentV2 creates a subscription client for given invoice and
+// asserts its creation.
+func (h *HarnessTest) TrackPaymentV2(hn *HarnessNode,
+	payHash []byte) TrackPaymentClient {
+
+	req := &routerrpc.TrackPaymentRequest{PaymentHash: payHash}
+
+	// TrackPaymentV2 needs to have the context alive for the entire test
+	// case as the returned client will be used for send and receive events
+	// stream. Thus we use runCtx here instead of a timeout context.
+	client, err := hn.rpc.Router.TrackPaymentV2(h.runCtx, req)
+	require.NoError(h, err, "unable to create track payment client")
+
+	return client
+}
+
+// ReceiveTrackPayment waits until a message is received on the track payment
+// stream or the timeout is reached.
+func (h *HarnessTest) ReceiveTrackPayment(
+	stream TrackPaymentClient) *lnrpc.Payment {
+
+	chanMsg := make(chan *lnrpc.Payment)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout trakcing payment")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
 }

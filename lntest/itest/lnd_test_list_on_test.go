@@ -250,6 +250,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "invoice update subscription",
 		TestFunc: testInvoiceSubscriptions,
 	},
+	{
+		Name:     "hold invoice sender persistence",
+		TestFunc: testHoldInvoicePersistence,
+	},
 
 	// HTLC related tests.
 	{
@@ -301,10 +305,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "derive shared key",
 	// 	test: testDeriveSharedKey,
-	// },
-	// {
-	// 	name: "hold invoice sender persistence",
-	// 	test: testHoldInvoicePersistence,
 	// },
 	// {
 	// 	name: "hold invoice force close",

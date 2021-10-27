@@ -21,35 +21,28 @@ import (
 
 // testSendPaymentAMPInvoice tests that we can send an AMP payment to a
 // specified AMP invoice using SendPaymentV2.
-func testSendPaymentAMPInvoice(net *lntest.NetworkHarness, t *harnessTest) {
-	t.t.Run("native payaddr", func(t *testing.T) {
-		tt := newHarnessTest(t, net)
-		testSendPaymentAMPInvoiceCase(net, tt, false)
+func testSendPaymentAMPInvoice(ht *lntest.HarnessTest) {
+	ht.Run("native payaddr", func(t *testing.T) {
+		tt := ht.Subtest(t)
+		testSendPaymentAMPInvoiceCase(tt, false)
 	})
-	t.t.Run("external payaddr", func(t *testing.T) {
-		tt := newHarnessTest(t, net)
-		testSendPaymentAMPInvoiceCase(net, tt, true)
+	ht.Run("external payaddr", func(t *testing.T) {
+		tt := ht.Subtest(t)
+		testSendPaymentAMPInvoiceCase(tt, true)
 	})
 }
 
-func testSendPaymentAMPInvoiceCase(net *lntest.NetworkHarness, t *harnessTest,
+func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 	useExternalPayAddr bool) {
 
-	ctxb := context.Background()
-
-	// TODO(yy): bring it back
-	// ctx := newMppTestContext(t, net)
-	ctx := &mppTestContext{}
+	ctx := newMppTestContext(ht)
 	defer ctx.shutdownNodes()
 
 	// Subscribe to bob's invoices. Do this early in the test to make sure
 	// that the subscription has actually been completed when we add an
 	// invoice. Otherwise the notification will be missed.
 	req := &lnrpc.InvoiceSubscription{}
-	ctxc, cancelSubscription := context.WithCancel(ctxb)
-	bobInvoiceSubscription, err := ctx.bob.SubscribeInvoices(ctxc, req)
-	require.NoError(t.t, err)
-	defer cancelSubscription()
+	bobInvoiceSubscription := ht.SubscribeInvoices(ctx.bob, req)
 
 	const paymentAmt = btcutil.Amount(300000)
 
@@ -72,41 +65,32 @@ func testSendPaymentAMPInvoiceCase(net *lntest.NetworkHarness, t *harnessTest,
 
 	defer ctx.closeChannels()
 
-	// TODO(yy): bring it back
-	// ctx.waitForChannels()
-
-	addInvoiceResp, err := ctx.bob.AddInvoice(context.Background(), &lnrpc.Invoice{
+	invoice := &lnrpc.Invoice{
 		Value: int64(paymentAmt),
 		IsAmp: true,
-	})
-	require.NoError(t.t, err)
+	}
+	addInvoiceResp := ht.AddInvoice(invoice, ctx.bob)
 
 	// Ensure we get a notification of the invoice being added by Bob.
-	rpcInvoice, err := bobInvoiceSubscription.Recv()
-	require.NoError(t.t, err)
+	rpcInvoice := ht.ReceiveInvoiceUpdate(bobInvoiceSubscription)
 
-	require.False(t.t, rpcInvoice.Settled) // nolint:staticcheck
-	require.Equal(t.t, lnrpc.Invoice_OPEN, rpcInvoice.State)
-	require.Equal(t.t, int64(0), rpcInvoice.AmtPaidSat)
-	require.Equal(t.t, int64(0), rpcInvoice.AmtPaidMsat)
+	require.False(ht, rpcInvoice.Settled) // nolint:staticcheck
+	require.Equal(ht, lnrpc.Invoice_OPEN, rpcInvoice.State)
+	require.Equal(ht, int64(0), rpcInvoice.AmtPaidSat)
+	require.Equal(ht, int64(0), rpcInvoice.AmtPaidMsat)
 
-	require.Equal(t.t, 0, len(rpcInvoice.Htlcs))
+	require.Equal(ht, 0, len(rpcInvoice.Htlcs))
 
 	// Increase Dave's fee to make the test deterministic. Otherwise it
 	// would be unpredictable whether pathfinding would go through Charlie
 	// or Dave for the first shard.
-	_, err = ctx.dave.UpdateChannelPolicy(
-		context.Background(),
-		&lnrpc.PolicyUpdateRequest{
-			Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
-			BaseFeeMsat:   500000,
-			FeeRate:       0.001,
-			TimeLockDelta: 40,
-		},
-	)
-	if err != nil {
-		t.Fatalf("dave policy update: %v", err)
+	policy := &lnrpc.PolicyUpdateRequest{
+		Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
+		BaseFeeMsat:   500000,
+		FeeRate:       0.001,
+		TimeLockDelta: 40,
 	}
+	ht.UpdateChannelPolicy(ctx.dave, policy)
 
 	// Generate an external payment address when attempting to pseudo-reuse
 	// an AMP invoice. When using an external payment address, we'll also
@@ -119,19 +103,16 @@ func testSendPaymentAMPInvoiceCase(net *lntest.NetworkHarness, t *harnessTest,
 	)
 	if useExternalPayAddr {
 		expNumInvoices = 2
-		externalPayAddr = make([]byte, 32)
-		_, err = rand.Read(externalPayAddr)
-		require.NoError(t.t, err)
+		externalPayAddr = ht.Random32Bytes()
 	}
 
-	payment := sendAndAssertSuccess(
-		t, ctx.alice, &routerrpc.SendPaymentRequest{
-			PaymentRequest: addInvoiceResp.PaymentRequest,
-			PaymentAddr:    externalPayAddr,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
-	)
+	sendReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest: addInvoiceResp.PaymentRequest,
+		PaymentAddr:    externalPayAddr,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+	}
+	payment := ht.SendPaymentAndAssert(ctx.alice, sendReq)
 
 	// Check that Alice split the payment in at least three shards. Because
 	// the hand-off of the htlc to the link is asynchronous (via a mailbox),
@@ -148,67 +129,62 @@ func testSendPaymentAMPInvoiceCase(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	const minExpectedShards = 3
-	if succeeded < minExpectedShards {
-		t.Fatalf("expected at least %v shards, but got %v",
-			minExpectedShards, succeeded)
-	}
+	require.GreaterOrEqual(ht, succeeded, minExpectedShards,
+		"expected num of shards not reached")
 
 	// When an external payment address is supplied, we'll get an extra
 	// notification for the JIT inserted invoice, since it differs from the
 	// original.
 	if useExternalPayAddr {
-		_, err = bobInvoiceSubscription.Recv()
-		require.NoError(t.t, err)
+		ht.ReceiveInvoiceUpdate(bobInvoiceSubscription)
 	}
 
 	// There should now be a settle event for the invoice.
-	rpcInvoice, err = bobInvoiceSubscription.Recv()
-	require.NoError(t.t, err)
+	rpcInvoice = ht.ReceiveInvoiceUpdate(bobInvoiceSubscription)
 
 	// Also fetch Bob's invoice from ListInvoices and assert it is equal to
 	// the one received via the subscription.
-	invoiceResp, err := ctx.bob.ListInvoices(
-		ctxb, &lnrpc.ListInvoiceRequest{},
+	invoiceResp := ht.ListInvoices(ctx.bob)
+	require.Equal(ht, expNumInvoices, len(invoiceResp.Invoices))
+	assertInvoiceEqual(
+		ht.T, rpcInvoice, invoiceResp.Invoices[expNumInvoices-1],
 	)
-	require.NoError(t.t, err)
-	require.Equal(t.t, expNumInvoices, len(invoiceResp.Invoices))
-	assertInvoiceEqual(t.t, rpcInvoice, invoiceResp.Invoices[expNumInvoices-1])
 
 	// Assert that the invoice is settled for the total payment amount and
 	// has the correct payment address.
-	require.True(t.t, rpcInvoice.Settled) // nolint:staticcheck
-	require.Equal(t.t, lnrpc.Invoice_SETTLED, rpcInvoice.State)
-	require.Equal(t.t, int64(paymentAmt), rpcInvoice.AmtPaidSat)
-	require.Equal(t.t, int64(paymentAmt*1000), rpcInvoice.AmtPaidMsat)
+	require.True(ht, rpcInvoice.Settled) // nolint:staticcheck
+	require.Equal(ht, lnrpc.Invoice_SETTLED, rpcInvoice.State)
+	require.Equal(ht, int64(paymentAmt), rpcInvoice.AmtPaidSat)
+	require.Equal(ht, int64(paymentAmt*1000), rpcInvoice.AmtPaidMsat)
 
 	// Finally, assert that the same set id is recorded for each htlc, and
 	// that the preimage hash pair is valid.
 	var setID []byte
-	require.Equal(t.t, succeeded, len(rpcInvoice.Htlcs))
+	require.Equal(ht, succeeded, len(rpcInvoice.Htlcs))
 	for _, htlc := range rpcInvoice.Htlcs {
-		require.NotNil(t.t, htlc.Amp)
+		require.NotNil(ht, htlc.Amp)
 		if setID == nil {
 			setID = make([]byte, 32)
 			copy(setID, htlc.Amp.SetId)
 		}
-		require.Equal(t.t, setID, htlc.Amp.SetId)
+		require.Equal(ht, setID, htlc.Amp.SetId)
 
 		// Parse the child hash and child preimage, and assert they are
 		// well-formed.
 		childHash, err := lntypes.MakeHash(htlc.Amp.Hash)
-		require.NoError(t.t, err)
+		require.NoError(ht, err)
 		childPreimage, err := lntypes.MakePreimage(htlc.Amp.Preimage)
-		require.NoError(t.t, err)
+		require.NoError(ht, err)
 
 		// Assert that the preimage actually matches the hashes.
 		validPreimage := childPreimage.Matches(childHash)
-		require.True(t.t, validPreimage)
+		require.True(ht, validPreimage)
 	}
 
 	// The set ID we extract above should be shown in the final settled
 	// state.
 	ampState := rpcInvoice.AmpInvoiceState[hex.EncodeToString(setID)]
-	require.Equal(t.t, lnrpc.InvoiceHTLCState_SETTLED, ampState.State)
+	require.Equal(ht, lnrpc.InvoiceHTLCState_SETTLED, ampState.State)
 }
 
 // testSendPaymentAMPInvoiceRepeat tests that it's possible to pay an AMP
@@ -764,9 +740,15 @@ func assertInvoiceEqual(t *testing.T, a, b *lnrpc.Invoice) {
 
 	// Ensure the HTLCs are sorted properly before attempting to compare.
 	sort.Slice(a.Htlcs, func(i, j int) bool {
+		if a.Htlcs[i].ChanId == a.Htlcs[j].ChanId {
+			return a.Htlcs[i].HtlcIndex < a.Htlcs[j].HtlcIndex
+		}
 		return a.Htlcs[i].ChanId < a.Htlcs[j].ChanId
 	})
 	sort.Slice(b.Htlcs, func(i, j int) bool {
+		if b.Htlcs[i].ChanId == b.Htlcs[j].ChanId {
+			return b.Htlcs[i].HtlcIndex < b.Htlcs[j].HtlcIndex
+		}
 		return b.Htlcs[i].ChanId < b.Htlcs[j].ChanId
 	})
 

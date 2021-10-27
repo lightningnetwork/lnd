@@ -354,6 +354,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "send multi path payment",
 		TestFunc: testSendMultiPathPayment,
 	},
+	{
+		Name:     "sendpayment amp invoice",
+		TestFunc: testSendPaymentAMPInvoice,
+	},
 
 	// {
 	// 	name: "sendtoroute amp",
@@ -364,9 +368,6 @@ var allTestCases = []*lntest.TestCase{
 	// 	test: testSendPaymentAMP,
 	// },
 	// {
-	// 	name: "sendpayment amp invoice",
-	// 	test: testSendPaymentAMPInvoice,
-	// },
 	// {
 	// 	name: "sendpayment amp invoice repeat",
 	// 	test: testSendPaymentAMPInvoiceRepeat,

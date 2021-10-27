@@ -3529,3 +3529,55 @@ func (h *HarnessTest) ImportPublicKey(hn *HarnessNode,
 
 	return resp
 }
+
+type SingleInvoiceClient invoicesrpc.Invoices_SubscribeSingleInvoiceClient
+
+// SubscribeSingleInvoice creates a subscription client for given invoice and
+// asserts its creation.
+func (h *HarnessTest) SubscribeSingleInvoice(hn *HarnessNode,
+	rHash []byte) SingleInvoiceClient {
+
+	req := &invoicesrpc.SubscribeSingleInvoiceRequest{RHash: rHash}
+
+	// SubscribeSingleInvoice needs to have the context alive for the
+	// entire test case as the returned client will be used for send and
+	// receive events stream. Thus we use runCtx here instead of a timeout
+	// context.
+	client, err := hn.rpc.Invoice.SubscribeSingleInvoice(h.runCtx, req)
+	require.NoError(h, err, "unable to create single invoice client")
+
+	return client
+}
+
+// ReceiveSingleInvoice waits until a message is received on the subscribe
+// single invoice stream or the timeout is reached.
+func (h *HarnessTest) ReceiveSingleInvoice(
+	stream SingleInvoiceClient) *lnrpc.Invoice {
+
+	chanMsg := make(chan *lnrpc.Invoice)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout receiving single invoice")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}

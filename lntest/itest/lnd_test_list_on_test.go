@@ -288,6 +288,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "intercept forwarded htlc packets",
 		TestFunc: testForwardInterceptorBasic,
 	},
+	{
+		Name:     "max htlc pathfind",
+		TestFunc: testMaxHtlcPathfind,
+	},
 
 	// Switch related tests.
 	{
@@ -412,10 +416,6 @@ var allTestCases = []*lntest.TestCase{
 	// },
 	// 	name: "etcd_failover",
 	// 	test: testEtcdFailover,
-	// },
-	// {
-	// 	name: "max htlc pathfind",
-	// 	test: testMaxHtlcPathfind,
 	// },
 	// {
 	// 	name: "rpc middleware interceptor",

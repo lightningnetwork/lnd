@@ -74,6 +74,14 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "multiple channel creation and update subscription",
 		TestFunc: testBasicChannelCreationAndUpdates,
 	},
+	{
+		Name:     "wumbo channels",
+		TestFunc: testWumboChannels,
+	},
+	{
+		Name:     "maximum channel size",
+		TestFunc: testMaxChannelSize,
+	},
 
 	// Connection related tests.
 	{
@@ -392,15 +400,6 @@ var allTestCases = []*lntest.TestCase{
 	// 	name: "forward interceptor dedup htlcs",
 	// 	test: testForwardInterceptorDedupHtlc,
 	// },
-	// {
-	// 	name: "wumbo channels",
-	// 	test: testWumboChannels,
-	// },
-	// {
-	// 	name: "maximum channel size",
-	// 	test: testMaxChannelSize,
-	// },
-	// {
 	// 	name: "wallet import account",
 	// 	test: testWalletImportAccount,
 	// },

@@ -1843,13 +1843,14 @@ func (h *HarnessTest) GetWalletBalance(
 }
 
 // ListUnspent makes a RPC call to ListUnspent and asserts.
-func (h *HarnessTest) ListUnspent(hn *HarnessNode,
+func (h *HarnessTest) ListUnspent(hn *HarnessNode, account string,
 	max, min int32) *lnrpc.ListUnspentResponse {
 
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
 	req := &lnrpc.ListUnspentRequest{
+		Account:  account,
 		MaxConfs: max,
 		MinConfs: min,
 	}
@@ -2727,7 +2728,7 @@ func (h *HarnessTest) AssertNodeStarted(hn *HarnessNode) {
 // if that isn't the case before the default timeout.
 func (h *HarnessTest) AssertNumUTXOs(hn *HarnessNode, expectedUtxos int) {
 	err := wait.NoError(func() error {
-		resp := h.ListUnspent(hn, math.MaxInt32, 1)
+		resp := h.ListUnspent(hn, "", math.MaxInt32, 1)
 		if len(resp.Utxos) != expectedUtxos {
 			return fmt.Errorf("not enough UTXOs, got %d wanted %d",
 				len(resp.Utxos), expectedUtxos)

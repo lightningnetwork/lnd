@@ -521,7 +521,7 @@ func assertWalletUnspent(ht *lntest.HarnessTest,
 	hn *lntest.HarnessNode, out *lnrpc.OutPoint) {
 
 	err := wait.NoError(func() error {
-		unspent := ht.ListUnspent(hn, math.MaxInt32, 0)
+		unspent := ht.ListUnspent(hn, "", math.MaxInt32, 0)
 
 		err := errors.New("tx with wanted txhash never found")
 		for _, utxo := range unspent.Utxos {

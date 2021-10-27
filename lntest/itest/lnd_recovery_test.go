@@ -126,7 +126,7 @@ func testOnchainFundRecovery(ht *lntest.HarnessTest) {
 			resp := ht.GetWalletBalance(node)
 			currBalance = resp.ConfirmedBalance
 
-			utxoResp := ht.ListUnspent(node, math.MaxInt32, 0)
+			utxoResp := ht.ListUnspent(node, "", math.MaxInt32, 0)
 			currNumUTXOs = uint32(len(utxoResp.Utxos))
 
 			// Verify that Carol's balance and number of UTXOs

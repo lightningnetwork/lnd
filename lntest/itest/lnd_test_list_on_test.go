@@ -204,6 +204,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "failing link",
 		TestFunc: testFailingChannel,
 	},
+	{
+		Name:     "wipe forwarding packages",
+		TestFunc: testWipeForwardingPackages,
+	},
 
 	// Channel balance related tests.
 	{
@@ -419,10 +423,6 @@ var allTestCases = []*lntest.TestCase{
 	// 	test: testForwardInterceptorDedupHtlc,
 	// 	name: "rpc middleware interceptor",
 	// 	test: testRPCMiddlewareInterceptor,
-	// },
-	// {
-	// 	name: "wipe forwarding packages",
-	// 	test: testWipeForwardingPackages,
 	// },
 	// {
 	// 	name: "remote signer",

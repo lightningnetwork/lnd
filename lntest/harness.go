@@ -1256,7 +1256,7 @@ func (h *HarnessTest) AssertChannelWaitingClose(hn *HarnessNode,
 		}
 
 		return fmt.Errorf("%v: channel %s not found in waiting close",
-			hn.Name(), chanPoint)
+			hn.Name(), op)
 	}, DefaultTimeout)
 	require.NoError(h, err, "assert channel waiting close timed out")
 

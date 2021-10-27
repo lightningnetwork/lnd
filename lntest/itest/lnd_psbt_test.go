@@ -27,80 +27,69 @@ import (
 // testPsbtChanFunding makes sure a channel can be opened between carol and dave
 // by using a Partially Signed Bitcoin Transaction that funds the channel
 // multisig funding output.
-func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
+func testPsbtChanFunding(ht *lntest.HarnessTest) {
 	// First, we'll create two new nodes that we'll use to open channels
 	// between for this test. Dave gets some coins that will be used to
 	// fund the PSBT, just to make sure that Carol has an empty wallet.
-	carol := net.NewNode(t.t, "carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("carol", nil)
+	defer ht.Shutdown(carol)
 
-	dave := net.NewNode(t.t, "dave", nil)
-	defer shutdownAndAssert(net, t, dave)
+	dave := ht.NewNode("dave", nil)
+	defer ht.Shutdown(dave)
 
-	runPsbtChanFunding(net, t, carol, dave)
+	runPsbtChanFunding(ht, carol, dave)
 }
 
 // runPsbtChanFunding makes sure a channel can be opened between carol and dave
 // by using a Partially Signed Bitcoin Transaction that funds the channel
 // multisig funding output.
-func runPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest, carol,
+func runPsbtChanFunding(ht *lntest.HarnessTest, carol,
 	dave *lntest.HarnessNode) {
 
-	ctxb := context.Background()
-
-	// Everything we do here should be done within a second or two, so we
-	// can just keep a single timeout context around for all calls.
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-
 	const chanSize = funding.MaxBtcFundingAmount
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, dave)
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.
-	net.EnsureConnected(t.t, carol, dave)
-	net.EnsureConnected(t.t, carol, net.Alice)
+	alice := ht.Alice()
+	ht.EnsureConnected(carol, dave)
+	ht.EnsureConnected(carol, alice)
 
 	// At this point, we can begin our PSBT channel funding workflow. We'll
 	// start by generating a pending channel ID externally that will be used
 	// to track this new funding type.
-	var pendingChanID [32]byte
-	_, err := rand.Read(pendingChanID[:])
-	require.NoError(t.t, err)
+	pendingChanID := ht.Random32Bytes()
 
 	// We'll also test batch funding of two channels so we need another ID.
-	var pendingChanID2 [32]byte
-	_, err = rand.Read(pendingChanID2[:])
-	require.NoError(t.t, err)
+	pendingChanID2 := ht.Random32Bytes()
 
 	// Now that we have the pending channel ID, Carol will open the channel
 	// by specifying a PSBT shim. We use the NoPublish flag here to avoid
 	// publishing the whole batch TX too early.
-	chanUpdates, tempPsbt, err := openChannelPsbt(
-		ctxt, carol, dave, lntest.OpenChannelParams{
+	chanUpdates, tempPsbt := ht.OpenChannelPsbt(
+		carol, dave, lntest.OpenChannelParams{
 			Amt: chanSize,
 			FundingShim: &lnrpc.FundingShim{
 				Shim: &lnrpc.FundingShim_PsbtShim{
 					PsbtShim: &lnrpc.PsbtShim{
-						PendingChanId: pendingChanID[:],
+						PendingChanId: pendingChanID,
 						NoPublish:     true,
 					},
 				},
 			},
 		},
 	)
-	require.NoError(t.t, err)
 
 	// Let's add a second channel to the batch. This time between Carol and
 	// Alice. We will publish the batch TX once this channel funding is
 	// complete.
-	chanUpdates2, psbtBytes2, err := openChannelPsbt(
-		ctxt, carol, net.Alice, lntest.OpenChannelParams{
+	chanUpdates2, psbtBytes2 := ht.OpenChannelPsbt(
+		carol, alice, lntest.OpenChannelParams{
 			Amt: chanSize,
 			FundingShim: &lnrpc.FundingShim{
 				Shim: &lnrpc.FundingShim_PsbtShim{
 					PsbtShim: &lnrpc.PsbtShim{
-						PendingChanId: pendingChanID2[:],
+						PendingChanId: pendingChanID2,
 						NoPublish:     false,
 						BasePsbt:      tempPsbt,
 					},
@@ -108,7 +97,6 @@ func runPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest, carol,
 			},
 		},
 	)
-	require.NoError(t.t, err)
 
 	// We'll now ask Dave's wallet to fund the PSBT for us. This will return
 	// a packet with inputs and outputs set but without any witness data.
@@ -121,55 +109,49 @@ func runPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest, carol,
 			SatPerVbyte: 2,
 		},
 	}
-	fundResp, err := dave.WalletKitClient.FundPsbt(ctxt, fundReq)
-	require.NoError(t.t, err)
+	fundResp := ht.FundPsbt(dave, fundReq)
 
 	// We have a PSBT that has no witness data yet, which is exactly what we
 	// need for the next step: Verify the PSBT with the funding intents.
-	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+	ht.FundingStateStep(carol, &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
 			PsbtVerify: &lnrpc.FundingPsbtVerify{
-				PendingChanId: pendingChanID[:],
+				PendingChanId: pendingChanID,
 				FundedPsbt:    fundResp.FundedPsbt,
 			},
 		},
 	})
-	require.NoError(t.t, err)
-	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+	ht.FundingStateStep(carol, &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
 			PsbtVerify: &lnrpc.FundingPsbtVerify{
-				PendingChanId: pendingChanID2[:],
+				PendingChanId: pendingChanID2,
 				FundedPsbt:    fundResp.FundedPsbt,
 			},
 		},
 	})
-	require.NoError(t.t, err)
 
 	// Now we'll ask Dave's wallet to sign the PSBT so we can finish the
 	// funding flow.
 	finalizeReq := &walletrpc.FinalizePsbtRequest{
 		FundedPsbt: fundResp.FundedPsbt,
 	}
-	finalizeRes, err := dave.WalletKitClient.FinalizePsbt(ctxt, finalizeReq)
-	require.NoError(t.t, err)
+	finalizeRes := ht.FinalizePsbt(dave, finalizeReq)
 
 	// We've signed our PSBT now, let's pass it to the intent again.
-	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+	ht.FundingStateStep(carol, &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
 			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
-				PendingChanId: pendingChanID[:],
+				PendingChanId: pendingChanID,
 				SignedPsbt:    finalizeRes.SignedPsbt,
 			},
 		},
 	})
-	require.NoError(t.t, err)
 
 	// Consume the "channel pending" update. This waits until the funding
 	// transaction was fully compiled.
-	updateResp, err := receiveChanUpdate(ctxt, chanUpdates)
-	require.NoError(t.t, err)
+	updateResp := ht.ReceiveChanUpdate(chanUpdates)
 	upd, ok := updateResp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
-	require.True(t.t, ok)
+	require.True(ht, ok)
 	chanPoint := &lnrpc.ChannelPoint{
 		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 			FundingTxidBytes: upd.ChanPending.Txid,
@@ -178,30 +160,26 @@ func runPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest, carol,
 	}
 
 	// No transaction should have been published yet.
-	mempool, err := net.Miner.Client.GetRawMempool()
-	require.NoError(t.t, err)
-	require.Equal(t.t, 0, len(mempool))
+	mempool := ht.GetRawMempool()
+	require.Empty(ht, mempool)
 
 	// Let's progress the second channel now. This time we'll use the raw
 	// wire format transaction directly.
-	require.NoError(t.t, err)
-	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+	ht.FundingStateStep(carol, &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
 			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
-				PendingChanId: pendingChanID2[:],
+				PendingChanId: pendingChanID2,
 				FinalRawTx:    finalizeRes.RawFinalTx,
 			},
 		},
 	})
-	require.NoError(t.t, err)
 
 	// Consume the "channel pending" update for the second channel. This
 	// waits until the funding transaction was fully compiled and in this
 	// case published.
-	updateResp2, err := receiveChanUpdate(ctxt, chanUpdates2)
-	require.NoError(t.t, err)
+	updateResp2 := ht.ReceiveChanUpdate(chanUpdates2)
 	upd2, ok := updateResp2.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
-	require.True(t.t, ok)
+	require.True(ht, ok)
 	chanPoint2 := &lnrpc.ChannelPoint{
 		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 			FundingTxidBytes: upd2.ChanPending.Txid,
@@ -212,23 +190,19 @@ func runPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest, carol,
 	// Great, now we can mine a block to get the transaction confirmed, then
 	// wait for the new channel to be propagated through the network.
 	var finalTx wire.MsgTx
-	err = finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))
-	require.NoError(t.t, err)
+	err := finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))
+	require.NoError(ht, err)
 
 	txHash := finalTx.TxHash()
-	block := mineBlocks(t, net, 6, 1)[0]
-	assertTxInBlock(t, block, &txHash)
-	err = carol.WaitForNetworkChannelOpen(chanPoint)
-	require.NoError(t.t, err)
-	err = carol.WaitForNetworkChannelOpen(chanPoint2)
-	require.NoError(t.t, err)
+	block := ht.MineBlocksAndAssertTx(6, 1)[0]
+	ht.AssertTxInBlock(block, &txHash)
+	ht.AssertChannelOpen(carol, chanPoint)
+	ht.AssertChannelOpen(carol, chanPoint2)
 
 	// With the channel open, ensure that it is counted towards Carol's
 	// total channel balance.
-	balReq := &lnrpc.ChannelBalanceRequest{}
-	balRes, err := carol.ChannelBalance(ctxt, balReq)
-	require.NoError(t.t, err)
-	require.NotEqual(t.t, int64(0), balRes.LocalBalance.Sat)
+	balRes := ht.GetChannelBalance(carol)
+	require.NotZero(ht, balRes.LocalBalance.Sat)
 
 	// Next, to make sure the channel functions as normal, we'll make some
 	// payments within the channel.
@@ -237,18 +211,14 @@ func runPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest, carol,
 		Memo:  "new chans",
 		Value: int64(payAmt),
 	}
-	resp, err := dave.AddInvoice(ctxt, invoice)
-	require.NoError(t.t, err)
-	err = completePaymentRequests(
-		carol, carol.RouterClient, []string{resp.PaymentRequest}, true,
-	)
-	require.NoError(t.t, err)
+	resp := ht.AddInvoice(invoice, dave)
+	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest}, true)
 
 	// To conclude, we'll close the newly created channel between Carol and
 	// Dave. This function will also block until the channel is closed and
 	// will additionally assert the relevant channel closing post
 	// conditions.
-	closeChannelAndAssert(t, net, carol, chanPoint, false)
+	ht.CloseChannel(carol, chanPoint, false)
 }
 
 // testPsbtChanFundingExternal makes sure a channel can be opened between carol

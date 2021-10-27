@@ -38,6 +38,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "batch channel funding",
 		TestFunc: testBatchChanFunding,
 	},
+	{
+		Name:     "psbt channel funding",
+		TestFunc: testPsbtChanFunding,
+	},
 
 	// Channel Policy related tests.
 	{
@@ -336,10 +340,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "psbt channel funding",
-	// 	test: testPsbtChanFunding,
 	// },
 	// {
 	// 	name: "psbt channel funding external",

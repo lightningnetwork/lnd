@@ -341,21 +341,19 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testStatelessInit,
 	},
 
+	// MPP and AMP related tests.
+	{
+		Name:     "sendtoroute multi path payment",
+		TestFunc: testSendToRouteMultiPath,
+	},
+
 	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
 	// },
 	// {
-	// 	name: "psbt channel funding external",
-	// 	test: testPsbtChanFundingExternal,
-	// },
-	// {
 	// 	name: "psbt channel funding single step",
 	// 	test: testPsbtChanFundingSingleStep,
-	// },
-	// {
-	// 	name: "sendtoroute multi path payment",
-	// 	test: testSendToRouteMultiPath,
 	// },
 	// {
 	// 	name: "sendtoroute amp",

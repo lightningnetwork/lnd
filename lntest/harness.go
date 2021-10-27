@@ -3383,3 +3383,15 @@ func (h *HarnessTest) PendingSweeps(
 
 	return resp
 }
+
+// BuildRoute makes a RPC call to the node's RouterClient and asserts.
+func (h *HarnessTest) BuildRoute(hn *HarnessNode,
+	req *routerrpc.BuildRouteRequest) *routerrpc.BuildRouteResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Router.BuildRoute(ctxt, req)
+	require.NoError(h, err, "failed to build route")
+	return resp
+}

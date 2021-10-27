@@ -15,7 +15,9 @@ import (
 func testSendMultiPathPayment(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
-	ctx := newMppTestContext(t, net)
+	// TODO(yy): bring it back
+	// ctx := newMppTestContext(t, net)
+	ctx := &mppTestContext{}
 	defer ctx.shutdownNodes()
 
 	const paymentAmt = btcutil.Amount(300000)
@@ -39,7 +41,8 @@ func testSendMultiPathPayment(net *lntest.NetworkHarness, t *harnessTest) {
 
 	defer ctx.closeChannels()
 
-	ctx.waitForChannels()
+	// TODO(yy): bring it back
+	// ctx.waitForChannels()
 
 	// Increase Dave's fee to make the test deterministic. Otherwise it
 	// would be unpredictable whether pathfinding would go through Charlie

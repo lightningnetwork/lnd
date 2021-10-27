@@ -46,6 +46,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "psbt channel funding external",
 		TestFunc: testPsbtChanFundingExternal,
 	},
+	// {
+	// 	name: "psbt channel funding single step",
+	// 	test: testPsbtChanFundingSingleStep,
+	// },
 
 	// Channel Policy related tests.
 	{
@@ -346,15 +350,11 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "sendtoroute multi path payment",
 		TestFunc: testSendToRouteMultiPath,
 	},
+	{
+		Name:     "send multi path payment",
+		TestFunc: testSendMultiPathPayment,
+	},
 
-	// {
-	// 	name: "reconnect after ip change",
-	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "psbt channel funding single step",
-	// 	test: testPsbtChanFundingSingleStep,
-	// },
 	// {
 	// 	name: "sendtoroute amp",
 	// 	test: testSendToRouteAMP,
@@ -372,8 +372,8 @@ var allTestCases = []*lntest.TestCase{
 	// 	test: testSendPaymentAMPInvoiceRepeat,
 	// },
 	// {
-	// 	name: "send multi path payment",
-	// 	test: testSendMultiPathPayment,
+	// 	name: "reconnect after ip change",
+	// 	test: testReconnectAfterIPChange,
 	// },
 	// {
 	// 	name: "REST API",

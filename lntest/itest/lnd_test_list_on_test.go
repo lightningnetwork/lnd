@@ -6,10 +6,6 @@ package itest
 import "github.com/lightningnetwork/lnd/lntest"
 
 var allTestCases = []*lntest.TestCase{
-	{
-		Name:     "test multi-hop htlc",
-		TestFunc: testMultiHopHtlcClaims,
-	},
 
 	// Recovery related tests.
 	{
@@ -276,6 +272,14 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "multi-hop htlc error propagation",
 		TestFunc: testHtlcErrorPropagation,
 	},
+	{
+		Name:     "test multi-hop htlc",
+		TestFunc: testMultiHopHtlcClaims,
+	},
+	{
+		Name:     "intercept forwarded htlc packets",
+		TestFunc: testForwardInterceptorBasic,
+	},
 
 	// Switch related tests.
 	{
@@ -383,10 +387,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "REST API",
 	// 	test: testRestAPI,
-	// },
-	// {
-	// 	name: "forward interceptor",
-	// 	test: testForwardInterceptorBasic,
 	// },
 	// {
 	// 	name: "forward interceptor dedup htlcs",

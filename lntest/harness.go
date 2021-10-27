@@ -3409,3 +3409,54 @@ func (h *HarnessTest) BuildRoute(hn *HarnessNode,
 	require.NoError(h, err, "failed to build route")
 	return resp
 }
+
+type InterceptorClient routerrpc.Router_HtlcInterceptorClient
+
+// HtlcInterceptor makes a RPC call to the node's RouterClient and asserts.
+func (h *HarnessTest) HtlcInterceptor(hn *HarnessNode) (
+	InterceptorClient, context.CancelFunc) {
+
+	// HtlcInterceptor needs to have the context alive for the entire test
+	// case as the returned client will be used for send and receive events
+	// stream. Thus we use cancel context here instead of a timeout
+	// context.
+	ctxt, cancel := context.WithCancel(h.runCtx)
+	resp, err := hn.rpc.Router.HtlcInterceptor(ctxt)
+
+	require.NoError(h, err, "failed to create HtlcInterceptor")
+
+	return resp, cancel
+}
+
+// ReceiveHtlcInterceptor waits until a message is received on the htlc
+// interceptor stream or the timeout is reached.
+func (h *HarnessTest) ReceiveHtlcInterceptor(
+	stream InterceptorClient) *routerrpc.ForwardHtlcInterceptRequest {
+
+	chanMsg := make(chan *routerrpc.ForwardHtlcInterceptRequest)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout intercepting htlc")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}

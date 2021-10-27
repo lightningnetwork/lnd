@@ -296,7 +296,7 @@ func newMppTestContext(ht *lntest.HarnessTest) *mppTestContext {
 
 // openChannel is a helper to open a channel from->to.
 func (c *mppTestContext) openChannel(from, to *lntest.HarnessNode,
-	chanSize btcutil.Amount) {
+	chanSize btcutil.Amount) *lnrpc.ChannelPoint {
 
 	c.ht.SendCoins(btcutil.SatoshiPerBitcoin, from)
 
@@ -309,6 +309,7 @@ func (c *mppTestContext) openChannel(from, to *lntest.HarnessNode,
 	})
 
 	c.networkChans = append(c.networkChans, chanPoint)
+	return chanPoint
 }
 
 func (c *mppTestContext) closeChannels() {

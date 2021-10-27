@@ -2,7 +2,6 @@ package itest
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"sort"
 	"testing"
@@ -375,12 +374,8 @@ func testSendPaymentAMPInvoiceRepeat(net *lntest.NetworkHarness,
 
 // testSendPaymentAMP tests that we can send an AMP payment to a specified
 // destination using SendPaymentV2.
-func testSendPaymentAMP(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	// TODO(yy): bring it back
-	// ctx := newMppTestContext(t, net)
-	ctx := mppTestContext{}
+func testSendPaymentAMP(ht *lntest.HarnessTest) {
+	ctx := newMppTestContext(ht)
 	defer ctx.shutdownNodes()
 
 	const paymentAmt = btcutil.Amount(300000)
@@ -404,35 +399,26 @@ func testSendPaymentAMP(net *lntest.NetworkHarness, t *harnessTest) {
 
 	defer ctx.closeChannels()
 
-	// TODO(yy): bring it back
-	// ctx.waitForChannels()
-
 	// Increase Dave's fee to make the test deterministic. Otherwise it
 	// would be unpredictable whether pathfinding would go through Charlie
 	// or Dave for the first shard.
-	_, err := ctx.dave.UpdateChannelPolicy(
-		context.Background(),
-		&lnrpc.PolicyUpdateRequest{
-			Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
-			BaseFeeMsat:   500000,
-			FeeRate:       0.001,
-			TimeLockDelta: 40,
-		},
-	)
-	if err != nil {
-		t.Fatalf("dave policy update: %v", err)
+	policy := &lnrpc.PolicyUpdateRequest{
+		Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
+		BaseFeeMsat:   500000,
+		FeeRate:       0.001,
+		TimeLockDelta: 40,
 	}
+	ht.UpdateChannelPolicy(ctx.dave, policy)
 
-	payment := sendAndAssertSuccess(
-		t, ctx.alice, &routerrpc.SendPaymentRequest{
-			Dest:           ctx.bob.PubKey[:],
-			Amt:            int64(paymentAmt),
-			FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-			Amp:            true,
-		},
-	)
+	sendReq := &routerrpc.SendPaymentRequest{
+		Dest:           ctx.bob.PubKey[:],
+		Amt:            int64(paymentAmt),
+		FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+		Amp:            true,
+	}
+	payment := ht.SendPaymentAndAssert(ctx.alice, sendReq)
 
 	// Check that Alice split the payment in at least three shards. Because
 	// the hand-off of the htlc to the link is asynchronous (via a mailbox),
@@ -449,64 +435,55 @@ func testSendPaymentAMP(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	const minExpectedShards = 3
-	if succeeded < minExpectedShards {
-		t.Fatalf("expected at least %v shards, but got %v",
-			minExpectedShards, succeeded)
-	}
+	require.GreaterOrEqual(ht, minExpectedShards, succeeded,
+		"expected num of shards not reached")
 
 	// Fetch Bob's invoices.
-	invoiceResp, err := ctx.bob.ListInvoices(
-		ctxb, &lnrpc.ListInvoiceRequest{},
-	)
-	require.NoError(t.t, err)
+	invoiceResp := ht.ListInvoices(ctx.bob)
 
 	// There should only be one invoice.
-	require.Equal(t.t, 1, len(invoiceResp.Invoices))
+	require.Equal(ht, 1, len(invoiceResp.Invoices))
 	rpcInvoice := invoiceResp.Invoices[0]
 
 	// Assert that the invoice is settled for the total payment amount and
 	// has the correct payment address.
-	require.True(t.t, rpcInvoice.Settled) // nolint:staticcheck
-	require.Equal(t.t, lnrpc.Invoice_SETTLED, rpcInvoice.State)
-	require.Equal(t.t, int64(paymentAmt), rpcInvoice.AmtPaidSat)
-	require.Equal(t.t, int64(paymentAmt*1000), rpcInvoice.AmtPaidMsat)
+	require.True(ht, rpcInvoice.Settled) // nolint:staticcheck
+	require.Equal(ht, lnrpc.Invoice_SETTLED, rpcInvoice.State)
+	require.Equal(ht, int64(paymentAmt), rpcInvoice.AmtPaidSat)
+	require.Equal(ht, int64(paymentAmt*1000), rpcInvoice.AmtPaidMsat)
 
 	// Finally, assert that the same set id is recorded for each htlc, and
 	// that the preimage hash pair is valid.
 	var setID []byte
-	require.Equal(t.t, succeeded, len(rpcInvoice.Htlcs))
+	require.Equal(ht, succeeded, len(rpcInvoice.Htlcs))
 	for _, htlc := range rpcInvoice.Htlcs {
-		require.NotNil(t.t, htlc.Amp)
+		require.NotNil(ht, htlc.Amp)
 		if setID == nil {
 			setID = make([]byte, 32)
 			copy(setID, htlc.Amp.SetId)
 		}
-		require.Equal(t.t, setID, htlc.Amp.SetId)
+		require.Equal(ht, setID, htlc.Amp.SetId)
 
 		// Parse the child hash and child preimage, and assert they are
 		// well-formed.
 		childHash, err := lntypes.MakeHash(htlc.Amp.Hash)
-		require.NoError(t.t, err)
+		require.NoError(ht, err)
 		childPreimage, err := lntypes.MakePreimage(htlc.Amp.Preimage)
-		require.NoError(t.t, err)
+		require.NoError(ht, err)
 
 		// Assert that the preimage actually matches the hashes.
 		validPreimage := childPreimage.Matches(childHash)
-		require.True(t.t, validPreimage)
+		require.True(ht, validPreimage)
 	}
 
 	// The set ID we extract above should be shown in the final settled
 	// state.
 	ampState := rpcInvoice.AmpInvoiceState[hex.EncodeToString(setID)]
-	require.Equal(t.t, lnrpc.InvoiceHTLCState_SETTLED, ampState.State)
+	require.Equal(ht, lnrpc.InvoiceHTLCState_SETTLED, ampState.State)
 }
 
-func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	// TODO(yy): bring it back
-	// ctx := newMppTestContext(t, net)
-	ctx := &mppTestContext{}
+func testSendToRouteAMP(ht *lntest.HarnessTest) {
+	ctx := newMppTestContext(ht)
 	defer ctx.shutdownNodes()
 
 	const (
@@ -535,15 +512,9 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 
 	defer ctx.closeChannels()
 
-	// TODO(yy): bring it back
-	// ctx.waitForChannels()
-
 	// Subscribe to bob's invoices.
 	req := &lnrpc.InvoiceSubscription{}
-	ctxc, cancelSubscription := context.WithCancel(ctxb)
-	bobInvoiceSubscription, err := ctx.bob.SubscribeInvoices(ctxc, req)
-	require.NoError(t.t, err)
-	defer cancelSubscription()
+	bobInvoiceSubscription := ht.SubscribeInvoices(ctx.bob, req)
 
 	// We'll send shards along three routes from Alice.
 	sendRoutes := [numShards][]*lntest.HarnessNode{
@@ -552,17 +523,12 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 		{ctx.carol, ctx.eve, ctx.bob},
 	}
 
-	payAddr := make([]byte, 32)
-	_, err = rand.Read(payAddr)
-	require.NoError(t.t, err)
-
-	setID := make([]byte, 32)
-	_, err = rand.Read(setID)
-	require.NoError(t.t, err)
+	payAddr := ht.Random32Bytes()
+	setID := ht.Random32Bytes()
 
 	var sharer amp.Sharer
-	sharer, err = amp.NewSeedSharer()
-	require.NoError(t.t, err)
+	sharer, err := amp.NewSeedSharer()
+	require.NoError(ht, err)
 
 	childPreimages := make(map[lntypes.Preimage]uint32)
 	responses := make(chan *lnrpc.HTLCAttempt, len(sendRoutes))
@@ -570,12 +536,7 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 	// Define a closure for sending each of the three shards.
 	sendShard := func(i int, hops []*lntest.HarnessNode) {
 		// Build a route for the specified hops.
-		// TODO(yy): bring it back
-		// r, err := ctx.buildRoute(ctxb, shardAmt, ctx.alice, hops)
-		// if err != nil {
-		// 	t.Fatalf("unable to build route: %v", err)
-		// }
-		r := &lnrpc.Route{}
+		r := ctx.buildRoute(shardAmt, ctx.alice, hops)
 
 		// Set the MPP records to indicate this is a payment shard.
 		hop := r.Hops[len(r.Hops)-1]
@@ -589,7 +550,7 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 		if i < len(sendRoutes)-1 {
 			var left amp.Sharer
 			left, sharer, err = sharer.Split()
-			require.NoError(t.t, err)
+			require.NoError(ht, err)
 
 			child = left.Child(uint32(i))
 		} else {
@@ -612,12 +573,7 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 		// We'll send all shards in their own goroutine, since SendToRoute will
 		// block as long as the payment is in flight.
 		go func() {
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			resp, err := ctx.alice.RouterClient.SendToRouteV2(ctxt, sendReq)
-			if err != nil {
-				t.Fatalf("unable to send payment: %v", err)
-			}
-
+			resp := ht.SendToRouteV2(ctx.alice, sendReq)
 			responses <- resp
 		}()
 	}
@@ -627,21 +583,21 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Ensure we get a notification of the invoice being added by Bob.
 	rpcInvoice, err := bobInvoiceSubscription.Recv()
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
-	require.False(t.t, rpcInvoice.Settled) // nolint:staticcheck
-	require.Equal(t.t, lnrpc.Invoice_OPEN, rpcInvoice.State)
-	require.Equal(t.t, int64(0), rpcInvoice.AmtPaidSat)
-	require.Equal(t.t, int64(0), rpcInvoice.AmtPaidMsat)
-	require.Equal(t.t, payAddr, rpcInvoice.PaymentAddr)
+	require.False(ht, rpcInvoice.Settled) // nolint:staticcheck
+	require.Equal(ht, lnrpc.Invoice_OPEN, rpcInvoice.State)
+	require.Equal(ht, int64(0), rpcInvoice.AmtPaidSat)
+	require.Equal(ht, int64(0), rpcInvoice.AmtPaidMsat)
+	require.Equal(ht, payAddr, rpcInvoice.PaymentAddr)
 
-	require.Equal(t.t, 0, len(rpcInvoice.Htlcs))
+	require.Equal(ht, 0, len(rpcInvoice.Htlcs))
 
 	sendShard(1, sendRoutes[1])
 	sendShard(2, sendRoutes[2])
 
 	// Assert that all of the child preimages are unique.
-	require.Equal(t.t, len(sendRoutes), len(childPreimages))
+	require.Equal(ht, len(sendRoutes), len(childPreimages))
 
 	// Make a copy of the childPreimages map for validating the resulting
 	// invoice.
@@ -658,19 +614,17 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 		select {
 		case resp = <-responses:
 		case <-timer:
-			t.Fatalf("response not received")
+			require.Fail(ht, "response not received")
 		}
 
-		if resp.Failure != nil {
-			t.Fatalf("received payment failure : %v", resp.Failure)
-		}
+		require.Nil(ht, resp.Failure, "received payment failure")
 
 		preimage, err := lntypes.MakePreimage(resp.Preimage)
-		require.NoError(t.t, err)
+		require.NoError(ht, err)
 
 		// Assert that the response includes one of our child preimages.
 		_, ok := childPreimages[preimage]
-		require.True(t.t, ok)
+		require.True(ht, ok)
 
 		// Remove this preimage from out set so that we ensure all
 		// responses have a unique child preimage.
@@ -680,49 +634,47 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// There should now be a settle event for the invoice.
 	rpcInvoice, err = bobInvoiceSubscription.Recv()
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// Also fetch Bob's invoice from ListInvoices and assert it is equal to
 	// the one received via the subscription.
-	invoiceResp, err := ctx.bob.ListInvoices(
-		ctxb, &lnrpc.ListInvoiceRequest{},
-	)
-	require.NoError(t.t, err)
-	require.Equal(t.t, 1, len(invoiceResp.Invoices))
-	assertInvoiceEqual(t.t, rpcInvoice, invoiceResp.Invoices[0])
+	invoiceResp := ht.ListInvoices(ctx.bob)
+	require.NoError(ht, err)
+	require.Equal(ht, 1, len(invoiceResp.Invoices))
+	assertInvoiceEqual(ht.T, rpcInvoice, invoiceResp.Invoices[0])
 
 	// Assert that the invoice is settled for the total payment amount and
 	// has the correct payment address.
-	require.True(t.t, rpcInvoice.Settled) // nolint:staticcheck
-	require.Equal(t.t, lnrpc.Invoice_SETTLED, rpcInvoice.State)
-	require.Equal(t.t, int64(paymentAmt), rpcInvoice.AmtPaidSat)
-	require.Equal(t.t, int64(paymentAmt*1000), rpcInvoice.AmtPaidMsat)
-	require.Equal(t.t, payAddr, rpcInvoice.PaymentAddr)
+	require.True(ht, rpcInvoice.Settled) // nolint:staticcheck
+	require.Equal(ht, lnrpc.Invoice_SETTLED, rpcInvoice.State)
+	require.Equal(ht, int64(paymentAmt), rpcInvoice.AmtPaidSat)
+	require.Equal(ht, int64(paymentAmt*1000), rpcInvoice.AmtPaidMsat)
+	require.Equal(ht, payAddr, rpcInvoice.PaymentAddr)
 
 	// Finally, assert that the proper set id is recorded for each htlc, and
 	// that the preimage hash pair is valid.
-	require.Equal(t.t, numShards, len(rpcInvoice.Htlcs))
+	require.Equal(ht, numShards, len(rpcInvoice.Htlcs))
 	for _, htlc := range rpcInvoice.Htlcs {
-		require.NotNil(t.t, htlc.Amp)
-		require.Equal(t.t, setID, htlc.Amp.SetId)
+		require.NotNil(ht, htlc.Amp)
+		require.Equal(ht, setID, htlc.Amp.SetId)
 
 		// Parse the child hash and child preimage, and assert they are
 		// well-formed.
 		childHash, err := lntypes.MakeHash(htlc.Amp.Hash)
-		require.NoError(t.t, err)
+		require.NoError(ht, err)
 		childPreimage, err := lntypes.MakePreimage(htlc.Amp.Preimage)
-		require.NoError(t.t, err)
+		require.NoError(ht, err)
 
 		// Assert that the preimage actually matches the hashes.
 		validPreimage := childPreimage.Matches(childHash)
-		require.True(t.t, validPreimage)
+		require.True(ht, validPreimage)
 
 		// Assert that the HTLC includes one of our child preimages.
 		childIndex, ok := childPreimages[childPreimage]
-		require.True(t.t, ok)
+		require.True(ht, ok)
 
 		// Assert that the correct child index is reflected.
-		require.Equal(t.t, childIndex, htlc.Amp.ChildIndex)
+		require.Equal(ht, childIndex, htlc.Amp.ChildIndex)
 
 		// Remove this preimage from our set so that we ensure all HTLCs
 		// have a unique child preimage.

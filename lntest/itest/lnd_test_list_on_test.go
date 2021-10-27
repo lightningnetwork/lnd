@@ -358,15 +358,15 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "sendpayment amp invoice",
 		TestFunc: testSendPaymentAMPInvoice,
 	},
+	{
+		Name:     "sendpayment amp",
+		TestFunc: testSendPaymentAMP,
+	},
+	{
+		Name:     "sendtoroute amp",
+		TestFunc: testSendToRouteAMP,
+	},
 
-	// {
-	// 	name: "sendtoroute amp",
-	// 	test: testSendToRouteAMP,
-	// },
-	// {
-	// 	name: "sendpayment amp",
-	// 	test: testSendPaymentAMP,
-	// },
 	// {
 	// {
 	// 	name: "sendpayment amp invoice repeat",

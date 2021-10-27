@@ -383,6 +383,16 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSendPaymentAMPInvoiceRepeat,
 	},
 
+	// Wallet related tests.
+	{
+		Name:     "wallet import account",
+		TestFunc: testWalletImportAccount,
+	},
+	{
+		Name:     "wallet import pubkey",
+		TestFunc: testWalletImportPubKey,
+	},
+
 	// {
 	// {
 	// 	name: "sendpayment amp invoice repeat",
@@ -400,14 +410,6 @@ var allTestCases = []*lntest.TestCase{
 	// 	name: "forward interceptor dedup htlcs",
 	// 	test: testForwardInterceptorDedupHtlc,
 	// },
-	// 	name: "wallet import account",
-	// 	test: testWalletImportAccount,
-	// },
-	// {
-	// 	name: "wallet import pubkey",
-	// 	test: testWalletImportPubKey,
-	// },
-	// {
 	// 	name: "etcd_failover",
 	// 	test: testEtcdFailover,
 	// },

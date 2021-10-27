@@ -1875,6 +1875,21 @@ func (h *HarnessTest) NewAddress(hn *HarnessNode,
 	return resp
 }
 
+// NewAddressWithAccount makes a RPC call to NewAddress and asserts.
+func (h *HarnessTest) NewAddressWithAccount(hn *HarnessNode,
+	addrType lnrpc.AddressType, account string) *lnrpc.NewAddressResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.NewAddressRequest{Type: addrType, Account: account}
+	resp, err := hn.rpc.LN.NewAddress(ctxt, req)
+	require.NoError(h, err, "failed to create new address for node %s",
+		hn.Name())
+
+	return resp
+}
+
 // SendCoinFromNode sends a given amount of money to the specified address from
 // the passed node.
 func (h *HarnessTest) SendCoinFromNode(hn *HarnessNode,
@@ -3460,4 +3475,57 @@ func (h *HarnessTest) ReceiveHtlcInterceptor(
 	}
 
 	return nil
+}
+
+// ListAccounts makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessTest) ListAccounts(hn *HarnessNode,
+	req *walletrpc.ListAccountsRequest) *walletrpc.ListAccountsResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.WalletKit.ListAccounts(ctxt, req)
+	require.NoError(h, err, "failed to ListAccounts")
+
+	return resp
+}
+
+// ImportAccount makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessTest) ImportAccount(hn *HarnessNode,
+	req *walletrpc.ImportAccountRequest) *walletrpc.ImportAccountResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.WalletKit.ImportAccount(ctxt, req)
+	require.NoError(h, err, "failed to import account")
+
+	return resp
+}
+
+// PublishTransaction makes a RPC call to the node's WalletKitClient and
+// asserts.
+func (h *HarnessTest) PublishTransaction(hn *HarnessNode,
+	req *walletrpc.Transaction) *walletrpc.PublishResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.WalletKit.PublishTransaction(ctxt, req)
+	require.NoError(h, err, "failed to publish tx")
+
+	return resp
+}
+
+// ImportPublicKey makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessTest) ImportPublicKey(hn *HarnessNode,
+	req *walletrpc.ImportPublicKeyRequest) *walletrpc.ImportPublicKeyResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.WalletKit.ImportPublicKey(ctxt, req)
+	require.NoError(h, err, "failed to import public key")
+
+	return resp
 }

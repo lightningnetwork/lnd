@@ -149,6 +149,12 @@ func (h *HarnessTest) NewNode(name string, extraArgs []string) *HarnessNode {
 	return node
 }
 
+// KillNode stops the given node abruptly without waiting.
+func (h *HarnessTest) KillNode(hn *HarnessNode) {
+	err := h.net.KillNode(hn)
+	require.NoErrorf(h, err, "unable to kill node %s", hn.Name())
+}
+
 // NewNodeWithSeedEtcd starts a new node with seed that'll use an external
 // etcd database as its (remote) channel and wallet DB. The passsed cluster
 // flag indicates that we'd like the node to join the cluster leader election.

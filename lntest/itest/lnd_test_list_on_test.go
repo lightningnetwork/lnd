@@ -164,6 +164,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "abandon channel",
 		TestFunc: testAbandonChannel,
 	},
+	{
+		Name:     "etcd_failover",
+		TestFunc: testEtcdFailover,
+	},
 
 	// Channel graph related tests.
 	{
@@ -413,11 +417,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "forward interceptor dedup htlcs",
 	// 	test: testForwardInterceptorDedupHtlc,
-	// },
-	// 	name: "etcd_failover",
-	// 	test: testEtcdFailover,
-	// },
-	// {
 	// 	name: "rpc middleware interceptor",
 	// 	test: testRPCMiddlewareInterceptor,
 	// },

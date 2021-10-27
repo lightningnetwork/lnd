@@ -4,7 +4,6 @@
 package itest
 
 import (
-	"context"
 	"io/ioutil"
 	"testing"
 	"time"
@@ -16,25 +15,22 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/stretchr/testify/require"
 )
 
-func assertLeader(ht *harnessTest, observer cluster.LeaderElector,
+func assertLeader(ht *lntest.HarnessTest, observer cluster.LeaderElector,
 	expected string) {
 
-	leader, err := observer.Leader(context.Background())
-	if err != nil {
-		ht.Fatalf("Unable to query leader: %v", err)
-	}
-
-	if leader != expected {
-		ht.Fatalf("Leader should be '%v', got: '%v'", expected, leader)
-	}
+	leader, err := observer.Leader(ht.Context())
+	require.NoError(ht, err, "Unable to query leader")
+	require.Equalf(ht, expected, leader,
+		"Leader should be '%v', got: '%v'", expected, leader)
 }
 
 // testEtcdFailover tests that in a cluster setup where two LND nodes form a
 // single cluster (sharing the same identity) one can hand over the leader role
 // to the other (failing over after graceful shutdown or forceful abort).
-func testEtcdFailover(net *lntest.NetworkHarness, ht *harnessTest) {
+func testEtcdFailover(ht *lntest.HarnessTest) {
 	testCases := []struct {
 		name string
 		kill bool
@@ -49,25 +45,19 @@ func testEtcdFailover(net *lntest.NetworkHarness, ht *harnessTest) {
 	for _, test := range testCases {
 		test := test
 
-		ht.t.Run(test.name, func(t1 *testing.T) {
-			ht1 := newHarnessTest(t1, ht.lndHarness)
-			ht1.RunTestCase(&testCase{
-				name: test.name,
-				test: func(_ *lntest.NetworkHarness,
-					tt *harnessTest) {
-
-					testEtcdFailoverCase(net, tt, test.kill)
+		ht.Run(test.name, func(t1 *testing.T) {
+			st := ht.Subtest(t1)
+			st.RunTestCase(&lntest.TestCase{
+				Name: test.name,
+				TestFunc: func(ht *lntest.HarnessTest) {
+					testEtcdFailoverCase(ht, test.kill)
 				},
 			})
 		})
 	}
 }
 
-func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
-	kill bool) {
-
-	ctxb := context.Background()
-
+func testEtcdFailoverCase(ht *lntest.HarnessTest, kill bool) {
 	tmpDir, err := ioutil.TempDir("", "etcd")
 	if err != nil {
 		ht.Fatalf("Failed to create temp dir: %v", err)
@@ -76,125 +66,87 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 		tmpDir, uint16(lntest.NextAvailablePort()),
 		uint16(lntest.NextAvailablePort()), "",
 	)
-	if err != nil {
-		ht.Fatalf("Failed to start etcd instance: %v", err)
-	}
+	require.NoError(ht, err, "Failed to start etcd instance")
 	defer cleanup()
 
 	// Make leader election session TTL 5 sec to make the test run fast.
 	const leaderSessionTTL = 5
 
 	observer, err := cluster.MakeLeaderElector(
-		ctxb, cluster.EtcdLeaderElector, "observer",
+		ht.Context(), cluster.EtcdLeaderElector, "observer",
 		lncfg.DefaultEtcdElectionPrefix, leaderSessionTTL, etcdCfg,
 	)
-	if err != nil {
-		ht.Fatalf("Cannot start election observer: %v", err)
-	}
+	require.NoError(ht, err, "Cannot start election observer")
 
 	password := []byte("the quick brown fox jumps the lazy dog")
 	entropy := [16]byte{1, 2, 3}
 	stateless := false
 	cluster := true
 
-	carol1, _, _, err := net.NewNodeWithSeedEtcd(
+	carol1, _, _ := ht.NewNodeWithSeedEtcd(
 		"Carol-1", etcdCfg, password, entropy[:], stateless, cluster,
 		leaderSessionTTL,
 	)
-	if err != nil {
-		ht.Fatalf("unable to start Carol-1: %v", err)
-	}
+	info1 := ht.GetInfo(carol1)
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	info1, err := carol1.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
-	if err != nil {
-		ht.Fatalf("unable to get info: %v", err)
-	}
-
-	net.ConnectNodes(ht.t, carol1, net.Alice)
+	alice := ht.Alice()
+	ht.ConnectNodes(carol1, alice)
 
 	// Open a channel with 100k satoshis between Carol and Alice with Alice
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
-	_ = openChannelAndAssert(
-		ht, net, net.Alice, carol1,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
-	)
+	ht.OpenChannel(alice, carol1, lntest.OpenChannelParams{Amt: chanAmt})
 
 	// At this point Carol-1 is the elected leader, while Carol-2 will wait
 	// to become the leader when Carol-1 stops.
-	carol2, err := net.NewNodeEtcd(
+	carol2 := ht.NewNodeEtcd(
 		"Carol-2", etcdCfg, password, cluster, false, leaderSessionTTL,
 	)
-	if err != nil {
-		ht.Fatalf("Unable to start Carol-2: %v", err)
-	}
 
 	assertLeader(ht, observer, "Carol-1")
 
 	amt := btcutil.Amount(1000)
-	payReqs, _, _, err := createPayReqs(carol1, amt, 2)
-	if err != nil {
-		ht.Fatalf("Carol-2 is unable to create payment requests: %v",
-			err)
+	payReqs, _, _ := ht.CreatePayReqs(carol1, amt, 2)
+
+	req := &routerrpc.SendPaymentRequest{
+		PaymentRequest: payReqs[0],
+		TimeoutSeconds: 60,
+		FeeLimitSat:    noFeeLimitMsat,
 	}
-	sendAndAssertSuccess(
-		ht, net.Alice, &routerrpc.SendPaymentRequest{
-			PaymentRequest: payReqs[0],
-			TimeoutSeconds: 60,
-			FeeLimitSat:    noFeeLimitMsat,
-		},
-	)
+	ht.SendPaymentAndAssert(alice, req)
 
 	// Shut down or kill Carol-1 and wait for Carol-2 to become the leader.
 	failoverTimeout := time.Duration(2*leaderSessionTTL) * time.Second
 	if kill {
-		err = net.KillNode(carol1)
-		if err != nil {
-			ht.Fatalf("Can't kill Carol-1: %v", err)
-		}
+		ht.KillNode(carol1)
 	} else {
-		shutdownAndAssert(net, ht, carol1)
+		ht.Shutdown(carol1)
 	}
 
 	err = carol2.WaitUntilLeader(failoverTimeout)
-	if err != nil {
-		ht.Fatalf("Waiting for Carol-2 to become the leader failed: %v",
-			err)
-	}
+	require.NoError(ht, err,
+		"Waiting for Carol-2 to become the leader failed")
 
 	assertLeader(ht, observer, "Carol-2")
 
 	err = carol2.Unlock(&lnrpc.UnlockWalletRequest{
 		WalletPassword: password,
 	})
-	if err != nil {
-		ht.Fatalf("Unlocking Carol-2 was not successful: %v", err)
-	}
-
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	require.NoError(ht, err, "Unlocking Carol-2 failed")
 
 	// Make sure Carol-1 and Carol-2 have the same identity.
-	info2, err := carol2.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
-	if err != nil {
-		ht.Fatalf("unable to get info: %v", err)
-	}
-	if info1.IdentityPubkey != info2.IdentityPubkey {
-		ht.Fatalf("Carol-1 and Carol-2 must have the same identity: "+
-			"%v vs %v", info1.IdentityPubkey, info2.IdentityPubkey)
-	}
+	info2 := ht.GetInfo(carol2)
+	require.Equal(ht, info1.IdentityPubkey, info2.IdentityPubkey,
+		"Carol-1 and Carol-2 must have the same identity")
 
 	// Now let Alice pay the second invoice but this time we expect Carol-2
 	// to receive the payment.
-	sendAndAssertSuccess(
-		ht, net.Alice, &routerrpc.SendPaymentRequest{
-			PaymentRequest: payReqs[1],
-			TimeoutSeconds: 60,
-			FeeLimitSat:    noFeeLimitMsat,
-		},
-	)
+	req = &routerrpc.SendPaymentRequest{
+		PaymentRequest: payReqs[1],
+		TimeoutSeconds: 60,
+		FeeLimitSat:    noFeeLimitMsat,
+	}
+	ht.SendPaymentAndAssert(alice, req)
 
-	shutdownAndAssert(net, ht, carol2)
+	ht.Shutdown(carol2)
 }

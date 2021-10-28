@@ -82,6 +82,65 @@
         ]
       }
     },
+    "/v2/invoices/lookup": {
+      "get": {
+        "summary": "LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced\nusing either its payment hash, payment address, or set ID.",
+        "operationId": "Invoices_LookupInvoiceV2",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcInvoice"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "payment_hash",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "payment_addr",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "set_id",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "lookup_modifier",
+            "description": " - DEFAULT: The default look up modifier, no look up behavior is changed.\n - HTLC_SET_ONLY: Indicates that when a look up is done based on a set_id, then only that set\nof HTLCs related to that set ID should be returned.\n - HTLC_SET_BLANK: Indicates that when a look up is done using a payment_addr, then no HTLCs\nrelated to the payment_addr should be returned. This is useful when one\nwants to be able to obtain the set of associated setIDs with a given\ninvoice, then look up the sub-invoices \"projected\" by that set ID.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "DEFAULT",
+              "HTLC_SET_ONLY",
+              "HTLC_SET_BLANK"
+            ],
+            "default": "DEFAULT"
+          }
+        ],
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
     "/v2/invoices/settle": {
       "post": {
         "summary": "SettleInvoice settles an accepted invoice. If the invoice is already\nsettled, this call will succeed.",
@@ -257,6 +316,16 @@
     "invoicesrpcCancelInvoiceResp": {
       "type": "object"
     },
+    "invoicesrpcLookupModifier": {
+      "type": "string",
+      "enum": [
+        "DEFAULT",
+        "HTLC_SET_ONLY",
+        "HTLC_SET_BLANK"
+      ],
+      "default": "DEFAULT",
+      "description": " - DEFAULT: The default look up modifier, no look up behavior is changed.\n - HTLC_SET_ONLY: Indicates that when a look up is done based on a set_id, then only that set\nof HTLCs related to that set ID should be returned.\n - HTLC_SET_BLANK: Indicates that when a look up is done using a payment_addr, then no HTLCs\nrelated to the payment_addr should be returned. This is useful when one\nwants to be able to obtain the set of associated setIDs with a given\ninvoice, then look up the sub-invoices \"projected\" by that set ID."
+    },
     "invoicesrpcSettleInvoiceMsg": {
       "type": "object",
       "properties": {
@@ -300,6 +369,30 @@
         }
       },
       "description": "Details specific to AMP HTLCs."
+    },
+    "lnrpcAMPInvoiceState": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "$ref": "#/definitions/lnrpcInvoiceHTLCState",
+          "description": "The state the HTLCs associated with this setID are in."
+        },
+        "settle_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The settle index of this HTLC set, if the invoice state is settled."
+        },
+        "settle_time": {
+          "type": "string",
+          "format": "int64",
+          "description": "The time this HTLC set was settled expressed in unix epoch."
+        },
+        "amt_paid_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount paid for the sub-invoice expressed in milli satoshis."
+        }
+      }
     },
     "lnrpcFeature": {
       "type": "object",
@@ -471,11 +564,19 @@
         "payment_addr": {
           "type": "string",
           "format": "byte",
-          "description": "The payment address of this invoice. This value will be used in MPP\npayments, and also for newer invoies that always require the MPP paylaod\nfor added end-to-end security."
+          "description": "The payment address of this invoice. This value will be used in MPP\npayments, and also for newer invoices that always require the MPP payload\nfor added end-to-end security."
         },
         "is_amp": {
           "type": "boolean",
           "description": "Signals whether or not this is an AMP invoice."
+        },
+        "amp_invoice_state": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcAMPInvoiceState"
+          },
+          "description": "Maps a 32-byte hex-encoded set ID to the sub-invoice AMP state for the\ngiven set ID. This field is always populated for AMP invoices, and can be\nused along side LookupInvoice to obtain the HTLC information related to a\ngiven sub-invoice.",
+          "title": "[EXPERIMENTAL]:"
         }
       }
     },

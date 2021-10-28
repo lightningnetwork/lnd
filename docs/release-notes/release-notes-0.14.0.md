@@ -125,6 +125,28 @@ absolute height of the chain, to be met before being able to sweep their funds,
 on top of the usual CSV delay requirement. See the linked pull request for more
 details.
 
+### Re-Usable Static AMP Invoices
+
+[AMP invoices are now fully re-usable, meaning it's possible for an `lnd` node
+today a static AMP invoice multiple times](https://github.com/lightningnetwork/lnd/pull/5803). 
+An AMP invoice can be created by adding the `--amp` flag to `lncli addinvoice`.
+From there repeated payments can be made to the invoice using `lncli
+payinvoice`. On the receiver side, notifications will still come in as normal,
+but notifying only the _new_ "sub-invoice" paid each time.
+
+A new field has been added to the main `Invoice` proto that allows callers to
+easily scan to see the current state of all repeated payments to a given
+`payment_addr`. 
+
+A new `LookupInvoiceV2` RPC has been added to the `invoicerpcserver` which
+allows callers to look up an AMP invoice by set_id, opting to only return
+relevant HTLCs, or to look up an AMP invoice by its `payment_addr`, but omit
+all HTLC information. The first option is useful when a caller wants to get
+information specific to a repeated payment, omitting the thousands of possible
+_other_ payment attempts. The second option is useful when a caller wants to
+obtain the _base_ invoice information, and then use the first option to extract
+the custom records (or other details) of the prior payment attempts.
+
 ## RPC Server
 
 * [Return payment address and add index from

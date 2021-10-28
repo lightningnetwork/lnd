@@ -176,7 +176,8 @@ func TestSettleInvoice(t *testing.T) {
 		t.Fatal(err)
 	}
 	if inv.AmtPaid != amtPaid+amtPaid+600 {
-		t.Fatal("amount incorrect")
+		t.Fatalf("amount incorrect: expected %v got %v",
+			amtPaid+amtPaid+600, inv.AmtPaid)
 	}
 
 	// Try to cancel.
@@ -1641,7 +1642,12 @@ func testSpontaneousAmpPayment(
 	checkSettleSubscription := func() {
 		t.Helper()
 		settledInvoice := <-allSubscriptions.SettledInvoices
-		require.Equal(t, settledInvoice.State, channeldb.ContractSettled)
+
+		// Since this is an AMP invoice, the invoice state never
+		// changes, but the AMP state should show that the setID has
+		// been settled.
+		htlcState := settledInvoice.AMPState[setID].State
+		require.Equal(t, htlcState, channeldb.HtlcStateSettled)
 	}
 
 	// Asserts that no invoice is published on the SettledInvoices channel

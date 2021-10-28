@@ -177,6 +177,39 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		IsAmp:           isAmp,
 	}
 
+	rpcInvoice.AmpInvoiceState = make(map[string]*lnrpc.AMPInvoiceState)
+	for setID, ampState := range invoice.AMPState {
+
+		setIDStr := hex.EncodeToString(setID[:])
+
+		var state lnrpc.InvoiceHTLCState
+		switch ampState.State {
+		case channeldb.HtlcStateAccepted:
+			state = lnrpc.InvoiceHTLCState_ACCEPTED
+		case channeldb.HtlcStateSettled:
+			state = lnrpc.InvoiceHTLCState_SETTLED
+		case channeldb.HtlcStateCanceled:
+			state = lnrpc.InvoiceHTLCState_CANCELED
+		default:
+			return nil, fmt.Errorf("unknown state %v", ampState.State)
+		}
+
+		rpcInvoice.AmpInvoiceState[setIDStr] = &lnrpc.AMPInvoiceState{
+			State:       state,
+			SettleIndex: ampState.SettleIndex,
+			SettleTime:  ampState.SettleDate.Unix(),
+			AmtPaidMsat: int64(ampState.AmtPaid),
+		}
+
+		// If at least one of the present HTLC sets show up as being
+		// settled, then we'll mark the invoice itself as being
+		// settled.
+		if ampState.State == channeldb.HtlcStateSettled {
+			rpcInvoice.Settled = true // nolint:staticcheck
+			rpcInvoice.State = lnrpc.Invoice_SETTLED
+		}
+	}
+
 	if preimage != nil {
 		rpcInvoice.RPreimage = preimage[:]
 	}

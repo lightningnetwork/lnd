@@ -35,6 +35,12 @@ service Invoices {
     settled, this call will succeed.
     */
     rpc SettleInvoice (SettleInvoiceMsg) returns (SettleInvoiceResp);
+
+    /*
+    LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
+    using either its payment hash, payment address, or set ID.
+    */
+    rpc LookupInvoiceV2 (LookupInvoiceMsg) returns (lnrpc.Invoice);
 }
 
 message CancelInvoiceMsg {
@@ -134,4 +140,33 @@ message SubscribeSingleInvoiceRequest {
 
     // Hash corresponding to the (hold) invoice to subscribe to.
     bytes r_hash = 2;
+}
+
+enum LookupModifier {
+    // The default look up modifier, no look up behavior is changed.
+    DEFAULT = 0;
+
+    /*
+    Indicates that when a look up is done based on a set_id, then only that set
+    of HTLCs related to that set ID should be returned.
+    */
+    HTLC_SET_ONLY = 1;
+
+    /*
+    Indicates that when a look up is done using a payment_addr, then no HTLCs
+    related to the payment_addr should be returned. This is useful when one
+    wants to be able to obtain the set of associated setIDs with a given
+    invoice, then look up the sub-invoices "projected" by that set ID.
+    */
+    HTLC_SET_BLANK = 2;
+}
+
+message LookupInvoiceMsg {
+    oneof invoice_ref {
+        bytes payment_hash = 1;
+        bytes payment_addr = 2;
+        bytes set_id = 3;
+    }
+
+    LookupModifier lookup_modifier = 4;
 }

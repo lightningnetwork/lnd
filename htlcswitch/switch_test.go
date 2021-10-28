@@ -3449,16 +3449,11 @@ func TestSwitchDustForwarding(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	select {
-	case result, ok := <-carolResultChan:
-		require.True(t, ok)
-		assertFailureCode(
-			t, result.Error, lnwire.CodeTemporaryChannelFailure,
-		)
-
-	case <-time.After(5 * time.Second):
-		t.Fatal("no result arrived for carol's dust htlc")
-	}
+	result, ok := <-carolResultChan
+	require.True(t, ok)
+	assertFailureCode(
+		t, result.Error, lnwire.CodeTemporaryChannelFailure,
+	)
 
 	// Send an HTLC from Alice to Carol and assert that it is failed at the
 	// call to SendHTLC.

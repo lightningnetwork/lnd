@@ -309,6 +309,21 @@ func (h *HarnessTest) DisconnectNodes(a, b *HarnessNode) {
 	require.NoError(h, err, "failed to disconnect nodes")
 }
 
+// DisconnectPeer calls the DisconnectPeer RPC on a given node with a specified
+// public key string and asserts there's no error.
+func (h *HarnessTest) DisconnectPeer(hn *HarnessNode,
+	pubkey string) *lnrpc.DisconnectPeerResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.DisconnectPeerRequest{PubKey: pubkey}
+	resp, err := hn.rpc.LN.DisconnectPeer(ctxt, req)
+	require.NoErrorf(h, err, "failed to disconnect peer")
+
+	return resp
+}
+
 // GetInfo calls the GetInfo RPC on a given node and asserts there's no error.
 func (h *HarnessTest) GetInfo(n *HarnessNode) *lnrpc.GetInfoResponse {
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
@@ -318,6 +333,18 @@ func (h *HarnessTest) GetInfo(n *HarnessNode) *lnrpc.GetInfoResponse {
 	require.NoErrorf(h, err, "failed to GetInfo for node: %s", n.Cfg.Name)
 
 	return info
+}
+
+// GetInfoAssertErr calls the GetInfo RPC on a given node and asserts there's
+// an error.
+func (h *HarnessTest) GetInfoAssertErr(n *HarnessNode) error {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := n.rpc.LN.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+	require.Error(h, err, "expect an error from GetInfo")
+
+	return err
 }
 
 // SetFeeEstimate sets a fee rate to be returned from fee estimator.
@@ -3586,4 +3613,20 @@ func (h *HarnessTest) ReceiveSingleInvoice(
 	}
 
 	return nil
+}
+
+type MiddlewareClient lnrpc.Lightning_RegisterRPCMiddlewareClient
+
+// RegisterRPCMiddleware makes a RPC call to the node's RegisterRPCMiddleware
+// and asserts. It also returns a cancel context which can cancel the context
+// used by the client.
+func (h *HarnessTest) RegisterRPCMiddleware(
+	hn *HarnessNode) (MiddlewareClient, context.CancelFunc) {
+
+	ctxt, cancel := context.WithCancel(h.runCtx)
+
+	stream, err := hn.rpc.LN.RegisterRPCMiddleware(ctxt)
+	require.NoError(h, err, "failed to register rpc middleware")
+
+	return stream, cancel
 }

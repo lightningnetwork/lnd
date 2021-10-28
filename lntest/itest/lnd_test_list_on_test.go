@@ -168,6 +168,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "etcd_failover",
 		TestFunc: testEtcdFailover,
 	},
+	{
+		Name:     "rpc middleware interceptor",
+		TestFunc: testRPCMiddlewareInterceptor,
+	},
 
 	// Channel graph related tests.
 	{
@@ -421,8 +425,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "forward interceptor dedup htlcs",
 	// 	test: testForwardInterceptorDedupHtlc,
-	// 	name: "rpc middleware interceptor",
-	// 	test: testRPCMiddlewareInterceptor,
 	// },
 	// {
 	// 	name: "remote signer",

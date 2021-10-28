@@ -17,47 +17,45 @@ import (
 
 // testRPCMiddlewareInterceptor tests that the RPC middleware interceptor can
 // be used correctly and in a safe way.
-func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
+func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
+	alice, bob := ht.Alice(), ht.Bob()
+
 	// Let's first enable the middleware interceptor.
-	net.Alice.Cfg.ExtraArgs = append(
-		net.Alice.Cfg.ExtraArgs, "--rpcmiddleware.enable",
+	alice.Cfg.ExtraArgs = append(
+		alice.Cfg.ExtraArgs, "--rpcmiddleware.enable",
 	)
-	err := net.RestartNode(net.Alice, nil)
-	require.NoError(t.t, err)
+	ht.RestartNode(alice)
 
 	// Let's set up a channel between Alice and Bob, just to get some useful
 	// data to inspect when doing RPC calls to Alice later.
-	net.EnsureConnected(t.t, net.Alice, net.Bob)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, net.Alice)
-	_ = openChannelAndAssert(
-		t, net, net.Alice, net.Bob, lntest.OpenChannelParams{
-			Amt: 1_234_567,
-		},
+	ht.EnsureConnected(alice, bob)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
+	ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: 1_234_567},
 	)
 
 	// Load or bake the macaroons that the simulated users will use to
 	// access the RPC.
-	readonlyMac, err := net.Alice.ReadMacaroon(
-		net.Alice.ReadMacPath(), defaultTimeout,
-	)
-	require.NoError(t.t, err)
+	readonlyMac, err := alice.ReadMacaroon(alice.ReadMacPath(), defaultTimeout)
+	require.NoError(ht, err)
 
 	customCaveatMac, err := macaroons.SafeCopyMacaroon(readonlyMac)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 	addConstraint := macaroons.CustomConstraint(
 		"itest-caveat", "itest-value",
 	)
-	require.NoError(t.t, addConstraint(customCaveatMac))
+	require.NoError(ht, addConstraint(customCaveatMac))
 
 	// Run all sub-tests now. We can't run anything in parallel because that
 	// would cause the main test function to exit and the nodes being
 	// cleaned up.
-	t.t.Run("registration restrictions", func(tt *testing.T) {
-		middlewareRegistrationRestrictionTests(tt, net.Alice)
+	ht.Run("registration restrictions", func(tt *testing.T) {
+		middlewareRegistrationRestrictionTests(ht.Subtest(tt), alice)
 	})
-	t.t.Run("read-only intercept", func(tt *testing.T) {
+	ht.Run("read-only intercept", func(tt *testing.T) {
+		st := ht.Subtest(tt)
 		registration := registerMiddleware(
-			tt, net.Alice, &lnrpc.MiddlewareRegistration{
+			st, alice, &lnrpc.MiddlewareRegistration{
 				MiddlewareName: "itest-interceptor",
 				ReadOnlyMode:   true,
 			},
@@ -65,17 +63,18 @@ func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 		defer registration.cancel()
 
 		middlewareInterceptionTest(
-			tt, net.Alice, net.Bob, registration, readonlyMac,
+			st, alice, bob, registration, readonlyMac,
 			customCaveatMac, true,
 		)
 	})
 
 	// We've manually disconnected Bob from Alice in the previous test, make
 	// sure they're connected again.
-	net.EnsureConnected(t.t, net.Alice, net.Bob)
-	t.t.Run("encumbered macaroon intercept", func(tt *testing.T) {
+	ht.EnsureConnected(alice, bob)
+	ht.Run("encumbered macaroon intercept", func(tt *testing.T) {
+		st := ht.Subtest(tt)
 		registration := registerMiddleware(
-			tt, net.Alice, &lnrpc.MiddlewareRegistration{
+			st, alice, &lnrpc.MiddlewareRegistration{
 				MiddlewareName:           "itest-interceptor",
 				CustomMacaroonCaveatName: "itest-caveat",
 			},
@@ -83,16 +82,17 @@ func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 		defer registration.cancel()
 
 		middlewareInterceptionTest(
-			tt, net.Alice, net.Bob, registration, customCaveatMac,
+			st, alice, bob, registration, customCaveatMac,
 			readonlyMac, false,
 		)
 	})
 
 	// Next, run the response manipulation tests.
-	net.EnsureConnected(t.t, net.Alice, net.Bob)
-	t.t.Run("read-only not allowed to manipulate", func(tt *testing.T) {
+	ht.EnsureConnected(alice, bob)
+	ht.Run("read-only not allowed to manipulate", func(tt *testing.T) {
+		st := ht.Subtest(tt)
 		registration := registerMiddleware(
-			tt, net.Alice, &lnrpc.MiddlewareRegistration{
+			st, alice, &lnrpc.MiddlewareRegistration{
 				MiddlewareName: "itest-interceptor",
 				ReadOnlyMode:   true,
 			},
@@ -100,13 +100,15 @@ func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 		defer registration.cancel()
 
 		middlewareManipulationTest(
-			tt, net.Alice, net.Bob, registration, readonlyMac, true,
+			st, alice, bob,
+			registration, readonlyMac, true,
 		)
 	})
-	net.EnsureConnected(t.t, net.Alice, net.Bob)
-	t.t.Run("encumbered macaroon manipulate", func(tt *testing.T) {
+	ht.EnsureConnected(alice, bob)
+	ht.Run("encumbered macaroon manipulate", func(tt *testing.T) {
+		st := ht.Subtest(tt)
 		registration := registerMiddleware(
-			tt, net.Alice, &lnrpc.MiddlewareRegistration{
+			st, alice, &lnrpc.MiddlewareRegistration{
 				MiddlewareName:           "itest-interceptor",
 				CustomMacaroonCaveatName: "itest-caveat",
 			},
@@ -114,21 +116,21 @@ func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 		defer registration.cancel()
 
 		middlewareManipulationTest(
-			tt, net.Alice, net.Bob, registration, customCaveatMac,
-			false,
+			st, alice, bob, registration,
+			customCaveatMac, false,
 		)
 	})
 
 	// And finally make sure mandatory middleware is always checked for any
 	// RPC request.
-	t.t.Run("mandatory middleware", func(tt *testing.T) {
-		middlewareMandatoryTest(tt, net.Alice, net)
+	ht.Run("mandatory middleware", func(tt *testing.T) {
+		middlewareMandatoryTest(ht.Subtest(tt), alice)
 	})
 }
 
 // middlewareRegistrationRestrictionTests tests all restrictions that apply to
 // registering a middleware.
-func middlewareRegistrationRestrictionTests(t *testing.T,
+func middlewareRegistrationRestrictionTests(ht *lntest.HarnessTest,
 	node *lntest.HarnessNode) {
 
 	testCases := []struct {
@@ -157,9 +159,9 @@ func middlewareRegistrationRestrictionTests(t *testing.T,
 	for idx, tc := range testCases {
 		tc := tc
 
-		t.Run(fmt.Sprintf("%d", idx), func(tt *testing.T) {
+		ht.Run(fmt.Sprintf("%d", idx), func(tt *testing.T) {
 			invalidName := registerMiddleware(
-				tt, node, tc.registration,
+				ht.Subtest(tt), node, tc.registration,
 			)
 			_, err := invalidName.stream.Recv()
 			require.Error(tt, err)
@@ -174,10 +176,10 @@ func middlewareRegistrationRestrictionTests(t *testing.T,
 // intercepted. It also makes sure that depending on the mode (read-only or
 // custom macaroon caveat) a middleware only gets access to the requests it
 // should be allowed access to.
-func middlewareInterceptionTest(t *testing.T, node *lntest.HarnessNode,
-	peer *lntest.HarnessNode, registration *middlewareHarness,
-	userMac *macaroon.Macaroon, disallowedMac *macaroon.Macaroon,
-	readOnly bool) {
+func middlewareInterceptionTest(ht *lntest.HarnessTest,
+	node *lntest.HarnessNode, peer *lntest.HarnessNode,
+	registration *middlewareHarness, userMac *macaroon.Macaroon,
+	disallowedMac *macaroon.Macaroon, readOnly bool) {
 
 	// Everything we test here should be executed in a matter of
 	// milliseconds, so we can use one single timeout context for all calls.
@@ -187,7 +189,7 @@ func middlewareInterceptionTest(t *testing.T, node *lntest.HarnessNode,
 
 	// Create a client connection that we'll use to simulate user requests
 	// to lnd with.
-	cleanup, client := macaroonClient(t, node, userMac)
+	cleanup, client := macaroonClient(ht.T, node, userMac)
 	defer cleanup()
 
 	// We're going to send a simple RPC request to list all channels.
@@ -200,10 +202,10 @@ func middlewareInterceptionTest(t *testing.T, node *lntest.HarnessNode,
 
 	// Do the actual call now and wait for the interceptor to do its thing.
 	resp, err := client.ListChannels(ctxc, req)
-	require.NoError(t, err)
+	require.NoError(ht, err)
 
 	// Did we receive the correct intercept message?
-	assertInterceptedType(t, resp, <-registration.responsesChan)
+	assertInterceptedType(ht.T, resp, <-registration.responsesChan)
 
 	// Let's test the same for a streaming endpoint.
 	req2 := &lnrpc.PeerEventSubscription{}
@@ -214,30 +216,27 @@ func middlewareInterceptionTest(t *testing.T, node *lntest.HarnessNode,
 	// Do the actual call now and wait for the interceptor to do its thing.
 	peerCtx, peerCancel := context.WithCancel(ctxb)
 	resp2, err := client.SubscribePeerEvents(peerCtx, req2)
-	require.NoError(t, err)
+	require.NoError(ht, err)
 
 	// Disconnect Bob to trigger a peer event without using Alice's RPC
 	// interface itself.
-	_, err = peer.DisconnectPeer(ctxc, &lnrpc.DisconnectPeerRequest{
-		PubKey: node.PubKeyStr,
-	})
-	require.NoError(t, err)
+	ht.DisconnectPeer(peer, node.PubKeyStr)
 	peerEvent, err := resp2.Recv()
-	require.NoError(t, err)
-	require.Equal(t, lnrpc.PeerEvent_PEER_OFFLINE, peerEvent.GetType())
+	require.NoError(ht, err)
+	require.Equal(ht, lnrpc.PeerEvent_PEER_OFFLINE, peerEvent.GetType())
 
 	// Stop the peer stream again, otherwise we'll produce more events.
 	peerCancel()
 
 	// Did we receive the correct intercept message?
-	assertInterceptedType(t, peerEvent, <-registration.responsesChan)
+	assertInterceptedType(ht.T, peerEvent, <-registration.responsesChan)
 
 	// Make sure that with the other macaroon we aren't allowed to access
 	// the interceptor. If we registered for read-only access then there is
 	// no middleware that handles the custom macaroon caveat. If we
 	// registered for a custom caveat then there is no middleware that
 	// handles unencumbered read-only access.
-	cleanup, client = macaroonClient(t, node, disallowedMac)
+	cleanup, client = macaroonClient(ht.T, node, disallowedMac)
 	defer cleanup()
 
 	// We need to make sure we don't get any interception messages for
@@ -265,27 +264,27 @@ func middlewareInterceptionTest(t *testing.T, node *lntest.HarnessNode,
 	// a custom macaroon caveat and a request with anon-encumbered macaroon
 	// comes in, we expect to just not get any intercept messages.
 	if readOnly {
-		require.Error(t, err)
+		require.Error(ht, err)
 		require.Contains(
-			t, err.Error(), "cannot accept macaroon with custom "+
+			ht, err.Error(), "cannot accept macaroon with custom "+
 				"caveat 'itest-caveat', no middleware "+
 				"registered",
 		)
 	} else {
-		require.NoError(t, err)
+		require.NoError(ht, err)
 
 		// We disconnected Bob so there should be no active channels.
-		require.Len(t, resp.Channels, 0)
+		require.Len(ht, resp.Channels, 0)
 	}
 
 	// There should be neither an error nor any interception messages in the
 	// channels.
 	select {
 	case err := <-errChan:
-		t.Fatalf("Unexpected error, not expecting messages: %v", err)
+		ht.Fatalf("Unexpected error, not expecting messages: %v", err)
 
 	case msg := <-msgChan:
-		t.Fatalf("Unexpected intercept message: %v", msg)
+		ht.Fatalf("Unexpected intercept message: %v", msg)
 
 	case <-time.After(time.Second):
 		// Nothing came in for a second, we're fine.
@@ -295,7 +294,7 @@ func middlewareInterceptionTest(t *testing.T, node *lntest.HarnessNode,
 // middlewareManipulationTest tests that unary and streaming requests can be
 // intercepted and also manipulated, at least if the middleware didn't register
 // for read-only access.
-func middlewareManipulationTest(t *testing.T, node *lntest.HarnessNode,
+func middlewareManipulationTest(ht *lntest.HarnessTest, node *lntest.HarnessNode,
 	peer *lntest.HarnessNode, registration *middlewareHarness,
 	userMac *macaroon.Macaroon, readOnly bool) {
 
@@ -307,7 +306,7 @@ func middlewareManipulationTest(t *testing.T, node *lntest.HarnessNode,
 
 	// Create a client connection that we'll use to simulate user requests
 	// to lnd with.
-	cleanup, client := macaroonClient(t, node, userMac)
+	cleanup, client := macaroonClient(ht.T, node, userMac)
 	defer cleanup()
 
 	// We're going to attempt to replace the response with our own. But
@@ -332,14 +331,14 @@ func middlewareManipulationTest(t *testing.T, node *lntest.HarnessNode,
 
 	// Do the actual call now and wait for the interceptor to do its thing.
 	resp, err := client.ListChannels(ctxc, req)
-	require.NoError(t, err)
+	require.NoError(ht, err)
 
 	// Did we get the manipulated response (2 fake channels) or the original
 	// one (1 channel)?
 	if readOnly {
-		require.Len(t, resp.Channels, 1)
+		require.Len(ht, resp.Channels, 1)
 	} else {
-		require.Len(t, resp.Channels, 2)
+		require.Len(ht, resp.Channels, 2)
 	}
 
 	// Let's test the same for a streaming endpoint.
@@ -356,28 +355,25 @@ func middlewareManipulationTest(t *testing.T, node *lntest.HarnessNode,
 	// Do the actual call now and wait for the interceptor to do its thing.
 	peerCtx, peerCancel := context.WithCancel(ctxb)
 	resp2, err := client.SubscribePeerEvents(peerCtx, req2)
-	require.NoError(t, err)
+	require.NoError(ht, err)
 
 	// Disconnect Bob to trigger a peer event without using Alice's RPC
 	// interface itself.
-	_, err = peer.DisconnectPeer(ctxc, &lnrpc.DisconnectPeerRequest{
-		PubKey: node.PubKeyStr,
-	})
-	require.NoError(t, err)
+	ht.DisconnectPeer(peer, node.PubKeyStr)
 	peerEvent, err := resp2.Recv()
-	require.NoError(t, err)
+	require.NoError(ht, err)
 
 	// Did we get the correct, original response?
 	if readOnly {
 		require.Equal(
-			t, lnrpc.PeerEvent_PEER_OFFLINE, peerEvent.GetType(),
+			ht, lnrpc.PeerEvent_PEER_OFFLINE, peerEvent.GetType(),
 		)
-		require.Equal(t, peer.PubKeyStr, peerEvent.PubKey)
+		require.Equal(ht, peer.PubKeyStr, peerEvent.PubKey)
 	} else {
 		require.Equal(
-			t, lnrpc.PeerEvent_PEER_ONLINE, peerEvent.GetType(),
+			ht, lnrpc.PeerEvent_PEER_ONLINE, peerEvent.GetType(),
 		)
-		require.Equal(t, "foo", peerEvent.PubKey)
+		require.Equal(ht, "foo", peerEvent.PubKey)
 	}
 
 	// Stop the peer stream again, otherwise we'll produce more events.
@@ -386,8 +382,7 @@ func middlewareManipulationTest(t *testing.T, node *lntest.HarnessNode,
 
 // middlewareMandatoryTest tests that all RPC requests are blocked if there is
 // a mandatory middleware declared that's currently not registered.
-func middlewareMandatoryTest(t *testing.T, node *lntest.HarnessNode,
-	net *lntest.NetworkHarness) {
+func middlewareMandatoryTest(ht *lntest.HarnessTest, node *lntest.HarnessNode) {
 
 	// Let's declare our itest interceptor as mandatory but don't register
 	// it just yet. That should cause all RPC requests to fail, except for
@@ -396,44 +391,32 @@ func middlewareMandatoryTest(t *testing.T, node *lntest.HarnessNode,
 		node.Cfg.ExtraArgs,
 		"--rpcmiddleware.addmandatory=itest-interceptor",
 	)
-	err := net.RestartNodeNoUnlock(node, nil, false)
-	require.NoError(t, err)
+	ht.RestartNodeNoUnlock(node, false)
 
 	// The "wait for node to start" flag of the above restart does too much
 	// and has a call to GetInfo built in, which will fail in this special
 	// test case. So we need to do the wait and client setup manually here.
 	conn, err := node.ConnectRPC(true)
-	require.NoError(t, err)
+	require.NoError(ht, err)
 	node.InitRPCClients(conn)
 	err = node.WaitUntilStateReached(lnrpc.WalletState_RPC_ACTIVE)
-	require.NoError(t, err)
-	node.LightningClient = lnrpc.NewLightningClient(conn)
-
-	ctxb := context.Background()
-	ctxc, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
+	require.NoError(ht, err)
 
 	// Test a unary request first.
-	_, err = node.ListChannels(ctxc, &lnrpc.ListChannelsRequest{})
-	require.Error(t, err)
-	require.Contains(
-		t, err.Error(), "middleware 'itest-interceptor' is "+
-			"currently not registered",
-	)
+	err = ht.GetInfoAssertErr(node)
+	require.Contains(ht, err.Error(), "middleware 'itest-interceptor' is "+
+		"currently not registered")
 
 	// Then a streaming one.
-	stream, err := node.SubscribeInvoices(ctxc, &lnrpc.InvoiceSubscription{})
-	require.NoError(t, err)
+	stream := ht.SubscribeInvoices(node, &lnrpc.InvoiceSubscription{})
 	_, err = stream.Recv()
-	require.Error(t, err)
-	require.Contains(
-		t, err.Error(), "middleware 'itest-interceptor' is "+
-			"currently not registered",
-	)
+	require.Error(ht, err)
+	require.Contains(ht, err.Error(), "middleware 'itest-interceptor' is "+
+		"currently not registered")
 
 	// Now let's register the middleware and try again.
 	registration := registerMiddleware(
-		t, node, &lnrpc.MiddlewareRegistration{
+		ht, node, &lnrpc.MiddlewareRegistration{
 			MiddlewareName:           "itest-interceptor",
 			CustomMacaroonCaveatName: "itest-caveat",
 		},
@@ -442,16 +425,13 @@ func middlewareMandatoryTest(t *testing.T, node *lntest.HarnessNode,
 
 	// Both the unary and streaming requests should now be allowed.
 	time.Sleep(500 * time.Millisecond)
-	_, err = node.ListChannels(ctxc, &lnrpc.ListChannelsRequest{})
-	require.NoError(t, err)
-	_, err = node.SubscribeInvoices(ctxc, &lnrpc.InvoiceSubscription{})
-	require.NoError(t, err)
+	ht.GetInfo(node)
+	ht.SubscribeInvoices(node, &lnrpc.InvoiceSubscription{})
 
 	// We now shut down the node manually to prevent the test from failing
 	// because we can't call the stop RPC if we unregister the middleware in
 	// the defer statement above.
-	err = net.ShutdownNode(node)
-	require.NoError(t, err)
+	ht.Shutdown(node)
 }
 
 // assertInterceptedType makes sure that the intercept message sent by the RPC
@@ -493,23 +473,20 @@ type middlewareHarness struct {
 
 // registerMiddleware creates a new middleware harness and sends the initial
 // register message to the RPC server.
-func registerMiddleware(t *testing.T, node *lntest.HarnessNode,
+func registerMiddleware(ht *lntest.HarnessTest, node *lntest.HarnessNode,
 	registration *lnrpc.MiddlewareRegistration) *middlewareHarness {
 
-	ctxc, cancel := context.WithCancel(context.Background())
+	middlewareStream, cancel := ht.RegisterRPCMiddleware(node)
 
-	middlewareStream, err := node.RegisterRPCMiddleware(ctxc)
-	require.NoError(t, err)
-
-	err = middlewareStream.Send(&lnrpc.RPCMiddlewareResponse{
+	err := middlewareStream.Send(&lnrpc.RPCMiddlewareResponse{
 		MiddlewareMessage: &lnrpc.RPCMiddlewareResponse_Register{
 			Register: registration,
 		},
 	})
-	require.NoError(t, err)
+	require.NoError(ht, err)
 
 	return &middlewareHarness{
-		t:             t,
+		t:             ht.T,
 		cancel:        cancel,
 		stream:        middlewareStream,
 		responsesChan: make(chan *lnrpc.RPCMessage),

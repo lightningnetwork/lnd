@@ -810,13 +810,21 @@ func (h *HarnessTest) MineBlocksAndAssertTx(num uint32,
 	return blocks
 }
 
+// GenerateBlocks mine 'num' of blocks and returns them.
+func (h *HarnessTest) GenerateBlocks(num uint32) []*chainhash.Hash {
+	blockHashes, err := h.net.Miner.Client.Generate(num)
+	require.NoError(h, err, "unable to generate blocks")
+	require.Len(h, blockHashes, int(num), "wrong num of blocks generated")
+
+	return blockHashes
+}
+
 // MineBlocks mine 'num' of blocks and check that blocks are present in
 // node blockchain.
 func (h *HarnessTest) MineBlocks(num uint32) []*wire.MsgBlock {
 	blocks := make([]*wire.MsgBlock, num)
 
-	blockHashes, err := h.net.Miner.Client.Generate(num)
-	require.NoError(h, err, "unable to generate blocks")
+	blockHashes := h.GenerateBlocks(num)
 
 	for i, blockHash := range blockHashes {
 		block, err := h.net.Miner.Client.GetBlock(blockHash)
@@ -835,8 +843,7 @@ func (h *HarnessTest) MineBlocksSlow(num uint32) []*wire.MsgBlock {
 	blockHashes := make([]*chainhash.Hash, 0, num)
 
 	for i := uint32(0); i < num; i++ {
-		generatedHashes, err := h.net.Miner.Client.Generate(1)
-		require.NoError(h, err, "unable to generate blocks")
+		generatedHashes := h.GenerateBlocks(1)
 		blockHashes = append(blockHashes, generatedHashes...)
 
 		time.Sleep(slowMineDelay)

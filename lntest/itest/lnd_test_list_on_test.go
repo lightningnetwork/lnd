@@ -172,6 +172,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "rpc middleware interceptor",
 		TestFunc: testRPCMiddlewareInterceptor,
 	},
+	{
+		Name:     "REST API",
+		TestFunc: testRestAPI,
+	},
 
 	// Channel graph related tests.
 	{
@@ -410,17 +414,8 @@ var allTestCases = []*lntest.TestCase{
 	},
 
 	// {
-	// {
-	// 	name: "sendpayment amp invoice repeat",
-	// 	test: testSendPaymentAMPInvoiceRepeat,
-	// },
-	// {
 	// 	name: "reconnect after ip change",
 	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "REST API",
-	// 	test: testRestAPI,
 	// },
 	// {
 	// 	name: "forward interceptor dedup htlcs",

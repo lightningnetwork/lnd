@@ -2,7 +2,6 @@ package itest
 
 import (
 	"bytes"
-	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
@@ -57,7 +56,7 @@ var (
 
 // testRestAPI tests that the most important features of the REST API work
 // correctly.
-func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
+func testRestAPI(ht *lntest.HarnessTest) {
 	testCases := []struct {
 		name string
 		run  func(*testing.T, *lntest.HarnessNode, *lntest.HarnessNode)
@@ -116,20 +115,15 @@ func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
 	}, {
 		name: "GET with map type query param",
 		run: func(t *testing.T, a, b *lntest.HarnessNode) {
-			// Get a new wallet address from Alice.
-			ctxb := context.Background()
-			newAddrReq := &lnrpc.NewAddressRequest{
-				Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
-			}
-			addrRes, err := a.NewAddress(ctxb, newAddrReq)
-			require.Nil(t, err, "get address")
+			// Use a fake address.
+			addr := "bcrt1qlutnwklt4u2548cufrjmsjclewugr9lcpnkzag"
 
 			// Create the full URL with the map query param.
 			url := "/v1/transactions/fee?target_conf=%d&" +
 				"AddrToAmount[%s]=%d"
-			url = fmt.Sprintf(url, 2, addrRes.Address, 50000)
+			url = fmt.Sprintf(url, 2, addr, 50000)
 			resp := &lnrpc.EstimateFeeResponse{}
-			err = invokeGET(a, url, resp)
+			err := invokeGET(a, url, resp)
 			require.Nil(t, err, "estimate fee")
 			assert.Greater(t, resp.FeeSat, int64(253), "fee")
 		},
@@ -194,7 +188,7 @@ func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
 	}}
 	wsTestCases := []struct {
 		name string
-		run  func(ht *harnessTest, net *lntest.NetworkHarness)
+		run  func(ht *lntest.HarnessTest)
 	}{{
 		name: "websocket subscription",
 		run:  wsTestCaseSubscription,
@@ -212,39 +206,33 @@ func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
 	// Make sure Alice allows all CORS origins. Bob will keep the default.
 	// We also make sure the ping/pong messages are sent very often, so we
 	// can test them without waiting half a minute.
-	net.Alice.Cfg.ExtraArgs = append(
-		net.Alice.Cfg.ExtraArgs, "--restcors=\"*\"",
+	alice, bob := ht.Alice(), ht.Bob()
+	alice.Cfg.ExtraArgs = append(
+		alice.Cfg.ExtraArgs, "--restcors=\"*\"",
 		fmt.Sprintf("--ws-ping-interval=%s", pingInterval),
 		fmt.Sprintf("--ws-pong-wait=%s", pongWait),
 	)
-	err := net.RestartNode(net.Alice, nil)
-	if err != nil {
-		ht.t.Fatalf("Could not restart Alice to set CORS config: %v",
-			err)
-	}
+	ht.RestartNode(alice)
 
 	for _, tc := range testCases {
 		tc := tc
-		ht.t.Run(tc.name, func(t *testing.T) {
-			tc.run(t, net.Alice, net.Bob)
+		ht.Run(tc.name, func(t *testing.T) {
+			tc.run(t, alice, bob)
 		})
 	}
 
 	for _, tc := range wsTestCases {
 		tc := tc
-		ht.t.Run(tc.name, func(t *testing.T) {
-			ht := &harnessTest{
-				t: t, testCase: ht.testCase, lndHarness: net,
-			}
-			tc.run(ht, net)
+		ht.Run(tc.name, func(t *testing.T) {
+			st := ht.Subtest(t)
+			tc.run(st)
 		})
 	}
 }
 
-func wsTestCaseSubscription(ht *harnessTest, net *lntest.NetworkHarness) {
+func wsTestCaseSubscription(ht *lntest.HarnessTest) {
 	// Find out the current best block so we can subscribe to the next one.
-	hash, height, err := net.Miner.Client.GetBestBlock()
-	require.Nil(ht.t, err, "get best block")
+	hash, height := ht.GetBestBlock()
 
 	// Create a new subscription to get block epoch events.
 	req := &chainrpc.BlockEpoch{
@@ -252,11 +240,11 @@ func wsTestCaseSubscription(ht *harnessTest, net *lntest.NetworkHarness) {
 		Height: uint32(height),
 	}
 	url := "/v2/chainnotifier/register/blocks"
-	c, err := openWebSocket(net.Alice, url, "POST", req, nil)
-	require.Nil(ht.t, err, "websocket")
+	c, err := openWebSocket(ht.Alice(), url, "POST", req, nil)
+	require.Nil(ht, err, "websocket")
 	defer func() {
 		err := c.WriteMessage(websocket.CloseMessage, closeMsg)
-		require.NoError(ht.t, err)
+		require.NoError(ht, err)
 		_ = c.Close()
 	}()
 
@@ -300,30 +288,25 @@ func wsTestCaseSubscription(ht *harnessTest, net *lntest.NetworkHarness) {
 	}()
 
 	// Mine a block and make sure we get a message for it.
-	blockHashes, err := net.Miner.Client.Generate(1)
-	require.Nil(ht.t, err, "generate blocks")
-	assert.Equal(ht.t, 1, len(blockHashes), "num blocks")
+	blockHashes := ht.GenerateBlocks(1)
 	select {
 	case msg := <-msgChan:
 		assert.Equal(
-			ht.t, blockHashes[0].CloneBytes(), msg.Hash,
+			ht, blockHashes[0].CloneBytes(), msg.Hash,
 			"block hash",
 		)
 
 	case err := <-errChan:
-		ht.t.Fatalf("Received error from WS: %v", err)
+		ht.Fatalf("Received error from WS: %v", err)
 
 	case <-timeout:
-		ht.t.Fatalf("Timeout before message was received")
+		ht.Fatalf("Timeout before message was received")
 	}
 }
 
-func wsTestCaseSubscriptionMacaroon(ht *harnessTest,
-	net *lntest.NetworkHarness) {
-
+func wsTestCaseSubscriptionMacaroon(ht *lntest.HarnessTest) {
 	// Find out the current best block so we can subscribe to the next one.
-	hash, height, err := net.Miner.Client.GetBestBlock()
-	require.Nil(ht.t, err, "get best block")
+	hash, height := ht.GetBestBlock()
 
 	// Create a new subscription to get block epoch events.
 	req := &chainrpc.BlockEpoch{
@@ -335,22 +318,23 @@ func wsTestCaseSubscriptionMacaroon(ht *harnessTest,
 	// This time we send the macaroon in the special header
 	// Sec-Websocket-Protocol which is the only header field available to
 	// browsers when opening a WebSocket.
-	mac, err := net.Alice.ReadMacaroon(
-		net.Alice.AdminMacPath(), defaultTimeout,
+	alice := ht.Alice()
+	mac, err := alice.ReadMacaroon(
+		alice.AdminMacPath(), defaultTimeout,
 	)
-	require.NoError(ht.t, err, "read admin mac")
+	require.NoError(ht, err, "read admin mac")
 	macBytes, err := mac.MarshalBinary()
-	require.NoError(ht.t, err, "marshal admin mac")
+	require.NoError(ht, err, "marshal admin mac")
 
 	customHeader := make(http.Header)
 	customHeader.Set(lnrpc.HeaderWebSocketProtocol, fmt.Sprintf(
 		"Grpc-Metadata-Macaroon+%s", hex.EncodeToString(macBytes),
 	))
-	c, err := openWebSocket(net.Alice, url, "POST", req, customHeader)
-	require.Nil(ht.t, err, "websocket")
+	c, err := openWebSocket(alice, url, "POST", req, customHeader)
+	require.Nil(ht, err, "websocket")
 	defer func() {
 		err := c.WriteMessage(websocket.CloseMessage, closeMsg)
-		require.NoError(ht.t, err)
+		require.NoError(ht, err)
 		_ = c.Close()
 	}()
 
@@ -394,52 +378,49 @@ func wsTestCaseSubscriptionMacaroon(ht *harnessTest,
 	}()
 
 	// Mine a block and make sure we get a message for it.
-	blockHashes, err := net.Miner.Client.Generate(1)
-	require.Nil(ht.t, err, "generate blocks")
-	assert.Equal(ht.t, 1, len(blockHashes), "num blocks")
+	blockHashes := ht.GenerateBlocks(1)
 	select {
 	case msg := <-msgChan:
 		assert.Equal(
-			ht.t, blockHashes[0].CloneBytes(), msg.Hash,
+			ht, blockHashes[0].CloneBytes(), msg.Hash,
 			"block hash",
 		)
 
 	case err := <-errChan:
-		ht.t.Fatalf("Received error from WS: %v", err)
+		ht.Fatalf("Received error from WS: %v", err)
 
 	case <-timeout:
-		ht.t.Fatalf("Timeout before message was received")
+		ht.Fatalf("Timeout before message was received")
 	}
 }
 
-func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
-	net *lntest.NetworkHarness) {
-
+func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 	initialRequest := &lnrpc.ChannelAcceptResponse{}
 	url := "/v1/channels/acceptor"
 
 	// This time we send the macaroon in the special header
 	// Sec-Websocket-Protocol which is the only header field available to
 	// browsers when opening a WebSocket.
-	mac, err := net.Alice.ReadMacaroon(
-		net.Alice.AdminMacPath(), defaultTimeout,
+	alice := ht.Alice()
+	mac, err := alice.ReadMacaroon(
+		alice.AdminMacPath(), defaultTimeout,
 	)
-	require.NoError(ht.t, err, "read admin mac")
+	require.NoError(ht, err, "read admin mac")
 	macBytes, err := mac.MarshalBinary()
-	require.NoError(ht.t, err, "marshal admin mac")
+	require.NoError(ht, err, "marshal admin mac")
 
 	customHeader := make(http.Header)
 	customHeader.Set(lnrpc.HeaderWebSocketProtocol, fmt.Sprintf(
 		"Grpc-Metadata-Macaroon+%s", hex.EncodeToString(macBytes),
 	))
 	conn, err := openWebSocket(
-		net.Alice, url, "POST", initialRequest, customHeader,
+		alice, url, "POST", initialRequest, customHeader,
 	)
-	require.Nil(ht.t, err, "websocket")
+	require.Nil(ht, err, "websocket")
 	defer func() {
 		err := conn.WriteMessage(websocket.CloseMessage, closeMsg)
 		_ = conn.Close()
-		require.NoError(ht.t, err)
+		require.NoError(ht, err)
 	}()
 
 	// Buffer the message channel to make sure we're always blocking on
@@ -528,29 +509,29 @@ func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
 
 	// Before we start opening channels, make sure the two nodes are
 	// connected.
-	net.EnsureConnected(ht.t, net.Alice, net.Bob)
+	bob := ht.Bob()
+	ht.EnsureConnected(alice, bob)
 
 	// Open 3 channels to make sure multiple requests and responses can be
 	// sent over the web socket.
 	const numChannels = 3
 	for i := 0; i < numChannels; i++ {
-		openChannelAndAssert(
-			ht, net, net.Bob, net.Alice,
-			lntest.OpenChannelParams{Amt: 500000},
+		ht.OpenChannel(
+			bob, alice, lntest.OpenChannelParams{Amt: 500000},
 		)
 
 		select {
 		case <-msgChan:
 		case err := <-errChan:
-			ht.t.Fatalf("Received error from WS: %v", err)
+			ht.Fatalf("Received error from WS: %v", err)
 
 		case <-timeout:
-			ht.t.Fatalf("Timeout before message was received")
+			ht.Fatalf("Timeout before message was received")
 		}
 	}
 }
 
-func wsTestPingPongTimeout(ht *harnessTest, net *lntest.NetworkHarness) {
+func wsTestPingPongTimeout(ht *lntest.HarnessTest) {
 	initialRequest := &lnrpc.InvoiceSubscription{
 		AddIndex: 1, SettleIndex: 1,
 	}
@@ -559,25 +540,26 @@ func wsTestPingPongTimeout(ht *harnessTest, net *lntest.NetworkHarness) {
 	// This time we send the macaroon in the special header
 	// Sec-Websocket-Protocol which is the only header field available to
 	// browsers when opening a WebSocket.
-	mac, err := net.Alice.ReadMacaroon(
-		net.Alice.AdminMacPath(), defaultTimeout,
+	alice := ht.Alice()
+	mac, err := alice.ReadMacaroon(
+		alice.AdminMacPath(), defaultTimeout,
 	)
-	require.NoError(ht.t, err, "read admin mac")
+	require.NoError(ht, err, "read admin mac")
 	macBytes, err := mac.MarshalBinary()
-	require.NoError(ht.t, err, "marshal admin mac")
+	require.NoError(ht, err, "marshal admin mac")
 
 	customHeader := make(http.Header)
 	customHeader.Set(lnrpc.HeaderWebSocketProtocol, fmt.Sprintf(
 		"Grpc-Metadata-Macaroon+%s", hex.EncodeToString(macBytes),
 	))
 	conn, err := openWebSocket(
-		net.Alice, url, "GET", initialRequest, customHeader,
+		alice, url, "GET", initialRequest, customHeader,
 	)
-	require.Nil(ht.t, err, "websocket")
+	require.Nil(ht, err, "websocket")
 	defer func() {
 		err := conn.WriteMessage(websocket.CloseMessage, closeMsg)
 		_ = conn.Close()
-		require.NoError(ht.t, err)
+		require.NoError(ht, err)
 	}()
 
 	// We want to be able to read invoices for a long time, making sure we
@@ -650,27 +632,26 @@ func wsTestPingPongTimeout(ht *harnessTest, net *lntest.NetworkHarness) {
 
 	// Let's create five invoices and wait for them to arrive. We'll wait
 	// for at least one ping/pong cycle between each invoice.
-	ctxb := context.Background()
 	const numInvoices = 5
 	const value = 123
 	const memo = "websocket"
 	for i := 0; i < numInvoices; i++ {
-		_, err := net.Alice.AddInvoice(ctxb, &lnrpc.Invoice{
+		invoice := &lnrpc.Invoice{
 			Value: value,
 			Memo:  memo,
-		})
-		require.NoError(ht.t, err)
+		}
+		ht.AddInvoice(invoice, alice)
 
 		select {
 		case streamMsg := <-invoices:
-			require.Equal(ht.t, int64(value), streamMsg.Value)
-			require.Equal(ht.t, memo, streamMsg.Memo)
+			require.Equal(ht, int64(value), streamMsg.Value)
+			require.Equal(ht, memo, streamMsg.Memo)
 
 		case err := <-errChan:
-			require.Fail(ht.t, "Error reading invoice: %v", err)
+			require.Fail(ht, "Error reading invoice: %v", err)
 
 		case <-timeout:
-			require.Fail(ht.t, "No invoice msg received in time")
+			require.Fail(ht, "No invoice msg received in time")
 		}
 
 		// Let's wait for at least a whole ping/pong cycle to happen, so

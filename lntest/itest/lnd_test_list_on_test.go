@@ -88,6 +88,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "disconnecting target peer",
 		TestFunc: testDisconnectingTargetPeer,
 	},
+	{
+		Name:     "reconnect after ip change",
+		TestFunc: testReconnectAfterIPChange,
+	},
 
 	// Onion related tests.
 	{

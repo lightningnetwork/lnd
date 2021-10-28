@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	network "net"
-	"time"
 
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -76,7 +76,7 @@ func testNetworkConnectionTimeout(ht *lntest.HarnessTest) {
 
 // testReconnectAfterIPChange verifies that if a persistent inbound node changes
 // its listening address then it's peer will still be able to reconnect to it.
-func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
+func testReconnectAfterIPChange(ht *lntest.HarnessTest) {
 	// In this test, the following network will be set up. A single
 	// dash line represents a peer connection and a double dash line
 	// represents a channel.
@@ -102,116 +102,85 @@ func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 	// reconnect.
 
 	// Create a new node, Charlie.
-	charlie := net.NewNode(t.t, "Charlie", nil)
-	defer shutdownAndAssert(net, t, charlie)
+	charlie := ht.NewNode("Charlie", nil)
+	defer ht.Shutdown(charlie)
 
-	// We derive two ports for Dave, and we initialise his node with
-	// these ports advertised as `--externalip` arguments.
-	ip1 := lntest.NextAvailablePort()
+	// We derive an extra port for Dave, and we initialise his node with
+	// the port advertised as `--externalip` arguments.
 	ip2 := lntest.NextAvailablePort()
 
+	// Create a new node, Dave, which will initialize a P2P port for him.
+	daveArgs := []string{fmt.Sprintf("--externalip=127.0.0.1:%d", ip2)}
+	dave := ht.NewNode("Dave", daveArgs)
+	defer ht.Shutdown(dave)
+
+	// We now have two ports, the initial P2P port from creating the node,
+	// and the `externalip` specified above.
 	advertisedAddrs := []string{
-		fmt.Sprintf("127.0.0.1:%d", ip1),
+		fmt.Sprintf("127.0.0.1:%d", dave.Cfg.P2PPort),
 		fmt.Sprintf("127.0.0.1:%d", ip2),
 	}
 
-	var daveArgs []string
-	for _, addr := range advertisedAddrs {
-		daveArgs = append(daveArgs, "--externalip="+addr)
-	}
-
-	// withP2PPort is a helper closure used to set the P2P port that a node
-	// should use.
-	var withP2PPort = func(port int) lntest.NodeOption {
-		return func(cfg *lntest.BaseNodeConfig) {
-			cfg.P2PPort = port
-		}
-	}
-
-	// Create a new node, Dave, and ensure that his initial P2P port is
-	// ip1 derived above.
-	dave := net.NewNode(t.t, "Dave", daveArgs, withP2PPort(ip1))
-	defer shutdownAndAssert(net, t, dave)
-
-	// Subscribe to graph notifications from Charlie so that we can tell
-	// when he receives Dave's NodeAnnouncements.
-	ctxb := context.Background()
-	charlieSub := subscribeGraphNotifications(ctxb, t, charlie)
-	defer close(charlieSub.quit)
-
 	// Connect Alice to Dave and Charlie.
-	net.ConnectNodes(t.t, net.Alice, dave)
-	net.ConnectNodes(t.t, net.Alice, charlie)
+	alice := ht.Alice()
+	ht.ConnectNodes(alice, dave)
+	ht.ConnectNodes(alice, charlie)
 
 	// We'll then go ahead and open a channel between Alice and Dave. This
 	// ensures that Charlie receives the node announcement from Alice as
 	// part of the announcement broadcast.
-	chanPoint := openChannelAndAssert(
-		t, net, net.Alice, dave, lntest.OpenChannelParams{
-			Amt: 1000000,
-		},
+	chanPoint := ht.OpenChannel(
+		alice, dave, lntest.OpenChannelParams{Amt: 1000000},
 	)
-	defer closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+	defer ht.CloseChannel(alice, chanPoint, false)
 
 	// waitForNodeAnnouncement is a closure used to wait on the given graph
 	// subscription for a node announcement from a node with the given
 	// public key. It also waits for the node announcement that advertises
 	// a particular set of addresses.
-	waitForNodeAnnouncement := func(graphSub graphSubscription,
-		nodePubKey string, addrs []string) {
+	waitForNodeAnnouncement := func(nodePubKey string, addrs []string) {
+		// Expect to have at least 1 node announcement now.
+		ht.AssertNumNodeAnns(charlie, nodePubKey, 1)
 
-		timer := time.After(defaultTimeout)
-		for {
-			select {
-			case graphUpdate := <-graphSub.updateChan:
-			nextUpdate:
-				for _, update := range graphUpdate.NodeUpdates {
-					if update.IdentityKey != nodePubKey {
-						continue
-					}
+		err := wait.NoError(func() error {
+			// Get latest node update from the node.
+			updates := charlie.GetNodeUpdates(nodePubKey)
+			update := updates[len(updates)-1]
 
-					addrMap := make(map[string]bool)
-					for _, addr := range update.NodeAddresses {
-						addrMap[addr.GetAddr()] = true
-					}
-
-					for _, addr := range addrs {
-						if !addrMap[addr] {
-							continue nextUpdate
-						}
-					}
-
-					return
-				}
-
-			case err := <-graphSub.errChan:
-				t.Fatalf("unable to recv graph update: %v", err)
-
-			case <-timer:
-				t.Fatalf("did not receive node ann update")
+			addrMap := make(map[string]bool)
+			for _, addr := range update.NodeAddresses {
+				addrMap[addr.GetAddr()] = true
 			}
-		}
+
+			// Check that our wanted addresses can be found from
+			// the node update.
+			for _, addr := range addrs {
+				if !addrMap[addr] {
+					return fmt.Errorf("address %s not "+
+						"found", addr)
+				}
+			}
+
+			return nil
+		}, defaultTimeout)
+		require.NoError(ht, err, "timeout checking node ann")
 	}
 
 	// Wait for Charlie to receive Dave's initial NodeAnnouncement.
-	waitForNodeAnnouncement(charlieSub, dave.PubKeyStr, advertisedAddrs)
+	waitForNodeAnnouncement(dave.PubKeyStr, advertisedAddrs)
 
 	// Now create a persistent connection between Charlie and Bob with no
 	// channels. Charlie is the outbound node and Bob is the inbound node.
-	net.ConnectNodesPerm(t.t, charlie, dave)
-
-	// Assert that Dave and Charlie are connected
-	assertConnected(t, dave, charlie)
+	ht.ConnectNodesPerm(charlie, dave)
 
 	// Change Dave's P2P port to the second IP address that he advertised
 	// and restart his node.
 	dave.Cfg.P2PPort = ip2
-	err := net.RestartNode(dave, nil)
-	require.NoError(t.t, err)
+	ht.RestartNode(dave)
 
 	// assert that Dave and Charlie reconnect successfully after Dave
 	// changes to his second advertised address.
-	assertConnected(t, dave, charlie)
+	ht.AssertConnected(dave, charlie)
 
 	// Next we test the case where Dave changes his listening address to one
 	// that was not listed in his original advertised addresses. The desired
@@ -226,20 +195,19 @@ func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 			"--externalip=127.0.0.1:%d", dave.Cfg.P2PPort,
 		),
 	}
-	err = net.RestartNode(dave, nil)
-	require.NoError(t.t, err)
+	ht.RestartNode(dave)
 
 	// Show that Charlie does receive Dave's new listening address in
 	// a Node Announcement.
 	waitForNodeAnnouncement(
-		charlieSub, dave.PubKeyStr,
+		dave.PubKeyStr,
 		[]string{fmt.Sprintf("127.0.0.1:%d", dave.Cfg.P2PPort)},
 	)
 
 	// assert that Dave and Charlie do reconnect after Dave changes his P2P
 	// address to one not listed in Dave's original advertised list of
 	// addresses.
-	assertConnected(t, dave, charlie)
+	ht.AssertConnected(dave, charlie)
 }
 
 // testAddPeerConfig tests that the "--addpeer" config flag successfully adds

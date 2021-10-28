@@ -314,6 +314,28 @@ func (h *HarnessTest) ConnectNodes(a, b *HarnessNode) {
 	h.assertPeerConnected(a, b)
 }
 
+// ConnectNodesPerm creates a persistent connection between the two nodes and
+// asserts the connection is succeeded.
+func (h *HarnessTest) ConnectNodesPerm(a, b *HarnessNode) {
+	ctx, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	bobInfo := h.GetInfo(b)
+
+	req := &lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   b.Cfg.P2PAddr(),
+		},
+		Perm: true,
+	}
+	err := h.net.connect(ctx, req, a)
+	require.NoErrorf(h, err, "unable to connect %s to %s",
+		a.Name(), b.Name())
+
+	h.assertPeerConnected(a, b)
+}
+
 // DisconnectNodes disconnects the given two nodes and asserts the
 // disconnection is succeeded. The request is made from node a and sent to node
 // b.

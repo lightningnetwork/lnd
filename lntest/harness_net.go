@@ -179,7 +179,7 @@ func (n *NetworkHarness) SetUp(t *testing.T,
 	addrReq := &lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}
-	clients := []lnrpc.LightningClient{n.Alice, n.Bob}
+	clients := []lnrpc.LightningClient{n.Alice.rpc.LN, n.Bob.rpc.LN}
 	for _, client := range clients {
 		for i := 0; i < 10; i++ {
 			resp, err := client.NewAddress(n.runCtx, addrReq)
@@ -230,11 +230,15 @@ out:
 	for {
 		select {
 		case <-balanceTicker.C:
-			aliceResp, err := n.Alice.WalletBalance(n.runCtx, balReq)
+			aliceResp, err := n.Alice.rpc.LN.WalletBalance(
+				n.runCtx, balReq,
+			)
 			if err != nil {
 				return err
 			}
-			bobResp, err := n.Bob.WalletBalance(n.runCtx, balReq)
+			bobResp, err := n.Bob.rpc.LN.WalletBalance(
+				n.runCtx, balReq,
+			)
 			if err != nil {
 				return err
 			}
@@ -387,7 +391,9 @@ func (n *NetworkHarness) newNodeWithSeed(name string, extraArgs []string,
 
 	var genSeedResp *lnrpc.GenSeedResponse
 	if err := wait.NoError(func() error {
-		genSeedResp, err = node.GenSeed(ctxt, genSeedReq)
+		genSeedResp, err = node.rpc.WalletUnlocker.GenSeed(
+			ctxt, genSeedReq,
+		)
 		return err
 	}, DefaultTimeout); err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to gen seed: %w", err)
@@ -556,7 +562,7 @@ func (n *NetworkHarness) connect(ctx context.Context,
 
 	syncTimeout := time.After(DefaultTimeout)
 tryconnect:
-	if _, err := a.ConnectPeer(ctx, req); err != nil {
+	if _, err := a.rpc.LN.ConnectPeer(ctx, req); err != nil {
 		// If the chain backend is still syncing, retry.
 		if strings.Contains(err.Error(), lnd.ErrServerNotActive.Error()) ||
 			strings.Contains(err.Error(), "i/o timeout") {
@@ -590,7 +596,7 @@ func (n *NetworkHarness) EnsureConnected(t *testing.T, a, b *HarnessNode) {
 	errConnectionRequested := errors.New("connection request in progress")
 
 	tryConnect := func(a, b *HarnessNode) error {
-		bInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+		bInfo, err := b.rpc.LN.GetInfo(ctx, &lnrpc.GetInfoRequest{})
 		if err != nil {
 			return err
 		}
@@ -667,7 +673,7 @@ func (n *NetworkHarness) EnsureConnected(t *testing.T, a, b *HarnessNode) {
 		// If node B is seen in the ListPeers response from node A,
 		// then we can exit early as the connection has been fully
 		// established.
-		resp, err := b.ListPeers(ctx, &lnrpc.ListPeersRequest{})
+		resp, err := b.rpc.LN.ListPeers(ctx, &lnrpc.ListPeersRequest{})
 		if err != nil {
 			return false
 		}
@@ -720,7 +726,7 @@ func (n *NetworkHarness) connectNodes(t *testing.T, a, b *HarnessNode,
 	ctx, cancel := context.WithTimeout(n.runCtx, DefaultTimeout)
 	defer cancel()
 
-	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+	bobInfo, err := b.rpc.LN.GetInfo(ctx, &lnrpc.GetInfoRequest{})
 	require.NoErrorf(
 		t, err, "unable to connect %s to %s, got error: %v",
 		a.Cfg.Name, b.Cfg.Name, err,
@@ -744,7 +750,7 @@ func (n *NetworkHarness) connectNodes(t *testing.T, a, b *HarnessNode,
 		// If node B is seen in the ListPeers response from node A,
 		// then we can exit early as the connection has been fully
 		// established.
-		resp, err := a.ListPeers(ctx, &lnrpc.ListPeersRequest{})
+		resp, err := a.rpc.LN.ListPeers(ctx, &lnrpc.ListPeersRequest{})
 		if err != nil {
 			return false
 		}
@@ -771,7 +777,7 @@ func (n *NetworkHarness) DisconnectNodes(a, b *HarnessNode) error {
 	ctx, cancel := context.WithTimeout(n.runCtx, DefaultTimeout)
 	defer cancel()
 
-	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+	bobInfo, err := b.rpc.LN.GetInfo(ctx, &lnrpc.GetInfoRequest{})
 	if err != nil {
 		return err
 	}
@@ -780,7 +786,7 @@ func (n *NetworkHarness) DisconnectNodes(a, b *HarnessNode) error {
 		PubKey: bobInfo.IdentityPubkey,
 	}
 
-	if _, err := a.DisconnectPeer(ctx, req); err != nil {
+	if _, err := a.rpc.LN.DisconnectPeer(ctx, req); err != nil {
 		return err
 	}
 
@@ -995,7 +1001,7 @@ func (n *NetworkHarness) OpenChannel(srcNode, destNode *HarnessNode,
 
 	// We need to use n.runCtx here to keep the response stream alive after
 	// the function is returned.
-	respStream, err := srcNode.OpenChannel(n.runCtx, openReq)
+	respStream, err := srcNode.rpc.LN.OpenChannel(n.runCtx, openReq)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open channel between "+
 			"%s and %s: %v", srcNode.Name(), destNode.Name(), err)
@@ -1058,7 +1064,7 @@ func (n *NetworkHarness) OpenPendingChannel(srcNode, destNode *HarnessNode,
 
 	// We need to use n.runCtx here to keep the response stream alive after
 	// the function is returned.
-	respStream, err := srcNode.OpenChannel(n.runCtx, openReq)
+	respStream, err := srcNode.rpc.LN.OpenChannel(n.runCtx, openReq)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open channel between "+
 			"alice and bob: %v", err)
@@ -1176,7 +1182,7 @@ func (n *NetworkHarness) CloseChannel(lnNode *HarnessNode,
 		// not.
 		filterChannel := func(node *HarnessNode,
 			op wire.OutPoint) (*lnrpc.Channel, error) {
-			listResp, err := node.ListChannels(ctxt, listReq)
+			listResp, err := node.rpc.LN.ListChannels(ctxt, listReq)
 			if err != nil {
 				return nil, err
 			}
@@ -1239,7 +1245,9 @@ func (n *NetworkHarness) CloseChannel(lnNode *HarnessNode,
 		}
 		// We need to use n.runCtx to keep the client stream alive
 		// after the function has returned.
-		closeRespStream, err = lnNode.CloseChannel(n.runCtx, closeReq)
+		closeRespStream, err = lnNode.rpc.LN.CloseChannel(
+			n.runCtx, closeReq,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to close channel: %v", err)
 		}
@@ -1331,7 +1339,7 @@ func (n *NetworkHarness) AssertChannelExists(node *HarnessNode,
 	req := &lnrpc.ListChannelsRequest{}
 
 	return wait.NoError(func() error {
-		resp, err := node.ListChannels(ctx, req)
+		resp, err := node.rpc.LN.ListChannels(ctx, req)
 		if err != nil {
 			return fmt.Errorf("unable fetch node's channels: %v", err)
 		}
@@ -1443,7 +1451,7 @@ func (n *NetworkHarness) SendCoinsOfType(amt btcutil.Amount, target *HarnessNode
 	defer cancel()
 
 	balReq := &lnrpc.WalletBalanceRequest{}
-	initialBalance, err := target.WalletBalance(ctx, balReq)
+	initialBalance, err := target.rpc.LN.WalletBalance(ctx, balReq)
 	if err != nil {
 		return err
 	}
@@ -1454,7 +1462,7 @@ func (n *NetworkHarness) SendCoinsOfType(amt btcutil.Amount, target *HarnessNode
 	addrReq := &lnrpc.NewAddressRequest{
 		Type: addrType,
 	}
-	resp, err := target.NewAddress(ctx, addrReq)
+	resp, err := target.rpc.LN.NewAddress(ctx, addrReq)
 	if err != nil {
 		return err
 	}
@@ -1492,7 +1500,7 @@ func (n *NetworkHarness) SendCoinsOfType(amt btcutil.Amount, target *HarnessNode
 		}
 
 		req := &lnrpc.ListUnspentRequest{}
-		resp, err := target.ListUnspent(ctx, req)
+		resp, err := target.rpc.LN.ListUnspent(ctx, req)
 		if err != nil {
 			return err
 		}

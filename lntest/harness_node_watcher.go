@@ -285,7 +285,9 @@ func (hn *HarnessNode) checkChanPointInGraph(chanPoint wire.OutPoint) bool {
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
 
-	chanGraph, err := hn.DescribeGraph(ctxt, &lnrpc.ChannelGraphRequest{})
+	chanGraph, err := hn.rpc.LN.DescribeGraph(
+		ctxt, &lnrpc.ChannelGraphRequest{},
+	)
 	if err != nil {
 		return false
 	}

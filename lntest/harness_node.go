@@ -361,19 +361,6 @@ type HarnessNode struct {
 	wg      sync.WaitGroup
 	cmd     *exec.Cmd
 	logFile *os.File
-
-	// TODO(yy): remove
-	lnrpc.LightningClient
-	lnrpc.WalletUnlockerClient
-	invoicesrpc.InvoicesClient
-	peersrpc.PeersClient
-	SignerClient     signrpc.SignerClient
-	RouterClient     routerrpc.RouterClient
-	WalletKitClient  walletrpc.WalletKitClient
-	Watchtower       watchtowerrpc.WatchtowerClient
-	WatchtowerClient wtclientrpc.WatchtowerClientClient
-	StateClient      lnrpc.StateClient
-	ChainClient      chainrpc.ChainNotifierClient
 }
 
 // RPCClients wraps a list of RPC clients into a single struct for easier
@@ -394,12 +381,6 @@ type RPCClients struct {
 	ChainClient      chainrpc.ChainNotifierClient
 	Peer             peersrpc.PeersClient
 }
-
-// Assert *HarnessNode implements the lnrpc.LightningClient interface.
-var _ lnrpc.LightningClient = (*HarnessNode)(nil)
-var _ lnrpc.WalletUnlockerClient = (*HarnessNode)(nil)
-var _ invoicesrpc.InvoicesClient = (*HarnessNode)(nil)
-var _ peersrpc.PeersClient = (*HarnessNode)(nil)
 
 // nextNodeID generates a unique sequence to be used as the node's ID.
 func nextNodeID() int {
@@ -702,8 +683,6 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 	// only use the TLS certs, and can only perform operations necessary to
 	// unlock the daemon.
 	if hn.Cfg.HasSeed {
-		// TODO(yy): remove
-		hn.WalletUnlockerClient = lnrpc.NewWalletUnlockerClient(conn)
 		return nil
 	}
 
@@ -764,9 +743,6 @@ func (hn *HarnessNode) WaitUntilLeader(timeout time.Duration) error {
 	// only use the TLS certs, and can only perform operations necessary to
 	// unlock the daemon.
 	if hn.Cfg.HasSeed {
-		// TODO(yy): remove
-		hn.WalletUnlockerClient = lnrpc.NewWalletUnlockerClient(conn)
-
 		return nil
 	}
 
@@ -957,21 +933,6 @@ func (hn *HarnessNode) InitRPCClients(c *grpc.ClientConn) {
 // spawns a lightning network watcher for this node, which watches for topology
 // changes.
 func (hn *HarnessNode) initLightningClient() error {
-	// TODO(yy): remove
-	// Construct the LightningClient that will allow us to use the
-	// HarnessNode directly for normal rpc operations.
-	conn := hn.rpc.conn
-	hn.LightningClient = lnrpc.NewLightningClient(conn)
-	hn.InvoicesClient = invoicesrpc.NewInvoicesClient(conn)
-	hn.RouterClient = routerrpc.NewRouterClient(conn)
-	hn.WalletKitClient = walletrpc.NewWalletKitClient(conn)
-	hn.Watchtower = watchtowerrpc.NewWatchtowerClient(conn)
-	hn.WatchtowerClient = wtclientrpc.NewWatchtowerClientClient(conn)
-	hn.SignerClient = signrpc.NewSignerClient(conn)
-	hn.PeersClient = peersrpc.NewPeersClient(conn)
-	hn.StateClient = lnrpc.NewStateClient(conn)
-	hn.ChainClient = chainrpc.NewChainNotifierClient(conn)
-
 	// Wait until the server is fully started.
 	if err := hn.WaitUntilServerActive(); err != nil {
 		return err
@@ -1185,11 +1146,6 @@ func (hn *HarnessNode) stop() error {
 	if err != nil {
 		return err
 	}
-
-	hn.LightningClient = nil
-	hn.WalletUnlockerClient = nil
-	hn.Watchtower = nil
-	hn.WatchtowerClient = nil
 
 	// Close any attempts at further grpc connections.
 	if hn.rpc.conn != nil {

@@ -719,7 +719,7 @@ func (h *HarnessTest) OpenChannelPsbt(srcNode, destNode *HarnessNode,
 		MinHtlcMsat:        int64(p.MinHtlc),
 		FundingShim:        p.FundingShim,
 	}
-	respStream, err := srcNode.OpenChannel(h.runCtx, req)
+	respStream, err := srcNode.rpc.LN.OpenChannel(h.runCtx, req)
 	require.NoErrorf(h, err, "unable to open channel between "+
 		"%s and %s", srcNode.Name(), destNode.Name())
 
@@ -1468,10 +1468,9 @@ func (h *HarnessTest) CloseChannelStreamAndAssert(hn *HarnessNode,
 	}
 
 	err = wait.NoError(func() error {
-
 		// Use runCtx here instead of a timeout context to keep the
 		// client alive for the entire test case.
-		client, err = hn.CloseChannel(h.runCtx, req)
+		client, err = hn.rpc.LN.CloseChannel(h.runCtx, req)
 		if err != nil {
 			return fmt.Errorf("unable to close channel for node %s"+
 				" with channel point %s", hn.Name(), chanPoint)
@@ -3138,7 +3137,7 @@ func (h *HarnessTest) DecodePayReq(hn *HarnessNode, req string) *lnrpc.PayReq {
 	defer cancel()
 
 	payReq := &lnrpc.PayReqString{PayReq: req}
-	resp, err := hn.DecodePayReq(ctxt, payReq)
+	resp, err := hn.rpc.LN.DecodePayReq(ctxt, payReq)
 	require.NoError(h, err, "failed to decode pay req")
 
 	return resp
@@ -3248,7 +3247,7 @@ func (h *HarnessTest) AssertFeeReport(hn *HarnessNode,
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
-	feeReport, err := hn.FeeReport(ctxt, &lnrpc.FeeReportRequest{})
+	feeReport, err := hn.rpc.LN.FeeReport(ctxt, &lnrpc.FeeReportRequest{})
 	require.NoError(h, err, "unable to query for fee report")
 
 	require.EqualValues(h, day, feeReport.DayFeeSum, "day fee mismatch")
@@ -3265,7 +3264,7 @@ func (h *HarnessTest) ForwardingHistory(
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
-	resp, err := hn.ForwardingHistory(
+	resp, err := hn.rpc.LN.ForwardingHistory(
 		ctxt, &lnrpc.ForwardingHistoryRequest{},
 	)
 	require.NoError(h, err, "failed to query forwarding history")
@@ -3280,7 +3279,7 @@ func (h *HarnessTest) DeleteAllPayments(hn *HarnessNode) {
 	defer cancel()
 
 	req := &lnrpc.DeleteAllPaymentsRequest{}
-	_, err := hn.DeleteAllPayments(ctxt, req)
+	_, err := hn.rpc.LN.DeleteAllPayments(ctxt, req)
 	require.NoError(h, err, "unable to delete payments")
 }
 

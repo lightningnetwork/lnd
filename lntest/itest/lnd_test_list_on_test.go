@@ -412,6 +412,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "wallet import pubkey",
 		TestFunc: testWalletImportPubKey,
 	},
+	{
+		Name:     "remote signer",
+		TestFunc: testRemoteSigner,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
@@ -420,10 +424,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "forward interceptor dedup htlcs",
 	// 	test: testForwardInterceptorDedupHtlc,
-	// },
-	// {
-	// 	name: "remote signer",
-	// 	test: testRemoteSigner,
 	// },
 	// {
 	// 	name: "sign psbt",

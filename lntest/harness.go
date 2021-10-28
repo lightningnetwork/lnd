@@ -149,6 +149,19 @@ func (h *HarnessTest) NewNode(name string, extraArgs []string) *HarnessNode {
 	return node
 }
 
+// NewNodeRemoteSigner creates a new remote signer node and asserts its
+// creation.
+func (h *HarnessTest) NewNodeRemoteSigner(name string, extraArgs []string,
+	password []byte, watchOnly *lnrpc.WatchOnly) *HarnessNode {
+
+	node, err := h.net.NewNodeRemoteSigner(
+		name, extraArgs, password, watchOnly,
+	)
+	require.NoErrorf(h, err, "unable to create new node for %s", name)
+
+	return node
+}
+
 // KillNode stops the given node abruptly without waiting.
 func (h *HarnessTest) KillNode(hn *HarnessNode) {
 	err := h.net.KillNode(hn)

@@ -2,6 +2,7 @@ package itest
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/btcjson"
@@ -392,15 +393,30 @@ func subscribeChannelNotifications(ht *lntest.HarnessTest,
 				return
 			default:
 				chanUpdate, err := chanUpdateClient.Recv()
+
+				switch {
+				case err == nil:
+					sub.updateChan <- chanUpdate
+					continue
+
 				// If context is canceled, ignore the error and
 				// return. Note that we need to use status
 				// package here to convert the rpc error.
-				if status.Code(err) == codes.Canceled {
+				case status.Code(err) == codes.Canceled:
+					return
+
+				// And EOF will occur when node shuts down.
+				case strings.Contains(err.Error(), "EOF"):
+					return
+
+				// Connection will be closed when the node
+				// shuts down.
+				case strings.Contains(err.Error(),
+					"closed network connection"):
 					return
 				}
 
-				require.NoError(ht, err)
-				sub.updateChan <- chanUpdate
+				require.NoError(ht, err, "subscribe failed")
 			}
 		}
 	}

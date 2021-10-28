@@ -47,14 +47,14 @@ type chanWatchRequest struct {
 func (hn *HarnessNode) GetNumChanUpdates(op wire.OutPoint) int {
 	hn.mu.RLock()
 	defer hn.mu.RUnlock()
-	return hn.numChanUpdates[op]
+	return hn.state.numChanUpdates[op]
 }
 
 // GetNodeUpdates reads the node updates inside a lock and returns the value.
 func (hn *HarnessNode) GetNodeUpdates(pubkey string) []*lnrpc.NodeUpdate {
 	hn.mu.RLock()
 	defer hn.mu.RUnlock()
-	return hn.nodeUpdates[pubkey]
+	return hn.state.nodeUpdates[pubkey]
 }
 
 // WaitForNetworkNumChanUpdates will block until a given number of updates has
@@ -162,7 +162,7 @@ func (hn *HarnessNode) WaitForNetworkChannelClose(
 	timer := time.After(DefaultTimeout)
 	select {
 	case <-eventChan:
-		closedChan, ok := hn.closedChans[op]
+		closedChan, ok := hn.state.closedChans[op]
 		if !ok {
 			return nil, fmt.Errorf("channel:%s expected to find "+
 				"a closed channel in node's state:%s", op, hn)
@@ -342,7 +342,7 @@ func (hn *HarnessNode) handleChannelEdgeUpdates(
 func (hn *HarnessNode) updateNodeStateNumChanUpdates(op wire.OutPoint) {
 	hn.mu.Lock()
 	defer hn.mu.Unlock()
-	hn.numChanUpdates[op]++
+	hn.state.numChanUpdates[op]++
 }
 
 // updateNodeStateNodeUpdates updates the internal state of the node regarding
@@ -350,19 +350,19 @@ func (hn *HarnessNode) updateNodeStateNumChanUpdates(op wire.OutPoint) {
 func (hn *HarnessNode) updateNodeStateNodeUpdates(update *lnrpc.NodeUpdate) {
 	hn.mu.Lock()
 	defer hn.mu.Unlock()
-	hn.nodeUpdates[update.IdentityKey] = append(
-		hn.nodeUpdates[update.IdentityKey], update,
+	hn.state.nodeUpdates[update.IdentityKey] = append(
+		hn.state.nodeUpdates[update.IdentityKey], update,
 	)
 }
 
 // updateNodeStateOpenChannel updates the internal state of the node regarding
 // the open channels.
 func (hn *HarnessNode) updateNodeStateOpenChannel(op wire.OutPoint) {
-	hn.openChans[op]++
+	hn.state.openChans[op]++
 
 	// For this new channel, if the number of edges seen is less
 	// than two, then the channel hasn't been fully announced yet.
-	if numEdges := hn.openChans[op]; numEdges < 2 {
+	if numEdges := hn.state.openChans[op]; numEdges < 2 {
 		return
 	}
 
@@ -381,7 +381,7 @@ func (hn *HarnessNode) updateNodeStatePolicy(op wire.OutPoint,
 
 	// Append the policy to the slice.
 	node := newChan.AdvertisingNode
-	policies := hn.policyUpdates[op.String()]
+	policies := hn.state.policyUpdates[op.String()]
 
 	// If the map[op] is nil, we need to initialize the map first.
 	if policies == nil {
@@ -390,7 +390,7 @@ func (hn *HarnessNode) updateNodeStatePolicy(op wire.OutPoint,
 	policies[node] = append(
 		policies[node], newChan.RoutingPolicy,
 	)
-	hn.policyUpdates[op.String()] = policies
+	hn.state.policyUpdates[op.String()] = policies
 }
 
 // handleOpenChannelWatchRequest processes a watch open channel request by
@@ -404,7 +404,7 @@ func (hn *HarnessNode) handleOpenChannelWatchRequest(req *chanWatchRequest) {
 
 	// If this is an open request, then it can be dispatched if the number
 	// of edges seen for the channel is at least two.
-	if numEdges := hn.openChans[targetChan]; numEdges >= 2 {
+	if numEdges := hn.state.openChans[targetChan]; numEdges >= 2 {
 		close(req.eventChan)
 		return
 	}
@@ -444,7 +444,7 @@ func (hn *HarnessNode) handleClosedChannelUpdate(
 			return
 		}
 
-		hn.closedChans[op] = closedChan
+		hn.state.closedChans[op] = closedChan
 
 		// As the channel has been closed, we'll notify all register
 		// watchers.
@@ -464,7 +464,7 @@ func (hn *HarnessNode) handleCloseChannelWatchRequest(req *chanWatchRequest) {
 
 	// If this is a close request, then it can be immediately dispatched if
 	// we've already seen a channel closure for this channel.
-	if _, ok := hn.closedChans[targetChan]; ok {
+	if _, ok := hn.state.closedChans[targetChan]; ok {
 		close(req.eventChan)
 		return
 	}
@@ -486,7 +486,7 @@ func (hn *HarnessNode) handlePolicyUpdateWatchRequest(req *chanWatchRequest) {
 
 	// Get a list of known policies for this chanPoint+advertisingNode
 	// combination. Start searching in the node state first.
-	policies, ok := hn.policyUpdates[op.String()][req.advertisingNode]
+	policies, ok := hn.state.policyUpdates[op.String()][req.advertisingNode]
 
 	if !ok {
 		// If it cannot be found in the node state, try searching it

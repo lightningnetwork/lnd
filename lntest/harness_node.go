@@ -286,21 +286,6 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	return args
 }
 
-// policyUpdateMap defines a type to store channel policy updates. It has the
-// format,
-// {
-//  "chanPoint1": {
-//       "advertisingNode1": [
-//              policy1, policy2, ...
-//       ],
-//       "advertisingNode2": [
-//              policy1, policy2, ...
-//       ]
-//  },
-//  "chanPoint2": ...
-// }.
-type policyUpdateMap map[string]map[string][]*lnrpc.RoutingPolicy
-
 // HarnessNode represents an instance of lnd running within our test network
 // harness. Each HarnessNode instance also fully embeds an RPC client in
 // order to pragmatically drive the node.
@@ -328,22 +313,8 @@ type HarnessNode struct {
 	// edges seen for that channel within the network. When this number
 	// reaches 2, then it means that both edge advertisements has propagated
 	// through the network.
-	openChans        map[wire.OutPoint]int
-	openChanWatchers map[wire.OutPoint][]chan struct{}
-
-	closedChans       map[wire.OutPoint]*lnrpc.ClosedChannelUpdate
+	openChanWatchers  map[wire.OutPoint][]chan struct{}
 	closeChanWatchers map[wire.OutPoint][]chan struct{}
-
-	// numChanUpdates records the number of channel updates seen by each
-	// channel.
-	numChanUpdates map[wire.OutPoint]int
-
-	// nodeUpdates records the node announcements seen by each node.
-	nodeUpdates map[string][]*lnrpc.NodeUpdate
-
-	// policyUpdates stores a slice of seen polices by each advertising
-	// node and the outpoint.
-	policyUpdates policyUpdateMap
 
 	// backupDbDir is the path where a database backup is stored, if any.
 	backupDbDir string
@@ -357,6 +328,9 @@ type HarnessNode struct {
 	// children contexts for RPC requests.
 	runCtx context.Context
 	cancel context.CancelFunc
+
+	// state records the current state of the node.
+	state *nodeState
 
 	wg      sync.WaitGroup
 	cmd     *exec.Cmd
@@ -435,16 +409,10 @@ func newNode(cfg *BaseNodeConfig) (*HarnessNode, error) {
 		Cfg:               cfg,
 		NodeID:            nextNodeID(),
 		chanWatchRequests: make(chan *chanWatchRequest),
-		openChans:         make(map[wire.OutPoint]int),
 		openChanWatchers:  make(map[wire.OutPoint][]chan struct{}),
-		closedChans: make(
-			map[wire.OutPoint]*lnrpc.ClosedChannelUpdate,
-		),
 		closeChanWatchers: make(map[wire.OutPoint][]chan struct{}),
-		numChanUpdates:    make(map[wire.OutPoint]int),
-		nodeUpdates:       make(map[string][]*lnrpc.NodeUpdate),
-		policyUpdates:     policyUpdateMap{},
 		postgresDbName:    dbName,
+		state:             newState(),
 	}, nil
 }
 
@@ -496,18 +464,16 @@ func (hn *HarnessNode) String() string {
 	}
 
 	nodeState := struct {
-		NodeID      int
-		Name        string
-		PubKey      string
-		OpenChans   map[string]int
-		ClosedChans map[string]int
-		NodeCfg     nodeCfg
+		NodeID  int
+		Name    string
+		PubKey  string
+		State   *nodeState
+		NodeCfg nodeCfg
 	}{
-		NodeID:      hn.NodeID,
-		Name:        hn.Cfg.Name,
-		PubKey:      hn.PubKeyStr,
-		OpenChans:   make(map[string]int),
-		ClosedChans: make(map[string]int),
+		NodeID: hn.NodeID,
+		Name:   hn.Cfg.Name,
+		PubKey: hn.PubKeyStr,
+		State:  hn.state,
 		NodeCfg: nodeCfg{
 			LogFilenamePrefix: hn.Cfg.LogFilenamePrefix,
 			ExtraArgs:         hn.Cfg.ExtraArgs,
@@ -519,13 +485,6 @@ func (hn *HarnessNode) String() string {
 			AcceptAMP:         hn.Cfg.AcceptAMP,
 			FeeURL:            hn.Cfg.FeeURL,
 		},
-	}
-
-	for outpoint, count := range hn.openChans {
-		nodeState.OpenChans[outpoint.String()] = count
-	}
-	for outpoint := range hn.closedChans {
-		nodeState.ClosedChans[outpoint.String()] = 1
 	}
 
 	stateBytes, err := json.MarshalIndent(nodeState, "", "\t")

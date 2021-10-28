@@ -558,6 +558,10 @@ messages directly. There is no routing/path finding involved.
   fixed](https://github.com/lightningnetwork/lnd/pull/5893) in the
  [`btcwallet` dependency](https://github.com/btcsuite/btcwallet/pull/773).
 
+* [A bug has been fixed that would at times cause intercepted HTLCs to be
+  re-notified](https://github.com/lightningnetwork/lnd/pull/5901), which could
+  lead to higher-level HTLC mismanagement issues.
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

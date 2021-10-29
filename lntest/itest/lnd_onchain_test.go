@@ -209,8 +209,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	// Alice opens a smaller channel. This works since it will have a
 	// change output.
 	aliceChanPoint1 := openChannelAndAssert(
-		t, net, alice, bob,
-		lntest.OpenChannelParams{
+		t, net, alice, bob, lntest.OpenChannelParams{
 			Amt: chanAmt / 4,
 		},
 	)
@@ -326,7 +325,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	block = mineBlocks(t, net, 1, 1)[0]
 
 	// The sweep transaction should have exactly one inputs as we only had
-	// the the single output from above in the wallet.
+	// the single output from above in the wallet.
 	sweepTx = block.Transactions[1]
 	if len(sweepTx.TxIn) != 1 {
 		t.Fatalf("expected 1 inputs instead have %v", len(sweepTx.TxIn))
@@ -352,9 +351,12 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("Alice's balance did not increase after channel close")
 	}
 
+	// Assert there are no open or pending channels anymore.
+	assertNumPendingChannels(t, alice, 0, 0)
+	assertNodeNumChannels(t, alice, 0)
+
 	// We'll wait for the balance to reflect that the channel has been
 	// closed and the funds are in the wallet.
-
 	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:    minerAddr.String(),
 		SendAll: true,

@@ -313,6 +313,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testForwardInterceptorBasic,
 	},
 	{
+		Name:     "forward interceptor dedup htlcs",
+		TestFunc: testForwardInterceptorDedupHtlc,
+	},
+	{
 		Name:     "max htlc pathfind",
 		TestFunc: testMaxHtlcPathfind,
 	},
@@ -425,14 +429,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testRemoteSigner,
 	},
 
-	// {
-	// 	name: "reconnect after ip change",
-	// 	test: testReconnectAfterIPChange,
-	// },
-	// {
-	// 	name: "forward interceptor dedup htlcs",
-	// 	test: testForwardInterceptorDedupHtlc,
-	// },
 	// {
 	// 	name: "sign psbt",
 	// 	test: testSignPsbt,

@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -29,165 +31,137 @@ type interceptorTestCase struct {
 	interceptorAction routerrpc.ResolveHoldForwardAction
 }
 
-// // testForwardInterceptorDedupHtlc tests that upon reconnection, duplicate
-// // HTLCs aren't re-notified using the HTLC interceptor API.
-// func testForwardInterceptorDedupHtlc(net *lntest.NetworkHarness, t *harnessTest) {
-// 	// Initialize the test context with 3 connected nodes.
-// 	alice := net.NewNode(t.t, "alice", nil)
-// 	defer shutdownAndAssert(net, t, alice)
-// 	bob := net.NewNode(t.t, "bob", nil)
-// 	defer shutdownAndAssert(net, t, alice)
+// testForwardInterceptorDedupHtlc tests that upon reconnection, duplicate
+// HTLCs aren't re-notified using the HTLC interceptor API.
+func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
+	// Initialize the test context with 3 connected nodes.
+	ctx := newInterceptorTestContext(ht)
+	defer ctx.shutdownNodes()
 
-// 	carol := net.NewNode(t.t, "carol", nil)
-// 	defer shutdownAndAssert(net, t, alice)
+	const chanAmt = btcutil.Amount(300000)
 
-// 	tc := newInterceptorTestContext(t, net, alice, bob, carol)
+	// Open and wait for channels.
+	chanPoint := ctx.openChannel(ctx.alice, ctx.bob, chanAmt)
+	ctx.openChannel(ctx.bob, ctx.carol, chanAmt)
+	defer ctx.closeChannels()
 
-// 	const (
-// 		chanAmt = btcutil.Amount(300000)
-// 	)
+	// Connect the interceptor.
+	interceptor, cancelInterceptor := ht.HtlcInterceptor(ctx.bob)
 
-// 	// Open and wait for channels.
-// 	tc.openChannel(tc.alice, tc.bob, chanAmt)
-// 	tc.openChannel(tc.bob, tc.carol, chanAmt)
-// 	defer tc.closeChannels()
-// 	tc.waitForChannels()
+	// Prepare the test cases.
+	req := &lnrpc.Invoice{ValueMsat: 1000}
+	addResponse := ht.AddInvoice(req, ctx.carol)
+	invoice := ht.LookupInvoice(ctx.carol, addResponse.RHash)
+	tc := &interceptorTestCase{
+		amountMsat: 1000,
+		invoice:    invoice,
+		payAddr:    invoice.PaymentAddr,
+	}
 
-// 	ctxb := context.Background()
-// 	ctxt, cancelInterceptor := context.WithCancel(ctxb)
-// 	interceptor, err := tc.bob.RouterClient.HtlcInterceptor(ctxt)
-// 	require.NoError(tc.t.t, err, "failed to create HtlcInterceptor")
+	// We initiate a payment from Alice.
+	done := make(chan struct{})
+	go func() {
+		// Signal that all the payments have been sent.
+		defer close(done)
 
-// 	addResponse, err := tc.carol.AddInvoice(ctxb, &lnrpc.Invoice{
-// 		ValueMsat: 1000,
-// 	})
-// 	require.NoError(tc.t.t, err, "unable to add invoice")
+		ctx.sendPaymentAndAssertAction(tc)
+	}()
 
-// 	invoice, err := tc.carol.LookupInvoice(ctxb, &lnrpc.PaymentHash{
-// 		RHashStr: hex.EncodeToString(addResponse.RHash),
-// 	})
-// 	require.NoError(tc.t.t, err, "unable to find invoice")
+	// We start the htlc interceptor with a simple implementation that
+	// saves all intercepted packets. These packets are held to simulate a
+	// pending payment.
+	packet := ht.ReceiveHtlcInterceptor(interceptor)
 
-// 	// We start the htlc interceptor with a simple implementation that
-// 	// saves all intercepted packets. These packets are held to simulate a
-// 	// pending payment.
-// 	interceptedPacketstMap := &sync.Map{}
-// 	var wg sync.WaitGroup
-// 	wg.Add(1)
-// 	go func() {
-// 		defer wg.Done()
-// 		for {
-// 			packet, err := interceptor.Recv()
-// 			if err != nil {
-// 				// If it is just the error result of the
-// 				// context cancellation the we exit silently.
-// 				status, ok := status.FromError(err)
-// 				if ok && status.Code() == codes.Canceled {
-// 					return
-// 				}
+	// Here we should wait for the channel to contain a pending htlc, and
+	// also be shown as being active.
+	err := wait.NoError(func() error {
+		channel := ht.QueryChannelByChanPoint(ctx.bob, chanPoint)
 
-// 				// Otherwise it an unexpected error, we fail
-// 				// the test.
-// 				require.NoError(
-// 					tc.t.t, err,
-// 					"unexpected error in interceptor.Recv()",
-// 				)
-// 				return
-// 			}
-// 			interceptedPacketstMap.Store(
-// 				packet.IncomingCircuitKey.HtlcId, packet,
-// 			)
-// 		}
-// 	}()
+		if len(channel.PendingHtlcs) == 0 {
+			return fmt.Errorf("expect alice <> bob channel to " +
+				"have pending htlcs")
+		}
+		if channel.Active {
+			return nil
+		}
 
-// 	// We initiate a payment from Alice.
-// 	wg.Add(1)
-// 	go func() {
-// 		defer wg.Done()
-// 		_, _ = tc.sendAliceToCarolPayment(
-// 			ctxb, 1000,
-// 			invoice.RHash, invoice.PaymentAddr,
-// 		)
-// 	}()
+		return fmt.Errorf("channel not active")
+	}, defaultTimeout)
+	require.NoError(
+		ctx.ht, err, "alice <> bob channel pending htlc never arrived",
+	)
 
-// 	// Here we should wait for the channel to contain a pending htlc, and
-// 	// also be shown as being active.
-// 	err = wait.Predicate(func() bool {
-// 		channels, err := tc.bob.ListChannels(ctxt, &lnrpc.ListChannelsRequest{
-// 			ActiveOnly: true,
-// 			Peer:       tc.alice.PubKey[:],
-// 		})
-// 		if err != nil {
-// 			return false
-// 		}
-// 		if len(channels.Channels) == 0 {
-// 			return false
-// 		}
+	// At this point we want to make bob's link send all pending htlcs to
+	// the switch again. We force this behavior by disconnecting and
+	// connecting to the peer.
+	ctx.ht.DisconnectNodes(ctx.bob, ctx.alice)
+	ctx.ht.EnsureConnected(ctx.bob, ctx.alice)
 
-// 		aliceChan := channels.Channels[0]
-// 		if len(aliceChan.PendingHtlcs) == 0 {
-// 			return false
-// 		}
-// 		return aliceChan.Active
-// 	}, defaultTimeout)
-// 	require.NoError(
-// 		tc.t.t, err, "alice <> bob channel pending htlc never arrived",
-// 	)
+	// Here we wait for the channel to be active again.
+	ht.AssertChannelExists(ctx.bob, chanPoint)
 
-// 	// At this point we want to make bob's link send all pending htlcs to
-// 	// the switch again. We force this behavior by disconnecting and
-// 	// connecting to the peer.
-// 	if err := tc.net.DisconnectNodes(tc.bob, tc.alice); err != nil {
-// 		tc.t.Fatalf("failed to disconnect alice and bob")
-// 	}
-// 	tc.net.EnsureConnected(tc.t.t, tc.bob, tc.alice)
+	// Now that the channel is active we make sure the test passes as
+	// expected.
 
-// 	// Here we wait for the channel to be active again.
-// 	err = wait.Predicate(func() bool {
-// 		req := &lnrpc.ListChannelsRequest{
-// 			ActiveOnly: true,
-// 			Peer:       tc.alice.PubKey[:],
-// 		}
+	// We expect one in flight payment since we held the htlcs.
+	var preimage lntypes.Preimage
+	copy(preimage[:], invoice.RPreimage)
+	ht.AssertPaymentStatus(ctx.alice, preimage, lnrpc.Payment_IN_FLIGHT)
 
-// 		channels, err := tc.bob.ListChannels(ctxt, req)
-// 		return err == nil && len(channels.Channels) > 0
-// 	}, defaultTimeout)
-// 	require.NoError(
-// 		tc.t.t, err, "alice <> bob channel didn't re-activate",
-// 	)
+	// At this point if we have more than one held htlcs then we should
+	// fail. This means we hold the same htlc twice which is a risk we want
+	// to eliminate. If we don't have the same htlc twice in theory we can
+	// cancel one and settle the other by mistake.
+	errDone := make(chan struct{})
+	go func() {
+		defer close(errDone)
 
-// 	// Now that the channel is active we make sure the test passes as
-// 	// expected.
-// 	payments, err := tc.alice.ListPayments(ctxb, &lnrpc.ListPaymentsRequest{
-// 		IncludeIncomplete: true,
-// 	})
-// 	require.NoError(tc.t.t, err, "failed to fetch payment")
+		_, err := interceptor.Recv()
+		require.Error(ht, err, "expected an error from interceptor")
 
-// 	// We expect one in flight payment since we held the htlcs.
-// 	require.Equal(tc.t.t, len(payments.Payments), 1)
-// 	require.Equal(tc.t.t, payments.Payments[0].Status, lnrpc.Payment_IN_FLIGHT)
+		status, ok := status.FromError(err)
+		switch {
+		// If it is just the error result of the context cancellation
+		// the we exit silently.
+		case ok && status.Code() == codes.Canceled:
+			fallthrough
 
-// 	// We now fail all htlcs to cancel the payment.
-// 	packetsCount := 0
-// 	interceptedPacketstMap.Range(func(_, packet interface{}) bool {
-// 		p := packet.(*routerrpc.ForwardHtlcInterceptRequest)
-// 		_ = interceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
-// 			IncomingCircuitKey: p.IncomingCircuitKey,
-// 			Action:             routerrpc.ResolveHoldForwardAction_FAIL,
-// 		})
-// 		packetsCount++
-// 		return true
-// 	})
+		// When the test ends, during the node's shutdown it will close
+		// the connection.
+		case strings.Contains(err.Error(), "closed network connection"):
+			fallthrough
 
-// 	// At this point if we have more than one held htlcs then we should
-// 	// fail.  This means we hold the same htlc twice which is a risk we
-// 	// want to eliminate. If we don't have the same htlc twice in theory we
-// 	// can cancel one and settle the other by mistake.
-// 	require.Equal(tc.t.t, packetsCount, 1)
+		case strings.Contains(err.Error(), "EOF"):
+			return
+		}
 
-// 	cancelInterceptor()
-// 	wg.Wait()
-// }
+		// Otherwise we receive an unexpected error.
+		require.Failf(ht, "interceptor", "unexpected err: %v", err)
+	}()
+
+	// We now fail all htlcs to cancel the payment.
+	err = interceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey: packet.IncomingCircuitKey,
+		Action:             routerrpc.ResolveHoldForwardAction_FAIL,
+	})
+	require.NoError(ht, err, "failed to send request")
+
+	// Cancel the context, which will disconnect the above interceptor.
+	cancelInterceptor()
+
+	// Make sure all goroutines are finished.
+	select {
+	case <-done:
+	case <-time.After(defaultTimeout):
+		require.Fail(ht, "timeout waiting for sending payment")
+	}
+
+	select {
+	case <-errDone:
+	case <-time.After(defaultTimeout):
+		require.Fail(ht, "timeout waiting for interceptor error")
+	}
+}
 
 // testForwardInterceptorBasic tests the forward interceptor RPC layer.
 // The test creates a cluster of 3 connected nodes: Alice -> Bob -> Carol
@@ -226,7 +200,8 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 		defer close(done)
 
 		for _, tc := range testCases {
-			ctx.sendPaymentAndAssertAction(tc)
+			attempt := ctx.sendPaymentAndAssertAction(tc)
+			ctx.assertAction(tc, attempt)
 		}
 	}()
 
@@ -399,7 +374,7 @@ func (c *interceptorTestContext) prepareTestCases() []*interceptorTestCase {
 // sendPaymentAndAssertAction sends a payment from alice to carol and asserts
 // that the specified interceptor action is taken.
 func (c *interceptorTestContext) sendPaymentAndAssertAction(
-	tc *interceptorTestCase) {
+	tc *interceptorTestCase) *lnrpc.HTLCAttempt {
 
 	// Build a route from alice to carol.
 	route := c.buildRoute(
@@ -417,7 +392,11 @@ func (c *interceptorTestContext) sendPaymentAndAssertAction(
 		PaymentHash: tc.invoice.RHash,
 		Route:       route,
 	}
-	attempt := c.ht.SendToRouteV2(c.alice, sendReq)
+	return c.ht.SendToRouteV2(c.alice, sendReq)
+}
+
+func (c *interceptorTestContext) assertAction(tc *interceptorTestCase,
+	attempt *lnrpc.HTLCAttempt) {
 
 	// Now check the expected action has been taken.
 	switch tc.interceptorAction {

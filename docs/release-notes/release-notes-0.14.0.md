@@ -595,6 +595,9 @@ messages directly. There is no routing/path finding involved.
 * [Don't print bucket names with special characters when compacting](
   https://github.com/lightningnetwork/lnd/pull/5878)
 
+* [Fix pathfinding crash when inbound policy is unknown](
+  https://github.com/lightningnetwork/lnd/pull/5922)
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

@@ -818,11 +818,11 @@
         "raw_key_bytes": {
           "type": "string",
           "format": "byte",
-          "description": "The raw bytes of the key being identified. Either this or the KeyLocator\nmust be specified."
+          "description": "The raw bytes of the public key in the key pair being identified. Either\nthis or the KeyLocator must be specified."
         },
         "key_loc": {
           "$ref": "#/definitions/signrpcKeyLocator",
-          "description": "The key locator that identifies which key to use for signing. Either this\nor the raw bytes of the target key must be specified."
+          "description": "The key locator that identifies which private key to use for signing.\nEither this or the raw bytes of the target public key must be specified."
         }
       }
     },

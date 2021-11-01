@@ -83,12 +83,12 @@ type KeyDescriptor struct {
 	unknownFields protoimpl.UnknownFields
 
 	//
-	//The raw bytes of the key being identified. Either this or the KeyLocator
-	//must be specified.
+	//The raw bytes of the public key in the key pair being identified. Either
+	//this or the KeyLocator must be specified.
 	RawKeyBytes []byte `protobuf:"bytes,1,opt,name=raw_key_bytes,json=rawKeyBytes,proto3" json:"raw_key_bytes,omitempty"`
 	//
-	//The key locator that identifies which key to use for signing. Either this
-	//or the raw bytes of the target key must be specified.
+	//The key locator that identifies which private key to use for signing.
+	//Either this or the raw bytes of the target public key must be specified.
 	KeyLoc *KeyLocator `protobuf:"bytes,2,opt,name=key_loc,json=keyLoc,proto3" json:"key_loc,omitempty"`
 }
 

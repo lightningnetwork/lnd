@@ -94,19 +94,18 @@ readinessProbe:
     periodSeconds: 1
 ```
 
-## Replication of non-critical data
+## What data is written to the replicated remote database? 
 
-All critical data is written to the replicated database, including LND's wallet
-data which contains the key material and node identity. Some less critical data
-however is currently not written to that same database for performance reasons
-and is instead still kept in local `bbolt` files.
+Beginning with LND 0.14.0 when using a remote database (etcd or PostgreSQL) all
+LND data will be written to the replicated database, including the wallet data
+which contains the key material and node identity, the graph, the channel state,
+the macaroon and the watchtower client databases. This means that when using
+leader election there's no need to copy anything between instances of the LND
+cluster.
 
-For example the graph data is kept locally to improve path finding. Other examples
-are the macaroon database or watchtower client database. To make sure a node can
-become active and take over quickly if the leader fails, it is therefore still
-recommended to have the LND data directory on a shared volume that all active and
-passive nodes can access. Otherwise the node that is taking over might first need
-to sync its graph.
+## Is leader election supported for Postgres?
 
-As we evolve our cluster support we'll provide more solutions to make replication
-and clustering even more seamless.
+No, leader election is not supported by Postgres itself since it doesn't have a
+mechanism to reliably **determine a leading node**. It is, however, possible to
+use Postgres **as the LND database backend** while using an etcd cluster purely
+for the leader election functionality. 

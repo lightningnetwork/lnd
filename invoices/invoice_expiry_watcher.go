@@ -353,6 +353,11 @@ func (ew *InvoiceExpiryWatcher) expireInvoice(hash lntypes.Hash, force bool) {
 
 	case channeldb.ErrInvoiceAlreadySettled:
 
+	case channeldb.ErrInvoiceNotFound:
+		// It's possible that the user has manually canceled the invoice
+		// which will then be deleted by the garbage collector resulting
+		// in an ErrInvoiceNotFound error.
+
 	default:
 		log.Errorf("Unable to cancel invoice: %v: %v", hash, err)
 	}

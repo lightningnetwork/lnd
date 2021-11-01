@@ -104,52 +104,19 @@ func getLndBinary(t *testing.T) string {
 	return binary
 }
 
-// TestLightningNetworkDaemon performs a series of integration tests amongst a
-// programmatically driven network of lnd nodes.
-func TestLightningNetworkDaemon(t *testing.T) {
-	// If no tests are registered, then we can exit early.
-	if len(allTestCases) == 0 {
-		t.Skip("integration tests not selected with flag 'rpctest'")
-	}
-
-	// Parse testing flags that influence our test execution.
-	logDir := lntest.GetLogDir()
-	require.NoError(t, os.MkdirAll(logDir, 0700))
-	testCases, trancheIndex, trancheOffset := getTestCaseSplitTranche()
-	lntest.ApplyPortOffset(uint32(trancheIndex) * 1000)
-
-	// Before we start any node, we need to make sure that any btcd node
-	// that is started through the RPC harness uses a unique port as well to
-	// avoid any port collisions.
-	rpctest.ListenAddressGenerator = lntest.GenerateBtcdListenerAddresses
-
-	// Declare the network harness here to gain access to its
-	// 'OnTxAccepted' call back.
-	var lndHarness *lntest.NetworkHarness
-
-	// Create an instance of the btcd's rpctest.Harness that will act as
-	// the miner for all tests. This will be used to fund the wallets of
-	// the nodes within the test network and to drive blockchain related
-	// events within the network. Revert the default setting of accepting
-	// non-standard transactions on simnet to reject them. Transactions on
-	// the lightning network should always be standard to get better
-	// guarantees of getting included in to blocks.
-	//
-	// We will also connect it to our chain backend.
+// prepareMiner creates an instance of the btcd's rpctest.Harness that will act
+// as the miner for all tests. This will be used to fund the wallets of the
+// nodes within the test network and to drive blockchain related events within
+// the network. Revert the default setting of accepting non-standard
+// transactions on simnet to reject them. Transactions on the lightning network
+// should always be standard to get better guarantees of getting included in to
+// blocks.
+func prepareMiner(t *testing.T) (*lntest.HarnessMiner, func()) {
 	miner, err := lntest.NewMiner()
 	require.NoError(t, err, "failed to create new miner")
-	defer func() {
+	cleanUp := func() {
 		require.NoError(t, miner.Stop(), "failed to stop miner")
-	}()
-
-	// Start a chain backend.
-	chainBackend, cleanUp, err := lntest.NewBackend(
-		miner.P2PAddress(), harnessNetParams,
-	)
-	require.NoError(t, err, "new backend")
-	defer func() {
-		require.NoError(t, cleanUp(), "cleanup")
-	}()
+	}
 
 	// Before we start anything, we want to overwrite some of the connection
 	// settings to make the tests more robust. We might need to restart the
@@ -162,9 +129,30 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// Set up miner and connect chain backend to it.
 	require.NoError(t, miner.SetUp(true, 50))
 	require.NoError(t, miner.Client.NotifyNewTransactions(false))
-	require.NoError(t, chainBackend.ConnectMiner(), "connect miner")
 
-	// Parse database backend
+	// Next mine enough blocks in order for segwit and the CSV package
+	// soft-fork to activate on SimNet.
+	numBlocks := harnessNetParams.MinerConfirmationWindow * 2
+	_, err = miner.Client.Generate(numBlocks)
+	require.NoError(t, err, "unable to generate blocks")
+
+	return miner, cleanUp
+}
+
+func prepareChainBackend(t *testing.T,
+	minerAddr string) (lntest.BackendConfig, func()) {
+
+	chainBackend, cleanUp, err := lntest.NewBackend(
+		minerAddr, harnessNetParams,
+	)
+	require.NoError(t, err, "new backend")
+
+	return chainBackend, func() {
+		require.NoError(t, cleanUp(), "cleanup")
+	}
+}
+
+func prepareDbBackend(t *testing.T) lntest.DatabaseBackend {
 	var dbBackend lntest.DatabaseBackend
 	switch *dbBackendFlag {
 	case "bbolt":
@@ -180,14 +168,49 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		require.Fail(t, "unknown db backend")
 	}
 
+	return dbBackend
+}
+
+// TestLightningNetworkDaemon performs a series of integration tests amongst a
+// programmatically driven network of lnd nodes.
+func TestLightningNetworkDaemon(t *testing.T) {
+	// If no tests are registered, then we can exit early.
+	if len(allTestCases) == 0 {
+		t.Skip("integration tests not selected with flag 'rpctest'")
+	}
+
+	// Parse testing flags that influence our test execution.
+	logDir := lntest.GetLogDir()
+	require.NoError(t, os.MkdirAll(logDir, 0700))
+	testCases, trancheIndex, trancheOffset := getTestCaseSplitTranche()
+	lntest.ApplyPortOffset(uint32(trancheIndex) * 1000)
+
+	// Before we start any node, we need to make sure that any btcd node
+	// that is started through the RPC harness uses a unique port as well
+	// to avoid any port collisions.
+	rpctest.ListenAddressGenerator = lntest.GenerateBtcdListenerAddresses
+
+	// We will also connect it to our chain backend.
+	miner, cleanMiner := prepareMiner(t)
+	defer cleanMiner()
+
+	// Start a chain backend.
+	chainBackend, cleanUp := prepareChainBackend(t, miner.P2PAddress())
+	defer cleanUp()
+
+	// Connect our chainBackend to our miner.
+	require.NoError(t, chainBackend.ConnectMiner(), "connect miner")
+
+	// Parse database backend
+	dbBackend := prepareDbBackend(t)
+
 	// Now we can set up our test harness (LND instance), with the chain
 	// backend we just created.
 	binary := getLndBinary(t)
-	lndHarness, err = lntest.NewNetworkHarness(
+	lndHarness, err := lntest.NewNetworkHarness(
 		miner, chainBackend, binary, dbBackend,
 	)
 	require.NoError(t, err, "unable to create lightning network harness")
-
 	defer lndHarness.Stop(t)
 
 	// Spawn a new goroutine to watch for any fatal errors that any of the
@@ -206,12 +229,6 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			}
 		}
 	}()
-
-	// Next mine enough blocks in order for segwit and the CSV package
-	// soft-fork to activate on SimNet.
-	numBlocks := harnessNetParams.MinerConfirmationWindow * 2
-	_, err = miner.Client.Generate(numBlocks)
-	require.NoError(t, err, "unable to generate blocks")
 
 	// With the btcd harness created, we can now complete the
 	// initialization of the network. args - list of lnd arguments,
@@ -252,8 +269,8 @@ func TestLightningNetworkDaemon(t *testing.T) {
 				testCase.Name,
 			)
 
-			harnessTest.Alice.AddToLogf(logLine)
-			harnessTest.Bob.AddToLogf(logLine)
+			ht.Alice.AddToLogf(logLine)
+			ht.Bob.AddToLogf(logLine)
 
 			// Start every test with the default static fee
 			// estimate.
@@ -274,4 +291,8 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			break
 		}
 	}
+
+	_, height := harnessTest.GetBestBlock()
+	t.Logf("=========> tests finished for tranche: %v, tested %d "+
+		"cases, end height: %d\n", trancheIndex, len(testCases), height)
 }

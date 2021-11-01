@@ -405,9 +405,12 @@ func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, node route.Vertex,
 	dbCallback := func(tx kvdb.RTx, e *ChannelEdgeInfo, p1,
 		p2 *ChannelEdgePolicy) error {
 
-		cachedInPolicy := NewCachedPolicy(p2)
-		cachedInPolicy.ToNodePubKey = toNodeCallback
-		cachedInPolicy.ToNodeFeatures = toNodeFeatures
+		var cachedInPolicy *CachedEdgePolicy
+		if p2 != nil {
+			cachedInPolicy = NewCachedPolicy(p2)
+			cachedInPolicy.ToNodePubKey = toNodeCallback
+			cachedInPolicy.ToNodeFeatures = toNodeFeatures
+		}
 
 		directedChannel := &DirectedChannel{
 			ChannelID:    e.ChannelID,

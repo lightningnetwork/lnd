@@ -2364,6 +2364,20 @@ func (h *HarnessTest) LookupInvoice(hn *HarnessNode,
 	return resp
 }
 
+// LookupInvoiceV2 queries the node's invoices using the invoice client's
+// LookupInvoiceV2.
+func (h *HarnessTest) LookupInvoiceV2(hn *HarnessNode,
+	req *invoicesrpc.LookupInvoiceMsg) *lnrpc.Invoice {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Invoice.LookupInvoiceV2(ctxt, req)
+	require.NoError(h, err, "unable to lookup invoice")
+
+	return resp
+}
+
 // AssertLastHTLCError checks that the last sent HTLC of the last payment sent
 // by the given node failed with the expected failure code.
 func (h *HarnessTest) AssertLastHTLCError(hn *HarnessNode,

@@ -584,6 +584,9 @@ messages directly. There is no routing/path finding involved.
   re-notified](https://github.com/lightningnetwork/lnd/pull/5901), which could
   lead to higher-level HTLC mismanagement issues.
 
+* [Fix pathfinding crash when inbound policy is unknown](
+  https://github.com/lightningnetwork/lnd/pull/5919)
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

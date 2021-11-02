@@ -1833,22 +1833,10 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// invalid.
 		err = l.channel.ReceiveNewCommitment(msg.CommitSig, msg.HtlcSigs)
 		if err != nil {
-			// If we were unable to reconstruct their proposed
-			// commitment, then we'll examine the type of error. If
-			// it's an InvalidCommitSigError, then we'll send a
-			// direct error.
-			var sendData []byte
-			switch err.(type) {
-			case *lnwallet.InvalidCommitSigError:
-				sendData = []byte(err.Error())
-			case *lnwallet.InvalidHtlcSigError:
-				sendData = []byte(err.Error())
-			}
 			l.fail(
 				LinkFailureError{
-					failure:    ErrInvalidCommitment,
+					failure:    err,
 					ForceClose: true,
-					SendData:   sendData,
 				},
 				"ChannelPoint(%v): unable to accept new "+
 					"commitment: %v",

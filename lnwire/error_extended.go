@@ -8,6 +8,15 @@ const (
 	// typeErrorCode contains an error code, and additional nested tlvs
 	// that provide more context for the error.
 	typeErrorCode tlv.Type = 1
+
+	// The following TLVs are _nested_ within the typeErrorCode tlv to
+	// provide more context for errors.
+	typeNestedCommitHeight tlv.Type = 1
+	typeNestedCommitSig    tlv.Type = 3
+	typeNestedSigHash      tlv.Type = 5
+	typeNestedCommitTx     tlv.Type = 7
+	typeNestedHtlcSig      tlv.Type = 9
+	typeNestedHtlcIndex    tlv.Type = 11
 )
 
 // ExtendedError is an interface implemented by any error that adds more

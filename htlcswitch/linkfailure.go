@@ -27,10 +27,6 @@ const (
 	// ErrRemoteUnresponsive indicates that our peer took too long to
 	// complete a commitment dance.
 	ErrRemoteUnresponsive errorCode = iota
-
-	// ErrInvalidCommitment indicates that the remote peer sent us an
-	// invalid commitment signature.
-	ErrInvalidCommitment
 )
 
 // Error returns an error string for an error code.
@@ -38,8 +34,6 @@ func (e errorCode) Error() string {
 	switch e {
 	case ErrRemoteUnresponsive:
 		return "remote unresponsive"
-	case ErrInvalidCommitment:
-		return "invalid commitment"
 	default:
 		return "unknown error"
 	}
@@ -60,10 +54,6 @@ type LinkFailureError struct {
 	// PermanentFailure indicates whether this failure is permanent, and
 	// the channel should not be attempted loaded again.
 	PermanentFailure bool
-
-	// SendData is a byte slice that will be sent to the peer. If nil a
-	// generic error will be sent.
-	SendData []byte
 }
 
 // A compile time check to ensure LinkFailureError implements the error
@@ -96,32 +86,5 @@ func (e LinkFailureError) WireError(chanID lnwire.ChannelID) (*lnwire.Error,
 		return wireError, true
 	}
 
-	switch e.failure {
-	// Since sending an error can lead some nodes to force close the
-	// channel, create a whitelist of the failures we want to send so that
-	// newly added error codes aren't automatically sent to the remote peer.
-	case ErrInvalidCommitment:
-		return e.wireError(chanID), true
-
-	// In all other cases we will not attempt to send our peer an error.
-	default:
-		return nil, false
-	}
-}
-
-func (e LinkFailureError) wireError(chanID lnwire.ChannelID) *lnwire.Error {
-	// Use the standard error message by default.
-	err := &lnwire.Error{
-		ChanID: chanID,
-		Data:   []byte(e.failure.Error()),
-	}
-
-	// If sendData is set, we'll use it as our payload instead. We only
-	// include sendData in the cases where the error data does not include
-	// sensitive information.
-	if e.SendData != nil {
-		err.Data = e.SendData
-	}
-
-	return err
+	return nil, false
 }

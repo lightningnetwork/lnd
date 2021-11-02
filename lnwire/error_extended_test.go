@@ -38,4 +38,22 @@ func TestExtendedError(t *testing.T) {
 	empty, err := ExtendedErrorFromWire(legacyErr)
 	require.NoError(t, err)
 	require.Nil(t, empty)
+
+	// Next, we create an invalid commit sig error which has additional
+	// information attached to it, and test that we can pack and unpack it.
+	invalidCommit := NewInvalidCommitSigError(
+		1, []byte{1}, []byte{2}, []byte{3},
+	)
+
+	wireErr, err = WireErrorFromExtended(invalidCommit, testChanID)
+	require.NoError(t, err)
+
+	// Assert that when we extract the tlv records for this error, they are
+	// the same as the ones that we originally packed.
+	actual, err = ExtendedErrorFromWire(wireErr)
+	require.NoError(t, err)
+
+	actualCoded, ok = actual.(*CodedError)
+	require.True(t, ok)
+	require.Equal(t, invalidCommit, actualCoded)
 }

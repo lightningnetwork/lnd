@@ -4239,62 +4239,6 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 	return verifyJobs, nil
 }
 
-// InvalidCommitSigError is a struct that implements the error interface to
-// report a failure to validate a commitment signature for a remote peer.
-// We'll use the items in this struct to generate a rich error message for the
-// remote peer when we receive an invalid signature from it. Doing so can
-// greatly aide in debugging cross implementation issues.
-type InvalidCommitSigError struct {
-	commitHeight uint64
-
-	commitSig []byte
-
-	sigHash []byte
-
-	commitTx []byte
-}
-
-// Error returns a detailed error string including the exact transaction that
-// caused an invalid commitment signature.
-func (i *InvalidCommitSigError) Error() string {
-	return fmt.Sprintf("rejected commitment: commit_height=%v, "+
-		"invalid_commit_sig=%x, commit_tx=%x, sig_hash=%x", i.commitHeight,
-		i.commitSig[:], i.commitTx, i.sigHash[:])
-}
-
-// A compile time flag to ensure that InvalidCommitSigError implements the
-// error interface.
-var _ error = (*InvalidCommitSigError)(nil)
-
-// InvalidHtlcSigError is a struct that implements the error interface to
-// report a failure to validate an htlc signature from a remote peer. We'll use
-// the items in this struct to generate a rich error message for the remote
-// peer when we receive an invalid signature from it. Doing so can greatly aide
-// in debugging across implementation issues.
-type InvalidHtlcSigError struct {
-	commitHeight uint64
-
-	htlcSig []byte
-
-	htlcIndex uint64
-
-	sigHash []byte
-
-	commitTx []byte
-}
-
-// Error returns a detailed error string including the exact transaction that
-// caused an invalid htlc signature.
-func (i *InvalidHtlcSigError) Error() string {
-	return fmt.Sprintf("rejected commitment: commit_height=%v, "+
-		"invalid_htlc_sig=%x, commit_tx=%x, sig_hash=%x", i.commitHeight,
-		i.htlcSig, i.commitTx, i.sigHash[:])
-}
-
-// A compile time flag to ensure that InvalidCommitSigError implements the
-// error interface.
-var _ error = (*InvalidCommitSigError)(nil)
-
 // ReceiveNewCommitment process a signature for a new commitment state sent by
 // the remote party. This method should be called in response to the
 // remote party initiating a new change, or when the remote party sends a
@@ -4432,12 +4376,10 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 		// verify against in order to aide debugging.
 		var txBytes bytes.Buffer
 		localCommitTx.Serialize(&txBytes)
-		return &InvalidCommitSigError{
-			commitHeight: nextHeight,
-			commitSig:    commitSig.ToSignatureBytes(),
-			sigHash:      sigHash,
-			commitTx:     txBytes.Bytes(),
-		}
+		return lnwire.NewInvalidCommitSigError(
+			nextHeight, commitSig.ToSignatureBytes(),
+			sigHash, txBytes.Bytes(),
+		)
 	}
 
 	// With the primary commitment transaction validated, we'll check each
@@ -4462,13 +4404,11 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 
 			var txBytes bytes.Buffer
 			localCommitTx.Serialize(&txBytes)
-			return &InvalidHtlcSigError{
-				commitHeight: nextHeight,
-				htlcSig:      sig.ToSignatureBytes(),
-				htlcIndex:    htlcErr.HtlcIndex,
-				sigHash:      sigHash,
-				commitTx:     txBytes.Bytes(),
-			}
+			return lnwire.NewInvalidHtlcSigError(
+				nextHeight, htlcErr.HtlcIndex,
+				sig.ToSignatureBytes(), sigHash,
+				txBytes.Bytes(),
+			)
 		}
 	}
 

@@ -5860,10 +5860,9 @@ func TestInvalidCommitSigError(t *testing.T) {
 	if err == nil {
 		t.Fatalf("bob accepted invalid state but shouldn't have")
 	}
-	if _, ok := err.(*InvalidCommitSigError); !ok {
-		t.Fatalf("bob sent incorrect error, expected %T, got %T",
-			&InvalidCommitSigError{}, err)
-	}
+	coded, ok := err.(*lnwire.CodedError)
+	require.True(t, ok, "expected coded wire error")
+	require.Equal(t, lnwire.CodeInvalidCommitSig, coded.ErrorCode)
 }
 
 // TestChannelUnilateralCloseHtlcResolution tests that in the case of a

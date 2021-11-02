@@ -13,31 +13,9 @@ var (
 
 	// ErrLinkFailedShutdown signals that a requested shutdown failed.
 	ErrLinkFailedShutdown = errors.New("link failed to shutdown")
+
+	ErrRemoteUnresponsive = errors.New("remote unresponsive")
 )
-
-// errorCode encodes the possible types of errors that will make us fail the
-// current link.
-type errorCode uint8
-
-// A compile time check to ensure errorCode implements the error
-// interface.
-var _ error = (*errorCode)(nil)
-
-const (
-	// ErrRemoteUnresponsive indicates that our peer took too long to
-	// complete a commitment dance.
-	ErrRemoteUnresponsive errorCode = iota
-)
-
-// Error returns an error string for an error code.
-func (e errorCode) Error() string {
-	switch e {
-	case ErrRemoteUnresponsive:
-		return "remote unresponsive"
-	default:
-		return "unknown error"
-	}
-}
 
 // LinkFailureError encapsulates an error that will make us fail the current
 // link. It contains the necessary information needed to determine if we should

@@ -600,6 +600,12 @@ var supportedErroneousFields = map[MessageType]map[uint16]*errFieldHelper{
 			decode:    decodeUint32,
 		},
 	},
+	MsgUpdateAddHTLC: {
+		2: {
+			fieldName: "htlc amount",
+			decode:    decodeUint64,
+		},
+	},
 }
 
 // getFieldHelper looks up the helper struct for a message/ field combination

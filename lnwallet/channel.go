@@ -36,27 +36,10 @@ var (
 	ErrNoWindow = fmt.Errorf("unable to sign new commitment, the current" +
 		" revocation window is exhausted")
 
-	// ErrMaxWeightCost is returned when the cost/weight (see segwit)
-	// exceeds the widely used maximum allowed policy weight limit. In this
-	// case the commitment transaction can't be propagated through the
-	// network.
-	ErrMaxWeightCost = fmt.Errorf("commitment transaction exceed max " +
-		"available cost")
-
 	// ErrBelowChanReserve is returned when a proposed HTLC would cause
 	// one of the peer's funds to dip below the channel reserve limit.
 	ErrBelowChanReserve = fmt.Errorf("commitment transaction dips peer " +
 		"below chan reserve")
-
-	// ErrBelowMinHTLC is returned when a proposed HTLC has a value that
-	// is below the minimum HTLC value constraint for either us or our
-	// peer depending on which flags are set.
-	ErrBelowMinHTLC = fmt.Errorf("proposed HTLC value is below minimum " +
-		"allowed HTLC value")
-
-	// ErrInvalidHTLCAmt signals that a proposed HTLC has a value that is
-	// not positive.
-	ErrInvalidHTLCAmt = fmt.Errorf("proposed HTLC value must be positive")
 
 	// ErrCannotSyncCommitChains is returned if, upon receiving a ChanSync
 	// message, the state machine deems that is unable to properly
@@ -3437,13 +3420,15 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 
 				// Check that the HTLC amount is positive.
 				if entry.Amount == 0 {
-					return ErrInvalidHTLCAmt
+					return ErrZeroHtlc()
 				}
 
 				// Check that the value of the HTLC they added
 				// is above our minimum.
 				if entry.Amount < constraints.MinHTLC {
-					return ErrBelowMinHTLC
+					return ErrBelowMinHtlc(
+						entry.Amount, constraints.MinHTLC,
+					)
 				}
 			}
 		}
@@ -3487,6 +3472,23 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	}
 
 	return nil
+}
+
+// ErrZeroHtlc returns a structured error for zero value htlcs.
+func ErrZeroHtlc() *lnwire.CodedError {
+	return lnwire.NewErroneousFieldErr(
+		lnwire.MsgUpdateAddHTLC, 2, uint64(0), nil,
+	)
+}
+
+// ErrBelowMinHtlc returns a structured error for htlcs below our minimum htlc
+// amount.
+func ErrBelowMinHtlc(amount,
+	minAmount lnwire.MilliSatoshi) *lnwire.CodedError {
+
+	return lnwire.NewErroneousFieldErr(
+		lnwire.MsgUpdateAddHTLC, 2, amount, minAmount,
+	)
 }
 
 // SignNextCommitment signs a new commitment which includes any previous

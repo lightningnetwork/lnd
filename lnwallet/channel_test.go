@@ -6926,16 +6926,12 @@ func TestMinHTLC(t *testing.T) {
 	amt := minValue - 100
 	htlc, _ = createHTLC(1, amt)
 	_, err = aliceChannel.AddHTLC(htlc, nil)
-	if err != ErrBelowMinHTLC {
-		t.Fatalf("expected ErrBelowMinHTLC, instead received: %v", err)
-	}
+	require.Equal(t, ErrBelowMinHtlc(amt, minValue), err)
 
 	// Bob will receive this HTLC, but reject the next received htlc, since
 	// the htlc is too small.
 	_, err = bobChannel.ReceiveHTLC(htlc)
-	if err != ErrBelowMinHTLC {
-		t.Fatalf("expected ErrBelowMinHTLC, instead received: %v", err)
-	}
+	require.Equal(t, ErrBelowMinHtlc(amt, minValue), err)
 }
 
 // TestInvalidHTLCAmt tests that ErrInvalidHTLCAmt is returned when trying to
@@ -6964,13 +6960,10 @@ func TestInvalidHTLCAmt(t *testing.T) {
 
 	// Sending or receiving the HTLC should fail with ErrInvalidHTLCAmt.
 	_, err = aliceChannel.AddHTLC(htlc, nil)
-	if err != ErrInvalidHTLCAmt {
-		t.Fatalf("expected ErrInvalidHTLCAmt, got: %v", err)
-	}
+	require.Equal(t, ErrZeroHtlc(), err)
+
 	_, err = bobChannel.ReceiveHTLC(htlc)
-	if err != ErrInvalidHTLCAmt {
-		t.Fatalf("expected ErrInvalidHTLCAmt, got: %v", err)
-	}
+	require.Equal(t, ErrZeroHtlc(), err)
 }
 
 // TestNewBreachRetributionSkipsDustHtlcs ensures that in the case of a

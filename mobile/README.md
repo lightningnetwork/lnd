@@ -43,10 +43,47 @@ In order to call the methods in the generated library, the serialized proto for
 the given RPC call must be provided. Similarly, the response will be a
 serialized proto.
 
-In order to generate protobuf definitions for your language of choice, add the
-proto plugin to the `protoc` invocations found in
-[`gen_protos.sh`](../lnrpc/gen_protos.sh). For instance to generate protos for
-Swift, add `--swift_out=.` and run `make rpc`.
+##### iOS
+
+In order to generate protobuf definitions for iOS, add `--swift_out=.` to the
+first `protoc` invocation found in [`gen_protos.sh`](../lnrpc/gen_protos.sh).
+
+Then, some changes to [Dockerfile]((../lnrpc/Dockerfile)) need to be done in
+order to use the [Swift protobuf](https://github.com/apple/swift-protobuf)
+plugin with protoc:
+
+1. Replace the base image with `FROM swift:focal` so that Swift can be used.
+2. `clang-format='1:7.0*'` is unavailable in Ubuntu Focal. Change that to
+`clang-format='1:10.0*`.
+3. On the next line, install Go and set the environment variables by adding the
+following commands:
+
+```
+RUN apt-get install -y wget \
+    && wget -c https://golang.org/dl/go1.17.2.linux-amd64.tar.gz -O - \
+    | tar -xz -C /usr/local
+ENV GOPATH=/go
+ENV PATH=$PATH:/usr/local/go/bin:/go/bin
+```
+
+4. At the end of the file, just above `CMD`, add the following `RUN` command.
+This will download and compile the latest tagged release of Swift protobuf.
+
+```
+RUN git clone https://github.com/apple/swift-protobuf.git \
+&& cd swift-protobuf \ 
+&& git checkout $(git describe --tags --abbrev=0) \
+&& swift build -c release \
+&& mv .build/release/protoc-gen-swift /bin
+```
+
+Finally, run `make rpc`.
+
+##### Android
+
+In order to generate protobuf definitions for Android, add `--java_out=.`
+to the first `protoc` invocation found in
+[`gen_protos.sh`](../lnrpc/gen_protos.sh). Then, run `make rpc`.
 
 ### Options
 Similar to lnd, subservers can be conditionally compiled with the build by

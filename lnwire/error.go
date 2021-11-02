@@ -66,6 +66,11 @@ type Error struct {
 	// Data is the attached error data that describes the exact failure
 	// which caused the error message to be sent.
 	Data ErrorData
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
 }
 
 // NewError creates a new Error message.
@@ -97,6 +102,7 @@ func (c *Error) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
 		&c.ChanID,
 		&c.Data,
+		&c.ExtraData,
 	)
 }
 
@@ -109,7 +115,11 @@ func (c *Error) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	return WriteErrorData(w, c.Data)
+	if err := WriteErrorData(w, c.Data); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, c.ExtraData)
 }
 
 // MsgType returns the integer uniquely identifying an Error message on the

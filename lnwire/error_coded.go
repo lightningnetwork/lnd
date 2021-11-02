@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 
@@ -61,6 +62,9 @@ const (
 	// CodeInvalidHtlcSig indicates that we have received an invalid htlc
 	// signature.
 	CodeInvalidHtlcSig ErrorCode = 23
+
+	// CodeErroneousField indicates that a specific field is problematic.
+	CodeErroneousField ErrorCode = 25
 )
 
 // Compile time assertion that CodedError implements the ExtendedError
@@ -125,6 +129,9 @@ func (e *CodedError) Error() string {
 
 	case CodeInvalidHtlcSig:
 		errStr = "invalid htlc sig"
+
+	case CodeErroneousField:
+		errStr = "erroneous field"
 
 	default:
 		errStr = "unknown"
@@ -385,4 +392,141 @@ func (i *InvalidHtlcSigError) Records() []tlv.Record {
 		tlv.MakePrimitiveRecord(typeNestedSigHash, &i.sigHash),
 		tlv.MakePrimitiveRecord(typeNestedCommitTx, &i.commitTx),
 	}
+}
+
+// ErroneousFieldErr is an error that indicates that a specific message's
+// field value is problematic. It optionally includes a suggested value for the
+// field.
+type ErroneousFieldErr struct {
+	erroneousField
+	suggestedValue []byte
+}
+
+// A compile time flag to ensure that ErroneousFieldErr implements the
+// ErrContext interface.
+var _ ErrContext = (*ErroneousFieldErr)(nil)
+
+// String returns a string representation of an erroneous field error.
+func (e *ErroneousFieldErr) String() string {
+	return fmt.Sprintf("Message: %v, field: %v problematic", e.messageType,
+		e.fieldNumber)
+}
+
+// Records returns a set of TLVs describing additional information added to an
+// error code.
+func (e *ErroneousFieldErr) Records() []tlv.Record {
+	records := []tlv.Record{
+		e.erroneousField.Record(),
+	}
+
+	if e.suggestedValue != nil {
+		suggestedRecord := tlv.MakePrimitiveRecord(
+			typeNestedSuggestedValue, &e.suggestedValue,
+		)
+
+		records = append(records, suggestedRecord)
+	}
+
+	return records
+}
+
+type erroneousField struct {
+	messageType MessageType
+	fieldNumber uint16
+	value       []byte
+}
+
+func (e *erroneousField) sizeFunc() uint64 {
+	// Record size:
+	// - 2 bytes message type
+	// - 2 bytes field number
+	// - n bytes: value
+	return 2 + 2 + tlv.SizeVarBytes(&e.value)()
+}
+
+// Record creates a tlv record for an erroneous field.
+func (e *erroneousField) Record() tlv.Record {
+	return tlv.MakeDynamicRecord(
+		typeNestedErroneousField, e, e.sizeFunc,
+		encodeErroneousField, decodeErroneousField,
+	)
+}
+
+// encodeErroneousField encodes the erroneous message type and field number
+// in a single tlv record.
+func encodeErroneousField(w io.Writer, val interface{}, buf *[8]byte) error {
+	errField, ok := val.(*erroneousField)
+	if !ok {
+		return fmt.Errorf("expected erroneous field, got: %T",
+			val)
+	}
+
+	msgNr := uint16(errField.messageType)
+	if err := tlv.EUint16(w, &msgNr, buf); err != nil {
+		return err
+	}
+
+	if err := tlv.EUint16(w, &errField.fieldNumber, buf); err != nil {
+		return err
+	}
+
+	if err := tlv.EVarBytes(w, &errField.value, buf); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// decodeErroneousField decodes an erroneous field tlv message type and field
+// number. We can't use 2x tlv.DUint16 because these functions expect to only
+// read 2 bytes from the reader, and we have 2x 2bytes concatenated here plus
+// the var bytes value.
+func decodeErroneousField(r io.Reader, val interface{}, buf *[8]byte,
+	l uint64) error {
+
+	errField, ok := val.(*erroneousField)
+	if !ok {
+		return fmt.Errorf("expected erroneous field, got: %T",
+			val)
+	}
+
+	if l < 4 {
+		return fmt.Errorf("expected at least 4 bytes for erroneous "+
+			"field, got: %v", l)
+	}
+
+	n, err := r.Read(buf[:2])
+	if err != nil {
+		return err
+	}
+	if n != 2 {
+		return fmt.Errorf("expected 2 bytes for message type, got: %v",
+			n)
+	}
+
+	msgType := MessageType(binary.BigEndian.Uint16(buf[:2]))
+
+	n, err = r.Read(buf[2:4])
+	if err != nil {
+		return err
+	}
+	if n != 2 {
+		return fmt.Errorf("expected 2 bytes for field number, got: %v",
+			n)
+	}
+	fieldNumber := binary.BigEndian.Uint16(buf[2:4])
+
+	*errField = erroneousField{
+		messageType: msgType,
+		fieldNumber: fieldNumber,
+	}
+
+	// Now that we've read the first two elements out of the buffer, we can
+	// read the var bytes value out using the standard tlv method, since
+	// it's all that's left.
+	if err := tlv.DVarBytes(r, &errField.value, buf, l-4); err != nil {
+		return err
+	}
+
+	return nil
 }

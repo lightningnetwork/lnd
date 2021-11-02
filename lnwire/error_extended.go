@@ -11,12 +11,14 @@ const (
 
 	// The following TLVs are _nested_ within the typeErrorCode tlv to
 	// provide more context for errors.
-	typeNestedCommitHeight tlv.Type = 1
-	typeNestedCommitSig    tlv.Type = 3
-	typeNestedSigHash      tlv.Type = 5
-	typeNestedCommitTx     tlv.Type = 7
-	typeNestedHtlcSig      tlv.Type = 9
-	typeNestedHtlcIndex    tlv.Type = 11
+	typeNestedCommitHeight   tlv.Type = 1
+	typeNestedCommitSig      tlv.Type = 3
+	typeNestedSigHash        tlv.Type = 5
+	typeNestedCommitTx       tlv.Type = 7
+	typeNestedHtlcSig        tlv.Type = 9
+	typeNestedHtlcIndex      tlv.Type = 11
+	typeNestedErroneousField tlv.Type = 13
+	typeNestedSuggestedValue tlv.Type = 15
 )
 
 // ExtendedError is an interface implemented by any error that adds more

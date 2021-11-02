@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 
@@ -63,6 +64,9 @@ var _ ExtendedError = (*CodedError)(nil)
 type CodedError struct {
 	// ErrorCode is the error code that defines the type of error this is.
 	ErrorCode
+
+	// ErrContext contains additional information used to enrich the error.
+	ErrContext
 }
 
 // NewCodedError creates an error with the code provided.
@@ -111,8 +115,28 @@ func (e *CodedError) Error() string {
 		errStr = "unknown"
 	}
 
-	return fmt.Sprintf("Error code: %d: %v", e.ErrorCode, errStr)
+	if e.ErrContext == nil {
+		return fmt.Sprintf("Error code: %d: %v", e.ErrorCode, errStr)
+	}
+
+	return fmt.Sprintf("Error code: %d: %v: %v", e.ErrorCode, errStr,
+		e.ErrContext)
 }
+
+// ErrContext is an interface implemented by coded errors with additional
+// information about their error code.
+type ErrContext interface {
+	// Records returns a set of TLVs describing additional information
+	// added to an error code.
+	Records() []tlv.Record
+
+	// String returns a string representing the error context.
+	String() string
+}
+
+// knownErrorCodeContext maps known error codes to additional information that
+// is included in tlvs.
+var knownErrorCodeContext = map[ErrorCode]ErrContext{}
 
 // Record provides a tlv record for coded errors.
 func (e *CodedError) Record() tlv.Record {
@@ -123,7 +147,17 @@ func (e *CodedError) Record() tlv.Record {
 }
 
 func (e *CodedError) sizeFunc() uint64 {
-	return 2
+	var (
+		b   bytes.Buffer
+		buf [8]byte
+	)
+
+	// TODO(carla): copied, maybe another way here, log error?
+	if err := codedErrorEncoder(&b, e, &buf); err != nil {
+		panic(fmt.Sprintf("coded error encoder failed: %v", err))
+	}
+
+	return uint64(len(b.Bytes()))
 }
 
 func codedErrorEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
@@ -134,6 +168,38 @@ func codedErrorEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
 			return err
 		}
 
+		// If we have extra records present, we want to store them.
+		// Even if records is empty, we continue with the nested record
+		// encoding so that a 0 value length will be written.
+		var records []tlv.Record
+		if v.ErrContext != nil {
+			records = v.Records()
+		}
+
+		// Create a tlv stream containing the nested tlvs.
+		tlvStream, err := tlv.NewStream(records...)
+		if err != nil {
+			return err
+		}
+
+		// Encode the nested tlvs is a _separate_ buffer so that we
+		// can get the length of our nested stream.
+		var nestedBuffer bytes.Buffer
+		if err := tlvStream.Encode(&nestedBuffer); err != nil {
+			return err
+		}
+
+		// Write the length of the nested tlv stream to the main
+		// buffer, followed by the actual values.
+		nestedBytes := uint64(nestedBuffer.Len())
+		if err := tlv.WriteVarInt(w, nestedBytes, buf); err != nil {
+			return err
+		}
+
+		if _, err := w.Write(nestedBuffer.Bytes()); err != nil {
+			return err
+		}
+
 		return nil
 	}
 
@@ -141,17 +207,62 @@ func codedErrorEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
 }
 
 func codedErrorDecoder(r io.Reader, val interface{}, buf *[8]byte,
-	l uint64) error {
+	_ uint64) error {
 
 	v, ok := val.(*CodedError)
 	if ok {
 		var errCode uint16
-		if err := tlv.DUint16(r, &errCode, buf, l); err != nil {
+		if err := tlv.DUint16(r, &errCode, buf, 2); err != nil {
+			return err
+		}
+
+		errorCode := ErrorCode(errCode)
+		*v = CodedError{
+			ErrorCode: errorCode,
+		}
+
+		nestedLen, err := tlv.ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+
+		// If there are no nested fields, we don't need to ready any
+		// further values.
+		if nestedLen == 0 {
+			return nil
+		}
+
+		// Using this information, we'll create a new limited
+		// reader that'll return an EOF once the end has been
+		// reached so the stream stops consuming bytes.
+		//
+		// TODO(carla): copied from #5803
+		innerTlvReader := io.LimitedReader{
+			R: r,
+			N: int64(nestedLen),
+		}
+
+		// Lookup the records for this error code. If we don't know of
+		// any additional records that are nested for this error code,
+		// that's ok, we just don't read them (allowing forwards
+		// compatibility for new fields).
+		errContext, known := knownErrorCodeContext[errorCode]
+		if !known {
+			return nil
+		}
+
+		tlvStream, err := tlv.NewStream(errContext.Records()...)
+		if err != nil {
+			return err
+		}
+
+		if err := tlvStream.Decode(&innerTlvReader); err != nil {
 			return err
 		}
 
 		*v = CodedError{
-			ErrorCode: ErrorCode(errCode),
+			ErrorCode:  errorCode,
+			ErrContext: errContext,
 		}
 
 		return nil

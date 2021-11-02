@@ -161,6 +161,7 @@ type ErrContext interface {
 var knownErrorCodeContext = map[ErrorCode]ErrContext{
 	CodeInvalidCommitSig: &InvalidCommitSigError{},
 	CodeInvalidHtlcSig:   &InvalidHtlcSigError{},
+	CodeErroneousField:   &ErroneousFieldErr{},
 }
 
 // Record provides a tlv record for coded errors.
@@ -417,14 +418,9 @@ func (e *ErroneousFieldErr) String() string {
 func (e *ErroneousFieldErr) Records() []tlv.Record {
 	records := []tlv.Record{
 		e.erroneousField.Record(),
-	}
-
-	if e.suggestedValue != nil {
-		suggestedRecord := tlv.MakePrimitiveRecord(
+		tlv.MakePrimitiveRecord(
 			typeNestedSuggestedValue, &e.suggestedValue,
-		)
-
-		records = append(records, suggestedRecord)
+		),
 	}
 
 	return records
@@ -529,4 +525,131 @@ func decodeErroneousField(r io.Reader, val interface{}, buf *[8]byte,
 	}
 
 	return nil
+}
+
+// errFieldHelper has the functionality we need to serialize and deserialize
+// the erroneous/suggested value tlvs.
+type errFieldHelper struct {
+	fieldName string
+
+	// decode provides typed read of a value which is stored as a byte
+	// slice. This is required because we need to read into an interface
+	// with an underlying type set, otherwise we don't know what type the
+	// bytes represent.
+	decode func([]byte) (interface{}, error)
+}
+
+// supportedErroneousFields contains a map of specification message types to
+// helpers for each of the fields in that message for which we create errors.
+// If a message/field combination is not included in this map, we do not know
+// how to encode/decode it.
+//
+// Field number is defined as follows:
+// * For fixed fields: 0-based index of the field as defined in #BOLT 1
+// * For TLV fields: number of fixed fields + TLV field number
+var supportedErroneousFields = map[MessageType]map[uint16]*errFieldHelper{}
+
+// getFieldHelper looks up the helper struct for a message/ field combination
+// in our map of known structured errors, returning a nil struct if the
+// combination is unknown.
+func getFieldHelper(errField erroneousField) *errFieldHelper {
+	msgFields, ok := supportedErroneousFields[errField.messageType]
+	if !ok {
+		return nil
+	}
+
+	fieldHelper, ok := msgFields[errField.fieldNumber]
+	if !ok {
+		return nil
+	}
+
+	return fieldHelper
+}
+
+// NewErroneousFieldErr creates an error for message field that is incorrect.
+// This function will panic if the message/field combination is not known to
+// us, because we should not create errors that we don't know how to decode.
+func NewErroneousFieldErr(messageType MessageType, fieldNumber uint16,
+	erroneousValue, suggestedValue interface{}) *CodedError {
+
+	// Panic on creation of unsupported errors because we expect them
+	// to be added to our list of supported errors.
+	errField := erroneousField{
+		messageType: messageType,
+		fieldNumber: fieldNumber,
+	}
+
+	fieldHelper := getFieldHelper(errField)
+	if fieldHelper == nil {
+		panic(fmt.Sprintf("Structured errors not supported for: %v "+
+			"field: %v", messageType, fieldNumber))
+	}
+
+	badFieldErr := &ErroneousFieldErr{
+		erroneousField: errField,
+	}
+
+	codedErr := &CodedError{
+		ErrorCode:  CodeErroneousField,
+		ErrContext: badFieldErr,
+	}
+
+	// Encode straight to bytes so that the tlv record can just encode/
+	// decode var bytes rather than needing to know message type + field
+	// in advance to parse the record.
+	//
+	// TODO(carla): how to handle this error?
+	if erroneousValue != nil {
+		var b bytes.Buffer
+		if err := WriteElement(&b, erroneousValue); err != nil {
+			panic(fmt.Sprintf("erroneous value write failed: %v",
+				err))
+		}
+
+		badFieldErr.value = b.Bytes()
+	}
+
+	if suggestedValue != nil {
+		var b bytes.Buffer
+		if err := WriteElement(&b, suggestedValue); err != nil {
+			panic(fmt.Sprintf("suggested value write failed: %v",
+				err))
+		}
+
+		badFieldErr.suggestedValue = b.Bytes()
+	}
+
+	return codedErr
+}
+
+// ErroneousValue returns the erroneous value for an error. If the value is not
+// set or the message type/ field number combination are unknown, a nil value
+// will be returned.
+func (e *ErroneousFieldErr) ErroneousValue() (interface{}, error) {
+	if e.value == nil {
+		return nil, nil
+	}
+
+	fieldHelper := getFieldHelper(e.erroneousField)
+	if fieldHelper == nil {
+		return nil, nil
+	}
+
+	return fieldHelper.decode(e.value)
+}
+
+// SuggestedValue returns the suggested value for an error. If the value is not
+// set or the message type/ field number combination are unknown, a nil value
+// will be returned.
+func (e *ErroneousFieldErr) SuggestedValue() (interface{}, error) {
+	if e.suggestedValue == nil {
+		return nil, nil
+	}
+
+	fieldHelper := getFieldHelper(e.erroneousField)
+	if fieldHelper == nil {
+		return nil, nil
+	}
+
+	return fieldHelper.decode(e.suggestedValue)
 }

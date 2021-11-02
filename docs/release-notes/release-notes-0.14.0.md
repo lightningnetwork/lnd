@@ -462,6 +462,9 @@ messages directly. There is no routing/path finding involved.
 
 * [Run channeldb tests on postgres](https://github.com/lightningnetwork/lnd/pull/5550)
 
+* [Fixed two flakes in itests that were caused by things progressing too
+  fast](https://github.com/lightningnetwork/lnd/pull/5905).
+
 ## Database
 
 * [Ensure single writer for legacy

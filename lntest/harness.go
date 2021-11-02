@@ -1615,7 +1615,9 @@ func (n *NetworkHarness) sendCoins(amt btcutil.Amount, target *HarnessNode,
 		return err
 	}
 
-	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
+	fullInitialBalance := initialBalance.ConfirmedBalance +
+		initialBalance.UnconfirmedBalance
+	expectedBalance := btcutil.Amount(fullInitialBalance) + amt
 	return target.WaitForBalance(expectedBalance, true)
 }
 

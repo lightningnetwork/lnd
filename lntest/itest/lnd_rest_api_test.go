@@ -638,6 +638,16 @@ func wsTestPingPongTimeout(ht *harnessTest, net *lntest.NetworkHarness) {
 		}
 	}()
 
+	// The SubscribeInvoices call returns immediately after the gRPC/REST
+	// connection is established. But it can happen that the goroutine in
+	// lnd that actually registers the subscriber in the invoice backend
+	// didn't get any CPU time just yet. So we can run into the situation
+	// where we add our first invoice _before_ the subscription client is
+	// registered. If that happens, we'll never get notified about the
+	// invoice in question. So all we really can do is wait a bit here to
+	// make sure the subscription is registered correctly.
+	time.Sleep(500 * time.Millisecond)
+
 	// Let's create five invoices and wait for them to arrive. We'll wait
 	// for at least one ping/pong cycle between each invoice.
 	ctxb := context.Background()

@@ -1560,6 +1560,23 @@ func (p *Brontide) storeError(err error) {
 //
 // NOTE: This method should only be called from within the readHandler.
 func (p *Brontide) handleError(msg *lnwire.Error) bool {
+	// Since we don't have any handling of additional error fields yet,
+	// just log the values here so that we know we can process them.
+	// TODO(carla): remove this!
+
+	sErr, err := lnwire.ExtendedErrorFromWire(msg)
+	if err != nil {
+		peerLog.Infof("Could not get structured error: %v", err)
+	}
+
+	switch s := sErr.(type) {
+	case *lnwire.CodedError:
+		peerLog.Infof("Extended error: %v", s)
+
+	case nil:
+		peerLog.Info("No additional fields provided with error")
+	}
+
 	// Store the error we have received.
 	p.storeError(msg)
 

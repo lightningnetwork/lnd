@@ -19,6 +19,15 @@ const (
 	// CodeSynchronizingChain indicates that the peer is still busy syncing
 	// the latest state of the blockchain.
 	CodeSynchronizingChain ErrorCode = 3
+
+	// CodePendingHtlcCountExceeded indicates that the remote peer has tried
+	// to add more htlcs that our local policy allows to a commitment.
+	CodePendingHtlcCountExceeded ErrorCode = 5
+
+	// CodePendingHtlcAmountExceeded indicates that the remote peer has
+	// tried to add more than our pending amount in flight local policy
+	// limit to a commitment.
+	CodePendingHtlcAmountExceeded ErrorCode = 7
 )
 
 // Compile time assertion that CodedError implements the ExtendedError
@@ -49,6 +58,12 @@ func (e *CodedError) Error() string {
 
 	case CodeSynchronizingChain:
 		errStr = "synchronizing blockchain"
+
+	case CodePendingHtlcCountExceeded:
+		errStr = "commitment exceeds max htlcs"
+
+	case CodePendingHtlcAmountExceeded:
+		errStr = "commitment exceeds max in flight value"
 
 	default:
 		errStr = "unknown"

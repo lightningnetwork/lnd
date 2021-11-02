@@ -6279,17 +6279,16 @@ func TestMaxAcceptedHTLCs(t *testing.T) {
 		t.Fatalf("unable to transition state: %v", err)
 	}
 
-	// The next HTLC should fail with ErrMaxHTLCNumber.
+	// The next HTLC should fail with MaxPendingHtlcsExceeded.
 	htlc, _ := createHTLC(numHTLCs, htlcAmt)
 	_, err = aliceChannel.AddHTLC(htlc, nil)
-	if err != ErrMaxHTLCNumber {
-		t.Fatalf("expected ErrMaxHTLCNumber, instead received: %v", err)
-	}
+	expected := lnwire.NewCodedError(lnwire.CodePendingHtlcCountExceeded)
+	require.Equal(t, expected, err)
 
 	// Receiving the next HTLC should fail.
-	if _, err := bobChannel.ReceiveHTLC(htlc); err != ErrMaxHTLCNumber {
-		t.Fatalf("expected ErrMaxHTLCNumber, instead received: %v", err)
-	}
+	_, err = bobChannel.ReceiveHTLC(htlc)
+	expected = lnwire.NewCodedError(lnwire.CodePendingHtlcCountExceeded)
+	require.Equal(t, expected, err)
 
 	// Bob will fail the htlc specified by htlcID and then force a state
 	// transition.
@@ -6327,18 +6326,18 @@ func TestMaxAcceptedHTLCs(t *testing.T) {
 		t.Fatalf("unable to recv new commitment: %v", err)
 	}
 
-	// The next HTLC should fail with ErrMaxHTLCNumber. The index is incremented
-	// by one.
+	// The next HTLC should fail with MaxPendingHtlcsExceeded. The index is
+	// incremented by one.
 	htlc, _ = createHTLC(numHTLCs+1, htlcAmt)
-	if _, err = aliceChannel.AddHTLC(htlc, nil); err != ErrMaxHTLCNumber {
-		t.Fatalf("expected ErrMaxHTLCNumber, instead received: %v", err)
-	}
+	_, err = aliceChannel.AddHTLC(htlc, nil)
+	expected = lnwire.NewCodedError(lnwire.CodePendingHtlcCountExceeded)
+	require.Equal(t, expected, err)
 
 	// Likewise, Bob should not be able to receive this HTLC if Alice can't
 	// add it.
-	if _, err := bobChannel.ReceiveHTLC(htlc); err != ErrMaxHTLCNumber {
-		t.Fatalf("expected ErrMaxHTLCNumber, instead received: %v", err)
-	}
+	_, err = bobChannel.ReceiveHTLC(htlc)
+	expected = lnwire.NewCodedError(lnwire.CodePendingHtlcCountExceeded)
+	require.Equal(t, expected, err)
 }
 
 // TestMaxAsynchronousHtlcs tests that Bob correctly receives (and does not
@@ -6541,14 +6540,12 @@ func TestMaxPendingAmount(t *testing.T) {
 	htlcAmt = lnwire.NewMSatFromSatoshis(0.1 * btcutil.SatoshiPerBitcoin)
 	htlc, _ := createHTLC(numHTLCs, htlcAmt)
 	_, err = aliceChannel.AddHTLC(htlc, nil)
-	if err != ErrMaxPendingAmount {
-		t.Fatalf("expected ErrMaxPendingAmount, instead received: %v", err)
-	}
+	expected := lnwire.NewCodedError(lnwire.CodePendingHtlcAmountExceeded)
+	require.Equal(t, expected, err)
 
 	// And also Bob shouldn't be accepting this HTLC upon calling ReceiveHTLC.
-	if _, err := bobChannel.ReceiveHTLC(htlc); err != ErrMaxPendingAmount {
-		t.Fatalf("expected ErrMaxPendingAmount, instead received: %v", err)
-	}
+	_, err = bobChannel.ReceiveHTLC(htlc)
+	require.Equal(t, expected, err)
 }
 
 func assertChannelBalances(t *testing.T, alice, bob *LightningChannel,

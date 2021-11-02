@@ -2710,24 +2710,15 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 		}
 	}
 
-	// Send an error to the peer, why we failed the channel.
-	if failure.linkErr.ShouldSendToPeer() {
-		// If SendData is set, send it to the peer. If not, we'll use
-		// the standard error messages in the payload. We only include
-		// sendData in the cases where the error data does not contain
-		// sensitive information.
-		data := []byte(failure.linkErr.Error())
-		if failure.linkErr.SendData != nil {
-			data = failure.linkErr.SendData
-		}
-		err := p.SendMessage(true, &lnwire.Error{
-			ChanID: failure.chanID,
-			Data:   data,
-		})
-		if err != nil {
-			peerLog.Errorf("unable to send msg to "+
-				"remote peer: %v", err)
-		}
+	wireErr, shouldSend := failure.linkErr.WireError(failure.chanID)
+	if !shouldSend {
+		return
+	}
+
+	err := p.SendMessage(true, wireErr)
+	if err != nil {
+		peerLog.Errorf("unable to send msg to "+
+			"remote peer: %v", err)
 	}
 }
 

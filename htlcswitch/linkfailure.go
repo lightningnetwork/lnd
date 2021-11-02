@@ -1,6 +1,9 @@
 package htlcswitch
 
-import "github.com/go-errors/errors"
+import (
+	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/lnwire"
+)
 
 var (
 	// ErrLinkShuttingDown signals that the link is shutting down.
@@ -108,11 +111,12 @@ func (e LinkFailureError) Error() string {
 	return e.failure.Error()
 }
 
-// ShouldSendToPeer indicates whether we should send an error to the peer if
-// the link fails with this LinkFailureError.
-func (e LinkFailureError) ShouldSendToPeer() bool {
-	switch e.failure {
+// WireError returns a boolean indicating whether we should send an error to
+// our peer and an appropriate wire error.
+func (e LinkFailureError) WireError(chanID lnwire.ChannelID) (*lnwire.Error,
+	bool) {
 
+	switch e.failure {
 	// Since sending an error can lead some nodes to force close the
 	// channel, create a whitelist of the failures we want to send so that
 	// newly added error codes aren't automatically sent to the remote peer.
@@ -125,10 +129,27 @@ func (e LinkFailureError) ShouldSendToPeer() bool {
 		ErrInvalidRevocation,
 		ErrRecoveryError:
 
-		return true
+		return e.wireError(chanID), true
 
 	// In all other cases we will not attempt to send our peer an error.
 	default:
-		return false
+		return nil, false
 	}
+}
+
+func (e LinkFailureError) wireError(chanID lnwire.ChannelID) *lnwire.Error {
+	// Use the standard error message by default.
+	err := &lnwire.Error{
+		ChanID: chanID,
+		Data:   []byte(e.failure.Error()),
+	}
+
+	// If sendData is set, we'll use it as our payload instead. We only
+	// include sendData in the cases where the error data does not include
+	// sensitive information.
+	if e.SendData != nil {
+		err.Data = e.SendData
+	}
+
+	return err
 }

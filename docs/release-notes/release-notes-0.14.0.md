@@ -460,6 +460,8 @@ messages directly. There is no routing/path finding involved.
 
 * [Fixed flake that occurred with the switch dust forwarding test under the data race unit build.](https://github.com/lightningnetwork/lnd/pull/5828)
 
+* [Run channeldb tests on postgres](https://github.com/lightningnetwork/lnd/pull/5550)
+
 ## Database
 
 * [Ensure single writer for legacy

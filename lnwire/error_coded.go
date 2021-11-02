@@ -28,6 +28,30 @@ const (
 	// tried to add more than our pending amount in flight local policy
 	// limit to a commitment.
 	CodePendingHtlcAmountExceeded ErrorCode = 7
+
+	// CodeInternalError indicates that something internal has failed, and
+	// we do not want to provide our peer with further information.
+	CodeInternalError ErrorCode = 9
+
+	// CodeRemoteError indicates that our peer sent an error, prompting us
+	// to fail the connection.
+	CodeRemoteError ErrorCode = 11
+
+	// CodeSyncError indicates that we failed synchronizing the state of the
+	// channel with our peer.
+	CodeSyncError ErrorCode = 13
+
+	// CodeRecoveryError the channel was unable to be resumed, we need the
+	// remote party to force close the channel out on chain now as a
+	// result.
+	CodeRecoveryError ErrorCode = 15
+
+	// CodeInvalidUpdate indicates that the peer send us an invalid update.
+	CodeInvalidUpdate ErrorCode = 17
+
+	// CodeInvalidRevocation indicates that the remote peer send us an
+	// invalid revocation message.
+	CodeInvalidRevocation ErrorCode = 19
 )
 
 // Compile time assertion that CodedError implements the ExtendedError
@@ -64,6 +88,24 @@ func (e *CodedError) Error() string {
 
 	case CodePendingHtlcAmountExceeded:
 		errStr = "commitment exceeds max in flight value"
+
+	case CodeInternalError:
+		errStr = "internal error"
+
+	case CodeRemoteError:
+		errStr = "remote error"
+
+	case CodeSyncError:
+		errStr = "sync error"
+
+	case CodeRecoveryError:
+		errStr = "unable to resume channel, recovery required"
+
+	case CodeInvalidUpdate:
+		errStr = "invalid update"
+
+	case CodeInvalidRevocation:
+		errStr = "invalid revocation"
 
 	default:
 		errStr = "unknown"

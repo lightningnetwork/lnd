@@ -985,7 +985,9 @@ func (l *channelLink) htlcManager() {
 				// storing the transaction in the db.
 				l.fail(
 					LinkFailureError{
-						failure:    ErrSyncError,
+						failure: lnwire.NewCodedError(
+							lnwire.CodeSyncError,
+						),
 						ForceClose: true,
 					},
 					"unable to synchronize channel "+
@@ -1026,7 +1028,9 @@ func (l *channelLink) htlcManager() {
 
 			l.fail(
 				LinkFailureError{
-					failure:    ErrRecoveryError,
+					failure: lnwire.NewCodedError(
+						lnwire.CodeRecoveryError,
+					),
 					ForceClose: false,
 				},
 				"unable to synchronize channel "+
@@ -1062,7 +1066,11 @@ func (l *channelLink) htlcManager() {
 	// reforward.
 	if l.ShortChanID() != hop.Source {
 		if err := l.resolveFwdPkgs(); err != nil {
-			l.fail(LinkFailureError{failure: ErrInternalError},
+			l.fail(LinkFailureError{
+				failure: lnwire.NewCodedError(
+					lnwire.CodeInternalError,
+				),
+			},
 				"unable to resolve fwd pkgs: %v", err)
 			return
 		}
@@ -1168,7 +1176,9 @@ func (l *channelLink) htlcManager() {
 			}
 
 		case <-l.cfg.PendingCommitTicker.Ticks():
-			l.fail(LinkFailureError{failure: ErrRemoteUnresponsive},
+			l.fail(LinkFailureError{
+				failure: ErrRemoteUnresponsive,
+			},
 				"unable to complete dance")
 			return
 
@@ -1194,7 +1204,11 @@ func (l *channelLink) htlcManager() {
 			htlcResolution := hodlItem.(invoices.HtlcResolution)
 			err := l.processHodlQueue(htlcResolution)
 			if err != nil {
-				l.fail(LinkFailureError{failure: ErrInternalError},
+				l.fail(LinkFailureError{
+					failure: lnwire.NewCodedError(
+						lnwire.CodeInternalError,
+					),
+				},
 					fmt.Sprintf("process hodl queue: %v",
 						err.Error()),
 				)
@@ -1664,7 +1678,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// "settle" list in the event that we know the preimage.
 		index, err := l.channel.ReceiveHTLC(msg)
 		if err != nil {
-			l.fail(LinkFailureError{failure: ErrInvalidUpdate},
+			l.fail(LinkFailureError{
+				failure: lnwire.NewCodedError(
+					lnwire.CodeInvalidUpdate,
+				),
+			},
 				"unable to handle upstream add HTLC: %v", err)
 			return
 		}
@@ -1678,7 +1696,9 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		if err := l.channel.ReceiveHTLCSettle(pre, idx); err != nil {
 			l.fail(
 				LinkFailureError{
-					failure:    ErrInvalidUpdate,
+					failure: lnwire.NewCodedError(
+						lnwire.CodeInvalidUpdate,
+					),
 					ForceClose: true,
 				},
 				"unable to handle upstream settle HTLC: %v", err,
@@ -1752,7 +1772,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// message to the usual HTLC fail message.
 		err := l.channel.ReceiveFailHTLC(msg.ID, b.Bytes())
 		if err != nil {
-			l.fail(LinkFailureError{failure: ErrInvalidUpdate},
+			l.fail(LinkFailureError{
+				failure: lnwire.NewCodedError(
+					lnwire.CodeInvalidUpdate,
+				),
+			},
 				"unable to handle upstream fail HTLC: %v", err)
 			return
 		}
@@ -1761,7 +1785,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		idx := msg.ID
 		err := l.channel.ReceiveFailHTLC(idx, msg.Reason[:])
 		if err != nil {
-			l.fail(LinkFailureError{failure: ErrInvalidUpdate},
+			l.fail(LinkFailureError{
+				failure: lnwire.NewCodedError(
+					lnwire.CodeInvalidUpdate,
+				),
+			},
 				"unable to handle upstream fail HTLC: %v", err)
 			return
 		}
@@ -1781,7 +1809,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		)
 		if err != nil {
 			l.fail(
-				LinkFailureError{failure: ErrInternalError},
+				LinkFailureError{
+					failure: lnwire.NewCodedError(
+						lnwire.CodeInternalError,
+					),
+				},
 				"unable to add preimages=%v to cache: %v",
 				l.uncommittedPreimages, err,
 			)
@@ -1870,7 +1902,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		)
 		if err != nil {
 			// TODO(halseth): force close?
-			l.fail(LinkFailureError{failure: ErrInvalidRevocation},
+			l.fail(LinkFailureError{
+				failure: lnwire.NewCodedError(
+					lnwire.CodeInvalidRevocation,
+				),
+			},
 				"unable to accept revocation: %v", err)
 			return
 		}
@@ -1894,7 +1930,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				state, state.RemoteCommitment.CommitHeight-1, 0,
 			)
 			if err != nil {
-				l.fail(LinkFailureError{failure: ErrInternalError},
+				l.fail(LinkFailureError{
+					failure: lnwire.NewCodedError(
+						lnwire.CodeInternalError,
+					),
+				},
 					"failed to load breach info: %v", err)
 				return
 			}
@@ -1904,7 +1944,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				&chanID, breachInfo, state.ChanType,
 			)
 			if err != nil {
-				l.fail(LinkFailureError{failure: ErrInternalError},
+				l.fail(LinkFailureError{
+					failure: lnwire.NewCodedError(
+						lnwire.CodeInternalError,
+					),
+				},
 					"unable to queue breach backup: %v", err)
 				return
 			}
@@ -1938,7 +1982,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// will fail the channel, if not we will apply the update.
 		fee := chainfee.SatPerKWeight(msg.FeePerKw)
 		if err := l.channel.ReceiveUpdateFee(fee); err != nil {
-			l.fail(LinkFailureError{failure: ErrInvalidUpdate},
+			l.fail(LinkFailureError{
+				failure: lnwire.NewCodedError(
+					lnwire.CodeInvalidUpdate,
+				),
+			},
 				"error receiving fee update: %v", err)
 			return
 		}
@@ -1952,7 +2000,9 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// characters are printable ASCII.
 		l.fail(
 			LinkFailureError{
-				failure: ErrRemoteError,
+				failure: lnwire.NewCodedError(
+					lnwire.CodeRemoteError,
+				),
 
 				// TODO(halseth): we currently don't fail the
 				// channel permanently, as there are some sync
@@ -2032,7 +2082,11 @@ func (l *channelLink) ackDownStreamPackets() error {
 // the link.
 func (l *channelLink) updateCommitTxOrFail() bool {
 	if err := l.updateCommitTx(); err != nil {
-		l.fail(LinkFailureError{failure: ErrInternalError},
+		l.fail(LinkFailureError{
+			failure: lnwire.NewCodedError(
+				lnwire.CodeInternalError,
+			),
+		},
 			"unable to update commitment: %v", err)
 		return false
 	}
@@ -2752,7 +2806,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		fwdPkg.ID(), decodeReqs,
 	)
 	if sphinxErr != nil {
-		l.fail(LinkFailureError{failure: ErrInternalError},
+		l.fail(LinkFailureError{
+			failure: lnwire.NewCodedError(
+				lnwire.CodeInternalError,
+			),
+		},
 			"unable to decode hop iterators: %v", sphinxErr)
 		return
 	}
@@ -2855,7 +2913,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				pd, obfuscator, fwdInfo, heightNow, pld,
 			)
 			if err != nil {
-				l.fail(LinkFailureError{failure: ErrInternalError},
+				l.fail(LinkFailureError{
+					failure: lnwire.NewCodedError(
+						lnwire.CodeInternalError,
+					),
+				},
 					err.Error(),
 				)
 
@@ -2993,7 +3055,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 	if fwdPkg.State == channeldb.FwdStateLockedIn {
 		err := l.channel.SetFwdFilter(fwdPkg.Height, fwdPkg.FwdFilter)
 		if err != nil {
-			l.fail(LinkFailureError{failure: ErrInternalError},
+			l.fail(LinkFailureError{
+				failure: lnwire.NewCodedError(
+					lnwire.CodeInternalError,
+				),
+			},
 				"unable to set fwd filter: %v", err)
 			return
 		}

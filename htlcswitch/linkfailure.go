@@ -1,6 +1,8 @@
 package htlcswitch
 
 import (
+	"fmt"
+
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -22,58 +24,22 @@ type errorCode uint8
 var _ error = (*errorCode)(nil)
 
 const (
-	// ErrInternalError indicates that something internal in the link
-	// failed. In this case we will send a generic error to our peer.
-	ErrInternalError errorCode = iota
-
-	// ErrRemoteError indicates that our peer sent an error, prompting up
-	// to fail the link.
-	ErrRemoteError
-
 	// ErrRemoteUnresponsive indicates that our peer took too long to
 	// complete a commitment dance.
-	ErrRemoteUnresponsive
-
-	// ErrSyncError indicates that we failed synchronizing the state of the
-	// channel with our peer.
-	ErrSyncError
-
-	// ErrInvalidUpdate indicates that the peer send us an invalid update.
-	ErrInvalidUpdate
+	ErrRemoteUnresponsive errorCode = iota
 
 	// ErrInvalidCommitment indicates that the remote peer sent us an
 	// invalid commitment signature.
 	ErrInvalidCommitment
-
-	// ErrInvalidRevocation indicates that the remote peer send us an
-	// invalid revocation message.
-	ErrInvalidRevocation
-
-	// ErrRecoveryError the channel was unable to be resumed, we need the
-	// remote party to force close the channel out on chain now as a
-	// result.
-	ErrRecoveryError
 )
 
 // Error returns an error string for an error code.
 func (e errorCode) Error() string {
 	switch e {
-	case ErrInternalError:
-		return "internal error"
-	case ErrRemoteError:
-		return "remote error"
 	case ErrRemoteUnresponsive:
 		return "remote unresponsive"
-	case ErrSyncError:
-		return "sync error"
-	case ErrInvalidUpdate:
-		return "invalid update"
 	case ErrInvalidCommitment:
 		return "invalid commitment"
-	case ErrInvalidRevocation:
-		return "invalid revocation"
-	case ErrRecoveryError:
-		return "unable to resume channel, recovery required"
 	default:
 		return "unknown error"
 	}
@@ -116,19 +82,25 @@ func (e LinkFailureError) Error() string {
 func (e LinkFailureError) WireError(chanID lnwire.ChannelID) (*lnwire.Error,
 	bool) {
 
+	// If our failure is an extended wire error, we want to send it to our
+	// peer.
+	extended, isExtended := e.failure.(lnwire.ExtendedError)
+	if isExtended {
+		wireError, err := lnwire.WireErrorFromExtended(
+			extended, chanID,
+		)
+		if err != nil {
+			panic(fmt.Sprintf("could not get wire error: %v", err))
+		}
+
+		return wireError, true
+	}
+
 	switch e.failure {
 	// Since sending an error can lead some nodes to force close the
 	// channel, create a whitelist of the failures we want to send so that
 	// newly added error codes aren't automatically sent to the remote peer.
-	case
-		ErrInternalError,
-		ErrRemoteError,
-		ErrSyncError,
-		ErrInvalidUpdate,
-		ErrInvalidCommitment,
-		ErrInvalidRevocation,
-		ErrRecoveryError:
-
+	case ErrInvalidCommitment:
 		return e.wireError(chanID), true
 
 	// In all other cases we will not attempt to send our peer an error.

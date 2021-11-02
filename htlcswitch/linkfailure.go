@@ -14,6 +14,10 @@ var (
 // current link.
 type errorCode uint8
 
+// A compile time check to ensure errorCode implements the error
+// interface.
+var _ error = (*errorCode)(nil)
+
 const (
 	// ErrInternalError indicates that something internal in the link
 	// failed. In this case we will send a generic error to our peer.
@@ -48,13 +52,37 @@ const (
 	ErrRecoveryError
 )
 
+// Error returns an error string for an error code.
+func (e errorCode) Error() string {
+	switch e {
+	case ErrInternalError:
+		return "internal error"
+	case ErrRemoteError:
+		return "remote error"
+	case ErrRemoteUnresponsive:
+		return "remote unresponsive"
+	case ErrSyncError:
+		return "sync error"
+	case ErrInvalidUpdate:
+		return "invalid update"
+	case ErrInvalidCommitment:
+		return "invalid commitment"
+	case ErrInvalidRevocation:
+		return "invalid revocation"
+	case ErrRecoveryError:
+		return "unable to resume channel, recovery required"
+	default:
+		return "unknown error"
+	}
+}
+
 // LinkFailureError encapsulates an error that will make us fail the current
 // link. It contains the necessary information needed to determine if we should
 // force close the channel in the process, and if any error data should be sent
 // to the peer.
 type LinkFailureError struct {
-	// code is the type of error this LinkFailureError encapsulates.
-	code errorCode
+	// failure is the error this LinkFailureError encapsulates.
+	failure error
 
 	// ForceClose indicates whether we should force close the channel
 	// because of this error.
@@ -77,32 +105,13 @@ var _ error = (*LinkFailureError)(nil)
 //
 // NOTE: Part of the error interface.
 func (e LinkFailureError) Error() string {
-	switch e.code {
-	case ErrInternalError:
-		return "internal error"
-	case ErrRemoteError:
-		return "remote error"
-	case ErrRemoteUnresponsive:
-		return "remote unresponsive"
-	case ErrSyncError:
-		return "sync error"
-	case ErrInvalidUpdate:
-		return "invalid update"
-	case ErrInvalidCommitment:
-		return "invalid commitment"
-	case ErrInvalidRevocation:
-		return "invalid revocation"
-	case ErrRecoveryError:
-		return "unable to resume channel, recovery required"
-	default:
-		return "unknown error"
-	}
+	return e.failure.Error()
 }
 
 // ShouldSendToPeer indicates whether we should send an error to the peer if
 // the link fails with this LinkFailureError.
 func (e LinkFailureError) ShouldSendToPeer() bool {
-	switch e.code {
+	switch e.failure {
 
 	// Since sending an error can lead some nodes to force close the
 	// channel, create a whitelist of the failures we want to send so that

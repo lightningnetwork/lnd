@@ -6559,10 +6559,10 @@ func TestPendingCommitTicker(t *testing.T) {
 	// Assert that we get the expected link failure from Alice.
 	select {
 	case linkErr := <-linkErrs:
-		if linkErr.code != ErrRemoteUnresponsive {
+		if linkErr.failure != ErrRemoteUnresponsive {
 			t.Fatalf("error code mismatch, "+
 				"want: ErrRemoteUnresponsive, got: %v",
-				linkErr.code)
+				linkErr.failure)
 		}
 
 	case <-time.After(time.Second):

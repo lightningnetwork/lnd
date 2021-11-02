@@ -547,7 +547,60 @@ type errFieldHelper struct {
 // Field number is defined as follows:
 // * For fixed fields: 0-based index of the field as defined in #BOLT 1
 // * For TLV fields: number of fixed fields + TLV field number
-var supportedErroneousFields = map[MessageType]map[uint16]*errFieldHelper{}
+var supportedErroneousFields = map[MessageType]map[uint16]*errFieldHelper{
+	MsgOpenChannel: {
+		0: {
+			fieldName: "chain hash",
+			decode:    decode32Byte,
+		},
+		1: {
+			fieldName: "channel id",
+			decode:    decode32Byte,
+		},
+		2: {
+			fieldName: "funding sats",
+			decode:    decodeUint64,
+		},
+		3: {
+			fieldName: "push amount",
+			decode:    decodeUint64,
+		},
+		4: {
+			fieldName: "dust limit",
+			decode:    decodeUint64,
+		},
+		5: {
+			fieldName: "max htlc value in flight msat",
+			decode:    decodeUint64,
+		},
+		6: {
+			fieldName: "channel reserve",
+			decode:    decodeUint64,
+		},
+		7: {
+			fieldName: "htlc minimum msat",
+			decode:    decodeUint64,
+		},
+		8: {
+			fieldName: "feerate per kw",
+			decode:    decodeUint32,
+		},
+		9: {
+			fieldName: "to self delay",
+			decode:    decodeUint16,
+		},
+		10: {
+			fieldName: "max accepted htlcs",
+			decode:    decodeUint16,
+		},
+	},
+	MsgAcceptChannel: {
+		5: {
+			fieldName: "min depth",
+			decode:    decodeUint32,
+		},
+	},
+}
 
 // getFieldHelper looks up the helper struct for a message/ field combination
 // in our map of known structured errors, returning a nil struct if the
@@ -652,4 +705,56 @@ func (e *ErroneousFieldErr) SuggestedValue() (interface{}, error) {
 	}
 
 	return fieldHelper.decode(e.suggestedValue)
+}
+
+func decode32Byte(value []byte) (interface{}, error) {
+	var (
+		val [32]byte
+		r   = bytes.NewBuffer(value)
+	)
+
+	if err := ReadElements(r, &val); err != nil {
+		return nil, err
+	}
+
+	return val, nil
+}
+
+func decodeUint64(value []byte) (interface{}, error) {
+	var (
+		val uint64
+		r   = bytes.NewBuffer(value)
+	)
+
+	if err := ReadElements(r, &val); err != nil {
+		return nil, err
+	}
+
+	return val, nil
+}
+
+func decodeUint32(value []byte) (interface{}, error) {
+	var (
+		val uint32
+		r   = bytes.NewBuffer(value)
+	)
+
+	if err := ReadElements(r, &val); err != nil {
+		return nil, err
+	}
+
+	return val, nil
+}
+
+func decodeUint16(value []byte) (interface{}, error) {
+	var (
+		val uint16
+		r   = bytes.NewBuffer(value)
+	)
+
+	if err := ReadElements(r, &val); err != nil {
+		return nil, err
+	}
+
+	return val, nil
 }

@@ -255,8 +255,9 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		// the fees, then we'll bail our early.
 		if int64(theirBalance) < 0 {
 			return nil, ErrFunderBalanceDust(
-				int64(commitFee), int64(theirBalance.ToSatoshis()),
-				int64(2*defaultDust),
+				uint64(commitFee),
+				uint64(theirBalance.ToSatoshis()),
+				uint64(defaultDust),
 			)
 		}
 	} else {
@@ -284,8 +285,9 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		// the fees, then we'll exit with an error.
 		if int64(ourBalance) < 0 {
 			return nil, ErrFunderBalanceDust(
-				int64(commitFee), int64(ourBalance),
-				int64(2*defaultDust),
+				uint64(commitFee),
+				uint64(ourBalance),
+				uint64(defaultDust),
 			)
 		}
 	}
@@ -297,9 +299,9 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// TODO(roasbeef): reject if 30% goes to fees? dust channel
 	if initiator && ourBalance.ToSatoshis() <= 2*defaultDust {
 		return nil, ErrFunderBalanceDust(
-			int64(commitFee),
-			int64(ourBalance.ToSatoshis()),
-			int64(2*defaultDust),
+			uint64(commitFee),
+			uint64(ourBalance.ToSatoshis()),
+			uint64(defaultDust),
 		)
 	}
 
@@ -307,9 +309,9 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// initiator.
 	if !initiator && theirBalance.ToSatoshis() <= 2*defaultDust {
 		return nil, ErrFunderBalanceDust(
-			int64(commitFee),
-			int64(theirBalance.ToSatoshis()),
-			int64(2*defaultDust),
+			uint64(commitFee),
+			uint64(theirBalance.ToSatoshis()),
+			uint64(defaultDust),
 		)
 	}
 
@@ -453,7 +455,7 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
 	// also ensure that the DustLimit is not too large.
 	maxWitnessLimit := DustLimitForSize(input.UnknownWitnessSize)
 	if c.DustLimit < maxWitnessLimit || c.DustLimit > 3*maxWitnessLimit {
-		return ErrInvalidDustLimit(c.DustLimit)
+		return ErrInvalidDustLimit(c.DustLimit, maxWitnessLimit)
 	}
 
 	// Fail if we consider the channel reserve to be too large.  We

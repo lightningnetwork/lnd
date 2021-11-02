@@ -788,9 +788,6 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 			errMsg.Data = lnwire.ErrorData(e.Error())
 		}
 
-	case lnwallet.ReservationError:
-		errMsg.Data = lnwire.ErrorData(e.Error())
-
 	case chanacceptor.ChanAcceptError:
 		errMsg.Data = lnwire.ErrorData(e.Error())
 
@@ -1235,7 +1232,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	if amt < f.cfg.MinChanSize {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwallet.ErrChanTooSmall(amt, btcutil.Amount(f.cfg.MinChanSize)),
+			lnwallet.ErrChanTooSmall(amt, f.cfg.MinChanSize),
 		)
 		return
 	}
@@ -1245,7 +1242,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	if f.cfg.RejectPush && msg.PushAmount > 0 {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwallet.ErrNonZeroPushAmount(),
+			lnwallet.ErrNonZeroPushAmount(uint64(msg.PushAmount)),
 		)
 		return
 	}

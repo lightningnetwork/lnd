@@ -5,11 +5,12 @@ package itest
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/stretchr/testify/require"
 )
 
 // testMaxChannelSize tests that lnd handles --maxchansize parameter
@@ -47,10 +48,11 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// The test should show failure due to the channel exceeding our max size.
-	if !strings.Contains(err.Error(), "exceeds maximum chan size") {
-		t.Fatalf("channel should be rejected due to size, instead "+
-			"error was: %v", err)
-	}
+	expectedErr := lnwallet.ErrChanTooLarge(
+		chanAmt, funding.MaxBtcFundingAmountWumbo,
+	)
+	require.Contains(t.t, err.Error(), expectedErr.Error(),
+		"channel should be rejected due to size")
 
 	// Next we'll create a non-wumbo node to verify that it enforces the
 	// BOLT-02 channel size limit and rejects our funding request.
@@ -68,11 +70,13 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("expected channel funding to fail as it exceeds 0.16 BTC limit")
 	}
 
-	// The test should show failure due to the channel exceeding our max size.
-	if !strings.Contains(err.Error(), "exceeds maximum chan size") {
-		t.Fatalf("channel should be rejected due to size, instead "+
-			"error was: %v", err)
-	}
+	// The test should show failure due to the channel exceeding our max
+	// size.
+	expectedErr = lnwallet.ErrChanTooLarge(
+		chanAmt, funding.MaxBtcFundingAmount,
+	)
+	require.Contains(t.t, err.Error(), expectedErr.Error(),
+		"channel should be rejected due to size")
 
 	// We'll now make another wumbo node with appropriate maximum channel size
 	// to accept our wumbo channel funding.

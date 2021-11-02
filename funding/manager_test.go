@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -3065,12 +3064,13 @@ func TestFundingManagerRejectPush(t *testing.T) {
 	// Create a funding request and start the workflow.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
 	errChan := make(chan error, 1)
+	pushAmt := lnwire.NewMSatFromSatoshis(10)
 	initReq := &InitFundingMsg{
 		Peer:            bob,
 		TargetPubkey:    bob.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
 		LocalFundingAmt: 500000,
-		PushAmt:         lnwire.NewMSatFromSatoshis(10),
+		PushAmt:         pushAmt,
 		Private:         true,
 		Updates:         updateChan,
 		Err:             errChan,
@@ -3104,11 +3104,15 @@ func TestFundingManagerRejectPush(t *testing.T) {
 	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
 
 	// Assert Bob responded with an ErrNonZeroPushAmount error.
-	err := assertFundingMsgSent(t, bob.msgChan, "Error").(*lnwire.Error)
-	if !strings.Contains(err.Error(), "non-zero push amounts are disabled") {
-		t.Fatalf("expected ErrNonZeroPushAmount error, got \"%v\"",
-			err.Error())
-	}
+	wireErr := assertFundingMsgSent(
+		t, bob.msgChan, "Error",
+	).(*lnwire.Error)
+
+	actual, err := lnwire.ExtendedErrorFromWire(wireErr)
+	require.NoError(t, err, "expected extended error")
+
+	expected := lnwallet.ErrNonZeroPushAmount(uint64(pushAmt))
+	require.Equal(t, expected, actual, "expected push rejected")
 }
 
 // TestFundingManagerMaxConfs ensures that we don't accept a funding proposal
@@ -3174,11 +3178,15 @@ func TestFundingManagerMaxConfs(t *testing.T) {
 
 	// Alice should respond back with an error indicating MinAcceptDepth is
 	// too large.
-	err := assertFundingMsgSent(t, alice.msgChan, "Error").(*lnwire.Error)
-	if !strings.Contains(err.Error(), "minimum depth") {
-		t.Fatalf("expected ErrNumConfsTooLarge, got \"%v\"",
-			err.Error())
-	}
+	wireError := assertFundingMsgSent(t, alice.msgChan, "Error").(*lnwire.Error)
+
+	actual, err := lnwire.ExtendedErrorFromWire(wireError)
+	require.NoError(t, err)
+
+	expected := lnwallet.ErrNumConfsTooLarge(
+		acceptChannelResponse.MinAcceptDepth, chainntnfs.MaxNumConfs,
+	)
+	require.Error(t, expected, actual)
 }
 
 // TestFundingManagerFundAll tests that we can initiate a funding request to

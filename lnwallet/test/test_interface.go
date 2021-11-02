@@ -803,13 +803,19 @@ func testReservationInitiatorBalanceBelowDustCancel(miner *rpctest.Harness,
 		Flags:            lnwire.FFAnnounceChannel,
 		CommitType:       lnwallet.CommitmentTypeTweakless,
 	}
+
+	expectedErr := lnwallet.ErrFunderBalanceDust(
+		uint64(req.CommitFeePerKw), uint64(req.LocalFundingAmt),
+		uint64(alice.Cfg.DefaultConstraints.DustLimit),
+	)
+
 	_, err = alice.InitChannelReservation(req)
 	switch {
 	case err == nil:
 		t.Fatalf("initialization should have failed due to " +
 			"insufficient local amount")
 
-	case !strings.Contains(err.Error(), "funder balance too small"):
+	case !strings.Contains(err.Error(), expectedErr.Error()):
 		t.Fatalf("incorrect error: %v", err)
 	}
 }

@@ -74,14 +74,14 @@ message KeyLocator {
 
 message KeyDescriptor {
     /*
-    The raw bytes of the key being identified. Either this or the KeyLocator
-    must be specified.
+    The raw bytes of the public key in the key pair being identified. Either
+    this or the KeyLocator must be specified.
     */
     bytes raw_key_bytes = 1;
 
     /*
-    The key locator that identifies which key to use for signing. Either this
-    or the raw bytes of the target key must be specified.
+    The key locator that identifies which private key to use for signing.
+    Either this or the raw bytes of the target public key must be specified.
     */
     KeyLocator key_loc = 2;
 }

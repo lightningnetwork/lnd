@@ -767,27 +767,37 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	}
 
 	// We only send the exact error if it is part of out whitelisted set of
-	// errors (lnwire.FundingError or lnwallet.ReservationError).
-	var msg lnwire.ErrorData
+	// errors (lnwire.EnrichedError, lnwallet.ReservationError or
+	// chanacceptor.ChanAcceptError).
+	errMsg := &lnwire.Error{
+		ChanID: tempChanID,
+	}
+
 	switch e := fundingErr.(type) {
 
 	// Let the actual error message be sent to the remote for the
 	// whitelisted types.
+	case lnwire.ExtendedError:
+		var err error
+
+		// If we can't convert our extended error to a wire error, fall
+		// back to just an error string.
+		errMsg, err = lnwire.WireErrorFromExtended(e, tempChanID)
+		if err != nil {
+			log.Errorf("Could not encode extended error: %v", err)
+			errMsg.Data = lnwire.ErrorData(e.Error())
+		}
+
 	case lnwallet.ReservationError:
-		msg = lnwire.ErrorData(e.Error())
-	case lnwire.FundingError:
-		msg = lnwire.ErrorData(e.Error())
+		errMsg.Data = lnwire.ErrorData(e.Error())
+
 	case chanacceptor.ChanAcceptError:
-		msg = lnwire.ErrorData(e.Error())
+		errMsg.Data = lnwire.ErrorData(e.Error())
 
 	// For all other error types we just send a generic error.
 	default:
-		msg = lnwire.ErrorData("funding failed due to internal error")
-	}
-
-	errMsg := &lnwire.Error{
-		ChanID: tempChanID,
-		Data:   msg,
+		errMsg.Data = lnwire.ErrorData("funding failed due to " +
+			"internal error")
 	}
 
 	log.Debugf("Sending funding error to peer (%x): %v",
@@ -1191,7 +1201,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	if numPending >= f.cfg.MaxPendingChannels {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwire.ErrMaxPendingChannels,
+			lnwire.NewCodedError(lnwire.CodeMaxPendingChannels),
 		)
 		return
 	}
@@ -1206,7 +1216,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		}
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwire.ErrSynchronizingChain,
+			lnwire.NewCodedError(lnwire.CodeSynchronizingChain),
 		)
 		return
 	}

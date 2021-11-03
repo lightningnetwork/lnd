@@ -26,7 +26,7 @@ go:
 env:
   global:
     - GOCACHE=$HOME/.go-build
-    - BITCOIN_VERSION=0.20.1
+    - BITCOIN_VERSION="22.0"
 
 sudo: required
 

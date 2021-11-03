@@ -319,7 +319,6 @@ func runMultiHopSendToRoute(ht *lntest.HarnessTest, useGraphCache bool) {
 	ht.RestartNodeWithExtraArgs(alice, opts)
 
 	ht.EnsureConnected(alice, bob)
-	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
 
 	const chanAmt = btcutil.Amount(100000)
 
@@ -338,7 +337,6 @@ func runMultiHopSendToRoute(ht *lntest.HarnessTest, useGraphCache bool) {
 	defer ht.Shutdown(carol)
 
 	ht.ConnectNodes(carol, bob)
-	ht.SendCoins(btcutil.SatoshiPerBitcoin, bob)
 
 	chanPointBob := ht.OpenChannel(
 		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
@@ -607,12 +605,6 @@ func testPrivateChannels(ht *lntest.HarnessTest) {
 	// Let Bob pay the invoices.
 	ht.CompletePaymentRequests(alice, payReqs, true)
 
-	// Finally, we make sure Dave and Bob does not know about the
-	// private channel between Carol and Alice. We first mine
-	// plenty of blocks, such that the channel would have been
-	// announced in case it was public.
-	ht.MineBlocks(10)
-
 	// Carol and Alice should know about 4, while Bob and Dave should only
 	// know about 3, since one channel is private.
 	ht.AssertNumEdges(alice, 4, true)
@@ -870,8 +862,6 @@ func testQueryRoutes(ht *lntest.HarnessTest) {
 	defer ht.Shutdown(carol)
 
 	ht.ConnectNodes(carol, bob)
-	ht.SendCoins(btcutil.SatoshiPerBitcoin, bob)
-
 	chanPointBob := ht.OpenChannel(
 		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)

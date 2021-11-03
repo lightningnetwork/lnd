@@ -148,7 +148,7 @@ func (h *HarnessTest) SetUp(lndArgs []string) {
 
 	// We generate several blocks in order to give the outputs created
 	// above a good number of confirmations.
-	h.MineBlocks(6)
+	h.MineBlocks(2)
 
 	// Now we want to wait for the nodes to catch up.
 	h.WaitForBlockchainSync(h.Alice)
@@ -1517,10 +1517,10 @@ func (h *HarnessTest) sendCoins(amt btcutil.Amount, target *HarnessNode,
 		return target.WaitForBalance(expectedBalance, false)
 	}
 
-	// Otherwise, we'll generate 6 new blocks to ensure the output gains a
+	// Otherwise, we'll generate 2 new blocks to ensure the output gains a
 	// sufficient number of confirmations and wait for the balance to
 	// reflect what's expected.
-	h.MineBlocks(6)
+	h.MineBlocks(2)
 
 	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
 	return target.WaitForBalance(expectedBalance, true)

@@ -41,9 +41,6 @@ func testDisconnectingTargetPeer(ht *lntest.HarnessTest) {
 	// Start by connecting Alice and Bob with no channels.
 	ht.EnsureConnected(alice, bob)
 
-	// Give Alice some coins so she can fund a channel.
-	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
-
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(0)
 
@@ -254,9 +251,6 @@ func testListChannels(ht *lntest.HarnessTest) {
 
 	// Connect Alice to Bob.
 	ht.EnsureConnected(alice, bob)
-
-	// Give Alice some coins so she can fund a channel.
-	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel. The minial HTLC amount is set
@@ -561,9 +555,6 @@ func testRejectHTLC(ht *lntest.HarnessTest) {
 
 	// Send coins to Carol.
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
-
-	// Send coins to Alice.
-	ht.SendCoins(btcutil.SatoshiPerBitcent, alice)
 
 	// Open a channel between Alice and Carol.
 	chanPointAlice := ht.OpenChannel(

@@ -280,6 +280,12 @@ func newMppTestContext(ht *lntest.HarnessTest) *mppTestContext {
 		}
 	}
 
+	// Send coins to the nodes and mine 2 blocks to confirm them.
+	ht.SendCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, carol)
+	ht.SendCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, dave)
+	ht.SendCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, eve)
+	ht.MineBlocks(2)
+
 	ctx := mppTestContext{
 		ht:    ht,
 		alice: alice,
@@ -296,8 +302,6 @@ func newMppTestContext(ht *lntest.HarnessTest) *mppTestContext {
 // openChannel is a helper to open a channel from->to.
 func (c *mppTestContext) openChannel(from, to *lntest.HarnessNode,
 	chanSize btcutil.Amount) *lnrpc.ChannelPoint {
-
-	c.ht.SendCoins(btcutil.SatoshiPerBitcoin, from)
 
 	chanPoint := c.ht.OpenChannel(
 		from, to, lntest.OpenChannelParams{Amt: chanSize},

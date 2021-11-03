@@ -285,12 +285,6 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 	// Connect Alice and Bob.
 	ht.EnsureConnected(alice, bob)
 
-	// Alice stimmy.
-	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
-
-	// Bob stimmy.
-	ht.SendCoins(btcutil.SatoshiPerBitcoin, bob)
-
 	// Assert that Bob has the correct sync type before proceeding.
 	if pinned {
 		assertSyncType(ht, alice, bobPubkey, lnrpc.Peer_PINNED_SYNC)

@@ -316,6 +316,11 @@ func (c *mppTestContext) openChannel(from, to *lntest.HarnessNode,
 }
 
 func (c *mppTestContext) closeChannels() {
+	if c.ht.Failed() {
+		c.ht.Log("Skipped closing channels for failed test")
+		return
+	}
+
 	for _, f := range c.closeChannelFuncs {
 		f()
 	}

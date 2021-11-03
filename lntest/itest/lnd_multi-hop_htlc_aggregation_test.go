@@ -59,7 +59,8 @@ func testMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 
 	// Add Carol invoices.
 	for i := 0; i < numInvoices; i++ {
-		preimage := lntypes.Preimage{1, 1, 1, byte(i)}
+		var preimage lntypes.Preimage
+		copy(preimage[:], ht.Random32Bytes())
 		payHash := preimage.Hash()
 		invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 			Value:      invoiceAmt,
@@ -76,7 +77,8 @@ func testMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	// We'll give Alice's invoices a longer CLTV expiry, to ensure the
 	// channel Bob<->Carol will be closed first.
 	for i := 0; i < numInvoices; i++ {
-		preimage := lntypes.Preimage{2, 2, 2, byte(i)}
+		var preimage lntypes.Preimage
+		copy(preimage[:], ht.Random32Bytes())
 		payHash := preimage.Hash()
 		invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 			Value:      invoiceAmt,

@@ -38,7 +38,8 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	)
 
 	// We'll now send a single HTLC across our multi-hop network.
-	preimage := lntypes.Preimage{1, 2, 3}
+	var preimage lntypes.Preimage
+	copy(preimage[:], ht.Random32Bytes())
 	payHash := preimage.Hash()
 	invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 		Value:      int64(htlcAmt),

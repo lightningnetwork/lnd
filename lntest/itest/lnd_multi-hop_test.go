@@ -15,6 +15,7 @@ func testMultiHopHtlcClaims(ht *lntest.HarnessTest) {
 		test func(ht *lntest.HarnessTest,
 			alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType,
 		)
+		commitType lnrpc.CommitmentType
 	}
 
 	subTests := []testCase{
@@ -65,6 +66,22 @@ func testMultiHopHtlcClaims(ht *lntest.HarnessTest) {
 		},
 	}
 
+	runTestCase := func(st *lntest.HarnessTest, tc *testCase) {
+		// Create the nodes here so that separate logs will be created
+		// for Alice and Bob.
+		alice, bob := st.Alice, st.Bob
+		args := nodeArgsForCommitType(tc.commitType)
+		st.RestartNodeWithExtraArgs(alice, args)
+		st.RestartNodeWithExtraArgs(bob, args)
+
+		st.ConnectNodes(alice, bob)
+
+		// Start each test with the default static fee estimate.
+		st.SetFeeEstimate(12500)
+
+		tc.test(st, alice, bob, tc.commitType)
+	}
+
 	commitTypes := []lnrpc.CommitmentType{
 		lnrpc.CommitmentType_LEGACY,
 		lnrpc.CommitmentType_ANCHORS,
@@ -76,43 +93,18 @@ func testMultiHopHtlcClaims(ht *lntest.HarnessTest) {
 		testName := fmt.Sprintf("committype=%v", commitType.String())
 
 		success := ht.Run(testName, func(t *testing.T) {
-			ht, cleanup := ht.Subtest(t)
+			st, cleanup := ht.Subtest(t)
 			defer cleanup()
 
 			for _, subTest := range subTests {
 				subTest := subTest
+				subTest.commitType = commitType
 
-				s := ht.Run(subTest.name, func(t *testing.T) {
-					ht, cleanup := ht.Subtest(t)
+				s := st.Run(subTest.name, func(t1 *testing.T) {
+					sst, cleanup := st.Subtest(t1)
 					defer cleanup()
 
-					alice, bob := ht.Alice, ht.Bob
-
-					// Create the nodes here so that
-					// separate logs will be created for
-					// Alice and Bob.
-					args := nodeArgsForCommitType(
-						commitType,
-					)
-					ht.RestartNodeWithExtraArgs(
-						alice, args,
-					)
-					ht.RestartNodeWithExtraArgs(
-						bob, args,
-					)
-
-					alice.AddToLogf("%s/%s", testName,
-						subTest.name)
-					bob.AddToLogf("%s/%s", testName,
-						subTest.name)
-
-					ht.ConnectNodes(alice, bob)
-
-					// Start each test with the default
-					// static fee estimate.
-					ht.SetFeeEstimate(12500)
-
-					subTest.test(ht, alice, bob, commitType)
+					runTestCase(sst, &subTest)
 				})
 				if !s {
 					return

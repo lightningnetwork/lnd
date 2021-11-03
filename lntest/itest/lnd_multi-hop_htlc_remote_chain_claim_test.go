@@ -31,7 +31,8 @@ func testMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
 	// won't send out the outgoing htlc.
 	const invoiceAmt = 100000
-	preimage := lntypes.Preimage{1, 2, 5}
+	var preimage lntypes.Preimage
+	copy(preimage[:], ht.Random32Bytes())
 	payHash := preimage.Hash()
 	invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 		Value:      invoiceAmt,

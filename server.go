@@ -95,6 +95,10 @@ const (
 	// value used or a particular peer will be chosen between 0s and this
 	// value.
 	maxInitReconnectDelay = 30
+
+	// multiAddrConnectionStagger is the number of seconds to wait between
+	// attempting to a peer with each of its advertised addresses.
+	multiAddrConnectionStagger = 10 * time.Second
 )
 
 var (
@@ -3803,26 +3807,48 @@ func (s *server) connectToPersistentPeer(pubKeyStr string) {
 
 	s.persistentConnReqs[pubKeyStr] = updatedConnReqs
 
+	cancelChan, ok := s.persistentRetryCancels[pubKeyStr]
+	if !ok {
+		cancelChan = make(chan struct{})
+		s.persistentRetryCancels[pubKeyStr] = cancelChan
+	}
+
 	// Any addresses left in addrMap are new ones that we have not made
 	// connection requests for. So create new connection requests for those.
-	for _, addr := range addrMap {
-		connReq := &connmgr.ConnReq{
-			Addr:      addr,
-			Permanent: true,
+	// If there is more than one address in the address map, stagger the
+	// creation of the connection requests for those.
+	go func() {
+		ticker := time.NewTicker(multiAddrConnectionStagger)
+
+		for _, addr := range addrMap {
+			// Send the persistent connection request to the
+			// connection manager, saving the request itself so we
+			// can cancel/restart the process as needed.
+			connReq := &connmgr.ConnReq{
+				Addr:      addr,
+				Permanent: true,
+			}
+
+			s.mu.Lock()
+			s.persistentConnReqs[pubKeyStr] = append(
+				s.persistentConnReqs[pubKeyStr], connReq,
+			)
+			s.mu.Unlock()
+
+			srvrLog.Debugf("Attempting persistent connection to "+
+				"channel peer %v", addr)
+
+			go s.connMgr.Connect(connReq)
+
+			select {
+			case <-s.quit:
+				return
+			case <-cancelChan:
+				return
+			case <-ticker.C:
+			}
 		}
-
-		srvrLog.Debugf("Attempting persistent connection to "+
-			"channel peer %v", addr)
-
-		// Send the persistent connection request to the connection
-		// manager, saving the request itself so we can cancel/restart
-		// the process as needed.
-		s.persistentConnReqs[pubKeyStr] = append(
-			s.persistentConnReqs[pubKeyStr], connReq,
-		)
-
-		go s.connMgr.Connect(connReq)
-	}
+	}()
 }
 
 // removePeer removes the passed peer from the server's state of all active

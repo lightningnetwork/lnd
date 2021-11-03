@@ -60,6 +60,8 @@ func (n *node) ForEachChannel(tx kvdb.RTx,
 // TestGraphCacheAddNode tests that a channel going from node A to node B can be
 // cached correctly, independent of the direction we add the channel as.
 func TestGraphCacheAddNode(t *testing.T) {
+	t.Parallel()
+
 	runTest := func(nodeA, nodeB route.Vertex) {
 		t.Helper()
 

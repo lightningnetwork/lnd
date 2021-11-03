@@ -3692,3 +3692,43 @@ func BenchmarkForEachChannel(b *testing.B) {
 		require.NoError(b, err)
 	}
 }
+
+// TestGraphCacheForEachNodeChannel tests that the ForEachNodeChannel method
+// works as expected, and is able to handle nil self edges.
+func TestGraphCacheForEachNodeChannel(t *testing.T) {
+	graph, cleanUp, err := MakeTestGraph()
+	defer cleanUp()
+	require.NoError(t, err)
+
+	// Unset the channel graph cache to simulate the user running with the
+	// option turned off.
+	graph.graphCache = nil
+
+	node1, err := createTestVertex(graph.db)
+	require.Nil(t, err)
+	err = graph.AddLightningNode(node1)
+	require.Nil(t, err)
+	node2, err := createTestVertex(graph.db)
+	require.Nil(t, err)
+	err = graph.AddLightningNode(node2)
+	require.Nil(t, err)
+
+	// Create an edge and add it to the db.
+	edgeInfo, _, _ := createChannelEdge(graph.db, node1, node2)
+
+	// Add the channel, but only insert a single edge into the graph.
+	require.NoError(t, graph.AddChannelEdge(edgeInfo))
+
+	// We should be able to accumulate the single channel added, even
+	// though we have a nil edge policy here.
+	var numChans int
+	err = graph.ForEachNodeChannel(nil, node1.PubKeyBytes,
+		func(channel *DirectedChannel) error {
+
+			numChans++
+			return nil
+		})
+	require.NoError(t, err)
+
+	require.Equal(t, numChans, 1)
+}

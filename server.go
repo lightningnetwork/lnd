@@ -2858,6 +2858,7 @@ func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
 	if perm, ok := s.persistentPeers[pubKeyStr]; ok && !perm {
 		delete(s.persistentPeers, pubKeyStr)
 		delete(s.persistentPeersBackoff, pubKeyStr)
+		delete(s.persistentPeerAddrs, pubKeyStr)
 		s.cancelConnReqs(pubKeyStr, nil)
 		s.mu.Unlock()
 

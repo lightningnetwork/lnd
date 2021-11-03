@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/lightningnetwork/lnd/tor/onionfile"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
 )
@@ -169,8 +170,10 @@ func (w *Standalone) createNewHiddenService() error {
 	onionCfg := tor.AddOnionConfig{
 		VirtualPort: DefaultPeerPort,
 		TargetPorts: listenPorts,
-		Store:       tor.NewOnionFile(w.cfg.WatchtowerKeyPath, 0600),
-		Type:        w.cfg.Type,
+		Store: onionfile.NewOnionFile(
+			w.cfg.WatchtowerKeyPath, 0600, w.cfg.EncryptKey, w.cfg.KeyRing,
+		),
+		Type: w.cfg.Type,
 	}
 
 	addr, err := w.cfg.TorController.AddOnion(onionCfg)

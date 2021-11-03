@@ -2798,34 +2798,24 @@ func (s *server) establishPersistentConnections() error {
 				IdentityKey: nodeAddr.pubKey,
 				Address:     address,
 			}
-			srvrLog.Debugf("Attempting persistent connection to "+
-				"channel peer %v", lnAddr)
 
-			// Send the persistent connection request to the
-			// connection manager, saving the request itself so we
-			// can cancel/restart the process as needed.
-			connReq := &connmgr.ConnReq{
-				Addr:      lnAddr,
-				Permanent: true,
-			}
+			s.persistentPeerAddrs[pubStr] = append(
+				s.persistentPeerAddrs[pubStr], lnAddr)
+		}
 
-			s.persistentConnReqs[pubStr] = append(
-				s.persistentConnReqs[pubStr], connReq)
+		// We'll connect to the first 10 peers immediately, then
+		// randomly stagger any remaining connections if the
+		// stagger initial reconnect flag is set. This ensures
+		// that mobile nodes or nodes with a small number of
+		// channels obtain connectivity quickly, but larger
+		// nodes are able to disperse the costs of connecting to
+		// all peers at once.
+		if numOutboundConns < numInstantInitReconnect ||
+			!s.cfg.StaggerInitialReconnect {
 
-			// We'll connect to the first 10 peers immediately, then
-			// randomly stagger any remaining connections if the
-			// stagger initial reconnect flag is set. This ensures
-			// that mobile nodes or nodes with a small number of
-			// channels obtain connectivity quickly, but larger
-			// nodes are able to disperse the costs of connecting to
-			// all peers at once.
-			if numOutboundConns < numInstantInitReconnect ||
-				!s.cfg.StaggerInitialReconnect {
-
-				go s.connMgr.Connect(connReq)
-			} else {
-				go s.delayInitialReconnect(connReq)
-			}
+			go s.connectToPersistentPeer(pubStr)
+		} else {
+			go s.delayInitialReconnect(pubStr)
 		}
 
 		numOutboundConns++
@@ -2834,16 +2824,15 @@ func (s *server) establishPersistentConnections() error {
 	return nil
 }
 
-// delayInitialReconnect will attempt a reconnection using the passed connreq
-// after sampling a value for the delay between 0s and the
-// maxInitReconnectDelay.
+// delayInitialReconnect will attempt a reconnection to the given peer after
+// sampling a value for the delay between 0s and the maxInitReconnectDelay.
 //
 // NOTE: This method MUST be run as a goroutine.
-func (s *server) delayInitialReconnect(connReq *connmgr.ConnReq) {
+func (s *server) delayInitialReconnect(pubStr string) {
 	delay := time.Duration(prand.Intn(maxInitReconnectDelay)) * time.Second
 	select {
 	case <-time.After(delay):
-		s.connMgr.Connect(connReq)
+		s.connectToPersistentPeer(pubStr)
 	case <-s.quit:
 	}
 }
@@ -3822,9 +3811,16 @@ func (s *server) connectToPersistentPeer(pubKeyStr string) {
 			Permanent: true,
 		}
 
+		srvrLog.Debugf("Attempting persistent connection to "+
+			"channel peer %v", addr)
+
+		// Send the persistent connection request to the connection
+		// manager, saving the request itself so we can cancel/restart
+		// the process as needed.
 		s.persistentConnReqs[pubKeyStr] = append(
 			s.persistentConnReqs[pubKeyStr], connReq,
 		)
+
 		go s.connMgr.Connect(connReq)
 	}
 }

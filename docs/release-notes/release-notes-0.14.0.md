@@ -325,6 +325,9 @@ messages directly. There is no routing/path finding involved.
 
 * [CI has been upgraded to build against bitcoind 22.0](https://github.com/lightningnetwork/lnd/pull/5928)
 
+* [Update to the latest neutrino version](https://github.com/lightningnetwork/lnd/pull/5933)
+
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

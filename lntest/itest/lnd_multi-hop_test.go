@@ -84,19 +84,23 @@ func testMultiHopHtlcClaims(ht *lntest.HarnessTest) {
 				s := ht.Run(subTest.name, func(t *testing.T) {
 					ht := ht.Subtest(t)
 
+					alice, bob := ht.Alice, ht.Bob
+
 					// Create the nodes here so that
 					// separate logs will be created for
 					// Alice and Bob.
 					args := nodeArgsForCommitType(
 						commitType,
 					)
-					alice := ht.NewNode("Alice", args)
-					defer ht.Shutdown(alice)
+					ht.RestartNodeWithExtraArgs(
+						alice, args,
+					)
+					ht.RestartNodeWithExtraArgs(
+						bob, args,
+					)
+
 					alice.AddToLogf("%s/%s", testName,
 						subTest.name)
-
-					bob := ht.NewNode("Bob", args)
-					defer ht.Shutdown(bob)
 					bob.AddToLogf("%s/%s", testName,
 						subTest.name)
 

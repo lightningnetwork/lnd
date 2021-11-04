@@ -376,7 +376,7 @@ func setupScenarioFourNodes(ht *lntest.HarnessTest) *scenarioFourNodes {
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPointAliceBob := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{
 			Amt:     chanAmt,

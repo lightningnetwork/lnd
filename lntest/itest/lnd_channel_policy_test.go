@@ -28,7 +28,7 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := chanAmt / 2
 
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	// Create a channel Alice->Bob.
 	chanPoint := ht.OpenChannel(
@@ -416,7 +416,7 @@ func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
 		"--chan-disable-timeout=3s",
 		"--chan-status-sample-interval=.5s",
 	}
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	carol := ht.NewNode("Carol", nodeCfg)
 	defer ht.Shutdown(carol)
@@ -564,7 +564,7 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 	// Alice <--public:100k--> Bob <--private:100k--> Carol
 	const chanAmt = btcutil.Amount(100000)
 
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	// Open a channel with 100k satoshis between Alice and Bob.
 	chanPointAliceBob := ht.OpenChannel(
@@ -664,7 +664,7 @@ func testUpdateChannelPolicyFeeRateAccuracy(ht *lntest.HarnessTest) {
 	pushAmt := chanAmt / 2
 
 	// Create a channel Alice -> Bob.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPoint := ht.OpenChannel(
 		alice, bob,
 		lntest.OpenChannelParams{

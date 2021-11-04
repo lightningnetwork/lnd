@@ -24,7 +24,7 @@ import (
 //
 // TODO(wilmer): Add RBF case once btcd supports it.
 func testCPFP(ht *lntest.HarnessTest) {
-	runCPFP(ht, ht.Alice(), ht.Bob())
+	runCPFP(ht, ht.Alice, ht.Bob)
 }
 
 // runCPFP ensures that the daemon can bump an unconfirmed  transaction's fee
@@ -125,11 +125,14 @@ func runCPFP(ht *lntest.HarnessTest, alice, bob *lntest.HarnessNode) {
 func testAnchorReservedValue(ht *lntest.HarnessTest) {
 	// Start two nodes supporting anchor channels.
 	args := nodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+
+	// NOTE: we cannot reuse the standby node here as the test requires the
+	// node to start with no UTXOs.
 	alice := ht.NewNode("Alice", args)
 	defer ht.Shutdown(alice)
 
-	bob := ht.NewNode("Bob", args)
-	defer ht.Shutdown(bob)
+	bob := ht.Bob
+	ht.RestartNodeWithExtraArgs(bob, args)
 
 	ht.ConnectNodes(alice, bob)
 

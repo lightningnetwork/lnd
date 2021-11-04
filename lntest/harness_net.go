@@ -57,11 +57,6 @@ type NetworkHarness struct {
 
 	nodesByPub map[string]*HarnessNode
 
-	// Alice and Bob are the initial seeder nodes that are automatically
-	// created to be the initial participants of the test network.
-	Alice *HarnessNode
-	Bob   *HarnessNode
-
 	// dbBackend sets the database backend to use.
 	dbBackend DatabaseBackend
 

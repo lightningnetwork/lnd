@@ -40,7 +40,7 @@ func testRevokedCloseRetribution(ht *lntest.HarnessTest) {
 
 	// We must let Bob communicate with Carol before they are able to open
 	// channel, so we connect Bob and Carol,
-	bob := ht.Bob()
+	bob := ht.Bob
 	ht.ConnectNodes(carol, bob)
 
 	// Before we make a channel, we'll load up Carol with some coins sent

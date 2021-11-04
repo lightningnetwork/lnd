@@ -89,8 +89,11 @@ func testEtcdFailoverCase(ht *lntest.HarnessTest, kill bool) {
 	)
 	info1 := ht.GetInfo(carol1)
 
-	alice := ht.Alice()
+	alice := ht.NewNode("Alice", nil)
 	ht.ConnectNodes(carol1, alice)
+
+	// Give Alice some coins to fund the channel.
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
 
 	// Open a channel with 100k satoshis between Carol and Alice with Alice
 	// being the sole funder of the channel.

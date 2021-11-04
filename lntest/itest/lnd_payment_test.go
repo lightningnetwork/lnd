@@ -15,7 +15,7 @@ import (
 )
 
 func testListPayments(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	// Check that there are no payments before test.
 	ht.AssertNumPayments(alice, 0, true)
@@ -81,6 +81,9 @@ func testListPayments(ht *lntest.HarnessTest) {
 	// Delete all payments from Alice. DB should have no payments.
 	ht.DeleteAllPayments(alice)
 
+	// Snapshot the node's state so that the old payments won't affect us.
+	ht.SnapshotNodeStates()
+
 	// Check that there are no payments after test.
 	ht.AssertNumPayments(alice, 0, true)
 }
@@ -95,7 +98,7 @@ func testPaymentFollowingChannelOpen(ht *lntest.HarnessTest) {
 	channelCapacity := paymentAmt * 1000
 
 	// We first establish a channel between Alice and Bob.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	pendingUpdate := ht.OpenPendingChannel(alice, bob, channelCapacity, 0)
 
 	// At this point, the channel's funding transaction will have been
@@ -140,7 +143,7 @@ func testPaymentFollowingChannelOpen(ht *lntest.HarnessTest) {
 
 // testAsyncPayments tests the performance of the async payments.
 func testAsyncPayments(ht *lntest.HarnessTest) {
-	runAsyncPayments(ht, ht.Alice(), ht.Bob())
+	runAsyncPayments(ht, ht.Alice, ht.Bob)
 }
 
 // runAsyncPayments tests the performance of the async payments.
@@ -232,7 +235,7 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 	// First establish a channel with a capacity equals to the overall
 	// amount of payments, between Alice and Bob, at the end of the test
 	// Alice should send all money from her side to Bob.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPoint := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{
 			Amt:     paymentAmt * 2000,
@@ -318,7 +321,7 @@ func testInvoiceSubscriptions(ht *lntest.HarnessTest) {
 
 	// Open a channel with 500k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPoint := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)

@@ -263,8 +263,8 @@ type mppTestContext struct {
 }
 
 func newMppTestContext(ht *lntest.HarnessTest) *mppTestContext {
-	alice := ht.NewNode("alice", nil)
-	bob := ht.NewNode("bob", []string{"--accept-amp"})
+	alice, bob := ht.Alice, ht.Bob
+	ht.RestartNodeWithExtraArgs(bob, []string{"--accept-amp"})
 
 	// Create a five-node context consisting of Alice, Bob and three new
 	// nodes.
@@ -318,8 +318,6 @@ func (c *mppTestContext) closeChannels() {
 }
 
 func (c *mppTestContext) shutdownNodes() {
-	c.ht.Shutdown(c.alice)
-	c.ht.Shutdown(c.bob)
 	c.ht.Shutdown(c.carol)
 	c.ht.Shutdown(c.dave)
 	c.ht.Shutdown(c.eve)

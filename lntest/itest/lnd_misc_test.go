@@ -34,17 +34,12 @@ func testDisconnectingTargetPeer(ht *lntest.HarnessTest) {
 		"--maxbackoff=1m",
 	}
 
-	alice := ht.NewNode("Alice", args)
-	defer ht.Shutdown(alice)
-
-	bob := ht.NewNode("Bob", args)
-	defer ht.Shutdown(bob)
+	alice, bob := ht.Alice, ht.Bob
+	ht.RestartNodeWithExtraArgs(alice, args)
+	ht.RestartNodeWithExtraArgs(bob, args)
 
 	// Start by connecting Alice and Bob with no channels.
-	ht.ConnectNodes(alice, bob)
-
-	// Check existing connection.
-	ht.AssertConnected(alice, bob)
+	ht.EnsureConnected(alice, bob)
 
 	// Give Alice some coins so she can fund a channel.
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
@@ -248,21 +243,16 @@ func testListChannels(ht *lntest.HarnessTest) {
 	const bobRemoteMaxHtlcs = 100
 
 	// Create two fresh nodes and open a channel between them.
-	alice := ht.NewNode("Alice", nil)
-	defer ht.Shutdown(alice)
+	alice, bob := ht.Alice, ht.Bob
 
-	bob := ht.NewNode(
-		"Bob", []string{
-			fmt.Sprintf(
-				"--default-remote-max-htlcs=%v",
-				bobRemoteMaxHtlcs,
-			),
-		},
-	)
-	defer ht.Shutdown(bob)
+	args := []string{fmt.Sprintf(
+		"--default-remote-max-htlcs=%v",
+		bobRemoteMaxHtlcs,
+	)}
+	ht.RestartNodeWithExtraArgs(bob, args)
 
 	// Connect Alice to Bob.
-	ht.ConnectNodes(alice, bob)
+	ht.EnsureConnected(alice, bob)
 
 	// Give Alice some coins so she can fund a channel.
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
@@ -370,7 +360,7 @@ func testMaxPendingChannels(ht *lntest.HarnessTest) {
 	carol := ht.NewNode("Carol", args)
 	defer ht.Shutdown(carol)
 
-	alice := ht.Alice()
+	alice := ht.Alice
 	ht.ConnectNodes(alice, carol)
 
 	carolBalance := btcutil.Amount(maxPendingChannels) * amount
@@ -440,7 +430,7 @@ func testMaxPendingChannels(ht *lntest.HarnessTest) {
 func testGarbageCollectLinkNodes(ht *lntest.HarnessTest) {
 	const chanAmt = 1000000
 
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	// Open a channel between Alice and Bob which will later be
 	// cooperatively closed.
@@ -556,7 +546,7 @@ func testRejectHTLC(ht *lntest.HarnessTest) {
 	// Alice ------> Carol ------> Bob
 	//
 	const chanAmt = btcutil.Amount(1000000)
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	// Create Carol with reject htlc flag.
 	carol := ht.NewNode("Carol", []string{"--rejecthtlc"})
@@ -665,7 +655,7 @@ func testRejectHTLC(ht *lntest.HarnessTest) {
 func testNodeSignVerify(ht *lntest.HarnessTest) {
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	// Create a channel between alice and bob.
 	aliceBobCh := ht.OpenChannel(
@@ -711,7 +701,7 @@ func testNodeSignVerify(ht *lntest.HarnessTest) {
 // and not in one of the pending closure states. It also verifies that the
 // abandoned channel is reported as closed with close type 'abandoned'.
 func testAbandonChannel(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	// First establish a channel between Alice and Bob.
 	channelParam := lntest.OpenChannelParams{
@@ -812,7 +802,7 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	ht.SendCoinFromNodeErr(ainz, sweepReq)
 
 	// Ensure that we can't send coins to another users Pubkey.
-	info = ht.GetInfo(ht.Alice())
+	info = ht.GetInfo(ht.Alice)
 
 	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:    info.IdentityPubkey,

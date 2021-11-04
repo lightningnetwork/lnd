@@ -14,7 +14,7 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPointAlice := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)

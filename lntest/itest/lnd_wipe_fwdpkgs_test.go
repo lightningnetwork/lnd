@@ -29,7 +29,7 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 	)
 
 	// Grab Alice and Bob from HarnessTest.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	// Create a new node Carol, which will create invoices that require
 	// Alice to pay.

@@ -230,8 +230,7 @@ func testUnconfirmedChannelFunding(ht *lntest.HarnessTest) {
 	carol := ht.NewNode("Carol", nil)
 	defer ht.Shutdown(carol)
 
-	alice := ht.Alice()
-	defer ht.Shutdown(alice)
+	alice := ht.Alice
 
 	// We'll send her some confirmed funds.
 	ht.SendCoins(2*chanAmt, carol)
@@ -343,7 +342,7 @@ func testChannelFundingInputTypes(ht *lntest.HarnessTest) {
 		lnrpc.AddressType_TAPROOT_PUBKEY,
 	}
 
-	alice := ht.Alice()
+	alice := ht.Alice
 
 	// We'll start off by creating a node for Carol.
 	carol := ht.NewNode("Carol", nil)
@@ -576,7 +575,7 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 	// Clean up carol's node when the test finishes.
 	defer ht.Shutdown(carol)
 
-	alice := ht.Alice()
+	alice := ht.Alice
 	ht.ConnectNodes(alice, carol)
 
 	// Create a new channel that requires 5 confs before it's considered
@@ -769,7 +768,7 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 	dave := ht.NewNode("dave", nil)
 	defer ht.Shutdown(dave)
 
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	// Before we start the test, we'll ensure Alice is connected to Carol
 	// and Dave so she can open channels to both of them (and Bob).

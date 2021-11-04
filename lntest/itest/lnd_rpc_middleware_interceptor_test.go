@@ -18,7 +18,7 @@ import (
 // testRPCMiddlewareInterceptor tests that the RPC middleware interceptor can
 // be used correctly and in a safe way.
 func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	// Let's first enable the middleware interceptor.
 	alice.Cfg.ExtraArgs = append(

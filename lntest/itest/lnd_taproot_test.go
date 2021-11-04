@@ -41,14 +41,14 @@ var (
 // testTaproot ensures that the daemon can send to and spend from taproot (p2tr)
 // outputs.
 func testTaproot(ht *lntest.HarnessTest) {
-	testTaprootComputeInputScriptKeySpendBip86(ht, ht.Alice())
-	testTaprootSignOutputRawScriptSpend(ht, ht.Alice())
-	testTaprootSignOutputRawKeySpendBip86(ht, ht.Alice())
-	testTaprootSignOutputRawKeySpendRootHash(ht, ht.Alice())
-	testTaprootMuSig2KeySpendBip86(ht, ht.Alice())
-	testTaprootMuSig2KeySpendRootHash(ht, ht.Alice())
-	testTaprootMuSig2ScriptSpend(ht, ht.Alice())
-	testTaprootMuSig2CombinedLeafKeySpend(ht, ht.Alice())
+	testTaprootComputeInputScriptKeySpendBip86(ht, ht.Alice)
+	testTaprootSignOutputRawScriptSpend(ht, ht.Alice)
+	testTaprootSignOutputRawKeySpendBip86(ht, ht.Alice)
+	testTaprootSignOutputRawKeySpendRootHash(ht, ht.Alice)
+	testTaprootMuSig2KeySpendBip86(ht, ht.Alice)
+	testTaprootMuSig2KeySpendRootHash(ht, ht.Alice)
+	testTaprootMuSig2ScriptSpend(ht, ht.Alice)
+	testTaprootMuSig2CombinedLeafKeySpend(ht, ht.Alice)
 }
 
 // testTaprootComputeInputScriptKeySpendBip86 tests sending to and spending from

@@ -28,7 +28,7 @@ func testMacaroonAuthentication(ht *lntest.HarnessTest) {
 		newAddrReq = &lnrpc.NewAddressRequest{
 			Type: AddrTypeWitnessPubkeyHash,
 		}
-		testNode   = ht.Alice()
+		testNode   = ht.Alice
 		testClient = ht.RPCClients(testNode).LN
 	)
 
@@ -294,7 +294,7 @@ func testMacaroonAuthentication(ht *lntest.HarnessTest) {
 // in the request must be set correctly, and the baked macaroon has the intended
 // permissions.
 func testBakeMacaroon(ht *lntest.HarnessTest) {
-	var testNode = ht.Alice()
+	var testNode = ht.Alice
 
 	testCases := []struct {
 		name string
@@ -520,7 +520,7 @@ func testBakeMacaroon(ht *lntest.HarnessTest) {
 func testDeleteMacaroonID(ht *lntest.HarnessTest) {
 	var (
 		ctxb     = ht.Context()
-		testNode = ht.Alice()
+		testNode = ht.Alice
 	)
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()

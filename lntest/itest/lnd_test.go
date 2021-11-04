@@ -245,20 +245,20 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			)
 			lndHarness.SetTestName(cleanTestCaseName)
 
-			ht.EnsureConnected(lndHarness.Alice, lndHarness.Bob)
+			ht.EnsureConnected(ht.Alice, ht.Bob)
 
 			logLine := fmt.Sprintf(
 				"STARTING ============ %v ============\n",
 				testCase.Name,
 			)
 
-			harnessTest.Alice().AddToLogf(logLine)
-			harnessTest.Bob().AddToLogf(logLine)
+			harnessTest.Alice.AddToLogf(logLine)
+			harnessTest.Bob.AddToLogf(logLine)
 
 			// Start every test with the default static fee
 			// estimate.
 			ht.SetFeeEstimate(12500)
-			ht.EnsureConnected(ht.Alice(), ht.Bob())
+			ht.EnsureConnected(ht.Alice, ht.Bob)
 
 			ht.RunTestCase(testCase)
 		})

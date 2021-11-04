@@ -28,7 +28,7 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 	defer ht.Shutdown(carol)
 
 	// Connect Alice to Carol.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	ht.ConnectNodes(alice, carol)
 
 	// Open a channel between Alice and Carol which is private so that we

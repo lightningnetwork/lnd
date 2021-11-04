@@ -1039,7 +1039,7 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 	carol := ht.NewNode("Carol", []string{"--hodl.bogus-settle"})
 	defer ht.Shutdown(carol)
 
-	alice := ht.Alice()
+	alice := ht.Alice
 	ht.ConnectNodes(alice, carol)
 
 	// Let Alice connect and open a channel to Carol,

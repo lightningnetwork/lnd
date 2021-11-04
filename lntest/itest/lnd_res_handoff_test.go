@@ -17,7 +17,7 @@ func testResHandoff(ht *lntest.HarnessTest) {
 		paymentAmt = 50000
 	)
 
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	// First we'll create a channel between Alice and Bob.
 	ht.EnsureConnected(alice, bob)

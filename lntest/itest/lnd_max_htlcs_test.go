@@ -18,7 +18,7 @@ func testMaxHtlcPathfind(ht *lntest.HarnessTest) {
 	// Bob to add a maximum of 5 htlcs to her commitment.
 	maxHtlcs := 5
 
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPoint := ht.OpenChannel(
 		alice, bob,
 		lntest.OpenChannelParams{

@@ -410,7 +410,7 @@ func testChannelBackupRestore(ht *lntest.HarnessTest) {
 // and the on-disk channel.backup are updated each time a channel is
 // opened/closed.
 func testChannelBackupUpdates(ht *lntest.HarnessTest) {
-	alice := ht.Alice()
+	alice := ht.Alice
 
 	// First, we'll make a temp directory that we'll use to store our
 	// backup file, so we can check in on it during the test easily.
@@ -591,7 +591,7 @@ func testExportChannelBackup(ht *lntest.HarnessTest) {
 
 	// With Carol up, we'll now connect her to Alice, and open a channel
 	// between them.
-	alice := ht.Alice()
+	alice := ht.Alice
 	ht.ConnectNodes(carol, alice)
 
 	// Next, we'll open two channels between Alice and Carol back to back.

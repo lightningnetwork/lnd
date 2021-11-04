@@ -21,25 +21,15 @@ import (
 // in the presence of interleaved node disconnects / reconnects.
 func testUpdateChanStatus(ht *lntest.HarnessTest) {
 	// Create two fresh nodes and open a channel between them.
-	alice := ht.NewNode(
-		"Alice", []string{
-			"--minbackoff=10s",
-			"--chan-enable-timeout=3s",
-			"--chan-disable-timeout=4s",
-			"--chan-status-sample-interval=.5s",
-		},
-	)
-	defer ht.Shutdown(alice)
-
-	bob := ht.NewNode(
-		"Bob", []string{
-			"--minbackoff=10s",
-			"--chan-enable-timeout=3s",
-			"--chan-disable-timeout=4s",
-			"--chan-status-sample-interval=.5s",
-		},
-	)
-	defer ht.Shutdown(bob)
+	alice, bob := ht.Alice, ht.Bob
+	args := []string{
+		"--minbackoff=10s",
+		"--chan-enable-timeout=3s",
+		"--chan-disable-timeout=4s",
+		"--chan-status-sample-interval=.5s",
+	}
+	ht.RestartNodeWithExtraArgs(alice, args)
+	ht.RestartNodeWithExtraArgs(bob, args)
 
 	// Connect Alice to Bob.
 	ht.ConnectNodes(alice, bob)
@@ -62,9 +52,12 @@ func testUpdateChanStatus(ht *lntest.HarnessTest) {
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	//
-	// NOTE: we need to open the channel after all nodes are synced such
-	// that Alice and Bob won't time out while checking for channel
-	// availability, as specified by the flag `--chan-disable-timeout`.
+	// NOTE: we need to connect the nodes and open the channel after all
+	// nodes are synced such that Alice and Bob won't time out while
+	// checking for channel availability, as specified by the flag
+	// `--chan-disable-timeout`.
+	ht.EnsureConnected(alice, bob)
+
 	chanAmt := btcutil.Amount(100000)
 	chanPoint := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
@@ -221,7 +214,7 @@ func testUpdateChanStatus(ht *lntest.HarnessTest) {
 // describeGraph RPC request unless explicitly asked for.
 func testUnannouncedChannels(ht *lntest.HarnessTest) {
 	amount := funding.MaxBtcFundingAmount
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	// Open a channel between Alice and Bob, ensuring the
 	// channel has been opened properly.
@@ -270,9 +263,7 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 
 	// Spin up Bob first, since we will need to grab his pubkey when
 	// starting Alice to test pinned syncing.
-	bob := ht.NewNode("bob", nil)
-	defer ht.Shutdown(bob)
-
+	bob := ht.Bob
 	bobInfo := ht.GetInfo(bob)
 	bobPubkey := bobInfo.IdentityPubkey
 
@@ -286,8 +277,8 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 		}
 	}
 
-	alice := ht.NewNode("alice", aliceArgs)
-	defer ht.Shutdown(alice)
+	alice := ht.Alice
+	ht.RestartNodeWithExtraArgs(alice, aliceArgs)
 
 	// Connect Alice and Bob.
 	ht.EnsureConnected(alice, bob)
@@ -375,7 +366,7 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 // external IP addresses specified on the command line, that those addresses
 // announced to the network and reported in the network graph.
 func testNodeAnnouncement(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	advertisedAddrs := []string{
 		"192.168.1.1:8333",
@@ -447,7 +438,7 @@ func waitForGraphSync(ht *lntest.HarnessTest, hn *lntest.HarnessNode) {
 // the requests correctly and that the new node announcement is brodcasted
 // with the right information after updating our node.
 func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	var lndArgs []string
 

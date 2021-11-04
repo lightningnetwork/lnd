@@ -46,7 +46,7 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 		"unable to set up mining node")
 
 	miner := ht.Miner()
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 
 	// We start by connecting the new miner to our original miner,
 	// such that it will sync to our original chain.
@@ -166,7 +166,7 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 // closing, and ensures that if a node is subscribed to channel updates they
 // will be received correctly for both cooperative and force closed channels.
 func testBasicChannelCreationAndUpdates(ht *lntest.HarnessTest) {
-	runBasicChannelCreationAndUpdates(ht, ht.Alice(), ht.Bob())
+	runBasicChannelCreationAndUpdates(ht, ht.Alice, ht.Bob)
 }
 
 // runBasicChannelCreationAndUpdates tests multiple channel opening and closing,

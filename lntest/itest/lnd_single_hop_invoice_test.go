@@ -18,7 +18,7 @@ func testSingleHopInvoice(ht *lntest.HarnessTest) {
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPoint := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)

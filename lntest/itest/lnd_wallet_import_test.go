@@ -563,7 +563,7 @@ func runWalletImportAccountScenario(ht *lntest.HarnessTest,
 
 	// Send coins to Carol's address and confirm them, making sure the
 	// balance updates accordingly.
-	alice := ht.Alice()
+	alice := ht.Alice
 	req := &lnrpc.SendCoinsRequest{
 		Addr:       externalAddr,
 		Amount:     utxoAmt,
@@ -672,7 +672,7 @@ func testWalletImportPubKeyScenario(ht *lntest.HarnessTest,
 	dave := ht.NewNode("dave", nil)
 	defer ht.Shutdown(dave)
 
-	alice := ht.Alice()
+	alice := ht.Alice
 
 	// We'll define a helper closure that we'll use throughout the test to
 	// generate a new address of the given type from Carol's perspective,

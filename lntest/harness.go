@@ -44,12 +44,22 @@ type TestCase struct {
 	TestFunc func(t *HarnessTest)
 }
 
+// nodes are a list of nodes which are created during the initialization
+// of the test and used across all test cases.
+type nodes struct {
+	// Alice and Bob are the initial seeder nodes that are automatically
+	// created to be the initial participants of the test network.
+	Alice *HarnessNode
+	Bob   *HarnessNode
+}
+
 // HarnessTest wraps a regular testing.T providing enhanced error detection
 // and propagation. All error will be augmented with a full stack-trace in
 // order to aid in debugging. Additionally, any panics caused by active
 // test cases will also be handled and represented as fatals.
 type HarnessTest struct {
 	*testing.T
+	nodes
 
 	// net is a reference to the current network harness.
 	net *NetworkHarness
@@ -59,6 +69,9 @@ type HarnessTest struct {
 	// children contexts for RPC requests.
 	runCtx context.Context
 	cancel context.CancelFunc
+
+	// standbyNodes is a map of all the standby nodes.
+	standbyNodes map[string]*HarnessNode
 }
 
 // NewHarnessTest creates a new instance of a harnessTest from a regular
@@ -66,10 +79,11 @@ type HarnessTest struct {
 func NewHarnessTest(t *testing.T, net *NetworkHarness) *HarnessTest {
 	ctxt, cancel := context.WithCancel(context.Background())
 	return &HarnessTest{
-		T:      t,
-		net:    net,
-		runCtx: ctxt,
-		cancel: cancel,
+		T:            t,
+		net:          net,
+		runCtx:       ctxt,
+		cancel:       cancel,
+		standbyNodes: make(map[string]*HarnessNode),
 	}
 }
 
@@ -87,13 +101,13 @@ func (h *HarnessTest) SetUp(lndArgs []string) {
 
 	// Start the initial seeder nodes within the test network, then connect
 	// their respective RPC clients.
-	h.net.Alice = h.NewNode("Alice", lndArgs)
-	h.net.Bob = h.NewNode("Bob", lndArgs)
+	h.Alice = h.NewNode("Alice", lndArgs)
+	h.Bob = h.NewNode("Bob", lndArgs)
 
 	// First, make a connection between the two nodes. This will wait until
 	// both nodes are fully started since the Connect RPC is guarded behind
 	// the server.Started() flag that waits for all subsystems to be ready.
-	h.ConnectNodes(h.net.Alice, h.net.Bob)
+	h.ConnectNodes(h.Alice, h.Bob)
 
 	addrReq := &lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
@@ -101,8 +115,9 @@ func (h *HarnessTest) SetUp(lndArgs []string) {
 
 	// Load up the wallets of the seeder nodes with 10 outputs of 10 BTC
 	// each.
-	nodes := []*HarnessNode{h.net.Alice, h.net.Bob}
+	nodes := []*HarnessNode{h.Alice, h.Bob}
 	for _, hn := range nodes {
+		h.standbyNodes[hn.Name()] = hn
 		for i := 0; i < 10; i++ {
 			// TODO(yy): There is a weird behavior if we use
 			// h.NewAddress instead, which will cause the test
@@ -136,14 +151,14 @@ func (h *HarnessTest) SetUp(lndArgs []string) {
 	h.MineBlocks(6)
 
 	// Now we want to wait for the nodes to catch up.
-	h.WaitForBlockchainSync(h.net.Alice)
-	h.WaitForBlockchainSync(h.net.Bob)
+	h.WaitForBlockchainSync(h.Alice)
+	h.WaitForBlockchainSync(h.Bob)
 
 	// Now block until both wallets have fully synced up.
 	expectedBalance := int64(btcutil.SatoshiPerBitcoin * 100)
 	err := wait.NoError(func() error {
-		aliceResp := h.WalletBalance(h.net.Alice)
-		bobResp := h.WalletBalance(h.net.Bob)
+		aliceResp := h.WalletBalance(h.Alice)
+		bobResp := h.WalletBalance(h.Bob)
 
 		if aliceResp.ConfirmedBalance != expectedBalance {
 			return fmt.Errorf("expected 10 BTC, instead "+
@@ -182,18 +197,18 @@ func (h *HarnessTest) FailNow() {
 	h.T.FailNow()
 }
 
-// Alice returns the pre-defined node Alice on the harness net.
-func (h *HarnessTest) Alice() *HarnessNode {
-	return h.net.Alice
-}
-
-// Bob returns the pre-defined node Bob on the harness net.
-func (h *HarnessTest) Bob() *HarnessNode {
-	return h.net.Bob
-}
-
 func (h *HarnessTest) Miner() *HarnessMiner {
 	return h.net.Miner
+}
+
+// SnapshotNodeStates creates a snapshot of all the standby nodes' internal
+// states.
+func (h *HarnessTest) SnapshotNodeStates() {
+	for _, node := range h.standbyNodes {
+		err := node.updateState()
+		require.NoErrorf(h, err, "failed to snapshot state for %s",
+			node.Name())
+	}
 }
 
 // Context returns the run context used in this test. Usaually it should be
@@ -420,6 +435,16 @@ func (h *HarnessTest) RestartNode(hn *HarnessNode,
 	chanBackups ...*lnrpc.ChanBackupSnapshot) {
 
 	err := h.net.RestartNode(hn, nil, chanBackups...)
+	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
+}
+
+// RestartNodeWithExtraArgs updates the node's config and restarts it.
+func (h *HarnessTest) RestartNodeWithExtraArgs(hn *HarnessNode,
+	extraArgs []string) {
+
+	hn.SetExtraArgs(extraArgs)
+
+	err := h.net.RestartNode(hn, nil, nil)
 	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
 }
 

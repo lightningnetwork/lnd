@@ -312,11 +312,10 @@ func runMultiHopSendToRoute(ht *lntest.HarnessTest, useGraphCache bool) {
 		opts = append(opts, "--db.no-graph-cache")
 	}
 
-	alice := ht.NewNode("Alice", opts)
-	defer ht.Shutdown(alice)
+	alice, bob := ht.Alice, ht.Bob
+	ht.RestartNodeWithExtraArgs(alice, opts)
 
-	bob := ht.Bob()
-	ht.ConnectNodes(alice, bob)
+	ht.EnsureConnected(alice, bob)
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
 
 	const chanAmt = btcutil.Amount(100000)
@@ -414,7 +413,7 @@ func testSendToRouteErrorPropagation(ht *lntest.HarnessTest) {
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPointAlice := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
@@ -504,7 +503,7 @@ func testPrivateChannels(ht *lntest.HarnessTest) {
 	// where the 100k channel between Carol and Alice is private.
 
 	// Open a channel with 200k satoshis between Alice and Bob.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPointAlice := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{Amt: chanAmt * 2},
 	)
@@ -634,7 +633,7 @@ func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 	// throughout this test. We'll include a push amount since we currently
 	// require channels to have enough remote balance to cover the
 	// invoice's payment.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPointBob := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{
 			Amt:     chanAmt,
@@ -749,7 +748,7 @@ func testMultiHopOverPrivateChannels(ht *lntest.HarnessTest) {
 
 	// First, we'll open a private channel between Alice and Bob with Alice
 	// being the funder.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPointAlice := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{
 			Amt:     chanAmt,
@@ -858,7 +857,7 @@ func testQueryRoutes(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
 	// Open a channel between Alice and Bob.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPointAlice := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
@@ -1077,7 +1076,7 @@ func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
 	// Open a channel between Alice and Bob.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPointAliceBob := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)

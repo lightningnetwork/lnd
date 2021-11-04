@@ -48,7 +48,7 @@ func runPsbtChanFunding(ht *lntest.HarnessTest, carol,
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.
-	alice := ht.Alice()
+	alice := ht.Alice
 	ht.EnsureConnected(carol, dave)
 	ht.EnsureConnected(carol, alice)
 
@@ -236,7 +236,7 @@ func testPsbtChanFundingExternal(ht *lntest.HarnessTest) {
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.
-	alice := ht.Alice()
+	alice := ht.Alice
 	ht.EnsureConnected(carol, dave)
 	ht.EnsureConnected(carol, alice)
 
@@ -414,7 +414,8 @@ func testPsbtChanFundingSingleStep(ht *lntest.HarnessTest) {
 	dave := ht.NewNode("dave", args)
 	defer ht.Shutdown(dave)
 
-	ht.SendCoins(btcutil.SatoshiPerBitcoin, ht.Alice())
+	alice := ht.Alice
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
 
 	// Get new address for anchor reserve.
 	addrResp := ht.NewAddress(carol, lnrpc.AddressType_WITNESS_PUBKEY_HASH)
@@ -477,7 +478,7 @@ func testPsbtChanFundingSingleStep(ht *lntest.HarnessTest) {
 			SatPerVbyte: 2,
 		},
 	}
-	fundResp := ht.FundPsbt(ht.Alice(), fundReq)
+	fundResp := ht.FundPsbt(alice, fundReq)
 
 	// Make sure the wallets are actually empty
 	unspentCarol := ht.ListUnspent(carol, "", 0, 0)
@@ -502,7 +503,7 @@ func testPsbtChanFundingSingleStep(ht *lntest.HarnessTest) {
 	finalizeReq := &walletrpc.FinalizePsbtRequest{
 		FundedPsbt: fundResp.FundedPsbt,
 	}
-	finalizeRes := ht.FinalizePsbt(ht.Alice(), finalizeReq)
+	finalizeRes := ht.FinalizePsbt(alice, finalizeReq)
 
 	// We've signed our PSBT now, let's pass it to the intent again.
 	ht.FundingStateStep(carol, &lnrpc.FundingTransitionMsg{
@@ -554,7 +555,7 @@ func testPsbtChanFundingSingleStep(ht *lntest.HarnessTest) {
 
 // testSignPsbt tests that the SignPsbt RPC works correctly.
 func testSignPsbt(ht *lntest.HarnessTest) {
-	alice := ht.Alice()
+	alice := ht.Alice
 	runSignPsbtSegWitV0P2WKH(ht, alice)
 	runSignPsbtSegWitV1KeySpendBip86(ht, alice)
 	runSignPsbtSegWitV1KeySpendRootHash(ht, alice)

@@ -121,7 +121,7 @@ func testReconnectAfterIPChange(ht *lntest.HarnessTest) {
 	}
 
 	// Connect Alice to Dave and Charlie.
-	alice := ht.Alice()
+	alice := ht.Alice
 	ht.ConnectNodes(alice, dave)
 	ht.ConnectNodes(alice, charlie)
 
@@ -212,7 +212,7 @@ func testReconnectAfterIPChange(ht *lntest.HarnessTest) {
 // testAddPeerConfig tests that the "--addpeer" config flag successfully adds
 // a new peer.
 func testAddPeerConfig(ht *lntest.HarnessTest) {
-	alice := ht.Alice()
+	alice := ht.Alice
 	info := ht.GetInfo(alice)
 
 	alicePeerAddress := info.Uris[0]

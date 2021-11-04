@@ -48,7 +48,7 @@ func testChannelBalance(ht *lntest.HarnessTest) {
 	}
 
 	// Before beginning, make sure alice and bob are connected.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	ht.EnsureConnected(alice, bob)
 
 	chanPoint := ht.OpenChannel(
@@ -119,7 +119,7 @@ func testChannelUnsettledBalance(ht *lntest.HarnessTest) {
 	defer ht.Shutdown(carol)
 
 	// Connect Alice to Carol.
-	alice := ht.Alice()
+	alice := ht.Alice
 	ht.ConnectNodes(alice, carol)
 
 	// Open a channel between Alice and Carol.

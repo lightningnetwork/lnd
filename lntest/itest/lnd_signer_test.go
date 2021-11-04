@@ -20,7 +20,7 @@ import (
 // the node's pubkey and a customized public key to check the validity of the
 // result.
 func testDeriveSharedKey(ht *lntest.HarnessTest) {
-	runDeriveSharedKey(ht, ht.Alice())
+	runDeriveSharedKey(ht, ht.Alice)
 }
 
 // runDeriveSharedKey checks the ECDH performed by the endpoint
@@ -193,7 +193,7 @@ func runDeriveSharedKey(ht *lntest.HarnessTest, alice *lntest.HarnessNode) {
 // testSignOutputRaw makes sure that the SignOutputRaw RPC can be used with all
 // custom ways of specifying the signing key in the key descriptor/locator.
 func testSignOutputRaw(ht *lntest.HarnessTest) {
-	runSignOutputRaw(ht, ht.Alice())
+	runSignOutputRaw(ht, ht.Alice)
 }
 
 // runSignOutputRaw makes sure that the SignOutputRaw RPC can be used with all

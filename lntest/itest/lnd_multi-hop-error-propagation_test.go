@@ -19,7 +19,7 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 
 	// First establish a channel with a capacity of 0.5 BTC between Alice
 	// and Bob.
-	alice, bob := ht.Alice(), ht.Bob()
+	alice, bob := ht.Alice, ht.Bob
 	chanPointAlice := ht.OpenChannel(
 		alice, bob,
 		lntest.OpenChannelParams{Amt: chanAmt},

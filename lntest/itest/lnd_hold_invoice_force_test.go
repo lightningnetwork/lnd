@@ -52,10 +52,9 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 
 	// Get our htlc expiry height and current block height so that we
 	// can mine the exact number of blocks required to expire the htlc.
-	chans := ht.ListChannels(alice)
-	require.Len(ht, chans.Channels, 1)
-	require.Len(ht, chans.Channels[0].PendingHtlcs, 1)
-	activeHtlc := chans.Channels[0].PendingHtlcs[0]
+	channel := ht.QueryChannelByChanPoint(alice, chanPoint)
+	require.Len(ht, channel.PendingHtlcs, 1)
+	activeHtlc := channel.PendingHtlcs[0]
 
 	info := ht.GetInfo(alice)
 

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -989,19 +988,51 @@ func (h *HarnessTest) AssertNodeStarted(hn *HarnessNode) {
 	require.NoError(h, hn.WaitUntilServerActive())
 }
 
+// GetUTOXs gets the number of newly created UTOXs within the current test
+// scope.
+func (h *HarnessTest) GetUTXOs(hn *HarnessNode, account string,
+	max, min int32) []*lnrpc.Utxo {
+
+	indexOffset := hn.state.UTXO.Confirmed
+	if max == 0 {
+		indexOffset = hn.state.UTXO.Unconfirmed
+	}
+
+	resp := h.ListUnspent(hn, account, max, min)
+	require.GreaterOrEqual(h, len(resp.Utxos), indexOffset,
+		"wrong utxo state")
+
+	// We assume the utxos arrive in time-wise ascending order, as the
+	// oldest utxos comes at the front of the slice.
+	return resp.Utxos[indexOffset:]
+}
+
 // AssertNumUTXOs waits for the given number of UTXOs to be available or fails
 // if that isn't the case before the default timeout.
-func (h *HarnessTest) AssertNumUTXOs(hn *HarnessNode, expectedUtxos int) {
+func (h *HarnessTest) AssertNumUTXOs(hn *HarnessNode, expectedUtxos int,
+	max, min int32) []*lnrpc.Utxo {
+
+	old := hn.state.UTXO.Confirmed
+	if max == 0 {
+		old = hn.state.UTXO.Unconfirmed
+	}
+
+	var utxos []*lnrpc.Utxo
 	err := wait.NoError(func() error {
-		resp := h.ListUnspent(hn, "", math.MaxInt32, 1)
-		if len(resp.Utxos) != expectedUtxos {
-			return fmt.Errorf("not enough UTXOs, got %d wanted %d",
-				len(resp.Utxos), expectedUtxos)
+		resp := h.ListUnspent(hn, "", max, min)
+		total := len(resp.Utxos)
+
+		if total-old == expectedUtxos {
+			utxos = resp.Utxos[old:]
+			return nil
 		}
 
-		return nil
+		return errNumNotMatched(hn.Name(), "num of UTXOs",
+			expectedUtxos, total-old, total, old)
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout waiting for UTXOs")
+
+	return utxos
 }
 
 // AssertZombieChannel asserts that a given channel found using the chanID is

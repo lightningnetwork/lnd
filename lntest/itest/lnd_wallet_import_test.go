@@ -131,12 +131,9 @@ func assertAccountBalance(ht *lntest.HarnessTest, node *lntest.HarnessNode,
 				accountBalance.ConfirmedBalance)
 		}
 
-		confirmedUtxosResp := ht.ListUnspent(
-			node, account, math.MaxInt32, 1,
-		)
-
+		utxos := ht.GetUTXOs(node, account, math.MaxInt32, 1)
 		var totalConfirmedVal int64
-		for _, utxo := range confirmedUtxosResp.Utxos {
+		for _, utxo := range utxos {
 			totalConfirmedVal += utxo.AmountSat
 		}
 		if totalConfirmedVal != confirmedBalance {
@@ -157,9 +154,9 @@ func assertAccountBalance(ht *lntest.HarnessTest, node *lntest.HarnessNode,
 				accountBalance.UnconfirmedBalance)
 		}
 
-		unconfirmedUtxosResp := ht.ListUnspent(node, account, 0, 0)
+		utxos = ht.GetUTXOs(node, account, 0, 0)
 		var totalUnconfirmedVal int64
-		for _, utxo := range unconfirmedUtxosResp.Utxos {
+		for _, utxo := range utxos {
 			totalUnconfirmedVal += utxo.AmountSat
 		}
 		if totalUnconfirmedVal != unconfirmedBalance {

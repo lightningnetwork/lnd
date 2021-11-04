@@ -3,6 +3,7 @@ package itest
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -366,7 +367,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// wait here until we have enough UTXOs to actually sweep the local and
 	// remote anchor.
 	const expectedUtxos = 2
-	ht.AssertNumUTXOs(alice, expectedUtxos)
+	ht.AssertNumUTXOs(alice, expectedUtxos, math.MaxInt32, 0)
 
 	// Mine a block which should confirm the commitment transaction
 	// broadcast as a result of the force closure. If there are anchors, we
@@ -1156,7 +1157,8 @@ func checkCommitmentMaturity(forceClose lntest.PendingForceClose,
 
 // assertSweepFound looks up a sweep in a nodes list of broadcast sweeps.
 //
-// NOTE: only used in current test file.
+// NOTE: Does not account for node's internal state, only used in current test
+// file.
 func assertSweepFound(ht *lntest.HarnessTest, hn *lntest.HarnessNode,
 	sweep string, verbose bool) {
 

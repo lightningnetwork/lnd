@@ -210,9 +210,8 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// Next mine enough blocks in order for segwit and the CSV package
 	// soft-fork to activate on SimNet.
 	numBlocks := harnessNetParams.MinerConfirmationWindow * 2
-	if _, err := miner.Client.Generate(numBlocks); err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
-	}
+	_, err = miner.Client.Generate(numBlocks)
+	require.NoError(t, err, "unable to generate blocks")
 
 	// With the btcd harness created, we can now complete the
 	// initialization of the network. args - list of lnd arguments,
@@ -223,6 +222,14 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		"--dust-threshold=5000000",
 	}
 
+	// Setup two nodes, Alice and Bob, which will be alive and shared among
+	// all the test cases.
+	err = lndHarness.SetUp(t, aliceBobArgs)
+	require.NoError(t, err, "unable to set up test lightning network")
+	defer func() {
+		require.NoError(t, lndHarness.TearDown())
+	}()
+
 	// Run the subset of the test cases selected in this tranche.
 	for idx, testCase := range testCases {
 		testCase := testCase
@@ -231,26 +238,17 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			len(allTestCases), chainBackend.Name(), testCase.Name)
 
 		success := t.Run(name, func(t1 *testing.T) {
+			// Create a separate harness test for the testcase to
+			// avoid overwriting the external harness test that is
+			// tied to the parent test.
+			ht := lntest.NewHarnessTest(t1, lndHarness)
+
 			cleanTestCaseName := strings.ReplaceAll(
 				testCase.Name, " ", "_",
 			)
+			lndHarness.SetTestName(cleanTestCaseName)
 
-			err = lndHarness.SetUp(
-				t1, cleanTestCaseName, aliceBobArgs,
-			)
-			require.NoError(t1,
-				err, "unable to set up test lightning network",
-			)
-			defer func() {
-				// TODO(yy): since we are tearing down all
-				// active nodes here, there's no need to
-				// shutdown the node inside the tests?
-				require.NoError(t1, lndHarness.TearDown())
-			}()
-
-			lndHarness.EnsureConnected(
-				t1, lndHarness.Alice, lndHarness.Bob,
-			)
+			ht.EnsureConnected(lndHarness.Alice, lndHarness.Bob)
 
 			logLine := fmt.Sprintf(
 				"STARTING ============ %v ============\n",
@@ -260,13 +258,10 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			lndHarness.Alice.AddToLogf(logLine)
 			lndHarness.Bob.AddToLogf(logLine)
 
-			// Start every test with the default static fee estimate.
-			lndHarness.SetFeeEstimate(12500)
+			// Start every test with the default static fee
+			// estimate.
+			ht.SetFeeEstimate(12500)
 
-			// Create a separate harness test for the testcase to
-			// avoid overwriting the external harness test that is
-			// tied to the parent test.
-			ht := lntest.NewHarnessTest(t1, lndHarness)
 			ht.RunTestCase(testCase)
 		})
 

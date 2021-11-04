@@ -1164,21 +1164,16 @@ func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 
 	// We'll also need the channel IDs for Bob's channels in order to
 	// confirm the route of the payments.
-	listResp := ht.ListChannels(bob)
-	var aliceBobChanID, bobDaveChanID uint64
-	for _, channel := range listResp.Channels {
-		switch channel.RemotePubkey {
-		case alice.PubKeyStr:
-			aliceBobChanID = channel.ChanId
-		case dave.PubKeyStr:
-			bobDaveChanID = channel.ChanId
-		}
-	}
-
+	channel := ht.QueryChannelByChanPoint(bob, chanPointAliceBob)
+	aliceBobChanID := channel.ChanId
 	require.NotZero(ht, aliceBobChanID,
 		"channel between alice and bob not found")
+
+	channel = ht.QueryChannelByChanPoint(bob, chanPointBobDave)
+	bobDaveChanID := channel.ChanId
 	require.NotZero(ht, bobDaveChanID,
 		"channel between bob and dave not found")
+
 	hopChanIDs := []uint64{aliceBobChanID, bobDaveChanID}
 
 	// checkRoute is a helper closure to ensure the route contains the

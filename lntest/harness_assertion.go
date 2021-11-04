@@ -196,6 +196,9 @@ func (h *HarnessTest) AssertNumTxsInMempool(n int) []*chainhash.Hash {
 // AssertNodeNumChannels polls the provided node's list channels rpc until it
 // reaches the desired number of total channels.
 func (h *HarnessTest) AssertNodeNumChannels(hn *HarnessNode, numChannels int) {
+	// Get the total number of channels.
+	old := hn.state.OpenChannel.Active + hn.state.OpenChannel.Inactive
+
 	err := wait.NoError(func() error {
 		// We require the RPC call to be succeeded and won't wait for
 		// it as it's an unexpected behavior.
@@ -203,7 +206,7 @@ func (h *HarnessTest) AssertNodeNumChannels(hn *HarnessNode, numChannels int) {
 
 		// Return true if the query returned the expected number of
 		// channels.
-		num := len(chanInfo.Channels)
+		num := len(chanInfo.Channels) - old
 		if num != numChannels {
 			return fmt.Errorf("expected %v channels, got %v",
 				numChannels, num)
@@ -387,20 +390,26 @@ func (h *HarnessTest) AssertChannelWaitingClose(hn *HarnessNode,
 func (h *HarnessTest) AssertNumPendingCloseChannels(hn *HarnessNode,
 	expWaitingClose, expPendingForceClose int) {
 
+	oldWaiting := hn.state.CloseChannel.WaitingClose
+	oldForce := hn.state.CloseChannel.PendingForceClose
+
 	err := wait.NoError(func() error {
 		resp := h.GetPendingChannels(hn)
+		total := len(resp.WaitingCloseChannels)
 
-		n := len(resp.WaitingCloseChannels)
-		if n != expWaitingClose {
-			return fmt.Errorf("expected to find %d channels "+
-				"waiting close, found %d", expWaitingClose, n)
+		got := total - oldWaiting
+		if got != expWaitingClose {
+			return errNumNotMatched(hn.Name(),
+				"waiting close channels", expWaitingClose, got,
+				total, oldWaiting)
 		}
 
-		n = len(resp.PendingForceClosingChannels)
-		if n != expPendingForceClose {
-			return fmt.Errorf("expected to find %d channel "+
-				"pending force close, found %d",
-				expPendingForceClose, n)
+		total = len(resp.PendingForceClosingChannels)
+		got = total - oldForce
+		if got != expPendingForceClose {
+			return errNumNotMatched(hn.Name(),
+				"pending force close channels",
+				expPendingForceClose, got, total, oldForce)
 		}
 
 		return nil
@@ -598,25 +607,28 @@ func (h *HarnessTest) GetChannelCommitType(hn *HarnessNode,
 func (h *HarnessTest) AssertNumOpenChannelsPending(alice, bob *HarnessNode,
 	expected int) {
 
+	oldAlice := alice.state.OpenChannel.Pending
+	oldBob := bob.state.OpenChannel.Pending
+
 	err := wait.NoError(func() error {
 		aliceChans := h.GetPendingChannels(alice)
+		aliceTotal := len(aliceChans.PendingOpenChannels)
 		bobChans := h.GetPendingChannels(bob)
+		bobTotal := len(bobChans.PendingOpenChannels)
 
-		aliceNumChans := len(aliceChans.PendingOpenChannels)
-		bobNumChans := len(bobChans.PendingOpenChannels)
+		aliceNumChans := aliceTotal - oldAlice
+		bobNumChans := bobTotal - oldBob
 
-		aliceStateCorrect := aliceNumChans == expected
-		if !aliceStateCorrect {
-			return fmt.Errorf("number of pending channels for "+
-				"alice incorrect. expected %v, got %v",
-				expected, aliceNumChans)
+		if aliceNumChans != expected {
+			return errNumNotMatched(alice.Name(),
+				"pending open channels", expected,
+				aliceNumChans, aliceTotal, oldAlice)
 		}
 
-		bobStateCorrect := bobNumChans == expected
-		if !bobStateCorrect {
-			return fmt.Errorf("number of pending channels for bob "+
-				"incorrect. expected %v, got %v", expected,
-				bobNumChans)
+		if bobNumChans != expected {
+			return errNumNotMatched(bob.Name(),
+				"pending open channels", expected,
+				bobNumChans, bobTotal, oldBob)
 		}
 
 		return nil
@@ -716,20 +728,35 @@ func (h *HarnessTest) WaitForNodeBlockHeight(hn *HarnessNode, height int32) {
 // AssertNumEdges checks that an expected number of edges can be found in the
 // node specified.
 func (h *HarnessTest) AssertNumEdges(hn *HarnessNode,
-	expected int, includeUnannounced bool) {
+	expected int, includeUnannounced bool) []*lnrpc.ChannelEdge {
+
+	var edges []*lnrpc.ChannelEdge
+
+	old := hn.state.Edge.Public
+	if includeUnannounced {
+		old = hn.state.Edge.Total
+	}
 
 	err := wait.NoError(func() error {
 		chanGraph := h.DescribeGraph(hn, includeUnannounced)
+		total := len(chanGraph.Edges)
 
-		if len(chanGraph.Edges) == expected {
+		if total-old == expected {
+			if expected != 0 {
+				// NOTE: assume edges come in ascending order
+				// that the old edges are at the front of the
+				// slice.
+				edges = chanGraph.Edges[old:]
+			}
 			return nil
 		}
-
-		return fmt.Errorf("expected to find %d edge in the graph, "+
-			"found %d", expected, len(chanGraph.Edges))
+		return errNumNotMatched(hn.Name(), "num of channel edges",
+			expected, total-old, total, old)
 	}, DefaultTimeout)
 
 	require.NoError(h, err, "timeout while checking for edges")
+
+	return edges
 }
 
 // AssertLastHTLCError checks that the last sent HTLC of the last payment sent
@@ -939,11 +966,21 @@ func (h *HarnessTest) AssertChannelState(hn *HarnessNode,
 func (h *HarnessTest) AssertNumUpdates(hn *HarnessNode,
 	num uint64, cp *lnrpc.ChannelPoint) {
 
+	old := int(hn.state.OpenChannel.NumUpdates)
+
 	// Find the target channel first.
 	target, err := h.findChannel(hn, cp)
 	require.NoError(h, err, "unable to find channel")
 
-	require.Equal(h, num, target.NumUpdates, "NumUpdates not matched")
+	err = wait.NoError(func() error {
+		total := int(target.NumUpdates)
+		if total-old == int(num) {
+			return nil
+		}
+		return errNumNotMatched(hn.Name(), "channel updates",
+			int(num), total-old, total, old)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout while chekcing for num of updates")
 }
 
 // AssertNodeStarted waits until the node is fully started or asserts a timeout
@@ -1157,4 +1194,12 @@ func (h *HarnessTest) GetOutputIndex(txid *chainhash.Hash, addr string) int {
 	require.Greater(h, p2trOutputIndex, -1)
 
 	return p2trOutputIndex
+}
+
+// errNumNotMatched is a helper method to return a nicely formatted error.
+func errNumNotMatched(name string, subject string,
+	want, got, total, old int) error {
+
+	return fmt.Errorf("%s: assert %s failed: want %d, got: %d, total: "+
+		"%d, previously had: %d", name, subject, want, got, total, old)
 }

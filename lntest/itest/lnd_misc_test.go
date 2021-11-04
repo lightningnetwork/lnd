@@ -285,22 +285,13 @@ func testListChannels(ht *lntest.HarnessTest) {
 	)
 	defer ht.CloseChannel(alice, chanPoint, false)
 
-	// Wait for Alice and Bob to receive the channel edge from the funding
-	// manager.
-	ht.AssertChannelOpen(alice, chanPoint)
-	ht.AssertChannelOpen(bob, chanPoint)
-
 	// Alice should have one channel opened with Bob.
 	ht.AssertNodeNumChannels(alice, 1)
 	// Bob should have one channel opened with Alice.
 	ht.AssertNodeNumChannels(bob, 1)
 
-	// Get the ListChannel response from Alice.
-	resp := ht.ListChannels(alice)
-	require.NotEmpty(ht, resp)
-
 	// Check the returned response is correct.
-	aliceChannel := resp.Channels[0]
+	aliceChannel := ht.QueryChannelByChanPoint(alice, chanPoint)
 
 	// Since Alice is the initiator, she pays the commit fee.
 	aliceBalance := int64(chanAmt) - aliceChannel.CommitFee - int64(pushAmt)
@@ -344,10 +335,7 @@ func testListChannels(ht *lntest.HarnessTest) {
 	)
 
 	// Get the ListChannel response for Bob.
-	resp = ht.ListChannels(bob)
-	require.NotEmpty(ht, resp)
-
-	bobChannel := resp.Channels[0]
+	bobChannel := ht.QueryChannelByChanPoint(bob, chanPoint)
 	require.Equal(ht, aliceChannel.ChannelPoint, bobChannel.ChannelPoint,
 		"Bob's channel point mismatched")
 
@@ -754,17 +742,10 @@ func testAbandonChannel(ht *lntest.HarnessTest) {
 	ht.AbandonChannel(alice, abandonChannelRequest)
 
 	// Assert that channel in no longer open.
-	aliceChannelList := ht.ListChannels(alice)
-	require.Zero(ht, len(aliceChannelList.Channels), "alice open channels")
+	ht.AssertNodeNumChannels(alice, 0)
 
 	// Assert that channel is not pending closure.
-	alicePendingList := ht.GetPendingChannels(alice)
-	require.Zero(ht, len(alicePendingList.PendingClosingChannels), //nolint:staticcheck
-		"alice pending channels")
-	require.Zero(ht, len(alicePendingList.PendingForceClosingChannels),
-		"alice pending force close channels")
-	require.Zero(ht, len(alicePendingList.WaitingCloseChannels),
-		"alice waiting close channels")
+	ht.AssertNumPendingCloseChannels(alice, 0, 0)
 
 	// Assert that channel is listed as abandoned.
 	aliceClosedList := ht.ClosedChannels(alice, true)

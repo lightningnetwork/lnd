@@ -205,8 +205,8 @@ func basicChannelFundingTest(ht *lntest.HarnessTest,
 		bob, bobChannelBalance, pushAmt, aliceLocalBalance,
 	)
 
-	aliceChannel := ht.ListChannels(alice)
-	bobChannel := ht.ListChannels(bob)
+	aliceChannel := ht.QueryChannelByChanPoint(alice, chanPoint)
+	bobChannel := ht.QueryChannelByChanPoint(bob, chanPoint)
 
 	closeChan := func() {
 		// Finally, immediately close the channel. This function will
@@ -215,7 +215,7 @@ func basicChannelFundingTest(ht *lntest.HarnessTest,
 		ht.CloseChannel(alice, chanPoint, false)
 	}
 
-	return aliceChannel.Channels[0], bobChannel.Channels[0], closeChan
+	return aliceChannel, bobChannel, closeChan
 }
 
 // testUnconfirmedChannelFunding tests that our unconfirmed change outputs can

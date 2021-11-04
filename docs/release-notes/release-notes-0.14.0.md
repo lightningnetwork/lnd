@@ -323,6 +323,8 @@ messages directly. There is no routing/path finding involved.
 
 * [Upgrade the sub packages to 1.16](https://github.com/lightningnetwork/lnd/pull/5813)
 
+* [CI has been upgraded to build against bitcoind 22.0](https://github.com/lightningnetwork/lnd/pull/5928)
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

@@ -3,6 +3,7 @@ package itest
 import (
 	"fmt"
 	"io/ioutil"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1002,7 +1003,7 @@ func testChanRestoreScenario(ht *lntest.HarnessTest,
 	if commitTypeHasAnchors(testCase.commitmentType) {
 		numUTXOs = 2
 	}
-	ht.AssertNumUTXOs(carol, numUTXOs)
+	ht.AssertNumUTXOs(carol, numUTXOs, math.MaxInt32, 0)
 
 	// Now that we have our new node up, we expect that it'll re-connect to
 	// Carol automatically based on the restored backup.

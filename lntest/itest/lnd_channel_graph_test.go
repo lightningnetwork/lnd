@@ -101,13 +101,7 @@ func testUpdateChanStatus(ht *lntest.HarnessTest) {
 		outPoint := ht.OutPointFromChannelPoint(chanPoint)
 
 		err := wait.NoError(func() error {
-			chanGraph := ht.DescribeGraph(alice, true)
-			numEdges := len(chanGraph.Edges)
-			if numEdges != 1 {
-				return fmt.Errorf("expected to find 1 edge in "+
-					"the graph, found %d", numEdges)
-			}
-			edge := chanGraph.Edges[0]
+			edge := ht.AssertNumEdges(alice, 1, true)[0]
 			if edge.ChanPoint != outPoint.String() {
 				return fmt.Errorf("expected chan_point %v, "+
 					"got %v", outPoint, edge.ChanPoint)
@@ -425,7 +419,8 @@ func testNodeAnnouncement(ht *lntest.HarnessTest) {
 	// including the expected advertised addresses from Bob since they
 	// should already be connected.
 	ht.AssertNumNodeAnns(alice, dave.PubKeyStr, 1)
-	nodeUpdate := alice.GetNodeUpdates(dave.PubKeyStr)[0]
+	allUpdates := alice.GetNodeUpdates(dave.PubKeyStr)
+	nodeUpdate := allUpdates[len(allUpdates)-1]
 	assertAddrs(nodeUpdate.Addresses, advertisedAddrs...) // nolint:staticcheck
 
 	// Close the channel between Bob and Dave.

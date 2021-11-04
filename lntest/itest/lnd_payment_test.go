@@ -122,7 +122,10 @@ func testPaymentFollowingChannelOpen(ht *lntest.HarnessTest) {
 	ht.MineBlocksAndAssertTx(6, 1)
 
 	// We verify that the channel is open from both nodes point of view.
+	chanPoint := lntest.ChanPointFromPendingUpdate(pendingUpdate)
 	ht.AssertNumOpenChannelsPending(alice, bob, 0)
+	ht.AssertChannelExists(alice, chanPoint)
+	ht.AssertChannelExists(bob, chanPoint)
 
 	// With the channel open, we'll create invoices for Bob that Alice will
 	// pay to in order to advance the state of the channel.
@@ -137,20 +140,9 @@ func testPaymentFollowingChannelOpen(ht *lntest.HarnessTest) {
 	}
 	ht.SendPaymentAndAssert(alice, req)
 
-	// At this point we want to make sure the channel is opened and not
-	// pending.
-	res := ht.ListChannels(bob)
-	require.NotEmpty(ht, res.Channels, "bob list of channels is empty")
-
 	// Finally, immediately close the channel. This function will also
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
-	chanPoint := &lnrpc.ChannelPoint{
-		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-			FundingTxidBytes: pendingUpdate.Txid,
-		},
-		OutputIndex: pendingUpdate.OutputIndex,
-	}
 	ht.CloseChannel(alice, chanPoint, false)
 }
 

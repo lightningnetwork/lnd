@@ -219,8 +219,9 @@ func (hn *HarnessNode) WaitForChannelPolicyUpdate(
 
 		case <-timer:
 			return fmt.Errorf("channel:%s policy not updated "+
-				"before timeout: [%s:%v] %s", op,
-				advertisingNode, policy, hn.String())
+				"before timeout: advertisingNode: %s\nwant "+
+				"policy:%v\nhave updates:%v", op,
+				advertisingNode, policy, hn.state.policyUpdates)
 		}
 	}
 }

@@ -3,7 +3,9 @@ package lntest
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 	"testing"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -21,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/grpclog"
 )
 
 const (
@@ -61,7 +65,99 @@ type HarnessTest struct {
 // testing.T instance.
 func NewHarnessTest(t *testing.T, net *NetworkHarness) *HarnessTest {
 	ctxt, cancel := context.WithCancel(context.Background())
-	return &HarnessTest{t, net, ctxt, cancel}
+	return &HarnessTest{
+		T:      t,
+		net:    net,
+		runCtx: ctxt,
+		cancel: cancel,
+	}
+}
+
+// SetUp starts the initial seeder nodes within the test harness. The initial
+// node's wallets will be funded wallets with ten 1 BTC outputs each. Finally
+// rpc clients capable of communicating with the initial seeder nodes are
+// created. Nodes are initialized with the given extra command line flags,
+// which should be formatted properly - "--arg=value".
+func (h *HarnessTest) SetUp(lndArgs []string) {
+	// Swap out grpc's default logger with out fake logger which drops the
+	// statements on the floor.
+	fakeLogger := grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard)
+	grpclog.SetLoggerV2(fakeLogger)
+	h.net.feeService = startFeeService(h.T)
+
+	// Start the initial seeder nodes within the test network, then connect
+	// their respective RPC clients.
+	h.net.Alice = h.NewNode("Alice", lndArgs)
+	h.net.Bob = h.NewNode("Bob", lndArgs)
+
+	// First, make a connection between the two nodes. This will wait until
+	// both nodes are fully started since the Connect RPC is guarded behind
+	// the server.Started() flag that waits for all subsystems to be ready.
+	h.ConnectNodes(h.net.Alice, h.net.Bob)
+
+	addrReq := &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	}
+
+	// Load up the wallets of the seeder nodes with 10 outputs of 10 BTC
+	// each.
+	nodes := []*HarnessNode{h.net.Alice, h.net.Bob}
+	for _, hn := range nodes {
+		for i := 0; i < 10; i++ {
+			// TODO(yy): There is a weird behavior if we use
+			// h.NewAddress instead, which will cause the test
+			// psbt_channel_funding_external to fail. Need to
+			// further investigate whether it's a bug inside lnd or
+			// in the itest.
+			resp, err := hn.rpc.LN.NewAddress(h.runCtx, addrReq)
+			require.NoError(h, err, "failed to create new address")
+
+			addr, err := btcutil.DecodeAddress(
+				resp.Address, h.net.netParams,
+			)
+			require.NoError(h, err)
+
+			addrScript, err := txscript.PayToAddrScript(addr)
+			require.NoError(h, err)
+
+			output := &wire.TxOut{
+				PkScript: addrScript,
+				Value:    10 * btcutil.SatoshiPerBitcoin,
+			}
+			_, err = h.Miner().SendOutputs(
+				[]*wire.TxOut{output}, 7500,
+			)
+			require.NoError(h, err, "send output failed")
+		}
+	}
+
+	// We generate several blocks in order to give the outputs created
+	// above a good number of confirmations.
+	h.MineBlocks(6)
+
+	// Now we want to wait for the nodes to catch up.
+	h.WaitForBlockchainSync(h.net.Alice)
+	h.WaitForBlockchainSync(h.net.Bob)
+
+	// Now block until both wallets have fully synced up.
+	expectedBalance := int64(btcutil.SatoshiPerBitcoin * 100)
+	err := wait.NoError(func() error {
+		aliceResp := h.WalletBalance(h.net.Alice)
+		bobResp := h.WalletBalance(h.net.Bob)
+
+		if aliceResp.ConfirmedBalance != expectedBalance {
+			return fmt.Errorf("expected 10 BTC, instead "+
+				"alice has %d", aliceResp.ConfirmedBalance)
+		}
+
+		if bobResp.ConfirmedBalance != expectedBalance {
+			return fmt.Errorf("expected 10 BTC, instead "+
+				"bob has %d", bobResp.ConfirmedBalance)
+		}
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking balance for node")
 }
 
 // RunTestCase executes a harness test case. Any errors or panics will be
@@ -366,6 +462,11 @@ func (h *HarnessTest) SetFeeEstimateWithConf(
 // been made, the method will block until the two nodes appear in each other's
 // peers list, or until the DefaultTimeout expires.
 func (h *HarnessTest) EnsureConnected(a, b *HarnessNode) {
+	// errConnectionRequested is used to signal that a connection was
+	// requested successfully, which is distinct from already being
+	// connected to the peer.
+	errConnectionRequested := "connection request in progress"
+
 	tryConnect := func(a, b *HarnessNode) error {
 		bInfo := h.GetInfo(b)
 
@@ -379,60 +480,43 @@ func (h *HarnessTest) EnsureConnected(a, b *HarnessNode) {
 		ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 		defer cancel()
 
-		err := wait.NoError(func() error {
-			err := h.net.connect(ctxt, req, a)
-			switch {
-			// Request was successful, wait for both to display the
-			// connection.
-			case err == nil:
-				return nil
+		_, err := a.rpc.LN.ConnectPeer(ctxt, req)
 
-			// If the two are already connected, we return early
-			// with no error.
-			case strings.Contains(
-				err.Error(), "already connected to peer",
-			):
-				return nil
-
-			default:
-				return err
-			}
-		}, DefaultTimeout)
-		if err != nil {
-			return fmt.Errorf("connection not succeeded within %d "+
-				"seconds: %v", DefaultTimeout, err)
+		// Request was successful.
+		if err == nil {
+			return nil
 		}
 
-		return nil
+		// If the connection is in process, we return no error.
+		if strings.Contains(err.Error(), errConnectionRequested) {
+			return nil
+		}
+
+		// If the two are already connected, we return early with no
+		// error.
+		if strings.Contains(err.Error(), "already connected to peer") {
+			return nil
+		}
+
+		// We may get connection refused error if we happens to be in
+		// the middle of a previous node disconnection, e.g., a restart
+		// from one of the nodes.
+		if strings.Contains(err.Error(), "connection refused") {
+			return nil
+		}
+
+		return err
 	}
 
-	aErr := tryConnect(a, b)
-	bErr := tryConnect(b, a)
-
-	switch {
-	// If both reported already being connected to each other, we can exit
-	// early.
-	case aErr == nil && bErr == nil:
-
-	// Return any critical errors returned by either alice.
-	case aErr != nil:
-		require.Failf(h, "ensure connection between %s and %s failed "+
-			"with error from %s: %v",
-			a.Cfg.Name, b.Cfg.Name, a.Cfg.Name, aErr)
-
-	// Return any critical errors returned by either bob.
-	case bErr != nil:
-		require.Failf(h, "ensure connection between %s and %s failed "+
-			"with error from %s: %v",
-			a.Cfg.Name, b.Cfg.Name, b.Cfg.Name, bErr)
+	// Return any critical errors returned by either alice or bob.
+	require.NoError(h, tryConnect(a, b), "connection failed between %s "+
+		"and %s", a.Cfg.Name, b.Cfg.Name)
+	require.NoError(h, tryConnect(b, a), "connection failed between %s "+
+		"and %s", a.Cfg.Name, b.Cfg.Name)
 
 	// Otherwise one or both requested a connection, so we wait for the
 	// peers lists to reflect the connection.
-	default:
-	}
-
-	h.assertPeerConnected(a, b)
-	h.assertPeerConnected(b, a)
+	h.AssertConnected(a, b)
 }
 
 // SendCoinsOfType attempts to send amt satoshis from the internal mining node
@@ -441,7 +525,7 @@ func (h *HarnessTest) EnsureConnected(a, b *HarnessNode) {
 func (h *HarnessTest) SendCoinsOfType(amt btcutil.Amount, hn *HarnessNode,
 	addrType lnrpc.AddressType, confirmed bool) {
 
-	err := h.net.sendCoinsOfType(amt, hn, addrType, confirmed)
+	err := h.sendCoins(amt, hn, addrType, confirmed)
 	require.NoErrorf(h, err, "unable to send coins for %s", hn.Cfg.Name)
 }
 
@@ -449,7 +533,7 @@ func (h *HarnessTest) SendCoinsOfType(amt btcutil.Amount, hn *HarnessNode,
 // targeted lightning node using a P2WKH address. 6 blocks are mined after in
 // order to confirm the transaction.
 func (h *HarnessTest) SendCoins(amt btcutil.Amount, hn *HarnessNode) {
-	err := h.net.sendCoinsOfType(
+	err := h.sendCoins(
 		amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, true,
 	)
 	require.NoErrorf(h, err, "unable to send coins for %s", hn.Cfg.Name)
@@ -461,7 +545,7 @@ func (h *HarnessTest) SendCoins(amt btcutil.Amount, hn *HarnessNode) {
 func (h *HarnessTest) SendCoinsUnconfirmed(amt btcutil.Amount,
 	hn *HarnessNode) {
 
-	err := h.net.sendCoinsOfType(
+	err := h.sendCoins(
 		amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, false,
 	)
 	require.NoErrorf(h, err, "unable to send unconfirmed coins for %s",
@@ -471,7 +555,7 @@ func (h *HarnessTest) SendCoinsUnconfirmed(amt btcutil.Amount,
 // SendCoinsNP2WKH attempts to send amt satoshis from the internal mining node
 // to the targeted lightning node using a NP2WKH address.
 func (h *HarnessTest) SendCoinsNP2WKH(amt btcutil.Amount, target *HarnessNode) {
-	err := h.net.sendCoinsOfType(
+	err := h.sendCoins(
 		amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH, true,
 	)
 	require.NoErrorf(h, err, "unable to send NP2WKH coins for %s",
@@ -481,7 +565,7 @@ func (h *HarnessTest) SendCoinsNP2WKH(amt btcutil.Amount, target *HarnessNode) {
 // SendCoinsP2TR attempts to send amt satoshis from the internal mining node to
 // the targeted lightning node using a P2TR address.
 func (h *HarnessTest) SendCoinsP2TR(amt btcutil.Amount, target *HarnessNode) {
-	err := h.net.sendCoinsOfType(
+	err := h.sendCoins(
 		amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true,
 	)
 	require.NoErrorf(h, err, "unable to send P2TR coins for %s",
@@ -1151,4 +1235,75 @@ func (h *HarnessTest) MineBlockWithTxes(txes []*btcutil.Tx) *wire.MsgBlock {
 	require.NoError(h, err, "unable to get block")
 
 	return block
+}
+
+// sendCoins attempts to send amt satoshis from the internal mining node to the
+// targeted lightning node. The confirmed boolean indicates whether the
+// transaction that pays to the target should confirm.
+func (h *HarnessTest) sendCoins(amt btcutil.Amount, target *HarnessNode,
+	addrType lnrpc.AddressType, confirmed bool) error {
+
+	initialBalance := h.WalletBalance(target)
+
+	// First, obtain an address from the target lightning node, preferring
+	// to receive a p2wkh address s.t the output can immediately be used as
+	// an input to a funding transaction.
+	resp := h.NewAddress(target, addrType)
+	addr, err := btcutil.DecodeAddress(resp.Address, h.net.netParams)
+	if err != nil {
+		return err
+	}
+	addrScript, err := txscript.PayToAddrScript(addr)
+	if err != nil {
+		return err
+	}
+
+	// Generate a transaction which creates an output to the target
+	// pkScript of the desired amount.
+	output := &wire.TxOut{
+		PkScript: addrScript,
+		Value:    int64(amt),
+	}
+	_, err = h.net.Miner.SendOutputs([]*wire.TxOut{output}, 7500)
+	if err != nil {
+		return err
+	}
+
+	// Encode the pkScript in hex as this the format that it will be
+	// returned via rpc.
+	expPkScriptStr := hex.EncodeToString(addrScript)
+
+	// Now, wait for ListUnspent to show the unconfirmed transaction
+	// containing the correct pkscript.
+	//
+	// Since neutrino doesn't support unconfirmed outputs, skip this check.
+	if !h.IsNeutrinoBackend() {
+		utxos := h.AssertNumUTXOs(target, 1, 0, 0)
+
+		// Assert that the lone unconfirmed utxo contains the same
+		// pkscript as the output generated above.
+		pkScriptStr := utxos[0].PkScript
+		if strings.Compare(pkScriptStr, expPkScriptStr) != 0 {
+			return fmt.Errorf("pkscript mismatch, want: %s, "+
+				"found: %s", expPkScriptStr, pkScriptStr)
+		}
+
+	}
+
+	// If the transaction should remain unconfirmed, then we'll wait until
+	// the target node's unconfirmed balance reflects the expected balance
+	// and exit.
+	if !confirmed && !h.IsNeutrinoBackend() {
+		expectedBalance := btcutil.Amount(
+			initialBalance.UnconfirmedBalance) + amt
+		return target.WaitForBalance(expectedBalance, false)
+	}
+
+	// Otherwise, we'll generate 6 new blocks to ensure the output gains a
+	// sufficient number of confirmations and wait for the balance to
+	// reflect what's expected.
+	h.MineBlocks(6)
+
+	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
+	return target.WaitForBalance(expectedBalance, true)
 }

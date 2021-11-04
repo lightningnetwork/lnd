@@ -5,28 +5,23 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
+
 	"testing"
+
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
-	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/errgroup"
-	"google.golang.org/grpc/grpclog"
 )
 
 // DefaultCSV is the CSV delay (remotedelay) we will start our test nodes with.
@@ -134,124 +129,6 @@ func (n *NetworkHarness) ProcessErrors() <-chan error {
 	return n.lndErrorChan
 }
 
-// SetUp starts the initial seeder nodes within the test harness. The initial
-// node's wallets will be funded wallets with ten 1 BTC outputs each. Finally
-// rpc clients capable of communicating with the initial seeder nodes are
-// created. Nodes are initialized with the given extra command line flags, which
-// should be formatted properly - "--arg=value".
-func (n *NetworkHarness) SetUp(t *testing.T, lndArgs []string) error {
-	// Swap out grpc's default logger with out fake logger which drops the
-	// statements on the floor.
-	fakeLogger := grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard)
-	grpclog.SetLoggerV2(fakeLogger)
-	n.feeService = startFeeService(t)
-
-	// Start the initial seeder nodes within the test network, then connect
-	// their respective RPC clients.
-	eg := errgroup.Group{}
-	eg.Go(func() error {
-		var err error
-		n.Alice, err = n.newNode(
-			"Alice", lndArgs, false, nil, n.dbBackend, true,
-		)
-		return err
-	})
-	eg.Go(func() error {
-		var err error
-		n.Bob, err = n.newNode(
-			"Bob", lndArgs, false, nil, n.dbBackend, true,
-		)
-		return err
-	})
-	require.NoError(t, eg.Wait())
-
-	// First, make a connection between the two nodes. This will wait until
-	// both nodes are fully started since the Connect RPC is guarded behind
-	// the server.Started() flag that waits for all subsystems to be ready.
-	n.connectNodes(t, n.Alice, n.Bob, false)
-
-	// Load up the wallets of the seeder nodes with 10 outputs of 1 BTC
-	// each.
-	addrReq := &lnrpc.NewAddressRequest{
-		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
-	}
-	clients := []lnrpc.LightningClient{n.Alice.rpc.LN, n.Bob.rpc.LN}
-	for _, client := range clients {
-		for i := 0; i < 10; i++ {
-			resp, err := client.NewAddress(n.runCtx, addrReq)
-			if err != nil {
-				return err
-			}
-			addr, err := btcutil.DecodeAddress(resp.Address, n.netParams)
-			if err != nil {
-				return err
-			}
-			addrScript, err := txscript.PayToAddrScript(addr)
-			if err != nil {
-				return err
-			}
-
-			output := &wire.TxOut{
-				PkScript: addrScript,
-				Value:    btcutil.SatoshiPerBitcoin,
-			}
-			_, err = n.Miner.SendOutputs([]*wire.TxOut{output}, 7500)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	// We generate several blocks in order to give the outputs created
-	// above a good number of confirmations.
-	if _, err := n.Miner.Client.Generate(10); err != nil {
-		return err
-	}
-
-	// Now we want to wait for the nodes to catch up.
-	if err := n.Alice.WaitForBlockchainSync(); err != nil {
-		return err
-	}
-	if err := n.Bob.WaitForBlockchainSync(); err != nil {
-		return err
-	}
-
-	// Now block until both wallets have fully synced up.
-	expectedBalance := int64(btcutil.SatoshiPerBitcoin * 10)
-	balReq := &lnrpc.WalletBalanceRequest{}
-	balanceTicker := time.NewTicker(time.Millisecond * 200)
-	defer balanceTicker.Stop()
-	balanceTimeout := time.After(DefaultTimeout)
-out:
-	for {
-		select {
-		case <-balanceTicker.C:
-			aliceResp, err := n.Alice.rpc.LN.WalletBalance(
-				n.runCtx, balReq,
-			)
-			if err != nil {
-				return err
-			}
-			bobResp, err := n.Bob.rpc.LN.WalletBalance(
-				n.runCtx, balReq,
-			)
-			if err != nil {
-				return err
-			}
-
-			if aliceResp.ConfirmedBalance == expectedBalance &&
-				bobResp.ConfirmedBalance == expectedBalance {
-
-				break out
-			}
-		case <-balanceTimeout:
-			return fmt.Errorf("balances not synced after deadline")
-		}
-	}
-
-	return nil
-}
-
 // TearDown tears down all active nodes within the test lightning network.
 func (n *NetworkHarness) TearDown() error {
 	for _, node := range n.activeNodes {
@@ -264,7 +141,11 @@ func (n *NetworkHarness) TearDown() error {
 }
 
 // Stop stops the test harness.
-func (n *NetworkHarness) Stop() {
+func (n *NetworkHarness) Stop(t *testing.T) {
+	if err := n.TearDown(); err != nil {
+		t.Logf("Tearing down harness net got error: %v", err)
+	}
+
 	close(n.lndErrorChan)
 	n.cancel()
 
@@ -464,84 +345,18 @@ func (n *NetworkHarness) RegisterNode(node *HarnessNode) {
 func (n *NetworkHarness) connect(ctx context.Context,
 	req *lnrpc.ConnectPeerRequest, a *HarnessNode) error {
 
-	syncTimeout := time.After(DefaultTimeout)
-tryconnect:
-	if _, err := a.rpc.LN.ConnectPeer(ctx, req); err != nil {
-		// If the chain backend is still syncing, retry.
-		if strings.Contains(err.Error(), lnd.ErrServerNotActive.Error()) ||
-			strings.Contains(err.Error(), "i/o timeout") {
-
-			select {
-			case <-time.After(100 * time.Millisecond):
-				goto tryconnect
-			case <-syncTimeout:
-				return fmt.Errorf("chain backend did not " +
-					"finish syncing")
-			}
+	err := wait.NoError(func() error {
+		_, err := a.rpc.LN.ConnectPeer(ctx, req)
+		if err == nil {
+			return nil
 		}
-		return err
-	}
-
-	return nil
-}
-
-// connectNodes establishes an encrypted+authenticated p2p connection from node
-// a towards node b. The function will return a non-nil error if the connection
-// was unable to be established. If the perm parameter is set to true then
-// node a will persistently attempt to reconnect to node b if they get
-// disconnected.
-//
-// NOTE: This function may block for up to 15-seconds as it will not return
-// until the new connection is detected as being known to both nodes.
-func (n *NetworkHarness) connectNodes(t *testing.T, a, b *HarnessNode,
-	perm bool) {
-
-	ctx, cancel := context.WithTimeout(n.runCtx, DefaultTimeout)
-	defer cancel()
-
-	bobInfo, err := b.rpc.LN.GetInfo(ctx, &lnrpc.GetInfoRequest{})
-	require.NoErrorf(
-		t, err, "unable to connect %s to %s, got error: %v",
-		a.Cfg.Name, b.Cfg.Name, err,
-	)
-
-	req := &lnrpc.ConnectPeerRequest{
-		Addr: &lnrpc.LightningAddress{
-			Pubkey: bobInfo.IdentityPubkey,
-			Host:   b.Cfg.P2PAddr(),
-		},
-		Perm: perm,
-	}
-
-	err = n.connect(ctx, req, a)
-	require.NoErrorf(
-		t, err, "unable to connect %s to %s, got error: %v",
-		a.Cfg.Name, b.Cfg.Name, err,
-	)
-
-	err = wait.Predicate(func() bool {
-		// If node B is seen in the ListPeers response from node A,
-		// then we can exit early as the connection has been fully
-		// established.
-		resp, err := a.rpc.LN.ListPeers(ctx, &lnrpc.ListPeersRequest{})
-		if err != nil {
-			return false
-		}
-
-		for _, peer := range resp.Peers {
-			if peer.PubKey == b.PubKeyStr {
-				return true
-			}
-		}
-
-		return false
+		return fmt.Errorf("%s:connect node failed: %w", a.Name(), err)
 	}, DefaultTimeout)
 
-	require.NoErrorf(
-		t, err, "unable to connect %s to %s, "+
-			"got error: peers not connected within %v seconds",
-		a.Cfg.Name, b.Cfg.Name, DefaultTimeout,
-	)
+	if err != nil {
+		return fmt.Errorf("timeout connecting nodes: %v", err)
+	}
+	return nil
 }
 
 // DisconnectNodes disconnects node a from node b by sending RPC message
@@ -1113,113 +928,6 @@ func (n *NetworkHarness) DumpLogs(node *HarnessNode) (string, error) {
 	}
 
 	return string(buf), nil
-}
-
-// SendCoinsOfType attempts to send amt satoshis from the internal mining node
-// to the targeted lightning node. The confirmed boolean indicates whether the
-// transaction that pays to the target should confirm.
-func (n *NetworkHarness) sendCoinsOfType(amt btcutil.Amount, target *HarnessNode,
-	addrType lnrpc.AddressType, confirmed bool) error {
-
-	ctx, cancel := context.WithTimeout(n.runCtx, DefaultTimeout)
-	defer cancel()
-
-	balReq := &lnrpc.WalletBalanceRequest{}
-	initialBalance, err := target.rpc.LN.WalletBalance(ctx, balReq)
-	if err != nil {
-		return err
-	}
-
-	// First, obtain an address from the target lightning node, preferring
-	// to receive a p2wkh address s.t the output can immediately be used as
-	// an input to a funding transaction.
-	addrReq := &lnrpc.NewAddressRequest{
-		Type: addrType,
-	}
-	resp, err := target.rpc.LN.NewAddress(ctx, addrReq)
-	if err != nil {
-		return err
-	}
-	addr, err := btcutil.DecodeAddress(resp.Address, n.netParams)
-	if err != nil {
-		return err
-	}
-	addrScript, err := txscript.PayToAddrScript(addr)
-	if err != nil {
-		return err
-	}
-
-	// Generate a transaction which creates an output to the target
-	// pkScript of the desired amount.
-	output := &wire.TxOut{
-		PkScript: addrScript,
-		Value:    int64(amt),
-	}
-	_, err = n.Miner.SendOutputs([]*wire.TxOut{output}, 7500)
-	if err != nil {
-		return err
-	}
-
-	// Encode the pkScript in hex as this the format that it will be
-	// returned via rpc.
-	expPkScriptStr := hex.EncodeToString(addrScript)
-
-	// Now, wait for ListUnspent to show the unconfirmed transaction
-	// containing the correct pkscript.
-	err = wait.NoError(func() error {
-		// Since neutrino doesn't support unconfirmed outputs, skip
-		// this check.
-		if target.Cfg.BackendCfg.Name() == "neutrino" {
-			return nil
-		}
-
-		req := &lnrpc.ListUnspentRequest{}
-		resp, err := target.rpc.LN.ListUnspent(ctx, req)
-		if err != nil {
-			return err
-		}
-
-		// When using this method, there should only ever be on
-		// unconfirmed transaction.
-		if len(resp.Utxos) != 1 {
-			return fmt.Errorf("number of unconfirmed utxos "+
-				"should be 1, found %d", len(resp.Utxos))
-		}
-
-		// Assert that the lone unconfirmed utxo contains the same
-		// pkscript as the output generated above.
-		pkScriptStr := resp.Utxos[0].PkScript
-		if strings.Compare(pkScriptStr, expPkScriptStr) != 0 {
-			return fmt.Errorf("pkscript mismatch, want: %s, "+
-				"found: %s", expPkScriptStr, pkScriptStr)
-		}
-
-		return nil
-	}, DefaultTimeout)
-	if err != nil {
-		return fmt.Errorf("unconfirmed utxo was not found in "+
-			"ListUnspent: %v", err)
-	}
-
-	// If the transaction should remain unconfirmed, then we'll wait until
-	// the target node's unconfirmed balance reflects the expected balance
-	// and exit.
-	if !confirmed {
-		expectedBalance := btcutil.Amount(initialBalance.UnconfirmedBalance) + amt
-		return target.WaitForBalance(expectedBalance, false)
-	}
-
-	// Otherwise, we'll generate 6 new blocks to ensure the output gains a
-	// sufficient number of confirmations and wait for the balance to
-	// reflect what's expected.
-	if _, err := n.Miner.Client.Generate(6); err != nil {
-		return err
-	}
-
-	fullInitialBalance := initialBalance.ConfirmedBalance +
-		initialBalance.UnconfirmedBalance
-	expectedBalance := btcutil.Amount(fullInitialBalance) + amt
-	return target.WaitForBalance(expectedBalance, true)
 }
 
 // copyAll copies all files and directories from srcDir to dstDir recursively.

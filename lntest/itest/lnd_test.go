@@ -188,7 +188,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create lightning network harness")
 
-	defer lndHarness.Stop()
+	defer lndHarness.Stop(t)
 
 	// Spawn a new goroutine to watch for any fatal errors that any of the
 	// running lnd processes encounter. If an error occurs, then the test
@@ -222,13 +222,10 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		"--dust-threshold=5000000",
 	}
 
-	// Setup two nodes, Alice and Bob, which will be alive and shared among
-	// all the test cases.
-	err = lndHarness.SetUp(t, aliceBobArgs)
-	require.NoError(t, err, "unable to set up test lightning network")
-	defer func() {
-		require.NoError(t, lndHarness.TearDown())
-	}()
+	// Create the harness test and setup two nodes, Alice and Bob, which
+	// will be alive and shared among all the test cases.
+	harnessTest := lntest.NewHarnessTest(t, lndHarness)
+	harnessTest.SetUp(aliceBobArgs)
 
 	// Run the subset of the test cases selected in this tranche.
 	for idx, testCase := range testCases {
@@ -241,7 +238,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			// Create a separate harness test for the testcase to
 			// avoid overwriting the external harness test that is
 			// tied to the parent test.
-			ht := lntest.NewHarnessTest(t1, lndHarness)
+			ht := harnessTest.Subtest(t1)
 
 			cleanTestCaseName := strings.ReplaceAll(
 				testCase.Name, " ", "_",
@@ -255,12 +252,13 @@ func TestLightningNetworkDaemon(t *testing.T) {
 				testCase.Name,
 			)
 
-			lndHarness.Alice.AddToLogf(logLine)
-			lndHarness.Bob.AddToLogf(logLine)
+			harnessTest.Alice().AddToLogf(logLine)
+			harnessTest.Bob().AddToLogf(logLine)
 
 			// Start every test with the default static fee
 			// estimate.
 			ht.SetFeeEstimate(12500)
+			ht.EnsureConnected(ht.Alice(), ht.Bob())
 
 			ht.RunTestCase(testCase)
 		})

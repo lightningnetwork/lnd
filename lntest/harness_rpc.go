@@ -3,6 +3,7 @@ package lntest
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -376,7 +377,10 @@ func (h *HarnessTest) ListInvoices(hn *HarnessNode) *lnrpc.ListInvoiceResponse {
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
-	req := &lnrpc.ListInvoiceRequest{}
+	req := &lnrpc.ListInvoiceRequest{
+		NumMaxInvoices: math.MaxUint64,
+		IndexOffset:    hn.state.Invoice.LastIndexOffset,
+	}
 	resp, err := hn.rpc.LN.ListInvoices(ctxt, req)
 	require.NoErrorf(h, err, "list invoice failed")
 
@@ -392,6 +396,7 @@ func (h *HarnessTest) ListPayments(hn *HarnessNode,
 
 	req := &lnrpc.ListPaymentsRequest{
 		IncludeIncomplete: includeIncomplete,
+		IndexOffset:       hn.state.Payment.LastIndexOffset,
 	}
 	resp, err := hn.rpc.LN.ListPayments(ctxt, req)
 	require.NoError(h, err, "failed to list payments")
@@ -414,8 +419,8 @@ func (h *HarnessTest) GetTransactions(
 	return resp
 }
 
-// GetWalletBalance makes a RPC call to WalletBalance and asserts.
-func (h *HarnessTest) GetWalletBalance(
+// WalletBalance makes a RPC call to WalletBalance and asserts.
+func (h *HarnessTest) WalletBalance(
 	hn *HarnessNode) *lnrpc.WalletBalanceResponse {
 
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
@@ -504,8 +509,8 @@ func (h *HarnessTest) SendCoinFromNodeErr(hn *HarnessNode,
 	require.Error(h, err, "node %s didn't not return an error", hn.Name())
 }
 
-// GetChannelBalance gets the channel balance and asserts.
-func (h *HarnessTest) GetChannelBalance(
+// ChannelBalance gets the channel balance and asserts.
+func (h *HarnessTest) ChannelBalance(
 	hn *HarnessNode) *lnrpc.ChannelBalanceResponse {
 
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)

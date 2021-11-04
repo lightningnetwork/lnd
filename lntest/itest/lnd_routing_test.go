@@ -212,11 +212,9 @@ func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
 
 	// Verify that the payment's from Carol's PoV have the correct payment
 	// hash and amount.
-	paymentsResp := ht.ListPayments(carol, false)
-	require.Len(ht, paymentsResp.Payments, numPayments,
-		"incorrect number of payments")
+	payments := ht.AssertNumPayments(carol, numPayments, false)
 
-	for i, p := range paymentsResp.Payments {
+	for i, p := range payments {
 		// Assert that the payment hashes for each payment match up.
 		rHashHex := hex.EncodeToString(rHashes[i])
 		require.Equalf(ht, rHashHex, p.PaymentHash,
@@ -262,11 +260,9 @@ func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
 
 	// Verify that the invoices's from Dave's PoV have the correct payment
 	// hash and amount.
-	invoicesResp := ht.ListInvoices(dave)
-	require.Len(ht, invoicesResp.Invoices, numPayments,
-		"incorrect number of invoices")
+	invoices := ht.AssertNumInvoices(dave, numPayments)
 
-	for i, inv := range invoicesResp.Invoices {
+	for i, inv := range invoices {
 		// Assert that the payment hashes match up.
 		require.Equal(ht, rHashes[i], inv.RHash,
 			"incorrect payment hash for invoice %d", i)

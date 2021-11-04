@@ -112,12 +112,13 @@ func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 	// assertNumHtlcs is a helper that checks the node's latest payment,
 	// and asserts it was split into num shards.
 	assertNumHtlcs := func(node *lntest.HarnessNode, num int) {
-		paymentsResp := ht.ListPayments(node, true)
+		var preimage lntypes.Preimage
+		copy(preimage[:], invoices[0].RPreimage)
 
-		payments := paymentsResp.Payments
-		require.NotEmpty(ht, payments, "no payments found")
+		payment := ht.AssertPaymentStatus(
+			node, preimage, lnrpc.Payment_SUCCEEDED,
+		)
 
-		payment := payments[len(payments)-1]
 		htlcs := payment.Htlcs
 		require.NotEmpty(ht, htlcs, "no htlcs")
 

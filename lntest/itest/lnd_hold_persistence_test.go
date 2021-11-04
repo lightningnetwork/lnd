@@ -114,11 +114,11 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 		)
 	}
 
-	// The payments should now show up in Alice's ListInvoices, with a zero
+	// The payments should now show up in Alice's ListPayments, with a zero
 	// preimage, indicating they are not yet settled.
 	var zeroPreimg lntypes.Preimage
 	err := wait.NoError(func() error {
-		paymentsResp := ht.ListPayments(alice, true)
+		payments := ht.AssertNumPayments(alice, numPayments, true)
 
 		// Gather the payment hashes we are looking for in the
 		// response.
@@ -127,7 +127,7 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 			payHashes[preimg.Hash().String()] = struct{}{}
 		}
 
-		for _, payment := range paymentsResp.Payments {
+		for _, payment := range payments {
 			_, ok := payHashes[payment.PaymentHash]
 			if !ok {
 				continue

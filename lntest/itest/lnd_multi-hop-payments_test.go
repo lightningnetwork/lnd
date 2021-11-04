@@ -12,40 +12,46 @@ import (
 func testMultiHopPayments(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
-	// Open a channel with 100k satoshis between Alice and Bob with Alice
-	// being the sole funder of the channel.
-	alice, bob := ht.Alice, ht.Bob
-	chanPointAlice := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
-	)
-
 	// As preliminary setup, we'll create two new nodes: Carol and Dave,
 	// such that we now have a 4 node, 3 channel topology. Dave will make a
 	// channel with Alice, and Carol with Dave. After this setup, the
 	// network topology should now look like:
 	//     Carol -> Dave -> Alice -> Bob
-	//
-	// First, we'll create Dave and establish a channel to Alice. Dave will
-	// be running an older node that requires the legacy onion payload.
+	alice, bob := ht.Alice, ht.Bob
+
 	daveArgs := []string{"--protocol.legacy.onion"}
 	dave := ht.NewNode("Dave", daveArgs)
 	defer ht.Shutdown(dave)
 
-	ht.ConnectNodes(dave, alice)
-	ht.SendCoins(btcutil.SatoshiPerBitcoin, dave)
+	carol := ht.NewNode("Carol", nil)
+	defer ht.Shutdown(carol)
 
+	// Subscribe events early so we don't miss it out.
+	aliceEvents := ht.SubscribeHtlcEvents(alice)
+	bobEvents := ht.SubscribeHtlcEvents(bob)
+	carolEvents := ht.SubscribeHtlcEvents(carol)
+	daveEvents := ht.SubscribeHtlcEvents(dave)
+
+	// Connect the nodes.
+	ht.ConnectNodes(dave, alice)
+	ht.ConnectNodes(carol, dave)
+
+	// Open a channel with 100k satoshis between Alice and Bob with Alice
+	// being the sole funder of the channel.
+	chanPointAlice := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
+	)
+
+	// We'll create Dave and establish a channel to Alice. Dave will be
+	// running an older node that requires the legacy onion payload.
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, dave)
 	chanPointDave := ht.OpenChannel(
 		dave, alice, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Next, we'll create Carol and establish a channel to from her to
 	// Dave.
-	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
-
-	ht.ConnectNodes(carol, dave)
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
-
 	chanPointCarol := ht.OpenChannel(
 		carol, dave, lntest.OpenChannelParams{Amt: chanAmt},
 	)
@@ -74,13 +80,6 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 		ht, dave, chanPointDave, daveBaseFeeSat*1000, daveFeeRatePPM,
 		chainreg.DefaultBitcoinTimeLockDelta, maxHtlc, carol,
 	)
-
-	// Before we start sending payments, subscribe to htlc events for each
-	// node.
-	aliceEvents := ht.SubscribeHtlcEvents(alice)
-	bobEvents := ht.SubscribeHtlcEvents(bob)
-	carolEvents := ht.SubscribeHtlcEvents(carol)
-	daveEvents := ht.SubscribeHtlcEvents(dave)
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.

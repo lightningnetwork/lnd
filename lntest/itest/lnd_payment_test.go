@@ -342,17 +342,18 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 func testInvoiceSubscriptions(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(500000)
 
-	// Open a channel with 500k satoshis between Alice and Bob with Alice
-	// being the sole funder of the channel.
 	alice, bob := ht.Alice, ht.Bob
-	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
-	)
 
 	// Create a new invoice subscription client for Bob, the notification
 	// should be dispatched shortly below.
 	req := &lnrpc.InvoiceSubscription{}
 	bobInvoiceSubscription := ht.SubscribeInvoices(bob, req)
+
+	// Open a channel with 500k satoshis between Alice and Bob with Alice
+	// being the sole funder of the channel.
+	chanPoint := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
+	)
 
 	// Next create a new invoice for Bob requesting 1k satoshis.
 	// TODO(roasbeef): make global list of invoices for each node to re-use

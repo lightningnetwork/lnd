@@ -17,17 +17,41 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 	// multi-hop payment.
 	const chanAmt = funding.MaxBtcFundingAmount
 
+	alice, bob := ht.Alice, ht.Bob
+
+	// Since we'd like to test some multi-hop failure scenarios, we'll
+	// introduce another node into our test network: Carol.
+	carol := ht.NewNode("Carol", nil)
+	ht.ConnectNodes(bob, carol)
+
+	// Before we start sending payments, subscribe to htlc events for each
+	// node.
+	aliceEvents := ht.SubscribeHtlcEvents(alice)
+	bobEvents := ht.SubscribeHtlcEvents(bob)
+	carolEvents := ht.SubscribeHtlcEvents(carol)
+
 	// First establish a channel with a capacity of 0.5 BTC between Alice
 	// and Bob.
-	alice, bob := ht.Alice, ht.Bob
 	chanPointAlice := ht.OpenChannel(
 		alice, bob,
 		lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
-	cType := ht.GetChannelCommitType(alice, chanPointAlice)
+	// Next, we'll create a connection from Bob to Carol, and open a
+	// channel between them so we have the topology: Alice -> Bob -> Carol.
+	// The channel created will be of lower capacity that the one created
+	// above.
+	const bobChanAmt = funding.MaxBtcFundingAmount
+	chanPointBob := ht.OpenChannel(
+		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
+	)
 
+	// Ensure that Alice has Carol in her routing table before proceeding.
+	ht.AssertChannelOpen(alice, chanPointBob)
+
+	cType := ht.GetChannelCommitType(alice, chanPointAlice)
 	commitFee := calcStaticFee(cType, 0)
+
 	assertBaseBalance := func() {
 		// Alice has opened a channel with Bob with zero push amount,
 		// so it's remote balance is zero.
@@ -87,23 +111,6 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 			"wrong link fail detail")
 	}
 
-	// Since we'd like to test some multi-hop failure scenarios, we'll
-	// introduce another node into our test network: Carol.
-	carol := ht.NewNode("Carol", nil)
-
-	// Next, we'll create a connection from Bob to Carol, and open a
-	// channel between them so we have the topology: Alice -> Bob -> Carol.
-	// The channel created will be of lower capacity that the one created
-	// above.
-	ht.ConnectNodes(bob, carol)
-	const bobChanAmt = funding.MaxBtcFundingAmount
-	chanPointBob := ht.OpenChannel(
-		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
-	)
-
-	// Ensure that Alice has Carol in her routing table before proceeding.
-	ht.AssertChannelOpen(alice, chanPointBob)
-
 	// With the channels, open we can now start to test our multi-hop error
 	// scenarios. First, we'll generate an invoice from carol that we'll
 	// use to test some error cases.
@@ -114,12 +121,6 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 	}
 	carolInvoice := ht.AddInvoice(invoiceReq, carol)
 	carolPayReq := ht.DecodePayReq(carol, carolInvoice.PaymentRequest)
-
-	// Before we start sending payments, subscribe to htlc events for each
-	// node.
-	aliceEvents := ht.SubscribeHtlcEvents(alice)
-	bobEvents := ht.SubscribeHtlcEvents(bob)
-	carolEvents := ht.SubscribeHtlcEvents(carol)
 
 	// For the first scenario, we'll test the cancellation of an HTLC with
 	// an unknown payment hash.

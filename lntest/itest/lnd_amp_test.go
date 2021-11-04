@@ -198,14 +198,14 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 	dave := ht.NewNode("Dave", nil)
 	defer ht.Shutdown(dave)
 
-	// Before we start the test, we'll ensure both sides are connected to
-	// the funding flow can properly be executed.
-	ht.EnsureConnected(carol, dave)
-
 	// Set up an invoice subscription so we can be notified when Dave
 	// receives his repeated payments.
 	req := &lnrpc.InvoiceSubscription{}
 	invSubscription := ht.SubscribeInvoices(dave, req)
+
+	// Before we start the test, we'll ensure both sides are connected to
+	// the funding flow can properly be executed.
+	ht.EnsureConnected(carol, dave)
 
 	// Establish a channel between Carol and Dave.
 	chanAmt := btcutil.Amount(100_000)
@@ -465,6 +465,10 @@ func testSendToRouteAMP(ht *lntest.HarnessTest) {
 		chanAmt    = shardAmt * 3 / 2
 	)
 
+	// Subscribe to bob's invoices.
+	req := &lnrpc.InvoiceSubscription{}
+	bobInvoiceSubscription := ht.SubscribeInvoices(ctx.bob, req)
+
 	// Set up a network with three different paths Alice <-> Bob.
 	//              _ Eve _
 	//             /       \
@@ -481,12 +485,7 @@ func testSendToRouteAMP(ht *lntest.HarnessTest) {
 	// Since the channel Alice-> Carol will have to carry two
 	// shards, we make it larger.
 	ctx.openChannel(ctx.alice, ctx.carol, chanAmt+shardAmt)
-
 	defer ctx.closeChannels()
-
-	// Subscribe to bob's invoices.
-	req := &lnrpc.InvoiceSubscription{}
-	bobInvoiceSubscription := ht.SubscribeInvoices(ctx.bob, req)
 
 	// We'll send shards along three routes from Alice.
 	sendRoutes := [numShards][]*lntest.HarnessNode{

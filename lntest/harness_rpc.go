@@ -895,6 +895,13 @@ type InvoiceUpdateClient lnrpc.Lightning_SubscribeInvoicesClient
 
 // SubscribeInvoices creates a subscription client for invoice events and
 // asserts its creation.
+//
+// NOTE: make sure to subscribe an invoice as early as possible as it takes
+// some time for the lnd to create the subscription client. If an invoice is
+// added right after the subscription, it may be missed. However, if AddIndex
+// or SettleIndex is used in the request, it will be fine as a backlog will
+// always be sent.
+// TODO(yy): add an invoice subscription to each node like the topologyClient?
 func (h *HarnessTest) SubscribeInvoices(hn *HarnessNode,
 	req *lnrpc.InvoiceSubscription) InvoiceUpdateClient {
 

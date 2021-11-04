@@ -17,13 +17,8 @@ import (
 func testListPayments(ht *lntest.HarnessTest) {
 	alice, bob := ht.Alice(), ht.Bob()
 
-	// First start by deleting all payments that Alice knows of. This will
-	// allow us to execute the test with a clean state for Alice.
-	ht.DeleteAllPayments(alice)
-
 	// Check that there are no payments before test.
-	paymentsRespInit := ht.ListPayments(alice, true)
-	require.Zero(ht, paymentsRespInit.Payments, "wrong num of payments")
+	ht.AssertNumPayments(alice, 0, true)
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
@@ -56,9 +51,7 @@ func testListPayments(ht *lntest.HarnessTest) {
 
 	// Grab Alice's list of payments, she should show the existence of
 	// exactly one payment.
-	paymentsResp := ht.ListPayments(alice, true)
-	require.Len(ht, paymentsResp.Payments, 1, "wrong num of payments")
-	p := paymentsResp.Payments[0]
+	p := ht.AssertNumPayments(alice, 1, true)[0]
 	path := p.Htlcs[len(p.Htlcs)-1].Route.Hops
 
 	// Ensure that the stored path shows a direct payment to Bob with no
@@ -89,8 +82,7 @@ func testListPayments(ht *lntest.HarnessTest) {
 	ht.DeleteAllPayments(alice)
 
 	// Check that there are no payments after test.
-	paymentsResp = ht.ListPayments(alice, true)
-	require.Zero(ht, paymentsResp.Payments, "wrong num of payments")
+	ht.AssertNumPayments(alice, 0, true)
 }
 
 // testPaymentFollowingChannelOpen tests that the channel transition from

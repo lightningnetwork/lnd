@@ -142,11 +142,8 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 
 	// Also fetch Bob's invoice from ListInvoices and assert it is equal to
 	// the one received via the subscription.
-	invoiceResp := ht.ListInvoices(ctx.bob)
-	require.Equal(ht, expNumInvoices, len(invoiceResp.Invoices))
-	assertInvoiceEqual(
-		ht.T, rpcInvoice, invoiceResp.Invoices[expNumInvoices-1],
-	)
+	invoices := ht.AssertNumInvoices(ctx.bob, expNumInvoices)
+	assertInvoiceEqual(ht.T, rpcInvoice, invoices[expNumInvoices-1])
 
 	// Assert that the invoice is settled for the total payment amount and
 	// has the correct payment address.
@@ -414,12 +411,9 @@ func testSendPaymentAMP(ht *lntest.HarnessTest) {
 	require.GreaterOrEqual(ht, succeeded, minExpectedShards,
 		"expected num of shards not reached")
 
-	// Fetch Bob's invoices.
-	invoiceResp := ht.ListInvoices(ctx.bob)
-
-	// There should only be one invoice.
-	require.Equal(ht, 1, len(invoiceResp.Invoices))
-	rpcInvoice := invoiceResp.Invoices[0]
+	// Fetch Bob's invoices. There should only be one invoice.
+	invoices := ht.AssertNumInvoices(ctx.bob, 1)
+	rpcInvoice := invoices[0]
 
 	// Assert that the invoice is settled for the total payment amount and
 	// has the correct payment address.
@@ -613,11 +607,9 @@ func testSendToRouteAMP(ht *lntest.HarnessTest) {
 	require.NoError(ht, err)
 
 	// Also fetch Bob's invoice from ListInvoices and assert it is equal to
-	// the one received via the subscription.
-	invoiceResp := ht.ListInvoices(ctx.bob)
-	require.NoError(ht, err)
-	require.Equal(ht, 1, len(invoiceResp.Invoices))
-	assertInvoiceEqual(ht.T, rpcInvoice, invoiceResp.Invoices[0])
+	// the one recevied via the subscription.
+	invoices := ht.AssertNumInvoices(ctx.bob, 1)
+	assertInvoiceEqual(ht.T, rpcInvoice, invoices[0])
 
 	// Assert that the invoice is settled for the total payment amount and
 	// has the correct payment address.

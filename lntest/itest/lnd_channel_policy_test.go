@@ -623,10 +623,9 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 
 	// Check that Alice did make the payment with two HTLCs, one failed and
 	// one succeeded.
-	paymentsResp := ht.ListPayments(alice, false)
-	require.Equal(ht, 1, len(paymentsResp.Payments), "expected 1 payment")
+	payments := ht.AssertNumPayments(alice, 1, true)
 
-	htlcs := paymentsResp.Payments[0].Htlcs
+	htlcs := payments[0].Htlcs
 	require.Equal(ht, 2, len(htlcs), "expected to have 2 HTLCs")
 	require.Equal(
 		ht, lnrpc.HTLCAttempt_FAILED, htlcs[0].Status,

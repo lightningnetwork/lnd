@@ -219,6 +219,8 @@ func (h *HarnessTest) AssertNodeNumChannels(hn *HarnessNode, numChannels int) {
 // AssertNumActiveHtlcs asserts that a given number of HTLCs are seen in the
 // node's channels.
 func (h *HarnessTest) AssertNumActiveHtlcs(hn *HarnessNode, num int) {
+	old := hn.state.HTLC
+
 	err := wait.NoError(func() error {
 		// We require the RPC call to be succeeded and won't wait for
 		// it as it's an unexpected behavior.
@@ -228,9 +230,9 @@ func (h *HarnessTest) AssertNumActiveHtlcs(hn *HarnessNode, num int) {
 		for _, channel := range nodeChans.Channels {
 			total += len(channel.PendingHtlcs)
 		}
-		if total != num {
-			return fmt.Errorf("expected %v HTLCs, got %v",
-				num, total)
+		if total-old != num {
+			return errNumNotMatched(hn.Name(), "active HTLCs",
+				num, total-old, total, old)
 		}
 
 		return nil
@@ -1233,4 +1235,142 @@ func errNumNotMatched(name string, subject string,
 
 	return fmt.Errorf("%s: assert %s failed: want %d, got: %d, total: "+
 		"%d, previously had: %d", name, subject, want, got, total, old)
+}
+
+// AssertNumPayments asserts that the number of payments made within the test
+// scope is as expected.
+func (h *HarnessTest) AssertNumPayments(hn *HarnessNode, num int,
+	includeIncomplete bool) []*lnrpc.Payment {
+
+	have := hn.state.Payment.Completed
+	if includeIncomplete {
+		have = hn.state.Payment.Total
+	}
+
+	var payments []*lnrpc.Payment
+	err := wait.NoError(func() error {
+		resp := h.ListPayments(hn, includeIncomplete)
+
+		payments = resp.Payments
+		if len(payments) == num {
+			return nil
+		}
+
+		return errNumNotMatched(hn.Name(), "num of payments",
+			num, len(payments), have+len(payments), have)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking num of payments")
+
+	return payments
+}
+
+// AssertNumInvoices asserts that the number of invoices made within the test
+// scope is as expected.
+func (h *HarnessTest) AssertNumInvoices(hn *HarnessNode,
+	num int) []*lnrpc.Invoice {
+
+	have := hn.state.Invoice.Total
+
+	var invoices []*lnrpc.Invoice
+	err := wait.NoError(func() error {
+		resp := h.ListInvoices(hn)
+
+		invoices = resp.Invoices
+		if len(invoices) == num {
+			return nil
+		}
+
+		return errNumNotMatched(hn.Name(), "num of invoices",
+			num, len(invoices), have+len(invoices), have)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking num of invoices")
+
+	return invoices
+}
+
+// GetChannelBalance gets the channel balances which are changed within the
+// current test.
+func (h *HarnessTest) GetChannelBalance(
+	hn *HarnessNode) *lnrpc.ChannelBalanceResponse {
+
+	resp := h.ChannelBalance(hn)
+
+	calculate := func(a, b *lnrpc.Amount) *lnrpc.Amount {
+		return &lnrpc.Amount{
+			Sat:  a.GetSat() - b.GetSat(),
+			Msat: a.GetMsat() - b.GetMsat(),
+		}
+	}
+	local := calculate(resp.LocalBalance, hn.state.Balance.LocalBalance)
+	remote := calculate(resp.RemoteBalance, hn.state.Balance.RemoteBalance)
+	unLocal := calculate(
+		resp.UnsettledLocalBalance,
+		hn.state.Balance.UnsettledLocalBalance,
+	)
+	unRemote := calculate(
+		resp.UnsettledRemoteBalance,
+		hn.state.Balance.UnsettledRemoteBalance,
+	)
+	pendingLocal := calculate(
+		resp.PendingOpenLocalBalance,
+		hn.state.Balance.PendingOpenLocalBalance,
+	)
+	pendingRemote := calculate(
+		resp.PendingOpenRemoteBalance,
+		hn.state.Balance.PendingOpenRemoteBalance,
+	)
+
+	balance := resp.Balance - hn.state.Balance.Balance // nolint:staticcheck
+
+	pendingBalance := resp.PendingOpenBalance - // nolint:staticcheck
+		hn.state.Balance.PendingOpenBalance
+
+	return &lnrpc.ChannelBalanceResponse{
+		LocalBalance:             local,
+		RemoteBalance:            remote,
+		UnsettledLocalBalance:    unLocal,
+		UnsettledRemoteBalance:   unRemote,
+		PendingOpenLocalBalance:  pendingLocal,
+		PendingOpenRemoteBalance: pendingRemote,
+
+		// Deprecated fields.
+		Balance:            balance,        // nolint:staticcheck
+		PendingOpenBalance: pendingBalance, // nolint:staticcheck
+
+	}
+}
+
+// GetWalletBalance makes a RPC call to WalletBalance which are changed within
+// the current test.
+func (h *HarnessTest) GetWalletBalance(
+	hn *HarnessNode) *lnrpc.WalletBalanceResponse {
+
+	resp := h.WalletBalance(hn)
+
+	total := resp.TotalBalance - hn.state.Wallet.TotalBalance
+	confirmed := resp.ConfirmedBalance - hn.state.Wallet.ConfirmedBalance
+	unconfirmed := resp.UnconfirmedBalance -
+		hn.state.Wallet.UnconfirmedBalance
+
+	accounts := make(map[string]*lnrpc.WalletAccountBalance)
+	for name, balance := range resp.AccountBalance {
+		account := &lnrpc.WalletAccountBalance{
+			ConfirmedBalance:   balance.ConfirmedBalance,
+			UnconfirmedBalance: balance.UnconfirmedBalance,
+		}
+		old, ok := hn.state.Wallet.AccountBalance[name]
+		if ok {
+			account.ConfirmedBalance -= old.ConfirmedBalance
+			account.UnconfirmedBalance -= old.UnconfirmedBalance
+		}
+
+		accounts[name] = account
+	}
+
+	return &lnrpc.WalletBalanceResponse{
+		TotalBalance:       total,
+		ConfirmedBalance:   confirmed,
+		UnconfirmedBalance: unconfirmed,
+		AccountBalance:     accounts,
+	}
 }

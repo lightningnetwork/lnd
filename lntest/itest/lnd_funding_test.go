@@ -33,7 +33,9 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 
 	// testFunding is a function closure that takes Carol and Dave's
 	// commitment types and test the funding flow.
-	testFunding := func(carolCommitType, daveCommitType lnrpc.CommitmentType) {
+	testFunding := func(ht *lntest.HarnessTest, carolCommitType,
+		daveCommitType lnrpc.CommitmentType) {
+
 		// Based on the current tweak variable for Carol, we'll
 		// preferentially signal the legacy commitment format.  We do
 		// the same for Dave shortly below.
@@ -127,7 +129,9 @@ test:
 				"carol_commit=%v,dave_commit=%v", cc, dc,
 			)
 			success := ht.Run(testName, func(t *testing.T) {
-				testFunding(cc, dc)
+				st, cleanup := ht.Subtest(t)
+				defer cleanup()
+				testFunding(st, cc, dc)
 			})
 
 			if !success {

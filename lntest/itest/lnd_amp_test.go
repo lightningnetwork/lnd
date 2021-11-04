@@ -21,11 +21,13 @@ import (
 // specified AMP invoice using SendPaymentV2.
 func testSendPaymentAMPInvoice(ht *lntest.HarnessTest) {
 	ht.Run("native payaddr", func(t *testing.T) {
-		tt := ht.Subtest(t)
+		tt, cleanup := ht.Subtest(t)
+		defer cleanup()
 		testSendPaymentAMPInvoiceCase(tt, false)
 	})
 	ht.Run("external payaddr", func(t *testing.T) {
-		tt := ht.Subtest(t)
+		tt, cleanup := ht.Subtest(t)
+		defer cleanup()
 		testSendPaymentAMPInvoiceCase(tt, true)
 	})
 }

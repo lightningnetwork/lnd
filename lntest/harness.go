@@ -179,9 +179,6 @@ func (h *HarnessTest) SetUp(lndArgs []string) {
 // represented as fatal.
 func (h *HarnessTest) RunTestCase(testCase *TestCase) {
 	defer func() {
-		// Canel the run context.
-		h.cancel()
-
 		if err := recover(); err != nil {
 			description := errors.Wrap(err, 2).ErrorStack()
 			h.Fatalf("Failed: (%v) panic with: \n%v",
@@ -195,10 +192,70 @@ func (h *HarnessTest) RunTestCase(testCase *TestCase) {
 // FailNow is called by require at the very end if a test failed.
 func (h *HarnessTest) FailNow() {
 	h.T.FailNow()
+
+	// Whenever the test fails, we also cancel the running context.
+	h.cancel()
+}
+
+func (h *HarnessTest) Logf(format string, args ...interface{}) {
+	// Append test name.
+	testName := fmt.Sprintf("from test %s: ", h.net.currentTestCase)
+	h.T.Logf(testName+format, args...)
 }
 
 func (h *HarnessTest) Miner() *HarnessMiner {
 	return h.net.Miner
+}
+
+// cleanupStandbyNode is a function should be called with defer whenever a
+// subtest is created. It will reset the standby nodes configs, snapshot the
+// states, and validate the node has a clean state.
+func (h *HarnessTest) cleanupStandbyNode(hn *HarnessNode) {
+	// Remove connections made from this test.
+	h.removeConnectionns(hn)
+
+	// Reset the config so the node will be using the default config for
+	// the coming test.
+	h.resetArgsAndRestart(hn)
+
+	// Delete all payments made from this test.
+	h.DeleteAllPayments(hn)
+
+	// Update the node's internal state.
+	err := hn.updateState()
+	require.NoErrorf(h, err, "failed to snapshot state for %s", hn.Name())
+
+	// Finally, check the node is in a clean state for the following tests.
+	h.validateNodeState(hn)
+}
+
+// resetArgsAndRestart will restart the node with its original extra args if
+// it's changed in the test.
+func (h *HarnessTest) resetArgsAndRestart(hn *HarnessNode) {
+	// If the config is not changed, exit early.
+	if equalStringSlices(hn.Cfg.ExtraArgs, hn.Cfg.OriginalExtraArgs) {
+		return
+	}
+
+	// Otherwise, reset the config and restart the node.
+	h.RestartNodeWithExtraArgs(hn, hn.Cfg.OriginalExtraArgs)
+}
+
+// removeConnectionns will remove all connections made on the standby nodes
+// expect the connections between Alice and Bob.
+func (h *HarnessTest) removeConnectionns(hn *HarnessNode) {
+	resp := h.ListPeers(hn)
+	for _, peer := range resp.Peers {
+		// Skip disconnecting Alice and Bob.
+		switch peer.PubKey {
+		case h.Alice.PubKeyStr:
+			continue
+		case h.Bob.PubKeyStr:
+			continue
+		}
+
+		h.DisconnectPeer(hn, peer.PubKey)
+	}
 }
 
 // SnapshotNodeStates creates a snapshot of all the standby nodes' internal
@@ -234,9 +291,97 @@ func (h *HarnessTest) IsNeutrinoBackend() bool {
 	return h.net.BackendCfg.Name() == NeutrinoBackendName
 }
 
-// Subtest creates a child HarnessTest.
-func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
-	return NewHarnessTest(t, h.net)
+// Subtest creates a child HarnessTest, which inhertis the harness net and
+// stand by nodes created by the parent test. It will return a cleanup function
+// which resets  all the standby nodes' configs back to its original state and
+// create snapshots of each nodes' internal state.
+func (h *HarnessTest) Subtest(t *testing.T) (*HarnessTest, func()) {
+	st := NewHarnessTest(t, h.net)
+	st.nodes = h.nodes
+	st.standbyNodes = h.standbyNodes
+
+	cleanup := func() {
+		// Don't bother run the cleanups if the test is failed.
+		if st.Failed() {
+			st.Log("test failed, skipped cleanup")
+			return
+		}
+
+		// We require the mempool to be cleaned from the test.
+		require.Empty(st, st.GetRawMempool(), "mempool not cleaned, "+
+			"please mine blocks to clean them all.")
+
+		// If found running nodes, shut them down.
+		st.shutdownNonStandbyNodes()
+
+		// When we finish the test, reset the nodes' configs and take a
+		// snapshot of each of the nodes' internal states.
+		for _, node := range st.standbyNodes {
+			st.cleanupStandbyNode(node)
+		}
+
+		// Finally, cancel the run context. We have to do it here
+		// because we need to keep the context alive for the above
+		// assertions used in cleanup.
+		st.cancel()
+	}
+
+	return st, cleanup
+}
+
+// shutdownNonStandbyNodes will shutdown any non-standby nodes.
+func (h *HarnessTest) shutdownNonStandbyNodes() {
+	for _, node := range h.net.activeNodes {
+		// If it's a standby node, skip.
+		standby, ok := h.standbyNodes[node.Name()]
+		if ok && node.PubKeyStr == standby.PubKeyStr {
+			continue
+		}
+
+		// Otherwise shut it down.
+		h.Logf("found running node: %s, shutting down...", node.Name())
+		h.Shutdown(node)
+	}
+}
+
+// validateNodeState checks that the node doesn't have any uncleaned states
+// which will affect its following tests.
+func (h *HarnessTest) validateNodeState(hn *HarnessNode) {
+	errStr := func(subject string) string {
+		return fmt.Sprintf("%s: found %s channels, please close "+
+			"them properly", hn.Name(), subject)
+	}
+	// If the node still has open channels, it's most likely that the
+	// current test didn't close it properly.
+	require.Zerof(h, hn.state.OpenChannel.Active, errStr("active"))
+	require.Zerof(h, hn.state.OpenChannel.Public, errStr("public"))
+	require.Zerof(h, hn.state.OpenChannel.Private, errStr("private"))
+	require.Zerof(h, hn.state.OpenChannel.Pending, errStr("pending open"))
+
+	// The number of pending force close channels should be zero.
+	require.Zerof(h, hn.state.CloseChannel.PendingForceClose,
+		errStr("pending force"))
+
+	// The number of waiting close channels should be zero.
+	require.Zerof(h, hn.state.CloseChannel.WaitingClose,
+		errStr("waiting close"))
+
+	// Ths number of payments should be zero.
+	// TODO(yy): no need to check since it's deleted in the cleanup? Or
+	// check it in a wait?
+	require.Zerof(h, hn.state.Payment.Total, "%s: found "+
+		"uncleaned payments, please delete all of them properly",
+		hn.Name())
+}
+
+// SetTestName set the test case name.
+func (h *HarnessTest) SetTestName(name string) {
+	h.net.SetTestName(name)
+
+	// Overwrite the old log filename so we can create new log files.
+	for _, node := range h.standbyNodes {
+		node.Cfg.LogFilenamePrefix = name
+	}
 }
 
 // NewNode creates a new node and asserts its creation. The node is guaranteed

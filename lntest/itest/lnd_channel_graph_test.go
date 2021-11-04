@@ -249,11 +249,13 @@ func testUnannouncedChannels(ht *lntest.HarnessTest) {
 
 func testGraphTopologyNotifications(ht *lntest.HarnessTest) {
 	ht.Run("pinned", func(t *testing.T) {
-		subT := ht.Subtest(t)
+		subT, cleanup := ht.Subtest(t)
+		defer cleanup()
 		testGraphTopologyNtfns(subT, true)
 	})
 	ht.Run("unpinned", func(t *testing.T) {
-		subT := ht.Subtest(t)
+		subT, cleanup := ht.Subtest(t)
+		defer cleanup()
 		testGraphTopologyNtfns(subT, false)
 	})
 }

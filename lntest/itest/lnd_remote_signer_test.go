@@ -199,7 +199,9 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 		ht.EnsureConnected(watchOnly, carol)
 
 		success := ht.Run(subTest.name, func(tt *testing.T) {
-			subTest.fn(ht.Subtest(tt), watchOnly, carol)
+			// Skip the cleanup here as no standby node is used.
+			st, _ := ht.Subtest(tt)
+			subTest.fn(st, watchOnly, carol)
 		})
 
 		ht.Shutdown(carol)

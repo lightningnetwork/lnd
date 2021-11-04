@@ -76,13 +76,15 @@ func testMultiHopHtlcClaims(ht *lntest.HarnessTest) {
 		testName := fmt.Sprintf("committype=%v", commitType.String())
 
 		success := ht.Run(testName, func(t *testing.T) {
-			ht := ht.Subtest(t)
+			ht, cleanup := ht.Subtest(t)
+			defer cleanup()
 
 			for _, subTest := range subTests {
 				subTest := subTest
 
 				s := ht.Run(subTest.name, func(t *testing.T) {
-					ht := ht.Subtest(t)
+					ht, cleanup := ht.Subtest(t)
+					defer cleanup()
 
 					alice, bob := ht.Alice, ht.Bob
 

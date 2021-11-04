@@ -46,7 +46,7 @@ func testEtcdFailover(ht *lntest.HarnessTest) {
 		test := test
 
 		ht.Run(test.name, func(t1 *testing.T) {
-			st := ht.Subtest(t1)
+			st, _ := ht.Subtest(t1)
 			st.RunTestCase(&lntest.TestCase{
 				Name: test.name,
 				TestFunc: func(ht *lntest.HarnessTest) {

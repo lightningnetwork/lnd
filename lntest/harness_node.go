@@ -112,10 +112,11 @@ type BaseNodeConfig struct {
 	// to store the current test case for simpler postmortem debugging.
 	LogFilenamePrefix string
 
-	BackendCfg BackendConfig
-	NetParams  *chaincfg.Params
-	BaseDir    string
-	ExtraArgs  []string
+	BackendCfg        BackendConfig
+	NetParams         *chaincfg.Params
+	BaseDir           string
+	ExtraArgs         []string
+	OriginalExtraArgs []string
 
 	DataDir        string
 	LogDir         string
@@ -238,10 +239,6 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		args = append(args, "--noseedbackup")
 	}
 
-	if cfg.ExtraArgs != nil {
-		args = append(args, cfg.ExtraArgs...)
-	}
-
 	if cfg.AcceptKeySend {
 		args = append(args, "--accept-keysend")
 	}
@@ -280,6 +277,11 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 
 	if cfg.FeeURL != "" {
 		args = append(args, "--feeurl="+cfg.FeeURL)
+	}
+
+	// Put extra args in the end so the args can be overwritten.
+	if cfg.ExtraArgs != nil {
+		args = append(args, cfg.ExtraArgs...)
 	}
 
 	return args
@@ -405,6 +407,8 @@ func newNode(cfg *BaseNodeConfig) (*HarnessNode, error) {
 		cfg.PostgresDsn = postgresDatabaseDsn(dbName)
 	}
 
+	cfg.OriginalExtraArgs = cfg.ExtraArgs
+
 	return &HarnessNode{
 		Cfg:               cfg,
 		NodeID:            nextNodeID(),
@@ -459,7 +463,6 @@ func (hn *HarnessNode) String() string {
 		RESTPort          int
 		ProfilePort       int
 		AcceptKeySend     bool
-		AcceptAMP         bool
 		FeeURL            string
 	}
 
@@ -482,8 +485,6 @@ func (hn *HarnessNode) String() string {
 			RPCPort:           hn.Cfg.RPCPort,
 			RESTPort:          hn.Cfg.RESTPort,
 			AcceptKeySend:     hn.Cfg.AcceptKeySend,
-			AcceptAMP:         hn.Cfg.AcceptAMP,
-			FeeURL:            hn.Cfg.FeeURL,
 		},
 	}
 

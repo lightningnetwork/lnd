@@ -65,7 +65,8 @@ func testSingleHopSendToRoute(ht *lntest.HarnessTest) {
 		test := test
 
 		ht.Run(test.name, func(t1 *testing.T) {
-			st := ht.Subtest(t1)
+			st, cleanup := ht.Subtest(t1)
+			defer cleanup()
 			st.RunTestCase(&lntest.TestCase{
 				Name: test.name,
 				TestFunc: func(tt *lntest.HarnessTest) {
@@ -290,12 +291,14 @@ func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
 // send payments through the routes.
 func testMultiHopSendToRoute(ht *lntest.HarnessTest) {
 	ht.Run("with cache", func(tt *testing.T) {
-		st := ht.Subtest(tt)
+		st, cleanup := ht.Subtest(tt)
+		defer cleanup()
 		runMultiHopSendToRoute(st, true)
 	})
 	if *dbBackendFlag == "bbolt" {
 		ht.Run("without cache", func(tt *testing.T) {
-			st := ht.Subtest(tt)
+			st, cleanup := ht.Subtest(tt)
+			defer cleanup()
 			runMultiHopSendToRoute(st, false)
 		})
 	}

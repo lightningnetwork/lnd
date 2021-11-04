@@ -779,6 +779,9 @@ func testAbandonChannel(ht *lntest.HarnessTest) {
 func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// First, we'll make a new node, ainz who'll we'll use to test wallet
 	// sweeping.
+	//
+	// NOTE: we won't use standby nodes here since the test will change
+	// each of the node's wallet state.
 	ainz := ht.NewNode("Ainz", nil)
 	defer ht.Shutdown(ainz)
 

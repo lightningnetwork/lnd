@@ -18,13 +18,14 @@ import (
 // testRPCMiddlewareInterceptor tests that the RPC middleware interceptor can
 // be used correctly and in a safe way.
 func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
-
 	// Let's first enable the middleware interceptor.
-	alice.Cfg.ExtraArgs = append(
-		alice.Cfg.ExtraArgs, "--rpcmiddleware.enable",
-	)
-	ht.RestartNode(alice)
+	//
+	// NOTE: we cannot use standby nodes here as the test messes with
+	// middleware interceptor.
+	alice := ht.NewNode("Alice", []string{"--rpcmiddleware.enable"})
+	defer ht.Shutdown(alice)
+	bob := ht.NewNode("Bob", nil)
+	defer ht.Shutdown(bob)
 
 	// Let's set up a channel between Alice and Bob, just to get some useful
 	// data to inspect when doing RPC calls to Alice later.
@@ -49,11 +50,15 @@ func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 	// Run all sub-tests now. We can't run anything in parallel because that
 	// would cause the main test function to exit and the nodes being
 	// cleaned up.
+	//
+	// NOTE: we skip the calling of cleanup of each of the following
+	// subtests because they share the above open channel.
 	ht.Run("registration restrictions", func(tt *testing.T) {
-		middlewareRegistrationRestrictionTests(ht.Subtest(tt), alice)
+		st, _ := ht.Subtest(tt)
+		middlewareRegistrationRestrictionTests(st, alice)
 	})
 	ht.Run("read-only intercept", func(tt *testing.T) {
-		st := ht.Subtest(tt)
+		st, _ := ht.Subtest(tt)
 		registration := registerMiddleware(
 			st, alice, &lnrpc.MiddlewareRegistration{
 				MiddlewareName: "itest-interceptor",
@@ -72,7 +77,7 @@ func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 	// sure they're connected again.
 	ht.EnsureConnected(alice, bob)
 	ht.Run("encumbered macaroon intercept", func(tt *testing.T) {
-		st := ht.Subtest(tt)
+		st, _ := ht.Subtest(tt)
 		registration := registerMiddleware(
 			st, alice, &lnrpc.MiddlewareRegistration{
 				MiddlewareName:           "itest-interceptor",
@@ -90,7 +95,7 @@ func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 	// Next, run the response manipulation tests.
 	ht.EnsureConnected(alice, bob)
 	ht.Run("read-only not allowed to manipulate", func(tt *testing.T) {
-		st := ht.Subtest(tt)
+		st, _ := ht.Subtest(tt)
 		registration := registerMiddleware(
 			st, alice, &lnrpc.MiddlewareRegistration{
 				MiddlewareName: "itest-interceptor",
@@ -106,7 +111,7 @@ func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 	})
 	ht.EnsureConnected(alice, bob)
 	ht.Run("encumbered macaroon manipulate", func(tt *testing.T) {
-		st := ht.Subtest(tt)
+		st, _ := ht.Subtest(tt)
 		registration := registerMiddleware(
 			st, alice, &lnrpc.MiddlewareRegistration{
 				MiddlewareName:           "itest-interceptor",
@@ -124,7 +129,8 @@ func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 	// And finally make sure mandatory middleware is always checked for any
 	// RPC request.
 	ht.Run("mandatory middleware", func(tt *testing.T) {
-		middlewareMandatoryTest(ht.Subtest(tt), alice)
+		st, _ := ht.Subtest(tt)
+		middlewareMandatoryTest(st, alice)
 	})
 }
 
@@ -160,8 +166,9 @@ func middlewareRegistrationRestrictionTests(ht *lntest.HarnessTest,
 		tc := tc
 
 		ht.Run(fmt.Sprintf("%d", idx), func(tt *testing.T) {
+			st, _ := ht.Subtest(tt)
 			invalidName := registerMiddleware(
-				ht.Subtest(tt), node, tc.registration,
+				st, node, tc.registration,
 			)
 			_, err := invalidName.stream.Recv()
 			require.Error(tt, err)

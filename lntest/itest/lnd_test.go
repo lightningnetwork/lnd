@@ -238,14 +238,14 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			// Create a separate harness test for the testcase to
 			// avoid overwriting the external harness test that is
 			// tied to the parent test.
-			ht := harnessTest.Subtest(t1)
+			ht, cleanup := harnessTest.Subtest(t1)
+			defer cleanup()
 
 			cleanTestCaseName := strings.ReplaceAll(
 				testCase.Name, " ", "_",
 			)
-			lndHarness.SetTestName(cleanTestCaseName)
 
-			ht.EnsureConnected(ht.Alice, ht.Bob)
+			ht.SetTestName(cleanTestCaseName)
 
 			logLine := fmt.Sprintf(
 				"STARTING ============ %v ============\n",

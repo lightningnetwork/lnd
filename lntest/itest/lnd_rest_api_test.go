@@ -224,7 +224,8 @@ func testRestAPI(ht *lntest.HarnessTest) {
 	for _, tc := range wsTestCases {
 		tc := tc
 		ht.Run(tc.name, func(t *testing.T) {
-			st := ht.Subtest(t)
+			st, cleanup := ht.Subtest(t)
+			defer cleanup()
 			tc.run(st)
 		})
 	}

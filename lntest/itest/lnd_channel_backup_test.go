@@ -393,7 +393,8 @@ func testChannelBackupRestore(ht *lntest.HarnessTest) {
 	for _, testCase := range testCases {
 		testCase := testCase
 		success := ht.Run(testCase.name, func(t *testing.T) {
-			h := ht.Subtest(t)
+			// Skip the cleanup as no standby node is used.
+			h, _ := ht.Subtest(t)
 
 			// Start each test with the default static fee estimate.
 			h.SetFeeEstimate(12500)

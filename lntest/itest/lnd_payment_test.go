@@ -143,7 +143,19 @@ func testPaymentFollowingChannelOpen(ht *lntest.HarnessTest) {
 
 // testAsyncPayments tests the performance of the async payments.
 func testAsyncPayments(ht *lntest.HarnessTest) {
-	runAsyncPayments(ht, ht.Alice, ht.Bob)
+	// We use new nodes here as the benchmark test creates lots of data
+	// which can be costly to be carried on.
+	// TODO(yy): further investigate this test as the lnd seems to be
+	// stuck when using standby nodes.
+	alice := ht.NewNode("Alice", nil)
+	defer ht.Shutdown(alice)
+	bob := ht.NewNode("Bob", nil)
+	defer ht.Shutdown(bob)
+
+	ht.EnsureConnected(alice, bob)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
+
+	runAsyncPayments(ht, alice, bob)
 }
 
 // runAsyncPayments tests the performance of the async payments.
@@ -232,10 +244,21 @@ func runAsyncPayments(ht *lntest.HarnessTest, alice, bob *lntest.HarnessNode) {
 func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 	const paymentAmt = 1000
 
+	// We use new nodes here as the benchmark test creates lots of data
+	// which can be costly to be carried on.
+	// TODO(yy): further investigate this test as the lnd seems to be
+	// stuck when using standby nodes.
+	alice := ht.NewNode("Alice", nil)
+	defer ht.Shutdown(alice)
+	bob := ht.NewNode("Bob", nil)
+	defer ht.Shutdown(bob)
+
+	ht.EnsureConnected(alice, bob)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
+
 	// First establish a channel with a capacity equals to the overall
 	// amount of payments, between Alice and Bob, at the end of the test
 	// Alice should send all money from her side to Bob.
-	alice, bob := ht.Alice, ht.Bob
 	chanPoint := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{
 			Amt:     paymentAmt * 2000,

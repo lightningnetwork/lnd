@@ -207,7 +207,8 @@ func testChannelForceClosure(ht *lntest.HarnessTest) {
 
 		channelType := channelType
 		success := ht.Run(testName, func(t *testing.T) {
-			st := ht.Subtest(t)
+			st, cleanup := ht.Subtest(t)
+			defer cleanup()
 
 			args := nodeArgsForCommitType(channelType)
 			alice := st.NewNode("Alice", args)

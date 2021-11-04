@@ -603,7 +603,8 @@ func testRevokedCloseRetributionAltruistWatchtower(ht *lntest.HarnessTest) {
 		}
 
 		success := ht.Run(tc.name, func(tt *testing.T) {
-			st := ht.Subtest(tt)
+			// Skipped cleanup since no standby node is used.
+			st, _ := ht.Subtest(tt)
 			st.RunTestCase(&lntest.TestCase{
 				Name:     tc.name,
 				TestFunc: testFunc,

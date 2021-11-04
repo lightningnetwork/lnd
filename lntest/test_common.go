@@ -213,3 +213,17 @@ func ChanPointFromPendingUpdate(pu *lnrpc.PendingUpdate) *lnrpc.ChannelPoint {
 
 	return chanPoint
 }
+
+// equalStringSlices takes two slices of strings and checks whether they are
+// equal.
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, v := range a {
+		if v != b[i] {
+			return false
+		}
+	}
+	return true
+}

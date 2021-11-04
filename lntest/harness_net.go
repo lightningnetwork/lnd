@@ -24,7 +24,6 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/grpclog"
@@ -140,14 +139,11 @@ func (n *NetworkHarness) ProcessErrors() <-chan error {
 // rpc clients capable of communicating with the initial seeder nodes are
 // created. Nodes are initialized with the given extra command line flags, which
 // should be formatted properly - "--arg=value".
-func (n *NetworkHarness) SetUp(t *testing.T,
-	testCase string, lndArgs []string) error {
-
+func (n *NetworkHarness) SetUp(t *testing.T, lndArgs []string) error {
 	// Swap out grpc's default logger with out fake logger which drops the
 	// statements on the floor.
 	fakeLogger := grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard)
 	grpclog.SetLoggerV2(fakeLogger)
-	n.currentTestCase = testCase
 	n.feeService = startFeeService(t)
 
 	// Start the initial seeder nodes within the test network, then connect
@@ -172,7 +168,7 @@ func (n *NetworkHarness) SetUp(t *testing.T,
 	// First, make a connection between the two nodes. This will wait until
 	// both nodes are fully started since the Connect RPC is guarded behind
 	// the server.Started() flag that waits for all subsystems to be ready.
-	n.ConnectNodes(t, n.Alice, n.Bob)
+	n.connectNodes(t, n.Alice, n.Bob, false)
 
 	// Load up the wallets of the seeder nodes with 10 outputs of 1 BTC
 	// each.
@@ -279,6 +275,11 @@ func (n *NetworkHarness) Stop() {
 	}
 }
 
+// SetTestName set the test case name.
+func (n *NetworkHarness) SetTestName(name string) {
+	n.currentTestCase = name
+}
+
 // extraArgsEtcd returns extra args for configuring LND to use an external etcd
 // database (for remote channel DB and wallet DB).
 func extraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool,
@@ -307,66 +308,6 @@ func extraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool,
 	}
 
 	return extraArgs
-}
-
-// NewNodeWithSeedEtcd starts a new node with seed that'll use an external
-// etcd database as its (remote) channel and wallet DB. The passsed cluster
-// flag indicates that we'd like the node to join the cluster leader election.
-func (n *NetworkHarness) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
-	password []byte, entropy []byte, statelessInit, cluster bool,
-	leaderSessionTTL int) (*HarnessNode, []string, []byte, error) {
-
-	// We don't want to use the embedded etcd instance.
-	const dbBackend = BackendBbolt
-
-	extraArgs := extraArgsEtcd(etcdCfg, name, cluster, leaderSessionTTL)
-	return n.newNodeWithSeed(
-		name, extraArgs, password, entropy, statelessInit, dbBackend,
-	)
-}
-
-// NewNodeWithSeedEtcd starts a new node with seed that'll use an external
-// etcd database as its (remote) channel and wallet DB. The passsed cluster
-// flag indicates that we'd like the node to join the cluster leader election.
-// If the wait flag is false then we won't wait until RPC is available (this is
-// useful when the node is not expected to become the leader right away).
-func (n *NetworkHarness) NewNodeEtcd(name string, etcdCfg *etcd.Config,
-	password []byte, cluster, wait bool, leaderSessionTTL int) (
-	*HarnessNode, error) {
-
-	// We don't want to use the embedded etcd instance.
-	const dbBackend = BackendBbolt
-
-	extraArgs := extraArgsEtcd(etcdCfg, name, cluster, leaderSessionTTL)
-	return n.newNode(name, extraArgs, true, password, dbBackend, wait)
-}
-
-// NewNode fully initializes a returns a new HarnessNode bound to the
-// current instance of the network harness. The created node is running, but
-// not yet connected to other nodes within the network.
-// TODO(yy): remove.
-func (n *NetworkHarness) NewNode(t *testing.T,
-	name string, extraArgs []string, opts ...NodeOption) *HarnessNode {
-
-	node, err := n.newNode(
-		name, extraArgs, false, nil, n.dbBackend, true, opts...,
-	)
-	require.NoErrorf(t, err, "unable to create new node for %s", name)
-
-	return node
-}
-
-// NewNodeWithSeed fully initializes a new HarnessNode after creating a fresh
-// aezeed. The provided password is used as both the aezeed password and the
-// wallet password. The generated mnemonic is returned along with the
-// initialized harness node.
-func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
-	password []byte, statelessInit bool) (*HarnessNode, []string, []byte,
-	error) {
-
-	return n.newNodeWithSeed(
-		name, extraArgs, password, nil, statelessInit, n.dbBackend,
-	)
 }
 
 func (n *NetworkHarness) newNodeWithSeed(name string, extraArgs []string,
@@ -458,44 +399,6 @@ func (n *NetworkHarness) NewNodeRemoteSigner(name string, extraArgs []string,
 	return node, nil
 }
 
-// RestoreNodeWithSeed fully initializes a HarnessNode using a chosen mnemonic,
-// password, recovery window, and optionally a set of static channel backups.
-// After providing the initialization request to unlock the node, this method
-// will finish initializing the LightningClient such that the HarnessNode can
-// be used for regular rpc operations.
-func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
-	password []byte, mnemonic []string, rootKey string, recoveryWindow int32,
-	chanBackups *lnrpc.ChanBackupSnapshot,
-	opts ...NodeOption) (*HarnessNode, error) {
-
-	node, err := n.newNode(
-		name, extraArgs, true, password, n.dbBackend, true, opts...,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	initReq := &lnrpc.InitWalletRequest{
-		WalletPassword:     password,
-		CipherSeedMnemonic: mnemonic,
-		AezeedPassphrase:   password,
-		ExtendedMasterKey:  rootKey,
-		RecoveryWindow:     recoveryWindow,
-		ChannelBackups:     chanBackups,
-	}
-
-	_, err = node.Init(initReq)
-	if err != nil {
-		return nil, err
-	}
-
-	// With the node started, we can now record its public key within the
-	// global mapping.
-	n.RegisterNode(node)
-
-	return node, nil
-}
-
 // newNode initializes a new HarnessNode, supporting the ability to initialize a
 // wallet with or without a seed. If hasSeed is false, the returned harness node
 // can be used immediately. Otherwise, the node will require an additional
@@ -532,7 +435,7 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string, hasSeed bool,
 
 	err = node.start(n.lndBinary, n.lndErrorChan, wait)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to start: %w", err)
 	}
 
 	// If this node is to have a seed, it will need to be unlocked or
@@ -580,137 +483,6 @@ tryconnect:
 	}
 
 	return nil
-}
-
-// EnsureConnected will try to connect to two nodes, returning no error if they
-// are already connected. If the nodes were not connected previously, this will
-// behave the same as ConnectNodes. If a pending connection request has already
-// been made, the method will block until the two nodes appear in each other's
-// peers list, or until the 15s timeout expires.
-func (n *NetworkHarness) EnsureConnected(t *testing.T, a, b *HarnessNode) {
-	ctx, cancel := context.WithTimeout(n.runCtx, DefaultTimeout*2)
-	defer cancel()
-
-	// errConnectionRequested is used to signal that a connection was
-	// requested successfully, which is distinct from already being
-	// connected to the peer.
-	errConnectionRequested := errors.New("connection request in progress")
-
-	tryConnect := func(a, b *HarnessNode) error {
-		bInfo, err := b.rpc.LN.GetInfo(ctx, &lnrpc.GetInfoRequest{})
-		if err != nil {
-			return err
-		}
-
-		req := &lnrpc.ConnectPeerRequest{
-			Addr: &lnrpc.LightningAddress{
-				Pubkey: bInfo.IdentityPubkey,
-				Host:   b.Cfg.P2PAddr(),
-			},
-		}
-
-		var predErr error
-		err = wait.Predicate(func() bool {
-			ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
-			defer cancel()
-
-			err := n.connect(ctx, req, a)
-			switch {
-			// Request was successful, wait for both to display the
-			// connection.
-			case err == nil:
-				predErr = errConnectionRequested
-				return true
-
-			// If the two are already connected, we return early
-			// with no error.
-			case strings.Contains(
-				err.Error(), "already connected to peer",
-			):
-				predErr = nil
-				return true
-
-			default:
-				predErr = err
-				return false
-			}
-		}, DefaultTimeout)
-		if err != nil {
-			return fmt.Errorf("connection not succeeded within 15 "+
-				"seconds: %v", predErr)
-		}
-
-		return predErr
-	}
-
-	aErr := tryConnect(a, b)
-	bErr := tryConnect(b, a)
-	switch {
-	// If both reported already being connected to each other, we can exit
-	// early.
-	case aErr == nil && bErr == nil:
-
-	// Return any critical errors returned by either alice.
-	case aErr != nil && aErr != errConnectionRequested:
-		t.Fatalf(
-			"ensure connection between %s and %s failed "+
-				"with error from %s: %v",
-			a.Cfg.Name, b.Cfg.Name, a.Cfg.Name, aErr,
-		)
-
-	// Return any critical errors returned by either bob.
-	case bErr != nil && bErr != errConnectionRequested:
-		t.Fatalf("ensure connection between %s and %s failed "+
-			"with error from %s: %v",
-			a.Cfg.Name, b.Cfg.Name, b.Cfg.Name, bErr,
-		)
-
-	// Otherwise one or both requested a connection, so we wait for the
-	// peers lists to reflect the connection.
-	default:
-	}
-
-	findSelfInPeerList := func(a, b *HarnessNode) bool {
-		// If node B is seen in the ListPeers response from node A,
-		// then we can exit early as the connection has been fully
-		// established.
-		resp, err := b.rpc.LN.ListPeers(ctx, &lnrpc.ListPeersRequest{})
-		if err != nil {
-			return false
-		}
-
-		for _, peer := range resp.Peers {
-			if peer.PubKey == a.PubKeyStr {
-				return true
-			}
-		}
-
-		return false
-	}
-
-	err := wait.Predicate(func() bool {
-		return findSelfInPeerList(a, b) && findSelfInPeerList(b, a)
-	}, DefaultTimeout)
-
-	require.NoErrorf(
-		t, err, "unable to connect %s to %s, "+
-			"got error: peers not connected within %v seconds",
-		a.Cfg.Name, b.Cfg.Name, DefaultTimeout,
-	)
-}
-
-// ConnectNodes attempts to create a connection between nodes a and b.
-func (n *NetworkHarness) ConnectNodes(t *testing.T, a, b *HarnessNode) {
-	n.connectNodes(t, a, b, false)
-}
-
-// ConnectNodesPerm attempts to connect nodes a and b and sets node b as
-// a peer that node a should persistently attempt to reconnect to if they
-// become disconnected.
-func (n *NetworkHarness) ConnectNodesPerm(t *testing.T,
-	a, b *HarnessNode) {
-
-	n.connectNodes(t, a, b, true)
 }
 
 // connectNodes establishes an encrypted+authenticated p2p connection from node
@@ -1327,48 +1099,6 @@ func (n *NetworkHarness) WaitForChannelClose(
 	}
 }
 
-// AssertChannelExists asserts that an active channel identified by the
-// specified channel point exists from the point-of-view of the node. It takes
-// an optional set of check functions which can be used to make further
-// assertions using channel's values. These functions are responsible for
-// failing the test themselves if they do not pass.
-func (n *NetworkHarness) AssertChannelExists(node *HarnessNode,
-	chanPoint *wire.OutPoint, checks ...func(*lnrpc.Channel)) error {
-
-	ctx, cancel := context.WithTimeout(n.runCtx, ChannelCloseTimeout)
-	defer cancel()
-
-	req := &lnrpc.ListChannelsRequest{}
-
-	return wait.NoError(func() error {
-		resp, err := node.rpc.LN.ListChannels(ctx, req)
-		if err != nil {
-			return fmt.Errorf("unable fetch node's channels: %v", err)
-		}
-
-		for _, channel := range resp.Channels {
-			if channel.ChannelPoint == chanPoint.String() {
-				// First check whether our channel is active,
-				// failing early if it is not.
-				if !channel.Active {
-					return fmt.Errorf("channel %s inactive",
-						chanPoint)
-				}
-
-				// Apply any additional checks that we would
-				// like to verify.
-				for _, check := range checks {
-					check(channel)
-				}
-
-				return nil
-			}
-		}
-
-		return fmt.Errorf("channel %s not found", chanPoint)
-	}, DefaultTimeout)
-}
-
 // DumpLogs reads the current logs generated by the passed node, and returns
 // the logs as a single string. This function is useful for examining the logs
 // of a particular node in the case of a test failure.
@@ -1385,68 +1115,10 @@ func (n *NetworkHarness) DumpLogs(node *HarnessNode) (string, error) {
 	return string(buf), nil
 }
 
-// SendCoins attempts to send amt satoshis from the internal mining node to the
-// targeted lightning node using a P2WKH address. 6 blocks are mined after in
-// order to confirm the transaction.
-// TODO(yy): remove.
-func (n *NetworkHarness) SendCoins(t *testing.T, amt btcutil.Amount,
-	target *HarnessNode) {
-
-	err := n.SendCoinsOfType(
-		amt, target, lnrpc.AddressType_WITNESS_PUBKEY_HASH, true,
-	)
-	require.NoErrorf(t, err, "unable to send coins for %s", target.Cfg.Name)
-}
-
-// SendCoinsUnconfirmed sends coins from the internal mining node to the target
-// lightning node using a P2WPKH address. No blocks are mined after, so the
-// transaction remains unconfirmed.
-// TODO(yy): remove.
-func (n *NetworkHarness) SendCoinsUnconfirmed(t *testing.T, amt btcutil.Amount,
-	target *HarnessNode) {
-
-	err := n.SendCoinsOfType(
-		amt, target, lnrpc.AddressType_WITNESS_PUBKEY_HASH, false,
-	)
-	require.NoErrorf(
-		t, err, "unable to send unconfirmed coins for %s",
-		target.Cfg.Name,
-	)
-}
-
-// SendCoinsNP2WKH attempts to send amt satoshis from the internal mining node
-// to the targeted lightning node using a NP2WKH address.
-// TODO(yy): remove.
-func (n *NetworkHarness) SendCoinsNP2WKH(t *testing.T, amt btcutil.Amount,
-	target *HarnessNode) {
-
-	err := n.SendCoinsOfType(
-		amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH, true,
-	)
-	require.NoErrorf(
-		t, err, "unable to send NP2WKH coins for %s",
-		target.Cfg.Name,
-	)
-}
-
-// SendCoinsP2TR attempts to send amt satoshis from the internal mining node
-// to the targeted lightning node using a P2TR address.
-// TODO(yy): remove.
-func (n *NetworkHarness) SendCoinsP2TR(t *testing.T, amt btcutil.Amount,
-	target *HarnessNode) {
-
-	err := n.SendCoinsOfType(
-		amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true,
-	)
-	require.NoErrorf(
-		t, err, "unable to send P2TR coins for %s", target.Cfg.Name,
-	)
-}
-
 // SendCoinsOfType attempts to send amt satoshis from the internal mining node
 // to the targeted lightning node. The confirmed boolean indicates whether the
 // transaction that pays to the target should confirm.
-func (n *NetworkHarness) SendCoinsOfType(amt btcutil.Amount, target *HarnessNode,
+func (n *NetworkHarness) sendCoinsOfType(amt btcutil.Amount, target *HarnessNode,
 	addrType lnrpc.AddressType, confirmed bool) error {
 
 	ctx, cancel := context.WithTimeout(n.runCtx, DefaultTimeout)
@@ -1548,16 +1220,6 @@ func (n *NetworkHarness) SendCoinsOfType(amt btcutil.Amount, target *HarnessNode
 		initialBalance.UnconfirmedBalance
 	expectedBalance := btcutil.Amount(fullInitialBalance) + amt
 	return target.WaitForBalance(expectedBalance, true)
-}
-
-func (n *NetworkHarness) SetFeeEstimate(fee chainfee.SatPerKWeight) {
-	n.feeService.setFee(fee)
-}
-
-func (n *NetworkHarness) SetFeeEstimateWithConf(
-	fee chainfee.SatPerKWeight, conf uint32) {
-
-	n.feeService.setFeeWithConf(fee, conf)
 }
 
 // copyAll copies all files and directories from srcDir to dstDir recursively.

@@ -177,10 +177,10 @@ func (h *HarnessTest) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
 	return node, seed, mac
 }
 
-// NewNodeWithSeedEtcd starts a new node with seed that'll use an external
-// etcd database as its (remote) channel and wallet DB. The passsed cluster
-// flag indicates that we'd like the node to join the cluster leader election.
-// If the wait flag is false then we won't wait until RPC is available (this is
+// NewNodeEtcd starts a new node with seed that'll use an external etcd
+// database as its (remote) channel and wallet DB. The passsed cluster flag
+// indicates that we'd like the node to join the cluster leader election.  If
+// the wait flag is false then we won't wait until RPC is available (this is
 // useful when the node is not expected to become the leader right away).
 func (h *HarnessTest) NewNodeEtcd(name string, etcdCfg *etcd.Config,
 	password []byte, cluster, wait bool,
@@ -441,7 +441,7 @@ func (h *HarnessTest) EnsureConnected(a, b *HarnessNode) {
 func (h *HarnessTest) SendCoinsOfType(amt btcutil.Amount, hn *HarnessNode,
 	addrType lnrpc.AddressType, confirmed bool) {
 
-	err := h.net.SendCoinsOfType(amt, hn, addrType, confirmed)
+	err := h.net.sendCoinsOfType(amt, hn, addrType, confirmed)
 	require.NoErrorf(h, err, "unable to send coins for %s", hn.Cfg.Name)
 }
 
@@ -449,7 +449,7 @@ func (h *HarnessTest) SendCoinsOfType(amt btcutil.Amount, hn *HarnessNode,
 // targeted lightning node using a P2WKH address. 6 blocks are mined after in
 // order to confirm the transaction.
 func (h *HarnessTest) SendCoins(amt btcutil.Amount, hn *HarnessNode) {
-	err := h.net.SendCoinsOfType(
+	err := h.net.sendCoinsOfType(
 		amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, true,
 	)
 	require.NoErrorf(h, err, "unable to send coins for %s", hn.Cfg.Name)
@@ -461,7 +461,7 @@ func (h *HarnessTest) SendCoins(amt btcutil.Amount, hn *HarnessNode) {
 func (h *HarnessTest) SendCoinsUnconfirmed(amt btcutil.Amount,
 	hn *HarnessNode) {
 
-	err := h.net.SendCoinsOfType(
+	err := h.net.sendCoinsOfType(
 		amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, false,
 	)
 	require.NoErrorf(h, err, "unable to send unconfirmed coins for %s",
@@ -471,7 +471,7 @@ func (h *HarnessTest) SendCoinsUnconfirmed(amt btcutil.Amount,
 // SendCoinsNP2WKH attempts to send amt satoshis from the internal mining node
 // to the targeted lightning node using a NP2WKH address.
 func (h *HarnessTest) SendCoinsNP2WKH(amt btcutil.Amount, target *HarnessNode) {
-	err := h.net.SendCoinsOfType(
+	err := h.net.sendCoinsOfType(
 		amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH, true,
 	)
 	require.NoErrorf(h, err, "unable to send NP2WKH coins for %s",
@@ -481,7 +481,7 @@ func (h *HarnessTest) SendCoinsNP2WKH(amt btcutil.Amount, target *HarnessNode) {
 // SendCoinsP2TR attempts to send amt satoshis from the internal mining node to
 // the targeted lightning node using a P2TR address.
 func (h *HarnessTest) SendCoinsP2TR(amt btcutil.Amount, target *HarnessNode) {
-	err := h.net.SendCoinsOfType(
+	err := h.net.sendCoinsOfType(
 		amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true,
 	)
 	require.NoErrorf(h, err, "unable to send P2TR coins for %s",

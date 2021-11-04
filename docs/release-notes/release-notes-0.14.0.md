@@ -370,6 +370,8 @@ messages directly. There is no routing/path finding involved.
 
 * Using `go get` to install go executables is now deprecated. Migrate to `go install` our lnrpc proto dockerfile [Migrate `go get` to `go install`](https://github.com/lightningnetwork/lnd/pull/5879)
 
+* [The premature update map has been revamped using an LRU cache](https://github.com/lightningnetwork/lnd/pull/5902)
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes

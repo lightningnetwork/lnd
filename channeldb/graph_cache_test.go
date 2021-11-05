@@ -120,6 +120,24 @@ func TestGraphCacheAddNode(t *testing.T) {
 
 		require.Equal(t, inPolicy1 != nil, toChannels[0].OutPolicySet)
 		assertCachedPolicyEqual(t, outPolicy1, toChannels[0].InPolicy)
+
+		// Now that we've inserted two nodes into the graph, check that
+		// we'll recover the same set of channels during ForEachNode.
+		nodes := make(map[route.Vertex]struct{})
+		chans := make(map[uint64]struct{})
+		_ = cache.ForEachNode(func(node route.Vertex,
+			edges map[uint64]*DirectedChannel) error {
+
+			nodes[node] = struct{}{}
+			for chanID := range edges {
+				chans[chanID] = struct{}{}
+			}
+
+			return nil
+		})
+
+		require.Len(t, nodes, 2)
+		require.Len(t, chans, 1)
 	}
 
 	runTest(pubKey1, pubKey2)

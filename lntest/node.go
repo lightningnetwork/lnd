@@ -303,6 +303,7 @@ func (cfg NodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath))
 	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
 	args = append(args, fmt.Sprintf("--profile=%d", cfg.ProfilePort))
+	args = append(args, fmt.Sprintf("--caches.rpc-graph-cache-duration=0"))
 
 	if !cfg.HasSeed {
 		args = append(args, "--noseedbackup")

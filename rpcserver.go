@@ -628,6 +628,10 @@ type rpcServer struct {
 
 	// interceptor is used to be able to request a shutdown
 	interceptor signal.Interceptor
+
+	graphCache        sync.RWMutex
+	describeGraphResp *lnrpc.ChannelGraph
+	graphCacheEvictor *time.Timer
 }
 
 // A compile time check to ensure that rpcServer fully implements the
@@ -813,6 +817,23 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 	r.chanPredicate = chanPredicate
 	r.macService = macService
 	r.selfNode = selfNode.PubKeyBytes
+
+	graphCacheDuration := r.cfg.Caches.RPCGraphCacheDuration
+	if graphCacheDuration != 0 {
+		r.graphCacheEvictor = time.AfterFunc(graphCacheDuration, func() {
+			// Grab the mutex and purge the current populated
+			// describe graph response.
+			r.graphCache.Lock()
+			defer r.graphCache.Unlock()
+
+			r.describeGraphResp = nil
+
+			// Reset ourselves as well at the end so we run again
+			// after the duration.
+			r.graphCacheEvictor.Reset(graphCacheDuration)
+		})
+	}
+
 	return nil
 }
 
@@ -5381,6 +5402,20 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	resp := &lnrpc.ChannelGraph{}
 	includeUnannounced := req.IncludeUnannounced
 
+	// Check to see if the cache is already populated, if so then we can
+	// just return it directly.
+	//
+	// TODO(roasbeef): move this to an interceptor level feature?
+	graphCacheActive := r.cfg.Caches.RPCGraphCacheDuration != 0
+	if graphCacheActive {
+		r.graphCache.Lock()
+		defer r.graphCache.Unlock()
+
+		if r.describeGraphResp != nil {
+			return r.describeGraphResp, nil
+		}
+	}
+
 	// Obtain the pointer to the global singleton channel graph, this will
 	// provide a consistent view of the graph due to bolt db's
 	// transactional model.
@@ -5437,6 +5472,13 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	})
 	if err != nil && err != channeldb.ErrGraphNoEdgesFound {
 		return nil, err
+	}
+
+	// We still have the mutex held, so we can safely populate the cache
+	// now to save on GC churn for this query, but only if the cache isn't
+	// disabled.
+	if graphCacheActive {
+		r.describeGraphResp = resp
 	}
 
 	return resp, nil
@@ -5708,7 +5750,9 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	// network, tallying up the total number of nodes, and also gathering
 	// each node so we can measure the graph diameter and degree stats
 	// below.
-	if err := graph.ForEachNode(func(tx kvdb.RTx, node *channeldb.LightningNode) error {
+	err := graph.ForEachNodeCached(func(node route.Vertex,
+		edges map[uint64]*channeldb.DirectedChannel) error {
+
 		// Increment the total number of nodes with each iteration.
 		numNodes++
 
@@ -5718,9 +5762,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		// through the db transaction from the outer view so we can
 		// re-use it within this inner view.
 		var outDegree uint32
-		if err := node.ForEachChannel(tx, func(_ kvdb.RTx,
-			edge *channeldb.ChannelEdgeInfo, _, _ *channeldb.ChannelEdgePolicy) error {
-
+		for _, edge := range edges {
 			// Bump up the out degree for this node for each
 			// channel encountered.
 			outDegree++
@@ -5751,9 +5793,6 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 
 			seenChans[edge.ChannelID] = struct{}{}
 			allChans = append(allChans, edge.Capacity)
-			return nil
-		}); err != nil {
-			return err
 		}
 
 		// Finally, if the out degree of this node is greater than what
@@ -5763,7 +5802,8 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		}
 
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 

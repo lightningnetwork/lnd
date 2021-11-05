@@ -309,7 +309,7 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string, hasSeed bool,
 	n.activeNodes[node.NodeID] = node
 	n.mtx.Unlock()
 
-	err = node.start(n.lndBinary, n.lndErrorChan, wait)
+	err = node.start(n.lndBinary, wait)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start: %w", err)
 	}
@@ -430,7 +430,7 @@ func (n *NetworkHarness) RestartNodeNoUnlock(node *HarnessNode,
 	callback func() error, wait bool) error {
 
 	if err := node.stop(); err != nil {
-		return err
+		return fmt.Errorf("restart node got error: %w", err)
 	}
 
 	if callback != nil {
@@ -439,7 +439,7 @@ func (n *NetworkHarness) RestartNodeNoUnlock(node *HarnessNode,
 		}
 	}
 
-	return node.start(n.lndBinary, n.lndErrorChan, wait)
+	return node.start(n.lndBinary, wait)
 }
 
 // SuspendNode stops the given node and returns a callback that can be used to
@@ -450,7 +450,7 @@ func (n *NetworkHarness) SuspendNode(node *HarnessNode) (func() error, error) {
 	}
 
 	restart := func() error {
-		return node.start(n.lndBinary, n.lndErrorChan, true)
+		return node.start(n.lndBinary, true)
 	}
 
 	return restart, nil

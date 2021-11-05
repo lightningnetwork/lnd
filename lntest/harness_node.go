@@ -337,6 +337,8 @@ type HarnessNode struct {
 	wg      sync.WaitGroup
 	cmd     *exec.Cmd
 	logFile *os.File
+
+	filename string
 }
 
 // RPCClients wraps a list of RPC clients into a single struct for easier
@@ -545,7 +547,7 @@ func (hn *HarnessNode) InvoiceMacPath() string {
 
 // startLnd handles the startup of lnd, creating log files, and possibly kills
 // the process when needed.
-func (hn *HarnessNode) startLnd(lndBinary string, lndError chan<- error) error {
+func (hn *HarnessNode) startLnd(lndBinary string) error {
 	args := hn.Cfg.GenArgs()
 	hn.cmd = exec.Command(lndBinary, args...)
 
@@ -555,12 +557,8 @@ func (hn *HarnessNode) startLnd(lndBinary string, lndError chan<- error) error {
 
 	// If the logoutput flag is passed, redirect output from the nodes to
 	// log files.
-	var (
-		fileName string
-		err      error
-	)
 	if *logOutput {
-		fileName, err = addLogFile(hn)
+		err := addLogFile(hn)
 		if err != nil {
 			return err
 		}
@@ -569,25 +567,6 @@ func (hn *HarnessNode) startLnd(lndBinary string, lndError chan<- error) error {
 	if err := hn.cmd.Start(); err != nil {
 		return err
 	}
-
-	// Launch a new goroutine which that bubbles up any potential fatal
-	// process errors to the goroutine running the tests.
-	hn.wg.Add(1)
-	go func() {
-		defer hn.wg.Done()
-
-		err := hn.cmd.Wait()
-		if err != nil {
-			lndError <- fmt.Errorf("%v\n%v", err, errb.String())
-		}
-
-		// Make sure log file is closed and renamed if necessary.
-		finalizeLogfile(hn, fileName)
-
-		// Rename the etcd.log file if the node was running on embedded
-		// etcd.
-		finalizeEtcdLog(hn)
-	}()
 
 	return nil
 }
@@ -598,17 +577,15 @@ func (hn *HarnessNode) startLnd(lndBinary string, lndError chan<- error) error {
 //
 // This may not clean up properly if an error is returned, so the caller should
 // call shutdown() regardless of the return value.
-func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
-	wait bool) error {
-
+func (hn *HarnessNode) start(lndBinary string, wait bool) error {
 	// Init the runCtx.
 	ctxt, cancel := context.WithCancel(context.Background())
 	hn.runCtx = ctxt
 	hn.cancel = cancel
 
 	// Start lnd and prepare logs.
-	if err := hn.startLnd(lndBinary, lndError); err != nil {
-		return err
+	if err := hn.startLnd(lndBinary); err != nil {
+		return fmt.Errorf("start lnd error: %w", err)
 	}
 
 	// We may want to skip waiting for the node to come up (eg. the node
@@ -1050,22 +1027,71 @@ func (hn *HarnessNode) cleanup() error {
 	return os.RemoveAll(hn.Cfg.BaseDir)
 }
 
+// waitForProcessExit Launch a new goroutine which that bubbles up any
+// potential fatal process errors to the goroutine running the tests.
+func (hn *HarnessNode) waitForProcessExit() {
+	errChan := make(chan error, 1)
+	go func() {
+		err := hn.cmd.Wait()
+		errChan <- err
+	}()
+
+	select {
+	case err := <-errChan:
+		if err == nil {
+			break
+		}
+		hn.PrintErrf("wait process exit got err: %v", err)
+
+		// If the process has already been canceled, we can exit early
+		// as the logs have already been saved.
+		if strings.Contains(err.Error(), "Wait was already called") {
+			return
+		}
+
+		// Otherwise, we break the select and save logs.
+		break
+
+	case <-time.After(DefaultTimeout * 2):
+		hn.PrintErrf("timeout waiting for process to exit")
+	}
+
+	// Make sure log file is closed and renamed if necessary.
+	finalizeLogfile(hn)
+
+	// Rename the etcd.log file if the node was running on embedded
+	// etcd.
+	finalizeEtcdLog(hn)
+}
+
 // Stop attempts to stop the active lnd process.
 func (hn *HarnessNode) stop() error {
 	// Do nothing if the process is not running.
 	if hn.runCtx == nil {
+		hn.PrintErrf("found nil run context")
 		return nil
 	}
 
+	// Stop the runCtx.
+	hn.cancel()
+
+	// Wait for lnd process to exit in the end.
+	defer hn.waitForProcessExit()
+
 	// If start() failed before creating clients, we will just wait for the
-	// child process to die.
+	// child process to die. Otherwise, we will try to call StopDaemon to
+	// gracefully shutdown the node.
 	if hn.rpc != nil && hn.rpc.LN != nil {
 		// Don't watch for error because sometimes the RPC connection
 		// gets closed before a response is returned.
 		req := lnrpc.StopRequest{}
 
+		ctxt, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		err := wait.NoError(func() error {
-			_, err := hn.rpc.LN.StopDaemon(hn.runCtx, &req)
+			_, err := hn.rpc.LN.StopDaemon(ctxt, &req)
+
 			switch {
 			case err == nil:
 				return nil
@@ -1085,26 +1111,19 @@ func (hn *HarnessNode) stop() error {
 		}
 	}
 
-	// Stop the runCtx and wait for goroutines to finish.
-	hn.cancel()
-
-	// Wait for lnd process to exit.
-	err := wait.NoError(func() error {
-		if hn.cmd.ProcessState == nil {
-			return fmt.Errorf("process did not exit")
-		}
-
-		if !hn.cmd.ProcessState.Exited() {
-			return fmt.Errorf("process did not exit")
-		}
-
-		// Wait for goroutines to be finished.
+	// Wait for goroutines to be finished.
+	done := make(chan struct{})
+	go func() {
 		hn.wg.Wait()
+		close(done)
+	}()
 
-		return nil
-	}, DefaultTimeout*2)
-	if err != nil {
-		return err
+	// If the goroutines fail to finish before timeout, we'll print the
+	// error to console and continue.
+	select {
+	case <-time.After(DefaultTimeout):
+		hn.PrintErrf("timeout on wait group")
+	case <-done:
 	}
 
 	// Close any attempts at further grpc connections.
@@ -1217,8 +1236,9 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount,
 
 // PrintErrf prints an error to the console.
 func (hn *HarnessNode) PrintErrf(format string, a ...interface{}) {
-	fmt.Printf("itest error from [node:%s]: %s\n", // nolint:forbidigo
-		hn.Cfg.Name, fmt.Sprintf(format, a...))
+	fmt.Printf("itest error from [%s:%s]: %s\n", // nolint:forbidigo
+		hn.Cfg.LogFilenamePrefix, hn.Cfg.Name,
+		fmt.Sprintf(format, a...))
 }
 
 // renameFile is a helper to rename (log) files created during integration
@@ -1245,7 +1265,7 @@ func getFinalizedLogFilePrefix(hn *HarnessNode) string {
 
 // finalizeLogfile makes sure the log file cleanup function is initialized,
 // even if no log file is created.
-func finalizeLogfile(hn *HarnessNode, fileName string) {
+func finalizeLogfile(hn *HarnessNode) {
 	if hn.logFile != nil {
 		hn.logFile.Close()
 
@@ -1257,8 +1277,7 @@ func finalizeLogfile(hn *HarnessNode, fileName string) {
 		newFileName := fmt.Sprintf("%v.log",
 			getFinalizedLogFilePrefix(hn),
 		)
-
-		renameFile(fileName, newFileName)
+		renameFile(hn.filename, newFileName)
 	}
 }
 
@@ -1275,7 +1294,7 @@ func finalizeEtcdLog(hn *HarnessNode) {
 	renameFile(etcdLogFileName, newEtcdLogFileName)
 }
 
-func addLogFile(hn *HarnessNode) (string, error) {
+func addLogFile(hn *HarnessNode) error {
 	var fileName string
 
 	dir := GetLogDir()
@@ -1297,7 +1316,7 @@ func addLogFile(hn *HarnessNode) (string, error) {
 	file, err := os.OpenFile(fileName,
 		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
 	if err != nil {
-		return fileName, err
+		return err
 	}
 
 	// Pass node's stderr to both errb and the file.
@@ -1311,7 +1330,9 @@ func addLogFile(hn *HarnessNode) (string, error) {
 	// that we can add to it if necessary.
 	hn.logFile = file
 
-	return fileName, nil
+	hn.filename = fileName
+
+	return nil
 }
 
 // waitForInvoiceAccepted waits until the specified invoice moved to the

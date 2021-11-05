@@ -3819,6 +3819,7 @@ func (s *server) connectToPersistentPeer(pubKeyStr string) {
 	// creation of the connection requests for those.
 	go func() {
 		ticker := time.NewTicker(multiAddrConnectionStagger)
+		defer ticker.Stop()
 
 		for _, addr := range addrMap {
 			// Send the persistent connection request to the

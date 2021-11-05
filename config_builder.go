@@ -422,28 +422,29 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 			return nil, nil, nil, err
 		}
 
+		// Send an admin macaroon to all our listeners that requested
+		// one by setting a non-nil macaroon channel.
+		adminMacBytes, err := bakeMacaroon(
+			ctx, macaroonService, adminPermissions(),
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		for _, lis := range grpcListeners {
+			if lis.MacChan != nil {
+				lis.MacChan <- adminMacBytes
+			}
+		}
+
 		// In case we actually needed to unlock the wallet, we now need
 		// to create an instance of the admin macaroon and send it to
 		// the unlocker so it can forward it to the user. In no seed
 		// backup mode, there's nobody listening on the channel and we'd
 		// block here forever.
 		if !d.cfg.NoSeedBackup {
-			adminMacBytes, err := bakeMacaroon(
-				ctx, macaroonService, adminPermissions(),
-			)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-
 			// The channel is buffered by one element so writing
 			// should not block here.
 			walletInitParams.MacResponseChan <- adminMacBytes
-
-			for _, lis := range grpcListeners {
-				if lis.MacChan != nil {
-					lis.MacChan <- adminMacBytes
-				}
-			}
 		}
 
 		// If the user requested a stateless initialization, no macaroon

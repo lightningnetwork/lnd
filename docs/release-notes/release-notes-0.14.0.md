@@ -615,6 +615,9 @@ messages directly. There is no routing/path finding involved.
    the first one was successful](
    https://github.com/lightningnetwork/lnd/pull/5925)
 
+* [Fixed an issue with external listeners and the `--noseedbackup` development
+  flag](https://github.com/lightningnetwork/lnd/pull/5930).
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

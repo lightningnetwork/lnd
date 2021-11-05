@@ -224,10 +224,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	// If we have chosen to start with a dedicated listener for the
 	// rpc server, we set it directly.
-	var grpcListeners []*ListenerWithSignal
-	if len(lisCfg.RPCListeners) > 0 {
-		grpcListeners = append(grpcListeners, lisCfg.RPCListeners...)
-	} else {
+	grpcListeners := append([]*ListenerWithSignal{}, lisCfg.RPCListeners...)
+	if len(grpcListeners) == 0 {
 		// Otherwise we create listeners from the RPCListeners defined
 		// in the config.
 		for _, grpcEndpoint := range cfg.RPCListeners {
@@ -245,7 +243,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 				grpcListeners, &ListenerWithSignal{
 					Listener: lis,
 					Ready:    make(chan struct{}),
-				})
+				},
+			)
 		}
 	}
 

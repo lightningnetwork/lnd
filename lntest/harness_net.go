@@ -412,8 +412,11 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error,
 		unlockReq.RecoveryWindow = 1000
 	}
 
-	if err := node.Unlock(unlockReq); err != nil {
-		return err
+	err = wait.NoError(func() error {
+		return node.Unlock(unlockReq)
+	}, DefaultTimeout)
+	if err != nil {
+		return fmt.Errorf("%s: failed to unlock: %w", node.Name(), err)
 	}
 
 	// Give the node some time to catch up with the chain before we

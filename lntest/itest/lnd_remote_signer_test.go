@@ -54,12 +54,15 @@ var (
 // testRemoteSigner tests that a watch-only wallet can use a remote signing
 // wallet to perform any signing or ECDH operations.
 func testRemoteSigner(ht *lntest.HarnessTest) {
-	subTests := []struct {
+	type testCase struct {
 		name       string
 		randomSeed bool
 		sendCoins  bool
-		fn         func(tt *lntest.HarnessTest, wo, carol *lntest.HarnessNode)
-	}{{
+		fn         func(tt *lntest.HarnessTest,
+			wo, carol *lntest.HarnessNode)
+	}
+
+	subTests := []testCase{{
 		name:       "random seed",
 		randomSeed: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *lntest.HarnessNode) {
@@ -126,8 +129,9 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 		},
 	}}
 
-	for _, st := range subTests {
-		subTest := st
+	prepareTest := func(st *lntest.HarnessTest,
+		subTest testCase) (*lntest.HarnessNode,
+		*lntest.HarnessNode, *lntest.HarnessNode) {
 
 		// Signer is our signing node and has the wallet with the full
 		// master private key. We test that we can create the watch-only
@@ -142,27 +146,27 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 			err               error
 		)
 		if !subTest.randomSeed {
-			signer = ht.RestoreNodeWithSeed(
+			signer = st.RestoreNodeWithSeed(
 				"Signer", nil, password, nil, rootKey, 0, nil,
 			)
 		} else {
-			signer = ht.NewNode("Signer", nil)
+			signer = st.NewNode("Signer", nil)
 			signerNodePubKey = signer.PubKeyStr
 
-			rpcAccts := ht.ListAccounts(
+			rpcAccts := st.ListAccounts(
 				signer, &walletrpc.ListAccountsRequest{},
 			)
 
 			watchOnlyAccounts, err = walletrpc.AccountsToWatchOnly(
 				rpcAccts.Accounts,
 			)
-			require.NoError(ht, err)
+			require.NoError(st, err)
 		}
 
 		// WatchOnly is the node that has a watch-only wallet and uses
 		// the Signer node for any operation that requires access to
 		// private keys.
-		watchOnly := ht.NewNodeRemoteSigner(
+		watchOnly := st.NewNodeRemoteSigner(
 			"WatchOnly", []string{
 				"--remotesigner.enable",
 				fmt.Sprintf(
@@ -184,29 +188,36 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 			},
 		)
 
-		resp := ht.GetInfo(watchOnly)
-		require.Equal(ht, signerNodePubKey, resp.IdentityPubkey)
+		resp := st.GetInfo(watchOnly)
+		require.Equal(st, signerNodePubKey, resp.IdentityPubkey)
 
 		if subTest.sendCoins {
-			ht.SendCoins(btcutil.SatoshiPerBitcoin, watchOnly)
+			st.SendCoins(btcutil.SatoshiPerBitcoin, watchOnly)
 			assertAccountBalance(
 				ht, watchOnly, "default",
 				btcutil.SatoshiPerBitcoin, 0,
 			)
 		}
 
-		carol := ht.NewNode("carol", nil)
-		ht.EnsureConnected(watchOnly, carol)
+		carol := st.NewNode("carol", nil)
+		st.EnsureConnected(watchOnly, carol)
+
+		return signer, watchOnly, carol
+	}
+
+	for _, testCase := range subTests {
+		subTest := testCase
 
 		success := ht.Run(subTest.name, func(tt *testing.T) {
 			// Skip the cleanup here as no standby node is used.
 			st, _ := ht.Subtest(tt)
+			signer, watchOnly, carol := prepareTest(st, subTest)
 			subTest.fn(st, watchOnly, carol)
-		})
 
-		ht.Shutdown(carol)
-		ht.Shutdown(watchOnly)
-		ht.Shutdown(signer)
+			st.Shutdown(carol)
+			st.Shutdown(watchOnly)
+			st.Shutdown(signer)
+		})
 
 		if !success {
 			return

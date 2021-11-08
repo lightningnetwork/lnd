@@ -350,12 +350,12 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	// we'll send two more update from Alice. Carol should accept the first,
 	// but not the second, as she only allows two updates per day and a day
 	// has yet to elapse from the previous update.
-	const numUpdatesTilRateLimit = 2
-	for i := 0; i < numUpdatesTilRateLimit; i++ {
-		prevAlicePolicy := *expectedPolicy
-		baseFee *= 2
-		expectedPolicy.FeeBaseMsat = baseFee
-		req.BaseFeeMsat = baseFee
+
+	// assertAliceAndBob is a helper closure which updates Alice's policy
+	// and asserts that both Alice and Bob have heard and updated the
+	// policy in their graph.
+	assertAliceAndBob := func(req *lnrpc.PolicyUpdateRequest,
+		eexpectedPolicy *lnrpc.RoutingPolicy) {
 
 		ht.UpdateChannelPolicy(alice, req)
 
@@ -380,26 +380,43 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 			bob, alice.PubKeyStr,
 			expectedPolicy, chanPoint, chanPoint3,
 		)
-
-		// Carol was added last, which is why we check the last index.
-		// Since Carol didn't receive the last update, she still has
-		// Alice's old policy.
-		if i == numUpdatesTilRateLimit-1 {
-			expectedPolicy = &prevAlicePolicy
-		}
-		assertPolicyUpdate(
-			ht, []*lntest.HarnessNode{carol},
-			alice.PubKeyStr, expectedPolicy, chanPoint,
-		)
-		assertPolicyUpdate(
-			ht, []*lntest.HarnessNode{carol},
-			alice.PubKeyStr, expectedPolicy, chanPoint3,
-		)
-		ht.AssertChannelPolicy(
-			carol, alice.PubKeyStr,
-			expectedPolicy, chanPoint, chanPoint3,
-		)
 	}
+
+	// Double the base fee and attach to the policy.
+	baseFee1 := baseFee * 2
+	expectedPolicy.FeeBaseMsat = baseFee1
+	req.BaseFeeMsat = baseFee1
+	assertAliceAndBob(req, expectedPolicy)
+
+	// Check that Carol has both heard the policy and updated it in her
+	// graph.
+	assertPolicyUpdate(
+		ht, []*lntest.HarnessNode{carol},
+		alice.PubKeyStr, expectedPolicy, chanPoint,
+	)
+	assertPolicyUpdate(
+		ht, []*lntest.HarnessNode{carol},
+		alice.PubKeyStr, expectedPolicy, chanPoint3,
+	)
+	ht.AssertChannelPolicy(
+		carol, alice.PubKeyStr,
+		expectedPolicy, chanPoint, chanPoint3,
+	)
+
+	// Double the base fee and attach to the policy.
+	baseFee2 := baseFee1 * 2
+	expectedPolicy.FeeBaseMsat = baseFee2
+	req.BaseFeeMsat = baseFee2
+	assertAliceAndBob(req, expectedPolicy)
+
+	// Since Carol didn't receive the last update, she still has Alice's
+	// old policy. We validate this by checking the base fee is the older
+	// one.
+	expectedPolicy.FeeBaseMsat = baseFee1
+	ht.AssertChannelPolicy(
+		carol, alice.PubKeyStr,
+		expectedPolicy, chanPoint, chanPoint3,
+	)
 }
 
 // testSendUpdateDisableChannel ensures that a channel update with the disable

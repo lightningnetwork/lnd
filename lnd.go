@@ -70,7 +70,9 @@ const (
 //
 // NOTE: This should only be called after the RPCListener has signaled it is
 // ready.
-func AdminAuthOptions(cfg *Config, skipMacaroons bool) ([]grpc.DialOption, error) {
+func AdminAuthOptions(cfg *Config, skipMacaroons bool) ([]grpc.DialOption,
+	error) {
+
 	creds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath, "")
 	if err != nil {
 		return nil, fmt.Errorf("unable to read TLS cert: %v", err)
@@ -107,8 +109,8 @@ func AdminAuthOptions(cfg *Config, skipMacaroons bool) ([]grpc.DialOption, error
 	return opts, nil
 }
 
-// ListenerWithSignal is a net.Listener that has an additional Ready channel that
-// will be closed when a server starts listening.
+// ListenerWithSignal is a net.Listener that has an additional Ready channel
+// that will be closed when a server starts listening.
 type ListenerWithSignal struct {
 	net.Listener
 
@@ -148,10 +150,16 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		}
 	}()
 
+	mkErr := func(format string, args ...interface{}) error {
+		ltndLog.Errorf("Shutting down because error in main "+
+			"method: "+format, args...)
+		return fmt.Errorf(format, args...)
+	}
+
 	// Show version at startup.
-	ltndLog.Infof("Version: %s commit=%s, build=%s, logging=%s, debuglevel=%s",
-		build.Version(), build.Commit, build.Deployment,
-		build.LoggingType, cfg.DebugLevel)
+	ltndLog.Infof("Version: %s commit=%s, build=%s, logging=%s, "+
+		"debuglevel=%s", build.Version(), build.Commit,
+		build.Deployment, build.LoggingType, cfg.DebugLevel)
 
 	var network string
 	switch {
@@ -191,10 +199,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	if cfg.CPUProfile != "" {
 		f, err := os.Create(cfg.CPUProfile)
 		if err != nil {
-			err := fmt.Errorf("unable to create CPU profile: %v",
-				err)
-			ltndLog.Error(err)
-			return err
+			return mkErr("unable to create CPU profile: %v", err)
 		}
 		pprof.StartCPUProfile(f)
 		defer f.Close()
@@ -209,15 +214,13 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// needs to be done early and once during the startup process, before
 	// any DB access.
 	if err := cfg.DB.Init(ctx, cfg.graphDatabaseDir()); err != nil {
-		return err
+		return mkErr("error initializing DBs: %v", err)
 	}
 
 	// Only process macaroons if --no-macaroons isn't set.
 	serverOpts, restDialOpts, restListen, cleanUp, err := getTLSConfig(cfg)
 	if err != nil {
-		err := fmt.Errorf("unable to load TLS credentials: %v", err)
-		ltndLog.Error(err)
-		return err
+		return mkErr("unable to load TLS credentials: %v", err)
 	}
 
 	defer cleanUp()
@@ -233,9 +236,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			// connections.
 			lis, err := lncfg.ListenOnAddress(grpcEndpoint)
 			if err != nil {
-				ltndLog.Errorf("unable to listen on %s",
-					grpcEndpoint)
-				return err
+				return mkErr("unable to listen on %s: %v",
+					grpcEndpoint, err)
 			}
 			defer lis.Close()
 
@@ -254,7 +256,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		rpcsLog, cfg.NoMacaroons, cfg.RPCMiddleware.Mandatory,
 	)
 	if err := interceptorChain.Start(); err != nil {
-		return err
+		return mkErr("error starting interceptor chain: %v", err)
 	}
 	defer func() {
 		err := interceptorChain.Stop()
@@ -279,14 +281,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	rpcServer := newRPCServer(cfg, interceptorChain, implCfg, interceptor)
 	err = rpcServer.RegisterWithGrpcServer(grpcServer)
 	if err != nil {
-		return err
+		return mkErr("error registering gRPC server: %v", err)
 	}
 
 	// Now that both the WalletUnlocker and LightningService have been
 	// registered with the GRPC server, we can start listening.
 	err = startGrpcListen(cfg, grpcServer, grpcListeners)
 	if err != nil {
-		return err
+		return mkErr("error starting gRPC listener: %v", err)
 	}
 
 	// Now start the REST proxy for our gRPC server above. We'll ensure
@@ -297,7 +299,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		cfg, rpcServer, restDialOpts, restListen,
 	)
 	if err != nil {
-		return err
+		return mkErr("error starting REST proxy: %v", err)
 	}
 	defer stopProxy()
 
@@ -341,8 +343,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			cfg.Cluster.ID)
 
 		if err := leaderElector.Campaign(electionCtx); err != nil {
-			ltndLog.Errorf("Leadership campaign failed: %v", err)
-			return err
+			return mkErr("leadership campaign failed: %v", err)
 		}
 
 		elected = true
@@ -355,7 +356,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		ltndLog.Infof("%v, exiting", err)
 		return nil
 	case err != nil:
-		return fmt.Errorf("unable to open databases: %v", err)
+		return mkErr("unable to open databases: %v", err)
 	}
 
 	defer cleanUp()
@@ -364,7 +365,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		ctx, dbs, interceptorChain, grpcListeners,
 	)
 	if err != nil {
-		return fmt.Errorf("error creating wallet config: %v", err)
+		return mkErr("error creating wallet config: %v", err)
 	}
 
 	defer cleanUp()
@@ -373,7 +374,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		partialChainControl, walletConfig,
 	)
 	if err != nil {
-		return fmt.Errorf("error loading chain control: %v", err)
+		return mkErr("error loading chain control: %v", err)
 	}
 
 	defer cleanUp()
@@ -392,9 +393,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		},
 	)
 	if err != nil {
-		err := fmt.Errorf("error deriving node key: %v", err)
-		ltndLog.Error(err)
-		return err
+		return mkErr("error deriving node key: %v", err)
 	}
 
 	if cfg.Tor.StreamIsolation && cfg.Tor.SkipProxyForClearNetTargets {
@@ -414,21 +413,21 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		}
 	}
 
-	// If tor is active and either v2 or v3 onion services have been specified,
-	// make a tor controller and pass it into both the watchtower server and
-	// the regular lnd server.
+	// If tor is active and either v2 or v3 onion services have been
+	// specified, make a tor controller and pass it into both the watchtower
+	// server and the regular lnd server.
 	var torController *tor.Controller
 	if cfg.Tor.Active && (cfg.Tor.V2 || cfg.Tor.V3) {
 		torController = tor.NewController(
-			cfg.Tor.Control, cfg.Tor.TargetIPAddress, cfg.Tor.Password,
+			cfg.Tor.Control, cfg.Tor.TargetIPAddress,
+			cfg.Tor.Password,
 		)
 
-		// Start the tor controller before giving it to any other subsystems.
+		// Start the tor controller before giving it to any other
+		// subsystems.
 		if err := torController.Start(); err != nil {
-			err := fmt.Errorf("unable to initialize tor "+
-				"controller: %v", err)
-			ltndLog.Error(err)
-			return err
+			return mkErr("unable to initialize tor controller: %v",
+				err)
 		}
 		defer func() {
 			if err := torController.Stop(); err != nil {
@@ -447,9 +446,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			},
 		)
 		if err != nil {
-			err := fmt.Errorf("error deriving tower key: %v", err)
-			ltndLog.Error(err)
-			return err
+			return mkErr("error deriving tower key: %v", err)
 		}
 
 		wtCfg := &watchtower.Config{
@@ -470,8 +467,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			ChainHash: *cfg.ActiveNetParams.GenesisHash,
 		}
 
-		// If there is a tor controller (user wants auto hidden services), then
-		// store a pointer in the watchtower config.
+		// If there is a tor controller (user wants auto hidden
+		// services), then store a pointer in the watchtower config.
 		if torController != nil {
 			wtCfg.TorController = torController
 			wtCfg.WatchtowerKeyPath = cfg.Tor.WatchtowerKeyPath
@@ -484,19 +481,16 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			}
 		}
 
-		wtConfig, err := cfg.Watchtower.Apply(wtCfg, lncfg.NormalizeAddresses)
+		wtConfig, err := cfg.Watchtower.Apply(
+			wtCfg, lncfg.NormalizeAddresses,
+		)
 		if err != nil {
-			err := fmt.Errorf("unable to configure watchtower: %v",
-				err)
-			ltndLog.Error(err)
-			return err
+			return mkErr("unable to configure watchtower: %v", err)
 		}
 
 		tower, err = watchtower.New(wtConfig)
 		if err != nil {
-			err := fmt.Errorf("unable to create watchtower: %v", err)
-			ltndLog.Error(err)
-			return err
+			return mkErr("unable to create watchtower: %v", err)
 		}
 	}
 
@@ -511,9 +505,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		chainedAcceptor, torController,
 	)
 	if err != nil {
-		err := fmt.Errorf("unable to create server: %v", err)
-		ltndLog.Error(err)
-		return err
+		return mkErr("unable to create server: %v", err)
 	}
 
 	// Set up an autopilot manager from the current config. This will be
@@ -524,21 +516,15 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		cfg.ActiveNetParams,
 	)
 	if err != nil {
-		err := fmt.Errorf("unable to initialize autopilot: %v", err)
-		ltndLog.Error(err)
-		return err
+		return mkErr("unable to initialize autopilot: %v", err)
 	}
 
 	atplManager, err := autopilot.NewManager(atplCfg)
 	if err != nil {
-		err := fmt.Errorf("unable to create autopilot manager: %v", err)
-		ltndLog.Error(err)
-		return err
+		return mkErr("unable to create autopilot manager: %v", err)
 	}
 	if err := atplManager.Start(); err != nil {
-		err := fmt.Errorf("unable to start autopilot manager: %v", err)
-		ltndLog.Error(err)
-		return err
+		return mkErr("unable to start autopilot manager: %v", err)
 	}
 	defer atplManager.Stop()
 
@@ -549,14 +535,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		atplManager, server.invoices, tower, chainedAcceptor,
 	)
 	if err != nil {
-		err := fmt.Errorf("unable to add deps to RPC server: %v", err)
-		ltndLog.Error(err)
-		return err
+		return mkErr("unable to add deps to RPC server: %v", err)
 	}
 	if err := rpcServer.Start(); err != nil {
-		err := fmt.Errorf("unable to start RPC server: %v", err)
-		ltndLog.Error(err)
-		return err
+		return mkErr("unable to start RPC server: %v", err)
 	}
 	defer rpcServer.Stop()
 
@@ -564,7 +546,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	interceptorChain.SetRPCActive()
 
 	if err := interceptor.Notifier.NotifyReady(true); err != nil {
-		return err
+		return mkErr("error notifying ready: %v", err)
 	}
 
 	// We'll wait until we're fully synced to continue the start up of the
@@ -573,10 +555,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// funds.
 	_, bestHeight, err := activeChainControl.ChainIO.GetBestBlock()
 	if err != nil {
-		err := fmt.Errorf("unable to determine chain tip: %v",
-			err)
-		ltndLog.Error(err)
-		return err
+		return mkErr("unable to determine chain tip: %v", err)
 	}
 
 	ltndLog.Infof("Waiting for chain backend to finish sync, "+
@@ -589,10 +568,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 		synced, _, err := activeChainControl.Wallet.IsSynced()
 		if err != nil {
-			err := fmt.Errorf("unable to determine if "+
-				"wallet is synced: %v", err)
-			ltndLog.Error(err)
-			return err
+			return mkErr("unable to determine if wallet is "+
+				"synced: %v", err)
 		}
 
 		if synced {
@@ -604,10 +581,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	_, bestHeight, err = activeChainControl.ChainIO.GetBestBlock()
 	if err != nil {
-		err := fmt.Errorf("unable to determine chain tip: %v",
-			err)
-		ltndLog.Error(err)
-		return err
+		return mkErr("unable to determine chain tip: %v", err)
 	}
 
 	ltndLog.Infof("Chain backend is fully synced (end_height=%v)!",
@@ -616,9 +590,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// With all the relevant chains initialized, we can finally start the
 	// server itself.
 	if err := server.Start(); err != nil {
-		err := fmt.Errorf("unable to start server: %v", err)
-		ltndLog.Error(err)
-		return err
+		return mkErr("unable to start server: %v", err)
 	}
 	defer server.Stop()
 
@@ -630,18 +602,13 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// stopped together with the autopilot service.
 	if cfg.Autopilot.Active {
 		if err := atplManager.StartAgent(); err != nil {
-			err := fmt.Errorf("unable to start autopilot agent: %v",
-				err)
-			ltndLog.Error(err)
-			return err
+			return mkErr("unable to start autopilot agent: %v", err)
 		}
 	}
 
 	if cfg.Watchtower.Active {
 		if err := tower.Start(); err != nil {
-			err := fmt.Errorf("unable to start watchtower: %v", err)
-			ltndLog.Error(err)
-			return err
+			return mkErr("unable to start watchtower: %v", err)
 		}
 		defer tower.Stop()
 	}

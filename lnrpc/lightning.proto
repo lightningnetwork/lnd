@@ -4175,8 +4175,10 @@ message CheckMacPermResponse {
 
 message RPCMiddlewareRequest {
     /*
-    The unique ID of the intercepted request. Useful for mapping request to
-    response when implementing full duplex message interception.
+    The unique ID of the intercepted original gRPC request. Useful for mapping
+    request to response when implementing full duplex message interception. For
+    streaming requests, this will be the same ID for all incoming and outgoing
+    middleware intercept messages of the _same_ stream.
     */
     uint64 request_id = 1;
 
@@ -4231,6 +4233,16 @@ message RPCMiddlewareRequest {
         */
         RPCMessage response = 6;
     }
+
+    /*
+    The unique message ID of this middleware intercept message. There can be
+    multiple middleware intercept messages per single gRPC request (one for the
+    incoming request and one for the outgoing response) or gRPC stream (one for
+    each incoming message and one for each outgoing response). This message ID
+    must be referenced when responding (accepting/rejecting/modifying) to an
+    intercept message.
+    */
+    uint64 msg_id = 7;
 }
 
 message StreamAuth {
@@ -4270,11 +4282,11 @@ message RPCMessage {
 
 message RPCMiddlewareResponse {
     /*
-    The unique ID of the intercepted request that this response refers to. Must
-    always be set when giving feedback to an intercept but is ignored for the
-    initial registration message.
+    The request message ID this response refers to. Must always be set when
+    giving feedback to an intercept but is ignored for the initial registration
+    message.
     */
-    uint64 request_id = 1;
+    uint64 ref_msg_id = 1;
 
     /*
     The middleware can only send two types of messages to lnd: The initial

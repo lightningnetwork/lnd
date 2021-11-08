@@ -37,11 +37,11 @@ var (
 // whenever the custom business logic implemented there should give feedback to
 // a request or response that's happening on the main gRPC server.
 type MiddlewareHandler struct {
-	// lastRequestID is the ID of the last request that was forwarded to the
-	// middleware.
+	// lastMsgID is the ID of the last intercept message that was forwarded
+	// to the middleware.
 	//
 	// NOTE: Must be used atomically!
-	lastRequestID uint64
+	lastMsgID uint64
 
 	middlewareName string
 
@@ -228,12 +228,12 @@ func (h *MiddlewareHandler) sendInterceptRequests(errChan chan error,
 		// Consume requests passed to us from our Accept() function and
 		// send them into our stream.
 		case newRequest := <-h.interceptRequests:
-			id := atomic.AddUint64(&h.lastRequestID, 1)
+			msgID := atomic.AddUint64(&h.lastMsgID, 1)
 
 			req := newRequest.request
-			interceptRequests[id] = newRequest
+			interceptRequests[msgID] = newRequest
 
-			interceptReq, err := req.ToRPC(id)
+			interceptReq, err := req.ToRPC(msgID)
 			if err != nil {
 				return err
 			}
@@ -246,7 +246,7 @@ func (h *MiddlewareHandler) sendInterceptRequests(errChan chan error,
 		// looking the original request up in our map of requests and
 		// dispatching the response.
 		case resp := <-responses:
-			requestInfo, ok := interceptRequests[resp.RequestId]
+			requestInfo, ok := interceptRequests[resp.RefMsgId]
 			if !ok {
 				continue
 			}
@@ -290,7 +290,7 @@ func (h *MiddlewareHandler) sendInterceptRequests(errChan chan error,
 			case <-h.quit:
 			}
 
-			delete(interceptRequests, resp.RequestId)
+			delete(interceptRequests, resp.RefMsgId)
 
 		// If we failed to receive from our middleware, we exit.
 		case err := <-errChan:
@@ -447,11 +447,11 @@ func macaroonFromContext(ctx context.Context) (*macaroon.Macaroon, []byte,
 }
 
 // ToRPC converts the interception request to its RPC counterpart.
-func (r *InterceptionRequest) ToRPC(id uint64) (*lnrpc.RPCMiddlewareRequest,
+func (r *InterceptionRequest) ToRPC(msgID uint64) (*lnrpc.RPCMiddlewareRequest,
 	error) {
 
 	rpcRequest := &lnrpc.RPCMiddlewareRequest{
-		RequestId:             id,
+		MsgId:                 msgID,
 		RawMacaroon:           r.RawMacaroon,
 		CustomCaveatCondition: r.CustomCaveatCondition,
 	}

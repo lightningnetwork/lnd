@@ -740,8 +740,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 				}
 			}
 
-			str := "Failed to create lnd directory: %v"
-			return mkErr(str, err)
+			str := "Failed to create lnd directory '%s': %v"
+			return mkErr(str, dir, err)
 		}
 
 		return nil
@@ -808,24 +808,6 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	cfg.WalletUnlockPasswordFile = CleanAndExpandPath(
 		cfg.WalletUnlockPasswordFile,
 	)
-
-	// Create the lnd directory and all other sub directories if they don't
-	// already exist. This makes sure that directory trees are also created
-	// for files that point to outside of the lnddir.
-	dirs := []string{
-		lndDir, cfg.DataDir,
-		cfg.LetsEncryptDir, cfg.Watchtower.TowerDir,
-		filepath.Dir(cfg.TLSCertPath), filepath.Dir(cfg.TLSKeyPath),
-		filepath.Dir(cfg.AdminMacPath), filepath.Dir(cfg.ReadMacPath),
-		filepath.Dir(cfg.InvoiceMacPath),
-		filepath.Dir(cfg.Tor.PrivateKeyPath),
-		filepath.Dir(cfg.Tor.WatchtowerKeyPath),
-	}
-	for _, dir := range dirs {
-		if err := makeDirectory(dir); err != nil {
-			return nil, err
-		}
-	}
 
 	// Ensure that the user didn't attempt to specify negative values for
 	// any of the autopilot params.
@@ -1307,12 +1289,6 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
-	// We need to make sure the default network directory exists for when we
-	// try to create our default macaroons there.
-	if err := makeDirectory(cfg.networkDir); err != nil {
-		return nil, err
-	}
-
 	// If a custom macaroon directory wasn't specified and the data
 	// directory has changed from the default path, then we'll also update
 	// the path for the macaroons to be generated.
@@ -1330,6 +1306,24 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.InvoiceMacPath = filepath.Join(
 			cfg.networkDir, defaultInvoiceMacFilename,
 		)
+	}
+
+	// Create the lnd directory and all other sub-directories if they don't
+	// already exist. This makes sure that directory trees are also created
+	// for files that point to outside the lnddir.
+	dirs := []string{
+		lndDir, cfg.DataDir, cfg.networkDir,
+		cfg.LetsEncryptDir, cfg.Watchtower.TowerDir,
+		filepath.Dir(cfg.TLSCertPath), filepath.Dir(cfg.TLSKeyPath),
+		filepath.Dir(cfg.AdminMacPath), filepath.Dir(cfg.ReadMacPath),
+		filepath.Dir(cfg.InvoiceMacPath),
+		filepath.Dir(cfg.Tor.PrivateKeyPath),
+		filepath.Dir(cfg.Tor.WatchtowerKeyPath),
+	}
+	for _, dir := range dirs {
+		if err := makeDirectory(dir); err != nil {
+			return nil, err
+		}
 	}
 
 	// Similarly, if a custom back up file path wasn't specified, then

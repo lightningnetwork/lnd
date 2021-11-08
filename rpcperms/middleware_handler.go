@@ -107,14 +107,15 @@ func NewMiddlewareHandler(name, customCaveatName string, readOnly bool,
 // feedback on it and sending the feedback to the appropriate channel. All steps
 // are guarded by the configured timeout to make sure a middleware cannot slow
 // down requests too much.
-func (h *MiddlewareHandler) intercept(
+func (h *MiddlewareHandler) intercept(requestID uint64,
 	req *InterceptionRequest) (*interceptResponse, error) {
 
 	respChan := make(chan *interceptResponse, 1)
 
 	newRequest := &interceptRequest{
-		request:  req,
-		response: respChan,
+		requestID: requestID,
+		request:   req,
+		response:  respChan,
 	}
 
 	// timeout is the time after which intercept requests expire.
@@ -233,7 +234,9 @@ func (h *MiddlewareHandler) sendInterceptRequests(errChan chan error,
 			req := newRequest.request
 			interceptRequests[msgID] = newRequest
 
-			interceptReq, err := req.ToRPC(msgID)
+			interceptReq, err := req.ToRPC(
+				newRequest.requestID, msgID,
+			)
 			if err != nil {
 				return err
 			}
@@ -447,10 +450,11 @@ func macaroonFromContext(ctx context.Context) (*macaroon.Macaroon, []byte,
 }
 
 // ToRPC converts the interception request to its RPC counterpart.
-func (r *InterceptionRequest) ToRPC(msgID uint64) (*lnrpc.RPCMiddlewareRequest,
-	error) {
+func (r *InterceptionRequest) ToRPC(requestID,
+	msgID uint64) (*lnrpc.RPCMiddlewareRequest, error) {
 
 	rpcRequest := &lnrpc.RPCMiddlewareRequest{
+		RequestId:             requestID,
 		MsgId:                 msgID,
 		RawMacaroon:           r.RawMacaroon,
 		CustomCaveatCondition: r.CustomCaveatCondition,
@@ -495,8 +499,9 @@ func (r *InterceptionRequest) ToRPC(msgID uint64) (*lnrpc.RPCMiddlewareRequest,
 // out to a middleware and the response that is eventually sent back by the
 // middleware.
 type interceptRequest struct {
-	request  *InterceptionRequest
-	response chan *interceptResponse
+	requestID uint64
+	request   *InterceptionRequest
+	response  chan *interceptResponse
 }
 
 // interceptResponse is the response a middleware sends back for each

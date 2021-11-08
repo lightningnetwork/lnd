@@ -545,6 +545,12 @@ func (h *middlewareHarness) interceptUnary(methodURI string,
 	res := respIntercept.GetResponse()
 	require.NotNil(h.t, res)
 
+	// We expect the request ID to be the same for the request intercept
+	// and the response intercept messages. But the message IDs must be
+	// different/unique.
+	require.Equal(h.t, reqIntercept.RequestId, respIntercept.RequestId)
+	require.NotEqual(h.t, reqIntercept.MsgId, respIntercept.MsgId)
+
 	// We need to accept the response as well.
 	h.sendAccept(respIntercept.MsgId, responseReplacement)
 
@@ -592,6 +598,15 @@ func (h *middlewareHarness) interceptStream(methodURI string,
 	require.NoError(h.t, err)
 	res := respIntercept.GetResponse()
 	require.NotNil(h.t, res)
+
+	// We expect the request ID to be the same for the auth intercept,
+	// request intercept and the response intercept messages. But the
+	// message IDs must be different/unique.
+	require.Equal(h.t, authIntercept.RequestId, respIntercept.RequestId)
+	require.Equal(h.t, reqIntercept.RequestId, respIntercept.RequestId)
+	require.NotEqual(h.t, authIntercept.MsgId, reqIntercept.MsgId)
+	require.NotEqual(h.t, authIntercept.MsgId, respIntercept.MsgId)
+	require.NotEqual(h.t, reqIntercept.MsgId, respIntercept.MsgId)
 
 	// We need to accept the response as well.
 	h.sendAccept(respIntercept.MsgId, responseReplacement)

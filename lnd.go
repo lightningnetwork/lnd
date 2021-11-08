@@ -403,12 +403,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	if cfg.Tor.Active {
 		if cfg.Tor.SkipProxyForClearNetTargets {
-			srvrLog.Info("Onion services are accessible via Tor! NOTE: " +
-				"Traffic to clearnet services is not routed via Tor.")
+			srvrLog.Info("Onion services are accessible via Tor! " +
+				"NOTE: Traffic to clearnet services is not " +
+				"routed via Tor.")
 		} else {
 			srvrLog.Infof("Proxying all network traffic via Tor "+
-				"(stream_isolation=%v)! NOTE: Ensure the backend node "+
-				"is proxying over Tor as well", cfg.Tor.StreamIsolation)
+				"(stream_isolation=%v)! NOTE: Ensure the "+
+				"backend node is proxying over Tor as well",
+				cfg.Tor.StreamIsolation)
 		}
 	}
 
@@ -423,13 +425,15 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 		// Start the tor controller before giving it to any other subsystems.
 		if err := torController.Start(); err != nil {
-			err := fmt.Errorf("unable to initialize tor controller: %v", err)
+			err := fmt.Errorf("unable to initialize tor "+
+				"controller: %v", err)
 			ltndLog.Error(err)
 			return err
 		}
 		defer func() {
 			if err := torController.Stop(); err != nil {
-				ltndLog.Errorf("error stopping tor controller: %v", err)
+				ltndLog.Errorf("error stopping tor "+
+					"controller: %v", err)
 			}
 		}()
 	}

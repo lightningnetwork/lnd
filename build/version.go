@@ -44,7 +44,7 @@ const (
 	AppMinor uint = 13
 
 	// AppPatch defines the application patch for this binary.
-	AppPatch uint = 3
+	AppPatch uint = 4
 
 	// AppPreRelease MUST only contain characters from semanticAlphabet
 	// per the semantic versioning spec.

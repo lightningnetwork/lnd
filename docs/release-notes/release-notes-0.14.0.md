@@ -618,6 +618,9 @@ messages directly. There is no routing/path finding involved.
 * [Fixed an issue with external listeners and the `--noseedbackup` development
   flag](https://github.com/lightningnetwork/lnd/pull/5930).
 
+* [Fix deadlock when using the graph cache](
+  https://github.com/lightningnetwork/lnd/pull/5941)
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

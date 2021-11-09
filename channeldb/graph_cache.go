@@ -401,10 +401,9 @@ func (c *GraphCache) UpdateChannel(info *ChannelEdgeInfo) {
 	}
 }
 
-// ForEachChannel invokes the given callback for each channel of the given node.
-func (c *GraphCache) ForEachChannel(node route.Vertex,
-	cb func(channel *DirectedChannel) error) error {
-
+// getChannels returns a copy of the passed node's channels or nil if there
+// isn't any.
+func (c *GraphCache) getChannels(node route.Vertex) []*DirectedChannel {
 	c.mtx.RLock()
 	defer c.mtx.RUnlock()
 
@@ -428,6 +427,8 @@ func (c *GraphCache) ForEachChannel(node route.Vertex,
 		return node
 	}
 
+	i := 0
+	channelsCopy := make([]*DirectedChannel, len(channels))
 	for _, channel := range channels {
 		// We need to copy the channel and policy to avoid it being
 		// updated in the cache if the path finding algorithm sets
@@ -439,9 +440,30 @@ func (c *GraphCache) ForEachChannel(node route.Vertex,
 			channelCopy.InPolicy.ToNodeFeatures = features
 		}
 
-		if err := cb(channelCopy); err != nil {
+		channelsCopy[i] = channelCopy
+		i++
+	}
+
+	return channelsCopy
+}
+
+// ForEachChannel invokes the given callback for each channel of the given node.
+func (c *GraphCache) ForEachChannel(node route.Vertex,
+	cb func(channel *DirectedChannel) error) error {
+
+	// Obtain a copy of the node's channels. We need do this in order to
+	// avoid deadlocks caused by interaction with the graph cache, channel
+	// state and the graph database from multiple goroutines. This snapshot
+	// is only used for path finding where being stale is acceptable since
+	// the real world graph and our representation may always become
+	// slightly out of sync for a short time and the actual channel state
+	// is stored separately.
+	channels := c.getChannels(node)
+	for _, channel := range channels {
+		if err := cb(channel); err != nil {
 			return err
 		}
+
 	}
 
 	return nil

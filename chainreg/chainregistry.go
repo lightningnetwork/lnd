@@ -53,7 +53,8 @@ type Config struct {
 	// queries if true.
 	HeightHintCacheQueryDisable bool
 
-	// NeutrinoMode defines settings for connecting to a neutrino light-client.
+	// NeutrinoMode defines settings for connecting to a neutrino
+	// light-client.
 	NeutrinoMode *lncfg.Neutrino
 
 	// BitcoindMode defines settings for connecting to a bitcoind node.
@@ -83,8 +84,8 @@ type Config struct {
 	// the main wallet.
 	WalletUnlockParams *walletunlocker.WalletUnlockParams
 
-	// NeutrinoCS is a pointer to a neutrino ChainService. Must be non-nil if
-	// using neutrino.
+	// NeutrinoCS is a pointer to a neutrino ChainService. Must be non-nil
+	// if using neutrino.
 	NeutrinoCS *neutrino.ChainService
 
 	// ActiveNetParams details the current chain we are on.
@@ -152,8 +153,8 @@ const (
 	BtcToLtcConversionRate = 60
 )
 
-// DefaultLtcChannelConstraints is the default set of channel constraints that are
-// meant to be used when initially funding a Litecoin channel.
+// DefaultLtcChannelConstraints is the default set of channel constraints that
+// are meant to be used when initially funding a Litecoin channel.
 var DefaultLtcChannelConstraints = channeldb.ChannelConstraints{
 	DustLimit:        DefaultLitecoinDustLimit,
 	MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
@@ -285,8 +286,8 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			DefaultLitecoinStaticFeePerKW, 0,
 		)
 	default:
-		return nil, nil, fmt.Errorf("default routing policy for chain %v is "+
-			"unknown", cfg.PrimaryChain())
+		return nil, nil, fmt.Errorf("default routing policy for chain "+
+			"%v is unknown", cfg.PrimaryChain())
 	}
 
 	var err error
@@ -329,7 +330,8 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		if cfg.NeutrinoMode.FeeURL != "" {
 			if cfg.FeeURL != "" {
 				return nil, nil, errors.New("feeurl and " +
-					"neutrino.feeurl are mutually exclusive")
+					"neutrino.feeurl are mutually " +
+					"exclusive")
 			}
 
 			cfg.FeeURL = cfg.NeutrinoMode.FeeURL
@@ -414,8 +416,8 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		}
 
 		if err := bitcoindConn.Start(); err != nil {
-			return nil, nil, fmt.Errorf("unable to connect to bitcoind: "+
-				"%v", err)
+			return nil, nil, fmt.Errorf("unable to connect to "+
+				"bitcoind: %v", err)
 		}
 
 		cc.ChainNotifier = bitcoindnotify.New(
@@ -439,8 +441,8 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			HTTPPostMode:         true,
 		}
 		if cfg.Bitcoin.Active && !cfg.Bitcoin.RegTest {
-			log.Infof("Initializing bitcoind backed fee estimator in "+
-				"%s mode", bitcoindMode.EstimateMode)
+			log.Infof("Initializing bitcoind backed fee estimator "+
+				"in %s mode", bitcoindMode.EstimateMode)
 
 			// Finally, we'll re-initialize the fee estimator, as
 			// if we're using bitcoind as a backend, then we can
@@ -455,8 +457,9 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 				return nil, nil, err
 			}
 		} else if cfg.Litecoin.Active && !cfg.Litecoin.RegTest {
-			log.Infof("Initializing litecoind backed fee estimator in "+
-				"%s mode", bitcoindMode.EstimateMode)
+			log.Infof("Initializing litecoind backed fee "+
+				"estimator in %s mode",
+				bitcoindMode.EstimateMode)
 
 			// Finally, we'll re-initialize the fee estimator, as
 			// if we're using litecoind as a backend, then we can
@@ -558,8 +561,8 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			return nil, nil, err
 		}
 
-		// Finally, we'll create an instance of the default chain view to be
-		// used within the routing layer.
+		// Finally, we'll create an instance of the default chain view
+		// to be used within the routing layer.
 		cc.ChainView, err = chainview.NewBtcdFilteredChainView(
 			*rpcConfig, cfg.BlockCache,
 		)
@@ -568,10 +571,12 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			return nil, nil, err
 		}
 
-		// Create a special websockets rpc client for btcd which will be used
-		// by the wallet for notifications, calls, etc.
-		chainRPC, err := chain.NewRPCClient(cfg.ActiveNetParams.Params, btcdHost,
-			btcdUser, btcdPass, rpcCert, false, 20)
+		// Create a special websockets rpc client for btcd which will be
+		// used by the wallet for notifications, calls, etc.
+		chainRPC, err := chain.NewRPCClient(
+			cfg.ActiveNetParams.Params, btcdHost, btcdUser,
+			btcdPass, rpcCert, false, 20,
+		)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -615,8 +620,8 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	case cfg.FeeURL == "" && cfg.Bitcoin.MainNet &&
 		homeChainConfig.Node == "neutrino":
 
-		return nil, nil, fmt.Errorf("--feeurl parameter required when " +
-			"running neutrino on mainnet")
+		return nil, nil, fmt.Errorf("--feeurl parameter required " +
+			"when running neutrino on mainnet")
 
 	// Override default fee estimator if an external service is specified.
 	case cfg.FeeURL != "":
@@ -638,7 +643,8 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	ccCleanup := func() {
 		if cc.FeeEstimator != nil {
 			if err := cc.FeeEstimator.Stop(); err != nil {
-				log.Errorf("Failed to stop feeEstimator: %v", err)
+				log.Errorf("Failed to stop feeEstimator: %v",
+					err)
 			}
 		}
 	}
@@ -686,12 +692,12 @@ func NewChainControl(walletConfig lnwallet.Config,
 
 	lnWallet, err := lnwallet.NewLightningWallet(walletConfig)
 	if err != nil {
-		fmt.Printf("unable to create wallet: %v\n", err)
-		return nil, ccCleanup, err
+		return nil, ccCleanup, fmt.Errorf("unable to create wallet: %v",
+			err)
 	}
 	if err := lnWallet.Startup(); err != nil {
-		fmt.Printf("unable to start wallet: %v\n", err)
-		return nil, ccCleanup, err
+		return nil, ccCleanup, fmt.Errorf("unable to create wallet: %v",
+			err)
 	}
 
 	log.Info("LightningWallet opened")
@@ -872,7 +878,9 @@ func (c *ChainRegistry) LookupChain(targetChain ChainCode) (
 
 // LookupChainByHash attempts to look up an active ChainControl which
 // corresponds to the passed genesis hash.
-func (c *ChainRegistry) LookupChainByHash(chainHash chainhash.Hash) (*ChainControl, bool) {
+func (c *ChainRegistry) LookupChainByHash(
+	chainHash chainhash.Hash) (*ChainControl, bool) {
+
 	c.RLock()
 	defer c.RUnlock()
 

@@ -472,6 +472,9 @@ messages directly. There is no routing/path finding involved.
 * [Fixed two flakes in itests that were caused by things progressing too
   fast](https://github.com/lightningnetwork/lnd/pull/5905).
 
+* [Fixes two issues around configuration parsing and error
+  logging](https://github.com/lightningnetwork/lnd/pull/5948).
+
 ## Database
 
 * [Ensure single writer for legacy
@@ -621,6 +624,9 @@ messages directly. There is no routing/path finding involved.
 * [Fixed a bug that caused the RPC middleware request ID not to be the same
   for intercept messages belonging to the same intercepted gRPC request/response
   pair](https://github.com/lightningnetwork/lnd/pull/5950).
+  
+* [Fix deadlock when using the graph cache](
+  https://github.com/lightningnetwork/lnd/pull/5941)
 
 ## Documentation 
 

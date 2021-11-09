@@ -537,7 +537,7 @@ func (h *middlewareHarness) interceptUnary(methodURI string,
 	assertInterceptedType(h.t, expectedRequest, req)
 
 	// We need to accept the request.
-	h.sendAccept(reqIntercept.RequestId, nil)
+	h.sendAccept(reqIntercept.MsgId, nil)
 
 	// Now read the intercept message for the response.
 	respIntercept, err := h.stream.Recv()
@@ -545,8 +545,14 @@ func (h *middlewareHarness) interceptUnary(methodURI string,
 	res := respIntercept.GetResponse()
 	require.NotNil(h.t, res)
 
+	// We expect the request ID to be the same for the request intercept
+	// and the response intercept messages. But the message IDs must be
+	// different/unique.
+	require.Equal(h.t, reqIntercept.RequestId, respIntercept.RequestId)
+	require.NotEqual(h.t, reqIntercept.MsgId, respIntercept.MsgId)
+
 	// We need to accept the response as well.
-	h.sendAccept(respIntercept.RequestId, responseReplacement)
+	h.sendAccept(respIntercept.MsgId, responseReplacement)
 
 	h.responsesChan <- res
 }
@@ -571,7 +577,7 @@ func (h *middlewareHarness) interceptStream(methodURI string,
 	require.Equal(h.t, methodURI, auth.MethodFullUri)
 
 	// We need to accept the auth.
-	h.sendAccept(authIntercept.RequestId, nil)
+	h.sendAccept(authIntercept.MsgId, nil)
 
 	// Read intercept message and make sure it's for an RPC request.
 	reqIntercept, err := h.stream.Recv()
@@ -585,7 +591,7 @@ func (h *middlewareHarness) interceptStream(methodURI string,
 	assertInterceptedType(h.t, expectedRequest, req)
 
 	// We need to accept the request.
-	h.sendAccept(reqIntercept.RequestId, nil)
+	h.sendAccept(reqIntercept.MsgId, nil)
 
 	// Now read the intercept message for the response.
 	respIntercept, err := h.stream.Recv()
@@ -593,14 +599,23 @@ func (h *middlewareHarness) interceptStream(methodURI string,
 	res := respIntercept.GetResponse()
 	require.NotNil(h.t, res)
 
+	// We expect the request ID to be the same for the auth intercept,
+	// request intercept and the response intercept messages. But the
+	// message IDs must be different/unique.
+	require.Equal(h.t, authIntercept.RequestId, respIntercept.RequestId)
+	require.Equal(h.t, reqIntercept.RequestId, respIntercept.RequestId)
+	require.NotEqual(h.t, authIntercept.MsgId, reqIntercept.MsgId)
+	require.NotEqual(h.t, authIntercept.MsgId, respIntercept.MsgId)
+	require.NotEqual(h.t, reqIntercept.MsgId, respIntercept.MsgId)
+
 	// We need to accept the response as well.
-	h.sendAccept(respIntercept.RequestId, responseReplacement)
+	h.sendAccept(respIntercept.MsgId, responseReplacement)
 
 	h.responsesChan <- res
 }
 
 // sendAccept sends an accept feedback to the RPC server.
-func (h *middlewareHarness) sendAccept(requestID uint64,
+func (h *middlewareHarness) sendAccept(msgID uint64,
 	responseReplacement proto.Message) {
 
 	var replacementBytes []byte
@@ -617,7 +632,7 @@ func (h *middlewareHarness) sendAccept(requestID uint64,
 				ReplacementSerialized: replacementBytes,
 			},
 		},
-		RequestId: requestID,
+		RefMsgId: msgID,
 	})
 	require.NoError(h.t, err)
 }

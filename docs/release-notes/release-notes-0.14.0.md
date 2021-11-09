@@ -621,6 +621,10 @@ messages directly. There is no routing/path finding involved.
 * [Fixed an issue with external listeners and the `--noseedbackup` development
   flag](https://github.com/lightningnetwork/lnd/pull/5930).
 
+* [Fixed a bug that caused the RPC middleware request ID not to be the same
+  for intercept messages belonging to the same intercepted gRPC request/response
+  pair](https://github.com/lightningnetwork/lnd/pull/5950).
+  
 * [Fix deadlock when using the graph cache](
   https://github.com/lightningnetwork/lnd/pull/5941)
 

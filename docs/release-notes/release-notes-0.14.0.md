@@ -472,6 +472,9 @@ messages directly. There is no routing/path finding involved.
 * [Fixed two flakes in itests that were caused by things progressing too
   fast](https://github.com/lightningnetwork/lnd/pull/5905).
 
+* [Fixes two issues around configuration parsing and error
+  logging](https://github.com/lightningnetwork/lnd/pull/5948).
+
 ## Database
 
 * [Ensure single writer for legacy

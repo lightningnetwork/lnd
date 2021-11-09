@@ -601,7 +601,7 @@ func (d *DefaultWalletImpl) BuildChainControl(
 		*walletConfig, partialChainControl.Cfg.BlockCache,
 	)
 	if err != nil {
-		fmt.Printf("unable to create wallet controller: %v\n", err)
+		err := fmt.Errorf("unable to create wallet controller: %v", err)
 		d.logger.Error(err)
 		return nil, nil, err
 	}
@@ -676,7 +676,7 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 		*walletConfig, partialChainControl.Cfg.BlockCache,
 	)
 	if err != nil {
-		fmt.Printf("unable to create wallet controller: %v\n", err)
+		err := fmt.Errorf("unable to create wallet controller: %v", err)
 		d.logger.Error(err)
 		return nil, nil, err
 	}
@@ -691,7 +691,8 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 		rpcwallet.DefaultRPCTimeout,
 	)
 	if err != nil {
-		fmt.Printf("unable to create RPC remote signing wallet %v", err)
+		err := fmt.Errorf("unable to create RPC remote signing wallet "+
+			"%v", err)
 		d.logger.Error(err)
 		return nil, nil, err
 	}

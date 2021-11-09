@@ -1,3 +1,4 @@
+//go:build kvdb_postgres
 // +build kvdb_postgres
 
 package kvdb
@@ -35,13 +36,13 @@ func TestPostgres(t *testing.T) {
 			test: testReadWriteCursor,
 			expectedDb: m{
 				"test_kv": []m{
-					m{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
-					m{"id": int64(4), "key": "da", "parent_id": int64(1), "sequence": nil, "value": "3"},
-					m{"id": int64(6), "key": "a", "parent_id": int64(1), "sequence": nil, "value": "0"},
-					m{"id": int64(7), "key": "f", "parent_id": int64(1), "sequence": nil, "value": "5"},
-					m{"id": int64(3), "key": "c", "parent_id": int64(1), "sequence": nil, "value": "3"},
-					m{"id": int64(9), "key": "cx", "parent_id": int64(1), "sequence": nil, "value": "x"},
-					m{"id": int64(10), "key": "cy", "parent_id": int64(1), "sequence": nil, "value": "y"},
+					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
+					{"id": int64(4), "key": "da", "parent_id": int64(1), "sequence": nil, "value": "3"},
+					{"id": int64(6), "key": "a", "parent_id": int64(1), "sequence": nil, "value": "0"},
+					{"id": int64(7), "key": "f", "parent_id": int64(1), "sequence": nil, "value": "5"},
+					{"id": int64(3), "key": "c", "parent_id": int64(1), "sequence": nil, "value": "3"},
+					{"id": int64(9), "key": "cx", "parent_id": int64(1), "sequence": nil, "value": "x"},
+					{"id": int64(10), "key": "cy", "parent_id": int64(1), "sequence": nil, "value": "y"},
 				},
 			},
 		},
@@ -50,10 +51,10 @@ func TestPostgres(t *testing.T) {
 			test: testReadWriteCursorWithBucketAndValue,
 			expectedDb: m{
 				"test_kv": []m{
-					m{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
-					m{"id": int64(2), "key": "key", "parent_id": int64(1), "sequence": nil, "value": "val"},
-					m{"id": int64(3), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
-					m{"id": int64(4), "key": "pear", "parent_id": int64(1), "sequence": nil, "value": nil},
+					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
+					{"id": int64(2), "key": "key", "parent_id": int64(1), "sequence": nil, "value": "val"},
+					{"id": int64(3), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
+					{"id": int64(4), "key": "pear", "parent_id": int64(1), "sequence": nil, "value": nil},
 				},
 			},
 		},
@@ -62,10 +63,10 @@ func TestPostgres(t *testing.T) {
 			test: testBucketCreation,
 			expectedDb: m{
 				"test_kv": []m{
-					m{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
-					m{"id": int64(2), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
-					m{"id": int64(3), "key": "mango", "parent_id": int64(1), "sequence": nil, "value": nil},
-					m{"id": int64(4), "key": "pear", "parent_id": int64(2), "sequence": nil, "value": nil},
+					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
+					{"id": int64(2), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
+					{"id": int64(3), "key": "mango", "parent_id": int64(1), "sequence": nil, "value": nil},
+					{"id": int64(4), "key": "pear", "parent_id": int64(2), "sequence": nil, "value": nil},
 				},
 			},
 		},
@@ -74,10 +75,10 @@ func TestPostgres(t *testing.T) {
 			test: testBucketDeletion,
 			expectedDb: m{
 				"test_kv": []m{
-					m{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
-					m{"id": int64(2), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
-					m{"id": int64(3), "key": "key1", "parent_id": int64(2), "sequence": nil, "value": "val1"},
-					m{"id": int64(5), "key": "key3", "parent_id": int64(2), "sequence": nil, "value": "val3"},
+					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
+					{"id": int64(2), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
+					{"id": int64(3), "key": "key1", "parent_id": int64(2), "sequence": nil, "value": "val1"},
+					{"id": int64(5), "key": "key3", "parent_id": int64(2), "sequence": nil, "value": "val3"},
 				},
 			},
 		},
@@ -86,14 +87,14 @@ func TestPostgres(t *testing.T) {
 			test: testBucketForEach,
 			expectedDb: m{
 				"test_kv": []m{
-					m{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
-					m{"id": int64(2), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
-					m{"id": int64(3), "key": "key1", "parent_id": int64(1), "sequence": nil, "value": "val1"},
-					m{"id": int64(4), "key": "key1", "parent_id": int64(2), "sequence": nil, "value": "val1"},
-					m{"id": int64(5), "key": "key2", "parent_id": int64(1), "sequence": nil, "value": "val2"},
-					m{"id": int64(6), "key": "key2", "parent_id": int64(2), "sequence": nil, "value": "val2"},
-					m{"id": int64(7), "key": "key3", "parent_id": int64(1), "sequence": nil, "value": "val3"},
-					m{"id": int64(8), "key": "key3", "parent_id": int64(2), "sequence": nil, "value": "val3"},
+					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
+					{"id": int64(2), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
+					{"id": int64(3), "key": "key1", "parent_id": int64(1), "sequence": nil, "value": "val1"},
+					{"id": int64(4), "key": "key1", "parent_id": int64(2), "sequence": nil, "value": "val1"},
+					{"id": int64(5), "key": "key2", "parent_id": int64(1), "sequence": nil, "value": "val2"},
+					{"id": int64(6), "key": "key2", "parent_id": int64(2), "sequence": nil, "value": "val2"},
+					{"id": int64(7), "key": "key3", "parent_id": int64(1), "sequence": nil, "value": "val3"},
+					{"id": int64(8), "key": "key3", "parent_id": int64(2), "sequence": nil, "value": "val3"},
 				},
 			},
 		},
@@ -102,11 +103,11 @@ func TestPostgres(t *testing.T) {
 			test: testBucketForEachWithError,
 			expectedDb: m{
 				"test_kv": []m{
-					m{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
-					m{"id": int64(2), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
-					m{"id": int64(3), "key": "pear", "parent_id": int64(1), "sequence": nil, "value": nil},
-					m{"id": int64(4), "key": "key1", "parent_id": int64(1), "sequence": nil, "value": "val1"},
-					m{"id": int64(5), "key": "key2", "parent_id": int64(1), "sequence": nil, "value": "val2"},
+					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
+					{"id": int64(2), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
+					{"id": int64(3), "key": "pear", "parent_id": int64(1), "sequence": nil, "value": nil},
+					{"id": int64(4), "key": "key1", "parent_id": int64(1), "sequence": nil, "value": "val1"},
+					{"id": int64(5), "key": "key2", "parent_id": int64(1), "sequence": nil, "value": "val2"},
 				},
 			},
 		},
@@ -115,8 +116,8 @@ func TestPostgres(t *testing.T) {
 			test: testBucketSequence,
 			expectedDb: m{
 				"test_kv": []m{
-					m{"id": int64(2), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
-					m{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": int64(4), "value": nil},
+					{"id": int64(2), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
+					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": int64(4), "value": nil},
 				},
 			},
 		},
@@ -125,9 +126,9 @@ func TestPostgres(t *testing.T) {
 			test: testKeyClash,
 			expectedDb: m{
 				"test_kv": []m{
-					m{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
-					m{"id": int64(2), "key": "key", "parent_id": int64(1), "sequence": nil, "value": "val"},
-					m{"id": int64(3), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
+					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
+					{"id": int64(2), "key": "key", "parent_id": int64(1), "sequence": nil, "value": "val"},
+					{"id": int64(3), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
 				},
 			},
 		},
@@ -136,8 +137,8 @@ func TestPostgres(t *testing.T) {
 			test: testBucketCreateDelete,
 			expectedDb: m{
 				"test_kv": []m{
-					m{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
-					m{"id": int64(3), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": "value"},
+					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
+					{"id": int64(3), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": "value"},
 				},
 			},
 		},
@@ -146,8 +147,8 @@ func TestPostgres(t *testing.T) {
 			test: testTxManualCommit,
 			expectedDb: m{
 				"test_kv": []m{
-					m{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
-					m{"id": int64(2), "key": "testKey", "parent_id": int64(1), "sequence": nil, "value": "testVal"},
+					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
+					{"id": int64(2), "key": "testKey", "parent_id": int64(1), "sequence": nil, "value": "testVal"},
 				},
 			},
 		},

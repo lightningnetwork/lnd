@@ -199,6 +199,10 @@ itest-parallel: build-itest db-instance
 	rm -rf lntest/itest/*.log lntest/itest/.logs-*; date
 	EXEC_SUFFIX=$(EXEC_SUFFIX) echo "$$(seq 0 $$(expr $(ITEST_PARALLELISM) - 1))" | xargs -P $(ITEST_PARALLELISM) -n 1 -I {} scripts/itest_part.sh {} $(NUM_ITEST_TRANCHES) $(TEST_FLAGS) $(ITEST_FLAGS)
 
+itest-clean:
+	@$(call print, "Cleaning old itest processes")
+	killall lnd-itest || echo "no running lnd-itest process found";
+
 unit: btcd
 	@$(call print, "Running unit tests.")
 	$(UNIT)

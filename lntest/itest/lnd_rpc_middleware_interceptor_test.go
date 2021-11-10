@@ -484,12 +484,24 @@ func registerMiddleware(ht *lntest.HarnessTest, node *lntest.HarnessNode,
 
 	middlewareStream, cancel := ht.RegisterRPCMiddleware(node)
 
-	err := middlewareStream.Send(&lnrpc.RPCMiddlewareResponse{
-		MiddlewareMessage: &lnrpc.RPCMiddlewareResponse_Register{
+	errChan := make(chan error)
+	go func() {
+		msg := &lnrpc.RPCMiddlewareResponse_Register{
 			Register: registration,
-		},
-	})
-	require.NoError(ht, err)
+		}
+		err := middlewareStream.Send(&lnrpc.RPCMiddlewareResponse{
+			MiddlewareMessage: msg,
+		})
+
+		errChan <- err
+	}()
+
+	select {
+	case <-time.After(defaultTimeout):
+		require.Fail(ht, "registerMiddleware send timeout")
+	case err := <-errChan:
+		require.NoError(ht, err, "registerMiddleware send failed")
+	}
 
 	return &middlewareHarness{
 		t:             ht.T,
@@ -628,14 +640,26 @@ func (h *middlewareHarness) sendAccept(msgID uint64,
 		require.NoError(h.t, err)
 	}
 
-	err := h.stream.Send(&lnrpc.RPCMiddlewareResponse{
-		MiddlewareMessage: &lnrpc.RPCMiddlewareResponse_Feedback{
+	errChan := make(chan error)
+	go func() {
+		msg := &lnrpc.RPCMiddlewareResponse_Feedback{
 			Feedback: &lnrpc.InterceptFeedback{
 				ReplaceResponse:       len(replacementBytes) > 0,
 				ReplacementSerialized: replacementBytes,
 			},
-		},
-		RefMsgId: msgID,
-	})
-	require.NoError(h.t, err)
+		}
+		err := h.stream.Send(&lnrpc.RPCMiddlewareResponse{
+			MiddlewareMessage: msg,
+			RefMsgId:          msgID,
+		})
+
+		errChan <- err
+	}()
+
+	select {
+	case <-time.After(defaultTimeout):
+		require.Fail(h.t, "sendAccept timeout")
+	case err := <-errChan:
+		require.NoError(h.t, err, "sendAccept failed")
+	}
 }

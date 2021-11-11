@@ -931,14 +931,18 @@ var releaseOutputCommand = cli.Command{
 	The releaseoutput command unlocks an output, allowing it to be available
 	for coin selection if it remains unspent.
 
-	The internal lnd app lock ID is used when releasing the output.
-	Therefore only UTXOs locked by the fundpsbt command can currently be
-	released with this command.
+	If no lock ID is specified, the internal lnd app lock ID is used when
+	releasing the output. With the internal ID, only UTXOs locked by the
+	fundpsbt command can be released.
 	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  "outpoint",
 			Usage: "the output to unlock",
+		},
+		cli.StringFlag{
+			Name:  "lockid",
+			Usage: "the hex-encoded app lock ID",
 		},
 	},
 	Action: actionDecorator(releaseOutput),
@@ -970,9 +974,20 @@ func releaseOutput(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("error parsing outpoint: %v", err)
 	}
+
+	lockID := walletrpc.LndInternalLockID[:]
+	lockIDStr := ctx.String("lockid")
+	if lockIDStr != "" {
+		var err error
+		lockID, err = hex.DecodeString(lockIDStr)
+		if err != nil {
+			return fmt.Errorf("error parsing lockid: %v", err)
+		}
+	}
+
 	req := &walletrpc.ReleaseOutputRequest{
 		Outpoint: outpoint,
-		Id:       walletrpc.LndInternalLockID[:],
+		Id:       lockID,
 	}
 
 	walletClient, cleanUp := getWalletClient(ctx)

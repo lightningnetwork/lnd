@@ -62,6 +62,7 @@ func walletCommands() []cli.Command {
 				labelTxCommand,
 				publishTxCommand,
 				releaseOutputCommand,
+				leaseOutputCommand,
 				listLeasesCommand,
 				psbtCommand,
 				accountsCommand,
@@ -843,6 +844,81 @@ func finalizePsbt(ctx *cli.Context) error {
 		Psbt:    base64.StdEncoding.EncodeToString(response.SignedPsbt),
 		FinalTx: hex.EncodeToString(response.RawFinalTx),
 	})
+
+	return nil
+}
+
+var leaseOutputCommand = cli.Command{
+	Name:  "leaseoutput",
+	Usage: "Lease an output.",
+	Description: `
+	The leaseoutput command locks an output, making it unavailable
+	for coin selection.
+
+	An app lock ID and expiration duration must be specified when locking
+	the output.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "outpoint",
+			Usage: "the output to lock",
+		},
+		cli.StringFlag{
+			Name:  "lockid",
+			Usage: "the hex-encoded app lock ID",
+		},
+		cli.Uint64Flag{
+			Name:  "expiry",
+			Usage: "expiration duration in seconds",
+		},
+	},
+	Action: actionDecorator(leaseOutput),
+}
+
+func leaseOutput(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() != 0 || ctx.NumFlags() == 0 {
+		return cli.ShowCommandHelp(ctx, "leaseoutput")
+	}
+
+	outpointStr := ctx.String("outpoint")
+	outpoint, err := NewProtoOutPoint(outpointStr)
+	if err != nil {
+		return fmt.Errorf("error parsing outpoint: %v", err)
+	}
+
+	lockIDStr := ctx.String("lockid")
+	if lockIDStr == "" {
+		return errors.New("lockid not specified")
+	}
+	lockID, err := hex.DecodeString(lockIDStr)
+	if err != nil {
+		return fmt.Errorf("error parsing lockid: %v", err)
+	}
+
+	expiry := ctx.Uint64("expiry")
+	if expiry == 0 {
+		return errors.New("expiry not specified or invalid")
+	}
+
+	req := &walletrpc.LeaseOutputRequest{
+		Outpoint:          outpoint,
+		Id:                lockID,
+		ExpirationSeconds: expiry,
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	response, err := walletClient.LeaseOutput(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(response)
 
 	return nil
 }

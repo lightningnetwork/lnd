@@ -649,11 +649,8 @@ func (hn *HarnessNode) receiveTopologyClientStream(
 			// after the ctxt is timed out.
 			select {
 			case <-ctxt.Done():
-				return fmt.Errorf("graph subscription: " +
-					"router not started before timeout")
+				return onCtxtDone(ctxt, "graph subscription")
 			case <-time.After(wait.PollInterval):
-			case <-hn.runCtx.Done():
-				return nil
 			}
 
 			// Re-create the topology client.

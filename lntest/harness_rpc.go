@@ -183,7 +183,7 @@ func (h *HarnessTest) OpenChannelStreamAndAssert(a, b *HarnessNode,
 	// prevents us from erroring out when trying to create a channel while
 	// the node is starting up.
 	err := wait.NoError(func() error {
-		chanOpenUpdate, err := h.net.OpenChannel(a, b, p)
+		chanOpenUpdate, err := h.net.OpenChannel(h.runCtx, a, b, p)
 		client = chanOpenUpdate
 		return err
 	}, ChannelOpenTimeout)

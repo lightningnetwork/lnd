@@ -300,6 +300,9 @@ func (h *HarnessTest) Subtest(t *testing.T) (*HarnessTest, func()) {
 	st.nodes = h.nodes
 	st.standbyNodes = h.standbyNodes
 
+	// Inherit context from the main test.
+	st.runCtx, st.cancel = context.WithCancel(h.runCtx)
+
 	cleanup := func() {
 		// Don't bother run the cleanups if the test is failed.
 		if st.Failed() {
@@ -429,7 +432,8 @@ func (h *HarnessTest) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
 
 	extraArgs := extraArgsEtcd(etcdCfg, name, cluster, leaderSessionTTL)
 	node, seed, mac, err := h.net.newNodeWithSeed(
-		name, extraArgs, password, entropy, statelessInit, dbBackend,
+		h.runCtx, name, extraArgs, password,
+		entropy, statelessInit, dbBackend,
 	)
 	require.NoError(h, err, "failed to create new node with seed etcd")
 
@@ -466,7 +470,8 @@ func (h *HarnessTest) NewNodeWithSeed(name string,
 	statelessInit bool) (*HarnessNode, []string, []byte) {
 
 	node, seed, mac, err := h.net.newNodeWithSeed(
-		name, extraArgs, password, nil, statelessInit, h.net.dbBackend,
+		h.runCtx, name, extraArgs, password,
+		nil, statelessInit, h.net.dbBackend,
 	)
 	require.NoError(h, err, "failed to create new node with seed")
 
@@ -567,7 +572,7 @@ func (h *HarnessTest) ConnectNodesPerm(a, b *HarnessNode) {
 // disconnection is succeeded. The request is made from node a and sent to node
 // b.
 func (h *HarnessTest) DisconnectNodes(a, b *HarnessNode) {
-	err := h.net.DisconnectNodes(a, b)
+	err := h.net.DisconnectNodes(h.runCtx, a, b)
 	require.NoError(h, err, "failed to disconnect nodes")
 }
 
@@ -750,7 +755,9 @@ func (h *HarnessTest) SendCoinsP2TR(amt btcutil.Amount, target *HarnessNode) {
 func (h *HarnessTest) OpenPendingChannel(from, to *HarnessNode,
 	chanAmt, pushAmt btcutil.Amount) *lnrpc.PendingUpdate {
 
-	update, err := h.net.OpenPendingChannel(from, to, chanAmt, pushAmt)
+	update, err := h.net.OpenPendingChannel(
+		h.runCtx, from, to, chanAmt, pushAmt,
+	)
 	require.NoError(h, err, "unable to open channel")
 	return update
 }
@@ -797,7 +804,7 @@ func (h *HarnessTest) OpenChannelAssertErr(a, b *HarnessNode,
 	p OpenChannelParams, expectedErr error) {
 
 	err := wait.NoError(func() error {
-		_, err := h.net.OpenChannel(a, b, p)
+		_, err := h.net.OpenChannel(h.runCtx, a, b, p)
 		if err == nil {
 			return fmt.Errorf("no error returned")
 		}
@@ -1017,7 +1024,7 @@ func (h *HarnessTest) CloseChannelAndAssertType(node *HarnessNode,
 	expectDisable := !curPolicy.Disabled
 
 	closeUpdates, _, err := h.net.CloseChannel(
-		node, fundingChanPoint, force,
+		h.runCtx, node, fundingChanPoint, force,
 	)
 	require.NoError(h, err, "unable to close channel")
 
@@ -1041,7 +1048,7 @@ func (h *HarnessTest) CloseChannelAndAssertType(node *HarnessNode,
 func (h *HarnessTest) CloseChannelAssertErr(hn *HarnessNode,
 	fundingChanPoint *lnrpc.ChannelPoint, force bool) {
 
-	_, _, err := h.net.CloseChannel(hn, fundingChanPoint, force)
+	_, _, err := h.net.CloseChannel(h.runCtx, hn, fundingChanPoint, force)
 	require.Error(h, err, "expect close channel to return an error")
 }
 
@@ -1055,7 +1062,9 @@ func (h *HarnessTest) CloseChannelAssertErr(hn *HarnessNode,
 func (h *HarnessTest) CloseReorgedChannel(hn *HarnessNode,
 	fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
 
-	closeUpdates, _, err := h.net.CloseChannel(hn, fundingChanPoint, force)
+	closeUpdates, _, err := h.net.CloseChannel(
+		h.runCtx, hn, fundingChanPoint, force,
+	)
 	require.NoError(h, err, "unable to close channel")
 
 	return h.assertChannelClosed(

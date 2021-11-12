@@ -830,19 +830,15 @@ func (hn *HarnessNode) waitTillServerState(
 		}
 	}()
 
-	var lastErr error
-	timer := time.After(NodeStartTimeout)
 	for {
 		select {
+		case <-ctxt.Done():
+			return onCtxtDone(ctxt, "receive server state")
 		case err := <-errChan:
-			lastErr = err
+			return fmt.Errorf("receive server state err: %v", err)
 
 		case <-done:
 			return nil
-
-		case <-timer:
-			return fmt.Errorf("timeout waiting for state, "+
-				"got err from stream: %v", lastErr)
 		}
 	}
 }
@@ -1194,7 +1190,7 @@ func (hn *HarnessNode) WaitForBlockchainSync() error {
 	for {
 		resp, err := hn.rpc.LN.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
 		if err != nil {
-			return err
+			return fmt.Errorf("GetInfo got err: %v", err)
 		}
 		if resp.SyncedToChain {
 			return nil
@@ -1202,10 +1198,7 @@ func (hn *HarnessNode) WaitForBlockchainSync() error {
 
 		select {
 		case <-ctxt.Done():
-			return fmt.Errorf("timeout while waiting for " +
-				"blockchain sync")
-		case <-hn.runCtx.Done():
-			return nil
+			return onCtxtDone(ctxt, "blockchain sync")
 		case <-ticker.C:
 		}
 	}
@@ -1378,4 +1371,17 @@ func (hn *HarnessNode) waitForInvoiceState(payHash lntypes.Hash,
 			return update, nil
 		}
 	}
+}
+
+// onCtxtDone checks the error returned from a child context.  When the context
+// is done, it's either the parent's context being finished or itself being
+// timed out. If it's a timeout issue, an error will be returned.
+func onCtxtDone(ctxt context.Context, subject string) error {
+	// Return an error if it's a deadline issue.
+	if ctxt.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("timeout while waiting: %s", subject)
+	}
+
+	// Return nil if the parent calls exit.
+	return nil
 }

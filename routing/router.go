@@ -1358,7 +1358,7 @@ func (r *ChannelRouter) updateGraphWithClosedChannels(
 
 // assertNodeAnnFreshness returns a non-nil error if we have an announcement in
 // the database for the passed node with a timestamp newer than the passed
-// timestamp. ErrIgnored will be returned if we already have the node, and
+// timestamp. ErrIgnored will be returned if we do not have the node, and
 // ErrOutdated will be returned if we have a timestamp that's after the new
 // timestamp.
 func (r *ChannelRouter) assertNodeAnnFreshness(node route.Vertex,
@@ -1385,8 +1385,9 @@ func (r *ChannelRouter) assertNodeAnnFreshness(node route.Vertex,
 	// if not then we won't accept the new data as it would override newer
 	// data.
 	if !lastUpdate.Before(msgTimestamp) {
-		return newErrf(ErrOutdated, "Ignoring outdated "+
-			"announcement for %x", node[:])
+		return newErrf(ErrOutdated, "Ignoring outdated [%v]"+
+			"announcement for %x, last update: %v",
+			msgTimestamp, node[:], lastUpdate)
 	}
 
 	return nil
@@ -1649,9 +1650,11 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			// Ignore outdated message.
 			if !edge1Timestamp.Before(msg.LastUpdate) {
 				return newErrf(ErrOutdated, "Ignoring "+
-					"outdated update (flags=%v|%v) for "+
-					"known chan_id=%v", msg.MessageFlags,
-					msg.ChannelFlags, msg.ChannelID)
+					"outdated [%v] update (flags=%v|%v) "+
+					"for known chan_id=%v, last update: %v",
+					msg.LastUpdate, msg.MessageFlags,
+					msg.ChannelFlags, msg.ChannelID,
+					edge1Timestamp)
 			}
 
 		// Similarly, a flag set of 1 indicates this is an announcement
@@ -1661,9 +1664,11 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			// Ignore outdated message.
 			if !edge2Timestamp.Before(msg.LastUpdate) {
 				return newErrf(ErrOutdated, "Ignoring "+
-					"outdated update (flags=%v|%v) for "+
-					"known chan_id=%v", msg.MessageFlags,
-					msg.ChannelFlags, msg.ChannelID)
+					"outdated [%v] update (flags=%v|%v) "+
+					"for known chan_id=%v, last update: %v",
+					msg.LastUpdate, msg.MessageFlags,
+					msg.ChannelFlags, msg.ChannelID,
+					edge2Timestamp)
 			}
 		}
 

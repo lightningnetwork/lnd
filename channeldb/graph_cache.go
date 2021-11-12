@@ -218,12 +218,17 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 	c.nodeFeatures[nodePubKey] = node.Features()
 	c.mtx.Unlock()
 
+	log.Debugf("Node: %v added to graph cache", nodePubKey)
+
 	return node.ForEachChannel(
 		tx, func(tx kvdb.RTx, info *ChannelEdgeInfo,
 			outPolicy *ChannelEdgePolicy,
 			inPolicy *ChannelEdgePolicy) error {
 
 			c.AddChannel(info, outPolicy, inPolicy)
+
+			log.Debugf("Channel: %v from node: %v added to graph "+
+				"cache", info.ChannelPoint, nodePubKey)
 
 			return nil
 		},

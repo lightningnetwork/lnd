@@ -396,6 +396,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 	// Iterate over all channels of the to node.
 	err := g.forEachNodeChannel(node, cb)
 	if err != nil {
+		log.Debugf("calling forEachNodeChannel got error: %v", err)
 		return 0, 0, err
 	}
 	return max, total, err
@@ -494,6 +495,9 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		if err != nil {
 			return nil, err
 		}
+
+		log.Debugf("Found outgoing balances <max: %v, total: %v>",
+			max, total)
 
 		// If the total outgoing balance isn't sufficient, it will be
 		// impossible to complete the payment.

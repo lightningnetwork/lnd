@@ -222,12 +222,17 @@ func (c *GraphCache) AddNodeFeatures(node GraphCacheNode) {
 func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 	c.AddNodeFeatures(node)
 
+	log.Tracef("Node: %v added to graph cache", node.PubKey())
+
 	return node.ForEachChannel(
 		tx, func(tx kvdb.RTx, info *ChannelEdgeInfo,
 			outPolicy *ChannelEdgePolicy,
 			inPolicy *ChannelEdgePolicy) error {
 
 			c.AddChannel(info, outPolicy, inPolicy)
+
+			log.Tracef("Channel: %v from node: %v added to graph "+
+				"cache", info.ChannelPoint, node.PubKey())
 
 			return nil
 		},

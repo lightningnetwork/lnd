@@ -430,7 +430,8 @@ func newGossipSyncer(cfg gossipSyncerCfg) *GossipSyncer {
 // its duties.
 func (g *GossipSyncer) Start() {
 	g.started.Do(func() {
-		log.Debugf("Starting GossipSyncer(%x)", g.cfg.peerPub[:])
+		log.Debugf("Starting GossipSyncer(%x) with state=%v, type=%v",
+			g.cfg.peerPub[:], g.syncState(), g.SyncType())
 
 		// TODO(conner): only spawn channelGraphSyncer if remote
 		// supports gossip queries, and only spawn replyHandler if we
@@ -465,7 +466,7 @@ func (g *GossipSyncer) channelGraphSyncer() {
 		state := g.syncState()
 		syncType := g.SyncType()
 
-		log.Debugf("GossipSyncer(%x): state=%v, type=%v",
+		log.Debugf("GossipSyncer(%x): currently has: state=%v, type=%v",
 			g.cfg.peerPub[:], state, syncType)
 
 		switch state {

@@ -75,12 +75,17 @@ func NewValidationBarrier(numActiveReqs int,
 		v.validationSemaphore <- struct{}{}
 	}
 
+	log.Tracef("Created validation barrier with size: %d", numActiveReqs)
+
 	return v
 }
 
 // InitJobDependencies will wait for a new job slot to become open, and then
 // sets up any dependent signals/trigger for the new job
 func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
+	log.Tracef("InitJobDependencies: validation barrier has %d sempahores",
+		len(v.validationSemaphore))
+
 	// We'll wait for either a new slot to become open, or for the quit
 	// channel to be closed.
 	select {

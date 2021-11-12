@@ -2942,7 +2942,7 @@ func WaitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 	errChan chan error, chanPoint *wire.OutPoint,
 	closingTxID *chainhash.Hash, closeScript []byte, cb func()) {
 
-	peerLog.Infof("Waiting for confirmation of cooperative close of "+
+	peerLog.Infof("Waiting for confirmation of channel closure of "+
 		"ChannelPoint(%v) with txid: %v", chanPoint,
 		closingTxID)
 

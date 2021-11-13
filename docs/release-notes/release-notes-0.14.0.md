@@ -628,6 +628,8 @@ messages directly. There is no routing/path finding involved.
 * [Fix deadlock when using the graph cache](
   https://github.com/lightningnetwork/lnd/pull/5941)
 
+* [Fixes a bug that would cause pruned nodes to stall out](https://github.com/lightningnetwork/lnd/pull/5970)
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

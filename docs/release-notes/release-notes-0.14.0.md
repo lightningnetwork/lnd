@@ -327,6 +327,7 @@ messages directly. There is no routing/path finding involved.
 
 * [Update to the latest neutrino version](https://github.com/lightningnetwork/lnd/pull/5933)
 
+* [Provide extra build tags for additional features](https://github.com/lightningnetwork/lnd/pull/5976)
 
 ## Documentation
 

@@ -67,6 +67,10 @@ ifneq ($(tags),)
 DEV_TAGS += ${tags}
 endif
 
+ifneq ($(extratags),)
+DEV_TAGS += $(extratags)
+endif
+
 # Define the log tags that will be applied only when running unit tests. If none
 # are provided, we default to "nolog" which will be silent.
 ifneq ($(log),)

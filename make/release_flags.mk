@@ -58,3 +58,7 @@ endif
 ifneq ($(tags),)
 RELEASE_TAGS = $(tags)
 endif
+
+ifneq ($(extratags),)
+RELEASE_TAGS += $(extratags)
+endif

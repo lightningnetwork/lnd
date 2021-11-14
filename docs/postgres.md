@@ -9,7 +9,7 @@ describes how it can be configured.
 To build LND with postgres support, include the following build tag:
 
 ```shell
-⛰  make tags="kvdb_postgres"
+⛰  make extratags="kvdb_postgres"
 ```
 
 ## Configuring Postgres for LND

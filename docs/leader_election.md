@@ -20,7 +20,7 @@ itself and for the replicated data store.
 To create a dev build of LND with leader election support use the following command:
 
 ```shell
-⛰  make tags="kvdb_etcd"
+⛰  make extratags="kvdb_etcd"
 ```
 
 ## Running a local etcd instance for testing

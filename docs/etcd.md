@@ -15,7 +15,7 @@ on bitcoin mainnet.
 To create a dev build of LND with etcd support use the following command:
 
 ```shell
-⛰  make tags="kvdb_etcd"
+⛰  make extratags="kvdb_etcd"
 ```
 
 The important tag is the `kvdb_etcd`, without which the binary is built without

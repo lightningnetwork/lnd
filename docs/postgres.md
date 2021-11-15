@@ -6,11 +6,8 @@ describes how it can be configured.
 
 ## Building LND with postgres support
 
-To build LND with postgres support, include the following build tag:
-
-```shell
-⛰  make tags="kvdb_postgres"
-```
+To build LND with postgres support and for your specific platform, edit https://github.com/lightningnetwork/lnd/blob/1abe1da5b3a0e914b8c0f0d837fc0c17bed74a88/make/release_flags.mk#L41 by adding the `kvdb_postgres` to the end of the line.
+It is also advisable to edit https://github.com/lightningnetwork/lnd/blob/1abe1da5b3a0e914b8c0f0d837fc0c17bed74a88/make/release_flags.mk#L14 by commenting out each line, except the one regarding your destination platform.
 
 ## Configuring Postgres for LND
 
@@ -29,3 +26,11 @@ LND is configured for Postgres through the following configuration options:
   database, user and password.
 * `db.postgres.timeout=...` to set the connection timeout. If not set, no
   timeout applies.
+
+Example as follows:
+```
+[db]
+db.backend=postgres
+db.postgres.dsn=postgresql://dbuser:dbpass@127.0.0.1:5432/dbname
+db.postgres.timeout=20s
+```

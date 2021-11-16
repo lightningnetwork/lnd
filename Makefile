@@ -306,7 +306,7 @@ rpc-check: rpc
 
 rpc-js-compile:
 	@$(call print, "Compiling JSON/WASM stubs.")
-	GOOS=js GOARCH=wasm $(GOBUILD) -tags="$(RELEASE_TAGS)" $(PKG)/lnrpc/...
+	GOOS=js GOARCH=wasm $(GOBUILD) -tags="$(WASM_RELEASE_TAGS)" $(PKG)/lnrpc/...
 
 sample-conf-check:
 	@$(call print, "Making sure every flag has an example in the sample-lnd.conf file")

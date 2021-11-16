@@ -281,6 +281,8 @@ messages directly. There is no routing/path finding involved.
 
 ## Build System
 
+* [The illumos operating system has been dropped from the set of release binaries. We now also build with postgres and etcd in the main release binaries](https://github.com/lightningnetwork/lnd/pull/5985).
+
 * [A new pre-submit check has been
   added](https://github.com/lightningnetwork/lnd/pull/5520) to ensure that all
   PRs ([aside from merge

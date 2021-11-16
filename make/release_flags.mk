@@ -17,7 +17,6 @@ dragonfly-amd64 \
 freebsd-386 \
 freebsd-amd64 \
 freebsd-arm \
-illumos-amd64 \
 linux-386 \
 linux-amd64 \
 linux-armv6 \

@@ -23,6 +23,8 @@ const (
 	PostgresBackend            = "postgres"
 	DefaultBatchCommitInterval = 500 * time.Millisecond
 
+	defaultPostgresMaxConnections = 50
+
 	// NSChannelDB is the namespace name that we use for the combined graph
 	// and channel state DB.
 	NSChannelDB = "channeldb"
@@ -71,6 +73,9 @@ func DefaultDB() *DB {
 			AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
 			DBTimeout:         kvdb.DefaultDBTimeout,
 		},
+		Postgres: &postgres.Config{
+			MaxConnections: defaultPostgresMaxConnections,
+		},
 	}
 }
 
@@ -113,7 +118,8 @@ func (db *DB) Validate() error {
 // on configuration.
 func (db *DB) Init(ctx context.Context, dbPath string) error {
 	// Start embedded etcd server if requested.
-	if db.Backend == EtcdBackend && db.Etcd.Embedded {
+	switch {
+	case db.Backend == EtcdBackend && db.Etcd.Embedded:
 		cfg, _, err := kvdb.StartEtcdTestBackend(
 			dbPath, db.Etcd.EmbeddedClientPort,
 			db.Etcd.EmbeddedPeerPort, db.Etcd.EmbeddedLogFile,
@@ -125,6 +131,9 @@ func (db *DB) Init(ctx context.Context, dbPath string) error {
 		// Override the original config with the config for
 		// the embedded instance.
 		db.Etcd = cfg
+
+	case db.Backend == PostgresBackend:
+		postgres.Init(db.Postgres.MaxConnections)
 	}
 
 	return nil

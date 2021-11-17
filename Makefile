@@ -194,7 +194,7 @@ ifeq ($(dbbackend),postgres)
 
 	# Start a fresh postgres instance. Allow a maximum of 500 connections.
 	# This is required for the async benchmark to pass.
-	docker run --name lnd-postgres -e POSTGRES_PASSWORD=postgres -p 6432:5432 -d postgres:13-alpine -N 500
+	docker run --name lnd-postgres -e POSTGRES_PASSWORD=postgres -p 6432:5432 -d postgres:13-alpine
 	docker logs -f lnd-postgres &
 
 	# Wait for the instance to be started.

@@ -632,6 +632,8 @@ messages directly. There is no routing/path finding involved.
 
 * [Fixes a bug that would cause pruned nodes to stall out](https://github.com/lightningnetwork/lnd/pull/5970)
 
+* [Add Postgres connection limit](https://github.com/lightningnetwork/lnd/pull/5992)
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

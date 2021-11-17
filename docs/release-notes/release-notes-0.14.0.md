@@ -104,12 +104,12 @@ operations.
 
 ### Explicit Channel Negotiation
 
-[A new protocol extension has been added known as explicit channel negotiation]
-(https://github.com/lightningnetwork/lnd/pull/5669). This allows a channel
-initiator to signal their desired channel type to use with the remote peer. If
-the remote peer supports said channel type and agrees, the previous implicit
-negotiation based on the shared set of feature bits is bypassed, and the
-proposed channel type is used. [Feature bits 44/45 are used to
+[A new protocol extension has been added known as explicit channel 
+negotiation](https://github.com/lightningnetwork/lnd/pull/5669). This allows a 
+channel initiator to signal their desired channel type to use with the remote
+peer. If the remote peer supports said channel type and agrees, the previous
+implicit negotiation based on the shared set of feature bits is bypassed, and
+the proposed channel type is used. [Feature bits 44/45 are used to
 signal](https://github.com/lightningnetwork/lnd/pull/5874) this new feature.
 
 
@@ -128,7 +128,7 @@ details.
 ### Re-Usable Static AMP Invoices
 
 [AMP invoices are now fully re-usable, meaning it's possible for an `lnd` node
-today a static AMP invoice multiple times](https://github.com/lightningnetwork/lnd/pull/5803). 
+to use a static AMP invoice multiple times](https://github.com/lightningnetwork/lnd/pull/5803). 
 An AMP invoice can be created by adding the `--amp` flag to `lncli addinvoice`.
 From there repeated payments can be made to the invoice using `lncli
 payinvoice`. On the receiver side, notifications will still come in as normal,

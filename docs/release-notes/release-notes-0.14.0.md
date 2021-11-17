@@ -370,6 +370,8 @@ messages directly. There is no routing/path finding involved.
   add MacChan field for passing back lnd's admin macaroon back to the program 
   calling lnd, when needed.
 
+* [The `--amp-reuse` CLI flag has been removed as the latest flavor of AMP now natively supports static invoices](https://github.com/lightningnetwork/lnd/pull/5991)
+
 * Using `go get` to install go executables is now deprecated. Migrate to `go install` our lnrpc proto dockerfile [Migrate `go get` to `go install`](https://github.com/lightningnetwork/lnd/pull/5879)
 
 * [The premature update map has been revamped using an LRU cache](https://github.com/lightningnetwork/lnd/pull/5902)

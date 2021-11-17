@@ -94,12 +94,6 @@ var (
 		Usage: "if set to true, then AMP will be used to complete the " +
 			"payment",
 	}
-
-	ampReuseFlag = cli.BoolFlag{
-		Name: "amp-reuse",
-		Usage: "if set to true, then a random payment address will " +
-			"be generated to enable re-use of an AMP invoice",
-	}
 )
 
 // paymentFlags returns common flags for sendpayment and payinvoice.
@@ -145,7 +139,6 @@ func paymentFlags() []cli.Flag {
 		},
 		dataFlag, inflightUpdatesFlag, maxPartsFlag, jsonFlag,
 		maxShardSizeSatFlag, maxShardSizeMsatFlag, ampFlag,
-		ampReuseFlag,
 	}
 }
 
@@ -251,15 +244,6 @@ func parsePayAddr(ctx *cli.Context) ([]byte, error) {
 	switch {
 	case ctx.IsSet("pay_addr"):
 		payAddr, err = hex.DecodeString(ctx.String("pay_addr"))
-
-	case ctx.IsSet(ampReuseFlag.Name):
-		var addrBytes [32]byte
-		if _, err := rand.Read(addrBytes[:]); err != nil {
-			return nil, fmt.Errorf("unable to generate pay "+
-				"addr: %v", err)
-		}
-
-		payAddr = addrBytes[:]
 
 	case ctx.Args().Present():
 		payAddr, err = hex.DecodeString(ctx.Args().First())

@@ -15,6 +15,9 @@
 * [Fixes a bug that would cause lnd to be unable to start if anchors was
   disabled](https://github.com/lightningnetwork/lnd/pull/6007).
 
+* [Fixed a bug that would cause nodes with older channels to be unable to start
+  up](https://github.com/lightningnetwork/lnd/pull/6003).
+
 # Contributors (Alphabetical Order)
 
 * Jamie Turley

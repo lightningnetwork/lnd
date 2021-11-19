@@ -393,8 +393,17 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 
 * [A function in the gossiper `processNetworkAnnouncements` has been refactored for readability and for future deduplication efforts.](https://github.com/lightningnetwork/lnd/pull/6278)
 
-# Contributors (Alphabetical Order)
+### Integration test
 
+The `lntest` has been
+[refactored](https://github.com/lightningnetwork/lnd/pull/5940) to provide a
+better testing suite for writing integration tests. Previously seen test flakes
+have been fixes inside this refactoring. A new defined structure is
+implemented, please refer to
+[README](https://github.com/lightningnetwork/lnd/tree/master/lntest) for more
+details. 
+
+# Contributors (Alphabetical Order)
 * 3nprob
 * Alyssa Hertig
 * Andras Banki-Horvath

@@ -104,12 +104,12 @@ operations.
 
 ### Explicit Channel Negotiation
 
-[A new protocol extension has been added known as explicit channel negotiation]
-(https://github.com/lightningnetwork/lnd/pull/5669). This allows a channel
-initiator to signal their desired channel type to use with the remote peer. If
-the remote peer supports said channel type and agrees, the previous implicit
-negotiation based on the shared set of feature bits is bypassed, and the
-proposed channel type is used. [Feature bits 44/45 are used to
+[A new protocol extension has been added known as explicit channel 
+negotiation](https://github.com/lightningnetwork/lnd/pull/5669). This allows a 
+channel initiator to signal their desired channel type to use with the remote
+peer. If the remote peer supports said channel type and agrees, the previous
+implicit negotiation based on the shared set of feature bits is bypassed, and
+the proposed channel type is used. [Feature bits 44/45 are used to
 signal](https://github.com/lightningnetwork/lnd/pull/5874) this new feature.
 
 
@@ -128,7 +128,7 @@ details.
 ### Re-Usable Static AMP Invoices
 
 [AMP invoices are now fully re-usable, meaning it's possible for an `lnd` node
-today a static AMP invoice multiple times](https://github.com/lightningnetwork/lnd/pull/5803). 
+to use a static AMP invoice multiple times](https://github.com/lightningnetwork/lnd/pull/5803). 
 An AMP invoice can be created by adding the `--amp` flag to `lncli addinvoice`.
 From there repeated payments can be made to the invoice using `lncli
 payinvoice`. On the receiver side, notifications will still come in as normal,
@@ -517,12 +517,12 @@ messages directly. There is no routing/path finding involved.
 
 * [`lnd` will now no longer (in a steady state) need to open a new database
   transaction each time a private key needs to be derived for signing or ECDH
-  operations]https://github.com/lightningnetwork/lnd/pull/5629). This results
+  operations](https://github.com/lightningnetwork/lnd/pull/5629). This results
   in a massive performance improvement across several routine operations at the
 
 * [When decrypting incoming encrypted brontide messages on the wire, we'll now
   properly re-use the buffer that was allocated for the ciphertext to store the
-  plaintext]https://github.com/lightningnetwork/lnd/pull/5622). When combined
+  plaintext](https://github.com/lightningnetwork/lnd/pull/5622). When combined
   with the buffer pool, this ensures that we no longer need to allocate a new
   buffer each time we decrypt an incoming message, as we
   recycle these buffers in the peer.
@@ -643,46 +643,46 @@ requirements surrounding updating the release notes for each new
 change](https://github.com/lightningnetwork/lnd/pull/5613). 
 
 # Contributors (Alphabetical Order)
-Abubakar Nur Khalil
-Adrian-Stefan Mares
-Alex Bosworth
-Alyssa Hertig
-András Bánki-Horváth
-Bjarne Magnussen
-Carsten Otto
-Conner Fromknecht
-Elle Mouton
-ErikEk
-Eugene Siegel
-Hampus Sjöberg
-Harsha Goli
-Jesse de Wit
-Johan T. Halseth
-Johnny Holton
-Joost Jager
-Jordi Montes
-Juan Pablo Civile
-Kishin Kato
-Leonhard Weese
-Martin Habovštiak
-Michael Rhee
-Naveen Srinivasan
-Olaoluwa Osuntokun
-Oliver Gugger
-Priyansh Rastogi
-Roei Erez
-Simon Males
-Stevie Zollo
-Torkel Rogstad
-Wilmer Paulino
-Yong Yu
-Zero-1729
-benthecarman
-carla
-de6df1re
-github2k20
-mateuszmp
-nathanael
-offerm
-positiveblue
-xanoni
+* Abubakar Nur Khalil
+* Adrian-Stefan Mares
+* Alex Bosworth
+* Alyssa Hertig
+* András Bánki-Horváth
+* Bjarne Magnussen
+* Carla Kirk-Cohen
+* Carsten Otto
+* Conner Fromknecht
+* Elle Mouton
+* ErikEk
+* Eugene Siegel
+* Hampus Sjöberg
+* Harsha Goli
+* Jesse de Wit
+* Johan T. Halseth
+* Johnny Holton
+* Joost Jager
+* Jordi Montes
+* Juan Pablo Civile
+* Kishin Kato
+* Leonhard Weese
+* Martin Habovštiak
+* Michael Rhee
+* Naveen Srinivasan
+* Olaoluwa Osuntokun
+* Oliver Gugger
+* Priyansh Rastogi
+* Roei Erez
+* Simon Males
+* Stevie Zollo
+* Torkel Rogstad
+* Wilmer Paulino
+* Yong Yu
+* Zero-1729
+* benthecarman
+* de6df1re
+* github2k20
+* mateuszmp
+* nathanael
+* offerm
+* positiveblue
+* xanoni

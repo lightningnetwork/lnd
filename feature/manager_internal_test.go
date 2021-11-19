@@ -52,6 +52,12 @@ var managerTests = []managerTest{
 			NoStaticRemoteKey: true,
 		},
 	},
+	{
+		name: "anchors should disable anything dependent on it",
+		cfg: Config{
+			NoAnchors: true,
+		},
+	},
 }
 
 // TestManager asserts basic initialazation and operation of a feature manager,
@@ -103,6 +109,10 @@ func testManager(t *testing.T, test managerTest) {
 		}
 		if test.cfg.NoStaticRemoteKey {
 			assertUnset(lnwire.StaticRemoteKeyOptional)
+		}
+		if test.cfg.NoAnchors {
+			assertUnset(lnwire.ScriptEnforcedLeaseRequired)
+			assertUnset(lnwire.ScriptEnforcedLeaseOptional)
 		}
 
 		assertUnset(unknownFeature)

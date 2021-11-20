@@ -12,8 +12,12 @@
 * [A bug has been fixed in channeldb that uses the return value without checking
   the returned error first](https://github.com/lightningnetwork/lnd/pull/6012).
 
+* [Fixes a bug that would cause lnd to be unable to start if anchors was
+  disabled](https://github.com/lightningnetwork/lnd/pull/6007).
+
 # Contributors (Alphabetical Order)
 
 * Jamie Turley
 * nayuta-ueno
+* Olaoluwa Osuntokun
 * Oliver Gugger

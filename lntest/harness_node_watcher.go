@@ -2,8 +2,10 @@ package lntest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
@@ -45,16 +47,29 @@ type chanWatchRequest struct {
 // GetNumChanUpdates reads the num of channel updates inside a lock and returns
 // the value.
 func (hn *HarnessNode) GetNumChanUpdates(op wire.OutPoint) int {
-	hn.mu.RLock()
-	defer hn.mu.RUnlock()
-	return hn.state.numChanUpdates[op]
+	result, ok := hn.state.numChanUpdates.Load(op)
+	if ok {
+		return result.(int)
+	}
+	return 0
+}
+
+// GetPolicyUpdates returns the node's policyUpdates state.
+func (hn *HarnessNode) GetPolicyUpdates(op wire.OutPoint) NodePolicyUpdate {
+	result, ok := hn.state.policyUpdates.Load(op)
+	if ok {
+		return result.(NodePolicyUpdate)
+	}
+	return nil
 }
 
 // GetNodeUpdates reads the node updates inside a lock and returns the value.
 func (hn *HarnessNode) GetNodeUpdates(pubkey string) []*lnrpc.NodeUpdate {
-	hn.mu.RLock()
-	defer hn.mu.RUnlock()
-	return hn.state.nodeUpdates[pubkey]
+	result, ok := hn.state.nodeUpdates.Load(pubkey)
+	if ok {
+		return result.([]*lnrpc.NodeUpdate)
+	}
+	return nil
 }
 
 // WaitForNetworkNumChanUpdates will block until a given number of updates has
@@ -162,12 +177,12 @@ func (hn *HarnessNode) WaitForNetworkChannelClose(
 	timer := time.After(DefaultTimeout)
 	select {
 	case <-eventChan:
-		closedChan, ok := hn.state.closedChans[op]
+		closedChan, ok := hn.state.closedChans.Load(op)
 		if !ok {
 			return nil, fmt.Errorf("channel:%s expected to find "+
 				"a closed channel in node's state:%s", op, hn)
 		}
-		return closedChan, nil
+		return closedChan.(*lnrpc.ClosedChannelUpdate), nil
 
 	case <-timer:
 		return nil, fmt.Errorf("channel:%s not closed before timeout: "+
@@ -218,12 +233,38 @@ func (hn *HarnessNode) WaitForChannelPolicyUpdate(
 			return nil
 
 		case <-timer:
-			return fmt.Errorf("channel:%s policy not updated "+
-				"before timeout: advertisingNode: %s\nwant "+
-				"policy:%v\nhave updates:%v", op,
-				advertisingNode, policy, hn.state.policyUpdates)
+			expected, err := json.MarshalIndent(policy, "", "\t")
+			if err != nil {
+				return fmt.Errorf("encode policy err: %v", err)
+			}
+			policies, err := syncMapToJSON(hn.state.policyUpdates)
+			if err != nil {
+				return err
+			}
+
+			return fmt.Errorf("policy not updated before timeout:"+
+				"\nchannel: %v \nadvertisingNode: %v"+
+				"\nwant policy:%s\nhave updates:%s", op,
+				advertisingNode, expected, policies)
 		}
 	}
+}
+
+// syncMapToJSON is a helper function that creates json bytes from the sync.Map
+// used in the node. Expect the sync.Map to have map[string]interface.
+func syncMapToJSON(state *sync.Map) ([]byte, error) {
+	m := map[string]interface{}{}
+	state.Range(func(k, v interface{}) bool {
+		op := k.(wire.OutPoint)
+		m[op.String()] = v
+		return true
+	})
+	policies, err := json.MarshalIndent(m, "", "\t")
+	if err != nil {
+		return nil, fmt.Errorf("encode polices err: %v", err)
+	}
+
+	return policies, nil
 }
 
 // lightningNetworkWatcher is a goroutine which is able to dispatch
@@ -341,38 +382,56 @@ func (hn *HarnessNode) handleChannelEdgeUpdates(
 // updateNodeStateNumChanUpdates updates the internal state of the node
 // regarding the num of channel update seen.
 func (hn *HarnessNode) updateNodeStateNumChanUpdates(op wire.OutPoint) {
-	hn.mu.Lock()
-	defer hn.mu.Unlock()
-	hn.state.numChanUpdates[op]++
+	var oldNum int
+	result, ok := hn.state.numChanUpdates.Load(op)
+	if ok {
+		oldNum = result.(int)
+	}
+	hn.state.numChanUpdates.Store(op, oldNum+1)
 }
 
 // updateNodeStateNodeUpdates updates the internal state of the node regarding
 // the node updates seen.
 func (hn *HarnessNode) updateNodeStateNodeUpdates(update *lnrpc.NodeUpdate) {
-	hn.mu.Lock()
-	defer hn.mu.Unlock()
-	hn.state.nodeUpdates[update.IdentityKey] = append(
-		hn.state.nodeUpdates[update.IdentityKey], update,
+	var oldUpdates []*lnrpc.NodeUpdate
+
+	result, ok := hn.state.nodeUpdates.Load(update.IdentityKey)
+	if ok {
+		oldUpdates = result.([]*lnrpc.NodeUpdate)
+	}
+	hn.state.nodeUpdates.Store(
+		update.IdentityKey, append(oldUpdates, update),
 	)
 }
 
 // updateNodeStateOpenChannel updates the internal state of the node regarding
 // the open channels.
 func (hn *HarnessNode) updateNodeStateOpenChannel(op wire.OutPoint) {
-	hn.state.openChans[op]++
+	// Whenever we call update, we create a default count of 1, and adds
+	// more count from the node's openChans map if found.
+	num := 1
+	result, ok := hn.state.openChans.Load(op)
+	if ok {
+		num += result.(int)
+	}
+	hn.state.openChans.Store(op, num)
 
 	// For this new channel, if the number of edges seen is less
 	// than two, then the channel hasn't been fully announced yet.
-	if numEdges := hn.state.openChans[op]; numEdges < 2 {
+	if numEdges := num; numEdges < 2 {
 		return
 	}
 
 	// Otherwise, we'll notify all the registered watchers and
 	// remove the dispatched watchers.
-	for _, eventChan := range hn.openChanWatchers[op] {
+	watcherResult, loaded := hn.openChanWatchers.LoadAndDelete(op)
+	if !loaded {
+		return
+	}
+	events := watcherResult.([]chan struct{})
+	for _, eventChan := range events {
 		close(eventChan)
 	}
-	delete(hn.openChanWatchers, op)
 }
 
 // updateNodeStatePolicy updates the internal state of the node regarding the
@@ -380,18 +439,22 @@ func (hn *HarnessNode) updateNodeStateOpenChannel(op wire.OutPoint) {
 func (hn *HarnessNode) updateNodeStatePolicy(op wire.OutPoint,
 	newChan *lnrpc.ChannelEdgeUpdate) {
 
-	// Append the policy to the slice.
-	node := newChan.AdvertisingNode
-	policies := hn.state.policyUpdates[op.String()]
-
-	// If the map[op] is nil, we need to initialize the map first.
-	if policies == nil {
-		policies = make(map[string][]*lnrpc.RoutingPolicy)
+	// Init an empty policy map and overwrite it if the channel point can
+	// be found in the node's policyUpdates.
+	policies := make(NodePolicyUpdate)
+	result, ok := hn.state.policyUpdates.Load(op)
+	if ok {
+		policies = result.(NodePolicyUpdate)
 	}
-	policies[node] = append(
-		policies[node], newChan.RoutingPolicy,
-	)
-	hn.state.policyUpdates[op.String()] = policies
+
+	node := newChan.AdvertisingNode
+
+	// Append the policy to the slice and update the node's state.
+	newPolicy := PolicyUpdate{
+		newChan.RoutingPolicy, newChan.ConnectingNode, time.Now(),
+	}
+	policies[node] = append(policies[node], &newPolicy)
+	hn.state.policyUpdates.Store(op, policies)
 }
 
 // handleOpenChannelWatchRequest processes a watch open channel request by
@@ -405,7 +468,8 @@ func (hn *HarnessNode) handleOpenChannelWatchRequest(req *chanWatchRequest) {
 
 	// If this is an open request, then it can be dispatched if the number
 	// of edges seen for the channel is at least two.
-	if numEdges := hn.state.openChans[targetChan]; numEdges >= 2 {
+	result, ok := hn.state.openChans.Load(targetChan)
+	if ok && result.(int) >= 2 {
 		close(req.eventChan)
 		return
 	}
@@ -423,9 +487,13 @@ func (hn *HarnessNode) handleOpenChannelWatchRequest(req *chanWatchRequest) {
 
 	// Otherwise, we'll add this to the list of open channel watchers for
 	// this out point.
-	hn.openChanWatchers[targetChan] = append(
-		hn.openChanWatchers[targetChan],
-		req.eventChan,
+	oldWatchers := make([]chan struct{}, 0)
+	watchers, ok := hn.openChanWatchers.Load(targetChan)
+	if ok {
+		oldWatchers = watchers.([]chan struct{})
+	}
+	hn.openChanWatchers.Store(
+		targetChan, append(oldWatchers, req.eventChan),
 	)
 }
 
@@ -445,14 +513,19 @@ func (hn *HarnessNode) handleClosedChannelUpdate(
 			return
 		}
 
-		hn.state.closedChans[op] = closedChan
+		hn.state.closedChans.Store(op, closedChan)
 
 		// As the channel has been closed, we'll notify all register
 		// watchers.
-		for _, eventChan := range hn.closeChanWatchers[op] {
+		result, loaded := hn.closeChanWatchers.LoadAndDelete(op)
+		if !loaded {
+			continue
+		}
+
+		watchers := result.([]chan struct{})
+		for _, eventChan := range watchers {
 			close(eventChan)
 		}
-		delete(hn.closeChanWatchers, op)
 	}
 }
 
@@ -465,16 +538,21 @@ func (hn *HarnessNode) handleCloseChannelWatchRequest(req *chanWatchRequest) {
 
 	// If this is a close request, then it can be immediately dispatched if
 	// we've already seen a channel closure for this channel.
-	if _, ok := hn.state.closedChans[targetChan]; ok {
+	if _, ok := hn.state.closedChans.Load(targetChan); ok {
 		close(req.eventChan)
 		return
 	}
 
 	// Otherwise, we'll add this to the list of close channel watchers for
 	// this out point.
-	hn.closeChanWatchers[targetChan] = append(
-		hn.closeChanWatchers[targetChan],
-		req.eventChan,
+	oldWatchers := make([]chan struct{}, 0)
+	result, ok := hn.closeChanWatchers.Load(targetChan)
+	if ok {
+		oldWatchers = result.([]chan struct{})
+	}
+
+	hn.closeChanWatchers.Store(
+		targetChan, append(oldWatchers, req.eventChan),
 	)
 }
 
@@ -485,26 +563,39 @@ func (hn *HarnessNode) handleCloseChannelWatchRequest(req *chanWatchRequest) {
 func (hn *HarnessNode) handlePolicyUpdateWatchRequest(req *chanWatchRequest) {
 	op := req.chanPoint
 
+	var policies []*PolicyUpdate
+
 	// Get a list of known policies for this chanPoint+advertisingNode
 	// combination. Start searching in the node state first.
-	policies, ok := hn.state.policyUpdates[op.String()][req.advertisingNode]
-
-	if !ok {
-		// If it cannot be found in the node state, try searching it
-		// from the node's DescribeGraph.
-		policyMap := hn.getChannelPolicies(req.includeUnannounced)
-		policies, ok = policyMap[op.String()][req.advertisingNode]
+	result, ok := hn.state.policyUpdates.Load(op)
+	if ok {
+		policyMap := result.(NodePolicyUpdate)
+		policies, ok = policyMap[req.advertisingNode]
 		if !ok {
 			return
 		}
-	}
-
-	// Check if there's a matched policy.
-	for _, policy := range policies {
-		if CheckChannelPolicy(policy, req.policy) == nil {
-			close(req.eventChan)
+	} else {
+		// If it cannot be found in the node state, try searching it
+		// from the node's DescribeGraph.
+		policyMap := hn.getChannelPolicies(req.includeUnannounced)
+		result, ok := policyMap[op.String()][req.advertisingNode]
+		if !ok {
 			return
 		}
+		for _, policy := range result {
+			// Use empty from node to mark it being loaded from
+			// DescribeGraph.
+			policies = append(
+				policies, &PolicyUpdate{policy, "", time.Now()},
+			)
+		}
+	}
+
+	// Check if the latest policy is matched.
+	policy := policies[len(policies)-1]
+	if CheckChannelPolicy(policy.RoutingPolicy, req.policy) == nil {
+		close(req.eventChan)
+		return
 	}
 }
 

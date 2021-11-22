@@ -19,7 +19,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -290,7 +289,6 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 // harness. Each HarnessNode instance also fully embeds an RPC client in
 // order to pragmatically drive the node.
 type HarnessNode struct {
-	mu  sync.RWMutex
 	Cfg *BaseNodeConfig
 
 	// NodeID is a unique identifier for the node within a NetworkHarness.
@@ -313,8 +311,10 @@ type HarnessNode struct {
 	// edges seen for that channel within the network. When this number
 	// reaches 2, then it means that both edge advertisements has propagated
 	// through the network.
-	openChanWatchers  map[wire.OutPoint][]chan struct{}
-	closeChanWatchers map[wire.OutPoint][]chan struct{}
+	// openChanWatchers  map[wire.OutPoint][]chan struct{}
+	openChanWatchers sync.Map
+	// closeChanWatchers map[wire.OutPoint][]chan struct{}
+	closeChanWatchers sync.Map
 
 	// backupDbDir is the path where a database backup is stored, if any.
 	backupDbDir string
@@ -409,8 +409,8 @@ func newNode(cfg *BaseNodeConfig) (*HarnessNode, error) {
 		Cfg:               cfg,
 		NodeID:            nextNodeID(),
 		chanWatchRequests: make(chan *chanWatchRequest),
-		openChanWatchers:  make(map[wire.OutPoint][]chan struct{}),
-		closeChanWatchers: make(map[wire.OutPoint][]chan struct{}),
+		openChanWatchers:  sync.Map{},
+		closeChanWatchers: sync.Map{},
 		postgresDbName:    dbName,
 		state:             newState(),
 	}, nil

@@ -4,25 +4,45 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
+	"time"
 
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
-// policyUpdateMap defines a type to store channel policy updates. It has the
-// format,
-// {
-//  "chanPoint1": {
-//       "advertisingNode1": [
-//              policy1, policy2, ...
-//       ],
-//       "advertisingNode2": [
-//              policy1, policy2, ...
-//       ]
-//  },
-//  "chanPoint2": ...
-// }
-type policyUpdateMap map[string]map[string][]*lnrpc.RoutingPolicy
+type (
+	// NodePolicyUpdate defines a type to store channel policy updates for
+	// a given advertisingNode. It has the format,
+	// {"advertisingNode": [policy1, policy2, ...]}.
+	NodePolicyUpdate map[string][]*PolicyUpdate
+
+	// policyUpdateMap defines a type to store channel policy updates. It
+	// has the format,
+	// {
+	//  "chanPoint1": {
+	//       "advertisingNode1": [
+	//              policy1, policy2, ...
+	//       ],
+	//       "advertisingNode2": [
+	//              policy1, policy2, ...
+	//       ]
+	//  },
+	//  "chanPoint2": ...
+	// }.
+	policyUpdateMap map[string]map[string][]*lnrpc.RoutingPolicy
+)
+
+// policyUpdates stores the RoutingPolicy plus the connecting node info.
+type PolicyUpdate struct {
+	*lnrpc.RoutingPolicy
+
+	// ConnectingNode specifies the node that is connected with the
+	// advertising node.
+	ConnectingNode string `json:"connecting_node"`
+
+	// Timestamp records the time the policy update is made.
+	Timestamp time.Time `json:"timestamp"`
+}
 
 // openChannelCount stores the total number of channel related counts.
 type openChannelCount struct {
@@ -132,36 +152,45 @@ type nodeState struct {
 
 	// openChans records each opened channel and how many times it has
 	// heard the announcements from its graph subscription.
-	openChans map[wire.OutPoint]int
+	// openChans map[wire.OutPoint]int
+	openChans *sync.Map
 
 	// closedChans records each closed channel and its close channel update
 	// message received from its graph subscription.
-	closedChans map[wire.OutPoint]*lnrpc.ClosedChannelUpdate
+	closedChans *sync.Map
 
 	// numChanUpdates records the number of channel updates seen by each
 	// channel.
-	numChanUpdates map[wire.OutPoint]int
+	numChanUpdates *sync.Map
 
 	// nodeUpdates records the node announcements seen by each node.
-	nodeUpdates map[string][]*lnrpc.NodeUpdate
+	nodeUpdates *sync.Map
 
-	// policyUpdates stores a slice of seen polices by each advertising
-	// node and the outpoint.
-	policyUpdates policyUpdateMap
+	// policyUpdates defines a type to store channel policy updates. It has
+	// the format,
+	// {
+	//  "chanPoint1": {
+	//       "advertisingNode1": [
+	//              policy1, policy2, ...
+	//       ],
+	//       "advertisingNode2": [
+	//              policy1, policy2, ...
+	//       ]
+	//  },
+	//  "chanPoint2": ...
+	// }
+	policyUpdates *sync.Map
 }
 
 // newState initialize a new state with every field being set to its zero
 // value.
 func newState() *nodeState {
 	return &nodeState{
-		openChans: make(map[wire.OutPoint]int),
-		closedChans: make(
-			map[wire.OutPoint]*lnrpc.ClosedChannelUpdate,
-		),
-
-		numChanUpdates: make(map[wire.OutPoint]int),
-		nodeUpdates:    make(map[string][]*lnrpc.NodeUpdate),
-		policyUpdates:  policyUpdateMap{},
+		openChans:      &sync.Map{},
+		closedChans:    &sync.Map{},
+		numChanUpdates: &sync.Map{},
+		nodeUpdates:    &sync.Map{},
+		policyUpdates:  &sync.Map{},
 	}
 }
 

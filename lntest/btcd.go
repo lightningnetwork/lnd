@@ -97,6 +97,12 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 		"--nobanning",
 		// Don't disconnect if a reply takes too long.
 		"--nostalldetect",
+
+		// For each chainBackend, it uses 1 WebSocket to connect to the
+		// miner, and each new harness node needs 3 connections. We use
+		// 40 here as we might connect to a temp miner in our tests,
+		// and leave room for nodes to make more connections.
+		"--rpcmaxwebsockets=40",
 	}
 	chainBackend, err := rpctest.New(netParams, nil, args, GetBtcdBinary())
 	if err != nil {

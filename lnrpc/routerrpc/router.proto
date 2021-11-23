@@ -284,6 +284,12 @@ message SendPaymentRequest {
     If set, an AMP-payment will be attempted.
     */
     bool amp = 22;
+
+    /*
+    The time preference for this payment. Set to -1 to optimize for fees
+    only, to 1 to optimize for reliability only or a value inbetween for a mix.
+    */
+    double time_pref = 23;
 }
 
 message TrackPaymentRequest {

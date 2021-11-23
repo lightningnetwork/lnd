@@ -91,6 +91,12 @@ then watch it on chain. Taproot script spends are also supported through the
 * [Fixed P2TR addresses not correctly being detected as
   used](https://github.com/lightningnetwork/lnd/pull/6389).
 
+## Routing
+
+* [Add a new `time_pref` parameter to the QueryRoutes and SendPayment APIs](https://github.com/lightningnetwork/lnd/pull/6024) that
+  allows the caller to control the trade-off between payment speed and cost in
+  pathfinding.
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)

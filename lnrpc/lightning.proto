@@ -2692,6 +2692,12 @@ message QueryRoutesRequest {
     fallback.
     */
     repeated lnrpc.FeatureBit dest_features = 17;
+
+    /*
+    The time preference for this payment. Set to -1 to optimize for fees
+    only, to 1 to optimize for reliability only or a value inbetween for a mix.
+    */
+    double time_pref = 18;
 }
 
 message NodePair {

@@ -116,6 +116,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v2
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+
       - name: fetch and rebase on master
         run: |
           git remote add upstream https://github.com/lightningnetwork/lnd

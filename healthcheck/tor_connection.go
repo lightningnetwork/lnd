@@ -48,7 +48,7 @@ func CheckTorServiceStatus(tc *tor.Controller,
 		return restartTorController(tc, createService)
 
 	// If this is not a connection layer error, such as
-	// ErrServiceNotCreated or ErrServiceIDUnmatch, there's little we can
+	// ErrServiceNotCreated or ErrServiceIDMismatch, there's little we can
 	// do but to report the error to the user.
 	default:
 		return err

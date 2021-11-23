@@ -61,7 +61,30 @@ func TestCheckOnionServiceFailOnServiceIDNotMatch(t *testing.T) {
 	require.NoError(t, err, "server failed to write")
 
 	// Check the error returned from GetServiceInfo is expected.
-	require.ErrorIs(t, c.CheckOnionService(), ErrServiceIDUnmatch)
+	require.ErrorIs(t, c.CheckOnionService(), ErrServiceIDMismatch)
+}
+
+func TestCheckOnionServiceSucceedOnMultipleServices(t *testing.T) {
+	t.Parallel()
+
+	// Create mock server and client connection.
+	proxy := createTestProxy(t)
+	defer proxy.cleanUp()
+	server := proxy.serverConn
+
+	// Assign a fake service ID to the controller.
+	c := &Controller{conn: proxy.clientConn, activeServiceID: "fakeID"}
+
+	// Mock a response with a different serviceID.
+	serverResp := "250-onions/current=service1,fakeID,service2\n250 OK\n"
+
+	// Let the server mocks a given response.
+	_, err := server.Write([]byte(serverResp))
+	require.NoError(t, err, "server failed to write")
+
+	// No error is expected, the controller's ID is contained within the
+	// list of active services.
+	require.NoError(t, c.CheckOnionService())
 }
 
 func TestCheckOnionServiceFailOnClosedConnection(t *testing.T) {

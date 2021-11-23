@@ -3,6 +3,7 @@ package tor
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 var (
@@ -10,9 +11,9 @@ var (
 	// service while it's not been created yet.
 	ErrServiceNotCreated = errors.New("onion service hasn't been created")
 
-	// ErrServiceIDUnmatch is used when the serviceID the controller has
+	// ErrServiceIDMismatch is used when the serviceID the controller has
 	// doesn't match the serviceID the Tor daemon has.
-	ErrServiceIDUnmatch = errors.New("onion serviceIDs not match")
+	ErrServiceIDMismatch = errors.New("onion serviceIDs don't match")
 
 	// ErrNoServiceFound is used when the Tor daemon replies no active
 	// onion services found for the current control connection while we
@@ -62,10 +63,14 @@ func (c *Controller) CheckOnionService() error {
 	}
 
 	// Check that our active service is indeed the service acknowledged by
-	// Tor daemon.
-	if c.activeServiceID != serviceID {
+	// Tor daemon. The controller is only aware of a single service but the
+	// Tor daemon might have multiple services registered (for example for
+	// the watchtower as well as the node p2p connections). So we just want
+	// to check that our current controller's ID is contained in the list of
+	// registered services.
+	if !strings.Contains(serviceID, c.activeServiceID) {
 		return fmt.Errorf("%w: controller has: %v, Tor daemon has: %v",
-			ErrServiceIDUnmatch, c.activeServiceID, serviceID)
+			ErrServiceIDMismatch, c.activeServiceID, serviceID)
 	}
 
 	return nil

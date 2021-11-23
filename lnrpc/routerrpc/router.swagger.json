@@ -1635,6 +1635,11 @@
         "amp": {
           "type": "boolean",
           "description": "If set, an AMP-payment will be attempted."
+        },
+        "time_pref": {
+          "type": "number",
+          "format": "double",
+          "description": "The time preference for this payment. Set to -1 to optimize for fees\nonly, to 1 to optimize for reliability only or a value inbetween for a mix."
         }
       }
     },

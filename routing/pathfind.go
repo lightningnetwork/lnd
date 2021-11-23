@@ -41,7 +41,7 @@ const (
 // pathFinder defines the interface of a path finding algorithm.
 type pathFinder = func(g *graphParams, r *RestrictParams,
 	cfg *PathFindingConfig, source, target route.Vertex,
-	amt lnwire.MilliSatoshi, finalHtlcExpiry int32) (
+	amt lnwire.MilliSatoshi, timePref float64, finalHtlcExpiry int32) (
 	[]*channeldb.CachedEdgePolicy, error)
 
 var (
@@ -413,7 +413,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 // path and accurately check the amount to forward at every node against the
 // available bandwidth.
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
-	source, target route.Vertex, amt lnwire.MilliSatoshi,
+	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
 	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
 
 	// Pathfinding can be a significant portion of the total payment
@@ -573,12 +573,24 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// if the cltv limit is MaxUint32.
 	absoluteCltvLimit := uint64(r.CltvLimit) + uint64(finalHtlcExpiry)
 
-	// Calculate the absolute attempt cost that is used for probability
-	// estimation.
-	absoluteAttemptCost := float64(
+	// Calculate the default attempt cost as configured globally.
+	defaultAttemptCost := float64(
 		cfg.AttemptCost +
 			amt*lnwire.MilliSatoshi(cfg.AttemptCostPPM)/1000000,
 	)
+
+	// Validate time preference value.
+	if math.Abs(timePref) > 1 {
+		return nil, fmt.Errorf("time preference %v out of range [-1, 1]",
+			timePref)
+	}
+
+	// Scale to avoid the extremes -1 and 1 which run into infinity issues.
+	timePref *= 0.9
+
+	// Apply time preference. At 0, the default attempt cost will
+	// be used.
+	absoluteAttemptCost := defaultAttemptCost * (1/(0.5-timePref/2) - 1)
 
 	log.Debugf("Pathfinding absolute attempt cost: %v sats",
 		absoluteAttemptCost/1000)

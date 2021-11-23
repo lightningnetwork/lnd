@@ -268,7 +268,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 
 	route, err := ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		target, paymentAmt, restrictions, nil, nil,
+		target, paymentAmt, 0, restrictions, nil, nil,
 		MinCLTVDelta,
 	)
 	require.NoError(t, err, "unable to find any routes")
@@ -1525,7 +1525,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
 	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions, nil, nil,
+		targetPubKeyBytes, paymentAmt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
 	if err != nil {
@@ -1568,7 +1568,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// updated.
 	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions, nil, nil,
+		targetPubKeyBytes, paymentAmt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
 	if err != nil {
@@ -2465,7 +2465,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 		ctx.graph, nil, &mockBandwidthHints{},
 		noRestrictions,
 		testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, amt, 0,
+		sourceNode.PubKeyBytes, target, amt, 0, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)

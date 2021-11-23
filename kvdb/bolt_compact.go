@@ -80,7 +80,7 @@ func (cmd *compacter) execute() (int64, int64, error) {
 		return 0, 0, fmt.Errorf("could not start compaction, "+
 			"destination folder %s only has %d bytes of free disk "+
 			"space available while we need at least %d for worst-"+
-			"case compaction", destFolder, freeSpace, initialSize)
+			"case compaction", destFolder, freeSpace, uint64(marginSize))
 	}
 
 	// Open source database. We open it in read only mode to avoid (and fix)

@@ -2170,7 +2170,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 // sleep in this test and the one below
 func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	if !build.IsDevBuild() {
-		t.Fatalf("htlcswitch tests must be run with '-tags debug")
+		t.Fatalf("htlcswitch tests must be run with '-tags dev")
 	}
 	t.Parallel()
 
@@ -2904,7 +2904,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 // circuits if the ADDs corresponding to open circuits are never committed.
 func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	if !build.IsDevBuild() {
-		t.Fatalf("htlcswitch tests must be run with '-tags debug")
+		t.Fatalf("htlcswitch tests must be run with '-tags dev")
 	}
 
 	t.Parallel()

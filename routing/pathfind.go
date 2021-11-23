@@ -575,11 +575,13 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// Calculate the absolute attempt cost that is used for probability
 	// estimation.
-	absoluteAttemptCost := int64(cfg.AttemptCost) +
-		int64(amt)*cfg.AttemptCostPPM/1000000
+	absoluteAttemptCost := float64(
+		cfg.AttemptCost +
+			amt*lnwire.MilliSatoshi(cfg.AttemptCostPPM)/1000000,
+	)
 
 	log.Debugf("Pathfinding absolute attempt cost: %v sats",
-		float64(absoluteAttemptCost)/1000)
+		absoluteAttemptCost/1000)
 
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
@@ -959,13 +961,24 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 // Fa + c/Pa < Fb + c/Pb
 //
 // So the value of F + c/P can be used to compare routes.
-func getProbabilityBasedDist(weight int64, probability float64, penalty int64) int64 {
-	// Clamp probability to prevent overflow.
-	const minProbability = 0.00001
+func getProbabilityBasedDist(weight int64, probability float64,
+	penalty float64) int64 {
 
-	if probability < minProbability {
+	// Prevent divide by zero by returning early.
+	if probability == 0 {
 		return infinity
 	}
 
-	return weight + int64(float64(penalty)/probability)
+	// Calculate distance.
+	dist := float64(weight) + penalty/probability
+
+	// Avoid cast if an overflow would occur. The maxFloat constant is
+	// chosen to stay well below the maximum float64 value that is still
+	// convertable to int64.
+	const maxFloat = 9000000000000000000
+	if dist > maxFloat {
+		return infinity
+	}
+
+	return int64(dist)
 }

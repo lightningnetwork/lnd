@@ -303,6 +303,10 @@ type Config struct {
 	// initiator for anchor channel commitments.
 	MaxAnchorsCommitFeeRate chainfee.SatPerKWeight
 
+	// AnchorsCommitConfTarget is the confirmation target used to determine
+	// the fee to use for anchor commitments.
+	AnchorsCommitConfTarget uint32
+
 	// CoopCloseTargetConfs is the confirmation target that will be used
 	// to estimate the fee rate to use during a cooperative channel
 	// closure initiated by the remote peer.
@@ -858,6 +862,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		MaxOutgoingCltvExpiry:   p.cfg.MaxOutgoingCltvExpiry,
 		MaxFeeAllocation:        p.cfg.MaxChannelFeeAllocation,
 		MaxAnchorsCommitFeeRate: p.cfg.MaxAnchorsCommitFeeRate,
+		AnchorsCommitConfTarget: p.cfg.AnchorsCommitConfTarget,
 		NotifyActiveLink:        p.cfg.ChannelNotifier.NotifyActiveLinkEvent,
 		NotifyActiveChannel:     p.cfg.ChannelNotifier.NotifyActiveChannelEvent,
 		NotifyInactiveChannel:   p.cfg.ChannelNotifier.NotifyInactiveChannelEvent,

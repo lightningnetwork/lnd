@@ -36,7 +36,8 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 			),
-			expectsErr: errUnsupportedExplicitNegotiation,
+			expectsRes: lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx,
+			expectsErr: nil,
 		},
 		{
 			name: "explicit missing remote commitment feature",
@@ -181,8 +182,14 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				return
 			}
 
-			require.Equal(t, testCase.expectsRes, localType)
-			require.Equal(t, testCase.expectsRes, remoteType)
+			require.Equal(
+				t, testCase.expectsRes, localType,
+				testCase.name,
+			)
+			require.Equal(
+				t, testCase.expectsRes, remoteType,
+				testCase.name,
+			)
 		})
 		if !ok {
 			return

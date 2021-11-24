@@ -8,12 +8,6 @@ import (
 )
 
 var (
-	// errUnsupportedExplicitNegotiation is an error returned when explicit
-	// channel commitment negotiation is attempted but either peer of the
-	// channel does not support it.
-	errUnsupportedExplicitNegotiation = errors.New("explicit channel " +
-		"type negotiation not supported")
-
 	// errUnsupportedCommitmentType is an error returned when a specific
 	// channel commitment type is being explicitly negotiated but either
 	// peer of the channel does not support it.
@@ -29,12 +23,13 @@ func negotiateCommitmentType(channelType *lnwire.ChannelType,
 	local, remote *lnwire.FeatureVector) (lnwallet.CommitmentType, error) {
 
 	if channelType != nil {
-		if !hasFeatures(local, remote, lnwire.ExplicitChannelTypeOptional) {
-			return 0, errUnsupportedExplicitNegotiation
+		// If the peer does know explicit negotiation, let's attempt
+		// that now.
+		if hasFeatures(local, remote, lnwire.ExplicitChannelTypeOptional) {
+			return explicitNegotiateCommitmentType(
+				*channelType, local, remote,
+			)
 		}
-		return explicitNegotiateCommitmentType(
-			*channelType, local, remote,
-		)
 	}
 
 	return implicitNegotiateCommitmentType(local, remote), nil

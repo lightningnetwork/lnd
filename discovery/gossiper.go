@@ -309,6 +309,14 @@ func newRejectCacheKey(cid uint64, pub [33]byte) rejectCacheKey {
 	return k
 }
 
+// sourceToPub returns a serialized-compressed public key for use in the reject
+// cache.
+func sourceToPub(pk *btcec.PublicKey) [33]byte {
+	var pub [33]byte
+	copy(pub[:], pk.SerializeCompressed())
+	return pub
+}
+
 // cachedReject is the empty value used to track the value for rejects.
 type cachedReject struct {
 }
@@ -1167,7 +1175,8 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// If this message was recently rejected, then we won't
 			// attempt to re-process it.
 			if announcement.isRemote && d.isRecentlyRejectedMsg(
-				announcement.msg, announcement.peer.PubKey(),
+				announcement.msg,
+				sourceToPub(announcement.source),
 			) {
 				announcement.err <- fmt.Errorf("recently " +
 					"rejected")
@@ -1828,7 +1837,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 			key := newRejectCacheKey(
 				msg.ShortChannelID.ToUint64(),
-				nMsg.peer.PubKey(),
+				sourceToPub(nMsg.source),
 			)
 			_, _ = d.recentRejects.Put(key, &cachedReject{})
 
@@ -1871,7 +1880,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 				key := newRejectCacheKey(
 					msg.ShortChannelID.ToUint64(),
-					nMsg.peer.PubKey(),
+					sourceToPub(nMsg.source),
 				)
 				_, _ = d.recentRejects.Put(key, &cachedReject{})
 
@@ -1949,7 +1958,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 					key := newRejectCacheKey(
 						msg.ShortChannelID.ToUint64(),
-						nMsg.peer.PubKey(),
+						sourceToPub(nMsg.source),
 					)
 					_, _ = d.recentRejects.Put(key, &cachedReject{})
 
@@ -1976,7 +1985,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 				key := newRejectCacheKey(
 					msg.ShortChannelID.ToUint64(),
-					nMsg.peer.PubKey(),
+					sourceToPub(nMsg.source),
 				)
 				_, _ = d.recentRejects.Put(key, &cachedReject{})
 			}
@@ -2066,7 +2075,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 			key := newRejectCacheKey(
 				msg.ShortChannelID.ToUint64(),
-				nMsg.peer.PubKey(),
+				sourceToPub(nMsg.source),
 			)
 			_, _ = d.recentRejects.Put(key, &cachedReject{})
 
@@ -2198,7 +2207,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 			key := newRejectCacheKey(
 				msg.ShortChannelID.ToUint64(),
-				nMsg.peer.PubKey(),
+				sourceToPub(nMsg.source),
 			)
 			_, _ = d.recentRejects.Put(key, &cachedReject{})
 
@@ -2310,7 +2319,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			} else {
 				key := newRejectCacheKey(
 					msg.ShortChannelID.ToUint64(),
-					nMsg.peer.PubKey(),
+					sourceToPub(nMsg.source),
 				)
 				_, _ = d.recentRejects.Put(key, &cachedReject{})
 

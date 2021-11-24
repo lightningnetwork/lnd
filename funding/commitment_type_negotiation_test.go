@@ -15,6 +15,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 
 	testCases := []struct {
 		name            string
+		mustBeExplicit  bool
 		channelFeatures *lnwire.RawFeatureVector
 		localFeatures   *lnwire.RawFeatureVector
 		remoteFeatures  *lnwire.RawFeatureVector
@@ -38,6 +39,25 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			),
 			expectsRes: lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx,
 			expectsErr: nil,
+		},
+		{
+			name: "local funder wants explicit, remote doesn't " +
+				"support so fall back",
+			mustBeExplicit: true,
+			channelFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyRequired,
+				lnwire.AnchorsZeroFeeHtlcTxRequired,
+			),
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			),
+			expectsErr: errUnsupportedExplicitNegotiation,
 		},
 		{
 			name: "explicit missing remote commitment feature",
@@ -168,13 +188,15 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 					*testCase.channelFeatures,
 				)
 			}
-			localType, err := negotiateCommitmentType(
+			_, localType, err := negotiateCommitmentType(
 				channelType, localFeatures, remoteFeatures,
+				testCase.mustBeExplicit,
 			)
 			require.Equal(t, testCase.expectsErr, err)
 
-			remoteType, err := negotiateCommitmentType(
+			_, remoteType, err := negotiateCommitmentType(
 				channelType, remoteFeatures, localFeatures,
+				testCase.mustBeExplicit,
 			)
 			require.Equal(t, testCase.expectsErr, err)
 

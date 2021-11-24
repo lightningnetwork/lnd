@@ -22,6 +22,10 @@
   incompatibilities when opening channels with the latest versions of
   c-lightning and eclair](https://github.com/lightningnetwork/lnd/pull/6026).
 
+* [Ensure that if a user specifies explicit channel funding on the API level,
+  then it can't be
+  downgraded](https://github.com/lightningnetwork/lnd/pull/6027).
+
 # Contributors (Alphabetical Order)
 
 * Jamie Turley

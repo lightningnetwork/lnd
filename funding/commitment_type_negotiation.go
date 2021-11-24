@@ -8,6 +8,12 @@ import (
 )
 
 var (
+	// errUnsupportedExplicitNegotiation is an error returned when explicit
+	// channel commitment negotiation is attempted but either peer of the
+	// channel does not support it.
+	errUnsupportedExplicitNegotiation = errors.New("explicit channel " +
+		"type negotiation not supported")
+
 	// errUnsupportedCommitmentType is an error returned when a specific
 	// channel commitment type is being explicitly negotiated but either
 	// peer of the channel does not support it.
@@ -20,19 +26,30 @@ var (
 // will be attempted if the set of both local and remote features support it.
 // Otherwise, implicit negotiation will be attempted.
 func negotiateCommitmentType(channelType *lnwire.ChannelType,
-	local, remote *lnwire.FeatureVector) (lnwallet.CommitmentType, error) {
+	local, remote *lnwire.FeatureVector,
+	mustBeExplicit bool) (bool, lnwallet.CommitmentType, error) {
 
 	if channelType != nil {
 		// If the peer does know explicit negotiation, let's attempt
 		// that now.
 		if hasFeatures(local, remote, lnwire.ExplicitChannelTypeOptional) {
-			return explicitNegotiateCommitmentType(
+			chanType, err := explicitNegotiateCommitmentType(
 				*channelType, local, remote,
 			)
+			return true, chanType, err
+		}
+
+		// If we're the funder, and we are attempting to use an
+		// explicit channel type, but the remote party doesn't signal
+		// the bit, then we actually want to exit here, to ensure the
+		// user doesn't end up with an unexpected channel type via
+		// implicit negotiation.
+		if mustBeExplicit {
+			return false, 0, errUnsupportedExplicitNegotiation
 		}
 	}
 
-	return implicitNegotiateCommitmentType(local, remote), nil
+	return false, implicitNegotiateCommitmentType(local, remote), nil
 }
 
 // explicitNegotiateCommitmentType attempts to explicitly negotiate for a

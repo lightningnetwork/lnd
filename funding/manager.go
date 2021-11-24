@@ -1274,14 +1274,22 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// the remote peer are signaling the proper feature bit if we're using
 	// implicit negotiation, and simply the channel type sent over if we're
 	// using explicit negotiation.
-	commitType, err := negotiateCommitmentType(
+	wasExplicit, commitType, err := negotiateCommitmentType(
 		msg.ChannelType, peer.LocalFeatures(), peer.RemoteFeatures(),
+		false,
 	)
 	if err != nil {
 		// TODO(roasbeef): should be using soft errors
 		log.Errorf("channel type negotiation failed: %v", err)
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
 		return
+	}
+
+	// Only echo back a channel type in AcceptChannel if we actually used
+	// explicit negotiation above.
+	var chanTypeFeatureBits *lnwire.ChannelType
+	if wasExplicit {
+		chanTypeFeatureBits = msg.ChannelType
 	}
 
 	chainHash := chainhash.Hash(msg.ChainHash)
@@ -1520,7 +1528,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		HtlcPoint:             ourContribution.HtlcBasePoint.PubKey,
 		FirstCommitmentPoint:  ourContribution.FirstCommitmentPoint,
 		UpfrontShutdownScript: ourContribution.UpfrontShutdown,
-		ChannelType:           msg.ChannelType,
+		ChannelType:           chanTypeFeatureBits,
 		LeaseExpiry:           msg.LeaseExpiry,
 	}
 
@@ -1594,9 +1602,13 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		implicitChannelType := implicitNegotiateCommitmentType(
 			peer.LocalFeatures(), peer.RemoteFeatures(),
 		)
-		negotiatedChannelType, err := negotiateCommitmentType(
+
+		// We pass in false here as the funder since at this point, we
+		// didn't set a chan type ourselves, so falling back to
+		// implicit funding is acceptable.
+		_, negotiatedChannelType, err := negotiateCommitmentType(
 			msg.ChannelType, peer.LocalFeatures(),
-			peer.RemoteFeatures(),
+			peer.RemoteFeatures(), false,
 		)
 		if err != nil {
 			err := errors.New("received unexpected channel type")
@@ -3246,9 +3258,9 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// Before we init the channel, we'll also check to see what commitment
 	// format we can use with this peer. This is dependent on *both* us and
 	// the remote peer are signaling the proper feature bit.
-	commitType, err := negotiateCommitmentType(
+	_, commitType, err := negotiateCommitmentType(
 		msg.ChannelType, msg.Peer.LocalFeatures(),
-		msg.Peer.RemoteFeatures(),
+		msg.Peer.RemoteFeatures(), true,
 	)
 	if err != nil {
 		log.Errorf("channel type negotiation failed: %v", err)

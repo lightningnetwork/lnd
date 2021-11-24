@@ -393,8 +393,8 @@ func testChannelBackupRestore(ht *lntest.HarnessTest) {
 	for _, testCase := range testCases {
 		testCase := testCase
 		success := ht.Run(testCase.name, func(t *testing.T) {
-			// Skip the cleanup as no standby node is used.
-			h, _ := ht.Subtest(t)
+			h, cleanup := ht.Subtest(t)
+			defer cleanup()
 
 			// Start each test with the default static fee estimate.
 			h.SetFeeEstimate(12500)
@@ -426,7 +426,6 @@ func testChannelBackupUpdates(ht *lntest.HarnessTest) {
 	)
 	carolArgs := fmt.Sprintf("--backupfilepath=%v", backupFilePath)
 	carol := ht.NewNode("carol", []string{carolArgs})
-	defer ht.Shutdown(carol)
 
 	// Next, we'll register for streaming notifications for changes to the
 	// backup file.
@@ -588,7 +587,6 @@ func testExportChannelBackup(ht *lntest.HarnessTest) {
 	// open channels and also export backups that we'll examine throughout
 	// the test.
 	carol := ht.NewNode("carol", nil)
-	defer ht.Shutdown(carol)
 
 	// With Carol up, we'll now connect her to Alice, and open a channel
 	// between them.
@@ -784,14 +782,7 @@ func testChanRestoreScenario(ht *lntest.HarnessTest,
 	dave, mnemonic, _ := ht.NewNodeWithSeed(
 		"dave", nodeArgs, password, false,
 	)
-	// Defer to a closure instead of to shutdownAndAssert due to the value
-	// of 'dave' changing throughout the test.
-	defer func() {
-		ht.Shutdown(dave)
-	}()
-
 	carol := ht.NewNode("carol", nodeArgs)
-	defer ht.Shutdown(carol)
 
 	// Now that our new nodes are created, we'll give them some coins for
 	// channel opening and anchor sweeping.
@@ -1153,11 +1144,9 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	// automatically re-connect too early, otherwise DLP would be initiated
 	// at the wrong moment.
 	carol := ht.NewNode("Carol", []string{"--nolisten", "--minbackoff=1h"})
-	defer ht.Shutdown(carol)
 
 	// Dave will be the party losing his state.
 	dave := ht.NewNode("Dave", nil)
-	defer ht.Shutdown(dave)
 
 	// Before we make a channel, we'll load up Carol with some coins sent
 	// directly from the miner.

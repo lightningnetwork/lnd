@@ -264,7 +264,6 @@ func testSwitchOfflineDeliveryOutgoingOffline(ht *lntest.HarnessTest) {
 	// three channels. Note that we won't call the cleanUp function here as
 	// we will manually stop the node Carol and her channel.
 	s := setupScenarioFourNodes(ht)
-	defer ht.Shutdown(s.dave)
 
 	// Disconnect the two intermediaries, Alice and Dave, so that when carol
 	// restarts, the response will be held by Dave.
@@ -440,8 +439,6 @@ func setupScenarioFourNodes(ht *lntest.HarnessTest) *scenarioFourNodes {
 		ht.CloseChannel(alice, chanPointAliceBob, false)
 		ht.CloseChannel(dave, chanPointDaveAlice, false)
 		ht.CloseChannel(carol, chanPointCarolDave, false)
-		ht.Shutdown(carol)
-		ht.Shutdown(dave)
 	}
 
 	s := &scenarioFourNodes{

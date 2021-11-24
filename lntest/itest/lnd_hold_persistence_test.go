@@ -25,7 +25,6 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 
 	// Create carol, and clean up when the test finishes.
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
 
 	// Connect Alice to Carol.
 	alice, bob := ht.Alice, ht.Bob

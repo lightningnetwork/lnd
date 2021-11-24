@@ -36,7 +36,6 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 	useExternalPayAddr bool) {
 
 	ctx := newMppTestContext(ht)
-	defer ctx.shutdownNodes()
 
 	// Subscribe to bob's invoices. Do this early in the test to make sure
 	// that the subscription has actually been completed when we add an
@@ -190,13 +189,11 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 	// In this basic test, we'll only need two nodes as we want to
 	// primarily test the recurring payment feature. So we'll re-use the
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
 
 	// Send Carol enough coins to be able to open a channel to Dave.
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	dave := ht.NewNode("Dave", nil)
-	defer ht.Shutdown(dave)
 
 	// Set up an invoice subscription so we can be notified when Dave
 	// receives his repeated payments.
@@ -351,8 +348,6 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 // destination using SendPaymentV2.
 func testSendPaymentAMP(ht *lntest.HarnessTest) {
 	ctx := newMppTestContext(ht)
-	defer ctx.shutdownNodes()
-
 	const paymentAmt = btcutil.Amount(300000)
 
 	// Set up a network with three different paths Alice <-> Bob. Channel
@@ -456,8 +451,6 @@ func testSendPaymentAMP(ht *lntest.HarnessTest) {
 
 func testSendToRouteAMP(ht *lntest.HarnessTest) {
 	ctx := newMppTestContext(ht)
-	defer ctx.shutdownNodes()
-
 	const (
 		paymentAmt = btcutil.Amount(300000)
 		numShards  = 3

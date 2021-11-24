@@ -21,7 +21,8 @@ func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 	// Let's first enable the middleware interceptor.
 	//
 	// NOTE: we cannot use standby nodes here as the test messes with
-	// middleware interceptor.
+	// middleware interceptor. Thus we also skip the calling of cleanup of
+	// each of the following subtests because no standby nodes are used.
 	alice := ht.NewNode("Alice", []string{"--rpcmiddleware.enable"})
 	defer ht.Shutdown(alice)
 	bob := ht.NewNode("Bob", nil)
@@ -50,9 +51,6 @@ func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 	// Run all sub-tests now. We can't run anything in parallel because that
 	// would cause the main test function to exit and the nodes being
 	// cleaned up.
-	//
-	// NOTE: we skip the calling of cleanup of each of the following
-	// subtests because they share the above open channel.
 	ht.Run("registration restrictions", func(tt *testing.T) {
 		st, _ := ht.Subtest(tt)
 		middlewareRegistrationRestrictionTests(st, alice)

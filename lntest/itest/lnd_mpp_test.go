@@ -18,7 +18,6 @@ import (
 // payment using multiple shards across different paths, by using SendToRoute.
 func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 	ctx := newMppTestContext(ht)
-	defer ctx.shutdownNodes()
 
 	// To ensure the payment goes through separate paths, we'll set a
 	// channel size that can only carry one shard at a time. We'll divide
@@ -161,7 +160,6 @@ func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 // payment using multiple shards across different paths.
 func testSendMultiPathPayment(ht *lntest.HarnessTest) {
 	ctx := newMppTestContext(ht)
-	defer ctx.shutdownNodes()
 
 	const paymentAmt = btcutil.Amount(300000)
 
@@ -324,12 +322,6 @@ func (c *mppTestContext) closeChannels() {
 	for _, f := range c.closeChannelFuncs {
 		f()
 	}
-}
-
-func (c *mppTestContext) shutdownNodes() {
-	c.ht.Shutdown(c.carol)
-	c.ht.Shutdown(c.dave)
-	c.ht.Shutdown(c.eve)
 }
 
 // Helper function for Alice to build a route from pubkeys.

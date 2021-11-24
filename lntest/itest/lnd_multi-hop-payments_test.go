@@ -21,10 +21,7 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 
 	daveArgs := []string{"--protocol.legacy.onion"}
 	dave := ht.NewNode("Dave", daveArgs)
-	defer ht.Shutdown(dave)
-
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
 
 	// Subscribe events early so we don't miss it out.
 	aliceEvents := ht.SubscribeHtlcEvents(alice)

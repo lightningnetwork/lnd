@@ -25,9 +25,6 @@ func testMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 		ht, alice, bob, false, c,
 	)
 
-	// Clean up carol's node when the test finishes.
-	defer ht.Shutdown(carol)
-
 	// With the network active, we'll now add a new hodl invoice at Carol's
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
 	// won't send out the outgoing htlc.

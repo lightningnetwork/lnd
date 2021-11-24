@@ -29,10 +29,7 @@ func testPsbtChanFunding(ht *lntest.HarnessTest) {
 	// between for this test. Dave gets some coins that will be used to
 	// fund the PSBT, just to make sure that Carol has an empty wallet.
 	carol := ht.NewNode("carol", nil)
-	defer ht.Shutdown(carol)
-
 	dave := ht.NewNode("dave", nil)
-	defer ht.Shutdown(dave)
 
 	runPsbtChanFunding(ht, carol, dave)
 }
@@ -230,10 +227,7 @@ func testPsbtChanFundingExternal(ht *lntest.HarnessTest) {
 	// between for this test. Both these nodes have an empty wallet as Alice
 	// will be funding the channel.
 	carol := ht.NewNode("carol", nil)
-	defer ht.Shutdown(carol)
-
 	dave := ht.NewNode("dave", nil)
-	defer ht.Shutdown(dave)
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.

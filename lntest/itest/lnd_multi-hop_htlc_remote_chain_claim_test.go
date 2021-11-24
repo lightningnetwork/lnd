@@ -25,7 +25,6 @@ func testMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
 		ht, alice, bob, false, c,
 	)
-	defer ht.Shutdown(carol)
 
 	// With the network active, we'll now add a new hodl invoice at Carol's
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob

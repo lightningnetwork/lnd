@@ -26,7 +26,6 @@ func testMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
 		ht, alice, bob, false, c,
 	)
-	defer ht.Shutdown(carol)
 
 	// To ensure we have capacity in both directions of the route, we'll
 	// make a fairly large payment Alice->Carol and settle it.

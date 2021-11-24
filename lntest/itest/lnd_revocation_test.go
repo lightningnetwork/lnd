@@ -36,7 +36,6 @@ func testRevokedCloseRetribution(ht *lntest.HarnessTest) {
 		"Carol",
 		[]string{"--hodl.exit-settle", "--nolisten", "--minbackoff=1h"},
 	)
-	defer ht.Shutdown(carol)
 
 	// We must let Bob communicate with Carol before they are able to open
 	// channel, so we connect Bob and Carol,
@@ -178,7 +177,6 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntest.HarnessTest) {
 	// Since we'd like to test some multi-hop failure scenarios, we'll
 	// introduce another node into our test network: Carol.
 	carol := ht.NewNode("Carol", []string{"--hodl.exit-settle"})
-	defer ht.Shutdown(carol)
 
 	// Dave will be the breached party. We set --nolisten to ensure Carol
 	// won't be able to connect to him and trigger the channel data
@@ -189,7 +187,6 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntest.HarnessTest) {
 		"Dave",
 		[]string{"--hodl.exit-settle", "--nolisten", "--minbackoff=1h"},
 	)
-	defer ht.Shutdown(dave)
 
 	// We must let Dave have an open channel before he can send a node
 	// announcement, so we open a channel with Carol,
@@ -318,7 +315,6 @@ func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
 	// weird state, we will introduce another node into our test network:
 	// Carol.
 	carol := ht.NewNode("Carol", []string{"--hodl.exit-settle"})
-	defer ht.Shutdown(carol)
 
 	// We'll also create a new node Dave, who will have a channel with
 	// Carol, and also use similar settings so we can broadcast a commit
@@ -329,7 +325,6 @@ func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
 		"Dave",
 		[]string{"--hodl.exit-settle", "--nolisten"},
 	)
-	defer ht.Shutdown(dave)
 
 	// We must let Dave communicate with Carol before they are able to open
 	// channel, so we connect Dave and Carol,
@@ -603,8 +598,9 @@ func testRevokedCloseRetributionAltruistWatchtower(ht *lntest.HarnessTest) {
 		}
 
 		success := ht.Run(tc.name, func(tt *testing.T) {
-			// Skipped cleanup since no standby node is used.
-			st, _ := ht.Subtest(tt)
+			st, cleanup := ht.Subtest(tt)
+			defer cleanup()
+
 			st.RunTestCase(&lntest.TestCase{
 				Name:     tc.name,
 				TestFunc: testFunc,
@@ -640,7 +636,6 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 		carolArgs = append(carolArgs, "--protocol.anchors")
 	}
 	carol := ht.NewNode("Carol", carolArgs)
-	defer ht.Shutdown(carol)
 
 	// Willy the watchtower will protect Dave from Carol's breach. He will
 	// remain online in order to punish Carol on Dave's behalf, since the
@@ -649,7 +644,6 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 		"Willy", []string{"--watchtower.active",
 			"--watchtower.externalip=" + externalIP},
 	)
-	defer ht.Shutdown(willy)
 
 	willyInfo := ht.GetInfoWatchtower(willy)
 
@@ -679,7 +673,6 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 		daveArgs = append(daveArgs, "--protocol.anchors")
 	}
 	dave := ht.NewNode("Dave", daveArgs)
-	defer ht.Shutdown(dave)
 
 	addTowerReq := &wtclientrpc.AddTowerRequest{
 		Pubkey:  willyInfo.Pubkey,

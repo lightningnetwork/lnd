@@ -314,14 +314,14 @@ func (h *HarnessTest) Subtest(t *testing.T) (*HarnessTest, func()) {
 		require.Empty(st, st.GetRawMempool(), "mempool not cleaned, "+
 			"please mine blocks to clean them all.")
 
-		// If found running nodes, shut them down.
-		st.shutdownNonStandbyNodes()
-
 		// When we finish the test, reset the nodes' configs and take a
 		// snapshot of each of the nodes' internal states.
 		for _, node := range st.standbyNodes {
 			st.cleanupStandbyNode(node)
 		}
+
+		// If found running nodes, shut them down.
+		st.shutdownNonStandbyNodes()
 
 		// Assert that mempool is cleaned
 		st.AssertNumTxsInMempool(0)
@@ -345,7 +345,6 @@ func (h *HarnessTest) shutdownNonStandbyNodes() {
 		}
 
 		// Otherwise shut it down.
-		h.Logf("found running node: %s, shutting down...", node.Name())
 		h.Shutdown(node)
 	}
 }

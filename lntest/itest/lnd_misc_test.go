@@ -130,16 +130,10 @@ func testSphinxReplayPersistence(ht *lntest.HarnessTest) {
 	// First, we'll create Dave, the receiver, and start him in hodl mode.
 	dave := ht.NewNode("Dave", []string{"--hodl.exit-settle"})
 
-	// We must remember to shutdown the nodes we created for the duration
-	// of the tests, only leaving the two seed nodes (Alice and Bob) within
-	// our test network.
-	defer ht.Shutdown(dave)
-
 	// Next, we'll create Carol and establish a channel to from her to
 	// Dave. Carol is started in both unsafe-replay which will cause her to
 	// replay any pending Adds held in memory upon reconnection.
 	carol := ht.NewNode("Carol", []string{"--unsafe-replay"})
-	defer ht.Shutdown(carol)
 
 	ht.ConnectNodes(carol, dave)
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
@@ -156,7 +150,6 @@ func testSphinxReplayPersistence(ht *lntest.HarnessTest) {
 	// setup doesn't apply to locally added htlcs. In that case, the
 	// mailbox, that is responsible for generating the replay, is bypassed.
 	fred := ht.NewNode("Fred", nil)
-	defer ht.Shutdown(fred)
 
 	ht.ConnectNodes(fred, carol)
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, fred)
@@ -353,7 +346,6 @@ func testMaxPendingChannels(ht *lntest.HarnessTest) {
 		fmt.Sprintf("--maxpendingchannels=%v", maxPendingChannels),
 	}
 	carol := ht.NewNode("Carol", args)
-	defer ht.Shutdown(carol)
 
 	alice := ht.Alice
 	ht.ConnectNodes(alice, carol)
@@ -437,7 +429,6 @@ func testGarbageCollectLinkNodes(ht *lntest.HarnessTest) {
 
 	// Create Carol's node and connect Alice to her.
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
 	ht.ConnectNodes(alice, carol)
 
 	// Open a channel between Alice and Carol which will later be force
@@ -452,7 +443,6 @@ func testGarbageCollectLinkNodes(ht *lntest.HarnessTest) {
 	// him. This link will serve as the only persistent link throughout
 	// restarts in this test.
 	dave := ht.NewNode("Dave", nil)
-	defer ht.Shutdown(dave)
 
 	ht.ConnectNodes(alice, dave)
 	persistentChanPoint := ht.OpenChannel(
@@ -545,7 +535,6 @@ func testRejectHTLC(ht *lntest.HarnessTest) {
 
 	// Create Carol with reject htlc flag.
 	carol := ht.NewNode("Carol", []string{"--rejecthtlc"})
-	defer ht.Shutdown(carol)
 
 	// Connect Alice to Carol.
 	ht.ConnectNodes(alice, carol)
@@ -671,7 +660,6 @@ func testNodeSignVerify(ht *lntest.HarnessTest) {
 
 	// carol is a new node that is unconnected to alice or bob.
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
 
 	// carol signs "carol msg" and sends her signature to bob.
 	carolMsg := []byte("carol msg")
@@ -775,7 +763,6 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// NOTE: we won't use standby nodes here since the test will change
 	// each of the node's wallet state.
 	ainz := ht.NewNode("Ainz", nil)
-	defer ht.Shutdown(ainz)
 
 	// Next, we'll give Ainz exactly 2 utxos of 1 BTC each, with one of
 	// them being p2wkh and the other being a n2wpkh address.

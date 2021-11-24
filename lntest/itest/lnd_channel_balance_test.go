@@ -116,7 +116,6 @@ func testChannelUnsettledBalance(ht *lntest.HarnessTest) {
 
 	// Create carol in hodl mode.
 	carol := ht.NewNode("Carol", []string{"--hodl.exit-settle"})
-	defer ht.Shutdown(carol)
 
 	// Connect Alice to Carol.
 	alice := ht.Alice

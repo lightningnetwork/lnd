@@ -114,7 +114,6 @@ func testUpdateChanStatus(ht *lntest.HarnessTest) {
 	// to receive graph updates. This will ensure that the channel updates
 	// are propagated throughout the network.
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
 
 	// assertChannelUpdate checks that the required policy update has
 	// been heard in Carol's network.
@@ -348,8 +347,6 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 	ht.DisconnectNodes(alice, bob)
 
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
-
 	ht.ConnectNodes(bob, carol)
 	chanPoint = ht.OpenChannel(
 		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
@@ -391,7 +388,6 @@ func testNodeAnnouncement(ht *lntest.HarnessTest) {
 	}
 
 	dave := ht.NewNode("Dave", lndArgs)
-	defer ht.Shutdown(dave)
 
 	// We must let Dave have an open channel before he can send a node
 	// announcement, so we open a channel with Bob,

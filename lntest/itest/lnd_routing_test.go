@@ -90,10 +90,7 @@ func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
 	// topology should look like:
 	// Carol -> 100k -> Dave
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
-
 	dave := ht.NewNode("Dave", nil)
-	defer ht.Shutdown(dave)
 
 	ht.ConnectNodes(carol, dave)
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
@@ -334,8 +331,6 @@ func runMultiHopSendToRoute(ht *lntest.HarnessTest, useGraphCache bool) {
 	// should look like:
 	// Alice -> Bob -> Carol
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
-
 	ht.ConnectNodes(carol, bob)
 
 	chanPointBob := ht.OpenChannel(
@@ -429,13 +424,9 @@ func testSendToRouteErrorPropagation(ht *lntest.HarnessTest) {
 	// The network topology should now look like:
 	// Alice -> Bob; Carol -> Charlie.
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
-
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	charlie := ht.NewNode("Charlie", nil)
-	defer ht.Shutdown(charlie)
-
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, charlie)
 
 	ht.ConnectNodes(carol, charlie)
@@ -512,8 +503,6 @@ func testPrivateChannels(ht *lntest.HarnessTest) {
 
 	// Create Dave, and a channel to Alice of 100k.
 	dave := ht.NewNode("Dave", nil)
-	defer ht.Shutdown(dave)
-
 	ht.ConnectNodes(dave, alice)
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, dave)
 
@@ -525,8 +514,6 @@ func testPrivateChannels(ht *lntest.HarnessTest) {
 	// Next, we'll create Carol and establish a channel from her to
 	// Dave of 100k.
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
-
 	ht.ConnectNodes(carol, dave)
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
 
@@ -642,7 +629,6 @@ func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 	// her and Alice. This channel will not be considered as a routing hint
 	// due to it being public.
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
 
 	ht.ConnectNodes(alice, carol)
 	chanPointCarol := ht.OpenChannel(
@@ -672,7 +658,6 @@ func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 	// consider this channel as a routing hint as it will not have enough
 	// remote balance for the invoice's amount.
 	dave := ht.NewNode("Dave", nil)
-	defer ht.Shutdown(dave)
 
 	ht.ConnectNodes(alice, dave)
 	chanPointDave := ht.OpenChannel(
@@ -697,7 +682,9 @@ func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 		},
 	)
 
-	// Now that the channels are open, we'll take down Eve's node.
+	// Now that the channels are open, we'll disconnect the connection
+	// between Alice and Eve and then take down Eve's node.
+	ht.DisconnectNodes(alice, eve)
 	ht.Shutdown(eve)
 
 	// Create an invoice for Alice that will populate the routing hints.
@@ -754,8 +741,6 @@ func testMultiHopOverPrivateChannels(ht *lntest.HarnessTest) {
 	// Next, we'll create Carol's node and open a public channel between
 	// her and Bob with Bob being the funder.
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
-
 	ht.ConnectNodes(bob, carol)
 	chanPointBob := ht.OpenChannel(
 		bob, carol, lntest.OpenChannelParams{
@@ -769,8 +754,6 @@ func testMultiHopOverPrivateChannels(ht *lntest.HarnessTest) {
 	// Next, we'll create Dave's node and open a private channel between
 	// him and Carol with Carol being the funder.
 	dave := ht.NewNode("Dave", nil)
-	defer ht.Shutdown(dave)
-
 	ht.ConnectNodes(carol, dave)
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
 
@@ -857,15 +840,11 @@ func testQueryRoutes(ht *lntest.HarnessTest) {
 	// Create Carol and connect her to Bob. We also send her some coins for
 	// channel opening.
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
-
 	ht.ConnectNodes(carol, bob)
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// Create Dave and connect him to Carol.
 	dave := ht.NewNode("Dave", nil)
-	defer ht.Shutdown(dave)
-
 	ht.ConnectNodes(dave, carol)
 
 	// We now proceed to open channels:
@@ -1088,8 +1067,6 @@ func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 	// Create Carol's node and open a channel between her and Alice with
 	// Alice being the funder.
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
-
 	ht.ConnectNodes(carol, alice)
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
 
@@ -1100,8 +1077,6 @@ func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 	// Create Dave's node and open a channel between him and Bob with Bob
 	// being the funder.
 	dave := ht.NewNode("Dave", nil)
-	defer ht.Shutdown(dave)
-
 	ht.ConnectNodes(dave, bob)
 	chanPointBobDave := ht.OpenChannel(
 		bob, dave, lntest.OpenChannelParams{Amt: chanAmt},

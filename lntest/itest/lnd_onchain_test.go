@@ -129,8 +129,6 @@ func testAnchorReservedValue(ht *lntest.HarnessTest) {
 	// NOTE: we cannot reuse the standby node here as the test requires the
 	// node to start with no UTXOs.
 	alice := ht.NewNode("Alice", args)
-	defer ht.Shutdown(alice)
-
 	bob := ht.Bob
 	ht.RestartNodeWithExtraArgs(bob, args)
 

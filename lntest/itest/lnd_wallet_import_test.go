@@ -503,9 +503,9 @@ func testWalletImportAccount(ht *lntest.HarnessTest) {
 				)
 			}
 
-			// Skip the cleanup because standby nodes are not used.
-			// shared across the test cases.
-			st, _ := ht.Subtest(tt)
+			st, cleanup := ht.Subtest(tt)
+			defer cleanup()
+
 			st.RunTestCase(&lntest.TestCase{
 				Name:     tc.name,
 				TestFunc: testFunc,
@@ -531,10 +531,7 @@ func testWalletImportAccountScenario(ht *lntest.HarnessTest,
 	// NOTE: we won't use standby nodes here since the test will change
 	// each of the node's wallet state.
 	carol := ht.NewNode("carol", nil)
-	defer ht.Shutdown(carol)
-
 	dave := ht.NewNode("dave", nil)
-	defer ht.Shutdown(dave)
 
 	runWalletImportAccountScenario(ht, addrType, carol, dave)
 }
@@ -648,7 +645,9 @@ func testWalletImportPubKey(ht *lntest.HarnessTest) {
 				)
 			}
 
-			st, _ := ht.Subtest(tt)
+			st, cleanup := ht.Subtest(tt)
+			defer cleanup()
+
 			st.RunTestCase(&lntest.TestCase{
 				Name:     tc.name,
 				TestFunc: testFunc,
@@ -676,10 +675,7 @@ func testWalletImportPubKeyScenario(ht *lntest.HarnessTest,
 	// NOTE: we won't use standby nodes here since the test will change
 	// each of the node's wallet state.
 	carol := ht.NewNode("carol", nil)
-	defer ht.Shutdown(carol)
-
 	dave := ht.NewNode("dave", nil)
-	defer ht.Shutdown(dave)
 
 	// We'll define a helper closure that we'll use throughout the test to
 	// generate a new address of the given type from Carol's perspective,

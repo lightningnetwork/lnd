@@ -211,6 +211,7 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 		success := ht.Run(subTest.name, func(tt *testing.T) {
 			// Skip the cleanup here as no standby node is used.
 			st, _ := ht.Subtest(tt)
+
 			signer, watchOnly, carol := prepareTest(st, subTest)
 			subTest.fn(st, watchOnly, carol)
 

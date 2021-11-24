@@ -117,6 +117,4 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 
 	// Clean up the force closed channel.
 	ht.CleanupForceClose(bob, chanPointAB)
-
-	ht.Shutdown(carol)
 }

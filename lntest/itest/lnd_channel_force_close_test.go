@@ -1038,7 +1038,6 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 	// We'll introduce Carol, which will settle any incoming invoice with a
 	// totally unrelated preimage.
 	carol := ht.NewNode("Carol", []string{"--hodl.bogus-settle"})
-	defer ht.Shutdown(carol)
 
 	alice := ht.Alice
 	ht.ConnectNodes(alice, carol)

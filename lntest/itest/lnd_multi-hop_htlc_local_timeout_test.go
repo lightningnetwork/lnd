@@ -25,9 +25,6 @@ func testMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 		ht, alice, bob, true, c,
 	)
 
-	// Clean up carol's node when the test finishes.
-	defer ht.Shutdown(carol)
-
 	// Now that our channels are set up, we'll send two HTLC's from Alice
 	// to Carol. The first HTLC will be universally considered "dust",
 	// while the second will be a proper fully valued HTLC.

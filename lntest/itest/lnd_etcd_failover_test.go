@@ -46,7 +46,9 @@ func testEtcdFailover(ht *lntest.HarnessTest) {
 		test := test
 
 		ht.Run(test.name, func(t1 *testing.T) {
-			st, _ := ht.Subtest(t1)
+			st, cleanup := ht.Subtest(t1)
+			defer cleanup()
+
 			st.RunTestCase(&lntest.TestCase{
 				Name: test.name,
 				TestFunc: func(ht *lntest.HarnessTest) {
@@ -152,6 +154,4 @@ func testEtcdFailoverCase(ht *lntest.HarnessTest, kill bool) {
 		FeeLimitSat:    noFeeLimitMsat,
 	}
 	ht.SendPaymentAndAssert(alice, req)
-
-	ht.Shutdown(carol2)
 }

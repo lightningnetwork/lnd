@@ -24,9 +24,6 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 		ht, alice, bob, true, c,
 	)
 
-	// Clean up carol's node when the test finishes.
-	defer ht.Shutdown(carol)
-
 	// With our channels set up, we'll then send a single HTLC from Alice
 	// to Carol. As Carol is in hodl mode, she won't settle this HTLC which
 	// opens up the base for out tests.

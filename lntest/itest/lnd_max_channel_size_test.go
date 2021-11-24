@@ -23,9 +23,7 @@ func testWumboChannels(ht *lntest.HarnessTest) {
 	// We'll make two new nodes, with one of them signalling support for
 	// wumbo channels while the other doesn't.
 	wumboNode := ht.NewNode("wumbo", []string{"--protocol.wumbo-channels"})
-	defer ht.Shutdown(wumboNode)
 	miniNode := ht.NewNode("mini", nil)
-	defer ht.Shutdown(miniNode)
 
 	// We'll send coins to the wumbo node, as it'll be the one imitating
 	// the channel funding.
@@ -49,7 +47,6 @@ func testWumboChannels(ht *lntest.HarnessTest) {
 	wumboNode2 := ht.NewNode(
 		"wumbo2", []string{"--protocol.wumbo-channels"},
 	)
-	defer ht.Shutdown(wumboNode2)
 
 	// Creating a wumbo channel between these two nodes should succeed.
 	ht.EnsureConnected(wumboNode, wumboNode2)
@@ -66,10 +63,7 @@ func testMaxChannelSize(ht *lntest.HarnessTest) {
 	// We'll make two new nodes, both wumbo but with the default limit on
 	// maximum channel size (10 BTC)
 	wumboNode := ht.NewNode("wumbo", []string{"--protocol.wumbo-channels"})
-	defer ht.Shutdown(wumboNode)
-
 	wumboNode2 := ht.NewNode("wumbo2", []string{"--protocol.wumbo-channels"})
-	defer ht.Shutdown(wumboNode2)
 
 	// We'll send 11 BTC to the wumbo node so it can test the wumbo soft
 	// limit.
@@ -102,7 +96,6 @@ func testMaxChannelSize(ht *lntest.HarnessTest) {
 			),
 		},
 	)
-	defer ht.Shutdown(wumboNode3)
 
 	// Creating a wumbo channel between these two nodes should succeed.
 	ht.EnsureConnected(wumboNode, wumboNode3)

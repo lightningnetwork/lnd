@@ -22,15 +22,13 @@ func testGetRecoveryInfo(ht *lntest.HarnessTest) {
 	password := []byte("The Magic Words are Squeamish Ossifrage")
 	carol, mnemonic, _ := ht.NewNodeWithSeed("Carol", nil, password, false)
 
-	defer ht.Shutdown(carol)
-
 	checkInfo := func(expectedRecoveryMode, expectedRecoveryFinished bool,
 		expectedProgress float64, recoveryWindow int32) {
 
 		// Restore Carol, passing in the password, mnemonic, and
 		// desired recovery window.
 		node := ht.RestoreNodeWithSeed(
-			"Carol", nil, password, mnemonic, "",
+			carol.Name(), nil, password, mnemonic, "",
 			recoveryWindow, nil,
 		)
 
@@ -93,7 +91,6 @@ func testOnchainFundRecovery(ht *lntest.HarnessTest) {
 	// wallet, and such that she is synced up.
 	password := []byte("The Magic Words are Squeamish Ossifrage")
 	carol, mnemonic, _ := ht.NewNodeWithSeed("Carol", nil, password, false)
-	defer ht.Shutdown(carol)
 
 	// As long as the mnemonic is non-nil and the extended key is empty, the
 	// closure below will always restore the node from the seed. The tests
@@ -112,7 +109,7 @@ func testOnchainFundRecovery(ht *lntest.HarnessTest) {
 		// Restore Carol, passing in the password, mnemonic, and
 		// desired recovery window.
 		node := ht.RestoreNodeWithSeed(
-			"Carol", nil, password, mnemonic, rootKey,
+			carol.Name(), nil, password, mnemonic, rootKey,
 			recoveryWindow, nil,
 		)
 

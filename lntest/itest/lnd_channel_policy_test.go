@@ -78,9 +78,6 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 			"--gossip.channel-update-interval=24h",
 		},
 	)
-	// Clean up carol's node when the test finishes.
-	defer ht.Shutdown(carol)
-
 	nodes = append(nodes, carol)
 
 	// Send some coins to Carol that can be used for channel funding.
@@ -440,7 +437,6 @@ func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
 	// graph updates from. This will ensure that the channel updates are
 	// propagated throughout the network.
 	dave := ht.NewNode("Dave", nil)
-	defer ht.Shutdown(dave)
 
 	// We will start our test by creating the following topology,
 	// Alice --- Bob --- Dave
@@ -668,7 +664,6 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 
 	// Create a new node Carol.
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
 
 	// Connect Carol to Bob.
 	ht.ConnectNodes(carol, bob)

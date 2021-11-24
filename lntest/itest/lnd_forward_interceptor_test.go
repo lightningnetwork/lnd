@@ -36,8 +36,6 @@ type interceptorTestCase struct {
 func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
 	// Initialize the test context with 3 connected nodes.
 	ctx := newInterceptorTestContext(ht)
-	defer ctx.shutdownNodes()
-
 	const chanAmt = btcutil.Amount(300000)
 
 	// Open and wait for channels.
@@ -175,8 +173,6 @@ func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
 //    valid payment (invoice is settled).
 func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 	ctx := newInterceptorTestContext(ht)
-	defer ctx.shutdownNodes()
-
 	const chanAmt = btcutil.Amount(300000)
 
 	// Open and wait for channels.

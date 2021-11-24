@@ -41,7 +41,6 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 		// the same for Dave shortly below.
 		carolArgs := nodeArgsForCommitType(carolCommitType)
 		carol := ht.NewNode("Carol", carolArgs)
-		defer ht.Shutdown(carol)
 
 		// Each time, we'll send Carol a new set of coins in order to
 		// fund the channel.
@@ -49,7 +48,6 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 
 		daveArgs := nodeArgsForCommitType(daveCommitType)
 		dave := ht.NewNode("Dave", daveArgs)
-		defer ht.Shutdown(dave)
 
 		// Before we start the test, we'll ensure both sides are
 		// connected to the funding flow can properly be executed.
@@ -232,7 +230,6 @@ func testUnconfirmedChannelFunding(ht *lntest.HarnessTest) {
 
 	// We'll start off by creating a node for Carol.
 	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
 
 	alice := ht.Alice
 
@@ -464,10 +461,7 @@ func testExternalFundingChanPoint(ht *lntest.HarnessTest) {
 	// First, we'll create two new nodes that we'll use to open channel
 	// between for this test.
 	carol := ht.NewNode("carol", nil)
-	defer ht.Shutdown(carol)
-
 	dave := ht.NewNode("dave", nil)
-	defer ht.Shutdown(dave)
 
 	// Carol will be funding the channel, so we'll send some coins over to
 	// her and ensure they have enough confirmations before we proceed.
@@ -575,9 +569,6 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 		fmt.Sprintf("--bitcoin.defaultchanconfs=%v", numConfs),
 	}
 	carol := ht.NewNode("Carol", carolArgs)
-
-	// Clean up carol's node when the test finishes.
-	defer ht.Shutdown(carol)
 
 	alice := ht.Alice
 	ht.ConnectNodes(alice, carol)
@@ -767,10 +758,7 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 	// to during this test. Carol has a high minimum funding amount that
 	// we'll use to trigger an error during the batch channel open.
 	carol := ht.NewNode("carol", []string{"--minchansize=200000"})
-	defer ht.Shutdown(carol)
-
 	dave := ht.NewNode("dave", nil)
-	defer ht.Shutdown(dave)
 
 	alice, bob := ht.Alice, ht.Bob
 

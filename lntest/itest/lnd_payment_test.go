@@ -148,9 +148,7 @@ func testAsyncPayments(ht *lntest.HarnessTest) {
 	// TODO(yy): further investigate this test as the lnd seems to be
 	// stuck when using standby nodes.
 	alice := ht.NewNode("Alice", nil)
-	defer ht.Shutdown(alice)
 	bob := ht.NewNode("Bob", nil)
-	defer ht.Shutdown(bob)
 
 	ht.EnsureConnected(alice, bob)
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
@@ -249,9 +247,7 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 	// TODO(yy): further investigate this test as the lnd seems to be
 	// stuck when using standby nodes.
 	alice := ht.NewNode("Alice", nil)
-	defer ht.Shutdown(alice)
 	bob := ht.NewNode("Bob", nil)
-	defer ht.Shutdown(bob)
 
 	ht.EnsureConnected(alice, bob)
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)

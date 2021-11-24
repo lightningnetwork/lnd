@@ -28,7 +28,6 @@ func testNetworkConnectionTimeout(ht *lntest.HarnessTest) {
 	// First, test the global timeout settings.
 	// Create Carol with a connection timeout of 1 millisecond.
 	carol := ht.NewNode("Carol", []string{"--connectiontimeout=1ms"})
-	defer ht.Shutdown(carol)
 
 	// Try to connect Carol to a non-routable IP address, which should give
 	// us a timeout error.
@@ -59,7 +58,6 @@ func testNetworkConnectionTimeout(ht *lntest.HarnessTest) {
 	// Second, test timeout on the connect peer request.
 	// Create Dave with the default timeout setting.
 	dave := ht.NewNode("Dave", nil)
-	defer ht.Shutdown(dave)
 
 	// Try to connect Dave to a non-routable IP address, using a timeout
 	// value of 1ms, which should give us a timeout error immediately.
@@ -102,7 +100,6 @@ func testReconnectAfterIPChange(ht *lntest.HarnessTest) {
 
 	// Create a new node, Charlie.
 	charlie := ht.NewNode("Charlie", nil)
-	defer ht.Shutdown(charlie)
 
 	// We derive an extra port for Dave, and we initialise his node with
 	// the port advertised as `--externalip` arguments.
@@ -111,7 +108,6 @@ func testReconnectAfterIPChange(ht *lntest.HarnessTest) {
 	// Create a new node, Dave, which will initialize a P2P port for him.
 	daveArgs := []string{fmt.Sprintf("--externalip=127.0.0.1:%d", ip2)}
 	dave := ht.NewNode("Dave", daveArgs)
-	defer ht.Shutdown(dave)
 
 	// We now have two ports, the initial P2P port from creating the node,
 	// and the `externalip` specified above.

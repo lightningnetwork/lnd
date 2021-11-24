@@ -18,6 +18,10 @@
 * [Fixed a bug that would cause nodes with older channels to be unable to start
   up](https://github.com/lightningnetwork/lnd/pull/6003).
 
+* [Addresses an issue with explicit channel type negotiation that caused
+  incompatibilities when opening channels with the latest versions of
+  c-lightning and eclair](https://github.com/lightningnetwork/lnd/pull/6026).
+
 # Contributors (Alphabetical Order)
 
 * Jamie Turley

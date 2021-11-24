@@ -1587,9 +1587,32 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 			}
 		}
 	} else if msg.ChannelType != nil {
-		err := errors.New("received unexpected channel type")
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
-		return
+		// The spec isn't too clear about whether it's okay to set the
+		// channel type in the accept_channel response if we didn't
+		// explicitly set it in the open_channel message. For now, let's
+		// just log the problem instead of failing the funding flow.
+		implicitChannelType := implicitNegotiateCommitmentType(
+			peer.LocalFeatures(), peer.RemoteFeatures(),
+		)
+		negotiatedChannelType, err := negotiateCommitmentType(
+			msg.ChannelType, peer.LocalFeatures(),
+			peer.RemoteFeatures(),
+		)
+		if err != nil {
+			err := errors.New("received unexpected channel type")
+			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			return
+		}
+
+		// Even though we don't expect a channel type to be set when we
+		// didn't send one in the first place, we check that it's the
+		// same type we'd have arrived through implicit negotiation. If
+		// it's another type, we fail the flow.
+		if implicitChannelType != negotiatedChannelType {
+			err := errors.New("negotiated unexpected channel type")
+			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			return
+		}
 	}
 
 	// The required number of confirmations should not be greater than the

@@ -59,7 +59,7 @@ func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 		st, _ := ht.Subtest(tt)
 		registration := registerMiddleware(
 			st, alice, &lnrpc.MiddlewareRegistration{
-				MiddlewareName: "itest-interceptor",
+				MiddlewareName: "itest-interceptor-1",
 				ReadOnlyMode:   true,
 			},
 		)
@@ -73,12 +73,18 @@ func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 
 	// We've manually disconnected Bob from Alice in the previous test, make
 	// sure they're connected again.
+	//
+	// NOTE: we may get an error here saying "interceptor RPC client quit"
+	// as it takes some time for the interceptor to fully quit. Thus we
+	// restart the node here to make sure the old interceptor is removed
+	// from registration.
+	ht.RestartNode(alice)
 	ht.EnsureConnected(alice, bob)
 	ht.Run("encumbered macaroon intercept", func(tt *testing.T) {
 		st, _ := ht.Subtest(tt)
 		registration := registerMiddleware(
 			st, alice, &lnrpc.MiddlewareRegistration{
-				MiddlewareName:           "itest-interceptor",
+				MiddlewareName:           "itest-interceptor-2",
 				CustomMacaroonCaveatName: "itest-caveat",
 			},
 		)
@@ -91,12 +97,18 @@ func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 	})
 
 	// Next, run the response manipulation tests.
+	//
+	// NOTE: we may get an error here saying "interceptor RPC client quit"
+	// as it takes some time for the interceptor to fully quit. Thus we
+	// restart the node here to make sure the old interceptor is removed
+	// from registration.
+	ht.RestartNode(alice)
 	ht.EnsureConnected(alice, bob)
 	ht.Run("read-only not allowed to manipulate", func(tt *testing.T) {
 		st, _ := ht.Subtest(tt)
 		registration := registerMiddleware(
 			st, alice, &lnrpc.MiddlewareRegistration{
-				MiddlewareName: "itest-interceptor",
+				MiddlewareName: "itest-interceptor-3",
 				ReadOnlyMode:   true,
 			},
 		)
@@ -107,12 +119,18 @@ func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 			registration, readonlyMac, true,
 		)
 	})
+
+	// NOTE: we may get an error here saying "interceptor RPC client quit"
+	// as it takes some time for the interceptor to fully quit. Thus we
+	// restart the node here to make sure the old interceptor is removed
+	// from registration.
+	ht.RestartNode(alice)
 	ht.EnsureConnected(alice, bob)
 	ht.Run("encumbered macaroon manipulate", func(tt *testing.T) {
 		st, _ := ht.Subtest(tt)
 		registration := registerMiddleware(
 			st, alice, &lnrpc.MiddlewareRegistration{
-				MiddlewareName:           "itest-interceptor",
+				MiddlewareName:           "itest-interceptor-4",
 				CustomMacaroonCaveatName: "itest-caveat",
 			},
 		)

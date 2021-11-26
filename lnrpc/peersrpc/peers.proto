@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package peersrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/peersrpc";
+
+// Peers is a service that can be used to get information and interact
+// with the other nodes of the newtwork.
+service Peers {
+}

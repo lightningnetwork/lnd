@@ -1,4 +1,4 @@
-// Copyright (c) 2013-2017 The btcsuite developers
+// Copyright (c) 2012-2017 The btcsuite developers
 // Copyright (c) 2015-2016 The Decred developers
 // Copyright (C) 2015-2017 The Lightning Network Developers
 
@@ -293,6 +293,11 @@ func main() {
 			Value:     defaultLndDir,
 			Usage:     "The path to lnd's base directory.",
 			TakesFile: true,
+		},
+		cli.StringFlag{
+			Name:  "socksproxy",
+			Value: defaultLndDir,
+			Usage: "The host:port of a SOCKS proxy through which all connections to the LN daemon will be established over.",
 		},
 		cli.StringFlag{
 			Name:  "socksproxy",

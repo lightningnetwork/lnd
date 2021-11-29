@@ -101,13 +101,13 @@ func (r *htlcReleaseEvent) Less(other queue.PriorityQueueItem) bool {
 type InvoiceRegistry struct {
 	sync.RWMutex
 
+	nextClientID uint32 // must be used atomically
+
 	cdb *channeldb.DB
 
 	// cfg contains the registry's configuration parameters.
 	cfg *RegistryConfig
 
-	clientMtx                 sync.Mutex
-	nextClientID              uint32
 	notificationClients       map[uint32]*InvoiceSubscription
 	singleNotificationClients map[uint32]*SingleInvoiceSubscription
 
@@ -1514,10 +1514,9 @@ func (i *InvoiceRegistry) SubscribeNotifications(
 	}
 	client.ntfnQueue.Start()
 
-	i.clientMtx.Lock()
-	client.id = i.nextClientID
-	i.nextClientID++
-	i.clientMtx.Unlock()
+	// Always increment by 1 first, and our client ID will start with 1,
+	// not 0.
+	client.id = atomic.AddUint32(&i.nextClientID, 1)
 
 	// Before we register this new invoice subscription, we'll launch a new
 	// goroutine that will proxy all notifications appended to the end of
@@ -1613,10 +1612,9 @@ func (i *InvoiceRegistry) SubscribeSingleInvoice(
 	}
 	client.ntfnQueue.Start()
 
-	i.clientMtx.Lock()
-	client.id = i.nextClientID
-	i.nextClientID++
-	i.clientMtx.Unlock()
+	// Always increment by 1 first, and our client ID will start with 1,
+	// not 0.
+	client.id = atomic.AddUint32(&i.nextClientID, 1)
 
 	// Before we register this new invoice subscription, we'll launch a new
 	// goroutine that will proxy all notifications appended to the end of

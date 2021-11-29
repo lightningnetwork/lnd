@@ -220,15 +220,9 @@ unit-cover: $(GOACC_BIN)
 	@$(call print, "Running unit coverage tests.")
 	$(GOACC_BIN) $(COVER_PKG) -- -tags="$(DEV_TAGS) $(LOG_TAGS)"
 
-
 unit-race:
 	@$(call print, "Running unit race tests.")
 	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
-
-
-travis-race: btcd unit-race
-
-travis-cover: btcd unit-cover
 
 # =============
 # FLAKE HUNTING
@@ -345,9 +339,6 @@ clean-mobile:
 	unit-debug \
 	unit-cover \
 	unit-race \
-	travis-race \
-	travis-cover \
-	travis-itest \
 	flakehunter \
 	flake-unit \
 	fmt \

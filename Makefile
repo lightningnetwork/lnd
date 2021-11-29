@@ -3,7 +3,6 @@ ESCPKG := github.com\/lightningnetwork\/lnd
 MOBILE_PKG := $(PKG)/mobile
 
 BTCD_PKG := github.com/btcsuite/btcd
-GOVERALLS_PKG := github.com/mattn/goveralls
 LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
 GOIMPORTS_PKG := golang.org/x/tools/cmd/goimports
@@ -14,7 +13,6 @@ GOFUZZ_DEP_PKG := github.com/dvyukov/go-fuzz/go-fuzz-dep
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
 GOMOBILE_BIN := GO111MODULE=off $(GO_BIN)/gomobile
-GOVERALLS_BIN := $(GO_BIN)/goveralls
 LINT_BIN := $(GO_BIN)/golangci-lint
 GOACC_BIN := $(GO_BIN)/go-acc
 GOFUZZ_BUILD_BIN := $(GO_BIN)/go-fuzz-build
@@ -97,11 +95,6 @@ all: scratch check install
 # ============
 # DEPENDENCIES
 # ============
-
-$(GOVERALLS_BIN):
-	@$(call print, "Fetching goveralls.")
-	go get -u $(GOVERALLS_PKG)
-
 $(LINT_BIN):
 	@$(call print, "Fetching linter")
 	$(DEPGET) $(LINT_PKG)@$(LINT_COMMIT)
@@ -232,14 +225,10 @@ unit-race:
 	@$(call print, "Running unit race tests.")
 	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
 
-goveralls: $(GOVERALLS_BIN)
-	@$(call print, "Sending coverage report.")
-	$(GOVERALLS_BIN) -coverprofile=coverage.txt -service=travis-ci
-
 
 travis-race: btcd unit-race
 
-travis-cover: btcd unit-cover goveralls
+travis-cover: btcd unit-cover
 
 # =============
 # FLAKE HUNTING
@@ -356,7 +345,6 @@ clean-mobile:
 	unit-debug \
 	unit-cover \
 	unit-race \
-	goveralls \
 	travis-race \
 	travis-cover \
 	travis-itest \

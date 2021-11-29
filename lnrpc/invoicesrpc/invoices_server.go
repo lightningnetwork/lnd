@@ -244,6 +244,8 @@ func (s *Server) SubscribeSingleInvoice(req *SubscribeSingleInvoiceRequest,
 	}
 	defer invoiceClient.Cancel()
 
+	log.Debugf("Created new single invoice(pay_hash=%v) subscription", hash)
+
 	for {
 		select {
 		case newInvoice := <-invoiceClient.Updates:
@@ -265,7 +267,9 @@ func (s *Server) SubscribeSingleInvoice(req *SubscribeSingleInvoiceRequest,
 			}
 
 		case <-updateStream.Context().Done():
-			return updateStream.Context().Err()
+			return fmt.Errorf("subscription for "+
+				"invoice(pay_hash=%v): %w", hash,
+				updateStream.Context().Err())
 
 		case <-s.quit:
 			return nil

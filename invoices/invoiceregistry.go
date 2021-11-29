@@ -1404,8 +1404,15 @@ func (i *InvoiceRegistry) notifyClients(hash lntypes.Hash,
 // invoiceSubscriptionKit defines that are common to both all invoice
 // subscribers and single invoice subscribers.
 type invoiceSubscriptionKit struct {
-	id        uint32
-	inv       *InvoiceRegistry
+	id uint32 // nolint:structcheck
+
+	// subscriptionCancels is a chan mounted to InvoiceRegistry that
+	// signals the current subscription has been cancled.
+	subscriptionCancels chan uint32
+
+	// quit is a chan mouted to InvoiceRegistry that signals a shutdown.
+	quit chan struct{}
+
 	ntfnQueue *queue.ConcurrentQueue
 
 	canceled   uint32 // To be used atomically.
@@ -1465,8 +1472,8 @@ func (i *invoiceSubscriptionKit) Cancel() {
 	}
 
 	select {
-	case i.inv.subscriptionCancels <- i.id:
-	case <-i.inv.quit:
+	case i.subscriptionCancels <- i.id:
+	case <-i.quit:
 	}
 
 	i.ntfnQueue.Stop()
@@ -1478,7 +1485,7 @@ func (i *invoiceSubscriptionKit) Cancel() {
 func (i *invoiceSubscriptionKit) notify(event *invoiceEvent) error {
 	select {
 	case i.ntfnQueue.ChanIn() <- event:
-	case <-i.inv.quit:
+	case <-i.quit:
 		return ErrShuttingDown
 	}
 
@@ -1499,9 +1506,10 @@ func (i *InvoiceRegistry) SubscribeNotifications(
 		addIndex:        addIndex,
 		settleIndex:     settleIndex,
 		invoiceSubscriptionKit: invoiceSubscriptionKit{
-			inv:        i,
-			ntfnQueue:  queue.NewConcurrentQueue(20),
-			cancelChan: make(chan struct{}),
+			subscriptionCancels: i.subscriptionCancels,
+			quit:                i.quit,
+			ntfnQueue:           queue.NewConcurrentQueue(20),
+			cancelChan:          make(chan struct{}),
 		},
 	}
 	client.ntfnQueue.Start()
@@ -1596,9 +1604,10 @@ func (i *InvoiceRegistry) SubscribeSingleInvoice(
 	client := &SingleInvoiceSubscription{
 		Updates: make(chan *channeldb.Invoice),
 		invoiceSubscriptionKit: invoiceSubscriptionKit{
-			inv:        i,
-			ntfnQueue:  queue.NewConcurrentQueue(20),
-			cancelChan: make(chan struct{}),
+			subscriptionCancels: i.subscriptionCancels,
+			quit:                i.quit,
+			ntfnQueue:           queue.NewConcurrentQueue(20),
+			cancelChan:          make(chan struct{}),
 		},
 		invoiceRef: channeldb.InvoiceRefByHash(hash),
 	}

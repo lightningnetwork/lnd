@@ -198,9 +198,13 @@ func runAsyncPayments(ht *lntest.HarnessTest, alice, bob *lntest.HarnessNode) {
 				TimeoutSeconds: 60,
 				FeeLimitMsat:   noFeeLimitMsat,
 			}
-			// SendPaymentAndAssert will assert that the
+			// AssertPaymentStatusWithTimeout will assert that the
 			// payment is settled.
-			ht.SendPaymentAndAssert(alice, req)
+			stream := ht.SendPayment(alice, req)
+			ht.AssertPaymentStatusWithTimeout(
+				stream, lnrpc.Payment_SUCCEEDED,
+				lntest.AsyncBenchmarkTimeout,
+			)
 
 			settled <- struct{}{}
 		}()
@@ -300,7 +304,13 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 				TimeoutSeconds: 60,
 				FeeLimitMsat:   noFeeLimitMsat,
 			}
-			ht.SendPaymentAndAssert(node, req)
+			// AssertPaymentStatusWithTimeout will assert that the
+			// payment is settled.
+			stream := ht.SendPayment(node, req)
+			ht.AssertPaymentStatusWithTimeout(
+				stream, lnrpc.Payment_SUCCEEDED,
+				lntest.AsyncBenchmarkTimeout,
+			)
 
 			settled <- struct{}{}
 		}()

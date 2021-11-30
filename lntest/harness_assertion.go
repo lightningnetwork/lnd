@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -81,10 +82,20 @@ func (h *HarnessTest) AssertInvoiceState(hn *HarnessNode, payHash lntypes.Hash,
 }
 
 // AssertPaymentStatusFromStream takes a client stream and asserts the payment
-// is in desired status before timeout. The payment found is returned once
-// succeeded.
+// is in desired status before default timeout. The payment found is returned
+// once succeeded.
 func (h *HarnessTest) AssertPaymentStatusFromStream(stream PaymentClient,
 	status lnrpc.Payment_PaymentStatus) *lnrpc.Payment {
+
+	return h.AssertPaymentStatusWithTimeout(stream, status, DefaultTimeout)
+}
+
+// AssertPaymentStatusWithTimeout takes a client stream and asserts the payment
+// is in desired status before the specified timeout. The payment found is
+// returned once succeeded.
+func (h *HarnessTest) AssertPaymentStatusWithTimeout(stream PaymentClient,
+	status lnrpc.Payment_PaymentStatus,
+	timeout time.Duration) *lnrpc.Payment {
 
 	var target *lnrpc.Payment
 	err := wait.NoError(func() error {
@@ -108,7 +119,7 @@ func (h *HarnessTest) AssertPaymentStatusFromStream(stream PaymentClient,
 		// when timeout is reached.
 		return fmt.Errorf("payment status, got %v, want %v",
 			payment.Status, status)
-	}, DefaultTimeout)
+	}, timeout)
 
 	require.NoError(h, err, "timeout while waiting payment")
 

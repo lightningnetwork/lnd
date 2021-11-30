@@ -3,7 +3,6 @@ ESCPKG := github.com\/lightningnetwork\/lnd
 MOBILE_PKG := $(PKG)/mobile
 
 BTCD_PKG := github.com/btcsuite/btcd
-GOVERALLS_PKG := github.com/mattn/goveralls
 LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
 GOIMPORTS_PKG := golang.org/x/tools/cmd/goimports
@@ -14,7 +13,6 @@ GOFUZZ_DEP_PKG := github.com/dvyukov/go-fuzz/go-fuzz-dep
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
 GOMOBILE_BIN := GO111MODULE=off $(GO_BIN)/gomobile
-GOVERALLS_BIN := $(GO_BIN)/goveralls
 LINT_BIN := $(GO_BIN)/golangci-lint
 GOACC_BIN := $(GO_BIN)/go-acc
 GOFUZZ_BUILD_BIN := $(GO_BIN)/go-fuzz-build
@@ -29,23 +27,12 @@ ANDROID_BUILD := $(ANDROID_BUILD_DIR)/Lndmobile.aar
 COMMIT := $(shell git describe --tags --dirty)
 COMMIT_HASH := $(shell git rev-parse HEAD)
 
-BTCD_COMMIT := $(shell cat go.mod | \
-		grep $(BTCD_PKG) | \
-		head -n1 | \
-		awk -F " " '{ print $$2 }' | \
-		awk -F "/" '{ print $$1 }')
-
-LINT_COMMIT := v1.18.0
-GOACC_COMMIT :=80342ae2e0fcf265e99e76bcc4efd022c7c3811b 
-GOFUZZ_COMMIT := b1f3d6f
-
-DEPGET := cd /tmp && GO111MODULE=on go get -v
-GOBUILD := GO111MODULE=on go build -v
-GOINSTALL := GO111MODULE=on go install -v
-GOTEST := GO111MODULE=on go test 
+GOBUILD := go build -v
+GOINSTALL := go install -v
+GOTEST := go test 
 
 GOVERSION := $(shell go version | awk '{print $$3}')
-GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -name "*pb.go" -not -name "*pb.gw.go")
+GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -name "*pb.go" -not -name "*pb.gw.go" -not -name "*.pb.json.go")
 
 RM := rm -f
 CP := cp
@@ -82,8 +69,6 @@ endif
 
 LINT = $(LINT_BIN) run -v $(LINT_WORKERS)
 
-GOFUZZ_DEP_PKG_FETCH = go get -v $(GOFUZZ_DEP_PKG)@$(GOFUZZ_COMMIT)
-
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
 define print
@@ -97,34 +82,33 @@ all: scratch check install
 # ============
 # DEPENDENCIES
 # ============
-
-$(GOVERALLS_BIN):
-	@$(call print, "Fetching goveralls.")
-	go get -u $(GOVERALLS_PKG)
-
 $(LINT_BIN):
-	@$(call print, "Fetching linter")
-	$(DEPGET) $(LINT_PKG)@$(LINT_COMMIT)
+	@$(call print, "Installing linter.")
+	go install $(LINT_PKG)
 
 $(GOACC_BIN):
-	@$(call print, "Fetching go-acc")
-	$(DEPGET) $(GOACC_PKG)@$(GOACC_COMMIT)
+	@$(call print, "Installing go-acc.")
+	go install $(GOACC_PKG)
 
 btcd:
 	@$(call print, "Installing btcd.")
-	$(DEPGET) $(BTCD_PKG)@$(BTCD_COMMIT)
+	go install $(BTCD_PKG)
 
 goimports:
 	@$(call print, "Installing goimports.")
-	$(DEPGET) $(GOIMPORTS_PKG)
+	go install $(GOIMPORTS_PKG)
 
 $(GOFUZZ_BIN):
-	@$(call print, "Fetching go-fuzz")
-	$(DEPGET) $(GOFUZZ_PKG)@$(GOFUZZ_COMMIT)
+	@$(call print, "Installing go-fuzz.")
+	go install $(GOFUZZ_PKG)
 
 $(GOFUZZ_BUILD_BIN):
-	@$(call print, "Fetching go-fuzz-build")
-	$(DEPGET) $(GOFUZZ_BUILD_PKG)@$(GOFUZZ_COMMIT)
+	@$(call print, "Installing go-fuzz-build.")
+	go install $(GOFUZZ_BUILD_PKG)
+
+$(GOFUZZ_DEP_BIN):
+	@$(call print, "Installing go-fuzz-dep.")
+	go install $(GOFUZZ_DEP_PKG)
 
 # ============
 # INSTALLATION
@@ -227,19 +211,9 @@ unit-cover: $(GOACC_BIN)
 	@$(call print, "Running unit coverage tests.")
 	$(GOACC_BIN) $(COVER_PKG) -- -tags="$(DEV_TAGS) $(LOG_TAGS)"
 
-
 unit-race:
 	@$(call print, "Running unit race tests.")
 	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
-
-goveralls: $(GOVERALLS_BIN)
-	@$(call print, "Sending coverage report.")
-	$(GOVERALLS_BIN) -coverprofile=coverage.txt -service=travis-ci
-
-
-travis-race: btcd unit-race
-
-travis-cover: btcd unit-cover goveralls
 
 # =============
 # FLAKE HUNTING
@@ -260,9 +234,7 @@ flakehunter-parallel:
 # =============
 # FUZZING
 # =============
-fuzz-build: $(GOFUZZ_BUILD_BIN)
-	@$(call print, "Fetching go-fuzz-dep package")
-	$(GOFUZZ_DEP_PKG_FETCH)
+fuzz-build: $(GOFUZZ_BUILD_BIN) $(GOFUZZ_DEP_BIN)
 	@$(call print, "Creating fuzz harnesses for packages '$(FUZZPKG)'.")
 	scripts/fuzz.sh build "$(FUZZPKG)"
 
@@ -318,7 +290,7 @@ mobile-rpc:
 
 vendor:
 	@$(call print, "Re-creating vendor directory.")
-	rm -r vendor/; GO111MODULE=on go mod vendor
+	rm -r vendor/; go mod vendor
 
 ios: vendor mobile-rpc
 	@$(call print, "Building iOS framework ($(IOS_BUILD)).")
@@ -356,10 +328,6 @@ clean-mobile:
 	unit-debug \
 	unit-cover \
 	unit-race \
-	goveralls \
-	travis-race \
-	travis-cover \
-	travis-itest \
 	flakehunter \
 	flake-unit \
 	fmt \

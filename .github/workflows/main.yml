@@ -236,7 +236,7 @@ jobs:
           - btcd unit-cover
           - unit tags="kvdb_etcd"
           - unit tags="kvdb_postgres"
-          - travis-race
+          - btcd unit-race
     steps:
       - name: git checkout
         uses: actions/checkout@v2

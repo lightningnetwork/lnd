@@ -45,9 +45,13 @@
 * [Add json flag to
   trackpayment](https://github.com/lightningnetwork/lnd/pull/6060)
 
+* [Fix missing label on streamed
+  transactions](https://github.com/lightningnetwork/lnd/pull/5854).
+
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath
+* Bjarne Magnussen
 * Harsha Goli
 * Martin Habovštiak
 * Naveen Srinivasan

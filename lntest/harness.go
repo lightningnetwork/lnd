@@ -1399,7 +1399,13 @@ func (h *HarnessTest) CompletePaymentRequests(hn *HarnessNode,
 			return nil
 		}
 
+		var (
+			cp  string
+			err error
+		)
+
 		for _, c1 := range listResp.Channels {
+			cp = c1.ChannelPoint
 			for _, c2 := range newListResp.Channels {
 				if c1.ChannelPoint != c2.ChannelPoint {
 					continue
@@ -1411,10 +1417,31 @@ func (h *HarnessTest) CompletePaymentRequests(hn *HarnessNode,
 				if c2.NumUpdates > c1.NumUpdates {
 					return nil
 				}
+				// If we reach this line, there are channels
+				// that have matched but NumUpdates are not
+				// increased. We don't want to fail here as
+				// there might be other channels which do have
+				// NumUpdates increased.
+				// TODO(yy): refactor this method to be channel
+				// specific.
+				err = fmt.Errorf("%s: channel:%v not updated "+
+					"after sending payments, old "+
+					"updates: %v, new updates: %v",
+					hn.Name(), c2.ChannelPoint,
+					c1.NumUpdates, c2.NumUpdates)
 			}
 		}
 
-		return fmt.Errorf("channel not updated after sending payments")
+		// If the err is not nil, it means we've checked all the
+		// channels and got at least one channel that had no increased
+		// NumUpdates.
+		if err != nil {
+			return err
+		}
+
+		// Otherwise, we didn't find a matched channel at all.
+		return fmt.Errorf("%s: channel:%v not found in newListResp",
+			hn.Name(), cp)
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout while checking for channel updates")
 }

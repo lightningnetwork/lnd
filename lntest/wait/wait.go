@@ -15,17 +15,26 @@ const PollInterval = 200 * time.Millisecond
 // some property is upheld within a particular time frame.
 func Predicate(pred func() bool, timeout time.Duration) error {
 	exitTimer := time.After(timeout)
+	result := make(chan bool, 1)
+
 	for {
 		<-time.After(PollInterval)
 
+		go func() {
+			result <- pred()
+		}()
+
+		// Each time we call the pred(), we expect a result to be
+		// returned otherwise it will timeout.
 		select {
 		case <-exitTimer:
-			return fmt.Errorf("predicate not satisfied after time out")
-		default:
-		}
+			return fmt.Errorf("predicate not satisfied after " +
+				"time out")
 
-		if pred() {
-			return nil
+		case succeed := <-result:
+			if succeed {
+				return nil
+			}
 		}
 	}
 }

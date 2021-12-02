@@ -408,6 +408,9 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			ZMQBlockHost:       bitcoindMode.ZMQPubRawBlock,
 			ZMQTxHost:          bitcoindMode.ZMQPubRawTx,
 			ZMQReadDeadline:    5 * time.Second,
+			RPCPolling:         bitcoindMode.RPCPolling,
+			PollBlockTimer:     bitcoindMode.PollBlockTimer,
+			PollTxTimer:        bitcoindMode.PollTxTimer,
 			Dialer:             cfg.Dialer,
 			PrunedModeMaxPeers: bitcoindMode.PrunedNodeMaxPeers,
 		})

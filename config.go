@@ -1694,13 +1694,6 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			}
 		}
 
-		// If all of RPCUser, RPCPass, ZMQBlockHost, and ZMQTxHost are
-		// set, we assume those parameters are good to use.
-		if conf.RPCUser != "" && conf.RPCPass != "" &&
-			conf.ZMQPubRawBlock != "" && conf.ZMQPubRawTx != "" {
-			return nil
-		}
-
 		// Get the daemon name for displaying proper errors.
 		switch net {
 		case chainreg.BitcoinChain:
@@ -1713,15 +1706,44 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			confFile = "litecoin"
 		}
 
-		// If not all of the parameters are set, we'll assume the user
-		// did this unintentionally.
-		if conf.RPCUser != "" || conf.RPCPass != "" ||
-			conf.ZMQPubRawBlock != "" || conf.ZMQPubRawTx != "" {
+		// Both ZMQ and RPC polling cannot be set at the same time.
+		// Make sure only one is set.
+		if (conf.ZMQPubRawBlock != "" || conf.ZMQPubRawTx != "") &&
+			conf.RPCPolling {
 
-			return fmt.Errorf("please set all or none of "+
-				"%[1]v.rpcuser, %[1]v.rpcpass, "+
-				"%[1]v.zmqpubrawblock, %[1]v.zmqpubrawtx",
+			return fmt.Errorf("please set either both "+
+				"%[1]v.zmqpubrawblock and %[1]v.zmqpubrawtx, "+
+				"or just %[1]v.rpcpolling, but not both",
 				daemonName)
+		}
+
+		// Check that the needed parameters for polling blocks and
+		// transactions via RPC are all set.
+		if conf.RPCPolling {
+			if conf.RPCUser == "" || conf.RPCPass == "" {
+
+				// If not all of the RPC parameters are set, we'll
+				// assume the user did this unintentionally.
+				return fmt.Errorf("please set all or none of "+
+					"%[1]v.rpcuser, %[1]v.rpcpass, "+
+					"%[1]v.rpcpolling", daemonName)
+			}
+			return nil
+		}
+
+		// Check that all the needed parameters for ZMQ are set.
+		if conf.ZMQPubRawBlock != "" || conf.ZMQPubRawTx != "" {
+			// If not all of the parameters are set, we'll assume the user
+			// did this unintentionally.
+			if conf.RPCUser == "" || conf.RPCPass == "" ||
+				conf.ZMQPubRawBlock == "" || conf.ZMQPubRawTx == "" {
+
+				return fmt.Errorf("please set all or none of "+
+					"%[1]v.rpcuser, %[1]v.rpcpass, "+
+					"%[1]v.zmqpubrawblock, %[1]v.zmqpubrawtx",
+					daemonName)
+			}
+			return nil
 		}
 	}
 

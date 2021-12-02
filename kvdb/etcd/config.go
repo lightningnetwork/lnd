@@ -30,6 +30,8 @@ type Config struct {
 
 	CollectStats bool `long:"collect_stats" description:"Whether to collect etcd commit stats."`
 
+	MaxMsgSize int `long:"max_msg_size" description:"The maximum message size in bytes that we may send to etcd."`
+
 	// SingleWriter should be set to true if we intend to only allow a
 	// single writer to the database at a time.
 	SingleWriter bool

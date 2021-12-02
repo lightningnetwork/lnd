@@ -1354,7 +1354,7 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 		}
 	}
 
-	log.Tracef("GossipSyncer(%x): filtered gossip msgs: set=%v, sent=%v",
+	log.Debugf("GossipSyncer(%x): filtered gossip msgs: set=%v, sent=%v",
 		g.cfg.peerPub[:], len(msgs), len(msgsToSend))
 
 	if len(msgsToSend) == 0 {

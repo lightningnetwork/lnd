@@ -3065,6 +3065,9 @@ func (p *Brontide) sendMessage(sync, priority bool, msgs ...lnwire.Message) erro
 		errChans = make([]chan error, 0, len(msgs))
 	}
 	for _, msg := range msgs {
+		peerLog.Tracef("Sending msg: %v to peer(%x)",
+			msg.MsgType(), p.PubKey())
+
 		// If a sync send was requested, create an error chan to listen
 		// for an ack from the writeHandler.
 		var errChan chan error

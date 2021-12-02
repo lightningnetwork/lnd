@@ -757,6 +757,10 @@ func (d *deDupedAnnouncements) reset() {
 // and the set of senders is updated to reflect which node sent us this
 // message.
 func (d *deDupedAnnouncements) addMsg(message networkMsg) {
+	log.Debugf("Adding network message: %v to batch, source=%x, peer=%v",
+		message.msg.MsgType(), message.source.SerializeCompressed(),
+		message.peer)
+
 	// Depending on the message type (channel announcement, channel update,
 	// or node announcement), the message is added to the corresponding map
 	// in deDupedAnnouncements. Because each identifying key can have at
@@ -806,6 +810,10 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		// If we already had this message with a strictly newer
 		// timestamp, then we'll just discard the message we got.
 		if oldTimestamp > msg.Timestamp {
+			log.Debugf("Ignored outdated network message: "+
+				"peer=%v, source=%x, msg=%s, ", message.peer,
+				message.source.SerializeCompressed(),
+				msg.MsgType())
 			return
 		}
 
@@ -1110,6 +1118,13 @@ func (d *AuthenticatedGossiper) networkHandler() {
 				emittedAnnouncements, allowDependents := d.processNetworkAnnouncement(
 					announcement,
 				)
+
+				log.Debugf("Processed network message %s, "+
+					"returned len(announcements)=%v, "+
+					"allowDependents=%v",
+					announcement.msg.MsgType(),
+					len(emittedAnnouncements),
+					allowDependents)
 
 				// If this message had any dependencies, then
 				// we can now signal them to continue.
@@ -1589,6 +1604,10 @@ func (d *AuthenticatedGossiper) addNode(msg *lnwire.NodeAnnouncement,
 func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 	nMsg *networkMsg) ([]networkMsg, bool) {
 
+	log.Debugf("Processing network message: peer=%v, source=%x, msg=%s, "+
+		"is_remote=%v", nMsg.peer, nMsg.source.SerializeCompressed(),
+		nMsg.msg.MsgType(), nMsg.isRemote)
+
 	isPremature := func(chanID lnwire.ShortChannelID, delta uint32) bool {
 		// TODO(roasbeef) make height delta 6
 		//  * or configurable
@@ -1616,17 +1635,25 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// newer update for this node so we can skip validating
 		// signatures if not required.
 		if d.cfg.Router.IsStaleNode(msg.NodeID, timestamp) {
+			log.Debugf("Skipped processing stale node: %x",
+				msg.NodeID)
 			nMsg.err <- nil
 			return nil, true
 		}
 
 		if err := d.addNode(msg, schedulerOp...); err != nil {
-			if routing.IsError(err, routing.ErrOutdated,
-				routing.ErrIgnored) {
+			log.Debugf("Adding node: %x got error: %x",
+				msg.NodeID, err)
 
-				log.Debug(err)
-			} else if err != routing.ErrVBarrierShuttingDown {
+			switch {
+			case routing.IsError(err, routing.ErrOutdated,
+				routing.ErrIgnored):
+
+			case err == routing.ErrVBarrierShuttingDown:
+
+			default:
 				log.Error(err)
+
 			}
 
 			nMsg.err <- err
@@ -1943,6 +1970,12 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		if d.cfg.Router.IsStaleEdgePolicy(
 			msg.ShortChannelID, timestamp, msg.ChannelFlags,
 		) {
+
+			log.Debugf("Ignored stale edge policy: peer=%v, "+
+				"source=%x, msg=%s, is_remote=%v", nMsg.peer,
+				nMsg.source.SerializeCompressed(),
+				nMsg.msg.MsgType(), nMsg.isRemote)
+
 			nMsg.err <- nil
 			return nil, true
 		}
@@ -2165,6 +2198,10 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			remotePubKey := remotePubFromChanInfo(
 				chanInfo, msg.ChannelFlags,
 			)
+
+			log.Debugf("The message %v has no AuthProof, sending "+
+				"the update to remote peer %x",
+				msg.MsgType(), remotePubKey)
 
 			// Now, we'll attempt to send the channel update message
 			// reliably to the remote peer in the background, so

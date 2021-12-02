@@ -614,8 +614,8 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 	if err == nil {
 		if hint > startHeight {
 			Log.Debugf("Using height hint %d retrieved from cache "+
-				"for %v instead of %d", hint, ntfn.ConfRequest,
-				startHeight)
+				"for %v instead of %d for conf subscription",
+				hint, ntfn.ConfRequest, startHeight)
 			startHeight = hint
 		}
 	} else if err != ErrConfirmHintNotFound {
@@ -1009,8 +1009,8 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 	if err == nil {
 		if hint > startHeight {
 			Log.Debugf("Using height hint %d retrieved from cache "+
-				"for %v instead of %d", hint, ntfn.SpendRequest,
-				startHeight)
+				"for %v instead of %d for spend subscription",
+				hint, ntfn.SpendRequest, startHeight)
 			startHeight = hint
 		}
 	} else if err != ErrSpendHintNotFound {

@@ -141,7 +141,7 @@ func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
 		DialTimeout:        etcdConnectionTimeout,
 		Username:           cfg.User,
 		Password:           cfg.Pass,
-		MaxCallSendMsgSize: 16384*1024 - 1,
+		MaxCallSendMsgSize: cfg.MaxMsgSize,
 	}
 
 	if !cfg.DisableTLS {

@@ -73,6 +73,10 @@ func DefaultDB() *DB {
 			AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
 			DBTimeout:         kvdb.DefaultDBTimeout,
 		},
+		Etcd: &etcd.Config{
+			// Allow at most 32 MiB messages by default.
+			MaxMsgSize: 32768 * 1024,
+		},
 		Postgres: &postgres.Config{
 			MaxConnections: defaultPostgresMaxConnections,
 		},

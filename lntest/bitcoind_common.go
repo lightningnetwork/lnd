@@ -22,12 +22,12 @@ const logDirPattern = "%s/.backendlogs"
 // BitcoindBackendConfig is an implementation of the BackendConfig interface
 // backed by a Bitcoind node.
 type BitcoindBackendConfig struct {
-	rpcHost      string
-	rpcUser      string
-	rpcPass      string
-	zmqBlockPath string
-	zmqTxPath    string
-	p2pPort      int
+	RpcHost      string
+	RpcUser      string
+	RpcPass      string
+	ZmqBlockPath string
+	ZmqTxPath    string
+	P2pPort      int
 	rpcClient    *rpcclient.Client
 
 	// minerAddr is the p2p address of the miner to connect to.
@@ -43,13 +43,13 @@ var _ BackendConfig = (*BitcoindBackendConfig)(nil)
 func (b BitcoindBackendConfig) GenArgs() []string {
 	var args []string
 	args = append(args, "--bitcoin.node=bitcoind")
-	args = append(args, fmt.Sprintf("--bitcoind.rpchost=%v", b.rpcHost))
-	args = append(args, fmt.Sprintf("--bitcoind.rpcuser=%v", b.rpcUser))
-	args = append(args, fmt.Sprintf("--bitcoind.rpcpass=%v", b.rpcPass))
+	args = append(args, fmt.Sprintf("--bitcoind.rpchost=%v", b.RpcHost))
+	args = append(args, fmt.Sprintf("--bitcoind.rpcuser=%v", b.RpcUser))
+	args = append(args, fmt.Sprintf("--bitcoind.rpcpass=%v", b.RpcPass))
 	args = append(args, fmt.Sprintf("--bitcoind.zmqpubrawblock=%v",
-		b.zmqBlockPath))
+		b.ZmqBlockPath))
 	args = append(args, fmt.Sprintf("--bitcoind.zmqpubrawtx=%v",
-		b.zmqTxPath))
+		b.ZmqTxPath))
 
 	return args
 }
@@ -179,12 +179,12 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 	}
 
 	bd := BitcoindBackendConfig{
-		rpcHost:      rpcHost,
-		rpcUser:      rpcUser,
-		rpcPass:      rpcPass,
-		zmqBlockPath: zmqBlockAddr,
-		zmqTxPath:    zmqTxAddr,
-		p2pPort:      p2pPort,
+		RpcHost:      rpcHost,
+		RpcUser:      rpcUser,
+		RpcPass:      rpcPass,
+		ZmqBlockPath: zmqBlockAddr,
+		ZmqTxPath:    zmqTxAddr,
+		P2pPort:      p2pPort,
 		rpcClient:    client,
 		minerAddr:    miner,
 	}

@@ -5,7 +5,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 )
 
-// log is a logger that is initialized with no output filters.  This means the
+// log is a logger that is initialized with no output filters. This means the
 // package will not perform any logging by default until the caller requests
 // it.
 var log btclog.Logger
@@ -21,7 +21,7 @@ func DisableLog() {
 	UseLogger(btclog.Disabled)
 }
 
-// UseLogger uses a specified Logger to output package logging info.  This
+// UseLogger uses a specified Logger to output package logging info. This
 // should be used in preference to SetLogWriter if the caller is also using
 // btclog.
 func UseLogger(logger btclog.Logger) {

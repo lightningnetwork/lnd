@@ -414,7 +414,7 @@ func newNode(cfg *BaseNodeConfig) (*HarnessNode, error) {
 	return &HarnessNode{
 		Cfg:               cfg,
 		NodeID:            nextNodeID(),
-		chanWatchRequests: make(chan *chanWatchRequest),
+		chanWatchRequests: make(chan *chanWatchRequest, 100),
 		openChanWatchers:  sync.Map{},
 		closeChanWatchers: sync.Map{},
 		postgresDbName:    dbName,

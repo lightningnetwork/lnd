@@ -44,6 +44,19 @@ type PolicyUpdate struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+// OpenChannelUpdate stores the open channel updates.
+type OpenChannelUpdate struct {
+	// AdvertisingNode specifies the node that advertised this update.
+	AdvertisingNode string `json:"advertising_node"`
+
+	// ConnectingNode specifies the node that is connected with the
+	// advertising node.
+	ConnectingNode string `json:"connecting_node"`
+
+	// Timestamp records the time the policy update is made.
+	Timestamp time.Time `json:"timestamp"`
+}
+
 // openChannelCount stores the total number of channel related counts.
 type openChannelCount struct {
 	Active     int
@@ -152,7 +165,7 @@ type nodeState struct {
 
 	// openChans records each opened channel and how many times it has
 	// heard the announcements from its graph subscription.
-	// openChans map[wire.OutPoint]int
+	// openChans map[wire.OutPoint][]*OpenChannelUpdate
 	openChans *sync.Map
 
 	// closedChans records each closed channel and its close channel update

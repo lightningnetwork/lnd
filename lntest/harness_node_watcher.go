@@ -149,8 +149,13 @@ func (hn *HarnessNode) WaitForNetworkChannelOpen(
 	case <-eventChan:
 		return nil
 	case <-timer:
-		return fmt.Errorf("channel:%s not opened before timeout: %s",
-			op, hn)
+		updates, err := syncMapToJSON(hn.state.openChans)
+		if err != nil {
+			return err
+		}
+
+		return fmt.Errorf("channel:%s not heard before timeout: "+
+			"node has heard: %s", op, updates)
 	}
 }
 
@@ -374,7 +379,7 @@ func (hn *HarnessNode) handleChannelEdgeUpdates(
 		hn.updateNodeStateNumChanUpdates(op)
 
 		// Update the open channels.
-		hn.updateNodeStateOpenChannel(op)
+		hn.updateNodeStateOpenChannel(op, newChan)
 
 		// Check whether there's a routing policy update. If so, save
 		// it to the node state.
@@ -411,19 +416,30 @@ func (hn *HarnessNode) updateNodeStateNodeUpdates(update *lnrpc.NodeUpdate) {
 
 // updateNodeStateOpenChannel updates the internal state of the node regarding
 // the open channels.
-func (hn *HarnessNode) updateNodeStateOpenChannel(op wire.OutPoint) {
-	// Whenever we call update, we create a default count of 1, and adds
-	// more count from the node's openChans map if found.
-	num := 1
+func (hn *HarnessNode) updateNodeStateOpenChannel(op wire.OutPoint,
+	newChan *lnrpc.ChannelEdgeUpdate) {
+
+	// Load the old updates the node has heard so far.
+	updates := make([]*OpenChannelUpdate, 0)
 	result, ok := hn.state.openChans.Load(op)
 	if ok {
-		num += result.(int)
+		updates = result.([]*OpenChannelUpdate)
 	}
-	hn.state.openChans.Store(op, num)
+
+	// Create a new update based on this newChan.
+	newUpdate := &OpenChannelUpdate{
+		AdvertisingNode: newChan.AdvertisingNode,
+		ConnectingNode:  newChan.ConnectingNode,
+		Timestamp:       time.Now(),
+	}
+
+	// Update the node's state.
+	updates = append(updates, newUpdate)
+	hn.state.openChans.Store(op, updates)
 
 	// For this new channel, if the number of edges seen is less
 	// than two, then the channel hasn't been fully announced yet.
-	if numEdges := num; numEdges < 2 {
+	if len(updates) < 2 {
 		return
 	}
 
@@ -474,7 +490,7 @@ func (hn *HarnessNode) handleOpenChannelWatchRequest(req *chanWatchRequest) {
 	// If this is an open request, then it can be dispatched if the number
 	// of edges seen for the channel is at least two.
 	result, ok := hn.state.openChans.Load(targetChan)
-	if ok && result.(int) >= 2 {
+	if ok && len(result.([]*OpenChannelUpdate)) >= 2 {
 		close(req.eventChan)
 		return
 	}
@@ -484,6 +500,7 @@ func (hn *HarnessNode) handleOpenChannelWatchRequest(req *chanWatchRequest) {
 	// node. This lets us handle the case where a node has already seen a
 	// channel before a notification has been requested, causing us to miss
 	// it.
+	// TODO(yy): no longer needed?
 	chanFound := hn.checkChanPointInGraph(targetChan)
 	if chanFound {
 		close(req.eventChan)

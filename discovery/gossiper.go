@@ -360,6 +360,13 @@ type AuthenticatedGossiper struct {
 	// networkHandler.
 	networkMsgs chan *networkMsg
 
+	// futureMsgs is a list of premature network messages that have a block
+	// height specified in the future. We will save them and resend it to
+	// the chan networkMsgs once the block height has reached. The cached
+	// map format is,
+	//   {blockHeight: [msg1, msg2, ...], ...}
+	futureMsgs *lru.Cache
+
 	// chanPolicyUpdates is a channel that requests to update the
 	// forwarding policy of a set of channels is sent over.
 	chanPolicyUpdates chan *chanPolicyUpdateRequest
@@ -415,6 +422,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		selfKeyLoc:              selfKeyDesc.KeyLocator,
 		cfg:                     &cfg,
 		networkMsgs:             make(chan *networkMsg),
+		futureMsgs:              lru.NewCache(maxPrematureUpdates),
 		quit:                    make(chan struct{}),
 		chanPolicyUpdates:       make(chan *chanPolicyUpdateRequest),
 		prematureChannelUpdates: lru.NewCache(maxPrematureUpdates),
@@ -550,8 +558,42 @@ func (d *AuthenticatedGossiper) syncBlockHeight() {
 			log.Debugf("New block: height=%d, hash=%s", blockHeight,
 				newBlock.Hash)
 
+			// Resend future messages, if any.
+			d.resendFutureMessages(blockHeight)
+
 		case <-d.quit:
 			return
+		}
+	}
+}
+
+// resendFutureMessages takes a block height, resends all the future messages
+// found at that height and deletes those messages found in the gossiper's
+// futureMsgs.
+func (d *AuthenticatedGossiper) resendFutureMessages(height uint32) {
+	result, err := d.futureMsgs.Get(height)
+
+	// Return early if no messages found.
+	if err == cache.ErrElementNotFound {
+		return
+	}
+
+	// The error must nil, we will log an error and exit.
+	if err != nil {
+		log.Errorf("Reading future messages got error: %v", err)
+		return
+	}
+
+	msgs := result.(*cachedNetworkMsg).msgs
+
+	log.Debugf("Resending %d network messages at height %d",
+		len(msgs), height)
+
+	for _, msg := range msgs {
+		select {
+		case d.networkMsgs <- msg:
+		case <-d.quit:
+			msg.err <- ErrGossiperShuttingDown
 		}
 	}
 }
@@ -1627,6 +1669,64 @@ func (d *AuthenticatedGossiper) addNode(msg *lnwire.NodeAnnouncement,
 	return d.cfg.Router.AddNode(node, op...)
 }
 
+// isPremature decides whether a given network message has a block height+delta
+// value specified in the future. If so, the message will be added to the
+// future message map and be processed when the block height as reached.
+//
+// NOTE: must be used inside a lock.
+func (d *AuthenticatedGossiper) isPremature(chanID lnwire.ShortChannelID,
+	delta uint32, msg *networkMsg) bool {
+	// TODO(roasbeef) make height delta 6
+	//  * or configurable
+
+	msgHeight := chanID.BlockHeight + delta
+
+	// The message height is smaller or equal to our best known height,
+	// thus the message is mature.
+	if msgHeight <= d.bestHeight {
+		return false
+	}
+
+	// Add the premature message to our future messages which will
+	// be resent once the block height has reached.
+	//
+	// Init an empty cached message and overwrite it if there are cached
+	// messages found.
+	cachedMsgs := &cachedNetworkMsg{
+		msgs: make([]*networkMsg, 0),
+	}
+
+	result, err := d.futureMsgs.Get(msgHeight)
+	// No error returned means we have old messages cached.
+	if err == nil {
+		cachedMsgs = result.(*cachedNetworkMsg)
+	}
+
+	// Copy the networkMsgs since the old message's err chan will
+	// be consumed.
+	copied := &networkMsg{
+		peer:              msg.peer,
+		source:            msg.source,
+		msg:               msg.msg,
+		optionalMsgFields: msg.optionalMsgFields,
+		isRemote:          msg.isRemote,
+		err:               make(chan error, 1),
+	}
+
+	// Add the network message.
+	cachedMsgs.msgs = append(cachedMsgs.msgs, copied)
+	_, err = d.futureMsgs.Put(msgHeight, cachedMsgs)
+	if err != nil {
+		log.Errorf("Adding future message got error: %v", err)
+	}
+
+	log.Debugf("Network message: %v added to future messages for "+
+		"msgHeight=%d, bestHeight=%d", msg.msg.MsgType(),
+		msgHeight, d.bestHeight)
+
+	return true
+}
+
 // processNetworkAnnouncement processes a new network relate authenticated
 // channel or node announcement or announcements proofs. If the announcement
 // didn't affect the internal state due to either being out of date, invalid,
@@ -1640,12 +1740,6 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 	log.Debugf("Processing network message: peer=%v, source=%x, msg=%s, "+
 		"is_remote=%v", nMsg.peer, nMsg.source.SerializeCompressed(),
 		nMsg.msg.MsgType(), nMsg.isRemote)
-
-	isPremature := func(chanID lnwire.ShortChannelID, delta uint32) bool {
-		// TODO(roasbeef) make height delta 6
-		//  * or configurable
-		return chanID.BlockHeight+delta > d.bestHeight
-	}
 
 	// If this is a remote update, we set the scheduler option to lazily
 	// add it to the graph.
@@ -1745,8 +1839,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// If the advertised inclusionary block is beyond our knowledge
 		// of the chain tip, then we'll ignore for it now.
 		d.Lock()
-		if nMsg.isRemote && isPremature(msg.ShortChannelID, 0) {
-			log.Infof("Announcement for chan_id=(%v), is "+
+		if nMsg.isRemote && d.isPremature(msg.ShortChannelID, 0, nMsg) {
+			log.Warnf("Announcement for chan_id=(%v), is "+
 				"premature: advertises height %v, only "+
 				"height %v is known",
 				msg.ShortChannelID.ToUint64(),
@@ -1987,8 +2081,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// of the chain tip, then we'll put the announcement in limbo
 		// to be fully verified once we advance forward in the chain.
 		d.Lock()
-		if nMsg.isRemote && isPremature(msg.ShortChannelID, 0) {
-			log.Infof("Update announcement for "+
+		if nMsg.isRemote && d.isPremature(msg.ShortChannelID, 0, nMsg) {
+			log.Warnf("Update announcement for "+
 				"short_chan_id(%v), is premature: advertises "+
 				"height %v, only height %v is known",
 				shortChanID, blockHeight,
@@ -2293,8 +2387,11 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// registered in bitcoin blockchain. Therefore, we check if the
 		// proof is premature.
 		d.Lock()
-		if isPremature(msg.ShortChannelID, d.cfg.ProofMatureDelta) {
-			log.Infof("Premature proof announcement, current "+
+		premature := d.isPremature(
+			msg.ShortChannelID, d.cfg.ProofMatureDelta, nMsg,
+		)
+		if premature {
+			log.Warnf("Premature proof announcement, current "+
 				"block height lower than needed: %v < %v",
 				d.bestHeight, needBlockHeight)
 			d.Unlock()

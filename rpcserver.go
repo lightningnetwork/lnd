@@ -5905,7 +5905,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	}
 
 	// Graph diameter.
-	channelGraph := autopilot.ChannelGraphFromDatabase(graph)
+	channelGraph := autopilot.ChannelGraphFromCachedDatabase(graph)
 	simpleGraph, err := autopilot.NewSimpleGraph(channelGraph)
 	if err != nil {
 		return nil, err

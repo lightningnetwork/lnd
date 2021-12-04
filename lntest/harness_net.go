@@ -585,8 +585,8 @@ func (n *NetworkHarness) OpenChannel(ctxb context.Context,
 			"%s and %s: %v", srcNode.Name(), destNode.Name(), err)
 	}
 
-	chanOpen := make(chan struct{})
-	errChan := make(chan error)
+	chanOpen := make(chan struct{}, 1)
+	errChan := make(chan error, 1)
 	go func() {
 		// Consume the "channel pending" update. This waits until the
 		// node notifies us that the final message in the channel
@@ -684,15 +684,12 @@ func (n *NetworkHarness) OpenPendingChannel(ctxb context.Context,
 // consuming a message from the past open channel stream. If the passed context
 // has a timeout, then if the timeout is reached before the channel has been
 // opened, then an error is returned.
-func (n *NetworkHarness) WaitForChannelOpen(ctxb context.Context,
+func (n *NetworkHarness) WaitForChannelOpen(
 	openChanStream lnrpc.Lightning_OpenChannelClient) (
 	*lnrpc.ChannelPoint, error) {
 
-	ctx, cancel := context.WithTimeout(ctxb, ChannelOpenTimeout)
-	defer cancel()
-
-	errChan := make(chan error)
-	respChan := make(chan *lnrpc.ChannelPoint)
+	errChan := make(chan error, 1)
+	respChan := make(chan *lnrpc.ChannelPoint, 1)
 	go func() {
 		resp, err := openChanStream.Recv()
 		if err != nil {
@@ -710,7 +707,7 @@ func (n *NetworkHarness) WaitForChannelOpen(ctxb context.Context,
 	}()
 
 	select {
-	case <-ctx.Done():
+	case <-time.After(ChannelOpenTimeout):
 		return nil, fmt.Errorf("timeout reached while waiting for " +
 			"channel open")
 	case err := <-errChan:

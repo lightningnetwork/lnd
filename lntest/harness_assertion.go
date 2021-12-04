@@ -25,8 +25,8 @@ import (
 func (h *HarnessTest) WaitForChannelOpen(
 	client OpenChanClient) *lnrpc.ChannelPoint {
 
-	fundingChanPoint, err := h.net.WaitForChannelOpen(h.runCtx, client)
-	require.NoError(h, err, "error while waiting for channel open")
+	fundingChanPoint, err := h.net.WaitForChannelOpen(client)
+	require.NoError(h, err, "failed to wait from open channel stream")
 
 	return fundingChanPoint
 }

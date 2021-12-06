@@ -85,6 +85,10 @@ var allTestCases = []*testCase{
 		test: testUpdateChanStatus,
 	},
 	{
+		name: "test update node announcement rpc",
+		test: testUpdateNodeAnnouncement,
+	},
+	{
 		name: "list outgoing payments",
 		test: testListPayments,
 	},

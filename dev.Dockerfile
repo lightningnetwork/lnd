@@ -22,7 +22,7 @@ COPY . /go/src/github.com/lightningnetwork/lnd
 
 RUN cd /go/src/github.com/lightningnetwork/lnd \
 &&  make \
-&&  make install tags="signrpc walletrpc chainrpc invoicesrpc"
+&&  make install tags="signrpc walletrpc chainrpc invoicesrpc peersrpc"
 
 # Start a new, final image to reduce size.
 FROM alpine as final

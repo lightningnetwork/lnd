@@ -2734,6 +2734,54 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	return *s.currentNodeAnn, nil
 }
 
+// updateAndBrodcastSelfNode generates a new node announcement
+// applying the giving modifiers and updating the time stamp
+// to ensure it propagates through the network. Then it brodcasts
+// it to the network.
+func (s *server) updateAndBrodcastSelfNode(
+	modifiers ...netann.NodeAnnModifier) error {
+
+	newNodeAnn, err := s.genNodeAnnouncement(true, modifiers...)
+	if err != nil {
+		return fmt.Errorf("unable to generate new node "+
+			"announcement: %v", err)
+	}
+
+	// Update the on-disk version of our announcement.
+	// Load and modify self node istead of creating anew instance so we
+	// don't risk overwriting any existing values.
+	selfNode, err := s.graphDB.SourceNode()
+	if err != nil {
+		return fmt.Errorf("unable to get current source node: %v", err)
+	}
+
+	selfNode.HaveNodeAnnouncement = true
+	selfNode.LastUpdate = time.Unix(int64(newNodeAnn.Timestamp), 0)
+	selfNode.Addresses = newNodeAnn.Addresses
+	selfNode.Alias = newNodeAnn.Alias.String()
+	selfNode.Features = lnwire.NewFeatureVector(
+		newNodeAnn.Features, lnwire.Features,
+	)
+	selfNode.Color = newNodeAnn.RGBColor
+	selfNode.AuthSigBytes = newNodeAnn.Signature.ToSignatureBytes()
+
+	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
+
+	if err := s.graphDB.SetSourceNode(selfNode); err != nil {
+		return fmt.Errorf("can't set self node: %v", err)
+	}
+
+	// Finally, propagate it to the nodes in the network.
+	err = s.BroadcastMessage(nil, &newNodeAnn)
+	if err != nil {
+		rpcsLog.Debugf("Unable to broadcast new node "+
+			"announcement to peers: %v", err)
+		return err
+	}
+
+	return nil
+}
+
 type nodeAddresses struct {
 	pubKey    *btcec.PublicKey
 	addresses []net.Addr

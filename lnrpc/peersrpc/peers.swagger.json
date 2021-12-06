@@ -15,7 +15,41 @@
   "produces": [
     "application/json"
   ],
-  "paths": {},
+  "paths": {
+    "/v2/peers/nodeannouncement": {
+      "post": {
+        "summary": "lncli: peers updatenodeannouncement\nUpdateNodeAnnouncement allows the caller to update the node parameters\nand broadcasts a new version of the node announcement to its peers.",
+        "operationId": "Peers_UpdateNodeAnnouncement",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/peersrpcNodeAnnouncementUpdateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/peersrpcNodeAnnouncementUpdateRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Peers"
+        ]
+      }
+    }
+  },
   "definitions": {
     "lnrpcFeatureBit": {
       "type": "string",
@@ -59,6 +93,33 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "peersrpcNodeAnnouncementUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "feature_updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/peersrpcUpdateFeatureAction"
+          },
+          "description": "Set of changes for the features that the node supports."
+        },
+        "color": {
+          "type": "string",
+          "description": "Color is the node's color in hex code format."
+        },
+        "alias": {
+          "type": "string",
+          "description": "Alias or nick name of the node."
+        },
+        "address_updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/peersrpcUpdateAddressAction"
+          },
+          "description": "Set of changes for the node's known addresses."
         }
       }
     },

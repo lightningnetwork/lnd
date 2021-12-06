@@ -8,6 +8,11 @@
 * [Make etcd max message size
   configurable]((https://github.com/lightningnetwork/lnd/pull/6049).
 
+## Bug fixes
+
+* [Add json flag to
+  trackpayment](https://github.com/lightningnetwork/lnd/pull/6060)
+
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath

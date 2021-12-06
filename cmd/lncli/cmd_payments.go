@@ -556,7 +556,10 @@ var trackPaymentCommand = cli.Command{
 	specified by the hash argument.
 	`,
 	ArgsUsage: "hash",
-	Action:    actionDecorator(trackPayment),
+	Flags: []cli.Flag{
+		jsonFlag,
+	},
+	Action: actionDecorator(trackPayment),
 }
 
 func trackPayment(ctx *cli.Context) error {

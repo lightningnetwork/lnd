@@ -31,6 +31,11 @@
   exposed](https://github.com/lightningnetwork/lnd/pull/5971) inside
   WaitingCloseResp from calling `PendingChannels`.
 
+## Bug fixes
+
+* [Add json flag to
+  trackpayment](https://github.com/lightningnetwork/lnd/pull/6060)
+
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath

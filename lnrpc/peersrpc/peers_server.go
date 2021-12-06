@@ -5,10 +5,12 @@ package peersrpc
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/netann"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -36,7 +38,12 @@ var (
 	}
 
 	// macPermissions maps RPC calls to the permissions they require.
-	macPermissions = map[string][]bakery.Op{}
+	macPermissions = map[string][]bakery.Op{
+		"/peersrpc.Peers/UpdateNodeAnnouncement": {{
+			Entity: "peers",
+			Action: "write",
+		}},
+	}
 )
 
 // ServerShell is a shell struct holding a reference to the actual sub-server.
@@ -152,4 +159,39 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 
 	r.PeersServer = subServer
 	return subServer, macPermissions, nil
+}
+
+// UpdateNodeAnnouncement allows the caller to update the node parameters
+// and broadcasts a new version of the node announcement to its peers.
+func (r *Server) UpdateNodeAnnouncement(_ context.Context,
+	req *NodeAnnouncementUpdateRequest) (
+	*NodeAnnouncementUpdateResponse, error) {
+
+	resp := &NodeAnnouncementUpdateResponse{}
+	nodeModifiers := make([]netann.NodeAnnModifier, 0)
+
+	_, err := r.cfg.GetNodeAnnouncement()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get current node "+
+			"announcement: %v", err)
+	}
+
+	// TODO(positiveblue): apply feature bit modifications
+
+	// TODO(positiveblue): apply color modifications
+
+	// TODO(positiveblue): apply alias modifications
+
+	// TODO(positiveblue): apply addresses modifications
+
+	if len(nodeModifiers) == 0 {
+		return nil, fmt.Errorf("unable detect any new values to " +
+			"update the node announcement")
+	}
+
+	if err := r.cfg.UpdateNodeAnnouncement(nodeModifiers...); err != nil {
+		return nil, err
+	}
+
+	return resp, nil
 }

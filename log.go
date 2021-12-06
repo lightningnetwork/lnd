@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
@@ -163,6 +164,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	AddSubLogger(root, cluster.Subsystem, interceptor, cluster.UseLogger)
 	AddSubLogger(root, rpcperms.Subsystem, interceptor, rpcperms.UseLogger)
 	AddSubLogger(root, tor.Subsystem, interceptor, tor.UseLogger)
+	AddSubLogger(root, peersrpc.Subsystem, interceptor, peersrpc.UseLogger)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

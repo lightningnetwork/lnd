@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -766,4 +767,23 @@ func subscribeGraphNotifications(ctxb context.Context, t *harnessTest,
 		errChan:    errChan,
 		quit:       quit,
 	}
+}
+
+// testUpdateNodeAnnouncement ensures that the RPC endpoint validates
+// the requests correctly and that the new node announcement is brodcasted
+// with the right information after updating our node.
+func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	var lndArgs []string
+	dave := net.NewNode(t.t, "Dave", lndArgs)
+	defer shutdownAndAssert(net, t, dave)
+
+	// Requests that do not modify anything return an error.
+	invalidNodeAnnReq := &peersrpc.NodeAnnouncementUpdateRequest{}
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	_, err := dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
+	require.Error(t.t, err, "requests without modifiers should fail")
 }

@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -330,6 +331,8 @@ type HarnessNode struct {
 
 	invoicesrpc.InvoicesClient
 
+	peersrpc.PeersClient
+
 	// SignerClient cannot be embedded because the name collisions of the
 	// methods SignMessage and VerifyMessage.
 	SignerClient signrpc.SignerClient
@@ -357,6 +360,7 @@ type HarnessNode struct {
 var _ lnrpc.LightningClient = (*HarnessNode)(nil)
 var _ lnrpc.WalletUnlockerClient = (*HarnessNode)(nil)
 var _ invoicesrpc.InvoicesClient = (*HarnessNode)(nil)
+var _ peersrpc.PeersClient = (*HarnessNode)(nil)
 
 // newNode creates a new test lightning node instance from the passed config.
 func newNode(cfg NodeConfig) (*HarnessNode, error) {
@@ -1068,6 +1072,7 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	hn.Watchtower = watchtowerrpc.NewWatchtowerClient(conn)
 	hn.WatchtowerClient = wtclientrpc.NewWatchtowerClientClient(conn)
 	hn.SignerClient = signrpc.NewSignerClient(conn)
+	hn.PeersClient = peersrpc.NewPeersClient(conn)
 	hn.StateClient = lnrpc.NewStateClient(conn)
 
 	// Wait until the server is fully started.

@@ -61,6 +61,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/record"
@@ -730,6 +731,14 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		return s.featureMgr.Get(feature.SetInvoiceAmp)
 	}
 
+	getNodeAnnouncement := func() (lnwire.NodeAnnouncement, error) {
+		return s.genNodeAnnouncement(false)
+	}
+
+	updateNodeAnnouncement := func(modifiers ...netann.NodeAnnModifier) error {
+		return s.updateAndBrodcastSelfNode(modifiers...)
+	}
+
 	var (
 		subServers     []lnrpc.SubServer
 		subServerPerms []lnrpc.MacaroonPerms
@@ -746,7 +755,8 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		routerBackend, s.nodeSigner, s.graphDB, s.chanStateDB,
 		s.sweeper, tower, s.towerClient, s.anchorTowerClient,
 		r.cfg.net.ResolveTCPAddr, genInvoiceFeatures,
-		genAmpInvoiceFeatures, rpcsLog,
+		genAmpInvoiceFeatures, getNodeAnnouncement, updateNodeAnnouncement,
+		rpcsLog,
 	)
 	if err != nil {
 		return err

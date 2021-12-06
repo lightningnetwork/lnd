@@ -2651,6 +2651,48 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	return *s.currentNodeAnn, nil
 }
 
+// updateAndBrodcastSelfNode generates a new node announcement
+// applying the giving modifiers and updating the time stamp
+// to ensure it propagates through the network. Then it brodcasts
+// it to the network.
+func (s *server) updateAndBrodcastSelfNode(
+	modifiers ...netann.NodeAnnModifier) error {
+
+	newNodeAnn, err := s.genNodeAnnouncement(true, modifiers...)
+	if err != nil {
+		return fmt.Errorf("unable to generate new node "+
+			"announcement: %v", err)
+	}
+
+	// Update the on-disk version of our announcement.
+	selfNode := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           time.Unix(int64(newNodeAnn.Timestamp), 0),
+		Addresses:            newNodeAnn.Addresses,
+		Alias:                newNodeAnn.Alias.String(),
+		Features: lnwire.NewFeatureVector(
+			newNodeAnn.Features, lnwire.Features,
+		),
+		Color:        newNodeAnn.RGBColor,
+		AuthSigBytes: newNodeAnn.Signature.ToSignatureBytes(),
+	}
+	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
+
+	if err := s.graphDB.SetSourceNode(selfNode); err != nil {
+		return fmt.Errorf("can't set self node: %v", err)
+	}
+
+	// Finally, propagate it to the nodes in the network.
+	err = s.BroadcastMessage(nil, &newNodeAnn)
+	if err != nil {
+		rpcsLog.Debugf("Unable to broadcast new node "+
+			"announcement to peers: %v", err)
+		return err
+	}
+
+	return nil
+}
+
 type nodeAddresses struct {
 	pubKey    *btcec.PublicKey
 	addresses []net.Addr

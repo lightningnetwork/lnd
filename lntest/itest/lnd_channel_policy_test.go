@@ -53,12 +53,8 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 		MaxHtlcMsat:      defaultMaxHtlc,
 	}
 
-	assertPolicyUpdate(
-		ht, nodes, alice.PubKeyStr, expectedPolicy, chanPoint,
-	)
-	assertPolicyUpdate(
-		ht, nodes, bob.PubKeyStr, expectedPolicy, chanPoint,
-	)
+	assertPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint)
+	assertPolicyUpdate(ht, nodes, bob, expectedPolicy, chanPoint)
 
 	// They should now know about the default policies.
 	for _, node := range nodes {
@@ -120,12 +116,8 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 		MaxHtlcMsat:      defaultMaxHtlc,
 	}
 
-	assertPolicyUpdate(
-		ht, nodes, bob.PubKeyStr, expectedPolicyBob, chanPoint2,
-	)
-	assertPolicyUpdate(
-		ht, nodes, carol.PubKeyStr, expectedPolicyCarol, chanPoint2,
-	)
+	assertPolicyUpdate(ht, nodes, bob, expectedPolicyBob, chanPoint2)
+	assertPolicyUpdate(ht, nodes, carol, expectedPolicyCarol, chanPoint2)
 
 	// Check that all nodes now know about the updated policies.
 	for _, node := range nodes {
@@ -268,7 +260,7 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	ht.UpdateChannelPolicy(bob, req)
 
 	// Wait for all nodes to have seen the policy update done by Bob.
-	assertPolicyUpdate(ht, nodes, bob.PubKeyStr, expectedPolicy, chanPoint)
+	assertPolicyUpdate(ht, nodes, bob, expectedPolicy, chanPoint)
 
 	// Check that all nodes now know about Bob's updated policy.
 	for _, node := range nodes {
@@ -330,12 +322,8 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 
 	// Wait for all nodes to have seen the policy updates for both of
 	// Alice's channels.
-	assertPolicyUpdate(
-		ht, nodes, alice.PubKeyStr, expectedPolicy, chanPoint,
-	)
-	assertPolicyUpdate(
-		ht, nodes, alice.PubKeyStr, expectedPolicy, chanPoint3,
-	)
+	assertPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint)
+	assertPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint3)
 
 	// And finally check that all nodes remembers the policy update they
 	// received.
@@ -364,11 +352,11 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 		// the limit has been reached.
 		assertPolicyUpdate(
 			ht, []*lntest.HarnessNode{alice, bob},
-			alice.PubKeyStr, expectedPolicy, chanPoint,
+			alice, expectedPolicy, chanPoint,
 		)
 		assertPolicyUpdate(
 			ht, []*lntest.HarnessNode{alice, bob},
-			alice.PubKeyStr, expectedPolicy, chanPoint3,
+			alice, expectedPolicy, chanPoint3,
 		)
 		// Check that all nodes remembers the policy update
 		// they received.
@@ -392,11 +380,11 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	// graph.
 	assertPolicyUpdate(
 		ht, []*lntest.HarnessNode{carol},
-		alice.PubKeyStr, expectedPolicy, chanPoint,
+		alice, expectedPolicy, chanPoint,
 	)
 	assertPolicyUpdate(
 		ht, []*lntest.HarnessNode{carol},
-		alice.PubKeyStr, expectedPolicy, chanPoint3,
+		alice, expectedPolicy, chanPoint3,
 	)
 	ht.AssertChannelPolicy(
 		carol, alice.PubKeyStr,
@@ -492,7 +480,7 @@ func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
 		policy *lnrpc.RoutingPolicy, chanPoint *lnrpc.ChannelPoint) {
 
 		require.NoError(ht, dave.WaitForChannelPolicyUpdate(
-			node.PubKeyStr, policy, chanPoint, false,
+			node, policy, chanPoint, false,
 		), "error while waiting for channel update")
 	}
 
@@ -730,9 +718,7 @@ func testUpdateChannelPolicyFeeRateAccuracy(ht *lntest.HarnessTest) {
 	ht.UpdateChannelPolicy(alice, req)
 
 	// Make sure that both Alice and Bob sees the same policy after update.
-	assertPolicyUpdate(
-		ht, nodes, alice.PubKeyStr, expectedPolicy, chanPoint,
-	)
+	assertPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint)
 
 	// Now use the new PPM feerate field and make sure that the feerate is
 	// correctly set.
@@ -744,15 +730,13 @@ func testUpdateChannelPolicyFeeRateAccuracy(ht *lntest.HarnessTest) {
 	ht.UpdateChannelPolicy(alice, req)
 
 	// Make sure that both Alice and Bob sees the same policy after update.
-	assertPolicyUpdate(
-		ht, nodes, alice.PubKeyStr, expectedPolicy, chanPoint,
-	)
+	assertPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint)
 }
 
 // assertPolicyUpdate checks that a given policy update has been received by a
 // list of given nodes.
 func assertPolicyUpdate(ht *lntest.HarnessTest, nodes []*lntest.HarnessNode,
-	advertisingNode string, policy *lnrpc.RoutingPolicy,
+	advertisingNode *lntest.HarnessNode, policy *lnrpc.RoutingPolicy,
 	chanPoint *lnrpc.ChannelPoint) {
 
 	for _, node := range nodes {

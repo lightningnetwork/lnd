@@ -193,7 +193,7 @@ func (hn *HarnessNode) WaitForNetworkChannelClose(
 // WaitForChannelPolicyUpdate will block until a channel policy with the target
 // outpoint and advertisingNode is seen within the network.
 func (hn *HarnessNode) WaitForChannelPolicyUpdate(
-	advertisingNode string, policy *lnrpc.RoutingPolicy,
+	advertisingNode *HarnessNode, policy *lnrpc.RoutingPolicy,
 	chanPoint *lnrpc.ChannelPoint, includeUnannounced bool) error {
 
 	op, err := MakeOutpoint(chanPoint)
@@ -225,7 +225,7 @@ func (hn *HarnessNode) WaitForChannelPolicyUpdate(
 				eventChan:          eventChan,
 				chanWatchType:      watchPolicyUpdate,
 				policy:             policy,
-				advertisingNode:    advertisingNode,
+				advertisingNode:    advertisingNode.PubKeyStr,
 				includeUnannounced: includeUnannounced,
 			}
 
@@ -243,9 +243,10 @@ func (hn *HarnessNode) WaitForChannelPolicyUpdate(
 			}
 
 			return fmt.Errorf("policy not updated before timeout:"+
-				"\nchannel: %v \nadvertisingNode: %v"+
+				"\nchannel: %v \nadvertisingNode: %s:%v"+
 				"\nwant policy:%s\nhave updates:%s", op,
-				advertisingNode, expected, policies)
+				advertisingNode.Name(),
+				advertisingNode.PubKeyStr, expected, policies)
 		}
 	}
 }

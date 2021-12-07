@@ -422,7 +422,7 @@ func (h *HarnessTest) AssertNumPendingCloseChannels(hn *HarnessNode,
 // AssertChannelPolicyUpdate checks that the required policy update has
 // happened on the given node.
 func (h *HarnessTest) AssertChannelPolicyUpdate(node *HarnessNode,
-	advertisingNode string, policy *lnrpc.RoutingPolicy,
+	advertisingNode *HarnessNode, policy *lnrpc.RoutingPolicy,
 	chanPoint *lnrpc.ChannelPoint, includeUnannounced bool) {
 
 	require.NoError(

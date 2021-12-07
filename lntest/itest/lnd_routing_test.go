@@ -1146,8 +1146,7 @@ func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 
 	// Wait for Alice to receive the channel update from Carol.
 	ht.AssertChannelPolicyUpdate(
-		alice, carol.PubKeyStr,
-		expectedPolicy, chanPointCarolDave, false,
+		alice, carol, expectedPolicy, chanPointCarolDave, false,
 	)
 
 	// We'll also need the channel IDs for Bob's channels in order to

@@ -210,7 +210,6 @@ func updateChannelPolicy(ht *lntest.HarnessTest, hn *lntest.HarnessNode,
 
 	// Wait for listener node to receive the channel update from node.
 	ht.AssertChannelPolicyUpdate(
-		listenerNode, hn.PubKeyStr,
-		expectedPolicy, chanPoint, false,
+		listenerNode, hn, expectedPolicy, chanPoint, false,
 	)
 }

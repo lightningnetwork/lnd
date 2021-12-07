@@ -1026,7 +1026,7 @@ func (h *HarnessTest) CloseChannelAndAssertType(node *HarnessNode,
 	if expectDisable {
 		curPolicy.Disabled = true
 		h.AssertChannelPolicyUpdate(
-			node, node.PubKeyStr,
+			node, node,
 			curPolicy, fundingChanPoint, false,
 		)
 	}

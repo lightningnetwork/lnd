@@ -70,7 +70,7 @@ func testUpdateChanStatus(ht *lntest.HarnessTest) {
 		policy *lnrpc.RoutingPolicy) {
 
 		ht.AssertChannelPolicyUpdate(
-			carol, node.PubKeyStr, policy, chanPoint, false,
+			carol, node, policy, chanPoint, false,
 		)
 	}
 

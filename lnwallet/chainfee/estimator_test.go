@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/stretchr/testify/require"
 )
 
 type mockSparseConfFeeSource struct {
@@ -232,4 +233,64 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGetCachedFee checks that the fee caching logic works as expected.
+func TestGetCachedFee(t *testing.T) {
+	target := uint32(2)
+	fee := uint32(100)
+
+	// Create a dummy estimator without WebAPIFeeSource.
+	estimator := NewWebAPIEstimator(nil, false)
+
+	// When the cache is empty, an error should be returned.
+	cachedFee, err := estimator.getCachedFee(target)
+	require.Zero(t, cachedFee)
+	require.ErrorIs(t, err, errEmptyCache)
+
+	// Store a fee rate inside the cache.
+	estimator.feeByBlockTarget[target] = fee
+
+	testCases := []struct {
+		name        string
+		confTarget  uint32
+		expectedFee uint32
+		expectErr   error
+	}{
+		{
+			// When the target is cached, return it.
+			name:        "return cached fee",
+			confTarget:  target,
+			expectedFee: fee,
+			expectErr:   nil,
+		},
+		{
+			// When the target is not cached, return the next
+			// lowest target that's cached.
+			name:        "return next cached fee",
+			confTarget:  target + 1,
+			expectedFee: fee,
+			expectErr:   nil,
+		},
+		{
+			// When the target is not cached, and the next lowest
+			// target is not cached, return the nearest fee rate.
+			name:        "return highest cached fee",
+			confTarget:  target - 1,
+			expectedFee: fee,
+			expectErr:   nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			cachedFee, err := estimator.getCachedFee(tc.confTarget)
+
+			require.Equal(t, tc.expectedFee, cachedFee)
+			require.ErrorIs(t, err, tc.expectErr)
+		})
+	}
+
 }

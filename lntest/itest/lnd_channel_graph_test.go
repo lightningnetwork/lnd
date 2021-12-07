@@ -19,75 +19,41 @@ import (
 // testUpdateChanStatus checks that calls to the UpdateChanStatus RPC update
 // the channel graph as expected, and that channel state is properly updated
 // in the presence of interleaved node disconnects / reconnects.
+//
+// NOTE: this test can be flaky as we are testing the chan-enable-timeout and
+// chan-disable-timeout flags here.
+//
+// For chan-enable-timeout, setting this value too small will cause an enabled
+// channel never be considered active by our channel status manager. Upon
+// reconnection, our Brontide will send a request to enable this channel after
+// the "chan-enable-timeout" has passed. The request is handled by the channel
+// status manager, which will check the channel's eligibility to forward links
+// by asking htlcswitch/link. Meanwhile, the htlcswitch/link won't mark the
+// link as eligible unless it has finished its initialization, which takes some
+// time. Thus, if the Brontide sends a request too early it will get a false
+// report saying the channel link is not eligible because that link hasn't
+// finished its initialization.
+//
+// For chan-disable-timeout, setting this value too small will cause an already
+// enabled channel being marked as disabled. For instance, if some operations
+// take more than 5 seconds to finish, the channel will be marked as disabled,
+// thus a following operation will fail if it relies on the channel being
+// enabled.
 func testUpdateChanStatus(ht *lntest.HarnessTest) {
 	// Create two fresh nodes and open a channel between them.
 	alice, bob := ht.Alice, ht.Bob
 	args := []string{
-		"--minbackoff=10s",
+		"--minbackoff=60s",
 		"--chan-enable-timeout=3s",
-		"--chan-disable-timeout=4s",
-		"--chan-status-sample-interval=.5s",
+		"--chan-disable-timeout=6s",
+		"--chan-status-sample-interval=0.5s",
 	}
 	ht.RestartNodeWithExtraArgs(alice, args)
 	ht.RestartNodeWithExtraArgs(bob, args)
-
-	// Connect Alice to Bob.
-	ht.ConnectNodes(alice, bob)
-
-	// Give Alice some coins so she can fund a channel.
-	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
-
-	// Launch a node for Carol which will connect to Alice and Bob in order
-	// to receive graph updates. This will ensure that the channel updates
-	// are propagated throughout the network.
-	carol := ht.NewNode("Carol", nil)
-	defer ht.Shutdown(carol)
-
-	// Connect both Alice and Bob to the new node Carol, so she can sync
-	// her graph.
-	ht.ConnectNodes(alice, carol)
-	ht.ConnectNodes(bob, carol)
-	waitForGraphSync(ht, carol)
-
-	// Open a channel with 100k satoshis between Alice and Bob with Alice
-	// being the sole funder of the channel.
-	//
-	// NOTE: we need to connect the nodes and open the channel after all
-	// nodes are synced such that Alice and Bob won't time out while
-	// checking for channel availability, as specified by the flag
-	// `--chan-disable-timeout`.
 	ht.EnsureConnected(alice, bob)
 
-	chanAmt := btcutil.Amount(100000)
-	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
-	)
-	defer ht.CloseChannel(alice, chanPoint, false)
-
-	// assertChannelUpdate checks that the required policy update has
-	// happened in Carol's view.
-	assertChannelUpdate := func(node *lntest.HarnessNode,
-		policy *lnrpc.RoutingPolicy) {
-
-		ht.AssertChannelPolicyUpdate(
-			carol, node, policy, chanPoint, false,
-		)
-	}
-
-	// sendReq sends an UpdateChanStatus request to the given node.
-	sendReq := func(node *lntest.HarnessNode, chanPoint *lnrpc.ChannelPoint,
-		action routerrpc.ChanStatusAction) {
-
-		req := &routerrpc.UpdateChanStatusRequest{
-			ChanPoint: chanPoint,
-			Action:    action,
-		}
-		ht.UpdateChanStatus(node, req)
-	}
-
 	// assertEdgeDisabled ensures that Alice has the correct Disabled state
-	// for given channel.
-	// TODO(yy): refactor such that we can use ht.AssertChannelPolicy?
+	// for given channel from her DescribeGraph.
 	assertEdgeDisabled := func(chanPoint *lnrpc.ChannelPoint,
 		disabled bool) {
 
@@ -116,6 +82,61 @@ func testUpdateChanStatus(ht *lntest.HarnessTest) {
 		require.NoError(ht, err, "assert edge disabled timeout")
 	}
 
+	// sendReq sends an UpdateChanStatus request to the given node.
+	sendReq := func(node *lntest.HarnessNode, chanPoint *lnrpc.ChannelPoint,
+		action routerrpc.ChanStatusAction) {
+
+		req := &routerrpc.UpdateChanStatusRequest{
+			ChanPoint: chanPoint,
+			Action:    action,
+		}
+		ht.UpdateChanStatus(node, req)
+	}
+
+	// Open a channel with 100k satoshis between Alice and Bob with Alice
+	// being the sole funder of the channel.
+	chanAmt := btcutil.Amount(100000)
+	chanPoint := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
+	)
+	defer ht.CloseChannel(alice, chanPoint, false)
+
+	// Initially, the channel between Alice and Bob should not be
+	// disabled.
+	//
+	// NOTE: This check should happen right after the channel openning as
+	// we've used a short timeout value for `--chan-disable-timeout`. If we
+	// wait longer than that we might get a flake saying the channel is
+	// disabled.
+	assertEdgeDisabled(chanPoint, false)
+
+	// Launch a node for Carol which will connect to Alice and Bob in order
+	// to receive graph updates. This will ensure that the channel updates
+	// are propagated throughout the network.
+	carol := ht.NewNode("Carol", nil)
+	defer ht.Shutdown(carol)
+
+	// assertChannelUpdate checks that the required policy update has
+	// been heard in Carol's network.
+	assertChannelUpdate := func(node *lntest.HarnessNode,
+		policy *lnrpc.RoutingPolicy) {
+
+		ht.AssertChannelPolicyUpdate(
+			carol, node, policy, chanPoint, false,
+		)
+	}
+
+	// Connect both Alice and Bob to the new node Carol, so she can sync
+	// her graph.
+	ht.ConnectNodes(alice, carol)
+	ht.ConnectNodes(bob, carol)
+	waitForGraphSync(ht, carol)
+
+	// If the above waitForGraphSync takes more than 4 seconds, the channel
+	// Alice=>Bob will be marked as disabled now. Thus we connect Alice and
+	// Bob again to make sure the channel is alive.
+	ht.EnsureConnected(alice, bob)
+
 	// When updating the state of the channel between Alice and Bob, we
 	// should expect to see channel updates with the default routing
 	// policy. The value of "Disabled" will depend on the specific
@@ -127,13 +148,6 @@ func testUpdateChanStatus(ht *lntest.HarnessTest) {
 		MinHtlc:          1000, // default value
 		MaxHtlcMsat:      calculateMaxHtlc(chanAmt),
 	}
-
-	// Initially, the channel between Alice and Bob should not be
-	// disabled. This check should happen right after the channel openning
-	// as we've used a short timeout value for `--chan-disable-timeout`. If
-	// we wait longer than that we might get a flake saying the channel is
-	// disabled.
-	assertEdgeDisabled(chanPoint, false)
 
 	// Manually disable the channel and ensure that a "Disabled = true"
 	// update is propagated.

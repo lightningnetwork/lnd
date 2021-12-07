@@ -34,12 +34,10 @@ func testMaxHtlcPathfind(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for Alice and Bob to receive the channel edge from the
 	// funding manager.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err := net.Alice.WaitForNetworkChannelOpen(chanPoint)
 	require.NoError(t.t, err, "alice does not have open channel")
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = net.Bob.WaitForNetworkChannelOpen(chanPoint)
 	require.NoError(t.t, err, "bob does not have open channel")
 
 	// Alice and bob should have one channel open with each other now.
@@ -87,7 +85,7 @@ func testMaxHtlcPathfind(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now, we're going to try to send another payment from Bob -> Alice.
 	// We've hit our max remote htlcs, so we expect this payment to spin
 	// out dramatically with pathfinding.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	payment, err := net.Bob.RouterClient.SendPaymentV2(
 		ctxt, &routerrpc.SendPaymentRequest{
 			Amt:            1000,

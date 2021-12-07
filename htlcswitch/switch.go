@@ -2256,9 +2256,14 @@ func (s *Switch) HasActiveLink(chanID lnwire.ChannelID) bool {
 	defer s.indexMtx.RUnlock()
 
 	if link, ok := s.linkIndex[chanID]; ok {
-		return link.EligibleToForward()
+		eligible := link.EligibleToForward()
+		log.Tracef("ChannelID(%v) found in link index, eligible=%v ",
+			chanID, eligible)
+
+		return eligible
 	}
 
+	log.Debugf("ChannelID(%v) not found in link index", chanID)
 	return false
 }
 

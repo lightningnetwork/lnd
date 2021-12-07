@@ -156,6 +156,11 @@ func NewChanStatusManager(cfg *ChanStatusConfig) (*ChanStatusManager, error) {
 
 	}
 
+	log.Debugf("Created ChanStatusManager with: ChanEnableTimeout=%v, "+
+		"ChanDisableTimeout=%s, ChanStatusSampleInterval=%s",
+		cfg.ChanEnableTimeout, cfg.ChanDisableTimeout,
+		cfg.ChanStatusSampleInterval)
+
 	return &ChanStatusManager{
 		cfg:                cfg,
 		ourPubKeyBytes:     cfg.OurPubKey.SerializeCompressed(),
@@ -395,6 +400,8 @@ func (m *ChanStatusManager) processEnableRequest(outpoint wire.OutPoint,
 
 	// Channel is already enabled, nothing to do.
 	case ChanStatusEnabled:
+		log.Debugf("Channel(%v) already enabled, no action taken",
+			outpoint)
 		return nil
 
 	// The channel is enabled, though we are now canceling the scheduled
@@ -405,13 +412,17 @@ func (m *ChanStatusManager) processEnableRequest(outpoint wire.OutPoint,
 
 	// We'll sign a new update if the channel is still disabled.
 	case ChanStatusManuallyDisabled:
+		log.Debugf("Channel(%v) is manually disabled, manual=%v",
+			outpoint, manual)
+
 		if !manual {
 			return ErrEnableManuallyDisabledChan
 		}
 		fallthrough
 
 	case ChanStatusDisabled:
-		log.Infof("Announcing channel(%v) enabled", outpoint)
+		log.Infof("Announcing requested channel(%v) enable, manual=%v",
+			outpoint, manual)
 
 		err := m.signAndSendNextUpdate(outpoint, false)
 		if err != nil {
@@ -441,8 +452,8 @@ func (m *ChanStatusManager) processDisableRequest(outpoint wire.OutPoint,
 
 	status := curState.Status
 	if status == ChanStatusEnabled || status == ChanStatusPendingDisabled {
-		log.Infof("Announcing channel(%v) disabled [requested]",
-			outpoint)
+		log.Infof("Announcing requested channel(%v) disable, manual=%v",
+			outpoint, manual)
 
 		err := m.signAndSendNextUpdate(outpoint, true)
 		if err != nil {

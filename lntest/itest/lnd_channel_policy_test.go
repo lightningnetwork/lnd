@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -410,50 +411,30 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 // testSendUpdateDisableChannel ensures that a channel update with the disable
 // flag set is sent once a channel has been either unilaterally or cooperatively
 // closed.
+//
+// NOTE: this test can be flaky as we are testing the chan-enable-timeout and
+// chan-disable-timeout flags here. For instance, if some operations take more
+// than 6 seconds to finish, the channel will be marked as disabled, thus a
+// following operation will fail if it relies on the channel being enabled.
 func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
-	const (
-		chanAmt = 100000
-	)
+	const chanAmt = 100000
 
-	nodeCfg := []string{
-		"--minbackoff=10s",
-		"--chan-enable-timeout=1.5s",
-		"--chan-disable-timeout=3s",
-		"--chan-status-sample-interval=.5s",
-	}
 	alice, bob := ht.Alice, ht.Bob
 
-	carol := ht.NewNode("Carol", nodeCfg)
-	defer ht.Shutdown(carol)
+	// Create a new node Eve, which will be restarted later with a config
+	// that has an inactive channel timeout of just 6 seconds (down from
+	// the default 20m). It will be used to test channel updates for
+	// channels going inactive.
+	//
+	// NOTE: we don't create Eve with the chan-disable-timeout here because
+	// the following channel openings might take longer than that timeout
+	// value, which will cause the channel Eve=>Carol being marked as
+	// disabled.
+	eve := ht.NewNode("Eve", nil)
 
-	ht.ConnectNodes(alice, carol)
-
-	// Open a channel between Alice and Bob and Alice and Carol. These will
-	// be closed later on in order to trigger channel update messages
-	// marking the channels as disabled.
-	chanPointAliceBob := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
-	)
-	chanPointAliceCarol := ht.OpenChannel(
-		alice, carol, lntest.OpenChannelParams{Amt: chanAmt},
-	)
-
-	// We create a new node Eve that has an inactive channel timeout of
-	// just 2 seconds (down from the default 20m). It will be used to test
-	// channel updates for channels going inactive.
-	eve := ht.NewNode("Eve", nodeCfg)
-	defer ht.Shutdown(eve)
-
-	// Give Eve some coins.
-	ht.SendCoins(btcutil.SatoshiPerBitcoin, eve)
-
-	// Connect Eve to Carol and Bob, and open a channel to carol.
-	ht.ConnectNodes(eve, carol)
-	ht.ConnectNodes(eve, bob)
-
-	chanPointEveCarol := ht.OpenChannel(
-		eve, carol, lntest.OpenChannelParams{Amt: chanAmt},
-	)
+	// Create a new node Carol, which will later be restarted with the same
+	// config as Eve's.
+	carol := ht.NewNode("Carol", nil)
 
 	// Launch a node for Dave which will connect to Bob in order to receive
 	// graph updates from. This will ensure that the channel updates are
@@ -461,7 +442,61 @@ func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
 	dave := ht.NewNode("Dave", nil)
 	defer ht.Shutdown(dave)
 
+	// We will start our test by creating the following topology,
+	// Alice --- Bob --- Dave
+	//   |       |
+	// Carol --- Eve
+	ht.EnsureConnected(alice, bob)
+	ht.ConnectNodes(alice, carol)
 	ht.ConnectNodes(bob, dave)
+	ht.ConnectNodes(eve, carol)
+	// Connect Eve and Bob using a persistent connection. Later after Eve
+	// is restarted, they will connect again automatically.
+	ht.ConnectNodesPerm(bob, eve)
+
+	// Give Eve some coins.
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, eve)
+
+	// We now proceed to open channels: Alice=>Bob, Alice=>Carol and
+	// Eve=>Carol.
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: p},
+		{Local: alice, Remote: carol, Param: p},
+		{Local: eve, Remote: carol, Param: p},
+	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+
+	// Extract channel points from the response.
+	chanPointAliceBob := resp[0]
+	chanPointAliceCarol := resp[1]
+	chanPointEveCarol := resp[2]
+
+	// We will use 10 seconds as the disable timeout.
+	chanDisableTimeout := 10
+	chanEnableTimeout := 5
+
+	// waitChanDisabled is a helper closure to wait the chanDisableTimeout
+	// seconds such that the channel disable logic is taking effect.
+	waitChanDisabled := func() {
+		time.Sleep(time.Duration(chanDisableTimeout) * time.Second)
+	}
+
+	// With the channels open, we now restart Carol and Eve to use
+	// customized timeout values.
+	nodeCfg := []string{
+		"--minbackoff=60s",
+		fmt.Sprintf("--chan-enable-timeout=%ds", chanEnableTimeout),
+		fmt.Sprintf("--chan-disable-timeout=%ds", chanDisableTimeout),
+		"--chan-status-sample-interval=.5s",
+	}
+	ht.RestartNodeWithExtraArgs(carol, nodeCfg)
+	ht.RestartNodeWithExtraArgs(eve, nodeCfg)
+
+	// Dave should know all the channels.
+	ht.AssertChannelOpen(dave, chanPointAliceBob)
+	ht.AssertChannelOpen(dave, chanPointAliceCarol)
+	ht.AssertChannelOpen(dave, chanPointEveCarol)
 
 	// We should expect to see a channel update with the default routing
 	// policy, except that it should indicate the channel is disabled.
@@ -477,24 +512,34 @@ func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
 	// assertPolicyUpdate checks that the required policy update has
 	// happened on the given node.
 	assertPolicyUpdate := func(node *lntest.HarnessNode,
-		policy *lnrpc.RoutingPolicy, chanPoint *lnrpc.ChannelPoint) {
+		policy *lnrpc.RoutingPolicy, chanPoint *lnrpc.ChannelPoint,
+		numUpdates int) {
 
-		require.NoError(ht, dave.WaitForChannelPolicyUpdate(
-			node, policy, chanPoint, false,
-		), "error while waiting for channel update")
+		ht.AssertNumPolicyUpdates(dave, chanPoint, node, numUpdates)
+		ht.AssertChannelPolicyUpdate(
+			dave, node, policy, chanPoint, false,
+		)
 	}
 
-	// Let Carol go offline. Since Eve has an inactive timeout of 2s, we
+	// Let Carol go offline. Since Eve has an inactive timeout of 6s, we
 	// expect her to send an update disabling the channel.
 	restartCarol := ht.SuspendNode(carol)
-	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol)
+
+	// We expect to see a total of 2 channel policy updates from the
+	// channel Carol <-> Eve and advertised by Eve using the route
+	// Eve->Bob->Dave.
+	waitChanDisabled()
+	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol, 2)
 
 	// We restart Carol. Since the channel now becomes active again, Eve
 	// should send a ChannelUpdate setting the channel no longer disabled.
 	require.NoError(ht, restartCarol(), "unable to restart carol")
 
 	expectedPolicy.Disabled = false
-	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol)
+	// We expect to see a total of 3 channel policy updates from the
+	// channel Carol <-> Eve and advertised by Eve using the route
+	// Eve->Bob->Dave.
+	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol, 3)
 
 	// Wait until Carol and Eve are reconnected before we disconnect them
 	// again.
@@ -507,22 +552,54 @@ func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
 
 	// Wait for a disable from both Carol and Eve to come through.
 	expectedPolicy.Disabled = true
-	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol)
-	assertPolicyUpdate(carol, expectedPolicy, chanPointEveCarol)
+	// We expect to see a total of 4 channel policy updates from the
+	// channel Carol <-> Eve and advertised by Eve using the route
+	// Eve->Bob->Dave.
+	waitChanDisabled()
+	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol, 4)
+
+	// Because Carol has restarted twice before, depending on how much time
+	// it has taken, she might mark the channel disabled and enable it
+	// multiple times.  Thus we could see a total of 2 or 4 or 6 channel
+	// policy updates from the channel Carol <-> Eve and advertised by
+	// Carol using the route Carol->Alice->Bob->Dave.
+	//
+	// Assume there are 2 channel policy updates from Carol, and update it
+	// if more has found
+	numCarol := 2
+	op := ht.OutPointFromChannelPoint(chanPointEveCarol)
+	policyMap := dave.GetPolicyUpdates(op)
+	nodePolicy, ok := policyMap[carol.PubKeyStr]
+	switch {
+	case !ok:
+		break
+	case len(nodePolicy) > 2:
+		numCarol = 4
+	case len(nodePolicy) > 4:
+		numCarol = 6
+	}
+	assertPolicyUpdate(carol, expectedPolicy, chanPointEveCarol, numCarol)
 
 	// Reconnect Carol and Eve, this should cause them to reenable the
 	// channel from both ends after a short delay.
 	ht.EnsureConnected(carol, eve)
 
 	expectedPolicy.Disabled = false
-	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol)
-	assertPolicyUpdate(carol, expectedPolicy, chanPointEveCarol)
+	// We expect to see a total of 5 channel policy updates from the
+	// channel Carol <-> Eve and advertised by Eve using the route
+	// Eve->Bob->Dave.
+	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol, 5)
+	// We expect to see a total of 3 or 5 channel policy updates from the
+	// channel Carol <-> Eve and advertised by Carol using the route
+	// Carol->Alice->Bob->Dave.
+	numCarol++
+	assertPolicyUpdate(carol, expectedPolicy, chanPointEveCarol, numCarol)
 
 	// Now we'll test a short disconnection. Disconnect Carol and Eve, then
 	// reconnect them after one second so that their scheduled disables are
 	// aborted. One second is twice the status sample interval, so this
 	// should allow for the disconnect to be detected, but still leave time
-	// to cancel the announcement before the 3 second inactive timeout is
+	// to cancel the announcement before the 6 second inactive timeout is
 	// hit.
 	ht.DisconnectNodes(carol, eve)
 	time.Sleep(time.Second)
@@ -531,8 +608,8 @@ func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
 	// Since the disable should have been canceled by both Carol and Eve,
 	// we expect no channel updates to appear on the network, which means
 	// we expect the polices stay unchanged(Disable == false).
-	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol)
-	assertPolicyUpdate(carol, expectedPolicy, chanPointEveCarol)
+	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol, 5)
+	assertPolicyUpdate(carol, expectedPolicy, chanPointEveCarol, numCarol)
 
 	// Close Alice's channels with Bob and Carol cooperatively and
 	// unilaterally respectively. Note that the CloseChannel will mine a
@@ -544,12 +621,22 @@ func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
 	// Now that the channel close processes have been started, we should
 	// receive an update marking each as disabled.
 	expectedPolicy.Disabled = true
-	assertPolicyUpdate(alice, expectedPolicy, chanPointAliceBob)
-	assertPolicyUpdate(alice, expectedPolicy, chanPointAliceCarol)
+	// We expect to see a total of 2 channel policy updates from the
+	// channel Alice <-> Bob and advertised by Alice using the route
+	// Alice->Bob->Dave.
+	assertPolicyUpdate(alice, expectedPolicy, chanPointAliceBob, 2)
+	// We expect to see a total of 2 channel policy updates from the
+	// channel Alice <-> Carol and advertised by Alice using the route
+	// Alice->Bob->Dave.
+	assertPolicyUpdate(alice, expectedPolicy, chanPointAliceCarol, 2)
 
 	// Also do this check for Eve's channel with Carol.
 	ht.CloseChannel(eve, chanPointEveCarol, false)
-	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol)
+
+	// We expect to see a total of 5 channel policy updates from the
+	// channel Carol <-> Eve and advertised by Eve using the route
+	// Eve->Bob->Dave.
+	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol, 6)
 
 	// And finally, clean up the force closed channel by mining the
 	// sweeping transaction.

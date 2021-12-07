@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -1080,6 +1081,40 @@ func (h *HarnessTest) AssertNumNodeAnns(hn *HarnessNode,
 	// to our expected number of newly created channel updates.
 	err := hn.WaitForNetworkNumNodeUpdates(pubkey, num)
 	require.NoError(h, err, "failed to assert num of channel updates")
+}
+
+// AssertNumPolicyUpdates asserts that a given number of channel policy updates
+// has been seen in the specified node.
+func (h *HarnessTest) AssertNumPolicyUpdates(hn *HarnessNode,
+	chanPoint *lnrpc.ChannelPoint, advertisingNode *HarnessNode, num int) {
+
+	op := h.OutPointFromChannelPoint(chanPoint)
+
+	var policies []*PolicyUpdate
+
+	err := wait.NoError(func() error {
+		policyMap := hn.GetPolicyUpdates(op)
+		nodePolicy, ok := policyMap[advertisingNode.PubKeyStr]
+		if ok {
+			policies = nodePolicy
+		}
+
+		if len(policies) == num {
+			return nil
+		}
+
+		p, err := json.MarshalIndent(policies, "", "\t")
+		require.NoError(h, err, "encode policy err")
+
+		return fmt.Errorf("expected to find %d policy updates, "+
+			"instead got: %d, chanPoint: %v, "+
+			"advertisingNode: %s:%s, policy: %s", num,
+			len(policies), op, advertisingNode.Name(),
+			advertisingNode.PubKeyStr, p)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "%s: timeout waiting for num of policy updates",
+		hn.Name())
 }
 
 // AssertChannelClosedFromGraph asserts a given channel is closed by checking

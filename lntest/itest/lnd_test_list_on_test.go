@@ -6,6 +6,43 @@ package itest
 import "github.com/lightningnetwork/lnd/lntest"
 
 var allTestCases = []*lntest.TestCase{
+	// Channel graph and policy related tests.
+	{
+		Name:     "send update disable channel",
+		TestFunc: testSendUpdateDisableChannel,
+	},
+	{
+		Name:     "update channel status",
+		TestFunc: testUpdateChanStatus,
+	},
+	{
+		Name:     "update channel policy",
+		TestFunc: testUpdateChannelPolicy,
+	},
+	{
+		Name:     "private channel update policy",
+		TestFunc: testUpdateChannelPolicyForPrivateChannel,
+	},
+	{
+		Name:     "funding flow persistence",
+		TestFunc: testChannelFundingPersistence,
+	},
+	{
+		Name:     "unannounced channels",
+		TestFunc: testUnannouncedChannels,
+	},
+	{
+		Name:     "graph topology notifications",
+		TestFunc: testGraphTopologyNotifications,
+	},
+	{
+		Name:     "node announcement",
+		TestFunc: testNodeAnnouncement,
+	},
+	{
+		Name:     "update node announcement rpc",
+		TestFunc: testUpdateNodeAnnouncement,
+	},
 
 	// Recovery related tests.
 	{
@@ -52,22 +89,6 @@ var allTestCases = []*lntest.TestCase{
 	},
 
 	// Channel Policy related tests.
-	{
-		Name:     "update channel policy",
-		TestFunc: testUpdateChannelPolicy,
-	},
-	{
-		Name:     "private channel update policy",
-		TestFunc: testUpdateChannelPolicyForPrivateChannel,
-	},
-	{
-		Name:     "send update disable channel",
-		TestFunc: testSendUpdateDisableChannel,
-	},
-	{
-		Name:     "funding flow persistence",
-		TestFunc: testChannelFundingPersistence,
-	},
 	{
 		Name:     "update channel policy fee rate accuracy",
 		TestFunc: testUpdateChannelPolicyFeeRateAccuracy,
@@ -195,28 +216,6 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "REST API",
 		TestFunc: testRestAPI,
-	},
-
-	// Channel graph related tests.
-	{
-		Name:     "update channel status",
-		TestFunc: testUpdateChanStatus,
-	},
-	{
-		Name:     "unannounced channels",
-		TestFunc: testUnannouncedChannels,
-	},
-	{
-		Name:     "graph topology notifications",
-		TestFunc: testGraphTopologyNotifications,
-	},
-	{
-		Name:     "node announcement",
-		TestFunc: testNodeAnnouncement,
-	},
-	{
-		Name:     "update node announcement rpc",
-		TestFunc: testUpdateNodeAnnouncement,
 	},
 
 	// Close channel related tests.

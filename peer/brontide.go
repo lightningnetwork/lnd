@@ -2176,6 +2176,9 @@ func (p *Brontide) channelManager() {
 	// updates and broadcast them with the "disabled" flag unset.
 	reenableTimeout := time.After(p.cfg.ChanActiveTimeout)
 
+	peerLog.Debugf("Re-enable timeout is set to %v",
+		p.cfg.ChanActiveTimeout)
+
 out:
 	for {
 		select {

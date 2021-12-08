@@ -17,9 +17,16 @@
 * [Add json flag to
   trackpayment](https://github.com/lightningnetwork/lnd/pull/6060)
 
+## RPC Server
+
+* [ChanStatusFlags is now
+  exposed](https://github.com/lightningnetwork/lnd/pull/5971) inside
+  WaitingCloseResp from calling `PendingChannels`.
+
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath
 * Harsha Goli
 * Naveen Srinivasan
 * Oliver Gugger
+* Yong Yu

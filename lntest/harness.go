@@ -1525,3 +1525,94 @@ func (h *HarnessTest) sendCoins(amt btcutil.Amount, target *HarnessNode,
 	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
 	return target.WaitForBalance(expectedBalance, true)
 }
+
+// OpenChannelRequest is used to open a channel using the method
+// OpenMultiChannelsAsync.
+type OpenChannelRequest struct {
+	// Local is the funding node.
+	Local *HarnessNode
+
+	// Remote is the receiving node.
+	Remote *HarnessNode
+
+	// Param is the open channel params.
+	Param OpenChannelParams
+
+	// stream is the client created after calling OpenChannel RPC.
+	stream OpenChanClient
+
+	// result is a channel used to send the channel point once the funding
+	// has succeeded.
+	result chan *lnrpc.ChannelPoint
+}
+
+// OpenMultiChannelsAsync takes a list of OpenChannelRequest and opens them in
+// batch. The channel points are returned in same the order of the requests
+// once all of the channel open succeeded.
+//
+// NOTE: compared to open multiple channel sequentially, this method will be
+// faster as it doesn't need to mine 6 blocks for each channel open. However,
+// it does make debugging the logs more difficult as messages are interwined.
+func (h *HarnessTest) OpenMultiChannelsAsync(
+	reqs []*OpenChannelRequest) []*lnrpc.ChannelPoint {
+
+	// assertChannelOpen is a helper closure that asserts a channel being
+	// open inside a goroutine.
+	assertChannelOpen := func(stream OpenChanClient,
+		a, b *HarnessNode, chanPoint chan *lnrpc.ChannelPoint) {
+
+		go func() {
+			cp := h.WaitForChannelOpen(stream)
+
+			// Check that both alice and bob have seen the channel
+			// from their channel watch request.
+			h.AssertChannelOpen(a, cp)
+			h.AssertChannelOpen(b, cp)
+
+			// Finally, check that the channel can be seen in their
+			// ListChannels.
+			h.AssertChannelExists(a, cp)
+			h.AssertChannelExists(b, cp)
+
+			chanPoint <- cp
+		}()
+	}
+
+	// Go through the requests and make the OpenChannel RPC call.
+	for _, req := range reqs {
+		stream := h.OpenChannelStreamAndAssert(
+			req.Local, req.Remote, req.Param,
+		)
+		req.stream = stream
+		req.result = make(chan *lnrpc.ChannelPoint, 1)
+	}
+
+	// Once the RPC calls are sent, we fire goroutines for each of the
+	// request to watch for the channel openning. They won't succeed until
+	// the required blocks are mined.
+	for _, r := range reqs {
+		assertChannelOpen(r.stream, r.Local, r.Remote, r.result)
+	}
+
+	// Mine 6 blocks so all the public channels are announced to the
+	// network. We expect to see len(reqs) funding transactions in the
+	// mempool.
+	h.MineBlocksAndAssertTx(6, len(reqs))
+
+	// Finally, collect the results.
+	channelPoints := make([]*lnrpc.ChannelPoint, 0)
+	for _, r := range reqs {
+		select {
+		case cp := <-r.result:
+			channelPoints = append(channelPoints, cp)
+		case <-time.After(ChannelOpenTimeout):
+			require.Fail(h, "wait channel point timeout")
+		}
+	}
+
+	// Assert that we have the expected num of channel points.
+	require.Len(h, channelPoints, len(reqs),
+		"returned channel points not match")
+
+	return channelPoints
+}

@@ -211,7 +211,7 @@ func runAsyncPayments(ht *lntest.HarnessTest, alice, bob *lntest.HarnessNode) {
 	}
 
 	// Wait until all the payments have settled.
-	timer := time.After(lntest.AsyncBenchmarkTimeout)
+	timer := time.After(lntest.AsyncBenchmarkTimeout * 2)
 	for i := 0; i < numInvoices; i++ {
 		select {
 		case <-settled:
@@ -309,7 +309,7 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 			stream := ht.SendPayment(node, req)
 			ht.AssertPaymentStatusWithTimeout(
 				stream, lnrpc.Payment_SUCCEEDED,
-				lntest.AsyncBenchmarkTimeout,
+				lntest.AsyncBenchmarkTimeout*2,
 			)
 
 			settled <- struct{}{}
@@ -322,7 +322,7 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 	}
 
 	// Expect all payments to succeed.
-	timer := time.After(lntest.AsyncBenchmarkTimeout)
+	timer := time.After(lntest.AsyncBenchmarkTimeout * 6)
 	for i := 0; i < 2*numInvoices; i++ {
 		select {
 		case <-settled:

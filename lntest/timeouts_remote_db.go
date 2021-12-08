@@ -12,7 +12,7 @@ const (
 
 	// ChannelOpenTimeout is the max time we will wait before a channel to
 	// be considered opened.
-	ChannelOpenTimeout = time.Second * 30
+	ChannelOpenTimeout = time.Second * 120
 
 	// ChannelCloseTimeout is the max time we will wait before a channel is
 	// considered closed.
@@ -20,13 +20,13 @@ const (
 
 	// DefaultTimeout is a timeout that will be used for various wait
 	// scenarios where no custom timeout value is defined.
-	DefaultTimeout = time.Second * 30
+	DefaultTimeout = time.Second * 60
 
 	// AsyncBenchmarkTimeout is the timeout used when running the async
 	// payments benchmark.
-	AsyncBenchmarkTimeout = 3 * time.Minute
+	AsyncBenchmarkTimeout = time.Minute * 5
 
 	// NodeStartTimeout is the timeout value when waiting for a node to
 	// become fully started.
-	NodeStartTimeout = time.Second * 60
+	NodeStartTimeout = time.Second * 120
 )

@@ -884,7 +884,19 @@ func (hn *HarnessNode) initLightningClient() error {
 	// Launch the watcher that will hook into graph related topology change
 	// from the PoV of this node.
 	hn.wg.Add(1)
-	go hn.lightningNetworkWatcher()
+	started := make(chan error, 1)
+	go hn.lightningNetworkWatcher(started)
+
+	select {
+	case err := <-started:
+		if err != nil {
+			return fmt.Errorf("create topology client stream "+
+				"got err: %v", err)
+		}
+
+	case <-time.After(DefaultTimeout):
+		return fmt.Errorf("timeout creating topology client stream")
+	}
 
 	return nil
 }

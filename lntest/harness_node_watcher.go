@@ -272,7 +272,7 @@ func syncMapToJSON(state *sync.Map) ([]byte, error) {
 // closed or opened within the network. In order to dispatch these
 // notifications, the GraphTopologySubscription client exposed as part of the
 // gRPC interface is used.
-func (hn *HarnessNode) lightningNetworkWatcher() {
+func (hn *HarnessNode) lightningNetworkWatcher(started chan error) {
 	defer hn.wg.Done()
 
 	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate)
@@ -281,8 +281,12 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 	hn.wg.Add(1)
 	go func() {
 		defer hn.wg.Done()
-		err := hn.receiveTopologyClientStream(graphUpdates)
 
+		// Create a topology client to receive graph updates.
+		client, err := hn.newTopologyClient(hn.runCtx)
+		started <- err
+
+		err = hn.receiveTopologyClientStream(client, graphUpdates)
 		if err != nil {
 			hn.PrintErrf("receive topology client stream "+
 				"got err:%v", err)
@@ -624,13 +628,8 @@ func (hn *HarnessNode) newTopologyClient(
 //
 // NOTE: must be run as a goroutine.
 func (hn *HarnessNode) receiveTopologyClientStream(
+	client topologyClient,
 	receiver chan *lnrpc.GraphTopologyUpdate) error {
-
-	// Create a topology client to receive graph updates.
-	client, err := hn.newTopologyClient(hn.runCtx)
-	if err != nil {
-		return fmt.Errorf("create topologyClient failed: %w", err)
-	}
 
 	// We use the context to time out when retrying graph subscription.
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)

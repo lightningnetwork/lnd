@@ -661,11 +661,11 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 				"cannot appear together")
 
 		case len(rpcPayReq.PaymentHash) > 0:
-			return nil, errors.New("dest and payment_hash " +
+			return nil, errors.New("payment_hash and payment_request " +
 				"cannot appear together")
 
 		case rpcPayReq.FinalCltvDelta != 0:
-			return nil, errors.New("dest and final_cltv_delta " +
+			return nil, errors.New("final_cltv_delta and payment_request " +
 				"cannot appear together")
 		}
 

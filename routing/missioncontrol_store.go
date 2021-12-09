@@ -82,7 +82,7 @@ func newMissionControlStore(db kvdb.Backend, maxRecords int,
 		// difference when updating the DB state.
 		c := resultsBucket.ReadCursor()
 		for k, _ := c.First(); k != nil; k, _ = c.Next() {
-			keys.PushBack(k)
+			keys.PushBack(string(k))
 			keysMap[string(k)] = struct{}{}
 		}
 
@@ -334,7 +334,7 @@ func (b *missionControlStore) storeResults() error {
 				return err
 			}
 
-			keys.PushBack(k)
+			keys.PushBack(string(k))
 			keysMap[string(k)] = struct{}{}
 		}
 
@@ -345,14 +345,14 @@ func (b *missionControlStore) storeResults() error {
 			}
 
 			front := keys.Front()
-			key := front.Value.([]byte)
+			key := front.Value.(string)
 
-			if err := bucket.Delete(key); err != nil {
+			if err := bucket.Delete([]byte(key)); err != nil {
 				return err
 			}
 
 			keys.Remove(front)
-			delete(keysMap, string(key))
+			delete(keysMap, key)
 		}
 
 		return nil

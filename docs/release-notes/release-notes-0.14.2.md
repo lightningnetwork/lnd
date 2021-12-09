@@ -22,6 +22,9 @@
 * [Add json flag to
   trackpayment](https://github.com/lightningnetwork/lnd/pull/6060)
 
+* [Fix memory corruption in Mission Control
+  Store](https://github.com/lightningnetwork/lnd/pull/6068)
+
 ## RPC Server
 
 * [ChanStatusFlags is now

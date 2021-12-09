@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"bytes"
 	"crypto/rand"
 	"fmt"
 	"io/ioutil"
@@ -165,7 +164,7 @@ func testSphinxReplayPersistence(ht *lntest.HarnessTest) {
 	// expects a payment of 1000 satoshis from Carol paid via a particular
 	// preimage.
 	const paymentAmt = 1000
-	preimage := bytes.Repeat([]byte("A"), 32)
+	preimage := ht.Random32Bytes()
 	invoice := &lnrpc.Invoice{
 		Memo:      "testing",
 		RPreimage: preimage,
@@ -197,6 +196,11 @@ func testSphinxReplayPersistence(ht *lntest.HarnessTest) {
 	// have changed.
 	ht.AssertAmountPaid("carol => dave", carol, chanPoint, 0, 0)
 	ht.AssertAmountPaid("dave <= carol", dave, chanPoint, 0, 0)
+
+	// Before we restart Dave, make sure both Carol and Dave have added the
+	// HTCL.
+	ht.AssertNumActiveHtlcs(carol, 2)
+	ht.AssertNumActiveHtlcs(dave, 1)
 
 	// With the first payment sent, restart dave to make sure he is
 	// persisting the information required to detect replayed sphinx

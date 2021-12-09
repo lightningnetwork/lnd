@@ -43,6 +43,9 @@
 * [Ensure that the min relay fee is always clamped by our fee
   floor](https://github.com/lightningnetwork/lnd/pull/6076)
 
+* [Clarify invalid config timeout
+  constraints](https://github.com/lightningnetwork/lnd/pull/6073)
+
 ## RPC Server
 
 * [ChanStatusFlags is now

@@ -30,6 +30,8 @@
 
 * [Add json flag to
   trackpayment](https://github.com/lightningnetwork/lnd/pull/6060)
+* [Clarify invalid config timeout
+  constraints](https://github.com/lightningnetwork/lnd/pull/6073)
 
 * [Fix memory corruption in Mission Control
   Store](https://github.com/lightningnetwork/lnd/pull/6068)

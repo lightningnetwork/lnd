@@ -23,8 +23,10 @@ func (m *mockChainBackend) fetchFee() (SatPerKWeight, error) {
 func TestMinFeeManager(t *testing.T) {
 	t.Parallel()
 
+	// Initialize the mock backend and let it have a minimum fee rate
+	// below our fee floor.
 	chainBackend := &mockChainBackend{
-		minFee: SatPerKWeight(1000),
+		minFee: FeePerKwFloor - 1,
 	}
 
 	// Initialise the min fee manager. This should call the chain backend
@@ -36,11 +38,14 @@ func TestMinFeeManager(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, chainBackend.callCount)
 
+	// Check that the minimum fee rate is clamped by our fee floor.
+	require.Equal(t, feeManager.minFeePerKW, FeePerKwFloor)
+
 	// If the fee is requested again, the stored fee should be returned
 	// and the chain backend should not be queried.
 	chainBackend.minFee = SatPerKWeight(2000)
 	minFee := feeManager.fetchMinFee()
-	require.Equal(t, minFee, SatPerKWeight(1000))
+	require.Equal(t, minFee, FeePerKwFloor)
 	require.Equal(t, 1, chainBackend.callCount)
 
 	// Fake the passing of time.

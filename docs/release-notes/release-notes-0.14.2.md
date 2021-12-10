@@ -34,6 +34,15 @@
 * [Fix memory corruption in Mission Control
   Store](https://github.com/lightningnetwork/lnd/pull/6068)
 
+* [Clarify invalid config timeout
+  constraints](https://github.com/lightningnetwork/lnd/pull/6073)
+
+* [Fix memory corruption in Mission Control
+  Store](https://github.com/lightningnetwork/lnd/pull/6068)
+ 
+* [Ensure that the min relay fee is always clamped by our fee
+  floor](https://github.com/lightningnetwork/lnd/pull/6076)
+
 ## RPC Server
 
 * [ChanStatusFlags is now
@@ -52,6 +61,7 @@
 
 * Andras Banki-Horvath
 * Bjarne Magnussen
+* Elle Mouton
 * Harsha Goli
 * Martin Habovštiak
 * Naveen Srinivasan

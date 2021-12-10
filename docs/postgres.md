@@ -34,4 +34,4 @@ db.backend=postgres
 db.postgres.dsn=postgresql://dbuser:dbpass@127.0.0.1:5432/dbname
 db.postgres.timeout=0
 ```
-Connection timeout is disabled, as per https://github.com/lightningnetwork/lnd/pull/5982#discussion_r760810401
+Connection timeout is disabled, to account for situations where database might be slow for unexpected reasons.

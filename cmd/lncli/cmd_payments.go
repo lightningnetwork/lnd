@@ -94,12 +94,6 @@ var (
 		Usage: "if set to true, then AMP will be used to complete the " +
 			"payment",
 	}
-
-	ampReuseFlag = cli.BoolFlag{
-		Name: "amp-reuse",
-		Usage: "if set to true, then a random payment address will " +
-			"be generated to enable re-use of an AMP invoice",
-	}
 )
 
 // paymentFlags returns common flags for sendpayment and payinvoice.
@@ -145,7 +139,6 @@ func paymentFlags() []cli.Flag {
 		},
 		dataFlag, inflightUpdatesFlag, maxPartsFlag, jsonFlag,
 		maxShardSizeSatFlag, maxShardSizeMsatFlag, ampFlag,
-		ampReuseFlag,
 	}
 }
 
@@ -252,15 +245,6 @@ func parsePayAddr(ctx *cli.Context) ([]byte, error) {
 	case ctx.IsSet("pay_addr"):
 		payAddr, err = hex.DecodeString(ctx.String("pay_addr"))
 
-	case ctx.IsSet(ampReuseFlag.Name):
-		var addrBytes [32]byte
-		if _, err := rand.Read(addrBytes[:]); err != nil {
-			return nil, fmt.Errorf("unable to generate pay "+
-				"addr: %v", err)
-		}
-
-		payAddr = addrBytes[:]
-
 	case ctx.Args().Present():
 		payAddr, err = hex.DecodeString(ctx.Args().First())
 	}
@@ -291,8 +275,9 @@ func sendPayment(ctx *cli.Context) error {
 	// details of the payment are encoded within the request.
 	if ctx.IsSet("pay_req") {
 		req := &routerrpc.SendPaymentRequest{
-			PaymentRequest: ctx.String("pay_req"),
-			Amt:            ctx.Int64("amt"),
+			PaymentRequest:    ctx.String("pay_req"),
+			Amt:               ctx.Int64("amt"),
+			DestCustomRecords: make(map[uint64][]byte),
 		}
 
 		// We'll attempt to parse a payment address as well, given that
@@ -571,7 +556,10 @@ var trackPaymentCommand = cli.Command{
 	specified by the hash argument.
 	`,
 	ArgsUsage: "hash",
-	Action:    actionDecorator(trackPayment),
+	Flags: []cli.Flag{
+		jsonFlag,
+	},
+	Action: actionDecorator(trackPayment),
 }
 
 func trackPayment(ctx *cli.Context) error {

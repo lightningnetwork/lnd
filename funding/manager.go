@@ -1274,14 +1274,22 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// the remote peer are signaling the proper feature bit if we're using
 	// implicit negotiation, and simply the channel type sent over if we're
 	// using explicit negotiation.
-	commitType, err := negotiateCommitmentType(
+	wasExplicit, commitType, err := negotiateCommitmentType(
 		msg.ChannelType, peer.LocalFeatures(), peer.RemoteFeatures(),
+		false,
 	)
 	if err != nil {
 		// TODO(roasbeef): should be using soft errors
 		log.Errorf("channel type negotiation failed: %v", err)
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
 		return
+	}
+
+	// Only echo back a channel type in AcceptChannel if we actually used
+	// explicit negotiation above.
+	var chanTypeFeatureBits *lnwire.ChannelType
+	if wasExplicit {
+		chanTypeFeatureBits = msg.ChannelType
 	}
 
 	chainHash := chainhash.Hash(msg.ChainHash)
@@ -1520,7 +1528,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		HtlcPoint:             ourContribution.HtlcBasePoint.PubKey,
 		FirstCommitmentPoint:  ourContribution.FirstCommitmentPoint,
 		UpfrontShutdownScript: ourContribution.UpfrontShutdown,
-		ChannelType:           msg.ChannelType,
+		ChannelType:           chanTypeFeatureBits,
 		LeaseExpiry:           msg.LeaseExpiry,
 	}
 
@@ -1587,9 +1595,36 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 			}
 		}
 	} else if msg.ChannelType != nil {
-		err := errors.New("received unexpected channel type")
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
-		return
+		// The spec isn't too clear about whether it's okay to set the
+		// channel type in the accept_channel response if we didn't
+		// explicitly set it in the open_channel message. For now, let's
+		// just log the problem instead of failing the funding flow.
+		implicitChannelType := implicitNegotiateCommitmentType(
+			peer.LocalFeatures(), peer.RemoteFeatures(),
+		)
+
+		// We pass in false here as the funder since at this point, we
+		// didn't set a chan type ourselves, so falling back to
+		// implicit funding is acceptable.
+		_, negotiatedChannelType, err := negotiateCommitmentType(
+			msg.ChannelType, peer.LocalFeatures(),
+			peer.RemoteFeatures(), false,
+		)
+		if err != nil {
+			err := errors.New("received unexpected channel type")
+			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			return
+		}
+
+		// Even though we don't expect a channel type to be set when we
+		// didn't send one in the first place, we check that it's the
+		// same type we'd have arrived through implicit negotiation. If
+		// it's another type, we fail the flow.
+		if implicitChannelType != negotiatedChannelType {
+			err := errors.New("negotiated unexpected channel type")
+			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			return
+		}
 	}
 
 	// The required number of confirmations should not be greater than the
@@ -3223,9 +3258,9 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// Before we init the channel, we'll also check to see what commitment
 	// format we can use with this peer. This is dependent on *both* us and
 	// the remote peer are signaling the proper feature bit.
-	commitType, err := negotiateCommitmentType(
+	_, commitType, err := negotiateCommitmentType(
 		msg.ChannelType, msg.Peer.LocalFeatures(),
-		msg.Peer.RemoteFeatures(),
+		msg.Peer.RemoteFeatures(), true,
 	)
 	if err != nil {
 		log.Errorf("channel type negotiation failed: %v", err)

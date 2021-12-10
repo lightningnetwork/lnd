@@ -612,8 +612,17 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 	// We'll also fetch the historical state of this channel, as it should
 	// have been marked as closed by now, and supplement it to each resolver
 	// such that we can properly resolve our pending contracts.
-	chanState, err := c.cfg.FetchHistoricalChannel()
-	if err != nil {
+	var chanState *channeldb.OpenChannel
+	chanState, err = c.cfg.FetchHistoricalChannel()
+	switch {
+	// If we don't find this channel, then it may be the case that it
+	// was closed before we started to retain the final state
+	// information for open channels.
+	case err == channeldb.ErrChannelNotFound:
+		log.Warnf("ChannelArbitrator(%v): unable to fetch historical "+
+			"state", c.cfg.ChanPoint)
+
+	case err != nil:
 		return err
 	}
 
@@ -621,7 +630,9 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 		"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
 
 	for _, resolver := range unresolvedContracts {
-		resolver.SupplementState(chanState)
+		if chanState != nil {
+			resolver.SupplementState(chanState)
+		}
 
 		htlcResolver, ok := resolver.(htlcContractResolver)
 		if !ok {
@@ -1930,8 +1941,17 @@ func (c *ChannelArbitrator) prepContractResolutions(
 	// We'll also fetch the historical state of this channel, as it should
 	// have been marked as closed by now, and supplement it to each resolver
 	// such that we can properly resolve our pending contracts.
-	chanState, err := c.cfg.FetchHistoricalChannel()
-	if err != nil {
+	var chanState *channeldb.OpenChannel
+	chanState, err = c.cfg.FetchHistoricalChannel()
+	switch {
+	// If we don't find this channel, then it may be the case that it
+	// was closed before we started to retain the final state
+	// information for open channels.
+	case err == channeldb.ErrChannelNotFound:
+		log.Warnf("ChannelArbitrator(%v): unable to fetch historical "+
+			"state", c.cfg.ChanPoint)
+
+	case err != nil:
 		return nil, nil, err
 	}
 
@@ -2040,7 +2060,9 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				resolver := newTimeoutResolver(
 					resolution, height, htlc, resolverCfg,
 				)
-				resolver.SupplementState(chanState)
+				if chanState != nil {
+					resolver.SupplementState(chanState)
+				}
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 
@@ -2097,7 +2119,9 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				resolver := newOutgoingContestResolver(
 					resolution, height, htlc, resolverCfg,
 				)
-				resolver.SupplementState(chanState)
+				if chanState != nil {
+					resolver.SupplementState(chanState)
+				}
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 		}
@@ -2111,7 +2135,9 @@ func (c *ChannelArbitrator) prepContractResolutions(
 			*contractResolutions.CommitResolution, height,
 			c.cfg.ChanPoint, resolverCfg,
 		)
-		resolver.SupplementState(chanState)
+		if chanState != nil {
+			resolver.SupplementState(chanState)
+		}
 		htlcResolvers = append(htlcResolvers, resolver)
 	}
 

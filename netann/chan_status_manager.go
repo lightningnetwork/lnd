@@ -21,9 +21,9 @@ var (
 	// ErrInvalidTimeoutConstraints signals that the ChanStatusManager could
 	// not be initialized because the timeouts and sample intervals were
 	// malformed.
-	ErrInvalidTimeoutConstraints = errors.New("active_timeout + " +
-		"sample_interval must be less than or equal to " +
-		"inactive_timeout and be positive integers")
+	ErrInvalidTimeoutConstraints = errors.New("chan-enable-timeout + " +
+		"chan-status-sample-interval must <= chan-disable-timeout " +
+		"and all three chan configs must be positive integers")
 
 	// ErrEnableInactiveChan signals that a request to enable a channel
 	// could not be completed because the channel isn't actually active at

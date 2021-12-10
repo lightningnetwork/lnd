@@ -15,6 +15,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 
 	testCases := []struct {
 		name            string
+		mustBeExplicit  bool
 		channelFeatures *lnwire.RawFeatureVector
 		localFeatures   *lnwire.RawFeatureVector
 		remoteFeatures  *lnwire.RawFeatureVector
@@ -23,6 +24,26 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 	}{
 		{
 			name: "explicit missing remote negotiation feature",
+			channelFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyRequired,
+				lnwire.AnchorsZeroFeeHtlcTxRequired,
+			),
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			),
+			expectsRes: lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx,
+			expectsErr: nil,
+		},
+		{
+			name: "local funder wants explicit, remote doesn't " +
+				"support so fall back",
+			mustBeExplicit: true,
 			channelFeatures: lnwire.NewRawFeatureVector(
 				lnwire.StaticRemoteKeyRequired,
 				lnwire.AnchorsZeroFeeHtlcTxRequired,
@@ -167,13 +188,15 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 					*testCase.channelFeatures,
 				)
 			}
-			localType, err := negotiateCommitmentType(
+			_, localType, err := negotiateCommitmentType(
 				channelType, localFeatures, remoteFeatures,
+				testCase.mustBeExplicit,
 			)
 			require.Equal(t, testCase.expectsErr, err)
 
-			remoteType, err := negotiateCommitmentType(
+			_, remoteType, err := negotiateCommitmentType(
 				channelType, remoteFeatures, localFeatures,
+				testCase.mustBeExplicit,
 			)
 			require.Equal(t, testCase.expectsErr, err)
 
@@ -181,8 +204,14 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				return
 			}
 
-			require.Equal(t, testCase.expectsRes, localType)
-			require.Equal(t, testCase.expectsRes, remoteType)
+			require.Equal(
+				t, testCase.expectsRes, localType,
+				testCase.name,
+			)
+			require.Equal(
+				t, testCase.expectsRes, remoteType,
+				testCase.name,
+			)
 		})
 		if !ok {
 			return

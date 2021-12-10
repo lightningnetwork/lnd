@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/stretchr/testify/require"
 )
 
 type mockSparseConfFeeSource struct {
@@ -163,8 +164,9 @@ func TestSparseConfFeeSource(t *testing.T) {
 // as expected.
 func TestWebAPIFeeEstimator(t *testing.T) {
 	t.Parallel()
-
 	feeFloor := uint32(FeePerKwFloor.FeePerKVByte())
+	testFeeRate := feeFloor * 100
+
 	testCases := []struct {
 		name   string
 		target uint32
@@ -172,11 +174,41 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 		est    uint32
 		err    string
 	}{
-		{"target_below_min", 0, 12345, 12345, "too low, minimum"},
-		{"target_w_too-low_fee", 10, 42, feeFloor, ""},
-		{"API-omitted_target", 2, 0, 0, "web API does not include"},
-		{"valid_target", 20, 54321, 54321, ""},
-		{"valid_target_extrapolated_fee", 25, 0, 54321, ""},
+		{
+			name:   "target_below_min",
+			target: 0,
+			apiEst: 0,
+			est:    0,
+			err:    "too low, minimum",
+		},
+		{
+			name:   "target_w_too-low_fee",
+			target: 100,
+			apiEst: 42,
+			est:    feeFloor,
+			err:    "",
+		},
+		{
+			name:   "API-omitted_target",
+			target: 2,
+			apiEst: 0,
+			est:    testFeeRate,
+			err:    "",
+		},
+		{
+			name:   "valid_target",
+			target: 20,
+			apiEst: testFeeRate,
+			est:    testFeeRate,
+			err:    "",
+		},
+		{
+			name:   "valid_target_extrapolated_fee",
+			target: 25,
+			apiEst: 0,
+			est:    testFeeRate,
+			err:    "",
+		},
 	}
 
 	// Construct mock fee source for the Estimator to pull fees from.
@@ -195,12 +227,10 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 	estimator := NewWebAPIEstimator(feeSource, false)
 
 	// Test that requesting a fee when no fees have been cached fails.
-	_, err := estimator.EstimateFeePerKW(5)
-	if err == nil ||
-		!strings.Contains(err.Error(), "web API does not include") {
-
-		t.Fatalf("expected fee estimation to fail, instead got: %v", err)
-	}
+	feeRate, err := estimator.EstimateFeePerKW(5)
+	require.NoErrorf(t, err, "expected no error")
+	require.Equalf(t, FeePerKwFloor, feeRate, "expected fee rate floor "+
+		"returned when no cached fee rate found")
 
 	if err := estimator.Start(); err != nil {
 		t.Fatalf("unable to start fee estimator, got: %v", err)
@@ -232,4 +262,64 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGetCachedFee checks that the fee caching logic works as expected.
+func TestGetCachedFee(t *testing.T) {
+	target := uint32(2)
+	fee := uint32(100)
+
+	// Create a dummy estimator without WebAPIFeeSource.
+	estimator := NewWebAPIEstimator(nil, false)
+
+	// When the cache is empty, an error should be returned.
+	cachedFee, err := estimator.getCachedFee(target)
+	require.Zero(t, cachedFee)
+	require.ErrorIs(t, err, errEmptyCache)
+
+	// Store a fee rate inside the cache.
+	estimator.feeByBlockTarget[target] = fee
+
+	testCases := []struct {
+		name        string
+		confTarget  uint32
+		expectedFee uint32
+		expectErr   error
+	}{
+		{
+			// When the target is cached, return it.
+			name:        "return cached fee",
+			confTarget:  target,
+			expectedFee: fee,
+			expectErr:   nil,
+		},
+		{
+			// When the target is not cached, return the next
+			// lowest target that's cached.
+			name:        "return next cached fee",
+			confTarget:  target + 1,
+			expectedFee: fee,
+			expectErr:   nil,
+		},
+		{
+			// When the target is not cached, and the next lowest
+			// target is not cached, return the nearest fee rate.
+			name:        "return highest cached fee",
+			confTarget:  target - 1,
+			expectedFee: fee,
+			expectErr:   nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			cachedFee, err := estimator.getCachedFee(tc.confTarget)
+
+			require.Equal(t, tc.expectedFee, cachedFee)
+			require.ErrorIs(t, err, tc.expectErr)
+		})
+	}
+
 }

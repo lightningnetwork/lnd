@@ -1,4 +1,4 @@
-FROM golang:1.17.1-alpine as builder
+FROM golang:1.17.3-alpine as builder
 
 LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 
@@ -13,7 +13,7 @@ ARG BTCD_VERSION=v0.20.1-beta
 # Grab and install the latest version of of btcd and all related dependencies.
 RUN git clone https://github.com/btcsuite/btcd.git . \
     && git checkout $BTCD_VERSION \
-    &&  GO111MODULE=on go install -v . ./cmd/...
+    && go install -v . ./cmd/...
 
 # Start a new image
 FROM alpine as final

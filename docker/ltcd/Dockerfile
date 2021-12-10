@@ -1,4 +1,4 @@
-FROM golang:1.17.1-alpine as builder
+FROM golang:1.17.3-alpine as builder
 
 LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 
@@ -7,8 +7,8 @@ LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 WORKDIR $GOPATH/src/github.com/ltcsuite/ltcd
 RUN apk add --no-cache --update alpine-sdk git
 RUN git clone https://github.com/ltcsuite/ltcd ./
-RUN GO111MODULE=on go install -v . ./cmd/...
-RUN GO111MODULE=on go install . ./cmd/ltcctl ./cmd/gencerts
+RUN go install -v . ./cmd/...
+RUN go install . ./cmd/ltcctl ./cmd/gencerts
 
 # Start a new image
 FROM alpine as final

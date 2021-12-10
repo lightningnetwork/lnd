@@ -1410,9 +1410,12 @@ func (c *ChannelStateDB) FetchHistoricalChannel(outPoint *wire.OutPoint) (
 		}
 
 		channel, err = fetchOpenChannel(chanBucket, outPoint)
+		if err != nil {
+			return err
+		}
 
 		channel.Db = c
-		return err
+		return nil
 	}, func() {
 		channel = nil
 	})

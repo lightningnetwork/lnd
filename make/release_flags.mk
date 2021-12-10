@@ -17,7 +17,6 @@ dragonfly-amd64 \
 freebsd-386 \
 freebsd-amd64 \
 freebsd-arm \
-illumos-amd64 \
 linux-386 \
 linux-amd64 \
 linux-armv6 \
@@ -38,7 +37,9 @@ windows-386 \
 windows-amd64 \
 windows-arm
 
-RELEASE_TAGS = autopilotrpc signrpc walletrpc chainrpc invoicesrpc watchtowerrpc monitoring
+RELEASE_TAGS = autopilotrpc signrpc walletrpc chainrpc invoicesrpc watchtowerrpc monitoring kvdb_postgres kvdb_etcd
+
+WASM_RELEASE_TAGS = autopilotrpc signrpc walletrpc chainrpc invoicesrpc watchtowerrpc monitoring
 
 # One can either specify a git tag as the version suffix or one is generated
 # from the current date.

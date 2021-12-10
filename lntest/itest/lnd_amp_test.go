@@ -245,11 +245,9 @@ func testSendPaymentAMPInvoiceRepeat(net *lntest.NetworkHarness,
 			Amt: chanAmt,
 		},
 	)
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = carol.WaitForNetworkChannelOpen(chanPoint)
 	require.NoError(t.t, err, "carol didn't report channel")
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = dave.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = dave.WaitForNetworkChannelOpen(chanPoint)
 	require.NoError(t.t, err, "dave didn't report channel")
 
 	// Create an AMP invoice of a trivial amount, that we'll pay repeatedly

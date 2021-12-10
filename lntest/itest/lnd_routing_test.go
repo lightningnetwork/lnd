@@ -138,8 +138,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 				Index: chanPoint.OutputIndex,
 			}
 
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
+			err = node.WaitForNetworkChannelOpen(chanPoint)
 			if err != nil {
 				t.Fatalf("%s(%d): timeout waiting for "+
 					"channel(%s) open: %v", node.Name(),
@@ -527,8 +526,7 @@ func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
 				Index: chanPoint.OutputIndex,
 			}
 
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
+			err = node.WaitForNetworkChannelOpen(chanPoint)
 			if err != nil {
 				t.Fatalf("%s(%d): timeout waiting for "+
 					"channel(%s) open: %v", nodeNames[i],
@@ -567,8 +565,7 @@ func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
 
 	// We'll wait for all parties to recognize the new channels within the
 	// network.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointBob)
+	err = carol.WaitForNetworkChannelOpen(chanPointBob)
 	if err != nil {
 		t.Fatalf("bob didn't advertise his channel in time: %v", err)
 	}
@@ -647,8 +644,7 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 		},
 	)
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
+	err := net.Alice.WaitForNetworkChannelOpen(chanPointAlice)
 	if err != nil {
 		t.Fatalf("alice didn't advertise her channel: %v", err)
 	}
@@ -678,8 +674,7 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 			Amt: chanAmt,
 		},
 	)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointCarol)
+	err = carol.WaitForNetworkChannelOpen(chanPointCarol)
 	if err != nil {
 		t.Fatalf("carol didn't advertise her channel: %v", err)
 	}
@@ -690,7 +685,7 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 		PubKey: charlie.PubKeyStr,
 		Amt:    int64(1),
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	fakeRoute, err := carol.QueryRoutes(ctxt, fakeReq)
 	if err != nil {
 		t.Fatalf("unable get fake route: %v", err)
@@ -842,8 +837,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 				Index: chanPoint.OutputIndex,
 			}
 
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
+			err = node.WaitForNetworkChannelOpen(chanPoint)
 			if err != nil {
 				t.Fatalf("%s(%d): timeout waiting for "+
 					"channel(%s) open: %v", nodeNames[i],
@@ -1142,8 +1136,7 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 		chanPointEve,
 	}
 	for i, chanPoint := range aliceChans {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+		err := net.Alice.WaitForNetworkChannelOpen(chanPoint)
 		if err != nil {
 			t.Fatalf("timed out waiting for channel open %s: %v",
 				chanNames[i], err)
@@ -1263,14 +1256,12 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 		},
 	)
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
+	err := net.Alice.WaitForNetworkChannelOpen(chanPointAlice)
 	if err != nil {
 		t.Fatalf("alice didn't see the channel alice <-> bob before "+
 			"timeout: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
+	err = net.Bob.WaitForNetworkChannelOpen(chanPointAlice)
 	if err != nil {
 		t.Fatalf("bob didn't see the channel alice <-> bob before "+
 			"timeout: %v", err)
@@ -1299,20 +1290,17 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 		},
 	)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPointBob)
+	err = net.Bob.WaitForNetworkChannelOpen(chanPointBob)
 	if err != nil {
 		t.Fatalf("bob didn't see the channel bob <-> carol before "+
 			"timeout: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointBob)
+	err = carol.WaitForNetworkChannelOpen(chanPointBob)
 	if err != nil {
 		t.Fatalf("carol didn't see the channel bob <-> carol before "+
 			"timeout: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointBob)
+	err = net.Alice.WaitForNetworkChannelOpen(chanPointBob)
 	if err != nil {
 		t.Fatalf("alice didn't see the channel bob <-> carol before "+
 			"timeout: %v", err)
@@ -1344,20 +1332,17 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 		},
 	)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointCarol)
+	err = carol.WaitForNetworkChannelOpen(chanPointCarol)
 	if err != nil {
 		t.Fatalf("carol didn't see the channel carol <-> dave before "+
 			"timeout: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = dave.WaitForNetworkChannelOpen(ctxt, chanPointCarol)
+	err = dave.WaitForNetworkChannelOpen(chanPointCarol)
 	if err != nil {
 		t.Fatalf("dave didn't see the channel carol <-> dave before "+
 			"timeout: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = dave.WaitForNetworkChannelOpen(ctxt, chanPointBob)
+	err = dave.WaitForNetworkChannelOpen(chanPointBob)
 	if err != nil {
 		t.Fatalf("dave didn't see the channel bob <-> carol before "+
 			"timeout: %v", err)
@@ -1387,7 +1372,7 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 		Private: true,
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	resp, err := dave.AddInvoice(ctxt, invoice)
 	if err != nil {
 		t.Fatalf("unable to add invoice for dave: %v", err)
@@ -1506,8 +1491,7 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 				Index: chanPoint.OutputIndex,
 			}
 
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
+			err = node.WaitForNetworkChannelOpen(chanPoint)
 			if err != nil {
 				t.Fatalf("%s(%d): timeout waiting for "+
 					"channel(%s) open: %v", nodeNames[i],
@@ -1802,8 +1786,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 				Index: chanPoint.OutputIndex,
 			}
 
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
+			err = node.WaitForNetworkChannelOpen(chanPoint)
 			if err != nil {
 				t.Fatalf("%s(%d) timed out waiting for "+
 					"channel(%s) open: %v", nodeNames[i],

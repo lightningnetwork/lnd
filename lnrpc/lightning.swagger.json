@@ -2757,6 +2757,10 @@
           "type": "string",
           "format": "int64",
           "description": "Total number of forwarding packages created in this channel."
+        },
+        "chan_status_flags": {
+          "type": "string",
+          "description": "A set of flags showing the current state of the channel."
         }
       }
     },

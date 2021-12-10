@@ -982,12 +982,11 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		)
 
 		// Wait for both sides to see the opened channel.
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		err = dave.WaitForNetworkChannelOpen(ctxt, chanPoint)
+		err = dave.WaitForNetworkChannelOpen(chanPoint)
 		if err != nil {
 			t.Fatalf("dave didn't report channel: %v", err)
 		}
-		err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
+		err = carol.WaitForNetworkChannelOpen(chanPoint)
 		if err != nil {
 			t.Fatalf("carol didn't report channel: %v", err)
 		}
@@ -1327,11 +1326,9 @@ func createLegacyRevocationChannel(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	_ = mineBlocks(t, net, 6, 1)
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	err = from.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = from.WaitForNetworkChannelOpen(chanPoint)
 	require.NoError(t.t, err)
-	err = to.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = to.WaitForNetworkChannelOpen(chanPoint)
 	require.NoError(t.t, err)
 }
 

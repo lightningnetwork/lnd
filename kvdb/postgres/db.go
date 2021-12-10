@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcwallet/walletdb"
-	_ "github.com/jackc/pgx/v4/stdlib"
 )
 
 const (
@@ -58,6 +57,14 @@ type db struct {
 // Enforce db implements the walletdb.DB interface.
 var _ walletdb.DB = (*db)(nil)
 
+// Global set of database connections.
+var dbConns *dbConnSet
+
+// Init initializes the global set of database connections.
+func Init(maxConnections int) {
+	dbConns = newDbConnSet(maxConnections)
+}
+
 // newPostgresBackend returns a db object initialized with the passed backend
 // config. If postgres connection cannot be estabished, then returns error.
 func newPostgresBackend(ctx context.Context, config *Config, prefix string) (
@@ -67,7 +74,11 @@ func newPostgresBackend(ctx context.Context, config *Config, prefix string) (
 		return nil, errors.New("empty postgres prefix")
 	}
 
-	dbConn, err := sql.Open("pgx", config.Dsn)
+	if dbConns == nil {
+		return nil, errors.New("db connection set not initialized")
+	}
+
+	dbConn, err := dbConns.Open(config.Dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -245,5 +256,5 @@ func (db *db) Copy(w io.Writer) error {
 // Close cleanly shuts down the database and syncs all data.
 // This function is part of the walletdb.Db interface implementation.
 func (db *db) Close() error {
-	return db.db.Close()
+	return dbConns.Close(db.cfg.Dsn)
 }

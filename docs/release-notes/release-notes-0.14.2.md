@@ -40,9 +40,13 @@
   exposed](https://github.com/lightningnetwork/lnd/pull/5971) inside
   WaitingCloseResp from calling `PendingChannels`.
 
+* [Fix missing label on streamed
+  transactions](https://github.com/lightningnetwork/lnd/pull/5854).
+
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath
+* Bjarne Magnussen
 * Harsha Goli
 * Martin Habovštiak
 * Naveen Srinivasan

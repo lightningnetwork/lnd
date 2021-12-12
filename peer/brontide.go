@@ -479,7 +479,8 @@ func (p *Brontide) Start() error {
 		return nil
 	}
 
-	peerLog.Tracef("Peer %v starting", p)
+	peerLog.Tracef("Peer %v starting with conn[%v->%v]", p,
+		p.cfg.Conn.LocalAddr(), p.cfg.Conn.RemoteAddr())
 
 	// Fetch and then load all the active channels we have with this remote
 	// peer from the database.

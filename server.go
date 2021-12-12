@@ -2450,7 +2450,11 @@ const bootstrapBackOffCeiling = time.Minute * 5
 // until the target number of peers has been reached. This ensures that nodes
 // receive an up to date network view as soon as possible.
 func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
-	numTargetPeers uint32, bootstrappers []discovery.NetworkPeerBootstrapper) {
+	numTargetPeers uint32,
+	bootstrappers []discovery.NetworkPeerBootstrapper) {
+
+	srvrLog.Debugf("Init bootstrap with targetPeers=%v, bootstrappers=%v, "+
+		"ignore=%v", numTargetPeers, len(bootstrappers), len(ignore))
 
 	// We'll start off by waiting 2 seconds between failed attempts, then
 	// double each time we fail until we hit the bootstrapBackOffCeiling.
@@ -2775,6 +2779,9 @@ func (s *server) establishPersistentConnections() error {
 		return err
 	}
 
+	srvrLog.Debugf("Establishing %v persistent connections on start",
+		len(nodeAddrsMap))
+
 	// Acquire and hold server lock until all persistent connection requests
 	// have been recorded and sent to the connection manager.
 	s.mu.Lock()
@@ -3093,10 +3100,10 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 
 	// If we already have an outbound connection to this peer, then ignore
 	// this new connection.
-	if _, ok := s.outboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have outbound connection for %x, "+
-			"ignoring inbound connection",
-			nodePub.SerializeCompressed())
+	if p, ok := s.outboundPeers[pubStr]; ok {
+		srvrLog.Debugf("Already have outbound connection for %v, "+
+			"ignoring inbound connection from local=%v, remote=%v",
+			p, conn.LocalAddr(), conn.RemoteAddr())
 
 		conn.Close()
 		return
@@ -3105,8 +3112,9 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	// If we already have a valid connection that is scheduled to take
 	// precedence once the prior peer has finished disconnecting, we'll
 	// ignore this connection.
-	if _, ok := s.scheduledPeerConnection[pubStr]; ok {
-		srvrLog.Debugf("Ignoring connection, peer already scheduled")
+	if p, ok := s.scheduledPeerConnection[pubStr]; ok {
+		srvrLog.Debugf("Ignoring connection from %v, peer %v already "+
+			"scheduled", conn.RemoteAddr(), p)
 		conn.Close()
 		return
 	}
@@ -3179,10 +3187,10 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 
 	// If we already have an inbound connection to this peer, then ignore
 	// this new connection.
-	if _, ok := s.inboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have inbound connection for %x, "+
-			"ignoring outbound connection",
-			nodePub.SerializeCompressed())
+	if p, ok := s.inboundPeers[pubStr]; ok {
+		srvrLog.Debugf("Already have inbound connection for %v, "+
+			"ignoring outbound connection from local=%v, remote=%v",
+			p, conn.LocalAddr(), conn.RemoteAddr())
 
 		if connReq != nil {
 			s.connMgr.Remove(connReq.ID())
@@ -3303,6 +3311,8 @@ func (s *server) cancelConnReqs(pubStr string, skip *uint64) {
 	}
 
 	for _, connReq := range connReqs {
+		srvrLog.Tracef("Canceling %s:", connReqs)
+
 		// Atomically capture the current request identifier.
 		connID := connReq.ID()
 
@@ -3997,6 +4007,9 @@ func (s *server) connectToPeer(addr *lnwire.NetAddress,
 	}
 
 	close(errChan)
+
+	srvrLog.Tracef("Brontide dialer made local=%v, remote=%v",
+		conn.LocalAddr(), conn.RemoteAddr())
 
 	s.OutboundPeerConnected(nil, conn)
 }

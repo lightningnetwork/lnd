@@ -1442,7 +1442,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 			)
 		}
 
-		walletLog.Debugf("Funding tx for ChannelPoint(%v) "+
+		walletLog.Tracef("Funding tx for ChannelPoint(%v) "+
 			"generated: %v", chanPoint, spew.Sdump(fundingTx))
 	}
 
@@ -1589,9 +1589,9 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	txsort.InPlaceSort(ourCommitTx)
 	txsort.InPlaceSort(theirCommitTx)
 
-	walletLog.Debugf("Local commit tx for ChannelPoint(%v): %v",
+	walletLog.Tracef("Local commit tx for ChannelPoint(%v): %v",
 		chanPoint, spew.Sdump(ourCommitTx))
-	walletLog.Debugf("Remote commit tx for ChannelPoint(%v): %v",
+	walletLog.Tracef("Remote commit tx for ChannelPoint(%v): %v",
 		chanPoint, spew.Sdump(theirCommitTx))
 
 	// Record newly available information within the open channel state.

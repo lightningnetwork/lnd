@@ -199,6 +199,10 @@ type server struct {
 	peerConnectedListeners    map[string][]chan<- lnpeer.Peer
 	peerDisconnectedListeners map[string][]chan<- struct{}
 
+	// TODO(yy): the Brontide.Start doesn't know this value, which means it
+	// will continue to send messages even if there are no active channels
+	// and the value below is false. Once it's pruned, all its connections
+	// will be closed, thus the Brontide.Start will return an error.
 	persistentPeers        map[string]bool
 	persistentPeersBackoff map[string]time.Duration
 	persistentPeerAddrs    map[string][]*lnwire.NetAddress
@@ -2303,6 +2307,39 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 	return bootStrappers, nil
 }
 
+// createBootstrapIgnorePeers creates a map of peers that the bootstrap process
+// needs to ignore, which is made of three parts,
+//   - the node itself needs to be skipped as it doesn't make sense to connect
+//     to itself.
+//   - the peers that already have connections with, as in s.peersByPub.
+//   - the peers that we are attempting to connect, as in s.persistentPeers.
+func (s *server) createBootstrapIgnorePeers() map[autopilot.NodeID]struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ignore := make(map[autopilot.NodeID]struct{})
+
+	// We should ignore ourselves from bootstrapping.
+	selfKey := autopilot.NewNodeID(s.identityECDH.PubKey())
+	ignore[selfKey] = struct{}{}
+
+	// Ignore all connected peers.
+	for _, peer := range s.peersByPub {
+		nID := autopilot.NewNodeID(peer.IdentityKey())
+		ignore[nID] = struct{}{}
+	}
+
+	// Ignore all persistent peers as they have a dedicated reconnecting
+	// process.
+	for pubKeyStr := range s.persistentPeers {
+		var nID autopilot.NodeID
+		copy(nID[:], []byte(pubKeyStr))
+		ignore[nID] = struct{}{}
+	}
+
+	return ignore
+}
+
 // peerBootstrapper is a goroutine which is tasked with attempting to establish
 // and maintain a target minimum number of outbound connections. With this
 // invariant, we ensure that our node is connected to a diverse set of peers
@@ -2313,13 +2350,12 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 
 	defer s.wg.Done()
 
-	// ignore is a set used to keep track of peers already retrieved from
-	// our bootstrappers in order to avoid duplicates.
-	ignore := make(map[autopilot.NodeID]struct{})
+	// Before we continue, init the ignore peers map.
+	ignoreList := s.createBootstrapIgnorePeers()
 
 	// We'll start off by aggressively attempting connections to peers in
 	// order to be a part of the network as soon as possible.
-	s.initialPeerBootstrap(ignore, numTargetPeers, bootstrappers)
+	s.initialPeerBootstrap(ignoreList, numTargetPeers, bootstrappers)
 
 	// Once done, we'll attempt to maintain our target minimum number of
 	// peers.
@@ -2391,13 +2427,10 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 			// With the number of peers we need calculated, we'll
 			// query the network bootstrappers to sample a set of
 			// random addrs for us.
-			s.mu.RLock()
-			ignoreList := make(map[autopilot.NodeID]struct{})
-			for _, peer := range s.peersByPub {
-				nID := autopilot.NewNodeID(peer.IdentityKey())
-				ignoreList[nID] = struct{}{}
-			}
-			s.mu.RUnlock()
+			//
+			// Before we continue, get a copy of the ignore peers
+			// map.
+			ignoreList = s.createBootstrapIgnorePeers()
 
 			peerAddrs, err := discovery.MultiSourceBootstrap(
 				ignoreList, numNeeded*2, bootstrappers...,
@@ -4285,5 +4318,7 @@ func shouldPeerBootstrap(cfg *Config) bool {
 	isRegtest := (cfg.Bitcoin.RegTest || cfg.Litecoin.RegTest)
 	isDevNetwork := isSimnet || isSignet || isRegtest
 
+	// TODO(yy): remove the check on simnet/regtest such that the itest is
+	// covering the bootstrapping process.
 	return !cfg.NoNetBootstrap && !isDevNetwork
 }

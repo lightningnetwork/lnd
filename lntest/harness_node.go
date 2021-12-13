@@ -226,7 +226,6 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		fmt.Sprintf("--datadir=%v", cfg.DataDir),
 		fmt.Sprintf("--tlscertpath=%v", cfg.TLSCertPath),
 		fmt.Sprintf("--tlskeypath=%v", cfg.TLSKeyPath),
-		fmt.Sprintf("--configfile=%v", cfg.DataDir),
 		fmt.Sprintf("--adminmacaroonpath=%v", cfg.AdminMacPath),
 		fmt.Sprintf("--readonlymacaroonpath=%v", cfg.ReadMacPath),
 		fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath),

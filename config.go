@@ -633,11 +633,22 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 	// file within it.
 	configFileDir := CleanAndExpandPath(preCfg.LndDir)
 	configFilePath := CleanAndExpandPath(preCfg.ConfigFile)
-	if configFileDir != DefaultLndDir {
-		if configFilePath == DefaultConfigFile {
-			configFilePath = filepath.Join(
-				configFileDir, lncfg.DefaultConfigFilename,
-			)
+	switch {
+	// User specified --lnddir but no --configfile. Update the config file
+	// path to the lnd config directory, but don't require it to exist.
+	case configFileDir != DefaultLndDir &&
+		configFilePath == DefaultConfigFile:
+
+		configFilePath = filepath.Join(
+			configFileDir, lncfg.DefaultConfigFilename,
+		)
+
+	// User did specify an explicit --configfile, so we check that it does
+	// exist under that path to avoid surprises.
+	case configFilePath != DefaultConfigFile:
+		if !fileExists(configFilePath) {
+			return nil, fmt.Errorf("specified config file does "+
+				"not exist in %s", configFilePath)
 		}
 	}
 

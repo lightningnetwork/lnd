@@ -1113,8 +1113,11 @@ func (d *AuthenticatedGossiper) networkHandler() {
 					announcement.msg,
 				)
 				if err != nil {
-					if err != routing.ErrVBarrierShuttingDown &&
-						err != routing.ErrParentValidationFailed {
+					if !routing.IsError(
+						err,
+						routing.ErrVBarrierShuttingDown,
+						routing.ErrParentValidationFailed,
+					) {
 						log.Warnf("unexpected error "+
 							"during validation "+
 							"barrier shutdown: %v",
@@ -1658,15 +1661,13 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			log.Debugf("Adding node: %x got error: %v",
 				msg.NodeID, err)
 
-			switch {
-			case routing.IsError(err, routing.ErrOutdated,
-				routing.ErrIgnored):
-
-			case err == routing.ErrVBarrierShuttingDown:
-
-			default:
+			if !routing.IsError(
+				err,
+				routing.ErrOutdated,
+				routing.ErrIgnored,
+				routing.ErrVBarrierShuttingDown,
+			) {
 				log.Error(err)
-
 			}
 
 			nMsg.err <- err
@@ -2188,11 +2189,14 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		}
 
 		if err := d.cfg.Router.UpdateEdge(update, schedulerOp...); err != nil {
-			if routing.IsError(err, routing.ErrOutdated,
-				routing.ErrIgnored) {
+			if routing.IsError(
+				err, routing.ErrOutdated,
+				routing.ErrIgnored,
+				routing.ErrVBarrierShuttingDown,
+			) {
 				log.Debug(err)
-			} else if err != routing.ErrVBarrierShuttingDown {
 
+			} else {
 				key := newRejectCacheKey(
 					msg.ShortChannelID.ToUint64(),
 					nMsg.peer.PubKey(),

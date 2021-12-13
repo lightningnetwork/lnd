@@ -117,7 +117,8 @@ default until a key has been imported into them.
 * `external_key_count`: The number of external addresses generated.
 * `internal_key_count`: The number of change addresses generated.
 * `watch_only`: Whether the wallet has private key information for the account.
-  This is always true for `lnd`'s default wallet accounts.
+  `lnd`'s default wallet accounts always have private key information, so this
+  value is `false`.
 
 # Key Import
 

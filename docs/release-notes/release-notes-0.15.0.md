@@ -38,6 +38,10 @@
   
 * A new command `lncli leaseoutput` was [added](https://github.com/lightningnetwork/lnd/pull/5964).
 
+* [Consolidated many smaller docs/typo/trivial fixes from PRs that were stuck
+  in review because of unmet contribution guideline
+  requirements](https://github.com/lightningnetwork/lnd/pull/6080).
+
 ## RPC Server
 
 * [Add value to the field
@@ -58,12 +62,22 @@
 
 # Contributors (Alphabetical Order)
 
+* 3nprob
 * Andreas Schjønhaug
+* asvdf
 * Carsten Otto
+* Dan Bolser
 * Daniel McNally
 * ErikEk
+* henta
 * Joost Jager
+* LightningHelper
 * Liviu
+* mateuszmp
+* Naveen Srinivasan
+* randymcmillan
+* Rong Ou
+* Thebora Kompanioni
 * Torkel Rogstad
 * Vsevolod Kaganovych
 * Yong Yu

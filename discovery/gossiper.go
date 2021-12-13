@@ -1822,8 +1822,10 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// making decisions based on this DB state, before it
 		// writes to the DB.
 		d.channelMtx.Lock(msg.ShortChannelID.ToUint64())
-		defer d.channelMtx.Unlock(msg.ShortChannelID.ToUint64())
-		if err := d.cfg.Router.AddEdge(edge, schedulerOp...); err != nil {
+		err := d.cfg.Router.AddEdge(edge, schedulerOp...)
+		if err != nil {
+			defer d.channelMtx.Unlock(msg.ShortChannelID.ToUint64())
+
 			// If the edge was rejected due to already being known,
 			// then it may be that case that this new message has a
 			// fresh channel proof, so we'll check.
@@ -1870,6 +1872,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			nMsg.err <- err
 			return nil, false
 		}
+
+		// If err is nil, release the lock immediately.
+		d.channelMtx.Unlock(msg.ShortChannelID.ToUint64())
 
 		// If we earlier received any ChannelUpdates for this channel,
 		// we can now process them, as the channel is added to the

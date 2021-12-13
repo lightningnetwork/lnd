@@ -2786,7 +2786,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		}
 
 		log.Debugf("Channel with ChannelPoint(%v), short_chan_id=%v "+
-			"announced", &fundingPoint, shortChanID)
+			"sent to gossiper", &fundingPoint, shortChanID)
 	}
 
 	return nil

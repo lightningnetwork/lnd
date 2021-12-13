@@ -553,6 +553,19 @@ const (
 	addedToRouterGraph
 )
 
+func (c channelOpeningState) String() string {
+	switch c {
+	case markedOpen:
+		return "markedOpen"
+	case fundingLockedSent:
+		return "fundingLocked"
+	case addedToRouterGraph:
+		return "addedToRouterGraph"
+	default:
+		return "unknown"
+	}
+}
+
 // NewFundingManager creates and initializes a new instance of the
 // fundingManager.
 func NewFundingManager(cfg Config) (*Manager, error) {

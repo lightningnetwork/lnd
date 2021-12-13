@@ -156,7 +156,7 @@ A quick summary of test practices follows:
   or RPC's will need to be accompanied by integration tests which use the
   [`networkHarness`framework](https://github.com/lightningnetwork/lnd/blob/master/lntest/harness.go)
   contained within `lnd`. For example integration tests, see
-  [`lnd_test.go`](https://github.com/lightningnetwork/lnd/blob/master/lnd_test.go#L181). 
+  [`lnd_test.go`](https://github.com/lightningnetwork/lnd/blob/master/lntest/itest/lnd_test.go).
 - The itest log files are automatically scanned for `[ERR]` lines. There
   shouldn't be any of those in the logs, see [Use of Log Levels](#use-of-log-levels).
 

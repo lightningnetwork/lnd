@@ -285,7 +285,6 @@ func extraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool) []string {
 
 	if etcdCfg.InsecureSkipVerify {
 		extraArgs = append(extraArgs, "--db.etcd.insecure_skip_verify")
-
 	}
 
 	if cluster {
@@ -619,7 +618,6 @@ func (n *NetworkHarness) EnsureConnected(t *testing.T, a, b *HarnessNode) {
 				predErr = err
 				return false
 			}
-
 		}, DefaultTimeout)
 		if err != nil {
 			return fmt.Errorf("connection not succeeded within 15 "+

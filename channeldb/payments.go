@@ -315,7 +315,6 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	creationInfo, err := fetchCreationInfo(bucket)
 	if err != nil {
 		return nil, err
-
 	}
 
 	var htlcs []HTLCAttempt

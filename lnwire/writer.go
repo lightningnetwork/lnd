@@ -122,7 +122,6 @@ func WritePublicKey(buf *bytes.Buffer, pub *btcec.PublicKey) error {
 
 	serializedPubkey := pub.SerializeCompressed()
 	return WriteBytes(buf, serializedPubkey)
-
 }
 
 // WriteChannelID appends the ChannelID to the provided buffer.

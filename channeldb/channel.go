@@ -1891,7 +1891,7 @@ func (k *CircuitKey) SetBytes(bs []byte) error {
 
 // Bytes returns the serialized bytes for this circuit key.
 func (k CircuitKey) Bytes() []byte {
-	var bs = make([]byte, 16)
+	bs := make([]byte, 16)
 	binary.BigEndian.PutUint64(bs[:8], k.ChanID.ToUint64())
 	binary.BigEndian.PutUint64(bs[8:], k.HtlcID)
 	return bs
@@ -3468,7 +3468,6 @@ func putChanCommitments(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 }
 
 func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
-
 	var b bytes.Buffer
 	err := WriteElements(
 		&b, channel.RemoteCurrentRevocation, channel.RevocationProducer,
@@ -3659,7 +3658,6 @@ func fetchChanRevocationState(chanBucket kvdb.RBucket, channel *OpenChannel) err
 }
 
 func deleteOpenChannel(chanBucket kvdb.RwBucket) error {
-
 	if err := chanBucket.Delete(chanInfoKey); err != nil {
 		return err
 	}
@@ -3682,7 +3680,6 @@ func deleteOpenChannel(chanBucket kvdb.RwBucket) error {
 	}
 
 	return nil
-
 }
 
 // makeLogKey converts a uint64 into an 8 byte array.

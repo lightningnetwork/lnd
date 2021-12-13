@@ -570,7 +570,6 @@ func assertNotConnected(t *harnessTest, alice, bob *lntest.HarnessNode) {
 		}
 
 		return nil
-
 	}, defaultTimeout)
 	require.NoError(t.t, err)
 }

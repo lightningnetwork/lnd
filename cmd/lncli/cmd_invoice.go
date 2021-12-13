@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/urfave/cli"
 )
 
@@ -71,6 +73,13 @@ var addInvoiceCommand = cli.Command{
 			Usage: "creates an AMP invoice. If true, preimage " +
 				"should not be set.",
 		},
+		cli.Uint64Flag{
+			Name: "cltv_expiry",
+			Usage: fmt.Sprintf("delta to use for the time-lock of "+
+				"the CLTV extended to the final hop. It must be at least "+
+				"%d and less than or equal to %d. If not specified the chain's "+
+				"time-lock delta will be used.", routing.MinCLTVDelta, math.MaxUint16),
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -125,6 +134,7 @@ func addInvoice(ctx *cli.Context) error {
 		Expiry:          ctx.Int64("expiry"),
 		Private:         ctx.Bool("private"),
 		IsAmp:           ctx.Bool("amp"),
+		CltvExpiry:      ctx.Uint64("cltv_expiry"),
 	}
 
 	resp, err := client.AddInvoice(ctxc, invoice)

@@ -189,10 +189,12 @@ type ChannelGraph struct {
 // returned instance has its own unique reject cache and channel cache.
 func NewChannelGraph(db kvdb.Backend, rejectCacheSize, chanCacheSize int,
 	batchCommitInterval time.Duration, preAllocCacheNumNodes int,
-	useGraphCache bool) (*ChannelGraph, error) {
+	useGraphCache, noMigrations bool) (*ChannelGraph, error) {
 
-	if err := initChannelGraph(db); err != nil {
-		return nil, err
+	if !noMigrations {
+		if err := initChannelGraph(db); err != nil {
+			return nil, err
+		}
 	}
 
 	g := &ChannelGraph{

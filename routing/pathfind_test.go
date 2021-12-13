@@ -175,7 +175,7 @@ func makeTestGraph(useCache bool) (*channeldb.ChannelGraph, kvdb.Backend,
 	graph, err := channeldb.NewChannelGraph(
 		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
 		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
-		useCache,
+		useCache, false,
 	)
 	if err != nil {
 		cleanUp()

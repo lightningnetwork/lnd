@@ -16,6 +16,9 @@
   for running lnd alongside a bitcoind service is now provided in
   `contrib/init/lnd.service`.
 
+* [Allow disabling migrations if the database backend passed to `channeldb` was
+  opened in read-only mode](https://github.com/lightningnetwork/lnd/pull/6084).
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes

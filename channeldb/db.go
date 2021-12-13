@@ -263,13 +263,15 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 // CreateWithBackend creates channeldb instance using the passed kvdb.Backend.
 // Any necessary schemas migrations due to updates will take place as necessary.
 func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, error) {
-	if err := initChannelDB(backend); err != nil {
-		return nil, err
-	}
-
 	opts := DefaultOptions()
 	for _, modifier := range modifiers {
 		modifier(&opts)
+	}
+
+	if !opts.NoMigration {
+		if err := initChannelDB(backend); err != nil {
+			return nil, err
+		}
 	}
 
 	chanDB := &DB{
@@ -291,16 +293,18 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, 
 	chanDB.graph, err = NewChannelGraph(
 		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
 		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
-		opts.UseGraphCache,
+		opts.UseGraphCache, opts.NoMigration,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	// Synchronize the version of database and apply migrations if needed.
-	if err := chanDB.syncVersions(dbVersions); err != nil {
-		backend.Close()
-		return nil, err
+	if !opts.NoMigration {
+		if err := chanDB.syncVersions(dbVersions); err != nil {
+			backend.Close()
+			return nil, err
+		}
 	}
 
 	return chanDB, nil

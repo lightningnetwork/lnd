@@ -77,7 +77,7 @@ func MakeTestGraph(modifiers ...OptionModifier) (*ChannelGraph, func(), error) {
 	graph, err := NewChannelGraph(
 		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
 		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
-		true,
+		true, false,
 	)
 	if err != nil {
 		backendCleanup()

@@ -5,6 +5,11 @@
 * [Misconfigured ZMQ
   setup now gets reported](https://github.com/lightningnetwork/lnd/pull/5710).
 
+## `lncli`
+
+* Add [auto-generated command-line completions](https://github.com/lightningnetwork/lnd/pull/4177) 
+  for Fish shell.  
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)
@@ -21,3 +26,4 @@
 
 * Daniel McNally
 * ErikEk
+* Torkel Rogstad

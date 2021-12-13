@@ -1,25 +1,26 @@
 # Table of Contents
-* [Installation](#installation)
-  * [Installing a binary release](#installing-a-binary-release)
-  * [Building a tagged version with Docker](#building-a-tagged-version-with-docker)
-  * [Building a development version from source](#building-a-development-version-from-source)
-    * [Preliminaries](#preliminaries-for-installing-from-source)
-    * [Installing lnd](#installing-lnd-from-source)
-* [Available Backend Operating Modes](#available-backend-operating-modes)
-  * [btcd Options](#btcd-options)
-  * [Neutrino Options](#neutrino-options)
-  * [Bitcoind Options](#bitcoind-options)
-  * [Using btcd](#using-btcd)
-    * [Installing btcd](#installing-btcd)
-    * [Starting btcd](#starting-btcd)
-    * [Running lnd using the btcd backend](#running-lnd-using-the-btcd-backend)
-  * [Using Neutrino](#using-neutrino)
-  * [Using bitcoind or litecoind](#using-bitcoind-or-litecoind)
-* [Creating a Wallet](#creating-a-wallet)
-* [Macaroons](#macaroons)
-* [Network Reachability](#network-reachability)
-* [Simnet vs. Testnet Development](#simnet-vs-testnet-development)
-* [Creating an lnd.conf (Optional)](#creating-an-lndconf-optional)
+- [Table of Contents](#table-of-contents)
+- [Installation](#installation)
+  - [Installing a binary release](#installing-a-binary-release)
+  - [Building a tagged version with Docker](#building-a-tagged-version-with-docker)
+  - [Building a development version from source](#building-a-development-version-from-source)
+    - [Preliminaries for installing from source](#preliminaries-for-installing-from-source)
+    - [Installing lnd from source](#installing-lnd-from-source)
+- [Available Backend Operating Modes](#available-backend-operating-modes)
+  - [btcd Options](#btcd-options)
+  - [Neutrino Options](#neutrino-options)
+  - [Bitcoind Options](#bitcoind-options)
+  - [Using btcd](#using-btcd)
+    - [Installing btcd](#installing-btcd)
+    - [Starting btcd](#starting-btcd)
+    - [Running lnd using the btcd backend](#running-lnd-using-the-btcd-backend)
+  - [Using Neutrino](#using-neutrino)
+  - [Using bitcoind or litecoind](#using-bitcoind-or-litecoind)
+- [Creating a wallet](#creating-a-wallet)
+- [Macaroons](#macaroons)
+- [Network Reachability](#network-reachability)
+- [Simnet vs. Testnet Development](#simnet-vs-testnet-development)
+- [Creating an lnd.conf (Optional)](#creating-an-lndconf-optional)
 
 # Installation
 
@@ -240,6 +241,11 @@ To check that `lnd` was installed properly run the following command:
 
 This command requires `bitcoind` (almost any version should do) to be available
 in the system's `$PATH` variable. Otherwise some of the tests will fail.
+
+**Command-line completion for `lncli`**
+
+_Bash_: See `contrib/lncli.bash-completion`  
+_Fish_: Run: `lncli fish-completion > $HOME/.config/fish/completions/lncli.fish`
 
 # Available Backend Operating Modes
 

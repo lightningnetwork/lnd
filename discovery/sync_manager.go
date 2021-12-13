@@ -492,6 +492,10 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 	// handle any sync transitions.
 	s.setSyncState(chansSynced)
 	s.setSyncType(PassiveSync)
+
+	log.Debugf("Created new GossipSyncer[state=%s type=%s] for peer=%v",
+		s.syncState(), s.SyncType(), peer)
+
 	return s
 }
 

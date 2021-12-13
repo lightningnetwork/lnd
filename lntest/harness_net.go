@@ -1351,7 +1351,6 @@ func (n *NetworkHarness) WaitForChannelClose(
 // an optional set of check functions which can be used to make further
 // assertions using channel's values. These functions are responsible for
 // failing the test themselves if they do not pass.
-// nolint: interfacer
 func (n *NetworkHarness) AssertChannelExists(node *HarnessNode,
 	chanPoint *wire.OutPoint, checks ...func(*lnrpc.Channel)) error {
 

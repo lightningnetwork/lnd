@@ -578,7 +578,9 @@ func (c *ChannelGraph) DisabledChannelIDs() ([]uint64, error) {
 //
 // TODO(roasbeef): add iterator interface to allow for memory efficient graph
 // traversal when graph gets mega
-func (c *ChannelGraph) ForEachNode(cb func(kvdb.RTx, *LightningNode) error) error { // nolint:interfacer
+func (c *ChannelGraph) ForEachNode(
+	cb func(kvdb.RTx, *LightningNode) error) error {
+
 	traversal := func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.

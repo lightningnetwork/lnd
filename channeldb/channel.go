@@ -882,8 +882,9 @@ func fetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
 // channel's data resides in given: the public key for the node, the outpoint,
 // and the chainhash that the channel resides on. This differs from
 // fetchChanBucket in that it returns a writeable bucket.
-func fetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey, // nolint:interfacer
-	outPoint *wire.OutPoint, chainHash chainhash.Hash) (kvdb.RwBucket, error) {
+func fetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey,
+	outPoint *wire.OutPoint, chainHash chainhash.Hash) (kvdb.RwBucket,
+	error) {
 
 	// First fetch the top level bucket which stores all data related to
 	// current, active channels.

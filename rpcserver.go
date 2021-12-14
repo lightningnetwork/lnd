@@ -3317,6 +3317,10 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			}
 			channel.NumForwardingPackages = int64(len(fwdPkgs))
 
+			channel.RemoteBalance = int64(
+				historical.LocalCommitment.RemoteBalance.ToSatoshis(),
+			)
+
 		// If the error is non-nil, and not due to older versions of lnd
 		// not persisting historical channels, return it.
 		default:

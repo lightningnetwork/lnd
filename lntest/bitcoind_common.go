@@ -64,6 +64,11 @@ func (b BitcoindBackendConfig) DisconnectMiner() error {
 	return b.rpcClient.AddNode(b.minerAddr, rpcclient.ANRemove)
 }
 
+// Credentials returns the rpc username, password and host for the backend.
+func (b BitcoindBackendConfig) Credentials() (string, string, string, error) {
+	return b.rpcUser, b.rpcPass, b.rpcHost, nil
+}
+
 // Name returns the name of the backend type.
 func (b BitcoindBackendConfig) Name() string {
 	return "bitcoind"

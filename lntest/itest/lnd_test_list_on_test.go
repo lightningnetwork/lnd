@@ -42,10 +42,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "psbt channel funding external",
 		TestFunc: testPsbtChanFundingExternal,
 	},
-	// {
-	// 	name: "psbt channel funding single step",
-	// 	test: testPsbtChanFundingSingleStep,
-	// },
+	{
+		Name:     "psbt channel funding single step",
+		TestFunc: testPsbtChanFundingSingleStep,
+	},
 
 	// Channel Policy related tests.
 	{

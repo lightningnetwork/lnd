@@ -3,7 +3,6 @@ package itest
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -399,73 +398,64 @@ func testPsbtChanFundingExternal(ht *lntest.HarnessTest) {
 	ht.CloseChannel(carol, chanPoint2, false)
 }
 
-// testPsbtChanFundingSingleStep checks whether PSBT funding works also when the
-// wallet of both nodes are empty and one of them uses PSBT and an external
+// testPsbtChanFundingSingleStep checks whether PSBT funding works also when
+// the wallet of both nodes are empty and one of them uses PSBT and an external
 // wallet to fund the channel while creating reserve output in the same
 // transaction.
-func testPsbtChanFundingSingleStep(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
+func testPsbtChanFundingSingleStep(ht *lntest.HarnessTest) {
 	const chanSize = funding.MaxBtcFundingAmount
-
-	// Everything we do here should be done within a second or two, so we
-	// can just keep a single timeout context around for all calls.
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
 
 	args := nodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 
 	// First, we'll create two new nodes that we'll use to open channels
 	// between for this test. But in this case both nodes have an empty
 	// wallet.
-	carol := net.NewNode(t.t, "carol", args)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("carol", args)
+	defer ht.Shutdown(carol)
 
-	dave := net.NewNode(t.t, "dave", args)
-	defer shutdownAndAssert(net, t, dave)
+	dave := ht.NewNode("dave", args)
+	defer ht.Shutdown(dave)
 
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, net.Alice)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, ht.Alice())
 
 	// Get new address for anchor reserve.
-	reserveAddrReq := &lnrpc.NewAddressRequest{
-		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
-	}
-	addrResp, err := carol.NewAddress(ctxb, reserveAddrReq)
-	require.NoError(t.t, err)
-	reserveAddr, err := btcutil.DecodeAddress(addrResp.Address, harnessNetParams)
-	require.NoError(t.t, err)
+	addrResp := ht.NewAddress(carol, lnrpc.AddressType_WITNESS_PUBKEY_HASH)
+	reserveAddr, err := btcutil.DecodeAddress(
+		addrResp.Address, harnessNetParams,
+	)
+	require.NoError(ht, err)
 	reserveAddrScript, err := txscript.PayToAddrScript(reserveAddr)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.
-	net.EnsureConnected(t.t, carol, dave)
+	ht.EnsureConnected(carol, dave)
 
 	// At this point, we can begin our PSBT channel funding workflow. We'll
 	// start by generating a pending channel ID externally that will be used
 	// to track this new funding type.
-	var pendingChanID [32]byte
-	_, err = rand.Read(pendingChanID[:])
-	require.NoError(t.t, err)
+	pendingChanID := ht.Random32Bytes()
 
 	// Now that we have the pending channel ID, Carol will open the channel
 	// by specifying a PSBT shim.
-	chanUpdates, tempPsbt, err := openChannelPsbt(
-		ctxt, carol, dave, lntest.OpenChannelParams{
+	chanUpdates, tempPsbt := ht.OpenChannelPsbt(
+		carol, dave, lntest.OpenChannelParams{
 			Amt: chanSize,
 			FundingShim: &lnrpc.FundingShim{
 				Shim: &lnrpc.FundingShim_PsbtShim{
 					PsbtShim: &lnrpc.PsbtShim{
-						PendingChanId: pendingChanID[:],
+						PendingChanId: pendingChanID,
 						NoPublish:     false,
 					},
 				},
 			},
 		},
 	)
-	require.NoError(t.t, err)
 
-	decodedPsbt, err := psbt.NewFromRawBytes(bytes.NewReader(tempPsbt), false)
-	require.NoError(t.t, err)
+	decodedPsbt, err := psbt.NewFromRawBytes(
+		bytes.NewReader(tempPsbt), false,
+	)
+	require.NoError(ht, err)
 
 	reserveTxOut := wire.TxOut{
 		Value:    10000,
@@ -479,7 +469,7 @@ func testPsbtChanFundingSingleStep(net *lntest.NetworkHarness, t *harnessTest) {
 
 	var psbtBytes bytes.Buffer
 	err = decodedPsbt.Serialize(&psbtBytes)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	fundReq := &walletrpc.FundPsbtRequest{
 		Template: &walletrpc.FundPsbtRequest_Psbt{
@@ -489,55 +479,48 @@ func testPsbtChanFundingSingleStep(net *lntest.NetworkHarness, t *harnessTest) {
 			SatPerVbyte: 2,
 		},
 	}
-	fundResp, err := net.Alice.WalletKitClient.FundPsbt(ctxt, fundReq)
-	require.NoError(t.t, err)
+	fundResp := ht.FundPsbt(ht.Alice(), fundReq)
 
 	// Make sure the wallets are actually empty
-	unspentCarol, err := carol.ListUnspent(ctxb, &lnrpc.ListUnspentRequest{})
-	require.NoError(t.t, err)
-	require.Len(t.t, unspentCarol.Utxos, 0)
+	unspentCarol := ht.ListUnspent(carol, "", 0, 0)
+	require.Len(ht, unspentCarol.Utxos, 0)
 
-	unspentDave, err := dave.ListUnspent(ctxb, &lnrpc.ListUnspentRequest{})
-	require.NoError(t.t, err)
-	require.Len(t.t, unspentDave.Utxos, 0)
+	unspentDave := ht.ListUnspent(dave, "", 0, 0)
+	require.Len(ht, unspentDave.Utxos, 0)
 
 	// We have a PSBT that has no witness data yet, which is exactly what we
 	// need for the next step: Verify the PSBT with the funding intents.
-	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+	ht.FundingStateStep(carol, &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
 			PsbtVerify: &lnrpc.FundingPsbtVerify{
-				PendingChanId: pendingChanID[:],
+				PendingChanId: pendingChanID,
 				FundedPsbt:    fundResp.FundedPsbt,
 			},
 		},
 	})
-	require.NoError(t.t, err)
 
 	// Now we'll ask Alice's wallet to sign the PSBT so we can finish the
 	// funding flow.
 	finalizeReq := &walletrpc.FinalizePsbtRequest{
 		FundedPsbt: fundResp.FundedPsbt,
 	}
-	finalizeRes, err := net.Alice.WalletKitClient.FinalizePsbt(ctxt, finalizeReq)
-	require.NoError(t.t, err)
+	finalizeRes := ht.FinalizePsbt(ht.Alice(), finalizeReq)
 
 	// We've signed our PSBT now, let's pass it to the intent again.
-	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+	ht.FundingStateStep(carol, &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
 			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
-				PendingChanId: pendingChanID[:],
+				PendingChanId: pendingChanID,
 				SignedPsbt:    finalizeRes.SignedPsbt,
 			},
 		},
 	})
-	require.NoError(t.t, err)
 
 	// Consume the "channel pending" update. This waits until the funding
 	// transaction was fully compiled.
-	updateResp, err := receiveChanUpdate(ctxt, chanUpdates)
-	require.NoError(t.t, err)
+	updateResp := ht.ReceiveChanUpdate(chanUpdates)
 	upd, ok := updateResp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
-	require.True(t.t, ok)
+	require.True(ht, ok)
 	chanPoint := &lnrpc.ChannelPoint{
 		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 			FundingTxidBytes: upd.ChanPending.Txid,
@@ -547,13 +530,12 @@ func testPsbtChanFundingSingleStep(net *lntest.NetworkHarness, t *harnessTest) {
 
 	var finalTx wire.MsgTx
 	err = finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	txHash := finalTx.TxHash()
-	block := mineBlocks(t, net, 6, 1)[0]
-	assertTxInBlock(t, block, &txHash)
-	err = carol.WaitForNetworkChannelOpen(chanPoint)
-	require.NoError(t.t, err)
+	block := ht.MineBlocksAndAssertTx(6, 1)[0]
+	ht.AssertTxInBlock(block, &txHash)
+	ht.AssertChannelOpen(carol, chanPoint)
 
 	// Next, to make sure the channel functions as normal, we'll make some
 	// payments within the channel.
@@ -562,19 +544,14 @@ func testPsbtChanFundingSingleStep(net *lntest.NetworkHarness, t *harnessTest) {
 		Memo:  "new chans",
 		Value: int64(payAmt),
 	}
-	resp, err := dave.AddInvoice(ctxt, invoice)
-	require.NoError(t.t, err)
-	err = completePaymentRequests(
-		carol, carol.RouterClient, []string{resp.PaymentRequest},
-		true,
-	)
-	require.NoError(t.t, err)
+	resp := ht.AddInvoice(invoice, dave)
+	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest}, true)
 
 	// To conclude, we'll close the newly created channel between Carol and
 	// Dave. This function will also block until the channel is closed and
 	// will additionally assert the relevant channel closing post
 	// conditions.
-	closeChannelAndAssert(t, net, carol, chanPoint, false)
+	ht.CloseChannel(carol, chanPoint, false)
 }
 
 // testSignPsbt tests that the SignPsbt RPC works correctly.

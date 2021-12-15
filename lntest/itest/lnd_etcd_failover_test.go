@@ -98,7 +98,9 @@ func testEtcdFailoverCase(ht *lntest.HarnessTest, kill bool) {
 	// Open a channel with 100k satoshis between Carol and Alice with Alice
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
-	ht.OpenChannel(alice, carol1, lntest.OpenChannelParams{Amt: chanAmt})
+	ht.OpenChannel(
+		alice, carol1, lntest.OpenChannelParams{Amt: chanAmt},
+	)
 
 	// At this point Carol-1 is the elected leader, while Carol-2 will wait
 	// to become the leader when Carol-1 stops.

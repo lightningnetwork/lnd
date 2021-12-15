@@ -517,9 +517,10 @@ func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 	// sent over the web socket.
 	const numChannels = 3
 	for i := 0; i < numChannels; i++ {
-		ht.OpenChannel(
+		chanPoint := ht.OpenChannel(
 			bob, alice, lntest.OpenChannelParams{Amt: 500000},
 		)
+		defer ht.CloseChannel(bob, chanPoint, false)
 
 		select {
 		case <-msgChan:

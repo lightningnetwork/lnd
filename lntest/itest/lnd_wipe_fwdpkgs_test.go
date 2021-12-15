@@ -112,5 +112,11 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 	pendingAB = pending.Channel
 	require.Zero(ht, pendingAB.NumForwardingPackages)
 
+	// Mine 1 block to get Alice's sweeping tx confirmed.
+	ht.MineBlocksAndAssertTx(1, 1)
+
+	// Clean up the force closed channel.
+	ht.CleanupForceClose(bob, chanPointAB)
+
 	ht.Shutdown(carol)
 }

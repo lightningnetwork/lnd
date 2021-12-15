@@ -50,6 +50,7 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 			Amt: chanAmt,
 		},
 	)
+	defer ht.CloseChannel(alice, chanPointBob, false)
 
 	// Wait for Carol to see the open channel
 	ht.AssertChannelOpen(carol, chanPointBob)

@@ -216,6 +216,7 @@ func runPsbtChanFunding(ht *lntest.HarnessTest, carol,
 	// will additionally assert the relevant channel closing post
 	// conditions.
 	ht.CloseChannel(carol, chanPoint, false)
+	ht.CloseChannel(carol, chanPoint2, false)
 }
 
 // testPsbtChanFundingExternal makes sure a channel can be opened between carol

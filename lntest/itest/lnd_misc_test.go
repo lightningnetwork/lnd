@@ -169,6 +169,7 @@ func testSphinxReplayPersistence(ht *lntest.HarnessTest) {
 			Amt: chanAmt,
 		},
 	)
+	defer ht.CloseChannel(fred, chanPointFC, false)
 
 	// Now that the channel is open, create an invoice for Dave which
 	// expects a payment of 1000 satoshis from Carol paid via a particular

@@ -320,6 +320,9 @@ func (h *HarnessTest) Subtest(t *testing.T) (*HarnessTest, func()) {
 			st.cleanupStandbyNode(node)
 		}
 
+		// Assert that mempool is cleaned
+		st.AssertNumTxsInMempool(0)
+
 		// Finally, cancel the run context. We have to do it here
 		// because we need to keep the context alive for the above
 		// assertions used in cleanup.
@@ -1227,6 +1230,51 @@ func (h *HarnessTest) CleanupForceClose(hn *HarnessNode,
 	// The node should now sweep the funds, clean up by mining the sweeping
 	// tx.
 	h.MineBlocksAndAssertTx(1, 1)
+
+	// Mine blocks to get any second level HTLC resolved. If there are no
+	// HTLCs, this will behave like h.AssertNumPendingCloseChannels.
+	h.mineTillForceCloseResolved(hn)
+}
+
+// mineTillForceCloseResolved asserts that the number of pending close channels
+// are zero. Each time it checks, a new block is mined using MineBlocksSlow to
+// give the node some time to catch up the chain.
+//
+// NOTE: this method is a workaround to make sure we have a clean mempool at
+// the end of a channel force closure. We cannot directly mine blocks and
+// assert channels being fully closed because the subsystems in lnd don't share
+// the same block height. This is especially the case when blocks are produced
+// too fast.
+// TODO(yy): remove this workaround when syncing blocks are unified in all the
+// subsystems.
+func (h *HarnessTest) mineTillForceCloseResolved(hn *HarnessNode) {
+	_, startHeight := h.GetBestBlock()
+
+	err := wait.NoError(func() error {
+		resp := h.GetPendingChannels(hn)
+		total := len(resp.WaitingCloseChannels)
+
+		if total != 0 {
+			h.MineBlocksSlow(1)
+			return fmt.Errorf("expected num of waiting close " +
+				"channel to be zero")
+		}
+
+		total = len(resp.PendingForceClosingChannels)
+		if total != 0 {
+			h.MineBlocksSlow(1)
+			return fmt.Errorf("expected num of pending force " +
+				"close channel to be zero")
+		}
+
+		_, height := h.GetBestBlock()
+		h.Logf("Mined %d blocks while waiting for force closed "+
+			"channel to be resolved", height-startHeight)
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoErrorf(h, err, "assert force close resolved timeout")
 }
 
 // GetChanPointFundingTxid takes a channel point and converts it into a chain

@@ -8,6 +8,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -150,15 +151,17 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	}
 	resp := ht.AddInvoice(invoice, carol)
 
-	// TODO(yy): refactor completePaymentRequests
-	err := completePaymentRequests(
-		alice, alice.RouterClient, []string{resp.PaymentRequest}, true,
-	)
-
 	// Alice knows about the channel policy of Carol and should therefore
 	// not be able to find a path during routing.
-	expErr := lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE
-	require.EqualError(ht, err, expErr.String())
+	payReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest: resp.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+	}
+	ht.SendPaymentAssertFail(
+		alice, payReq,
+		lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE,
+	)
 
 	// Now we try to send a payment over the channel with a value too low
 	// to be accepted. First we query for a route to route a payment of
@@ -189,7 +192,7 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 		PaymentHash: resp.RHash,
 		Route:       routes.Routes[0],
 	}
-	err = alicePayStream.Send(sendReq)
+	err := alicePayStream.Send(sendReq)
 	require.NoError(ht, err, "unable to send payment")
 
 	// We expect this payment to fail, and that the min_htlc value is
@@ -288,11 +291,7 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	}
 	resp = ht.AddInvoice(invoice, carol)
 
-	// TODO(yy): refactor
-	err = completePaymentRequests(
-		alice, alice.RouterClient, []string{resp.PaymentRequest}, true,
-	)
-	require.NoError(ht, err, "unable to complete payment")
+	ht.CompletePaymentRequests(alice, []string{resp.PaymentRequest}, true)
 
 	// We'll now open a channel from Alice directly to Carol.
 	ht.ConnectNodes(alice, carol)
@@ -620,12 +619,7 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 	// Alice pays the invoices. She will use the updated baseFeeMSat in the
 	// payment
 	payReqs := []string{resp.PaymentRequest}
-	require.NoError(ht,
-		// TODO(yy): refactor
-		completePaymentRequests(
-			alice, alice.RouterClient, payReqs, true,
-		), "unable to send payment",
-	)
+	ht.CompletePaymentRequests(alice, payReqs, true)
 
 	// Check that Alice did make the payment with two HTLCs, one failed and
 	// one succeeded.

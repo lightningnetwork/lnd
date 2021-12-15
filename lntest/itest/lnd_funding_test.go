@@ -521,11 +521,7 @@ func testExternalFundingChanPoint(ht *lntest.HarnessTest) {
 		Value: int64(payAmt),
 	}
 	resp := ht.AddInvoice(invoice, dave)
-	// TODO(yy): refactor the method to get rid of the RouterClient.
-	err := completePaymentRequests(
-		carol, carol.RouterClient, []string{resp.PaymentRequest}, true,
-	)
-	require.NoError(ht, err)
+	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest}, true)
 
 	// Now that the channels are open, and we've confirmed that they're
 	// operational, we'll now ensure that the channels are frozen as
@@ -847,13 +843,7 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 		Value: int64(payAmt),
 	}
 	resp := ht.AddInvoice(invoice, carol)
-	// TODO(yy): refactor completePaymentRequests to get rid of
-	// RouterClient.
-	err = completePaymentRequests(
-		alice, alice.RouterClient,
-		[]string{resp.PaymentRequest}, true,
-	)
-	require.NoError(ht, err)
+	ht.CompletePaymentRequests(alice, []string{resp.PaymentRequest}, true)
 
 	// To conclude, we'll close the newly created channel between Carol and
 	// Dave. This function will also block until the channel is closed and

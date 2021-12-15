@@ -1,15 +1,12 @@
 package itest
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntest"
-	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 func testMultiHopHtlcClaims(ht *lntest.HarnessTest) {
@@ -118,34 +115,6 @@ func testMultiHopHtlcClaims(ht *lntest.HarnessTest) {
 		})
 		if !success {
 			return
-		}
-	}
-}
-
-// waitForInvoiceAccepted waits until the specified invoice moved to the
-// accepted state by the node.
-// TODO(yy): remove
-func waitForInvoiceAccepted(t *harnessTest, node *lntest.HarnessNode,
-	payHash lntypes.Hash) {
-
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	defer cancel()
-	invoiceUpdates, err := node.SubscribeSingleInvoice(ctx,
-		&invoicesrpc.SubscribeSingleInvoiceRequest{
-			RHash: payHash[:],
-		},
-	)
-	if err != nil {
-		t.Fatalf("subscribe single invoice: %v", err)
-	}
-
-	for {
-		update, err := invoiceUpdates.Recv()
-		if err != nil {
-			t.Fatalf("invoice update err: %v", err)
-		}
-		if update.State == lnrpc.Invoice_ACCEPTED {
-			break
 		}
 	}
 }

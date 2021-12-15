@@ -1,10 +1,6 @@
 package itest
 
 import (
-	"context"
-	"testing"
-	"time"
-
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -117,34 +113,4 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 	require.Zero(ht, pendingAB.NumForwardingPackages)
 
 	ht.Shutdown(carol)
-}
-
-// assertWaitingCloseChannel checks there is a single channel that is waiting
-// for close and returns the channel found.
-func assertWaitingCloseChannel(t *testing.T,
-	node *lntest.HarnessNode) pendingChan {
-
-	ctxb := context.Background()
-
-	var channel pendingChan
-	require.Eventually(t, func() bool {
-		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-		defer cancel()
-
-		req := &lnrpc.PendingChannelsRequest{}
-		resp, err := node.PendingChannels(ctxt, req)
-
-		// We require the RPC call to be succeeded and won't retry upon
-		// an error.
-		require.NoError(t, err, "unable to query for pending channels")
-
-		if err := checkNumWaitingCloseChannels(resp, 1); err != nil {
-			return false
-		}
-
-		channel = resp.WaitingCloseChannels[0].Channel
-		return true
-	}, defaultTimeout, 200*time.Millisecond)
-
-	return channel
 }

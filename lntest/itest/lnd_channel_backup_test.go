@@ -1335,15 +1335,6 @@ func copyPorts(oldNode *lntest.HarnessNode) lntest.NodeOption {
 	}
 }
 
-func rpcPointToWirePoint(t *harnessTest,
-	chanPoint *lnrpc.ChannelPoint) wire.OutPoint {
-
-	op, err := lntest.MakeOutpoint(chanPoint)
-	require.NoError(t.t, err, "unable to get txid")
-
-	return op
-}
-
 // assertDLPExecuted asserts that Dave is a node that has recovered their state
 // form scratch. Carol should then force close on chain, with Dave sweeping his
 // funds immediately, and Carol sweeping her fund after her CSV delay is up. If

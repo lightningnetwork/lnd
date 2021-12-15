@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -78,6 +80,28 @@ func getTestCaseSplitTranche() ([]*lntest.TestCase, uint, uint) {
 	}
 
 	return allTestCases[trancheOffset:trancheEnd], threadID, trancheOffset
+}
+
+func getLndBinary(t *testing.T) string {
+	binary := itestLndBinary
+	lndExec := ""
+	if lndExecutable != nil && *lndExecutable != "" {
+		lndExec = *lndExecutable
+	}
+	if lndExec == "" && runtime.GOOS == "windows" {
+		// Windows (even in a bash like environment like git bash as on
+		// Travis) doesn't seem to like relative paths to exe files...
+		currentDir, err := os.Getwd()
+		require.NoError(t, err, "unable to get working directory")
+
+		targetPath := filepath.Join(currentDir, "../../lnd-itest.exe")
+		binary, err = filepath.Abs(targetPath)
+		require.NoError(t, err, "unable to get absolute path")
+	} else if lndExec != "" {
+		binary = lndExec
+	}
+
+	return binary
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a
@@ -158,14 +182,12 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	// Now we can set up our test harness (LND instance), with the chain
 	// backend we just created.
-	ht := newHarnessTest(t, nil)
-	binary := ht.getLndBinary()
+	binary := getLndBinary(t)
 	lndHarness, err = lntest.NewNetworkHarness(
 		miner, chainBackend, binary, dbBackend,
 	)
-	if err != nil {
-		ht.Fatalf("unable to create lightning network harness: %v", err)
-	}
+	require.NoError(t, err, "unable to create lightning network harness")
+
 	defer lndHarness.Stop()
 
 	// Spawn a new goroutine to watch for any fatal errors that any of the
@@ -179,7 +201,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 				if !more {
 					return
 				}
-				ht.Logf("lnd finished with error (stderr):\n%v",
+				t.Logf("lnd finished with error (stderr):\n%v",
 					err)
 			}
 		}
@@ -189,7 +211,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// soft-fork to activate on SimNet.
 	numBlocks := harnessNetParams.MinerConfirmationWindow * 2
 	if _, err := miner.Client.Generate(numBlocks); err != nil {
-		ht.Fatalf("unable to generate blocks: %v", err)
+		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
 	// With the btcd harness created, we can now complete the

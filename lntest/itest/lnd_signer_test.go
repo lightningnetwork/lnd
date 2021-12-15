@@ -2,8 +2,6 @@ package itest
 
 import (
 	"bytes"
-	"context"
-	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -356,25 +354,4 @@ func assertSignOutputRaw(ht *lntest.HarnessTest,
 	// Mine another block to clean up the mempool and to make sure the spend
 	// tx is actually included in a block.
 	ht.MineBlocksAndAssertTx(1, 1)
-}
-
-// deriveCustomizedKey uses the family and index to derive a public key from
-// the node's walletkit client.
-func deriveCustomizedKey(ctx context.Context, node *lntest.HarnessNode,
-	family, index int32) (*btcec.PublicKey, error) {
-
-	ctxt, _ := context.WithTimeout(ctx, defaultTimeout)
-	req := &signrpc.KeyLocator{
-		KeyFamily: family,
-		KeyIndex:  index,
-	}
-	resp, err := node.WalletKitClient.DeriveKey(ctxt, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to derive key: %v", err)
-	}
-	pub, err := btcec.ParsePubKey(resp.RawKeyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse node pubkey: %v", err)
-	}
-	return pub, nil
 }

@@ -32,6 +32,12 @@ func newMinFeeManager(minUpdateInterval time.Duration,
 		return nil, err
 	}
 
+	// Ensure that the minimum fee we use is always clamped by our fee
+	// floor.
+	if minFee < FeePerKwFloor {
+		minFee = FeePerKwFloor
+	}
+
 	return &minFeeManager{
 		minFeePerKW:       minFee,
 		lastUpdatedTime:   time.Now(),

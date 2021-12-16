@@ -873,7 +873,7 @@ func testQueryRoutes(ht *lntest.HarnessTest) {
 		PubKey: dave.PubKeyStr,
 		Amt:    paymentAmt,
 	}
-	routesRes := ht.QueryRoutes(alice, routesReq)
+	routesRes := ht.QueryRoutesAndRetry(alice, routesReq)
 
 	const mSat = 1000
 	feePerHopMSat := computeFee(1000, 1, paymentAmt*mSat)

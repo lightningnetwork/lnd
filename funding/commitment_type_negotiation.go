@@ -26,8 +26,8 @@ var (
 // will be attempted if the set of both local and remote features support it.
 // Otherwise, implicit negotiation will be attempted.
 func negotiateCommitmentType(channelType *lnwire.ChannelType,
-	local, remote *lnwire.FeatureVector,
-	mustBeExplicit bool) (bool, lnwallet.CommitmentType, error) {
+	local, remote *lnwire.FeatureVector, mustBeExplicit bool,
+) (bool, *lnwire.ChannelType, lnwallet.CommitmentType, error) {
 
 	if channelType != nil {
 		// If the peer does know explicit negotiation, let's attempt
@@ -36,7 +36,7 @@ func negotiateCommitmentType(channelType *lnwire.ChannelType,
 			chanType, err := explicitNegotiateCommitmentType(
 				*channelType, local, remote,
 			)
-			return true, chanType, err
+			return true, channelType, chanType, err
 		}
 
 		// If we're the funder, and we are attempting to use an
@@ -45,11 +45,12 @@ func negotiateCommitmentType(channelType *lnwire.ChannelType,
 		// user doesn't end up with an unexpected channel type via
 		// implicit negotiation.
 		if mustBeExplicit {
-			return false, 0, errUnsupportedExplicitNegotiation
+			return false, nil, 0, errUnsupportedExplicitNegotiation
 		}
 	}
 
-	return false, implicitNegotiateCommitmentType(local, remote), nil
+	chanType, commitType := implicitNegotiateCommitmentType(local, remote)
+	return false, chanType, commitType, nil
 }
 
 // explicitNegotiateCommitmentType attempts to explicitly negotiate for a
@@ -113,12 +114,17 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType,
 // implicitly by choosing the latest type supported by the local and remote
 // fetures.
 func implicitNegotiateCommitmentType(local,
-	remote *lnwire.FeatureVector) lnwallet.CommitmentType {
+	remote *lnwire.FeatureVector) (*lnwire.ChannelType, lnwallet.CommitmentType) {
 
 	// If both peers are signalling support for anchor commitments with
 	// zero-fee HTLC transactions, we'll use this type.
 	if hasFeatures(local, remote, lnwire.AnchorsZeroFeeHtlcTxOptional) {
-		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx
+		chanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+			lnwire.AnchorsZeroFeeHtlcTxRequired,
+			lnwire.StaticRemoteKeyRequired,
+		))
+
+		return &chanType, lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx
 	}
 
 	// Since we don't want to support the "legacy" anchor type, we will fall
@@ -128,11 +134,16 @@ func implicitNegotiateCommitmentType(local,
 	// If both nodes are signaling the proper feature bit for tweakless
 	// commitments, we'll use that.
 	if hasFeatures(local, remote, lnwire.StaticRemoteKeyOptional) {
-		return lnwallet.CommitmentTypeTweakless
+		chanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+			lnwire.StaticRemoteKeyRequired,
+		))
+
+		return &chanType, lnwallet.CommitmentTypeTweakless
 	}
 
 	// Otherwise we'll fall back to the legacy type.
-	return lnwallet.CommitmentTypeLegacy
+	chanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector())
+	return &chanType, lnwallet.CommitmentTypeLegacy
 }
 
 // hasFeatures determines whether a set of features is supported by both the set

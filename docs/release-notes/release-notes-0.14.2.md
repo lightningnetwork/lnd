@@ -5,6 +5,9 @@
 * [Return the nearest known fee rate when a given conf target cannot be found
   from Web API fee estimator.](https://github.com/lightningnetwork/lnd/pull/6062)
 
+* [We now _always_ set a channel type if the other party signals the feature
+  bit](https://github.com/lightningnetwork/lnd/pull/6075).
+
 ## Wallet
 
 * A bug that prevented opening anchor-based channels from external wallets when

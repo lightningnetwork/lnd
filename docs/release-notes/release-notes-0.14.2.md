@@ -42,6 +42,9 @@
 * [Ensure that the min relay fee is always clamped by our fee
   floor](https://github.com/lightningnetwork/lnd/pull/6076)
 
+* [Clarify log message about not running within
+  systemd](https://github.com/lightningnetwork/lnd/pull/6096)
+
 ## RPC Server
 
 * [ChanStatusFlags is now

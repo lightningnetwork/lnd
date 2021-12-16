@@ -41,6 +41,9 @@ func testMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 	}
 	carolInvoice := ht.AddHoldInvoice(invoiceReq, carol)
 
+	// Subscribe the invoice.
+	stream := ht.SubscribeSingleInvoice(carol, payHash[:])
+
 	// Now that we've created the invoice, we'll send a single payment from
 	// Alice to Carol. We won't wait for the response however, as Carol
 	// will not immediately settle the payment.
@@ -60,7 +63,7 @@ func testMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 	// Wait for carol to mark invoice as accepted. There is a small gap to
 	// bridge between adding the htlc to the channel and executing the exit
 	// hop logic.
-	ht.AssertInvoiceState(carol, payHash, lnrpc.Invoice_ACCEPTED)
+	ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
 
 	restartBob := ht.SuspendNode(bob)
 

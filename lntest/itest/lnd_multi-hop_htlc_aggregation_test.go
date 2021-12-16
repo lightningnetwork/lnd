@@ -48,12 +48,12 @@ func testMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	const invoiceAmt = 50_000
 
 	var (
-		carolInvoices  []*invoicesrpc.AddHoldInvoiceResp
-		aliceInvoices  []*invoicesrpc.AddHoldInvoiceResp
-		alicePreimages []lntypes.Preimage
-		payHashes      [][]byte
-		alicePayHashes [][]byte
-		carolPayHashes [][]byte
+		carolInvoices       []*invoicesrpc.AddHoldInvoiceResp
+		aliceInvoices       []*invoicesrpc.AddHoldInvoiceResp
+		alicePreimages      []lntypes.Preimage
+		payHashes           [][]byte
+		invoiceStreamsCarol []lntest.SingleInvoiceClient
+		invoiceStreamsAlice []lntest.SingleInvoiceClient
 	)
 
 	// Add Carol invoices.
@@ -70,7 +70,10 @@ func testMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 
 		carolInvoices = append(carolInvoices, carolInvoice)
 		payHashes = append(payHashes, payHash[:])
-		carolPayHashes = append(carolPayHashes, payHash[:])
+
+		// Subscribe the invoice.
+		stream := ht.SubscribeSingleInvoice(carol, payHash[:])
+		invoiceStreamsCarol = append(invoiceStreamsCarol, stream)
 	}
 
 	// We'll give Alice's invoices a longer CLTV expiry, to ensure the
@@ -89,7 +92,10 @@ func testMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 		aliceInvoices = append(aliceInvoices, aliceInvoice)
 		alicePreimages = append(alicePreimages, preimage)
 		payHashes = append(payHashes, payHash[:])
-		alicePayHashes = append(alicePayHashes, payHash[:])
+
+		// Subscribe the invoice.
+		stream := ht.SubscribeSingleInvoice(alice, payHash[:])
+		invoiceStreamsAlice = append(invoiceStreamsAlice, stream)
 	}
 
 	// Now that we've created the invoices, we'll pay them all from
@@ -125,16 +131,12 @@ func testMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	// Wait for Alice and Carol to mark the invoices as accepted. There is
 	// a small gap to bridge between adding the htlc to the channel and
 	// executing the exit hop logic.
-	for _, payHash := range carolPayHashes {
-		h := lntypes.Hash{}
-		copy(h[:], payHash)
-		ht.AssertInvoiceState(carol, h, lnrpc.Invoice_ACCEPTED)
+	for _, stream := range invoiceStreamsCarol {
+		ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
 	}
 
-	for _, payHash := range alicePayHashes {
-		h := lntypes.Hash{}
-		copy(h[:], payHash)
-		ht.AssertInvoiceState(alice, h, lnrpc.Invoice_ACCEPTED)
+	for _, stream := range invoiceStreamsAlice {
+		ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
 	}
 
 	// Increase the fee estimate so that the following force close tx will

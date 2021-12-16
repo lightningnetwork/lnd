@@ -45,6 +45,9 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	}
 	carolInvoice := ht.AddHoldInvoice(invoiceReq, carol)
 
+	// Subscribe the invoice.
+	stream := ht.SubscribeSingleInvoice(carol, payHash[:])
+
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest: carolInvoice.PaymentRequest,
 		TimeoutSeconds: 60,
@@ -161,7 +164,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 
 	// While we're here, we assert that our expired invoice's state is
 	// correctly updated, and can no longer be settled.
-	ht.AssertInvoiceState(carol, preimage.Hash(), lnrpc.Invoice_CANCELED)
+	ht.AssertInvoiceState(stream, lnrpc.Invoice_CANCELED)
 
 	// We'll close out the test by closing the channel from Alice to Bob,
 	// and then shutting down the new node we created as its no longer

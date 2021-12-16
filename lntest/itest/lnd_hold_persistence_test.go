@@ -64,14 +64,14 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 
 	// Let Carol create hold-invoices for all the payments.
 	var (
-		payAmt  = btcutil.Amount(4)
-		payReqs []string
+		payAmt         = btcutil.Amount(4)
+		payReqs        []string
+		invoiceStreams []lntest.SingleInvoiceClient
 	)
 
 	assertInvoiceState := func(state lnrpc.Invoice_InvoiceState) {
-		for _, preimage := range preimages {
-			payHash := preimage.Hash()
-			ht.AssertInvoiceState(carol, payHash, state)
+		for _, client := range invoiceStreams {
+			ht.AssertInvoiceState(client, state)
 		}
 	}
 
@@ -95,6 +95,9 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 		// we've got coverage for hop hints.
 		invoice := ht.DecodePayReq(alice, resp.PaymentRequest)
 		require.Len(ht, invoice.RouteHints, 1)
+
+		stream := ht.SubscribeSingleInvoice(carol, payHash[:])
+		invoiceStreams = append(invoiceStreams, stream)
 	}
 
 	// Wait for all the invoices to reach the OPEN state.
@@ -181,13 +184,13 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 		if i%2 == 0 {
 			ht.SettleInvoice(carol, preimage[:])
 			ht.AssertInvoiceState(
-				carol, preimage.Hash(), lnrpc.Invoice_SETTLED,
+				invoiceStreams[i], lnrpc.Invoice_SETTLED,
 			)
 		} else {
 			hash := preimage.Hash()
 			ht.CancelInvoice(carol, hash[:])
 			ht.AssertInvoiceState(
-				carol, hash, lnrpc.Invoice_CANCELED,
+				invoiceStreams[i], lnrpc.Invoice_CANCELED,
 			)
 		}
 	}

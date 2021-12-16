@@ -34,6 +34,9 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	}
 	bobInvoice := ht.AddHoldInvoice(invoiceReq, bob)
 
+	// Subscribe the invoice.
+	stream := ht.SubscribeSingleInvoice(bob, payHash[:])
+
 	// Pay this invoice from Alice -> Bob, we should achieve this with a
 	// single htlc.
 	req := &routerrpc.SendPaymentRequest{
@@ -43,7 +46,7 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	}
 	ht.SendPayment(alice, req)
 
-	ht.AssertInvoiceState(bob, payHash, lnrpc.Invoice_ACCEPTED)
+	ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
 
 	// Once the HTLC has cleared, alice and bob should both have a single
 	// htlc locked in.

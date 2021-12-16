@@ -56,6 +56,9 @@ func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 	decodeResp := ht.DecodePayReq(ctx.bob, payReq)
 	payAddr := decodeResp.PaymentAddr
 
+	// Subscribe the invoice.
+	stream := ht.SubscribeSingleInvoice(ctx.bob, rHash)
+
 	// We'll send shards along three routes from Alice.
 	sendRoutes := [][]*lntest.HarnessNode{
 		{ctx.carol, ctx.bob},
@@ -132,14 +135,10 @@ func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 
 	// assertSettledInvoice checks that the invoice for the given payment
 	// hash is settled, and has been paid using num HTLCs.
-	assertSettledInvoice := func(node *lntest.HarnessNode,
-		rhash []byte, num int) {
-
+	assertSettledInvoice := func(rhash []byte, num int) {
 		var payHash lntypes.Hash
 		copy(payHash[:], rhash)
-		inv := ht.AssertInvoiceState(
-			node, payHash, lnrpc.Invoice_SETTLED,
-		)
+		inv := ht.AssertInvoiceState(stream, lnrpc.Invoice_SETTLED)
 
 		// Assert that the amount paid to the invoice is correct.
 		require.EqualValues(ht, paymentAmt, inv.AmtPaidSat,
@@ -153,7 +152,7 @@ func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 	assertNumHtlcs(ctx.alice, 3)
 
 	// ...and in Bob's list of paid invoices.
-	assertSettledInvoice(ctx.bob, rHash, 3)
+	assertSettledInvoice(rHash, 3)
 }
 
 // testSendMultiPathPayment tests that we are able to successfully route a

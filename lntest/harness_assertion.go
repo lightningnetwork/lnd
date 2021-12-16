@@ -69,14 +69,24 @@ func (h *HarnessTest) AssertChannelExists(hn *HarnessNode,
 	return channel
 }
 
-// AssertInvoiceState asserts that a given invoice has became the desired
-// state before timeout and returns the invoice found.
-func (h *HarnessTest) AssertInvoiceState(hn *HarnessNode, payHash lntypes.Hash,
+// AssertInvoiceState takes a single invoice subscription stream and asserts
+// that a given invoice has became the desired state before timeout and returns
+// the invoice found.
+func (h *HarnessTest) AssertInvoiceState(stream SingleInvoiceClient,
 	state lnrpc.Invoice_InvoiceState) *lnrpc.Invoice {
 
-	invoice, err := hn.waitForInvoiceState(payHash, state)
-	require.NoError(h, err, "%s failed to wait invoice:%v to be state: %v",
-		hn.Name(), payHash, state)
+	var invoice *lnrpc.Invoice
+
+	err := wait.NoError(func() error {
+		invoice = h.ReceiveSingleInvoice(stream)
+		if invoice.State == state {
+			return nil
+		}
+
+		return fmt.Errorf("mismatched invoice state, want %v, got %v",
+			state, invoice.State)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout waiting for invoice state: %v", state)
 
 	return invoice
 }

@@ -851,31 +851,42 @@ func computeFee(baseFee, feeRate, amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 func testQueryRoutes(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
-	// Open a channel between Alice and Bob.
+	// Grab Alice and Bob from the standby nodes.
 	alice, bob := ht.Alice, ht.Bob
-	chanPointAlice := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
-	)
 
-	// Create Carol and establish a channel from Bob.
+	// Create Carol and connect her to Bob. We also send her some coins for
+	// channel opening.
 	carol := ht.NewNode("Carol", nil)
 	defer ht.Shutdown(carol)
 
 	ht.ConnectNodes(carol, bob)
-	chanPointBob := ht.OpenChannel(
-		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
-	)
+	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
 
-	// Create Dave and establish a channel from Carol.
+	// Create Dave and connect him to Carol.
 	dave := ht.NewNode("Dave", nil)
 	defer ht.Shutdown(dave)
 
 	ht.ConnectNodes(dave, carol)
-	ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
 
-	chanPointCarol := ht.OpenChannel(
-		carol, dave, lntest.OpenChannelParams{Amt: chanAmt},
-	)
+	// We now proceed to open channels:
+	//   Alice=>Bob, Bob=>Carol and Carol=>Dave.
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: p},
+		{Local: bob, Remote: carol, Param: p},
+		{Local: carol, Remote: dave, Param: p},
+	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+
+	// Extract channel points from the response.
+	chanPointAlice := resp[0]
+	chanPointBob := resp[1]
+	chanPointCarol := resp[2]
+
+	// Before we continue, give Alice some time to catch up with the newly
+	// opened channels.
+	ht.AssertChannelOpen(alice, chanPointBob)
+	ht.AssertChannelOpen(alice, chanPointCarol)
 
 	// Query for routes to pay from Alice to Dave.
 	const paymentAmt = 1000

@@ -567,26 +567,49 @@ func (h *HarnessTest) AssertPaymentStatus(hn *HarnessNode,
 	return target
 }
 
-// AssertHTLCStage asserts the HTLC is in the expected stage or timeout.
-func (h *HarnessTest) AssertHTLCStage(hn *HarnessNode, stage uint32) {
+// AssertNumHTLCsAndStage takes a pending force close channel's channel point
+// and asserts the expected number of pending HTLCs and HTLC stage are matched.
+func (h *HarnessTest) AssertNumHTLCsAndStage(hn *HarnessNode,
+	chanPoint *lnrpc.ChannelPoint, num int, stage uint32) {
+
+	// Get the channel output point.
+	cp := h.OutPointFromChannelPoint(chanPoint)
+
+	var target PendingForceClose
 	checkStage := func() error {
-		pendingChanResp := h.GetPendingChannels(hn)
-		if len(pendingChanResp.PendingForceClosingChannels) == 0 {
+		resp := h.GetPendingChannels(hn)
+		if len(resp.PendingForceClosingChannels) == 0 {
 			return fmt.Errorf("zero pending force closing channels")
 		}
 
-		ch := pendingChanResp.PendingForceClosingChannels[0]
-		if ch.LimboBalance == 0 {
-			return fmt.Errorf("zero balance")
+		for _, ch := range resp.PendingForceClosingChannels {
+			if ch.Channel.ChannelPoint == cp.String() {
+				target = ch
+				break
+			}
 		}
 
-		if len(ch.PendingHtlcs) != 1 {
-			return fmt.Errorf("got %d pending htlcs, want 1",
-				len(ch.PendingHtlcs))
+		if target == nil {
+			return fmt.Errorf("cannot find pending force closing "+
+				"channel using %v", cp)
 		}
-		if stage != ch.PendingHtlcs[0].Stage {
-			return fmt.Errorf("got stage: %v, want stage: %v",
-				ch.PendingHtlcs[0].Stage, stage)
+
+		if target.LimboBalance == 0 {
+			return fmt.Errorf("zero limbo balance")
+		}
+
+		if len(target.PendingHtlcs) != num {
+			return fmt.Errorf("got %d pending htlcs, want %d",
+				len(target.PendingHtlcs), num)
+		}
+
+		for i, htlc := range target.PendingHtlcs {
+			if htlc.Stage == stage {
+				continue
+			}
+
+			return fmt.Errorf("HTLC %d got stage: %v, "+
+				"want stage: %v", i, htlc.Stage, stage)
 		}
 
 		return nil

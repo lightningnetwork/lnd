@@ -148,7 +148,7 @@ func testMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 	// Carol's pending channel report should now show two outputs under
 	// limbo: her commitment output, as well as the second-layer claim
 	// output, and the pending HTLC should also now be in stage 2.
-	ht.AssertHTLCStage(carol, uint32(2))
+	ht.AssertNumHTLCsAndStage(carol, bobChanPoint, 1, 2)
 
 	// Once the second-level transaction confirmed, Bob should have
 	// extracted the preimage from the chain, and sent it back to Alice,

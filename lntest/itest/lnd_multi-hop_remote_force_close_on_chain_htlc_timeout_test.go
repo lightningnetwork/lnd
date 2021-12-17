@@ -109,7 +109,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	// If we check Bob's pending channel report, it should show that he has
 	// a single HTLC that's now in the second stage, as skip the initial
 	// first stage since this is a direct HTLC.
-	ht.AssertHTLCStage(bob, 2)
+	ht.AssertNumHTLCsAndStage(bob, bobChanPoint, 1, 2)
 
 	// We need to generate an additional block to trigger the sweep.
 	ht.MineBlocks(1)

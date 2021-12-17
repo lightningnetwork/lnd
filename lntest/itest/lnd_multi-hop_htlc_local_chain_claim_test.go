@@ -199,7 +199,7 @@ func testMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 		numPendingChans++
 	}
 	ht.AssertNumPendingCloseChannels(bob, 0, numPendingChans)
-	ht.AssertHTLCStage(bob, 1)
+	ht.AssertNumHTLCsAndStage(bob, aliceChanPoint, 1, 1)
 
 	// We'll now mine a block which should confirm Bob's second layer
 	// transaction.

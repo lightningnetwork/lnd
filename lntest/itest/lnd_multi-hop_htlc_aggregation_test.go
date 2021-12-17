@@ -281,10 +281,7 @@ func testMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 
 	// For this channel, we also check the number of HTLCs and the stage
 	// are correct.
-	pendingChanResp := ht.GetPendingChannels(bob)
-	pendingChan := pendingChanResp.PendingForceClosingChannels[0]
-	require.Len(ht, pendingChan.PendingHtlcs, numInvoices*2)
-	require.EqualValues(ht, 2, pendingChan.PendingHtlcs[0].Stage)
+	ht.AssertNumHTLCsAndStage(bob, bobChanPoint, numInvoices*2, 2)
 
 	if c != lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
 		// If we then mine additional blocks, Bob can sweep his

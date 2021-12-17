@@ -65,10 +65,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 
 	// At this point, Bob should have a pending force close channel as he
 	// just went to chain.
-	pendingChanResp := ht.GetPendingChannels(bob)
-	require.Equal(ht, 1, len(pendingChanResp.PendingForceClosingChannels))
-	closingChan := pendingChanResp.PendingForceClosingChannels[0]
-	require.NotZero(ht, closingChan.LimboBalance)
+	ht.AssertNumPendingCloseChannels(bob, 0, 1)
 
 	// If the channel closed has anchors, we should expect to see a sweep
 	// transaction for Carol's anchor.
@@ -109,7 +106,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 
 	// Bob's pending channel report should show that he has a single HTLC
 	// that's now in stage one.
-	ht.AssertHTLCStage(bob, 1)
+	ht.AssertNumHTLCsAndStage(bob, bobChanPoint, 1, 1)
 
 	// We should also now find a transaction in the mempool, as Bob should
 	// have broadcast his second layer timeout transaction.
@@ -126,7 +123,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 
 	// Additionally, Bob should now show that HTLC as being advanced to the
 	// second stage.
-	ht.AssertHTLCStage(bob, 2)
+	ht.AssertNumHTLCsAndStage(bob, bobChanPoint, 1, 2)
 
 	// Bob should now broadcast a transaction that sweeps certain inputs
 	// depending on the commitment type. We'll need to mine some blocks

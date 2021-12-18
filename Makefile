@@ -53,6 +53,7 @@ make_ldflags = $(2) -X $(PKG)/build.Commit=$(COMMIT) \
 	-X $(PKG)/build.GoVersion=$(GOVERSION) \
 	-X $(PKG)/build.RawTags=$(shell echo $(1) | sed -e 's/ /,/g')
 
+DEV_GCFLAGS := -gcflags "all=-N -l"
 LDFLAGS := -ldflags "$(call make_ldflags, ${tags}, -s -w)"
 DEV_LDFLAGS := -ldflags "$(call make_ldflags, $(DEV_TAGS))"
 ITEST_LDFLAGS := -ldflags "$(call make_ldflags, $(ITEST_TAGS))"
@@ -116,8 +117,8 @@ $(GOFUZZ_DEP_BIN):
 
 build:
 	@$(call print, "Building debug lnd and lncli.")
-	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(DEV_LDFLAGS) $(PKG)/cmd/lnd
-	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(DEV_LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/lnd
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/lncli
 
 build-itest:
 	@$(call print, "Building itest btcd and lnd.")

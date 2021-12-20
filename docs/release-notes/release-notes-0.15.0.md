@@ -26,6 +26,10 @@
   `pending_force_closing_channels` under `pendingchannels` whereas before was
   empty(zero).
 
+## Documentation
+
+* Improved instructions on [how to build lnd for mobile](https://github.com/lightningnetwork/lnd/pull/6085).
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes
@@ -34,6 +38,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Andreas Schjønhaug
 * Daniel McNally
 * ErikEk
 * Torkel Rogstad

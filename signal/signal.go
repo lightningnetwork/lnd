@@ -42,7 +42,8 @@ func systemdNotifyReady() error {
 	if notified {
 		log.Info("Systemd was notified about our readiness")
 	} else {
-		log.Info("We're not running within systemd")
+		log.Info("We're not running within systemd or the service " +
+			"type is not 'notify'")
 	}
 	return nil
 }

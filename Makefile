@@ -1,6 +1,8 @@
 PKG := github.com/lightningnetwork/lnd
 ESCPKG := github.com\/lightningnetwork\/lnd
 MOBILE_PKG := $(PKG)/mobile
+TOOLS_DIR := tools
+TOOLS_BIN_DIR := $(abspath $(TOOLS_DIR)/bin)
 
 BTCD_PKG := github.com/btcsuite/btcd
 LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
@@ -11,12 +13,12 @@ GOFUZZ_PKG := github.com/dvyukov/go-fuzz/go-fuzz
 GOFUZZ_DEP_PKG := github.com/dvyukov/go-fuzz/go-fuzz-dep
 
 GO_BIN := ${GOPATH}/bin
-BTCD_BIN := $(GO_BIN)/btcd
+BTCD_BIN := $(TOOLS_BIN_DIR)/btcd
 GOMOBILE_BIN := GO111MODULE=off $(GO_BIN)/gomobile
-LINT_BIN := $(GO_BIN)/golangci-lint
-GOACC_BIN := $(GO_BIN)/go-acc
-GOFUZZ_BUILD_BIN := $(GO_BIN)/go-fuzz-build
-GOFUZZ_BIN := $(GO_BIN)/go-fuzz
+LINT_BIN := $(TOOLS_BIN_DIR)/golangci-lint
+GOACC_BIN := $(TOOLS_BIN_DIR)/go-acc
+GOFUZZ_BUILD_BIN := $(TOOLS_BIN_DIR)/go-fuzz-build
+GOFUZZ_BIN := $(TOOLS_BIN_DIR)/go-fuzz
 
 MOBILE_BUILD_DIR :=${GOPATH}/src/$(MOBILE_PKG)/build
 IOS_BUILD_DIR := $(MOBILE_BUILD_DIR)/ios
@@ -82,33 +84,33 @@ all: scratch check install
 # ============
 # DEPENDENCIES
 # ============
-$(LINT_BIN):
+$(LINT_BIN): 
 	@$(call print, "Installing linter.")
-	go install $(LINT_PKG)
+	cd $(TOOLS_DIR);go build -trimpath -tags=tools -o $(TOOLS_BIN_DIR)/golangci-lint $(LINT_PKG)
 
 $(GOACC_BIN):
 	@$(call print, "Installing go-acc.")
-	go install $(GOACC_PKG)
+	cd $(TOOLS_DIR);go build -trimpath -tags=tools -o $(TOOLS_BIN_DIR)/go-acc  $(GOACC_PKG)
 
 btcd:
 	@$(call print, "Installing btcd.")
-	go install $(BTCD_PKG)
+	cd $(TOOLS_DIR);go build -trimpath -tags=tools -o $(TOOLS_BIN_DIR)/btcd $(BTCD_PKG)
 
 goimports:
 	@$(call print, "Installing goimports.")
-	go install $(GOIMPORTS_PKG)
+	cd $(TOOLS_DIR);go build -trimpath -tags=tools -o $(TOOLS_BIN_DIR)/goimports $(GOIMPORTS_PKG)
 
 $(GOFUZZ_BIN):
 	@$(call print, "Installing go-fuzz.")
-	go install $(GOFUZZ_PKG)
+	cd $(TOOLS_DIR);go build -trimpath -tags=tools -o $(TOOLS_BIN_DIR)/go-fuzz $(GOFUZZ_PKG)
 
 $(GOFUZZ_BUILD_BIN):
 	@$(call print, "Installing go-fuzz-build.")
-	go install $(GOFUZZ_BUILD_PKG)
+	cd $(TOOLS_DIR);go build -trimpath -tags=tools -o $(TOOLS_BIN_DIR)/go-fuzz-build $(GOFUZZ_BUILD_PKG)
 
 $(GOFUZZ_DEP_BIN):
 	@$(call print, "Installing go-fuzz-dep.")
-	go install $(GOFUZZ_DEP_PKG)
+	cd $(TOOLS_DIR);go build -trimpath -tags=tools -o $(TOOLS_BIN_DIR)/go-fuzz-dep $(GOFUZZ_DEP_PKG)
 
 # ============
 # INSTALLATION

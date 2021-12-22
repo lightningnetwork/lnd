@@ -255,11 +255,12 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 }
 
 // CoinSelectUpToAmount attempts to select coins such that we'll select up to
-// maxAmount exclusive of fees if sufficient funds are available. If
-// insufficient funds are available this method selects all available coins.
+// maxAmount exclusive of fees and optional reserve if sufficient funds are
+// available. If insufficient funds are available this method selects all
+// available coins.
 func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
-	dustLimit btcutil.Amount, coins []Coin) ([]Coin, btcutil.Amount,
-	btcutil.Amount, error) {
+	reserved, dustLimit btcutil.Amount, coins []Coin) ([]Coin,
+	btcutil.Amount, btcutil.Amount, error) {
 
 	var (
 		// selectSubtractFee is tracking if our coin selection was
@@ -269,6 +270,13 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 		outputAmount      = maxAmount
 	)
 
+	// Get total balance from coins which we need for reserve considerations
+	// and fee santiy checks.
+	var totalBalance btcutil.Amount
+	for _, coin := range coins {
+		totalBalance += btcutil.Amount(coin.Value)
+	}
+
 	// First we try to select coins to create an output of the specified
 	// maxAmount with or without a change output that covers the miner fee.
 	selected, changeAmt, err := CoinSelect(
@@ -276,25 +284,42 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	)
 
 	var errInsufficientFunds *ErrInsufficientFunds
-	if errors.As(err, &errInsufficientFunds) {
+	if err == nil { //nolint:gocritic,ifElseChain
+		// If the coin selection succeeds we check if our total balance
+		// covers the selected set of coins including fees plus an
+		// optional anchor reserve.
+
+		// First we sum up the value of all selected coins.
+		var sumSelected btcutil.Amount
+		for _, coin := range selected {
+			sumSelected += btcutil.Amount(coin.Value)
+		}
+
+		// We then subtract the change amount from the value of all
+		// selected coins to obtain the actual amount that is selected.
+		sumSelected -= changeAmt
+
+		// Next we check if our total balance can cover for the selected
+		// output plus the optional anchor reserve.
+		if totalBalance-sumSelected < reserved {
+			// If our local balance is insufficient to cover for the
+			// reserve we try to select an output amount that uses
+			// our total balance minus reserve and fees.
+			selectSubtractFee = true
+		}
+	} else if errors.As(err, &errInsufficientFunds) {
 		// If the initial coin selection fails due to insufficient funds
 		// we select our total available balance minus fees.
 		selectSubtractFee = true
-	} else if err != nil {
+	} else {
 		return nil, 0, 0, err
 	}
 
-	// If we determined that our local balance is insufficient we check our
-	// total balance minus fees.
+	// If we determined that our local balance is insufficient we check
+	// our total balance minus fees and optional reserve.
 	if selectSubtractFee {
-		// Get balance from coins.
-		var totalBalance btcutil.Amount
-		for _, coin := range coins {
-			totalBalance += btcutil.Amount(coin.Value)
-		}
-
 		selected, outputAmount, changeAmt, err = CoinSelectSubtractFees(
-			feeRate, totalBalance, dustLimit, coins,
+			feeRate, totalBalance-reserved, dustLimit, coins,
 		)
 		if err != nil {
 			return nil, 0, 0, err

@@ -1020,6 +1020,10 @@ type OpenChannelParams struct {
 	// CommitmentType is the commitment type that should be used for the
 	// channel to be opened.
 	CommitmentType lnrpc.CommitmentType
+
+	// FundMax is a boolean indicating whether the channel should be funded
+	// with the maximum possible amount from the wallet.
+	FundMax bool
 }
 
 // OpenChannel attempts to open a channel between srcNode and destNode with the
@@ -1058,6 +1062,7 @@ func (n *NetworkHarness) OpenChannel(srcNode, destNode *HarnessNode,
 		FundingShim:        p.FundingShim,
 		SatPerByte:         int64(p.SatPerVByte),
 		CommitmentType:     p.CommitmentType,
+		FundMax:            p.FundMax,
 	}
 
 	// We need to use n.runCtx here to keep the response stream alive after

@@ -61,6 +61,10 @@ var allTestCases = []*testCase{
 		test: testChannelBalance,
 	},
 	{
+		name: "channel fundmax",
+		test: testChannelFundMax,
+	},
+	{
 		name: "channel unsettled balance",
 		test: testChannelUnsettledBalance,
 	},

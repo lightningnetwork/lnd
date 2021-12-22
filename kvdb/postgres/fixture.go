@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/btcsuite/btcwallet/walletdb"
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
@@ -81,7 +82,8 @@ func NewFixture(dbName string) (*fixture, error) {
 	db, err := newPostgresBackend(
 		context.Background(),
 		&Config{
-			Dsn: dsn,
+			Dsn:     dsn,
+			Timeout: time.Minute,
 		},
 		prefix,
 	)

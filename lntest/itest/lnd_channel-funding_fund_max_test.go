@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -38,6 +39,10 @@ type chanFundMaxTestCase struct {
 
 	// chanOpenShouldFail denotes if we expect the channel opening to fail.
 	chanOpenShouldFail bool
+
+	// commitmentType allows to define the exact type when opening the
+	// channel.
+	commitmentType lnrpc.CommitmentType
 }
 
 func testChannelFundMax(net *lntest.NetworkHarness, ht *harnessTest) {
@@ -45,13 +50,14 @@ func testChannelFundMax(net *lntest.NetworkHarness, ht *harnessTest) {
 
 	// Create two new nodes that open a channel between each other for these
 	// tests.
+	args := nodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 	carol := net.NewNode(
-		ht.t, "Carol", nil,
+		ht.t, "Carol", args,
 	)
 	defer shutdownAndAssert(net, ht, carol)
 
 	dave := net.NewNode(
-		ht.t, "Dave", nil,
+		ht.t, "Dave", args,
 	)
 	defer shutdownAndAssert(net, ht, dave)
 
@@ -97,6 +103,27 @@ func testChannelFundMax(net *lntest.NetworkHarness, ht *harnessTest) {
 		balance := btcutil.Amount(response.Balance)
 		if balance != amount {
 			return fmt.Errorf("channel balance wrong: got (%v), "+
+				"want (%v)", balance, amount)
+		}
+
+		return nil
+	}
+
+	// Helper closure to assert the proper response to a channel balance RPC.
+	checkWalletBalance := func(node lnrpc.LightningClient,
+		amount btcutil.Amount) error {
+
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		response, err := node.WalletBalance(
+			ctxt, &lnrpc.WalletBalanceRequest{},
+		)
+		if err != nil {
+			ht.Fatalf("unable to get channel balance: %v", err)
+		}
+
+		balance := btcutil.Amount(response.TotalBalance)
+		if balance != amount {
+			return fmt.Errorf("wallet balance wrong: got (%v), "+
 				"want (%v)", balance, amount)
 		}
 
@@ -149,12 +176,18 @@ func testChannelFundMax(net *lntest.NetworkHarness, ht *harnessTest) {
 				sweepNodeWalletAndAssert(carol)
 			}()
 
+			commitType := testCase.commitmentType
+			if commitType == lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE {
+				commitType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
+			}
+
 			// The parameters to try opening the channel with.
 			chanParams := lntest.OpenChannelParams{
-				Amt:         0,
-				PushAmt:     testCase.pushAmt,
-				SatPerVByte: testCase.feeRate,
-				FundMax:     true,
+				Amt:            0,
+				PushAmt:        testCase.pushAmt,
+				SatPerVByte:    testCase.feeRate,
+				CommitmentType: commitType,
+				FundMax:        true,
 			}
 
 			// If we don't expect the channel opening to be
@@ -203,6 +236,13 @@ func testChannelFundMax(net *lntest.NetworkHarness, ht *harnessTest) {
 			err = checkChannelBalance(dave, testCase.pushAmt)
 			if err != nil {
 				t.Errorf("dave's balance is wrong: %v", err)
+			}
+
+			if commitTypeHasAnchors(testCase.commitmentType) {
+				err = checkWalletBalance(carol, lnwallet.ReservedValue(1))
+				if err != nil {
+					t.Errorf("carol's wallet reserve value invalidated: %v", err)
+				}
 			}
 		}
 	}
@@ -260,6 +300,13 @@ func testChannelFundMax(net *lntest.NetworkHarness, ht *harnessTest) {
 			amount:       20000000,
 			pushAmt:      16766000,
 			carolBalance: lnd.MaxFundingAmount - 16766000,
+		},
+
+		{
+			name:           "anchor reserved value",
+			amount:         100000,
+			commitmentType: lnrpc.CommitmentType_ANCHORS,
+			carolBalance:   btcutil.Amount(100000) - fundingFee(1, true) - lnwallet.ReservedValue(1),
 		},
 	}
 

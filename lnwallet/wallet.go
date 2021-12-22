@@ -739,6 +739,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 
 	localFundingAmt := req.LocalFundingAmt
 	remoteFundingAmt := req.RemoteFundingAmt
+	hasAnchors := req.CommitType.HasAnchors()
 
 	var (
 		fundingIntent chanfunding.Intent
@@ -758,13 +759,31 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// funder in the attached request to provision the inputs/outputs
 	// that'll ultimately be used to construct the funding transaction.
 	if !ok {
+		var err error
+		var numAnchorChans int
+
+		// Get the number of anchor channels to determine if there is a reserved
+		// value that must be respected when funding up to the maximum amount.
+		if req.FundUpToMaxAmt > 0 {
+			numAnchorChans, err = l.currentNumAnchorChans()
+			if err != nil {
+				req.err <- err
+				req.resp <- nil
+				return
+			}
+
+			if hasAnchors {
+				numAnchorChans++
+			}
+		}
+
 		// Coin selection is done on the basis of sat/kw, so we'll use
 		// the fee rate passed in to perform coin selection.
-		var err error
 		fundingReq := &chanfunding.Request{
 			RemoteAmt:      req.RemoteFundingAmt,
 			LocalAmt:       req.LocalFundingAmt,
 			FundUpToMaxAmt: req.FundUpToMaxAmt,
+			ReservedAmt:    ReservedValue(numAnchorChans),
 			MinConfs:       req.MinConfs,
 			SubtractFees:   req.SubtractFees,
 			FeeRate:        req.FundingFeePerKw,
@@ -834,7 +853,6 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// funding tx ready, so this will always pass.  We'll do another check
 	// when the PSBT has been verified.
 	isPublic := req.Flags&lnwire.FFAnnounceChannel != 0
-	hasAnchors := req.CommitType.HasAnchors()
 	if enforceNewReservedValue {
 		err = l.enforceNewReservedValue(fundingIntent, isPublic, hasAnchors)
 		if err != nil {
@@ -1054,10 +1072,7 @@ func (l *LightningWallet) CheckReservedValue(in []wire.OutPoint,
 	}
 
 	// We reserve a given amount for each anchor channel.
-	reserved := btcutil.Amount(numAnchorChans) * anchorChanReservedValue
-	if reserved > maxAnchorChanReservedValue {
-		reserved = maxAnchorChanReservedValue
-	}
+	reserved := ReservedValue(numAnchorChans)
 
 	if walletBalance < reserved {
 		walletLog.Debugf("Reserved value=%v above final "+
@@ -1121,6 +1136,16 @@ func (l *LightningWallet) CheckReservedValueTx(req CheckReservedValueTxReq) (
 	}
 
 	return reservedVal, nil
+}
+
+// ReservedValue returns the total value that must be reserved given the number
+// of anchor channels.
+func ReservedValue(numAnchorChans int) btcutil.Amount {
+	reserved := btcutil.Amount(numAnchorChans) * anchorChanReservedValue
+	if reserved > maxAnchorChanReservedValue {
+		reserved = maxAnchorChanReservedValue
+	}
+	return reserved
 }
 
 // initOurContribution initializes the given ChannelReservation with our coins

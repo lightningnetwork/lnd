@@ -519,4 +519,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "watchtower session management",
 		TestFunc: testWatchtowerSessionManagement,
 	},
+	{
+		Name:     "channel fundmax",
+		TestFunc: testChannelFundMax,
+	},
 }

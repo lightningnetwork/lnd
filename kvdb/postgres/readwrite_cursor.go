@@ -31,11 +31,13 @@ func (c *readWriteCursor) First() ([]byte, []byte) {
 		key   []byte
 		value []byte
 	)
-	err := c.bucket.tx.QueryRow(
-		"SELECT key, value FROM "+c.bucket.table+" WHERE "+
-			parentSelector(c.bucket.id)+
+	row, cancel := c.bucket.tx.QueryRow(
+		"SELECT key, value FROM " + c.bucket.table + " WHERE " +
+			parentSelector(c.bucket.id) +
 			" ORDER BY key LIMIT 1",
-	).Scan(&key, &value)
+	)
+	defer cancel()
+	err := row.Scan(&key, &value)
 
 	switch {
 	case err == sql.ErrNoRows:
@@ -59,11 +61,13 @@ func (c *readWriteCursor) Last() ([]byte, []byte) {
 		key   []byte
 		value []byte
 	)
-	err := c.bucket.tx.QueryRow(
-		"SELECT key, value FROM "+c.bucket.table+" WHERE "+
-			parentSelector(c.bucket.id)+
+	row, cancel := c.bucket.tx.QueryRow(
+		"SELECT key, value FROM " + c.bucket.table + " WHERE " +
+			parentSelector(c.bucket.id) +
 			" ORDER BY key DESC LIMIT 1",
-	).Scan(&key, &value)
+	)
+	defer cancel()
+	err := row.Scan(&key, &value)
 
 	switch {
 	case err == sql.ErrNoRows:
@@ -87,12 +91,14 @@ func (c *readWriteCursor) Next() ([]byte, []byte) {
 		key   []byte
 		value []byte
 	)
-	err := c.bucket.tx.QueryRow(
+	row, cancel := c.bucket.tx.QueryRow(
 		"SELECT key, value FROM "+c.bucket.table+" WHERE "+
 			parentSelector(c.bucket.id)+
 			" AND key>$1 ORDER BY key LIMIT 1",
 		c.currKey,
-	).Scan(&key, &value)
+	)
+	defer cancel()
+	err := row.Scan(&key, &value)
 
 	switch {
 	case err == sql.ErrNoRows:
@@ -116,12 +122,14 @@ func (c *readWriteCursor) Prev() ([]byte, []byte) {
 		key   []byte
 		value []byte
 	)
-	err := c.bucket.tx.QueryRow(
+	row, cancel := c.bucket.tx.QueryRow(
 		"SELECT key, value FROM "+c.bucket.table+" WHERE "+
 			parentSelector(c.bucket.id)+
 			" AND key<$1 ORDER BY key DESC LIMIT 1",
 		c.currKey,
-	).Scan(&key, &value)
+	)
+	defer cancel()
+	err := row.Scan(&key, &value)
 
 	switch {
 	case err == sql.ErrNoRows:
@@ -152,12 +160,14 @@ func (c *readWriteCursor) Seek(seek []byte) ([]byte, []byte) {
 		key   []byte
 		value []byte
 	)
-	err := c.bucket.tx.QueryRow(
+	row, cancel := c.bucket.tx.QueryRow(
 		"SELECT key, value FROM "+c.bucket.table+" WHERE "+
 			parentSelector(c.bucket.id)+
 			" AND key>=$1 ORDER BY key LIMIT 1",
 		seek,
-	).Scan(&key, &value)
+	)
+	defer cancel()
+	err := row.Scan(&key, &value)
 
 	switch {
 	case err == sql.ErrNoRows:
@@ -180,12 +190,14 @@ func (c *readWriteCursor) Seek(seek []byte) ([]byte, []byte) {
 func (c *readWriteCursor) Delete() error {
 	// Get first record at or after cursor.
 	var key []byte
-	err := c.bucket.tx.QueryRow(
+	row, cancel := c.bucket.tx.QueryRow(
 		"SELECT key FROM "+c.bucket.table+" WHERE "+
 			parentSelector(c.bucket.id)+
 			" AND key>=$1 ORDER BY key LIMIT 1",
 		c.currKey,
-	).Scan(&key)
+	)
+	defer cancel()
+	err := row.Scan(&key)
 
 	switch {
 	case err == sql.ErrNoRows:

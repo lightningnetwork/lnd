@@ -308,7 +308,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 			selectedCoins, localContributionAmt, changeAmt,
 				err = CoinSelectUpToAmount(
 				r.FeeRate, r.MinFundAmt, r.FundUpToMaxAmt,
-				w.cfg.DustLimit, coins,
+				r.WalletReserve, w.cfg.DustLimit, coins,
 			)
 			if err != nil {
 				return err

@@ -37,6 +37,16 @@ func (e *errUnsupportedInput) Error() string {
 	return fmt.Sprintf("unsupported address type: %x", e.PkScript)
 }
 
+// errReservedValueInvalidated is an error used internally for the coin select
+// algorithm to determine that
+type errReservedValueInvalidated struct {
+	amountReserved btcutil.Amount
+}
+
+func (e *errReservedValueInvalidated) Error() string {
+	return fmt.Sprintf("reserved wallet value %v invalidated", e.amountReserved)
+}
+
 // Coin represents a spendable UTXO which is available for channel funding.
 // This UTXO need not reside in our internal wallet as an example, and instead
 // may be derived from an existing watch-only wallet. It wraps both the output
@@ -252,7 +262,7 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 // CoinSelectUpToAmount attempts to select coins such that we'll spend up
 // to amt in total before fees, or all of the coins if not sufficient amount
 // available.
-func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, maxAmt,
+func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, maxAmt, reserved,
 	dustLimit btcutil.Amount, coins []Coin) ([]Coin, btcutil.Amount,
 	btcutil.Amount, error) {
 
@@ -267,14 +277,30 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, maxAmt,
 	selectedCoins, changeAmt, err := CoinSelect(
 		feeRate, maxAmt, dustLimit, coins,
 	)
+	if err == nil {
+		// Validate that the selected amount will leave the required reserved
+		// value in the balance.
+		selected := btcutil.Amount(0)
+		for _, coin := range selectedCoins {
+			selected += btcutil.Amount(coin.Value)
+		}
+
+		// We subtract the change amount to obtain the actual amount that is
+		// selected.
+		selected -= changeAmt
+
+		if balance-selected < reserved {
+			err = &errReservedValueInvalidated{reserved}
+		}
+	}
 	if err != nil {
 
 		switch err.(type) {
 		// Without sufficient funds we spend it all by subtracting
 		// the fee directly from the output amount.
-		case *ErrInsufficientFunds:
+		case *ErrInsufficientFunds, *errReservedValueInvalidated:
 			selectedCoins, outputAmt, changeAmt, err = CoinSelectSubtractFees(
-				feeRate, balance, dustLimit, coins,
+				feeRate, balance-reserved, dustLimit, coins,
 			)
 			if err != nil {
 				return nil, 0, 0, err

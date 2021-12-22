@@ -547,6 +547,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 	type testCase struct {
 		name     string
 		maxValue btcutil.Amount
+		reserved btcutil.Amount
 		coins    []Coin
 
 		expectedInput      []btcutil.Amount
@@ -675,6 +676,23 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 		expectedInput:      []btcutil.Amount{1 * coin},
 		expectedFundingAmt: 1*coin - fundingFee(feeRate, 1, false) - 1,
 		expectedChange:     0,
+	}, {
+		// This test makes sure that if a reserved value is required
+		// then it is handled correctly by leaving exactly the reserved
+		// value as change and still maxing out the funding amount.
+		name: "sanity check for correct reserved amount subtract from total",
+		coins: []Coin{{
+			TxOut: wire.TxOut{
+				PkScript: p2wkhScript,
+				Value:    1 * coin,
+			},
+		}},
+		maxValue: 1*coin - 9000,
+		reserved: 10000,
+
+		expectedInput:      []btcutil.Amount{1 * coin},
+		expectedFundingAmt: 1*coin - fundingFee(feeRate, 1, true) - 10000,
+		expectedChange:     10000,
 	}}
 
 	for _, test := range testCases {
@@ -682,7 +700,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 
 		t.Run(test.name, func(t *testing.T) {
 			selected, localFundingAmt, changeAmt, err := CoinSelectUpToAmount(
-				feeRate, test.maxValue, dustLimit, test.coins,
+				feeRate, test.maxValue, test.reserved, dustLimit, test.coins,
 			)
 			if !test.expectErr && err != nil {
 				t.Fatalf(err.Error())

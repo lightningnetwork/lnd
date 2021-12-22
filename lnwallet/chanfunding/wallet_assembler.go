@@ -281,7 +281,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		case r.FundUpToMaxAmt != 0:
 			dustLimit := w.cfg.DustLimit
 			selectedCoins, localContributionAmt, changeAmt, err = CoinSelectUpToAmount(
-				r.FeeRate, r.FundUpToMaxAmt, dustLimit, coins,
+				r.FeeRate, r.FundUpToMaxAmt, r.ReservedAmt, dustLimit, coins,
 			)
 			if err != nil {
 				return err

@@ -64,6 +64,12 @@ type Request struct {
 	// until at most that amount is reached.
 	FundUpToMaxAmt btcutil.Amount
 
+	// ReservedAmt is a reserved amount that is not used to fund the channel
+	// when a maximum amount defined by FundUpToMaxAmt is set.
+	// This is useful when a reserved wallet balance must stay available
+	// due to e.g. anchor channels.
+	ReservedAmt btcutil.Amount
+
 	// MinConfs controls how many confirmations a coin need to be eligible
 	// to be used as an input to the funding transaction. If this value is
 	// set to zero, then zero conf outputs may be spent.

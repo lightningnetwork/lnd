@@ -45,6 +45,8 @@
 * [Clarify log message about not running within
   systemd](https://github.com/lightningnetwork/lnd/pull/6096)
 
+* [Fix Postgres context cancellation](https://github.com/lightningnetwork/lnd/pull/6108)
+
 ## RPC Server
 
 * [ChanStatusFlags is now

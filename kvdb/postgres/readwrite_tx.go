@@ -158,21 +158,11 @@ func (tx *readWriteTx) OnCommit(cb func()) {
 }
 
 // QueryRow executes a QueryRow call with a timeout context.
-func (tx *readWriteTx) QueryRow(query string, args ...interface{}) *sql.Row {
-	ctx, cancel := tx.db.getTimeoutCtx()
-	defer cancel()
-
-	return tx.tx.QueryRowContext(ctx, query, args...)
-}
-
-// Query executes a Query call with a timeout context.
-func (tx *readWriteTx) Query(query string, args ...interface{}) (*sql.Rows,
-	error) {
+func (tx *readWriteTx) QueryRow(query string, args ...interface{}) (*sql.Row,
+	func()) {
 
 	ctx, cancel := tx.db.getTimeoutCtx()
-	defer cancel()
-
-	return tx.tx.QueryContext(ctx, query, args...)
+	return tx.tx.QueryRowContext(ctx, query, args...), cancel
 }
 
 // Exec executes a Exec call with a timeout context.

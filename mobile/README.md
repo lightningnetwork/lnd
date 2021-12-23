@@ -2,6 +2,18 @@
 
 ## Prerequisites
 
+###Go language
+
+- Install go: `brew install go`
+- Provide `$GOPATH` to `.zshrc` or `.bash_profile` files.
+
+```shell
+export GOPATH=$HOME/go
+export PATH=$PATH:$GOPATH/bin
+```
+
+Or any path you want it to be in.
+
 ### Docker
 
 - Install and run [Docker](https://www.docker.com/products/docker-desktop).
@@ -16,11 +28,22 @@
 
 ### Go mobile
 
-Install [gomobile](https://github.com/golang/go/wiki/Mobile) and initialize it:
+- Install [gomobile](https://github.com/golang/go/wiki/Mobile):
 
 ```shell
 ⛰  go install golang.org/x/mobile/cmd/gomobile@latest
-⛰  gomobile init
+```
+
+- Install `gobind`
+
+```shell
+⛰  go install golang.org/x/mobile/cmd/gobind@latest
+```
+
+- Install `falafel`
+
+```shell
+⛰  go get -u -v github.com/lightninglabs/falafel
 ```
 
 ## Building the libraries
@@ -38,6 +61,26 @@ To checkout the latest tagged release of lnd, run
 ⛰  git checkout $(git describe --tags --abbrev=0)
 ```
 
+Or, alternatively, you can clone the project and checkout to any branch:
+
+```shell
+⛰  git clone https://github.com/lightningnetwork/lnd
+```
+
+####For Android:
+
+Move to the folder or create one:
+
+```shell
+⛰  cd $GOPATH/src/golang.org/x
+```
+
+After that clone the goland mobile repo
+
+```shell
+⛰  git clone https://github.com/golang/mobile
+```
+
 ### Building `lnd` for iOS
 
 ```shell
@@ -45,6 +88,8 @@ To checkout the latest tagged release of lnd, run
 ```
 
 ### Building `lnd` for Android
+
+Go to `$GOPATH/src/github.com/lightningnetwork/lnd` and run the command below (make sure that the Docker is running):
 
 ```shell
 ⛰  make android
@@ -114,10 +159,89 @@ to your project to support the generated code.
 
 ### Android
 
+####First option:
+
 In order to generate protobuf definitions for Android, add `--java_out=.`
 
 to the first `protoc` invocation found in
 [ `gen_protos.sh` ](../lnrpc/gen_protos.sh). Then, run `make rpc`.
+
+
+####Second option (preferable):
+
+- You have to install the profobuf plugin to your Android application. 
+Please, follow this link https://github.com/google/protobuf-gradle-plugin.
+- Add this line to your `app build.gradle` file.
+```shell
+classpath "com.google.protobuf:protobuf-gradle-plugin:0.8.17"
+```
+- Create a `proto` folder under the `main` folder.
+
+![proto_folder](images/proto_folder.png)
+
+- Add `aar` file to libs folder.
+
+- After that add these lines to your `module's` `build.gradle` file:
+
+```shell
+plugins {
+    id "com.google.protobuf"
+}
+
+android {
+    sourceSets {
+        main {
+            proto {
+
+            }
+        }
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: "libs", include: ["*.jar"])
+    implementation "com.google.protobuf:protobuf-javalite:${rootProject.ext.javalite_version}"
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:${rootProject.ext.protoc_version}"
+    }
+    generateProtoTasks {
+        all().each { task ->
+            task.builtins {
+                java {
+                    option "lite"
+                }
+            }
+        }
+    }
+}
+```
+- Then, copy all the proto files from `lnd/lnrpc` to your `proto` folder, saving the structure.
+- Build the project and in `build` folder you have to see the generated Java proto files.
+
+####Note:
+
+If Android Studio tells you that the `aar` file cannot be included into the `app-bundle`, this is a workaround:
+
+1. Create a separate gradle module
+2. Remove everything from there and leave only `aar` and `build.gradle`.
+
+![separate_gradle_module](images/separate_gradle_module.png)
+
+3. Gradle file should countain only these lines:
+
+```shell
+configurations.maybeCreate("default")
+artifacts.add("default", file('Lndmobile.aar'))
+```
+
+4. In `dependencies` add this line instead of depending on `libs` folder:
+```shell
+implementation project(":lndmobile", { "default" })
+```
+
 
 ## Options
 

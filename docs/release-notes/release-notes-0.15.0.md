@@ -38,6 +38,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Vsevolod Kaganovych
 * Andreas Schjønhaug
 * Daniel McNally
 * ErikEk

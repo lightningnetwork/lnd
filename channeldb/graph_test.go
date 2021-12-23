@@ -1207,11 +1207,22 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	// Iterate through all the known channels within the graph DB by
 	// iterating over each node, once again if the map is empty that
 	// indicates that all edges have properly been reached.
+	var nodes []GraphCacheNode
 	err = graph.ForEachNodeCacheable(
 		func(tx kvdb.RTx, node GraphCacheNode) error {
 			delete(nodeMap, node.PubKey())
 
-			return node.ForEachChannel(
+			nodes = append(nodes, node)
+
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, nodeMap, 0)
+
+	err = graph.db.View(func(tx kvdb.RTx) error {
+		for _, node := range nodes {
+			err := node.ForEachChannel(
 				tx, func(tx kvdb.RTx, info *ChannelEdgeInfo,
 					policy *ChannelEdgePolicy,
 					policy2 *ChannelEdgePolicy) error {
@@ -1220,10 +1231,15 @@ func TestGraphTraversalCacheable(t *testing.T) {
 					return nil
 				},
 			)
-		},
-	)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}, func() {})
+
 	require.NoError(t, err)
-	require.Len(t, nodeMap, 0)
 	require.Len(t, chanIndex, 0)
 }
 
@@ -3695,9 +3711,20 @@ func BenchmarkForEachChannel(b *testing.B) {
 			totalCapacity btcutil.Amount
 			maxHTLCs      lnwire.MilliSatoshi
 		)
-		err := graph.ForEachNodeCacheable(
-			func(tx kvdb.RTx, n GraphCacheNode) error {
-				return n.ForEachChannel(
+
+		var nodes []GraphCacheNode
+		err = graph.ForEachNodeCacheable(
+			func(tx kvdb.RTx, node GraphCacheNode) error {
+				nodes = append(nodes, node)
+
+				return nil
+			},
+		)
+		require.NoError(b, err)
+
+		err = graph.db.View(func(tx kvdb.RTx) error {
+			for _, n := range nodes {
+				err := n.ForEachChannel(
 					tx, func(tx kvdb.RTx,
 						info *ChannelEdgeInfo,
 						policy *ChannelEdgePolicy,
@@ -3715,8 +3742,13 @@ func BenchmarkForEachChannel(b *testing.B) {
 						return nil
 					},
 				)
-			},
-		)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		}, func() {})
 		require.NoError(b, err)
 	}
 }
@@ -3759,4 +3791,53 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, numChans, 1)
+}
+
+// TestGraphLoading asserts that the cache is properly reconstructed after a
+// restart.
+func TestGraphLoading(t *testing.T) {
+	// First, create a temporary directory to be used for the duration of
+	// this test.
+	tempDirName, err := ioutil.TempDir("", "channelgraph")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDirName)
+
+	// Next, create the graph for the first time.
+	backend, backendCleanup, err := kvdb.GetTestBackend(tempDirName, "cgr")
+	require.NoError(t, err)
+	defer backend.Close()
+	defer backendCleanup()
+
+	opts := DefaultOptions()
+	graph, err := NewChannelGraph(
+		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
+		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
+		true, false,
+	)
+	require.NoError(t, err)
+
+	// Populate the graph with test data.
+	const numNodes = 100
+	const numChannels = 4
+	_, _ = fillTestGraph(t, graph, numNodes, numChannels)
+
+	// Recreate the graph. This should cause the graph cache to be
+	// populated.
+	graphReloaded, err := NewChannelGraph(
+		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
+		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
+		true, false,
+	)
+	require.NoError(t, err)
+
+	// Assert that the cache content is identical.
+	require.Equal(
+		t, graph.graphCache.nodeChannels,
+		graphReloaded.graphCache.nodeChannels,
+	)
+
+	require.Equal(
+		t, graph.graphCache.nodeFeatures,
+		graphReloaded.graphCache.nodeFeatures,
+	)
 }

@@ -19,6 +19,11 @@ connection from the watch-only node.
   In other words, freshly-installed LND can now be initialized with multiple
   channels from an external (e.g. hardware) wallet *in a single transaction*.
 
+## Database
+
+* [Speed up graph cache loading on startup with
+Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
+
 ## Build System
 
 * [Clean up Makefile by using go

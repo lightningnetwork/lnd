@@ -216,11 +216,25 @@ func NewChannelGraph(db kvdb.Backend, rejectCacheSize, chanCacheSize int,
 		startTime := time.Now()
 		log.Debugf("Populating in-memory channel graph, this might " +
 			"take a while...")
+
 		err := g.ForEachNodeCacheable(
 			func(tx kvdb.RTx, node GraphCacheNode) error {
-				return g.graphCache.AddNode(tx, node)
+				g.graphCache.AddNodeFeatures(node)
+
+				return nil
 			},
 		)
+		if err != nil {
+			return nil, err
+		}
+
+		err = g.ForEachChannel(func(info *ChannelEdgeInfo,
+			policy1, policy2 *ChannelEdgePolicy) error {
+
+			g.graphCache.AddChannel(info, policy1, policy2)
+
+			return nil
+		})
 		if err != nil {
 			return nil, err
 		}

@@ -175,6 +175,21 @@ func (tx *readWriteTx) QueryRow(query string, args ...interface{}) (*sql.Row,
 	return tx.tx.QueryRowContext(ctx, query, args...), cancel
 }
 
+// Query executes a multi-row query call with a timeout context.
+func (tx *readWriteTx) Query(query string, args ...interface{}) (*sql.Rows,
+	func(), error) {
+
+	ctx, cancel := tx.db.getTimeoutCtx()
+	rows, err := tx.tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		cancel()
+
+		return nil, func() {}, err
+	}
+
+	return rows, cancel, nil
+}
+
 // Exec executes a Exec call with a timeout context.
 func (tx *readWriteTx) Exec(query string, args ...interface{}) (sql.Result,
 	error) {

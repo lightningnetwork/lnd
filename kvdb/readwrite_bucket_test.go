@@ -159,7 +159,20 @@ func testBucketDeletion(t *testing.T, db walletdb.DB) {
 	require.Nil(t, err)
 }
 
+type bucketIterator = func(walletdb.ReadWriteBucket,
+	func(key, val []byte) error) error
+
 func testBucketForEach(t *testing.T, db walletdb.DB) {
+	testBucketIterator(t, db, func(bucket walletdb.ReadWriteBucket,
+		callback func(key, val []byte) error) error {
+
+		return bucket.ForEach(callback)
+	})
+}
+
+func testBucketIterator(t *testing.T, db walletdb.DB,
+	iterator bucketIterator) {
+
 	err := Update(db, func(tx walletdb.ReadWriteTx) error {
 		// "apple"
 		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
@@ -199,7 +212,7 @@ func testBucketForEach(t *testing.T, db walletdb.DB) {
 		require.Equal(t, expected, got)
 
 		got = make(map[string]string)
-		err = banana.ForEach(func(key, val []byte) error {
+		err = iterator(banana, func(key, val []byte) error {
 			got[string(key)] = string(val)
 			return nil
 		})

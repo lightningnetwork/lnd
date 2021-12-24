@@ -4652,6 +4652,27 @@ func serializeChanEdgePolicy(w io.Writer, edge *ChannelEdgePolicy,
 func deserializeChanEdgePolicy(r io.Reader,
 	nodes kvdb.RBucket) (*ChannelEdgePolicy, error) {
 
+	// Deserialize the policy. Note that in case an optional field is not
+	// found, both an error and a populated policy object are returned.
+	edge, deserializeErr := deserializeChanEdgePolicyRaw(r)
+	if deserializeErr != nil &&
+		deserializeErr != ErrEdgePolicyOptionalFieldNotFound {
+
+		return nil, deserializeErr
+	}
+
+	// Populate full LightningNode struct.
+	pub := edge.Node.PubKeyBytes[:]
+	node, err := fetchLightningNode(nodes, pub)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch node: %x, %v", pub, err)
+	}
+	edge.Node = &node
+
+	return edge, deserializeErr
+}
+
+func deserializeChanEdgePolicyRaw(r io.Reader) (*ChannelEdgePolicy, error) {
 	edge := &ChannelEdgePolicy{}
 
 	var err error
@@ -4701,13 +4722,9 @@ func deserializeChanEdgePolicy(r io.Reader,
 	if _, err := r.Read(pub[:]); err != nil {
 		return nil, err
 	}
-
-	node, err := fetchLightningNode(nodes, pub[:])
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch node: %x, %v",
-			pub[:], err)
+	edge.Node = &LightningNode{
+		PubKeyBytes: pub,
 	}
-	edge.Node = &node
 
 	// We'll try and see if there are any opaque bytes left, if not, then
 	// we'll ignore the EOF error and return the edge as is.

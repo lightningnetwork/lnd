@@ -205,9 +205,8 @@ func (c *GraphCache) Stats() string {
 		numChannels)
 }
 
-// AddNode adds a graph node, including all the (directed) channels of that
-// node.
-func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
+// AddNodeFeatures adds a graph node and its features to the cache.
+func (c *GraphCache) AddNodeFeatures(node GraphCacheNode) {
 	nodePubKey := node.PubKey()
 
 	// Only hold the lock for a short time. The `ForEachChannel()` below is
@@ -217,6 +216,12 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 	c.mtx.Lock()
 	c.nodeFeatures[nodePubKey] = node.Features()
 	c.mtx.Unlock()
+}
+
+// AddNode adds a graph node, including all the (directed) channels of that
+// node.
+func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
+	c.AddNodeFeatures(node)
 
 	return node.ForEachChannel(
 		tx, func(tx kvdb.RTx, info *ChannelEdgeInfo,

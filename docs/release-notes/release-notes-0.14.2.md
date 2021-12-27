@@ -15,6 +15,14 @@
 
 * [Fix Postgres context cancellation](https://github.com/lightningnetwork/lnd/pull/6108)
 
+* A conflict was found in connecting peers, where the peer bootstrapping
+  process and persistent connection could compete connection for a peer that
+  led to an already made connection being lost. [This is now fixed so that
+  bootstrapping will always ignore the peers chosen by the persistent
+  connection.](https://github.com/lightningnetwork/lnd/pull/6082)
+  
+* [Fix Postgres itests max connections](https://github.com/lightningnetwork/lnd/pull/6116)
+
 ## RPC Server
 
 * [ChanStatusFlags is now

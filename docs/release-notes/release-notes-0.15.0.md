@@ -29,6 +29,7 @@
 ## Documentation
 
 * Improved instructions on [how to build lnd for mobile](https://github.com/lightningnetwork/lnd/pull/6085).
+* [Log force-close related messages on "info" level](https://github.com/lightningnetwork/lnd/pull/6124).
 
 ## Code Health
 
@@ -39,6 +40,7 @@
 # Contributors (Alphabetical Order)
 
 * Andreas Schjønhaug
+* Carsten Otto
 * Daniel McNally
 * ErikEk
 * Torkel Rogstad

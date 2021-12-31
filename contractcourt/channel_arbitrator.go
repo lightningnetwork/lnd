@@ -1815,7 +1815,7 @@ func (c *ChannelArbitrator) checkRemoteChainActions(
 		return nil, err
 	}
 
-	// With this actions computed, we'll now check the diff of the HTLCs on
+	// With these actions computed, we'll now check the diff of the HTLCs on
 	// the commitments, and cancel back any that are on the pending but not
 	// the non-pending.
 	remoteDiffActions := c.checkRemoteDiffActions(
@@ -1886,7 +1886,7 @@ func (c *ChannelArbitrator) constructChainActions(confCommitSet *CommitSet,
 		return c.log.FetchChainActions()
 	}
 
-	// Otherwise we have the full commitment set written to disk, and can
+	// Otherwise, we have the full commitment set written to disk, and can
 	// proceed as normal.
 	htlcSets := confCommitSet.toActiveHTLCSets()
 	switch *confCommitSet.ConfCommitKey {
@@ -1917,7 +1917,7 @@ func (c *ChannelArbitrator) constructChainActions(confCommitSet *CommitSet,
 	return nil, fmt.Errorf("unable to locate chain actions")
 }
 
-// prepContractResolutions is called either int he case that we decide we need
+// prepContractResolutions is called either in the case that we decide we need
 // to go to chain, or the remote party goes to chain. Given a set of actions we
 // need to take for each HTLC, this method will return a set of contract
 // resolvers that will resolve the contracts on-chain if needed, and also a set

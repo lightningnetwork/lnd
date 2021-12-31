@@ -1523,7 +1523,7 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 		)
 
 		if toChain {
-			log.Debugf("ChannelArbitrator(%v): go to chain for "+
+			log.Infof("ChannelArbitrator(%v): go to chain for "+
 				"outgoing htlc %x: timeout=%v, "+
 				"blocks_until_expiry=%v, broadcast_delta=%v",
 				c.cfg.ChanPoint, htlc.RHash[:],
@@ -1554,7 +1554,7 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 		)
 
 		if toChain {
-			log.Debugf("ChannelArbitrator(%v): go to chain for "+
+			log.Infof("ChannelArbitrator(%v): go to chain for "+
 				"incoming htlc %x: timeout=%v, "+
 				"blocks_until_expiry=%v, broadcast_delta=%v",
 				c.cfg.ChanPoint, htlc.RHash[:],
@@ -1863,7 +1863,7 @@ func (c *ChannelArbitrator) checkRemoteDiffActions(height uint32,
 			actionMap[HtlcFailNowAction], htlc,
 		)
 
-		log.Tracef("ChannelArbitrator(%v): immediately failing "+
+		log.Infof("ChannelArbitrator(%v): immediately failing "+
 			"htlc=%x from remote commitment",
 			c.cfg.ChanPoint, htlc.RHash[:])
 	}

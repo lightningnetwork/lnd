@@ -1,0 +1,80 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    commit-message:
+      prefix: "github"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "gomod"
+    commit-message:
+      prefix: "mod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "gomod"
+    commit-message:
+      prefix: "cert+mod"
+    directory: "/cert/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "gomod"
+    commit-message:
+      prefix: "clock+mod"
+    directory: "/clock/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "gomod"
+    commit-message:
+      prefix: "healthcheck+mod"
+    directory: "/healthcheck/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "gomod"
+    commit-message:
+      prefix: "kvdb+mod"
+    directory: "/kvdb/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "gomod"
+    commit-message:
+      prefix: "queue+mod"
+    directory: "/queue/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "gomod"
+    commit-message:
+      prefix: "ticker+mod"
+    directory: "/ticker/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    commit-message:
+      prefix: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    commit-message:
+      prefix: "docker"
+    directory: "/docker/btcd/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    commit-message:
+      prefix: "docker"
+    directory: "/docker/ltcd/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    commit-message:
+      prefix: "docker"
+    directory: "/lnrpc/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    commit-message:
+      prefix: "docker"
+    directory: "/make/"
+    schedule:
+      interval: "weekly"

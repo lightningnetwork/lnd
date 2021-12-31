@@ -32,6 +32,9 @@
 
 ## Code Health
 
+* Automatic update PRs of github actions, go dependencies and docker base images
+  [Add dependabot config](https://github.com/lightningnetwork/lnd/pull/6125).
+
 ### Code cleanup, refactor, typo fixes
 
 * [Refactored itest to better manage contexts inside integration tests](https://github.com/lightningnetwork/lnd/pull/5756).
@@ -40,5 +43,6 @@
 
 * Andreas Schjønhaug
 * Daniel McNally
+* Daniel Bast
 * ErikEk
 * Torkel Rogstad

@@ -4,6 +4,11 @@
     "title": "peersrpc/peers.proto",
     "version": "version not set"
   },
+  "tags": [
+    {
+      "name": "Peers"
+    }
+  ],
   "consumes": [
     "application/json"
   ],
@@ -12,6 +17,97 @@
   ],
   "paths": {},
   "definitions": {
+    "lnrpcFeatureBit": {
+      "type": "string",
+      "enum": [
+        "DATALOSS_PROTECT_REQ",
+        "DATALOSS_PROTECT_OPT",
+        "INITIAL_ROUING_SYNC",
+        "UPFRONT_SHUTDOWN_SCRIPT_REQ",
+        "UPFRONT_SHUTDOWN_SCRIPT_OPT",
+        "GOSSIP_QUERIES_REQ",
+        "GOSSIP_QUERIES_OPT",
+        "TLV_ONION_REQ",
+        "TLV_ONION_OPT",
+        "EXT_GOSSIP_QUERIES_REQ",
+        "EXT_GOSSIP_QUERIES_OPT",
+        "STATIC_REMOTE_KEY_REQ",
+        "STATIC_REMOTE_KEY_OPT",
+        "PAYMENT_ADDR_REQ",
+        "PAYMENT_ADDR_OPT",
+        "MPP_REQ",
+        "MPP_OPT",
+        "WUMBO_CHANNELS_REQ",
+        "WUMBO_CHANNELS_OPT",
+        "ANCHORS_REQ",
+        "ANCHORS_OPT",
+        "ANCHORS_ZERO_FEE_HTLC_REQ",
+        "ANCHORS_ZERO_FEE_HTLC_OPT",
+        "AMP_REQ",
+        "AMP_OPT"
+      ],
+      "default": "DATALOSS_PROTECT_REQ"
+    },
+    "lnrpcOp": {
+      "type": "object",
+      "properties": {
+        "entity": {
+          "type": "string"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "peersrpcNodeAnnouncementUpdateResponse": {
+      "type": "object",
+      "properties": {
+        "ops": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcOp"
+          }
+        }
+      }
+    },
+    "peersrpcUpdateAction": {
+      "type": "string",
+      "enum": [
+        "ADD",
+        "REMOVE"
+      ],
+      "default": "ADD",
+      "description": "UpdateAction is used to determine the kind of action we are referring to.\n\n - ADD: ADD indicates this is an \"insertion\" kind of action.\n - REMOVE: REMOVE indicates this is a \"deletion\" kind of action."
+    },
+    "peersrpcUpdateAddressAction": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/peersrpcUpdateAction",
+          "description": "Determines the kind of action."
+        },
+        "address": {
+          "type": "string",
+          "description": "The address used to apply the update action."
+        }
+      }
+    },
+    "peersrpcUpdateFeatureAction": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/peersrpcUpdateAction",
+          "description": "Determines the kind of action."
+        },
+        "feature_bit": {
+          "$ref": "#/definitions/lnrpcFeatureBit",
+          "description": "The feature bit used to apply the update action."
+        }
+      }
+    },
     "protobufAny": {
       "type": "object",
       "properties": {

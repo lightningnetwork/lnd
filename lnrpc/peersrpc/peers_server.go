@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -241,6 +242,68 @@ func (s *Server) updateAddresses(currentAddresses []net.Addr,
 	return newAddrs, ops, nil
 }
 
+// updateFeatures computes the new raw SetNodeAnn after executing the update
+// actions.
+func (s *Server) updateFeatures(currentfeatures *lnwire.RawFeatureVector,
+	updates []*UpdateFeatureAction) (*lnwire.RawFeatureVector,
+	*lnrpc.Op, error) {
+
+	ops := &lnrpc.Op{Entity: "features"}
+	raw := currentfeatures.Clone()
+
+	for _, update := range updates {
+		bit := lnwire.FeatureBit(update.FeatureBit)
+
+		switch update.Action {
+		case UpdateAction_ADD:
+			if raw.IsSet(bit) {
+				return nil, nil, fmt.Errorf(
+					"invalid add action for bit %v, "+
+						"bit is already set",
+					update.FeatureBit,
+				)
+			}
+			raw.Set(bit)
+			ops.Actions = append(
+				ops.Actions,
+				fmt.Sprintf("%s set", lnwire.Features[bit]),
+			)
+
+		case UpdateAction_REMOVE:
+			if !raw.IsSet(bit) {
+				return nil, nil, fmt.Errorf(
+					"invalid remove action for bit %v, "+
+						"bit is already unset",
+					update.FeatureBit,
+				)
+			}
+			raw.Unset(bit)
+			ops.Actions = append(
+				ops.Actions,
+				fmt.Sprintf("%s unset", lnwire.Features[bit]),
+			)
+
+		default:
+			return nil, nil, fmt.Errorf(
+				"invalid update action (%v) for bit %v",
+				update.Action,
+				update.FeatureBit,
+			)
+		}
+	}
+
+	// Validate our new SetNodeAnn.
+	fv := lnwire.NewFeatureVector(raw, lnwire.Features)
+	if err := feature.ValidateDeps(fv); err != nil {
+		return nil, nil, fmt.Errorf(
+			"invalid feature set (SetNodeAnn): %v",
+			err,
+		)
+	}
+
+	return raw, ops, nil
+}
+
 // UpdateNodeAnnouncement allows the caller to update the node parameters
 // and broadcasts a new version of the node announcement to its peers.
 func (s *Server) UpdateNodeAnnouncement(_ context.Context,
@@ -256,7 +319,21 @@ func (s *Server) UpdateNodeAnnouncement(_ context.Context,
 			"announcement: %v", err)
 	}
 
-	// TODO(positiveblue): apply feature bit modifications
+	if len(req.FeatureUpdates) > 0 {
+		features, ops, err := s.updateFeatures(
+			currentNodeAnn.Features,
+			req.FeatureUpdates,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error trying to update node "+
+				"features: %w", err)
+		}
+		resp.Ops = append(resp.Ops, ops)
+		nodeModifiers = append(
+			nodeModifiers,
+			netann.NodeAnnSetFeatures(features),
+		)
+	}
 
 	if req.Color != "" {
 		color, err := lncfg.ParseHexColor(req.Color)

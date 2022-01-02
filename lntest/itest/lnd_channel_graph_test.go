@@ -841,6 +841,15 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 		)
 	}
 
+	// This feature bit is used to test that our endpoint sets/unsets
+	// feature bits properly. If the current FeatureBit is set by default
+	// update this one for another one unset by default at random.
+	featureBit := lnrpc.FeatureBit_WUMBO_CHANNELS_REQ
+	featureIdx := uint32(featureBit)
+	if _, ok := resp.Features[featureIdx]; ok {
+		t.Fatalf("unexpected feature bit enabled by default")
+	}
+
 	defaultDaveNodeAnn := &lnrpc.NodeUpdate{
 		Alias:         resp.Alias,
 		Color:         resp.Color,
@@ -912,16 +921,25 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	}
 
+	updateFeatureActions := []*peersrpc.UpdateFeatureAction{
+		{
+			Action:     peersrpc.UpdateAction_ADD,
+			FeatureBit: featureBit,
+		},
+	}
+
 	nodeAnnReq := &peersrpc.NodeAnnouncementUpdateRequest{
 		Alias:          newAlias,
 		Color:          newColor,
 		AddressUpdates: updateAddressActions,
+		FeatureUpdates: updateFeatureActions,
 	}
 
 	response, err := dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
 	require.NoError(t.t, err, "unable to update dave's node announcement")
 
 	expectedOps := map[string]int{
+		"features":  1,
 		"color":     1,
 		"alias":     1,
 		"addresses": 3,
@@ -949,6 +967,63 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	// with the new values.
 	waitForNodeAnnUpdates(
 		aliceSub, dave.PubKeyStr, newDaveNodeAnn, t,
+	)
+
+	// Check that the feature bit was set correctly.
+	resp, err = dave.GetInfo(ctxt, nodeInfoReq)
+	require.NoError(t.t, err, "unable to get dave's information")
+
+	if _, ok := resp.Features[featureIdx]; !ok {
+		t.Fatalf("failed to set feature bit")
+	}
+
+	// Check that we cannot set a feature bit that is already set.
+	nodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
+		FeatureUpdates: updateFeatureActions,
+	}
+
+	_, err = dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
+	require.Error(
+		t.t, err, "missing expected error: cannot set a feature bit "+
+			"that is already set",
+	)
+
+	// Check that we can unset feature bits.
+	updateFeatureActions = []*peersrpc.UpdateFeatureAction{
+		{
+			Action:     peersrpc.UpdateAction_REMOVE,
+			FeatureBit: featureBit,
+		},
+	}
+
+	nodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
+		FeatureUpdates: updateFeatureActions,
+	}
+
+	response, err = dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
+	require.NoError(t.t, err, "unable to update dave's node announcement")
+
+	expectedOps = map[string]int{
+		"features": 1,
+	}
+	assertUpdateNodeAnnouncementResponse(t, response, expectedOps)
+
+	resp, err = dave.GetInfo(ctxt, nodeInfoReq)
+	require.NoError(t.t, err, "unable to get dave's information")
+
+	if _, ok := resp.Features[featureIdx]; ok {
+		t.Fatalf("failed to unset feature bit")
+	}
+
+	// Check that we cannot unset a feature bit that is already unset.
+	nodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
+		FeatureUpdates: updateFeatureActions,
+	}
+
+	_, err = dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
+	require.Error(
+		t.t, err, "missing expected error: cannot unset a feature bit "+
+			"that is already unset",
 	)
 
 	// Close the channel between Bob and Dave.

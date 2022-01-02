@@ -141,6 +141,11 @@ func (m *Manager) GetRaw(set Set) *lnwire.RawFeatureVector {
 	return lnwire.NewRawFeatureVector()
 }
 
+// SetRaw sets a new raw feature vector for the given set.
+func (m *Manager) SetRaw(set Set, raw *lnwire.RawFeatureVector) {
+	m.fsets[set] = raw
+}
+
 // Get returns a feature vector for the passed set. If no set is known, an empty
 // feature vector is returned.
 func (m *Manager) Get(set Set) *lnwire.FeatureVector {

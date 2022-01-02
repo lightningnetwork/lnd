@@ -38,6 +38,14 @@ func NodeAnnSetColor(newColor color.RGBA) func(*lnwire.NodeAnnouncement) {
 	}
 }
 
+// NodeAnnSetFeatures is a functional option that allows updating the features of
+// the given node announcement.
+func NodeAnnSetFeatures(features *lnwire.RawFeatureVector) func(*lnwire.NodeAnnouncement) {
+	return func(nodeAnn *lnwire.NodeAnnouncement) {
+		nodeAnn.Features = features
+	}
+}
+
 // NodeAnnSetTimestamp is a functional option that sets the timestamp of the
 // announcement to the current time, or increments it if the timestamp is
 // already in the future.

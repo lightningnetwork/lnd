@@ -2771,6 +2771,11 @@ func (s *server) updateAndBrodcastSelfNode(
 		return fmt.Errorf("can't set self node: %v", err)
 	}
 
+	// Update the feature bits for the SetNodeAnn in case they changed.
+	s.featureMgr.SetRaw(
+		feature.SetNodeAnn, selfNode.Features.RawFeatureVector,
+	)
+
 	// Finally, propagate it to the nodes in the network.
 	err = s.BroadcastMessage(nil, &newNodeAnn)
 	if err != nil {

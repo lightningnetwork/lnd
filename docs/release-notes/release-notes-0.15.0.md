@@ -19,6 +19,10 @@
 * [Allow disabling migrations if the database backend passed to `channeldb` was
   opened in read-only mode](https://github.com/lightningnetwork/lnd/pull/6084).
 
+* [Disable compiler optimizations](https://github.com/lightningnetwork/lnd/pull/6105)
+  when building `lnd-debug` and `lncli-debug`. It helps when stepping through the code
+  with a debugger like Delve.
+
 ## RPC Server
 
 * [Add value to the field
@@ -41,4 +45,5 @@
 * Andreas Schjønhaug
 * Daniel McNally
 * ErikEk
+* Liviu
 * Torkel Rogstad

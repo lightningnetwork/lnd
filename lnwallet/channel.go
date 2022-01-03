@@ -1744,7 +1744,7 @@ func (lc *LightningChannel) restoreCommitState(
 	}
 	lc.localCommitChain.addCommitment(localCommit)
 
-	lc.log.Debugf("starting local commitment: %v",
+	lc.log.Tracef("starting local commitment: %v",
 		newLogClosure(func() string {
 			return spew.Sdump(lc.localCommitChain.tail())
 		}),
@@ -1760,7 +1760,7 @@ func (lc *LightningChannel) restoreCommitState(
 	}
 	lc.remoteCommitChain.addCommitment(remoteCommit)
 
-	lc.log.Debugf("starting remote commitment: %v",
+	lc.log.Tracef("starting remote commitment: %v",
 		newLogClosure(func() string {
 			return spew.Sdump(lc.remoteCommitChain.tail())
 		}),

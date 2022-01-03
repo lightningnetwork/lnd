@@ -125,9 +125,8 @@ func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
 		return
 	}
 
-	log.Debugf("Sending topology notification to %v clients %v",
-		numClients,
-		newLogClosure(func() string {
+	log.Tracef("Sending topology notification to %v clients %v",
+		numClients, newLogClosure(func() string {
 			return spew.Sdump(topologyDiff)
 		}),
 	)

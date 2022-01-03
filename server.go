@@ -199,6 +199,10 @@ type server struct {
 	peerConnectedListeners    map[string][]chan<- lnpeer.Peer
 	peerDisconnectedListeners map[string][]chan<- struct{}
 
+	// TODO(yy): the Brontide.Start doesn't know this value, which means it
+	// will continue to send messages even if there are no active channels
+	// and the value below is false. Once it's pruned, all its connections
+	// will be closed, thus the Brontide.Start will return an error.
 	persistentPeers        map[string]bool
 	persistentPeersBackoff map[string]time.Duration
 	persistentPeerAddrs    map[string][]*lnwire.NetAddress
@@ -2303,6 +2307,39 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 	return bootStrappers, nil
 }
 
+// createBootstrapIgnorePeers creates a map of peers that the bootstrap process
+// needs to ignore, which is made of three parts,
+//   - the node itself needs to be skipped as it doesn't make sense to connect
+//     to itself.
+//   - the peers that already have connections with, as in s.peersByPub.
+//   - the peers that we are attempting to connect, as in s.persistentPeers.
+func (s *server) createBootstrapIgnorePeers() map[autopilot.NodeID]struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ignore := make(map[autopilot.NodeID]struct{})
+
+	// We should ignore ourselves from bootstrapping.
+	selfKey := autopilot.NewNodeID(s.identityECDH.PubKey())
+	ignore[selfKey] = struct{}{}
+
+	// Ignore all connected peers.
+	for _, peer := range s.peersByPub {
+		nID := autopilot.NewNodeID(peer.IdentityKey())
+		ignore[nID] = struct{}{}
+	}
+
+	// Ignore all persistent peers as they have a dedicated reconnecting
+	// process.
+	for pubKeyStr := range s.persistentPeers {
+		var nID autopilot.NodeID
+		copy(nID[:], []byte(pubKeyStr))
+		ignore[nID] = struct{}{}
+	}
+
+	return ignore
+}
+
 // peerBootstrapper is a goroutine which is tasked with attempting to establish
 // and maintain a target minimum number of outbound connections. With this
 // invariant, we ensure that our node is connected to a diverse set of peers
@@ -2313,13 +2350,12 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 
 	defer s.wg.Done()
 
-	// ignore is a set used to keep track of peers already retrieved from
-	// our bootstrappers in order to avoid duplicates.
-	ignore := make(map[autopilot.NodeID]struct{})
+	// Before we continue, init the ignore peers map.
+	ignoreList := s.createBootstrapIgnorePeers()
 
 	// We'll start off by aggressively attempting connections to peers in
 	// order to be a part of the network as soon as possible.
-	s.initialPeerBootstrap(ignore, numTargetPeers, bootstrappers)
+	s.initialPeerBootstrap(ignoreList, numTargetPeers, bootstrappers)
 
 	// Once done, we'll attempt to maintain our target minimum number of
 	// peers.
@@ -2391,13 +2427,10 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 			// With the number of peers we need calculated, we'll
 			// query the network bootstrappers to sample a set of
 			// random addrs for us.
-			s.mu.RLock()
-			ignoreList := make(map[autopilot.NodeID]struct{})
-			for _, peer := range s.peersByPub {
-				nID := autopilot.NewNodeID(peer.IdentityKey())
-				ignoreList[nID] = struct{}{}
-			}
-			s.mu.RUnlock()
+			//
+			// Before we continue, get a copy of the ignore peers
+			// map.
+			ignoreList = s.createBootstrapIgnorePeers()
 
 			peerAddrs, err := discovery.MultiSourceBootstrap(
 				ignoreList, numNeeded*2, bootstrappers...,
@@ -2450,7 +2483,11 @@ const bootstrapBackOffCeiling = time.Minute * 5
 // until the target number of peers has been reached. This ensures that nodes
 // receive an up to date network view as soon as possible.
 func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
-	numTargetPeers uint32, bootstrappers []discovery.NetworkPeerBootstrapper) {
+	numTargetPeers uint32,
+	bootstrappers []discovery.NetworkPeerBootstrapper) {
+
+	srvrLog.Debugf("Init bootstrap with targetPeers=%v, bootstrappers=%v, "+
+		"ignore=%v", numTargetPeers, len(bootstrappers), len(ignore))
 
 	// We'll start off by waiting 2 seconds between failed attempts, then
 	// double each time we fail until we hit the bootstrapBackOffCeiling.
@@ -2775,6 +2812,9 @@ func (s *server) establishPersistentConnections() error {
 		return err
 	}
 
+	srvrLog.Debugf("Establishing %v persistent connections on start",
+		len(nodeAddrsMap))
+
 	// Acquire and hold server lock until all persistent connection requests
 	// have been recorded and sent to the connection manager.
 	s.mu.Lock()
@@ -3093,10 +3133,10 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 
 	// If we already have an outbound connection to this peer, then ignore
 	// this new connection.
-	if _, ok := s.outboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have outbound connection for %x, "+
-			"ignoring inbound connection",
-			nodePub.SerializeCompressed())
+	if p, ok := s.outboundPeers[pubStr]; ok {
+		srvrLog.Debugf("Already have outbound connection for %v, "+
+			"ignoring inbound connection from local=%v, remote=%v",
+			p, conn.LocalAddr(), conn.RemoteAddr())
 
 		conn.Close()
 		return
@@ -3105,8 +3145,9 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	// If we already have a valid connection that is scheduled to take
 	// precedence once the prior peer has finished disconnecting, we'll
 	// ignore this connection.
-	if _, ok := s.scheduledPeerConnection[pubStr]; ok {
-		srvrLog.Debugf("Ignoring connection, peer already scheduled")
+	if p, ok := s.scheduledPeerConnection[pubStr]; ok {
+		srvrLog.Debugf("Ignoring connection from %v, peer %v already "+
+			"scheduled", conn.RemoteAddr(), p)
 		conn.Close()
 		return
 	}
@@ -3179,10 +3220,10 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 
 	// If we already have an inbound connection to this peer, then ignore
 	// this new connection.
-	if _, ok := s.inboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have inbound connection for %x, "+
-			"ignoring outbound connection",
-			nodePub.SerializeCompressed())
+	if p, ok := s.inboundPeers[pubStr]; ok {
+		srvrLog.Debugf("Already have inbound connection for %v, "+
+			"ignoring outbound connection from local=%v, remote=%v",
+			p, conn.LocalAddr(), conn.RemoteAddr())
 
 		if connReq != nil {
 			s.connMgr.Remove(connReq.ID())
@@ -3303,6 +3344,8 @@ func (s *server) cancelConnReqs(pubStr string, skip *uint64) {
 	}
 
 	for _, connReq := range connReqs {
+		srvrLog.Tracef("Canceling %s:", connReqs)
+
 		// Atomically capture the current request identifier.
 		connID := connReq.ID()
 
@@ -3998,6 +4041,9 @@ func (s *server) connectToPeer(addr *lnwire.NetAddress,
 
 	close(errChan)
 
+	srvrLog.Tracef("Brontide dialer made local=%v, remote=%v",
+		conn.LocalAddr(), conn.RemoteAddr())
+
 	s.OutboundPeerConnected(nil, conn)
 }
 
@@ -4272,5 +4318,7 @@ func shouldPeerBootstrap(cfg *Config) bool {
 	isRegtest := (cfg.Bitcoin.RegTest || cfg.Litecoin.RegTest)
 	isDevNetwork := isSimnet || isSignet || isRegtest
 
+	// TODO(yy): remove the check on simnet/regtest such that the itest is
+	// covering the bootstrapping process.
 	return !cfg.NoNetBootstrap && !isDevNetwork
 }

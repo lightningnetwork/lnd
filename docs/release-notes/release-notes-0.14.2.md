@@ -32,20 +32,25 @@
 ## Bug fixes
 
 * [Add json flag to
-  trackpayment](https://github.com/lightningnetwork/lnd/pull/6060)
+  trackpayment](https://github.com/lightningnetwork/lnd/pull/6060).
+
 * [Clarify invalid config timeout
-  constraints](https://github.com/lightningnetwork/lnd/pull/6073)
+  constraints](https://github.com/lightningnetwork/lnd/pull/6073).
 
 * [Fix memory corruption in Mission Control
-  Store](https://github.com/lightningnetwork/lnd/pull/6068)
+  Store](https://github.com/lightningnetwork/lnd/pull/6068).
  
 * [Ensure that the min relay fee is always clamped by our fee
-  floor](https://github.com/lightningnetwork/lnd/pull/6076)
+  floor](https://github.com/lightningnetwork/lnd/pull/6076).
 
 * [Clarify log message about not running within
-  systemd](https://github.com/lightningnetwork/lnd/pull/6096)
+  systemd](https://github.com/lightningnetwork/lnd/pull/6096).
 
-* [Fix Postgres context cancellation](https://github.com/lightningnetwork/lnd/pull/6108)
+* [Fix Postgres context
+  cancellation](https://github.com/lightningnetwork/lnd/pull/6108).
+
+* [Fix panic with nil peer when processing network
+  announcement](https://github.com/lightningnetwork/lnd/pull/6130).
 
 ## RPC Server
 

@@ -30,6 +30,8 @@
 * [Disable compiler optimizations](https://github.com/lightningnetwork/lnd/pull/6105)
   when building `lnd-debug` and `lncli-debug`. It helps when stepping through the code
   with a debugger like Delve.
+  
+* A new command `lncli leaseoutput` was [added](https://github.com/lightningnetwork/lnd/pull/5964).
 
 ## RPC Server
 
@@ -53,6 +55,7 @@
 * Andreas Schjønhaug
 * Daniel McNally
 * ErikEk
+* Joost Jager
 * Liviu
 * Torkel Rogstad
 * Yong Yu

@@ -10,6 +10,14 @@
 * Add [auto-generated command-line completions](https://github.com/lightningnetwork/lnd/pull/4177) 
   for Fish shell.  
 
+## Bug Fixes
+
+* [Fixed an inactive invoice subscription not removed from invoice
+  registry](https://github.com/lightningnetwork/lnd/pull/6053). When an invoice
+  subscription is created and canceled immediately, it could be left uncleaned
+  due to the cancel signal is processed before the creation. It is now properly
+  handled by moving creation before deletion.   
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)
@@ -47,3 +55,4 @@
 * ErikEk
 * Liviu
 * Torkel Rogstad
+* Yong Yu

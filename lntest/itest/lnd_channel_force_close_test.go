@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd"
@@ -338,7 +339,6 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	ht.SetFeeEstimate(actualFeeRate)
 
 	ht.CloseChannelStreamAndAssert(alice, chanPoint, true)
-	closingTxID := ht.AssertNumTxsInMempool(1)[0]
 
 	// Now that the channel has been force closed, it should show up in the
 	// PendingChannels RPC under the waiting close section.
@@ -501,10 +501,18 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// Alice should see the channel in her set of pending force closed
 	// channels with her funds still in limbo.
 	var aliceBalance int64
+	var closingTxID *chainhash.Hash
 	err = wait.NoError(func() error {
 		forceClose := ht.AssertChannelPendingForceClose(
 			alice, chanPoint,
 		)
+
+		// Get the closing txid.
+		txid, err := chainhash.NewHashFromStr(forceClose.ClosingTxid)
+		if err != nil {
+			return err
+		}
+		closingTxID = txid
 
 		// Make a record of the balances we expect for alice and carol.
 		aliceBalance = forceClose.Channel.LocalBalance

@@ -177,9 +177,10 @@ ifeq ($(dbbackend),postgres)
 	# Remove a previous postgres instance if it exists.
 	docker rm lnd-postgres --force || echo "Starting new postgres container"
 
-	# Start a fresh postgres instance. Allow a maximum of 500 connections.
-	# This is required for the async benchmark to pass.
-	docker run --name lnd-postgres -e POSTGRES_PASSWORD=postgres -p 6432:5432 -d postgres:13-alpine
+	# Start a fresh postgres instance. Allow a maximum of 500 connections so
+	# that multiple lnd instances with a maximum number of connections of 50
+	# each can run concurrently.
+	docker run --name lnd-postgres -e POSTGRES_PASSWORD=postgres -p 6432:5432 -d postgres:13-alpine -N 500
 	docker logs -f lnd-postgres &
 
 	# Wait for the instance to be started.

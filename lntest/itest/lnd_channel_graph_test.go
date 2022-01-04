@@ -282,6 +282,10 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 	bobInfo := ht.GetInfo(bob)
 	bobPubkey := bobInfo.IdentityPubkey
 
+	// Restart Bob as he may have leftover announcements from previous
+	// tests, causing the graph to be unsynced.
+	ht.RestartNodeWithExtraArgs(bob, nil)
+
 	// For unpinned syncing, start Alice as usual. Otherwise grab Bob's
 	// pubkey to include in his pinned syncer set.
 	var aliceArgs []string

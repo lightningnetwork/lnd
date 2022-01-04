@@ -829,11 +829,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	}
 	defer chanArb.Stop()
 
-	// Create htlcUpdates channel.
-	htlcUpdates := make(chan *ContractUpdate)
-
 	signals := &ContractSignals{
-		HtlcUpdates: htlcUpdates,
 		ShortChanID: lnwire.ShortChannelID{},
 	}
 	chanArb.UpdateContractSignals(signals)
@@ -864,10 +860,12 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		htlc, outgoingDustHtlc, incomingDustHtlc,
 	}
 
-	htlcUpdates <- &ContractUpdate{
+	newUpdate := &ContractUpdate{
 		HtlcKey: LocalHtlcSet,
 		Htlcs:   htlcSet,
 	}
+	err = chanArb.notifyContractUpdate(newUpdate)
+	require.NoError(t, err)
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *wire.MsgTx, 1)
@@ -1849,9 +1847,7 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 			// Now that our channel arb has started, we'll set up
 			// its contract signals channel so we can send it
 			// various HTLC updates for this test.
-			htlcUpdates := make(chan *ContractUpdate)
 			signals := &ContractSignals{
-				HtlcUpdates: htlcUpdates,
 				ShortChanID: lnwire.ShortChannelID{},
 			}
 			chanArb.UpdateContractSignals(signals)
@@ -1872,10 +1868,12 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 				HtlcIndex:     htlcIndex,
 				RefundTimeout: htlcExpiry,
 			}
-			htlcUpdates <- &ContractUpdate{
+			newUpdate := &ContractUpdate{
 				HtlcKey: htlcKey,
 				Htlcs:   []channeldb.HTLC{danglingHTLC},
 			}
+			err = chanArb.notifyContractUpdate(newUpdate)
+			require.NoError(t, err)
 
 			// At this point, we now have a split commitment state
 			// from the PoV of the channel arb. There's now an HTLC
@@ -2044,9 +2042,7 @@ func TestChannelArbitratorPendingExpiredHTLC(t *testing.T) {
 	// Now that our channel arb has started, we'll set up
 	// its contract signals channel so we can send it
 	// various HTLC updates for this test.
-	htlcUpdates := make(chan *ContractUpdate)
 	signals := &ContractSignals{
-		HtlcUpdates: htlcUpdates,
 		ShortChanID: lnwire.ShortChannelID{},
 	}
 	chanArb.UpdateContractSignals(signals)
@@ -2061,10 +2057,12 @@ func TestChannelArbitratorPendingExpiredHTLC(t *testing.T) {
 		HtlcIndex:     htlcIndex,
 		RefundTimeout: htlcExpiry,
 	}
-	htlcUpdates <- &ContractUpdate{
+	newUpdate := &ContractUpdate{
 		HtlcKey: RemoteHtlcSet,
 		Htlcs:   []channeldb.HTLC{pendingHTLC},
 	}
+	err = chanArb.notifyContractUpdate(newUpdate)
+	require.NoError(t, err)
 
 	// We will advance the uptime to 10 seconds which should be still within
 	// the grace period and should not trigger going to chain.
@@ -2531,11 +2529,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		}
 	}()
 
-	// Create htlcUpdates channel.
-	htlcUpdates := make(chan *ContractUpdate)
-
 	signals := &ContractSignals{
-		HtlcUpdates: htlcUpdates,
 		ShortChanID: lnwire.ShortChannelID{},
 	}
 	chanArb.UpdateContractSignals(signals)
@@ -2559,7 +2553,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 
 	// We now send two HTLC updates, one for local HTLC set and the other
 	// for remote HTLC set.
-	htlcUpdates <- &ContractUpdate{
+	newUpdate := &ContractUpdate{
 		HtlcKey: LocalHtlcSet,
 		// This will make the deadline of the local anchor resolution
 		// to be htlcWithPreimage's CLTV minus heightHint since the
@@ -2567,13 +2561,18 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		// preimage available.
 		Htlcs: []channeldb.HTLC{htlc, htlcWithPreimage},
 	}
-	htlcUpdates <- &ContractUpdate{
+	err = chanArb.notifyContractUpdate(newUpdate)
+	require.NoError(t, err)
+
+	newUpdate = &ContractUpdate{
 		HtlcKey: RemoteHtlcSet,
 		// This will make the deadline of the remote anchor resolution
 		// to be htlcWithPreimage's CLTV minus heightHint because the
 		// incoming HTLC (toRemoteHTLCs) has a lower CLTV.
 		Htlcs: []channeldb.HTLC{htlc, htlcWithPreimage},
 	}
+	err = chanArb.notifyContractUpdate(newUpdate)
+	require.NoError(t, err)
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *wire.MsgTx, 1)

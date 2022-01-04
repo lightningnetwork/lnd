@@ -1944,6 +1944,17 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		return nil, nil, nil, nil, nil, nil, err
 	}
 
+	notifyUpdateChan := make(chan *contractcourt.ContractUpdate)
+	doneChan := make(chan struct{})
+	notifyContractUpdate := func(u *contractcourt.ContractUpdate) error {
+		select {
+		case notifyUpdateChan <- u:
+		case <-doneChan:
+		}
+
+		return nil
+	}
+
 	// Instantiate with a long interval, so that we can precisely control
 	// the firing via force feeding.
 	bticker := ticker.NewForce(time.Hour)
@@ -1967,12 +1978,13 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 			return nil
 		},
-		Registry:            invoiceRegistry,
-		FeeEstimator:        newMockFeeEstimator(),
-		ChainEvents:         &contractcourt.ChainEventSubscription{},
-		BatchTicker:         bticker,
-		FwdPkgGCTicker:      ticker.NewForce(15 * time.Second),
-		PendingCommitTicker: ticker.New(time.Minute),
+		NotifyContractUpdate: notifyContractUpdate,
+		Registry:             invoiceRegistry,
+		FeeEstimator:         newMockFeeEstimator(),
+		ChainEvents:          &contractcourt.ChainEventSubscription{},
+		BatchTicker:          bticker,
+		FwdPkgGCTicker:       ticker.NewForce(15 * time.Second),
+		PendingCommitTicker:  ticker.New(time.Minute),
 		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
 		// to not trigger commit updates automatically during tests.
 		BatchSize:             10000,
@@ -1993,8 +2005,9 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	go func() {
 		for {
 			select {
-			case <-aliceLink.(*channelLink).htlcUpdates:
+			case <-notifyUpdateChan:
 			case <-aliceLink.(*channelLink).quit:
+				close(doneChan)
 				return
 			}
 		}
@@ -4482,6 +4495,17 @@ func (h *persistentLinkHarness) restartLink(
 		}
 	}
 
+	notifyUpdateChan := make(chan *contractcourt.ContractUpdate)
+	doneChan := make(chan struct{})
+	notifyContractUpdate := func(u *contractcourt.ContractUpdate) error {
+		select {
+		case notifyUpdateChan <- u:
+		case <-doneChan:
+		}
+
+		return nil
+	}
+
 	// Instantiate with a long interval, so that we can precisely control
 	// the firing via force feeding.
 	bticker := ticker.NewForce(time.Hour)
@@ -4505,12 +4529,13 @@ func (h *persistentLinkHarness) restartLink(
 		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 			return nil
 		},
-		Registry:            h.coreLink.cfg.Registry,
-		FeeEstimator:        newMockFeeEstimator(),
-		ChainEvents:         &contractcourt.ChainEventSubscription{},
-		BatchTicker:         bticker,
-		FwdPkgGCTicker:      ticker.New(5 * time.Second),
-		PendingCommitTicker: ticker.New(time.Minute),
+		NotifyContractUpdate: notifyContractUpdate,
+		Registry:             h.coreLink.cfg.Registry,
+		FeeEstimator:         newMockFeeEstimator(),
+		ChainEvents:          &contractcourt.ChainEventSubscription{},
+		BatchTicker:          bticker,
+		FwdPkgGCTicker:       ticker.New(5 * time.Second),
+		PendingCommitTicker:  ticker.New(time.Minute),
 		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
 		// to not trigger commit updates automatically during tests.
 		BatchSize:           10000,
@@ -4534,8 +4559,9 @@ func (h *persistentLinkHarness) restartLink(
 	go func() {
 		for {
 			select {
-			case <-aliceLink.(*channelLink).htlcUpdates:
+			case <-notifyUpdateChan:
 			case <-aliceLink.(*channelLink).quit:
+				close(doneChan)
 				return
 			}
 		}

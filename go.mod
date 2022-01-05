@@ -9,7 +9,7 @@ require (
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v1.0.3-0.20210527170813-e2ba6805a890
 	github.com/btcsuite/btcutil/psbt v1.0.3-0.20210527170813-e2ba6805a890
-	github.com/btcsuite/btcwallet v0.13.0
+	github.com/btcsuite/btcwallet v0.13.1-0.20211201210108-79de92f527dc
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.1.0
 	github.com/btcsuite/btcwallet/wallet/txrules v1.1.0
 	github.com/btcsuite/btcwallet/walletdb v1.3.6-0.20210803004036-eebed51155ec

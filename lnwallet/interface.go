@@ -158,6 +158,12 @@ type WalletController interface {
 	// a non-nil error value of ErrNotMine should be returned instead.
 	FetchInputInfo(prevOut *wire.OutPoint) (*Utxo, error)
 
+	// ScriptForOutput returns the address, witness program and redeem
+	// script for a given UTXO. An error is returned if the UTXO does not
+	// belong to our wallet or it is not a managed pubKey address.
+	ScriptForOutput(output *wire.TxOut) (waddrmgr.ManagedPubKeyAddress,
+		[]byte, []byte, error)
+
 	// ConfirmedBalance returns the sum of all the wallet's unspent outputs
 	// that have at least confs confirmations. If confs is set to zero,
 	// then all unspent outputs, including those currently in the mempool

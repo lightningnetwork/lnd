@@ -200,7 +200,7 @@ func (c *GraphCache) Stats() string {
 		numChannels += len(c.nodeChannels[node])
 	}
 	return fmt.Sprintf("num_node_features=%d, num_nodes=%d, "+
-		"num_channels=%d", len(c.nodeFeatures), len(c.nodeChannels),
+		"num_edges=%d", len(c.nodeFeatures), len(c.nodeChannels),
 		numChannels)
 }
 

@@ -78,6 +78,8 @@ type Utxo struct {
 	Confirmations int64
 	PkScript      []byte
 	wire.OutPoint
+	Derivation *psbt.Bip32Derivation
+	PrevTx     *wire.MsgTx
 }
 
 // TransactionDetail describes a transaction with either inputs which belong to

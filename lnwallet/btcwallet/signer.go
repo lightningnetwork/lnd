@@ -24,7 +24,9 @@ import (
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo, error) {
-	_, txOut, _, confirmations, err := b.wallet.FetchInputInfo(prevOut)
+	prevTx, txOut, bip32, confirmations, err := b.wallet.FetchInputInfo(
+		prevOut,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -44,6 +46,8 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo, erro
 		PkScript:      txOut.PkScript,
 		Confirmations: confirmations,
 		OutPoint:      *prevOut,
+		Derivation:    bip32,
+		PrevTx:        prevTx,
 	}, nil
 }
 

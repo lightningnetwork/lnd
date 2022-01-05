@@ -287,14 +287,37 @@ func (b *BtcWallet) InternalWallet() *base.Wallet {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) Start() error {
+	// Is the wallet (according to its database) currently watch-only
+	// already? If it is, we won't need to convert it later.
+	walletIsWatchOnly := b.wallet.Manager.WatchOnly()
+
+	// If the wallet is watch-only, but we don't expect it to be, then we
+	// are in an unexpected state and cannot continue.
+	if walletIsWatchOnly && !b.cfg.WatchOnly {
+		return fmt.Errorf("wallet is watch-only but we expect it " +
+			"not to be; check if remote signing was disabled by " +
+			"accident")
+	}
+
 	// We'll start by unlocking the wallet and ensuring that the KeyScope:
 	// (1017, 1) exists within the internal waddrmgr. We'll need this in
 	// order to properly generate the keys required for signing various
 	// contracts. If this is a watch-only wallet, we don't have any private
 	// keys and therefore unlocking is not necessary.
-	if !b.cfg.WatchOnly {
+	if !walletIsWatchOnly {
 		if err := b.wallet.Unlock(b.cfg.PrivatePass, nil); err != nil {
 			return err
+		}
+
+		// If the wallet isn't about to be converted, we need to inform
+		// the user that this wallet still contains all private key
+		// material and that they need to migrate the existing wallet.
+		if b.cfg.WatchOnly && !b.cfg.MigrateWatchOnly {
+			log.Warnf("Wallet is expected to be in watch-only " +
+				"mode but hasn't been migrated to watch-only " +
+				"yet, it still contains private keys; " +
+				"consider turning on the watch-only wallet " +
+				"migration in remote signing mode")
 		}
 	}
 
@@ -338,6 +361,23 @@ func (b *BtcWallet) Start() error {
 			// been created, so we'll need to create it before we
 			// can proceed.
 			err = scope.NewRawAccount(addrmgrNs, keyFam)
+			if err != nil {
+				return err
+			}
+		}
+
+		// If this is the first startup with remote signing and wallet
+		// migration turned on and the wallet wasn't previously
+		// migrated, we can do that now that we made sure all accounts
+		// that we need were derived correctly.
+		if !walletIsWatchOnly && b.cfg.WatchOnly &&
+			b.cfg.MigrateWatchOnly {
+
+			log.Infof("Migrating wallet to watch-only mode, " +
+				"purging all private key material")
+
+			ns := tx.ReadWriteBucket(waddrmgrNamespaceKey)
+			err = b.wallet.Manager.ConvertToWatchingOnly(ns)
 			if err != nil {
 				return err
 			}

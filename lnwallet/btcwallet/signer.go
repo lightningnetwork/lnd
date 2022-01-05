@@ -66,7 +66,9 @@ func deriveFromKeyLoc(scopedMgr *waddrmgr.ScopedKeyManager,
 
 // deriveKeyByLocator attempts to derive a key stored in the wallet given a
 // valid key locator.
-func (b *BtcWallet) deriveKeyByLocator(keyLoc keychain.KeyLocator) (*btcec.PrivateKey, error) {
+func (b *BtcWallet) deriveKeyByLocator(
+	keyLoc keychain.KeyLocator) (*btcec.PrivateKey, error) {
+
 	// We'll assume the special lightning key scope in this case.
 	scopedMgr, err := b.wallet.Manager.FetchScopedKeyManager(
 		b.chainKeyScope,

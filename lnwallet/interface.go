@@ -168,7 +168,8 @@ type WalletController interface {
 	// NOTE: Only witness outputs should be included in the computation of
 	// the total spendable balance of the wallet. We require this as only
 	// witness inputs can be used for funding channels.
-	ConfirmedBalance(confs int32, accountFilter string) (btcutil.Amount, error)
+	ConfirmedBalance(confs int32, accountFilter string) (btcutil.Amount,
+		error)
 
 	// NewAddress returns the next external or internal address for the
 	// wallet dictated by the value of the `change` parameter. If change is
@@ -197,7 +198,8 @@ type WalletController interface {
 	// ListAccounts retrieves all accounts belonging to the wallet by
 	// default. A name and key scope filter can be provided to filter
 	// through all of the wallet accounts and return only those matching.
-	ListAccounts(string, *waddrmgr.KeyScope) ([]*waddrmgr.AccountProperties, error)
+	ListAccounts(string, *waddrmgr.KeyScope) ([]*waddrmgr.AccountProperties,
+		error)
 
 	// ImportAccount imports an account backed by an account extended public
 	// key. The master key fingerprint denotes the fingerprint of the root
@@ -228,7 +230,8 @@ type WalletController interface {
 	// in the case of legacy versions (xpub, tpub), an address type must be
 	// specified as we intend to not support importing BIP-44 keys into the
 	// wallet using the legacy pay-to-pubkey-hash (P2PKH) scheme.
-	ImportPublicKey(pubKey *btcec.PublicKey, addrType waddrmgr.AddressType) error
+	ImportPublicKey(pubKey *btcec.PublicKey,
+		addrType waddrmgr.AddressType) error
 
 	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying
 	// out to the specified outputs. In the case the wallet has insufficient
@@ -237,8 +240,8 @@ type WalletController interface {
 	// be used when crafting the transaction.
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
-	SendOutputs(outputs []*wire.TxOut,
-		feeRate chainfee.SatPerKWeight, minConfs int32, label string) (*wire.MsgTx, error)
+	SendOutputs(outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
+		minConfs int32, label string) (*wire.MsgTx, error)
 
 	// CreateSimpleTx creates a Bitcoin transaction paying to the specified
 	// outputs. The transaction is not broadcasted to the network. In the

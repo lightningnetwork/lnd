@@ -172,6 +172,19 @@ type WalletKitClient interface {
 	//an error on the caller's side.
 	FundPsbt(ctx context.Context, in *FundPsbtRequest, opts ...grpc.CallOption) (*FundPsbtResponse, error)
 	//
+	//SignPsbt expects a partial transaction with all inputs and outputs fully
+	//declared and tries to sign all unsigned inputs that have all required fields
+	//(UTXO information, BIP32 derivation information, witness or sig scripts)
+	//set.
+	//If no error is returned, the PSBT is ready to be given to the next signer or
+	//to be finalized if lnd was the last signer.
+	//
+	//NOTE: This RPC only signs inputs (and only those it can sign), it does not
+	//perform any other tasks (such as coin selection, UTXO locking or
+	//input/output/fee value validation, PSBT finalization). Any input that is
+	//incomplete will be skipped.
+	SignPsbt(ctx context.Context, in *SignPsbtRequest, opts ...grpc.CallOption) (*SignPsbtResponse, error)
+	//
 	//FinalizePsbt expects a partial transaction with all inputs and outputs fully
 	//declared and tries to sign all inputs that belong to the wallet. Lnd must be
 	//the last signer of the transaction. That means, if there are any unsigned
@@ -356,6 +369,15 @@ func (c *walletKitClient) FundPsbt(ctx context.Context, in *FundPsbtRequest, opt
 	return out, nil
 }
 
+func (c *walletKitClient) SignPsbt(ctx context.Context, in *SignPsbtRequest, opts ...grpc.CallOption) (*SignPsbtResponse, error) {
+	out := new(SignPsbtResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/SignPsbt", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *walletKitClient) FinalizePsbt(ctx context.Context, in *FinalizePsbtRequest, opts ...grpc.CallOption) (*FinalizePsbtResponse, error) {
 	out := new(FinalizePsbtResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/FinalizePsbt", in, out, opts...)
@@ -522,6 +544,19 @@ type WalletKitServer interface {
 	//an error on the caller's side.
 	FundPsbt(context.Context, *FundPsbtRequest) (*FundPsbtResponse, error)
 	//
+	//SignPsbt expects a partial transaction with all inputs and outputs fully
+	//declared and tries to sign all unsigned inputs that have all required fields
+	//(UTXO information, BIP32 derivation information, witness or sig scripts)
+	//set.
+	//If no error is returned, the PSBT is ready to be given to the next signer or
+	//to be finalized if lnd was the last signer.
+	//
+	//NOTE: This RPC only signs inputs (and only those it can sign), it does not
+	//perform any other tasks (such as coin selection, UTXO locking or
+	//input/output/fee value validation, PSBT finalization). Any input that is
+	//incomplete will be skipped.
+	SignPsbt(context.Context, *SignPsbtRequest) (*SignPsbtResponse, error)
+	//
 	//FinalizePsbt expects a partial transaction with all inputs and outputs fully
 	//declared and tries to sign all inputs that belong to the wallet. Lnd must be
 	//the last signer of the transaction. That means, if there are any unsigned
@@ -594,6 +629,9 @@ func (UnimplementedWalletKitServer) LabelTransaction(context.Context, *LabelTran
 }
 func (UnimplementedWalletKitServer) FundPsbt(context.Context, *FundPsbtRequest) (*FundPsbtResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FundPsbt not implemented")
+}
+func (UnimplementedWalletKitServer) SignPsbt(context.Context, *SignPsbtRequest) (*SignPsbtResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SignPsbt not implemented")
 }
 func (UnimplementedWalletKitServer) FinalizePsbt(context.Context, *FinalizePsbtRequest) (*FinalizePsbtResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FinalizePsbt not implemented")
@@ -935,6 +973,24 @@ func _WalletKit_FundPsbt_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WalletKit_SignPsbt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SignPsbtRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).SignPsbt(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/SignPsbt",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).SignPsbt(ctx, req.(*SignPsbtRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _WalletKit_FinalizePsbt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(FinalizePsbtRequest)
 	if err := dec(in); err != nil {
@@ -1031,6 +1087,10 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FundPsbt",
 			Handler:    _WalletKit_FundPsbt_Handler,
+		},
+		{
+			MethodName: "SignPsbt",
+			Handler:    _WalletKit_SignPsbt_Handler,
 		},
 		{
 			MethodName: "FinalizePsbt",

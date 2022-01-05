@@ -189,6 +189,11 @@ func (w *WalletController) FundPsbt(*psbt.Packet, int32, chainfee.SatPerKWeight,
 	return 0, nil
 }
 
+// SignPsbt currently does nothing.
+func (w *WalletController) SignPsbt(*psbt.Packet) error {
+	return nil
+}
+
 // FinalizePsbt currently does nothing.
 func (w *WalletController) FinalizePsbt(_ *psbt.Packet, _ string) error {
 	return nil

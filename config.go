@@ -579,7 +579,9 @@ func DefaultConfig() Config {
 		ChannelCommitInterval:   defaultChannelCommitInterval,
 		ChannelCommitBatchSize:  defaultChannelCommitBatchSize,
 		CoinSelectionStrategy:   defaultCoinSelectionStrategy,
-		RemoteSigner:            &lncfg.RemoteSigner{},
+		RemoteSigner: &lncfg.RemoteSigner{
+			Timeout: lncfg.DefaultRemoteSignerRPCTimeout,
+		},
 	}
 }
 
@@ -1554,6 +1556,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.Cluster,
 		cfg.HealthChecks,
 		cfg.RPCMiddleware,
+		cfg.RemoteSigner,
 	)
 	if err != nil {
 		return nil, err

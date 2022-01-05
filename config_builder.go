@@ -688,7 +688,6 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 	rpcKeyRing, err := rpcwallet.NewRPCKeyRing(
 		baseKeyRing, walletController,
 		d.DefaultWalletImpl.cfg.RemoteSigner, walletConfig.CoinType,
-		rpcwallet.DefaultRPCTimeout,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create RPC remote signing wallet "+

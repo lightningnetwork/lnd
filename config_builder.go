@@ -144,8 +144,9 @@ type DefaultWalletImpl struct {
 	logger      btclog.Logger
 	interceptor signal.Interceptor
 
-	watchOnly bool
-	pwService *walletunlocker.UnlockerService
+	watchOnly        bool
+	migrateWatchOnly bool
+	pwService        *walletunlocker.UnlockerService
 }
 
 // NewDefaultWalletImpl creates a new default wallet implementation.
@@ -560,16 +561,17 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 	}
 
 	walletConfig := &btcwallet.Config{
-		PrivatePass:    privateWalletPw,
-		PublicPass:     publicWalletPw,
-		Birthday:       walletInitParams.Birthday,
-		RecoveryWindow: walletInitParams.RecoveryWindow,
-		NetParams:      d.cfg.ActiveNetParams.Params,
-		CoinType:       d.cfg.ActiveNetParams.CoinType,
-		Wallet:         walletInitParams.Wallet,
-		LoaderOptions:  []btcwallet.LoaderOption{dbs.WalletDB},
-		ChainSource:    partialChainControl.ChainSource,
-		WatchOnly:      d.watchOnly,
+		PrivatePass:      privateWalletPw,
+		PublicPass:       publicWalletPw,
+		Birthday:         walletInitParams.Birthday,
+		RecoveryWindow:   walletInitParams.RecoveryWindow,
+		NetParams:        d.cfg.ActiveNetParams.Params,
+		CoinType:         d.cfg.ActiveNetParams.CoinType,
+		Wallet:           walletInitParams.Wallet,
+		LoaderOptions:    []btcwallet.LoaderOption{dbs.WalletDB},
+		ChainSource:      partialChainControl.ChainSource,
+		WatchOnly:        d.watchOnly,
+		MigrateWatchOnly: d.migrateWatchOnly,
 	}
 
 	// Parse coin selection strategy.
@@ -650,15 +652,17 @@ type RPCSignerWalletImpl struct {
 // NewRPCSignerWalletImpl creates a new instance of the remote signing wallet
 // implementation.
 func NewRPCSignerWalletImpl(cfg *Config, logger btclog.Logger,
-	interceptor signal.Interceptor) *RPCSignerWalletImpl {
+	interceptor signal.Interceptor,
+	migrateWatchOnly bool) *RPCSignerWalletImpl {
 
 	return &RPCSignerWalletImpl{
 		DefaultWalletImpl: &DefaultWalletImpl{
-			cfg:         cfg,
-			logger:      logger,
-			interceptor: interceptor,
-			watchOnly:   true,
-			pwService:   createWalletUnlockerService(cfg),
+			cfg:              cfg,
+			logger:           logger,
+			interceptor:      interceptor,
+			watchOnly:        true,
+			migrateWatchOnly: migrateWatchOnly,
+			pwService:        createWalletUnlockerService(cfg),
 		},
 	}
 }

@@ -1612,7 +1612,10 @@ func (c *Config) ImplementationConfig(
 	// watch-only source of chain and address data. But we don't need any
 	// private key material in that btcwallet base wallet.
 	if c.RemoteSigner.Enable {
-		rpcImpl := NewRPCSignerWalletImpl(c, ltndLog, interceptor)
+		rpcImpl := NewRPCSignerWalletImpl(
+			c, ltndLog, interceptor,
+			c.RemoteSigner.MigrateWatchOnly,
+		)
 		return &ImplementationCfg{
 			GrpcRegistrar:     rpcImpl,
 			RestRegistrar:     rpcImpl,

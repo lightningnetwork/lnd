@@ -9,7 +9,7 @@ the **private** keys.
 
 The advantage of such a setup is that the `lnd` instance containing the private
 keys (the "signer") can be completely offline except for a single inbound gRPC
-connection and the outbound connection to `bitcoind` (or `btcd` or `neutrino`).
+connection.
 The signer instance can run on a different machine with more tightly locked down
 network security, optimally only allowing the single gRPC connection from the
 outside.
@@ -31,39 +31,13 @@ xxx               xx
           v                       |                                  |
   +----------------+     gRPC     |   +----------------+             |
   | watch-only lnd +--------------+-->| full seed lnd  |             |
-  +-------+--------+              |   +------+---------+             |
-          |                       |          |                       |
-  +-------v--------+              |   +------v---------+             |
-  | bitcoind/btcd  |              |   | bitcoind/btcd  |             |
-  +----------------+              |   +----------------+             |
-                                  |                                  |
-                                  +----------------------------------+
+  +-------+--------+              |   +----------------+             |
+          |                       |                                  |
+  +-------v--------+              +----------------------------------+
+  | bitcoind/btcd  |  
+  +----------------+ 
+
 ```
-
-NOTE: Offline in this context means that `lnd` itself does not need to be
-reachable from the internet and itself doesn't connect out. If the `bitcoind`
-or other chain backend is indeed running within this same firewall/offline zone
-then that component will need at least _outbound_ internet access. But it is
-also possible to use a chain backend that is running outside this zone.
-
-## Restrictions / limitations
-
-The current implementation of the remote signing mode comes with a few
-restrictions and limitations:
-
-- Both `lnd` instances need a connection to a chain backend:
-    - The type of chain backend (`bitcoind`, `btcd` or `neutrino`) **must**
-      match.
-    - Both instances can point to the same chain backend node, though limits
-      apply with the number of `lnd` instances that can use the same `bitcoind`
-      node over ZMQ.
-      See ["running multiple lnd nodes" in the safety guide](safety.md#running-multiple-lnd-nodes)
-      .
-    - Using a pruned chain backend is not recommended as that increases the
-      chance of the two wallets falling out of sync with each other.
-- The wallet of the "signer" instance **must not be used** for anything.
-  Especially generating new addresses manually on the "signer" will lead to the
-  two wallets falling out of sync!
 
 ## Example setup
 
@@ -80,8 +54,8 @@ opened to this node from the host on which the node "watch-only" is running.
 Recommended entries in `lnd.conf`:
 
 ```text
-# No special configuration required other than basic "hardening" parameters to
-# make sure no connections to the internet are opened.
+# We apply some basic "hardening" parameters to make sure no connections to the
+# internet are opened.
 
 [Application Options]
 # Don't listen on the p2p port.
@@ -93,6 +67,19 @@ nobootstrap=true
 # Just an example, this is the port that needs to be opened in the firewall and
 # reachable from the node "watch-only".
 rpclisten=10019
+
+# The signer node will not look at the chain at all, it only needs to sign
+# things with the keys contained in its wallet. So we don't need to hook it up
+# to any chain backend.
+[bitcoin]
+# We still need to signal that we're using the Bitcoin chain.
+bitcoin.active=true
+
+# And we're making sure mainnet parameters are used.
+bitcoin.mainnet=true
+
+# But we aren't using a "real" chain backed but a mocked one.
+bitcoin.node=nochainbackend
 ```
 
 After successfully starting up "signer", the following command can be run to
@@ -150,6 +137,21 @@ Input an optional address look-ahead used to scan for used keys (default 2500):
 
 Alternatively a script can be used for initializing the watch-only wallet
 through the RPC interface as is described in the next section.
+
+## Migrating an existing setup to remote signing
+
+It is possible to migrate a node that is currently a standalone, normal node
+with all private keys in its wallet to a setup that uses remote signing (with
+a watch-only and a remote signer node).
+
+To migrate an existing node, follow these steps:
+1. Create a new "signer" node using the same seed as the existing node,
+   following the steps [mentioned above](#the-signer-node).
+2. In the configuration of the existing node, add the configuration entries as
+   [shown above](#the-watch-only-node). But instead of creating a new wallet
+   (since one already exists), instruct `lnd` to migrate the existing wallet to
+   a watch-only one (by purging all private key material from it) by adding the
+  `remotesigner.migrate-wallet-to-watch-only=true` configuration entry.
 
 ## Example initialization script
 

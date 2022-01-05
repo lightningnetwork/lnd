@@ -655,7 +655,7 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 	}
 
 	// Init all the RPC clients.
-	hn.initRPCClients(conn)
+	hn.InitRPCClients(conn)
 
 	if err := hn.WaitUntilStarted(); err != nil {
 		return err
@@ -717,7 +717,7 @@ func (hn *HarnessNode) WaitUntilLeader(timeout time.Duration) error {
 	}
 
 	// Init all the RPC clients.
-	hn.initRPCClients(conn)
+	hn.InitRPCClients(conn)
 
 	if err := hn.WaitUntilStarted(); err != nil {
 		return err
@@ -772,7 +772,7 @@ func (hn *HarnessNode) initClientWhenReady(stateless bool,
 	}
 
 	// Init all the RPC clients.
-	hn.initRPCClients(conn)
+	hn.InitRPCClients(conn)
 
 	return hn.initLightningClient()
 }
@@ -897,8 +897,8 @@ func (hn *HarnessNode) waitTillServerState(
 	}
 }
 
-// initRPCClients initializes a list of RPC clients for the node.
-func (hn *HarnessNode) initRPCClients(c *grpc.ClientConn) {
+// InitRPCClients initializes a list of RPC clients for the node.
+func (hn *HarnessNode) InitRPCClients(c *grpc.ClientConn) {
 	hn.rpc = &RPCClients{
 		conn:             c,
 		LN:               lnrpc.NewLightningClient(c),

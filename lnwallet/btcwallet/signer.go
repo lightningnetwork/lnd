@@ -44,6 +44,15 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo, erro
 	}, nil
 }
 
+// ScriptForOutput returns the address, witness program and redeem script for a
+// given UTXO. An error is returned if the UTXO does not belong to our wallet or
+// it is not a managed pubKey address.
+func (b *BtcWallet) ScriptForOutput(output *wire.TxOut) (
+	waddrmgr.ManagedPubKeyAddress, []byte, []byte, error) {
+
+	return b.wallet.ScriptForOutput(output)
+}
+
 // deriveFromKeyLoc attempts to derive a private key using a fully specified
 // KeyLocator.
 func deriveFromKeyLoc(scopedMgr *waddrmgr.ScopedKeyManager,

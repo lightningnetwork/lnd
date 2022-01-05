@@ -53,6 +53,15 @@ func (w *WalletController) FetchInputInfo(
 	return utxo, nil
 }
 
+// ScriptForOutput returns the address, witness program and redeem script for a
+// given UTXO. An error is returned if the UTXO does not belong to our wallet or
+// it is not a managed pubKey address.
+func (w *WalletController) ScriptForOutput(*wire.TxOut) (
+	waddrmgr.ManagedPubKeyAddress, []byte, []byte, error) {
+
+	return nil, nil, nil, nil
+}
+
 // ConfirmedBalance currently returns dummy values.
 func (w *WalletController) ConfirmedBalance(int32, string) (btcutil.Amount,
 	error) {

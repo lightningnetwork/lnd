@@ -58,11 +58,14 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 	ctx.openChannel(ctx.carol, ctx.bob, 135000)
 	ctx.openChannel(ctx.alice, ctx.carol, 235000)
 	ctx.openChannel(ctx.dave, ctx.bob, 135000)
-	ctx.openChannel(ctx.alice, ctx.dave, 135000)
+	chanPointAliceDave := ctx.openChannel(ctx.alice, ctx.dave, 135000)
 	ctx.openChannel(ctx.eve, ctx.bob, 135000)
 	ctx.openChannel(ctx.carol, ctx.eve, 135000)
 
 	defer ctx.closeChannels()
+
+	// Make sure the open channels are heard by everyone.
+	ctx.waitForChannelSync()
 
 	invoice := &lnrpc.Invoice{
 		Value: int64(paymentAmt),
@@ -83,13 +86,12 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 	// Increase Dave's fee to make the test deterministic. Otherwise it
 	// would be unpredictable whether pathfinding would go through Charlie
 	// or Dave for the first shard.
-	policy := &lnrpc.PolicyUpdateRequest{
-		Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
-		BaseFeeMsat:   500000,
-		FeeRate:       0.001,
-		TimeLockDelta: 40,
-	}
-	ht.UpdateChannelPolicy(ctx.dave, policy)
+	expectedPolicy := ctx.updateDaveGlobalPolicy()
+
+	// Make sure Alice has heard it.
+	ht.AssertChannelPolicyUpdate(
+		ctx.alice, ctx.dave, expectedPolicy, chanPointAliceDave, false,
+	)
 
 	// Generate an external payment address when attempting to pseudo-reuse
 	// an AMP invoice. When using an external payment address, we'll also
@@ -363,22 +365,24 @@ func testSendPaymentAMP(ht *lntest.HarnessTest) {
 	ctx.openChannel(ctx.carol, ctx.bob, 135000)
 	ctx.openChannel(ctx.alice, ctx.carol, 235000)
 	ctx.openChannel(ctx.dave, ctx.bob, 135000)
-	ctx.openChannel(ctx.alice, ctx.dave, 135000)
+	chanPointAliceDave := ctx.openChannel(ctx.alice, ctx.dave, 135000)
 	ctx.openChannel(ctx.eve, ctx.bob, 135000)
 	ctx.openChannel(ctx.carol, ctx.eve, 135000)
 
 	defer ctx.closeChannels()
 
+	// Make sure the open channels are heard by everyone.
+	ctx.waitForChannelSync()
+
 	// Increase Dave's fee to make the test deterministic. Otherwise it
 	// would be unpredictable whether pathfinding would go through Charlie
 	// or Dave for the first shard.
-	policy := &lnrpc.PolicyUpdateRequest{
-		Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
-		BaseFeeMsat:   500000,
-		FeeRate:       0.001,
-		TimeLockDelta: 40,
-	}
-	ht.UpdateChannelPolicy(ctx.dave, policy)
+	expectedPolicy := ctx.updateDaveGlobalPolicy()
+
+	// Make sure Alice has heard it.
+	ht.AssertChannelPolicyUpdate(
+		ctx.alice, ctx.dave, expectedPolicy, chanPointAliceDave, false,
+	)
 
 	sendReq := &routerrpc.SendPaymentRequest{
 		Dest:           ctx.bob.PubKey[:],
@@ -479,6 +483,9 @@ func testSendToRouteAMP(ht *lntest.HarnessTest) {
 	// shards, we make it larger.
 	ctx.openChannel(ctx.alice, ctx.carol, chanAmt+shardAmt)
 	defer ctx.closeChannels()
+
+	// Make sure the open channels are heard by everyone.
+	ctx.waitForChannelSync()
 
 	// We'll send shards along three routes from Alice.
 	sendRoutes := [numShards][]*lntest.HarnessNode{

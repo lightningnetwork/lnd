@@ -47,6 +47,9 @@ func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 
 	defer ctx.closeChannels()
 
+	// Make sure the open channels are heard by everyone.
+	ctx.waitForChannelSync()
+
 	// Make Bob create an invoice for Alice to pay.
 	payReqs, rHashes, invoices := ht.CreatePayReqs(ctx.bob, paymentAmt, 1)
 
@@ -175,22 +178,24 @@ func testSendMultiPathPayment(ht *lntest.HarnessTest) {
 	ctx.openChannel(ctx.carol, ctx.bob, 135000)
 	ctx.openChannel(ctx.alice, ctx.carol, 235000)
 	ctx.openChannel(ctx.dave, ctx.bob, 135000)
-	ctx.openChannel(ctx.alice, ctx.dave, 135000)
+	chanPointAliceDave := ctx.openChannel(ctx.alice, ctx.dave, 135000)
 	ctx.openChannel(ctx.eve, ctx.bob, 135000)
 	ctx.openChannel(ctx.carol, ctx.eve, 135000)
 
 	defer ctx.closeChannels()
 
+	// Make sure the open channels are heard by everyone.
+	ctx.waitForChannelSync()
+
 	// Increase Dave's fee to make the test deterministic. Otherwise it
 	// would be unpredictable whether pathfinding would go through Charlie
 	// or Dave for the first shard.
-	req := &lnrpc.PolicyUpdateRequest{
-		Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
-		BaseFeeMsat:   500000,
-		FeeRate:       0.001,
-		TimeLockDelta: 40,
-	}
-	ht.UpdateChannelPolicy(ctx.dave, req)
+	expectedPolicy := ctx.updateDaveGlobalPolicy()
+
+	// Make sure Alice has heard it.
+	ht.AssertChannelPolicyUpdate(
+		ctx.alice, ctx.dave, expectedPolicy, chanPointAliceDave, false,
+	)
 
 	// Our first test will be Alice paying Bob using a SendPayment call.
 	// Let Bob create an invoice for Alice to pay.
@@ -344,4 +349,43 @@ func (c *mppTestContext) buildRoute(amt btcutil.Amount,
 	routeResp := c.ht.BuildRoute(sender, req)
 
 	return routeResp.Route
+}
+
+// waitForChannelSync asserts that every node has heard every open channel.
+func (c *mppTestContext) waitForChannelSync() {
+	for _, chanPoint := range c.networkChans {
+		for _, node := range c.nodes {
+			c.ht.AssertChannelOpen(node, chanPoint)
+		}
+	}
+}
+
+// updatePolicy updates a Dave's global channel policy and returns the expected
+// policy for further check.
+func (c *mppTestContext) updateDaveGlobalPolicy() *lnrpc.RoutingPolicy {
+	const (
+		baseFeeMsat = 500000
+		feeRate     = 0.001
+		maxHtlcMsat = 133650000
+	)
+
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      baseFeeMsat,
+		FeeRateMilliMsat: feeRate * testFeeBase,
+		TimeLockDelta:    40,
+		MinHtlc:          1000, // default value
+		MaxHtlcMsat:      maxHtlcMsat,
+	}
+
+	updateFeeReq := &lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   baseFeeMsat,
+		FeeRate:       feeRate,
+		TimeLockDelta: 40,
+		Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
+		MaxHtlcMsat:   maxHtlcMsat,
+	}
+
+	c.ht.UpdateChannelPolicy(c.dave, updateFeeReq)
+
+	return expectedPolicy
 }

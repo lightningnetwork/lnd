@@ -1,11 +1,31 @@
 package btcwallet
 
 import (
+	"bytes"
+	"fmt"
+
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+)
+
+var (
+	// PsbtKeyTypeInputSignatureTweakSingle is a custom/proprietary PSBT key
+	// for an input that specifies what single tweak should be applied to
+	// the key before signing the input. The value 51 is leet speak for
+	// "si", short for "single".
+	PsbtKeyTypeInputSignatureTweakSingle = []byte{0x51}
+
+	// PsbtKeyTypeInputSignatureTweakDouble is a custom/proprietary PSBT key
+	// for an input that specifies what double tweak should be applied to
+	// the key before signing the input. The value d0 is leet speak for
+	// "do", short for "double".
+	PsbtKeyTypeInputSignatureTweakDouble = []byte{0xd0}
 )
 
 // FundPsbt creates a fully populated PSBT packet that contains enough inputs to
@@ -62,6 +82,177 @@ func (b *BtcWallet) FundPsbt(packet *psbt.Packet, minConfs int32,
 		packet, keyScope, minConfs, accountNum, feeSatPerKB,
 		b.cfg.CoinSelectionStrategy,
 	)
+}
+
+// SignPsbt expects a partial transaction with all inputs and outputs fully
+// declared and tries to sign all unsigned inputs that have all required fields
+// (UTXO information, BIP32 derivation information, witness or sig scripts) set.
+// If no error is returned, the PSBT is ready to be given to the next signer or
+// to be finalized if lnd was the last signer.
+//
+// NOTE: This method only signs inputs (and only those it can sign), it does not
+// perform any other tasks (such as coin selection, UTXO locking or
+// input/output/fee value validation, PSBT finalization). Any input that is
+// incomplete will be skipped.
+func (b *BtcWallet) SignPsbt(packet *psbt.Packet) error {
+	// Let's check that this is actually something we can and want to sign.
+	// We need at least one input and one output.
+	err := psbt.VerifyInputOutputLen(packet, true, true)
+	if err != nil {
+		return err
+	}
+
+	// Go through each input that doesn't have final witness data attached
+	// to it already and try to sign it. If there is nothing more to sign or
+	// there are inputs that we don't know how to sign, we won't return any
+	// error. So it's possible we're not the final signer.
+	tx := packet.UnsignedTx
+	sigHashes := txscript.NewTxSigHashes(tx)
+	for idx := range tx.TxIn {
+		in := packet.Inputs[idx]
+
+		// We can only sign if we have UTXO information available. Since
+		// we don't finalize, we just skip over any input that we know
+		// we can't do anything with. Since we only support signing
+		// witness inputs, we only look at the witness UTXO being set.
+		if in.WitnessUtxo == nil {
+			continue
+		}
+
+		// Skip this input if it's got final witness data attached.
+		if len(in.FinalScriptWitness) > 0 {
+			continue
+		}
+
+		// Skip this input if there is no BIP32 derivation info
+		// available.
+		if len(in.Bip32Derivation) == 0 {
+			continue
+		}
+
+		// TODO(guggero): For multisig, we'll need to find out what key
+		// to use and there should be multiple derivation paths in the
+		// BIP32 derivation field.
+
+		// Let's try and derive the key now. This method will decide if
+		// it's a BIP49/84 key for normal on-chain funds or a key of the
+		// custom purpose 1017 key scope.
+		derivationInfo := in.Bip32Derivation[0]
+		privKey, err := b.deriveKeyByBIP32Path(derivationInfo.Bip32Path)
+		if err != nil {
+			log.Warnf("SignPsbt: Skipping input %d, error "+
+				"deriving signing key: %v", idx, err)
+			continue
+		}
+
+		// We need to make sure we actually derived the key that was
+		// expected to be derived.
+		pubKeysEqual := bytes.Equal(
+			derivationInfo.PubKey,
+			privKey.PubKey().SerializeCompressed(),
+		)
+		if !pubKeysEqual {
+			log.Warnf("SignPsbt: Skipping input %d, derived "+
+				"public key %x does not match bip32 "+
+				"derivation info public key %x", idx,
+				privKey.PubKey().SerializeCompressed(),
+				derivationInfo.PubKey)
+			continue
+		}
+
+		// Do we need to tweak anything? Single or double tweaks are
+		// sent as custom/proprietary fields in the PSBT input section.
+		privKey = maybeTweakPrivKeyPsbt(in.Unknowns, privKey)
+		pubKeyBytes := privKey.PubKey().SerializeCompressed()
+
+		// Extract the correct witness and/or legacy scripts now,
+		// depending on the type of input we sign. The txscript package
+		// has the peculiar requirement that the PkScript of a P2PKH
+		// must be given as the witness script in order for it to arrive
+		// at the correct sighash. That's why we call it subScript here
+		// instead of witness script.
+		subScript, scriptSig, err := prepareScripts(in)
+		if err != nil {
+			// We derived the correct key so we _are_ expected to
+			// sign this. Not being able to sign at this point means
+			// there's something wrong.
+			return fmt.Errorf("error deriving script for input "+
+				"%d: %v", idx, err)
+		}
+
+		// We have everything we need for signing the input now.
+		sig, err := txscript.RawTxInWitnessSignature(
+			tx, sigHashes, idx, in.WitnessUtxo.Value, subScript,
+			in.SighashType, privKey,
+		)
+		if err != nil {
+			return fmt.Errorf("error signing input %d: %v", idx,
+				err)
+		}
+		packet.Inputs[idx].FinalScriptSig = scriptSig
+		packet.Inputs[idx].PartialSigs = append(
+			packet.Inputs[idx].PartialSigs, &psbt.PartialSig{
+				PubKey:    pubKeyBytes,
+				Signature: sig,
+			},
+		)
+	}
+
+	return nil
+}
+
+// prepareScripts returns the appropriate witness and/or legacy scripts,
+// depending on the type of input that should be signed.
+func prepareScripts(in psbt.PInput) ([]byte, []byte, error) {
+	switch {
+	// It's a NP2WKH input:
+	case len(in.RedeemScript) > 0:
+		builder := txscript.NewScriptBuilder()
+		builder.AddData(in.RedeemScript)
+		sigScript, err := builder.Script()
+		if err != nil {
+			return nil, nil, fmt.Errorf("error building np2wkh "+
+				"script: %v", err)
+		}
+
+		return in.RedeemScript, sigScript, nil
+
+	// It's a P2WSH input:
+	case len(in.WitnessScript) > 0:
+		return in.WitnessScript, nil, nil
+
+	// It's a P2WKH input:
+	default:
+		return in.WitnessUtxo.PkScript, nil, nil
+	}
+}
+
+// maybeTweakPrivKeyPsbt examines if there are any tweak parameters given in the
+// custom/proprietary PSBT fields and may perform a mapping on the passed
+// private key in order to utilize the tweaks, if populated.
+func maybeTweakPrivKeyPsbt(unknowns []*psbt.Unknown,
+	privKey *btcec.PrivateKey) *btcec.PrivateKey {
+
+	// There can be other custom/unknown keys in a PSBT that we just ignore.
+	// Key tweaking is optional and only one tweak (single _or_ double) can
+	// ever be applied (at least for any use cases described in the BOLT
+	// spec).
+	for _, u := range unknowns {
+		if bytes.Equal(u.Key, PsbtKeyTypeInputSignatureTweakSingle) {
+			return input.TweakPrivKey(privKey, u.Value)
+		}
+
+		if bytes.Equal(u.Key, PsbtKeyTypeInputSignatureTweakDouble) {
+			doubleTweakKey, _ := btcec.PrivKeyFromBytes(
+				btcec.S256(), u.Value,
+			)
+			return input.DeriveRevocationPrivKey(
+				privKey, doubleTweakKey,
+			)
+		}
+	}
+
+	return privKey
 }
 
 // FinalizePsbt expects a partial transaction with all inputs and outputs fully

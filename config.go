@@ -1230,6 +1230,10 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		case "neutrino":
 			// No need to get RPC parameters.
 
+		case "nochainbackend":
+			// Nothing to configure, we're running without any chain
+			// backend whatsoever (pure signing mode).
+
 		default:
 			str := "only btcd, bitcoind, and neutrino mode " +
 				"supported for bitcoin at this time"

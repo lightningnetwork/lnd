@@ -690,6 +690,22 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 				return nil, nil, err
 			}
 		}
+
+	case "nochainbackend":
+		backend := &NoChainBackend{}
+		source := &NoChainSource{
+			BestBlockTime: time.Now(),
+		}
+
+		cc.ChainNotifier = backend
+		cc.ChainView = backend
+		cc.FeeEstimator = backend
+
+		cc.ChainSource = source
+		cc.HealthCheck = func() error {
+			return nil
+		}
+
 	default:
 		return nil, nil, fmt.Errorf("unknown node type: %s",
 			homeChainConfig.Node)

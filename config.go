@@ -1772,7 +1772,6 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 					"%[1]v.zmqpubrawblock, %[1]v.zmqpubrawtx not specified: %v ", daemonName, err)
 			}
 		}
-
 	}
 
 	fmt.Printf("Automatically obtained %v's RPC credentials\n", daemonName)

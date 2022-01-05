@@ -141,14 +141,18 @@ func TestValidationBarrierQuit(t *testing.T) {
 
 		switch {
 		// First half should return without failure.
-		case i < numTasks/4 && err != routing.ErrParentValidationFailed:
+		case i < numTasks/4 && !routing.IsError(
+			err, routing.ErrParentValidationFailed,
+		):
 			t.Fatalf("unexpected failure while waiting: %v", err)
 
 		case i >= numTasks/4 && i < numTasks/2 && err != nil:
 			t.Fatalf("unexpected failure while waiting: %v", err)
 
 		// Last half should return the shutdown error.
-		case i >= numTasks/2 && err != routing.ErrVBarrierShuttingDown:
+		case i >= numTasks/2 && !routing.IsError(
+			err, routing.ErrVBarrierShuttingDown,
+		):
 			t.Fatalf("expected failure after quitting: want %v, "+
 				"got %v", routing.ErrVBarrierShuttingDown, err)
 		}

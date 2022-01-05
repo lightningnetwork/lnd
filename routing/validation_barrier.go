@@ -1,23 +1,11 @@
 package routing
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
-)
-
-var (
-	// ErrVBarrierShuttingDown signals that the barrier has been requested
-	// to shutdown, and that the caller should not treat the wait condition
-	// as fulfilled.
-	ErrVBarrierShuttingDown = errors.New("validation barrier shutting down")
-
-	// ErrParentValidationFailed signals that the validation of a
-	// dependent's parent failed, so the dependent must not be processed.
-	ErrParentValidationFailed = errors.New("parent validation failed")
 )
 
 // validationSignals contains two signals which allows the ValidationBarrier to
@@ -228,9 +216,11 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	if ok {
 		select {
 		case <-v.quit:
-			return ErrVBarrierShuttingDown
+			return newErrf(ErrVBarrierShuttingDown,
+				"validation barrier shutting down")
 		case <-signals.deny:
-			return ErrParentValidationFailed
+			return newErrf(ErrParentValidationFailed,
+				"parent validation failed")
 		case <-signals.allow:
 			return nil
 		}

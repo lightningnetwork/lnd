@@ -239,10 +239,6 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 		if subTest.sendCoins {
 			net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, watchOnly)
 			assertAccountBalance(
-				t.t, signer, "default",
-				btcutil.SatoshiPerBitcoin, 0,
-			)
-			assertAccountBalance(
 				t.t, watchOnly, "default",
 				btcutil.SatoshiPerBitcoin, 0,
 			)

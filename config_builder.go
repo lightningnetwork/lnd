@@ -687,7 +687,7 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 
 	rpcKeyRing, err := rpcwallet.NewRPCKeyRing(
 		baseKeyRing, walletController,
-		d.DefaultWalletImpl.cfg.RemoteSigner,
+		d.DefaultWalletImpl.cfg.RemoteSigner, walletConfig.CoinType,
 		rpcwallet.DefaultRPCTimeout,
 	)
 	if err != nil {

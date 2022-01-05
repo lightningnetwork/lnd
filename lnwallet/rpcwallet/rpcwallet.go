@@ -197,8 +197,12 @@ func (r *RPCKeyRing) SignPsbt(packet *psbt.Packet) error {
 		FundedPsbt: buf.Bytes(),
 	})
 	if err != nil {
-		return fmt.Errorf("error signing PSBT in remote signer "+
+		err = fmt.Errorf("error signing PSBT in remote signer "+
 			"instance: %v", err)
+
+		// Log as critical as we should shut down if there is no signer.
+		log.Criticalf("RPC signer error: %v", err)
+		return err
 	}
 
 	signedPacket, err := psbt.NewFromRawBytes(
@@ -404,6 +408,11 @@ func (r *RPCKeyRing) ECDH(keyDesc keychain.KeyDescriptor,
 
 	resp, err := r.signerClient.DeriveSharedKey(ctxt, req)
 	if err != nil {
+		err = fmt.Errorf("error deriving shared key in remote signer "+
+			"instance: %v", err)
+
+		// Log as critical as we should shut down if there is no signer.
+		log.Criticalf("RPC signer error: %v", err)
 		return key, err
 	}
 
@@ -432,6 +441,11 @@ func (r *RPCKeyRing) SignMessage(keyLoc keychain.KeyLocator,
 		DoubleHash: doubleHash,
 	})
 	if err != nil {
+		err = fmt.Errorf("error signing message in remote signer "+
+			"instance: %v", err)
+
+		// Log as critical as we should shut down if there is no signer.
+		log.Criticalf("RPC signer error: %v", err)
 		return nil, err
 	}
 
@@ -468,6 +482,11 @@ func (r *RPCKeyRing) SignMessageCompact(keyLoc keychain.KeyLocator,
 		CompactSig: true,
 	})
 	if err != nil {
+		err = fmt.Errorf("error signing message in remote signer "+
+			"instance: %v", err)
+
+		// Log as critical as we should shut down if there is no signer.
+		log.Criticalf("RPC signer error: %v", err)
 		return nil, err
 	}
 
@@ -643,8 +662,12 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 		ctxt, &walletrpc.SignPsbtRequest{FundedPsbt: buf.Bytes()},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error signing PSBT in remote signer "+
+		err = fmt.Errorf("error signing PSBT in remote signer "+
 			"instance: %v", err)
+
+		// Log as critical as we should shut down if there is no signer.
+		log.Criticalf("RPC signer error: %v", err)
+		return nil, err
 	}
 
 	signedPacket, err := psbt.NewFromRawBytes(

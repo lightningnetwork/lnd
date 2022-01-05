@@ -1,11 +1,14 @@
 package btcwallet
 
 import (
+	"fmt"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/go-errors/errors"
@@ -71,6 +74,133 @@ func deriveFromKeyLoc(scopedMgr *waddrmgr.ScopedKeyManager,
 	}
 
 	return addr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
+}
+
+// deriveKeyByBIP32Path derives a key described by a BIP32 path. We expect the
+// first three elements of the path to be hardened according to BIP44, so they
+// must be a number >= 2^31.
+func (b *BtcWallet) deriveKeyByBIP32Path(path []uint32) (*btcec.PrivateKey,
+	error) {
+
+	// Make sure we get a full path with exactly 5 elements. A path is
+	// either custom purpose one with 4 dynamic and one static elements:
+	//    m/1017'/coinType'/keyFamily'/0/index
+	// Or a default BIP49/89 one with 5 elements:
+	//    m/purpose'/coinType'/account'/change/index
+	const expectedDerivationPathDepth = 5
+	if len(path) != expectedDerivationPathDepth {
+		return nil, fmt.Errorf("invalid BIP32 derivation path, "+
+			"expected path length %d, instead was %d",
+			expectedDerivationPathDepth, len(path))
+	}
+
+	// Assert that the first three parts of the path are actually hardened
+	// to avoid under-flowing the uint32 type.
+	if err := assertHardened(path[0], path[1], path[2]); err != nil {
+		return nil, fmt.Errorf("invalid BIP32 derivation path, "+
+			"expected first three elements to be hardened: %w", err)
+	}
+
+	purpose := path[0] - hdkeychain.HardenedKeyStart
+	coinType := path[1] - hdkeychain.HardenedKeyStart
+	account := path[2] - hdkeychain.HardenedKeyStart
+	change, index := path[3], path[4]
+
+	// Is this a custom lnd internal purpose key?
+	switch purpose {
+	case keychain.BIP0043Purpose:
+		// Make sure it's for the same coin type as our wallet's
+		// keychain scope.
+		if coinType != b.chainKeyScope.Coin {
+			return nil, fmt.Errorf("invalid BIP32 derivation "+
+				"path, expected coin type %d, instead was %d",
+				b.chainKeyScope.Coin, coinType)
+		}
+
+		return b.deriveKeyByLocator(keychain.KeyLocator{
+			Family: keychain.KeyFamily(account),
+			Index:  index,
+		})
+
+	// Is it a standard, BIP defined purpose that the wallet understands?
+	case waddrmgr.KeyScopeBIP0044.Purpose,
+		waddrmgr.KeyScopeBIP0049Plus.Purpose,
+		waddrmgr.KeyScopeBIP0084.Purpose:
+
+		// We're going to continue below the switch statement to avoid
+		// unnecessary indentation for this default case.
+
+	// Currently, there is no way to import any other key scopes than the
+	// one custom purpose or three standard ones into lnd's wallet. So we
+	// shouldn't accept any other scopes to sign for.
+	default:
+		return nil, fmt.Errorf("invalid BIP32 derivation path, "+
+			"unknown purpose %d", purpose)
+	}
+
+	// Okay, we made sure it's a BIP49/84 key, so we need to derive it now.
+	// Interestingly, the btcwallet never actually uses a coin type other
+	// than 0 for those keys, so we need to make sure this behavior is
+	// replicated here.
+	if coinType != 0 {
+		return nil, fmt.Errorf("invalid BIP32 derivation path, coin " +
+			"type must be 0 for BIP49/84 btcwallet keys")
+	}
+
+	// We only expect to be asked to sign with key scopes that we know
+	// about. So if the scope doesn't exist, we don't create it.
+	scope := waddrmgr.KeyScope{
+		Purpose: purpose,
+		Coin:    coinType,
+	}
+	scopedMgr, err := b.wallet.Manager.FetchScopedKeyManager(scope)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching manager for scope %v: "+
+			"%w", scope, err)
+	}
+
+	// Let's see if we can hit the private key cache.
+	keyPath := waddrmgr.DerivationPath{
+		InternalAccount: account,
+		Account:         account,
+		Branch:          change,
+		Index:           index,
+	}
+	privKey, err := scopedMgr.DeriveFromKeyPathCache(keyPath)
+	if err == nil {
+		return privKey, nil
+	}
+
+	// The key wasn't in the cache, let's fully derive it now.
+	err = walletdb.View(b.db, func(tx walletdb.ReadTx) error {
+		addrmgrNs := tx.ReadBucket(waddrmgrNamespaceKey)
+
+		addr, err := scopedMgr.DeriveFromKeyPath(addrmgrNs, keyPath)
+		if err != nil {
+			return fmt.Errorf("error deriving private key: %w", err)
+		}
+
+		privKey, err = addr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error deriving key from path %#v: %w",
+			keyPath, err)
+	}
+
+	return privKey, nil
+}
+
+// assertHardened makes sure each given element is >= 2^31.
+func assertHardened(elements ...uint32) error {
+	for idx, element := range elements {
+		if element < hdkeychain.HardenedKeyStart {
+			return fmt.Errorf("element at index %d is not hardened",
+				idx)
+		}
+	}
+
+	return nil
 }
 
 // deriveKeyByLocator attempts to derive a key stored in the wallet given a

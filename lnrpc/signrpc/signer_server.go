@@ -238,7 +238,8 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 // provides an invalid transaction, then we'll return with an error.
 //
 // NOTE: The resulting signature should be void of a sighash byte.
-func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp, error) {
+func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp,
+	error) {
 
 	switch {
 	// If the client doesn't specify a transaction, then there's nothing to

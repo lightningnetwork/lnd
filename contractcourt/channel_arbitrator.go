@@ -1523,7 +1523,7 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 		)
 
 		if toChain {
-			log.Debugf("ChannelArbitrator(%v): go to chain for "+
+			log.Infof("ChannelArbitrator(%v): go to chain for "+
 				"outgoing htlc %x: timeout=%v, "+
 				"blocks_until_expiry=%v, broadcast_delta=%v",
 				c.cfg.ChanPoint, htlc.RHash[:],
@@ -1554,7 +1554,7 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 		)
 
 		if toChain {
-			log.Debugf("ChannelArbitrator(%v): go to chain for "+
+			log.Infof("ChannelArbitrator(%v): go to chain for "+
 				"incoming htlc %x: timeout=%v, "+
 				"blocks_until_expiry=%v, broadcast_delta=%v",
 				c.cfg.ChanPoint, htlc.RHash[:],
@@ -1815,7 +1815,7 @@ func (c *ChannelArbitrator) checkRemoteChainActions(
 		return nil, err
 	}
 
-	// With this actions computed, we'll now check the diff of the HTLCs on
+	// With these actions computed, we'll now check the diff of the HTLCs on
 	// the commitments, and cancel back any that are on the pending but not
 	// the non-pending.
 	remoteDiffActions := c.checkRemoteDiffActions(
@@ -1863,7 +1863,7 @@ func (c *ChannelArbitrator) checkRemoteDiffActions(height uint32,
 			actionMap[HtlcFailNowAction], htlc,
 		)
 
-		log.Tracef("ChannelArbitrator(%v): immediately failing "+
+		log.Infof("ChannelArbitrator(%v): immediately failing "+
 			"htlc=%x from remote commitment",
 			c.cfg.ChanPoint, htlc.RHash[:])
 	}
@@ -1886,7 +1886,7 @@ func (c *ChannelArbitrator) constructChainActions(confCommitSet *CommitSet,
 		return c.log.FetchChainActions()
 	}
 
-	// Otherwise we have the full commitment set written to disk, and can
+	// Otherwise, we have the full commitment set written to disk, and can
 	// proceed as normal.
 	htlcSets := confCommitSet.toActiveHTLCSets()
 	switch *confCommitSet.ConfCommitKey {
@@ -1917,7 +1917,7 @@ func (c *ChannelArbitrator) constructChainActions(confCommitSet *CommitSet,
 	return nil, fmt.Errorf("unable to locate chain actions")
 }
 
-// prepContractResolutions is called either int he case that we decide we need
+// prepContractResolutions is called either in the case that we decide we need
 // to go to chain, or the remote party goes to chain. Given a set of actions we
 // need to take for each HTLC, this method will return a set of contract
 // resolvers that will resolve the contracts on-chain if needed, and also a set

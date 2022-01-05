@@ -31,12 +31,6 @@ import (
 	"gopkg.in/macaroon.v2"
 )
 
-const (
-	// DefaultRPCTimeout is the default timeout that is used when forwarding
-	// a request to the remote signer through RPC.
-	DefaultRPCTimeout = 5 * time.Second
-)
-
 var (
 	// ErrRemoteSigningPrivateKeyNotAvailable is the error that is returned
 	// if an operation is requested from the RPC wallet that is not
@@ -74,12 +68,11 @@ var _ lnwallet.WalletController = (*RPCKeyRing)(nil)
 // delegates any signing or ECDH operations to the remove signer through RPC.
 func NewRPCKeyRing(watchOnlyKeyRing keychain.SecretKeyRing,
 	watchOnlyWalletController lnwallet.WalletController,
-	remoteSigner *lncfg.RemoteSigner, coinType uint32,
-	rpcTimeout time.Duration) (*RPCKeyRing, error) {
+	remoteSigner *lncfg.RemoteSigner, coinType uint32) (*RPCKeyRing, error) {
 
 	rpcConn, err := connectRPC(
 		remoteSigner.RPCHost, remoteSigner.TLSCertPath,
-		remoteSigner.MacaroonPath,
+		remoteSigner.MacaroonPath, remoteSigner.Timeout,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to the remote "+
@@ -90,7 +83,7 @@ func NewRPCKeyRing(watchOnlyKeyRing keychain.SecretKeyRing,
 		WalletController: watchOnlyWalletController,
 		watchOnlyKeyRing: watchOnlyKeyRing,
 		coinType:         coinType,
-		rpcTimeout:       rpcTimeout,
+		rpcTimeout:       remoteSigner.Timeout,
 		signerClient:     signrpc.NewSignerClient(rpcConn),
 		walletClient:     walletrpc.NewWalletKitClient(rpcConn),
 	}, nil
@@ -708,8 +701,8 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 
 // connectRPC tries to establish an RPC connection to the given host:port with
 // the supplied certificate and macaroon.
-func connectRPC(hostPort, tlsCertPath, macaroonPath string) (*grpc.ClientConn,
-	error) {
+func connectRPC(hostPort, tlsCertPath, macaroonPath string,
+	timeout time.Duration) (*grpc.ClientConn, error) {
 
 	certBytes, err := ioutil.ReadFile(tlsCertPath)
 	if err != nil {
@@ -743,8 +736,11 @@ func connectRPC(hostPort, tlsCertPath, macaroonPath string) (*grpc.ClientConn,
 			cp, "",
 		)),
 		grpc.WithPerRPCCredentials(macCred),
+		grpc.WithBlock(),
 	}
-	conn, err := grpc.Dial(hostPort, opts...)
+	ctxt, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	conn, err := grpc.DialContext(ctxt, hostPort, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to RPC server: %v",
 			err)

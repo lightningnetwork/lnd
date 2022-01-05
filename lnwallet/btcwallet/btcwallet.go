@@ -323,17 +323,13 @@ func (b *BtcWallet) Start() error {
 	err = walletdb.Update(b.db, func(tx walletdb.ReadWriteTx) error {
 		addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
 
-		for _, keyFam := range keychain.VersionZeroKeyFamilies {
-			// If this is the multi-sig key family, then we can
-			// return early as this is the default account that's
-			// created.
-			if keyFam == keychain.KeyFamilyMultiSig {
-				continue
-			}
-
+		// Generate all accounts that we could ever need. This includes
+		// all lnd key families as well as some key families used in
+		// external liquidity tools.
+		for keyFam := uint32(1); keyFam <= 255; keyFam++ {
 			// Otherwise, we'll check if the account already exists,
 			// if so, we can once again bail early.
-			_, err := scope.AccountName(addrmgrNs, uint32(keyFam))
+			_, err := scope.AccountName(addrmgrNs, keyFam)
 			if err == nil {
 				continue
 			}
@@ -341,7 +337,7 @@ func (b *BtcWallet) Start() error {
 			// If we reach this point, then the account hasn't yet
 			// been created, so we'll need to create it before we
 			// can proceed.
-			err = scope.NewRawAccount(addrmgrNs, uint32(keyFam))
+			err = scope.NewRawAccount(addrmgrNs, keyFam)
 			if err != nil {
 				return err
 			}

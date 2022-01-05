@@ -148,6 +148,16 @@ const (
 	defaultTCBackoff  = time.Minute
 	defaultTCAttempts = 0
 
+	// Set defaults for a health check which ensures that the remote signer
+	// RPC connection is alive. Although this check is off by default (only
+	// active when remote signing is turned on), we still set the other
+	// default values so that the health check can be easily enabled with
+	// sane defaults.
+	defaultRSInterval = time.Minute
+	defaultRSTimeout  = time.Second * 1
+	defaultRSBackoff  = time.Second * 30
+	defaultRSAttempts = 1
+
 	// defaultRemoteMaxHtlcs specifies the default limit for maximum
 	// concurrent HTLCs the remote party may add to commitment transactions.
 	// This value can be overridden with --default-remote-max-htlcs.
@@ -557,6 +567,12 @@ func DefaultConfig() Config {
 				Timeout:  defaultTCTimeout,
 				Attempts: defaultTCAttempts,
 				Backoff:  defaultTCBackoff,
+			},
+			RemoteSigner: &lncfg.CheckConfig{
+				Interval: defaultRSInterval,
+				Timeout:  defaultRSTimeout,
+				Attempts: defaultRSAttempts,
+				Backoff:  defaultRSBackoff,
 			},
 		},
 		Gossip: &lncfg.Gossip{

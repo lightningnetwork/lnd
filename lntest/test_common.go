@@ -1,10 +1,16 @@
 package lntest
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"sync/atomic"
+
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
 const (
@@ -113,4 +119,69 @@ func GetBtcdBinary() string {
 func GenerateBtcdListenerAddresses() (string, string) {
 	return fmt.Sprintf(listenerFormat, NextAvailablePort()),
 		fmt.Sprintf(listenerFormat, NextAvailablePort())
+}
+
+// MakeOutpoint returns the outpoint of the channel's funding transaction.
+func MakeOutpoint(chanPoint *lnrpc.ChannelPoint) (wire.OutPoint, error) {
+	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+	if err != nil {
+		return wire.OutPoint{}, err
+	}
+
+	return wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: chanPoint.OutputIndex,
+	}, nil
+}
+
+// CheckChannelPolicy checks that the policy matches the expected one.
+func CheckChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
+	if policy.FeeBaseMsat != expectedPolicy.FeeBaseMsat {
+		return fmt.Errorf("expected base fee %v, got %v",
+			expectedPolicy.FeeBaseMsat, policy.FeeBaseMsat)
+	}
+	if policy.FeeRateMilliMsat != expectedPolicy.FeeRateMilliMsat {
+		return fmt.Errorf("expected fee rate %v, got %v",
+			expectedPolicy.FeeRateMilliMsat,
+			policy.FeeRateMilliMsat)
+	}
+	if policy.TimeLockDelta != expectedPolicy.TimeLockDelta {
+		return fmt.Errorf("expected time lock delta %v, got %v",
+			expectedPolicy.TimeLockDelta,
+			policy.TimeLockDelta)
+	}
+	if policy.MinHtlc != expectedPolicy.MinHtlc {
+		return fmt.Errorf("expected min htlc %v, got %v",
+			expectedPolicy.MinHtlc, policy.MinHtlc)
+	}
+	if policy.MaxHtlcMsat != expectedPolicy.MaxHtlcMsat {
+		return fmt.Errorf("expected max htlc %v, got %v",
+			expectedPolicy.MaxHtlcMsat, policy.MaxHtlcMsat)
+	}
+	if policy.Disabled != expectedPolicy.Disabled {
+		return errors.New("edge should be disabled but isn't")
+	}
+
+	return nil
+}
+
+// CopyFile copies the file src to dest.
+func CopyFile(dest, src string) error {
+	s, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	d, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(d, s); err != nil {
+		d.Close()
+		return err
+	}
+
+	return d.Close()
 }

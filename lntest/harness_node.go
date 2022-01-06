@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -19,9 +18,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/integration/rpctest"
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -190,28 +186,32 @@ func (cfg NodeConfig) genArgs() []string {
 
 	backendArgs := cfg.BackendCfg.GenArgs()
 	args = append(args, backendArgs...)
-	args = append(args, "--bitcoin.active")
-	args = append(args, "--nobootstrap")
-	args = append(args, "--debuglevel=debug")
-	args = append(args, "--bitcoin.defaultchanconfs=1")
-	args = append(args, fmt.Sprintf("--db.batch-commit-interval=%v", commitInterval))
-	args = append(args, fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV))
-	args = append(args, fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()))
-	args = append(args, fmt.Sprintf("--restlisten=%v", cfg.RESTAddr()))
-	args = append(args, fmt.Sprintf("--restcors=https://%v", cfg.RESTAddr()))
-	args = append(args, fmt.Sprintf("--listen=%v", cfg.P2PAddr()))
-	args = append(args, fmt.Sprintf("--externalip=%v", cfg.P2PAddr()))
-	args = append(args, fmt.Sprintf("--logdir=%v", cfg.LogDir))
-	args = append(args, fmt.Sprintf("--datadir=%v", cfg.DataDir))
-	args = append(args, fmt.Sprintf("--tlscertpath=%v", cfg.TLSCertPath))
-	args = append(args, fmt.Sprintf("--tlskeypath=%v", cfg.TLSKeyPath))
-	args = append(args, fmt.Sprintf("--configfile=%v", cfg.DataDir))
-	args = append(args, fmt.Sprintf("--adminmacaroonpath=%v", cfg.AdminMacPath))
-	args = append(args, fmt.Sprintf("--readonlymacaroonpath=%v", cfg.ReadMacPath))
-	args = append(args, fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath))
-	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
-	args = append(args, fmt.Sprintf("--profile=%d", cfg.ProfilePort))
-	args = append(args, fmt.Sprintf("--caches.rpc-graph-cache-duration=0"))
+
+	nodeArgs := []string{
+		"--bitcoin.active",
+		"--nobootstrap",
+		"--debuglevel=debug",
+		"--bitcoin.defaultchanconfs=1",
+		fmt.Sprintf("--db.batch-commit-interval=%v", commitInterval),
+		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV),
+		fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()),
+		fmt.Sprintf("--restlisten=%v", cfg.RESTAddr()),
+		fmt.Sprintf("--restcors=https://%v", cfg.RESTAddr()),
+		fmt.Sprintf("--listen=%v", cfg.P2PAddr()),
+		fmt.Sprintf("--externalip=%v", cfg.P2PAddr()),
+		fmt.Sprintf("--logdir=%v", cfg.LogDir),
+		fmt.Sprintf("--datadir=%v", cfg.DataDir),
+		fmt.Sprintf("--tlscertpath=%v", cfg.TLSCertPath),
+		fmt.Sprintf("--tlskeypath=%v", cfg.TLSKeyPath),
+		fmt.Sprintf("--configfile=%v", cfg.DataDir),
+		fmt.Sprintf("--adminmacaroonpath=%v", cfg.AdminMacPath),
+		fmt.Sprintf("--readonlymacaroonpath=%v", cfg.ReadMacPath),
+		fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath),
+		fmt.Sprintf("--trickledelay=%v", trickleDelay),
+		fmt.Sprintf("--profile=%d", cfg.ProfilePort),
+		fmt.Sprintf("--caches.rpc-graph-cache-duration=0"),
+	}
+	args = append(args, nodeArgs...)
 
 	if !cfg.HasSeed {
 		args = append(args, "--noseedbackup")
@@ -294,9 +294,8 @@ type HarnessNode struct {
 	PubKey    [33]byte
 	PubKeyStr string
 
-	cmd     *exec.Cmd
-	pidFile string
-	logFile *os.File
+	// rpc holds a list of RPC clients.
+	rpc *RPCClients
 
 	// chanWatchRequests receives a request for watching a particular event
 	// for a given channel.
@@ -316,47 +315,66 @@ type HarnessNode struct {
 	// node and the outpoint.
 	policyUpdates policyUpdateMap
 
-	// runCtx is a context with cancel method. It's used to signal when the
-	// node needs to quit, and used as the parent context when spawning
-	// children contexts for RPC requests.
-	runCtx context.Context
-	cancel context.CancelFunc
-
-	wg sync.WaitGroup
-
-	lnrpc.LightningClient
-
-	lnrpc.WalletUnlockerClient
-
-	invoicesrpc.InvoicesClient
-
-	// SignerClient cannot be embedded because the name collisions of the
-	// methods SignMessage and VerifyMessage.
-	SignerClient signrpc.SignerClient
-
-	// conn is the underlying connection to the grpc endpoint of the node.
-	conn *grpc.ClientConn
-
-	// RouterClient, WalletKitClient, WatchtowerClient cannot be embedded,
-	// because a name collision would occur with LightningClient.
-	RouterClient     routerrpc.RouterClient
-	WalletKitClient  walletrpc.WalletKitClient
-	Watchtower       watchtowerrpc.WatchtowerClient
-	WatchtowerClient wtclientrpc.WatchtowerClientClient
-	StateClient      lnrpc.StateClient
-
 	// backupDbDir is the path where a database backup is stored, if any.
 	backupDbDir string
 
 	// postgresDbName is the name of the postgres database where lnd data is
 	// stored in.
 	postgresDbName string
+
+	// runCtx is a context with cancel method. It's used to signal when the
+	// node needs to quit, and used as the parent context when spawning
+	// children contexts for RPC requests.
+	runCtx context.Context
+	cancel context.CancelFunc
+
+	wg      sync.WaitGroup
+	cmd     *exec.Cmd
+	logFile *os.File
+
+	// TODO(yy): remove
+	lnrpc.LightningClient
+	lnrpc.WalletUnlockerClient
+	invoicesrpc.InvoicesClient
+	SignerClient     signrpc.SignerClient
+	RouterClient     routerrpc.RouterClient
+	WalletKitClient  walletrpc.WalletKitClient
+	Watchtower       watchtowerrpc.WatchtowerClient
+	WatchtowerClient wtclientrpc.WatchtowerClientClient
+	StateClient      lnrpc.StateClient
+}
+
+// RPCClients wraps a list of RPC clients into a single struct for easier
+// access.
+type RPCClients struct {
+	// conn is the underlying connection to the grpc endpoint of the node.
+	conn *grpc.ClientConn
+
+	LN               lnrpc.LightningClient
+	WalletUnlocker   lnrpc.WalletUnlockerClient
+	Invoice          invoicesrpc.InvoicesClient
+	Signer           signrpc.SignerClient
+	Router           routerrpc.RouterClient
+	WalletKit        walletrpc.WalletKitClient
+	Watchtower       watchtowerrpc.WatchtowerClient
+	WatchtowerClient wtclientrpc.WatchtowerClientClient
+	State            lnrpc.StateClient
 }
 
 // Assert *HarnessNode implements the lnrpc.LightningClient interface.
 var _ lnrpc.LightningClient = (*HarnessNode)(nil)
 var _ lnrpc.WalletUnlockerClient = (*HarnessNode)(nil)
 var _ invoicesrpc.InvoicesClient = (*HarnessNode)(nil)
+
+// nextNodeID generates a unique sequence to be used as the node's ID.
+func nextNodeID() int {
+	numActiveNodesMtx.Lock()
+	defer numActiveNodesMtx.Unlock()
+	nodeNum := numActiveNodes
+	numActiveNodes++
+
+	return nodeNum
+}
 
 // newNode creates a new test lightning node instance from the passed config.
 func newNode(cfg NodeConfig) (*HarnessNode, error) {
@@ -397,14 +415,9 @@ func newNode(cfg NodeConfig) (*HarnessNode, error) {
 		cfg.PostgresDsn = postgresDatabaseDsn(dbName)
 	}
 
-	numActiveNodesMtx.Lock()
-	nodeNum := numActiveNodes
-	numActiveNodes++
-	numActiveNodesMtx.Unlock()
-
 	return &HarnessNode{
 		Cfg:               &cfg,
-		NodeID:            nodeNum,
+		NodeID:            nextNodeID(),
 		chanWatchRequests: make(chan *chanWatchRequest),
 		openChans:         make(map[wire.OutPoint]int),
 		openChanWatchers:  make(map[wire.OutPoint][]chan struct{}),
@@ -448,74 +461,6 @@ func executePgQuery(query string) error {
 
 	_, err = pool.Exec(context.Background(), query)
 	return err
-}
-
-// NewMiner creates a new miner using btcd backend. The baseLogDir specifies
-// the miner node's log dir. When tests are finished, during clean up, its log
-// files, including any compressed log files from logrotate, are copied to
-// logDir as logFilename.
-func NewMiner(baseLogDir, logFilename string, netParams *chaincfg.Params,
-	handler *rpcclient.NotificationHandlers,
-	btcdBinary string) (*rpctest.Harness, func() error, error) {
-
-	args := []string{
-		"--rejectnonstd",
-		"--txindex",
-		"--nowinservice",
-		"--nobanning",
-		"--debuglevel=debug",
-		"--logdir=" + baseLogDir,
-		"--trickleinterval=100ms",
-		// Don't disconnect if a reply takes too long.
-		"--nostalldetect",
-	}
-
-	miner, err := rpctest.New(netParams, handler, args, btcdBinary)
-	if err != nil {
-		return nil, nil, fmt.Errorf(
-			"unable to create mining node: %v", err,
-		)
-	}
-
-	cleanUp := func() error {
-		if err := miner.TearDown(); err != nil {
-			return fmt.Errorf(
-				"failed to tear down miner, got error: %s", err,
-			)
-		}
-
-		// After shutting down the miner, we'll make a copy of
-		// the log files before deleting the temporary log dir.
-		logDir := fmt.Sprintf("%s/%s", baseLogDir, netParams.Name)
-		files, err := ioutil.ReadDir(logDir)
-		if err != nil {
-			return fmt.Errorf("unable to read log directory: %v", err)
-		}
-
-		for _, file := range files {
-			logFile := fmt.Sprintf(
-				"%s/%s", logDir, file.Name(),
-			)
-			newFilename := strings.Replace(file.Name(), "btcd.log", logFilename, 1)
-			copyPath := fmt.Sprintf(
-				"%s/../%s", baseLogDir, newFilename,
-			)
-
-			err := CopyFile(filepath.Clean(copyPath), logFile)
-			if err != nil {
-				return fmt.Errorf("unable to copy file: %v", err)
-			}
-		}
-
-		if err = os.RemoveAll(baseLogDir); err != nil {
-			return fmt.Errorf(
-				"cannot remove dir %s: %v", baseLogDir, err,
-			)
-		}
-		return nil
-	}
-
-	return miner, cleanUp, nil
 }
 
 // String gives the internal state of the node which is useful for debugging.
@@ -621,29 +566,9 @@ func (hn *HarnessNode) InvoiceMacPath() string {
 	return hn.Cfg.InvoiceMacPath
 }
 
-// renameFile is a helper to rename (log) files created during integration tests.
-func renameFile(fromFileName, toFileName string) {
-	err := os.Rename(fromFileName, toFileName)
-	if err != nil {
-		fmt.Printf("could not rename %s to %s: %v\n",
-			fromFileName, toFileName, err)
-	}
-}
-
-// Start launches a new process running lnd. Additionally, the PID of the
-// launched process is saved in order to possibly kill the process forcibly
-// later.
-//
-// This may not clean up properly if an error is returned, so the caller should
-// call shutdown() regardless of the return value.
-func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
-	wait bool) error {
-
-	// Init the runCtx.
-	ctxt, cancel := context.WithCancel(context.Background())
-	hn.runCtx = ctxt
-	hn.cancel = cancel
-
+// startLnd handles the startup of lnd, creating log files, and possibly kills
+// the process when needed.
+func (hn *HarnessNode) startLnd(lndBinary string, lndError chan<- error) error {
 	args := hn.Cfg.genArgs()
 	hn.cmd = exec.Command(lndBinary, args...)
 
@@ -651,87 +576,17 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 	var errb bytes.Buffer
 	hn.cmd.Stderr = &errb
 
-	// Make sure the log file cleanup function is initialized, even
-	// if no log file is created.
-	var finalizeLogfile = func() {
-		if hn.logFile != nil {
-			hn.logFile.Close()
-		}
-	}
-
-	getFinalizedLogFilePrefix := func() string {
-		pubKeyHex := hex.EncodeToString(
-			hn.PubKey[:logPubKeyBytes],
-		)
-
-		return fmt.Sprintf("%s/%d-%s-%s-%s",
-			GetLogDir(), hn.NodeID,
-			hn.Cfg.LogFilenamePrefix,
-			hn.Cfg.Name, pubKeyHex)
-	}
-
-	finalizeEtcdLog := func() {
-		if hn.Cfg.DbBackend != BackendEtcd {
-			return
-		}
-
-		etcdLogFileName := fmt.Sprintf("%s/etcd.log", hn.Cfg.LogDir)
-		newEtcdLogFileName := fmt.Sprintf("%v-etcd.log",
-			getFinalizedLogFilePrefix(),
-		)
-
-		renameFile(etcdLogFileName, newEtcdLogFileName)
-	}
-
 	// If the logoutput flag is passed, redirect output from the nodes to
 	// log files.
+	var (
+		fileName string
+		err      error
+	)
 	if *logOutput {
-		dir := GetLogDir()
-		fileName := fmt.Sprintf("%s/%d-%s-%s-%s.log", dir, hn.NodeID,
-			hn.Cfg.LogFilenamePrefix, hn.Cfg.Name,
-			hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
-
-		// If the node's PubKey is not yet initialized, create a
-		// temporary file name. Later, after the PubKey has been
-		// initialized, the file can be moved to its final name with
-		// the PubKey included.
-		if bytes.Equal(hn.PubKey[:4], []byte{0, 0, 0, 0}) {
-			fileName = fmt.Sprintf("%s/%d-%s-%s-tmp__.log", dir,
-				hn.NodeID, hn.Cfg.LogFilenamePrefix,
-				hn.Cfg.Name)
-		}
-
-		// Once the node has done its work, the log file can be
-		// renamed.
-		finalizeLogfile = func() {
-			if hn.logFile != nil {
-				hn.logFile.Close()
-
-				newFileName := fmt.Sprintf("%v.log",
-					getFinalizedLogFilePrefix(),
-				)
-
-				renameFile(fileName, newFileName)
-			}
-		}
-
-		// Create file if not exists, otherwise append.
-		file, err := os.OpenFile(fileName,
-			os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+		fileName, err = addLogFile(hn)
 		if err != nil {
 			return err
 		}
-
-		// Pass node's stderr to both errb and the file.
-		w := io.MultiWriter(&errb, file)
-		hn.cmd.Stderr = w
-
-		// Pass the node's stdout only to the file.
-		hn.cmd.Stdout = file
-
-		// Let the node keep a reference to this file, such
-		// that we can add to it if necessary.
-		hn.logFile = file
 	}
 
 	if err := hn.cmd.Start(); err != nil {
@@ -750,21 +605,32 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 		}
 
 		// Make sure log file is closed and renamed if necessary.
-		finalizeLogfile()
+		finalizeLogfile(hn, fileName)
 
 		// Rename the etcd.log file if the node was running on embedded
 		// etcd.
-		finalizeEtcdLog()
+		finalizeEtcdLog(hn)
 	}()
 
-	// Write process ID to a file.
-	if err := hn.writePidFile(); err != nil {
-		err = fmt.Errorf("writePidFile err: %w", err)
-		cmdErr := hn.cmd.Process.Kill()
-		if cmdErr != nil {
-			err = fmt.Errorf("kill process got err: %w: %v",
-				cmdErr, err)
-		}
+	return nil
+}
+
+// Start launches a new process running lnd. Additionally, the PID of the
+// launched process is saved in order to possibly kill the process forcibly
+// later.
+//
+// This may not clean up properly if an error is returned, so the caller should
+// call shutdown() regardless of the return value.
+func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
+	wait bool) error {
+
+	// Init the runCtx.
+	ctxt, cancel := context.WithCancel(context.Background())
+	hn.runCtx = ctxt
+	hn.cancel = cancel
+
+	// Start lnd and prepare logs.
+	if err := hn.startLnd(lndBinary, lndError); err != nil {
 		return err
 	}
 
@@ -788,7 +654,10 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 		return err
 	}
 
-	if err := hn.WaitUntilStarted(conn, DefaultTimeout); err != nil {
+	// Init all the RPC clients.
+	hn.InitRPCClients(conn)
+
+	if err := hn.WaitUntilStarted(); err != nil {
 		return err
 	}
 
@@ -797,98 +666,60 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 	// only use the TLS certs, and can only perform operations necessary to
 	// unlock the daemon.
 	if hn.Cfg.HasSeed {
+		// TODO(yy): remove
 		hn.WalletUnlockerClient = lnrpc.NewWalletUnlockerClient(conn)
 		return nil
 	}
 
-	return hn.initLightningClient(conn)
+	return hn.initLightningClient()
 }
 
 // WaitUntilStarted waits until the wallet state flips from "WAITING_TO_START".
-func (hn *HarnessNode) WaitUntilStarted(conn grpc.ClientConnInterface,
-	timeout time.Duration) error {
-
-	return hn.waitForState(conn, timeout, func(s lnrpc.WalletState) bool {
+func (hn *HarnessNode) WaitUntilStarted() error {
+	return hn.waitTillServerState(func(s lnrpc.WalletState) bool {
 		return s != lnrpc.WalletState_WAITING_TO_START
 	})
 }
 
 // WaitUntilStateReached waits until the given wallet state (or one of the
 // states following it) has been reached.
-func (hn *HarnessNode) WaitUntilStateReached(conn grpc.ClientConnInterface,
-	timeout time.Duration, desiredState lnrpc.WalletState) error {
+func (hn *HarnessNode) WaitUntilStateReached(
+	desiredState lnrpc.WalletState) error {
 
-	return hn.waitForState(conn, timeout, func(s lnrpc.WalletState) bool {
+	return hn.waitTillServerState(func(s lnrpc.WalletState) bool {
 		return s >= desiredState
 	})
 }
 
-// waitForState waits until the current node state fulfills the given
-// predicate.
-func (hn *HarnessNode) waitForState(conn grpc.ClientConnInterface,
-	timeout time.Duration,
-	predicate func(state lnrpc.WalletState) bool) error {
-
-	stateClient := lnrpc.NewStateClient(conn)
-	ctx, cancel := context.WithCancel(hn.runCtx)
-	defer cancel()
-
-	stateStream, err := stateClient.SubscribeState(
-		ctx, &lnrpc.SubscribeStateRequest{},
-	)
-	if err != nil {
-		return err
-	}
-
-	errChan := make(chan error, 1)
-	started := make(chan struct{})
-	go func() {
-		for {
-			resp, err := stateStream.Recv()
-			if err != nil {
-				errChan <- err
-				return
-			}
-
-			if predicate(resp.State) {
-				close(started)
-				return
-			}
-		}
-	}()
-
-	select {
-
-	case <-started:
-	case err = <-errChan:
-
-	case <-time.After(timeout):
-		return fmt.Errorf("WaitUntilLeader timed out")
-	}
-
-	return err
+// WaitUntilServerActive waits until the lnd daemon is fully started.
+func (hn *HarnessNode) WaitUntilServerActive() error {
+	return hn.waitTillServerState(func(s lnrpc.WalletState) bool {
+		return s == lnrpc.WalletState_SERVER_ACTIVE
+	})
 }
 
 // WaitUntilLeader attempts to finish the start procedure by initiating an RPC
 // connection and setting up the wallet unlocker client. This is needed when
 // a node that has recently been started was waiting to become the leader and
-// we're at the point when we expect that it is the leader now (awaiting unlock).
+// we're at the point when we expect that it is the leader now (awaiting
+// unlock).
 func (hn *HarnessNode) WaitUntilLeader(timeout time.Duration) error {
 	var (
 		conn    *grpc.ClientConn
 		connErr error
 	)
 
-	startTs := time.Now()
 	if err := wait.NoError(func() error {
 		conn, connErr = hn.ConnectRPC(!hn.Cfg.HasSeed)
 		return connErr
 	}, timeout); err != nil {
 		return err
 	}
-	timeout -= time.Since(startTs)
 
-	if err := hn.WaitUntilStarted(conn, timeout); err != nil {
+	// Init all the RPC clients.
+	hn.InitRPCClients(conn)
+
+	if err := hn.WaitUntilStarted(); err != nil {
 		return err
 	}
 
@@ -897,29 +728,53 @@ func (hn *HarnessNode) WaitUntilLeader(timeout time.Duration) error {
 	// only use the TLS certs, and can only perform operations necessary to
 	// unlock the daemon.
 	if hn.Cfg.HasSeed {
+		// TODO(yy): remove
 		hn.WalletUnlockerClient = lnrpc.NewWalletUnlockerClient(conn)
+
 		return nil
 	}
 
-	return hn.initLightningClient(conn)
+	return hn.initLightningClient()
 }
 
 // initClientWhenReady waits until the main gRPC server is detected as active,
-// then complete the normal HarnessNode gRPC connection creation. This can be
-// used it a node has just been unlocked, or has its wallet state initialized.
-func (hn *HarnessNode) initClientWhenReady(timeout time.Duration) error {
+// then complete the normal HarnessNode gRPC connection creation. If the node
+// is initialized stateless, the macaroon is returned so that the client can
+// use it.
+func (hn *HarnessNode) initClientWhenReady(stateless bool,
+	macBytes []byte) error {
+
+	// Wait for the wallet to finish unlocking, such that we can connect to
+	// it via a macaroon-authenticated rpc connection.
 	var (
-		conn    *grpc.ClientConn
-		connErr error
+		conn *grpc.ClientConn
+		err  error
 	)
-	if err := wait.NoError(func() error {
-		conn, connErr = hn.ConnectRPC(true)
-		return connErr
-	}, timeout); err != nil {
+	if err = wait.NoError(func() error {
+		// If the node has been initialized stateless, we need to pass
+		// the macaroon to the client.
+		if stateless {
+			adminMac := &macaroon.Macaroon{}
+			err := adminMac.UnmarshalBinary(macBytes)
+			if err != nil {
+				return fmt.Errorf("unmarshal failed: %w", err)
+			}
+			conn, err = hn.ConnectRPCWithMacaroon(adminMac)
+			return err
+		}
+
+		// Normal initialization, we expect a macaroon to be in the
+		// file system.
+		conn, err = hn.ConnectRPC(true)
 		return err
+	}, DefaultTimeout); err != nil {
+		return fmt.Errorf("timeout while init client: %w", err)
 	}
 
-	return hn.initLightningClient(conn)
+	// Init all the RPC clients.
+	hn.InitRPCClients(conn)
+
+	return hn.initLightningClient()
 }
 
 // Init initializes a harness node by passing the init request via rpc. After
@@ -932,36 +787,20 @@ func (hn *HarnessNode) Init(
 
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
-	response, err := hn.InitWallet(ctxt, initReq)
+
+	response, err := hn.rpc.WalletUnlocker.InitWallet(ctxt, initReq)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to init wallet: %w", err)
 	}
 
-	// Wait for the wallet to finish unlocking, such that we can connect to
-	// it via a macaroon-authenticated rpc connection.
-	var conn *grpc.ClientConn
-	if err = wait.Predicate(func() bool {
-		// If the node has been initialized stateless, we need to pass
-		// the macaroon to the client.
-		if initReq.StatelessInit {
-			adminMac := &macaroon.Macaroon{}
-			err := adminMac.UnmarshalBinary(response.AdminMacaroon)
-			if err != nil {
-				return false
-			}
-			conn, err = hn.ConnectRPCWithMacaroon(adminMac)
-			return err == nil
-		}
-
-		// Normal initialization, we expect a macaroon to be in the
-		// file system.
-		conn, err = hn.ConnectRPC(true)
-		return err == nil
-	}, DefaultTimeout); err != nil {
-		return nil, err
+	err = hn.initClientWhenReady(
+		initReq.StatelessInit, response.AdminMacaroon,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("faied to init: %w", err)
 	}
 
-	return response, hn.initLightningClient(conn)
+	return response, nil
 }
 
 // InitChangePassword initializes a harness node by passing the change password
@@ -975,36 +814,19 @@ func (hn *HarnessNode) InitChangePassword(
 
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
-	response, err := hn.ChangePassword(ctxt, chngPwReq)
+
+	response, err := hn.rpc.WalletUnlocker.ChangePassword(ctxt, chngPwReq)
+	if err != nil {
+		return nil, err
+	}
+	err = hn.initClientWhenReady(
+		chngPwReq.StatelessInit, response.AdminMacaroon,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Wait for the wallet to finish unlocking, such that we can connect to
-	// it via a macaroon-authenticated rpc connection.
-	var conn *grpc.ClientConn
-	if err = wait.Predicate(func() bool {
-		// If the node has been initialized stateless, we need to pass
-		// the macaroon to the client.
-		if chngPwReq.StatelessInit {
-			adminMac := &macaroon.Macaroon{}
-			err := adminMac.UnmarshalBinary(response.AdminMacaroon)
-			if err != nil {
-				return false
-			}
-			conn, err = hn.ConnectRPCWithMacaroon(adminMac)
-			return err == nil
-		}
-
-		// Normal initialization, we expect a macaroon to be in the
-		// file system.
-		conn, err = hn.ConnectRPC(true)
-		return err == nil
-	}, DefaultTimeout); err != nil {
-		return nil, err
-	}
-
-	return response, hn.initLightningClient(conn)
+	return response, nil
 }
 
 // Unlock attempts to unlock the wallet of the target HarnessNode. This method
@@ -1017,50 +839,89 @@ func (hn *HarnessNode) Unlock(unlockReq *lnrpc.UnlockWalletRequest) error {
 
 	// Otherwise, we'll need to unlock the node before it's able to start
 	// up properly.
-	if _, err := hn.UnlockWallet(ctxt, unlockReq); err != nil {
+	_, err := hn.rpc.WalletUnlocker.UnlockWallet(ctxt, unlockReq)
+	if err != nil {
 		return err
 	}
 
 	// Now that the wallet has been unlocked, we'll wait for the RPC client
 	// to be ready, then establish the normal gRPC connection.
-	return hn.initClientWhenReady(DefaultTimeout)
+	return hn.initClientWhenReady(false, nil)
 }
 
-// waitTillServerStarted makes a subscription to the server's state change and
-// blocks until the server is in state ServerActive.
-func (hn *HarnessNode) waitTillServerStarted() error {
+// waitTillServerState makes a subscription to the server's state change and
+// blocks until the server is in the targeted state.
+func (hn *HarnessNode) waitTillServerState(
+	predicate func(state lnrpc.WalletState) bool) error {
+
 	ctxt, cancel := context.WithTimeout(hn.runCtx, NodeStartTimeout)
 	defer cancel()
 
-	client, err := hn.StateClient.SubscribeState(
+	client, err := hn.rpc.State.SubscribeState(
 		ctxt, &lnrpc.SubscribeStateRequest{},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to state: %w", err)
 	}
 
-	for {
-		resp, err := client.Recv()
-		if err != nil {
-			return fmt.Errorf("failed to receive state "+
-				"client stream: %w", err)
-		}
+	errChan := make(chan error, 1)
+	done := make(chan struct{})
+	go func() {
+		for {
+			resp, err := client.Recv()
+			if err != nil {
+				errChan <- err
+				return
+			}
 
-		if resp.State == lnrpc.WalletState_SERVER_ACTIVE {
+			if predicate(resp.State) {
+				close(done)
+				return
+			}
+		}
+	}()
+
+	var lastErr error
+	for {
+		select {
+		case err := <-errChan:
+			lastErr = err
+
+		case <-done:
 			return nil
+
+		case <-time.After(NodeStartTimeout):
+			return fmt.Errorf("timeout waiting for state, "+
+				"got err from stream: %v", lastErr)
 		}
 	}
-
 }
 
-// initLightningClient constructs the grpc LightningClient from the given client
-// connection and subscribes the harness node to graph topology updates.
-// This method also spawns a lightning network watcher for this node,
-// which watches for topology changes.
-func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
+// InitRPCClients initializes a list of RPC clients for the node.
+func (hn *HarnessNode) InitRPCClients(c *grpc.ClientConn) {
+	hn.rpc = &RPCClients{
+		conn:             c,
+		LN:               lnrpc.NewLightningClient(c),
+		Invoice:          invoicesrpc.NewInvoicesClient(c),
+		Router:           routerrpc.NewRouterClient(c),
+		WalletKit:        walletrpc.NewWalletKitClient(c),
+		WalletUnlocker:   lnrpc.NewWalletUnlockerClient(c),
+		Watchtower:       watchtowerrpc.NewWatchtowerClient(c),
+		WatchtowerClient: wtclientrpc.NewWatchtowerClientClient(c),
+		Signer:           signrpc.NewSignerClient(c),
+		State:            lnrpc.NewStateClient(c),
+	}
+}
+
+// initLightningClient blocks until the lnd server is fully started and
+// subscribes the harness node to graph topology updates. This method also
+// spawns a lightning network watcher for this node, which watches for topology
+// changes.
+func (hn *HarnessNode) initLightningClient() error {
+	// TODO(yy): remove
 	// Construct the LightningClient that will allow us to use the
 	// HarnessNode directly for normal rpc operations.
-	hn.conn = conn
+	conn := hn.rpc.conn
 	hn.LightningClient = lnrpc.NewLightningClient(conn)
 	hn.InvoicesClient = invoicesrpc.NewInvoicesClient(conn)
 	hn.RouterClient = routerrpc.NewRouterClient(conn)
@@ -1071,14 +932,13 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	hn.StateClient = lnrpc.NewStateClient(conn)
 
 	// Wait until the server is fully started.
-	if err := hn.waitTillServerStarted(); err != nil {
+	if err := hn.WaitUntilServerActive(); err != nil {
 		return err
 	}
 
 	// Set the harness node's pubkey to what the node claims in GetInfo.
-	// Since the RPC might not be immediately active, we wrap the call in a
-	// wait.NoError.
-	if err := wait.NoError(hn.FetchNodeInfo, DefaultTimeout); err != nil {
+	// The RPC must have been started at this point.
+	if err := hn.FetchNodeInfo(); err != nil {
 		return err
 	}
 
@@ -1093,8 +953,7 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 // FetchNodeInfo queries an unlocked node to retrieve its public key.
 func (hn *HarnessNode) FetchNodeInfo() error {
 	// Obtain the lnid of this node for quick identification purposes.
-	ctxb := context.Background()
-	info, err := hn.GetInfo(ctxb, &lnrpc.GetInfoRequest{})
+	info, err := hn.rpc.LN.GetInfo(hn.runCtx, &lnrpc.GetInfoRequest{})
 	if err != nil {
 		return err
 	}
@@ -1124,25 +983,6 @@ func (hn *HarnessNode) AddToLog(format string, a ...interface{}) {
 	}
 }
 
-// writePidFile writes the process ID of the running lnd process to a .pid file.
-func (hn *HarnessNode) writePidFile() error {
-	filePath := filepath.Join(hn.Cfg.BaseDir, fmt.Sprintf("%v.pid", hn.NodeID))
-
-	pid, err := os.Create(filePath)
-	if err != nil {
-		return err
-	}
-	defer pid.Close()
-
-	_, err = fmt.Fprintf(pid, "%v\n", hn.cmd.Process.Pid)
-	if err != nil {
-		return err
-	}
-
-	hn.pidFile = filePath
-	return nil
-}
-
 // ReadMacaroon waits a given duration for the macaroon file to be created. If
 // the file is readable within the timeout, its content is de-serialized as a
 // macaroon and returned.
@@ -1155,7 +995,8 @@ func (hn *HarnessNode) ReadMacaroon(macPath string, timeout time.Duration) (
 	err := wait.NoError(func() error {
 		macBytes, err := ioutil.ReadFile(macPath)
 		if err != nil {
-			return fmt.Errorf("error reading macaroon file: %v", err)
+			return fmt.Errorf("error reading macaroon file: %v",
+				err)
 		}
 
 		newMac := &macaroon.Macaroon{}
@@ -1239,7 +1080,8 @@ func (hn *HarnessNode) cleanup() error {
 	if hn.backupDbDir != "" {
 		err := os.RemoveAll(hn.backupDbDir)
 		if err != nil {
-			return fmt.Errorf("unable to remove backup dir: %v", err)
+			return fmt.Errorf("unable to remove backup dir: %v",
+				err)
 		}
 	}
 
@@ -1253,21 +1095,23 @@ func (hn *HarnessNode) stop() error {
 		return nil
 	}
 
-	// If start() failed before creating a client, we will just wait for the
+	// If start() failed before creating clients, we will just wait for the
 	// child process to die.
-	if hn.LightningClient != nil {
-		// Don't watch for error because sometimes the RPC connection gets
-		// closed before a response is returned.
+	if hn.rpc != nil && hn.rpc.LN != nil {
+		// Don't watch for error because sometimes the RPC connection
+		// gets closed before a response is returned.
 		req := lnrpc.StopRequest{}
 
 		err := wait.NoError(func() error {
-			_, err := hn.LightningClient.StopDaemon(hn.runCtx, &req)
+			_, err := hn.rpc.LN.StopDaemon(hn.runCtx, &req)
 			switch {
 			case err == nil:
 				return nil
 
 			// Try again if a recovery/rescan is in progress.
-			case strings.Contains(err.Error(), "recovery in progress"):
+			case strings.Contains(
+				err.Error(), "recovery in progress",
+			):
 				return err
 
 			default:
@@ -1307,8 +1151,8 @@ func (hn *HarnessNode) stop() error {
 	hn.WatchtowerClient = nil
 
 	// Close any attempts at further grpc connections.
-	if hn.conn != nil {
-		err := status.Code(hn.conn.Close())
+	if hn.rpc.conn != nil {
+		err := status.Code(hn.rpc.conn.Close())
 		switch err {
 		case codes.OK:
 			return nil
@@ -1332,8 +1176,8 @@ func (hn *HarnessNode) stop() error {
 	return nil
 }
 
-// shutdown stops the active lnd process and cleans up any temporary directories
-// created along the way.
+// shutdown stops the active lnd process and cleans up any temporary
+// directories created along the way.
 func (hn *HarnessNode) shutdown() error {
 	if err := hn.stop(); err != nil {
 		return err
@@ -1380,29 +1224,6 @@ type chanWatchRequest struct {
 	includeUnannounced bool
 }
 
-// getChanPointFundingTxid returns the given channel point's funding txid in
-// raw bytes.
-func getChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) ([]byte, error) {
-	var txid []byte
-
-	// A channel point's funding txid can be get/set as a byte slice or a
-	// string. In the case it is a string, decode it.
-	switch chanPoint.GetFundingTxid().(type) {
-	case *lnrpc.ChannelPoint_FundingTxidBytes:
-		txid = chanPoint.GetFundingTxidBytes()
-	case *lnrpc.ChannelPoint_FundingTxidStr:
-		s := chanPoint.GetFundingTxidStr()
-		h, err := chainhash.NewHashFromStr(s)
-		if err != nil {
-			return nil, err
-		}
-
-		txid = h[:]
-	}
-
-	return txid, nil
-}
-
 func (hn *HarnessNode) checkChanPointInGraph(chanPoint wire.OutPoint) bool {
 
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
@@ -1439,6 +1260,7 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 	go func() {
 		defer hn.wg.Done()
 		err := hn.receiveTopologyClientStream(graphUpdates)
+
 		if err != nil {
 			hn.PrintErr("receive topology client stream "+
 				"got err:%v", err)
@@ -1598,8 +1420,8 @@ func (hn *HarnessNode) WaitForChannelPolicyUpdate(
 	}
 }
 
-// WaitForBlockchainSync waits for the target node to be fully synchronized with
-// the blockchain. If the passed context object has a set timeout, it will
+// WaitForBlockchainSync waits for the target node to be fully synchronized
+// with the blockchain. If the passed context object has a set timeout, it will
 // continually poll until the timeout has elapsed. In the case that the chain
 // isn't synced before the timeout is up, this function will return an error.
 func (hn *HarnessNode) WaitForBlockchainSync() error {
@@ -1610,7 +1432,7 @@ func (hn *HarnessNode) WaitForBlockchainSync() error {
 	defer ticker.Stop()
 
 	for {
-		resp, err := hn.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+		resp, err := hn.rpc.LN.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
 		if err != nil {
 			return err
 		}
@@ -1638,24 +1460,27 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount,
 
 	var lastBalance btcutil.Amount
 	doesBalanceMatch := func() bool {
-		balance, err := hn.WalletBalance(hn.runCtx, req)
+		balance, err := hn.rpc.LN.WalletBalance(hn.runCtx, req)
 		if err != nil {
 			return false
 		}
 
 		if confirmed {
 			lastBalance = btcutil.Amount(balance.ConfirmedBalance)
-			return btcutil.Amount(balance.ConfirmedBalance) == expectedBalance
+			return btcutil.Amount(balance.ConfirmedBalance) ==
+				expectedBalance
 		}
 
 		lastBalance = btcutil.Amount(balance.UnconfirmedBalance)
-		return btcutil.Amount(balance.UnconfirmedBalance) == expectedBalance
+		return btcutil.Amount(balance.UnconfirmedBalance) ==
+			expectedBalance
 	}
 
 	err := wait.Predicate(doesBalanceMatch, DefaultTimeout)
 	if err != nil {
 		return fmt.Errorf("balances not synced after deadline: "+
-			"expected %v, only have %v", expectedBalance, lastBalance)
+			"expected %v, only have %v", expectedBalance,
+			lastBalance)
 	}
 
 	return nil
@@ -1665,19 +1490,6 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount,
 func (hn *HarnessNode) PrintErr(format string, a ...interface{}) {
 	fmt.Printf("itest error from [node:%s]: %s\n",
 		hn.Cfg.Name, fmt.Sprintf(format, a...))
-}
-
-// MakeOutpoint returns the outpoint of the channel's funding transaction.
-func MakeOutpoint(chanPoint *lnrpc.ChannelPoint) (wire.OutPoint, error) {
-	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-	if err != nil {
-		return wire.OutPoint{}, err
-	}
-
-	return wire.OutPoint{
-		Hash:  *fundingTxID,
-		Index: chanPoint.OutputIndex,
-	}, nil
 }
 
 // handleChannelEdgeUpdates takes a series of channel edge updates, extracts
@@ -1821,7 +1633,7 @@ func (hn *HarnessNode) newTopologyClient(
 	ctx context.Context) (topologyClient, error) {
 
 	req := &lnrpc.GraphTopologySubscription{}
-	client, err := hn.SubscribeChannelGraph(ctx, req)
+	client, err := hn.rpc.LN.SubscribeChannelGraph(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("%s(%d): unable to create topology "+
 			"client: %v (%s)", hn.Name(), hn.NodeID, err,
@@ -1844,7 +1656,7 @@ func (hn *HarnessNode) receiveTopologyClientStream(
 	// Create a topology client to receive graph updates.
 	client, err := hn.newTopologyClient(hn.runCtx)
 	if err != nil {
-		return fmt.Errorf("create topologyClient failed: %v", err)
+		return fmt.Errorf("create topologyClient failed: %w", err)
 	}
 
 	// We use the context to time out when retrying graph subscription.
@@ -1891,7 +1703,7 @@ func (hn *HarnessNode) receiveTopologyClientStream(
 		default:
 			// An expected error is returned, return and leave it
 			// to be handled by the caller.
-			return fmt.Errorf("graph subscription err: %v", err)
+			return fmt.Errorf("graph subscription err: %w", err)
 		}
 
 		// Send the update or quit.
@@ -1901,37 +1713,6 @@ func (hn *HarnessNode) receiveTopologyClientStream(
 			return nil
 		}
 	}
-}
-
-// CheckChannelPolicy checks that the policy matches the expected one.
-func CheckChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
-	if policy.FeeBaseMsat != expectedPolicy.FeeBaseMsat {
-		return fmt.Errorf("expected base fee %v, got %v",
-			expectedPolicy.FeeBaseMsat, policy.FeeBaseMsat)
-	}
-	if policy.FeeRateMilliMsat != expectedPolicy.FeeRateMilliMsat {
-		return fmt.Errorf("expected fee rate %v, got %v",
-			expectedPolicy.FeeRateMilliMsat,
-			policy.FeeRateMilliMsat)
-	}
-	if policy.TimeLockDelta != expectedPolicy.TimeLockDelta {
-		return fmt.Errorf("expected time lock delta %v, got %v",
-			expectedPolicy.TimeLockDelta,
-			policy.TimeLockDelta)
-	}
-	if policy.MinHtlc != expectedPolicy.MinHtlc {
-		return fmt.Errorf("expected min htlc %v, got %v",
-			expectedPolicy.MinHtlc, policy.MinHtlc)
-	}
-	if policy.MaxHtlcMsat != expectedPolicy.MaxHtlcMsat {
-		return fmt.Errorf("expected max htlc %v, got %v",
-			expectedPolicy.MaxHtlcMsat, policy.MaxHtlcMsat)
-	}
-	if policy.Disabled != expectedPolicy.Disabled {
-		return errors.New("edge should be disabled but isn't")
-	}
-
-	return nil
 }
 
 // handlePolicyUpdateWatchRequest checks that if the expected policy can be
@@ -1971,7 +1752,7 @@ func (hn *HarnessNode) getChannelPolicies(include bool) policyUpdateMap {
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
 
-	graph, err := hn.DescribeGraph(ctxt, &lnrpc.ChannelGraphRequest{
+	graph, err := hn.rpc.LN.DescribeGraph(ctxt, &lnrpc.ChannelGraphRequest{
 		IncludeUnannounced: include,
 	})
 	if err != nil {
@@ -2006,4 +1787,97 @@ func (hn *HarnessNode) getChannelPolicies(include bool) policyUpdateMap {
 	}
 
 	return policyUpdates
+}
+
+// renameFile is a helper to rename (log) files created during integration
+// tests.
+func renameFile(fromFileName, toFileName string) {
+	err := os.Rename(fromFileName, toFileName)
+	if err != nil {
+		fmt.Printf("could not rename %s to %s: %v\n",
+			fromFileName, toFileName, err)
+	}
+}
+
+// getFinalizedLogFilePrefix returns the finalize log filename.
+func getFinalizedLogFilePrefix(hn *HarnessNode) string {
+	pubKeyHex := hex.EncodeToString(
+		hn.PubKey[:logPubKeyBytes],
+	)
+
+	return fmt.Sprintf("%s/%d-%s-%s-%s",
+		GetLogDir(), hn.NodeID,
+		hn.Cfg.LogFilenamePrefix,
+		hn.Cfg.Name, pubKeyHex)
+}
+
+// finalizeLogfile makes sure the log file cleanup function is initialized,
+// even if no log file is created.
+func finalizeLogfile(hn *HarnessNode, fileName string) {
+	if hn.logFile != nil {
+		hn.logFile.Close()
+
+		// If logoutput flag is not set, return early.
+		if !*logOutput {
+			return
+		}
+
+		newFileName := fmt.Sprintf("%v.log",
+			getFinalizedLogFilePrefix(hn),
+		)
+
+		renameFile(fileName, newFileName)
+	}
+}
+
+func finalizeEtcdLog(hn *HarnessNode) {
+	if hn.Cfg.DbBackend != BackendEtcd {
+		return
+	}
+
+	etcdLogFileName := fmt.Sprintf("%s/etcd.log", hn.Cfg.LogDir)
+	newEtcdLogFileName := fmt.Sprintf("%v-etcd.log",
+		getFinalizedLogFilePrefix(hn),
+	)
+
+	renameFile(etcdLogFileName, newEtcdLogFileName)
+}
+
+func addLogFile(hn *HarnessNode) (string, error) {
+	var fileName string
+
+	dir := GetLogDir()
+	fileName = fmt.Sprintf("%s/%d-%s-%s-%s.log", dir, hn.NodeID,
+		hn.Cfg.LogFilenamePrefix, hn.Cfg.Name,
+		hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
+
+	// If the node's PubKey is not yet initialized, create a
+	// temporary file name. Later, after the PubKey has been
+	// initialized, the file can be moved to its final name with
+	// the PubKey included.
+	if bytes.Equal(hn.PubKey[:4], []byte{0, 0, 0, 0}) {
+		fileName = fmt.Sprintf("%s/%d-%s-%s-tmp__.log", dir,
+			hn.NodeID, hn.Cfg.LogFilenamePrefix,
+			hn.Cfg.Name)
+	}
+
+	// Create file if not exists, otherwise append.
+	file, err := os.OpenFile(fileName,
+		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+	if err != nil {
+		return fileName, err
+	}
+
+	// Pass node's stderr to both errb and the file.
+	w := io.MultiWriter(hn.cmd.Stderr, file)
+	hn.cmd.Stderr = w
+
+	// Pass the node's stdout only to the file.
+	hn.cmd.Stdout = file
+
+	// Let the node keep a reference to this file, such
+	// that we can add to it if necessary.
+	hn.logFile = file
+
+	return fileName, nil
 }

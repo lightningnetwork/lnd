@@ -69,6 +69,9 @@ connection from the watch-only node.
 
 * [Fix duplicate db connection close](https://github.com/lightningnetwork/lnd/pull/6140)
 
+* [Fix a memory leak introduced by the new ping-header p2p enhancement](https://github.com/lightningnetwork/lnd/pull/6144]
+
+
 ## RPC Server
 
 * [ChanStatusFlags is now

@@ -109,7 +109,7 @@ func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 	// withP2PPort is a helper closure used to set the P2P port that a node
 	// should use.
 	var withP2PPort = func(port int) lntest.NodeOption {
-		return func(cfg *lntest.NodeConfig) {
+		return func(cfg *lntest.BaseNodeConfig) {
 			cfg.P2PPort = port
 		}
 	}

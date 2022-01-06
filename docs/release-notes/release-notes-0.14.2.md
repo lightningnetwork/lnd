@@ -34,6 +34,9 @@
   using itest harness outside of
   lnd](https://github.com/lightningnetwork/lnd/pull/6050).
 
+* [Export `lntest` base node config so it can be re-used in LiT integration
+  tests](https://github.com/lightningnetwork/lnd/pull/6139).
+
 ## Bug fixes
 
 * [Add json flag to

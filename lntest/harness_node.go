@@ -140,15 +140,15 @@ type NodeConfig struct {
 }
 
 func (cfg NodeConfig) P2PAddr() string {
-	return fmt.Sprintf(listenerFormat, cfg.P2PPort)
+	return fmt.Sprintf(ListenerFormat, cfg.P2PPort)
 }
 
 func (cfg NodeConfig) RPCAddr() string {
-	return fmt.Sprintf(listenerFormat, cfg.RPCPort)
+	return fmt.Sprintf(ListenerFormat, cfg.RPCPort)
 }
 
 func (cfg NodeConfig) RESTAddr() string {
-	return fmt.Sprintf(listenerFormat, cfg.RESTPort)
+	return fmt.Sprintf(ListenerFormat, cfg.RESTPort)
 }
 
 // DBDir returns the holding directory path of the graph database.

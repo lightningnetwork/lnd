@@ -511,12 +511,12 @@ func (hn *HarnessNode) String() string {
 		nodeState.ClosedChans[outpoint.String()] = count
 	}
 
-	bytes, err := json.MarshalIndent(nodeState, "", "\t")
+	stateBytes, err := json.MarshalIndent(nodeState, "", "\t")
 	if err != nil {
 		return fmt.Sprintf("\n encode node state with err: %v", err)
 	}
 
-	return fmt.Sprintf("\nnode state: %s", bytes)
+	return fmt.Sprintf("\nnode state: %s", stateBytes)
 }
 
 // DBPath returns the filepath to the channeldb database file for this node.

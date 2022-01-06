@@ -53,6 +53,8 @@
   
 * [Fix Postgres itests max connections](https://github.com/lightningnetwork/lnd/pull/6116)
 
+* [Fix duplicate db connection close](https://github.com/lightningnetwork/lnd/pull/6140)
+
 ## RPC Server
 
 * [ChanStatusFlags is now
@@ -68,6 +70,7 @@
 * Bjarne Magnussen
 * Elle Mouton
 * Harsha Goli
+* Joost Jager
 * Martin Habovštiak
 * Naveen Srinivasan
 * Oliver Gugger

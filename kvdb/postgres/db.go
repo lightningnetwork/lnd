@@ -256,5 +256,7 @@ func (db *db) Copy(w io.Writer) error {
 // Close cleanly shuts down the database and syncs all data.
 // This function is part of the walletdb.Db interface implementation.
 func (db *db) Close() error {
+	log.Infof("Closing database %v", db.prefix)
+
 	return dbConns.Close(db.cfg.Dsn)
 }

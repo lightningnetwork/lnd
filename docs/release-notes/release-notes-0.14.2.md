@@ -21,6 +21,9 @@
   using itest harness outside of
   lnd](https://github.com/lightningnetwork/lnd/pull/6050).
 
+* [Export `lntest` base node config so it can be re-used in LiT integration
+  tests](https://github.com/lightningnetwork/lnd/pull/6139).
+
 ## Bug fixes
 
 * [Return the nearest known fee rate when a given conf target cannot be found

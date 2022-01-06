@@ -688,8 +688,15 @@ func (h *HarnessTest) EnsureConnected(a, b *HarnessNode) {
 	// Return any critical errors returned by either alice or bob.
 	require.NoError(h, tryConnect(a, b), "connection failed between %s "+
 		"and %s", a.Cfg.Name, b.Cfg.Name)
-	require.NoError(h, tryConnect(b, a), "connection failed between %s "+
-		"and %s", a.Cfg.Name, b.Cfg.Name)
+
+	// When Alice and Bob each makes a connection to the other side at the
+	// same time, it's likely neither connections could succeed. Bob's
+	// connection will be canceled by Alice since she has an outbound
+	// connection to Bob already, and same happens to Alice's. Thus the two
+	// connections cancel each other out.
+	// TODO(yy): move this back when the above issue is fixed.
+	// require.NoError(h, tryConnect(b, a), "connection failed between %s "+
+	// 	"and %s", a.Cfg.Name, b.Cfg.Name)
 
 	// Otherwise one or both requested a connection, so we wait for the
 	// peers lists to reflect the connection.

@@ -1372,7 +1372,7 @@ func chanRestoreViaRPC(net *lntest.NetworkHarness, password []byte,
 // copyPorts returns a node option function that copies the ports of an existing
 // node over to the newly created one.
 func copyPorts(oldNode *lntest.HarnessNode) lntest.NodeOption {
-	return func(cfg *lntest.NodeConfig) {
+	return func(cfg *lntest.BaseNodeConfig) {
 		cfg.P2PPort = oldNode.Cfg.P2PPort
 		cfg.RPCPort = oldNode.Cfg.RPCPort
 		cfg.RESTPort = oldNode.Cfg.RESTPort

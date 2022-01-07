@@ -2808,6 +2808,10 @@
         "commitments": {
           "$ref": "#/definitions/PendingChannelsResponseCommitments",
           "description": "A list of valid commitment transactions. Any of these can confirm at\nthis point."
+        },
+        "closing_txid": {
+          "type": "string",
+          "title": "The transaction id of the closing transaction"
         }
       }
     },

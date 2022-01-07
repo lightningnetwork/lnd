@@ -132,6 +132,10 @@ connection from the watch-only node.
 
 * [Refactored itest to better manage contexts inside integration tests](https://github.com/lightningnetwork/lnd/pull/5756).
 
+* [Closing txid is now
+  exposed](https://github.com/lightningnetwork/lnd/pull/6146) inside
+  WaitingCloseResp from calling `PendingChannels`.
+
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath

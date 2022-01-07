@@ -79,6 +79,10 @@ func testRevokedCloseRetribution(ht *lntest.HarnessTest) {
 	// backup.
 	ht.EnsureConnected(carol, bob)
 
+	// Because Bob has been restarted, we need to make sure Carol has
+	// remarked the channel as active after that.
+	ht.AssertChannelExists(carol, chanPoint)
+
 	// Finally, send payments from Carol to Bob, consuming Bob's remaining
 	// payment hashes.
 	ht.CompletePaymentRequests(carol, bobPayReqs[numInvoices/2:], true)

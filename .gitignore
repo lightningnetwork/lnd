@@ -57,6 +57,7 @@ fuzz/**/suppressions
 
 # vim
 *.swp
+*.swo
 
 *.hex
 *.db

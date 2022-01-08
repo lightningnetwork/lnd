@@ -59,31 +59,47 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	require.Len(ht, channel.PendingHtlcs, 1)
 	activeHtlc := channel.PendingHtlcs[0]
 
-	info := ht.GetInfo(alice)
+	_, currentHeight := ht.GetBestBlock()
 
 	// Now we will mine blocks until the htlc expires, and wait for each
 	// node to sync to our latest height. Sanity check that we won't
 	// underflow.
-	require.Greater(ht, activeHtlc.ExpirationHeight, info.BlockHeight,
+	require.Greater(ht, activeHtlc.ExpirationHeight, uint32(currentHeight),
 		"expected expiry after current height")
-	blocksTillExpiry := activeHtlc.ExpirationHeight - info.BlockHeight
+	blocksTillExpiry := activeHtlc.ExpirationHeight - uint32(currentHeight)
 
 	// Alice will go to chain with some delta, sanity check that we won't
 	// underflow and subtract this from our mined blocks.
 	require.Greater(ht, blocksTillExpiry,
 		uint32(lncfg.DefaultOutgoingBroadcastDelta))
-	blocksTillForce := blocksTillExpiry - lncfg.DefaultOutgoingBroadcastDelta
 
-	ht.MineBlocks(blocksTillForce)
+	// blocksTillForce is the number of blocks should be mined to
+	// trigger a force close from Alice iff the invoice cancelation
+	// failed. This value is 48 in current test setup.
+	blocksTillForce := blocksTillExpiry -
+		lncfg.DefaultOutgoingBroadcastDelta
 
+	// blocksTillCancel is the number of blocks should be mined to trigger
+	// an invoice cancelation from Bob. This value is 30 in current test
+	// setup.
+	blocksTillCancel := blocksTillExpiry -
+		lncfg.DefaultHoldInvoiceExpiryDelta
+
+	// When using ht.MineBlocks, for bitcoind backend, the block height
+	// synced differ significantly among subsystems. From observation, the
+	// LNWL syncs much faster than other subsystems, with more than 10
+	// blocks ahead. For this test case, CRTR may be lagging behind for
+	// more than 20 blocks. Thus we use slow mining instead.
+	// TODO(yy): fix block height asymmetry among all the subsystems.
+	//
+	// We first mine enough blocks to trigger an invoice cancelation.
+	ht.MineBlocksSlow(blocksTillCancel)
+
+	// Wait for the nodes to be synced.
 	ht.WaitForBlockchainSync(alice)
 	ht.WaitForBlockchainSync(bob)
 
-	// Our channel should not have been force closed, instead we expect our
-	// channel to still be open and our invoice to have been canceled before
-	// expiry.
-	ht.AssertNumPendingCloseChannels(alice, 0, 0)
-
+	// Check that the invoice is canceled by Bob.
 	err := wait.NoError(func() error {
 		inv := ht.LookupInvoice(bob, payHash[:])
 
@@ -102,6 +118,31 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 		return nil
 	}, defaultTimeout)
 	require.NoError(ht, err, "expected canceled invoice")
+
+	// We now continue to mine more blocks to the point where it could have
+	// triggered a force close if the invoice cancelation was failed.
+	//
+	// NOTE: we need to mine blocks in two sections because of a following
+	// case has happened frequently with bitcoind backend,
+	// - when mining all the blocks together, subsystems were syncing
+	// blocks under very different speed.
+	// - Bob would cancel the invoice in INVC, and send an UpdateFailHTLC
+	// in PEER.
+	// - Alice, however, would need to receive the message before her
+	// subsystem CNCT being synced to the force close height. This didn't
+	// happen in bitcoind backend, as Alice's CNCT was syncing way faster
+	// than Bob's INVC, causing the channel being force closed before the
+	// invoice cancelation message was received by Alice.
+	ht.MineBlocksSlow(blocksTillForce - blocksTillCancel)
+
+	// Wait for the nodes to be synced.
+	ht.WaitForBlockchainSync(alice)
+	ht.WaitForBlockchainSync(bob)
+
+	// Check that Alice has not closed the channel because there are no
+	// outgoing HTLCs in her channel as the only HTLC has already been
+	// canceled.
+	ht.AssertNumPendingCloseChannels(alice, 0, 0)
 
 	// Clean up the channel.
 	ht.CloseChannel(alice, chanPoint, false)

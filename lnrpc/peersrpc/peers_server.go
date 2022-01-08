@@ -10,6 +10,7 @@ import (
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -168,7 +169,7 @@ func (s *Server) UpdateNodeAnnouncement(_ context.Context,
 	resp := &NodeAnnouncementUpdateResponse{}
 	nodeModifiers := make([]netann.NodeAnnModifier, 0)
 
-	_, err := s.cfg.GetNodeAnnouncement()
+	currentNodeAnn, err := s.cfg.GetNodeAnnouncement()
 	if err != nil {
 		return nil, fmt.Errorf("unable to get current node "+
 			"announcement: %v", err)
@@ -178,7 +179,24 @@ func (s *Server) UpdateNodeAnnouncement(_ context.Context,
 
 	// TODO(positiveblue): apply color modifications
 
-	// TODO(positiveblue): apply alias modifications
+	if req.Alias != "" {
+		alias, err := lnwire.NewNodeAlias(req.Alias)
+		if err != nil {
+			return nil, fmt.Errorf("invalid alias value: %v", err)
+		}
+		if alias != currentNodeAnn.Alias {
+			resp.Ops = append(resp.Ops, &lnrpc.Op{
+				Entity: "alias",
+				Actions: []string{
+					fmt.Sprintf("changed to %v", alias),
+				},
+			})
+			nodeModifiers = append(
+				nodeModifiers,
+				netann.NodeAnnSetAlias(alias),
+			)
+		}
+	}
 
 	// TODO(positiveblue): apply addresses modifications
 

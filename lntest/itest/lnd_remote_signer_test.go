@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -39,76 +40,6 @@ var (
 		Xpub: "tpubDDWAWrSLRSFrG1KdqXMQQyTKYGSKLKaY7gxpvK7RdV3e3Dkhvu" +
 			"W2GgsFvsPN4RGmuoYtUgZ1LHZE8oftz7T4mzc1BxGt5rt8zJcVQi" +
 			"KTPPV",
-	}, {
-		Purpose:  keychain.BIP0043Purpose,
-		CoinType: harnessNetParams.HDCoinType,
-		Account:  uint32(keychain.KeyFamilyMultiSig),
-		Xpub: "tpubDDXFHr67Ro2tHKVWG2gNjjijKUH1Lyv5NKFYdJnuaLGVNBVwyV" +
-			"5AbykhR43iy8wYozEMbw2QfmAqZhb8gnuL5mm9sZh8YsR6FjGAbe" +
-			"w1xoT",
-	}, {
-		Purpose:  keychain.BIP0043Purpose,
-		CoinType: harnessNetParams.HDCoinType,
-		Account:  uint32(keychain.KeyFamilyRevocationBase),
-		Xpub: "tpubDDXFHr67Ro2tKkccDqNfDqZpd5wCs2n6XRV2Uh185DzCTbkDaE" +
-			"d9v7P837zZTYBNVfaRriuxgGVgxbGjDui4CKxyzBzwz4aAZxjn2P" +
-			"hNcQy",
-	}, {
-		Purpose:  keychain.BIP0043Purpose,
-		CoinType: harnessNetParams.HDCoinType,
-		Account:  uint32(keychain.KeyFamilyHtlcBase),
-		Xpub: "tpubDDXFHr67Ro2tNH4KH41i4oTsWfRjFigoH1Ee7urvHow51opH9x" +
-			"J7mu1qSPMPVtkVqQZ5tE4NTuFJPrbDqno7TQietyUDmPTwyVviJb" +
-			"GCwXk",
-	}, {
-		Purpose:  keychain.BIP0043Purpose,
-		CoinType: harnessNetParams.HDCoinType,
-		Account:  uint32(keychain.KeyFamilyPaymentBase),
-		Xpub: "tpubDDXFHr67Ro2tQj5Zvav2ALhkU6dRQAhEtNPnYJVBC8hs2U1A9e" +
-			"cqxRY3XTiJKBDD7e8tudhmTRs8aGWJAiAXJN5kXy3Hi6cmiwGWjX" +
-			"K5Cv5",
-	}, {
-		Purpose:  keychain.BIP0043Purpose,
-		CoinType: harnessNetParams.HDCoinType,
-		Account:  uint32(keychain.KeyFamilyDelayBase),
-		Xpub: "tpubDDXFHr67Ro2tSSR2LLBJtotxx2U45cuESLWKA72YT9td3SzVKH" +
-			"AptzDEx5chsUNZ4WRMY5h6HJxRSebjRatxQKX1uUsux1LvKS1wsf" +
-			"NJ2PH",
-	}, {
-		Purpose:  keychain.BIP0043Purpose,
-		CoinType: harnessNetParams.HDCoinType,
-		Account:  uint32(keychain.KeyFamilyRevocationRoot),
-		Xpub: "tpubDDXFHr67Ro2tTwzfWvNoMoPpZbxdMEfe1WhbXJxvXikGixPa4g" +
-			"gSRZeGx6T5yxVHTVT3rjVh35Veqsowj7emX8SZfXKDKDKcLduXCe" +
-			"WPUU3",
-	}, {
-		Purpose:  keychain.BIP0043Purpose,
-		CoinType: harnessNetParams.HDCoinType,
-		Account:  uint32(keychain.KeyFamilyNodeKey),
-		Xpub: "tpubDDXFHr67Ro2tYEDS2EByRedfsUoEwBtrzVbS1qdPrX6sAkUYGL" +
-			"rZWvMmQv8KZDZ4zd9r8WzM9bJ2nGp7XuNVC4w2EBtWg7i76gbrmu" +
-			"EWjQh",
-	}, {
-		Purpose:  keychain.BIP0043Purpose,
-		CoinType: harnessNetParams.HDCoinType,
-		Account:  uint32(keychain.KeyFamilyStaticBackup),
-		Xpub: "tpubDDXFHr67Ro2tYpwnFJEQaM8eAPM2UV5uY6gFgXeSzS5aC5T9Tf" +
-			"zXuawYKBbQMZJn8qHXLafY4tAutoda1aKP5h6Nbgy3swPbnhWbFj" +
-			"S5wnX",
-	}, {
-		Purpose:  keychain.BIP0043Purpose,
-		CoinType: harnessNetParams.HDCoinType,
-		Account:  uint32(keychain.KeyFamilyTowerSession),
-		Xpub: "tpubDDXFHr67Ro2tddKpAjUegXqt7EGxRXnHkeLbUkfuFMGbLJYgRp" +
-			"G4ew5pMmGg2nmcGmHFQ29w3juNhd8N5ZZ8HwJdymC4f5ukQLJ4yg" +
-			"9rEr3",
-	}, {
-		Purpose:  keychain.BIP0043Purpose,
-		CoinType: harnessNetParams.HDCoinType,
-		Account:  uint32(keychain.KeyFamilyTowerID),
-		Xpub: "tpubDDXFHr67Ro2tgE89V8ZdgMytC2Jq1iT9ttGhdzR1X7haQJNBmX" +
-			"t8kau6taC6DGASYzbrjmo9z9w6JQFcaLNqbhS2h2PVSzKf79j265" +
-			"Zi8hF",
 	}}
 )
 
@@ -166,6 +97,7 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 		name: "psbt",
 		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
 			runPsbtChanFunding(net, tt, carol, wo)
+			runSignPsbt(tt, net, wo)
 		},
 	}}
 
@@ -180,7 +112,7 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 		password := []byte("itestpassword")
 		var (
 			signerNodePubKey  = nodePubKey
-			watchOnlyAccounts = accounts
+			watchOnlyAccounts = deriveCustomScopeAccounts(t.t)
 			signer            *lntest.HarnessNode
 			err               error
 		)
@@ -238,10 +170,6 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 		if subTest.sendCoins {
 			net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, watchOnly)
 			assertAccountBalance(
-				t.t, signer, "default",
-				btcutil.SatoshiPerBitcoin, 0,
-			)
-			assertAccountBalance(
 				t.t, watchOnly, "default",
 				btcutil.SatoshiPerBitcoin, 0,
 			)
@@ -263,4 +191,56 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 			return
 		}
 	}
+}
+
+// deriveCustomScopeAccounts derives the first 255 default accounts of the custom lnd
+// internal key scope.
+func deriveCustomScopeAccounts(t *testing.T) []*lnrpc.WatchOnlyAccount {
+	allAccounts := make([]*lnrpc.WatchOnlyAccount, 0, 255+len(accounts))
+	allAccounts = append(allAccounts, accounts...)
+
+	extendedRootKey, err := hdkeychain.NewKeyFromString(rootKey)
+	require.NoError(t, err)
+
+	path := []uint32{
+		keychain.BIP0043Purpose + hdkeychain.HardenedKeyStart,
+		harnessNetParams.HDCoinType + hdkeychain.HardenedKeyStart,
+	}
+	coinTypeKey, err := derivePath(extendedRootKey, path)
+	require.NoError(t, err)
+	for idx := uint32(0); idx <= 255; idx++ {
+		accountPath := []uint32{idx + hdkeychain.HardenedKeyStart}
+		accountKey, err := derivePath(coinTypeKey, accountPath)
+		require.NoError(t, err)
+
+		accountXPub, err := accountKey.Neuter()
+		require.NoError(t, err)
+
+		allAccounts = append(allAccounts, &lnrpc.WatchOnlyAccount{
+			Purpose:  keychain.BIP0043Purpose,
+			CoinType: harnessNetParams.HDCoinType,
+			Account:  idx,
+			Xpub:     accountXPub.String(),
+		})
+	}
+
+	return allAccounts
+}
+
+// derivePath derives the given path from an extended key.
+func derivePath(key *hdkeychain.ExtendedKey, path []uint32) (
+	*hdkeychain.ExtendedKey, error) {
+
+	var (
+		currentKey = key
+		err        error
+	)
+	for _, pathPart := range path {
+		currentKey, err = currentKey.Derive(pathPart)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return currentKey, nil
 }

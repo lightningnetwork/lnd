@@ -148,6 +148,16 @@ const (
 	defaultTCBackoff  = time.Minute
 	defaultTCAttempts = 0
 
+	// Set defaults for a health check which ensures that the remote signer
+	// RPC connection is alive. Although this check is off by default (only
+	// active when remote signing is turned on), we still set the other
+	// default values so that the health check can be easily enabled with
+	// sane defaults.
+	defaultRSInterval = time.Minute
+	defaultRSTimeout  = time.Second * 1
+	defaultRSBackoff  = time.Second * 30
+	defaultRSAttempts = 1
+
 	// defaultRemoteMaxHtlcs specifies the default limit for maximum
 	// concurrent HTLCs the remote party may add to commitment transactions.
 	// This value can be overridden with --default-remote-max-htlcs.
@@ -558,6 +568,12 @@ func DefaultConfig() Config {
 				Attempts: defaultTCAttempts,
 				Backoff:  defaultTCBackoff,
 			},
+			RemoteSigner: &lncfg.CheckConfig{
+				Interval: defaultRSInterval,
+				Timeout:  defaultRSTimeout,
+				Attempts: defaultRSAttempts,
+				Backoff:  defaultRSBackoff,
+			},
 		},
 		Gossip: &lncfg.Gossip{
 			MaxChannelUpdateBurst: discovery.DefaultMaxChannelUpdateBurst,
@@ -579,7 +595,9 @@ func DefaultConfig() Config {
 		ChannelCommitInterval:   defaultChannelCommitInterval,
 		ChannelCommitBatchSize:  defaultChannelCommitBatchSize,
 		CoinSelectionStrategy:   defaultCoinSelectionStrategy,
-		RemoteSigner:            &lncfg.RemoteSigner{},
+		RemoteSigner: &lncfg.RemoteSigner{
+			Timeout: lncfg.DefaultRemoteSignerRPCTimeout,
+		},
 	}
 }
 
@@ -1212,6 +1230,10 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		case "neutrino":
 			// No need to get RPC parameters.
 
+		case "nochainbackend":
+			// Nothing to configure, we're running without any chain
+			// backend whatsoever (pure signing mode).
+
 		default:
 			str := "only btcd, bitcoind, and neutrino mode " +
 				"supported for bitcoin at this time"
@@ -1554,6 +1576,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.Cluster,
 		cfg.HealthChecks,
 		cfg.RPCMiddleware,
+		cfg.RemoteSigner,
 	)
 	if err != nil {
 		return nil, err
@@ -1589,7 +1612,10 @@ func (c *Config) ImplementationConfig(
 	// watch-only source of chain and address data. But we don't need any
 	// private key material in that btcwallet base wallet.
 	if c.RemoteSigner.Enable {
-		rpcImpl := NewRPCSignerWalletImpl(c, ltndLog, interceptor)
+		rpcImpl := NewRPCSignerWalletImpl(
+			c, ltndLog, interceptor,
+			c.RemoteSigner.MigrateWatchOnly,
+		)
 		return &ImplementationCfg{
 			GrpcRegistrar:     rpcImpl,
 			RestRegistrar:     rpcImpl,

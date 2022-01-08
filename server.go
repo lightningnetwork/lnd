@@ -52,6 +52,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
@@ -1582,6 +1583,32 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl) {
 			cfg.HealthChecks.TorConnection.Attempts,
 		)
 		checks = append(checks, torConnectionCheck)
+	}
+
+	// If remote signing is enabled, add the healthcheck for the remote
+	// signing RPC interface.
+	if s.cfg.RemoteSigner != nil && s.cfg.RemoteSigner.Enable {
+		// Because we have two cascading timeouts here, we need to add
+		// some slack to the "outer" one of them in case the "inner"
+		// returns exactly on time.
+		overhead := time.Millisecond * 10
+
+		remoteSignerConnectionCheck := healthcheck.NewObservation(
+			"remote signer connection",
+			rpcwallet.HealthCheck(
+				s.cfg.RemoteSigner,
+
+				// For the health check we might to be even
+				// stricter than the initial/normal connect, so
+				// we use the health check timeout here.
+				cfg.HealthChecks.RemoteSigner.Timeout,
+			),
+			cfg.HealthChecks.RemoteSigner.Interval,
+			cfg.HealthChecks.RemoteSigner.Timeout+overhead,
+			cfg.HealthChecks.RemoteSigner.Backoff,
+			cfg.HealthChecks.RemoteSigner.Attempts,
+		)
+		checks = append(checks, remoteSignerConnectionCheck)
 	}
 
 	// If we have not disabled all of our health checks, we create a

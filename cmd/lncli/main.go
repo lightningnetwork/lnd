@@ -39,7 +39,7 @@ var (
 
 	// maxMsgRecvSize is the largest message our client will receive. We
 	// set this to 200MiB atm.
-	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200)
+	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(lnrpc.MaxGrpcMsgSize)
 )
 
 func fatal(err error) {

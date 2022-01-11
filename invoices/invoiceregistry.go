@@ -906,6 +906,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		customRecords:        payload.CustomRecords(),
 		mpp:                  payload.MultiPath(),
 		amp:                  payload.AMPRecord(),
+		metadata:             payload.Metadata(),
 	}
 
 	switch {

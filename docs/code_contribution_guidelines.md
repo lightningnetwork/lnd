@@ -8,6 +8,7 @@
    1. [Code Documentation and Commenting](#code-documentation-and-commenting)
    1. [Model Git Commit Messages](#model-git-commit-messages)
    1. [Ideal Git Commit Structure](#ideal-git-commit-structure)
+   1. [Sign Your Git Commits](#sign-your-git-commits)
    1. [Code Spacing](#code-spacing)
    1. [Protobuf Compilation](#protobuf-compilation)
    1. [Additional Style Constraints On Top of gofmt](#additional-style-constraints-on-top-of-gofmt)
@@ -155,7 +156,7 @@ A quick summary of test practices follows:
   or RPC's will need to be accompanied by integration tests which use the
   [`networkHarness`framework](https://github.com/lightningnetwork/lnd/blob/master/lntest/harness.go)
   contained within `lnd`. For example integration tests, see
-  [`lnd_test.go`](https://github.com/lightningnetwork/lnd/blob/master/lnd_test.go#L181). 
+  [`lnd_test.go`](https://github.com/lightningnetwork/lnd/blob/master/lntest/itest/lnd_test.go).
 - The itest log files are automatically scanned for `[ERR]` lines. There
   shouldn't be any of those in the logs, see [Use of Log Levels](#use-of-log-levels).
 
@@ -320,6 +321,81 @@ Examples of common patterns w.r.t commit structures within the project:
   * If a PR only fixes a trivial issue, such as updating documentation on a
     small scale, fix typos, or any changes that do not modify the code, the
     commit message should end with `[skip ci]` to skip the CI checks.
+    
+## Sign your git commits
+
+When contributing to `lnd` it is recommended to sign your git commits. This is
+easy to do and will help in assuring the integrity of the tree. See [mailing
+list entry](https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2014-May/005877.html)
+for more information.
+
+### How to sign your commits?
+
+Provide the `-S` flag (or `--gpg-sign`) to git commit when you commit
+your changes, for example
+
+```shell
+⛰  git commit -m "Commit message" -S
+```
+
+Optionally you can provide a key id after the `-S` option to sign with a
+specific key.
+
+To instruct `git` to auto-sign every commit, add the following lines to your
+`~/.gitconfig` file:
+
+```text
+[commit]
+        gpgsign = true
+```
+
+### What if I forgot?
+
+You can retroactively sign your previous commit using `--amend`, for example
+
+```shell
+⛰  git commit -S --amend
+```
+
+If you need to go further back, you can use the interactive rebase
+command with 'edit'. Replace `HEAD~3` with the base commit from which
+you want to start.
+
+```shell
+⛰  git rebase -i HEAD~3
+```
+
+Replace 'pick' by 'edit' for the commit that you want to sign and the
+rebasing will stop after that commit. Then you can amend the commit as
+above. Afterwards, do
+
+```shell
+⛰  git rebase --continue
+```
+
+As this will rewrite history, you cannot do this when your commit is
+already merged. In that case, too bad, better luck next time.
+
+If you rewrite history for another reason - for example when squashing
+commits - make sure that you re-sign as the signatures will be lost.
+
+Multiple commits can also be re-signed with `git rebase`. For example, signing
+the last three commits can be done with:
+
+```shell
+⛰  git rebase --exec 'git commit --amend --no-edit -n -S' -i HEAD~3
+```
+
+### How to check if commits are signed?
+
+Use `git log` with `--show-signature`,
+
+```shell
+⛰  git log --show-signature
+```
+
+You can also pass the `--show-signature` option to `git show` to check a single
+commit.
 
 ## Code Spacing 
 

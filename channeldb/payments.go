@@ -315,7 +315,6 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	creationInfo, err := fetchCreationInfo(bucket)
 	if err != nil {
 		return nil, err
-
 	}
 
 	var htlcs []HTLCAttempt
@@ -732,7 +731,9 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 // DeletePayment deletes a payment from the DB given its payment hash. If
 // failedHtlcsOnly is set, only failed HTLC attempts of the payment will be
 // deleted.
-func (d *DB) DeletePayment(paymentHash lntypes.Hash, failedHtlcsOnly bool) error { // nolint:interfacer
+func (d *DB) DeletePayment(paymentHash lntypes.Hash,
+	failedHtlcsOnly bool) error {
+
 	return kvdb.Update(d, func(tx kvdb.RwTx) error {
 		payments := tx.ReadWriteBucket(paymentsRootBucket)
 		if payments == nil {

@@ -38,11 +38,15 @@ result, it cannot be used in isolation.
 
 ### 24-word Cipher Seeds
 
-When a new `lnd` node is created, it's given a 24-word seed phrase, called an
-[`cipher seed`](https://github.com/lightningnetwork/lnd/tree/master/aezeed).
-The two seed formats look similar, but the only commonality they share are
-using the same default English dictionary. A valid seed phrase obtained over
-the CLI `lncli create` command looks something like: 
+When a new `lnd` node is created, it is given a 24-word seed phrase, called an
+[`aezeed cipher seed`](https://github.com/lightningnetwork/lnd/tree/master/aezeed).
+The [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) and
+[`aezeed cipher seed`](https://github.com/lightningnetwork/lnd/tree/master/aezeed)
+formats look similar, but the only commonality they share is that they use the
+same default [English](https://raw.githubusercontent.com/bitcoin/bips/master/bip-0039/english.txt)
+wordlist.
+A valid seed phrase obtained over the CLI `lncli create` command looks something
+like: 
 ```text
 !!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO RESTORE THE WALLET!!!
 

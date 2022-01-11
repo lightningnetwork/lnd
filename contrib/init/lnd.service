@@ -10,7 +10,6 @@ After=bitcoind.service
 [Service]
 ExecStart=/usr/local/bin/lnd
 ExecStop=/usr/local/bin/lncli stop
-PIDFile=/home/bitcoin/.lnd/lnd.pid
 
 # Replace these with the user:group that will run lnd
 User=bitcoin

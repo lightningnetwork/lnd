@@ -382,7 +382,7 @@ in `--bitcoin.simnet` if needed), and also your own `btcd` node if available:
 ## Using bitcoind or litecoind
 
 The configuration for bitcoind and litecoind are nearly identical, the
-following steps can be mirrored with loss of generality to enable a litecoind
+following steps can be mirrored without loss of generality to enable a litecoind
 backend.  Setup will be described in regards to `bitcoind`, but note that `lnd`
 uses a distinct `litecoin.node=litecoind` argument and analogous
 subconfigurations prefixed by `litecoind`. Note that adding `--txindex` is

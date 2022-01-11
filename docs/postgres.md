@@ -6,10 +6,12 @@ describes how it can be configured.
 
 ## Building LND with postgres support
 
-To build LND with postgres support, include the following build tag:
+Since `lnd v0.14.1-beta` the necessary build tags to enable postgres support are
+already enabled by default. The default release binaries or docker images can
+be used. To build from source, simply run:
 
 ```shell
-⛰  make tags="kvdb_postgres"
+⛰  make install
 ```
 
 ## Configuring Postgres for LND
@@ -29,3 +31,13 @@ LND is configured for Postgres through the following configuration options:
   database, user and password.
 * `db.postgres.timeout=...` to set the connection timeout. If not set, no
   timeout applies.
+
+Example as follows:
+```
+[db]
+db.backend=postgres
+db.postgres.dsn=postgresql://dbuser:dbpass@127.0.0.1:5432/dbname
+db.postgres.timeout=0
+```
+Connection timeout is disabled, to account for situations where the database
+might be slow for unexpected reasons.

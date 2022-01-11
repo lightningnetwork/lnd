@@ -285,7 +285,6 @@ func extraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool) []string {
 
 	if etcdCfg.InsecureSkipVerify {
 		extraArgs = append(extraArgs, "--db.etcd.insecure_skip_verify")
-
 	}
 
 	if cluster {
@@ -619,7 +618,6 @@ func (n *NetworkHarness) EnsureConnected(t *testing.T, a, b *HarnessNode) {
 				predErr = err
 				return false
 			}
-
 		}, DefaultTimeout)
 		if err != nil {
 			return fmt.Errorf("connection not succeeded within 15 "+
@@ -1353,7 +1351,6 @@ func (n *NetworkHarness) WaitForChannelClose(
 // an optional set of check functions which can be used to make further
 // assertions using channel's values. These functions are responsible for
 // failing the test themselves if they do not pass.
-// nolint: interfacer
 func (n *NetworkHarness) AssertChannelExists(node *HarnessNode,
 	chanPoint *wire.OutPoint, checks ...func(*lnrpc.Channel)) error {
 

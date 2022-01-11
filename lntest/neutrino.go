@@ -42,6 +42,12 @@ func (b NeutrinoBackendConfig) DisconnectMiner() error {
 	return fmt.Errorf("unimplemented")
 }
 
+// Credentials returns the rpc username, password and host for the backend.
+// For neutrino, we return an error because there is no rpc client available.
+func (b NeutrinoBackendConfig) Credentials() (string, string, string, error) {
+	return "", "", "", fmt.Errorf("unimplemented")
+}
+
 // Name returns the name of the backend type.
 func (b NeutrinoBackendConfig) Name() string {
 	return NeutrinoBackendName

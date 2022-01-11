@@ -67,6 +67,11 @@ func (b BtcdBackendConfig) DisconnectMiner() error {
 	return b.harness.Client.Node(btcjson.NDisconnect, b.minerAddr, &temp)
 }
 
+// Credentials returns the rpc username, password and host for the backend.
+func (b BtcdBackendConfig) Credentials() (string, string, string, error) {
+	return b.rpcConfig.User, b.rpcConfig.Pass, b.rpcConfig.Host, nil
+}
+
 // Name returns the name of the backend type.
 func (b BtcdBackendConfig) Name() string {
 	return "btcd"

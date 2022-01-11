@@ -866,6 +866,22 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(req)
 		},
+		MsgPing: func(v []reflect.Value, r *rand.Rand) {
+			// We use a special message generator here to ensure we
+			// don't generate ping messages that are too large,
+			// which'll cause the test to fail.
+			//
+			// We'll allow the test to generate padding bytes up to
+			// the max message limit, factoring in the 2 bytes for
+			// the num pong bytes.
+			paddingBytes := make([]byte, r.Intn(MaxMsgBody-1))
+			req := Ping{
+				NumPongBytes: uint16(r.Intn(MaxPongBytes + 1)),
+				PaddingBytes: paddingBytes,
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
 	}
 
 	// With the above types defined, we'll now generate a slice of

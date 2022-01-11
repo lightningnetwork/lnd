@@ -38,9 +38,16 @@ var _ Message = (*Ping)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (p *Ping) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
-		&p.NumPongBytes,
-		&p.PaddingBytes)
+	err := ReadElements(r, &p.NumPongBytes, &p.PaddingBytes)
+	if err != nil {
+		return err
+	}
+
+	if p.NumPongBytes > MaxPongBytes {
+		return ErrMaxPongBytesExceeded
+	}
+
+	return nil
 }
 
 // Encode serializes the target Ping into the passed io.Writer observing the

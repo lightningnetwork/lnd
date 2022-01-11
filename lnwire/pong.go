@@ -2,8 +2,18 @@ package lnwire
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 )
+
+// MaxPongBytes is the maximum number of extra bytes a pong can be requested to
+// send. The type of the message (19) takes 2 bytes, the length field takes up
+// 2 bytes, leaving 65531 bytes.
+const MaxPongBytes = 65531
+
+// ErrMaxPongBytesExceeded indicates that the NumPongBytes field from the ping
+// message has exceeded MaxPongBytes.
+var ErrMaxPongBytesExceeded = fmt.Errorf("pong bytes exceeded")
 
 // PongPayload is a set of opaque bytes sent in response to a ping message.
 type PongPayload []byte

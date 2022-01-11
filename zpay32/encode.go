@@ -164,6 +164,17 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 		}
 	}
 
+	if invoice.Metadata != nil {
+		base32, err := bech32.ConvertBits(invoice.Metadata, 8, 5, true)
+		if err != nil {
+			return err
+		}
+		err = writeTaggedField(bufferBase32, fieldTypeM, base32)
+		if err != nil {
+			return err
+		}
+	}
+
 	if invoice.minFinalCLTVExpiry != nil {
 		finalDelta := uint64ToBase32(*invoice.minFinalCLTVExpiry)
 		err := writeTaggedField(bufferBase32, fieldTypeC, finalDelta)

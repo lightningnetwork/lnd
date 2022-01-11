@@ -1779,7 +1779,7 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 			continue
 		}
 
-		log.Tracef("ChannelArbitrator(%v): immediately failing "+
+		log.Infof("ChannelArbitrator(%v): immediately failing "+
 			"htlc=%x from remote commitment",
 			c.cfg.ChanPoint, htlc.RHash[:])
 

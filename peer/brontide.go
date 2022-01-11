@@ -327,6 +327,12 @@ type Config struct {
 	// from the peer.
 	HandleCustomMessage func(peer [33]byte, msg *lnwire.Custom) error
 
+	// PongBuf is a slice we'll reuse instead of allocating memory on the
+	// heap. Since only reads will occur and no writes, there is no need
+	// for any synchronization primitives. As a result, it's safe to share
+	// this across multiple Peer struct instances.
+	PongBuf []byte
+
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
 }
@@ -1394,10 +1400,8 @@ out:
 
 			// Next, we'll send over the amount of specified pong
 			// bytes.
-			//
-			// TODO(roasbeef): read out from pong scratch instead?
-			pongBytes := make([]byte, msg.NumPongBytes)
-			p.queueMsg(lnwire.NewPong(pongBytes), nil)
+			pong := lnwire.NewPong(p.cfg.PongBuf[0:msg.NumPongBytes])
+			p.queueMsg(pong, nil)
 
 		case *lnwire.OpenChannel,
 			*lnwire.AcceptChannel,

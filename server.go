@@ -229,6 +229,12 @@ type server struct {
 	// intended to replace it.
 	scheduledPeerConnection map[string]func()
 
+	// pongBuf is a shared pong reply buffer we'll use across all active
+	// peer goroutines. We know the max size of a pong message
+	// (lnwire.MaxPongBytes), so we can allocate this ahead of time, and
+	// avoid allocations each time we need to send a pong message.
+	pongBuf []byte
+
 	cc *chainreg.ChainControl
 
 	fundingMgr *funding.Manager
@@ -582,6 +588,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		peerErrors:              make(map[string]*queue.CircularBuffer),
 		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
 		scheduledPeerConnection: make(map[string]func()),
+		pongBuf:                 make([]byte, lnwire.MaxPongBytes),
 
 		peersByPub:                make(map[string]*peer.Brontide),
 		inboundPeers:              make(map[string]*peer.Brontide),
@@ -3490,6 +3497,8 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		AnchorTowerClient:       s.anchorTowerClient,
 		DisconnectPeer:          s.DisconnectPeer,
 		GenNodeAnnouncement:     s.genNodeAnnouncement,
+
+		PongBuf: s.pongBuf,
 
 		PrunePersistentPeerConnection: s.prunePersistentPeerConnection,
 

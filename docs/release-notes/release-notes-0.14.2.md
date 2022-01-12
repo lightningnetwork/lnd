@@ -78,6 +78,10 @@ connection from the watch-only node.
 * [Fix missing label on streamed
   transactions](https://github.com/lightningnetwork/lnd/pull/5854).
 
+* [Closing txid is now
+  exposed](https://github.com/lightningnetwork/lnd/pull/6146) inside
+  WaitingCloseResp from calling `PendingChannels`.
+
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath

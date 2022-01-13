@@ -876,7 +876,7 @@ func TestCustomShutdownScript(t *testing.T) {
 
 			// If the test has not specified an expected address, do not check
 			// whether the shutdown address matches. This covers the case where
-			// we epect shutdown to a random address and cannot match it.
+			// we expect shutdown to a random address and cannot match it.
 			if len(test.expectedScript) == 0 {
 				return
 			}

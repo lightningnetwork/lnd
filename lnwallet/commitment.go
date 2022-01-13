@@ -193,7 +193,7 @@ type ScriptInfo struct {
 // CommitScriptToSelf constructs the public key script for the output on the
 // commitment transaction paying to the "owner" of said commitment transaction.
 // The `initiator` argument should correspond to the owner of the commitment
-// tranasction which we are generating the to_local script for. If the other
+// transaction which we are generating the to_local script for. If the other
 // party learns of the preimage to the revocation hash, then they can claim all
 // the settled funds in the channel, plus the unsettled funds.
 func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
@@ -234,7 +234,7 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 
 // CommitScriptToRemote derives the appropriate to_remote script based on the
 // channel's commitment type. The `initiator` argument should correspond to the
-// owner of the commitment tranasction which we are generating the to_remote
+// owner of the commitment transaction which we are generating the to_remote
 // script for. The second return value is the CSV delay of the output script,
 // what must be satisfied in order to spend the output.
 func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
@@ -340,7 +340,7 @@ func HtlcSecondLevelInputSequence(chanType channeldb.ChannelType) uint32 {
 // output for the second-level HTLC transactions. The second level transaction
 // act as a sort of covenant, ensuring that a 2-of-2 multi-sig output can only
 // be spent in a particular way, and to a particular output. The `initiator`
-// argument should correspond to the owner of the commitment tranasction which
+// argument should correspond to the owner of the commitment transaction which
 // we are generating the to_local script for.
 func SecondLevelHtlcScript(chanType channeldb.ChannelType, initiator bool,
 	revocationKey, delayKey *btcec.PublicKey,
@@ -725,7 +725,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 // spent after a relative block delay or revocation event, and a remote output
 // paying the counterparty within the channel, which can be spent immediately
 // or after a delay depending on the commitment type. The `initiator` argument
-// should correspond to the owner of the commitment tranasction we are creating.
+// should correspond to the owner of the commitment transaction we are creating.
 func CreateCommitTx(chanType channeldb.ChannelType,
 	fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,

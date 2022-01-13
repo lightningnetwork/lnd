@@ -69,12 +69,12 @@ type ChanStatusConfig struct {
 	Graph ChannelGraph
 
 	// ChanEnableTimeout is the duration a peer's connect must remain stable
-	// before attempting to reenable the channel.
+	// before attempting to re-enable the channel.
 	//
 	// NOTE: This value is only used to verify that the relation between
 	// itself, ChanDisableTimeout, and ChanStatusSampleInterval is correct.
 	// The user is still responsible for ensuring that the same duration
-	// elapses before attempting to reenable a channel.
+	// elapses before attempting to re-enable a channel.
 	ChanEnableTimeout time.Duration
 
 	// ChanDisableTimeout is the duration the manager will wait after
@@ -138,7 +138,7 @@ func NewChanStatusManager(cfg *ChanStatusConfig) (*ChanStatusManager, error) {
 	// enable_timeout + sample_interval to be less than or equal to the
 	// disable_timeout and that all are positive values. A peer that
 	// disconnects and reconnects quickly may cause a disable update to be
-	// sent, shortly followed by a reenable. Ensuring a healthy separation
+	// sent, shortly followed by a re-enable. Ensuring a healthy separation
 	// helps dampen the possibility of spamming updates that toggle the
 	// disable bit for such events.
 	if cfg.ChanStatusSampleInterval <= 0 {
@@ -492,7 +492,7 @@ func (m *ChanStatusManager) processAutoRequest(outpoint wire.OutPoint) error {
 // scheduled. Once an active channel is determined to be pending-inactive, one
 // of two transitions can follow. Either the channel is disabled because no
 // request to enable is received before the scheduled disable is broadcast, or
-// the channel is successfully reenabled and channel is returned to an active
+// the channel is successfully re-enabled and channel is returned to an active
 // state from the POV of the ChanStatusManager.
 func (m *ChanStatusManager) markPendingInactiveChannels() {
 	channels, err := m.fetchChannels()

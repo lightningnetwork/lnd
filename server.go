@@ -4354,8 +4354,8 @@ func newSweepPkScriptGen(
 }
 
 // shouldPeerBootstrap returns true if we should attempt to perform peer
-// boostrapping to actively seek our peers using the set of active network
-// bootsrappers.
+// bootstrapping to actively seek our peers using the set of active network
+// bootstrappers.
 func shouldPeerBootstrap(cfg *Config) bool {
 	isSimnet := (cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet)
 	isSignet := (cfg.Bitcoin.SigNet || cfg.Litecoin.SigNet)

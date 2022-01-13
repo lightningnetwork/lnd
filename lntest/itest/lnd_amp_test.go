@@ -163,7 +163,7 @@ func testSendPaymentAMPInvoiceCase(net *lntest.NetworkHarness, t *harnessTest,
 	require.NoError(t.t, err)
 
 	// Also fetch Bob's invoice from ListInvoices and assert it is equal to
-	// the one recevied via the subscription.
+	// the one received via the subscription.
 	invoiceResp, err := ctx.bob.ListInvoices(
 		ctxb, &lnrpc.ListInvoiceRequest{},
 	)
@@ -695,7 +695,7 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// Also fetch Bob's invoice from ListInvoices and assert it is equal to
-	// the one recevied via the subscription.
+	// the one received via the subscription.
 	invoiceResp, err := ctx.bob.ListInvoices(
 		ctxb, &lnrpc.ListInvoiceRequest{},
 	)

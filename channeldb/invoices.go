@@ -895,7 +895,7 @@ func validateInvoice(i *Invoice, paymentHash lntypes.Hash) error {
 	return nil
 }
 
-// IsPending returns ture if the invoice is in ContractOpen state.
+// IsPending returns true if the invoice is in ContractOpen state.
 func (i *Invoice) IsPending() bool {
 	return i.State == ContractOpen || i.State == ContractAccepted
 }
@@ -1189,7 +1189,7 @@ func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex, setIDIndex kvdb.RBucket,
 	}
 }
 
-// ScanInvoices scans trough all invoices and calls the passed scanFunc for
+// ScanInvoices scans through all invoices and calls the passed scanFunc for
 // for each invoice with its respective payment hash. Additionally a reset()
 // closure is passed which is used to reset/initialize partial results and also
 // to signal if the kvdb.View transaction has been retried.
@@ -3020,7 +3020,7 @@ func updateInvoiceState(invoice *Invoice, hash *lntypes.Hash,
 	}
 }
 
-// cancelSingleHtlc validates cancelation of a single htlc and update its state.
+// cancelSingleHtlc validates cancellation of a single htlc and update its state.
 func cancelSingleHtlc(resolveTime time.Time, htlc *InvoiceHTLC,
 	invState ContractState) error {
 

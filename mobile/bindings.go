@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-// lndStarted will be used atomically to ensure only a singel lnd instance is
+// lndStarted will be used atomically to ensure only a single lnd instance is
 // attempted to be started at once.
 var lndStarted int32
 

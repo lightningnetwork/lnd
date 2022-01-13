@@ -195,7 +195,7 @@ type PaymentAttemptDispatcher interface {
 }
 
 // PaymentSessionSource is an interface that defines a source for the router to
-// retrive new payment sessions.
+// retrieve new payment sessions.
 type PaymentSessionSource interface {
 	// NewPaymentSession creates a new payment session that will produce
 	// routes to the given target. An optional set of routing hints can be
@@ -2579,7 +2579,7 @@ func (r *ChannelRouter) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 	return exists || isZombie
 }
 
-// IsStaleEdgePolicy returns true if the graph soruce has a channel edge for
+// IsStaleEdgePolicy returns true if the graph source has a channel edge for
 // the passed channel ID (and flags) that have a more recent timestamp.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.

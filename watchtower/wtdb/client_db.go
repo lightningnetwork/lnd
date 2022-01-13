@@ -615,7 +615,7 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 	}, func() {})
 }
 
-// createSessionKeyIndexKey returns the indentifier used in the
+// createSessionKeyIndexKey returns the identifier used in the
 // session-key-index index, created as tower-id||blob-type.
 //
 // NOTE: The original serialization only used tower-id, which prevents

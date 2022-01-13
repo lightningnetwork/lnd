@@ -819,7 +819,7 @@ func (hn *HarnessNode) Init(
 		initReq.StatelessInit, response.AdminMacaroon,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("faied to init: %w", err)
+		return nil, fmt.Errorf("failed to init: %w", err)
 	}
 
 	return response, nil

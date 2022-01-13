@@ -192,7 +192,7 @@ func (l *Lookout) processEpoch(epoch *chainntnfs.BlockEpoch,
 
 	// For each match, use our index to retrieve the original transaction,
 	// which corresponds to the breaching commitment transaction. If the
-	// decryption succeeds, we will accumlate the assembled justice
+	// decryption succeeds, we will accumulate the assembled justice
 	// descriptors in a single slice
 	var successes []*JusticeDescriptor
 	for _, match := range matches {

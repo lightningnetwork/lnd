@@ -551,7 +551,7 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 	require.Equal(t, 1, indexCount)
 }
 
-// TestPaymentControlDeletePayments tests that DeletePayments correcly deletes
+// TestPaymentControlDeletePayments tests that DeletePayments correctly deletes
 // information about completed payments from the database.
 func TestPaymentControlDeletePayments(t *testing.T) {
 	t.Parallel()
@@ -605,7 +605,7 @@ func TestPaymentControlDeletePayments(t *testing.T) {
 	assertPayments(t, db, payments[2:])
 }
 
-// TestPaymentControlDeleteSinglePayment tests that DeletePayment correcly
+// TestPaymentControlDeleteSinglePayment tests that DeletePayment correctly
 // deletes information about a completed payment from the database.
 func TestPaymentControlDeleteSinglePayment(t *testing.T) {
 	t.Parallel()

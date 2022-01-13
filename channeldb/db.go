@@ -1037,7 +1037,7 @@ func (c *ChannelStateDB) pruneLinkNode(openChannels []*OpenChannel,
 	return c.linkNodeDB.DeleteLinkNode(remotePub)
 }
 
-// PruneLinkNodes attempts to prune all link nodes found within the databse with
+// PruneLinkNodes attempts to prune all link nodes found within the database with
 // whom we no longer have any open channels with.
 func (c *ChannelStateDB) PruneLinkNodes() error {
 	allLinkNodes, err := c.linkNodeDB.FetchAllLinkNodes()
@@ -1189,7 +1189,7 @@ func (c *ChannelStateDB) AbandonChannel(chanPoint *wire.OutPoint,
 		}
 
 		// If the channel was already closed, then we don't return an
-		// error as we'd like fro this step to be repeatable.
+		// error as we'd like this step to be repeatable.
 		return nil
 	case err != nil:
 		return err

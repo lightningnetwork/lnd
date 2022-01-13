@@ -46,7 +46,7 @@ type Tower struct {
 
 // AddAddress adds the given address to the tower's in-memory list of addresses.
 // If the address's string is already present, the Tower will be left
-// unmodified. Otherwise, the adddress is prepended to the beginning of the
+// unmodified. Otherwise, the address is prepended to the beginning of the
 // Tower's addresses, on the assumption that it is fresher than the others.
 //
 // NOTE: This method is NOT safe for concurrent use.

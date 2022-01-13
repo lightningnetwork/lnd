@@ -266,7 +266,7 @@ func Features(features *lnwire.FeatureVector) func(*Invoice) {
 }
 
 // PaymentAddr is a functional option that allows callers of NewInvoice to set
-// the desired payment address tht is advertised on the invoice.
+// the desired payment address that is advertised on the invoice.
 func PaymentAddr(addr [32]byte) func(*Invoice) {
 	return func(i *Invoice) {
 		i.PaymentAddr = &addr

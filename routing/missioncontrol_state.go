@@ -91,7 +91,7 @@ func (m *missionControlState) setLastPairResult(fromNode, toNode route.Vertex,
 	} else {
 		// For failures we always want to update both the amount and the
 		// time. Those need to relate to the same result, because the
-		// time is used to gradually diminish the penality for that
+		// time is used to gradually diminish the penalty for that
 		// specific result. Updating the timestamp but not the amount
 		// could cause a failure for a lower amount (a more severe
 		// condition) to be revived as if it just happened.

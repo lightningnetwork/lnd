@@ -289,7 +289,7 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 					payment.Status)
 			}
 		case <-time.After(5 * time.Second):
-			t.Fatalf("in flight status not recevied")
+			t.Fatalf("in flight status not received")
 		}
 	}
 
@@ -341,7 +341,7 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 				payment = p
 			case <-time.After(5 * time.Second):
-				t.Fatalf("in flight status not recevied")
+				t.Fatalf("in flight status not received")
 			}
 		}
 

@@ -53,7 +53,7 @@ ws.onmessage = function (event) {
     console.log(JSON.parse(event.data).result);
 }
 ws.onerror = function (event) {
-    // An error occured, let's log it to the console.
+    // An error occurred, let's log it to the console.
     console.log(event);
 }
 ```

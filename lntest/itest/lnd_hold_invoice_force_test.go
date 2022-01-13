@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testHoldInvoiceForceClose tests cancelation of accepted hold invoices which
+// testHoldInvoiceForceClose tests cancellation of accepted hold invoices which
 // would otherwise trigger force closes when they expire.
 func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb, cancel := context.WithCancel(context.Background())

@@ -28,7 +28,7 @@ type validationSignals struct {
 // validate the item on the left of the arrow before that on the right.
 type ValidationBarrier struct {
 	// validationSemaphore is a channel of structs which is used as a
-	// sempahore. Initially we'll fill this with a buffered channel of the
+	// semaphore. Initially we'll fill this with a buffered channel of the
 	// size of the number of active requests. Each new job will consume
 	// from this channel, then restore the value upon completion.
 	validationSemaphore chan struct{}
@@ -68,7 +68,7 @@ func NewValidationBarrier(numActiveReqs int,
 		quit:                 quitChan,
 	}
 
-	// We'll first initialize a set of sempahores to limit our concurrency
+	// We'll first initialize a set of semaphores to limit our concurrency
 	// when validating incoming requests in parallel.
 	v.validationSemaphore = make(chan struct{}, numActiveReqs)
 	for i := 0; i < numActiveReqs; i++ {

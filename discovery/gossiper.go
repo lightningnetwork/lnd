@@ -286,7 +286,7 @@ type cachedNetworkMsg struct {
 }
 
 // Size returns the "size" of an entry. We return the number of items as we
-// just want to limit the total amount of entires rather than do accurate size
+// just want to limit the total amount of entries rather than do accurate size
 // accounting.
 func (c *cachedNetworkMsg) Size() (uint64, error) {
 	return uint64(len(c.msgs)), nil

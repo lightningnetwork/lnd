@@ -420,7 +420,7 @@ func runStateUpdateTest(test stateUpdateTest) func(*towerDBHarness) {
 				continue
 			}
 
-			// Don't perform the following checks and modfications
+			// Don't perform the following checks and modifications
 			// if we don't have an expected session to compare
 			// against.
 			if expSession == nil {

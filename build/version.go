@@ -26,7 +26,7 @@ var (
 	RawTags string
 
 	// GoVersion stores the go version that the executable was compiled
-	// with. This hsould be set using -ldflags during compilation.
+	// with. This should be set using -ldflags during compilation.
 	GoVersion string
 )
 

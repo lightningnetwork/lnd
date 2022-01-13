@@ -102,7 +102,7 @@ type ChainArbitratorConfig struct {
 	// ContractBreach is a function closure that the ChainArbitrator will
 	// use to notify the breachArbiter about a contract breach. A callback
 	// should be passed that when called will mark the channel pending
-	// close in the databae. It should only return a non-nil error when the
+	// close in the database. It should only return a non-nil error when the
 	// breachArbiter has preserved the necessary breach info for this
 	// channel point, and the callback has succeeded, meaning it is safe to
 	// stop watching the channel.
@@ -846,8 +846,8 @@ func (c *ChainArbitrator) publishClosingTxs(
 // rebroadcast is a helper method which will republish the unilateral or
 // cooperative close transaction or a channel in a particular state.
 //
-// NOTE: There is no risk to caling this method if the channel isn't in either
-// CommimentBroadcasted or CoopBroadcasted, but the logs will be misleading.
+// NOTE: There is no risk to calling this method if the channel isn't in either
+// CommitmentBroadcasted or CoopBroadcasted, but the logs will be misleading.
 func (c *ChainArbitrator) rebroadcast(channel *channeldb.OpenChannel,
 	state channeldb.ChannelStatus) error {
 

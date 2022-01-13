@@ -213,7 +213,7 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 	require.NoError(t.t, err, "bob didn't report channel")
 
 	cType, err := channelCommitType(alice, chanPoint)
-	require.NoError(t.t, err, "unable to get channnel type")
+	require.NoError(t.t, err, "unable to get channel type")
 
 	// With the channel open, ensure that the amount specified above has
 	// properly been pushed to Bob.

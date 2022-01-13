@@ -75,6 +75,6 @@ func (g *GossipTimestampRange) MsgType() MessageType {
 func (g *GossipTimestampRange) MaxPayloadLength(uint32) uint32 {
 	// 32 + 4 + 4
 	//
-	// TODO(roasbeef): update to 8 byte timestmaps?
+	// TODO(roasbeef): update to 8 byte timestamps?
 	return 40
 }

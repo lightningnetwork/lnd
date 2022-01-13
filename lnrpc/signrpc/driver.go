@@ -36,7 +36,7 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 	}
 
 	// Before we try to make the new signer service instance, we'll perform
-	// some sanity checks on the arguments to ensure that they're useable.
+	// some sanity checks on the arguments to ensure that they're usable.
 
 	switch {
 	// If the macaroon service is set (we should use macaroons), then

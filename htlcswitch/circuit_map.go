@@ -438,7 +438,7 @@ func (cm *circuitMap) cleanClosedChannels() error {
 			return ErrCorruptedCircuitMap
 		}
 
-		// Delete the ciruit.
+		// Delete the circuit.
 		for inKey := range circuitKeySet {
 			if err := circuitBkt.Delete(inKey.Bytes()); err != nil {
 				return err

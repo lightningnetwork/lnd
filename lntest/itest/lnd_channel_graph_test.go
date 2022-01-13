@@ -393,7 +393,7 @@ func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned b
 	// Bob stimmy.
 	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, bob)
 
-	// Assert that Bob has the correct sync type before proceeeding.
+	// Assert that Bob has the correct sync type before proceeding.
 	if pinned {
 		assertSyncType(t, alice, bobPubkey, lnrpc.Peer_PINNED_SYNC)
 	} else {
@@ -426,7 +426,7 @@ func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned b
 		// Ensure that a new update for both created edges is properly
 		// dispatched to our registered client.
 		case graphUpdate := <-graphSub.updateChan:
-			// Process all channel updates prsented in this update
+			// Process all channel updates presented in this update
 			// message.
 			for _, chanUpdate := range graphUpdate.ChannelUpdates {
 				switch chanUpdate.AdvertisingNode {

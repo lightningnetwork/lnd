@@ -64,11 +64,11 @@ var (
 		"amount")
 
 	// ErrNonMPPayment is returned if we try to register an MPP attempt for
-	// a payment that already has a non-MPP attempt regitered.
+	// a payment that already has a non-MPP attempt registered.
 	ErrNonMPPayment = errors.New("payment has non-MPP attempts")
 
 	// ErrMPPayment is returned if we try to register a non-MPP attempt for
-	// a payment that already has an MPP attempt regitered.
+	// a payment that already has an MPP attempt registered.
 	ErrMPPayment = errors.New("payment has MPP attempts")
 
 	// ErrMPPPaymentAddrMismatch is returned if we try to register an MPP
@@ -106,7 +106,7 @@ func NewPaymentControl(db *DB) *PaymentControl {
 
 // InitPayment checks or records the given PaymentCreationInfo with the DB,
 // making sure it does not already exist as an in-flight payment. When this
-// method returns successfully, the payment is guranteeed to be in the InFlight
+// method returns successfully, the payment is guaranteed to be in the InFlight
 // state.
 func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 	info *PaymentCreationInfo) error {

@@ -15,7 +15,7 @@ import (
 // restarts. Payments are transitioned through various payment states, and the
 // ControlTower interface provides access to driving the state transitions.
 type ControlTower interface {
-	// This method checks that no suceeded payment exist for this payment
+	// This method checks that no succeeded payment exist for this payment
 	// hash.
 	InitPayment(lntypes.Hash, *channeldb.PaymentCreationInfo) error
 
@@ -117,7 +117,7 @@ func NewControlTower(db *channeldb.PaymentControl) ControlTower {
 
 // InitPayment checks or records the given PaymentCreationInfo with the DB,
 // making sure it does not already exist as an in-flight payment. Then this
-// method returns successfully, the payment is guranteeed to be in the InFlight
+// method returns successfully, the payment is guaranteed to be in the InFlight
 // state.
 func (p *controlTower) InitPayment(paymentHash lntypes.Hash,
 	info *channeldb.PaymentCreationInfo) error {
@@ -258,7 +258,7 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 // notifySubscribers sends a final payment event to all subscribers of this
 // payment. The channel will be closed after this. Note that this function must
 // be executed atomically (by means of a lock) with the database update to
-// guarantuee consistency of the notifications.
+// guarantee consistency of the notifications.
 func (p *controlTower) notifySubscribers(paymentHash lntypes.Hash,
 	event *channeldb.MPPayment) {
 

@@ -2329,8 +2329,8 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 	}
 
 	// We'll also add the edge to our zombie index, provide a blank pubkey
-	// for the first node as we're simulating the sitaution where the first
-	// ndoe is updating but the second node isn't. In this case we only
+	// for the first node as we're simulating the situation where the first
+	// node is updating but the second node isn't. In this case we only
 	// want to allow a new update from the second node to allow the entire
 	// edge to be resurrected.
 	chanID := batch.chanAnn.ShortChannelID
@@ -2350,7 +2350,7 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 	}
 	processAnnouncement(batch.chanUpdAnn1, true, true)
 
-	// At this point, the channel should still be consiered a zombie.
+	// At this point, the channel should still be considered a zombie.
 	_, _, _, err = ctx.router.GetChannelByID(chanID)
 	if err != channeldb.ErrZombieEdge {
 		t.Fatalf("channel should still be a zombie")
@@ -2448,7 +2448,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	remotePeer := &mockPeer{remoteKey, sentMsgs, ctx.gossiper.quit}
 
 	// Override NotifyWhenOnline to return the remote peer which we expect
-	// meesages to be sent to.
+	// messages to be sent to.
 	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(peer [33]byte,
 		peerChan chan<- lnpeer.Peer) {
 
@@ -2645,7 +2645,7 @@ func TestExtraDataChannelAnnouncementValidation(t *testing.T) {
 	// We'll now create an announcement that contains an extra set of bytes
 	// that we don't know of ourselves, but should still include in the
 	// final signature check.
-	extraBytes := []byte("gotta validate this stil!")
+	extraBytes := []byte("gotta validate this still!")
 	ca, err := createRemoteChannelAnnouncement(0, extraBytes)
 	if err != nil {
 		t.Fatalf("can't create channel announcement: %v", err)
@@ -2828,7 +2828,7 @@ func TestRetransmit(t *testing.T) {
 	}
 	remotePeer := &mockPeer{remoteKey, nil, nil}
 
-	// Process a local channel annoucement, channel update and node
+	// Process a local channel announcement, channel update and node
 	// announcement. No messages should be broadcasted yet, since no proof
 	// has been exchanged.
 	assertProcessAnnouncement(
@@ -2961,7 +2961,7 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 	}
 
 	// Now add the node's channel to the graph by processing the channel
-	// announement and channel update.
+	// announcement and channel update.
 	select {
 	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.chanAnn,
 		remotePeer):
@@ -3002,7 +3002,7 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 		}
 	}
 
-	// Processing the same node announement again should be ignored, as it
+	// Processing the same node announcement again should be ignored, as it
 	// is stale.
 	select {
 	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.nodeAnn2,

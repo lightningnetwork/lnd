@@ -20,7 +20,7 @@ const (
 	// detected in an inactive state. Channels in this state will have a
 	// disabling announcement sent after the ChanInactiveTimeout expires
 	// from the time of the first detection--unless the channel is
-	// explicitly reenabled before the disabling occurs.
+	// explicitly re-enabled before the disabling occurs.
 	ChanStatusPendingDisabled
 
 	// ChanStatusDisabled indicates that the channel's last announcement has

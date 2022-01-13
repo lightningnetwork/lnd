@@ -223,7 +223,7 @@ If Android Studio tells you that the `aar` file cannot be included into the `app
 
 ![separate_gradle_module](docs/separate_gradle_module.png)
 
-3. Gradle file should countain only these lines:
+3. Gradle file should contain only these lines:
 
 ```shell
 configurations.maybeCreate("default")

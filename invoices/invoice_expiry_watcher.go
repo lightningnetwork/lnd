@@ -31,7 +31,7 @@ type invoiceExpiryTs struct {
 }
 
 // Less implements PriorityQueueItem.Less such that the top item in the
-// priorty queue will be the one that expires next.
+// priority queue will be the one that expires next.
 func (e invoiceExpiryTs) Less(other queue.PriorityQueueItem) bool {
 	return e.Expiry.Before(other.(*invoiceExpiryTs).Expiry)
 }
@@ -58,10 +58,10 @@ func (b invoiceExpiryHeight) expired(currentHeight, delta uint32) bool {
 	return currentHeight+delta >= b.expiryHeight
 }
 
-// InvoiceExpiryWatcher handles automatic invoice cancellation of expried
+// InvoiceExpiryWatcher handles automatic invoice cancellation of expired
 // invoices. Upon start InvoiceExpiryWatcher will retrieve all pending (not yet
-// settled or canceled) invoices invoices to its watcing queue. When a new
-// invoice is added to the InvoiceRegistry, it'll be forarded to the
+// settled or canceled) invoices invoices to its watching queue. When a new
+// invoice is added to the InvoiceRegistry, it'll be forwarded to the
 // InvoiceExpiryWatcher and will end up in the watching queue as well.
 // If any of the watched invoices expire, they'll be removed from the watching
 // queue and will be cancelled through InvoiceRegistry.CancelInvoice().

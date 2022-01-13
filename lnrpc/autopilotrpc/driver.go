@@ -36,7 +36,7 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 	}
 
 	// Before we try to make the new service instance, we'll perform
-	// some sanity checks on the arguments to ensure that they're useable.
+	// some sanity checks on the arguments to ensure that they're usable.
 	switch {
 	case config.Manager == nil:
 		return nil, nil, fmt.Errorf("Manager must be set to create " +

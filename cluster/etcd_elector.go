@@ -23,7 +23,7 @@ const (
 // Enforce that etcdLeaderElector implements the LeaderElector interface.
 var _ LeaderElector = (*etcdLeaderElector)(nil)
 
-// etcdLeaderElector is an implemetation of LeaderElector using etcd as the
+// etcdLeaderElector is an implementation of LeaderElector using etcd as the
 // election governor.
 type etcdLeaderElector struct {
 	id       string

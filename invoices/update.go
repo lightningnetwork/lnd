@@ -286,7 +286,7 @@ type HTLCPreimages = map[channeldb.CircuitKey]lntypes.Preimage
 // verifies that all derived child hashes match the payment hashes of the HTLCs
 // in the set. This method is meant to be called after receiving the full amount
 // committed to via mpp_total_msat. This method will return a fail resolution if
-// any of the child hashes fail to matche theire corresponding HTLCs.
+// any of the child hashes fail to match their corresponding HTLCs.
 func reconstructAMPPreimages(ctx *invoiceUpdateCtx,
 	htlcSet HTLCSet) (HTLCPreimages, *HtlcFailResolution) {
 

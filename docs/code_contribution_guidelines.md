@@ -12,7 +12,7 @@
    1. [Code Spacing](#code-spacing)
    1. [Protobuf Compilation](#protobuf-compilation)
    1. [Additional Style Constraints On Top of gofmt](#additional-style-constraints-on-top-of-gofmt)
-   1. [Pointing to Remote Dependant Branches in Go Modules](#pointing-to-remote-dependant-branches-in-go-modules)
+   1. [Pointing to Remote Dependent Branches in Go Modules](#pointing-to-remote-dependent-branches-in-go-modules)
    1. [Use of Log Levels](#use-of-log-levels)
 5. [Code Approval Process](#code-approval-process)
    1. [Code Review](#code-review)
@@ -546,7 +546,7 @@ to `gofmt` we've opted to enforce the following style guidelines.
 log and error messages, committers should attempt to minimize the number of
 lines utilized, while still adhering to the 80-character column limit.
 
-## Pointing to Remote Dependant Branches in Go Modules
+## Pointing to Remote Dependent Branches in Go Modules
 
 It's common that a developer may need to make a change in a dependent project
 of `lnd` such as `btcd`, `neutrino`, `btcwallet`, etc. In order to test changes

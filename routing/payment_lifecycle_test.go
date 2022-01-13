@@ -352,7 +352,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		},
 		{
 			// Tests that the router is able to handle the
-			// receieved payment result after a restart.
+			// received payment result after a restart.
 			name: "single shot restart",
 
 			steps: []string{
@@ -453,7 +453,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 		chainView := newMockChainView(chain)
 
 		// We set uo the use the following channels and a mock Payer to
-		// synchonize with the interaction to the Switch.
+		// synchronize with the interaction to the Switch.
 		sendResult := make(chan error)
 		paymentResult := make(chan *htlcswitch.PaymentResult)
 
@@ -688,7 +688,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 
 		// In this state we expect the router to call the
 		// GetPaymentResult method, and we will respond with a
-		// terminal error, indiating the router should stop
+		// terminal error, indicating the router should stop
 		// making payment attempts.
 		case getPaymentResultTerminalFailure:
 			failure := htlcswitch.NewForwardingError(

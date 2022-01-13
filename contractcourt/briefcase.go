@@ -364,7 +364,7 @@ var (
 	// chain resolutions.
 	errNoResolutions = fmt.Errorf("no contract resolutions exist")
 
-	// errNoActions is retuned when the log doesn't contain any stored
+	// errNoActions is returned when the log doesn't contain any stored
 	// chain actions.
 	errNoActions = fmt.Errorf("no chain actions exist")
 
@@ -1098,7 +1098,7 @@ func (b *boltArbitratorLog) checkpointContract(c ContractResolver,
 	}, func() {})
 }
 
-// encodeSignDetails encodes the gived SignDetails struct to the writer.
+// encodeSignDetails encodes the given SignDetails struct to the writer.
 // SignDetails is allowed to be nil, in which we will encode that it is not
 // present.
 func encodeSignDetails(w io.Writer, s *input.SignDetails) error {

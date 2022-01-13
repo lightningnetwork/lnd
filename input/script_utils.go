@@ -328,7 +328,7 @@ func SenderHTLCScript(senderHtlcKey, receiverHtlcKey,
 // HTLC to claim the output with knowledge of the revocation private key in the
 // scenario that the sender of the HTLC broadcasts a previously revoked
 // commitment transaction. A valid spend requires knowledge of the private key
-// that corresponds to their revocation base point and also the private key fro
+// that corresponds to their revocation base point and also the private key from
 // the per commitment point, and a valid signature under the combined public
 // key.
 func SenderHtlcSpendRevokeWithKey(signer Signer, signDesc *SignDescriptor,

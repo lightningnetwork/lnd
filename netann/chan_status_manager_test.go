@@ -651,7 +651,7 @@ var stateMachineTests = []stateMachineTest{
 			time.Sleep(100 * time.Millisecond)
 			// Simulate reconnect by making channels active.
 			h.markActive(h.graph.chans())
-			// Request that all channels be reenabled.
+			// Request that all channels be re-enabled.
 			h.assertEnables(h.graph.chans(), nil, false)
 			// Pending disable should have been canceled, and
 			// no updates sent. Channels remain enabled on the

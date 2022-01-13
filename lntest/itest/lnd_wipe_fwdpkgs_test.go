@@ -52,7 +52,7 @@ func testWipeForwardingPackages(net *lntest.NetworkHarness,
 	// close channel should now become pending force closed channel.
 	pendingChan = assertPendingForceClosedChannel(t.t, net.Bob)
 
-	// Check the forwarding pacakges are deleted.
+	// Check the forwarding packages are deleted.
 	require.Zero(t.t, pendingChan.NumForwardingPackages)
 
 	// For Alice, the forwarding packages should have been wiped too.
@@ -87,7 +87,7 @@ func testWipeForwardingPackages(net *lntest.NetworkHarness,
 	// really contains is channels whose closing tx has been broadcast.
 	pendingChan = assertPendingForceClosedChannel(t.t, net.Bob)
 
-	// Check the forwarding pacakges are deleted.
+	// Check the forwarding packages are deleted.
 	require.Zero(t.t, pendingChan.NumForwardingPackages)
 
 	// Mine a block to confirm sweep transactions such that they

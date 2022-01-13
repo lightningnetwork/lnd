@@ -4,7 +4,7 @@
 package lncfg
 
 // Legacy is a sub-config that houses all the legacy protocol options.  These
-// are mostly used for integration tests as most modern nodes shuld always run
+// are mostly used for integration tests as most modern nodes should always run
 // with them on by default.
 type LegacyProtocol struct {
 }

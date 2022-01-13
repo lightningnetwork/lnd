@@ -1094,7 +1094,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		daveBalance := daveBalResp.ConfirmedBalance
 		if daveBalance <= daveStartingBalance {
 			return fmt.Errorf("expected dave to have balance "+
-				"above %d, intead had %v", daveStartingBalance,
+				"above %d, instead had %v", daveStartingBalance,
 				daveBalance)
 		}
 

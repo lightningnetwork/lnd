@@ -72,7 +72,7 @@ func (s *SessionInfo) Encode(w io.Writer) error {
 	)
 }
 
-// Decode deserializes the session infor from the given io.Reader.
+// Decode deserializes the session info from the given io.Reader.
 func (s *SessionInfo) Decode(r io.Reader) error {
 	return ReadElements(r,
 		&s.ID,

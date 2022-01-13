@@ -1199,7 +1199,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		}
 	}
 
-	// Check that each HTLC output was spent exactly onece.
+	// Check that each HTLC output was spent exactly once.
 	for op, num := range htlcTxOutpointSet {
 		if num != 1 {
 			t.Fatalf("HTLC outpoint %v was spent %v times", op, num)

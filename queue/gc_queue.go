@@ -158,10 +158,10 @@ func (q *GCQueue) queueManager() {
 			// recycle ticker to cleanup any entries that go unused.
 			q.recycleTicker.Resume()
 
-		// If the recycle ticker fires, we will aggresively release any
+		// If the recycle ticker fires, we will aggressively release any
 		// write buffers in the freelist for which the expiryInterval
 		// has elapsed since their insertion. If after doing so, no
-		// elements remain, we will pause the recylce ticker.
+		// elements remain, we will pause the recycle ticker.
 		case <-q.recycleTicker.Ticks():
 			// Since the insert time of all entries will be
 			// monotonically increasing, iterate over elements and

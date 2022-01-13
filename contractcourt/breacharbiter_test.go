@@ -1263,7 +1263,7 @@ func TestBreachCreateJusticeTx(t *testing.T) {
 
 	// The spendCommitOuts tx should be spending the 4 typed of commit outs
 	// (note that in practice there will be at most two commit outputs per
-	// commmit, but we test all 4 types here).
+	// commit, but we test all 4 types here).
 	require.Len(t, justiceTxs.spendCommitOuts.TxIn, 4)
 
 	// Finally check that the spendHTLCs tx are spending the two revoked
@@ -1279,7 +1279,7 @@ type breachTest struct {
 
 	// spend2ndLevel requests that second level htlcs be spent *again*, as
 	// if by a remote party or watchtower. The outpoint of the second level
-	// htlc is in effect "readded" to the set of inputs.
+	// htlc is in effect "re-added" to the set of inputs.
 	spend2ndLevel bool
 
 	// sweepHtlc tests that the HTLC output is swept using the revocation

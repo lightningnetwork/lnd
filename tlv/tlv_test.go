@@ -528,7 +528,7 @@ func TestTLVDecodingSuccess(t *testing.T) {
 
 			err = n2.Decode(r)
 			if err != nil {
-				t.Fatalf("expected N2 decoding succes, got: %v",
+				t.Fatalf("expected N2 decoding success, got: %v",
 					err)
 			}
 		})

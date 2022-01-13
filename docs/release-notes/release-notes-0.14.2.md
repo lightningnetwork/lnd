@@ -69,7 +69,9 @@ connection from the watch-only node.
 
 * [Fix duplicate db connection close](https://github.com/lightningnetwork/lnd/pull/6140)
 
-* [Fix a memory leak introduced by the new ping-header p2p enhancement](https://github.com/lightningnetwork/lnd/pull/6144]
+* [Fix a memory leak introduced by the new ping-header p2p enhancement](https://github.com/lightningnetwork/lnd/pull/6144)
+
+* [Fix an issue that would prevent very old nodes from starting up due to lack of a historical channel bucket](https://github.com/lightningnetwork/lnd/pull/6159)
 
 
 ## RPC Server

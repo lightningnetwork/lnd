@@ -147,7 +147,7 @@ const (
 	// |   |   |
 	// |   |   |-> StateCommitmentBroadcasted: chain/user trigger
 	// |   |   |
-	// |   |   |-> StateContractClosed: local/remote close trigger
+	// |   |   |-> StateContractClosed: local/remote/breach close trigger
 	// |   |   |   |
 	// |   |   |   |-> StateWaitingFullResolution: contract resolutions not empty
 	// |   |   |   |   |
@@ -157,9 +157,9 @@ const (
 	// |   |   |   |
 	// |   |   |   |-> StateFullyResolved: contract resolutions empty
 	// |   |   |
-	// |   |   |-> StateFullyResolved: coop/breach close trigger
+	// |   |   |-> StateFullyResolved: coop/breach(legacy) close trigger
 	// |   |
-	// |   |-> StateContractClosed: local/remote close trigger
+	// |   |-> StateContractClosed: local/remote/breach close trigger
 	// |   |   |
 	// |   |   |-> StateWaitingFullResolution: contract resolutions not empty
 	// |   |   |   |
@@ -169,11 +169,11 @@ const (
 	// |   |   |
 	// |   |   |-> StateFullyResolved: contract resolutions empty
 	// |   |
-	// |   |-> StateFullyResolved: coop/breach close trigger
+	// |   |-> StateFullyResolved: coop/breach(legacy) close trigger
 	// |
-	// |-> StateContractClosed: local/remote close trigger
+	// |-> StateContractClosed: local/remote/breach close trigger
 	// |   |
-	// |   |-> StateWaitingFullResolution: contract resolutions empty
+	// |   |-> StateWaitingFullResolution: contract resolutions not empty
 	// |   |   |
 	// |   |   |-> StateWaitingFullResolution: contract resolutions not empty
 	// |   |   |
@@ -181,7 +181,7 @@ const (
 	// |   |
 	// |   |-> StateFullyResolved: contract resolutions empty
 	// |
-	// |-> StateFullyResolved: coop/breach close trigger
+	// |-> StateFullyResolved: coop/breach(legacy) close trigger
 
 	// StateDefault is the default state. In this state, no major actions
 	// need to be executed.

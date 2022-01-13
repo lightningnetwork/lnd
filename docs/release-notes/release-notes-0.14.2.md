@@ -41,6 +41,9 @@ Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
 
 ## Bug fixes
 
+* [A new resolver for breach closes was introduced that handles sweeping
+  anchor outputs and failing back HTLCs.](https://github.com/lightningnetwork/lnd/pull/6158)
+
 * [Return the nearest known fee rate when a given conf target cannot be found
   from Web API fee estimator.](https://github.com/lightningnetwork/lnd/pull/6062)
 

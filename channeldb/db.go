@@ -329,6 +329,7 @@ var dbTopLevelBuckets = [][]byte{
 	metaBucket,
 	closeSummaryBucket,
 	outpointBucket,
+	historicalChannelBucket,
 }
 
 // Wipe completely deletes all saved state within all used buckets within the

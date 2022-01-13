@@ -1088,8 +1088,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 		IsOurAddress: cc.Wallet.IsOurAddress,
 		ContractBreach: func(chanPoint wire.OutPoint,
-			breachRet *lnwallet.BreachRetribution,
-			markClosed func() error) error {
+			breachRet *lnwallet.BreachRetribution) error {
 
 			// processACK will handle the breachArbiter ACKing the
 			// event.
@@ -1101,8 +1100,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				}
 
 				// If the breachArbiter successfully handled
-				// the event, we can mark the channel closed.
-				finalErr <- markClosed()
+				// the event, we can signal that the handoff
+				// was successful.
+				finalErr <- nil
 			}
 
 			event := &contractcourt.ContractBreachEvent{
@@ -1118,9 +1118,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				return ErrServerShuttingDown
 			}
 
-			// We'll wait for a final error to be available, either
-			// from the breachArbiter or from our markClosed
-			// function closure.
+			// We'll wait for a final error to be available from
+			// the breachArbiter.
 			select {
 			case err := <-finalErr:
 				return err

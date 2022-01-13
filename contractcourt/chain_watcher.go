@@ -57,6 +57,11 @@ type RemoteUnilateralCloseInfo struct {
 	CommitSet CommitSet
 }
 
+// BreachResolution wraps the outpoint of the breached channel.
+type BreachResolution struct {
+	FundingOutPoint wire.OutPoint
+}
+
 // CommitSet is a collection of the set of known valid commitments at a given
 // instant. If ConfCommitKey is set, then the commitment identified by the
 // HtlcSetKey has hit the chain. This struct will be used to examine all live

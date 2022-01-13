@@ -717,10 +717,11 @@ func TestFetchHistoricalChannel(t *testing.T) {
 	// Create a an open channel in the database.
 	channel := createTestChannel(t, cdb, openChannelOption())
 
-	// First, try to lookup a channel when the bucket does not
-	// exist.
+	// First, try to lookup a channel when nothing is in the bucket. As the
+	// bucket is auto-created (on start up), we'll get a channel not found
+	// error.
 	_, err = cdb.FetchHistoricalChannel(&channel.FundingOutpoint)
-	if err != ErrNoHistoricalBucket {
+	if err != ErrChannelNotFound {
 		t.Fatalf("expected no bucket, got: %v", err)
 	}
 

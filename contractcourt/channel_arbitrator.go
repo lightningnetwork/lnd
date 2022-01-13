@@ -2646,14 +2646,59 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// the ChainWatcher and BreachArbiter, we don't have to do
 		// anything in particular, so just advance our state and
 		// gracefully exit.
-		case <-c.cfg.ChainEvents.ContractBreach:
+		case breachInfo := <-c.cfg.ChainEvents.ContractBreach:
 			log.Infof("ChannelArbitrator(%v): remote party has "+
 				"breached channel!", c.cfg.ChanPoint)
 
+			// In the breach case, we'll only have anchor and
+			// breach resolutions.
+			contractRes := &ContractResolutions{
+				CommitHash:       breachInfo.CommitHash,
+				BreachResolution: breachInfo.BreachResolution,
+				AnchorResolution: breachInfo.AnchorResolution,
+			}
+
+			// We'll transition to the ContractClosed state and log
+			// the set of resolutions such that they can be turned
+			// into resolvers later on. We'll also insert the
+			// CommitSet of the latest set of commitments.
+			err := c.log.LogContractResolutions(contractRes)
+			if err != nil {
+				log.Errorf("Unable to write resolutions: %v",
+					err)
+				return
+			}
+			err = c.log.InsertConfirmedCommitSet(
+				&breachInfo.CommitSet,
+			)
+			if err != nil {
+				log.Errorf("Unable to write commit set: %v",
+					err)
+				return
+			}
+
+			// The channel is finally marked pending closed here as
+			// the breacharbiter and channel arbitrator have
+			// persisted the relevant states.
+			closeSummary := &breachInfo.CloseSummary
+			err = c.cfg.MarkChannelClosed(
+				closeSummary,
+				channeldb.ChanStatusRemoteCloseInitiator,
+			)
+			if err != nil {
+				log.Errorf("Unable to mark channel closed: %v",
+					err)
+				return
+			}
+
+			log.Infof("Breached channel=%v marked pending-closed",
+				breachInfo.BreachResolution.FundingOutPoint)
+
 			// We'll advance our state machine until it reaches a
 			// terminal state.
-			_, _, err := c.advanceState(
-				uint32(bestHeight), breachCloseTrigger, nil,
+			_, _, err = c.advanceState(
+				uint32(bestHeight), breachCloseTrigger,
+				&breachInfo.CommitSet,
 			)
 			if err != nil {
 				log.Errorf("Unable to advance state: %v", err)

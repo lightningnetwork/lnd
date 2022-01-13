@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -60,6 +61,24 @@ type RemoteUnilateralCloseInfo struct {
 // BreachResolution wraps the outpoint of the breached channel.
 type BreachResolution struct {
 	FundingOutPoint wire.OutPoint
+}
+
+// BreachCloseInfo wraps the BreachResolution with a CommitSet for the latest,
+// non-breached state, with the AnchorResolution for the breached state.
+type BreachCloseInfo struct {
+	*BreachResolution
+	*lnwallet.AnchorResolution
+
+	// CommitHash is the hash of the commitment transaction.
+	CommitHash chainhash.Hash
+
+	// CommitSet is the set of known valid commitments at the time the
+	// breach occurred on-chain.
+	CommitSet CommitSet
+
+	// CloseSummary gives the recipient of the BreachCloseInfo information
+	// to mark the channel closed in the database.
+	CloseSummary channeldb.ChannelCloseSummary
 }
 
 // CommitSet is a collection of the set of known valid commitments at a given
@@ -129,7 +148,7 @@ type ChainEventSubscription struct {
 	// ContractBreach is a channel that will be sent upon if we detect a
 	// contract breach. The struct sent across the channel contains all the
 	// material required to bring the cheating channel peer to justice.
-	ContractBreach chan *lnwallet.BreachRetribution
+	ContractBreach chan *BreachCloseInfo
 
 	// Cancel cancels the subscription to the event stream for a particular
 	// channel. This method should be called once the caller no longer needs to
@@ -155,13 +174,10 @@ type chainWatcherConfig struct {
 	signer input.Signer
 
 	// contractBreach is a method that will be called by the watcher if it
-	// detects that a contract breach transaction has been confirmed. A
-	// callback should be passed that when called will mark the channel
-	// pending close in the database. It will only return a non-nil error
-	// when the breachArbiter has preserved the necessary breach info for
-	// this channel point, and the callback has succeeded, meaning it is
-	// safe to stop watching the channel.
-	contractBreach func(*lnwallet.BreachRetribution, func() error) error
+	// detects that a contract breach transaction has been confirmed. It
+	// will only return a non-nil error when the breachArbiter has
+	// preserved the necessary breach info for this channel point.
+	contractBreach func(*lnwallet.BreachRetribution) error
 
 	// isOurAddr is a function that returns true if the passed address is
 	// known to us.
@@ -316,7 +332,7 @@ func (c *chainWatcher) SubscribeChannelEvents() *ChainEventSubscription {
 		RemoteUnilateralClosure: make(chan *RemoteUnilateralCloseInfo, 1),
 		LocalUnilateralClosure:  make(chan *LocalUnilateralCloseInfo, 1),
 		CooperativeClosure:      make(chan *CooperativeCloseInfo, 1),
-		ContractBreach:          make(chan *lnwallet.BreachRetribution, 1),
+		ContractBreach:          make(chan *BreachCloseInfo, 1),
 		Cancel: func() {
 			c.Lock()
 			delete(c.clientSubscriptions, clientID)
@@ -790,12 +806,27 @@ func (c *chainWatcher) handleKnownRemoteState(
 		return false, nil
 	}
 
+	// Create an AnchorResolution for the breached state.
+	anchorRes, err := lnwallet.NewAnchorResolution(
+		c.cfg.chanState, commitSpend.SpendingTx,
+	)
+	if err != nil {
+		return false, fmt.Errorf("unable to create anchor "+
+			"resolution: %v", err)
+	}
+
+	// We'll set the ConfCommitKey here as the remote htlc set. This is
+	// only used to ensure a nil-pointer-dereference doesn't occur and is
+	// not used otherwise. The HTLC's may not exist for the
+	// RemotePendingHtlcSet.
+	chainSet.commitSet.ConfCommitKey = &RemoteHtlcSet
+
 	// THEY'RE ATTEMPTING TO VIOLATE THE CONTRACT LAID OUT WITHIN THE
 	// PAYMENT CHANNEL. Therefore we close the signal indicating a revoked
 	// broadcast to allow subscribers to swiftly dispatch justice!!!
 	err = c.dispatchContractBreach(
-		commitSpend, &chainSet.remoteCommit,
-		broadcastStateNum, retribution,
+		commitSpend, chainSet, broadcastStateNum, retribution,
+		anchorRes,
 	)
 	if err != nil {
 		return false, fmt.Errorf("unable to handle channel "+
@@ -1088,8 +1119,9 @@ func (c *chainWatcher) dispatchRemoteForceClose(
 // materials required to bring the cheater to justice, then notify all
 // registered subscribers of this event.
 func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail,
-	remoteCommit *channeldb.ChannelCommitment, broadcastStateNum uint64,
-	retribution *lnwallet.BreachRetribution) error {
+	chainSet *chainSet, broadcastStateNum uint64,
+	retribution *lnwallet.BreachRetribution,
+	anchorRes *lnwallet.AnchorResolution) error {
 
 	log.Warnf("Remote peer has breached the channel contract for "+
 		"ChannelPoint(%v). Revoked state #%v was broadcast!!!",
@@ -1130,7 +1162,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 			return spew.Sdump(retribution)
 		}))
 
-	settledBalance := remoteCommit.LocalBalance.ToSatoshis()
+	settledBalance := chainSet.remoteCommit.LocalBalance.ToSatoshis()
 	closeSummary := channeldb.ChannelCloseSummary{
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,
 		ChainHash:               c.cfg.chanState.ChainHash,
@@ -1156,30 +1188,27 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		closeSummary.LastChanSyncMsg = chanSync
 	}
 
-	// We create a function closure that will mark the channel as pending
-	// close in the database. We pass it to the contracBreach method such
-	// that it can ensure safe handoff of the breach before we close the
-	// channel.
-	markClosed := func() error {
-		// At this point, we've successfully received an ack for the
-		// breach close, and we can mark the channel as pending force
-		// closed.
-		if err := c.cfg.chanState.CloseChannel(
-			&closeSummary, channeldb.ChanStatusRemoteCloseInitiator,
-		); err != nil {
-			return err
-		}
-
-		log.Infof("Breached channel=%v marked pending-closed",
-			c.cfg.chanState.FundingOutpoint)
-		return nil
-	}
-
-	// Hand the retribution info over to the breach arbiter.
-	if err := c.cfg.contractBreach(retribution, markClosed); err != nil {
+	// Hand the retribution info over to the breach arbiter. This function
+	// will wait for a response from the breach arbiter and then proceed to
+	// send a BreachCloseInfo to the channel arbitrator. The channel arb
+	// will then mark the channel as closed after resolutions and the
+	// commit set are logged in the arbitrator log.
+	if err := c.cfg.contractBreach(retribution); err != nil {
 		log.Errorf("unable to hand breached contract off to "+
 			"breachArbiter: %v", err)
 		return err
+	}
+
+	breachRes := &BreachResolution{
+		FundingOutPoint: c.cfg.chanState.FundingOutpoint,
+	}
+
+	breachInfo := &BreachCloseInfo{
+		CommitHash:       spendEvent.SpendingTx.TxHash(),
+		BreachResolution: breachRes,
+		AnchorResolution: anchorRes,
+		CommitSet:        chainSet.commitSet,
+		CloseSummary:     closeSummary,
 	}
 
 	// With the event processed and channel closed, we'll now notify all
@@ -1187,7 +1216,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 	c.Lock()
 	for _, sub := range c.clientSubscriptions {
 		select {
-		case sub.ContractBreach <- retribution:
+		case sub.ContractBreach <- breachInfo:
 		case <-c.quit:
 			c.Unlock()
 			return fmt.Errorf("quitting")

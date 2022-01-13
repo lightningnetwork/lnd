@@ -183,6 +183,12 @@ type ChainArbitratorConfig struct {
 	// Clock is the clock implementation that ChannelArbitrator uses.
 	// It is useful for testing.
 	Clock clock.Clock
+
+	// SubscribeBreachComplete is used by the breachResolver to register a
+	// subscription that notifies when the breach resolution process is
+	// complete.
+	SubscribeBreachComplete func(op *wire.OutPoint, c chan struct{}) (
+		bool, error)
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all

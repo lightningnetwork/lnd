@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+  schedule:
+    # Every day at midnight (UTC).
+    - cron: '0 0 * * *'
 
 defaults:
   run:
@@ -31,6 +34,10 @@ jobs:
 
       - name: Set env
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+      
+      - name: Set daily tag
+        if: github.event.schedule == '0 0 * * *'
+        run: echo "RELEASE_VERSION=daily-testing-only" >> $GITHUB_ENV
 
       - name: Build and push
         id: docker_build

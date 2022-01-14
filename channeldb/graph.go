@@ -690,7 +690,6 @@ func (c *ChannelGraph) ForEachNodeCacheable(cb func(kvdb.RTx,
 			return ErrGraphNotFound
 		}
 
-		cacheableNode := newGraphCacheNode(route.Vertex{}, nil)
 		return nodes.ForEach(func(pubKey, nodeBytes []byte) error {
 			// If this is the source key, then we skip this
 			// iteration as the value for this key is a pubKey
@@ -700,8 +699,8 @@ func (c *ChannelGraph) ForEachNodeCacheable(cb func(kvdb.RTx,
 			}
 
 			nodeReader := bytes.NewReader(nodeBytes)
-			err := deserializeLightningNodeCacheable(
-				nodeReader, cacheableNode,
+			cacheableNode, err := deserializeLightningNodeCacheable(
+				nodeReader,
 			)
 			if err != nil {
 				return err
@@ -2802,8 +2801,6 @@ func (c *ChannelGraph) FetchLightningNode(nodePub route.Vertex) (
 type graphCacheNode struct {
 	pubKeyBytes route.Vertex
 	features    *lnwire.FeatureVector
-
-	nodeScratch [8]byte
 }
 
 // newGraphCacheNode returns a new cache optimized node.
@@ -4152,51 +4149,60 @@ func fetchLightningNode(nodeBucket kvdb.RBucket,
 	return deserializeLightningNode(nodeReader)
 }
 
-func deserializeLightningNodeCacheable(r io.Reader, node *graphCacheNode) error {
+func deserializeLightningNodeCacheable(r io.Reader) (*graphCacheNode, error) {
 	// Always populate a feature vector, even if we don't have a node
 	// announcement and short circuit below.
-	node.features = lnwire.EmptyFeatureVector()
+	node := newGraphCacheNode(
+		route.Vertex{},
+		lnwire.EmptyFeatureVector(),
+	)
+
+	var nodeScratch [8]byte
 
 	// Skip ahead:
 	// - LastUpdate (8 bytes)
-	if _, err := r.Read(node.nodeScratch[:]); err != nil {
-		return err
+	if _, err := r.Read(nodeScratch[:]); err != nil {
+		return nil, err
 	}
 
 	if _, err := io.ReadFull(r, node.pubKeyBytes[:]); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Read the node announcement flag.
-	if _, err := r.Read(node.nodeScratch[:2]); err != nil {
-		return err
+	if _, err := r.Read(nodeScratch[:2]); err != nil {
+		return nil, err
 	}
-	hasNodeAnn := byteOrder.Uint16(node.nodeScratch[:2])
+	hasNodeAnn := byteOrder.Uint16(nodeScratch[:2])
 
 	// The rest of the data is optional, and will only be there if we got a
 	// node announcement for this node.
 	if hasNodeAnn == 0 {
-		return nil
+		return node, nil
 	}
 
 	// We did get a node announcement for this node, so we'll have the rest
 	// of the data available.
 	var rgb uint8
 	if err := binary.Read(r, byteOrder, &rgb); err != nil {
-		return err
+		return nil, err
 	}
 	if err := binary.Read(r, byteOrder, &rgb); err != nil {
-		return err
+		return nil, err
 	}
 	if err := binary.Read(r, byteOrder, &rgb); err != nil {
-		return err
+		return nil, err
 	}
 
 	if _, err := wire.ReadVarString(r, 0); err != nil {
-		return err
+		return nil, err
 	}
 
-	return node.features.Decode(r)
+	if err := node.features.Decode(r); err != nil {
+		return nil, err
+	}
+
+	return node, nil
 }
 
 func deserializeLightningNode(r io.Reader) (LightningNode, error) {

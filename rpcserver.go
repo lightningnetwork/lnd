@@ -3236,6 +3236,7 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 				RemoteChanReserveSat: int64(pendingChan.RemoteChanCfg.ChanReserve),
 				Initiator:            rpcInitiator(pendingChan.IsInitiator),
 				CommitmentType:       rpcCommitmentType(pendingChan.ChanType),
+				Private:              isPrivate(pendingChan),
 			},
 			CommitWeight: commitWeight,
 			CommitFee:    int64(localCommitment.CommitFee),
@@ -3322,6 +3323,8 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 			channel.RemoteBalance = int64(
 				historical.LocalCommitment.RemoteBalance.ToSatoshis(),
 			)
+
+			channel.Private = isPrivate(historical)
 
 		// If the error is non-nil, and not due to older versions of lnd
 		// not persisting historical channels, return it.
@@ -3518,6 +3521,7 @@ func (r *rpcServer) fetchWaitingCloseChannels() (waitingCloseChannels,
 			CommitmentType:        rpcCommitmentType(waitingClose.ChanType),
 			NumForwardingPackages: int64(len(fwdPkgs)),
 			ChanStatusFlags:       waitingClose.ChanStatus().String(),
+			Private:               isPrivate(waitingClose),
 		}
 
 		waitingCloseResp := &lnrpc.PendingChannelsResponse_WaitingCloseChannel{
@@ -3900,6 +3904,15 @@ func createChannelConstraint(
 	}
 }
 
+// isPrivate evaluates the ChannelFlags of the db channel to determine if the
+// channel is private or not.
+func isPrivate(dbChannel *channeldb.OpenChannel) bool {
+	if dbChannel == nil {
+		return false
+	}
+	return dbChannel.ChannelFlags&lnwire.FFAnnounceChannel != 1
+}
+
 // createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
 func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	isActive bool) (*lnrpc.Channel, error) {
@@ -3907,9 +3920,6 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	nodePub := dbChannel.IdentityPub
 	nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
 	chanPoint := dbChannel.FundingOutpoint
-
-	// Next, we'll determine whether the channel is public or not.
-	isPublic := dbChannel.ChannelFlags&lnwire.FFAnnounceChannel != 0
 
 	// As this is required for display purposes, we'll calculate
 	// the weight of the commitment transaction. We also add on the
@@ -3942,7 +3952,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 
 	channel := &lnrpc.Channel{
 		Active:                isActive,
-		Private:               !isPublic,
+		Private:               isPrivate(dbChannel),
 		RemotePubkey:          nodeID,
 		ChannelPoint:          chanPoint.String(),
 		ChanId:                dbChannel.ShortChannelID.ToUint64(),

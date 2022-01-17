@@ -13,6 +13,9 @@
 * Add [chan_point flag](https://github.com/lightningnetwork/lnd/pull/6152)
   to closechannel command.
 
+* Add [private status](https://github.com/lightningnetwork/lnd/pull/6167)
+  to pendingchannels response.
+
 ## Bug Fixes
 
 * [Fixed an inactive invoice subscription not removed from invoice

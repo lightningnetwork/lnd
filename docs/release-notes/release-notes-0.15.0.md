@@ -10,6 +10,9 @@
 * Add [auto-generated command-line completions](https://github.com/lightningnetwork/lnd/pull/4177) 
   for Fish shell.  
 
+* Add [chan_point flag](https://github.com/lightningnetwork/lnd/pull/6152)
+  to closechannel command.
+
 ## Bug Fixes
 
 * [Fixed an inactive invoice subscription not removed from invoice

@@ -255,6 +255,9 @@ type server struct {
 
 	invoices *invoices.InvoiceRegistry
 
+	invoiceCoordinator *InvoiceCoordinator
+	gwPubKey           route.Vertex
+
 	channelNotifier *channelnotifier.ChannelNotifier
 
 	peerNotifier *peernotifier.PeerNotifier
@@ -619,6 +622,24 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s.invoices = invoices.NewRegistry(
 		dbs.ChanStateDB, expiryWatcher, &registryConfig,
 	)
+
+	if cfg.Gateway.PubKey != "" {
+		gwPubKey, err := route.NewVertexFromStr(cfg.Gateway.PubKey)
+		if err != nil {
+			return nil, err
+		}
+
+		s.gwPubKey = gwPubKey
+
+		s.invoiceCoordinator = NewInvoiceCoordinator(&InvoiceCoordinatorConfig{
+			registry:      s.invoices,
+			gwPubKey:      gwPubKey,
+			gwHost:        cfg.Gateway.Host,
+			gwTlsCertPath: cfg.Gateway.TlsCertPath,
+			gwMacPath:     cfg.Gateway.MacPath,
+			sphinx:        s.sphinx,
+		})
+	}
 
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 
@@ -1799,6 +1820,14 @@ func (s *server) Start() error {
 			return
 		}
 		cleanup = cleanup.add(s.invoices.Stop)
+
+		if s.invoiceCoordinator != nil {
+			if err := s.invoiceCoordinator.Start(); err != nil {
+				startErr = err
+				return
+			}
+			cleanup = cleanup.add(s.invoiceCoordinator.Stop)
+		}
 
 		if err := s.sphinx.Start(); err != nil {
 			startErr = err

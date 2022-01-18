@@ -780,6 +780,17 @@ message ForwardHtlcInterceptResponse {
     // (Encrypted) failure reason in case the resolve action is Fail. If left
     // empty, a default temporary channel failure is returned to the sender.
     bytes failure_reason = 4;
+
+    // Return UpdateFailMalformedHTLC in case the resolve action is Fail.
+    MalformedHtlcCode failure_malformed_htlc = 5;
+}
+
+enum MalformedHtlcCode {
+    NONE = 0;
+
+    INVALID_ONION_VERSION = 1;
+    INVALID_ONION_HMAC = 2;
+    INVALID_ONION_KEY = 3;
 }
 
 enum ResolveHoldForwardAction {

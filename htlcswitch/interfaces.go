@@ -299,6 +299,10 @@ type InterceptedForward interface {
 
 	// Fails notifies the intention to fail an existing hold forward
 	Fail(reason []byte) error
+
+	// Fails notifies the intention to fail an existing hold forward because
+	// the htlc is malformed.
+	FailMalformedHtlc(code lnwire.FailCode) error
 }
 
 // htlcNotifier is an interface which represents the input side of the

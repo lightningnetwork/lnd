@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"sync"
 
@@ -155,6 +156,40 @@ func (f *interceptedForward) Fail(reason []byte) error {
 		}
 	} else {
 		reason = f.packet.obfuscator.IntermediateEncrypt(reason)
+	}
+
+	return f.resolve(&lnwire.UpdateFailHTLC{
+		Reason: reason,
+	})
+}
+
+// Fail forward a failed packet to the switch.
+func (f *interceptedForward) FailMalformedHtlc(code lnwire.FailCode) error {
+	shaOnionBlob := sha256.Sum256(f.htlc.OnionBlob[:])
+
+	var failureMsg lnwire.FailureMessage
+	switch code {
+	case lnwire.CodeInvalidOnionVersion:
+		failureMsg = &lnwire.FailInvalidOnionVersion{
+			OnionSHA256: shaOnionBlob,
+		}
+	case lnwire.CodeInvalidOnionHmac:
+		failureMsg = &lnwire.FailInvalidOnionHmac{
+			OnionSHA256: shaOnionBlob,
+		}
+
+	case lnwire.CodeInvalidOnionKey:
+		failureMsg = &lnwire.FailInvalidOnionKey{
+			OnionSHA256: shaOnionBlob,
+		}
+	default:
+		return fmt.Errorf("unexpected failure code received in "+
+			"UpdateFailMailformedHTLC: %v", code)
+	}
+
+	reason, err := f.packet.obfuscator.EncryptFirstHop(failureMsg)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt failure reason %v", err)
 	}
 
 	return f.resolve(&lnwire.UpdateFailHTLC{

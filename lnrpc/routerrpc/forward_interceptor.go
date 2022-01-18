@@ -193,8 +193,35 @@ func (r *forwardInterceptor) resolveFromClient(
 	switch in.Action {
 	case ResolveHoldForwardAction_RESUME:
 		return interceptedForward.Resume()
+
 	case ResolveHoldForwardAction_FAIL:
+		if in.FailureMalformedHtlc != MalformedHtlcCode_NONE {
+			if len(in.FailureReason) > 0 {
+				return errors.New("failure reason and " +
+					"malformed htlc failure are mutual " +
+					"exclusive")
+			}
+
+			var code lnwire.FailCode
+			switch in.FailureMalformedHtlc {
+			case MalformedHtlcCode_INVALID_ONION_HMAC:
+				code = lnwire.CodeInvalidOnionHmac
+
+			case MalformedHtlcCode_INVALID_ONION_KEY:
+				code = lnwire.CodeInvalidOnionKey
+
+			case MalformedHtlcCode_INVALID_ONION_VERSION:
+				code = lnwire.CodeInvalidOnionVersion
+			default:
+				return fmt.Errorf("unknown malformed htlc failure: %v",
+					in.FailureMalformedHtlc)
+			}
+
+			return interceptedForward.FailMalformedHtlc(code)
+		}
+
 		return interceptedForward.Fail(in.FailureReason)
+
 	case ResolveHoldForwardAction_SETTLE:
 		if in.Preimage == nil {
 			return ErrMissingPreimage

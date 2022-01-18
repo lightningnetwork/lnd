@@ -592,7 +592,9 @@ func (m *memoryMailBox) AddPacket(pkt *htlcPacket) error {
 	switch htlc := pkt.htlc.(type) {
 
 	// Split off Settle/Fail packets into the repPkts queue.
-	case *lnwire.UpdateFulfillHTLC, *lnwire.UpdateFailHTLC:
+	case *lnwire.UpdateFulfillHTLC, *lnwire.UpdateFailHTLC,
+		*lnwire.UpdateFailMalformedHTLC:
+
 		if _, ok := m.repIndex[pkt.inKey()]; ok {
 			m.pktCond.L.Unlock()
 			return ErrPacketAlreadyExists

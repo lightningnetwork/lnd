@@ -1206,6 +1206,10 @@
           "type": "string",
           "format": "byte",
           "description": "(Encrypted) failure reason in case the resolve action is Fail. If left\nempty, a default temporary channel failure is returned to the sender."
+        },
+        "failure_malformed_htlc": {
+          "$ref": "#/definitions/routerrpcMalformedHtlcCode",
+          "description": "Return UpdateFailMalformedHTLC in case the resolve action is Fail."
         }
       },
       "description": "*\nForwardHtlcInterceptResponse enables the caller to resolve a previously hold\nforward. The caller can choose either to:\n- `Resume`: Execute the default behavior (usually forward).\n- `Reject`: Fail the htlc backwards.\n- `Settle`: Settle this htlc with a given preimage."
@@ -1321,6 +1325,16 @@
           "description": "A string representation of the link failure."
         }
       }
+    },
+    "routerrpcMalformedHtlcCode": {
+      "type": "string",
+      "enum": [
+        "NONE",
+        "INVALID_ONION_VERSION",
+        "INVALID_ONION_HMAC",
+        "INVALID_ONION_KEY"
+      ],
+      "default": "NONE"
     },
     "routerrpcMissionControlConfig": {
       "type": "object",

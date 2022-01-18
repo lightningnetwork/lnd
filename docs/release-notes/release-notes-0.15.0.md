@@ -48,6 +48,9 @@
   in review because of unmet contribution guideline
   requirements](https://github.com/lightningnetwork/lnd/pull/6080).
 
+* [A nightly build of the `lnd` docker image is now created
+  automatically](https://github.com/lightningnetwork/lnd/pull/6160).
+
 ## RPC Server
 
 * [Add value to the field

@@ -2,13 +2,15 @@ package routerrpc
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -193,8 +195,64 @@ func (r *forwardInterceptor) resolveFromClient(
 	switch in.Action {
 	case ResolveHoldForwardAction_RESUME:
 		return interceptedForward.Resume()
+
 	case ResolveHoldForwardAction_FAIL:
-		return interceptedForward.Fail()
+		// Fail with an encrypted reason.
+		if in.FailureMessage != nil {
+			if in.FailureCode != 0 {
+				return status.Errorf(
+					codes.InvalidArgument,
+					"failure message and failure code "+
+						"are mutually exclusive",
+				)
+			}
+
+			// Verify that the size is equal to the fixed failure
+			// message size + hmac + two uint16 lengths. See BOLT
+			// #4.
+			if len(in.FailureMessage) !=
+				lnwire.FailureMessageLength+32+2+2 {
+
+				return status.Errorf(
+					codes.InvalidArgument,
+					"failure message length invalid",
+				)
+			}
+
+			return interceptedForward.Fail(in.FailureMessage)
+		}
+
+		var code lnwire.FailCode
+		switch in.FailureCode {
+		case lnrpc.Failure_INVALID_ONION_HMAC:
+			code = lnwire.CodeInvalidOnionHmac
+
+		case lnrpc.Failure_INVALID_ONION_KEY:
+			code = lnwire.CodeInvalidOnionKey
+
+		case lnrpc.Failure_INVALID_ONION_VERSION:
+			code = lnwire.CodeInvalidOnionVersion
+
+		// Default to TemporaryChannelFailure.
+		case 0, lnrpc.Failure_TEMPORARY_CHANNEL_FAILURE:
+			code = lnwire.CodeTemporaryChannelFailure
+
+		default:
+			return status.Errorf(
+				codes.InvalidArgument,
+				"unsupported failure code: %v", in.FailureCode,
+			)
+		}
+
+		err := interceptedForward.FailWithCode(code)
+		if err == htlcswitch.ErrUnsupportedFailureCode {
+			return status.Errorf(
+				codes.InvalidArgument, err.Error(),
+			)
+		}
+
+		return err
+
 	case ResolveHoldForwardAction_SETTLE:
 		if in.Preimage == nil {
 			return ErrMissingPreimage
@@ -204,8 +262,12 @@ func (r *forwardInterceptor) resolveFromClient(
 			return err
 		}
 		return interceptedForward.Settle(preimage)
+
 	default:
-		return fmt.Errorf("unrecognized resolve action %v", in.Action)
+		return status.Errorf(
+			codes.InvalidArgument,
+			"unrecognized resolve action %v", in.Action,
+		)
 	}
 }
 

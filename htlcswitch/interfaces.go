@@ -297,8 +297,13 @@ type InterceptedForward interface {
 	// forward with a given preimage.
 	Settle(lntypes.Preimage) error
 
-	// Fails notifies the intention to fail an existing hold forward
-	Fail() error
+	// Fail notifies the intention to fail an existing hold forward with an
+	// encrypted failure reason.
+	Fail(reason []byte) error
+
+	// FailWithCode notifies the intention to fail an existing hold forward
+	// with the specified failure code.
+	FailWithCode(code lnwire.FailCode) error
 }
 
 // htlcNotifier is an interface which represents the input side of the

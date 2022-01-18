@@ -74,3 +74,6 @@ profile.tmp
 
 # Coverage test
 coverage.txt
+
+# Visual Studio cache/options directory
+.vs/

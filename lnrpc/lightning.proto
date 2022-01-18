@@ -2315,6 +2315,9 @@ message PendingChannelsResponse {
 
         // A set of flags showing the current state of the channel.
         string chan_status_flags = 11;
+
+        // Whether this channel is advertised to the network or not.
+        bool private = 12;
     }
 
     message PendingOpenChannel {

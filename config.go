@@ -421,6 +421,15 @@ type Config struct {
 
 	// ActiveNetParams contains parameters of the target chain.
 	ActiveNetParams chainreg.BitcoinNetParams
+
+	Gateway *GatewayConfig `group:"gateway" namespace:"gateway"`
+}
+
+type GatewayConfig struct {
+	PubKey      string `long:"pubkey" description:"Node pubkey for which to produce coordinator invoices"`
+	Host        string `long:"host" description:"Gateway host"`
+	TlsCertPath string `long:"tls" description:"Gateway tls cert path"`
+	MacPath     string `long:"mac" description:"Gateway macaroon path"`
 }
 
 // DefaultConfig returns all default values for the Config struct.

@@ -9,6 +9,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -19,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -67,6 +69,8 @@ type AddInvoiceConfig struct {
 	// GenAmpInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated AMP invoices.
 	GenAmpInvoiceFeatures func() *lnwire.FeatureVector
+
+	GatewayPubKey route.Vertex
 }
 
 // AddInvoiceData contains the required data to create a new invoice.
@@ -367,36 +371,21 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		forcedHints[h[0].ChannelID] = struct{}{}
 	}
 
-	// If we were requested to include routing hints in the invoice, then
-	// we'll fetch all of our available private channels and create routing
-	// hints for them.
-	if invoice.Private {
-		openChannels, err := cfg.ChanDB.FetchAllChannels()
-		if err != nil {
-			return nil, nil, fmt.Errorf("could not fetch all channels")
-		}
-
-		if len(openChannels) > 0 {
-			// We filter the channels by excluding the ones that were specified by
-			// the caller and were already added.
-			var filteredChannels []*channeldb.OpenChannel
-			for _, c := range openChannels {
-				if _, ok := forcedHints[c.ShortChanID().ToUint64()]; ok {
-					continue
-				}
-				filteredChannels = append(filteredChannels, c)
-			}
-
-			// We'll restrict the number of individual route hints
-			// to 20 to avoid creating overly large invoices.
-			numMaxHophints := 20 - len(forcedHints)
-			hopHints := SelectHopHints(
-				amtMSat, cfg, filteredChannels, numMaxHophints,
-			)
-
-			options = append(options, hopHints...)
-		}
+	// Add virtual hop hint.
+	gatewayPubKey, err := btcec.ParsePubKey(cfg.GatewayPubKey[:], btcec.S256())
+	if err != nil {
+		return nil, nil, err
 	}
+
+	hopHint := zpay32.HopHint{
+		NodeID:                    gatewayPubKey,
+		ChannelID:                 12345, // Rotate?
+		FeeBaseMSat:               0,
+		FeeProportionalMillionths: 0,
+		CLTVExpiryDelta:           40, // Can be zero?
+	}
+
+	options = append(options, zpay32.RouteHint([]zpay32.HopHint{hopHint}))
 
 	// Set our desired invoice features and add them to our list of options.
 	var invoiceFeatures *lnwire.FeatureVector

@@ -194,7 +194,7 @@ func (r *forwardInterceptor) resolveFromClient(
 	case ResolveHoldForwardAction_RESUME:
 		return interceptedForward.Resume()
 	case ResolveHoldForwardAction_FAIL:
-		return interceptedForward.Fail()
+		return interceptedForward.Fail(in.FailureReason)
 	case ResolveHoldForwardAction_SETTLE:
 		if in.Preimage == nil {
 			return ErrMissingPreimage

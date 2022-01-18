@@ -776,6 +776,10 @@ message ForwardHtlcInterceptResponse {
 
     // The preimage in case the resolve action is Settle.
     bytes preimage = 3;
+
+    // (Encrypted) failure reason in case the resolve action is Fail. If left
+    // empty, a default temporary channel failure is returned to the sender.
+    bytes failure_reason = 4;
 }
 
 enum ResolveHoldForwardAction {

@@ -3153,7 +3153,7 @@ func (m *mockForwardInterceptor) settle(preimage lntypes.Preimage) error {
 }
 
 func (m *mockForwardInterceptor) fail() error {
-	return m.intercepted.Fail()
+	return m.intercepted.Fail(nil)
 }
 
 func (m *mockForwardInterceptor) resume() error {

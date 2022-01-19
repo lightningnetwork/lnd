@@ -24,6 +24,10 @@ var importMissionControlCommand = cli.Command{
 			Name:  "failure",
 			Usage: "whether the routing history entry was a failure",
 		},
+		cli.BoolFlag{
+			Name:  "force",
+			Usage: "whether to force the history entry import",
+		},
 	},
 }
 
@@ -86,6 +90,7 @@ func importMissionControl(ctx *cli.Context) error {
 		Pairs: []*routerrpc.PairHistory{
 			importResult,
 		},
+		Force: ctx.IsSet("force"),
 	}
 
 	rpcCtx := context.Background()

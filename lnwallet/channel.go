@@ -3530,7 +3530,10 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 	// party, then we're unable to create new states. Each time we create a
 	// new state, we consume a prior revocation point.
 	commitPoint := lc.channelState.RemoteNextRevocation
-	if lc.remoteCommitChain.hasUnackedCommitment() || commitPoint == nil {
+	unacked := lc.remoteCommitChain.hasUnackedCommitment()
+	if unacked || commitPoint == nil {
+		lc.log.Tracef("waiting for remote ack=%v, nil "+
+			"RemoteNextRevocation: %v", unacked, commitPoint == nil)
 		return sig, htlcSigs, nil, ErrNoWindow
 	}
 

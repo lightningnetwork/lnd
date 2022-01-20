@@ -1084,8 +1084,13 @@ func (l *channelLink) htlcManager() {
 		// batch is empty.
 		if l.channel.PendingLocalUpdateCount() > 0 {
 			l.cfg.BatchTicker.Resume()
+			l.log.Tracef("BatchTicker resumed, "+
+				"PendingLocalUpdateCount=%d",
+				l.channel.PendingLocalUpdateCount())
 		} else {
 			l.cfg.BatchTicker.Pause()
+			l.log.Trace("BatchTicker paused due to zero " +
+				"PendingLocalUpdateCount")
 		}
 
 		select {
@@ -2102,6 +2107,7 @@ func (l *channelLink) updateCommitTx() error {
 	theirCommitSig, htlcSigs, pendingHTLCs, err := l.channel.SignNextCommitment()
 	if err == lnwallet.ErrNoWindow {
 		l.cfg.PendingCommitTicker.Resume()
+		l.log.Trace("PendingCommitTicker resumed")
 
 		l.log.Tracef("revocation window exhausted, unable to send: "+
 			"%v, pend_updates=%v, dangling_closes%v",
@@ -2123,6 +2129,7 @@ func (l *channelLink) updateCommitTx() error {
 	}
 
 	l.cfg.PendingCommitTicker.Pause()
+	l.log.Trace("PendingCommitTicker paused after ackDownStreamPackets")
 
 	// The remote party now has a new pending commitment, so we'll update
 	// the contract court to be aware of this new set (the prior old remote

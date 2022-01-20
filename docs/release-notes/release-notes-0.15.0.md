@@ -51,6 +51,8 @@
 * [A nightly build of the `lnd` docker image is now created
   automatically](https://github.com/lightningnetwork/lnd/pull/6160).
 
+* [Chain backend healthchecks disabled for --nochainbackend mode](https://github.com/lightningnetwork/lnd/pull/6184)
+
 ## RPC Server
 
 * [Add value to the field

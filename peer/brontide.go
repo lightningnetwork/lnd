@@ -318,6 +318,13 @@ type Config struct {
 	// operations at the cost of latency.
 	ChannelCommitInterval time.Duration
 
+	// PendingCommitInterval is the maximum time that is allowed to pass
+	// while waiting for the remote party to revoke a locally initiated
+	// commitment state. Setting this to a longer duration if a slow
+	// response is expected from the remote party or large number of
+	// payments are attempted at the same time.
+	PendingCommitInterval time.Duration
+
 	// ChannelCommitBatchSize is the maximum number of channel state updates
 	// that is accumulated before signing a new commitment.
 	ChannelCommitBatchSize uint32
@@ -832,26 +839,28 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 	}
 
 	linkCfg := htlcswitch.ChannelLinkConfig{
-		Peer:                    p,
-		DecodeHopIterators:      p.cfg.Sphinx.DecodeHopIterators,
-		ExtractErrorEncrypter:   p.cfg.Sphinx.ExtractErrorEncrypter,
-		FetchLastChannelUpdate:  p.cfg.FetchLastChanUpdate,
-		HodlMask:                p.cfg.Hodl.Mask(),
-		Registry:                p.cfg.Invoices,
-		BestHeight:              p.cfg.Switch.BestHeight,
-		Circuits:                p.cfg.Switch.CircuitModifier(),
-		ForwardPackets:          p.cfg.InterceptSwitch.ForwardPackets,
-		FwrdingPolicy:           *forwardingPolicy,
-		FeeEstimator:            p.cfg.FeeEstimator,
-		PreimageCache:           p.cfg.WitnessBeacon,
-		ChainEvents:             chainEvents,
-		UpdateContractSignals:   updateContractSignals,
-		NotifyContractUpdate:    notifyContractUpdate,
-		OnChannelFailure:        onChannelFailure,
-		SyncStates:              syncStates,
-		BatchTicker:             ticker.New(p.cfg.ChannelCommitInterval),
-		FwdPkgGCTicker:          ticker.New(time.Hour),
-		PendingCommitTicker:     ticker.New(time.Minute),
+		Peer:                   p,
+		DecodeHopIterators:     p.cfg.Sphinx.DecodeHopIterators,
+		ExtractErrorEncrypter:  p.cfg.Sphinx.ExtractErrorEncrypter,
+		FetchLastChannelUpdate: p.cfg.FetchLastChanUpdate,
+		HodlMask:               p.cfg.Hodl.Mask(),
+		Registry:               p.cfg.Invoices,
+		BestHeight:             p.cfg.Switch.BestHeight,
+		Circuits:               p.cfg.Switch.CircuitModifier(),
+		ForwardPackets:         p.cfg.InterceptSwitch.ForwardPackets,
+		FwrdingPolicy:          *forwardingPolicy,
+		FeeEstimator:           p.cfg.FeeEstimator,
+		PreimageCache:          p.cfg.WitnessBeacon,
+		ChainEvents:            chainEvents,
+		UpdateContractSignals:  updateContractSignals,
+		NotifyContractUpdate:   notifyContractUpdate,
+		OnChannelFailure:       onChannelFailure,
+		SyncStates:             syncStates,
+		BatchTicker:            ticker.New(p.cfg.ChannelCommitInterval),
+		FwdPkgGCTicker:         ticker.New(time.Hour),
+		PendingCommitTicker: ticker.New(
+			p.cfg.PendingCommitInterval,
+		),
 		BatchSize:               p.cfg.ChannelCommitBatchSize,
 		UnsafeReplay:            p.cfg.UnsafeReplay,
 		MinFeeUpdateTimeout:     htlcswitch.DefaultMinLinkFeeUpdateTimeout,

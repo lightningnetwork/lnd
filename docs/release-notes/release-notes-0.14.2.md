@@ -87,6 +87,14 @@ connection from the watch-only node.
   exposed](https://github.com/lightningnetwork/lnd/pull/6146) inside
   WaitingCloseResp from calling `PendingChannels`.
 
+
+## Routing
+
+* [Enable forced update of MC pair
+  history](https://github.com/lightningnetwork/lnd/pull/6180) by adding the `force`
+  flag to the `XImportMissionControl` RPC call.
+
+
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath

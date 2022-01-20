@@ -1501,20 +1501,28 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 // createLivenessMonitor creates a set of health checks using our configured
 // values and uses these checks to create a liveliness monitor. Available
 // health checks,
-//   - chainHealthCheck
+//   - chainHealthCheck (will be disabled for --nochainbackend mode)
 //   - diskCheck
 //   - tlsHealthCheck
 //   - torController, only created when tor is enabled.
 // If a health check has been disabled by setting attempts to 0, our monitor
 // will not run it.
 func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl) {
+	chainBackendAttempts := cfg.HealthChecks.ChainCheck.Attempts
+	if cfg.Bitcoin.Node == "nochainbackend" {
+		srvrLog.Info("Disabling chain backend checks for " +
+			"nochainbackend mode")
+
+		chainBackendAttempts = 0
+	}
+
 	chainHealthCheck := healthcheck.NewObservation(
 		"chain backend",
 		cc.HealthCheck,
 		cfg.HealthChecks.ChainCheck.Interval,
 		cfg.HealthChecks.ChainCheck.Timeout,
 		cfg.HealthChecks.ChainCheck.Backoff,
-		cfg.HealthChecks.ChainCheck.Attempts,
+		chainBackendAttempts,
 	)
 
 	diskCheck := healthcheck.NewObservation(

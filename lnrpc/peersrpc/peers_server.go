@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
@@ -177,7 +178,25 @@ func (s *Server) UpdateNodeAnnouncement(_ context.Context,
 
 	// TODO(positiveblue): apply feature bit modifications
 
-	// TODO(positiveblue): apply color modifications
+	if req.Color != "" {
+		color, err := lncfg.ParseHexColor(req.Color)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse color: %v", err)
+		}
+
+		if color != currentNodeAnn.RGBColor {
+			resp.Ops = append(resp.Ops, &lnrpc.Op{
+				Entity: "color",
+				Actions: []string{
+					fmt.Sprintf("changed to %v", color),
+				},
+			})
+			nodeModifiers = append(
+				nodeModifiers,
+				netann.NodeAnnSetColor(color),
+			)
+		}
+	}
 
 	if req.Alias != "" {
 		alias, err := lnwire.NewNodeAlias(req.Alias)

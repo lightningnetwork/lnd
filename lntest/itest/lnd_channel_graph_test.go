@@ -821,6 +821,7 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 
 	defaultDaveNodeAnn := &lnrpc.NodeUpdate{
 		Alias: resp.Alias,
+		Color: resp.Color,
 	}
 
 	// Dave must have an open channel before he can send a node
@@ -866,15 +867,18 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Update Node.
 	newAlias := "new-alias"
+	newColor := "#2288ee"
 
 	nodeAnnReq := &peersrpc.NodeAnnouncementUpdateRequest{
 		Alias: newAlias,
+		Color: newColor,
 	}
 
 	response, err := dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
 	require.NoError(t.t, err, "unable to update dave's node announcement")
 
 	expectedOps := map[string]int{
+		"color": 1,
 		"alias": 1,
 	}
 	assertUpdateNodeAnnouncementResponse(t, response, expectedOps)
@@ -883,6 +887,7 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	// the requested color, requested alias and the new added addresses.
 	newDaveNodeAnn := &lnrpc.NodeUpdate{
 		Alias: newAlias,
+		Color: newColor,
 	}
 
 	// We'll then wait for Alice to receive dave's node announcement

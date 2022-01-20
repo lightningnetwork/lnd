@@ -1,6 +1,7 @@
 package netann
 
 import (
+	"image/color"
 	"net"
 	"time"
 
@@ -26,6 +27,14 @@ func NodeAnnSetAlias(alias lnwire.NodeAlias) func(*lnwire.NodeAnnouncement) {
 func NodeAnnSetAddrs(addrs []net.Addr) func(*lnwire.NodeAnnouncement) {
 	return func(nodeAnn *lnwire.NodeAnnouncement) {
 		nodeAnn.Addresses = addrs
+	}
+}
+
+// NodeAnnSetColor is a functional option that sets the color of the
+// given node announcment.
+func NodeAnnSetColor(newColor color.RGBA) func(*lnwire.NodeAnnouncement) {
+	return func(nodeAnn *lnwire.NodeAnnouncement) {
+		nodeAnn.RGBColor = newColor
 	}
 }
 

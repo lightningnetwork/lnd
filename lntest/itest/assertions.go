@@ -1862,6 +1862,9 @@ func assertAnchorOutputLost(t *harnessTest, node *lntest.HarnessNode,
 func assertNodeAnnouncement(t *harnessTest, n1, n2 *lnrpc.NodeUpdate) {
 	// Alias should match.
 	require.Equal(t.t, n1.Alias, n2.Alias, "alias don't match")
+
+	// Color should match.
+	require.Equal(t.t, n1.Color, n2.Color, "color don't match")
 }
 
 // assertUpdateNodeAnnouncementResponse is a helper function to assert

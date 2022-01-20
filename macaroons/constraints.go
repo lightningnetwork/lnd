@@ -216,3 +216,37 @@ func HasCustomCaveat(mac *macaroon.Macaroon, customCaveatName string) bool {
 
 	return false
 }
+
+// GetCustomCaveatCondition returns the custom caveat condition for the given
+// custom caveat name from the given macaroon.
+func GetCustomCaveatCondition(mac *macaroon.Macaroon,
+	customCaveatName string) string {
+
+	if mac == nil {
+		return ""
+	}
+
+	caveatPrefix := []byte(fmt.Sprintf(
+		"%s %s ", CondLndCustom, customCaveatName,
+	))
+	for _, caveat := range mac.Caveats() {
+
+		// The caveat id has a format of
+		// "lnd-custom [custom-caveat-name] [custom-caveat-condition]"
+		// and we only want the condition part. If we match the prefix
+		// part we return the condition that comes after the prefix.
+		if bytes.HasPrefix(caveat.Id, caveatPrefix) {
+			caveatSplit := strings.SplitN(
+				string(caveat.Id),
+				string(caveatPrefix),
+				2,
+			)
+			if len(caveatSplit) == 2 {
+				return caveatSplit[1]
+			}
+		}
+	}
+
+	// We didn't find a condition for the given custom caveat name.
+	return ""
+}

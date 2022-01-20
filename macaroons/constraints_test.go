@@ -132,6 +132,11 @@ func TestCustomConstraint(t *testing.T) {
 	require.False(t, macaroons.HasCustomCaveat(testMacaroon, "something"))
 	require.False(t, macaroons.HasCustomCaveat(nil, "foo"))
 
+	customCaveatCondition := macaroons.GetCustomCaveatCondition(
+		testMacaroon, "unit-test",
+	)
+	require.Equal(t, customCaveatCondition, "test-value")
+
 	// Custom caveats don't necessarily need a value, just the name is fine
 	// too to create a tagged macaroon.
 	constraintFunc = macaroons.CustomConstraint("unit-test", "")
@@ -144,4 +149,9 @@ func TestCustomConstraint(t *testing.T) {
 	require.True(t, macaroons.HasCustomCaveat(testMacaroon, "unit-test"))
 	require.False(t, macaroons.HasCustomCaveat(testMacaroon, "test-value"))
 	require.False(t, macaroons.HasCustomCaveat(testMacaroon, "something"))
+
+	customCaveatCondition = macaroons.GetCustomCaveatCondition(
+		testMacaroon, "unit-test",
+	)
+	require.Equal(t, customCaveatCondition, "")
 }

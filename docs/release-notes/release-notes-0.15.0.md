@@ -50,6 +50,8 @@
 
 * [A nightly build of the `lnd` docker image is now created
   automatically](https://github.com/lightningnetwork/lnd/pull/6160).
+  
+* [Add `.vs/` folder to `.gitignore`](https://github.com/lightningnetwork/lnd/pull/6178). 
 
 ## RPC Server
 
@@ -74,6 +76,7 @@
 * 3nprob
 * Andreas Schjønhaug
 * asvdf
+* BTCparadigm
 * Carsten Otto
 * Dan Bolser
 * Daniel McNally

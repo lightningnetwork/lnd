@@ -6,6 +6,7 @@ package peersrpc
 import (
 	"context"
 	"fmt"
+	"net"
 	"sync/atomic"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -161,6 +162,85 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 	return subServer, macPermissions, nil
 }
 
+// updateAddresses computes the new address set after executing the update
+// actions.
+func (s *Server) updateAddresses(currentAddresses []net.Addr,
+	updates []*UpdateAddressAction) ([]net.Addr, *lnrpc.Op, error) {
+
+	// net.Addr is not comparable so we cannot use the default map
+	// (map[net.Addr]struct{}) so we have to use arrays and a helping
+	// function.
+	findAddr := func(addr net.Addr, slice []net.Addr) bool {
+		for _, sAddr := range slice {
+			if sAddr.Network() != addr.Network() {
+				continue
+			}
+
+			if sAddr.String() == addr.String() {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Preallocate enough memory for both arrays.
+	removeAddr := make([]net.Addr, 0, len(updates))
+	addAddr := make([]net.Addr, 0, len(updates))
+	for _, update := range updates {
+		addr, err := s.cfg.ParseAddr(update.Address)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to resolve "+
+				"address %v: %v", update.Address, err)
+		}
+
+		switch update.Action {
+		case UpdateAction_ADD:
+			addAddr = append(addAddr, addr)
+		case UpdateAction_REMOVE:
+			removeAddr = append(removeAddr, addr)
+		default:
+			return nil, nil, fmt.Errorf("invalid address update "+
+				"action: %v", update.Action)
+		}
+	}
+
+	// Look for any inconsistency trying to add AND remove the same address.
+	for _, addr := range removeAddr {
+		if findAddr(addr, addAddr) {
+			return nil, nil, fmt.Errorf("invalid updates for "+
+				"removing AND adding %v", addr)
+		}
+	}
+
+	ops := &lnrpc.Op{Entity: "addresses"}
+	newAddrs := make([]net.Addr, 0, len(updates)+len(currentAddresses))
+
+	// Copy current addresses excluding the ones that need to be removed.
+	for _, addr := range currentAddresses {
+		if findAddr(addr, removeAddr) {
+			ops.Actions = append(
+				ops.Actions,
+				fmt.Sprintf("%s removed", addr.String()),
+			)
+			continue
+		}
+		newAddrs = append(newAddrs, addr)
+	}
+
+	// Add new adresses if needed.
+	for _, addr := range addAddr {
+		if !findAddr(addr, newAddrs) {
+			ops.Actions = append(
+				ops.Actions,
+				fmt.Sprintf("%s added", addr.String()),
+			)
+			newAddrs = append(newAddrs, addr)
+		}
+	}
+
+	return newAddrs, ops, nil
+}
+
 // UpdateNodeAnnouncement allows the caller to update the node parameters
 // and broadcasts a new version of the node announcement to its peers.
 func (s *Server) UpdateNodeAnnouncement(_ context.Context,
@@ -217,7 +297,21 @@ func (s *Server) UpdateNodeAnnouncement(_ context.Context,
 		}
 	}
 
-	// TODO(positiveblue): apply addresses modifications
+	if len(req.AddressUpdates) > 0 {
+		newAddrs, ops, err := s.updateAddresses(
+			currentNodeAnn.Addresses,
+			req.AddressUpdates,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error trying to update node "+
+				"addresses: %w", err)
+		}
+		resp.Ops = append(resp.Ops, ops)
+		nodeModifiers = append(
+			nodeModifiers,
+			netann.NodeAnnSetAddrs(newAddrs),
+		)
+	}
 
 	if len(nodeModifiers) == 0 {
 		return nil, fmt.Errorf("unable detect any new values to " +

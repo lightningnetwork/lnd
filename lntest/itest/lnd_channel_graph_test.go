@@ -810,6 +810,17 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	defer close(aliceSub.quit)
 
 	var lndArgs []string
+
+	// Add some exta addresses to the default ones.
+	extraAddrs := []string{
+		"192.168.1.1:8333",
+		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337",
+		"bkb6azqggsaiskzi.onion:9735",
+		"fomvuglh6h6vcag73xo5t5gv56ombih3zr2xvplkpbfd7wrog4swjwid.onion:1234",
+	}
+	for _, addr := range extraAddrs {
+		lndArgs = append(lndArgs, "--externalip="+addr)
+	}
 	dave := net.NewNode(t.t, "Dave", lndArgs)
 	defer shutdownAndAssert(net, t, dave)
 
@@ -819,9 +830,21 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	resp, err := dave.GetInfo(ctxt, nodeInfoReq)
 	require.NoError(t.t, err, "unable to get dave's information")
 
+	defaultAddrs := make([]*lnrpc.NodeAddress, 0, len(resp.Uris))
+	for _, uri := range resp.GetUris() {
+		values := strings.Split(uri, "@")
+		defaultAddrs = append(
+			defaultAddrs, &lnrpc.NodeAddress{
+				Addr:    values[1],
+				Network: "tcp",
+			},
+		)
+	}
+
 	defaultDaveNodeAnn := &lnrpc.NodeUpdate{
-		Alias: resp.Alias,
-		Color: resp.Color,
+		Alias:         resp.Alias,
+		Color:         resp.Color,
+		NodeAddresses: defaultAddrs,
 	}
 
 	// Dave must have an open channel before he can send a node
@@ -869,25 +892,57 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	newAlias := "new-alias"
 	newColor := "#2288ee"
 
+	newAddresses := []string{
+		"192.168.1.10:8333",
+		"192.168.1.11:8333",
+	}
+
+	updateAddressActions := []*peersrpc.UpdateAddressAction{
+		{
+			Action:  peersrpc.UpdateAction_ADD,
+			Address: newAddresses[0],
+		},
+		{
+			Action:  peersrpc.UpdateAction_ADD,
+			Address: newAddresses[1],
+		},
+		{
+			Action:  peersrpc.UpdateAction_REMOVE,
+			Address: defaultAddrs[0].Addr,
+		},
+	}
+
 	nodeAnnReq := &peersrpc.NodeAnnouncementUpdateRequest{
-		Alias: newAlias,
-		Color: newColor,
+		Alias:          newAlias,
+		Color:          newColor,
+		AddressUpdates: updateAddressActions,
 	}
 
 	response, err := dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
 	require.NoError(t.t, err, "unable to update dave's node announcement")
 
 	expectedOps := map[string]int{
-		"color": 1,
-		"alias": 1,
+		"color":     1,
+		"alias":     1,
+		"addresses": 3,
 	}
 	assertUpdateNodeAnnouncementResponse(t, response, expectedOps)
+
+	newNodeAddresses := []*lnrpc.NodeAddress{}
+	// We removed the first address.
+	newNodeAddresses = append(newNodeAddresses, defaultAddrs[1:]...)
+	newNodeAddresses = append(
+		newNodeAddresses,
+		&lnrpc.NodeAddress{Addr: newAddresses[0], Network: "tcp"},
+		&lnrpc.NodeAddress{Addr: newAddresses[1], Network: "tcp"},
+	)
 
 	// After updating the node we expect the update to contain
 	// the requested color, requested alias and the new added addresses.
 	newDaveNodeAnn := &lnrpc.NodeUpdate{
-		Alias: newAlias,
-		Color: newColor,
+		Alias:         newAlias,
+		Color:         newColor,
+		NodeAddresses: newNodeAddresses,
 	}
 
 	// We'll then wait for Alice to receive dave's node announcement

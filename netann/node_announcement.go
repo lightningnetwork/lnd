@@ -15,7 +15,7 @@ import (
 type NodeAnnModifier func(*lnwire.NodeAnnouncement)
 
 // NodeAnnSetAlias is a functional option that sets the alias of the
-// given node announcment.
+// given node announcement.
 func NodeAnnSetAlias(alias lnwire.NodeAlias) func(*lnwire.NodeAnnouncement) {
 	return func(nodeAnn *lnwire.NodeAnnouncement) {
 		nodeAnn.Alias = alias
@@ -31,7 +31,7 @@ func NodeAnnSetAddrs(addrs []net.Addr) func(*lnwire.NodeAnnouncement) {
 }
 
 // NodeAnnSetColor is a functional option that sets the color of the
-// given node announcment.
+// given node announcement.
 func NodeAnnSetColor(newColor color.RGBA) func(*lnwire.NodeAnnouncement) {
 	return func(nodeAnn *lnwire.NodeAnnouncement) {
 		nodeAnn.RGBColor = newColor

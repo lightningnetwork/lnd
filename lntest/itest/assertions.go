@@ -1865,6 +1865,24 @@ func assertNodeAnnouncement(t *harnessTest, n1, n2 *lnrpc.NodeUpdate) {
 
 	// Color should match.
 	require.Equal(t.t, n1.Color, n2.Color, "color don't match")
+
+	// NodeAddresses  should match.
+	require.Equal(
+		t.t, len(n1.NodeAddresses), len(n2.NodeAddresses),
+		"node addresses don't match",
+	)
+
+	addrs := make(map[string]struct{}, len(n1.NodeAddresses))
+	for _, nodeAddr := range n1.NodeAddresses {
+		addrs[nodeAddr.Addr] = struct{}{}
+	}
+
+	for _, nodeAddr := range n2.NodeAddresses {
+		if _, ok := addrs[nodeAddr.Addr]; !ok {
+			t.Fatalf("address %v not found in node announcement",
+				nodeAddr.Addr)
+		}
+	}
 }
 
 // assertUpdateNodeAnnouncementResponse is a helper function to assert

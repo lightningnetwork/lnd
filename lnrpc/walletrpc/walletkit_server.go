@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
@@ -322,15 +323,28 @@ func (w *WalletKit) internalScope() waddrmgr.KeyScope {
 	}
 }
 
-// ListUnspent returns useful information about each unspent output owned by the
-// wallet, as reported by the underlying `ListUnspentWitness`; the information
-// returned is: outpoint, amount in satoshis, address, address type,
-// scriptPubKey in hex and number of confirmations.  The result is filtered to
-// contain outputs whose number of confirmations is between a
-// minimum and maximum number of confirmations specified by the user, with 0
-// meaning unconfirmed.
+// ListUnspent returns useful information about each unspent output owned by
+// the wallet, as reported by the underlying `ListUnspentWitness`; the
+// information returned is: outpoint, amount in satoshis, address, address
+// type, scriptPubKey in hex and number of confirmations. The result is
+// filtered to contain outputs whose number of confirmations is between a
+// minimum and maximum number of confirmations specified by the user.
 func (w *WalletKit) ListUnspent(ctx context.Context,
 	req *ListUnspentRequest) (*ListUnspentResponse, error) {
+
+	// Force min_confs and max_confs to be zero if unconfirmed_only is
+	// true.
+	if req.UnconfirmedOnly && (req.MinConfs != 0 || req.MaxConfs != 0) {
+		return nil, fmt.Errorf("min_confs and max_confs must be zero if " +
+			"unconfirmed_only is true")
+	}
+
+	// When unconfirmed_only is inactive and max_confs is zero (default
+	// values), we will override max_confs to be a MaxInt32, in order
+	// to return all confirmed and unconfirmed utxos as a default response.
+	if req.MaxConfs == 0 && !req.UnconfirmedOnly {
+		req.MaxConfs = math.MaxInt32
+	}
 
 	// Validate the confirmation arguments.
 	minConfs, maxConfs, err := lnrpc.ParseConfs(req.MinConfs, req.MaxConfs)

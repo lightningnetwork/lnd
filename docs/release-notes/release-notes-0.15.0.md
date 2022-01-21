@@ -58,6 +58,8 @@
 * [A nightly build of the `lnd` docker image is now created
   automatically](https://github.com/lightningnetwork/lnd/pull/6160).
   
+* Add default values to [walletrpc.ListUnspent RPC call](https://github.com/lightningnetwork/lnd/pull/6190).
+
 * [Add `.vs/` folder to `.gitignore`](https://github.com/lightningnetwork/lnd/pull/6178). 
 
 * [Chain backend healthchecks disabled for --nochainbackend mode](https://github.com/lightningnetwork/lnd/pull/6184)

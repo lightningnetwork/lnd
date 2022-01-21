@@ -12,7 +12,9 @@ option go_package = "github.com/lightningnetwork/lnd/lnrpc/walletrpc";
 service WalletKit {
     /*
     ListUnspent returns a list of all utxos spendable by the wallet with a
-    number of confirmations between the specified minimum and maximum.
+    number of confirmations between the specified minimum and maximum. By
+    default, all utxos are listed. To list only the unconfirmed utxos, set
+    the unconfirmed_only to true.
     */
     rpc ListUnspent (ListUnspentRequest) returns (ListUnspentResponse);
 
@@ -240,6 +242,14 @@ message ListUnspentRequest {
 
     // An optional filter to only include outputs belonging to an account.
     string account = 3;
+
+    /*
+    When min_confs and max_confs are zero, setting false implicitly
+    overrides max_confs to be MaxInt32, otherwise max_confs remains
+    zero. An error is returned if the value is true and both min_confs
+    and max_confs are non-zero. (default: false)
+    */
+    bool unconfirmed_only = 4;
 }
 
 message ListUnspentResponse {

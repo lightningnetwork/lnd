@@ -321,6 +321,7 @@ jobs:
 
       - name: Zip log files on failure
         if: ${{ failure() }}
+        timeout-minutes: 1 # timeout after 1 minute
         run: 7z a logs-itest-${{ matrix.name }}.zip lntest/itest/**/*.log
 
       - name: Upload log files on failure

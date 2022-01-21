@@ -195,7 +195,7 @@ func middlewareInterceptionTest(t *testing.T, node *lntest.HarnessNode,
 	// block the execution of the main task otherwise.
 	req := &lnrpc.ListChannelsRequest{ActiveOnly: true}
 	go registration.interceptUnary(
-		"/lnrpc.Lightning/ListChannels", req, nil,
+		"/lnrpc.Lightning/ListChannels", req, nil, readOnly,
 	)
 
 	// Do the actual call now and wait for the interceptor to do its thing.
@@ -208,7 +208,7 @@ func middlewareInterceptionTest(t *testing.T, node *lntest.HarnessNode,
 	// Let's test the same for a streaming endpoint.
 	req2 := &lnrpc.PeerEventSubscription{}
 	go registration.interceptStream(
-		"/lnrpc.Lightning/SubscribePeerEvents", req2, nil,
+		"/lnrpc.Lightning/SubscribePeerEvents", req2, nil, readOnly,
 	)
 
 	// Do the actual call now and wait for the interceptor to do its thing.
@@ -327,6 +327,7 @@ func middlewareManipulationTest(t *testing.T, node *lntest.HarnessNode,
 	req := &lnrpc.ListChannelsRequest{ActiveOnly: true}
 	go registration.interceptUnary(
 		"/lnrpc.Lightning/ListChannels", req, replacementResponse,
+		readOnly,
 	)
 
 	// Do the actual call now and wait for the interceptor to do its thing.
@@ -349,7 +350,7 @@ func middlewareManipulationTest(t *testing.T, node *lntest.HarnessNode,
 	req2 := &lnrpc.PeerEventSubscription{}
 	go registration.interceptStream(
 		"/lnrpc.Lightning/SubscribePeerEvents", req2,
-		replacementResponse2,
+		replacementResponse2, readOnly,
 	)
 
 	// Do the actual call now and wait for the interceptor to do its thing.
@@ -522,11 +523,21 @@ func registerMiddleware(t *testing.T, node *lntest.HarnessNode,
 // NOTE: Must be called in a goroutine as this will block until the response is
 // read from the response channel.
 func (h *middlewareHarness) interceptUnary(methodURI string,
-	expectedRequest proto.Message, responseReplacement proto.Message) {
+	expectedRequest proto.Message, responseReplacement proto.Message,
+	readOnly bool) {
 
 	// Read intercept message and make sure it's for an RPC request.
 	reqIntercept, err := h.stream.Recv()
 	require.NoError(h.t, err)
+
+	// Make sure the custom condition is populated correctly (if we're using
+	// a macaroon with a custom condition).
+	if !readOnly {
+		require.Equal(
+			h.t, "itest-value", reqIntercept.CustomCaveatCondition,
+		)
+	}
+
 	req := reqIntercept.GetRequest()
 	require.NotNil(h.t, req)
 
@@ -564,11 +575,21 @@ func (h *middlewareHarness) interceptUnary(methodURI string,
 // NOTE: Must be called in a goroutine as this will block until the first
 // response is read from the response channel.
 func (h *middlewareHarness) interceptStream(methodURI string,
-	expectedRequest proto.Message, responseReplacement proto.Message) {
+	expectedRequest proto.Message, responseReplacement proto.Message,
+	readOnly bool) {
 
 	// Read intercept message and make sure it's for an RPC stream auth.
 	authIntercept, err := h.stream.Recv()
 	require.NoError(h.t, err)
+
+	// Make sure the custom condition is populated correctly (if we're using
+	// a macaroon with a custom condition).
+	if !readOnly {
+		require.Equal(
+			h.t, "itest-value", authIntercept.CustomCaveatCondition,
+		)
+	}
+
 	auth := authIntercept.GetStreamAuth()
 	require.NotNil(h.t, auth)
 

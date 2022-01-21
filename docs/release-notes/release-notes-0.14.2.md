@@ -92,6 +92,10 @@ Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
   exposed](https://github.com/lightningnetwork/lnd/pull/6146) inside
   WaitingCloseResp from calling `PendingChannels`.
 
+* [CustomCaveatCondition is now properly
+  set](https://github.com/lightningnetwork/lnd/pull/6185) on
+  `RPCMiddlewareRequest` messages.
+
 
 ## Routing
 
@@ -104,6 +108,7 @@ Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
 
 * Andras Banki-Horvath
 * Bjarne Magnussen
+* Daniel McNally
 * Elle Mouton
 * Harsha Goli
 * Joost Jager

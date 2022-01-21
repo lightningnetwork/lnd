@@ -54,7 +54,7 @@ func (m *missionControlState) resetHistory() {
 
 // setLastPairResult stores a result for a node pair.
 func (m *missionControlState) setLastPairResult(fromNode, toNode route.Vertex,
-	timestamp time.Time, result *pairResult) {
+	timestamp time.Time, result *pairResult, force bool) {
 
 	nodePairs, ok := m.lastPairResult[fromNode]
 	if !ok {
@@ -74,7 +74,7 @@ func (m *missionControlState) setLastPairResult(fromNode, toNode route.Vertex,
 		// prevents the success range from shrinking when there is no
 		// reason to do so. For example: small amount probes shouldn't
 		// affect a previous success for a much larger amount.
-		if successAmt > current.SuccessAmt {
+		if force || successAmt > current.SuccessAmt {
 			current.SuccessAmt = successAmt
 		}
 
@@ -83,7 +83,9 @@ func (m *missionControlState) setLastPairResult(fromNode, toNode route.Vertex,
 		// are likely to succeed. We don't want to clear the failure
 		// completely, because we haven't learnt much for amounts above
 		// the current success amount.
-		if !current.FailTime.IsZero() && successAmt >= current.FailAmt {
+		if force || (!current.FailTime.IsZero() &&
+			successAmt >= current.FailAmt) {
+
 			current.FailAmt = successAmt + 1
 		}
 	} else {
@@ -100,7 +102,7 @@ func (m *missionControlState) setLastPairResult(fromNode, toNode route.Vertex,
 		// come in out of order. This check makes it easier for payment
 		// processes to converge to a final state.
 		failInterval := timestamp.Sub(current.FailTime)
-		if failAmt > current.FailAmt &&
+		if !force && failAmt > current.FailAmt &&
 			failInterval < m.minFailureRelaxInterval {
 
 			log.Debugf("Ignoring higher amount failure within min "+
@@ -213,7 +215,9 @@ func (m *missionControlState) getSnapshot() *MissionControlSnapshot {
 // importSnapshot takes an existing snapshot and merges it with our current
 // state if the result provided are fresher than our current results. It returns
 // the number of pairs that were used.
-func (m *missionControlState) importSnapshot(snapshot *MissionControlSnapshot) int {
+func (m *missionControlState) importSnapshot(snapshot *MissionControlSnapshot,
+	force bool) int {
+
 	var imported int
 
 	for _, pair := range snapshot.Pairs {
@@ -230,13 +234,13 @@ func (m *missionControlState) importSnapshot(snapshot *MissionControlSnapshot) i
 		failResult := failPairResult(pair.FailAmt)
 		imported += m.importResult(
 			lastResult.FailTime, pair.FailTime, failResult,
-			fromNode, toNode,
+			fromNode, toNode, force,
 		)
 
 		successResult := successPairResult(pair.SuccessAmt)
 		imported += m.importResult(
 			lastResult.SuccessTime, pair.SuccessTime, successResult,
-			fromNode, toNode,
+			fromNode, toNode, force,
 		)
 	}
 
@@ -244,9 +248,10 @@ func (m *missionControlState) importSnapshot(snapshot *MissionControlSnapshot) i
 }
 
 func (m *missionControlState) importResult(currentTs, importedTs time.Time,
-	importedResult pairResult, fromNode, toNode route.Vertex) int {
+	importedResult pairResult, fromNode, toNode route.Vertex,
+	force bool) int {
 
-	if currentTs.After(importedTs) {
+	if !force && currentTs.After(importedTs) {
 		log.Debugf("Not setting pair result for %v->%v (%v) "+
 			"success=%v, timestamp %v older than last result %v",
 			fromNode, toNode, importedResult.amt,
@@ -255,7 +260,9 @@ func (m *missionControlState) importResult(currentTs, importedTs time.Time,
 		return 0
 	}
 
-	m.setLastPairResult(fromNode, toNode, importedTs, &importedResult)
+	m.setLastPairResult(
+		fromNode, toNode, importedTs, &importedResult, force,
+	)
 
 	return 1
 }

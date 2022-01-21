@@ -406,3 +406,9 @@ func (b *readWriteBucket) Prefetch(paths ...[]string) {
 
 	b.tx.stm.Prefetch(flattenMap(keys), flattenMap(ranges))
 }
+
+// ForAll is an optimized version of ForEach with the limitation that no
+// additional queries can be executed within the callback.
+func (b *readWriteBucket) ForAll(cb func(k, v []byte) error) error {
+	return b.ForEach(cb)
+}

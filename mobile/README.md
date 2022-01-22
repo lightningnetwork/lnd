@@ -2,100 +2,89 @@
 
 ## Prerequisites
 
-### Go language
+To build for iOS, you need to run macOS with either 
+[Command Line Tools](https://developer.apple.com/download/all/?q=command%20line%20tools) 
+or [Xcode](https://apps.apple.com/app/xcode/id497799835) installed.
 
-- [Install](https://github.com/lightningnetwork/lnd/blob/master/docs/INSTALL.md#preliminaries-for-installing-from-source) `GO` language.
-- Provide `$GOPATH` to `.zshrc` or `.bash_profile` files.
+To build for Android, you need either 
+[Android Studio](https://developer.android.com/studio) or 
+[Command Line Tools](https://developer.android.com/studio#downloads) installed, which in turn must be used to install [Android NDK](https://developer.android.com/ndk/).
+
+
+### Go and Go mobile
+
+First, follow the instructions to [install Go](https://github.com/lightningnetwork/lnd/blob/master/docs/INSTALL.md#building-a-development-version-from-source).
+
+Then, install [Go mobile](https://github.com/golang/go/wiki/Mobile) and 
+initialize it:
 
 ```shell
-export GOPATH=$HOME/go
-export PATH=$PATH:$GOPATH/bin
+⛰  go install golang.org/x/mobile/cmd/gomobile@latest
+⛰  go mod download golang.org/x/mobile
+⛰  gomobile init
 ```
-
-Or any path you want it to be in.
 
 ### Docker
 
-- Install and run [Docker](https://www.docker.com/products/docker-desktop).
+Install and run [Docker](https://www.docker.com/products/docker-desktop).
 
 ### Make
 
-- Check that `make` is available by running the following command without errors:
+Check that `make` is available by running the following command without errors:
 
 ```shell
 ⛰  make --version
 ```
 
-### Go mobile
-
-- Install [gomobile](https://github.com/golang/go/wiki/Mobile):
-
-```shell
-⛰  go install golang.org/x/mobile/cmd/gomobile@latest
-```
-
-- Install `gobind`
-
-```shell
-⛰  go install golang.org/x/mobile/cmd/gobind@latest
-```
-
 ## Building the libraries
 
-Note that `gomobile` only supports building projects from `GOPATH` at this point. So, before continuing, be sure to be in the `src` folder:
+Note that `gomobile` only supports building projects from `$GOPATH` at this 
+point. However, with the introduction of Go modules, the source code files are 
+no longer installed there by default.
+
+To be able to do so, we must turn off module and using the now deprecated 
+`go get` command before turning modules back on again.
+
+```shell
+⛰  go env -w GO111MODULE="off"
+⛰  go get github.com/lightningnetwork/lnd
+⛰  go get golang.org/x/mobile/bind
+⛰  go env -w GO111MODULE="on"
+```
+
+Finally, let’s change directory to the newly created lnd folder inside `$GOPATH`:
 
 ```shell
 ⛰  cd $GOPATH/src/github.com/lightningnetwork/lnd
 ```
 
-To checkout the latest tagged release of lnd, run
+It is not recommended building from the master branch for mainnet. To checkout
+the latest tagged release of lnd, run
 
 ```shell
-⛰  git checkout $(git describe --tags --abbrev=0)
+⛰  git checkout $(git describe --match "v[0-9]*" --abbrev=0)
 ```
 
-Or, the second option: just clone the project and checkout to any branch/tag (pay attention to the dot in the end).
-
-```shell
-⛰  git clone https://github.com/lightningnetwork/lnd .
-```
-
-#### For Android:
-
-Move to the folder or create one:
-
-```shell
-⛰  cd $GOPATH/src/golang.org/x
-```
-
-After that clone the goland mobile repo
-
-```shell
-⛰  git clone https://github.com/golang/mobile
-```
-
-### Building `lnd` for iOS
+### iOS
 
 ```shell
 ⛰  make ios
 ```
 
-### Building `lnd` for Android
+The Xcode framework file will be found in `mobile/build/ios/Lndmobile.xcframework`.
 
-Go to `$GOPATH/src/github.com/lightningnetwork/lnd` and run the command below (make sure that the Docker  engine is running):
+### Android
 
 ```shell
 ⛰  make android
 ```
 
-`make mobile` will build both iOS and Android libraries.
+The AAR library file will be found in `mobile/build/android/Lndmobile.aar`.
 
-### Libraries
+---
+Tip: `make mobile` will build both iOS and Android libraries.
 
-After the build has succeeded, the libraries will be found in
-`mobile/build/ios/Lndmobile.xcframework` and
-`mobile/build/android/Lndmobile.aar`. Reference your platforms' SDK
-documentation for how to add the library to your project.
+---
 
 ## Generating proto definitions
 
@@ -120,7 +109,7 @@ following commands:
 
 ```
 RUN apt-get install -y wget \
-    && wget -c https://golang.org/dl/go1.17.3.linux-amd64.tar.gz -O - \
+    && wget -c https://golang.org/dl/go1.17.6.linux-amd64.tar.gz -O - \
     | tar -xz -C /usr/local
 ENV GOPATH=/go
 ENV PATH=$PATH:/usr/local/go/bin:/go/bin
@@ -143,7 +132,7 @@ Tip: The generated Swift files will be found in various folders. If you’d like
 to move them to the same folder as the framework file, run
 
 ```shell
-⛰  `find . -name "*.swift" -print0 | xargs -0 -I {} mv {} mobile/build/ios`.
+⛰  `find . -name "*.swift" -print0 | xargs -0 -I {} mv {} mobile/build/ios`
 ```
 
 `Lndmobile.xcframework` and all Swift files should now be added to your Xcode
@@ -214,7 +203,9 @@ protobuf {
 - Then, copy all the proto files from `lnd/lnrpc` to your `proto` folder, saving the structure.
 - Build the project and wait until you see the generated Java proto files in the `build` folder.
 
-#### Note:
+
+--- 
+*Note:*
 
 If Android Studio tells you that the `aar` file cannot be included into the `app-bundle`, this is a workaround:
 
@@ -234,7 +225,7 @@ artifacts.add("default", file('Lndmobile.aar'))
 ```shell
 implementation project(":lndmobile", { "default" })
 ```
-
+--- 
 
 ## Options
 
@@ -252,6 +243,5 @@ To support subservers that have APIs with name conflicts, pass the "prefix" flag
 
 ## API docs
 
-[LND gRPC API Reference](https://api.lightning.community)
-
-TODO(halseth)
+- [LND gRPC API Reference](https://api.lightning.community)
+- [LND Builder’s Guide](https://docs.lightning.engineering)

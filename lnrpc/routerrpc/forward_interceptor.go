@@ -64,7 +64,7 @@ func (r *forwardInterceptor) attachStream(stream Router_HtlcInterceptorServer) e
 
 	r.stream = stream
 
-	if !r.server.cfg.AlwaysIntercept {
+	if !r.server.cfg.RequireInterceptor {
 		// Register our interceptor so we receive all forwarded packets.
 		interceptableForwarder := r.server.cfg.RouterBackend.InterceptableForwarder
 		interceptableForwarder.SetInterceptor(r.onIntercept)
@@ -121,7 +121,7 @@ func (r *forwardInterceptor) attachStream(stream Router_HtlcInterceptorServer) e
 // to deliver the packet to the main loop.
 func (r *forwardInterceptor) onIntercept(p htlcswitch.InterceptedForward) bool {
 
-	if r.stream == nil && !r.server.cfg.AlwaysIntercept {
+	if r.stream == nil && !r.server.cfg.RequireInterceptor {
 		return false
 	}
 
@@ -229,7 +229,7 @@ func (r *forwardInterceptor) resolveFromClient(
 // behavior.
 func (r *forwardInterceptor) onDisconnect() {
 
-	if !r.server.cfg.AlwaysIntercept {
+	if !r.server.cfg.RequireInterceptor {
 		log.Infof("RPC interceptor disconnected, resolving held packets")
 		for key, forward := range r.holdForwards {
 			if err := forward.Resume(); err != nil {
@@ -244,8 +244,8 @@ func (r *forwardInterceptor) onDisconnect() {
 }
 
 func (r *forwardInterceptor) start() {
-	if r.server.cfg.AlwaysIntercept {
-		log.Infof("Registering RPC interceptor early due to AlwaysIntercept")
+	if r.server.cfg.RequireInterceptor {
+		log.Infof("Registering RPC interceptor early due to RequireInterceptor")
 		// Register our interceptor so we receive all forwarded packets.
 		interceptableForwarder := r.server.cfg.RouterBackend.InterceptableForwarder
 		interceptableForwarder.SetInterceptor(r.onIntercept)

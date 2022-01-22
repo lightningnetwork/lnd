@@ -48,7 +48,7 @@ type RoutingConfig struct {
 	// control state to the DB.
 	McFlushInterval time.Duration `long:"mcflushinterval" description:"the timer interval to use to flush mission control state to the DB"`
 
-	// AlwaysIntercept determines whether the HTLC interceptor is registered
+	// RequireInterceptor determines whether the HTLC interceptor is registered
 	// regardless of whether the RPC is called or not.
-	AlwaysIntercept bool `long:"alwaysintercept" description:"Whether to always intercept HTLCs, even if no stream is attached"`
+	RequireInterceptor bool `long:"requireinterceptor" description:"Whether to always intercept HTLCs, even if no stream is attached"`
 }

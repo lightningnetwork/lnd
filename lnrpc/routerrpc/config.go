@@ -50,7 +50,7 @@ func DefaultConfig() *Config {
 		AttemptCostPPM:        routing.DefaultAttemptCostPPM,
 		MaxMcHistory:          routing.DefaultMaxMcHistory,
 		McFlushInterval:       routing.DefaultMcFlushInterval,
-		AlwaysIntercept:       routing.DefaultAlwaysIntercept,
+		RequireInterceptor:    routing.DefaultRequireInterceptor,
 	}
 
 	return &Config{
@@ -69,6 +69,6 @@ func GetRoutingConfig(cfg *Config) *RoutingConfig {
 		PenaltyHalfLife:       cfg.PenaltyHalfLife,
 		MaxMcHistory:          cfg.MaxMcHistory,
 		McFlushInterval:       cfg.McFlushInterval,
-		AlwaysIntercept:       cfg.AlwaysIntercept,
+		RequireInterceptor:    cfg.RequireInterceptor,
 	}
 }

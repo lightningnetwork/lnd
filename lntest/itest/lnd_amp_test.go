@@ -97,7 +97,7 @@ func testSendPaymentAMPInvoiceCase(net *lntest.NetworkHarness, t *harnessTest,
 		&lnrpc.PolicyUpdateRequest{
 			Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
 			BaseFeeMsat:   500000,
-			FeeRate:       0.001,
+			Fee:           &lnrpc.PolicyUpdateRequest_FeeRate{FeeRate: .001},
 			TimeLockDelta: 40,
 		},
 	)
@@ -433,7 +433,7 @@ func testSendPaymentAMP(net *lntest.NetworkHarness, t *harnessTest) {
 		&lnrpc.PolicyUpdateRequest{
 			Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
 			BaseFeeMsat:   500000,
-			FeeRate:       0.001,
+			Fee:           &lnrpc.PolicyUpdateRequest_FeeRate{FeeRate: 0.001},
 			TimeLockDelta: 40,
 		},
 	)

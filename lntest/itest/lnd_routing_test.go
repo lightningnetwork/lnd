@@ -1809,13 +1809,15 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 		FeeBaseMsat:      baseFee,
 		FeeRateMilliMsat: testFeeBase * feeRate,
 		TimeLockDelta:    timeLockDelta,
-		MinHtlc:          1000, // default value
+		MinHtlc:          1000, // default value{}
 		MaxHtlcMsat:      maxHtlc,
 	}
 
 	updateFeeReq := &lnrpc.PolicyUpdateRequest{
-		BaseFeeMsat:   baseFee,
-		FeeRate:       float64(feeRate),
+		BaseFeeMsat: baseFee,
+		Fee: &lnrpc.PolicyUpdateRequest_FeeRate{
+			FeeRate: float64(feeRate),
+		},
 		TimeLockDelta: timeLockDelta,
 		MaxHtlcMsat:   maxHtlc,
 		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{

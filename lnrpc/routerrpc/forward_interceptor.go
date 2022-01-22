@@ -77,6 +77,18 @@ func (r *forwardInterceptor) attachStream(stream Router_HtlcInterceptorServer) e
 	r.wg.Add(1)
 	go r.readClientResponses(resolutionRequests, errChan)
 
+	// If we have any previously held forwards, re-send them in case they
+	// didn't reach the interceptor the first time.
+	for _, held := range r.holdForwards {
+		log.Tracef("re-sending intercepted packet to client after reconnect %v", held.Packet())
+
+		if err := r.sendRequestForHtlc(held.Packet()); err != nil {
+			// in case we couldn't forward we exit the loop and drain the
+			// current interceptor as this indicates on a connection problem.
+			return err
+		}
+	}
+
 	// run the main loop that synchronizes both sides input into one go routine.
 	for {
 		select {
@@ -156,10 +168,14 @@ func (r *forwardInterceptor) holdAndForwardToClient(
 
 	// First hold the forward, then send to client.
 	r.holdForwards[inKey] = forward
+	return r.sendRequestForHtlc(htlc)
+}
+
+func (r *forwardInterceptor) sendRequestForHtlc(htlc htlcswitch.InterceptedPacket) error {
 	interceptionRequest := &ForwardHtlcInterceptRequest{
 		IncomingCircuitKey: &CircuitKey{
-			ChanId: inKey.ChanID.ToUint64(),
-			HtlcId: inKey.HtlcID,
+			ChanId: htlc.IncomingCircuit.ChanID.ToUint64(),
+			HtlcId: htlc.IncomingCircuit.HtlcID,
 		},
 		OutgoingRequestedChanId: htlc.OutgoingChanID.ToUint64(),
 		PaymentHash:             htlc.Hash[:],

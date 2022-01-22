@@ -400,8 +400,10 @@ func updateChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 	}
 
 	updateFeeReq := &lnrpc.PolicyUpdateRequest{
-		BaseFeeMsat:   baseFee,
-		FeeRate:       float64(feeRate) / testFeeBase,
+		BaseFeeMsat: baseFee,
+		Fee: &lnrpc.PolicyUpdateRequest_FeeRate{
+			FeeRate: float64(feeRate) / testFeeBase,
+		},
 		TimeLockDelta: timeLockDelta,
 		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
 			ChanPoint: chanPoint,

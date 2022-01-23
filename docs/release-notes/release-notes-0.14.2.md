@@ -19,6 +19,11 @@ connection from the watch-only node.
   In other words, freshly-installed LND can now be initialized with multiple
   channels from an external (e.g. hardware) wallet *in a single transaction*.
 
+## Database
+
+* [Speed up graph cache loading on startup with
+Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
+
 ## Build System
 
 * [Clean up Makefile by using go
@@ -69,7 +74,9 @@ connection from the watch-only node.
 
 * [Fix duplicate db connection close](https://github.com/lightningnetwork/lnd/pull/6140)
 
-* [Fix a memory leak introduced by the new ping-header p2p enhancement](https://github.com/lightningnetwork/lnd/pull/6144]
+* [Fix a memory leak introduced by the new ping-header p2p enhancement](https://github.com/lightningnetwork/lnd/pull/6144)
+
+* [Fix an issue that would prevent very old nodes from starting up due to lack of a historical channel bucket](https://github.com/lightningnetwork/lnd/pull/6159)
 
 
 ## RPC Server
@@ -84,6 +91,14 @@ connection from the watch-only node.
 * [Closing txid is now
   exposed](https://github.com/lightningnetwork/lnd/pull/6146) inside
   WaitingCloseResp from calling `PendingChannels`.
+
+
+## Routing
+
+* [Enable forced update of MC pair
+  history](https://github.com/lightningnetwork/lnd/pull/6180) by adding the `force`
+  flag to the `XImportMissionControl` RPC call.
+
 
 # Contributors (Alphabetical Order)
 

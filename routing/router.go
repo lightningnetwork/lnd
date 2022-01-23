@@ -157,11 +157,6 @@ type ChannelGraphSource interface {
 
 	// ForEachNode is used to iterate over every node in the known graph.
 	ForEachNode(func(node *channeldb.LightningNode) error) error
-
-	// ForEachChannel is used to iterate over every channel in the known
-	// graph.
-	ForEachChannel(func(chanInfo *channeldb.ChannelEdgeInfo,
-		e1, e2 *channeldb.ChannelEdgePolicy) error) error
 }
 
 // PaymentAttemptDispatcher is used by the router to send payment attempts onto
@@ -2539,16 +2534,6 @@ func (r *ChannelRouter) ForAllOutgoingChannels(cb func(kvdb.RTx,
 
 		return cb(tx, c, e)
 	})
-}
-
-// ForEachChannel is used to iterate over every known edge (channel) within our
-// view of the channel graph.
-//
-// NOTE: This method is part of the ChannelGraphSource interface.
-func (r *ChannelRouter) ForEachChannel(cb func(chanInfo *channeldb.ChannelEdgeInfo,
-	e1, e2 *channeldb.ChannelEdgePolicy) error) error {
-
-	return r.cfg.Graph.ForEachChannel(cb)
 }
 
 // AddProof updates the channel edge info with proof which is needed to

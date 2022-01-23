@@ -553,7 +553,9 @@ func (s *Server) XImportMissionControl(ctx context.Context,
 		snapshot.Pairs[i] = *pairSnapshot
 	}
 
-	err := s.cfg.RouterBackend.MissionControl.ImportHistory(snapshot)
+	err := s.cfg.RouterBackend.MissionControl.ImportHistory(
+		snapshot, req.Force,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -13,6 +13,9 @@
 * Add [chan_point flag](https://github.com/lightningnetwork/lnd/pull/6152)
   to closechannel command.
 
+* Add [private status](https://github.com/lightningnetwork/lnd/pull/6167)
+  to pendingchannels response.
+
 ## Bug Fixes
 
 * [Fixed an inactive invoice subscription not removed from invoice
@@ -45,6 +48,13 @@
   in review because of unmet contribution guideline
   requirements](https://github.com/lightningnetwork/lnd/pull/6080).
 
+* [A nightly build of the `lnd` docker image is now created
+  automatically](https://github.com/lightningnetwork/lnd/pull/6160).
+  
+* [Add `.vs/` folder to `.gitignore`](https://github.com/lightningnetwork/lnd/pull/6178). 
+
+* [Chain backend healthchecks disabled for --nochainbackend mode](https://github.com/lightningnetwork/lnd/pull/6184)
+
 ## RPC Server
 
 * [Add value to the field
@@ -68,6 +78,7 @@
 * 3nprob
 * Andreas Schjønhaug
 * asvdf
+* BTCparadigm
 * Carsten Otto
 * Dan Bolser
 * Daniel McNally

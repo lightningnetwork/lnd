@@ -2761,6 +2761,10 @@
         "chan_status_flags": {
           "type": "string",
           "description": "A set of flags showing the current state of the channel."
+        },
+        "private": {
+          "type": "boolean",
+          "description": "Whether this channel is advertised to the network or not."
         }
       }
     },

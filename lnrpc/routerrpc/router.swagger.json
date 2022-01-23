@@ -1702,6 +1702,10 @@
             "$ref": "#/definitions/routerrpcPairHistory"
           },
           "description": "Node pair-level mission control state to be imported."
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Whether to force override MC pair history. Note that even with force\noverride the failure pair is imported before the success pair and both\nstill clamp existing failure/success amounts."
         }
       }
     },

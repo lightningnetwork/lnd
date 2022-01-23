@@ -53,7 +53,9 @@
   
 * [Add `.vs/` folder to `.gitignore`](https://github.com/lightningnetwork/lnd/pull/6178). 
 
-* [Chain backend healthchecks disabled for --nochainbackend mode](https://github.com/lightningnetwork/lnd/pull/6184)
+* [Chain backend healthchecks disabled for --nochainbackend mode](https://github.com/lightningnetwork/lnd/pull/6184).
+
+* [Updated licenses to 2022](https://github.com/lightningnetwork/lnd/pull/6168).
 
 ## RPC Server
 

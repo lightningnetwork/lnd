@@ -117,8 +117,7 @@ func NewNetworkHarness(m *HarnessMiner, b BackendConfig, lndBinary string,
 }
 
 // LookUpNodeByPub queries the set of active nodes to locate a node according
-// to its public key. The second value will be true if the node was found, and
-// false otherwise.
+// to its public key. The error is returned if the node was not found.
 func (n *NetworkHarness) LookUpNodeByPub(pubStr string) (*HarnessNode, error) {
 	n.mtx.Lock()
 	defer n.mtx.Unlock()

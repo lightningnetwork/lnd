@@ -4,7 +4,8 @@
   - [Installing a binary release](#installing-a-binary-release)
   - [Building a tagged version with Docker](#building-a-tagged-version-with-docker)
   - [Building a development version from source](#building-a-development-version-from-source)
-    - [Preliminaries for installing from source](#preliminaries-for-installing-from-source)
+    - [Installing Go](#installing-go)
+    - [Go modules](#go-modules)
     - [Installing lnd from source](#installing-lnd-from-source)
 - [Available Backend Operating Modes](#available-backend-operating-modes)
   - [btcd Options](#btcd-options)
@@ -87,84 +88,110 @@ recommended for mainnet. The `master` branch can at times be unstable and
 running your node off of it can prevent it to go back to a previous, stable
 version if there are database migrations present.
 
-### Preliminaries for installing from source
-  In order to work with [`lnd`](https://github.com/lightningnetwork/lnd), the
-  following build dependencies are required:
+In order to work with [`lnd`](https://github.com/lightningnetwork/lnd), the 
+following build dependencies are required:
 
-  * **Go:** `lnd` is written in Go. To install, run one of the following commands:
+### Installing Go
 
+`lnd` is written in Go, with a minimum version of 1.16. To install, run one of 
+the following commands for your OS:
 
-    **Note**: The minimum version of Go supported is Go 1.16. We recommend that
-    users use the latest version of Go, which at the time of writing is
-    [`1.17.1`](https://blog.golang.org/go1.17.1).
+<details>
+  <summary>Linux (x86-64)</summary>
+  
+  ```
+  wget https://dl.google.com/go/go1.17.1.linux-amd64.tar.gz
+  sha256sum go1.17.1.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
+  ```
 
+  The final output of the command above should be
+  `dab7d9c34361dc21ec237d584590d72500652e7c909bf082758fb63064fca0ef`. If it
+  isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
+  this version of Go. If it matches, then proceed to install Go:
+  ```
+  sudo tar -C /usr/local -xzf go1.17.1.linux-amd64.tar.gz
+  export PATH=$PATH:/usr/local/go/bin
+  ```
+</details>
 
-    On Linux:
+<details>
+  <summary>Linux (ARMv6)</summary>
+  
+  ```
+  wget https://dl.google.com/go/go1.17.1.linux-armv6l.tar.gz
+  sha256sum go1.17.1.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
+  ```
 
-    (x86-64)
-    ```
-    wget https://dl.google.com/go/go1.17.1.linux-amd64.tar.gz
-    sha256sum go1.17.1.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
-    ```
+  The final output of the command above should be
+  `ed3e4dbc9b80353f6482c441d65b51808290e94ff1d15d56da5f4a7be7353758`. If it
+  isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
+  this version of Go. If it matches, then proceed to install Go:
+  ```
+  tar -C /usr/local -xzf go1.17.1.linux-armv6l.tar.gz
+  export PATH=$PATH:/usr/local/go/bin
+  ```  
+  
+</details>
 
-    The final output of the command above should be
-    `dab7d9c34361dc21ec237d584590d72500652e7c909bf082758fb63064fca0ef`. If it
-    isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
-    this version of Go. If it matches, then proceed to install Go:
-    ```
-    sudo tar -C /usr/local -xzf go1.17.1.linux-amd64.tar.gz
-    export PATH=$PATH:/usr/local/go/bin
-    ```
+<details>
+  <summary>macOS</summary>
+  
+  First, install [Homebrew](https://brew.sh) if you don‘t already have it.
 
-    (ARMv6)
-    ```
-    wget https://dl.google.com/go/go1.17.1.linux-armv6l.tar.gz
-    sha256sum go1.17.1.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
-    ```
+  Then
 
-    The final output of the command above should be
-    `ed3e4dbc9b80353f6482c441d65b51808290e94ff1d15d56da5f4a7be7353758`. If it
-    isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
-    this version of Go. If it matches, then proceed to install Go:
-    ```
-    tar -C /usr/local -xzf go1.17.1.linux-armv6l.tar.gz
-    export PATH=$PATH:/usr/local/go/bin
-    ```
+  ```
+  brew install go
+  ```
 
-    On Mac OS X:
-    ```
-    brew install go@1.17.1
-    ```
+</details>
 
-    On FreeBSD:
-    ```
-    pkg install go
-    ```
+<details>
+  <summary>FreeBSD</summary>
+  
+  ```
+  pkg install go
+  ```
 
-    Alternatively, one can download the pre-compiled binaries hosted on the
-    [Golang download page](https://golang.org/dl/). If one seeks to install
-    from source, then more detailed installation instructions can be found
-    [here](https://golang.org/doc/install).
+  Alternatively, one can download the pre-compiled binaries hosted on the
+  [Golang download page](https://golang.org/dl/). If one seeks to install
+  from source, then more detailed installation instructions can be found
+  [here](https://golang.org/doc/install).
+</details>
 
-    At this point, you should set your `$GOPATH` environment variable, which
-    represents the path to your workspace. By default, `$GOPATH` is set to
-    `~/go`. You will also need to add `$GOPATH/bin` to your `PATH`. This ensures
-    that your shell will be able to detect the binaries you install.
+***Important***
 
-    ```shell
-    ⛰  export GOPATH=~/gocode
-    ⛰  export PATH=$PATH:$GOPATH/bin
-    ```
+At this point, you should set your `$GOPATH` environment variable, which
+represents the path to your workspace. By default, `$GOPATH` is set to
+`~/go`. You will also need to add `$GOPATH/bin` to your `PATH`. This ensures
+that your shell will be able to detect the binaries you install.
 
-    We recommend placing the above in your .bashrc or in a setup script so that
-    you can avoid typing this every time you open a new terminal window.
+```shell
+⛰  export GOPATH=~/go
+⛰  export PATH=$PATH:$GOPATH/bin
+```
 
-  * **Go modules:** This project uses [Go modules](https://github.com/golang/go/wiki/Modules) 
-    to manage dependencies as well as to provide *reproducible builds*.
+--- 
 
-    Usage of Go modules (with Go 1.13) means that you no longer need to clone
-    `lnd` into your `$GOPATH` for development purposes. Instead, your `lnd`
-    repo can now live anywhere!
+We recommend placing the above in your `.bashrc`, `.zshrc` or in a setup script 
+so that you can avoid typing this every time you open a new terminal window.
+
+### Go modules
+
+This project uses [Go modules](https://github.com/golang/go/wiki/Modules) 
+to manage dependencies as well as to provide *reproducible builds*.
+
+Usage of Go modules (with Go 1.13) means that you no longer need to clone
+`lnd` into your `$GOPATH` for development purposes. Instead, your `lnd`
+repo can now live anywhere!
+
+---
+Note: For mobile development, having the source code in `$GOPATH` is still
+required due to a current limitation in 
+[Go mobile](https://pkg.go.dev/golang.org/x/mobile). Take a look at the 
+documentation for [building mobile libraries](../mobile) to learn more.
+
+---
 
 ### Installing lnd from source
 
@@ -188,7 +215,6 @@ a small modification to the above command:
 ⛰  git checkout v0.x.x
 ⛰  make install
 ```
-
 
 **NOTE**: Our instructions still use the `$GOPATH` directory from prior
 versions of Go, but with Go 1.13, it's now possible for `lnd` to live

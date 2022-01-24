@@ -99,10 +99,14 @@ Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
   history](https://github.com/lightningnetwork/lnd/pull/6180) by adding the `force`
   flag to the `XImportMissionControl` RPC call.
 
+## Documentation
+
+* [General improvements to the mobile documentation](https://github.com/lightningnetwork/lnd/pull/6181). 
 
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath
+* Andreas Schjønhaug
 * Bjarne Magnussen
 * Elle Mouton
 * Harsha Goli

@@ -17,7 +17,6 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcwallet/chain"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to auto-register the boltdb walletdb implementation.
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/blockcache"
@@ -1962,16 +1961,14 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 
 		switch notifierType {
 		case "bitcoind":
-			var bitcoindConn *chain.BitcoindConn
-			bitcoindConn, cleanUp = chainntnfs.NewBitcoindBackend(
-				t, p2pAddr, true,
+			newNotifier, cleanUp = startBitcoind(
+				t, p2pAddr, hintCache, blockCache, false,
 			)
-			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
-				return bitcoindnotify.New(
-					bitcoindConn, chainntnfs.NetParams,
-					hintCache, hintCache, blockCache,
-				), nil
-			}
+
+		case "bitcoind rpcpolling":
+			newNotifier, cleanUp = startBitcoind(
+				t, p2pAddr, hintCache, blockCache, true,
+			)
 
 		case "btcd":
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
@@ -2063,4 +2060,25 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 			cleanUp()
 		}
 	}
+}
+
+// startBitcoind sets up a new notifier backend and the notifier that builds
+// on top of it.
+func startBitcoind(t *testing.T, p2pAddr string,
+	hintCache *chainntnfs.HeightHintCache,
+	blockCache *blockcache.BlockCache, rpcPolling bool) (
+	func() (chainntnfs.TestChainNotifier, error), func()) {
+
+	bitcoindConn, cleanUp := chainntnfs.NewBitcoindBackend(
+		t, p2pAddr, true, rpcPolling,
+	)
+
+	newNotifier := func() (chainntnfs.TestChainNotifier, error) {
+		return bitcoindnotify.New(
+			bitcoindConn, chainntnfs.NetParams,
+			hintCache, hintCache, blockCache,
+		), nil
+	}
+
+	return newNotifier, cleanUp
 }

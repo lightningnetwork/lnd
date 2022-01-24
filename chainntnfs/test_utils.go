@@ -196,7 +196,7 @@ func NewMiner(t *testing.T, extraArgs []string, createChain bool,
 // backend node should maintain a transaction index. A connection to the newly
 // spawned bitcoind node is returned.
 func NewBitcoindBackend(t *testing.T, minerAddr string,
-	txindex bool) (*chain.BitcoindConn, func()) {
+	txindex bool, rpcPolling bool) (*chain.BitcoindConn, func()) {
 
 	t.Helper()
 
@@ -242,6 +242,9 @@ func NewBitcoindBackend(t *testing.T, minerAddr string,
 		ZMQBlockHost:    zmqBlockHost,
 		ZMQTxHost:       zmqTxHost,
 		ZMQReadDeadline: 5 * time.Second,
+		RPCPolling:      rpcPolling,
+		PollBlockTimer:  time.Millisecond * 500,
+		PollTxTimer:     time.Millisecond * 500,
 		// Fields only required for pruned nodes, not needed for these
 		// tests.
 		Dialer:             nil,

@@ -2433,6 +2433,7 @@ func testSpendUnconfirmed(miner *rpctest.Harness,
 	tx = sendCoins(t, miner, alice, bob, output, txFeeRate, false, 1)
 	txHash = tx.TxHash()
 	assertTxInWallet(t, alice, txHash, false)
+	time.Sleep(time.Second)
 	assertTxInWallet(t, bob, txHash, false)
 
 	// Now, try to spend some of the unconfirmed funds from bob's wallet.
@@ -3217,7 +3218,10 @@ func TestLightningWallet(t *testing.T, targetBackEnd string) {
 	}
 
 	for _, walletDriver := range lnwallet.RegisteredWallets() {
-		for _, backEnd := range walletDriver.BackEnds() {
+		// Append bitcoind rpcpolling to the backends we need to test.
+		backEnds := append(walletDriver.BackEnds(), "bitcoind rpcpolling")
+
+		for _, backEnd := range backEnds {
 			if backEnd != targetBackEnd {
 				continue
 			}
@@ -3270,6 +3274,8 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 	switch walletType {
 	case "btcwallet":
 		var aliceClient, bobClient chain.Interface
+		var bitcoindWait, bitcoindKill func() error
+		var stopChainConn func()
 		switch backEnd {
 		case "btcd":
 			aliceClient, err = chain.NewRPCClient(netParams,
@@ -3351,70 +3357,26 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			)
 
 		case "bitcoind":
-			// Start a bitcoind instance.
-			tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
-			if err != nil {
-				t.Fatalf("unable to create temp directory: %v", err)
-			}
-			zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
-			zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
-			defer os.RemoveAll(tempBitcoindDir)
-			rpcPort := rand.Int()%(65536-1024) + 1024
-			bitcoind := exec.Command(
-				"bitcoind",
-				"-datadir="+tempBitcoindDir,
-				"-regtest",
-				"-connect="+miningNode.P2PAddress(),
-				"-txindex",
-				"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f"+
-					"d$507c670e800a95284294edb5773b05544b"+
-					"220110063096c221be9933c82d38e1",
-				fmt.Sprintf("-rpcport=%d", rpcPort),
-				"-disablewallet",
-				"-zmqpubrawblock="+zmqBlockHost,
-				"-zmqpubrawtx="+zmqTxHost,
+			aliceClient, bobClient, bitcoindWait, bitcoindKill,
+				stopChainConn = startBitcoind(
+				t, miningNode, aliceClient, bobClient,
+				false,
 			)
-			err = bitcoind.Start()
-			if err != nil {
-				t.Fatalf("couldn't start bitcoind: %v", err)
-			}
-			defer bitcoind.Wait()
-			defer bitcoind.Process.Kill()
-
-			// Wait for the bitcoind instance to start up.
-
-			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-			var chainConn *chain.BitcoindConn
-			err = wait.NoError(func() error {
-				chainConn, err = chain.NewBitcoindConn(&chain.BitcoindConfig{
-					ChainParams:     netParams,
-					Host:            host,
-					User:            "weks",
-					Pass:            "weks",
-					ZMQBlockHost:    zmqBlockHost,
-					ZMQTxHost:       zmqTxHost,
-					ZMQReadDeadline: 5 * time.Second,
-					// Fields only required for pruned nodes, not
-					// needed for these tests.
-					Dialer:             nil,
-					PrunedModeMaxPeers: 0,
-				})
-				if err != nil {
-					return err
-				}
-
-				return chainConn.Start()
-			}, 10*time.Second)
-			if err != nil {
-				t.Fatalf("unable to establish connection to "+
-					"bitcoind: %v", err)
-			}
-			defer chainConn.Stop()
-
-			// Create a btcwallet bitcoind client for both Alice and
-			// Bob.
-			aliceClient = chainConn.NewBitcoindClient()
-			bobClient = chainConn.NewBitcoindClient()
+			defer bitcoindWait()
+			defer bitcoindKill()
+			defer stopChainConn()
+		case "bitcoind rpcpolling":
+			// Set rpcpolling to true so we can ensure that the
+			// retrieving event notifications in this manner still
+			// works in this alternative mode.
+			aliceClient, bobClient, bitcoindWait, bitcoindKill,
+				stopChainConn = startBitcoind(
+				t, miningNode, aliceClient, bobClient,
+				true,
+			)
+			defer bitcoindWait()
+			defer bitcoindKill()
+			defer stopChainConn()
 		default:
 			t.Fatalf("unknown chain driver: %v", backEnd)
 		}
@@ -3544,4 +3506,80 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 	}
 
 	return true
+}
+
+func startBitcoind(t *testing.T, miningNode *rpctest.Harness, aliceClient,
+	bobClient chain.Interface, rpcpolling bool) (chain.Interface,
+	chain.Interface, func() error, func() error, func()) {
+
+	// Start a bitcoind instance.
+	tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
+	if err != nil {
+		t.Fatalf("unable to create temp directory: %v", err)
+	}
+	zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
+	zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
+	defer os.RemoveAll(tempBitcoindDir)
+	rpcPort := rand.Int()%(65536-1024) + 1024
+	bitcoind := exec.Command(
+		"bitcoind",
+		"-datadir="+tempBitcoindDir,
+		"-regtest",
+		"-connect="+miningNode.P2PAddress(),
+		"-txindex",
+		"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f"+
+			"d$507c670e800a95284294edb5773b05544b"+
+			"220110063096c221be9933c82d38e1",
+		fmt.Sprintf("-rpcport=%d", rpcPort),
+		"-disablewallet",
+		"-zmqpubrawblock="+zmqBlockHost,
+		"-zmqpubrawtx="+zmqTxHost,
+	)
+	err = bitcoind.Start()
+	if err != nil {
+		t.Fatalf("couldn't start bitcoind: %v", err)
+	}
+	// defer bitcoind.Wait()
+	// defer bitcoind.Process.Kill()
+
+	// Wait for the bitcoind instance to start up.
+
+	host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
+	var chainConn *chain.BitcoindConn
+	err = wait.NoError(func() error {
+		chainConn, err = chain.NewBitcoindConn(&chain.BitcoindConfig{
+			ChainParams:     netParams,
+			Host:            host,
+			User:            "weks",
+			Pass:            "weks",
+			ZMQBlockHost:    zmqBlockHost,
+			ZMQTxHost:       zmqTxHost,
+			ZMQReadDeadline: 5 * time.Second,
+			RPCPolling:      rpcpolling,
+			PollBlockTimer:  time.Millisecond * 500,
+			PollTxTimer:     time.Millisecond * 500,
+			// Fields only required for pruned nodes, not
+			// needed for these tests.
+			Dialer:             nil,
+			PrunedModeMaxPeers: 0,
+		})
+		if err != nil {
+			return err
+		}
+
+		return chainConn.Start()
+	}, 10*time.Second)
+	if err != nil {
+		t.Fatalf("unable to establish connection to "+
+			"bitcoind: %v", err)
+	}
+	// defer chainConn.Stop()
+
+	// Create a btcwallet bitcoind client for both Alice and
+	// Bob.
+	aliceClient = chainConn.NewBitcoindClient()
+	bobClient = chainConn.NewBitcoindClient()
+
+	return aliceClient, bobClient, bitcoind.Wait, bitcoind.Process.Kill,
+		chainConn.Stop
 }

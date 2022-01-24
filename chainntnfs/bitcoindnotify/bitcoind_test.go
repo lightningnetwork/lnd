@@ -114,7 +114,7 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 	defer tearDown()
 
 	bitcoindConn, cleanUp := chainntnfs.NewBitcoindBackend(
-		t, miner.P2PAddress(), true,
+		t, miner.P2PAddress(), true, false,
 	)
 	defer cleanUp()
 
@@ -206,11 +206,17 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 // historical confirmation details using the set of fallback methods when the
 // backend node's txindex is disabled.
 func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
+	// Execute this test twice, once with rpcpolling off, and once on.
+	testHistoricalConfDetailsNoTxIndex(t, false)
+	testHistoricalConfDetailsNoTxIndex(t, true)
+}
+
+func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcPolling bool) {
 	miner, tearDown := chainntnfs.NewMiner(t, nil, true, 25)
 	defer tearDown()
 
 	bitcoindConn, cleanUp := chainntnfs.NewBitcoindBackend(
-		t, miner.P2PAddress(), false,
+		t, miner.P2PAddress(), false, rpcPolling,
 	)
 	defer cleanUp()
 

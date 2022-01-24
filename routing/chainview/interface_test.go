@@ -165,7 +165,7 @@ func assertFilteredBlock(t *testing.T, fb *FilteredBlock, expectedHeight int32,
 
 func testFilterBlockNotifications(node *rpctest.Harness,
 	chainView FilteredChainView, chainViewInit chainViewInitFunc,
-	t *testing.T) {
+	t *testing.T, _ bool) {
 
 	// To start the test, we'll create to fresh outputs paying to the
 	// private key that we generated above.
@@ -315,7 +315,7 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 
 func testUpdateFilterBackTrack(node *rpctest.Harness,
 	chainView FilteredChainView, chainViewInit chainViewInitFunc,
-	t *testing.T) {
+	t *testing.T, _ bool) {
 
 	// To start, we'll create a fresh output paying to the height generated
 	// above.
@@ -409,7 +409,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 }
 
 func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
-	chainViewInit chainViewInitFunc, t *testing.T) {
+	chainViewInit chainViewInitFunc, t *testing.T, _ bool) {
 
 	// In this test, we'll test the manual filtration of blocks, which can
 	// be used by clients to manually rescan their sub-set of the UTXO set.
@@ -538,7 +538,7 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 // disconnected and connected blocks in the order we expect.
 func testFilterBlockDisconnected(node *rpctest.Harness,
 	chainView FilteredChainView, chainViewInit chainViewInitFunc,
-	t *testing.T) {
+	t *testing.T, rpcPolling bool) {
 
 	// Create a node that has a shorter chain than the main chain, so we
 	// can trigger a reorg.
@@ -555,7 +555,7 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 
 	// Init a chain view that has this node as its block source.
 	cleanUpFunc, reorgView, err := chainViewInit(reorgNode.RPCConfig(),
-		reorgNode.P2PAddress())
+		reorgNode.P2PAddress(), rpcPolling)
 	if err != nil {
 		t.Fatalf("unable to create chain view: %v", err)
 	}
@@ -743,12 +743,12 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 }
 
 type chainViewInitFunc func(rpcInfo rpcclient.ConnConfig,
-	p2pAddr string) (func(), FilteredChainView, error)
+	p2pAddr string, rpcPolling bool) (func(), FilteredChainView, error)
 
 type testCase struct {
 	name string
 	test func(*rpctest.Harness, FilteredChainView, chainViewInitFunc,
-		*testing.T)
+		*testing.T, bool)
 }
 
 var chainViewTests = []testCase{
@@ -773,90 +773,20 @@ var chainViewTests = []testCase{
 var interfaceImpls = []struct {
 	name          string
 	chainViewInit chainViewInitFunc
+	rpcPolling    bool
 }{
 	{
-		name: "bitcoind_zmq",
-		chainViewInit: func(_ rpcclient.ConnConfig, p2pAddr string) (func(), FilteredChainView, error) {
-			// Start a bitcoind instance.
-			tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
-			if err != nil {
-				return nil, nil, err
-			}
-			zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
-			zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
-			cleanUp1 := func() {
-				os.RemoveAll(tempBitcoindDir)
-			}
-			rpcPort := rand.Int()%(65536-1024) + 1024
-			bitcoind := exec.Command(
-				"bitcoind",
-				"-datadir="+tempBitcoindDir,
-				"-regtest",
-				"-connect="+p2pAddr,
-				"-txindex",
-				"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f"+
-					"d$507c670e800a95284294edb5773b05544b"+
-					"220110063096c221be9933c82d38e1",
-				fmt.Sprintf("-rpcport=%d", rpcPort),
-				"-disablewallet",
-				"-zmqpubrawblock="+zmqBlockHost,
-				"-zmqpubrawtx="+zmqTxHost,
-			)
-			err = bitcoind.Start()
-			if err != nil {
-				cleanUp1()
-				return nil, nil, err
-			}
-			cleanUp2 := func() {
-				bitcoind.Process.Kill()
-				bitcoind.Wait()
-				cleanUp1()
-			}
-
-			// Wait for the bitcoind instance to start up.
-			time.Sleep(time.Second)
-
-			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-			chainConn, err := chain.NewBitcoindConn(&chain.BitcoindConfig{
-				ChainParams:     &chaincfg.RegressionNetParams,
-				Host:            host,
-				User:            "weks",
-				Pass:            "weks",
-				ZMQBlockHost:    zmqBlockHost,
-				ZMQTxHost:       zmqTxHost,
-				ZMQReadDeadline: 5 * time.Second,
-				// Fields only required for pruned nodes, not
-				// needed for these tests.
-				Dialer:             nil,
-				PrunedModeMaxPeers: 0,
-			})
-			if err != nil {
-				return cleanUp2, nil, fmt.Errorf("unable to "+
-					"establish connection to bitcoind: %v",
-					err)
-			}
-			if err := chainConn.Start(); err != nil {
-				return cleanUp2, nil, fmt.Errorf("unable to "+
-					"establish connection to bitcoind: %v",
-					err)
-			}
-			cleanUp3 := func() {
-				chainConn.Stop()
-				cleanUp2()
-			}
-
-			blockCache := blockcache.NewBlockCache(10000)
-
-			chainView := NewBitcoindFilteredChainView(
-				chainConn, blockCache,
-			)
-
-			return cleanUp3, chainView, nil
-		},
+		name:          "bitcoind_zmq",
+		chainViewInit: chainViewInitBitcoind,
+	},
+	{
+		name:          "bitcoind_polling",
+		chainViewInit: chainViewInitBitcoind,
+		rpcPolling:    true,
 	},
 	{
 		name: "p2p_neutrino",
-		chainViewInit: func(_ rpcclient.ConnConfig, p2pAddr string) (func(), FilteredChainView, error) {
+		chainViewInit: func(_ rpcclient.ConnConfig, p2pAddr string, _ bool) (func(), FilteredChainView, error) {
 			spvDir, err := ioutil.TempDir("", "neutrino")
 			if err != nil {
 				return nil, nil, err
@@ -909,7 +839,7 @@ var interfaceImpls = []struct {
 	},
 	{
 		name: "btcd_websockets",
-		chainViewInit: func(config rpcclient.ConnConfig, _ string) (func(), FilteredChainView, error) {
+		chainViewInit: func(config rpcclient.ConnConfig, _ string, _ bool) (func(), FilteredChainView, error) {
 			blockCache := blockcache.NewBlockCache(10000)
 			chainView, err := NewBtcdFilteredChainView(
 				config, blockCache,
@@ -921,6 +851,98 @@ var interfaceImpls = []struct {
 			return nil, chainView, err
 		},
 	},
+}
+
+// chainViewInitBitcoind initializes a bitcoind backend for testing the filtered chainview.
+func chainViewInitBitcoind(_ rpcclient.ConnConfig, p2pAddr string, rpcPolling bool) (func(), FilteredChainView, error) {
+	// Start a bitcoind instance.
+	tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
+	if err != nil {
+		return nil, nil, err
+	}
+	zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
+	zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
+	cleanUp1 := func() {
+		os.RemoveAll(tempBitcoindDir)
+	}
+	rpcPort := rand.Int()%(65536-1024) + 1024
+	bitcoind := exec.Command(
+		"bitcoind",
+		"-datadir="+tempBitcoindDir,
+		"-regtest",
+		"-connect="+p2pAddr,
+		"-txindex",
+		"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f"+
+			"d$507c670e800a95284294edb5773b05544b"+
+			"220110063096c221be9933c82d38e1",
+		fmt.Sprintf("-rpcport=%d", rpcPort),
+		"-disablewallet",
+		"-zmqpubrawblock="+zmqBlockHost,
+		"-zmqpubrawtx="+zmqTxHost,
+	)
+	err = bitcoind.Start()
+	if err != nil {
+		cleanUp1()
+		return nil, nil, err
+	}
+	cleanUp2 := func() {
+		bitcoind.Process.Kill()
+		bitcoind.Wait()
+		cleanUp1()
+	}
+
+	// Wait for the bitcoind instance to start up.
+	time.Sleep(time.Second)
+
+	pollBlockTimer := time.Second * 0
+	pollTxTimer := time.Second * 0
+	// If we're using the rpcpolling method of retrieving tx and block
+	// notifications, let's set a shorter polling time to reduce the time
+	// of the tests.
+	if rpcPolling {
+		pollBlockTimer = time.Millisecond * 500
+		pollTxTimer = time.Millisecond * 500
+	}
+
+	host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
+	chainConn, err := chain.NewBitcoindConn(&chain.BitcoindConfig{
+		ChainParams:     &chaincfg.RegressionNetParams,
+		Host:            host,
+		User:            "weks",
+		Pass:            "weks",
+		ZMQBlockHost:    zmqBlockHost,
+		ZMQTxHost:       zmqTxHost,
+		ZMQReadDeadline: 5 * time.Second,
+		RPCPolling:      rpcPolling,
+		PollBlockTimer:  pollBlockTimer,
+		PollTxTimer:     pollTxTimer,
+		// Fields only required for pruned nodes, not
+		// needed for these tests.
+		Dialer:             nil,
+		PrunedModeMaxPeers: 0,
+	})
+	if err != nil {
+		return cleanUp2, nil, fmt.Errorf("unable to "+
+			"establish connection to bitcoind: %v",
+			err)
+	}
+	if err := chainConn.Start(); err != nil {
+		return cleanUp2, nil, fmt.Errorf("unable to "+
+			"establish connection to bitcoind: %v",
+			err)
+	}
+	cleanUp3 := func() {
+		chainConn.Stop()
+		cleanUp2()
+	}
+
+	blockCache := blockcache.NewBlockCache(10000)
+
+	chainView := NewBitcoindFilteredChainView(
+		chainConn, blockCache,
+	)
+
+	return cleanUp3, chainView, nil
 }
 
 func TestFilteredChainView(t *testing.T) {
@@ -944,7 +966,7 @@ func TestFilteredChainView(t *testing.T) {
 		t.Logf("Testing '%v' implementation of FilteredChainView",
 			chainViewImpl.name)
 
-		cleanUpFunc, chainView, err := chainViewImpl.chainViewInit(rpcConfig, p2pAddr)
+		cleanUpFunc, chainView, err := chainViewImpl.chainViewInit(rpcConfig, p2pAddr, chainViewImpl.rpcPolling)
 		if err != nil {
 			t.Fatalf("unable to make chain view: %v", err)
 		}
@@ -957,7 +979,7 @@ func TestFilteredChainView(t *testing.T) {
 				chainViewTest.name)
 			success := t.Run(testName, func(t *testing.T) {
 				chainViewTest.test(miner, chainView,
-					chainViewImpl.chainViewInit, t)
+					chainViewImpl.chainViewInit, t, chainViewImpl.rpcPolling)
 			})
 
 			if !success {

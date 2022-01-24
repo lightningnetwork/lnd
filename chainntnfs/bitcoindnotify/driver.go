@@ -56,13 +56,21 @@ func createNewNotifier(args ...interface{}) (chainntnfs.ChainNotifier, error) {
 // chainntnfs.ChainNotifier interface.
 func init() {
 	// Register the driver.
-	notifier := &chainntnfs.NotifierDriver{
-		NotifierType: notifierType,
-		New:          createNewNotifier,
+	notifiers := []*chainntnfs.NotifierDriver{
+		{
+			NotifierType: notifierType,
+			New:          createNewNotifier,
+		},
+		{
+			NotifierType: "bitcoind rpcpolling",
+			New:          createNewNotifier,
+		},
 	}
 
-	if err := chainntnfs.RegisterNotifier(notifier); err != nil {
-		panic(fmt.Sprintf("failed to register notifier driver '%s': %v",
-			notifierType, err))
+	for _, notifier := range notifiers {
+		if err := chainntnfs.RegisterNotifier(notifier); err != nil {
+			panic(fmt.Sprintf("failed to register notifier driver '%s': %v",
+				notifierType, err))
+		}
 	}
 }

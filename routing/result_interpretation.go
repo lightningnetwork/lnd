@@ -190,7 +190,7 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 		// from its predecessor.
 		i.failPair(route, n-1)
 
-		// The other hops relayed corectly, so assign those pairs a
+		// The other hops relayed correctly, so assign those pairs a
 		// success result. At this point, n >= 2.
 		i.successPairRange(route, 0, n-2)
 

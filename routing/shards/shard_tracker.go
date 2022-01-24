@@ -24,7 +24,7 @@ type PaymentShard interface {
 	AMP() *record.AMP
 }
 
-// ShardTracker is an interfae representing a tracker that keeps track of the
+// ShardTracker is an interface representing a tracker that keeps track of the
 // inflight shards of a payment, and is able to assign new shards the correct
 // options such as hash and extra records.
 type ShardTracker interface {
@@ -41,11 +41,11 @@ type ShardTracker interface {
 	CancelShard(uint64) error
 
 	// GetHash retrieves the hash used by the shard of the given attempt
-	// ID. This wil return an error if the attempt ID is unknown.
+	// ID. This will return an error if the attempt ID is unknown.
 	GetHash(uint64) (lntypes.Hash, error)
 }
 
-// Shard is a struct used for simple shards where we obly need to keep map it
+// Shard is a struct used for simple shards where we only need to keep map it
 // to a single hash.
 type Shard struct {
 	hash lntypes.Hash
@@ -82,7 +82,7 @@ type SimpleShardTracker struct {
 // ShardTracker interface.
 var _ ShardTracker = (*SimpleShardTracker)(nil)
 
-// NewSimpleShardTracker creates a new intance of the SimpleShardTracker with
+// NewSimpleShardTracker creates a new instance of the SimpleShardTracker with
 // the given payment hash and existing attempts.
 func NewSimpleShardTracker(paymentHash lntypes.Hash,
 	shards map[uint64]lntypes.Hash) ShardTracker {

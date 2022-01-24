@@ -626,7 +626,7 @@ func TestOutgoingPaymentsMigration(t *testing.T) {
 			// Order of payments should be be preserved.
 			old := oldPayments[i]
 
-			// Check the individial fields.
+			// Check the individual fields.
 			if p.Info.Value != old.Terms.Value {
 				t.Fatalf("value mismatch")
 			}

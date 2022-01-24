@@ -448,7 +448,7 @@ func TestRestoreChannelShells(t *testing.T) {
 	// The node should have the same address, as specified in the channel
 	// shell.
 	if reflect.DeepEqual(linkNode.Addresses, channelShell.NodeAddrs) {
-		t.Fatalf("addr mismach: expected %v, got %v",
+		t.Fatalf("addr mismatch: expected %v, got %v",
 			linkNode.Addresses, channelShell.NodeAddrs)
 	}
 }
@@ -738,7 +738,7 @@ func TestFetchHistoricalChannel(t *testing.T) {
 
 	histChannel, err := cdb.FetchHistoricalChannel(&channel.FundingOutpoint)
 	if err != nil {
-		t.Fatalf("unexepected error getting channel: %v", err)
+		t.Fatalf("unexpected error getting channel: %v", err)
 	}
 
 	// FetchHistoricalChannel will attach the cdb to channel.Db, we set it

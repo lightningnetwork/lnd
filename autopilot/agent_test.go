@@ -339,7 +339,7 @@ func TestAgentHeuristicUpdateSignal(t *testing.T) {
 	// initial check.
 	respondMoreChans(t, testCtx, moreChansResp{0, 0})
 
-	// Next we'll signal that one of the heuristcs have been updated.
+	// Next we'll signal that one of the heuristics have been updated.
 	testCtx.agent.OnHeuristicUpdate(testCtx.heuristic)
 
 	// The update should trigger the agent to ask for a channel budget.so
@@ -1256,7 +1256,7 @@ func TestAgentChannelSizeAllocation(t *testing.T) {
 				"had %v", len(arg.chans))
 		}
 		if arg.balance != testCtx.walletBalance {
-			t.Fatalf("expectd agent to have %v balance, had %v",
+			t.Fatalf("expected agent to have %v balance, had %v",
 				testCtx.walletBalance, arg.balance)
 		}
 	case <-time.After(time.Second * 3):

@@ -92,7 +92,7 @@ func (c *WeightedCombAttachment) NodeScores(g ChannelGraph, chans []LocalChannel
 	}
 
 	// We combine the scores given by the sub-heuristics by using the
-	// heruistics' given weight factor.
+	// heuristics' given weight factor.
 	scores := make(map[NodeID]*NodeScore)
 	for nID := range nodes {
 		score := &NodeScore{

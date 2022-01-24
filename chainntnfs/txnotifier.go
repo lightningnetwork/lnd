@@ -254,7 +254,7 @@ type ConfNtfn struct {
 	dispatched bool
 }
 
-// HistoricalConfDispatch parameterizes a manual rescan for a particular
+// HistoricalConfDispatch parametrizes a manual rescan for a particular
 // transaction/output script. The parameters include the start and end block
 // heights specifying the range of blocks to scan.
 type HistoricalConfDispatch struct {
@@ -408,12 +408,12 @@ type SpendNtfn struct {
 	// an entry for it.
 	HeightHint uint32
 
-	// dispatched signals whether a spend notification has been disptached
+	// dispatched signals whether a spend notification has been dispatched
 	// to the client.
 	dispatched bool
 }
 
-// HistoricalSpendDispatch parameterizes a manual rescan to determine the
+// HistoricalSpendDispatch parametrizes a manual rescan to determine the
 // spending details (if any) of an outpoint/output script. The parameters
 // include the start and end block heights specifying the range of blocks to
 // scan.
@@ -523,7 +523,7 @@ type TxNotifier struct {
 // NewTxNotifier creates a TxNotifier. The current height of the blockchain is
 // accepted as a parameter. The different hint caches (confirm and spend) are
 // used as an optimization in order to retrieve a better starting point when
-// dispatching a recan for a historical event in the chain.
+// dispatching a rescan for a historical event in the chain.
 func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 	confirmHintCache ConfirmHintCache,
 	spendHintCache SpendHintCache) *TxNotifier {

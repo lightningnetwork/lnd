@@ -59,7 +59,7 @@ func newForwardInterceptor(server *Server, stream Router_HtlcInterceptorServer) 
 }
 
 // run sends the intercepted packets to the client and receives the
-// corersponding responses. On one hand it regsitered itself as an interceptor
+// corersponding responses. On one hand it registered itself as an interceptor
 // that receives the switch packets and on the other hand launches a go routine
 // to read from the client stream.
 // To coordinate all this and make sure it is safe for concurrent access all

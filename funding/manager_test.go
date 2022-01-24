@@ -2584,7 +2584,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 }
 
 // TestFundingManagerCustomChannelParameters checks that custom requirements we
-// specify during the channel funding flow is preserved correcly on both sides.
+// specify during the channel funding flow is preserved correctly on both sides.
 func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	t.Parallel()
 
@@ -2780,7 +2780,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	}
 
 	// The max value in flight Alice can have should be maxValueAcceptChannel,
-	// which is the default value and the maxium Bob can offer should be
+	// which is the default value and the maximum Bob can offer should be
 	// maxValueInFlight.
 	if err := assertMaxHtlc(resCtx,
 		maxValueAcceptChannel, maxValueInFlight); err != nil {

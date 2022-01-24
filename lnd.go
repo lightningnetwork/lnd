@@ -645,7 +645,7 @@ func getTLSConfig(cfg *Config) ([]grpc.ServerOption, []grpc.DialOption,
 		return nil, nil, nil, nil, err
 	}
 
-	// We check whether the certifcate we have on disk match the IPs and
+	// We check whether the certificate we have on disk match the IPs and
 	// domains specified by the config. If the extra IPs or domains have
 	// changed from when the certificate was created, we will refresh the
 	// certificate if auto refresh is active.

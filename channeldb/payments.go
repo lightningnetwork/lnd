@@ -382,7 +382,7 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	}, nil
 }
 
-// fetchHtlcAttempts retrives all htlc attempts made for the payment found in
+// fetchHtlcAttempts retrieves all htlc attempts made for the payment found in
 // the given bucket.
 func fetchHtlcAttempts(bucket kvdb.RBucket) ([]HTLCAttempt, error) {
 	htlcsMap := make(map[uint64]*HTLCAttempt)

@@ -32,7 +32,7 @@ func (m *mockSubLogger) SetLogLevels(logLevel string) {
 	m.globalLogLevel = logLevel
 }
 
-// TestParseAndSetDebugLevels tests tha we can properly set the log levels for
+// TestParseAndSetDebugLevels tests that we can properly set the log levels for
 // all andspecified subsystems.
 func TestParseAndSetDebugLevels(t *testing.T) {
 	testCases := []struct {

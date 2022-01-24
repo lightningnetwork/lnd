@@ -459,7 +459,7 @@ below):
   `lnd` plus any application that consumes the RPC could cause `lnd` to miss
   crucial updates from the backend.
 - The default fee estimate mode in `bitcoind` is CONSERVATIVE. You can set
-  `bitcoind.estimatemode=ECONOMICAL` to change it into ECONOMICAL. Futhermore,
+  `bitcoind.estimatemode=ECONOMICAL` to change it into ECONOMICAL. Furthermore,
   if you start `bitcoind` in `regtest`, this configuration won't take any effect.
 
 

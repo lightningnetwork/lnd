@@ -654,7 +654,7 @@ func testCommitHTLCSigTieBreak(t *testing.T, restart bool) {
 		lastIndex = htlc.OutputIndex
 	}
 
-	// If requsted, restart Alice so that we can test that the necessary
+	// If requested, restart Alice so that we can test that the necessary
 	// indexes can be reconstructed before needing to validate the
 	// signatures from Bob.
 	if restart {
@@ -1172,7 +1172,7 @@ func TestForceCloseDustOutput(t *testing.T) {
 	defer cleanUp()
 
 	// We set both node's channel reserves to 0, to make sure
-	// they can create small dust ouputs without going under
+	// they can create small dust outputs without going under
 	// their channel reserves.
 	aliceChannel.channelState.LocalChanCfg.ChanReserve = 0
 	bobChannel.channelState.LocalChanCfg.ChanReserve = 0
@@ -5427,7 +5427,7 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 		return w
 	}
 
-	// Start by getting the initial remote commitment wight seen from
+	// Start by getting the initial remote commitment weight seen from
 	// Alice's perspective. At this point there are no HTLCs on the
 	// commitment.
 	weight1 := remoteCommitWeight(aliceChannel)
@@ -5438,7 +5438,7 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 	bobDustHtlc := bobDustlimit + htlcSuccessFee - 1
 	preimg := addHtlc(bobDustHtlc)
 
-	// Now get the current wight of the remote commitment. We expect it to
+	// Now get the current weight of the remote commitment. We expect it to
 	// not have changed, since the HTLC we added is considered dust.
 	weight2 := remoteCommitWeight(aliceChannel)
 	require.Equal(t, weight1, weight2)
@@ -5711,7 +5711,7 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 		t.Fatalf("unable to restart bob: %v", err)
 	}
 
-	// Readd the Fail to both Alice and Bob's channels, as the non-committed
+	// Re-add the Fail to both Alice and Bob's channels, as the non-committed
 	// update will not have survived the restart.
 	err = bobChannel.FailHTLC(htlc2.ID, []byte("failreason"), nil, nil, nil)
 	if err != nil {
@@ -5723,7 +5723,7 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	}
 
 	// Have Alice initiate a state transition, which does not include the
-	// HTLCs just readded to the channel state.
+	// HTLCs just re-added to the channel state.
 	aliceSig, aliceHtlcSigs, _, err = aliceChannel.SignNextCommitment()
 	if err != nil {
 		t.Fatal(err)
@@ -6808,7 +6808,7 @@ func TestChanReserveRemoteInitiator(t *testing.T) {
 	// Set Alice's channel reserve to be 5 BTC-commitfee. This means she
 	// has just enough balance to cover the comitment fee, but not enough
 	// to add any more HTLCs to the commitment. Although a reserve this
-	// high is unrealistic, a channel can easiliy get into a situation
+	// high is unrealistic, a channel can easily get into a situation
 	// where the initiator cannot pay for the fee of any more HTLCs.
 	commitFee := aliceChannel.channelState.LocalCommitment.CommitFee
 	aliceMinReserve := 5*btcutil.SatoshiPerBitcoin - commitFee
@@ -7203,7 +7203,7 @@ func TestChannelRestoreUpdateLogs(t *testing.T) {
 	// signature from Bob yet.
 	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	if err != nil {
-		t.Fatalf("unable to recive revocation: %v", err)
+		t.Fatalf("unable to receive revocation: %v", err)
 	}
 
 	// Now make Alice send and sign an additional HTLC. We don't let Bob
@@ -7709,7 +7709,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	// Alice receives the revocation, ACKing her pending commitment.
 	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	if err != nil {
-		t.Fatalf("unable to recive revocation: %v", err)
+		t.Fatalf("unable to receive revocation: %v", err)
 	}
 
 	// However, the HTLC is still not locked into her local commitment, so
@@ -7726,7 +7726,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	}
 
 	// At this stage Bob has a pending remote commitment. Make sure
-	// restoring at this stage correcly restores the HTLC add commit
+	// restoring at this stage correctly restores the HTLC add commit
 	// heights.
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 1, 1)
 
@@ -7746,7 +7746,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 
 	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	if err != nil {
-		t.Fatalf("unable to recive revocation: %v", err)
+		t.Fatalf("unable to receive revocation: %v", err)
 	}
 
 	// Alice ACKing Bob's pending commitment shouldn't change the heights
@@ -7790,7 +7790,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	}
 
 	// Since Bob just revoked another commitment, a restoration should
-	// increase the add height of the firt HTLC to 2, as we only keep the
+	// increase the add height of the first HTLC to 2, as we only keep the
 	// last unrevoked commitment. The new HTLC will also have a local add
 	// height of 2.
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 2, 1)

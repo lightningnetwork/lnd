@@ -666,7 +666,7 @@ func getMsatPairValue(msatValue lnwire.MilliSatoshi,
 		return msatValue, nil
 	}
 
-	// If we have no msatValue, we can just return our sate value even if
+	// If we have no msatValue, we can just return our state value even if
 	// it is zero, because it's impossible that we have mismatched values.
 	if msatValue == 0 {
 		return lnwire.MilliSatoshi(satValue * 1000), nil
@@ -879,7 +879,7 @@ func (s *Server) SubscribeHtlcEvents(req *SubscribeHtlcEventsRequest,
 // requests to the caller.
 // Upon connection it does the following:
 // 1. Check if there is already a live stream, if yes it rejects the request.
-// 2. Regsitered a ForwardInterceptor
+// 2. Registered a ForwardInterceptor
 // 3. Delivers to the caller every √√ and detect his answer.
 // It uses a local implementation of holdForwardsStore to keep all the hold
 // forwards and find them when manual resolution is later needed.

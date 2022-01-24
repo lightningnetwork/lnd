@@ -221,7 +221,7 @@ func migrateOpenChanBucket(tx kvdb.RwTx) error {
 			}
 		}
 
-		// Remote unsiged updates as well.
+		// Remote unsigned updates as well.
 		updateBytes = chanBucket.Get(remoteUnsignedLocalUpdatesKey)
 		if updateBytes != nil {
 			legacyUnsignedUpdates, err := legacy.DeserializeLogUpdates(
@@ -316,7 +316,7 @@ func migrateForwardingPackages(tx kvdb.RwTx) error {
 		return err
 	}
 
-	// Now load all forwading packages using the legacy encoding.
+	// Now load all forwarding packages using the legacy encoding.
 	var pkgsToMigrate []*common.FwdPkg
 	for _, source := range sources {
 		packager := legacy.NewChannelPackager(source)

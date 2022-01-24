@@ -424,7 +424,7 @@ func testForwardInterceptorBasic(net *lntest.NetworkHarness, t *harnessTest) {
 		})
 		return err == nil && len(channels.Channels) > 0
 	}, defaultTimeout)
-	require.NoError(t.t, err, "alice <> bob channel didnt re-activate")
+	require.NoError(t.t, err, "alice <> bob channel didn't re-activate")
 
 }
 

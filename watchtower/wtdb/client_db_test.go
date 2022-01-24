@@ -749,7 +749,7 @@ func checkCommittedUpdates(t *testing.T, session *wtdb.ClientSession,
 	}
 }
 
-// checkAckedUpdates asserts that the AckedUpdates on a sessio match the
+// checkAckedUpdates asserts that the AckedUpdates on a session match the
 // expUpdates provided.
 func checkAckedUpdates(t *testing.T, session *wtdb.ClientSession,
 	expUpdates map[uint16]wtdb.BackupID) {

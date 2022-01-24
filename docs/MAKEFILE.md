@@ -179,7 +179,7 @@ Arguments:
 
 `unit-cover`
 ------------
-Runs the unit test suite with test coverage, compiling the statisitics in
+Runs the unit test suite with test coverage, compiling the statistics in
 `profile.cov`.
 
 Arguments:

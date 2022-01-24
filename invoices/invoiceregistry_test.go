@@ -183,10 +183,10 @@ func TestSettleInvoice(t *testing.T) {
 	// Try to cancel.
 	err = ctx.registry.CancelInvoice(testInvoicePaymentHash)
 	if err != channeldb.ErrInvoiceAlreadySettled {
-		t.Fatal("expected cancelation of a settled invoice to fail")
+		t.Fatal("expected cancellation of a settled invoice to fail")
 	}
 
-	// As this is a direct sette, we expect nothing on the hodl chan.
+	// As this is a direct settle, we expect nothing on the hodl chan.
 	select {
 	case <-hodlChan:
 		t.Fatal("unexpected resolution")
@@ -325,10 +325,10 @@ func testCancelInvoice(t *testing.T, gc bool) {
 	require.Equal(t, testCurrentHeight, failResolution.AcceptHeight)
 }
 
-// TestCancelInvoice tests cancelation of an invoice and related notifications.
+// TestCancelInvoice tests cancellation of an invoice and related notifications.
 func TestCancelInvoice(t *testing.T) {
 	// Test cancellation both with garbage collection (meaning that canceled
-	// invoice will be deleted) and without (meain it'll be kept).
+	// invoice will be deleted) and without (meaning it'll be kept).
 	t.Run("garbage collect", func(t *testing.T) {
 		testCancelInvoice(t, true)
 	})
@@ -507,7 +507,7 @@ func TestSettleHoldInvoice(t *testing.T) {
 	// Try to cancel.
 	err = registry.CancelInvoice(testInvoicePaymentHash)
 	if err == nil {
-		t.Fatal("expected cancelation of a settled invoice to fail")
+		t.Fatal("expected cancellation of a settled invoice to fail")
 	}
 }
 
@@ -1074,7 +1074,7 @@ func TestOldInvoiceRemovalOnStart(t *testing.T) {
 
 	i := 0
 	for paymentHash, invoice := range existingInvoices.expiredInvoices {
-		// Mark half of the invoices as settled, the other hald as
+		// Mark half of the invoices as settled, the other half as
 		// canceled.
 		if i%2 == 0 {
 			invoice.State = channeldb.ContractSettled
@@ -1225,7 +1225,7 @@ func testHeightExpiryWithRegistry(t *testing.T, numParts int, settle bool) {
 	}
 
 	// If we did not settle the invoice before its expiry, we now expect
-	// a cancelation.
+	// a cancellation.
 	expectedState := channeldb.ContractSettled
 	if !settle {
 		expectedState = channeldb.ContractCanceled

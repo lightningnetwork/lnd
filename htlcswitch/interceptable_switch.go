@@ -85,7 +85,7 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 
 	switch htlc := packet.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
-		// We are not interested in intercepting initated payments.
+		// We are not interested in intercepting initiated payments.
 		if packet.incomingChanID == hop.Source {
 			return false
 		}

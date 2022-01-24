@@ -3507,7 +3507,7 @@ func TestChannelRetransmission(t *testing.T) {
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 
 				// Proceed the payment farther by sending the
-				// fulfilment message and trigger the state
+				// fulfillment message and trigger the state
 				// update.
 				{"bob", "alice", &lnwire.UpdateFulfillHTLC{}, false},
 				{"bob", "alice", &lnwire.CommitSig{}, false},
@@ -3548,7 +3548,7 @@ func TestChannelRetransmission(t *testing.T) {
 				{"bob", "alice", &lnwire.CommitSig{}, false},
 
 				// Proceed the payment farther by sending the
-				// fulfilment message and trigger the state
+				// fulfillment message and trigger the state
 				// update.
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 				{"bob", "alice", &lnwire.UpdateFulfillHTLC{}, false},
@@ -5980,7 +5980,7 @@ func newHodlInvoiceTestCtx(t *testing.T) (*hodlInvoiceTestCtx, error) {
 		t.Fatal("timeout")
 	case h := <-receiver.registry.settleChan:
 		if hash != h {
-			t.Fatal("unexpect invoice settled")
+			t.Fatal("unexpected invoice settled")
 		}
 	}
 

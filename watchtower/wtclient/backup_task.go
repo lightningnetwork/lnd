@@ -316,7 +316,7 @@ func (t *backupTask) craftSessionPayload(
 		witness := inputScript.Witness
 		rawSignature := witness[0][:len(witness[0])-1]
 
-		// Reencode the DER signature into a fixed-size 64 byte
+		// Re-encode the DER signature into a fixed-size 64 byte
 		// signature.
 		signature, err := lnwire.NewSigFromRawSignature(rawSignature)
 		if err != nil {

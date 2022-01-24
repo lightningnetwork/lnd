@@ -669,9 +669,9 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) 
 		return lnwire.ShortChannelID{}, nil, nil, err
 	}
 
-	// Requesst a new shard from the ShardTracker. If this is an AMP
+	// Request a new shard from the ShardTracker. If this is an AMP
 	// payment, and this is the last shard, the outstanding shards together
-	// with ths one will be enough for the receiver to derive all HTLC
+	// with this one will be enough for the receiver to derive all HTLC
 	// preimages. If this a non-AMP payment, the ShardTracker will return a
 	// simple shard with the payment's static payment hash.
 	shard, err := p.shardTracker.NewShard(attemptID, lastShard)

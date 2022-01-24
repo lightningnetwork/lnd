@@ -651,7 +651,7 @@ func (b *BreachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 
 	// We may have to wait for some of the HTLC outputs to be spent to the
 	// second level before broadcasting the justice tx. We'll store the
-	// SpendEvents between each attempt to not re-register uneccessarily.
+	// SpendEvents between each attempt to not re-register unnecessarily.
 	spendNtfns := make(map[wire.OutPoint]*chainntnfs.SpendEvent)
 
 	// Compute both the total value of funds being swept and the

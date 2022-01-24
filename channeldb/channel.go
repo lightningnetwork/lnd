@@ -287,7 +287,7 @@ func (c ChannelType) HasFundingTx() bool {
 	return c&NoFundingTxBit == 0
 }
 
-// HasAnchors returns true if this channel type has anchor ouputs on its
+// HasAnchors returns true if this channel type has anchor outputs on its
 // commitment.
 func (c ChannelType) HasAnchors() bool {
 	return c&AnchorOutputsBit == AnchorOutputsBit
@@ -3192,7 +3192,7 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 
 	// The RemoteNextRevocation field is optional, as it's possible for a
 	// channel to be closed before we learn of the next unrevoked
-	// revocation point for the remote party. Write a boolen indicating
+	// revocation point for the remote party. Write a boolean indicating
 	// whether this field is present or not.
 	if err := WriteElements(w, cs.RemoteNextRevocation != nil); err != nil {
 		return err
@@ -3311,7 +3311,7 @@ func writeChanConfig(b io.Writer, c *ChannelConfig) error {
 }
 
 // fundingTxPresent returns true if expect the funding transcation to be found
-// on disk or already populated within the passed oen chanel struct.
+// on disk or already populated within the passed open channel struct.
 func fundingTxPresent(channel *OpenChannel) bool {
 	chanType := channel.ChanType
 

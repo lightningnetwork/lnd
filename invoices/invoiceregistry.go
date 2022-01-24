@@ -630,7 +630,7 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
 	updateInvoice := func(invoice *channeldb.Invoice) (
 		*channeldb.InvoiceUpdateDesc, error) {
 
-		// Only allow individual htlc cancelation on open invoices.
+		// Only allow individual htlc cancellation on open invoices.
 		if invoice.State != channeldb.ContractOpen {
 			log.Debugf("cancelSingleHtlc: invoice %v no longer "+
 				"open", invoiceRef)
@@ -669,7 +669,7 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
 			htlcState = htlc.State
 		}
 
-		// Cancelation is only possible if the htlc wasn't already
+		// Cancellation is only possible if the htlc wasn't already
 		// resolved.
 		if htlcState != channeldb.HtlcStateAccepted {
 			log.Debugf("cancelSingleHtlc: htlc %v on invoice %v "+
@@ -1248,7 +1248,7 @@ func shouldCancel(state channeldb.ContractState, cancelAccepted bool) bool {
 	}
 
 	// If the invoice is accepted, we should only cancel if we want to
-	// force cancelation of accepted invoices.
+	// force cancellation of accepted invoices.
 	return cancelAccepted
 }
 
@@ -1396,7 +1396,7 @@ type InvoiceSubscription struct {
 	// StartingInvoiceIndex field.
 	NewInvoices chan *channeldb.Invoice
 
-	// SettledInvoices is a channel that we'll use to send all setted
+	// SettledInvoices is a channel that we'll use to send all settled
 	// invoices with an invoices index greater than the specified
 	// StartingInvoiceIndex field.
 	SettledInvoices chan *channeldb.Invoice

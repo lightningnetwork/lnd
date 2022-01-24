@@ -290,7 +290,7 @@ type Switch struct {
 
 	// blockEpochStream is an active block epoch event stream backed by an
 	// active ChainNotifier instance. This will be used to retrieve the
-	// lastest height of the chain.
+	// latest height of the chain.
 	blockEpochStream *chainntnfs.BlockEpochEvent
 
 	// pendingSettleFails is the set of settle/fail entries that we need to

@@ -1,4 +1,4 @@
-# Increasing LND reliablity by clustering
+# Increasing LND reliability by clustering
 
 Normally LND nodes use the embedded bbolt database to store all important states.
 This method of running has been proven to work well in a variety of environments,
@@ -9,7 +9,7 @@ do updates and be more resilient to datacenter failures.
 It is now possible to store all essential state in a replicated etcd DB and to
 run multiple LND nodes on different machines where only one of them (the leader) 
 is able to read and mutate the database. In such setup if the leader node fails
-or decomissioned, a follower node will be elected as the new leader and will
+or decommissioned, a follower node will be elected as the new leader and will
 quickly come online to minimize downtime.
 
 The leader election feature currently relies on etcd to work both for the election

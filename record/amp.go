@@ -66,8 +66,8 @@ const (
 	// bytes, leaving only the root_share and set_id.
 	minAMPLength = 64
 
-	// maxAMPLength is the maximum legnth of a serialized AMP TLV record,
-	// which occurs when the truncated endoing of a child_index takes 2
+	// maxAMPLength is the maximum length of a serialized AMP TLV record,
+	// which occurs when the truncated encoding of a child_index takes 2
 	// bytes.
 	maxAMPLength = 68
 )
@@ -100,7 +100,7 @@ func (a *AMP) PayloadSize() uint64 {
 	return 32 + 32 + tlv.SizeTUint32(a.childIndex)
 }
 
-// String returns a human-readble description of the amp payload fields.
+// String returns a human-readable description of the amp payload fields.
 func (a *AMP) String() string {
 	if a == nil {
 		return "<nil>"

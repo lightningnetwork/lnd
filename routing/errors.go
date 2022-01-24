@@ -25,7 +25,7 @@ const (
 	// funding transaction described by the short channel ID on chain.
 	ErrNoFundingTransaction
 
-	// ErrInvalidFundingOutput is returned if the channle funding output
+	// ErrInvalidFundingOutput is returned if the channel funding output
 	// fails validation.
 	ErrInvalidFundingOutput
 

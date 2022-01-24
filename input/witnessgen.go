@@ -84,7 +84,7 @@ const (
 	// us to sweep an HTLC output that we extended to a party, but was
 	// never fulfilled. This _is_ the HTLC output directly on our
 	// commitment transaction, and the input to the second-level HTLC
-	// tiemout transaction. It can only be spent after CLTV expiry, and
+	// timeout transaction. It can only be spent after CLTV expiry, and
 	// commitment confirmation.
 	HtlcOfferedTimeoutSecondLevelInputConfirmed StandardWitnessType = 15
 

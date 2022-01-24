@@ -2405,7 +2405,7 @@ func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 			}
 
 			// Close the timeout channel and exit if the block is
-			// aboce the max height.
+			// above the max height.
 			if uint32(epoch.Height) >= maxHeight {
 				log.Warnf("Waited for %v blocks without "+
 					"seeing funding transaction confirmed,"+

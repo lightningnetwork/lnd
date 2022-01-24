@@ -28,7 +28,7 @@ type (
 		Cleanup()
 	}
 
-	// WorkerConfig parameterizes the behavior of a Worker pool.
+	// WorkerConfig parametrizes the behavior of a Worker pool.
 	WorkerConfig struct {
 		// NewWorkerState allocates a new state for a worker goroutine.
 		// This method is called each time a new worker goroutine is
@@ -60,10 +60,10 @@ type (
 		requests chan *request
 
 		// work is a channel where new tasks are submitted, but is only
-		// read by active worker gorotuines.
+		// read by active worker goroutines.
 		work chan *request
 
-		// workerSem is a channel-based sempahore that is used to limit
+		// workerSem is a channel-based semaphore that is used to limit
 		// the total number of worker goroutines to the number
 		// prescribed by the WorkerConfig.
 		workerSem chan struct{}

@@ -807,7 +807,7 @@ func testUpdateChannelPolicyForPrivateChannel(net *lntest.NetworkHarness,
 	assertAmountPaid(t, "Bob(local) [private=>] Carol(remote)",
 		net.Bob, bobFundPoint, paymentAmt, 0)
 
-	// Calcuate the amount in satoshis.
+	// Calculate the amount in satoshis.
 	amtExpected := int64(paymentAmt + baseFeeMSat/1000)
 
 	// Bob should have received 20k satoshis + fee from Alice.

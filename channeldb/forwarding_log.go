@@ -47,7 +47,7 @@ func (d *DB) ForwardingLog() *ForwardingLog {
 	}
 }
 
-// ForwardingLog is a time series database that logs the fulfilment of payment
+// ForwardingLog is a time series database that logs the fulfillment of payment
 // circuits by a lightning network daemon. The log contains a series of
 // forwarding events which map a timestamp to a forwarding event. A forwarding
 // event describes which channels were used to create+settle a circuit, and the
@@ -204,7 +204,7 @@ type ForwardingEventQuery struct {
 
 // ForwardingLogTimeSlice is the response to a forwarding query. It includes
 // the original query, the set  events that match the query, and an integer
-// which represents the offset index of the last item in the set of retuned
+// which represents the offset index of the last item in the set of returned
 // events. This integer allows callers to resume their query using this offset
 // in the event that the query's response exceeds the max number of returnable
 // events.

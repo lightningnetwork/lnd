@@ -89,7 +89,7 @@ type htlcPacket struct {
 	incomingTimeout uint32
 
 	// outgoingTimeout is the timeout of the proposed outgoing HTLC. This
-	// will be extraced from the hop payload recevived by the incoming
+	// will be extracted from the hop payload received by the incoming
 	// link.
 	outgoingTimeout uint32
 

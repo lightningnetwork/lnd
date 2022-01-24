@@ -992,7 +992,7 @@ func zipClusters(as, bs []inputCluster) []inputCluster {
 			// Increment j for the next round.
 			j++
 
-		// We did not merge, meaning all the remining clusters from bs
+		// We did not merge, meaning all the remaining clusters from bs
 		// have lower fee rate. Instead we add a directly to the final
 		// clusters.
 		default:

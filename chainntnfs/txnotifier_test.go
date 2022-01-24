@@ -282,7 +282,7 @@ func TestTxNotifierFutureConfDispatch(t *testing.T) {
 		t.Fatal("Expected confirmation update for tx1")
 	}
 
-	// A confirmation notification for this tranaction should be dispatched,
+	// A confirmation notification for this transaction should be dispatched,
 	// as it only required one confirmation.
 	select {
 	case txConf := <-ntfn1.Event.Confirmed:
@@ -2148,7 +2148,7 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 		op2Height      = 203
 	)
 
-	// Intiialize our TxNotifier instance backed by a height hint cache.
+	// Initialize our TxNotifier instance backed by a height hint cache.
 	hintCache := newMockHintCache()
 	n := chainntnfs.NewTxNotifier(
 		startingHeight, chainntnfs.ReorgSafetyLimit, hintCache,
@@ -2331,7 +2331,7 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 		reorgSafety    = 10
 	)
 
-	// Intiialize our TxNotifier instance backed by a height hint cache.
+	// Initialize our TxNotifier instance backed by a height hint cache.
 	hintCache := newMockHintCache()
 	n := chainntnfs.NewTxNotifier(
 		startingHeight, reorgSafety, hintCache, hintCache,
@@ -2511,7 +2511,7 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 	// matured.
 	err = n.UpdateSpendDetails(ntfn1.HistoricalDispatch.SpendRequest, nil)
 	if err == nil {
-		t.Fatalf("expcted updating spend details to fail")
+		t.Fatalf("expected updating spend details to fail")
 	}
 
 	// Finally, check that the height hint is still there, unchanged.

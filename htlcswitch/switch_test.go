@@ -1546,7 +1546,7 @@ func TestCheckCircularForward(t *testing.T) {
 }
 
 // TestSkipIneligibleLinksMultiHopForward tests that if a multi-hop HTLC comes
-// along, then we won't attempt to froward it down al ink that isn't yet able
+// along, then we won't attempt to forward it down al ink that isn't yet able
 // to forward any HTLC's.
 func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 	tests := []multiHopFwdTest{
@@ -1601,7 +1601,7 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 }
 
 // testSkipIneligibleLinksMultiHopForward tests that if a multi-hop HTLC comes
-// along, then we won't attempt to froward it down al ink that isn't yet able
+// along, then we won't attempt to forward it down al ink that isn't yet able
 // to forward any HTLC's.
 func testSkipIneligibleLinksMultiHopForward(t *testing.T,
 	testCase *multiHopFwdTest) {
@@ -2563,7 +2563,7 @@ func TestSwitchGetPaymentResult(t *testing.T) {
 		t.Fatalf("unable to store result: %v", err)
 	}
 
-	// The result should be availble.
+	// The result should be available.
 	select {
 	case res, ok := <-resultChan:
 		if !ok {

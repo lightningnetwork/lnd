@@ -243,7 +243,7 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 	defer close(r.done)
 
 	// Create a map of pending channel IDs to our original open channel
-	// request and a response channel. We keep the original chanel open
+	// request and a response channel. We keep the original channel open
 	// message so that we can validate our response against it.
 	acceptRequests := make(map[[32]byte]*chanAcceptInfo)
 

@@ -2861,7 +2861,7 @@ func runEqualCostRouteSelection(t *testing.T, useCache bool) {
 	// Set up a test graph with two possible paths to the target: via a and
 	// via b. The routing fees and probabilities are chosen such that the
 	// algorithm will first explore target->a->source (backwards search).
-	// This route has fee 6 and a penality of 4 for the 25% success
+	// This route has fee 6 and a penalty of 4 for the 25% success
 	// probability. The algorithm will then proceed with evaluating
 	// target->b->source, which has a fee of 8 and a penalty of 2 for the
 	// 50% success probability. Both routes have the same path finding cost

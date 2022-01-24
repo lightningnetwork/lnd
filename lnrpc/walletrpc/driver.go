@@ -37,7 +37,7 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 
 	// Before we try to make the new WalletKit service instance, we'll
 	// perform some sanity checks on the arguments to ensure that they're
-	// useable.
+	// usable.
 	switch {
 	case config.MacService != nil && config.NetworkDir == "":
 		return nil, nil, fmt.Errorf("NetworkDir must be set to " +

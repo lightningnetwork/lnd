@@ -858,7 +858,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 
 // TestSendPaymentErrorNonFinalTimeLockErrors tests that if we receive either
 // an ExpiryTooSoon or a IncorrectCltvExpiry error from a node, then we prune
-// that node from the available graph witin a mission control session. This
+// that node from the available graph within a mission control session. This
 // test ensures that we'll route around errors due to nodes not knowing the
 // current block height.
 func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {

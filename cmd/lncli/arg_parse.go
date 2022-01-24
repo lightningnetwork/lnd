@@ -21,8 +21,8 @@ var secondsPer = map[string]int64{
 	"y": 31557600, // 365.25 days
 }
 
-// parseTime parses UNIX timestamps or short timeranges inspired by sytemd (when starting with "-"),
-// e.g. "-1M" for one month (30.44 days) ago.
+// parseTime parses UNIX timestamps or short timeranges inspired by systemd
+// (when starting with "-"), e.g. "-1M" for one month (30.44 days) ago.
 func parseTime(s string, base time.Time) (uint64, error) {
 	if reTimeRange.MatchString(s) {
 		last := len(s) - 1

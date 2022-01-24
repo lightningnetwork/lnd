@@ -246,7 +246,7 @@ func TestShouldPeerBootstrap(t *testing.T) {
 			},
 		},
 
-		// Mainnet active, but boostrap disabled, no boostrap.
+		// Mainnet active, but bootstrap disabled, no bootstrap.
 		{
 			cfg: &Config{
 				Bitcoin: &lncfg.Chain{
@@ -257,7 +257,7 @@ func TestShouldPeerBootstrap(t *testing.T) {
 			},
 		},
 
-		// Mainnet active, should boostrap.
+		// Mainnet active, should bootstrap.
 		{
 			cfg: &Config{
 				Bitcoin: &lncfg.Chain{
@@ -268,7 +268,7 @@ func TestShouldPeerBootstrap(t *testing.T) {
 			shouldBoostrap: true,
 		},
 
-		// Testnet active, should boostrap.
+		// Testnet active, should bootstrap.
 		{
 			cfg: &Config{
 				Bitcoin: &lncfg.Chain{

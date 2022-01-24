@@ -157,7 +157,7 @@ func OptionClock(clock clock.Clock) OptionModifier {
 	}
 }
 
-// OptionDryRunMigration controls whether or not to intentially fail to commit a
+// OptionDryRunMigration controls whether or not to intentionally fail to commit a
 // successful migration that occurs when opening the database.
 func OptionDryRunMigration(dryRun bool) OptionModifier {
 	return func(o *Options) {

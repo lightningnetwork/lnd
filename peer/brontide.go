@@ -1151,7 +1151,7 @@ func (ms *msgStream) msgConsumer() {
 // concurrent access.
 func (ms *msgStream) AddMsg(msg lnwire.Message) {
 	// First, we'll attempt to receive from the producerSema struct. This
-	// acts as a sempahore to prevent us from indefinitely buffering
+	// acts as a semaphore to prevent us from indefinitely buffering
 	// incoming items from the wire. Either the msg queue isn't full, and
 	// we'll not block, or the queue is full, and we'll block until either
 	// we're signalled to quit, or a slot is freed up.
@@ -2142,7 +2142,7 @@ func (p *Brontide) ChannelSnapshots() []*channeldb.ChannelSnapshot {
 		}
 
 		// We'll only return a snapshot for channels that are
-		// *immedately* available for routing payments over.
+		// *immediately* available for routing payments over.
 		if activeChan.RemoteNextRevocation() == nil {
 			continue
 		}

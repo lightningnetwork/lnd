@@ -33,7 +33,7 @@ type Config struct {
 // feature sets.
 type Manager struct {
 	// fsets is a static map of feature set to raw feature vectors. Requests
-	// are fulfilled by cloning these interal feature vectors.
+	// are fulfilled by cloning these internal feature vectors.
 	fsets map[Set]*lnwire.RawFeatureVector
 }
 

@@ -24,7 +24,7 @@ type rpcState uint8
 
 const (
 	// waitingToStart indicates that we're at the beginning of the startup
-	// process. In a cluster evironment this may mean that we're waiting to
+	// process. In a cluster environment this may mean that we're waiting to
 	// become the leader in which case RPC calls will be disabled until
 	// this instance has been elected as leader.
 	waitingToStart rpcState = iota
@@ -40,7 +40,7 @@ const (
 	walletLocked
 
 	// walletUnlocked means that the wallet has been unlocked, but the full
-	// RPC server is not yeat ready.
+	// RPC server is not yet ready.
 	walletUnlocked
 
 	// rpcActive means that the RPC server is ready to accept calls.
@@ -51,7 +51,7 @@ const (
 )
 
 var (
-	// ErrWaitingToStart is returned if LND is still wating to start,
+	// ErrWaitingToStart is returned if LND is still waiting to start,
 	// possibly blocked until elected as the leader.
 	ErrWaitingToStart = fmt.Errorf("waiting to start, RPC services not " +
 		"available")

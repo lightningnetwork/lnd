@@ -2024,7 +2024,7 @@ func (lc *LightningChannel) restorePendingRemoteUpdates(
 				logIdx)
 		}
 
-		// We previously restored Adds along with all the other upates,
+		// We previously restored Adds along with all the other updates,
 		// but this Add restoration was a no-op as every single one of
 		// these Adds was already restored since they're all incoming
 		// htlcs on the local commitment.
@@ -2143,7 +2143,7 @@ func (lc *LightningChannel) restorePendingLocalUpdates(
 		}
 
 		// At this point the restored update's logIndex must be equal
-		// to the update log, otherwise somthing is horribly wrong.
+		// to the update log, otherwise something is horribly wrong.
 		if payDesc.LogIndex != lc.localUpdateLog.logIndex {
 			panic(fmt.Sprintf("log index mismatch: "+
 				"%v vs %v", payDesc.LogIndex,
@@ -3460,7 +3460,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 		}
 
 		// Now that we know the total value of added HTLCs, we check
-		// that this satisfy the MaxPendingAmont contraint.
+		// that this satisfy the MaxPendingAmont constraint.
 		if amtInFlight > constraints.MaxPendingAmount {
 			return ErrMaxPendingAmount
 		}
@@ -6780,7 +6780,7 @@ func (lc *LightningChannel) availableCommitmentBalance(view *htlcView,
 		// than the htlcCommitFee, where we could still be sending dust
 		// HTLCs, but we return 0 in this case. This is to avoid
 		// lowering our balance even further, as this takes us into a
-		// bad state wehere neither we nor our channel counterparty can
+		// bad state where neither we nor our channel counterparty can
 		// add HTLCs.
 		if ourBalance < htlcCommitFee {
 			return 0, commitWeight

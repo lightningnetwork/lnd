@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/stretchr/testify/require"
 )
 
 func testSingleConfirmationNotification(miner *rpctest.Harness,
@@ -1178,7 +1179,8 @@ func testReorgConf(miner *rpctest.Harness,
 
 	// Reorganize transaction out of the chain by generating a longer fork
 	// from the other miner. The transaction is not included in this fork.
-	miner2.Client.Generate(2)
+	_, err = miner2.Client.Generate(2)
+	require.NoError(t, err)
 
 	// Reconnect nodes to reach consensus on the longest chain. miner2's chain
 	// should win and become active on miner1.

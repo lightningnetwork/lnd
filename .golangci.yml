@@ -15,6 +15,7 @@ run:
   build-tags:
     - autopilotrpc
     - chainrpc
+    - dev
     - invoicesrpc
     - signrpc
     - walletrpc

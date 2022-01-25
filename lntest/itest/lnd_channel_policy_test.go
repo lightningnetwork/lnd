@@ -2,6 +2,7 @@ package itest
 
 import (
 	"context"
+	"math"
 	"strings"
 	"time"
 
@@ -14,6 +15,19 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
+
+// assertPolicyUpdate checks that a given policy update has been received by a
+// list of given nodes.
+func assertPolicyUpdate(t *harnessTest, nodes []*lntest.HarnessNode,
+	advertisingNode string, policy *lnrpc.RoutingPolicy,
+	chanPoint *lnrpc.ChannelPoint) {
+
+	for _, node := range nodes {
+		assertChannelPolicyUpdate(
+			t.t, node, advertisingNode, policy, chanPoint, false,
+		)
+	}
+}
 
 // testUpdateChannelPolicy tests that policy updates made to a channel
 // gets propagated to other nodes in the network.
@@ -45,21 +59,6 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	// make sure they all receive the expected updates.
 	nodes := []*lntest.HarnessNode{net.Alice, net.Bob}
 
-	// assertPolicyUpdate checks that a given policy update has been
-	// received by a list of given nodes.
-	assertPolicyUpdate := func(nodes []*lntest.HarnessNode,
-		advertisingNode string, policy *lnrpc.RoutingPolicy,
-		chanPoint *lnrpc.ChannelPoint) {
-
-		for _, node := range nodes {
-			assertChannelPolicyUpdate(
-				t.t, node, advertisingNode,
-				policy, chanPoint, false,
-			)
-		}
-
-	}
-
 	// Alice and Bob should see each other's ChannelUpdates, advertising the
 	// default routing policies.
 	expectedPolicy := &lnrpc.RoutingPolicy{
@@ -71,9 +70,11 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	assertPolicyUpdate(
-		nodes, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
+		t, nodes, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
 	)
-	assertPolicyUpdate(nodes, net.Bob.PubKeyStr, expectedPolicy, chanPoint)
+	assertPolicyUpdate(
+		t, nodes, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
+	)
 
 	// They should now know about the default policies.
 	for _, node := range nodes {
@@ -144,10 +145,10 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	assertPolicyUpdate(
-		nodes, net.Bob.PubKeyStr, expectedPolicyBob, chanPoint2,
+		t, nodes, net.Bob.PubKeyStr, expectedPolicyBob, chanPoint2,
 	)
 	assertPolicyUpdate(
-		nodes, carol.PubKeyStr, expectedPolicyCarol, chanPoint2,
+		t, nodes, carol.PubKeyStr, expectedPolicyCarol, chanPoint2,
 	)
 
 	// Check that all nodes now know about the updated policies.
@@ -337,7 +338,9 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Wait for all nodes to have seen the policy update done by Bob.
-	assertPolicyUpdate(nodes, net.Bob.PubKeyStr, expectedPolicy, chanPoint)
+	assertPolicyUpdate(
+		t, nodes, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
+	)
 
 	// Check that all nodes now know about Bob's updated policy.
 	for _, node := range nodes {
@@ -421,10 +424,10 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	// Wait for all nodes to have seen the policy updates for both of
 	// Alice's channels.
 	assertPolicyUpdate(
-		nodes, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
+		t, nodes, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
 	)
 	assertPolicyUpdate(
-		nodes, net.Alice.PubKeyStr, expectedPolicy, chanPoint3,
+		t, nodes, net.Alice.PubKeyStr, expectedPolicy, chanPoint3,
 	)
 
 	// And finally check that all nodes remembers the policy update they
@@ -456,11 +459,11 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		// of Alice's channels. Carol will not see the last update as
 		// the limit has been reached.
 		assertPolicyUpdate(
-			[]*lntest.HarnessNode{net.Alice, net.Bob},
+			t, []*lntest.HarnessNode{net.Alice, net.Bob},
 			net.Alice.PubKeyStr, expectedPolicy, chanPoint,
 		)
 		assertPolicyUpdate(
-			[]*lntest.HarnessNode{net.Alice, net.Bob},
+			t, []*lntest.HarnessNode{net.Alice, net.Bob},
 			net.Alice.PubKeyStr, expectedPolicy, chanPoint3,
 		)
 		// Check that all nodes remembers the policy update
@@ -481,11 +484,11 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 			expectedPolicy = &prevAlicePolicy
 		}
 		assertPolicyUpdate(
-			[]*lntest.HarnessNode{carol},
+			t, []*lntest.HarnessNode{carol},
 			net.Alice.PubKeyStr, expectedPolicy, chanPoint,
 		)
 		assertPolicyUpdate(
-			[]*lntest.HarnessNode{carol},
+			t, []*lntest.HarnessNode{carol},
 			net.Alice.PubKeyStr, expectedPolicy, chanPoint3,
 		)
 		assertChannelPolicy(
@@ -817,4 +820,90 @@ func testUpdateChannelPolicyForPrivateChannel(net *lntest.NetworkHarness,
 	// Alice should have sent 20k satoshis + fee to Bob.
 	assertAmountPaid(t, "Alice(local) => Bob(remote)",
 		net.Alice, aliceFundPoint, amtExpected, 0)
+}
+
+// testUpdateChannelPolicyFeeRateAccuracy tests that updating the channel policy
+// rounds fee rate values correctly as well as setting fee rate with ppm works
+// as expected.
+func testUpdateChannelPolicyFeeRateAccuracy(net *lntest.NetworkHarness,
+	t *harnessTest) {
+
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := chanAmt / 2
+
+	// Create a channel Alice -> Bob.
+	chanPoint := openChannelAndAssert(
+		t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
+	)
+	defer closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+
+	// Nodes that we need to make sure receive the channel updates.
+	nodes := []*lntest.HarnessNode{net.Alice, net.Bob}
+
+	baseFee := int64(1500)
+	timeLockDelta := uint32(66)
+	maxHtlc := uint64(500000)
+	defaultMinHtlc := int64(1000)
+
+	// Originally LND did not properly round up fee rates which caused
+	// inaccuracy where fee rates were simply rounded down due to the
+	// integer conversion.
+	//
+	// We'll use a fee rate of 0.031337 which without rounding up would
+	// have resulted in a fee rate ppm of 31336.
+	feeRate := 0.031337
+
+	// Expected fee rate will be rounded up.
+	expectedFeeRateMilliMsat := int64(math.Round(testFeeBase * feeRate))
+
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      baseFee,
+		FeeRateMilliMsat: expectedFeeRateMilliMsat,
+		TimeLockDelta:    timeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      maxHtlc,
+	}
+
+	req := &lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   baseFee,
+		FeeRate:       feeRate,
+		TimeLockDelta: timeLockDelta,
+		MaxHtlcMsat:   maxHtlc,
+		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
+			ChanPoint: chanPoint,
+		},
+	}
+
+	ctxb := context.Background()
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	if _, err := net.Alice.UpdateChannelPolicy(ctxt, req); err != nil {
+		t.Fatalf("unable to get alice's balance: %v", err)
+	}
+
+	// Make sure that both Alice and Bob sees the same policy after update.
+	assertPolicyUpdate(
+		t, nodes, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
+	)
+
+	// Now use the new PPM feerate field and make sure that the feerate is
+	// correctly set.
+	feeRatePPM := uint32(32337)
+	req.FeeRate = 0 // Can't set both at the same time.
+	req.FeeRatePpm = feeRatePPM
+	expectedPolicy.FeeRateMilliMsat = int64(feeRatePPM)
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if _, err := net.Alice.UpdateChannelPolicy(ctxt, req); err != nil {
+		t.Fatalf("unable to get alice's balance: %v", err)
+	}
+
+	// Make sure that both Alice and Bob sees the same policy after update.
+	assertPolicyUpdate(
+		t, nodes, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
+	)
+
 }

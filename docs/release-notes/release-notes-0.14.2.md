@@ -78,6 +78,8 @@ Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
 
 * [Fix an issue that would prevent very old nodes from starting up due to lack of a historical channel bucket](https://github.com/lightningnetwork/lnd/pull/6159)
 
+* [Fixes a bug that would cause incorrect rounding when translating a decimal fee rate to ppm](https://github.com/lightningnetwork/lnd/pull/6200)
+
 
 ## RPC Server
 
@@ -99,6 +101,8 @@ Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
 * [CustomCaveatCondition is now properly
   set](https://github.com/lightningnetwork/lnd/pull/6185) on
   `RPCMiddlewareRequest` messages.
+
+* [Adds a new FeeRatePpm to the UpdateChanPolicy call to allow fee rate expression in the native protocol unit](https://github.com/lightningnetwork/lnd/pull/6200)
 
 
 ## Routing

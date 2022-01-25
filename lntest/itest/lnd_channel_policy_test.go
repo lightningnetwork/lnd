@@ -605,6 +605,10 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	expectedPolicy.Disabled = false
 	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol)
 
+	// Wait until Carol and Eve are reconnected before we disconnect them
+	// again.
+	net.EnsureConnected(t.t, eve, carol)
+
 	// Now we'll test a long disconnection. Disconnect Carol and Eve and
 	// ensure they both detect each other as disabled. Their min backoffs
 	// are high enough to not interfere with disabling logic.

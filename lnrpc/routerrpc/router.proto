@@ -360,6 +360,11 @@ message QueryMissionControlResponse {
 message XImportMissionControlRequest {
     // Node pair-level mission control state to be imported.
     repeated PairHistory pairs = 1;
+
+    // Whether to force override MC pair history. Note that even with force
+    // override the failure pair is imported before the success pair and both
+    // still clamp existing failure/success amounts.
+    bool force = 2;
 }
 
 message XImportMissionControlResponse {

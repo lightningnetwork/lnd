@@ -553,6 +553,19 @@ const (
 	addedToRouterGraph
 )
 
+func (c channelOpeningState) String() string {
+	switch c {
+	case markedOpen:
+		return "markedOpen"
+	case fundingLockedSent:
+		return "fundingLocked"
+	case addedToRouterGraph:
+		return "addedToRouterGraph"
+	default:
+		return "unknown"
+	}
+}
+
 // NewFundingManager creates and initializes a new instance of the
 // fundingManager.
 func NewFundingManager(cfg Config) (*Manager, error) {
@@ -2773,7 +2786,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		}
 
 		log.Debugf("Channel with ChannelPoint(%v), short_chan_id=%v "+
-			"announced", &fundingPoint, shortChanID)
+			"sent to gossiper", &fundingPoint, shortChanID)
 	}
 
 	return nil

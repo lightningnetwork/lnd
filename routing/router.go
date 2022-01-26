@@ -1062,13 +1062,19 @@ func (r *ChannelRouter) networkHandler() {
 					update.msg,
 				)
 				if err != nil {
-					switch err {
-					case ErrVBarrierShuttingDown:
+					switch {
+					case IsError(
+						err, ErrVBarrierShuttingDown,
+					):
 						update.err <- err
-					case ErrParentValidationFailed:
+
+					case IsError(
+						err, ErrParentValidationFailed,
+					):
 						update.err <- newErrf(
 							ErrIgnored, err.Error(),
 						)
+
 					default:
 						log.Warnf("unexpected error "+
 							"during validation "+

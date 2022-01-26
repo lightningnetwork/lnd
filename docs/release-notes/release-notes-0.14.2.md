@@ -17,6 +17,11 @@
   In other words, freshly-installed LND can now be initailized with multiple
   channels from an external (e.g. hardware) wallet *in a single transaction*.
 
+* When the block height+delta specified by a network message is greater than
+  the gossiper's best height, it will be considered as premature and ignored.
+  [These premature messages are now saved into a cache and processed once the
+  height has reached.](https://github.com/lightningnetwork/lnd/pull/6054)
+
 ## Build System
 
 * [Clean up Makefile by using go

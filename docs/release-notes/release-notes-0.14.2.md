@@ -131,4 +131,5 @@ Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
 * Martin Habovštiak
 * Naveen Srinivasan
 * Oliver Gugger
+* Olaoluwa Osuntokun
 * Yong Yu

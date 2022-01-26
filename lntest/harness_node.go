@@ -222,10 +222,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		fmt.Sprintf("--restcors=https://%v", cfg.RESTAddr()),
 		fmt.Sprintf("--listen=%v", cfg.P2PAddr()),
 		fmt.Sprintf("--externalip=%v", cfg.P2PAddr()),
-		fmt.Sprintf("--logdir=%v", cfg.LogDir),
-		fmt.Sprintf("--datadir=%v", cfg.DataDir),
-		fmt.Sprintf("--tlscertpath=%v", cfg.TLSCertPath),
-		fmt.Sprintf("--tlskeypath=%v", cfg.TLSKeyPath),
+		fmt.Sprintf("--lnddir=%v", cfg.BaseDir),
 		fmt.Sprintf("--adminmacaroonpath=%v", cfg.AdminMacPath),
 		fmt.Sprintf("--readonlymacaroonpath=%v", cfg.ReadMacPath),
 		fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath),
@@ -408,9 +405,9 @@ func newNode(cfg *BaseNodeConfig) (*HarnessNode, error) {
 		}
 	}
 	cfg.DataDir = filepath.Join(cfg.BaseDir, "data")
-	cfg.LogDir = filepath.Join(cfg.BaseDir, "log")
-	cfg.TLSCertPath = filepath.Join(cfg.DataDir, "tls.cert")
-	cfg.TLSKeyPath = filepath.Join(cfg.DataDir, "tls.key")
+	cfg.LogDir = filepath.Join(cfg.BaseDir, "logs")
+	cfg.TLSCertPath = filepath.Join(cfg.BaseDir, "tls.cert")
+	cfg.TLSKeyPath = filepath.Join(cfg.BaseDir, "tls.key")
 
 	networkDir := filepath.Join(
 		cfg.DataDir, "chain", "bitcoin", cfg.NetParams.Name,

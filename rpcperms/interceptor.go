@@ -910,7 +910,7 @@ func (r *InterceptorChain) middlewareRegistered() bool {
 
 // acceptRequest sends an intercept request to all middlewares that have
 // registered for it. This means either a middleware has requested read-only
-// access or the request actually has a macaroon which a caveat the middleware
+// access or the request actually has a macaroon with a caveat the middleware
 // registered for.
 func (r *InterceptorChain) acceptRequest(requestID uint64,
 	msg *InterceptionRequest) error {
@@ -928,6 +928,10 @@ func (r *InterceptorChain) acceptRequest(requestID uint64,
 		if !hasCustomCaveat && !middleware.readOnly {
 			continue
 		}
+
+		msg.CustomCaveatCondition = macaroons.GetCustomCaveatCondition(
+			msg.Macaroon, middleware.customCaveatName,
+		)
 
 		resp, err := middleware.intercept(requestID, msg)
 
@@ -974,6 +978,10 @@ func (r *InterceptorChain) interceptResponse(ctx context.Context,
 		if !hasCustomCaveat && !middleware.readOnly {
 			continue
 		}
+
+		msg.CustomCaveatCondition = macaroons.GetCustomCaveatCondition(
+			msg.Macaroon, middleware.customCaveatName,
+		)
 
 		resp, err := middleware.intercept(requestID, msg)
 

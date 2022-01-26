@@ -35,7 +35,7 @@ import (
 const DefaultCSV = 4
 
 // NodeOption is a function for updating a node's configuration.
-type NodeOption func(*NodeConfig)
+type NodeOption func(*BaseNodeConfig)
 
 // NetworkHarness is an integration testing harness for the lightning network.
 // Building on top of HarnessNode, it is responsible for handling interactions
@@ -489,7 +489,7 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string, hasSeed bool,
 	password []byte, dbBackend DatabaseBackend, wait bool, opts ...NodeOption) (
 	*HarnessNode, error) {
 
-	cfg := &NodeConfig{
+	cfg := &BaseNodeConfig{
 		Name:              name,
 		LogFilenamePrefix: n.currentTestCase,
 		HasSeed:           hasSeed,
@@ -504,7 +504,7 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string, hasSeed bool,
 		opt(cfg)
 	}
 
-	node, err := newNode(*cfg)
+	node, err := newNode(cfg)
 	if err != nil {
 		return nil, err
 	}

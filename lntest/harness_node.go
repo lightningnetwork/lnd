@@ -67,24 +67,6 @@ func postgresDatabaseDsn(dbName string) string {
 	return fmt.Sprintf(postgresDsn, dbName)
 }
 
-// generateListeningPorts returns four ints representing ports to listen on
-// designated for the current lightning network test. This returns the next
-// available ports for the p2p, rpc, rest and profiling services.
-func generateListeningPorts(cfg *NodeConfig) {
-	if cfg.P2PPort == 0 {
-		cfg.P2PPort = NextAvailablePort()
-	}
-	if cfg.RPCPort == 0 {
-		cfg.RPCPort = NextAvailablePort()
-	}
-	if cfg.RESTPort == 0 {
-		cfg.RESTPort = NextAvailablePort()
-	}
-	if cfg.ProfilePort == 0 {
-		cfg.ProfilePort = NextAvailablePort()
-	}
-}
-
 // BackendConfig is an interface that abstracts away the specific chain backend
 // node implementation.
 type BackendConfig interface {
@@ -102,10 +84,25 @@ type BackendConfig interface {
 	Name() string
 }
 
-type NodeConfig struct {
+// NodeConfig is the basic interface a node configuration must implement.
+type NodeConfig interface {
+	// BaseConfig returns the base node configuration struct.
+	BaseConfig() *BaseNodeConfig
+
+	// GenerateListeningPorts generates the ports to listen on designated
+	// for the current lightning network test.
+	GenerateListeningPorts()
+
+	// GenArgs generates a slice of command line arguments from the
+	// lightning node config struct.
+	GenArgs() []string
+}
+
+// BaseNodeConfig is the base node configuration.
+type BaseNodeConfig struct {
 	Name string
 
-	// LogFilenamePrefix is is used to prefix node log files. Can be used
+	// LogFilenamePrefix is used to prefix node log files. Can be used
 	// to store the current test case for simpler postmortem debugging.
 	LogFilenamePrefix string
 
@@ -139,28 +136,28 @@ type NodeConfig struct {
 	PostgresDsn string
 }
 
-func (cfg NodeConfig) P2PAddr() string {
-	return fmt.Sprintf(listenerFormat, cfg.P2PPort)
+func (cfg BaseNodeConfig) P2PAddr() string {
+	return fmt.Sprintf(ListenerFormat, cfg.P2PPort)
 }
 
-func (cfg NodeConfig) RPCAddr() string {
-	return fmt.Sprintf(listenerFormat, cfg.RPCPort)
+func (cfg BaseNodeConfig) RPCAddr() string {
+	return fmt.Sprintf(ListenerFormat, cfg.RPCPort)
 }
 
-func (cfg NodeConfig) RESTAddr() string {
-	return fmt.Sprintf(listenerFormat, cfg.RESTPort)
+func (cfg BaseNodeConfig) RESTAddr() string {
+	return fmt.Sprintf(ListenerFormat, cfg.RESTPort)
 }
 
 // DBDir returns the holding directory path of the graph database.
-func (cfg NodeConfig) DBDir() string {
+func (cfg BaseNodeConfig) DBDir() string {
 	return filepath.Join(cfg.DataDir, "graph", cfg.NetParams.Name)
 }
 
-func (cfg NodeConfig) DBPath() string {
+func (cfg BaseNodeConfig) DBPath() string {
 	return filepath.Join(cfg.DBDir(), "channel.db")
 }
 
-func (cfg NodeConfig) ChanBackupPath() string {
+func (cfg BaseNodeConfig) ChanBackupPath() string {
 	return filepath.Join(
 		cfg.DataDir, "chain", "bitcoin",
 		fmt.Sprintf(
@@ -170,9 +167,31 @@ func (cfg NodeConfig) ChanBackupPath() string {
 	)
 }
 
-// genArgs generates a slice of command line arguments from the lightning node
+// GenerateListeningPorts generates the ports to listen on designated for the
+// current lightning network test.
+func (cfg *BaseNodeConfig) GenerateListeningPorts() {
+	if cfg.P2PPort == 0 {
+		cfg.P2PPort = NextAvailablePort()
+	}
+	if cfg.RPCPort == 0 {
+		cfg.RPCPort = NextAvailablePort()
+	}
+	if cfg.RESTPort == 0 {
+		cfg.RESTPort = NextAvailablePort()
+	}
+	if cfg.ProfilePort == 0 {
+		cfg.ProfilePort = NextAvailablePort()
+	}
+}
+
+// BaseConfig returns the base node configuration struct.
+func (cfg *BaseNodeConfig) BaseConfig() *BaseNodeConfig {
+	return cfg
+}
+
+// GenArgs generates a slice of command line arguments from the lightning node
 // config struct.
-func (cfg NodeConfig) genArgs() []string {
+func (cfg *BaseNodeConfig) GenArgs() []string {
 	var args []string
 
 	switch cfg.NetParams {
@@ -283,7 +302,7 @@ type policyUpdateMap map[string]map[string][]*lnrpc.RoutingPolicy
 // harness. Each HarnessNode instance also fully embeds an RPC client in
 // order to pragmatically drive the node.
 type HarnessNode struct {
-	Cfg *NodeConfig
+	Cfg *BaseNodeConfig
 
 	// NodeID is a unique identifier for the node within a NetworkHarness.
 	NodeID int
@@ -377,7 +396,7 @@ func nextNodeID() int {
 }
 
 // newNode creates a new test lightning node instance from the passed config.
-func newNode(cfg NodeConfig) (*HarnessNode, error) {
+func newNode(cfg *BaseNodeConfig) (*HarnessNode, error) {
 	if cfg.BaseDir == "" {
 		var err error
 		cfg.BaseDir, err = ioutil.TempDir("", "lndtest-node")
@@ -397,7 +416,7 @@ func newNode(cfg NodeConfig) (*HarnessNode, error) {
 	cfg.ReadMacPath = filepath.Join(networkDir, "readonly.macaroon")
 	cfg.InvoiceMacPath = filepath.Join(networkDir, "invoice.macaroon")
 
-	generateListeningPorts(&cfg)
+	cfg.GenerateListeningPorts()
 
 	// Run all tests with accept keysend. The keysend code is very isolated
 	// and it is highly unlikely that it would affect regular itests when
@@ -416,7 +435,7 @@ func newNode(cfg NodeConfig) (*HarnessNode, error) {
 	}
 
 	return &HarnessNode{
-		Cfg:               &cfg,
+		Cfg:               cfg,
 		NodeID:            nextNodeID(),
 		chanWatchRequests: make(chan *chanWatchRequest),
 		openChans:         make(map[wire.OutPoint]int),
@@ -511,12 +530,12 @@ func (hn *HarnessNode) String() string {
 		nodeState.ClosedChans[outpoint.String()] = count
 	}
 
-	bytes, err := json.MarshalIndent(nodeState, "", "\t")
+	stateBytes, err := json.MarshalIndent(nodeState, "", "\t")
 	if err != nil {
 		return fmt.Sprintf("\n encode node state with err: %v", err)
 	}
 
-	return fmt.Sprintf("\nnode state: %s", bytes)
+	return fmt.Sprintf("\nnode state: %s", stateBytes)
 }
 
 // DBPath returns the filepath to the channeldb database file for this node.
@@ -569,7 +588,7 @@ func (hn *HarnessNode) InvoiceMacPath() string {
 // startLnd handles the startup of lnd, creating log files, and possibly kills
 // the process when needed.
 func (hn *HarnessNode) startLnd(lndBinary string, lndError chan<- error) error {
-	args := hn.Cfg.genArgs()
+	args := hn.Cfg.GenArgs()
 	hn.cmd = exec.Command(lndBinary, args...)
 
 	// Redirect stderr output to buffer

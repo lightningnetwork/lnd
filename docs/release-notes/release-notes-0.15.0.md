@@ -73,6 +73,9 @@
 
 * [Refactored itest to better manage contexts inside integration tests](https://github.com/lightningnetwork/lnd/pull/5756).
 
+* [Fix itest not picking up local config file or creating directories in home
+  dir of the user](https://github.com/lightningnetwork/lnd/pull/6202).
+
 # Contributors (Alphabetical Order)
 
 * 3nprob

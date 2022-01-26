@@ -36,16 +36,21 @@ type ContractResolutions struct {
 	// output. If the channel type doesn't include anchors, the value of
 	// this field will be nil.
 	AnchorResolution *lnwallet.AnchorResolution
+
+	// BreachResolution contains the data required to manage the lifecycle
+	// of a breach in the ChannelArbitrator.
+	BreachResolution *BreachResolution
 }
 
 // IsEmpty returns true if the set of resolutions is "empty". A resolution is
-// empty if: our commitment output has been trimmed, and we don't have any
-// incoming or outgoing HTLC's active.
+// empty if: our commitment output has been trimmed, we don't have any
+// incoming or outgoing HTLC's active, there is no anchor output to sweep, or
+// there are no breached outputs to resolve.
 func (c *ContractResolutions) IsEmpty() bool {
 	return c.CommitResolution == nil &&
 		len(c.HtlcResolutions.IncomingHTLCs) == 0 &&
 		len(c.HtlcResolutions.OutgoingHTLCs) == 0 &&
-		c.AnchorResolution == nil
+		c.AnchorResolution == nil && c.BreachResolution == nil
 }
 
 // ArbitratorLog is the primary source of persistent storage for the
@@ -142,7 +147,7 @@ const (
 	// |   |   |
 	// |   |   |-> StateCommitmentBroadcasted: chain/user trigger
 	// |   |   |
-	// |   |   |-> StateContractClosed: local/remote close trigger
+	// |   |   |-> StateContractClosed: local/remote/breach close trigger
 	// |   |   |   |
 	// |   |   |   |-> StateWaitingFullResolution: contract resolutions not empty
 	// |   |   |   |   |
@@ -152,9 +157,9 @@ const (
 	// |   |   |   |
 	// |   |   |   |-> StateFullyResolved: contract resolutions empty
 	// |   |   |
-	// |   |   |-> StateFullyResolved: coop/breach close trigger
+	// |   |   |-> StateFullyResolved: coop/breach(legacy) close trigger
 	// |   |
-	// |   |-> StateContractClosed: local/remote close trigger
+	// |   |-> StateContractClosed: local/remote/breach close trigger
 	// |   |   |
 	// |   |   |-> StateWaitingFullResolution: contract resolutions not empty
 	// |   |   |   |
@@ -164,11 +169,11 @@ const (
 	// |   |   |
 	// |   |   |-> StateFullyResolved: contract resolutions empty
 	// |   |
-	// |   |-> StateFullyResolved: coop/breach close trigger
+	// |   |-> StateFullyResolved: coop/breach(legacy) close trigger
 	// |
-	// |-> StateContractClosed: local/remote close trigger
+	// |-> StateContractClosed: local/remote/breach close trigger
 	// |   |
-	// |   |-> StateWaitingFullResolution: contract resolutions empty
+	// |   |-> StateWaitingFullResolution: contract resolutions not empty
 	// |   |   |
 	// |   |   |-> StateWaitingFullResolution: contract resolutions not empty
 	// |   |   |
@@ -176,7 +181,7 @@ const (
 	// |   |
 	// |   |-> StateFullyResolved: contract resolutions empty
 	// |
-	// |-> StateFullyResolved: coop/breach close trigger
+	// |-> StateFullyResolved: coop/breach(legacy) close trigger
 
 	// StateDefault is the default state. In this state, no major actions
 	// need to be executed.
@@ -269,6 +274,10 @@ const (
 	// sweeping out direct commitment output form the remote party's
 	// commitment transaction.
 	resolverUnilateralSweep resolverType = 4
+
+	// resolverBreach is the type of resolver that manages a contract
+	// breach on-chain.
+	resolverBreach resolverType = 5
 )
 
 // resolverIDLen is the size of the resolver ID key. This is 36 bytes as we get
@@ -340,6 +349,11 @@ var (
 	// anchorResolutionKey is the key under the logScope that we'll use to
 	// store the anchor resolution, if any.
 	anchorResolutionKey = []byte("anchor-resolution")
+
+	// breachResolutionKey is the key under the logScope that we'll use to
+	// store the breach resolution, if any. This is used rather than the
+	// resolutionsKey.
+	breachResolutionKey = []byte("breach-resolution")
 
 	// actionsBucketKey is the key under the logScope that we'll use to
 	// store all chain actions once they're determined.
@@ -464,6 +478,8 @@ func (b *boltArbitratorLog) writeResolver(contractBucket kvdb.RwBucket,
 		rType = resolverIncomingContest
 	case *commitSweepResolver:
 		rType = resolverUnilateralSweep
+	case *breachResolver:
+		rType = resolverBreach
 	}
 	if _, err := buf.Write([]byte{byte(rType)}); err != nil {
 		return err
@@ -590,6 +606,11 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 
 			case resolverUnilateralSweep:
 				res, err = newCommitSweepResolverFromReader(
+					resReader, resolverCfg,
+				)
+
+			case resolverBreach:
+				res, err = newBreachResolverFromReader(
 					resReader, resolverCfg,
 				)
 
@@ -785,6 +806,20 @@ func (b *boltArbitratorLog) LogContractResolutions(c *ContractResolutions) error
 			}
 		}
 
+		// Write out the breach resolution if present.
+		if c.BreachResolution != nil {
+			var b bytes.Buffer
+			err := encodeBreachResolution(&b, c.BreachResolution)
+			if err != nil {
+				return err
+			}
+
+			err = scopeBucket.Put(breachResolutionKey, b.Bytes())
+			if err != nil {
+				return err
+			}
+		}
+
 		return nil
 	})
 }
@@ -898,6 +933,18 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 			resReader := bytes.NewReader(anchorResBytes)
 			err := decodeAnchorResolution(
 				resReader, c.AnchorResolution,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		breachResBytes := scopeBucket.Get(breachResolutionKey)
+		if breachResBytes != nil {
+			c.BreachResolution = &BreachResolution{}
+			resReader := bytes.NewReader(breachResBytes)
+			err := decodeBreachResolution(
+				resReader, c.BreachResolution,
 			)
 			if err != nil {
 				return err
@@ -1370,6 +1417,21 @@ func decodeAnchorResolution(r io.Reader,
 	}
 
 	return input.ReadSignDescriptor(r, &a.AnchorSignDescriptor)
+}
+
+func encodeBreachResolution(w io.Writer, b *BreachResolution) error {
+	if _, err := w.Write(b.FundingOutPoint.Hash[:]); err != nil {
+		return err
+	}
+	return binary.Write(w, endian, b.FundingOutPoint.Index)
+}
+
+func decodeBreachResolution(r io.Reader, b *BreachResolution) error {
+	_, err := io.ReadFull(r, b.FundingOutPoint.Hash[:])
+	if err != nil {
+		return err
+	}
+	return binary.Read(r, endian, &b.FundingOutPoint.Index)
 }
 
 func encodeHtlcSetKey(w io.Writer, h *HtlcSetKey) error {

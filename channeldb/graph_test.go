@@ -3812,7 +3812,7 @@ func TestGraphLoading(t *testing.T) {
 	graph, err := NewChannelGraph(
 		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
 		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
-		true, false,
+		true,
 	)
 	require.NoError(t, err)
 
@@ -3826,7 +3826,7 @@ func TestGraphLoading(t *testing.T) {
 	graphReloaded, err := NewChannelGraph(
 		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
 		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
-		true, false,
+		true,
 	)
 	require.NoError(t, err)
 

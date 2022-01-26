@@ -132,6 +132,8 @@ Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
 
 * [Fix an issue that would prevent very old nodes from starting up due to lack of a historical channel bucket](https://github.com/lightningnetwork/lnd/pull/6159)
 
+* [Fixes a bug that would cause incorrect rounding when translating a decimal fee rate to ppm](https://github.com/lightningnetwork/lnd/pull/6200)
+
 
 ## RPC Server
 
@@ -145,6 +147,10 @@ Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
 
 * [Refactored itest to better manage contexts inside integration tests](https://github.com/lightningnetwork/lnd/pull/5756).
 
+* [The `fee_rate_ppm` parameter/argument was added to  
+  update channel policy](https://github.com/lightningnetwork/lnd/pull/5711)
+  to prevent truncation error with tiny fee rates.
+
 * [Closing txid is now
   exposed](https://github.com/lightningnetwork/lnd/pull/6146) inside
   WaitingCloseResp from calling `PendingChannels`.
@@ -152,6 +158,8 @@ Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
 * [CustomCaveatCondition is now properly
   set](https://github.com/lightningnetwork/lnd/pull/6185) on
   `RPCMiddlewareRequest` messages.
+
+* [Adds a new FeeRatePpm to the UpdateChanPolicy call to allow fee rate expression in the native protocol unit](https://github.com/lightningnetwork/lnd/pull/6200)
 
 
 ## Routing
@@ -167,6 +175,7 @@ Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
 * Bjarne Magnussen
 * Daniel McNally
 * Elle Mouton
+* Erik Ek
 * Harsha Goli
 * Joost Jager
 * Martin Habovštiak

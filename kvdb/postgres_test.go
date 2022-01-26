@@ -84,7 +84,35 @@ func TestPostgres(t *testing.T) {
 		},
 		{
 			name: "bucket for each",
-			test: testBucketForEach,
+			test: func(t *testing.T, db walletdb.DB) {
+				testBucketIterator(t, db, func(bucket walletdb.ReadWriteBucket,
+					callback func(key, val []byte) error) error {
+
+					return bucket.ForEach(callback)
+				})
+			},
+			expectedDb: m{
+				"test_kv": []m{
+					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
+					{"id": int64(2), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
+					{"id": int64(3), "key": "key1", "parent_id": int64(1), "sequence": nil, "value": "val1"},
+					{"id": int64(4), "key": "key1", "parent_id": int64(2), "sequence": nil, "value": "val1"},
+					{"id": int64(5), "key": "key2", "parent_id": int64(1), "sequence": nil, "value": "val2"},
+					{"id": int64(6), "key": "key2", "parent_id": int64(2), "sequence": nil, "value": "val2"},
+					{"id": int64(7), "key": "key3", "parent_id": int64(1), "sequence": nil, "value": "val3"},
+					{"id": int64(8), "key": "key3", "parent_id": int64(2), "sequence": nil, "value": "val3"},
+				},
+			},
+		},
+		{
+			name: "bucket for all",
+			test: func(t *testing.T, db walletdb.DB) {
+				testBucketIterator(t, db, func(bucket walletdb.ReadWriteBucket,
+					callback func(key, val []byte) error) error {
+
+					return ForAll(bucket, callback)
+				})
+			},
 			expectedDb: m{
 				"test_kv": []m{
 					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},

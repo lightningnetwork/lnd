@@ -32,6 +32,11 @@ connection from the watch-only node.
   [These premature messages are now saved into a cache and processed once the
   height has reached.](https://github.com/lightningnetwork/lnd/pull/6054)
 
+## Database
+
+* [Speed up graph cache loading on startup with
+Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
+
 ## Build System
 
 * [Clean up Makefile by using go

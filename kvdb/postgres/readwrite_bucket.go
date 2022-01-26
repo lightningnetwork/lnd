@@ -427,3 +427,36 @@ func (b *readWriteBucket) Sequence() uint64 {
 
 	return uint64(seq)
 }
+
+// Prefetch will attempt to prefetch all values under a path from the passed
+// bucket.
+func (b *readWriteBucket) Prefetch(paths ...[]string) {}
+
+// ForAll is an optimized version of ForEach with the limitation that no
+// additional queries can be executed within the callback.
+func (b *readWriteBucket) ForAll(cb func(k, v []byte) error) error {
+	rows, cancel, err := b.tx.Query(
+		"SELECT key, value FROM " + b.table + " WHERE " +
+			parentSelector(b.id) + " ORDER BY key",
+	)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+
+	for rows.Next() {
+		var key, value []byte
+
+		err := rows.Scan(&key, &value)
+		if err != nil {
+			return err
+		}
+
+		err = cb(key, value)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}

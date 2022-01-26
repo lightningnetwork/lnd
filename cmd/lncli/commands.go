@@ -1971,7 +1971,16 @@ var updateChannelPolicyCommand = cli.Command{
 			Usage: "the fee rate that will be charged " +
 				"proportionally based on the value of each " +
 				"forwarded HTLC, the lowest possible rate is 0 " +
-				"with a granularity of 0.000001 (millionths)",
+				"with a granularity of 0.000001 (millionths). Can not " +
+				"be set at the same time as fee_rate_ppm.",
+		},
+		cli.Uint64Flag{
+			Name: "fee_rate_ppm",
+			Usage: "the fee rate ppm (parts per million) that " +
+				"will be charged proportionally based on the value of each " +
+				"forwarded HTLC, the lowest possible rate is 0 " +
+				"with a granularity of 0.000001 (millionths). Can not " +
+				"be set at the same time as fee_rate.",
 		},
 		cli.Int64Flag{
 			Name: "time_lock_delta",
@@ -2032,6 +2041,7 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	var (
 		baseFee       int64
 		feeRate       float64
+		feeRatePpm    uint64
 		timeLockDelta int64
 		err           error
 	)
@@ -2051,8 +2061,12 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	}
 
 	switch {
+	case ctx.IsSet("fee_rate") && ctx.IsSet("fee_rate_ppm"):
+		return fmt.Errorf("fee_rate or fee_rate_ppm can not both be set")
 	case ctx.IsSet("fee_rate"):
 		feeRate = ctx.Float64("fee_rate")
+	case ctx.IsSet("fee_rate_ppm"):
+		feeRatePpm = ctx.Uint64("fee_rate_ppm")
 	case args.Present():
 		feeRate, err = strconv.ParseFloat(args.First(), 64)
 		if err != nil {
@@ -2061,7 +2075,7 @@ func updateChannelPolicy(ctx *cli.Context) error {
 
 		args = args.Tail()
 	default:
-		return fmt.Errorf("fee_rate argument missing")
+		return fmt.Errorf("fee_rate or fee_rate_ppm argument missing")
 	}
 
 	switch {
@@ -2100,7 +2114,6 @@ func updateChannelPolicy(ctx *cli.Context) error {
 
 	req := &lnrpc.PolicyUpdateRequest{
 		BaseFeeMsat:   baseFee,
-		FeeRate:       feeRate,
 		TimeLockDelta: uint32(timeLockDelta),
 		MaxHtlcMsat:   ctx.Uint64("max_htlc_msat"),
 	}
@@ -2118,6 +2131,12 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		req.Scope = &lnrpc.PolicyUpdateRequest_Global{
 			Global: true,
 		}
+	}
+
+	if feeRate != 0 {
+		req.FeeRate = feeRate
+	} else if feeRatePpm != 0 {
+		req.FeeRatePpm = uint32(feeRatePpm)
 	}
 
 	resp, err := client.UpdateChannelPolicy(ctxc, req)

@@ -5767,6 +5767,11 @@
           "format": "double",
           "description": "The effective fee rate in milli-satoshis. The precision of this value\ngoes up to 6 decimal places, so 1e-6."
         },
+        "fee_rate_ppm": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The effective fee rate in micro-satoshis (parts per million)."
+        },
         "time_lock_delta": {
           "type": "integer",
           "format": "int64",

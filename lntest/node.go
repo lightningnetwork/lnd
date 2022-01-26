@@ -6,18 +6,16 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"flag"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
@@ -26,7 +24,6 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/go-errors/errors"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -39,16 +36,13 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 	"gopkg.in/macaroon.v2"
 )
 
 const (
-	// defaultNodePort is the start of the range for listening ports of
-	// harness nodes. Ports are monotonically increasing starting from this
-	// number and are determined by the results of nextAvailablePort().
-	defaultNodePort = 5555
-
 	// logPubKeyBytes is the number of bytes of the node's PubKey that will
 	// be appended to the log file name. The whole PubKey is too long and
 	// not really necessary to quickly identify what node produced which
@@ -59,108 +53,22 @@ const (
 	// release of announcements by AuthenticatedGossiper to the network.
 	trickleDelay = 50
 
-	// listenerFormat is the format string that is used to generate local
-	// listener addresses.
-	listenerFormat = "127.0.0.1:%d"
-
-	// NeutrinoBackendName is the name of the neutrino backend.
-	NeutrinoBackendName = "neutrino"
-
 	postgresDsn = "postgres://postgres:postgres@localhost:6432/%s?sslmode=disable"
+
+	// commitInterval specifies the maximum interval the graph database
+	// will wait between attempting to flush a batch of modifications to
+	// disk(db.batch-commit-interval).
+	commitInterval = 10 * time.Millisecond
 )
 
 var (
 	// numActiveNodes is the number of active nodes within the test network.
 	numActiveNodes    = 0
 	numActiveNodesMtx sync.Mutex
-
-	// lastPort is the last port determined to be free for use by a new
-	// node. It should be used atomically.
-	lastPort uint32 = defaultNodePort
-
-	// logOutput is a flag that can be set to append the output from the
-	// seed nodes to log files.
-	logOutput = flag.Bool("logoutput", false,
-		"log output from node n to file output-n.log")
-
-	// logSubDir is the default directory where the logs are written to if
-	// logOutput is true.
-	logSubDir = flag.String("logdir", ".", "default dir to write logs to")
-
-	// goroutineDump is a flag that can be set to dump the active
-	// goroutines of test nodes on failure.
-	goroutineDump = flag.Bool("goroutinedump", false,
-		"write goroutine dump from node n to file pprof-n.log")
-
-	// btcdExecutable is the full path to the btcd binary.
-	btcdExecutable = flag.String(
-		"btcdexec", "", "full path to btcd binary",
-	)
 )
 
 func postgresDatabaseDsn(dbName string) string {
 	return fmt.Sprintf(postgresDsn, dbName)
-}
-
-// NextAvailablePort returns the first port that is available for listening by
-// a new node. It panics if no port is found and the maximum available TCP port
-// is reached.
-func NextAvailablePort() int {
-	port := atomic.AddUint32(&lastPort, 1)
-	for port < 65535 {
-		// If there are no errors while attempting to listen on this
-		// port, close the socket and return it as available. While it
-		// could be the case that some other process picks up this port
-		// between the time the socket is closed and it's reopened in
-		// the harness node, in practice in CI servers this seems much
-		// less likely than simply some other process already being
-		// bound at the start of the tests.
-		addr := fmt.Sprintf(listenerFormat, port)
-		l, err := net.Listen("tcp4", addr)
-		if err == nil {
-			err := l.Close()
-			if err == nil {
-				return int(port)
-			}
-		}
-		port = atomic.AddUint32(&lastPort, 1)
-	}
-
-	// No ports available? Must be a mistake.
-	panic("no ports available for listening")
-}
-
-// ApplyPortOffset adds the given offset to the lastPort variable, making it
-// possible to run the tests in parallel without colliding on the same ports.
-func ApplyPortOffset(offset uint32) {
-	_ = atomic.AddUint32(&lastPort, offset)
-}
-
-// GetLogDir returns the passed --logdir flag or the default value if it wasn't
-// set.
-func GetLogDir() string {
-	if logSubDir != nil && *logSubDir != "" {
-		return *logSubDir
-	}
-	return "."
-}
-
-// GetBtcdBinary returns the full path to the binary of the custom built btcd
-// executable or an empty string if none is set.
-func GetBtcdBinary() string {
-	if btcdExecutable != nil {
-		return *btcdExecutable
-	}
-
-	return ""
-}
-
-// GenerateBtcdListenerAddresses is a function that returns two listener
-// addresses with unique ports and should be used to overwrite rpctest's default
-// generator which is prone to use colliding ports.
-func GenerateBtcdListenerAddresses() (string, string) {
-	return fmt.Sprintf(listenerFormat, NextAvailablePort()),
-		fmt.Sprintf(listenerFormat, NextAvailablePort())
 }
 
 // generateListeningPorts returns four ints representing ports to listen on
@@ -286,7 +194,7 @@ func (cfg NodeConfig) genArgs() []string {
 	args = append(args, "--nobootstrap")
 	args = append(args, "--debuglevel=debug")
 	args = append(args, "--bitcoin.defaultchanconfs=1")
-	args = append(args, fmt.Sprintf("--db.batch-commit-interval=%v", 10*time.Millisecond))
+	args = append(args, fmt.Sprintf("--db.batch-commit-interval=%v", commitInterval))
 	args = append(args, fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV))
 	args = append(args, fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()))
 	args = append(args, fmt.Sprintf("--restlisten=%v", cfg.RESTAddr()))
@@ -390,10 +298,8 @@ type HarnessNode struct {
 	pidFile string
 	logFile *os.File
 
-	// processExit is a channel that's closed once it's detected that the
-	// process this instance of HarnessNode is bound to has exited.
-	processExit chan struct{}
-
+	// chanWatchRequests receives a request for watching a particular event
+	// for a given channel.
 	chanWatchRequests chan *chanWatchRequest
 
 	// For each outpoint, we'll track an integer which denotes the number of
@@ -410,8 +316,13 @@ type HarnessNode struct {
 	// node and the outpoint.
 	policyUpdates policyUpdateMap
 
-	quit chan struct{}
-	wg   sync.WaitGroup
+	// runCtx is a context with cancel method. It's used to signal when the
+	// node needs to quit, and used as the parent context when spawning
+	// children contexts for RPC requests.
+	runCtx context.Context
+	cancel context.CancelFunc
+
+	wg sync.WaitGroup
 
 	lnrpc.LightningClient
 
@@ -728,7 +639,10 @@ func renameFile(fromFileName, toFileName string) {
 func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 	wait bool) error {
 
-	hn.quit = make(chan struct{})
+	// Init the runCtx.
+	ctxt, cancel := context.WithCancel(context.Background())
+	hn.runCtx = ctxt
+	hn.cancel = cancel
 
 	args := hn.Cfg.genArgs()
 	hn.cmd = exec.Command(lndBinary, args...)
@@ -826,18 +740,14 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 
 	// Launch a new goroutine which that bubbles up any potential fatal
 	// process errors to the goroutine running the tests.
-	hn.processExit = make(chan struct{})
 	hn.wg.Add(1)
 	go func() {
 		defer hn.wg.Done()
 
 		err := hn.cmd.Wait()
 		if err != nil {
-			lndError <- errors.Errorf("%v\n%v\n", err, errb.String())
+			lndError <- fmt.Errorf("%v\n%v", err, errb.String())
 		}
-
-		// Signal any onlookers that this process has exited.
-		close(hn.processExit)
 
 		// Make sure log file is closed and renamed if necessary.
 		finalizeLogfile()
@@ -849,7 +759,12 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 
 	// Write process ID to a file.
 	if err := hn.writePidFile(); err != nil {
-		hn.cmd.Process.Kill()
+		err = fmt.Errorf("writePidFile err: %w", err)
+		cmdErr := hn.cmd.Process.Kill()
+		if cmdErr != nil {
+			err = fmt.Errorf("kill process got err: %w: %v",
+				cmdErr, err)
+		}
 		return err
 	}
 
@@ -859,12 +774,17 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 		return nil
 	}
 
-	// Since Stop uses the LightningClient to stop the node, if we fail to get a
-	// connected client, we have to kill the process.
+	// Since Stop uses the LightningClient to stop the node, if we fail to
+	// get a connected client, we have to kill the process.
 	useMacaroons := !hn.Cfg.HasSeed
 	conn, err := hn.ConnectRPC(useMacaroons)
 	if err != nil {
-		hn.cmd.Process.Kill()
+		err = fmt.Errorf("ConnectRPC err: %w", err)
+		cmdErr := hn.cmd.Process.Kill()
+		if cmdErr != nil {
+			err = fmt.Errorf("kill process got err: %w: %v",
+				cmdErr, err)
+		}
 		return err
 	}
 
@@ -910,7 +830,7 @@ func (hn *HarnessNode) waitForState(conn grpc.ClientConnInterface,
 	predicate func(state lnrpc.WalletState) bool) error {
 
 	stateClient := lnrpc.NewStateClient(conn)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(hn.runCtx)
 	defer cancel()
 
 	stateStream, err := stateClient.SubscribeState(
@@ -1004,13 +924,13 @@ func (hn *HarnessNode) initClientWhenReady(timeout time.Duration) error {
 
 // Init initializes a harness node by passing the init request via rpc. After
 // the request is submitted, this method will block until a
-// macaroon-authenticated RPC connection can be established to the harness node.
-// Once established, the new connection is used to initialize the
+// macaroon-authenticated RPC connection can be established to the harness
+// node. Once established, the new connection is used to initialize the
 // LightningClient and subscribes the HarnessNode to topology changes.
-func (hn *HarnessNode) Init(ctx context.Context,
+func (hn *HarnessNode) Init(
 	initReq *lnrpc.InitWalletRequest) (*lnrpc.InitWalletResponse, error) {
 
-	ctxt, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
 	response, err := hn.InitWallet(ctxt, initReq)
 	if err != nil {
@@ -1049,11 +969,11 @@ func (hn *HarnessNode) Init(ctx context.Context,
 // a macaroon-authenticated RPC connection can be established to the harness
 // node. Once established, the new connection is used to initialize the
 // LightningClient and subscribes the HarnessNode to topology changes.
-func (hn *HarnessNode) InitChangePassword(ctx context.Context,
+func (hn *HarnessNode) InitChangePassword(
 	chngPwReq *lnrpc.ChangePasswordRequest) (*lnrpc.ChangePasswordResponse,
 	error) {
 
-	ctxt, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
 	response, err := hn.ChangePassword(ctxt, chngPwReq)
 	if err != nil {
@@ -1091,10 +1011,9 @@ func (hn *HarnessNode) InitChangePassword(ctx context.Context,
 // should be called after the restart of a HarnessNode that was created with a
 // seed+password. Once this method returns, the HarnessNode will be ready to
 // accept normal gRPC requests and harness command.
-func (hn *HarnessNode) Unlock(ctx context.Context,
-	unlockReq *lnrpc.UnlockWalletRequest) error {
-
-	ctxt, _ := context.WithTimeout(ctx, DefaultTimeout)
+func (hn *HarnessNode) Unlock(unlockReq *lnrpc.UnlockWalletRequest) error {
+	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
+	defer cancel()
 
 	// Otherwise, we'll need to unlock the node before it's able to start
 	// up properly.
@@ -1110,8 +1029,7 @@ func (hn *HarnessNode) Unlock(ctx context.Context,
 // waitTillServerStarted makes a subscription to the server's state change and
 // blocks until the server is in state ServerActive.
 func (hn *HarnessNode) waitTillServerStarted() error {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, NodeStartTimeout)
+	ctxt, cancel := context.WithTimeout(hn.runCtx, NodeStartTimeout)
 	defer cancel()
 
 	client, err := hn.StateClient.SubscribeState(
@@ -1277,7 +1195,7 @@ func (hn *HarnessNode) ConnectRPCWithMacaroon(mac *macaroon.Macaroon) (
 		grpc.WithTransportCredentials(tlsCreds),
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+	ctx, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
 
 	if mac == nil {
@@ -1331,7 +1249,7 @@ func (hn *HarnessNode) cleanup() error {
 // Stop attempts to stop the active lnd process.
 func (hn *HarnessNode) stop() error {
 	// Do nothing if the process is not running.
-	if hn.processExit == nil {
+	if hn.runCtx == nil {
 		return nil
 	}
 
@@ -1341,10 +1259,9 @@ func (hn *HarnessNode) stop() error {
 		// Don't watch for error because sometimes the RPC connection gets
 		// closed before a response is returned.
 		req := lnrpc.StopRequest{}
-		ctx := context.Background()
 
 		err := wait.NoError(func() error {
-			_, err := hn.LightningClient.StopDaemon(ctx, &req)
+			_, err := hn.LightningClient.StopDaemon(hn.runCtx, &req)
 			switch {
 			case err == nil:
 				return nil
@@ -1362,18 +1279,28 @@ func (hn *HarnessNode) stop() error {
 		}
 	}
 
-	// Wait for lnd process and other goroutines to exit.
-	select {
-	case <-hn.processExit:
-	case <-time.After(DefaultTimeout * 2):
-		return fmt.Errorf("process did not exit")
+	// Stop the runCtx and wait for goroutines to finish.
+	hn.cancel()
+
+	// Wait for lnd process to exit.
+	err := wait.NoError(func() error {
+		if hn.cmd.ProcessState == nil {
+			return fmt.Errorf("process did not exit")
+		}
+
+		if !hn.cmd.ProcessState.Exited() {
+			return fmt.Errorf("process did not exit")
+		}
+
+		// Wait for goroutines to be finished.
+		hn.wg.Wait()
+
+		return nil
+	}, DefaultTimeout*2)
+	if err != nil {
+		return err
 	}
 
-	close(hn.quit)
-	hn.wg.Wait()
-
-	hn.quit = nil
-	hn.processExit = nil
 	hn.LightningClient = nil
 	hn.WalletUnlockerClient = nil
 	hn.Watchtower = nil
@@ -1381,13 +1308,25 @@ func (hn *HarnessNode) stop() error {
 
 	// Close any attempts at further grpc connections.
 	if hn.conn != nil {
-		err := hn.conn.Close()
-		if err != nil &&
-			!strings.Contains(err.Error(), "connection is closing") {
+		err := status.Code(hn.conn.Close())
+		switch err {
+		case codes.OK:
+			return nil
 
-			return fmt.Errorf("error attempting to stop grpc "+
-				"client: %v", err)
+		// When the context is canceled above, we might get the
+		// following error as the context is no longer active.
+		case codes.Canceled:
+			return nil
+
+		case codes.Unknown:
+			return fmt.Errorf("unknown error attempting to stop "+
+				"grpc client: %v", err)
+
+		default:
+			return fmt.Errorf("error attempting to stop "+
+				"grpc client: %v", err)
 		}
+
 	}
 
 	return nil
@@ -1464,12 +1403,12 @@ func getChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) ([]byte, error) {
 	return txid, nil
 }
 
-func checkChanPointInGraph(ctx context.Context,
-	node *HarnessNode, chanPoint wire.OutPoint) bool {
+func (hn *HarnessNode) checkChanPointInGraph(chanPoint wire.OutPoint) bool {
 
-	ctxt, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
-	chanGraph, err := node.DescribeGraph(ctxt, &lnrpc.ChannelGraphRequest{})
+
+	chanGraph, err := hn.DescribeGraph(ctxt, &lnrpc.ChannelGraphRequest{})
 	if err != nil {
 		return false
 	}
@@ -1534,7 +1473,7 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 				hn.handlePolicyUpdateWatchRequest(watchRequest)
 			}
 
-		case <-hn.quit:
+		case <-hn.runCtx.Done():
 			return
 		}
 	}
@@ -1544,8 +1483,11 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 // outpoint is seen as being fully advertised within the network. A channel is
 // considered "fully advertised" once both of its directional edges has been
 // advertised within the test Lightning Network.
-func (hn *HarnessNode) WaitForNetworkChannelOpen(ctx context.Context,
+func (hn *HarnessNode) WaitForNetworkChannelOpen(
 	chanPoint *lnrpc.ChannelPoint) error {
+
+	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
+	defer cancel()
 
 	eventChan := make(chan struct{})
 
@@ -1564,7 +1506,7 @@ func (hn *HarnessNode) WaitForNetworkChannelOpen(ctx context.Context,
 	select {
 	case <-eventChan:
 		return nil
-	case <-ctx.Done():
+	case <-ctxt.Done():
 		return fmt.Errorf("channel:%s not opened before timeout: %s",
 			op, hn)
 	}
@@ -1574,8 +1516,11 @@ func (hn *HarnessNode) WaitForNetworkChannelOpen(ctx context.Context,
 // outpoint is seen as closed within the network. A channel is considered
 // closed once a transaction spending the funding outpoint is seen within a
 // confirmed block.
-func (hn *HarnessNode) WaitForNetworkChannelClose(ctx context.Context,
+func (hn *HarnessNode) WaitForNetworkChannelClose(
 	chanPoint *lnrpc.ChannelPoint) error {
+
+	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
+	defer cancel()
 
 	eventChan := make(chan struct{})
 
@@ -1594,7 +1539,7 @@ func (hn *HarnessNode) WaitForNetworkChannelClose(ctx context.Context,
 	select {
 	case <-eventChan:
 		return nil
-	case <-ctx.Done():
+	case <-ctxt.Done():
 		return fmt.Errorf("channel:%s not closed before timeout: "+
 			"%s", op, hn)
 	}
@@ -1602,9 +1547,12 @@ func (hn *HarnessNode) WaitForNetworkChannelClose(ctx context.Context,
 
 // WaitForChannelPolicyUpdate will block until a channel policy with the target
 // outpoint and advertisingNode is seen within the network.
-func (hn *HarnessNode) WaitForChannelPolicyUpdate(ctx context.Context,
+func (hn *HarnessNode) WaitForChannelPolicyUpdate(
 	advertisingNode string, policy *lnrpc.RoutingPolicy,
 	chanPoint *lnrpc.ChannelPoint, includeUnannounced bool) error {
+
+	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
+	defer cancel()
 
 	eventChan := make(chan struct{})
 
@@ -1642,7 +1590,7 @@ func (hn *HarnessNode) WaitForChannelPolicyUpdate(ctx context.Context,
 		case <-eventChan:
 			return nil
 
-		case <-ctx.Done():
+		case <-ctxt.Done():
 			return fmt.Errorf("channel:%s policy not updated "+
 				"before timeout: [%s:%v] %s", op,
 				advertisingNode, policy, hn.String())
@@ -1654,12 +1602,15 @@ func (hn *HarnessNode) WaitForChannelPolicyUpdate(ctx context.Context,
 // the blockchain. If the passed context object has a set timeout, it will
 // continually poll until the timeout has elapsed. In the case that the chain
 // isn't synced before the timeout is up, this function will return an error.
-func (hn *HarnessNode) WaitForBlockchainSync(ctx context.Context) error {
+func (hn *HarnessNode) WaitForBlockchainSync() error {
+	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
+	defer cancel()
+
 	ticker := time.NewTicker(time.Millisecond * 100)
 	defer ticker.Stop()
 
 	for {
-		resp, err := hn.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+		resp, err := hn.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
 		if err != nil {
 			return err
 		}
@@ -1668,10 +1619,10 @@ func (hn *HarnessNode) WaitForBlockchainSync(ctx context.Context) error {
 		}
 
 		select {
-		case <-ctx.Done():
+		case <-ctxt.Done():
 			return fmt.Errorf("timeout while waiting for " +
 				"blockchain sync")
-		case <-hn.quit:
+		case <-hn.runCtx.Done():
 			return nil
 		case <-ticker.C:
 		}
@@ -1680,13 +1631,14 @@ func (hn *HarnessNode) WaitForBlockchainSync(ctx context.Context) error {
 
 // WaitForBalance waits until the node sees the expected confirmed/unconfirmed
 // balance within their wallet.
-func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount, confirmed bool) error {
-	ctx := context.Background()
+func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount,
+	confirmed bool) error {
+
 	req := &lnrpc.WalletBalanceRequest{}
 
 	var lastBalance btcutil.Amount
 	doesBalanceMatch := func() bool {
-		balance, err := hn.WalletBalance(ctx, req)
+		balance, err := hn.WalletBalance(hn.runCtx, req)
 		if err != nil {
 			return false
 		}
@@ -1799,7 +1751,7 @@ func (hn *HarnessNode) handleOpenChannelWatchRequest(req *chanWatchRequest) {
 	// node. This lets us handle the case where a node has already seen a
 	// channel before a notification has been requested, causing us to miss
 	// it.
-	chanFound := checkChanPointInGraph(context.Background(), hn, targetChan)
+	chanFound := hn.checkChanPointInGraph(targetChan)
 	if chanFound {
 		close(req.eventChan)
 		return
@@ -1889,16 +1841,14 @@ func (hn *HarnessNode) newTopologyClient(
 func (hn *HarnessNode) receiveTopologyClientStream(
 	receiver chan *lnrpc.GraphTopologyUpdate) error {
 
-	ctxb := context.Background()
-
 	// Create a topology client to receive graph updates.
-	client, err := hn.newTopologyClient(ctxb)
+	client, err := hn.newTopologyClient(hn.runCtx)
 	if err != nil {
 		return fmt.Errorf("create topologyClient failed: %v", err)
 	}
 
 	// We use the context to time out when retrying graph subscription.
-	ctxt, cancel := context.WithTimeout(ctxb, DefaultTimeout)
+	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
 
 	for {
@@ -1917,12 +1867,12 @@ func (hn *HarnessNode) receiveTopologyClientStream(
 				return fmt.Errorf("graph subscription: " +
 					"router not started before timeout")
 			case <-time.After(wait.PollInterval):
-			case <-hn.quit:
+			case <-hn.runCtx.Done():
 				return nil
 			}
 
 			// Re-create the topology client.
-			client, err = hn.newTopologyClient(ctxb)
+			client, err = hn.newTopologyClient(hn.runCtx)
 			if err != nil {
 				return fmt.Errorf("create topologyClient "+
 					"failed: %v", err)
@@ -1931,6 +1881,10 @@ func (hn *HarnessNode) receiveTopologyClientStream(
 			continue
 
 		case strings.Contains(err.Error(), "EOF"):
+			// End of subscription stream. Do nothing and quit.
+			return nil
+
+		case strings.Contains(err.Error(), context.Canceled.Error()):
 			// End of subscription stream. Do nothing and quit.
 			return nil
 
@@ -1943,7 +1897,7 @@ func (hn *HarnessNode) receiveTopologyClientStream(
 		// Send the update or quit.
 		select {
 		case receiver <- update:
-		case <-hn.quit:
+		case <-hn.runCtx.Done():
 			return nil
 		}
 	}
@@ -2014,9 +1968,7 @@ func (hn *HarnessNode) handlePolicyUpdateWatchRequest(req *chanWatchRequest) {
 // the format defined in type policyUpdateMap.
 func (hn *HarnessNode) getChannelPolicies(include bool) policyUpdateMap {
 
-	ctxt, cancel := context.WithTimeout(
-		context.Background(), DefaultTimeout,
-	)
+	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
 
 	graph, err := hn.DescribeGraph(ctxt, &lnrpc.ChannelGraphRequest{

@@ -13,8 +13,15 @@
 * [Make etcd max message size
   configurable]((https://github.com/lightningnetwork/lnd/pull/6049).
 
+## RPC Server
+
+* [ChanStatusFlags is now
+  exposed](https://github.com/lightningnetwork/lnd/pull/5971) inside
+  WaitingCloseResp from calling `PendingChannels`.
+
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath
 * Naveen Srinivasan
 * Oliver Gugger
+* Yong Yu

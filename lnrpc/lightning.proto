@@ -2312,6 +2312,9 @@ message PendingChannelsResponse {
 
         // Total number of forwarding packages created in this channel.
         int64 num_forwarding_packages = 10;
+
+        // A set of flags showing the current state of the channel.
+        string chan_status_flags = 11;
     }
 
     message PendingOpenChannel {

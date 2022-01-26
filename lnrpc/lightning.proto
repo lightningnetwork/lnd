@@ -2356,6 +2356,9 @@ message PendingChannelsResponse {
         this point.
         */
         Commitments commitments = 3;
+
+        // The transaction id of the closing transaction
+        string closing_txid = 4;
     }
 
     message Commitments {

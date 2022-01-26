@@ -188,7 +188,7 @@ func (h *htlcSuccessResolver) broadcastSuccessTx() (*wire.OutPoint, error) {
 	//
 	// TODO(roasbeef): after changing sighashes send to tx bundler
 	label := labels.MakeLabel(
-		labels.LabelTypeChannelClose, &h.ShortChanID,
+		labels.LabelTypeSweepTransaction, nil,
 	)
 	err := h.PublishTx(h.htlcResolution.SignedSuccessTx, label)
 	if err != nil {
@@ -416,7 +416,7 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
 	// Regardless of whether an existing transaction was found or newly
 	// constructed, we'll broadcast the sweep transaction to the network.
 	label := labels.MakeLabel(
-		labels.LabelTypeChannelClose, &h.ShortChanID,
+		labels.LabelTypeSweepTransaction, nil,
 	)
 	err := h.PublishTx(h.sweepTx, label)
 	if err != nil {

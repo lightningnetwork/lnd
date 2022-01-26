@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
@@ -212,7 +211,7 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 // calculateTxnsFeeRate takes a list of transactions and estimates the fee rate
 // used to sweep them.
 func calculateTxnsFeeRate(t *testing.T,
-	miner *rpctest.Harness, txns []*wire.MsgTx) int64 {
+	miner *lntest.HarnessMiner, txns []*wire.MsgTx) int64 {
 
 	var totalWeight, totalFee int64
 	for _, tx := range txns {

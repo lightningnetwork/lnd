@@ -8,7 +8,6 @@ import (
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -34,16 +33,13 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// Set up a new miner that we can use to cause a reorg.
-	tempLogDir := fmt.Sprintf("%s/.tempminerlogs", lntest.GetLogDir())
+	tempLogDir := ".tempminerlogs"
 	logFilename := "output-open_channel_reorg-temp_miner.log"
-	tempMiner, tempMinerCleanUp, err := lntest.NewMiner(
-		tempLogDir, logFilename, harnessNetParams,
-		&rpcclient.NotificationHandlers{}, lntest.GetBtcdBinary(),
-	)
+	tempMiner, err := lntest.NewTempMiner(tempLogDir, logFilename)
 	require.NoError(t.t, err, "failed to create temp miner")
 	defer func() {
 		require.NoError(
-			t.t, tempMinerCleanUp(),
+			t.t, tempMiner.Stop(),
 			"failed to clean up temp miner",
 		)
 	}()
@@ -61,7 +57,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to remove node: %v", err)
 	}
-	nodeSlice := []*rpctest.Harness{net.Miner, tempMiner}
+	nodeSlice := []*rpctest.Harness{net.Miner.Harness, tempMiner.Harness}
 	if err := rpctest.JoinNodes(nodeSlice, rpctest.Blocks); err != nil {
 		t.Fatalf("unable to join node on blocks: %v", err)
 	}
@@ -142,14 +138,12 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for Alice and Bob to recognize and advertise the new channel
 	// generated above.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = net.Alice.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't advertise channel before "+
 			"timeout: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = net.Bob.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("bob didn't advertise channel before "+
 			"timeout: %v", err)
@@ -159,7 +153,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	req := &lnrpc.ChannelGraphRequest{
 		IncludeUnannounced: true,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	chanGraph, err := net.Alice.DescribeGraph(ctxt, req)
 	if err != nil {
 		t.Fatalf("unable to query for alice's routing table: %v", err)
@@ -188,7 +182,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to remove node: %v", err)
 	}
 
-	nodes := []*rpctest.Harness{tempMiner, net.Miner}
+	nodes := []*rpctest.Harness{tempMiner.Harness, net.Miner.Harness}
 	if err := rpctest.JoinNodes(nodes, rpctest.Blocks); err != nil {
 		t.Fatalf("unable to join node on blocks: %v", err)
 	}

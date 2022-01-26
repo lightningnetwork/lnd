@@ -201,6 +201,21 @@ service WalletKit {
     rpc FundPsbt (FundPsbtRequest) returns (FundPsbtResponse);
 
     /*
+    SignPsbt expects a partial transaction with all inputs and outputs fully
+    declared and tries to sign all unsigned inputs that have all required fields
+    (UTXO information, BIP32 derivation information, witness or sig scripts)
+    set.
+    If no error is returned, the PSBT is ready to be given to the next signer or
+    to be finalized if lnd was the last signer.
+
+    NOTE: This RPC only signs inputs (and only those it can sign), it does not
+    perform any other tasks (such as coin selection, UTXO locking or
+    input/output/fee value validation, PSBT finalization). Any input that is
+    incomplete will be skipped.
+    */
+    rpc SignPsbt (SignPsbtRequest) returns (SignPsbtResponse);
+
+    /*
     FinalizePsbt expects a partial transaction with all inputs and outputs fully
     declared and tries to sign all inputs that belong to the wallet. Lnd must be
     the last signer of the transaction. That means, if there are any unsigned
@@ -818,6 +833,19 @@ message UtxoLease {
     The absolute expiration of the output lease represented as a unix timestamp.
     */
     uint64 expiration = 3;
+}
+
+message SignPsbtRequest {
+    /*
+    The PSBT that should be signed. The PSBT must contain all required inputs,
+    outputs, UTXO data and custom fields required to identify the signing key.
+    */
+    bytes funded_psbt = 1;
+}
+
+message SignPsbtResponse {
+    // The signed transaction in PSBT format.
+    bytes signed_psbt = 1;
 }
 
 message FinalizePsbtRequest {

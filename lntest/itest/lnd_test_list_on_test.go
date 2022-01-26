@@ -33,6 +33,10 @@ var allTestCases = []*testCase{
 		test: testUpdateChannelPolicy,
 	},
 	{
+		name: "update channel policy fee rate accuracy",
+		test: testUpdateChannelPolicyFeeRateAccuracy,
+	},
+	{
 		name: "open channel reorg test",
 		test: testOpenChannelAfterReorg,
 	},
@@ -284,8 +288,16 @@ var allTestCases = []*testCase{
 		test: testPsbtChanFundingExternal,
 	},
 	{
+		name: "sign psbt",
+		test: testSignPsbt,
+	},
+	{
 		name: "batch channel funding",
 		test: testBatchChanFunding,
+	},
+	{
+		name: "psbt channel funding single step",
+		test: testPsbtChanFundingSingleStep,
 	},
 	{
 		name: "sendtoroute multi path payment",

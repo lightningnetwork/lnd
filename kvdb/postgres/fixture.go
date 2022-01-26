@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/btcsuite/btcwallet/walletdb"
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
@@ -26,10 +27,14 @@ func getTestDsn(dbName string) string {
 
 var testPostgres *embeddedpostgres.EmbeddedPostgres
 
+const testMaxConnections = 50
+
 // StartEmbeddedPostgres starts an embedded postgres instance. This only needs
 // to be done once, because NewFixture will create random new databases on every
 // call. It returns a stop closure that stops the database if called.
 func StartEmbeddedPostgres() (func() error, error) {
+	Init(testMaxConnections)
+
 	postgres := embeddedpostgres.NewDatabase(
 		embeddedpostgres.DefaultConfig().
 			Port(9876))
@@ -77,7 +82,8 @@ func NewFixture(dbName string) (*fixture, error) {
 	db, err := newPostgresBackend(
 		context.Background(),
 		&Config{
-			Dsn: dsn,
+			Dsn:     dsn,
+			Timeout: time.Minute,
 		},
 		prefix,
 	)

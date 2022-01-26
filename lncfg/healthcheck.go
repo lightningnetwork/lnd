@@ -30,6 +30,8 @@ type HealthCheckConfig struct {
 	TLSCheck *CheckConfig `group:"tls" namespace:"tls"`
 
 	TorConnection *CheckConfig `group:"torconnection" namespace:"torconnection"`
+
+	RemoteSigner *CheckConfig `group:"remotesigner" namespace:"remotesigner"`
 }
 
 // Validate checks the values configured for our health checks.

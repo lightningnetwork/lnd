@@ -553,6 +553,19 @@ const (
 	addedToRouterGraph
 )
 
+func (c channelOpeningState) String() string {
+	switch c {
+	case markedOpen:
+		return "markedOpen"
+	case fundingLockedSent:
+		return "fundingLocked"
+	case addedToRouterGraph:
+		return "addedToRouterGraph"
+	default:
+		return "unknown"
+	}
+}
+
 // NewFundingManager creates and initializes a new instance of the
 // fundingManager.
 func NewFundingManager(cfg Config) (*Manager, error) {
@@ -1274,7 +1287,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// the remote peer are signaling the proper feature bit if we're using
 	// implicit negotiation, and simply the channel type sent over if we're
 	// using explicit negotiation.
-	wasExplicit, commitType, err := negotiateCommitmentType(
+	wasExplicit, _, commitType, err := negotiateCommitmentType(
 		msg.ChannelType, peer.LocalFeatures(), peer.RemoteFeatures(),
 		false,
 	)
@@ -1599,14 +1612,14 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		// channel type in the accept_channel response if we didn't
 		// explicitly set it in the open_channel message. For now, let's
 		// just log the problem instead of failing the funding flow.
-		implicitChannelType := implicitNegotiateCommitmentType(
+		_, implicitChannelType := implicitNegotiateCommitmentType(
 			peer.LocalFeatures(), peer.RemoteFeatures(),
 		)
 
 		// We pass in false here as the funder since at this point, we
 		// didn't set a chan type ourselves, so falling back to
 		// implicit funding is acceptable.
-		_, negotiatedChannelType, err := negotiateCommitmentType(
+		_, _, negotiatedChannelType, err := negotiateCommitmentType(
 			msg.ChannelType, peer.LocalFeatures(),
 			peer.RemoteFeatures(), false,
 		)
@@ -2773,7 +2786,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		}
 
 		log.Debugf("Channel with ChannelPoint(%v), short_chan_id=%v "+
-			"announced", &fundingPoint, shortChanID)
+			"sent to gossiper", &fundingPoint, shortChanID)
 	}
 
 	return nil
@@ -3258,7 +3271,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// Before we init the channel, we'll also check to see what commitment
 	// format we can use with this peer. This is dependent on *both* us and
 	// the remote peer are signaling the proper feature bit.
-	_, commitType, err := negotiateCommitmentType(
+	_, chanType, commitType, err := negotiateCommitmentType(
 		msg.ChannelType, msg.Peer.LocalFeatures(),
 		msg.Peer.RemoteFeatures(), true,
 	)
@@ -3415,7 +3428,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		FirstCommitmentPoint:  ourContribution.FirstCommitmentPoint,
 		ChannelFlags:          channelFlags,
 		UpfrontShutdownScript: shutdown,
-		ChannelType:           msg.ChannelType,
+		ChannelType:           chanType,
 		LeaseExpiry:           leaseExpiry,
 	}
 	if err := msg.Peer.SendMessage(true, &fundingOpen); err != nil {

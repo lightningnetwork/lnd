@@ -238,7 +238,8 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 // provides an invalid transaction, then we'll return with an error.
 //
 // NOTE: The resulting signature should be void of a sighash byte.
-func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp, error) {
+func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp,
+	error) {
 
 	switch {
 	// If the client doesn't specify a transaction, then there's nothing to
@@ -309,9 +310,12 @@ func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp, err
 
 		// If a witness script isn't passed, then we can't proceed, as
 		// in the p2wsh case, we can't properly generate the sighash.
+		// A P2WKH doesn't need a witness script. But SignOutputRaw
+		// still needs to know the PK script that was used for the
+		// output. We'll send it in the WitnessScript field, the
+		// SignOutputRaw RPC will know what to do with it when creating
+		// the sighash.
 		if len(signDesc.WitnessScript) == 0 {
-			// TODO(roasbeef): if regualr p2wkh, then at times
-			// internally we allow script to go by
 			return nil, fmt.Errorf("witness script MUST be " +
 				"specified")
 		}

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
@@ -212,7 +211,7 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 // calculateTxnsFeeRate takes a list of transactions and estimates the fee rate
 // used to sweep them.
 func calculateTxnsFeeRate(t *testing.T,
-	miner *rpctest.Harness, txns []*wire.MsgTx) int64 {
+	miner *lntest.HarnessMiner, txns []*wire.MsgTx) int64 {
 
 	var totalWeight, totalFee int64
 	for _, tx := range txns {
@@ -335,13 +334,12 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Wait for Alice and Carol to receive the channel edge from the
 	// funding manager.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = alice.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->carol channel before "+
 			"timeout: %v", err)
 	}
-	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = carol.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->carol channel before "+
 			"timeout: %v", err)
@@ -1430,8 +1428,7 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	carolPayReqs := []string{resp.PaymentRequest}
 
 	// Wait for Alice to receive the channel edge from the funding manager.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = net.Alice.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->carol channel before "+
 			"timeout: %v", err)

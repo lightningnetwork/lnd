@@ -52,6 +52,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
@@ -199,6 +200,10 @@ type server struct {
 	peerConnectedListeners    map[string][]chan<- lnpeer.Peer
 	peerDisconnectedListeners map[string][]chan<- struct{}
 
+	// TODO(yy): the Brontide.Start doesn't know this value, which means it
+	// will continue to send messages even if there are no active channels
+	// and the value below is false. Once it's pruned, all its connections
+	// will be closed, thus the Brontide.Start will return an error.
 	persistentPeers        map[string]bool
 	persistentPeersBackoff map[string]time.Duration
 	persistentPeerAddrs    map[string][]*lnwire.NetAddress
@@ -223,6 +228,12 @@ type server struct {
 	// prior peer has cleaned up successfully, before adding the new peer
 	// intended to replace it.
 	scheduledPeerConnection map[string]func()
+
+	// pongBuf is a shared pong reply buffer we'll use across all active
+	// peer goroutines. We know the max size of a pong message
+	// (lnwire.MaxPongBytes), so we can allocate this ahead of time, and
+	// avoid allocations each time we need to send a pong message.
+	pongBuf []byte
 
 	cc *chainreg.ChainControl
 
@@ -577,6 +588,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		peerErrors:              make(map[string]*queue.CircularBuffer),
 		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
 		scheduledPeerConnection: make(map[string]func()),
+		pongBuf:                 make([]byte, lnwire.MaxPongBytes),
 
 		peersByPub:                make(map[string]*peer.Brontide),
 		inboundPeers:              make(map[string]*peer.Brontide),
@@ -1014,6 +1026,20 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// breach events from the ChannelArbitrator to the breachArbiter,
 	contractBreaches := make(chan *contractcourt.ContractBreachEvent, 1)
 
+	s.breachArbiter = contractcourt.NewBreachArbiter(&contractcourt.BreachConfig{
+		CloseLink:          closeLink,
+		DB:                 s.chanStateDB,
+		Estimator:          s.cc.FeeEstimator,
+		GenSweepScript:     newSweepPkScriptGen(cc.Wallet),
+		Notifier:           cc.ChainNotifier,
+		PublishTransaction: cc.Wallet.PublishTransaction,
+		ContractBreaches:   contractBreaches,
+		Signer:             cc.Wallet.Cfg.Signer,
+		Store: contractcourt.NewRetributionStore(
+			dbs.ChanStateDB,
+		),
+	})
+
 	s.chainArb = contractcourt.NewChainArbitrator(contractcourt.ChainArbitratorConfig{
 		ChainHash:              *s.cfg.ActiveNetParams.GenesisHash,
 		IncomingBroadcastDelta: lncfg.DefaultIncomingBroadcastDelta,
@@ -1062,8 +1088,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 		IsOurAddress: cc.Wallet.IsOurAddress,
 		ContractBreach: func(chanPoint wire.OutPoint,
-			breachRet *lnwallet.BreachRetribution,
-			markClosed func() error) error {
+			breachRet *lnwallet.BreachRetribution) error {
 
 			// processACK will handle the breachArbiter ACKing the
 			// event.
@@ -1075,8 +1100,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				}
 
 				// If the breachArbiter successfully handled
-				// the event, we can mark the channel closed.
-				finalErr <- markClosed()
+				// the event, we can signal that the handoff
+				// was successful.
+				finalErr <- nil
 			}
 
 			event := &contractcourt.ContractBreachEvent{
@@ -1092,9 +1118,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				return ErrServerShuttingDown
 			}
 
-			// We'll wait for a final error to be available, either
-			// from the breachArbiter or from our markClosed
-			// function closure.
+			// We'll wait for a final error to be available from
+			// the breachArbiter.
 			select {
 			case err := <-finalErr:
 				return err
@@ -1113,21 +1138,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PaymentsExpirationGracePeriod: cfg.PaymentsExpirationGracePeriod,
 		IsForwardedHTLC:               s.htlcSwitch.IsForwardedHTLC,
 		Clock:                         clock.NewDefaultClock(),
+		SubscribeBreachComplete:       s.breachArbiter.SubscribeBreachComplete,
 	}, dbs.ChanStateDB)
-
-	s.breachArbiter = contractcourt.NewBreachArbiter(&contractcourt.BreachConfig{
-		CloseLink:          closeLink,
-		DB:                 s.chanStateDB,
-		Estimator:          s.cc.FeeEstimator,
-		GenSweepScript:     newSweepPkScriptGen(cc.Wallet),
-		Notifier:           cc.ChainNotifier,
-		PublishTransaction: cc.Wallet.PublishTransaction,
-		ContractBreaches:   contractBreaches,
-		Signer:             cc.Wallet.Cfg.Signer,
-		Store: contractcourt.NewRetributionStore(
-			dbs.ChanStateDB,
-		),
-	})
 
 	// Select the configuration and furnding parameters for Bitcoin or
 	// Litecoin, depending on the primary registered chain.
@@ -1578,6 +1590,32 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl) {
 			cfg.HealthChecks.TorConnection.Attempts,
 		)
 		checks = append(checks, torConnectionCheck)
+	}
+
+	// If remote signing is enabled, add the healthcheck for the remote
+	// signing RPC interface.
+	if s.cfg.RemoteSigner != nil && s.cfg.RemoteSigner.Enable {
+		// Because we have two cascading timeouts here, we need to add
+		// some slack to the "outer" one of them in case the "inner"
+		// returns exactly on time.
+		overhead := time.Millisecond * 10
+
+		remoteSignerConnectionCheck := healthcheck.NewObservation(
+			"remote signer connection",
+			rpcwallet.HealthCheck(
+				s.cfg.RemoteSigner,
+
+				// For the health check we might to be even
+				// stricter than the initial/normal connect, so
+				// we use the health check timeout here.
+				cfg.HealthChecks.RemoteSigner.Timeout,
+			),
+			cfg.HealthChecks.RemoteSigner.Interval,
+			cfg.HealthChecks.RemoteSigner.Timeout+overhead,
+			cfg.HealthChecks.RemoteSigner.Backoff,
+			cfg.HealthChecks.RemoteSigner.Attempts,
+		)
+		checks = append(checks, remoteSignerConnectionCheck)
 	}
 
 	// If we have not disabled all of our health checks, we create a
@@ -2303,6 +2341,39 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 	return bootStrappers, nil
 }
 
+// createBootstrapIgnorePeers creates a map of peers that the bootstrap process
+// needs to ignore, which is made of three parts,
+//   - the node itself needs to be skipped as it doesn't make sense to connect
+//     to itself.
+//   - the peers that already have connections with, as in s.peersByPub.
+//   - the peers that we are attempting to connect, as in s.persistentPeers.
+func (s *server) createBootstrapIgnorePeers() map[autopilot.NodeID]struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ignore := make(map[autopilot.NodeID]struct{})
+
+	// We should ignore ourselves from bootstrapping.
+	selfKey := autopilot.NewNodeID(s.identityECDH.PubKey())
+	ignore[selfKey] = struct{}{}
+
+	// Ignore all connected peers.
+	for _, peer := range s.peersByPub {
+		nID := autopilot.NewNodeID(peer.IdentityKey())
+		ignore[nID] = struct{}{}
+	}
+
+	// Ignore all persistent peers as they have a dedicated reconnecting
+	// process.
+	for pubKeyStr := range s.persistentPeers {
+		var nID autopilot.NodeID
+		copy(nID[:], []byte(pubKeyStr))
+		ignore[nID] = struct{}{}
+	}
+
+	return ignore
+}
+
 // peerBootstrapper is a goroutine which is tasked with attempting to establish
 // and maintain a target minimum number of outbound connections. With this
 // invariant, we ensure that our node is connected to a diverse set of peers
@@ -2313,13 +2384,12 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 
 	defer s.wg.Done()
 
-	// ignore is a set used to keep track of peers already retrieved from
-	// our bootstrappers in order to avoid duplicates.
-	ignore := make(map[autopilot.NodeID]struct{})
+	// Before we continue, init the ignore peers map.
+	ignoreList := s.createBootstrapIgnorePeers()
 
 	// We'll start off by aggressively attempting connections to peers in
 	// order to be a part of the network as soon as possible.
-	s.initialPeerBootstrap(ignore, numTargetPeers, bootstrappers)
+	s.initialPeerBootstrap(ignoreList, numTargetPeers, bootstrappers)
 
 	// Once done, we'll attempt to maintain our target minimum number of
 	// peers.
@@ -2391,13 +2461,10 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 			// With the number of peers we need calculated, we'll
 			// query the network bootstrappers to sample a set of
 			// random addrs for us.
-			s.mu.RLock()
-			ignoreList := make(map[autopilot.NodeID]struct{})
-			for _, peer := range s.peersByPub {
-				nID := autopilot.NewNodeID(peer.IdentityKey())
-				ignoreList[nID] = struct{}{}
-			}
-			s.mu.RUnlock()
+			//
+			// Before we continue, get a copy of the ignore peers
+			// map.
+			ignoreList = s.createBootstrapIgnorePeers()
 
 			peerAddrs, err := discovery.MultiSourceBootstrap(
 				ignoreList, numNeeded*2, bootstrappers...,
@@ -2450,7 +2517,11 @@ const bootstrapBackOffCeiling = time.Minute * 5
 // until the target number of peers has been reached. This ensures that nodes
 // receive an up to date network view as soon as possible.
 func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
-	numTargetPeers uint32, bootstrappers []discovery.NetworkPeerBootstrapper) {
+	numTargetPeers uint32,
+	bootstrappers []discovery.NetworkPeerBootstrapper) {
+
+	srvrLog.Debugf("Init bootstrap with targetPeers=%v, bootstrappers=%v, "+
+		"ignore=%v", numTargetPeers, len(bootstrappers), len(ignore))
 
 	// We'll start off by waiting 2 seconds between failed attempts, then
 	// double each time we fail until we hit the bootstrapBackOffCeiling.
@@ -2775,6 +2846,9 @@ func (s *server) establishPersistentConnections() error {
 		return err
 	}
 
+	srvrLog.Debugf("Establishing %v persistent connections on start",
+		len(nodeAddrsMap))
+
 	// Acquire and hold server lock until all persistent connection requests
 	// have been recorded and sent to the connection manager.
 	s.mu.Lock()
@@ -3093,10 +3167,10 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 
 	// If we already have an outbound connection to this peer, then ignore
 	// this new connection.
-	if _, ok := s.outboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have outbound connection for %x, "+
-			"ignoring inbound connection",
-			nodePub.SerializeCompressed())
+	if p, ok := s.outboundPeers[pubStr]; ok {
+		srvrLog.Debugf("Already have outbound connection for %v, "+
+			"ignoring inbound connection from local=%v, remote=%v",
+			p, conn.LocalAddr(), conn.RemoteAddr())
 
 		conn.Close()
 		return
@@ -3105,8 +3179,9 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	// If we already have a valid connection that is scheduled to take
 	// precedence once the prior peer has finished disconnecting, we'll
 	// ignore this connection.
-	if _, ok := s.scheduledPeerConnection[pubStr]; ok {
-		srvrLog.Debugf("Ignoring connection, peer already scheduled")
+	if p, ok := s.scheduledPeerConnection[pubStr]; ok {
+		srvrLog.Debugf("Ignoring connection from %v, peer %v already "+
+			"scheduled", conn.RemoteAddr(), p)
 		conn.Close()
 		return
 	}
@@ -3179,10 +3254,10 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 
 	// If we already have an inbound connection to this peer, then ignore
 	// this new connection.
-	if _, ok := s.inboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have inbound connection for %x, "+
-			"ignoring outbound connection",
-			nodePub.SerializeCompressed())
+	if p, ok := s.inboundPeers[pubStr]; ok {
+		srvrLog.Debugf("Already have inbound connection for %v, "+
+			"ignoring outbound connection from local=%v, remote=%v",
+			p, conn.LocalAddr(), conn.RemoteAddr())
 
 		if connReq != nil {
 			s.connMgr.Remove(connReq.ID())
@@ -3303,6 +3378,8 @@ func (s *server) cancelConnReqs(pubStr string, skip *uint64) {
 	}
 
 	for _, connReq := range connReqs {
+		srvrLog.Tracef("Canceling %s:", connReqs)
+
 		// Atomically capture the current request identifier.
 		connID := connReq.ID()
 
@@ -3420,6 +3497,8 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		AnchorTowerClient:       s.anchorTowerClient,
 		DisconnectPeer:          s.DisconnectPeer,
 		GenNodeAnnouncement:     s.genNodeAnnouncement,
+
+		PongBuf: s.pongBuf,
 
 		PrunePersistentPeerConnection: s.prunePersistentPeerConnection,
 
@@ -3998,6 +4077,9 @@ func (s *server) connectToPeer(addr *lnwire.NetAddress,
 
 	close(errChan)
 
+	srvrLog.Tracef("Brontide dialer made local=%v, remote=%v",
+		conn.LocalAddr(), conn.RemoteAddr())
+
 	s.OutboundPeerConnected(nil, conn)
 }
 
@@ -4272,5 +4354,7 @@ func shouldPeerBootstrap(cfg *Config) bool {
 	isRegtest := (cfg.Bitcoin.RegTest || cfg.Litecoin.RegTest)
 	isDevNetwork := isSimnet || isSignet || isRegtest
 
+	// TODO(yy): remove the check on simnet/regtest such that the itest is
+	// covering the bootstrapping process.
 	return !cfg.NoNetBootstrap && !isDevNetwork
 }

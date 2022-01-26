@@ -3190,38 +3190,27 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 	}, nil
 }
 
-// PendingChannels returns a list of all the channels that are currently
-// considered "pending". A channel is pending if it has finished the funding
-// workflow and is waiting for confirmations for the funding txn, or is in the
-// process of closure, either initiated cooperatively or non-cooperatively.
-func (r *rpcServer) PendingChannels(ctx context.Context,
-	in *lnrpc.PendingChannelsRequest) (*lnrpc.PendingChannelsResponse, error) {
+type (
+	pendingOpenChannels  []*lnrpc.PendingChannelsResponse_PendingOpenChannel
+	pendingForceClose    []*lnrpc.PendingChannelsResponse_ForceClosedChannel
+	waitingCloseChannels []*lnrpc.PendingChannelsResponse_WaitingCloseChannel
+)
 
-	rpcsLog.Debugf("[pendingchannels]")
-
-	resp := &lnrpc.PendingChannelsResponse{}
-
-	// rpcInitiator returns the correct lnrpc initiator for channels where
-	// we have a record of the opening channel.
-	rpcInitiator := func(isInitiator bool) lnrpc.Initiator {
-		if isInitiator {
-			return lnrpc.Initiator_INITIATOR_LOCAL
-		}
-
-		return lnrpc.Initiator_INITIATOR_REMOTE
-	}
-
+// fetchPendingOpenChannels queries the database for a list of channels that
+// have pending open state. The returned result is used in the response of the
+// PendingChannels RPC.
+func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 	// First, we'll populate the response with all the channels that are
 	// soon to be opened. We can easily fetch this data from the database
 	// and map the db struct to the proto response.
-	pendingOpenChannels, err := r.server.chanStateDB.FetchPendingChannels()
+	channels, err := r.server.chanStateDB.FetchPendingChannels()
 	if err != nil {
 		rpcsLog.Errorf("unable to fetch pending channels: %v", err)
 		return nil, err
 	}
-	resp.PendingOpenChannels = make([]*lnrpc.PendingChannelsResponse_PendingOpenChannel,
-		len(pendingOpenChannels))
-	for i, pendingChan := range pendingOpenChannels {
+
+	result := make(pendingOpenChannels, len(channels))
+	for i, pendingChan := range channels {
 		pub := pendingChan.IdentityPub.SerializeCompressed()
 
 		// As this is required for display purposes, we'll calculate
@@ -3236,7 +3225,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		commitBaseWeight := blockchain.GetTransactionWeight(utx)
 		commitWeight := commitBaseWeight + input.WitnessCommitmentTxWeight
 
-		resp.PendingOpenChannels[i] = &lnrpc.PendingChannelsResponse_PendingOpenChannel{
+		result[i] = &lnrpc.PendingChannelsResponse_PendingOpenChannel{
 			Channel: &lnrpc.PendingChannelsResponse_PendingChannel{
 				RemoteNodePub:        hex.EncodeToString(pub),
 				ChannelPoint:         pendingChan.FundingOutpoint.String(),
@@ -3255,19 +3244,32 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		}
 	}
 
+	return result, nil
+}
+
+// fetchPendingForceCloseChannels queries the database for a list of channels
+// that have their closing transactions confirmed but not fully resolved yet.
+// The returned result is used in the response of the PendingChannels RPC.
+func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
+	int64, error) {
+
 	_, currentHeight, err := r.server.cc.ChainIO.GetBestBlock()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Next, we'll examine the channels that are soon to be closed so we
 	// can populate these fields within the response.
-	pendingCloseChannels, err := r.server.chanStateDB.FetchClosedChannels(true)
+	channels, err := r.server.chanStateDB.FetchClosedChannels(true)
 	if err != nil {
 		rpcsLog.Errorf("unable to fetch closed channels: %v", err)
-		return nil, err
+		return nil, 0, err
 	}
-	for _, pendingClose := range pendingCloseChannels {
+
+	result := make(pendingForceClose, 0)
+	limboBalance := int64(0)
+
+	for _, pendingClose := range channels {
 		// First construct the channel struct itself, this will be
 		// needed regardless of how this channel was closed.
 		pub := pendingClose.RemotePub.SerializeCompressed()
@@ -3313,14 +3315,14 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				rpcsLog.Errorf("unable to load forwarding "+
 					"packages for channel:%s, %v",
 					historical.ShortChannelID, err)
-				return nil, err
+				return nil, 0, err
 			}
 			channel.NumForwardingPackages = int64(len(fwdPkgs))
 
 		// If the error is non-nil, and not due to older versions of lnd
 		// not persisting historical channels, return it.
 		default:
-			return nil, err
+			return nil, 0, err
 		}
 
 		closeTXID := pendingClose.ClosingTXID.String()
@@ -3355,36 +3357,83 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				&chanPoint, currentHeight, forceClose,
 			)
 			if err != nil {
-				return nil, err
+				return nil, 0, err
 			}
 
 			err = r.arbitratorPopulateForceCloseResp(
 				&chanPoint, currentHeight, forceClose,
 			)
 			if err != nil {
-				return nil, err
+				return nil, 0, err
 			}
 
-			resp.TotalLimboBalance += forceClose.LimboBalance
-
-			resp.PendingForceClosingChannels = append(
-				resp.PendingForceClosingChannels,
-				forceClose,
-			)
+			limboBalance += forceClose.LimboBalance
+			result = append(result, forceClose)
 		}
 	}
+
+	return result, limboBalance, nil
+}
+
+// fetchWaitingCloseChannels queries the database for a list of channels
+// that have their closing transactions broadcast but not confirmed yet.
+// The returned result is used in the response of the PendingChannels RPC.
+func (r *rpcServer) fetchWaitingCloseChannels() (waitingCloseChannels,
+	int64, error) {
 
 	// We'll also fetch all channels that are open, but have had their
 	// commitment broadcasted, meaning they are waiting for the closing
 	// transaction to confirm.
-	waitingCloseChans, err := r.server.chanStateDB.FetchWaitingCloseChannels()
+	channels, err := r.server.chanStateDB.FetchWaitingCloseChannels()
 	if err != nil {
 		rpcsLog.Errorf("unable to fetch channels waiting close: %v",
 			err)
-		return nil, err
+		return nil, 0, err
 	}
 
-	for _, waitingClose := range waitingCloseChans {
+	result := make(waitingCloseChannels, 0)
+	limboBalance := int64(0)
+
+	// getClosingTx is a helper closure that tries to find the closing txid
+	// of a given waiting close channel. Notice that if the remote closes
+	// the channel, we may not have the closing txid.
+	getClosingTx := func(c *channeldb.OpenChannel) (string, error) {
+		var (
+			tx  *wire.MsgTx
+			err error
+		)
+
+		// First, we try to locate the force closing txid. If not
+		// found, we will then try to find its coop closing txid.
+		tx, err = c.BroadcastedCommitment()
+		if err == nil {
+			return tx.TxHash().String(), nil
+		}
+
+		// If the error returned is not ErrNoCloseTx, something
+		// unexpected happened and we will return the error.
+		if err != channeldb.ErrNoCloseTx {
+			return "", err
+		}
+
+		// Otherwise, we continue to locate its coop closing txid.
+		tx, err = c.BroadcastedCooperative()
+		if err == nil {
+			return tx.TxHash().String(), nil
+		}
+
+		// Return the error if it's not ErrNoCloseTx.
+		if err != channeldb.ErrNoCloseTx {
+			return "", err
+		}
+
+		// Otherwise return an empty txid. This can happen if the
+		// remote broadcast the closing txid and we haven't recorded it
+		// yet.
+		return "", nil
+	}
+
+	for _, waitingClose := range channels {
 		pub := waitingClose.IdentityPub.SerializeCompressed()
 		chanPoint := waitingClose.FundingOutpoint
 
@@ -3422,7 +3471,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 		// An unexpected error occurred.
 		case err != nil:
-			return nil, err
+			return nil, 0, err
 
 		// There is a pending remote commit. Set its hash in the
 		// response.
@@ -3439,7 +3488,18 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			rpcsLog.Errorf("unable to load forwarding packages "+
 				"for channel:%s, %v",
 				waitingClose.ShortChannelID, err)
-			return nil, err
+			return nil, 0, err
+		}
+
+		// Get the closing txid.
+		// NOTE: the closing txid could be empty here if it's the
+		// remote broadcasted the closing tx.
+		closingTxid, err := getClosingTx(waitingClose)
+		if err != nil {
+			rpcsLog.Errorf("unable to find closing txid for "+
+				"channel:%s, %v",
+				waitingClose.ShortChannelID, err)
+			return nil, 0, err
 		}
 
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
@@ -3453,22 +3513,64 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			Initiator:             rpcInitiator(waitingClose.IsInitiator),
 			CommitmentType:        rpcCommitmentType(waitingClose.ChanType),
 			NumForwardingPackages: int64(len(fwdPkgs)),
+			ChanStatusFlags:       waitingClose.ChanStatus().String(),
 		}
 
 		waitingCloseResp := &lnrpc.PendingChannelsResponse_WaitingCloseChannel{
 			Channel:      channel,
 			LimboBalance: channel.LocalBalance,
 			Commitments:  &commitments,
+			ClosingTxid:  closingTxid,
 		}
 
 		// A close tx has been broadcasted, all our balance will be in
 		// limbo until it confirms.
-		resp.WaitingCloseChannels = append(
-			resp.WaitingCloseChannels, waitingCloseResp,
-		)
-
-		resp.TotalLimboBalance += channel.LocalBalance
+		result = append(result, waitingCloseResp)
+		limboBalance += channel.LocalBalance
 	}
+
+	return result, limboBalance, nil
+}
+
+// PendingChannels returns a list of all the channels that are currently
+// considered "pending". A channel is pending if it has finished the funding
+// workflow and is waiting for confirmations for the funding txn, or is in the
+// process of closure, either initiated cooperatively or non-cooperatively.
+func (r *rpcServer) PendingChannels(ctx context.Context,
+	in *lnrpc.PendingChannelsRequest) (
+	*lnrpc.PendingChannelsResponse, error) {
+
+	rpcsLog.Debugf("[pendingchannels]")
+
+	resp := &lnrpc.PendingChannelsResponse{}
+
+	// First, we find all the channels that will soon be opened.
+	pendingOpenChannels, err := r.fetchPendingOpenChannels()
+	if err != nil {
+		return nil, err
+	}
+	resp.PendingOpenChannels = pendingOpenChannels
+
+	// Second, we fetch all channels that considered pending force closing.
+	// This means the channels here have their closing transactions
+	// confirmed but not considered fully resolved yet. For instance, they
+	// may have a second level HTLCs to be resolved onchain.
+	pendingCloseChannels, limbo, err := r.fetchPendingForceCloseChannels()
+	if err != nil {
+		return nil, err
+	}
+	resp.PendingForceClosingChannels = pendingCloseChannels
+	resp.TotalLimboBalance = limbo
+
+	// Third, we fetch all channels that are open, but have had their
+	// commitment broadcasted, meaning they are waiting for the closing
+	// transaction to confirm.
+	waitingCloseChannels, limbo, err := r.fetchWaitingCloseChannels()
+	if err != nil {
+		return nil, err
+	}
+	resp.WaitingCloseChannels = waitingCloseChannels
+	resp.TotalLimboBalance += limbo
 
 	return resp, nil
 }
@@ -5313,38 +5415,13 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 	for {
 		select {
 		case tx := <-txClient.ConfirmedTransactions():
-			destAddresses := make([]string, 0, len(tx.DestAddresses))
-			for _, destAddress := range tx.DestAddresses {
-				destAddresses = append(destAddresses, destAddress.EncodeAddress())
-			}
-			detail := &lnrpc.Transaction{
-				TxHash:           tx.Hash.String(),
-				Amount:           int64(tx.Value),
-				NumConfirmations: tx.NumConfirmations,
-				BlockHash:        tx.BlockHash.String(),
-				BlockHeight:      tx.BlockHeight,
-				TimeStamp:        tx.Timestamp,
-				TotalFees:        tx.TotalFees,
-				DestAddresses:    destAddresses,
-				RawTxHex:         hex.EncodeToString(tx.RawTx),
-			}
+			detail := lnrpc.RPCTransaction(tx)
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
 
 		case tx := <-txClient.UnconfirmedTransactions():
-			var destAddresses []string
-			for _, destAddress := range tx.DestAddresses {
-				destAddresses = append(destAddresses, destAddress.EncodeAddress())
-			}
-			detail := &lnrpc.Transaction{
-				TxHash:        tx.Hash.String(),
-				Amount:        int64(tx.Value),
-				TimeStamp:     tx.Timestamp,
-				TotalFees:     tx.TotalFees,
-				DestAddresses: destAddresses,
-				RawTxHex:      hex.EncodeToString(tx.RawTx),
-			}
+			detail := lnrpc.RPCTransaction(tx)
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
@@ -6209,7 +6286,7 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 // Nodes on the network advertise their fee rate using this point as a base.
 // This means that the minimal possible fee rate if 1e-6, or 0.000001, or
 // 0.0001%.
-const feeBase = 1000000
+const feeBase float64 = 1000000
 
 // FeeReport allows the caller to obtain a report detailing the current fee
 // schedule enforced by the node globally for each channel.
@@ -6242,7 +6319,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 		// 1mil mSAT sent, so will divide by this to get the proper fee
 		// rate.
 		feeRateFixedPoint := edgePolicy.FeeProportionalMillionths
-		feeRate := float64(feeRateFixedPoint) / float64(feeBase)
+		feeRate := float64(feeRateFixedPoint) / feeBase
 
 		// TODO(roasbeef): also add stats for revenue for each channel
 		feeReports = append(feeReports, &lnrpc.ChannelFeeReport{
@@ -6382,28 +6459,52 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		return nil, fmt.Errorf("unknown scope: %v", scope)
 	}
 
+	var feeRateFixed uint32
+
 	switch {
-	// As a sanity check, if the fee isn't zero, we'll ensure that the
-	// passed fee rate is below 1e-6, or the lowest allowed non-zero fee
-	// rate expressible within the protocol.
-	case req.FeeRate != 0 && req.FeeRate < minFeeRate:
-		return nil, fmt.Errorf("fee rate of %v is too small, min fee "+
-			"rate is %v", req.FeeRate, minFeeRate)
+	// The request should use either the fee rate in percent, or the new
+	// ppm rate, but not both.
+	case req.FeeRate != 0 && req.FeeRatePpm != 0:
+		errMsg := "cannot set both FeeRate and FeeRatePpm at the " +
+			"same time"
+
+		return nil, status.Errorf(codes.InvalidArgument, errMsg)
+
+	// If the request is using fee_rate.
+	case req.FeeRate != 0:
+		// As a sanity check, if the fee isn't zero, we'll ensure that
+		// the passed fee rate is below 1e-6, or the lowest allowed
+		// non-zero fee rate expressible within the protocol.
+		if req.FeeRate != 0 && req.FeeRate < minFeeRate {
+			return nil, fmt.Errorf("fee rate of %v is too "+
+				"small, min fee rate is %v", req.FeeRate,
+				minFeeRate)
+		}
+
+		// We'll also need to convert the floating point fee rate we
+		// accept over RPC to the fixed point rate that we use within
+		// the protocol. We do this by multiplying the passed fee rate
+		// by the fee base. This gives us the fixed point, scaled by 1
+		// million that's used within the protocol.
+		//
+		// Because of the inaccurate precision of the IEEE 754
+		// standard, we need to round the product of feerate and
+		// feebase.
+		feeRateFixed = uint32(math.Round(req.FeeRate * feeBase))
+
+	// Otherwise, we use the fee_rate_ppm parameter.
+	case req.FeeRatePpm != 0:
+		feeRateFixed = req.FeeRatePpm
+	}
 
 	// We'll also ensure that the user isn't setting a CLTV delta that
 	// won't give outgoing HTLCs enough time to fully resolve if needed.
-	case req.TimeLockDelta < minTimeLockDelta:
+	if req.TimeLockDelta < minTimeLockDelta {
 		return nil, fmt.Errorf("time lock delta of %v is too small, "+
 			"minimum supported is %v", req.TimeLockDelta,
 			minTimeLockDelta)
 	}
 
-	// We'll also need to convert the floating point fee rate we accept
-	// over RPC to the fixed point rate that we use within the protocol. We
-	// do this by multiplying the passed fee rate by the fee base. This
-	// gives us the fixed point, scaled by 1 million that's used within the
-	// protocol.
-	feeRateFixed := uint32(req.FeeRate * feeBase)
 	baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)
 	feeSchema := routing.FeeSchema{
 		BaseFee: baseFeeMsat,
@@ -6425,9 +6526,9 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	}
 
 	rpcsLog.Debugf("[updatechanpolicy] updating channel policy base_fee=%v, "+
-		"rate_float=%v, rate_fixed=%v, time_lock_delta: %v, "+
+		"rate_fixed=%v, time_lock_delta: %v, "+
 		"min_htlc=%v, max_htlc=%v, targets=%v",
-		req.BaseFeeMsat, req.FeeRate, feeRateFixed, req.TimeLockDelta,
+		req.BaseFeeMsat, feeRateFixed, req.TimeLockDelta,
 		minHtlc, maxHtlc,
 		spew.Sdump(targetChans))
 
@@ -7441,4 +7542,14 @@ func (r *rpcServer) SubscribeCustomMessages(req *lnrpc.SubscribeCustomMessagesRe
 			}
 		}
 	}
+}
+
+// rpcInitiator returns the correct lnrpc initiator for channels where we have
+// a record of the opening channel.
+func rpcInitiator(isInitiator bool) lnrpc.Initiator {
+	if isInitiator {
+		return lnrpc.Initiator_INITIATOR_LOCAL
+	}
+
+	return lnrpc.Initiator_INITIATOR_REMOTE
 }

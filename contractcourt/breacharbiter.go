@@ -185,6 +185,8 @@ type BreachArbiter struct {
 
 	cfg *BreachConfig
 
+	subscriptions map[wire.OutPoint]chan struct{}
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 	sync.Mutex
@@ -194,8 +196,9 @@ type BreachArbiter struct {
 // its dependent objects.
 func NewBreachArbiter(cfg *BreachConfig) *BreachArbiter {
 	return &BreachArbiter{
-		cfg:  cfg,
-		quit: make(chan struct{}),
+		cfg:           cfg,
+		subscriptions: make(map[wire.OutPoint]chan struct{}),
+		quit:          make(chan struct{}),
 	}
 }
 
@@ -320,6 +323,47 @@ func (b *BreachArbiter) Stop() error {
 // aware of any channel breaches for a particular channel point.
 func (b *BreachArbiter) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 	return b.cfg.Store.IsBreached(chanPoint)
+}
+
+// SubscribeBreachComplete is used by outside subsystems to be notified of a
+// successful breach resolution.
+func (b *BreachArbiter) SubscribeBreachComplete(chanPoint *wire.OutPoint,
+	c chan struct{}) (bool, error) {
+
+	breached, err := b.cfg.Store.IsBreached(chanPoint)
+	if err != nil {
+		// If an error occurs, no subscription will be registered.
+		return false, err
+	}
+
+	if !breached {
+		// If chanPoint no longer exists in the Store, then the breach
+		// was cleaned up successfully. Any subscription that occurs
+		// happens after the breach information was persisted to the
+		// underlying store.
+		return true, nil
+	}
+
+	// Otherwise since the channel point is not resolved, add a
+	// subscription. There can only be one subscription per channel point.
+	b.Lock()
+	defer b.Unlock()
+	b.subscriptions[*chanPoint] = c
+
+	return false, nil
+}
+
+// notifyBreachComplete is used by the BreachArbiter to notify outside
+// subsystems that the breach resolution process is complete.
+func (b *BreachArbiter) notifyBreachComplete(chanPoint *wire.OutPoint) {
+	b.Lock()
+	defer b.Unlock()
+	if c, ok := b.subscriptions[*chanPoint]; ok {
+		close(c)
+	}
+
+	// Remove the subscription.
+	delete(b.subscriptions, *chanPoint)
 }
 
 // contractObserver is the primary goroutine for the BreachArbiter. This
@@ -856,6 +900,14 @@ func (b *BreachArbiter) cleanupBreach(chanPoint *wire.OutPoint) error {
 		return fmt.Errorf("unable to remove retribution from db: %v",
 			err)
 	}
+
+	// This is after the Remove call so that the chan passed in via
+	// SubscribeBreachComplete is always notified, no matter when it is
+	// called. Otherwise, if notifyBreachComplete was before Remove, a
+	// very rare edge case could occur in which SubscribeBreachComplete
+	// is called after notifyBreachComplete and before Remove, meaning the
+	// caller would never be notified.
+	b.notifyBreachComplete(chanPoint)
 
 	return nil
 }

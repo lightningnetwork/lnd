@@ -115,7 +115,7 @@ type MissionControl interface {
 	// ImportHistory imports the mission control snapshot to our internal
 	// state. This import will only be applied in-memory, and will not be
 	// persisted across restarts.
-	ImportHistory(*routing.MissionControlSnapshot) error
+	ImportHistory(snapshot *routing.MissionControlSnapshot, force bool) error
 
 	// GetPairHistorySnapshot returns the stored history for a given node
 	// pair.
@@ -661,11 +661,11 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 				"cannot appear together")
 
 		case len(rpcPayReq.PaymentHash) > 0:
-			return nil, errors.New("dest and payment_hash " +
+			return nil, errors.New("payment_hash and payment_request " +
 				"cannot appear together")
 
 		case rpcPayReq.FinalCltvDelta != 0:
-			return nil, errors.New("dest and final_cltv_delta " +
+			return nil, errors.New("final_cltv_delta and payment_request " +
 				"cannot appear together")
 		}
 

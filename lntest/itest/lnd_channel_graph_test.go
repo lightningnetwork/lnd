@@ -58,12 +58,10 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for Alice and Bob to receive the channel edge from the
 	// funding manager.
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	err := alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err := alice.WaitForNetworkChannelOpen(chanPoint)
 	require.NoError(t.t, err, "alice didn't see the alice->bob channel")
 
-	err = bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = bob.WaitForNetworkChannelOpen(chanPoint)
 	require.NoError(t.t, err, "bob didn't see the alice->bob channel")
 
 	// Launch a node for Carol which will connect to Alice and Bob in order
@@ -83,12 +81,9 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	assertChannelUpdate := func(node *lntest.HarnessNode,
 		policy *lnrpc.RoutingPolicy) {
 
-		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-		defer cancel()
-
 		require.NoError(
 			t.t, carol.WaitForChannelPolicyUpdate(
-				ctxt, node.PubKeyStr, policy, chanPoint, false,
+				node.PubKeyStr, policy, chanPoint, false,
 			), "error while waiting for channel update",
 		)
 	}

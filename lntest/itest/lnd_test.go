@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/integration/rpctest"
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
@@ -113,14 +112,10 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// guarantees of getting included in to blocks.
 	//
 	// We will also connect it to our chain backend.
-	minerLogDir := fmt.Sprintf("%s/.minerlogs", logDir)
-	miner, minerCleanUp, err := lntest.NewMiner(
-		minerLogDir, "output_btcd_miner.log", harnessNetParams,
-		&rpcclient.NotificationHandlers{}, lntest.GetBtcdBinary(),
-	)
+	miner, err := lntest.NewMiner()
 	require.NoError(t, err, "failed to create new miner")
 	defer func() {
-		require.NoError(t, minerCleanUp(), "failed to clean up miner")
+		require.NoError(t, miner.Stop(), "failed to stop miner")
 	}()
 
 	// Start a chain backend.

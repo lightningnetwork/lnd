@@ -76,6 +76,13 @@ type Config struct {
 	// WatchOnly indicates that the wallet was initialized with public key
 	// material only and does not contain any private keys.
 	WatchOnly bool
+
+	// MigrateWatchOnly indicates that if a wallet with private key material
+	// already exists, it should be attempted to be converted into a
+	// watch-only wallet on first startup. This flag has no effect if no
+	// wallet exists and a watch-only one is created directly, or, if the
+	// wallet was previously converted to a watch-only already.
+	MigrateWatchOnly bool
 }
 
 // NetworkDir returns the directory name of a network directory to hold wallet

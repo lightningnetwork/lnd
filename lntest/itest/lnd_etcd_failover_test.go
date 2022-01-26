@@ -161,8 +161,7 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 
 	assertLeader(ht, observer, "Carol-2")
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = carol2.Unlock(ctxt, &lnrpc.UnlockWalletRequest{
+	err = carol2.Unlock(&lnrpc.UnlockWalletRequest{
 		WalletPassword: password,
 	})
 	if err != nil {

@@ -398,6 +398,13 @@ func (m *SyncManager) syncerHandler() {
 				continue
 			}
 
+			// We may not even have enough inactive syncers to be
+			// transitted. In that case, we will transit all the
+			// inactive syncers.
+			if len(m.inactiveSyncers) < numActiveLeft {
+				numActiveLeft = len(m.inactiveSyncers)
+			}
+
 			log.Debugf("Attempting to transition %v passive "+
 				"GossipSyncers to active", numActiveLeft)
 
@@ -492,6 +499,10 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 	// handle any sync transitions.
 	s.setSyncState(chansSynced)
 	s.setSyncType(PassiveSync)
+
+	log.Debugf("Created new GossipSyncer[state=%s type=%s] for peer=%v",
+		s.syncState(), s.SyncType(), peer)
+
 	return s
 }
 

@@ -4,6 +4,7 @@
 package postgres
 
 import (
+	"context"
 	"database/sql"
 	"sync"
 
@@ -39,7 +40,16 @@ func newReadWriteTx(db *db, readOnly bool) (*readWriteTx, error) {
 	}
 	locker.Lock()
 
-	tx, err := db.db.Begin()
+	// Start the transaction. Don't use the timeout context because it would
+	// be applied to the transaction as a whole. If possible, mark the
+	// transaction as read-only to make sure that potential programming
+	// errors cannot cause changes to the database.
+	tx, err := db.db.BeginTx(
+		context.Background(),
+		&sql.TxOptions{
+			ReadOnly: readOnly,
+		},
+	)
 	if err != nil {
 		locker.Unlock()
 		return nil, err
@@ -158,21 +168,26 @@ func (tx *readWriteTx) OnCommit(cb func()) {
 }
 
 // QueryRow executes a QueryRow call with a timeout context.
-func (tx *readWriteTx) QueryRow(query string, args ...interface{}) *sql.Row {
-	ctx, cancel := tx.db.getTimeoutCtx()
-	defer cancel()
+func (tx *readWriteTx) QueryRow(query string, args ...interface{}) (*sql.Row,
+	func()) {
 
-	return tx.tx.QueryRowContext(ctx, query, args...)
+	ctx, cancel := tx.db.getTimeoutCtx()
+	return tx.tx.QueryRowContext(ctx, query, args...), cancel
 }
 
-// Query executes a Query call with a timeout context.
+// Query executes a multi-row query call with a timeout context.
 func (tx *readWriteTx) Query(query string, args ...interface{}) (*sql.Rows,
-	error) {
+	func(), error) {
 
 	ctx, cancel := tx.db.getTimeoutCtx()
-	defer cancel()
+	rows, err := tx.tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		cancel()
 
-	return tx.tx.QueryContext(ctx, query, args...)
+		return nil, func() {}, err
+	}
+
+	return rows, cancel, nil
 }
 
 // Exec executes a Exec call with a timeout context.

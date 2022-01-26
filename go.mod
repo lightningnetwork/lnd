@@ -9,16 +9,19 @@ require (
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v1.0.3-0.20210527170813-e2ba6805a890
 	github.com/btcsuite/btcutil/psbt v1.0.3-0.20210527170813-e2ba6805a890
-	github.com/btcsuite/btcwallet v0.13.0
+	github.com/btcsuite/btcwallet v0.13.1-0.20211201210108-79de92f527dc
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.1.0
 	github.com/btcsuite/btcwallet/wallet/txrules v1.1.0
 	github.com/btcsuite/btcwallet/walletdb v1.3.6-0.20210803004036-eebed51155ec
 	github.com/btcsuite/btcwallet/wtxmgr v1.3.1-0.20210822222949-9b5a201c344c
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f
 	github.com/davecgh/go-spew v1.1.1
+	github.com/dvyukov/go-fuzz v0.0.0-20210602112143-b1f3d6f4ef4e
+	github.com/elazarl/go-bindata-assetfs v1.0.1 // indirect
 	github.com/go-errors/errors v1.0.1
 	github.com/go-openapi/strfmt v0.19.5 // indirect
 	github.com/golang/protobuf v1.5.2
+	github.com/golangci/golangci-lint v1.18.0
 	github.com/gorilla/websocket v1.4.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
@@ -43,13 +46,15 @@ require (
 	github.com/lightningnetwork/lnd/cert v1.1.0
 	github.com/lightningnetwork/lnd/clock v1.1.0
 	github.com/lightningnetwork/lnd/healthcheck v1.2.0
-	github.com/lightningnetwork/lnd/kvdb v1.2.1
+	github.com/lightningnetwork/lnd/kvdb v1.3.0
 	github.com/lightningnetwork/lnd/queue v1.1.0
 	github.com/lightningnetwork/lnd/ticker v1.1.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/mattn/go-runewidth v0.0.9 // indirect
 	github.com/miekg/dns v1.1.43
+	github.com/ory/go-acc v0.2.6
 	github.com/prometheus/client_golang v1.11.0
+	github.com/stephens2424/writerset v1.0.2 // indirect
 	github.com/stretchr/testify v1.7.0
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
 	github.com/urfave/cli v1.20.0
@@ -61,6 +66,7 @@ require (
 	golang.org/x/sys v0.0.0-20210915083310-ed5796bab164 // indirect
 	golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
+	golang.org/x/tools v0.1.7
 	google.golang.org/grpc v1.38.0
 	google.golang.org/protobuf v1.26.0
 	gopkg.in/errgo.v1 v1.0.1 // indirect

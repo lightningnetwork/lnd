@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -691,7 +690,7 @@ func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 // assertMinerBlockHeightDelta ensures that tempMiner is 'delta' blocks ahead
 // of miner.
 func assertMinerBlockHeightDelta(t *harnessTest,
-	miner, tempMiner *rpctest.Harness, delta int32) {
+	miner, tempMiner *lntest.HarnessMiner, delta int32) {
 
 	// Ensure the chain lengths are what we expect.
 	var predErr error
@@ -1783,13 +1782,9 @@ func assertChannelPolicyUpdate(t *testing.T, node *lntest.HarnessNode,
 	advertisingNode string, policy *lnrpc.RoutingPolicy,
 	chanPoint *lnrpc.ChannelPoint, includeUnannounced bool) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, lntest.DefaultTimeout)
-	defer cancel()
-
 	require.NoError(
 		t, node.WaitForChannelPolicyUpdate(
-			ctxt, advertisingNode, policy,
+			advertisingNode, policy,
 			chanPoint, includeUnannounced,
 		), "error while waiting for channel update",
 	)

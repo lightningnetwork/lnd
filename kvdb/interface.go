@@ -109,6 +109,12 @@ type ExtendedRBucket interface {
 
 	// Prefetch will attempt to prefetch all values under a path.
 	Prefetch(paths ...[]string)
+
+	// ForAll is an optimized version of ForEach.
+	//
+	// NOTE: ForAll differs from ForEach in that no additional queries can
+	// be executed within the callback.
+	ForAll(func(k, v []byte) error) error
 }
 
 // Prefetch will attempt to prefetch all values under a path from the passed
@@ -117,6 +123,16 @@ func Prefetch(b RBucket, paths ...[]string) {
 	if bucket, ok := b.(ExtendedRBucket); ok {
 		bucket.Prefetch(paths...)
 	}
+}
+
+// ForAll is an optimized version of ForEach with the limitation that no
+// additional queries can be executed within the callback.
+func ForAll(b RBucket, cb func(k, v []byte) error) error {
+	if bucket, ok := b.(ExtendedRBucket); ok {
+		return bucket.ForAll(cb)
+	}
+
+	return b.ForEach(cb)
 }
 
 // RootBucket is a wrapper to ExtendedRTx.RootBucket which does nothing if

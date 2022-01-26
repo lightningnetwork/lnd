@@ -14,8 +14,8 @@ type Signer interface {
 	// according to the data within the passed SignDescriptor.
 	//
 	// NOTE: The resulting signature should be void of a sighash byte.
-	SignOutputRaw(tx *wire.MsgTx,
-		signDesc *SignDescriptor) (Signature, error)
+	SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) (Signature,
+		error)
 
 	// ComputeInputScript generates a complete InputIndex for the passed
 	// transaction with the signature as defined within the passed
@@ -26,7 +26,8 @@ type Signer interface {
 	// NOTE: This method will ignore any tweak parameters set within the
 	// passed SignDescriptor as it assumes a set of typical script
 	// templates (p2wkh, np2wkh, etc).
-	ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor) (*Script, error)
+	ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor) (*Script,
+		error)
 }
 
 // Script represents any script inputs required to redeem a previous

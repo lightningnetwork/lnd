@@ -2,8 +2,10 @@ package chainfee
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	prand "math/rand"
 	"net"
 	"net/http"
@@ -33,6 +35,15 @@ const (
 	// maxFeeUpdateTimeout represents the maximum interval in which a
 	// WebAPIEstimator will request fresh fees from its API.
 	maxFeeUpdateTimeout = 20 * time.Minute
+)
+
+var (
+	// errNoFeeRateFound is used when a given conf target cannot be found
+	// from the fee estimator.
+	errNoFeeRateFound = errors.New("no fee estimation for block target")
+
+	// errEmptyCache is used when the fee rate cache is empty.
+	errEmptyCache = errors.New("fee rate cache is empty")
 )
 
 // Estimator provides the ability to estimate on-chain transaction fees for
@@ -579,7 +590,9 @@ func NewWebAPIEstimator(api WebAPIFeeSource, noCache bool) *WebAPIEstimator {
 // confirmation and returns the estimated fee expressed in sat/kw.
 //
 // NOTE: This method is part of the Estimator interface.
-func (w *WebAPIEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, error) {
+func (w *WebAPIEstimator) EstimateFeePerKW(numBlocks uint32) (
+	SatPerKWeight, error) {
+
 	if numBlocks > maxBlockTarget {
 		numBlocks = maxBlockTarget
 	} else if numBlocks < minBlockTarget {
@@ -593,8 +606,12 @@ func (w *WebAPIEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, err
 	}
 
 	feePerKb, err := w.getCachedFee(numBlocks)
+
+	// If the estimator returns an error, a zero value fee rate will be
+	// returned. We will log the error and return the fall back fee rate
+	// instead.
 	if err != nil {
-		return 0, err
+		log.Errorf("unable to query estimator: %v", err)
 	}
 
 	// If the result is too low, then we'll clamp it to our current fee
@@ -672,31 +689,76 @@ func (w *WebAPIEstimator) randomFeeUpdateTimeout() time.Duration {
 	return time.Duration(prand.Int63n(upper-lower) + lower)
 }
 
-// getCachedFee takes in a target for the number of blocks until an initial
-// confirmation and returns an estimated fee (if one was returned by the API). If
-// the fee was not previously cached, we cache it here.
+// getCachedFee takes a conf target and returns the cached fee rate. When the
+// fee rate cannot be found, it will search the cache by decrementing the conf
+// target until a fee rate is found. If still not found, it will return the fee
+// rate of the minimum conf target cached, in other words, the most expensive
+// fee rate it knows of.
 func (w *WebAPIEstimator) getCachedFee(numBlocks uint32) (uint32, error) {
 	w.feesMtx.Lock()
 	defer w.feesMtx.Unlock()
 
-	// Search our cached fees for the desired block target. If the target is
-	// not cached, then attempt to extrapolate it from the next lowest target
-	// that *is* cached. If we successfully extrapolate, then cache the
-	// target's fee.
+	// If the cache is empty, return an error.
+	if len(w.feeByBlockTarget) == 0 {
+		return 0, fmt.Errorf("web API error: %w", errEmptyCache)
+	}
+
+	// Search the conf target from the cache. We expect a query to the web
+	// API has been made and the result has been cached at this point.
+	fee, ok := w.feeByBlockTarget[numBlocks]
+
+	// If the conf target can be found, exit early.
+	if ok {
+		return fee, nil
+	}
+
+	// The conf target cannot be found. We will first search the cache
+	// using a lower conf target. This is a conservative approach as the
+	// fee rate returned will be larger than what's requested.
 	for target := numBlocks; target >= minBlockTarget; target-- {
 		fee, ok := w.feeByBlockTarget[target]
 		if !ok {
 			continue
 		}
 
-		_, ok = w.feeByBlockTarget[numBlocks]
-		if !ok {
-			w.feeByBlockTarget[numBlocks] = fee
-		}
+		log.Warnf("Web API does not have a fee rate for target=%d, "+
+			"using the fee rate for target=%d instead",
+			numBlocks, target)
+
+		// Return the fee rate found, which will be more expensive than
+		// requested. We will not cache the fee rate here in the hope
+		// that the web API will later populate this value.
 		return fee, nil
 	}
-	return 0, fmt.Errorf("web API does not include a fee estimation for "+
-		"block target of %v", numBlocks)
+
+	// There are no lower conf targets cached, which is likely when the
+	// requested conf target is 1. We will search the cache using a higher
+	// conf target, which gives a fee rate that's cheaper than requested.
+	//
+	// NOTE: we can only get here iff the requested conf target is smaller
+	// than the minimum conf target cached, so we return the minimum conf
+	// target from the cache.
+	minTargetCached := uint32(math.MaxUint32)
+	for target := range w.feeByBlockTarget {
+		if target < minTargetCached {
+			minTargetCached = target
+		}
+	}
+
+	fee, ok = w.feeByBlockTarget[minTargetCached]
+	if !ok {
+		// We should never get here, just a vanity check.
+		return 0, fmt.Errorf("web API error: %w, conf target: %d",
+			errNoFeeRateFound, numBlocks)
+	}
+
+	// Log an error instead of a warning as a cheaper fee rate may delay
+	// the confirmation for some important transactions.
+	log.Errorf("Web API does not have a fee rate for target=%d, "+
+		"using the fee rate for target=%d instead",
+		numBlocks, minTargetCached)
+
+	return fee, nil
 }
 
 // updateFeeEstimates re-queries the API for fresh fees and caches them.

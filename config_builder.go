@@ -310,6 +310,10 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 			"the wallet before using auto unlocking")
 	}
 
+	// Check request params if macaroon files to be persistent
+	isStatelessInit = walletInitParams.StatelessInit || initMsg.StatelessInit ||
+		unlockMsg.StatelessInit
+
 	// What wallet mode are we running in? We've already made sure the no
 	// seed backup and auto unlock aren't both set during config parsing.
 	switch {
@@ -320,6 +324,12 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 
 	// A password for unlocking is provided in a file.
 	case d.cfg.WalletUnlockPasswordFile != "" && walletExists:
+		// If password is set allow for configurable stateless init
+		if isStatelessInit {
+			return nil, nil, nil, fmt.Errorf("error stateless initialization " +
+				"is not supported for wallet's password stored locally")
+		}
+
 		d.logger.Infof("Attempting automatic wallet unlock with " +
 			"password provided in file")
 		pwBytes, err := ioutil.ReadFile(d.cfg.WalletUnlockPasswordFile)

@@ -13,6 +13,8 @@
 * [Make etcd max message size
   configurable]((https://github.com/lightningnetwork/lnd/pull/6049).
 
+* [Fix Postgres context cancellation](https://github.com/lightningnetwork/lnd/pull/6108)
+
 ## RPC Server
 
 * [ChanStatusFlags is now

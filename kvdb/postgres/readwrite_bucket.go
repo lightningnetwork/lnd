@@ -75,10 +75,12 @@ func (b *readWriteBucket) Get(key []byte) []byte {
 	}
 
 	var value *[]byte
-	err := b.tx.QueryRow(
+	row, cancel := b.tx.QueryRow(
 		"SELECT value FROM "+b.table+" WHERE "+parentSelector(b.id)+
 			" AND key=$1", key,
-	).Scan(&value)
+	)
+	defer cancel()
+	err := row.Scan(&value)
 
 	switch {
 	case err == sql.ErrNoRows:
@@ -106,10 +108,12 @@ func (b *readWriteBucket) NestedReadWriteBucket(
 	}
 
 	var id int64
-	err := b.tx.QueryRow(
+	row, cancel := b.tx.QueryRow(
 		"SELECT id FROM "+b.table+" WHERE "+parentSelector(b.id)+
 			" AND key=$1 AND value IS NULL", key,
-	).Scan(&id)
+	)
+	defer cancel()
+	err := row.Scan(&id)
 
 	switch {
 	case err == sql.ErrNoRows:
@@ -139,10 +143,12 @@ func (b *readWriteBucket) CreateBucket(key []byte) (
 		value *[]byte
 		id    int64
 	)
-	err := b.tx.QueryRow(
+	row, cancel := b.tx.QueryRow(
 		"SELECT id,value FROM "+b.table+" WHERE "+parentSelector(b.id)+
 			" AND key=$1", key,
-	).Scan(&id, &value)
+	)
+	defer cancel()
+	err := row.Scan(&id, &value)
 
 	switch {
 	case err == sql.ErrNoRows:
@@ -159,10 +165,12 @@ func (b *readWriteBucket) CreateBucket(key []byte) (
 
 	// Bucket does not yet exist, so create it. Postgres will generate a
 	// bucket id for the new bucket.
-	err = b.tx.QueryRow(
+	row, cancel = b.tx.QueryRow(
 		"INSERT INTO "+b.table+" (parent_id, key) "+
 			"VALUES($1, $2) RETURNING id", b.id, key,
-	).Scan(&id)
+	)
+	defer cancel()
+	err = row.Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -187,19 +195,23 @@ func (b *readWriteBucket) CreateBucketIfNotExists(key []byte) (
 		value *[]byte
 		id    int64
 	)
-	err := b.tx.QueryRow(
+	row, cancel := b.tx.QueryRow(
 		"SELECT id,value FROM "+b.table+" WHERE "+parentSelector(b.id)+
 			" AND key=$1", key,
-	).Scan(&id, &value)
+	)
+	defer cancel()
+	err := row.Scan(&id, &value)
 
 	switch {
 	// Bucket does not yet exist, so create it now. Postgres will generate a
 	// bucket id for the new bucket.
 	case err == sql.ErrNoRows:
-		err = b.tx.QueryRow(
+		row, cancel := b.tx.QueryRow(
 			"INSERT INTO "+b.table+" (parent_id, key) "+
-				"VALUES($1, $2) RETURNING id", b.id, key).
-			Scan(&id)
+				"VALUES($1, $2) RETURNING id", b.id, key,
+		)
+		defer cancel()
+		err := row.Scan(&id)
 		if err != nil {
 			return nil, err
 		}
@@ -315,10 +327,12 @@ func (b *readWriteBucket) Delete(key []byte) error {
 
 	// Check to see if a bucket with this key exists.
 	var dummy int
-	err := b.tx.QueryRow(
+	row, cancel := b.tx.QueryRow(
 		"SELECT 1 FROM "+b.table+" WHERE "+parentSelector(b.id)+
 			" AND key=$1 AND value IS NULL", key,
-	).Scan(&dummy)
+	)
+	defer cancel()
+	err := row.Scan(&dummy)
 	switch {
 	// No bucket exists, proceed to deletion of the key.
 	case err == sql.ErrNoRows:
@@ -395,11 +409,13 @@ func (b *readWriteBucket) Sequence() uint64 {
 	}
 
 	var seq int64
-	err := b.tx.QueryRow(
+	row, cancel := b.tx.QueryRow(
 		"SELECT sequence FROM "+b.table+" WHERE id=$1 "+
 			"AND sequence IS NOT NULL",
 		b.id,
-	).Scan(&seq)
+	)
+	defer cancel()
+	err := row.Scan(&seq)
 
 	switch {
 	case err == sql.ErrNoRows:

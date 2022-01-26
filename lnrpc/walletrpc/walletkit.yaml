@@ -47,6 +47,9 @@ http:
     - selector: walletrpc.WalletKit.FundPsbt
       post: "/v2/wallet/psbt/fund"
       body: "*"
+    - selector: walletrpc.WalletKit.SignPsbt
+      post: "/v2/wallet/psbt/sign"
+      body: "*"
     - selector: walletrpc.WalletKit.FinalizePsbt
       post: "/v2/wallet/psbt/finalize"
       body: "*"

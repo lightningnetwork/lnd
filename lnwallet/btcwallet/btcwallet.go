@@ -16,7 +16,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/hdkeychain"
-	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
@@ -288,14 +287,37 @@ func (b *BtcWallet) InternalWallet() *base.Wallet {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) Start() error {
+	// Is the wallet (according to its database) currently watch-only
+	// already? If it is, we won't need to convert it later.
+	walletIsWatchOnly := b.wallet.Manager.WatchOnly()
+
+	// If the wallet is watch-only, but we don't expect it to be, then we
+	// are in an unexpected state and cannot continue.
+	if walletIsWatchOnly && !b.cfg.WatchOnly {
+		return fmt.Errorf("wallet is watch-only but we expect it " +
+			"not to be; check if remote signing was disabled by " +
+			"accident")
+	}
+
 	// We'll start by unlocking the wallet and ensuring that the KeyScope:
 	// (1017, 1) exists within the internal waddrmgr. We'll need this in
 	// order to properly generate the keys required for signing various
 	// contracts. If this is a watch-only wallet, we don't have any private
 	// keys and therefore unlocking is not necessary.
-	if !b.cfg.WatchOnly {
+	if !walletIsWatchOnly {
 		if err := b.wallet.Unlock(b.cfg.PrivatePass, nil); err != nil {
 			return err
+		}
+
+		// If the wallet isn't about to be converted, we need to inform
+		// the user that this wallet still contains all private key
+		// material and that they need to migrate the existing wallet.
+		if b.cfg.WatchOnly && !b.cfg.MigrateWatchOnly {
+			log.Warnf("Wallet is expected to be in watch-only " +
+				"mode but hasn't been migrated to watch-only " +
+				"yet, it still contains private keys; " +
+				"consider turning on the watch-only wallet " +
+				"migration in remote signing mode")
 		}
 	}
 
@@ -324,17 +346,13 @@ func (b *BtcWallet) Start() error {
 	err = walletdb.Update(b.db, func(tx walletdb.ReadWriteTx) error {
 		addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
 
-		for _, keyFam := range keychain.VersionZeroKeyFamilies {
-			// If this is the multi-sig key family, then we can
-			// return early as this is the default account that's
-			// created.
-			if keyFam == keychain.KeyFamilyMultiSig {
-				continue
-			}
-
+		// Generate all accounts that we could ever need. This includes
+		// all lnd key families as well as some key families used in
+		// external liquidity tools.
+		for keyFam := uint32(1); keyFam <= 255; keyFam++ {
 			// Otherwise, we'll check if the account already exists,
 			// if so, we can once again bail early.
-			_, err := scope.AccountName(addrmgrNs, uint32(keyFam))
+			_, err := scope.AccountName(addrmgrNs, keyFam)
 			if err == nil {
 				continue
 			}
@@ -342,7 +360,24 @@ func (b *BtcWallet) Start() error {
 			// If we reach this point, then the account hasn't yet
 			// been created, so we'll need to create it before we
 			// can proceed.
-			err = scope.NewRawAccount(addrmgrNs, uint32(keyFam))
+			err = scope.NewRawAccount(addrmgrNs, keyFam)
+			if err != nil {
+				return err
+			}
+		}
+
+		// If this is the first startup with remote signing and wallet
+		// migration turned on and the wallet wasn't previously
+		// migrated, we can do that now that we made sure all accounts
+		// that we need were derived correctly.
+		if !walletIsWatchOnly && b.cfg.WatchOnly &&
+			b.cfg.MigrateWatchOnly {
+
+			log.Infof("Migrating wallet to watch-only mode, " +
+				"purging all private key material")
+
+			ns := tx.ReadWriteBucket(waddrmgrNamespaceKey)
+			err = b.wallet.Manager.ConvertToWatchingOnly(ns)
 			if err != nil {
 				return err
 			}
@@ -1112,104 +1147,6 @@ func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 	}
 
 	return txDetails, nil
-}
-
-// FundPsbt creates a fully populated PSBT packet that contains enough inputs to
-// fund the outputs specified in the passed in packet with the specified fee
-// rate. If there is change left, a change output from the internal wallet is
-// added and the index of the change output is returned. Otherwise no additional
-// output is created and the index -1 is returned.
-//
-// NOTE: If the packet doesn't contain any inputs, coin selection is performed
-// automatically. The account parameter must be non-empty as it determines which
-// set of coins are eligible for coin selection. If the packet does contain any
-// inputs, it is assumed that full coin selection happened externally and no
-// additional inputs are added. If the specified inputs aren't enough to fund
-// the outputs with the given fee rate, an error is returned. No lock lease is
-// acquired for any of the selected/validated inputs. It is in the caller's
-// responsibility to lock the inputs before handing them out.
-//
-// This is a part of the WalletController interface.
-func (b *BtcWallet) FundPsbt(packet *psbt.Packet, minConfs int32,
-	feeRate chainfee.SatPerKWeight, accountName string) (int32, error) {
-
-	// The fee rate is passed in using units of sat/kw, so we'll convert
-	// this to sat/KB as the CreateSimpleTx method requires this unit.
-	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
-
-	var (
-		keyScope   *waddrmgr.KeyScope
-		accountNum uint32
-	)
-	switch accountName {
-	// If the default/imported account name was specified, we'll provide a
-	// nil key scope to FundPsbt, allowing it to select inputs from both key
-	// scopes (NP2WKH, P2WKH).
-	case lnwallet.DefaultAccountName:
-		accountNum = defaultAccount
-
-	case waddrmgr.ImportedAddrAccountName:
-		accountNum = importedAccount
-
-	// Otherwise, map the account name to its key scope and internal account
-	// number to only select inputs from said account.
-	default:
-		scope, account, err := b.wallet.LookupAccount(accountName)
-		if err != nil {
-			return 0, err
-		}
-		keyScope = &scope
-		accountNum = account
-	}
-
-	// Let the wallet handle coin selection and/or fee estimation based on
-	// the partial TX information in the packet.
-	return b.wallet.FundPsbt(
-		packet, keyScope, minConfs, accountNum, feeSatPerKB,
-		b.cfg.CoinSelectionStrategy,
-	)
-}
-
-// FinalizePsbt expects a partial transaction with all inputs and outputs fully
-// declared and tries to sign all inputs that belong to the specified account.
-// Lnd must be the last signer of the transaction. That means, if there are any
-// unsigned non-witness inputs or inputs without UTXO information attached or
-// inputs without witness data that do not belong to lnd's wallet, this method
-// will fail. If no error is returned, the PSBT is ready to be extracted and the
-// final TX within to be broadcast.
-//
-// NOTE: This method does NOT publish the transaction after it's been
-// finalized successfully.
-//
-// This is a part of the WalletController interface.
-func (b *BtcWallet) FinalizePsbt(packet *psbt.Packet, accountName string) error {
-	var (
-		keyScope   *waddrmgr.KeyScope
-		accountNum uint32
-	)
-	switch accountName {
-	// If the default/imported account name was specified, we'll provide a
-	// nil key scope to FundPsbt, allowing it to sign inputs from both key
-	// scopes (NP2WKH, P2WKH).
-	case lnwallet.DefaultAccountName:
-		accountNum = defaultAccount
-
-	case waddrmgr.ImportedAddrAccountName:
-		accountNum = importedAccount
-
-	// Otherwise, map the account name to its key scope and internal account
-	// number to determine if the inputs belonging to this account should be
-	// signed.
-	default:
-		scope, account, err := b.wallet.LookupAccount(accountName)
-		if err != nil {
-			return err
-		}
-		keyScope = &scope
-		accountNum = account
-	}
-
-	return b.wallet.FinalizePsbt(keyScope, accountNum, packet)
 }
 
 // txSubscriptionClient encapsulates the transaction notification client from

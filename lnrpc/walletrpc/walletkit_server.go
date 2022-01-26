@@ -122,6 +122,10 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/walletrpc.WalletKit/SignPsbt": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
 		"/walletrpc.WalletKit/FinalizePsbt": {{
 			Entity: "onchain",
 			Action: "write",
@@ -1186,6 +1190,47 @@ func marshallLeases(locks []*wtxmgr.LockedOutput) []*UtxoLease {
 	}
 
 	return rpcLocks
+}
+
+// SignPsbt expects a partial transaction with all inputs and outputs fully
+// declared and tries to sign all unsigned inputs that have all required fields
+// (UTXO information, BIP32 derivation information, witness or sig scripts)
+// set.
+// If no error is returned, the PSBT is ready to be given to the next signer or
+// to be finalized if lnd was the last signer.
+//
+// NOTE: This RPC only signs inputs (and only those it can sign), it does not
+// perform any other tasks (such as coin selection, UTXO locking or
+// input/output/fee value validation, PSBT finalization). Any input that is
+// incomplete will be skipped.
+func (w *WalletKit) SignPsbt(_ context.Context, req *SignPsbtRequest) (
+	*SignPsbtResponse, error) {
+
+	packet, err := psbt.NewFromRawBytes(
+		bytes.NewReader(req.FundedPsbt), false,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing PSBT: %v", err)
+	}
+
+	// Let the wallet do the heavy lifting. This will sign all inputs that
+	// we have the UTXO for. If some inputs can't be signed and don't have
+	// witness data attached, they will just be skipped.
+	err = w.cfg.Wallet.SignPsbt(packet)
+	if err != nil {
+		return nil, fmt.Errorf("error signing PSBT: %v", err)
+	}
+
+	// Serialize the signed PSBT in both the packet and wire format.
+	var signedPsbtBytes bytes.Buffer
+	err = packet.Serialize(&signedPsbtBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error serializing PSBT: %v", err)
+	}
+
+	return &SignPsbtResponse{
+		SignedPsbt: signedPsbtBytes.Bytes(),
+	}, nil
 }
 
 // FinalizePsbt expects a partial transaction with all inputs and outputs fully

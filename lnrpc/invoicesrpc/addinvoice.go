@@ -407,7 +407,15 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 				numMaxHophints,
 			)
 
-			options = append(options, hopHints...)
+			// Convert our set of selected hop hints into route
+			// hints and add to our invoice options.
+			for _, hopHint := range hopHints {
+				routeHint := zpay32.RouteHint(hopHint)
+
+				options = append(
+					options, routeHint,
+				)
+			}
 		}
 	}
 
@@ -540,7 +548,7 @@ func chanCanBeHopHint(channel *HopHintInfo, cfg *SelectHopHintsCfg) (
 
 // addHopHint creates a hop hint out of the passed channel and channel policy.
 // The new hop hint is appended to the passed slice.
-func addHopHint(hopHints *[]func(*zpay32.Invoice),
+func addHopHint(hopHints *[][]zpay32.HopHint,
 	channel *HopHintInfo, chanPolicy *channeldb.ChannelEdgePolicy) {
 
 	hopHint := zpay32.HopHint{
@@ -552,9 +560,8 @@ func addHopHint(hopHints *[]func(*zpay32.Invoice),
 		),
 		CLTVExpiryDelta: chanPolicy.TimeLockDelta,
 	}
-	*hopHints = append(
-		*hopHints, zpay32.RouteHint([]zpay32.HopHint{hopHint}),
-	)
+
+	*hopHints = append(*hopHints, []zpay32.HopHint{hopHint})
 }
 
 // HopHintInfo contains the channel information required to create a hop hint.
@@ -623,14 +630,14 @@ func newSelectHopHintsCfg(invoicesCfg *AddInvoiceConfig) *SelectHopHintsCfg {
 // TODO(roasbeef): do proper sub-set sum max hints usually << numChans
 func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *SelectHopHintsCfg,
 	openChannels []*HopHintInfo,
-	numMaxHophints int) []func(*zpay32.Invoice) {
+	numMaxHophints int) [][]zpay32.HopHint {
 
 	// We'll add our hop hints in two passes, first we'll add all channels
 	// that are eligible to be hop hints, and also have a local balance
 	// above the payment amount.
 	var totalHintBandwidth lnwire.MilliSatoshi
 	hopHintChans := make(map[wire.OutPoint]struct{})
-	hopHints := make([]func(*zpay32.Invoice), 0, numMaxHophints)
+	hopHints := make([][]zpay32.HopHint, 0, numMaxHophints)
 	for _, channel := range openChannels {
 		// If this channel can't be a hop hint, then skip it.
 		edgePolicy, canBeHopHint := chanCanBeHopHint(channel, cfg)

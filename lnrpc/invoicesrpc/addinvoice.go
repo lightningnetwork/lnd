@@ -400,8 +400,11 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 			// We'll restrict the number of individual route hints
 			// to 20 to avoid creating overly large invoices.
 			numMaxHophints := 20 - len(forcedHints)
+
+			hopHintsCfg := newSelectHopHintsCfg(cfg)
 			hopHints := SelectHopHints(
-				amtMSat, cfg, filteredChannels, numMaxHophints,
+				amtMSat, hopHintsCfg, filteredChannels,
+				numMaxHophints,
 			)
 
 			options = append(options, hopHints...)
@@ -476,7 +479,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 // chanCanBeHopHint returns true if the target channel is eligible to be a hop
 // hint.
-func chanCanBeHopHint(channel *HopHintInfo, cfg *AddInvoiceConfig) (
+func chanCanBeHopHint(channel *HopHintInfo, cfg *SelectHopHintsCfg) (
 	*channeldb.ChannelEdgePolicy, bool) {
 
 	// Since we're only interested in our private channels, we'll skip
@@ -500,7 +503,7 @@ func chanCanBeHopHint(channel *HopHintInfo, cfg *AddInvoiceConfig) (
 	// channels.
 	var remotePub [33]byte
 	copy(remotePub[:], channel.RemotePubkey.SerializeCompressed())
-	isRemoteNodePublic, err := cfg.Graph.IsPublicNode(remotePub)
+	isRemoteNodePublic, err := cfg.IsPublicNode(remotePub)
 	if err != nil {
 		log.Errorf("Unable to determine if node %x "+
 			"is advertised: %v", remotePub, err)
@@ -515,9 +518,7 @@ func chanCanBeHopHint(channel *HopHintInfo, cfg *AddInvoiceConfig) (
 	}
 
 	// Fetch the policies for each end of the channel.
-	info, p1, p2, err := cfg.Graph.FetchChannelEdgesByID(
-		channel.ShortChannelID,
-	)
+	info, p1, p2, err := cfg.FetchChannelEdgesByID(channel.ShortChannelID)
 	if err != nil {
 		log.Errorf("Unable to fetch the routing "+
 			"policies for the edges of the channel "+
@@ -593,12 +594,34 @@ func newHopHintInfo(c *channeldb.OpenChannel, isActive bool) *HopHintInfo {
 	}
 }
 
+// SelectHopHintsCfg contains the dependencies required to obtain hop hints
+// for an invoice.
+type SelectHopHintsCfg struct {
+	// IsPublicNode is returns a bool indicating whether the node with the
+	// given public key is seen as a public node in the graph from the
+	// graph's source node's point of view.
+	IsPublicNode func(pubKey [33]byte) (bool, error)
+
+	// FetchChannelEdgesByID attempts to lookup the two directed edges for
+	// the channel identified by the channel ID.
+	FetchChannelEdgesByID func(chanID uint64) (*channeldb.ChannelEdgeInfo,
+		*channeldb.ChannelEdgePolicy, *channeldb.ChannelEdgePolicy,
+		error)
+}
+
+func newSelectHopHintsCfg(invoicesCfg *AddInvoiceConfig) *SelectHopHintsCfg {
+	return &SelectHopHintsCfg{
+		IsPublicNode:          invoicesCfg.Graph.IsPublicNode,
+		FetchChannelEdgesByID: invoicesCfg.Graph.FetchChannelEdgesByID,
+	}
+}
+
 // SelectHopHints will select up to numMaxHophints from the set of passed open
 // channels. The set of hop hints will be returned as a slice of functional
 // options that'll append the route hint to the set of all route hints.
 //
 // TODO(roasbeef): do proper sub-set sum max hints usually << numChans
-func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
+func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *SelectHopHintsCfg,
 	openChannels []*HopHintInfo,
 	numMaxHophints int) []func(*zpay32.Invoice) {
 

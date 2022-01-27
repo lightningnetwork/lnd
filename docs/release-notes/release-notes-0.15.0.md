@@ -83,6 +83,9 @@
   allows code external to lnd to call the function, where previously it would 
   require access to lnd's internals.
 
+* [rpc-check fails if it finds any changes](https://github.com/lightningnetwork/lnd/pull/6207/)
+  including new and deleted files.
+
 # Contributors (Alphabetical Order)
 
 * 3nprob
@@ -96,6 +99,7 @@
 * ErikEk
 * henta
 * Joost Jager
+* Jordi Montes
 * LightningHelper
 * Liviu
 * mateuszmp

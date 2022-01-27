@@ -280,7 +280,7 @@ rpc-format:
 rpc-check: rpc
 	@$(call print, "Verifying protos.")
 	cd ./lnrpc; ../scripts/check-rest-annotations.sh
-	if test -n "$$(git describe --dirty | grep dirty)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
+	if test -n "$$(git status --porcelain)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
 
 rpc-js-compile:
 	@$(call print, "Compiling JSON/WASM stubs.")

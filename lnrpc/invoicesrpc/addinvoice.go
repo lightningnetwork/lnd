@@ -9,6 +9,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -379,12 +380,21 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		if len(openChannels) > 0 {
 			// We filter the channels by excluding the ones that were specified by
 			// the caller and were already added.
-			var filteredChannels []*channeldb.OpenChannel
+			var filteredChannels []*HopHintInfo
 			for _, c := range openChannels {
 				if _, ok := forcedHints[c.ShortChanID().ToUint64()]; ok {
 					continue
 				}
-				filteredChannels = append(filteredChannels, c)
+
+				chanID := lnwire.NewChanIDFromOutPoint(
+					&c.FundingOutpoint,
+				)
+				isActive := cfg.IsChannelActive(chanID)
+
+				hopHintInfo := newHopHintInfo(c, isActive)
+				filteredChannels = append(
+					filteredChannels, hopHintInfo,
+				)
 			}
 
 			// We'll restrict the number of individual route hints
@@ -466,24 +476,20 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 // chanCanBeHopHint returns true if the target channel is eligible to be a hop
 // hint.
-func chanCanBeHopHint(channel *channeldb.OpenChannel, cfg *AddInvoiceConfig) (
+func chanCanBeHopHint(channel *HopHintInfo, cfg *AddInvoiceConfig) (
 	*channeldb.ChannelEdgePolicy, bool) {
 
 	// Since we're only interested in our private channels, we'll skip
 	// public ones.
-	isPublic := channel.ChannelFlags&lnwire.FFAnnounceChannel != 0
-	if isPublic {
+	if channel.IsPublic {
 		return nil, false
 	}
 
 	// Make sure the channel is active.
-	chanPoint := lnwire.NewChanIDFromOutPoint(
-		&channel.FundingOutpoint,
-	)
-	if !cfg.IsChannelActive(chanPoint) {
+	if !channel.IsActive {
 		log.Debugf("Skipping channel %v due to not "+
 			"being eligible to forward payments",
-			chanPoint)
+			channel.ShortChannelID)
 		return nil, false
 	}
 
@@ -493,7 +499,7 @@ func chanCanBeHopHint(channel *channeldb.OpenChannel, cfg *AddInvoiceConfig) (
 	// unadvertised, like in the case of a node only having private
 	// channels.
 	var remotePub [33]byte
-	copy(remotePub[:], channel.IdentityPub.SerializeCompressed())
+	copy(remotePub[:], channel.RemotePubkey.SerializeCompressed())
 	isRemoteNodePublic, err := cfg.Graph.IsPublicNode(remotePub)
 	if err != nil {
 		log.Errorf("Unable to determine if node %x "+
@@ -504,17 +510,18 @@ func chanCanBeHopHint(channel *channeldb.OpenChannel, cfg *AddInvoiceConfig) (
 	if !isRemoteNodePublic {
 		log.Debugf("Skipping channel %v due to "+
 			"counterparty %x being unadvertised",
-			chanPoint, remotePub)
+			channel.ShortChannelID, remotePub)
 		return nil, false
 	}
 
 	// Fetch the policies for each end of the channel.
-	chanID := channel.ShortChanID().ToUint64()
-	info, p1, p2, err := cfg.Graph.FetchChannelEdgesByID(chanID)
+	info, p1, p2, err := cfg.Graph.FetchChannelEdgesByID(
+		channel.ShortChannelID,
+	)
 	if err != nil {
 		log.Errorf("Unable to fetch the routing "+
 			"policies for the edges of the channel "+
-			"%v: %v", chanPoint, err)
+			"%v: %v", channel.ShortChannelID, err)
 		return nil, false
 	}
 
@@ -533,11 +540,11 @@ func chanCanBeHopHint(channel *channeldb.OpenChannel, cfg *AddInvoiceConfig) (
 // addHopHint creates a hop hint out of the passed channel and channel policy.
 // The new hop hint is appended to the passed slice.
 func addHopHint(hopHints *[]func(*zpay32.Invoice),
-	channel *channeldb.OpenChannel, chanPolicy *channeldb.ChannelEdgePolicy) {
+	channel *HopHintInfo, chanPolicy *channeldb.ChannelEdgePolicy) {
 
 	hopHint := zpay32.HopHint{
-		NodeID:      channel.IdentityPub,
-		ChannelID:   channel.ShortChanID().ToUint64(),
+		NodeID:      channel.RemotePubkey,
+		ChannelID:   channel.ShortChannelID,
 		FeeBaseMSat: uint32(chanPolicy.FeeBaseMSat),
 		FeeProportionalMillionths: uint32(
 			chanPolicy.FeeProportionalMillionths,
@@ -549,13 +556,50 @@ func addHopHint(hopHints *[]func(*zpay32.Invoice),
 	)
 }
 
+// HopHintInfo contains the channel information required to create a hop hint.
+type HopHintInfo struct {
+	// IsPublic indicates whether a channel is advertised to the network.
+	IsPublic bool
+
+	// IsActive indicates whether the channel is online and available for
+	// use.
+	IsActive bool
+
+	// FundingOutpoint is the funding txid:index for the channel.
+	FundingOutpoint wire.OutPoint
+
+	// RemotePubkey is the public key of the remote party that this channel
+	// is in.
+	RemotePubkey *btcec.PublicKey
+
+	// RemoteBalance is the remote party's balance (our current incoming
+	// capacity).
+	RemoteBalance lnwire.MilliSatoshi
+
+	// ShortChannelID is the short channel ID of the channel.
+	ShortChannelID uint64
+}
+
+func newHopHintInfo(c *channeldb.OpenChannel, isActive bool) *HopHintInfo {
+	isPublic := c.ChannelFlags&lnwire.FFAnnounceChannel != 0
+
+	return &HopHintInfo{
+		IsPublic:        isPublic,
+		IsActive:        isActive,
+		FundingOutpoint: c.FundingOutpoint,
+		RemotePubkey:    c.IdentityPub,
+		RemoteBalance:   c.LocalCommitment.RemoteBalance,
+		ShortChannelID:  c.ShortChannelID.ToUint64(),
+	}
+}
+
 // SelectHopHints will select up to numMaxHophints from the set of passed open
 // channels. The set of hop hints will be returned as a slice of functional
 // options that'll append the route hint to the set of all route hints.
 //
 // TODO(roasbeef): do proper sub-set sum max hints usually << numChans
 func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
-	openChannels []*channeldb.OpenChannel,
+	openChannels []*HopHintInfo,
 	numMaxHophints int) []func(*zpay32.Invoice) {
 
 	// We'll add our hop hints in two passes, first we'll add all channels
@@ -573,7 +617,7 @@ func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 
 		// Similarly, in this first pass, we'll ignore all channels in
 		// isolation can't satisfy this payment.
-		if channel.LocalCommitment.RemoteBalance < amtMSat {
+		if channel.RemoteBalance < amtMSat {
 			continue
 		}
 
@@ -582,7 +626,7 @@ func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 		addHopHint(&hopHints, channel, edgePolicy)
 
 		hopHintChans[channel.FundingOutpoint] = struct{}{}
-		totalHintBandwidth += channel.LocalCommitment.RemoteBalance
+		totalHintBandwidth += channel.RemoteBalance
 	}
 
 	// If we have enough hop hints at this point, then we'll exit early.
@@ -629,7 +673,7 @@ func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 		// available balance now to update our tally.
 		//
 		// TODO(roasbeef): have a cut off based on min bandwidth?
-		totalHintBandwidth += channel.LocalCommitment.RemoteBalance
+		totalHintBandwidth += channel.RemoteBalance
 	}
 
 	return hopHints

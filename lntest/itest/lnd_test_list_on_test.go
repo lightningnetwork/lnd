@@ -64,6 +64,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "funding flow persistence",
 		TestFunc: testChannelFundingPersistence,
 	},
+	{
+		Name:     "update channel policy fee rate accuracy",
+		TestFunc: testUpdateChannelPolicyFeeRateAccuracy,
+	},
 
 	// Open channel related tests.
 	{
@@ -432,11 +436,6 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "sign psbt",
 		TestFunc: testSignPsbt,
 	},
-
-	// {
-	// 	name: "update channel policy fee rate accuracy",
-	// 	test: testUpdateChannelPolicyFeeRateAccuracy,
-	// },
 	// {
 	// 	name: "3rd party anchor spend",
 	// 	test: testAnchorThirdPartySpend,

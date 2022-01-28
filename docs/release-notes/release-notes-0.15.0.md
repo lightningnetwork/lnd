@@ -76,12 +76,17 @@
 * [Fix itest not picking up local config file or creating directories in home
   dir of the user](https://github.com/lightningnetwork/lnd/pull/6202).
 
+* [A refactor of `SelectHopHints`](https://github.com/lightningnetwork/lnd/pull/6182) 
+  allows code external to lnd to call the function, where previously it would 
+  require access to lnd's internals.
+
 # Contributors (Alphabetical Order)
 
 * 3nprob
 * Andreas Schjønhaug
 * asvdf
 * BTCparadigm
+* Carla Kirk-Cohen
 * Carsten Otto
 * Dan Bolser
 * Daniel McNally

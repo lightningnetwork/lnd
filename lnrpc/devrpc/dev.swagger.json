@@ -1,0 +1,230 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "devrpc/dev.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "Dev"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v2/dev/importgraph": {
+      "post": {
+        "summary": "lncli: `importgraph`\nImportGraph imports a ChannelGraph into the graph database. Should only be\nused for development.",
+        "operationId": "Dev_ImportGraph",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/devrpcImportGraphResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcChannelGraph"
+            }
+          }
+        ],
+        "tags": [
+          "Dev"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "devrpcImportGraphResponse": {
+      "type": "object"
+    },
+    "lnrpcChannelEdge": {
+      "type": "object",
+      "properties": {
+        "channel_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique channel ID for the channel. The first 3 bytes are the block\nheight, the next 3 the index within the block, and the last 2 bytes are the\noutput index for the channel."
+        },
+        "chan_point": {
+          "type": "string"
+        },
+        "last_update": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "node1_pub": {
+          "type": "string"
+        },
+        "node2_pub": {
+          "type": "string"
+        },
+        "capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "node1_policy": {
+          "$ref": "#/definitions/lnrpcRoutingPolicy"
+        },
+        "node2_policy": {
+          "$ref": "#/definitions/lnrpcRoutingPolicy"
+        }
+      },
+      "description": "A fully authenticated channel along with all its unique attributes.\nOnce an authenticated channel announcement has been processed on the network,\nthen an instance of ChannelEdgeInfo encapsulating the channels attributes is\nstored. The other portions relevant to routing policy of a channel are stored\nwithin a ChannelEdgePolicy for each direction of the channel."
+    },
+    "lnrpcChannelGraph": {
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcLightningNode"
+          },
+          "title": "The list of `LightningNode`s in this channel graph"
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelEdge"
+          },
+          "title": "The list of `ChannelEdge`s in this channel graph"
+        }
+      },
+      "description": "Returns a new instance of the directed channel graph."
+    },
+    "lnrpcFeature": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "is_required": {
+          "type": "boolean"
+        },
+        "is_known": {
+          "type": "boolean"
+        }
+      }
+    },
+    "lnrpcLightningNode": {
+      "type": "object",
+      "properties": {
+        "last_update": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "pub_key": {
+          "type": "string"
+        },
+        "alias": {
+          "type": "string"
+        },
+        "addresses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcNodeAddress"
+          }
+        },
+        "color": {
+          "type": "string"
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcFeature"
+          }
+        }
+      },
+      "description": "An individual vertex/node within the channel graph. A node is\nconnected to other nodes by one or more channel edges emanating from it. As the\ngraph is directed, a node will also have an incoming edge attached to it for\neach outgoing edge."
+    },
+    "lnrpcNodeAddress": {
+      "type": "object",
+      "properties": {
+        "network": {
+          "type": "string"
+        },
+        "addr": {
+          "type": "string"
+        }
+      }
+    },
+    "lnrpcRoutingPolicy": {
+      "type": "object",
+      "properties": {
+        "time_lock_delta": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "min_htlc": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee_base_msat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee_rate_milli_msat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "max_htlc_msat": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "last_update": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

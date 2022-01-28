@@ -39,7 +39,7 @@ var (
 
 	// maxMsgRecvSize is the largest message our client will receive. We
 	// set this to 200MiB atm.
-	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200)
+	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(lnrpc.MaxGrpcMsgSize)
 )
 
 func fatal(err error) {
@@ -400,6 +400,7 @@ func main() {
 	app.Commands = append(app.Commands, walletCommands()...)
 	app.Commands = append(app.Commands, watchtowerCommands()...)
 	app.Commands = append(app.Commands, wtclientCommands()...)
+	app.Commands = append(app.Commands, devCommands()...)
 
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)

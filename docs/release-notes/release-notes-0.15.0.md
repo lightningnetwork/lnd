@@ -62,6 +62,9 @@
   `pending_force_closing_channels` under `pendingchannels` whereas before was
   empty(zero).
 
+* [Add dev only RPC subserver and the devrpc.ImportGraph
+  call](https://github.com/lightningnetwork/lnd/pull/6149)
+
 ## Documentation
 
 * Improved instructions on [how to build lnd for mobile](https://github.com/lightningnetwork/lnd/pull/6085).

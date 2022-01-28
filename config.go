@@ -1596,7 +1596,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// Finally, ensure that the user's color is correctly formatted,
 	// otherwise the server will not be able to start after the unlocking
 	// the wallet.
-	_, err = parseHexColor(cfg.Color)
+	_, err = lncfg.ParseHexColor(cfg.Color)
 	if err != nil {
 		return nil, mkErr("unable to parse node color: %v", err)
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -140,6 +141,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	AddSubLogger(root, "SGNR", interceptor, signrpc.UseLogger)
 	AddSubLogger(root, "WLKT", interceptor, walletrpc.UseLogger)
 	AddSubLogger(root, "ARPC", interceptor, autopilotrpc.UseLogger)
+	AddSubLogger(root, "DRPC", interceptor, devrpc.UseLogger)
 	AddSubLogger(root, "INVC", interceptor, invoices.UseLogger)
 	AddSubLogger(root, "NANN", interceptor, netann.UseLogger)
 	AddSubLogger(root, "WTWR", interceptor, watchtower.UseLogger)

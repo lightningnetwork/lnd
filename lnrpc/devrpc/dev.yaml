@@ -1,0 +1,8 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: devrpc.Dev.ImportGraph
+      post: "/v2/dev/importgraph"
+      body: "*"

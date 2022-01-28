@@ -268,6 +268,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	rpcServerOpts := interceptorChain.CreateServerOpts()
 	serverOpts = append(serverOpts, rpcServerOpts...)
+	serverOpts = append(
+		serverOpts, grpc.MaxRecvMsgSize(lnrpc.MaxGrpcMsgSize),
+	)
 
 	grpcServer := grpc.NewServer(serverOpts...)
 	defer grpcServer.Stop()
@@ -771,7 +774,7 @@ func getTLSConfig(cfg *Config) ([]grpc.ServerOption, []grpc.DialOption,
 	restDialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(restCreds),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200),
+			grpc.MaxCallRecvMsgSize(lnrpc.MaxGrpcMsgSize),
 		),
 	}
 

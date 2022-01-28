@@ -48,12 +48,17 @@ function generate() {
     --custom_opt="$opts" \
     lightning.proto stateservice.proto walletunlocker.proto
   
-  PACKAGES="autopilotrpc chainrpc invoicesrpc routerrpc signrpc verrpc walletrpc watchtowerrpc wtclientrpc"
+  PACKAGES="autopilotrpc chainrpc invoicesrpc routerrpc signrpc verrpc walletrpc watchtowerrpc wtclientrpc devrpc"
   for package in $PACKAGES; do
     # Special import for the wallet kit.
     manual_import=""
     if [[ "$package" == "walletrpc" ]]; then
       manual_import="github.com/lightningnetwork/lnd/lnrpc/signrpc"
+    fi
+
+    # Special import for devrpc.
+    if [[ "$package" == "devrpc" ]]; then
+        manual_import="github.com/lightningnetwork/lnd/lnrpc"
     fi
 
     opts="package_name=$package,manual_import=$manual_import,js_stubs=1,build_tags=// +build js"

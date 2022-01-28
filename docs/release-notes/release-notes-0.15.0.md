@@ -180,6 +180,9 @@ then watch it on chain. Taproot script spends are also supported through the
 
 * [Add new Peers subserver](https://github.com/lightningnetwork/lnd/pull/5587) with a new endpoint for updating the `NodeAnnouncement` data without having to restart the node.
 
+* Add [htlc expiry protection](https://github.com/lightningnetwork/lnd/pull/6212)
+to the htlc interceptor API.
+
 ## Documentation
 
 * Improved instructions on [how to build lnd for mobile](https://github.com/lightningnetwork/lnd/pull/6085).

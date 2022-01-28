@@ -655,7 +655,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 	s.interceptableSwitch = htlcswitch.NewInterceptableSwitch(
-		s.htlcSwitch, s.cfg.RequireInterceptor,
+		s.htlcSwitch, lncfg.DefaultFinalCltvRejectDelta,
+		s.cfg.RequireInterceptor,
 	)
 
 	chanStatusMgrCfg := &netann.ChanStatusConfig{

@@ -172,6 +172,7 @@ func NewChanStatusManager(cfg *ChanStatusConfig) (*ChanStatusManager, error) {
 func (m *ChanStatusManager) Start() error {
 	var err error
 	m.started.Do(func() {
+		log.Info("Channel Status Manager starting")
 		err = m.start()
 	})
 	return err

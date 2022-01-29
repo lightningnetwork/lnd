@@ -132,6 +132,7 @@ func NewOnionProcessor(router *sphinx.Router) *OnionProcessor {
 
 // Start spins up the onion processor's sphinx router.
 func (p *OnionProcessor) Start() error {
+	log.Info("Onion processor starting")
 	return p.router.Start()
 }
 

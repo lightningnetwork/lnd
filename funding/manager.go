@@ -588,14 +588,13 @@ func NewFundingManager(cfg Config) (*Manager, error) {
 func (f *Manager) Start() error {
 	var err error
 	f.started.Do(func() {
+		log.Info("Funding manager starting")
 		err = f.start()
 	})
 	return err
 }
 
 func (f *Manager) start() error {
-	log.Tracef("Funding manager running")
-
 	// Upon restart, the Funding Manager will check the database to load any
 	// channels that were  waiting for their funding transactions to be
 	// confirmed on the blockchain at the time when the daemon last went

@@ -58,6 +58,7 @@ func NewHostAnnouncer(cfg HostAnnouncerConfig) *HostAnnouncer {
 // Start starts the HostAnnouncer.
 func (h *HostAnnouncer) Start() error {
 	h.startOnce.Do(func() {
+		log.Info("HostAnnouncer starting")
 		h.wg.Add(1)
 		go h.hostWatcher()
 	})

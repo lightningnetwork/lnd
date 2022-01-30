@@ -1777,6 +1777,15 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.fundingMgr.Stop)
 
+		// htlcSwitch must be started before chainArb since the latter
+		// relies on htlcSwitch to deliver resolution message upon
+		// start.
+		if err := s.htlcSwitch.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.htlcSwitch.Stop)
+
 		if err := s.chainArb.Start(); err != nil {
 			startErr = err
 			return
@@ -1806,12 +1815,6 @@ func (s *server) Start() error {
 			return
 		}
 		cleanup = cleanup.add(s.sphinx.Stop)
-
-		if err := s.htlcSwitch.Start(); err != nil {
-			startErr = err
-			return
-		}
-		cleanup = cleanup.add(s.htlcSwitch.Stop)
 
 		if err := s.chanStatusMgr.Start(); err != nil {
 			startErr = err

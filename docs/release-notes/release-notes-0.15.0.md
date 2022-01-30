@@ -36,6 +36,10 @@
   could result in an "invoice too large" error when creating invoices. Hints 
   are now properly limited to our maximum of 20.
 
+* [Fixed an edge case where the lnd might be stuck at starting due to channel
+  arbitrator relying on htlcswitch to be started
+  first](https://github.com/lightningnetwork/lnd/pull/6214).
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)

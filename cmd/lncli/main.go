@@ -305,6 +305,11 @@ func main() {
 			Usage: "The host:port of a SOCKS proxy through which all connections to the LN daemon will be established over.",
 		},
 		cli.StringFlag{
+			Name:  "socksproxy",
+			Value: defaultLndDir,
+			Usage: "The host:port of a SOCKS proxy through which all connections to the LN daemon will be established over.",
+		},
+		cli.StringFlag{
 			Name:  "tlscertpath",
 			Value: defaultTLSCertPath,
 			Usage: "The path to lnd's TLS certificate.",

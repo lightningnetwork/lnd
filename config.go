@@ -172,6 +172,10 @@ const (
 	// channel state update and signing a new commitment.
 	defaultChannelCommitInterval = 50 * time.Millisecond
 
+	// maxChannelCommitInterval is the maximum time the commit interval can
+	// be configured to.
+	maxChannelCommitInterval = time.Hour
+
 	// defaultChannelCommitBatchSize is the default maximum number of
 	// channel state updates that is accumulated before signing a new
 	// commitment.
@@ -1560,6 +1564,14 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		return nil, mkErr("default-remote-max-htlcs (%v) must be "+
 			"less than %v", cfg.DefaultRemoteMaxHtlcs,
 			maxRemoteHtlcs)
+	}
+
+	// Clamp the ChannelCommitInterval so that commitment updates can still
+	// happen in a reasonable timeframe.
+	if cfg.ChannelCommitInterval > maxChannelCommitInterval {
+		return nil, mkErr("channel-commit-interval (%v) must be less "+
+			"than %v", cfg.ChannelCommitInterval,
+			maxChannelCommitInterval)
 	}
 
 	if err := cfg.Gossip.Parse(); err != nil {

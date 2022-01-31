@@ -28,6 +28,7 @@ type BitcoindBackendConfig struct {
 	zmqBlockPath string
 	zmqTxPath    string
 	p2pPort      int
+	RpcPolling   bool
 	rpcClient    *rpcclient.Client
 
 	// minerAddr is the p2p address of the miner to connect to.
@@ -46,10 +47,17 @@ func (b BitcoindBackendConfig) GenArgs() []string {
 	args = append(args, fmt.Sprintf("--bitcoind.rpchost=%v", b.rpcHost))
 	args = append(args, fmt.Sprintf("--bitcoind.rpcuser=%v", b.rpcUser))
 	args = append(args, fmt.Sprintf("--bitcoind.rpcpass=%v", b.rpcPass))
-	args = append(args, fmt.Sprintf("--bitcoind.zmqpubrawblock=%v",
-		b.zmqBlockPath))
-	args = append(args, fmt.Sprintf("--bitcoind.zmqpubrawtx=%v",
-		b.zmqTxPath))
+	if b.RpcPolling {
+		args = append(args, "--bitcoind.rpcpolling",
+			"--bitcoind.pollblocktimer=500ms",
+			"--bitcoind.polltxtimer=500ms",
+		)
+	} else {
+		args = append(args, fmt.Sprintf("--bitcoind.zmqpubrawblock=%v",
+			b.zmqBlockPath))
+		args = append(args, fmt.Sprintf("--bitcoind.zmqpubrawtx=%v",
+			b.zmqTxPath))
+	}
 
 	return args
 }
@@ -71,8 +79,8 @@ func (b BitcoindBackendConfig) Name() string {
 
 // newBackend starts a bitcoind node with the given extra parameters and returns
 // a BitcoindBackendConfig for that node.
-func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
-	*BitcoindBackendConfig, func() error, error) {
+func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
+	rpcPolling bool) (*BitcoindBackendConfig, func() error, error) {
 
 	baseLogDir := fmt.Sprintf(logDirPattern, GetLogDir())
 	if netParams != &chaincfg.RegressionNetParams {
@@ -111,6 +119,7 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 		"-zmqpubrawtx=" + zmqTxAddr,
 		"-debuglogfile=" + logFile,
 	}
+
 	cmdArgs = append(cmdArgs, extraArgs...)
 	bitcoind := exec.Command("bitcoind", cmdArgs...)
 
@@ -185,6 +194,7 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 		zmqBlockPath: zmqBlockAddr,
 		zmqTxPath:    zmqTxAddr,
 		p2pPort:      p2pPort,
+		RpcPolling:   rpcPolling,
 		rpcClient:    client,
 		minerAddr:    miner,
 	}

@@ -116,6 +116,11 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * The [`whitespace` linter](https://github.com/lightningnetwork/lnd/pull/6270)
   was enabled to make sure multi-line `if` conditions and function/method
   declarations are followed by an empty line to improve readability.
+  **Note to developers**: please make sure you delete the old version of
+  `golangci-lint` in your `$GOPATH/bin` directory. `make lint` does not
+  automatically replace it with the new version if the binary already exists!
+  
+* [`ChannelLink` in the `htlcswitch` now performs a 2-way handoff instead of a 1-way handoff with its `ChannelArbitrator`.](https://github.com/lightningnetwork/lnd/pull/6221)
 
 # Contributors (Alphabetical Order)
 
@@ -128,6 +133,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * Dan Bolser
 * Daniel McNally
 * ErikEk
+* Eugene Siegel
 * henta
 * Joost Jager
 * Jordi Montes

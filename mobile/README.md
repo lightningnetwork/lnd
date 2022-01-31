@@ -103,7 +103,7 @@ plugin with protoc:
 
 1. Replace the base image with `FROM swift:focal` so that Swift can be used.
 2. `clang-format='1:7.0*'` is unavailable in Ubuntu Focal. Change that to
-`clang-format='1:10.0*`.
+`clang-format='1:10.0*'`.
 3. On the next line, install Go and set the environment variables by adding the
 following commands:
 
@@ -132,7 +132,7 @@ Tip: The generated Swift files will be found in various folders. If you’d like
 to move them to the same folder as the framework file, run
 
 ```shell
-⛰  `find . -name "*.swift" -print0 | xargs -0 -I {} mv {} mobile/build/ios`
+⛰  find . -name "*.swift" -print0 | xargs -0 -I {} mv {} mobile/build/ios
 ```
 
 `Lndmobile.xcframework` and all Swift files should now be added to your Xcode

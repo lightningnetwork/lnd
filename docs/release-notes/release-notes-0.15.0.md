@@ -117,6 +117,8 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
   was enabled to make sure multi-line `if` conditions and function/method
   declarations are followed by an empty line to improve readability.
 
+* [The channel-commit-interval is now clamped to a reasonable timeframe of 1h.](https://github.com/lightningnetwork/lnd/pull/6220)
+
 # Contributors (Alphabetical Order)
 
 * 3nprob
@@ -128,6 +130,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * Dan Bolser
 * Daniel McNally
 * ErikEk
+* Eugene Siegel
 * henta
 * Joost Jager
 * Jordi Montes

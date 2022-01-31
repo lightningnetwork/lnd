@@ -19,7 +19,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type DevClient interface {
-	// lncli: `importgraph`
+	//
 	//ImportGraph imports a ChannelGraph into the graph database. Should only be
 	//used for development.
 	ImportGraph(ctx context.Context, in *lnrpc.ChannelGraph, opts ...grpc.CallOption) (*ImportGraphResponse, error)
@@ -46,7 +46,7 @@ func (c *devClient) ImportGraph(ctx context.Context, in *lnrpc.ChannelGraph, opt
 // All implementations must embed UnimplementedDevServer
 // for forward compatibility
 type DevServer interface {
-	// lncli: `importgraph`
+	//
 	//ImportGraph imports a ChannelGraph into the graph database. Should only be
 	//used for development.
 	ImportGraph(context.Context, *lnrpc.ChannelGraph) (*ImportGraphResponse, error)

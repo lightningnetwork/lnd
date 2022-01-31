@@ -7,7 +7,7 @@ package devrpc;
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/devrpc";
 
 service Dev {
-    /* lncli: `importgraph`
+    /*
     ImportGraph imports a ChannelGraph into the graph database. Should only be
     used for development.
     */

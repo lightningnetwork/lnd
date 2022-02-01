@@ -485,8 +485,34 @@ statements and select statements.
 ```
 
 If one is forced to wrap lines of function arguments that exceed the 80
-character limit, then a new line should be inserted before the first stanza in
-the comment body.
+character limit, then identation must be kept on the following lines. Also,
+lines should not end with an open open parenthesis.
+
+**WRONG**
+```go
+func foo(a, b, c,
+) (d, error) {
+
+func bar(a, b, c) (
+  d, error,
+) {
+
+func baz(a, b, c) (
+  d, error) {
+```
+**RIGHT**
+```go
+func foo(a, b,
+  c) (d, error) {
+
+
+
+func baz(a, b, c) (d,
+  error) {
+```
+
+If a function declaration spans multiple lines the body should start with an
+empty line.
 
 **WRONG**
 ```go

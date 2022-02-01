@@ -36,6 +36,14 @@ func ExportPrometheusMetrics(grpcServer *grpc.Server, cfg lncfg.Prometheus) erro
 
 		grpc_prometheus.Register(grpcServer)
 
+		// Enable the histograms which can allow plotting latency
+		// distributions of inbound calls. However we guard this behind
+		// another flag as this can generate a lot of additional data,
+		// as its a high cardinality metric typically.
+		if cfg.PerfHistograms {
+			grpc_prometheus.EnableHandlingTimeHistogram()
+		}
+
 		http.Handle("/metrics", promhttp.Handler())
 		go func() {
 			http.ListenAndServe(cfg.Listen, nil)

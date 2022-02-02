@@ -15,23 +15,23 @@ import (
 // TODO(roasbeef): interface in front of?
 
 // baseEncryptionKeyLoc is the KeyLocator that we'll use to derive the base
-// encryption key used for encrypting all static channel backups. We use this
-// to then derive the actual key that we'll use for encryption. We do this
+// encryption key used for encrypting all payloads. We use this to then
+// derive the actual key that we'll use for encryption. We do this
 // rather than using the raw key, as we assume that we can't obtain the raw
 // keys, and we don't want to require that the HSM know our target cipher for
 // encryption.
 //
 // TODO(roasbeef): possibly unique encrypt?
 var baseEncryptionKeyLoc = keychain.KeyLocator{
-	Family: keychain.KeyFamilyStaticBackup,
+	Family: keychain.KeyFamilyBaseEncryption,
 	Index:  0,
 }
 
-// genEncryptionKey derives the key that we'll use to encrypt all of our static
-// channel backups. The key itself, is the sha2 of a base key that we get from
-// the keyring. We derive the key this way as we don't force the HSM (or any
-// future abstractions) to be able to derive and know of the cipher that we'll
-// use within our protocol.
+// genEncryptionKey derives the key that we'll use to encrypt all of our files
+// that are written to disk. The key itself, is the sha2 of a base key that we
+// get from the keyring. We derive the key this way as we don't force the HSM
+// (or any future abstractions) to be able to derive and know of the cipher
+// that we'll use within our protocol.
 func genEncryptionKey(keyRing keychain.KeyRing) ([]byte, error) {
 	//  key = SHA256(baseKey)
 	baseKey, err := keyRing.DeriveKey(

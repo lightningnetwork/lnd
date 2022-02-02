@@ -5,7 +5,36 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
+
+const (
+	// RoutingFee100PercentUpTo is the cut-off amount we allow 100% fees to
+	// be charged up to.
+	RoutingFee100PercentUpTo lnwire.MilliSatoshi = 50_000
+
+	// DefaultRoutingFeePercentage is the default off-chain routing fee we
+	// allow to be charged for a payment over the RoutingFee100PercentUpTo
+	// size.
+	DefaultRoutingFeePercentage lnwire.MilliSatoshi = 5
+)
+
+// DefaultRoutingFeeLimitForAmount returns the default off-chain routing fee
+// limit lnd uses if the user does not specify a limit manually. The fee is
+// amount dependent because of the base routing fee that is set on many
+// channels. For example the default base fee is 1 satoshi. So sending a payment
+// of one satoshi will cost 1 satoshi in fees over most channels, which comes to
+// a fee of 100%. That's why for very small amounts we allow 100% fee.
+func DefaultRoutingFeeLimitForAmount(a lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+	// Allow 100% fees up to a certain amount to accommodate for base fees.
+	if a <= RoutingFee100PercentUpTo {
+		return a
+	}
+
+	// Everything larger than the cut-off amount will get a default fee
+	// percentage.
+	return a * DefaultRoutingFeePercentage / 100
+}
 
 // DustLimitForSize retrieves the dust limit for a given pkscript size. Given
 // the size, it automatically determines whether the script is a witness script

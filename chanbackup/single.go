@@ -333,10 +333,10 @@ func (s *Single) Serialize(w io.Writer) error {
 // global counter to use as a sequence number for nonces, and want to ensure
 // that we're able to decrypt these blobs without any additional context. We
 // derive the key that we use for encryption via a SHA2 operation of the with
-// the golden keychain.KeyFamilyStaticBackup base encryption key.  We then take
-// the serialized resulting shared secret point, and hash it using sha256 to
-// obtain the key that we'll use for encryption. When using the AEAD, we pass
-// the nonce as associated data such that we'll be able to package the two
+// the golden keychain.KeyFamilyBaseEncryption base encryption key.  We then
+// take the serialized resulting shared secret point, and hash it using sha256
+// to obtain the key that we'll use for encryption. When using the AEAD, we
+// pass the nonce as associated data such that we'll be able to package the two
 // together for storage. Before writing out the encrypted payload, we prepend
 // the nonce to the final blob.
 func (s *Single) PackToWriter(w io.Writer, keyRing keychain.KeyRing) error {

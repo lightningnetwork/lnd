@@ -15,15 +15,15 @@ import (
 // TODO(roasbeef): interface in front of?
 
 // baseEncryptionKeyLoc is the KeyLocator that we'll use to derive the base
-// encryption key used for encrypting all static channel backups. We use this
-// to then derive the actual key that we'll use for encryption. We do this
+// encryption key used for encrypting all payloads. We use this to then
+// derive the actual key that we'll use for encryption. We do this
 // rather than using the raw key, as we assume that we can't obtain the raw
 // keys, and we don't want to require that the HSM know our target cipher for
 // encryption.
 //
 // TODO(roasbeef): possibly unique encrypt?
 var baseEncryptionKeyLoc = keychain.KeyLocator{
-	Family: keychain.KeyFamilyStaticBackup,
+	Family: keychain.KeyFamilyBaseEncryption,
 	Index:  0,
 }
 

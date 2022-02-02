@@ -64,6 +64,11 @@
 
 * [Add dev only RPC subserver and the devrpc.ImportGraph
   call](https://github.com/lightningnetwork/lnd/pull/6149)
+  
+* [Extend](https://github.com/lightningnetwork/lnd/pull/6177) the HTLC
+  interceptor API to provide more control over failure messages. With this
+  change, it allows encrypted failure messages to be returned to the sender.
+  Additionally it is possible to signal a malformed htlc.
 
 ## Documentation
 

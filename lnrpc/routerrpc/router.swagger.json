@@ -1201,6 +1201,15 @@
           "type": "string",
           "format": "byte",
           "description": "The preimage in case the resolve action is Settle."
+        },
+        "failure_message": {
+          "type": "string",
+          "format": "byte",
+          "description": "Encrypted failure message in case the resolve action is Fail.\n\nIf failure_message is specified, the failure_code field must be set\nto zero."
+        },
+        "failure_code": {
+          "$ref": "#/definitions/FailureFailureCode",
+          "description": "Return the specified failure code in case the resolve action is Fail. The\nmessage data fields are populated automatically.\n\nIf a non-zero failure_code is specified, failure_message must not be set.\n\nFor backwards-compatibility reasons, TEMPORARY_CHANNEL_FAILURE is the\ndefault value for this field."
         }
       },
       "description": "*\nForwardHtlcInterceptResponse enables the caller to resolve a previously hold\nforward. The caller can choose either to:\n- `Resume`: Execute the default behavior (usually forward).\n- `Reject`: Fail the htlc backwards.\n- `Settle`: Settle this htlc with a given preimage."

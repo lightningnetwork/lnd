@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"sync"
 
@@ -15,6 +16,10 @@ var (
 	// ErrFwdNotExists is an error returned when the caller tries to resolve
 	// a forward that doesn't exist anymore.
 	ErrFwdNotExists = errors.New("forward does not exist")
+
+	// ErrUnsupportedFailureCode when processing of an unsupported failure
+	// code is attempted.
+	ErrUnsupportedFailureCode = errors.New("unsupported failure code")
 )
 
 // InterceptableSwitch is an implementation of ForwardingSwitch interface.
@@ -137,21 +142,63 @@ func (f *interceptedForward) Resume() error {
 	return f.htlcSwitch.ForwardPackets(f.linkQuit, f.packet)
 }
 
-// Fail forward a failed packet to the switch.
-func (f *interceptedForward) Fail() error {
-	update, err := f.htlcSwitch.cfg.FetchLastChannelUpdate(
-		f.packet.incomingChanID,
-	)
-	if err != nil {
-		return err
+// Fail notifies the intention to fail an existing hold forward with an
+// encrypted failure reason.
+func (f *interceptedForward) Fail(reason []byte) error {
+	obfuscatedReason := f.packet.obfuscator.IntermediateEncrypt(reason)
+
+	return f.resolve(&lnwire.UpdateFailHTLC{
+		Reason: obfuscatedReason,
+	})
+}
+
+// FailWithCode notifies the intention to fail an existing hold forward with the
+// specified failure code.
+func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
+	shaOnionBlob := func() [32]byte {
+		return sha256.Sum256(f.htlc.OnionBlob[:])
 	}
 
-	reason, err := f.packet.obfuscator.EncryptFirstHop(
-		lnwire.NewTemporaryChannelFailure(update),
-	)
+	// Create a local failure.
+	var failureMsg lnwire.FailureMessage
+
+	switch code {
+	case lnwire.CodeInvalidOnionVersion:
+		failureMsg = &lnwire.FailInvalidOnionVersion{
+			OnionSHA256: shaOnionBlob(),
+		}
+
+	case lnwire.CodeInvalidOnionHmac:
+		failureMsg = &lnwire.FailInvalidOnionHmac{
+			OnionSHA256: shaOnionBlob(),
+		}
+
+	case lnwire.CodeInvalidOnionKey:
+		failureMsg = &lnwire.FailInvalidOnionKey{
+			OnionSHA256: shaOnionBlob(),
+		}
+
+	case lnwire.CodeTemporaryChannelFailure:
+		update, err := f.htlcSwitch.cfg.FetchLastChannelUpdate(
+			f.packet.incomingChanID,
+		)
+		if err != nil {
+			return err
+		}
+
+		failureMsg = lnwire.NewTemporaryChannelFailure(update)
+
+	default:
+		return ErrUnsupportedFailureCode
+	}
+
+	// Encrypt the failure for the first hop. This node will be the origin
+	// of the failure.
+	reason, err := f.packet.obfuscator.EncryptFirstHop(failureMsg)
 	if err != nil {
 		return fmt.Errorf("failed to encrypt failure reason %v", err)
 	}
+
 	return f.resolve(&lnwire.UpdateFailHTLC{
 		Reason: reason,
 	})

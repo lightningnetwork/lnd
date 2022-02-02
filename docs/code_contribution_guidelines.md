@@ -10,7 +10,6 @@
    1. [Ideal Git Commit Structure](#ideal-git-commit-structure)
    1. [Sign Your Git Commits](#sign-your-git-commits)
    1. [Code Spacing](#code-spacing)
-   1. [Protobuf Compilation](#protobuf-compilation)
    1. [Additional Style Constraints On Top of gofmt](#additional-style-constraints-on-top-of-gofmt)
    1. [Pointing to Remote Dependent Branches in Go Modules](#pointing-to-remote-dependent-branches-in-go-modules)
    1. [Use of Log Levels](#use-of-log-levels)
@@ -529,18 +528,6 @@ empty line.
        var a int 
    }
 ```
-
-## Protobuf Compilation
-
-The `lnd` project uses `protobuf`, and its extension [`gRPC`](www.grpc.io) in
-several areas and as the primary RPC interface. In order to ensure uniformity
-of all protos checked, in we require that all contributors pin against the
-_exact same_ version of `protoc`. As of the writing of this article, the `lnd`
-project uses [v3.4.0](https://github.com/google/protobuf/releases/tag/v3.4.0)
-of `protoc`.
-
-For detailed instructions on how to compile modifications to `lnd`'s `protobuf`
-definitions, check out the [lnrpc README](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/README.md).
 
 ## Additional Style Constraints On Top of `gofmt`
 

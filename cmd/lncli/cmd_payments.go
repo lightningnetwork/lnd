@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -217,8 +218,10 @@ func retrieveFeeLimit(ctx *cli.Context, amt int64) (int64, error) {
 		return feeLimitRoundedUp, nil
 	}
 
-	// If no fee limit is set, use the payment amount as a limit (100%).
-	return amt, nil
+	// If no fee limit is set, use a default value based on the amount.
+	amtMsat := lnwire.NewMSatFromSatoshis(btcutil.Amount(amt))
+	limitMsat := lnwallet.DefaultRoutingFeeLimitForAmount(amtMsat)
+	return int64(limitMsat.ToSatoshis()), nil
 }
 
 func confirmPayReq(resp *lnrpc.PayReq, amt, feeLimit int64) error {

@@ -19,6 +19,17 @@ connection from the watch-only node.
   In other words, freshly-installed LND can now be initialized with multiple
   channels from an external (e.g. hardware) wallet *in a single transaction*.
 
+* A bug that allowed fees to be up to 100% of the payment amount was fixed by
+  [introducing a more sane default
+  value](https://github.com/lightningnetwork/lnd/pull/6226) of 5% routing fees
+  (except for small amounts <= 50 satoshis where the 100% routing fees are kept
+  to accommodate for the base fee in channels). To avoid falling back to a
+  default value, users should always set their own fee limits by using the
+  `--fee_limit` or `--fee_limit_percent` flags on the `lncli payinvoice`,
+  `lncli sendpayment` and `lncli queryroutes` commands. Users of the gRPC or
+  REST API should set the `fee_limit` field on the corresponding calls
+  (`SendPayment`, `SendPaymentSync`, `QueryRoutes`).
+
 ## Database
 
 * [Speed up graph cache loading on startup with

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/lightningnetwork/lnd/lnencrypt"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 )
 
 type mockChannelRestorer struct {
@@ -49,7 +49,9 @@ func (m *mockPeerConnector) ConnectPeer(node *btcec.PublicKey,
 func TestUnpackAndRecoverSingles(t *testing.T) {
 	t.Parallel()
 
-	keyRing := &lnencrypt.MockKeyRing{}
+	keyRing := &mock.SecretKeyRing{
+		RootKey: privKey,
+	}
 
 	// First, we'll create a number of single chan backups that we'll
 	// shortly back to so we can begin our recovery attempt.
@@ -141,7 +143,9 @@ func TestUnpackAndRecoverSingles(t *testing.T) {
 func TestUnpackAndRecoverMulti(t *testing.T) {
 	t.Parallel()
 
-	keyRing := &lnencrypt.MockKeyRing{}
+	keyRing := &mock.SecretKeyRing{
+		RootKey: privKey,
+	}
 
 	// First, we'll create a number of single chan backups that we'll
 	// shortly back to so we can begin our recovery attempt.

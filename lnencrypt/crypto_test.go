@@ -3,6 +3,16 @@ package lnencrypt
 import (
 	"bytes"
 	"testing"
+
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/lntest/channels"
+	"github.com/lightningnetwork/lnd/lntest/mock"
+)
+
+var (
+	privKey, _ = btcec.PrivKeyFromBytes(
+		btcec.S256(), channels.AlicesPrivKey,
+	)
 )
 
 // TestEncryptDecryptPayload tests that given a static key, we're able to
@@ -50,7 +60,9 @@ func TestEncryptDecryptPayload(t *testing.T) {
 		},
 	}
 
-	keyRing := &MockKeyRing{}
+	keyRing := &mock.SecretKeyRing{
+		RootKey: privKey,
+	}
 
 	for i, payloadCase := range payloadCases {
 		var cipherBuffer bytes.Buffer
@@ -106,7 +118,9 @@ func TestInvalidKeyEncryption(t *testing.T) {
 	t.Parallel()
 
 	var b bytes.Buffer
-	err := EncryptPayloadToWriter(b, &b, &MockKeyRing{true})
+	keyRing := &mock.SecretKeyRing{}
+	keyRing.Fail = true
+	err := EncryptPayloadToWriter(b, &b, keyRing)
 	if err == nil {
 		t.Fatalf("expected error due to fail key gen")
 	}
@@ -118,7 +132,9 @@ func TestInvalidKeyDecrytion(t *testing.T) {
 	t.Parallel()
 
 	var b bytes.Buffer
-	_, err := DecryptPayloadFromReader(&b, &MockKeyRing{true})
+	keyRing := &mock.SecretKeyRing{}
+	keyRing.Fail = true
+	_, err := DecryptPayloadFromReader(&b, keyRing)
 	if err == nil {
 		t.Fatalf("expected error due to fail key gen")
 	}

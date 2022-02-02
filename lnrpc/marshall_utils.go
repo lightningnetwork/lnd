@@ -40,10 +40,9 @@ func CalculateFeeLimit(feeLimit *FeeLimit,
 		return amount * lnwire.MilliSatoshi(feeLimit.GetPercent()) / 100
 
 	default:
-		// If a fee limit was not specified, we'll use the payment's
-		// amount as an upper bound in order to avoid payment attempts
-		// from incurring fees higher than the payment amount itself.
-		return amount
+		// Fall back to a sane default value that is based on the amount
+		// itself.
+		return lnwallet.DefaultRoutingFeeLimitForAmount(amount)
 	}
 }
 

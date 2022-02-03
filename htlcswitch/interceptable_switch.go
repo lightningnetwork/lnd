@@ -45,6 +45,10 @@ type InterceptableSwitch struct {
 	// client connect and disconnect.
 	interceptorRegistration chan ForwardInterceptor
 
+	// requireInterceptor indicates whether processing should block if no
+	// interceptor is connected.
+	requireInterceptor bool
+
 	// interceptor is the handler for intercepted packets.
 	interceptor ForwardInterceptor
 
@@ -58,6 +62,7 @@ type InterceptableSwitch struct {
 type interceptedPackets struct {
 	packets  []*htlcPacket
 	linkQuit chan struct{}
+	isReplay bool
 }
 
 // FwdAction defines the various resolution types.
@@ -101,13 +106,16 @@ type fwdResolution struct {
 }
 
 // NewInterceptableSwitch returns an instance of InterceptableSwitch.
-func NewInterceptableSwitch(s *Switch) *InterceptableSwitch {
+func NewInterceptableSwitch(s *Switch,
+	requireInterceptor bool) *InterceptableSwitch {
+
 	return &InterceptableSwitch{
 		htlcSwitch:              s,
 		intercepted:             make(chan *interceptedPackets),
 		interceptorRegistration: make(chan ForwardInterceptor),
 		holdForwards:            make(map[channeldb.CircuitKey]InterceptedForward),
 		resolutionChan:          make(chan *fwdResolution),
+		requireInterceptor:      requireInterceptor,
 
 		quit: make(chan struct{}),
 	}
@@ -155,9 +163,7 @@ func (s *InterceptableSwitch) run() {
 		case packets := <-s.intercepted:
 			var notIntercepted []*htlcPacket
 			for _, p := range packets.packets {
-				if s.interceptor == nil ||
-					!s.interceptForward(p) {
-
+				if !s.interceptForward(p, packets.isReplay) {
 					notIntercepted = append(
 						notIntercepted, p,
 					)
@@ -178,7 +184,6 @@ func (s *InterceptableSwitch) run() {
 		}
 	}
 }
-
 func (s *InterceptableSwitch) sendForward(fwd InterceptedForward) {
 	err := s.interceptor(fwd.Packet())
 	if err != nil {
@@ -191,12 +196,28 @@ func (s *InterceptableSwitch) sendForward(fwd InterceptedForward) {
 func (s *InterceptableSwitch) setInterceptor(interceptor ForwardInterceptor) {
 	s.interceptor = interceptor
 
+	// Replay all currently held htlcs. When an interceptor is not required,
+	// there may be none because they've been cleared after the previous
+	// disconnect.
 	if interceptor != nil {
 		log.Debugf("Interceptor connected")
+
+		for _, fwd := range s.holdForwards {
+			s.sendForward(fwd)
+		}
 
 		return
 	}
 
+	// The interceptor disconnects. If an interceptor is required, keep the
+	// held htlcs.
+	if s.requireInterceptor {
+		log.Infof("Interceptor disconnected, retaining held packets")
+
+		return
+	}
+
+	// Interceptor is not required. Release held forwards.
 	log.Infof("Interceptor disconnected, resolving held packets")
 
 	for _, fwd := range s.holdForwards {
@@ -260,7 +281,7 @@ func (s *InterceptableSwitch) Resolve(res *FwdResolution) error {
 // interceptor. If the interceptor signals the resume action, the htlcs are
 // forwarded to the switch. The link's quit signal should be provided to allow
 // cancellation of forwarding during link shutdown.
-func (s *InterceptableSwitch) ForwardPackets(linkQuit chan struct{},
+func (s *InterceptableSwitch) ForwardPackets(linkQuit chan struct{}, isReplay bool,
 	packets ...*htlcPacket) error {
 
 	// Synchronize with the main event loop. This should be light in the
@@ -269,6 +290,7 @@ func (s *InterceptableSwitch) ForwardPackets(linkQuit chan struct{},
 	case s.intercepted <- &interceptedPackets{
 		packets:  packets,
 		linkQuit: linkQuit,
+		isReplay: isReplay,
 	}:
 
 	case <-linkQuit:
@@ -283,7 +305,15 @@ func (s *InterceptableSwitch) ForwardPackets(linkQuit chan struct{},
 
 // interceptForward forwards the packet to the external interceptor after
 // checking the interception criteria.
-func (s *InterceptableSwitch) interceptForward(packet *htlcPacket) bool {
+func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
+	isReplay bool) bool {
+
+	// Process normally if an interceptor is not required and not
+	// registered.
+	if !s.requireInterceptor && s.interceptor == nil {
+		return false
+	}
+
 	switch htlc := packet.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
 		// We are not interested in intercepting initiated payments.
@@ -307,9 +337,31 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket) bool {
 			htlcSwitch: s.htlcSwitch,
 		}
 
+		if s.interceptor == nil && !isReplay {
+			// There is no interceptor registered, we are in
+			// interceptor-required mode, and this is a new packet
+			//
+			// Because the interceptor has never seen this packet
+			// yet, it is still safe to fail back. This limits the
+			// backlog of htlcs when the interceptor is down.
+			err := intercepted.FailWithCode(
+				lnwire.CodeTemporaryChannelFailure,
+			)
+			if err != nil {
+				log.Errorf("Cannot fail packet: %v", err)
+			}
+
+			return true
+		}
+
 		s.holdForwards[inKey] = intercepted
 
-		s.sendForward(intercepted)
+		// If there is no interceptor registered, we must be in
+		// interceptor-required mode. The packet is kept in the queue
+		// until the interceptor registers itself.
+		if s.interceptor != nil {
+			s.sendForward(intercepted)
+		}
 
 		return true
 

@@ -141,7 +141,7 @@ type ChannelLinkConfig struct {
 	// switch. The function returns and error in case it fails to send one or
 	// more packets. The link's quit signal should be provided to allow
 	// cancellation of forwarding during link shutdown.
-	ForwardPackets func(chan struct{}, ...*htlcPacket) error
+	ForwardPackets func(chan struct{}, bool, ...*htlcPacket) error
 
 	// DecodeHopIterators facilitates batched decoding of HTLC Sphinx onion
 	// blobs, which are then used to inform how to forward an HTLC.
@@ -1720,7 +1720,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		l.uncommittedPreimages = append(l.uncommittedPreimages, pre)
 
 		// Pipeline this settle, send it to the switch.
-		go l.forwardBatch(settlePacket)
+		go l.forwardBatch(false, settlePacket)
 
 	case *lnwire.UpdateFailMalformedHTLC:
 		// Convert the failure type encoded within the HTLC fail
@@ -2744,7 +2744,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 
 	// Only spawn the task forward packets we have a non-zero number.
 	if len(switchPackets) > 0 {
-		go l.forwardBatch(switchPackets...)
+		go l.forwardBatch(false, switchPackets...)
 	}
 }
 
@@ -3043,14 +3043,17 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		return
 	}
 
-	l.log.Debugf("forwarding %d packets to switch", len(switchPackets))
+	replay := fwdPkg.State != channeldb.FwdStateLockedIn
+
+	l.log.Debugf("forwarding %d packets to switch: replay=%v",
+		len(switchPackets), replay)
 
 	// NOTE: This call is made synchronous so that we ensure all circuits
 	// are committed in the exact order that they are processed in the link.
 	// Failing to do this could cause reorderings/gaps in the range of
 	// opened circuits, which violates assumptions made by the circuit
 	// trimming.
-	l.forwardBatch(switchPackets...)
+	l.forwardBatch(replay, switchPackets...)
 }
 
 // processExitHop handles an htlc for which this link is the exit hop. It
@@ -3184,7 +3187,7 @@ func (l *channelLink) settleHTLC(preimage lntypes.Preimage,
 // forwardBatch forwards the given htlcPackets to the switch, and waits on the
 // err chan for the individual responses. This method is intended to be spawned
 // as a goroutine so the responses can be handled in the background.
-func (l *channelLink) forwardBatch(packets ...*htlcPacket) {
+func (l *channelLink) forwardBatch(replay bool, packets ...*htlcPacket) {
 	// Don't forward packets for which we already have a response in our
 	// mailbox. This could happen if a packet fails and is buffered in the
 	// mailbox, and the incoming link flaps.
@@ -3197,7 +3200,8 @@ func (l *channelLink) forwardBatch(packets ...*htlcPacket) {
 		filteredPkts = append(filteredPkts, pkt)
 	}
 
-	if err := l.cfg.ForwardPackets(l.quit, filteredPkts...); err != nil {
+	err := l.cfg.ForwardPackets(l.quit, replay, filteredPkts...)
+	if err != nil {
 		log.Errorf("Unhandled error while reforwarding htlc "+
 			"settle/fail over htlcswitch: %v", err)
 	}

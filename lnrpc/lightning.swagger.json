@@ -6238,7 +6238,7 @@
         },
         "fee_limit": {
           "$ref": "#/definitions/lnrpcFeeLimit",
-          "description": "The maximum number of satoshis that will be paid as a fee of the payment.\nThis value can be represented either as a percentage of the amount being\nsent, or as a fixed amount of the maximum fee the user is willing the pay to\nsend the payment. If not specified, lnd will use a default value of 100%\nfees for small amounts (\u003c=50 sat) or 5% fees for larger amounts."
+          "description": "The maximum number of satoshis that will be paid as a fee of the payment.\nThis value can be represented either as a percentage of the amount being\nsent, or as a fixed amount of the maximum fee the user is willing the pay to\nsend the payment. If not specified, lnd will use a default value of 100%\nfees for small amounts (\u003c=1k sat) or 5% fees for larger amounts."
         },
         "outgoing_chan_id": {
           "type": "string",

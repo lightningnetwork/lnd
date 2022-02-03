@@ -1939,7 +1939,7 @@ type SendRequest struct {
 	//This value can be represented either as a percentage of the amount being
 	//sent, or as a fixed amount of the maximum fee the user is willing the pay to
 	//send the payment. If not specified, lnd will use a default value of 100%
-	//fees for small amounts (<=50 sat) or 5% fees for larger amounts.
+	//fees for small amounts (<=1k sat) or 5% fees for larger amounts.
 	FeeLimit *FeeLimit `protobuf:"bytes,8,opt,name=fee_limit,json=feeLimit,proto3" json:"fee_limit,omitempty"`
 	//
 	//The channel id of the channel that must be taken to the first hop. If zero,
@@ -8519,7 +8519,7 @@ type QueryRoutesRequest struct {
 	//This value can be represented either as a percentage of the amount being
 	//sent, or as a fixed amount of the maximum fee the user is willing the pay to
 	//send the payment. If not specified, lnd will use a default value of 100%
-	//fees for small amounts (<=50 sat) or 5% fees for larger amounts.
+	//fees for small amounts (<=1k sat) or 5% fees for larger amounts.
 	FeeLimit *FeeLimit `protobuf:"bytes,5,opt,name=fee_limit,json=feeLimit,proto3" json:"fee_limit,omitempty"`
 	//
 	//A list of nodes to ignore during path finding. When using REST, these fields

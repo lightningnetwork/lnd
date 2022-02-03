@@ -24,12 +24,12 @@ func TestDefaultRoutingFeeLimitForAmount(t *testing.T) {
 			expectedLimit: 1,
 		},
 		{
-			amount:        50_000,
-			expectedLimit: 50_000,
+			amount:        lnwire.NewMSatFromSatoshis(1_000),
+			expectedLimit: lnwire.NewMSatFromSatoshis(1_000),
 		},
 		{
-			amount:        50_001,
-			expectedLimit: 2_500,
+			amount:        lnwire.NewMSatFromSatoshis(1_001),
+			expectedLimit: 50_050,
 		},
 		{
 			amount:        5_000_000_000,
@@ -42,7 +42,7 @@ func TestDefaultRoutingFeeLimitForAmount(t *testing.T) {
 
 		t.Run(fmt.Sprintf("%d sats", test.amount), func(t *testing.T) {
 			feeLimit := DefaultRoutingFeeLimitForAmount(test.amount)
-			require.Equal(t, test.expectedLimit, feeLimit)
+			require.Equal(t, int64(test.expectedLimit), int64(feeLimit))
 		})
 	}
 }

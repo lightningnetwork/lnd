@@ -5,6 +5,8 @@
 * [Misconfigured ZMQ
   setup now gets reported](https://github.com/lightningnetwork/lnd/pull/5710).
 
+* [Add option to encrypt Tor private key on disk](https://github.com/lightningnetwork/lnd/pull/4458).
+
 ## `lncli`
 
 * Add [auto-generated command-line completions](https://github.com/lightningnetwork/lnd/pull/4177) 
@@ -102,6 +104,7 @@
 * Dan Bolser
 * Daniel McNally
 * ErikEk
+* Graham Krizek
 * henta
 * Joost Jager
 * Jordi Montes

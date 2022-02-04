@@ -595,8 +595,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		quit:       make(chan struct{}),
 	}
 
-	s.witnessBeacon = newPreimageBeacon(dbs.ChanStateDB.NewWitnessCache())
-
 	currentHash, currentHeight, err := s.cc.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
@@ -654,6 +652,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s.interceptableSwitch = htlcswitch.NewInterceptableSwitch(
 		s.htlcSwitch, lncfg.DefaultFinalCltvRejectDelta,
 		s.cfg.RequireInterceptor,
+	)
+
+	s.witnessBeacon = newPreimageBeacon(
+		dbs.ChanStateDB.NewWitnessCache(),
+		s.interceptableSwitch.ForwardPacket,
 	)
 
 	chanStatusMgrCfg := &netann.ChanStatusConfig{

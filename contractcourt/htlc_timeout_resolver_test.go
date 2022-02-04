@@ -14,11 +14,13 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,11 +38,15 @@ func newMockWitnessBeacon() *mockWitnessBeacon {
 	}
 }
 
-func (m *mockWitnessBeacon) SubscribeUpdates() *WitnessSubscription {
+func (m *mockWitnessBeacon) SubscribeUpdates(
+	chanID lnwire.ShortChannelID, htlc *channeldb.HTLC,
+	payload *hop.Payload,
+	nextHopOnionBlob []byte) (*WitnessSubscription, error) {
+
 	return &WitnessSubscription{
 		WitnessUpdates:     m.preImageUpdates,
 		CancelSubscription: func() {},
-	}
+	}, nil
 }
 
 func (m *mockWitnessBeacon) LookupPreimage(payhash lntypes.Hash) (lntypes.Preimage, bool) {

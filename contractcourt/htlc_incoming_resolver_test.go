@@ -276,6 +276,10 @@ func (h *mockHopIterator) HopPayload() (*hop.Payload, error) {
 	}), nil
 }
 
+func (h *mockHopIterator) EncodeNextHop(w io.Writer) error {
+	return nil
+}
+
 type mockOnionProcessor struct {
 	isExit           bool
 	offeredOnionBlob []byte

@@ -65,8 +65,12 @@ func (m *mockPreimageCache) AddPreimages(preimages ...lntypes.Preimage) error {
 	return nil
 }
 
-func (m *mockPreimageCache) SubscribeUpdates() *contractcourt.WitnessSubscription {
-	return nil
+func (m *mockPreimageCache) SubscribeUpdates(
+	chanID lnwire.ShortChannelID, htlc *channeldb.HTLC,
+	payload *hop.Payload,
+	nextHopOnionBlob []byte) (*contractcourt.WitnessSubscription, error) {
+
+	return nil, nil
 }
 
 type mockFeeEstimator struct {

@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
@@ -75,7 +76,9 @@ type WitnessSubscription struct {
 type WitnessBeacon interface {
 	// SubscribeUpdates returns a channel that will be sent upon *each* time
 	// a new preimage is discovered.
-	SubscribeUpdates() *WitnessSubscription
+	SubscribeUpdates(chanID lnwire.ShortChannelID, htlc *channeldb.HTLC,
+		payload *hop.Payload,
+		nextHopOnionBlob []byte) (*WitnessSubscription, error)
 
 	// LookupPreImage attempts to lookup a preimage in the global cache.
 	// True is returned for the second argument if the preimage is found.

@@ -41,6 +41,8 @@ type InterceptableSwitch struct {
 	// interceptor client.
 	resolutionChan chan *fwdResolution
 
+	onchainIntercepted chan InterceptedForward
+
 	// interceptorRegistration is a channel that we use to synchronize
 	// client connect and disconnect.
 	interceptorRegistration chan ForwardInterceptor
@@ -116,6 +118,7 @@ func NewInterceptableSwitch(s *Switch, cltvRejectDelta uint32,
 	return &InterceptableSwitch{
 		htlcSwitch:              s,
 		intercepted:             make(chan *interceptedPackets),
+		onchainIntercepted:      make(chan InterceptedForward),
 		interceptorRegistration: make(chan ForwardInterceptor),
 		holdForwards:            make(map[channeldb.CircuitKey]InterceptedForward),
 		resolutionChan:          make(chan *fwdResolution),
@@ -180,6 +183,16 @@ func (s *InterceptableSwitch) run() {
 			if err != nil {
 				log.Errorf("Cannot forward packets: %v", err)
 			}
+
+		case fwd := <-s.onchainIntercepted:
+			// For on-chain interceptions, we don't know if it has
+			// already been offered before. This information is in
+			// the forwarding package which isn't easily accessible
+			// from contractcourt. It is likely though that it was
+			// already intercepted in the off-chain flow. And even
+			// if not, it is safe to signal replay so that we won't
+			// unexpectedly skip over this htlc.
+			s.forward(fwd, true)
 
 		case res := <-s.resolutionChan:
 			res.errChan <- s.resolve(res.resolution)
@@ -300,6 +313,20 @@ func (s *InterceptableSwitch) ForwardPackets(linkQuit chan struct{}, isReplay bo
 
 	case <-linkQuit:
 		log.Debugf("Forward cancelled because link quit")
+
+	case <-s.quit:
+		return errors.New("interceptable switch quit")
+	}
+
+	return nil
+}
+
+// ForwardPacket forwards a single htlc to the external interceptor.
+func (s *InterceptableSwitch) ForwardPacket(
+	fwd InterceptedForward) error {
+
+	select {
+	case s.onchainIntercepted <- fwd:
 
 	case <-s.quit:
 		return errors.New("interceptable switch quit")

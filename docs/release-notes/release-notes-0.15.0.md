@@ -16,6 +16,8 @@
 * Add [private status](https://github.com/lightningnetwork/lnd/pull/6167)
   to pendingchannels response.
 
+* [Update description for `state` command](https://github.com/lightningnetwork/lnd/pull/6237).
+
 ## Bug Fixes
 
 * [Fixed an inactive invoice subscription not removed from invoice

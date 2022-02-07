@@ -308,6 +308,36 @@ func TestSelectHopHints(t *testing.T) {
 			expectedHints: nil,
 		},
 		{
+			// This test case reproduces a bug where we have too
+			// many hop hints for our maximum hint number.
+			name: "too many hints",
+			setupMock: func(h *hopHintsConfigMock) {
+				setMockChannelUsed(
+					h, private1ShortID, privateChan1Policy,
+				)
+
+				setMockChannelUsed(
+					h, private2ShortID, privateChan2Policy,
+				)
+
+			},
+			// Set our amount to less than our channel balance of
+			// 100.
+			amount: 30,
+			channels: []*HopHintInfo{
+				privateChannel1, privateChannel2,
+			},
+			numHints: 1,
+			expectedHints: [][]zpay32.HopHint{
+				{
+					privateChannel1Hint,
+				},
+				{
+					privateChannel2Hint,
+				},
+			},
+		},
+		{
 			// If a channel has more balance than the amount we're
 			// looking for, it'll be added in our first pass. We
 			// can be sure we're adding it in our first pass because

@@ -308,6 +308,28 @@ func TestSelectHopHints(t *testing.T) {
 			expectedHints: nil,
 		},
 		{
+			// This test case asserts that we limit our hop hints
+			// when we've reached our maximum number of hints.
+			name: "too many hints",
+			setupMock: func(h *hopHintsConfigMock) {
+				setMockChannelUsed(
+					h, private1ShortID, privateChan1Policy,
+				)
+			},
+			// Set our amount to less than our channel balance of
+			// 100.
+			amount: 30,
+			channels: []*HopHintInfo{
+				privateChannel1, privateChannel2,
+			},
+			numHints: 1,
+			expectedHints: [][]zpay32.HopHint{
+				{
+					privateChannel1Hint,
+				},
+			},
+		},
+		{
 			// If a channel has more balance than the amount we're
 			// looking for, it'll be added in our first pass. We
 			// can be sure we're adding it in our first pass because
@@ -545,5 +567,59 @@ func TestSelectHopHints(t *testing.T) {
 				require.Equal(t, test.expectedHints, hints)
 			}
 		})
+	}
+}
+
+// TestSufficientHopHints tests limiting our hops to a set number of hints or
+// scaled amount of capacity.
+func TestSufficientHopHints(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		numHints        int
+		maxHints        int
+		scalingFactor   int
+		amount          lnwire.MilliSatoshi
+		totalHintAmount lnwire.MilliSatoshi
+		sufficient      bool
+	}{
+		{
+			name:     "not enough hints or amount",
+			numHints: 3,
+			maxHints: 10,
+			// We want to have at least 200, and we currently have
+			// 10.
+			scalingFactor:   2,
+			amount:          100,
+			totalHintAmount: 10,
+			sufficient:      false,
+		},
+		{
+			name:       "enough hints",
+			numHints:   3,
+			maxHints:   3,
+			sufficient: true,
+		},
+		{
+			name:     "not enough hints, insufficient bandwidth",
+			numHints: 1,
+			maxHints: 3,
+			// We want at least 200, and we have enough.
+			scalingFactor:   2,
+			amount:          100,
+			totalHintAmount: 700,
+			sufficient:      true,
+		},
+	}
+
+	for _, testCase := range tests {
+		sufficient := sufficientHints(
+			testCase.numHints, testCase.maxHints,
+			testCase.scalingFactor, testCase.amount,
+			testCase.totalHintAmount,
+		)
+
+		require.Equal(t, testCase.sufficient, sufficient)
 	}
 }

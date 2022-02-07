@@ -29,6 +29,13 @@
   [These premature messages are now saved into a cache and processed once the
   height has reached.](https://github.com/lightningnetwork/lnd/pull/6054)
 
+* [Fixed failure to limit our number of hop hints in private invoices](https://github.com/lightningnetwork/lnd/pull/6236).
+  When a private invoice is created, and the node had > 20 (our hop hint limit)
+  private channels with inbound > invoice amount, hop hint selection would add
+  too many hop hints. When a node had many channels meeting this criteria, it 
+  could result in an "invoice too large" error when creating invoices. Hints 
+  are now properly limited to our maximum of 20.
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)

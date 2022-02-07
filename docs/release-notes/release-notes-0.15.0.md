@@ -88,6 +88,8 @@
   allows code external to lnd to call the function, where previously it would 
   require access to lnd's internals.
 
+* [Zero cltv delta warnings removed](https://github.com/lightningnetwork/lnd/pull/6242).
+
 * [rpc-check fails if it finds any changes](https://github.com/lightningnetwork/lnd/pull/6207/)
   including new and deleted files.
 

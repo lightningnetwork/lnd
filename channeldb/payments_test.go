@@ -487,6 +487,7 @@ func TestQueryPayments(t *testing.T) {
 			}
 			if tt.firstIndex != querySlice.FirstIndexOffset ||
 				tt.lastIndex != querySlice.LastIndexOffset {
+
 				t.Errorf("First or last index does not match "+
 					"expected index. Want (%d, %d), got (%d, %d).",
 					tt.firstIndex, tt.lastIndex,

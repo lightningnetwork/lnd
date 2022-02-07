@@ -16,7 +16,6 @@ import (
 )
 
 func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
-
 	type testCase struct {
 		name string
 		test func(net *lntest.NetworkHarness, t *harnessTest, alice,
@@ -180,7 +179,6 @@ func checkPaymentStatus(node *lntest.HarnessNode, preimage lntypes.Preimage,
 		}
 
 		switch status {
-
 		// If this expected status is SUCCEEDED, we expect the final preimage.
 		case lnrpc.Payment_SUCCEEDED:
 			if p.PaymentPreimage != preimage.String() {
@@ -195,7 +193,6 @@ func checkPaymentStatus(node *lntest.HarnessNode, preimage lntypes.Preimage,
 					p.PaymentPreimage)
 			}
 		}
-
 	}
 
 	if !found {

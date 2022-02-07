@@ -1085,7 +1085,6 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	numBlocks := uint32(defaultCSV - 1)
 	if channelType == lnrpc.CommitmentType_ANCHORS {
 		numBlocks = defaultCSV - 2
-
 	}
 	_, err = net.Miner.Client.Generate(numBlocks)
 	if err != nil {

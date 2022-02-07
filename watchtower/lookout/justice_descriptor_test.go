@@ -156,7 +156,6 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 
 		// As it should be.
 		toRemoteSigningScript = toRemoteRedeemScript
-
 	} else {
 		toRemoteRedeemScript = toRemotePK.SerializeCompressed()
 		toRemoteScriptHash, err = input.CommitScriptUnencumbered(

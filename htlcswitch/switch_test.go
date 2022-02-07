@@ -2961,7 +2961,6 @@ func testHtcNotifier(t *testing.T, testOpts []serverOption, iterations int,
 		checkHtlcEvents(t, aliceEvents.Updates(), alice)
 		checkHtlcEvents(t, bobEvents.Updates(), bob)
 		checkHtlcEvents(t, carolEvents.Updates(), carol)
-
 	}
 }
 

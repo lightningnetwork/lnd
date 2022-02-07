@@ -336,7 +336,6 @@ func TestUnmarshalMPP(t *testing.T) {
 func testUnmarshalMPP(t *testing.T, test unmarshalMPPTest) {
 	mpp, err := UnmarshalMPP(test.mpp)
 	switch test.outcome {
-
 	// Valid arguments should result in no error, a non-nil MPP record, and
 	// the fields should be set correctly.
 	case valid:

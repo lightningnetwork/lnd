@@ -901,7 +901,7 @@ var (
 	// the network seed.
 	//
 	// TODO(roasbeef): extend and collapse these and chainparams.go into
-	// struct like chaincfg.Params
+	// struct like chaincfg.Params.
 	ChainDNSSeeds = map[chainhash.Hash][][2]string{
 		BitcoinMainnetGenesis: {
 			{
@@ -935,7 +935,7 @@ var (
 	}
 )
 
-// ChainRegistry keeps track of the current chains
+// ChainRegistry keeps track of the current chains.
 type ChainRegistry struct {
 	sync.RWMutex
 

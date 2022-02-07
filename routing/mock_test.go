@@ -632,6 +632,7 @@ var _ PaymentSession = (*mockPaymentSession)(nil)
 
 func (m *mockPaymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	activeShards, height uint32) (*route.Route, error) {
+
 	args := m.Called(maxAmt, feeLimit, activeShards, height)
 	return args.Get(0).(*route.Route), args.Error(1)
 }

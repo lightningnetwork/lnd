@@ -129,7 +129,6 @@ func testSendMultiPathPayment(net *lntest.NetworkHarness, t *harnessTest) {
 		if htlc.State == lnrpc.InvoiceHTLCState_SETTLED {
 			settled++
 		}
-
 	}
 	if settled != succeeded {
 		t.Fatalf("expected invoice to be settled "+

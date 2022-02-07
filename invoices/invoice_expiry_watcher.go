@@ -404,7 +404,6 @@ func (ew *InvoiceExpiryWatcher) mainLoop(blockNtfns *chainntnfs.BlockEpochEvent)
 		cancelNext()
 
 		select {
-
 		case newInvoices := <-ew.newInvoices:
 			// Take newly forwarded invoices with higher priority
 			// in order to not block the newInvoices channel.
@@ -413,7 +412,6 @@ func (ew *InvoiceExpiryWatcher) mainLoop(blockNtfns *chainntnfs.BlockEpochEvent)
 
 		default:
 			select {
-
 			// Wait until the next invoice expires.
 			case <-ew.nextTimestampExpiry():
 				cancelNext = ew.cancelNextExpiredInvoice

@@ -996,6 +996,7 @@ func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
 func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 	capacity btcutil.Amount, customMinHtlc []lnwire.MilliSatoshi,
 	customMaxHtlc []lnwire.MilliSatoshi) {
+
 	t.Helper()
 
 	// After the FundingLocked message is sent, Alice and Bob will each
@@ -3362,7 +3363,6 @@ func TestGetUpfrontShutdownScript(t *testing.T) {
 				t.Fatalf("expected address: %x, got: %x",
 					test.expectedScript, addr)
 			}
-
 		})
 	}
 }

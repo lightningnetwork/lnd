@@ -941,7 +941,6 @@ func (l *LightningWallet) currentNumAnchorChans() (int, error) {
 		if c.ChanType.HasAnchors() {
 			numAnchors++
 		}
-
 	}
 
 	for _, c := range chans {
@@ -1084,7 +1083,6 @@ func (l *LightningWallet) CheckReservedValueTx(req CheckReservedValueTxReq) (
 		inputs, req.Tx.TxOut, numAnchors,
 	)
 	switch {
-
 	// If the error returned from CheckReservedValue is
 	// ErrReservedValueInvalidated, then it did nonetheless return
 	// the required reserved value and we check for the optional

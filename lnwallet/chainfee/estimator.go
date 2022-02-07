@@ -85,7 +85,6 @@ type StaticEstimator struct {
 
 // NewStaticEstimator returns a new static fee estimator instance.
 func NewStaticEstimator(feePerKW, relayFee SatPerKWeight) *StaticEstimator {
-
 	return &StaticEstimator{
 		feePerKW: feePerKW,
 		relayFee: relayFee,

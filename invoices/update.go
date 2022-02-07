@@ -128,7 +128,6 @@ func updateMpp(ctx *invoiceUpdateCtx,
 	// Reject HTLCs to AMP invoices if they are missing an AMP payload, and
 	// HTLCs to MPP invoices if they have an AMP payload.
 	switch {
-
 	case inv.Terms.Features.RequiresFeature(lnwire.AMPRequired) &&
 		ctx.amp == nil:
 

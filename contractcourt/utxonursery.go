@@ -884,7 +884,8 @@ func (u *UtxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 // notification for an htlc timeout transaction. If successful, a goroutine
 // will be spawned that will transition the provided baby output into the
 // kindergarten state within the nursery store.
-func (u *UtxoNursery) registerTimeoutConf(baby *babyOutput, heightHint uint32) error {
+func (u *UtxoNursery) registerTimeoutConf(baby *babyOutput,
+	heightHint uint32) error {
 
 	birthTxID := baby.timeoutTx.TxHash()
 
@@ -1052,7 +1053,7 @@ type ContractMaturityReport struct {
 }
 
 // HtlcMaturityReport provides a summary of a single htlc output, and is
-// embedded as party of the overarching ContractMaturityReport
+// embedded as party of the overarching ContractMaturityReport.
 type HtlcMaturityReport struct {
 	// Outpoint is the final output that will be swept back to the wallet.
 	Outpoint wire.OutPoint

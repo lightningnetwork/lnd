@@ -35,7 +35,7 @@ var (
 	ErrConfirmHintNotFound = errors.New("confirm hint not found")
 )
 
-// CacheConfig contains the HeightHintCache configuration
+// CacheConfig contains the HeightHintCache configuration.
 type CacheConfig struct {
 	// QueryDisable prevents reliance on the Height Hint Cache.  This is
 	// necessary to recover from an edge case when the height recorded in

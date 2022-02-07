@@ -70,7 +70,6 @@ func ErrorPayloadTooLarge(size int) error {
 			"but maximum message payload is %d bytes",
 		size, MaxMsgBody,
 	)
-
 }
 
 // String return the string representation of message type.

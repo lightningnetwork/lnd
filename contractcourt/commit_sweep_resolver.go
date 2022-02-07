@@ -262,7 +262,6 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// commitment this is.
 	var witnessType input.WitnessType
 	switch {
-
 	// Delayed output to us on our local commitment for a channel lease in
 	// which we are the initiator.
 	case isLocalCommitTx && c.hasCLTV():

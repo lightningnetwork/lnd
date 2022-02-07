@@ -381,6 +381,7 @@ func IsHtlcSpendRevoke(txIn *wire.TxIn, signDesc *SignDescriptor) (
 
 	if len(txIn.Witness) == 3 &&
 		bytes.Equal(txIn.Witness[1], revokeKey.SerializeCompressed()) {
+
 		return true, nil
 	}
 
@@ -798,7 +799,7 @@ func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 //     OP_DROP
 //     <delay key>
 // OP_ENDIF
-// OP_CHECKSIG
+// OP_CHECKSIG.
 func LeaseSecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	csvDelay, cltvExpiry uint32) ([]byte, error) {
 

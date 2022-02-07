@@ -3822,7 +3822,6 @@ func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
 			payment.HTLCs[i] = attempt
 			return
 		}
-
 	})
 
 	// Setup ReportPaymentFail to return nil reason and error so the
@@ -4006,7 +4005,6 @@ func TestSendMPPaymentFailed(t *testing.T) {
 				),
 			}
 			return
-
 		}
 
 		// We will make the rest attempts failed with temporary error.
@@ -4035,7 +4033,6 @@ func TestSendMPPaymentFailed(t *testing.T) {
 			payment.HTLCs[i] = attempt
 			return
 		}
-
 	})
 
 	// Setup ReportPaymentFail to return nil reason and error so the

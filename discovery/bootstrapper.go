@@ -308,6 +308,7 @@ var _ NetworkPeerBootstrapper = (*ChannelGraphBootstrapper)(nil)
 func NewDNSSeedBootstrapper(
 	seeds [][2]string, net tor.Net,
 	timeout time.Duration) NetworkPeerBootstrapper {
+
 	return &DNSSeedBootstrapper{dnsSeeds: seeds, net: net, timeout: timeout}
 }
 

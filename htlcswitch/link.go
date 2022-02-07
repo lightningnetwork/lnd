@@ -1130,6 +1130,7 @@ func (l *channelLink) htlcManager() {
 			if !shouldAdjustCommitFee(
 				newCommitFee, commitFee, minRelayFee,
 			) {
+
 				continue
 			}
 
@@ -2571,7 +2572,6 @@ func (l *channelLink) ShutdownIfChannelClean() error {
 // updateChannelFee updates the commitment fee-per-kw on this channel by
 // committing to an update_fee message.
 func (l *channelLink) updateChannelFee(feePerKw chainfee.SatPerKWeight) error {
-
 	l.log.Infof("updating commit fee to %v sat/kw", feePerKw)
 
 	// We skip sending the UpdateFee message if the channel is not

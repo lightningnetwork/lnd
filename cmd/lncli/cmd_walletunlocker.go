@@ -149,7 +149,6 @@ func create(ctx *cli.Context) error {
 
 	warningLoop:
 		for {
-
 			fmt.Println()
 			fmt.Printf("WARNING: You are attempting to restore from a " +
 				"static channel backup (SCB) file.\nThis action will CLOSE " +

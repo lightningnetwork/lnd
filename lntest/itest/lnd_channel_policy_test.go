@@ -909,5 +909,4 @@ func testUpdateChannelPolicyFeeRateAccuracy(net *lntest.NetworkHarness,
 	assertPolicyUpdate(
 		t, nodes, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
 	)
-
 }

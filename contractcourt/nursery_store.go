@@ -291,7 +291,6 @@ func (ns *NurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
 // will be stored as it waits out the kidOutput's CSV delay.
 func (ns *NurseryStore) CribToKinder(bby *babyOutput) error {
 	return kvdb.Update(ns.db, func(tx kvdb.RwTx) error {
-
 		// First, retrieve or create the channel bucket corresponding to
 		// the baby output's origin channel point.
 		chanPoint := bby.OriginChanPoint()
@@ -472,7 +471,6 @@ func (ns *NurseryStore) PreschoolToKinder(kid *kidOutput,
 // pruned from the height index as outputs are removed.
 func (ns *NurseryStore) GraduateKinder(height uint32, kid *kidOutput) error {
 	return kvdb.Update(ns.db, func(tx kvdb.RwTx) error {
-
 		hghtBucket := ns.getHeightBucket(tx, height)
 		if hghtBucket == nil {
 			// Nothing to delete, bucket has already been removed.
@@ -597,7 +595,6 @@ func (ns *NurseryStore) FetchClass(
 func (ns *NurseryStore) FetchPreschools() ([]kidOutput, error) { // nolint:golint
 	var kids []kidOutput
 	if err := kvdb.View(ns.db, func(tx kvdb.RTx) error {
-
 		// Retrieve the existing chain bucket for this nursery store.
 		chainBucket := tx.ReadBucket(ns.pfxChainKey)
 		if chainBucket == nil {

@@ -63,6 +63,7 @@ func TestDecodeAcceptChannel(t *testing.T) {
 			if !bytes.Equal(
 				decoded.UpfrontShutdownScript, encoded.UpfrontShutdownScript,
 			) {
+
 				t.Fatalf("decoded script: %x does not equal encoded script: %x",
 					decoded.UpfrontShutdownScript, encoded.UpfrontShutdownScript)
 			}

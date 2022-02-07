@@ -76,6 +76,7 @@ func TestTimeoutConstraint(t *testing.T) {
 		string(testMacaroon.Caveats()[0].Id),
 		expectedTimeCaveatSubstring,
 	) {
+
 		t.Fatalf("Added caveat '%s' does not meet the expectations!",
 			testMacaroon.Caveats()[0].Id)
 	}

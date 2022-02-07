@@ -357,7 +357,6 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	var paymentStatus PaymentStatus
 
 	switch {
-
 	// If any of the the HTLCs did succeed and there are no HTLCs in
 	// flight, the payment succeeded.
 	case !inflight && settled:
@@ -1093,7 +1092,6 @@ func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
 	_, err = io.ReadFull(r, hash[:])
 
 	switch {
-
 	// Older payment attempts wouldn't have the hash set, in which case we
 	// can just return.
 	case err == io.EOF, err == io.ErrUnexpectedEOF:

@@ -728,7 +728,7 @@ func (s *Switch) ForwardPackets(linkQuit chan struct{},
 	return nil
 }
 
-// logFwdErrs logs any errors received on `fwdChan`
+// logFwdErrs logs any errors received on `fwdChan`.
 func (s *Switch) logFwdErrs(num *int, wg *sync.WaitGroup, fwdChan chan error) {
 	defer s.wg.Done()
 

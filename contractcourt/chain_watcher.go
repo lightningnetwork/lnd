@@ -787,7 +787,6 @@ func (c *chainWatcher) handleKnownRemoteState(
 	)
 
 	switch {
-
 	// If we had no log entry at this height, this was not a revoked state.
 	case err == channeldb.ErrLogEntryNotFound:
 		return false, nil
@@ -869,7 +868,6 @@ func (c *chainWatcher) handleUnknownRemoteState(
 			"sweep our funds...",
 			commitPoint.SerializeCompressed(),
 			c.cfg.chanState.FundingOutpoint)
-
 	} else {
 		log.Infof("ChannelPoint(%v) is tweakless, "+
 			"moving to sweep directly on chain",

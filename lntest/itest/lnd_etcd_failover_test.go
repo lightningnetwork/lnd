@@ -153,7 +153,6 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 		}
 
 		failoverTimeout = 2 * time.Minute
-
 	} else {
 		shutdownAndAssert(net, ht, carol1)
 		failoverTimeout = 30 * time.Second

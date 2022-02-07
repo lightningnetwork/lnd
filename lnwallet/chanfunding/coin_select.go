@@ -73,7 +73,6 @@ func calculateFees(utxos []Coin, feeRate chainfee.SatPerKWeight) (btcutil.Amount
 	var weightEstimate input.TxWeightEstimator
 	for _, utxo := range utxos {
 		switch {
-
 		case txscript.IsPayToWitnessPubKeyHash(utxo.PkScript):
 			weightEstimate.AddP2WKHInput()
 
@@ -151,7 +150,6 @@ func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 		var changeAmt btcutil.Amount
 
 		switch {
-
 		// If the excess amount isn't enough to pay for fees based on
 		// fee rate and estimated size without using a change output,
 		// then increase the requested coin amount by the estimate
@@ -171,7 +169,6 @@ func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 		// change output.
 		default:
 			changeAmt = 0
-
 		}
 
 		if changeAmt < dustLimit {

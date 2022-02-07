@@ -47,7 +47,7 @@ const (
 	//      - max-size: 40 bytes
 	UnknownWitnessSize = 1 + 1 + 40
 
-	// P2PKHSize 25 bytes
+	// P2PKHSize 25 bytes.
 	P2PKHSize = 25
 
 	// P2PKHOutputSize 34 bytes
@@ -68,7 +68,7 @@ const (
 	//      - pkscript (p2wsh): 34 bytes
 	P2WSHOutputSize = 8 + 1 + P2WSHSize
 
-	// P2SHSize 23 bytes
+	// P2SHSize 23 bytes.
 	P2SHSize = 23
 
 	// P2SHOutputSize 32 bytes
@@ -205,16 +205,16 @@ const (
 	BaseAnchorCommitmentTxSize = 4 + 1 + FundingInputSize + 3 +
 		2*CommitmentDelayOutput + 2*CommitmentAnchorOutput + 4
 
-	// BaseAnchorCommitmentTxWeight 900 weight
+	// BaseAnchorCommitmentTxWeight 900 weight.
 	BaseAnchorCommitmentTxWeight = witnessScaleFactor * BaseAnchorCommitmentTxSize
 
-	// CommitWeight 724 weight
+	// CommitWeight 724 weight.
 	CommitWeight = BaseCommitmentTxWeight + WitnessCommitmentTxWeight
 
-	// AnchorCommitWeight 1124 weight
+	// AnchorCommitWeight 1124 weight.
 	AnchorCommitWeight = BaseAnchorCommitmentTxWeight + WitnessCommitmentTxWeight
 
-	// HTLCWeight 172 weight
+	// HTLCWeight 172 weight.
 	HTLCWeight = witnessScaleFactor * HTLCSize
 
 	// HtlcTimeoutWeight 663 weight
@@ -358,7 +358,7 @@ const (
 	AcceptedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 8*1 + 20 + 4*1 +
 		33 + 5*1 + 4 + 5*1
 
-	// AcceptedHtlcScriptSizeConfirmed 143 bytes
+	// AcceptedHtlcScriptSizeConfirmed 143 bytes.
 	AcceptedHtlcScriptSizeConfirmed = AcceptedHtlcScriptSize +
 		HtlcConfirmedScriptOverhead
 
@@ -371,7 +371,7 @@ const (
 	//      - witness_script: (accepted_htlc_script)
 	AcceptedHtlcTimeoutWitnessSize = 1 + 1 + 73 + 1 + 1 + AcceptedHtlcScriptSize
 
-	// AcceptedHtlcTimeoutWitnessSizeConfirmed 220 bytes
+	// AcceptedHtlcTimeoutWitnessSizeConfirmed 220 bytes.
 	AcceptedHtlcTimeoutWitnessSizeConfirmed = 1 + 1 + 73 + 1 + 1 +
 		AcceptedHtlcScriptSizeConfirmed
 
@@ -385,7 +385,7 @@ const (
 	//      - witness_script (accepted_htlc_script)
 	AcceptedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + AcceptedHtlcScriptSize
 
-	// AcceptedHtlcPenaltyWitnessSizeConfirmed 253 bytes
+	// AcceptedHtlcPenaltyWitnessSizeConfirmed 253 bytes.
 	AcceptedHtlcPenaltyWitnessSizeConfirmed = 1 + 1 + 73 + 1 + 33 + 1 +
 		AcceptedHtlcScriptSizeConfirmed
 
@@ -448,7 +448,7 @@ const (
 	//      - OP_ENDIF: 1 byte
 	OfferedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 10*1 + 33 + 5*1 + 20 + 4*1
 
-	// OfferedHtlcScriptSizeConfirmed 136 bytes
+	// OfferedHtlcScriptSizeConfirmed 136 bytes.
 	OfferedHtlcScriptSizeConfirmed = OfferedHtlcScriptSize +
 		HtlcConfirmedScriptOverhead
 
@@ -462,7 +462,7 @@ const (
 	//      - witness_script (offered_htlc_script)
 	OfferedHtlcSuccessWitnessSize = 1 + 1 + 73 + 1 + 32 + 1 + OfferedHtlcScriptSize
 
-	// OfferedHtlcSuccessWitnessSizeConfirmed 245 bytes
+	// OfferedHtlcSuccessWitnessSizeConfirmed 245 bytes.
 	OfferedHtlcSuccessWitnessSizeConfirmed = 1 + 1 + 73 + 1 + 32 + 1 +
 		OfferedHtlcScriptSizeConfirmed
 
@@ -497,7 +497,7 @@ const (
 	//      - witness_script (offered_htlc_script)
 	OfferedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + OfferedHtlcScriptSize
 
-	// OfferedHtlcPenaltyWitnessSizeConfirmed 246 bytes
+	// OfferedHtlcPenaltyWitnessSizeConfirmed 246 bytes.
 	OfferedHtlcPenaltyWitnessSizeConfirmed = 1 + 1 + 73 + 1 + 33 + 1 +
 		OfferedHtlcScriptSizeConfirmed
 

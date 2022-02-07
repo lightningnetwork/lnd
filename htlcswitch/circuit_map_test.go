@@ -265,10 +265,8 @@ func TestCircuitMapCleanClosedChannels(t *testing.T) {
 			for _, ks := range test.untouched {
 				assertKeystoneNotDeleted(t, circuitMap, ks)
 			}
-
 		})
 	}
-
 }
 
 // createTestCircuit creates a circuit for testing with its incoming key being

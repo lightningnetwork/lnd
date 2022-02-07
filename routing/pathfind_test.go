@@ -1556,6 +1556,7 @@ func TestNewRoute(t *testing.T) {
 			if !reflect.DeepEqual(
 				finalHop.MPP, testCase.expectedMPP,
 			) {
+
 				t.Errorf("Expected final hop mpp field: %v, "+
 					" but got: %v instead",
 					testCase.expectedMPP, finalHop.MPP)
@@ -1713,7 +1714,6 @@ func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 	sourceNode, err := ctx.graph.SourceNode()
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
-
 	}
 
 	find := func(r *RestrictParams,

@@ -181,7 +181,6 @@ func TestPrepareAddOnion(t *testing.T) {
 			store.AssertExpectations(t)
 		})
 	}
-
 }
 
 // mockStore implements a mock of the interface OnionStore.

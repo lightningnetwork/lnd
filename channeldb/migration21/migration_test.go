@@ -175,7 +175,6 @@ var (
 // migrate three areas: open channel commit diffs, open channel unacked updates,
 // and network results in the switch.
 func TestMigrateDatabaseWireMessages(t *testing.T) {
-
 	var pub [33]byte
 	copy(pub[:], key[:])
 
@@ -344,6 +343,7 @@ func TestMigrateDatabaseWireMessages(t *testing.T) {
 			if !reflect.DeepEqual(
 				newUpdates, testCommitDiff.LogUpdates,
 			) {
+
 				return fmt.Errorf("updates mismatch: expected "+
 					"%v, got %v",
 					spew.Sdump(testCommitDiff.LogUpdates),
@@ -365,6 +365,7 @@ func TestMigrateDatabaseWireMessages(t *testing.T) {
 			if !reflect.DeepEqual(
 				newUpdates, testCommitDiff.LogUpdates,
 			) {
+
 				return fmt.Errorf("updates mismatch: expected "+
 					"%v, got %v",
 					spew.Sdump(testCommitDiff.LogUpdates),
@@ -402,6 +403,7 @@ func TestMigrateDatabaseWireMessages(t *testing.T) {
 			if !reflect.DeepEqual(
 				newChanCloseSummary, testChanCloseSummary,
 			) {
+
 				return fmt.Errorf("summary mismatch: expected "+
 					"%v, got %v",
 					spew.Sdump(testChanCloseSummary),

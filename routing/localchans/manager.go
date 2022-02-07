@@ -190,7 +190,6 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 
 	// We now update the edge max htlc value.
 	switch {
-
 	// If a non-zero max htlc was specified, use it to update the edge.
 	// Otherwise keep the value unchanged.
 	case newSchema.MaxHTLC != 0:

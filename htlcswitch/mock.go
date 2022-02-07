@@ -986,17 +986,18 @@ var _ htlcNotifier = (*mockHTLCNotifier)(nil)
 type mockHTLCNotifier struct{}
 
 func (h *mockHTLCNotifier) NotifyForwardingEvent(key HtlcKey, info HtlcInfo,
-	eventType HtlcEventType) {
+	eventType HtlcEventType) { // nolint:whitespace
 }
 
 func (h *mockHTLCNotifier) NotifyLinkFailEvent(key HtlcKey, info HtlcInfo,
-	eventType HtlcEventType, linkErr *LinkError, incoming bool) {
+	eventType HtlcEventType, linkErr *LinkError,
+	incoming bool) { // nolint:whitespace
 }
 
 func (h *mockHTLCNotifier) NotifyForwardingFailEvent(key HtlcKey,
-	eventType HtlcEventType) {
+	eventType HtlcEventType) { // nolint:whitespace
 }
 
 func (h *mockHTLCNotifier) NotifySettleEvent(key HtlcKey,
-	preimage lntypes.Preimage, eventType HtlcEventType) {
+	preimage lntypes.Preimage, eventType HtlcEventType) { // nolint:whitespace
 }

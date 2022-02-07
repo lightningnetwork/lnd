@@ -118,7 +118,6 @@ func (p *probabilityEstimator) getNodeProbability(now time.Time,
 
 	for _, result := range results {
 		switch {
-
 		// Weigh success with a constant high weight of 1. There is no
 		// decay. Amt is never zero, so this clause is never executed
 		// when result.SuccessAmt is zero.

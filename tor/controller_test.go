@@ -258,7 +258,6 @@ func TestReadResponse(t *testing.T) {
 	for _, tc := range testCase {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-
 			// Let the server mocks a given response.
 			_, err := server.Write([]byte(tc.serverResp))
 			require.NoError(t, err, "server failed to write")

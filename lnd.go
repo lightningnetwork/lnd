@@ -12,7 +12,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	_ "net/http/pprof" // Blank import to set up profiling HTTP handlers.
+	_ "net/http/pprof" // nolint:gosec // used to set up profiling HTTP handlers.
 	"os"
 	"runtime/pprof"
 	"strings"

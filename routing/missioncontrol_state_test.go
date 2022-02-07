@@ -90,5 +90,4 @@ func TestMissionControlStateSetLastPairResult(t *testing.T) {
 		SuccessAmt:  50,
 	}
 	require.Equal(t, expected, result[to])
-
 }

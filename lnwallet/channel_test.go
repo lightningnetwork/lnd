@@ -2576,6 +2576,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) == fee {
+
 		t.Fatalf("bob's feePerKw was unexpectedly locked in")
 	}
 
@@ -2589,6 +2590,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) != fee {
+
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -2617,6 +2619,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) == fee {
+
 		t.Fatalf("alice's feePerKw was unexpectedly locked in")
 	}
 
@@ -2630,6 +2633,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) != fee {
+
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
 
@@ -2728,6 +2732,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) == fee {
+
 		t.Fatalf("bob's feePerKw was unexpectedly locked in")
 	}
 
@@ -2742,6 +2747,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) != fee {
+
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -2769,6 +2775,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) == fee {
+
 		t.Fatalf("alice's feePerKw was unexpectedly locked in")
 	}
 
@@ -2782,6 +2789,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) != fee {
+
 		t.Fatalf("Alice's feePerKw was not locked in")
 	}
 
@@ -2871,6 +2879,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) == fee {
+
 		t.Fatalf("bob's feePerKw was unexpectedly locked in")
 	}
 
@@ -2896,6 +2905,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) != fee {
+
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -2923,6 +2933,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) == fee {
+
 		t.Fatalf("alice's feePerKw was unexpectedly locked in")
 	}
 
@@ -2936,6 +2947,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) != fee {
+
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
 
@@ -4632,11 +4644,13 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) != newFeeRate {
+
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) != newFeeRate {
+
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -4851,11 +4865,13 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) != newFeeRate {
+
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) != newFeeRate {
+
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -4880,11 +4896,13 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) != newFeeRate {
+
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) != newFeeRate {
+
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 }
@@ -8506,7 +8524,6 @@ func TestFetchParent(t *testing.T) {
 					test.parentIndex, parent.HtlcIndex)
 			}
 		})
-
 	}
 }
 

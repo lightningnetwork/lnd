@@ -940,11 +940,9 @@ func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32,
 // network (either in the mempool or chain) no error will be returned.
 func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	if err := b.wallet.PublishTransaction(tx, label); err != nil {
-
 		// If we failed to publish the transaction, check whether we
 		// got an error of known type.
 		switch err.(type) {
-
 		// If the wallet reports a double spend, convert it to our
 		// internal ErrDoubleSpend and return.
 		case *base.ErrDoubleSpend:
@@ -1384,6 +1382,7 @@ func (b *BtcWallet) GetRecoveryInfo() (bool, float64, error) {
 	// rollback happens. In that case, we will return zero progress here.
 	if syncState.Height < birthdayBlock.Height ||
 		bestHeight < birthdayBlock.Height {
+
 		return isRecoveryMode, progress, nil
 	}
 

@@ -461,7 +461,6 @@ func TestSelectHopHints(t *testing.T) {
 				setMockChannelUsed(
 					h, private1ShortID, privateChan1Policy,
 				)
-
 			},
 			// Add two channels that we'd want to use, but the
 			// second one will be cut off due to our hop hint count

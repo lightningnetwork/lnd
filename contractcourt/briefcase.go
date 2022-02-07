@@ -181,7 +181,7 @@ const (
 	// |   |
 	// |   |-> StateFullyResolved: contract resolutions empty
 	// |
-	// |-> StateFullyResolved: coop/breach(legacy) close trigger
+	// |-> StateFullyResolved: coop/breach(legacy) close trigger.
 
 	// StateDefault is the default state. In this state, no major actions
 	// need to be executed.

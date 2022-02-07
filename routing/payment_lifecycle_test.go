@@ -570,7 +570,6 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 		}
 
 		switch step {
-
 		case routerInitPayment:
 			var args initArgs
 			select {
@@ -934,7 +933,6 @@ func TestPaymentState(t *testing.T) {
 			)
 		})
 	}
-
 }
 
 // TestUpdatePaymentState checks that the method updatePaymentState updates the
@@ -1071,7 +1069,6 @@ func TestUpdatePaymentState(t *testing.T) {
 				ct.On("FetchPayment", paymentHash).Return(
 					nil, dummyErr,
 				)
-
 			} else {
 				// Otherwise we will return the payment.
 				ct.On("FetchPayment", paymentHash).Return(
@@ -1096,10 +1093,8 @@ func TestUpdatePaymentState(t *testing.T) {
 				t, tc.expectedState, state,
 				"state not updated as expected",
 			)
-
 		})
 	}
-
 }
 
 func makeActiveAttempt(total, fee int) channeldb.HTLCAttempt {

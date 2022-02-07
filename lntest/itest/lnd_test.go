@@ -42,7 +42,7 @@ var (
 			"split test cases with the given (0-based) index",
 	)
 
-	// dbBackendFlag specifies the backend to use
+	// dbBackendFlag specifies the backend to use.
 	dbBackendFlag = flag.String("dbbackend", "bbolt", "Database backend "+
 		"(bbolt, etcd, postgres)")
 )

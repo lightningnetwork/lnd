@@ -1735,6 +1735,7 @@ func txFromOutput(tx *wire.MsgTx, signer input.Signer, fromPubKey,
 // new, unconfirmed tx that spends this output to pubKey.
 func newTx(t *testing.T, r *rpctest.Harness, pubKey *btcec.PublicKey,
 	alice *lnwallet.LightningWallet, rbf bool) *wire.MsgTx {
+
 	t.Helper()
 
 	keyScript, err := scriptFromKey(pubKey)
@@ -3224,6 +3225,7 @@ func TestLightningWallet(t *testing.T, targetBackEnd string) {
 
 			if !runTests(t, walletDriver, backEnd, miningNode,
 				rpcConfig, chainNotifier) {
+
 				return
 			}
 		}
@@ -3521,10 +3523,12 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		success := t.Run(testName, func(t *testing.T) {
 			if backEnd == "neutrino" &&
 				strings.Contains(walletTest.name, "dual funder") {
+
 				t.Skip("skipping dual funder tests for neutrino")
 			}
 			if backEnd == "neutrino" &&
 				strings.Contains(walletTest.name, "spend unconfirmed") {
+
 				t.Skip("skipping spend unconfirmed tests for neutrino")
 			}
 
@@ -3539,6 +3543,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		// wipe buckets
 		if err := clearWalletStates(alice, bob); err !=
 			nil && err != kvdb.ErrBucketNotFound {
+
 			t.Fatalf("unable to wipe wallet state: %v", err)
 		}
 	}

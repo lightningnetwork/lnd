@@ -405,7 +405,6 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 // NOTE: This is part of the WitnessType interface.
 func (wt StandardWitnessType) SizeUpperBound() (int, bool, error) {
 	switch wt {
-
 	// Outputs on a remote commitment transaction that pay directly to us.
 	case CommitSpendNoDelayTweakless:
 		fallthrough

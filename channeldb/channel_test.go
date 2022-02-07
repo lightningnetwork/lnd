@@ -658,6 +658,7 @@ func TestChannelStateTransition(t *testing.T) {
 	if !reflect.DeepEqual(
 		dbUnsignedAckedUpdates[0], unsignedAckedUpdates[0],
 	) {
+
 		t.Fatalf("unexpected update: expected %v, got %v",
 			spew.Sdump(unsignedAckedUpdates[0]),
 			spew.Sdump(dbUnsignedAckedUpdates))

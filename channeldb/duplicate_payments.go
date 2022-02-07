@@ -150,7 +150,6 @@ func fetchDuplicatePayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	creationInfo, err := deserializeDuplicatePaymentCreationInfo(r)
 	if err != nil {
 		return nil, err
-
 	}
 
 	// Get failure reason if available.

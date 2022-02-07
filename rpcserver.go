@@ -255,7 +255,6 @@ func calculateFeeRate(satPerByte, satPerVByte uint64, targetConf uint32,
 	}
 
 	return feeRate, nil
-
 }
 
 // GetAllPermissions returns all the permissions required to interact with lnd.
@@ -282,7 +281,6 @@ func GetAllPermissions() []bakery.Op {
 						allPerms, perm,
 					)
 				}
-
 			} else {
 				allPermsMap[entity] = make(map[string]struct{})
 				allPermsMap[entity][action] = struct{}{}
@@ -1652,8 +1650,9 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		)
 	}
 
-	if err := r.server.ConnectToPeer(peerAddr,
-		in.Perm, timeout); err != nil {
+	if err := r.server.ConnectToPeer(
+		peerAddr, in.Perm, timeout,
+	); err != nil {
 
 		rpcsLog.Errorf(
 			"[connectpeer]: error connecting to peer: %v", err,
@@ -1936,7 +1935,6 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// not present, we'll fallback to the deprecated version that parses the
 	// key from a hex string if this is for REST for backwards compatibility.
 	switch {
-
 	// Parse the raw bytes of the node key into a pubkey object so we can
 	// easily manipulate it.
 	case len(in.NodePubkey) > 0:
@@ -3472,7 +3470,6 @@ func (r *rpcServer) fetchWaitingCloseChannels() (waitingCloseChannels,
 		remoteCommitDiff, err := waitingClose.RemoteCommitChainTip()
 
 		switch {
-
 		// Don't set hash if there is no pending remote commit.
 		case err == channeldb.ErrNoPendingCommit:
 
@@ -3598,7 +3595,6 @@ func (r *rpcServer) arbitratorPopulateForceCloseResp(chanPoint *wire.OutPoint,
 
 	for _, report := range reports {
 		switch report.Type {
-
 		// For a direct output, populate/update the top level
 		// response properties.
 		case contractcourt.ReportOutputUnencumbered:
@@ -3645,7 +3641,6 @@ func (r *rpcServer) arbitratorPopulateForceCloseResp(chanPoint *wire.OutPoint,
 			// limbo, lost and recovered. Derive the current state
 			// from the limbo and recovered balances.
 			switch {
-
 			case report.RecoveredBalance != 0:
 				forceClose.Anchor = lnrpc.PendingChannelsResponse_ForceClosedChannel_RECOVERED
 
@@ -7090,7 +7085,6 @@ func (r *rpcServer) BakeMacaroon(ctx context.Context,
 		} else if !stringInSlice(op.Action, validActions) {
 			return nil, fmt.Errorf("invalid permission action. %s",
 				helpMsg)
-
 		}
 
 		requestedPermissions[idx] = bakery.Op{
@@ -7252,7 +7246,6 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 
 	var pendingChanID [32]byte
 	switch {
-
 	// If this is a message to register a new shim that is an external
 	// channel point, then we'll contact the wallet to register this new
 	// shim. A user will use this method to register a new channel funding

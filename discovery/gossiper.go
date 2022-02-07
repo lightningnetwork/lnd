@@ -1178,6 +1178,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 				announcement.msg,
 				sourceToPub(announcement.source),
 			) {
+
 				announcement.err <- fmt.Errorf("recently " +
 					"rejected")
 				continue
@@ -1205,6 +1206,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 						routing.ErrVBarrierShuttingDown,
 						routing.ErrParentValidationFailed,
 					) {
+
 						log.Warnf("unexpected error "+
 							"during validation "+
 							"barrier shutdown: %v",
@@ -1787,6 +1789,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				routing.ErrIgnored,
 				routing.ErrVBarrierShuttingDown,
 			) {
+
 				log.Error(err)
 			}
 
@@ -2314,8 +2317,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				routing.ErrIgnored,
 				routing.ErrVBarrierShuttingDown,
 			) {
-				log.Debug(err)
 
+				log.Debug(err)
 			} else {
 				key := newRejectCacheKey(
 					msg.ShortChannelID.ToUint64(),
@@ -2929,6 +2932,7 @@ func IsKeepAliveUpdate(update *lnwire.ChannelUpdate,
 	// Both updates should be from the same direction.
 	if update.ChannelFlags&lnwire.ChanUpdateDirection !=
 		prev.ChannelFlags&lnwire.ChanUpdateDirection {
+
 		return false
 	}
 

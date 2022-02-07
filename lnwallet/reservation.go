@@ -349,7 +349,6 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		default:
 			chanType |= channeldb.NoFundingTxBit
 		}
-
 	} else {
 		// Otherwise, this is a dual funder channel, and no side is
 		// technically the "initiator"
@@ -435,6 +434,7 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 // if the parameters are seemed unsound.
 func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
 	maxLocalCSVDelay uint16, responder bool) error {
+
 	r.Lock()
 	defer r.Unlock()
 

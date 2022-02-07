@@ -22,6 +22,7 @@ import (
 // prints debug information to stdout.
 func assertEngineExecution(t *testing.T, testNum int, valid bool,
 	newEngine func() (*txscript.Engine, error)) {
+
 	t.Helper()
 
 	// Get a new VM to execute.

@@ -2110,7 +2110,6 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 	// this payment.
 	var shardTracker shards.ShardTracker
 	switch {
-
 	// If this is an AMP payment, we'll use the AMP shard tracker.
 	case payment.amp != nil:
 		shardTracker = amp.NewShardTracker(

@@ -467,7 +467,6 @@ func (c *GraphCache) ForEachChannel(node route.Vertex,
 		if err := cb(channel); err != nil {
 			return err
 		}
-
 	}
 
 	return nil

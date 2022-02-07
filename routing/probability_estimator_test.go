@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	// Define node identifiers
+	// Define node identifiers.
 	node1 = 1
 	node2 = 2
 	node3 = 3

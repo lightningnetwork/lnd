@@ -938,7 +938,6 @@ func genSuccessTx(chanType channeldb.ChannelType) (*wire.MsgTx, error) {
 	successTx.TxIn[0].Witness = successWitness
 
 	return successTx, nil
-
 }
 
 type txSizeTest struct {

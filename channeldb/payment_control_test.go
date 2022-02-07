@@ -1254,7 +1254,6 @@ func createTestPayments(t *testing.T, p *PaymentControl, payments []*payment) {
 		require.NoError(t, err, "unable to send htlc message")
 
 		switch payments[i].status {
-
 		// Fail the attempt and the payment overall.
 		case StatusFailed:
 			htlcFailure := HTLCFailUnreadable

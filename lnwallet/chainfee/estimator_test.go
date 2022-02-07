@@ -321,5 +321,4 @@ func TestGetCachedFee(t *testing.T) {
 			require.ErrorIs(t, err, tc.expectErr)
 		})
 	}
-
 }

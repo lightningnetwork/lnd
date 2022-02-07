@@ -1072,7 +1072,6 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 		)
 		if err != nil {
 			return err
-
 		}
 		if bkpStats == nil {
 			return errors.New("no active backup sessions")

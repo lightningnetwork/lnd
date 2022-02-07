@@ -295,7 +295,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 //       ]
 //  },
 //  "chanPoint2": ...
-// }
+// }.
 type policyUpdateMap map[string]map[string][]*lnrpc.RoutingPolicy
 
 // HarnessNode represents an instance of lnd running within our test network
@@ -1189,7 +1189,6 @@ func (hn *HarnessNode) stop() error {
 			return fmt.Errorf("error attempting to stop "+
 				"grpc client: %v", err)
 		}
-
 	}
 
 	return nil
@@ -1207,7 +1206,7 @@ func (hn *HarnessNode) shutdown() error {
 	return nil
 }
 
-// kill kills the lnd process
+// kill kills the lnd process.
 func (hn *HarnessNode) kill() error {
 	return hn.cmd.Process.Kill()
 }
@@ -1244,7 +1243,6 @@ type chanWatchRequest struct {
 }
 
 func (hn *HarnessNode) checkChanPointInGraph(chanPoint wire.OutPoint) bool {
-
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
 
@@ -1288,7 +1286,6 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 
 	for {
 		select {
-
 		// A new graph update has just been received, so we'll examine
 		// the current set of registered clients to see if we can
 		// dispatch any requests.
@@ -1767,7 +1764,6 @@ func (hn *HarnessNode) handlePolicyUpdateWatchRequest(req *chanWatchRequest) {
 // getChannelPolicies queries the channel graph and formats the policies into
 // the format defined in type policyUpdateMap.
 func (hn *HarnessNode) getChannelPolicies(include bool) policyUpdateMap {
-
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
 
@@ -1782,7 +1778,6 @@ func (hn *HarnessNode) getChannelPolicies(include bool) policyUpdateMap {
 	policyUpdates := policyUpdateMap{}
 
 	for _, e := range graph.Edges {
-
 		policies := policyUpdates[e.ChanPoint]
 
 		// If the map[op] is nil, we need to initialize the map first.

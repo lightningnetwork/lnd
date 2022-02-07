@@ -133,7 +133,6 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 
 	var chanType channeldb.ChannelType
 	switch backup.Version {
-
 	case chanbackup.DefaultSingleVersion:
 		chanType = channeldb.SingleFunderBit
 

@@ -72,7 +72,7 @@ var (
 	DefaultShardMinAmt = lnwire.NewMSatFromSatoshis(10000)
 )
 
-// Error returns the string representation of the noRouteError
+// Error returns the string representation of the noRouteError.
 func (e noRouteError) Error() string {
 	switch e {
 	case errNoTlvPayload:

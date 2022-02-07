@@ -1548,7 +1548,6 @@ func TestChannelArbitratorForceCloseBreachedChannel(t *testing.T) {
 // TestChannelArbitratorCommitFailure tests that the channel arbitrator is able
 // to recover from a failed CommitState call at restart.
 func TestChannelArbitratorCommitFailure(t *testing.T) {
-
 	testCases := []struct {
 
 		// closeType is the type of channel close we want ot test.
@@ -2221,6 +2220,7 @@ func TestRemoteCloseInitiator(t *testing.T) {
 			if !alice.State().HasChanStatus(
 				channeldb.ChanStatusRemoteCloseInitiator,
 			) {
+
 				t.Fatalf("expected remote close initiator, "+
 					"got: %v", alice.State().ChanStatus())
 			}
@@ -2350,7 +2350,6 @@ func TestFindCommitmentDeadline(t *testing.T) {
 			require.Equal(t, tc.deadline, deadline)
 		})
 	}
-
 }
 
 // TestSweepAnchors checks the sweep transactions are created using the
@@ -2473,7 +2472,6 @@ func TestSweepAnchors(t *testing.T) {
 		t, expectedRemoteDeadline, deadlines[2],
 		"remote deadline not matched",
 	)
-
 }
 
 // TestChannelArbitratorAnchors asserts that the commitment tx anchor is swept.
@@ -2702,7 +2700,6 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		htlcWithPreimage.RefundTimeout-heightHint,
 		chanArbCtx.sweeper.deadlines[1],
 	)
-
 }
 
 // putResolverReportInChannel returns a put report function which will pipe
@@ -2738,6 +2735,7 @@ type mockChannel struct {
 
 func (m *mockChannel) NewAnchorResolutions() (*lnwallet.AnchorResolutions,
 	error) {
+
 	if m.anchorResolutions != nil {
 		return m.anchorResolutions, nil
 	}

@@ -76,6 +76,7 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
 			lnwire.StaticRemoteKeyOptional,
 		) {
+
 			return 0, errUnsupportedChannelType
 		}
 		return lnwallet.CommitmentTypeScriptEnforcedLease, nil
@@ -90,6 +91,7 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
 			lnwire.StaticRemoteKeyOptional,
 		) {
+
 			return 0, errUnsupportedChannelType
 		}
 		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, nil

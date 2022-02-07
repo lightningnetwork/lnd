@@ -27,7 +27,6 @@ func CalculateFeeLimit(feeLimit *FeeLimit,
 	amount lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
 	switch feeLimit.GetLimit().(type) {
-
 	case *FeeLimit_Fixed:
 		return lnwire.NewMSatFromSatoshis(
 			btcutil.Amount(feeLimit.GetFixed()),
@@ -89,7 +88,6 @@ func MarshalUtxos(utxos []*lnwallet.Utxo, activeNetParams *chaincfg.Params) (
 		// address type.
 		var addrType AddressType
 		switch utxo.AddressType {
-
 		case lnwallet.WitnessPubKey:
 			addrType = AddressType_WITNESS_PUBKEY_HASH
 

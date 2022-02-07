@@ -1541,7 +1541,6 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpda
 	// Since Add updates aren't saved to disk under this key, the update will
 	// never be an Add.
 	switch wireMsg := logUpdate.UpdateMsg.(type) {
-
 	// For HTLCs that we settled, we'll fetch the original offered HTLC from
 	// the remote update log so we can retrieve the same PaymentDescriptor that
 	// ReceiveHTLCSettle would produce.
@@ -1621,7 +1620,6 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 	error) {
 
 	switch wireMsg := logUpdate.UpdateMsg.(type) {
-
 	case *lnwire.UpdateAddHTLC:
 		pd := &PaymentDescriptor{
 			RHash:                wireMsg.PaymentHash,
@@ -1884,7 +1882,6 @@ func (lc *LightningChannel) restoreStateLogs(
 	// To ensure proper channel operation, we restore the add's addCommitHeightLocal
 	// field to the height of our local commitment.
 	for _, logUpdate := range unsignedAckedUpdates {
-
 		var htlcIdx uint64
 		switch wireMsg := logUpdate.UpdateMsg.(type) {
 		case *lnwire.UpdateFulfillHTLC:
@@ -1912,7 +1909,6 @@ func (lc *LightningChannel) restoreStateLogs(
 	// To ensure proper channel operation, we restore the add's addCommitHeightRemote
 	// field to the height of the remote commitment.
 	for _, logUpdate := range remoteUnsignedLocalUpdates {
-
 		var htlcIdx uint64
 		switch wireMsg := logUpdate.UpdateMsg.(type) {
 		case *lnwire.UpdateFulfillHTLC:
@@ -3004,6 +3000,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			chanType, true, false, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
 		) {
+
 			continue
 		}
 
@@ -3058,6 +3055,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			chanType, false, false, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
 		) {
+
 			continue
 		}
 
@@ -3507,7 +3505,8 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 // any). The HTLC signatures are sorted according to the BIP 69 order of the
 // HTLC's on the commitment transaction. Finally, the new set of pending HTLCs
 // for the remote party's commitment are also returned.
-func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, []channeldb.HTLC, error) {
+func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
+	[]channeldb.HTLC, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -3531,7 +3530,6 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, []ch
 	// new state, we consume a prior revocation point.
 	commitPoint := lc.channelState.RemoteNextRevocation
 	if lc.remoteCommitChain.hasUnackedCommitment() || commitPoint == nil {
-
 		return sig, htlcSigs, nil, ErrNoWindow
 	}
 
@@ -4054,6 +4052,7 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 			lc.channelState.ChanType, false, !remoteChain,
 			feePerKw, htlc.Amount.ToSatoshis(), dustLimit,
 		) {
+
 			continue
 		}
 
@@ -4064,6 +4063,7 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 			lc.channelState.ChanType, true, !remoteChain,
 			feePerKw, htlc.Amount.ToSatoshis(), dustLimit,
 		) {
+
 			continue
 		}
 
@@ -4567,7 +4567,6 @@ func (lc *LightningChannel) oweCommitment(local bool) bool {
 		// have added to our remote commitment tx yet.
 		remoteUpdatesPending = lastLocalCommit.theirMessageIndex !=
 			lastRemoteCommit.theirMessageIndex
-
 	} else {
 		perspective = "remote"
 
@@ -5029,6 +5028,7 @@ func (lc *LightningChannel) GetDustSum(remote bool) lnwire.MilliSatoshi {
 		if HtlcIsDust(
 			chanType, false, !remote, feeRate, amt, dustLimit,
 		) {
+
 			dustSum += pd.Amount
 		}
 	}
@@ -5047,6 +5047,7 @@ func (lc *LightningChannel) GetDustSum(remote bool) lnwire.MilliSatoshi {
 		if HtlcIsDust(
 			chanType, true, !remote, feeRate, amt, dustLimit,
 		) {
+
 			dustSum += pd.Amount
 		}
 	}
@@ -6152,6 +6153,7 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight, ourCommit bool,
 			chanType, htlc.Incoming, ourCommit, feePerKw,
 			htlc.Amt.ToSatoshis(), dustLimit,
 		) {
+
 			continue
 		}
 
@@ -7071,7 +7073,6 @@ func (lc *LightningChannel) IdealCommitFeeRate(netFeeRate, minRelayFeeRate,
 	// Otherwise, cap the fee rate at the max fee rate.
 	switch lc.channelState.ChanType.HasAnchors() &&
 		maxFeeRate > maxAnchorCommitFeeRate {
-
 	case true:
 		commitFeeRate = chainfee.SatPerKWeight(
 			math.Min(

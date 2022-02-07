@@ -631,7 +631,7 @@ func createSessionKeyIndexKey(towerID TowerID, blobType blob.Type) []byte {
 	return keyBytes[:]
 }
 
-// getSessionKeyIndex is a helper method
+// getSessionKeyIndex is a helper method.
 func getSessionKeyIndex(keyIndexes kvdb.RwBucket, towerID TowerID,
 	blobType blob.Type) (uint32, error) {
 

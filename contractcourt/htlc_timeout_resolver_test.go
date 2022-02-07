@@ -138,6 +138,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				if reflect.DeepEqual(
 					templateTx.TxIn[0].Witness, witness,
 				) {
+
 					return templateTx, nil
 				}
 				templateTx.TxIn[0].Witness = witness
@@ -169,6 +170,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				if reflect.DeepEqual(
 					templateTx.TxIn[0].Witness, witness,
 				) {
+
 					return templateTx, nil
 				}
 
@@ -206,6 +208,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				if reflect.DeepEqual(
 					templateTx.TxIn[0].Witness, witness,
 				) {
+
 					return templateTx, nil
 				}
 
@@ -239,6 +242,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				if reflect.DeepEqual(
 					templateTx.TxIn[0].Witness, witness,
 				) {
+
 					return templateTx, nil
 				}
 

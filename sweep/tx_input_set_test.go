@@ -234,7 +234,6 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 	change = set.changeOutput
 	if change != 1000 {
 		t.Fatalf("expected change to be %v, had %v", 1000, change)
-
 	}
 	require.True(t, set.enoughInput())
 }

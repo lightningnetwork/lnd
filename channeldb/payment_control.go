@@ -324,7 +324,6 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 			hMpp := h.Route.FinalHop().MPP
 
 			switch {
-
 			// We tried to register a non-MPP attempt for a MPP
 			// payment.
 			case mpp == nil && hMpp != nil:

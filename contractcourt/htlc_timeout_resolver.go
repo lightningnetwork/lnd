@@ -329,7 +329,6 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 // transaction.
 func (h *htlcTimeoutResolver) spendHtlcOutput() (*chainntnfs.SpendDetail, error) {
 	switch {
-
 	// If we have non-nil SignDetails, this means that have a 2nd level
 	// HTLC transaction that is signed using sighash SINGLE|ANYONECANPAY
 	// (the case for anchor type channels). In this case we can re-sign it
@@ -441,7 +440,6 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 	)
 
 	switch {
-
 	// If the sweeper is handling the second level transaction, wait for
 	// the CSV and possible CLTV lock to expire, before sweeping the output
 	// on the second-level.

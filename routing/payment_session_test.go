@@ -76,7 +76,6 @@ func TestValidateCLTVLimit(t *testing.T) {
 // TestUpdateAdditionalEdge checks that we can update the additional edges as
 // expected.
 func TestUpdateAdditionalEdge(t *testing.T) {
-
 	var (
 		testChannelID  = uint64(12345)
 		oldFeeBaseMSat = uint32(1000)

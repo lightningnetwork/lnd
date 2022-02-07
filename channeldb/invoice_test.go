@@ -1010,7 +1010,6 @@ func TestScanInvoices(t *testing.T) {
 		invoices = make(map[lntypes.Hash]*Invoice)
 		callCount = 0
 		resetCount++
-
 	}
 
 	scanFunc := func(paymentHash lntypes.Hash, invoice *Invoice) error {
@@ -1661,7 +1660,6 @@ func TestHTLCSet(t *testing.T) {
 			ampData = &InvoiceHtlcAMPData{
 				Record: *record.NewAMP([32]byte{0}, *h.setID, 0),
 			}
-
 		}
 
 		// Add the HTLC to the invoice's set of HTLCs.
@@ -2045,7 +2043,7 @@ func TestUnexpectedInvoicePreimage(t *testing.T) {
 		getUpdateInvoice(invoice.Terms.Value),
 	)
 
-	//Assert that we get ErrUnexpectedInvoicePreimage.
+	// Assert that we get ErrUnexpectedInvoicePreimage.
 	require.Error(t, ErrUnexpectedInvoicePreimage, err)
 }
 

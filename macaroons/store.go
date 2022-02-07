@@ -385,7 +385,6 @@ func (r *RootKeyStorage) ListMacaroonIDs(_ context.Context) ([][]byte, error) {
 	// Read all the items in the bucket and append the keys, which are the
 	// root key IDs we want.
 	err := kvdb.View(r.Backend, func(tx kvdb.RTx) error {
-
 		// appendRootKey is a function closure that appends root key ID
 		// to rootKeySlice.
 		appendRootKey := func(k, _ []byte) error {

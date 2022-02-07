@@ -180,7 +180,6 @@ lifecycle:
 		// TODO(yy): sanity check all the states to make sure
 		// everything is expected.
 		switch {
-
 		// We have a terminal condition and no active shards, we are
 		// ready to exit.
 		case currentState.terminated():
@@ -470,7 +469,6 @@ type shardResult struct {
 // given HTLC attempt to be available then handle its result. It will fail the
 // payment with the control tower if a terminal error is encountered.
 func (p *shardHandler) collectResultAsync(attempt *channeldb.HTLCAttemptInfo) {
-
 	// errToSend is the error to be sent to sh.shardErrors.
 	var errToSend error
 
@@ -557,7 +555,6 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 		attempt.AttemptID, p.identifier, errorDecryptor,
 	)
 	switch {
-
 	// If this attempt ID is unknown to the Switch, it means it was never
 	// checkpointed and forwarded by the switch before a restart. In this
 	// case we can safely send a new payment attempt, and wait for its
@@ -780,7 +777,8 @@ func (p *shardHandler) handleSendError(attempt *channeldb.HTLCAttemptInfo,
 
 		// Fail the payment via control tower.
 		if err := p.router.cfg.Control.Fail(
-			p.identifier, *reason); err != nil {
+			p.identifier, *reason,
+		); err != nil {
 
 			log.Errorf("unable to report failure to control "+
 				"tower: %v", err)
@@ -968,7 +966,6 @@ func marshallError(sendError error, time time.Time) *channeldb.HTLCFailInfo {
 	}
 
 	switch sendError {
-
 	case htlcswitch.ErrPaymentIDNotFound:
 		response.Reason = channeldb.HTLCFailInternal
 		return response

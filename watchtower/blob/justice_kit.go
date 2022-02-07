@@ -8,12 +8,11 @@ import (
 	"fmt"
 	"io"
 
-	"golang.org/x/crypto/chacha20poly1305"
-
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 const (

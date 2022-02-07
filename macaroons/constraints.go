@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc/peer"
-
 	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
 	macaroon "gopkg.in/macaroon.v2"
 )

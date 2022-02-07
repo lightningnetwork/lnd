@@ -3,11 +3,10 @@ package autopilot
 import (
 	"bytes"
 	"io/ioutil"
+	prand "math/rand"
 	"os"
 	"testing"
 	"time"
-
-	prand "math/rand"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"

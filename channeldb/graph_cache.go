@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcutil"
-
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"

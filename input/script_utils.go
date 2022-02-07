@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"math/big"
 
-	"golang.org/x/crypto/ripemd160"
-
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"golang.org/x/crypto/ripemd160"
 )
 
 var (

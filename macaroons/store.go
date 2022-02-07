@@ -8,10 +8,9 @@ import (
 	"io"
 	"sync"
 
-	"github.com/lightningnetwork/lnd/kvdb"
-
 	"github.com/btcsuite/btcwallet/snacl"
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/kvdb"
 )
 
 const (

@@ -7,11 +7,10 @@ import (
 	"net/http"
 	"sync"
 
-	"google.golang.org/grpc"
-
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"google.golang.org/grpc"
 )
 
 var started sync.Once

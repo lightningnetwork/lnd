@@ -21,13 +21,6 @@ import (
 
 	"github.com/btcsuite/btcutil"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"golang.org/x/crypto/acme/autocert"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/protobuf/encoding/protojson"
-	"gopkg.in/macaroon-bakery.v2/bakery"
-	"gopkg.in/macaroon.v2"
-
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
@@ -44,6 +37,12 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/lightningnetwork/lnd/watchtower"
+	"golang.org/x/crypto/acme/autocert"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/encoding/protojson"
+	"gopkg.in/macaroon-bakery.v2/bakery"
+	"gopkg.in/macaroon.v2"
 )
 
 const (

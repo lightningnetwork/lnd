@@ -234,6 +234,9 @@ type TowerClient interface {
 type InterceptableHtlcForwarder interface {
 	// SetInterceptor sets a ForwardInterceptor.
 	SetInterceptor(interceptor ForwardInterceptor)
+
+	// Resolve resolves an intercepted packet.
+	Resolve(res *FwdResolution) error
 }
 
 // ForwardInterceptor is a function that is invoked from the switch for every
@@ -242,7 +245,7 @@ type InterceptableHtlcForwarder interface {
 // to resolve it manually later in case it is held.
 // The return value indicates if this handler will take control of this forward
 // and resolve it later or let the switch execute its default behavior.
-type ForwardInterceptor func(InterceptedForward) bool
+type ForwardInterceptor func(InterceptedPacket) error
 
 // InterceptedPacket contains the relevant information for the interceptor about
 // an htlc.

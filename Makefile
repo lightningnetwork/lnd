@@ -5,7 +5,7 @@ MOBILE_PKG := $(PKG)/mobile
 BTCD_PKG := github.com/btcsuite/btcd
 LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
-GOIMPORTS_PKG := golang.org/x/tools/cmd/goimports
+GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
 GOFUZZ_BUILD_PKG := github.com/dvyukov/go-fuzz/go-fuzz-build
 GOFUZZ_PKG := github.com/dvyukov/go-fuzz/go-fuzz
 GOFUZZ_DEP_PKG := github.com/dvyukov/go-fuzz/go-fuzz-dep
@@ -254,7 +254,7 @@ fuzz-run: $(GOFUZZ_BIN)
 
 fmt: goimports
 	@$(call print, "Fixing imports.")
-	goimports -w $(GOFILES_NOVENDOR)
+	gosimports -w $(GOFILES_NOVENDOR)
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s $(GOFILES_NOVENDOR)
 

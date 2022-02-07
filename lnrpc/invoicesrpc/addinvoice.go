@@ -628,6 +628,36 @@ func newSelectHopHintsCfg(invoicesCfg *AddInvoiceConfig) *SelectHopHintsCfg {
 	}
 }
 
+// sufficientHints checks whether we have sufficient hop hints, based on the
+// following criteria:
+// - Hop hint count: limit to a set number of hop hints, regardless of whether
+//   we've reached our invoice amount or not.
+// - Total incoming capacity: limit to our invoice amount * scaling factor to
+//   allow for some of our links going offline.
+//
+// We limit our number of hop hints like this to keep our invoice size down,
+// and to avoid leaking all our private channels when we don't need to.
+func sufficientHints(numHints, maxHints, scalingFactor int, amount,
+	totalHintAmount lnwire.MilliSatoshi) bool {
+
+	if numHints >= maxHints {
+		log.Debug("Reached maximum number of hop hints")
+		return true
+	}
+
+	requiredAmount := amount * lnwire.MilliSatoshi(scalingFactor)
+	if totalHintAmount >= requiredAmount {
+		log.Debugf("Total hint amount: %v has reached target hint "+
+			"bandwidth: %v (invoice amount: %v * factor: %v)",
+			totalHintAmount, requiredAmount, amount,
+			scalingFactor)
+
+		return true
+	}
+
+	return false
+}
+
 // SelectHopHints will select up to numMaxHophints from the set of passed open
 // channels. The set of hop hints will be returned as a slice of functional
 // options that'll append the route hint to the set of all route hints.
@@ -644,6 +674,17 @@ func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *SelectHopHintsCfg,
 	hopHintChans := make(map[wire.OutPoint]struct{})
 	hopHints := make([][]zpay32.HopHint, 0, numMaxHophints)
 	for _, channel := range openChannels {
+		enoughHopHints := sufficientHints(
+			len(hopHints), numMaxHophints, hopHintFactor, amtMSat,
+			totalHintBandwidth,
+		)
+		if enoughHopHints {
+			log.Debugf("First pass of hop selection has " +
+				"sufficient hints")
+
+			return hopHints
+		}
+
 		// If this channel can't be a hop hint, then skip it.
 		edgePolicy, canBeHopHint := chanCanBeHopHint(channel, cfg)
 		if edgePolicy == nil || !canBeHopHint {
@@ -664,24 +705,21 @@ func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *SelectHopHintsCfg,
 		totalHintBandwidth += channel.RemoteBalance
 	}
 
-	// If we have enough hop hints at this point, then we'll exit early.
-	// Otherwise, we'll continue to add more that may help out mpp users.
-	if len(hopHints) >= numMaxHophints {
-		return hopHints
-	}
-
 	// In this second pass we'll add channels, and we'll either stop when
 	// we have 20 hop hints, we've run through all the available channels,
 	// or if the sum of available bandwidth in the routing hints exceeds 2x
 	// the payment amount. We do 2x here to account for a margin of error
 	// if some of the selected channels no longer become operable.
 	for i := 0; i < len(openChannels); i++ {
-		// If we hit either of our early termination conditions, then
-		// we'll break the loop here.
-		if totalHintBandwidth > amtMSat*hopHintFactor ||
-			len(hopHints) >= numMaxHophints {
+		enoughHopHints := sufficientHints(
+			len(hopHints), numMaxHophints, hopHintFactor, amtMSat,
+			totalHintBandwidth,
+		)
+		if enoughHopHints {
+			log.Debugf("Second pass of hop selection has " +
+				"sufficient hints")
 
-			break
+			return hopHints
 		}
 
 		channel := openChannels[i]

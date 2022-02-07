@@ -1626,9 +1626,7 @@ func getSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
 
 				for _, txIn := range msgTx.TxIn {
 					input := txIn.PreviousOutPoint
-					if _, ok := inputSet[input]; ok {
-						delete(inputSet, input)
-					}
+					delete(inputSet, input)
 				}
 
 				if len(inputSet) > 0 {

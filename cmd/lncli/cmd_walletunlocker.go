@@ -806,7 +806,7 @@ func askRecoveryWindow() (int32, error) {
 			return defaultRecoveryWindow, nil
 		}
 
-		lookAhead, err := strconv.Atoi(answer)
+		lookAhead, err := strconv.ParseInt(answer, 10, 32)
 		if err != nil {
 			fmt.Printf("Unable to parse recovery window: %v\n", err)
 			continue

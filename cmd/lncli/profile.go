@@ -29,7 +29,7 @@ type profileEntry struct {
 	LndDir      string       `json:"lnddir"`
 	Chain       string       `json:"chain"`
 	Network     string       `json:"network"`
-	NoMacaroons bool         `json:"no-macaroons,omitempty"`
+	NoMacaroons bool         `json:"no-macaroons,omitempty"` // nolint:tagliatelle
 	TLSCert     string       `json:"tlscert"`
 	Macaroons   *macaroonJar `json:"macaroons"`
 }

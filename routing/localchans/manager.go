@@ -185,7 +185,7 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	// Retrieve negotiated channel htlc amt limits.
 	amtMin, amtMax, err := r.getHtlcAmtLimits(tx, chanPoint)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	// We now update the edge max htlc value.

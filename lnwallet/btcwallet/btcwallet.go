@@ -18,7 +18,6 @@ import (
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
-	"github.com/btcsuite/btcwallet/wallet"
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wallet/txrules"
@@ -200,7 +199,7 @@ func LoaderWithExternalWalletDB(db kvdb.Backend) LoaderOption {
 
 // NewWalletLoader constructs a wallet loader.
 func NewWalletLoader(chainParams *chaincfg.Params, recoveryWindow uint32,
-	opts ...LoaderOption) (*wallet.Loader, error) {
+	opts ...LoaderOption) (*base.Loader, error) {
 
 	cfg := &loaderCfg{}
 

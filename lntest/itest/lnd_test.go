@@ -232,8 +232,8 @@ func TestLightningNetworkDaemon(t *testing.T) {
 				testCase.name,
 			)
 
-			lndHarness.Alice.AddToLog(logLine)
-			lndHarness.Bob.AddToLog(logLine)
+			lndHarness.Alice.AddToLogf(logLine)
+			lndHarness.Bob.AddToLogf(logLine)
 
 			// Start every test with the default static fee estimate.
 			lndHarness.SetFeeEstimate(12500)

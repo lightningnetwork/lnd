@@ -1908,7 +1908,7 @@ func extractBitcoindRPCParams(networkName string,
 		dataDir = string(dataDirSubmatches[1])
 	}
 
-	chainDir := ""
+	var chainDir string
 	switch networkName {
 	case "mainnet":
 		chainDir = ""

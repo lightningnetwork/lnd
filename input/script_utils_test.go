@@ -58,11 +58,11 @@ func assertEngineExecution(t *testing.T, testNum int, valid bool,
 
 		done, err = vm.Step()
 		if err != nil && valid {
-			fmt.Println(debugBuf.String())
+			t.Log(debugBuf.String())
 			t.Fatalf("spend test case #%v failed, spend "+
 				"should be valid: %v", testNum, err)
 		} else if err == nil && !valid && done {
-			fmt.Println(debugBuf.String())
+			t.Log(debugBuf.String())
 			t.Fatalf("spend test case #%v succeed, spend "+
 				"should be invalid: %v", testNum, err)
 		}
@@ -79,7 +79,7 @@ func assertEngineExecution(t *testing.T, testNum int, valid bool,
 		validity = "valid"
 	}
 
-	fmt.Println(debugBuf.String())
+	t.Log(debugBuf.String())
 	t.Fatalf("%v spend test case #%v execution ended with: %v", validity, testNum, vmErr)
 }
 

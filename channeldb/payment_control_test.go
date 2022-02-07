@@ -495,7 +495,7 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 
 	var s, i int
 	for _, p := range dbPayments {
-		fmt.Println("fetch payment has status", p.Status)
+		t.Log("fetch payment has status", p.Status)
 		switch p.Status {
 		case StatusSucceeded:
 			s++

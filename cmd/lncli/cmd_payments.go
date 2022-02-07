@@ -389,7 +389,6 @@ func sendPayment(ctx *cli.Context) error {
 		if err != nil {
 			return err
 		}
-		args = args.Tail()
 		req.FinalCltvDelta = int32(delta)
 	}
 
@@ -1288,7 +1287,6 @@ func forwardingHistory(ctx *cli.Context) error {
 			return fmt.Errorf("unable to decode max_events: %v", err)
 		}
 		maxEvents = uint32(m)
-		args = args.Tail()
 	}
 
 	req := &lnrpc.ForwardingHistoryRequest{

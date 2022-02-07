@@ -487,8 +487,8 @@ func (c *commitSweepResolver) report() *ContractReport {
 	c.reportLock.Lock()
 	defer c.reportLock.Unlock()
 
-	copy := c.currentReport
-	return &copy
+	cpy := c.currentReport
+	return &cpy
 }
 
 // initReport initializes the pending channels report for this resolver.

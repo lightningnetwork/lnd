@@ -69,6 +69,9 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 	ctxb := context.Background()
 
 	tmpDir, err := ioutil.TempDir("", "etcd")
+	if err != nil {
+		ht.Fatalf("Failed to create temp dir: %v", err)
+	}
 	etcdCfg, cleanup, err := kvdb.StartEtcdTestBackend(
 		tmpDir, uint16(lntest.NextAvailablePort()),
 		uint16(lntest.NextAvailablePort()), "",
@@ -100,6 +103,9 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	info1, err := carol1.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+	if err != nil {
+		ht.Fatalf("unable to get info: %v", err)
+	}
 
 	net.ConnectNodes(ht.t, carol1, net.Alice)
 
@@ -172,6 +178,9 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 
 	// Make sure Carol-1 and Carol-2 have the same identity.
 	info2, err := carol2.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+	if err != nil {
+		ht.Fatalf("unable to get info: %v", err)
+	}
 	if info1.IdentityPubkey != info2.IdentityPubkey {
 		ht.Fatalf("Carol-1 and Carol-2 must have the same identity: "+
 			"%v vs %v", info1.IdentityPubkey, info2.IdentityPubkey)

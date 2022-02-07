@@ -529,7 +529,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 	case h.htlcResolution.SignedTimeoutTx != nil:
 		log.Infof("%T(%v): waiting for nursery/sweeper to spend CSV "+
 			"delayed output", h, claimOutpoint)
-		sweep, err := waitForSpend(
+		sweepTx, err := waitForSpend(
 			&claimOutpoint,
 			h.htlcResolution.SweepSignDesc.Output.PkScript,
 			h.broadcastHeight, h.Notifier, h.quit,
@@ -539,7 +539,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 		}
 
 		// Update the spend txid to the hash of the sweep transaction.
-		spendTxID = sweep.SpenderTxHash
+		spendTxID = sweepTx.SpenderTxHash
 
 		// Once our sweep of the timeout tx has confirmed, we add a
 		// resolution for our timeoutTx tx first stage transaction.
@@ -603,8 +603,8 @@ func (h *htlcTimeoutResolver) report() *ContractReport {
 
 	h.reportLock.Lock()
 	defer h.reportLock.Unlock()
-	copy := h.currentReport
-	return &copy
+	cpy := h.currentReport
+	return &cpy
 }
 
 func (h *htlcTimeoutResolver) initReport() {

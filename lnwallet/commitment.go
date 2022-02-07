@@ -657,7 +657,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if err != nil {
 			return nil, err
 		}
-		cltvs = append(cltvs, htlc.Timeout)
+		cltvs = append(cltvs, htlc.Timeout) // nolint:makezero
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
 		if HtlcIsDust(
@@ -674,7 +674,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if err != nil {
 			return nil, err
 		}
-		cltvs = append(cltvs, htlc.Timeout)
+		cltvs = append(cltvs, htlc.Timeout) // nolint:makezero
 	}
 
 	// Set the state hint of the commitment transaction to facilitate

@@ -618,6 +618,16 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 			PubKey: signDesc.KeyDesc.PubKey.SerializeCompressed(),
 		}}
 
+		// We need to specify a pk script in the witness UTXO, otherwise
+		// the field becomes invalid when serialized as a PSBT. To avoid
+		// running into a generic "Invalid PSBT serialization format"
+		// error later, we return a more descriptive error now.
+		if len(in.WitnessUtxo.PkScript) == 0 {
+			return nil, fmt.Errorf("error assembling UTXO " +
+				"information, output not known to wallet and " +
+				"no UTXO pk script provided in sign descriptor")
+		}
+
 	default:
 		return nil, fmt.Errorf("error assembling UTXO information, "+
 			"wallet returned err='%v' and sign descriptor is "+

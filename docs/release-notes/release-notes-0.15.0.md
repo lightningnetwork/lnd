@@ -98,6 +98,12 @@
 * [rpc-check fails if it finds any changes](https://github.com/lightningnetwork/lnd/pull/6207/)
   including new and deleted files.
 
+* [The `golangci-lint` package was updated and new linters were
+  enabled](https://github.com/lightningnetwork/lnd/pull/6244).
+  **Note to developers**: please make sure you delete the old version of
+  `golangci-lint` in your `$GOPATH/bin` directory. `make lint` does not
+  automatically replace it with the new version if the binary already exists!
+
 # Contributors (Alphabetical Order)
 
 * 3nprob

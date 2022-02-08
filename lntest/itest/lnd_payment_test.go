@@ -250,8 +250,8 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 	// which can be costly to be carried on.
 	// TODO(yy): further investigate this test as the lnd seems to be
 	// stuck when using standby nodes.
-	alice := ht.NewNode("Alice", nil)
-	bob := ht.NewNode("Bob", nil)
+	alice := ht.NewNode("Alice", []string{"--pending-commit-interval=3m"})
+	bob := ht.NewNode("Bob", []string{"--pending-commit-interval=3m"})
 
 	ht.EnsureConnected(alice, bob)
 	ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)

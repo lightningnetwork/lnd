@@ -5474,8 +5474,8 @@ func TestChannelLinkFail(t *testing.T) {
 			false,
 		},
 		{
-			// Test that we force close the channel if we receive
-			// an invalid Settle message.
+			// Test that we don't force close the channel if we
+			// receive an invalid Settle message.
 			func(c *channelLink) {
 			},
 			func(t *testing.T, c *channelLink, _ *lnwallet.LightningChannel) {
@@ -5487,7 +5487,7 @@ func TestChannelLinkFail(t *testing.T) {
 				}
 				c.HandleChannelUpdate(htlcSettle)
 			},
-			true,
+			false,
 			false,
 		},
 		{
@@ -6655,6 +6655,179 @@ func TestShutdownIfChannelClean(t *testing.T) {
 	case batchTicker <- time.Now():
 		t.Fatalf("expected batch ticker to be inactive")
 	case <-time.After(5 * time.Second):
+	}
+}
+
+// TestPipelineSettle tests that a link should only pipeline a settle if the
+// related add is fully locked-in meaning it is on both sides' commitment txns.
+func TestPipelineSettle(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, _, start, cleanUp, restore, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	alice := newPersistentLinkHarness(
+		t, aliceLink, nil, restore,
+	)
+
+	linkErrors := make(chan LinkFailureError, 1)
+
+	// Modify OnChannelFailure so we are notified when the link is failed.
+	alice.coreLink.cfg.OnChannelFailure = func(_ lnwire.ChannelID,
+		_ lnwire.ShortChannelID, linkErr LinkFailureError) {
+
+		linkErrors <- linkErr
+	}
+
+	// Modify ForwardPackets so we are notified if a settle packet is
+	// erroneously forwarded. If the forwardChan is closed before the last
+	// step, then the test will fail.
+	forwardChan := make(chan struct{})
+	fwdPkts := func(c chan struct{}, hp ...*htlcPacket) error {
+		close(forwardChan)
+		return nil
+	}
+	alice.coreLink.cfg.ForwardPackets = fwdPkts
+
+	// Put Alice in ExitSettle mode, so we can simulate a multi-hop route
+	// without actually doing so. This allows us to test the locked-in add
+	// logic without having the add being removed by Alice sending a
+	// settle.
+	alice.coreLink.cfg.HodlMask = hodl.Mask(hodl.ExitSettle)
+
+	err = start()
+	require.NoError(t, err)
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  alice.link,
+		bobChannel: bobChannel,
+		aliceMsgs:  alice.msgs,
+	}
+
+	// First lock in an HTLC from Bob to Alice.
+	htlc1, invoice1 := generateHtlcAndInvoice(t, 0)
+	preimage1 := invoice1.Terms.PaymentPreimage
+
+	// Add the invoice to Alice's registry so she expects it.
+	aliceReg := alice.coreLink.cfg.Registry.(*mockInvoiceRegistry)
+	err = aliceReg.AddInvoice(*invoice1, htlc1.PaymentHash)
+	require.NoError(t, err)
+
+	// <---add-----
+	ctx.sendHtlcBobToAlice(htlc1)
+	// <---sig-----
+	ctx.sendCommitSigBobToAlice(1)
+	// ----rev---->
+	ctx.receiveRevAndAckAliceToBob()
+	// ----sig---->
+	ctx.receiveCommitSigAliceToBob(1)
+	// <---rev-----
+	ctx.sendRevAndAckBobToAlice()
+
+	// Bob will send the preimage for the HTLC he just sent. This will test
+	// the check that the HTLC is locked-in. The channel should not be
+	// force closed if everything is working correctly.
+	settle1 := &lnwire.UpdateFulfillHTLC{
+		ID:              0,
+		PaymentPreimage: *preimage1,
+	}
+	ctx.aliceLink.HandleChannelUpdate(settle1)
+
+	// ForceClose should be false.
+	select {
+	case linkErr := <-linkErrors:
+		require.False(t, linkErr.ForceClose)
+	case <-forwardChan:
+		t.Fatal("packet was erroneously forwarded")
+	}
+
+	// Restart Alice's link with the hodl.ExitSettle and hodl.Commit flags.
+	alice.restart(false, false, hodl.ExitSettle, hodl.Commit)
+	ctx.aliceLink = alice.link
+	ctx.aliceMsgs = alice.msgs
+
+	alice.coreLink.cfg.OnChannelFailure = func(_ lnwire.ChannelID,
+		_ lnwire.ShortChannelID, linkErr LinkFailureError) {
+
+		linkErrors <- linkErr
+	}
+	alice.coreLink.cfg.ForwardPackets = fwdPkts
+
+	// Alice will now send an HTLC to Bob, but won't sign a commitment for
+	// it. This HTLC will have the same payment hash as the one above.
+	htlc2 := htlc1
+
+	// ----add--->
+	ctx.sendHtlcAliceToBob(0, htlc2)
+	ctx.receiveHtlcAliceToBob()
+
+	// Now Bob will send a settle backwards before the HTLC is locked in
+	// and the link should be failed again.
+	settle2 := &lnwire.UpdateFulfillHTLC{
+		ID:              0,
+		PaymentPreimage: *preimage1,
+	}
+	ctx.aliceLink.HandleChannelUpdate(settle2)
+
+	// ForceClose should be false.
+	select {
+	case linkErr := <-linkErrors:
+		require.False(t, linkErr.ForceClose)
+	case <-forwardChan:
+		t.Fatal("packet was erroneously forwarded")
+	}
+
+	// Restart Alice's link without the hodl.Commit flag.
+	alice.restart(false, false, hodl.ExitSettle)
+	ctx.aliceLink = alice.link
+	ctx.aliceMsgs = alice.msgs
+
+	alice.coreLink.cfg.OnChannelFailure = func(_ lnwire.ChannelID,
+		_ lnwire.ShortChannelID, linkErr LinkFailureError) {
+
+		linkErrors <- linkErr
+	}
+	alice.coreLink.cfg.ForwardPackets = fwdPkts
+
+	// Alice's mailbox should give the link the HTLC to send again.
+	select {
+	case msg := <-ctx.aliceMsgs:
+		_, ok := msg.(*lnwire.UpdateAddHTLC)
+		require.True(t, ok)
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not receive htlc from alice")
+	}
+
+	// Trigger the BatchTicker.
+	select {
+	case alice.batchTicker <- time.Now():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("could not force commit sig")
+	}
+
+	// ----sig--->
+	ctx.receiveCommitSigAliceToBob(2)
+	// <---rev----
+	ctx.sendRevAndAckBobToAlice()
+	// <---sig----
+	ctx.sendCommitSigBobToAlice(2)
+	// ----rev--->
+	ctx.receiveRevAndAckAliceToBob()
+
+	// Bob should now be able to send the settle to Alice without making
+	// the link fail.
+	ctx.aliceLink.HandleChannelUpdate(settle2)
+
+	select {
+	case <-linkErrors:
+		t.Fatal("should not have received a link error")
+	case <-forwardChan:
+		// success
 	}
 }
 

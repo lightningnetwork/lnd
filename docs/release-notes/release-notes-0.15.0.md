@@ -66,6 +66,12 @@ then watch it on chain. Taproot script spends are also supported through the
 * [Fixed an edge case where the lnd might be stuck at starting due to channel
   arbitrator relying on htlcswitch to be started
   first](https://github.com/lightningnetwork/lnd/pull/6214).
+  
+## Neutrino
+
+* [New neutrino sub-server](https://github.com/lightningnetwork/lnd/pull/5652)
+  capable of status checks, adding, disconnecting and listing
+  peers, fetching compact filters and block/block headers.
 
 * [Added signature length
   validation](https://github.com/lightningnetwork/lnd/pull/6314) when calling

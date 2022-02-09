@@ -18,6 +18,8 @@
 
 ## Bug Fixes
 
+* [Pipelining an UpdateFulfillHTLC message now only happens when the related UpdateAddHTLC is locked-in.](https://github.com/lightningnetwork/lnd/pull/6246)
+
 * [Fixed an inactive invoice subscription not removed from invoice
   registry](https://github.com/lightningnetwork/lnd/pull/6053). When an invoice
   subscription is created and canceled immediately, it could be left uncleaned

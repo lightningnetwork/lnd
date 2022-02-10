@@ -4,7 +4,6 @@ MOBILE_PKG := $(PKG)/mobile
 TOOLS_DIR := tools
 
 BTCD_PKG := github.com/btcsuite/btcd
-LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
 GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
 GOFUZZ_BUILD_PKG := github.com/dvyukov/go-fuzz/go-fuzz-build
@@ -15,7 +14,6 @@ GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
 GOIMPORTS_BIN := $(GO_BIN)/gosimports
 GOMOBILE_BIN := GO111MODULE=off $(GO_BIN)/gomobile
-LINT_BIN := $(GO_BIN)/golangci-lint
 GOACC_BIN := $(GO_BIN)/go-acc
 GOFUZZ_BUILD_BIN := $(GO_BIN)/go-fuzz-build
 GOFUZZ_BIN := $(GO_BIN)/go-fuzz
@@ -70,7 +68,7 @@ ifneq ($(workers),)
 LINT_WORKERS = --concurrency=$(workers)
 endif
 
-LINT = $(LINT_BIN) run -v $(LINT_WORKERS)
+DOCKER_TOOLS = docker run -v $$(pwd):/build lnd-tools
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -85,10 +83,6 @@ all: scratch check install
 # ============
 # DEPENDENCIES
 # ============
-$(LINT_BIN): 
-	@$(call print, "Installing linter.")
-	cd $(TOOLS_DIR); go install -trimpath -tags=tools $(LINT_PKG)
-
 $(GOACC_BIN):
 	@$(call print, "Installing go-acc.")
 	cd $(TOOLS_DIR); go install -trimpath -tags=tools $(GOACC_PKG)
@@ -164,6 +158,10 @@ docker-release:
 	# Run the actual compilation inside the docker image. We pass in all flags
 	# that we might want to overwrite in manual tests.
 	$(DOCKER_RELEASE_HELPER) make release tag="$(tag)" sys="$(sys)" COMMIT="$(COMMIT)" COMMIT_HASH="$(COMMIT_HASH)"
+
+docker-tools:
+	@$(call print, "Building tools docker image.")
+	docker build -q -t lnd-tools $(TOOLS_DIR)
 
 scratch: build
 
@@ -260,9 +258,9 @@ fmt: $(GOIMPORTS_BIN)
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s $(GOFILES_NOVENDOR)
 
-lint: $(LINT_BIN)
+lint: docker-tools
 	@$(call print, "Linting source.")
-	$(LINT)
+	$(DOCKER_TOOLS) golangci-lint run -v $(LINT_WORKERS)
 
 list:
 	@$(call print, "Listing commands.")

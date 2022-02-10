@@ -59,6 +59,10 @@ const (
 	// ResolverTypeCommit represents resolution of our time locked commit
 	// when we force close.
 	ResolverTypeCommit ResolverType = 3
+
+	// ResolverTypeBreach represents resolution of a commitment output when a
+	// breach was detected.
+	ResolverTypeBreach ResolverType = 4
 )
 
 // ResolverOutcome indicates the outcome for the resolver that that the contract

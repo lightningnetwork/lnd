@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
-
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
@@ -533,7 +532,7 @@ func (b *BreachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 // spends it to the second level, and mutates the breach output into one that
 // is able to properly sweep that second level output. We'll use this function
 // when we go to sweep a breached commitment transaction, but the cheating
-// party has already attempted to take it to the second level
+// party has already attempted to take it to the second level.
 func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 	spendDetails *chainntnfs.SpendDetail) {
 
@@ -626,7 +625,6 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 		// count the total and revoked funds swept depending on the
 		// input type.
 		switch breachedOutput.witnessType {
-
 		// If the output being revoked is the remote commitment
 		// output or an offered HTLC output, it's amount
 		// contributes to the value of funds being revoked from
@@ -759,7 +757,6 @@ justiceTxBroadcast:
 
 Loop:
 	for {
-
 		select {
 		case spends := <-spendChan:
 			// Update the breach info with the new spends.
@@ -1334,6 +1331,7 @@ func (b *BreachArbiter) createJusticeTx(
 // createSweepTx creates a tx that sweeps the passed inputs back to our wallet.
 func (b *BreachArbiter) createSweepTx(inputs []input.Input) (*wire.MsgTx,
 	error) {
+
 	if len(inputs) == 0 {
 		return nil, nil
 	}

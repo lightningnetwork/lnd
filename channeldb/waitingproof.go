@@ -1,13 +1,11 @@
 package channeldb
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
-	"sync"
-
 	"io"
-
-	"bytes"
+	"sync"
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/kvdb"

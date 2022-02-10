@@ -10,11 +10,10 @@ import (
 	"math"
 	"time"
 
-	"golang.org/x/crypto/chacha20poly1305"
-	"golang.org/x/crypto/hkdf"
-
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/keychain"
+	"golang.org/x/crypto/chacha20poly1305"
+	"golang.org/x/crypto/hkdf"
 )
 
 const (

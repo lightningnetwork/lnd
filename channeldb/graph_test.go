@@ -1279,6 +1279,7 @@ func TestGraphCacheTraversal(t *testing.T) {
 				if !bytes.Equal(
 					inPolicyNodeKey[:], node.PubKeyBytes[:],
 				) {
+
 					return fmt.Errorf("wrong outgoing edge")
 				}
 
@@ -3784,7 +3785,6 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	var numChans int
 	err = graph.ForEachNodeChannel(nil, node1.PubKeyBytes,
 		func(channel *DirectedChannel) error {
-
 			numChans++
 			return nil
 		})

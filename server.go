@@ -122,7 +122,7 @@ var (
 	// At the moment, this value depends on which chain is active. It is set
 	// to the value under the Bitcoin chain as default.
 	//
-	// TODO(roasbeef): add command line param to modify
+	// TODO(roasbeef): add command line param to modify.
 	MaxFundingAmount = funding.MaxBtcFundingAmount
 )
 
@@ -340,7 +340,6 @@ func (s *server) updatePersistentPeerAddrs() error {
 
 		for {
 			select {
-
 			case <-s.quit:
 				return
 
@@ -1639,16 +1638,16 @@ func (s *server) Started() bool {
 // cleaner is used to aggregate "cleanup" functions during an operation that
 // starts several subsystems. In case one of the subsystem fails to start
 // and a proper resource cleanup is required, the "run" method achieves this
-// by running all these added "cleanup" functions
+// by running all these added "cleanup" functions.
 type cleaner []func() error
 
 // add is used to add a cleanup function to be called when
-// the run function is executed
+// the run function is executed.
 func (c cleaner) add(cleanup func() error) cleaner {
 	return append(c, cleanup)
 }
 
-// run is used to run all the previousely added cleanup functions
+// run is used to run all the previousely added cleanup functions.
 func (c cleaner) run() {
 	for i := len(c) - 1; i >= 0; i-- {
 		if err := c[i](); err != nil {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"testing"
 
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -22,6 +23,8 @@ const (
 type feeService struct {
 	feeEstimates
 
+	t *testing.T
+
 	srv *http.Server
 	wg  sync.WaitGroup
 
@@ -36,9 +39,10 @@ type feeEstimates struct {
 }
 
 // startFeeService spins up a go-routine to serve fee estimates.
-func startFeeService() *feeService {
+func startFeeService(t *testing.T) *feeService {
 	port := NextAvailablePort()
 	f := feeService{
+		t:   t,
 		url: fmt.Sprintf("http://localhost:%v/fee-estimates.json", port),
 	}
 
@@ -59,7 +63,7 @@ func startFeeService() *feeService {
 		defer f.wg.Done()
 
 		if err := f.srv.ListenAndServe(); err != http.ErrServerClosed {
-			fmt.Printf("error: cannot start fee api: %v", err)
+			f.t.Errorf("error: cannot start fee api: %v", err)
 		}
 	}()
 
@@ -73,23 +77,21 @@ func (f *feeService) handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	bytes, err := json.Marshal(f.feeEstimates)
 	if err != nil {
-		fmt.Printf("error: cannot serialize "+
-			"estimates: %v", err)
+		f.t.Errorf("error: cannot serialize estimates: %v", err)
 
 		return
 	}
 
 	_, err = io.WriteString(w, string(bytes))
 	if err != nil {
-		fmt.Printf("error: cannot send estimates: %v",
-			err)
+		f.t.Errorf("error: cannot send estimates: %v", err)
 	}
 }
 
 // stop stops the web server.
 func (f *feeService) stop() {
 	if err := f.srv.Shutdown(context.Background()); err != nil {
-		fmt.Printf("error: cannot stop fee api: %v", err)
+		f.t.Errorf("error: cannot stop fee api: %v", err)
 	}
 
 	f.wg.Wait()

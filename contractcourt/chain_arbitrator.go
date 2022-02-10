@@ -429,7 +429,6 @@ func (c *ChainArbitrator) getArbChannel(
 // This is only to be done once all contracts which were live on the channel
 // before hitting the chain have been resolved.
 func (c *ChainArbitrator) ResolveContract(chanPoint wire.OutPoint) error {
-
 	log.Infof("Marking ChannelPoint(%v) fully resolved", chanPoint)
 
 	// First, we'll we'll mark the channel as fully closed from the PoV of
@@ -874,7 +873,6 @@ func (c *ChainArbitrator) rebroadcast(channel *channeldb.OpenChannel,
 	}
 
 	switch {
-
 	// This can happen for channels that had their closing tx published
 	// before we started storing it to disk.
 	case err == channeldb.ErrNoCloseTx:

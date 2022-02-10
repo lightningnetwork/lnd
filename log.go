@@ -39,7 +39,6 @@ import (
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/lightningnetwork/lnd/routing/localchans"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -156,7 +155,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	AddSubLogger(root, "PEER", interceptor, peer.UseLogger)
 	AddSubLogger(root, "CHCL", interceptor, chancloser.UseLogger)
 
-	AddSubLogger(root, routing.Subsystem, interceptor, routing.UseLogger, localchans.UseLogger)
+	AddSubLogger(root, routing.Subsystem, interceptor, routing.UseLogger)
 	AddSubLogger(root, routerrpc.Subsystem, interceptor, routerrpc.UseLogger)
 	AddSubLogger(root, chanfitness.Subsystem, interceptor, chanfitness.UseLogger)
 	AddSubLogger(root, verrpc.Subsystem, interceptor, verrpc.UseLogger)

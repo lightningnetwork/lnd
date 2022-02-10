@@ -1949,7 +1949,6 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		maxIndex = uint32(len(forceCloseTx.TxOut)) - 1
 	)
 	for i := 0; i < 2; i++ {
-
 		var tx *wire.MsgTx
 		select {
 		case tx = <-publTx:
@@ -1989,7 +1988,6 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	}
 
 	select {
-
 	// The published tx should spend the same inputs as our second split.
 	case tx := <-publTx:
 		require.Len(t, tx.TxIn, len(splits[1].TxIn))

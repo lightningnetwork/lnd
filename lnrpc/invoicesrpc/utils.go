@@ -38,7 +38,6 @@ func decodePayReq(invoice *channeldb.Invoice,
 			"request: %v", err)
 	}
 	return decoded, nil
-
 }
 
 // CreateRPCInvoice creates an *lnrpc.Invoice from the *channeldb.Invoice.
@@ -179,7 +178,6 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 
 	rpcInvoice.AmpInvoiceState = make(map[string]*lnrpc.AMPInvoiceState)
 	for setID, ampState := range invoice.AMPState {
-
 		setIDStr := hex.EncodeToString(setID[:])
 
 		var state lnrpc.InvoiceHTLCState

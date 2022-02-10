@@ -200,7 +200,6 @@ func BenchmarkWriteMessage(b *testing.B) {
 		m := msg
 		// Run each message as a sub benchmark test.
 		b.Run(msg.MsgType().String(), func(b *testing.B) {
-
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				// Fetch a buffer from the pool and reset it.

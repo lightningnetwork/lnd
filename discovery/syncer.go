@@ -842,6 +842,7 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 		// behind a few blocks from us.
 		if replyLastHeight < queryLastHeight &&
 			g.numChanRangeRepliesRcvd < maxReplies {
+
 			return nil
 		}
 	}
@@ -1377,6 +1378,7 @@ func (g *GossipSyncer) ProcessQueryMsg(msg lnwire.Message, peerQuit <-chan struc
 		syncState := g.syncState()
 		if syncState != waitingQueryRangeReply &&
 			syncState != waitingQueryChanReply {
+
 			return fmt.Errorf("received unexpected query reply "+
 				"message %T", msg)
 		}

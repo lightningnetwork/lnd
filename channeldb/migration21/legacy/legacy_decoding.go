@@ -257,7 +257,8 @@ func readChanConfig(b io.Reader, c *common.ChannelConfig) error { // nolint: dup
 	)
 }
 
-func DeserializeCloseChannelSummary(r io.Reader) (*common.ChannelCloseSummary, error) { // nolint: dupl
+func DeserializeCloseChannelSummary(
+	r io.Reader) (*common.ChannelCloseSummary, error) { // nolint: dupl
 
 	c := &common.ChannelCloseSummary{}
 

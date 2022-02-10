@@ -23,11 +23,11 @@ type WtClient struct {
 func (c *WtClient) Validate() error {
 	// TODO(wilmer): remove in v0.9.0 release.
 	if len(c.PrivateTowerURIs) > 0 {
-		fmt.Println("The `wtclient.private-tower-uris` option has " +
-			"been deprecated as of v0.8.0-beta and will be " +
+		return fmt.Errorf("the `wtclient.private-tower-uris` option " +
+			"has been deprecated as of v0.8.0-beta and will be " +
 			"removed in v0.9.0-beta. To setup watchtowers for " +
 			"the client, set `wtclient.active` and run " +
-			"`lncli wtclient -h` for more information.")
+			"`lncli wtclient -h` for more information")
 	}
 
 	return nil

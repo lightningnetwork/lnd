@@ -57,7 +57,6 @@ func (c *Cluster) Validate() error {
 	}
 
 	switch c.LeaderElector {
-
 	case cluster.EtcdLeaderElector:
 		if c.EtcdElectionPrefix == "" {
 			return fmt.Errorf("etcd-election-prefix must be set")

@@ -64,6 +64,7 @@ var _ FilteredChainView = (*CfFilteredChainView)(nil)
 // this function.
 func NewCfFilteredChainView(node *neutrino.ChainService,
 	blockCache *blockcache.BlockCache) (*CfFilteredChainView, error) {
+
 	return &CfFilteredChainView{
 		blockQueue:    newBlockEventQueue(),
 		quit:          make(chan struct{}),

@@ -402,7 +402,6 @@ func TestGetOnlinePeriod(t *testing.T) {
 
 			require.Equal(t, test.expectedOnline, online)
 		})
-
 	}
 }
 

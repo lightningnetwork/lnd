@@ -725,9 +725,8 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 
 	// At this place we should get an rpc error with notification
 	// that edge is not found on hop(0)
-	if _, err := alicePayStream.Recv(); err != nil && strings.Contains(err.Error(),
-		"edge not found") {
-
+	_, err = alicePayStream.Recv()
+	if err != nil && strings.Contains(err.Error(), "edge not found") {
 	} else if err != nil {
 		t.Fatalf("payment stream has been closed but fake route has consumed: %v", err)
 	}
@@ -1423,7 +1422,7 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
 }
 
-// computeFee calculates the payment fee as specified in BOLT07
+// computeFee calculates the payment fee as specified in BOLT07.
 func computeFee(baseFee, feeRate, amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 	return baseFee + amt*feeRate/1000000
 }

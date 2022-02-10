@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/wire"
-
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 

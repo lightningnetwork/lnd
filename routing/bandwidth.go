@@ -72,6 +72,7 @@ func newBandwidthManager(graph routingGraph, sourceNode route.Vertex,
 // is interpreted as the link being offline.
 func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 	amount lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+
 	link, err := b.getLink(cid)
 	if err != nil {
 		// If the link isn't online, then we'll report that it has

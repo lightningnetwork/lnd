@@ -422,7 +422,7 @@ func (c ContractState) String() string {
 	return "Unknown"
 }
 
-// IsFinal returns a boolean indicating whether an invoice state is final
+// IsFinal returns a boolean indicating whether an invoice state is final.
 func (c ContractState) IsFinal() bool {
 	return c == ContractSettled || c == ContractCanceled
 }
@@ -1156,7 +1156,6 @@ func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex, setIDIndex kvdb.RBucket,
 	invoiceNumByHash := getInvoiceNumByHash()
 	invoiceNumByAddr := getInvoiceNumByAddr()
 	switch {
-
 	// If payment address and payment hash both reference an existing
 	// invoice, ensure they reference the _same_ invoice.
 	case invoiceNumByAddr != nil && invoiceNumByHash != nil:
@@ -2814,7 +2813,6 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *SetID, invoices,
 		if setID != nil && update.State != nil {
 			preimage, ok := update.State.HTLCPreimages[key]
 			switch {
-
 			// If we don't already have a preimage for this HTLC, we
 			// can set it now.
 			case ok && htlc.AMP.Preimage == nil:
@@ -2890,7 +2888,6 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *SetID, invoices,
 	if !invoiceIsAMP {
 		invoice.AmtPaid = amtPaid
 	} else {
-
 		invoice.AmtPaid += amtPaid
 	}
 
@@ -2941,7 +2938,6 @@ func updateInvoiceState(invoice *Invoice, hash *lntypes.Hash,
 	}
 
 	switch invoice.State {
-
 	// Once a contract is accepted, we can only transition to settled or
 	// canceled. Forbid transitioning back into this state. Otherwise this
 	// state is identical to ContractOpen, so we fallthrough to apply the
@@ -2979,7 +2975,6 @@ func updateInvoiceState(invoice *Invoice, hash *lntypes.Hash,
 		}
 
 		switch {
-
 		// If an invoice-level preimage was supplied, but the InvoiceRef
 		// doesn't specify a hash (e.g. AMP invoices) we fail.
 		case update.Preimage != nil && hash == nil:
@@ -3063,7 +3058,6 @@ func updateHtlc(resolveTime time.Time, htlc *InvoiceHTLC,
 			// the invoice level. For AMP HTLCs, verify that the
 			// per-HTLC preimage-hash pair is valid.
 			switch {
-
 			// Non-AMP HTLCs can be settle immediately since we
 			// already know the preimage is valid due to checks at
 			// the invoice level.
@@ -3112,7 +3106,6 @@ func updateHtlc(resolveTime time.Time, htlc *InvoiceHTLC,
 	}
 
 	switch invState {
-
 	case ContractCanceled:
 		if htlc.State == HtlcStateAccepted {
 			htlc.State = HtlcStateCanceled
@@ -3369,7 +3362,6 @@ func (d *DB) DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error {
 				if err != nil {
 					return err
 				}
-
 			}
 
 			// In addition to deleting the main invoice state, if

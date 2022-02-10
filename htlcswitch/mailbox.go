@@ -590,7 +590,6 @@ func (m *memoryMailBox) AddMessage(msg lnwire.Message) error {
 func (m *memoryMailBox) AddPacket(pkt *htlcPacket) error {
 	m.pktCond.L.Lock()
 	switch htlc := pkt.htlc.(type) {
-
 	// Split off Settle/Fail packets into the repPkts queue.
 	case *lnwire.UpdateFulfillHTLC, *lnwire.UpdateFailHTLC:
 		if _, ok := m.repIndex[pkt.inKey()]; ok {
@@ -674,6 +673,7 @@ func (m *memoryMailBox) DustPackets() (lnwire.MilliSatoshi,
 		if m.isDust(
 			m.feeRate, false, true, addPkt.amount.ToSatoshis(),
 		) {
+
 			localDustSum += addPkt.amount
 		}
 
@@ -681,6 +681,7 @@ func (m *memoryMailBox) DustPackets() (lnwire.MilliSatoshi,
 		if m.isDust(
 			m.feeRate, false, false, addPkt.amount.ToSatoshis(),
 		) {
+
 			remoteDustSum += addPkt.amount
 		}
 	}

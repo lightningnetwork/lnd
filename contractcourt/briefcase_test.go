@@ -3,12 +3,11 @@ package contractcourt
 import (
 	"crypto/rand"
 	"io/ioutil"
+	prand "math/rand"
 	"os"
 	"reflect"
 	"testing"
 	"time"
-
-	prand "math/rand"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"

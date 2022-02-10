@@ -236,7 +236,6 @@ func (o *OpenChannel) Encode(w *bytes.Buffer, pver uint32) error {
 
 	if err := WritePublicKey(w, o.HtlcPoint); err != nil {
 		return err
-
 	}
 
 	if err := WritePublicKey(w, o.FirstCommitmentPoint); err != nil {

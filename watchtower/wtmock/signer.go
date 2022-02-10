@@ -31,6 +31,7 @@ func NewMockSigner() *MockSigner {
 // signature without the signhash flag.
 func (s *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 	signDesc *input.SignDescriptor) (input.Signature, error) {
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

@@ -84,7 +84,7 @@ const (
 
 	// MaxBtcFundingAmountWumbo is a soft-limit on the maximum size of wumbo
 	// channels. This limit is 10 BTC and is the only thing standing between
-	// you and limitless channel size (apart from 21 million cap)
+	// you and limitless channel size (apart from 21 million cap).
 	MaxBtcFundingAmountWumbo = btcutil.Amount(1000000000)
 
 	// MaxLtcFundingAmount is a soft-limit of the maximum channel size
@@ -92,7 +92,7 @@ const (
 	// Protocol.
 	MaxLtcFundingAmount = MaxBtcFundingAmount * chainreg.BtcToLtcConversionRate
 
-	// TODO(roasbeef): tune
+	// TODO(roasbeef): tune.
 	msgBufferSize = 50
 
 	// maxWaitNumBlocksFundingConf is the maximum number of blocks to wait
@@ -723,7 +723,6 @@ func (f *Manager) nextPendingChanID() [32]byte {
 // passed node. This will ensure any outputs which have been pre committed,
 // (and thus locked from coin selection), are properly freed.
 func (f *Manager) CancelPeerReservations(nodePub [33]byte) {
-
 	log.Debugf("Cancelling all reservations for peer %x", nodePub[:])
 
 	f.resMtx.Lock()
@@ -939,7 +938,6 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		chanID, shortChanID, channelState)
 
 	switch channelState {
-
 	// The funding transaction was confirmed, but we did not successfully
 	// send the fundingLocked message to the peer, so let's do that now.
 	case markedOpen:
@@ -1112,7 +1110,6 @@ func (f *Manager) advancePendingChannelState(
 		}()
 
 		return timeoutErr
-
 	} else if err != nil {
 		return fmt.Errorf("error waiting for funding "+
 			"confirmation for ChannelPoint(%v): %v",
@@ -1149,7 +1146,7 @@ func (f *Manager) ProcessFundingMsg(msg lnwire.Message, peer lnpeer.Peer) {
 // the funding workflow.
 //
 // TODO(roasbeef): add error chan to all, let channelManager handle
-// error+propagate
+// error+propagate.
 func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	msg *lnwire.OpenChannel) {
 
@@ -2382,6 +2379,7 @@ func (f *Manager) waitForFundingConfirmation(
 // NOTE: This MUST be run as a goroutine.
 func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 	cancelChan <-chan struct{}, timeoutChan chan<- error) {
+
 	defer f.wg.Done()
 
 	epochClient, err := f.cfg.Notifier.RegisterBlockEpochNtfn(nil)
@@ -3295,6 +3293,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// maximum.
 	if commitType.HasAnchors() &&
 		commitFeePerKw > f.cfg.MaxAnchorsCommitFeeRate {
+
 		commitFeePerKw = f.cfg.MaxAnchorsCommitFeeRate
 	}
 

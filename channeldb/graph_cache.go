@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcutil"
-
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -468,7 +467,6 @@ func (c *GraphCache) ForEachChannel(node route.Vertex,
 		if err := cb(channel); err != nil {
 			return err
 		}
-
 	}
 
 	return nil

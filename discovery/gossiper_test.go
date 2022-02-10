@@ -2893,6 +2893,7 @@ func TestRetransmit(t *testing.T) {
 
 		if chanAnn != chanAnns || chanUpd != chanUpds ||
 			nodeAnn != nodeAnns {
+
 			t.Fatalf("unexpected number of announcements: "+
 				"chanAnn=%d, chanUpd=%d, nodeAnn=%d",
 				chanAnn, chanUpd, nodeAnn)

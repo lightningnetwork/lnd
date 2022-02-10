@@ -49,7 +49,7 @@ var (
 	// outpointBucket stores all of our channel outpoints and a tlv
 	// stream containing channel data.
 	//
-	// outpoint -> tlv stream
+	// outpoint -> tlv stream.
 	//
 	outpointBucket = []byte("outpoint-bucket")
 

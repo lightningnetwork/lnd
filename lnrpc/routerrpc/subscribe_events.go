@@ -141,9 +141,7 @@ func rpcFailReason(linkErr *htlcswitch.LinkError) (lnrpc.Failure_FailureCode,
 	default:
 		return 0, 0, fmt.Errorf("unknown failure "+
 			"detail type: %T", linkErr.FailureDetail)
-
 	}
-
 }
 
 // rpcFailureResolution maps an invoice failure resolution to a rpc failure

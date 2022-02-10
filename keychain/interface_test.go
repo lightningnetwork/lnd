@@ -15,10 +15,9 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
+	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required in order to create the default database.
 	"github.com/davecgh/go-spew/spew"
 	"github.com/stretchr/testify/require"
-
-	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required in order to create the default database.
 )
 
 var (

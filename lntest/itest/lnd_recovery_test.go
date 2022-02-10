@@ -77,6 +77,7 @@ func testGetRecoveryInfo(net *lntest.NetworkHarness, t *harnessTest) {
 			if recoveryMode != expectedRecoveryMode ||
 				recoveryFinished != expectedRecoveryFinished ||
 				progress != expectedProgress {
+
 				return false
 			}
 

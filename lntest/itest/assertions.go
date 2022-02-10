@@ -527,7 +527,6 @@ func assertConnected(t *harnessTest, alice, bob *lntest.HarnessNode) {
 		}
 
 		return nil
-
 	}, defaultTimeout)
 	require.NoError(t.t, err)
 }
@@ -1004,6 +1003,7 @@ func assertChannelConstraintsEqual(
 func assertAmountPaid(t *harnessTest, channelName string,
 	node *lntest.HarnessNode, chanPoint wire.OutPoint, amountSent,
 	amountReceived int64) {
+
 	ctxb := context.Background()
 
 	checkAmountPaid := func() error {
@@ -1027,6 +1027,7 @@ func assertAmountPaid(t *harnessTest, channelName string,
 			}
 			if channel.TotalSatoshisReceived !=
 				amountReceived {
+
 				return fmt.Errorf("%v: incorrect amount"+
 					" received: %v != %v",
 					channelName,
@@ -1068,6 +1069,7 @@ func assertAmountPaid(t *harnessTest, channelName string,
 // node reports the expected number of pending channels.
 func assertNumPendingChannels(t *harnessTest, node *lntest.HarnessNode,
 	expWaitingClose, expPendingForceClose int) {
+
 	ctxb := context.Background()
 
 	var predErr error
@@ -1394,6 +1396,7 @@ func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
 	case *lnrpc.ChannelEventUpdate_ClosedChannel:
 		if chanUpdate.Type !=
 			lnrpc.ChannelEventUpdate_CLOSED_CHANNEL {
+
 			return fmt.Errorf("update type mismatch: expected %v, got %v",
 				lnrpc.ChannelEventUpdate_CLOSED_CHANNEL,
 				chanUpdate.Type)
@@ -1432,6 +1435,7 @@ func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
 // reaches the desired number of total channels.
 func assertNodeNumChannels(t *harnessTest, node *lntest.HarnessNode,
 	numChannels int) {
+
 	ctxb := context.Background()
 
 	// Poll node for its list of channels.
@@ -1626,9 +1630,7 @@ func getSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
 
 				for _, txIn := range msgTx.TxIn {
 					input := txIn.PreviousOutPoint
-					if _, ok := inputSet[input]; ok {
-						delete(inputSet, input)
-					}
+					delete(inputSet, input)
 				}
 
 				if len(inputSet) > 0 {

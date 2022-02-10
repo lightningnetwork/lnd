@@ -520,7 +520,6 @@ func (c *ChannelGraph) FetchNodeFeatures(
 	// Fallback that uses the database.
 	targetNode, err := c.FetchLightningNode(node)
 	switch err {
-
 	// If the node exists and has features, return them directly.
 	case nil:
 		return targetNode.Features, nil
@@ -592,7 +591,6 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 			channels[e.ChannelID] = directedChannel
 
 			return nil
-
 		})
 		if err != nil {
 			return err
@@ -2429,7 +2427,6 @@ func makeZombiePubkeys(info *ChannelEdgeInfo,
 	e1, e2 *ChannelEdgePolicy) ([33]byte, [33]byte) {
 
 	switch {
-
 	// If we don't have either edge policy, we'll return both pubkeys so
 	// that the channel can be resurrected by either party.
 	case e1 == nil && e2 == nil:

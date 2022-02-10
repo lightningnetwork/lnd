@@ -15,9 +15,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
-
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
@@ -29,6 +26,8 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 var uniquePaymentID uint64 = 1 // to be used atomically
@@ -3823,7 +3822,6 @@ func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
 			payment.HTLCs[i] = attempt
 			return
 		}
-
 	})
 
 	// Setup ReportPaymentFail to return nil reason and error so the
@@ -4007,7 +4005,6 @@ func TestSendMPPaymentFailed(t *testing.T) {
 				),
 			}
 			return
-
 		}
 
 		// We will make the rest attempts failed with temporary error.
@@ -4036,7 +4033,6 @@ func TestSendMPPaymentFailed(t *testing.T) {
 			payment.HTLCs[i] = attempt
 			return
 		}
-
 	})
 
 	// Setup ReportPaymentFail to return nil reason and error so the

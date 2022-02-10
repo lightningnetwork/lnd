@@ -428,7 +428,6 @@ func (i *PsbtIntent) Inputs() []wire.OutPoint {
 	var inputs []wire.OutPoint
 
 	switch i.State {
-
 	// We return the inputs to the pending psbt.
 	case PsbtVerified:
 		for _, in := range i.PendingPsbt.UnsignedTx.TxIn {
@@ -453,7 +452,6 @@ func (i *PsbtIntent) Inputs() []wire.OutPoint {
 // know about. These are only known after the PSBT has been verified.
 func (i *PsbtIntent) Outputs() []*wire.TxOut {
 	switch i.State {
-
 	// We return the outputs of the pending psbt.
 	case PsbtVerified:
 		return i.PendingPsbt.UnsignedTx.TxOut

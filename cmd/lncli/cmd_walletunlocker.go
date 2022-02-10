@@ -149,7 +149,6 @@ func create(ctx *cli.Context) error {
 
 	warningLoop:
 		for {
-
 			fmt.Println()
 			fmt.Printf("WARNING: You are attempting to restore from a " +
 				"static channel backup (SCB) file.\nThis action will CLOSE " +
@@ -806,7 +805,7 @@ func askRecoveryWindow() (int32, error) {
 			return defaultRecoveryWindow, nil
 		}
 
-		lookAhead, err := strconv.Atoi(answer)
+		lookAhead, err := strconv.ParseInt(answer, 10, 32)
 		if err != nil {
 			fmt.Printf("Unable to parse recovery window: %v\n", err)
 			continue

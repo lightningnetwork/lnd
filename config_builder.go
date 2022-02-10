@@ -952,7 +952,6 @@ func waitForWalletPassword(cfg *Config,
 	// for creation or unlocking, as a new wallet db will be created if
 	// none exists when creating the chain control.
 	select {
-
 	// The wallet is being created for the first time, we'll check to see
 	// if the user provided any entropy for seed creation. If so, then
 	// we'll create the wallet early to load the seed.

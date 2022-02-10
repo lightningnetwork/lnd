@@ -89,6 +89,7 @@ func (b *mockBackend) PublishTransaction(tx *wire.MsgTx, _ string) error {
 
 func (b *mockBackend) ListUnspentWitnessFromDefaultAccount(minConfs, maxConfs int32) (
 	[]*lnwallet.Utxo, error) {
+
 	b.lock.Lock()
 	defer b.lock.Unlock()
 

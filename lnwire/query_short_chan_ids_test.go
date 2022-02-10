@@ -49,7 +49,6 @@ var (
 // TestQueryShortChanIDsUnsorted tests that decoding a QueryShortChanID request
 // that contains duplicate or unsorted ids returns an ErrUnsortedSIDs failure.
 func TestQueryShortChanIDsUnsorted(t *testing.T) {
-
 	for _, test := range unsortedSidTests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {

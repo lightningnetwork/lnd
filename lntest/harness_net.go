@@ -96,8 +96,6 @@ type NetworkHarness struct {
 func NewNetworkHarness(m *HarnessMiner, b BackendConfig, lndBinary string,
 	dbBackend DatabaseBackend) (*NetworkHarness, error) {
 
-	feeService := startFeeService()
-
 	ctxt, cancel := context.WithCancel(context.Background())
 
 	n := NetworkHarness{
@@ -107,7 +105,6 @@ func NewNetworkHarness(m *HarnessMiner, b BackendConfig, lndBinary string,
 		netParams:    m.ActiveNet,
 		Miner:        m,
 		BackendCfg:   b,
-		feeService:   feeService,
 		runCtx:       ctxt,
 		cancel:       cancel,
 		lndBinary:    lndBinary,
@@ -150,6 +147,7 @@ func (n *NetworkHarness) SetUp(t *testing.T,
 	fakeLogger := grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard)
 	grpclog.SetLoggerV2(fakeLogger)
 	n.currentTestCase = testCase
+	n.feeService = startFeeService(t)
 
 	// Start the initial seeder nodes within the test network, then connect
 	// their respective RPC clients.

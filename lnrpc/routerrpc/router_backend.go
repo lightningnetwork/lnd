@@ -31,7 +31,7 @@ const (
 	// for MPP when the user is attempting to send a payment.
 	//
 	// TODO(roasbeef): make this value dynamic based on expected number of
-	// attempts for given amount
+	// attempts for given amount.
 	DefaultMaxParts = 16
 )
 
@@ -1008,7 +1008,6 @@ func UnmarshalMPP(reqMPP *lnrpc.MPPRecord) (*record.MPP, error) {
 	reqAddr := reqMPP.PaymentAddr
 
 	switch {
-
 	// No MPP fields were provided.
 	case reqTotal == 0 && len(reqAddr) == 0:
 		return nil, fmt.Errorf("missing total_msat and payment_addr")
@@ -1110,7 +1109,6 @@ func marshallHtlcFailure(failure *channeldb.HTLCFailInfo) (*lnrpc.Failure,
 	}
 
 	switch failure.Reason {
-
 	case channeldb.HTLCFailUnknown:
 		rpcFailure.Code = lnrpc.Failure_UNKNOWN_FAILURE
 
@@ -1191,7 +1189,6 @@ func marshallWireError(msg lnwire.FailureMessage,
 	response *lnrpc.Failure) error {
 
 	switch onionErr := msg.(type) {
-
 	case *lnwire.FailIncorrectDetails:
 		response.Code = lnrpc.Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS
 		response.Height = onionErr.Height()
@@ -1412,7 +1409,6 @@ func marshallPaymentFailureReason(reason *channeldb.FailureReason) (
 	}
 
 	switch *reason {
-
 	case channeldb.FailureReasonTimeout:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_TIMEOUT, nil
 

@@ -411,7 +411,6 @@ func (cm *circuitMap) cleanClosedChannels() error {
 			return nil
 		})
 		return err
-
 	}, func() {
 		// Reset the sets.
 		circuitKeySet = make(map[CircuitKey]struct{})

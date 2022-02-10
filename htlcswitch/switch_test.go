@@ -2909,7 +2909,7 @@ func testHtcNotifier(t *testing.T, testOpts []serverOption, iterations int,
 
 	// Add the htlcNotifier option to any other options
 	// set in the test.
-	options := append(testOpts, notifierOption)
+	options := append(testOpts, notifierOption) // nolint:gocritic
 
 	n := newThreeHopNetwork(
 		t, channels.aliceToBob,
@@ -2961,7 +2961,6 @@ func testHtcNotifier(t *testing.T, testOpts []serverOption, iterations int,
 		checkHtlcEvents(t, aliceEvents.Updates(), alice)
 		checkHtlcEvents(t, bobEvents.Updates(), bob)
 		checkHtlcEvents(t, carolEvents.Updates(), carol)
-
 	}
 }
 

@@ -293,7 +293,6 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 			WitnessScript: p2wkh,
 			PkScript:      p2wkh,
 		}, 0, nil
-
 	}
 }
 
@@ -554,6 +553,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			cb.chanState.ChanType, false, isOurs, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
 		) {
+
 			continue
 		}
 
@@ -564,6 +564,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			cb.chanState.ChanType, true, isOurs, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
 		) {
+
 			continue
 		}
 
@@ -647,6 +648,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			cb.chanState.ChanType, false, isOurs, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
 		) {
+
 			continue
 		}
 
@@ -657,13 +659,14 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if err != nil {
 			return nil, err
 		}
-		cltvs = append(cltvs, htlc.Timeout)
+		cltvs = append(cltvs, htlc.Timeout) // nolint:makezero
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, isOurs, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
 		) {
+
 			continue
 		}
 
@@ -674,7 +677,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if err != nil {
 			return nil, err
 		}
-		cltvs = append(cltvs, htlc.Timeout)
+		cltvs = append(cltvs, htlc.Timeout) // nolint:makezero
 	}
 
 	// Set the state hint of the commitment transaction to facilitate

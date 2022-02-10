@@ -544,6 +544,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				var prevExclGroup *uint64
 				if pendInput.params.ExclusiveGroup != nil &&
 					input.params.ExclusiveGroup == nil {
+
 					prevExclGroup = new(uint64)
 					*prevExclGroup = *pendInput.params.ExclusiveGroup
 				}
@@ -801,7 +802,7 @@ func (s *UtxoSweeper) bucketForFeeRate(
 // createInputClusters creates a list of input clusters from the set of pending
 // inputs known by the UtxoSweeper. It clusters inputs by
 // 1) Required tx locktime
-// 2) Similar fee rates
+// 2) Similar fee rates.
 func (s *UtxoSweeper) createInputClusters() []inputCluster {
 	inputs := s.pendingInputs
 
@@ -982,7 +983,6 @@ func zipClusters(as, bs []inputCluster) []inputCluster {
 		a := as[i]
 
 		switch {
-
 		// If the fee rate for the next one from bs is at least a's, we
 		// merge.
 		case j < len(bs) && bs[j].sweepFeeRate >= a.sweepFeeRate:
@@ -1017,7 +1017,6 @@ func mergeClusters(a, b inputCluster) []inputCluster {
 	newCluster := inputCluster{}
 
 	switch {
-
 	// Incompatible locktimes, return the sets without merging them.
 	case a.lockTime != nil && b.lockTime != nil && *a.lockTime != *b.lockTime:
 		return []inputCluster{a, b}

@@ -201,7 +201,6 @@ var sendPaymentCommand = cli.Command{
 // default.
 func retrieveFeeLimit(ctx *cli.Context, amt int64) (int64, error) {
 	switch {
-
 	case ctx.IsSet("fee_limit") && ctx.IsSet("fee_limit_percent"):
 		return 0, fmt.Errorf("either fee_limit or fee_limit_percent " +
 			"can be set, but not both")
@@ -389,7 +388,6 @@ func sendPayment(ctx *cli.Context) error {
 		if err != nil {
 			return err
 		}
-		args = args.Tail()
 		req.FinalCltvDelta = int32(delta)
 	}
 
@@ -405,6 +403,7 @@ func sendPayment(ctx *cli.Context) error {
 
 func sendPaymentRequest(ctx *cli.Context,
 	req *routerrpc.SendPaymentRequest) error {
+
 	ctxc := getContext()
 
 	conn := getClientConn(ctx, false)
@@ -703,6 +702,7 @@ func formatMsat(amt int64) string {
 // formatPayment formats the payment state as an ascii table.
 func formatPayment(ctxc context.Context, payment *lnrpc.Payment,
 	aliases *aliasCache) string {
+
 	t := table.NewWriter()
 
 	// Build table header.
@@ -1288,7 +1288,6 @@ func forwardingHistory(ctx *cli.Context) error {
 			return fmt.Errorf("unable to decode max_events: %v", err)
 		}
 		maxEvents = uint32(m)
-		args = args.Tail()
 	}
 
 	req := &lnrpc.ForwardingHistoryRequest{
@@ -1523,7 +1522,7 @@ func deletePayments(ctx *cli.Context) error {
 	return nil
 }
 
-// ESC is the ASCII code for escape character
+// ESC is the ASCII code for escape character.
 const ESC = 27
 
 // clearCode defines a terminal escape code to clear the currently line and move

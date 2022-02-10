@@ -136,7 +136,7 @@ func completePaymentRequests(client lnrpc.LightningClient,
 	return nil
 }
 
-// makeFakePayHash creates random pre image hash
+// makeFakePayHash creates random pre image hash.
 func makeFakePayHash(t *harnessTest) []byte {
 	randBuf := make([]byte, 32)
 
@@ -190,7 +190,6 @@ func createPayReqs(node *lntest.HarnessNode, paymentAmt btcutil.Amount,
 // getChanInfo is a helper method for getting channel info for a node's sole
 // channel.
 func getChanInfo(node *lntest.HarnessNode) (*lnrpc.Channel, error) {
-
 	ctxb := context.Background()
 	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
@@ -301,7 +300,6 @@ func calculateMaxHtlc(chanCap btcutil.Amount) uint64 {
 // waitForNodeBlockHeight queries the node for its current block height until
 // it reaches the passed height.
 func waitForNodeBlockHeight(node *lntest.HarnessNode, height int32) error {
-
 	ctxb := context.Background()
 	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()

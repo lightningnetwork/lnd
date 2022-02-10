@@ -389,7 +389,6 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 					SpendingHeight:    10,
 				}
 				return nil
-
 			},
 			// incubating=true is used to signal that the
 			// second-level transaction was confirmed.
@@ -555,7 +554,6 @@ func runFromCheckpoint(t *testing.T, ctx *htlcResolverTestContext,
 			t.Fatalf("expected checkpoint to be have "+
 				"incubating=%v, had %v", cp.incubating,
 				incubating)
-
 		}
 
 		// Check we go the expected reports.
@@ -595,7 +593,6 @@ func runFromCheckpoint(t *testing.T, ctx *htlcResolverTestContext,
 			if err := cp.preCheckpoint(ctx, resumed); err != nil {
 				t.Fatalf("failure at stage %d: %v", i, err)
 			}
-
 		}
 		resumed = false
 

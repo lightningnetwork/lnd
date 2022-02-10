@@ -5752,7 +5752,6 @@ func TestForwardingAsymmetricTimeLockPolicies(t *testing.T) {
 // TestCheckHtlcForward tests that a link is properly enforcing the HTLC
 // forwarding policy.
 func TestCheckHtlcForward(t *testing.T) {
-
 	fetchLastChannelUpdate := func(lnwire.ShortChannelID) (
 		*lnwire.ChannelUpdate, error) {
 

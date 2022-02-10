@@ -632,7 +632,6 @@ func (s *Server) DeriveSharedKey(_ context.Context, in *SharedKeyRequest) (
 // is zero.
 func parseRawKeyBytes(rawKeyBytes []byte) (*btcec.PublicKey, error) {
 	switch {
-
 	case len(rawKeyBytes) == 33:
 		// If a proper raw key was provided, then we'll attempt
 		// to decode and parse it.

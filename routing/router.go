@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
-
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/amp"
 	"github.com/lightningnetwork/lnd/batch"
@@ -2111,7 +2110,6 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 	// this payment.
 	var shardTracker shards.ShardTracker
 	switch {
-
 	// If this is an AMP payment, we'll use the AMP shard tracker.
 	case payment.amp != nil:
 		shardTracker = amp.NewShardTracker(

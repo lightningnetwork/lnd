@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"image/color"
+	prand "math/rand"
 	"net"
 	"sync"
 	"testing"
 	"time"
-
-	prand "math/rand"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"

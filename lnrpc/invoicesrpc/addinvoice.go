@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
-
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -158,7 +157,6 @@ func (d *AddInvoiceData) paymentHashAndPreimage() (
 // The preimage will always be nil.
 func (d *AddInvoiceData) ampPaymentHashAndPreimage() (*lntypes.Preimage, lntypes.Hash, error) {
 	switch {
-
 	// Preimages cannot be set on AMP invoice.
 	case d.Preimage != nil:
 		return nil, lntypes.Hash{},
@@ -286,7 +284,6 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	}
 
 	switch {
-
 	// If expiry is set, specify it. If it is not provided, no expiry time
 	// will be explicitly added to this payment request, which will imply
 	// the default 3600 seconds.
@@ -314,7 +311,6 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	// Otherwise, use the default AMP expiry.
 	default:
 		options = append(options, zpay32.Expiry(DefaultAMPInvoiceExpiry))
-
 	}
 
 	// If the description hash is set, then we add it do the list of options.
@@ -662,7 +658,7 @@ func sufficientHints(numHints, maxHints, scalingFactor int, amount,
 // channels. The set of hop hints will be returned as a slice of functional
 // options that'll append the route hint to the set of all route hints.
 //
-// TODO(roasbeef): do proper sub-set sum max hints usually << numChans
+// TODO(roasbeef): do proper sub-set sum max hints usually << numChans.
 func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *SelectHopHintsCfg,
 	openChannels []*HopHintInfo,
 	numMaxHophints int) [][]zpay32.HopHint {

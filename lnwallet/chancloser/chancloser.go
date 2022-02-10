@@ -334,7 +334,6 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 	bool, error) {
 
 	switch c.state {
-
 	// If we're in the close idle state, and we're receiving a channel closure
 	// related message, then this indicates that we're on the receiving side of
 	// an initiated channel closure.
@@ -662,7 +661,6 @@ func calcCompromiseFee(chanPoint wire.OutPoint, ourIdealFee, lastSentFee,
 	// Otherwise, we'll need to attempt to make a fee compromise if this is the
 	// second round, and neither side has agreed on fees.
 	switch {
-
 	// If their proposed fee is identical to our ideal fee, then we'll go with
 	// that as we can short circuit the fee negotiation. Similarly, if we
 	// haven't sent an offer yet, we'll default to our ideal fee.

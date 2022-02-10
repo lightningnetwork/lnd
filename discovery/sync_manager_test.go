@@ -76,7 +76,6 @@ func TestSyncManagerNumActiveSyncers(t *testing.T) {
 
 		pinnedSyncers[vertex] = struct{}{}
 		pinnedPubkeys[vertex] = pubkey
-
 	}
 
 	syncMgr := newPinnedTestSyncManager(numActiveSyncers, pinnedSyncers)

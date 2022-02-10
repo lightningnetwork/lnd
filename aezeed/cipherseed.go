@@ -10,7 +10,6 @@ import (
 
 	"github.com/Yawning/aez"
 	"github.com/kkdai/bstream"
-
 	"golang.org/x/crypto/scrypt"
 )
 

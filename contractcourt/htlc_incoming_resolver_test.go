@@ -140,6 +140,7 @@ func TestHtlcIncomingResolverExitSettle(t *testing.T) {
 	if !bytes.Equal(
 		ctx.onionProcessor.offeredOnionBlob, testOnionBlob,
 	) {
+
 		t.Fatal("unexpected onion blob")
 	}
 }

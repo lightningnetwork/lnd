@@ -83,7 +83,6 @@ func (h *HostAnnouncer) hostWatcher() {
 
 	ipMapping := make(map[string]net.Addr)
 	refreshHosts := func() {
-
 		// We'll now run through each of our hosts to check if they had
 		// their backing IPs changed. If so, we'll want to re-announce
 		// them.

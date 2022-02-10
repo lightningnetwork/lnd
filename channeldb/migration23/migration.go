@@ -140,7 +140,6 @@ func migrateHtlcsBucket(htlcs kvdb.RwBucket) error {
 			if err := htlcs.Put(newKey, settleInfo); err != nil {
 				return err
 			}
-
 		}
 
 		failInfo := attempt.Get(oldFailInfoKey)

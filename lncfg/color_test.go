@@ -24,7 +24,6 @@ func TestParseHexColor(t *testing.T) {
 
 	// Perform the table driven tests.
 	for _, ct := range colorTestCases {
-
 		color, err := ParseHexColor(ct.test)
 		if !ct.valid && err == nil {
 			t.Fatalf("Invalid color string: %s, should return "+

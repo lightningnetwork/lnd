@@ -210,7 +210,6 @@ func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *tx
 	inputYield := s.totalOutput() - t.totalOutput()
 
 	switch constraints {
-
 	// Don't sweep inputs that cost us more to sweep than they give us.
 	case constraintsRegular:
 		if inputYield <= 0 {

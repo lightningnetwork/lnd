@@ -2,12 +2,11 @@ package lnwire
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"io"
-
-	"bytes"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc/peer"
-
 	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
 	macaroon "gopkg.in/macaroon.v2"
 )
@@ -230,7 +229,6 @@ func GetCustomCaveatCondition(mac *macaroon.Macaroon,
 		"%s %s ", CondLndCustom, customCaveatName,
 	))
 	for _, caveat := range mac.Caveats() {
-
 		// The caveat id has a format of
 		// "lnd-custom [custom-caveat-name] [custom-caveat-condition]"
 		// and we only want the condition part. If we match the prefix

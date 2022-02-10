@@ -262,7 +262,6 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// commitment this is.
 	var witnessType input.WitnessType
 	switch {
-
 	// Delayed output to us on our local commitment for a channel lease in
 	// which we are the initiator.
 	case isLocalCommitTx && c.hasCLTV():
@@ -487,8 +486,8 @@ func (c *commitSweepResolver) report() *ContractReport {
 	c.reportLock.Lock()
 	defer c.reportLock.Unlock()
 
-	copy := c.currentReport
-	return &copy
+	cpy := c.currentReport
+	return &cpy
 }
 
 // initReport initializes the pending channels report for this resolver.

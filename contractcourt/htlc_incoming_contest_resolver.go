@@ -180,7 +180,6 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// Take action based on the type of resolution we have
 		// received.
 		switch resolution := e.(type) {
-
 		// If the htlc resolution was a settle, apply the
 		// preimage and return a success resolver.
 		case *invoices.HtlcSettleResolution:
@@ -442,7 +441,6 @@ func (h *htlcIncomingContestResolver) SupplementState(_ *channeldb.OpenChannel) 
 
 // decodePayload (re)decodes the hop payload of a received htlc.
 func (h *htlcIncomingContestResolver) decodePayload() (*hop.Payload, error) {
-
 	onionReader := bytes.NewReader(h.htlc.OnionBlob)
 	iterator, err := h.OnionProcessor.ReconstructHopIterator(
 		onionReader, h.htlc.RHash[:],

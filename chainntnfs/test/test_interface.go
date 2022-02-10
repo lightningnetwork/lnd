@@ -419,7 +419,7 @@ func testBlockEpochNotification(miner *rpctest.Harness,
 				// hash.
 				blockEpoch := <-epochClient.Epochs
 				if blockEpoch.BlockHeader == nil {
-					fmt.Println(i)
+					t.Logf("%d", i)
 					clientErrors <- fmt.Errorf("block " +
 						"header is nil")
 					return

@@ -77,7 +77,6 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		expType := carolCommitType
 
 		switch daveCommitType {
-
 		// Dave supports anchors, type will be what
 		// Carol supports.
 		case lnrpc.CommitmentType_ANCHORS:
@@ -139,7 +138,7 @@ test:
 				"---- basic channel funding subtest %s ----\n",
 				testName,
 			)
-			net.Alice.AddToLog(logLine)
+			net.Alice.AddToLogf(logLine)
 
 			success := t.t.Run(testName, func(t *testing.T) {
 				testFunding(cc, dc)

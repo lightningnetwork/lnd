@@ -16,7 +16,6 @@ import (
 )
 
 func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
-
 	type testCase struct {
 		name string
 		test func(net *lntest.NetworkHarness, t *harnessTest, alice,
@@ -99,7 +98,7 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 						"%s/%s ----\n",
 					testName, subTest.name,
 				)
-				net.Alice.AddToLog(logLine)
+				net.Alice.AddToLogf(logLine)
 
 				success := ht.t.Run(subTest.name, func(t *testing.T) {
 					ht := newHarnessTest(t, net)
@@ -180,7 +179,6 @@ func checkPaymentStatus(node *lntest.HarnessNode, preimage lntypes.Preimage,
 		}
 
 		switch status {
-
 		// If this expected status is SUCCEEDED, we expect the final preimage.
 		case lnrpc.Payment_SUCCEEDED:
 			if p.PaymentPreimage != preimage.String() {
@@ -195,7 +193,6 @@ func checkPaymentStatus(node *lntest.HarnessNode, preimage lntypes.Preimage,
 					p.PaymentPreimage)
 			}
 		}
-
 	}
 
 	if !found {

@@ -125,7 +125,6 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 	select {
 	case sweepRes := <-resultChan:
 		switch sweepRes.Err {
-
 		// Anchor was swept successfully.
 		case nil:
 			sweepTxID := sweepRes.Tx.TxHash()

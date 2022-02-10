@@ -18,7 +18,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
-
 	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
 )
 
@@ -952,7 +951,6 @@ func TestInvoiceChecksumMalleability(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Did not get expected error when decoding invoice")
 	}
-
 }
 
 func compareInvoices(expected, actual *Invoice) error {

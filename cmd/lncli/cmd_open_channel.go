@@ -63,7 +63,7 @@ Signed base64 encoded PSBT or hex encoded raw wire TX (or path to text file): `
 	channelTypeAnchors   = "anchors"
 )
 
-// TODO(roasbeef): change default number of confirmations
+// TODO(roasbeef): change default number of confirmations.
 var openChannelCommand = cli.Command{
 	Name:     "openchannel",
 	Category: "Channels",
@@ -289,6 +289,7 @@ func openChannel(ctx *cli.Context) error {
 		_, err := client.ConnectPeer(ctxc, req)
 		if err != nil &&
 			!strings.Contains(err.Error(), "already connected") {
+
 			return err
 		}
 	}

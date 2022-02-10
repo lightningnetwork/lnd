@@ -1399,6 +1399,7 @@ func (w *WalletKit) ListAccounts(ctx context.Context,
 		// wallet in the response if they don't have any keys imported.
 		if account.AccountName == waddrmgr.ImportedAddrAccountName &&
 			account.ImportedKeyCount == 0 {
+
 			continue
 		}
 

@@ -1,17 +1,19 @@
 PKG := github.com/lightningnetwork/lnd
 ESCPKG := github.com\/lightningnetwork\/lnd
 MOBILE_PKG := $(PKG)/mobile
+TOOLS_DIR := tools
 
 BTCD_PKG := github.com/btcsuite/btcd
 LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
-GOIMPORTS_PKG := golang.org/x/tools/cmd/goimports
+GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
 GOFUZZ_BUILD_PKG := github.com/dvyukov/go-fuzz/go-fuzz-build
 GOFUZZ_PKG := github.com/dvyukov/go-fuzz/go-fuzz
 GOFUZZ_DEP_PKG := github.com/dvyukov/go-fuzz/go-fuzz-dep
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
+GOIMPORTS_BIN := $(GO_BIN)/gosimports
 GOMOBILE_BIN := GO111MODULE=off $(GO_BIN)/gomobile
 LINT_BIN := $(GO_BIN)/golangci-lint
 GOACC_BIN := $(GO_BIN)/go-acc
@@ -83,33 +85,33 @@ all: scratch check install
 # ============
 # DEPENDENCIES
 # ============
-$(LINT_BIN):
+$(LINT_BIN): 
 	@$(call print, "Installing linter.")
-	go install $(LINT_PKG)
+	cd $(TOOLS_DIR); go install -trimpath -tags=tools $(LINT_PKG)
 
 $(GOACC_BIN):
 	@$(call print, "Installing go-acc.")
-	go install $(GOACC_PKG)
+	cd $(TOOLS_DIR); go install -trimpath -tags=tools $(GOACC_PKG)
 
-btcd:
+$(BTCD_BIN):
 	@$(call print, "Installing btcd.")
-	go install $(BTCD_PKG)
+	cd $(TOOLS_DIR); go install -trimpath $(BTCD_PKG)
 
-goimports:
+$(GOIMPORTS_BIN):
 	@$(call print, "Installing goimports.")
-	go install $(GOIMPORTS_PKG)
+	cd $(TOOLS_DIR); go install -trimpath $(GOIMPORTS_PKG)
 
 $(GOFUZZ_BIN):
 	@$(call print, "Installing go-fuzz.")
-	go install $(GOFUZZ_PKG)
+	cd $(TOOLS_DIR); go install -trimpath $(GOFUZZ_PKG)
 
 $(GOFUZZ_BUILD_BIN):
 	@$(call print, "Installing go-fuzz-build.")
-	go install $(GOFUZZ_BUILD_PKG)
+	cd $(TOOLS_DIR); go install -trimpath $(GOFUZZ_BUILD_PKG)
 
 $(GOFUZZ_DEP_BIN):
 	@$(call print, "Installing go-fuzz-dep.")
-	go install $(GOFUZZ_DEP_PKG)
+	cd $(TOOLS_DIR); go install -trimpath $(GOFUZZ_DEP_PKG)
 
 # ============
 # INSTALLATION
@@ -205,11 +207,11 @@ itest-clean:
 	@$(call print, "Cleaning old itest processes")
 	killall lnd-itest || echo "no running lnd-itest process found";
 
-unit: btcd
+unit: $(BTCD_BIN)
 	@$(call print, "Running unit tests.")
 	$(UNIT)
 
-unit-debug: btcd
+unit-debug: $(BTCD_BIN)
 	@$(call print, "Running debug unit tests.")
 	$(UNIT_DEBUG)
 
@@ -252,9 +254,9 @@ fuzz-run: $(GOFUZZ_BIN)
 # UTILITIES
 # =========
 
-fmt: goimports
+fmt: $(GOIMPORTS_BIN)
 	@$(call print, "Fixing imports.")
-	goimports -w $(GOFILES_NOVENDOR)
+	gosimports -w $(GOFILES_NOVENDOR)
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s $(GOFILES_NOVENDOR)
 

@@ -138,6 +138,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				if reflect.DeepEqual(
 					templateTx.TxIn[0].Witness, witness,
 				) {
+
 					return templateTx, nil
 				}
 				templateTx.TxIn[0].Witness = witness
@@ -169,6 +170,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				if reflect.DeepEqual(
 					templateTx.TxIn[0].Witness, witness,
 				) {
+
 					return templateTx, nil
 				}
 
@@ -206,6 +208,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				if reflect.DeepEqual(
 					templateTx.TxIn[0].Witness, witness,
 				) {
+
 					return templateTx, nil
 				}
 
@@ -239,6 +242,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				if reflect.DeepEqual(
 					templateTx.TxIn[0].Witness, witness,
 				) {
+
 					return templateTx, nil
 				}
 
@@ -1218,7 +1222,7 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 				// expect the resolver to re-subscribe to a
 				// spend, hence we must resend it.
 				if resumed {
-					fmt.Println("resumed")
+					t.Logf("resumed")
 					ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 						SpendingTx:    spendTx,
 						SpenderTxHash: &spendTxHash,

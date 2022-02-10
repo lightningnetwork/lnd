@@ -347,7 +347,6 @@ func testCommitSweepResolverDelay(t *testing.T, sweepErr error) {
 		t.Fatalf("unexpected resolver report. want=%v got=%v",
 			expectedReport, report)
 	}
-
 }
 
 // TestCommitSweepResolverDelay tests resolution of a direct commitment output

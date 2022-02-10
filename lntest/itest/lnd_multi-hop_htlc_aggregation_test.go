@@ -299,7 +299,6 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 				break
 			}
 		}
-
 	}
 
 	// In case of anchor we expect all the timeout and success second
@@ -311,7 +310,6 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 	} else {
 		require.Len(t.t, timeoutTxs, numInvoices)
 		require.Len(t.t, successTxs, numInvoices)
-
 	}
 
 	// All mempool transactions should be spending from the commitment

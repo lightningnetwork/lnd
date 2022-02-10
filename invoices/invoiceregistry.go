@@ -176,8 +176,8 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 		removable = make([]channeldb.InvoiceDeleteRef, 0)
 	}
 
-	scanFunc := func(
-		paymentHash lntypes.Hash, invoice *channeldb.Invoice) error {
+	scanFunc := func(paymentHash lntypes.Hash,
+		invoice *channeldb.Invoice) error {
 
 		if invoice.IsPending() {
 			expiryRef := makeInvoiceExpiry(paymentHash, invoice)
@@ -428,7 +428,6 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 		// event is added while we're catching up a new client.
 		invState := event.invoice.State
 		switch {
-
 		case invState == channeldb.ContractSettled:
 			client.settleIndex = invoice.SettleIndex
 
@@ -908,7 +907,6 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	}
 
 	switch {
-
 	// If we are accepting spontaneous AMP payments and this payload
 	// contains an AMP record, create an AMP invoice that will be settled
 	// below.

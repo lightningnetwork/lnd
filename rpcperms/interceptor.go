@@ -695,7 +695,6 @@ func (r *InterceptorChain) checkRPCState(srv interface{}) error {
 	r.RUnlock()
 
 	switch state {
-
 	// Do not accept any RPC calls (unless to the state service) until LND
 	// has not started.
 	case waitingToStart:

@@ -291,7 +291,6 @@ func (ns *NurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
 // will be stored as it waits out the kidOutput's CSV delay.
 func (ns *NurseryStore) CribToKinder(bby *babyOutput) error {
 	return kvdb.Update(ns.db, func(tx kvdb.RwTx) error {
-
 		// First, retrieve or create the channel bucket corresponding to
 		// the baby output's origin channel point.
 		chanPoint := bby.OriginChanPoint()
@@ -472,7 +471,6 @@ func (ns *NurseryStore) PreschoolToKinder(kid *kidOutput,
 // pruned from the height index as outputs are removed.
 func (ns *NurseryStore) GraduateKinder(height uint32, kid *kidOutput) error {
 	return kvdb.Update(ns.db, func(tx kvdb.RwTx) error {
-
 		hghtBucket := ns.getHeightBucket(tx, height)
 		if hghtBucket == nil {
 			// Nothing to delete, bucket has already been removed.
@@ -597,7 +595,6 @@ func (ns *NurseryStore) FetchClass(
 func (ns *NurseryStore) FetchPreschools() ([]kidOutput, error) { // nolint:golint
 	var kids []kidOutput
 	if err := kvdb.View(ns.db, func(tx kvdb.RTx) error {
-
 		// Retrieve the existing chain bucket for this nursery store.
 		chainBucket := tx.ReadBucket(ns.pfxChainKey)
 		if chainBucket == nil {
@@ -1058,18 +1055,18 @@ func (ns *NurseryStore) createHeightBucket(tx kvdb.RwTx,
 // store, using the provided block height. If the bucket does not exist, or any
 // bucket along its path does not exist, a nil value is returned.
 func (ns *NurseryStore) getHeightBucketPath(tx kvdb.RTx,
-	height uint32) (kvdb.RBucket, kvdb.RBucket, kvdb.RBucket) {
+	height uint32) (kvdb.RBucket, kvdb.RBucket) {
 
 	// Retrieve the existing chain bucket for this nursery store.
 	chainBucket := tx.ReadBucket(ns.pfxChainKey)
 	if chainBucket == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	// Retrieve the existing channel index.
 	hghtIndex := chainBucket.NestedReadBucket(heightIndexKey)
 	if hghtIndex == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	// Serialize the provided block height and return the bucket matching
@@ -1077,25 +1074,25 @@ func (ns *NurseryStore) getHeightBucketPath(tx kvdb.RTx,
 	var heightBytes [4]byte
 	byteOrder.PutUint32(heightBytes[:], height)
 
-	return chainBucket, hghtIndex, hghtIndex.NestedReadBucket(heightBytes[:])
+	return chainBucket, hghtIndex.NestedReadBucket(heightBytes[:])
 }
 
 // getHeightBucketPathWrite retrieves an existing height bucket from the nursery
 // store, using the provided block height. If the bucket does not exist, or any
 // bucket along its path does not exist, a nil value is returned.
 func (ns *NurseryStore) getHeightBucketPathWrite(tx kvdb.RwTx,
-	height uint32) (kvdb.RwBucket, kvdb.RwBucket, kvdb.RwBucket) {
+	height uint32) (kvdb.RwBucket, kvdb.RwBucket) {
 
 	// Retrieve the existing chain bucket for this nursery store.
 	chainBucket := tx.ReadWriteBucket(ns.pfxChainKey)
 	if chainBucket == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	// Retrieve the existing channel index.
 	hghtIndex := chainBucket.NestedReadWriteBucket(heightIndexKey)
 	if hghtIndex == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	// Serialize the provided block height and return the bucket matching
@@ -1103,7 +1100,7 @@ func (ns *NurseryStore) getHeightBucketPathWrite(tx kvdb.RwTx,
 	var heightBytes [4]byte
 	byteOrder.PutUint32(heightBytes[:], height)
 
-	return chainBucket, hghtIndex, hghtIndex.NestedReadWriteBucket(
+	return hghtIndex, hghtIndex.NestedReadWriteBucket(
 		heightBytes[:],
 	)
 }
@@ -1113,7 +1110,8 @@ func (ns *NurseryStore) getHeightBucketPathWrite(tx kvdb.RwTx,
 // along its path does not exist, a nil value is returned.
 func (ns *NurseryStore) getHeightBucket(tx kvdb.RTx,
 	height uint32) kvdb.RBucket {
-	_, _, hghtBucket := ns.getHeightBucketPath(tx, height)
+
+	_, hghtBucket := ns.getHeightBucketPath(tx, height)
 
 	return hghtBucket
 }
@@ -1124,7 +1122,7 @@ func (ns *NurseryStore) getHeightBucket(tx kvdb.RTx,
 func (ns *NurseryStore) getHeightBucketWrite(tx kvdb.RwTx,
 	height uint32) kvdb.RwBucket {
 
-	_, _, hghtBucket := ns.getHeightBucketPathWrite(tx, height)
+	_, hghtBucket := ns.getHeightBucketPathWrite(tx, height)
 
 	return hghtBucket
 }
@@ -1190,7 +1188,7 @@ func (ns *NurseryStore) forEachHeightPrefix(tx kvdb.RTx, prefix []byte,
 
 	// Start by retrieving the height bucket corresponding to the provided
 	// block height.
-	chainBucket, _, hghtBucket := ns.getHeightBucketPath(tx, height)
+	chainBucket, hghtBucket := ns.getHeightBucketPath(tx, height)
 	if hghtBucket == nil {
 		return nil
 	}
@@ -1345,7 +1343,7 @@ func (ns *NurseryStore) removeOutputFromHeight(tx kvdb.RwTx, height uint32,
 // this invocation successfully pruned the height bucket.
 func (ns *NurseryStore) pruneHeight(tx kvdb.RwTx, height uint32) (bool, error) {
 	// Fetch the existing height index and height bucket.
-	_, hghtIndex, hghtBucket := ns.getHeightBucketPathWrite(tx, height)
+	hghtIndex, hghtBucket := ns.getHeightBucketPathWrite(tx, height)
 	if hghtBucket == nil {
 		return false, nil
 	}

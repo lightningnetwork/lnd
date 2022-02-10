@@ -1,9 +1,8 @@
 package channeldb
 
 import (
-	"testing"
-
 	"reflect"
+	"testing"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"

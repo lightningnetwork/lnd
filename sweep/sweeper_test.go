@@ -1763,7 +1763,6 @@ func TestLockTimes(t *testing.T) {
 				t.Fatalf("Input required locktime %v, sweep "+
 					"tx had locktime %v", lt, sweepTx.LockTime)
 			}
-
 		}
 	}
 

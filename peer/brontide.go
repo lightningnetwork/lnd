@@ -16,7 +16,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -618,7 +617,6 @@ func (p *Brontide) Start() error {
 // initGossipSync initializes either a gossip syncer or an initial routing
 // dump, depending on the negotiated synchronization method.
 func (p *Brontide) initGossipSync() {
-
 	// If the remote peer knows of the new gossip queries feature, then
 	// we'll create a new gossipSyncer in the AuthenticatedGossiper for it.
 	if p.remoteFeatures.HasFeature(lnwire.GossipQueriesOptional) {
@@ -1245,7 +1243,6 @@ func waitUntilLinkActive(p *Brontide,
 // channel this stream forwards to is held in scope to prevent unnecessary
 // lookups.
 func newChanMsgStream(p *Brontide, cid lnwire.ChannelID) *msgStream {
-
 	var chanLink htlcswitch.ChannelUpdateHandler
 
 	apply := func(msg lnwire.Message) {
@@ -1569,7 +1566,6 @@ func (p *Brontide) handleError(msg *lnwire.Error) bool {
 	p.storeError(msg)
 
 	switch {
-
 	// In the case of an all-zero channel ID we want to forward the error to
 	// all channels with this peer.
 	case msg.ChanID == lnwire.ConnectionWideID:

@@ -228,7 +228,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath),
 		fmt.Sprintf("--trickledelay=%v", trickleDelay),
 		fmt.Sprintf("--profile=%d", cfg.ProfilePort),
-		fmt.Sprintf("--caches.rpc-graph-cache-duration=0"),
+		fmt.Sprintf("--caches.rpc-graph-cache-duration=%d", 0),
 	}
 	args = append(args, nodeArgs...)
 
@@ -295,7 +295,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 //       ]
 //  },
 //  "chanPoint2": ...
-// }
+// }.
 type policyUpdateMap map[string]map[string][]*lnrpc.RoutingPolicy
 
 // HarnessNode represents an instance of lnd running within our test network
@@ -988,9 +988,9 @@ func (hn *HarnessNode) FetchNodeInfo() error {
 	return nil
 }
 
-// AddToLog adds a line of choice to the node's logfile. This is useful
+// AddToLogf adds a line of choice to the node's logfile. This is useful
 // to interleave test output with output from the node.
-func (hn *HarnessNode) AddToLog(format string, a ...interface{}) {
+func (hn *HarnessNode) AddToLogf(format string, a ...interface{}) {
 	// If this node was not set up with a log file, just return early.
 	if hn.logFile == nil {
 		return
@@ -998,7 +998,7 @@ func (hn *HarnessNode) AddToLog(format string, a ...interface{}) {
 
 	desc := fmt.Sprintf("itest: %s\n", fmt.Sprintf(format, a...))
 	if _, err := hn.logFile.WriteString(desc); err != nil {
-		hn.PrintErr("write to log err: %v", err)
+		hn.PrintErrf("write to log err: %v", err)
 	}
 }
 
@@ -1189,7 +1189,6 @@ func (hn *HarnessNode) stop() error {
 			return fmt.Errorf("error attempting to stop "+
 				"grpc client: %v", err)
 		}
-
 	}
 
 	return nil
@@ -1207,7 +1206,7 @@ func (hn *HarnessNode) shutdown() error {
 	return nil
 }
 
-// kill kills the lnd process
+// kill kills the lnd process.
 func (hn *HarnessNode) kill() error {
 	return hn.cmd.Process.Kill()
 }
@@ -1244,7 +1243,6 @@ type chanWatchRequest struct {
 }
 
 func (hn *HarnessNode) checkChanPointInGraph(chanPoint wire.OutPoint) bool {
-
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
 
@@ -1281,14 +1279,13 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 		err := hn.receiveTopologyClientStream(graphUpdates)
 
 		if err != nil {
-			hn.PrintErr("receive topology client stream "+
+			hn.PrintErrf("receive topology client stream "+
 				"got err:%v", err)
 		}
 	}()
 
 	for {
 		select {
-
 		// A new graph update has just been received, so we'll examine
 		// the current set of registered clients to see if we can
 		// dispatch any requests.
@@ -1505,9 +1502,9 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount,
 	return nil
 }
 
-// PrintErr prints an error to the console.
-func (hn *HarnessNode) PrintErr(format string, a ...interface{}) {
-	fmt.Printf("itest error from [node:%s]: %s\n",
+// PrintErrf prints an error to the console.
+func (hn *HarnessNode) PrintErrf(format string, a ...interface{}) {
+	fmt.Printf("itest error from [node:%s]: %s\n", // nolint:forbidigo
 		hn.Cfg.Name, fmt.Sprintf(format, a...))
 }
 
@@ -1521,7 +1518,7 @@ func (hn *HarnessNode) handleChannelEdgeUpdates(
 	for _, newChan := range updates {
 		op, err := MakeOutpoint(newChan.ChanPoint)
 		if err != nil {
-			hn.PrintErr("failed to create outpoint for %v "+
+			hn.PrintErrf("failed to create outpoint for %v "+
 				"got err: %v", newChan.ChanPoint, err)
 			return
 		}
@@ -1607,7 +1604,7 @@ func (hn *HarnessNode) handleClosedChannelUpdate(
 	for _, closedChan := range updates {
 		op, err := MakeOutpoint(closedChan.ChanPoint)
 		if err != nil {
-			hn.PrintErr("failed to create outpoint for %v "+
+			hn.PrintErrf("failed to create outpoint for %v "+
 				"got err: %v", closedChan.ChanPoint, err)
 			return
 		}
@@ -1767,7 +1764,6 @@ func (hn *HarnessNode) handlePolicyUpdateWatchRequest(req *chanWatchRequest) {
 // getChannelPolicies queries the channel graph and formats the policies into
 // the format defined in type policyUpdateMap.
 func (hn *HarnessNode) getChannelPolicies(include bool) policyUpdateMap {
-
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
 
@@ -1775,14 +1771,13 @@ func (hn *HarnessNode) getChannelPolicies(include bool) policyUpdateMap {
 		IncludeUnannounced: include,
 	})
 	if err != nil {
-		hn.PrintErr("DescribeGraph got err: %v", err)
+		hn.PrintErrf("DescribeGraph got err: %v", err)
 		return nil
 	}
 
 	policyUpdates := policyUpdateMap{}
 
 	for _, e := range graph.Edges {
-
 		policies := policyUpdates[e.ChanPoint]
 
 		// If the map[op] is nil, we need to initialize the map first.
@@ -1813,7 +1808,7 @@ func (hn *HarnessNode) getChannelPolicies(include bool) policyUpdateMap {
 func renameFile(fromFileName, toFileName string) {
 	err := os.Rename(fromFileName, toFileName)
 	if err != nil {
-		fmt.Printf("could not rename %s to %s: %v\n",
+		fmt.Printf("could not rename %s to %s: %v\n", // nolint:forbidigo
 			fromFileName, toFileName, err)
 	}
 }

@@ -728,7 +728,7 @@ func (s *Switch) ForwardPackets(linkQuit chan struct{},
 	return nil
 }
 
-// logFwdErrs logs any errors received on `fwdChan`
+// logFwdErrs logs any errors received on `fwdChan`.
 func (s *Switch) logFwdErrs(num *int, wg *sync.WaitGroup, fwdChan chan error) {
 	defer s.wg.Done()
 
@@ -1130,7 +1130,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// this htlc. The reason for randomization is to evenly
 		// distribute the htlc load without making assumptions about
 		// what the best channel is.
-		destination := destinations[rand.Intn(len(destinations))]
+		destination := destinations[rand.Intn(len(destinations))] // nolint:gosec
 
 		// Retrieve the incoming link by its ShortChannelID. Note that
 		// the incomingChanID is never set to hop.Source here.

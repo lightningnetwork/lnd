@@ -4223,6 +4223,9 @@ func rpcChannelResolution(report *channeldb.ResolverReport) (*lnrpc.Resolution,
 	case channeldb.ResolverTypeCommit:
 		res.ResolutionType = lnrpc.ResolutionType_COMMIT
 
+	case channeldb.ResolverTypeBreach:
+		res.ResolutionType = lnrpc.ResolutionType_BREACH
+
 	default:
 		return nil, fmt.Errorf("unknown resolver type: %v",
 			report.ResolverType)

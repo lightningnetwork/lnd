@@ -1526,6 +1526,9 @@ enum ResolutionType {
 
     // We force closed and need to sweep our time locked commitment output.
     COMMIT = 4;
+
+    // The channel was breached and we need to sweep all outputs.
+    BREACH = 5;
 }
 
 enum ResolutionOutcome {

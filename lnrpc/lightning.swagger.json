@@ -5964,10 +5964,11 @@
         "ANCHOR",
         "INCOMING_HTLC",
         "OUTGOING_HTLC",
-        "COMMIT"
+        "COMMIT",
+        "BREACH"
       ],
       "default": "TYPE_UNKNOWN",
-      "description": " - ANCHOR: We resolved an anchor output.\n - INCOMING_HTLC: We are resolving an incoming htlc on chain. This if this htlc is\nclaimed, we swept the incoming htlc with the preimage. If it is timed\nout, our peer swept the timeout path.\n - OUTGOING_HTLC: We are resolving an outgoing htlc on chain. If this htlc is claimed,\nthe remote party swept the htlc with the preimage. If it is timed out,\nwe swept it with the timeout path.\n - COMMIT: We force closed and need to sweep our time locked commitment output."
+      "description": " - ANCHOR: We resolved an anchor output.\n - INCOMING_HTLC: We are resolving an incoming htlc on chain. This if this htlc is\nclaimed, we swept the incoming htlc with the preimage. If it is timed\nout, our peer swept the timeout path.\n - OUTGOING_HTLC: We are resolving an outgoing htlc on chain. If this htlc is claimed,\nthe remote party swept the htlc with the preimage. If it is timed out,\nwe swept it with the timeout path.\n - COMMIT: We force closed and need to sweep our time locked commitment output.\n - BREACH: The channel was breached and we need to sweep all outputs."
     },
     "lnrpcRestoreBackupResponse": {
       "type": "object"

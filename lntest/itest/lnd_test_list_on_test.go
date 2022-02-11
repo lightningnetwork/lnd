@@ -399,4 +399,8 @@ var allTestCases = []*testCase{
 		name: "addpeer config",
 		test: testAddPeerConfig,
 	},
+	{
+		name: "resolution handoff",
+		test: testResHandoff,
+	},
 }

@@ -121,6 +121,9 @@ releases. Backward compatibility is not guaranteed!
 * [Fixed a spec-compliance issue where lnd was not allowing cooperative
 close to continue after a peer disconnect](https://github.com/lightningnetwork/lnd/pull/6419).
 
+* [A subsystem hand-off between the contractcourt and htlcswitch has been fixed by adding a persistence layer. This avoids a rare edge case
+from occurring that would result in an erroneous force close.](https://github.com/lightningnetwork/lnd/pull/6250)
+
 ## Routing
 
 * [Add a new `time_pref` parameter to the QueryRoutes and SendPayment APIs](https://github.com/lightningnetwork/lnd/pull/6024) that

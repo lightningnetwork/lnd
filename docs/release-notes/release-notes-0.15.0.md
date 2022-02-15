@@ -100,9 +100,14 @@
 
 * [The `golangci-lint` package was updated and new linters were
   enabled](https://github.com/lightningnetwork/lnd/pull/6244).
-  **Note to developers**: please make sure you delete the old version of
-  `golangci-lint` in your `$GOPATH/bin` directory. `make lint` does not
-  automatically replace it with the new version if the binary already exists!
+
+* The linting process now runs [inside a docker
+  container](https://github.com/lightningnetwork/lnd/pull/6248) to fix
+  versioning issues between projects.
+
+* The [`whitespace` linter](https://github.com/lightningnetwork/lnd/pull/6270)
+  was enabled to make sure multi-line `if` conditions and function/method
+  declarations are followed by an empty line to improve readability.
 
 # Contributors (Alphabetical Order)
 

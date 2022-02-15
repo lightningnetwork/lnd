@@ -11,3 +11,6 @@ require (
 	github.com/rinchsan/gosimports v0.1.5
 	github.com/stephens2424/writerset v1.0.2 // indirect
 )
+
+// Can be removed once this version is included in golangci-lint.
+replace github.com/ultraware/whitespace => github.com/ultraware/whitespace v0.0.5

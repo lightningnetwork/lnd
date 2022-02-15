@@ -83,10 +83,6 @@ linters:
   # Causes stack overflow, see https://github.com/polyfloyd/go-errorlint/issues/19.
   - errorlint
 
-  # Has an issue (https://github.com/ultraware/whitespace/issues/6) but will
-  # want to enable this in the future.
-  - whitespace
-
   # Deprecated linters. See https://golangci-lint.run/usage/linters/.
   - interfacer
   - golint

@@ -383,6 +383,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		},
 		MarkChannelClosed: func(*channeldb.ChannelCloseSummary,
 			...channeldb.ChannelStatus) error {
+
 			return nil
 		},
 		IsPendingClose:        false,
@@ -1635,6 +1636,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 		chanArb.cfg.MarkChannelClosed = func(
 			*channeldb.ChannelCloseSummary,
 			...channeldb.ChannelStatus) error {
+
 			close(closed)
 			return nil
 		}
@@ -2169,6 +2171,7 @@ func TestRemoteCloseInitiator(t *testing.T) {
 			// about setting of channel status.
 			mockMarkClosed := func(_ *channeldb.ChannelCloseSummary,
 				statuses ...channeldb.ChannelStatus) error {
+
 				for _, status := range statuses {
 					err := alice.State().ApplyChanStatus(status)
 					if err != nil {

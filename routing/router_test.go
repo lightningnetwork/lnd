@@ -670,7 +670,6 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
-
 			if firstHop != roasbeefSongoku || errorReturned {
 				return preImage, nil
 			}
@@ -685,7 +684,8 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 					Update: errChanUpdate,
 				}, 1,
 			)
-		})
+		},
+	)
 
 	// Send off the payment request to the router, route through son
 	// goku and then across the private channel to elst.
@@ -802,7 +802,6 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
-
 			if firstHop != roasbeefSongoku || errorReturned {
 				return preImage, nil
 			}
@@ -817,7 +816,8 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 					Update: errChanUpdate,
 				}, 1,
 			)
-		})
+		},
+	)
 
 	// Send off the payment request to the router, route through son
 	// goku and then across the private channel to elst.
@@ -3071,7 +3071,6 @@ func TestSendToRouteMultiShardSend(t *testing.T) {
 
 	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
-
 			// Signal that the shard has been initiated and is
 			// waiting for a result.
 			waitForResultSignal <- struct{}{}
@@ -3082,7 +3081,8 @@ func TestSendToRouteMultiShardSend(t *testing.T) {
 				return [32]byte{}, fmt.Errorf("failure")
 			}
 			return res, nil
-		})
+		},
+	)
 
 	// Launch three shards by calling SendToRoute in three goroutines,
 	// returning their final error on the channel.

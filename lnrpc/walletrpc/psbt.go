@@ -70,7 +70,6 @@ func lockInputs(w lnwallet.WalletController, packet *psbt.Packet) (
 				if err := w.ReleaseOutput(
 					LndInternalLockID, op,
 				); err != nil {
-
 					log.Errorf("could not release the "+
 						"lock on %v: %v", op, err)
 				}

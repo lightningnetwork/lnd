@@ -779,7 +779,6 @@ func (p *shardHandler) handleSendError(attempt *channeldb.HTLCAttemptInfo,
 		if err := p.router.cfg.Control.Fail(
 			p.identifier, *reason,
 		); err != nil {
-
 			log.Errorf("unable to report failure to control "+
 				"tower: %v", err)
 

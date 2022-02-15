@@ -861,6 +861,7 @@ func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 			// success transcation.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
 				_ bool) error {
+
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:    remoteSuccessTx,
 					SpenderTxHash: &successTxid,

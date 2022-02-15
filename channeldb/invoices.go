@@ -1463,7 +1463,6 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 		seqNo, indexValue := invoiceCursor.Next()
 
 		for ; seqNo != nil && bytes.Compare(seqNo, startIndex[:]) > 0; seqNo, indexValue = invoiceCursor.Next() {
-
 			// Depending on the length of the index value, this may
 			// or may not be an AMP invoice, so we'll extract the
 			// invoice value into two components: the invoice num,

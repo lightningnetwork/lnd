@@ -179,6 +179,7 @@ func newTestBoltArbLog(chainhash chainhash.Hash,
 	testArbCfg := ChannelArbitratorConfig{
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {
+
 			return nil
 		},
 	}

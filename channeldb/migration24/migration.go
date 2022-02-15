@@ -81,8 +81,8 @@ func MigrateFwdPkgCleanup(tx kvdb.RwTx) error {
 
 		// Otherwise, wipe all the forwarding packages.
 		if err := fwdPkgBkt.DeleteNestedBucket(
-			sourceBytes[:]); err != nil {
-
+			sourceBytes[:],
+		); err != nil {
 			return err
 		}
 	}

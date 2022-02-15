@@ -297,6 +297,7 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// response to a channel balance RPC.
 	checkChannelBalance := func(node *lntest.HarnessNode,
 		local, remote, pendingLocal, pendingRemote btcutil.Amount) {
+
 		expectedResponse := &lnrpc.ChannelBalanceResponse{
 			LocalBalance: &lnrpc.Amount{
 				Sat: uint64(local),

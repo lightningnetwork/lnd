@@ -615,9 +615,8 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			err := kvdb.Update(db,
-				func(tx walletdb.ReadWriteTx) error {
-
+			err := kvdb.Update(
+				db, func(tx walletdb.ReadWriteTx) error {
 					var seqNrBytes [8]byte
 					byteOrder.PutUint64(
 						seqNrBytes[:], test.sequenceNumber,
@@ -627,7 +626,8 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 						tx, test.paymentHash, seqNrBytes[:],
 					)
 					return err
-				}, func() {})
+				}, func() {},
+			)
 			require.Equal(t, test.expectedErr, err)
 		})
 	}

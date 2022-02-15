@@ -208,6 +208,7 @@ func newMailboxContext(t *testing.T, startTime time.Time,
 	ctx.mailbox = newMemoryMailBox(&mailBoxConfig{
 		fetchUpdate: func(sid lnwire.ShortChannelID) (
 			*lnwire.ChannelUpdate, error) {
+
 			return &lnwire.ChannelUpdate{
 				ShortChannelID: sid,
 			}, nil
@@ -671,12 +672,14 @@ func TestMailOrchestrator(t *testing.T) {
 	mo := newMailOrchestrator(&mailOrchConfig{
 		fetchUpdate: func(sid lnwire.ShortChannelID) (
 			*lnwire.ChannelUpdate, error) {
+
 			return &lnwire.ChannelUpdate{
 				ShortChannelID: sid,
 			}, nil
 		},
 		forwardPackets: func(_ chan struct{},
 			pkts ...*htlcPacket) error {
+
 			return nil
 		},
 		clock:  clock.NewTestClock(time.Now()),

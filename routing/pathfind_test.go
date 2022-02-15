@@ -614,8 +614,8 @@ func createTestGraphFromChannels(useCache bool, testChannels []*testChannel,
 
 	for _, testChannel := range testChannels {
 		for _, node := range []*testChannelEnd{
-			testChannel.Node1, testChannel.Node2} {
-
+			testChannel.Node1, testChannel.Node2,
+		} {
 			_, exists := aliasMap[node.Alias]
 			if !exists {
 				var features *lnwire.FeatureVector

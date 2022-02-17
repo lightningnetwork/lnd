@@ -13,6 +13,12 @@ type Prometheus struct {
 	// Enable indicates whether to export lnd gRPC performance metrics to
 	// Prometheus. Default is false.
 	Enable bool `long:"enable" description:"enable Prometheus exporting of lnd gRPC performance metrics."`
+
+	// PerfHistograms indicates if the additional histogram information for
+	// latency, and handling time of gRPC calls should be enabled. This
+	// generates additional data, and consume more memory for the
+	// Prometheus server.
+	PerfHistograms bool `long:"perfhistograms" description:"enable additional histogram to track gRPC call processing performance (latency, etc)"`
 }
 
 // DefaultPrometheus is the default configuration for the Prometheus metrics

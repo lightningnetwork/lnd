@@ -82,6 +82,11 @@
 * Improved instructions on [how to build lnd for mobile](https://github.com/lightningnetwork/lnd/pull/6085).
 * [Log force-close related messages on "info" level](https://github.com/lightningnetwork/lnd/pull/6124).
 
+## Monitoring
+
+A new [flag (`--prometheus.perfhistograms`) has been added to enable export of
+gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com/lightningnetwork/lnd/pull/6224).
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes
@@ -127,6 +132,7 @@
 * Liviu
 * mateuszmp
 * Naveen Srinivasan
+* Olaoluwa Osuntokun
 * randymcmillan
 * Rong Ou
 * Thebora Kompanioni

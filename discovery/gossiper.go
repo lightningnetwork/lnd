@@ -1766,63 +1766,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 	// information about a node in one of the channels we know about, or a
 	// updating previously advertised information.
 	case *lnwire.NodeAnnouncement:
-		timestamp := time.Unix(int64(msg.Timestamp), 0)
-
-		// We'll quickly ask the router if it already has a
-		// newer update for this node so we can skip validating
-		// signatures if not required.
-		if d.cfg.Router.IsStaleNode(msg.NodeID, timestamp) {
-			log.Debugf("Skipped processing stale node: %x",
-				msg.NodeID)
-			nMsg.err <- nil
-			return nil, true
-		}
-
-		if err := d.addNode(msg, schedulerOp...); err != nil {
-			log.Debugf("Adding node: %x got error: %v",
-				msg.NodeID, err)
-
-			if !routing.IsError(
-				err,
-				routing.ErrOutdated,
-				routing.ErrIgnored,
-				routing.ErrVBarrierShuttingDown,
-			) {
-
-				log.Error(err)
-			}
-
-			nMsg.err <- err
-			return nil, false
-		}
-
-		// In order to ensure we don't leak unadvertised nodes, we'll
-		// make a quick check to ensure this node intends to publicly
-		// advertise itself to the network.
-		isPublic, err := d.cfg.Router.IsPublicNode(msg.NodeID)
-		if err != nil {
-			log.Errorf("Unable to determine if node %x is "+
-				"advertised: %v", msg.NodeID, err)
-			nMsg.err <- err
-			return nil, false
-		}
-
-		// If it does, we'll add their announcement to our batch so that
-		// it can be broadcast to the rest of our peers.
-		if isPublic {
-			announcements = append(announcements, networkMsg{
-				peer:   nMsg.peer,
-				source: nMsg.source,
-				msg:    msg,
-			})
-		} else {
-			log.Tracef("Skipping broadcasting node announcement "+
-				"for %x due to being unadvertised", msg.NodeID)
-		}
-
-		nMsg.err <- nil
-		// TODO(roasbeef): get rid of the above
-		return announcements, true
+		return d.handleNodeAnnouncement(nMsg, msg, schedulerOp)
 
 	// A new channel announcement has arrived, this indicates the
 	// *creation* of a new channel within the network. This only advertises
@@ -2974,4 +2918,68 @@ func (d *AuthenticatedGossiper) latestHeight() uint32 {
 	d.Lock()
 	defer d.Unlock()
 	return d.bestHeight
+}
+
+// handleNodeAnnouncement processes a new node announcement.
+func (d *AuthenticatedGossiper) handleNodeAnnouncement(nMsg *networkMsg,
+	nodeAnn *lnwire.NodeAnnouncement,
+	ops []batch.SchedulerOption) ([]networkMsg, bool) {
+
+	timestamp := time.Unix(int64(nodeAnn.Timestamp), 0)
+
+	// We'll quickly ask the router if it already has a newer update for
+	// this node so we can skip validating signatures if not required.
+	if d.cfg.Router.IsStaleNode(nodeAnn.NodeID, timestamp) {
+		log.Debugf("Skipped processing stale node: %x", nodeAnn.NodeID)
+		nMsg.err <- nil
+		return nil, true
+	}
+
+	if err := d.addNode(nodeAnn, ops...); err != nil {
+		log.Debugf("Adding node: %x got error: %v", nodeAnn.NodeID,
+			err)
+
+		if !routing.IsError(
+			err,
+			routing.ErrOutdated,
+			routing.ErrIgnored,
+			routing.ErrVBarrierShuttingDown,
+		) {
+
+			log.Error(err)
+		}
+
+		nMsg.err <- err
+		return nil, false
+	}
+
+	// In order to ensure we don't leak unadvertised nodes, we'll make a
+	// quick check to ensure this node intends to publicly advertise itself
+	// to the network.
+	isPublic, err := d.cfg.Router.IsPublicNode(nodeAnn.NodeID)
+	if err != nil {
+		log.Errorf("Unable to determine if node %x is advertised: %v",
+			nodeAnn.NodeID, err)
+		nMsg.err <- err
+		return nil, false
+	}
+
+	var announcements []networkMsg
+
+	// If it does, we'll add their announcement to our batch so that it can
+	// be broadcast to the rest of our peers.
+	if isPublic {
+		announcements = append(announcements, networkMsg{
+			peer:   nMsg.peer,
+			source: nMsg.source,
+			msg:    nodeAnn,
+		})
+	} else {
+		log.Tracef("Skipping broadcasting node announcement for %x "+
+			"due to being unadvertised", nodeAnn.NodeID)
+	}
+
+	nMsg.err <- nil
+	// TODO(roasbeef): get rid of the above
+	return announcements, true
 }

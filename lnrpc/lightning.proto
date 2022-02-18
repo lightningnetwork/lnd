@@ -2502,6 +2502,10 @@ message WalletBalanceResponse {
     // The unconfirmed balance of a wallet(with 0 confirmations)
     int64 unconfirmed_balance = 3;
 
+    // The total amount of wallet UTXOs held in outputs that are locked for
+    // other usage.
+    int64 locked_balance = 5;
+
     // A mapping of each wallet account's name to its balance.
     map<string, WalletAccountBalance> account_balance = 4;
 }

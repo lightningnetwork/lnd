@@ -346,6 +346,17 @@ type WalletController interface {
 	// is set. Labels must not be empty, and they are limited to 500 chars.
 	LabelTransaction(hash chainhash.Hash, label string, overwrite bool) error
 
+	// FetchTx attempts to fetch a transaction in the wallet's database
+	// identified by the passed transaction hash. If the transaction can't
+	// be found, then a nil pointer is returned.
+	FetchTx(chainhash.Hash) (*wire.MsgTx, error)
+
+	// RemoveDescendants attempts to remove any transaction from the
+	// wallet's tx store (that may be unconfirmed) that spends outputs
+	// created by the passed transaction. This remove propagates
+	// recursively down the chain of descendent transactions.
+	RemoveDescendants(*wire.MsgTx) error
+
 	// FundPsbt creates a fully populated PSBT packet that contains enough
 	// inputs to fund the outputs specified in the passed in packet with the
 	// specified fee rate. If there is change left, a change output from the

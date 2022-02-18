@@ -220,7 +220,9 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	}
 
 	if requiredOutput+txFee > totalInput {
-		return nil, fmt.Errorf("insufficient input to create sweep tx")
+		return nil, fmt.Errorf("insufficient input to create sweep "+
+			"tx: input_sum=%v, output_sum=%v", totalInput,
+			requiredOutput+txFee)
 	}
 
 	// The value remaining after the required output and fees, go to

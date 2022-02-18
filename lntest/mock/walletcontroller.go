@@ -237,3 +237,11 @@ func (w *WalletController) Start() error {
 func (w *WalletController) Stop() error {
 	return nil
 }
+
+func (w *WalletController) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {
+	return nil, nil
+}
+
+func (w *WalletController) RemoveDescendants(*wire.MsgTx) error {
+	return nil
+}

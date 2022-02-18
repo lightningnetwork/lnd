@@ -56,6 +56,10 @@ var (
 	// stored within the top-level waleltdb buckets of btcwallet.
 	waddrmgrNamespaceKey = []byte("waddrmgr")
 
+	// wtxmgrNamespaceKey is the namespace key that the wtxmgr state is
+	// stored within the top-level waleltdb buckets of btcwallet.
+	wtxmgrNamespaceKey = []byte("wtxmgr")
+
 	// lightningAddrSchema is the scope addr schema for all keys that we
 	// derive. We'll treat them all as p2wkh addresses, as atm we must
 	// specify a particular type.
@@ -1399,4 +1403,47 @@ func (b *BtcWallet) GetRecoveryInfo() (bool, float64, error) {
 		float64(bestHeight-birthdayBlock.Height+1)
 
 	return isRecoveryMode, progress, nil
+}
+
+// FetchTx attempts to fetch a transaction in the wallet's database identified
+// by the passed transaction hash. If the transaction can't be found, then a
+// nil pointer is returned.
+func (b *BtcWallet) FetchTx(txHash chainhash.Hash) (*wire.MsgTx, error) {
+	var targetTx *wtxmgr.TxDetails
+	err := walletdb.View(b.db, func(tx walletdb.ReadTx) error {
+		wtxmgrNs := tx.ReadBucket(wtxmgrNamespaceKey)
+		txDetails, err := b.wallet.TxStore.TxDetails(wtxmgrNs, &txHash)
+		if err != nil {
+			return err
+		}
+
+		targetTx = txDetails
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if targetTx == nil {
+		return nil, nil
+	}
+
+	return &targetTx.TxRecord.MsgTx, nil
+}
+
+// RemoveDescendants attempts to remove any transaction from the wallet's tx
+// store (that may be unconfirmed) that spends outputs created by the passed
+// transaction. This remove propagates recursively down the chain of descendent
+// transactions.
+func (b *BtcWallet) RemoveDescendants(tx *wire.MsgTx) error {
+	txRecord, err := wtxmgr.NewTxRecordFromMsgTx(tx, time.Now())
+	if err != nil {
+		return err
+	}
+
+	return walletdb.Update(b.db, func(tx walletdb.ReadWriteTx) error {
+		wtxmgrNs := tx.ReadWriteBucket(wtxmgrNamespaceKey)
+		return b.wallet.TxStore.RemoveUnminedTx(wtxmgrNs, txRecord)
+	})
 }

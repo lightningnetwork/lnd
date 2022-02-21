@@ -62,6 +62,9 @@
 
 * [Chain backend healthchecks disabled for --nochainbackend mode](https://github.com/lightningnetwork/lnd/pull/6184)
 
+* [The `tlv` package was refactored into its own Golang
+  submodule](https://github.com/lightningnetwork/lnd/pull/6283).
+
 ## RPC Server
 
 * [Add value to the field

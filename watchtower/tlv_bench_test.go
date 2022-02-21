@@ -1,4 +1,4 @@
-package tlv_test
+package watchtower_test
 
 import (
 	"bytes"

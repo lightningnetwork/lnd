@@ -48,6 +48,7 @@ require (
 	github.com/lightningnetwork/lnd/kvdb v1.3.0
 	github.com/lightningnetwork/lnd/queue v1.1.0
 	github.com/lightningnetwork/lnd/ticker v1.1.0
+	github.com/lightningnetwork/lnd/tlv v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/mattn/go-runewidth v0.0.9 // indirect
 	github.com/miekg/dns v1.1.43
@@ -84,6 +85,8 @@ replace github.com/lightningnetwork/lnd/clock => ./clock
 replace github.com/lightningnetwork/lnd/healthcheck => ./healthcheck
 
 replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
+
+replace github.com/lightningnetwork/lnd/tlv => ./tlv
 
 // This replace is for addressing the CVE https://github.com/advisories/GHSA-f6mq-5m25-4r72
 // This is a indirect dependency that cannot be upgraded directly.

@@ -48,7 +48,7 @@ require (
 	github.com/lightningnetwork/lnd/kvdb v1.3.0
 	github.com/lightningnetwork/lnd/queue v1.1.0
 	github.com/lightningnetwork/lnd/ticker v1.1.0
-	github.com/lightningnetwork/lnd/tlv v1.0.0
+	github.com/lightningnetwork/lnd/tlv v1.0.1
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/mattn/go-runewidth v0.0.9 // indirect
 	github.com/miekg/dns v1.1.43

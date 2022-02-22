@@ -266,7 +266,11 @@ func (n *NetworkHarness) Stop() {
 	close(n.lndErrorChan)
 	n.cancel()
 
-	n.feeService.stop()
+	// feeService may not be created. For instance, running a non-exist
+	// test case.
+	if n.feeService != nil {
+		n.feeService.stop()
+	}
 }
 
 // extraArgsEtcd returns extra args for configuring LND to use an external etcd

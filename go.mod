@@ -33,13 +33,13 @@ require (
 	github.com/lightninglabs/neutrino v0.13.2
 	github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display
 	github.com/lightningnetwork/lightning-onion v1.0.2-0.20220211021909-bb84a1ccb0c5
-	github.com/lightningnetwork/lnd/cert v1.1.0
+	github.com/lightningnetwork/lnd/cert v1.1.1
 	github.com/lightningnetwork/lnd/clock v1.1.0
-	github.com/lightningnetwork/lnd/healthcheck v1.2.0
+	github.com/lightningnetwork/lnd/healthcheck v1.2.1
 	github.com/lightningnetwork/lnd/kvdb v1.3.1
 	github.com/lightningnetwork/lnd/queue v1.1.0
 	github.com/lightningnetwork/lnd/ticker v1.1.0
-	github.com/lightningnetwork/lnd/tlv v1.0.1
+	github.com/lightningnetwork/lnd/tlv v1.0.2
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43
 	github.com/prometheus/client_golang v1.11.0
@@ -61,19 +61,16 @@ require (
 	gopkg.in/macaroon.v2 v2.0.0
 )
 
-replace github.com/lightningnetwork/lnd/ticker => ./ticker
-
-replace github.com/lightningnetwork/lnd/queue => ./queue
-
-replace github.com/lightningnetwork/lnd/cert => ./cert
-
-replace github.com/lightningnetwork/lnd/clock => ./clock
-
-replace github.com/lightningnetwork/lnd/healthcheck => ./healthcheck
-
-replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
-
-replace github.com/lightningnetwork/lnd/tlv => ./tlv
+replace (
+	// TODO(guggero): Remove these after merging #6285 and pushing the new tags!
+	github.com/lightningnetwork/lnd/cert => ./cert
+	github.com/lightningnetwork/lnd/clock => ./clock
+	github.com/lightningnetwork/lnd/healthcheck => ./healthcheck
+	github.com/lightningnetwork/lnd/kvdb => ./kvdb
+	github.com/lightningnetwork/lnd/queue => ./queue
+	github.com/lightningnetwork/lnd/ticker => ./ticker
+	github.com/lightningnetwork/lnd/tlv => ./tlv
+)
 
 // This replace is for addressing the CVE https://github.com/advisories/GHSA-f6mq-5m25-4r72
 // This is a indirect dependency that cannot be upgraded directly.

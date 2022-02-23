@@ -73,8 +73,6 @@
 * [The `tlv` package was refactored into its own Golang
   submodule](https://github.com/lightningnetwork/lnd/pull/6283).
 
-* [Source repository can now be specified for Docker image builds](https://github.com/lightningnetwork/lnd/pull/6300)
-
 * [The new `btcsuite/btcd/btcec/v2` and the moved `btcsuite/btcd/btcutil`
   modules were integrated into `lnd` as a preparation for basic Taproot
   support](https://github.com/lightningnetwork/lnd/pull/6285).

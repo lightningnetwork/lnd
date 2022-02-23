@@ -3044,7 +3044,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			WitnessScript: htlc.theirWitnessScript,
 			Output:        txOut,
 			HashType:      sigHashType,
-			SigHashes:     txscript.NewTxSigHashes(sigJob.Tx),
+			SigHashes:     input.NewTxSigHashesV0Only(sigJob.Tx),
 			InputIndex:    0,
 		}
 		sigJob.OutputIndex = htlc.remoteOutputIndex
@@ -3098,7 +3098,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			WitnessScript: htlc.theirWitnessScript,
 			Output:        txOut,
 			HashType:      sigHashType,
-			SigHashes:     txscript.NewTxSigHashes(sigJob.Tx),
+			SigHashes:     input.NewTxSigHashesV0Only(sigJob.Tx),
 			InputIndex:    0,
 		}
 		sigJob.OutputIndex = htlc.remoteOutputIndex
@@ -3607,7 +3607,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 	// While the jobs are being carried out, we'll Sign their version of
 	// the new commitment transaction while we're waiting for the rest of
 	// the HTLC signatures to be processed.
-	lc.signDesc.SigHashes = txscript.NewTxSigHashes(newCommitView.txn)
+	lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(newCommitView.txn)
 	rawSig, err := lc.Signer.SignOutputRaw(newCommitView.txn, lc.signDesc)
 	if err != nil {
 		close(cancelChan)
@@ -4140,7 +4140,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 					return nil, err
 				}
 
-				hashCache := txscript.NewTxSigHashes(successTx)
+				hashCache := input.NewTxSigHashesV0Only(successTx)
 				sigHash, err := txscript.CalcWitnessSigHash(
 					htlc.ourWitnessScript, hashCache,
 					sigHashType, successTx, 0,
@@ -4195,7 +4195,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 					return nil, err
 				}
 
-				hashCache := txscript.NewTxSigHashes(timeoutTx)
+				hashCache := input.NewTxSigHashesV0Only(timeoutTx)
 				sigHash, err := txscript.CalcWitnessSigHash(
 					htlc.ourWitnessScript, hashCache,
 					sigHashType, timeoutTx, 0,
@@ -4388,7 +4388,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	// this newly proposed state update.
 	localCommitTx := localCommitmentView.txn
 	multiSigScript := lc.signDesc.WitnessScript
-	hashCache := txscript.NewTxSigHashes(localCommitTx)
+	hashCache := input.NewTxSigHashesV0Only(localCommitTx)
 	sigHash, err := txscript.CalcWitnessSigHash(
 		multiSigScript, hashCache, txscript.SigHashAll,
 		localCommitTx, 0, int64(lc.channelState.Capacity),
@@ -5490,7 +5490,7 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 
 	// With this, we then generate the full witness so the caller can
 	// broadcast a fully signed transaction.
-	lc.signDesc.SigHashes = txscript.NewTxSigHashes(commitTx)
+	lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(commitTx)
 	ourSig, err := lc.Signer.SignOutputRaw(commitTx, lc.signDesc)
 	if err != nil {
 		return nil, err
@@ -5898,7 +5898,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		WitnessScript: htlcScript,
 		Output:        txOut,
 		HashType:      txscript.SigHashAll,
-		SigHashes:     txscript.NewTxSigHashes(timeoutTx),
+		SigHashes:     input.NewTxSigHashesV0Only(timeoutTx),
 		InputIndex:    0,
 	}
 
@@ -6033,7 +6033,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 		WitnessScript: htlcScript,
 		Output:        txOut,
 		HashType:      txscript.SigHashAll,
-		SigHashes:     txscript.NewTxSigHashes(successTx),
+		SigHashes:     input.NewTxSigHashesV0Only(successTx),
 		InputIndex:    0,
 	}
 
@@ -6456,7 +6456,7 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	// initiator we'll simply send our signature over to the remote party,
 	// using the generated txid to be notified once the closure transaction
 	// has been confirmed.
-	lc.signDesc.SigHashes = txscript.NewTxSigHashes(closeTx)
+	lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(closeTx)
 	sig, err := lc.Signer.SignOutputRaw(closeTx, lc.signDesc)
 	if err != nil {
 		return nil, nil, 0, err
@@ -6516,7 +6516,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	if err := blockchain.CheckTransactionSanity(tx); err != nil {
 		return nil, 0, err
 	}
-	hashCache := txscript.NewTxSigHashes(closeTx)
+	hashCache := input.NewTxSigHashesV0Only(closeTx)
 
 	// Finally, construct the witness stack minding the order of the
 	// pubkeys+sigs on the stack.
@@ -6533,8 +6533,12 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	// Validate the finalized transaction to ensure the output script is
 	// properly met, and that the remote peer supplied a valid signature.
 	prevOut := lc.signDesc.Output
-	vm, err := txscript.NewEngine(prevOut.PkScript, closeTx, 0,
-		txscript.StandardVerifyFlags, nil, hashCache, prevOut.Value)
+	vm, err := txscript.NewEngine(
+		prevOut.PkScript, closeTx, 0, txscript.StandardVerifyFlags, nil,
+		hashCache, prevOut.Value, txscript.NewCannedPrevOutputFetcher(
+			prevOut.PkScript, prevOut.Value,
+		),
+	)
 	if err != nil {
 		return nil, 0, err
 	}

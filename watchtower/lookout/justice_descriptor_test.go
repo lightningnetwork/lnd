@@ -269,7 +269,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	justiceTxn.TxOut = outputs
 	txsort.InPlaceSort(justiceTxn)
 
-	hashCache := txscript.NewTxSigHashes(justiceTxn)
+	hashCache := input.NewTxSigHashesV0Only(justiceTxn)
 
 	// Create the sign descriptor used to sign for the to-local input.
 	toLocalSignDesc := &input.SignDescriptor{

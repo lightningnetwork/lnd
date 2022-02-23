@@ -1623,7 +1623,9 @@ func (i *testInput) RequiredTxOut() *wire.TxOut {
 // encode the spending outpoint and the tx input index as part of the returned
 // witness.
 func (i *testInput) CraftInputScript(_ input.Signer, txn *wire.MsgTx,
-	hashCache *txscript.TxSigHashes, txinIdx int) (*input.Script, error) {
+	hashCache *txscript.TxSigHashes,
+	prevOutputFetcher txscript.PrevOutputFetcher,
+	txinIdx int) (*input.Script, error) {
 
 	// We'll encode the outpoint in the witness, so we can assert that the
 	// expected input was signed at the correct index.

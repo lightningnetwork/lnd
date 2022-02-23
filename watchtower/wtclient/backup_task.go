@@ -285,7 +285,7 @@ func (t *backupTask) craftSessionPayload(
 	}
 
 	// Construct a sighash cache to improve signing performance.
-	hashCache := txscript.NewTxSigHashes(justiceTxn)
+	hashCache := txscript.NewTxSigHashesV0Only(justiceTxn)
 
 	// Since the transaction inputs could have been reordered as a result of
 	// the BIP69 sort, create an index mapping each prevout to it's new

@@ -330,6 +330,9 @@ func TestSignPsbt(t *testing.T) {
 			refTx.TxOut[0].PkScript, finalTx, 0,
 			txscript.StandardVerifyFlags, nil, nil,
 			refTx.TxOut[0].Value,
+			txscript.NewCannedPrevOutputFetcher(
+				refTx.TxOut[0].PkScript, refTx.TxOut[0].Value,
+			),
 		)
 		require.NoError(t, err)
 		require.NoError(t, vm.Execute())

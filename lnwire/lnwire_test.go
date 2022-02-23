@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -26,12 +27,14 @@ var (
 	shaHash1Bytes, _ = hex.DecodeString("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 	shaHash1, _      = chainhash.NewHash(shaHash1Bytes)
 	outpoint1        = wire.NewOutPoint(shaHash1, 0)
-	testSig          = &btcec.Signature{
-		R: new(big.Int),
-		S: new(big.Int),
-	}
-	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
-	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+
+	testR, _    = new(big.Int).SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
+	testS, _    = new(big.Int).SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+	testRScalar = new(btcec.ModNScalar)
+	testSScalar = new(btcec.ModNScalar)
+	_           = testRScalar.SetByteSlice(testR.Bytes())
+	_           = testSScalar.SetByteSlice(testS.Bytes())
+	testSig     = ecdsa.NewSignature(testRScalar, testSScalar)
 )
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -106,9 +107,7 @@ func newChannelTestCtx(chanSize int64) (*channelTestCtx, error) {
 		return nil, err
 	}
 
-	aliceSig, err := btcec.ParseDERSignature(
-		aliceSigRaw, btcec.S256(),
-	)
+	aliceSig, err := ecdsa.ParseDERSignature(aliceSigRaw)
 	if err != nil {
 		return nil, err
 	}
@@ -121,9 +120,7 @@ func newChannelTestCtx(chanSize int64) (*channelTestCtx, error) {
 		return nil, err
 	}
 
-	bobSig, err := btcec.ParseDERSignature(
-		bobSigRaw, btcec.S256(),
-	)
+	bobSig, err := ecdsa.ParseDERSignature(bobSigRaw)
 	if err != nil {
 		return nil, err
 	}

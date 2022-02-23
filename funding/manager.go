@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -327,7 +328,7 @@ type Config struct {
 	// TODO(roasbeef): should instead pass on this responsibility to a
 	// distinct sub-system?
 	SignMessage func(keyLoc keychain.KeyLocator,
-		msg []byte, doubleHash bool) (*btcec.Signature, error)
+		msg []byte, doubleHash bool) (*ecdsa.Signature, error)
 
 	// CurrentNodeAnnouncement should return the latest, fully signed node
 	// announcement from the backing Lightning Network node.

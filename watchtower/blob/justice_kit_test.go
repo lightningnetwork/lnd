@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -266,8 +267,7 @@ func testJusticeKitRemoteWitnessConstruction(
 	// Sign a message using the to-remote private key. The exact message
 	// doesn't matter as we won't be validating the signature's validity.
 	digest := bytes.Repeat([]byte("a"), 32)
-	rawToRemoteSig, err := toRemotePrivKey.Sign(digest)
-	require.Nil(t, err)
+	rawToRemoteSig := ecdsa.Sign(toRemotePrivKey, digest)
 
 	// Convert the DER-encoded signature into a fixed-size sig.
 	commitToRemoteSig, err := lnwire.NewSigFromSignature(rawToRemoteSig)
@@ -340,8 +340,7 @@ func TestJusticeKitToLocalWitnessConstruction(t *testing.T) {
 	// Sign a message using the revocation private key. The exact message
 	// doesn't matter as we won't be validating the signature's validity.
 	digest := bytes.Repeat([]byte("a"), 32)
-	rawRevSig, err := revPrivKey.Sign(digest)
-	require.Nil(t, err)
+	rawRevSig := ecdsa.Sign(revPrivKey, digest)
 
 	// Convert the DER-encoded signature into a fixed-size sig.
 	commitToLocalSig, err := lnwire.NewSigFromSignature(rawRevSig)

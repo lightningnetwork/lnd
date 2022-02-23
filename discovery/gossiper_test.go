@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -43,13 +44,7 @@ var (
 		Port: 9000}
 	testAddrs    = []net.Addr{testAddr}
 	testFeatures = lnwire.NewRawFeatureVector()
-	testSig      = &btcec.Signature{
-		R: new(big.Int),
-		S: new(big.Int),
-	}
-	_, _       = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
-	_, _       = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
-	testKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
+	testKeyLoc   = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
 
 	selfKeyPriv, _ = btcec.NewPrivateKey(btcec.S256())
 	selfKeyDesc    = &keychain.KeyDescriptor{

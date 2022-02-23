@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -135,7 +136,7 @@ var (
 		LockTime: 123,
 	}
 
-	testSig, _ = btcec.ParseDERSignature(channels.TestSigBytes, btcec.S256())
+	testSig, _ = ecdsa.ParseDERSignature(channels.TestSigBytes)
 
 	testSignDetails = &input.SignDetails{
 		SignDesc:    testSignDesc,

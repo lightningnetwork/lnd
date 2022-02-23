@@ -103,7 +103,7 @@ type MessageSigner struct {
 	// SignCompact signs the passed hash with the node's privkey. The
 	// returned signature should be 65 bytes, where the last 64 are the
 	// compact signature, and the first one is a header byte. This is the
-	// format returned by btcec.SignCompact.
+	// format returned by ecdsa.SignCompact.
 	SignCompact func(hash []byte) ([]byte, error)
 }
 

@@ -779,7 +779,7 @@ func runSignPsbt(t *harnessTest, net *lntest.NetworkHarness,
 
 	partialSig := signedPacket.Inputs[0].PartialSigs[0]
 	require.Equal(t.t, partialSig.PubKey, addrPubKey.SerializeCompressed())
-	require.Greater(t.t, len(partialSig.Signature), btcec.MinSigLen)
+	require.Greater(t.t, len(partialSig.Signature), ecdsa.MinSigLen)
 
 	// We should be able to finalize the PSBT and extract the final TX now.
 	err = psbt.MaybeFinalizeAll(signedPacket)

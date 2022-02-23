@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -468,7 +469,7 @@ type MessageSigner interface {
 	// be found, then an error will be returned. The actual digest signed is
 	// the single or double SHA-256 of the passed message.
 	SignMessage(keyLoc keychain.KeyLocator, msg []byte,
-		doubleHash bool) (*btcec.Signature, error)
+		doubleHash bool) (*ecdsa.Signature, error)
 }
 
 // WalletDriver represents a "driver" for a particular concrete

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
@@ -406,7 +407,7 @@ func (b *BtcWalletKeyRing) ECDH(keyDesc KeyDescriptor,
 //
 // NOTE: This is part of the keychain.MessageSignerRing interface.
 func (b *BtcWalletKeyRing) SignMessage(keyLoc KeyLocator,
-	msg []byte, doubleHash bool) (*btcec.Signature, error) {
+	msg []byte, doubleHash bool) (*ecdsa.Signature, error) {
 
 	privKey, err := b.DerivePrivKey(KeyDescriptor{
 		KeyLocator: keyLoc,
@@ -421,7 +422,7 @@ func (b *BtcWalletKeyRing) SignMessage(keyLoc KeyLocator,
 	} else {
 		digest = chainhash.HashB(msg)
 	}
-	return privKey.Sign(digest)
+	return ecdsa.Sign(privKey, digest), nil
 }
 
 // SignMessageCompact signs the given message, single or double SHA256 hashing
@@ -445,5 +446,5 @@ func (b *BtcWalletKeyRing) SignMessageCompact(keyLoc KeyLocator,
 	} else {
 		digest = chainhash.HashB(msg)
 	}
-	return btcec.SignCompact(btcec.S256(), privKey, digest, true)
+	return ecdsa.SignCompact(privKey, digest, true)
 }

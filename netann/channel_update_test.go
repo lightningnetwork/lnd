@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -18,7 +19,7 @@ type mockSigner struct {
 }
 
 func (m *mockSigner) SignMessage(_ keychain.KeyLocator,
-	_ []byte, _ bool) (*btcec.Signature, error) {
+	_ []byte, _ bool) (*ecdsa.Signature, error) {
 
 	if m.err != nil {
 		return nil, m.err

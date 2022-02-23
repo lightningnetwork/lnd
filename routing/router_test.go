@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -232,8 +233,7 @@ func signErrChanUpdate(t *testing.T, key *btcec.PrivateKey,
 	require.NoError(t, err, "failed to retrieve data to sign")
 
 	digest := chainhash.DoubleHashB(chanUpdateMsg)
-	sig, err := key.Sign(digest)
-	require.NoError(t, err, "failed to sign msg")
+	sig := ecdsa.Sign(key, digest)
 
 	errChanUpdate.Signature, err = lnwire.NewSigFromSignature(sig)
 	require.NoError(t, err, "failed to create new signature")

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -45,16 +46,15 @@ var (
 	bobPrivKey   = []byte("bob priv key")
 	carolPrivKey = []byte("carol priv key")
 
-	testSig = &btcec.Signature{
-		R: new(big.Int),
-		S: new(big.Int),
-	}
-	wireSig, _ = lnwire.NewSigFromSignature(testSig)
+	testR, _    = new(big.Int).SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
+	testS, _    = new(big.Int).SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+	testRScalar = new(btcec.ModNScalar)
+	testSScalar = new(btcec.ModNScalar)
+	_           = testRScalar.SetByteSlice(testR.Bytes())
+	_           = testSScalar.SetByteSlice(testS.Bytes())
+	testSig     = ecdsa.NewSignature(testRScalar, testSScalar)
 
-	_, _ = testSig.R.SetString("6372440660162918006277497454296753625158993"+
-		"5445068131219452686511677818569431", 10)
-	_, _ = testSig.S.SetString("1880105606924982582529128710493133386286603"+
-		"3135609736119018462340006816851118", 10)
+	wireSig, _ = lnwire.NewSigFromSignature(testSig)
 
 	testBatchTimeout = 50 * time.Millisecond
 )

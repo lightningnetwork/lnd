@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -152,10 +153,8 @@ func signDigestCompact(hash []byte) ([]byte, error) {
 
 	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), testPrivKeyBytes)
 
-	// btcec.SignCompact returns a pubkey-recoverable signature
-	sig, err := btcec.SignCompact(
-		btcec.S256(), privKey, hash, isCompressedKey,
-	)
+	// ecdsa.SignCompact returns a pubkey-recoverable signature
+	sig, err := ecdsa.SignCompact(privKey, hash, isCompressedKey)
 	if err != nil {
 		return nil, fmt.Errorf("can't sign the hash: %v", err)
 	}

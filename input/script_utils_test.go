@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -228,7 +229,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 		htlcOutput                      *wire.TxOut
 		sweepTxSigHashes                *txscript.TxSigHashes
 		senderCommitTx, sweepTx         *wire.MsgTx
-		bobRecvrSig                     *btcec.Signature
+		bobRecvrSig                     *ecdsa.Signature
 		bobSigHash                      txscript.SigHashType
 	)
 
@@ -310,9 +311,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			t.Fatalf("unable to generate alice signature: %v", err)
 		}
 
-		bobRecvrSig, err = btcec.ParseDERSignature(
-			bobSig.Serialize(), btcec.S256(),
-		)
+		bobRecvrSig, err = ecdsa.ParseDERSignature(bobSig.Serialize())
 		if err != nil {
 			t.Fatalf("unable to parse signature: %v", err)
 		}
@@ -631,7 +630,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		htlcOutput                      *wire.TxOut
 		receiverCommitTx, sweepTx       *wire.MsgTx
 		sweepTxSigHashes                *txscript.TxSigHashes
-		aliceSenderSig                  *btcec.Signature
+		aliceSenderSig                  *ecdsa.Signature
 		aliceSigHash                    txscript.SigHashType
 	)
 
@@ -709,8 +708,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 			t.Fatalf("unable to generate alice signature: %v", err)
 		}
 
-		aliceSenderSig, err = btcec.ParseDERSignature(
-			aliceSig.Serialize(), btcec.S256(),
+		aliceSenderSig, err = ecdsa.ParseDERSignature(
+			aliceSig.Serialize(),
 		)
 		if err != nil {
 			t.Fatalf("unable to parse signature: %v", err)

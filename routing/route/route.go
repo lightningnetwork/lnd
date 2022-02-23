@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -404,9 +404,7 @@ func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
 	// to an OnionHop with matching per-hop payload within the path as used
 	// by the sphinx package.
 	for i, hop := range r.Hops {
-		pub, err := btcec.ParsePubKey(
-			hop.PubKeyBytes[:], btcec.S256(),
-		)
+		pub, err := btcec.ParsePubKey(hop.PubKeyBytes[:])
 		if err != nil {
 			return nil, err
 		}

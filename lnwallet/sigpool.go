@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -35,7 +36,7 @@ type VerifyJob struct {
 
 	// Sig is the raw signature generated using the above public key.  This
 	// is the signature to be verified.
-	Sig *btcec.Signature
+	Sig *ecdsa.Signature
 
 	// SigHash is a function closure generates the sighashes that the
 	// passed signature is known to have signed.

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -80,7 +80,7 @@ func createEdgePolicies(t *testing.T, channel *channeldb.OpenChannel,
 	}
 
 	// Generate and set pubkey2 for THEIR pubkey.
-	privKey2, err := btcec.NewPrivateKey(btcec.S256())
+	privKey2, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to generate key pair: %v", err)
 	}
@@ -310,7 +310,7 @@ func newManagerCfg(t *testing.T, numChannels int,
 
 	t.Helper()
 
-	privKey, err := btcec.NewPrivateKey(btcec.S256())
+	privKey, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to generate key pair: %v", err)
 	}

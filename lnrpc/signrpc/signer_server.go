@@ -11,7 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -325,7 +325,7 @@ func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp,
 		var tweakPrivKey *btcec.PrivateKey
 		if len(signDesc.DoubleTweak) != 0 {
 			tweakPrivKey, _ = btcec.PrivKeyFromBytes(
-				btcec.S256(), signDesc.DoubleTweak,
+				signDesc.DoubleTweak,
 			)
 		}
 
@@ -515,7 +515,7 @@ func (s *Server) VerifyMessage(ctx context.Context,
 	if in.Pubkey == nil {
 		return nil, fmt.Errorf("a pubkey to verify MUST be passed in")
 	}
-	pubkey, err := btcec.ParsePubKey(in.Pubkey, btcec.S256())
+	pubkey, err := btcec.ParsePubKey(in.Pubkey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse pubkey: %v", err)
 	}
@@ -635,9 +635,7 @@ func parseRawKeyBytes(rawKeyBytes []byte) (*btcec.PublicKey, error) {
 	case len(rawKeyBytes) == 33:
 		// If a proper raw key was provided, then we'll attempt
 		// to decode and parse it.
-		return btcec.ParsePubKey(
-			rawKeyBytes, btcec.S256(),
-		)
+		return btcec.ParsePubKey(rawKeyBytes)
 
 	case len(rawKeyBytes) == 0:
 		// No key is provided, return nil.

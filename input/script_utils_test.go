@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -93,13 +94,11 @@ func TestRevocationKeyDerivation(t *testing.T) {
 	// First, we'll generate a commitment point, and a commitment secret.
 	// These will be used to derive the ultimate revocation keys.
 	revocationPreimage := testHdSeed.CloneBytes()
-	commitSecret, commitPoint := btcec.PrivKeyFromBytes(btcec.S256(),
-		revocationPreimage)
+	commitSecret, commitPoint := btcec.PrivKeyFromBytes(revocationPreimage)
 
 	// With the commitment secrets generated, we'll now create the base
 	// keys we'll use to derive the revocation key from.
-	basePriv, basePub := btcec.PrivKeyFromBytes(btcec.S256(),
-		testWalletPrivKey)
+	basePriv, basePub := btcec.PrivKeyFromBytes(testWalletPrivKey)
 
 	// With the point and key obtained, we can now derive the revocation
 	// key itself.
@@ -122,7 +121,7 @@ func TestTweakKeyDerivation(t *testing.T) {
 
 	// First, we'll generate a base public key that we'll be "tweaking".
 	baseSecret := testHdSeed.CloneBytes()
-	basePriv, basePub := btcec.PrivKeyFromBytes(btcec.S256(), baseSecret)
+	basePriv, basePub := btcec.PrivKeyFromBytes(baseSecret)
 
 	// With the base key create, we'll now create a commitment point, and
 	// from that derive the bytes we'll used to tweak the base public key.
@@ -191,8 +190,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	// Next we'll the commitment secret for our commitment tx and also the
 	// revocation key that we'll use as well.
 	revokePreimage := testHdSeed.CloneBytes()
-	commitSecret, commitPoint := btcec.PrivKeyFromBytes(btcec.S256(),
-		revokePreimage)
+	commitSecret, commitPoint := btcec.PrivKeyFromBytes(revokePreimage)
 
 	// Generate a payment preimage to be used below.
 	paymentPreimage := revokePreimage
@@ -201,10 +199,8 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 
 	// We'll also need some tests keys for alice and bob, and metadata of
 	// the HTLC output.
-	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		testWalletPrivKey)
-	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		bobsPrivKey)
+	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(testWalletPrivKey)
+	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(bobsPrivKey)
 	paymentAmt := btcutil.Amount(1 * 10e8)
 
 	aliceLocalKey := TweakPubKey(aliceKeyPub, commitPoint)
@@ -228,7 +224,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 		htlcOutput                      *wire.TxOut
 		sweepTxSigHashes                *txscript.TxSigHashes
 		senderCommitTx, sweepTx         *wire.MsgTx
-		bobRecvrSig                     *btcec.Signature
+		bobRecvrSig                     *ecdsa.Signature
 		bobSigHash                      txscript.SigHashType
 	)
 
@@ -310,9 +306,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			t.Fatalf("unable to generate alice signature: %v", err)
 		}
 
-		bobRecvrSig, err = btcec.ParseDERSignature(
-			bobSig.Serialize(), btcec.S256(),
-		)
+		bobRecvrSig, err = ecdsa.ParseDERSignature(bobSig.Serialize())
 		if err != nil {
 			t.Fatalf("unable to parse signature: %v", err)
 		}
@@ -593,8 +587,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	// Next we'll the commitment secret for our commitment tx and also the
 	// revocation key that we'll use as well.
 	revokePreimage := testHdSeed.CloneBytes()
-	commitSecret, commitPoint := btcec.PrivKeyFromBytes(btcec.S256(),
-		revokePreimage)
+	commitSecret, commitPoint := btcec.PrivKeyFromBytes(revokePreimage)
 
 	// Generate a payment preimage to be used below.
 	paymentPreimage := revokePreimage
@@ -603,10 +596,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 
 	// We'll also need some tests keys for alice and bob, and metadata of
 	// the HTLC output.
-	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		testWalletPrivKey)
-	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		bobsPrivKey)
+	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(testWalletPrivKey)
+	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(bobsPrivKey)
 	paymentAmt := btcutil.Amount(1 * 10e8)
 	cltvTimeout := uint32(8)
 
@@ -631,7 +622,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		htlcOutput                      *wire.TxOut
 		receiverCommitTx, sweepTx       *wire.MsgTx
 		sweepTxSigHashes                *txscript.TxSigHashes
-		aliceSenderSig                  *btcec.Signature
+		aliceSenderSig                  *ecdsa.Signature
 		aliceSigHash                    txscript.SigHashType
 	)
 
@@ -709,8 +700,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 			t.Fatalf("unable to generate alice signature: %v", err)
 		}
 
-		aliceSenderSig, err = btcec.ParseDERSignature(
-			aliceSig.Serialize(), btcec.S256(),
+		aliceSenderSig, err = ecdsa.ParseDERSignature(
+			aliceSig.Serialize(),
 		)
 		if err != nil {
 			t.Fatalf("unable to parse signature: %v", err)
@@ -994,14 +985,11 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 
 	// First we'll set up some initial key state for Alice and Bob that
 	// will be used in the scripts we created below.
-	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		testWalletPrivKey)
-	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		bobsPrivKey)
+	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(testWalletPrivKey)
+	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(bobsPrivKey)
 
 	revokePreimage := testHdSeed.CloneBytes()
-	commitSecret, commitPoint := btcec.PrivKeyFromBytes(
-		btcec.S256(), revokePreimage)
+	commitSecret, commitPoint := btcec.PrivKeyFromBytes(revokePreimage)
 
 	// As we're modeling this as Bob sweeping the HTLC on-chain from his
 	// commitment transaction after a period of time, we'll be using a
@@ -1205,17 +1193,11 @@ func TestLeaseSecondLevelHtlcSpends(t *testing.T) {
 
 	// First we'll set up some initial key state for Alice and Bob that
 	// will be used in the scripts we created below.
-	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
-		btcec.S256(), testWalletPrivKey,
-	)
-	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(
-		btcec.S256(), bobsPrivKey,
-	)
+	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(testWalletPrivKey)
+	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(bobsPrivKey)
 
 	revokePreimage := testHdSeed.CloneBytes()
-	commitSecret, commitPoint := btcec.PrivKeyFromBytes(
-		btcec.S256(), revokePreimage,
-	)
+	commitSecret, commitPoint := btcec.PrivKeyFromBytes(revokePreimage)
 
 	// As we're modeling this as Bob sweeping the HTLC on-chain from his
 	// commitment transaction after a period of time, we'll be using a
@@ -1440,18 +1422,12 @@ func TestLeaseCommmitSpendToSelf(t *testing.T) {
 
 	// Set up some initial key state for Alice and Bob that will be used in
 	// the scripts we created below.
-	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
-		btcec.S256(), testWalletPrivKey,
-	)
-	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(
-		btcec.S256(), bobsPrivKey,
-	)
+	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(testWalletPrivKey)
+	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(bobsPrivKey)
 
 	// We'll have Bob take the revocation path in some cases.
 	revokePreimage := testHdSeed.CloneBytes()
-	commitSecret, commitPoint := btcec.PrivKeyFromBytes(
-		btcec.S256(), revokePreimage,
-	)
+	commitSecret, commitPoint := btcec.PrivKeyFromBytes(revokePreimage)
 	revocationKey := DeriveRevocationPubkey(bobKeyPub, commitPoint)
 
 	// Construct the script enforced lease to_self commitment transaction
@@ -1640,8 +1616,7 @@ func TestCommitSpendToRemoteConfirmed(t *testing.T) {
 
 	const outputVal = btcutil.Amount(2 * 10e8)
 
-	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		testWalletPrivKey)
+	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(testWalletPrivKey)
 
 	txid, err := chainhash.NewHash(testHdSeed.CloneBytes())
 	if err != nil {
@@ -1751,7 +1726,7 @@ func TestLeaseCommitSpendToRemoteConfirmed(t *testing.T) {
 	)
 
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
-		btcec.S256(), testWalletPrivKey,
+		testWalletPrivKey,
 	)
 
 	txid, err := chainhash.NewHash(testHdSeed.CloneBytes())
@@ -1889,8 +1864,7 @@ func TestSpendAnchor(t *testing.T) {
 	const anchorSize = 294
 
 	// First we'll set up some initial key state for Alice.
-	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		testWalletPrivKey)
+	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(testWalletPrivKey)
 
 	// Create a fake anchor outpoint that we'll use to generate the
 	// sweeping transaction.

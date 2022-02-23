@@ -9,7 +9,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -140,7 +140,7 @@ var (
 
 	pubKeyHex = hex.EncodeToString(pubKeyBytes)
 
-	pubKey, _ = btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+	pubKey, _ = btcec.ParsePubKey(pubKeyBytes)
 )
 
 type lnAddressCase struct {

@@ -10,7 +10,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
@@ -63,7 +63,7 @@ var (
 	// ephemeralGen is the default ephemeral key generator, used to derive a
 	// unique ephemeral key for each brontide handshake.
 	ephemeralGen = func() (*btcec.PrivateKey, error) {
-		return btcec.NewPrivateKey(btcec.S256())
+		return btcec.NewPrivateKey()
 	}
 )
 
@@ -500,7 +500,7 @@ func (b *Machine) RecvActOne(actOne [ActOneSize]byte) error {
 	copy(p[:], actOne[34:])
 
 	// e
-	b.remoteEphemeral, err = btcec.ParsePubKey(e[:], btcec.S256())
+	b.remoteEphemeral, err = btcec.ParsePubKey(e[:])
 	if err != nil {
 		return err
 	}
@@ -578,7 +578,7 @@ func (b *Machine) RecvActTwo(actTwo [ActTwoSize]byte) error {
 	copy(p[:], actTwo[34:])
 
 	// e
-	b.remoteEphemeral, err = btcec.ParsePubKey(e[:], btcec.S256())
+	b.remoteEphemeral, err = btcec.ParsePubKey(e[:])
 	if err != nil {
 		return err
 	}
@@ -654,7 +654,7 @@ func (b *Machine) RecvActThree(actThree [ActThreeSize]byte) error {
 	if err != nil {
 		return err
 	}
-	b.remoteStatic, err = btcec.ParsePubKey(remotePub, btcec.S256())
+	b.remoteStatic, err = btcec.ParsePubKey(remotePub)
 	if err != nil {
 		return err
 	}
@@ -889,24 +889,4 @@ func (b *Machine) ReadBody(r io.Reader, buf []byte) ([]byte, error) {
 	// up re-using it as we don't force the library to allocate a new
 	// buffer to decode the plaintext.
 	return b.recvCipher.Decrypt(nil, buf[:0], buf)
-}
-
-// SetCurveToNil sets the 'Curve' parameter to nil on the handshakeState keys.
-// This allows us to log the Machine object without spammy log messages.
-func (b *Machine) SetCurveToNil() {
-	if b.localStatic != nil {
-		b.localStatic.PubKey().Curve = nil
-	}
-
-	if b.localEphemeral != nil {
-		b.localEphemeral.PubKey().Curve = nil
-	}
-
-	if b.remoteStatic != nil {
-		b.remoteStatic.Curve = nil
-	}
-
-	if b.remoteEphemeral != nil {
-		b.remoteEphemeral.Curve = nil
-	}
 }

@@ -7,7 +7,7 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -188,7 +188,7 @@ func (c *WatchtowerClient) AddTower(ctx context.Context,
 		return nil, err
 	}
 
-	pubKey, err := btcec.ParsePubKey(req.Pubkey, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(req.Pubkey)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +227,7 @@ func (c *WatchtowerClient) RemoveTower(ctx context.Context,
 		return nil, err
 	}
 
-	pubKey, err := btcec.ParsePubKey(req.Pubkey, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(req.Pubkey)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +301,7 @@ func (c *WatchtowerClient) GetTowerInfo(ctx context.Context,
 		return nil, err
 	}
 
-	pubKey, err := btcec.ParsePubKey(req.Pubkey, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(req.Pubkey)
 	if err != nil {
 		return nil, err
 	}

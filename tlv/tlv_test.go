@@ -2,12 +2,12 @@ package tlv_test
 
 import (
 	"bytes"
-	"errors"
 	"io"
 	"reflect"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -304,7 +304,10 @@ var tlvDecodingFailureTests = []struct {
 			0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
 			0x00, 0x00, 0x00, 0x02,
 		},
-		expErr: errors.New("invalid magic in compressed pubkey string: 4"),
+		expErr: secp.Error{
+			Err:         secp.ErrPubKeyInvalidFormat,
+			Description: "invalid public key: unsupported format: 4",
+		},
 		skipN2: true,
 	},
 	{

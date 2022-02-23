@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -1047,7 +1047,7 @@ func TestPeerCustomMessage(t *testing.T) {
 	dbAlice, err := channeldb.Open(alicePath)
 	require.NoError(t, err)
 
-	aliceKey, err := btcec.NewPrivateKey(btcec.S256())
+	aliceKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
 	writeBufferPool := pool.NewWriteBuffer(

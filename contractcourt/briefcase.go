@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -1209,7 +1209,7 @@ func decodeSignDetails(r io.Reader) (*input.SignDetails, error) {
 	if err != nil {
 		return nil, err
 	}
-	sig, err := btcec.ParseDERSignature(rawSig, btcec.S256())
+	sig, err := ecdsa.ParseDERSignature(rawSig)
 	if err != nil {
 		return nil, err
 	}

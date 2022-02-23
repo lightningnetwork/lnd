@@ -9,12 +9,13 @@ import (
 	"io/ioutil"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/hdkeychain"
-	"github.com/btcsuite/btcutil/psbt"
 	basewallet "github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -420,7 +421,7 @@ func (r *RPCKeyRing) ECDH(keyDesc keychain.KeyDescriptor,
 //
 // NOTE: This method is part of the keychain.MessageSignerRing interface.
 func (r *RPCKeyRing) SignMessage(keyLoc keychain.KeyLocator,
-	msg []byte, doubleHash bool) (*btcec.Signature, error) {
+	msg []byte, doubleHash bool) (*ecdsa.Signature, error) {
 
 	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
 	defer cancel()
@@ -697,7 +698,7 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 
 	// The remote signer always adds the sighash type, so we need to account
 	// for that.
-	if len(sigWithSigHash.Signature) < btcec.MinSigLen+1 {
+	if len(sigWithSigHash.Signature) < ecdsa.MinSigLen+1 {
 		return nil, fmt.Errorf("remote signer returned invalid "+
 			"partial signature: signature too short with %d bytes",
 			len(sigWithSigHash.Signature))
@@ -706,7 +707,7 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 	// Parse the signature, but chop off the last byte which is the sighash
 	// type.
 	sig := sigWithSigHash.Signature[0 : len(sigWithSigHash.Signature)-1]
-	return btcec.ParseDERSignature(sig, btcec.S256())
+	return ecdsa.ParseDERSignature(sig)
 }
 
 // connectRPC tries to establish an RPC connection to the given host:port with

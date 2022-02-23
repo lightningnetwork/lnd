@@ -3,7 +3,7 @@ package netann
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -26,7 +26,7 @@ func NewNodeSigner(keySigner keychain.SingleKeyMessageSigner) *NodeSigner {
 // resident node's private key described in the key locator. If the target key
 // locator is _not_ the node's private key, then an error will be returned.
 func (n *NodeSigner) SignMessage(keyLoc keychain.KeyLocator,
-	msg []byte, doubleHash bool) (*btcec.Signature, error) {
+	msg []byte, doubleHash bool) (*ecdsa.Signature, error) {
 
 	// If this isn't our identity public key, then we'll exit early with an
 	// error as we can't sign with this key.

@@ -194,7 +194,7 @@ func IsOutdated(cert *x509.Certificate, tlsExtraIPs,
 // real PKI.
 //
 // This function is adapted from https://github.com/btcsuite/btcd and
-// https://github.com/btcsuite/btcutil
+// https://github.com/btcsuite/btcd/btcutil
 func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	tlsExtraDomains []string, tlsDisableAutofill bool,
 	certValidity time.Duration) error {

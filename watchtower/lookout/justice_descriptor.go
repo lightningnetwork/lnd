@@ -233,7 +233,10 @@ func (p *JusticeDescriptor) assembleJusticeTxn(txWeight int64,
 		vm, err := txscript.NewEngine(
 			inp.txOut.PkScript, justiceTxn, i,
 			txscript.StandardVerifyFlags,
-			nil, nil, inp.txOut.Value, prevOutFetcher,
+			nil, nil, input.txOut.Value,
+			txscript.NewCannedPrevOutputFetcher(
+				input.txOut.PkScript, input.txOut.Value,
+			),
 		)
 		if err != nil {
 			return nil, err

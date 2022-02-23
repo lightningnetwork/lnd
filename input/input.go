@@ -352,7 +352,7 @@ func MakeHtlcSecondLevelTimeoutAnchorInput(signedTx *wire.MsgTx,
 		txinIdx int) (wire.TxWitness, error) {
 
 		desc := signDetails.SignDesc
-		desc.SigHashes = txscript.NewTxSigHashes(txn, prevOutputFetcher)
+		desc.SigHashes = txscript.NewTxSigHashesV0Only(txn)
 		desc.InputIndex = txinIdx
 		desc.PrevOutputFetcher = prevOutputFetcher
 

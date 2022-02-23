@@ -132,9 +132,8 @@ func (r *RPCKeyRing) SendOutputs(outputs []*wire.TxOut,
 	// So we can just compute the input script using the remote signer.
 	outputFetcher := lnwallet.NewWalletPrevOutputFetcher(r.WalletController)
 	signDesc := input.SignDescriptor{
-		HashType:          txscript.SigHashAll,
-		SigHashes:         txscript.NewTxSigHashes(tx, outputFetcher),
-		PrevOutputFetcher: outputFetcher,
+		HashType:  txscript.SigHashAll,
+		SigHashes: txscript.NewTxSigHashesV0Only(tx),
 	}
 	for i, txIn := range tx.TxIn {
 		// We can only sign this input if it's ours, so we'll ask the

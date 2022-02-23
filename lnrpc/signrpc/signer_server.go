@@ -266,33 +266,7 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 		return nil, fmt.Errorf("unable to decode tx: %v", err)
 	}
 
-	var (
-		sigHashCache      = input.NewTxSigHashesV0Only(&txToSign)
-		prevOutputFetcher = txscript.NewMultiPrevOutFetcher(nil)
-	)
-
-	// If we're spending one or more SegWit v1 (Taproot) inputs, then we
-	// need the full UTXO information available.
-	if len(in.PrevOutputs) > 0 {
-		if len(in.PrevOutputs) != len(txToSign.TxIn) {
-			return nil, fmt.Errorf("provided previous outputs " +
-				"doesn't match number of transaction inputs")
-		}
-
-		// Add all previous inputs to our sighash prev out fetcher so we
-		// can calculate the sighash correctly.
-		for idx, txIn := range txToSign.TxIn {
-			prevOutputFetcher.AddPrevOut(
-				txIn.PreviousOutPoint, &wire.TxOut{
-					Value:    in.PrevOutputs[idx].Value,
-					PkScript: in.PrevOutputs[idx].PkScript,
-				},
-			)
-		}
-		sigHashCache = txscript.NewTxSigHashes(
-			&txToSign, prevOutputFetcher,
-		)
-	}
+	sigHashCache := input.NewTxSigHashesV0Only(&txToSign)
 
 	log.Debugf("Generating sigs for %v inputs: ", len(in.SignDescs))
 

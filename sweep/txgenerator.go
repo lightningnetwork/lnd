@@ -264,12 +264,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 		return nil, err
 	}
 
-	prevInputFetcher, err := input.MultiPrevOutFetcher(inputs)
-	if err != nil {
-		return nil, fmt.Errorf("error creating prev input fetcher "+
-			"for hash cache: %v", err)
-	}
-	hashCache := txscript.NewTxSigHashes(sweepTx, prevInputFetcher)
+	hashCache := txscript.NewTxSigHashesV0Only(sweepTx)
 
 	// With all the inputs in place, use each output's unique input script
 	// function to generate the final witness required for spending.

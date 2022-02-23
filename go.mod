@@ -88,6 +88,13 @@ replace github.com/onsi/ginkgo => github.com/onsi/ginkgo v1.14.2
 // https://github.com/lightninglabs/neutrino/pull/247 is merged.
 replace github.com/lightninglabs/neutrino => github.com/lightninglabs/neutrino v0.13.2-0.20220209052920-0c79b771272b
 
+replace (
+	github.com/btcsuite/btcd => github.com/Roasbeef/btcd v0.0.0-20220309025241-21f170aa104d
+	github.com/btcsuite/btcd/btcec/v2 => github.com/Roasbeef/btcd/btcec/v2 v2.0.0-20220309025241-21f170aa104d
+	github.com/btcsuite/btcwallet => github.com/guggero/btcwallet v0.13.1-0.20220309190142-cb37aecb5d28
+	github.com/btcsuite/btcwallet/wallet/txauthor => github.com/guggero/btcwallet/wallet/txauthor v1.1.1-0.20220309190142-cb37aecb5d28
+)
+
 // If you change this please also update .github/pull_request_template.md and
 // docs/INSTALL.md.
 go 1.16

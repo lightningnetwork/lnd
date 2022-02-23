@@ -7,7 +7,6 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -262,7 +261,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 		return nil, err
 	}
 
-	hashCache := txscript.NewTxSigHashes(sweepTx)
+	hashCache := input.NewTxSigHashesV0Only(sweepTx)
 
 	// With all the inputs in place, use each output's unique input script
 	// function to generate the final witness required for spending.

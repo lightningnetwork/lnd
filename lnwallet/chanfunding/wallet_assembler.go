@@ -109,7 +109,7 @@ func (f *FullIntent) CompileFundingTx(extraInputs []*wire.TxIn,
 	// order of the inputs.
 	signDesc := input.SignDescriptor{
 		HashType:  txscript.SigHashAll,
-		SigHashes: txscript.NewTxSigHashes(fundingTx),
+		SigHashes: input.NewTxSigHashesV0Only(fundingTx),
 	}
 	for i, txIn := range fundingTx.TxIn {
 		// We can only sign this input if it's ours, so we'll ask the

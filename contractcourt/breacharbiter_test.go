@@ -1377,7 +1377,8 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 	// sign and add the witness to the HTLC sweep.
 	retInfo := newRetributionInfo(chanPoint, retribution)
 
-	hashCache := txscript.NewTxSigHashes(htlcSweep)
+	cannedFetcher := txscript.NewCannedPrevOutputFetcher(nil, 0)
+	hashCache := txscript.NewTxSigHashes(htlcSweep, cannedFetcher)
 	for i := range retInfo.breachedOutputs {
 		inp := &retInfo.breachedOutputs[i]
 

@@ -280,7 +280,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			},
 		)
 
-		sweepTxSigHashes = txscript.NewTxSigHashes(sweepTx)
+		sweepTxSigHashes = NewTxSigHashesV0Only(sweepTx)
 
 		bobSigHash = txscript.SigHashAll
 		if confirmed {
@@ -546,9 +546,14 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 		sweepTx.TxIn[0].Witness = testCase.witness()
 
 		newEngine := func() (*txscript.Engine, error) {
-			return txscript.NewEngine(htlcPkScript,
-				sweepTx, 0, txscript.StandardVerifyFlags, nil,
-				nil, int64(paymentAmt))
+			return txscript.NewEngine(
+				htlcPkScript, sweepTx, 0,
+				txscript.StandardVerifyFlags, nil, nil,
+				int64(paymentAmt),
+				txscript.NewCannedPrevOutputFetcher(
+					htlcPkScript, int64(paymentAmt),
+				),
+			)
 		}
 
 		assertEngineExecution(t, i, testCase.valid, newEngine)
@@ -674,7 +679,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 				Value:    1 * 10e8,
 			},
 		)
-		sweepTxSigHashes = txscript.NewTxSigHashes(sweepTx)
+		sweepTxSigHashes = NewTxSigHashesV0Only(sweepTx)
 
 		aliceSigHash = txscript.SigHashAll
 		if confirmed {
@@ -962,9 +967,14 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		sweepTx.TxIn[0].Witness = testCase.witness()
 
 		newEngine := func() (*txscript.Engine, error) {
-			return txscript.NewEngine(htlcPkScript,
+			return txscript.NewEngine(
+				htlcPkScript,
 				sweepTx, 0, txscript.StandardVerifyFlags, nil,
-				nil, int64(paymentAmt))
+				nil, int64(paymentAmt),
+				txscript.NewCannedPrevOutputFetcher(
+					htlcPkScript, int64(paymentAmt),
+				),
+			)
 		}
 
 		assertEngineExecution(t, i, testCase.valid, newEngine)
@@ -1014,7 +1024,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 			Value:    1 * 10e8,
 		},
 	)
-	sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+	sweepTxSigHashes := NewTxSigHashesV0Only(sweepTx)
 
 	// The delay key will be crafted using Bob's public key as the output
 	// we created will be spending from Alice's commitment transaction.
@@ -1165,9 +1175,14 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 		sweepTx.TxIn[0].Witness = testCase.witness()
 
 		newEngine := func() (*txscript.Engine, error) {
-			return txscript.NewEngine(htlcPkScript,
+			return txscript.NewEngine(
+				htlcPkScript,
 				sweepTx, 0, txscript.StandardVerifyFlags, nil,
-				nil, int64(htlcAmt))
+				nil, int64(htlcAmt),
+				txscript.NewCannedPrevOutputFetcher(
+					htlcPkScript, int64(htlcAmt),
+				),
+			)
 		}
 
 		assertEngineExecution(t, i, testCase.valid, newEngine)
@@ -1220,7 +1235,7 @@ func TestLeaseSecondLevelHtlcSpends(t *testing.T) {
 			Value:    1 * 10e8,
 		},
 	)
-	sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+	sweepTxSigHashes := NewTxSigHashesV0Only(sweepTx)
 
 	// The delay key will be crafted using Bob's public key as the output
 	// we created will be spending from Alice's commitment transaction.
@@ -1400,9 +1415,14 @@ func TestLeaseSecondLevelHtlcSpends(t *testing.T) {
 		sweepTx.TxIn[0].Witness = testCase.witness()
 
 		newEngine := func() (*txscript.Engine, error) {
-			return txscript.NewEngine(htlcPkScript,
-				sweepTx, 0, txscript.StandardVerifyFlags, nil,
-				nil, int64(htlcAmt))
+			return txscript.NewEngine(
+				htlcPkScript, sweepTx, 0,
+				txscript.StandardVerifyFlags, nil, nil,
+				int64(htlcAmt),
+				txscript.NewCannedPrevOutputFetcher(
+					htlcPkScript, int64(htlcAmt),
+				),
+			)
 		}
 
 		assertEngineExecution(t, i, testCase.valid, newEngine)
@@ -1472,7 +1492,7 @@ func TestLeaseCommmitSpendToSelf(t *testing.T) {
 			// Bob can spend with his revocation key, but not
 			// without the proper tweak.
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+				sweepTxSigHashes := NewTxSigHashesV0Only(sweepTx)
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: bobKeyPub,
@@ -1494,7 +1514,7 @@ func TestLeaseCommmitSpendToSelf(t *testing.T) {
 			// Bob can spend with his revocation key with the proper
 			// tweak.
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+				sweepTxSigHashes := NewTxSigHashesV0Only(sweepTx)
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: bobKeyPub,
@@ -1521,7 +1541,7 @@ func TestLeaseCommmitSpendToSelf(t *testing.T) {
 				sweepTx.TxIn[0].Sequence = LockTimeToSequence(
 					false, csvDelay/2,
 				)
-				sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+				sweepTxSigHashes := NewTxSigHashesV0Only(sweepTx)
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: aliceKeyPub,
@@ -1548,7 +1568,7 @@ func TestLeaseCommmitSpendToSelf(t *testing.T) {
 				sweepTx.TxIn[0].Sequence = LockTimeToSequence(
 					false, csvDelay,
 				)
-				sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+				sweepTxSigHashes := NewTxSigHashesV0Only(sweepTx)
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: aliceKeyPub,
@@ -1575,7 +1595,7 @@ func TestLeaseCommmitSpendToSelf(t *testing.T) {
 				sweepTx.TxIn[0].Sequence = LockTimeToSequence(
 					false, csvDelay,
 				)
-				sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+				sweepTxSigHashes := NewTxSigHashesV0Only(sweepTx)
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: aliceKeyPub,
@@ -1599,9 +1619,14 @@ func TestLeaseCommmitSpendToSelf(t *testing.T) {
 		sweepTx.TxIn[0].Witness = testCase.witness()
 
 		newEngine := func() (*txscript.Engine, error) {
-			return txscript.NewEngine(commitPkScript,
+			return txscript.NewEngine(
+				commitPkScript,
 				sweepTx, 0, txscript.StandardVerifyFlags, nil,
-				nil, int64(outputVal))
+				nil, int64(outputVal),
+				txscript.NewCannedPrevOutputFetcher(
+					commitPkScript, int64(outputVal),
+				),
+			)
 		}
 
 		assertEngineExecution(t, i, testCase.valid, newEngine)
@@ -1659,7 +1684,7 @@ func TestCommitSpendToRemoteConfirmed(t *testing.T) {
 			// Alice can spend after the a CSV delay has passed.
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				sweepTx.TxIn[0].Sequence = LockTimeToSequence(false, 1)
-				sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+				sweepTxSigHashes := NewTxSigHashesV0Only(sweepTx)
 
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
@@ -1681,7 +1706,7 @@ func TestCommitSpendToRemoteConfirmed(t *testing.T) {
 			// Alice cannot spend output without sequence set.
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				sweepTx.TxIn[0].Sequence = wire.MaxTxInSequenceNum
-				sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+				sweepTxSigHashes := NewTxSigHashesV0Only(sweepTx)
 
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
@@ -1705,9 +1730,14 @@ func TestCommitSpendToRemoteConfirmed(t *testing.T) {
 		sweepTx.TxIn[0].Witness = testCase.witness()
 
 		newEngine := func() (*txscript.Engine, error) {
-			return txscript.NewEngine(commitPkScript,
-				sweepTx, 0, txscript.StandardVerifyFlags, nil,
-				nil, int64(outputVal))
+			return txscript.NewEngine(
+				commitPkScript, sweepTx, 0,
+				txscript.StandardVerifyFlags, nil, nil,
+				int64(outputVal),
+				txscript.NewCannedPrevOutputFetcher(
+					commitPkScript, int64(outputVal),
+				),
+			)
 		}
 
 		assertEngineExecution(t, i, testCase.valid, newEngine)
@@ -1770,7 +1800,7 @@ func TestLeaseCommitSpendToRemoteConfirmed(t *testing.T) {
 				sweepTx.TxIn[0].Sequence = LockTimeToSequence(
 					false, 1,
 				)
-				sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+				sweepTxSigHashes := NewTxSigHashesV0Only(sweepTx)
 
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
@@ -1795,7 +1825,7 @@ func TestLeaseCommitSpendToRemoteConfirmed(t *testing.T) {
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				sweepTx.LockTime = leaseExpiry
 				sweepTx.TxIn[0].Sequence = wire.MaxTxInSequenceNum
-				sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+				sweepTxSigHashes := NewTxSigHashesV0Only(sweepTx)
 
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
@@ -1820,7 +1850,7 @@ func TestLeaseCommitSpendToRemoteConfirmed(t *testing.T) {
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				sweepTx.LockTime = 0
 				sweepTx.TxIn[0].Sequence = wire.MaxTxInSequenceNum
-				sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+				sweepTxSigHashes := NewTxSigHashesV0Only(sweepTx)
 
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
@@ -1849,6 +1879,9 @@ func TestLeaseCommitSpendToRemoteConfirmed(t *testing.T) {
 				commitPkScript, sweepTx, 0,
 				txscript.StandardVerifyFlags, nil, nil,
 				int64(outputVal),
+				txscript.NewCannedPrevOutputFetcher(
+					commitPkScript, int64(outputVal),
+				),
 			)
 		}
 
@@ -1913,7 +1946,7 @@ func TestSpendAnchor(t *testing.T) {
 			// Alice can spend immediately.
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				sweepTx.TxIn[0].Sequence = wire.MaxTxInSequenceNum
-				sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+				sweepTxSigHashes := NewTxSigHashesV0Only(sweepTx)
 
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
@@ -1953,9 +1986,14 @@ func TestSpendAnchor(t *testing.T) {
 		sweepTx.TxIn[0].Witness = testCase.witness()
 
 		newEngine := func() (*txscript.Engine, error) {
-			return txscript.NewEngine(anchorPkScript,
+			return txscript.NewEngine(
+				anchorPkScript,
 				sweepTx, 0, txscript.StandardVerifyFlags, nil,
-				nil, int64(anchorSize))
+				nil, int64(anchorSize),
+				txscript.NewCannedPrevOutputFetcher(
+					anchorPkScript, int64(anchorSize),
+				),
+			)
 		}
 
 		assertEngineExecution(t, i, testCase.valid, newEngine)

@@ -189,6 +189,7 @@ func Validate(ctx *Context) (*wire.OutPoint, error) {
 	vm, err := txscript.NewEngine(
 		ctx.MultiSigPkScript, ctx.CommitCtx.FullySignedCommitTx,
 		0, txscript.StandardVerifyFlags, nil, nil, fundingValue,
+		txscript.NewCannedPrevOutputFetcher(ctx.MultiSigPkScript, 0),
 	)
 	if err != nil {
 		return nil, err

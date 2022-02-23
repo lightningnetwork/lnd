@@ -132,7 +132,7 @@ func (r *RPCKeyRing) SendOutputs(outputs []*wire.TxOut,
 	// So we can just compute the input script using the remote signer.
 	signDesc := input.SignDescriptor{
 		HashType:  txscript.SigHashAll,
-		SigHashes: txscript.NewTxSigHashes(tx),
+		SigHashes: input.NewTxSigHashesV0Only(tx),
 	}
 	for i, txIn := range tx.TxIn {
 		// We can only sign this input if it's ours, so we'll ask the
@@ -252,7 +252,7 @@ func (r *RPCKeyRing) FinalizePsbt(packet *psbt.Packet, _ string) error {
 	// ones to sign. If there is any input without witness data that we
 	// cannot sign because it's not our UTXO, this will be a hard failure.
 	tx := packet.UnsignedTx
-	sigHashes := txscript.NewTxSigHashes(tx)
+	sigHashes := input.NewTxSigHashesV0Only(tx)
 	for idx, txIn := range tx.TxIn {
 		in := packet.Inputs[idx]
 

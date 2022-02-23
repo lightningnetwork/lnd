@@ -175,6 +175,10 @@ const (
 	// and CLTV locktime as part of the script enforced lease commitment
 	// type.
 	LeaseHtlcAcceptedSuccessSecondLevel StandardWitnessType = 20
+
+	TaprootPubkeySpend StandardWitnessType = 21
+
+	TaprootScriptSpend StandardWitnessType = 22
 )
 
 // String returns a human readable version of the target WitnessType.
@@ -244,6 +248,12 @@ func (wt StandardWitnessType) String() string {
 
 	case LeaseHtlcAcceptedSuccessSecondLevel:
 		return "LeaseHtlcAcceptedSuccessSecondLevel"
+
+	case TaprootPubkeySpend:
+		return "TaprootPubkeySpend"
+
+	case TaprootScriptSpend:
+		return "TaprootScriptSpend"
 
 	default:
 		return fmt.Sprintf("Unknown WitnessType: %v", uint32(wt))
@@ -388,6 +398,10 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 
 		case WitnessKeyHash:
 			fallthrough
+		case TaprootPubkeySpend:
+			fallthrough
+		case TaprootScriptSpend:
+			fallthrough
 		case NestedWitnessKeyHash:
 			return signer.ComputeInputScript(tx, desc)
 
@@ -494,6 +508,13 @@ func (wt StandardWitnessType) SizeUpperBound() (int, bool, error) {
 	// The revocation output of a second level output of an HTLC.
 	case HtlcSecondLevelRevoke:
 		return ToLocalPenaltyWitnessSize, false, nil
+
+	case TaprootPubkeySpend:
+		return TaprootKeyPathWitnessSize, false, nil
+
+	case TaprootScriptSpend:
+		return 0, false, fmt.Errorf("taproot script send not " +
+			"implemented yet")
 	}
 
 	return 0, false, fmt.Errorf("unexpected witness type: %v", wt)

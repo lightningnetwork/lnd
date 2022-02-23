@@ -17,6 +17,11 @@ type CoinSource interface {
 	// based on its outpoint. If the coin isn't under the control of the
 	// backing CoinSource, then an error should be returned.
 	CoinFromOutPoint(wire.OutPoint) (*Coin, error)
+
+	// FetchPrevOutput attempts to fetch the previous output referenced by
+	// the passed outpoint. A nil value will be returned if the passed
+	// outpoint doesn't exist.
+	FetchPrevOutput(wire.OutPoint) *wire.TxOut
 }
 
 // CoinSelectionLocker is an interface that allows the caller to perform an

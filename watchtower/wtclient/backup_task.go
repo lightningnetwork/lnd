@@ -263,10 +263,12 @@ func (t *backupTask) craftSessionPayload(
 	// information. This will either be contain both the to-local and
 	// to-remote outputs, or only be the to-local output.
 	inputs := t.inputs()
-	for prevOutPoint, input := range inputs {
+	prevOutputFetcher := txscript.NewMultiPrevOutFetcher(nil)
+	for prevOutPoint, inp := range inputs {
+		prevOutputFetcher.AddPrevOut(prevOutPoint, inp.RequiredTxOut())
 		justiceTxn.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: prevOutPoint,
-			Sequence:         input.BlocksToMaturity(),
+			Sequence:         inp.BlocksToMaturity(),
 		})
 	}
 
@@ -285,7 +287,7 @@ func (t *backupTask) craftSessionPayload(
 	}
 
 	// Construct a sighash cache to improve signing performance.
-	hashCache := txscript.NewTxSigHashesV0Only(justiceTxn)
+	hashCache := txscript.NewTxSigHashes(justiceTxn, prevOutputFetcher)
 
 	// Since the transaction inputs could have been reordered as a result of
 	// the BIP69 sort, create an index mapping each prevout to it's new
@@ -304,7 +306,7 @@ func (t *backupTask) craftSessionPayload(
 
 		// Construct the full witness required to spend this input.
 		inputScript, err := inp.CraftInputScript(
-			signer, justiceTxn, hashCache, i,
+			signer, justiceTxn, hashCache, prevOutputFetcher, i,
 		)
 		if err != nil {
 			return hint, nil, err

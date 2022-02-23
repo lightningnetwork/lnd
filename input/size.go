@@ -519,6 +519,12 @@ const (
 	//      - witness_script_length: 1 byte
 	//      - witness_script (anchor_script)
 	AnchorWitnessSize = 1 + 1 + 73 + 1 + AnchorScriptSize
+
+	// TaprootKeyPathWitnessSize 66 bytes
+	//	- NumberOfWitnessElements: 1 byte
+	//	- sigLength: 1 byte
+	//	- sig: 64 bytes
+	TaprootKeyPathWitnessSize = 1 + 1 + 64
 )
 
 // EstimateCommitTxWeight estimate commitment transaction weight depending on

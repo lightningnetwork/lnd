@@ -2,9 +2,9 @@ package btcwallet
 
 import (
 	"fmt"
-
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -49,6 +49,18 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo, erro
 		Derivation:    bip32,
 		PrevTx:        prevTx,
 	}, nil
+}
+
+// FetchPrevOutput attempts to fetch the previous output referenced by
+// the passed outpoint. A nil value will be returned if the passed
+// outpoint doesn't exist.
+func (b *BtcWallet) FetchPrevOutput(op wire.OutPoint) *wire.TxOut {
+	_, txOut, _, _, err := b.wallet.FetchInputInfo(&op)
+	if err != nil {
+		return nil
+	}
+
+	return txOut
 }
 
 // ScriptForOutput returns the address, witness program and redeem script for a
@@ -129,7 +141,8 @@ func (b *BtcWallet) deriveKeyByBIP32Path(path []uint32) (*btcec.PrivateKey,
 	// Is it a standard, BIP defined purpose that the wallet understands?
 	case waddrmgr.KeyScopeBIP0044.Purpose,
 		waddrmgr.KeyScopeBIP0049Plus.Purpose,
-		waddrmgr.KeyScopeBIP0084.Purpose:
+		waddrmgr.KeyScopeBIP0084.Purpose,
+		waddrmgr.KeyScopeBIP0086.Purpose:
 
 		// We're going to continue below the switch statement to avoid
 		// unnecessary indentation for this default case.
@@ -355,6 +368,32 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 		return nil, err
 	}
 
+	if txscript.IsPayToTaproot(signDesc.Output.PkScript) {
+		singleFetcher := txscript.NewCannedPrevOutputFetcher(
+			signDesc.Output.PkScript, signDesc.Output.Value,
+		)
+		sigHashes := txscript.NewTxSigHashes(tx, singleFetcher)
+		leaf := txscript.TapLeaf{
+			LeafVersion: txscript.BaseLeafVersion,
+			Script:      witnessScript,
+		}
+		rawSig, err := txscript.RawTxInTapscriptSignature(
+			tx, sigHashes, signDesc.InputIndex,
+			signDesc.Output.Value, signDesc.Output.PkScript,
+			leaf, txscript.SigHashDefault, privKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		sig, err := schnorr.ParseSignature(rawSig)
+		if err != nil {
+			return nil, err
+		}
+
+		return sig, nil
+	}
+
 	// TODO(roasbeef): generate sighash midstate if not present?
 
 	amt := signDesc.Output.Value
@@ -378,6 +417,50 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 // This is a part of the WalletController interface.
 func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 	signDesc *input.SignDescriptor) (*input.Script, error) {
+
+	if txscript.IsPayToTaproot(signDesc.Output.PkScript) {
+		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+			signDesc.Output.PkScript, b.netParams,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing addr: %v", err)
+		}
+		privKey, err := b.wallet.PrivKeyForAddress(addrs[0])
+		if err != nil {
+			return nil, fmt.Errorf("error fetching priv key: %v",
+				err)
+		}
+		pubKey := privKey.PubKey()
+
+		tapKey := txscript.ComputeTaprootKeyNoScript(pubKey)
+		p2trAddr, err := btcutil.NewAddressTaproot(
+			schnorr.SerializePubKey(tapKey), b.netParams,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// With the concrete address type, we can now generate the
+		// corresponding witness program to be used to generate a valid
+		// witness which will allow us to spend this output.
+		witnessProgram, err := txscript.PayToAddrScript(p2trAddr)
+		if err != nil {
+			return nil, err
+		}
+		witnessScript, err := txscript.TaprootWitnessSignature(
+			tx, signDesc.SigHashes, signDesc.InputIndex,
+			signDesc.Output.Value, witnessProgram,
+			txscript.SigHashDefault, privKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return &input.Script{
+			Witness:   witnessScript,
+			SigScript: nil,
+		}, nil
+	}
 
 	// If a tweak (single or double) is specified, then we'll need to use
 	// this tweak to derive the final private key to be used for signing

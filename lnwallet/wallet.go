@@ -2219,6 +2219,21 @@ func (c *CoinSource) CoinFromOutPoint(op wire.OutPoint) (*chanfunding.Coin, erro
 	}, nil
 }
 
+// FetchPrevOutput attempts to fetch the previous output referenced by
+// the passed outpoint. A nil value will be returned if the passed
+// outpoint doesn't exist.
+func (c *CoinSource) FetchPrevOutput(op wire.OutPoint) *wire.TxOut {
+	inputInfo, err := c.wallet.FetchInputInfo(&op)
+	if err != nil {
+		return nil
+	}
+
+	return &wire.TxOut{
+		Value:    int64(inputInfo.Value),
+		PkScript: inputInfo.PkScript,
+	}
+}
+
 // shimKeyRing is a wrapper struct that's used to provide the proper multi-sig
 // key for an initiated external funding flow.
 type shimKeyRing struct {

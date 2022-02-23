@@ -41,6 +41,9 @@ const (
 	// NestedWitnessPubKey represents a p2sh output which is itself a
 	// nested p2wkh output.
 	NestedWitnessPubKey
+
+	// TaprootPubkey represents a p2tr key path spending address.
+	TaprootPubkey
 )
 
 var (
@@ -160,6 +163,11 @@ type WalletController interface {
 	// its control, then the original txout should be returned.  Otherwise,
 	// a non-nil error value of ErrNotMine should be returned instead.
 	FetchInputInfo(prevOut *wire.OutPoint) (*Utxo, error)
+
+	// FetchPrevOutput attempts to fetch the previous output referenced by
+	// the passed outpoint. A nil value will be returned if the passed
+	// outpoint doesn't exist.
+	FetchPrevOutput(wire.OutPoint) *wire.TxOut
 
 	// ScriptForOutput returns the address, witness program and redeem
 	// script for a given UTXO. An error is returned if the UTXO does not

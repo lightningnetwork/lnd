@@ -3,7 +3,7 @@ package lnwire
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/input"
 )
 

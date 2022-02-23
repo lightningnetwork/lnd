@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 )
 
 func TestSignatureSerializeDeserialize(t *testing.T) {

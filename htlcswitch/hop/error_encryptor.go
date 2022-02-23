@@ -165,7 +165,7 @@ func (s *SphinxErrorEncrypter) Decode(r io.Reader) error {
 	}
 
 	var err error
-	s.EphemeralKey, err = btcec.ParsePubKey(ephemeral[:], btcec.S256())
+	s.EphemeralKey, err = btcec.ParsePubKey(ephemeral[:])
 	if err != nil {
 		return err
 	}

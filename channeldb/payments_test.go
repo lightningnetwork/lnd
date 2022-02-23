@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	priv, _ = btcec.NewPrivateKey(btcec.S256())
+	priv, _ = btcec.NewPrivateKey()
 	pub     = priv.PubKey()
 
 	testHop1 = &route.Hop{

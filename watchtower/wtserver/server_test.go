@@ -35,7 +35,7 @@ var (
 func randPubKey(t *testing.T) *btcec.PublicKey {
 	t.Helper()
 
-	sk, err := btcec.NewPrivateKey(btcec.S256())
+	sk, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to generate pubkey: %v", err)
 	}

@@ -350,7 +350,7 @@ func parseDestination(data []byte) (*btcec.PublicKey, error) {
 		return nil, err
 	}
 
-	return btcec.ParsePubKey(base256Data, btcec.S256())
+	return btcec.ParsePubKey(base256Data)
 }
 
 // parseExpiry converts the data (encoded in base32) into the expiry time.
@@ -452,7 +452,7 @@ func parseRouteHint(data []byte) ([]HopHint, error) {
 
 	for len(base256Data) > 0 {
 		hopHint := HopHint{}
-		hopHint.NodeID, err = btcec.ParsePubKey(base256Data[:33], btcec.S256())
+		hopHint.NodeID, err = btcec.ParsePubKey(base256Data[:33])
 		if err != nil {
 			return nil, err
 		}

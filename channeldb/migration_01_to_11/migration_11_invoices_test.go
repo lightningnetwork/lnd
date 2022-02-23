@@ -151,7 +151,7 @@ func signDigestCompact(hash []byte) ([]byte, error) {
 	// Should the signature reference a compressed public key or not.
 	isCompressedKey := true
 
-	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), testPrivKeyBytes)
+	privKey, _ := btcec.PrivKeyFromBytes(testPrivKeyBytes)
 
 	// ecdsa.SignCompact returns a pubkey-recoverable signature
 	sig, err := ecdsa.SignCompact(privKey, hash, isCompressedKey)

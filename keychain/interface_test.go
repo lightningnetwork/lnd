@@ -376,7 +376,7 @@ func TestSecretKeyRingDerivation(t *testing.T) {
 				// We'll try again, but this time with an
 				// unknown public key.
 				_, pub := btcec.PrivKeyFromBytes(
-					btcec.S256(), testHDSeed[:],
+					testHDSeed[:],
 				)
 				keyDesc.PubKey = pub
 

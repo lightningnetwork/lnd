@@ -60,7 +60,7 @@ var (
 		},
 		LockTime: 5,
 	}
-	privKey, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), key[:])
+	privKey, pubKey = btcec.PrivKeyFromBytes(key[:])
 )
 
 // makeTestDB creates a new instance of the ChannelDB for testing purposes. A

@@ -62,7 +62,7 @@ var (
 		},
 		LockTime: 5,
 	}
-	_, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), key[:])
+	_, pubKey = btcec.PrivKeyFromBytes(key[:])
 )
 
 // TestMigrateFwdPkgCleanup asserts that the migration will delete all the

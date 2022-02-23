@@ -49,7 +49,7 @@ func randAlias(r *rand.Rand) NodeAlias {
 }
 
 func randPubKey() (*btcec.PublicKey, error) {
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	priv, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func randPubKey() (*btcec.PublicKey, error) {
 func randRawKey() ([33]byte, error) {
 	var n [33]byte
 
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	priv, err := btcec.NewPrivateKey()
 	if err != nil {
 		return n, err
 	}

@@ -188,7 +188,7 @@ func (c *WatchtowerClient) AddTower(ctx context.Context,
 		return nil, err
 	}
 
-	pubKey, err := btcec.ParsePubKey(req.Pubkey, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(req.Pubkey)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +227,7 @@ func (c *WatchtowerClient) RemoveTower(ctx context.Context,
 		return nil, err
 	}
 
-	pubKey, err := btcec.ParsePubKey(req.Pubkey, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(req.Pubkey)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +301,7 @@ func (c *WatchtowerClient) GetTowerInfo(ctx context.Context,
 		return nil, err
 	}
 
-	pubKey, err := btcec.ParsePubKey(req.Pubkey, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(req.Pubkey)
 	if err != nil {
 		return nil, err
 	}

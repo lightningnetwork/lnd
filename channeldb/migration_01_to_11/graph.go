@@ -384,7 +384,7 @@ func (l *LightningNode) PubKey() (*btcec.PublicKey, error) {
 		return l.pubKey, nil
 	}
 
-	key, err := btcec.ParsePubKey(l.PubKeyBytes[:], btcec.S256())
+	key, err := btcec.ParsePubKey(l.PubKeyBytes[:])
 	if err != nil {
 		return nil, err
 	}

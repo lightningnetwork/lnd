@@ -140,7 +140,7 @@ var (
 
 	pubKeyHex = hex.EncodeToString(pubKeyBytes)
 
-	pubKey, _ = btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+	pubKey, _ = btcec.ParsePubKey(pubKeyBytes)
 )
 
 type lnAddressCase struct {

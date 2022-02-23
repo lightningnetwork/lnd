@@ -17,7 +17,7 @@ func TestNetAddressDisplay(t *testing.T) {
 		t.Fatalf("unable to decode str: %v", err)
 	}
 
-	pubKey, err := btcec.ParsePubKey(pubHex, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(pubHex)
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}

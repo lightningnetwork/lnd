@@ -167,7 +167,7 @@ func pubkeyFromHex(keyHex string) (*btcec.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	return btcec.ParsePubKey(bytes, btcec.S256())
+	return btcec.ParsePubKey(bytes)
 }
 
 // privkeyFromHex parses a Bitcoin private key from a hex encoded string.
@@ -176,7 +176,7 @@ func privkeyFromHex(keyHex string) (*btcec.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	key, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes)
+	key, _ := btcec.PrivKeyFromBytes(bytes)
 	return key, nil
 
 }

@@ -858,7 +858,7 @@ func TestCommitSetStorage(t *testing.T) {
 }
 
 func init() {
-	testSignDesc.KeyDesc.PubKey, _ = btcec.ParsePubKey(key1, btcec.S256())
+	testSignDesc.KeyDesc.PubKey, _ = btcec.ParsePubKey(key1)
 
 	prand.Seed(time.Now().Unix())
 }

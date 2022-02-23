@@ -226,7 +226,7 @@ func (s *Server) QueryScores(ctx context.Context, in *QueryScoresRequest) (
 		if err != nil {
 			return nil, err
 		}
-		pubKey, err := btcec.ParsePubKey(pubHex, btcec.S256())
+		pubKey, err := btcec.ParsePubKey(pubHex)
 		if err != nil {
 			return nil, err
 		}
@@ -283,7 +283,7 @@ func (s *Server) SetScores(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		pubKey, err := btcec.ParsePubKey(pubHex, btcec.S256())
+		pubKey, err := btcec.ParsePubKey(pubHex)
 		if err != nil {
 			return nil, err
 		}

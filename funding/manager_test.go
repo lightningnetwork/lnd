@@ -77,8 +77,9 @@ var (
 		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
 
-	alicePrivKey, alicePubKey = btcec.PrivKeyFromBytes(btcec.S256(),
-		alicePrivKeyBytes[:])
+	alicePrivKey, alicePubKey = btcec.PrivKeyFromBytes(
+		alicePrivKeyBytes[:],
+	)
 
 	aliceTCPAddr, _ = net.ResolveTCPAddr("tcp", "10.0.0.2:9001")
 
@@ -94,8 +95,7 @@ var (
 		0x1e, 0xb, 0x4c, 0xfd, 0x9e, 0xc5, 0x8c, 0xe9,
 	}
 
-	bobPrivKey, bobPubKey = btcec.PrivKeyFromBytes(btcec.S256(),
-		bobPrivKeyBytes[:])
+	bobPrivKey, bobPubKey = btcec.PrivKeyFromBytes(bobPrivKeyBytes[:])
 
 	bobTCPAddr, _ = net.ResolveTCPAddr("tcp", "10.0.0.2:9000")
 

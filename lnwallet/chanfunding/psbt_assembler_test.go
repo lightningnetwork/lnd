@@ -54,8 +54,8 @@ func TestPsbtIntent(t *testing.T) {
 	// negotiating with the remote peer and they accept. By accepting, they
 	// send over their multisig key that's going to be used for the funding
 	// output. With that known, we can start crafting a PSBT.
-	_, localPubkey := btcec.PrivKeyFromBytes(btcec.S256(), localPrivkey)
-	_, remotePubkey := btcec.PrivKeyFromBytes(btcec.S256(), remotePrivkey)
+	_, localPubkey := btcec.PrivKeyFromBytes(localPrivkey)
+	_, remotePubkey := btcec.PrivKeyFromBytes(remotePrivkey)
 	psbtIntent.BindKeys(
 		&keychain.KeyDescriptor{PubKey: localPubkey}, remotePubkey,
 	)
@@ -197,8 +197,8 @@ func TestPsbtIntentBasePsbt(t *testing.T) {
 
 	// Generate the funding multisig keys and the address so we can compare
 	// it to the output of the intent.
-	_, localPubkey := btcec.PrivKeyFromBytes(btcec.S256(), localPrivkey)
-	_, remotePubkey := btcec.PrivKeyFromBytes(btcec.S256(), remotePrivkey)
+	_, localPubkey := btcec.PrivKeyFromBytes(localPrivkey)
+	_, remotePubkey := btcec.PrivKeyFromBytes(remotePrivkey)
 	// Make sure the output script address is correct.
 	script, _, err := input.GenFundingPkScript(
 		localPubkey.SerializeCompressed(),
@@ -474,8 +474,8 @@ func TestPsbtVerify(t *testing.T) {
 	psbtIntent := intent.(*PsbtIntent)
 
 	// Bind our test keys to get the funding parameters.
-	_, localPubkey := btcec.PrivKeyFromBytes(btcec.S256(), localPrivkey)
-	_, remotePubkey := btcec.PrivKeyFromBytes(btcec.S256(), remotePrivkey)
+	_, localPubkey := btcec.PrivKeyFromBytes(localPrivkey)
+	_, remotePubkey := btcec.PrivKeyFromBytes(remotePrivkey)
 	psbtIntent.BindKeys(
 		&keychain.KeyDescriptor{PubKey: localPubkey}, remotePubkey,
 	)
@@ -642,8 +642,8 @@ func TestPsbtFinalize(t *testing.T) {
 	psbtIntent := intent.(*PsbtIntent)
 
 	// Bind our test keys to get the funding parameters.
-	_, localPubkey := btcec.PrivKeyFromBytes(btcec.S256(), localPrivkey)
-	_, remotePubkey := btcec.PrivKeyFromBytes(btcec.S256(), remotePrivkey)
+	_, localPubkey := btcec.PrivKeyFromBytes(localPrivkey)
+	_, remotePubkey := btcec.PrivKeyFromBytes(remotePrivkey)
 	psbtIntent.BindKeys(
 		&keychain.KeyDescriptor{PubKey: localPubkey}, remotePubkey,
 	)

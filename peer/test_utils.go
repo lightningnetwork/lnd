@@ -64,13 +64,13 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		Family: keychain.KeyFamilyNodeKey,
 	}
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
-		btcec.S256(), channels.AlicesPrivKey,
+		channels.AlicesPrivKey,
 	)
 	aliceKeySigner := keychain.NewPrivKeyMessageSigner(
 		aliceKeyPriv, nodeKeyLocator,
 	)
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(
-		btcec.S256(), channels.BobsPrivKey,
+		channels.BobsPrivKey,
 	)
 
 	channelCapacity := btcutil.Amount(10 * 1e8)

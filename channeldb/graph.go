@@ -2661,7 +2661,7 @@ func (l *LightningNode) PubKey() (*btcec.PublicKey, error) {
 		return l.pubKey, nil
 	}
 
-	key, err := btcec.ParsePubKey(l.PubKeyBytes[:], btcec.S256())
+	key, err := btcec.ParsePubKey(l.PubKeyBytes[:])
 	if err != nil {
 		return nil, err
 	}
@@ -3105,7 +3105,7 @@ func (c *ChannelEdgeInfo) NodeKey1() (*btcec.PublicKey, error) {
 		return c.nodeKey1, nil
 	}
 
-	key, err := btcec.ParsePubKey(c.NodeKey1Bytes[:], btcec.S256())
+	key, err := btcec.ParsePubKey(c.NodeKey1Bytes[:])
 	if err != nil {
 		return nil, err
 	}
@@ -3127,7 +3127,7 @@ func (c *ChannelEdgeInfo) NodeKey2() (*btcec.PublicKey, error) {
 		return c.nodeKey2, nil
 	}
 
-	key, err := btcec.ParsePubKey(c.NodeKey2Bytes[:], btcec.S256())
+	key, err := btcec.ParsePubKey(c.NodeKey2Bytes[:])
 	if err != nil {
 		return nil, err
 	}
@@ -3147,7 +3147,7 @@ func (c *ChannelEdgeInfo) BitcoinKey1() (*btcec.PublicKey, error) {
 		return c.bitcoinKey1, nil
 	}
 
-	key, err := btcec.ParsePubKey(c.BitcoinKey1Bytes[:], btcec.S256())
+	key, err := btcec.ParsePubKey(c.BitcoinKey1Bytes[:])
 	if err != nil {
 		return nil, err
 	}
@@ -3167,7 +3167,7 @@ func (c *ChannelEdgeInfo) BitcoinKey2() (*btcec.PublicKey, error) {
 		return c.bitcoinKey2, nil
 	}
 
-	key, err := btcec.ParsePubKey(c.BitcoinKey2Bytes[:], btcec.S256())
+	key, err := btcec.ParsePubKey(c.BitcoinKey2Bytes[:])
 	if err != nil {
 		return nil, err
 	}

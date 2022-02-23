@@ -40,7 +40,7 @@ var (
 		0x1e, 0xb, 0x4c, 0xfd, 0x9e, 0xc5, 0x8c, 0xe9,
 	}
 
-	privKey, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), testPrivKey)
+	privKey, pubKey = btcec.PrivKeyFromBytes(testPrivKey)
 	addrPk, _       = btcutil.NewAddressPubKey(pubKey.SerializeCompressed(),
 		netParams)
 	testAddr = addrPk.AddressPubKeyHash()

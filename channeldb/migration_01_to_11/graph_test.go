@@ -50,7 +50,7 @@ func createLightningNode(db *DB, priv *btcec.PrivateKey) (*LightningNode, error)
 }
 
 func createTestVertex(db *DB) (*LightningNode, error) {
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	priv, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, err
 	}

@@ -610,7 +610,7 @@ func (s *mockServer) PubKey() [33]byte {
 }
 
 func (s *mockServer) IdentityKey() *btcec.PublicKey {
-	pubkey, _ := btcec.ParsePubKey(s.id[:], btcec.S256())
+	pubkey, _ := btcec.ParsePubKey(s.id[:])
 	return pubkey
 }
 

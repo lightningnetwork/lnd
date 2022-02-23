@@ -883,9 +883,7 @@ func (p *shardHandler) handleFailureMessage(rt *route.Route,
 	// always succeed, otherwise there is something wrong in our
 	// implementation. Therefore return an error.
 	errVertex := rt.Hops[errorSourceIdx-1].PubKeyBytes
-	errSource, err := btcec.ParsePubKey(
-		errVertex[:], btcec.S256(),
-	)
+	errSource, err := btcec.ParsePubKey(errVertex[:])
 	if err != nil {
 		log.Errorf("Cannot parse pubkey: idx=%v, pubkey=%v",
 			errorSourceIdx, errVertex)

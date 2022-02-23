@@ -275,7 +275,7 @@ func CreateZpay32HopHints(routeHints []*lnrpc.RouteHint) ([][]zpay32.HopHint, er
 			if err != nil {
 				return nil, err
 			}
-			p, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+			p, err := btcec.ParsePubKey(pubKeyBytes)
 			if err != nil {
 				return nil, err
 			}

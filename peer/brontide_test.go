@@ -1047,7 +1047,7 @@ func TestPeerCustomMessage(t *testing.T) {
 	dbAlice, err := channeldb.Open(alicePath)
 	require.NoError(t, err)
 
-	aliceKey, err := btcec.NewPrivateKey(btcec.S256())
+	aliceKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
 	writeBufferPool := pool.NewWriteBuffer(

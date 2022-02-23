@@ -128,8 +128,8 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	chanID lnwire.ShortChannelID) (*testLightningChannel,
 	*testLightningChannel, func(), error) {
 
-	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), alicePrivKey)
-	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), bobPrivKey)
+	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(alicePrivKey)
+	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(bobPrivKey)
 
 	channelCapacity := aliceAmount + bobAmount
 	csvTimeoutAlice := uint32(5)

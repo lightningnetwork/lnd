@@ -46,22 +46,22 @@ var (
 	testFeatures = lnwire.NewRawFeatureVector()
 	testKeyLoc   = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
 
-	selfKeyPriv, _ = btcec.NewPrivateKey(btcec.S256())
+	selfKeyPriv, _ = btcec.NewPrivateKey()
 	selfKeyDesc    = &keychain.KeyDescriptor{
 		PubKey:     selfKeyPriv.PubKey(),
 		KeyLocator: testKeyLoc,
 	}
 
-	bitcoinKeyPriv1, _ = btcec.NewPrivateKey(btcec.S256())
+	bitcoinKeyPriv1, _ = btcec.NewPrivateKey()
 	bitcoinKeyPub1     = bitcoinKeyPriv1.PubKey()
 
-	remoteKeyPriv1, _ = btcec.NewPrivateKey(btcec.S256())
+	remoteKeyPriv1, _ = btcec.NewPrivateKey()
 	remoteKeyPub1     = remoteKeyPriv1.PubKey()
 
-	bitcoinKeyPriv2, _ = btcec.NewPrivateKey(btcec.S256())
+	bitcoinKeyPriv2, _ = btcec.NewPrivateKey()
 	bitcoinKeyPub2     = bitcoinKeyPriv2.PubKey()
 
-	remoteKeyPriv2, _ = btcec.NewPrivateKey(btcec.S256())
+	remoteKeyPriv2, _ = btcec.NewPrivateKey()
 
 	trickleDelay     = time.Millisecond * 100
 	retransmitDelay  = time.Hour * 1
@@ -753,7 +753,7 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 		NotifyWhenOnline: func(target [33]byte,
 			peerChan chan<- lnpeer.Peer) {
 
-			pk, _ := btcec.ParsePubKey(target[:], btcec.S256())
+			pk, _ := btcec.ParsePubKey(target[:])
 			peerChan <- &mockPeer{pk, nil, nil}
 		},
 		NotifyWhenOffline: func(_ [33]byte) <-chan struct{} {
@@ -968,7 +968,7 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(target [33]byte,
 		peerChan chan<- lnpeer.Peer) {
 
-		pk, _ := btcec.ParsePubKey(target[:], btcec.S256())
+		pk, _ := btcec.ParsePubKey(target[:])
 
 		select {
 		case peerChan <- &mockPeer{pk, sentMsgs, ctx.gossiper.quit}:
@@ -981,7 +981,7 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
-	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
@@ -1161,7 +1161,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(target [33]byte,
 		peerChan chan<- lnpeer.Peer) {
 
-		pk, _ := btcec.ParsePubKey(target[:], btcec.S256())
+		pk, _ := btcec.ParsePubKey(target[:])
 
 		select {
 		case peerChan <- &mockPeer{pk, sentMsgs, ctx.gossiper.quit}:
@@ -1174,7 +1174,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
-	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
@@ -1364,7 +1364,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
-	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
@@ -1581,7 +1581,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
-	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
@@ -2432,7 +2432,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
-	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
@@ -2817,7 +2817,7 @@ func TestRetransmit(t *testing.T) {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
-	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
@@ -2930,8 +2930,7 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
-	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:],
-		btcec.S256())
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
@@ -3125,7 +3124,7 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	// We'll also create two keys, one for ourselves and another for the
 	// remote party.
 
-	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
@@ -4074,7 +4073,7 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
-	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
@@ -4241,7 +4240,7 @@ func TestRejectCacheChannelAnn(t *testing.T) {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
-	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}

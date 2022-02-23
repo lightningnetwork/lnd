@@ -20,7 +20,7 @@ func newTestReliableSender(t *testing.T) *reliableSender {
 	cfg := &reliableSenderCfg{
 		NotifyWhenOnline: func(pubKey [33]byte,
 			peerChan chan<- lnpeer.Peer) {
-			pk, err := btcec.ParsePubKey(pubKey[:], btcec.S256())
+			pk, err := btcec.ParsePubKey(pubKey[:])
 			if err != nil {
 				t.Fatalf("unable to parse pubkey: %v", err)
 			}

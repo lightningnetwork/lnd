@@ -70,10 +70,11 @@ var (
 	testInvoicePaymentHash = testInvoicePreimage.Hash()
 
 	testPrivKeyBytes, _ = hex.DecodeString(
-		"e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734")
+		"e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2d" +
+			"b734",
+	)
 
-	testPrivKey, _ = btcec.PrivKeyFromBytes(
-		btcec.S256(), testPrivKeyBytes)
+	testPrivKey, _ = btcec.PrivKeyFromBytes(testPrivKeyBytes)
 
 	testInvoiceDescription = "coffee"
 

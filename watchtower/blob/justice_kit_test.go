@@ -256,7 +256,7 @@ func testJusticeKitRemoteWitnessConstruction(
 	t *testing.T, test remoteWitnessTest) {
 
 	// Generate the to-remote pubkey.
-	toRemotePrivKey, err := btcec.NewPrivateKey(btcec.S256())
+	toRemotePrivKey, err := btcec.NewPrivateKey()
 	require.Nil(t, err)
 
 	// Copy the to-remote pubkey into the format expected by our justice
@@ -323,10 +323,10 @@ func TestJusticeKitToLocalWitnessConstruction(t *testing.T) {
 	csvDelay := uint32(144)
 
 	// Generate the revocation and delay private keys.
-	revPrivKey, err := btcec.NewPrivateKey(btcec.S256())
+	revPrivKey, err := btcec.NewPrivateKey()
 	require.Nil(t, err)
 
-	delayPrivKey, err := btcec.NewPrivateKey(btcec.S256())
+	delayPrivKey, err := btcec.NewPrivateKey()
 	require.Nil(t, err)
 
 	// Copy the revocation and delay pubkeys into the format expected by our

@@ -1526,7 +1526,7 @@ func (w *WalletKit) ImportAccount(ctx context.Context,
 func (w *WalletKit) ImportPublicKey(ctx context.Context,
 	req *ImportPublicKeyRequest) (*ImportPublicKeyResponse, error) {
 
-	pubKey, err := btcec.ParsePubKey(req.PublicKey, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(req.PublicKey)
 	if err != nil {
 		return nil, err
 	}

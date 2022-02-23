@@ -275,7 +275,7 @@ func DPubKey(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 			return err
 		}
 
-		p, err := btcec.ParsePubKey(b[:], btcec.S256())
+		p, err := btcec.ParsePubKey(b[:])
 		if err != nil {
 			return err
 		}

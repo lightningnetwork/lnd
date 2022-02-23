@@ -4415,7 +4415,7 @@ func TestChanSyncFailure(t *testing.T) {
 	}
 	p := bobSyncMsg.LocalUnrevokedCommitPoint.SerializeCompressed()
 	p[4] ^= 0x01
-	modCommitPoint, err := btcec.ParsePubKey(p, btcec.S256())
+	modCommitPoint, err := btcec.ParsePubKey(p)
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}

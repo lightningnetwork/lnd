@@ -244,7 +244,7 @@ func maybeTweakPrivKeyPsbt(unknowns []*psbt.Unknown,
 
 		if bytes.Equal(u.Key, PsbtKeyTypeInputSignatureTweakDouble) {
 			doubleTweakKey, _ := btcec.PrivKeyFromBytes(
-				btcec.S256(), u.Value,
+				u.Value,
 			)
 			return input.DeriveRevocationPrivKey(
 				privKey, doubleTweakKey,

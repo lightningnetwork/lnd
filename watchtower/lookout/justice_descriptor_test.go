@@ -93,13 +93,13 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 
 	// Parse the key pairs for all keys used in the test.
 	revSK, revPK := btcec.PrivKeyFromBytes(
-		btcec.S256(), revPrivBytes,
+		revPrivBytes,
 	)
 	_, toLocalPK := btcec.PrivKeyFromBytes(
-		btcec.S256(), toLocalPrivBytes,
+		toLocalPrivBytes,
 	)
 	toRemoteSK, toRemotePK := btcec.PrivKeyFromBytes(
-		btcec.S256(), toRemotePrivBytes,
+		toRemotePrivBytes,
 	)
 
 	// Create the signer, and add the revocation and to-remote privkeys.

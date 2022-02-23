@@ -68,7 +68,7 @@ func NewHtlcAttemptInfo(attemptID uint64, sessionKey *btcec.PrivateKey,
 func (h *HTLCAttemptInfo) SessionKey() *btcec.PrivateKey {
 	if h.cachedSessionKey == nil {
 		h.cachedSessionKey, _ = btcec.PrivKeyFromBytes(
-			btcec.S256(), h.sessionKey[:],
+			h.sessionKey[:],
 		)
 	}
 

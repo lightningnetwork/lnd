@@ -34,7 +34,7 @@ func randAddr(t *testing.T) net.Addr {
 }
 
 func randTower(t *testing.T) *wtdb.Tower {
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	priv, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to create private key: %v", err)
 	}

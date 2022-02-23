@@ -927,7 +927,7 @@ func unmarshallHopHint(rpcHint *lnrpc.HopHint) (zpay32.HopHint, error) {
 		return zpay32.HopHint{}, err
 	}
 
-	pubkey, err := btcec.ParsePubKey(pubBytes, btcec.S256())
+	pubkey, err := btcec.ParsePubKey(pubBytes)
 	if err != nil {
 		return zpay32.HopHint{}, err
 	}

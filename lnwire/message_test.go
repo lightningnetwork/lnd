@@ -863,7 +863,7 @@ func randRawKey(t testing.TB) [33]byte {
 
 	var n [33]byte
 
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err, "failed to create privKey")
 
 	copy(n[:], priv.PubKey().SerializeCompressed())
@@ -874,7 +874,7 @@ func randRawKey(t testing.TB) [33]byte {
 func randPubKey(t testing.TB) *btcec.PublicKey {
 	t.Helper()
 
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err, "failed to create pubkey")
 
 	return priv.PubKey()

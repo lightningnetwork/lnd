@@ -839,7 +839,7 @@ func MigrateOutgoingPayments(tx kvdb.RwTx) error {
 		// Since we don't have the session key for old payments, we
 		// create a random one to be able to serialize the attempt
 		// info.
-		priv, _ := btcec.NewPrivateKey(btcec.S256())
+		priv, _ := btcec.NewPrivateKey()
 		s := &PaymentAttemptInfo{
 			PaymentID:  0,    // unknown.
 			SessionKey: priv, // unknown.

@@ -252,9 +252,7 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 				t1.Fatalf("unable to create channel: %v", err)
 			}
 			peerPubBytes := edge1.Peer.PubKey()
-			peerPub, err := btcec.ParsePubKey(
-				peerPubBytes[:], btcec.S256(),
-			)
+			peerPub, err := btcec.ParsePubKey(peerPubBytes[:])
 			if err != nil {
 				t.Fatalf("unable to parse pubkey: %v", err)
 			}

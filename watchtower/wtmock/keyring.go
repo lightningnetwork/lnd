@@ -39,7 +39,7 @@ func (m *SecretKeyRing) DeriveKey(
 		}, nil
 	}
 
-	privKey, err := btcec.NewPrivateKey(btcec.S256())
+	privKey, err := btcec.NewPrivateKey()
 	if err != nil {
 		return keychain.KeyDescriptor{}, err
 	}

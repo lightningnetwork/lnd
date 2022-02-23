@@ -42,7 +42,7 @@ var (
 		Y: &big.Int{},
 	}
 
-	testPrivkey, _ = btcec.PrivKeyFromBytes(btcec.S256(), make([]byte, 32))
+	testPrivkey, _ = btcec.PrivKeyFromBytes(make([]byte, 32))
 
 	testTx = wire.NewMsgTx(2)
 

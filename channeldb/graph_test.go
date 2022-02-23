@@ -116,7 +116,7 @@ func createLightningNode(db kvdb.Backend, priv *btcec.PrivateKey) (*LightningNod
 }
 
 func createTestVertex(db kvdb.Backend) (*LightningNode, error) {
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	priv, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, err
 	}
@@ -3493,7 +3493,7 @@ func TestLightningNodeSigVerification(t *testing.T) {
 	}
 
 	// Create private key and sign the data with it.
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	priv, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to crete priv key: %v", err)
 	}

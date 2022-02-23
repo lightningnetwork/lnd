@@ -29,7 +29,7 @@ var (
 			"aca5",
 	)
 	testCommitSecret, testCommitPoint = btcec.PrivKeyFromBytes(
-		btcec.S256(), testCommitSecretBytes,
+		testCommitSecretBytes,
 	)
 
 	remoteRevocationBasePubKeyBytes, _ = hex.DecodeString(
@@ -37,7 +37,7 @@ var (
 			"7359fb",
 	)
 	remoteRevocationBasePubKey, _ = btcec.ParsePubKey(
-		remoteRevocationBasePubKeyBytes, btcec.S256(),
+		remoteRevocationBasePubKeyBytes,
 	)
 
 	testTweakSingle, _ = hex.DecodeString(

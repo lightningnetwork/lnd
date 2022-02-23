@@ -43,7 +43,7 @@ func createTestMessageStore(t *testing.T) (*MessageStore, func()) {
 }
 
 func randPubKey(t *testing.T) *btcec.PublicKey {
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	priv, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to create private key: %v", err)
 	}

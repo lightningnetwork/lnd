@@ -31,7 +31,7 @@ func (m *mockSigner) SignMessage(_ keychain.KeyLocator,
 var _ lnwallet.MessageSigner = (*mockSigner)(nil)
 
 var (
-	privKey, _    = btcec.NewPrivateKey(btcec.S256())
+	privKey, _    = btcec.NewPrivateKey()
 	privKeySigner = keychain.NewPrivKeyMessageSigner(privKey, testKeyLoc)
 
 	pubKey = privKey.PubKey()

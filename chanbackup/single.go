@@ -160,7 +160,7 @@ func NewSingle(channel *channeldb.OpenChannel,
 		// the backups plaintext don't carry any private information. When
 		// we go to recover, we'll present this in order to derive the
 		// private key.
-		_, shaChainPoint := btcec.PrivKeyFromBytes(btcec.S256(), b.Bytes())
+		_, shaChainPoint := btcec.PrivKeyFromBytes(b.Bytes())
 
 		shaChainRootDesc = keychain.KeyDescriptor{
 			PubKey: shaChainPoint,
@@ -369,7 +369,7 @@ func readRemoteKeyDesc(r io.Reader) (keychain.KeyDescriptor, error) {
 		return keychain.KeyDescriptor{}, err
 	}
 
-	keyDesc.PubKey, err = btcec.ParsePubKey(pub[:], btcec.S256())
+	keyDesc.PubKey, err = btcec.ParsePubKey(pub[:])
 	if err != nil {
 		return keychain.KeyDescriptor{}, err
 	}
@@ -480,7 +480,7 @@ func (s *Single) Deserialize(r io.Reader) error {
 	// been specified or not.
 	if !bytes.Equal(shaChainPub[:], zeroPub[:]) {
 		s.ShaChainRootDesc.PubKey, err = btcec.ParsePubKey(
-			shaChainPub[:], btcec.S256(),
+			shaChainPub[:],
 		)
 		if err != nil {
 			return err

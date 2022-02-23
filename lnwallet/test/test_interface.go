@@ -81,8 +81,8 @@ var (
 	netParams = &chaincfg.RegressionNetParams
 	chainHash = netParams.GenesisHash
 
-	_, alicePub = btcec.PrivKeyFromBytes(btcec.S256(), testHdSeed[:])
-	_, bobPub   = btcec.PrivKeyFromBytes(btcec.S256(), bobsPrivKey)
+	_, alicePub = btcec.PrivKeyFromBytes(testHdSeed[:])
+	_, bobPub   = btcec.PrivKeyFromBytes(bobsPrivKey)
 
 	// The number of confirmations required to consider any created channel
 	// open.
@@ -2001,8 +2001,7 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 	// we'll generate a commitment pre-image, then derive a revocation key
 	// and single tweak from that.
 	commitPreimage := bytes.Repeat([]byte{2}, 32)
-	commitSecret, commitPoint := btcec.PrivKeyFromBytes(btcec.S256(),
-		commitPreimage)
+	commitSecret, commitPoint := btcec.PrivKeyFromBytes(commitPreimage)
 
 	revocationKey := input.DeriveRevocationPubkey(pubKey.PubKey, commitPoint)
 	commitTweak := input.SingleTweakBytes(commitPoint, pubKey.PubKey)

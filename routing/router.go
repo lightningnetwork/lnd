@@ -1803,7 +1803,7 @@ func generateNewSessionKey() (*btcec.PrivateKey, error) {
 	// any replay.
 	//
 	// TODO(roasbeef): add more sources of randomness?
-	return btcec.NewPrivateKey(btcec.S256())
+	return btcec.NewPrivateKey()
 }
 
 // generateSphinxPacket generates then encodes a sphinx packet which encodes

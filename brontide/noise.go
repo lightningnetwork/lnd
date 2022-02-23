@@ -63,7 +63,7 @@ var (
 	// ephemeralGen is the default ephemeral key generator, used to derive a
 	// unique ephemeral key for each brontide handshake.
 	ephemeralGen = func() (*btcec.PrivateKey, error) {
-		return btcec.NewPrivateKey(btcec.S256())
+		return btcec.NewPrivateKey()
 	}
 )
 
@@ -500,7 +500,7 @@ func (b *Machine) RecvActOne(actOne [ActOneSize]byte) error {
 	copy(p[:], actOne[34:])
 
 	// e
-	b.remoteEphemeral, err = btcec.ParsePubKey(e[:], btcec.S256())
+	b.remoteEphemeral, err = btcec.ParsePubKey(e[:])
 	if err != nil {
 		return err
 	}
@@ -578,7 +578,7 @@ func (b *Machine) RecvActTwo(actTwo [ActTwoSize]byte) error {
 	copy(p[:], actTwo[34:])
 
 	// e
-	b.remoteEphemeral, err = btcec.ParsePubKey(e[:], btcec.S256())
+	b.remoteEphemeral, err = btcec.ParsePubKey(e[:])
 	if err != nil {
 		return err
 	}
@@ -654,7 +654,7 @@ func (b *Machine) RecvActThree(actThree [ActThreeSize]byte) error {
 	if err != nil {
 		return err
 	}
-	b.remoteStatic, err = btcec.ParsePubKey(remotePub, btcec.S256())
+	b.remoteStatic, err = btcec.ParsePubKey(remotePub)
 	if err != nil {
 		return err
 	}

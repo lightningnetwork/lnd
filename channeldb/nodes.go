@@ -298,7 +298,7 @@ func deserializeLinkNode(r io.Reader) (*LinkNode, error) {
 	if _, err := io.ReadFull(r, pub[:]); err != nil {
 		return nil, err
 	}
-	node.IdentityPub, err = btcec.ParsePubKey(pub[:], btcec.S256())
+	node.IdentityPub, err = btcec.ParsePubKey(pub[:])
 	if err != nil {
 		return nil, err
 	}

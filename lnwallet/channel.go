@@ -2298,7 +2298,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		return nil, err
 	}
 	commitmentSecret, commitmentPoint := btcec.PrivKeyFromBytes(
-		btcec.S256(), revocationPreimage[:],
+		revocationPreimage[:],
 	)
 
 	// With the commitment point generated, we can now generate the four

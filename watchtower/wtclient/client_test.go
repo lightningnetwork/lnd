@@ -67,7 +67,7 @@ var (
 func randPrivKey(t *testing.T) *btcec.PrivateKey {
 	t.Helper()
 
-	sk, err := btcec.NewPrivateKey(btcec.S256())
+	sk, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to generate pubkey: %v", err)
 	}
@@ -401,7 +401,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		t.Fatalf("Unable to resolve tower TCP addr: %v", err)
 	}
 
-	privKey, err := btcec.NewPrivateKey(btcec.S256())
+	privKey, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("Unable to generate tower private key: %v", err)
 	}

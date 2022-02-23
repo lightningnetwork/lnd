@@ -101,7 +101,7 @@ func newTestHarness(t *testing.T, failUpdate1, failUpdate2,
 func (h *testHarness) parseRequest(
 	in *lnrpc.OpenChannelRequest) (*InitFundingMsg, error) {
 
-	pubKey, err := btcec.ParsePubKey(in.NodePubkey, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(in.NodePubkey)
 	if err != nil {
 		return nil, err
 	}

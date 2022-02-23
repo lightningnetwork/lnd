@@ -121,7 +121,7 @@ func (p *JusticeDescriptor) commitToRemoteInput() (*breachedInput, error) {
 	} else {
 		// Since the to-remote witness script should just be a regular p2wkh
 		// output, we'll parse it to retrieve the public key.
-		toRemotePubKey, err := btcec.ParsePubKey(toRemoteScript, btcec.S256())
+		toRemotePubKey, err := btcec.ParsePubKey(toRemoteScript)
 		if err != nil {
 			return nil, err
 		}

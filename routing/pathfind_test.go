@@ -261,7 +261,7 @@ func parseTestGraph(useCache bool, path string) (*testGraphInstance, error) {
 		}
 		if len(privBytes) > 0 {
 			key, derivedPub := btcec.PrivKeyFromBytes(
-				btcec.S256(), privBytes,
+				privBytes,
 			)
 
 			if !bytes.Equal(
@@ -566,8 +566,7 @@ func createTestGraphFromChannels(useCache bool, testChannels []*testChannel,
 			0, 0, 0, 0, 0, 0, 0, nodeIndex + 1,
 		}
 
-		privKey, pubKey := btcec.PrivKeyFromBytes(btcec.S256(),
-			keyBytes)
+		privKey, pubKey := btcec.PrivKeyFromBytes(keyBytes)
 
 		if features == nil {
 			features = lnwire.EmptyFeatureVector()
@@ -1215,7 +1214,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	if err != nil {
 		t.Fatalf("unable to decode public key: %v", err)
 	}
-	dogePubKey, err := btcec.ParsePubKey(dogePubKeyBytes, btcec.S256())
+	dogePubKey, err := btcec.ParsePubKey(dogePubKeyBytes)
 	if err != nil {
 		t.Fatalf("unable to parse public key from bytes: %v", err)
 	}

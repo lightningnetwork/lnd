@@ -42,7 +42,7 @@ var (
 // randPubKeyHashScript generates a P2PKH script that pays to the public key of
 // a randomly-generated private key.
 func randPubKeyHashScript() ([]byte, *btcec.PrivateKey, error) {
-	privKey, err := btcec.NewPrivateKey(btcec.S256())
+	privKey, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, nil, err
 	}

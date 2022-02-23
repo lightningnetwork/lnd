@@ -115,7 +115,7 @@ func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
 				endNode.AddPubKey(routeHint[i+1].NodeID)
 			} else {
 				targetPubKey, err := btcec.ParsePubKey(
-					target[:], btcec.S256(),
+					target[:],
 				)
 				if err != nil {
 					return nil, err

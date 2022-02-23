@@ -328,7 +328,7 @@ func init() {
 	// Finish initializing our test vectors by parsing the desired public keys and
 	// properly populating the sign descriptors of all baby and kid outputs.
 	for i := range signDescriptors {
-		pk, err := btcec.ParsePubKey(keys[i], btcec.S256())
+		pk, err := btcec.ParsePubKey(keys[i])
 		if err != nil {
 			panic(fmt.Sprintf("unable to parse pub key during init: %v", err))
 		}

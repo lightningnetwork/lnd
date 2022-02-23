@@ -3,7 +3,6 @@ package itest
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -24,15 +23,6 @@ func testTaproot(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
-
-	testTaprootKeySpend(ctxt, t, net)
-	testTaprootScriptSpend(ctxt, t, net)
-}
-
-// testTaprootKeySpend tests sending to and spending from p2tr key spend only
-// (BIP-0086) addresses.
-func testTaprootKeySpend(ctxt context.Context, t *harnessTest,
-	net *lntest.NetworkHarness) {
 
 	// We'll start the test by sending Alice some coins, which she'll use to
 	// send to herself on a p2tr output.
@@ -98,12 +88,6 @@ func testTaprootKeySpend(ctxt context.Context, t *harnessTest,
 
 	// Mine another block to clean up the mempool.
 	mineBlocks(t, net, 1, 1)
-}
-
-// testTaprootScriptSpend tests sending to and spending from p2tr script
-// addresses.
-func testTaprootScriptSpend(ctxt context.Context, t *harnessTest,
-	net *lntest.NetworkHarness) {
 
 	// For the next step, we need a public key. Let's use a special family
 	// for this.
@@ -115,7 +99,7 @@ func testTaprootScriptSpend(ctxt context.Context, t *harnessTest,
 	)
 	require.NoError(t.t, err)
 
-	leafSigningKey, err := btcec.ParsePubKey(keyDesc.RawKeyBytes)
+	internalPubKey, err := btcec.ParsePubKey(keyDesc.RawKeyBytes)
 	require.NoError(t.t, err)
 
 	// Let's create a taproot script output now. This is a hash lock with a
@@ -131,22 +115,16 @@ func testTaprootScriptSpend(ctxt context.Context, t *harnessTest,
 
 	// Let's add a second script output as well to test the partial reveal.
 	builder = txscript.NewScriptBuilder()
-	builder.AddData(schnorr.SerializePubKey(leafSigningKey))
+	builder.AddData(schnorr.SerializePubKey(internalPubKey))
 	builder.AddOp(txscript.OP_CHECKSIG)
 	script2, err := builder.Script()
 	require.NoError(t.t, err)
 	leaf2 := txscript.NewBaseTapLeaf(script2)
 
-	dummyInternalKeyBytes, _ := hex.DecodeString(
-		"03464805f5468e294d88cf15a3f06aef6c89d63ef1bd7b42db2e0c74c1ac" +
-			"eb90fe",
-	)
-	dummyInternalKey, _ := btcec.ParsePubKey(dummyInternalKeyBytes)
-
 	tree := txscript.AssembleTaprootScriptTree(leaf1, leaf2)
 	rootHash := tree.RootNode.TapHash()
 	taprootKey := txscript.ComputeTaprootOutputKey(
-		dummyInternalKey, rootHash[:],
+		internalPubKey, rootHash[:],
 	)
 
 	tapScriptAddr, err := btcutil.NewAddressTaproot(
@@ -164,13 +142,10 @@ func testTaprootScriptSpend(ctxt context.Context, t *harnessTest,
 	require.NoError(t.t, err)
 
 	// Wait until the TX is found in the mempool.
-	txid, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
+	txid, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
 	require.NoError(t.t, err)
 
-	p2trOutputIndex := getOutputIndex(t, net, txid, tapScriptAddr.String())
-
-	// Clear the mempool.
-	mineBlocks(t, net, 1, 1)
+	p2trOutputIndex = getOutputIndex(t, net, txid, tapScriptAddr.String())
 
 	// Spend the output again, this time back to a p2wkh address.
 	p2wkhResp, err := net.Alice.NewAddress(ctxt, &lnrpc.NewAddressRequest{
@@ -202,28 +177,22 @@ func testTaprootScriptSpend(ctxt context.Context, t *harnessTest,
 	var buf bytes.Buffer
 	require.NoError(t.t, tx.Serialize(&buf))
 
-	utxoInfo := []*signrpc.TxOut{{
-		PkScript: p2trPkScript,
-		Value:    800_000,
-	}}
 	signResp, err := net.Alice.SignerClient.SignOutputRaw(
 		ctxt, &signrpc.SignReq{
 			RawTxBytes: buf.Bytes(),
 			SignDescs: []*signrpc.SignDescriptor{{
-				Output:        utxoInfo[0],
+				Output: &signrpc.TxOut{
+					PkScript: p2trPkScript,
+					Value:    800_000,
+				},
 				InputIndex:    0,
 				KeyDesc:       keyDesc,
 				Sighash:       0,
 				WitnessScript: script2,
 			}},
-			PrevOutputs: utxoInfo,
 		},
 	)
 	require.NoError(t.t, err)
-
-	// TODO(guggero): All of the following code (up to assembling the
-	// witness stack) should be done by a new RPC, for example
-	// AssembleTapscriptSpendWitness.
 
 	// With the commitment computed we can obtain the bit that denotes if
 	// the resulting key has an odd y coordinate or not.
@@ -234,7 +203,7 @@ func testTaprootScriptSpend(ctxt context.Context, t *harnessTest,
 
 	script1Proof := leaf1.TapHash()
 	controlBlock := txscript.ControlBlock{
-		InternalKey:     dummyInternalKey,
+		InternalKey:     internalPubKey,
 		OutputKeyYIsOdd: outputKeyYIsOdd,
 		LeafVersion:     txscript.BaseLeafVersion,
 		InclusionProof:  script1Proof[:],
@@ -257,18 +226,4 @@ func testTaprootScriptSpend(ctxt context.Context, t *harnessTest,
 		},
 	)
 	require.NoError(t.t, err)
-
-	// Wait until the spending tx is found.
-	txid, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
-	require.NoError(t.t, err)
-	p2wpkhOutputIndex := getOutputIndex(t, net, txid, p2wkhAdrr.String())
-	op := &lnrpc.OutPoint{
-		TxidBytes:   txid[:],
-		OutputIndex: uint32(p2wpkhOutputIndex),
-	}
-	assertWalletUnspent(t, net.Alice, op)
-
-	// Mine another block to clean up the mempool and to make sure the spend
-	// tx is actually included in a block.
-	mineBlocks(t, net, 1, 1)
 }

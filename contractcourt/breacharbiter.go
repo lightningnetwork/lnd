@@ -1428,11 +1428,15 @@ func (b *BreachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 
 	// Next, we add all of the spendable outputs as inputs to the
 	// transaction.
+	prevOutputFetcher := txscript.NewMultiPrevOutFetcher(nil)
 	for _, inp := range inputs {
 		txn.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: *inp.OutPoint(),
 			Sequence:         inp.BlocksToMaturity(),
 		})
+		prevOutputFetcher.AddPrevOut(
+			*inp.OutPoint(), inp.RequiredTxOut(),
+		)
 	}
 
 	// Before signing the transaction, check to ensure that it meets some
@@ -1444,7 +1448,7 @@ func (b *BreachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 
 	// Create a sighash cache to improve the performance of hashing and
 	// signing SigHashAll inputs.
-	hashCache := txscript.NewTxSigHashesV0Only(txn)
+	hashCache := txscript.NewTxSigHashes(txn, prevOutputFetcher)
 
 	// Create a closure that encapsulates the process of initializing a
 	// particular output's witness generation function, computing the

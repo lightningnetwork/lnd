@@ -537,13 +537,6 @@ const (
 	//	- sigLength: 1 byte
 	//	- sig: 64 bytes
 	TaprootKeyPathWitnessSize = 1 + 1 + 64
-
-	// TaprootKeyPathCustomSighashWitnessSize 67 bytes
-	//	- NumberOfWitnessElements: 1 byte
-	//	- sigLength: 1 byte
-	//	- sig: 64 bytes
-	//      - sighashFlag: 1 byte
-	TaprootKeyPathCustomSighashWitnessSize = TaprootKeyPathWitnessSize + 1
 )
 
 // EstimateCommitTxWeight estimate commitment transaction weight depending on

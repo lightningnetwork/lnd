@@ -256,8 +256,7 @@ func CraftSweepAllTx(feeRate chainfee.SatPerKWeight, blockHeight uint32,
 			witnessType = input.NestedWitnessKeyHash
 
 		case lnwallet.TaprootPubkey:
-			witnessType = input.TaprootPubKeySpend
-			signDesc.HashType = txscript.SigHashDefault
+			witnessType = input.TaprootPubkeySpend
 
 		// All other output types we count as unknown and will fail to
 		// sweep.

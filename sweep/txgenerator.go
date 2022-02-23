@@ -264,7 +264,12 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 		return nil, err
 	}
 
-	hashCache := txscript.NewTxSigHashesV0Only(sweepTx)
+	prevInputFetcher, err := input.MultiPrevOutFetcher(inputs)
+	if err != nil {
+		return nil, fmt.Errorf("error creating prev input fetcher "+
+			"for hash cache: %v", err)
+	}
+	hashCache := txscript.NewTxSigHashes(sweepTx, prevInputFetcher)
 
 	// With all the inputs in place, use each output's unique input script
 	// function to generate the final witness required for spending.
@@ -331,7 +336,7 @@ func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 	// fee will just be subtracted from this already dust output, and
 	// trimmed.
 	if txscript.IsPayToTaproot(outputPkScript) {
-		weightEstimate.addP2TROutput()
+		weightEstimate.addOutput(&wire.TxOut{PkScript: outputPkScript})
 	} else {
 		weightEstimate.addP2WKHOutput()
 	}

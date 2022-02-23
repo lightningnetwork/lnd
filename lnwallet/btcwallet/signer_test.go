@@ -189,7 +189,6 @@ func TestScriptImport(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// TODO(guggero): Finish script import tests!
 	// mgr.ImportWitnessScript()
 }
 

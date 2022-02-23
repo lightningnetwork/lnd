@@ -164,6 +164,11 @@ type WalletController interface {
 	// a non-nil error value of ErrNotMine should be returned instead.
 	FetchInputInfo(prevOut *wire.OutPoint) (*Utxo, error)
 
+	// FetchPrevOutput attempts to fetch the previous output referenced by
+	// the passed outpoint. A nil value will be returned if the passed
+	// outpoint doesn't exist.
+	FetchPrevOutput(wire.OutPoint) *wire.TxOut
+
 	// ScriptForOutput returns the address, witness program and redeem
 	// script for a given UTXO. An error is returned if the UTXO does not
 	// belong to our wallet or it is not a managed pubKey address.

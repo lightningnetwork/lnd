@@ -52,6 +52,16 @@ func (w *WalletController) FetchInputInfo(
 	return utxo, nil
 }
 
+// FetchPrevOutput attempts to fetch the previous output referenced by
+// the passed outpoint. A nil value will be returned if the passed
+// outpoint doesn't exist.
+func (w *WalletController) FetchPrevOutput(wire.OutPoint) *wire.TxOut {
+	return &wire.TxOut{
+		Value:    10 * btcutil.SatoshiPerBitcoin,
+		PkScript: []byte("dummy"),
+	}
+}
+
 // ScriptForOutput returns the address, witness program and redeem script for a
 // given UTXO. An error is returned if the UTXO does not belong to our wallet or
 // it is not a managed pubKey address.

@@ -108,7 +108,8 @@ func (b *BtcWallet) SignPsbt(packet *psbt.Packet) error {
 	// there are inputs that we don't know how to sign, we won't return any
 	// error. So it's possible we're not the final signer.
 	tx := packet.UnsignedTx
-	sigHashes := txscript.NewTxSigHashesV0Only(tx)
+	prevOutputFetcher := wallet.PsbtPrevOutputFetcher(packet)
+	sigHashes := txscript.NewTxSigHashes(tx, prevOutputFetcher)
 	for idx := range tx.TxIn {
 		in := packet.Inputs[idx]
 

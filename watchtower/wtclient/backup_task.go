@@ -265,9 +265,7 @@ func (t *backupTask) craftSessionPayload(
 	inputs := t.inputs()
 	prevOutputFetcher := txscript.NewMultiPrevOutFetcher(nil)
 	for prevOutPoint, inp := range inputs {
-		prevOutputFetcher.AddPrevOut(
-			prevOutPoint, inp.SignDesc().Output,
-		)
+		prevOutputFetcher.AddPrevOut(prevOutPoint, inp.RequiredTxOut())
 		justiceTxn.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: prevOutPoint,
 			Sequence:         inp.BlocksToMaturity(),
@@ -289,7 +287,7 @@ func (t *backupTask) craftSessionPayload(
 	}
 
 	// Construct a sighash cache to improve signing performance.
-	hashCache := txscript.NewTxSigHashesV0Only(justiceTxn)
+	hashCache := txscript.NewTxSigHashes(justiceTxn, prevOutputFetcher)
 
 	// Since the transaction inputs could have been reordered as a result of
 	// the BIP69 sort, create an index mapping each prevout to it's new

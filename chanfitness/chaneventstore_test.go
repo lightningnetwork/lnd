@@ -2,7 +2,6 @@ package chanfitness
 
 import (
 	"errors"
-	"math/big"
 	"testing"
 	"time"
 
@@ -88,11 +87,10 @@ func TestStartStoreError(t *testing.T) {
 // of uptime and lifespan requests, as they are tested in their own tests.
 func TestMonitorChannelEvents(t *testing.T) {
 	var (
-		pubKey = &btcec.PublicKey{
-			X:     big.NewInt(0),
-			Y:     big.NewInt(1),
-			Curve: btcec.S256(),
-		}
+		pubKey = btcec.NewPublicKey(
+			new(btcec.FieldVal).SetInt(0),
+			new(btcec.FieldVal).SetInt(1),
+		)
 
 		chan1 = wire.OutPoint{Index: 1}
 		chan2 = wire.OutPoint{Index: 2}

@@ -1,7 +1,6 @@
 package chanfitness
 
 import (
-	"math/big"
 	"testing"
 	"time"
 
@@ -144,11 +143,10 @@ func (c *chanEventStoreTestCtx) newChannel() (route.Vertex, *btcec.PublicKey,
 	wire.OutPoint) {
 
 	// Create a pubkey for our channel peer.
-	pubKey := &btcec.PublicKey{
-		X:     big.NewInt(int64(c.testVarIdx)),
-		Y:     big.NewInt(int64(c.testVarIdx)),
-		Curve: btcec.S256(),
-	}
+	pubKey := btcec.NewPublicKey(
+		new(btcec.FieldVal).SetInt(uint16(c.testVarIdx)),
+		new(btcec.FieldVal).SetInt(uint16(c.testVarIdx)),
+	)
 
 	// Create vertex from our pubkey.
 	vertex, err := route.NewVertexFromBytes(pubKey.SerializeCompressed())

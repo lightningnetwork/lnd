@@ -392,16 +392,6 @@ func TestMigrateDatabaseWireMessages(t *testing.T) {
 				return err
 			}
 
-			testChanCloseSummary.RemotePub.Curve = nil
-			testChanCloseSummary.RemoteCurrentRevocation.Curve = nil
-			testChanCloseSummary.RemoteNextRevocation.Curve = nil
-			testChanCloseSummary.LastChanSyncMsg.LocalUnrevokedCommitPoint.Curve = nil
-
-			newChanCloseSummary.RemotePub.Curve = nil
-			newChanCloseSummary.RemoteCurrentRevocation.Curve = nil
-			newChanCloseSummary.RemoteNextRevocation.Curve = nil
-			newChanCloseSummary.LastChanSyncMsg.LocalUnrevokedCommitPoint.Curve = nil
-
 			if !reflect.DeepEqual(
 				newChanCloseSummary, testChanCloseSummary,
 			) {

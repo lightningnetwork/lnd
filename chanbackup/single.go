@@ -374,8 +374,6 @@ func readRemoteKeyDesc(r io.Reader) (keychain.KeyDescriptor, error) {
 		return keychain.KeyDescriptor{}, err
 	}
 
-	keyDesc.PubKey.Curve = nil
-
 	return keyDesc, nil
 }
 

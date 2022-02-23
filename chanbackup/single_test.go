@@ -108,8 +108,6 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 		return nil, err
 	}
 
-	pub.Curve = nil
-
 	chanPoint.Index = uint32(rand.Intn(math.MaxUint16))
 
 	var shaChainRoot [32]byte
@@ -209,7 +207,6 @@ func TestSinglePackUnpack(t *testing.T) {
 	}
 
 	singleChanBackup := NewSingle(channel, []net.Addr{addr1, addr2})
-	singleChanBackup.RemoteNodePub.Curve = nil
 
 	keyRing := &mockKeyRing{}
 
@@ -285,7 +282,6 @@ func TestSinglePackUnpack(t *testing.T) {
 				t.Fatalf("#%v unable to unpack single: %v",
 					i, err)
 			}
-			unpackedSingle.RemoteNodePub.Curve = nil
 
 			assertSingleEqual(t, singleChanBackup, unpackedSingle)
 

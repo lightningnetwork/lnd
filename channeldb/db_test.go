@@ -307,8 +307,6 @@ func genRandomChannelShell() (*ChannelShell, error) {
 		return nil, err
 	}
 
-	pub.Curve = nil
-
 	chanPoint.Index = uint32(rand.Intn(math.MaxUint16))
 
 	chanStatus := ChanStatusDefault | ChanStatusRestored

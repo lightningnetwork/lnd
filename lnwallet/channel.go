@@ -4422,16 +4422,13 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	// While the HTLC verification jobs are proceeding asynchronously,
 	// we'll ensure that the newly constructed commitment state has a valid
 	// signature.
-	verifyKey := btcec.PublicKey{
-		X:     lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.X,
-		Y:     lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.Y,
-		Curve: btcec.S256(),
-	}
+	verifyKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey
+
 	cSig, err := commitSig.ToSignature()
 	if err != nil {
 		return err
 	}
-	if !cSig.Verify(sigHash, &verifyKey) {
+	if !cSig.Verify(sigHash, verifyKey) {
 		close(cancelChan)
 
 		// If we fail to validate their commitment signature, we'll

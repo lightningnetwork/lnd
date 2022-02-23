@@ -99,12 +99,6 @@ func handshake(initiator, responder *brontide.Machine) error {
 // nilAndPanic first nils the initiator and responder's Curve fields and then
 // panics.
 func nilAndPanic(initiator, responder *brontide.Machine, err error) {
-	if initiator != nil {
-		initiator.SetCurveToNil()
-	}
-	if responder != nil {
-		responder.SetCurveToNil()
-	}
 	panic(fmt.Errorf("error: %v, initiator: %v, responder: %v", err,
 		spew.Sdump(initiator), spew.Sdump(responder)))
 }

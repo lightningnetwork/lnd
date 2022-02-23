@@ -1,7 +1,6 @@
 package input_test
 
 import (
-	"math/big"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -37,10 +36,7 @@ var (
 	testPreimage = make([]byte, 32)
 
 	// testPubkey is a pubkey used in script size calculation.
-	testPubkey = &btcec.PublicKey{
-		X: &big.Int{},
-		Y: &big.Int{},
-	}
+	testPubkey = &btcec.PublicKey{}
 
 	testPrivkey, _ = btcec.PrivKeyFromBytes(make([]byte, 32))
 

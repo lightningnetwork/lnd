@@ -980,7 +980,8 @@ func compareInvoices(expected, actual *Invoice) error {
 
 	if !comparePubkeys(expected.Destination, actual.Destination) {
 		return fmt.Errorf("expected destination pubkey %x, got %x",
-			expected.Destination, actual.Destination)
+			expected.Destination.SerializeCompressed(),
+			actual.Destination.SerializeCompressed())
 	}
 
 	if !compareHashes(expected.DescriptionHash, actual.DescriptionHash) {
@@ -1053,7 +1054,8 @@ func compareRouteHints(a, b []HopHint) error {
 	for i := 0; i < len(a); i++ {
 		if !comparePubkeys(a[i].NodeID, b[i].NodeID) {
 			return fmt.Errorf("expected routeHint nodeID %x, "+
-				"got %x", a[i].NodeID, b[i].NodeID)
+				"got %x", a[i].NodeID.SerializeCompressed(),
+				b[i].NodeID.SerializeCompressed())
 		}
 
 		if a[i].ChannelID != b[i].ChannelID {

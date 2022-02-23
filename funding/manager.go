@@ -3514,7 +3514,8 @@ func (f *Manager) pruneZombieReservations() {
 
 	for pendingChanID, resCtx := range zombieReservations {
 		err := fmt.Errorf("reservation timed out waiting for peer "+
-			"(peer_id:%x, chan_id:%x)", resCtx.peer.IdentityKey(),
+			"(peer_id:%x, chan_id:%x)",
+			resCtx.peer.IdentityKey().SerializeCompressed(),
 			pendingChanID[:])
 		log.Warnf(err.Error())
 		f.failFundingFlow(resCtx.peer, pendingChanID, err)
@@ -3629,11 +3630,10 @@ func (f *Manager) IsPendingChannel(pendingChanID [32]byte,
 }
 
 func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
-	return &btcec.PublicKey{
-		Curve: btcec.S256(),
-		X:     pub.X,
-		Y:     pub.Y,
-	}
+	var tmp btcec.JacobianPoint
+	pub.AsJacobian(&tmp)
+	tmp.ToAffine()
+	return btcec.NewPublicKey(&tmp.X, &tmp.Y)
 }
 
 // saveChannelOpeningState saves the channelOpeningState for the provided

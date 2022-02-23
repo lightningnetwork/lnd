@@ -7,7 +7,6 @@ import (
 	"image/color"
 	"io"
 	"math"
-	"math/big"
 	"math/rand"
 	"net"
 	"sync"

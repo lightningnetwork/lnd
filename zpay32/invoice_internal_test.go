@@ -452,7 +452,8 @@ func TestParseDestination(t *testing.T) {
 		if test.valid && !comparePubkeys(destination, test.result) {
 			t.Fatalf("test %d failed decoding destination: "+
 				"expected %x, got %x",
-				i, *test.result, *destination)
+				i, test.result.SerializeCompressed(),
+				destination.SerializeCompressed())
 			return
 		}
 	}

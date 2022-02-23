@@ -2,7 +2,6 @@ package chanacceptor
 
 import (
 	"errors"
-	"math/big"
 	"testing"
 	"time"
 
@@ -126,10 +125,10 @@ func (c *channelAcceptorCtx) stop() {
 // request in a goroutine and then asserts that we get the outcome we expect.
 func (c *channelAcceptorCtx) queryAndAssert(queries map[*lnwire.OpenChannel]*ChannelAcceptResponse) {
 	var (
-		node = &btcec.PublicKey{
-			X: big.NewInt(1),
-			Y: big.NewInt(1),
-		}
+		node = btcec.NewPublicKey(
+			new(btcec.FieldVal).SetInt(1),
+			new(btcec.FieldVal).SetInt(1),
+		)
 
 		responses = make(chan struct{})
 	)

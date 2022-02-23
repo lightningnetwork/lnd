@@ -39,7 +39,6 @@ func randTower(t *testing.T) *wtdb.Tower {
 		t.Fatalf("unable to create private key: %v", err)
 	}
 	pubKey := priv.PubKey()
-	pubKey.Curve = nil
 	return &wtdb.Tower{
 		ID:          wtdb.TowerID(rand.Uint64()),
 		IdentityKey: pubKey,

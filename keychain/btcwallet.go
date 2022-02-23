@@ -392,12 +392,16 @@ func (b *BtcWalletKeyRing) ECDH(keyDesc KeyDescriptor,
 		return [32]byte{}, err
 	}
 
-	s := &btcec.PublicKey{}
-	x, y := btcec.S256().ScalarMult(pub.X, pub.Y, privKey.D.Bytes())
-	s.X = x
-	s.Y = y
+	var (
+		pubJacobian btcec.JacobianPoint
+		s           btcec.JacobianPoint
+	)
+	pub.AsJacobian(&pubJacobian)
 
-	h := sha256.Sum256(s.SerializeCompressed())
+	btcec.ScalarMultNonConst(&privKey.Key, &pubJacobian, &s)
+	s.ToAffine()
+	sPubKey := btcec.NewPublicKey(&s.X, &s.Y)
+	h := sha256.Sum256(sPubKey.SerializeCompressed())
 
 	return h, nil
 }

@@ -666,13 +666,6 @@ func TestContractResolutionsStorage(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(&res, diskRes) {
-		for _, h := range res.HtlcResolutions.IncomingHTLCs {
-			h.SweepSignDesc.KeyDesc.PubKey.Curve = nil
-		}
-		for _, h := range diskRes.HtlcResolutions.IncomingHTLCs {
-			h.SweepSignDesc.KeyDesc.PubKey.Curve = nil
-		}
-
 		t.Fatalf("resolution mismatch: expected %v\n, got %v",
 			spew.Sdump(&res), spew.Sdump(diskRes))
 	}

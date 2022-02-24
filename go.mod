@@ -18,7 +18,6 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dvyukov/go-fuzz v0.0.0-20210602112143-b1f3d6f4ef4e
 	github.com/go-errors/errors v1.0.1
-	github.com/go-openapi/strfmt v0.19.5 // indirect
 	github.com/golang/protobuf v1.5.2
 	github.com/gorilla/websocket v1.4.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
@@ -27,7 +26,7 @@ require (
 	github.com/jackc/pgx/v4 v4.13.0
 	github.com/jackpal/gateway v1.0.5
 	github.com/jackpal/go-nat-pmp v0.0.0-20170405195558-28a68d0c24ad
-	github.com/jedib0t/go-pretty v4.3.0+incompatible
+	github.com/jedib0t/go-pretty/v6 v6.2.7
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/jrick/logrotate v1.0.0
 	github.com/juju/clock v0.0.0-20190205081909-9c5c9712527c // indirect
@@ -50,9 +49,7 @@ require (
 	github.com/lightningnetwork/lnd/ticker v1.1.0
 	github.com/lightningnetwork/lnd/tlv v1.0.1
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
-	github.com/mattn/go-runewidth v0.0.9 // indirect
 	github.com/miekg/dns v1.1.43
-	github.com/mitchellh/mapstructure v1.3.2 // indirect
 	github.com/prometheus/client_golang v1.11.0
 	github.com/stretchr/testify v1.7.0
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02

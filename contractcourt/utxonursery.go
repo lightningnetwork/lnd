@@ -241,7 +241,7 @@ func (u *UtxoNursery) Start() error {
 		return nil
 	}
 
-	utxnLog.Tracef("Starting UTXO nursery")
+	utxnLog.Info("UTXO nursery starting")
 
 	// Retrieve the currently best known block. This is needed to have the
 	// state machine catch up with the blocks we missed when we were down.

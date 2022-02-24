@@ -238,6 +238,8 @@ func (i *InvoiceRegistry) Start() error {
 		return err
 	}
 
+	log.Info("InvoiceRegistry starting")
+
 	i.wg.Add(1)
 	go i.invoiceEventLoop()
 

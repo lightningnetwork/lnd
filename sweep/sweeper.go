@@ -338,7 +338,7 @@ func (s *UtxoSweeper) Start() error {
 		return nil
 	}
 
-	log.Tracef("Sweeper starting")
+	log.Info("Sweeper starting")
 
 	// Retrieve last published tx from database.
 	lastTx, err := s.cfg.Store.GetLastPublishedTx()

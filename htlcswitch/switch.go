@@ -1846,7 +1846,7 @@ func (s *Switch) Start() error {
 		return errors.New("htlc switch already started")
 	}
 
-	log.Infof("Starting HTLC Switch")
+	log.Infof("HTLC Switch starting")
 
 	blockEpochStream, err := s.cfg.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {

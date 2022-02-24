@@ -155,6 +155,7 @@ func NewSigPool(numWorkers int, signer input.Signer) *SigPool {
 // carry out its duties.
 func (s *SigPool) Start() error {
 	s.started.Do(func() {
+		walletLog.Info("SigPool starting")
 		for i := 0; i < s.numWorkers; i++ {
 			s.wg.Add(1)
 			go s.poolWorker()

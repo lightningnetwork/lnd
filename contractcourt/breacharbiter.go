@@ -206,14 +206,13 @@ func NewBreachArbiter(cfg *BreachConfig) *BreachArbiter {
 func (b *BreachArbiter) Start() error {
 	var err error
 	b.started.Do(func() {
+		brarLog.Info("Breach arbiter starting")
 		err = b.start()
 	})
 	return err
 }
 
 func (b *BreachArbiter) start() error {
-	brarLog.Tracef("Starting breach arbiter")
-
 	// Load all retributions currently persisted in the retribution store.
 	var breachRetInfos map[wire.OutPoint]retributionInfo
 	if err := b.cfg.Store.ForAll(func(ret *retributionInfo) error {

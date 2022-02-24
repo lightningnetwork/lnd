@@ -87,7 +87,7 @@ func New(chanDB *channeldb.ChannelStateDB) *ChannelNotifier {
 func (c *ChannelNotifier) Start() error {
 	var err error
 	c.started.Do(func() {
-		log.Trace("ChannelNotifier starting")
+		log.Info("ChannelNotifier starting")
 		err = c.ntfnServer.Start()
 	})
 	return err

@@ -487,7 +487,7 @@ func (c *ChainArbitrator) Start() error {
 		return nil
 	}
 
-	log.Tracef("Starting ChainArbitrator")
+	log.Info("ChainArbitrator starting")
 
 	// First, we'll fetch all the channels that are still open, in order to
 	// collect them within our set of active contracts.

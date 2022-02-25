@@ -815,6 +815,10 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		return p.cfg.ChainArb.UpdateContractSignals(*chanPoint, signals)
 	}
 
+	notifyContractUpdate := func(update *contractcourt.ContractUpdate) error {
+		return p.cfg.ChainArb.NotifyContractUpdate(*chanPoint, update)
+	}
+
 	chanType := lnChan.State().ChanType
 
 	// Select the appropriate tower client based on the channel type. It's
@@ -842,6 +846,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		PreimageCache:           p.cfg.WitnessBeacon,
 		ChainEvents:             chainEvents,
 		UpdateContractSignals:   updateContractSignals,
+		NotifyContractUpdate:    notifyContractUpdate,
 		OnChannelFailure:        onChannelFailure,
 		SyncStates:              syncStates,
 		BatchTicker:             ticker.New(p.cfg.ChannelCommitInterval),

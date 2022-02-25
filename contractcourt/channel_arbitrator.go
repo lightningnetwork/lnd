@@ -28,6 +28,12 @@ var (
 	// close a channel that's already in the process of doing so.
 	errAlreadyForceClosed = errors.New("channel is already in the " +
 		"process of being force closed")
+
+	// errChanArbShuttingDown is an error returned when the channel arb is
+	// shutting down during the hand-off in notifyContractUpdate. This is
+	// mainly used to be able to notify the original caller (the link) that
+	// an error occurred.
+	errChanArbShuttingDown = errors.New("channel arb shutting down")
 )
 
 const (
@@ -342,7 +348,7 @@ type ChannelArbitrator struct {
 	// htlcUpdates is a channel that is sent upon with new updates from the
 	// active channel. Each time a new commitment state is accepted, the
 	// set of HTLC's on the new state should be sent across this channel.
-	htlcUpdates <-chan *ContractUpdate
+	htlcUpdates chan *contractUpdateSignal
 
 	// activeResolvers is a slice of any active resolvers. This is used to
 	// be able to signal them for shutdown in the case that we shutdown.
@@ -378,7 +384,7 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 		log:              log,
 		blocks:           make(chan int32, arbitratorBlockBufferSize),
 		signalUpdates:    make(chan *signalUpdateMsg),
-		htlcUpdates:      make(<-chan *ContractUpdate),
+		htlcUpdates:      make(chan *contractUpdateSignal),
 		resolutionSignal: make(chan struct{}),
 		forceCloseReqs:   make(chan *forceCloseReq),
 		activeHTLCs:      htlcSets,
@@ -2387,6 +2393,41 @@ func (c *ChannelArbitrator) UpdateContractSignals(newSignals *ContractSignals) {
 	}
 }
 
+// contractUpdateSignal is a struct that carries the latest set of
+// ContractUpdate for a particular key. It also carries a done chan that should
+// be closed by the recipient.
+type contractUpdateSignal struct {
+	// newUpdate contains the latest ContractUpdate for a key.
+	newUpdate *ContractUpdate
+
+	// doneChan is an acknowledgement channel.
+	doneChan chan struct{}
+}
+
+// notifyContractUpdate notifies the ChannelArbitrator that a new
+// ContractUpdate is available from the link. The link will be paused until
+// this function returns.
+func (c *ChannelArbitrator) notifyContractUpdate(upd *ContractUpdate) error {
+	done := make(chan struct{})
+
+	select {
+	case c.htlcUpdates <- &contractUpdateSignal{
+		newUpdate: upd,
+		doneChan:  done,
+	}:
+	case <-c.quit:
+		return errChanArbShuttingDown
+	}
+
+	select {
+	case <-done:
+	case <-c.quit:
+		return errChanArbShuttingDown
+	}
+
+	return nil
+}
+
 // channelAttendant is the primary goroutine that acts at the judicial
 // arbitrator between our channel state, the remote channel peer, and the
 // blockchain (Our judge). This goroutine will ensure that we faithfully execute
@@ -2448,13 +2489,12 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			log.Tracef("ChannelArbitrator(%v) got new signal "+
 				"update!", c.cfg.ChanPoint)
 
-			// First, we'll update our set of signals.
-			c.htlcUpdates = signalUpdate.newSignals.HtlcUpdates
+			// We'll update the ShortChannelID.
 			c.cfg.ShortChanID = signalUpdate.newSignals.ShortChanID
 
-			// Now that the signals have been updated, we'll now
+			// Now that the signal has been updated, we'll now
 			// close the done channel to signal to the caller we've
-			// registered the new contracts.
+			// registered the new ShortChannelID.
 			close(signalUpdate.doneChan)
 
 		// A new set of HTLC's has been added or removed from the
@@ -2465,14 +2505,19 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// htlcSetKey type included in this update in order to
 			// only monitor the HTLCs that are still active on this
 			// target commitment.
-			c.activeHTLCs[htlcUpdate.HtlcKey] = newHtlcSet(
-				htlcUpdate.Htlcs,
+			htlcKey := htlcUpdate.newUpdate.HtlcKey
+			c.activeHTLCs[htlcKey] = newHtlcSet(
+				htlcUpdate.newUpdate.Htlcs,
 			)
+
+			// Now that the activeHTLCs have been updated, we'll
+			// close the done channel.
+			close(htlcUpdate.doneChan)
 
 			log.Tracef("ChannelArbitrator(%v): fresh set of htlcs=%v",
 				c.cfg.ChanPoint,
 				newLogClosure(func() string {
-					return spew.Sdump(htlcUpdate)
+					return spew.Sdump(htlcUpdate.newUpdate)
 				}),
 			)
 

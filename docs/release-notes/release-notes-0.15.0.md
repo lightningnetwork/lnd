@@ -36,6 +36,10 @@
   could result in an "invoice too large" error when creating invoices. Hints 
   are now properly limited to our maximum of 20.
 
+* [Fixed an edge case where the lnd might be stuck at starting due to channel
+  arbitrator relying on htlcswitch to be started
+  first](https://github.com/lightningnetwork/lnd/pull/6214).
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)
@@ -61,6 +65,9 @@
 * [Add `.vs/` folder to `.gitignore`](https://github.com/lightningnetwork/lnd/pull/6178). 
 
 * [Chain backend healthchecks disabled for --nochainbackend mode](https://github.com/lightningnetwork/lnd/pull/6184)
+
+* [The `tlv` package was refactored into its own Golang
+  submodule](https://github.com/lightningnetwork/lnd/pull/6283).
 
 ## RPC Server
 
@@ -113,6 +120,11 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * The [`whitespace` linter](https://github.com/lightningnetwork/lnd/pull/6270)
   was enabled to make sure multi-line `if` conditions and function/method
   declarations are followed by an empty line to improve readability.
+  **Note to developers**: please make sure you delete the old version of
+  `golangci-lint` in your `$GOPATH/bin` directory. `make lint` does not
+  automatically replace it with the new version if the binary already exists!
+  
+* [`ChannelLink` in the `htlcswitch` now performs a 2-way handoff instead of a 1-way handoff with its `ChannelArbitrator`.](https://github.com/lightningnetwork/lnd/pull/6221)
 
 # Contributors (Alphabetical Order)
 
@@ -125,6 +137,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * Dan Bolser
 * Daniel McNally
 * ErikEk
+* Eugene Siegel
 * henta
 * Joost Jager
 * Jordi Montes

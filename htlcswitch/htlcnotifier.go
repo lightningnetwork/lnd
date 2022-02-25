@@ -81,7 +81,7 @@ func NewHtlcNotifier(now func() time.Time) *HtlcNotifier {
 func (h *HtlcNotifier) Start() error {
 	var err error
 	h.started.Do(func() {
-		log.Trace("HtlcNotifier starting")
+		log.Info("HtlcNotifier starting")
 		err = h.ntfnServer.Start()
 	})
 	return err

@@ -1122,6 +1122,17 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 		maxFeeUpdateTimeout = 40 * time.Minute
 	)
 
+	notifyUpdateChan := make(chan *contractcourt.ContractUpdate)
+	doneChan := make(chan struct{})
+	notifyContractUpdate := func(u *contractcourt.ContractUpdate) error {
+		select {
+		case notifyUpdateChan <- u:
+		case <-doneChan:
+		}
+
+		return nil
+	}
+
 	link := NewChannelLink(
 		ChannelLinkConfig{
 			Switch:             server.htlcSwitch,
@@ -1142,6 +1153,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
+			NotifyContractUpdate:    notifyContractUpdate,
 			ChainEvents:             &contractcourt.ChainEventSubscription{},
 			SyncStates:              true,
 			BatchSize:               10,
@@ -1169,8 +1181,9 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 	go func() {
 		for {
 			select {
-			case <-link.(*channelLink).htlcUpdates:
+			case <-notifyUpdateChan:
 			case <-link.(*channelLink).quit:
+				close(doneChan)
 				return
 			}
 		}

@@ -490,7 +490,7 @@ func (r *ChannelRouter) Start() error {
 		return nil
 	}
 
-	log.Tracef("Channel Router starting")
+	log.Info("Channel Router starting")
 
 	bestHash, bestHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {

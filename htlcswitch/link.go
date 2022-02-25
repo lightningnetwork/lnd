@@ -187,10 +187,13 @@ type ChannelLinkConfig struct {
 		LinkFailureError)
 
 	// UpdateContractSignals is a function closure that we'll use to update
-	// outside sub-systems with the latest signals for our inner Lightning
-	// channel. These signals will notify the caller when the channel has
-	// been closed, or when the set of active HTLC's is updated.
+	// outside sub-systems with this channel's latest ShortChannelID.
 	UpdateContractSignals func(*contractcourt.ContractSignals) error
+
+	// NotifyContractUpdate is a function closure that we'll use to update
+	// the contractcourt and more specifically the ChannelArbitrator of the
+	// latest channel state.
+	NotifyContractUpdate func(*contractcourt.ContractUpdate) error
 
 	// ChainEvents is an active subscription to the chain watcher for this
 	// channel to be notified of any on-chain activity related to this
@@ -372,10 +375,6 @@ type channelLink struct {
 	// sent across.
 	localUpdateAdd chan *localUpdateAddMsg
 
-	// htlcUpdates is a channel that we'll use to update outside
-	// sub-systems with the latest set of active HTLC's on our channel.
-	htlcUpdates chan *contractcourt.ContractUpdate
-
 	// shutdownRequest is a channel that the channelLink will listen on to
 	// service shutdown requests from ShutdownIfChannelClean calls.
 	shutdownRequest chan *shutdownReq
@@ -421,11 +420,9 @@ func NewChannelLink(cfg ChannelLinkConfig,
 	logPrefix := fmt.Sprintf("ChannelLink(%v):", channel.ChannelPoint())
 
 	return &channelLink{
-		cfg:         cfg,
-		channel:     channel,
-		shortChanID: channel.ShortChanID(),
-		// TODO(roasbeef): just do reserve here?
-		htlcUpdates:     make(chan *contractcourt.ContractUpdate),
+		cfg:             cfg,
+		channel:         channel,
+		shortChanID:     channel.ShortChanID(),
 		shutdownRequest: make(chan *shutdownReq),
 		hodlMap:         make(map[channeldb.CircuitKey]hodlHtlc),
 		hodlQueue:       queue.NewConcurrentQueue(10),
@@ -496,7 +493,6 @@ func (l *channelLink) Start() error {
 		// TODO(roasbeef): split goroutines within channel arb to avoid
 		go func() {
 			signals := &contractcourt.ContractSignals{
-				HtlcUpdates: l.htlcUpdates,
 				ShortChanID: l.channel.ShortChanID(),
 			}
 
@@ -1837,15 +1833,23 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		l.cfg.Peer.SendMessage(false, nextRevocation)
 
 		// Since we just revoked our commitment, we may have a new set
-		// of HTLC's on our commitment, so we'll send them over our
-		// HTLC update channel so any callers can be notified.
-		select {
-		case l.htlcUpdates <- &contractcourt.ContractUpdate{
+		// of HTLC's on our commitment, so we'll send them using our
+		// function closure NotifyContractUpdate.
+		newUpdate := &contractcourt.ContractUpdate{
 			HtlcKey: contractcourt.LocalHtlcSet,
 			Htlcs:   currentHtlcs,
-		}:
+		}
+		err = l.cfg.NotifyContractUpdate(newUpdate)
+		if err != nil {
+			l.log.Errorf("unable to notify contract update: %v",
+				err)
+			return
+		}
+
+		select {
 		case <-l.quit:
 			return
+		default:
 		}
 
 		// If both commitment chains are fully synced from our PoV,
@@ -1879,13 +1883,21 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// The remote party now has a new primary commitment, so we'll
 		// update the contract court to be aware of this new set (the
 		// prior old remote pending).
-		select {
-		case l.htlcUpdates <- &contractcourt.ContractUpdate{
+		newUpdate := &contractcourt.ContractUpdate{
 			HtlcKey: contractcourt.RemoteHtlcSet,
 			Htlcs:   remoteHTLCs,
-		}:
+		}
+		err = l.cfg.NotifyContractUpdate(newUpdate)
+		if err != nil {
+			l.log.Errorf("unable to notify contract update: %v",
+				err)
+			return
+		}
+
+		select {
 		case <-l.quit:
 			return
+		default:
 		}
 
 		// If we have a tower client for this channel type, we'll
@@ -2093,13 +2105,20 @@ func (l *channelLink) updateCommitTx() error {
 	// The remote party now has a new pending commitment, so we'll update
 	// the contract court to be aware of this new set (the prior old remote
 	// pending).
-	select {
-	case l.htlcUpdates <- &contractcourt.ContractUpdate{
+	newUpdate := &contractcourt.ContractUpdate{
 		HtlcKey: contractcourt.RemotePendingHtlcSet,
 		Htlcs:   pendingHTLCs,
-	}:
+	}
+	err = l.cfg.NotifyContractUpdate(newUpdate)
+	if err != nil {
+		l.log.Errorf("unable to notify contract update: %v", err)
+		return err
+	}
+
+	select {
 	case <-l.quit:
 		return ErrLinkShuttingDown
+	default:
 	}
 
 	commitSig := &lnwire.CommitSig{
@@ -2167,7 +2186,6 @@ func (l *channelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 
 	go func() {
 		err := l.cfg.UpdateContractSignals(&contractcourt.ContractSignals{
-			HtlcUpdates: l.htlcUpdates,
 			ShortChanID: sid,
 		})
 		if err != nil {

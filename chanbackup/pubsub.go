@@ -137,7 +137,7 @@ func NewSubSwapper(startingChans []Single, chanNotifier ChannelNotifier,
 func (s *SubSwapper) Start() error {
 	var startErr error
 	s.started.Do(func() {
-		log.Infof("Starting chanbackup.SubSwapper")
+		log.Infof("chanbackup.SubSwapper starting")
 
 		// Before we enter our main loop, we'll update the on-disk
 		// state with the latest Single state, as nodes may have new

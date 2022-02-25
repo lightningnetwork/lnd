@@ -498,14 +498,13 @@ func (d *AuthenticatedGossiper) PropagateChanPolicyUpdate(
 func (d *AuthenticatedGossiper) Start() error {
 	var err error
 	d.started.Do(func() {
+		log.Info("Authenticated Gossiper starting")
 		err = d.start()
 	})
 	return err
 }
 
 func (d *AuthenticatedGossiper) start() error {
-	log.Info("Authenticated Gossiper is starting")
-
 	// First we register for new notifications of newly discovered blocks.
 	// We do this immediately so we'll later be able to consume any/all
 	// blocks which were discovered.

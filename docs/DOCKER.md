@@ -115,7 +115,7 @@ To test the Docker production image locally, run the following from the project 
 ⛰  docker build . -t myrepository/lnd:master
 ```
 
-To choose a specific [branch](https://github.com/lightningnetwork/lnd/branches) or [tag](https://hub.docker.com/r/lightninglabs/lnd/tags?page=1&ordering=last_updated) instead, use the "checkout" build-arg. For example, to build the latest tagged commit:
+To choose a specific [branch](https://github.com/lightningnetwork/lnd/branches) or [tag](https://hub.docker.com/r/lightninglabs/lnd/tags?page=1&ordering=last_updated) instead, use the `checkout` build-arg. For example, to build the latest tagged commit:
 
 ```shell
 ⛰  docker build . --build-arg checkout=v0.14.1-beta -t myrepository/lnd:v0.14.1-beta
@@ -125,6 +125,12 @@ To build the image using the most current tag:
 
 ```shell
 ⛰  docker build . --build-arg checkout=$(git describe --tags `git rev-list --tags --max-count=1`) -t myrepository/lnd:latest-tag
+```
+
+You can also specify a different repo than the default (`https://github.com/lightningnetwork/lnd`) using the `git_url` build-arg:
+
+```shell
+⛰  docker build . --build-arg git_url=https://git.example.com/lnd.git --build-arg checkout=mybranch -t myrepository/lnd:v0.13.0-beta
 ```
 
 Once the image has been built and tagged locally, start the container:

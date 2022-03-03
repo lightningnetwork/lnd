@@ -1672,6 +1672,28 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	case *lnwire.UpdateFulfillHTLC:
 		pre := msg.PaymentPreimage
 		idx := msg.ID
+
+		// Before we pipeline the settle, we'll check the set of active
+		// htlc's to see if the related UpdateAddHTLC has been fully
+		// locked-in.
+		var lockedin bool
+		htlcs := l.channel.ActiveHtlcs()
+		for _, add := range htlcs {
+			// The HTLC will be outgoing and match idx.
+			if !add.Incoming && add.HtlcIndex == idx {
+				lockedin = true
+				break
+			}
+		}
+
+		if !lockedin {
+			l.fail(
+				LinkFailureError{code: ErrInvalidUpdate},
+				"unable to handle upstream settle",
+			)
+			return
+		}
+
 		if err := l.channel.ReceiveHTLCSettle(pre, idx); err != nil {
 			l.fail(
 				LinkFailureError{

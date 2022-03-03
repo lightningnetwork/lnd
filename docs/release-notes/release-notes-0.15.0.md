@@ -128,6 +128,8 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
   
 * [`ChannelLink` in the `htlcswitch` now performs a 2-way handoff instead of a 1-way handoff with its `ChannelArbitrator`.](https://github.com/lightningnetwork/lnd/pull/6221)
 
+* [The channel-commit-interval is now clamped to a reasonable timeframe of 1h.](https://github.com/lightningnetwork/lnd/pull/6220)
+
 # Contributors (Alphabetical Order)
 
 * 3nprob

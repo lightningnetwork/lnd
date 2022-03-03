@@ -16,6 +16,8 @@
 * Add [private status](https://github.com/lightningnetwork/lnd/pull/6167)
   to pendingchannels response.
 
+* [Update description for `state` command](https://github.com/lightningnetwork/lnd/pull/6237).
+
 ## Bug Fixes
 
 * [Pipelining an UpdateFulfillHTLC message now only happens when the related UpdateAddHTLC is locked-in.](https://github.com/lightningnetwork/lnd/pull/6246)

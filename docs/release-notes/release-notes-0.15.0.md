@@ -73,6 +73,8 @@
 * [The `tlv` package was refactored into its own Golang
   submodule](https://github.com/lightningnetwork/lnd/pull/6283).
 
+* [Source repository can now be specified for Docker image builds](https://github.com/lightningnetwork/lnd/pull/6300)
+
 ## RPC Server
 
 * [Add value to the field

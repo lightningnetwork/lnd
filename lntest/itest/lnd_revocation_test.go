@@ -525,6 +525,7 @@ func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
 	// potentitial second level spend spending from the commit tx.
 	isSecondLevelSpend := func(commitTxid,
 		secondLevelTxid *chainhash.Hash) bool {
+
 		secondLevel := ht.GetRawTransaction(secondLevelTxid)
 
 		// A second level spend should have only one input, and one

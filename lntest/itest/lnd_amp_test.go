@@ -188,7 +188,6 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 // testSendPaymentAMPInvoiceRepeat tests that it's possible to pay an AMP
 // invoice multiple times by having the client generate a new setID each time.
 func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
-
 	// In this basic test, we'll only need two nodes as we want to
 	// primarily test the recurring payment feature. So we'll re-use the
 	carol := ht.NewNode("Carol", nil)

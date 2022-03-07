@@ -504,5 +504,4 @@ func (s *scenarioFourNodes) assertAmoutPaid(ht *lntest.HarnessTest,
 		s.chanPointAliceBob,
 		amt+(baseFee*num)*2, int64(0),
 	)
-
 }

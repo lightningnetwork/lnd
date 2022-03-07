@@ -797,7 +797,6 @@ func (h *HarnessTest) AssertChannelExists(hn *HarnessNode,
 		}
 
 		return fmt.Errorf("channel point not active")
-
 	}, DefaultTimeout)
 
 	require.NoError(h, err, "timeout checking for channel point: %v", cp)
@@ -1054,7 +1053,6 @@ func (h *HarnessTest) AssertPaymentStatusFromStream(stream PaymentClient,
 		// when timeout is reached.
 		return fmt.Errorf("payment status, got %v, want %v",
 			payment.Status, status)
-
 	}, DefaultTimeout)
 
 	require.NoError(h, err, "timeout while waiting payment")
@@ -1691,7 +1689,6 @@ func (h *HarnessTest) assertPeerNotConnected(a, b *HarnessNode) {
 			}
 		}
 		return nil
-
 	}, DefaultTimeout)
 
 	require.NoError(h, err, "timeout checking peers not connected")
@@ -2380,6 +2377,7 @@ func (h *HarnessTest) AssertAmountPaid(channelName string, hn *HarnessNode,
 		}
 		if channel.TotalSatoshisReceived !=
 			amountReceived {
+
 			return fmt.Errorf("%v: incorrect amount"+
 				" received: %v != %v",
 				channelName,
@@ -2734,7 +2732,6 @@ func (h *HarnessTest) AssertLocalBalance(hn *HarnessNode,
 
 		return fmt.Errorf("balance is incorrect, got %v, expected %v",
 			target.LocalBalance, balance)
-
 	}, DefaultTimeout)
 
 	require.NoError(h, err, "timeout while chekcing for balance")
@@ -3253,7 +3250,6 @@ func (h *HarnessTest) AssertFeeReport(hn *HarnessNode,
 	require.EqualValues(h, day, feeReport.DayFeeSum, "day fee mismatch")
 	require.EqualValues(h, week, feeReport.DayFeeSum, "day week mismatch")
 	require.EqualValues(h, month, feeReport.DayFeeSum, "day month mismatch")
-
 }
 
 // ForwardingHistory makes a RPC call to the node's ForwardingHistory and

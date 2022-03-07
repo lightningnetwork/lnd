@@ -447,6 +447,7 @@ func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
 	case *lnrpc.ChannelEventUpdate_ClosedChannel:
 		if chanUpdate.Type !=
 			lnrpc.ChannelEventUpdate_CLOSED_CHANNEL {
+
 			return fmt.Errorf("update type mismatch: expected %v, got %v",
 				lnrpc.ChannelEventUpdate_CLOSED_CHANNEL,
 				chanUpdate.Type)

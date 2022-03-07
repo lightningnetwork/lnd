@@ -383,7 +383,6 @@ func middlewareManipulationTest(ht *lntest.HarnessTest, node *lntest.HarnessNode
 // middlewareMandatoryTest tests that all RPC requests are blocked if there is
 // a mandatory middleware declared that's currently not registered.
 func middlewareMandatoryTest(ht *lntest.HarnessTest, node *lntest.HarnessNode) {
-
 	// Let's declare our itest interceptor as mandatory but don't register
 	// it just yet. That should cause all RPC requests to fail, except for
 	// the registration itself.

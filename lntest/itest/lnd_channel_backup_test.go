@@ -666,7 +666,6 @@ func testExportChannelBackup(ht *lntest.HarnessTest) {
 			require.Len(ht, backedUpChans, len(chanPoints))
 
 			for _, chanPoint := range backedUpChans {
-
 				wp := ht.OutPointFromChannelPoint(chanPoint)
 				_, ok := chanPoints[wp]
 				require.True(ht, ok, "unexpected "+
@@ -1422,7 +1421,6 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 
 		// Now Dave should consider the channel fully closed.
 		ht.AssertNumPendingCloseChannels(dave, 0, 0)
-
 	} else {
 		// Dave should sweep his funds immediately, as they are not
 		// timelocked. We also expect Dave to sweep his anchor, if

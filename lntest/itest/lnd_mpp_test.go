@@ -146,7 +146,6 @@ func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 			"incorrect payment amt")
 
 		require.Len(ht, inv.Htlcs, num, "wrong num of HTLCs")
-
 	}
 
 	// Finally check that the payment shows up with three settled HTLCs in
@@ -246,7 +245,6 @@ func testSendMultiPathPayment(ht *lntest.HarnessTest) {
 		if htlc.State == lnrpc.InvoiceHTLCState_SETTLED {
 			settled++
 		}
-
 	}
 	require.Equal(ht, succeeded, settled,
 		"num of HTLCs wrong")

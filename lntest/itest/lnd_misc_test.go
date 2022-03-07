@@ -884,7 +884,6 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// assertTxLabel is a helper function which finds a target tx in our
 	// set of transactions and checks that it has the desired label.
 	assertTxLabel := func(targetTx, label string) {
-
 		// List all transactions relevant to our wallet, and find the
 		// tx so that we can check the correct label has been set.
 		txResp := ht.GetTransactions(ainz)

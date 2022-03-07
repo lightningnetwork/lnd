@@ -75,6 +75,7 @@ func testUpdateChanStatus(ht *lntest.HarnessTest) {
 	// happened in Carol's view.
 	assertChannelUpdate := func(node *lntest.HarnessNode,
 		policy *lnrpc.RoutingPolicy) {
+
 		ht.AssertChannelPolicyUpdate(
 			carol, node.PubKeyStr, policy, chanPoint, false,
 		)

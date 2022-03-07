@@ -1300,6 +1300,7 @@ type breachTest struct {
 }
 
 type spendTxs struct {
+	spendAll         *wire.MsgTx
 	commitSpendTx    *wire.MsgTx
 	htlc2ndLevlTx    *wire.MsgTx
 	htlc2ndLevlSpend *wire.MsgTx
@@ -1312,6 +1313,62 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 	localOutpoint := retribution.LocalOutpoint
 	remoteOutpoint := retribution.RemoteOutpoint
 	htlcOutpoint := retribution.HtlcRetributions[0].OutPoint
+
+	retInfo := newRetributionInfo(chanPoint, retribution)
+
+	// spendAllTx is used to spend all outputs from the breach.
+	spendAllTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: localOutpoint,
+			},
+			{
+				PreviousOutPoint: remoteOutpoint,
+			},
+			{
+				PreviousOutPoint: htlcOutpoint,
+			},
+		},
+		TxOut: []*wire.TxOut{
+			{Value: 500020000},
+		},
+	}
+
+	// In order for  the breacharbiter to detect that it is being spent
+	// using the revocation key, it will inspect the witness. Therefore
+	// sign and add the witness to the commit sweep.
+	for i := range retInfo.breachedOutputs {
+		inp := &retInfo.breachedOutputs[i]
+
+		switch inp.witnessType {
+		case input.CommitmentRevoke:
+			// We only need to revoke the remote commitment.
+			if inp.outpoint == remoteOutpoint {
+				inputScript, err := inp.CraftInputScript(
+					signer, spendAllTx,
+					txscript.NewTxSigHashes(spendAllTx), 1,
+				)
+				if err != nil {
+					return nil, err
+				}
+
+				spendAllTx.TxIn[1].Witness = inputScript.Witness
+			}
+
+		case input.HtlcAcceptedRevoke:
+			fallthrough
+		case input.HtlcOfferedRevoke:
+			inputScript, err := inp.CraftInputScript(
+				signer, spendAllTx,
+				txscript.NewTxSigHashes(spendAllTx), 2,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			spendAllTx.TxIn[2].Witness = inputScript.Witness
+		}
+	}
 
 	// commitSpendTx is used to spend commitment outputs.
 	commitSpendTx := &wire.MsgTx{
@@ -1326,6 +1383,29 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 		TxOut: []*wire.TxOut{
 			{Value: 500000000},
 		},
+	}
+
+	// In order for  the breacharbiter to detect that it is being spent
+	// using the revocation key, it will inspect the witness. Therefore
+	// sign and add the witness to the commit sweep.
+	for i := range retInfo.breachedOutputs {
+		inp := &retInfo.breachedOutputs[i]
+
+		if inp.witnessType == input.CommitmentRevoke {
+			// We only need to revoke the remote commitment.
+			if inp.outpoint == remoteOutpoint {
+				inputScript, err := inp.CraftInputScript(
+					signer, commitSpendTx,
+					txscript.NewTxSigHashes(commitSpendTx),
+					1,
+				)
+				if err != nil {
+					return nil, err
+				}
+
+				commitSpendTx.TxIn[1].Witness = inputScript.Witness
+			}
+		}
 	}
 
 	// htlc2ndLevlTx is used to transition an htlc output on the commitment
@@ -1346,8 +1426,8 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 		Index: 0,
 	}
 
-	// htlcSpendTx is used to spend from a second level htlc.
-	htlcSpendTx := &wire.MsgTx{
+	// htlc2ndLevlSpend is used to spend from a second level htlc.
+	htlc2ndLevlSpend := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
 			{
 				PreviousOutPoint: secondLvlOp,
@@ -1357,6 +1437,28 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 		TxOut: []*wire.TxOut{
 			{Value: 10000},
 		},
+	}
+
+	// Create a witness for the second-level HTLC spend that follows
+	// the structure of a revokation spend.
+	// Note we keep it simple and don't change the signer for creating the
+	// second-level HTLC spend.
+	for i := range retInfo.breachedOutputs {
+		inp := &retInfo.breachedOutputs[i]
+
+		switch inp.witnessType {
+		case input.HtlcAcceptedRevoke:
+			fallthrough
+		case input.HtlcOfferedRevoke:
+			spendWitness := wire.TxWitness(make([][]byte, 3))
+			spendWitness[0] = append(
+				[]byte{0}, byte(txscript.SigHashAll),
+			)
+			spendWitness[1] = []byte{1}
+			spendWitness[2] = inp.secondLevelWitnessScript
+
+			htlc2ndLevlSpend.TxIn[0].Witness = spendWitness
+		}
 	}
 
 	// htlcSweep is used to spend the HTLC output directly using the
@@ -1375,9 +1477,6 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 	// In order for  the breacharbiter to detect that it is being spent
 	// using the revocation key, it will inspect the witness. Therefore
 	// sign and add the witness to the HTLC sweep.
-	retInfo := newRetributionInfo(chanPoint, retribution)
-
-	hashCache := txscript.NewTxSigHashes(htlcSweep)
 	for i := range retInfo.breachedOutputs {
 		inp := &retInfo.breachedOutputs[i]
 
@@ -1387,7 +1486,8 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 			fallthrough
 		case input.HtlcOfferedRevoke:
 			inputScript, err := inp.CraftInputScript(
-				signer, htlcSweep, hashCache, 0,
+				signer, htlcSweep,
+				txscript.NewTxSigHashes(htlcSweep), 0,
 			)
 			if err != nil {
 				return nil, err
@@ -1398,9 +1498,10 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 	}
 
 	return &spendTxs{
+		spendAll:         spendAllTx,
 		commitSpendTx:    commitSpendTx,
 		htlc2ndLevlTx:    htlc2ndLevlTx,
-		htlc2ndLevlSpend: htlcSpendTx,
+		htlc2ndLevlSpend: htlc2ndLevlSpend,
 		htlcSweep:        htlcSweep,
 	}, nil
 }
@@ -2013,6 +2114,302 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db)
 }
 
+var reportFirstStage channeldb.ResolverOutcome = channeldb.ResolverOutcomeFirstStage
+
+type reportTest struct {
+	name     string
+	getSpend func(outpoint wire.OutPoint, spendTxs *spendTxs) (*wire.MsgTx,
+		channeldb.ResolverOutcome)
+}
+
+var reportTests = []reportTest{{
+	name: "Justice spends all",
+	getSpend: func(outpoint wire.OutPoint, spendTxs *spendTxs) (*wire.MsgTx,
+		channeldb.ResolverOutcome) {
+
+		switch outpoint {
+		case spendTxs.htlc2ndLevlSpend.TxIn[0].PreviousOutPoint:
+			return nil, 0
+
+		default:
+			return spendTxs.spendAll,
+				channeldb.ResolverOutcomeClaimed
+		}
+	},
+}, {
+	name: "Commitment + HTLC",
+	getSpend: func(outpoint wire.OutPoint, spendTxs *spendTxs) (*wire.MsgTx,
+		channeldb.ResolverOutcome) {
+
+		switch outpoint {
+
+		case spendTxs.htlc2ndLevlSpend.TxIn[0].PreviousOutPoint:
+			return nil, 0
+
+		case spendTxs.htlcSweep.TxIn[0].PreviousOutPoint:
+			return spendTxs.htlcSweep,
+				channeldb.ResolverOutcomeClaimed
+
+		default:
+			return spendTxs.commitSpendTx,
+				channeldb.ResolverOutcomeClaimed
+
+		}
+	},
+}, {
+	name: "HTLC 2nd stage",
+	getSpend: func(outpoint wire.OutPoint, spendTxs *spendTxs) (*wire.MsgTx,
+		channeldb.ResolverOutcome) {
+
+		switch outpoint {
+
+		case spendTxs.htlc2ndLevlSpend.TxIn[0].PreviousOutPoint:
+			return spendTxs.htlc2ndLevlSpend,
+				channeldb.ResolverOutcomeClaimed
+
+		case spendTxs.htlcSweep.TxIn[0].PreviousOutPoint:
+			return spendTxs.htlc2ndLevlTx, reportFirstStage
+
+		default:
+			return spendTxs.commitSpendTx,
+				channeldb.ResolverOutcomeClaimed
+
+		}
+	},
+}, {
+	name: "Time out commitment",
+	getSpend: func(outpoint wire.OutPoint, spendTxs *spendTxs) (*wire.MsgTx,
+		channeldb.ResolverOutcome) {
+
+		localOutpoint := spendTxs.commitSpendTx.TxIn[1].PreviousOutPoint
+
+		switch outpoint {
+
+		case spendTxs.htlcSweep.TxIn[0].PreviousOutPoint:
+			return spendTxs.htlc2ndLevlTx, reportFirstStage
+
+		case spendTxs.htlc2ndLevlSpend.TxIn[0].PreviousOutPoint:
+			return spendTxs.htlc2ndLevlSpend,
+				channeldb.ResolverOutcomeClaimed
+
+		case spendTxs.commitSpendTx.TxIn[1].PreviousOutPoint:
+			dummyTx := &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					{PreviousOutPoint: localOutpoint},
+				},
+				TxOut: []*wire.TxOut{
+					{Value: 20000},
+				},
+			}
+			return dummyTx, channeldb.ResolverOutcomeTimeout
+
+		default:
+			return spendTxs.commitSpendTx,
+				channeldb.ResolverOutcomeClaimed
+
+		}
+	},
+}, {
+	name: "Time out all",
+	getSpend: func(outpoint wire.OutPoint, spendTxs *spendTxs) (*wire.MsgTx,
+		channeldb.ResolverOutcome) {
+
+		localOutpoint := spendTxs.commitSpendTx.TxIn[1].PreviousOutPoint
+
+		switch outpoint {
+
+		case spendTxs.htlc2ndLevlSpend.TxIn[0].PreviousOutPoint:
+			htlc2Outpoint := wire.OutPoint{
+				Hash:  spendTxs.htlc2ndLevlTx.TxHash(),
+				Index: 0,
+			}
+			dummyTx := &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					{PreviousOutPoint: htlc2Outpoint},
+				},
+				TxOut: []*wire.TxOut{
+					{Value: 20000},
+				},
+			}
+			return dummyTx, channeldb.ResolverOutcomeTimeout
+
+		case spendTxs.htlcSweep.TxIn[0].PreviousOutPoint:
+			return spendTxs.htlc2ndLevlTx, reportFirstStage
+
+		case spendTxs.commitSpendTx.TxIn[1].PreviousOutPoint:
+			dummyTx := &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					{PreviousOutPoint: localOutpoint},
+				},
+				TxOut: []*wire.TxOut{
+					{Value: 20000},
+				},
+			}
+			return dummyTx, channeldb.ResolverOutcomeTimeout
+
+		default:
+			return spendTxs.commitSpendTx, channeldb.ResolverOutcomeClaimed
+
+		}
+	},
+}}
+
+// TestReporting checks reports created from resolving a breached channel.
+func TestReporting(t *testing.T) {
+	for _, test := range reportTests {
+		tc := test
+		t.Run(tc.name, func(t *testing.T) {
+			testReporting(t, tc)
+		})
+	}
+}
+
+func testReporting(t *testing.T, test reportTest) {
+	brar, alice, _, bobClose, contractBreaches, cleanUpChans,
+		cleanUpArb := initBreachedState(t)
+	defer cleanUpChans()
+	defer cleanUpArb()
+
+	var (
+		height      = bobClose.ChanSnapshot.CommitHeight
+		blockHeight = int32(10)
+		chanPoint   = alice.ChanPoint
+		replyChan   = make(chan []*channeldb.ResolverReport)
+	)
+
+	// We ignore any justice transaction created by the breach arbitor as
+	// we only need to check the reports against pre-generated justice
+	// transactions.
+	brar.cfg.PublishTransaction = func(tx *wire.MsgTx, _ string) error {
+		return nil
+	}
+
+	// Notify the breach arbiter about the breach.
+	retribution, err := lnwallet.NewBreachRetribution(
+		alice.State(), height, uint32(blockHeight),
+	)
+	if err != nil {
+		t.Fatalf("unable to create breach retribution: %v", err)
+	}
+
+	processACK := make(chan error, 1)
+	breach := &ContractBreachEvent{
+		ChanPoint: *chanPoint,
+		ProcessACK: func(brarErr error) {
+			processACK <- brarErr
+		},
+		BreachRetribution: retribution,
+	}
+
+	select {
+	case contractBreaches <- breach:
+	case <-time.After(defaultTimeout):
+		t.Fatalf("breach not delivered")
+	}
+
+	// We'll also wait to consume the ACK back from the breach arbiter.
+	select {
+	case err := <-processACK:
+		if err != nil {
+			t.Fatalf("handoff failed: %v", err)
+		}
+	case <-time.After(defaultTimeout):
+		t.Fatalf("breach arbiter didn't send ack back")
+	}
+
+	state := alice.State()
+	err = state.CloseChannel(&channeldb.ChannelCloseSummary{
+		ChanPoint:               state.FundingOutpoint,
+		ChainHash:               state.ChainHash,
+		RemotePub:               state.IdentityPub,
+		CloseType:               channeldb.BreachClose,
+		Capacity:                state.Capacity,
+		IsPending:               true,
+		ShortChanID:             state.ShortChanID(),
+		RemoteCurrentRevocation: state.RemoteCurrentRevocation,
+		RemoteNextRevocation:    state.RemoteNextRevocation,
+		LocalChanConfig:         state.LocalChanCfg,
+	})
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+
+	complete, err := brar.SubscribeBreachComplete(
+		chanPoint, replyChan,
+	)
+	if err != nil {
+		t.Fatalf("unable to subscribe to breach arbiter to receive "+
+			"resolver reports: %v", err)
+	}
+
+	if complete {
+		t.Fatalf("subscribing to breach arbiter returned breach " +
+			"already completed successfully, expecting not done " +
+			"yet")
+	}
+
+	// After exiting, the breach arbiter should have persisted the
+	// retribution information and the channel should be shown as pending
+	// force closed.
+	assertArbiterBreach(t, brar, chanPoint)
+
+	// Assert that the database sees the channel as pending close, otherwise
+	// the breach arbiter won't be able to fully close it.
+	assertPendingClosed(t, alice)
+
+	// Notify that the breaching transaction is confirmed, to trigger the
+	// retribution logic.
+	notifier := brar.cfg.Notifier.(*mock.SpendNotifier)
+
+	select {
+	case notifier.ConfChan <- &chainntnfs.TxConfirmation{}:
+	case <-time.After(defaultTimeout):
+		t.Fatalf("conf not delivered")
+	}
+
+	// Obtain pre-generated justice transactions.
+	spendTxs, err := getSpendTransactions(
+		brar.cfg.Signer, chanPoint, retribution,
+	)
+	require.NoError(t, err)
+
+	// The expected map will contain for an outpoint the expected spending
+	// transaction and resolver outcome in the report.
+	expected := make(map[wire.OutPoint]*reportHelper)
+
+	// For each outpoint that may need to be resolved we call the getSpend
+	// function on the test to handle what transaction spends the outpoint
+	// and how it should be reported.
+	localOutpoint := retribution.LocalOutpoint
+	remoteOutpoint := retribution.RemoteOutpoint
+	htlcOutpoint := retribution.HtlcRetributions[0].OutPoint
+	htlc2ndOutpoint := spendTxs.htlc2ndLevlSpend.TxIn[0].PreviousOutPoint
+
+	for _, outpoint := range []wire.OutPoint{
+		localOutpoint,
+		remoteOutpoint,
+		htlcOutpoint,
+		htlc2ndOutpoint,
+	} {
+		spend, outcome := test.getSpend(outpoint, spendTxs)
+		if spend != nil {
+			notifier.Spend(&outpoint, blockHeight, spend)
+
+			expected[outpoint] = &reportHelper{
+				outcome:   outcome,
+				spendTxID: spend.TxHash(),
+			}
+		}
+	}
+
+	// Assert that the actual reports send on the reply channel corresponds
+	// to those we expect.
+	assertReportsSent(t, retribution.BreachTransaction, expected, replyChan)
+
+	// Assert that the channel is fully resolved.
+	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db)
+}
+
 // findInputIndex returns the index of the input that spends from the given
 // outpoint. This method fails if the outpoint is not found.
 func findInputIndex(t *testing.T, op wire.OutPoint, tx *wire.MsgTx) int {
@@ -2114,6 +2511,54 @@ func assertBrarCleanup(t *testing.T, brar *BreachArbiter,
 	}, 5*time.Second)
 	if err != nil {
 		t.Fatalf(err.Error())
+	}
+}
+
+type reportHelper struct {
+	outcome   channeldb.ResolverOutcome
+	spendTxID chainhash.Hash
+}
+
+// assertReportsSent checks that we receive reports on the replyChan channel
+// as expected from the breachedOutpoints map.
+func assertReportsSent(t *testing.T, breachedTx *wire.MsgTx,
+	expected map[wire.OutPoint]*reportHelper,
+	replyChan chan []*channeldb.ResolverReport) {
+
+	// Receive all reports from the replyChan channel and add them to the
+	// map.
+	reports := make(map[wire.OutPoint]*channeldb.ResolverReport, 0)
+
+	for _, report := range <-replyChan {
+		reports[report.OutPoint] = report
+	}
+
+	// Compare the received reports with what is expected from the breached
+	// outpoints.
+	if len(reports) != len(expected) {
+		t.Fatalf("wrong number of resolution reports: got %v, "+
+			"expected %v", len(reports), len(expected))
+	}
+
+	for out, o := range expected {
+		report, ok := reports[out]
+		if !ok {
+			t.Fatalf("resolution report missing outpoint: %v", out)
+		}
+
+		amt := btcutil.Amount(breachedTx.TxOut[out.Index].Value)
+		check := &channeldb.ResolverReport{
+			OutPoint:        out,
+			Amount:          amt,
+			ResolverType:    channeldb.ResolverTypeBreach,
+			ResolverOutcome: o.outcome,
+			SpendTxID:       &o.spendTxID,
+		}
+
+		if !reflect.DeepEqual(report, check) {
+			t.Fatalf("unexpected report: got %v, expected %v",
+				report, check)
+		}
 	}
 }
 

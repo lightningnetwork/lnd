@@ -245,6 +245,7 @@ out:
 
 			if aliceResp.ConfirmedBalance == expectedBalance &&
 				bobResp.ConfirmedBalance == expectedBalance {
+
 				break out
 			}
 		case <-balanceTimeout:
@@ -1182,6 +1183,7 @@ func (n *NetworkHarness) CloseChannel(lnNode *HarnessNode,
 		// not.
 		filterChannel := func(node *HarnessNode,
 			op wire.OutPoint) (*lnrpc.Channel, error) {
+
 			listResp, err := node.rpc.LN.ListChannels(ctxt, listReq)
 			if err != nil {
 				return nil, err

@@ -195,7 +195,6 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 	// Check that Alice's invoices to be shown as settled and failed
 	// accordingly, and preimages matching up.
 	for i, preimg := range preimages {
-
 		if i%2 == 0 {
 			ht.AssertPaymentStatus(
 				alice, preimg, lnrpc.Payment_SUCCEEDED,

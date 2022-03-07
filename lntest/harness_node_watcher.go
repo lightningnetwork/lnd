@@ -249,7 +249,6 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 
 	for {
 		select {
-
 		// A new graph update has just been received, so we'll examine
 		// the current set of registered clients to see if we can
 		// dispatch any requests.
@@ -335,7 +334,6 @@ func (hn *HarnessNode) handleChannelEdgeUpdates(
 		if newChan.RoutingPolicy != nil {
 			hn.updateNodeStatePolicy(op, newChan)
 		}
-
 	}
 }
 
@@ -615,7 +613,6 @@ func (hn *HarnessNode) getChannelPolicies(include bool) policyUpdateMap {
 	policyUpdates := policyUpdateMap{}
 
 	for _, e := range graph.Edges {
-
 		policies := policyUpdates[e.ChanPoint]
 
 		// If the map[op] is nil, we need to initialize the map first.

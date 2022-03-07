@@ -283,7 +283,6 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// utxo nursery.
 	carolPubKey := carol.PubKey[:]
 	for i := 0; i < numInvoices; i++ {
-
 		req := &routerrpc.SendPaymentRequest{
 			Dest:           carolPubKey,
 			Amt:            int64(paymentAmt),

@@ -5904,10 +5904,20 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		minChannelSize = 0
 	}
 
-	// TODO(roasbeef): graph diameter
+	// Graph diameter.
+	channelGraph := autopilot.ChannelGraphFromCachedDatabase(graph)
+	simpleGraph, err := autopilot.NewSimpleGraph(channelGraph)
+	if err != nil {
+		return nil, err
+	}
+	start := time.Now()
+	diameter := simpleGraph.DiameterRadialCutoff()
+	rpcsLog.Infof("elapsed time for diameter (%d) calculation: %v", diameter,
+		time.Since(start))
 
 	// TODO(roasbeef): also add oldest channel?
 	netInfo := &lnrpc.NetworkInfo{
+		GraphDiameter:        diameter,
 		MaxOutDegree:         maxChanOut,
 		AvgOutDegree:         float64(2*numChannels) / float64(numNodes),
 		NumNodes:             numNodes,

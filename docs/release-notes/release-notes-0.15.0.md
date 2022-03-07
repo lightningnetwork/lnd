@@ -81,6 +81,8 @@
   `remote_balance`](https://github.com/lightningnetwork/lnd/pull/5931) in
   `pending_force_closing_channels` under `pendingchannels` whereas before was
   empty(zero).
+* The graph's [diameter is calculated](https://github.com/lightningnetwork/lnd/pull/6066)
+  and added to the `getnetworkinfo` output.
 
 * [Add dev only RPC subserver and the devrpc.ImportGraph
   call](https://github.com/lightningnetwork/lnd/pull/6149)
@@ -139,6 +141,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * 3nprob
 * Andreas Schjønhaug
 * asvdf
+* bitromortac
 * BTCparadigm
 * Carla Kirk-Cohen
 * Carsten Otto

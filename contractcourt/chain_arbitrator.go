@@ -185,8 +185,8 @@ type ChainArbitratorConfig struct {
 	// SubscribeBreachComplete is used by the breachResolver to register a
 	// subscription that notifies when the breach resolution process is
 	// complete.
-	SubscribeBreachComplete func(op *wire.OutPoint, c chan struct{}) (
-		bool, error)
+	SubscribeBreachComplete func(op *wire.OutPoint,
+		c chan []*channeldb.ResolverReport) (bool, error)
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all

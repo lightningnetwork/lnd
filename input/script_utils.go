@@ -379,13 +379,45 @@ func IsHtlcSpendRevoke(txIn *wire.TxIn, signDesc *SignDescriptor) (
 		return false, err
 	}
 
-	if len(txIn.Witness) == 3 &&
-		bytes.Equal(txIn.Witness[1], revokeKey.SerializeCompressed()) {
+	if len(txIn.Witness) != 3 ||
+		!bytes.Equal(txIn.Witness[1], revokeKey.SerializeCompressed()) ||
+		!bytes.Equal(txIn.Witness[2], signDesc.WitnessScript) {
 
-		return true, nil
+		return false, nil
 	}
 
-	return false, nil
+	return true, nil
+}
+
+// IsCommitmentOrHtlcSecondLevelRevoke is used to determine if the passed spend
+// is spending a HTLC output using the revocation key.
+//
+// Spending from a revoked commitment and revoked second level HTLC transaction
+// always involves spending from the if-branch in the witness script:
+// OP_IF
+//    # Penalty transaction
+//    <revocationpubkey>
+// OP_ELSE
+//    ...
+//
+// Therefore we make sure that the witness program of the spending transaction
+// is of the form `<witness_script> 1 <revokation_sig>` and that the expected
+// revokation pubkey is found inside the if-branch of the witness script.
+func IsCommitmentOrHtlcSecondLevelRevoke(txIn *wire.TxIn,
+	signDesc *SignDescriptor) (bool, error) {
+
+	// Note that for a revoked commitment or revoked second-level HTLC
+	// output the revokation pubkey is exposed directly in the witness
+	// script. The witness program triggers the if-branch and provides the
+	// revokation signature.
+	if len(txIn.Witness) != 3 ||
+		!bytes.Equal(txIn.Witness[1], []byte{1}) ||
+		!bytes.Equal(txIn.Witness[2], signDesc.WitnessScript) {
+
+		return false, nil
+	}
+
+	return true, nil
 }
 
 // SenderHtlcSpendRedeem constructs a valid witness allowing the receiver of an

@@ -207,7 +207,7 @@ type chanArbTestCtx struct {
 	sweeper *mockSweeper
 
 	breachSubscribed     chan struct{}
-	breachResolutionChan chan struct{}
+	breachResolutionChan chan []*channeldb.ResolverReport
 }
 
 func (c *chanArbTestCtx) CleanUp() {
@@ -354,7 +354,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 			return true
 		},
 		SubscribeBreachComplete: func(op *wire.OutPoint,
-			c chan struct{}) (bool, error) {
+			c chan []*channeldb.ResolverReport) (bool, error) {
 
 			chanArbCtx.breachResolutionChan = c
 			chanArbCtx.breachSubscribed <- struct{}{}

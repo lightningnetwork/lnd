@@ -17,9 +17,10 @@ type breachResolver struct {
 	// to the breacharbiter for breach resolution.
 	subscribed bool
 
-	// replyChan is closed when the breach arbiter has completed serving
-	// justice.
-	replyChan chan struct{}
+	// replyChan is a channel used when subscribing to the breacharbiter and
+	// is expected to receive a single slice of all reports for resolved
+	// resolutions when the breacharbiter has completed serving justice.
+	replyChan chan []*channeldb.ResolverReport
 
 	contractResolverKit
 }
@@ -28,7 +29,7 @@ type breachResolver struct {
 func newBreachResolver(resCfg ResolverConfig) *breachResolver {
 	r := &breachResolver{
 		contractResolverKit: *newContractResolverKit(resCfg),
-		replyChan:           make(chan struct{}),
+		replyChan:           make(chan []*channeldb.ResolverReport),
 	}
 
 	r.initLogger(r)
@@ -64,14 +65,19 @@ func (b *breachResolver) Resolve() (ContractResolver, error) {
 		b.subscribed = true
 	}
 
-	select {
-	case <-b.replyChan:
-		// The replyChan has been closed, signalling that the breach
-		// has been fully resolved. Checkpoint the resolved state and
-		// exit.
-		b.resolved = true
-		return nil, b.Checkpoint(b)
-	case <-b.quit:
+Loop:
+	for {
+		select {
+		case reports := <-b.replyChan:
+			// The replyChan has sent the single batch of resolver
+			// reports, signalling that the breach has been fully
+			// resolved.
+			// Checkpoint the resolved state and exit.
+			b.resolved = true
+			return nil, b.Checkpoint(b, reports...)
+		case <-b.quit:
+			break Loop
+		}
 	}
 
 	return nil, errResolverShuttingDown
@@ -104,7 +110,7 @@ func newBreachResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 
 	b := &breachResolver{
 		contractResolverKit: *newContractResolverKit(resCfg),
-		replyChan:           make(chan struct{}),
+		replyChan:           make(chan []*channeldb.ResolverReport),
 	}
 
 	if err := binary.Read(r, endian, &b.resolved); err != nil {

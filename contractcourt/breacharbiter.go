@@ -184,7 +184,7 @@ type BreachArbiter struct {
 
 	cfg *BreachConfig
 
-	subscriptions map[wire.OutPoint]chan struct{}
+	subscriptions map[wire.OutPoint]*notification
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -196,7 +196,7 @@ type BreachArbiter struct {
 func NewBreachArbiter(cfg *BreachConfig) *BreachArbiter {
 	return &BreachArbiter{
 		cfg:           cfg,
-		subscriptions: make(map[wire.OutPoint]chan struct{}),
+		subscriptions: make(map[wire.OutPoint]*notification),
 		quit:          make(chan struct{}),
 	}
 }
@@ -324,10 +324,18 @@ func (b *BreachArbiter) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 	return b.cfg.Store.IsBreached(chanPoint)
 }
 
+// notification is a structure containing a channel to send resolved resolution
+// reports to a subscribed subsystem. The reports are expected to be sent once
+// in a single batch when the breach has been completely resolved.
+type notification struct {
+	c       chan []*channeldb.ResolverReport
+	reports []*channeldb.ResolverReport
+}
+
 // SubscribeBreachComplete is used by outside subsystems to be notified of a
 // successful breach resolution.
 func (b *BreachArbiter) SubscribeBreachComplete(chanPoint *wire.OutPoint,
-	c chan struct{}) (bool, error) {
+	c chan []*channeldb.ResolverReport) (bool, error) {
 
 	breached, err := b.cfg.Store.IsBreached(chanPoint)
 	if err != nil {
@@ -347,7 +355,7 @@ func (b *BreachArbiter) SubscribeBreachComplete(chanPoint *wire.OutPoint,
 	// subscription. There can only be one subscription per channel point.
 	b.Lock()
 	defer b.Unlock()
-	b.subscriptions[*chanPoint] = c
+	b.subscriptions[*chanPoint] = &notification{c, nil}
 
 	return false, nil
 }
@@ -357,8 +365,14 @@ func (b *BreachArbiter) SubscribeBreachComplete(chanPoint *wire.OutPoint,
 func (b *BreachArbiter) notifyBreachComplete(chanPoint *wire.OutPoint) {
 	b.Lock()
 	defer b.Unlock()
-	if c, ok := b.subscriptions[*chanPoint]; ok {
-		close(c)
+	if n, ok := b.subscriptions[*chanPoint]; ok {
+		// Send the complete batch of reports to the subscriber or
+		// shut down if the signal to shut down is sent.
+		select {
+		case n.c <- n.reports:
+		case <-b.quit:
+		}
+		close(n.c)
 	}
 
 	// Remove the subscription.
@@ -570,9 +584,10 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 
 // updateBreachInfo mutates the passed breachInfo by removing or converting any
 // outputs among the spends. It also counts the total and revoked funds swept
-// by our justice spends.
-func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
-	btcutil.Amount, btcutil.Amount) {
+// by our justice spends. Lastly, it sends reports for resolved resolutions as
+// notifications to a subscribed subsystem.
+func (b *BreachArbiter) updateBreachInfo(breachInfo *retributionInfo,
+	spends []spend) (btcutil.Amount, btcutil.Amount) {
 
 	inputs := breachInfo.breachedOutputs
 	doneOutputs := make(map[int]struct{})
@@ -610,10 +625,23 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 				breachedOutput.witnessType,
 				breachedOutput.outpoint, breachInfo.chanPoint)
 
-			// In this case we'll morph our initial revoke
-			// spend to instead point to the second level
-			// output, and update the sign descriptor in the
-			// process.
+			// Add report of the remotely spent 1st stage HTLC if
+			// there is a subscription to it.
+			if n, ok := b.subscriptions[breachInfo.chanPoint]; ok {
+				spendTxID := s.detail.SpendingTx.TxHash()
+				report := &channeldb.ResolverReport{
+					Amount:          breachedOutput.amt,
+					OutPoint:        breachedOutput.outpoint,
+					ResolverType:    channeldb.ResolverTypeBreach,
+					ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
+					SpendTxID:       &spendTxID,
+				}
+				n.reports = append(n.reports, report)
+			}
+
+			// We'll morph our initial revoke spend to instead point
+			// to the second level output, and update the sign
+			// descriptor in the process.
 			convertToSecondLevelRevoke(
 				breachedOutput, breachInfo, s.detail,
 			)
@@ -643,6 +671,43 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 			breachedOutput.outpoint, breachInfo.chanPoint)
 
 		doneOutputs[s.index] = struct{}{}
+
+		// Add report of the resolved output if there is a subscription.
+		if n, ok := b.subscriptions[breachInfo.chanPoint]; ok {
+			signDesc := &breachedOutput.signDesc
+			resolverOutcome := channeldb.ResolverOutcomeClaimed
+
+			// Check if the breached output was spent using our
+			// revokation key and create the resolver report
+			// accordingly.
+			//
+			// Note that if the 1st level HTLC was not spent by us
+			// then we have already transitioned to the second level
+			// and check how it was resolved here explicitly.
+			switch breachedOutput.witnessType {
+			case input.CommitmentRevoke, input.HtlcSecondLevelRevoke:
+				ok, err := input.IsCommitmentOrHtlcSecondLevelRevoke(
+					txIn, signDesc)
+				if err != nil {
+					brarLog.Errorf("Unable to determine "+
+						"if revoke spend: %v", err)
+					continue
+				}
+				if !ok {
+					resolverOutcome = channeldb.ResolverOutcomeTimeout
+				}
+			}
+
+			spendTxID := s.detail.SpendingTx.TxHash()
+			report := &channeldb.ResolverReport{
+				Amount:          breachedOutput.amt,
+				OutPoint:        breachedOutput.outpoint,
+				ResolverType:    channeldb.ResolverTypeBreach,
+				ResolverOutcome: resolverOutcome,
+				SpendTxID:       &spendTxID,
+			}
+			n.reports = append(n.reports, report)
+		}
 	}
 
 	// Filter the inputs for which we can no longer proceed.
@@ -760,7 +825,7 @@ Loop:
 		select {
 		case spends := <-spendChan:
 			// Update the breach info with the new spends.
-			t, r := updateBreachInfo(breachInfo, spends)
+			t, r := b.updateBreachInfo(breachInfo, spends)
 			totalFunds += t
 			revokedFunds += r
 

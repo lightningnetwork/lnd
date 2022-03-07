@@ -39,10 +39,8 @@ To start your local etcd instance for testing run:
 ```
 
 The large `max-txn-ops` and `max-request-bytes` values are currently required in
-case of running LND with the full graph in etcd. Upcoming versions will split
-the database to local and replicated parts and only essential parts will remain
-in the replicated database, removing the requirement for these additional 
-settings. These parameters have been tested to work with testnet LND.
+case of running LND with the full graph in etcd. These parameters have been
+tested to work with testnet LND.
 
 ## Configuring LND to run on etcd
 

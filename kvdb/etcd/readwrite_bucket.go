@@ -17,6 +17,9 @@ type readWriteBucket struct {
 	// appropriate prefix to prefix the key.
 	id []byte
 
+	// key is the bucket key.
+	key []byte
+
 	// tx holds the parent transaction.
 	tx *readWriteTx
 }
@@ -25,8 +28,9 @@ type readWriteBucket struct {
 // and bucket id.
 func newReadWriteBucket(tx *readWriteTx, key, id []byte) *readWriteBucket {
 	return &readWriteBucket{
-		id: id,
-		tx: tx,
+		id:  id,
+		key: key,
+		tx:  tx,
 	}
 }
 
@@ -64,6 +68,31 @@ func (b *readWriteBucket) ForEach(cb func(k, v []byte) error) error {
 	}
 
 	return nil
+}
+
+// ForAll is an optimized version of ForEach for the case when we know we will
+// fetch all (or almost all) items.
+//
+// NOTE: ForAll differs from ForEach in that no additional queries can
+// be executed within the callback.
+func (b *readWriteBucket) ForAll(cb func(k, v []byte) error) error {
+	// When we opened this bucket, we fetched the bucket key using the STM
+	// which put a revision "lock" in the read set. We can leverage this
+	// by incrementing the revision on the bucket, making any transaction
+	// retry that'd touch this same bucket. This way we can safely read all
+	// keys from the bucket and not cache them in the STM.
+	// To increment the bucket's revision, we simply put in the bucket key
+	// value again (which is idempotent if the bucket has just been created).
+	b.tx.stm.Put(string(b.key), string(b.id))
+
+	// TODO(bhandras): page size should be configurable in ForAll.
+	return b.tx.stm.FetchRangePaginatedRaw(
+		string(b.id), 1000,
+		func(kv KV) error {
+			key, val := getKeyVal(&kv)
+			return cb(key, val)
+		},
+	)
 }
 
 // Get returns the value for the given key. Returns nil if the key does
@@ -405,10 +434,4 @@ func (b *readWriteBucket) Prefetch(paths ...[]string) {
 	}
 
 	b.tx.stm.Prefetch(flattenMap(keys), flattenMap(ranges))
-}
-
-// ForAll is an optimized version of ForEach with the limitation that no
-// additional queries can be executed within the callback.
-func (b *readWriteBucket) ForAll(cb func(k, v []byte) error) error {
-	return b.ForEach(cb)
 }

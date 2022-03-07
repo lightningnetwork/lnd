@@ -92,6 +92,11 @@
   change, it allows encrypted failure messages to be returned to the sender.
   Additionally it is possible to signal a malformed htlc.
 
+## Database
+
+* [Add ForAll implementation for etcd to speed up
+  graph cache at startup](https://github.com/lightningnetwork/lnd/pull/6136)
+
 ## Documentation
 
 * Improved instructions on [how to build lnd for mobile](https://github.com/lightningnetwork/lnd/pull/6085).
@@ -139,6 +144,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 # Contributors (Alphabetical Order)
 
 * 3nprob
+* Andras Banki-Horvath
 * Andreas Schjønhaug
 * asvdf
 * bitromortac

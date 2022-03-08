@@ -1010,7 +1010,8 @@ func (c *ChainArbitrator) NotifyContractUpdate(chanPoint wire.OutPoint,
 		return fmt.Errorf("can't find arbitrator for %v", chanPoint)
 	}
 
-	return arbitrator.notifyContractUpdate(update)
+	arbitrator.notifyContractUpdate(update)
+	return nil
 }
 
 // GetChannelArbitrator safely returns the channel arbitrator for a given

@@ -864,8 +864,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		HtlcKey: LocalHtlcSet,
 		Htlcs:   htlcSet,
 	}
-	err = chanArb.notifyContractUpdate(newUpdate)
-	require.NoError(t, err)
+	chanArb.notifyContractUpdate(newUpdate)
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *wire.MsgTx, 1)
@@ -1872,8 +1871,7 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 				HtlcKey: htlcKey,
 				Htlcs:   []channeldb.HTLC{danglingHTLC},
 			}
-			err = chanArb.notifyContractUpdate(newUpdate)
-			require.NoError(t, err)
+			chanArb.notifyContractUpdate(newUpdate)
 
 			// At this point, we now have a split commitment state
 			// from the PoV of the channel arb. There's now an HTLC
@@ -2061,8 +2059,7 @@ func TestChannelArbitratorPendingExpiredHTLC(t *testing.T) {
 		HtlcKey: RemoteHtlcSet,
 		Htlcs:   []channeldb.HTLC{pendingHTLC},
 	}
-	err = chanArb.notifyContractUpdate(newUpdate)
-	require.NoError(t, err)
+	chanArb.notifyContractUpdate(newUpdate)
 
 	// We will advance the uptime to 10 seconds which should be still within
 	// the grace period and should not trigger going to chain.
@@ -2408,6 +2405,14 @@ func TestSweepAnchors(t *testing.T) {
 			htlcDust.HtlcIndex: htlcDust,
 		},
 	}
+	chanArb.unmergedSet[LocalHtlcSet] = htlcSet{
+		incomingHTLCs: map[uint64]channeldb.HTLC{
+			htlcWithPreimage.HtlcIndex: htlcWithPreimage,
+		},
+		outgoingHTLCs: map[uint64]channeldb.HTLC{
+			htlcDust.HtlcIndex: htlcDust,
+		},
+	}
 
 	// Setup our remote HTLC set such that no valid HTLCs can be used, thus
 	// we default to anchorSweepConfTarget.
@@ -2420,11 +2425,27 @@ func TestSweepAnchors(t *testing.T) {
 			htlcDust.HtlcIndex: htlcDust,
 		},
 	}
+	chanArb.unmergedSet[RemoteHtlcSet] = htlcSet{
+		incomingHTLCs: map[uint64]channeldb.HTLC{
+			htlcSmallExipry.HtlcIndex: htlcSmallExipry,
+		},
+		outgoingHTLCs: map[uint64]channeldb.HTLC{
+			htlcDust.HtlcIndex: htlcDust,
+		},
+	}
 
 	// Setup out pending remote HTLC set such that we will use the HTLC's
 	// CLTV from the outgoing HTLC set.
 	expectedPendingDeadline := htlcSmallExipry.RefundTimeout - heightHint
 	chanArb.activeHTLCs[RemotePendingHtlcSet] = htlcSet{
+		incomingHTLCs: map[uint64]channeldb.HTLC{
+			htlcDust.HtlcIndex: htlcDust,
+		},
+		outgoingHTLCs: map[uint64]channeldb.HTLC{
+			htlcSmallExipry.HtlcIndex: htlcSmallExipry,
+		},
+	}
+	chanArb.unmergedSet[RemotePendingHtlcSet] = htlcSet{
 		incomingHTLCs: map[uint64]channeldb.HTLC{
 			htlcDust.HtlcIndex: htlcDust,
 		},
@@ -2561,8 +2582,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		// preimage available.
 		Htlcs: []channeldb.HTLC{htlc, htlcWithPreimage},
 	}
-	err = chanArb.notifyContractUpdate(newUpdate)
-	require.NoError(t, err)
+	chanArb.notifyContractUpdate(newUpdate)
 
 	newUpdate = &ContractUpdate{
 		HtlcKey: RemoteHtlcSet,
@@ -2571,8 +2591,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		// incoming HTLC (toRemoteHTLCs) has a lower CLTV.
 		Htlcs: []channeldb.HTLC{htlc, htlcWithPreimage},
 	}
-	err = chanArb.notifyContractUpdate(newUpdate)
-	require.NoError(t, err)
+	chanArb.notifyContractUpdate(newUpdate)
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *wire.MsgTx, 1)

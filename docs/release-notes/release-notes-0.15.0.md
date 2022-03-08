@@ -44,6 +44,11 @@
   arbitrator relying on htlcswitch to be started
   first](https://github.com/lightningnetwork/lnd/pull/6214).
 
+* [Added signature length
+  validation](https://github.com/lightningnetwork/lnd/pull/6314) when calling
+  `NewSigFromRawSignature`.
+
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)

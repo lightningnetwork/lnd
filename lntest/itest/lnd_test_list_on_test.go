@@ -383,4 +383,12 @@ var allTestCases = []*testCase{
 		name: "taproot",
 		test: testTaproot,
 	},
+	{
+		name: "taproot htlc timeout",
+		test: testTaprootHtlcTimeoutPath,
+	},
+	{
+		name: "taproot htlc claim",
+		test: testTaprootHtlcClaimPath,
+	},
 }

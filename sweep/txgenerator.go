@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -261,13 +262,18 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 		return nil, err
 	}
 
-	hashCache := input.NewTxSigHashesV0Only(sweepTx)
+	prevInputFetcher, err := input.MultiPrevOutFetcher(inputs)
+	if err != nil {
+		return nil, fmt.Errorf("error creating prev input fetcher "+
+			"for hash cache: %v", err)
+	}
+	hashCache := txscript.NewTxSigHashes(sweepTx, prevInputFetcher)
 
 	// With all the inputs in place, use each output's unique input script
 	// function to generate the final witness required for spending.
 	addInputScript := func(idx int, tso input.Input) error {
 		inputScript, err := tso.CraftInputScript(
-			signer, sweepTx, hashCache, idx,
+			signer, sweepTx, hashCache, prevInputFetcher, idx,
 		)
 		if err != nil {
 			return err

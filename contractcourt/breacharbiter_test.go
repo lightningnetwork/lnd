@@ -1388,7 +1388,7 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 			fallthrough
 		case input.HtlcOfferedRevoke:
 			inputScript, err := inp.CraftInputScript(
-				signer, htlcSweep, hashCache, 0,
+				signer, htlcSweep, hashCache, cannedFetcher, 0,
 			)
 			if err != nil {
 				return nil, err

@@ -2266,3 +2266,36 @@ func validateUpfrontShutdown(shutdown lnwire.DeliveryAddress,
 		return false
 	}
 }
+
+// WalletPrevOutputFetcher is a txscript.PrevOutputFetcher that can fetch
+// outputs from a given wallet controller.
+type WalletPrevOutputFetcher struct {
+	wc WalletController
+}
+
+// A compile time assertion that WalletPrevOutputFetcher implements the
+// txscript.PrevOutputFetcher interface.
+var _ txscript.PrevOutputFetcher = (*WalletPrevOutputFetcher)(nil)
+
+// NewWalletPrevOutputFetcher creates a new WalletPrevOutputFetcher that fetches
+// previous outputs from the given wallet controller.
+func NewWalletPrevOutputFetcher(wc WalletController) *WalletPrevOutputFetcher {
+	return &WalletPrevOutputFetcher{
+		wc: wc,
+	}
+}
+
+// FetchPrevOutput attempts to fetch the previous output referenced by the
+// passed outpoint. A nil value will be returned if the passed outpoint doesn't
+// exist.
+func (w *WalletPrevOutputFetcher) FetchPrevOutput(op wire.OutPoint) *wire.TxOut {
+	utxo, err := w.wc.FetchInputInfo(&op)
+	if err != nil {
+		return nil
+	}
+
+	return &wire.TxOut{
+		Value:    int64(utxo.Value),
+		PkScript: utxo.PkScript,
+	}
+}

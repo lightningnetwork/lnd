@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -107,7 +108,8 @@ func (b *BtcWallet) SignPsbt(packet *psbt.Packet) error {
 	// there are inputs that we don't know how to sign, we won't return any
 	// error. So it's possible we're not the final signer.
 	tx := packet.UnsignedTx
-	sigHashes := input.NewTxSigHashesV0Only(tx)
+	prevOutputFetcher := wallet.PsbtPrevOutputFetcher(packet)
+	sigHashes := txscript.NewTxSigHashes(tx, prevOutputFetcher)
 	for idx := range tx.TxIn {
 		in := packet.Inputs[idx]
 

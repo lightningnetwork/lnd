@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
@@ -13,23 +14,61 @@ import (
 // signature (raw bytes and *ecdsa.Signature).
 type Sig [64]byte
 
+var (
+	errSigTooShort = errors.New("malformed signature: too short")
+	errBadLength   = errors.New("malformed signature: bad length")
+	errBadRLength  = errors.New("malformed signature: bogus R length")
+	errBadSLength  = errors.New("malformed signature: bogus S length")
+	errRTooLong    = errors.New("R is over 32 bytes long without padding")
+	errSTooLong    = errors.New("S is over 32 bytes long without padding")
+)
+
 // NewSigFromRawSignature returns a Sig from a Bitcoin raw signature encoded in
 // the canonical DER encoding.
 func NewSigFromRawSignature(sig []byte) (Sig, error) {
 	var b Sig
 
-	if len(sig) == 0 {
-		return b, fmt.Errorf("cannot decode empty signature")
+	// Check the total length is above the minimal.
+	if len(sig) < ecdsa.MinSigLen {
+		return b, errSigTooShort
 	}
 
-	// Extract lengths of R and S. The DER representation is laid out as
-	// 0x30 <length> 0x02 <length r> r 0x02 <length s> s
-	// which means the length of R is the 4th byte and the length of S
-	// is the second byte after R ends. 0x02 signifies a length-prefixed,
+	// The DER representation is laid out as:
+	//   0x30 <length> 0x02 <length r> r 0x02 <length s> s
+	// which means the length of R is the 4th byte and the length of S is
+	// the second byte after R ends. 0x02 signifies a length-prefixed,
 	// zero-padded, big-endian bigint. 0x30 signifies a DER signature.
 	// See the Serialize() method for ecdsa.Signature for details.
-	rLen := sig[3]
-	sLen := sig[5+rLen]
+
+	// Reading <length>, remaining: [0x02 <length r> r 0x02 <length s> s]
+	sigLen := int(sig[1])
+
+	// siglen should be less than the entire message and greater than
+	// the minimal message size.
+	if sigLen+2 > len(sig) || sigLen+2 < ecdsa.MinSigLen {
+		return b, errBadLength
+	}
+
+	// Reading <length r>, remaining: [r 0x02 <length s> s]
+	rLen := int(sig[3])
+
+	// rLen must be positive and must be able to fit in other elements.
+	// Assuming s is one byte, then we have 0x30, <length>, 0x20,
+	// <length r>, 0x20, <length s>, s, a total of 7 bytes.
+	if rLen <= 0 || rLen+7 > len(sig) {
+		return b, errBadRLength
+	}
+
+	// Reading <length s>, remaining: [s]
+	sLen := int(sig[5+rLen])
+
+	// S should be the rest of the string.
+	// sLen must be positive and must be able to fit in other elements.
+	// We know r is rLen bytes, and we have 0x30, <length>, 0x20,
+	// <length r>, 0x20, <length s>, a total of rLen+6 bytes.
+	if sLen <= 0 || sLen+rLen+6 > len(sig) {
+		return b, errBadSLength
+	}
 
 	// Check to make sure R and S can both fit into their intended buffers.
 	// We check S first because these code blocks decrement sLen and rLen
@@ -39,8 +78,7 @@ func NewSigFromRawSignature(sig []byte) (Sig, error) {
 	// check S first.
 	if sLen > 32 {
 		if (sLen > 33) || (sig[6+rLen] != 0x00) {
-			return b, fmt.Errorf("S is over 32 bytes long " +
-				"without padding")
+			return b, errSTooLong
 		}
 		sLen--
 		copy(b[64-sLen:], sig[7+rLen:])
@@ -51,8 +89,7 @@ func NewSigFromRawSignature(sig []byte) (Sig, error) {
 	// Do the same for R as we did for S
 	if rLen > 32 {
 		if (rLen > 33) || (sig[4] != 0x00) {
-			return b, fmt.Errorf("R is over 32 bytes long " +
-				"without padding")
+			return b, errRTooLong
 		}
 		rLen--
 		copy(b[32-rLen:], sig[5:5+rLen])

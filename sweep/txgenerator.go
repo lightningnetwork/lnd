@@ -139,7 +139,9 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	feePerKw chainfee.SatPerKWeight, signer input.Signer) (*wire.MsgTx,
 	error) {
 
-	inputs, estimator := getWeightEstimate(inputs, outputs, feePerKw)
+	inputs, estimator := getWeightEstimate(
+		inputs, outputs, feePerKw, changePkScript,
+	)
 	txFee := estimator.fee()
 
 	var (
@@ -310,7 +312,8 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 // getWeightEstimate returns a weight estimate for the given inputs.
 // Additionally, it returns counts for the number of csv and cltv inputs.
 func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight) ([]input.Input, *weightEstimator) {
+	feeRate chainfee.SatPerKWeight, outputPkScript []byte) ([]input.Input,
+	*weightEstimator) {
 
 	// We initialize a weight estimator so we can accurately asses the
 	// amount of fees we need to pay for this sweep transaction.
@@ -325,14 +328,18 @@ func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 	}
 
 	// If there is any leftover change after paying to the given outputs
-	// and required outputs, it will go to a single segwit p2wkh address.
-	// This will be our change address, so ensure it contributes to our
-	// weight estimate. Note that if we have other outputs, we might end up
-	// creating a sweep tx without a change output. It is okay to add the
+	// and required outputs, it will go to a single segwit p2wkh or p2tr
+	// address. This will be our change address, so ensure it contributes to
+	// our weight estimate. Note that if we have other outputs, we might end
+	// up creating a sweep tx without a change output. It is okay to add the
 	// change output to the weight estimate regardless, since the estimated
 	// fee will just be subtracted from this already dust output, and
 	// trimmed.
-	weightEstimate.addP2WKHOutput()
+	if txscript.IsPayToTaproot(outputPkScript) {
+		weightEstimate.addP2TROutput()
+	} else {
+		weightEstimate.addP2WKHOutput()
+	}
 
 	// For each output, use its witness type to determine the estimate
 	// weight of its witness, and add it to the proper set of spendable

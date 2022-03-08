@@ -1326,6 +1326,9 @@ func marshalWalletAccount(internalScope waddrmgr.KeyScope,
 	case waddrmgr.KeyScopeBIP0084:
 		addrType = AddressType_WITNESS_PUBKEY_HASH
 
+	case waddrmgr.KeyScopeBIP0086:
+		addrType = AddressType_TAPROOT_PUBKEY
+
 	case internalScope:
 		addrType = AddressType_WITNESS_PUBKEY_HASH
 
@@ -1384,6 +1387,10 @@ func (w *WalletKit) ListAccounts(ctx context.Context,
 		keyScope := waddrmgr.KeyScopeBIP0049Plus
 		keyScopeFilter = &keyScope
 
+	case AddressType_TAPROOT_PUBKEY:
+		keyScope := waddrmgr.KeyScopeBIP0086
+		keyScopeFilter = &keyScope
+
 	default:
 		return nil, fmt.Errorf("unhandled address type %v", req.AddressType)
 	}
@@ -1437,6 +1444,10 @@ func parseAddrType(addrType AddressType,
 
 	case AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 		addrTyp := waddrmgr.WitnessPubKey
+		return &addrTyp, nil
+
+	case AddressType_TAPROOT_PUBKEY:
+		addrTyp := waddrmgr.TaprootPubKey
 		return &addrTyp, nil
 
 	default:

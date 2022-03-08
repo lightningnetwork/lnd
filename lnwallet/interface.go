@@ -41,6 +41,9 @@ const (
 	// NestedWitnessPubKey represents a p2sh output which is itself a
 	// nested p2wkh output.
 	NestedWitnessPubKey
+
+	// TaprootPubkey represents a p2tr key path spending address.
+	TaprootPubkey
 )
 
 var (

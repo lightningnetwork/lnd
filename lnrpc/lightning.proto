@@ -1102,12 +1102,15 @@ message ListUnspentResponse {
 
 - `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)
 - `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)
+- `p2tr`: Pay to taproot pubkey (`TAPROOT_PUBKEY` = 4)
 */
 enum AddressType {
     WITNESS_PUBKEY_HASH = 0;
     NESTED_PUBKEY_HASH = 1;
     UNUSED_WITNESS_PUBKEY_HASH = 2;
     UNUSED_NESTED_PUBKEY_HASH = 3;
+    TAPROOT_PUBKEY = 4;
+    UNUSED_TAPROOT_PUBKEY = 5;
 }
 
 message NewAddressRequest {

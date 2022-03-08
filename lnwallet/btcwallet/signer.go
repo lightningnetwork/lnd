@@ -129,7 +129,8 @@ func (b *BtcWallet) deriveKeyByBIP32Path(path []uint32) (*btcec.PrivateKey,
 	// Is it a standard, BIP defined purpose that the wallet understands?
 	case waddrmgr.KeyScopeBIP0044.Purpose,
 		waddrmgr.KeyScopeBIP0049Plus.Purpose,
-		waddrmgr.KeyScopeBIP0084.Purpose:
+		waddrmgr.KeyScopeBIP0084.Purpose,
+		waddrmgr.KeyScopeBIP0086.Purpose:
 
 		// We're going to continue below the switch statement to avoid
 		// unnecessary indentation for this default case.

@@ -94,6 +94,9 @@ func MarshalUtxos(utxos []*lnwallet.Utxo, activeNetParams *chaincfg.Params) (
 		case lnwallet.NestedWitnessPubKey:
 			addrType = AddressType_NESTED_PUBKEY_HASH
 
+		case lnwallet.TaprootPubkey:
+			addrType = AddressType_TAPROOT_PUBKEY
+
 		case lnwallet.UnknownAddressType:
 			continue
 

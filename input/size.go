@@ -77,6 +77,18 @@ const (
 	//      - pkscript (p2sh): 23 bytes
 	P2SHOutputSize = 8 + 1 + P2SHSize
 
+	// P2TRSize 34 bytes
+	//	- OP_0: 1 byte
+	//	- OP_DATA: 1 byte (x-only public key length)
+	//	- x-only public key length: 32 bytes
+	P2TRSize = 34
+
+	// P2TROutputSize 43 bytes
+	//      - value: 8 bytes
+	//      - var_int: 1 byte (pkscript_length)
+	//      - pkscript (p2tr): 34 bytes
+	P2TROutputSize = 8 + 1 + P2TRSize
+
 	// P2PKHScriptSigSize 108 bytes
 	//      - OP_DATA: 1 byte (signature length)
 	//      - signature
@@ -519,6 +531,19 @@ const (
 	//      - witness_script_length: 1 byte
 	//      - witness_script (anchor_script)
 	AnchorWitnessSize = 1 + 1 + 73 + 1 + AnchorScriptSize
+
+	// TaprootKeyPathWitnessSize 66 bytes
+	//	- NumberOfWitnessElements: 1 byte
+	//	- sigLength: 1 byte
+	//	- sig: 64 bytes
+	TaprootKeyPathWitnessSize = 1 + 1 + 64
+
+	// TaprootKeyPathCustomSighashWitnessSize 67 bytes
+	//	- NumberOfWitnessElements: 1 byte
+	//	- sigLength: 1 byte
+	//	- sig: 64 bytes
+	//      - sighashFlag: 1 byte
+	TaprootKeyPathCustomSighashWitnessSize = TaprootKeyPathWitnessSize + 1
 )
 
 // EstimateCommitTxWeight estimate commitment transaction weight depending on
@@ -634,6 +659,15 @@ func (twe *TxWeightEstimator) AddP2WKHOutput() *TxWeightEstimator {
 // native P2WSH output.
 func (twe *TxWeightEstimator) AddP2WSHOutput() *TxWeightEstimator {
 	twe.outputSize += P2WSHOutputSize
+	twe.outputCount++
+
+	return twe
+}
+
+// AddP2TROutput updates the weight estimate to account for an additional native
+// SegWit v1 P2TR output.
+func (twe *TxWeightEstimator) AddP2TROutput() *TxWeightEstimator {
+	twe.outputSize += P2TROutputSize
 	twe.outputCount++
 
 	return twe

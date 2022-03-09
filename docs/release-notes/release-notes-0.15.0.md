@@ -267,7 +267,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
   `golangci-lint` in your `$GOPATH/bin` directory. `make lint` does not
   automatically replace it with the new version if the binary already exists!
   
-* [`ChannelLink` in the `htlcswitch` now performs a 2-way handoff instead of a 1-way handoff with its `ChannelArbitrator`.](https://github.com/lightningnetwork/lnd/pull/6221)
+* [`ChannelLink` in the `htlcswitch` now performs a 1-way handoff via a temporary map with its `ChannelArbitrator`.](https://github.com/lightningnetwork/lnd/pull/6322)
 
 * [The channel-commit-interval is now clamped to a reasonable timeframe of 1h.](https://github.com/lightningnetwork/lnd/pull/6220)
 

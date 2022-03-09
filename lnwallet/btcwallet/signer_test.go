@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
@@ -31,6 +32,11 @@ var (
 	// corresponding to the derivation path m/84'/0'/0'/0/0 (even on regtest
 	// which is a special case for the BIP49/84 addresses in btcwallet).
 	firstAddress = "bcrt1qgdlgjc5ede7fjv350wcjqat80m0zsmfaswsj9p"
+
+	// firstAddressTaproot is the first address that we should get from the
+	// wallet when deriving a taproot address.
+	firstAddressTaproot = "bcrt1ps8c222fgysvnsj2m8hxk8khy6wthcrhv9va9z3t4" +
+		"h3qeyz65sh4qqwvdgc"
 
 	testCases = []struct {
 		name string
@@ -165,6 +171,26 @@ func TestBip32KeyDerivation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestScriptImport(t *testing.T) {
+	netParams := &chaincfg.RegressionNetParams
+	w, cleanup := newTestWallet(t, netParams, seedBytes)
+	defer cleanup()
+
+	firstDerivedAddr, err := w.NewAddress(
+		lnwallet.TaprootPubkey, false, lnwallet.DefaultAccountName,
+	)
+	require.NoError(t, err)
+	require.Equal(t, firstAddressTaproot, firstDerivedAddr.String())
+
+	_, err = w.InternalWallet().Manager.FetchScopedKeyManager(
+		waddrmgr.KeyScopeBIP0086,
+	)
+	require.NoError(t, err)
+
+	// TODO(guggero): Finish script import tests!
+	// mgr.ImportWitnessScript()
 }
 
 func newTestWallet(t *testing.T, netParams *chaincfg.Params,

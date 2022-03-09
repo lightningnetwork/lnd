@@ -389,6 +389,13 @@
             "$ref": "#/definitions/signrpcSignDescriptor"
           },
           "description": "A set of sign descriptors, for each input to be signed."
+        },
+        "prev_outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/signrpcTxOut"
+          },
+          "description": "The full list of UTXO information for each of the inputs being spent. This\nis required when spending one or more taproot (SegWit v1) outputs."
         }
       }
     },

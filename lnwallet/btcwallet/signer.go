@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -354,6 +355,33 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 	privKey, err = maybeTweakPrivKey(signDesc, privKey)
 	if err != nil {
 		return nil, err
+	}
+
+	// In case of a taproot output any signature is always a Schnorr
+	// signature, based on the new tapscript sighash algorithm.
+	if txscript.IsPayToTaproot(signDesc.Output.PkScript) {
+		sigHashes := txscript.NewTxSigHashes(
+			tx, signDesc.PrevOutputFetcher,
+		)
+		leaf := txscript.TapLeaf{
+			LeafVersion: txscript.BaseLeafVersion,
+			Script:      witnessScript,
+		}
+		rawSig, err := txscript.RawTxInTapscriptSignature(
+			tx, sigHashes, signDesc.InputIndex,
+			signDesc.Output.Value, signDesc.Output.PkScript,
+			leaf, signDesc.HashType, privKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		sig, err := schnorr.ParseSignature(rawSig)
+		if err != nil {
+			return nil, err
+		}
+
+		return sig, nil
 	}
 
 	// TODO(roasbeef): generate sighash midstate if not present?

@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btcd/txscript"
@@ -1760,31 +1760,6 @@ func (p *Brontide) logWireMessage(msg lnwire.Message, read bool) {
 			msgType, summary, preposition, p)
 	}))
 
-	switch m := msg.(type) {
-	case *lnwire.ChannelReestablish:
-		if m.LocalUnrevokedCommitPoint != nil {
-			m.LocalUnrevokedCommitPoint.Curve = nil
-		}
-	case *lnwire.RevokeAndAck:
-		m.NextRevocationKey.Curve = nil
-	case *lnwire.AcceptChannel:
-		m.FundingKey.Curve = nil
-		m.RevocationPoint.Curve = nil
-		m.PaymentPoint.Curve = nil
-		m.DelayedPaymentPoint.Curve = nil
-		m.HtlcPoint.Curve = nil
-		m.FirstCommitmentPoint.Curve = nil
-	case *lnwire.OpenChannel:
-		m.FundingKey.Curve = nil
-		m.RevocationPoint.Curve = nil
-		m.PaymentPoint.Curve = nil
-		m.DelayedPaymentPoint.Curve = nil
-		m.HtlcPoint.Curve = nil
-		m.FirstCommitmentPoint.Curve = nil
-	case *lnwire.FundingLocked:
-		m.NextPerCommitmentPoint.Curve = nil
-	}
-
 	prefix := "readMessage from"
 	if !read {
 		prefix = "writeMessage to"
@@ -3015,7 +2990,7 @@ func (p *Brontide) resendChanSyncMsg(cid lnwire.ChannelID) error {
 
 	if !c.RemotePub.IsEqual(p.IdentityKey()) {
 		return fmt.Errorf("ignoring channel reestablish from "+
-			"peer=%x", p.IdentityKey())
+			"peer=%x", p.IdentityKey().SerializeCompressed())
 	}
 
 	peerLog.Debugf("Re-sending channel sync message for channel %v to "+

@@ -6,12 +6,12 @@ import (
 	"crypto/rand"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/hdkeychain"
-	"github.com/btcsuite/btcutil/psbt"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -779,7 +779,7 @@ func runSignPsbt(t *harnessTest, net *lntest.NetworkHarness,
 
 	partialSig := signedPacket.Inputs[0].PartialSigs[0]
 	require.Equal(t.t, partialSig.PubKey, addrPubKey.SerializeCompressed())
-	require.Greater(t.t, len(partialSig.Signature), btcec.MinSigLen)
+	require.Greater(t.t, len(partialSig.Signature), ecdsa.MinSigLen)
 
 	// We should be able to finalize the PSBT and extract the final TX now.
 	err = psbt.MaybeFinalizeAll(signedPacket)

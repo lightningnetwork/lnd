@@ -19,11 +19,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -432,7 +432,7 @@ func initBreachedOutputs() error {
 		bo := &breachedOutputs[i]
 
 		// Parse the sign descriptor's pubkey.
-		pubkey, err := btcec.ParsePubKey(breachKeys[i], btcec.S256())
+		pubkey, err := btcec.ParsePubKey(breachKeys[i])
 		if err != nil {
 			return fmt.Errorf("unable to parse pubkey: %v",
 				breachKeys[i])
@@ -1216,7 +1216,7 @@ func TestBreachCreateJusticeTx(t *testing.T) {
 	// to the justice tx, not that we create a valid spend, so we just set
 	// some params making the script generation succeed.
 	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(
-		btcec.S256(), channels.AlicesPrivKey,
+		channels.AlicesPrivKey,
 	)
 	alicePubKey := aliceKeyPriv.PubKey()
 
@@ -2164,8 +2164,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 		return NewRetributionStore(db)
 	})
 
-	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(),
-		channels.AlicesPrivKey)
+	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(channels.AlicesPrivKey)
 	signer := &mock.SingleSigner{Privkey: aliceKeyPriv}
 
 	// Assemble our test arbiter.
@@ -2199,10 +2198,12 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 // initiator.
 func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(), error) {
 
-	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		channels.AlicesPrivKey)
-	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		channels.BobsPrivKey)
+	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
+		channels.AlicesPrivKey,
+	)
+	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(
+		channels.BobsPrivKey,
+	)
 
 	channelCapacity, err := btcutil.NewAmount(10)
 	if err != nil {

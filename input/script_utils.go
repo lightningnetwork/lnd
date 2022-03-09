@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
-	"math/big"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
+	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"golang.org/x/crypto/ripemd160"
 )
 
@@ -1391,17 +1391,22 @@ func TweakPubKey(basePoint, commitPoint *btcec.PublicKey) *btcec.PublicKey {
 
 // TweakPubKeyWithTweak is the exact same as the TweakPubKey function, however
 // it accepts the raw tweak bytes directly rather than the commitment point.
-func TweakPubKeyWithTweak(pubKey *btcec.PublicKey, tweakBytes []byte) *btcec.PublicKey {
-	curve := btcec.S256()
-	tweakX, tweakY := curve.ScalarBaseMult(tweakBytes)
+func TweakPubKeyWithTweak(pubKey *btcec.PublicKey,
+	tweakBytes []byte) *btcec.PublicKey {
 
-	// TODO(roasbeef): check that both passed on curve?
-	x, y := curve.Add(pubKey.X, pubKey.Y, tweakX, tweakY)
-	return &btcec.PublicKey{
-		X:     x,
-		Y:     y,
-		Curve: curve,
-	}
+	var (
+		pubKeyJacobian btcec.JacobianPoint
+		tweakJacobian  btcec.JacobianPoint
+		resultJacobian btcec.JacobianPoint
+	)
+	tweakKey := secp.PrivKeyFromBytes(tweakBytes)
+	btcec.ScalarBaseMultNonConst(&tweakKey.Key, &tweakJacobian)
+
+	pubKey.AsJacobian(&pubKeyJacobian)
+	btcec.AddNonConst(&pubKeyJacobian, &tweakJacobian, &resultJacobian)
+
+	resultJacobian.ToAffine()
+	return btcec.NewPublicKey(&resultJacobian.X, &resultJacobian.Y)
 }
 
 // TweakPrivKey tweaks the private key of a public base point given a per
@@ -1414,15 +1419,16 @@ func TweakPubKeyWithTweak(pubKey *btcec.PublicKey, tweakBytes []byte) *btcec.Pub
 //  * tweakPriv := basePriv + sha256(commitment || basePub) mod N
 //
 // Where N is the order of the sub-group.
-func TweakPrivKey(basePriv *btcec.PrivateKey, commitTweak []byte) *btcec.PrivateKey {
+func TweakPrivKey(basePriv *btcec.PrivateKey,
+	commitTweak []byte) *btcec.PrivateKey {
+
 	// tweakInt := sha256(commitPoint || basePub)
-	tweakInt := new(big.Int).SetBytes(commitTweak)
+	tweakScalar := new(btcec.ModNScalar)
+	tweakScalar.SetByteSlice(commitTweak)
 
-	tweakInt = tweakInt.Add(tweakInt, basePriv.D)
-	tweakInt = tweakInt.Mod(tweakInt, btcec.S256().N)
+	tweakScalar.Add(&basePriv.Key)
 
-	tweakPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(), tweakInt.Bytes())
-	return tweakPriv
+	return &btcec.PrivateKey{Key: *tweakScalar}
 }
 
 // DeriveRevocationPubkey derives the revocation public key given the
@@ -1451,28 +1457,46 @@ func TweakPrivKey(basePriv *btcec.PrivateKey, commitTweak []byte) *btcec.Private
 //                 (commitSecret * sha256(commitPoint || revocationBase)) mod N
 //
 // Where N is the order of the sub-group.
-func DeriveRevocationPubkey(revokeBase, commitPoint *btcec.PublicKey) *btcec.PublicKey {
+func DeriveRevocationPubkey(revokeBase,
+	commitPoint *btcec.PublicKey) *btcec.PublicKey {
 
 	// R = revokeBase * sha256(revocationBase || commitPoint)
 	revokeTweakBytes := SingleTweakBytes(revokeBase, commitPoint)
-	rX, rY := btcec.S256().ScalarMult(revokeBase.X, revokeBase.Y,
-		revokeTweakBytes)
+	revokeTweakScalar := new(btcec.ModNScalar)
+	revokeTweakScalar.SetByteSlice(revokeTweakBytes)
+
+	var (
+		revokeBaseJacobian btcec.JacobianPoint
+		rJacobian          btcec.JacobianPoint
+	)
+	revokeBase.AsJacobian(&revokeBaseJacobian)
+	btcec.ScalarMultNonConst(
+		revokeTweakScalar, &revokeBaseJacobian, &rJacobian,
+	)
 
 	// C = commitPoint * sha256(commitPoint || revocationBase)
 	commitTweakBytes := SingleTweakBytes(commitPoint, revokeBase)
-	cX, cY := btcec.S256().ScalarMult(commitPoint.X, commitPoint.Y,
-		commitTweakBytes)
+	commitTweakScalar := new(btcec.ModNScalar)
+	commitTweakScalar.SetByteSlice(commitTweakBytes)
+
+	var (
+		commitPointJacobian btcec.JacobianPoint
+		cJacobian           btcec.JacobianPoint
+	)
+	commitPoint.AsJacobian(&commitPointJacobian)
+	btcec.ScalarMultNonConst(
+		commitTweakScalar, &commitPointJacobian, &cJacobian,
+	)
 
 	// Now that we have the revocation point, we add this to their commitment
 	// public key in order to obtain the revocation public key.
 	//
 	// P = R + C
-	revX, revY := btcec.S256().Add(rX, rY, cX, cY)
-	return &btcec.PublicKey{
-		X:     revX,
-		Y:     revY,
-		Curve: btcec.S256(),
-	}
+	var resultJacobian btcec.JacobianPoint
+	btcec.AddNonConst(&rJacobian, &cJacobian, &resultJacobian)
+
+	resultJacobian.ToAffine()
+	return btcec.NewPublicKey(&resultJacobian.X, &resultJacobian.Y)
 }
 
 // DeriveRevocationPrivKey derives the revocation private key given a node's
@@ -1490,14 +1514,18 @@ func DeriveRevocationPrivKey(revokeBasePriv *btcec.PrivateKey,
 	commitSecret *btcec.PrivateKey) *btcec.PrivateKey {
 
 	// r = sha256(revokeBasePub || commitPoint)
-	revokeTweakBytes := SingleTweakBytes(revokeBasePriv.PubKey(),
-		commitSecret.PubKey())
-	revokeTweakInt := new(big.Int).SetBytes(revokeTweakBytes)
+	revokeTweakBytes := SingleTweakBytes(
+		revokeBasePriv.PubKey(), commitSecret.PubKey(),
+	)
+	revokeTweakScalar := new(btcec.ModNScalar)
+	revokeTweakScalar.SetByteSlice(revokeTweakBytes)
 
 	// c = sha256(commitPoint || revokeBasePub)
-	commitTweakBytes := SingleTweakBytes(commitSecret.PubKey(),
-		revokeBasePriv.PubKey())
-	commitTweakInt := new(big.Int).SetBytes(commitTweakBytes)
+	commitTweakBytes := SingleTweakBytes(
+		commitSecret.PubKey(), revokeBasePriv.PubKey(),
+	)
+	commitTweakScalar := new(btcec.ModNScalar)
+	commitTweakScalar.SetByteSlice(commitTweakBytes)
 
 	// Finally to derive the revocation secret key we'll perform the
 	// following operation:
@@ -1508,14 +1536,12 @@ func DeriveRevocationPrivKey(revokeBasePriv *btcec.PrivateKey,
 	//  P = (G*a)*b + (G*c)*d
 	//  P = G*(a*b) + G*(c*d)
 	//  P = G*(a*b + c*d)
-	revokeHalfPriv := revokeTweakInt.Mul(revokeTweakInt, revokeBasePriv.D)
-	commitHalfPriv := commitTweakInt.Mul(commitTweakInt, commitSecret.D)
+	revokeHalfPriv := revokeTweakScalar.Mul(&revokeBasePriv.Key)
+	commitHalfPriv := commitTweakScalar.Mul(&commitSecret.Key)
 
-	revocationPriv := revokeHalfPriv.Add(revokeHalfPriv, commitHalfPriv)
-	revocationPriv = revocationPriv.Mod(revocationPriv, btcec.S256().N)
+	revocationPriv := revokeHalfPriv.Add(commitHalfPriv)
 
-	priv, _ := btcec.PrivKeyFromBytes(btcec.S256(), revocationPriv.Bytes())
-	return priv
+	return &btcec.PrivateKey{Key: *revocationPriv}
 }
 
 // ComputeCommitmentPoint generates a commitment point given a commitment
@@ -1523,11 +1549,5 @@ func DeriveRevocationPrivKey(revokeBasePriv *btcec.PrivateKey,
 // the key-ring and also to used as a tweak to derive new public+private keys
 // for the state.
 func ComputeCommitmentPoint(commitSecret []byte) *btcec.PublicKey {
-	x, y := btcec.S256().ScalarBaseMult(commitSecret)
-
-	return &btcec.PublicKey{
-		X:     x,
-		Y:     y,
-		Curve: btcec.S256(),
-	}
+	return secp.PrivKeyFromBytes(commitSecret).PubKey()
 }

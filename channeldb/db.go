@@ -8,7 +8,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	mig "github.com/lightningnetwork/lnd/channeldb/migration"

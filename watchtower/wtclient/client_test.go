@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -67,7 +67,7 @@ var (
 func randPrivKey(t *testing.T) *btcec.PrivateKey {
 	t.Helper()
 
-	sk, err := btcec.NewPrivateKey(btcec.S256())
+	sk, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to generate pubkey: %v", err)
 	}
@@ -401,7 +401,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		t.Fatalf("Unable to resolve tower TCP addr: %v", err)
 	}
 
-	privKey, err := btcec.NewPrivateKey(btcec.S256())
+	privKey, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("Unable to generate tower private key: %v", err)
 	}

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -731,7 +731,7 @@ func (a *Agent) executeDirective(directive AttachmentDirective) {
 	// We'll start out by attempting to connect to the peer in order to
 	// begin the funding workflow.
 	nodeID := directive.NodeID
-	pub, err := btcec.ParsePubKey(nodeID[:], btcec.S256())
+	pub, err := btcec.ParsePubKey(nodeID[:])
 	if err != nil {
 		log.Errorf("Unable to parse pubkey %x: %v", nodeID, err)
 		return

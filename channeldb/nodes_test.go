@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 )
 
@@ -23,8 +23,8 @@ func TestLinkNodeEncodeDecode(t *testing.T) {
 
 	// First we'll create some initial data to use for populating our test
 	// LinkNode instances.
-	_, pub1 := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
-	_, pub2 := btcec.PrivKeyFromBytes(btcec.S256(), rev[:])
+	_, pub1 := btcec.PrivKeyFromBytes(key[:])
+	_, pub2 := btcec.PrivKeyFromBytes(rev[:])
 	addr1, err := net.ResolveTCPAddr("tcp", "10.0.0.1:9000")
 	if err != nil {
 		t.Fatalf("unable to create test addr: %v", err)
@@ -120,7 +120,7 @@ func TestDeleteLinkNode(t *testing.T) {
 
 	cdb := fullDB.ChannelStateDB()
 
-	_, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
+	_, pubKey := btcec.PrivKeyFromBytes(key[:])
 	addr := &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 1337,

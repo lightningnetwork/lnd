@@ -8,10 +8,10 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/clock"
@@ -35,7 +35,7 @@ var (
 		0x48, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
 		0x2d, 0xe7, 0x93, 0xe4,
 	}
-	privKey, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), key[:])
+	privKey, pubKey = btcec.PrivKeyFromBytes(key[:])
 
 	wireSig, _ = lnwire.NewSigFromSignature(testSig)
 
@@ -412,7 +412,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	// We'll also test that the channel is properly able to hot swap the
 	// next revocation for the state machine. This tests the initial
 	// post-funding revocation exchange.
-	nextRevKey, err := btcec.NewPrivateKey(btcec.S256())
+	nextRevKey, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to create new private key: %v", err)
 	}
@@ -756,7 +756,7 @@ func TestChannelStateTransition(t *testing.T) {
 	// current uncollapsed revocation state to simulate a state transition
 	// by the remote party.
 	channel.RemoteCurrentRevocation = channel.RemoteNextRevocation
-	newPriv, err := btcec.NewPrivateKey(btcec.S256())
+	newPriv, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to generate key: %v", err)
 	}

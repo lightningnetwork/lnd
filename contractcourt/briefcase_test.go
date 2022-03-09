@@ -9,7 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -135,7 +136,7 @@ var (
 		LockTime: 123,
 	}
 
-	testSig, _ = btcec.ParseDERSignature(channels.TestSigBytes, btcec.S256())
+	testSig, _ = ecdsa.ParseDERSignature(channels.TestSigBytes)
 
 	testSignDetails = &input.SignDetails{
 		SignDesc:    testSignDesc,
@@ -665,13 +666,6 @@ func TestContractResolutionsStorage(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(&res, diskRes) {
-		for _, h := range res.HtlcResolutions.IncomingHTLCs {
-			h.SweepSignDesc.KeyDesc.PubKey.Curve = nil
-		}
-		for _, h := range diskRes.HtlcResolutions.IncomingHTLCs {
-			h.SweepSignDesc.KeyDesc.PubKey.Curve = nil
-		}
-
 		t.Fatalf("resolution mismatch: expected %v\n, got %v",
 			spew.Sdump(&res), spew.Sdump(diskRes))
 	}
@@ -857,7 +851,7 @@ func TestCommitSetStorage(t *testing.T) {
 }
 
 func init() {
-	testSignDesc.KeyDesc.PubKey, _ = btcec.ParsePubKey(key1, btcec.S256())
+	testSignDesc.KeyDesc.PubKey, _ = btcec.ParsePubKey(key1)
 
 	prand.Seed(time.Now().Unix())
 }

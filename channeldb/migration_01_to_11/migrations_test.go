@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
@@ -440,8 +440,6 @@ func TestMigrateOptionalChannelCloseSummaryFields(t *testing.T) {
 
 			dbChan := dbChannels[0]
 			if !reflect.DeepEqual(dbChan, test.closeSummary) {
-				dbChan.RemotePub.Curve = nil
-				test.closeSummary.RemotePub.Curve = nil
 				t.Fatalf("not equal: %v vs %v",
 					spew.Sdump(dbChan),
 					spew.Sdump(test.closeSummary))

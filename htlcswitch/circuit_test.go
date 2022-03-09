@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcutil"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -38,13 +38,13 @@ var (
 func init() {
 	// Generate a fresh key for our sphinx router.
 	var err error
-	sphinxPrivKey, err = btcec.NewPrivateKey(btcec.S256())
+	sphinxPrivKey, err = btcec.NewPrivateKey()
 	if err != nil {
 		panic(err)
 	}
 
 	// And another, whose public key will serve as the test ephemeral key.
-	testEphemeralPriv, err := btcec.NewPrivateKey(btcec.S256())
+	testEphemeralPriv, err := btcec.NewPrivateKey()
 	if err != nil {
 		panic(err)
 	}

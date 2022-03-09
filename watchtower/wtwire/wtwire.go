@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -228,7 +228,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 			return err
 		}
 
-		pubKey, err := btcec.ParsePubKey(b[:], btcec.S256())
+		pubKey, err := btcec.ParsePubKey(b[:])
 		if err != nil {
 			return err
 		}

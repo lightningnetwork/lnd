@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 // TestDecodeAcceptChannel tests decoding of an accept channel wire message with
@@ -32,7 +32,7 @@ func TestDecodeAcceptChannel(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			priv, err := btcec.NewPrivateKey(btcec.S256())
+			priv, err := btcec.NewPrivateKey()
 			if err != nil {
 				t.Fatalf("cannot create privkey: %v", err)
 			}

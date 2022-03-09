@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 // ErrTypeForEncoding signals that an incorrect type was passed to an Encoder.
@@ -275,7 +275,7 @@ func DPubKey(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 			return err
 		}
 
-		p, err := btcec.ParsePubKey(b[:], btcec.S256())
+		p, err := btcec.ParsePubKey(b[:])
 		if err != nil {
 			return err
 		}

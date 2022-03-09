@@ -12,11 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
 )
@@ -55,7 +56,7 @@ var (
 	testPleaseConsider = "Please consider supporting this project"
 
 	testPrivKeyBytes, _     = hex.DecodeString("e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734")
-	testPrivKey, testPubKey = btcec.PrivKeyFromBytes(btcec.S256(), testPrivKeyBytes)
+	testPrivKey, testPubKey = btcec.PrivKeyFromBytes(testPrivKeyBytes)
 
 	testDescriptionHashSlice = chainhash.HashB([]byte("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon"))
 
@@ -69,9 +70,9 @@ var (
 	testAddrMainnetP2WSH, _  = btcutil.DecodeAddress("bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3", &chaincfg.MainNetParams)
 
 	testHopHintPubkeyBytes1, _ = hex.DecodeString("029e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255")
-	testHopHintPubkey1, _      = btcec.ParsePubKey(testHopHintPubkeyBytes1, btcec.S256())
+	testHopHintPubkey1, _      = btcec.ParsePubKey(testHopHintPubkeyBytes1)
 	testHopHintPubkeyBytes2, _ = hex.DecodeString("039e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255")
-	testHopHintPubkey2, _      = btcec.ParsePubKey(testHopHintPubkeyBytes2, btcec.S256())
+	testHopHintPubkey2, _      = btcec.ParsePubKey(testHopHintPubkeyBytes2)
 
 	testSingleHop = []HopHint{
 		{
@@ -102,9 +103,7 @@ var (
 	testMessageSigner = MessageSigner{
 		SignCompact: func(msg []byte) ([]byte, error) {
 			hash := chainhash.HashB(msg)
-			sig, err := btcec.SignCompact(
-				btcec.S256(), testPrivKey, hash, true,
-			)
+			sig, err := ecdsa.SignCompact(testPrivKey, hash, true)
 			if err != nil {
 				return nil, fmt.Errorf("can't sign the "+
 					"message: %v", err)
@@ -914,11 +913,11 @@ func TestInvoiceChecksumMalleability(t *testing.T) {
 	var payHash [32]byte
 	ts := time.Unix(0, 0)
 
-	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), privKeyBytes)
+	privKey, _ := btcec.PrivKeyFromBytes(privKeyBytes)
 	msgSigner := MessageSigner{
 		SignCompact: func(msg []byte) ([]byte, error) {
 			hash := chainhash.HashB(msg)
-			return btcec.SignCompact(btcec.S256(), privKey, hash, true)
+			return ecdsa.SignCompact(privKey, hash, true)
 		},
 	}
 	opts := []func(*Invoice){Description("test")}
@@ -981,7 +980,8 @@ func compareInvoices(expected, actual *Invoice) error {
 
 	if !comparePubkeys(expected.Destination, actual.Destination) {
 		return fmt.Errorf("expected destination pubkey %x, got %x",
-			expected.Destination, actual.Destination)
+			expected.Destination.SerializeCompressed(),
+			actual.Destination.SerializeCompressed())
 	}
 
 	if !compareHashes(expected.DescriptionHash, actual.DescriptionHash) {
@@ -1054,7 +1054,8 @@ func compareRouteHints(a, b []HopHint) error {
 	for i := 0; i < len(a); i++ {
 		if !comparePubkeys(a[i].NodeID, b[i].NodeID) {
 			return fmt.Errorf("expected routeHint nodeID %x, "+
-				"got %x", a[i].NodeID, b[i].NodeID)
+				"got %x", a[i].NodeID.SerializeCompressed(),
+				b[i].NodeID.SerializeCompressed())
 		}
 
 		if a[i].ChannelID != b[i].ChannelID {

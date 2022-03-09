@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -103,7 +103,7 @@ type MessageSigner struct {
 	// SignCompact signs the hash of the passed msg with the node's privkey.
 	// The returned signature should be 65 bytes, where the last 64 are the
 	// compact signature, and the first one is a header byte. This is the
-	// format returned by btcec.SignCompact.
+	// format returned by ecdsa.SignCompact.
 	SignCompact func(msg []byte) ([]byte, error)
 }
 

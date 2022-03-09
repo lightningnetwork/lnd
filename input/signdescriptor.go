@@ -5,7 +5,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -159,9 +159,7 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 		if err != nil {
 			return err
 		}
-		sd.KeyDesc.PubKey, err = btcec.ParsePubKey(
-			pubKeyBytes, btcec.S256(),
-		)
+		sd.KeyDesc.PubKey, err = btcec.ParsePubKey(pubKeyBytes)
 		if err != nil {
 			return err
 		}
@@ -196,7 +194,7 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 	if len(doubleTweakBytes) == 0 {
 		sd.DoubleTweak = nil
 	} else {
-		sd.DoubleTweak, _ = btcec.PrivKeyFromBytes(btcec.S256(), doubleTweakBytes)
+		sd.DoubleTweak, _ = btcec.PrivKeyFromBytes(doubleTweakBytes)
 	}
 
 	// Only one tweak should ever be set, fail if both are present.

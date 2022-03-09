@@ -12,7 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -69,10 +70,11 @@ var (
 	testInvoicePaymentHash = testInvoicePreimage.Hash()
 
 	testPrivKeyBytes, _ = hex.DecodeString(
-		"e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734")
+		"e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2d" +
+			"b734",
+	)
 
-	testPrivKey, _ = btcec.PrivKeyFromBytes(
-		btcec.S256(), testPrivKeyBytes)
+	testPrivKey, _ = btcec.PrivKeyFromBytes(testPrivKeyBytes)
 
 	testInvoiceDescription = "coffee"
 
@@ -83,9 +85,7 @@ var (
 	testMessageSigner = zpay32.MessageSigner{
 		SignCompact: func(msg []byte) ([]byte, error) {
 			hash := chainhash.HashB(msg)
-			sig, err := btcec.SignCompact(
-				btcec.S256(), testPrivKey, hash, true,
-			)
+			sig, err := ecdsa.SignCompact(testPrivKey, hash, true)
 			if err != nil {
 				return nil, fmt.Errorf("can't sign the message: %v", err)
 			}

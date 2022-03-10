@@ -1036,26 +1036,29 @@ type updateLog struct {
 	logIndex uint64
 
 	// htlcCounter is a monotonically increasing integer that tracks the
-	// total number of offered HTLC's by the owner of this update log. We
-	// use a distinct index for this purpose, as update's that remove
-	// entries from the log will be indexed using this counter.
+	// total number of offered HTLC's by the owner of this update log,
+	// hence the `Add` update type. We use a distinct index for this
+	// purpose, as update's that remove entries from the log will be
+	// indexed using this counter.
 	htlcCounter uint64
 
 	// List is the updatelog itself, we embed this value so updateLog has
 	// access to all the method of a list.List.
 	*list.List
 
-	// updateIndex is an index that maps a particular entries index to the
-	// list element within the list.List above.
+	// updateIndex maps a `logIndex` to a particular update entry. It
+	// deals with the four update types:
+	//   `Fail|MalformedFail|Settle|FeeUpdate`
 	updateIndex map[uint64]*list.Element
 
-	// offerIndex is an index that maps the counter for offered HTLC's to
-	// their list element within the main list.List.
+	// htlcIndex maps a `htlcCounter` to an offered HTLC entry, hence the
+	// `Add` update.
 	htlcIndex map[uint64]*list.Element
 
 	// modifiedHtlcs is a set that keeps track of all the current modified
-	// htlcs. A modified HTLC is one that's present in the log, and has as
-	// a pending fail or settle that's attempting to consume it.
+	// htlcs, hence update types `Fail|MalformedFail|Settle`. A modified
+	// HTLC is one that's present in the log, and has as a pending fail or
+	// settle that's attempting to consume it.
 	modifiedHtlcs map[uint64]struct{}
 }
 

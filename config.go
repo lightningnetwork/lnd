@@ -1777,11 +1777,19 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			}
 		}
 
-		// If all of RPCUser, RPCPass, ZMQBlockHost, and ZMQTxHost are
-		// set, we assume those parameters are good to use.
-		if conf.RPCUser != "" && conf.RPCPass != "" &&
-			conf.ZMQPubRawBlock != "" && conf.ZMQPubRawTx != "" {
-			return nil
+		if conf.RPCUser != "" && conf.RPCPass != "" {
+			// If all of RPCUser, RPCPass, ZMQBlockHost, and
+			// ZMQTxHost are set, we assume those parameters are
+			// good to use.
+			if conf.ZMQPubRawBlock != "" && conf.ZMQPubRawTx != "" {
+				return nil
+			}
+
+			// If RPCUser and RPCPass are set and RPCPolling is
+			// enabled, we assume the parameters are good to use.
+			if conf.RPCPolling {
+				return nil
+			}
 		}
 
 		// Get the daemon name for displaying proper errors.

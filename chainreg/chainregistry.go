@@ -507,7 +507,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		// version 0.17.0) we make sure lnd subscribes to the correct
 		// zmq events. We do this to avoid a situation in which we are
 		// not notified of new transactions or blocks.
-		if ver >= 170000 {
+		if ver >= 170000 && !bitcoindMode.RPCPolling {
 			zmqPubRawBlockURL, err := url.Parse(bitcoindMode.ZMQPubRawBlock)
 			if err != nil {
 				return nil, nil, err

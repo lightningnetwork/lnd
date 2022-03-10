@@ -399,21 +399,31 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			}
 		}
 
-		// Establish the connection to bitcoind and create the clients
-		// required for our relevant subsystems.
-		bitcoindConn, err := chain.NewBitcoindConn(&chain.BitcoindConfig{
-			ChainParams: cfg.ActiveNetParams.Params,
-			Host:        bitcoindHost,
-			User:        bitcoindMode.RPCUser,
-			Pass:        bitcoindMode.RPCPass,
-			ZMQConfig: &chain.ZMQConfig{
+		bitcoindCfg := &chain.BitcoindConfig{
+			ChainParams:        cfg.ActiveNetParams.Params,
+			Host:               bitcoindHost,
+			User:               bitcoindMode.RPCUser,
+			Pass:               bitcoindMode.RPCPass,
+			Dialer:             cfg.Dialer,
+			PrunedModeMaxPeers: bitcoindMode.PrunedNodeMaxPeers,
+		}
+
+		if bitcoindMode.RPCPolling {
+			bitcoindCfg.PollingConfig = &chain.PollingConfig{
+				BlockPollingInterval: bitcoindMode.BlockPollingInterval,
+				TxPollingInterval:    bitcoindMode.TxPollingInterval,
+			}
+		} else {
+			bitcoindCfg.ZMQConfig = &chain.ZMQConfig{
 				ZMQBlockHost:    bitcoindMode.ZMQPubRawBlock,
 				ZMQTxHost:       bitcoindMode.ZMQPubRawTx,
 				ZMQReadDeadline: bitcoindMode.ZMQReadDeadline,
-			},
-			Dialer:             cfg.Dialer,
-			PrunedModeMaxPeers: bitcoindMode.PrunedNodeMaxPeers,
-		})
+			}
+		}
+
+		// Establish the connection to bitcoind and create the clients
+		// required for our relevant subsystems.
+		bitcoindConn, err := chain.NewBitcoindConn(bitcoindCfg)
 		if err != nil {
 			return nil, nil, err
 		}

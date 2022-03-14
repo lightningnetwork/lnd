@@ -297,10 +297,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "async payments benchmark",
 		TestFunc: testAsyncPayments,
 	},
-	{
-		Name:     "async bidirectional payments",
-		TestFunc: testBidirectionalAsyncPayments,
-	},
+	// {
+	// 	Name:     "async bidirectional payments",
+	// 	TestFunc: testBidirectionalAsyncPayments,
+	// },
 	{
 		Name:     "invoice update subscription",
 		TestFunc: testInvoiceSubscriptions,

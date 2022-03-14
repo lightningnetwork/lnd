@@ -48,6 +48,9 @@
   validation](https://github.com/lightningnetwork/lnd/pull/6314) when calling
   `NewSigFromRawSignature`.
 
+* [Fixed deadlock in invoice
+  registry](https://github.com/lightningnetwork/lnd/pull/6332).
+
 
 ## Misc
 

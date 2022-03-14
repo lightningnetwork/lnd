@@ -1254,13 +1254,18 @@ func (w *WalletKit) FinalizePsbt(_ context.Context,
 		account = req.Account
 	}
 
-	// Parse the funded PSBT. No additional checks are required at this
-	// level as the wallet will perform all of them.
+	// Parse the funded PSBT.
 	packet, err := psbt.NewFromRawBytes(
 		bytes.NewReader(req.FundedPsbt), false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing PSBT: %v", err)
+	}
+
+	// The only check done at this level is to validate that the PSBT is
+	// not complete. The wallet performs all other checks.
+	if packet.IsComplete() {
+		return nil, fmt.Errorf("PSBT is already fully signed")
 	}
 
 	// Let the wallet do the heavy lifting. This will sign all inputs that

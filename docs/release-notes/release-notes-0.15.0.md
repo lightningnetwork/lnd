@@ -106,6 +106,8 @@
 * [Add ForAll implementation for etcd to speed up
   graph cache at startup](https://github.com/lightningnetwork/lnd/pull/6136)
 
+* [Improve validation of a PSBT packet when handling a request to finalize it.](https://github.com/lightningnetwork/lnd/pull/6217)
+
 ## Documentation
 
 * Improved instructions on [how to build lnd for mobile](https://github.com/lightningnetwork/lnd/pull/6085).

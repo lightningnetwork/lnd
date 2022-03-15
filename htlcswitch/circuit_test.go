@@ -490,7 +490,7 @@ func TestCircuitMapPersistence(t *testing.T) {
 	// Removing already-removed circuit should return an error.
 	err = circuitMap.DeleteCircuits(circuit1.Incoming)
 	if err != nil {
-		t.Fatal("Unexpected failure when deleting already "+
+		t.Fatalf("Unexpected failure when deleting already "+
 			"deleted circuit: %v", err)
 	}
 

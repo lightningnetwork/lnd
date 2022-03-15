@@ -557,6 +557,12 @@ func (m *mockControlTowerOld) SubscribePayment(paymentHash lntypes.Hash) (
 	return nil, errors.New("not implemented")
 }
 
+func (m *mockControlTowerOld) SubscribeAllPayments() (
+	*ControlTowerSubscriber, error) {
+
+	return nil, errors.New("not implemented")
+}
+
 type mockPaymentAttemptDispatcher struct {
 	mock.Mock
 
@@ -771,6 +777,13 @@ func (m *mockControlTower) SubscribePayment(paymentHash lntypes.Hash) (
 	*ControlTowerSubscriber, error) {
 
 	args := m.Called(paymentHash)
+	return args.Get(0).(*ControlTowerSubscriber), args.Error(1)
+}
+
+func (m *mockControlTower) SubscribeAllPayments() (
+	*ControlTowerSubscriber, error) {
+
+	args := m.Called()
 	return args.Get(0).(*ControlTowerSubscriber), args.Error(1)
 }
 

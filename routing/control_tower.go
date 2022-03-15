@@ -62,6 +62,11 @@ type ControlTower interface {
 	// sent out immediately.
 	SubscribePayment(paymentHash lntypes.Hash) (*ControlTowerSubscriber,
 		error)
+
+	// SubscribeAllPayments subscribes to updates for all payments. A first
+	// update with the current state of every inflight payment is always
+	// sent out immediately.
+	SubscribeAllPayments() (*ControlTowerSubscriber, error)
 }
 
 // ControlTowerSubscriber contains the state for a payment update subscriber.
@@ -102,8 +107,13 @@ func (s *ControlTowerSubscriber) Close() {
 type controlTower struct {
 	db *channeldb.PaymentControl
 
-	subscribers    map[lntypes.Hash][]*ControlTowerSubscriber
-	subscribersMtx sync.Mutex
+	// subscriberIndex is used to provide a unique id for each subscriber
+	// to all payments. This is used to easily remove the subscriber when
+	// necessary.
+	subscriberIndex        uint64
+	subscribersAllPayments map[uint64]*ControlTowerSubscriber
+	subscribers            map[lntypes.Hash][]*ControlTowerSubscriber
+	subscribersMtx         sync.Mutex
 
 	// paymentsMtx provides synchronization on the payment level to ensure
 	// that no race conditions occur in between updating the database and
@@ -114,7 +124,10 @@ type controlTower struct {
 // NewControlTower creates a new instance of the controlTower.
 func NewControlTower(db *channeldb.PaymentControl) ControlTower {
 	return &controlTower{
-		db:          db,
+		db: db,
+		subscribersAllPayments: make(
+			map[uint64]*ControlTowerSubscriber,
+		),
 		subscribers: make(map[lntypes.Hash][]*ControlTowerSubscriber),
 		paymentsMtx: multimutex.NewHashMutex(),
 	}
@@ -266,6 +279,39 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 	return subscriber, nil
 }
 
+// SubscribeAllPayments subscribes to updates for all inflight payments. A first
+// update with the current state of every inflight payment is always sent out
+// immediately.
+// Note: If payments are in-flight while starting a new subscription, the start
+// of the payment stream could produce out-of-order and/or duplicate events. In
+// order to get updates for every in-flight payment attempt make sure to
+// subscribe to this method before initiating any payments.
+func (p *controlTower) SubscribeAllPayments() (*ControlTowerSubscriber, error) {
+	subscriber := newControlTowerSubscriber()
+
+	// Add the subscriber to the list before fetching in-flight payments, so
+	// no events are missed. If a payment attempt update occurs after
+	// appending and before fetching in-flight payments, an out-of-order
+	// duplicate may be produced, because it is then fetched in below call
+	// and notified through the subscription.
+	p.subscribersMtx.Lock()
+	p.subscribersAllPayments[p.subscriberIndex] = subscriber
+	p.subscriberIndex++
+	p.subscribersMtx.Unlock()
+
+	inflightPayments, err := p.db.FetchInFlightPayments()
+	if err != nil {
+		return nil, err
+	}
+
+	for index := range inflightPayments {
+		// Always write current payment state to the channel.
+		subscriber.queue.ChanIn() <- inflightPayments[index]
+	}
+
+	return subscriber, nil
+}
+
 // notifySubscribers sends a final payment event to all subscribers of this
 // payment. The channel will be closed after this. Note that this function must
 // be executed atomically (by means of a lock) with the database update to
@@ -275,8 +321,9 @@ func (p *controlTower) notifySubscribers(paymentHash lntypes.Hash,
 
 	// Get all subscribers for this payment.
 	p.subscribersMtx.Lock()
-	list, ok := p.subscribers[paymentHash]
-	if !ok {
+
+	subscribersPaymentHash, ok := p.subscribers[paymentHash]
+	if !ok && len(p.subscribersAllPayments) == 0 {
 		p.subscribersMtx.Unlock()
 		return
 	}
@@ -287,10 +334,17 @@ func (p *controlTower) notifySubscribers(paymentHash lntypes.Hash,
 	if terminal {
 		delete(p.subscribers, paymentHash)
 	}
+
+	// Copy subscribers to all payments locally while holding the lock in
+	// order to avoid concurrency issues while reading/writing the map.
+	subscribersAllPayments := make(map[uint64]*ControlTowerSubscriber)
+	for k, v := range p.subscribersAllPayments {
+		subscribersAllPayments[k] = v
+	}
 	p.subscribersMtx.Unlock()
 
-	// Notify all subscribers of the event.
-	for _, subscriber := range list {
+	// Notify all subscribers that subscribed to the current payment hash.
+	for _, subscriber := range subscribersPaymentHash {
 		select {
 		case subscriber.queue.ChanIn() <- event:
 			// If this event is the last, close the incoming channel
@@ -303,6 +357,20 @@ func (p *controlTower) notifySubscribers(paymentHash lntypes.Hash,
 		// If subscriber disappeared, skip notification. For further
 		// notifications, we'll keep skipping over this subscriber.
 		case <-subscriber.quit:
+		}
+	}
+
+	// Notify all subscribers that subscribed to all payments.
+	for key, subscriber := range subscribersAllPayments {
+		select {
+		case subscriber.queue.ChanIn() <- event:
+
+		// If subscriber disappeared, remove it from the subscribers
+		// list.
+		case <-subscriber.quit:
+			p.subscribersMtx.Lock()
+			delete(p.subscribersAllPayments, key)
+			p.subscribersMtx.Unlock()
 		}
 	}
 }

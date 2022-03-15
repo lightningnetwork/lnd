@@ -2009,7 +2009,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	// indexes as due to the randomized order of map iteration they may be
 	// in either place.
 	if !reflect.DeepEqual(batch[2].msg, na) && !reflect.DeepEqual(batch[3].msg, na) {
-		t.Fatal("first node announcement not in last part of batch: "+
+		t.Fatalf("first node announcement not in last part of batch: "+
 			"got %v, expected %v", batch[2].msg,
 			na)
 	}

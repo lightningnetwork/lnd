@@ -2125,7 +2125,7 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 		select {
 		case msgs := <-msgChan:
 			if len(msgs) != 1 {
-				t.Fatal("expected to send a single message at "+
+				t.Fatalf("expected to send a single message at "+
 					"a time, got %d", len(msgs))
 			}
 			msgSent = msgs[0]

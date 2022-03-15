@@ -23,6 +23,16 @@ service Router {
     rpc TrackPaymentV2 (TrackPaymentRequest) returns (stream lnrpc.Payment);
 
     /*
+    TrackPayments returns an update stream for every payment that is not in a
+    terminal state. Note that if payments are in-flight while starting a new
+    subscription, the start of the payment stream could produce out-of-order
+    and/or duplicate events. In order to get updates for every in-flight
+    payment attempt make sure to subscribe to this method before initiating any
+    payments.
+    */
+    rpc TrackPayments (TrackPaymentsRequest) returns (stream lnrpc.Payment);
+
+    /*
     EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
     may cost to send an HTLC to the target end destination.
     */
@@ -301,6 +311,14 @@ message TrackPaymentRequest {
     that show which htlcs are still in flight are suppressed.
     */
     bool no_inflight_updates = 2;
+}
+
+message TrackPaymentsRequest {
+    /*
+    If set, only the final payment updates are streamed back. Intermediate
+    updates that show which htlcs are still in flight are suppressed.
+    */
+    bool no_inflight_updates = 1;
 }
 
 message RouteFeeRequest {

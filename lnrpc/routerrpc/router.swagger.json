@@ -250,6 +250,47 @@
         ]
       }
     },
+    "/v2/router/payments": {
+      "get": {
+        "summary": "TrackPayments returns an update stream for every payment that is not in a\nterminal state. Note that if payments are in-flight while starting a new\nsubscription, the start of the payment stream could produce out-of-order\nand/or duplicate events. In order to get updates for every in-flight\npayment attempt make sure to subscribe to this method before initiating any\npayments.",
+        "operationId": "Router_TrackPayments",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/lnrpcPayment"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of lnrpcPayment"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "no_inflight_updates",
+            "description": "If set, only the final payment updates are streamed back. Intermediate\nupdates that show which htlcs are still in flight are suppressed.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
     "/v2/router/route": {
       "post": {
         "summary": "BuildRoute builds a fully specified route based on a list of hop public\nkeys. It retrieves the relevant channel policies from the graph in order to\ncalculate the correct fees and time locks.",

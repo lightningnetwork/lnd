@@ -8,6 +8,8 @@ http:
       body: "*"
     - selector: routerrpc.Router.TrackPaymentV2
       get: "/v2/router/track/{payment_hash}"
+    - selector: routerrpc.Router.TrackPayments
+      get: "/v2/router/payments"
     - selector: routerrpc.Router.EstimateRouteFee
       post: "/v2/router/route/estimatefee"
       body: "*"

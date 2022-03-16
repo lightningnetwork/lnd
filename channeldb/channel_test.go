@@ -791,11 +791,11 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// The state number recovered from the tail of the revocation log
 	// should be identical to this current state.
-	logTail, err := channel.RevocationLogTail()
+	logTailHeight, err := channel.revocationLogTailCommitHeight()
 	if err != nil {
 		t.Fatalf("unable to retrieve log: %v", err)
 	}
-	if logTail.CommitHeight != oldRemoteCommit.CommitHeight {
+	if logTailHeight != oldRemoteCommit.CommitHeight {
 		t.Fatal("update number doesn't match")
 	}
 
@@ -827,11 +827,11 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// Once again, state number recovered from the tail of the revocation
 	// log should be identical to this current state.
-	logTail, err = channel.RevocationLogTail()
+	logTailHeight, err = channel.revocationLogTailCommitHeight()
 	if err != nil {
 		t.Fatalf("unable to retrieve log: %v", err)
 	}
-	if logTail.CommitHeight != oldRemoteCommit.CommitHeight {
+	if logTailHeight != oldRemoteCommit.CommitHeight {
 		t.Fatal("update number doesn't match")
 	}
 

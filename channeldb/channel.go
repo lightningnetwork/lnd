@@ -2608,22 +2608,24 @@ func (c *OpenChannel) RemoveFwdPkgs(heights ...uint64) error {
 	}, func() {})
 }
 
-// RevocationLogTail returns the "tail", or the end of the current revocation
-// log. This entry represents the last previous state for the remote node's
-// commitment chain. The ChannelDelta returned by this method will always lag
-// one state behind the most current (unrevoked) state of the remote node's
-// commitment chain.
-func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
+// revocationLogTailCommitHeight returns the commit height at the end of the
+// revocation log. This entry represents the last previous state for the remote
+// node's commitment chain. The ChannelDelta returned by this method will
+// always lag one state behind the most current (unrevoked) state of the remote
+// node's commitment chain.
+// NOTE: used in unit test only.
+func (c *OpenChannel) revocationLogTailCommitHeight() (uint64, error) {
 	c.RLock()
 	defer c.RUnlock()
+
+	var height uint64
 
 	// If we haven't created any state updates yet, then we'll exit early as
 	// there's nothing to be found on disk in the revocation bucket.
 	if c.RemoteCommitment.CommitHeight == 0 {
-		return nil, nil
+		return height, nil
 	}
 
-	var commit ChannelCommitment
 	if err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
 			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
@@ -2638,27 +2640,19 @@ func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
 		}
 
 		// Once we have the bucket that stores the revocation log from
-		// this channel, we'll jump to the _last_ key in bucket. As we
-		// store the update number on disk in a big-endian format,
-		// this will retrieve the latest entry.
+		// this channel, we'll jump to the _last_ key in bucket. Since
+		// the key is the commit height, we'll decode the bytes and
+		// return it.
 		cursor := logBucket.ReadCursor()
-		_, tailLogEntry := cursor.Last()
-		logEntryReader := bytes.NewReader(tailLogEntry)
-
-		// Once we have the entry, we'll decode it into the channel
-		// delta pointer we created above.
-		var dbErr error
-		commit, dbErr = deserializeChanCommit(logEntryReader)
-		if dbErr != nil {
-			return dbErr
-		}
+		rawHeight, _ := cursor.Last()
+		height = byteOrder.Uint64(rawHeight)
 
 		return nil
 	}, func() {}); err != nil {
-		return nil, err
+		return height, err
 	}
 
-	return &commit, nil
+	return height, nil
 }
 
 // CommitmentHeight returns the current commitment height. The commitment

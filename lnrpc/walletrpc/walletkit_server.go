@@ -1210,6 +1210,8 @@ func (w *WalletKit) SignPsbt(_ context.Context, req *SignPsbtRequest) (
 		bytes.NewReader(req.FundedPsbt), false,
 	)
 	if err != nil {
+		log.Debugf("Error parsing PSBT: %v, raw input: %x", err,
+			req.FundedPsbt)
 		return nil, fmt.Errorf("error parsing PSBT: %v", err)
 	}
 

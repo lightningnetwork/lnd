@@ -20,9 +20,11 @@ type Cluster struct {
 
 	LeaderElector string `long:"leader-elector" choice:"etcd" description:"Leader elector to use. Valid values: \"etcd\"."`
 
-	EtcdElectionPrefix string `long:"etcd-election-prefix" description:"Election key prefix when using etcd leader elector. Defaults to \"/leader/\"."`
+	EtcdElectionPrefix string `long:"etcd-election-prefix" description:"Election key prefix when using etcd leader elector."`
 
 	ID string `long:"id" description:"Identifier for this node inside the cluster (used in leader election). Defaults to the hostname."`
+
+	LeaderSessionTTL int `long:"leader-session-ttl" description:"The TTL in seconds to use for the leader election session."`
 }
 
 // DefaultCluster creates and returns a new default DB config.
@@ -31,6 +33,7 @@ func DefaultCluster() *Cluster {
 	return &Cluster{
 		LeaderElector:      cluster.EtcdLeaderElector,
 		EtcdElectionPrefix: DefaultEtcdElectionPrefix,
+		LeaderSessionTTL:   60,
 		ID:                 hostname,
 	}
 }
@@ -43,7 +46,7 @@ func (c *Cluster) MakeLeaderElector(electionCtx context.Context, db *DB) (
 	if c.LeaderElector == cluster.EtcdLeaderElector {
 		return cluster.MakeLeaderElector(
 			electionCtx, c.LeaderElector, c.ID,
-			c.EtcdElectionPrefix, db.Etcd,
+			c.EtcdElectionPrefix, c.LeaderSessionTTL, db.Etcd,
 		)
 	}
 

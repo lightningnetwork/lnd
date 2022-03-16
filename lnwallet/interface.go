@@ -216,6 +216,10 @@ type WalletController interface {
 	// IsOurAddress checks if the passed address belongs to this wallet
 	IsOurAddress(a btcutil.Address) bool
 
+	// AddressInfo returns the information about an address, if it's known
+	// to this wallet.
+	AddressInfo(a btcutil.Address) (waddrmgr.ManagedAddress, error)
+
 	// ListAccounts retrieves all accounts belonging to the wallet by
 	// default. A name and key scope filter can be provided to filter
 	// through all of the wallet accounts and return only those matching.

@@ -11,13 +11,22 @@ import (
 // configuration.
 func HealthCheck(cfg *lncfg.RemoteSigner, timeout time.Duration) func() error {
 	return func() error {
-		_, err := connectRPC(
+		conn, err := connectRPC(
 			cfg.RPCHost, cfg.TLSCertPath, cfg.MacaroonPath, timeout,
 		)
 		if err != nil {
 			return fmt.Errorf("error connecting to the remote "+
 				"signing node through RPC: %v", err)
 		}
+
+		defer func() {
+			err = conn.Close()
+			if err != nil {
+				log.Warnf("Failed to close health check "+
+					"connection to remote signing node: %v",
+					err)
+			}
+		}()
 
 		return nil
 	}

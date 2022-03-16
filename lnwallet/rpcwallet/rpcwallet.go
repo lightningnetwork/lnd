@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	basewallet "github.com/btcsuite/btcwallet/wallet"
@@ -51,7 +52,7 @@ type RPCKeyRing struct {
 
 	watchOnlyKeyRing keychain.SecretKeyRing
 
-	coinType uint32
+	netParams *chaincfg.Params
 
 	rpcTimeout time.Duration
 
@@ -69,7 +70,8 @@ var _ lnwallet.WalletController = (*RPCKeyRing)(nil)
 // delegates any signing or ECDH operations to the remove signer through RPC.
 func NewRPCKeyRing(watchOnlyKeyRing keychain.SecretKeyRing,
 	watchOnlyWalletController lnwallet.WalletController,
-	remoteSigner *lncfg.RemoteSigner, coinType uint32) (*RPCKeyRing, error) {
+	remoteSigner *lncfg.RemoteSigner,
+	netParams *chaincfg.Params) (*RPCKeyRing, error) {
 
 	rpcConn, err := connectRPC(
 		remoteSigner.RPCHost, remoteSigner.TLSCertPath,
@@ -83,7 +85,7 @@ func NewRPCKeyRing(watchOnlyKeyRing keychain.SecretKeyRing,
 	return &RPCKeyRing{
 		WalletController: watchOnlyWalletController,
 		watchOnlyKeyRing: watchOnlyKeyRing,
-		coinType:         coinType,
+		netParams:        netParams,
 		rpcTimeout:       remoteSigner.Timeout,
 		signerClient:     signrpc.NewSignerClient(rpcConn),
 		walletClient:     walletrpc.NewWalletKitClient(rpcConn),
@@ -610,7 +612,8 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 			Bip32Path: []uint32{
 				keychain.BIP0043Purpose +
 					hdkeychain.HardenedKeyStart,
-				r.coinType + hdkeychain.HardenedKeyStart,
+				r.netParams.HDCoinType +
+					hdkeychain.HardenedKeyStart,
 				uint32(signDesc.KeyDesc.Family) +
 					hdkeychain.HardenedKeyStart,
 				0,

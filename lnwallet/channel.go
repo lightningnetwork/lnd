@@ -2231,10 +2231,6 @@ type BreachRetribution struct {
 	// RevokedStateNum is the revoked state number which was broadcast.
 	RevokedStateNum uint64
 
-	// PendingHTLCs is a slice of the HTLCs which were pending at this
-	// point within the channel's history transcript.
-	PendingHTLCs []channeldb.HTLC
-
 	// LocalOutputSignDesc is a SignDescriptor which is capable of
 	// generating the signature necessary to sweep the output within the
 	// BreachTransaction that pays directly us.
@@ -2466,7 +2462,6 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		BreachTransaction:    revokedSnapshot.CommitTx,
 		BreachHeight:         breachHeight,
 		RevokedStateNum:      stateNum,
-		PendingHTLCs:         revokedSnapshot.Htlcs,
 		LocalOutpoint:        ourOutpoint,
 		LocalOutputSignDesc:  ourSignDesc,
 		LocalDelay:           ourDelay,

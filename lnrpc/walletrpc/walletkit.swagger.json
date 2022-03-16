@@ -555,7 +555,7 @@
     },
     "/v2/wallet/utxos": {
       "post": {
-        "summary": "ListUnspent returns a list of all utxos spendable by the wallet with a\nnumber of confirmations between the specified minimum and maximum.",
+        "summary": "ListUnspent returns a list of all utxos spendable by the wallet with a\nnumber of confirmations between the specified minimum and maximum. By\ndefault, all utxos are listed. To list only the unconfirmed utxos, set\nthe unconfirmed_only to true.",
         "operationId": "WalletKit_ListUnspent",
         "responses": {
           "200": {
@@ -1276,6 +1276,10 @@
         "account": {
           "type": "string",
           "description": "An optional filter to only include outputs belonging to an account."
+        },
+        "unconfirmed_only": {
+          "type": "boolean",
+          "title": "When min_confs and max_confs are zero, setting false implicitly\noverrides max_confs to be MaxInt32, otherwise max_confs remains\nzero. An error is returned if the value is true and both min_confs\nand max_confs are non-zero. (default: false)"
         }
       }
     },

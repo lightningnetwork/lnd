@@ -1078,13 +1078,13 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 	return &txHash, nil
 }
 
-// ListUnspent returns useful information about each unspent output owned by the
-// wallet, as reported by the underlying `ListUnspentWitness`; the information
-// returned is: outpoint, amount in satoshis, address, address type,
-// scriptPubKey in hex and number of confirmations.  The result is filtered to
-// contain outputs whose number of confirmations is between a minimum and
-// maximum number of confirmations specified by the user, with 0 meaning
-// unconfirmed.
+// ListUnspent returns useful information about each unspent output owned by
+// the wallet, as reported by the underlying `ListUnspentWitness`; the
+// information returned is: outpoint, amount in satoshis, address, address
+// type, scriptPubKey in hex and number of confirmations.  The result is
+// filtered to contain outputs whose number of confirmations is between a
+// minimum and maximum number of confirmations specified by the user, with
+// 0 meaning unconfirmed.
 func (r *rpcServer) ListUnspent(ctx context.Context,
 	in *lnrpc.ListUnspentRequest) (*lnrpc.ListUnspentResponse, error) {
 

@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	basewallet "github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -584,6 +585,79 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 	}
 	in := &packet.Inputs[signDesc.InputIndex]
 	txIn := tx.TxIn[signDesc.InputIndex]
+
+	// Things are a bit tricky with the sign descriptor. There basically are
+	// four ways to describe a key:
+	//   1. By public key only. To match this case both family and index
+	//      must be set to 0.
+	//   2. By family and index only. To match this case the public key
+	//      must be nil and either the family or index must be non-zero.
+	//   3. All values are set and locator is non-empty. To match this case
+	//      the public key must be set and either the family or index must
+	//      be non-zero.
+	//   4. All values are set and locator is empty. This is a special case
+	//      for the very first channel ever created (with the multi-sig key
+	//      family which is 0 and the index which is 0 as well). This looks
+	//      identical to case 1 and will also be handled like that case.
+	// We only really handle case 1 and 2 here, since 3 is no problem and 4
+	// is identical to 1.
+	switch {
+	// Case 1: Public key only. We need to find out the derivation path for
+	// this public key by asking the wallet. This is only possible for our
+	// internal, custom 1017 scope since we know all keys derived there are
+	// internally stored as p2wkh addresses.
+	case signDesc.KeyDesc.PubKey != nil && signDesc.KeyDesc.IsEmpty():
+		pubKeyBytes := signDesc.KeyDesc.PubKey.SerializeCompressed()
+		addr, err := btcutil.NewAddressWitnessPubKeyHash(
+			btcutil.Hash160(pubKeyBytes), r.netParams,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error deriving address from "+
+				"public key %x: %v", pubKeyBytes, err)
+		}
+
+		managedAddr, err := r.AddressInfo(addr)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching address info "+
+				"for public key %x: %v", pubKeyBytes, err)
+		}
+
+		pubKeyAddr, ok := managedAddr.(waddrmgr.ManagedPubKeyAddress)
+		if !ok {
+			return nil, fmt.Errorf("address derived for public "+
+				"key %x is not a p2wkh address", pubKeyBytes)
+		}
+
+		scope, path, _ := pubKeyAddr.DerivationInfo()
+		if scope.Purpose != keychain.BIP0043Purpose {
+			return nil, fmt.Errorf("address derived for public "+
+				"key %x is not in custom key scope %d'",
+				pubKeyBytes, keychain.BIP0043Purpose)
+		}
+
+		// We now have all the information we need to complete our key
+		// locator information.
+		signDesc.KeyDesc.KeyLocator = keychain.KeyLocator{
+			Family: keychain.KeyFamily(path.InternalAccount),
+			Index:  path.Index,
+		}
+
+	// Case 2: Family and index only. This case is easy, we can just go
+	// ahead and derive the public key from the family and index and then
+	// supply that information in the BIP32 derivation field.
+	case signDesc.KeyDesc.PubKey == nil && !signDesc.KeyDesc.IsEmpty():
+		fullDesc, err := r.watchOnlyKeyRing.DeriveKey(
+			signDesc.KeyDesc.KeyLocator,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error deriving key with "+
+				"family %d and index %d from the watch-only "+
+				"wallet: %v",
+				signDesc.KeyDesc.KeyLocator.Family,
+				signDesc.KeyDesc.KeyLocator.Index, err)
+		}
+		signDesc.KeyDesc.PubKey = fullDesc.PubKey
+	}
 
 	// Make sure we actually know about the input. We either have been
 	// watching the UTXO on-chain or we have been given all the required

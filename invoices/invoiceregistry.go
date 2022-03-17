@@ -939,10 +939,16 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 
 	// Execute locked notify exit hop logic.
 	i.Lock()
-	resolution, err := i.notifyExitHopHtlcLocked(&ctx, hodlChan)
+	resolution, invoiceToExpire, err := i.notifyExitHopHtlcLocked(
+		&ctx, hodlChan,
+	)
 	i.Unlock()
 	if err != nil {
 		return nil, err
+	}
+
+	if invoiceToExpire != nil {
+		i.expiryWatcher.AddInvoices(invoiceToExpire)
 	}
 
 	switch r := resolution.(type) {
@@ -975,10 +981,11 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 }
 
 // notifyExitHopHtlcLocked is the internal implementation of NotifyExitHopHtlc
-// that should be executed inside the registry lock.
+// that should be executed inside the registry lock. The returned invoiceExpiry
+// (if not nil) needs to be added to the expiry watcher outside of the lock.
 func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	ctx *invoiceUpdateCtx, hodlChan chan<- interface{}) (
-	HtlcResolution, error) {
+	HtlcResolution, invoiceExpiry, error) {
 
 	// We'll attempt to settle an invoice matching this rHash on disk (if
 	// one exists). The callback will update the invoice state and/or htlcs.
@@ -1014,14 +1021,16 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		return NewFailResolution(
 			ctx.circuitKey, ctx.currentHeight,
 			ResultInvoiceNotFound,
-		), nil
+		), nil, nil
 
 	case nil:
 
 	default:
 		ctx.log(err.Error())
-		return nil, err
+		return nil, nil, err
 	}
+
+	var invoiceToExpire invoiceExpiry
 
 	switch res := resolution.(type) {
 	case *HtlcFailResolution:
@@ -1116,7 +1125,7 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	case *htlcAcceptResolution:
 		invoiceHtlc, ok := invoice.Htlcs[ctx.circuitKey]
 		if !ok {
-			return nil, fmt.Errorf("accepted htlc: %v not"+
+			return nil, nil, fmt.Errorf("accepted htlc: %v not"+
 				" present on invoice: %x", ctx.circuitKey,
 				ctx.hash[:])
 		}
@@ -1145,8 +1154,7 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		// possible that we MppTimeout the htlcs, and then our relevant
 		// expiry height could change.
 		if res.outcome == resultAccepted {
-			expiry := makeInvoiceExpiry(ctx.hash, invoice)
-			i.expiryWatcher.AddInvoices(expiry)
+			invoiceToExpire = makeInvoiceExpiry(ctx.hash, invoice)
 		}
 
 		i.hodlSubscribe(hodlChan, ctx.circuitKey)
@@ -1169,7 +1177,7 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		i.notifyClients(ctx.hash, invoice, setID)
 	}
 
-	return resolution, nil
+	return resolution, invoiceToExpire, nil
 }
 
 // SettleHodlInvoice sets the preimage of a hodl invoice.

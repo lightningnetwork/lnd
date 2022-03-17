@@ -275,7 +275,9 @@ func (n *NetworkHarness) Stop() {
 
 // extraArgsEtcd returns extra args for configuring LND to use an external etcd
 // database (for remote channel DB and wallet DB).
-func extraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool) []string {
+func extraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool,
+	leaderSessionTTL int) []string {
+
 	extraArgs := []string{
 		"--db.backend=etcd",
 		fmt.Sprintf("--db.etcd.host=%v", etcdCfg.Host),
@@ -289,10 +291,13 @@ func extraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool) []string {
 	}
 
 	if cluster {
-		extraArgs = append(extraArgs, "--cluster.enable-leader-election")
-		extraArgs = append(
-			extraArgs, fmt.Sprintf("--cluster.id=%v", name),
-		)
+		clusterArgs := []string{
+			"--cluster.enable-leader-election",
+			fmt.Sprintf("--cluster.id=%v", name),
+			fmt.Sprintf("--cluster.leader-session-ttl=%v",
+				leaderSessionTTL),
+		}
+		extraArgs = append(extraArgs, clusterArgs...)
 	}
 
 	return extraArgs
@@ -302,13 +307,13 @@ func extraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool) []string {
 // etcd database as its (remote) channel and wallet DB. The passsed cluster
 // flag indicates that we'd like the node to join the cluster leader election.
 func (n *NetworkHarness) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
-	password []byte, entropy []byte, statelessInit, cluster bool) (
-	*HarnessNode, []string, []byte, error) {
+	password []byte, entropy []byte, statelessInit, cluster bool,
+	leaderSessionTTL int) (*HarnessNode, []string, []byte, error) {
 
 	// We don't want to use the embedded etcd instance.
 	const dbBackend = BackendBbolt
 
-	extraArgs := extraArgsEtcd(etcdCfg, name, cluster)
+	extraArgs := extraArgsEtcd(etcdCfg, name, cluster, leaderSessionTTL)
 	return n.newNodeWithSeed(
 		name, extraArgs, password, entropy, statelessInit, dbBackend,
 	)
@@ -320,12 +325,13 @@ func (n *NetworkHarness) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
 // If the wait flag is false then we won't wait until RPC is available (this is
 // useful when the node is not expected to become the leader right away).
 func (n *NetworkHarness) NewNodeEtcd(name string, etcdCfg *etcd.Config,
-	password []byte, cluster, wait bool) (*HarnessNode, error) {
+	password []byte, cluster, wait bool, leaderSessionTTL int) (
+	*HarnessNode, error) {
 
 	// We don't want to use the embedded etcd instance.
 	const dbBackend = BackendBbolt
 
-	extraArgs := extraArgsEtcd(etcdCfg, name, cluster)
+	extraArgs := extraArgsEtcd(etcdCfg, name, cluster, leaderSessionTTL)
 	return n.newNode(name, extraArgs, true, password, dbBackend, wait)
 }
 

@@ -379,4 +379,8 @@ var allTestCases = []*testCase{
 		name: "remote signer",
 		test: testRemoteSigner,
 	},
+	{
+		name: "3rd party anchor spend",
+		test: testAnchorThirdPartySpend,
+	},
 }

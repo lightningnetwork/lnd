@@ -6540,6 +6540,11 @@
           "format": "int64",
           "title": "The unconfirmed balance of a wallet(with 0 confirmations)"
         },
+        "locked_balance": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount of wallet UTXOs held in outputs that are locked for\nother usage."
+        },
         "account_balance": {
           "type": "object",
           "additionalProperties": {

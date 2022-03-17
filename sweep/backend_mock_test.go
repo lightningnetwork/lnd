@@ -151,3 +151,11 @@ func (b *mockBackend) mine() {
 func (b *mockBackend) isDone() bool {
 	return len(b.unconfirmedTxes) == 0
 }
+
+func (b *mockBackend) RemoveDescendants(*wire.MsgTx) error {
+	return nil
+}
+
+func (b *mockBackend) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {
+	return nil, nil
+}

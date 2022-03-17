@@ -510,6 +510,81 @@ func (s *UtxoSweeper) feeRateForPreference(
 	return feeRate, nil
 }
 
+// removeLastSweepDescendants removes any transactions from the wallet that
+// spend outputs produced by the passed spendingTx. This needs to be done in
+// cases where we're not the only ones that can sweep an output, but there may
+// exist unconfirmed spends that spend outputs created by a sweep transaction.
+// The most common case for this is when someone sweeps our anchor outputs
+// after 16 blocks.
+func (s *UtxoSweeper) removeLastSweepDescendants(spendingTx *wire.MsgTx) error {
+	// Obtain all the past sweeps that we've done so far. We'll need these
+	// to ensure that if the spendingTx spends any of the same inputs, then
+	// we remove any transaction that may be spending those inputs from the
+	// wallet.
+	//
+	// TODO(roasbeef): can be last sweep here if we remove anything confirmed
+	// from the store?
+	pastSweepHashes, err := s.cfg.Store.ListSweeps()
+	if err != nil {
+		return err
+	}
+
+	log.Debugf("Attempting to remove descendant txns invalidated by "+
+		"(txid=%v): %v", spendingTx.TxHash(), spew.Sdump(spendingTx))
+
+	// Construct a map of the inputs this transaction spends for each look
+	// up.
+	inputsSpent := make(map[wire.OutPoint]struct{}, len(spendingTx.TxIn))
+	for _, txIn := range spendingTx.TxIn {
+		inputsSpent[txIn.PreviousOutPoint] = struct{}{}
+	}
+
+	// We'll now go through each past transaction we published during this
+	// epoch and cross reference the spent inputs. If there're any inputs
+	// in common with the inputs the spendingTx spent, then we'll remove
+	// those.
+	//
+	// TODO(roasbeef): need to start to remove all transaction hashes after
+	// every N blocks (assumed point of no return)
+	for _, sweepHash := range pastSweepHashes {
+		sweepTx, err := s.cfg.Wallet.FetchTx(sweepHash)
+		if err != nil {
+			return err
+		}
+
+		// Transaction wasn't found in the wallet, may have already
+		// been replaced/removed.
+		if sweepTx == nil {
+			continue
+		}
+
+		// Check to see if this past sweep transaction spent any of the
+		// same inputs as spendingTx.
+		var isConflicting bool
+		for _, txIn := range sweepTx.TxIn {
+			if _, ok := inputsSpent[txIn.PreviousOutPoint]; ok {
+				isConflicting = true
+				break
+			}
+		}
+
+		// If it did, then we'll signal the wallet to remove all the
+		// transactions that are descendants of outputs created by the
+		// sweepTx.
+		if isConflicting {
+			log.Debugf("Removing sweep txid=%v from wallet: %v",
+				sweepTx.TxHash(), spew.Sdump(sweepTx))
+
+			err := s.cfg.Wallet.RemoveDescendants(sweepTx)
+			if err != nil {
+				log.Warnf("unable to remove descendants: %v", err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // collector is the sweeper main loop. It processes new inputs, spend
 // notifications and counts down to publication of the sweep tx.
 func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
@@ -619,12 +694,29 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				continue
 			}
 
-			log.Debugf("Detected spend related to in flight inputs "+
-				"(is_ours=%v): %v",
-				newLogClosure(func() string {
-					return spew.Sdump(spend.SpendingTx)
-				}), isOurTx,
-			)
+			// If this isn't our transaction, it means someone else
+			// swept outputs that we were attempting to sweep. This
+			// can happen for anchor outputs as well as justice
+			// transactions. In this case, we'll notify the wallet
+			// to remove any spends that a descent from this
+			// output.
+			if !isOurTx {
+				err := s.removeLastSweepDescendants(
+					spend.SpendingTx,
+				)
+				if err != nil {
+					log.Warnf("unable to remove descendant "+
+						"transactions due to tx %v: ",
+						spendHash)
+				}
+
+				log.Debugf("Detected spend related to in flight inputs "+
+					"(is_ours=%v): %v",
+					newLogClosure(func() string {
+						return spew.Sdump(spend.SpendingTx)
+					}), isOurTx,
+				)
+			}
 
 			// Signal sweep results for inputs in this confirmed
 			// tx.

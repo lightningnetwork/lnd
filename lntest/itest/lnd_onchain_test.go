@@ -5,9 +5,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -378,4 +381,240 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	if len(sweepTx.TxOut) != 1 {
 		t.Fatalf("expected 1 output instead have %v", len(sweepTx.TxOut))
 	}
+}
+
+// genAnchorSweep generates a "3rd party" anchor sweeping from an existing one.
+// In practice, we just re-use the existing witness, and track on our own
+// output producing a 1-in-1-out transaction.
+func genAnchorSweep(t *harnessTest, net *lntest.NetworkHarness,
+	aliceAnchor *sweptOutput, anchorCsv uint32) *btcutil.Tx {
+
+	// At this point, we have the transaction that Alice used to try to
+	// sweep her anchor. As this is actually just something anyone can
+	// spend, just need to find the input spending the anchor output, then
+	// we can swap the output address.
+	aliceAnchorTxIn := func() wire.TxIn {
+		sweepCopy := aliceAnchor.SweepTx.Copy()
+		for _, txIn := range sweepCopy.TxIn {
+			if txIn.PreviousOutPoint == aliceAnchor.OutPoint {
+				return *txIn
+			}
+		}
+
+		t.Fatalf("anchor op not found")
+		return wire.TxIn{}
+	}()
+
+	// We'll set the signature on the input to nil, and then set the
+	// sequence to 16 (the anchor CSV period).
+	aliceAnchorTxIn.Witness[0] = nil
+	aliceAnchorTxIn.Sequence = anchorCsv
+
+	minerAddr, err := net.Miner.NewAddress()
+	if err != nil {
+		t.Fatalf("unable to get miner addr: %v", err)
+	}
+	addrScript, err := txscript.PayToAddrScript(minerAddr)
+	if err != nil {
+		t.Fatalf("unable to gen addr script: %v", err)
+	}
+
+	// Now that we have the txIn, we can just make a new transaction that
+	// uses a different script for the output.
+	tx := wire.NewMsgTx(2)
+	tx.AddTxIn(&aliceAnchorTxIn)
+	tx.AddTxOut(&wire.TxOut{
+		PkScript: addrScript,
+		Value:    anchorSize - 1,
+	})
+
+	return btcutil.NewTx(tx)
+}
+
+// testAnchorThirdPartySpend tests that if we force close a channel, but then
+// don't sweep the anchor in time and a 3rd party spends it, that we remove any
+// transactions that are a descendent of that sweep.
+func testAnchorThirdPartySpend(net *lntest.NetworkHarness, t *harnessTest) {
+	// First, we'll create two new nodes that both default to anchor
+	// channels.
+	//
+	// NOTE: The itests differ here as anchors is default off vs the normal
+	// lnd binary.
+	args := nodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	alice := net.NewNode(t.t, "Alice", args)
+	defer shutdownAndAssert(net, t, alice)
+
+	bob := net.NewNode(t.t, "Bob", args)
+	defer shutdownAndAssert(net, t, bob)
+
+	ctxb := context.Background()
+	net.ConnectNodes(t.t, alice, bob)
+
+	// We'll fund our Alice with coins, as she'll be opening the channel.
+	// We'll fund her with *just* enough coins to open the channel.
+	const (
+		firstChanSize   = 1_000_000
+		anchorFeeBuffer = 500_000
+	)
+	net.SendCoins(t.t, firstChanSize, alice)
+
+	// We'll give Alice another spare UTXO as well so she can use it to
+	// help sweep all coins.
+	net.SendCoins(t.t, anchorFeeBuffer, alice)
+
+	// Open the channel between the two nodes and wait for it to confirm
+	// fully.
+	aliceChanPoint1 := openChannelAndAssert(
+		t, net, alice, bob, lntest.OpenChannelParams{
+			Amt: firstChanSize,
+		},
+	)
+
+	// With the channel open, we'll actually immediately force close it. We
+	// don't care about network announcements here since there's no routing
+	// in this test.
+	_, _, err := net.CloseChannel(alice, aliceChanPoint1, true)
+	if err != nil {
+		t.Fatalf("unable to execute force channel closure: %v", err)
+	}
+
+	// Now that the channel has been force closed, it should show up in the
+	// PendingChannels RPC under the waiting close section.
+	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	pendingChanResp, err := alice.PendingChannels(ctxt, pendingChansRequest)
+	if err != nil {
+		t.Fatalf("unable to query for pending channels: %v", err)
+	}
+	err = checkNumWaitingCloseChannels(pendingChanResp, 1)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+
+	// Get the normal channel outpoint so we can track it in the set of
+	// channels that are waiting to be closed.
+	fundingTxID, err := lnrpc.GetChanPointFundingTxid(aliceChanPoint1)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	chanPoint := wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: aliceChanPoint1.OutputIndex,
+	}
+	waitingClose, err := findWaitingCloseChannel(pendingChanResp, &chanPoint)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+
+	// At this point, the channel is waiting close, and we have both the
+	// commitment transaction and anchor sweep in the mempool.
+	const expectedTxns = 2
+	sweepTxns, err := getNTxsFromMempool(
+		net.Miner.Client, expectedTxns, minerMempoolTimeout,
+	)
+	require.NoError(t.t, err, "no sweep txns in miner mempool")
+	aliceCloseTx := waitingClose.Commitments.LocalTxid
+	_, aliceAnchor := findCommitAndAnchor(t, net, sweepTxns, aliceCloseTx)
+
+	// We'll now mine _only_ the commitment force close transaction, as we
+	// want the anchor sweep to stay unconfirmed.
+	var emptyTime time.Time
+	forceCloseTxID, _ := chainhash.NewHashFromStr(aliceCloseTx)
+	commitTxn, err := net.Miner.Client.GetRawTransaction(
+		forceCloseTxID,
+	)
+	if err != nil {
+		t.Fatalf("unable to get transaction: %v", err)
+	}
+	_, err = net.Miner.GenerateAndSubmitBlock(
+		[]*btcutil.Tx{commitTxn}, -1, emptyTime,
+	)
+	if err != nil {
+		t.Fatalf("unable to generate block: %v", err)
+	}
+
+	// With the anchor output located, and the main commitment mined we'll
+	// instruct the wallet to send all coins in the wallet to a new address
+	// (to the miner), including unconfirmed change.
+	minerAddr, err := net.Miner.NewAddress()
+	if err != nil {
+		t.Fatalf("unable to create new miner addr: %v", err)
+	}
+	sweepReq := &lnrpc.SendCoinsRequest{
+		Addr:             minerAddr.String(),
+		SendAll:          true,
+		MinConfs:         0,
+		SpendUnconfirmed: true,
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	sweepAllResp, err := alice.SendCoins(ctxt, sweepReq)
+	if err != nil {
+		t.Fatalf("unable to sweep coins: %v", err)
+	}
+
+	// Both the original anchor sweep transaction, as well as the
+	// transaction we created to sweep all the coins from Alice's wallet
+	// should be found in her transaction store.
+	sweepAllTxID, _ := chainhash.NewHashFromStr(sweepAllResp.Txid)
+	assertTransactionInWallet(t.t, alice, aliceAnchor.SweepTx.TxHash())
+	assertTransactionInWallet(t.t, alice, *sweepAllTxID)
+
+	// Next, we'll shutdown Alice, and allow 16 blocks to pass so that the
+	// anchor output can be swept by anyone. Rather than use the normal API
+	// call, we'll generate a series of _empty_ blocks here.
+	aliceRestart, err := net.SuspendNode(alice)
+	if err != nil {
+		t.Fatalf("unable to shutdown alice: %v", err)
+	}
+	const anchorCsv = 16
+	for i := 0; i < anchorCsv; i++ {
+		_, err := net.Miner.GenerateAndSubmitBlock(nil, -1, emptyTime)
+		if err != nil {
+			t.Fatalf("unable to generate block: %v", err)
+		}
+	}
+
+	// Before we sweep the anchor, we'll restart Alice.
+	if err := aliceRestart(); err != nil {
+		t.Fatalf("unable to restart alice: %v", err)
+	}
+
+	// Now that the channel has been closed, and Alice has an unconfirmed
+	// transaction spending the output produced by her anchor sweep, we'll
+	// mine a transaction that double spends the output.
+	thirdPartyAnchorSweep := genAnchorSweep(t, net, aliceAnchor, anchorCsv)
+	_, err = net.Miner.GenerateAndSubmitBlock(
+		[]*btcutil.Tx{thirdPartyAnchorSweep}, -1, emptyTime,
+	)
+	if err != nil {
+		t.Fatalf("unable to generate block: %v", err)
+	}
+
+	// At this point, we should no longer find Alice's transaction that
+	// tried to sweep the anchor in her wallet.
+	assertTransactionNotInWallet(t.t, alice, aliceAnchor.SweepTx.TxHash())
+
+	// In addition, the transaction she sent to sweep all her coins to the
+	// miner also should no longer be found.
+	assertTransactionNotInWallet(t.t, alice, *sweepAllTxID)
+
+	// The anchor should now show as being "lost", while the force close
+	// response is still present.
+	assertAnchorOutputLost(t, alice, chanPoint)
+
+	// At this point Alice's CSV output should already be fully spent and
+	// the channel marked as being resolved. We mine a block first, as so
+	// far we've been generating custom blocks this whole time..
+	commitSweepOp := wire.OutPoint{
+		Hash:  *forceCloseTxID,
+		Index: 1,
+	}
+	assertSpendingTxInMempool(
+		t, net.Miner.Client, minerMempoolTimeout, commitSweepOp,
+	)
+	_, err = net.Miner.Client.Generate(1)
+	if err != nil {
+		t.Fatalf("unable to generate block: %v", err)
+	}
+	assertNumPendingChannels(t, alice, 0, 0)
 }

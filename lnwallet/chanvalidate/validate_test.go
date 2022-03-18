@@ -98,7 +98,7 @@ func newChannelTestCtx(chanSize int64) (*channelTestCtx, error) {
 		},
 	}
 
-	sigHashes := txscript.NewTxSigHashes(commitTx)
+	sigHashes := input.NewTxSigHashesV0Only(commitTx)
 	aliceSigRaw, err := txscript.RawTxInWitnessSignature(
 		commitTx, sigHashes, 0, chanSize,
 		multiSigScript, txscript.SigHashAll, alicePriv,

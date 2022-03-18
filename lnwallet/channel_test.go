@@ -990,9 +990,14 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	// the multi-sig clause within the output on the commitment transaction
 	// that produces this HTLC.
 	timeoutTx := htlcResolution.SignedTimeoutTx
-	vm, err := txscript.NewEngine(senderHtlcPkScript,
+	vm, err := txscript.NewEngine(
+		senderHtlcPkScript,
 		timeoutTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, int64(htlcAmount.ToSatoshis()))
+		nil, int64(htlcAmount.ToSatoshis()),
+		txscript.NewCannedPrevOutputFetcher(
+			senderHtlcPkScript, int64(htlcAmount.ToSatoshis()),
+		),
+	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
 	}
@@ -1028,6 +1033,10 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 		htlcResolution.SweepSignDesc.Output.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,
 		nil, htlcResolution.SweepSignDesc.Output.Value,
+		txscript.NewCannedPrevOutputFetcher(
+			htlcResolution.SweepSignDesc.Output.PkScript,
+			htlcResolution.SweepSignDesc.Output.Value,
+		),
 	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
@@ -1057,9 +1066,14 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	// before publication.
 	successTx := inHtlcResolution.SignedSuccessTx
 	successTx.TxIn[0].Witness[3] = preimageBob[:]
-	vm, err = txscript.NewEngine(receiverHtlcScript,
+	vm, err = txscript.NewEngine(
+		receiverHtlcScript,
 		successTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, int64(htlcAmount.ToSatoshis()))
+		nil, int64(htlcAmount.ToSatoshis()),
+		txscript.NewCannedPrevOutputFetcher(
+			receiverHtlcScript, int64(htlcAmount.ToSatoshis()),
+		),
+	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
 	}
@@ -1091,6 +1105,10 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 		inHtlcResolution.SweepSignDesc.Output.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,
 		nil, inHtlcResolution.SweepSignDesc.Output.Value,
+		txscript.NewCannedPrevOutputFetcher(
+			inHtlcResolution.SweepSignDesc.Output.PkScript,
+			inHtlcResolution.SweepSignDesc.Output.Value,
+		),
 	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
@@ -5978,7 +5996,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		Value:    outHtlcResolution.SweepSignDesc.Output.Value,
 	})
 	outHtlcResolution.SweepSignDesc.InputIndex = 0
-	outHtlcResolution.SweepSignDesc.SigHashes = txscript.NewTxSigHashes(
+	outHtlcResolution.SweepSignDesc.SigHashes = input.NewTxSigHashesV0Only(
 		sweepTx,
 	)
 	sweepTx.LockTime = outHtlcResolution.Expiry
@@ -5996,6 +6014,10 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		outHtlcResolution.SweepSignDesc.Output.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,
 		nil, outHtlcResolution.SweepSignDesc.Output.Value,
+		txscript.NewCannedPrevOutputFetcher(
+			outHtlcResolution.SweepSignDesc.Output.PkScript,
+			outHtlcResolution.SweepSignDesc.Output.Value,
+		),
 	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
@@ -6016,7 +6038,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		Value:    inHtlcResolution.SweepSignDesc.Output.Value,
 	})
 	inHtlcResolution.SweepSignDesc.InputIndex = 0
-	inHtlcResolution.SweepSignDesc.SigHashes = txscript.NewTxSigHashes(
+	inHtlcResolution.SweepSignDesc.SigHashes = input.NewTxSigHashesV0Only(
 		sweepTx,
 	)
 	sweepTx.TxIn[0].Witness, err = input.SenderHtlcSpendRedeem(
@@ -6034,6 +6056,10 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		inHtlcResolution.SweepSignDesc.Output.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,
 		nil, inHtlcResolution.SweepSignDesc.Output.Value,
+		txscript.NewCannedPrevOutputFetcher(
+			inHtlcResolution.SweepSignDesc.Output.PkScript,
+			inHtlcResolution.SweepSignDesc.Output.Value,
+		),
 	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
@@ -6151,7 +6177,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		PkScript: testHdSeed[:],
 		Value:    aliceSignDesc.Output.Value,
 	})
-	aliceSignDesc.SigHashes = txscript.NewTxSigHashes(sweepTx)
+	aliceSignDesc.SigHashes = input.NewTxSigHashesV0Only(sweepTx)
 	sweepTx.TxIn[0].Witness, err = input.CommitSpendNoDelay(
 		aliceChannel.Signer, &aliceSignDesc, sweepTx, false,
 	)
@@ -6165,6 +6191,10 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		aliceSignDesc.Output.PkScript, sweepTx, 0,
 		txscript.StandardVerifyFlags, nil, nil,
 		aliceSignDesc.Output.Value,
+		txscript.NewCannedPrevOutputFetcher(
+			aliceSignDesc.Output.PkScript,
+			aliceSignDesc.Output.Value,
+		),
 	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)

@@ -266,7 +266,7 @@ func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp,
 		return nil, fmt.Errorf("unable to decode tx: %v", err)
 	}
 
-	sigHashCache := txscript.NewTxSigHashes(&txToSign)
+	sigHashCache := input.NewTxSigHashesV0Only(&txToSign)
 
 	log.Debugf("Generating sigs for %v inputs: ", len(in.SignDescs))
 
@@ -405,7 +405,7 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 		return nil, fmt.Errorf("unable to decode tx: %v", err)
 	}
 
-	sigHashCache := txscript.NewTxSigHashes(&txToSign)
+	sigHashCache := input.NewTxSigHashesV0Only(&txToSign)
 
 	signDescs := make([]*input.SignDescriptor, 0, len(in.SignDescs))
 	for _, signDesc := range in.SignDescs {

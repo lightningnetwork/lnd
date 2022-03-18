@@ -1440,7 +1440,7 @@ func (b *BreachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 
 	// Create a sighash cache to improve the performance of hashing and
 	// signing SigHashAll inputs.
-	hashCache := txscript.NewTxSigHashes(txn)
+	hashCache := input.NewTxSigHashesV0Only(txn)
 
 	// Create a closure that encapsulates the process of initializing a
 	// particular output's witness generation function, computing the

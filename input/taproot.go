@@ -3,8 +3,11 @@ package input
 import (
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
+	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 // NewTxSigHashesV0Only returns a new txscript.TxSigHashes instance that will
@@ -41,4 +44,54 @@ func MultiPrevOutFetcher(inputs []Input) (*txscript.MultiPrevOutFetcher, error) 
 	}
 
 	return fetcher, nil
+}
+
+// TapscriptFullTree creates a waddrmgr.Tapscript for the given internal key and
+// tree leaves.
+func TapscriptFullTree(internalKey *btcec.PublicKey,
+	allTreeLeaves ...txscript.TapLeaf) *waddrmgr.Tapscript {
+
+	tree := txscript.AssembleTaprootScriptTree(allTreeLeaves...)
+	rootHash := tree.RootNode.TapHash()
+	tapKey := txscript.ComputeTaprootOutputKey(internalKey, rootHash[:])
+
+	var outputKeyYIsOdd bool
+	if tapKey.SerializeCompressed()[0] == secp.PubKeyFormatCompressedOdd {
+		outputKeyYIsOdd = true
+	}
+
+	return &waddrmgr.Tapscript{
+		Type: waddrmgr.TapscriptTypeFullTree,
+		ControlBlock: &txscript.ControlBlock{
+			InternalKey:     internalKey,
+			OutputKeyYIsOdd: outputKeyYIsOdd,
+			LeafVersion:     txscript.BaseLeafVersion,
+		},
+		Leaves: allTreeLeaves,
+	}
+}
+
+// TapscriptPartialReveal creates a waddrmgr.Tapscript for the given internal
+// key and revealed script.
+func TapscriptPartialReveal(internalKey *btcec.PublicKey,
+	revealedLeaf txscript.TapLeaf,
+	inclusionProof [32]byte) *waddrmgr.Tapscript {
+
+	controlBlock := &txscript.ControlBlock{
+		InternalKey:    internalKey,
+		LeafVersion:    txscript.BaseLeafVersion,
+		InclusionProof: inclusionProof[:],
+	}
+	rootHash := controlBlock.RootHash(revealedLeaf.Script)
+	tapKey := txscript.ComputeTaprootOutputKey(internalKey, rootHash)
+
+	if tapKey.SerializeCompressed()[0] == secp.PubKeyFormatCompressedOdd {
+		controlBlock.OutputKeyYIsOdd = true
+	}
+
+	return &waddrmgr.Tapscript{
+		Type:           waddrmgr.TapscriptTypePartialReveal,
+		ControlBlock:   controlBlock,
+		RevealedScript: revealedLeaf.Script,
+	}
 }

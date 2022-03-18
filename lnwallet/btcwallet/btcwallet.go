@@ -750,6 +750,26 @@ func (b *BtcWallet) ImportPublicKey(pubKey *btcec.PublicKey,
 	return b.wallet.ImportPublicKey(pubKey, addrType)
 }
 
+// ImportTaprootScript imports a user-provided taproot script into the address
+// manager. The imported script will act as a pay-to-taproot address.
+func (b *BtcWallet) ImportTaprootScript(scope waddrmgr.KeyScope,
+	tapscript *waddrmgr.Tapscript) (waddrmgr.ManagedAddress, error) {
+
+	// We want to be able to import script addresses into a watch-only
+	// wallet, which is only possible if we don't encrypt the script with
+	// the private key encryption key. By specifying the script as being
+	// "not secret", we can also decrypt the script in a watch-only wallet.
+	const isSecretScript = false
+
+	// Currently, only v1 (Taproot) scripts are supported. We don't even
+	// know what a v2 witness version would look like at this point.
+	const witnessVersionTaproot byte = 1
+
+	return b.wallet.ImportTaprootScript(
+		scope, tapscript, nil, witnessVersionTaproot, isSecretScript,
+	)
+}
+
 // SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying out to
 // the specified outputs. In the case the wallet has insufficient funds, or the
 // outputs are non-standard, a non-nil error will be returned.

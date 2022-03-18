@@ -53,6 +53,9 @@ You can just pull those images by specifying a release tag:
 ⛰  docker run lightninglabs/lnd [command-line options]
 ```
 
+Note that **`daily-*` tags are unstable and not for production use**.
+They are only suitable for development and pre-release testing.
+
 ### Verifying docker images
 
 To verify the `lnd` and `lncli` binaries inside the docker images against the

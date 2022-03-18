@@ -3,6 +3,7 @@ package input
 import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 )
 
 const (
@@ -532,11 +533,16 @@ const (
 	//      - witness_script (anchor_script)
 	AnchorWitnessSize = 1 + 1 + 73 + 1 + AnchorScriptSize
 
+	// TaprootSignatureWitnessSize 65 bytes
+	//	- sigLength: 1 byte
+	//	- sig: 64 bytes
+	TaprootSignatureWitnessSize = 1 + 64
+
 	// TaprootKeyPathWitnessSize 66 bytes
 	//	- NumberOfWitnessElements: 1 byte
 	//	- sigLength: 1 byte
 	//	- sig: 64 bytes
-	TaprootKeyPathWitnessSize = 1 + 1 + 64
+	TaprootKeyPathWitnessSize = 1 + TaprootSignatureWitnessSize
 
 	// TaprootKeyPathCustomSighashWitnessSize 67 bytes
 	//	- NumberOfWitnessElements: 1 byte
@@ -544,6 +550,11 @@ const (
 	//	- sig: 64 bytes
 	//      - sighashFlag: 1 byte
 	TaprootKeyPathCustomSighashWitnessSize = TaprootKeyPathWitnessSize + 1
+
+	// TaprootBaseControlBlockWitnessSize 33 bytes
+	//      - leafVersionAndParity: 1 byte
+	//      - schnorrPubKey: 32 byte
+	TaprootBaseControlBlockWitnessSize = 33
 )
 
 // EstimateCommitTxWeight estimate commitment transaction weight depending on
@@ -601,6 +612,31 @@ func (twe *TxWeightEstimator) AddP2WKHInput() *TxWeightEstimator {
 func (twe *TxWeightEstimator) AddWitnessInput(witnessSize int) *TxWeightEstimator {
 	twe.inputSize += InputSize
 	twe.inputWitnessSize += witnessSize
+	twe.inputCount++
+	twe.hasWitness = true
+
+	return twe
+}
+
+// AddTapscriptInput updates the weight estimate to account for an additional
+// input spending a segwit v1 pay-to-taproot output using the script path. This
+// accepts the total size of the witness for the script leaf that is executed
+// and adds the size of the control block to the total witness size.
+//
+// NOTE: The leaf witness size must be calculated without the byte that accounts
+// for the number of witness elements, only the total size of all elements on
+// the stack that are consumed by the revealed script should be counted.
+func (twe *TxWeightEstimator) AddTapscriptInput(leafWitnessSize int,
+	tapscript *waddrmgr.Tapscript) *TxWeightEstimator {
+
+	// We add 1 byte for the total number of witness elements.
+	controlBlockWitnessSize := 1 + TaprootBaseControlBlockWitnessSize +
+		// 1 byte for the length of the element plus the element itself.
+		1 + len(tapscript.RevealedScript) +
+		1 + len(tapscript.ControlBlock.InclusionProof)
+
+	twe.inputSize += InputSize
+	twe.inputWitnessSize += leafWitnessSize + controlBlockWitnessSize
 	twe.inputCount++
 	twe.hasWitness = true
 

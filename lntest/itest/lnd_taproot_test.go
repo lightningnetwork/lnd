@@ -3,6 +3,7 @@ package itest
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"testing"
 
@@ -30,6 +31,7 @@ func testTaproot(net *lntest.NetworkHarness, t *harnessTest) {
 
 	testTaprootKeySpend(ctxt, t, net)
 	testTaprootScriptSpend(ctxt, t, net)
+	testTaprootKeySpendRPC(ctxt, t, net)
 }
 
 // testTaprootKeySpend tests sending to and spending from p2tr key spend only
@@ -223,6 +225,147 @@ func testTaprootScriptSpend(ctxt context.Context, t *harnessTest,
 		signResp.RawSigs[0],
 		leaf2.Script,
 		controlBlockBytes,
+	}
+
+	buf.Reset()
+	require.NoError(t.t, tx.Serialize(&buf))
+
+	// Since Schnorr signatures are fixed size, we must be able to estimate
+	// the size of this transaction exactly.
+	txWeight := blockchain.GetTransactionWeight(btcutil.NewTx(tx))
+	require.Equal(t.t, txWeight, estimatedWeight)
+
+	_, err = net.Alice.WalletKitClient.PublishTransaction(
+		ctxt, &walletrpc.Transaction{
+			TxHex: buf.Bytes(),
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Wait until the spending tx is found.
+	txid, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
+	require.NoError(t.t, err)
+	p2wpkhOutputIndex := getOutputIndex(
+		t, net.Miner, txid, p2wkhAddr.String(),
+	)
+	op := &lnrpc.OutPoint{
+		TxidBytes:   txid[:],
+		OutputIndex: uint32(p2wpkhOutputIndex),
+	}
+	assertWalletUnspent(t, net.Alice, op)
+
+	// Mine another block to clean up the mempool and to make sure the spend
+	// tx is actually included in a block.
+	mineBlocks(t, net, 1, 1)
+}
+
+// testTaprootKeySpendRPC tests that a tapscript address can also be spent using
+// the key spend path through the RPC.
+func testTaprootKeySpendRPC(ctxt context.Context, t *harnessTest,
+	net *lntest.NetworkHarness) {
+
+	// For the next step, we need a public key. Let's use a special family
+	// for this.
+	const taprootKeyFamily = 77
+	keyDesc, err := net.Alice.WalletKitClient.DeriveNextKey(
+		ctxt, &walletrpc.KeyReq{
+			KeyFamily: taprootKeyFamily,
+		},
+	)
+	require.NoError(t.t, err)
+
+	internalKey, err := btcec.ParsePubKey(keyDesc.RawKeyBytes)
+	require.NoError(t.t, err)
+
+	// We want to make sure we can still use a tweaked key, even if it ends
+	// up being essentially double tweaked because of the taproot root hash.
+	dummyKeyTweak := sha256.Sum256([]byte("this is a key tweak"))
+	internalKey = input.TweakPubKeyWithTweak(internalKey, dummyKeyTweak[:])
+
+	// Let's create a taproot script output now. This is a hash lock with a
+	// simple preimage of "foobar".
+	leaf1 := testScriptHashLock(t.t, []byte("foobar"))
+
+	rootHash := leaf1.TapHash()
+	taprootKey := txscript.ComputeTaprootOutputKey(internalKey, rootHash[:])
+
+	tapScriptAddr, err := btcutil.NewAddressTaproot(
+		schnorr.SerializePubKey(taprootKey), harnessNetParams,
+	)
+	require.NoError(t.t, err)
+	p2trPkScript, err := txscript.PayToAddrScript(tapScriptAddr)
+	require.NoError(t.t, err)
+
+	// Send some coins to the generated tapscript address.
+	_, err = net.Alice.SendCoins(ctxt, &lnrpc.SendCoinsRequest{
+		Addr:   tapScriptAddr.String(),
+		Amount: 800_000,
+	})
+	require.NoError(t.t, err)
+
+	// Wait until the TX is found in the mempool.
+	txid, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
+	require.NoError(t.t, err)
+
+	p2trOutputIndex := getOutputIndex(
+		t, net.Miner, txid, tapScriptAddr.String(),
+	)
+
+	// Clear the mempool.
+	mineBlocks(t, net, 1, 1)
+
+	// Spend the output again, this time back to a p2wkh address.
+	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
+		ctxt, t.t, net.Alice, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	)
+
+	// Create fee estimation for a p2tr input and p2wkh output.
+	feeRate := chainfee.SatPerKWeight(12500)
+	estimator := input.TxWeightEstimator{}
+	estimator.AddTaprootKeySpendInput(txscript.SigHashDefault)
+	estimator.AddP2WKHOutput()
+	estimatedWeight := int64(estimator.Weight())
+	requiredFee := feeRate.FeeForWeight(estimatedWeight)
+
+	tx := wire.NewMsgTx(2)
+	tx.TxIn = []*wire.TxIn{{
+		PreviousOutPoint: wire.OutPoint{
+			Hash:  *txid,
+			Index: uint32(p2trOutputIndex),
+		},
+	}}
+	value := int64(800_000 - requiredFee)
+	tx.TxOut = []*wire.TxOut{{
+		PkScript: p2wkhPkScript,
+		Value:    value,
+	}}
+
+	var buf bytes.Buffer
+	require.NoError(t.t, tx.Serialize(&buf))
+
+	utxoInfo := []*signrpc.TxOut{{
+		PkScript: p2trPkScript,
+		Value:    800_000,
+	}}
+	signResp, err := net.Alice.SignerClient.SignOutputRaw(
+		ctxt, &signrpc.SignReq{
+			RawTxBytes: buf.Bytes(),
+			SignDescs: []*signrpc.SignDescriptor{{
+				Output:          utxoInfo[0],
+				InputIndex:      0,
+				KeyDesc:         keyDesc,
+				SingleTweak:     dummyKeyTweak[:],
+				Sighash:         uint32(txscript.SigHashDefault),
+				WitnessScript:   rootHash[:],
+				TaprootKeySpend: true,
+			}},
+			PrevOutputs: utxoInfo,
+		},
+	)
+	require.NoError(t.t, err)
+
+	tx.TxIn[0].Witness = wire.TxWitness{
+		signResp.RawSigs[0],
 	}
 
 	buf.Reset()

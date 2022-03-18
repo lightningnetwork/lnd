@@ -2,6 +2,7 @@ package input
 
 import (
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 )
@@ -637,6 +638,27 @@ func (twe *TxWeightEstimator) AddTapscriptInput(leafWitnessSize int,
 
 	twe.inputSize += InputSize
 	twe.inputWitnessSize += leafWitnessSize + controlBlockWitnessSize
+	twe.inputCount++
+	twe.hasWitness = true
+
+	return twe
+}
+
+// AddTaprootKeySpendInput updates the weight estimate to account for an
+// additional input spending a segwit v1 pay-to-taproot output using the key
+// spend path. This accepts the sighash type being used since that has an
+// influence on the total size of the signature.
+func (twe *TxWeightEstimator) AddTaprootKeySpendInput(
+	hashType txscript.SigHashType) *TxWeightEstimator {
+
+	twe.inputSize += InputSize
+
+	if hashType == txscript.SigHashDefault {
+		twe.inputWitnessSize += TaprootKeyPathWitnessSize
+	} else {
+		twe.inputWitnessSize += TaprootKeyPathCustomSighashWitnessSize
+	}
+
 	twe.inputCount++
 	twe.hasWitness = true
 

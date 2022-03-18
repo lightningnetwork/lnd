@@ -341,9 +341,9 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 		// output. We'll send it in the WitnessScript field, the
 		// SignOutputRaw RPC will know what to do with it when creating
 		// the sighash.
-		if len(signDesc.WitnessScript) == 0 {
+		if len(signDesc.WitnessScript) == 0 && !signDesc.TaprootKeySpend {
 			return nil, fmt.Errorf("witness script MUST be " +
-				"specified")
+				"specified for non-taproot-key-spends")
 		}
 
 		// If the users provided a double tweak, then we'll need to
@@ -363,9 +363,10 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 				KeyLocator: keyLoc,
 				PubKey:     targetPubKey,
 			},
-			SingleTweak:   signDesc.SingleTweak,
-			DoubleTweak:   tweakPrivKey,
-			WitnessScript: signDesc.WitnessScript,
+			SingleTweak:     signDesc.SingleTweak,
+			DoubleTweak:     tweakPrivKey,
+			WitnessScript:   signDesc.WitnessScript,
+			TaprootKeySpend: signDesc.TaprootKeySpend,
 			Output: &wire.TxOut{
 				Value:    signDesc.Output.Value,
 				PkScript: signDesc.Output.PkScript,

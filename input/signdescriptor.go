@@ -61,6 +61,11 @@ type SignDescriptor struct {
 	// script (PkScript).
 	WitnessScript []byte
 
+	// TaprootKeySpend indicates that instead of a witness script being
+	// spent by the signature that results from this signing request, a
+	// taproot key spend is performed instead.
+	TaprootKeySpend bool
+
 	// Output is the target output which should be signed. The PkScript and
 	// Value fields within the output should be properly populated,
 	// otherwise an invalid signature may be generated.

@@ -64,6 +64,12 @@ to Bitcoin nodes that advertise a Tor v3 onion service address.
 capable of status checks, adding, disconnecting and listing peers, fetching
 compact filters and block/block headers.
 
+## Btcwallet
+
+* [Add option to configure the block and transaction subscription 
+  notifications from bitcoind to be obtained through polling of the RPC 
+  interface instead of using ZMQ](https://github.com/lightningnetwork/lnd/pull/6345)
+
 ## Bug Fixes
 
 * [Pipelining an UpdateFulfillHTLC message now only happens when the related UpdateAddHTLC is locked-in.](https://github.com/lightningnetwork/lnd/pull/6246)

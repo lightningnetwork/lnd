@@ -2,6 +2,7 @@ package lookout
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -177,11 +178,11 @@ func (p *JusticeDescriptor) assembleJusticeTxn(txWeight int64,
 	// First, construct add the breached inputs to our justice transaction
 	// and compute the total amount that will be swept.
 	var totalAmt btcutil.Amount
-	for _, input := range inputs {
-		totalAmt += btcutil.Amount(input.txOut.Value)
+	for _, inp := range inputs {
+		totalAmt += btcutil.Amount(inp.txOut.Value)
 		justiceTxn.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: input.outPoint,
-			Sequence:         input.sequence,
+			PreviousOutPoint: inp.outPoint,
+			Sequence:         inp.sequence,
 		})
 	}
 
@@ -217,20 +218,22 @@ func (p *JusticeDescriptor) assembleJusticeTxn(txWeight int64,
 	}
 
 	// Attach each of the provided witnesses to the transaction.
-	for _, input := range inputs {
+	prevOutFetcher, err := prevOutFetcher(inputs)
+	if err != nil {
+		return nil, fmt.Errorf("error creating previous output "+
+			"fetcher: %v", err)
+	}
+	for _, inp := range inputs {
 		// Lookup the input's new post-sort position.
-		i := inputIndex[input.outPoint]
-		justiceTxn.TxIn[i].Witness = input.witness
+		i := inputIndex[inp.outPoint]
+		justiceTxn.TxIn[i].Witness = inp.witness
 
 		// Validate the reconstructed witnesses to ensure they are valid
 		// for the breached inputs.
 		vm, err := txscript.NewEngine(
-			input.txOut.PkScript, justiceTxn, i,
+			inp.txOut.PkScript, justiceTxn, i,
 			txscript.StandardVerifyFlags,
-			nil, nil, input.txOut.Value,
-			txscript.NewCannedPrevOutputFetcher(
-				input.txOut.PkScript, input.txOut.Value,
-			),
+			nil, nil, inp.txOut.Value, prevOutFetcher,
 		)
 		if err != nil {
 			return nil, err
@@ -344,4 +347,21 @@ func buildWitness(witnessStack [][]byte, witnessScript []byte) [][]byte {
 	witness[lastIdx] = witnessScript
 
 	return witness
+}
+
+// prevOutFetcher returns a txscript.MultiPrevOutFetcher for the given set
+// of inputs.
+func prevOutFetcher(inputs []*breachedInput) (*txscript.MultiPrevOutFetcher,
+	error) {
+
+	fetcher := txscript.NewMultiPrevOutFetcher(nil)
+	for _, inp := range inputs {
+		if inp.txOut == nil {
+			return nil, fmt.Errorf("missing input utxo information")
+		}
+
+		fetcher.AddPrevOut(inp.outPoint, inp.txOut)
+	}
+
+	return fetcher, nil
 }

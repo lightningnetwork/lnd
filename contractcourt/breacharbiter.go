@@ -1096,11 +1096,15 @@ func (bo *breachedOutput) SignDesc() *input.SignDescriptor {
 // sign descriptor. The method then returns the witness computed by invoking
 // this function on the first and subsequent calls.
 func (bo *breachedOutput) CraftInputScript(signer input.Signer, txn *wire.MsgTx,
-	hashCache *txscript.TxSigHashes, txinIdx int) (*input.Script, error) {
+	hashCache *txscript.TxSigHashes,
+	prevOutputFetcher txscript.PrevOutputFetcher,
+	txinIdx int) (*input.Script, error) {
 
 	// First, we ensure that the witness generation function has been
 	// initialized for this breached output.
-	bo.witnessFunc = bo.witnessType.WitnessGenerator(signer, bo.SignDesc())
+	signDesc := bo.SignDesc()
+	signDesc.PrevOutputFetcher = prevOutputFetcher
+	bo.witnessFunc = bo.witnessType.WitnessGenerator(signer, signDesc)
 
 	// Now that we have ensured that the witness generation function has
 	// been initialized, we can proceed to execute it and generate the
@@ -1397,8 +1401,8 @@ func (b *BreachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 
 	// Compute the total amount contained in the inputs.
 	var totalAmt btcutil.Amount
-	for _, input := range inputs {
-		totalAmt += btcutil.Amount(input.SignDesc().Output.Value)
+	for _, inp := range inputs {
+		totalAmt += btcutil.Amount(inp.SignDesc().Output.Value)
 	}
 
 	// We'll actually attempt to target inclusion within the next two
@@ -1424,10 +1428,10 @@ func (b *BreachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 
 	// Next, we add all of the spendable outputs as inputs to the
 	// transaction.
-	for _, input := range inputs {
+	for _, inp := range inputs {
 		txn.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *input.OutPoint(),
-			Sequence:         input.BlocksToMaturity(),
+			PreviousOutPoint: *inp.OutPoint(),
+			Sequence:         inp.BlocksToMaturity(),
 		})
 	}
 
@@ -1440,7 +1444,11 @@ func (b *BreachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 
 	// Create a sighash cache to improve the performance of hashing and
 	// signing SigHashAll inputs.
-	hashCache := input.NewTxSigHashesV0Only(txn)
+	prevOutputFetcher, err := input.MultiPrevOutFetcher(inputs)
+	if err != nil {
+		return nil, err
+	}
+	hashCache := txscript.NewTxSigHashes(txn, prevOutputFetcher)
 
 	// Create a closure that encapsulates the process of initializing a
 	// particular output's witness generation function, computing the
@@ -1452,7 +1460,7 @@ func (b *BreachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 		// transaction using the SpendableOutput's witness generation
 		// function.
 		inputScript, err := so.CraftInputScript(
-			b.cfg.Signer, txn, hashCache, idx,
+			b.cfg.Signer, txn, hashCache, prevOutputFetcher, idx,
 		)
 		if err != nil {
 			return err
@@ -1467,8 +1475,8 @@ func (b *BreachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 
 	// Finally, generate a witness for each output and attach it to the
 	// transaction.
-	for i, input := range inputs {
-		if err := addWitness(i, input); err != nil {
+	for i, inp := range inputs {
+		if err := addWitness(i, inp); err != nil {
 			return nil, err
 		}
 	}
@@ -1648,7 +1656,7 @@ func (ret *retributionInfo) Encode(w io.Writer) error {
 	return nil
 }
 
-// Dencode deserializes a retribution from the passed byte stream.
+// Decode deserializes a retribution from the passed byte stream.
 func (ret *retributionInfo) Decode(r io.Reader) error {
 	var scratch [32]byte
 

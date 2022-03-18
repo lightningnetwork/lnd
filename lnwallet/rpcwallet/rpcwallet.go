@@ -133,9 +133,11 @@ func (r *RPCKeyRing) SendOutputs(outputs []*wire.TxOut,
 
 	// We know at this point that we only have inputs from our own wallet.
 	// So we can just compute the input script using the remote signer.
+	outputFetcher := lnwallet.NewWalletPrevOutputFetcher(r.WalletController)
 	signDesc := input.SignDescriptor{
-		HashType:  txscript.SigHashAll,
-		SigHashes: input.NewTxSigHashesV0Only(tx),
+		HashType:          txscript.SigHashAll,
+		SigHashes:         txscript.NewTxSigHashes(tx, outputFetcher),
+		PrevOutputFetcher: outputFetcher,
 	}
 	for i, txIn := range tx.TxIn {
 		// We can only sign this input if it's ours, so we'll ask the
@@ -577,6 +579,32 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 	packet, err := packetFromTx(tx)
 	if err != nil {
 		return nil, fmt.Errorf("error converting TX into PSBT: %v", err)
+	}
+
+	// We need to add witness information for all inputs! Otherwise, we'll
+	// have a problem when attempting to sign a taproot input!
+	for idx := range packet.Inputs {
+		// Skip the input we're signing for, that will get a special
+		// treatment later on.
+		if idx == signDesc.InputIndex {
+			continue
+		}
+
+		txIn := tx.TxIn[idx]
+		info, err := r.WalletController.FetchInputInfo(
+			&txIn.PreviousOutPoint,
+		)
+		if err != nil {
+			log.Warnf("No UTXO info found for index %d "+
+				"(prev_outpoint=%v), won't be able to sign "+
+				"for taproot output!", idx,
+				txIn.PreviousOutPoint)
+			continue
+		}
+		packet.Inputs[idx].WitnessUtxo = &wire.TxOut{
+			Value:    int64(info.Value),
+			PkScript: info.PkScript,
+		}
 	}
 
 	// Catch incorrect signing input index, just in case.

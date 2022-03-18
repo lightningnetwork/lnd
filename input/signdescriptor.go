@@ -74,6 +74,11 @@ type SignDescriptor struct {
 	// generating the final sighash for signing.
 	SigHashes *txscript.TxSigHashes
 
+	// PrevOutputFetcher is an interface that can return the output
+	// information on all UTXOs that are being spent in this transaction.
+	// This MUST be set when spending Taproot outputs.
+	PrevOutputFetcher txscript.PrevOutputFetcher
+
 	// InputIndex is the target input within the transaction that should be
 	// signed.
 	InputIndex int

@@ -46,6 +46,7 @@ const (
 
 	AddrTypeWitnessPubkeyHash = lnrpc.AddressType_WITNESS_PUBKEY_HASH
 	AddrTypeNestedPubkeyHash  = lnrpc.AddressType_NESTED_PUBKEY_HASH
+	AddrTypeTaprootPubkey     = lnrpc.AddressType_TAPROOT_PUBKEY
 )
 
 // harnessTest wraps a regular testing.T providing enhanced error detection

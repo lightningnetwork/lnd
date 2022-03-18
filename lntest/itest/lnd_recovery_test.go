@@ -220,14 +220,23 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 				Type: AddrTypeNestedPubkeyHash,
 			}
 
+			newP2TRAddrReq := &lnrpc.NewAddressRequest{
+				Type: AddrTypeTaprootPubkey,
+			}
+
 			// Generate and skip the number of addresses requested.
+			ctxt, cancel := context.WithTimeout(
+				ctxb, defaultTimeout,
+			)
+			defer cancel()
 			for i := 0; i < nskip; i++ {
-				ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 				_, err = node.NewAddress(ctxt, newP2WKHAddrReq)
 				require.NoError(t.t, err)
 
-				ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 				_, err = node.NewAddress(ctxt, newNP2WKHAddrReq)
+				require.NoError(t.t, err)
+
+				_, err = node.NewAddress(ctxt, newP2TRAddrReq)
 				require.NoError(t.t, err)
 			}
 
@@ -236,6 +245,11 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 
 			// And another to the next NP2WKH address.
 			net.SendCoinsNP2WKH(
+				t.t, btcutil.SatoshiPerBitcoin, node,
+			)
+
+			// Add another whole coin to the P2TR address.
+			net.SendCoinsP2TR(
 				t.t, btcutil.SatoshiPerBitcoin, node,
 			)
 		}
@@ -256,26 +270,26 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	// the two transactions above. We should also now have 2 UTXOs in the
 	// wallet at the end of the recovery attempt.
 	//
-	// After, we will generate and skip 9 P2WKH and NP2WKH addresses, and
-	// send another BTC to the subsequent 10th address in each derivation
-	// path.
-	restoreCheckBalance(2*btcutil.SatoshiPerBitcoin, 2, 1, skipAndSend(9))
+	// After, we will generate and skip 9 P2WKH, NP2WKH and P2TR addresses,
+	// and send another BTC to the subsequent 10th address in each
+	// derivation path.
+	restoreCheckBalance(3*btcutil.SatoshiPerBitcoin, 3, 1, skipAndSend(9))
 
 	// Check that using a recovery window of 9 does not find the two most
 	// recent txns.
-	restoreCheckBalance(2*btcutil.SatoshiPerBitcoin, 2, 9, nil)
+	restoreCheckBalance(3*btcutil.SatoshiPerBitcoin, 3, 9, nil)
 
 	// Extending our recovery window to 10 should find the most recent
-	// transactions, leaving the wallet with 4 BTC total. We should also
+	// transactions, leaving the wallet with 6 BTC total. We should also
 	// learn of the two additional UTXOs created above.
 	//
 	// After, we will skip 19 more addrs, sending to the 20th address past
 	// our last found address, and repeat the same checks.
-	restoreCheckBalance(4*btcutil.SatoshiPerBitcoin, 4, 10, skipAndSend(19))
+	restoreCheckBalance(6*btcutil.SatoshiPerBitcoin, 6, 10, skipAndSend(19))
 
 	// Check that recovering with a recovery window of 19 fails to find the
 	// most recent transactions.
-	restoreCheckBalance(4*btcutil.SatoshiPerBitcoin, 4, 19, nil)
+	restoreCheckBalance(6*btcutil.SatoshiPerBitcoin, 6, 19, nil)
 
 	// Ensure that using a recovery window of 20 succeeds with all UTXOs
 	// found and the final balance reflected.
@@ -285,11 +299,11 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	// fixed bug in the wallet in which change addresses could at times be
 	// created outside of the default key scopes. Recovery only used to be
 	// performed on the default key scopes, so ideally this test case
-	// would've caught the bug earlier. Carol has received 6 BTC so far from
-	// the miner, we'll send 5 back to ensure all of her UTXOs get spent to
+	// would've caught the bug earlier. Carol has received 9 BTC so far from
+	// the miner, we'll send 8 back to ensure all of her UTXOs get spent to
 	// avoid fee discrepancies and a change output is formed.
-	const minerAmt = 5 * btcutil.SatoshiPerBitcoin
-	const finalBalance = 6 * btcutil.SatoshiPerBitcoin
+	const minerAmt = 8 * btcutil.SatoshiPerBitcoin
+	const finalBalance = 9 * btcutil.SatoshiPerBitcoin
 	promptChangeAddr := func(node *lntest.HarnessNode) {
 		t.t.Helper()
 
@@ -310,12 +324,13 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 		block := mineBlocks(t, net, 1, 1)[0]
 		assertTxInBlock(t, block, txid)
 	}
-	restoreCheckBalance(finalBalance, 6, 20, promptChangeAddr)
+	restoreCheckBalance(finalBalance, 9, 20, promptChangeAddr)
 
-	// We should expect a static fee of 27750 satoshis for spending 6 inputs
-	// (3 P2WPKH, 3 NP2WPKH) to two P2WPKH outputs. Carol should therefore
-	// only have one UTXO present (the change output) of 6 - 5 - fee BTC.
-	const fee = 27750
+	// We should expect a static fee of 50100 satoshis for spending 9 inputs
+	// (3 P2WPKH, 3 NP2WPKH, 3 P2TR) to two P2WPKH outputs. Carol should
+	// therefore only have one UTXO present (the change output) of
+	// 9 - 8 - fee BTC.
+	const fee = 50100
 	restoreCheckBalance(finalBalance-minerAmt-fee, 1, 21, nil)
 
 	// Last of all, make sure we can also restore a node from the extended

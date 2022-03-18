@@ -290,7 +290,7 @@
       "properties": {
         "outpoint": {
           "$ref": "#/definitions/chainrpcOutpoint",
-          "description": "The outpoint for which we should request a spend notification for. If set to\na zero outpoint, then the spend notification will be requested for the\nscript instead."
+          "description": "The outpoint for which we should request a spend notification for. If set to\na zero outpoint, then the spend notification will be requested for the\nscript instead. A zero or nil outpoint is not supported for Taproot spends\nbecause the output script cannot reliably be computed from the witness alone\nand the spent output script is not always available in the rescan context.\nSo an outpoint must _always_ be specified when registering a spend\nnotification for a Taproot output."
         },
         "script": {
           "type": "string",

@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -101,8 +102,36 @@ func testTaprootKeySpend(ctxt context.Context, t *harnessTest,
 	}
 	assertWalletUnspent(t, net.Alice, op)
 
+	// Before we confirm the transaction, let's register a confirmation
+	// listener for it, which we expect to fire after mining a block.
+	p2trAddr, err := btcutil.DecodeAddress(
+		p2trResp.Address, harnessNetParams,
+	)
+	require.NoError(t.t, err)
+	p2trPkScript, err := txscript.PayToAddrScript(p2trAddr)
+	require.NoError(t.t, err)
+
+	_, currentHeight, err := net.Miner.Client.GetBestBlock()
+	require.NoError(t.t, err)
+	confClient, err := net.Alice.ChainClient.RegisterConfirmationsNtfn(
+		ctxt, &chainrpc.ConfRequest{
+			Script:     p2trPkScript,
+			Txid:       txid[:],
+			HeightHint: uint32(currentHeight),
+			NumConfs:   1,
+		},
+	)
+	require.NoError(t.t, err)
+
 	// Mine another block to clean up the mempool.
 	mineBlocks(t, net, 1, 1)
+
+	// We now expect our confirmation to go through.
+	confMsg, err := confClient.Recv()
+	require.NoError(t.t, err)
+	conf := confMsg.GetConf()
+	require.NotNil(t.t, conf)
+	require.Equal(t.t, conf.BlockHeight, uint32(currentHeight+1))
 }
 
 // testTaprootScriptSpend tests sending to and spending from p2tr script
@@ -163,6 +192,10 @@ func testTaprootScriptSpend(ctxt context.Context, t *harnessTest,
 	p2trOutputIndex := getOutputIndex(
 		t, net.Miner, txid, tapScriptAddr.String(),
 	)
+	p2trOutpoint := wire.OutPoint{
+		Hash:  *txid,
+		Index: uint32(p2trOutputIndex),
+	}
 
 	// Clear the mempool.
 	mineBlocks(t, net, 1, 1)
@@ -184,10 +217,7 @@ func testTaprootScriptSpend(ctxt context.Context, t *harnessTest,
 
 	tx := wire.NewMsgTx(2)
 	tx.TxIn = []*wire.TxIn{{
-		PreviousOutPoint: wire.OutPoint{
-			Hash:  *txid,
-			Index: uint32(p2trOutputIndex),
-		},
+		PreviousOutPoint: p2trOutpoint,
 	}}
 	value := int64(800_000 - requiredFee)
 	tx.TxOut = []*wire.TxOut{{
@@ -235,6 +265,42 @@ func testTaprootScriptSpend(ctxt context.Context, t *harnessTest,
 	txWeight := blockchain.GetTransactionWeight(btcutil.NewTx(tx))
 	require.Equal(t.t, txWeight, estimatedWeight)
 
+	// Before we publish the tx that spends the p2tr transaction, we want to
+	// register a spend listener that we expect to fire after mining the
+	// block.
+	_, currentHeight, err := net.Miner.Client.GetBestBlock()
+	require.NoError(t.t, err)
+
+	// For a Taproot output we cannot leave the outpoint empty. Let's make
+	// sure the API returns the correct error here.
+	spendClient, err := net.Alice.ChainClient.RegisterSpendNtfn(
+		ctxt, &chainrpc.SpendRequest{
+			Script:     p2trPkScript,
+			HeightHint: uint32(currentHeight),
+		},
+	)
+	require.NoError(t.t, err)
+
+	// The error is only thrown when trying to read a message.
+	_, err = spendClient.Recv()
+	require.Contains(
+		t.t, err.Error(),
+		"cannot register witness v1 spend request without outpoint",
+	)
+
+	// Now try again, this time with the outpoint set.
+	spendClient, err = net.Alice.ChainClient.RegisterSpendNtfn(
+		ctxt, &chainrpc.SpendRequest{
+			Outpoint: &chainrpc.Outpoint{
+				Hash:  p2trOutpoint.Hash[:],
+				Index: p2trOutpoint.Index,
+			},
+			Script:     p2trPkScript,
+			HeightHint: uint32(currentHeight),
+		},
+	)
+	require.NoError(t.t, err)
+
 	_, err = net.Alice.WalletKitClient.PublishTransaction(
 		ctxt, &walletrpc.Transaction{
 			TxHex: buf.Bytes(),
@@ -257,6 +323,13 @@ func testTaprootScriptSpend(ctxt context.Context, t *harnessTest,
 	// Mine another block to clean up the mempool and to make sure the spend
 	// tx is actually included in a block.
 	mineBlocks(t, net, 1, 1)
+
+	// We now expect our spend event to go through.
+	spendMsg, err := spendClient.Recv()
+	require.NoError(t.t, err)
+	spend := spendMsg.GetSpend()
+	require.NotNil(t.t, spend)
+	require.Equal(t.t, spend.SpendingHeight, uint32(currentHeight+1))
 }
 
 // testTaprootKeySpendRPC tests that a tapscript address can also be spent using

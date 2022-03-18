@@ -24,7 +24,7 @@ var (
 
 	accounts = []*lnrpc.WatchOnlyAccount{{
 		Purpose: waddrmgr.KeyScopeBIP0049Plus.Purpose,
-		// We always use the mainnet coin type for our BIP49/84
+		// We always use the mainnet coin type for our BIP49/84/86
 		// addresses!
 		CoinType: 0,
 		Account:  0,
@@ -33,13 +33,22 @@ var (
 			"FPhTq",
 	}, {
 		Purpose: waddrmgr.KeyScopeBIP0084.Purpose,
-		// We always use the mainnet coin type for our BIP49/84
+		// We always use the mainnet coin type for our BIP49/84/86
 		// addresses!
 		CoinType: 0,
 		Account:  0,
 		Xpub: "tpubDDWAWrSLRSFrG1KdqXMQQyTKYGSKLKaY7gxpvK7RdV3e3Dkhvu" +
 			"W2GgsFvsPN4RGmuoYtUgZ1LHZE8oftz7T4mzc1BxGt5rt8zJcVQi" +
 			"KTPPV",
+	}, {
+		Purpose: waddrmgr.KeyScopeBIP0086.Purpose,
+		// We always use the mainnet coin type for our BIP49/84/86
+		// addresses!
+		CoinType: 0,
+		Account:  0,
+		Xpub: "tpubDDtdXpdJFU2zFKWHJwe5M2WtYtcV7qSWtKohT9VP9zarNSwKnm" +
+			"kwDQawsu1vUf9xwXhUDYXbdUqpcrRTn9bLyW4BAVRimZ4K7r5o1J" +
+			"S924u",
 	}}
 )
 

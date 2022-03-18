@@ -387,4 +387,8 @@ var allTestCases = []*testCase{
 		name: "3rd party anchor spend",
 		test: testAnchorThirdPartySpend,
 	},
+	{
+		name: "taproot",
+		test: testTaproot,
+	},
 }

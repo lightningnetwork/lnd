@@ -1882,7 +1882,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// If both commitment chains are fully synced from our PoV,
 		// then we don't need to reply with a signature as both sides
 		// already have a commitment with the latest accepted.
-		if !l.channel.OweCommitment(true) {
+		if !l.channel.OweCommitment() {
 			return
 		}
 
@@ -1967,7 +1967,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// processRemoteAdds. Also in case there are no local updates,
 		// but there are still remote updates that are not in the remote
 		// commit tx yet, send out an update.
-		if l.channel.OweCommitment(true) {
+		if l.channel.OweCommitment() {
 			if !l.updateCommitTxOrFail() {
 				return
 			}

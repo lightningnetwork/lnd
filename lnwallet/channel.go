@@ -3825,7 +3825,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// but died before the signature was sent. We re-transmit our
 		// revocation, but also initiate a state transition to re-sync
 		// them.
-		if lc.OweCommitment(true) {
+		if lc.OweCommitment() {
 			commitSig, htlcSigs, _, err := lc.SignNextCommitment()
 			switch {
 
@@ -4539,11 +4539,11 @@ func (lc *LightningChannel) IsChannelClean() bool {
 // out a commitment signature because there are outstanding local updates and/or
 // updates in the local commit tx that aren't reflected in the remote commit tx
 // yet.
-func (lc *LightningChannel) OweCommitment(local bool) bool {
+func (lc *LightningChannel) OweCommitment() bool {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	return lc.oweCommitment(local)
+	return lc.oweCommitment(true)
 }
 
 // oweCommitment is the internal version of OweCommitment. This function expects

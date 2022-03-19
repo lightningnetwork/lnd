@@ -654,7 +654,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	if err != nil {
 		return nil, err
 	}
-	s.interceptableSwitch = htlcswitch.NewInterceptableSwitch(s.htlcSwitch)
+	s.interceptableSwitch = htlcswitch.NewInterceptableSwitch(
+		s.htlcSwitch, s.cfg.RequireInterceptor,
+	)
 
 	chanStatusMgrCfg := &netann.ChanStatusConfig{
 		ChanStatusSampleInterval: cfg.ChanStatusSampleInterval,
@@ -1785,6 +1787,12 @@ func (s *server) Start() error {
 			return
 		}
 		cleanup = cleanup.add(s.htlcSwitch.Stop)
+
+		if err := s.interceptableSwitch.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.interceptableSwitch.Stop)
 
 		if err := s.chainArb.Start(); err != nil {
 			startErr = err

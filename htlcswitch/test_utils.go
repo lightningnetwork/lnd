@@ -1135,12 +1135,14 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 
 	link := NewChannelLink(
 		ChannelLinkConfig{
-			Switch:             server.htlcSwitch,
-			BestHeight:         server.htlcSwitch.BestHeight,
-			FwrdingPolicy:      h.globalPolicy,
-			Peer:               peer,
-			Circuits:           server.htlcSwitch.CircuitModifier(),
-			ForwardPackets:     server.htlcSwitch.ForwardPackets,
+			Switch:        server.htlcSwitch,
+			BestHeight:    server.htlcSwitch.BestHeight,
+			FwrdingPolicy: h.globalPolicy,
+			Peer:          peer,
+			Circuits:      server.htlcSwitch.CircuitModifier(),
+			ForwardPackets: func(linkQuit chan struct{}, _ bool, packets ...*htlcPacket) error {
+				return server.htlcSwitch.ForwardPackets(linkQuit, packets...)
+			},
 			DecodeHopIterators: decoder.DecodeHopIterators,
 			ExtractErrorEncrypter: func(*btcec.PublicKey) (
 				hop.ErrorEncrypter, lnwire.FailCode) {

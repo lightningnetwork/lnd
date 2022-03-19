@@ -109,6 +109,10 @@
   change, it allows encrypted failure messages to be returned to the sender.
   Additionally it is possible to signal a malformed htlc.
 
+* Add an [always on](https://github.com/lightningnetwork/lnd/pull/6232) mode to
+  the HTLC interceptor API. This enables interception applications where every
+  packet must be intercepted.
+
 ## Database
 
 * [Add ForAll implementation for etcd to speed up

@@ -1940,12 +1940,14 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	// the firing via force feeding.
 	bticker := ticker.NewForce(time.Hour)
 	aliceCfg := ChannelLinkConfig{
-		FwrdingPolicy:      globalPolicy,
-		Peer:               alicePeer,
-		Switch:             aliceSwitch,
-		BestHeight:         aliceSwitch.BestHeight,
-		Circuits:           aliceSwitch.CircuitModifier(),
-		ForwardPackets:     aliceSwitch.ForwardPackets,
+		FwrdingPolicy: globalPolicy,
+		Peer:          alicePeer,
+		Switch:        aliceSwitch,
+		BestHeight:    aliceSwitch.BestHeight,
+		Circuits:      aliceSwitch.CircuitModifier(),
+		ForwardPackets: func(linkQuit chan struct{}, _ bool, packets ...*htlcPacket) error {
+			return aliceSwitch.ForwardPackets(linkQuit, packets...)
+		},
 		DecodeHopIterators: decoder.DecodeHopIterators,
 		ExtractErrorEncrypter: func(*btcec.PublicKey) (
 			hop.ErrorEncrypter, lnwire.FailCode) {
@@ -4491,12 +4493,14 @@ func (h *persistentLinkHarness) restartLink(
 	// the firing via force feeding.
 	bticker := ticker.NewForce(time.Hour)
 	aliceCfg := ChannelLinkConfig{
-		FwrdingPolicy:      globalPolicy,
-		Peer:               alicePeer,
-		Switch:             aliceSwitch,
-		BestHeight:         aliceSwitch.BestHeight,
-		Circuits:           aliceSwitch.CircuitModifier(),
-		ForwardPackets:     aliceSwitch.ForwardPackets,
+		FwrdingPolicy: globalPolicy,
+		Peer:          alicePeer,
+		Switch:        aliceSwitch,
+		BestHeight:    aliceSwitch.BestHeight,
+		Circuits:      aliceSwitch.CircuitModifier(),
+		ForwardPackets: func(linkQuit chan struct{}, _ bool, packets ...*htlcPacket) error {
+			return aliceSwitch.ForwardPackets(linkQuit, packets...)
+		},
 		DecodeHopIterators: decoder.DecodeHopIterators,
 		ExtractErrorEncrypter: func(*btcec.PublicKey) (
 			hop.ErrorEncrypter, lnwire.FailCode) {
@@ -6694,7 +6698,7 @@ func TestPipelineSettle(t *testing.T) {
 	// erroneously forwarded. If the forwardChan is closed before the last
 	// step, then the test will fail.
 	forwardChan := make(chan struct{})
-	fwdPkts := func(c chan struct{}, hp ...*htlcPacket) error {
+	fwdPkts := func(c chan struct{}, _ bool, hp ...*htlcPacket) error {
 		close(forwardChan)
 		return nil
 	}

@@ -313,27 +313,11 @@ func (s *InterceptableSwitch) ForwardPackets(linkQuit chan struct{}, isReplay bo
 func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 	isReplay bool) bool {
 
-	// Process normally if an interceptor is not required and not
-	// registered.
-	if !s.requireInterceptor && s.interceptor == nil {
-		return false
-	}
-
 	switch htlc := packet.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
 		// We are not interested in intercepting initiated payments.
 		if packet.incomingChanID == hop.Source {
 			return false
-		}
-
-		inKey := channeldb.CircuitKey{
-			ChanID: packet.incomingChanID,
-			HtlcID: packet.incomingHTLCID,
-		}
-
-		// Ignore already held htlcs.
-		if _, ok := s.holdForwards[inKey]; ok {
-			return true
 		}
 
 		intercepted := &interceptedForward{
@@ -363,14 +347,37 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 			return true
 		}
 
-		if s.interceptor == nil && !isReplay {
-			// There is no interceptor registered, we are in
-			// interceptor-required mode, and this is a new packet
-			//
-			// Because the interceptor has never seen this packet
-			// yet, it is still safe to fail back. This limits the
-			// backlog of htlcs when the interceptor is down.
-			err := intercepted.FailWithCode(
+		return s.forward(intercepted, isReplay)
+
+	default:
+		return false
+	}
+}
+
+// forward records the intercepted htlc and forwards it to the interceptor.
+func (s *InterceptableSwitch) forward(
+	fwd InterceptedForward, isReplay bool) bool {
+
+	inKey := fwd.Packet().IncomingCircuit
+
+	// Ignore already held htlcs.
+	if _, ok := s.holdForwards[inKey]; ok {
+		return true
+	}
+
+	// If there is no interceptor currently registered, configuration and packet
+	// replay status determine how the packet is handled.
+	if s.interceptor == nil {
+		// Process normally if an interceptor is not required.
+		if !s.requireInterceptor {
+			return false
+		}
+
+		// We are in interceptor-required mode. If this is a new packet, it is
+		// still safe to fail back. The interceptor has never seen this packet
+		// yet. This limits the backlog of htlcs when the interceptor is down.
+		if !isReplay {
+			err := fwd.FailWithCode(
 				lnwire.CodeTemporaryChannelFailure,
 			)
 			if err != nil {
@@ -380,20 +387,20 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 			return true
 		}
 
-		s.holdForwards[inKey] = intercepted
-
-		// If there is no interceptor registered, we must be in
-		// interceptor-required mode. The packet is kept in the queue
-		// until the interceptor registers itself.
-		if s.interceptor != nil {
-			s.sendForward(intercepted)
-		}
+		// This packet is a replay. It is not safe to fail back, because the
+		// interceptor may still signal otherwise upon reconnect. Keep the
+		// packet in the queue until then.
+		s.holdForwards[inKey] = fwd
 
 		return true
-
-	default:
-		return false
 	}
+
+	// There is an interceptor registered. We can forward the packet right now.
+	// Hold it in the queue too to track what is outstanding.
+	s.holdForwards[inKey] = fwd
+	s.sendForward(fwd)
+
+	return true
 }
 
 // handleExpired checks that the htlc isn't too close to the channel

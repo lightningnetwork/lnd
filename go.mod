@@ -1,10 +1,9 @@
 module github.com/lightningnetwork/lnd
 
 require (
-	git.schwanenlied.me/yawning/bsaes.git v0.0.0-00010101000000-000000000000 // indirect
 	github.com/NebulousLabs/fastrand v0.0.0-20181203155948-6fb6489aac4e // indirect
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
-	github.com/Yawning/aez v0.0.0-20180114000226-4dad034d9db2
+	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
 	github.com/btcsuite/btcd v0.22.0-beta.0.20220207191057-4dc4ff7963b4
 	github.com/btcsuite/btcd/btcec/v2 v2.1.0
 	github.com/btcsuite/btcd/btcutil v1.1.0
@@ -50,6 +49,7 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
 	github.com/urfave/cli v1.22.4
+	gitlab.com/yawning/bsaes.git v0.0.0-20190805113838-0a714cd429ec // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.0
 	go.etcd.io/etcd/client/v3 v3.5.0
 	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519
@@ -70,8 +70,6 @@ replace (
 	github.com/lightningnetwork/lnd/healthcheck => ./healthcheck
 	github.com/lightningnetwork/lnd/tor => ./tor
 )
-
-replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e
 
 // This replace is for https://github.com/advisories/GHSA-w73w-5m7g-f7qc
 replace github.com/dgrijalva/jwt-go => github.com/golang-jwt/jwt v3.2.1+incompatible

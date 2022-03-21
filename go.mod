@@ -65,16 +65,6 @@ require (
 	gopkg.in/macaroon.v2 v2.0.0
 )
 
-replace (
-	// TODO(guggero): Remove these after merging #6285 and pushing the new tags!
-	github.com/lightningnetwork/lnd/cert => ./cert
-	github.com/lightningnetwork/lnd/clock => ./clock
-	github.com/lightningnetwork/lnd/kvdb => ./kvdb
-	github.com/lightningnetwork/lnd/queue => ./queue
-	github.com/lightningnetwork/lnd/ticker => ./ticker
-	github.com/lightningnetwork/lnd/tlv => ./tlv
-)
-
 // TODO(guggero): Remove these after merging #6350 and pushing the new tag!
 replace (
 	github.com/lightningnetwork/lnd/healthcheck => ./healthcheck

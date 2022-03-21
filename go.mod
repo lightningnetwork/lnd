@@ -81,10 +81,6 @@ replace (
 	github.com/lightningnetwork/lnd/tor => ./tor
 )
 
-// This replace is for addressing the CVE https://github.com/advisories/GHSA-f6mq-5m25-4r72
-// This is a indirect dependency that cannot be upgraded directly.
-replace go.mongodb.org/mongo-driver => go.mongodb.org/mongo-driver v1.5.1
-
 replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e
 
 // This replace is for https://github.com/advisories/GHSA-w73w-5m7g-f7qc

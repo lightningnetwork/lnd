@@ -93,12 +93,6 @@ replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.8
 // https://deps.dev/advisory/OSV/GO-2021-0053?from=%2Fgo%2Fgithub.com%252Fgogo%252Fprotobuf%2Fv1.3.1
 replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 
-// The old version of ginko that's used in btcd imports an ancient version of
-// gopkg.in/fsnotify.v1 that isn't go mod compatible. We fix that import error
-// by replacing ginko (which is only a test library anyway) with a more recent
-// version.
-replace github.com/onsi/ginkgo => github.com/onsi/ginkgo v1.14.2
-
 // There's a bug in Neutrino that causes our tests to fail. Downgrade to the
 // version just before the offending PR. Can remove again once
 // https://github.com/lightninglabs/neutrino/pull/247 is merged.

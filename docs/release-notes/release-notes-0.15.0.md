@@ -101,6 +101,10 @@
 * [Make etcd leader election session
   TTL](https://github.com/lightningnetwork/lnd/pull/6342) configurable.
 
+
+* [Fix race condition in the htlc interceptor unit
+  test](https://github.com/lightningnetwork/lnd/pull/6353).
+
 ## RPC Server
 
 * [Add value to the field

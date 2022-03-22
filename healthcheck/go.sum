@@ -42,6 +42,8 @@ github.com/jrick/logrotate v1.0.0/go.mod h1:LNinyqDIJnpAur+b8yyulnQw/wDuN1+BYKlT
 github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23/go.mod h1:J+Gs4SYgM6CZQHDETBtE9HaSEkGmuNXF86RwHhHUvq4=
 github.com/lightningnetwork/lnd/ticker v1.1.0 h1:ShoBiRP3pIxZHaETndfQ5kEe+S4NdAY1hiX7YbZ4QE4=
 github.com/lightningnetwork/lnd/ticker v1.1.0/go.mod h1:ubqbSVCn6RlE0LazXuBr7/Zi6QT0uQo++OgIRBxQUrk=
+github.com/lightningnetwork/lnd/tor v1.0.0 h1:wvEc7I+Y7IOtPglVP3cVBbYhiVhc7uTd7cMF9gQRzwA=
+github.com/lightningnetwork/lnd/tor v1.0.0/go.mod h1:RDtaAdwfAm+ONuPYwUhNIH1RAvKPv+75lHPOegUcz64=
 github.com/miekg/dns v1.1.43 h1:JKfpVSCB84vrAmHzyrsxB5NAr5kLoMXZArPSw7Qlgyg=
 github.com/miekg/dns v1.1.43/go.mod h1:+evo5L0630/F6ca/Z9+GAqzhjGyn8/c+TBaOyfEl0V4=
 github.com/nxadm/tail v1.4.4/go.mod h1:kenIhsEOeOJmVchQTgglprH7qJGnHDVpk1VPCcaMI8A=

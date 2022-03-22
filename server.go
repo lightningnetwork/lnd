@@ -3525,10 +3525,11 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		CoopCloseTargetConfs:    s.cfg.CoopCloseTargetConfs,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
-		ChannelCommitInterval:  s.cfg.ChannelCommitInterval,
-		ChannelCommitBatchSize: s.cfg.ChannelCommitBatchSize,
-		HandleCustomMessage:    s.handleCustomMessage,
-		Quit:                   s.quit,
+		AnchorsCommitConfTarget: s.cfg.AnchorsCommitConfTarget,
+		ChannelCommitInterval:   s.cfg.ChannelCommitInterval,
+		ChannelCommitBatchSize:  s.cfg.ChannelCommitBatchSize,
+		HandleCustomMessage:     s.handleCustomMessage,
+		Quit:                    s.quit,
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())

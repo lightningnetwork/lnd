@@ -105,6 +105,10 @@ const (
 	// initiated the channel closure.
 	defaultCoopCloseTargetConfs = 6
 
+	// defaultAnchorsCommitmentConfTarget is the default confirmation target
+	// used to estimate the fee to use for anchor commitments.
+	defaultAnchorsCommitmentConfTarget = 6
+
 	// defaultBlockCacheSize is the size (in bytes) of blocks that will be
 	// keep in memory if no size is specified.
 	defaultBlockCacheSize uint64 = 20 * 1024 * 1024 // 20 MB
@@ -366,6 +370,8 @@ type Config struct {
 
 	MaxCommitFeeRateAnchors uint64 `long:"max-commit-fee-rate-anchors" description:"The maximum fee rate in sat/vbyte that will be used for commitments of channels of the anchors type. Must be large enough to ensure transaction propagation"`
 
+	AnchorsCommitConfTarget uint32 `long:"anchors-commit-conf-target" description:"The target number of blocks to be used to estimate the fee to use for anchor commitments. This fee will be used only in the case of an uncooperative close"`
+
 	DryRunMigration bool `long:"dry-run-migration" description:"If true, lnd will abort committing a migration if it would otherwise have been successful. This leaves the database unmodified, and still compatible with the previously active version of lnd."`
 
 	net tor.Net
@@ -593,6 +599,7 @@ func DefaultConfig() Config {
 		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,
 		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
 		MaxCommitFeeRateAnchors: lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
+		AnchorsCommitConfTarget: defaultAnchorsCommitmentConfTarget,
 		DustThreshold:           uint64(htlcswitch.DefaultDustThreshold.ToSatoshis()),
 		LogWriter:               build.NewRotatingLogWriter(),
 		DB:                      lncfg.DefaultDB(),

@@ -66,10 +66,7 @@ require (
 )
 
 // TODO(guggero): Remove these after merging #6350 and pushing the new tag!
-replace (
-	github.com/lightningnetwork/lnd/healthcheck => ./healthcheck
-	github.com/lightningnetwork/lnd/tor => ./tor
-)
+replace github.com/lightningnetwork/lnd/healthcheck => ./healthcheck
 
 // This replace is for https://github.com/advisories/GHSA-w73w-5m7g-f7qc
 replace github.com/dgrijalva/jwt-go => github.com/golang-jwt/jwt v3.2.1+incompatible

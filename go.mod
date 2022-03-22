@@ -1,8 +1,9 @@
 module github.com/lightningnetwork/lnd
 
 require (
+	github.com/NebulousLabs/fastrand v0.0.0-20181203155948-6fb6489aac4e // indirect
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
-	github.com/Yawning/aez v0.0.0-20180114000226-4dad034d9db2
+	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
 	github.com/btcsuite/btcd v0.22.0-beta.0.20220207191057-4dc4ff7963b4
 	github.com/btcsuite/btcd/btcec/v2 v2.1.0
 	github.com/btcsuite/btcd/btcutil v1.1.0
@@ -29,54 +30,46 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.2.7
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/jrick/logrotate v1.0.0
+	github.com/juju/testing v0.0.0-20220203020004-a0ff61f03494 // indirect
 	github.com/kkdai/bstream v1.0.0
 	github.com/lightninglabs/neutrino v0.13.2
 	github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display
 	github.com/lightningnetwork/lightning-onion v1.0.2-0.20220211021909-bb84a1ccb0c5
 	github.com/lightningnetwork/lnd/cert v1.1.1
 	github.com/lightningnetwork/lnd/clock v1.1.0
-	github.com/lightningnetwork/lnd/healthcheck v1.2.1
+	github.com/lightningnetwork/lnd/healthcheck v1.2.2
 	github.com/lightningnetwork/lnd/kvdb v1.3.1
 	github.com/lightningnetwork/lnd/queue v1.1.0
 	github.com/lightningnetwork/lnd/ticker v1.1.0
 	github.com/lightningnetwork/lnd/tlv v1.0.2
+	github.com/lightningnetwork/lnd/tor v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43
 	github.com/prometheus/client_golang v1.11.0
 	github.com/stretchr/testify v1.7.0
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
 	github.com/urfave/cli v1.22.4
+	gitlab.com/yawning/bsaes.git v0.0.0-20190805113838-0a714cd429ec // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.0
 	go.etcd.io/etcd/client/v3 v3.5.0
 	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519
 	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/sys v0.0.0-20211210111614-af8b64212486 // indirect
 	golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
 	golang.org/x/tools v0.1.8 // indirect
 	google.golang.org/grpc v1.38.0
 	google.golang.org/protobuf v1.26.0
+	gopkg.in/errgo.v1 v1.0.1 // indirect
 	gopkg.in/macaroon-bakery.v2 v2.0.1
 	gopkg.in/macaroon.v2 v2.0.0
 )
 
+// TODO(guggero): Remove these after merging #6350 and pushing the new tag!
 replace (
-	// TODO(guggero): Remove these after merging #6285 and pushing the new tags!
-	github.com/lightningnetwork/lnd/cert => ./cert
-	github.com/lightningnetwork/lnd/clock => ./clock
 	github.com/lightningnetwork/lnd/healthcheck => ./healthcheck
-	github.com/lightningnetwork/lnd/kvdb => ./kvdb
-	github.com/lightningnetwork/lnd/queue => ./queue
-	github.com/lightningnetwork/lnd/ticker => ./ticker
-	github.com/lightningnetwork/lnd/tlv => ./tlv
+	github.com/lightningnetwork/lnd/tor => ./tor
 )
-
-// This replace is for addressing the CVE https://github.com/advisories/GHSA-f6mq-5m25-4r72
-// This is a indirect dependency that cannot be upgraded directly.
-replace go.mongodb.org/mongo-driver => go.mongodb.org/mongo-driver v1.5.1
-
-replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e
 
 // This replace is for https://github.com/advisories/GHSA-w73w-5m7g-f7qc
 replace github.com/dgrijalva/jwt-go => github.com/golang-jwt/jwt v3.2.1+incompatible
@@ -87,12 +80,6 @@ replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.8
 // This replace is for
 // https://deps.dev/advisory/OSV/GO-2021-0053?from=%2Fgo%2Fgithub.com%252Fgogo%252Fprotobuf%2Fv1.3.1
 replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
-
-// The old version of ginko that's used in btcd imports an ancient version of
-// gopkg.in/fsnotify.v1 that isn't go mod compatible. We fix that import error
-// by replacing ginko (which is only a test library anyway) with a more recent
-// version.
-replace github.com/onsi/ginkgo => github.com/onsi/ginkgo v1.14.2
 
 // There's a bug in Neutrino that causes our tests to fail. Downgrade to the
 // version just before the offending PR. Can remove again once

@@ -86,8 +86,11 @@
 * [The `tlv` package was refactored into its own Golang
   submodule](https://github.com/lightningnetwork/lnd/pull/6283).
 
-* [The `tor` package was refactored into its own Golang
-  submodule](https://github.com/lightningnetwork/lnd/pull/6350).
+* The `tor` package was refactored into its own Golang submodule and a new
+  process for changing and tagging submodules was introduced in a series of
+  3 PRs ([#6350](https://github.com/lightningnetwork/lnd/pull/6350),
+  [#6355](https://github.com/lightningnetwork/lnd/pull/6350) and
+  [#6356](https://github.com/lightningnetwork/lnd/pull/6356)).
 
 * [Source repository can now be specified for Docker image builds](https://github.com/lightningnetwork/lnd/pull/6300)
 

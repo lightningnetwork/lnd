@@ -3287,7 +3287,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	assertNumCircuits(t, s, 0, 0)
 	assertOutgoingLinkReceive(t, bobChannelLink, false)
 
-	require.NoError(t, switchForwardInterceptor.resolve(&FwdResolution{
+	require.NoError(t, switchForwardInterceptor.Resolve(&FwdResolution{
 		Action: FwdActionResume,
 		Key:    forwardInterceptor.getIntercepted().IncomingCircuit,
 	}))
@@ -3347,7 +3347,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	assertNumCircuits(t, s, 0, 0)
 	assertOutgoingLinkReceive(t, bobChannelLink, false)
 
-	require.NoError(t, switchForwardInterceptor.resolve(&FwdResolution{
+	require.NoError(t, switchForwardInterceptor.Resolve(&FwdResolution{
 		Action:      FwdActionFail,
 		Key:         forwardInterceptor.getIntercepted().IncomingCircuit,
 		FailureCode: lnwire.CodeTemporaryChannelFailure,
@@ -3364,7 +3364,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	assertOutgoingLinkReceive(t, bobChannelLink, false)
 
 	reason := lnwire.OpaqueReason([]byte{1, 2, 3})
-	require.NoError(t, switchForwardInterceptor.resolve(&FwdResolution{
+	require.NoError(t, switchForwardInterceptor.Resolve(&FwdResolution{
 		Action:         FwdActionFail,
 		Key:            forwardInterceptor.getIntercepted().IncomingCircuit,
 		FailureMessage: reason,
@@ -3385,7 +3385,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	assertOutgoingLinkReceive(t, bobChannelLink, false)
 
 	code := lnwire.CodeInvalidOnionKey
-	require.NoError(t, switchForwardInterceptor.resolve(&FwdResolution{
+	require.NoError(t, switchForwardInterceptor.Resolve(&FwdResolution{
 		Action:      FwdActionFail,
 		Key:         forwardInterceptor.getIntercepted().IncomingCircuit,
 		FailureCode: code,
@@ -3413,7 +3413,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	assertNumCircuits(t, s, 0, 0)
 	assertOutgoingLinkReceive(t, bobChannelLink, false)
 
-	require.NoError(t, switchForwardInterceptor.resolve(&FwdResolution{
+	require.NoError(t, switchForwardInterceptor.Resolve(&FwdResolution{
 		Key:      forwardInterceptor.getIntercepted().IncomingCircuit,
 		Action:   FwdActionSettle,
 		Preimage: preimage,
@@ -3473,7 +3473,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	intercepted := forwardInterceptor.getIntercepted()
 
 	// Settle the packet.
-	require.NoError(t, switchForwardInterceptor.resolve(&FwdResolution{
+	require.NoError(t, switchForwardInterceptor.Resolve(&FwdResolution{
 		Key:      intercepted.IncomingCircuit,
 		Action:   FwdActionSettle,
 		Preimage: preimage,

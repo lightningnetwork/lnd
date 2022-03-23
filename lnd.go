@@ -973,7 +973,16 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer, restDialOpts []grpc.DialO
 			},
 		},
 	)
-	mux := proxy.NewServeMux(customMarshalerOption)
+	mux := proxy.NewServeMux(
+		customMarshalerOption,
+
+		// Don't allow falling back to other HTTP methods, we want exact
+		// matches only. The actual method to be used can be overwritten
+		// by setting X-HTTP-Method-Override so there should be no
+		// reason for not specifying the correct method in the first
+		// place.
+		proxy.WithDisablePathLengthFallback(),
+	)
 
 	// Register our services with the REST proxy.
 	err := lnrpc.RegisterStateHandlerFromEndpoint(

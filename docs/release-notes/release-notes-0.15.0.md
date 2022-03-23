@@ -98,6 +98,9 @@
   modules were integrated into `lnd` as a preparation for basic Taproot
   support](https://github.com/lightningnetwork/lnd/pull/6285).
 
+* [Make etcd leader election session
+  TTL](https://github.com/lightningnetwork/lnd/pull/6342) configurable.
+
 ## RPC Server
 
 * [Add value to the field

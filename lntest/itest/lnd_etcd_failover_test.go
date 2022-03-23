@@ -81,12 +81,15 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 	}
 	defer cleanup()
 
+	// Make leader election session TTL 5 sec to make the test run fast.
+	const leaderSessionTTL = 5
+
 	observer, err := cluster.MakeLeaderElector(
 		ctxb, cluster.EtcdLeaderElector, "observer",
-		lncfg.DefaultEtcdElectionPrefix, etcdCfg,
+		lncfg.DefaultEtcdElectionPrefix, leaderSessionTTL, etcdCfg,
 	)
 	if err != nil {
-		ht.Fatalf("Cannot start election observer")
+		ht.Fatalf("Cannot start election observer: %v", err)
 	}
 
 	password := []byte("the quick brown fox jumps the lazy dog")
@@ -96,6 +99,7 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 
 	carol1, _, _, err := net.NewNodeWithSeedEtcd(
 		"Carol-1", etcdCfg, password, entropy[:], stateless, cluster,
+		leaderSessionTTL,
 	)
 	if err != nil {
 		ht.Fatalf("unable to start Carol-1: %v", err)
@@ -122,7 +126,7 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 	// At this point Carol-1 is the elected leader, while Carol-2 will wait
 	// to become the leader when Carol-1 stops.
 	carol2, err := net.NewNodeEtcd(
-		"Carol-2", etcdCfg, password, cluster, false,
+		"Carol-2", etcdCfg, password, cluster, false, leaderSessionTTL,
 	)
 	if err != nil {
 		ht.Fatalf("Unable to start Carol-2: %v", err)
@@ -145,17 +149,14 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 	)
 
 	// Shut down or kill Carol-1 and wait for Carol-2 to become the leader.
-	var failoverTimeout time.Duration
+	failoverTimeout := time.Duration(2*leaderSessionTTL) * time.Second
 	if kill {
 		err = net.KillNode(carol1)
 		if err != nil {
 			ht.Fatalf("Can't kill Carol-1: %v", err)
 		}
-
-		failoverTimeout = 2 * time.Minute
 	} else {
 		shutdownAndAssert(net, ht, carol1)
-		failoverTimeout = 30 * time.Second
 	}
 
 	err = carol2.WaitUntilLeader(failoverTimeout)

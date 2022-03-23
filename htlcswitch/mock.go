@@ -690,9 +690,11 @@ func (f *mockChannelLink) completeCircuit(pkt *htlcPacket) error {
 		f.htlcID++
 
 	case *lnwire.UpdateFulfillHTLC, *lnwire.UpdateFailHTLC:
-		err := f.htlcSwitch.teardownCircuit(pkt)
-		if err != nil {
-			return err
+		if pkt.circuit != nil {
+			err := f.htlcSwitch.teardownCircuit(pkt)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

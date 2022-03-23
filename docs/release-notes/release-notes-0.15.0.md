@@ -122,6 +122,10 @@
   the HTLC interceptor API. This enables interception applications where every
   packet must be intercepted.
 
+* Add [destination output information](https://github.com/lightningnetwork/lnd/pull/5476)
+  to the transaction structure returned from the RPC `GetTransactions` and when
+  subscribed with `SubscribeTransactions`.
+
 ## Database
 
 * [Add ForAll implementation for etcd to speed up
@@ -182,6 +186,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * Andreas Schjønhaug
 * asvdf
 * bitromortac
+* Bjarne Magnussen
 * BTCparadigm
 * Carla Kirk-Cohen
 * Carsten Otto

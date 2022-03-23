@@ -436,10 +436,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "sign psbt",
 		TestFunc: testSignPsbt,
 	},
-	// {
-	// 	name: "3rd party anchor spend",
-	// 	test: testAnchorThirdPartySpend,
-	// },
+	{
+		Name:     "3rd party anchor spend",
+		TestFunc: testAnchorThirdPartySpend,
+	},
 	// {
 	// 	name: "sign output raw",
 	// 	test: testSignOutputRaw,

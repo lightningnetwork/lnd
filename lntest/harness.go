@@ -3712,3 +3712,77 @@ func (h *HarnessTest) RegisterRPCMiddleware(
 
 	return stream, cancel
 }
+
+// MineEmptyBlocks mines a given number of empty blocks.
+func (h *HarnessTest) MineEmptyBlocks(num int) []*wire.MsgBlock {
+	var emptyTime time.Time
+
+	blocks := make([]*wire.MsgBlock, num)
+	for i := 0; i < num; i++ {
+		// Generate an empty block.
+		b, err := h.net.Miner.GenerateAndSubmitBlock(nil, -1, emptyTime)
+		require.NoError(h, err, "unable to mine empty block")
+
+		block, err := h.net.Miner.Client.GetBlock(b.Hash())
+		require.NoError(h, err, "unable to get block")
+
+		blocks[i] = block
+	}
+
+	return blocks
+}
+
+// MineBlocksWithTxes mines a single block to include the specifies
+// transactions only.
+func (h *HarnessTest) MineBlockWithTxes(txes []*btcutil.Tx) *wire.MsgBlock {
+	var emptyTime time.Time
+
+	// Generate a block.
+	b, err := h.net.Miner.GenerateAndSubmitBlock(txes, -1, emptyTime)
+	require.NoError(h, err, "unable to mine blocks")
+
+	block, err := h.net.Miner.Client.GetBlock(b.Hash())
+	require.NoError(h, err, "unable to get block")
+
+	return block
+}
+
+// AssertTransactionInWallet asserts a given txid can be found in the node's
+// wallet.
+func (h *HarnessTest) AssertTransactionInWallet(hn *HarnessNode,
+	txid chainhash.Hash) {
+
+	err := wait.NoError(func() error {
+		txResp := h.GetTransactions(hn)
+		for _, txn := range txResp.Transactions {
+			if txn.TxHash == txid.String() {
+				return nil
+			}
+		}
+
+		return fmt.Errorf("%s: expected txid=%v not found in wallet",
+			hn.Name(), txid)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "failed to find tx")
+}
+
+// AssertTransactionNotInWallet asserts a given txid can NOT be found in the
+// node's wallet.
+func (h *HarnessTest) AssertTransactionNotInWallet(hn *HarnessNode,
+	txid chainhash.Hash) {
+
+	err := wait.NoError(func() error {
+		txResp := h.GetTransactions(hn)
+		for _, txn := range txResp.Transactions {
+			if txn.TxHash == txid.String() {
+				return fmt.Errorf("expected txid=%v to be "+
+					"not found", txid)
+			}
+		}
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "failed to assert tx not found")
+}

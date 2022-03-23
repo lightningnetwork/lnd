@@ -511,8 +511,9 @@ bearer credentials allowing for delegation, attenuation, and other cool
 features. You can learn more about them in Alex Akselrod's [writeup on
 Github](https://github.com/lightningnetwork/lnd/issues/20).
 
-Running `lnd` for the first time will by default generate the `admin.macaroon`,
-`read_only.macaroon`, and `macaroons.db` files that are used to authenticate
+Running `lncli create` to create a wallet, will by default generate 
+the `admin.macaroon`, `read_only.macaroon`, and `macaroons.db` 
+files that are used to authenticate
 into `lnd`. They will be stored in the network directory (default:
 `lnddir/data/chain/bitcoin/mainnet`) so that it's possible to use a distinct
 password for mainnet, testnet, simnet, etc. Note that if you specified an

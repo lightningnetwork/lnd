@@ -55,6 +55,8 @@
   party sweeps our anchor
   output](https://github.com/lightningnetwork/lnd/pull/6274).
 
+* [Fixed node shutdown in forward interceptor itests](https://github.com/lightningnetwork/lnd/pull/6362).
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)

@@ -168,13 +168,23 @@ const (
 	// TODO(halseth): find a more scientific choice of value.
 	defaultMaxLocalCSVDelay = 10000
 
-	// defaultChannelCommitInterval is the default maximum time between receiving a
-	// channel state update and signing a new commitment.
+	// defaultChannelCommitInterval is the default maximum time between
+	// receiving a channel state update and signing a new commitment.
 	defaultChannelCommitInterval = 50 * time.Millisecond
 
 	// maxChannelCommitInterval is the maximum time the commit interval can
 	// be configured to.
 	maxChannelCommitInterval = time.Hour
+
+	// defaultPendingCommitInterval specifies the default timeout value
+	// while waiting for the remote party to revoke a locally initiated
+	// commitment state.
+	defaultPendingCommitInterval = 1 * time.Minute
+
+	// maxPendingCommitInterval specifies the max allowed duration when
+	// waiting for the remote party to revoke a locally initiated
+	// commitment state.
+	maxPendingCommitInterval = 5 * time.Minute
 
 	// defaultChannelCommitBatchSize is the default maximum number of
 	// channel state updates that is accumulated before signing a new
@@ -340,8 +350,11 @@ type Config struct {
 	MaxChanSize                   int64         `long:"maxchansize" description:"The largest channel size (in satoshis) that we should accept. Incoming channels larger than this will be rejected"`
 	CoopCloseTargetConfs          uint32        `long:"coop-close-target-confs" description:"The target number of blocks that a cooperative channel close transaction should confirm in. This is used to estimate the fee to use as the lower bound during fee negotiation for the channel closure."`
 
-	ChannelCommitInterval  time.Duration `long:"channel-commit-interval" description:"The maximum time that is allowed to pass between receiving a channel state update and signing the next commitment. Setting this to a longer duration allows for more efficient channel operations at the cost of latency."`
-	ChannelCommitBatchSize uint32        `long:"channel-commit-batch-size" description:"The maximum number of channel state updates that is accumulated before signing a new commitment."`
+	ChannelCommitInterval time.Duration `long:"channel-commit-interval" description:"The maximum time that is allowed to pass between receiving a channel state update and signing the next commitment. Setting this to a longer duration allows for more efficient channel operations at the cost of latency."`
+
+	PendingCommitInterval time.Duration `long:"pending-commit-interval" description:"The maximum time that is allowed to pass while waiting for the remote party to revoke a locally initiated commitment state. Setting this to a longer duration if a slow response is expected from the remote party or large number of payments are attempted at the same time."`
+
+	ChannelCommitBatchSize uint32 `long:"channel-commit-batch-size" description:"The maximum number of channel state updates that is accumulated before signing a new commitment."`
 
 	DefaultRemoteMaxHtlcs uint16 `long:"default-remote-max-htlcs" description:"The default max_htlc applied when opening or accepting channels. This value limits the number of concurrent HTLCs that the remote party can add to the commitment. The maximum possible value is 483."`
 
@@ -601,6 +614,7 @@ func DefaultConfig() Config {
 		registeredChains:        chainreg.NewChainRegistry(),
 		ActiveNetParams:         chainreg.BitcoinTestNetParams,
 		ChannelCommitInterval:   defaultChannelCommitInterval,
+		PendingCommitInterval:   defaultPendingCommitInterval,
 		ChannelCommitBatchSize:  defaultChannelCommitBatchSize,
 		CoinSelectionStrategy:   defaultCoinSelectionStrategy,
 		RemoteSigner: &lncfg.RemoteSigner{
@@ -1576,6 +1590,14 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		return nil, mkErr("channel-commit-interval (%v) must be less "+
 			"than %v", cfg.ChannelCommitInterval,
 			maxChannelCommitInterval)
+	}
+
+	// Limit PendingCommitInterval so we don't wait too long for the remote
+	// party to send back a revoke.
+	if cfg.PendingCommitInterval > maxPendingCommitInterval {
+		return nil, mkErr("pending-commit-interval (%v) must be less "+
+			"than %v", cfg.PendingCommitInterval,
+			maxPendingCommitInterval)
 	}
 
 	if err := cfg.Gossip.Parse(); err != nil {

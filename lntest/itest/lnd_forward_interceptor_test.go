@@ -41,10 +41,10 @@ func testForwardInterceptorDedupHtlc(net *lntest.NetworkHarness, t *harnessTest)
 	defer shutdownAndAssert(net, t, alice)
 
 	bob := net.NewNode(t.t, "bob", nil)
-	defer shutdownAndAssert(net, t, alice)
+	defer shutdownAndAssert(net, t, bob)
 
 	carol := net.NewNode(t.t, "carol", nil)
-	defer shutdownAndAssert(net, t, alice)
+	defer shutdownAndAssert(net, t, carol)
 
 	tc := newInterceptorTestContext(t, net, alice, bob, carol)
 
@@ -210,10 +210,10 @@ func testForwardInterceptorBasic(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, alice)
 
 	bob := net.NewNode(t.t, "bob", nil)
-	defer shutdownAndAssert(net, t, alice)
+	defer shutdownAndAssert(net, t, bob)
 
 	carol := net.NewNode(t.t, "carol", nil)
-	defer shutdownAndAssert(net, t, alice)
+	defer shutdownAndAssert(net, t, carol)
 
 	testContext := newInterceptorTestContext(t, net, alice, bob, carol)
 

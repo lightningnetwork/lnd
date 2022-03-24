@@ -21,6 +21,11 @@ import (
 
 var (
 	testKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
+
+	// testSigBytes specifies a testing signature with the minimal length.
+	testSigBytes = []byte{
+		0x30, 0x06, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00,
+	}
 )
 
 // randOutpoint creates a random wire.Outpoint.
@@ -105,13 +110,13 @@ func createEdgePolicies(t *testing.T, channel *channeldb.OpenChannel,
 			ChannelID:    channel.ShortChanID().ToUint64(),
 			ChannelFlags: dir1,
 			LastUpdate:   time.Now(),
-			SigBytes:     make([]byte, 64),
+			SigBytes:     testSigBytes,
 		},
 		&channeldb.ChannelEdgePolicy{
 			ChannelID:    channel.ShortChanID().ToUint64(),
 			ChannelFlags: dir2,
 			LastUpdate:   time.Now(),
-			SigBytes:     make([]byte, 64),
+			SigBytes:     testSigBytes,
 		}
 }
 
@@ -209,7 +214,7 @@ func (g *mockGraph) ApplyChannelUpdate(update *lnwire.ChannelUpdate) error {
 		ChannelID:    update.ShortChannelID.ToUint64(),
 		ChannelFlags: update.ChannelFlags,
 		LastUpdate:   timestamp,
-		SigBytes:     make([]byte, 64),
+		SigBytes:     testSigBytes,
 	}
 
 	if update1 {

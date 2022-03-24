@@ -543,6 +543,16 @@ func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
 	return result && (err == nil)
 }
 
+// AddressInfo returns the information about an address, if it's known to this
+// wallet.
+//
+// NOTE: This is a part of the WalletController interface.
+func (b *BtcWallet) AddressInfo(a btcutil.Address) (waddrmgr.ManagedAddress,
+	error) {
+
+	return b.wallet.AddressInfo(a)
+}
+
 // ListAccounts retrieves all accounts belonging to the wallet by default. A
 // name and key scope filter can be provided to filter through all of the wallet
 // accounts and return only those matching.

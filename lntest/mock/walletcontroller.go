@@ -90,6 +90,13 @@ func (w *WalletController) IsOurAddress(btcutil.Address) bool {
 	return false
 }
 
+// AddressInfo currently returns a dummy value.
+func (w *WalletController) AddressInfo(
+	btcutil.Address) (waddrmgr.ManagedAddress, error) {
+
+	return nil, nil
+}
+
 // ListAccounts currently returns a dummy value.
 func (w *WalletController) ListAccounts(string,
 	*waddrmgr.KeyScope) ([]*waddrmgr.AccountProperties, error) {

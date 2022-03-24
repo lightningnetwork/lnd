@@ -99,6 +99,12 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 			runPsbtChanFunding(net, tt, carol, wo)
 			runSignPsbt(tt, net, wo)
 		},
+	}, {
+		name:      "sign output raw",
+		sendCoins: true,
+		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
+			runSignOutputRaw(tt, net, wo)
+		},
 	}}
 
 	for _, st := range subTests {

@@ -158,6 +158,10 @@ var allTestCases = []*testCase{
 		test: testDeriveSharedKey,
 	},
 	{
+		name: "sign output raw",
+		test: testSignOutputRaw,
+	},
+	{
 		name: "async payments benchmark",
 		test: testAsyncPayments,
 	},

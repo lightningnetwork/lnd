@@ -15,6 +15,35 @@
   A bug in the remote signer health check was also fixed that lead to too many
   open connections.
 
+* [Added signature length
+  validation](https://github.com/lightningnetwork/lnd/pull/6314) when calling
+  `NewSigFromRawSignature`.
+
+* [Fixed deadlock in invoice
+  registry](https://github.com/lightningnetwork/lnd/pull/6332).
+
+* [Fixed an issue that would cause wallet UTXO state to be incorrect if a 3rd
+  party sweeps our anchor
+  output](https://github.com/lightningnetwork/lnd/pull/6274).
+
+## Code Health
+
+### Code cleanup, refactor, typo fixes
+
+* [A refactor of
+  `SelectHopHints`](https://github.com/lightningnetwork/lnd/pull/6182) allows
+  code external to lnd to call the function, where previously it would require
+  access to lnd's internals.
+
+## Misc
+
+* [Make etcd leader election session
+  TTL](https://github.com/lightningnetwork/lnd/pull/6342) configurable.
+
 # Contributors (Alphabetical Order)
 
+* Andras Banki-Horvath
+* Carla Kirk-Cohen
+* Olaoluwa Osuntokun
 * Oliver Gugger
+* Yong Yu

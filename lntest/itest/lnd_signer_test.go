@@ -6,6 +6,9 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -219,7 +222,7 @@ func runSignOutputRaw(t *harnessTest, net *lntest.NetworkHarness,
 	require.NoError(t.t, err)
 	require.Equal(t.t, int32(0), keyDesc.KeyLoc.KeyIndex)
 
-	targetPubKey, err := btcec.ParsePubKey(keyDesc.RawKeyBytes)
+	targetPubKey, err := btcec.ParsePubKey(keyDesc.RawKeyBytes, btcec.S256())
 	require.NoError(t.t, err)
 
 	// First, try with a key descriptor that only sets the public key.
@@ -251,7 +254,7 @@ func runSignOutputRaw(t *harnessTest, net *lntest.NetworkHarness,
 	require.NoError(t.t, err)
 	require.Equal(t.t, int32(1), keyDesc.KeyLoc.KeyIndex)
 
-	targetPubKey, err = btcec.ParsePubKey(keyDesc.RawKeyBytes)
+	targetPubKey, err = btcec.ParsePubKey(keyDesc.RawKeyBytes, btcec.S256())
 	require.NoError(t.t, err)
 
 	// First, try with a key descriptor that only sets the public key.

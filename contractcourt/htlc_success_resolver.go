@@ -152,6 +152,9 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	h.reportLock.Lock()
 	h.currentReport.RecoveredBalance = h.currentReport.LimboBalance
 	h.currentReport.LimboBalance = 0
+	// Note: Since this is a second-level claim, the ClaimOutpoint is
+	// the outpoint of the 1st stage consumed by it.
+	h.htlcResolution.ClaimOutpoint = spend.SpendingTx.TxIn[spend.SpenderInputIndex].PreviousOutPoint
 	h.reportLock.Unlock()
 
 	h.resolved = true
@@ -191,6 +194,14 @@ func (h *htlcSuccessResolver) broadcastSuccessTx() (*wire.OutPoint, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Now that we have broadcasted the second-level success transaction,
+	// we report the final outpoint that was swept.
+	// Note: This is required as the first-level stage known upfront can
+	// have changed due to e.g. updating or fee-bumping our batched sweep.
+	h.reportLock.Lock()
+	h.currentReport.Outpoint = h.htlcResolution.SignedSuccessTx.TxIn[0].PreviousOutPoint
+	h.reportLock.Unlock()
 
 	// Otherwise, this is an output on our commitment transaction. In this
 	// case, we'll send it to the incubator, but only if we haven't already
@@ -303,6 +314,7 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 	h.reportLock.Lock()
 	h.currentReport.Stage = 2
 	h.currentReport.MaturityHeight = waitHeight
+	h.currentReport.Outpoint = commitSpend.SpendingTx.TxIn[commitSpend.SpenderInputIndex].PreviousOutPoint
 	h.reportLock.Unlock()
 
 	log.Infof("%T(%x): waiting for CSV lock to expire at height %v",
@@ -472,11 +484,10 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
 		// If the SignedSuccessTx is not nil, we are claiming the htlc
 		// in two stages, so we need to create a report for the first
 		// stage transaction as well.
-		spendTx := h.htlcResolution.SignedSuccessTx
-		spendTxID := spendTx.TxHash()
+		spendTxID := h.htlcResolution.ClaimOutpoint.Hash
 
 		report := &channeldb.ResolverReport{
-			OutPoint:        spendTx.TxIn[0].PreviousOutPoint,
+			OutPoint:        h.currentReport.Outpoint,
 			Amount:          h.htlc.Amt.ToSatoshis(),
 			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,

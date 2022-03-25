@@ -198,8 +198,31 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 2}
 	htlcOutpoint := wire.OutPoint{Index: 3}
 
+	successTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: commitOutpoint,
+			},
+		},
+		TxOut: []*wire.TxOut{
+			{
+				Value:    111,
+				PkScript: []byte{0xaa, 0xaa},
+			},
+		},
+	}
+	successHash := successTx.TxHash()
+
 	sweepTx := &wire.MsgTx{
-		TxIn:  []*wire.TxIn{{}},
+		TxIn: []*wire.TxIn{
+
+			{
+				PreviousOutPoint: wire.OutPoint{
+					Hash:  successHash,
+					Index: 0,
+				},
+			},
+		},
 		TxOut: []*wire.TxOut{{}},
 	}
 	sweepHash := sweepTx.TxHash()
@@ -207,35 +230,22 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 	// twoStageResolution is a resolution for htlc on our own commitment
 	// which is spent from the signed success tx.
 	twoStageResolution := lnwallet.IncomingHtlcResolution{
-		Preimage: [32]byte{},
-		SignedSuccessTx: &wire.MsgTx{
-			TxIn: []*wire.TxIn{
-				{
-					PreviousOutPoint: commitOutpoint,
-				},
-			},
-			TxOut: []*wire.TxOut{
-				{
-					Value:    111,
-					PkScript: []byte{0xaa, 0xaa},
-				},
-			},
-		},
-		ClaimOutpoint: htlcOutpoint,
-		SweepSignDesc: testSignDesc,
+		Preimage:        [32]byte{},
+		SignedSuccessTx: successTx,
+		ClaimOutpoint:   htlcOutpoint,
+		SweepSignDesc:   testSignDesc,
 	}
 
-	successTx := twoStageResolution.SignedSuccessTx.TxHash()
 	firstStage := &channeldb.ResolverReport{
 		OutPoint:        commitOutpoint,
 		Amount:          testHtlcAmt.ToSatoshis(),
 		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 		ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
-		SpendTxID:       &successTx,
+		SpendTxID:       &successHash,
 	}
 
 	secondStage := &channeldb.ResolverReport{
-		OutPoint:        htlcOutpoint,
+		OutPoint:        sweepTx.TxIn[0].PreviousOutPoint,
 		Amount:          btcutil.Amount(testSignDesc.Output.Value),
 		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 		ResolverOutcome: channeldb.ResolverOutcomeClaimed,
@@ -320,7 +330,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 			successTx.TxOut[0],
 		},
 	}
-	reSignedHash := successTx.TxHash()
+	reSignedHash := reSignedSuccessTx.TxHash()
 
 	sweepTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
@@ -359,7 +369,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 	}
 
 	secondStage := &channeldb.ResolverReport{
-		OutPoint:        htlcOutpoint,
+		OutPoint:        sweepTx.TxIn[0].PreviousOutPoint,
 		Amount:          btcutil.Amount(testSignDesc.Output.Value),
 		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 		ResolverOutcome: channeldb.ResolverOutcomeClaimed,

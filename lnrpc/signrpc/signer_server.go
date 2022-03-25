@@ -238,7 +238,7 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 // provides an invalid transaction, then we'll return with an error.
 //
 // NOTE: The resulting signature should be void of a sighash byte.
-func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp,
+func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 	error) {
 
 	switch {
@@ -266,7 +266,33 @@ func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp,
 		return nil, fmt.Errorf("unable to decode tx: %v", err)
 	}
 
-	sigHashCache := txscript.NewTxSigHashes(&txToSign)
+	var (
+		sigHashCache      = input.NewTxSigHashesV0Only(&txToSign)
+		prevOutputFetcher = txscript.NewMultiPrevOutFetcher(nil)
+	)
+
+	// If we're spending one or more SegWit v1 (Taproot) inputs, then we
+	// need the full UTXO information available.
+	if len(in.PrevOutputs) > 0 {
+		if len(in.PrevOutputs) != len(txToSign.TxIn) {
+			return nil, fmt.Errorf("provided previous outputs " +
+				"doesn't match number of transaction inputs")
+		}
+
+		// Add all previous inputs to our sighash prev out fetcher so we
+		// can calculate the sighash correctly.
+		for idx, txIn := range txToSign.TxIn {
+			prevOutputFetcher.AddPrevOut(
+				txIn.PreviousOutPoint, &wire.TxOut{
+					Value:    in.PrevOutputs[idx].Value,
+					PkScript: in.PrevOutputs[idx].PkScript,
+				},
+			)
+		}
+		sigHashCache = txscript.NewTxSigHashes(
+			&txToSign, prevOutputFetcher,
+		)
+	}
 
 	log.Debugf("Generating sigs for %v inputs: ", len(in.SignDescs))
 
@@ -315,9 +341,9 @@ func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp,
 		// output. We'll send it in the WitnessScript field, the
 		// SignOutputRaw RPC will know what to do with it when creating
 		// the sighash.
-		if len(signDesc.WitnessScript) == 0 {
+		if len(signDesc.WitnessScript) == 0 && !signDesc.TaprootKeySpend {
 			return nil, fmt.Errorf("witness script MUST be " +
-				"specified")
+				"specified for non-taproot-key-spends")
 		}
 
 		// If the users provided a double tweak, then we'll need to
@@ -337,16 +363,18 @@ func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp,
 				KeyLocator: keyLoc,
 				PubKey:     targetPubKey,
 			},
-			SingleTweak:   signDesc.SingleTweak,
-			DoubleTweak:   tweakPrivKey,
-			WitnessScript: signDesc.WitnessScript,
+			SingleTweak:     signDesc.SingleTweak,
+			DoubleTweak:     tweakPrivKey,
+			WitnessScript:   signDesc.WitnessScript,
+			TaprootKeySpend: signDesc.TaprootKeySpend,
 			Output: &wire.TxOut{
 				Value:    signDesc.Output.Value,
 				PkScript: signDesc.Output.PkScript,
 			},
-			HashType:   txscript.SigHashType(signDesc.Sighash),
-			SigHashes:  sigHashCache,
-			InputIndex: int(signDesc.InputIndex),
+			HashType:          txscript.SigHashType(signDesc.Sighash),
+			SigHashes:         sigHashCache,
+			InputIndex:        int(signDesc.InputIndex),
+			PrevOutputFetcher: prevOutputFetcher,
 		})
 	}
 
@@ -405,7 +433,7 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 		return nil, fmt.Errorf("unable to decode tx: %v", err)
 	}
 
-	sigHashCache := txscript.NewTxSigHashes(&txToSign)
+	sigHashCache := input.NewTxSigHashesV0Only(&txToSign)
 
 	signDescs := make([]*input.SignDescriptor, 0, len(in.SignDescs))
 	for _, signDesc := range in.SignDescs {

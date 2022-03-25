@@ -39,6 +39,19 @@ var (
 	// notifier to match _and_ dispatch upon detecting the spend of the
 	// script on-chain, rather than the outpoint.
 	ZeroOutPoint wire.OutPoint
+
+	// zeroV1KeyPush is a pkScript that pushes an all-zero 32-byte Taproot
+	// SegWit v1 key to the stack.
+	zeroV1KeyPush = [34]byte{
+		txscript.OP_1, txscript.OP_DATA_32, // 32 byte of zeroes here
+	}
+
+	// ZeroTaprootPkScript is the parsed txscript.PkScript of an empty
+	// Taproot SegWit v1 key being pushed to the stack. This allows the
+	// notifier to match _and_ dispatch upon detecting the spend of the
+	// outpoint on-chain, rather than the pkScript (which cannot be derived
+	// from the witness alone in the SegWit v1 case).
+	ZeroTaprootPkScript, _ = txscript.ParsePkScript(zeroV1KeyPush[:])
 )
 
 var (
@@ -321,6 +334,24 @@ func NewSpendRequest(op *wire.OutPoint, pkScript []byte) (SpendRequest, error) {
 		r.OutPoint = *op
 	}
 	r.PkScript = outputScript
+
+	// For Taproot spends we have the main problem that for the key spend
+	// path we cannot derive the pkScript from only looking at the input's
+	// witness. So we need to rely on the outpoint information alone.
+	//
+	// TODO(guggero): For script path spends we can derive the pkScript from
+	// the witness, since we have the full control block and the spent
+	// script available.
+	if outputScript.Class() == txscript.WitnessV1TaprootTy {
+		if op == nil {
+			return r, fmt.Errorf("cannot register witness v1 " +
+				"spend request without outpoint")
+		}
+
+		// We have an outpoint, so we can set the pkScript to an all
+		// zero Taproot key that we'll compare this spend request to.
+		r.PkScript = ZeroTaprootPkScript
+	}
 
 	return r, nil
 }
@@ -1488,6 +1519,19 @@ func (n *TxNotifier) filterTx(tx *btcutil.Tx, blockHash *chainhash.Hash,
 			if _, ok := n.spendNotifications[spendRequest]; ok {
 				notifyDetails(spendRequest, prevOut, uint32(i))
 			}
+
+			// Now try with an empty taproot key pkScript, since we
+			// cannot derive the spent pkScript directly from the
+			// witness. But we have the outpoint, which should be
+			// enough.
+			spendRequest.PkScript = ZeroTaprootPkScript
+			if _, ok := n.spendNotifications[spendRequest]; ok {
+				notifyDetails(spendRequest, prevOut, uint32(i))
+			}
+
+			// Restore the pkScript but try with a zero outpoint
+			// instead (won't be possible for Taproot).
+			spendRequest.PkScript = pkScript
 			spendRequest.OutPoint = ZeroOutPoint
 			if _, ok := n.spendNotifications[spendRequest]; ok {
 				notifyDetails(spendRequest, prevOut, uint32(i))

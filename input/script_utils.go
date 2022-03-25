@@ -864,7 +864,7 @@ func HtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 
 	// As we mutated the transaction, we'll re-calculate the sighashes for
 	// this instance.
-	signDesc.SigHashes = txscript.NewTxSigHashes(sweepTx)
+	signDesc.SigHashes = NewTxSigHashesV0Only(sweepTx)
 
 	// With the proper sequence and version set, we'll now sign the timeout
 	// transaction using the passed signed descriptor. In order to generate

@@ -2,7 +2,9 @@ package input
 
 import (
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 )
 
 const (
@@ -76,6 +78,18 @@ const (
 	//      - var_int: 1 byte (pkscript_length)
 	//      - pkscript (p2sh): 23 bytes
 	P2SHOutputSize = 8 + 1 + P2SHSize
+
+	// P2TRSize 34 bytes
+	//	- OP_0: 1 byte
+	//	- OP_DATA: 1 byte (x-only public key length)
+	//	- x-only public key length: 32 bytes
+	P2TRSize = 34
+
+	// P2TROutputSize 43 bytes
+	//      - value: 8 bytes
+	//      - var_int: 1 byte (pkscript_length)
+	//      - pkscript (p2tr): 34 bytes
+	P2TROutputSize = 8 + 1 + P2TRSize
 
 	// P2PKHScriptSigSize 108 bytes
 	//      - OP_DATA: 1 byte (signature length)
@@ -519,6 +533,29 @@ const (
 	//      - witness_script_length: 1 byte
 	//      - witness_script (anchor_script)
 	AnchorWitnessSize = 1 + 1 + 73 + 1 + AnchorScriptSize
+
+	// TaprootSignatureWitnessSize 65 bytes
+	//	- sigLength: 1 byte
+	//	- sig: 64 bytes
+	TaprootSignatureWitnessSize = 1 + 64
+
+	// TaprootKeyPathWitnessSize 66 bytes
+	//	- NumberOfWitnessElements: 1 byte
+	//	- sigLength: 1 byte
+	//	- sig: 64 bytes
+	TaprootKeyPathWitnessSize = 1 + TaprootSignatureWitnessSize
+
+	// TaprootKeyPathCustomSighashWitnessSize 67 bytes
+	//	- NumberOfWitnessElements: 1 byte
+	//	- sigLength: 1 byte
+	//	- sig: 64 bytes
+	//      - sighashFlag: 1 byte
+	TaprootKeyPathCustomSighashWitnessSize = TaprootKeyPathWitnessSize + 1
+
+	// TaprootBaseControlBlockWitnessSize 33 bytes
+	//      - leafVersionAndParity: 1 byte
+	//      - schnorrPubKey: 32 byte
+	TaprootBaseControlBlockWitnessSize = 33
 )
 
 // EstimateCommitTxWeight estimate commitment transaction weight depending on
@@ -582,6 +619,52 @@ func (twe *TxWeightEstimator) AddWitnessInput(witnessSize int) *TxWeightEstimato
 	return twe
 }
 
+// AddTapscriptInput updates the weight estimate to account for an additional
+// input spending a segwit v1 pay-to-taproot output using the script path. This
+// accepts the total size of the witness for the script leaf that is executed
+// and adds the size of the control block to the total witness size.
+//
+// NOTE: The leaf witness size must be calculated without the byte that accounts
+// for the number of witness elements, only the total size of all elements on
+// the stack that are consumed by the revealed script should be counted.
+func (twe *TxWeightEstimator) AddTapscriptInput(leafWitnessSize int,
+	tapscript *waddrmgr.Tapscript) *TxWeightEstimator {
+
+	// We add 1 byte for the total number of witness elements.
+	controlBlockWitnessSize := 1 + TaprootBaseControlBlockWitnessSize +
+		// 1 byte for the length of the element plus the element itself.
+		1 + len(tapscript.RevealedScript) +
+		1 + len(tapscript.ControlBlock.InclusionProof)
+
+	twe.inputSize += InputSize
+	twe.inputWitnessSize += leafWitnessSize + controlBlockWitnessSize
+	twe.inputCount++
+	twe.hasWitness = true
+
+	return twe
+}
+
+// AddTaprootKeySpendInput updates the weight estimate to account for an
+// additional input spending a segwit v1 pay-to-taproot output using the key
+// spend path. This accepts the sighash type being used since that has an
+// influence on the total size of the signature.
+func (twe *TxWeightEstimator) AddTaprootKeySpendInput(
+	hashType txscript.SigHashType) *TxWeightEstimator {
+
+	twe.inputSize += InputSize
+
+	if hashType == txscript.SigHashDefault {
+		twe.inputWitnessSize += TaprootKeyPathWitnessSize
+	} else {
+		twe.inputWitnessSize += TaprootKeyPathCustomSighashWitnessSize
+	}
+
+	twe.inputCount++
+	twe.hasWitness = true
+
+	return twe
+}
+
 // AddNestedP2WKHInput updates the weight estimate to account for an additional
 // input spending a P2SH output with a nested P2WKH redeem script.
 func (twe *TxWeightEstimator) AddNestedP2WKHInput() *TxWeightEstimator {
@@ -634,6 +717,15 @@ func (twe *TxWeightEstimator) AddP2WKHOutput() *TxWeightEstimator {
 // native P2WSH output.
 func (twe *TxWeightEstimator) AddP2WSHOutput() *TxWeightEstimator {
 	twe.outputSize += P2WSHOutputSize
+	twe.outputCount++
+
+	return twe
+}
+
+// AddP2TROutput updates the weight estimate to account for an additional native
+// SegWit v1 P2TR output.
+func (twe *TxWeightEstimator) AddP2TROutput() *TxWeightEstimator {
+	twe.outputSize += P2TROutputSize
 	twe.outputCount++
 
 	return twe

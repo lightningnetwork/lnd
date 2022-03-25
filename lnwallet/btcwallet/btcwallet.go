@@ -461,6 +461,8 @@ func (b *BtcWallet) keyScopeForAccountAddr(accountName string,
 		addrKeyScope = waddrmgr.KeyScopeBIP0084
 	case lnwallet.NestedWitnessPubKey:
 		addrKeyScope = waddrmgr.KeyScopeBIP0049Plus
+	case lnwallet.TaprootPubkey:
+		addrKeyScope = waddrmgr.KeyScopeBIP0086
 	default:
 		return waddrmgr.KeyScope{}, 0,
 			fmt.Errorf("unknown address type")
@@ -575,7 +577,7 @@ func (b *BtcWallet) ListAccounts(name string,
 	// Only the name filter was provided.
 	case name != "" && keyScope == nil:
 		// If the name corresponds to the default or imported accounts,
-		// we'll return them for both of our supported key scopes.
+		// we'll return them for all our supported key scopes.
 		if name == lnwallet.DefaultAccountName ||
 			name == waddrmgr.ImportedAddrAccountName {
 
@@ -594,6 +596,14 @@ func (b *BtcWallet) ListAccounts(name string,
 				return nil, err
 			}
 			res = append(res, a2)
+
+			a3, err := b.wallet.AccountPropertiesByName(
+				waddrmgr.KeyScopeBIP0086, name,
+			)
+			if err != nil {
+				return nil, err
+			}
+			res = append(res, a3)
 			break
 		}
 
@@ -634,6 +644,15 @@ func (b *BtcWallet) ListAccounts(name string,
 		}
 
 		accounts, err = b.wallet.Accounts(waddrmgr.KeyScopeBIP0084)
+		if err != nil {
+			return nil, err
+		}
+		for _, account := range accounts.Accounts {
+			account := account
+			res = append(res, &account.AccountProperties)
+		}
+
+		accounts, err = b.wallet.Accounts(waddrmgr.KeyScopeBIP0086)
 		if err != nil {
 			return nil, err
 		}
@@ -729,6 +748,26 @@ func (b *BtcWallet) ImportPublicKey(pubKey *btcec.PublicKey,
 	addrType waddrmgr.AddressType) error {
 
 	return b.wallet.ImportPublicKey(pubKey, addrType)
+}
+
+// ImportTaprootScript imports a user-provided taproot script into the address
+// manager. The imported script will act as a pay-to-taproot address.
+func (b *BtcWallet) ImportTaprootScript(scope waddrmgr.KeyScope,
+	tapscript *waddrmgr.Tapscript) (waddrmgr.ManagedAddress, error) {
+
+	// We want to be able to import script addresses into a watch-only
+	// wallet, which is only possible if we don't encrypt the script with
+	// the private key encryption key. By specifying the script as being
+	// "not secret", we can also decrypt the script in a watch-only wallet.
+	const isSecretScript = false
+
+	// Currently, only v1 (Taproot) scripts are supported. We don't even
+	// know what a v2 witness version would look like at this point.
+	const witnessVersionTaproot byte = 1
+
+	return b.wallet.ImportTaprootScript(
+		scope, tapscript, nil, witnessVersionTaproot, isSecretScript,
+	)
 }
 
 // SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying out to
@@ -912,10 +951,13 @@ func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32,
 			// wallet are nested p2pkh. We can't check the redeem script because
 			// the btcwallet service does not include it.
 			addressType = lnwallet.NestedWitnessPubKey
+		} else if txscript.IsPayToTaproot(pkScript) {
+			addressType = lnwallet.TaprootPubkey
 		}
 
 		if addressType == lnwallet.WitnessPubKey ||
-			addressType == lnwallet.NestedWitnessPubKey {
+			addressType == lnwallet.NestedWitnessPubKey ||
+			addressType == lnwallet.TaprootPubkey {
 
 			txid, err := chainhash.NewHashFromStr(output.TxID)
 			if err != nil {

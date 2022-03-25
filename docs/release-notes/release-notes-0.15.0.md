@@ -5,6 +5,15 @@
 * [Misconfigured ZMQ
   setup now gets reported](https://github.com/lightningnetwork/lnd/pull/5710).
 
+## Taproot
+
+The internal on-chain wallet of `lnd` is now able to create and spend from
+[Taproot (SegWit v1)
+addresses](https://github.com/lightningnetwork/lnd/pull/6263). Using
+`lncli newaddress p2tr` will create a new BIP-0086 keyspend only address and
+then watch it on chain. Taproot script spends are also supported through the
+`signrpc.SignOutputRaw` RPC (`/v2/signer/signraw` in REST).
+
 ## `lncli`
 
 * Add [auto-generated command-line completions](https://github.com/lightningnetwork/lnd/pull/4177) 

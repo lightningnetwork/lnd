@@ -1452,6 +1452,17 @@ func (n *NetworkHarness) SendCoinsNP2WKH(t *testing.T, amt btcutil.Amount,
 	)
 }
 
+// SendCoinsP2TR attempts to send amt satoshis from the internal mining node
+// to the targeted lightning node using a P2TR address.
+func (n *NetworkHarness) SendCoinsP2TR(t *testing.T, amt btcutil.Amount,
+	target *HarnessNode) {
+
+	err := n.sendCoins(amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true)
+	require.NoErrorf(
+		t, err, "unable to send P2TR coins for %s", target.Cfg.Name,
+	)
+}
+
 // sendCoins attempts to send amt satoshis from the internal mining node to the
 // targeted lightning node. The confirmed boolean indicates whether the
 // transaction that pays to the target should confirm.

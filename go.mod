@@ -4,15 +4,16 @@ require (
 	github.com/NebulousLabs/fastrand v0.0.0-20181203155948-6fb6489aac4e // indirect
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
-	github.com/btcsuite/btcd v0.22.0-beta.0.20220207191057-4dc4ff7963b4
-	github.com/btcsuite/btcd/btcec/v2 v2.1.0
-	github.com/btcsuite/btcd/btcutil v1.1.0
-	github.com/btcsuite/btcd/btcutil/psbt v1.1.0
+	github.com/btcsuite/btcd v0.22.0-beta.0.20220316175102-8d5c75c28923
+	github.com/btcsuite/btcd/btcec/v2 v2.1.3
+	github.com/btcsuite/btcd/btcutil v1.1.1
+	github.com/btcsuite/btcd/btcutil/psbt v1.1.1
+	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
-	github.com/btcsuite/btcwallet v0.14.0
-	github.com/btcsuite/btcwallet/wallet/txauthor v1.2.1
+	github.com/btcsuite/btcwallet v0.14.1-0.20220322182735-b0001c262734
+	github.com/btcsuite/btcwallet/wallet/txauthor v1.2.3
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.0
-	github.com/btcsuite/btcwallet/walletdb v1.3.6-0.20210803004036-eebed51155ec
+	github.com/btcsuite/btcwallet/walletdb v1.4.0
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.0
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f
 	github.com/davecgh/go-spew v1.1.1

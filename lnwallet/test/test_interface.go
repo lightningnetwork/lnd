@@ -1710,7 +1710,7 @@ func txFromOutput(tx *wire.MsgTx, signer input.Signer, fromPubKey,
 		WitnessScript: keyScript,
 		Output:        tx.TxOut[outputIndex],
 		HashType:      txscript.SigHashAll,
-		SigHashes:     txscript.NewTxSigHashes(tx1),
+		SigHashes:     input.NewTxSigHashesV0Only(tx1),
 		InputIndex:    0, // Has only one input.
 	}
 
@@ -1730,7 +1730,9 @@ func txFromOutput(tx *wire.MsgTx, signer input.Signer, fromPubKey,
 	// private key.
 	vm, err := txscript.NewEngine(
 		keyScript, tx1, 0, txscript.StandardVerifyFlags, nil,
-		nil, outputValue,
+		nil, outputValue, txscript.NewCannedPrevOutputFetcher(
+			keyScript, outputValue,
+		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create engine: %v", err)
@@ -2096,7 +2098,7 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 			WitnessScript: keyScript,
 			Output:        newOutput,
 			HashType:      txscript.SigHashAll,
-			SigHashes:     txscript.NewTxSigHashes(sweepTx),
+			SigHashes:     input.NewTxSigHashesV0Only(sweepTx),
 			InputIndex:    0,
 		}
 
@@ -2123,9 +2125,13 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 		// Finally, attempt to validate the completed transaction. This
 		// should succeed if the wallet was able to properly generate
 		// the proper private key.
-		vm, err := txscript.NewEngine(keyScript,
-			sweepTx, 0, txscript.StandardVerifyFlags, nil,
-			nil, int64(btcutil.SatoshiPerBitcoin))
+		vm, err := txscript.NewEngine(
+			keyScript, sweepTx, 0, txscript.StandardVerifyFlags,
+			nil, nil, int64(btcutil.SatoshiPerBitcoin),
+			txscript.NewCannedPrevOutputFetcher(
+				keyScript, int64(btcutil.SatoshiPerBitcoin),
+			),
+		)
 		if err != nil {
 			t.Fatalf("unable to create engine: %v", err)
 		}
@@ -2833,7 +2839,7 @@ func testSignOutputCreateAccount(r *rpctest.Harness, w *lnwallet.LightningWallet
 			Value: 1000,
 		},
 		HashType:   txscript.SigHashAll,
-		SigHashes:  txscript.NewTxSigHashes(fakeTx),
+		SigHashes:  input.NewTxSigHashesV0Only(fakeTx),
 		InputIndex: 0,
 	}
 

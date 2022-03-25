@@ -2,17 +2,25 @@ package btcwallet
 
 import (
 	"encoding/hex"
+	"fmt"
 	"io/ioutil"
+	"math"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/blockcache"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 )
@@ -31,6 +39,29 @@ var (
 	// corresponding to the derivation path m/84'/0'/0'/0/0 (even on regtest
 	// which is a special case for the BIP49/84 addresses in btcwallet).
 	firstAddress = "bcrt1qgdlgjc5ede7fjv350wcjqat80m0zsmfaswsj9p"
+
+	// firstAddressTaproot is the first address that we should get from the
+	// wallet when deriving a taproot address.
+	firstAddressTaproot = "bcrt1ps8c222fgysvnsj2m8hxk8khy6wthcrhv9va9z3t4" +
+		"h3qeyz65sh4qqwvdgc"
+
+	testPubKeyBytes, _ = hex.DecodeString(
+		"037a67771635344641d4b56aac33cd5f7a265b59678dce3aec31b89125e3" +
+			"b8b9b2",
+	)
+	testPubKey, _          = btcec.ParsePubKey(testPubKeyBytes)
+	testTaprootKeyBytes, _ = hex.DecodeString(
+		"03f068684c9141027318eed958dccbf4f7f748700e1da53315630d82a362" +
+			"d6a887",
+	)
+	testTaprootKey, _ = btcec.ParsePubKey(testTaprootKeyBytes)
+
+	testTapscriptAddr = "bcrt1p7p5xsny3gyp8xx8wm9vdejl57lm5suqwrkjnx9trpk" +
+		"p2xckk4zrs4xehl8"
+	testTapscriptPkScript = append(
+		[]byte{txscript.OP_1, txscript.OP_DATA_32},
+		schnorr.SerializePubKey(testTaprootKey)...,
+	)
 
 	testCases = []struct {
 		name string
@@ -133,7 +164,7 @@ var (
 // BIP32 key path correctly.
 func TestBip32KeyDerivation(t *testing.T) {
 	netParams := &chaincfg.RegressionNetParams
-	w, cleanup := newTestWallet(t, netParams, seedBytes)
+	w, _, cleanup := newTestWallet(t, netParams, seedBytes)
 	defer cleanup()
 
 	// This is just a sanity check that the wallet was initialized
@@ -167,8 +198,94 @@ func TestBip32KeyDerivation(t *testing.T) {
 	}
 }
 
+// TestScriptImport tests the btcwallet's tapscript import capabilities by
+// importing both a full taproot script tree and a partially revealed branch
+// with a proof to make sure the resulting addresses match up.
+func TestScriptImport(t *testing.T) {
+	netParams := &chaincfg.RegressionNetParams
+	w, miner, cleanup := newTestWallet(t, netParams, seedBytes)
+	defer cleanup()
+
+	firstDerivedAddr, err := w.NewAddress(
+		lnwallet.TaprootPubkey, false, lnwallet.DefaultAccountName,
+	)
+	require.NoError(t, err)
+	require.Equal(t, firstAddressTaproot, firstDerivedAddr.String())
+
+	scope := waddrmgr.KeyScopeBIP0086
+	_, err = w.InternalWallet().Manager.FetchScopedKeyManager(scope)
+	require.NoError(t, err)
+
+	// Let's create a taproot script output now. This is a hash lock with a
+	// simple preimage of "foobar".
+	builder := txscript.NewScriptBuilder()
+	builder.AddOp(txscript.OP_DUP)
+	builder.AddOp(txscript.OP_HASH160)
+	builder.AddData(btcutil.Hash160([]byte("foobar")))
+	builder.AddOp(txscript.OP_EQUALVERIFY)
+	script1, err := builder.Script()
+	require.NoError(t, err)
+	leaf1 := txscript.NewBaseTapLeaf(script1)
+
+	// Let's add a second script output as well to test the partial reveal.
+	builder = txscript.NewScriptBuilder()
+	builder.AddData(schnorr.SerializePubKey(testPubKey))
+	builder.AddOp(txscript.OP_CHECKSIG)
+	script2, err := builder.Script()
+	require.NoError(t, err)
+	leaf2 := txscript.NewBaseTapLeaf(script2)
+
+	// Our first test case is storing the script with all its leaves.
+	tapscript1 := input.TapscriptFullTree(testPubKey, leaf1, leaf2)
+
+	taprootKey1, err := tapscript1.TaprootKey()
+	require.NoError(t, err)
+	require.Equal(
+		t, testTaprootKey.SerializeCompressed(),
+		taprootKey1.SerializeCompressed(),
+	)
+
+	addr1, err := w.ImportTaprootScript(scope, tapscript1)
+	require.NoError(t, err)
+
+	require.Equal(t, testTapscriptAddr, addr1.Address().String())
+	pkScript, err := txscript.PayToAddrScript(addr1.Address())
+	require.NoError(t, err)
+	require.Equal(t, testTapscriptPkScript, pkScript)
+
+	// Send some coins to the taproot address now and wait until they are
+	// seen as unconfirmed.
+	_, err = miner.SendOutputs([]*wire.TxOut{{
+		Value:    btcutil.SatoshiPerBitcoin,
+		PkScript: pkScript,
+	}}, 1)
+	require.NoError(t, err)
+
+	var utxos []*lnwallet.Utxo
+	require.Eventually(t, func() bool {
+		utxos, err = w.ListUnspentWitness(0, math.MaxInt32, "")
+		require.NoError(t, err)
+
+		return len(utxos) == 1
+	}, time.Minute, 50*time.Millisecond)
+	require.Equal(t, testTapscriptPkScript, utxos[0].PkScript)
+
+	// Now, as a last test, make sure that when we try adding an address
+	// with partial script reveal, we get an error that the address already
+	// exists.
+	tapscript2 := input.TapscriptPartialReveal(
+		testPubKey, leaf1, leaf2.TapHash(),
+	)
+	_, err = w.ImportTaprootScript(scope, tapscript2)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), fmt.Sprintf(
+		"address for script hash/key %x already exists",
+		schnorr.SerializePubKey(testTaprootKey),
+	))
+}
+
 func newTestWallet(t *testing.T, netParams *chaincfg.Params,
-	seedBytes []byte) (*BtcWallet, func()) {
+	seedBytes []byte) (*BtcWallet, *rpctest.Harness, func()) {
 
 	tempDir, err := ioutil.TempDir("", "lnwallet")
 	if err != nil {
@@ -176,7 +293,7 @@ func newTestWallet(t *testing.T, netParams *chaincfg.Params,
 		t.Fatalf("creating temp dir failed: %v", err)
 	}
 
-	chainBackend, backendCleanup := getChainBackend(t, netParams)
+	chainBackend, miner, backendCleanup := getChainBackend(t, netParams)
 	cleanup := func() {
 		_ = os.RemoveAll(tempDir)
 		backendCleanup()
@@ -206,12 +323,12 @@ func newTestWallet(t *testing.T, netParams *chaincfg.Params,
 		t.Fatalf("starting wallet failed: %v", err)
 	}
 
-	return w, cleanup
+	return w, miner, cleanup
 }
 
 // getChainBackend returns a simple btcd based chain backend to back the wallet.
 func getChainBackend(t *testing.T, netParams *chaincfg.Params) (chain.Interface,
-	func()) {
+	*rpctest.Harness, func()) {
 
 	miningNode, err := rpctest.New(netParams, nil, nil, "")
 	require.NoError(t, err)
@@ -230,7 +347,7 @@ func getChainBackend(t *testing.T, netParams *chaincfg.Params) (chain.Interface,
 	)
 	require.NoError(t, err)
 
-	return chainClient, func() {
+	return chainClient, miningNode, func() {
 		_ = miningNode.TearDown()
 	}
 }

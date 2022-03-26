@@ -298,6 +298,11 @@ vendor:
 	@$(call print, "Re-creating vendor directory.")
 	rm -r vendor/; go mod vendor
 
+apple: vendor mobile-rpc
+	@$(call print, "Building iOS and macOS cxframework ($(IOS_BUILD)).")
+	mkdir -p $(IOS_BUILD_DIR)
+	$(GOMOBILE_BIN) bind -target=ios,iossimulator,macos -tags="mobile $(DEV_TAGS) autopilotrpc" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
+
 ios: vendor mobile-rpc
 	@$(call print, "Building iOS cxframework ($(IOS_BUILD)).")
 	mkdir -p $(IOS_BUILD_DIR)

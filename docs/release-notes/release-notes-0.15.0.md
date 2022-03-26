@@ -120,6 +120,15 @@ then watch it on chain. Taproot script spends are also supported through the
   specifies the maximum duration it allows for a remote peer to respond to a
   locally initiated commitment update.
 
+* [`macos` and `apple` Makefile tasks have been added.](https://github.com/lightningnetwork/lnd/pull/6373)
+
+  The `macos` task uses `gomobile` to build an `XCFramework` that can be used to
+  embed lnd to macOS apps, similar to how the `ios` task builds for iOS.
+
+  The `apple` task uses `gomobile` to build an `XCFramework` that can be used to
+  embed lnd to both iOS and macOS apps.
+
+
 ## RPC Server
 
 * [Add value to the field
@@ -213,6 +222,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * Daniel McNally
 * ErikEk
 * Eugene Siegel
+* Hampus Sjöberg
 * henta
 * Joost Jager
 * Jordi Montes

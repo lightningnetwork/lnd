@@ -299,7 +299,7 @@ vendor:
 	rm -r vendor/; go mod vendor
 
 ios: vendor mobile-rpc
-	@$(call print, "Building iOS framework ($(IOS_BUILD)).")
+	@$(call print, "Building iOS cxframework ($(IOS_BUILD)).")
 	mkdir -p $(IOS_BUILD_DIR)
 	$(GOMOBILE_BIN) bind -target=ios -tags="mobile $(DEV_TAGS) autopilotrpc" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
 

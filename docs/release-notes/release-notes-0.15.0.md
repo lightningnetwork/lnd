@@ -67,6 +67,9 @@ then watch it on chain. Taproot script spends are also supported through the
 * [Fixed node shutdown in forward interceptor itests](https://github.com/lightningnetwork/lnd/pull/6362).
 
 * [Fixed a bug that would cause lnd to be unable to parse certain PSBT blobs](https://github.com/lightningnetwork/lnd/pull/6383).
+ 
+* [Use normal TCP resolution, instead of Tor DNS resolution, for addresses
+   using the all-interfaces IP](https://github.com/lightningnetwork/lnd/pull/6376).
 
 ## Misc
 
@@ -213,6 +216,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * Carsten Otto
 * Dan Bolser
 * Daniel McNally
+* Elle Mouton
 * ErikEk
 * Eugene Siegel
 * henta

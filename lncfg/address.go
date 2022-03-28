@@ -134,6 +134,16 @@ func isIPv6Host(host string) bool {
 	return v6Addr.To4() == nil
 }
 
+// isUnspecifiedHost returns true if the host IP is considered unspecified.
+func isUnspecifiedHost(host string) bool {
+	addr := net.ParseIP(host)
+	if addr == nil {
+		return false
+	}
+
+	return addr.IsUnspecified()
+}
+
 // IsUnix returns true if an address describes an Unix socket address.
 func IsUnix(addr net.Addr) bool {
 	return strings.HasPrefix(addr.Network(), "unix")
@@ -230,17 +240,18 @@ func ParseAddressString(strAddress string, defaultPort string,
 		}
 
 		// Otherwise, we'll attempt the resolve the host. The Tor
-		// resolver is unable to resolve local or IPv6 addresses, so
-		// we'll use the system resolver instead.
+		// resolver is unable to resolve local addresses,
+		// IPv6 addresses, or the all-interfaces address, so we'll use
+		// the system resolver instead for those.
 		if rawHost == "" || IsLoopback(rawHost) ||
-			isIPv6Host(rawHost) {
+			isIPv6Host(rawHost) || isUnspecifiedHost(rawHost) {
 
 			return net.ResolveTCPAddr("tcp", addrWithPort)
 		}
 
 		// If we've reached this point, then it's possible that this
 		// resolve returns an error if it isn't able to resolve the
-		// host. For eaxmple, local entries in /etc/hosts will fail to
+		// host. For example, local entries in /etc/hosts will fail to
 		// be resolved by Tor. In order to handle this case, we'll fall
 		// back to the normal system resolver if we fail with an
 		// identifiable error.

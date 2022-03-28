@@ -381,6 +381,7 @@ func findTxAtHeight(t *harnessTest, height int32,
 
 // getOutputIndex returns the output index of the given address in the given
 // transaction.
+// TODO(yy): remove
 func getOutputIndex(t *harnessTest, miner *lntest.HarnessMiner,
 	txid *chainhash.Hash, addr string) int {
 

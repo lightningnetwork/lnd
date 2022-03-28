@@ -109,8 +109,7 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 		name:      "sign output raw",
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *lntest.HarnessNode) {
-			// TODO(yy): bring it back
-			// runSignOutputRaw(tt, net, wo)
+			runSignOutputRaw(tt, wo)
 		},
 	}, {
 		name:      "taproot",

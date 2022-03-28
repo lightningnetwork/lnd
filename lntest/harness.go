@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -3475,6 +3476,19 @@ func (h *HarnessTest) DeriveSharedKeyErr(hn *HarnessNode,
 	return err
 }
 
+// SignOutputRaw makes a RPC call to the node's SignerClient and asserts.
+func (h *HarnessTest) SignOutputRaw(hn *HarnessNode,
+	req *signrpc.SignReq) *signrpc.SignResp {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Signer.SignOutputRaw(ctxt, req)
+	require.NoError(h, err, "failed to sign raw output")
+
+	return resp
+}
+
 // BumpFee makes a RPC call to the node's WalletKitClient and asserts.
 func (h *HarnessTest) BumpFee(hn *HarnessNode,
 	req *walletrpc.BumpFeeRequest) *walletrpc.BumpFeeResponse {
@@ -3785,4 +3799,29 @@ func (h *HarnessTest) AssertTransactionNotInWallet(hn *HarnessNode,
 	}, DefaultTimeout)
 
 	require.NoError(h, err, "failed to assert tx not found")
+}
+
+// GetOutputIndex returns the output index of the given address in the given
+// transaction.
+func (h *HarnessTest) GetOutputIndex(txid *chainhash.Hash, addr string) int {
+	h.Helper()
+
+	// We'll then extract the raw transaction from the mempool in order to
+	// determine the index of the p2tr output.
+	tx := h.GetRawTransaction(txid)
+
+	p2trOutputIndex := -1
+	for i, txOut := range tx.MsgTx().TxOut {
+		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+			txOut.PkScript, h.Miner().ActiveNet,
+		)
+		require.NoError(h, err)
+
+		if addrs[0].String() == addr {
+			p2trOutputIndex = i
+		}
+	}
+	require.Greater(h, p2trOutputIndex, -1)
+
+	return p2trOutputIndex
 }

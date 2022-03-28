@@ -132,6 +132,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "derive shared key",
 		TestFunc: testDeriveSharedKey,
 	},
+	{
+		Name:     "sign output raw",
+		TestFunc: testSignOutputRaw,
+	},
 
 	// Node config related tests.
 	{
@@ -440,10 +444,6 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "3rd party anchor spend",
 		TestFunc: testAnchorThirdPartySpend,
 	},
-	// {
-	// 	name: "sign output raw",
-	// 	test: testSignOutputRaw,
-	// },
 	// {
 	// 	name: "taproot",
 	// 	test: testTaproot,

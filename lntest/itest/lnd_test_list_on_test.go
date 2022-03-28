@@ -444,10 +444,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "3rd party anchor spend",
 		TestFunc: testAnchorThirdPartySpend,
 	},
-	// {
-	// 	name: "taproot",
-	// 	test: testTaproot,
-	// },
+	{
+		Name:     "taproot",
+		TestFunc: testTaproot,
+	},
 	// {
 	// 	name: "resolution handoff",
 	// 	test: testResHandoff,

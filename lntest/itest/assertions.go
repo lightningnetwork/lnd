@@ -1789,3 +1789,70 @@ func assertChannelPolicyUpdate(t *testing.T, node *lntest.HarnessNode,
 		), "error while waiting for channel update",
 	)
 }
+
+func transactionInWallet(node *lntest.HarnessNode, txid chainhash.Hash) bool {
+	txStr := txid.String()
+
+	txResp, err := node.GetTransactions(
+		context.Background(), &lnrpc.GetTransactionsRequest{},
+	)
+	if err != nil {
+		return false
+	}
+
+	for _, txn := range txResp.Transactions {
+		if txn.TxHash == txStr {
+			return true
+		}
+	}
+
+	return false
+}
+
+func assertTransactionInWallet(t *testing.T, node *lntest.HarnessNode, txID chainhash.Hash) {
+	t.Helper()
+
+	err := wait.Predicate(func() bool {
+		return transactionInWallet(node, txID)
+	}, defaultTimeout)
+	require.NoError(
+		t, err, fmt.Sprintf("transaction %v not found in wallet", txID),
+	)
+}
+
+func assertTransactionNotInWallet(t *testing.T, node *lntest.HarnessNode,
+	txID chainhash.Hash) {
+
+	t.Helper()
+
+	err := wait.Predicate(func() bool {
+		return !transactionInWallet(node, txID)
+	}, defaultTimeout)
+	require.NoError(
+		t, err, fmt.Sprintf("transaction %v found in wallet", txID),
+	)
+}
+
+func assertAnchorOutputLost(t *harnessTest, node *lntest.HarnessNode,
+	chanPoint wire.OutPoint) {
+
+	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+	err := wait.Predicate(func() bool {
+		resp, pErr := node.PendingChannels(
+			context.Background(), pendingChansRequest,
+		)
+		if pErr != nil {
+			return false
+		}
+
+		for _, pendingChan := range resp.PendingForceClosingChannels {
+			if pendingChan.Channel.ChannelPoint == chanPoint.String() {
+				return (pendingChan.Anchor ==
+					lnrpc.PendingChannelsResponse_ForceClosedChannel_LOST)
+			}
+		}
+
+		return false
+	}, defaultTimeout)
+	require.NoError(t.t, err, "anchor doesn't show as being lost")
+}

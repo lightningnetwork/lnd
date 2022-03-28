@@ -91,6 +91,13 @@ func (w *WalletController) IsOurAddress(btcutil.Address) bool {
 	return false
 }
 
+// AddressInfo currently returns a dummy value.
+func (w *WalletController) AddressInfo(
+	btcutil.Address) (waddrmgr.ManagedAddress, error) {
+
+	return nil, nil
+}
+
 // ListAccounts currently returns a dummy value.
 func (w *WalletController) ListAccounts(string,
 	*waddrmgr.KeyScope) ([]*waddrmgr.AccountProperties, error) {
@@ -236,5 +243,13 @@ func (w *WalletController) Start() error {
 
 // Stop currently does nothing.
 func (w *WalletController) Stop() error {
+	return nil
+}
+
+func (w *WalletController) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {
+	return nil, nil
+}
+
+func (w *WalletController) RemoveDescendants(*wire.MsgTx) error {
 	return nil
 }

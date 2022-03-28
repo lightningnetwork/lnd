@@ -1577,7 +1577,7 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 	for _, htlc := range htlcs.incomingHTLCs {
 		// We'll need to go on-chain to pull an incoming HTLC iff we
 		// know the pre-image and it's close to timing out. We need to
-		// ensure that we claim the funds that our rightfully ours
+		// ensure that we claim the funds that are rightfully ours
 		// on-chain.
 		preimageAvailable, err := c.isPreimageAvailable(htlc.RHash)
 		if err != nil {

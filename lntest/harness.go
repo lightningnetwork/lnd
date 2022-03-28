@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -3489,6 +3490,112 @@ func (h *HarnessTest) SignOutputRaw(hn *HarnessNode,
 	return resp
 }
 
+// SignOutputRawErr makes a RPC call to the node's SignerClient and asserts an
+// error is returned.
+func (h *HarnessTest) SignOutputRawErr(hn *HarnessNode,
+	req *signrpc.SignReq) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := hn.rpc.Signer.SignOutputRaw(ctxt, req)
+	require.Error(h, err, "expect to fail to sign raw output")
+
+	return err
+}
+
+// MuSig2CreateSession makes a RPC call to the node's SignerClient and asserts.
+func (h *HarnessTest) MuSig2CreateSession(hn *HarnessNode,
+	req *signrpc.MuSig2SessionRequest) *signrpc.MuSig2SessionResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Signer.MuSig2CreateSession(ctxt, req)
+	require.NoError(h, err, "failed to create musig2 session")
+
+	return resp
+}
+
+// MuSig2CombineKeys makes a RPC call to the node's SignerClient and asserts.
+func (h *HarnessTest) MuSig2CombineKeys(hn *HarnessNode,
+	req *signrpc.MuSig2CombineKeysRequest) *signrpc.MuSig2CombineKeysResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Signer.MuSig2CombineKeys(ctxt, req)
+	require.NoError(h, err, "failed to combine keys")
+
+	return resp
+}
+
+// MuSig2RegisterNonces makes a RPC call to the node's SignerClient and asserts.
+func (h *HarnessTest) MuSig2RegisterNonces(hn *HarnessNode,
+	req *signrpc.MuSig2RegisterNoncesRequest) *signrpc.MuSig2RegisterNoncesResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Signer.MuSig2RegisterNonces(ctxt, req)
+	require.NoError(h, err, "failed to register nonces")
+
+	return resp
+}
+
+// MuSig2Sign makes a RPC call to the node's SignerClient and asserts.
+func (h *HarnessTest) MuSig2Sign(hn *HarnessNode,
+	req *signrpc.MuSig2SignRequest) *signrpc.MuSig2SignResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Signer.MuSig2Sign(ctxt, req)
+	require.NoError(h, err, "failed to sign")
+
+	return resp
+}
+
+// MuSig2SignErr makes a RPC call to the node's SignerClient and asserts an
+// error is returned.
+func (h *HarnessTest) MuSig2SignErr(hn *HarnessNode,
+	req *signrpc.MuSig2SignRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := hn.rpc.Signer.MuSig2Sign(ctxt, req)
+	require.Error(h, err, "expect an error")
+
+	return err
+}
+
+// MuSig2CombineSig makes a RPC call to the node's SignerClient and asserts.
+func (h *HarnessTest) MuSig2CombineSig(hn *HarnessNode,
+	req *signrpc.MuSig2CombineSigRequest) *signrpc.MuSig2CombineSigResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Signer.MuSig2CombineSig(ctxt, req)
+	require.NoError(h, err, "failed to combine sig")
+
+	return resp
+}
+
+// MuSig2Cleanup makes a RPC call to the node's SignerClient and asserts.
+func (h *HarnessTest) MuSig2Cleanup(hn *HarnessNode,
+	req *signrpc.MuSig2CleanupRequest) *signrpc.MuSig2CleanupResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Signer.MuSig2Cleanup(ctxt, req)
+	require.NoError(h, err, "failed to cleanup")
+
+	return resp
+}
+
 // BumpFee makes a RPC call to the node's WalletKitClient and asserts.
 func (h *HarnessTest) BumpFee(hn *HarnessNode,
 	req *walletrpc.BumpFeeRequest) *walletrpc.BumpFeeResponse {
@@ -3824,4 +3931,41 @@ func (h *HarnessTest) GetOutputIndex(txid *chainhash.Hash, addr string) int {
 	require.Greater(h, p2trOutputIndex, -1)
 
 	return p2trOutputIndex
+}
+
+type ConfNtfnClient chainrpc.ChainNotifier_RegisterConfirmationsNtfnClient
+
+// RegisterConfirmationsNtfn creates a notification client to watch a given
+// transaction being confirmed.
+func (h *HarnessTest) RegisterConfirmationsNtfn(hn *HarnessNode,
+	req *chainrpc.ConfRequest) ConfNtfnClient {
+
+	// RegisterConfirmationsNtfn needs to have the context alive for the
+	// entire test case as the returned client will be used for send and
+	// receive events stream. Thus we use runCtx here instead of a timeout
+	// context.
+	client, err := hn.rpc.ChainClient.RegisterConfirmationsNtfn(
+		h.runCtx, req,
+	)
+	require.NoError(h, err, "unable to register conf client")
+
+	return client
+}
+
+type SpendClient chainrpc.ChainNotifier_RegisterSpendNtfnClient
+
+// RegisterSpendNtfn creates a notification client to watch a given
+// transaction being spent.
+func (h *HarnessTest) RegisterSpendNtfn(hn *HarnessNode,
+	req *chainrpc.SpendRequest) SpendClient {
+
+	// RegisterSpendNtfn needs to have the context alive for the entire
+	// test case as the returned client will be used for send and receive
+	// events stream. Thus we use runCtx here instead of a timeout context.
+	client, err := hn.rpc.ChainClient.RegisterSpendNtfn(
+		h.runCtx, req,
+	)
+	require.NoError(h, err, "unable to register spend client")
+
+	return client
 }

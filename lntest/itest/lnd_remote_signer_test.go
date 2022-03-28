@@ -115,28 +115,14 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 		name:      "taproot",
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *lntest.HarnessNode) {
-			// TODO: bring it back
-			//ctxt, cancel := context.WithTimeout(
-			//	ctxb, 3*defaultTimeout,
-			//)
-			//defer cancel()
-
-			//// TODO(guggero): Fix remote taproot signing by adding
-			//// the required fields to PSBT.
-			//// testTaprootComputeInputScriptKeySpendBip86(
-			////	ctxt, tt, wo, net,
-			//// )
-			//// testTaprootSignOutputRawScriptSpend(ctxt, tt, wo, net)
-			//// testTaprootSignOutputRawKeySpendBip86(
-			//// 	ctxt, tt, wo, net,
-			//// )
-			//// testTaprootSignOutputRawKeySpendRootHash(
-			////	ctxt, tt, wo, net,
-			//// )
-			//testTaprootMuSig2KeySpendRootHash(ctxt, tt, wo, net)
-			//testTaprootMuSig2ScriptSpend(ctxt, tt, wo, net)
-			//testTaprootMuSig2KeySpendBip86(ctxt, tt, wo, net)
-			//testTaprootMuSig2CombinedLeafKeySpend(ctxt, tt, wo, net)
+			testTaprootComputeInputScriptKeySpendBip86(tt, wo)
+			testTaprootSignOutputRawScriptSpend(tt, wo)
+			testTaprootSignOutputRawKeySpendBip86(tt, wo)
+			testTaprootSignOutputRawKeySpendRootHash(tt, wo)
+			testTaprootMuSig2KeySpendRootHash(tt, wo)
+			testTaprootMuSig2ScriptSpend(tt, wo)
+			testTaprootMuSig2KeySpendBip86(tt, wo)
+			testTaprootMuSig2CombinedLeafKeySpend(tt, wo)
 		},
 	}}
 

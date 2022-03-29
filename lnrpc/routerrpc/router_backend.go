@@ -9,10 +9,10 @@ import (
 	math "math"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -927,7 +927,7 @@ func unmarshallHopHint(rpcHint *lnrpc.HopHint) (zpay32.HopHint, error) {
 		return zpay32.HopHint{}, err
 	}
 
-	pubkey, err := btcec.ParsePubKey(pubBytes, btcec.S256())
+	pubkey, err := btcec.ParsePubKey(pubBytes)
 	if err != nil {
 		return zpay32.HopHint{}, err
 	}

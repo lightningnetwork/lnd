@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 // RevokeAndAck is sent by either side once a CommitSig message has been

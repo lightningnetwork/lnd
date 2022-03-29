@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcutil/bech32"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -207,7 +207,7 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
 				}
 
 				nodePub, err := btcec.ParsePubKey(
-					nodePubKeyBytes[:], btcec.S256(),
+					nodePubKeyBytes[:],
 				)
 				if err != nil {
 					return err
@@ -488,9 +488,7 @@ search:
 			if err != nil {
 				return nil, err
 			}
-			nodeKey, err := btcec.ParsePubKey(
-				nodeBytes, btcec.S256(),
-			)
+			nodeKey, err := btcec.ParsePubKey(nodeBytes)
 			if err != nil {
 				return nil, err
 			}

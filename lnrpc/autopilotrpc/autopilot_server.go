@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"sync/atomic"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -226,7 +226,7 @@ func (s *Server) QueryScores(ctx context.Context, in *QueryScoresRequest) (
 		if err != nil {
 			return nil, err
 		}
-		pubKey, err := btcec.ParsePubKey(pubHex, btcec.S256())
+		pubKey, err := btcec.ParsePubKey(pubHex)
 		if err != nil {
 			return nil, err
 		}
@@ -283,7 +283,7 @@ func (s *Server) SetScores(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		pubKey, err := btcec.ParsePubKey(pubHex, btcec.S256())
+		pubKey, err := btcec.ParsePubKey(pubHex)
 		if err != nil {
 			return nil, err
 		}

@@ -3,10 +3,9 @@ package invoicesrpc
 import (
 	"encoding/hex"
 	"errors"
-	"math/big"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -57,11 +56,12 @@ func TestSelectHopHints(t *testing.T) {
 			"598ec453728e0ffe0ae2f5e174243cf58f2" +
 				"a3f2c83d2457b43036db568b11093",
 		)
-		pubkey = &btcec.PublicKey{
-			X:     big.NewInt(4),
-			Y:     new(big.Int).SetBytes(pubkeyBytes),
-			Curve: btcec.S256(),
-		}
+		pubKeyY = new(btcec.FieldVal)
+		_       = pubKeyY.SetByteSlice(pubkeyBytes)
+		pubkey  = btcec.NewPublicKey(
+			new(btcec.FieldVal).SetInt(4),
+			pubKeyY,
+		)
 		compressed = pubkey.SerializeCompressed()
 
 		publicChannel = &HopHintInfo{

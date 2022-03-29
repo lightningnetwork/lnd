@@ -15,12 +15,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
@@ -654,7 +654,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	if err != nil {
 		return nil, err
 	}
-	s.interceptableSwitch = htlcswitch.NewInterceptableSwitch(s.htlcSwitch)
+	s.interceptableSwitch = htlcswitch.NewInterceptableSwitch(
+		s.htlcSwitch, s.cfg.RequireInterceptor,
+	)
 
 	chanStatusMgrCfg := &netann.ChanStatusConfig{
 		ChanStatusSampleInterval: cfg.ChanStatusSampleInterval,
@@ -1785,6 +1787,12 @@ func (s *server) Start() error {
 			return
 		}
 		cleanup = cleanup.add(s.htlcSwitch.Stop)
+
+		if err := s.interceptableSwitch.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.interceptableSwitch.Stop)
 
 		if err := s.chainArb.Start(); err != nil {
 			startErr = err
@@ -3518,6 +3526,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
 		ChannelCommitInterval:  s.cfg.ChannelCommitInterval,
+		PendingCommitInterval:  s.cfg.PendingCommitInterval,
 		ChannelCommitBatchSize: s.cfg.ChannelCommitBatchSize,
 		HandleCustomMessage:    s.handleCustomMessage,
 		Quit:                   s.quit,

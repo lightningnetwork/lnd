@@ -5,6 +5,15 @@
 * [Misconfigured ZMQ
   setup now gets reported](https://github.com/lightningnetwork/lnd/pull/5710).
 
+## Taproot
+
+The internal on-chain wallet of `lnd` is now able to create and spend from
+[Taproot (SegWit v1)
+addresses](https://github.com/lightningnetwork/lnd/pull/6263). Using
+`lncli newaddress p2tr` will create a new BIP-0086 keyspend only address and
+then watch it on chain. Taproot script spends are also supported through the
+`signrpc.SignOutputRaw` RPC (`/v2/signer/signraw` in REST).
+
 ## `lncli`
 
 * Add [auto-generated command-line completions](https://github.com/lightningnetwork/lnd/pull/4177) 
@@ -16,7 +25,11 @@
 * Add [private status](https://github.com/lightningnetwork/lnd/pull/6167)
   to pendingchannels response.
 
+* [Update description for `state` command](https://github.com/lightningnetwork/lnd/pull/6237).
+
 ## Bug Fixes
+
+* [Pipelining an UpdateFulfillHTLC message now only happens when the related UpdateAddHTLC is locked-in.](https://github.com/lightningnetwork/lnd/pull/6246)
 
 * [Fixed an inactive invoice subscription not removed from invoice
   registry](https://github.com/lightningnetwork/lnd/pull/6053). When an invoice
@@ -40,6 +53,19 @@
   arbitrator relying on htlcswitch to be started
   first](https://github.com/lightningnetwork/lnd/pull/6214).
 
+* [Added signature length
+  validation](https://github.com/lightningnetwork/lnd/pull/6314) when calling
+  `NewSigFromRawSignature`.
+
+* [Fixed deadlock in invoice
+  registry](https://github.com/lightningnetwork/lnd/pull/6332).
+
+* [Fixed an issue that would cause wallet UTXO state to be incorrect if a 3rd
+  party sweeps our anchor
+  output](https://github.com/lightningnetwork/lnd/pull/6274).
+
+* [Fixed node shutdown in forward interceptor itests](https://github.com/lightningnetwork/lnd/pull/6362).
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)
@@ -62,6 +88,8 @@
 * [A nightly build of the `lnd` docker image is now created
   automatically](https://github.com/lightningnetwork/lnd/pull/6160).
   
+* Add default values to [walletrpc.ListUnspent RPC call](https://github.com/lightningnetwork/lnd/pull/6190).
+
 * [Add `.vs/` folder to `.gitignore`](https://github.com/lightningnetwork/lnd/pull/6178). 
 
 * [Chain backend healthchecks disabled for --nochainbackend mode](https://github.com/lightningnetwork/lnd/pull/6184)
@@ -69,12 +97,37 @@
 * [The `tlv` package was refactored into its own Golang
   submodule](https://github.com/lightningnetwork/lnd/pull/6283).
 
+* The `tor` package was refactored into its own Golang submodule and a new
+  process for changing and tagging submodules was introduced in a series of
+  3 PRs ([#6350](https://github.com/lightningnetwork/lnd/pull/6350),
+  [#6355](https://github.com/lightningnetwork/lnd/pull/6350) and
+  [#6356](https://github.com/lightningnetwork/lnd/pull/6356)).
+
+* [Source repository can now be specified for Docker image builds](https://github.com/lightningnetwork/lnd/pull/6300)
+
+* [The new `btcsuite/btcd/btcec/v2` and the moved `btcsuite/btcd/btcutil`
+  modules were integrated into `lnd` as a preparation for basic Taproot
+  support](https://github.com/lightningnetwork/lnd/pull/6285).
+
+* [Make etcd leader election session
+  TTL](https://github.com/lightningnetwork/lnd/pull/6342) configurable.
+
+* [Fix race condition in the htlc interceptor unit
+  test](https://github.com/lightningnetwork/lnd/pull/6353).
+
+* [A new config option, `pending-commit-interval` is
+  added](https://github.com/lightningnetwork/lnd/pull/6186). This value
+  specifies the maximum duration it allows for a remote peer to respond to a
+  locally initiated commitment update.
+
 ## RPC Server
 
 * [Add value to the field
   `remote_balance`](https://github.com/lightningnetwork/lnd/pull/5931) in
   `pending_force_closing_channels` under `pendingchannels` whereas before was
   empty(zero).
+* The graph's [diameter is calculated](https://github.com/lightningnetwork/lnd/pull/6066)
+  and added to the `getnetworkinfo` output.
 
 * [Add dev only RPC subserver and the devrpc.ImportGraph
   call](https://github.com/lightningnetwork/lnd/pull/6149)
@@ -83,6 +136,21 @@
   interceptor API to provide more control over failure messages. With this
   change, it allows encrypted failure messages to be returned to the sender.
   Additionally it is possible to signal a malformed htlc.
+
+* Add an [always on](https://github.com/lightningnetwork/lnd/pull/6232) mode to
+  the HTLC interceptor API. This enables interception applications where every
+  packet must be intercepted.
+
+* Add [destination output information](https://github.com/lightningnetwork/lnd/pull/5476)
+  to the transaction structure returned from the RPC `GetTransactions` and when
+  subscribed with `SubscribeTransactions`.
+
+## Database
+
+* [Add ForAll implementation for etcd to speed up
+  graph cache at startup](https://github.com/lightningnetwork/lnd/pull/6136)
+
+* [Improve validation of a PSBT packet when handling a request to finalize it.](https://github.com/lightningnetwork/lnd/pull/6217)
 
 ## Documentation
 
@@ -126,11 +194,18 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
   
 * [`ChannelLink` in the `htlcswitch` now performs a 2-way handoff instead of a 1-way handoff with its `ChannelArbitrator`.](https://github.com/lightningnetwork/lnd/pull/6221)
 
+* [The channel-commit-interval is now clamped to a reasonable timeframe of 1h.](https://github.com/lightningnetwork/lnd/pull/6220)
+
+* [A function in the gossiper `processNetworkAnnouncements` has been refactored for readability and for future deduplication efforts.](https://github.com/lightningnetwork/lnd/pull/6278)
+
 # Contributors (Alphabetical Order)
 
 * 3nprob
+* Andras Banki-Horvath
 * Andreas Schjønhaug
 * asvdf
+* bitromortac
+* Bjarne Magnussen
 * BTCparadigm
 * Carla Kirk-Cohen
 * Carsten Otto

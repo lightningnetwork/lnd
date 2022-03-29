@@ -81,6 +81,11 @@ type STM interface {
 	// Prefetch prefetches the passed keys and prefixes. For prefixes it'll
 	// fetch the whole range.
 	Prefetch(keys []string, prefix []string)
+
+	// FetchRangePaginatedRaw will fetch the range with the passed prefix up
+	// to the passed limit per page.
+	FetchRangePaginatedRaw(prefix string, limit int64,
+		cb func(kv KV) error) error
 }
 
 // CommitError is used to check if there was an error
@@ -587,6 +592,52 @@ func (ws writeSet) puts() []v3.Op {
 	}
 
 	return puts
+}
+
+// FetchRangePaginatedRaw will fetch the range with the passed prefix up to the
+// passed limit per page.
+func (s *stm) FetchRangePaginatedRaw(prefix string, limit int64,
+	cb func(kv KV) error) error {
+
+	s.callCount++
+
+	opts := []v3.OpOption{
+		v3.WithSort(v3.SortByKey, v3.SortAscend),
+		v3.WithRange(v3.GetPrefixRangeEnd(prefix)),
+		v3.WithLimit(limit),
+	}
+
+	key := prefix
+	for {
+		resp, err := s.client.Get(
+			s.options.ctx, key, append(opts, s.getOpts...)...,
+		)
+		if err != nil {
+			return DatabaseError{
+				msg: "stm.fetch() failed",
+				err: err,
+			}
+		}
+
+		// Fill the read set with key/values returned.
+		for _, kv := range resp.Kvs {
+			err := cb(KV{string(kv.Key), string(kv.Value)})
+
+			if err != nil {
+				return err
+			}
+		}
+
+		// We've reached the range end.
+		if !resp.More {
+			break
+		}
+
+		// Continue from the page end + "\x00".
+		key = string(resp.Kvs[len(resp.Kvs)-1].Key) + "\x00"
+	}
+
+	return nil
 }
 
 // fetch is a helper to fetch key/value given options. If a value is returned

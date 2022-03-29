@@ -2,14 +2,15 @@ package autopilot
 
 import (
 	"bytes"
-	"math/big"
+	"encoding/hex"
 	"net"
 	"sort"
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -17,12 +18,13 @@ import (
 )
 
 var (
-	testSig = &btcec.Signature{
-		R: new(big.Int),
-		S: new(big.Int),
-	}
-	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
-	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa1bf0314f882d7")
+	testSBytes, _ = hex.DecodeString("299105481d63e0f4bc2a88121167221b6700d72a0ead154c03be696a292d24ae")
+	testRScalar   = new(btcec.ModNScalar)
+	testSScalar   = new(btcec.ModNScalar)
+	_             = testRScalar.SetByteSlice(testRBytes)
+	_             = testSScalar.SetByteSlice(testSBytes)
+	testSig       = ecdsa.NewSignature(testRScalar, testSScalar)
 
 	chanIDCounter uint64 // To be used atomically.
 )
@@ -344,7 +346,7 @@ func randChanID() lnwire.ShortChannelID {
 
 // randKey returns a random public key.
 func randKey() (*btcec.PublicKey, error) {
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	priv, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, err
 	}
@@ -453,6 +455,96 @@ func (m *memChannelGraph) addRandNode() (*btcec.PublicKey, error) {
 	m.graph[NewNodeID(newPub)] = vertex
 
 	return newPub, nil
+}
+
+// databaseChannelGraphCached wraps a channeldb.ChannelGraph instance with the
+// necessary API to properly implement the autopilot.ChannelGraph interface.
+type databaseChannelGraphCached struct {
+	db *channeldb.ChannelGraph
+}
+
+// A compile time assertion to ensure databaseChannelGraphCached meets the
+// autopilot.ChannelGraph interface.
+var _ ChannelGraph = (*databaseChannelGraphCached)(nil)
+
+// ChannelGraphFromCachedDatabase returns an instance of the
+// autopilot.ChannelGraph backed by a live, open channeldb instance.
+func ChannelGraphFromCachedDatabase(db *channeldb.ChannelGraph) ChannelGraph {
+	return &databaseChannelGraphCached{
+		db: db,
+	}
+}
+
+// dbNodeCached is a wrapper struct around a database transaction for a
+// channeldb.LightningNode. The wrapper methods implement the autopilot.Node
+// interface.
+type dbNodeCached struct {
+	node     route.Vertex
+	channels map[uint64]*channeldb.DirectedChannel
+}
+
+// A compile time assertion to ensure dbNodeCached meets the autopilot.Node
+// interface.
+var _ Node = (*dbNodeCached)(nil)
+
+// PubKey is the identity public key of the node.
+//
+// NOTE: Part of the autopilot.Node interface.
+func (nc dbNodeCached) PubKey() [33]byte {
+	return nc.node
+}
+
+// Addrs returns a slice of publicly reachable public TCP addresses that the
+// peer is known to be listening on.
+//
+// NOTE: Part of the autopilot.Node interface.
+func (nc dbNodeCached) Addrs() []net.Addr {
+	// TODO: Add addresses to be usable by autopilot.
+	return []net.Addr{}
+}
+
+// ForEachChannel is a higher-order function that will be used to iterate
+// through all edges emanating from/to the target node. For each active
+// channel, this function should be called with the populated ChannelEdge that
+// describes the active channel.
+//
+// NOTE: Part of the autopilot.Node interface.
+func (nc dbNodeCached) ForEachChannel(cb func(ChannelEdge) error) error {
+	for cid, channel := range nc.channels {
+		edge := ChannelEdge{
+			ChanID:   lnwire.NewShortChanIDFromInt(cid),
+			Capacity: channel.Capacity,
+			Peer: dbNodeCached{
+				node: channel.OtherNode,
+			},
+		}
+
+		if err := cb(edge); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ForEachNode is a higher-order function that should be called once for each
+// connected node within the channel graph. If the passed callback returns an
+// error, then execution should be terminated.
+//
+// NOTE: Part of the autopilot.ChannelGraph interface.
+func (dc *databaseChannelGraphCached) ForEachNode(cb func(Node) error) error {
+	return dc.db.ForEachNodeCached(func(n route.Vertex,
+		channels map[uint64]*channeldb.DirectedChannel) error {
+
+		if len(channels) > 0 {
+			node := dbNodeCached{
+				node:     n,
+				channels: channels,
+			}
+			return cb(node)
+		}
+		return nil
+	})
 }
 
 // memNode is a purely in-memory implementation of the autopilot.Node

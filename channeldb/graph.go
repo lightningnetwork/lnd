@@ -14,11 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -2660,7 +2661,7 @@ func (l *LightningNode) PubKey() (*btcec.PublicKey, error) {
 		return l.pubKey, nil
 	}
 
-	key, err := btcec.ParsePubKey(l.PubKeyBytes[:], btcec.S256())
+	key, err := btcec.ParsePubKey(l.PubKeyBytes[:])
 	if err != nil {
 		return nil, err
 	}
@@ -2674,8 +2675,8 @@ func (l *LightningNode) PubKey() (*btcec.PublicKey, error) {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the signature if absolutely necessary.
-func (l *LightningNode) AuthSig() (*btcec.Signature, error) {
-	return btcec.ParseSignature(l.AuthSigBytes, btcec.S256())
+func (l *LightningNode) AuthSig() (*ecdsa.Signature, error) {
+	return ecdsa.ParseSignature(l.AuthSigBytes)
 }
 
 // AddPubKey is a setter-link method that can be used to swap out the public
@@ -3104,7 +3105,7 @@ func (c *ChannelEdgeInfo) NodeKey1() (*btcec.PublicKey, error) {
 		return c.nodeKey1, nil
 	}
 
-	key, err := btcec.ParsePubKey(c.NodeKey1Bytes[:], btcec.S256())
+	key, err := btcec.ParsePubKey(c.NodeKey1Bytes[:])
 	if err != nil {
 		return nil, err
 	}
@@ -3126,7 +3127,7 @@ func (c *ChannelEdgeInfo) NodeKey2() (*btcec.PublicKey, error) {
 		return c.nodeKey2, nil
 	}
 
-	key, err := btcec.ParsePubKey(c.NodeKey2Bytes[:], btcec.S256())
+	key, err := btcec.ParsePubKey(c.NodeKey2Bytes[:])
 	if err != nil {
 		return nil, err
 	}
@@ -3146,7 +3147,7 @@ func (c *ChannelEdgeInfo) BitcoinKey1() (*btcec.PublicKey, error) {
 		return c.bitcoinKey1, nil
 	}
 
-	key, err := btcec.ParsePubKey(c.BitcoinKey1Bytes[:], btcec.S256())
+	key, err := btcec.ParsePubKey(c.BitcoinKey1Bytes[:])
 	if err != nil {
 		return nil, err
 	}
@@ -3166,7 +3167,7 @@ func (c *ChannelEdgeInfo) BitcoinKey2() (*btcec.PublicKey, error) {
 		return c.bitcoinKey2, nil
 	}
 
-	key, err := btcec.ParsePubKey(c.BitcoinKey2Bytes[:], btcec.S256())
+	key, err := btcec.ParsePubKey(c.BitcoinKey2Bytes[:])
 	if err != nil {
 		return nil, err
 	}
@@ -3249,28 +3250,28 @@ func (c *ChannelEdgeInfo) FetchOtherNode(tx kvdb.RTx,
 // features.
 type ChannelAuthProof struct {
 	// nodeSig1 is a cached instance of the first node signature.
-	nodeSig1 *btcec.Signature
+	nodeSig1 *ecdsa.Signature
 
 	// NodeSig1Bytes are the raw bytes of the first node signature encoded
 	// in DER format.
 	NodeSig1Bytes []byte
 
 	// nodeSig2 is a cached instance of the second node signature.
-	nodeSig2 *btcec.Signature
+	nodeSig2 *ecdsa.Signature
 
 	// NodeSig2Bytes are the raw bytes of the second node signature
 	// encoded in DER format.
 	NodeSig2Bytes []byte
 
 	// bitcoinSig1 is a cached instance of the first bitcoin signature.
-	bitcoinSig1 *btcec.Signature
+	bitcoinSig1 *ecdsa.Signature
 
 	// BitcoinSig1Bytes are the raw bytes of the first bitcoin signature
 	// encoded in DER format.
 	BitcoinSig1Bytes []byte
 
 	// bitcoinSig2 is a cached instance of the second bitcoin signature.
-	bitcoinSig2 *btcec.Signature
+	bitcoinSig2 *ecdsa.Signature
 
 	// BitcoinSig2Bytes are the raw bytes of the second bitcoin signature
 	// encoded in DER format.
@@ -3283,12 +3284,12 @@ type ChannelAuthProof struct {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the signature if absolutely necessary.
-func (c *ChannelAuthProof) Node1Sig() (*btcec.Signature, error) {
+func (c *ChannelAuthProof) Node1Sig() (*ecdsa.Signature, error) {
 	if c.nodeSig1 != nil {
 		return c.nodeSig1, nil
 	}
 
-	sig, err := btcec.ParseSignature(c.NodeSig1Bytes, btcec.S256())
+	sig, err := ecdsa.ParseSignature(c.NodeSig1Bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -3304,12 +3305,12 @@ func (c *ChannelAuthProof) Node1Sig() (*btcec.Signature, error) {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the signature if absolutely necessary.
-func (c *ChannelAuthProof) Node2Sig() (*btcec.Signature, error) {
+func (c *ChannelAuthProof) Node2Sig() (*ecdsa.Signature, error) {
 	if c.nodeSig2 != nil {
 		return c.nodeSig2, nil
 	}
 
-	sig, err := btcec.ParseSignature(c.NodeSig2Bytes, btcec.S256())
+	sig, err := ecdsa.ParseSignature(c.NodeSig2Bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -3324,12 +3325,12 @@ func (c *ChannelAuthProof) Node2Sig() (*btcec.Signature, error) {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the signature if absolutely necessary.
-func (c *ChannelAuthProof) BitcoinSig1() (*btcec.Signature, error) {
+func (c *ChannelAuthProof) BitcoinSig1() (*ecdsa.Signature, error) {
 	if c.bitcoinSig1 != nil {
 		return c.bitcoinSig1, nil
 	}
 
-	sig, err := btcec.ParseSignature(c.BitcoinSig1Bytes, btcec.S256())
+	sig, err := ecdsa.ParseSignature(c.BitcoinSig1Bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -3344,12 +3345,12 @@ func (c *ChannelAuthProof) BitcoinSig1() (*btcec.Signature, error) {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the signature if absolutely necessary.
-func (c *ChannelAuthProof) BitcoinSig2() (*btcec.Signature, error) {
+func (c *ChannelAuthProof) BitcoinSig2() (*ecdsa.Signature, error) {
 	if c.bitcoinSig2 != nil {
 		return c.bitcoinSig2, nil
 	}
 
-	sig, err := btcec.ParseSignature(c.BitcoinSig2Bytes, btcec.S256())
+	sig, err := ecdsa.ParseSignature(c.BitcoinSig2Bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -3381,7 +3382,7 @@ type ChannelEdgePolicy struct {
 	SigBytes []byte
 
 	// sig is a cached fully parsed signature.
-	sig *btcec.Signature
+	sig *ecdsa.Signature
 
 	// ChannelID is the unique channel ID for the channel. The first 3
 	// bytes are the block height, the next 3 the index within the block,
@@ -3441,12 +3442,12 @@ type ChannelEdgePolicy struct {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the signature if absolutely necessary.
-func (c *ChannelEdgePolicy) Signature() (*btcec.Signature, error) {
+func (c *ChannelEdgePolicy) Signature() (*ecdsa.Signature, error) {
 	if c.sig != nil {
 		return c.sig, nil
 	}
 
-	sig, err := btcec.ParseSignature(c.SigBytes, btcec.S256())
+	sig, err := ecdsa.ParseSignature(c.SigBytes)
 	if err != nil {
 		return nil, err
 	}

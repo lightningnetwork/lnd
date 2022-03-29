@@ -3,7 +3,7 @@ package routerrpc
 import (
 	"time"
 
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcutil"
 )
 
 // RoutingConfig contains the configurable parameters that control routing.

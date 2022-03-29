@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -68,7 +68,7 @@ func NewHtlcAttemptInfo(attemptID uint64, sessionKey *btcec.PrivateKey,
 func (h *HTLCAttemptInfo) SessionKey() *btcec.PrivateKey {
 	if h.cachedSessionKey == nil {
 		h.cachedSessionKey, _ = btcec.PrivKeyFromBytes(
-			btcec.S256(), h.sessionKey[:],
+			h.sessionKey[:],
 		)
 	}
 

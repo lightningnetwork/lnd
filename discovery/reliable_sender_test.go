@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -20,7 +20,7 @@ func newTestReliableSender(t *testing.T) *reliableSender {
 	cfg := &reliableSenderCfg{
 		NotifyWhenOnline: func(pubKey [33]byte,
 			peerChan chan<- lnpeer.Peer) {
-			pk, err := btcec.ParsePubKey(pubKey[:], btcec.S256())
+			pk, err := btcec.ParsePubKey(pubKey[:])
 			if err != nil {
 				t.Fatalf("unable to parse pubkey: %v", err)
 			}

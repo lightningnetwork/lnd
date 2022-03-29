@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -37,7 +37,7 @@ var (
 			return nil, err
 		}
 
-		priv, _ := btcec.PrivKeyFromBytes(btcec.S256(), eBytes)
+		priv, _ := btcec.PrivKeyFromBytes(eBytes)
 		return priv, nil
 	})
 
@@ -50,7 +50,7 @@ var (
 			return nil, err
 		}
 
-		priv, _ := btcec.PrivKeyFromBytes(btcec.S256(), eBytes)
+		priv, _ := btcec.PrivKeyFromBytes(eBytes)
 		return priv, nil
 	})
 )
@@ -99,12 +99,6 @@ func handshake(initiator, responder *brontide.Machine) error {
 // nilAndPanic first nils the initiator and responder's Curve fields and then
 // panics.
 func nilAndPanic(initiator, responder *brontide.Machine, err error) {
-	if initiator != nil {
-		initiator.SetCurveToNil()
-	}
-	if responder != nil {
-		responder.SetCurveToNil()
-	}
 	panic(fmt.Errorf("error: %v, initiator: %v, responder: %v", err,
 		spew.Sdump(initiator), spew.Sdump(responder)))
 }
@@ -112,8 +106,8 @@ func nilAndPanic(initiator, responder *brontide.Machine, err error) {
 // getBrontideMachines returns two brontide machines that use random keys
 // everywhere.
 func getBrontideMachines() (*brontide.Machine, *brontide.Machine) {
-	initPriv, _ := btcec.NewPrivateKey(btcec.S256())
-	respPriv, _ := btcec.NewPrivateKey(btcec.S256())
+	initPriv, _ := btcec.NewPrivateKey()
+	respPriv, _ := btcec.NewPrivateKey()
 	respPub := (*btcec.PublicKey)(&respPriv.PublicKey)
 
 	initPrivECDH := &keychain.PrivKeyECDH{PrivKey: initPriv}
@@ -128,8 +122,8 @@ func getBrontideMachines() (*brontide.Machine, *brontide.Machine) {
 // getStaticBrontideMachines returns two brontide machines that use static keys
 // everywhere.
 func getStaticBrontideMachines() (*brontide.Machine, *brontide.Machine) {
-	initPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(), initBytes)
-	respPriv, respPub := btcec.PrivKeyFromBytes(btcec.S256(), respBytes)
+	initPriv, _ := btcec.PrivKeyFromBytes(initBytes)
+	respPriv, respPub := btcec.PrivKeyFromBytes(respBytes)
 
 	initPrivECDH := &keychain.PrivKeyECDH{PrivKey: initPriv}
 	respPrivECDH := &keychain.PrivKeyECDH{PrivKey: respPriv}

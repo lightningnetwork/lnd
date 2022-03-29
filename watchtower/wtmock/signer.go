@@ -3,7 +3,8 @@ package wtmock
 import (
 	"sync"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
@@ -51,7 +52,7 @@ func (s *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 		return nil, err
 	}
 
-	return btcec.ParseDERSignature(sig[:len(sig)-1], btcec.S256())
+	return ecdsa.ParseDERSignature(sig[:len(sig)-1])
 }
 
 // ComputeInputScript is not implemented.

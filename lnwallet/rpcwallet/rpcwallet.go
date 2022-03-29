@@ -9,12 +9,15 @@ import (
 	"io/ioutil"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
+	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/hdkeychain"
-	"github.com/btcsuite/btcutil/psbt"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	basewallet "github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -50,7 +53,7 @@ type RPCKeyRing struct {
 
 	watchOnlyKeyRing keychain.SecretKeyRing
 
-	coinType uint32
+	netParams *chaincfg.Params
 
 	rpcTimeout time.Duration
 
@@ -68,7 +71,8 @@ var _ lnwallet.WalletController = (*RPCKeyRing)(nil)
 // delegates any signing or ECDH operations to the remove signer through RPC.
 func NewRPCKeyRing(watchOnlyKeyRing keychain.SecretKeyRing,
 	watchOnlyWalletController lnwallet.WalletController,
-	remoteSigner *lncfg.RemoteSigner, coinType uint32) (*RPCKeyRing, error) {
+	remoteSigner *lncfg.RemoteSigner,
+	netParams *chaincfg.Params) (*RPCKeyRing, error) {
 
 	rpcConn, err := connectRPC(
 		remoteSigner.RPCHost, remoteSigner.TLSCertPath,
@@ -82,7 +86,7 @@ func NewRPCKeyRing(watchOnlyKeyRing keychain.SecretKeyRing,
 	return &RPCKeyRing{
 		WalletController: watchOnlyWalletController,
 		watchOnlyKeyRing: watchOnlyKeyRing,
-		coinType:         coinType,
+		netParams:        netParams,
 		rpcTimeout:       remoteSigner.Timeout,
 		signerClient:     signrpc.NewSignerClient(rpcConn),
 		walletClient:     walletrpc.NewWalletKitClient(rpcConn),
@@ -129,9 +133,11 @@ func (r *RPCKeyRing) SendOutputs(outputs []*wire.TxOut,
 
 	// We know at this point that we only have inputs from our own wallet.
 	// So we can just compute the input script using the remote signer.
+	outputFetcher := lnwallet.NewWalletPrevOutputFetcher(r.WalletController)
 	signDesc := input.SignDescriptor{
-		HashType:  txscript.SigHashAll,
-		SigHashes: txscript.NewTxSigHashes(tx),
+		HashType:          txscript.SigHashAll,
+		SigHashes:         txscript.NewTxSigHashes(tx, outputFetcher),
+		PrevOutputFetcher: outputFetcher,
 	}
 	for i, txIn := range tx.TxIn {
 		// We can only sign this input if it's ours, so we'll ask the
@@ -251,7 +257,7 @@ func (r *RPCKeyRing) FinalizePsbt(packet *psbt.Packet, _ string) error {
 	// ones to sign. If there is any input without witness data that we
 	// cannot sign because it's not our UTXO, this will be a hard failure.
 	tx := packet.UnsignedTx
-	sigHashes := txscript.NewTxSigHashes(tx)
+	sigHashes := input.NewTxSigHashesV0Only(tx)
 	for idx, txIn := range tx.TxIn {
 		in := packet.Inputs[idx]
 
@@ -420,7 +426,7 @@ func (r *RPCKeyRing) ECDH(keyDesc keychain.KeyDescriptor,
 //
 // NOTE: This method is part of the keychain.MessageSignerRing interface.
 func (r *RPCKeyRing) SignMessage(keyLoc keychain.KeyLocator,
-	msg []byte, doubleHash bool) (*btcec.Signature, error) {
+	msg []byte, doubleHash bool) (*ecdsa.Signature, error) {
 
 	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
 	defer cancel()
@@ -575,12 +581,111 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 		return nil, fmt.Errorf("error converting TX into PSBT: %v", err)
 	}
 
+	// We need to add witness information for all inputs! Otherwise, we'll
+	// have a problem when attempting to sign a taproot input!
+	for idx := range packet.Inputs {
+		// Skip the input we're signing for, that will get a special
+		// treatment later on.
+		if idx == signDesc.InputIndex {
+			continue
+		}
+
+		txIn := tx.TxIn[idx]
+		info, err := r.WalletController.FetchInputInfo(
+			&txIn.PreviousOutPoint,
+		)
+		if err != nil {
+			log.Warnf("No UTXO info found for index %d "+
+				"(prev_outpoint=%v), won't be able to sign "+
+				"for taproot output!", idx,
+				txIn.PreviousOutPoint)
+			continue
+		}
+		packet.Inputs[idx].WitnessUtxo = &wire.TxOut{
+			Value:    int64(info.Value),
+			PkScript: info.PkScript,
+		}
+	}
+
 	// Catch incorrect signing input index, just in case.
 	if signDesc.InputIndex < 0 || signDesc.InputIndex >= len(packet.Inputs) {
 		return nil, fmt.Errorf("invalid input index in sign descriptor")
 	}
 	in := &packet.Inputs[signDesc.InputIndex]
 	txIn := tx.TxIn[signDesc.InputIndex]
+
+	// Things are a bit tricky with the sign descriptor. There basically are
+	// four ways to describe a key:
+	//   1. By public key only. To match this case both family and index
+	//      must be set to 0.
+	//   2. By family and index only. To match this case the public key
+	//      must be nil and either the family or index must be non-zero.
+	//   3. All values are set and locator is non-empty. To match this case
+	//      the public key must be set and either the family or index must
+	//      be non-zero.
+	//   4. All values are set and locator is empty. This is a special case
+	//      for the very first channel ever created (with the multi-sig key
+	//      family which is 0 and the index which is 0 as well). This looks
+	//      identical to case 1 and will also be handled like that case.
+	// We only really handle case 1 and 2 here, since 3 is no problem and 4
+	// is identical to 1.
+	switch {
+	// Case 1: Public key only. We need to find out the derivation path for
+	// this public key by asking the wallet. This is only possible for our
+	// internal, custom 1017 scope since we know all keys derived there are
+	// internally stored as p2wkh addresses.
+	case signDesc.KeyDesc.PubKey != nil && signDesc.KeyDesc.IsEmpty():
+		pubKeyBytes := signDesc.KeyDesc.PubKey.SerializeCompressed()
+		addr, err := btcutil.NewAddressWitnessPubKeyHash(
+			btcutil.Hash160(pubKeyBytes), r.netParams,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error deriving address from "+
+				"public key %x: %v", pubKeyBytes, err)
+		}
+
+		managedAddr, err := r.AddressInfo(addr)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching address info "+
+				"for public key %x: %v", pubKeyBytes, err)
+		}
+
+		pubKeyAddr, ok := managedAddr.(waddrmgr.ManagedPubKeyAddress)
+		if !ok {
+			return nil, fmt.Errorf("address derived for public "+
+				"key %x is not a p2wkh address", pubKeyBytes)
+		}
+
+		scope, path, _ := pubKeyAddr.DerivationInfo()
+		if scope.Purpose != keychain.BIP0043Purpose {
+			return nil, fmt.Errorf("address derived for public "+
+				"key %x is not in custom key scope %d'",
+				pubKeyBytes, keychain.BIP0043Purpose)
+		}
+
+		// We now have all the information we need to complete our key
+		// locator information.
+		signDesc.KeyDesc.KeyLocator = keychain.KeyLocator{
+			Family: keychain.KeyFamily(path.InternalAccount),
+			Index:  path.Index,
+		}
+
+	// Case 2: Family and index only. This case is easy, we can just go
+	// ahead and derive the public key from the family and index and then
+	// supply that information in the BIP32 derivation field.
+	case signDesc.KeyDesc.PubKey == nil && !signDesc.KeyDesc.IsEmpty():
+		fullDesc, err := r.watchOnlyKeyRing.DeriveKey(
+			signDesc.KeyDesc.KeyLocator,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error deriving key with "+
+				"family %d and index %d from the watch-only "+
+				"wallet: %v",
+				signDesc.KeyDesc.KeyLocator.Family,
+				signDesc.KeyDesc.KeyLocator.Index, err)
+		}
+		signDesc.KeyDesc.PubKey = fullDesc.PubKey
+	}
 
 	// Make sure we actually know about the input. We either have been
 	// watching the UTXO on-chain or we have been given all the required
@@ -609,7 +714,8 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 			Bip32Path: []uint32{
 				keychain.BIP0043Purpose +
 					hdkeychain.HardenedKeyStart,
-				r.coinType + hdkeychain.HardenedKeyStart,
+				r.netParams.HDCoinType +
+					hdkeychain.HardenedKeyStart,
 				uint32(signDesc.KeyDesc.Family) +
 					hdkeychain.HardenedKeyStart,
 				0,
@@ -697,7 +803,7 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 
 	// The remote signer always adds the sighash type, so we need to account
 	// for that.
-	if len(sigWithSigHash.Signature) < btcec.MinSigLen+1 {
+	if len(sigWithSigHash.Signature) < ecdsa.MinSigLen+1 {
 		return nil, fmt.Errorf("remote signer returned invalid "+
 			"partial signature: signature too short with %d bytes",
 			len(sigWithSigHash.Signature))
@@ -706,7 +812,7 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 	// Parse the signature, but chop off the last byte which is the sighash
 	// type.
 	sig := sigWithSigHash.Signature[0 : len(sigWithSigHash.Signature)-1]
-	return btcec.ParseDERSignature(sig, btcec.S256())
+	return ecdsa.ParseDERSignature(sig)
 }
 
 // connectRPC tries to establish an RPC connection to the given host:port with

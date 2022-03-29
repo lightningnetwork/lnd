@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 )
@@ -294,7 +294,7 @@ func ParseLNAddressString(strAddress string, defaultPort string,
 
 	// Parse the pubkey bytes to verify that it corresponds to valid public
 	// key on the secp256k1 curve.
-	pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(pubKeyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("invalid lightning address pubkey: %v", err)
 	}

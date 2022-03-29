@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -29,7 +29,7 @@ var (
 			"aca5",
 	)
 	testCommitSecret, testCommitPoint = btcec.PrivKeyFromBytes(
-		btcec.S256(), testCommitSecretBytes,
+		testCommitSecretBytes,
 	)
 
 	remoteRevocationBasePubKeyBytes, _ = hex.DecodeString(
@@ -37,7 +37,7 @@ var (
 			"7359fb",
 	)
 	remoteRevocationBasePubKey, _ = btcec.ParsePubKey(
-		remoteRevocationBasePubKeyBytes, btcec.S256(),
+		remoteRevocationBasePubKeyBytes,
 	)
 
 	testTweakSingle, _ = hex.DecodeString(
@@ -250,7 +250,7 @@ func serializeTxWitness(txWitness wire.TxWitness) ([]byte, error) {
 
 // TestSignPsbt tests the PSBT signing functionality.
 func TestSignPsbt(t *testing.T) {
-	w, cleanup := newTestWallet(t, netParams, seedBytes)
+	w, _, cleanup := newTestWallet(t, netParams, seedBytes)
 	defer cleanup()
 
 	testCases := []struct {
@@ -330,6 +330,9 @@ func TestSignPsbt(t *testing.T) {
 			refTx.TxOut[0].PkScript, finalTx, 0,
 			txscript.StandardVerifyFlags, nil, nil,
 			refTx.TxOut[0].Value,
+			txscript.NewCannedPrevOutputFetcher(
+				refTx.TxOut[0].PkScript, refTx.TxOut[0].Value,
+			),
 		)
 		require.NoError(t, err)
 		require.NoError(t, vm.Execute())

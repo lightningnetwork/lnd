@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -890,7 +890,9 @@ func (s *Server) HtlcInterceptor(stream Router_HtlcInterceptorServer) error {
 	defer atomic.CompareAndSwapInt32(&s.forwardInterceptorActive, 1, 0)
 
 	// run the forward interceptor.
-	return newForwardInterceptor(s, stream).run()
+	return newForwardInterceptor(
+		s.cfg.RouterBackend.InterceptableForwarder, stream,
+	).run()
 }
 
 func extractOutPoint(req *UpdateChanStatusRequest) (*wire.OutPoint, error) {

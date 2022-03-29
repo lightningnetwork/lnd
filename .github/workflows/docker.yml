@@ -41,7 +41,7 @@ jobs:
         if: github.event.schedule == '0 0 * * *'
         run: |
           echo "RELEASE_VERSION=master" >> $GITHUB_ENV
-          echo "IMAGE_TAG=daily-testing-only" >> $GITHUB_ENV
+          echo "IMAGE_TAG=daily-testing-$(date -u +%Y%m%d)" >> $GITHUB_ENV
 
       - name: Build and push
         id: docker_build

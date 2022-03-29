@@ -2305,7 +2305,9 @@ func ampStateDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error
 		return nil
 	}
 
-	return tlv.NewTypeForEncodingErr(val, "channeldb.AMPInvoiceState")
+	return tlv.NewTypeForDecodingErr(
+		val, "channeldb.AMPInvoiceState", l, l,
+	)
 }
 
 // deserializeHtlcs reads a list of invoice htlcs from a reader and returns it

@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -101,14 +101,12 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 		return nil, err
 	}
 
-	_, pub := btcec.PrivKeyFromBytes(btcec.S256(), testPriv[:])
+	_, pub := btcec.PrivKeyFromBytes(testPriv[:])
 
 	var chanPoint wire.OutPoint
 	if _, err := rand.Read(chanPoint.Hash[:]); err != nil {
 		return nil, err
 	}
-
-	pub.Curve = nil
 
 	chanPoint.Index = uint32(rand.Intn(math.MaxUint16))
 
@@ -209,7 +207,6 @@ func TestSinglePackUnpack(t *testing.T) {
 	}
 
 	singleChanBackup := NewSingle(channel, []net.Addr{addr1, addr2})
-	singleChanBackup.RemoteNodePub.Curve = nil
 
 	keyRing := &mockKeyRing{}
 
@@ -285,7 +282,6 @@ func TestSinglePackUnpack(t *testing.T) {
 				t.Fatalf("#%v unable to unpack single: %v",
 					i, err)
 			}
-			unpackedSingle.RemoteNodePub.Curve = nil
 
 			assertSingleEqual(t, singleChanBackup, unpackedSingle)
 

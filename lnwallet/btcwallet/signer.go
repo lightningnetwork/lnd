@@ -3,15 +3,16 @@ package btcwallet
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -129,7 +130,8 @@ func (b *BtcWallet) deriveKeyByBIP32Path(path []uint32) (*btcec.PrivateKey,
 	// Is it a standard, BIP defined purpose that the wallet understands?
 	case waddrmgr.KeyScopeBIP0044.Purpose,
 		waddrmgr.KeyScopeBIP0049Plus.Purpose,
-		waddrmgr.KeyScopeBIP0084.Purpose:
+		waddrmgr.KeyScopeBIP0084.Purpose,
+		waddrmgr.KeyScopeBIP0086.Purpose:
 
 		// We're going to continue below the switch statement to avoid
 		// unnecessary indentation for this default case.
@@ -355,6 +357,54 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 		return nil, err
 	}
 
+	// In case of a taproot output any signature is always a Schnorr
+	// signature, based on the new tapscript sighash algorithm.
+	if txscript.IsPayToTaproot(signDesc.Output.PkScript) {
+		sigHashes := txscript.NewTxSigHashes(
+			tx, signDesc.PrevOutputFetcher,
+		)
+
+		// Are we spending a script path or the key path? The API is
+		// slightly different, so we need to account for that to get the
+		// raw signature.
+		var rawSig []byte
+		if signDesc.TaprootKeySpend {
+			// This function tweaks the private key using the tap
+			// root key supplied as the tweak. So we pass in the
+			// original private key to avoid it being double
+			// tweaked!
+			rawSig, err = txscript.RawTxInTaprootSignature(
+				tx, sigHashes, signDesc.InputIndex,
+				signDesc.Output.Value, signDesc.Output.PkScript,
+				signDesc.WitnessScript, signDesc.HashType,
+				privKey,
+			)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			leaf := txscript.TapLeaf{
+				LeafVersion: txscript.BaseLeafVersion,
+				Script:      witnessScript,
+			}
+			rawSig, err = txscript.RawTxInTapscriptSignature(
+				tx, sigHashes, signDesc.InputIndex,
+				signDesc.Output.Value, signDesc.Output.PkScript,
+				leaf, signDesc.HashType, privKey,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		sig, err := schnorr.ParseSignature(rawSig)
+		if err != nil {
+			return nil, err
+		}
+
+		return sig, nil
+	}
+
 	// TODO(roasbeef): generate sighash midstate if not present?
 
 	amt := signDesc.Output.Value
@@ -367,7 +417,7 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 	}
 
 	// Chop off the sighash flag at the end of the signature.
-	return btcec.ParseDERSignature(sig[:len(sig)-1], btcec.S256())
+	return ecdsa.ParseDERSignature(sig[:len(sig)-1])
 }
 
 // ComputeInputScript generates a complete InputScript for the passed
@@ -412,7 +462,7 @@ var _ input.Signer = (*BtcWallet)(nil)
 //
 // NOTE: This is a part of the MessageSigner interface.
 func (b *BtcWallet) SignMessage(keyLoc keychain.KeyLocator,
-	msg []byte, doubleHash bool) (*btcec.Signature, error) {
+	msg []byte, doubleHash bool) (*ecdsa.Signature, error) {
 
 	// First attempt to fetch the private key which corresponds to the
 	// specified public key.
@@ -430,12 +480,7 @@ func (b *BtcWallet) SignMessage(keyLoc keychain.KeyLocator,
 	} else {
 		msgDigest = chainhash.HashB(msg)
 	}
-	sign, err := privKey.Sign(msgDigest)
-	if err != nil {
-		return nil, errors.Errorf("unable sign the message: %v", err)
-	}
-
-	return sign, nil
+	return ecdsa.Sign(privKey, msgDigest), nil
 }
 
 // A compile time check to ensure that BtcWallet implements the MessageSigner

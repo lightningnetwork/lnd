@@ -10,10 +10,10 @@ import (
 	"net"
 	"os"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -138,14 +138,14 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		copy(key[:], testWalletPrivKey[:])
 		key[0] ^= byte(i + 1)
 
-		aliceKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), key)
+		aliceKey, _ := btcec.PrivKeyFromBytes(key)
 		aliceKeys = append(aliceKeys, aliceKey)
 
 		key = make([]byte, len(bobsPrivKey))
 		copy(key[:], bobsPrivKey)
 		key[0] ^= byte(i + 1)
 
-		bobKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), key)
+		bobKey, _ := btcec.PrivKeyFromBytes(key)
 		bobKeys = append(bobKeys, bobKey)
 	}
 
@@ -450,7 +450,7 @@ func pubkeyFromHex(keyHex string) (*btcec.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	return btcec.ParsePubKey(bytes, btcec.S256())
+	return btcec.ParsePubKey(bytes)
 }
 
 // privkeyFromHex parses a Bitcoin private key from a hex encoded string.
@@ -459,7 +459,7 @@ func privkeyFromHex(keyHex string) (*btcec.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	key, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes)
+	key, _ := btcec.PrivKeyFromBytes(bytes)
 	return key, nil
 
 }

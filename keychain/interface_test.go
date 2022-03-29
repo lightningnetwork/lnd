@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcwallet/snacl"
@@ -376,7 +376,7 @@ func TestSecretKeyRingDerivation(t *testing.T) {
 				// We'll try again, but this time with an
 				// unknown public key.
 				_, pub := btcec.PrivKeyFromBytes(
-					btcec.S256(), testHDSeed[:],
+					testHDSeed[:],
 				)
 				keyDesc.PubKey = pub
 

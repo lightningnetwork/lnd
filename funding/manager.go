@@ -8,11 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -327,7 +328,7 @@ type Config struct {
 	// TODO(roasbeef): should instead pass on this responsibility to a
 	// distinct sub-system?
 	SignMessage func(keyLoc keychain.KeyLocator,
-		msg []byte, doubleHash bool) (*btcec.Signature, error)
+		msg []byte, doubleHash bool) (*ecdsa.Signature, error)
 
 	// CurrentNodeAnnouncement should return the latest, fully signed node
 	// announcement from the backing Lightning Network node.
@@ -3512,7 +3513,8 @@ func (f *Manager) pruneZombieReservations() {
 
 	for pendingChanID, resCtx := range zombieReservations {
 		err := fmt.Errorf("reservation timed out waiting for peer "+
-			"(peer_id:%x, chan_id:%x)", resCtx.peer.IdentityKey(),
+			"(peer_id:%x, chan_id:%x)",
+			resCtx.peer.IdentityKey().SerializeCompressed(),
 			pendingChanID[:])
 		log.Warnf(err.Error())
 		f.failFundingFlow(resCtx.peer, pendingChanID, err)
@@ -3627,11 +3629,10 @@ func (f *Manager) IsPendingChannel(pendingChanID [32]byte,
 }
 
 func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
-	return &btcec.PublicKey{
-		Curve: btcec.S256(),
-		X:     pub.X,
-		Y:     pub.Y,
-	}
+	var tmp btcec.JacobianPoint
+	pub.AsJacobian(&tmp)
+	tmp.ToAffine()
+	return btcec.NewPublicKey(&tmp.X, &tmp.Y)
 }
 
 // saveChannelOpeningState saves the channelOpeningState for the provided

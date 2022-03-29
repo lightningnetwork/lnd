@@ -18,13 +18,14 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/davecgh/go-spew/spew"
@@ -1077,13 +1078,13 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 	return &txHash, nil
 }
 
-// ListUnspent returns useful information about each unspent output owned by the
-// wallet, as reported by the underlying `ListUnspentWitness`; the information
-// returned is: outpoint, amount in satoshis, address, address type,
-// scriptPubKey in hex and number of confirmations.  The result is filtered to
-// contain outputs whose number of confirmations is between a minimum and
-// maximum number of confirmations specified by the user, with 0 meaning
-// unconfirmed.
+// ListUnspent returns useful information about each unspent output owned by
+// the wallet, as reported by the underlying `ListUnspentWitness`; the
+// information returned is: outpoint, amount in satoshis, address, address
+// type, scriptPubKey in hex and number of confirmations.  The result is
+// filtered to contain outputs whose number of confirmations is between a
+// minimum and maximum number of confirmations specified by the user, with
+// 0 meaning unconfirmed.
 func (r *rpcServer) ListUnspent(ctx context.Context,
 	in *lnrpc.ListUnspentRequest) (*lnrpc.ListUnspentResponse, error) {
 
@@ -1239,7 +1240,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 	// accidentally tried to send funds to a bare pubkey address. This check is
 	// here to prevent unintended transfers.
 	decodedAddr, _ := hex.DecodeString(in.Addr)
-	_, err = btcec.ParsePubKey(decodedAddr, btcec.S256())
+	_, err = btcec.ParsePubKey(decodedAddr)
 	if err == nil {
 		return nil, fmt.Errorf("cannot send coins to pubkeys")
 	}
@@ -1495,6 +1496,14 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 			return nil, err
 		}
 
+	case lnrpc.AddressType_TAPROOT_PUBKEY:
+		addr, err = r.server.cc.Wallet.NewAddress(
+			lnwallet.TaprootPubkey, false, account,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 	case lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.LastUnusedAddress(
 			lnwallet.WitnessPubKey, account,
@@ -1506,6 +1515,14 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 	case lnrpc.AddressType_UNUSED_NESTED_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.LastUnusedAddress(
 			lnwallet.NestedWitnessPubKey, account,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	case lnrpc.AddressType_UNUSED_TAPROOT_PUBKEY:
+		addr, err = r.server.cc.Wallet.LastUnusedAddress(
+			lnwallet.TaprootPubkey, account,
 		)
 		if err != nil {
 			return nil, err
@@ -1570,7 +1587,7 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	digest := chainhash.DoubleHashB(in.Msg)
 
 	// RecoverCompact both recovers the pubkey and validates the signature.
-	pubKey, _, err := btcec.RecoverCompact(btcec.S256(), sig, digest)
+	pubKey, _, err := ecdsa.RecoverCompact(sig, digest)
 	if err != nil {
 		return &lnrpc.VerifyMessageResponse{Valid: false}, nil
 	}
@@ -1613,7 +1630,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	pubKey, err := btcec.ParsePubKey(pubkeyHex, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(pubkeyHex)
 	if err != nil {
 		return nil, err
 	}
@@ -1682,7 +1699,7 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode pubkey bytes: %v", err)
 	}
-	peerPubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+	peerPubKey, err := btcec.ParsePubKey(pubKeyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse pubkey: %v", err)
 	}
@@ -1749,17 +1766,13 @@ func newFundingShimAssembler(chanPointShim *lnrpc.ChanPointShim, initiator bool,
 
 	// Next we'll parse out the remote party's funding key, as well as our
 	// full key descriptor.
-	remoteKey, err := btcec.ParsePubKey(
-		chanPointShim.RemoteKey, btcec.S256(),
-	)
+	remoteKey, err := btcec.ParsePubKey(chanPointShim.RemoteKey)
 	if err != nil {
 		return nil, err
 	}
 
 	shimKeyDesc := chanPointShim.LocalKey
-	localKey, err := btcec.ParsePubKey(
-		shimKeyDesc.RawKeyBytes, btcec.S256(),
-	)
+	localKey, err := btcec.ParsePubKey(shimKeyDesc.RawKeyBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -1937,7 +1950,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// Parse the raw bytes of the node key into a pubkey object so we can
 	// easily manipulate it.
 	case len(in.NodePubkey) > 0:
-		nodePubKey, err = btcec.ParsePubKey(in.NodePubkey, btcec.S256())
+		nodePubKey, err = btcec.ParsePubKey(in.NodePubkey)
 		if err != nil {
 			return nil, err
 		}
@@ -1951,7 +1964,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 			return nil, err
 		}
 
-		nodePubKey, err = btcec.ParsePubKey(keyBytes, btcec.S256())
+		nodePubKey, err = btcec.ParsePubKey(keyBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -3090,6 +3103,27 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 		}
 	}
 
+	// Now that we have the base balance accounted for with each account,
+	// we'll look at the set of locked UTXOs to tally that as well. If we
+	// don't display this, then anytime we attempt a funding reservation,
+	// the outputs will chose as being "gone" until they're confirmed on
+	// chain.
+	var lockedBalance btcutil.Amount
+	leases, err := r.server.cc.Wallet.ListLeasedOutputs()
+	if err != nil {
+		return nil, err
+	}
+	for _, leasedOutput := range leases {
+		utxoInfo, err := r.server.cc.Wallet.FetchInputInfo(
+			&leasedOutput.Outpoint,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		lockedBalance += utxoInfo.Value
+	}
+
 	rpcsLog.Debugf("[walletbalance] Total balance=%v (confirmed=%v, "+
 		"unconfirmed=%v)", totalBalance, confirmedBalance,
 		unconfirmedBalance)
@@ -3098,6 +3132,7 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 		TotalBalance:       int64(totalBalance),
 		ConfirmedBalance:   int64(confirmedBalance),
 		UnconfirmedBalance: int64(unconfirmedBalance),
+		LockedBalance:      int64(lockedBalance),
 		AccountBalance:     rpcAccountBalances,
 	}, nil
 }
@@ -5904,10 +5939,20 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		minChannelSize = 0
 	}
 
-	// TODO(roasbeef): graph diameter
+	// Graph diameter.
+	channelGraph := autopilot.ChannelGraphFromCachedDatabase(graph)
+	simpleGraph, err := autopilot.NewSimpleGraph(channelGraph)
+	if err != nil {
+		return nil, err
+	}
+	start := time.Now()
+	diameter := simpleGraph.DiameterRadialCutoff()
+	rpcsLog.Infof("elapsed time for diameter (%d) calculation: %v", diameter,
+		time.Since(start))
 
 	// TODO(roasbeef): also add oldest channel?
 	netInfo := &lnrpc.NetworkInfo{
+		GraphDiameter:        diameter,
 		MaxOutDegree:         maxChanOut,
 		AvgOutDegree:         float64(2*numChannels) / float64(numNodes),
 		NumNodes:             numNodes,

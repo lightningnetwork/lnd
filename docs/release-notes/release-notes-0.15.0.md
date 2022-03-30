@@ -66,6 +66,8 @@ then watch it on chain. Taproot script spends are also supported through the
 
 * [Fixed node shutdown in forward interceptor itests](https://github.com/lightningnetwork/lnd/pull/6362).
 
+* [Fixed a bug that would cause lnd to be unable to parse certain PSBT blobs](https://github.com/lightningnetwork/lnd/pull/6383).
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)

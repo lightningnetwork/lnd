@@ -68,6 +68,10 @@ then watch it on chain. Taproot script spends are also supported through the
 
 * [Fixed a bug that would cause lnd to be unable to parse certain PSBT blobs](https://github.com/lightningnetwork/lnd/pull/6383).
 
+* [Fixed a bug in the `btcwallet` that caused an error to be shown for
+  `lncli walletbalance` in existing wallets after upgrading to
+  Taproot](https://github.com/lightningnetwork/lnd/pull/6379).
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)

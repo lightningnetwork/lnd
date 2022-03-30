@@ -72,6 +72,9 @@ then watch it on chain. Taproot script spends are also supported through the
   `lncli walletbalance` in existing wallets after upgrading to
   Taproot](https://github.com/lightningnetwork/lnd/pull/6379).
 
+* [Fixed a data race in the websocket proxy
+  code](https://github.com/lightningnetwork/lnd/pull/6380).
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)

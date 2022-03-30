@@ -253,7 +253,7 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 				payload = newPayload
 			}
 
-			_, err = requestForwarder.Write(payload)
+			_, err := requestForwarder.Write(payload)
 			if err != nil {
 				p.logger.Errorf("WS: error writing message "+
 					"to upstream http server: %v", err)
@@ -338,7 +338,7 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 			continue
 		}
 
-		err = conn.WriteMessage(
+		err := conn.WriteMessage(
 			websocket.TextMessage, responseForwarder.Bytes(),
 		)
 		if err != nil {

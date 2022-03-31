@@ -2760,7 +2760,7 @@ message Hop {
     TLV format. Note that if any custom tlv_records below are specified, then
     this field MUST be set to true for them to be encoded properly.
     */
-    bool tlv_payload = 9;
+    bool tlv_payload = 9 [deprecated = true];
 
     /*
     An optional TLV record that signals the use of an MPP payment. If present,

@@ -14,10 +14,6 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 )
 
-var (
-	loopBackAddrs = []string{"localhost", "127.0.0.1", "[::1]"}
-)
-
 // TCPResolver is a function signature that resolves an address on a given
 // network.
 type TCPResolver = func(network, addr string) (*net.TCPAddr, error)
@@ -112,14 +108,18 @@ func TLSListenOnAddress(addr net.Addr,
 }
 
 // IsLoopback returns true if an address describes a loopback interface.
-func IsLoopback(addr string) bool {
-	for _, loopback := range loopBackAddrs {
-		if strings.Contains(addr, loopback) {
-			return true
-		}
+func IsLoopback(host string) bool {
+	if strings.Contains(host, "localhost") {
+		return true
 	}
 
-	return false
+	rawHost, _, _ := net.SplitHostPort(host)
+	addr := net.ParseIP(rawHost)
+	if addr == nil {
+		return false
+	}
+
+	return addr.IsLoopback()
 }
 
 // isIPv6Host returns true if the host is IPV6 and false otherwise.
@@ -132,6 +132,16 @@ func isIPv6Host(host string) bool {
 	// The documentation states that if the IP address is an IPv6 address,
 	// then To4() will return nil.
 	return v6Addr.To4() == nil
+}
+
+// isUnspecifiedHost returns true if the host IP is considered unspecified.
+func isUnspecifiedHost(host string) bool {
+	addr := net.ParseIP(host)
+	if addr == nil {
+		return false
+	}
+
+	return addr.IsUnspecified()
 }
 
 // IsUnix returns true if an address describes an Unix socket address.
@@ -230,17 +240,18 @@ func ParseAddressString(strAddress string, defaultPort string,
 		}
 
 		// Otherwise, we'll attempt the resolve the host. The Tor
-		// resolver is unable to resolve local or IPv6 addresses, so
-		// we'll use the system resolver instead.
+		// resolver is unable to resolve local addresses,
+		// IPv6 addresses, or the all-interfaces address, so we'll use
+		// the system resolver instead for those.
 		if rawHost == "" || IsLoopback(rawHost) ||
-			isIPv6Host(rawHost) {
+			isIPv6Host(rawHost) || isUnspecifiedHost(rawHost) {
 
 			return net.ResolveTCPAddr("tcp", addrWithPort)
 		}
 
 		// If we've reached this point, then it's possible that this
 		// resolve returns an error if it isn't able to resolve the
-		// host. For eaxmple, local entries in /etc/hosts will fail to
+		// host. For example, local entries in /etc/hosts will fail to
 		// be resolved by Tor. In order to handle this case, we'll fall
 		// back to the normal system resolver if we fail with an
 		// identifiable error.

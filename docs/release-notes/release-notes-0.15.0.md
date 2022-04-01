@@ -27,6 +27,9 @@ then watch it on chain. Taproot script spends are also supported through the
 
 * [Update description for `state` command](https://github.com/lightningnetwork/lnd/pull/6237).
 
+* Add [`--unused`](https://github.com/lightningnetwork/lnd/pull/6387) to 
+  `lncli newaddr` command.
+
 ## Bug Fixes
 
 * [Pipelining an UpdateFulfillHTLC message now only happens when the related UpdateAddHTLC is locked-in.](https://github.com/lightningnetwork/lnd/pull/6246)
@@ -235,6 +238,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * Elle Mouton
 * ErikEk
 * Eugene Siegel
+* gabbyprecious
 * Hampus Sjöberg
 * henta
 * Joost Jager

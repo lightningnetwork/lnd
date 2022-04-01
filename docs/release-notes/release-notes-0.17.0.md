@@ -81,6 +81,9 @@ unlock or create.
 * [Restore support](https://github.com/lightningnetwork/lnd/pull/7678) for
   `PKCS8`-encoded cert private keys.
 
+* Add [`--unused`](https://github.com/lightningnetwork/lnd/pull/6387) to
+  `lncli newaddr` command.
+
 ## Code Health
 
 * Updated [our fork for serializing protobuf as JSON to be based on the
@@ -121,6 +124,7 @@ unlock or create.
 * Elle Mouton
 * Erik Arvstedt
 * ErikEk
+* gabbyprecious
 * Guillermo Caracuel
 * hieblmi
 * Jordi Montes

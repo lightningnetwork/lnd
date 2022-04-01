@@ -132,6 +132,11 @@ var newAddressCommand = cli.Command{
 			Usage: "(optional) the name of the account to " +
 				"generate a new address for",
 		},
+		cli.BoolFlag{
+			Name: "unused",
+			Usage: "(optional) return the last unused address " +
+				"instead of generating a new one",
+		},
 	},
 	Description: `
 	Generate a wallet new address. Address-types has to be one of:
@@ -153,14 +158,25 @@ func newAddress(ctx *cli.Context) error {
 	// Map the string encoded address type, to the concrete typed address
 	// type enum. An unrecognized address type will result in an error.
 	stringAddrType := ctx.Args().First()
+	unused := ctx.Bool("unused")
+
 	var addrType lnrpc.AddressType
 	switch stringAddrType { // TODO(roasbeef): make them ints on the cli?
 	case "p2wkh":
 		addrType = lnrpc.AddressType_WITNESS_PUBKEY_HASH
+		if unused {
+			addrType = lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH
+		}
 	case "np2wkh":
 		addrType = lnrpc.AddressType_NESTED_PUBKEY_HASH
+		if unused {
+			addrType = lnrpc.AddressType_UNUSED_NESTED_PUBKEY_HASH
+		}
 	case "p2tr":
 		addrType = lnrpc.AddressType_TAPROOT_PUBKEY
+		if unused {
+			addrType = lnrpc.AddressType_UNUSED_TAPROOT_PUBKEY
+		}
 	default:
 		return fmt.Errorf("invalid address type %v, support address type "+
 			"are: p2wkh, np2wkh, and p2tr", stringAddrType)

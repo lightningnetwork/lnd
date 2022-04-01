@@ -27,6 +27,9 @@ then watch it on chain. Taproot script spends are also supported through the
 
 * [Update description for `state` command](https://github.com/lightningnetwork/lnd/pull/6237).
 
+* Add [update node announcement](https://github.com/lightningnetwork/lnd/pull/5587)
+  for updating and propagating node information.
+
 ## Bug Fixes
 
 * [Pipelining an UpdateFulfillHTLC message now only happens when the related UpdateAddHTLC is locked-in.](https://github.com/lightningnetwork/lnd/pull/6246)
@@ -172,6 +175,8 @@ then watch it on chain. Taproot script spends are also supported through the
   graph cache at startup](https://github.com/lightningnetwork/lnd/pull/6136)
 
 * [Improve validation of a PSBT packet when handling a request to finalize it.](https://github.com/lightningnetwork/lnd/pull/6217)
+
+* [Add new Peers subserver](https://github.com/lightningnetwork/lnd/pull/5587) with a new endpoint for updating the `NodeAnnouncement` data without having to restart the node.
 
 ## Documentation
 

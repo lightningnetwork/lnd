@@ -269,7 +269,7 @@ func (c *chainWatcher) Start() error {
 	// at.
 	heightHint := c.cfg.chanState.ShortChanID().BlockHeight
 	if heightHint == 0 {
-		heightHint = chanState.FundingBroadcastHeight
+		heightHint = chanState.BroadcastHeight()
 	}
 
 	localKey := chanState.LocalChanCfg.MultiSigKey.PubKey.SerializeCompressed()

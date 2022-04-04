@@ -2306,7 +2306,7 @@ func (f *Manager) waitForFundingConfirmation(
 	numConfs := uint32(completeChan.NumConfsRequired)
 	confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(
 		&txid, fundingScript, numConfs,
-		completeChan.FundingBroadcastHeight,
+		completeChan.BroadcastHeight(),
 	)
 	if err != nil {
 		log.Errorf("Unable to register for confirmation of "+
@@ -2392,7 +2392,8 @@ func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 	defer epochClient.Cancel()
 
 	// On block maxHeight we will cancel the funding confirmation wait.
-	maxHeight := completeChan.FundingBroadcastHeight + maxWaitNumBlocksFundingConf
+	broadcastHeight := completeChan.BroadcastHeight()
+	maxHeight := broadcastHeight + maxWaitNumBlocksFundingConf
 	for {
 		select {
 		case epoch, ok := <-epochClient.Epochs:
@@ -2738,7 +2739,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		// funding transaction reaches at least 6 confirmations.
 		confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(
 			&txid, fundingScript, numConfs,
-			completeChan.FundingBroadcastHeight,
+			completeChan.BroadcastHeight(),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to register for "+

@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // writeOutpoint writes an outpoint to the passed writer using the minimal
@@ -85,7 +86,8 @@ func WriteElement(w io.Writer, element interface{}) error {
 
 		return binary.Write(w, byteOrder, false)
 	case ChannelType:
-		if err := binary.Write(w, byteOrder, e); err != nil {
+		var buf [8]byte
+		if err := tlv.WriteVarInt(w, uint64(e), &buf); err != nil {
 			return err
 		}
 
@@ -194,7 +196,8 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 	case ChannelStatus:
-		if err := binary.Write(w, byteOrder, e); err != nil {
+		var buf [8]byte
+		if err := tlv.WriteVarInt(w, uint64(e), &buf); err != nil {
 			return err
 		}
 
@@ -270,9 +273,13 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 
 	case *ChannelType:
-		if err := binary.Read(r, byteOrder, e); err != nil {
+		var buf [8]byte
+		ctype, err := tlv.ReadVarInt(r, &buf)
+		if err != nil {
 			return err
 		}
+
+		*e = ChannelType(ctype)
 
 	case *chainhash.Hash:
 		if _, err := io.ReadFull(r, e[:]); err != nil {
@@ -419,9 +426,13 @@ func ReadElement(r io.Reader, element interface{}) error {
 		*e = msg
 
 	case *ChannelStatus:
-		if err := binary.Read(r, byteOrder, e); err != nil {
+		var buf [8]byte
+		status, err := tlv.ReadVarInt(r, &buf)
+		if err != nil {
 			return err
 		}
+
+		*e = ChannelStatus(status)
 
 	case *ClosureType:
 		if err := binary.Read(r, byteOrder, e); err != nil {

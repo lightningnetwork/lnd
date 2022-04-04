@@ -177,7 +177,7 @@ func NewSingle(channel *channeldb.OpenChannel,
 	// to the channel ID so we can use that as height hint on restore.
 	chanID := channel.ShortChanID()
 	if chanID.BlockHeight == 0 {
-		chanID.BlockHeight = channel.FundingBroadcastHeight
+		chanID.BlockHeight = channel.BroadcastHeight()
 	}
 
 	single := Single{

@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/cert"
@@ -242,6 +243,8 @@ type server struct {
 	// miscDB is the DB that contains all "other" databases within the main
 	// channel DB that haven't been separated out yet.
 	miscDB *channeldb.DB
+
+	aliasMgr *aliasmgr.Manager
 
 	htlcSwitch *htlcswitch.Switch
 
@@ -615,6 +618,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	thresholdSats := btcutil.Amount(cfg.DustThreshold)
 	thresholdMSats := lnwire.NewMSatFromSatoshis(thresholdSats)
+
+	s.aliasMgr, err = aliasmgr.NewManager(dbs.ChanStateDB)
+	if err != nil {
+		return nil, err
+	}
 
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
 		DB:                   dbs.ChanStateDB,

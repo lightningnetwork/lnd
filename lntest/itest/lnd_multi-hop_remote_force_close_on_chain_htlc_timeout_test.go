@@ -21,7 +21,8 @@ import (
 // transaction once the timeout has expired. Once we sweep the transaction, we
 // should also cancel back the initial HTLC.
 func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
-	t *harnessTest, alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType) {
+	t *harnessTest, alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType,
+	zeroConf bool) {
 
 	ctxb := context.Background()
 
@@ -29,7 +30,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
-		t, net, alice, bob, true, c,
+		t, net, alice, bob, true, c, zeroConf,
 	)
 
 	// Clean up carol's node when the test finishes.

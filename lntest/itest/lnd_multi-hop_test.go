@@ -19,7 +19,8 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 	type testCase struct {
 		name string
 		test func(net *lntest.NetworkHarness, t *harnessTest, alice,
-			bob *lntest.HarnessNode, c lnrpc.CommitmentType)
+			bob *lntest.HarnessNode, c lnrpc.CommitmentType,
+			zeroConf bool)
 	}
 
 	subTests := []testCase{
@@ -68,20 +69,51 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	}
 
-	commitTypes := []lnrpc.CommitmentType{
-		lnrpc.CommitmentType_LEGACY,
-		lnrpc.CommitmentType_ANCHORS,
-		lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
+	commitWithZeroConf := []struct {
+		commitType lnrpc.CommitmentType
+		zeroConf   bool
+	}{
+		{
+			commitType: lnrpc.CommitmentType_LEGACY,
+			zeroConf:   false,
+		},
+		{
+			commitType: lnrpc.CommitmentType_ANCHORS,
+			zeroConf:   false,
+		},
+		{
+			commitType: lnrpc.CommitmentType_ANCHORS,
+			zeroConf:   true,
+		},
+		{
+			commitType: lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
+			zeroConf:   false,
+		},
+		{
+			commitType: lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
+			zeroConf:   true,
+		},
 	}
 
-	for _, commitType := range commitTypes {
-		commitType := commitType
-		testName := fmt.Sprintf("committype=%v", commitType.String())
+	for _, typeAndConf := range commitWithZeroConf {
+		typeAndConf := typeAndConf
+		testName := fmt.Sprintf(
+			"committype=%v zeroconf=%v",
+			typeAndConf.commitType.String(), typeAndConf.zeroConf,
+		)
 
 		success := t.t.Run(testName, func(t *testing.T) {
 			ht := newHarnessTest(t, net)
 
-			args := nodeArgsForCommitType(commitType)
+			args := nodeArgsForCommitType(typeAndConf.commitType)
+
+			if typeAndConf.zeroConf {
+				args = append(
+					args, "--protocol.option-scid-alias",
+					"--protocol.zero-conf",
+				)
+			}
+
 			alice := net.NewNode(t, "Alice", args)
 			defer shutdownAndAssert(net, ht, alice)
 
@@ -107,7 +139,11 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 					// static fee estimate.
 					net.SetFeeEstimate(12500)
 
-					subTest.test(net, ht, alice, bob, commitType)
+					subTest.test(
+						net, ht, alice, bob,
+						typeAndConf.commitType,
+						typeAndConf.zeroConf,
+					)
 				})
 				if !success {
 					return
@@ -204,7 +240,8 @@ func checkPaymentStatus(node *lntest.HarnessNode, preimage lntypes.Preimage,
 }
 
 func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
-	alice, bob *lntest.HarnessNode, carolHodl bool, c lnrpc.CommitmentType) (
+	alice, bob *lntest.HarnessNode, carolHodl bool, c lnrpc.CommitmentType,
+	zeroConf bool) (
 	*lnrpc.ChannelPoint, *lnrpc.ChannelPoint, *lntest.HarnessNode) {
 
 	net.EnsureConnected(t.t, alice, bob)
@@ -234,6 +271,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 			Amt:            chanAmt,
 			CommitmentType: c,
 			FundingShim:    aliceFundingShim,
+			ZeroConf:       zeroConf,
 		},
 	)
 
@@ -254,6 +292,14 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	if carolHodl {
 		carolFlags = append(carolFlags, "--hodl.exit-settle")
 	}
+
+	if zeroConf {
+		carolFlags = append(
+			carolFlags, "--protocol.option-scid-alias",
+			"--protocol.zero-conf",
+		)
+	}
+
 	carol := net.NewNode(t.t, "Carol", carolFlags)
 
 	net.ConnectNodes(t.t, bob, carol)
@@ -280,6 +326,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 			Amt:            chanAmt,
 			CommitmentType: c,
 			FundingShim:    bobFundingShim,
+			ZeroConf:       zeroConf,
 		},
 	)
 	err = bob.WaitForNetworkChannelOpen(bobChanPoint)

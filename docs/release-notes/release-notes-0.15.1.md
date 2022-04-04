@@ -1,5 +1,10 @@
 # Release Notes
 
+## Protocol Extensions
+
+### Zero-Conf Channel Opens
+* [Introduces support for zero-conf channel opens and non-zero-conf option_scid_alias channels.](https://github.com/lightningnetwork/lnd/pull/5955)
+
 ## Build system
 
 * [Add the release build directory to the `.gitignore` file to avoid the release

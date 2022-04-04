@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // FundingLocked is the message that both parties to a new channel creation
@@ -20,6 +21,11 @@ type FundingLocked struct {
 	// NextPerCommitmentPoint is the secret that can be used to revoke the
 	// next commitment transaction for the channel.
 	NextPerCommitmentPoint *btcec.PublicKey
+
+	// AliasScid is an alias ShortChannelID used to refer to the underlying
+	// channel. It can be used instead of the confirmed on-chain
+	// ShortChannelID for forwarding.
+	AliasScid *ShortChannelID
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -47,11 +53,31 @@ var _ Message = (*FundingLocked)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+	// Read all the mandatory fields in the message.
+	err := ReadElements(r,
 		&c.ChanID,
 		&c.NextPerCommitmentPoint,
 		&c.ExtraData,
 	)
+	if err != nil {
+		return err
+	}
+
+	// Next we'll parse out the set of known records. For now, this is just
+	// the AliasScidRecordType.
+	var aliasScid ShortChannelID
+	typeMap, err := c.ExtraData.ExtractRecords(&aliasScid)
+	if err != nil {
+		return err
+	}
+
+	// We'll only set AliasScid if the corresponding TLV type was included
+	// in the stream.
+	if val, ok := typeMap[AliasScidRecordType]; ok && val == nil {
+		c.AliasScid = &aliasScid
+	}
+
+	return nil
 }
 
 // Encode serializes the target FundingLocked message into the passed io.Writer
@@ -66,6 +92,15 @@ func (c *FundingLocked) Encode(w *bytes.Buffer, pver uint32) error {
 
 	if err := WritePublicKey(w, c.NextPerCommitmentPoint); err != nil {
 		return err
+	}
+
+	// We'll only encode the AliasScid in a TLV segment if it exists.
+	if c.AliasScid != nil {
+		recordProducers := []tlv.RecordProducer{c.AliasScid}
+		err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
+		if err != nil {
+			return err
+		}
 	}
 
 	return WriteBytes(w, c.ExtraData)

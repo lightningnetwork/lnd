@@ -756,6 +756,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		r.cfg.net.ResolveTCPAddr, genInvoiceFeatures,
 		genAmpInvoiceFeatures, getNodeAnnouncement,
 		s.updateAndBrodcastSelfNode, parseAddr, rpcsLog,
+		s.aliasMgr.GetPeerAlias,
 	)
 	if err != nil {
 		return err
@@ -3039,7 +3040,7 @@ func (r *rpcServer) SubscribePeerEvents(req *lnrpc.PeerEventSubscription,
 // confirmed unspent outputs and all unconfirmed unspent outputs under control
 // by the wallet. This method can be modified by having the request specify
 // only witness outputs should be factored into the final output sum.
-// TODO(roasbeef): add async hooks into wallet balance changes
+// TODO(roasbeef): add async hooks into wallet balance changes.
 func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
 
@@ -5260,6 +5261,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		GenAmpInvoiceFeatures: func() *lnwire.FeatureVector {
 			return r.server.featureMgr.Get(feature.SetInvoiceAmp)
 		},
+		GetAlias: r.server.aliasMgr.GetPeerAlias,
 	}
 
 	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)

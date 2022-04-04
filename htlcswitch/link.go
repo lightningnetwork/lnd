@@ -2243,7 +2243,7 @@ func (l *channelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 	// Refresh the channel state's short channel ID by loading it from disk.
 	// This ensures that the channel state accurately reflects the updated
 	// short channel ID.
-	err := l.channel.State().RefreshShortChanID()
+	err := l.channel.State().Refresh()
 	if err != nil {
 		l.log.Errorf("unable to refresh short_chan_id for chan_id=%v: "+
 			"%v", chanID, err)

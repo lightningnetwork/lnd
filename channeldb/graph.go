@@ -2167,8 +2167,18 @@ func (c *ChannelGraph) FilterChannelRange(startHeight,
 
 		// We'll now iterate through the database, and find each
 		// channel ID that resides within the specified range.
-		for k, _ := cursor.Seek(chanIDStart[:]); k != nil &&
-			bytes.Compare(k, chanIDEnd[:]) <= 0; k, _ = cursor.Next() {
+		for k, v := cursor.Seek(chanIDStart[:]); k != nil &&
+			bytes.Compare(k, chanIDEnd[:]) <= 0; k, v = cursor.Next() {
+			// Don't send alias SCIDs during gossip sync.
+			edgeReader := bytes.NewReader(v)
+			edgeInfo, err := deserializeChanEdgeInfo(edgeReader)
+			if err != nil {
+				return err
+			}
+
+			if edgeInfo.AuthProof == nil {
+				continue
+			}
 
 			// This channel ID rests within the target range, so
 			// we'll add it to our returned set.

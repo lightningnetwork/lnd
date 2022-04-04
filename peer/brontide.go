@@ -330,6 +330,18 @@ type Config struct {
 	// from the peer.
 	HandleCustomMessage func(peer [33]byte, msg *lnwire.Custom) error
 
+	// GetAliases is passed to created links so the Switch and link can be
+	// aware of the channel's aliases.
+	GetAliases func(base lnwire.ShortChannelID) []lnwire.ShortChannelID
+
+	// RequestAlias allows the Brontide struct to request an alias to send
+	// to the peer.
+	RequestAlias func() (lnwire.ShortChannelID, error)
+
+	// AddLocalAlias persists an alias to an underlying alias store.
+	AddLocalAlias func(alias, base lnwire.ShortChannelID,
+		gossip bool) error
+
 	// PongBuf is a slice we'll reuse instead of allocating memory on the
 	// heap. Since only reads will occur and no writes, there is no need
 	// for any synchronization primitives. As a result, it's safe to share
@@ -666,7 +678,65 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 	// cannot be loaded normally.
 	var msgs []lnwire.Message
 
+	scidAliasNegotiated := p.hasNegotiatedScidAlias()
+
 	for _, dbChan := range chans {
+		hasScidFeature := dbChan.ChanType.HasScidAliasFeature()
+		if scidAliasNegotiated && !hasScidFeature {
+			// We'll request and store an alias, making sure that a
+			// gossiper mapping is not created for the alias to the
+			// real SCID. This is done because the peer and funding
+			// manager are not aware of each other's states and if
+			// we did not do this, we would accept alias channel
+			// updates after 6 confirmations, which would be buggy.
+			// We'll queue a funding_locked message with the new
+			// alias. This should technically be done *after* the
+			// reestablish, but this behavior is pre-existing since
+			// the funding manager may already queue a
+			// funding_locked before the channel_reestablish.
+			if !dbChan.IsPending {
+				aliasScid, err := p.cfg.RequestAlias()
+				if err != nil {
+					return nil, err
+				}
+
+				err = p.cfg.AddLocalAlias(
+					aliasScid, dbChan.ShortChanID(), false,
+				)
+				if err != nil {
+					return nil, err
+				}
+
+				chanID := lnwire.NewChanIDFromOutPoint(
+					&dbChan.FundingOutpoint,
+				)
+
+				// Fetch the second commitment point to send in
+				// the funding_locked message.
+				second, err := dbChan.SecondCommitmentPoint()
+				if err != nil {
+					return nil, err
+				}
+
+				fundingLockedMsg := lnwire.NewFundingLocked(
+					chanID, second,
+				)
+				fundingLockedMsg.AliasScid = &aliasScid
+
+				msgs = append(msgs, fundingLockedMsg)
+			}
+
+			// If we've negotiated the option-scid-alias feature
+			// and this channel does not have ScidAliasFeature set
+			// to true due to an upgrade where the feature bit was
+			// turned on, we'll update the channel's database
+			// state.
+			err := dbChan.MarkScidAliasNegotiated()
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		lnChan, err := lnwallet.NewLightningChannel(
 			p.cfg.Signer, dbChan, p.cfg.SigPool,
 		)
@@ -900,6 +970,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		NotifyActiveChannel:     p.cfg.ChannelNotifier.NotifyActiveChannelEvent,
 		NotifyInactiveChannel:   p.cfg.ChannelNotifier.NotifyInactiveChannelEvent,
 		HtlcNotifier:            p.cfg.HtlcNotifier,
+		GetAliases:              p.cfg.GetAliases,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live
@@ -3052,6 +3123,14 @@ func (p *Brontide) LocalFeatures() *lnwire.FeatureVector {
 // NOTE: Part of the lnpeer.Peer interface.
 func (p *Brontide) RemoteFeatures() *lnwire.FeatureVector {
 	return p.remoteFeatures
+}
+
+// hasNegotiatedScidAlias returns true if we've negotiated the
+// option-scid-alias feature bit with the peer.
+func (p *Brontide) hasNegotiatedScidAlias() bool {
+	peerHas := p.remoteFeatures.HasFeature(lnwire.ScidAliasOptional)
+	localHas := p.cfg.Features.HasFeature(lnwire.ScidAliasOptional)
+	return peerHas && localHas
 }
 
 // sendInitMsg sends the Init message to the remote peer. This message contains

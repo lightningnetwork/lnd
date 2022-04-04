@@ -920,6 +920,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PathFindingConfig:   pathFindingConfig,
 		Clock:               clock.NewDefaultClock(),
 		StrictZombiePruning: strictPruning,
+		IsAlias:             aliasmgr.IsAlias,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %v", err)

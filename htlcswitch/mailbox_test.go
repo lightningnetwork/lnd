@@ -201,17 +201,18 @@ func newMailboxContext(t *testing.T, startTime time.Time,
 		clock:    clock.NewTestClock(startTime),
 		forwards: make(chan *htlcPacket, 1),
 	}
-	ctx.mailbox = newMemoryMailBox(&mailBoxConfig{
-		fetchUpdate: func(sid lnwire.ShortChannelID) (
-			*lnwire.ChannelUpdate, error) {
 
-			return &lnwire.ChannelUpdate{
-				ShortChannelID: sid,
-			}, nil
-		},
-		forwardPackets: ctx.forward,
-		clock:          ctx.clock,
-		expiry:         expiry,
+	failMailboxUpdate := func(outScid,
+		mboxScid lnwire.ShortChannelID) lnwire.FailureMessage {
+
+		return &lnwire.FailTemporaryNodeFailure{}
+	}
+
+	ctx.mailbox = newMemoryMailBox(&mailBoxConfig{
+		failMailboxUpdate: failMailboxUpdate,
+		forwardPackets:    ctx.forward,
+		clock:             ctx.clock,
+		expiry:            expiry,
 	})
 	ctx.mailbox.Start()
 
@@ -660,15 +661,15 @@ func testMailBoxDust(t *testing.T, chantype channeldb.ChannelType) {
 func TestMailOrchestrator(t *testing.T) {
 	t.Parallel()
 
+	failMailboxUpdate := func(outScid,
+		mboxScid lnwire.ShortChannelID) lnwire.FailureMessage {
+
+		return &lnwire.FailTemporaryNodeFailure{}
+	}
+
 	// First, we'll create a new instance of our orchestrator.
 	mo := newMailOrchestrator(&mailOrchConfig{
-		fetchUpdate: func(sid lnwire.ShortChannelID) (
-			*lnwire.ChannelUpdate, error) {
-
-			return &lnwire.ChannelUpdate{
-				ShortChannelID: sid,
-			}, nil
-		},
+		failMailboxUpdate: failMailboxUpdate,
 		forwardPackets: func(_ chan struct{},
 			pkts ...*htlcPacket) error {
 

@@ -657,6 +657,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Clock:                  clock.NewDefaultClock(),
 		HTLCExpiry:             htlcswitch.DefaultHTLCExpiry,
 		DustThreshold:          thresholdMSats,
+		SignAliasUpdate:        s.signAliasUpdate,
+		IsAlias:                aliasmgr.IsAlias,
 	}, uint32(currentHeight))
 	if err != nil {
 		return nil, err

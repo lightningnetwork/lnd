@@ -153,6 +153,18 @@ type InitFundingReserveMsg struct {
 	// used.
 	ChanFunder chanfunding.Assembler
 
+	// ZeroConf is a boolean that is true if a zero-conf channel was
+	// negotiated.
+	ZeroConf bool
+
+	// OptionScidAlias is a boolean that is true if an option-scid-alias
+	// channel type was explicitly negotiated.
+	OptionScidAlias bool
+
+	// ScidAliasFeature is true if the option-scid-alias feature bit was
+	// negotiated.
+	ScidAliasFeature bool
+
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
 	//
@@ -845,10 +857,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation, err := NewChannelReservation(
-		capacity, localFundingAmt, req.CommitFeePerKw, l, id,
-		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
-		req.CommitType, req.ChanFunder, req.PendingChanID,
-		thawHeight,
+		capacity, localFundingAmt, l, id, l.Cfg.NetParams.GenesisHash,
+		thawHeight, req,
 	)
 	if err != nil {
 		fundingIntent.Cancel()

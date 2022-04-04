@@ -2138,7 +2138,9 @@ func (s *server) Stop() error {
 		s.connMgr.Stop()
 
 		// Shutdown the wallet, funding manager, and the rpc server.
-		s.chanStatusMgr.Stop()
+		if err := s.chanStatusMgr.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop chanStatusMgr: %v", err)
+		}
 		if err := s.htlcSwitch.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop htlcSwitch: %v", err)
 		}
@@ -3175,7 +3177,6 @@ func (s *server) NotifyWhenOnline(peerKey [33]byte,
 	peerChan chan<- lnpeer.Peer) {
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// Compute the target peer's identifier.
 	pubStr := string(peerKey[:])
@@ -3183,6 +3184,19 @@ func (s *server) NotifyWhenOnline(peerKey [33]byte,
 	// Check if peer is connected.
 	peer, ok := s.peersByPub[pubStr]
 	if ok {
+		// Unlock here so that the mutex isn't held while we are
+		// waiting for the peer to become active.
+		s.mu.Unlock()
+
+		// Wait until the peer signals that it is actually active
+		// rather than only in the server's maps.
+		select {
+		case <-peer.ActiveSignal():
+		case <-peer.QuitSignal():
+			// The peer quit so we'll just return.
+			return
+		}
+
 		// Connected, can return early.
 		srvrLog.Debugf("Notifying that peer %x is online", peerKey)
 
@@ -3199,6 +3213,7 @@ func (s *server) NotifyWhenOnline(peerKey [33]byte,
 	s.peerConnectedListeners[pubStr] = append(
 		s.peerConnectedListeners[pubStr], peerChan,
 	)
+	s.mu.Unlock()
 }
 
 // NotifyWhenOffline delivers a notification to the caller of when the peer with
@@ -3696,6 +3711,9 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		PendingCommitInterval:  s.cfg.PendingCommitInterval,
 		ChannelCommitBatchSize: s.cfg.ChannelCommitBatchSize,
 		HandleCustomMessage:    s.handleCustomMessage,
+		GetAliases:             s.aliasMgr.GetAliases,
+		RequestAlias:           s.aliasMgr.RequestAlias,
+		AddLocalAlias:          s.aliasMgr.AddLocalAlias,
 		Quit:                   s.quit,
 	}
 
@@ -4444,9 +4462,30 @@ func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
 }
 
 // applyChannelUpdate applies the channel update to the different sub-systems of
-// the server.
-func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate) error {
-	errChan := s.authGossiper.ProcessLocalAnnouncement(update)
+// the server. The useAlias boolean denotes whether or not to send an alias in
+// place of the real SCID.
+func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate,
+	op *wire.OutPoint, useAlias bool) error {
+
+	var (
+		peerAlias    *lnwire.ShortChannelID
+		defaultAlias lnwire.ShortChannelID
+	)
+
+	chanID := lnwire.NewChanIDFromOutPoint(op)
+
+	// Fetch the peer's alias from the lnwire.ChannelID so it can be used
+	// in the ChannelUpdate if it hasn't been announced yet.
+	if useAlias {
+		foundAlias, _ := s.aliasMgr.GetPeerAlias(chanID)
+		if foundAlias != defaultAlias {
+			peerAlias = &foundAlias
+		}
+	}
+
+	errChan := s.authGossiper.ProcessLocalAnnouncement(
+		update, discovery.RemoteAlias(peerAlias),
+	)
 	select {
 	case err := <-errChan:
 		return err

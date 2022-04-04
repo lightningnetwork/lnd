@@ -2013,7 +2013,9 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	var channelType *lnwire.ChannelType
 	switch in.CommitmentType {
 	case lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE:
-		break
+		if in.ZeroConf {
+			return nil, fmt.Errorf("use anchors for zero-conf")
+		}
 
 	case lnrpc.CommitmentType_LEGACY:
 		channelType = new(lnwire.ChannelType)
@@ -2027,18 +2029,38 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 	case lnrpc.CommitmentType_ANCHORS:
 		channelType = new(lnwire.ChannelType)
-		*channelType = lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+		fv := lnwire.NewRawFeatureVector(
 			lnwire.StaticRemoteKeyRequired,
 			lnwire.AnchorsZeroFeeHtlcTxRequired,
-		))
+		)
+
+		if in.ZeroConf {
+			fv.Set(lnwire.ZeroConfRequired)
+		}
+
+		if in.ScidAlias {
+			fv.Set(lnwire.ScidAliasRequired)
+		}
+
+		*channelType = lnwire.ChannelType(*fv)
 
 	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
 		channelType = new(lnwire.ChannelType)
-		*channelType = lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+		fv := lnwire.NewRawFeatureVector(
 			lnwire.StaticRemoteKeyRequired,
 			lnwire.AnchorsZeroFeeHtlcTxRequired,
 			lnwire.ScriptEnforcedLeaseRequired,
-		))
+		)
+
+		if in.ZeroConf {
+			fv.Set(lnwire.ZeroConfRequired)
+		}
+
+		if in.ScidAlias {
+			fv.Set(lnwire.ScidAliasRequired)
+		}
+
+		*channelType = lnwire.ChannelType(*fv)
 
 	default:
 		return nil, fmt.Errorf("unhandled request channel type %v",

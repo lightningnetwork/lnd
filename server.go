@@ -1173,6 +1173,46 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
+	// Wrap the DeleteChannelEdges method so that the funding manager can
+	// use it without depending on several layers of indirection.
+	deleteAliasEdge := func(scid lnwire.ShortChannelID) (
+		*channeldb.ChannelEdgePolicy, error) {
+
+		info, e1, e2, err := s.graphDB.FetchChannelEdgesByID(
+			scid.ToUint64(),
+		)
+		if err == channeldb.ErrEdgeNotFound {
+			// This is unlikely but there is a slim chance of this
+			// being hit if lnd was killed via SIGKILL and the
+			// funding manager was stepping through the delete
+			// alias edge logic.
+			return nil, nil
+		} else if err != nil {
+			return nil, err
+		}
+
+		// Grab our key to find our policy.
+		var ourKey [33]byte
+		copy(ourKey[:], nodeKeyDesc.PubKey.SerializeCompressed())
+
+		var ourPolicy *channeldb.ChannelEdgePolicy
+		if info != nil && info.NodeKey1Bytes == ourKey {
+			ourPolicy = e1
+		} else {
+			ourPolicy = e2
+		}
+
+		if ourPolicy == nil {
+			// Something is wrong, so return an error.
+			return nil, fmt.Errorf("we don't have an edge")
+		}
+
+		err = s.graphDB.DeleteChannelEdges(
+			false, false, scid.ToUint64(),
+		)
+		return ourPolicy, err
+	}
+
 	s.fundingMgr, err = funding.NewFundingManager(funding.Config{
 		NoWumboChans:       !cfg.ProtocolOptions.Wumbo(),
 		IDKey:              nodeKeyDesc.PubKey,
@@ -1191,15 +1231,16 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		SendAnnouncement: s.authGossiper.ProcessLocalAnnouncement,
 		NotifyWhenOnline: s.NotifyWhenOnline,
 		TempChanIDSeed:   chanIDSeed,
-		FindChannel: func(chanID lnwire.ChannelID) (
-			*channeldb.OpenChannel, error) {
+		FindChannel: func(node *btcec.PublicKey,
+			chanID lnwire.ChannelID) (*channeldb.OpenChannel,
+			error) {
 
-			dbChannels, err := s.chanStateDB.FetchAllChannels()
+			nodeChans, err := s.chanStateDB.FetchOpenChannels(node)
 			if err != nil {
 				return nil, err
 			}
 
-			for _, channel := range dbChannels {
+			for _, channel := range nodeChans {
 				if chanID.IsChanPoint(&channel.FundingOutpoint) {
 					return channel, nil
 				}
@@ -1357,6 +1398,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		RegisteredChains:              cfg.registeredChains,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
+		DeleteAliasEdge: deleteAliasEdge,
+		AliasManager:    s.aliasMgr,
 	})
 	if err != nil {
 		return nil, err

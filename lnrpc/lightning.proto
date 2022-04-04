@@ -979,6 +979,13 @@ message ChannelAcceptResponse {
     The number of confirmations we require before we consider the channel open.
     */
     uint32 min_accept_depth = 10;
+
+    /*
+    Whether the responder wants this to be a zero-conf channel. This will fail
+    if either side does not have the scid-alias feature bit set. The minimum
+    depth field must be zero if this is true.
+    */
+    bool zero_conf = 11;
 }
 
 message ChannelPoint {

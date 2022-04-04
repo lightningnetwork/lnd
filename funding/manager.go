@@ -351,8 +351,10 @@ type Config struct {
 	NotifyWhenOnline func(peer [33]byte, peerChan chan<- lnpeer.Peer)
 
 	// FindChannel queries the database for the channel with the given
-	// channel ID.
-	FindChannel func(chanID lnwire.ChannelID) (*channeldb.OpenChannel, error)
+	// channel ID. Providing the node's public key is an optimization that
+	// prevents deserializing and scanning through all possible channels.
+	FindChannel func(node *btcec.PublicKey,
+		chanID lnwire.ChannelID) (*channeldb.OpenChannel, error)
 
 	// TempChanIDSeed is a cryptographically random string of bytes that's
 	// used as a seed to generate pending channel ID's.
@@ -403,8 +405,8 @@ type Config struct {
 	// node we're establishing a channel with for reconnection purposes.
 	WatchNewChannel func(*channeldb.OpenChannel, *btcec.PublicKey) error
 
-	// ReportShortChanID allows the funding manager to report the newly
-	// discovered short channel ID of a formerly pending channel to outside
+	// ReportShortChanID allows the funding manager to report the confirmed
+	// short channel ID of a formerly pending zero-conf channel to outside
 	// sub-systems.
 	ReportShortChanID func(wire.OutPoint) error
 
@@ -463,6 +465,15 @@ type Config struct {
 	// MaxAnchorsCommitFeeRate is the max commitment fee rate we'll use as
 	// the initiator for channels of the anchor type.
 	MaxAnchorsCommitFeeRate chainfee.SatPerKWeight
+
+	// DeleteAliasEdge allows the Manager to delete an alias channel edge
+	// from the graph. It also returns our local to-be-deleted policy.
+	DeleteAliasEdge func(scid lnwire.ShortChannelID) (
+		*channeldb.ChannelEdgePolicy, error)
+
+	// AliasManager is an implementation of the aliasHandler interface that
+	// abstracts away the handling of many alias functions.
+	AliasManager aliasHandler
 }
 
 // Manager acts as an orchestrator/bridge between the wallet's
@@ -632,43 +643,17 @@ func (f *Manager) start() error {
 			if chanType.IsSingleFunder() && chanType.HasFundingTx() &&
 				channel.IsInitiator {
 
-				var fundingTxBuf bytes.Buffer
-				err := channel.FundingTxn.Serialize(&fundingTxBuf)
-				if err != nil {
-					log.Errorf("Unable to serialize "+
-						"funding transaction %v: %v",
-						channel.FundingTxn.TxHash(), err)
-
-					// Clear the buffer of any bytes that
-					// were written before the serialization
-					// error to prevent logging an
-					// incomplete transaction.
-					fundingTxBuf.Reset()
-				}
-
-				log.Debugf("Rebroadcasting funding tx for "+
-					"ChannelPoint(%v): %x",
-					channel.FundingOutpoint,
-					fundingTxBuf.Bytes())
-
-				// Set a nil short channel ID at this stage
-				// because we do not know it until our funding
-				// tx confirms.
-				label := labels.MakeLabel(
-					labels.LabelTypeChannelOpen, nil,
-				)
-
-				err = f.cfg.PublishTransaction(
-					channel.FundingTxn, label,
-				)
-				if err != nil {
-					log.Errorf("Unable to rebroadcast "+
-						"funding tx %x for "+
-						"ChannelPoint(%v): %v",
-						fundingTxBuf.Bytes(),
-						channel.FundingOutpoint, err)
-				}
+				f.rebroadcastFundingTx(channel)
 			}
+		} else if channel.ChanType.IsSingleFunder() &&
+			channel.ChanType.HasFundingTx() &&
+			channel.IsZeroConf() && channel.IsInitiator &&
+			!channel.ZeroConfConfirmed() {
+
+			// Rebroadcast the funding transaction for unconfirmed
+			// zero-conf channels if we have the funding tx and are
+			// also the initiator.
+			f.rebroadcastFundingTx(channel)
 		}
 
 		// We will restart the funding state machine for all channels,
@@ -695,6 +680,36 @@ func (f *Manager) Stop() error {
 	})
 
 	return nil
+}
+
+// rebroadcastFundingTx publishes the funding tx on startup for each
+// unconfirmed channel.
+func (f *Manager) rebroadcastFundingTx(c *channeldb.OpenChannel) {
+	var fundingTxBuf bytes.Buffer
+	err := c.FundingTxn.Serialize(&fundingTxBuf)
+	if err != nil {
+		log.Errorf("Unable to serialize funding transaction %v: %v",
+			c.FundingTxn.TxHash(), err)
+
+		// Clear the buffer of any bytes that were written before the
+		// serialization error to prevent logging an incomplete
+		// transaction.
+		fundingTxBuf.Reset()
+	} else {
+		log.Debugf("Rebroadcasting funding tx for ChannelPoint(%v): "+
+			"%x", c.FundingOutpoint, fundingTxBuf.Bytes())
+	}
+
+	// Set a nil short channel ID at this stage because we do not know it
+	// until our funding tx confirms.
+	label := labels.MakeLabel(labels.LabelTypeChannelOpen, nil)
+
+	err = f.cfg.PublishTransaction(c.FundingTxn, label)
+	if err != nil {
+		log.Errorf("Unable to rebroadcast funding tx %x for "+
+			"ChannelPoint(%v): %v", fundingTxBuf.Bytes(),
+			c.FundingOutpoint, err)
+	}
 }
 
 // nextPendingChanID returns the next free pending channel ID to be used to
@@ -782,7 +797,6 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	// errors (lnwire.FundingError or lnwallet.ReservationError).
 	var msg lnwire.ErrorData
 	switch e := fundingErr.(type) {
-
 	// Let the actual error message be sent to the remote for the
 	// whitelisted types.
 	case lnwallet.ReservationError:
@@ -821,7 +835,6 @@ func (f *Manager) reservationCoordinator() {
 
 	for {
 		select {
-
 		case fmsg := <-f.fundingMsgs:
 			switch msg := fmsg.msg.(type) {
 			case *lnwire.OpenChannel:
@@ -941,7 +954,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 	// The funding transaction was confirmed, but we did not successfully
 	// send the fundingLocked message to the peer, so let's do that now.
 	case markedOpen:
-		err := f.sendFundingLocked(channel, lnChannel, shortChanID)
+		err := f.sendFundingLocked(channel, lnChannel)
 		if err != nil {
 			return fmt.Errorf("failed sending fundingLocked: %v",
 				err)
@@ -968,7 +981,29 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 	// fundingLocked was sent to peer, but the channel was not added to the
 	// router graph and the channel announcement was not sent.
 	case fundingLockedSent:
-		err := f.addToRouterGraph(channel, shortChanID)
+		var peerAlias *lnwire.ShortChannelID
+		if channel.IsZeroConf() {
+			// We'll need to wait until funding_locked has been
+			// received and the peer lets us know the alias they
+			// want to use for the channel. With this information,
+			// we can then construct a ChannelUpdate for them.
+			// If an alias does not yet exist, we'll just return,
+			// letting the next iteration of the loop check again.
+			var defaultAlias lnwire.ShortChannelID
+			chanID := lnwire.NewChanIDFromOutPoint(
+				&channel.FundingOutpoint,
+			)
+			foundAlias, _ := f.cfg.AliasManager.GetPeerAlias(
+				chanID,
+			)
+			if foundAlias == defaultAlias {
+				return nil
+			}
+
+			peerAlias = &foundAlias
+		}
+
+		err := f.addToRouterGraph(channel, shortChanID, peerAlias, nil)
 		if err != nil {
 			return fmt.Errorf("failed adding to "+
 				"router graph: %v", err)
@@ -1023,6 +1058,22 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 	// The channel was added to the Router's topology, but the channel
 	// announcement was not sent.
 	case addedToRouterGraph:
+		if channel.IsZeroConf() {
+			// If this is a zero-conf channel, then we will wait
+			// for it to be confirmed before announcing it to the
+			// greater network.
+			err := f.waitForZeroConfChannel(channel, pendingChanID)
+			if err != nil {
+				return fmt.Errorf("failed waiting for zero "+
+					"channel: %v", err)
+			}
+
+			// Update the local shortChanID variable such that
+			// annAfterSixConfs uses the confirmed SCID.
+			confirmedScid := channel.ZeroConfRealScid()
+			shortChanID = &confirmedScid
+		}
+
 		err := f.annAfterSixConfs(channel, shortChanID)
 		if err != nil {
 			return fmt.Errorf("error sending channel "+
@@ -1054,62 +1105,59 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 func (f *Manager) advancePendingChannelState(
 	channel *channeldb.OpenChannel, pendingChanID [32]byte) error {
 
+	if channel.IsZeroConf() {
+		// Persist the alias to the alias database.
+		baseScid := channel.ShortChannelID
+		err := f.cfg.AliasManager.AddLocalAlias(
+			baseScid, baseScid, true,
+		)
+		if err != nil {
+			return fmt.Errorf("error adding local alias to "+
+				"store: %v", err)
+		}
+
+		// We don't wait for zero-conf channels to be confirmed and
+		// instead immediately proceed with the rest of the funding
+		// flow. The channel opening state is stored under the alias
+		// SCID.
+		err = f.saveChannelOpeningState(
+			&channel.FundingOutpoint, markedOpen,
+			&channel.ShortChannelID,
+		)
+		if err != nil {
+			return fmt.Errorf("error setting zero-conf channel "+
+				"state to markedOpen: %v", err)
+		}
+
+		// The ShortChannelID is already set since it's an alias, but
+		// we still need to mark the channel as no longer pending.
+		err = channel.MarkAsOpen(channel.ShortChannelID)
+		if err != nil {
+			return fmt.Errorf("error setting zero-conf channel's "+
+				"pending flag to false: %v", err)
+		}
+
+		// Inform the ChannelNotifier that the channel has transitioned
+		// from pending open to open.
+		f.cfg.NotifyOpenChannelEvent(channel.FundingOutpoint)
+
+		// Find and close the discoverySignal for this channel such
+		// that FundingLocked messages will be processed.
+		chanID := lnwire.NewChanIDFromOutPoint(
+			&channel.FundingOutpoint,
+		)
+		f.localDiscoveryMtx.Lock()
+		defer f.localDiscoveryMtx.Unlock()
+		if discoverySignal, ok := f.localDiscoverySignals[chanID]; ok {
+			close(discoverySignal)
+		}
+
+		return nil
+	}
+
 	confChannel, err := f.waitForFundingWithTimeout(channel)
 	if err == ErrConfirmationTimeout {
-		// We'll get a timeout if the number of blocks mined
-		// since the channel was initiated reaches
-		// maxWaitNumBlocksFundingConf and we are not the
-		// channel initiator.
-		ch := channel
-		localBalance := ch.LocalCommitment.LocalBalance.ToSatoshis()
-		closeInfo := &channeldb.ChannelCloseSummary{
-			ChainHash:               ch.ChainHash,
-			ChanPoint:               ch.FundingOutpoint,
-			RemotePub:               ch.IdentityPub,
-			Capacity:                ch.Capacity,
-			SettledBalance:          localBalance,
-			CloseType:               channeldb.FundingCanceled,
-			RemoteCurrentRevocation: ch.RemoteCurrentRevocation,
-			RemoteNextRevocation:    ch.RemoteNextRevocation,
-			LocalChanConfig:         ch.LocalChanCfg,
-		}
-
-		// Close the channel with us as the initiator because we are
-		// timing the channel out.
-		if err := ch.CloseChannel(
-			closeInfo, channeldb.ChanStatusLocalCloseInitiator,
-		); err != nil {
-			return fmt.Errorf("failed closing channel "+
-				"%v: %v", ch.FundingOutpoint, err)
-		}
-
-		timeoutErr := fmt.Errorf("timeout waiting for funding tx "+
-			"(%v) to confirm", channel.FundingOutpoint)
-
-		// When the peer comes online, we'll notify it that we
-		// are now considering the channel flow canceled.
-		f.wg.Add(1)
-		go func() {
-			defer f.wg.Done()
-
-			peerChan := make(chan lnpeer.Peer, 1)
-			var peerKey [33]byte
-			copy(peerKey[:], ch.IdentityPub.SerializeCompressed())
-
-			f.cfg.NotifyWhenOnline(peerKey, peerChan)
-
-			var peer lnpeer.Peer
-			select {
-			case peer = <-peerChan:
-			case <-f.quit:
-				return
-			}
-			// TODO(halseth): should this send be made
-			// reliable?
-			f.failFundingFlow(peer, pendingChanID, timeoutErr)
-		}()
-
-		return timeoutErr
+		return f.fundingTimeout(channel, pendingChanID)
 	} else if err != nil {
 		return fmt.Errorf("error waiting for funding "+
 			"confirmation for ChannelPoint(%v): %v",
@@ -1295,16 +1343,72 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		return
 	}
 
-	// Only echo back a channel type in AcceptChannel if we actually used
-	// explicit negotiation above.
-	var chanTypeFeatureBits *lnwire.ChannelType
-	if wasExplicit {
-		chanTypeFeatureBits = msg.ChannelType
+	var scidFeatureVal bool
+	if hasFeatures(
+		peer.LocalFeatures(), peer.RemoteFeatures(),
+		lnwire.ScidAliasOptional,
+	) {
+
+		scidFeatureVal = true
 	}
 
-	chainHash := chainhash.Hash(msg.ChainHash)
+	var (
+		chanTypeFeatureBits *lnwire.ChannelType
+		zeroConf            bool
+		scid                bool
+	)
+
+	anchors := commitType == lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx
+
+	if wasExplicit {
+		// Only echo back a channel type in AcceptChannel if we
+		// actually used explicit negotiation above.
+		chanTypeFeatureBits = msg.ChannelType
+
+		// Check if the channel type includes the zero-conf or
+		// scid-alias bits.
+		featureVec := lnwire.RawFeatureVector(*chanTypeFeatureBits)
+		zeroConf = featureVec.IsSet(lnwire.ZeroConfRequired)
+		scid = featureVec.IsSet(lnwire.ScidAliasRequired)
+
+		// If the zero-conf channel type wasn't negotiated and the
+		// fundee still wants a zero-conf channel, perform more checks.
+		// Require that this channel has anchors and both sides also
+		// have the scid-alias feature bit set. This is for
+		// compatibility with LDK.
+		if !zeroConf && acceptorResp.ZeroConf {
+			if !anchors || !scidFeatureVal {
+				// Fail the funding flow.
+				flowErr := fmt.Errorf("scid-alias feature " +
+					"must be negotiated in addition to " +
+					"anchors")
+				f.failFundingFlow(
+					peer, msg.PendingChannelID, flowErr,
+				)
+				return
+			}
+
+			// Set zeroConf to true to enable the zero-conf flow.
+			zeroConf = true
+		}
+
+		// TODO: default to zero-conf false all the time unless
+		// acceptor even with chan-type?
+	}
+
+	// Sending the option-scid-alias channel type for a public channel is
+	// disallowed.
+	public := msg.ChannelFlags&lnwire.FFAnnounceChannel != 0
+	if public && scid {
+		err = fmt.Errorf("option-scid-alias chantype for public " +
+			"channel")
+		log.Error(err)
+		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		return
+	}
+
 	req := &lnwallet.InitFundingReserveMsg{
-		ChainHash:        &chainHash,
+		ChainHash:        &msg.ChainHash,
 		PendingChanID:    msg.PendingChannelID,
 		NodeID:           peer.IdentityKey(),
 		NodeAddr:         peer.Address(),
@@ -1316,6 +1420,9 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		Flags:            msg.ChannelFlags,
 		MinConfs:         1,
 		CommitType:       commitType,
+		ZeroConf:         zeroConf,
+		OptionScidAlias:  scid,
+		ScidAliasFeature: scidFeatureVal,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
@@ -1323,6 +1430,19 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		log.Errorf("Unable to initialize reservation: %v", err)
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
 		return
+	}
+
+	if zeroConf {
+		// Store an alias for zero-conf channels. Other option-scid
+		// channels will do this at a later point.
+		aliasScid, err := f.cfg.AliasManager.RequestAlias()
+		if err != nil {
+			log.Errorf("Unable to request alias: %v", err)
+			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			return
+		}
+
+		reservation.AddAlias(aliasScid)
 	}
 
 	// As we're the responder, we get to specify the number of confirmations
@@ -1335,6 +1455,13 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	if acceptorResp.MinAcceptDepth != 0 {
 		numConfsReq = acceptorResp.MinAcceptDepth
 	}
+
+	// We'll ignore the min_depth calculated above if this is a zero-conf
+	// channel.
+	if zeroConf {
+		numConfsReq = 0
+	}
+
 	reservation.SetNumConfsRequired(numConfsReq)
 
 	// We'll also validate and apply all the constraints the initiating
@@ -1645,6 +1772,14 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 			msg.MinAcceptDepth, chainntnfs.MaxNumConfs,
 		)
 		log.Warnf("Unacceptable channel constraints: %v", err)
+		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		return
+	}
+
+	// Check that zero-conf channels have minimum depth set to 0.
+	if resCtx.reservation.IsZeroConf() && msg.MinAcceptDepth != 0 {
+		err = fmt.Errorf("zero-conf channel has min_depth non-zero")
+		log.Warn(err)
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
 		return
 	}
@@ -2218,6 +2353,70 @@ type confirmedChannel struct {
 	fundingTx *wire.MsgTx
 }
 
+// fundingTimeout is called when callers of waitForFundingWithTimeout receive
+// an ErrConfirmationTimeout. It is used to clean-up channel state and mark the
+// channel as closed. The error is only returned for the responder of the
+// channel flow.
+func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
+	pendingID [32]byte) error {
+
+	// We'll get a timeout if the number of blocks mined since the channel
+	// was initiated reaches maxWaitNumBlocksFundingConf and we are not the
+	// channel initiator.
+	localBalance := c.LocalCommitment.LocalBalance.ToSatoshis()
+	closeInfo := &channeldb.ChannelCloseSummary{
+		ChainHash:               c.ChainHash,
+		ChanPoint:               c.FundingOutpoint,
+		RemotePub:               c.IdentityPub,
+		Capacity:                c.Capacity,
+		SettledBalance:          localBalance,
+		CloseType:               channeldb.FundingCanceled,
+		RemoteCurrentRevocation: c.RemoteCurrentRevocation,
+		RemoteNextRevocation:    c.RemoteNextRevocation,
+		LocalChanConfig:         c.LocalChanCfg,
+	}
+
+	// Close the channel with us as the initiator because we are timing the
+	// channel out.
+	if err := c.CloseChannel(
+		closeInfo, channeldb.ChanStatusLocalCloseInitiator,
+	); err != nil {
+		return fmt.Errorf("failed closing channel %v: %v",
+			c.FundingOutpoint, err)
+	}
+
+	timeoutErr := fmt.Errorf("timeout waiting for funding tx (%v) to "+
+		"confirm", c.FundingOutpoint)
+
+	// When the peer comes online, we'll notify it that we are now
+	// considering the channel flow canceled.
+	f.wg.Add(1)
+	go func() {
+		defer f.wg.Done()
+
+		peerChan := make(chan lnpeer.Peer, 1)
+		var peerKey [33]byte
+		copy(peerKey[:], c.IdentityPub.SerializeCompressed())
+
+		f.cfg.NotifyWhenOnline(peerKey, peerChan)
+
+		var peer lnpeer.Peer
+		select {
+		case peer = <-peerChan:
+		case <-f.quit:
+			return
+		}
+		// TODO(halseth): should this send be made
+		// reliable?
+
+		// The reservation won't exist at this point, but we'll send an
+		// Error message over anyways with ChanID set to pendingID.
+		f.failFundingFlow(peer, pendingID, timeoutErr)
+	}()
+
+	return timeoutErr
+}
+
 // waitForFundingWithTimeout is a wrapper around waitForFundingConfirmation and
 // waitForTimeout that will return ErrConfirmationTimeout if we are not the
 // channel initiator and the maxWaitNumBlocksFundingConf has passed from the
@@ -2304,6 +2503,13 @@ func (f *Manager) waitForFundingConfirmation(
 		return
 	}
 	numConfs := uint32(completeChan.NumConfsRequired)
+
+	// If the underlying channel is a zero-conf channel, we'll set numConfs
+	// to 6, since it will be zero here.
+	if completeChan.IsZeroConf() {
+		numConfs = 6
+	}
+
 	confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(
 		&txid, fundingScript, numConfs,
 		completeChan.BroadcastHeight(),
@@ -2431,6 +2637,33 @@ func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 	}
 }
 
+// makeLabelForTx updates the label for the confirmed funding transaction. If
+// we opened the channel, and lnd's wallet published our funding tx (which is
+// not the case for some channels) then we update our transaction label with
+// our short channel ID, which is known now that our funding transaction has
+// confirmed. We do not label transactions we did not publish, because our
+// wallet has no knowledge of them.
+func (f *Manager) makeLabelForTx(c *channeldb.OpenChannel) {
+	if c.IsInitiator && c.ChanType.HasFundingTx() {
+		shortChanID := c.ShortChanID()
+
+		// For zero-conf channels, we'll use the actually-confirmed
+		// short channel id.
+		if c.IsZeroConf() {
+			shortChanID = c.ZeroConfRealScid()
+		}
+
+		label := labels.MakeLabel(
+			labels.LabelTypeChannelOpen, &shortChanID,
+		)
+
+		err := f.cfg.UpdateLabel(c.FundingOutpoint.Hash, label)
+		if err != nil {
+			log.Errorf("unable to update label: %v", err)
+		}
+	}
+}
+
 // handleFundingConfirmation marks a channel as open in the database, and set
 // the channelOpeningState markedOpen. In addition it will report the now
 // decided short channel ID to the switch, and close the local discovery signal
@@ -2452,6 +2685,22 @@ func (f *Manager) handleFundingConfirmation(
 	if err != nil {
 		// TODO(roasbeef): delete chan state?
 		return fmt.Errorf("unable to validate channel: %v", err)
+	}
+
+	// Now that the channel has been validated, we'll persist an alias for
+	// this channel if the option-scid-alias feature-bit was negotiated.
+	if completeChan.NegotiatedAliasFeature() {
+		aliasScid, err := f.cfg.AliasManager.RequestAlias()
+		if err != nil {
+			return fmt.Errorf("unable to request alias: %v", err)
+		}
+
+		err = f.cfg.AliasManager.AddLocalAlias(
+			aliasScid, confChannel.shortChanID, true,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to request alias: %v", err)
+		}
 	}
 
 	// The funding transaction now being confirmed, we add this channel to
@@ -2480,32 +2729,8 @@ func (f *Manager) handleFundingConfirmation(
 	// pending open to open.
 	f.cfg.NotifyOpenChannelEvent(completeChan.FundingOutpoint)
 
-	// As there might already be an active link in the switch with an
-	// outdated short chan ID, we'll instruct the switch to load the updated
-	// short chan id from disk.
-	err = f.cfg.ReportShortChanID(fundingPoint)
-	if err != nil {
-		log.Errorf("unable to report short chan id: %v", err)
-	}
-
-	// If we opened the channel, and lnd's wallet published our funding tx
-	// (which is not the case for some channels) then we update our
-	// transaction label with our short channel ID, which is known now that
-	// our funding transaction has confirmed. We do not label transactions
-	// we did not publish, because our wallet has no knowledge of them.
-	if completeChan.IsInitiator && completeChan.ChanType.HasFundingTx() {
-		shortChanID := completeChan.ShortChanID()
-		label := labels.MakeLabel(
-			labels.LabelTypeChannelOpen, &shortChanID,
-		)
-
-		err = f.cfg.UpdateLabel(
-			completeChan.FundingOutpoint.Hash, label,
-		)
-		if err != nil {
-			log.Errorf("unable to update label: %v", err)
-		}
-	}
+	// Update the confirmed funding transaction label.
+	f.makeLabelForTx(completeChan)
 
 	// Close the discoverySignal channel, indicating to a separate
 	// goroutine that the channel now is marked as open in the database
@@ -2523,9 +2748,8 @@ func (f *Manager) handleFundingConfirmation(
 // sendFundingLocked creates and sends the fundingLocked message.
 // This should be called after the funding transaction has been confirmed,
 // and the channelState is 'markedOpen'.
-func (f *Manager) sendFundingLocked(
-	completeChan *channeldb.OpenChannel, channel *lnwallet.LightningChannel,
-	shortChanID *lnwire.ShortChannelID) error {
+func (f *Manager) sendFundingLocked(completeChan *channeldb.OpenChannel,
+	channel *lnwallet.LightningChannel) error {
 
 	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
 
@@ -2541,6 +2765,24 @@ func (f *Manager) sendFundingLocked(
 		return fmt.Errorf("unable to create next revocation: %v", err)
 	}
 	fundingLockedMsg := lnwire.NewFundingLocked(chanID, nextRevocation)
+
+	// If the channel negotiated the option-scid-alias feature bit, we'll
+	// send a TLV segment that includes an alias the peer can use in their
+	// invoice hop hints. We'll send the first alias we find for the
+	// channel since it does not matter which alias we send. We'll error
+	// out in the odd case that no aliases are found.
+	if completeChan.NegotiatedAliasFeature() {
+		aliases := f.cfg.AliasManager.GetAliases(
+			completeChan.ShortChanID(),
+		)
+		if len(aliases) == 0 {
+			return fmt.Errorf("no aliases found")
+		}
+
+		// We can use a pointer to aliases since GetAliases returns a
+		// copy of the alias slice.
+		fundingLockedMsg.AliasScid = &aliases[0]
+	}
 
 	// If the peer has disconnected before we reach this point, we will need
 	// to wait for him to come back online before sending the fundingLocked
@@ -2564,6 +2806,49 @@ func (f *Manager) sendFundingLocked(
 			return ErrFundingManagerShuttingDown
 		}
 
+		localAlias := peer.LocalFeatures().HasFeature(
+			lnwire.ScidAliasOptional,
+		)
+		remoteAlias := peer.RemoteFeatures().HasFeature(
+			lnwire.ScidAliasOptional,
+		)
+
+		// We could also refresh the channel state instead of checking
+		// whether the feature was negotiated, but this saves us a
+		// database read.
+		if fundingLockedMsg.AliasScid == nil && localAlias &&
+			remoteAlias {
+
+			// If an alias was not assigned above and the scid
+			// alias feature was negotiated, check if we already
+			// have an alias stored in case handleFundingLocked was
+			// called before this. If an alias exists, use that in
+			// funding_locked. Otherwise, request and store an
+			// alias and use that.
+			aliases := f.cfg.AliasManager.GetAliases(
+				completeChan.ShortChannelID,
+			)
+			if len(aliases) == 0 {
+				// No aliases were found.
+				alias, err := f.cfg.AliasManager.RequestAlias()
+				if err != nil {
+					return err
+				}
+
+				err = f.cfg.AliasManager.AddLocalAlias(
+					alias, completeChan.ShortChannelID,
+					false,
+				)
+				if err != nil {
+					return err
+				}
+
+				fundingLockedMsg.AliasScid = &alias
+			} else {
+				fundingLockedMsg.AliasScid = &aliases[0]
+			}
+		}
+
 		log.Infof("Peer(%x) is online, sending FundingLocked "+
 			"for ChannelID(%v)", peerKey, chanID)
 
@@ -2580,24 +2865,20 @@ func (f *Manager) sendFundingLocked(
 	return nil
 }
 
-// addToRouterGraph sends a ChannelAnnouncement and a ChannelUpdate to the
-// gossiper so that the channel is added to the Router's internal graph.
-// These announcement messages are NOT broadcasted to the greater network,
-// only to the channel counter party. The proofs required to announce the
-// channel to the greater network will be created and sent in annAfterSixConfs.
-func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
-	shortChanID *lnwire.ShortChannelID) error {
-
-	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
+// extractAnnounceParams extracts the various channel announcement and update
+// parameters that will be needed to construct a ChannelAnnouncement and a
+// ChannelUpdate.
+func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
+	lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
 
 	// We'll obtain the min HTLC value we can forward in our direction, as
 	// we'll use this value within our ChannelUpdate. This constraint is
 	// originally set by the remote node, as it will be the one that will
 	// need to determine the smallest HTLC it deems economically relevant.
-	fwdMinHTLC := completeChan.LocalChanCfg.MinHTLC
+	fwdMinHTLC := c.LocalChanCfg.MinHTLC
 
-	// We don't necessarily want to go as low as the remote party
-	// allows. Check it against our default forwarding policy.
+	// We don't necessarily want to go as low as the remote party allows.
+	// Check it against our default forwarding policy.
 	if fwdMinHTLC < f.cfg.DefaultRoutingPolicy.MinHTLCOut {
 		fwdMinHTLC = f.cfg.DefaultRoutingPolicy.MinHTLCOut
 	}
@@ -2605,17 +2886,37 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	// We'll obtain the max HTLC value we can forward in our direction, as
 	// we'll use this value within our ChannelUpdate. This value must be <=
 	// channel capacity and <= the maximum in-flight msats set by the peer.
-	fwdMaxHTLC := completeChan.LocalChanCfg.MaxPendingAmount
-	capacityMSat := lnwire.NewMSatFromSatoshis(completeChan.Capacity)
+	fwdMaxHTLC := c.LocalChanCfg.MaxPendingAmount
+	capacityMSat := lnwire.NewMSatFromSatoshis(c.Capacity)
 	if fwdMaxHTLC > capacityMSat {
 		fwdMaxHTLC = capacityMSat
 	}
+
+	return fwdMinHTLC, fwdMaxHTLC
+}
+
+// addToRouterGraph sends a ChannelAnnouncement and a ChannelUpdate to the
+// gossiper so that the channel is added to the Router's internal graph.
+// These announcement messages are NOT broadcasted to the greater network,
+// only to the channel counter party. The proofs required to announce the
+// channel to the greater network will be created and sent in annAfterSixConfs.
+// The peerAlias is used for zero-conf channels to give the counter-party a
+// ChannelUpdate they understand. ourPolicy may be set for various
+// option-scid-alias channels to re-use the same policy.
+func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
+	shortChanID *lnwire.ShortChannelID,
+	peerAlias *lnwire.ShortChannelID,
+	ourPolicy *channeldb.ChannelEdgePolicy) error {
+
+	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
+
+	fwdMinHTLC, fwdMaxHTLC := f.extractAnnounceParams(completeChan)
 
 	ann, err := f.newChanAnnouncement(
 		f.cfg.IDKey, completeChan.IdentityPub,
 		&completeChan.LocalChanCfg.MultiSigKey,
 		completeChan.RemoteChanCfg.MultiSigKey.PubKey, *shortChanID,
-		chanID, fwdMinHTLC, fwdMaxHTLC,
+		chanID, fwdMinHTLC, fwdMaxHTLC, ourPolicy,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating channel "+
@@ -2633,6 +2934,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 		if err != nil {
 			if routing.IsError(err, routing.ErrOutdated,
 				routing.ErrIgnored) {
+
 				log.Debugf("Router rejected "+
 					"ChannelAnnouncement: %v", err)
 			} else {
@@ -2644,12 +2946,15 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 		return ErrFundingManagerShuttingDown
 	}
 
-	errChan = f.cfg.SendAnnouncement(ann.chanUpdateAnn)
+	errChan = f.cfg.SendAnnouncement(
+		ann.chanUpdateAnn, discovery.RemoteAlias(peerAlias),
+	)
 	select {
 	case err := <-errChan:
 		if err != nil {
 			if routing.IsError(err, routing.ErrOutdated,
 				routing.ErrIgnored) {
+
 				log.Debugf("Router rejected "+
 					"ChannelUpdate: %v", err)
 			} else {
@@ -2772,6 +3077,40 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		log.Infof("Announcing ChannelPoint(%v), short_chan_id=%v",
 			&fundingPoint, shortChanID)
 
+		// If this is a non-zero-conf option-scid-alias channel, we'll
+		// delete the mappings the gossiper uses so that ChannelUpdates
+		// with aliases won't be accepted. This is done elsewhere for
+		// zero-conf channels.
+		isScidFeature := completeChan.NegotiatedAliasFeature()
+		isZeroConf := completeChan.IsZeroConf()
+		if isScidFeature && !isZeroConf {
+			baseScid := completeChan.ShortChanID()
+			err := f.cfg.AliasManager.DeleteSixConfs(baseScid)
+			if err != nil {
+				return fmt.Errorf("failed deleting six confs "+
+					"maps: %v", err)
+			}
+
+			// We'll delete the edge and add it again via
+			// addToRouterGraph. This is because the peer may have
+			// sent us a ChannelUpdate with an alias and we don't
+			// want to relay this.
+			ourPolicy, err := f.cfg.DeleteAliasEdge(baseScid)
+			if err != nil {
+				return fmt.Errorf("failed deleting real edge "+
+					"for alias channel from graph: %v",
+					err)
+			}
+
+			err = f.addToRouterGraph(
+				completeChan, &baseScid, nil, ourPolicy,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to re-add to "+
+					"router graph: %v", err)
+			}
+		}
+
 		// Create and broadcast the proofs required to make this channel
 		// public and usable for other nodes for routing.
 		err = f.announceChannel(
@@ -2787,6 +3126,98 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		log.Debugf("Channel with ChannelPoint(%v), short_chan_id=%v "+
 			"sent to gossiper", &fundingPoint, shortChanID)
 	}
+
+	return nil
+}
+
+// waitForZeroConfChannel is called when the state is addedToRouterGraph with
+// a zero-conf channel. This will wait for the real confirmation, add the
+// confirmed SCID to the router graph, and then announce after six confs.
+func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel,
+	pendingID [32]byte) error {
+
+	// First we'll check whether the channel is confirmed on-chain. If it
+	// is already confirmed, the chainntnfs subsystem will return with the
+	// confirmed tx. Otherwise, we'll wait here until confirmation occurs.
+	confChan, err := f.waitForFundingWithTimeout(c)
+	if err == ErrConfirmationTimeout {
+		return f.fundingTimeout(c, pendingID)
+	} else if err != nil {
+		return fmt.Errorf("error waiting for zero-conf funding "+
+			"confirmation for ChannelPoint(%v): %v",
+			c.FundingOutpoint, err)
+	}
+
+	// We'll need to refresh the channel state so that things are properly
+	// populated when validating the channel state. Otherwise, a panic may
+	// occur due to inconsistency in the OpenChannel struct.
+	err = c.Refresh()
+	if err != nil {
+		return fmt.Errorf("unable to refresh channel state: %v", err)
+	}
+
+	// Now that we have the confirmed transaction and the proper SCID,
+	// we'll call ValidateChannel to ensure the confirmed tx is properly
+	// formatted.
+	err = f.cfg.Wallet.ValidateChannel(c, confChan.fundingTx)
+	if err != nil {
+		return fmt.Errorf("unable to validate zero-conf channel: "+
+			"%v", err)
+	}
+
+	// Once we know the confirmed ShortChannelID, we'll need to save it to
+	// the database and refresh the OpenChannel struct with it.
+	err = c.MarkRealScid(confChan.shortChanID)
+	if err != nil {
+		return fmt.Errorf("unable to set confirmed SCID for zero "+
+			"channel: %v", err)
+	}
+
+	// Six confirmations have been reached. If this channel is public,
+	// we'll delete some of the alias mappings the gossiper uses.
+	isPublic := c.ChannelFlags&lnwire.FFAnnounceChannel != 0
+	if isPublic {
+		err = f.cfg.AliasManager.DeleteSixConfs(c.ShortChannelID)
+		if err != nil {
+			return fmt.Errorf("unable to delete base alias after "+
+				"six confirmations: %v", err)
+		}
+
+		// TODO: Make this atomic!
+		ourPolicy, err := f.cfg.DeleteAliasEdge(c.ShortChanID())
+		if err != nil {
+			return fmt.Errorf("unable to delete alias edge from "+
+				"graph: %v", err)
+		}
+
+		// We'll need to update the graph with the new ShortChannelID
+		// via an addToRouterGraph call. We don't pass in the peer's
+		// alias since we'll be using the confirmed SCID from now on
+		// regardless if it's public or not.
+		err = f.addToRouterGraph(
+			c, &confChan.shortChanID, nil, ourPolicy,
+		)
+		if err != nil {
+			return fmt.Errorf("failed adding confirmed zero-conf "+
+				"SCID to router graph: %v", err)
+		}
+	}
+
+	// Since we have now marked down the confirmed SCID, we'll also need to
+	// tell the Switch to refresh the relevant ChannelLink so that forwards
+	// under the confirmed SCID are possible if this is a public channel.
+	err = f.cfg.ReportShortChanID(c.FundingOutpoint)
+	if err != nil {
+		// This should only fail if the link is not found in the
+		// Switch's linkIndex map. If this is the case, then the peer
+		// has gone offline and the next time the link is loaded, it
+		// will have a refreshed state. Just log an error here.
+		log.Errorf("unable to report scid for zero-conf channel "+
+			"channel: %v", err)
+	}
+
+	// Update the confirmed transaction's label.
+	f.makeLabelForTx(c)
 
 	return nil
 }
@@ -2849,17 +3280,97 @@ func (f *Manager) handleFundingLocked(peer lnpeer.Peer,
 
 	// First, we'll attempt to locate the channel whose funding workflow is
 	// being finalized by this message. We go to the database rather than
-	// our reservation map as we may have restarted, mid funding flow.
+	// our reservation map as we may have restarted, mid funding flow. Also
+	// provide the node's public key to make the search faster.
 	chanID := msg.ChanID
-	channel, err := f.cfg.FindChannel(chanID)
+	channel, err := f.cfg.FindChannel(peer.IdentityKey(), chanID)
 	if err != nil {
 		log.Errorf("Unable to locate ChannelID(%v), cannot complete "+
 			"funding", chanID)
 		return
 	}
 
+	// We'll need to store the received TLV alias if the option_scid_alias
+	// feature was negotiated. This will be used to provide route hints
+	// during invoice creation. In the zero-conf case, it is also used to
+	// provide a ChannelUpdate to the remote peer. This is done before the
+	// call to InsertNextRevocation in case the call to PutPeerAlias fails.
+	// If it were to fail on the first call to handleFundingLocked, we
+	// wouldn't want the channel to be usable yet.
+	if channel.NegotiatedAliasFeature() {
+		// If the AliasScid field is nil, we must fail out. We will
+		// most likely not be able to route through the peer.
+		if msg.AliasScid == nil {
+			log.Debugf("Consider closing ChannelID(%v), peer "+
+				"does not implement the option-scid-alias "+
+				"feature properly", chanID)
+			return
+		}
+
+		// We'll store the AliasScid so that invoice creation can use
+		// it.
+		err = f.cfg.AliasManager.PutPeerAlias(chanID, *msg.AliasScid)
+		if err != nil {
+			log.Errorf("unable to store peer's alias: %v", err)
+			return
+		}
+
+		// If we do not have an alias stored, we'll create one now.
+		// This is only used in the upgrade case where a user toggles
+		// the option-scid-alias feature-bit to on. We'll also send the
+		// funding_locked message here in case the link is created
+		// before sendFundingLocked is called.
+		aliases := f.cfg.AliasManager.GetAliases(
+			channel.ShortChannelID,
+		)
+		if len(aliases) == 0 {
+			// No aliases were found so we'll request and store an
+			// alias and use it in the funding_locked message.
+			alias, err := f.cfg.AliasManager.RequestAlias()
+			if err != nil {
+				log.Errorf("unable to request alias: %v", err)
+				return
+			}
+
+			err = f.cfg.AliasManager.AddLocalAlias(
+				alias, channel.ShortChannelID, false,
+			)
+			if err != nil {
+				log.Errorf("unable to add local alias: %v",
+					err)
+				return
+			}
+
+			secondPoint, err := channel.SecondCommitmentPoint()
+			if err != nil {
+				log.Errorf("unable to fetch second "+
+					"commitment point: %v", err)
+				return
+			}
+
+			fundingLockedMsg := lnwire.NewFundingLocked(
+				chanID, secondPoint,
+			)
+			fundingLockedMsg.AliasScid = &alias
+
+			err = peer.SendMessage(true, fundingLockedMsg)
+			if err != nil {
+				log.Errorf("unable to send funding locked: %v",
+					err)
+				return
+			}
+		}
+	}
+
 	// If the RemoteNextRevocation is non-nil, it means that we have
-	// already processed fundingLocked for this channel, so ignore.
+	// already processed fundingLocked for this channel, so ignore. This
+	// check is after the alias logic so we store the peer's most recent
+	// alias. The spec requires us to validate that subsequent
+	// funding_locked messages use the same per commitment point (the
+	// second), but it is not actually necessary since we'll just end up
+	// ignoring it. We are, however, required to *send* the same per
+	// commitment point, since another pedantic implementation might
+	// verify it.
 	if channel.RemoteNextRevocation != nil {
 		log.Infof("Received duplicate fundingLocked for "+
 			"ChannelID(%v), ignoring.", chanID)
@@ -2915,12 +3426,14 @@ type chanAnnouncement struct {
 // channel and contains four signatures binding the funding pub keys and
 // identity pub keys of both parties to the channel, and the second segment is
 // authenticated only by us and contains our directional routing policy for the
-// channel.
+// channel. ourPolicy may be set in order to re-use an existing, non-default
+// policy.
 func (f *Manager) newChanAnnouncement(localPubKey,
 	remotePubKey *btcec.PublicKey, localFundingKey *keychain.KeyDescriptor,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
 	chanID lnwire.ChannelID, fwdMinHTLC,
-	fwdMaxHTLC lnwire.MilliSatoshi) (*chanAnnouncement, error) {
+	fwdMaxHTLC lnwire.MilliSatoshi,
+	ourPolicy *channeldb.ChannelEdgePolicy) (*chanAnnouncement, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 
@@ -2987,6 +3500,20 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 
 		BaseFee: uint32(f.cfg.DefaultRoutingPolicy.BaseFee),
 		FeeRate: uint32(f.cfg.DefaultRoutingPolicy.FeeRate),
+	}
+
+	if ourPolicy != nil {
+		// If ourPolicy is non-nil, modify the default parameters of the
+		// ChannelUpdate.
+		chanUpdateAnn.MessageFlags = ourPolicy.MessageFlags
+		chanUpdateAnn.ChannelFlags = ourPolicy.ChannelFlags
+		chanUpdateAnn.TimeLockDelta = ourPolicy.TimeLockDelta
+		chanUpdateAnn.HtlcMinimumMsat = ourPolicy.MinHTLC
+		chanUpdateAnn.HtlcMaximumMsat = ourPolicy.MaxHTLC
+		chanUpdateAnn.BaseFee = uint32(ourPolicy.FeeBaseMSat)
+		chanUpdateAnn.FeeRate = uint32(
+			ourPolicy.FeeProportionalMillionths,
+		)
 	}
 
 	// With the channel update announcement constructed, we'll generate a
@@ -3076,7 +3603,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	// only use the channel announcement message from the returned struct.
 	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey,
 		localFundingKey, remoteFundingKey, shortChanID, chanID,
-		0, 0,
+		0, 0, nil,
 	)
 	if err != nil {
 		log.Errorf("can't generate channel announcement: %v", err)
@@ -3093,6 +3620,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 		if err != nil {
 			if routing.IsError(err, routing.ErrOutdated,
 				routing.ErrIgnored) {
+
 				log.Debugf("Router rejected "+
 					"AnnounceSignatures: %v", err)
 			} else {
@@ -3122,6 +3650,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 		if err != nil {
 			if routing.IsError(err, routing.ErrOutdated,
 				routing.ErrIgnored) {
+
 				log.Debugf("Router rejected "+
 					"NodeAnnouncement: %v", err)
 			} else {
@@ -3280,6 +3809,27 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		return
 	}
 
+	var (
+		zeroConf bool
+		scid     bool
+	)
+
+	// Check if the returned chanType includes either the zero-conf or
+	// scid-alias bits.
+	featureVec := lnwire.RawFeatureVector(*chanType)
+	zeroConf = featureVec.IsSet(lnwire.ZeroConfRequired)
+	scid = featureVec.IsSet(lnwire.ScidAliasRequired)
+
+	// The option-scid-alias channel type for a public channel is
+	// disallowed.
+	if scid && !msg.Private {
+		err = fmt.Errorf("option-scid-alias chantype for public " +
+			"channel")
+		log.Error(err)
+		msg.Err <- err
+		return
+	}
+
 	// First, we'll query the fee estimator for a fee that should get the
 	// commitment transaction confirmed by the next few blocks (conf target
 	// of 3). We target the near blocks here to ensure that we'll be able
@@ -3298,6 +3848,15 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		commitFeePerKw = f.cfg.MaxAnchorsCommitFeeRate
 	}
 
+	var scidFeatureVal bool
+	if hasFeatures(
+		msg.Peer.LocalFeatures(), msg.Peer.RemoteFeatures(),
+		lnwire.ScidAliasOptional,
+	) {
+
+		scidFeatureVal = true
+	}
+
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:        &msg.ChainHash,
 		PendingChanID:    chanID,
@@ -3313,12 +3872,27 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		MinConfs:         msg.MinConfs,
 		CommitType:       commitType,
 		ChanFunder:       msg.ChanFunder,
+		ZeroConf:         zeroConf,
+		OptionScidAlias:  scid,
+		ScidAliasFeature: scidFeatureVal,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
 	if err != nil {
 		msg.Err <- err
 		return
+	}
+
+	if zeroConf {
+		// Store the alias for zero-conf channels in the underlying
+		// partial channel state.
+		aliasScid, err := f.cfg.AliasManager.RequestAlias()
+		if err != nil {
+			msg.Err <- err
+			return
+		}
+
+		reservation.AddAlias(aliasScid)
 	}
 
 	// Set our upfront shutdown address in the existing reservation.

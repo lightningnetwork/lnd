@@ -975,7 +975,9 @@ func (r *ChannelRouter) pruneZombieChans() error {
 		toPrune = append(toPrune, chanID)
 		log.Tracef("Pruning zombie channel with ChannelID(%v)", chanID)
 	}
-	err = r.cfg.Graph.DeleteChannelEdges(r.cfg.StrictZombiePruning, toPrune...)
+	err = r.cfg.Graph.DeleteChannelEdges(
+		r.cfg.StrictZombiePruning, true, toPrune...,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to delete zombie channels: %v", err)
 	}

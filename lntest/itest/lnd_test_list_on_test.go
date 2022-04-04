@@ -407,4 +407,20 @@ var allTestCases = []*testCase{
 		name: "resolution handoff",
 		test: testResHandoff,
 	},
+	{
+		name: "zero conf channel open",
+		test: testZeroConfChannelOpen,
+	},
+	{
+		name: "option scid alias",
+		test: testOptionScidAlias,
+	},
+	{
+		name: "scid alias channel update",
+		test: testUpdateChannelPolicyScidAlias,
+	},
+	{
+		name: "scid alias upgrade",
+		test: testOptionScidUpgrade,
+	},
 }

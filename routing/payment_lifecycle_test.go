@@ -473,6 +473,9 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				return next, nil
 			},
 			Clock: clock.NewTestClock(time.Unix(1, 0)),
+			IsAlias: func(scid lnwire.ShortChannelID) bool {
+				return false
+			},
 		})
 		if err != nil {
 			t.Fatalf("unable to create router %v", err)

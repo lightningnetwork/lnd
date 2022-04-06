@@ -117,12 +117,15 @@ var (
 	// TODO(roasbeef): rename to commit chain?
 	commitDiffKey = []byte("commit-diff-key")
 
-	// revocationLogBucket is dedicated for storing the necessary delta
-	// state between channel updates required to re-construct a past state
-	// in order to punish a counterparty attempting a non-cooperative
+	// revocationLogBucketDeprecated is dedicated for storing the necessary
+	// delta state between channel updates required to re-construct a past
+	// state in order to punish a counterparty attempting a non-cooperative
 	// channel closure. This key should be accessed from within the
 	// sub-bucket of a target channel, identified by its channel point.
-	revocationLogBucket = []byte("revocation-log-key")
+	//
+	// NOTE: deprecated. This bucket is kept for read-only in case the user
+	// choose not to migrate the old data.
+	revocationLogBucketDeprecated = []byte("revocation-log-key")
 
 	// frozenChanKey is the key where we store the information for any
 	// active "frozen" channels. This key is present only in the leaf
@@ -2361,7 +2364,7 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		// TODO(roasbeef): could make the deltas relative, would save
 		// space, but then tradeoff for more disk-seeks to recover the
 		// full state.
-		logKey := revocationLogBucket
+		logKey := revocationLogBucketDeprecated
 		logBucket, err := chanBucket.CreateBucketIfNotExists(logKey)
 		if err != nil {
 			return err
@@ -2600,7 +2603,7 @@ func (c *OpenChannel) revocationLogTailCommitHeight() (uint64, error) {
 			return err
 		}
 
-		logBucket := chanBucket.NestedReadBucket(revocationLogBucket)
+		logBucket := chanBucket.NestedReadBucket(revocationLogBucketDeprecated)
 		if logBucket == nil {
 			return ErrNoPastDeltas
 		}
@@ -2676,7 +2679,7 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelCommitment, e
 			return err
 		}
 
-		logBucket := chanBucket.NestedReadBucket(revocationLogBucket)
+		logBucket := chanBucket.NestedReadBucket(revocationLogBucketDeprecated)
 		if logBucket == nil {
 			return ErrNoPastDeltas
 		}
@@ -2890,9 +2893,9 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 
 		// With the base channel data deleted, attempt to delete the
 		// information stored within the revocation log.
-		logBucket := chanBucket.NestedReadWriteBucket(revocationLogBucket)
+		logBucket := chanBucket.NestedReadWriteBucket(revocationLogBucketDeprecated)
 		if logBucket != nil {
-			err = chanBucket.DeleteNestedBucket(revocationLogBucket)
+			err = chanBucket.DeleteNestedBucket(revocationLogBucketDeprecated)
 			if err != nil {
 				return err
 			}

@@ -179,10 +179,6 @@ var (
 	// channel.
 	ErrChanBorked = fmt.Errorf("cannot mutate borked channel")
 
-	// ErrLogEntryNotFound is returned when we cannot find a log entry at
-	// the height requested in the revocation log.
-	ErrLogEntryNotFound = fmt.Errorf("log entry not found")
-
 	// ErrMissingIndexEntry is returned when a caller attempts to close a
 	// channel and the outpoint is missing from the index.
 	ErrMissingIndexEntry = fmt.Errorf("missing outpoint from index")
@@ -1687,6 +1683,8 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 //
 // TODO(roasbeef): save space by using smaller ints at tail end?
 type HTLC struct {
+	// TODO(yy): can embed an HTLCEntry here.
+
 	// Signature is the signature for the second level covenant transaction
 	// for this HTLC. The second level transaction is a timeout tx in the
 	// case that this is an outgoing HTLC, and a success tx in the case

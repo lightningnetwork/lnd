@@ -129,9 +129,9 @@ var (
 	// bucket for a given channel.
 	frozenChanKey = []byte("frozen-chans")
 
-	// lastWasRevokeKey is a key that stores true when the last update we sent
-	// was a revocation and false when it was a commitment signature. This is
-	// nil in the case of new channels with no updates exchanged.
+	// lastWasRevokeKey is a key that stores true when the last update we
+	// sent was a revocation and false when it was a commitment signature.
+	// This is nil in the case of new channels with no updates exchanged.
 	lastWasRevokeKey = []byte("last-was-revoke")
 )
 
@@ -656,6 +656,15 @@ type OpenChannel struct {
 	// TotalMSatReceived is the total number of milli-satoshis we've
 	// received within this channel.
 	TotalMSatReceived lnwire.MilliSatoshi
+
+	// InitialLocalBalance is the balance we have during the channel
+	// opening. When we are not the initiator, this value represents the
+	// push amount.
+	InitialLocalBalance lnwire.MilliSatoshi
+
+	// InitialRemoteBalance is the balance they have during the channel
+	// opening.
+	InitialRemoteBalance lnwire.MilliSatoshi
 
 	// LocalChanCfg is the channel configuration for the local node.
 	LocalChanCfg ChannelConfig
@@ -3322,7 +3331,8 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 		channel.chanStatus, channel.FundingBroadcastHeight,
 		channel.NumConfsRequired, channel.ChannelFlags,
 		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
-		channel.TotalMSatReceived,
+		channel.TotalMSatReceived, channel.InitialLocalBalance,
+		channel.InitialRemoteBalance,
 	); err != nil {
 		return err
 	}
@@ -3509,7 +3519,8 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 		&channel.chanStatus, &channel.FundingBroadcastHeight,
 		&channel.NumConfsRequired, &channel.ChannelFlags,
 		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
-		&channel.TotalMSatReceived,
+		&channel.TotalMSatReceived, &channel.InitialLocalBalance,
+		&channel.InitialRemoteBalance,
 	); err != nil {
 		return err
 	}

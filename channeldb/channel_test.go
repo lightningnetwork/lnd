@@ -352,6 +352,8 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 		Packager:                NewChannelPackager(chanID),
 		FundingTxn:              channels.TestFundingTx,
 		ThawHeight:              uint32(defaultPendingHeight),
+		InitialLocalBalance:     lnwire.MilliSatoshi(9000),
+		InitialRemoteBalance:    lnwire.MilliSatoshi(3000),
 	}
 }
 

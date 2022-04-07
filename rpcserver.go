@@ -4080,21 +4080,13 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		channel.UnsettledBalance += channel.PendingHtlcs[i].Amount
 	}
 
-	// Lookup our balances at height 0, because they will reflect any
-	// push amounts that may have been present when this channel was
-	// created.
-	localBalance, remoteBalance, err := dbChannel.BalancesAtHeight(0)
-	if err != nil {
-		return nil, err
-	}
-
 	// If we initiated opening the channel, the zero height remote balance
 	// is the push amount. Otherwise, our starting balance is the push
 	// amount. If there is no push amount, these values will simply be zero.
 	if dbChannel.IsInitiator {
-		channel.PushAmountSat = uint64(remoteBalance.ToSatoshis())
+		channel.PushAmountSat = uint64(dbChannel.InitialRemoteBalance)
 	} else {
-		channel.PushAmountSat = uint64(localBalance.ToSatoshis())
+		channel.PushAmountSat = uint64(dbChannel.InitialLocalBalance)
 	}
 
 	if len(dbChannel.LocalShutdownScript) > 0 {

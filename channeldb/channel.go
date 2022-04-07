@@ -183,11 +183,6 @@ var (
 	// ErrMissingIndexEntry is returned when a caller attempts to close a
 	// channel and the outpoint is missing from the index.
 	ErrMissingIndexEntry = fmt.Errorf("missing outpoint from index")
-
-	// errHeightNotFound is returned when a query for channel balances at
-	// a height that we have not reached yet is made.
-	errHeightNotReached = fmt.Errorf("height requested greater than " +
-		"current commit height")
 )
 
 const (
@@ -1651,44 +1646,6 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 	c.LocalCommitment = *newCommitment
 
 	return nil
-}
-
-// BalancesAtHeight returns the local and remote balances on our commitment
-// transactions as of a given height.
-//
-// NOTE: these are our balances *after* subtracting the commitment fee and
-// anchor outputs.
-func (c *OpenChannel) BalancesAtHeight(height uint64) (lnwire.MilliSatoshi,
-	lnwire.MilliSatoshi, error) {
-
-	if height > c.LocalCommitment.CommitHeight &&
-		height > c.RemoteCommitment.CommitHeight {
-
-		return 0, 0, errHeightNotReached
-	}
-
-	// If our current commit is as the desired height, we can return our
-	// current balances.
-	if c.LocalCommitment.CommitHeight == height {
-		return c.LocalCommitment.LocalBalance,
-			c.LocalCommitment.RemoteBalance, nil
-	}
-
-	// If our current remote commit is at the desired height, we can return
-	// the current balances.
-	if c.RemoteCommitment.CommitHeight == height {
-		return c.RemoteCommitment.LocalBalance,
-			c.RemoteCommitment.RemoteBalance, nil
-	}
-
-	// If we are not currently on the height requested, we need to look up
-	// the previous height to obtain our balances at the given height.
-	commit, err := c.FindPreviousState(height)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	return commit.LocalBalance, commit.RemoteBalance, nil
 }
 
 // ActiveHtlcs returns a slice of HTLC's which are currently active on *both*

@@ -52,8 +52,17 @@ var (
 		Port: 18555,
 	}
 
-	// keyLocIndex is the KeyLocator Index we use for TestKeyLocatorEncoding.
+	// keyLocIndex is the KeyLocator Index we use for
+	// TestKeyLocatorEncoding.
 	keyLocIndex = uint32(2049)
+
+	// dummyLocalOutputIndex specifics a default value for our output index
+	// in this test.
+	dummyLocalOutputIndex = uint32(0)
+
+	// dummyRemoteOutIndex specifics a default value for their output index
+	// in this test.
+	dummyRemoteOutIndex = uint32(1)
 )
 
 // testChannelParams is a struct which details the specifics of how a channel
@@ -548,6 +557,32 @@ func assertCommitmentEqual(t *testing.T, a, b *ChannelCommitment) {
 	}
 }
 
+// assertRevocationLogEntryEqual asserts that, for all the fields of a given
+// revocation log entry, their values match those on a given ChannelCommitment.
+func assertRevocationLogEntryEqual(t *testing.T, c *ChannelCommitment,
+	r *RevocationLog) {
+
+	// Check the common fields.
+	require.EqualValues(
+		t, r.CommitTxHash, c.CommitTx.TxHash(), "CommitTx mismatch",
+	)
+
+	// Now check the common fields from the HTLCs.
+	require.Equal(t, len(r.HTLCEntries), len(c.Htlcs), "HTLCs len mismatch")
+	for i, rHtlc := range r.HTLCEntries {
+		cHtlc := c.Htlcs[i]
+		require.Equal(t, rHtlc.RHash, cHtlc.RHash, "RHash mismatch")
+		require.Equal(t, rHtlc.Amt, cHtlc.Amt.ToSatoshis(),
+			"Amt mismatch")
+		require.Equal(t, rHtlc.RefundTimeout, cHtlc.RefundTimeout,
+			"RefundTimeout mismatch")
+		require.EqualValues(t, rHtlc.OutputIndex, cHtlc.OutputIndex,
+			"OutputIndex mismatch")
+		require.Equal(t, rHtlc.Incoming, cHtlc.Incoming,
+			"Incoming mismatch")
+	}
+}
+
 func TestChannelStateTransition(t *testing.T) {
 	t.Parallel()
 
@@ -748,7 +783,9 @@ func TestChannelStateTransition(t *testing.T) {
 	fwdPkg := NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight,
 		diskCommitDiff.LogUpdates, nil)
 
-	err = channel.AdvanceCommitChainTail(fwdPkg, nil)
+	err = channel.AdvanceCommitChainTail(
+		fwdPkg, nil, dummyLocalOutputIndex, dummyRemoteOutIndex,
+	)
 	if err != nil {
 		t.Fatalf("unable to append to revocation log: %v", err)
 	}
@@ -761,16 +798,24 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// We should be able to fetch the channel delta created above by its
 	// update number with all the state properly reconstructed.
-	diskPrevCommit, err := channel.FindPreviousState(
+	diskPrevCommit, _, err := channel.FindPreviousState(
 		oldRemoteCommit.CommitHeight,
 	)
 	if err != nil {
 		t.Fatalf("unable to fetch past delta: %v", err)
 	}
 
+	// Check the output indexes are saved as expected.
+	require.EqualValues(
+		t, dummyLocalOutputIndex, diskPrevCommit.OurOutputIndex,
+	)
+	require.EqualValues(
+		t, dummyRemoteOutIndex, diskPrevCommit.TheirOutputIndex,
+	)
+
 	// The two deltas (the original vs the on-disk version) should
 	// identical, and all HTLC data should properly be retained.
-	assertCommitmentEqual(t, &oldRemoteCommit, diskPrevCommit)
+	assertRevocationLogEntryEqual(t, &oldRemoteCommit, diskPrevCommit)
 
 	// The state number recovered from the tail of the revocation log
 	// should be identical to this current state.
@@ -796,17 +841,30 @@ func TestChannelStateTransition(t *testing.T) {
 
 	fwdPkg = NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight, nil, nil)
 
-	err = channel.AdvanceCommitChainTail(fwdPkg, nil)
+	err = channel.AdvanceCommitChainTail(
+		fwdPkg, nil, dummyLocalOutputIndex, dummyRemoteOutIndex,
+	)
 	if err != nil {
 		t.Fatalf("unable to append to revocation log: %v", err)
 	}
 
 	// Once again, fetch the state and ensure it has been properly updated.
-	prevCommit, err := channel.FindPreviousState(oldRemoteCommit.CommitHeight)
+	prevCommit, _, err := channel.FindPreviousState(
+		oldRemoteCommit.CommitHeight,
+	)
 	if err != nil {
 		t.Fatalf("unable to fetch past delta: %v", err)
 	}
-	assertCommitmentEqual(t, &oldRemoteCommit, prevCommit)
+
+	// Check the output indexes are saved as expected.
+	require.EqualValues(
+		t, dummyLocalOutputIndex, diskPrevCommit.OurOutputIndex,
+	)
+	require.EqualValues(
+		t, dummyRemoteOutIndex, diskPrevCommit.TheirOutputIndex,
+	)
+
+	assertRevocationLogEntryEqual(t, &oldRemoteCommit, prevCommit)
 
 	// Once again, state number recovered from the tail of the revocation
 	// log should be identical to this current state.
@@ -860,7 +918,9 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// Attempting to find previous states on the channel should fail as the
 	// revocation log has been deleted.
-	_, err = updatedChannel[0].FindPreviousState(oldRemoteCommit.CommitHeight)
+	_, _, err = updatedChannel[0].FindPreviousState(
+		oldRemoteCommit.CommitHeight,
+	)
 	if err == nil {
 		t.Fatal("revocation log search should have failed")
 	}

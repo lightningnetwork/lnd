@@ -2282,7 +2282,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 	// Query the on-disk revocation log for the snapshot which was recorded
 	// at this particular state num.
-	revokedSnapshot, err := chanState.FindPreviousState(stateNum)
+	_, revokedSnapshot, err := chanState.FindPreviousState(stateNum)
 	if err != nil {
 		return nil, err
 	}
@@ -4872,12 +4872,28 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		source, remoteChainTail, addUpdates, settleFailUpdates,
 	)
 
+	// We will soon be saving the current remote commitment to revocation
+	// log bucket, which is `lc.channelState.RemoteCommitment`. After that,
+	// the `RemoteCommitment` will be replaced with a newer version found
+	// in `CommitDiff`. Thus we need to compute the output indexes here
+	// before the change since the indexes are meant for the current,
+	// revoked remote commitment.
+	ourOutputIndex, theirOutputIndex, err := findOutputIndexesFromRemote(
+		revocation, lc.channelState,
+	)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	// At this point, the revocation has been accepted, and we've rotated
 	// the current revocation key+hash for the remote party. Therefore we
 	// sync now to ensure the revocation producer state is consistent with
 	// the current commitment height and also to advance the on-disk
 	// commitment chain.
-	err = lc.channelState.AdvanceCommitChainTail(fwdPkg, localPeerUpdates)
+	err = lc.channelState.AdvanceCommitChainTail(
+		fwdPkg, localPeerUpdates,
+		ourOutputIndex, theirOutputIndex,
+	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

@@ -2306,7 +2306,7 @@ func (c *OpenChannel) InsertNextRevocation(revKey *btcec.PublicKey) error {
 // set of local updates that the peer still needs to send us a signature for.
 // We store this set of updates in case we go down.
 func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
-	updates []LogUpdate) error {
+	updates []LogUpdate, ourOutputIndex, theirOutputIndex uint32) error {
 
 	c.Lock()
 	defer c.Unlock()
@@ -2352,7 +2352,7 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		// TODO(roasbeef): could make the deltas relative, would save
 		// space, but then tradeoff for more disk-seeks to recover the
 		// full state.
-		logKey := revocationLogBucketDeprecated
+		logKey := revocationLogBucket
 		logBucket, err := chanBucket.CreateBucketIfNotExists(logKey)
 		if err != nil {
 			return err
@@ -2379,9 +2379,10 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 
 		// With the commitment pointer swapped, we can now add the
 		// revoked (prior) state to the revocation log.
-		//
-		// TODO(roasbeef): store less
-		err = appendChannelLogEntry(logBucket, &c.RemoteCommitment)
+		err = putRevocationLog(
+			logBucket, &c.RemoteCommitment,
+			ourOutputIndex, theirOutputIndex,
+		)
 		if err != nil {
 			return err
 		}
@@ -2591,9 +2592,9 @@ func (c *OpenChannel) revocationLogTailCommitHeight() (uint64, error) {
 			return err
 		}
 
-		logBucket := chanBucket.NestedReadBucket(revocationLogBucketDeprecated)
-		if logBucket == nil {
-			return ErrNoPastDeltas
+		logBucket, err := fetchLogBucket(chanBucket)
+		if err != nil {
+			return err
 		}
 
 		// Once we have the bucket that stores the revocation log from
@@ -2654,11 +2655,15 @@ func (c *OpenChannel) CommitmentHeight() (uint64, error) {
 // intended to be used for obtaining the relevant data needed to claim all
 // funds rightfully spendable in the case of an on-chain broadcast of the
 // commitment transaction.
-func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelCommitment, error) {
+func (c *OpenChannel) FindPreviousState(
+	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
+
 	c.RLock()
 	defer c.RUnlock()
 
-	var commit ChannelCommitment
+	commit := &ChannelCommitment{}
+	rl := &RevocationLog{}
+
 	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
 			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
@@ -2667,24 +2672,24 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelCommitment, e
 			return err
 		}
 
-		logBucket := chanBucket.NestedReadBucket(revocationLogBucketDeprecated)
-		if logBucket == nil {
-			return ErrNoPastDeltas
-		}
-
-		c, err := fetchOldRevocationLog(logBucket, updateNum)
+		// Find the revocation log from both the new and the old
+		// bucket.
+		r, c, err := fetchRevocationLogCompatible(chanBucket, updateNum)
 		if err != nil {
 			return err
 		}
 
+		rl = r
 		commit = c
 		return nil
 	}, func() {})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return &commit, nil
+	// Either the `rl` or the `commit` is nil here. We return them as-is
+	// and leave it to the caller to decide its following action.
+	return rl, commit, nil
 }
 
 // ClosureType is an enum like structure that details exactly _how_ a channel
@@ -2881,12 +2886,8 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 
 		// With the base channel data deleted, attempt to delete the
 		// information stored within the revocation log.
-		logBucket := chanBucket.NestedReadWriteBucket(revocationLogBucketDeprecated)
-		if logBucket != nil {
-			err = chanBucket.DeleteNestedBucket(revocationLogBucketDeprecated)
-			if err != nil {
-				return err
-			}
+		if err := deleteLogBucket(chanBucket); err != nil {
+			return err
 		}
 
 		err = chainBucket.DeleteNestedBucket(chanPointBuf.Bytes())
@@ -3641,19 +3642,6 @@ func makeLogKey(updateNum uint64) [8]byte {
 	var key [8]byte
 	byteOrder.PutUint64(key[:], updateNum)
 	return key
-}
-
-// TODO: delete
-func appendChannelLogEntry(log kvdb.RwBucket,
-	commit *ChannelCommitment) error {
-
-	var b bytes.Buffer
-	if err := serializeChanCommit(&b, commit); err != nil {
-		return err
-	}
-
-	logEntrykey := makeLogKey(commit.CommitHeight)
-	return log.Put(logEntrykey[:], b.Bytes())
 }
 
 func fetchThawHeight(chanBucket kvdb.RBucket) (uint32, error) {

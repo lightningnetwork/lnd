@@ -117,16 +117,6 @@ var (
 	// TODO(roasbeef): rename to commit chain?
 	commitDiffKey = []byte("commit-diff-key")
 
-	// revocationLogBucketDeprecated is dedicated for storing the necessary
-	// delta state between channel updates required to re-construct a past
-	// state in order to punish a counterparty attempting a non-cooperative
-	// channel closure. This key should be accessed from within the
-	// sub-bucket of a target channel, identified by its channel point.
-	//
-	// NOTE: deprecated. This bucket is kept for read-only in case the user
-	// choose not to migrate the old data.
-	revocationLogBucketDeprecated = []byte("revocation-log-key")
-
 	// frozenChanKey is the key where we store the information for any
 	// active "frozen" channels. This key is present only in the leaf
 	// bucket for a given channel.
@@ -2682,7 +2672,7 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelCommitment, e
 			return ErrNoPastDeltas
 		}
 
-		c, err := fetchChannelLogEntry(logBucket, updateNum)
+		c, err := fetchOldRevocationLog(logBucket, updateNum)
 		if err != nil {
 			return err
 		}
@@ -3653,6 +3643,7 @@ func makeLogKey(updateNum uint64) [8]byte {
 	return key
 }
 
+// TODO: delete
 func appendChannelLogEntry(log kvdb.RwBucket,
 	commit *ChannelCommitment) error {
 
@@ -3663,19 +3654,6 @@ func appendChannelLogEntry(log kvdb.RwBucket,
 
 	logEntrykey := makeLogKey(commit.CommitHeight)
 	return log.Put(logEntrykey[:], b.Bytes())
-}
-
-func fetchChannelLogEntry(log kvdb.RBucket,
-	updateNum uint64) (ChannelCommitment, error) {
-
-	logEntrykey := makeLogKey(updateNum)
-	commitBytes := log.Get(logEntrykey[:])
-	if commitBytes == nil {
-		return ChannelCommitment{}, ErrLogEntryNotFound
-	}
-
-	commitReader := bytes.NewReader(commitBytes)
-	return deserializeChanCommit(commitReader)
 }
 
 func fetchThawHeight(chanBucket kvdb.RBucket) (uint32, error) {

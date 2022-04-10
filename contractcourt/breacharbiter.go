@@ -1243,7 +1243,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	}
 
 	return &retributionInfo{
-		commitHash:      breachInfo.BreachTransaction.TxHash(),
+		commitHash:      breachInfo.BreachTxHash,
 		chainHash:       breachInfo.ChainHash,
 		chanPoint:       *chanPoint,
 		breachedOutputs: breachedOutputs,

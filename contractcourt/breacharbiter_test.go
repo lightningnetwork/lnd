@@ -1051,7 +1051,7 @@ func TestBreachHandoffSuccess(t *testing.T) {
 			processACK <- brarErr
 		},
 		BreachRetribution: &lnwallet.BreachRetribution{
-			BreachTransaction: bobClose.CloseTx,
+			BreachTxHash: bobClose.CloseTx.TxHash(),
 			LocalOutputSignDesc: &input.SignDescriptor{
 				Output: &wire.TxOut{
 					PkScript: breachKeys[0],
@@ -1085,7 +1085,7 @@ func TestBreachHandoffSuccess(t *testing.T) {
 			processACK <- brarErr
 		},
 		BreachRetribution: &lnwallet.BreachRetribution{
-			BreachTransaction: bobClose.CloseTx,
+			BreachTxHash: bobClose.CloseTx.TxHash(),
 			LocalOutputSignDesc: &input.SignDescriptor{
 				Output: &wire.TxOut{
 					PkScript: breachKeys[0],
@@ -1137,7 +1137,7 @@ func TestBreachHandoffFail(t *testing.T) {
 			processACK <- brarErr
 		},
 		BreachRetribution: &lnwallet.BreachRetribution{
-			BreachTransaction: bobClose.CloseTx,
+			BreachTxHash: bobClose.CloseTx.TxHash(),
 			LocalOutputSignDesc: &input.SignDescriptor{
 				Output: &wire.TxOut{
 					PkScript: breachKeys[0],
@@ -1179,7 +1179,7 @@ func TestBreachHandoffFail(t *testing.T) {
 			processACK <- brarErr
 		},
 		BreachRetribution: &lnwallet.BreachRetribution{
-			BreachTransaction: bobClose.CloseTx,
+			BreachTxHash: bobClose.CloseTx.TxHash(),
 			LocalOutputSignDesc: &input.SignDescriptor{
 				Output: &wire.TxOut{
 					PkScript: breachKeys[0],

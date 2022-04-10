@@ -2213,10 +2213,10 @@ type HtlcRetribution struct {
 // transaction. The BreachRetribution is then sent over the ContractBreach
 // channel in order to allow the subscriber of the channel to dispatch justice.
 type BreachRetribution struct {
-	// BreachTransaction is the transaction which breached the channel
+	// BreachTxHash is the transaction hash which breached the channel
 	// contract by spending from the funding multi-sig with a revoked
 	// commitment transaction.
-	BreachTransaction *wire.MsgTx
+	BreachTxHash chainhash.Hash
 
 	// BreachHeight records the block height confirming the breach
 	// transaction, used as a height hint when registering for
@@ -2233,7 +2233,7 @@ type BreachRetribution struct {
 
 	// LocalOutputSignDesc is a SignDescriptor which is capable of
 	// generating the signature necessary to sweep the output within the
-	// BreachTransaction that pays directly us.
+	// breach transaction that pays directly us.
 	//
 	// NOTE: A nil value indicates that the local output is considered dust
 	// according to the remote party's dust limit.
@@ -2458,8 +2458,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// BreachRetribution struct which houses all the data necessary to
 	// swiftly bring justice to the cheating remote party.
 	return &BreachRetribution{
+		BreachTxHash:         commitHash,
 		ChainHash:            chanState.ChainHash,
-		BreachTransaction:    revokedSnapshot.CommitTx,
 		BreachHeight:         breachHeight,
 		RevokedStateNum:      stateNum,
 		LocalOutpoint:        ourOutpoint,

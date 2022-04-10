@@ -124,8 +124,8 @@ func genTaskTest(
 	// the breach transaction, which we will continue to modify.
 	breachTxn := wire.NewMsgTx(2)
 	breachInfo := &lnwallet.BreachRetribution{
-		RevokedStateNum:   stateNum,
-		BreachTransaction: breachTxn,
+		RevokedStateNum: stateNum,
+		BreachTxHash:    breachTxn.TxHash(),
 		KeyRing: &lnwallet.CommitmentKeyRing{
 			RevocationKey: revPK,
 			ToLocalKey:    toLocalPK,
@@ -607,7 +607,7 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 	}
 
 	// Verify that the breach hint matches the breach txid's prefix.
-	breachTxID := test.breachInfo.BreachTransaction.TxHash()
+	breachTxID := test.breachInfo.BreachTxHash
 	expHint := blob.NewBreachHintFromHash(&breachTxID)
 	if hint != expHint {
 		t.Fatalf("breach hint mismatch, want: %x, got: %v",

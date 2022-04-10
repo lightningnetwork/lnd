@@ -812,7 +812,7 @@ func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
 	// own broadcasted state we are looking at. Therefore check that the
 	// commit matches before assuming it was a breach.
 	commitHash := commitSpend.SpendingTx.TxHash()
-	if retribution.BreachTransaction.TxHash() != commitHash {
+	if retribution.BreachTxHash != commitHash {
 		return false, nil
 	}
 

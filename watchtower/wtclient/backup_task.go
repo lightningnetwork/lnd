@@ -346,7 +346,7 @@ func (t *backupTask) craftSessionPayload(
 		}
 	}
 
-	breachTxID := t.breachInfo.BreachTransaction.TxHash()
+	breachTxID := t.breachInfo.BreachTxHash
 
 	// Compute the breach key as SHA256(txid).
 	hint, key := blob.NewBreachHintAndKeyFromHash(&breachTxID)

@@ -101,10 +101,10 @@ func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 			// two commands.
 			if s.Code() == codes.Unimplemented &&
 				(c.Command.Name == "create" ||
-					c.Command.Name == "unlock" || 
+					c.Command.Name == "unlock" ||
 					c.Command.Name == "changepassword" ||
 					c.Command.Name == "createwatchonly") {
-					
+
 				return fmt.Errorf("Wallet is already unlocked")
 			}
 

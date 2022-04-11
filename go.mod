@@ -81,6 +81,8 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // https://github.com/lightninglabs/neutrino/pull/247 is merged.
 replace github.com/lightninglabs/neutrino => github.com/lightninglabs/neutrino v0.13.2-0.20220209052920-0c79b771272b
 
+replace github.com/btcsuite/btcd => github.com/ellemouton/btcd v0.22.0-beta.0.20220406123313-511b4648786e
+
 // If you change this please also update .github/pull_request_template.md and
 // docs/INSTALL.md.
 go 1.16

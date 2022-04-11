@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -1159,6 +1161,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		IDKeyLoc:     nodeKeyDesc.KeyLocator,
 		Wallet:       cc.Wallet,
 		PublisherCfg: &funding.PublisherCfg{
+			TxSanityCheck: func(tx *wire.MsgTx) error {
+				return blockchain.CheckTransactionSanity(
+					btcutil.NewTx(tx),
+				)
+			},
 			Publish: cc.Wallet.PublishTransaction,
 		},
 		UpdateLabel: func(hash chainhash.Hash, label string) error {

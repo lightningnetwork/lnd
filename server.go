@@ -9,11 +9,16 @@ import (
 	"math/big"
 	prand "math/rand"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/btcsuite/btcd/mempool"
+
+	"github.com/btcsuite/btcwallet/chain"
 
 	"github.com/btcsuite/btcd/blockchain"
 
@@ -1164,6 +1169,24 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			TxSanityCheck: func(tx *wire.MsgTx) error {
 				return blockchain.CheckTransactionSanity(
 					btcutil.NewTx(tx),
+				)
+			},
+			TxStandardnessCheck: func(tx *wire.MsgTx) error {
+				_, height, err := cc.ChainSource.GetBestBlock()
+				if err != nil {
+					return err
+				}
+
+				mpt, err := calcPastMedianTime(s.cc.ChainSource)
+				if err != nil {
+					return err
+				}
+
+				minRelayFee := cc.FeeEstimator.RelayFeePerKW()
+
+				return mempool.CheckTransactionStandard(
+					btcutil.NewTx(tx), height, mpt,
+					btcutil.Amount(minRelayFee), 2,
 				)
 			},
 			Publish: cc.Wallet.PublishTransaction,
@@ -4359,4 +4382,60 @@ func shouldPeerBootstrap(cfg *Config) bool {
 	// TODO(yy): remove the check on simnet/regtest such that the itest is
 	// covering the bootstrapping process.
 	return !cfg.NoNetBootstrap && !isDevNetwork
+}
+
+// medianTimeBlocks is the number of previous blocks which should be
+// used to calculate the median time used to validate block timestamps.
+const medianTimeBlocks = 11
+
+// calcPastMedianTime calculates the median time of the previous few blocks
+// prior to, and including, the block node.
+func calcPastMedianTime(chain chain.Interface) (time.Time, error) {
+	// Create a slice of the previous few block timestamps used to calculate
+	// the median per the number defined b the constant medianTimeBlocks.
+	timestamps := make([]int64, 0, medianTimeBlocks)
+	var (
+		hash   *chainhash.Hash
+		height int32
+		header *wire.BlockHeader
+		err    error
+	)
+	_, height, err = chain.GetBestBlock()
+	if err != nil {
+		return time.Time{}, err
+	}
+	for i := 0; i < medianTimeBlocks; i++ {
+		hash, err = chain.GetBlockHash(int64(height))
+		if err != nil {
+			return time.Time{}, err
+		}
+
+		header, err = chain.GetBlockHeader(hash)
+		if err != nil {
+			return time.Time{}, err
+		}
+
+		timestamps = append(timestamps, header.Timestamp.Unix())
+		height--
+
+		if height < 0 {
+			break
+		}
+	}
+
+	sort.Slice(timestamps, func(i, j int) bool {
+		return timestamps[i] < timestamps[j]
+	})
+
+	// NOTE: The consensus rules incorrectly calculate the median for even
+	// numbers of blocks.  A true median averages the middle two elements
+	// for a set with an even number of elements in it. Since the constant
+	// for the previous number of blocks to be used is odd, this is only an
+	// issue for a few blocks near the beginning of the chain.
+	//
+	// This code follows suit to ensure the same rules are used, however, be
+	// aware that should the medianTimeBlocks constant ever be changed to an
+	// even number, this code will be wrong.
+	medianTimestamp := timestamps[len(timestamps)/2]
+	return time.Unix(medianTimestamp, 0), nil
 }

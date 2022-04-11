@@ -12,12 +12,18 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"io/ioutil"
 	"math/big"
 	"net"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/chain"
+	"github.com/stretchr/testify/require"
 
 	"github.com/lightningnetwork/lnd/lncfg"
 )
@@ -248,4 +254,120 @@ func TestShouldPeerBootstrap(t *testing.T) {
 				i, testCase.shouldBoostrap, bootstrapped)
 		}
 	}
+}
+
+// TestCalcMedianPastTime tests that the calcPastMedianTime function correctly
+// calculates the median-past-time from a set of block times.
+func TestCalcMedianPastTime(t *testing.T) {
+	tests := []struct {
+		times          []int64
+		expectedMedian int64
+	}{
+		{
+			times: []int64{
+				0, 1, 2, 3, 4, 5,
+			},
+			expectedMedian: 3,
+		},
+		{
+			times: []int64{
+				0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+			},
+			expectedMedian: 5,
+		},
+		{
+			times: []int64{
+				0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+				14, 15, 16,
+			},
+			expectedMedian: 11,
+		},
+	}
+
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			chain, err := newMockChainInterface(test.times)
+			require.NoError(t, err)
+
+			res, err := calcPastMedianTime(chain)
+			require.NoError(t, err)
+			require.Equal(t, test.expectedMedian, res.Unix())
+		})
+	}
+}
+
+type block struct {
+	hash      *chainhash.Hash
+	timestamp time.Time
+}
+
+type mockChainInterface struct {
+	blocks []*block
+	index  map[chainhash.Hash]int
+
+	chain.Interface
+}
+
+func newMockChainInterface(times []int64) (*mockChainInterface, error) {
+	chain := &mockChainInterface{
+		blocks: make([]*block, len(times)),
+		index:  make(map[chainhash.Hash]int),
+	}
+
+	var b [32]byte
+	for i, t := range times {
+		_, err := rand.Read(b[:])
+		if err != nil {
+			return nil, err
+		}
+
+		hash, err := chainhash.NewHash(b[:])
+		if err != nil {
+			return nil, err
+		}
+
+		chain.blocks[i] = &block{
+			hash:      hash,
+			timestamp: time.Unix(t, 0),
+		}
+		chain.index[*hash] = i
+	}
+
+	return chain, nil
+}
+
+func (m *mockChainInterface) GetBestBlock() (*chainhash.Hash, int32, error) {
+	if len(m.blocks) == 0 {
+		return nil, 0, fmt.Errorf("empty blockchain")
+	}
+
+	index := len(m.blocks) - 1
+	block := m.blocks[index]
+
+	return block.hash, int32(index), nil
+}
+
+func (m *mockChainInterface) GetBlockHeader(
+	hash *chainhash.Hash) (*wire.BlockHeader, error) {
+
+	index, ok := m.index[*hash]
+	if !ok {
+		return nil, fmt.Errorf("block not found")
+	}
+
+	block := m.blocks[index]
+
+	return &wire.BlockHeader{
+		Timestamp: block.timestamp,
+	}, nil
+}
+
+func (m *mockChainInterface) GetBlockHash(height int64) (*chainhash.Hash,
+	error) {
+
+	if len(m.blocks)-1 < int(height) {
+		return nil, fmt.Errorf("block with given height does not exist")
+	}
+
+	return m.blocks[height].hash, nil
 }

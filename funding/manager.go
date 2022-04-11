@@ -667,12 +667,10 @@ func (f *Manager) start() error {
 				err = f.publisher.CheckAndPublish(
 					channel.FundingTxn, label,
 				)
-				if err != nil {
-					log.Errorf("Unable to rebroadcast "+
-						"funding tx %x for "+
-						"ChannelPoint(%v): %v",
-						fundingTxBuf.Bytes(),
-						channel.FundingOutpoint, err)
+				if f.maybeAbortOnStartupTxPublishErr(
+					err, channel, fundingTxBuf.Bytes(),
+				) {
+					continue
 				}
 			}
 		}
@@ -783,6 +781,12 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	if ctx != nil {
 		ctx.err <- fundingErr
 	}
+
+	f.sendError(peer, tempChanID, fundingErr)
+}
+
+func (f *Manager) sendError(peer lnpeer.Peer, tempChanID [32]byte,
+	fundingErr error) {
 
 	// We only send the exact error if it is part of out whitelisted set of
 	// errors (lnwire.FundingError or lnwallet.ReservationError).
@@ -2196,18 +2200,12 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 		)
 
 		err = f.publisher.CheckAndPublish(fundingTx, label)
-		if err != nil {
-			log.Errorf("Unable to broadcast funding tx %x for "+
-				"ChannelPoint(%v): %v", fundingTxBuf.Bytes(),
-				completeChan.FundingOutpoint, err)
+		if f.maybeAbortOnTxPublishErr(err, resCtx, completeChan,
+			fundingTxBuf.Bytes()) {
 
-			// We failed to broadcast the funding transaction, but
-			// watch the channel regardless, in case the
-			// transaction made it to the network. We will retry
-			// broadcast at startup.
-			//
-			// TODO(halseth): retry more often? Handle with CPFP?
-			// Just delete from the DB?
+			log.Errorf("Aborted funding flow for ChannelPoint(%v)",
+				fundingPoint)
+			return
 		}
 	}
 
@@ -3737,4 +3735,126 @@ func (f *Manager) deleteChannelOpeningState(chanPoint *wire.OutPoint) error {
 	return f.cfg.Wallet.Cfg.Database.DeleteChannelOpeningState(
 		outpointBytes.Bytes(),
 	)
+}
+func (f *Manager) maybeAbortOnTxPublishErr(publishErr error,
+	resCtx *reservationWithCtx, ch *channeldb.OpenChannel,
+	fundingTxBytes []byte) bool {
+
+	if publishErr == nil {
+		return false
+	}
+
+	log.Errorf("Unable to broadcast funding tx %x for ChannelPoint(%v): %v",
+		fundingTxBytes, ch.FundingOutpoint, publishErr)
+
+	externallyFunded := resCtx.reservation.IsPsbt() ||
+		resCtx.reservation.IsCannedShim()
+
+	abort := func() bool {
+		if _, ok := publishErr.(*ErrSanity); ok {
+			return true
+		}
+
+		if externallyFunded {
+			return false
+		}
+
+		switch publishErr.(type) {
+		case *ErrStandardness, *ErrMempoolTestAccept:
+			return true
+
+		case *ErrPublish:
+			return false
+		}
+
+		return false
+	}()
+
+	if !abort {
+		// We failed to broadcast the funding transaction, but
+		// watch the channel regardless, in case the
+		// transaction made it to the network. We will retry
+		// broadcast at startup.
+		//
+		// TODO(halseth): retry more often? Handle with CPFP?
+		// Just delete from the DB?
+		return false
+	}
+
+	err := f.failPendingChannel(ch)
+	if err != nil {
+		log.Errorf("Unable to close channel for ChannelPoint(%v): %v",
+			fundingTxBytes, err)
+	}
+
+	err = resCtx.reservation.Cancel()
+	if err != nil {
+		log.Errorf("Unable to cancel reservation: %v", err)
+	}
+
+	return true
+}
+
+func (f *Manager) maybeAbortOnStartupTxPublishErr(err error,
+	ch *channeldb.OpenChannel, fundingTxBytes []byte) bool {
+
+	if err == nil {
+		return false
+	}
+
+	log.Errorf("Unable to broadcast funding tx %x for "+
+		"ChannelPoint(%v): %v", fundingTxBytes, ch.FundingOutpoint, err)
+
+	var abort bool
+
+	switch err.(type) {
+
+	// If the transaction failed the sanity check, it means that the tx
+	// does not pass the consensus rules, so we can immediately abort this
+	// funding flow.
+	case *ErrSanity:
+		abort = true
+
+	case *ErrMempoolTestAccept:
+		// On startup, we no longer have a lock held on the inputs to
+		// this transaction, so we might run into a double spend error
+		// here in which case we can fail the funding flow for this
+		// channel.
+		if err.(*ErrStandardness).err == lnwallet.ErrDoubleSpend {
+			abort = true
+		}
+
+	case *ErrPublish:
+		// See comment above for ErrMempoolTestAccept.
+		// TODO(elle): is this ok for neutrino backend?
+		if err.(*ErrStandardness).err == lnwallet.ErrDoubleSpend {
+			abort = true
+		}
+
+	default:
+		// For all other errors, we continue to monitor the channel
+		// since at startup we can't be sure if this transaction has
+		// been broadcast before (by us or externally).
+		// TODO(elle): should monitor for a while & occasionally attempt
+		//  to rebroadcast. Since on startup, we dont have locks on the
+		//  inputs for this tx, the inputs should eventually be double
+		//  spent in which case we can safety abort.
+		abort = false
+	}
+
+	if abort {
+		err := f.failPendingChannel(ch)
+		if err != nil {
+			// If we get an error failing the pending channel,
+			// then rather dont abort so that we can retry next
+			// time.
+			log.Errorf("Unable to close channel for "+
+				"ChannelPoint(%v): %v", fundingTxBytes, err,
+			)
+
+			abort = false
+		}
+	}
+
+	return abort
 }

@@ -3738,6 +3738,9 @@ func TestPublishError(t *testing.T) {
 	// the funding transaction.
 	alice, bob := setupFundingManagers(t, func(cfg *Config) {
 		cfg.PublisherCfg = &PublisherCfg{
+			TxSanityCheck: func(tx *wire.MsgTx) error {
+				return fmt.Errorf("sanity check fail")
+			},
 			Publish: func(_ *wire.MsgTx, _ string) error {
 				return fmt.Errorf("publish error")
 			},
@@ -3762,17 +3765,11 @@ func TestPublishError(t *testing.T) {
 	// expect to get a channel update saying the channel is pending. Note
 	// that at the moment, this is expected even if an error was returned
 	// from PublishTransaction.
-	var pendingUpdate *lnrpc.OpenStatusUpdate
 	select {
-	case pendingUpdate = <-updateChan:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("alice did not send OpenStatusUpdate_ChanPending")
+	case <-updateChan:
+		t.Fatalf("alice sent unexpected update")
+	case <-time.After(time.Millisecond * 200):
 	}
 
-	_, ok := pendingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
-	if !ok {
-		t.Fatal("OpenStatusUpdate was not OpenStatusUpdate_ChanPending")
-	}
-
-	assertNumPendingChannelsRemains(t, alice, 1)
+	assertNumPendingChannelsRemains(t, alice, 0)
 }

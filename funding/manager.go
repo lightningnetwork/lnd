@@ -1055,6 +1055,49 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 	return fmt.Errorf("undefined channelState: %v", channelState)
 }
 
+// failPendingChannel creates a close summary and closes the channel if it's
+// initiated by us and it's in pending state.
+func (f *Manager) failPendingChannel(pendingChan *channeldb.OpenChannel) error {
+	// Check the channel is pending.
+	if !pendingChan.IsPending {
+		return fmt.Errorf("cannot fail a non-pending channel: %v",
+			pendingChan.FundingOutpoint,
+		)
+	}
+
+	// Check we are the initiator.
+	if !pendingChan.IsInitiator {
+		return fmt.Errorf("cannot fail a remote pending channel: %v",
+			pendingChan.FundingOutpoint,
+		)
+	}
+
+	// Create the close summary.
+	localBalance := pendingChan.LocalCommitment.LocalBalance.ToSatoshis()
+	closeInfo := &channeldb.ChannelCloseSummary{
+		ChanPoint:               pendingChan.FundingOutpoint,
+		ChainHash:               pendingChan.ChainHash,
+		RemotePub:               pendingChan.IdentityPub,
+		CloseType:               channeldb.FundingCanceled,
+		Capacity:                pendingChan.Capacity,
+		SettledBalance:          localBalance,
+		RemoteCurrentRevocation: pendingChan.RemoteCurrentRevocation,
+		RemoteNextRevocation:    pendingChan.RemoteNextRevocation,
+		LocalChanConfig:         pendingChan.LocalChanCfg,
+	}
+
+	// Close the channel with us as the initiator because we are
+	// deciding to exit the funding flow due to an internal error.
+	if err := pendingChan.CloseChannel(
+		closeInfo, channeldb.ChanStatusLocalCloseInitiator,
+	); err != nil {
+		log.Errorf("Failed closing channel %v: %v",
+			pendingChan.FundingOutpoint, err)
+		return err
+	}
+	return nil
+}
+
 // advancePendingChannelState waits for a pending channel's funding tx to
 // confirm, and marks it open in the database when that happens.
 func (f *Manager) advancePendingChannelState(

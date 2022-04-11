@@ -303,9 +303,8 @@ type Config struct {
 	// funds from on-chain transaction outputs into Lightning channels.
 	Wallet *lnwallet.LightningWallet
 
-	// PublishTransaction facilitates the process of broadcasting a
-	// transaction to the network.
-	PublishTransaction func(*wire.MsgTx, string) error
+	// PublisherCfg is the config required to initialise the Publisher.
+	PublisherCfg *PublisherCfg
 
 	// UpdateLabel updates the label that a transaction has in our wallet,
 	// overwriting any existing labels.
@@ -527,6 +526,12 @@ type Manager struct {
 	handleFundingLockedMtx      sync.RWMutex
 	handleFundingLockedBarriers map[lnwire.ChannelID]struct{}
 
+	// publisher facilitates the process of first checking the sanity and
+	// standardness of a transaction, then possible testing its acceptance
+	// to the mempool if one is available, and then broadcasting it to the
+	// network.
+	publisher *Publisher
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -580,6 +585,7 @@ func NewFundingManager(cfg Config) (*Manager, error) {
 		fundingRequests:             make(chan *InitFundingMsg, msgBufferSize),
 		localDiscoverySignals:       make(map[lnwire.ChannelID]chan struct{}),
 		handleFundingLockedBarriers: make(map[lnwire.ChannelID]struct{}),
+		publisher:                   NewPublisher(cfg.PublisherCfg),
 		quit:                        make(chan struct{}),
 	}, nil
 }
@@ -658,7 +664,7 @@ func (f *Manager) start() error {
 					labels.LabelTypeChannelOpen, nil,
 				)
 
-				err = f.cfg.PublishTransaction(
+				err = f.publisher.CheckAndPublish(
 					channel.FundingTxn, label,
 				)
 				if err != nil {
@@ -2146,7 +2152,7 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 			labels.LabelTypeChannelOpen, nil,
 		)
 
-		err = f.cfg.PublishTransaction(fundingTx, label)
+		err = f.publisher.CheckAndPublish(fundingTx, label)
 		if err != nil {
 			log.Errorf("Unable to broadcast funding tx %x for "+
 				"ChannelPoint(%v): %v", fundingTxBuf.Bytes(),

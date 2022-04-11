@@ -1154,11 +1154,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.fundingMgr, err = funding.NewFundingManager(funding.Config{
-		NoWumboChans:       !cfg.ProtocolOptions.Wumbo(),
-		IDKey:              nodeKeyDesc.PubKey,
-		IDKeyLoc:           nodeKeyDesc.KeyLocator,
-		Wallet:             cc.Wallet,
-		PublishTransaction: cc.Wallet.PublishTransaction,
+		NoWumboChans: !cfg.ProtocolOptions.Wumbo(),
+		IDKey:        nodeKeyDesc.PubKey,
+		IDKeyLoc:     nodeKeyDesc.KeyLocator,
+		Wallet:       cc.Wallet,
+		PublisherCfg: &funding.PublisherCfg{
+			Publish: cc.Wallet.PublishTransaction,
+		},
 		UpdateLabel: func(hash chainhash.Hash, label string) error {
 			return cc.Wallet.LabelTransaction(hash, label, true)
 		},

@@ -436,9 +436,11 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		ReportShortChanID: func(wire.OutPoint) error {
 			return nil
 		},
-		PublishTransaction: func(txn *wire.MsgTx, _ string) error {
-			publTxChan <- txn
-			return nil
+		PublisherCfg: &PublisherCfg{
+			Publish: func(txn *wire.MsgTx, _ string) error {
+				publTxChan <- txn
+				return nil
+			},
 		},
 		UpdateLabel: func(chainhash.Hash, string) error {
 			return nil
@@ -546,9 +548,11 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		},
 		DefaultMinHtlcIn:       5,
 		RequiredRemoteMaxValue: oldCfg.RequiredRemoteMaxValue,
-		PublishTransaction: func(txn *wire.MsgTx, _ string) error {
-			publishChan <- txn
-			return nil
+		PublisherCfg: &PublisherCfg{
+			Publish: func(txn *wire.MsgTx, _ string) error {
+				publishChan <- txn
+				return nil
+			},
 		},
 		UpdateLabel: func(chainhash.Hash, string) error {
 			return nil
@@ -3733,8 +3737,10 @@ func TestPublishError(t *testing.T) {
 	// Ensure that Alice gets an error back when she attempts to publish
 	// the funding transaction.
 	alice, bob := setupFundingManagers(t, func(cfg *Config) {
-		cfg.PublishTransaction = func(_ *wire.MsgTx, _ string) error {
-			return fmt.Errorf("publish error")
+		cfg.PublisherCfg = &PublisherCfg{
+			Publish: func(_ *wire.MsgTx, _ string) error {
+				return fmt.Errorf("publish error")
+			},
 		}
 	})
 	defer tearDownFundingManagers(t, alice, bob)

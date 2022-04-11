@@ -3728,3 +3728,45 @@ func testUpfrontFailure(t *testing.T, pkscript []byte, expectErr bool) {
 		require.True(t, ok, "did not receive AcceptChannel")
 	}
 }
+
+func TestPublishError(t *testing.T) {
+	// Ensure that Alice gets an error back when she attempts to publish
+	// the funding transaction.
+	alice, bob := setupFundingManagers(t, func(cfg *Config) {
+		cfg.PublishTransaction = func(_ *wire.MsgTx, _ string) error {
+			return fmt.Errorf("publish error")
+		}
+	})
+	defer tearDownFundingManagers(t, alice, bob)
+
+	// We will consume the channel updates as we go, so no buffering is
+	// needed.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+
+	// Run a channel through the OpenChannel-AcceptChannel steps.
+	acceptChannelResponse := initChannel(
+		t, alice, bob, 500000, 0, false, updateChan, true,
+	)
+
+	// Run a channel through the FundingCreated-FundingSigned steps.
+	signChannel(t, alice, bob, acceptChannelResponse)
+
+	// After Alice processes the singleFundingSignComplete message, she will
+	// attempt to broadcast the funding transaction to the network. We
+	// expect to get a channel update saying the channel is pending. Note
+	// that at the moment, this is expected even if an error was returned
+	// from PublishTransaction.
+	var pendingUpdate *lnrpc.OpenStatusUpdate
+	select {
+	case pendingUpdate = <-updateChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send OpenStatusUpdate_ChanPending")
+	}
+
+	_, ok := pendingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	if !ok {
+		t.Fatal("OpenStatusUpdate was not OpenStatusUpdate_ChanPending")
+	}
+
+	assertNumPendingChannelsRemains(t, alice, 1)
+}

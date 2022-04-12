@@ -5828,6 +5828,14 @@ func TestCheckHtlcForward(t *testing.T) {
 		}
 	})
 
+	t.Run("insufficient fee and insufficient channel balance", func(t *testing.T) {
+		result := link.CheckHtlcForward(hash, 100005, 100000,
+			200, 150, 0)
+		if _, ok := result.WireMessage().(*lnwire.FailFeeInsufficient); !ok {
+			t.Fatalf("expected FailFeeInsufficient failure code")
+		}
+	})
+
 	t.Run("expiry too soon", func(t *testing.T) {
 		result := link.CheckHtlcForward(hash, 1500, 1000,
 			200, 150, 190)

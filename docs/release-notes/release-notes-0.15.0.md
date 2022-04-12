@@ -84,6 +84,10 @@ then watch it on chain. Taproot script spends are also supported through the
 * [Fixed race condition resulting in MPP payments sometimes getting stuck
   in-flight](https://github.com/lightningnetwork/lnd/pull/6352).
 
+* [Fixed a panic in the Taproot signing part of the `SignOutputRaw` RPC that
+  occurred when not all UTXO information was
+  specified](https://github.com/lightningnetwork/lnd/pull/6407).
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)

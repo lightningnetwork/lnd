@@ -476,7 +476,7 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 		PubKeyBytes:      pubkey,
 		ChannelID:        rpcHop.ChanId,
 		CustomRecords:    customRecords,
-		LegacyPayload:    !rpcHop.TlvPayload,
+		LegacyPayload:    false,
 		MPP:              mpp,
 		AMP:              amp,
 	}, nil

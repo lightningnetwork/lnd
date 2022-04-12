@@ -1,5 +1,9 @@
 # Release Notes
 
+## RPC Server
+
+* [Support for making routes with the legacy onion payload format via `SendToRoute` has been removed.](https://github.com/lightningnetwork/lnd/pull/6385)
+
 ## Bug fixes
 
 * The REST proxy (`grpc-gateway` library) had a fallback that redirected `POST`
@@ -26,6 +30,9 @@
   party sweeps our anchor
   output](https://github.com/lightningnetwork/lnd/pull/6274).
 
+* [Fixed race condition resulting in MPP payments sometimes getting stuck
+  in-flight](https://github.com/lightningnetwork/lnd/pull/6352).
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes
@@ -35,7 +42,7 @@
   code external to lnd to call the function, where previously it would require
   access to lnd's internals.
 
-## Misc
+## Clustering
 
 * [Make etcd leader election session
   TTL](https://github.com/lightningnetwork/lnd/pull/6342) configurable.

@@ -166,6 +166,8 @@ then watch it on chain. Taproot script spends are also supported through the
   to the transaction structure returned from the RPC `GetTransactions` and when
   subscribed with `SubscribeTransactions`.
 
+* [Support for making routes with the legacy onion payload format via `SendToRoute` has been removed.](https://github.com/lightningnetwork/lnd/pull/6385)
+
 ## Database
 
 * [Add ForAll implementation for etcd to speed up

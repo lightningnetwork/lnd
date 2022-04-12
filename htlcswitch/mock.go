@@ -185,7 +185,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 			events: make(map[time.Time]channeldb.ForwardingEvent),
 		},
 		FetchLastChannelUpdate: func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
-			return nil, nil
+			return &lnwire.ChannelUpdate{}, nil
 		},
 		Notifier: &mock.ChainNotifier{
 			SpendChan: make(chan *chainntnfs.SpendDetail),
@@ -690,9 +690,11 @@ func (f *mockChannelLink) completeCircuit(pkt *htlcPacket) error {
 		f.htlcID++
 
 	case *lnwire.UpdateFulfillHTLC, *lnwire.UpdateFailHTLC:
-		err := f.htlcSwitch.teardownCircuit(pkt)
-		if err != nil {
-			return err
+		if pkt.circuit != nil {
+			err := f.htlcSwitch.teardownCircuit(pkt)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -3167,10 +3168,12 @@ func (m *mockForwardInterceptor) getIntercepted() InterceptedPacket {
 
 func assertNumCircuits(t *testing.T, s *Switch, pending, opened int) {
 	if s.circuits.NumPending() != pending {
-		t.Fatal("wrong amount of half circuits")
+		t.Fatalf("wrong amount of half circuits, expected %v but "+
+			"got %v", pending, s.circuits.NumPending())
 	}
 	if s.circuits.NumOpen() != opened {
-		t.Fatal("wrong amount of circuits")
+		t.Fatalf("wrong amount of circuits, expected %v but got %v",
+			opened, s.circuits.NumOpen())
 	}
 }
 
@@ -3195,6 +3198,16 @@ func assertOutgoingLinkReceive(t *testing.T, targetLink *mockChannelLink,
 	}
 
 	return nil
+}
+
+func assertOutgoingLinkReceiveIntercepted(t *testing.T,
+	targetLink *mockChannelLink) {
+
+	select {
+	case <-targetLink.packets:
+	case <-time.After(time.Second):
+		t.Fatal("request was not propagated to destination")
+	}
 }
 
 func TestSwitchHoldForward(t *testing.T) {
@@ -3257,31 +3270,96 @@ func TestSwitchHoldForward(t *testing.T) {
 	preimage := [sha256.Size]byte{1}
 	rhash := sha256.Sum256(preimage[:])
 	onionBlob := [1366]byte{4, 5, 6}
-	ogPacket := &htlcPacket{
-		incomingChanID: aliceChannelLink.ShortChanID(),
-		incomingHTLCID: 0,
-		outgoingChanID: bobChannelLink.ShortChanID(),
-		obfuscator:     NewMockObfuscator(),
-		htlc: &lnwire.UpdateAddHTLC{
-			PaymentHash: rhash,
-			Amount:      1,
-			OnionBlob:   onionBlob,
-		},
+	incomingHtlcID := uint64(0)
+
+	const cltvRejectDelta = 13
+
+	createTestPacket := func() *htlcPacket {
+		incomingHtlcID++
+
+		return &htlcPacket{
+			incomingChanID:  aliceChannelLink.ShortChanID(),
+			incomingHTLCID:  incomingHtlcID,
+			incomingTimeout: testStartingHeight + cltvRejectDelta + 1,
+			outgoingChanID:  bobChannelLink.ShortChanID(),
+			obfuscator:      NewMockObfuscator(),
+			htlc: &lnwire.UpdateAddHTLC{
+				PaymentHash: rhash,
+				Amount:      1,
+				OnionBlob:   onionBlob,
+			},
+		}
+	}
+
+	createSettlePacket := func(outgoingHTLCID uint64) *htlcPacket {
+		return &htlcPacket{
+			outgoingChanID: bobChannelLink.ShortChanID(),
+			outgoingHTLCID: outgoingHTLCID,
+			amount:         1,
+			htlc: &lnwire.UpdateFulfillHTLC{
+				PaymentPreimage: preimage,
+			},
+		}
 	}
 
 	forwardInterceptor := &mockForwardInterceptor{
 		t:               t,
 		interceptedChan: make(chan InterceptedPacket),
 	}
-	switchForwardInterceptor := NewInterceptableSwitch(s, false)
+	switchForwardInterceptor := NewInterceptableSwitch(
+		s, cltvRejectDelta, false,
+	)
 	require.NoError(t, switchForwardInterceptor.Start())
 
 	switchForwardInterceptor.SetInterceptor(forwardInterceptor.InterceptForwardHtlc)
 	linkQuit := make(chan struct{})
 
+	// Test a forward that expires too soon.
+	packet := createTestPacket()
+	packet.incomingTimeout = testStartingHeight + cltvRejectDelta - 1
+
+	err = switchForwardInterceptor.ForwardPackets(linkQuit, false, packet)
+	if err != nil {
+		t.Fatalf("can't forward htlc packet: %v", err)
+	}
+	assertOutgoingLinkReceive(t, bobChannelLink, false)
+	assertOutgoingLinkReceiveIntercepted(t, aliceChannelLink)
+	assertNumCircuits(t, s, 0, 0)
+
+	// Test a forward that expires too soon and can't be failed.
+	packet = createTestPacket()
+	packet.incomingTimeout = testStartingHeight + cltvRejectDelta - 1
+
+	// Simulate an error during the composition of the failure message.
+	currentCallback := s.cfg.FetchLastChannelUpdate
+	s.cfg.FetchLastChannelUpdate = func(
+		lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
+
+		return nil, errors.New("cannot fetch update")
+	}
+
+	err = switchForwardInterceptor.ForwardPackets(linkQuit, false, packet)
+	if err != nil {
+		t.Fatalf("can't forward htlc packet: %v", err)
+	}
+	receivedPkt := assertOutgoingLinkReceive(t, bobChannelLink, true)
+	assertNumCircuits(t, s, 1, 1)
+
+	require.NoError(t, switchForwardInterceptor.ForwardPackets(
+		linkQuit, false,
+		createSettlePacket(receivedPkt.outgoingHTLCID),
+	))
+
+	assertOutgoingLinkReceive(t, aliceChannelLink, true)
+	assertNumCircuits(t, s, 0, 0)
+
+	s.cfg.FetchLastChannelUpdate = currentCallback
+
 	// Test resume a hold forward.
 	assertNumCircuits(t, s, 0, 0)
-	err = switchForwardInterceptor.ForwardPackets(linkQuit, false, ogPacket)
+	err = switchForwardInterceptor.ForwardPackets(
+		linkQuit, false, createTestPacket(),
+	)
 	require.NoError(t, err)
 
 	assertNumCircuits(t, s, 0, 0)
@@ -3291,19 +3369,14 @@ func TestSwitchHoldForward(t *testing.T) {
 		Action: FwdActionResume,
 		Key:    forwardInterceptor.getIntercepted().IncomingCircuit,
 	}))
-	assertOutgoingLinkReceive(t, bobChannelLink, true)
+	receivedPkt = assertOutgoingLinkReceive(t, bobChannelLink, true)
 	assertNumCircuits(t, s, 1, 1)
 
 	// settling the htlc to close the circuit.
-	settle := &htlcPacket{
-		outgoingChanID: bobChannelLink.ShortChanID(),
-		outgoingHTLCID: 0,
-		amount:         1,
-		htlc: &lnwire.UpdateFulfillHTLC{
-			PaymentPreimage: preimage,
-		},
-	}
-	err = switchForwardInterceptor.ForwardPackets(linkQuit, false, settle)
+	err = switchForwardInterceptor.ForwardPackets(
+		linkQuit, false,
+		createSettlePacket(receivedPkt.outgoingHTLCID),
+	)
 	require.NoError(t, err)
 
 	assertOutgoingLinkReceive(t, aliceChannelLink, true)
@@ -3311,7 +3384,7 @@ func TestSwitchHoldForward(t *testing.T) {
 
 	// Test resume a hold forward after disconnection.
 	require.NoError(t, switchForwardInterceptor.ForwardPackets(
-		linkQuit, false, ogPacket,
+		linkQuit, false, createTestPacket(),
 	))
 
 	// Wait until the packet is offered to the interceptor.
@@ -3324,13 +3397,13 @@ func TestSwitchHoldForward(t *testing.T) {
 	// Disconnect should resume the forwarding.
 	switchForwardInterceptor.SetInterceptor(nil)
 
-	assertOutgoingLinkReceive(t, bobChannelLink, true)
+	receivedPkt = assertOutgoingLinkReceive(t, bobChannelLink, true)
 	assertNumCircuits(t, s, 1, 1)
 
 	// Settle the htlc to close the circuit.
-	settle.outgoingHTLCID = 1
 	require.NoError(t, switchForwardInterceptor.ForwardPackets(
-		linkQuit, false, settle,
+		linkQuit, false,
+		createSettlePacket(receivedPkt.outgoingHTLCID),
 	))
 
 	assertOutgoingLinkReceive(t, aliceChannelLink, true)
@@ -3342,7 +3415,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	)
 
 	require.NoError(t, switchForwardInterceptor.ForwardPackets(
-		linkQuit, false, ogPacket,
+		linkQuit, false, createTestPacket(),
 	))
 	assertNumCircuits(t, s, 0, 0)
 	assertOutgoingLinkReceive(t, bobChannelLink, false)
@@ -3358,7 +3431,9 @@ func TestSwitchHoldForward(t *testing.T) {
 
 	// Test failing a hold forward with a failure message.
 	require.NoError(t,
-		switchForwardInterceptor.ForwardPackets(linkQuit, false, ogPacket),
+		switchForwardInterceptor.ForwardPackets(
+			linkQuit, false, createTestPacket(),
+		),
 	)
 	assertNumCircuits(t, s, 0, 0)
 	assertOutgoingLinkReceive(t, bobChannelLink, false)
@@ -3371,14 +3446,16 @@ func TestSwitchHoldForward(t *testing.T) {
 	}))
 
 	assertOutgoingLinkReceive(t, bobChannelLink, false)
-	packet := assertOutgoingLinkReceive(t, aliceChannelLink, true)
+	packet = assertOutgoingLinkReceive(t, aliceChannelLink, true)
 
 	require.Equal(t, reason, packet.htlc.(*lnwire.UpdateFailHTLC).Reason)
 
 	assertNumCircuits(t, s, 0, 0)
 
 	// Test failing a hold forward with a malformed htlc failure.
-	err = switchForwardInterceptor.ForwardPackets(linkQuit, false, ogPacket)
+	err = switchForwardInterceptor.ForwardPackets(
+		linkQuit, false, createTestPacket(),
+	)
 	require.NoError(t, err)
 
 	assertNumCircuits(t, s, 0, 0)
@@ -3408,7 +3485,7 @@ func TestSwitchHoldForward(t *testing.T) {
 
 	// Test settling a hold forward
 	require.NoError(t, switchForwardInterceptor.ForwardPackets(
-		linkQuit, false, ogPacket,
+		linkQuit, false, createTestPacket(),
 	))
 	assertNumCircuits(t, s, 0, 0)
 	assertOutgoingLinkReceive(t, bobChannelLink, false)
@@ -3425,13 +3502,13 @@ func TestSwitchHoldForward(t *testing.T) {
 	require.NoError(t, switchForwardInterceptor.Stop())
 
 	// Test always-on interception.
-	switchForwardInterceptor = NewInterceptableSwitch(s, true)
+	switchForwardInterceptor = NewInterceptableSwitch(s, cltvRejectDelta, true)
 	require.NoError(t, switchForwardInterceptor.Start())
 
 	// Forward a fresh packet. It is expected to be failed immediately,
 	// because there is no interceptor registered.
 	require.NoError(t, switchForwardInterceptor.ForwardPackets(
-		linkQuit, false, ogPacket,
+		linkQuit, false, createTestPacket(),
 	))
 
 	assertOutgoingLinkReceive(t, bobChannelLink, false)
@@ -3444,7 +3521,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	errChan := make(chan error)
 	go func() {
 		errChan <- switchForwardInterceptor.ForwardPackets(
-			linkQuit, true, ogPacket,
+			linkQuit, true, createTestPacket(),
 		)
 	}()
 

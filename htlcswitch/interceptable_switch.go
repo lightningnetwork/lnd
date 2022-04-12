@@ -55,6 +55,10 @@ type InterceptableSwitch struct {
 	// holdForwards keeps track of outstanding intercepted forwards.
 	holdForwards map[channeldb.CircuitKey]InterceptedForward
 
+	// cltvRejectDelta defines the number of blocks before the expiry of the
+	// htlc where we no longer intercept it and instead cancel it back.
+	cltvRejectDelta uint32
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -106,7 +110,7 @@ type fwdResolution struct {
 }
 
 // NewInterceptableSwitch returns an instance of InterceptableSwitch.
-func NewInterceptableSwitch(s *Switch,
+func NewInterceptableSwitch(s *Switch, cltvRejectDelta uint32,
 	requireInterceptor bool) *InterceptableSwitch {
 
 	return &InterceptableSwitch{
@@ -116,6 +120,7 @@ func NewInterceptableSwitch(s *Switch,
 		holdForwards:            make(map[channeldb.CircuitKey]InterceptedForward),
 		resolutionChan:          make(chan *fwdResolution),
 		requireInterceptor:      requireInterceptor,
+		cltvRejectDelta:         cltvRejectDelta,
 
 		quit: make(chan struct{}),
 	}
@@ -337,6 +342,27 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 			htlcSwitch: s.htlcSwitch,
 		}
 
+		// Handle forwards that are too close to expiry.
+		handled, err := s.handleExpired(intercepted)
+		if err != nil {
+			log.Errorf("Error handling intercepted htlc "+
+				"that expires too soon: circuit=%v, "+
+				"incoming_timeout=%v, err=%v",
+				packet.inKey(), packet.incomingTimeout, err)
+
+			// Return false so that the packet is offered as normal
+			// to the switch. This isn't ideal because interception
+			// may be configured as always-on and is skipped now.
+			// Returning true isn't great either, because the htlc
+			// will remain stuck and potentially force-close the
+			// channel. But in the end, we should never get here, so
+			// the actual return value doesn't matter that much.
+			return false
+		}
+		if handled {
+			return true
+		}
+
 		if s.interceptor == nil && !isReplay {
 			// There is no interceptor registered, we are in
 			// interceptor-required mode, and this is a new packet
@@ -368,6 +394,32 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 	default:
 		return false
 	}
+}
+
+// handleExpired checks that the htlc isn't too close to the channel
+// force-close broadcast height. If it is, it is cancelled back.
+func (s *InterceptableSwitch) handleExpired(fwd *interceptedForward) (
+	bool, error) {
+
+	height := s.htlcSwitch.BestHeight()
+	if fwd.packet.incomingTimeout >= height+s.cltvRejectDelta {
+		return false, nil
+	}
+
+	log.Debugf("Interception rejected because htlc "+
+		"expires too soon: circuit=%v, "+
+		"height=%v, incoming_timeout=%v",
+		fwd.packet.inKey(), height,
+		fwd.packet.incomingTimeout)
+
+	err := fwd.FailWithCode(
+		lnwire.CodeExpiryTooSoon,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 // interceptedForward implements the InterceptedForward interface.
@@ -449,6 +501,16 @@ func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
 		}
 
 		failureMsg = lnwire.NewTemporaryChannelFailure(update)
+
+	case lnwire.CodeExpiryTooSoon:
+		update, err := f.htlcSwitch.cfg.FetchLastChannelUpdate(
+			f.packet.incomingChanID,
+		)
+		if err != nil {
+			return err
+		}
+
+		failureMsg = lnwire.NewExpiryTooSoon(*update)
 
 	default:
 		return ErrUnsupportedFailureCode

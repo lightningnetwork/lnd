@@ -232,6 +232,29 @@ func testTaprootScriptSpend(ctxt context.Context, t *harnessTest,
 		PkScript: p2trPkScript,
 		Value:    800_000,
 	}}
+
+	// Before we actually sign, we want to make sure that we get an error
+	// when we try to sign for a Taproot output without specifying all UTXO
+	// information.
+	_, err = net.Alice.SignerClient.SignOutputRaw(
+		ctxt, &signrpc.SignReq{
+			RawTxBytes: buf.Bytes(),
+			SignDescs: []*signrpc.SignDescriptor{{
+				Output:        utxoInfo[0],
+				InputIndex:    0,
+				KeyDesc:       keyDesc,
+				Sighash:       uint32(txscript.SigHashDefault),
+				WitnessScript: leaf2.Script,
+			}},
+		},
+	)
+	require.Error(t.t, err)
+	require.Contains(
+		t.t, err.Error(), "error signing taproot output, transaction "+
+			"input 0 is missing its previous outpoint information",
+	)
+
+	// Do the actual signing now.
 	signResp, err := net.Alice.SignerClient.SignOutputRaw(
 		ctxt, &signrpc.SignReq{
 			RawTxBytes: buf.Bytes(),

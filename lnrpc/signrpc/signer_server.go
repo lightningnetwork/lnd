@@ -376,6 +376,24 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 			InputIndex:        int(signDesc.InputIndex),
 			PrevOutputFetcher: prevOutputFetcher,
 		})
+
+		// Are we trying to sign for a Taproot output? Then we need all
+		// previous outputs being declared, otherwise we'd run into a
+		// panic later on.
+		if txscript.IsPayToTaproot(signDesc.Output.PkScript) {
+			for idx, txIn := range txToSign.TxIn {
+				utxo := prevOutputFetcher.FetchPrevOutput(
+					txIn.PreviousOutPoint,
+				)
+				if utxo == nil {
+					return nil, fmt.Errorf("error signing "+
+						"taproot output, transaction "+
+						"input %d is missing its "+
+						"previous outpoint information",
+						idx)
+				}
+			}
+		}
 	}
 
 	// Now that we've mapped all the proper sign descriptors, we can

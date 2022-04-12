@@ -1,5 +1,9 @@
 # Release Notes
 
+## P2P Protocol
+
+[lnd now advertises the TLV onion feature bit as required(https://github.com/lightningnetwork/lnd/pull/6336).
+
 ## Security
 
 * [Misconfigured ZMQ

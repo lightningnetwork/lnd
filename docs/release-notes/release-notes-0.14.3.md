@@ -30,6 +30,9 @@
   party sweeps our anchor
   output](https://github.com/lightningnetwork/lnd/pull/6274).
 
+* [Fixed race condition resulting in MPP payments sometimes getting stuck
+  in-flight](https://github.com/lightningnetwork/lnd/pull/6352).
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes

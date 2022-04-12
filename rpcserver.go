@@ -2539,6 +2539,7 @@ func createRPCCloseUpdate(update interface{}) (
 			Update: &lnrpc.CloseStatusUpdate_ChanClose{
 				ChanClose: &lnrpc.ChannelCloseUpdate{
 					ClosingTxid: u.ClosingTxid,
+					Success:     u.Success,
 				},
 			},
 		}, nil

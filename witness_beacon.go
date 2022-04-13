@@ -28,6 +28,13 @@ type preimageBeacon struct {
 	subscribers   map[uint64]*preimageSubscriber
 }
 
+func newPreimageBeacon(wCache *channeldb.WitnessCache) *preimageBeacon {
+	return &preimageBeacon{
+		wCache:      wCache,
+		subscribers: make(map[uint64]*preimageSubscriber),
+	}
+}
+
 // SubscribeUpdates returns a channel that will be sent upon *each* time a new
 // preimage is discovered.
 func (p *preimageBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {

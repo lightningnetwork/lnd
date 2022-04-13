@@ -1897,9 +1897,16 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// We've received a revocation from the remote chain, if valid,
 		// this moves the remote chain forward, and expands our
 		// revocation window.
-		fwdPkg, adds, settleFails, remoteHTLCs, err := l.channel.ReceiveRevocation(
-			msg,
-		)
+		//
+		// Before advancing our remote chain, we will record the
+		// current commit tx, which is used by the TowerClient to
+		// create backups.
+		oldCommitTx := l.channel.State().RemoteCommitment.CommitTx
+
+		// We now process the message and advance our remote commit
+		// chain.
+		fwdPkg, adds, settleFails, remoteHTLCs, err := l.channel.
+			ReceiveRevocation(msg)
 		if err != nil {
 			// TODO(halseth): force close?
 			l.fail(LinkFailureError{code: ErrInvalidRevocation},
@@ -1928,10 +1935,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 		// If we have a tower client for this channel type, we'll
+		// create a backup for the current state.
 		if l.cfg.TowerClient != nil {
 			state := l.channel.State()
 			breachInfo, err := lnwallet.NewBreachRetribution(
 				state, state.RemoteCommitment.CommitHeight-1, 0,
+				// OldCommitTx is the breaching tx at height-1.
+				oldCommitTx,
 			)
 			if err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},

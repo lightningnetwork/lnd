@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -7106,8 +7107,9 @@ func TestNewBreachRetributionSkipsDustHtlcs(t *testing.T) {
 
 	// At this point, we'll now simulate a contract breach by Bob using the
 	// NewBreachRetribution method.
+	breachTx := aliceChannel.channelState.RemoteCommitment.CommitTx
 	breachRet, err := NewBreachRetribution(
-		aliceChannel.channelState, revokedStateNum, 100,
+		aliceChannel.channelState, revokedStateNum, 100, breachTx,
 	)
 	if err != nil {
 		t.Fatalf("unable to create breach retribution: %v", err)
@@ -10248,4 +10250,389 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 		checkDust(aliceChannel, htlc2Amt+htlc3Amt, htlc2Amt+htlc3Amt)
 		checkDust(bobChannel, htlc2Amt+htlc3Amt, htlc2Amt+htlc3Amt)
 	}
+}
+
+// deriveDummyRetributionParams is a helper function that derives a list of
+// dummy params to assist retribution creation related tests.
+func deriveDummyRetributionParams(chanState *channeldb.OpenChannel) (uint32,
+	*CommitmentKeyRing, chainhash.Hash) {
+
+	config := chanState.RemoteChanCfg
+	commitHash := chanState.RemoteCommitment.CommitTx.TxHash()
+	keyRing := DeriveCommitmentKeys(
+		config.RevocationBasePoint.PubKey, false, chanState.ChanType,
+		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+	)
+	leaseExpiry := chanState.ThawHeight
+	return leaseExpiry, keyRing, commitHash
+}
+
+// TestCreateHtlcRetribution checks that `createHtlcRetribution` behaves as
+// epxected.
+func TestCreateHtlcRetribution(t *testing.T) {
+	t.Parallel()
+
+	// Create a dummy private key and an HTLC amount for testing.
+	dummyPrivate, _ := btcec.PrivKeyFromBytes([]byte{1})
+	testAmt := btcutil.Amount(100)
+
+	// Create a test channel.
+	aliceChannel, _, cleanUp, err := CreateTestChannels(
+		channeldb.ZeroHtlcTxFeeBit,
+	)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	// Prepare the params needed to call the function. Note that the values
+	// here are not necessary "cryptography-correct", we just use them to
+	// construct the htlc retribution.
+	leaseExpiry, keyRing, commitHash := deriveDummyRetributionParams(
+		aliceChannel.channelState,
+	)
+	htlc := &channeldb.HTLCEntry{
+		Amt:         testAmt,
+		Incoming:    true,
+		OutputIndex: 1,
+	}
+
+	// Create the htlc retribution.
+	hr, err := createHtlcRetribution(
+		aliceChannel.channelState, keyRing, commitHash,
+		dummyPrivate, leaseExpiry, htlc,
+	)
+	// Expect no error.
+	require.NoError(t, err)
+
+	// Check the fields have expected values.
+	require.EqualValues(t, testAmt, hr.SignDesc.Output.Value)
+	require.Equal(t, commitHash, hr.OutPoint.Hash)
+	require.EqualValues(t, htlc.OutputIndex, hr.OutPoint.Index)
+	require.Equal(t, htlc.Incoming, hr.IsIncoming)
+}
+
+// TestCreateBreachRetribution checks that `createBreachRetribution` behaves as
+// epxected.
+func TestCreateBreachRetribution(t *testing.T) {
+	t.Parallel()
+
+	// Create dummy values for the test.
+	dummyPrivate, _ := btcec.PrivKeyFromBytes([]byte{1})
+	testAmt := int64(100)
+	ourAmt := int64(1000)
+	theirAmt := int64(2000)
+	localIndex := uint32(0)
+	remoteIndex := uint32(1)
+	htlcIndex := uint32(2)
+
+	// Create a dummy breach tx, which has our output located at index 0
+	// and theirs at 1.
+	spendTx := &wire.MsgTx{
+		TxOut: []*wire.TxOut{
+			{Value: ourAmt},
+			{Value: theirAmt},
+			{Value: testAmt},
+		},
+	}
+
+	// Create a test channel.
+	aliceChannel, _, cleanUp, err := CreateTestChannels(
+		channeldb.ZeroHtlcTxFeeBit,
+	)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	// Prepare the params needed to call the function. Note that the values
+	// here are not necessary "cryptography-correct", we just use them to
+	// construct the retribution.
+	leaseExpiry, keyRing, commitHash := deriveDummyRetributionParams(
+		aliceChannel.channelState,
+	)
+	htlc := &channeldb.HTLCEntry{
+		Amt:         btcutil.Amount(testAmt),
+		Incoming:    true,
+		OutputIndex: uint16(htlcIndex),
+	}
+
+	// Create a dummy revocation log.
+	revokedLog := channeldb.RevocationLog{
+		CommitTxHash:     commitHash,
+		OurOutputIndex:   uint16(localIndex),
+		TheirOutputIndex: uint16(remoteIndex),
+		HTLCEntries:      []*channeldb.HTLCEntry{htlc},
+	}
+
+	// Create a log with an empty local output index.
+	revokedLogNoLocal := revokedLog
+	revokedLogNoLocal.OurOutputIndex = channeldb.OutputIndexEmpty
+
+	// Create a log with an empty remote output index.
+	revokedLogNoRemote := revokedLog
+	revokedLogNoRemote.TheirOutputIndex = channeldb.OutputIndexEmpty
+
+	testCases := []struct {
+		name             string
+		revocationLog    *channeldb.RevocationLog
+		expectedErr      error
+		expectedOurAmt   int64
+		expectedTheirAmt int64
+	}{
+		{
+			name:             "create retribution successfully",
+			revocationLog:    &revokedLog,
+			expectedErr:      nil,
+			expectedOurAmt:   ourAmt,
+			expectedTheirAmt: theirAmt,
+		},
+		{
+			name: "fail due to our index too big",
+			revocationLog: &channeldb.RevocationLog{
+				OurOutputIndex: uint16(htlcIndex + 1),
+			},
+			expectedErr: ErrOutputIndexOutOfRange,
+		},
+		{
+			name: "fail due to their index too big",
+			revocationLog: &channeldb.RevocationLog{
+				TheirOutputIndex: uint16(htlcIndex + 1),
+			},
+			expectedErr: ErrOutputIndexOutOfRange,
+		},
+		{
+			name:             "empty local output index",
+			revocationLog:    &revokedLogNoLocal,
+			expectedErr:      nil,
+			expectedOurAmt:   0,
+			expectedTheirAmt: theirAmt,
+		},
+		{
+			name:             "empty remote output index",
+			revocationLog:    &revokedLogNoRemote,
+			expectedErr:      nil,
+			expectedOurAmt:   ourAmt,
+			expectedTheirAmt: 0,
+		},
+	}
+
+	// assertRetribution is a helper closure that checks a given breach
+	// retribution has the expected values on certain fields.
+	assertRetribution := func(br *BreachRetribution, our, their int64) {
+		chainHash := aliceChannel.channelState.ChainHash
+		require.Equal(t, commitHash, br.BreachTxHash)
+		require.Equal(t, chainHash, br.ChainHash)
+
+		// Construct local outpoint, we only have the index when the
+		// amount is not zero.
+		local := wire.OutPoint{
+			Hash: commitHash,
+		}
+		if our != 0 {
+			local.Index = localIndex
+		}
+
+		// Construct remote outpoint, we only have the index when the
+		// amount is not zero.
+		remote := wire.OutPoint{
+			Hash: commitHash,
+		}
+		if their != 0 {
+			remote.Index = remoteIndex
+		}
+
+		require.Equal(t, local, br.LocalOutpoint)
+		require.Equal(t, remote, br.RemoteOutpoint)
+
+		for _, hr := range br.HtlcRetributions {
+			require.EqualValues(t, testAmt,
+				hr.SignDesc.Output.Value)
+			require.Equal(t, commitHash, hr.OutPoint.Hash)
+			require.EqualValues(t, htlcIndex, hr.OutPoint.Index)
+			require.Equal(t, htlc.Incoming, hr.IsIncoming)
+		}
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			br, our, their, err := createBreachRetribution(
+				tc.revocationLog, spendTx,
+				aliceChannel.channelState, keyRing,
+				dummyPrivate, leaseExpiry,
+			)
+
+			// Check the error if expected.
+			if tc.expectedErr != nil {
+				require.ErrorIs(t, err, tc.expectedErr)
+			} else {
+				// Otherwise we expect no error.
+				require.NoError(t, err)
+
+				// Check the amounts and the contructed partial
+				// retribution are returned as expected.
+				require.Equal(t, tc.expectedOurAmt, our)
+				require.Equal(t, tc.expectedTheirAmt, their)
+				assertRetribution(br, our, their)
+			}
+		})
+	}
+}
+
+// TestCreateBreachRetributionLegacy checks that
+// `createBreachRetributionLegacy` behaves as expected.
+func TestCreateBreachRetributionLegacy(t *testing.T) {
+	t.Parallel()
+
+	// Create dummy values for the test.
+	dummyPrivate, _ := btcec.PrivKeyFromBytes([]byte{1})
+
+	// Create a test channel.
+	aliceChannel, _, cleanUp, err := CreateTestChannels(
+		channeldb.ZeroHtlcTxFeeBit,
+	)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	// Prepare the params needed to call the function. Note that the values
+	// here are not necessary "cryptography-correct", we just use them to
+	// construct the retribution.
+	leaseExpiry, keyRing, _ := deriveDummyRetributionParams(
+		aliceChannel.channelState,
+	)
+
+	// Use the remote commitment as our revocation log.
+	revokedLog := aliceChannel.channelState.RemoteCommitment
+
+	ourOp := revokedLog.CommitTx.TxOut[0]
+	theirOp := revokedLog.CommitTx.TxOut[1]
+
+	// Create the dummy scripts.
+	ourScript := &ScriptInfo{
+		PkScript: ourOp.PkScript,
+	}
+	theirScript := &ScriptInfo{
+		PkScript: theirOp.PkScript,
+	}
+
+	// Create the breach retribution using the legacy format.
+	br, ourAmt, theirAmt, err := createBreachRetributionLegacy(
+		&revokedLog, aliceChannel.channelState, keyRing,
+		dummyPrivate, ourScript, theirScript, leaseExpiry,
+	)
+	require.NoError(t, err)
+
+	// Check the commitHash and chainHash.
+	commitHash := revokedLog.CommitTx.TxHash()
+	chainHash := aliceChannel.channelState.ChainHash
+	require.Equal(t, commitHash, br.BreachTxHash)
+	require.Equal(t, chainHash, br.ChainHash)
+
+	// Check the outpoints.
+	local := wire.OutPoint{
+		Hash:  commitHash,
+		Index: 0,
+	}
+	remote := wire.OutPoint{
+		Hash:  commitHash,
+		Index: 1,
+	}
+	require.Equal(t, local, br.LocalOutpoint)
+	require.Equal(t, remote, br.RemoteOutpoint)
+
+	// Validate the amounts, note that in the legacy format, our amount is
+	// not directly the amount found in the to local output. Rather, it's
+	// the local output value minus the commit fee and anchor value(if
+	// present).
+	require.EqualValues(t, revokedLog.LocalBalance.ToSatoshis(), ourAmt)
+	require.Equal(t, theirOp.Value, theirAmt)
+}
+
+// TestNewBreachRetribution tests that the function `NewBreachRetribution`
+// behaves as expected.
+func TestNewBreachRetribution(t *testing.T) {
+	t.Run("non-anchor", func(t *testing.T) {
+		testNewBreachRetribution(t, channeldb.ZeroHtlcTxFeeBit)
+	})
+	t.Run("anchor", func(t *testing.T) {
+		chanType := channeldb.SingleFunderTweaklessBit |
+			channeldb.AnchorOutputsBit
+		testNewBreachRetribution(t, chanType)
+	})
+}
+
+// testNewBreachRetribution takes a channel type and tests the function
+// `NewBreachRetribution`.
+func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
+	t.Parallel()
+
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(chanType)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	breachHeight := uint32(101)
+	stateNum := uint64(0)
+	chainHash := aliceChannel.channelState.ChainHash
+	theirDelay := uint32(aliceChannel.channelState.RemoteChanCfg.CsvDelay)
+	breachTx := aliceChannel.channelState.RemoteCommitment.CommitTx
+
+	// Create a breach retribution at height 0, which should give us an
+	// error as there are no past delta state saved as revocation logs yet.
+	_, err = NewBreachRetribution(
+		aliceChannel.channelState, stateNum, breachHeight, breachTx,
+	)
+	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
+
+	// We now force a state transition which will give us a revocation log
+	// at height 0.
+	txid := aliceChannel.channelState.RemoteCommitment.CommitTx.TxHash()
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+
+	// assertRetribution is a helper closure that checks a given breach
+	// retribution has the expected values on certain fields.
+	assertRetribution := func(br *BreachRetribution,
+		localIndex, remoteIndex uint32) {
+
+		require.Equal(t, txid, br.BreachTxHash)
+		require.Equal(t, chainHash, br.ChainHash)
+		require.Equal(t, breachHeight, br.BreachHeight)
+		require.Equal(t, stateNum, br.RevokedStateNum)
+		require.Equal(t, theirDelay, br.RemoteDelay)
+
+		local := wire.OutPoint{
+			Hash:  txid,
+			Index: localIndex,
+		}
+		remote := wire.OutPoint{
+			Hash:  txid,
+			Index: remoteIndex,
+		}
+
+		if chanType.HasAnchors() {
+			// For anchor channels, we expect the local delay to be
+			// 1 otherwise 0.
+			require.EqualValues(t, 1, br.LocalDelay)
+		} else {
+			require.Zero(t, br.LocalDelay)
+		}
+
+		require.Equal(t, local, br.LocalOutpoint)
+		require.Equal(t, remote, br.RemoteOutpoint)
+	}
+
+	// Create the retribution again and we should expect it to be created
+	// successfully.
+	br, err := NewBreachRetribution(
+		aliceChannel.channelState, stateNum, breachHeight, breachTx,
+	)
+	require.NoError(t, err)
+
+	// Check the retribution is as expected.
+	t.Log(spew.Sdump(breachTx))
+	assertRetribution(br, 1, 0)
+
+	// Create the retribution using a stateNum+1 and we should expect an
+	// error.
+	_, err = NewBreachRetribution(
+		aliceChannel.channelState, stateNum+1, breachHeight, breachTx,
+	)
+	require.ErrorIs(t, err, channeldb.ErrLogEntryNotFound)
 }

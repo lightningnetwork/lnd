@@ -3,7 +3,6 @@ package lnd
 import (
 	"sync"
 
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
@@ -16,19 +15,30 @@ type preimageSubscriber struct {
 	quit chan struct{}
 }
 
+type witnessCache interface {
+	// LookupSha256Witness attempts to lookup the preimage for a sha256
+	// hash. If the witness isn't found, ErrNoWitnesses will be returned.
+	LookupSha256Witness(hash lntypes.Hash) (lntypes.Preimage, error)
+
+	// AddSha256Witnesses adds a batch of new sha256 preimages into the
+	// witness cache. This is an alias for AddWitnesses that uses
+	// Sha256HashWitness as the preimages' witness type.
+	AddSha256Witnesses(preimages ...lntypes.Preimage) error
+}
+
 // preimageBeacon is an implementation of the contractcourt.WitnessBeacon
 // interface, and the lnwallet.PreimageCache interface. This implementation is
 // concerned with a single witness type: sha256 hahsh preimages.
 type preimageBeacon struct {
 	sync.RWMutex
 
-	wCache *channeldb.WitnessCache
+	wCache witnessCache
 
 	clientCounter uint64
 	subscribers   map[uint64]*preimageSubscriber
 }
 
-func newPreimageBeacon(wCache *channeldb.WitnessCache) *preimageBeacon {
+func newPreimageBeacon(wCache witnessCache) *preimageBeacon {
 	return &preimageBeacon{
 		wCache:      wCache,
 		subscribers: make(map[uint64]*preimageSubscriber),

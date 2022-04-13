@@ -1732,7 +1732,8 @@ type routingMsg struct {
 // particular target destination to which it is able to send `amt` after
 // factoring in channel capacities and cumulative fees along the route.
 func (r *ChannelRouter) FindRoute(source, target route.Vertex,
-	amt lnwire.MilliSatoshi, restrictions *RestrictParams,
+	amt lnwire.MilliSatoshi, timePref float64,
+	restrictions *RestrictParams,
 	destCustomRecords record.CustomSet,
 	routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
 	finalExpiry uint16) (*route.Route, error) {
@@ -1759,6 +1760,11 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	// execute our path finding algorithm.
 	finalHtlcExpiry := currentHeight + int32(finalExpiry)
 
+	// Validate time preference.
+	if timePref < -1 || timePref > 1 {
+		return nil, errors.New("time preference out of range")
+	}
+
 	path, err := findPath(
 		&graphParams{
 			additionalEdges: routeHints,
@@ -1767,7 +1773,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		},
 		restrictions,
 		&r.cfg.PathFindingConfig,
-		source, target, amt, finalHtlcExpiry,
+		source, target, amt, timePref, finalHtlcExpiry,
 	)
 	if err != nil {
 		return nil, err
@@ -1960,6 +1966,11 @@ type LightningPayment struct {
 	//
 	// NOTE: This field is _optional_.
 	MaxShardAmt *lnwire.MilliSatoshi
+
+	// TimePref is the time preference for this payment. Set to -1 to
+	// optimize for fees only, to 1 to optimize for reliability only or a
+	// value in between for a mix.
+	TimePref float64
 }
 
 // AMPOptions houses information that must be known in order to send an AMP

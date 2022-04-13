@@ -304,7 +304,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 			},
 			restrictions, &p.pathFindingConfig,
 			sourceVertex, p.payment.Target,
-			maxAmt, finalHtlcExpiry,
+			maxAmt, p.payment.TimePref, finalHtlcExpiry,
 		)
 
 		// Close routing graph.

@@ -41,7 +41,7 @@ const (
 // pathFinder defines the interface of a path finding algorithm.
 type pathFinder = func(g *graphParams, r *RestrictParams,
 	cfg *PathFindingConfig, source, target route.Vertex,
-	amt lnwire.MilliSatoshi, finalHtlcExpiry int32) (
+	amt lnwire.MilliSatoshi, timePref float64, finalHtlcExpiry int32) (
 	[]*channeldb.CachedEdgePolicy, error)
 
 var (
@@ -413,7 +413,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 // path and accurately check the amount to forward at every node against the
 // available bandwidth.
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
-	source, target route.Vertex, amt lnwire.MilliSatoshi,
+	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
 	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
 
 	// Pathfinding can be a significant portion of the total payment
@@ -573,13 +573,27 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// if the cltv limit is MaxUint32.
 	absoluteCltvLimit := uint64(r.CltvLimit) + uint64(finalHtlcExpiry)
 
-	// Calculate the absolute attempt cost that is used for probability
-	// estimation.
-	absoluteAttemptCost := int64(cfg.AttemptCost) +
-		int64(amt)*cfg.AttemptCostPPM/1000000
+	// Calculate the default attempt cost as configured globally.
+	defaultAttemptCost := float64(
+		cfg.AttemptCost +
+			amt*lnwire.MilliSatoshi(cfg.AttemptCostPPM)/1000000,
+	)
+
+	// Validate time preference value.
+	if math.Abs(timePref) > 1 {
+		return nil, fmt.Errorf("time preference %v out of range [-1, 1]",
+			timePref)
+	}
+
+	// Scale to avoid the extremes -1 and 1 which run into infinity issues.
+	timePref *= 0.9
+
+	// Apply time preference. At 0, the default attempt cost will
+	// be used.
+	absoluteAttemptCost := defaultAttemptCost * (1/(0.5-timePref/2) - 1)
 
 	log.Debugf("Pathfinding absolute attempt cost: %v sats",
-		float64(absoluteAttemptCost)/1000)
+		absoluteAttemptCost/1000)
 
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
@@ -959,13 +973,24 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 // Fa + c/Pa < Fb + c/Pb
 //
 // So the value of F + c/P can be used to compare routes.
-func getProbabilityBasedDist(weight int64, probability float64, penalty int64) int64 {
-	// Clamp probability to prevent overflow.
-	const minProbability = 0.00001
+func getProbabilityBasedDist(weight int64, probability float64,
+	penalty float64) int64 {
 
-	if probability < minProbability {
+	// Prevent divide by zero by returning early.
+	if probability == 0 {
 		return infinity
 	}
 
-	return weight + int64(float64(penalty)/probability)
+	// Calculate distance.
+	dist := float64(weight) + penalty/probability
+
+	// Avoid cast if an overflow would occur. The maxFloat constant is
+	// chosen to stay well below the maximum float64 value that is still
+	// convertable to int64.
+	const maxFloat = 9000000000000000000
+	if dist > maxFloat {
+		return infinity
+	}
+
+	return int64(dist)
 }

@@ -595,10 +595,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		quit:       make(chan struct{}),
 	}
 
-	s.witnessBeacon = &preimageBeacon{
-		wCache:      dbs.ChanStateDB.NewWitnessCache(),
-		subscribers: make(map[uint64]*preimageSubscriber),
-	}
+	s.witnessBeacon = newPreimageBeacon(dbs.ChanStateDB.NewWitnessCache())
 
 	currentHash, currentHeight, err := s.cc.ChainIO.GetBestBlock()
 	if err != nil {

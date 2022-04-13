@@ -140,6 +140,9 @@ then watch it on chain. Taproot script spends are also supported through the
   The `apple` task uses `gomobile` to build an `XCFramework` that can be used to
   embed lnd to both iOS and macOS apps.
 
+* [Return `FEE_INSUFFICIENT` before checking balance for incoming low-fee
+  HTLCs.](https://github.com/lightningnetwork/lnd/pull/6404).
+
 
 ## RPC Server
 
@@ -247,6 +250,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * randymcmillan
 * Rong Ou
 * Thebora Kompanioni
+* Tommy Volk
 * Torkel Rogstad
 * Vsevolod Kaganovych
 * Yong Yu

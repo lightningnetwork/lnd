@@ -187,6 +187,9 @@ then watch it on chain. Taproot script spends are also supported through the
 
 * [Support for making routes with the legacy onion payload format via `SendToRoute` has been removed.](https://github.com/lightningnetwork/lnd/pull/6385)
 
+* Close a gap in the HTLC interceptor API by [intercepting htlcs in the on-chain
+  resolution flow](https://github.com/lightningnetwork/lnd/pull/6219) too.
+
 ## Database
 
 * [Add ForAll implementation for etcd to speed up

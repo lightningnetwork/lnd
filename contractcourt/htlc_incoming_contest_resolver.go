@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // htlcIncomingContestResolver is a ContractResolver that's able to resolve an
@@ -70,7 +71,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 	// First try to parse the payload. If that fails, we can stop resolution
 	// now.
-	payload, err := h.decodePayload()
+	payload, nextHopOnionBlob, err := h.decodePayload()
 	if err != nil {
 		log.Debugf("ChannelArbitrator(%v): cannot decode payload of "+
 			"htlc %v", h.ChanPoint, h.HtlcPoint())
@@ -152,7 +153,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// Update htlcResolution with the matching preimage.
 		h.htlcResolution.Preimage = preimage
 
-		log.Infof("%T(%v): extracted preimage=%v from beacon!", h,
+		log.Infof("%T(%v): applied preimage=%v", h,
 			h.htlcResolution.ClaimOutpoint, preimage)
 
 		// If this is our commitment transaction, then we'll need to
@@ -277,7 +278,13 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// NOTE: This is done BEFORE opportunistically querying the db,
 		// to ensure the preimage can't be delivered between querying
 		// and registering for the preimage subscription.
-		preimageSubscription := h.PreimageDB.SubscribeUpdates()
+		preimageSubscription, err := h.PreimageDB.SubscribeUpdates(
+			h.htlcSuccessResolver.ShortChanID, &h.htlc,
+			payload, nextHopOnionBlob,
+		)
+		if err != nil {
+			return nil, err
+		}
 		defer preimageSubscription.CancelSubscription()
 
 		// With the epochs and preimage subscriptions initialized, we'll
@@ -440,16 +447,31 @@ func (h *htlcIncomingContestResolver) SupplementState(_ *channeldb.OpenChannel) 
 }
 
 // decodePayload (re)decodes the hop payload of a received htlc.
-func (h *htlcIncomingContestResolver) decodePayload() (*hop.Payload, error) {
+func (h *htlcIncomingContestResolver) decodePayload() (*hop.Payload,
+	[]byte, error) {
+
 	onionReader := bytes.NewReader(h.htlc.OnionBlob)
 	iterator, err := h.OnionProcessor.ReconstructHopIterator(
 		onionReader, h.htlc.RHash[:],
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return iterator.HopPayload()
+	payload, err := iterator.HopPayload()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Transform onion blob for the next hop.
+	var onionBlob [lnwire.OnionPacketSize]byte
+	buf := bytes.NewBuffer(onionBlob[0:0])
+	err = iterator.EncodeNextHop(buf)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return payload, onionBlob[:], nil
 }
 
 // A compile time assertion to ensure htlcIncomingContestResolver meets the

@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -840,6 +841,9 @@ func TestPathFinding(t *testing.T) {
 	}, {
 		name: "route to self",
 		fn:   runRouteToSelf,
+	}, {
+		name: "with metadata",
+		fn:   runFindPathWithMetadata,
 	}}
 
 	// Run with graph cache enabled.
@@ -864,6 +868,46 @@ func TestPathFinding(t *testing.T) {
 			tc.fn(tt, false)
 		})
 	}
+}
+
+// runFindPathWithMetadata tests that metadata is taken into account during
+// pathfinding.
+func runFindPathWithMetadata(t *testing.T, useCache bool) {
+	testChannels := []*testChannel{
+		symmetricTestChannel("alice", "bob", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+			MaxHTLC: 100000000,
+		}),
+	}
+
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "alice")
+	defer ctx.cleanup()
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target := ctx.keyFromAlias("bob")
+
+	// Assert that a path is found when metadata is specified.
+	ctx.restrictParams.Metadata = []byte{1, 2, 3}
+	ctx.restrictParams.DestFeatures = tlvFeatures
+
+	path, err := ctx.findPath(target, paymentAmt)
+	require.NoError(t, err)
+	require.Len(t, path, 1)
+
+	// Assert that no path is found when metadata is too large.
+	ctx.restrictParams.Metadata = make([]byte, 2000)
+
+	_, err = ctx.findPath(target, paymentAmt)
+	require.ErrorIs(t, errNoPathFound, err)
+
+	// Assert that tlv payload support takes precedence over metadata
+	// issues.
+	ctx.restrictParams.DestFeatures = lnwire.EmptyFeatureVector()
+
+	_, err = ctx.findPath(target, paymentAmt)
+	require.ErrorIs(t, errNoTlvPayload, err)
 }
 
 // runFindLowestFeePath tests that out of two routes with identical total
@@ -1340,6 +1384,9 @@ func TestNewRoute(t *testing.T) {
 
 		paymentAddr *[32]byte
 
+		// metadata is the payment metadata to attach to the route.
+		metadata []byte
+
 		// expectedFees is a list of fees that every hop is expected
 		// to charge for forwarding.
 		expectedFees []lnwire.MilliSatoshi
@@ -1380,6 +1427,7 @@ func TestNewRoute(t *testing.T) {
 			hops: []*channeldb.CachedEdgePolicy{
 				createHop(100, 1000, 1000000, 10),
 			},
+			metadata:              []byte{1, 2, 3},
 			expectedFees:          []lnwire.MilliSatoshi{0},
 			expectedTimeLocks:     []uint32{1},
 			expectedTotalAmount:   100000,
@@ -1561,6 +1609,12 @@ func TestNewRoute(t *testing.T) {
 					" but got: %v instead",
 					testCase.expectedMPP, finalHop.MPP)
 			}
+
+			if !bytes.Equal(finalHop.Metadata, testCase.metadata) {
+				t.Errorf("Expected final metadata field: %v, "+
+					" but got: %v instead",
+					testCase.metadata, finalHop.Metadata)
+			}
 		}
 
 		t.Run(testCase.name, func(t *testing.T) {
@@ -1572,6 +1626,7 @@ func TestNewRoute(t *testing.T) {
 					cltvDelta:   finalHopCLTV,
 					records:     nil,
 					paymentAddr: testCase.paymentAddr,
+					metadata:    testCase.metadata,
 				},
 			)
 

@@ -444,6 +444,7 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			CustomRecords: hop.CustomRecords,
 			TlvPayload:    !hop.LegacyPayload,
 			MppRecord:     mpp,
+			Metadata:      hop.Metadata,
 		}
 		incomingAmt = hop.AmtToForward
 	}
@@ -766,6 +767,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.DestFeatures = payReq.Features
 		payIntent.PaymentAddr = payAddr
 		payIntent.PaymentRequest = []byte(rpcPayReq.PaymentRequest)
+		payIntent.Metadata = payReq.Metadata
 	} else {
 		// Otherwise, If the payment request field was not specified
 		// (and a custom route wasn't specified), construct the payment

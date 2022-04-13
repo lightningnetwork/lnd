@@ -1790,15 +1790,18 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			confFile = "litecoin"
 		}
 
-		// If not all of the parameters are set, we'll assume the user
-		// did this unintentionally.
-		if conf.RPCUser != "" || conf.RPCPass != "" ||
-			conf.ZMQPubRawBlock != "" || conf.ZMQPubRawTx != "" {
+		// If only ONE of RPCUser or RPCPass is set, we assume the
+		// user did that unintentionally.
+		if (conf.RPCUser == "") != (conf.RPCPass == "") {
+			return fmt.Errorf("please set both or neither of "+
+				"%[1]v.rpcuser, %[1]v.rpcpass", daemonName)
+		}
 
-			return fmt.Errorf("please set all or none of "+
-				"%[1]v.rpcuser, %[1]v.rpcpass, "+
-				"%[1]v.zmqpubrawblock, %[1]v.zmqpubrawtx",
-				daemonName)
+		// If only ONE of ZMQPubRawBlock or ZMQPubRawTx is set, we assume the
+		// user did that unintentionally.
+		if (conf.ZMQPubRawBlock == "") != (conf.ZMQPubRawTx == "") {
+			return fmt.Errorf("please set both or neither of "+
+				"%[1]v.zmqpubrawblock, %[1]v.zmqpubrawtx", daemonName)
 		}
 	}
 
@@ -1827,12 +1830,25 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 		nConf := nodeConfig.(*lncfg.Bitcoind)
 		rpcUser, rpcPass, zmqBlockHost, zmqTxHost, err :=
 			extractBitcoindRPCParams(netParams.Params.Name, confFile)
-		if err != nil {
-			return fmt.Errorf("unable to extract RPC credentials: "+
-				"%v, cannot start w/o RPC connection", err)
+
+		if nConf.RPCUser == "" || nConf.RPCPass == "" {
+			nConf.RPCUser, nConf.RPCPass = rpcUser, rpcPass
 		}
-		nConf.RPCUser, nConf.RPCPass = rpcUser, rpcPass
-		nConf.ZMQPubRawBlock, nConf.ZMQPubRawTx = zmqBlockHost, zmqTxHost
+
+		if nConf.ZMQPubRawBlock == "" || nConf.ZMQPubRawTx == "" {
+			nConf.ZMQPubRawBlock, nConf.ZMQPubRawTx = zmqBlockHost, zmqTxHost
+		}
+
+		if err != nil {
+			if nConf.RPCUser == "" || nConf.RPCPass == "" {
+				return fmt.Errorf("unable to extract RPC credentials and "+
+					"%[1]v.rpcuser, %[1]v.rpcpass not specified: %v ", daemonName, err)
+			}
+			if nConf.ZMQPubRawBlock == "" || nConf.ZMQPubRawTx == "" {
+				return fmt.Errorf("unable to extract ZMQ endpoints and "+
+					"%[1]v.zmqpubrawblock, %[1]v.zmqpubrawtx not specified: %v ", daemonName, err)
+			}
+		}
 	}
 
 	fmt.Printf("Automatically obtained %v's RPC credentials\n", daemonName)

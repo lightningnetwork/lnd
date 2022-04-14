@@ -494,6 +494,31 @@ type InvoiceStateAMP struct {
 	AmtPaid lnwire.MilliSatoshi
 }
 
+// copy makes a deep copy of the underlying InvoiceStateAMP.
+func (i *InvoiceStateAMP) copy() (InvoiceStateAMP, error) {
+	result := *i
+
+	// Make a copy of the InvoiceKeys map.
+	result.InvoiceKeys = make(map[CircuitKey]struct{})
+	for k := range i.InvoiceKeys {
+		result.InvoiceKeys[k] = struct{}{}
+	}
+
+	// As a safety measure, copy SettleDate. time.Time is concurrency safe
+	// except when using any of the (un)marshalling methods.
+	settleDateBytes, err := i.SettleDate.MarshalBinary()
+	if err != nil {
+		return InvoiceStateAMP{}, err
+	}
+
+	err = result.SettleDate.UnmarshalBinary(settleDateBytes)
+	if err != nil {
+		return InvoiceStateAMP{}, err
+	}
+
+	return result, nil
+}
+
 // AMPInvoiceState represents a type that stores metadata related to the set of
 // settled AMP "sub-invoices".
 type AMPInvoiceState map[SetID]InvoiceStateAMP
@@ -2418,7 +2443,7 @@ func copySlice(src []byte) []byte {
 }
 
 // copyInvoice makes a deep copy of the supplied invoice.
-func copyInvoice(src *Invoice) *Invoice {
+func copyInvoice(src *Invoice) (*Invoice, error) {
 	dest := Invoice{
 		Memo:           copySlice(src.Memo),
 		PaymentRequest: copySlice(src.PaymentRequest),
@@ -2432,6 +2457,7 @@ func copyInvoice(src *Invoice) *Invoice {
 		Htlcs: make(
 			map[CircuitKey]*InvoiceHTLC, len(src.Htlcs),
 		),
+		AMPState:    make(map[SetID]InvoiceStateAMP),
 		HodlInvoice: src.HodlInvoice,
 	}
 
@@ -2446,7 +2472,17 @@ func copyInvoice(src *Invoice) *Invoice {
 		dest.Htlcs[k] = v.Copy()
 	}
 
-	return &dest
+	// Lastly, copy the amp invoice state.
+	for k, v := range src.AMPState {
+		ampInvState, err := v.copy()
+		if err != nil {
+			return nil, err
+		}
+
+		dest.AMPState[k] = ampInvState
+	}
+
+	return &dest, nil
 }
 
 // invoiceSetIDKeyLen is the length of the key that's used to store the
@@ -2628,7 +2664,10 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *SetID, invoices,
 
 	// Create deep copy to prevent any accidental modification in the
 	// callback.
-	invoiceCopy := copyInvoice(&invoice)
+	invoiceCopy, err := copyInvoice(&invoice)
+	if err != nil {
+		return nil, err
+	}
 
 	// Call the callback and obtain the update descriptor.
 	update, err := callback(invoiceCopy)

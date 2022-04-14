@@ -227,6 +227,10 @@ func updateMpp(ctx *invoiceUpdateCtx,
 		return nil, ctx.failRes(ResultExpiryTooSoon), nil
 	}
 
+	if setID != nil && *setID == channeldb.BlankPayAddr {
+		return nil, ctx.failRes(ResultAmpError), nil
+	}
+
 	// Record HTLC in the invoice database.
 	newHtlcs := map[channeldb.CircuitKey]*channeldb.HtlcAcceptDesc{
 		ctx.circuitKey: acceptDesc,

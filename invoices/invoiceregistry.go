@@ -697,8 +697,9 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
 	// Try to mark the specified htlc as canceled in the invoice database.
 	// Intercept the update descriptor to set the local updated variable. If
 	// no invoice update is performed, we can return early.
+	setID := (*channeldb.SetID)(invoiceRef.SetID())
 	var updated bool
-	invoice, err := i.cdb.UpdateInvoice(invoiceRef, nil,
+	invoice, err := i.cdb.UpdateInvoice(invoiceRef, setID,
 		func(invoice *channeldb.Invoice) (
 			*channeldb.InvoiceUpdateDesc, error) {
 
@@ -958,8 +959,15 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	// main event loop.
 	case *htlcAcceptResolution:
 		if r.autoRelease {
+			var invRef channeldb.InvoiceRef
+			if ctx.amp != nil {
+				invRef = channeldb.InvoiceRefBySetID(*ctx.setID())
+			} else {
+				invRef = ctx.invoiceRef()
+			}
+
 			err := i.startHtlcTimer(
-				ctx.invoiceRef(), circuitKey, r.acceptTime,
+				invRef, circuitKey, r.acceptTime,
 			)
 			if err != nil {
 				return nil, err
@@ -1015,10 +1023,24 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			return updateDesc, nil
 		},
 	)
+
+	if _, ok := err.(channeldb.ErrDuplicateSetID); ok {
+		return NewFailResolution(
+			ctx.circuitKey, ctx.currentHeight,
+			ResultInvoiceNotFound,
+		), nil, nil
+	}
+
 	switch err {
 	case channeldb.ErrInvoiceNotFound:
 		// If the invoice was not found, return a failure resolution
 		// with an invoice not found result.
+		return NewFailResolution(
+			ctx.circuitKey, ctx.currentHeight,
+			ResultInvoiceNotFound,
+		), nil, nil
+
+	case channeldb.ErrInvRefEquivocation:
 		return NewFailResolution(
 			ctx.circuitKey, ctx.currentHeight,
 			ResultInvoiceNotFound,

@@ -165,7 +165,15 @@ const (
 	// htlc(s).
 	PaymentMetadataOptional = 49
 
-	// ScriptEnforcedLeaseOptional is an optional feature bit that signals
+	// KeysendRequired is a required bit that indicates that the node is
+	// able and willing to accept keysend payments.
+	KeysendRequired = 54
+
+	// KeysendOptional is an optional bit that indicates that the node is
+	// able and willing to accept keysend payments.
+	KeysendOptional = 55
+
+	// ScriptEnforcedLeaseRequired is a required feature bit that signals
 	// that the node requires channels having zero-fee second-level HTLC
 	// transactions, which also imply anchor commitments, along with an
 	// additional CLTV constraint of a channel lease's expiration height
@@ -174,7 +182,7 @@ const (
 	// TODO: Decide on actual feature bit value.
 	ScriptEnforcedLeaseRequired FeatureBit = 2022
 
-	// ScriptEnforcedLeaseOptional is a required feature bit that signals
+	// ScriptEnforcedLeaseOptional is an optional feature bit that signals
 	// that the node requires channels having zero-fee second-level HTLC
 	// transactions, which also imply anchor commitments, along with an
 	// additional CLTV constraint of a channel lease's expiration height
@@ -232,6 +240,8 @@ var Features = map[FeatureBit]string{
 	PaymentMetadataRequired:       "payment-metadata",
 	ExplicitChannelTypeOptional:   "explicit-commitment-type",
 	ExplicitChannelTypeRequired:   "explicit-commitment-type",
+	KeysendOptional:               "keysend",
+	KeysendRequired:               "keysend",
 	ScriptEnforcedLeaseRequired:   "script-enforced-lease",
 	ScriptEnforcedLeaseOptional:   "script-enforced-lease",
 }

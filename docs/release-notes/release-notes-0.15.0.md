@@ -175,6 +175,9 @@ then watch it on chain. Taproot script spends are also supported through the
 * [Announce the keysend feature bit in NodeAnnouncement if `--accept-keysend` 
   is set](https://github.com/lightningnetwork/lnd/pull/6414)
 
+* [Add a new method in `tlv` to encode an uint64/uint32 field using `BigSize`
+  format.](https://github.com/lightningnetwork/lnd/pull/6421)
+
 ## RPC Server
 
 * [Add value to the field

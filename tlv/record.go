@@ -249,3 +249,40 @@ func SortRecords(records []Record) {
 		return records[i].Type() < records[j].Type()
 	})
 }
+
+// MakeBigSizeRecord creates a tlv record using the BigSize format. The only
+// allowed values are uint64 and uint32.
+//
+// NOTE: for uint32, we would only gain space reduction if the encoded value is
+// no greater than 65535, which requires at most 3 bytes to encode.
+func MakeBigSizeRecord(typ Type, val interface{}) Record {
+	var (
+		staticSize uint64
+		sizeFunc   SizeFunc
+		encoder    Encoder
+		decoder    Decoder
+	)
+	switch val.(type) {
+	case *uint32:
+		sizeFunc = SizeBigSize(val)
+		encoder = EBigSize
+		decoder = DBigSize
+
+	case *uint64:
+		sizeFunc = SizeBigSize(val)
+		encoder = EBigSize
+		decoder = DBigSize
+
+	default:
+		panic(fmt.Sprintf("unknown supported compact type: %T", val))
+	}
+
+	return Record{
+		value:      val,
+		typ:        typ,
+		staticSize: staticSize,
+		sizeFunc:   sizeFunc,
+		encoder:    encoder,
+		decoder:    decoder,
+	}
+}

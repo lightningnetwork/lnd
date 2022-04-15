@@ -2404,24 +2404,17 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 	policy := l.cfg.FwrdingPolicy
 	l.RUnlock()
 
-	// First check whether the outgoing htlc satisfies the channel policy.
-	err := l.canSendHtlc(
-		policy, payHash, amtToForward, outgoingTimeout, heightNow,
-	)
-	if err != nil {
-		return err
-	}
-
-	// Next, using the amount of the incoming HTLC, we'll calculate the
-	// expected fee this incoming HTLC must carry in order to satisfy the
-	// constraints of the outgoing link.
+	// Using the amount of the incoming HTLC, we'll calculate the expected
+	// fee this incoming HTLC must carry in order to satisfy the constraints
+	// of the outgoing link.
 	expectedFee := ExpectedFee(policy, amtToForward)
 
 	// If the actual fee is less than our expected fee, then we'll reject
 	// this HTLC as it didn't provide a sufficient amount of fees, or the
 	// values have been tampered with, or the send used incorrect/dated
 	// information to construct the forwarding information for this hop. In
-	// any case, we'll cancel this HTLC.
+	// any case, we'll cancel this HTLC. We're checking for this case first
+	// to prevent any information from leaking through 0-fee channel probing.
 	actualFee := incomingHtlcAmt - amtToForward
 	if incomingHtlcAmt < amtToForward || actualFee < expectedFee {
 		l.log.Warnf("outgoing htlc(%x) has insufficient fee: "+
@@ -2438,6 +2431,14 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 			},
 		)
 		return NewLinkError(failure)
+	}
+
+	// Check whether the outgoing htlc satisfies the channel policy.
+	err := l.canSendHtlc(
+		policy, payHash, amtToForward, outgoingTimeout, heightNow,
+	)
+	if err != nil {
+		return err
 	}
 
 	// Finally, we'll ensure that the time-lock on the outgoing HTLC meets

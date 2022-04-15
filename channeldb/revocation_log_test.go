@@ -34,30 +34,26 @@ var (
 	}
 
 	testHTLCEntry = HTLCEntry{
-		RefundTimeout: 100,
+		RefundTimeout: 740_000,
 		OutputIndex:   10,
 		Incoming:      true,
-		Amt:           255,
-		amtTlv:        255,
+		Amt:           1000_000,
+		amtTlv:        1000_000,
 		incomingTlv:   1,
 	}
 	testHTLCEntryBytes = []byte{
-		// Body length 58.
-		0x39,
+		// Body length 23.
+		0x16,
 		// Rhash tlv.
-		0x0, 0x20,
-		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+		0x0, 0x0,
 		// RefundTimeout tlv.
-		0x1, 0x4, 0x0, 0x0, 0x0, 0x64,
+		0x1, 0x4, 0x0, 0xb, 0x4a, 0xa0,
 		// OutputIndex tlv.
 		0x2, 0x2, 0x0, 0xa,
 		// Incoming tlv.
 		0x3, 0x1, 0x1,
 		// Amt tlv.
-		0x4, 0x8, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xff,
+		0x4, 0x5, 0xfe, 0x0, 0xf, 0x42, 0x40,
 	}
 
 	testChannelCommit = ChannelCommitment{
@@ -161,7 +157,7 @@ func TestReadTLVStreamErr(t *testing.T) {
 	require.Zero(t, valueRead)
 }
 
-func TestSerializeHTLCEntries(t *testing.T) {
+func TestSerializeHTLCEntriesEmptyRHash(t *testing.T) {
 	t.Parallel()
 
 	// Copy the testHTLCEntry.
@@ -181,6 +177,37 @@ func TestSerializeHTLCEntries(t *testing.T) {
 	require.Equal(t, testHTLCEntryBytes, buf.Bytes())
 }
 
+func TestSerializeHTLCEntries(t *testing.T) {
+	t.Parallel()
+
+	// Copy the testHTLCEntry.
+	entry := testHTLCEntry
+
+	// Create a fake rHash.
+	rHashBytes := bytes.Repeat([]byte{10}, 32)
+	copy(entry.RHash[:], rHashBytes)
+
+	// Construct the serialized bytes.
+	//
+	// Exclude the first 3 bytes, which are total length, RHash type and
+	// RHash length(0).
+	partialBytes := testHTLCEntryBytes[3:]
+
+	// Write the total length and RHash tlv.
+	expectedBytes := []byte{0x36, 0x0, 0x20}
+	expectedBytes = append(expectedBytes, rHashBytes...)
+
+	// Append the rest.
+	expectedBytes = append(expectedBytes, partialBytes...)
+
+	buf := bytes.NewBuffer([]byte{})
+	err := serializeHTLCEntries(buf, []*HTLCEntry{&entry})
+	require.NoError(t, err)
+
+	// Check the bytes are read as expected.
+	require.Equal(t, expectedBytes, buf.Bytes())
+}
+
 func TestSerializeRevocationLog(t *testing.T) {
 	t.Parallel()
 
@@ -197,7 +224,7 @@ func TestSerializeRevocationLog(t *testing.T) {
 	require.Equal(t, testRevocationLogBytes, buf.Bytes()[:bodyIndex])
 }
 
-func TestDerializeHTLCEntries(t *testing.T) {
+func TestDerializeHTLCEntriesEmptyRHash(t *testing.T) {
 	t.Parallel()
 
 	// Read the tlv stream.
@@ -208,6 +235,38 @@ func TestDerializeHTLCEntries(t *testing.T) {
 	// Check the bytes are read as expected.
 	require.Len(t, htlcs, 1)
 	require.Equal(t, &testHTLCEntry, htlcs[0])
+}
+
+func TestDerializeHTLCEntries(t *testing.T) {
+	t.Parallel()
+
+	// Copy the testHTLCEntry.
+	entry := testHTLCEntry
+
+	// Create a fake rHash.
+	rHashBytes := bytes.Repeat([]byte{10}, 32)
+	copy(entry.RHash[:], rHashBytes)
+
+	// Construct the serialized bytes.
+	//
+	// Exclude the first 3 bytes, which are total length, RHash type and
+	// RHash length(0).
+	partialBytes := testHTLCEntryBytes[3:]
+
+	// Write the total length and RHash tlv.
+	testBytes := append([]byte{0x36, 0x0, 0x20}, rHashBytes...)
+
+	// Append the rest.
+	testBytes = append(testBytes, partialBytes...)
+
+	// Read the tlv stream.
+	buf := bytes.NewBuffer(testBytes)
+	htlcs, err := deserializeHTLCEntries(buf)
+	require.NoError(t, err)
+
+	// Check the bytes are read as expected.
+	require.Len(t, htlcs, 1)
+	require.Equal(t, &entry, htlcs[0])
 }
 
 func TestDerializeRevocationLog(t *testing.T) {

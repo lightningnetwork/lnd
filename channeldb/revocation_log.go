@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -43,6 +44,16 @@ var (
 // HTLCEntry specifies the minimal info needed to be stored on disk for ALL the
 // historical HTLCs, which is useful for constructing RevocationLog when a
 // breach is detected.
+// The actual size of each HTLCEntry varies based on its RHash and Amt(sat),
+// summarized as follows,
+//
+//   | RHash empty | Amt<=252 | Amt<=65,535 | Amt<=4,294,967,295 | otherwise |
+//   |:-----------:|:--------:|:-----------:|:------------------:|:---------:|
+//   |     true    |    19    |      21     |         23         |     26    |
+//   |     false   |    51    |      53     |         55         |     58    |
+//
+// So the size varies from 19 bytes to 58 bytes, where most likely to be 23 or
+// 55 bytes.
 //
 // NOTE: all the fields saved to disk use the primitive go types so they can be
 // made into tlv records without further conversion.
@@ -86,6 +97,46 @@ type HTLCEntry struct {
 	incomingTlv uint8
 }
 
+// RHashLen is used by MakeDynamicRecord to return the size of the RHash.
+//
+// NOTE: for zero hash, we return a length 0.
+func (h *HTLCEntry) RHashLen() uint64 {
+	if h.RHash == lntypes.ZeroHash {
+		return 0
+	}
+	return 32
+}
+
+// RHashEncoder is the customized encoder which skips encoding the empty hash.
+func RHashEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
+	v, ok := val.(*[32]byte)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "RHash")
+	}
+
+	// If the value is an empty hash, we will skip encoding it.
+	if *v == lntypes.ZeroHash {
+		return nil
+	}
+
+	return tlv.EBytes32(w, v, buf)
+}
+
+// RHashDecoder is the customized decoder which skips decoding the empty hash.
+func RHashDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
+	v, ok := val.(*[32]byte)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "RHash")
+	}
+
+	// If the length is zero, we will skip encoding the empty hash.
+	if l == 0 {
+		return nil
+	}
+
+	return tlv.DBytes32(r, v, buf, 32)
+}
+
 // toTlvStream converts an HTLCEntry record into a tlv representation.
 func (h *HTLCEntry) toTlvStream() (*tlv.Stream, error) {
 	const (
@@ -103,7 +154,10 @@ func (h *HTLCEntry) toTlvStream() (*tlv.Stream, error) {
 	)
 
 	return tlv.NewStream(
-		tlv.MakePrimitiveRecord(rHashType, &h.RHash),
+		tlv.MakeDynamicRecord(
+			rHashType, &h.RHash, h.RHashLen,
+			RHashEncoder, RHashDecoder,
+		),
 		tlv.MakePrimitiveRecord(
 			refundTimeoutType, &h.RefundTimeout,
 		),
@@ -111,7 +165,9 @@ func (h *HTLCEntry) toTlvStream() (*tlv.Stream, error) {
 			outputIndexType, &h.OutputIndex,
 		),
 		tlv.MakePrimitiveRecord(incomingType, &h.incomingTlv),
-		tlv.MakePrimitiveRecord(amtType, &h.amtTlv),
+		// We will save 3 bytes if the amount is less or equal to
+		// 4,294,967,295 msat, or roughly 0.043 bitcoin.
+		tlv.MakeBigSizeRecord(amtType, &h.amtTlv),
 	)
 }
 

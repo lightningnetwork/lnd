@@ -529,6 +529,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoAnchors:                cfg.ProtocolOptions.NoAnchorCommitments(),
 		NoWumbo:                  !cfg.ProtocolOptions.Wumbo(),
 		NoScriptEnforcementLease: cfg.ProtocolOptions.NoScriptEnforcementLease(),
+		NoKeysend:                !cfg.AcceptKeySend,
 	})
 	if err != nil {
 		return nil, err

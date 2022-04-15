@@ -3,7 +3,7 @@ package wtmock
 import (
 	"sync"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -39,7 +39,7 @@ func (m *SecretKeyRing) DeriveKey(
 		}, nil
 	}
 
-	privKey, err := btcec.NewPrivateKey(btcec.S256())
+	privKey, err := btcec.NewPrivateKey()
 	if err != nil {
 		return keychain.KeyDescriptor{}, err
 	}

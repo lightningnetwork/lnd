@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 	"github.com/lightningnetwork/lnd/kvdb"
 )
@@ -839,7 +839,7 @@ func MigrateOutgoingPayments(tx kvdb.RwTx) error {
 		// Since we don't have the session key for old payments, we
 		// create a random one to be able to serialize the attempt
 		// info.
-		priv, _ := btcec.NewPrivateKey(btcec.S256())
+		priv, _ := btcec.NewPrivateKey()
 		s := &PaymentAttemptInfo{
 			PaymentID:  0,    // unknown.
 			SessionKey: priv, // unknown.

@@ -3,7 +3,8 @@ package keychain
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 )
 
 const (
@@ -209,7 +210,7 @@ type MessageSignerRing interface {
 	// SignMessage signs the given message, single or double SHA256 hashing
 	// it first, with the private key described in the key locator.
 	SignMessage(keyLoc KeyLocator, msg []byte,
-		doubleHash bool) (*btcec.Signature, error)
+		doubleHash bool) (*ecdsa.Signature, error)
 
 	// SignMessageCompact signs the given message, single or double SHA256
 	// hashing it first, with the private key described in the key locator
@@ -232,7 +233,7 @@ type SingleKeyMessageSigner interface {
 
 	// SignMessage signs the given message, single or double SHA256 hashing
 	// it first, with the wrapped private key.
-	SignMessage(message []byte, doubleHash bool) (*btcec.Signature, error)
+	SignMessage(message []byte, doubleHash bool) (*ecdsa.Signature, error)
 
 	// SignMessageCompact signs the given message, single or double SHA256
 	// hashing it first, with the wrapped private key and returns the

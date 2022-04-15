@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -65,8 +65,12 @@ func (m *mockPreimageCache) AddPreimages(preimages ...lntypes.Preimage) error {
 	return nil
 }
 
-func (m *mockPreimageCache) SubscribeUpdates() *contractcourt.WitnessSubscription {
-	return nil
+func (m *mockPreimageCache) SubscribeUpdates(
+	chanID lnwire.ShortChannelID, htlc *channeldb.HTLC,
+	payload *hop.Payload,
+	nextHopOnionBlob []byte) (*contractcourt.WitnessSubscription, error) {
+
+	return nil, nil
 }
 
 type mockFeeEstimator struct {
@@ -185,7 +189,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 			events: make(map[time.Time]channeldb.ForwardingEvent),
 		},
 		FetchLastChannelUpdate: func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
-			return nil, nil
+			return &lnwire.ChannelUpdate{}, nil
 		},
 		Notifier: &mock.ChainNotifier{
 			SpendChan: make(chan *chainntnfs.SpendDetail),
@@ -610,7 +614,7 @@ func (s *mockServer) PubKey() [33]byte {
 }
 
 func (s *mockServer) IdentityKey() *btcec.PublicKey {
-	pubkey, _ := btcec.ParsePubKey(s.id[:], btcec.S256())
+	pubkey, _ := btcec.ParsePubKey(s.id[:])
 	return pubkey
 }
 
@@ -690,9 +694,11 @@ func (f *mockChannelLink) completeCircuit(pkt *htlcPacket) error {
 		f.htlcID++
 
 	case *lnwire.UpdateFulfillHTLC, *lnwire.UpdateFailHTLC:
-		err := f.htlcSwitch.teardownCircuit(pkt)
-		if err != nil {
-			return err
+		if pkt.circuit != nil {
+			err := f.htlcSwitch.teardownCircuit(pkt)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

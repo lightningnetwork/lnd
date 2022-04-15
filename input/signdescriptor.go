@@ -5,7 +5,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -61,6 +61,11 @@ type SignDescriptor struct {
 	// script (PkScript).
 	WitnessScript []byte
 
+	// TaprootKeySpend indicates that instead of a witness script being
+	// spent by the signature that results from this signing request, a
+	// taproot key spend is performed instead.
+	TaprootKeySpend bool
+
 	// Output is the target output which should be signed. The PkScript and
 	// Value fields within the output should be properly populated,
 	// otherwise an invalid signature may be generated.
@@ -73,6 +78,11 @@ type SignDescriptor struct {
 	// SigHashes is the pre-computed sighash midstate to be used when
 	// generating the final sighash for signing.
 	SigHashes *txscript.TxSigHashes
+
+	// PrevOutputFetcher is an interface that can return the output
+	// information on all UTXOs that are being spent in this transaction.
+	// This MUST be set when spending Taproot outputs.
+	PrevOutputFetcher txscript.PrevOutputFetcher
 
 	// InputIndex is the target input within the transaction that should be
 	// signed.
@@ -159,9 +169,7 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 		if err != nil {
 			return err
 		}
-		sd.KeyDesc.PubKey, err = btcec.ParsePubKey(
-			pubKeyBytes, btcec.S256(),
-		)
+		sd.KeyDesc.PubKey, err = btcec.ParsePubKey(pubKeyBytes)
 		if err != nil {
 			return err
 		}
@@ -196,7 +204,7 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 	if len(doubleTweakBytes) == 0 {
 		sd.DoubleTweak = nil
 	} else {
-		sd.DoubleTweak, _ = btcec.PrivKeyFromBytes(btcec.S256(), doubleTweakBytes)
+		sd.DoubleTweak, _ = btcec.PrivKeyFromBytes(doubleTweakBytes)
 	}
 
 	// Only one tweak should ever be set, fail if both are present.

@@ -620,6 +620,38 @@ message Utxo {
     int64 confirmations = 6;
 }
 
+enum OutputScriptType {
+    SCRIPT_TYPE_PUBKEY_HASH = 0;
+    SCRIPT_TYPE_SCRIPT_HASH = 1;
+    SCRIPT_TYPE_WITNESS_V0_PUBKEY_HASH = 2;
+    SCRIPT_TYPE_WITNESS_V0_SCRIPT_HASH = 3;
+    SCRIPT_TYPE_PUBKEY = 4;
+    SCRIPT_TYPE_MULTISIG = 5;
+    SCRIPT_TYPE_NULLDATA = 6;
+    SCRIPT_TYPE_NON_STANDARD = 7;
+    SCRIPT_TYPE_WITNESS_UNKNOWN = 8;
+}
+
+message OutputDetail {
+    // The type of the output
+    OutputScriptType output_type = 1;
+
+    // The address
+    string address = 2;
+
+    // The pkscript in hex
+    string pk_script = 3;
+
+    // The output index used in the raw transaction
+    int64 output_index = 4;
+
+    // The value of the output coin in satoshis
+    int64 amount = 5;
+
+    // Denotes if the output is controlled by the internal wallet
+    bool is_our_address = 6;
+}
+
 message Transaction {
     // The transaction hash
     string tx_hash = 1;
@@ -642,8 +674,12 @@ message Transaction {
     // Fees paid for this transaction
     int64 total_fees = 7;
 
-    // Addresses that received funds for this transaction
-    repeated string dest_addresses = 8;
+    // Addresses that received funds for this transaction. Deprecated as it is
+    // now incorporated in the output_details field.
+    repeated string dest_addresses = 8 [deprecated = true];
+
+    // Outputs that received funds for this transaction
+    repeated OutputDetail output_details = 11;
 
     // The raw transaction hex.
     string raw_tx_hex = 9;
@@ -1102,12 +1138,15 @@ message ListUnspentResponse {
 
 - `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)
 - `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)
+- `p2tr`: Pay to taproot pubkey (`TAPROOT_PUBKEY` = 4)
 */
 enum AddressType {
     WITNESS_PUBKEY_HASH = 0;
     NESTED_PUBKEY_HASH = 1;
     UNUSED_WITNESS_PUBKEY_HASH = 2;
     UNUSED_NESTED_PUBKEY_HASH = 3;
+    TAPROOT_PUBKEY = 4;
+    UNUSED_TAPROOT_PUBKEY = 5;
 }
 
 message NewAddressRequest {
@@ -2502,6 +2541,10 @@ message WalletBalanceResponse {
     // The unconfirmed balance of a wallet(with 0 confirmations)
     int64 unconfirmed_balance = 3;
 
+    // The total amount of wallet UTXOs held in outputs that are locked for
+    // other usage.
+    int64 locked_balance = 5;
+
     // A mapping of each wallet account's name to its balance.
     map<string, WalletAccountBalance> account_balance = 4;
 }
@@ -2649,6 +2692,12 @@ message QueryRoutesRequest {
     fallback.
     */
     repeated lnrpc.FeatureBit dest_features = 17;
+
+    /*
+    The time preference for this payment. Set to -1 to optimize for fees
+    only, to 1 to optimize for reliability only or a value inbetween for a mix.
+    */
+    double time_pref = 18;
 }
 
 message NodePair {
@@ -2717,7 +2766,7 @@ message Hop {
     TLV format. Note that if any custom tlv_records below are specified, then
     this field MUST be set to true for them to be encoded properly.
     */
-    bool tlv_payload = 9;
+    bool tlv_payload = 9 [deprecated = true];
 
     /*
     An optional TLV record that signals the use of an MPP payment. If present,
@@ -2743,6 +2792,9 @@ message Hop {
     to drop off at each hop within the onion.
     */
     map<uint64, bytes> custom_records = 11;
+
+    // The payment metadata to send along with the payment to the payee.
+    bytes metadata = 13;
 }
 
 message MPPRecord {

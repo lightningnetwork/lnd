@@ -5,12 +5,13 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 )
 
 var (
@@ -74,7 +75,7 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 		return nil, err
 	}
 
-	return btcec.ParseDERSignature(sig[:len(sig)-1], btcec.S256())
+	return ecdsa.ParseDERSignature(sig[:len(sig)-1])
 }
 
 // ComputeInputScript generates a complete InputIndex for the passed transaction
@@ -166,7 +167,7 @@ func pubkeyFromHex(keyHex string) (*btcec.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	return btcec.ParsePubKey(bytes, btcec.S256())
+	return btcec.ParsePubKey(bytes)
 }
 
 // privkeyFromHex parses a Bitcoin private key from a hex encoded string.
@@ -175,7 +176,7 @@ func privkeyFromHex(keyHex string) (*btcec.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	key, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes)
+	key, _ := btcec.PrivKeyFromBytes(bytes)
 	return key, nil
 
 }

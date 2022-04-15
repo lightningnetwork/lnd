@@ -12,6 +12,7 @@
    1. [Code Spacing and formatting](#code-spacing-and-formatting)
    1. [Pointing to Remote Dependent Branches in Go Modules](#pointing-to-remote-dependent-branches-in-go-modules)
    1. [Use of Log Levels](#use-of-log-levels)
+   1. [Use of Golang submodules](#use-of-golang-submodules)
 5. [Code Approval Process](#code-approval-process)
    1. [Code Review](#code-review)
    1. [Rework Code (if needed)](#rework-code-if-needed)
@@ -639,6 +640,24 @@ There are six log levels available: `trace`, `debug`, `info`, `warn`, `error` an
 Only use `error` for internal errors that are never expected to happen during
 normal operation. No event triggered by external sources (rpc, chain backend,
 etc) should lead to an `error` log.
+
+## Use of Golang submodules
+
+Changes to packages that are their own submodules (e.g. they contain a `go.mod`
+and `go.sum` file, for example `tor/go.mod`) require a specific process.
+We want to avoid the use of local replace directives in the root `go.mod`,
+therefore changes to a submodule are a bit involved.
+
+The main process for updating and then using code in a submodule is as follows:
+ - Create a PR for the changes to the submodule itself (e.g. edit something in
+   the `tor` package)
+ - Wait for the PR to be merged and a new tag (for example `tor/v1.0.x`) to be
+   pushed.
+ - Create a second PR that bumps the updated submodule in the root `go.mod` and
+   uses the new functionality in the main module.
+
+Of course the two PRs can be opened at the same time and be built on top of each
+other. But the merge and tag push order should always be maintained.
 
 # Code Approval Process
 

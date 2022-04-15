@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -597,9 +597,6 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 
 	case <-p.router.quit:
 		return nil, ErrRouterShuttingDown
-
-	case <-p.quit:
-		return nil, errShardHandlerExiting
 	}
 
 	// In case of a payment failure, fail the attempt with the control
@@ -883,9 +880,7 @@ func (p *shardHandler) handleFailureMessage(rt *route.Route,
 	// always succeed, otherwise there is something wrong in our
 	// implementation. Therefore return an error.
 	errVertex := rt.Hops[errorSourceIdx-1].PubKeyBytes
-	errSource, err := btcec.ParsePubKey(
-		errVertex[:], btcec.S256(),
-	)
+	errSource, err := btcec.ParsePubKey(errVertex[:])
 	if err != nil {
 		log.Errorf("Cannot parse pubkey: idx=%v, pubkey=%v",
 			errorSourceIdx, errVertex)

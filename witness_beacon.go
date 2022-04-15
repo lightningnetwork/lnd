@@ -5,7 +5,10 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // preimageSubscriber reprints an active subscription to be notified once the
@@ -16,21 +19,48 @@ type preimageSubscriber struct {
 	quit chan struct{}
 }
 
+type witnessCache interface {
+	// LookupSha256Witness attempts to lookup the preimage for a sha256
+	// hash. If the witness isn't found, ErrNoWitnesses will be returned.
+	LookupSha256Witness(hash lntypes.Hash) (lntypes.Preimage, error)
+
+	// AddSha256Witnesses adds a batch of new sha256 preimages into the
+	// witness cache. This is an alias for AddWitnesses that uses
+	// Sha256HashWitness as the preimages' witness type.
+	AddSha256Witnesses(preimages ...lntypes.Preimage) error
+}
+
 // preimageBeacon is an implementation of the contractcourt.WitnessBeacon
 // interface, and the lnwallet.PreimageCache interface. This implementation is
 // concerned with a single witness type: sha256 hahsh preimages.
 type preimageBeacon struct {
 	sync.RWMutex
 
-	wCache *channeldb.WitnessCache
+	wCache witnessCache
 
 	clientCounter uint64
 	subscribers   map[uint64]*preimageSubscriber
+
+	interceptor func(htlcswitch.InterceptedForward) error
+}
+
+func newPreimageBeacon(wCache witnessCache,
+	interceptor func(htlcswitch.InterceptedForward) error) *preimageBeacon {
+
+	return &preimageBeacon{
+		wCache:      wCache,
+		interceptor: interceptor,
+		subscribers: make(map[uint64]*preimageSubscriber),
+	}
 }
 
 // SubscribeUpdates returns a channel that will be sent upon *each* time a new
 // preimage is discovered.
-func (p *preimageBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
+func (p *preimageBeacon) SubscribeUpdates(
+	chanID lnwire.ShortChannelID, htlc *channeldb.HTLC,
+	payload *hop.Payload,
+	nextHopOnionBlob []byte) (*contractcourt.WitnessSubscription, error) {
+
 	p.Lock()
 	defer p.Unlock()
 
@@ -47,7 +77,7 @@ func (p *preimageBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
 	srvrLog.Debugf("Creating new witness beacon subscriber, id=%v",
 		p.clientCounter)
 
-	return &contractcourt.WitnessSubscription{
+	sub := &contractcourt.WitnessSubscription{
 		WitnessUpdates: client.updateChan,
 		CancelSubscription: func() {
 			p.Lock()
@@ -58,6 +88,32 @@ func (p *preimageBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
 			close(client.quit)
 		},
 	}
+
+	// Notify the htlc interceptor. There may be a client connected
+	// and willing to supply a preimage.
+	packet := &htlcswitch.InterceptedPacket{
+		Hash:           htlc.RHash,
+		IncomingExpiry: htlc.RefundTimeout,
+		IncomingAmount: htlc.Amt,
+		IncomingCircuit: channeldb.CircuitKey{
+			ChanID: chanID,
+			HtlcID: htlc.HtlcIndex,
+		},
+		OutgoingChanID: payload.FwdInfo.NextHop,
+		OutgoingExpiry: payload.FwdInfo.OutgoingCTLV,
+		OutgoingAmount: payload.FwdInfo.AmountToForward,
+		CustomRecords:  payload.CustomRecords(),
+	}
+	copy(packet.OnionBlob[:], nextHopOnionBlob)
+
+	fwd := newInterceptedForward(packet, p)
+
+	err := p.interceptor(fwd)
+	if err != nil {
+		return nil, err
+	}
+
+	return sub, nil
 }
 
 // LookupPreImage attempts to lookup a preimage in the global cache.  True is

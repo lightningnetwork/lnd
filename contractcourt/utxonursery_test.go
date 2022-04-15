@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntest/mock"
@@ -328,7 +328,7 @@ func init() {
 	// Finish initializing our test vectors by parsing the desired public keys and
 	// properly populating the sign descriptors of all baby and kid outputs.
 	for i := range signDescriptors {
-		pk, err := btcec.ParsePubKey(keys[i], btcec.S256())
+		pk, err := btcec.ParsePubKey(keys[i])
 		if err != nil {
 			panic(fmt.Sprintf("unable to parse pub key during init: %v", err))
 		}

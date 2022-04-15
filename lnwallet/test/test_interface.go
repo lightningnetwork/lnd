@@ -17,8 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcjson"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
@@ -26,7 +27,6 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/walletdb"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
@@ -81,8 +81,8 @@ var (
 	netParams = &chaincfg.RegressionNetParams
 	chainHash = netParams.GenesisHash
 
-	_, alicePub = btcec.PrivKeyFromBytes(btcec.S256(), testHdSeed[:])
-	_, bobPub   = btcec.PrivKeyFromBytes(btcec.S256(), bobsPrivKey)
+	_, alicePub = btcec.PrivKeyFromBytes(testHdSeed[:])
+	_, bobPub   = btcec.PrivKeyFromBytes(bobsPrivKey)
 
 	// The number of confirmations required to consider any created channel
 	// open.
@@ -1140,6 +1140,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	// Create 5 new outputs spendable by the wallet.
 	const numTxns = 5
 	const outputAmt = btcutil.SatoshiPerBitcoin
+	isOurAddress := make(map[string]bool)
 	txids := make(map[chainhash.Hash]struct{})
 	for i := 0; i < numTxns; i++ {
 		addr, err := alice.NewAddress(
@@ -1149,6 +1150,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 		if err != nil {
 			t.Fatalf("unable to create new address: %v", err)
 		}
+		isOurAddress[addr.EncodeAddress()] = true
 		script, err := txscript.PayToAddrScript(addr)
 		if err != nil {
 			t.Fatalf("unable to create output script: %v", err)
@@ -1245,20 +1247,27 @@ func testListTransactionDetails(miner *rpctest.Harness,
 			t.Fatalf("tx (%v) not found in block (%v)",
 				txDetail.Hash, txDetail.BlockHash)
 		} else {
-			var destinationAddresses []btcutil.Address
+			var destinationOutputs []lnwallet.OutputDetail
 
-			for _, txOut := range txOuts {
-				_, addrs, _, err :=
+			for i, txOut := range txOuts {
+				sc, addrs, _, err :=
 					txscript.ExtractPkScriptAddrs(txOut.PkScript, &alice.Cfg.NetParams)
 				if err != nil {
 					t.Fatalf("err extract script addresses: %s", err)
 				}
-				destinationAddresses = append(destinationAddresses, addrs...)
+				destinationOutputs = append(destinationOutputs, lnwallet.OutputDetail{
+					OutputType:   sc,
+					Addresses:    addrs,
+					PkScript:     txOut.PkScript,
+					OutputIndex:  i,
+					Value:        btcutil.Amount(txOut.Value),
+					IsOurAddress: isOurAddress[addrs[0].EncodeAddress()],
+				})
 			}
 
-			if !reflect.DeepEqual(txDetail.DestAddresses, destinationAddresses) {
-				t.Fatalf("destination addresses mismatch, got %v expected %v",
-					txDetail.DestAddresses, destinationAddresses)
+			if !reflect.DeepEqual(txDetail.OutputDetails, destinationOutputs) {
+				t.Fatalf("destination outputs mismatch, got %v expected %v",
+					txDetail.OutputDetails, destinationOutputs)
 			}
 		}
 
@@ -1330,10 +1339,12 @@ func testListTransactionDetails(miner *rpctest.Harness,
 		// that even when we have 0 confirmation transactions, the destination
 		// addresses are returned.
 		var match bool
-		for _, addr := range txDetail.DestAddresses {
-			if addr.String() == minerAddr.String() {
-				match = true
-				break
+		for _, o := range txDetail.OutputDetails {
+			for _, addr := range o.Addresses {
+				if addr.String() == minerAddr.String() {
+					match = true
+					break
+				}
 			}
 		}
 		if !match {
@@ -1699,7 +1710,7 @@ func txFromOutput(tx *wire.MsgTx, signer input.Signer, fromPubKey,
 		WitnessScript: keyScript,
 		Output:        tx.TxOut[outputIndex],
 		HashType:      txscript.SigHashAll,
-		SigHashes:     txscript.NewTxSigHashes(tx1),
+		SigHashes:     input.NewTxSigHashesV0Only(tx1),
 		InputIndex:    0, // Has only one input.
 	}
 
@@ -1719,7 +1730,9 @@ func txFromOutput(tx *wire.MsgTx, signer input.Signer, fromPubKey,
 	// private key.
 	vm, err := txscript.NewEngine(
 		keyScript, tx1, 0, txscript.StandardVerifyFlags, nil,
-		nil, outputValue,
+		nil, outputValue, txscript.NewCannedPrevOutputFetcher(
+			keyScript, outputValue,
+		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create engine: %v", err)
@@ -2001,8 +2014,7 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 	// we'll generate a commitment pre-image, then derive a revocation key
 	// and single tweak from that.
 	commitPreimage := bytes.Repeat([]byte{2}, 32)
-	commitSecret, commitPoint := btcec.PrivKeyFromBytes(btcec.S256(),
-		commitPreimage)
+	commitSecret, commitPoint := btcec.PrivKeyFromBytes(commitPreimage)
 
 	revocationKey := input.DeriveRevocationPubkey(pubKey.PubKey, commitPoint)
 	commitTweak := input.SingleTweakBytes(commitPoint, pubKey.PubKey)
@@ -2086,7 +2098,7 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 			WitnessScript: keyScript,
 			Output:        newOutput,
 			HashType:      txscript.SigHashAll,
-			SigHashes:     txscript.NewTxSigHashes(sweepTx),
+			SigHashes:     input.NewTxSigHashesV0Only(sweepTx),
 			InputIndex:    0,
 		}
 
@@ -2113,9 +2125,13 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 		// Finally, attempt to validate the completed transaction. This
 		// should succeed if the wallet was able to properly generate
 		// the proper private key.
-		vm, err := txscript.NewEngine(keyScript,
-			sweepTx, 0, txscript.StandardVerifyFlags, nil,
-			nil, int64(btcutil.SatoshiPerBitcoin))
+		vm, err := txscript.NewEngine(
+			keyScript, sweepTx, 0, txscript.StandardVerifyFlags,
+			nil, nil, int64(btcutil.SatoshiPerBitcoin),
+			txscript.NewCannedPrevOutputFetcher(
+				keyScript, int64(btcutil.SatoshiPerBitcoin),
+			),
+		)
 		if err != nil {
 			t.Fatalf("unable to create engine: %v", err)
 		}
@@ -2823,7 +2839,7 @@ func testSignOutputCreateAccount(r *rpctest.Harness, w *lnwallet.LightningWallet
 			Value: 1000,
 		},
 		HashType:   txscript.SigHashAll,
-		SigHashes:  txscript.NewTxSigHashes(fakeTx),
+		SigHashes:  input.NewTxSigHashesV0Only(fakeTx),
 		InputIndex: 0,
 	}
 

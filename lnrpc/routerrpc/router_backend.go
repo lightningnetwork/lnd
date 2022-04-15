@@ -9,10 +9,10 @@ import (
 	math "math"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -53,7 +53,8 @@ type RouterBackend struct {
 	// FindRoutes is a closure that abstracts away how we locate/query for
 	// routes.
 	FindRoute func(source, target route.Vertex,
-		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
+		amt lnwire.MilliSatoshi, timePref float64,
+		restrictions *routing.RestrictParams,
 		destCustomRecords record.CustomSet,
 		routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
 		finalExpiry uint16) (*route.Route, error)
@@ -324,7 +325,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
 	route, err := r.FindRoute(
-		sourcePubKey, targetPubKey, amt, restrictions,
+		sourcePubKey, targetPubKey, amt, in.TimePref, restrictions,
 		customRecords, routeHintEdges, finalCLTVDelta,
 	)
 	if err != nil {
@@ -443,6 +444,7 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			CustomRecords: hop.CustomRecords,
 			TlvPayload:    !hop.LegacyPayload,
 			MppRecord:     mpp,
+			Metadata:      hop.Metadata,
 		}
 		incomingAmt = hop.AmtToForward
 	}
@@ -476,7 +478,7 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 		PubKeyBytes:      pubkey,
 		ChannelID:        rpcHop.ChanId,
 		CustomRecords:    customRecords,
-		LegacyPayload:    !rpcHop.TlvPayload,
+		LegacyPayload:    false,
 		MPP:              mpp,
 		AMP:              amp,
 	}, nil
@@ -558,6 +560,12 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	rpcPayReq *SendPaymentRequest) (*routing.LightningPayment, error) {
 
 	payIntent := &routing.LightningPayment{}
+
+	// Pass along time preference.
+	if rpcPayReq.TimePref < -1 || rpcPayReq.TimePref > 1 {
+		return nil, errors.New("time preference out of range")
+	}
+	payIntent.TimePref = rpcPayReq.TimePref
 
 	// Pass along restrictions on the outgoing channels that may be used.
 	payIntent.OutgoingChannelIDs = rpcPayReq.OutgoingChanIds
@@ -759,6 +767,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.DestFeatures = payReq.Features
 		payIntent.PaymentAddr = payAddr
 		payIntent.PaymentRequest = []byte(rpcPayReq.PaymentRequest)
+		payIntent.Metadata = payReq.Metadata
 	} else {
 		// Otherwise, If the payment request field was not specified
 		// (and a custom route wasn't specified), construct the payment
@@ -927,7 +936,7 @@ func unmarshallHopHint(rpcHint *lnrpc.HopHint) (zpay32.HopHint, error) {
 		return zpay32.HopHint{}, err
 	}
 
-	pubkey, err := btcec.ParsePubKey(pubBytes, btcec.S256())
+	pubkey, err := btcec.ParsePubKey(pubBytes)
 	if err != nil {
 		return zpay32.HopHint{}, err
 	}

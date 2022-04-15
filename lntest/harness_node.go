@@ -17,13 +17,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -355,12 +357,14 @@ type HarnessNode struct {
 	lnrpc.LightningClient
 	lnrpc.WalletUnlockerClient
 	invoicesrpc.InvoicesClient
+	peersrpc.PeersClient
 	SignerClient     signrpc.SignerClient
 	RouterClient     routerrpc.RouterClient
 	WalletKitClient  walletrpc.WalletKitClient
 	Watchtower       watchtowerrpc.WatchtowerClient
 	WatchtowerClient wtclientrpc.WatchtowerClientClient
 	StateClient      lnrpc.StateClient
+	ChainClient      chainrpc.ChainNotifierClient
 }
 
 // RPCClients wraps a list of RPC clients into a single struct for easier
@@ -378,12 +382,14 @@ type RPCClients struct {
 	Watchtower       watchtowerrpc.WatchtowerClient
 	WatchtowerClient wtclientrpc.WatchtowerClientClient
 	State            lnrpc.StateClient
+	ChainClient      chainrpc.ChainNotifierClient
 }
 
 // Assert *HarnessNode implements the lnrpc.LightningClient interface.
 var _ lnrpc.LightningClient = (*HarnessNode)(nil)
 var _ lnrpc.WalletUnlockerClient = (*HarnessNode)(nil)
 var _ invoicesrpc.InvoicesClient = (*HarnessNode)(nil)
+var _ peersrpc.PeersClient = (*HarnessNode)(nil)
 
 // nextNodeID generates a unique sequence to be used as the node's ID.
 func nextNodeID() int {
@@ -929,6 +935,7 @@ func (hn *HarnessNode) InitRPCClients(c *grpc.ClientConn) {
 		WatchtowerClient: wtclientrpc.NewWatchtowerClientClient(c),
 		Signer:           signrpc.NewSignerClient(c),
 		State:            lnrpc.NewStateClient(c),
+		ChainClient:      chainrpc.NewChainNotifierClient(c),
 	}
 }
 
@@ -948,7 +955,9 @@ func (hn *HarnessNode) initLightningClient() error {
 	hn.Watchtower = watchtowerrpc.NewWatchtowerClient(conn)
 	hn.WatchtowerClient = wtclientrpc.NewWatchtowerClientClient(conn)
 	hn.SignerClient = signrpc.NewSignerClient(conn)
+	hn.PeersClient = peersrpc.NewPeersClient(conn)
 	hn.StateClient = lnrpc.NewStateClient(conn)
+	hn.ChainClient = chainrpc.NewChainNotifierClient(conn)
 
 	// Wait until the server is fully started.
 	if err := hn.WaitUntilServerActive(); err != nil {

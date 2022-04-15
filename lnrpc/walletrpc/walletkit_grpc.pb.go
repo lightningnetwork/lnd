@@ -21,7 +21,9 @@ const _ = grpc.SupportPackageIsVersion7
 type WalletKitClient interface {
 	//
 	//ListUnspent returns a list of all utxos spendable by the wallet with a
-	//number of confirmations between the specified minimum and maximum.
+	//number of confirmations between the specified minimum and maximum. By
+	//default, all utxos are listed. To list only the unconfirmed utxos, set
+	//the unconfirmed_only to true.
 	ListUnspent(ctx context.Context, in *ListUnspentRequest, opts ...grpc.CallOption) (*ListUnspentResponse, error)
 	//
 	//LeaseOutput locks an output to the given ID, preventing it from being
@@ -393,7 +395,9 @@ func (c *walletKitClient) FinalizePsbt(ctx context.Context, in *FinalizePsbtRequ
 type WalletKitServer interface {
 	//
 	//ListUnspent returns a list of all utxos spendable by the wallet with a
-	//number of confirmations between the specified minimum and maximum.
+	//number of confirmations between the specified minimum and maximum. By
+	//default, all utxos are listed. To list only the unconfirmed utxos, set
+	//the unconfirmed_only to true.
 	ListUnspent(context.Context, *ListUnspentRequest) (*ListUnspentResponse, error)
 	//
 	//LeaseOutput locks an output to the given ID, preventing it from being

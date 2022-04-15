@@ -10,10 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -232,8 +233,7 @@ func signErrChanUpdate(t *testing.T, key *btcec.PrivateKey,
 	require.NoError(t, err, "failed to retrieve data to sign")
 
 	digest := chainhash.DoubleHashB(chanUpdateMsg)
-	sig, err := key.Sign(digest)
-	require.NoError(t, err, "failed to sign msg")
+	sig := ecdsa.Sign(key, digest)
 
 	errChanUpdate.Signature, err = lnwire.NewSigFromSignature(sig)
 	require.NoError(t, err, "failed to create new signature")
@@ -268,7 +268,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 
 	route, err := ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		target, paymentAmt, restrictions, nil, nil,
+		target, paymentAmt, 0, restrictions, nil, nil,
 		MinCLTVDelta,
 	)
 	require.NoError(t, err, "unable to find any routes")
@@ -629,7 +629,7 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 		sgNode           = ctx.aliases["songoku"]
 	)
 
-	sgNodeID, err := btcec.ParsePubKey(sgNode[:], btcec.S256())
+	sgNodeID, err := btcec.ParsePubKey(sgNode[:])
 	require.NoError(t, err)
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
@@ -763,7 +763,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 		feeLimit         = lnwire.MilliSatoshi(500000)
 	)
 
-	sgNodeID, err := btcec.ParsePubKey(sgNode[:], btcec.S256())
+	sgNodeID, err := btcec.ParsePubKey(sgNode[:])
 	require.NoError(t, err)
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
@@ -1439,7 +1439,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// We will connect node 1 to "sophon"
 	connectNode := ctx.aliases["sophon"]
-	connectNodeKey, err := btcec.ParsePubKey(connectNode[:], btcec.S256())
+	connectNodeKey, err := btcec.ParsePubKey(connectNode[:])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1525,7 +1525,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
 	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions, nil, nil,
+		targetPubKeyBytes, paymentAmt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
 	if err != nil {
@@ -1568,7 +1568,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// updated.
 	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions, nil, nil,
+		targetPubKeyBytes, paymentAmt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
 	if err != nil {
@@ -2465,7 +2465,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 		ctx.graph, nil, &mockBandwidthHints{},
 		noRestrictions,
 		testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, amt, 0,
+		sourceNode.PubKeyBytes, target, amt, 0, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -2718,7 +2718,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
 	t.Parallel()
 
-	sessionKey, _ := btcec.NewPrivateKey(btcec.S256())
+	sessionKey, _ := btcec.NewPrivateKey()
 	emptyRoute := &route.Route{}
 	_, _, err := generateSphinxPacket(emptyRoute, testHash[:], sessionKey)
 	if err != route.ErrNoRouteHopsProvided {
@@ -4183,10 +4183,14 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 	// Create a buffered chan and it will be returned by GetPaymentResult.
 	payer.resultChan = make(chan *htlcswitch.PaymentResult, 10)
 
-	// We use the failAttemptCount to track how many attempts we want to
-	// fail. Each time the following mock method is called, the count gets
-	// updated.
-	failAttemptCount := 0
+	// We use the getPaymentResultCnt to track how many times we called
+	// GetPaymentResult. As shard launch is sequential, and we fail the
+	// first shard that calls GetPaymentResult, we may end up with different
+	// counts since the lifecycle itself is asynchronous. To avoid flakes
+	// due to this undeterminsitic behavior, we'll compare the final
+	// getPaymentResultCnt with other counters to create a final test
+	// expectation.
+	getPaymentResultCnt := 0
 	payer.On("GetPaymentResult",
 		mock.Anything, identifier, mock.Anything,
 	).Run(func(args mock.Arguments) {
@@ -4194,10 +4198,10 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 		// the read-only chan.
 
 		// Update the counter.
-		failAttemptCount++
+		getPaymentResultCnt++
 
 		// We fail the first attempt with terminal error.
-		if failAttemptCount == 1 {
+		if getPaymentResultCnt == 1 {
 			payer.resultChan <- &htlcswitch.PaymentResult{
 				Error: htlcswitch.NewForwardingError(
 					&lnwire.FailIncorrectDetails{},
@@ -4205,15 +4209,20 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 				),
 			}
 			return
-
 		}
 
-		// For the rest attempts we will NOT send anything to the
-		// resultChan, thus making all the shards in active state,
-		// neither settled or failed.
+		// For the rest of the attempts we'll simulate that a network
+		// result update_fail_htlc has been received. This way the
+		// payment will fail cleanly.
+		payer.resultChan <- &htlcswitch.PaymentResult{
+			Error: htlcswitch.NewForwardingError(
+				&lnwire.FailTemporaryChannelFailure{},
+				1,
+			),
+		}
 	})
 
-	// Mock the FailAttempt method to fail EXACTLY once.
+	// Mock the FailAttempt method to fail (at least once).
 	var failedAttempt channeldb.HTLCAttempt
 	controlTower.On("FailAttempt",
 		identifier, mock.Anything, mock.Anything,
@@ -4223,22 +4232,27 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 		failedAttempt = payment.HTLCs[0]
 		failedAttempt.Failure = &channeldb.HTLCFailInfo{}
 		payment.HTLCs[0] = failedAttempt
-	}).Once()
+	})
 
 	// Setup ReportPaymentFail to return nil reason and error so the
 	// payment won't fail.
 	failureReason := channeldb.FailureReasonPaymentDetails
+	cntReportPaymentFail := 0
 	missionControl.On("ReportPaymentFail",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return(&failureReason, nil).Run(func(args mock.Arguments) {
 		payment.FailureReason = &failureReason
-	}).Once()
+		cntReportPaymentFail++
+	})
 
 	// Simple mocking the rest.
-	controlTower.On("Fail", identifier, failureReason).Return(nil).Once()
+	cntFail := 0
+	controlTower.On("Fail", identifier, failureReason).Return(nil)
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil)
+	).Return(nil).Run(func(args mock.Arguments) {
+		cntFail++
+	})
 
 	// Call the actual method SendPayment on router. This is place inside a
 	// goroutine so we can set a timeout for the whole test, in case
@@ -4260,6 +4274,9 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 	// methods are called as expected.
 	require.Error(t, err, "expected send payment error")
 	require.EqualValues(t, [32]byte{}, p, "preimage not match")
+	require.GreaterOrEqual(t, getPaymentResultCnt, 1)
+	require.Equal(t, getPaymentResultCnt, cntReportPaymentFail)
+	require.Equal(t, getPaymentResultCnt, cntFail)
 
 	controlTower.AssertExpectations(t)
 	payer.AssertExpectations(t)

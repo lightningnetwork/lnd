@@ -175,7 +175,7 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 	switch txStatus {
 	case chainntnfs.TxFoundMempool:
 	default:
-		t.Fatal("should have found the transaction within the "+
+		t.Fatalf("should have found the transaction within the "+
 			"mempool, but did not: %v", txStatus)
 	}
 

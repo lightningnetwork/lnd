@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btcd/txscript"
@@ -317,6 +317,13 @@ type Config struct {
 	// Setting this to a longer duration allows for more efficient channel
 	// operations at the cost of latency.
 	ChannelCommitInterval time.Duration
+
+	// PendingCommitInterval is the maximum time that is allowed to pass
+	// while waiting for the remote party to revoke a locally initiated
+	// commitment state. Setting this to a longer duration if a slow
+	// response is expected from the remote party or large number of
+	// payments are attempted at the same time.
+	PendingCommitInterval time.Duration
 
 	// ChannelCommitBatchSize is the maximum number of channel state updates
 	// that is accumulated before signing a new commitment.
@@ -815,6 +822,10 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		return p.cfg.ChainArb.UpdateContractSignals(*chanPoint, signals)
 	}
 
+	notifyContractUpdate := func(update *contractcourt.ContractUpdate) error {
+		return p.cfg.ChainArb.NotifyContractUpdate(*chanPoint, update)
+	}
+
 	chanType := lnChan.State().ChanType
 
 	// Select the appropriate tower client based on the channel type. It's
@@ -828,25 +839,28 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 	}
 
 	linkCfg := htlcswitch.ChannelLinkConfig{
-		Peer:                    p,
-		DecodeHopIterators:      p.cfg.Sphinx.DecodeHopIterators,
-		ExtractErrorEncrypter:   p.cfg.Sphinx.ExtractErrorEncrypter,
-		FetchLastChannelUpdate:  p.cfg.FetchLastChanUpdate,
-		HodlMask:                p.cfg.Hodl.Mask(),
-		Registry:                p.cfg.Invoices,
-		BestHeight:              p.cfg.Switch.BestHeight,
-		Circuits:                p.cfg.Switch.CircuitModifier(),
-		ForwardPackets:          p.cfg.InterceptSwitch.ForwardPackets,
-		FwrdingPolicy:           *forwardingPolicy,
-		FeeEstimator:            p.cfg.FeeEstimator,
-		PreimageCache:           p.cfg.WitnessBeacon,
-		ChainEvents:             chainEvents,
-		UpdateContractSignals:   updateContractSignals,
-		OnChannelFailure:        onChannelFailure,
-		SyncStates:              syncStates,
-		BatchTicker:             ticker.New(p.cfg.ChannelCommitInterval),
-		FwdPkgGCTicker:          ticker.New(time.Hour),
-		PendingCommitTicker:     ticker.New(time.Minute),
+		Peer:                   p,
+		DecodeHopIterators:     p.cfg.Sphinx.DecodeHopIterators,
+		ExtractErrorEncrypter:  p.cfg.Sphinx.ExtractErrorEncrypter,
+		FetchLastChannelUpdate: p.cfg.FetchLastChanUpdate,
+		HodlMask:               p.cfg.Hodl.Mask(),
+		Registry:               p.cfg.Invoices,
+		BestHeight:             p.cfg.Switch.BestHeight,
+		Circuits:               p.cfg.Switch.CircuitModifier(),
+		ForwardPackets:         p.cfg.InterceptSwitch.ForwardPackets,
+		FwrdingPolicy:          *forwardingPolicy,
+		FeeEstimator:           p.cfg.FeeEstimator,
+		PreimageCache:          p.cfg.WitnessBeacon,
+		ChainEvents:            chainEvents,
+		UpdateContractSignals:  updateContractSignals,
+		NotifyContractUpdate:   notifyContractUpdate,
+		OnChannelFailure:       onChannelFailure,
+		SyncStates:             syncStates,
+		BatchTicker:            ticker.New(p.cfg.ChannelCommitInterval),
+		FwdPkgGCTicker:         ticker.New(time.Hour),
+		PendingCommitTicker: ticker.New(
+			p.cfg.PendingCommitInterval,
+		),
 		BatchSize:               p.cfg.ChannelCommitBatchSize,
 		UnsafeReplay:            p.cfg.UnsafeReplay,
 		MinFeeUpdateTimeout:     htlcswitch.DefaultMinLinkFeeUpdateTimeout,
@@ -1754,31 +1768,6 @@ func (p *Brontide) logWireMessage(msg lnwire.Message, read bool) {
 		return fmt.Sprintf("%v %v%s %v %s", summaryPrefix,
 			msgType, summary, preposition, p)
 	}))
-
-	switch m := msg.(type) {
-	case *lnwire.ChannelReestablish:
-		if m.LocalUnrevokedCommitPoint != nil {
-			m.LocalUnrevokedCommitPoint.Curve = nil
-		}
-	case *lnwire.RevokeAndAck:
-		m.NextRevocationKey.Curve = nil
-	case *lnwire.AcceptChannel:
-		m.FundingKey.Curve = nil
-		m.RevocationPoint.Curve = nil
-		m.PaymentPoint.Curve = nil
-		m.DelayedPaymentPoint.Curve = nil
-		m.HtlcPoint.Curve = nil
-		m.FirstCommitmentPoint.Curve = nil
-	case *lnwire.OpenChannel:
-		m.FundingKey.Curve = nil
-		m.RevocationPoint.Curve = nil
-		m.PaymentPoint.Curve = nil
-		m.DelayedPaymentPoint.Curve = nil
-		m.HtlcPoint.Curve = nil
-		m.FirstCommitmentPoint.Curve = nil
-	case *lnwire.FundingLocked:
-		m.NextPerCommitmentPoint.Curve = nil
-	}
 
 	prefix := "readMessage from"
 	if !read {
@@ -3010,7 +2999,7 @@ func (p *Brontide) resendChanSyncMsg(cid lnwire.ChannelID) error {
 
 	if !c.RemotePub.IsEqual(p.IdentityKey()) {
 		return fmt.Errorf("ignoring channel reestablish from "+
-			"peer=%x", p.IdentityKey())
+			"peer=%x", p.IdentityKey().SerializeCompressed())
 	}
 
 	peerLog.Debugf("Re-sending channel sync message for channel %v to "+

@@ -7,12 +7,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -1131,27 +1131,8 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 
 	spendHeight := uint32(spendEvent.SpendingHeight)
 
-	// Nil the curve before printing.
-	if retribution.RemoteOutputSignDesc != nil &&
-		retribution.RemoteOutputSignDesc.DoubleTweak != nil {
-		retribution.RemoteOutputSignDesc.DoubleTweak.Curve = nil
-	}
-	if retribution.RemoteOutputSignDesc != nil &&
-		retribution.RemoteOutputSignDesc.KeyDesc.PubKey != nil {
-		retribution.RemoteOutputSignDesc.KeyDesc.PubKey.Curve = nil
-	}
-	if retribution.LocalOutputSignDesc != nil &&
-		retribution.LocalOutputSignDesc.DoubleTweak != nil {
-		retribution.LocalOutputSignDesc.DoubleTweak.Curve = nil
-	}
-	if retribution.LocalOutputSignDesc != nil &&
-		retribution.LocalOutputSignDesc.KeyDesc.PubKey != nil {
-		retribution.LocalOutputSignDesc.KeyDesc.PubKey.Curve = nil
-	}
-
 	log.Debugf("Punishment breach retribution created: %v",
 		newLogClosure(func() string {
-			retribution.KeyRing.CommitPoint.Curve = nil
 			retribution.KeyRing.LocalHtlcKey = nil
 			retribution.KeyRing.RemoteHtlcKey = nil
 			retribution.KeyRing.ToLocalKey = nil

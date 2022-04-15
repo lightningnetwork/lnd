@@ -129,8 +129,11 @@ message SignDescriptor {
     bytes double_tweak = 3;
 
     /*
-    The full script required to properly redeem the output.  This field will
-    only be populated if a p2wsh or a p2sh output is being signed.
+    The full script required to properly redeem the output. This field will
+    only be populated if a p2tr, p2wsh or a p2sh output is being signed. In case
+    taproot_key_spend is set to true then this value must correspond to the
+    taproot root hash (in case of a tapscript output) or the tap hashed internal
+    public key (in case of a BIP-0086 output).
     */
     bytes witness_script = 4;
 
@@ -150,6 +153,14 @@ message SignDescriptor {
     The target input within the transaction that should be signed.
     */
     int32 input_index = 8;
+
+    /*
+    Indicates that this should produce a signature that can be used for the key
+    spend path of a taproot input. This requires the witness_script field to be
+    set to the taproot root hash (in case of a tapscript output) or the tap
+    hashed internal public key (in case of a BIP-0086 output).
+    */
+    bool taproot_key_spend = 9;
 }
 
 message SignReq {
@@ -158,6 +169,12 @@ message SignReq {
 
     // A set of sign descriptors, for each input to be signed.
     repeated SignDescriptor sign_descs = 2;
+
+    /*
+    The full list of UTXO information for each of the inputs being spent. This
+    is required when spending one or more taproot (SegWit v1) outputs.
+    */
+    repeated TxOut prev_outputs = 3;
 }
 
 message SignResp {

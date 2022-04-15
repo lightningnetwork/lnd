@@ -1,7 +1,8 @@
 package keychain
 
 import (
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
@@ -30,7 +31,7 @@ func (p *PubKeyMessageSigner) KeyLocator() KeyLocator {
 }
 
 func (p *PubKeyMessageSigner) SignMessage(message []byte,
-	doubleHash bool) (*btcec.Signature, error) {
+	doubleHash bool) (*ecdsa.Signature, error) {
 
 	return p.digestSigner.SignMessage(p.keyLoc, message, doubleHash)
 }
@@ -64,7 +65,7 @@ func (p *PrivKeyMessageSigner) KeyLocator() KeyLocator {
 }
 
 func (p *PrivKeyMessageSigner) SignMessage(msg []byte,
-	doubleHash bool) (*btcec.Signature, error) {
+	doubleHash bool) (*ecdsa.Signature, error) {
 
 	var digest []byte
 	if doubleHash {
@@ -72,7 +73,7 @@ func (p *PrivKeyMessageSigner) SignMessage(msg []byte,
 	} else {
 		digest = chainhash.HashB(msg)
 	}
-	return p.privKey.Sign(digest)
+	return ecdsa.Sign(p.privKey, digest), nil
 }
 
 func (p *PrivKeyMessageSigner) SignMessageCompact(msg []byte,
@@ -84,7 +85,7 @@ func (p *PrivKeyMessageSigner) SignMessageCompact(msg []byte,
 	} else {
 		digest = chainhash.HashB(msg)
 	}
-	return btcec.SignCompact(btcec.S256(), p.privKey, digest, true)
+	return ecdsa.SignCompact(p.privKey, digest, true)
 }
 
 var _ SingleKeyMessageSigner = (*PubKeyMessageSigner)(nil)

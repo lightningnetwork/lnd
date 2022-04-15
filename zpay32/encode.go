@@ -5,10 +5,10 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/bech32"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -159,6 +159,17 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 		err := writeBytes32(
 			bufferBase32, fieldTypeH, *invoice.DescriptionHash,
 		)
+		if err != nil {
+			return err
+		}
+	}
+
+	if invoice.Metadata != nil {
+		base32, err := bech32.ConvertBits(invoice.Metadata, 8, 5, true)
+		if err != nil {
+			return err
+		}
+		err = writeTaggedField(bufferBase32, fieldTypeM, base32)
 		if err != nil {
 			return err
 		}

@@ -93,23 +93,23 @@ following build dependencies are required:
 
 ### Installing Go
 
-`lnd` is written in Go, with a minimum version of 1.16. To install, run one of 
+`lnd` is written in Go, with a minimum version of 1.18. To install, run one of 
 the following commands for your OS:
 
 <details>
   <summary>Linux (x86-64)</summary>
   
   ```
-  wget https://dl.google.com/go/go1.17.1.linux-amd64.tar.gz
-  sha256sum go1.17.1.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
+  wget https://dl.google.com/go/go1.18.linux-amd64.tar.gz
+  sha256sum go1.18.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
-  `dab7d9c34361dc21ec237d584590d72500652e7c909bf082758fb63064fca0ef`. If it
+  `e85278e98f57cdb150fe8409e6e5df5343ecb13cebf03a5d5ff12bd55a80264f`. If it
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  sudo tar -C /usr/local -xzf go1.17.1.linux-amd64.tar.gz
+  sudo tar -C /usr/local -xzf go1.18.linux-amd64.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```
 </details>
@@ -118,12 +118,12 @@ the following commands for your OS:
   <summary>Linux (ARMv6)</summary>
   
   ```
-  wget https://dl.google.com/go/go1.17.1.linux-armv6l.tar.gz
-  sha256sum go1.17.1.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
+  wget https://dl.google.com/go/go1.18.linux-armv6l.tar.gz
+  sha256sum go1.18.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
-  `ed3e4dbc9b80353f6482c441d65b51808290e94ff1d15d56da5f4a7be7353758`. If it
+  `a80fa43d1f4575fb030adbfbaa94acd860c6847820764eecb06c63b7c103612b`. If it
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
@@ -511,8 +511,9 @@ bearer credentials allowing for delegation, attenuation, and other cool
 features. You can learn more about them in Alex Akselrod's [writeup on
 Github](https://github.com/lightningnetwork/lnd/issues/20).
 
-Running `lnd` for the first time will by default generate the `admin.macaroon`,
-`read_only.macaroon`, and `macaroons.db` files that are used to authenticate
+Running `lncli create` to create a wallet, will by default generate 
+the `admin.macaroon`, `read_only.macaroon`, and `macaroons.db` 
+files that are used to authenticate
 into `lnd`. They will be stored in the network directory (default:
 `lnddir/data/chain/bitcoin/mainnet`) so that it's possible to use a distinct
 password for mainnet, testnet, simnet, etc. Note that if you specified an

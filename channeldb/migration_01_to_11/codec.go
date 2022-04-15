@@ -6,10 +6,10 @@ import (
 	"io"
 	"net"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -324,7 +324,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 			return err
 		}
 
-		priv, _ := btcec.PrivKeyFromBytes(btcec.S256(), b[:])
+		priv, _ := btcec.PrivKeyFromBytes(b[:])
 		*e = priv
 
 	case **btcec.PublicKey:
@@ -333,7 +333,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 			return err
 		}
 
-		pubKey, err := btcec.ParsePubKey(b[:], btcec.S256())
+		pubKey, err := btcec.ParsePubKey(b[:])
 		if err != nil {
 			return err
 		}

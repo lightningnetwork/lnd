@@ -14,7 +14,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -423,6 +423,7 @@ func main() {
 	app.Commands = append(app.Commands, watchtowerCommands()...)
 	app.Commands = append(app.Commands, wtclientCommands()...)
 	app.Commands = append(app.Commands, devCommands()...)
+	app.Commands = append(app.Commands, peersCommands()...)
 
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)

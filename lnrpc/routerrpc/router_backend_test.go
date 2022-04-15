@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -123,8 +123,8 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 	}
 
 	findRoute := func(source, target route.Vertex,
-		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
-		_ record.CustomSet,
+		amt lnwire.MilliSatoshi, _ float64,
+		restrictions *routing.RestrictParams, _ record.CustomSet,
 		routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
 		finalExpiry uint16) (*route.Route, error) {
 
@@ -203,7 +203,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 			route.Vertex, error) {
 
 			if chanID != 555 {
-				t.Fatal("expected endpoints to be fetched for "+
+				t.Fatalf("expected endpoints to be fetched for "+
 					"channel 555, but got %v instead",
 					chanID)
 			}

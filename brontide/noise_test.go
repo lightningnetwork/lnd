@@ -10,7 +10,7 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
@@ -23,7 +23,7 @@ type maybeNetConn struct {
 
 func makeListener() (*Listener, *lnwire.NetAddress, error) {
 	// First, generate the long-term private keys for the brontide listener.
-	localPriv, err := btcec.NewPrivateKey(btcec.S256())
+	localPriv, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -56,7 +56,7 @@ func establishTestConnection() (net.Conn, net.Conn, func(), error) {
 
 	// Nos, generate the long-term private keys remote end of the connection
 	// within our test.
-	remotePriv, err := btcec.NewPrivateKey(btcec.S256())
+	remotePriv, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -193,7 +193,7 @@ func TestConcurrentHandshakes(t *testing.T) {
 
 	// Now, construct a new private key and use the brontide dialer to
 	// connect to the listener.
-	remotePriv, err := btcec.NewPrivateKey(btcec.S256())
+	remotePriv, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to generate private key: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestBolt0008TestVectors(t *testing.T) {
 		t.Fatalf("unable to decode hex: %v", err)
 	}
 	initiatorPriv, _ := btcec.PrivKeyFromBytes(
-		btcec.S256(), initiatorKeyBytes,
+		initiatorKeyBytes,
 	)
 	initiatorKeyECDH := &keychain.PrivKeyECDH{PrivKey: initiatorPriv}
 
@@ -337,7 +337,7 @@ func TestBolt0008TestVectors(t *testing.T) {
 		t.Fatalf("unable to decode hex: %v", err)
 	}
 	responderPriv, responderPub := btcec.PrivKeyFromBytes(
-		btcec.S256(), responderKeyBytes,
+		responderKeyBytes,
 	)
 	responderKeyECDH := &keychain.PrivKeyECDH{PrivKey: responderPriv}
 
@@ -353,7 +353,7 @@ func TestBolt0008TestVectors(t *testing.T) {
 			return nil, err
 		}
 
-		priv, _ := btcec.PrivKeyFromBytes(btcec.S256(), eBytes)
+		priv, _ := btcec.PrivKeyFromBytes(eBytes)
 		return priv, nil
 	})
 	responderEphemeral := EphemeralGenerator(func() (*btcec.PrivateKey, error) {
@@ -364,7 +364,7 @@ func TestBolt0008TestVectors(t *testing.T) {
 			return nil, err
 		}
 
-		priv, _ := btcec.PrivKeyFromBytes(btcec.S256(), eBytes)
+		priv, _ := btcec.PrivKeyFromBytes(eBytes)
 		return priv, nil
 	})
 

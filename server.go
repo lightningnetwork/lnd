@@ -15,12 +15,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
@@ -595,11 +595,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		quit:       make(chan struct{}),
 	}
 
-	s.witnessBeacon = &preimageBeacon{
-		wCache:      dbs.ChanStateDB.NewWitnessCache(),
-		subscribers: make(map[uint64]*preimageSubscriber),
-	}
-
 	currentHash, currentHeight, err := s.cc.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
@@ -654,7 +649,15 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	if err != nil {
 		return nil, err
 	}
-	s.interceptableSwitch = htlcswitch.NewInterceptableSwitch(s.htlcSwitch)
+	s.interceptableSwitch = htlcswitch.NewInterceptableSwitch(
+		s.htlcSwitch, lncfg.DefaultFinalCltvRejectDelta,
+		s.cfg.RequireInterceptor,
+	)
+
+	s.witnessBeacon = newPreimageBeacon(
+		dbs.ChanStateDB.NewWitnessCache(),
+		s.interceptableSwitch.ForwardPacket,
+	)
 
 	chanStatusMgrCfg := &netann.ChanStatusConfig{
 		ChanStatusSampleInterval: cfg.ChanStatusSampleInterval,
@@ -1777,6 +1780,21 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.fundingMgr.Stop)
 
+		// htlcSwitch must be started before chainArb since the latter
+		// relies on htlcSwitch to deliver resolution message upon
+		// start.
+		if err := s.htlcSwitch.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.htlcSwitch.Stop)
+
+		if err := s.interceptableSwitch.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.interceptableSwitch.Stop)
+
 		if err := s.chainArb.Start(); err != nil {
 			startErr = err
 			return
@@ -1806,12 +1824,6 @@ func (s *server) Start() error {
 			return
 		}
 		cleanup = cleanup.add(s.sphinx.Stop)
-
-		if err := s.htlcSwitch.Start(); err != nil {
-			startErr = err
-			return
-		}
-		cleanup = cleanup.add(s.htlcSwitch.Stop)
 
 		if err := s.chanStatusMgr.Start(); err != nil {
 			startErr = err
@@ -2723,6 +2735,59 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	return *s.currentNodeAnn, nil
 }
 
+// updateAndBrodcastSelfNode generates a new node announcement
+// applying the giving modifiers and updating the time stamp
+// to ensure it propagates through the network. Then it brodcasts
+// it to the network.
+func (s *server) updateAndBrodcastSelfNode(
+	modifiers ...netann.NodeAnnModifier) error {
+
+	newNodeAnn, err := s.genNodeAnnouncement(true, modifiers...)
+	if err != nil {
+		return fmt.Errorf("unable to generate new node "+
+			"announcement: %v", err)
+	}
+
+	// Update the on-disk version of our announcement.
+	// Load and modify self node istead of creating anew instance so we
+	// don't risk overwriting any existing values.
+	selfNode, err := s.graphDB.SourceNode()
+	if err != nil {
+		return fmt.Errorf("unable to get current source node: %v", err)
+	}
+
+	selfNode.HaveNodeAnnouncement = true
+	selfNode.LastUpdate = time.Unix(int64(newNodeAnn.Timestamp), 0)
+	selfNode.Addresses = newNodeAnn.Addresses
+	selfNode.Alias = newNodeAnn.Alias.String()
+	selfNode.Features = lnwire.NewFeatureVector(
+		newNodeAnn.Features, lnwire.Features,
+	)
+	selfNode.Color = newNodeAnn.RGBColor
+	selfNode.AuthSigBytes = newNodeAnn.Signature.ToSignatureBytes()
+
+	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
+
+	if err := s.graphDB.SetSourceNode(selfNode); err != nil {
+		return fmt.Errorf("can't set self node: %v", err)
+	}
+
+	// Update the feature bits for the SetNodeAnn in case they changed.
+	s.featureMgr.SetRaw(
+		feature.SetNodeAnn, selfNode.Features.RawFeatureVector,
+	)
+
+	// Finally, propagate it to the nodes in the network.
+	err = s.BroadcastMessage(nil, &newNodeAnn)
+	if err != nil {
+		rpcsLog.Debugf("Unable to broadcast new node "+
+			"announcement to peers: %v", err)
+		return err
+	}
+
+	return nil
+}
+
 type nodeAddresses struct {
 	pubKey    *btcec.PublicKey
 	addresses []net.Addr
@@ -3515,6 +3580,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
 		ChannelCommitInterval:  s.cfg.ChannelCommitInterval,
+		PendingCommitInterval:  s.cfg.PendingCommitInterval,
 		ChannelCommitBatchSize: s.cfg.ChannelCommitBatchSize,
 		HandleCustomMessage:    s.handleCustomMessage,
 		Quit:                   s.quit,

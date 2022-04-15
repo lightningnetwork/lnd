@@ -1,6 +1,7 @@
 package invoices
 
 import (
+	"encoding/hex"
 	"errors"
 
 	"github.com/lightningnetwork/lnd/amp"
@@ -22,6 +23,7 @@ type invoiceUpdateCtx struct {
 	customRecords        record.CustomSet
 	mpp                  *record.MPP
 	amp                  *record.AMP
+	metadata             []byte
 }
 
 // invoiceRef returns an identifier that can be used to lookup or update the
@@ -52,9 +54,16 @@ func (i invoiceUpdateCtx) setID() *[32]byte {
 
 // log logs a message specific to this update context.
 func (i *invoiceUpdateCtx) log(s string) {
+	// Don't use %x in the log statement below, because it doesn't
+	// distinguish between nil and empty metadata.
+	metadata := "<nil>"
+	if i.metadata != nil {
+		metadata = hex.EncodeToString(i.metadata)
+	}
+
 	log.Debugf("Invoice%v: %v, amt=%v, expiry=%v, circuit=%v, mpp=%v, "+
-		"amp=%v", i.invoiceRef(), s, i.amtPaid, i.expiry, i.circuitKey,
-		i.mpp, i.amp)
+		"amp=%v, metadata=%v", i.invoiceRef(), s, i.amtPaid, i.expiry,
+		i.circuitKey, i.mpp, i.amp, metadata)
 }
 
 // failRes is a helper function which creates a failure resolution with

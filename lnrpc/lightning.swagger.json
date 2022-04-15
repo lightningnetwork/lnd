@@ -1380,6 +1380,14 @@
               ]
             },
             "collectionFormat": "multi"
+          },
+          {
+            "name": "time_pref",
+            "description": "The time preference for this payment. Set to -1 to optimize for fees\nonly, to 1 to optimize for reliability only or a value inbetween for a mix.",
+            "in": "query",
+            "required": false,
+            "type": "number",
+            "format": "double"
           }
         ],
         "tags": [
@@ -1801,7 +1809,9 @@
               "WITNESS_PUBKEY_HASH",
               "NESTED_PUBKEY_HASH",
               "UNUSED_WITNESS_PUBKEY_HASH",
-              "UNUSED_NESTED_PUBKEY_HASH"
+              "UNUSED_NESTED_PUBKEY_HASH",
+              "TAPROOT_PUBKEY",
+              "UNUSED_TAPROOT_PUBKEY"
             ],
             "default": "WITNESS_PUBKEY_HASH"
           },
@@ -2923,10 +2933,12 @@
         "WITNESS_PUBKEY_HASH",
         "NESTED_PUBKEY_HASH",
         "UNUSED_WITNESS_PUBKEY_HASH",
-        "UNUSED_NESTED_PUBKEY_HASH"
+        "UNUSED_NESTED_PUBKEY_HASH",
+        "TAPROOT_PUBKEY",
+        "UNUSED_TAPROOT_PUBKEY"
       ],
       "default": "WITNESS_PUBKEY_HASH",
-      "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)",
+      "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)\n- `p2tr`: Pay to taproot pubkey (`TAPROOT_PUBKEY` = 4)",
       "title": "`AddressType` has to be one of:"
     },
     "lnrpcAmount": {
@@ -4604,6 +4616,11 @@
             "format": "byte"
           },
           "description": "An optional set of key-value TLV records. This is useful within the context\nof the SendToRoute call as it allows callers to specify arbitrary K-V pairs\nto drop off at each hop within the onion."
+        },
+        "metadata": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment metadata to send along with the payment to the payee."
         }
       }
     },
@@ -5429,6 +5446,52 @@
           "description": "The index of the output on the transaction."
         }
       }
+    },
+    "lnrpcOutputDetail": {
+      "type": "object",
+      "properties": {
+        "output_type": {
+          "$ref": "#/definitions/lnrpcOutputScriptType",
+          "title": "The type of the output"
+        },
+        "address": {
+          "type": "string",
+          "title": "The address"
+        },
+        "pk_script": {
+          "type": "string",
+          "title": "The pkscript in hex"
+        },
+        "output_index": {
+          "type": "string",
+          "format": "int64",
+          "title": "The output index used in the raw transaction"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64",
+          "title": "The value of the output coin in satoshis"
+        },
+        "is_our_address": {
+          "type": "boolean",
+          "title": "Denotes if the output is controlled by the internal wallet"
+        }
+      }
+    },
+    "lnrpcOutputScriptType": {
+      "type": "string",
+      "enum": [
+        "SCRIPT_TYPE_PUBKEY_HASH",
+        "SCRIPT_TYPE_SCRIPT_HASH",
+        "SCRIPT_TYPE_WITNESS_V0_PUBKEY_HASH",
+        "SCRIPT_TYPE_WITNESS_V0_SCRIPT_HASH",
+        "SCRIPT_TYPE_PUBKEY",
+        "SCRIPT_TYPE_MULTISIG",
+        "SCRIPT_TYPE_NULLDATA",
+        "SCRIPT_TYPE_NON_STANDARD",
+        "SCRIPT_TYPE_WITNESS_UNKNOWN"
+      ],
+      "default": "SCRIPT_TYPE_PUBKEY_HASH"
     },
     "lnrpcPayReq": {
       "type": "object",
@@ -6411,7 +6474,14 @@
           "items": {
             "type": "string"
           },
-          "title": "Addresses that received funds for this transaction"
+          "description": "Addresses that received funds for this transaction. Deprecated as it is\nnow incorporated in the output_details field."
+        },
+        "output_details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcOutputDetail"
+          },
+          "title": "Outputs that received funds for this transaction"
         },
         "raw_tx_hex": {
           "type": "string",
@@ -6539,6 +6609,11 @@
           "type": "string",
           "format": "int64",
           "title": "The unconfirmed balance of a wallet(with 0 confirmations)"
+        },
+        "locked_balance": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount of wallet UTXOs held in outputs that are locked for\nother usage."
         },
         "account_balance": {
           "type": "object",

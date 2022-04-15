@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -165,7 +165,7 @@ func (s *SphinxErrorEncrypter) Decode(r io.Reader) error {
 	}
 
 	var err error
-	s.EphemeralKey, err = btcec.ParsePubKey(ephemeral[:], btcec.S256())
+	s.EphemeralKey, err = btcec.ParsePubKey(ephemeral[:])
 	if err != nil {
 		return err
 	}

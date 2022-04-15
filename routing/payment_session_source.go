@@ -1,7 +1,7 @@
 package routing
 
 import (
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -115,7 +115,7 @@ func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
 				endNode.AddPubKey(routeHint[i+1].NodeID)
 			} else {
 				targetPubKey, err := btcec.ParsePubKey(
-					target[:], btcec.S256(),
+					target[:],
 				)
 				if err != nil {
 					return nil, err

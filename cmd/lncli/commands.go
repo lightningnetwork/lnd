@@ -101,7 +101,10 @@ func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 			// two commands.
 			if s.Code() == codes.Unimplemented &&
 				(c.Command.Name == "create" ||
-					c.Command.Name == "unlock") {
+					c.Command.Name == "unlock" ||
+					c.Command.Name == "changepassword" ||
+					c.Command.Name == "createwatchonly") {
+
 				return fmt.Errorf("Wallet is already unlocked")
 			}
 
@@ -139,7 +142,8 @@ var newAddressCommand = cli.Command{
 	Description: `
 	Generate a wallet new address. Address-types has to be one of:
 	    - p2wkh:  Pay to witness key hash
-	    - np2wkh: Pay to nested witness key hash`,
+	    - np2wkh: Pay to nested witness key hash
+	    - p2tr:   Pay to taproot pubkey`,
 	Action: actionDecorator(newAddress),
 }
 
@@ -161,6 +165,8 @@ func newAddress(ctx *cli.Context) error {
 		addrType = lnrpc.AddressType_WITNESS_PUBKEY_HASH
 	case "np2wkh":
 		addrType = lnrpc.AddressType_NESTED_PUBKEY_HASH
+	case "p2tr":
+		addrType = lnrpc.AddressType_TAPROOT_PUBKEY
 	default:
 		return fmt.Errorf("invalid address type %v, support address type "+
 			"are: p2wkh and np2wkh", stringAddrType)

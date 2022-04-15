@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	priv, _ = btcec.NewPrivateKey(btcec.S256())
+	priv, _ = btcec.NewPrivateKey()
 	pub     = priv.PubKey()
 
 	testHop1 = &route.Hop{
@@ -31,7 +31,8 @@ var (
 			65536: []byte{},
 			80001: []byte{},
 		},
-		MPP: record.NewMPP(32, [32]byte{0x42}),
+		MPP:      record.NewMPP(32, [32]byte{0x42}),
+		Metadata: []byte{1, 2, 3},
 	}
 
 	testHop2 = &route.Hop{

@@ -691,7 +691,7 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 
 	rpcKeyRing, err := rpcwallet.NewRPCKeyRing(
 		baseKeyRing, walletController,
-		d.DefaultWalletImpl.cfg.RemoteSigner, walletConfig.CoinType,
+		d.DefaultWalletImpl.cfg.RemoteSigner, walletConfig.NetParams,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create RPC remote signing wallet "+
@@ -1112,7 +1112,14 @@ func importWatchOnlyAccounts(wallet *wallet.Wallet,
 
 	for _, scope := range scopes {
 		addrSchema := waddrmgr.ScopeAddrMap[waddrmgr.KeyScopeBIP0084]
-		if scope.Scope.Purpose == waddrmgr.KeyScopeBIP0049Plus.Purpose {
+
+		// We want witness pubkey hash by default, except for BIP49
+		// where we want mixed and BIP86 where we want taproot address
+		// formats.
+		switch scope.Scope.Purpose {
+		case waddrmgr.KeyScopeBIP0049Plus.Purpose,
+			waddrmgr.KeyScopeBIP0086.Purpose:
+
 			addrSchema = waddrmgr.ScopeAddrMap[scope.Scope]
 		}
 

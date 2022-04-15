@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -172,6 +172,7 @@ func NewChanStatusManager(cfg *ChanStatusConfig) (*ChanStatusManager, error) {
 func (m *ChanStatusManager) Start() error {
 	var err error
 	m.started.Do(func() {
+		log.Info("Channel Status Manager starting")
 		err = m.start()
 	})
 	return err

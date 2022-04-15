@@ -7,14 +7,14 @@ import (
 	"image/color"
 	"io"
 	"math"
-	"math/big"
 	"math/rand"
 	"net"
 	"sync"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/mock"
@@ -25,10 +25,7 @@ const deliveryAddressMaxSize = 34
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 var (
-	testSig = &btcec.Signature{
-		R: new(big.Int),
-		S: new(big.Int),
-	}
+	testSig        = &ecdsa.Signature{}
 	testNodeSig, _ = lnwire.NewSigFromSignature(testSig)
 
 	testNumExtraBytes = 1000
@@ -865,7 +862,7 @@ func randRawKey(t testing.TB) [33]byte {
 
 	var n [33]byte
 
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err, "failed to create privKey")
 
 	copy(n[:], priv.PubKey().SerializeCompressed())
@@ -876,7 +873,7 @@ func randRawKey(t testing.TB) [33]byte {
 func randPubKey(t testing.TB) *btcec.PublicKey {
 	t.Helper()
 
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err, "failed to create pubkey")
 
 	return priv.PubKey()

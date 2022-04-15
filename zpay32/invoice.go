@@ -46,6 +46,9 @@ const (
 	// fieldTypeD contains a short description of the payment.
 	fieldTypeD = 13
 
+	// fieldTypeM contains the payment metadata.
+	fieldTypeM = 27
+
 	// fieldTypeN contains the pubkey of the target node.
 	fieldTypeN = 19
 
@@ -183,6 +186,10 @@ type Invoice struct {
 	// Features represents an optional field used to signal optional or
 	// required support for features by the receiver.
 	Features *lnwire.FeatureVector
+
+	// Metadata is additional data that is sent along with the payment to
+	// the payee.
+	Metadata []byte
 }
 
 // Amount is a functional option that allows callers of NewInvoice to set the
@@ -270,6 +277,14 @@ func Features(features *lnwire.FeatureVector) func(*Invoice) {
 func PaymentAddr(addr [32]byte) func(*Invoice) {
 	return func(i *Invoice) {
 		i.PaymentAddr = &addr
+	}
+}
+
+// Metadata is a functional option that allows callers of NewInvoice to set
+// the desired payment Metadata tht is advertised on the invoice.
+func Metadata(metadata []byte) func(*Invoice) {
+	return func(i *Invoice) {
+		i.Metadata = metadata
 	}
 }
 

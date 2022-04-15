@@ -324,6 +324,34 @@ func (b *BtcWallet) Start() error {
 		}
 	}
 
+	// Because we might add new "default" key scopes over time, they are
+	// created correctly for new wallets. Existing wallets don't
+	// automatically add them, we need to do that manually now.
+	for _, scope := range waddrmgr.DefaultKeyScopes {
+		_, err := b.wallet.Manager.FetchScopedKeyManager(scope)
+		if waddrmgr.IsError(err, waddrmgr.ErrScopeNotFound) {
+			// The default scope wasn't found, that probably means
+			// it was added recently and older wallets don't know it
+			// yet. Let's add it now.
+			addrSchema := waddrmgr.ScopeAddrMap[scope]
+			err := walletdb.Update(
+				b.db, func(tx walletdb.ReadWriteTx) error {
+					addrmgrNs := tx.ReadWriteBucket(
+						waddrmgrNamespaceKey,
+					)
+
+					_, err := b.wallet.Manager.NewScopedKeyManager(
+						addrmgrNs, scope, addrSchema,
+					)
+					return err
+				},
+			)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	scope, err := b.wallet.Manager.FetchScopedKeyManager(b.chainKeyScope)
 	if err != nil {
 		// If the scope hasn't yet been created (it wouldn't been

@@ -95,6 +95,11 @@ var (
 		Usage: "if set to true, then AMP will be used to complete the " +
 			"payment",
 	}
+
+	timePrefFlag = cli.Float64Flag{
+		Name:  "time_pref",
+		Usage: "(optional) expresses time preference (range -1 to 1)",
+	}
 )
 
 // paymentFlags returns common flags for sendpayment and payinvoice.
@@ -140,6 +145,7 @@ func paymentFlags() []cli.Flag {
 		},
 		dataFlag, inflightUpdatesFlag, maxPartsFlag, jsonFlag,
 		maxShardSizeSatFlag, maxShardSizeMsatFlag, ampFlag,
+		timePrefFlag,
 	}
 }
 
@@ -522,6 +528,9 @@ func sendPaymentRequest(ctx *cli.Context,
 	}
 
 	req.FeeLimitSat = feeLimit
+
+	// Set time pref.
+	req.TimePref = ctx.Float64(timePrefFlag.Name)
 
 	// Always print in-flight updates for the table output.
 	printJSON := ctx.Bool(jsonFlag.Name)
@@ -1019,6 +1028,7 @@ var queryRoutesCommand = cli.Command{
 			Usage: "(optional) the channel id of the channel " +
 				"that must be taken to the first hop",
 		},
+		timePrefFlag,
 		cltvLimitFlag,
 	},
 	Action: actionDecorator(queryRoutes),
@@ -1072,6 +1082,7 @@ func queryRoutes(ctx *cli.Context) error {
 		UseMissionControl: ctx.Bool("use_mc"),
 		CltvLimit:         uint32(ctx.Uint64(cltvLimitFlag.Name)),
 		OutgoingChanId:    ctx.Uint64("outgoing_chanid"),
+		TimePref:          ctx.Float64(timePrefFlag.Name),
 	}
 
 	route, err := client.QueryRoutes(ctxc, req)

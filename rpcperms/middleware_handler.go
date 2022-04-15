@@ -83,7 +83,7 @@ func NewMiddlewareHandler(name, customCaveatName string, readOnly bool,
 	log.Warnf("A new gRPC middleware with the name '%s' was registered "+
 		" with custom_macaroon_caveat='%s', read_only=%v. Make sure "+
 		"you trust the middleware author since that code will be able "+
-		"to intercept and possibly modify and gRPC messages sent/"+
+		"to intercept and possibly modify any gRPC messages sent/"+
 		"received to/from a client that has a macaroon with that "+
 		"custom caveat.", name, customCaveatName, readOnly)
 

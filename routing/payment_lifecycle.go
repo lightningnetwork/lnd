@@ -597,9 +597,6 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 
 	case <-p.router.quit:
 		return nil, ErrRouterShuttingDown
-
-	case <-p.quit:
-		return nil, errShardHandlerExiting
 	}
 
 	// In case of a payment failure, fail the attempt with the control

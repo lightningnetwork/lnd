@@ -404,7 +404,7 @@ func (p *peerLog) uptime(start, end time.Time) (time.Duration, error) {
 			p.start = start
 		}
 
-		// If the online period ends before our range, shift the end
+		// If the online period ends after our range, shift the end
 		// time forward so that we only calculate uptime until the end
 		// of the range.
 		if p.end.After(end) {

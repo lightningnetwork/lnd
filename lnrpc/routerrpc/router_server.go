@@ -363,7 +363,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	// that exceeds it and is useless to us.
 	mc := s.cfg.RouterBackend.MissionControl
 	route, err := s.cfg.Router.FindRoute(
-		s.cfg.RouterBackend.SelfNode, destNode, amtMsat,
+		s.cfg.RouterBackend.SelfNode, destNode, amtMsat, 0,
 		&routing.RestrictParams{
 			FeeLimit:          feeLimit,
 			CltvLimit:         s.cfg.RouterBackend.MaxTotalTimelock,

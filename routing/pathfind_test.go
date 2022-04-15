@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -840,6 +841,9 @@ func TestPathFinding(t *testing.T) {
 	}, {
 		name: "route to self",
 		fn:   runRouteToSelf,
+	}, {
+		name: "with metadata",
+		fn:   runFindPathWithMetadata,
 	}}
 
 	// Run with graph cache enabled.
@@ -864,6 +868,46 @@ func TestPathFinding(t *testing.T) {
 			tc.fn(tt, false)
 		})
 	}
+}
+
+// runFindPathWithMetadata tests that metadata is taken into account during
+// pathfinding.
+func runFindPathWithMetadata(t *testing.T, useCache bool) {
+	testChannels := []*testChannel{
+		symmetricTestChannel("alice", "bob", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+			MaxHTLC: 100000000,
+		}),
+	}
+
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "alice")
+	defer ctx.cleanup()
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target := ctx.keyFromAlias("bob")
+
+	// Assert that a path is found when metadata is specified.
+	ctx.restrictParams.Metadata = []byte{1, 2, 3}
+	ctx.restrictParams.DestFeatures = tlvFeatures
+
+	path, err := ctx.findPath(target, paymentAmt)
+	require.NoError(t, err)
+	require.Len(t, path, 1)
+
+	// Assert that no path is found when metadata is too large.
+	ctx.restrictParams.Metadata = make([]byte, 2000)
+
+	_, err = ctx.findPath(target, paymentAmt)
+	require.ErrorIs(t, errNoPathFound, err)
+
+	// Assert that tlv payload support takes precedence over metadata
+	// issues.
+	ctx.restrictParams.DestFeatures = lnwire.EmptyFeatureVector()
+
+	_, err = ctx.findPath(target, paymentAmt)
+	require.ErrorIs(t, errNoTlvPayload, err)
 }
 
 // runFindLowestFeePath tests that out of two routes with identical total
@@ -1059,7 +1103,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 			CltvLimit:         math.MaxUint32,
 		},
 		testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, paymentAmt,
+		sourceNode.PubKeyBytes, target, paymentAmt, 0,
 		startingHeight+finalHopCLTV,
 	)
 	if test.expectFailureNoPath {
@@ -1248,7 +1292,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 			graph.graph, additionalEdges, &mockBandwidthHints{},
 			r, testPathFindingConfig,
 			sourceNode.PubKeyBytes, doge.PubKeyBytes, paymentAmt,
-			0,
+			0, 0,
 		)
 	}
 
@@ -1340,6 +1384,9 @@ func TestNewRoute(t *testing.T) {
 
 		paymentAddr *[32]byte
 
+		// metadata is the payment metadata to attach to the route.
+		metadata []byte
+
 		// expectedFees is a list of fees that every hop is expected
 		// to charge for forwarding.
 		expectedFees []lnwire.MilliSatoshi
@@ -1380,6 +1427,7 @@ func TestNewRoute(t *testing.T) {
 			hops: []*channeldb.CachedEdgePolicy{
 				createHop(100, 1000, 1000000, 10),
 			},
+			metadata:              []byte{1, 2, 3},
 			expectedFees:          []lnwire.MilliSatoshi{0},
 			expectedTimeLocks:     []uint32{1},
 			expectedTotalAmount:   100000,
@@ -1561,6 +1609,12 @@ func TestNewRoute(t *testing.T) {
 					" but got: %v instead",
 					testCase.expectedMPP, finalHop.MPP)
 			}
+
+			if !bytes.Equal(finalHop.Metadata, testCase.metadata) {
+				t.Errorf("Expected final metadata field: %v, "+
+					" but got: %v instead",
+					testCase.metadata, finalHop.Metadata)
+			}
 		}
 
 		t.Run(testCase.name, func(t *testing.T) {
@@ -1572,6 +1626,7 @@ func TestNewRoute(t *testing.T) {
 					cltvDelta:   finalHopCLTV,
 					records:     nil,
 					paymentAddr: testCase.paymentAddr,
+					metadata:    testCase.metadata,
 				},
 			)
 
@@ -1669,7 +1724,7 @@ func runPathNotAvailable(t *testing.T, useCache bool) {
 	_, err = dbFindPath(
 		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, unknownNode, 100, 0,
+		sourceNode.PubKeyBytes, unknownNode, 100, 0, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("path shouldn't have been found: %v", err)
@@ -1722,7 +1777,7 @@ func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 		return dbFindPath(
 			ctx.graph, nil, &mockBandwidthHints{},
 			r, testPathFindingConfig,
-			sourceNode.PubKeyBytes, target, 100, 0,
+			sourceNode.PubKeyBytes, target, 100, 0, 0,
 		)
 	}
 
@@ -1983,7 +2038,7 @@ func runPathInsufficientCapacity(t *testing.T, useCache bool) {
 	_, err = dbFindPath(
 		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt, 0,
+		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
 	if err != errInsufficientBalance {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -2012,7 +2067,7 @@ func runRouteFailMinHTLC(t *testing.T, useCache bool) {
 	_, err = dbFindPath(
 		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt, 0,
+		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -2105,7 +2160,7 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	_, err = dbFindPath(
 		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt, 0,
+		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -2131,7 +2186,7 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	_, err = dbFindPath(
 		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt, 0,
+		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -2154,7 +2209,7 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	_, err = dbFindPath(
 		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt, 0,
+		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -2184,7 +2239,7 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 	path, err := dbFindPath(
 		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt, 0,
+		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -2207,7 +2262,7 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 	_, err = dbFindPath(
 		graph.graph, nil, bandwidths,
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt, 0,
+		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -2222,7 +2277,7 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 	path, err = dbFindPath(
 		graph.graph, nil, bandwidths,
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt, 0,
+		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -2250,7 +2305,7 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 	path, err = dbFindPath(
 		graph.graph, nil, bandwidths,
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt, 0,
+		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -2296,7 +2351,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
 	route, err := ctx.router.FindRoute(
-		bobNode.PubKeyBytes, carol, amt, noRestrictions, nil, nil,
+		bobNode.PubKeyBytes, carol, amt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
 	if err != nil {
@@ -2352,7 +2407,7 @@ func TestPathFindSpecExample(t *testing.T) {
 
 	// We'll now request a route from A -> B -> C.
 	route, err = ctx.router.FindRoute(
-		source.PubKeyBytes, carol, amt, noRestrictions, nil, nil,
+		source.PubKeyBytes, carol, amt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
 	if err != nil {
@@ -2686,6 +2741,7 @@ func runProbabilityRouting(t *testing.T, useCache bool) {
 		minProbability float64
 		expectedChan   uint64
 		amount         btcutil.Amount
+		timePref       float64
 	}{
 		// Test two variations with probabilities that should multiply
 		// to the same total route probability. In both cases the three
@@ -2707,6 +2763,18 @@ func runProbabilityRouting(t *testing.T, useCache bool) {
 			minProbability: 0.1,
 			expectedChan:   10,
 			amount:         100,
+		},
+
+		// If we increase the time preference, we expect the algorithm
+		// to choose - with everything else being equal - the more
+		// expensive, more reliable route.
+		{
+			name: "three hop timepref",
+			p10:  0.5, p11: 0.8, p20: 0.7,
+			minProbability: 0.1,
+			expectedChan:   20,
+			amount:         100,
+			timePref:       1,
 		},
 
 		// If a larger amount is sent, the effect of the proportional
@@ -2765,7 +2833,8 @@ func runProbabilityRouting(t *testing.T, useCache bool) {
 
 		t.Run(tc.name, func(t *testing.T) {
 			testProbabilityRouting(
-				t, useCache, tc.amount, tc.p10, tc.p11, tc.p20,
+				t, useCache, tc.amount, tc.timePref,
+				tc.p10, tc.p11, tc.p20,
 				tc.minProbability, tc.expectedChan,
 			)
 		})
@@ -2773,7 +2842,8 @@ func runProbabilityRouting(t *testing.T, useCache bool) {
 }
 
 func testProbabilityRouting(t *testing.T, useCache bool,
-	paymentAmt btcutil.Amount, p10, p11, p20, minProbability float64,
+	paymentAmt btcutil.Amount, timePref float64,
+	p10, p11, p20, minProbability float64,
 	expectedChan uint64) {
 
 	t.Parallel()
@@ -2833,6 +2903,8 @@ func testProbabilityRouting(t *testing.T, useCache bool,
 		AttemptCostPPM: 10000,
 		MinProbability: minProbability,
 	}
+
+	ctx.timePref = timePref
 
 	path, err := ctx.findPath(
 		target, lnwire.NewMSatFromSatoshis(paymentAmt),
@@ -3044,6 +3116,7 @@ type pathFindingTestContext struct {
 	pathFindingConfig PathFindingConfig
 	testGraphInstance *testGraphInstance
 	source            route.Vertex
+	timePref          float64
 }
 
 func newPathFindingTestContext(t *testing.T, useCache bool,
@@ -3097,7 +3170,7 @@ func (c *pathFindingTestContext) findPath(target route.Vertex,
 
 	return dbFindPath(
 		c.graph, nil, c.bandwidthHints, &c.restrictParams,
-		&c.pathFindingConfig, c.source, target, amt, 0,
+		&c.pathFindingConfig, c.source, target, amt, c.timePref, 0,
 	)
 }
 
@@ -3123,7 +3196,7 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 	additionalEdges map[route.Vertex][]*channeldb.CachedEdgePolicy,
 	bandwidthHints bandwidthHints,
 	r *RestrictParams, cfg *PathFindingConfig,
-	source, target route.Vertex, amt lnwire.MilliSatoshi,
+	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
 	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
 
 	sourceNode, err := graph.SourceNode()
@@ -3148,6 +3221,6 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 			bandwidthHints:  bandwidthHints,
 			graph:           routingGraph,
 		},
-		r, cfg, source, target, amt, finalHtlcExpiry,
+		r, cfg, source, target, amt, timePref, finalHtlcExpiry,
 	)
 }

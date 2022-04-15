@@ -186,6 +186,7 @@ func TestPayloadSize(t *testing.T) {
 				100000:  {1, 2, 3},
 				1000000: {4, 5},
 			},
+			Metadata: []byte{10, 11},
 		},
 	}
 

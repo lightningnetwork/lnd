@@ -229,6 +229,15 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.Description, err = parseDescription(base32Data)
+		case fieldTypeM:
+			if invoice.Metadata != nil {
+				// We skip the field if we have already seen a
+				// supported one.
+				continue
+			}
+
+			invoice.Metadata, err = parseMetadata(base32Data)
+
 		case fieldTypeN:
 			if invoice.Destination != nil {
 				// We skip the field if we have already seen a
@@ -343,6 +352,12 @@ func parseDescription(data []byte) (*string, error) {
 	description := string(base256Data)
 
 	return &description, nil
+}
+
+// parseMetadata converts the data (encoded in base32) into a byte slice to use
+// as the metadata.
+func parseMetadata(data []byte) ([]byte, error) {
+	return bech32.ConvertBits(data, 5, 8, false)
 }
 
 // parseDestination converts the data (encoded in base32) into a 33-byte public

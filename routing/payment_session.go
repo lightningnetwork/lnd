@@ -257,6 +257,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		DestCustomRecords:  p.payment.DestCustomRecords,
 		DestFeatures:       p.payment.DestFeatures,
 		PaymentAddr:        p.payment.PaymentAddr,
+		Metadata:           p.payment.Metadata,
 	}
 
 	finalHtlcExpiry := int32(height) + int32(finalCltvDelta)
@@ -304,7 +305,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 			},
 			restrictions, &p.pathFindingConfig,
 			sourceVertex, p.payment.Target,
-			maxAmt, finalHtlcExpiry,
+			maxAmt, p.payment.TimePref, finalHtlcExpiry,
 		)
 
 		// Close routing graph.
@@ -388,6 +389,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 				cltvDelta:   finalCltvDelta,
 				records:     p.payment.DestCustomRecords,
 				paymentAddr: p.payment.PaymentAddr,
+				metadata:    p.payment.Metadata,
 			},
 		)
 		if err != nil {

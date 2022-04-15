@@ -1,5 +1,16 @@
 # Release Notes
 
+## Payments
+
+Support according to the
+[spec](https://github.com/lightningnetwork/lightning-rfc/pull/912) has been
+added for [payment metadata in
+invoices](https://github.com/lightningnetwork/lnd/pull/5810). If metadata is
+present in the invoice, it is encoded as a tlv record for the receiver.
+
+This functionality unlocks future features such as [stateless
+invoices](https://lists.linuxfoundation.org/pipermail/lightning-dev/2021-September/003236.html).
+
 ## Security
 
 * [Misconfigured ZMQ
@@ -26,6 +37,9 @@ then watch it on chain. Taproot script spends are also supported through the
   to pendingchannels response.
 
 * [Update description for `state` command](https://github.com/lightningnetwork/lnd/pull/6237).
+
+* Add [update node announcement](https://github.com/lightningnetwork/lnd/pull/5587)
+  for updating and propagating node information.
 
 ## Bug Fixes
 
@@ -65,6 +79,34 @@ then watch it on chain. Taproot script spends are also supported through the
   output](https://github.com/lightningnetwork/lnd/pull/6274).
 
 * [Fixed node shutdown in forward interceptor itests](https://github.com/lightningnetwork/lnd/pull/6362).
+
+* [Fixed a bug that would cause lnd to be unable to parse certain PSBT blobs](https://github.com/lightningnetwork/lnd/pull/6383).
+ 
+* [Use normal TCP resolution, instead of Tor DNS resolution, for addresses
+   using the all-interfaces IP](https://github.com/lightningnetwork/lnd/pull/6376).
+
+* [Fixed a bug in the `btcwallet` that caused an error to be shown for
+  `lncli walletbalance` in existing wallets after upgrading to
+  Taproot](https://github.com/lightningnetwork/lnd/pull/6379).
+
+* [Fixed a data race in the websocket proxy
+  code](https://github.com/lightningnetwork/lnd/pull/6380).
+
+* [Fixed race condition resulting in MPP payments sometimes getting stuck
+  in-flight](https://github.com/lightningnetwork/lnd/pull/6352).
+
+* [Fixed a panic in the Taproot signing part of the `SignOutputRaw` RPC that
+  occurred when not all UTXO information was
+  specified](https://github.com/lightningnetwork/lnd/pull/6407).
+
+* [Fixed P2TR addresses not correctly being detected as
+  used](https://github.com/lightningnetwork/lnd/pull/6389).
+
+## Routing
+
+* [Add a new `time_pref` parameter to the QueryRoutes and SendPayment APIs](https://github.com/lightningnetwork/lnd/pull/6024) that
+  allows the caller to control the trade-off between payment speed and cost in
+  pathfinding.
 
 ## Misc
 
@@ -120,6 +162,16 @@ then watch it on chain. Taproot script spends are also supported through the
   specifies the maximum duration it allows for a remote peer to respond to a
   locally initiated commitment update.
 
+* [`macos` and `apple` Makefile tasks have been added.](https://github.com/lightningnetwork/lnd/pull/6373)
+
+  The `macos` task uses `gomobile` to build an `XCFramework` that can be used to
+  embed lnd to macOS apps, similar to how the `ios` task builds for iOS.
+
+  The `apple` task uses `gomobile` to build an `XCFramework` that can be used to
+  embed lnd to both iOS and macOS apps.
+
+* [The CI and build infrastructure for the project has transitioned to using Go 1.18](https://github.com/lightningnetwork/lnd/pull/6340).
+
 ## RPC Server
 
 * [Add value to the field
@@ -145,12 +197,22 @@ then watch it on chain. Taproot script spends are also supported through the
   to the transaction structure returned from the RPC `GetTransactions` and when
   subscribed with `SubscribeTransactions`.
 
+* [Support for making routes with the legacy onion payload format via `SendToRoute` has been removed.](https://github.com/lightningnetwork/lnd/pull/6385)
+
+* Close a gap in the HTLC interceptor API by [intercepting htlcs in the on-chain
+  resolution flow](https://github.com/lightningnetwork/lnd/pull/6219) too.
+
 ## Database
 
 * [Add ForAll implementation for etcd to speed up
   graph cache at startup](https://github.com/lightningnetwork/lnd/pull/6136)
 
 * [Improve validation of a PSBT packet when handling a request to finalize it.](https://github.com/lightningnetwork/lnd/pull/6217)
+
+* [Add new Peers subserver](https://github.com/lightningnetwork/lnd/pull/5587) with a new endpoint for updating the `NodeAnnouncement` data without having to restart the node.
+
+* Add [htlc expiry protection](https://github.com/lightningnetwork/lnd/pull/6212)
+to the htlc interceptor API.
 
 ## Documentation
 
@@ -211,8 +273,10 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * Carsten Otto
 * Dan Bolser
 * Daniel McNally
+* Elle Mouton
 * ErikEk
 * Eugene Siegel
+* Hampus Sjöberg
 * henta
 * Joost Jager
 * Jordi Montes

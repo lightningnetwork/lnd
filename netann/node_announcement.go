@@ -1,6 +1,7 @@
 package netann
 
 import (
+	"image/color"
 	"net"
 	"time"
 
@@ -13,11 +14,35 @@ import (
 // lnwire.NodeAnnouncement.
 type NodeAnnModifier func(*lnwire.NodeAnnouncement)
 
+// NodeAnnSetAlias is a functional option that sets the alias of the
+// given node announcement.
+func NodeAnnSetAlias(alias lnwire.NodeAlias) func(*lnwire.NodeAnnouncement) {
+	return func(nodeAnn *lnwire.NodeAnnouncement) {
+		nodeAnn.Alias = alias
+	}
+}
+
 // NodeAnnSetAddrs is a functional option that allows updating the addresses of
 // the given node announcement.
 func NodeAnnSetAddrs(addrs []net.Addr) func(*lnwire.NodeAnnouncement) {
 	return func(nodeAnn *lnwire.NodeAnnouncement) {
 		nodeAnn.Addresses = addrs
+	}
+}
+
+// NodeAnnSetColor is a functional option that sets the color of the
+// given node announcement.
+func NodeAnnSetColor(newColor color.RGBA) func(*lnwire.NodeAnnouncement) {
+	return func(nodeAnn *lnwire.NodeAnnouncement) {
+		nodeAnn.RGBColor = newColor
+	}
+}
+
+// NodeAnnSetFeatures is a functional option that allows updating the features of
+// the given node announcement.
+func NodeAnnSetFeatures(features *lnwire.RawFeatureVector) func(*lnwire.NodeAnnouncement) {
+	return func(nodeAnn *lnwire.NodeAnnouncement) {
+		nodeAnn.Features = features
 	}
 }
 

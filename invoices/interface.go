@@ -18,4 +18,8 @@ type Payload interface {
 	// CustomRecords returns the custom tlv type records that were parsed
 	// from the payload.
 	CustomRecords() record.CustomSet
+
+	// Metadata returns the additional data that is sent along with the
+	// payment to the payee.
+	Metadata() []byte
 }

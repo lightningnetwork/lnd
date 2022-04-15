@@ -11,15 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testUnknownRequiredType = 0x10
+const testUnknownRequiredType = 0x80
 
 type decodePayloadTest struct {
-	name             string
-	payload          []byte
-	expErr           error
-	expCustomRecords map[uint64][]byte
-	shouldHaveMPP    bool
-	shouldHaveAMP    bool
+	name               string
+	payload            []byte
+	expErr             error
+	expCustomRecords   map[uint64][]byte
+	shouldHaveMPP      bool
+	shouldHaveAMP      bool
+	shouldHaveMetadata bool
 }
 
 var decodePayloadTests = []decodePayloadTest{
@@ -258,6 +259,18 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 		shouldHaveAMP: true,
 	},
+	{
+		name: "final hop with metadata",
+		payload: []byte{
+			// amount
+			0x02, 0x00,
+			// cltv
+			0x04, 0x00,
+			// metadata
+			0x10, 0x03, 0x01, 0x02, 0x03,
+		},
+		shouldHaveMetadata: true,
+	},
 }
 
 // TestDecodeHopPayloadRecordValidation asserts that parsing the payloads in the
@@ -293,6 +306,7 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 			0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13,
 			0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13,
 		}
+		testMetadata   = []byte{1, 2, 3}
 		testChildIndex = uint32(9)
 	)
 
@@ -329,6 +343,15 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 		require.Equal(t, testChildIndex, p.AMP.ChildIndex())
 	} else if p.AMP != nil {
 		t.Fatalf("unexpected AMP payload")
+	}
+
+	if test.shouldHaveMetadata {
+		if p.Metadata() == nil {
+			t.Fatalf("payload should have metadata")
+		}
+		require.Equal(t, testMetadata, p.Metadata())
+	} else if p.Metadata() != nil {
+		t.Fatalf("unexpected metadata")
 	}
 
 	// Convert expected nil map to empty map, because we always expect an

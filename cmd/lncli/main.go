@@ -188,8 +188,8 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		}
 		opts = append(opts, grpc.WithContextDialer(torDialer))
 	} else {
-		// We need to use a custom dialer so we can also connect to unix sockets
-		// and not just TCP addresses.
+		// We need to use a custom dialer so we can also connect to
+		// unix sockets and not just TCP addresses.
 		genericDialer := lncfg.ClientAddressDialer(defaultRPCPort)
 		opts = append(opts, grpc.WithContextDialer(genericDialer))
 	}
@@ -294,8 +294,7 @@ func main() {
 			TakesFile: true,
 		},
 		cli.StringFlag{
-			Name:  "socksproxy",
-			Value: defaultLndDir,
+			Name: "socksproxy",
 			Usage: "The host:port of a SOCKS proxy through " +
 				"which all connections to the LN " +
 				"daemon will be established over.",

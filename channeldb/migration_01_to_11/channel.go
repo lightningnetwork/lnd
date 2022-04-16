@@ -616,7 +616,7 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 		return err
 	}
 
-	if err := writeChanConfig(w, &cs.LocalChanConfig); err != nil {
+	if err := WriteChanConfig(w, &cs.LocalChanConfig); err != nil {
 		return err
 	}
 
@@ -680,7 +680,7 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 		return nil, err
 	}
 
-	if err := readChanConfig(r, &c.LocalChanConfig); err != nil {
+	if err := ReadChanConfig(r, &c.LocalChanConfig); err != nil {
 		return nil, err
 	}
 
@@ -731,7 +731,7 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	return c, nil
 }
 
-func writeChanConfig(b io.Writer, c *ChannelConfig) error {
+func WriteChanConfig(b io.Writer, c *ChannelConfig) error {
 	return WriteElements(b,
 		c.DustLimit, c.MaxPendingAmount, c.ChanReserve, c.MinHTLC,
 		c.MaxAcceptedHtlcs, c.CsvDelay, c.MultiSigKey,
@@ -740,7 +740,7 @@ func writeChanConfig(b io.Writer, c *ChannelConfig) error {
 	)
 }
 
-func readChanConfig(b io.Reader, c *ChannelConfig) error {
+func ReadChanConfig(b io.Reader, c *ChannelConfig) error {
 	return ReadElements(b,
 		&c.DustLimit, &c.MaxPendingAmount, &c.ChanReserve,
 		&c.MinHTLC, &c.MaxAcceptedHtlcs, &c.CsvDelay,
@@ -748,4 +748,93 @@ func readChanConfig(b io.Reader, c *ChannelConfig) error {
 		&c.PaymentBasePoint, &c.DelayBasePoint,
 		&c.HtlcBasePoint,
 	)
+}
+
+func DeserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
+	var c ChannelCommitment
+
+	err := ReadElements(r,
+		&c.CommitHeight, &c.LocalLogIndex, &c.LocalHtlcIndex, &c.RemoteLogIndex,
+		&c.RemoteHtlcIndex, &c.LocalBalance, &c.RemoteBalance,
+		&c.CommitFee, &c.FeePerKw, &c.CommitTx, &c.CommitSig,
+	)
+	if err != nil {
+		return c, err
+	}
+
+	c.Htlcs, err = DeserializeHtlcs(r)
+	if err != nil {
+		return c, err
+	}
+
+	return c, nil
+}
+
+// DeserializeHtlcs attempts to read out a slice of HTLC's from the passed
+// io.Reader. The bytes within the passed reader MUST have been previously
+// written to using the SerializeHtlcs function.
+//
+// NOTE: This API is NOT stable, the on-disk format will likely change in the
+// future.
+func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
+	var numHtlcs uint16
+	if err := ReadElement(r, &numHtlcs); err != nil {
+		return nil, err
+	}
+
+	var htlcs []HTLC
+	if numHtlcs == 0 {
+		return htlcs, nil
+	}
+
+	htlcs = make([]HTLC, numHtlcs)
+	for i := uint16(0); i < numHtlcs; i++ {
+		if err := ReadElements(r,
+			&htlcs[i].Signature, &htlcs[i].RHash, &htlcs[i].Amt,
+			&htlcs[i].RefundTimeout, &htlcs[i].OutputIndex,
+			&htlcs[i].Incoming, &htlcs[i].OnionBlob,
+			&htlcs[i].HtlcIndex, &htlcs[i].LogIndex,
+		); err != nil {
+			return htlcs, err
+		}
+	}
+
+	return htlcs, nil
+}
+
+func SerializeChanCommit(w io.Writer, c *ChannelCommitment) error {
+	if err := WriteElements(w,
+		c.CommitHeight, c.LocalLogIndex, c.LocalHtlcIndex,
+		c.RemoteLogIndex, c.RemoteHtlcIndex, c.LocalBalance,
+		c.RemoteBalance, c.CommitFee, c.FeePerKw, c.CommitTx,
+		c.CommitSig,
+	); err != nil {
+		return err
+	}
+
+	return SerializeHtlcs(w, c.Htlcs...)
+}
+
+// SerializeHtlcs writes out the passed set of HTLC's into the passed writer
+// using the current default on-disk serialization format.
+//
+// NOTE: This API is NOT stable, the on-disk format will likely change in the
+// future.
+func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
+	numHtlcs := uint16(len(htlcs))
+	if err := WriteElement(b, numHtlcs); err != nil {
+		return err
+	}
+
+	for _, htlc := range htlcs {
+		if err := WriteElements(b,
+			htlc.Signature, htlc.RHash, htlc.Amt, htlc.RefundTimeout,
+			htlc.OutputIndex, htlc.Incoming, htlc.OnionBlob[:],
+			htlc.HtlcIndex, htlc.LogIndex,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

@@ -70,7 +70,7 @@ func MigrateFwdPkgCleanup(tx kvdb.RwTx) error {
 
 	// Iterate over all close channels and remove their forwarding packages.
 	for _, summery := range chanSummaries {
-		sourceBytes := makeLogKey(summery.ShortChanID.ToUint64())
+		sourceBytes := MakeLogKey(summery.ShortChanID.ToUint64())
 
 		// First, we will try to find the corresponding bucket. If there
 		// is not a nested bucket matching the ShortChanID, we will skip
@@ -112,7 +112,7 @@ func deserializeCloseChannelSummary(
 }
 
 // makeLogKey converts a uint64 into an 8 byte array.
-func makeLogKey(updateNum uint64) [8]byte {
+func MakeLogKey(updateNum uint64) [8]byte {
 	var key [8]byte
 	binary.BigEndian.PutUint64(key[:], updateNum)
 	return key

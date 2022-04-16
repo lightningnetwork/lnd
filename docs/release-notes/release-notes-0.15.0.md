@@ -41,6 +41,9 @@ then watch it on chain. Taproot script spends are also supported through the
 * Add [update node announcement](https://github.com/lightningnetwork/lnd/pull/5587)
   for updating and propagating node information.
 
+* Add [--socksproxy](https://github.com/lightningnetwork/lnd/pull/6422)
+  to allow for RPC calls via Tor.
+
 ## Bug Fixes
 
 * [Pipelining an UpdateFulfillHTLC message now only happens when the related UpdateAddHTLC is locked-in.](https://github.com/lightningnetwork/lnd/pull/6246)
@@ -281,6 +284,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * Eugene Siegel
 * Hampus Sjöberg
 * henta
+* hieblmi
 * Joost Jager
 * Jordi Montes
 * LightningHelper

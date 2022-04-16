@@ -5,8 +5,10 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/urfave/cli"
 	"golang.org/x/term"
 	"google.golang.org/grpc"
@@ -173,10 +176,24 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		opts = append(opts, grpc.WithPerRPCCredentials(cred))
 	}
 
-	// We need to use a custom dialer so we can also connect to unix sockets
-	// and not just TCP addresses.
-	genericDialer := lncfg.ClientAddressDialer(defaultRPCPort)
-	opts = append(opts, grpc.WithContextDialer(genericDialer))
+	// If a socksproxy server is specified we use a tor dialer
+	// to connect to the grpc server.
+	if ctx.GlobalIsSet("socksproxy") {
+		socksProxy := ctx.GlobalString("socksproxy")
+		torDialer := func(_ context.Context, addr string) (net.Conn, error) {
+			return tor.Dial(
+				addr, socksProxy, false, false,
+				tor.DefaultConnTimeout,
+			)
+		}
+		opts = append(opts, grpc.WithContextDialer(torDialer))
+	} else {
+		// We need to use a custom dialer so we can also connect to
+		// unix sockets and not just TCP addresses.
+		genericDialer := lncfg.ClientAddressDialer(defaultRPCPort)
+		opts = append(opts, grpc.WithContextDialer(genericDialer))
+	}
+
 	opts = append(opts, grpc.WithDefaultCallOptions(maxMsgRecvSize))
 
 	conn, err := grpc.Dial(profile.RPCServer, opts...)
@@ -275,6 +292,12 @@ func main() {
 			Value:     defaultLndDir,
 			Usage:     "The path to lnd's base directory.",
 			TakesFile: true,
+		},
+		cli.StringFlag{
+			Name: "socksproxy",
+			Usage: "The host:port of a SOCKS proxy through " +
+				"which all connections to the LN " +
+				"daemon will be established over.",
 		},
 		cli.StringFlag{
 			Name:      "tlscertpath",

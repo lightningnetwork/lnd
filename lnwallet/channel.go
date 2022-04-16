@@ -5414,8 +5414,7 @@ func (lc *LightningChannel) MalformedFailHTLC(htlcIndex uint64,
 // ReceiveFailHTLC attempts to cancel a targeted HTLC by its log index,
 // inserting an entry which will remove the target log entry within the next
 // commitment update. This method should be called in response to the upstream
-// party cancelling an outgoing HTLC. The value of the failed HTLC is returned
-// along with an error indicating success.
+// party cancelling an outgoing HTLC.
 func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 ) error {
 

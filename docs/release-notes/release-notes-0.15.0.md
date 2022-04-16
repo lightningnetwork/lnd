@@ -227,6 +227,11 @@ then watch it on chain. Taproot script spends are also supported through the
 * Add [htlc expiry protection](https://github.com/lightningnetwork/lnd/pull/6212)
 to the htlc interceptor API.
 
+* In order to safely advance commitment state, `lnd` saves the past states and
+  constructs a justice transaction in case of a remote breach. The states can
+  grow very large on disk given a busy operating channel, [which is now changed
+  with a space deduction over (at least) 96 percents.](https://github.com/lightningnetwork/lnd/pull/6347) 
+
 ## Documentation
 
 * Improved instructions on [how to build lnd for mobile](https://github.com/lightningnetwork/lnd/pull/6085).

@@ -943,9 +943,15 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		ChainHash:               c.cfg.chanState.ChainHash,
 		ClosingTXID:             *commitSpend.SpenderTxHash,
 		RemotePub:               c.cfg.chanState.IdentityPub,
-		Capacity:                c.cfg.chanState.Capacity,
+		BtcCapacity:                c.cfg.chanState.BtcCapacity,
+		AssetCapacity:                c.cfg.chanState.AssetCapacity,
 		CloseHeight:             uint32(commitSpend.SpendingHeight),
-		SettledBalance:          localAmt,
+		SettledBtcBalance:          localAmt,
+		/*
+		obd update wxf
+		todo add SettledAssetBalance
+		*/
+		//SettledAssetBalance:          localAmt,
 		CloseType:               channeldb.CooperativeClose,
 		ShortChanID:             c.cfg.chanState.ShortChanID(),
 		IsPending:               true,
@@ -1009,7 +1015,8 @@ func (c *chainWatcher) dispatchLocalForceClose(
 		ChainHash:               chanSnapshot.ChainHash,
 		ClosingTXID:             forceClose.CloseTx.TxHash(),
 		RemotePub:               &chanSnapshot.RemoteIdentity,
-		Capacity:                chanSnapshot.Capacity,
+		BtcCapacity:                chanSnapshot.BtcCapacity,
+		AssetCapacity:                chanSnapshot.AssetCapacity,
 		CloseType:               channeldb.LocalForceClose,
 		IsPending:               true,
 		ShortChanID:             c.cfg.chanState.ShortChanID(),
@@ -1023,12 +1030,19 @@ func (c *chainWatcher) dispatchLocalForceClose(
 	// commitment transaction, then we'll populate the balances on the
 	// close channel summary.
 	if forceClose.CommitResolution != nil {
-		closeSummary.SettledBalance = chanSnapshot.LocalBalance.ToSatoshis()
-		closeSummary.TimeLockedBalance = chanSnapshot.LocalBalance.ToSatoshis()
+		closeSummary.SettledBtcBalance = chanSnapshot.LocalBtcBalance.ToSatoshis()
+		closeSummary.TimeLockedBtcBalance = chanSnapshot.LocalBtcBalance.ToSatoshis()
+		closeSummary.SettledAssetBalance = chanSnapshot.LocalAssetBalance
+		closeSummary.TimeLockedAssetBalance = chanSnapshot.LocalAssetBalance
 	}
 	for _, htlc := range forceClose.HtlcResolutions.OutgoingHTLCs {
 		htlcValue := btcutil.Amount(htlc.SweepSignDesc.Output.Value)
-		closeSummary.TimeLockedBalance += htlcValue
+		closeSummary.TimeLockedBtcBalance += htlcValue
+		/*
+		obd update wxf
+		todo add TimeLockedAssetBalance
+		*/
+		//closeSummary.TimeLockedAssetBalance += htlc.SweepSignDesc.
 	}
 
 	// Attempt to add a channel sync message to the close summary.
@@ -1162,15 +1176,17 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 			return spew.Sdump(retribution)
 		}))
 
-	settledBalance := chainSet.remoteCommit.LocalBalance.ToSatoshis()
+	settledBalance := chainSet.remoteCommit.LocalBtcBalance.ToSatoshis()
 	closeSummary := channeldb.ChannelCloseSummary{
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,
 		ChainHash:               c.cfg.chanState.ChainHash,
 		ClosingTXID:             *spendEvent.SpenderTxHash,
 		CloseHeight:             spendHeight,
 		RemotePub:               c.cfg.chanState.IdentityPub,
-		Capacity:                c.cfg.chanState.Capacity,
-		SettledBalance:          settledBalance,
+		BtcCapacity:                c.cfg.chanState.BtcCapacity,
+		SettledBtcBalance:          settledBalance,
+		AssetCapacity:                c.cfg.chanState.AssetCapacity,
+		//SettledAssetBalance:          settledaBalance,
 		CloseType:               channeldb.BreachClose,
 		IsPending:               true,
 		ShortChanID:             c.cfg.chanState.ShortChanID(),

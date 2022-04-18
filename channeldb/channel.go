@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 	"net"
 	"strconv"
@@ -438,14 +439,21 @@ type ChannelCommitment struct {
 	//
 	// NOTE: This is the balance *after* subtracting any commitment fee,
 	// AND anchor output values.
-	LocalBalance lnwire.MilliSatoshi
+	LocalBtcBalance lnwire.MilliSatoshi
 
 	// RemoteBalance is the current available settled balance within the
 	// channel directly spendable by the remote node.
 	//
 	// NOTE: This is the balance *after* subtracting any commitment fee,
 	// AND anchor output values.
-	RemoteBalance lnwire.MilliSatoshi
+	RemoteBtcBalance lnwire.MilliSatoshi
+
+	/*
+	obd add wxf
+	*/
+	LocalAssetBalance omnicore.Amount
+	RemoteAssetBalance omnicore.Amount
+
 
 	// CommitFee is the amount calculated to be paid in fees for the
 	// current set of commitment transactions. The fee amount is persisted
@@ -646,16 +654,27 @@ type OpenChannel struct {
 	// channel has been established with.
 	IdentityPub *btcec.PublicKey
 
-	// Capacity is the total capacity of this channel.
-	Capacity btcutil.Amount
+	/*
+	  obd update wxf
+	*/
+	//// Capacity is the total capacity of this channel.
+	//Capacity btcutil.Amount
+	BtcCapacity btcutil.Amount
+	AssetCapacity omnicore.Amount
+	AssetID uint32
 
 	// TotalMSatSent is the total number of milli-satoshis we've sent
 	// within this channel.
 	TotalMSatSent lnwire.MilliSatoshi
-
+	//
 	// TotalMSatReceived is the total number of milli-satoshis we've
 	// received within this channel.
 	TotalMSatReceived lnwire.MilliSatoshi
+	/*
+	  obd add wxf
+	*/
+	TotalAssetSent omnicore.Amount
+	TotalAssetReceived omnicore.Amount
 
 	// LocalChanCfg is the channel configuration for the local node.
 	LocalChanCfg ChannelConfig
@@ -1481,6 +1500,13 @@ func (c *OpenChannel) SyncPending(addr net.Addr, pendingHeight uint32) error {
 	c.Lock()
 	defer c.Unlock()
 
+	/*
+	obd update wxf
+	*/
+	if c.AssetCapacity>0 && c.AssetID<0{
+		return fmt.Errorf("OpenChannel SyncPending err :miss AssetID")
+	}
+
 	c.FundingBroadcastHeight = pendingHeight
 
 	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
@@ -1649,36 +1675,39 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 // NOTE: these are our balances *after* subtracting the commitment fee and
 // anchor outputs.
 func (c *OpenChannel) BalancesAtHeight(height uint64) (lnwire.MilliSatoshi,
-	lnwire.MilliSatoshi, error) {
+	lnwire.MilliSatoshi,omnicore.Amount,
+	omnicore.Amount,  error) {
 
 	if height > c.LocalCommitment.CommitHeight &&
 		height > c.RemoteCommitment.CommitHeight {
 
-		return 0, 0, errHeightNotReached
+		return 0, 0, 0, 0, errHeightNotReached
 	}
 
 	// If our current commit is as the desired height, we can return our
 	// current balances.
 	if c.LocalCommitment.CommitHeight == height {
-		return c.LocalCommitment.LocalBalance,
-			c.LocalCommitment.RemoteBalance, nil
+		return c.LocalCommitment.LocalBtcBalance,
+			c.LocalCommitment.RemoteBtcBalance, c.LocalCommitment.LocalAssetBalance,
+			c.LocalCommitment.RemoteAssetBalance, nil
 	}
 
 	// If our current remote commit is at the desired height, we can return
 	// the current balances.
 	if c.RemoteCommitment.CommitHeight == height {
-		return c.RemoteCommitment.LocalBalance,
-			c.RemoteCommitment.RemoteBalance, nil
+		return c.RemoteCommitment.LocalBtcBalance,
+			c.RemoteCommitment.RemoteBtcBalance, c.RemoteCommitment.LocalAssetBalance,
+			c.RemoteCommitment.RemoteAssetBalance, nil
 	}
 
 	// If we are not currently on the height requested, we need to look up
 	// the previous height to obtain our balances at the given height.
 	commit, err := c.FindPreviousState(height)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, 0, err
 	}
 
-	return commit.LocalBalance, commit.RemoteBalance, nil
+	return commit.LocalBtcBalance, commit.RemoteBtcBalance,commit.LocalAssetBalance, commit.RemoteAssetBalance, nil
 }
 
 // ActiveHtlcs returns a slice of HTLC's which are currently active on *both*
@@ -1729,7 +1758,11 @@ type HTLC struct {
 	RHash [32]byte
 
 	// Amt is the amount of milli-satoshis this HTLC escrows.
-	Amt lnwire.MilliSatoshi
+	BtcAmt lnwire.MilliSatoshi
+	/*
+	obd update wxf
+	*/
+	AssetAmt omnicore.Amount
 
 	// RefundTimeout is the absolute timeout on the HTLC that the sender
 	// must wait before reclaiming the funds in limbo.
@@ -1772,7 +1805,7 @@ func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 
 	for _, htlc := range htlcs {
 		if err := WriteElements(b,
-			htlc.Signature, htlc.RHash, htlc.Amt, htlc.RefundTimeout,
+			htlc.Signature, htlc.RHash, htlc.BtcAmt,htlc.AssetAmt, htlc.RefundTimeout,
 			htlc.OutputIndex, htlc.Incoming, htlc.OnionBlob[:],
 			htlc.HtlcIndex, htlc.LogIndex,
 		); err != nil {
@@ -1803,7 +1836,8 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	htlcs = make([]HTLC, numHtlcs)
 	for i := uint16(0); i < numHtlcs; i++ {
 		if err := ReadElements(r,
-			&htlcs[i].Signature, &htlcs[i].RHash, &htlcs[i].Amt,
+			&htlcs[i].Signature, &htlcs[i].RHash, &htlcs[i].BtcAmt,
+			&htlcs[i].AssetAmt,
 			&htlcs[i].RefundTimeout, &htlcs[i].OutputIndex,
 			&htlcs[i].Incoming, &htlcs[i].OnionBlob,
 			&htlcs[i].HtlcIndex, &htlcs[i].LogIndex,
@@ -1819,7 +1853,8 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 func (h *HTLC) Copy() HTLC {
 	clone := HTLC{
 		Incoming:      h.Incoming,
-		Amt:           h.Amt,
+		BtcAmt:           h.BtcAmt,
+		AssetAmt:           h.AssetAmt,
 		RefundTimeout: h.RefundTimeout,
 		OutputIndex:   h.OutputIndex,
 	}
@@ -2798,7 +2833,11 @@ type ChannelCloseSummary struct {
 	RemotePub *btcec.PublicKey
 
 	// Capacity was the total capacity of the channel.
-	Capacity btcutil.Amount
+	BtcCapacity btcutil.Amount
+	/*
+	obd add wxf
+	*/
+	AssetCapacity omnicore.Amount
 
 	// CloseHeight is the height at which the funding transaction was
 	// spent.
@@ -2807,7 +2846,12 @@ type ChannelCloseSummary struct {
 	// SettledBalance is our total balance settled balance at the time of
 	// channel closure. This _does not_ include the sum of any outputs that
 	// have been time-locked as a result of the unilateral channel closure.
-	SettledBalance btcutil.Amount
+	SettledBtcBalance btcutil.Amount
+	/*
+	obd add wxf
+	*/
+	SettledAssetBalance omnicore.Amount
+	TimeLockedAssetBalance omnicore.Amount
 
 	// TimeLockedBalance is the sum of all the time-locked outputs at the
 	// time of channel closure. If we triggered the force closure of this
@@ -2815,7 +2859,7 @@ type ChannelCloseSummary struct {
 	// above the dust limit. If we were on the receiving side of a channel
 	// force closure, then this value will be non-zero if we had any
 	// outstanding outgoing HTLC's at the time of channel closure.
-	TimeLockedBalance btcutil.Amount
+	TimeLockedBtcBalance btcutil.Amount
 
 	// CloseType details exactly _how_ the channel was closed. Five closure
 	// types are possible: cooperative, local force, remote force, breach
@@ -3023,8 +3067,8 @@ type ChannelSnapshot struct {
 	// within.
 	ChainHash chainhash.Hash
 
-	// Capacity is the total capacity of the channel.
-	Capacity btcutil.Amount
+	//// Capacity is the total capacity of the channel.
+	//Capacity btcutil.Amount
 
 	// TotalMSatSent is the total number of milli-satoshis we've sent
 	// within this channel.
@@ -3033,6 +3077,15 @@ type ChannelSnapshot struct {
 	// TotalMSatReceived is the total number of milli-satoshis we've
 	// received within this channel.
 	TotalMSatReceived lnwire.MilliSatoshi
+
+	/*
+	obd add wxf
+	*/
+	BtcCapacity btcutil.Amount
+	AssetCapacity omnicore.Amount
+	TotalAssetSent 	omnicore.Amount
+	TotalAssetReceived omnicore.Amount
+	AssetID uint32
 
 	// ChannelCommitment is the current up-to-date commitment for the
 	// target channel.
@@ -3050,13 +3103,20 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 	snapshot := &ChannelSnapshot{
 		RemoteIdentity:    *c.IdentityPub,
 		ChannelPoint:      c.FundingOutpoint,
-		Capacity:          c.Capacity,
+		/*obd update wxf*/
+		BtcCapacity:          c.BtcCapacity,
+		AssetCapacity:          c.AssetCapacity,
+		AssetID: c.AssetID,
+		TotalAssetSent:     c.TotalAssetSent,
+		TotalAssetReceived: c.TotalAssetReceived,
 		TotalMSatSent:     c.TotalMSatSent,
 		TotalMSatReceived: c.TotalMSatReceived,
 		ChainHash:         c.ChainHash,
 		ChannelCommitment: ChannelCommitment{
-			LocalBalance:  localCommit.LocalBalance,
-			RemoteBalance: localCommit.RemoteBalance,
+			LocalBtcBalance:  localCommit.LocalBtcBalance,
+			RemoteBtcBalance: localCommit.RemoteBtcBalance,
+			LocalAssetBalance:  localCommit.LocalAssetBalance,
+			RemoteAssetBalance: localCommit.RemoteAssetBalance,
 			CommitHeight:  localCommit.CommitHeight,
 			CommitFee:     localCommit.CommitFee,
 		},
@@ -3163,8 +3223,8 @@ func putChannelCloseSummary(tx kvdb.RwTx, chanID []byte,
 func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 	err := WriteElements(w,
 		cs.ChanPoint, cs.ShortChanID, cs.ChainHash, cs.ClosingTXID,
-		cs.CloseHeight, cs.RemotePub, cs.Capacity, cs.SettledBalance,
-		cs.TimeLockedBalance, cs.CloseType, cs.IsPending,
+		cs.CloseHeight, cs.RemotePub, cs.BtcCapacity, cs.AssetCapacity, cs.SettledBtcBalance, cs.SettledAssetBalance,
+		cs.TimeLockedBtcBalance, cs.TimeLockedAssetBalance, cs.CloseType, cs.IsPending,
 	)
 	if err != nil {
 		return err
@@ -3224,8 +3284,8 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 
 	err := ReadElements(r,
 		&c.ChanPoint, &c.ShortChanID, &c.ChainHash, &c.ClosingTXID,
-		&c.CloseHeight, &c.RemotePub, &c.Capacity, &c.SettledBalance,
-		&c.TimeLockedBalance, &c.CloseType, &c.IsPending,
+		&c.CloseHeight, &c.RemotePub, &c.BtcCapacity, &c.AssetCapacity, &c.SettledBtcBalance, &c.SettledAssetBalance,
+		&c.TimeLockedBtcBalance, &c.TimeLockedAssetBalance, &c.CloseType, &c.IsPending,
 	)
 	if err != nil {
 		return nil, err
@@ -3326,8 +3386,8 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 		channel.ShortChannelID, channel.IsPending, channel.IsInitiator,
 		channel.chanStatus, channel.FundingBroadcastHeight,
 		channel.NumConfsRequired, channel.ChannelFlags,
-		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
-		channel.TotalMSatReceived,
+		channel.IdentityPub, channel.BtcCapacity, channel.AssetCapacity, channel.AssetID, channel.TotalMSatSent,
+		channel.TotalMSatReceived, channel.TotalAssetSent, channel.TotalAssetReceived,
 	); err != nil {
 		return err
 	}
@@ -3420,8 +3480,9 @@ func getOptionalUpfrontShutdownScript(chanBucket kvdb.RBucket, key []byte,
 func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
 	if err := WriteElements(w,
 		c.CommitHeight, c.LocalLogIndex, c.LocalHtlcIndex,
-		c.RemoteLogIndex, c.RemoteHtlcIndex, c.LocalBalance,
-		c.RemoteBalance, c.CommitFee, c.FeePerKw, c.CommitTx,
+		c.RemoteLogIndex, c.RemoteHtlcIndex, c.LocalBtcBalance,
+		c.RemoteBtcBalance, c.LocalAssetBalance,
+		c.RemoteAssetBalance, c.CommitFee, c.FeePerKw, c.CommitTx,
 		c.CommitSig,
 	); err != nil {
 		return err
@@ -3514,8 +3575,8 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 		&channel.ShortChannelID, &channel.IsPending, &channel.IsInitiator,
 		&channel.chanStatus, &channel.FundingBroadcastHeight,
 		&channel.NumConfsRequired, &channel.ChannelFlags,
-		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
-		&channel.TotalMSatReceived,
+		&channel.IdentityPub, &channel.BtcCapacity, &channel.AssetCapacity, &channel.AssetID, &channel.TotalMSatSent,
+		&channel.TotalMSatReceived,&channel.TotalAssetSent, &channel.TotalAssetReceived,
 	); err != nil {
 		return err
 	}
@@ -3579,7 +3640,7 @@ func deserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
 
 	err := ReadElements(r,
 		&c.CommitHeight, &c.LocalLogIndex, &c.LocalHtlcIndex, &c.RemoteLogIndex,
-		&c.RemoteHtlcIndex, &c.LocalBalance, &c.RemoteBalance,
+		&c.RemoteHtlcIndex, &c.LocalBtcBalance, &c.RemoteBtcBalance, &c.LocalAssetBalance, &c.RemoteAssetBalance,
 		&c.CommitFee, &c.FeePerKw, &c.CommitTx, &c.CommitSig,
 	)
 	if err != nil {

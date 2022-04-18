@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"os"
 )
 
 // walletLog is a logger that is initialized with no output filters.  This
@@ -23,6 +24,16 @@ func init() {
 // by default until UseLogger is called.
 func DisableLog() {
 	UseLogger(btclog.Disabled)
+}
+
+/*
+obd add wxf
+*/
+func EnableTestLog() {
+	bd:=btclog.NewBackend(os.Stdout)
+	bdlog:=bd.Logger("test")
+	bdlog.SetLevel(btclog.LevelTrace)
+	UseLogger(bdlog)
 }
 
 // UseLogger uses a specified Logger to output package logging info.

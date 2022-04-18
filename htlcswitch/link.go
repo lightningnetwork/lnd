@@ -1290,7 +1290,7 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 
 		// Get the lnwire failure message based on the resolution
 		// result.
-		failure := getResolutionFailure(res, htlc.pd.Amount)
+		failure := getResolutionFailure(res, htlc.pd.BtcAmount)
 
 		l.sendHTLCError(
 			htlc.pd, failure, htlc.obfuscator, true,
@@ -1408,7 +1408,7 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 			IncomingTimeLock: pkt.incomingTimeout,
 			IncomingAmt:      pkt.incomingAmount,
 			OutgoingTimeLock: htlc.Expiry,
-			OutgoingAmt:      htlc.Amount,
+			OutgoingAmt:      htlc.BtcAmount,
 		},
 		getEventType(pkt),
 	)
@@ -2681,7 +2681,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 				},
 			}
 
-			l.log.Debugf("Failed to send %s", pd.Amount)
+			l.log.Debugf("Failed to send %s", pd.BtcAmount)
 
 			// If the failure message lacks an HMAC (but includes
 			// the 4 bytes for encoding the message and padding
@@ -2889,7 +2889,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				// can collect it and continue.
 				addMsg := &lnwire.UpdateAddHTLC{
 					Expiry:      fwdInfo.OutgoingCTLV,
-					Amount:      fwdInfo.AmountToForward,
+					BtcAmount:      fwdInfo.AmountToForward,
 					PaymentHash: pd.RHash,
 				}
 
@@ -2908,8 +2908,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					incomingHTLCID:  pd.HtlcIndex,
 					outgoingChanID:  fwdInfo.NextHop,
 					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.Amount,
-					amount:          addMsg.Amount,
+					incomingAmount:  pd.BtcAmount,
+					amount:          addMsg.BtcAmount,
 					htlc:            addMsg,
 					obfuscator:      obfuscator,
 					incomingTimeout: pd.Timeout,
@@ -2931,7 +2931,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// specified in the forwarding info.
 			addMsg := &lnwire.UpdateAddHTLC{
 				Expiry:      fwdInfo.OutgoingCTLV,
-				Amount:      fwdInfo.AmountToForward,
+				BtcAmount:      fwdInfo.AmountToForward,
 				PaymentHash: pd.RHash,
 			}
 
@@ -2972,8 +2972,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					incomingHTLCID:  pd.HtlcIndex,
 					outgoingChanID:  fwdInfo.NextHop,
 					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.Amount,
-					amount:          addMsg.Amount,
+					incomingAmount:  pd.BtcAmount,
+					amount:          addMsg.BtcAmount,
 					htlc:            addMsg,
 					obfuscator:      obfuscator,
 					incomingTimeout: pd.Timeout,
@@ -3031,14 +3031,14 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// As we're the exit hop, we'll double check the hop-payload included in
 	// the HTLC to ensure that it was crafted correctly by the sender and
 	// matches the HTLC we were extended.
-	if pd.Amount != fwdInfo.AmountToForward {
+	if pd.BtcAmount != fwdInfo.AmountToForward {
 
 		l.log.Errorf("onion payload of incoming htlc(%x) has incorrect "+
 			"value: expected %v, got %v", pd.RHash,
-			pd.Amount, fwdInfo.AmountToForward)
+			pd.BtcAmount, fwdInfo.AmountToForward)
 
 		failure := NewLinkError(
-			lnwire.NewFinalIncorrectHtlcAmount(pd.Amount),
+			lnwire.NewFinalIncorrectHtlcAmount(pd.BtcAmount),
 		)
 		l.sendHTLCError(pd, failure, obfuscator, true)
 
@@ -3071,7 +3071,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	}
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
-		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
+		invoiceHash, pd.BtcAmount, pd.Timeout, int32(heightNow),
 		circuitKey, l.hodlQueue.ChanIn(), payload,
 	)
 	if err != nil {

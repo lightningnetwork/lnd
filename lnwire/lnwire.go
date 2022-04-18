@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"image/color"
 	"io"
 	"math"
@@ -536,6 +537,12 @@ func ReadElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = btcutil.Amount(int64(binary.BigEndian.Uint64(b[:])))
+	case *omnicore.Amount:
+		var b [8]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return err
+		}
+		*e = omnicore.Amount(int64(binary.BigEndian.Uint64(b[:])))
 	case **btcec.PublicKey:
 		var b [btcec.PubKeyBytesLenCompressed]byte
 		if _, err = io.ReadFull(r, b[:]); err != nil {

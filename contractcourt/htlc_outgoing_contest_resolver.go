@@ -157,7 +157,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 func (h *htlcOutgoingContestResolver) report() *ContractReport {
 	// No locking needed as these values are read-only.
 
-	finalAmt := h.htlc.Amt.ToSatoshis()
+	finalAmt := h.htlc.BtcAmt.ToSatoshis()
 	if h.htlcResolution.SignedTimeoutTx != nil {
 		finalAmt = btcutil.Amount(
 			h.htlcResolution.SignedTimeoutTx.TxOut[0].Value,

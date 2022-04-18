@@ -549,7 +549,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 
 		reports = append(reports, &channeldb.ResolverReport{
 			OutPoint:        timeoutTx.TxIn[index].PreviousOutPoint,
-			Amount:          h.htlc.Amt.ToSatoshis(),
+			Amount:          h.htlc.BtcAmt.ToSatoshis(),
 			ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
 			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
 			SpendTxID:       spendHash,
@@ -610,7 +610,7 @@ func (h *htlcTimeoutResolver) report() *ContractReport {
 func (h *htlcTimeoutResolver) initReport() {
 	// We create the initial report. This will only be reported for
 	// resolvers not handled by the nursery.
-	finalAmt := h.htlc.Amt.ToSatoshis()
+	finalAmt := h.htlc.BtcAmt.ToSatoshis()
 	if h.htlcResolution.SignedTimeoutTx != nil {
 		finalAmt = btcutil.Amount(
 			h.htlcResolution.SignedTimeoutTx.TxOut[0].Value,

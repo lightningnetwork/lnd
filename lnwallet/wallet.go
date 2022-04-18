@@ -5,6 +5,9 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/btcsuite/btcutil/txsort"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore/op"
 	"math"
 	"net"
 	"sync"
@@ -18,7 +21,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/psbt"
-	"github.com/btcsuite/btcutil/txsort"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
@@ -844,11 +846,15 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	capacity := localFundingAmt + remoteFundingAmt
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
+	/*
+	obd update wxf
+	todo add asset process
+	*/
 	reservation, err := NewChannelReservation(
 		capacity, localFundingAmt, req.CommitFeePerKw, l, id,
 		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
 		req.CommitType, req.ChanFunder, req.PendingChanID,
-		thawHeight,
+		thawHeight,0,0,0,0,
 	)
 	if err != nil {
 		fundingIntent.Cancel()
@@ -1255,9 +1261,10 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 // remote party's commitment transaction, and verify the signature for their
 // version of the commitment transaction.
 func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
+	localAssetBalance, remoteAssetBalance omnicore.Amount,
 	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
-	fundingTxIn wire.TxIn, chanType channeldb.ChannelType, initiator bool,
+	fundingTxIn wire.TxIn, chanType channeldb.ChannelType,assetId uint32, initiator bool,
 	leaseExpiry uint32) (*wire.MsgTx, *wire.MsgTx, error) {
 
 	localCommitmentKeys := DeriveCommitmentKeys(
@@ -1266,11 +1273,14 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	remoteCommitmentKeys := DeriveCommitmentKeys(
 		remoteCommitPoint, false, chanType, ourChanCfg, theirChanCfg,
 	)
-
+	/*
+	obd add wxf
+	*/
+	ourOpAmounts :=op.NewPksAmounts(assetId)
+	theirOpAmounts :=op.NewPksAmounts(assetId)
 	ourCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, localCommitmentKeys, ourChanCfg,
-		theirChanCfg, localBalance, remoteBalance, 0, initiator,
-		leaseExpiry,
+		theirChanCfg, localBalance, remoteBalance,localAssetBalance, remoteAssetBalance, 0, initiator, leaseExpiry, ourOpAmounts,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1283,8 +1293,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 
 	theirCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, remoteCommitmentKeys, theirChanCfg,
-		ourChanCfg, remoteBalance, localBalance, 0, !initiator,
-		leaseExpiry,
+		ourChanCfg, remoteBalance, localBalance, localAssetBalance, remoteAssetBalance, 0, !initiator, leaseExpiry, theirOpAmounts,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1293,6 +1302,19 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	ttxn := btcutil.NewTx(theirCommitTx)
 	if err := blockchain.CheckTransactionSanity(ttxn); err != nil {
 		return nil, nil, err
+	}
+
+	/*
+		obd add wxf
+		add opreturn
+	*/
+	txsort.InPlaceSort(ourCommitTx)
+	txsort.InPlaceSort(theirCommitTx)
+	if err:=op.AddOpReturnToTx(ourCommitTx,ourOpAmounts);err!=nil{
+		return nil,nil,err
+	}
+	if err:=op.AddOpReturnToTx(theirCommitTx,theirOpAmounts);err!=nil{
+		return nil,nil,err
 	}
 
 	return ourCommitTx, theirCommitTx, nil
@@ -1533,18 +1555,27 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	}
 
 	// With the funding tx complete, create both commitment transactions.
-	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
-	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
+	localBalance := pendingReservation.partialState.LocalCommitment.LocalBtcBalance.ToSatoshis()
+	remoteBalance := pendingReservation.partialState.LocalCommitment.LocalBtcBalance.ToSatoshis()
+	/*
+	obd add wxf
+	*/
+	localAssetBalance := pendingReservation.partialState.LocalCommitment.LocalAssetBalance
+	remoteAssetBalance := pendingReservation.partialState.LocalCommitment.LocalAssetBalance
 	var leaseExpiry uint32
 	if pendingReservation.partialState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = pendingReservation.partialState.ThawHeight
 	}
+	/*
+	obd update wxf
+	*/
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
-		localBalance, remoteBalance, ourContribution.ChannelConfig,
+		localBalance, remoteBalance, localAssetBalance, remoteAssetBalance,
+		ourContribution.ChannelConfig,
 		theirContribution.ChannelConfig,
 		ourContribution.FirstCommitmentPoint,
 		theirContribution.FirstCommitmentPoint, fundingTxIn,
-		pendingReservation.partialState.ChanType,
+		pendingReservation.partialState.ChanType, pendingReservation.partialState.AssetID,
 		pendingReservation.partialState.IsInitiator, leaseExpiry,
 	)
 	if err != nil {
@@ -1582,12 +1613,13 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		req.err <- err
 		return
 	}
-
+	/*obd update wxf
+	*/
 	// Sort both transactions according to the agreed upon canonical
 	// ordering. This lets us skip sending the entire transaction over,
 	// instead we'll just send signatures.
-	txsort.InPlaceSort(ourCommitTx)
-	txsort.InPlaceSort(theirCommitTx)
+	//txsort.InPlaceSort(ourCommitTx)
+	//txsort.InPlaceSort(theirCommitTx)
 
 	walletLog.Tracef("Local commit tx for ChannelPoint(%v): %v",
 		chanPoint, spew.Sdump(ourCommitTx))
@@ -1797,7 +1829,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	witnessScript, _, err := input.GenFundingPkScript(
 		ourKey.PubKey.SerializeCompressed(),
 		theirKey.PubKey.SerializeCompressed(),
-		int64(res.partialState.Capacity),
+		int64(res.partialState.BtcCapacity),
 	)
 	if err != nil {
 		msg.err <- err
@@ -1807,7 +1839,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Next, create the spending scriptSig, and then verify that the script
 	// is complete, allowing us to spend from the funding transaction.
-	channelValue := int64(res.partialState.Capacity)
+	channelValue := int64(res.partialState.BtcCapacity)
 	hashCache := txscript.NewTxSigHashes(commitTx)
 	sigHash, err := txscript.CalcWitnessSigHash(
 		witnessScript, hashCache, txscript.SigHashAll, commitTx,
@@ -1910,19 +1942,21 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// Now that we have the funding outpoint, we can generate both versions
 	// of the commitment transaction, and generate a signature for the
 	// remote node's commitment transactions.
-	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
-	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
+	localBalance := pendingReservation.partialState.LocalCommitment.LocalBtcBalance.ToSatoshis()
+	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBtcBalance.ToSatoshis()
+	localAssetBalance := pendingReservation.partialState.LocalCommitment.LocalAssetBalance
+	remoteAssetBalance := pendingReservation.partialState.LocalCommitment.RemoteAssetBalance
 	var leaseExpiry uint32
 	if pendingReservation.partialState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = pendingReservation.partialState.ThawHeight
 	}
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
-		localBalance, remoteBalance,
+		localBalance, remoteBalance, localAssetBalance, remoteAssetBalance,
 		pendingReservation.ourContribution.ChannelConfig,
 		pendingReservation.theirContribution.ChannelConfig,
 		pendingReservation.ourContribution.FirstCommitmentPoint,
 		pendingReservation.theirContribution.FirstCommitmentPoint,
-		*fundingTxIn, pendingReservation.partialState.ChanType,
+		*fundingTxIn, pendingReservation.partialState.ChanType, pendingReservation.partialState.AssetID,
 		pendingReservation.partialState.IsInitiator, leaseExpiry,
 	)
 	if err != nil {
@@ -1945,11 +1979,12 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		return
 	}
 
-	// Sort both transactions according to the agreed upon canonical
-	// ordering. This ensures that both parties sign the same sighash
-	// without further synchronization.
-	txsort.InPlaceSort(ourCommitTx)
-	txsort.InPlaceSort(theirCommitTx)
+	/*obd update wxf*/
+	//// Sort both transactions according to the agreed upon canonical
+	//// ordering. This ensures that both parties sign the same sighash
+	//// without further synchronization.
+	//txsort.InPlaceSort(ourCommitTx)
+	//txsort.InPlaceSort(theirCommitTx)
 	chanState.LocalCommitment.CommitTx = ourCommitTx
 	chanState.RemoteCommitment.CommitTx = theirCommitTx
 
@@ -1958,7 +1993,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	walletLog.Debugf("Remote commit tx for ChannelPoint(%v): %v",
 		req.fundingOutpoint, spew.Sdump(theirCommitTx))
 
-	channelValue := int64(pendingReservation.partialState.Capacity)
+	channelValue := int64(pendingReservation.partialState.BtcCapacity)
 	hashCache := txscript.NewTxSigHashes(ourCommitTx)
 	theirKey := pendingReservation.theirContribution.MultiSigKey
 	ourKey := pendingReservation.ourContribution.MultiSigKey
@@ -2152,7 +2187,7 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 		MultiSigPkScript: pkScript,
 		FundingTx:        fundingTx,
 		CommitCtx: &chanvalidate.CommitmentContext{
-			Value:               channel.Capacity,
+			Value:               channel.BtcCapacity,
 			FullySignedCommitTx: signedCommitTx,
 		},
 	})

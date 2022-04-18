@@ -13,8 +13,8 @@ func deserializeCloseChannelSummaryV6(r io.Reader) (*ChannelCloseSummary, error)
 
 	err := ReadElements(r,
 		&c.ChanPoint, &c.ShortChanID, &c.ChainHash, &c.ClosingTXID,
-		&c.CloseHeight, &c.RemotePub, &c.Capacity, &c.SettledBalance,
-		&c.TimeLockedBalance, &c.CloseType, &c.IsPending,
+		&c.CloseHeight, &c.RemotePub, &c.BtcCapacity, &c.AssetCapacity, &c.SettledBtcBalance, &c.SettledAssetBalance,
+		&c.TimeLockedBtcBalance, &c.TimeLockedAssetBalance, &c.CloseType, &c.IsPending,
 	)
 	if err != nil {
 		return nil, err

@@ -5,6 +5,7 @@ import (
 	"container/list"
 	"crypto/sha256"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"math/rand"
 	"reflect"
 	"runtime"
@@ -28,7 +29,7 @@ import (
 
 // createHTLC is a utility function for generating an HTLC with a given
 // preimage and a given amount.
-func createHTLC(id int, amount lnwire.MilliSatoshi) (*lnwire.UpdateAddHTLC, [32]byte) {
+func createHTLC(id int, btcAmount lnwire.MilliSatoshi,assetID uint32,assetAmount omnicore.Amount) (*lnwire.UpdateAddHTLC, [32]byte) {
 	preimage := bytes.Repeat([]byte{byte(id)}, 32)
 	paymentHash := sha256.Sum256(preimage)
 
@@ -38,7 +39,9 @@ func createHTLC(id int, amount lnwire.MilliSatoshi) (*lnwire.UpdateAddHTLC, [32]
 	return &lnwire.UpdateAddHTLC{
 		ID:          uint64(id),
 		PaymentHash: paymentHash,
-		Amount:      amount,
+		BtcAmount:      btcAmount,
+		AssetAmount:    assetAmount,
+		AssetID: 		assetID,
 		Expiry:      uint32(5),
 	}, returnPreimage
 }
@@ -54,298 +57,6 @@ func assertOutputExistsByValue(t *testing.T, commitTx *wire.MsgTx,
 
 	t.Fatalf("unable to find output of value %v within tx %v", value,
 		spew.Sdump(commitTx))
-}
-
-// testAddSettleWorkflow tests a simple channel scenario where Alice and Bob
-// add, the settle an HTLC between themselves.
-func testAddSettleWorkflow(t *testing.T, tweakless bool) {
-	// Create a test channel which will be used for the duration of this
-	// unittest. The channel will be funded evenly with Alice having 5 BTC,
-	// and Bob having 5 BTC.
-	chanType := channeldb.SingleFunderTweaklessBit
-	if !tweakless {
-		chanType = channeldb.SingleFunderBit
-	}
-
-	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(chanType)
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
-	defer cleanUp()
-
-	paymentPreimage := bytes.Repeat([]byte{1}, 32)
-	paymentHash := sha256.Sum256(paymentPreimage)
-	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	htlc := &lnwire.UpdateAddHTLC{
-		PaymentHash: paymentHash,
-		Amount:      htlcAmt,
-		Expiry:      uint32(5),
-	}
-
-	// First Alice adds the outgoing HTLC to her local channel's state
-	// update log. Then Alice sends this wire message over to Bob who adds
-	// this htlc to his remote state update log.
-	aliceHtlcIndex, err := aliceChannel.AddHTLC(htlc, nil)
-	if err != nil {
-		t.Fatalf("unable to add htlc: %v", err)
-	}
-
-	bobHtlcIndex, err := bobChannel.ReceiveHTLC(htlc)
-	if err != nil {
-		t.Fatalf("unable to recv htlc: %v", err)
-	}
-
-	// Next alice commits this change by sending a signature message. Since
-	// we expect the messages to be ordered, Bob will receive the HTLC we
-	// just sent before he receives this signature, so the signature will
-	// cover the HTLC.
-	aliceSig, aliceHtlcSigs, _, err := aliceChannel.SignNextCommitment()
-	if err != nil {
-		t.Fatalf("alice unable to sign commitment: %v", err)
-	}
-
-	// Bob receives this signature message, and checks that this covers the
-	// state he has in his remote log. This includes the HTLC just sent
-	// from Alice.
-	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
-	if err != nil {
-		t.Fatalf("bob unable to process alice's new commitment: %v", err)
-	}
-
-	// Bob revokes his prior commitment given to him by Alice, since he now
-	// has a valid signature for a newer commitment.
-	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
-	if err != nil {
-		t.Fatalf("unable to generate bob revocation: %v", err)
-	}
-
-	// Bob finally send a signature for Alice's commitment transaction.
-	// This signature will cover the HTLC, since Bob will first send the
-	// revocation just created. The revocation also acks every received
-	// HTLC up to the point where Alice sent here signature.
-	bobSig, bobHtlcSigs, _, err := bobChannel.SignNextCommitment()
-	if err != nil {
-		t.Fatalf("bob unable to sign alice's commitment: %v", err)
-	}
-
-	// Alice then processes this revocation, sending her own revocation for
-	// her prior commitment transaction. Alice shouldn't have any HTLCs to
-	// forward since she's sending an outgoing HTLC.
-	fwdPkg, _, _, _, err := aliceChannel.ReceiveRevocation(bobRevocation)
-	if err != nil {
-		t.Fatalf("alice unable to process bob's revocation: %v", err)
-	}
-	if len(fwdPkg.Adds) != 0 {
-		t.Fatalf("alice forwards %v add htlcs, should forward none",
-			len(fwdPkg.Adds))
-	}
-	if len(fwdPkg.SettleFails) != 0 {
-		t.Fatalf("alice forwards %v settle/fail htlcs, "+
-			"should forward none", len(fwdPkg.SettleFails))
-	}
-
-	// Alice then processes bob's signature, and since she just received
-	// the revocation, she expect this signature to cover everything up to
-	// the point where she sent her signature, including the HTLC.
-	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
-	if err != nil {
-		t.Fatalf("alice unable to process bob's new commitment: %v", err)
-	}
-
-	// Alice then generates a revocation for bob.
-	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
-	if err != nil {
-		t.Fatalf("unable to revoke alice channel: %v", err)
-	}
-
-	// Finally Bob processes Alice's revocation, at this point the new HTLC
-	// is fully locked in within both commitment transactions. Bob should
-	// also be able to forward an HTLC now that the HTLC has been locked
-	// into both commitment transactions.
-	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
-	if err != nil {
-		t.Fatalf("bob unable to process alice's revocation: %v", err)
-	}
-	if len(fwdPkg.Adds) != 1 {
-		t.Fatalf("bob forwards %v add htlcs, should only forward one",
-			len(fwdPkg.Adds))
-	}
-	if len(fwdPkg.SettleFails) != 0 {
-		t.Fatalf("bob forwards %v settle/fail htlcs, "+
-			"should forward none", len(fwdPkg.SettleFails))
-	}
-
-	// At this point, both sides should have the proper number of satoshis
-	// sent, and commitment height updated within their local channel
-	// state.
-	aliceSent := lnwire.MilliSatoshi(0)
-	bobSent := lnwire.MilliSatoshi(0)
-
-	if aliceChannel.channelState.TotalMSatSent != aliceSent {
-		t.Fatalf("alice has incorrect milli-satoshis sent: %v vs %v",
-			aliceChannel.channelState.TotalMSatSent, aliceSent)
-	}
-	if aliceChannel.channelState.TotalMSatReceived != bobSent {
-		t.Fatalf("alice has incorrect milli-satoshis received %v vs %v",
-			aliceChannel.channelState.TotalMSatReceived, bobSent)
-	}
-	if bobChannel.channelState.TotalMSatSent != bobSent {
-		t.Fatalf("bob has incorrect milli-satoshis sent %v vs %v",
-			bobChannel.channelState.TotalMSatSent, bobSent)
-	}
-	if bobChannel.channelState.TotalMSatReceived != aliceSent {
-		t.Fatalf("bob has incorrect milli-satoshis received %v vs %v",
-			bobChannel.channelState.TotalMSatReceived, aliceSent)
-	}
-	if bobChannel.currentHeight != 1 {
-		t.Fatalf("bob has incorrect commitment height, %v vs %v",
-			bobChannel.currentHeight, 1)
-	}
-	if aliceChannel.currentHeight != 1 {
-		t.Fatalf("alice has incorrect commitment height, %v vs %v",
-			aliceChannel.currentHeight, 1)
-	}
-
-	// Both commitment transactions should have three outputs, and one of
-	// them should be exactly the amount of the HTLC.
-	if len(aliceChannel.channelState.LocalCommitment.CommitTx.TxOut) != 3 {
-		t.Fatalf("alice should have three commitment outputs, instead "+
-			"have %v",
-			len(aliceChannel.channelState.LocalCommitment.CommitTx.TxOut))
-	}
-	if len(bobChannel.channelState.LocalCommitment.CommitTx.TxOut) != 3 {
-		t.Fatalf("bob should have three commitment outputs, instead "+
-			"have %v",
-			len(bobChannel.channelState.LocalCommitment.CommitTx.TxOut))
-	}
-	assertOutputExistsByValue(t,
-		aliceChannel.channelState.LocalCommitment.CommitTx,
-		htlcAmt.ToSatoshis())
-	assertOutputExistsByValue(t,
-		bobChannel.channelState.LocalCommitment.CommitTx,
-		htlcAmt.ToSatoshis())
-
-	// Now we'll repeat a similar exchange, this time with Bob settling the
-	// HTLC once he learns of the preimage.
-	var preimage [32]byte
-	copy(preimage[:], paymentPreimage)
-	err = bobChannel.SettleHTLC(preimage, bobHtlcIndex, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("bob unable to settle inbound htlc: %v", err)
-	}
-
-	err = aliceChannel.ReceiveHTLCSettle(preimage, aliceHtlcIndex)
-	if err != nil {
-		t.Fatalf("alice unable to accept settle of outbound htlc: %v", err)
-	}
-
-	bobSig2, bobHtlcSigs2, _, err := bobChannel.SignNextCommitment()
-	if err != nil {
-		t.Fatalf("bob unable to sign settle commitment: %v", err)
-	}
-	err = aliceChannel.ReceiveNewCommitment(bobSig2, bobHtlcSigs2)
-	if err != nil {
-		t.Fatalf("alice unable to process bob's new commitment: %v", err)
-	}
-
-	aliceRevocation2, _, err := aliceChannel.RevokeCurrentCommitment()
-	if err != nil {
-		t.Fatalf("alice unable to generate revocation: %v", err)
-	}
-	aliceSig2, aliceHtlcSigs2, _, err := aliceChannel.SignNextCommitment()
-	if err != nil {
-		t.Fatalf("alice unable to sign new commitment: %v", err)
-	}
-
-	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation2)
-	if err != nil {
-		t.Fatalf("bob unable to process alice's revocation: %v", err)
-	}
-	if len(fwdPkg.Adds) != 0 {
-		t.Fatalf("bob forwards %v add htlcs, should forward none",
-			len(fwdPkg.Adds))
-	}
-	if len(fwdPkg.SettleFails) != 0 {
-		t.Fatalf("bob forwards %v settle/fail htlcs, "+
-			"should forward none", len(fwdPkg.SettleFails))
-	}
-
-	err = bobChannel.ReceiveNewCommitment(aliceSig2, aliceHtlcSigs2)
-	if err != nil {
-		t.Fatalf("bob unable to process alice's new commitment: %v", err)
-	}
-
-	bobRevocation2, _, err := bobChannel.RevokeCurrentCommitment()
-	if err != nil {
-		t.Fatalf("bob unable to revoke commitment: %v", err)
-	}
-	fwdPkg, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation2)
-	if err != nil {
-		t.Fatalf("alice unable to process bob's revocation: %v", err)
-	}
-	if len(fwdPkg.Adds) != 0 {
-		// Alice should now be able to forward the settlement HTLC to
-		// any down stream peers.
-		t.Fatalf("alice should be forwarding an add HTLC, "+
-			"instead forwarding %v: %v", len(fwdPkg.Adds),
-			spew.Sdump(fwdPkg.Adds))
-	}
-	if len(fwdPkg.SettleFails) != 1 {
-		t.Fatalf("alice should be forwarding one settle/fails HTLC, "+
-			"instead forwarding: %v", len(fwdPkg.SettleFails))
-	}
-
-	// At this point, Bob should have 6 BTC settled, with Alice still
-	// having 4 BTC. Alice's channel should show 1 BTC sent and Bob's
-	// channel should show 1 BTC received. They should also be at
-	// commitment height two, with the revocation window extended by 1 (5).
-	mSatTransferred := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	if aliceChannel.channelState.TotalMSatSent != mSatTransferred {
-		t.Fatalf("alice satoshis sent incorrect %v vs %v expected",
-			aliceChannel.channelState.TotalMSatSent,
-			mSatTransferred)
-	}
-	if aliceChannel.channelState.TotalMSatReceived != 0 {
-		t.Fatalf("alice satoshis received incorrect %v vs %v expected",
-			aliceChannel.channelState.TotalMSatReceived, 0)
-	}
-	if bobChannel.channelState.TotalMSatReceived != mSatTransferred {
-		t.Fatalf("bob satoshis received incorrect %v vs %v expected",
-			bobChannel.channelState.TotalMSatReceived,
-			mSatTransferred)
-	}
-	if bobChannel.channelState.TotalMSatSent != 0 {
-		t.Fatalf("bob satoshis sent incorrect %v vs %v expected",
-			bobChannel.channelState.TotalMSatSent, 0)
-	}
-	if bobChannel.currentHeight != 2 {
-		t.Fatalf("bob has incorrect commitment height, %v vs %v",
-			bobChannel.currentHeight, 2)
-	}
-	if aliceChannel.currentHeight != 2 {
-		t.Fatalf("alice has incorrect commitment height, %v vs %v",
-			aliceChannel.currentHeight, 2)
-	}
-
-	// The logs of both sides should now be cleared since the entry adding
-	// the HTLC should have been removed once both sides receive the
-	// revocation.
-	if aliceChannel.localUpdateLog.Len() != 0 {
-		t.Fatalf("alice's local not updated, should be empty, has %v "+
-			"entries instead", aliceChannel.localUpdateLog.Len())
-	}
-	if aliceChannel.remoteUpdateLog.Len() != 0 {
-		t.Fatalf("alice's remote not updated, should be empty, has %v "+
-			"entries instead", aliceChannel.remoteUpdateLog.Len())
-	}
-	if len(aliceChannel.localUpdateLog.updateIndex) != 0 {
-		t.Fatalf("alice's local log index not cleared, should be empty but "+
-			"has %v entries", len(aliceChannel.localUpdateLog.updateIndex))
-	}
-	if len(aliceChannel.remoteUpdateLog.updateIndex) != 0 {
-		t.Fatalf("alice's remote log index not cleared, should be empty but "+
-			"has %v entries", len(aliceChannel.remoteUpdateLog.updateIndex))
-	}
 }
 
 // TestSimpleAddSettleWorkflow tests a simple channel scenario wherein the
@@ -778,7 +489,7 @@ func testCoopClose(t *testing.T, testCase *coopCloseTestCase) {
 	// Finally, make sure the final balances are correct from both's
 	// perspective.
 	aliceBalance := aliceChannel.channelState.LocalCommitment.
-		LocalBalance.ToSatoshis()
+		LocalBtcBalance.ToSatoshis()
 
 	// The commit balance have had the initiator's (Alice) commitfee and
 	// any anchors subtracted, so add that back to the final expected
@@ -795,7 +506,7 @@ func testCoopClose(t *testing.T, testCase *coopCloseTestCase) {
 	// Bob is not the initiator, so his final balance should simply be
 	// equal to the latest commitment balance.
 	expBalanceBob := bobChannel.channelState.LocalCommitment.
-		LocalBalance.ToSatoshis()
+		LocalBtcBalance.ToSatoshis()
 	if bobTxBalance != expBalanceBob {
 		t.Fatalf("expected bob's balance to be %v got %v",
 			expBalanceBob, bobTxBalance)
@@ -844,7 +555,7 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	}
 	defer cleanUp()
 
-	bobAmount := bobChannel.channelState.LocalCommitment.LocalBalance
+	bobAmount := bobChannel.channelState.LocalCommitment.LocalBtcBalance
 
 	// First, we'll add an outgoing HTLC from Alice to Bob, such that it
 	// will still be present within the broadcast commitment transaction.
@@ -1181,8 +892,8 @@ func TestForceCloseDustOutput(t *testing.T) {
 
 	htlcAmount := lnwire.NewMSatFromSatoshis(500)
 
-	aliceAmount := aliceChannel.channelState.LocalCommitment.LocalBalance
-	bobAmount := bobChannel.channelState.LocalCommitment.LocalBalance
+	aliceAmount := aliceChannel.channelState.LocalCommitment.LocalBtcBalance
+	bobAmount := bobChannel.channelState.LocalCommitment.LocalBtcBalance
 
 	// Have Bobs' to-self output be below her dust limit and check
 	// ForceCloseSummary again on both peers.
@@ -1212,8 +923,8 @@ func TestForceCloseDustOutput(t *testing.T) {
 		t.Fatalf("Can't update the channel state: %v", err)
 	}
 
-	aliceAmount = aliceChannel.channelState.LocalCommitment.LocalBalance
-	bobAmount = bobChannel.channelState.LocalCommitment.RemoteBalance
+	aliceAmount = aliceChannel.channelState.LocalCommitment.LocalBtcBalance
+	bobAmount = bobChannel.channelState.LocalCommitment.RemoteBtcBalance
 
 	closeSummary, err := aliceChannel.ForceClose()
 	if err != nil {
@@ -1236,7 +947,7 @@ func TestForceCloseDustOutput(t *testing.T) {
 		int64(aliceAmount.ToSatoshis()) {
 		t.Fatalf("alice incorrect output value in SelfOutputSignDesc, "+
 			"expected %v, got %v",
-			aliceChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
+			aliceChannel.channelState.LocalCommitment.LocalBtcBalance.ToSatoshis(),
 			commitResolution.SelfOutputSignDesc.Output.Value)
 	}
 
@@ -1291,7 +1002,7 @@ func TestDustHTLCFees(t *testing.T) {
 	}
 	defer cleanUp()
 
-	aliceStartingBalance := aliceChannel.channelState.LocalCommitment.LocalBalance
+	aliceStartingBalance := aliceChannel.channelState.LocalCommitment.LocalBtcBalance
 
 	// This HTLC amount should be lower than the dust limits of both nodes.
 	htlcAmount := lnwire.NewMSatFromSatoshis(100)
@@ -1310,16 +1021,16 @@ func TestDustHTLCFees(t *testing.T) {
 	// properly. Namely, the local+remote+commitfee values should add up to
 	// the total capacity of the channel. This same should hold for both
 	// sides.
-	totalSatoshisAlice := (aliceChannel.channelState.LocalCommitment.LocalBalance +
-		aliceChannel.channelState.LocalCommitment.RemoteBalance +
+	totalSatoshisAlice := (aliceChannel.channelState.LocalCommitment.LocalBtcBalance +
+		aliceChannel.channelState.LocalCommitment.RemoteBtcBalance +
 		lnwire.NewMSatFromSatoshis(aliceChannel.channelState.LocalCommitment.CommitFee))
 	if totalSatoshisAlice+htlcAmount != lnwire.NewMSatFromSatoshis(aliceChannel.Capacity) {
 		t.Fatalf("alice's funds leaked: total satoshis are %v, but channel "+
 			"capacity is %v", int64(totalSatoshisAlice),
 			int64(aliceChannel.Capacity))
 	}
-	totalSatoshisBob := (bobChannel.channelState.LocalCommitment.LocalBalance +
-		bobChannel.channelState.LocalCommitment.RemoteBalance +
+	totalSatoshisBob := (bobChannel.channelState.LocalCommitment.LocalBtcBalance +
+		bobChannel.channelState.LocalCommitment.RemoteBtcBalance +
 		lnwire.NewMSatFromSatoshis(bobChannel.channelState.LocalCommitment.CommitFee))
 	if totalSatoshisBob+htlcAmount != lnwire.NewMSatFromSatoshis(bobChannel.Capacity) {
 		t.Fatalf("bob's funds leaked: total satoshis are %v, but channel "+
@@ -1343,7 +1054,7 @@ func TestDustHTLCFees(t *testing.T) {
 
 	// Alice's final balance should reflect the HTLC deficit even though
 	// the HTLC was paid to fees as it was trimmed.
-	aliceEndBalance := aliceChannel.channelState.LocalCommitment.LocalBalance
+	aliceEndBalance := aliceChannel.channelState.LocalCommitment.LocalBtcBalance
 	aliceExpectedBalance := aliceStartingBalance - htlcAmount
 	if aliceEndBalance != aliceExpectedBalance {
 		t.Fatalf("alice not credited for dust: expected %v, got %v",
@@ -1646,7 +1357,7 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 	// once fees have been subtracted, but smaller than Bob's dust limit.
 	// We account in fees for the HTLC we will be adding.
 	defaultFee := calcStaticFee(channeldb.SingleFunderTweaklessBit, 1)
-	aliceBalance := aliceChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis()
+	aliceBalance := aliceChannel.channelState.LocalCommitment.LocalBtcBalance.ToSatoshis()
 	htlcSat := aliceBalance - defaultFee
 	htlcSat += HtlcSuccessFee(
 		aliceChannel.channelState.ChanType,
@@ -2081,11 +1792,11 @@ func TestCancelHTLC(t *testing.T) {
 	// of the new HTLC.
 	aliceExpectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin*4) -
 		calcStaticFee(channeldb.SingleFunderTweaklessBit, 1)
-	if aliceChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis() !=
+	if aliceChannel.channelState.LocalCommitment.LocalBtcBalance.ToSatoshis() !=
 		aliceExpectedBalance {
 		t.Fatalf("Alice's balance is wrong: expected %v, got %v",
 			aliceExpectedBalance,
-			aliceChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis())
+			aliceChannel.channelState.LocalCommitment.LocalBtcBalance.ToSatoshis())
 	}
 
 	// Now, with the HTLC committed on both sides, trigger a cancellation
@@ -2126,32 +1837,32 @@ func TestCancelHTLC(t *testing.T) {
 
 	expectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin * 5)
 	staticFee := calcStaticFee(channeldb.SingleFunderTweaklessBit, 0)
-	if aliceChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis() !=
+	if aliceChannel.channelState.LocalCommitment.LocalBtcBalance.ToSatoshis() !=
 		expectedBalance-staticFee {
 
 		t.Fatalf("balance is wrong: expected %v, got %v",
-			aliceChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
+			aliceChannel.channelState.LocalCommitment.LocalBtcBalance.ToSatoshis(),
 			expectedBalance-staticFee)
 	}
-	if aliceChannel.channelState.LocalCommitment.RemoteBalance.ToSatoshis() !=
+	if aliceChannel.channelState.LocalCommitment.RemoteBtcBalance.ToSatoshis() !=
 		expectedBalance {
 
 		t.Fatalf("balance is wrong: expected %v, got %v",
-			aliceChannel.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
+			aliceChannel.channelState.LocalCommitment.RemoteBtcBalance.ToSatoshis(),
 			expectedBalance)
 	}
-	if bobChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis() !=
+	if bobChannel.channelState.LocalCommitment.LocalBtcBalance.ToSatoshis() !=
 		expectedBalance {
 
 		t.Fatalf("balance is wrong: expected %v, got %v",
-			bobChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
+			bobChannel.channelState.LocalCommitment.LocalBtcBalance.ToSatoshis(),
 			expectedBalance)
 	}
-	if bobChannel.channelState.LocalCommitment.RemoteBalance.ToSatoshis() !=
+	if bobChannel.channelState.LocalCommitment.RemoteBtcBalance.ToSatoshis() !=
 		expectedBalance-staticFee {
 
 		t.Fatalf("balance is wrong: expected %v, got %v",
-			bobChannel.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
+			bobChannel.channelState.LocalCommitment.RemoteBtcBalance.ToSatoshis(),
 			expectedBalance-staticFee)
 	}
 }
@@ -2190,10 +1901,10 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	}
 
 	setBalances := func(aliceBalance, bobBalance lnwire.MilliSatoshi) {
-		aliceChannel.channelState.LocalCommitment.LocalBalance = aliceBalance
-		aliceChannel.channelState.LocalCommitment.RemoteBalance = bobBalance
-		bobChannel.channelState.LocalCommitment.LocalBalance = bobBalance
-		bobChannel.channelState.LocalCommitment.RemoteBalance = aliceBalance
+		aliceChannel.channelState.LocalCommitment.LocalBtcBalance = aliceBalance
+		aliceChannel.channelState.LocalCommitment.RemoteBtcBalance = bobBalance
+		bobChannel.channelState.LocalCommitment.LocalBtcBalance = bobBalance
+		bobChannel.channelState.LocalCommitment.RemoteBtcBalance = aliceBalance
 	}
 
 	aliceDeliveryScript := bobsPrivKey[:]
@@ -5072,7 +4783,7 @@ func TestChanAvailableBandwidth(t *testing.T) {
 
 		// Now, we'll obtain the current available bandwidth in Alice's
 		// latest commitment and compare that to the prior estimate.
-		aliceBalance := aliceChannel.channelState.LocalCommitment.LocalBalance
+		aliceBalance := aliceChannel.channelState.LocalCommitment.LocalBtcBalance
 
 		// The balance we have available for new HTLCs should be the
 		// current local commitment balance, minus the channel reserve
@@ -6556,8 +6267,8 @@ func assertChannelBalances(t *testing.T, alice, bob *LightningChannel,
 
 	_, _, line, _ := runtime.Caller(1)
 
-	aliceSelfBalance := alice.channelState.LocalCommitment.LocalBalance.ToSatoshis()
-	aliceBobBalance := alice.channelState.LocalCommitment.RemoteBalance.ToSatoshis()
+	aliceSelfBalance := alice.channelState.LocalCommitment.LocalBtcBalance.ToSatoshis()
+	aliceBobBalance := alice.channelState.LocalCommitment.RemoteBtcBalance.ToSatoshis()
 	if aliceSelfBalance != aliceBalance {
 		t.Fatalf("line #%v: wrong alice self balance: expected %v, got %v",
 			line, aliceBalance, aliceSelfBalance)
@@ -6567,8 +6278,8 @@ func assertChannelBalances(t *testing.T, alice, bob *LightningChannel,
 			line, bobBalance, aliceBobBalance)
 	}
 
-	bobSelfBalance := bob.channelState.LocalCommitment.LocalBalance.ToSatoshis()
-	bobAliceBalance := bob.channelState.LocalCommitment.RemoteBalance.ToSatoshis()
+	bobSelfBalance := bob.channelState.LocalCommitment.LocalBtcBalance.ToSatoshis()
+	bobAliceBalance := bob.channelState.LocalCommitment.RemoteBtcBalance.ToSatoshis()
 	if bobSelfBalance != bobBalance {
 		t.Fatalf("line #%v: wrong bob self balance: expected %v, got %v",
 			line, bobBalance, bobSelfBalance)
@@ -9860,7 +9571,7 @@ func TestMayAddOutgoingHtlc(t *testing.T) {
 	require.NoError(t, aliceChannel.MayAddOutgoingHtlc(0))
 	require.NoError(t, bobChannel.MayAddOutgoingHtlc(0))
 
-	chanBal, err := btcutil.NewAmount(testChannelCapacity)
+	chanBal, err := btcutil.NewAmount(testChannelBtcCapacity)
 	require.NoError(t, err)
 
 	// Each side should be able to add 1/4 of total channel balance since

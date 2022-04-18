@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io/ioutil"
 	"math/big"
 	"net"
@@ -125,6 +126,7 @@ type testLightningChannel struct {
 // TODO(roasbeef): need to factor out, similar func re-used in many parts of codebase
 func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	aliceAmount, bobAmount, aliceReserve, bobReserve btcutil.Amount,
+	aliceAssetAmount, bobAssetAmount, aliceAssetReserve, bobAssetReserve omnicore.Amount,
 	chanID lnwire.ShortChannelID) (*testLightningChannel,
 	*testLightningChannel, func(), error) {
 
@@ -229,7 +231,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
-		aliceAmount, bobAmount, &aliceCfg, &bobCfg, aliceCommitPoint,
+		aliceAmount, bobAmount,aliceAssetAmount, bobAssetAmount, &aliceCfg, &bobCfg, aliceCommitPoint,
 		bobCommitPoint, *fundingTxIn, channeldb.SingleFunderTweaklessBit,
 		isAliceInitiator, 0,
 	)
@@ -277,8 +279,8 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 
 	aliceCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
-		RemoteBalance: lnwire.NewMSatFromSatoshis(bobAmount),
+		LocalBtcBalance:  lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
+		RemoteBtcBalance: lnwire.NewMSatFromSatoshis(bobAmount),
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      aliceCommitTx,
@@ -286,8 +288,8 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	}
 	bobCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  lnwire.NewMSatFromSatoshis(bobAmount),
-		RemoteBalance: lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
+		LocalBtcBalance:  lnwire.NewMSatFromSatoshis(bobAmount),
+		RemoteBtcBalance: lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      bobCommitTx,
@@ -301,7 +303,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunderTweaklessBit,
 		IsInitiator:             isAliceInitiator,
-		Capacity:                channelCapacity,
+		BtcCapacity:                channelCapacity,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
@@ -320,7 +322,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunderTweaklessBit,
 		IsInitiator:             !isAliceInitiator,
-		Capacity:                channelCapacity,
+		BtcCapacity:                channelCapacity,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),

@@ -477,7 +477,7 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
 
 		report := &channeldb.ResolverReport{
 			OutPoint:        spendTx.TxIn[0].PreviousOutPoint,
-			Amount:          h.htlc.Amt.ToSatoshis(),
+			Amount:          h.htlc.BtcAmt.ToSatoshis(),
 			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
 			SpendTxID:       &spendTxID,
@@ -522,7 +522,7 @@ func (h *htlcSuccessResolver) report() *ContractReport {
 func (h *htlcSuccessResolver) initReport() {
 	// We create the initial report. This will only be reported for
 	// resolvers not handled by the nursery.
-	finalAmt := h.htlc.Amt.ToSatoshis()
+	finalAmt := h.htlc.BtcAmt.ToSatoshis()
 	if h.htlcResolution.SignedSuccessTx != nil {
 		finalAmt = btcutil.Amount(
 			h.htlcResolution.SignedSuccessTx.TxOut[0].Value,

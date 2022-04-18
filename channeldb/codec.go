@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 	"net"
 
@@ -138,6 +139,14 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 	case btcutil.Amount:
+		if err := binary.Write(w, byteOrder, uint64(e)); err != nil {
+			return err
+		}
+
+		/*
+		*obd add wxf: same as btcutil.Amount
+		 */
+	case omnicore.Amount:
 		if err := binary.Write(w, byteOrder, uint64(e)); err != nil {
 			return err
 		}
@@ -331,6 +340,16 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 
 		*e = btcutil.Amount(a)
+
+		/*obd add wxf: same as btcutil.Amount
+		 */
+	case *omnicore.Amount:
+		var a uint64
+		if err := binary.Read(r, byteOrder, &a); err != nil {
+			return err
+		}
+
+		*e = omnicore.Amount(a)
 
 	case *lnwire.MilliSatoshi:
 		var a uint64

@@ -235,7 +235,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		}
 
 		resolution, err := h.Registry.NotifyExitHopHtlc(
-			h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, currentHeight,
+			h.htlc.RHash, h.htlc.BtcAmt, h.htlcExpiry, currentHeight,
 			circuitKey, hodlChan, payload,
 		)
 		if err != nil {
@@ -355,7 +355,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 func (h *htlcIncomingContestResolver) report() *ContractReport {
 	// No locking needed as these values are read-only.
 
-	finalAmt := h.htlc.Amt.ToSatoshis()
+	finalAmt := h.htlc.BtcAmt.ToSatoshis()
 	if h.htlcResolution.SignedSuccessTx != nil {
 		finalAmt = btcutil.Amount(
 			h.htlcResolution.SignedSuccessTx.TxOut[0].Value,

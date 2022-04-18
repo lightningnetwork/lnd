@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"image/color"
 	"math"
 	"net"
@@ -106,6 +107,15 @@ func WriteUint64(buf *bytes.Buffer, n uint64) error { // nolint: interfacer
 
 // WriteSatoshi appends the Satoshi value to the provided buffer.
 func WriteSatoshi(buf *bytes.Buffer, amount btcutil.Amount) error {
+	return WriteUint64(buf, uint64(amount))
+}
+
+/*
+obd add wxf
+same as above func WriteSatoshi
+*/
+// WriteAssetMinUnit appends the Satoshi value to the provided buffer.
+func WriteAssetMinUnit(buf *bytes.Buffer, amount omnicore.Amount) error {
 	return WriteUint64(buf, uint64(amount))
 }
 

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 	"io/ioutil"
 	prand "math/rand"
@@ -97,7 +98,12 @@ var (
 	aliceDustLimit = btcutil.Amount(200)
 	bobDustLimit   = btcutil.Amount(1300)
 
-	testChannelCapacity float64 = 10
+	/*
+	obd update wxf
+	*/
+	//testChannelCapacity float64 = 10
+	testChannelBtcCapacity float64 = 10
+	testChannelAssetCapacity float64 = 10
 )
 
 // CreateTestChannels creates to fully populated channels to be used within
@@ -111,12 +117,18 @@ var (
 func CreateTestChannels(chanType channeldb.ChannelType) (
 	*LightningChannel, *LightningChannel, func(), error) {
 
-	channelCapacity, err := btcutil.NewAmount(testChannelCapacity)
+	/*
+	obd update wxf
+	*/
+	//channelCapacity, err := btcutil.NewAmount(testChannelCapacity)
+	channelBtcCapacity, err := btcutil.NewAmount(testChannelBtcCapacity)
+	channelAssetCapacity, err := omnicore.NewAmount(testChannelAssetCapacity)
+	walletLog.Trace("CreateTestChannels")
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	channelBal := channelCapacity / 2
+	channelBtcBal := channelBtcCapacity / 2
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
 	isAliceInitiator := true
@@ -152,8 +164,8 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 	aliceCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
 			DustLimit:        aliceDustLimit,
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelCapacity),
-			ChanReserve:      channelCapacity / 100,
+			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelBtcCapacity),
+			ChanReserve:      channelBtcCapacity / 100,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 			CsvDelay:         uint16(csvTimeoutAlice),
@@ -177,8 +189,8 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
 			DustLimit:        bobDustLimit,
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelCapacity),
-			ChanReserve:      channelCapacity / 100,
+			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelBtcCapacity),
+			ChanReserve:      channelBtcCapacity / 100,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 			CsvDelay:         uint16(csvTimeoutBob),
@@ -223,8 +235,8 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(
-		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, chanType, isAliceInitiator, 0,
+		channelBtcBal, channelBtcBal,channelAssetCapacity, 0, &aliceCfg, &bobCfg, aliceCommitPoint,
+		bobCommitPoint, *fundingTxIn, chanType, 31, isAliceInitiator, 0,
 	)
 	if err != nil {
 		return nil, nil, nil, err
@@ -262,14 +274,16 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 	}
 
 	aliceBalance := lnwire.NewMSatFromSatoshis(
-		channelBal - commitFee - anchorAmt,
+		channelBtcBal - commitFee - anchorAmt,
 	)
-	bobBalance := lnwire.NewMSatFromSatoshis(channelBal)
+	bobBalance := lnwire.NewMSatFromSatoshis(channelBtcBal)
 
 	aliceLocalCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  aliceBalance,
-		RemoteBalance: bobBalance,
+		LocalBtcBalance:  aliceBalance,
+		RemoteBtcBalance: bobBalance,
+		LocalAssetBalance:  channelAssetCapacity,
+		RemoteAssetBalance: 0,
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      aliceCommitTx,
@@ -277,8 +291,10 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 	}
 	aliceRemoteCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  aliceBalance,
-		RemoteBalance: bobBalance,
+		LocalBtcBalance:  aliceBalance,
+		RemoteBtcBalance: bobBalance,
+		LocalAssetBalance:  channelAssetCapacity,
+		RemoteAssetBalance: 0,
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      bobCommitTx,
@@ -286,8 +302,10 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 	}
 	bobLocalCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  bobBalance,
-		RemoteBalance: aliceBalance,
+		LocalBtcBalance:  bobBalance,
+		RemoteBtcBalance: aliceBalance,
+		LocalAssetBalance:  0,
+		RemoteAssetBalance: channelAssetCapacity,
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      bobCommitTx,
@@ -295,8 +313,10 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 	}
 	bobRemoteCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  bobBalance,
-		RemoteBalance: aliceBalance,
+		LocalBtcBalance:  bobBalance,
+		RemoteBtcBalance: aliceBalance,
+		LocalAssetBalance:  0,
+		RemoteAssetBalance: channelAssetCapacity,
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      aliceCommitTx,
@@ -320,7 +340,9 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		ShortChannelID:          shortChanID,
 		ChanType:                chanType,
 		IsInitiator:             isAliceInitiator,
-		Capacity:                channelCapacity,
+		BtcCapacity:             channelBtcCapacity,
+		AssetCapacity:           channelAssetCapacity,
+		AssetID:				 31,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
@@ -338,7 +360,9 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		ShortChannelID:          shortChanID,
 		ChanType:                chanType,
 		IsInitiator:             !isAliceInitiator,
-		Capacity:                channelCapacity,
+		BtcCapacity:             channelBtcCapacity,
+		AssetCapacity:           0,
+		AssetID:				 31,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),

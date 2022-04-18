@@ -3,6 +3,8 @@ package lnwallet
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore/op"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
@@ -45,7 +47,8 @@ var (
 // should be:
 //   * <0> <sender sig> <recvr sig> <preimage>
 func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
-	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount, csvDelay,
+	htlcOutput wire.OutPoint, htlcBtcAmt btcutil.Amount,
+	htlcAssetAmt omnicore.Amount, assetId uint32, csvDelay,
 	leaseExpiry uint32, revocationKey, delayKey *btcec.PublicKey) (
 	*wire.MsgTx, error) {
 
@@ -76,9 +79,18 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 	// Finally, the output is simply the amount of the HTLC (minus the
 	// required fees), paying to the timeout script.
 	successTx.AddTxOut(&wire.TxOut{
-		Value:    int64(htlcAmt),
+		Value:    int64(htlcBtcAmt),
 		PkScript: script.PkScript,
 	})
+	/*
+	obd add wxf
+	add opreturn to tx
+	*/
+	pa:=op.NewPksAmounts(assetId)
+	pa.Add(script.PkScript,htlcAssetAmt)
+	if err:=op.AddOpReturnToTx(successTx,pa);err != nil {
+		return nil,err
+	}
 
 	return successTx, nil
 }
@@ -100,7 +112,8 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 // fee rate at the time the HTLC was created. The fee should be able to
 // entirely pay for this (tiny: 1-in 1-out) transaction.
 func CreateHtlcTimeoutTx(chanType channeldb.ChannelType, initiator bool,
-	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
+	htlcOutput wire.OutPoint, htlcBtcAmt btcutil.Amount,
+	htlcAssetAmt omnicore.Amount, assetId uint32,
 	cltvExpiry, csvDelay, leaseExpiry uint32,
 	revocationKey, delayKey *btcec.PublicKey) (*wire.MsgTx, error) {
 
@@ -135,9 +148,18 @@ func CreateHtlcTimeoutTx(chanType channeldb.ChannelType, initiator bool,
 	// Finally, the output is simply the amount of the HTLC (minus the
 	// required fees), paying to the regular second level HTLC script.
 	timeoutTx.AddTxOut(&wire.TxOut{
-		Value:    int64(htlcAmt),
+		Value:    int64(htlcBtcAmt),
 		PkScript: script.PkScript,
 	})
+	/*
+	obd add wxf
+	*/
+	//add opreturn to tx
+	pa:=op.NewPksAmounts(assetId)
+	pa.Add(script.PkScript,htlcAssetAmt)
+	if err:=op.AddOpReturnToTx(timeoutTx,pa);err != nil {
+		return nil,err
+	}
 
 	return timeoutTx, nil
 }

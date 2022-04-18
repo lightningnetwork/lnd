@@ -2,6 +2,8 @@ package lnwallet
 
 import (
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore/op"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec"
@@ -520,13 +522,17 @@ type unsignedCommitmentTx struct {
 	// commitment fees and anchor outputs. This can be different than the
 	// balances before creating the commitment transaction as one party must
 	// pay the commitment fee.
-	ourBalance lnwire.MilliSatoshi
+	ourBtcBalance lnwire.MilliSatoshi
 
 	// theirBalance is their balance of this commitment *after* subtracting
 	// commitment fees and anchor outputs. This can be different than the
 	// balances before creating the commitment transaction as one party must
 	// pay the commitment fee.
-	theirBalance lnwire.MilliSatoshi
+	theirBtcBalance lnwire.MilliSatoshi
+
+	ourAssetBalance omnicore.Amount
+	theirAssetBalance omnicore.Amount
+
 
 	// cltvs is a sorted list of CLTV deltas for each HTLC on the commitment
 	// transaction. Any non-htlc outputs will have a CLTV delay of zero.
@@ -537,8 +543,8 @@ type unsignedCommitmentTx struct {
 // a commitment view and returns it as part of the unsignedCommitmentTx. The
 // passed in balances should be balances *before* subtracting any commitment
 // fees, but after anchor outputs.
-func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
-	theirBalance lnwire.MilliSatoshi, isOurs bool,
+func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBtcBalance,
+	theirBtcBalance lnwire.MilliSatoshi,ourAssetBalance, theirAssetBalance omnicore.Amount, isOurs bool,
 	feePerKw chainfee.SatPerKWeight, height uint64,
 	filteredHTLCView *htlcView,
 	keyRing *CommitmentKeyRing) (*unsignedCommitmentTx, error) {
@@ -552,7 +558,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	for _, htlc := range filteredHTLCView.ourUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, isOurs, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit,
+			htlc.BtcAmount.ToSatoshis(), dustLimit, htlc.AssetAmount,
 		) {
 			continue
 		}
@@ -562,7 +568,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	for _, htlc := range filteredHTLCView.theirUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, isOurs, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit,
+			htlc.BtcAmount.ToSatoshis(), dustLimit, htlc.AssetAmount,
 		) {
 			continue
 		}
@@ -587,17 +593,17 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// initiator. If the initiator is unable to pay the fee fully, then
 	// their entire output is consumed.
 	switch {
-	case cb.chanState.IsInitiator && commitFee > ourBalance.ToSatoshis():
-		ourBalance = 0
+	case cb.chanState.IsInitiator && commitFee > ourBtcBalance.ToSatoshis():
+		ourBtcBalance = 0
 
 	case cb.chanState.IsInitiator:
-		ourBalance -= commitFeeMSat
+		ourBtcBalance -= commitFeeMSat
 
-	case !cb.chanState.IsInitiator && commitFee > theirBalance.ToSatoshis():
-		theirBalance = 0
+	case !cb.chanState.IsInitiator && commitFee > theirBtcBalance.ToSatoshis():
+		theirBtcBalance = 0
 
 	case !cb.chanState.IsInitiator:
-		theirBalance -= commitFeeMSat
+		theirBtcBalance -= commitFeeMSat
 	}
 
 	var (
@@ -613,19 +619,27 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	if cb.chanState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = cb.chanState.ThawHeight
 	}
+	/*
+	obd add wxf
+	*/
+	opAmounts:=op.NewPksAmounts(cb.chanState.AssetID)
 	if isOurs {
 		commitTx, err = CreateCommitTx(
 			cb.chanState.ChanType, fundingTxIn(cb.chanState), keyRing,
 			&cb.chanState.LocalChanCfg, &cb.chanState.RemoteChanCfg,
-			ourBalance.ToSatoshis(), theirBalance.ToSatoshis(),
+			ourBtcBalance.ToSatoshis(), theirBtcBalance.ToSatoshis(),
+			ourAssetBalance, theirAssetBalance,
 			numHTLCs, cb.chanState.IsInitiator, leaseExpiry,
+			opAmounts,
 		)
 	} else {
 		commitTx, err = CreateCommitTx(
 			cb.chanState.ChanType, fundingTxIn(cb.chanState), keyRing,
 			&cb.chanState.RemoteChanCfg, &cb.chanState.LocalChanCfg,
-			theirBalance.ToSatoshis(), ourBalance.ToSatoshis(),
+			theirBtcBalance.ToSatoshis(), ourBtcBalance.ToSatoshis(),
+			theirAssetBalance, ourAssetBalance,
 			numHTLCs, !cb.chanState.IsInitiator, leaseExpiry,
+			opAmounts,
 		)
 	}
 	if err != nil {
@@ -645,14 +659,14 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	for _, htlc := range filteredHTLCView.ourUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, isOurs, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit,
+			htlc.BtcAmount.ToSatoshis(), dustLimit, htlc.AssetAmount,
 		) {
 			continue
 		}
 
 		err := addHTLC(
 			commitTx, isOurs, false, htlc, keyRing,
-			cb.chanState.ChanType,
+			cb.chanState.ChanType, opAmounts,
 		)
 		if err != nil {
 			return nil, err
@@ -662,14 +676,14 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	for _, htlc := range filteredHTLCView.theirUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, isOurs, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit,
+			htlc.BtcAmount.ToSatoshis(), dustLimit, htlc.AssetAmount,
 		) {
 			continue
 		}
 
 		err := addHTLC(
 			commitTx, isOurs, true, htlc, keyRing,
-			cb.chanState.ChanType,
+			cb.chanState.ChanType, opAmounts,
 		)
 		if err != nil {
 			return nil, err
@@ -689,6 +703,13 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// ordering. This lets us skip sending the entire transaction over,
 	// instead we'll just send signatures.
 	InPlaceCommitSort(commitTx, cltvs)
+	/*
+	obd add wxf
+	add opreturn
+	*/
+	if err:=op.AddOpReturnToTx(commitTx,opAmounts);err!=nil{
+		return nil,err
+	}
 
 	// Next, we'll ensure that we don't accidentally create a commitment
 	// transaction which would be invalid by consensus.
@@ -703,18 +724,20 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	for _, txOut := range commitTx.TxOut {
 		totalOut += btcutil.Amount(txOut.Value)
 	}
-	if totalOut+commitFee > cb.chanState.Capacity {
+	if totalOut+commitFee > cb.chanState.BtcCapacity {
 		return nil, fmt.Errorf("height=%v, for ChannelPoint(%v) "+
 			"attempts to consume %v while channel capacity is %v",
 			height, cb.chanState.FundingOutpoint,
-			totalOut+commitFee, cb.chanState.Capacity)
+			totalOut+commitFee, cb.chanState.BtcCapacity)
 	}
 
 	return &unsignedCommitmentTx{
 		txn:          commitTx,
 		fee:          commitFee,
-		ourBalance:   ourBalance,
-		theirBalance: theirBalance,
+		ourBtcBalance:   ourBtcBalance,
+		theirBtcBalance: theirBtcBalance,
+		ourAssetBalance:   ourAssetBalance,
+		theirAssetBalance: theirAssetBalance,
 		cltvs:        cltvs,
 	}, nil
 }
@@ -729,8 +752,10 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 func CreateCommitTx(chanType channeldb.ChannelType,
 	fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
-	amountToLocal, amountToRemote btcutil.Amount,
-	numHTLCs int64, initiator bool, leaseExpiry uint32) (*wire.MsgTx, error) {
+	btcAmountToLocal, btcAmountToRemote btcutil.Amount,
+	assetAmountToLocal, assetAmountToRemote omnicore.Amount,
+	numHTLCs int64, initiator bool, leaseExpiry uint32,
+	opAmounts *op.PksAmounts) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
 	// This output has 2 main redemption clauses: either we can redeem the
@@ -760,20 +785,40 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	commitTx.AddTxIn(&fundingOutput)
 
 	// Avoid creating dust outputs within the commitment transaction.
-	localOutput := amountToLocal >= localChanCfg.DustLimit
+	localOutput := btcAmountToLocal >= localChanCfg.DustLimit
+	/*
+	obd add wxf
+	*/
+	if !localOutput && assetAmountToLocal>0{
+		return nil,fmt.Errorf("CreateCommitTx err: localOutput less than DustLimit, it will ignore asset")
+	}
 	if localOutput {
 		commitTx.AddTxOut(&wire.TxOut{
 			PkScript: toLocalScript.PkScript,
-			Value:    int64(amountToLocal),
+			Value:    int64(btcAmountToLocal),
 		})
+		/*
+		obd add wxf
+		*/
+		opAmounts.Add(toLocalScript.PkScript,assetAmountToLocal)
 	}
 
-	remoteOutput := amountToRemote >= localChanCfg.DustLimit
+	remoteOutput := btcAmountToRemote >= localChanCfg.DustLimit
+	/*
+		obd add wxf
+	*/
+	if !remoteOutput && assetAmountToRemote>0{
+		return nil,fmt.Errorf("CreateCommitTx err: remoteOutput less than DustLimit, it will ignore asset")
+	}
 	if remoteOutput {
 		commitTx.AddTxOut(&wire.TxOut{
 			PkScript: toRemoteScript.PkScript,
-			Value:    int64(amountToRemote),
+			Value:    int64(btcAmountToRemote),
 		})
+		/*
+		obd add wxf
+		 */
+		opAmounts.Add(toLocalScript.PkScript,assetAmountToRemote)
 	}
 
 	// If this channel type has anchors, we'll also add those.
@@ -811,11 +856,13 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 // the cooperative close tx, given the channel type and transaction fee.
 func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
 	coopCloseFee btcutil.Amount, localCommit channeldb.ChannelCommitment) (
-	btcutil.Amount, btcutil.Amount, error) {
+	btcutil.Amount, btcutil.Amount, omnicore.Amount, omnicore.Amount, error) {
 
 	// Get both parties' balances from the latest commitment.
-	ourBalance := localCommit.LocalBalance.ToSatoshis()
-	theirBalance := localCommit.RemoteBalance.ToSatoshis()
+	ourBalance := localCommit.LocalBtcBalance.ToSatoshis()
+	theirBalance := localCommit.RemoteBtcBalance.ToSatoshis()
+	ourAssetBalance := localCommit.LocalAssetBalance
+	theirAssetBalance := localCommit.RemoteAssetBalance
 
 	// We'll make sure we account for the complete balance by adding the
 	// current dangling commitment fee to the balance of the initiator.
@@ -841,11 +888,11 @@ func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
 	// initiator can pay the proposed fee, but we do a sanity check just to
 	// be sure here.
 	if ourBalance < 0 || theirBalance < 0 {
-		return 0, 0, fmt.Errorf("initiator cannot afford proposed " +
+		return 0, 0, 0, 0, fmt.Errorf("initiator cannot afford proposed " +
 			"coop close fee")
 	}
 
-	return ourBalance, theirBalance, nil
+	return ourBalance, theirBalance, ourAssetBalance, theirAssetBalance, nil
 }
 
 // genHtlcScript generates the proper P2WSH public key scripts for the HTLC
@@ -929,7 +976,8 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming, ourCommit bool,
 // the descriptor itself.
 func addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	isIncoming bool, paymentDesc *PaymentDescriptor,
-	keyRing *CommitmentKeyRing, chanType channeldb.ChannelType) error {
+	keyRing *CommitmentKeyRing, chanType channeldb.ChannelType,
+	opAmounts *op.PksAmounts) error {
 
 	timeout := paymentDesc.Timeout
 	rHash := paymentDesc.RHash
@@ -942,8 +990,9 @@ func addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	}
 
 	// Add the new HTLC outputs to the respective commitment transactions.
-	amountPending := int64(paymentDesc.Amount.ToSatoshis())
+	amountPending := int64(paymentDesc.BtcAmount.ToSatoshis())
 	commitTx.AddTxOut(wire.NewTxOut(amountPending, p2wsh))
+	opAmounts.Add(p2wsh,paymentDesc.AssetAmount)
 
 	// Store the pkScript of this particular PaymentDescriptor so we can
 	// quickly locate it within the commitment transaction later.

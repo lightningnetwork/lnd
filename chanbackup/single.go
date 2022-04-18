@@ -98,6 +98,10 @@ type Single struct {
 
 	// Capacity is the size of the original channel.
 	Capacity btcutil.Amount
+	/*
+		obd update
+		todo add BtcCapacity AssetCapacity
+	*/
 
 	// LocalChanCfg is our local channel configuration. It contains all the
 	// information we need to re-derive the keys we used within the
@@ -187,7 +191,7 @@ func NewSingle(channel *channeldb.OpenChannel,
 		ShortChannelID:   chanID,
 		RemoteNodePub:    channel.IdentityPub,
 		Addresses:        nodeAddrs,
-		Capacity:         channel.Capacity,
+		Capacity:         channel.BtcCapacity,
 		LocalChanCfg:     channel.LocalChanCfg,
 		RemoteChanCfg:    channel.RemoteChanCfg,
 		ShaChainRootDesc: shaChainRootDesc,

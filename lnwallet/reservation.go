@@ -2,6 +2,7 @@ package lnwallet
 
 import (
 	"errors"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"net"
 	"sync"
 
@@ -212,7 +213,8 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	id uint64, pushMSat lnwire.MilliSatoshi, chainHash *chainhash.Hash,
 	flags lnwire.FundingFlag, commitType CommitmentType,
 	fundingAssembler chanfunding.Assembler,
-	pendingChanID [32]byte, thawHeight uint32) (*ChannelReservation, error) {
+	pendingChanID [32]byte, thawHeight uint32,
+	assetCapacity, localAssetFundingAmt ,pushAsset omnicore.Amount,assetID uint32) (*ChannelReservation, error) {
 
 	var (
 		ourBalance   lnwire.MilliSatoshi
@@ -391,16 +393,28 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			IsPending:    true,
 			IsInitiator:  initiator,
 			ChannelFlags: flags,
-			Capacity:     capacity,
+			BtcCapacity:     capacity,
+			AssetCapacity:     assetCapacity,
+			AssetID:     assetID,
 			LocalCommitment: channeldb.ChannelCommitment{
-				LocalBalance:  ourBalance,
-				RemoteBalance: theirBalance,
+				LocalBtcBalance:  ourBalance,
+				RemoteBtcBalance: theirBalance,
+				/*obd update wxf
+				todo add ourBalance
+				*/
+				//LocalAssetBalance:  ourBalance,
+				//RemoteAssetBalance: theirBalance,
 				FeePerKw:      btcutil.Amount(commitFeePerKw),
 				CommitFee:     commitFee,
 			},
 			RemoteCommitment: channeldb.ChannelCommitment{
-				LocalBalance:  ourBalance,
-				RemoteBalance: theirBalance,
+				LocalBtcBalance:  ourBalance,
+				RemoteBtcBalance: theirBalance,
+				/*obd update wxf
+				todo add ourBalance
+				*/
+				//LocalAssetBalance:  ourBalance,
+				//RemoteAssetBalance: theirBalance,
 				FeePerKw:      btcutil.Amount(commitFeePerKw),
 				CommitFee:     commitFee,
 			},
@@ -458,7 +472,7 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
 
 	// Fail if we consider the channel reserve to be too large.  We
 	// currently fail if it is greater than 20% of the channel capacity.
-	maxChanReserve := r.partialState.Capacity / 5
+	maxChanReserve := r.partialState.BtcCapacity / 5
 	if c.ChanReserve > maxChanReserve {
 		return ErrChanReserveTooLarge(c.ChanReserve, maxChanReserve)
 	}
@@ -753,10 +767,10 @@ func (r *ChannelReservation) SetOurUpfrontShutdown(shutdown lnwire.DeliveryAddre
 }
 
 // Capacity returns the channel capacity for this reservation.
-func (r *ChannelReservation) Capacity() btcutil.Amount {
+func (r *ChannelReservation) BtcCapacity() btcutil.Amount {
 	r.RLock()
 	defer r.RUnlock()
-	return r.partialState.Capacity
+	return r.partialState.BtcCapacity
 }
 
 // LeaseExpiry returns the absolute expiration height for a leased channel using

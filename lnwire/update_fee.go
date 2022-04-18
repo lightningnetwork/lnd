@@ -10,7 +10,10 @@ import (
 type UpdateFee struct {
 	// ChanID is the channel that this UpdateFee is meant for.
 	ChanID ChannelID
-
+	/*
+	obd update wxf
+	*/
+	AssetID uint32
 	// FeePerKw is the fee-per-kw on commit transactions that the sender of
 	// this message wants to use for this channel.
 	//

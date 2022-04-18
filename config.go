@@ -441,6 +441,8 @@ type Config struct {
 
 	DustThreshold uint64 `long:"dust-threshold" description:"Sets the dust sum threshold in satoshis for a channel after which dust HTLC's will be failed."`
 
+	SkipChainSync bool `long:"skip-chain-sync" description:"If true, skip waiting for chain to be synced before establishing connections to channel peers."`
+
 	Invoices *lncfg.Invoices `group:"invoices" namespace:"invoices"`
 
 	Routing *lncfg.Routing `group:"routing" namespace:"routing"`

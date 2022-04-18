@@ -84,6 +84,7 @@
 * [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
   contract court logs in case of timed-out htlcs in order to easily spot dust
   outputs.
+* [Skip waiting for chain sync on startup if `--skip-chain-sync` is set](https://github.com/lightningnetwork/lnd/pull/x)
 
 ## RPC Updates
 

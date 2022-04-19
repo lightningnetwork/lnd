@@ -7,7 +7,7 @@ require (
 	github.com/btcsuite/btcd v0.22.0-beta.0.20220330201728-074266215c26
 	github.com/btcsuite/btcd/btcec/v2 v2.1.3
 	github.com/btcsuite/btcd/btcutil v1.1.1
-	github.com/btcsuite/btcd/btcutil/psbt v1.1.2
+	github.com/btcsuite/btcd/btcutil/psbt v1.1.3
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcwallet v0.14.1-0.20220412233800-3a6d5d0702b7

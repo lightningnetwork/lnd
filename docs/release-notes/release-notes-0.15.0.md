@@ -176,7 +176,11 @@ then watch it on chain. Taproot script spends are also supported through the
 * [The CI and build infrastructure for the project has transitioned to using Go 1.18](https://github.com/lightningnetwork/lnd/pull/6340).
 
 * [Announce the keysend feature bit in NodeAnnouncement if `--accept-keysend` 
-  is set](https://github.com/lightningnetwork/lnd/pull/6414)
+  is set](https://github.com/lightningnetwork/lnd/pull/6414).
+
+* [Fix a flaky unit test in the `chainview`
+  package](https://github.com/lightningnetwork/lnd/pull/6354).
+
 
 ## RPC Server
 

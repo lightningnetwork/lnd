@@ -307,3 +307,58 @@ func DVarBytes(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 	}
 	return NewTypeForDecodingErr(val, "[]byte", l, l)
 }
+
+// EBigSize encodes an uint32 or an uint64 using BigSize format. An error is
+// returned if val is not either *uint32 or *uint64.
+func EBigSize(w io.Writer, val interface{}, buf *[8]byte) error {
+	if i, ok := val.(*uint32); ok {
+		return WriteVarInt(w, uint64(*i), buf)
+	}
+
+	if i, ok := val.(*uint64); ok {
+		return WriteVarInt(w, uint64(*i), buf)
+	}
+
+	return NewTypeForEncodingErr(val, "BigSize")
+}
+
+// DBigSize decodes an uint32 or an uint64 using BigSize format. An error is
+// returned if val is not either *uint32 or *uint64.
+func DBigSize(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
+	if i, ok := val.(*uint32); ok {
+		v, err := ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+		*i = uint32(v)
+		return nil
+	}
+
+	if i, ok := val.(*uint64); ok {
+		v, err := ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+		*i = v
+		return nil
+	}
+
+	return NewTypeForDecodingErr(val, "BigSize", l, 8)
+}
+
+// SizeBigSize returns a SizeFunc that can compute the length of BigSize.
+func SizeBigSize(val interface{}) SizeFunc {
+	var size uint64
+
+	if i, ok := val.(*uint32); ok {
+		size = VarIntSize(uint64(*i))
+	}
+
+	if i, ok := val.(*uint64); ok {
+		size = VarIntSize(uint64(*i))
+	}
+
+	return func() uint64 {
+		return size
+	}
+}

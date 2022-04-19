@@ -41,3 +41,7 @@ db.postgres.timeout=0
 ```
 Connection timeout is disabled, to account for situations where the database
 might be slow for unexpected reasons.
+
+## Important note about replication
+
+In case a replication architecture is planned, streaming replication should be avoided, as the master does not verify the replica is indeed identical, but it will only forward the edits queue, and let the slave catch up autonomously; synchronous mode, albeit slower, is paramount for `lnd` data integrity across the copies, as it will finalize writes only after the slave confirmed successful replication.

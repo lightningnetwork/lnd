@@ -1905,6 +1905,43 @@ func (s *server) Start() error {
 			return nil
 		})
 
+		// If peers are specified as a config option, we'll add those
+		// peers first.
+		for _, peerAddrCfg := range s.cfg.AddPeers {
+			parsedPubkey, parsedHost, err := lncfg.ParseLNAddressPubkey(
+				peerAddrCfg,
+			)
+			if err != nil {
+				startErr = fmt.Errorf("unable to parse peer "+
+					"pubkey from config: %v", err)
+				return
+			}
+			addr, err := parseAddr(parsedHost, s.cfg.net)
+			if err != nil {
+				startErr = fmt.Errorf("unable to parse peer "+
+					"address provided as a config option: "+
+					"%v", err)
+				return
+			}
+
+			peerAddr := &lnwire.NetAddress{
+				IdentityKey: parsedPubkey,
+				Address:     addr,
+				ChainNet:    s.cfg.ActiveNetParams.Net,
+			}
+
+			err = s.ConnectToPeer(
+				peerAddr, true,
+				s.cfg.ConnectionTimeout,
+			)
+			if err != nil {
+				startErr = fmt.Errorf("unable to connect to "+
+					"peer address provided as a config "+
+					"option: %v", err)
+				return
+			}
+		}
+
 		// Subscribe to NodeAnnouncements that advertise new addresses
 		// our persistent peers.
 		if err := s.updatePersistentPeerAddrs(); err != nil {

@@ -159,6 +159,22 @@ func randV3OnionAddr(r *rand.Rand) (*tor.OnionAddr, error) {
 	return &tor.OnionAddr{OnionService: onionService, Port: addrPort}, nil
 }
 
+func randOpaqueAddr(r *rand.Rand) (*OpaqueAddrs, error) {
+	payloadLen := r.Int63n(64) + 1
+	payload := make([]byte, payloadLen)
+
+	// The first byte is the address type. So set it to one that we
+	// definitely don't know about.
+	payload[0] = math.MaxUint8
+
+	// Generate random bytes for the rest of the payload.
+	if _, err := r.Read(payload[1:]); err != nil {
+		return nil, err
+	}
+
+	return &OpaqueAddrs{Payload: payload}, nil
+}
+
 func randAddrs(r *rand.Rand) ([]net.Addr, error) {
 	tcp4Addr, err := randTCP4Addr(r)
 	if err != nil {
@@ -180,7 +196,14 @@ func randAddrs(r *rand.Rand) ([]net.Addr, error) {
 		return nil, err
 	}
 
-	return []net.Addr{tcp4Addr, tcp6Addr, v2OnionAddr, v3OnionAddr}, nil
+	opaqueAddrs, err := randOpaqueAddr(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return []net.Addr{
+		tcp4Addr, tcp6Addr, v2OnionAddr, v3OnionAddr, opaqueAddrs,
+	}, nil
 }
 
 // TestChanUpdateChanFlags ensures that converting the ChanUpdateChanFlags and

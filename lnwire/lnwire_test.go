@@ -259,8 +259,11 @@ func TestDecodeUnknownAddressType(t *testing.T) {
 	// Now we attempt to parse the bytes and assert that we get an error.
 	var addrs []net.Addr
 	err = ReadElement(buffer, &addrs)
-	require.Error(t, err)
-	require.IsType(t, err, &ErrUnknownAddrType{})
+	require.NoError(t, err)
+	require.Len(t, addrs, 3)
+	require.Equal(t, tcpAddr.String(), addrs[0].String())
+	require.Equal(t, onionAddr.String(), addrs[1].String())
+	require.Equal(t, hex.EncodeToString(data), addrs[2].String())
 }
 
 func TestMaxOutPointIndex(t *testing.T) {

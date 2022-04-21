@@ -32,6 +32,9 @@ var (
 	// ErrNilNetAddress is returned when a nil value is used in []net.Addr.
 	ErrNilNetAddress = errors.New("cannot write nil address")
 
+	// ErrNilOpaqueAddrs is returned when the supplied address is nil.
+	ErrNilOpaqueAddrs = errors.New("cannot write nil OpaqueAddrs")
+
 	// ErrNilPublicKey is returned when a nil pubkey is used.
 	ErrNilPublicKey = errors.New("cannot write nil pubkey")
 
@@ -357,6 +360,16 @@ func WriteOnionAddr(buf *bytes.Buffer, addr *tor.OnionAddr) error {
 	return WriteUint16(buf, uint16(addr.Port))
 }
 
+// WriteOpaqueAddrs appends the payload of the given OpaqueAddrs to buffer.
+func WriteOpaqueAddrs(buf *bytes.Buffer, addr *OpaqueAddrs) error {
+	if addr == nil {
+		return ErrNilOpaqueAddrs
+	}
+
+	_, err := buf.Write(addr.Payload)
+	return err
+}
+
 // WriteNetAddrs appends a slice of addresses to the provided buffer with the
 // length info.
 func WriteNetAddrs(buf *bytes.Buffer, addresses []net.Addr) error {
@@ -374,6 +387,10 @@ func WriteNetAddrs(buf *bytes.Buffer, addresses []net.Addr) error {
 			}
 		case *tor.OnionAddr:
 			if err := WriteOnionAddr(addrBuf, a); err != nil {
+				return err
+			}
+		case *OpaqueAddrs:
+			if err := WriteOpaqueAddrs(addrBuf, a); err != nil {
 				return err
 			}
 		default:

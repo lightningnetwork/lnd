@@ -55,7 +55,7 @@ func (ps paymentState) terminated() bool {
 }
 
 // needWaitForShards returns a bool to specify whether we need to wait for the
-// outcome of the shanrdHandler.
+// outcome of the shardHandler.
 func (ps paymentState) needWaitForShards() bool {
 	// If we have in flight shards and the payment is in final stage, we
 	// need to wait for the outcomes from the shards. Or if we have no more
@@ -279,7 +279,7 @@ lifecycle:
 			continue lifecycle
 		}
 
-		// If this route will consume the last remeining amount to send
+		// If this route will consume the last remaining amount to send
 		// to the receiver, this will be our last shard (for now).
 		lastShard := rt.ReceiverAmt() == currentState.remainingAmt
 

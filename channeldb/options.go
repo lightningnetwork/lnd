@@ -61,6 +61,10 @@ type Options struct {
 	// dryRun will fail to commit a successful migration when opening the
 	// database if set to true.
 	dryRun bool
+
+	// keepFailedPaymentAttempts determines whether failed htlc attempts
+	// are kept on disk or removed to save space.
+	keepFailedPaymentAttempts bool
 }
 
 // DefaultOptions returns an Options populated with default values.
@@ -162,5 +166,13 @@ func OptionClock(clock clock.Clock) OptionModifier {
 func OptionDryRunMigration(dryRun bool) OptionModifier {
 	return func(o *Options) {
 		o.dryRun = dryRun
+	}
+}
+
+// OptionKeepFailedPaymentAttempts controls whether failed payment attempts are
+// kept on disk after a payment settles.
+func OptionKeepFailedPaymentAttempts(keepFailedPaymentAttempts bool) OptionModifier {
+	return func(o *Options) {
+		o.keepFailedPaymentAttempts = keepFailedPaymentAttempts
 	}
 }

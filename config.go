@@ -199,6 +199,10 @@ const (
 	// defaultCoinSelectionStrategy is the coin selection strategy that is
 	// used by default to fund transactions.
 	defaultCoinSelectionStrategy = "largest"
+
+	// defaultKeepFailedPaymentAttempts is the default setting for whether
+	// to keep failed payments in the database.
+	defaultKeepFailedPaymentAttempts = false
 )
 
 var (
@@ -361,6 +365,8 @@ type Config struct {
 	PendingCommitInterval time.Duration `long:"pending-commit-interval" description:"The maximum time that is allowed to pass while waiting for the remote party to revoke a locally initiated commitment state. Setting this to a longer duration if a slow response is expected from the remote party or large number of payments are attempted at the same time."`
 
 	ChannelCommitBatchSize uint32 `long:"channel-commit-batch-size" description:"The maximum number of channel state updates that is accumulated before signing a new commitment."`
+
+	KeepFailedPaymentAttempts bool `long:"keep-failed-payment-attempts" description:"Keeps persistent record of all failed payment attempts for successfully settled payments."`
 
 	DefaultRemoteMaxHtlcs uint16 `long:"default-remote-max-htlcs" description:"The default max_htlc applied when opening or accepting channels. This value limits the number of concurrent HTLCs that the remote party can add to the commitment. The maximum possible value is 483."`
 
@@ -611,20 +617,21 @@ func DefaultConfig() Config {
 		Invoices: &lncfg.Invoices{
 			HoldExpiryDelta: lncfg.DefaultHoldInvoiceExpiryDelta,
 		},
-		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,
-		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
-		MaxCommitFeeRateAnchors: lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
-		DustThreshold:           uint64(htlcswitch.DefaultDustThreshold.ToSatoshis()),
-		LogWriter:               build.NewRotatingLogWriter(),
-		DB:                      lncfg.DefaultDB(),
-		Cluster:                 lncfg.DefaultCluster(),
-		RPCMiddleware:           lncfg.DefaultRPCMiddleware(),
-		registeredChains:        chainreg.NewChainRegistry(),
-		ActiveNetParams:         chainreg.BitcoinTestNetParams,
-		ChannelCommitInterval:   defaultChannelCommitInterval,
-		PendingCommitInterval:   defaultPendingCommitInterval,
-		ChannelCommitBatchSize:  defaultChannelCommitBatchSize,
-		CoinSelectionStrategy:   defaultCoinSelectionStrategy,
+		MaxOutgoingCltvExpiry:     htlcswitch.DefaultMaxOutgoingCltvExpiry,
+		MaxChannelFeeAllocation:   htlcswitch.DefaultMaxLinkFeeAllocation,
+		MaxCommitFeeRateAnchors:   lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
+		DustThreshold:             uint64(htlcswitch.DefaultDustThreshold.ToSatoshis()),
+		LogWriter:                 build.NewRotatingLogWriter(),
+		DB:                        lncfg.DefaultDB(),
+		Cluster:                   lncfg.DefaultCluster(),
+		RPCMiddleware:             lncfg.DefaultRPCMiddleware(),
+		registeredChains:          chainreg.NewChainRegistry(),
+		ActiveNetParams:           chainreg.BitcoinTestNetParams,
+		ChannelCommitInterval:     defaultChannelCommitInterval,
+		PendingCommitInterval:     defaultPendingCommitInterval,
+		ChannelCommitBatchSize:    defaultChannelCommitBatchSize,
+		CoinSelectionStrategy:     defaultCoinSelectionStrategy,
+		KeepFailedPaymentAttempts: defaultKeepFailedPaymentAttempts,
 		RemoteSigner: &lncfg.RemoteSigner{
 			Timeout: lncfg.DefaultRemoteSignerRPCTimeout,
 		},

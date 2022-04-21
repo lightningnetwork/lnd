@@ -1723,7 +1723,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 	// First, we'll check our node config to make sure the RPC parameters
 	// were set correctly. We'll also determine the path to the conf file
 	// depending on the backend node.
-	var daemonName, confDir, confFile string
+	var daemonName, confDir, confFile, confFileBase string
 	switch conf := nodeConfig.(type) {
 	case *lncfg.Btcd:
 		// If both RPCUser and RPCPass are set, we assume those
@@ -1737,11 +1737,11 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 		case chainreg.BitcoinChain:
 			daemonName = "btcd"
 			confDir = conf.Dir
-			confFile = "btcd"
+			confFileBase = "btcd"
 		case chainreg.LitecoinChain:
 			daemonName = "ltcd"
 			confDir = conf.Dir
-			confFile = "ltcd"
+			confFileBase = "ltcd"
 		}
 
 		// If only ONE of RPCUser or RPCPass is set, we assume the
@@ -1784,11 +1784,13 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 		case chainreg.BitcoinChain:
 			daemonName = "bitcoind"
 			confDir = conf.Dir
-			confFile = "bitcoin"
+			confFile = conf.ConfigPath
+			confFileBase = "bitcoin"
 		case chainreg.LitecoinChain:
 			daemonName = "litecoind"
 			confDir = conf.Dir
-			confFile = "litecoin"
+			confFile = conf.ConfigPath
+			confFileBase = "litecoin"
 		}
 
 		// If not all of the parameters are set, we'll assume the user
@@ -1813,7 +1815,10 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 
 	fmt.Println("Attempting automatic RPC configuration to " + daemonName)
 
-	confFile = filepath.Join(confDir, fmt.Sprintf("%v.conf", confFile))
+	if confFile == "" {
+		confFile = filepath.Join(confDir, fmt.Sprintf("%v.conf",
+			confFileBase))
+	}
 	switch cConfig.Node {
 	case "btcd", "ltcd":
 		nConf := nodeConfig.(*lncfg.Btcd)
@@ -1827,7 +1832,8 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 	case "bitcoind", "litecoind":
 		nConf := nodeConfig.(*lncfg.Bitcoind)
 		rpcUser, rpcPass, zmqBlockHost, zmqTxHost, err :=
-			extractBitcoindRPCParams(netParams.Params.Name, confFile)
+			extractBitcoindRPCParams(netParams.Params.Name,
+				nConf.Dir, confFile, nConf.RPCCookie)
 		if err != nil {
 			return fmt.Errorf("unable to extract RPC credentials: "+
 				"%v, cannot start w/o RPC connection", err)
@@ -1887,12 +1893,11 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 }
 
 // extractBitcoindRPCParams attempts to extract the RPC credentials for an
-// existing bitcoind node instance. The passed path is expected to be the
-// location of bitcoind's bitcoin.conf on the target system. The routine looks
-// for a cookie first, optionally following the datadir configuration option in
-// the bitcoin.conf. If it doesn't find one, it looks for rpcuser/rpcpassword.
-func extractBitcoindRPCParams(networkName string,
-	bitcoindConfigPath string) (string, string, string, string, error) {
+// existing bitcoind node instance. The routine looks for a cookie first,
+// optionally following the datadir configuration option in the bitcoin.conf. If
+// it doesn't find one, it looks for rpcuser/rpcpassword.
+func extractBitcoindRPCParams(networkName, bitcoindDataDir, bitcoindConfigPath,
+	rpcCookiePath string) (string, string, string, string, error) {
 
 	// First, we'll open up the bitcoind configuration file found at the
 	// target destination.
@@ -1940,6 +1945,9 @@ func extractBitcoindRPCParams(networkName string,
 	// Next, we'll try to find an auth cookie. We need to detect the chain
 	// by seeing if one is specified in the configuration file.
 	dataDir := filepath.Dir(bitcoindConfigPath)
+	if bitcoindDataDir != "" {
+		dataDir = bitcoindDataDir
+	}
 	dataDirRE, err := regexp.Compile(`(?m)^\s*datadir\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", "", err
@@ -1959,7 +1967,11 @@ func extractBitcoindRPCParams(networkName string,
 		return "", "", "", "", fmt.Errorf("unexpected networkname %v", networkName)
 	}
 
-	cookie, err := ioutil.ReadFile(filepath.Join(dataDir, chainDir, ".cookie"))
+	cookiePath := filepath.Join(dataDir, chainDir, ".cookie")
+	if rpcCookiePath != "" {
+		cookiePath = rpcCookiePath
+	}
+	cookie, err := ioutil.ReadFile(cookiePath)
 	if err == nil {
 		splitCookie := strings.Split(string(cookie), ":")
 		if len(splitCookie) == 2 {

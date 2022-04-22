@@ -743,6 +743,8 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 	// Assemble all other information about the input we have.
 	in.RedeemScript = sigScript
 	in.SighashType = signDesc.HashType
+	// TODO(roasbeef): dependent on finishing the PSBT work for taproot
+	// in.TapTweak = signDesc.TapTweak
 	in.WitnessScript = signDesc.WitnessScript
 
 	if len(signDesc.SingleTweak) > 0 {

@@ -2408,6 +2408,15 @@ func (p *Brontide) reenableActiveChannels() {
 func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 	*chancloser.ChanCloser, error) {
 
+	chanCloser, found := p.activeChanCloses[chanID]
+	if found {
+		// An entry will only be found if the closer has already been
+		// created for a non-pending channel or for a channel that had
+		// previously started the shutdown process but the connection
+		// was restarted.
+		return chanCloser, nil
+	}
+
 	// First, we'll ensure that we actually know of the target channel. If
 	// not, we'll ignore this message.
 	p.activeChanMtx.RLock()
@@ -2420,73 +2429,50 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 		return nil, ErrChannelNotFound
 	}
 
-	// We'll attempt to look up the matching state machine, if we can't
-	// find one then this means that the remote party is initiating a
-	// cooperative channel closure.
-	chanCloser, ok := p.activeChanCloses[chanID]
-	if !ok {
-		// Optimistically try a link shutdown, erroring out if it
-		// failed.
-		if err := p.tryLinkShutdown(chanID); err != nil {
-			peerLog.Errorf("failed link shutdown: %v", err)
-			return nil, err
-		}
-
-		// We'll create a valid closing state machine in order to
-		// respond to the initiated cooperative channel closure. First,
-		// we set the delivery script that our funds will be paid out
-		// to. If an upfront shutdown script was set, we will use it.
-		// Otherwise, we get a fresh delivery script.
-		//
-		// TODO: Expose option to allow upfront shutdown script from
-		// watch-only accounts.
-		deliveryScript := channel.LocalUpfrontShutdownScript()
-		if len(deliveryScript) == 0 {
-			var err error
-			deliveryScript, err = p.genDeliveryScript()
-			if err != nil {
-				peerLog.Errorf("unable to gen delivery script: %v", err)
-				return nil, fmt.Errorf("close addr unavailable")
-			}
-		}
-
-		// In order to begin fee negotiations, we'll first compute our
-		// target ideal fee-per-kw.
-		feePerKw, err := p.cfg.FeeEstimator.EstimateFeePerKW(
-			p.cfg.CoopCloseTargetConfs,
-		)
-		if err != nil {
-			peerLog.Errorf("unable to query fee estimator: %v", err)
-
-			return nil, fmt.Errorf("unable to estimate fee")
-		}
-
-		_, startingHeight, err := p.cfg.ChainIO.GetBestBlock()
-		if err != nil {
-			peerLog.Errorf("unable to obtain best block: %v", err)
-			return nil, fmt.Errorf("cannot obtain best block")
-		}
-
-		chanCloser = chancloser.NewChanCloser(
-			chancloser.ChanCloseCfg{
-				Channel:     channel,
-				BroadcastTx: p.cfg.Wallet.PublishTransaction,
-				DisableChannel: func(chanPoint wire.OutPoint) error {
-					return p.cfg.ChanStatusMgr.RequestDisable(chanPoint, false)
-				},
-				Disconnect: func() error {
-					return p.cfg.DisconnectPeer(p.IdentityKey())
-				},
-				Quit: p.quit,
-			},
-			deliveryScript,
-			feePerKw,
-			uint32(startingHeight),
-			nil,
-			false,
-		)
-		p.activeChanCloses[chanID] = chanCloser
+	// Optimistically try a link shutdown, erroring out if it failed.
+	if err := p.tryLinkShutdown(chanID); err != nil {
+		peerLog.Errorf("failed link shutdown: %v", err)
+		return nil, err
 	}
+
+	// We'll create a valid closing state machine in order to respond to
+	// the initiated cooperative channel closure. First, we set the
+	// delivery script that our funds will be paid out to. If an upfront
+	// shutdown script was set, we will use it. Otherwise, we get a fresh
+	// delivery script.
+	//
+	// TODO: Expose option to allow upfront shutdown script from watch-only
+	// accounts.
+	deliveryScript := channel.LocalUpfrontShutdownScript()
+	if len(deliveryScript) == 0 {
+		var err error
+		deliveryScript, err = p.genDeliveryScript()
+		if err != nil {
+			peerLog.Errorf("unable to gen delivery script: %v",
+				err)
+			return nil, fmt.Errorf("close addr unavailable")
+		}
+	}
+
+	// In order to begin fee negotiations, we'll first compute our target
+	// ideal fee-per-kw.
+	feePerKw, err := p.cfg.FeeEstimator.EstimateFeePerKW(
+		p.cfg.CoopCloseTargetConfs,
+	)
+	if err != nil {
+		peerLog.Errorf("unable to query fee estimator: %v", err)
+		return nil, fmt.Errorf("unable to estimate fee")
+	}
+
+	chanCloser, err = p.createChanCloser(
+		channel, deliveryScript, feePerKw, nil, false,
+	)
+	if err != nil {
+		peerLog.Errorf("unable to create chan closer: %v", err)
+		return nil, fmt.Errorf("unable to create chan closer")
+	}
+
+	p.activeChanCloses[chanID] = chanCloser
 
 	return chanCloser, nil
 }
@@ -2520,6 +2506,43 @@ func chooseDeliveryScript(upfront,
 	// The user requested script matches the upfront shutdown script, so we
 	// can return it without error.
 	return upfront, nil
+}
+
+// createChanCloser constructs a ChanCloser from the passed parameters and is
+// used to de-duplicate code.
+func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
+	deliveryScript lnwire.DeliveryAddress, fee chainfee.SatPerKWeight,
+	req *htlcswitch.ChanClose,
+	locallyInitiated bool) (*chancloser.ChanCloser, error) {
+
+	_, startingHeight, err := p.cfg.ChainIO.GetBestBlock()
+	if err != nil {
+		peerLog.Errorf("unable to obtain best block: %v", err)
+		return nil, fmt.Errorf("cannot obtain best block")
+	}
+
+	chanCloser := chancloser.NewChanCloser(
+		chancloser.ChanCloseCfg{
+			Channel:     channel,
+			BroadcastTx: p.cfg.Wallet.PublishTransaction,
+			DisableChannel: func(op wire.OutPoint) error {
+				return p.cfg.ChanStatusMgr.RequestDisable(
+					op, false,
+				)
+			},
+			Disconnect: func() error {
+				return p.cfg.DisconnectPeer(p.IdentityKey())
+			},
+			Quit: p.quit,
+		},
+		deliveryScript,
+		fee,
+		uint32(startingHeight),
+		req,
+		locallyInitiated,
+	)
+
+	return chanCloser, nil
 }
 
 // handleLocalCloseReq kicks-off the workflow to execute a cooperative or
@@ -2575,15 +2598,6 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			}
 		}
 
-		// Next, we'll create a new channel closer state machine to
-		// handle the close negotiation.
-		_, startingHeight, err := p.cfg.ChainIO.GetBestBlock()
-		if err != nil {
-			peerLog.Errorf(err.Error())
-			req.Err <- err
-			return
-		}
-
 		// Optimistically try a link shutdown, erroring out if it
 		// failed.
 		if err := p.tryLinkShutdown(chanID); err != nil {
@@ -2592,24 +2606,15 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			return
 		}
 
-		chanCloser := chancloser.NewChanCloser(
-			chancloser.ChanCloseCfg{
-				Channel:     channel,
-				BroadcastTx: p.cfg.Wallet.PublishTransaction,
-				DisableChannel: func(chanPoint wire.OutPoint) error {
-					return p.cfg.ChanStatusMgr.RequestDisable(chanPoint, false)
-				},
-				Disconnect: func() error {
-					return p.cfg.DisconnectPeer(p.IdentityKey())
-				},
-				Quit: p.quit,
-			},
-			deliveryScript,
-			req.TargetFeePerKw,
-			uint32(startingHeight),
-			req,
-			true,
+		chanCloser, err := p.createChanCloser(
+			channel, deliveryScript, req.TargetFeePerKw, req, true,
 		)
+		if err != nil {
+			peerLog.Errorf(err.Error())
+			req.Err <- err
+			return
+		}
+
 		p.activeChanCloses[chanID] = chanCloser
 
 		// Finally, we'll initiate the channel shutdown within the

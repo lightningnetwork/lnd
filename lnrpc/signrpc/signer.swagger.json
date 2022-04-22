@@ -322,10 +322,15 @@
           "format": "byte",
           "description": "A private key that will be used in combination with its corresponding\nprivate key to derive the private key that is to be used to sign the target\ninput. Within the Lightning protocol, this value is typically the\ncommitment secret from a previously revoked commitment transaction. This\nvalue is in combination with two hash values, and the original private key\nto derive the private key to be used when signing.\n\nk = (privKey*sha256(pubKey || tweakPub) +\ntweakPriv*sha256(tweakPub || pubKey)) mod N"
         },
+        "tap_tweak": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32 byte input to the taproot tweak derivation that it used to derive\nthe output key from an internal key: outputKey = internalKey +\ntagged_hash(\"tapTweak\", internalKey || tapTweak).\n\nWhen doing a BIP 86 spend, this field can be an empty byte slice.\n\nWhen doing a normal key path spend, with the output key committing to an\nactual script root, then this field should be: the tapscript root hash."
+        },
         "witness_script": {
           "type": "string",
           "format": "byte",
-          "description": "The full script required to properly redeem the output. This field will\nonly be populated if a p2tr, p2wsh or a p2sh output is being signed. In case\ntaproot_key_spend is set to true then this value must correspond to the\ntaproot root hash (in case of a tapscript output) or the tap hashed internal\npublic key (in case of a BIP-0086 output)."
+          "description": "The full script required to properly redeem the output. This field will\nonly be populated if a p2tr, p2wsh or a p2sh output is being signed. If a\ntaproot script path spend is beign attemped, then this should be the raw\nleaf script."
         },
         "output": {
           "$ref": "#/definitions/signrpcTxOut",
@@ -343,7 +348,7 @@
         },
         "taproot_key_spend": {
           "type": "boolean",
-          "description": "Indicates that this should produce a signature that can be used for the key\nspend path of a taproot input. This requires the witness_script field to be\nset to the taproot root hash (in case of a tapscript output) or the tap\nhashed internal public key (in case of a BIP-0086 output)."
+          "description": "Indicates that this should produce a signature that can be used for the key\nspend path of a taproot input. This requires the tap_tweak field to be set\nto the taproot root hash (in case of a tapscript output) or the serialized\ninternal public key (in case of a BIP-0086 output)."
         }
       }
     },

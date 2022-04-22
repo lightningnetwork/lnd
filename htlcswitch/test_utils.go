@@ -232,7 +232,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
 		aliceAmount, bobAmount,aliceAssetAmount, bobAssetAmount, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, channeldb.SingleFunderTweaklessBit,
+		bobCommitPoint, *fundingTxIn, channeldb.SingleFunderTweaklessBit,31,
 		isAliceInitiator, 0,
 	)
 	if err != nil {
@@ -522,6 +522,7 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 // generateHoldPayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
 func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
+	htlcAssetAmount omnicore.Amount,assetId uint32,
 	timelock uint32, blob [lnwire.OnionPacketSize]byte,
 	preimage *lntypes.Preimage, rhash, payAddr [32]byte) (
 	*channeldb.Invoice, *lnwire.UpdateAddHTLC, uint64, error) {
@@ -549,7 +550,9 @@ func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 
 	htlc := &lnwire.UpdateAddHTLC{
 		PaymentHash: rhash,
-		Amount:      htlcAmt,
+		BtcAmount:      htlcAmt,
+		AssetAmount:      htlcAssetAmount,
+		AssetID:      assetId,
 		Expiry:      timelock,
 		OnionBlob:   blob,
 	}
@@ -565,7 +568,9 @@ func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 
 // generatePayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
-func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
+func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
+	htlcAssetAmount omnicore.Amount,assetId uint32,
+	timelock uint32,
 	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice,
 	*lnwire.UpdateAddHTLC, uint64, error) {
 
@@ -586,7 +591,7 @@ func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
 	copy(payAddr[:], r)
 
 	return generatePaymentWithPreimage(
-		invoiceAmt, htlcAmt, timelock, blob, &preimage, rhash, payAddr,
+		invoiceAmt, htlcAmt,htlcAssetAmount,assetId, timelock, blob, &preimage, rhash, payAddr,
 	)
 }
 
@@ -733,13 +738,14 @@ func waitForPayFuncResult(payFunc func() error, d time.Duration) error {
 func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	firstHop lnwire.ShortChannelID, hops []*hop.Payload,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
+	htlcAssetAmt omnicore.Amount,assetId uint32,
 	timelock uint32) *paymentResponse {
 
 	paymentErr := make(chan error, 1)
 	var rhash lntypes.Hash
 
 	invoice, payFunc, err := preparePayment(sendingPeer, receivingPeer,
-		firstHop, hops, invoiceAmt, htlcAmt, timelock,
+		firstHop, hops, invoiceAmt, htlcAmt,htlcAssetAmt,assetId, timelock,
 	)
 	if err != nil {
 		paymentErr <- err
@@ -766,7 +772,7 @@ func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 // that, when called, launches the payment from the sendingPeer.
 func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	firstHop lnwire.ShortChannelID, hops []*hop.Payload,
-	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
+	invoiceAmt, htlcAmt lnwire.MilliSatoshi,htlcAssetAmt omnicore.Amount,assetId uint32,
 	timelock uint32) (*channeldb.Invoice, func() error, error) {
 
 	sender := sendingPeer.(*mockServer)
@@ -781,7 +787,7 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 
 	// Generate payment: invoice and htlc.
 	invoice, htlc, pid, err := generatePayment(
-		invoiceAmt, htlcAmt, timelock, blob,
+		invoiceAmt, htlcAmt, htlcAssetAmt, assetId,timelock, blob,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -881,7 +887,9 @@ func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 	// Create lightning channels between Alice<->Bob and Bob<->Carol
 	aliceChannel, firstBobChannel, cleanAliceBob, err :=
 		createTestChannel(alicePrivKey, bobPrivKey, aliceToBob,
-			aliceToBob, 0, 0, firstChanID)
+			aliceToBob, 0, 0,
+			0,0,0,0,
+			firstChanID)
 	if err != nil {
 		return nil, nil, nil, errors.Errorf("unable to create "+
 			"alice<->bob channel: %v", err)
@@ -889,7 +897,9 @@ func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 
 	secondBobChannel, carolChannel, cleanBobCarol, err :=
 		createTestChannel(bobPrivKey, carolPrivKey, bobToCarol,
-			bobToCarol, 0, 0, secondChanID)
+			bobToCarol, 0, 0,
+			0,0,0,0,
+			secondChanID)
 	if err != nil {
 		cleanAliceBob()
 		return nil, nil, nil, errors.Errorf("unable to create "+
@@ -1078,7 +1088,9 @@ func createTwoClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 	// Create lightning channels between Alice<->Bob and Bob<->Carol
 	alice, bob, cleanAliceBob, err :=
 		createTestChannel(alicePrivKey, bobPrivKey, aliceToBob,
-			aliceToBob, 0, 0, firstChanID)
+			aliceToBob, 0, 0,
+			0,0,0,0,
+			firstChanID)
 	if err != nil {
 		return nil, nil, nil, errors.Errorf("unable to create "+
 			"alice<->bob channel: %v", err)
@@ -1295,6 +1307,7 @@ func (n *twoHopNetwork) stop() {
 func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 	firstHop lnwire.ShortChannelID, hops []*hop.Payload,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
+	htlcAssetAmount omnicore.Amount,assetId uint32,
 	timelock uint32, preimage lntypes.Preimage) chan error {
 
 	paymentErr := make(chan error, 1)
@@ -1319,8 +1332,9 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 
 	// Generate payment: invoice and htlc.
 	invoice, htlc, pid, err := generatePaymentWithPreimage(
-		invoiceAmt, htlcAmt, timelock, blob,
-		nil, rhash, payAddr,
+		invoiceAmt, htlcAmt,
+		htlcAssetAmount,assetId,
+		timelock, blob,nil, rhash, payAddr,
 	)
 	if err != nil {
 		paymentErr <- err

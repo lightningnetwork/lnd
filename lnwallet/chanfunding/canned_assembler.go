@@ -2,6 +2,7 @@ package chanfunding
 
 import (
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
@@ -21,6 +22,12 @@ type ShimIntent struct {
 	// remoteFundingAmt is the final amount the remote party put into the
 	// funding output.
 	remoteFundingAmt btcutil.Amount
+	/*
+	obd add wxf
+	*/
+	localFundingAssetAmt omnicore.Amount
+	remoteFundingAssetAmt omnicore.Amount
+
 
 	// localKey is our multi-sig key.
 	localKey *keychain.KeyDescriptor
@@ -77,6 +84,14 @@ func (s *ShimIntent) LocalFundingAmt() btcutil.Amount {
 // NOTE: This method satisfies the chanfunding.Intent interface.
 func (s *ShimIntent) RemoteFundingAmt() btcutil.Amount {
 	return s.remoteFundingAmt
+}
+
+/*obd add wxf*/
+func (s *ShimIntent) LocalFundingAssetAmt() omnicore.Amount {
+	return s.remoteFundingAssetAmt
+}
+func (s *ShimIntent) RemoteFundingAssetAmt() omnicore.Amount {
+	return s.remoteFundingAssetAmt
 }
 
 // ChanPoint returns the final outpoint that will create the funding output

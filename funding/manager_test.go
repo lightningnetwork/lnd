@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io/ioutil"
 	"math/big"
 	"net"
@@ -646,12 +647,14 @@ func tearDownFundingManagers(t *testing.T, a, b *testNode) {
 // transaction is confirmed on-chain. Returns the funding out point.
 func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	pushAmt btcutil.Amount, numConfs uint32,
-	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool) (
+	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool,
+	localFundingAssetAmt,
+	pushAssetAmt omnicore.Amount ,assetId uint32) (
 	*wire.OutPoint, *wire.MsgTx) {
 
 	publ := fundChannel(
 		t, alice, bob, localFundingAmt, pushAmt, false, numConfs,
-		updateChan, announceChan,
+		updateChan, announceChan,localFundingAssetAmt,pushAssetAmt,assetId,
 	)
 	fundingOutPoint := &wire.OutPoint{
 		Hash:  publ.TxHash(),
@@ -664,7 +667,8 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 // transaction is confirmed on-chain. Returns the funding tx.
 func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	pushAmt btcutil.Amount, subtractFees bool, numConfs uint32,
-	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool) *wire.MsgTx {
+	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool,localFundingAssetAmt,
+	pushAssetAmt omnicore.Amount ,assetId uint32) *wire.MsgTx {
 
 	// Create a funding request and start the workflow.
 	errChan := make(chan error, 1)
@@ -673,8 +677,11 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		TargetPubkey:    bob.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
 		SubtractFees:    subtractFees,
-		LocalFundingAmt: localFundingAmt,
-		PushAmt:         lnwire.NewMSatFromSatoshis(pushAmt),
+		LocalFundingBtcAmt: localFundingAmt,
+		PushBtcAmt:         lnwire.NewMSatFromSatoshis(pushAmt),
+		LocalFundingAssetAmt: localFundingAssetAmt,
+		PushAssetAmt:         pushAssetAmt,
+		AssetId: assetId,
 		FundingFeePerKw: 1000,
 		Private:         !announceChan,
 		Updates:         updateChan,
@@ -814,7 +821,7 @@ func assertFundingMsgSent(t *testing.T, msgChan chan lnwire.Message,
 	var msg lnwire.Message
 	select {
 	case msg = <-msgChan:
-	case <-time.After(time.Second * 5):
+	case <-time.After(time.Second * 15):
 		t.Fatalf("peer did not send %s message", msgType)
 	}
 
@@ -1042,10 +1049,10 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 					minHtlc = customMinHtlc[j]
 				}
 
-				if m.HtlcMinimumMsat != minHtlc {
+				if m.HtlcBtcMinimumMsat != minHtlc {
 					t.Fatalf("expected ChannelUpdate to "+
 						"advertise min HTLC %v, had %v",
-						minHtlc, m.HtlcMinimumMsat)
+						minHtlc, m.HtlcBtcMinimumMsat)
 				}
 
 				maxHtlc := alice.fundingMgr.cfg.RequiredRemoteMaxValue(
@@ -1066,11 +1073,11 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 						"be 1, was %v", m.MessageFlags)
 				}
 
-				if maxHtlc != m.HtlcMaximumMsat {
+				if maxHtlc != m.HtlcBtcMaximumMsat {
 					t.Fatalf("expected ChannelUpdate to "+
 						"advertise max HTLC %v, had %v",
 						maxHtlc,
-						m.HtlcMaximumMsat)
+						m.HtlcBtcMaximumMsat)
 				}
 
 				gotChannelUpdate = true
@@ -1217,9 +1224,13 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 	// transaction is broadcasted.
 	localAmt := btcutil.Amount(500000)
 	pushAmt := btcutil.Amount(0)
+	localAssetAmt := omnicore.Amount(500000)
+	pushAssetAmt := omnicore.Amount(0)
+	assetId:=uint32(31)
 	capacity := localAmt + pushAmt
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		localAssetAmt,pushAssetAmt,assetId,
 	)
 
 	// Check that neither Alice nor Bob sent an error message.
@@ -1333,7 +1344,7 @@ func testLocalCSVLimit(t *testing.T, aliceMaxCSV, bobRequiredCSV uint16) {
 		Peer:            bob,
 		TargetPubkey:    bob.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
-		LocalFundingAmt: 200000,
+		LocalFundingBtcAmt: 200000,
 		FundingFeePerKw: 1000,
 		Updates:         updateChan,
 		Err:             errChan,
@@ -1399,7 +1410,7 @@ func testLocalCSVLimit(t *testing.T, aliceMaxCSV, bobRequiredCSV uint16) {
 		Peer:            alice,
 		TargetPubkey:    alice.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
-		LocalFundingAmt: 200000,
+		LocalFundingBtcAmt: 200000,
 		FundingFeePerKw: 1000,
 		Updates:         updateChan,
 		Err:             errChan,
@@ -1453,10 +1464,13 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	// transaction is broadcasted.
 	localAmt := btcutil.Amount(500000)
 	pushAmt := btcutil.Amount(0)
+	localAssetAmt := omnicore.Amount(500000)
+	pushAssetAmt := omnicore.Amount(0)
 	capacity := localAmt + pushAmt
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		localAssetAmt,pushAssetAmt, 31,
 	)
 
 	// After the funding transaction gets mined, both nodes will send the
@@ -1602,10 +1616,13 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	// transaction is broadcasted.
 	localAmt := btcutil.Amount(500000)
 	pushAmt := btcutil.Amount(0)
+	localAssetAmt := omnicore.Amount(500000)
+	pushAssetAmt := omnicore.Amount(0)
 	capacity := localAmt + pushAmt
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		localAssetAmt,pushAssetAmt,31,
 	)
 
 	// After the funding transaction gets mined, both nodes will send the
@@ -1752,8 +1769,8 @@ func TestFundingManagerPeerTimeoutAfterInitFunding(t *testing.T) {
 		Peer:            bob,
 		TargetPubkey:    bob.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
-		LocalFundingAmt: 500000,
-		PushAmt:         lnwire.NewMSatFromSatoshis(0),
+		LocalFundingBtcAmt: 500000,
+		PushBtcAmt:         lnwire.NewMSatFromSatoshis(0),
 		Private:         false,
 		Updates:         updateChan,
 		Err:             errChan,
@@ -1815,8 +1832,8 @@ func TestFundingManagerPeerTimeoutAfterFundingOpen(t *testing.T) {
 		Peer:            bob,
 		TargetPubkey:    bob.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
-		LocalFundingAmt: 500000,
-		PushAmt:         lnwire.NewMSatFromSatoshis(0),
+		LocalFundingBtcAmt: 500000,
+		PushBtcAmt:         lnwire.NewMSatFromSatoshis(0),
 		Private:         false,
 		Updates:         updateChan,
 		Err:             errChan,
@@ -1887,8 +1904,8 @@ func TestFundingManagerPeerTimeoutAfterFundingAccept(t *testing.T) {
 		Peer:            bob,
 		TargetPubkey:    bob.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
-		LocalFundingAmt: 500000,
-		PushAmt:         lnwire.NewMSatFromSatoshis(0),
+		LocalFundingBtcAmt: 500000,
+		PushBtcAmt:         lnwire.NewMSatFromSatoshis(0),
 		Private:         false,
 		Updates:         updateChan,
 		Err:             errChan,
@@ -1960,7 +1977,8 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	_, _ = openChannel(t, alice, bob, 500000, 0, 1, updateChan, true)
+	_, _ = openChannel(t, alice, bob, 500000, 0, 1, updateChan, true,
+		0,0,0,)
 
 	// Bob will at this point be waiting for the funding transaction to be
 	// confirmed, so the channel should be considered pending.
@@ -2006,7 +2024,8 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	_, _ = openChannel(t, alice, bob, 500000, 0, 1, updateChan, true)
+	_, _ = openChannel(t, alice, bob, 500000, 0, 1, updateChan, true,
+		0,0,0)
 
 	// Alice will at this point be waiting for the funding transaction to be
 	// confirmed, so the channel should be considered pending.
@@ -2080,6 +2099,7 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 	capacity := localAmt + pushAmt
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		0,0,0,
 	)
 
 	// Notify that transaction was mined
@@ -2183,6 +2203,7 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	capacity := localAmt + pushAmt
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		0,0,0,
 	)
 
 	// Notify that transaction was mined
@@ -2271,6 +2292,7 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 	capacity := localAmt + pushAmt
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		0,0,0,
 	)
 
 	// Notify that transaction was mined
@@ -2355,6 +2377,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	capacity := localAmt + pushAmt
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, false,
+		0,0,0,
 	)
 
 	// Notify that transaction was mined
@@ -2468,6 +2491,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	capacity := localAmt + pushAmt
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, false,
+		0,0,0,
 	)
 
 	// Notify that transaction was mined
@@ -2612,8 +2636,8 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		Peer:             bob,
 		TargetPubkey:     bob.privKey.PubKey(),
 		ChainHash:        *fundingNetParams.GenesisHash,
-		LocalFundingAmt:  localAmt,
-		PushAmt:          lnwire.NewMSatFromSatoshis(pushAmt),
+		LocalFundingBtcAmt:  localAmt,
+		PushBtcAmt:          lnwire.NewMSatFromSatoshis(pushAmt),
 		Private:          false,
 		MaxValueInFlight: maxValueInFlight,
 		MinHtlcIn:        minHtlcIn,
@@ -2898,8 +2922,8 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 			Peer:            bob,
 			TargetPubkey:    bob.privKey.PubKey(),
 			ChainHash:       *fundingNetParams.GenesisHash,
-			LocalFundingAmt: 5000000,
-			PushAmt:         lnwire.NewMSatFromSatoshis(0),
+			LocalFundingBtcAmt: 5000000,
+			PushBtcAmt:         lnwire.NewMSatFromSatoshis(0),
 			Private:         false,
 			Updates:         updateChan,
 			Err:             errChan,
@@ -3069,8 +3093,8 @@ func TestFundingManagerRejectPush(t *testing.T) {
 		Peer:            bob,
 		TargetPubkey:    bob.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
-		LocalFundingAmt: 500000,
-		PushAmt:         lnwire.NewMSatFromSatoshis(10),
+		LocalFundingBtcAmt: 500000,
+		PushBtcAmt:         lnwire.NewMSatFromSatoshis(10),
 		Private:         true,
 		Updates:         updateChan,
 		Err:             errChan,
@@ -3127,8 +3151,8 @@ func TestFundingManagerMaxConfs(t *testing.T) {
 		Peer:            bob,
 		TargetPubkey:    bob.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
-		LocalFundingAmt: 500000,
-		PushAmt:         lnwire.NewMSatFromSatoshis(10),
+		LocalFundingBtcAmt: 500000,
+		PushBtcAmt:         lnwire.NewMSatFromSatoshis(10),
 		Private:         false,
 		Updates:         updateChan,
 		Err:             errChan,
@@ -3250,7 +3274,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 		pushAmt := btcutil.Amount(0)
 		fundingTx := fundChannel(
 			t, alice, bob, test.spendAmt, pushAmt, true, 1,
-			updateChan, true,
+			updateChan, true,0,0,0,
 		)
 
 		// Check whether the expected change output is present.
@@ -3410,8 +3434,8 @@ func TestMaxChannelSizeConfig(t *testing.T) {
 		Peer:            bob,
 		TargetPubkey:    bob.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
-		LocalFundingAmt: MaxBtcFundingAmount,
-		PushAmt:         lnwire.NewMSatFromSatoshis(0),
+		LocalFundingBtcAmt: MaxBtcFundingAmount,
+		PushBtcAmt:         lnwire.NewMSatFromSatoshis(0),
 		Private:         false,
 		Updates:         updateChan,
 		Err:             errChan,
@@ -3456,7 +3480,7 @@ func TestMaxChannelSizeConfig(t *testing.T) {
 
 	// Attempt to create a channel above the limit
 	// imposed by --maxchansize, which should be rejected.
-	initReq.LocalFundingAmt = btcutil.SatoshiPerBitcoin + 1
+	initReq.LocalFundingBtcAmt = btcutil.SatoshiPerBitcoin + 1
 
 	// After processing the funding open message, bob should respond with
 	// an error rejecting the channel that exceeds size limit.
@@ -3486,8 +3510,8 @@ func TestWumboChannelConfig(t *testing.T) {
 		Peer:            bob,
 		TargetPubkey:    bob.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
-		LocalFundingAmt: MaxBtcFundingAmount,
-		PushAmt:         lnwire.NewMSatFromSatoshis(0),
+		LocalFundingBtcAmt: MaxBtcFundingAmount,
+		PushBtcAmt:         lnwire.NewMSatFromSatoshis(0),
 		Private:         false,
 		Updates:         updateChan,
 		Err:             errChan,
@@ -3501,7 +3525,7 @@ func TestWumboChannelConfig(t *testing.T) {
 
 	// We'll now attempt to create a channel above the wumbo mark, which
 	// should be rejected.
-	initReq.LocalFundingAmt = btcutil.SatoshiPerBitcoin
+	initReq.LocalFundingBtcAmt = btcutil.SatoshiPerBitcoin
 
 	// After processing the funding open message, bob should respond with
 	// an error rejecting the channel.
@@ -3636,8 +3660,8 @@ func testUpfrontFailure(t *testing.T, pkscript []byte, expectErr bool) {
 		TargetPubkey:    alice.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
 		SubtractFees:    false,
-		LocalFundingAmt: fundingAmt,
-		PushAmt:         pushAmt,
+		LocalFundingBtcAmt: fundingAmt,
+		PushBtcAmt:         pushAmt,
 		FundingFeePerKw: 1000,
 		Private:         false,
 		Updates:         updateChan,

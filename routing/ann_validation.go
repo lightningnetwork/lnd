@@ -166,8 +166,8 @@ func validateOptionalFields(capacity btcutil.Amount,
 	msg *lnwire.ChannelUpdate) error {
 
 	if msg.MessageFlags.HasMaxHtlc() {
-		maxHtlc := msg.HtlcMaximumMsat
-		if maxHtlc == 0 || maxHtlc < msg.HtlcMinimumMsat {
+		maxHtlc := msg.HtlcBtcMaximumMsat
+		if maxHtlc == 0 || maxHtlc < msg.HtlcBtcMinimumMsat {
 			return errors.Errorf("invalid max htlc for channel "+
 				"update %v", spew.Sdump(msg))
 		}

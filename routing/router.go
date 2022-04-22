@@ -1570,7 +1570,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 
 		// TODO(roasbeef): this is a hack, needs to be removed
 		// after commitment fees are dynamic.
-		msg.Capacity = btcutil.Amount(chanUtxo.Value)
+		msg.BtcCapacity = btcutil.Amount(chanUtxo.Value)
 		msg.ChannelPoint = *fundingPoint
 		if err := r.cfg.Graph.AddChannelEdge(msg, op...); err != nil {
 			return errors.Errorf("unable to add edge: %v", err)
@@ -1580,7 +1580,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			"connects %x and %x with ChannelPoint(%v): "+
 			"chan_id=%v, capacity=%v",
 			msg.NodeKey1Bytes, msg.NodeKey2Bytes,
-			fundingPoint, msg.ChannelID, msg.Capacity)
+			fundingPoint, msg.ChannelID, msg.BtcCapacity)
 		r.stats.incNumEdgesDiscovered()
 
 		// As a new edge has been added to the channel graph, we'll
@@ -2366,7 +2366,7 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
 		return false
 	}
 
-	if err := ValidateChannelUpdateAnn(pubKey, ch.Capacity, msg); err != nil {
+	if err := ValidateChannelUpdateAnn(pubKey, ch.BtcCapacity, msg); err != nil {
 		log.Errorf("Unable to validate channel update: %v", err)
 		return false
 	}
@@ -2378,8 +2378,11 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
 		MessageFlags:              msg.MessageFlags,
 		ChannelFlags:              msg.ChannelFlags,
 		TimeLockDelta:             msg.TimeLockDelta,
-		MinHTLC:                   msg.HtlcMinimumMsat,
-		MaxHTLC:                   msg.HtlcMaximumMsat,
+		MinBtcHTLC:                   msg.HtlcBtcMinimumMsat,
+		MaxBtcHTLC:                   msg.HtlcBtcMaximumMsat,
+		MinAssetHTLC:                   msg.HtlcAssetMinimum,
+		MaxAssetHTLC:                   msg.HtlcAssetMaximum,
+		AssetId:                   msg.AssetId,
 		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
 	})

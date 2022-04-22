@@ -299,8 +299,13 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 				NodePubkey:       req.Node.SerializeCompressed(),
 				ChainHash:        req.OpenChanMsg.ChainHash[:],
 				PendingChanId:    req.OpenChanMsg.PendingChannelID[:],
-				FundingAmt:       uint64(req.OpenChanMsg.FundingAmount),
-				PushAmt:          uint64(req.OpenChanMsg.PushAmount),
+				FundingAmt:       uint64(req.OpenChanMsg.FundingBtcAmount),
+				PushAmt:          uint64(req.OpenChanMsg.PushBtcAmount),
+				/*obd update wxf
+				todo add asset
+				*/
+				//FundingAmt:       uint64(req.OpenChanMsg.FundingAssetAmount),
+				//PushAmt:          uint64(req.OpenChanMsg.PushAssetAmount),
 				DustLimit:        uint64(req.OpenChanMsg.DustLimit),
 				MaxValueInFlight: uint64(req.OpenChanMsg.MaxValueInFlight),
 				ChannelReserve:   uint64(req.OpenChanMsg.ChannelReserve),

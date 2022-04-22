@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"image/color"
 	"io"
 	"math"
@@ -492,7 +493,10 @@ func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, node route.Vertex,
 			ChannelID:    e.ChannelID,
 			IsNode1:      node == e.NodeKey1Bytes,
 			OtherNode:    e.NodeKey2Bytes,
-			Capacity:     e.Capacity,
+			/*obd add wxf*/
+			BtcCapacity:     e.BtcCapacity,
+			AssetCapacity:     e.AssetCapacity,
+			AssetId:     e.AssetId,
 			OutPolicySet: p1 != nil,
 			InPolicy:     cachedInPolicy,
 		}
@@ -578,7 +582,9 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 				ChannelID:    e.ChannelID,
 				IsNode1:      node.PubKeyBytes == e.NodeKey1Bytes,
 				OtherNode:    e.NodeKey2Bytes,
-				Capacity:     e.Capacity,
+				BtcCapacity:     e.BtcCapacity,
+				AssetCapacity:     e.AssetCapacity,
+				AssetId:     e.AssetId,
 				OutPolicySet: p1 != nil,
 				InPolicy:     cachedInPolicy,
 			}
@@ -3061,9 +3067,14 @@ type ChannelEdgeInfo struct {
 	// used to uniquely identify the channel within the channel graph.
 	ChannelPoint wire.OutPoint
 
+	/*
+	obd update wxf
+	*/
 	// Capacity is the total capacity of the channel, this is determined by
 	// the value output in the outpoint that created this channel.
-	Capacity btcutil.Amount
+	BtcCapacity btcutil.Amount
+	AssetCapacity omnicore.Amount
+	AssetId uint32
 
 	// ExtraOpaqueData is the set of data that was appended to this
 	// message, some of which we may not actually know how to iterate or
@@ -3408,11 +3419,16 @@ type ChannelEdgePolicy struct {
 
 	// MinHTLC is the smallest value HTLC this node will forward, expressed
 	// in millisatoshi.
-	MinHTLC lnwire.MilliSatoshi
+	MinBtcHTLC lnwire.MilliSatoshi
 
 	// MaxHTLC is the largest value HTLC this node will forward, expressed
 	// in millisatoshi.
-	MaxHTLC lnwire.MilliSatoshi
+	MaxBtcHTLC lnwire.MilliSatoshi
+	/*obd add wxf
+	*/
+	MinAssetHTLC omnicore.Amount
+	MaxAssetHTLC omnicore.Amount
+	AssetId uint32
 
 	// FeeBaseMSat is the base HTLC fee that will be charged for forwarding
 	// ANY HTLC, expressed in mSAT's.
@@ -4358,7 +4374,13 @@ func putChanEdgeInfo(edgeIndex kvdb.RwBucket, edgeInfo *ChannelEdgeInfo, chanID 
 	if err := writeOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
 		return err
 	}
-	if err := binary.Write(&b, byteOrder, uint64(edgeInfo.Capacity)); err != nil {
+	if err := binary.Write(&b, byteOrder, uint64(edgeInfo.BtcCapacity)); err != nil {
+		return err
+	}
+	if err := binary.Write(&b, byteOrder, uint64(edgeInfo.AssetCapacity)); err != nil {
+		return err
+	}
+	if err := binary.Write(&b, byteOrder, uint32(edgeInfo.AssetId)); err != nil {
 		return err
 	}
 	if _, err := b.Write(chanID[:]); err != nil {
@@ -4442,7 +4464,13 @@ func deserializeChanEdgeInfo(r io.Reader) (ChannelEdgeInfo, error) {
 	if err := readOutpoint(r, &edgeInfo.ChannelPoint); err != nil {
 		return ChannelEdgeInfo{}, err
 	}
-	if err := binary.Read(r, byteOrder, &edgeInfo.Capacity); err != nil {
+	if err := binary.Read(r, byteOrder, &edgeInfo.BtcCapacity); err != nil {
+		return ChannelEdgeInfo{}, err
+	}
+	if err := binary.Read(r, byteOrder, &edgeInfo.AssetCapacity); err != nil {
+		return ChannelEdgeInfo{}, err
+	}
+	if err := binary.Read(r, byteOrder, &edgeInfo.AssetId); err != nil {
 		return ChannelEdgeInfo{}, err
 	}
 	if err := binary.Read(r, byteOrder, &edgeInfo.ChannelID); err != nil {
@@ -4690,7 +4718,10 @@ func serializeChanEdgePolicy(w io.Writer, edge *ChannelEdgePolicy,
 	if err := binary.Write(w, byteOrder, edge.TimeLockDelta); err != nil {
 		return err
 	}
-	if err := binary.Write(w, byteOrder, uint64(edge.MinHTLC)); err != nil {
+	if err := binary.Write(w, byteOrder, uint64(edge.MinBtcHTLC)); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, uint64(edge.MinAssetHTLC)); err != nil {
 		return err
 	}
 	if err := binary.Write(w, byteOrder, uint64(edge.FeeBaseMSat)); err != nil {
@@ -4710,7 +4741,12 @@ func serializeChanEdgePolicy(w io.Writer, edge *ChannelEdgePolicy,
 	// TODO(halseth): clean up when moving to TLV.
 	var opaqueBuf bytes.Buffer
 	if edge.MessageFlags.HasMaxHtlc() {
-		err := binary.Write(&opaqueBuf, byteOrder, uint64(edge.MaxHTLC))
+		err := binary.Write(&opaqueBuf, byteOrder, uint64(edge.MaxBtcHTLC))
+		if err != nil {
+			return err
+		}
+		/*obd add wxf*/
+		err = binary.Write(&opaqueBuf, byteOrder, uint64(edge.MaxAssetHTLC))
 		if err != nil {
 			return err
 		}
@@ -4786,7 +4822,14 @@ func deserializeChanEdgePolicyRaw(r io.Reader) (*ChannelEdgePolicy, error) {
 	if err := binary.Read(r, byteOrder, &n); err != nil {
 		return nil, err
 	}
-	edge.MinHTLC = lnwire.MilliSatoshi(n)
+	edge.MinBtcHTLC = lnwire.MilliSatoshi(n)
+
+	/*obd add wxf*/
+	var minAssetHtlc uint64
+	if err := binary.Read(r, byteOrder, &minAssetHtlc); err != nil {
+		return nil, err
+	}
+	edge.MinAssetHTLC = omnicore.Amount(minAssetHtlc)
 
 	if err := binary.Read(r, byteOrder, &n); err != nil {
 		return nil, err
@@ -4831,8 +4874,11 @@ func deserializeChanEdgePolicyRaw(r io.Reader) (*ChannelEdgePolicy, error) {
 			return edge, ErrEdgePolicyOptionalFieldNotFound
 		}
 
-		maxHtlc := byteOrder.Uint64(opq[:8])
-		edge.MaxHTLC = lnwire.MilliSatoshi(maxHtlc)
+		/*obd update wxf*/
+		maxBtcHtlc := byteOrder.Uint64(opq[:8])
+		edge.MaxBtcHTLC = lnwire.MilliSatoshi(maxBtcHtlc)
+		maxAssetHtlc := byteOrder.Uint64(opq[8:16])
+		edge.MaxAssetHTLC = omnicore.Amount(maxAssetHtlc)
 
 		// Exclude the parsed field from the rest of the opaque data.
 		edge.ExtraOpaqueData = opq[8:]

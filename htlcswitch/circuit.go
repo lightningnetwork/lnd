@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"encoding/binary"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -50,6 +51,11 @@ type PaymentCircuit struct {
 	// either as a payment or forwarded amount.
 	OutgoingAmount lnwire.MilliSatoshi
 
+	/*obd add wxf*/
+	IncomingAssetAmount omnicore.Amount
+	OutgoingAssetAmount omnicore.Amount
+	AssetId uint32
+
 	// ErrorEncrypter is used to re-encrypt the onion failure before
 	// sending it back to the originator of the payment.
 	ErrorEncrypter hop.ErrorEncrypter
@@ -84,7 +90,10 @@ func newPaymentCircuit(hash *[32]byte, pkt *htlcPacket) *PaymentCircuit {
 		},
 		PaymentHash:    *hash,
 		IncomingAmount: pkt.incomingAmount,
-		OutgoingAmount: pkt.amount,
+		IncomingAssetAmount: pkt.incomingAssetAmount,
+		OutgoingAmount: pkt.btcAmount,
+		OutgoingAssetAmount: pkt.assetAmount,
+		AssetId: pkt.assetId,
 		ErrorEncrypter: pkt.obfuscator,
 	}
 }
@@ -105,7 +114,10 @@ func makePaymentCircuit(hash *[32]byte, pkt *htlcPacket) PaymentCircuit {
 		},
 		PaymentHash:    *hash,
 		IncomingAmount: pkt.incomingAmount,
-		OutgoingAmount: pkt.amount,
+		OutgoingAmount: pkt.btcAmount,
+		IncomingAssetAmount: pkt.incomingAssetAmount,
+		OutgoingAssetAmount: pkt.assetAmount,
+		AssetId: pkt.assetId,
 		ErrorEncrypter: pkt.obfuscator,
 	}
 }

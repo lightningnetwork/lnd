@@ -2,6 +2,7 @@ package routing
 
 import (
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"image/color"
 	"net"
 	"sync"
@@ -194,8 +195,12 @@ type ClosedChanSummary struct {
 	// channel.
 	ChanID uint64
 
+	/*obd update wxf*/
 	// Capacity was the total capacity of the channel before it was closed.
-	Capacity btcutil.Amount
+	//Capacity btcutil.Amount
+	BtcCapacity btcutil.Amount
+	AssetCapacity omnicore.Amount
+	AssetId uint32
 
 	// ClosedHeight is the height in the chain that the channel was closed
 	// at.
@@ -215,7 +220,9 @@ func createCloseSummaries(blockHeight uint32,
 	for i, closedChan := range closedChans {
 		closeSummaries[i] = &ClosedChanSummary{
 			ChanID:       closedChan.ChannelID,
-			Capacity:     closedChan.Capacity,
+			BtcCapacity:     closedChan.BtcCapacity,
+			AssetCapacity:     closedChan.AssetCapacity,
+			AssetId:     closedChan.AssetId,
 			ClosedHeight: blockHeight,
 			ChanPoint:    closedChan.ChannelPoint,
 		}
@@ -265,14 +272,21 @@ type ChannelEdgeUpdate struct {
 	// output for the channel.
 	ChanPoint wire.OutPoint
 
+	/*obd update wxf*/
 	// Capacity is the capacity of the newly created channel.
-	Capacity btcutil.Amount
+	//Capacity btcutil.Amount
+	BtcCapacity btcutil.Amount
+	AssetCapacity omnicore.Amount
+	AssetId uint32
+	MinAssetHTLC omnicore.Amount
+	MaxAssetHTLC omnicore.Amount
 
 	// MinHTLC is the minimum HTLC amount that this channel will forward.
-	MinHTLC lnwire.MilliSatoshi
+	MinBtcHTLC lnwire.MilliSatoshi
 
 	// MaxHTLC is the maximum HTLC amount that this channel will forward.
-	MaxHTLC lnwire.MilliSatoshi
+	MaxBtcHTLC lnwire.MilliSatoshi
+
 
 	// BaseFee is the base fee that will charged for all HTLC's forwarded
 	// across the this channel direction.
@@ -368,9 +382,14 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			ChanID:          m.ChannelID,
 			ChanPoint:       edgeInfo.ChannelPoint,
 			TimeLockDelta:   m.TimeLockDelta,
-			Capacity:        edgeInfo.Capacity,
-			MinHTLC:         m.MinHTLC,
-			MaxHTLC:         m.MaxHTLC,
+			/*obd update wxf*/
+			BtcCapacity:        edgeInfo.BtcCapacity,
+			AssetCapacity:        edgeInfo.AssetCapacity,
+			AssetId:        edgeInfo.AssetId,
+			MinBtcHTLC:         m.MinBtcHTLC,
+			MaxBtcHTLC:         m.MaxBtcHTLC,
+			MinAssetHTLC:         m.MinAssetHTLC,
+			MaxAssetHTLC:         m.MaxAssetHTLC,
 			BaseFee:         m.FeeBaseMSat,
 			FeeRate:         m.FeeProportionalMillionths,
 			AdvertisingNode: aNode,

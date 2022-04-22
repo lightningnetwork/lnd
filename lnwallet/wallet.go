@@ -117,11 +117,18 @@ type InitFundingReserveMsg struct {
 
 	// LocalFundingAmt is the amount of funds requested from us for this
 	// channel.
-	LocalFundingAmt btcutil.Amount
+	LocalFundingBtcAmt btcutil.Amount
 
 	// RemoteFundingAmnt is the amount of funds the remote will contribute
 	// to this channel.
-	RemoteFundingAmt btcutil.Amount
+	RemoteFundingBtcAmt btcutil.Amount
+	/*
+	obd add wxf
+	*/
+	LocalFundingAssetAmt omnicore.Amount
+	RemoteFundingAssetAmt omnicore.Amount
+	AssetId uint32
+	PushAsset omnicore.Amount
 
 	// CommitFeePerKw is the starting accepted satoshis/Kw fee for the set
 	// of initial commitment transactions. In order to ensure timely
@@ -690,7 +697,7 @@ func (l *LightningWallet) CancelFundingIntent(pid [32]byte) error {
 // validate a funding reservation request.
 func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg) {
 	// It isn't possible to create a channel with zero funds committed.
-	if req.LocalFundingAmt+req.RemoteFundingAmt == 0 {
+	if req.LocalFundingBtcAmt+req.RemoteFundingBtcAmt == 0 {
 		err := ErrZeroCapacity()
 		req.err <- err
 		req.resp <- nil
@@ -733,8 +740,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		enforceNewReservedValue = !isPsbtFunder
 	}
 
-	localFundingAmt := req.LocalFundingAmt
-	remoteFundingAmt := req.RemoteFundingAmt
+	localFundingAmt := req.LocalFundingBtcAmt
+	remoteFundingAmt := req.RemoteFundingBtcAmt
+	localFundingAssetAmt := req.LocalFundingAssetAmt
+	remoteFundingAssetAmt := req.RemoteFundingAssetAmt
 
 	var (
 		fundingIntent chanfunding.Intent
@@ -758,8 +767,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		// the fee rate passed in to perform coin selection.
 		var err error
 		fundingReq := &chanfunding.Request{
-			RemoteAmt:    req.RemoteFundingAmt,
-			LocalAmt:     req.LocalFundingAmt,
+			RemoteAmt:    req.RemoteFundingBtcAmt,
+			LocalAmt:     req.LocalFundingBtcAmt,
 			MinConfs:     req.MinConfs,
 			SubtractFees: req.SubtractFees,
 			FeeRate:      req.FundingFeePerKw,
@@ -844,6 +853,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// The total channel capacity will be the size of the funding output we
 	// created plus the remote contribution.
 	capacity := localFundingAmt + remoteFundingAmt
+	assetCapacity := localFundingAssetAmt + remoteFundingAssetAmt
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	/*
@@ -854,7 +864,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		capacity, localFundingAmt, req.CommitFeePerKw, l, id,
 		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
 		req.CommitType, req.ChanFunder, req.PendingChanID,
-		thawHeight,0,0,0,0,
+		thawHeight,assetCapacity,localFundingAssetAmt,req.PushAsset,req.AssetId,
 	)
 	if err != nil {
 		fundingIntent.Cancel()
@@ -1293,7 +1303,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 
 	theirCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, remoteCommitmentKeys, theirChanCfg,
-		ourChanCfg, remoteBalance, localBalance, localAssetBalance, remoteAssetBalance, 0, !initiator, leaseExpiry, theirOpAmounts,
+		ourChanCfg, remoteBalance, localBalance, remoteAssetBalance, localAssetBalance,  0, !initiator, leaseExpiry, theirOpAmounts,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1556,12 +1566,12 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 
 	// With the funding tx complete, create both commitment transactions.
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBtcBalance.ToSatoshis()
-	remoteBalance := pendingReservation.partialState.LocalCommitment.LocalBtcBalance.ToSatoshis()
+	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBtcBalance.ToSatoshis()
 	/*
 	obd add wxf
 	*/
 	localAssetBalance := pendingReservation.partialState.LocalCommitment.LocalAssetBalance
-	remoteAssetBalance := pendingReservation.partialState.LocalCommitment.LocalAssetBalance
+	remoteAssetBalance := pendingReservation.partialState.LocalCommitment.RemoteAssetBalance
 	var leaseExpiry uint32
 	if pendingReservation.partialState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = pendingReservation.partialState.ThawHeight

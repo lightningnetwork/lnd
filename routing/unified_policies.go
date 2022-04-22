@@ -3,6 +3,7 @@ package routing
 import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -40,7 +41,7 @@ func newUnifiedPolicies(sourceNode, toNode route.Vertex,
 // addPolicy adds a single channel policy. Capacity may be zero if unknown
 // (light clients).
 func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
-	edge *channeldb.CachedEdgePolicy, capacity btcutil.Amount) {
+	edge *channeldb.CachedEdgePolicy, capacity btcutil.Amount,Assetcapacity omnicore.Amount) {
 
 	localChan := fromNode == u.sourceNode
 
@@ -63,6 +64,7 @@ func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
 	policy.edges = append(policy.edges, &unifiedPolicyEdge{
 		policy:   edge,
 		capacity: capacity,
+		assetCapacity: Assetcapacity,
 	})
 }
 
@@ -79,7 +81,7 @@ func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
 
 		// Add this policy to the unified policies map.
 		u.addPolicy(
-			channel.OtherNode, channel.InPolicy, channel.Capacity,
+			channel.OtherNode, channel.InPolicy, channel.BtcCapacity,channel.AssetCapacity,
 		)
 
 		return nil
@@ -94,6 +96,7 @@ func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
 type unifiedPolicyEdge struct {
 	policy   *channeldb.CachedEdgePolicy
 	capacity btcutil.Amount
+	assetCapacity omnicore.Amount
 }
 
 // amtInRange checks whether an amount falls within the valid range for a
@@ -109,13 +112,13 @@ func (u *unifiedPolicyEdge) amtInRange(amt lnwire.MilliSatoshi) bool {
 
 	// Skip channels for which this htlc is too large.
 	if u.policy.MessageFlags.HasMaxHtlc() &&
-		amt > u.policy.MaxHTLC {
+		amt > u.policy.MaxBtcHTLC {
 
 		return false
 	}
 
 	// Skip channels for which this htlc is too small.
-	if amt < u.policy.MinHTLC {
+	if amt < u.policy.MinBtcHTLC {
 		return false
 	}
 
@@ -265,8 +268,8 @@ func (u *unifiedPolicy) getPolicyNetwork(
 func (u *unifiedPolicy) minAmt() lnwire.MilliSatoshi {
 	min := lnwire.MaxMilliSatoshi
 	for _, edge := range u.edges {
-		if edge.policy.MinHTLC < min {
-			min = edge.policy.MinHTLC
+		if edge.policy.MinBtcHTLC < min {
+			min = edge.policy.MinBtcHTLC
 		}
 	}
 

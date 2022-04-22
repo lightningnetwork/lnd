@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	prand "math/rand"
 	"sync"
 	"sync/atomic"
@@ -2244,25 +2245,25 @@ func (l *channelLink) getDustClosure() dustClosure {
 // the HTLC is incoming (i.e. one that the remote sent), a boolean denoting
 // whether to evaluate on the local or remote commit, and finally an HTLC
 // amount to test.
-type dustClosure func(chainfee.SatPerKWeight, bool, bool, btcutil.Amount) bool
+type dustClosure func(chainfee.SatPerKWeight, bool, bool, btcutil.Amount,omnicore.Amount) bool
 
 // dustHelper is used to construct the dustClosure.
 func dustHelper(chantype channeldb.ChannelType, localDustLimit,
 	remoteDustLimit btcutil.Amount) dustClosure {
 
 	isDust := func(feerate chainfee.SatPerKWeight, incoming,
-		localCommit bool, amt btcutil.Amount) bool {
+		localCommit bool, amt btcutil.Amount, assetAmount omnicore.Amount) bool {
 
 		if localCommit {
 			return lnwallet.HtlcIsDust(
 				chantype, incoming, true, feerate, amt,
-				localDustLimit,
+				localDustLimit,assetAmount,
 			)
 		}
 
 		return lnwallet.HtlcIsDust(
 			chantype, incoming, false, feerate, amt,
-			remoteDustLimit,
+			remoteDustLimit,assetAmount,
 		)
 	}
 
@@ -2909,7 +2910,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					outgoingChanID:  fwdInfo.NextHop,
 					sourceRef:       pd.SourceRef,
 					incomingAmount:  pd.BtcAmount,
-					amount:          addMsg.BtcAmount,
+					incomingAssetAmount:  pd.AssetAmount,
+					btcAmount:          addMsg.BtcAmount,
+					assetAmount:          addMsg.AssetAmount,
+					assetId:          addMsg.AssetID,
 					htlc:            addMsg,
 					obfuscator:      obfuscator,
 					incomingTimeout: pd.Timeout,
@@ -2973,7 +2977,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					outgoingChanID:  fwdInfo.NextHop,
 					sourceRef:       pd.SourceRef,
 					incomingAmount:  pd.BtcAmount,
-					amount:          addMsg.BtcAmount,
+					btcAmount:          addMsg.BtcAmount,
+					assetAmount:          addMsg.AssetAmount,
+					assetId:          addMsg.AssetID,
 					htlc:            addMsg,
 					obfuscator:      obfuscator,
 					incomingTimeout: pd.Timeout,
@@ -3205,7 +3211,8 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		},
 		HtlcInfo{
 			IncomingTimeLock: pd.Timeout,
-			IncomingAmt:      pd.Amount,
+			IncomingAmt:      pd.BtcAmount,
+			IncomingAssetAmt:      pd.AssetAmount,
 		},
 		eventType,
 		failure,

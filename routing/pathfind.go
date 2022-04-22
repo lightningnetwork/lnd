@@ -381,7 +381,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 		// This can happen when a channel is added to the graph after
 		// we've already queried the bandwidth hints.
 		if !ok {
-			bandwidth = lnwire.NewMSatFromSatoshis(channel.Capacity)
+			bandwidth = lnwire.NewMSatFromSatoshis(channel.BtcCapacity)
 		}
 
 		if bandwidth > max {
@@ -815,7 +815,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 
 		for _, reverseEdge := range additionalEdgesWithSrc[pivot] {
-			u.addPolicy(reverseEdge.sourceNode, reverseEdge.edge, 0)
+			u.addPolicy(reverseEdge.sourceNode, reverseEdge.edge, 0,0)
 		}
 
 		amtToSend := partialPath.amountToReceive

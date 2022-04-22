@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 	"sync"
 	"time"
@@ -135,7 +136,9 @@ type reservationWithCtx struct {
 	reservation *lnwallet.ChannelReservation
 	peer        lnpeer.Peer
 
-	chanAmt btcutil.Amount
+	chanBtcAmt btcutil.Amount
+	chanAssetAmt omnicore.Amount
+	assetId uint32
 
 	// Constraints we require for the remote.
 	remoteCsvDelay uint16
@@ -194,10 +197,15 @@ type InitFundingMsg struct {
 	SubtractFees bool
 
 	// LocalFundingAmt is the size of the channel.
-	LocalFundingAmt btcutil.Amount
+	LocalFundingBtcAmt btcutil.Amount
 
 	// PushAmt is the amount pushed to the counterparty.
-	PushAmt lnwire.MilliSatoshi
+	PushBtcAmt lnwire.MilliSatoshi
+	/*obd udpate wxf*/
+	AssetId uint32
+	PushAssetAmt omnicore.Amount
+	LocalFundingAssetAmt omnicore.Amount
+
 
 	// FundingFeePerKw is the fee for the funding transaction.
 	FundingFeePerKw chainfee.SatPerKWeight
@@ -795,7 +803,7 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 
 	// For all other error types we just send a generic error.
 	default:
-		msg = lnwire.ErrorData("funding failed due to internal error")
+		msg = lnwire.ErrorData("funding failed due to internal error:"+fundingErr.Error())
 	}
 
 	errMsg := &lnwire.Error{
@@ -1063,13 +1071,22 @@ func (f *Manager) advancePendingChannelState(
 		// maxWaitNumBlocksFundingConf and we are not the
 		// channel initiator.
 		ch := channel
-		localBalance := ch.LocalCommitment.LocalBalance.ToSatoshis()
+		/*
+		obd update wxf
+		*/
+		localBtcBalance := ch.LocalCommitment.LocalBtcBalance.ToSatoshis()
+		localAssetBalance := ch.LocalCommitment.LocalAssetBalance
 		closeInfo := &channeldb.ChannelCloseSummary{
 			ChainHash:               ch.ChainHash,
 			ChanPoint:               ch.FundingOutpoint,
 			RemotePub:               ch.IdentityPub,
-			Capacity:                ch.Capacity,
-			SettledBalance:          localBalance,
+			/*
+				obd update wxf
+			*/
+			BtcCapacity:                ch.BtcCapacity,
+			AssetCapacity:                ch.AssetCapacity,
+			SettledBtcBalance:          localBtcBalance,
+			SettledAssetBalance:          localAssetBalance,
 			CloseType:               channeldb.FundingCanceled,
 			RemoteCurrentRevocation: ch.RemoteCurrentRevocation,
 			RemoteNextRevocation:    ch.RemoteNextRevocation,
@@ -1159,7 +1176,9 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	peerPubKey := peer.IdentityKey()
 	peerIDKey := newSerializedKey(peerPubKey)
 
-	amt := msg.FundingAmount
+	btcAmt := msg.FundingBtcAmount
+	assetAmt := msg.FundingAssetAmount
+	assetId := msg.AssetId
 
 	// We get all pending channels for this peer. This is the list of the
 	// active reservations and the channels pending open in the database.
@@ -1225,27 +1244,27 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	}
 
 	// Ensure that the remote party respects our maximum channel size.
-	if amt > f.cfg.MaxChanSize {
+	if btcAmt > f.cfg.MaxChanSize {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwallet.ErrChanTooLarge(amt, f.cfg.MaxChanSize),
+			lnwallet.ErrChanTooLarge(btcAmt, f.cfg.MaxChanSize),
 		)
 		return
 	}
 
 	// We'll, also ensure that the remote party isn't attempting to propose
 	// a channel that's below our current min channel size.
-	if amt < f.cfg.MinChanSize {
+	if btcAmt < f.cfg.MinChanSize {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwallet.ErrChanTooSmall(amt, btcutil.Amount(f.cfg.MinChanSize)),
+			lnwallet.ErrChanTooSmall(btcAmt, btcutil.Amount(f.cfg.MinChanSize)),
 		)
 		return
 	}
 
 	// If request specifies non-zero push amount and 'rejectpush' is set,
 	// signal an error.
-	if f.cfg.RejectPush && msg.PushAmount > 0 {
+	if f.cfg.RejectPush && msg.PushBtcAmount > 0 {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
 			lnwallet.ErrNonZeroPushAmount(),
@@ -1272,9 +1291,13 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	}
 
 	log.Infof("Recv'd fundingRequest(amt=%v, push=%v, delay=%v, "+
-		"pendingId=%x) from peer(%x)", amt, msg.PushAmount,
+		"pendingId=%x) from peer(%x)", btcAmt, msg.PushBtcAmount,
 		msg.CsvDelay, msg.PendingChannelID,
 		peer.IdentityKey().SerializeCompressed())
+	if msg.AssetId>0{
+		log.Infof("Recv'd fundingRequest(asset_id=%v asset_amt=%v, AssetPush=%v)",
+			msg.AssetId, assetAmt, msg.PushAssetAmount)
+	}
 
 	// Attempt to initialize a reservation within the wallet. If the wallet
 	// has insufficient resources to create the channel, then the
@@ -1311,11 +1334,15 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		PendingChanID:    msg.PendingChannelID,
 		NodeID:           peer.IdentityKey(),
 		NodeAddr:         peer.Address(),
-		LocalFundingAmt:  0,
-		RemoteFundingAmt: amt,
+		LocalFundingBtcAmt:  0,
+		RemoteFundingBtcAmt: btcAmt,
+		LocalFundingAssetAmt :0,
+		RemoteFundingAssetAmt: assetAmt,
+		AssetId : assetId,
 		CommitFeePerKw:   chainfee.SatPerKWeight(msg.FeePerKiloWeight),
 		FundingFeePerKw:  0,
-		PushMSat:         msg.PushAmount,
+		PushMSat:         msg.PushBtcAmount,
+		PushAsset:         msg.PushAssetAmount,
 		Flags:            msg.ChannelFlags,
 		MinConfs:         1,
 		CommitType:       commitType,
@@ -1334,7 +1361,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// the amount of the channel, and also if any funds are being pushed to
 	// us. If a depth value was set by our channel acceptor, we will use
 	// that value instead.
-	numConfsReq := f.cfg.NumRequiredConfs(msg.FundingAmount, msg.PushAmount)
+	numConfsReq := f.cfg.NumRequiredConfs(msg.FundingBtcAmount, msg.PushBtcAmount)
 	if acceptorResp.MinAcceptDepth != 0 {
 		numConfsReq = acceptorResp.MinAcceptDepth
 	}
@@ -1409,12 +1436,16 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 
 	log.Infof("Requiring %v confirmations for pendingChan(%x): "+
 		"amt=%v, push_amt=%v, committype=%v, upfrontShutdown=%x", numConfsReq,
-		msg.PendingChannelID, amt, msg.PushAmount,
+		msg.PendingChannelID, btcAmt, msg.PushBtcAmount,
 		commitType, msg.UpfrontShutdownScript)
+	if msg.AssetId>0{
+		log.Infof("Requiring  pendingChan(%x) Asset: "+
+			"amt=%v, push_amt=%v", msg.PendingChannelID, assetAmt, msg.PushAssetAmount)
+	}
 
 	// Generate our required constraints for the remote party, using the
 	// values provided by the channel acceptor if they are non-zero.
-	remoteCsvDelay := f.cfg.RequiredRemoteDelay(amt)
+	remoteCsvDelay := f.cfg.RequiredRemoteDelay(btcAmt)
 	if acceptorResp.CSVDelay != 0 {
 		remoteCsvDelay = acceptorResp.CSVDelay
 	}
@@ -1431,17 +1462,17 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		maxDustLimit = msg.DustLimit
 	}
 
-	chanReserve := f.cfg.RequiredRemoteChanReserve(amt, maxDustLimit)
+	chanReserve := f.cfg.RequiredRemoteChanReserve(btcAmt, maxDustLimit)
 	if acceptorResp.Reserve != 0 {
 		chanReserve = acceptorResp.Reserve
 	}
 
-	remoteMaxValue := f.cfg.RequiredRemoteMaxValue(amt)
+	remoteMaxValue := f.cfg.RequiredRemoteMaxValue(btcAmt)
 	if acceptorResp.InFlightTotal != 0 {
 		remoteMaxValue = acceptorResp.InFlightTotal
 	}
 
-	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(amt)
+	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(btcAmt)
 	if acceptorResp.HtlcLimit != 0 {
 		maxHtlcs = acceptorResp.HtlcLimit
 	}
@@ -1462,7 +1493,9 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	}
 	resCtx := &reservationWithCtx{
 		reservation:    reservation,
-		chanAmt:        amt,
+		chanBtcAmt:        btcAmt,
+		chanAssetAmt:        assetAmt,
+		assetId:        assetId,
 		remoteCsvDelay: remoteCsvDelay,
 		remoteMinHtlc:  minHtlc,
 		remoteMaxValue: remoteMaxValue,
@@ -1481,7 +1514,9 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// With our parameters set, we'll now process their contribution so we
 	// can move the funding workflow ahead.
 	remoteContribution := &lnwallet.ChannelContribution{
-		FundingAmount:        amt,
+		FundingBtcAmount:       btcAmt ,
+		FundingAssetAmount:        assetAmt,
+		AssetId:        assetId,
 		FirstCommitmentPoint: msg.FirstCommitmentPoint,
 		ChannelConfig: &channeldb.ChannelConfig{
 			ChannelConstraints: channeldb.ChannelConstraints{
@@ -1678,7 +1713,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	// reservation. Also make sure that we re-generate the ChannelReserve
 	// with our dust limit or we can get stuck channels.
 	chanReserve := f.cfg.RequiredRemoteChanReserve(
-		resCtx.chanAmt, resCtx.reservation.OurContribution().DustLimit,
+		resCtx.chanBtcAmt, resCtx.reservation.OurContribution().DustLimit,
 	)
 
 	// The remote node has responded with their portion of the channel
@@ -1962,14 +1997,23 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	// we use this convenience method to delete the pending OpenChannel
 	// from the database.
 	deleteFromDatabase := func() {
-		localBalance := completeChan.LocalCommitment.LocalBalance.ToSatoshis()
+		/*
+		obd update wxf
+		*/
+		localBtcBalance := completeChan.LocalCommitment.LocalBtcBalance.ToSatoshis()
+		localAssetBalance := completeChan.LocalCommitment.LocalAssetBalance
 		closeInfo := &channeldb.ChannelCloseSummary{
 			ChanPoint:               completeChan.FundingOutpoint,
 			ChainHash:               completeChan.ChainHash,
 			RemotePub:               completeChan.IdentityPub,
 			CloseType:               channeldb.FundingCanceled,
-			Capacity:                completeChan.Capacity,
-			SettledBalance:          localBalance,
+			/*
+				obd update wxf
+			*/
+			BtcCapacity:                completeChan.BtcCapacity,
+			SettledBtcBalance:          localBtcBalance,
+			AssetCapacity:                completeChan.AssetCapacity,
+			SettledAssetBalance:          localAssetBalance,
 			RemoteCurrentRevocation: completeChan.RemoteCurrentRevocation,
 			RemoteNextRevocation:    completeChan.RemoteNextRevocation,
 			LocalChanConfig:         completeChan.LocalChanCfg,
@@ -2607,7 +2651,11 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	// we'll use this value within our ChannelUpdate. This value must be <=
 	// channel capacity and <= the maximum in-flight msats set by the peer.
 	fwdMaxHTLC := completeChan.LocalChanCfg.MaxPendingAmount
-	capacityMSat := lnwire.NewMSatFromSatoshis(completeChan.Capacity)
+	/*
+	obd update wxf
+	*/
+	capacityMSat := lnwire.NewMSatFromSatoshis(completeChan.BtcCapacity)
+	capacityAsset := completeChan.AssetCapacity
 	if fwdMaxHTLC > capacityMSat {
 		fwdMaxHTLC = capacityMSat
 	}
@@ -2616,17 +2664,22 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 		f.cfg.IDKey, completeChan.IdentityPub,
 		&completeChan.LocalChanCfg.MultiSigKey,
 		completeChan.RemoteChanCfg.MultiSigKey.PubKey, *shortChanID,
-		chanID, fwdMinHTLC, fwdMaxHTLC,
+		chanID, fwdMinHTLC, fwdMaxHTLC,0,
+		capacityAsset,completeChan.AssetID,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating channel "+
 			"announcement: %v", err)
 	}
 
+	/*
+	obd update wxf
+	*/
 	// Send ChannelAnnouncement and ChannelUpdate to the gossiper to add
 	// to the Router's topology.
 	errChan := f.cfg.SendAnnouncement(
-		ann.chanAnn, discovery.ChannelCapacity(completeChan.Capacity),
+		ann.chanAnn, discovery.ChannelBtcCapacity(completeChan.BtcCapacity),
+		discovery.ChannelAssetCapacity(completeChan.AssetCapacity),
 		discovery.ChannelPoint(completeChan.FundingOutpoint),
 	)
 	select {
@@ -2779,7 +2832,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			f.cfg.IDKey, completeChan.IdentityPub,
 			&completeChan.LocalChanCfg.MultiSigKey,
 			completeChan.RemoteChanCfg.MultiSigKey.PubKey,
-			*shortChanID, chanID,
+			*shortChanID, chanID,completeChan.AssetID,
 		)
 		if err != nil {
 			return fmt.Errorf("channel announcement failed: %v", err)
@@ -2920,8 +2973,9 @@ type chanAnnouncement struct {
 func (f *Manager) newChanAnnouncement(localPubKey,
 	remotePubKey *btcec.PublicKey, localFundingKey *keychain.KeyDescriptor,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID, fwdMinHTLC,
-	fwdMaxHTLC lnwire.MilliSatoshi) (*chanAnnouncement, error) {
+	chanID lnwire.ChannelID, fwdMinBtcHTLC,
+	fwdMaxBtcHTLC lnwire.MilliSatoshi, fwdMinAssetHTLC,
+	fwdMaxAssetHTLC omnicore.Amount,assetId uint32,) (*chanAnnouncement, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 
@@ -2932,6 +2986,10 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 		ShortChannelID: shortChanID,
 		Features:       lnwire.NewRawFeatureVector(),
 		ChainHash:      chainHash,
+		/*
+		obd add wxf
+		*/
+		AssetID: assetId,
 	}
 
 	// The chanFlags field indicates which directed edge of the channel is
@@ -2983,11 +3041,18 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 		// We use the HtlcMinimumMsat that the remote party required us
 		// to use, as our ChannelUpdate will be used to carry HTLCs
 		// towards them.
-		HtlcMinimumMsat: fwdMinHTLC,
-		HtlcMaximumMsat: fwdMaxHTLC,
+		/*
+		obd update wxf
+		*/
+		HtlcBtcMinimumMsat: fwdMinBtcHTLC,
+		HtlcBtcMaximumMsat: fwdMaxBtcHTLC,
+		HtlcAssetMinimum: fwdMinAssetHTLC,
+		HtlcAssetMaximum: fwdMaxAssetHTLC,
+		AssetId: assetId,
 
 		BaseFee: uint32(f.cfg.DefaultRoutingPolicy.BaseFee),
 		FeeRate: uint32(f.cfg.DefaultRoutingPolicy.FeeRate),
+
 	}
 
 	// With the channel update announcement constructed, we'll generate a
@@ -3066,7 +3131,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	localFundingKey *keychain.KeyDescriptor,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID) error {
+	chanID lnwire.ChannelID,assetId uint32) error {
 
 	// First, we'll create the batch of announcements to be sent upon
 	// initial channel creation. This includes the channel announcement
@@ -3077,7 +3142,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	// only use the channel announcement message from the returned struct.
 	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey,
 		localFundingKey, remoteFundingKey, shortChanID, chanID,
-		0, 0,
+		0, 0,0,0,assetId,
 	)
 	if err != nil {
 		log.Errorf("can't generate channel announcement: %v", err)
@@ -3196,7 +3261,10 @@ func getUpfrontShutdownScript(enableUpfrontShutdown bool, peer lnpeer.Peer,
 func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	var (
 		peerKey        = msg.Peer.IdentityKey()
-		localAmt       = msg.LocalFundingAmt
+		localBtcAmt       = msg.LocalFundingBtcAmt
+		/*obd update wxf*/
+		localAssetAmt       = msg.LocalFundingAssetAmt
+		assetId       = msg.AssetId
 		minHtlcIn      = msg.MinHtlcIn
 		remoteCsvDelay = msg.RemoteCsvDelay
 		maxValue       = msg.MaxValueInFlight
@@ -3210,11 +3278,15 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		maxCSV = f.cfg.MaxLocalCSVDelay
 	}
 
+	/*obd update wxf*/
 	log.Infof("Initiating fundingRequest(local_amt=%v "+
 		"(subtract_fees=%v), push_amt=%v, chain_hash=%v, peer=%x, "+
-		"min_confs=%v)", localAmt, msg.SubtractFees, msg.PushAmt,
+		"min_confs=%v)", localBtcAmt, msg.SubtractFees, msg.PushBtcAmt,
 		msg.ChainHash, peerKey.SerializeCompressed(), msg.MinConfs)
-
+	if assetId>0 {
+		log.Infof("Initiating fundingRequest(asset_id=%v local_asset_amt=%v push_asset_amt=%v)",
+			assetId, localAssetAmt, msg.PushAssetAmt)
+	}
 	// We set the channel flags to indicate whether we want this channel to
 	// be announced to the network.
 	var channelFlags lnwire.FundingFlag
@@ -3304,11 +3376,14 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		NodeID:           peerKey,
 		NodeAddr:         msg.Peer.Address(),
 		SubtractFees:     msg.SubtractFees,
-		LocalFundingAmt:  localAmt,
-		RemoteFundingAmt: 0,
+		LocalFundingBtcAmt:  localBtcAmt,
+		RemoteFundingBtcAmt: 0,
+		LocalFundingAssetAmt:  localAssetAmt,
+		RemoteFundingAssetAmt: 0,
+		AssetId: msg.AssetId,
 		CommitFeePerKw:   commitFeePerKw,
 		FundingFeePerKw:  msg.FundingFeePerKw,
-		PushMSat:         msg.PushAmt,
+		PushMSat:         msg.PushBtcAmt,
 		Flags:            channelFlags,
 		MinConfs:         msg.MinConfs,
 		CommitType:       commitType,
@@ -3328,7 +3403,8 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// wallet, we can fetch the final channel capacity. This is done at
 	// this point since the final capacity might change in case of
 	// SubtractFees=true.
-	capacity := reservation.Capacity()
+	btcCapacity := reservation.BtcCapacity()
+	assetCapacity := reservation.AssetCapacity()
 
 	log.Infof("Target commit tx sat/kw for pendingID(%x): %v", chanID,
 		int64(commitFeePerKw))
@@ -3337,7 +3413,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// we'll use the RequiredRemoteDelay closure to compute the delay we
 	// require given the total amount of funds within the channel.
 	if remoteCsvDelay == 0 {
-		remoteCsvDelay = f.cfg.RequiredRemoteDelay(capacity)
+		remoteCsvDelay = f.cfg.RequiredRemoteDelay(btcCapacity)
 	}
 
 	// If no minimum HTLC value was specified, use the default one.
@@ -3347,11 +3423,11 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 
 	// If no max value was specified, use the default one.
 	if maxValue == 0 {
-		maxValue = f.cfg.RequiredRemoteMaxValue(capacity)
+		maxValue = f.cfg.RequiredRemoteMaxValue(btcCapacity)
 	}
 
 	if maxHtlcs == 0 {
-		maxHtlcs = f.cfg.RequiredRemoteMaxHTLCs(capacity)
+		maxHtlcs = f.cfg.RequiredRemoteMaxHTLCs(btcCapacity)
 	}
 
 	// If a pending channel map for this peer isn't already created, then
@@ -3364,7 +3440,10 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	}
 
 	resCtx := &reservationWithCtx{
-		chanAmt:        capacity,
+		/*obd update wxf*/
+		chanBtcAmt:        btcCapacity,
+		chanAssetAmt:        assetCapacity,
+		assetId:        msg.AssetId,
 		remoteCsvDelay: remoteCsvDelay,
 		remoteMinHtlc:  minHtlcIn,
 		remoteMaxValue: maxValue,
@@ -3395,7 +3474,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// Finally, we'll use the current value of the channels and our default
 	// policy to determine of required commitment constraints for the
 	// remote party.
-	chanReserve := f.cfg.RequiredRemoteChanReserve(capacity, ourDustLimit)
+	chanReserve := f.cfg.RequiredRemoteChanReserve(btcCapacity, ourDustLimit)
 
 	// When opening a script enforced channel lease, include the required
 	// expiry TLV record in our proposal.
@@ -3411,8 +3490,12 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	fundingOpen := lnwire.OpenChannel{
 		ChainHash:             *f.cfg.Wallet.Cfg.NetParams.GenesisHash,
 		PendingChannelID:      chanID,
-		FundingAmount:         capacity,
-		PushAmount:            msg.PushAmt,
+		FundingBtcAmount:         btcCapacity,
+		PushBtcAmount:            msg.PushBtcAmt,
+		/*obd add wxf*/
+		FundingAssetAmount:            assetCapacity,
+		PushAssetAmount:            msg.PushAssetAmt,
+		AssetId:            msg.AssetId,
 		DustLimit:             ourDustLimit,
 		MaxValueInFlight:      maxValue,
 		ChannelReserve:        chanReserve,

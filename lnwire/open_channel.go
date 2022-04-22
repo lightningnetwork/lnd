@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -39,12 +40,20 @@ type OpenChannel struct {
 	// channel wishes to use as the total capacity of the channel. The
 	// initial balance of the funding will be this value minus the push
 	// amount (if set).
-	FundingAmount btcutil.Amount
+	FundingBtcAmount btcutil.Amount
 
 	// PushAmount is the value that the initiating party wishes to "push"
 	// to the responding as part of the first commitment state. If the
 	// responder accepts, then this will be their initial balance.
-	PushAmount MilliSatoshi
+	PushBtcAmount MilliSatoshi
+
+	/*
+	obd add wxf
+	*/
+	FundingAssetAmount omnicore.Amount
+	PushAssetAmount omnicore.Amount
+	AssetId uint32
+
 
 	// DustLimit is the specific dust limit the sender of this message
 	// would like enforced on their version of the commitment transaction.
@@ -182,11 +191,20 @@ func (o *OpenChannel) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	if err := WriteSatoshi(w, o.FundingAmount); err != nil {
+	if err := WriteSatoshi(w, o.FundingBtcAmount); err != nil {
 		return err
 	}
 
-	if err := WriteMilliSatoshi(w, o.PushAmount); err != nil {
+	if err := WriteMilliSatoshi(w, o.PushBtcAmount); err != nil {
+		return err
+	}
+	if err := WriteAssetMinUnit(w, o.FundingAssetAmount); err != nil {
+		return err
+	}
+	if err := WriteAssetMinUnit(w, o.PushAssetAmount); err != nil {
+		return err
+	}
+	if err := WriteUint32(w, o.AssetId); err != nil {
 		return err
 	}
 
@@ -260,8 +278,12 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 	err := ReadElements(r,
 		o.ChainHash[:],
 		o.PendingChannelID[:],
-		&o.FundingAmount,
-		&o.PushAmount,
+		/*obd update wxf*/
+		&o.FundingBtcAmount,
+		&o.PushBtcAmount,
+		&o.FundingAssetAmount,
+		&o.PushAssetAmount,
+		&o.AssetId,
 		&o.DustLimit,
 		&o.MaxValueInFlight,
 		&o.ChannelReserve,

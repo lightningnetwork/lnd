@@ -672,16 +672,16 @@ func (m *memoryMailBox) DustPackets() (lnwire.MilliSatoshi,
 
 		// Evaluate whether this HTLC is dust on the local commitment.
 		if m.isDust(
-			m.feeRate, false, true, addPkt.amount.ToSatoshis(),
+			m.feeRate, false, true, addPkt.btcAmount.ToSatoshis(),addPkt.assetAmount,
 		) {
-			localDustSum += addPkt.amount
+			localDustSum += addPkt.btcAmount
 		}
 
 		// Evaluate whether this HTLC is dust on the remote commitment.
 		if m.isDust(
-			m.feeRate, false, false, addPkt.amount.ToSatoshis(),
+			m.feeRate, false, false, addPkt.btcAmount.ToSatoshis(),addPkt.assetAmount,
 		) {
-			remoteDustSum += addPkt.amount
+			remoteDustSum += addPkt.btcAmount
 		}
 	}
 

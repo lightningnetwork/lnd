@@ -37,6 +37,10 @@ type ChannelAnnouncement struct {
 	// ShortChannelID is the unique description of the funding transaction,
 	// or where exactly it's located within the target blockchain.
 	ShortChannelID ShortChannelID
+	/*
+	obd add wxf
+	*/
+	AssetID uint32
 
 	// The public keys of the two nodes who are operating the channel, such
 	// that is NodeID1 the numerically-lesser than NodeID2 (ascending

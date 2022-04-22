@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 	"strconv"
 	"strings"
@@ -294,6 +295,7 @@ type Route struct {
 	// route will fail at an intermediate node due to an insufficient
 	// amount of fees.
 	TotalAmount lnwire.MilliSatoshi
+	TotalAssetAmount omnicore.Amount
 
 	// SourcePubKey is the pubkey of the node where this route originates
 	// from.

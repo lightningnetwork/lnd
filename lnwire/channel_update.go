@@ -3,6 +3,7 @@ package lnwire
 import (
 	"bytes"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -100,7 +101,7 @@ type ChannelUpdate struct {
 	TimeLockDelta uint16
 
 	// HtlcMinimumMsat is the minimum HTLC value which will be accepted.
-	HtlcMinimumMsat MilliSatoshi
+	HtlcBtcMinimumMsat MilliSatoshi
 
 	// BaseFee is the base fee that must be used for incoming HTLC's to
 	// this particular channel. This value will be tacked onto the required
@@ -112,7 +113,13 @@ type ChannelUpdate struct {
 	FeeRate uint32
 
 	// HtlcMaximumMsat is the maximum HTLC value which will be accepted.
-	HtlcMaximumMsat MilliSatoshi
+	HtlcBtcMaximumMsat MilliSatoshi
+	/*
+	obd add wxf
+	*/
+	HtlcAssetMaximum omnicore.Amount
+	HtlcAssetMinimum omnicore.Amount
+	AssetId uint32
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -137,7 +144,9 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 		&a.MessageFlags,
 		&a.ChannelFlags,
 		&a.TimeLockDelta,
-		&a.HtlcMinimumMsat,
+		&a.HtlcBtcMinimumMsat,
+		&a.HtlcAssetMinimum,
+		&a.AssetId,
 		&a.BaseFee,
 		&a.FeeRate,
 	)
@@ -147,7 +156,10 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 
 	// Now check whether the max HTLC field is present and read it if so.
 	if a.MessageFlags.HasMaxHtlc() {
-		if err := ReadElements(r, &a.HtlcMaximumMsat); err != nil {
+		if err := ReadElements(r, &a.HtlcBtcMaximumMsat); err != nil {
+			return err
+		}
+		if err := ReadElements(r, &a.HtlcAssetMaximum); err != nil {
 			return err
 		}
 	}
@@ -188,7 +200,13 @@ func (a *ChannelUpdate) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	if err := WriteMilliSatoshi(w, a.HtlcMinimumMsat); err != nil {
+	if err := WriteMilliSatoshi(w, a.HtlcBtcMinimumMsat); err != nil {
+		return err
+	}
+	if err := WriteAssetMinUnit(w, a.HtlcAssetMinimum); err != nil {
+		return err
+	}
+	if err := WriteUint32(w, a.AssetId); err != nil {
 		return err
 	}
 
@@ -203,7 +221,11 @@ func (a *ChannelUpdate) Encode(w *bytes.Buffer, pver uint32) error {
 	// Now append optional fields if they are set. Currently, the only
 	// optional field is max HTLC.
 	if a.MessageFlags.HasMaxHtlc() {
-		err := WriteMilliSatoshi(w, a.HtlcMaximumMsat)
+		err := WriteMilliSatoshi(w, a.HtlcBtcMaximumMsat)
+		if err != nil {
+			return err
+		}
+		err = WriteAssetMinUnit(w, a.HtlcAssetMaximum)
 		if err != nil {
 			return err
 		}
@@ -212,7 +234,6 @@ func (a *ChannelUpdate) Encode(w *bytes.Buffer, pver uint32) error {
 	// Finally, append any extra opaque data.
 	return WriteBytes(w, a.ExtraOpaqueData)
 }
-
 // MsgType returns the integer uniquely identifying this message type on the
 // wire.
 //
@@ -251,7 +272,13 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 		return nil, err
 	}
 
-	if err := WriteMilliSatoshi(buf, a.HtlcMinimumMsat); err != nil {
+	if err := WriteMilliSatoshi(buf, a.HtlcBtcMinimumMsat); err != nil {
+		return nil, err
+	}
+	if err := WriteAssetMinUnit(buf, a.HtlcAssetMinimum); err != nil {
+		return nil, err
+	}
+	if err := WriteUint32(buf, a.AssetId); err != nil {
 		return nil, err
 	}
 
@@ -266,7 +293,11 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 	// Now append optional fields if they are set. Currently, the only
 	// optional field is max HTLC.
 	if a.MessageFlags.HasMaxHtlc() {
-		err := WriteMilliSatoshi(buf, a.HtlcMaximumMsat)
+		err := WriteMilliSatoshi(buf, a.HtlcBtcMaximumMsat)
+		if err != nil {
+			return nil, err
+		}
+		err = WriteAssetMinUnit(buf, a.HtlcAssetMaximum)
 		if err != nil {
 			return nil, err
 		}

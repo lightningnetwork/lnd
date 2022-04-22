@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"sync"
 
 	"github.com/btcsuite/btcutil"
@@ -56,11 +57,16 @@ type CachedEdgePolicy struct {
 
 	// MinHTLC is the smallest value HTLC this node will forward, expressed
 	// in millisatoshi.
-	MinHTLC lnwire.MilliSatoshi
+	MinBtcHTLC lnwire.MilliSatoshi
 
 	// MaxHTLC is the largest value HTLC this node will forward, expressed
 	// in millisatoshi.
-	MaxHTLC lnwire.MilliSatoshi
+	MaxBtcHTLC lnwire.MilliSatoshi
+	/*obd add wxf
+	 */
+	MinAssetHTLC omnicore.Amount
+	MaxAssetHTLC omnicore.Amount
+	AssetId uint32
 
 	// FeeBaseMSat is the base HTLC fee that will be charged for forwarding
 	// ANY HTLC, expressed in mSAT's.
@@ -111,8 +117,11 @@ func NewCachedPolicy(policy *ChannelEdgePolicy) *CachedEdgePolicy {
 		MessageFlags:              policy.MessageFlags,
 		ChannelFlags:              policy.ChannelFlags,
 		TimeLockDelta:             policy.TimeLockDelta,
-		MinHTLC:                   policy.MinHTLC,
-		MaxHTLC:                   policy.MaxHTLC,
+		MinBtcHTLC:                   policy.MinBtcHTLC,
+		MaxBtcHTLC:                   policy.MaxBtcHTLC,
+		MinAssetHTLC:policy.MinAssetHTLC,
+		MaxAssetHTLC: policy.MaxAssetHTLC,
+		AssetId :policy.AssetId,
 		FeeBaseMSat:               policy.FeeBaseMSat,
 		FeeProportionalMillionths: policy.FeeProportionalMillionths,
 	}
@@ -132,7 +141,10 @@ type DirectedChannel struct {
 	OtherNode route.Vertex
 
 	// Capacity is the announced capacity of this channel in satoshis.
-	Capacity btcutil.Amount
+	BtcCapacity btcutil.Amount
+	/*obd update wxf*/
+	AssetCapacity omnicore.Amount
+	AssetId uint32
 
 	// OutPolicySet is a boolean that indicates whether the node has an
 	// outgoing policy set. For pathfinding only the existence of the policy
@@ -258,13 +270,19 @@ func (c *GraphCache) AddChannel(info *ChannelEdgeInfo,
 		ChannelID: info.ChannelID,
 		IsNode1:   true,
 		OtherNode: info.NodeKey2Bytes,
-		Capacity:  info.Capacity,
+		/*obd update wxf*/
+		BtcCapacity:  info.BtcCapacity,
+		AssetCapacity:  info.AssetCapacity,
+		AssetId:  info.AssetId,
 	})
 	c.updateOrAddEdge(info.NodeKey2Bytes, &DirectedChannel{
 		ChannelID: info.ChannelID,
 		IsNode1:   false,
 		OtherNode: info.NodeKey1Bytes,
-		Capacity:  info.Capacity,
+		/*obd update wxf*/
+		BtcCapacity:  info.BtcCapacity,
+		AssetCapacity:  info.AssetCapacity,
+		AssetId:  info.AssetId,
 	})
 	c.mtx.Unlock()
 
@@ -395,13 +413,17 @@ func (c *GraphCache) UpdateChannel(info *ChannelEdgeInfo) {
 	if ok {
 		// We only expect to be called when the channel is already
 		// known.
-		channel.Capacity = info.Capacity
+		channel.BtcCapacity = info.BtcCapacity
+		channel.AssetCapacity = info.AssetCapacity
+		channel.AssetId = info.AssetId
 		channel.OtherNode = info.NodeKey2Bytes
 	}
 
 	channel, ok = c.nodeChannels[info.NodeKey2Bytes][info.ChannelID]
 	if ok {
-		channel.Capacity = info.Capacity
+		channel.BtcCapacity = info.BtcCapacity
+		channel.AssetCapacity = info.AssetCapacity
+		channel.AssetId = info.AssetId
 		channel.OtherNode = info.NodeKey1Bytes
 	}
 }

@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 )
@@ -40,8 +41,14 @@ type htlcPacket struct {
 	// incoming link.
 	incomingAmount lnwire.MilliSatoshi
 
+	/*
+	obd update wxf
+	*/
 	// amount is the value of the HTLC that is being created or modified.
-	amount lnwire.MilliSatoshi
+	btcAmount lnwire.MilliSatoshi
+	assetAmount omnicore.Amount
+	assetId uint32
+	incomingAssetAmount omnicore.Amount
 
 	// htlc lnwire message type of which depends on switch request type.
 	htlc lnwire.Message

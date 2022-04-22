@@ -108,8 +108,8 @@ func (h *testHarness) parseRequest(
 
 	return &InitFundingMsg{
 		TargetPubkey:    pubKey,
-		LocalFundingAmt: btcutil.Amount(in.LocalFundingAmount),
-		PushAmt: lnwire.NewMSatFromSatoshis(
+		LocalFundingBtcAmt: btcutil.Amount(in.LocalFundingAmount),
+		PushBtcAmt: lnwire.NewMSatFromSatoshis(
 			btcutil.Amount(in.PushSat),
 		),
 		FundingFeePerKw: chainfee.SatPerKVByte(
@@ -138,7 +138,7 @@ func (h *testHarness) openChannel(
 	}
 	h.pendingTx.TxOut = append(h.pendingTx.TxOut, &wire.TxOut{
 		PkScript: []byte{1, 2, 3, byte(chanIndex)},
-		Value:    int64(req.LocalFundingAmt),
+		Value:    int64(req.LocalFundingBtcAmt),
 	})
 
 	if h.failUpdate1 {
@@ -153,7 +153,7 @@ func (h *testHarness) openChannel(
 		Update: &lnrpc.OpenStatusUpdate_PsbtFund{
 			PsbtFund: &lnrpc.ReadyForPsbtFunding{
 				FundingAmount: int64(
-					req.LocalFundingAmt,
+					req.LocalFundingBtcAmt,
 				),
 				FundingAddress: fmt.Sprintf("foo%d", chanIndex),
 			},

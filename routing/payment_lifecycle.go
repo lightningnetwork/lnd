@@ -703,7 +703,8 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) 
 	// metadata within this packet will be used to route the
 	// payment through the network, starting with the first-hop.
 	htlcAdd := &lnwire.UpdateAddHTLC{
-		Amount:      rt.TotalAmount,
+		BtcAmount:      rt.TotalAmount,
+		AssetAmount:      rt.TotalAssetAmount,
 		Expiry:      rt.TotalTimeLock,
 		PaymentHash: hash,
 	}

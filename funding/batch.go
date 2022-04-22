@@ -51,10 +51,10 @@ func (c *batchChannel) processPsbtUpdate(u *lnrpc.OpenStatusUpdate) error {
 		return fmt.Errorf("got unexpected channel update %v", u.Update)
 	}
 
-	if psbtUpdate.FundingAmount != int64(c.fundingReq.LocalFundingAmt) {
+	if psbtUpdate.FundingAmount != int64(c.fundingReq.LocalFundingBtcAmt) {
 		return fmt.Errorf("got unexpected funding amount %d, wanted "+
 			"%d", psbtUpdate.FundingAmount,
-			c.fundingReq.LocalFundingAmt)
+			c.fundingReq.LocalFundingBtcAmt)
 	}
 
 	c.fundingAddr = psbtUpdate.FundingAddress
@@ -308,7 +308,7 @@ func (b *Batcher) BatchFund(ctx context.Context,
 	}
 	for _, channel := range b.channels {
 		txTemplate.Outputs[channel.fundingAddr] = uint64(
-			channel.fundingReq.LocalFundingAmt,
+			channel.fundingReq.LocalFundingBtcAmt,
 		)
 	}
 

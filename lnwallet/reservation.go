@@ -95,7 +95,9 @@ func (c CommitmentType) String() string {
 type ChannelContribution struct {
 	// FundingOutpoint is the amount of funds contributed to the funding
 	// transaction.
-	FundingAmount btcutil.Amount
+	FundingBtcAmount btcutil.Amount
+	FundingAssetAmount omnicore.Amount
+	AssetId uint32
 
 	// Inputs to the funding transaction.
 	Inputs []*wire.TxIn
@@ -217,8 +219,10 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	assetCapacity, localAssetFundingAmt ,pushAsset omnicore.Amount,assetID uint32) (*ChannelReservation, error) {
 
 	var (
-		ourBalance   lnwire.MilliSatoshi
-		theirBalance lnwire.MilliSatoshi
+		ourBtcBalance   lnwire.MilliSatoshi
+		theirBtcBalance lnwire.MilliSatoshi
+		ourAssetBalance   omnicore.Amount
+		theirAssetBalance omnicore.Amount
 		initiator    bool
 	)
 
@@ -230,7 +234,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	}
 	commitFee := commitFeePerKw.FeeForWeight(commitWeight)
 
-	localFundingMSat := lnwire.NewMSatFromSatoshis(localFundingAmt)
+	//localFundingMSat := lnwire.NewMSatFromSatoshis(localFundingAmt)
 	// TODO(halseth): make method take remote funding amount directly
 	// instead of inferring it from capacity and local amt.
 	capacityMSat := lnwire.NewMSatFromSatoshis(capacity)
@@ -249,15 +253,17 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// no initial balance in the channel unless the remote party is pushing
 	// some funds to us within the first commitment state.
 	if localFundingAmt == 0 {
-		ourBalance = pushMSat
-		theirBalance = capacityMSat - feeMSat - pushMSat
+		ourBtcBalance = pushMSat
+		theirBtcBalance = capacityMSat - feeMSat - pushMSat
 		initiator = false
 
+		ourAssetBalance=pushAsset
+		theirAssetBalance=assetCapacity - pushAsset
 		// If the responder doesn't have enough funds to actually pay
 		// the fees, then we'll bail our early.
-		if int64(theirBalance) < 0 {
+		if int64(theirBtcBalance) < 0 {
 			return nil, ErrFunderBalanceDust(
-				int64(commitFee), int64(theirBalance.ToSatoshis()),
+				int64(commitFee), int64(theirBtcBalance.ToSatoshis()),
 				int64(2*defaultDust),
 			)
 		}
@@ -270,23 +276,28 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			// we pay all the initial fees within the commitment
 			// transaction. We also deduct our balance by the
 			// amount pushed as part of the initial state.
-			ourBalance = capacityMSat - feeMSat - pushMSat
-			theirBalance = pushMSat
+			ourBtcBalance = capacityMSat - feeMSat - pushMSat
+			theirBtcBalance = pushMSat
+
+			ourAssetBalance=assetCapacity -pushAsset
+			theirAssetBalance=pushAsset
 		} else {
-			// Otherwise, this is a dual funder workflow where both
-			// slides split the amount funded and the commitment
-			// fee.
-			ourBalance = localFundingMSat - (feeMSat / 2)
-			theirBalance = capacityMSat - localFundingMSat - (feeMSat / 2) + pushMSat
+			/*obd update wxf*/
+			//// Otherwise, this is a dual funder workflow where both
+			//// slides split the amount funded and the commitment
+			//// fee.
+			//ourBalance = localFundingMSat - (feeMSat / 2)
+			//theirBalance = capacityMSat - localFundingMSat - (feeMSat / 2) + pushMSat
+			return nil,errors.New("disable dual funder workflow")
 		}
 
 		initiator = true
 
 		// If we, the initiator don't have enough funds to actually pay
 		// the fees, then we'll exit with an error.
-		if int64(ourBalance) < 0 {
+		if int64(ourBtcBalance) < 0 {
 			return nil, ErrFunderBalanceDust(
-				int64(commitFee), int64(ourBalance),
+				int64(commitFee), int64(ourBtcBalance),
 				int64(2*defaultDust),
 			)
 		}
@@ -297,20 +308,20 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// reject this channel creation request.
 	//
 	// TODO(roasbeef): reject if 30% goes to fees? dust channel
-	if initiator && ourBalance.ToSatoshis() <= 2*defaultDust {
+	if initiator && ourBtcBalance.ToSatoshis() <= 2*defaultDust {
 		return nil, ErrFunderBalanceDust(
 			int64(commitFee),
-			int64(ourBalance.ToSatoshis()),
+			int64(ourBtcBalance.ToSatoshis()),
 			int64(2*defaultDust),
 		)
 	}
 
 	// Similarly we ensure their balance is reasonable if we are not the
 	// initiator.
-	if !initiator && theirBalance.ToSatoshis() <= 2*defaultDust {
+	if !initiator && theirBtcBalance.ToSatoshis() <= 2*defaultDust {
 		return nil, ErrFunderBalanceDust(
 			int64(commitFee),
-			int64(theirBalance.ToSatoshis()),
+			int64(theirBtcBalance.ToSatoshis()),
 			int64(2*defaultDust),
 		)
 	}
@@ -322,7 +333,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// If either of the balances are zero at this point, or we have a
 	// non-zero push amt (there's no pushing for dual funder), then this is
 	// a single-funder channel.
-	if ourBalance == 0 || theirBalance == 0 || pushMSat != 0 {
+	if ourBtcBalance == 0 || theirBtcBalance == 0 || pushMSat != 0 {
 		// Both the tweakless type and the anchor type is tweakless,
 		// hence set the bit.
 		if commitType.HasStaticRemoteKey() {
@@ -353,6 +364,8 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		}
 
 	} else {
+		/*obd add wxf*/
+		return nil,errors.New("disable dual funder workflow")
 		// Otherwise, this is a dual funder channel, and no side is
 		// technically the "initiator"
 		initiator = false
@@ -380,11 +393,15 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 
 	return &ChannelReservation{
 		ourContribution: &ChannelContribution{
-			FundingAmount: ourBalance.ToSatoshis(),
+			FundingBtcAmount: ourBtcBalance.ToSatoshis(),
+			FundingAssetAmount: ourAssetBalance,
+			AssetId: assetID,
 			ChannelConfig: &channeldb.ChannelConfig{},
 		},
 		theirContribution: &ChannelContribution{
-			FundingAmount: theirBalance.ToSatoshis(),
+			FundingBtcAmount: theirBtcBalance.ToSatoshis(),
+			FundingAssetAmount: theirAssetBalance,
+			AssetId: assetID,
 			ChannelConfig: &channeldb.ChannelConfig{},
 		},
 		partialState: &channeldb.OpenChannel{
@@ -397,24 +414,20 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			AssetCapacity:     assetCapacity,
 			AssetID:     assetID,
 			LocalCommitment: channeldb.ChannelCommitment{
-				LocalBtcBalance:  ourBalance,
-				RemoteBtcBalance: theirBalance,
-				/*obd update wxf
-				todo add ourBalance
-				*/
-				//LocalAssetBalance:  ourBalance,
-				//RemoteAssetBalance: theirBalance,
+				LocalBtcBalance:  ourBtcBalance,
+				RemoteBtcBalance: theirBtcBalance,
+				/*obd update wxf*/
+				LocalAssetBalance:  ourAssetBalance,
+				RemoteAssetBalance: theirAssetBalance,
 				FeePerKw:      btcutil.Amount(commitFeePerKw),
 				CommitFee:     commitFee,
 			},
 			RemoteCommitment: channeldb.ChannelCommitment{
-				LocalBtcBalance:  ourBalance,
-				RemoteBtcBalance: theirBalance,
-				/*obd update wxf
-				todo add ourBalance
-				*/
-				//LocalAssetBalance:  ourBalance,
-				//RemoteAssetBalance: theirBalance,
+				LocalBtcBalance:  ourBtcBalance,
+				RemoteBtcBalance: theirBtcBalance,
+				/*obd update wxf*/
+				LocalAssetBalance:  ourAssetBalance,
+				RemoteAssetBalance: theirAssetBalance,
 				FeePerKw:      btcutil.Amount(commitFeePerKw),
 				CommitFee:     commitFee,
 			},
@@ -771,6 +784,13 @@ func (r *ChannelReservation) BtcCapacity() btcutil.Amount {
 	r.RLock()
 	defer r.RUnlock()
 	return r.partialState.BtcCapacity
+}
+
+/*obd add wxf*/
+func (r *ChannelReservation) AssetCapacity() omnicore.Amount {
+	r.RLock()
+	defer r.RUnlock()
+	return r.partialState.AssetCapacity
 }
 
 // LeaseExpiry returns the absolute expiration height for a leased channel using

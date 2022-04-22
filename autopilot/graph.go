@@ -2,6 +2,7 @@ package autopilot
 
 import (
 	"bytes"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"math/big"
 	"net"
 	"sort"
@@ -100,7 +101,9 @@ func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 
 		edge := ChannelEdge{
 			ChanID:   lnwire.NewShortChanIDFromInt(ep.ChannelID),
-			Capacity: ei.Capacity,
+			BtcCapacity: ei.BtcCapacity,
+			AssetCapacity: ei.AssetCapacity,
+			AsserId: ei.AssetId,
 			Peer: dbNode{
 				tx:   tx,
 				node: ep.Node,
@@ -137,7 +140,7 @@ func (d *databaseChannelGraph) ForEachNode(cb func(Node) error) error {
 // meant to aide in the generation of random graphs for use within test cases
 // the exercise the autopilot package.
 func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
-	capacity btcutil.Amount) (*ChannelEdge, *ChannelEdge, error) {
+	capacity btcutil.Amount,assetCapacity omnicore.Amount,assetId uint32) (*ChannelEdge, *ChannelEdge, error) {
 
 	fetchNode := func(pub *btcec.PublicKey) (*channeldb.LightningNode, error) {
 		if pub != nil {
@@ -222,7 +225,9 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	chanID := randChanID()
 	edge := &channeldb.ChannelEdgeInfo{
 		ChannelID: chanID.ToUint64(),
-		Capacity:  capacity,
+		BtcCapacity:  capacity,
+		AssetCapacity:  assetCapacity,
+		AssetId:  assetId,
 	}
 	edge.AddNodeKeys(lnNode1, lnNode2, lnNode1, lnNode2)
 	if err := d.db.AddChannelEdge(edge); err != nil {
@@ -233,8 +238,8 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
-		MinHTLC:                   1,
-		MaxHTLC:                   lnwire.NewMSatFromSatoshis(capacity),
+		MinBtcHTLC:                   1,
+		MaxBtcHTLC:                   lnwire.NewMSatFromSatoshis(capacity),
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 		MessageFlags:              1,
@@ -249,8 +254,8 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
-		MinHTLC:                   1,
-		MaxHTLC:                   lnwire.NewMSatFromSatoshis(capacity),
+		MinBtcHTLC:                   1,
+		MaxBtcHTLC:                   lnwire.NewMSatFromSatoshis(capacity),
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 		MessageFlags:              1,
@@ -262,14 +267,18 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 
 	return &ChannelEdge{
 			ChanID:   chanID,
-			Capacity: capacity,
+			BtcCapacity: capacity,
+			AssetCapacity: assetCapacity,
+			AsserId: assetId,
 			Peer: dbNode{
 				node: vertex1,
 			},
 		},
 		&ChannelEdge{
 			ChanID:   chanID,
-			Capacity: capacity,
+			BtcCapacity: capacity,
+			AssetCapacity: assetCapacity,
+			AsserId: assetId,
 			Peer: dbNode{
 				node: vertex2,
 			},
@@ -356,7 +365,7 @@ func randKey() (*btcec.PublicKey, error) {
 // meant to aide in the generation of random graphs for use within test cases
 // the exercise the autopilot package.
 func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
-	capacity btcutil.Amount) (*ChannelEdge, *ChannelEdge, error) {
+	capacity btcutil.Amount, assetCapacity omnicore.Amount,assetId uint32 ) (*ChannelEdge, *ChannelEdge, error) {
 
 	var (
 		vertex1, vertex2 *memNode
@@ -419,14 +428,18 @@ func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 
 	edge1 := ChannelEdge{
 		ChanID:   randChanID(),
-		Capacity: capacity,
+		BtcCapacity: capacity,
+		AssetCapacity: assetCapacity,
+		AsserId: assetId,
 		Peer:     vertex2,
 	}
 	vertex1.chans = append(vertex1.chans, edge1)
 
 	edge2 := ChannelEdge{
 		ChanID:   randChanID(),
-		Capacity: capacity,
+		BtcCapacity: capacity,
+		AssetCapacity: assetCapacity,
+		AsserId: assetId,
 		Peer:     vertex1,
 	}
 	vertex2.chans = append(vertex2.chans, edge2)

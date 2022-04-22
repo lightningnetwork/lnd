@@ -808,7 +808,8 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 		obd add wxf
 	*/
 	if !remoteOutput && assetAmountToRemote>0{
-		return nil,fmt.Errorf("CreateCommitTx err: remoteOutput less than DustLimit, it will ignore asset")
+		return nil,fmt.Errorf("CreateCommitTx err: remoteBtcOutput less than DustLimit, it will ignore asset: btcAmt %v dust: %v assetAmt %v ",
+			btcAmountToRemote,localChanCfg.DustLimit,assetAmountToRemote)
 	}
 	if remoteOutput {
 		commitTx.AddTxOut(&wire.TxOut{
@@ -818,7 +819,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 		/*
 		obd add wxf
 		 */
-		opAmounts.Add(toLocalScript.PkScript,assetAmountToRemote)
+		opAmounts.Add(toRemoteScript.PkScript,assetAmountToRemote)
 	}
 
 	// If this channel type has anchors, we'll also add those.

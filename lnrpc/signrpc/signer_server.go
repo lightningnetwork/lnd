@@ -355,6 +355,13 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 			)
 		}
 
+		// If the tap tweak is empty, and this is a taproot key spend,
+		// then we'll set it to an empty byte slice so the bip 86
+		// tweaking works properly.
+		if len(signDesc.TapTweak) == 0 && signDesc.TaprootKeySpend {
+			signDesc.TapTweak = []byte{}
+		}
+
 		// Finally, with verification and parsing complete, we can
 		// construct the final sign descriptor to generate the proper
 		// signature for this input.
@@ -365,6 +372,7 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 			},
 			SingleTweak:     signDesc.SingleTweak,
 			DoubleTweak:     tweakPrivKey,
+			TapTweak:        signDesc.TapTweak,
 			WitnessScript:   signDesc.WitnessScript,
 			TaprootKeySpend: signDesc.TaprootKeySpend,
 			Output: &wire.TxOut{

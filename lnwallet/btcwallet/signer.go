@@ -376,7 +376,7 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 			rawSig, err = txscript.RawTxInTaprootSignature(
 				tx, sigHashes, signDesc.InputIndex,
 				signDesc.Output.Value, signDesc.Output.PkScript,
-				signDesc.WitnessScript, signDesc.HashType,
+				signDesc.TapTweak, signDesc.HashType,
 				privKey,
 			)
 			if err != nil {

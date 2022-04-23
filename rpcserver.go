@@ -3267,6 +3267,10 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 		utx := btcutil.NewTx(localCommitment.CommitTx)
 		commitBaseWeight := blockchain.GetTransactionWeight(utx)
 		commitWeight := commitBaseWeight + input.WitnessCommitmentTxWeight
+		confirmationHeight := uint32(0)
+		if pendingChan.ShortChannelID.BlockHeight > 0 {
+			confirmationHeight = pendingChan.ShortChannelID.BlockHeight + uint32(pendingChan.NumConfsRequired)
+		}
 
 		result[i] = &lnrpc.PendingChannelsResponse_PendingOpenChannel{
 			Channel: &lnrpc.PendingChannelsResponse_PendingChannel{
@@ -3281,10 +3285,10 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 				CommitmentType:       rpcCommitmentType(pendingChan.ChanType),
 				Private:              isPrivate(pendingChan),
 			},
+			ConfirmationHeight: confirmationHeight,
 			CommitWeight: commitWeight,
 			CommitFee:    int64(localCommitment.CommitFee),
 			FeePerKw:     int64(localCommitment.FeePerKw),
-			// TODO(roasbeef): need to track confirmation height
 		}
 	}
 

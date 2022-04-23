@@ -3269,7 +3269,8 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 		commitWeight := commitBaseWeight + input.WitnessCommitmentTxWeight
 		confirmationHeight := uint32(0)
 		if pendingChan.ShortChannelID.BlockHeight > 0 {
-			confirmationHeight = pendingChan.ShortChannelID.BlockHeight + uint32(pendingChan.NumConfsRequired)
+			confirmationHeight = pendingChan.ShortChannelID.BlockHeight +
+				uint32(pendingChan.NumConfsRequired)
 		}
 
 		result[i] = &lnrpc.PendingChannelsResponse_PendingOpenChannel{
@@ -3286,9 +3287,9 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 				Private:              isPrivate(pendingChan),
 			},
 			ConfirmationHeight: confirmationHeight,
-			CommitWeight: commitWeight,
-			CommitFee:    int64(localCommitment.CommitFee),
-			FeePerKw:     int64(localCommitment.FeePerKw),
+			CommitWeight:       commitWeight,
+			CommitFee:          int64(localCommitment.CommitFee),
+			FeePerKw:           int64(localCommitment.FeePerKw),
 		}
 	}
 

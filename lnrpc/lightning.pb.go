@@ -16259,7 +16259,10 @@ type PendingChannelsResponse_PendingOpenChannel struct {
 
 	// The pending channel
 	Channel *PendingChannelsResponse_PendingChannel `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
-	// The height at which this channel will be confirmed
+	//
+	//The height at which this channel will be confirmed. Set to 0
+	//if the funding transaction has not yet been added to a
+	//block.
 	ConfirmationHeight uint32 `protobuf:"varint,2,opt,name=confirmation_height,json=confirmationHeight,proto3" json:"confirmation_height,omitempty"`
 	//
 	//The amount calculated to be paid in fees for the current set of

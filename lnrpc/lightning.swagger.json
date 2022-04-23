@@ -2788,7 +2788,7 @@
         "confirmation_height": {
           "type": "integer",
           "format": "int64",
-          "title": "The height at which this channel will be confirmed"
+          "description": "The height at which this channel will be confirmed. Set to 0\nif the funding transaction has not yet been added to a\nblock."
         },
         "commit_fee": {
           "type": "string",

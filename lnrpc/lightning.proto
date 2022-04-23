@@ -2364,7 +2364,11 @@ message PendingChannelsResponse {
         // The pending channel
         PendingChannel channel = 1;
 
-        // The height at which this channel will be confirmed
+        /*
+        The height at which this channel will be confirmed. Set to 0
+        if the funding transaction has not yet been added to a
+        block.
+        */
         uint32 confirmation_height = 2;
 
         /*

@@ -108,6 +108,9 @@ then watch it on chain. Taproot script spends are also supported through the
 * [Fixed incorrect PSBT de-serialization for transactions with no
   inputs](https://github.com/lightningnetwork/lnd/pull/6428).
 
+* [Fixed a bug where we didn't check for correct networks when 
+  submitting onchain transactions](https://github.com/lightningnetwork/lnd/pull/6448).
+
 ## Routing
 
 * [Add a new `time_pref` parameter to the QueryRoutes and SendPayment APIs](https://github.com/lightningnetwork/lnd/pull/6024) that

@@ -979,6 +979,10 @@ func addrPairsToOutputs(addrPairs map[string]int64,
 			return nil, err
 		}
 
+		if !addr.IsForNet(params) {
+			return nil, fmt.Errorf("address is not for %s", params.Name)
+		}
+
 		pkscript, err := txscript.PayToAddrScript(addr)
 		if err != nil {
 			return nil, err

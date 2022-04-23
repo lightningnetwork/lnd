@@ -72,6 +72,9 @@ package](https://github.com/lightningnetwork/lnd/pull/7356)
   `grpc.keepalive_time_ms=5100` is recommended on the client side (adding 100ms
   to account for slightly different clock speeds).
 
+* [Fixed a bug where we didn't check for correct networks when submitting
+  onchain transactions](https://github.com/lightningnetwork/lnd/pull/6448).
+
 ## Misc
 
 * [Generate default macaroons

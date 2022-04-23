@@ -970,6 +970,11 @@ func addrPairsToOutputs(addrPairs map[string]int64,
 			return nil, err
 		}
 
+		if !addr.IsForNet(params) {
+			return nil, fmt.Errorf("address is not for %s",
+				params.Name)
+		}
+
 		pkscript, err := txscript.PayToAddrScript(addr)
 		if err != nil {
 			return nil, err
@@ -2579,7 +2584,14 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				in.DeliveryAddress, r.cfg.ActiveNetParams.Params,
 			)
 			if err != nil {
-				return fmt.Errorf("invalid delivery address: %v", err)
+				return fmt.Errorf("invalid delivery address: "+
+					"%v", err)
+			}
+
+			if !addr.IsForNet(r.cfg.ActiveNetParams.Params) {
+				return fmt.Errorf("delivery address is not "+
+					"for %s",
+					r.cfg.ActiveNetParams.Params.Name)
 			}
 
 			// Create a script to pay out to the address provided.

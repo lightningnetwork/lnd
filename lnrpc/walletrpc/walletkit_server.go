@@ -1104,6 +1104,12 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 					"%s for network %s: %v", addrStr,
 					w.cfg.ChainParams.Name, err)
 			}
+
+			if !addr.IsForNet(w.cfg.ChainParams) {
+				return nil, fmt.Errorf("address is not for %s",
+					w.cfg.ChainParams.Name)
+			}
+
 			pkScript, err := txscript.PayToAddrScript(addr)
 			if err != nil {
 				return nil, fmt.Errorf("error getting pk "+

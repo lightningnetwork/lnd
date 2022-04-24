@@ -223,6 +223,9 @@ then watch it on chain. Taproot script spends are also supported through the
 * Close a gap in the HTLC interceptor API by [intercepting htlcs in the on-chain
   resolution flow](https://github.com/lightningnetwork/lnd/pull/6219) too.
 
+* [Expose](https://github.com/lightningnetwork/lnd/pull/6454) always on mode of
+  the HTLC interceptor API through GetInfo.
+
 ## Database
 
 * [Add ForAll implementation for etcd to speed up

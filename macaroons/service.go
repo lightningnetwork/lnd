@@ -68,6 +68,10 @@ type ExtendedRootKeyStore interface {
 	// GenerateNewRootKey calls the underlying root key store's
 	// GenerateNewRootKey and returns the result.
 	GenerateNewRootKey() error
+
+	// SetRootKey calls the underlying root key store's SetRootKey and
+	// returns the result.
+	SetRootKey(rootKey []byte) error
 }
 
 // Service encapsulates bakery.Bakery and adds a Close() method that zeroes the
@@ -295,6 +299,16 @@ func (svc *Service) DeleteMacaroonID(ctxt context.Context,
 func (svc *Service) GenerateNewRootKey() error {
 	if boltRKS, ok := svc.rks.(ExtendedRootKeyStore); ok {
 		return boltRKS.GenerateNewRootKey()
+	}
+
+	return nil
+}
+
+// SetRootKey calls the underlying root key store's SetRootKey and returns the
+// result.
+func (svc *Service) SetRootKey(rootKey []byte) error {
+	if boltRKS, ok := svc.rks.(ExtendedRootKeyStore); ok {
+		return boltRKS.SetRootKey(rootKey)
 	}
 
 	return nil

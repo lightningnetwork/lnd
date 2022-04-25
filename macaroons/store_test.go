@@ -2,6 +2,7 @@ package macaroons_test
 
 import (
 	"context"
+	"crypto/rand"
 	"io/ioutil"
 	"os"
 	"path"
@@ -167,6 +168,42 @@ func TestStoreGenerateNewRootKey(t *testing.T) {
 	newRootKey, _, err := store.RootKey(defaultRootKeyIDContext)
 	require.NoError(t, err)
 	require.NotEqual(t, oldRootKey, newRootKey)
+}
+
+// TestStoreSetRootKey tests that a root key can be set to a specified value.
+func TestStoreSetRootKey(t *testing.T) {
+	_, cleanup, store := newTestStore(t)
+	defer cleanup()
+
+	// Create a new random key
+	rootKey := make([]byte, 32)
+	_, err := rand.Read(rootKey)
+	require.NoError(t, err)
+
+	// The store must be unlocked to set the root key.
+	err = store.SetRootKey(rootKey)
+	require.Equal(t, macaroons.ErrStoreLocked, err)
+
+	// Unlock the store and read the current key.
+	pw := []byte("weks")
+	err = store.CreateUnlock(&pw)
+	require.NoError(t, err)
+	oldRootKey, _, err := store.RootKey(defaultRootKeyIDContext)
+	require.NoError(t, err)
+
+	// Ensure the new key is different from the old key.
+	require.NotEqual(t, oldRootKey, rootKey)
+
+	// Replace the root key with the new key.
+	err = store.SetRootKey(rootKey)
+	require.NoError(t, err)
+
+	// Finally, read the root key from the DB and compare it to the one
+	// we created earlier. This makes sure that the encryption/
+	// decryption of the key in the DB worked as expected too.
+	newRootKey, _, err := store.RootKey(defaultRootKeyIDContext)
+	require.NoError(t, err)
+	require.Equal(t, rootKey, newRootKey)
 }
 
 // TestStoreChangePassword tests that the password for the store can be changed

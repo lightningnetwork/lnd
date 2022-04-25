@@ -1809,6 +1809,11 @@ message GetInfoResponse {
     announcements and invoices.
     */
     map<uint32, Feature> features = 19;
+
+    /*
+    Indicates whether the HTLC interceptor API is in always-on mode.
+    */
+    bool require_htlc_interceptor = 21;
 }
 
 message GetRecoveryInfoRequest {

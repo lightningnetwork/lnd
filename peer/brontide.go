@@ -60,11 +60,6 @@ const (
 	// message.
 	handshakeTimeout = 15 * time.Second
 
-	// outgoingQueueLen is the buffer size of the channel which houses
-	// messages to be sent across the wire, requested by objects outside
-	// this struct.
-	outgoingQueueLen = 50
-
 	// ErrorBufferSize is the number of historic peer errors that we store.
 	ErrorBufferSize = 10
 )
@@ -348,7 +343,7 @@ type Config struct {
 // several helper goroutines to handle events such as HTLC timeouts, new
 // funding workflow, and detecting an uncooperative closure of any active
 // channels.
-// TODO(roasbeef): proper reconnection logic
+// TODO(roasbeef): proper reconnection logic.
 type Brontide struct {
 	// MUST be used atomically.
 	started    int32
@@ -709,6 +704,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			if dbChan.HasChanStatus(
 				channeldb.ChanStatusCoopBroadcasted,
 			) {
+
 				shutdownMsg, err := p.restartCoopClose(lnChan)
 				if err != nil {
 					peerLog.Errorf("Unable to restart "+
@@ -1055,7 +1051,7 @@ func (p *Brontide) readNextMessage() (lnwire.Message, error) {
 // delivered via closure to a receiver. These messages MUST be in order due to
 // the nature of the lightning channel commitment and gossiper state machines.
 // TODO(conner): use stream handler interface to abstract out stream
-// state/logging
+// state/logging.
 type msgStream struct {
 	streamShutdown int32 // To be used atomically.
 
@@ -2664,7 +2660,6 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	}
 
 	switch req.CloseType {
-
 	// A type of CloseRegular indicates that the user has opted to close
 	// out this channel on-chain, so we execute the cooperative channel
 	// closure workflow.
@@ -2924,7 +2919,6 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 
 	go WaitForChanToClose(chanCloser.NegotiationHeight(), notifier, errChan,
 		chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
-
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			if closeReq != nil {

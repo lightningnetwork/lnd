@@ -1130,13 +1130,22 @@ var listPaymentsCommand = cli.Command{
 	Name:     "listpayments",
 	Category: "Payments",
 	Usage:    "List all outgoing payments.",
-	Description: "This command enables the retrieval of payments stored " +
-		"in the database. Pagination is supported by the usage of " +
-		"index_offset in combination with the paginate_forwards flag. " +
-		"Reversed pagination is enabled by default to receive " +
-		"current payments first. Pagination can be resumed by using " +
-		"the returned last_index_offset (for forwards order), or " +
-		"first_index_offset (for reversed order) as the offset_index. ",
+	Description: `
+	This command enables the retrieval of payments stored
+	in the database.
+
+	Pagination is supported by the usage of index_offset in combination with
+	the paginate_forwards flag.
+	Reversed pagination is enabled by default to receive current payments
+	first. Pagination can be resumed by using the returned last_index_offset
+	(for forwards order), or first_index_offset (for reversed order) as the
+	offset_index.
+
+	Because counting all payments in the payment database can take a long
+	time on systems with many payments, the count is not returned by
+	default. That feature can be turned on with the --count_total_payments
+	flag.
+	`,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name: "include_incomplete",
@@ -1167,6 +1176,13 @@ var listPaymentsCommand = cli.Command{
 				"index_offset will be returned, allowing " +
 				"forwards pagination",
 		},
+		cli.BoolFlag{
+			Name: "count_total_payments",
+			Usage: "if set, all payments (complete or incomplete, " +
+				"independent of max_payments parameter) will " +
+				"be counted; can take a long time on systems " +
+				"with many payments",
+		},
 	},
 	Action: actionDecorator(listPayments),
 }
@@ -1177,10 +1193,11 @@ func listPayments(ctx *cli.Context) error {
 	defer cleanUp()
 
 	req := &lnrpc.ListPaymentsRequest{
-		IncludeIncomplete: ctx.Bool("include_incomplete"),
-		IndexOffset:       uint64(ctx.Uint("index_offset")),
-		MaxPayments:       uint64(ctx.Uint("max_payments")),
-		Reversed:          !ctx.Bool("paginate_forwards"),
+		IncludeIncomplete:  ctx.Bool("include_incomplete"),
+		IndexOffset:        uint64(ctx.Uint("index_offset")),
+		MaxPayments:        uint64(ctx.Uint("max_payments")),
+		Reversed:           !ctx.Bool("paginate_forwards"),
+		CountTotalPayments: ctx.Bool("count_total_payments"),
 	}
 
 	payments, err := client.ListPayments(ctxc, req)

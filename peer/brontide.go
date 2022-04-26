@@ -702,6 +702,30 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			}
 
 			msgs = append(msgs, chanSync)
+
+			// Check if this channel needs to have the cooperative
+			// close process restarted. If so, we'll need to send
+			// the Shutdown message that is returned.
+			if dbChan.HasChanStatus(
+				channeldb.ChanStatusCoopBroadcasted,
+			) {
+				shutdownMsg, err := p.restartCoopClose(lnChan)
+				if err != nil {
+					peerLog.Errorf("Unable to restart "+
+						"coop close for channel: %v",
+						err)
+					continue
+				}
+
+				if shutdownMsg == nil {
+					continue
+				}
+
+				// Append the message to the set of messages to
+				// send.
+				msgs = append(msgs, shutdownMsg)
+			}
+
 			continue
 		}
 
@@ -2508,6 +2532,81 @@ func chooseDeliveryScript(upfront,
 	return upfront, nil
 }
 
+// restartCoopClose checks whether we need to restart the cooperative close
+// process for a given channel.
+func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
+	*lnwire.Shutdown, error) {
+
+	// If this channel has status ChanStatusCoopBroadcasted and does not
+	// have a closing transaction, then the cooperative close process was
+	// started but never finished. We'll re-create the chanCloser state
+	// machine and resend Shutdown. BOLT#2 requires that we retransmit
+	// Shutdown exactly, but doing so would mean persisting the RPC
+	// provided close script. Instead use the LocalUpfrontShutdownScript
+	// or generate a script.
+	c := lnChan.State()
+	_, err := c.BroadcastedCooperative()
+	if err != nil && err != channeldb.ErrNoCloseTx {
+		// An error other than ErrNoCloseTx was encountered.
+		return nil, err
+	} else if err == nil {
+		// This channel has already completed the coop close
+		// negotiation.
+		return nil, nil
+	}
+
+	// As mentioned above, we don't re-create the delivery script.
+	deliveryScript := c.LocalShutdownScript
+	if len(deliveryScript) == 0 {
+		var err error
+		deliveryScript, err = p.genDeliveryScript()
+		if err != nil {
+			peerLog.Errorf("unable to gen delivery script: %v",
+				err)
+			return nil, fmt.Errorf("close addr unavailable")
+		}
+	}
+
+	// Compute an ideal fee.
+	feePerKw, err := p.cfg.FeeEstimator.EstimateFeePerKW(
+		p.cfg.CoopCloseTargetConfs,
+	)
+	if err != nil {
+		peerLog.Errorf("unable to query fee estimator: %v", err)
+		return nil, fmt.Errorf("unable to estimate fee")
+	}
+
+	// Determine whether we or the peer are the initiator of the coop
+	// close attempt by looking at the channel's status.
+	locallyInitiated := c.HasChanStatus(
+		channeldb.ChanStatusLocalCloseInitiator,
+	)
+
+	chanCloser, err := p.createChanCloser(
+		lnChan, deliveryScript, feePerKw, nil, locallyInitiated,
+	)
+	if err != nil {
+		peerLog.Errorf("unable to create chan closer: %v", err)
+		return nil, fmt.Errorf("unable to create chan closer")
+	}
+
+	// This does not need a mutex even though it is in a different
+	// goroutine since this is done before the channelManager goroutine is
+	// created.
+	chanID := lnwire.NewChanIDFromOutPoint(&c.FundingOutpoint)
+	p.activeChanCloses[chanID] = chanCloser
+
+	// Create the Shutdown message.
+	shutdownMsg, err := chanCloser.ShutdownChan()
+	if err != nil {
+		peerLog.Errorf("unable to create shutdown message: %v", err)
+		delete(p.activeChanCloses, chanID)
+		return nil, err
+	}
+
+	return shutdownMsg, nil
+}
+
 // createChanCloser constructs a ChanCloser from the passed parameters and is
 // used to de-duplicate code.
 func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
@@ -2787,6 +2886,10 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 	// First, we'll clear all indexes related to the channel in question.
 	chanPoint := chanCloser.Channel().ChannelPoint()
 	p.WipeChannel(chanPoint)
+
+	// Also clear the activeChanCloses map of this channel.
+	cid := lnwire.NewChanIDFromOutPoint(chanPoint)
+	delete(p.activeChanCloses, cid)
 
 	// Next, we'll launch a goroutine which will request to be notified by
 	// the ChainNotifier once the closure transaction obtains a single

@@ -483,6 +483,10 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			feeProposal := calcCompromiseFee(c.chanPoint, c.idealFeeSat,
 				c.lastFeeProposal, remoteProposedFee,
 			)
+			if feeProposal > c.idealFeeSat*3 {
+				return nil, false, fmt.Errorf("couldn't find" +
+					" compromise fee")
+			}
 
 			// With our new fee proposal calculated, we'll craft a new close
 			// signed signature to send to the other party so we can continue

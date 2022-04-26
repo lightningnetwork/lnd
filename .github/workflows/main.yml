@@ -16,7 +16,7 @@ env:
   # go needs absolute directories, using the $HOME variable doesn't work here.
   GOCACHE: /home/runner/work/go/pkg/build
   GOPATH: /home/runner/work/go
-  BITCOIN_VERSION: "22.0"
+  BITCOIN_VERSION: "23.0"
 
   # If you change this value, please change it in the following files as well:
   # /.travis.yml

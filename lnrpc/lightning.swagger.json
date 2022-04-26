@@ -1916,6 +1916,13 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "count_total_payments",
+            "description": "If set, all payments (complete and incomplete, independent of the\nmax_payments parameter) will be counted. Note that setting this to true will\nincrease the run time of the call significantly on systems that have a lot\nof payments, as all of them have to be iterated through to be counted.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -5038,6 +5045,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The index of the last item in the set of returned payments. This can be used\nas the index_offset to continue seeking forwards in the next request."
+        },
+        "total_num_payments": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Will only be set if count_total_payments in the request was set. Represents\nthe total number of payments (complete and incomplete, independent of the\nnumber of payments requested in the query) currently present in the payments\ndatabase."
         }
       }
     },

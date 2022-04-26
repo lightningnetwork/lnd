@@ -6173,6 +6173,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		MaxPayments:       req.MaxPayments,
 		Reversed:          req.Reversed,
 		IncludeIncomplete: req.IncludeIncomplete,
+		CountTotal:        req.CountTotalPayments,
 	}
 
 	// If the maximum number of payments wasn't specified, then we'll
@@ -6189,6 +6190,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 	paymentsResp := &lnrpc.ListPaymentsResponse{
 		LastIndexOffset:  paymentsQuerySlice.LastIndexOffset,
 		FirstIndexOffset: paymentsQuerySlice.FirstIndexOffset,
+		TotalNumPayments: paymentsQuerySlice.TotalCount,
 	}
 
 	for _, payment := range paymentsQuerySlice.Payments {

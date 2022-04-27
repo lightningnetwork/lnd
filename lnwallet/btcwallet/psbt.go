@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
@@ -194,6 +195,17 @@ func (b *BtcWallet) SignPsbt(packet *psbt.Packet) error {
 				in, tx, sigHashes, idx, privKey, rootHash,
 			)
 
+		// For p2tr script spend path.
+		case input.TaprootScriptSpendSignMethod:
+			leafScript := in.TaprootLeafScript[0]
+			leaf := txscript.TapLeaf{
+				LeafVersion: leafScript.LeafVersion,
+				Script:      leafScript.Script,
+			}
+			err = signSegWitV1ScriptSpend(
+				in, tx, sigHashes, idx, privKey, leaf,
+			)
+
 		default:
 			err = fmt.Errorf("unsupported signing method for "+
 				"PSBT signing: %v", signMethod)
@@ -268,6 +280,28 @@ func validateSigningMethod(in *psbt.PInput) (input.SignMethod, error) {
 		// the same time? What are the performance and security
 		// implications?
 		case len(derivation.LeafHashes) == 1:
+			// If we're supposed to be signing for a leaf hash, we
+			// also expect the leaf script that hashes to that hash
+			// in the appropriate field.
+			if len(in.TaprootLeafScript) != 1 {
+				return 0, fmt.Errorf("specified leaf hash in " +
+					"taproot BIP0032 derivation but " +
+					"missing taproot leaf script")
+			}
+
+			leafScript := in.TaprootLeafScript[0]
+			leaf := txscript.TapLeaf{
+				LeafVersion: leafScript.LeafVersion,
+				Script:      leafScript.Script,
+			}
+			leafHash := leaf.TapHash()
+			if !bytes.Equal(leafHash[:], derivation.LeafHashes[0]) {
+				return 0, fmt.Errorf("specified leaf hash in" +
+					"taproot BIP0032 derivation but " +
+					"corresponding taproot leaf script " +
+					"was not found")
+			}
+
 			return input.TaprootScriptSpendSignMethod, nil
 
 		default:
@@ -339,6 +373,36 @@ func signSegWitV1KeySpend(in *psbt.PInput, tx *wire.MsgTx,
 	}
 
 	in.TaprootKeySpendSig = rawSig
+
+	return nil
+}
+
+// signSegWitV1ScriptSpend attempts to generate a signature for a SegWit version
+// 1 (p2tr) input and stores it in the TaprootScriptSpendSig field.
+func signSegWitV1ScriptSpend(in *psbt.PInput, tx *wire.MsgTx,
+	sigHashes *txscript.TxSigHashes, idx int, privKey *btcec.PrivateKey,
+	leaf txscript.TapLeaf) error {
+
+	rawSig, err := txscript.RawTxInTapscriptSignature(
+		tx, sigHashes, idx, in.WitnessUtxo.Value,
+		in.WitnessUtxo.PkScript, leaf, in.SighashType, privKey,
+	)
+	if err != nil {
+		return fmt.Errorf("error signing taproot script input %d: %v",
+			idx, err)
+	}
+
+	leafHash := leaf.TapHash()
+	in.TaprootScriptSpendSig = append(
+		in.TaprootScriptSpendSig, &psbt.TaprootScriptSpendSig{
+			XOnlyPubKey: in.TaprootBip32Derivation[0].XOnlyPubKey,
+			LeafHash:    leafHash[:],
+			// We snip off the sighash flag from the end (if it was
+			// specified in the first place.)
+			Signature: rawSig[:schnorr.SignatureSize],
+			SigHash:   in.SighashType,
+		},
+	)
 
 	return nil
 }

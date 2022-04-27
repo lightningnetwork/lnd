@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
@@ -111,7 +112,7 @@ func (b *BtcWallet) SignPsbt(packet *psbt.Packet) error {
 	prevOutputFetcher := wallet.PsbtPrevOutputFetcher(packet)
 	sigHashes := txscript.NewTxSigHashes(tx, prevOutputFetcher)
 	for idx := range tx.TxIn {
-		in := packet.Inputs[idx]
+		in := &packet.Inputs[idx]
 
 		// We can only sign if we have UTXO information available. Since
 		// we don't finalize, we just skip over any input that we know
@@ -165,47 +166,96 @@ func (b *BtcWallet) SignPsbt(packet *psbt.Packet) error {
 		// Do we need to tweak anything? Single or double tweaks are
 		// sent as custom/proprietary fields in the PSBT input section.
 		privKey = maybeTweakPrivKeyPsbt(in.Unknowns, privKey)
-		pubKeyBytes := privKey.PubKey().SerializeCompressed()
 
-		// Extract the correct witness and/or legacy scripts now,
-		// depending on the type of input we sign. The txscript package
-		// has the peculiar requirement that the PkScript of a P2PKH
-		// must be given as the witness script in order for it to arrive
-		// at the correct sighash. That's why we call it subScript here
-		// instead of witness script.
-		subScript, scriptSig, err := prepareScripts(in)
+		// What kind of signature is expected from us and do we have all
+		// information we need?
+		signMethod, err := validateSigningMethod(in)
 		if err != nil {
-			// We derived the correct key so we _are_ expected to
-			// sign this. Not being able to sign at this point means
-			// there's something wrong.
-			return fmt.Errorf("error deriving script for input "+
-				"%d: %v", idx, err)
+			return err
 		}
 
-		// We have everything we need for signing the input now.
-		sig, err := txscript.RawTxInWitnessSignature(
-			tx, sigHashes, idx, in.WitnessUtxo.Value, subScript,
-			in.SighashType, privKey,
-		)
-		if err != nil {
-			return fmt.Errorf("error signing input %d: %v", idx,
-				err)
+		switch signMethod {
+		// For p2wkh, np2wkh and p2wsh.
+		case input.WitnessV0SignMethod:
+			err = signSegWitV0(in, tx, sigHashes, idx, privKey)
+
+		default:
+			err = fmt.Errorf("unsupported signing method for "+
+				"PSBT signing: %v", signMethod)
 		}
-		packet.Inputs[idx].FinalScriptSig = scriptSig
-		packet.Inputs[idx].PartialSigs = append(
-			packet.Inputs[idx].PartialSigs, &psbt.PartialSig{
-				PubKey:    pubKeyBytes,
-				Signature: sig,
-			},
-		)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-// prepareScripts returns the appropriate witness and/or legacy scripts,
+// validateSigningMethod attempts to detect the signing method that is required
+// to sign for the given PSBT input and makes sure all information is available
+// to do so.
+func validateSigningMethod(in *psbt.PInput) (input.SignMethod, error) {
+	script, err := txscript.ParsePkScript(in.WitnessUtxo.PkScript)
+	if err != nil {
+		return 0, fmt.Errorf("error detecting signing method, "+
+			"couldn't parse pkScript: %v", err)
+	}
+
+	switch script.Class() {
+	case txscript.WitnessV0PubKeyHashTy, txscript.ScriptHashTy,
+		txscript.WitnessV0ScriptHashTy:
+
+		return input.WitnessV0SignMethod, nil
+
+	default:
+		return 0, fmt.Errorf("unsupported script class for signing "+
+			"PSBT: %v", script.Class())
+	}
+}
+
+// SignSegWitV0 attempts to generate a signature for a SegWit version 0 input
+// and stores it in the PartialSigs (and FinalScriptSig for np2wkh addresses)
+// field.
+func signSegWitV0(in *psbt.PInput, tx *wire.MsgTx,
+	sigHashes *txscript.TxSigHashes, idx int,
+	privKey *btcec.PrivateKey) error {
+
+	pubKeyBytes := privKey.PubKey().SerializeCompressed()
+
+	// Extract the correct witness and/or legacy scripts now, depending on
+	// the type of input we sign. The txscript package has the peculiar
+	// requirement that the PkScript of a P2PKH must be given as the witness
+	// script in order for it to arrive at the correct sighash. That's why
+	// we call it subScript here instead of witness script.
+	subScript, scriptSig, err := prepareScriptsV0(in)
+	if err != nil {
+		// We derived the correct key so we _are_ expected to sign this.
+		// Not being able to sign at this point means there's something
+		// wrong.
+		return fmt.Errorf("error deriving script for input %d: %v", idx,
+			err)
+	}
+
+	// We have everything we need for signing the input now.
+	sig, err := txscript.RawTxInWitnessSignature(
+		tx, sigHashes, idx, in.WitnessUtxo.Value, subScript,
+		in.SighashType, privKey,
+	)
+	if err != nil {
+		return fmt.Errorf("error signing input %d: %v", idx, err)
+	}
+	in.FinalScriptSig = scriptSig
+	in.PartialSigs = append(in.PartialSigs, &psbt.PartialSig{
+		PubKey:    pubKeyBytes,
+		Signature: sig,
+	})
+
+	return nil
+}
+
+// prepareScriptsV0 returns the appropriate witness v0 and/or legacy scripts,
 // depending on the type of input that should be signed.
-func prepareScripts(in psbt.PInput) ([]byte, []byte, error) {
+func prepareScriptsV0(in *psbt.PInput) ([]byte, []byte, error) {
 	switch {
 	// It's a NP2WKH input:
 	case len(in.RedeemScript) > 0:

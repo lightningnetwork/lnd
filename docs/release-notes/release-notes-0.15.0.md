@@ -25,6 +25,16 @@ addresses](https://github.com/lightningnetwork/lnd/pull/6263). Using
 then watch it on chain. Taproot script spends are also supported through the
 `signrpc.SignOutputRaw` RPC (`/v2/signer/signraw` in REST).
 
+## MuSig2
+
+The [`signrpc.Signer` RPC service now supports EXPERIMENTAL MuSig2
+signing](https://github.com/lightningnetwork/lnd/pull/6361).
+
+More information can be found in the [MuSig2 documentation](../musig2.md).
+Note that the MuSig2 BIP is not final yet and therefore the MuSig2 API must be
+considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
+releases. Backward compatibility is not guaranteed!
+
 ## `lncli`
 
 * Add [auto-generated command-line completions](https://github.com/lightningnetwork/lnd/pull/4177) 

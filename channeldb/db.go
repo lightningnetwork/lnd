@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration26"
 	"github.com/lightningnetwork/lnd/channeldb/migration27"
 	"github.com/lightningnetwork/lnd/channeldb/migration29"
+	"github.com/lightningnetwork/lnd/channeldb/migration30"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -45,17 +46,34 @@ var (
 // up-to-date version of the database.
 type migration func(tx kvdb.RwTx) error
 
-type version struct {
+// mandatoryVersion defines a db version that must be applied before the lnd
+// starts.
+type mandatoryVersion struct {
 	number    uint32
 	migration migration
 }
 
+// optionalMigration defines an optional migration function. When a migration
+// is optional, it usually involves a large scale of changes that might touch
+// millions of keys. Due to OOM concern, the update cannot be safely done
+// within one db transaction. Thus, for optional migrations, they must take the
+// db backend and construct transactions as needed.
+type optionalMigration func(db kvdb.Backend) error
+
+// optionalVersion defines a db version that can be optionally applied. When
+// applying migrations, we must apply all the mandatory migrations first before
+// attempting optional ones.
+type optionalVersion struct {
+	name      string
+	migration optionalMigration
+}
+
 var (
-	// dbVersions is storing all versions of database. If current version
-	// of database don't match with latest version this list will be used
-	// for retrieving all migration function that are need to apply to the
-	// current db.
-	dbVersions = []version{
+	// dbVersions is storing all mandatory versions of database. If current
+	// version of database don't match with latest version this list will
+	// be used for retrieving all migration function that are need to apply
+	// to the current db.
+	dbVersions = []mandatoryVersion{
 		{
 			// The base DB version requires no migration.
 			number:    0,
@@ -237,6 +255,19 @@ var (
 		},
 	}
 
+	// optionalVersions stores all optional migrations that are applied
+	// after dbVersions.
+	//
+	// NOTE: optional migrations must be fault-tolerant and re-run already
+	// migrated data must be noop, which means the migration must be able
+	// to determine its state.
+	optionalVersions = []optionalVersion{
+		{
+			name:      "prune revocation log",
+			migration: migration30.MigrateRevocationLog,
+		},
+	}
+
 	// Big endian is the preferred byte order, due to cursor scans over
 	// integer keys iterating in order.
 	byteOrder = binary.BigEndian
@@ -334,6 +365,13 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, 
 	// Synchronize the version of database and apply migrations if needed.
 	if !opts.NoMigration {
 		if err := chanDB.syncVersions(dbVersions); err != nil {
+			backend.Close()
+			return nil, err
+		}
+
+		// Grab the optional migration config.
+		omc := opts.OptionalMiragtionConfig
+		if err := chanDB.applyOptionalVersions(omc); err != nil {
 			backend.Close()
 			return nil, err
 		}
@@ -1309,7 +1347,7 @@ func (c *ChannelStateDB) DeleteChannelOpeningState(outPoint []byte) error {
 // syncVersions function is used for safe db version synchronization. It
 // applies migration functions to the current database and recovers the
 // previous state of db if at least one error/panic appeared during migration.
-func (d *DB) syncVersions(versions []version) error {
+func (d *DB) syncVersions(versions []mandatoryVersion) error {
 	meta, err := d.FetchMeta(nil)
 	if err != nil {
 		if err == ErrMetaNotFound {
@@ -1379,6 +1417,61 @@ func (d *DB) syncVersions(versions []version) error {
 	}, func() {})
 }
 
+// applyOptionalVersions takes a config to determine whether the optional
+// migrations will be applied.
+//
+// NOTE: only support the prune_revocation_log optional migration atm.
+func (d *DB) applyOptionalVersions(cfg OptionalMiragtionConfig) error {
+	om, err := d.fetchOptionalMeta()
+	if err != nil {
+		if err == ErrMetaNotFound {
+			om = &OptionalMeta{
+				Versions: make(map[uint64]string),
+			}
+		} else {
+			return err
+		}
+	}
+
+	log.Infof("Checking for optional update: prune_revocation_log=%v, "+
+		"db_version=%s", cfg.PruneRevocationLog, om)
+
+	// Exit early if the optional migration is not specified.
+	if !cfg.PruneRevocationLog {
+		return nil
+	}
+
+	// Exit early if the optional migration has already been applied.
+	if _, ok := om.Versions[0]; ok {
+		return nil
+	}
+
+	// Get the optional version.
+	version := optionalVersions[0]
+	log.Infof("Performing database optional migration: %s", version.name)
+
+	// Migrate the data.
+	if err := version.migration(d); err != nil {
+		log.Errorf("Unable to apply optional migration: %s, error: %v",
+			version.name, err)
+		return err
+	}
+
+	// Update the optional meta. Notice that unlike the mandatory db
+	// migrations where we perform the migration and updating meta in a
+	// single db transaction, we use different transactions here. Even when
+	// the following update is failed, we should be fine here as we would
+	// re-run the optional migration again, which is a noop, during next
+	// startup.
+	om.Versions[0] = version.name
+	if err := d.putOptionalMeta(om); err != nil {
+		log.Errorf("Unable to update optional meta: %v", err)
+		return err
+	}
+
+	return nil
+}
+
 // ChannelGraph returns the current instance of the directed channel graph.
 func (d *DB) ChannelGraph() *ChannelGraph {
 	return d.graph
@@ -1390,13 +1483,15 @@ func (d *DB) ChannelStateDB() *ChannelStateDB {
 	return d.channelStateDB
 }
 
-func getLatestDBVersion(versions []version) uint32 {
+func getLatestDBVersion(versions []mandatoryVersion) uint32 {
 	return versions[len(versions)-1].number
 }
 
 // getMigrationsToApply retrieves the migration function that should be
 // applied to the database.
-func getMigrationsToApply(versions []version, version uint32) ([]migration, []uint32) {
+func getMigrationsToApply(versions []mandatoryVersion,
+	version uint32) ([]migration, []uint32) {
+
 	migrations := make([]migration, 0, len(versions))
 	migrationVersions := make([]uint32, 0, len(versions))
 

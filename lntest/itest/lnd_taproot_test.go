@@ -45,6 +45,7 @@ func testTaproot(net *lntest.NetworkHarness, t *harnessTest) {
 
 	testTaprootComputeInputScriptKeySpendBip86(ctxt, t, net.Alice, net)
 	testTaprootSignOutputRawScriptSpend(ctxt, t, net.Alice, net)
+	testTaprootSignOutputRawKeySpendBip86(ctxt, t, net.Alice, net)
 	testTaprootSignOutputRawKeySpendRootHash(ctxt, t, net.Alice, net)
 	testTaprootMuSig2KeySpendBip86(ctxt, t, net.Alice, net)
 	testTaprootMuSig2KeySpendRootHash(ctxt, t, net.Alice, net)
@@ -225,6 +226,101 @@ func testTaprootSignOutputRawScriptSpend(ctxt context.Context, t *harnessTest,
 		signResp.RawSigs[0],
 		leaf2.Script,
 		controlBlockBytes,
+	}
+
+	// Serialize, weigh and publish the TX now, then make sure the
+	// coins are sent and confirmed to the final sweep destination address.
+	publishTxAndConfirmSweep(
+		ctxt, t, net, alice, tx, estimatedWeight,
+		&chainrpc.SpendRequest{
+			Outpoint: &chainrpc.Outpoint{
+				Hash:  p2trOutpoint.Hash[:],
+				Index: p2trOutpoint.Index,
+			},
+			Script: p2trPkScript,
+		},
+		p2wkhAddr.String(),
+	)
+}
+
+// testTaprootSignOutputRawKeySpendBip86 tests that a tapscript address can
+// also be spent using the key spend path through the SignOutputRaw RPC using a
+// BIP0086 key spend only commitment.
+func testTaprootSignOutputRawKeySpendBip86(ctxt context.Context,
+	t *harnessTest, alice *lntest.HarnessNode, net *lntest.NetworkHarness) {
+
+	// For the next step, we need a public key. Let's use a special family
+	// for this.
+	keyDesc, err := alice.WalletKitClient.DeriveNextKey(
+		ctxt, &walletrpc.KeyReq{KeyFamily: testTaprootKeyFamily},
+	)
+	require.NoError(t.t, err)
+
+	internalKey, err := btcec.ParsePubKey(keyDesc.RawKeyBytes)
+	require.NoError(t.t, err)
+
+	// We want to make sure we can still use a tweaked key, even if it ends
+	// up being essentially double tweaked because of the taproot root hash.
+	dummyKeyTweak := sha256.Sum256([]byte("this is a key tweak"))
+	internalKey = input.TweakPubKeyWithTweak(internalKey, dummyKeyTweak[:])
+
+	// Our taproot key is a BIP0086 key spend only construction that just
+	// commits to the internal key and no root hash.
+	taprootKey := txscript.ComputeTaprootKeyNoScript(internalKey)
+
+	// Send some coins to the generated tapscript address.
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
+		ctxt, t, net, alice, taprootKey, testAmount,
+	)
+
+	// Spend the output again, this time back to a p2wkh address.
+	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
+		ctxt, t.t, alice, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	)
+
+	// Create fee estimation for a p2tr input and p2wkh output.
+	feeRate := chainfee.SatPerKWeight(12500)
+	estimator := input.TxWeightEstimator{}
+	estimator.AddTaprootKeySpendInput(txscript.SigHashDefault)
+	estimator.AddP2WKHOutput()
+	estimatedWeight := int64(estimator.Weight())
+	requiredFee := feeRate.FeeForWeight(estimatedWeight)
+
+	tx := wire.NewMsgTx(2)
+	tx.TxIn = []*wire.TxIn{{
+		PreviousOutPoint: p2trOutpoint,
+	}}
+	value := int64(testAmount - requiredFee)
+	tx.TxOut = []*wire.TxOut{{
+		PkScript: p2wkhPkScript,
+		Value:    value,
+	}}
+
+	var buf bytes.Buffer
+	require.NoError(t.t, tx.Serialize(&buf))
+
+	utxoInfo := []*signrpc.TxOut{{
+		PkScript: p2trPkScript,
+		Value:    testAmount,
+	}}
+	signResp, err := alice.SignerClient.SignOutputRaw(
+		ctxt, &signrpc.SignReq{
+			RawTxBytes: buf.Bytes(),
+			SignDescs: []*signrpc.SignDescriptor{{
+				Output:          utxoInfo[0],
+				InputIndex:      0,
+				KeyDesc:         keyDesc,
+				SingleTweak:     dummyKeyTweak[:],
+				Sighash:         uint32(txscript.SigHashDefault),
+				TaprootKeySpend: true,
+			}},
+			PrevOutputs: utxoInfo,
+		},
+	)
+	require.NoError(t.t, err)
+
+	tx.TxIn[0].Witness = wire.TxWitness{
+		signResp.RawSigs[0],
 	}
 
 	// Serialize, weigh and publish the TX now, then make sure the

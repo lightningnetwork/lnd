@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	basewallet "github.com/btcsuite/btcwallet/wallet"
+	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -1029,6 +1030,50 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 		// If this is a BIP0086 key spend then the tap tweak is empty,
 		// otherwise it's set to the Taproot root hash.
 		in.TaprootMerkleRoot = signDesc.TapTweak
+
+	case input.TaprootScriptSpendSignMethod:
+		// The script spend path is a bit more involved when doing it
+		// through the PSBT method. We need to specify the leaf hash
+		// that the signer should sign for.
+		leaf := txscript.TapLeaf{
+			LeafVersion: txscript.BaseLeafVersion,
+			Script:      signDesc.WitnessScript,
+		}
+		leafHash := leaf.TapHash()
+
+		d := in.Bip32Derivation[0]
+		in.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{{
+			XOnlyPubKey:          d.PubKey[1:],
+			LeafHashes:           [][]byte{leafHash[:]},
+			MasterKeyFingerprint: d.MasterKeyFingerprint,
+			Bip32Path:            d.Bip32Path,
+		}}
+
+		// We also need to supply a control block. But because we don't
+		// know the internal key nor the merkle proofs (both is not
+		// supplied through the SignOutputRaw RPC) and is technically
+		// not really needed by the signer (since we only want a
+		// signature, the full witness stack is assembled by the caller
+		// of this RPC), we can get by with faking certain information
+		// that we don't have.
+		fakeInternalKey, _ := btcec.ParsePubKey(d.PubKey)
+		fakeKeyIsOdd := d.PubKey[0] == secp.PubKeyFormatCompressedOdd
+		controlBlock := txscript.ControlBlock{
+			InternalKey:     fakeInternalKey,
+			OutputKeyYIsOdd: fakeKeyIsOdd,
+			LeafVersion:     leaf.LeafVersion,
+		}
+		blockBytes, err := controlBlock.ToBytes()
+		if err != nil {
+			return nil, fmt.Errorf("error serializing control "+
+				"block: %v", err)
+		}
+
+		in.TaprootLeafScript = []*psbt.TaprootTapLeafScript{{
+			ControlBlock: blockBytes,
+			Script:       leaf.Script,
+			LeafVersion:  leaf.LeafVersion,
+		}}
 	}
 
 	// Okay, let's sign the input by the remote signer now.
@@ -1112,6 +1157,21 @@ func extractSignature(in *psbt.PInput,
 		return schnorr.ParseSignature(
 			in.TaprootKeySpendSig[:schnorr.SignatureSize],
 		)
+
+	case input.TaprootScriptSpendSignMethod:
+		if len(in.TaprootScriptSpendSig) != 1 {
+			return nil, fmt.Errorf("remote signer returned "+
+				"invalid taproot script spend signature, "+
+				"wanted 1, got %d",
+				len(in.TaprootScriptSpendSig))
+		}
+		scriptSpendSig := in.TaprootScriptSpendSig[0]
+		if scriptSpendSig == nil {
+			return nil, fmt.Errorf("remote signer returned nil " +
+				"taproot script spend signature")
+		}
+
+		return schnorr.ParseSignature(scriptSpendSig.Signature)
 
 	default:
 		return nil, fmt.Errorf("can't extract signature, unsupported "+

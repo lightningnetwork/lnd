@@ -75,12 +75,12 @@ func TapscriptFullTree(internalKey *btcec.PublicKey,
 // key and revealed script.
 func TapscriptPartialReveal(internalKey *btcec.PublicKey,
 	revealedLeaf txscript.TapLeaf,
-	inclusionProof [32]byte) *waddrmgr.Tapscript {
+	inclusionProof []byte) *waddrmgr.Tapscript {
 
 	controlBlock := &txscript.ControlBlock{
 		InternalKey:    internalKey,
 		LeafVersion:    txscript.BaseLeafVersion,
-		InclusionProof: inclusionProof[:],
+		InclusionProof: inclusionProof,
 	}
 	rootHash := controlBlock.RootHash(revealedLeaf.Script)
 	tapKey := txscript.ComputeTaprootOutputKey(internalKey, rootHash)

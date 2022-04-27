@@ -131,8 +131,9 @@ func testTaprootSignOutputRawScriptSpend(ctxt context.Context, t *harnessTest,
 	// Let's add a second script output as well to test the partial reveal.
 	leaf2 := testScriptSchnorrSig(t.t, leafSigningKey)
 
+	inclusionProof := leaf1.TapHash()
 	tapscript := input.TapscriptPartialReveal(
-		dummyInternalKey, leaf2, leaf1.TapHash(),
+		dummyInternalKey, leaf2, inclusionProof[:],
 	)
 	taprootKey, err := tapscript.TaprootKey()
 	require.NoError(t.t, err)

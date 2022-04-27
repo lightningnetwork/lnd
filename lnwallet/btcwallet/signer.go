@@ -372,21 +372,23 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 		// slightly different, so we need to account for that to get the
 		// raw signature.
 		var rawSig []byte
-		if signDesc.TaprootKeySpend {
+		switch signDesc.SignMethod {
+		case input.TaprootKeySpendBIP0086SignMethod,
+			input.TaprootKeySpendSignMethod:
+
 			// This function tweaks the private key using the tap
-			// root key supplied as the tweak. So we pass in the
-			// original private key to avoid it being double
-			// tweaked!
+			// root key supplied as the tweak.
 			rawSig, err = txscript.RawTxInTaprootSignature(
 				tx, sigHashes, signDesc.InputIndex,
 				signDesc.Output.Value, signDesc.Output.PkScript,
-				signDesc.WitnessScript, signDesc.HashType,
+				signDesc.TapTweak, signDesc.HashType,
 				privKey,
 			)
 			if err != nil {
 				return nil, err
 			}
-		} else {
+
+		case input.TaprootScriptSpendSignMethod:
 			leaf := txscript.TapLeaf{
 				LeafVersion: txscript.BaseLeafVersion,
 				Script:      witnessScript,

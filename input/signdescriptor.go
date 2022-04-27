@@ -56,16 +56,29 @@ type SignDescriptor struct {
 	// DoubleTweak, not both.
 	DoubleTweak *btcec.PrivateKey
 
+	// TapTweak is a 32-byte value that will be used to derive a taproot
+	// output public key (or the corresponding private key) from an
+	// internal key and this tweak. The transformation applied is:
+	//  * outputKey = internalKey +
+	//        tagged_hash("tapTweak", internalKey || tapTweak)
+	//
+	// When attempting to sign an output derived via BIP 86, then this
+	// field should be an empty byte array.
+	//
+	// When attempting to sign for the key spend path of an output key that
+	// commits to an actual script tree, the script root should be used.
+	TapTweak []byte
+
 	// WitnessScript is the full script required to properly redeem the
 	// output. This field should be set to the full script if a p2wsh
 	// output is being signed. For p2wkh it should be set to the hashed
 	// script (PkScript).
 	WitnessScript []byte
 
-	// TaprootKeySpend indicates that instead of a witness script being
-	// spent by the signature that results from this signing request, a
-	// taproot key spend is performed instead.
-	TaprootKeySpend bool
+	// SignMethod specifies how the input should be signed. Depending on the
+	// selected method, either the TapTweak, WitnessScript or both need to
+	// be specified.
+	SignMethod SignMethod
 
 	// Output is the target output which should be signed. The PkScript and
 	// Value fields within the output should be properly populated,

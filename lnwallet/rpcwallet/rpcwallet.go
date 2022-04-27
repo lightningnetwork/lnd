@@ -803,6 +803,19 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 			&txIn.PreviousOutPoint,
 		)
 		if err != nil {
+			// Maybe we have an UTXO in the previous output fetcher?
+			if signDesc.PrevOutputFetcher != nil {
+				utxo := signDesc.PrevOutputFetcher.FetchPrevOutput(
+					txIn.PreviousOutPoint,
+				)
+				if utxo != nil && utxo.Value != 0 &&
+					len(utxo.PkScript) > 0 {
+
+					packet.Inputs[idx].WitnessUtxo = utxo
+					continue
+				}
+			}
+
 			log.Warnf("No UTXO info found for index %d "+
 				"(prev_outpoint=%v), won't be able to sign "+
 				"for taproot output!", idx,

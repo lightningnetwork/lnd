@@ -46,6 +46,10 @@ func testTaproot(net *lntest.NetworkHarness, t *harnessTest) {
 	testTaprootComputeInputScriptKeySpendBip86(ctxt, t, net.Alice, net)
 	testTaprootSignOutputRawScriptSpend(ctxt, t, net.Alice, net)
 	testTaprootSignOutputRawKeySpendRootHash(ctxt, t, net.Alice, net)
+	testTaprootMuSig2KeySpendBip86(ctxt, t, net.Alice, net)
+	testTaprootMuSig2KeySpendRootHash(ctxt, t, net.Alice, net)
+	testTaprootMuSig2ScriptSpend(ctxt, t, net.Alice, net)
+	testTaprootMuSig2CombinedLeafKeySpend(ctxt, t, net.Alice, net)
 }
 
 // testTaprootComputeInputScriptKeySpendBip86 tests sending to and spending from
@@ -337,6 +341,524 @@ func testTaprootSignOutputRawKeySpendRootHash(ctxt context.Context,
 	)
 }
 
+// testTaprootMuSig2KeySpendBip86 tests that a combined MuSig2 key can also be
+// used as a BIP-0086 key spend only key.
+func testTaprootMuSig2KeySpendBip86(ctxt context.Context, t *harnessTest,
+	alice *lntest.HarnessNode, net *lntest.NetworkHarness) {
+
+	// We're not going to commit to a script. So our taproot tweak will be
+	// empty and just specify the necessary flag.
+	taprootTweak := &signrpc.TaprootTweakDesc{
+		KeySpendOnly: true,
+	}
+
+	keyDesc1, keyDesc2, keyDesc3, allPubKeys := deriveSigningKeys(
+		ctxt, t, alice,
+	)
+	_, taprootKey, sessResp1, sessResp2, sessResp3 := createMuSigSessions(
+		ctxt, t, alice, taprootTweak, keyDesc1, keyDesc2, keyDesc3,
+		allPubKeys,
+	)
+
+	// Send some coins to the generated tapscript address.
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
+		ctxt, t, net, alice, taprootKey, testAmount,
+	)
+
+	// Spend the output again, this time back to a p2wkh address.
+	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
+		ctxt, t.t, alice, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	)
+
+	// Create fee estimation for a p2tr input and p2wkh output.
+	feeRate := chainfee.SatPerKWeight(12500)
+	estimator := input.TxWeightEstimator{}
+	estimator.AddTaprootKeySpendInput(txscript.SigHashDefault)
+	estimator.AddP2WKHOutput()
+	estimatedWeight := int64(estimator.Weight())
+	requiredFee := feeRate.FeeForWeight(estimatedWeight)
+
+	tx := wire.NewMsgTx(2)
+	tx.TxIn = []*wire.TxIn{{
+		PreviousOutPoint: p2trOutpoint,
+	}}
+	value := int64(testAmount - requiredFee)
+	tx.TxOut = []*wire.TxOut{{
+		PkScript: p2wkhPkScript,
+		Value:    value,
+	}}
+
+	var buf bytes.Buffer
+	require.NoError(t.t, tx.Serialize(&buf))
+
+	utxoInfo := []*signrpc.TxOut{{
+		PkScript: p2trPkScript,
+		Value:    testAmount,
+	}}
+
+	// We now need to create the raw sighash of the transaction, as that
+	// will be the message we're signing collaboratively.
+	prevOutputFetcher := txscript.NewCannedPrevOutputFetcher(
+		utxoInfo[0].PkScript, utxoInfo[0].Value,
+	)
+	sighashes := txscript.NewTxSigHashes(tx, prevOutputFetcher)
+
+	sigHash, err := txscript.CalcTaprootSignatureHash(
+		sighashes, txscript.SigHashDefault, tx, 0, prevOutputFetcher,
+	)
+	require.NoError(t.t, err)
+
+	// Now that we have the transaction prepared, we need to start with the
+	// signing. We simulate all three parties here, so we need to do
+	// everything three times. But because we're going to use session 1 to
+	// combine everything, we don't need its response, as it will store its
+	// own signature.
+	_, err = alice.SignerClient.MuSig2Sign(
+		ctxt, &signrpc.MuSig2SignRequest{
+			SessionId:     sessResp1.SessionId,
+			MessageDigest: sigHash,
+		},
+	)
+	require.NoError(t.t, err)
+
+	signResp2, err := alice.SignerClient.MuSig2Sign(
+		ctxt, &signrpc.MuSig2SignRequest{
+			SessionId:     sessResp2.SessionId,
+			MessageDigest: sigHash,
+			Cleanup:       true,
+		},
+	)
+	require.NoError(t.t, err)
+
+	signResp3, err := alice.SignerClient.MuSig2Sign(
+		ctxt, &signrpc.MuSig2SignRequest{
+			SessionId:     sessResp3.SessionId,
+			MessageDigest: sigHash,
+			Cleanup:       true,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Luckily only one of the signers needs to combine the signature, so
+	// let's do that now.
+	combineReq1, err := alice.SignerClient.MuSig2CombineSig(
+		ctxt, &signrpc.MuSig2CombineSigRequest{
+			SessionId: sessResp1.SessionId,
+			OtherPartialSignatures: [][]byte{
+				signResp2.LocalPartialSignature,
+				signResp3.LocalPartialSignature,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, true, combineReq1.HaveAllSignatures)
+	require.NotEmpty(t.t, combineReq1.FinalSignature)
+
+	sig, err := schnorr.ParseSignature(combineReq1.FinalSignature)
+	require.NoError(t.t, err)
+	require.True(t.t, sig.Verify(sigHash, taprootKey))
+
+	tx.TxIn[0].Witness = wire.TxWitness{
+		combineReq1.FinalSignature,
+	}
+
+	// Serialize, weigh and publish the TX now, then make sure the
+	// coins are sent and confirmed to the final sweep destination address.
+	publishTxAndConfirmSweep(
+		ctxt, t, net, alice, tx, estimatedWeight,
+		&chainrpc.SpendRequest{
+			Outpoint: &chainrpc.Outpoint{
+				Hash:  p2trOutpoint.Hash[:],
+				Index: p2trOutpoint.Index,
+			},
+			Script: p2trPkScript,
+		},
+		p2wkhAddr.String(),
+	)
+}
+
+// testTaprootMuSig2KeySpendRootHash tests that a tapscript address can also be
+// spent using a MuSig2 combined key.
+func testTaprootMuSig2KeySpendRootHash(ctxt context.Context, t *harnessTest,
+	alice *lntest.HarnessNode, net *lntest.NetworkHarness) {
+
+	// We're going to commit to a script as well. This is a hash lock with a
+	// simple preimage of "foobar". We need to know this upfront so, we can
+	// specify the taproot tweak with the root hash when creating the Musig2
+	// signing session.
+	leaf1 := testScriptHashLock(t.t, []byte("foobar"))
+	rootHash := leaf1.TapHash()
+	taprootTweak := &signrpc.TaprootTweakDesc{
+		ScriptRoot: rootHash[:],
+	}
+
+	keyDesc1, keyDesc2, keyDesc3, allPubKeys := deriveSigningKeys(
+		ctxt, t, alice,
+	)
+	_, taprootKey, sessResp1, sessResp2, sessResp3 := createMuSigSessions(
+		ctxt, t, alice, taprootTweak, keyDesc1, keyDesc2, keyDesc3,
+		allPubKeys,
+	)
+
+	// Send some coins to the generated tapscript address.
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
+		ctxt, t, net, alice, taprootKey, testAmount,
+	)
+
+	// Spend the output again, this time back to a p2wkh address.
+	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
+		ctxt, t.t, alice, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	)
+
+	// Create fee estimation for a p2tr input and p2wkh output.
+	feeRate := chainfee.SatPerKWeight(12500)
+	estimator := input.TxWeightEstimator{}
+	estimator.AddTaprootKeySpendInput(txscript.SigHashDefault)
+	estimator.AddP2WKHOutput()
+	estimatedWeight := int64(estimator.Weight())
+	requiredFee := feeRate.FeeForWeight(estimatedWeight)
+
+	tx := wire.NewMsgTx(2)
+	tx.TxIn = []*wire.TxIn{{
+		PreviousOutPoint: p2trOutpoint,
+	}}
+	value := int64(testAmount - requiredFee)
+	tx.TxOut = []*wire.TxOut{{
+		PkScript: p2wkhPkScript,
+		Value:    value,
+	}}
+
+	var buf bytes.Buffer
+	require.NoError(t.t, tx.Serialize(&buf))
+
+	utxoInfo := []*signrpc.TxOut{{
+		PkScript: p2trPkScript,
+		Value:    testAmount,
+	}}
+
+	// We now need to create the raw sighash of the transaction, as that
+	// will be the message we're signing collaboratively.
+	prevOutputFetcher := txscript.NewCannedPrevOutputFetcher(
+		utxoInfo[0].PkScript, utxoInfo[0].Value,
+	)
+	sighashes := txscript.NewTxSigHashes(tx, prevOutputFetcher)
+
+	sigHash, err := txscript.CalcTaprootSignatureHash(
+		sighashes, txscript.SigHashDefault, tx, 0, prevOutputFetcher,
+	)
+	require.NoError(t.t, err)
+
+	// Now that we have the transaction prepared, we need to start with the
+	// signing. We simulate all three parties here, so we need to do
+	// everything three times. But because we're going to use session 1 to
+	// combine everything, we don't need its response, as it will store its
+	// own signature.
+	_, err = alice.SignerClient.MuSig2Sign(
+		ctxt, &signrpc.MuSig2SignRequest{
+			SessionId:     sessResp1.SessionId,
+			MessageDigest: sigHash,
+		},
+	)
+	require.NoError(t.t, err)
+
+	signResp2, err := alice.SignerClient.MuSig2Sign(
+		ctxt, &signrpc.MuSig2SignRequest{
+			SessionId:     sessResp2.SessionId,
+			MessageDigest: sigHash,
+			Cleanup:       true,
+		},
+	)
+	require.NoError(t.t, err)
+
+	signResp3, err := alice.SignerClient.MuSig2Sign(
+		ctxt, &signrpc.MuSig2SignRequest{
+			SessionId:     sessResp3.SessionId,
+			MessageDigest: sigHash,
+			Cleanup:       true,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Luckily only one of the signers needs to combine the signature, so
+	// let's do that now.
+	combineReq1, err := alice.SignerClient.MuSig2CombineSig(
+		ctxt, &signrpc.MuSig2CombineSigRequest{
+			SessionId: sessResp1.SessionId,
+			OtherPartialSignatures: [][]byte{
+				signResp2.LocalPartialSignature,
+				signResp3.LocalPartialSignature,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, true, combineReq1.HaveAllSignatures)
+	require.NotEmpty(t.t, combineReq1.FinalSignature)
+
+	sig, err := schnorr.ParseSignature(combineReq1.FinalSignature)
+	require.NoError(t.t, err)
+	require.True(t.t, sig.Verify(sigHash, taprootKey))
+
+	tx.TxIn[0].Witness = wire.TxWitness{
+		combineReq1.FinalSignature,
+	}
+
+	// Serialize, weigh and publish the TX now, then make sure the
+	// coins are sent and confirmed to the final sweep destination address.
+	publishTxAndConfirmSweep(
+		ctxt, t, net, alice, tx, estimatedWeight,
+		&chainrpc.SpendRequest{
+			Outpoint: &chainrpc.Outpoint{
+				Hash:  p2trOutpoint.Hash[:],
+				Index: p2trOutpoint.Index,
+			},
+			Script: p2trPkScript,
+		},
+		p2wkhAddr.String(),
+	)
+}
+
+// testTaprootMuSig2ScriptSpend tests that a tapscript address with an internal
+// key that is a MuSig2 combined key can also be spent using the script path.
+func testTaprootMuSig2ScriptSpend(ctxt context.Context, t *harnessTest,
+	alice *lntest.HarnessNode, net *lntest.NetworkHarness) {
+
+	// We're going to commit to a script and spend the output using the
+	// script. This is a hash lock with a simple preimage of "foobar". We
+	// need to know this upfront so, we can specify the taproot tweak with
+	// the root hash when creating the Musig2 signing session.
+	leaf1 := testScriptHashLock(t.t, []byte("foobar"))
+	rootHash := leaf1.TapHash()
+	taprootTweak := &signrpc.TaprootTweakDesc{
+		ScriptRoot: rootHash[:],
+	}
+
+	keyDesc1, keyDesc2, keyDesc3, allPubKeys := deriveSigningKeys(
+		ctxt, t, alice,
+	)
+	internalKey, taprootKey, _, _, _ := createMuSigSessions(
+		ctxt, t, alice, taprootTweak, keyDesc1, keyDesc2, keyDesc3,
+		allPubKeys,
+	)
+
+	// Because we know the internal key and the script we want to spend, we
+	// can now create the tapscript struct that's used for assembling the
+	// control block and fee estimation.
+	tapscript := input.TapscriptFullTree(internalKey, leaf1)
+
+	// Send some coins to the generated tapscript address.
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
+		ctxt, t, net, alice, taprootKey, testAmount,
+	)
+
+	// Spend the output again, this time back to a p2wkh address.
+	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
+		ctxt, t.t, alice, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	)
+
+	// Create fee estimation for a p2tr input and p2wkh output.
+	feeRate := chainfee.SatPerKWeight(12500)
+	estimator := input.TxWeightEstimator{}
+	estimator.AddTapscriptInput(
+		len([]byte("foobar"))+len(leaf1.Script)+1, tapscript,
+	)
+	estimator.AddP2WKHOutput()
+	estimatedWeight := int64(estimator.Weight())
+	requiredFee := feeRate.FeeForWeight(estimatedWeight)
+
+	tx := wire.NewMsgTx(2)
+	tx.TxIn = []*wire.TxIn{{
+		PreviousOutPoint: p2trOutpoint,
+	}}
+	value := int64(testAmount - requiredFee)
+	tx.TxOut = []*wire.TxOut{{
+		PkScript: p2wkhPkScript,
+		Value:    value,
+	}}
+
+	// We can now assemble the witness stack.
+	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
+	require.NoError(t.t, err)
+
+	tx.TxIn[0].Witness = wire.TxWitness{
+		[]byte("foobar"),
+		leaf1.Script,
+		controlBlockBytes,
+	}
+
+	// Serialize, weigh and publish the TX now, then make sure the
+	// coins are sent and confirmed to the final sweep destination address.
+	publishTxAndConfirmSweep(
+		ctxt, t, net, alice, tx, estimatedWeight,
+		&chainrpc.SpendRequest{
+			Outpoint: &chainrpc.Outpoint{
+				Hash:  p2trOutpoint.Hash[:],
+				Index: p2trOutpoint.Index,
+			},
+			Script: p2trPkScript,
+		},
+		p2wkhAddr.String(),
+	)
+}
+
+// testTaprootMuSig2CombinedLeafKeySpend tests that a MuSig2 combined key can be
+// used for an OP_CHECKSIG inside a tap script leaf spend.
+func testTaprootMuSig2CombinedLeafKeySpend(ctxt context.Context, t *harnessTest,
+	alice *lntest.HarnessNode, net *lntest.NetworkHarness) {
+
+	// We're using the combined MuSig2 key in a script leaf. So we need to
+	// derive the combined key first, before we can build the script.
+	keyDesc1, keyDesc2, keyDesc3, allPubKeys := deriveSigningKeys(
+		ctxt, t, alice,
+	)
+	combineResp, err := alice.SignerClient.MuSig2CombineKeys(
+		ctxt, &signrpc.MuSig2CombineKeysRequest{
+			AllSignerPubkeys: allPubKeys,
+		},
+	)
+	require.NoError(t.t, err)
+	combinedPubKey, err := schnorr.ParsePubKey(combineResp.CombinedKey)
+	require.NoError(t.t, err)
+
+	// We're going to commit to a script and spend the output using the
+	// script. This is just an OP_CHECKSIG with the combined MuSig2 public
+	// key.
+	leaf := testScriptSchnorrSig(t.t, combinedPubKey)
+	tapscript := input.TapscriptPartialReveal(dummyInternalKey, leaf, nil)
+	taprootKey, err := tapscript.TaprootKey()
+	require.NoError(t.t, err)
+
+	// Send some coins to the generated tapscript address.
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
+		ctxt, t, net, alice, taprootKey, testAmount,
+	)
+
+	// Spend the output again, this time back to a p2wkh address.
+	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
+		ctxt, t.t, alice, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	)
+
+	// Create fee estimation for a p2tr input and p2wkh output.
+	feeRate := chainfee.SatPerKWeight(12500)
+	estimator := input.TxWeightEstimator{}
+	estimator.AddTapscriptInput(
+		input.TaprootSignatureWitnessSize, tapscript,
+	)
+	estimator.AddP2WKHOutput()
+	estimatedWeight := int64(estimator.Weight())
+	requiredFee := feeRate.FeeForWeight(estimatedWeight)
+
+	tx := wire.NewMsgTx(2)
+	tx.TxIn = []*wire.TxIn{{
+		PreviousOutPoint: p2trOutpoint,
+	}}
+	value := int64(testAmount - requiredFee)
+	tx.TxOut = []*wire.TxOut{{
+		PkScript: p2wkhPkScript,
+		Value:    value,
+	}}
+
+	var buf bytes.Buffer
+	require.NoError(t.t, tx.Serialize(&buf))
+
+	utxoInfo := []*signrpc.TxOut{{
+		PkScript: p2trPkScript,
+		Value:    testAmount,
+	}}
+
+	// Do the actual signing now.
+	_, _, sessResp1, sessResp2, sessResp3 := createMuSigSessions(
+		ctxt, t, alice, nil, keyDesc1, keyDesc2, keyDesc3, allPubKeys,
+	)
+	require.NoError(t.t, err)
+
+	// We now need to create the raw sighash of the transaction, as that
+	// will be the message we're signing collaboratively.
+	prevOutputFetcher := txscript.NewCannedPrevOutputFetcher(
+		utxoInfo[0].PkScript, utxoInfo[0].Value,
+	)
+	sighashes := txscript.NewTxSigHashes(tx, prevOutputFetcher)
+
+	sigHash, err := txscript.CalcTapscriptSignaturehash(
+		sighashes, txscript.SigHashDefault, tx, 0, prevOutputFetcher,
+		leaf,
+	)
+	require.NoError(t.t, err)
+
+	// Now that we have the transaction prepared, we need to start with the
+	// signing. We simulate all three parties here, so we need to do
+	// everything three times. But because we're going to use session 1 to
+	// combine everything, we don't need its response, as it will store its
+	// own signature.
+	_, err = alice.SignerClient.MuSig2Sign(
+		ctxt, &signrpc.MuSig2SignRequest{
+			SessionId:     sessResp1.SessionId,
+			MessageDigest: sigHash,
+		},
+	)
+	require.NoError(t.t, err)
+
+	signResp2, err := alice.SignerClient.MuSig2Sign(
+		ctxt, &signrpc.MuSig2SignRequest{
+			SessionId:     sessResp2.SessionId,
+			MessageDigest: sigHash,
+			Cleanup:       true,
+		},
+	)
+	require.NoError(t.t, err)
+
+	signResp3, err := alice.SignerClient.MuSig2Sign(
+		ctxt, &signrpc.MuSig2SignRequest{
+			SessionId:     sessResp3.SessionId,
+			MessageDigest: sigHash,
+			Cleanup:       true,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Luckily only one of the signers needs to combine the signature, so
+	// let's do that now.
+	combineReq1, err := alice.SignerClient.MuSig2CombineSig(
+		ctxt, &signrpc.MuSig2CombineSigRequest{
+			SessionId: sessResp1.SessionId,
+			OtherPartialSignatures: [][]byte{
+				signResp2.LocalPartialSignature,
+				signResp3.LocalPartialSignature,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, true, combineReq1.HaveAllSignatures)
+	require.NotEmpty(t.t, combineReq1.FinalSignature)
+
+	sig, err := schnorr.ParseSignature(combineReq1.FinalSignature)
+	require.NoError(t.t, err)
+	require.True(t.t, sig.Verify(sigHash, combinedPubKey))
+
+	// We can now assemble the witness stack.
+	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
+	require.NoError(t.t, err)
+
+	tx.TxIn[0].Witness = wire.TxWitness{
+		combineReq1.FinalSignature,
+		leaf.Script,
+		controlBlockBytes,
+	}
+
+	// Serialize, weigh and publish the TX now, then make sure the
+	// coins are sent and confirmed to the final sweep destination address.
+	publishTxAndConfirmSweep(
+		ctxt, t, net, alice, tx, estimatedWeight,
+		&chainrpc.SpendRequest{
+			Outpoint: &chainrpc.Outpoint{
+				Hash:  p2trOutpoint.Hash[:],
+				Index: p2trOutpoint.Index,
+			},
+			Script: p2trPkScript,
+		},
+		p2wkhAddr.String(),
+	)
+}
+
 // testScriptHashLock returns a simple bitcoin script that locks the funds to
 // a hash lock of the given preimage.
 func testScriptHashLock(t *testing.T, preimage []byte) txscript.TapLeaf {
@@ -538,4 +1060,175 @@ func confirmAddress(ctx context.Context, t *harnessTest,
 	conf := confMsg.GetConf()
 	require.NotNil(t.t, conf)
 	require.Equal(t.t, conf.BlockHeight, uint32(currentHeight+1))
+}
+
+// deriveSigningKeys derives three signing keys and returns their descriptors,
+// as well as the public keys in the Schnorr serialized format.
+func deriveSigningKeys(ctx context.Context, t *harnessTest,
+	node *lntest.HarnessNode) (*signrpc.KeyDescriptor,
+	*signrpc.KeyDescriptor, *signrpc.KeyDescriptor, [][]byte) {
+
+	// For muSig2 we need multiple keys. We derive three of them from the
+	// same wallet, just so we know we can also sign for them again.
+	keyDesc1, err := node.WalletKitClient.DeriveNextKey(
+		ctx, &walletrpc.KeyReq{KeyFamily: testTaprootKeyFamily},
+	)
+	require.NoError(t.t, err)
+	pubKey1, err := btcec.ParsePubKey(keyDesc1.RawKeyBytes)
+	require.NoError(t.t, err)
+
+	keyDesc2, err := node.WalletKitClient.DeriveNextKey(
+		ctx, &walletrpc.KeyReq{KeyFamily: testTaprootKeyFamily},
+	)
+	require.NoError(t.t, err)
+	pubKey2, err := btcec.ParsePubKey(keyDesc2.RawKeyBytes)
+	require.NoError(t.t, err)
+
+	keyDesc3, err := node.WalletKitClient.DeriveNextKey(
+		ctx, &walletrpc.KeyReq{KeyFamily: testTaprootKeyFamily},
+	)
+	require.NoError(t.t, err)
+	pubKey3, err := btcec.ParsePubKey(keyDesc3.RawKeyBytes)
+	require.NoError(t.t, err)
+
+	// Now that we have all three keys we can create three sessions, one
+	// for each of the signers. This would of course normally not happen on
+	// the same node.
+	allPubKeys := [][]byte{
+		schnorr.SerializePubKey(pubKey1),
+		schnorr.SerializePubKey(pubKey2),
+		schnorr.SerializePubKey(pubKey3),
+	}
+
+	return keyDesc1, keyDesc2, keyDesc3, allPubKeys
+}
+
+// createMuSigSessions creates a MuSig2 session with three keys that are
+// combined into a single key. The same node is used for the three signing
+// participants but a separate key is generated for each session. So the result
+// should be the same as if it were three different nodes.
+func createMuSigSessions(ctx context.Context, t *harnessTest,
+	node *lntest.HarnessNode, taprootTweak *signrpc.TaprootTweakDesc,
+	keyDesc1, keyDesc2, keyDesc3 *signrpc.KeyDescriptor,
+	allPubKeys [][]byte) (*btcec.PublicKey, *btcec.PublicKey,
+	*signrpc.MuSig2SessionResponse, *signrpc.MuSig2SessionResponse,
+	*signrpc.MuSig2SessionResponse) {
+
+	sessResp1, err := node.SignerClient.MuSig2CreateSession(
+		ctx, &signrpc.MuSig2SessionRequest{
+			KeyLoc:           keyDesc1.KeyLoc,
+			AllSignerPubkeys: allPubKeys,
+			TaprootTweak:     taprootTweak,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Now that we have the three keys in a combined form, we want to make
+	// sure the tweaking for the taproot key worked correctly. We first need
+	// to parse the combined key without any tweaks applied to it. That will
+	// be our internal key. Once we know that, we can tweak it with the
+	// tapHash of the script root hash. We should arrive at the same result
+	// as the API.
+	combinedKey, err := schnorr.ParsePubKey(sessResp1.CombinedKey)
+	require.NoError(t.t, err)
+
+	// When combining the key without creating a session, we expect the same
+	// combined key to be created.
+	expectedCombinedKey := combinedKey
+
+	// Without a tweak, the internal key is equal to the combined key.
+	internalKey := combinedKey
+
+	// If there is a tweak, then there is the internal, pre-tweaked combined
+	// key and the taproot key which is fully tweaked.
+	if taprootTweak != nil {
+		internalKey, err = schnorr.ParsePubKey(
+			sessResp1.TaprootInternalKey,
+		)
+		require.NoError(t.t, err)
+
+		// We now know the taproot key. The session with the tweak
+		// applied should produce the same key!
+		expectedCombinedKey = txscript.ComputeTaprootOutputKey(
+			internalKey, taprootTweak.ScriptRoot,
+		)
+		require.Equal(
+			t.t, schnorr.SerializePubKey(expectedCombinedKey),
+			schnorr.SerializePubKey(combinedKey),
+		)
+	}
+
+	// We should also get the same keys when just calling the
+	// MuSig2CombineKeys RPC.
+	combineResp, err := node.SignerClient.MuSig2CombineKeys(
+		ctx, &signrpc.MuSig2CombineKeysRequest{
+			AllSignerPubkeys: allPubKeys,
+			TaprootTweak:     taprootTweak,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(
+		t.t, schnorr.SerializePubKey(expectedCombinedKey),
+		combineResp.CombinedKey,
+	)
+	require.Equal(
+		t.t, schnorr.SerializePubKey(internalKey),
+		combineResp.TaprootInternalKey,
+	)
+
+	// Everything is good so far, let's continue with creating the signing
+	// session for the other two participants.
+	sessResp2, err := node.SignerClient.MuSig2CreateSession(
+		ctx, &signrpc.MuSig2SessionRequest{
+			KeyLoc:           keyDesc2.KeyLoc,
+			AllSignerPubkeys: allPubKeys,
+			OtherSignerPublicNonces: [][]byte{
+				sessResp1.LocalPublicNonces,
+			},
+			TaprootTweak: taprootTweak,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, sessResp1.CombinedKey, sessResp2.CombinedKey)
+
+	sessResp3, err := node.SignerClient.MuSig2CreateSession(
+		ctx, &signrpc.MuSig2SessionRequest{
+			KeyLoc:           keyDesc3.KeyLoc,
+			AllSignerPubkeys: allPubKeys,
+			OtherSignerPublicNonces: [][]byte{
+				sessResp1.LocalPublicNonces,
+				sessResp2.LocalPublicNonces,
+			},
+			TaprootTweak: taprootTweak,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, sessResp2.CombinedKey, sessResp3.CombinedKey)
+	require.Equal(t.t, true, sessResp3.HaveAllNonces)
+
+	// We need to distribute the rest of the nonces.
+	nonceResp1, err := node.SignerClient.MuSig2RegisterNonces(
+		ctx, &signrpc.MuSig2RegisterNoncesRequest{
+			SessionId: sessResp1.SessionId,
+			OtherSignerPublicNonces: [][]byte{
+				sessResp2.LocalPublicNonces,
+				sessResp3.LocalPublicNonces,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, true, nonceResp1.HaveAllNonces)
+
+	nonceResp2, err := node.SignerClient.MuSig2RegisterNonces(
+		ctx, &signrpc.MuSig2RegisterNoncesRequest{
+			SessionId: sessResp2.SessionId,
+			OtherSignerPublicNonces: [][]byte{
+				sessResp3.LocalPublicNonces,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, true, nonceResp2.HaveAllNonces)
+
+	return internalKey, combinedKey, sessResp1, sessResp2, sessResp3
 }

@@ -2,6 +2,7 @@ package btcwallet
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -179,6 +180,20 @@ func (b *BtcWallet) SignPsbt(packet *psbt.Packet) error {
 		case input.WitnessV0SignMethod:
 			err = signSegWitV0(in, tx, sigHashes, idx, privKey)
 
+		// For p2tr BIP0086 key spend only.
+		case input.TaprootKeySpendBIP0086SignMethod:
+			rootHash := make([]byte, 0)
+			err = signSegWitV1KeySpend(
+				in, tx, sigHashes, idx, privKey, rootHash,
+			)
+
+		// For p2tr with script commitment key spend path.
+		case input.TaprootKeySpendSignMethod:
+			rootHash := in.TaprootMerkleRoot
+			err = signSegWitV1KeySpend(
+				in, tx, sigHashes, idx, privKey, rootHash,
+			)
+
 		default:
 			err = fmt.Errorf("unsupported signing method for "+
 				"PSBT signing: %v", signMethod)
@@ -206,6 +221,60 @@ func validateSigningMethod(in *psbt.PInput) (input.SignMethod, error) {
 		txscript.WitnessV0ScriptHashTy:
 
 		return input.WitnessV0SignMethod, nil
+
+	case txscript.WitnessV1TaprootTy:
+		if len(in.TaprootBip32Derivation) == 0 {
+			return 0, fmt.Errorf("cannot sign for taproot input " +
+				"without taproot BIP0032 derivation info")
+		}
+
+		// Currently, we only support creating one signature per input.
+		//
+		// TODO(guggero): Should we support signing multiple paths at
+		// the same time? What are the performance and security
+		// implications?
+		if len(in.TaprootBip32Derivation) > 1 {
+			return 0, fmt.Errorf("unsupported multiple taproot " +
+				"BIP0032 derivation info found, can only " +
+				"sign for one at a time")
+		}
+
+		derivation := in.TaprootBip32Derivation[0]
+		switch {
+		// No leaf hashes means this is the internal key we're signing
+		// with, so it's a key spend. And no merkle root means this is
+		// a BIP0086 output we're signing for.
+		case len(derivation.LeafHashes) == 0 &&
+			len(in.TaprootMerkleRoot) == 0:
+
+			return input.TaprootKeySpendBIP0086SignMethod, nil
+
+		// A non-empty merkle root means we committed to a taproot hash
+		// that we need to use in the tap tweak.
+		case len(derivation.LeafHashes) == 0:
+			// Getting here means the merkle root isn't empty, but
+			// is it exactly the length we need?
+			if len(in.TaprootMerkleRoot) != sha256.Size {
+				return 0, fmt.Errorf("invalid taproot merkle "+
+					"root length, got %d expected %d",
+					len(in.TaprootMerkleRoot), sha256.Size)
+			}
+
+			return input.TaprootKeySpendSignMethod, nil
+
+		// Currently, we only support signing for one leaf at a time.
+		//
+		// TODO(guggero): Should we support signing multiple paths at
+		// the same time? What are the performance and security
+		// implications?
+		case len(derivation.LeafHashes) == 1:
+			return input.TaprootScriptSpendSignMethod, nil
+
+		default:
+			return 0, fmt.Errorf("unsupported number of leaf " +
+				"hashes in taproot BIP0032 derivation info, " +
+				"can only sign for one at a time")
+		}
 
 	default:
 		return 0, fmt.Errorf("unsupported script class for signing "+
@@ -249,6 +318,27 @@ func signSegWitV0(in *psbt.PInput, tx *wire.MsgTx,
 		PubKey:    pubKeyBytes,
 		Signature: sig,
 	})
+
+	return nil
+}
+
+// signSegWitV1KeySpend attempts to generate a signature for a SegWit version 1
+// (p2tr) input and stores it in the TaprootKeySpendSig field.
+func signSegWitV1KeySpend(in *psbt.PInput, tx *wire.MsgTx,
+	sigHashes *txscript.TxSigHashes, idx int, privKey *btcec.PrivateKey,
+	tapscriptRootHash []byte) error {
+
+	rawSig, err := txscript.RawTxInTaprootSignature(
+		tx, sigHashes, idx, in.WitnessUtxo.Value,
+		in.WitnessUtxo.PkScript, tapscriptRootHash, in.SighashType,
+		privKey,
+	)
+	if err != nil {
+		return fmt.Errorf("error signing taproot input %d: %v", idx,
+			err)
+	}
+
+	in.TaprootKeySpendSig = rawSig
 
 	return nil
 }

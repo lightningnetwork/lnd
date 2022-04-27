@@ -544,6 +544,35 @@ func (r *RPCKeyRing) ComputeInputScript(tx *wire.MsgTx,
 	}
 	signDesc.WitnessScript = witnessProgram
 
+	// If this is a p2tr address, then it must be a BIP0086 key spend if we
+	// are coming through this path (instead of SignOutputRaw).
+	switch addr.AddrType() {
+	case waddrmgr.TaprootPubKey:
+		signDesc.SignMethod = input.TaprootKeySpendBIP0086SignMethod
+		signDesc.WitnessScript = nil
+
+		sig, err := r.remoteSign(tx, signDesc, sigScript)
+		if err != nil {
+			return nil, fmt.Errorf("error signing with remote"+
+				"instance: %v", err)
+		}
+
+		rawSig := sig.Serialize()
+		if signDesc.HashType != txscript.SigHashDefault {
+			rawSig = append(rawSig, byte(signDesc.HashType))
+		}
+
+		return &input.Script{
+			Witness: wire.TxWitness{
+				rawSig,
+			},
+		}, nil
+
+	case waddrmgr.TaprootScript:
+		return nil, fmt.Errorf("computing input script for taproot " +
+			"script address not supported")
+	}
+
 	// Let's give the TX to the remote instance now, so it can sign the
 	// input.
 	sig, err := r.remoteSign(tx, signDesc, sigScript)
@@ -979,6 +1008,29 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 		})
 	}
 
+	// Add taproot specific fields.
+	switch signDesc.SignMethod {
+	case input.TaprootKeySpendBIP0086SignMethod,
+		input.TaprootKeySpendSignMethod:
+
+		// The key identifying factor for a key spend is that we don't
+		// provide any leaf hashes to signal we want a signature for the
+		// key spend path (with the internal key).
+		d := in.Bip32Derivation[0]
+		in.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{{
+			// The x-only public key is just our compressed public
+			// key without the first byte (type/parity).
+			XOnlyPubKey:          d.PubKey[1:],
+			LeafHashes:           nil,
+			MasterKeyFingerprint: d.MasterKeyFingerprint,
+			Bip32Path:            d.Bip32Path,
+		}}
+
+		// If this is a BIP0086 key spend then the tap tweak is empty,
+		// otherwise it's set to the Taproot root hash.
+		in.TaprootMerkleRoot = signDesc.TapTweak
+	}
+
 	// Okay, let's sign the input by the remote signer now.
 	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
 	defer cancel()
@@ -1009,28 +1061,62 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 		return nil, fmt.Errorf("remote signer returned invalid PSBT")
 	}
 	in = &signedPacket.Inputs[signDesc.InputIndex]
-	if len(in.PartialSigs) != 1 {
-		return nil, fmt.Errorf("remote signer returned invalid "+
-			"partial signature, wanted 1, got %d",
-			len(in.PartialSigs))
-	}
-	sigWithSigHash := in.PartialSigs[0]
-	if sigWithSigHash == nil {
-		return nil, fmt.Errorf("remote signer returned nil signature")
-	}
 
-	// The remote signer always adds the sighash type, so we need to account
-	// for that.
-	if len(sigWithSigHash.Signature) < ecdsa.MinSigLen+1 {
-		return nil, fmt.Errorf("remote signer returned invalid "+
-			"partial signature: signature too short with %d bytes",
-			len(sigWithSigHash.Signature))
-	}
+	return extractSignature(in, signDesc.SignMethod)
+}
 
-	// Parse the signature, but chop off the last byte which is the sighash
-	// type.
-	sig := sigWithSigHash.Signature[0 : len(sigWithSigHash.Signature)-1]
-	return ecdsa.ParseDERSignature(sig)
+// extractSignature attempts to extract the signature from the PSBT input,
+// looking at different fields depending on the signing method that was used.
+func extractSignature(in *psbt.PInput,
+	signMethod input.SignMethod) (input.Signature, error) {
+
+	switch signMethod {
+	case input.WitnessV0SignMethod:
+		if len(in.PartialSigs) != 1 {
+			return nil, fmt.Errorf("remote signer returned "+
+				"invalid partial signature, wanted 1, got %d",
+				len(in.PartialSigs))
+		}
+		sigWithSigHash := in.PartialSigs[0]
+		if sigWithSigHash == nil {
+			return nil, fmt.Errorf("remote signer returned nil " +
+				"signature")
+		}
+
+		// The remote signer always adds the sighash type, so we need to
+		// account for that.
+		sigLen := len(sigWithSigHash.Signature)
+		if sigLen < ecdsa.MinSigLen+1 {
+			return nil, fmt.Errorf("remote signer returned "+
+				"invalid partial signature: signature too "+
+				"short with %d bytes", sigLen)
+		}
+
+		// Parse the signature, but chop off the last byte which is the
+		// sighash type.
+		sig := sigWithSigHash.Signature[0 : sigLen-1]
+		return ecdsa.ParseDERSignature(sig)
+
+	// The type of key spend doesn't matter, the signature should be in the
+	// same field for both of those signing methods.
+	case input.TaprootKeySpendBIP0086SignMethod,
+		input.TaprootKeySpendSignMethod:
+
+		sigLen := len(in.TaprootKeySpendSig)
+		if sigLen < schnorr.SignatureSize {
+			return nil, fmt.Errorf("remote signer returned "+
+				"invalid key spend signature: signature too "+
+				"short with %d bytes", sigLen)
+		}
+
+		return schnorr.ParseSignature(
+			in.TaprootKeySpendSig[:schnorr.SignatureSize],
+		)
+
+	default:
+		return nil, fmt.Errorf("can't extract signature, unsupported "+
+			"signing method: %v", signMethod)
+	}
 }
 
 // connectRPC tries to establish an RPC connection to the given host:port with

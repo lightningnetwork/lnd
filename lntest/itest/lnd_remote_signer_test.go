@@ -125,16 +125,14 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 
 			// TODO(guggero): Fix remote taproot signing by adding
 			// the required fields to PSBT.
-			// testTaprootComputeInputScriptKeySpendBip86(
-			//	ctxt, tt, wo, net,
-			// )
+			testTaprootComputeInputScriptKeySpendBip86(
+				ctxt, tt, wo, net,
+			)
 			// testTaprootSignOutputRawScriptSpend(ctxt, tt, wo, net)
-			// testTaprootSignOutputRawKeySpendBip86(
-			// 	ctxt, tt, wo, net,
-			// )
-			// testTaprootSignOutputRawKeySpendRootHash(
-			//	ctxt, tt, wo, net,
-			// )
+			testTaprootSignOutputRawKeySpendBip86(ctxt, tt, wo, net)
+			testTaprootSignOutputRawKeySpendRootHash(
+				ctxt, tt, wo, net,
+			)
 			testTaprootMuSig2KeySpendRootHash(ctxt, tt, wo, net)
 			testTaprootMuSig2ScriptSpend(ctxt, tt, wo, net)
 			testTaprootMuSig2KeySpendBip86(ctxt, tt, wo, net)

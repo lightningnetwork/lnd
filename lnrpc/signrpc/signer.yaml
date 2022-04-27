@@ -18,3 +18,18 @@ http:
     - selector: signrpc.Signer.DeriveSharedKey
       post: "/v2/signer/sharedkey"
       body: "*"
+    - selector: signrpc.Signer.MuSig2CombineKeys
+      post: "/v2/signer/musig2/combinekeys"
+      body: "*"
+    - selector: signrpc.Signer.MuSig2CreateSession
+      post: "/v2/signer/musig2/createsession"
+      body: "*"
+    - selector: signrpc.Signer.MuSig2RegisterNonces
+      post: "/v2/signer/musig2/registernonces"
+      body: "*"
+    - selector: signrpc.Signer.MuSig2Sign
+      post: "/v2/signer/musig2/sign"
+      body: "*"
+    - selector: signrpc.Signer.MuSig2CombineSig
+      post: "/v2/signer/musig2/combinesig"
+      body: "*"

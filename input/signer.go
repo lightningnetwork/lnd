@@ -10,6 +10,11 @@ import (
 // Signer implementations such as hardware wallets, hardware tokens, HSM's, or
 // simply a regular wallet.
 type Signer interface {
+	// MuSig2Signer is an embedded interface to make sure all our signers
+	// also support MuSig2 signing, so we can forward calls to a remote
+	// signer as well.
+	MuSig2Signer
+
 	// SignOutputRaw generates a signature for the passed transaction
 	// according to the data within the passed SignDescriptor.
 	//

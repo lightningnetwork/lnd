@@ -3,6 +3,7 @@ package rpcwallet
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -537,7 +540,7 @@ func (r *RPCKeyRing) SignOutputRaw(tx *wire.MsgTx,
 //
 // NOTE: This method will ignore any tweak parameters set within the
 // passed SignDescriptor as it assumes a set of typical script
-// templates (p2wkh, np2wkh, etc).
+// templates (p2wkh, np2wkh, BIP0086 p2tr, etc).
 //
 // NOTE: This method is part of the input.Signer interface.
 func (r *RPCKeyRing) ComputeInputScript(tx *wire.MsgTx,
@@ -569,6 +572,214 @@ func (r *RPCKeyRing) ComputeInputScript(tx *wire.MsgTx,
 		},
 		SigScript: sigScript,
 	}, nil
+}
+
+// MuSig2CreateSession creates a new MuSig2 signing session using the local
+// key identified by the key locator. The complete list of all public keys of
+// all signing parties must be provided, including the public key of the local
+// signing key. If nonces of other parties are already known, they can be
+// submitted as well to reduce the number of method calls necessary later on.
+func (r *RPCKeyRing) MuSig2CreateSession(keyLoc keychain.KeyLocator,
+	pubKeys []*btcec.PublicKey, tweaks *input.MuSig2Tweaks,
+	otherNonces [][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo,
+	error) {
+
+	// We need to serialize all data for the RPC call. We can do that by
+	// putting everything directly into the request struct.
+	req := &signrpc.MuSig2SessionRequest{
+		KeyLoc: &signrpc.KeyLocator{
+			KeyFamily: int32(keyLoc.Family),
+			KeyIndex:  int32(keyLoc.Index),
+		},
+		AllSignerPubkeys: make([][]byte, len(pubKeys)),
+		Tweaks: make(
+			[]*signrpc.TweakDesc, len(tweaks.GenericTweaks),
+		),
+		OtherSignerPublicNonces: make([][]byte, len(otherNonces)),
+	}
+	for idx, pubKey := range pubKeys {
+		req.AllSignerPubkeys[idx] = schnorr.SerializePubKey(pubKey)
+	}
+	for idx, genericTweak := range tweaks.GenericTweaks {
+		req.Tweaks[idx] = &signrpc.TweakDesc{
+			Tweak:   genericTweak.Tweak[:],
+			IsXOnly: genericTweak.IsXOnly,
+		}
+	}
+	for idx, nonce := range otherNonces {
+		req.OtherSignerPublicNonces[idx] = make([]byte, len(nonce))
+		copy(req.OtherSignerPublicNonces[idx], nonce[:])
+	}
+	if tweaks.HasTaprootTweak() {
+		req.TaprootTweak = &signrpc.TaprootTweakDesc{
+			KeySpendOnly: tweaks.TaprootBIP0086Tweak,
+			ScriptRoot:   tweaks.TaprootTweak,
+		}
+	}
+
+	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
+	defer cancel()
+
+	resp, err := r.signerClient.MuSig2CreateSession(ctxt, req)
+	if err != nil {
+		err = fmt.Errorf("error creating MuSig2 session in remote "+
+			"signer instance: %v", err)
+
+		// Log as critical as we should shut down if there is no signer.
+		log.Criticalf("RPC signer error: %v", err)
+		return nil, err
+	}
+
+	// De-Serialize all the info back into our native struct.
+	info := &input.MuSig2SessionInfo{
+		TaprootTweak:  tweaks.HasTaprootTweak(),
+		HaveAllNonces: resp.HaveAllNonces,
+	}
+	copy(info.SessionID[:], resp.SessionId)
+	copy(info.PublicNonce[:], resp.LocalPublicNonces)
+
+	info.CombinedKey, err = schnorr.ParsePubKey(resp.CombinedKey)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing combined key: %v", err)
+	}
+
+	if tweaks.HasTaprootTweak() {
+		info.TaprootInternalKey, err = schnorr.ParsePubKey(
+			resp.TaprootInternalKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing internal key: %v",
+				err)
+		}
+	}
+
+	return info, nil
+}
+
+// MuSig2RegisterNonces registers one or more public nonces of other signing
+// participants for a session identified by its ID. This method returns true
+// once we have all nonces for all other signing participants.
+func (r *RPCKeyRing) MuSig2RegisterNonces(sessionID input.MuSig2SessionID,
+	pubNonces [][musig2.PubNonceSize]byte) (bool, error) {
+
+	// We need to serialize all data for the RPC call. We can do that by
+	// putting everything directly into the request struct.
+	req := &signrpc.MuSig2RegisterNoncesRequest{
+		SessionId:               sessionID[:],
+		OtherSignerPublicNonces: make([][]byte, len(pubNonces)),
+	}
+	for idx, nonce := range pubNonces {
+		req.OtherSignerPublicNonces[idx] = make([]byte, len(nonce))
+		copy(req.OtherSignerPublicNonces[idx], nonce[:])
+	}
+
+	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
+	defer cancel()
+
+	resp, err := r.signerClient.MuSig2RegisterNonces(ctxt, req)
+	if err != nil {
+		err = fmt.Errorf("error registering MuSig2 nonces in remote "+
+			"signer instance: %v", err)
+
+		// Log as critical as we should shut down if there is no signer.
+		log.Criticalf("RPC signer error: %v", err)
+		return false, err
+	}
+
+	return resp.HaveAllNonces, nil
+}
+
+// MuSig2Sign creates a partial signature using the local signing key
+// that was specified when the session was created. This can only be
+// called when all public nonces of all participants are known and have
+// been registered with the session. If this node isn't responsible for
+// combining all the partial signatures, then the cleanup parameter
+// should be set, indicating that the session can be removed from memory
+// once the signature was produced.
+func (r *RPCKeyRing) MuSig2Sign(sessionID input.MuSig2SessionID,
+	msg [sha256.Size]byte, cleanUp bool) (*musig2.PartialSignature, error) {
+
+	// We need to serialize all data for the RPC call. We can do that by
+	// putting everything directly into the request struct.
+	req := &signrpc.MuSig2SignRequest{
+		SessionId:     sessionID[:],
+		MessageDigest: msg[:],
+		Cleanup:       cleanUp,
+	}
+
+	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
+	defer cancel()
+
+	resp, err := r.signerClient.MuSig2Sign(ctxt, req)
+	if err != nil {
+		err = fmt.Errorf("error signing MuSig2 session in remote "+
+			"signer instance: %v", err)
+
+		// Log as critical as we should shut down if there is no signer.
+		log.Criticalf("RPC signer error: %v", err)
+		return nil, err
+	}
+
+	partialSig, err := input.DeserializePartialSignature(
+		resp.LocalPartialSignature,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing partial signature from "+
+			"remote signer: %v", err)
+	}
+
+	return partialSig, nil
+}
+
+// MuSig2CombineSig combines the given partial signature(s) with the
+// local one, if it already exists. Once a partial signature of all
+// participants is registered, the final signature will be combined and
+// returned.
+func (r *RPCKeyRing) MuSig2CombineSig(sessionID input.MuSig2SessionID,
+	partialSigs []*musig2.PartialSignature) (*schnorr.Signature, bool,
+	error) {
+
+	// We need to serialize all data for the RPC call. We can do that by
+	// putting everything directly into the request struct.
+	req := &signrpc.MuSig2CombineSigRequest{
+		SessionId:              sessionID[:],
+		OtherPartialSignatures: make([][]byte, len(partialSigs)),
+	}
+	for idx, partialSig := range partialSigs {
+		rawSig, err := input.SerializePartialSignature(partialSig)
+		if err != nil {
+			return nil, false, fmt.Errorf("error serializing "+
+				"partial signature: %v", err)
+		}
+		req.OtherPartialSignatures[idx] = rawSig[:]
+	}
+
+	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
+	defer cancel()
+
+	resp, err := r.signerClient.MuSig2CombineSig(ctxt, req)
+	if err != nil {
+		err = fmt.Errorf("error combining MuSig2 signatures in remote "+
+			"signer instance: %v", err)
+
+		// Log as critical as we should shut down if there is no signer.
+		log.Criticalf("RPC signer error: %v", err)
+		return nil, false, err
+	}
+
+	// The final signature is only available when we have all the other
+	// partial signatures from all participants.
+	if !resp.HaveAllSignatures {
+		return nil, resp.HaveAllSignatures, nil
+	}
+
+	finalSig, err := schnorr.ParseSignature(resp.FinalSignature)
+	if err != nil {
+		return nil, false, fmt.Errorf("error parsing final signature: "+
+			"%v", err)
+	}
+
+	return finalSig, resp.HaveAllSignatures, nil
 }
 
 // remoteSign signs the input specified in signDesc of the given transaction tx

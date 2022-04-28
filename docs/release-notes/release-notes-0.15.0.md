@@ -25,6 +25,10 @@ addresses](https://github.com/lightningnetwork/lnd/pull/6263). Using
 then watch it on chain. Taproot script spends are also supported through the
 `signrpc.SignOutputRaw` RPC (`/v2/signer/signraw` in REST).
 
+The `walletrpc.SignPsbt` RPC now also supports [Taproot PSBT
+signing](https://github.com/lightningnetwork/lnd/pull/6450) to fully support
+remote signing with Taproot outputs. 
+
 ## MuSig2
 
 The [`signrpc.Signer` RPC service now supports EXPERIMENTAL MuSig2

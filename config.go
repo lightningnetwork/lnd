@@ -83,6 +83,10 @@ const (
 	defaultTorV2PrivateKeyFilename = "v2_onion_private_key"
 	defaultTorV3PrivateKeyFilename = "v3_onion_private_key"
 
+	// defaultZMQReadDeadline is the default read deadline to be used for
+	// both the block and tx ZMQ subscriptions.
+	defaultZMQReadDeadline = 5 * time.Second
+
 	// DefaultAutogenValidity is the default validity of a self-signed
 	// certificate. The value corresponds to 14 months
 	// (14 months * 30 days * 24 hours).
@@ -483,6 +487,7 @@ func DefaultConfig() Config {
 			RPCHost:            defaultRPCHost,
 			EstimateMode:       defaultBitcoindEstimateMode,
 			PrunedNodeMaxPeers: defaultPrunedNodeMaxPeers,
+			ZMQReadDeadline:    defaultZMQReadDeadline,
 		},
 		Litecoin: &lncfg.Chain{
 			MinHTLCIn:     chainreg.DefaultLitecoinMinHTLCInMSat,

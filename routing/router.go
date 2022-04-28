@@ -12,7 +12,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 
@@ -227,8 +226,9 @@ type MissionController interface {
 
 	// GetProbability is expected to return the success probability of a
 	// payment from fromNode along edge.
+	/*obd update wxf*/
 	GetProbability(fromNode, toNode route.Vertex,
-		amt lnwire.MilliSatoshi) float64
+		amt uint64) float64
 }
 
 // FeeSchema is the set fee configuration for a Lightning Node on the network.
@@ -663,7 +663,7 @@ func (r *ChannelRouter) Start() error {
 			// after the existing attempt has finished anyway. We
 			// also set a zero fee limit, as no more routes should
 			// be tried.
-			_, _, err := r.sendPayment(
+			_, _, err := r.sendPayment(payment.Info.AssetId,
 				payment.Info.Value, 0,
 				payment.Info.PaymentIdentifier, 0, paySession,
 				shardTracker,
@@ -1462,9 +1462,9 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 				return fmt.Errorf("unable to add edge: %v", err)
 			}
 			log.Tracef("New channel discovered! Link "+
-				"connects %x and %x with ChannelID(%v)",
+				"connects %x and %x with ChannelID(%v) assetId(%v)",
 				msg.NodeKey1Bytes, msg.NodeKey2Bytes,
-				msg.ChannelID)
+				msg.ChannelID, msg.AssetId)
 			r.stats.incNumEdgesDiscovered()
 
 			break
@@ -1570,7 +1570,10 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 
 		// TODO(roasbeef): this is a hack, needs to be removed
 		// after commitment fees are dynamic.
-		msg.BtcCapacity = btcutil.Amount(chanUtxo.Value)
+		//msg.Capacity = btcutil.Amount(chanUtxo.Value)
+		/*obd update wxf*/
+		//todo asset'Capacity may err
+		msg.Capacity = uint64(chanUtxo.Value)
 		msg.ChannelPoint = *fundingPoint
 		if err := r.cfg.Graph.AddChannelEdge(msg, op...); err != nil {
 			return errors.Errorf("unable to add edge: %v", err)
@@ -1580,7 +1583,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			"connects %x and %x with ChannelPoint(%v): "+
 			"chan_id=%v, capacity=%v",
 			msg.NodeKey1Bytes, msg.NodeKey2Bytes,
-			fundingPoint, msg.ChannelID, msg.BtcCapacity)
+			fundingPoint, msg.ChannelID, msg.Capacity)
 		r.stats.incNumEdgesDiscovered()
 
 		// As a new edge has been added to the channel graph, we'll
@@ -1733,7 +1736,8 @@ type routingMsg struct {
 // particular target destination to which it is able to send `amt` after
 // factoring in channel capacities and cumulative fees along the route.
 func (r *ChannelRouter) FindRoute(source, target route.Vertex,
-	amt lnwire.MilliSatoshi, restrictions *RestrictParams,
+	//amt lnwire.MilliSatoshi, restrictions *RestrictParams,
+	assetId uint32, amt uint64, restrictions *RestrictParams,
 	destCustomRecords record.CustomSet,
 	routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
 	finalExpiry uint16) (*route.Route, error) {
@@ -1742,7 +1746,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 
 	// We'll attempt to obtain a set of bandwidth hints that can help us
 	// eliminate certain routes early on in the path finding process.
-	bandwidthHints, err := newBandwidthManager(
+	bandwidthHints, err := newBandwidthManager(assetId,
 		r.cachedGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
 	)
 	if err != nil {
@@ -1768,7 +1772,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		},
 		restrictions,
 		&r.cfg.PathFindingConfig,
-		source, target, amt, finalHtlcExpiry,
+		source, target,assetId, amt, finalHtlcExpiry,
 	)
 	if err != nil {
 		return nil, err
@@ -1879,12 +1883,19 @@ type LightningPayment struct {
 
 	// Amount is the value of the payment to send through the network in
 	// milli-satoshis.
-	Amount lnwire.MilliSatoshi
+	//Amount lnwire.MilliSatoshi
+
+	/*obd update wxf*/
+	Amount uint64
+	AssetId uint32
 
 	// FeeLimit is the maximum fee in millisatoshis that the payment should
 	// accept when sending it through the network. The payment will fail
 	// if there isn't a route with lower fees than this limit.
-	FeeLimit lnwire.MilliSatoshi
+	//FeeLimit lnwire.MilliSatoshi
+
+	/*obd update wxf*/
+	FeeLimit uint64
 
 	// CltvLimit is the maximum time lock that is allowed for attempts to
 	// complete this payment.
@@ -1962,7 +1973,7 @@ type LightningPayment struct {
 	// the payment amount is greater than it.
 	//
 	// NOTE: This field is _optional_.
-	MaxShardAmt *lnwire.MilliSatoshi
+	MaxShardAmt *uint64
 }
 
 // AMPOptions houses information that must be known in order to send an AMP
@@ -2025,7 +2036,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 
 	// Since this is the first time this payment is being made, we pass nil
 	// for the existing attempt.
-	return r.sendPayment(
+	return r.sendPayment(payment.AssetId,
 		payment.Amount, payment.FeeLimit, payment.Identifier(),
 		payment.PayAttemptTimeout, paySession, shardTracker,
 	)
@@ -2048,7 +2059,7 @@ func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment) error {
 		log.Tracef("Dispatching SendPayment for lightning payment: %v",
 			spewPayment(payment))
 
-		_, _, err := r.sendPayment(
+		_, _, err := r.sendPayment(payment.AssetId,
 			payment.Amount, payment.FeeLimit, payment.Identifier(),
 			payment.PayAttemptTimeout, paySession, shardTracker,
 		)
@@ -2103,6 +2114,7 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 	info := &channeldb.PaymentCreationInfo{
 		PaymentIdentifier: payment.Identifier(),
 		Value:             payment.Amount,
+		AssetId: 		   payment.AssetId,
 		CreationTime:      r.cfg.Clock.Now(),
 		PaymentRequest:    payment.PaymentRequest,
 	}
@@ -2116,7 +2128,7 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 	case payment.amp != nil:
 		shardTracker = amp.NewShardTracker(
 			payment.amp.RootShare, payment.amp.SetID,
-			*payment.PaymentAddr, payment.Amount,
+			*payment.PaymentAddr, payment.Amount, payment.AssetId,
 		)
 
 	// Otherwise we'll use the simple tracker that will map each attempt to
@@ -2298,9 +2310,14 @@ func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route) (
 // router will call this method for every payment still in-flight according to
 // the ControlTower.
 func (r *ChannelRouter) sendPayment(
-	totalAmt, feeLimit lnwire.MilliSatoshi, identifier lntypes.Hash,
+	assetId uint32, totalAmt, feeLimit uint64, identifier lntypes.Hash,
 	timeout time.Duration, paySession PaymentSession,
 	shardTracker shards.ShardTracker) ([32]byte, *route.Route, error) {
+
+	/*obd update wxf*/
+	if assetId==0{
+		return [32]byte{}, nil, errors.New("sendPayment miss assetId")
+	}
 
 	// We'll also fetch the current block height so we can properly
 	// calculate the required HTLC time locks within the route.
@@ -2313,6 +2330,7 @@ func (r *ChannelRouter) sendPayment(
 	// can resume the payment from the current state.
 	p := &paymentLifecycle{
 		router:        r,
+		AssetId: assetId,
 		totalAmount:   totalAmt,
 		feeLimit:      feeLimit,
 		identifier:    identifier,
@@ -2366,7 +2384,7 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
 		return false
 	}
 
-	if err := ValidateChannelUpdateAnn(pubKey, ch.BtcCapacity, msg); err != nil {
+	if err := ValidateChannelUpdateAnn(pubKey, ch.Capacity, msg); err != nil {
 		log.Errorf("Unable to validate channel update: %v", err)
 		return false
 	}
@@ -2378,13 +2396,11 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
 		MessageFlags:              msg.MessageFlags,
 		ChannelFlags:              msg.ChannelFlags,
 		TimeLockDelta:             msg.TimeLockDelta,
-		MinBtcHTLC:                   msg.HtlcBtcMinimumMsat,
-		MaxBtcHTLC:                   msg.HtlcBtcMaximumMsat,
-		MinAssetHTLC:                   msg.HtlcAssetMinimum,
-		MaxAssetHTLC:                   msg.HtlcAssetMaximum,
+		MinHTLC:                   msg.HtlcMinimumMsat,
+		MaxHTLC:                   msg.HtlcMaximumMsat,
 		AssetId:                   msg.AssetId,
-		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
-		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
+		FeeBaseMSat:               uint64(msg.BaseFee),
+		FeeProportionalMillionths: uint64(msg.FeeRate),
 	})
 	if err != nil && !IsError(err, ErrIgnored, ErrOutdated) {
 		log.Errorf("Unable to apply channel update: %v", err)
@@ -2662,7 +2678,8 @@ func (e ErrNoChannel) Error() string {
 // BuildRoute returns a fully specified route based on a list of pubkeys. If
 // amount is nil, the minimum routable amount is used. To force a specific
 // outgoing channel, use the outgoingChan parameter.
-func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
+/*obd update wxf*/
+func (r *ChannelRouter) BuildRoute(assetId uint32, amt *uint64,
 	hops []route.Vertex, outgoingChan *uint64,
 	finalCltvDelta int32, payAddr *[32]byte) (*route.Route, error) {
 
@@ -2682,7 +2699,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 	// We'll attempt to obtain a set of bandwidth hints that helps us select
 	// the best outgoing channel to use in case no outgoing channel is set.
-	bandwidthHints, err := newBandwidthManager(
+	bandwidthHints, err := newBandwidthManager(assetId,
 		r.cachedGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
 	)
 	if err != nil {
@@ -2700,7 +2717,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// route.
 	edges := make([]*unifiedPolicy, len(hops))
 
-	var runningAmt lnwire.MilliSatoshi
+	var runningAmt uint64
 	if useMinAmt {
 		// For minimum amount routes, aim to deliver at least 1 msat to
 		// the destination. There are nodes in the wild that have a
@@ -2731,7 +2748,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		// known in the graph.
 		u := newUnifiedPolicies(source, toNode, outgoingChans)
 
-		err := u.addGraphPolicies(r.cachedGraph)
+		err := u.addGraphPolicies(assetId, r.cachedGraph)
 		if err != nil {
 			return nil, err
 		}

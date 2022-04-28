@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -23,8 +24,12 @@ var errShardHandlerExiting = fmt.Errorf("shard handler exiting")
 // needed to resume if from any point.
 type paymentLifecycle struct {
 	router        *ChannelRouter
-	totalAmount   lnwire.MilliSatoshi
-	feeLimit      lnwire.MilliSatoshi
+	/*obd update wxf*/
+	//totalAmount   lnwire.MilliSatoshi
+	//feeLimit      lnwire.MilliSatoshi
+	totalAmount   uint64
+	feeLimit      uint64
+	AssetId uint32
 	identifier    lntypes.Hash
 	paySession    PaymentSession
 	shardTracker  shards.ShardTracker
@@ -36,8 +41,8 @@ type paymentLifecycle struct {
 // that we use to determine what to do on each payment loop iteration.
 type paymentState struct {
 	numShardsInFlight int
-	remainingAmt      lnwire.MilliSatoshi
-	remainingFees     lnwire.MilliSatoshi
+	remainingAmt      uint64
+	remainingFees     uint64
 
 	// terminate indicates the payment is in its final stage and no more
 	// shards should be launched. This value is true if we have an HTLC
@@ -119,6 +124,10 @@ func (p *paymentLifecycle) fetchPaymentState() (*channeldb.MPPayment,
 
 // resumePayment resumes the paymentLifecycle from the current state.
 func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
+	if p.AssetId==0{
+		return [32]byte{}, nil, errors.New("resumePayment err miss AssetId")
+	}
+
 	shardHandler := &shardHandler{
 		router:       p.router,
 		identifier:   p.identifier,
@@ -703,8 +712,8 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) 
 	// metadata within this packet will be used to route the
 	// payment through the network, starting with the first-hop.
 	htlcAdd := &lnwire.UpdateAddHTLC{
-		BtcAmount:      rt.TotalAmount,
-		AssetAmount:      rt.TotalAssetAmount,
+		Amount:      rt.TotalAmount,
+		AssetID: rt.AssetId,
 		Expiry:      rt.TotalTimeLock,
 		PaymentHash: hash,
 	}

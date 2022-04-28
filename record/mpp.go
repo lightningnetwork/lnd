@@ -1,10 +1,10 @@
 package record
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -18,16 +18,21 @@ type MPP struct {
 	// collisions with concurrent payers.
 	paymentAddr [32]byte
 
+	/*obd update wxf
+	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+	*/
 	// totalMsat is the total value of the payment, potentially spread
 	// across more than one HTLC.
-	totalMsat lnwire.MilliSatoshi
+	totalMsat uint64
+	assetId uint32
 }
 
 // NewMPP generates a new MPP record with the given total and payment address.
-func NewMPP(total lnwire.MilliSatoshi, addr [32]byte) *MPP {
+func NewMPP(total uint64, addr [32]byte, assetId uint32) *MPP {
 	return &MPP{
 		paymentAddr: addr,
 		totalMsat:   total,
+		assetId:   assetId,
 	}
 }
 
@@ -37,14 +42,26 @@ func (r *MPP) PaymentAddr() [32]byte {
 }
 
 // TotalMsat returns the total value of an MPP payment in msats.
-func (r *MPP) TotalMsat() lnwire.MilliSatoshi {
+func (r *MPP) TotalMsat() uint64 {
 	return r.totalMsat
+}
+
+func (r *MPP) AssetId() uint32 {
+	return r.assetId
 }
 
 // MPPEncoder writes the MPP record to the provided io.Writer.
 func MPPEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
 	if v, ok := val.(*MPP); ok {
 		err := tlv.EBytes32(w, &v.paymentAddr, buf)
+		if err != nil {
+			return err
+		}
+
+		/*obd udpate wxf*/
+		assetIdBs:=make([]byte,4,4)
+		binary.BigEndian.PutUint32(assetIdBs,  v.assetId)
+		err = tlv.EVarBytes(w, &assetIdBs, buf)
 		if err != nil {
 			return err
 		}
@@ -63,7 +80,7 @@ const (
 	// maxMPPLength is the maximum length of a serialized MPP TLV record,
 	// which occurs when the truncated encoding of total_amt_msat takes 8
 	// bytes.
-	maxMPPLength = 40
+	maxMPPLength = 44
 )
 
 // MPPDecoder reads the MPP record to the provided io.Reader.
@@ -73,11 +90,18 @@ func MPPDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 			return err
 		}
 
-		var total uint64
-		if err := tlv.DTUint64(r, &total, buf, l-32); err != nil {
+		/*obd update wxf*/
+		assetIdBs:=make([]byte,4,4)
+		if err := tlv.DVarBytes(r, &assetIdBs, buf, 4); err != nil {
 			return err
 		}
-		v.totalMsat = lnwire.MilliSatoshi(total)
+		v.assetId =binary.BigEndian.Uint32(assetIdBs[:])
+
+		var total uint64
+		if err := tlv.DTUint64(r, &total, buf, l-32-4); err != nil {
+			return err
+		}
+		v.totalMsat =total
 
 		return nil
 
@@ -90,7 +114,10 @@ func (r *MPP) Record() tlv.Record {
 	// Fixed-size, 32 byte payment address followed by truncated 64-bit
 	// total msat.
 	size := func() uint64 {
-		return 32 + tlv.SizeTUint64(uint64(r.totalMsat))
+		/*obd update wxf
+		4 is assetId
+		*/
+		return 32 + 4 + tlv.SizeTUint64(uint64(r.totalMsat))
 	}
 
 	return tlv.MakeDynamicRecord(
@@ -100,7 +127,7 @@ func (r *MPP) Record() tlv.Record {
 
 // PayloadSize returns the size this record takes up in encoded form.
 func (r *MPP) PayloadSize() uint64 {
-	return 32 + tlv.SizeTUint64(uint64(r.totalMsat))
+	return 32 +4 + tlv.SizeTUint64(uint64(r.totalMsat))
 }
 
 // String returns a human-readable representation of the mpp payload field.

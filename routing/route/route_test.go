@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 )
 
@@ -30,7 +29,7 @@ func TestRouteTotalFees(t *testing.T) {
 	}
 
 	// Make sure empty route won't be allowed in the constructor.
-	amt := lnwire.MilliSatoshi(1000)
+	amt := uint64(1000)
 	_, err := NewRouteFromHops(amt, 100, Vertex{}, []*Hop{})
 	if err != ErrNoRouteHopsProvided {
 		t.Fatalf("expected ErrNoRouteHopsProvided, got %v", err)
@@ -60,7 +59,7 @@ func TestRouteTotalFees(t *testing.T) {
 	}
 
 	// Append the route with a node, making the first one take a fee.
-	fee := lnwire.MilliSatoshi(100)
+	fee := uint64(100)
 	hops = append(hops, &Hop{
 		PubKeyBytes:      Vertex{},
 		ChannelID:        2,
@@ -84,7 +83,7 @@ func TestRouteTotalFees(t *testing.T) {
 }
 
 var (
-	testAmt  = lnwire.MilliSatoshi(1000)
+	testAmt  = uint64(1000)
 	testAddr = [32]byte{0x01, 0x02}
 )
 

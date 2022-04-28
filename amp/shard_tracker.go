@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/shards"
 )
@@ -48,7 +47,10 @@ func (s *Shard) AMP() *record.AMP {
 type ShardTracker struct {
 	setID       [32]byte
 	paymentAddr [32]byte
-	totalAmt    lnwire.MilliSatoshi
+	//totalAmt    lnwire.MilliSatoshi
+	/*obd update wxf*/
+	totalAmt    uint64
+	assetId uint32
 
 	sharer Sharer
 
@@ -65,7 +67,8 @@ var _ shards.ShardTracker = (*ShardTracker)(nil)
 // order for the TLV options to include with each shard to be created
 // correctly.
 func NewShardTracker(root, setID, payAddr [32]byte,
-	totalAmt lnwire.MilliSatoshi) *ShardTracker {
+	//totalAmt lnwire.MilliSatoshi) *ShardTracker {
+	totalAmt uint64,assetId uint32) *ShardTracker {
 
 	// Create a new seed sharer from this root.
 	rootShare := Share(root)
@@ -120,7 +123,7 @@ func (s *ShardTracker) NewShard(pid uint64, last bool) (shards.PaymentShard,
 	// Track the new child and return the shard.
 	s.shards[pid] = child
 
-	mpp := record.NewMPP(s.totalAmt, s.paymentAddr)
+	mpp := record.NewMPP(s.totalAmt, s.paymentAddr,s.assetId)
 	amp := record.NewAMP(
 		child.ChildDesc.Share, s.setID, child.ChildDesc.Index,
 	)

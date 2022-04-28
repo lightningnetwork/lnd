@@ -2639,7 +2639,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	// we'll use this value within our ChannelUpdate. This constraint is
 	// originally set by the remote node, as it will be the one that will
 	// need to determine the smallest HTLC it deems economically relevant.
-	fwdMinHTLC := completeChan.LocalChanCfg.MinHTLC
+	fwdMinHTLC := uint64(completeChan.LocalChanCfg.MinHTLC)
 
 	// We don't necessarily want to go as low as the remote party
 	// allows. Check it against our default forwarding policy.
@@ -2650,12 +2650,12 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	// We'll obtain the max HTLC value we can forward in our direction, as
 	// we'll use this value within our ChannelUpdate. This value must be <=
 	// channel capacity and <= the maximum in-flight msats set by the peer.
-	fwdMaxHTLC := completeChan.LocalChanCfg.MaxPendingAmount
+	fwdMaxHTLC := uint64(completeChan.LocalChanCfg.MaxPendingAmount)
 	/*
 	obd update wxf
 	*/
-	capacityMSat := lnwire.NewMSatFromSatoshis(completeChan.BtcCapacity)
-	capacityAsset := completeChan.AssetCapacity
+	//capacityMSat :=  lnwire.NewMSatFromSatoshis(completeChan.BtcCapacity)
+	capacityMSat :=  completeChan.GetMsgCapForHtlc()
 	if fwdMaxHTLC > capacityMSat {
 		fwdMaxHTLC = capacityMSat
 	}
@@ -2664,8 +2664,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 		f.cfg.IDKey, completeChan.IdentityPub,
 		&completeChan.LocalChanCfg.MultiSigKey,
 		completeChan.RemoteChanCfg.MultiSigKey.PubKey, *shortChanID,
-		chanID, fwdMinHTLC, fwdMaxHTLC,0,
-		capacityAsset,completeChan.AssetID,
+		chanID, fwdMinHTLC, fwdMaxHTLC ,completeChan.AssetID,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating channel "+
@@ -2678,8 +2677,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	// Send ChannelAnnouncement and ChannelUpdate to the gossiper to add
 	// to the Router's topology.
 	errChan := f.cfg.SendAnnouncement(
-		ann.chanAnn, discovery.ChannelBtcCapacity(completeChan.BtcCapacity),
-		discovery.ChannelAssetCapacity(completeChan.AssetCapacity),
+		ann.chanAnn, discovery.ChannelCapacity(completeChan.GetMsgCap()),
 		discovery.ChannelPoint(completeChan.FundingOutpoint),
 	)
 	select {
@@ -2973,9 +2971,8 @@ type chanAnnouncement struct {
 func (f *Manager) newChanAnnouncement(localPubKey,
 	remotePubKey *btcec.PublicKey, localFundingKey *keychain.KeyDescriptor,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID, fwdMinBtcHTLC,
-	fwdMaxBtcHTLC lnwire.MilliSatoshi, fwdMinAssetHTLC,
-	fwdMaxAssetHTLC omnicore.Amount,assetId uint32,) (*chanAnnouncement, error) {
+	chanID lnwire.ChannelID, fwdMinHTLC,
+	fwdMaxHTLC uint64, assetId uint32) (*chanAnnouncement, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 
@@ -3044,12 +3041,9 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 		/*
 		obd update wxf
 		*/
-		HtlcBtcMinimumMsat: fwdMinBtcHTLC,
-		HtlcBtcMaximumMsat: fwdMaxBtcHTLC,
-		HtlcAssetMinimum: fwdMinAssetHTLC,
-		HtlcAssetMaximum: fwdMaxAssetHTLC,
+		HtlcMinimumMsat: fwdMinHTLC,
+		HtlcMaximumMsat: fwdMaxHTLC,
 		AssetId: assetId,
-
 		BaseFee: uint32(f.cfg.DefaultRoutingPolicy.BaseFee),
 		FeeRate: uint32(f.cfg.DefaultRoutingPolicy.FeeRate),
 
@@ -3142,7 +3136,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	// only use the channel announcement message from the returned struct.
 	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey,
 		localFundingKey, remoteFundingKey, shortChanID, chanID,
-		0, 0,0,0,assetId,
+		0, 0, assetId,
 	)
 	if err != nil {
 		log.Errorf("can't generate channel announcement: %v", err)

@@ -36,12 +36,12 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool) {
 
 	paymentPreimage := bytes.Repeat([]byte{1}, 32)
 	paymentHash := sha256.Sum256(paymentPreimage)
-	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	htlcAssetAmt,_ := omnicore.NewAmount(1.0)
+	//htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	//htlcAssetAmt,_ := omnicore.NewAmount(1.0)
+	htlcAssetAmt:=uint64(1)
 	htlc := &lnwire.UpdateAddHTLC{
 		PaymentHash: paymentHash,
-		BtcAmount:      htlcAmt,
-		AssetAmount:      htlcAssetAmt,
+		Amount:      htlcAssetAmt,
 		AssetID:      aliceChannel.channelState.AssetID,
 		Expiry:      uint32(5),
 	}
@@ -182,10 +182,11 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool) {
 
 
 	outputCounts:=3
-	if aliceChannel.channelState.LocalCommitment.CommitTx.TxOut[0].Value ==0{
-		//tx with opreturn output will have 4 outputs
-		outputCounts=4
-	}
+	//if aliceChannel.channelState.LocalCommitment.CommitTx.TxOut[0].Value ==0{
+	//	//tx with opreturn output will have 4 outputs
+	//	outputCounts=4
+	//}
+
 	// Both commitment transactions should have three outputs, and one of
 	// them should be exactly the amount of the HTLC.
 	if len(aliceChannel.channelState.LocalCommitment.CommitTx.TxOut) != outputCounts {
@@ -200,10 +201,10 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool) {
 	}
 	assertOutputExistsByValue(t,
 		aliceChannel.channelState.LocalCommitment.CommitTx,
-		htlcAmt.ToSatoshis())
-	assertOutputExistsByValue(t,
-		bobChannel.channelState.LocalCommitment.CommitTx,
-		htlcAmt.ToSatoshis())
+		omnicore.OmniGas*3)
+	//assertOutputExistsByValue(t,
+	//	bobChannel.channelState.LocalCommitment.CommitTx,
+	//	htlcAmt.ToSatoshis())
 
 	// Now we'll repeat a similar exchange, this time with Bob settling the
 	// HTLC once he learns of the preimage.
@@ -290,6 +291,9 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool) {
 	// channel should show 1 BTC received. They should also be at
 	// commitment height two, with the revocation window extended by 1 (5).
 	mSatTransferred := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	if aliceChannel.channelState.AssetID>1{
+		mSatTransferred=lnwire.NewMSatFromSatoshis(omnicore.OmniGas*3)
+	}
 	if aliceChannel.channelState.TotalMSatSent != mSatTransferred {
 		t.Fatalf("alice satoshis sent incorrect %v vs %v expected",
 			aliceChannel.channelState.TotalMSatSent,

@@ -15,7 +15,9 @@ import (
 type invoiceUpdateCtx struct {
 	hash                 lntypes.Hash
 	circuitKey           channeldb.CircuitKey
-	amtPaid              lnwire.MilliSatoshi
+	//amtPaid              lnwire.MilliSatoshi
+	amtPaid              uint64
+	assetId              uint32
 	expiry               uint32
 	currentHeight        int32
 	finalCltvRejectDelta int32
@@ -145,6 +147,7 @@ func updateMpp(ctx *invoiceUpdateCtx,
 	// Start building the accept descriptor.
 	acceptDesc := &channeldb.HtlcAcceptDesc{
 		Amt:           ctx.amtPaid,
+		AssetId: ctx.assetId,
 		Expiry:        ctx.expiry,
 		AcceptHeight:  ctx.currentHeight,
 		MppTotalAmt:   ctx.mpp.TotalMsat(),
@@ -186,7 +189,8 @@ func updateMpp(ctx *invoiceUpdateCtx,
 	htlcSet := inv.HTLCSet(setID, channeldb.HtlcStateAccepted)
 
 	// Check whether total amt matches other htlcs in the set.
-	var newSetTotal lnwire.MilliSatoshi
+	//var newSetTotal lnwire.MilliSatoshi
+	var newSetTotal uint64
 	for _, htlc := range htlcSet {
 		// Only consider accepted mpp htlcs. It is possible that there
 		// are htlcs registered in the invoice database that previously

@@ -96,7 +96,7 @@ var (
 	}
 
 	aliceDustLimit = btcutil.Amount(200)
-	bobDustLimit   = btcutil.Amount(1300)
+	bobDustLimit   = btcutil.Amount(500)
 
 	/*
 	obd update wxf

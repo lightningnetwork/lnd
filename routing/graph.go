@@ -12,7 +12,7 @@ import (
 type routingGraph interface {
 	// forEachNodeChannel calls the callback for every channel of the given
 	// node.
-	forEachNodeChannel(nodePub route.Vertex,
+	forEachNodeChannel(assetId uint32,nodePub route.Vertex,
 		cb func(channel *channeldb.DirectedChannel) error) error
 
 	// sourceNode returns the source node of the graph.
@@ -64,10 +64,10 @@ func (g *CachedGraph) close() error {
 // forEachNodeChannel calls the callback for every channel of the given node.
 //
 // NOTE: Part of the routingGraph interface.
-func (g *CachedGraph) forEachNodeChannel(nodePub route.Vertex,
+func (g *CachedGraph) forEachNodeChannel(assetId uint32,nodePub route.Vertex,
 	cb func(channel *channeldb.DirectedChannel) error) error {
 
-	return g.graph.ForEachNodeChannel(g.tx, nodePub, cb)
+	return g.graph.ForEachNodeChannel(assetId,g.tx, nodePub, cb)
 }
 
 // sourceNode returns the source node of the graph.

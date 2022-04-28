@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -20,15 +19,19 @@ func createPubkey(id byte) route.Vertex {
 // mockChannel holds the channel state of a channel in the mock graph.
 type mockChannel struct {
 	id       uint64
-	capacity btcutil.Amount
-	balance  lnwire.MilliSatoshi
+	//capacity btcutil.Amount
+	//balance  lnwire.MilliSatoshi
+	capacity uint64
+	balance  uint64
+	assetId uint32
 }
 
 // mockNode holds a set of mock channels and routing policies for a node in the
 // mock graph.
 type mockNode struct {
 	channels map[route.Vertex]*mockChannel
-	baseFee  lnwire.MilliSatoshi
+	//baseFee  lnwire.MilliSatoshi
+	baseFee  uint64
 	pubkey   route.Vertex
 }
 
@@ -131,7 +134,7 @@ func (m *mockGraph) addNode(node *mockNode) {
 // capacities.
 // nolint:unparam
 func (m *mockGraph) addChannel(id uint64, node1id, node2id byte,
-	capacity btcutil.Amount) {
+	capacity uint64) {
 
 	node1pubkey := createPubkey(node1id)
 	node2pubkey := createPubkey(node2id)
@@ -146,19 +149,19 @@ func (m *mockGraph) addChannel(id uint64, node1id, node2id byte,
 	m.nodes[node1pubkey].channels[node2pubkey] = &mockChannel{
 		capacity: capacity,
 		id:       id,
-		balance:  lnwire.NewMSatFromSatoshis(capacity / 2),
+		balance:  1000*capacity/2,
 	}
 	m.nodes[node2pubkey].channels[node1pubkey] = &mockChannel{
 		capacity: capacity,
 		id:       id,
-		balance:  lnwire.NewMSatFromSatoshis(capacity / 2),
+		balance:   1000*capacity/2,
 	}
 }
 
 // forEachNodeChannel calls the callback for every channel of the given node.
 //
 // NOTE: Part of the routingGraph interface.
-func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
+func (m *mockGraph) forEachNodeChannel(assetId uint32,nodePub route.Vertex,
 	cb func(channel *channeldb.DirectedChannel) error) error {
 
 	// Look up the mock node.
@@ -182,6 +185,7 @@ func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
 		// Call the per channel callback.
 		err := cb(
 			&channeldb.DirectedChannel{
+				AssetId: channel.assetId,
 				ChannelID:    channel.id,
 				IsNode1:      nodePub == node1,
 				OtherNode:    peer,
@@ -230,7 +234,8 @@ type htlcResult struct {
 // hop describes one hop of a route.
 type hop struct {
 	node     *mockNode
-	amtToFwd lnwire.MilliSatoshi
+	//amtToFwd lnwire.MilliSatoshi
+	amtToFwd uint64
 	next     *hop
 }
 

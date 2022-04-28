@@ -19,7 +19,7 @@ var (
 type pairResult struct {
 	// amt is the amount that was forwarded for this pair. Can be set to
 	// zero for failures that are amount independent.
-	amt lnwire.MilliSatoshi
+	amt uint64
 
 	// success indicates whether the payment attempt was successful through
 	// this pair.
@@ -27,14 +27,14 @@ type pairResult struct {
 }
 
 // failPairResult creates a new result struct for a failure.
-func failPairResult(minPenalizeAmt lnwire.MilliSatoshi) pairResult {
+func failPairResult(minPenalizeAmt uint64) pairResult {
 	return pairResult{
 		amt: minPenalizeAmt,
 	}
 }
 
 // newSuccessPairResult creates a new result struct for a success.
-func successPairResult(successAmt lnwire.MilliSatoshi) pairResult {
+func successPairResult(successAmt uint64) pairResult {
 	return pairResult{
 		success: true,
 		amt:     successAmt,
@@ -493,12 +493,12 @@ func (i *interpretedResult) successPairRange(
 // getPair returns a node pair from the route and the amount passed between that
 // pair.
 func getPair(rt *route.Route, channelIdx int) (DirectedNodePair,
-	lnwire.MilliSatoshi) {
+	uint64) {
 
 	nodeTo := rt.Hops[channelIdx].PubKeyBytes
 	var (
 		nodeFrom route.Vertex
-		amt      lnwire.MilliSatoshi
+		amt      uint64
 	)
 
 	if channelIdx == 0 {

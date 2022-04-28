@@ -139,7 +139,7 @@ func (m *mockMissionControlOld) ReportPaymentSuccess(paymentID uint64,
 }
 
 func (m *mockMissionControlOld) GetProbability(fromNode, toNode route.Vertex,
-	amt lnwire.MilliSatoshi) float64 {
+	amt uint64) float64 {
 
 	return 0
 }
@@ -155,7 +155,7 @@ type mockPaymentSessionOld struct {
 
 var _ PaymentSession = (*mockPaymentSessionOld)(nil)
 
-func (m *mockPaymentSessionOld) RequestRoute(_, _ lnwire.MilliSatoshi,
+func (m *mockPaymentSessionOld) RequestRoute(_, _ uint64,
 	_, height uint32) (*route.Route, error) {
 
 	if m.release != nil {
@@ -618,7 +618,7 @@ func (m *mockMissionControl) ReportPaymentSuccess(paymentID uint64,
 }
 
 func (m *mockMissionControl) GetProbability(fromNode, toNode route.Vertex,
-	amt lnwire.MilliSatoshi) float64 {
+	amt uint64) float64 {
 
 	args := m.Called(fromNode, toNode, amt)
 	return args.Get(0).(float64)
@@ -630,7 +630,7 @@ type mockPaymentSession struct {
 
 var _ PaymentSession = (*mockPaymentSession)(nil)
 
-func (m *mockPaymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
+func (m *mockPaymentSession) RequestRoute(maxAmt, feeLimit uint64,
 	activeShards, height uint32) (*route.Route, error) {
 	args := m.Called(maxAmt, feeLimit, activeShards, height)
 	return args.Get(0).(*route.Route), args.Error(1)
@@ -744,13 +744,15 @@ func (m *mockControlTower) SubscribePayment(paymentHash lntypes.Hash) (
 
 type mockLink struct {
 	htlcswitch.ChannelLink
-	bandwidth         lnwire.MilliSatoshi
+	//bandwidth         lnwire.MilliSatoshi
+	bandwidth         uint64
+	assetId uint32
 	mayAddOutgoingErr error
 	ineligible        bool
 }
 
 // Bandwidth returns the bandwidth the mock was configured with.
-func (m *mockLink) Bandwidth() lnwire.MilliSatoshi {
+func (m *mockLink) Bandwidth() uint64 {
 	return m.bandwidth
 }
 
@@ -760,6 +762,6 @@ func (m *mockLink) EligibleToForward() bool {
 }
 
 // MayAddOutgoingHtlc returns the error configured in our mock.
-func (m *mockLink) MayAddOutgoingHtlc(_ lnwire.MilliSatoshi) error {
+func (m *mockLink) MayAddOutgoingHtlc(_ uint64) error {
 	return m.mayAddOutgoingErr
 }

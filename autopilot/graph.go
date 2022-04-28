@@ -2,7 +2,6 @@ package autopilot
 
 import (
 	"bytes"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"math/big"
 	"net"
 	"sort"
@@ -10,7 +9,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -101,9 +99,7 @@ func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 
 		edge := ChannelEdge{
 			ChanID:   lnwire.NewShortChanIDFromInt(ep.ChannelID),
-			BtcCapacity: ei.BtcCapacity,
-			AssetCapacity: ei.AssetCapacity,
-			AsserId: ei.AssetId,
+			Capacity: ei.Capacity,
 			Peer: dbNode{
 				tx:   tx,
 				node: ep.Node,
@@ -140,7 +136,7 @@ func (d *databaseChannelGraph) ForEachNode(cb func(Node) error) error {
 // meant to aide in the generation of random graphs for use within test cases
 // the exercise the autopilot package.
 func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
-	capacity btcutil.Amount,assetCapacity omnicore.Amount,assetId uint32) (*ChannelEdge, *ChannelEdge, error) {
+	capacity uint64,assetId uint32) (*ChannelEdge, *ChannelEdge, error) {
 
 	fetchNode := func(pub *btcec.PublicKey) (*channeldb.LightningNode, error) {
 		if pub != nil {
@@ -225,8 +221,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	chanID := randChanID()
 	edge := &channeldb.ChannelEdgeInfo{
 		ChannelID: chanID.ToUint64(),
-		BtcCapacity:  capacity,
-		AssetCapacity:  assetCapacity,
+		Capacity:  capacity,
 		AssetId:  assetId,
 	}
 	edge.AddNodeKeys(lnNode1, lnNode2, lnNode1, lnNode2)
@@ -238,8 +233,8 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
-		MinBtcHTLC:                   1,
-		MaxBtcHTLC:                   lnwire.NewMSatFromSatoshis(capacity),
+		MinHTLC:                   1,
+		MaxHTLC:                   capacity*1000,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 		MessageFlags:              1,
@@ -254,8 +249,8 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
-		MinBtcHTLC:                   1,
-		MaxBtcHTLC:                   lnwire.NewMSatFromSatoshis(capacity),
+		MinHTLC:                   1,
+		MaxHTLC:                   uint64(capacity),
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 		MessageFlags:              1,
@@ -267,8 +262,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 
 	return &ChannelEdge{
 			ChanID:   chanID,
-			BtcCapacity: capacity,
-			AssetCapacity: assetCapacity,
+			Capacity: capacity,
 			AsserId: assetId,
 			Peer: dbNode{
 				node: vertex1,
@@ -276,8 +270,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		},
 		&ChannelEdge{
 			ChanID:   chanID,
-			BtcCapacity: capacity,
-			AssetCapacity: assetCapacity,
+			Capacity: capacity,
 			AsserId: assetId,
 			Peer: dbNode{
 				node: vertex2,
@@ -365,7 +358,7 @@ func randKey() (*btcec.PublicKey, error) {
 // meant to aide in the generation of random graphs for use within test cases
 // the exercise the autopilot package.
 func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
-	capacity btcutil.Amount, assetCapacity omnicore.Amount,assetId uint32 ) (*ChannelEdge, *ChannelEdge, error) {
+	capacity uint64 ,assetId uint32 ) (*ChannelEdge, *ChannelEdge, error) {
 
 	var (
 		vertex1, vertex2 *memNode
@@ -428,8 +421,7 @@ func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 
 	edge1 := ChannelEdge{
 		ChanID:   randChanID(),
-		BtcCapacity: capacity,
-		AssetCapacity: assetCapacity,
+		Capacity: capacity,
 		AsserId: assetId,
 		Peer:     vertex2,
 	}
@@ -437,8 +429,7 @@ func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 
 	edge2 := ChannelEdge{
 		ChanID:   randChanID(),
-		BtcCapacity: capacity,
-		AssetCapacity: assetCapacity,
+		Capacity: capacity,
 		AsserId: assetId,
 		Peer:     vertex1,
 	}
@@ -518,7 +509,7 @@ func (m memNode) ForEachChannel(cb func(ChannelEdge) error) error {
 }
 
 // Median returns the median value in the slice of Amounts.
-func Median(vals []btcutil.Amount) btcutil.Amount {
+func Median(vals []uint64) uint64 {
 	sort.Slice(vals, func(i, j int) bool {
 		return vals[i] < vals[j]
 	})

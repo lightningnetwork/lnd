@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -220,7 +219,9 @@ type PaymentCreationInfo struct {
 	PaymentIdentifier lntypes.Hash
 
 	// Value is the amount we are paying.
-	Value lnwire.MilliSatoshi
+	//Value lnwire.MilliSatoshi
+	Value uint64
+	AssetId uint32
 
 	// CreationTime is the time when this payment was initiated.
 	CreationTime time.Time
@@ -1022,7 +1023,7 @@ func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo, error) {
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return nil, err
 	}
-	c.Value = lnwire.MilliSatoshi(byteOrder.Uint64(scratch[:]))
+	c.Value = byteOrder.Uint64(scratch[:])
 
 	creationTime, err := deserializeTime(r)
 	if err != nil {

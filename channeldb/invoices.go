@@ -193,6 +193,8 @@ const (
 	htlcAMPType      tlv.Type = 19
 	htlcHashType     tlv.Type = 21
 	htlcPreimageType tlv.Type = 23
+	/*obd add wxf*/
+	assetIdType  tlv.Type = 25
 
 	// A set of tlv type definitions used to serialize invoice bodiees.
 	//
@@ -445,7 +447,9 @@ type ContractTerm struct {
 
 	// Value is the expected amount of milli-satoshis to be paid to an HTLC
 	// which can be satisfied by the above preimage.
-	Value lnwire.MilliSatoshi
+	Value uint64
+	/*obd update wxf*/
+	AssetId uint32
 
 	// PaymentAddr is a randomly generated value include in the MPP record
 	// by the sender to prevent probing of the receiver.
@@ -491,7 +495,9 @@ type InvoiceStateAMP struct {
 	// Fetching the full HTLC/invoice state allows one to extract the
 	// custom records as well as the break down of the payment splits used
 	// when paying.
-	AmtPaid lnwire.MilliSatoshi
+	//AmtPaid lnwire.MilliSatoshi
+	AmtPaid uint64
+	AssetId uint32
 }
 
 // AMPInvoiceState represents a type that stores metadata related to the set of
@@ -579,7 +585,9 @@ type Invoice struct {
 	// this invoice. We specify this value independently as it's possible
 	// that the invoice originally didn't specify an amount, or the sender
 	// overpaid.
-	AmtPaid lnwire.MilliSatoshi
+	//AmtPaid lnwire.MilliSatoshi
+	AmtPaid uint64
+	AssetId uint32
 
 	// Htlcs records all htlcs that paid to this invoice. Some of these
 	// htlcs may have been marked as canceled.
@@ -663,11 +671,15 @@ const (
 // InvoiceHTLC contains details about an htlc paying to this invoice.
 type InvoiceHTLC struct {
 	// Amt is the amount that is carried by this htlc.
-	Amt lnwire.MilliSatoshi
+	//Amt lnwire.MilliSatoshi
+	Amt uint64
+	AssetId uint32
+
 
 	// MppTotalAmt is a field for mpp that indicates the expected total
 	// amount.
-	MppTotalAmt lnwire.MilliSatoshi
+	//MppTotalAmt lnwire.MilliSatoshi
+	MppTotalAmt uint64
 
 	// AcceptHeight is the block height at which the invoice registry
 	// decided to accept this htlc as a payment to the invoice. At this
@@ -790,11 +802,14 @@ type HtlcAcceptDesc struct {
 	AcceptHeight int32
 
 	// Amt is the amount that is carried by this htlc.
-	Amt lnwire.MilliSatoshi
+	//Amt lnwire.MilliSatoshi
+	Amt uint64
+	AssetId uint32
 
 	// MppTotalAmt is a field for mpp that indicates the expected total
 	// amount.
-	MppTotalAmt lnwire.MilliSatoshi
+	//MppTotalAmt lnwire.MilliSatoshi
+	MppTotalAmt uint64
 
 	// Expiry is the expiry height of this htlc.
 	Expiry uint32
@@ -1605,6 +1620,7 @@ func serializeInvoice(w io.Writer, i *Invoice) error {
 	expiry := uint64(i.Terms.Expiry)
 
 	amtPaid := uint64(i.AmtPaid)
+	assetId := i.AssetId
 	state := uint8(i.State)
 
 	var hodlInvoice uint8
@@ -1634,6 +1650,7 @@ func serializeInvoice(w io.Writer, i *Invoice) error {
 		// Invoice state.
 		tlv.MakePrimitiveRecord(invStateType, &state),
 		tlv.MakePrimitiveRecord(amtPaidType, &amtPaid),
+		tlv.MakePrimitiveRecord(assetIdType, &assetId),
 
 		tlv.MakePrimitiveRecord(hodlInvoiceType, &hodlInvoice),
 
@@ -1681,6 +1698,7 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 		// Encode the htlc in a tlv stream.
 		chanID := key.ChanID.ToUint64()
 		amt := uint64(htlc.Amt)
+		assetId := uint64(htlc.AssetId)
 		mppTotalAmt := uint64(htlc.MppTotalAmt)
 		acceptTime := putNanoTime(htlc.AcceptTime)
 		resolveTime := putNanoTime(htlc.ResolveTime)
@@ -1691,6 +1709,7 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 			tlv.MakePrimitiveRecord(chanIDType, &chanID),
 			tlv.MakePrimitiveRecord(htlcIDType, &key.HtlcID),
 			tlv.MakePrimitiveRecord(amtType, &amt),
+			tlv.MakePrimitiveRecord(assetIdType, &assetId),
 			tlv.MakePrimitiveRecord(
 				acceptHeightType, &htlc.AcceptHeight,
 			),
@@ -1985,6 +2004,7 @@ func deserializeInvoice(r io.Reader) (Invoice, error) {
 		creationDateBytes []byte
 		settleDateBytes   []byte
 		featureBytes      []byte
+		assetId uint32
 	)
 
 	var i Invoice
@@ -2011,6 +2031,7 @@ func deserializeInvoice(r io.Reader) (Invoice, error) {
 		// Invoice state.
 		tlv.MakePrimitiveRecord(invStateType, &state),
 		tlv.MakePrimitiveRecord(amtPaidType, &amtPaid),
+		tlv.MakePrimitiveRecord(assetIdType, &assetId),
 
 		tlv.MakePrimitiveRecord(hodlInvoiceType, &hodlInvoice),
 
@@ -2040,10 +2061,11 @@ func deserializeInvoice(r io.Reader) (Invoice, error) {
 		i.Terms.PaymentPreimage = &preimage
 	}
 
-	i.Terms.Value = lnwire.MilliSatoshi(value)
+	i.Terms.Value = (value)
 	i.Terms.FinalCltvDelta = int32(cltvDelta)
 	i.Terms.Expiry = time.Duration(expiry)
-	i.AmtPaid = lnwire.MilliSatoshi(amtPaid)
+	i.AmtPaid = (amtPaid)
+	i.AssetId = assetId
 	i.State = ContractState(state)
 
 	if hodlInvoice != 0 {
@@ -2300,7 +2322,7 @@ func ampStateDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error
 				SettleIndex: settleIndex,
 				SettleDate:  settleDate,
 				InvoiceKeys: invoiceKeys,
-				AmtPaid:     lnwire.MilliSatoshi(amtPaid),
+				AmtPaid:     (amtPaid),
 			}
 		}
 
@@ -2338,6 +2360,7 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 			state                   uint8
 			acceptTime, resolveTime uint64
 			amt, mppTotalAmt        uint64
+			assetId uint32
 			amp                     = &record.AMP{}
 			hash32                  = &[32]byte{}
 			preimage32              = &[32]byte{}
@@ -2346,6 +2369,7 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 			tlv.MakePrimitiveRecord(chanIDType, &chanID),
 			tlv.MakePrimitiveRecord(htlcIDType, &key.HtlcID),
 			tlv.MakePrimitiveRecord(amtType, &amt),
+			tlv.MakePrimitiveRecord(assetIdType, &assetId),
 			tlv.MakePrimitiveRecord(
 				acceptHeightType, &htlc.AcceptHeight,
 			),
@@ -2390,8 +2414,8 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 		htlc.AcceptTime = getNanoTime(acceptTime)
 		htlc.ResolveTime = getNanoTime(resolveTime)
 		htlc.State = HtlcState(state)
-		htlc.Amt = lnwire.MilliSatoshi(amt)
-		htlc.MppTotalAmt = lnwire.MilliSatoshi(mppTotalAmt)
+		htlc.Amt = (amt)
+		htlc.MppTotalAmt = (mppTotalAmt)
 		if amp != nil && hash != nil {
 			htlc.AMP = &InvoiceHtlcAMPData{
 				Record:   *amp,
@@ -2807,7 +2831,8 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *SetID, invoices,
 	// individual HTLCs
 	var (
 		settledSetIDs = make(map[SetID]struct{})
-		amtPaid       lnwire.MilliSatoshi
+		//amtPaid       lnwire.MilliSatoshi
+		amtPaid       uint64
 	)
 	for key, htlc := range invoice.Htlcs {
 		// Set the HTLC preimage for any AMP HTLCs.

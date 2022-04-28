@@ -26,7 +26,7 @@ type InvoiceDatabase interface {
 	// the resolution is sent on the passed in hodlChan later. The eob
 	// field passes the entire onion hop payload into the invoice registry
 	// for decoding purposes.
-	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
+	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount uint64,
 		expiry uint32, currentHeight int32,
 		circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
 		payload invoices.Payload) (invoices.HtlcResolution, error)
@@ -63,7 +63,7 @@ type packetHandler interface {
 type dustHandler interface {
 	// getDustSum returns the dust sum on either the local or remote
 	// commitment.
-	getDustSum(remote bool) lnwire.MilliSatoshi
+	getDustSum(remote bool) uint64
 
 	// getFeeRate returns the current channel feerate.
 	getFeeRate() chainfee.SatPerKWeight
@@ -92,7 +92,9 @@ type ChannelUpdateHandler interface {
 	// represents the up to date available flow through the channel. This
 	// takes into account any forwarded but un-cleared HTLC's, and any
 	// HTLC's which have been set to the over flow queue.
-	Bandwidth() lnwire.MilliSatoshi
+	//Bandwidth() lnwire.MilliSatoshi
+	/*obd update wxf*/
+	Bandwidth() uint64
 
 	// EligibleToForward returns a bool indicating if the channel is able
 	// to actively accept requests to forward HTLC's. A channel may be
@@ -104,7 +106,9 @@ type ChannelUpdateHandler interface {
 	// MayAddOutgoingHtlc returns an error if we may not add an outgoing
 	// htlc to the channel, taking the amount of the htlc to add as a
 	// parameter.
-	MayAddOutgoingHtlc(lnwire.MilliSatoshi) error
+	//MayAddOutgoingHtlc(lnwire.MilliSatoshi) error
+	/*obd update wxf*/
+	MayAddOutgoingHtlc(uint64) error
 
 	// ShutdownIfChannelClean shuts the link down if the channel state is
 	// clean. This can be used with dynamic commitment negotiation or coop
@@ -166,8 +170,8 @@ type ChannelLink interface {
 	// a LinkError with a valid protocol failure message should be returned
 	// in order to signal to the source of the HTLC, the policy consistency
 	// issue.
-	CheckHtlcForward(payHash [32]byte, incomingAmt lnwire.MilliSatoshi,
-		amtToForward lnwire.MilliSatoshi,
+	CheckHtlcForward(payHash [32]byte, incomingAmt uint64,
+		amtToForward uint64,
 		incomingTimeout, outgoingTimeout uint32,
 		heightNow uint32) *LinkError
 
@@ -176,7 +180,7 @@ type ChannelLink interface {
 	// valid protocol failure message should be returned in order to signal
 	// the violation. This call is intended to be used for locally initiated
 	// payments for which there is no corresponding incoming htlc.
-	CheckHtlcTransit(payHash [32]byte, amt lnwire.MilliSatoshi,
+	CheckHtlcTransit(payHash [32]byte, amt uint64,
 		timeout uint32, heightNow uint32) *LinkError
 
 	// Stats return the statistics of channel link. Number of updates,
@@ -262,14 +266,15 @@ type InterceptedPacket struct {
 	OutgoingExpiry uint32
 
 	// OutgoingAmount is the amount to forward.
-	OutgoingAmount lnwire.MilliSatoshi
+	OutgoingAmount uint64
 
 	// IncomingExpiry is the absolute block height at which the incoming
 	// htlc expires.
 	IncomingExpiry uint32
 
 	// IncomingAmount is the amount of the accepted htlc.
-	IncomingAmount lnwire.MilliSatoshi
+	IncomingAmount uint64
+	AssetId uint32
 
 	// CustomRecords are user-defined records in the custom type range that
 	// were included in the payload.

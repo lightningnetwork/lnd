@@ -2,7 +2,6 @@ package routing
 
 import (
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"image/color"
 	"net"
 	"sync"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -195,11 +193,11 @@ type ClosedChanSummary struct {
 	// channel.
 	ChanID uint64
 
-	/*obd update wxf*/
+	/*obd update wxf
+	AssetId >0 the unit is btcutil.Amount, else omnicore.Amount
+	*/
 	// Capacity was the total capacity of the channel before it was closed.
-	//Capacity btcutil.Amount
-	BtcCapacity btcutil.Amount
-	AssetCapacity omnicore.Amount
+	Capacity uint64
 	AssetId uint32
 
 	// ClosedHeight is the height in the chain that the channel was closed
@@ -220,8 +218,7 @@ func createCloseSummaries(blockHeight uint32,
 	for i, closedChan := range closedChans {
 		closeSummaries[i] = &ClosedChanSummary{
 			ChanID:       closedChan.ChannelID,
-			BtcCapacity:     closedChan.BtcCapacity,
-			AssetCapacity:     closedChan.AssetCapacity,
+			Capacity:     closedChan.Capacity,
 			AssetId:     closedChan.AssetId,
 			ClosedHeight: blockHeight,
 			ChanPoint:    closedChan.ChannelPoint,
@@ -272,29 +269,33 @@ type ChannelEdgeUpdate struct {
 	// output for the channel.
 	ChanPoint wire.OutPoint
 
-	/*obd update wxf*/
+	/*obd update wxf
+	AssetId >0 the unit is btcutil.Amount, else omnicore.Amount
+	*/
 	// Capacity is the capacity of the newly created channel.
-	//Capacity btcutil.Amount
-	BtcCapacity btcutil.Amount
-	AssetCapacity omnicore.Amount
+	Capacity uint64
 	AssetId uint32
-	MinAssetHTLC omnicore.Amount
-	MaxAssetHTLC omnicore.Amount
 
+	/*obd update wxf
+	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+	*/
 	// MinHTLC is the minimum HTLC amount that this channel will forward.
-	MinBtcHTLC lnwire.MilliSatoshi
+	MinHTLC uint64
 
+	/*obd update wxf
+	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+	*/
 	// MaxHTLC is the maximum HTLC amount that this channel will forward.
-	MaxBtcHTLC lnwire.MilliSatoshi
+	MaxHTLC uint64
 
 
 	// BaseFee is the base fee that will charged for all HTLC's forwarded
 	// across the this channel direction.
-	BaseFee lnwire.MilliSatoshi
+	BaseFee uint64
 
 	// FeeRate is the fee rate that will be shared for all HTLC's forwarded
 	// across this channel direction.
-	FeeRate lnwire.MilliSatoshi
+	FeeRate uint64
 
 	// TimeLockDelta is the time-lock expressed in blocks that will be
 	// added to outgoing HTLC's from incoming HTLC's. This value is the
@@ -382,14 +383,11 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			ChanID:          m.ChannelID,
 			ChanPoint:       edgeInfo.ChannelPoint,
 			TimeLockDelta:   m.TimeLockDelta,
+			Capacity:        edgeInfo.Capacity,
 			/*obd update wxf*/
-			BtcCapacity:        edgeInfo.BtcCapacity,
-			AssetCapacity:        edgeInfo.AssetCapacity,
 			AssetId:        edgeInfo.AssetId,
-			MinBtcHTLC:         m.MinBtcHTLC,
-			MaxBtcHTLC:         m.MaxBtcHTLC,
-			MinAssetHTLC:         m.MinAssetHTLC,
-			MaxAssetHTLC:         m.MaxAssetHTLC,
+			MinHTLC:         m.MinHTLC,
+			MaxHTLC:         m.MaxHTLC,
 			BaseFee:         m.FeeBaseMSat,
 			FeeRate:         m.FeeProportionalMillionths,
 			AdvertisingNode: aNode,

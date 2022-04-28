@@ -18,7 +18,7 @@ type bandwidthHints interface {
 	// will be used. If the channel is unavailable, a zero amount is
 	// returned.
 	availableChanBandwidth(channelID uint64,
-		amount lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool)
+		amount uint64) (uint64, bool)
 }
 
 // getLinkQuery is the function signature used to lookup a link.
@@ -39,7 +39,7 @@ type bandwidthManager struct {
 // hints for the edges we directly have open ourselves. Obtaining these hints
 // allows us to reduce the number of extraneous attempts as we can skip channels
 // that are inactive, or just don't have enough bandwidth to carry the payment.
-func newBandwidthManager(graph routingGraph, sourceNode route.Vertex,
+func newBandwidthManager(assetId uint32, graph routingGraph, sourceNode route.Vertex,
 	linkQuery getLinkQuery) (*bandwidthManager, error) {
 
 	manager := &bandwidthManager{
@@ -49,7 +49,7 @@ func newBandwidthManager(graph routingGraph, sourceNode route.Vertex,
 
 	// First, we'll collect the set of outbound edges from the target
 	// source node and add them to our bandwidth manager's map of channels.
-	err := graph.forEachNodeChannel(sourceNode,
+	err := graph.forEachNodeChannel(assetId,sourceNode,
 		func(channel *channeldb.DirectedChannel) error {
 			shortID := lnwire.NewShortChanIDFromInt(
 				channel.ChannelID,
@@ -71,7 +71,7 @@ func newBandwidthManager(graph routingGraph, sourceNode route.Vertex,
 // queried is one of our local channels, so any failure to retrieve the link
 // is interpreted as the link being offline.
 func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
-	amount lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+	amount uint64) uint64 {
 	link, err := b.getLink(cid)
 	if err != nil {
 		// If the link isn't online, then we'll report that it has
@@ -101,7 +101,8 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 // and a bool indicating whether the channel hint was found. If the channel is
 // unavailable, a zero amount is returned.
 func (b *bandwidthManager) availableChanBandwidth(channelID uint64,
-	amount lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool) {
+	//amount lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool) {
+	amount uint64) (uint64, bool) {
 
 	shortID := lnwire.NewShortChanIDFromInt(channelID)
 	_, ok := b.localChans[shortID]

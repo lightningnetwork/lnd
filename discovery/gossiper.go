@@ -4,14 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
-	"sync"
-	"time"
-
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightninglabs/neutrino/cache/lru"
@@ -29,6 +24,8 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
 	"golang.org/x/time/rate"
+	"sync"
+	"time"
 )
 
 const (
@@ -71,8 +68,8 @@ var (
 // can provide that serve useful when processing a specific network
 // announcement.
 type optionalMsgFields struct {
-	btcCapacity     *btcutil.Amount
-	AssetCapacity     *omnicore.Amount
+	//Capacity     *btcutil.Amount
+	Capacity     *uint64
 	channelPoint *wire.OutPoint
 }
 
@@ -90,17 +87,9 @@ type OptionalMsgField func(*optionalMsgFields)
 
 // ChannelCapacity is an optional field that lets the gossiper know of the
 // capacity of a channel.
-func ChannelBtcCapacity(capacity btcutil.Amount) OptionalMsgField {
+func ChannelCapacity(capacity uint64) OptionalMsgField {
 	return func(f *optionalMsgFields) {
-		f.btcCapacity = &capacity
-	}
-}
-/*
-obd add wxf
-*/
-func ChannelAssetCapacity(capacity omnicore.Amount) OptionalMsgField {
-	return func(f *optionalMsgFields) {
-		f.AssetCapacity = &capacity
+		f.Capacity = &capacity
 	}
 }
 
@@ -1409,8 +1398,11 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 			// We'll make sure we support the new max_htlc field if
 			// not already present.
 			edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
-			edge.MaxBtcHTLC = lnwire.NewMSatFromSatoshis(info.BtcCapacity)
-			edge.MaxAssetHTLC = info.AssetCapacity
+			amt:=info.Capacity
+			if info.AssetId==1{
+				amt*=1000
+			}
+			edge.MaxHTLC =  amt
 			edgesToUpdate = append(edgesToUpdate, updateTuple{
 				info: info,
 				edge: edge,
@@ -1937,12 +1929,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// If there were any optional message fields provided, we'll
 		// include them in its serialized disk representation now.
 		if nMsg.optionalMsgFields != nil {
-			if nMsg.optionalMsgFields.btcCapacity != nil {
-				edge.BtcCapacity = *nMsg.optionalMsgFields.btcCapacity
-			}
-			/*obd add wxf*/
-			if nMsg.optionalMsgFields.AssetCapacity != nil {
-				edge.AssetCapacity = *nMsg.optionalMsgFields.AssetCapacity
+			if nMsg.optionalMsgFields.Capacity != nil {
+				edge.Capacity = *nMsg.optionalMsgFields.Capacity
 			}
 			if nMsg.optionalMsgFields.channelPoint != nil {
 				edge.ChannelPoint = *nMsg.optionalMsgFields.channelPoint
@@ -2300,7 +2288,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// Validate the channel announcement with the expected public key and
 		// channel capacity. In the case of an invalid channel update, we'll
 		// return an error to the caller and exit early.
-		err = routing.ValidateChannelUpdateAnn(pubKey, chanInfo.BtcCapacity, msg)
+		err = routing.ValidateChannelUpdateAnn(pubKey, chanInfo.Capacity, msg)
 		if err != nil {
 			rErr := fmt.Errorf("unable to validate channel "+
 				"update announcement for short_chan_id=%v: %v",
@@ -2318,14 +2306,12 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			MessageFlags:              msg.MessageFlags,
 			ChannelFlags:              msg.ChannelFlags,
 			TimeLockDelta:             msg.TimeLockDelta,
-			MinBtcHTLC:                   msg.HtlcBtcMinimumMsat,
-			MaxBtcHTLC:                   msg.HtlcBtcMinimumMsat,
+			MinHTLC:                   msg.HtlcMinimumMsat,
+			MaxHTLC:                   msg.HtlcMinimumMsat,
 			/*ob update wxf*/
-			MinAssetHTLC:                   msg.HtlcAssetMinimum,
-			MaxAssetHTLC:                   msg.HtlcAssetMaximum,
 			AssetId: 						msg.AssetId,
-			FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
-			FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
+			FeeBaseMSat:               uint64(msg.BaseFee),
+			FeeProportionalMillionths: uint64(msg.FeeRate),
 			ExtraOpaqueData:           msg.ExtraOpaqueData,
 		}
 
@@ -2880,7 +2866,7 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 
 	// To ensure that our signature is valid, we'll verify it ourself
 	// before committing it to the slice returned.
-	err = routing.ValidateChannelUpdateAnn(d.selfKey, info.BtcCapacity, chanUpdate)
+	err = routing.ValidateChannelUpdateAnn(d.selfKey, info.Capacity, chanUpdate)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generated invalid channel "+
 			"update sig: %v", err)
@@ -2963,29 +2949,23 @@ func IsKeepAliveUpdate(update *lnwire.ChannelUpdate,
 	if update.ChannelFlags.IsDisabled() != prev.ChannelFlags.IsDisabled() {
 		return false
 	}
-	if lnwire.MilliSatoshi(update.BaseFee) != prev.FeeBaseMSat {
+	if uint64(update.BaseFee) != prev.FeeBaseMSat {
 		return false
 	}
-	if lnwire.MilliSatoshi(update.FeeRate) != prev.FeeProportionalMillionths {
+	if uint64(update.FeeRate) != prev.FeeProportionalMillionths {
 		return false
 	}
 	if update.TimeLockDelta != prev.TimeLockDelta {
 		return false
 	}
 	/*obd update wxf*/
-	if update.HtlcBtcMinimumMsat != prev.MinBtcHTLC {
-		return false
-	}
-	if update.HtlcAssetMinimum != prev.MinAssetHTLC {
+	if update.HtlcMinimumMsat != prev.MinHTLC {
 		return false
 	}
 	if update.MessageFlags.HasMaxHtlc() && !prev.MessageFlags.HasMaxHtlc() {
 		return false
 	}
-	if update.HtlcBtcMaximumMsat != prev.MaxBtcHTLC {
-		return false
-	}
-	if update.HtlcAssetMaximum!= prev.MaxAssetHTLC {
+	if update.HtlcMaximumMsat != prev.MaxHTLC {
 		return false
 	}
 	if !bytes.Equal(update.ExtraOpaqueData, prev.ExtraOpaqueData) {

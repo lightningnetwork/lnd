@@ -76,7 +76,7 @@ type MailBox interface {
 
 	// DustPackets returns the dust sum for Adds in the mailbox for the
 	// local and remote commitments.
-	DustPackets() (lnwire.MilliSatoshi, lnwire.MilliSatoshi)
+	DustPackets() (uint64, uint64)
 
 	// Start starts the mailbox and any goroutines it needs to operate
 	// properly.
@@ -653,15 +653,15 @@ func (m *memoryMailBox) SetDustClosure(isDust dustClosure) {
 // return value is the local dust sum and the second is the remote dust sum.
 // This will keep track of a given dust HTLC from the time it is added via
 // AddPacket until it is removed via AckPacket.
-func (m *memoryMailBox) DustPackets() (lnwire.MilliSatoshi,
-	lnwire.MilliSatoshi) {
+func (m *memoryMailBox) DustPackets() (uint64,
+	uint64) {
 
 	m.pktCond.L.Lock()
 	defer m.pktCond.L.Unlock()
 
 	var (
-		localDustSum  lnwire.MilliSatoshi
-		remoteDustSum lnwire.MilliSatoshi
+		localDustSum  uint64
+		remoteDustSum uint64
 	)
 
 	// Run through the map of HTLC's and determine the dust sum with calls
@@ -672,16 +672,16 @@ func (m *memoryMailBox) DustPackets() (lnwire.MilliSatoshi,
 
 		// Evaluate whether this HTLC is dust on the local commitment.
 		if m.isDust(
-			m.feeRate, false, true, addPkt.btcAmount.ToSatoshis(),addPkt.assetAmount,
+			m.feeRate, false, true, addPkt.amount,addPkt.assetId,
 		) {
-			localDustSum += addPkt.btcAmount
+			localDustSum += addPkt.amount
 		}
 
 		// Evaluate whether this HTLC is dust on the remote commitment.
 		if m.isDust(
-			m.feeRate, false, false, addPkt.btcAmount.ToSatoshis(),addPkt.assetAmount,
+			m.feeRate, false, false, addPkt.amount,addPkt.assetId,
 		) {
-			remoteDustSum += addPkt.btcAmount
+			remoteDustSum += addPkt.amount
 		}
 	}
 

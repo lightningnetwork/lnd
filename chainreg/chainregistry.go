@@ -264,7 +264,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	switch cfg.PrimaryChain() {
 	case BitcoinChain:
 		cc.RoutingPolicy = htlcswitch.ForwardingPolicy{
-			MinHTLCOut:    cfg.Bitcoin.MinHTLCOut,
+			MinHTLCOut:    uint64( cfg.Bitcoin.MinHTLCOut),
 			BaseFee:       cfg.Bitcoin.BaseFee,
 			FeeRate:       cfg.Bitcoin.FeeRate,
 			TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
@@ -276,7 +276,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		)
 	case LitecoinChain:
 		cc.RoutingPolicy = htlcswitch.ForwardingPolicy{
-			MinHTLCOut:    cfg.Litecoin.MinHTLCOut,
+			MinHTLCOut:    uint64(cfg.Litecoin.MinHTLCOut),
 			BaseFee:       cfg.Litecoin.BaseFee,
 			FeeRate:       cfg.Litecoin.FeeRate,
 			TimeLockDelta: cfg.Litecoin.TimeLockDelta,

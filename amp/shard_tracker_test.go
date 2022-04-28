@@ -26,7 +26,7 @@ func TestAMPShardTracker(t *testing.T) {
 	var totalAmt lnwire.MilliSatoshi = 1000
 
 	// Create an AMP shard tracker using the random data we just generated.
-	tracker := amp.NewShardTracker(root, setID, payAddr, totalAmt)
+	tracker := amp.NewShardTracker(root, setID, payAddr, uint64(totalAmt),31)
 
 	// Trying to retrieve a hash for id 0 should result in an error.
 	_, err = tracker.GetHash(0)

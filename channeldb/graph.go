@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"image/color"
 	"io"
 	"math"
@@ -19,7 +18,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -463,11 +461,11 @@ func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdgeInfo,
 // halted with the error propagated back up to the caller.
 //
 // Unknown policies are passed into the callback as nil values.
-func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, node route.Vertex,
+func (c *ChannelGraph) ForEachNodeChannel(assetId uint32,tx kvdb.RTx, node route.Vertex,
 	cb func(channel *DirectedChannel) error) error {
 
 	if c.graphCache != nil {
-		return c.graphCache.ForEachChannel(node, cb)
+		return c.graphCache.ForEachChannel(assetId,node, cb)
 	}
 
 	// Fallback that uses the database.
@@ -482,6 +480,9 @@ func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, node route.Vertex,
 	dbCallback := func(tx kvdb.RTx, e *ChannelEdgeInfo, p1,
 		p2 *ChannelEdgePolicy) error {
 
+		if e.AssetId!=assetId{
+			return nil
+		}
 		var cachedInPolicy *CachedEdgePolicy
 		if p2 != nil {
 			cachedInPolicy = NewCachedPolicy(p2)
@@ -493,9 +494,8 @@ func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, node route.Vertex,
 			ChannelID:    e.ChannelID,
 			IsNode1:      node == e.NodeKey1Bytes,
 			OtherNode:    e.NodeKey2Bytes,
+			Capacity:     e.Capacity,
 			/*obd add wxf*/
-			BtcCapacity:     e.BtcCapacity,
-			AssetCapacity:     e.AssetCapacity,
 			AssetId:     e.AssetId,
 			OutPolicySet: p1 != nil,
 			InPolicy:     cachedInPolicy,
@@ -538,16 +538,17 @@ func (c *ChannelGraph) FetchNodeFeatures(
 	}
 }
 
+/*obd update wxf*/
 // ForEachNodeCached is similar to ForEachNode, but it utilizes the channel
 // graph cache instead. Note that this doesn't return all the information the
 // regular ForEachNode method does.
 //
 // NOTE: The callback contents MUST not be modified.
-func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
+func (c *ChannelGraph) ForEachNodeCached(assetId uint32,cb func(node route.Vertex,
 	chans map[uint64]*DirectedChannel) error) error {
 
 	if c.graphCache != nil {
-		return c.graphCache.ForEachNode(cb)
+		return c.graphCache.ForEachNode(assetId, cb)
 	}
 
 	// Otherwise call back to a version that uses the database directly.
@@ -561,6 +562,9 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 			e *ChannelEdgeInfo, p1 *ChannelEdgePolicy,
 			p2 *ChannelEdgePolicy) error {
 
+			if e.AssetId!=assetId{
+				return nil
+			}
 			toNodeCallback := func() route.Vertex {
 				return node.PubKeyBytes
 			}
@@ -582,8 +586,7 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 				ChannelID:    e.ChannelID,
 				IsNode1:      node.PubKeyBytes == e.NodeKey1Bytes,
 				OtherNode:    e.NodeKey2Bytes,
-				BtcCapacity:     e.BtcCapacity,
-				AssetCapacity:     e.AssetCapacity,
+				Capacity:     e.Capacity,
 				AssetId:     e.AssetId,
 				OutPolicySet: p1 != nil,
 				InPolicy:     cachedInPolicy,
@@ -971,7 +974,10 @@ func (c *ChannelGraph) deleteLightningNode(nodes kvdb.RwBucket,
 // globally within the database.
 func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo,
 	op ...batch.SchedulerOption) error {
-
+	/*obd update wxf*/
+	if edge.AssetId<1{
+		return errors.New("AddChannelEdge miss assetId")
+	}
 	var alreadyExists bool
 	r := &batch.Request{
 		Reset: func() {
@@ -2463,6 +2469,10 @@ func makeZombiePubkeys(info *ChannelEdgeInfo,
 // nodes on either side of the channel.
 func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy,
 	op ...batch.SchedulerOption) error {
+	/*obd update wxf*/
+	if edge.AssetId<1{
+		return errors.New("UpdateEdgePolicy miss assetId")
+	}
 
 	var (
 		isUpdate1    bool
@@ -3067,13 +3077,12 @@ type ChannelEdgeInfo struct {
 	// used to uniquely identify the channel within the channel graph.
 	ChannelPoint wire.OutPoint
 
-	/*
-	obd update wxf
+	/*obd update wxf
+	AssetId >0 the unit is btcutil.Amount, else omnicore.Amount
 	*/
 	// Capacity is the total capacity of the channel, this is determined by
 	// the value output in the outpoint that created this channel.
-	BtcCapacity btcutil.Amount
-	AssetCapacity omnicore.Amount
+	Capacity uint64
 	AssetId uint32
 
 	// ExtraOpaqueData is the set of data that was appended to this
@@ -3417,26 +3426,35 @@ type ChannelEdgePolicy struct {
 	// the node would like to HTLC exchanges.
 	TimeLockDelta uint16
 
+	/*obd update wxf
+	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+	*/
 	// MinHTLC is the smallest value HTLC this node will forward, expressed
 	// in millisatoshi.
-	MinBtcHTLC lnwire.MilliSatoshi
+	MinHTLC uint64
 
+	/*obd update wxf
+	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+	*/
 	// MaxHTLC is the largest value HTLC this node will forward, expressed
 	// in millisatoshi.
-	MaxBtcHTLC lnwire.MilliSatoshi
-	/*obd add wxf
-	*/
-	MinAssetHTLC omnicore.Amount
-	MaxAssetHTLC omnicore.Amount
+	MaxHTLC uint64
+	/*obd add wxf*/
 	AssetId uint32
 
+	/*obd update wxf
+	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+	*/
 	// FeeBaseMSat is the base HTLC fee that will be charged for forwarding
 	// ANY HTLC, expressed in mSAT's.
-	FeeBaseMSat lnwire.MilliSatoshi
+	FeeBaseMSat uint64
 
+	/*obd update wxf
+	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+	*/
 	// FeeProportionalMillionths is the rate that the node will charge for
 	// HTLCs for each millionth of a satoshi forwarded.
-	FeeProportionalMillionths lnwire.MilliSatoshi
+	FeeProportionalMillionths uint64
 
 	// Node is the LightningNode that this directed edge leads to. Using
 	// this pointer the channel graph can further be traversed.
@@ -3485,24 +3503,27 @@ func (c *ChannelEdgePolicy) IsDisabled() bool {
 	return c.ChannelFlags.IsDisabled()
 }
 
+/*obd update wxf
+AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+*/
 // ComputeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
 // the passed active payment channel. This value is currently computed as
 // specified in BOLT07, but will likely change in the near future.
 func (c *ChannelEdgePolicy) ComputeFee(
-	amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+	amt uint64) uint64 {
 
 	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
 }
 
 // divideCeil divides dividend by factor and rounds the result up.
-func divideCeil(dividend, factor lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+func divideCeil(dividend, factor uint64) uint64 {
 	return (dividend + factor - 1) / factor
 }
 
 // ComputeFeeFromIncoming computes the fee to forward an HTLC given the incoming
 // amount.
 func (c *ChannelEdgePolicy) ComputeFeeFromIncoming(
-	incomingAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+	incomingAmt uint64) uint64 {
 
 	return incomingAmt - divideCeil(
 		feeRateParts*(incomingAmt-c.FeeBaseMSat),
@@ -4374,10 +4395,7 @@ func putChanEdgeInfo(edgeIndex kvdb.RwBucket, edgeInfo *ChannelEdgeInfo, chanID 
 	if err := writeOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
 		return err
 	}
-	if err := binary.Write(&b, byteOrder, uint64(edgeInfo.BtcCapacity)); err != nil {
-		return err
-	}
-	if err := binary.Write(&b, byteOrder, uint64(edgeInfo.AssetCapacity)); err != nil {
+	if err := binary.Write(&b, byteOrder, uint64(edgeInfo.Capacity)); err != nil {
 		return err
 	}
 	if err := binary.Write(&b, byteOrder, uint32(edgeInfo.AssetId)); err != nil {
@@ -4464,10 +4482,7 @@ func deserializeChanEdgeInfo(r io.Reader) (ChannelEdgeInfo, error) {
 	if err := readOutpoint(r, &edgeInfo.ChannelPoint); err != nil {
 		return ChannelEdgeInfo{}, err
 	}
-	if err := binary.Read(r, byteOrder, &edgeInfo.BtcCapacity); err != nil {
-		return ChannelEdgeInfo{}, err
-	}
-	if err := binary.Read(r, byteOrder, &edgeInfo.AssetCapacity); err != nil {
+	if err := binary.Read(r, byteOrder, &edgeInfo.Capacity); err != nil {
 		return ChannelEdgeInfo{}, err
 	}
 	if err := binary.Read(r, byteOrder, &edgeInfo.AssetId); err != nil {
@@ -4718,10 +4733,10 @@ func serializeChanEdgePolicy(w io.Writer, edge *ChannelEdgePolicy,
 	if err := binary.Write(w, byteOrder, edge.TimeLockDelta); err != nil {
 		return err
 	}
-	if err := binary.Write(w, byteOrder, uint64(edge.MinBtcHTLC)); err != nil {
+	if err := binary.Write(w, byteOrder, uint32(edge.AssetId)); err != nil {
 		return err
 	}
-	if err := binary.Write(w, byteOrder, uint64(edge.MinAssetHTLC)); err != nil {
+	if err := binary.Write(w, byteOrder, uint64(edge.MinHTLC)); err != nil {
 		return err
 	}
 	if err := binary.Write(w, byteOrder, uint64(edge.FeeBaseMSat)); err != nil {
@@ -4741,12 +4756,11 @@ func serializeChanEdgePolicy(w io.Writer, edge *ChannelEdgePolicy,
 	// TODO(halseth): clean up when moving to TLV.
 	var opaqueBuf bytes.Buffer
 	if edge.MessageFlags.HasMaxHtlc() {
-		err := binary.Write(&opaqueBuf, byteOrder, uint64(edge.MaxBtcHTLC))
+		err := binary.Write(&opaqueBuf, byteOrder, uint64(edge.MaxHTLC))
 		if err != nil {
 			return err
 		}
 		/*obd add wxf*/
-		err = binary.Write(&opaqueBuf, byteOrder, uint64(edge.MaxAssetHTLC))
 		if err != nil {
 			return err
 		}
@@ -4817,29 +4831,27 @@ func deserializeChanEdgePolicyRaw(r io.Reader) (*ChannelEdgePolicy, error) {
 	if err := binary.Read(r, byteOrder, &edge.TimeLockDelta); err != nil {
 		return nil, err
 	}
+	/*obd add wxf*/
+	if err := binary.Read(r, byteOrder, &edge.AssetId); err != nil {
+		return nil, err
+	}
 
 	var n uint64
 	if err := binary.Read(r, byteOrder, &n); err != nil {
 		return nil, err
 	}
-	edge.MinBtcHTLC = lnwire.MilliSatoshi(n)
+	edge.MinHTLC = (n)
 
-	/*obd add wxf*/
-	var minAssetHtlc uint64
-	if err := binary.Read(r, byteOrder, &minAssetHtlc); err != nil {
-		return nil, err
-	}
-	edge.MinAssetHTLC = omnicore.Amount(minAssetHtlc)
 
 	if err := binary.Read(r, byteOrder, &n); err != nil {
 		return nil, err
 	}
-	edge.FeeBaseMSat = lnwire.MilliSatoshi(n)
+	edge.FeeBaseMSat = (n)
 
 	if err := binary.Read(r, byteOrder, &n); err != nil {
 		return nil, err
 	}
-	edge.FeeProportionalMillionths = lnwire.MilliSatoshi(n)
+	edge.FeeProportionalMillionths = (n)
 
 	var pub [33]byte
 	if _, err := r.Read(pub[:]); err != nil {
@@ -4876,9 +4888,7 @@ func deserializeChanEdgePolicyRaw(r io.Reader) (*ChannelEdgePolicy, error) {
 
 		/*obd update wxf*/
 		maxBtcHtlc := byteOrder.Uint64(opq[:8])
-		edge.MaxBtcHTLC = lnwire.MilliSatoshi(maxBtcHtlc)
-		maxAssetHtlc := byteOrder.Uint64(opq[8:16])
-		edge.MaxAssetHTLC = omnicore.Amount(maxAssetHtlc)
+		edge.MaxHTLC = maxBtcHtlc
 
 		// Exclude the parsed field from the rest of the opaque data.
 		edge.ExtraOpaqueData = opq[8:]

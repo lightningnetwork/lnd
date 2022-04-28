@@ -2,6 +2,7 @@ package omnicore
 
 import (
 	"errors"
+	"github.com/btcsuite/btcutil"
 	"math"
 	"strconv"
 )
@@ -131,4 +132,4 @@ func (a Amount) MulF64(f float64) Amount {
 }
 
 
-const OmniGas=546
+const OmniGas= btcutil.Amount(546)

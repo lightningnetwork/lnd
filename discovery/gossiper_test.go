@@ -602,11 +602,11 @@ func createUpdateAnnouncement(blockHeight uint32,
 		MessageFlags:    lnwire.ChanUpdateOptionMaxHtlc,
 		ChannelFlags:    flags,
 		TimeLockDelta:   uint16(prand.Int63()),
-		HtlcMinimumMsat: htlcMinMsat,
+		HtlcMinimumMsat: uint64(htlcMinMsat),
 
 		// Since the max HTLC must be greater than the min HTLC to pass channel
 		// update validation, set it to double the min htlc.
-		HtlcMaximumMsat: 2 * htlcMinMsat,
+		HtlcMaximumMsat: 2 * uint64(htlcMinMsat),
 		FeeRate:         uint32(prand.Int31()),
 		BaseFee:         uint32(prand.Int31()),
 	}
@@ -3686,7 +3686,7 @@ func TestProcessChannelAnnouncementOptionalMsgFields(t *testing.T) {
 	// assertOptionalMsgFields is a helper closure that ensures the optional
 	// message fields were set as intended.
 	assertOptionalMsgFields := func(chanID lnwire.ShortChannelID,
-		capacity btcutil.Amount, channelPoint wire.OutPoint) {
+		capacity uint64, channelPoint wire.OutPoint) {
 
 		t.Helper()
 
@@ -3714,10 +3714,10 @@ func TestProcessChannelAnnouncementOptionalMsgFields(t *testing.T) {
 	capacity := btcutil.Amount(1000)
 	channelPoint := wire.OutPoint{Index: 1}
 	sendLocalMsg(
-		t, ctx, chanAnn2, ChannelCapacity(capacity),
+		t, ctx, chanAnn2, ChannelCapacity(uint64(capacity)),
 		ChannelPoint(channelPoint),
 	)
-	assertOptionalMsgFields(chanAnn2.ShortChannelID, capacity, channelPoint)
+	assertOptionalMsgFields(chanAnn2.ShortChannelID, uint64(capacity), channelPoint)
 }
 
 func assertMessage(t *testing.T, expected, got lnwire.Message) {

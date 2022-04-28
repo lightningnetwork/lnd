@@ -521,8 +521,8 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 
 // generateHoldPayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
-func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
-	htlcAssetAmount omnicore.Amount,assetId uint32,
+func generatePaymentWithPreimage(invoiceAmt, htlcAmt uint64,
+	assetId uint32,
 	timelock uint32, blob [lnwire.OnionPacketSize]byte,
 	preimage *lntypes.Preimage, rhash, payAddr [32]byte) (
 	*channeldb.Invoice, *lnwire.UpdateAddHTLC, uint64, error) {
@@ -550,8 +550,7 @@ func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 
 	htlc := &lnwire.UpdateAddHTLC{
 		PaymentHash: rhash,
-		BtcAmount:      htlcAmt,
-		AssetAmount:      htlcAssetAmount,
+		Amount:      htlcAmt,
 		AssetID:      assetId,
 		Expiry:      timelock,
 		OnionBlob:   blob,
@@ -568,8 +567,8 @@ func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 
 // generatePayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
-func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
-	htlcAssetAmount omnicore.Amount,assetId uint32,
+func generatePayment(invoiceAmt, htlcAmt uint64,
+	assetId uint32,
 	timelock uint32,
 	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice,
 	*lnwire.UpdateAddHTLC, uint64, error) {
@@ -591,7 +590,7 @@ func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	copy(payAddr[:], r)
 
 	return generatePaymentWithPreimage(
-		invoiceAmt, htlcAmt,htlcAssetAmount,assetId, timelock, blob, &preimage, rhash, payAddr,
+		invoiceAmt, htlcAmt,assetId, timelock, blob, &preimage, rhash, payAddr,
 	)
 }
 
@@ -636,8 +635,8 @@ type threeHopNetwork struct {
 // generateHops creates the per hop payload, the total amount to be sent, and
 // also the time lock value needed to route an HTLC with the target amount over
 // the specified path.
-func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
-	path ...*channelLink) (lnwire.MilliSatoshi, uint32, []*hop.Payload) {
+func generateHops(payAmt uint64, startingHeight uint32,
+	path ...*channelLink) (uint64, uint32, []*hop.Payload) {
 
 	totalTimelock := startingHeight
 	runningAmt := payAmt
@@ -737,7 +736,7 @@ func waitForPayFuncResult(payFunc func() error, d time.Duration) error {
 // * from Alice to some another peer through the Bob
 func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	firstHop lnwire.ShortChannelID, hops []*hop.Payload,
-	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
+	invoiceAmt, htlcAmt uint64,
 	htlcAssetAmt omnicore.Amount,assetId uint32,
 	timelock uint32) *paymentResponse {
 
@@ -745,7 +744,7 @@ func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	var rhash lntypes.Hash
 
 	invoice, payFunc, err := preparePayment(sendingPeer, receivingPeer,
-		firstHop, hops, invoiceAmt, htlcAmt,htlcAssetAmt,assetId, timelock,
+		firstHop, hops, invoiceAmt, htlcAmt,assetId, timelock,
 	)
 	if err != nil {
 		paymentErr <- err
@@ -772,7 +771,7 @@ func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 // that, when called, launches the payment from the sendingPeer.
 func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	firstHop lnwire.ShortChannelID, hops []*hop.Payload,
-	invoiceAmt, htlcAmt lnwire.MilliSatoshi,htlcAssetAmt omnicore.Amount,assetId uint32,
+	invoiceAmt, htlcAmt uint64,assetId uint32,
 	timelock uint32) (*channeldb.Invoice, func() error, error) {
 
 	sender := sendingPeer.(*mockServer)
@@ -787,7 +786,7 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 
 	// Generate payment: invoice and htlc.
 	invoice, htlc, pid, err := generatePayment(
-		invoiceAmt, htlcAmt, htlcAssetAmt, assetId,timelock, blob,
+		invoiceAmt, htlcAmt,  assetId,timelock, blob,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1112,7 +1111,7 @@ func newHopNetwork() *hopNetwork {
 	defaultDelta := uint32(6)
 
 	globalPolicy := ForwardingPolicy{
-		MinHTLCOut:    lnwire.NewMSatFromSatoshis(5),
+		MinHTLCOut:    uint64( lnwire.NewMSatFromSatoshis(5)),
 		BaseFee:       lnwire.NewMSatFromSatoshis(1),
 		TimeLockDelta: defaultDelta,
 	}
@@ -1306,7 +1305,7 @@ func (n *twoHopNetwork) stop() {
 
 func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 	firstHop lnwire.ShortChannelID, hops []*hop.Payload,
-	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
+	invoiceAmt, htlcAmt uint64,
 	htlcAssetAmount omnicore.Amount,assetId uint32,
 	timelock uint32, preimage lntypes.Preimage) chan error {
 
@@ -1333,7 +1332,7 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 	// Generate payment: invoice and htlc.
 	invoice, htlc, pid, err := generatePaymentWithPreimage(
 		invoiceAmt, htlcAmt,
-		htlcAssetAmount,assetId,
+		assetId,
 		timelock, blob,nil, rhash, payAddr,
 	)
 	if err != nil {

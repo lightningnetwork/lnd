@@ -109,7 +109,7 @@ func (ctx *mcTestContext) cleanup() {
 }
 
 // Assert that mission control returns a probability for an edge.
-func (ctx *mcTestContext) expectP(amt lnwire.MilliSatoshi, expected float64) {
+func (ctx *mcTestContext) expectP(amt uint64, expected float64) {
 	ctx.t.Helper()
 
 	p := ctx.mc.GetProbability(mcTestNode1, mcTestNode2, amt)
@@ -119,7 +119,7 @@ func (ctx *mcTestContext) expectP(amt lnwire.MilliSatoshi, expected float64) {
 }
 
 // reportFailure reports a failure by using a test route.
-func (ctx *mcTestContext) reportFailure(amt lnwire.MilliSatoshi,
+func (ctx *mcTestContext) reportFailure(amt uint64,
 	failure lnwire.FailureMessage) {
 
 	mcTestRoute.Hops[0].AmtToForward = amt

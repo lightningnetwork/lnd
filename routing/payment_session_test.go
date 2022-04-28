@@ -212,7 +212,7 @@ func TestRequestRoute(t *testing.T) {
 	// Override pathfinder with a mock.
 	session.pathFinder = func(
 		g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
-		source, target route.Vertex, amt lnwire.MilliSatoshi,
+		source, target route.Vertex, assetId uint32, amt uint64,
 		finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
 
 		// We expect find path to receive a cltv limit excluding the

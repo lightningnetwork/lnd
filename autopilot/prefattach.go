@@ -85,7 +85,7 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []LocalChannel,
 	// We first run though the graph once in order to find the median
 	// channel size.
 	var (
-		allChans  []btcutil.Amount
+		allChans  []uint64
 		seenChans = make(map[uint64]struct{})
 	)
 	if err := g.ForEachNode(func(n Node) error {
@@ -94,7 +94,7 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []LocalChannel,
 				return nil
 			}
 			seenChans[e.ChanID.ToUint64()] = struct{}{}
-			allChans = append(allChans, e.BtcCapacity)
+			allChans = append(allChans, e.Capacity)
 			return nil
 		})
 		if err != nil {
@@ -122,7 +122,7 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []LocalChannel,
 			// graph (we will potentially waste time trying to use
 			// these useless channels in path finding), we decrease
 			// the counter for such channels.
-			if e.BtcCapacity < medianChanSize/minMedianChanSizeFraction {
+			if e.Capacity < medianChanSize/minMedianChanSizeFraction {
 				nodeChans--
 				return nil
 			}

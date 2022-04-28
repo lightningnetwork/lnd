@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -106,7 +105,7 @@ func deserializeDuplicatePaymentCreationInfo(r io.Reader) (
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return nil, err
 	}
-	c.Value = lnwire.MilliSatoshi(byteOrder.Uint64(scratch[:]))
+	c.Value = (byteOrder.Uint64(scratch[:]))
 
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return nil, err

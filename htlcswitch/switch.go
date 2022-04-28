@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -492,8 +491,8 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 			newHtlcKey(packet),
 			HtlcInfo{
 				OutgoingTimeLock: htlc.Expiry,
-				OutgoingAmt:      htlc.BtcAmount,
-				OutgoingAssetAmt:      htlc.AssetAmount,
+				OutgoingAmt:      htlc.Amount,
+				AssetId: htlc.AssetID,
 			},
 			HtlcEventTypeSend,
 			linkErr,
@@ -505,7 +504,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 
 	// Evaluate whether this HTLC would increase our exposure to dust. If
 	// it does, don't send it out and instead return an error.
-	if s.evaluateDustThreshold(link, htlc.BtcAmount,htlc.AssetAmount, false) {
+	if s.evaluateDustThreshold(link, htlc.Amount,htlc.AssetID, false) {
 		// Notify the htlc notifier of a link failure on our outgoing
 		// link. We use the FailTemporaryChannelFailure in place of a
 		// more descriptive error message.
@@ -516,8 +515,8 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 			newHtlcKey(packet),
 			HtlcInfo{
 				OutgoingTimeLock: htlc.Expiry,
-				OutgoingAmt:      htlc.BtcAmount,
-				OutgoingAssetAmt:      htlc.AssetAmount,
+				OutgoingAmt:      htlc.Amount,
+				AssetId:      htlc.AssetID,
 			},
 			HtlcEventTypeSend,
 			linkErr,
@@ -809,7 +808,7 @@ func (s *Switch) getLocalLink(pkt *htlcPacket, htlc *lnwire.UpdateAddHTLC) (
 	// Ensure that the htlc satisfies the outgoing channel policy.
 	currentHeight := atomic.LoadUint32(&s.bestHeight)
 	htlcErr := link.CheckHtlcTransit(
-		htlc.PaymentHash, htlc.BtcAmount, htlc.Expiry, currentHeight,
+		htlc.PaymentHash, htlc.Amount, htlc.Expiry, currentHeight,
 	)
 	if htlcErr != nil {
 		log.Errorf("Link %v policy for local forward not "+
@@ -1083,7 +1082,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				currentHeight := atomic.LoadUint32(&s.bestHeight)
 				failure = link.CheckHtlcForward(
 					htlc.PaymentHash, packet.incomingAmount,
-					packet.btcAmount, packet.incomingTimeout,
+					packet.amount, packet.incomingTimeout,
 					packet.outgoingTimeout, currentHeight,
 				)
 			}
@@ -1154,7 +1153,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// Evaluate whether this HTLC would increase our exposure to
 		// dust on the incoming link. If it does, fail it backwards.
 		if s.evaluateDustThreshold(
-			incomingLink, packet.incomingAmount, packet.assetAmount, true,
+			incomingLink, packet.amount,packet.assetId, true,
 		) {
 			// The incoming dust exceeds the threshold, so we fail
 			// the add back.
@@ -1168,7 +1167,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// Also evaluate whether this HTLC would increase our exposure
 		// to dust on the destination link. If it does, fail it back.
 		if s.evaluateDustThreshold(
-			destination, packet.btcAmount,packet.assetAmount, false,
+			destination, packet.amount,packet.assetId, false,
 		) {
 			// The outgoing dust exceeds the threshold, so we fail
 			// the add back.
@@ -1345,9 +1344,7 @@ func (s *Switch) failAddPacket(packet *htlcPacket, failure *LinkError) error {
 		outgoingChanID:  packet.outgoingChanID,
 		outgoingHTLCID:  packet.outgoingHTLCID,
 		incomingAmount:  packet.incomingAmount,
-		incomingAssetAmount:  packet.incomingAssetAmount,
-		btcAmount:          packet.btcAmount,
-		assetAmount:          packet.assetAmount,
+		amount:          packet.amount,
 		assetId:          packet.assetId,
 		incomingTimeout: packet.incomingTimeout,
 		outgoingTimeout: packet.outgoingTimeout,
@@ -2372,15 +2369,15 @@ func (s *Switch) BestHeight() uint32 {
 // in the sum as it was already included in the commitment's dust. A boolean is
 // returned telling the caller whether the HTLC should be failed back.
 func (s *Switch) evaluateDustThreshold(link ChannelLink,
-	amount lnwire.MilliSatoshi,assetAmount omnicore.Amount, incoming bool) bool {
+	amount uint64,assetId uint32, incoming bool) bool {
 
 	// Retrieve the link's current commitment feerate and dustClosure.
 	feeRate := link.getFeeRate()
 	isDust := link.getDustClosure()
 
 	// Evaluate if the HTLC is dust on either sides' commitment.
-	isLocalDust := isDust(feeRate, incoming, true, amount.ToSatoshis(),assetAmount)
-	isRemoteDust := isDust(feeRate, incoming, false, amount.ToSatoshis(),assetAmount)
+	isLocalDust := isDust(feeRate, incoming, true, amount,assetId)
+	isRemoteDust := isDust(feeRate, incoming, false, amount,assetId)
 
 	if !(isLocalDust || isRemoteDust) {
 		// If the HTLC is not dust on either commitment, it's fine to
@@ -2407,7 +2404,7 @@ func (s *Switch) evaluateDustThreshold(link ChannelLink,
 		}
 
 		// Finally check against the defined dust threshold.
-		if localSum > s.cfg.DustThreshold {
+		if localSum > uint64( s.cfg.DustThreshold) {
 			return true
 		}
 	}
@@ -2425,7 +2422,7 @@ func (s *Switch) evaluateDustThreshold(link ChannelLink,
 		}
 
 		// Finally check against the defined dust threshold.
-		if remoteSum > s.cfg.DustThreshold {
+		if remoteSum > uint64(s.cfg.DustThreshold) {
 			return true
 		}
 	}

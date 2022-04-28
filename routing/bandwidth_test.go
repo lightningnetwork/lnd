@@ -3,7 +3,6 @@ package routing
 import (
 	"testing"
 
-	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -16,7 +15,7 @@ func TestBandwidthManager(t *testing.T) {
 	var (
 		chan1ID      uint64         = 101
 		chan2ID      uint64         = 102
-		chanCapacity btcutil.Amount = 100000
+		chanCapacity uint64 = 100000
 	)
 
 	testCases := []struct {
@@ -113,7 +112,7 @@ func TestBandwidthManager(t *testing.T) {
 				chanCapacity,
 			)
 
-			m, err := newBandwidthManager(
+			m, err := newBandwidthManager(assetId,
 				g, sourceNode.pubkey, testCase.linkQuery,
 			)
 			require.NoError(t, err)

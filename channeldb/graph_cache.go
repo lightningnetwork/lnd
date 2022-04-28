@@ -2,10 +2,7 @@ package channeldb
 
 import (
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"sync"
-
-	"github.com/btcsuite/btcutil"
 
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -55,26 +52,34 @@ type CachedEdgePolicy struct {
 	// the node would like to HTLC exchanges.
 	TimeLockDelta uint16
 
+	/*obd update wxf
+	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+	*/
 	// MinHTLC is the smallest value HTLC this node will forward, expressed
 	// in millisatoshi.
-	MinBtcHTLC lnwire.MilliSatoshi
+	MinHTLC uint64
 
+	/*obd update wxf
+	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+	*/
 	// MaxHTLC is the largest value HTLC this node will forward, expressed
 	// in millisatoshi.
-	MaxBtcHTLC lnwire.MilliSatoshi
-	/*obd add wxf
-	 */
-	MinAssetHTLC omnicore.Amount
-	MaxAssetHTLC omnicore.Amount
+	MaxHTLC uint64
 	AssetId uint32
 
+	/*obd update wxf
+	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+	*/
 	// FeeBaseMSat is the base HTLC fee that will be charged for forwarding
 	// ANY HTLC, expressed in mSAT's.
-	FeeBaseMSat lnwire.MilliSatoshi
+	FeeBaseMSat uint64
 
+	/*obd update wxf
+	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+	*/
 	// FeeProportionalMillionths is the rate that the node will charge for
 	// HTLCs for each millionth of a satoshi forwarded.
-	FeeProportionalMillionths lnwire.MilliSatoshi
+	FeeProportionalMillionths uint64
 
 	// ToNodePubKey is a function that returns the to node of a policy.
 	// Since we only ever store the inbound policy, this is always the node
@@ -94,7 +99,7 @@ type CachedEdgePolicy struct {
 // the passed active payment channel. This value is currently computed as
 // specified in BOLT07, but will likely change in the near future.
 func (c *CachedEdgePolicy) ComputeFee(
-	amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+	amt uint64) uint64{
 
 	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
 }
@@ -102,7 +107,7 @@ func (c *CachedEdgePolicy) ComputeFee(
 // ComputeFeeFromIncoming computes the fee to forward an HTLC given the incoming
 // amount.
 func (c *CachedEdgePolicy) ComputeFeeFromIncoming(
-	incomingAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+	incomingAmt uint64) uint64 {
 
 	return incomingAmt - divideCeil(
 		feeRateParts*(incomingAmt-c.FeeBaseMSat),
@@ -117,10 +122,8 @@ func NewCachedPolicy(policy *ChannelEdgePolicy) *CachedEdgePolicy {
 		MessageFlags:              policy.MessageFlags,
 		ChannelFlags:              policy.ChannelFlags,
 		TimeLockDelta:             policy.TimeLockDelta,
-		MinBtcHTLC:                   policy.MinBtcHTLC,
-		MaxBtcHTLC:                   policy.MaxBtcHTLC,
-		MinAssetHTLC:policy.MinAssetHTLC,
-		MaxAssetHTLC: policy.MaxAssetHTLC,
+		MinHTLC:                   policy.MinHTLC,
+		MaxHTLC:                   policy.MaxHTLC,
 		AssetId :policy.AssetId,
 		FeeBaseMSat:               policy.FeeBaseMSat,
 		FeeProportionalMillionths: policy.FeeProportionalMillionths,
@@ -140,10 +143,11 @@ type DirectedChannel struct {
 	// channel.
 	OtherNode route.Vertex
 
+	/*obd update wxf
+	AssetId >0 the unit is btcutil.Amount, else omnicore.Amount
+	*/
 	// Capacity is the announced capacity of this channel in satoshis.
-	BtcCapacity btcutil.Amount
-	/*obd update wxf*/
-	AssetCapacity omnicore.Amount
+	Capacity uint64
 	AssetId uint32
 
 	// OutPolicySet is a boolean that indicates whether the node has an
@@ -177,25 +181,49 @@ func (c *DirectedChannel) DeepCopy() *DirectedChannel {
 	return &channelCopy
 }
 
+//// GraphCache is a type that holds a minimal set of information of the public
+//// channel graph that can be used for pathfinding.
+//type GraphCache struct {
+//	nodeChannels map[route.Vertex]map[uint64]*DirectedChannel
+//	nodeFeatures map[route.Vertex]*lnwire.FeatureVector
+//
+//	mtx sync.RWMutex
+//}
+
+// NewGraphCache creates a new graphCache.
+//func NewGraphCache(preAllocNumNodes int) *GraphCache {
+//	return &GraphCache{
+//		nodeChannels: make(
+//			map[route.Vertex]map[uint64]*DirectedChannel,
+//			// A channel connects two nodes, so we can look it up
+//			// from both sides, meaning we get double the number of
+//			// entries.
+//			preAllocNumNodes*2,
+//		),
+//		nodeFeatures: make(
+//			map[route.Vertex]*lnwire.FeatureVector,
+//			preAllocNumNodes,
+//		),
+//	}
+//}
+
+
+/*
+obd add  wxf
+*/
 // GraphCache is a type that holds a minimal set of information of the public
 // channel graph that can be used for pathfinding.
 type GraphCache struct {
-	nodeChannels map[route.Vertex]map[uint64]*DirectedChannel
+	//assets map[assetId]map[route.Vertex]map[uint64]*DirectedChannel
+	assetNodeChannels map[uint32]map[route.Vertex]map[uint64]*DirectedChannel
 	nodeFeatures map[route.Vertex]*lnwire.FeatureVector
-
 	mtx sync.RWMutex
 }
 
-// NewGraphCache creates a new graphCache.
+/*obd udpate wxf*/
 func NewGraphCache(preAllocNumNodes int) *GraphCache {
 	return &GraphCache{
-		nodeChannels: make(
-			map[route.Vertex]map[uint64]*DirectedChannel,
-			// A channel connects two nodes, so we can look it up
-			// from both sides, meaning we get double the number of
-			// entries.
-			preAllocNumNodes*2,
-		),
+		assetNodeChannels:make(map[uint32]map[route.Vertex]map[uint64]*DirectedChannel,2*preAllocNumNodes),
 		nodeFeatures: make(
 			map[route.Vertex]*lnwire.FeatureVector,
 			preAllocNumNodes,
@@ -203,18 +231,23 @@ func NewGraphCache(preAllocNumNodes int) *GraphCache {
 	}
 }
 
+
 // Stats returns statistics about the current cache size.
 func (c *GraphCache) Stats() string {
 	c.mtx.RLock()
 	defer c.mtx.RUnlock()
 
 	numChannels := 0
-	for node := range c.nodeChannels {
-		numChannels += len(c.nodeChannels[node])
+	retStr:=fmt.Sprintf("num_node_features=%d, ",len(c.nodeFeatures))
+
+	for asserId,nodeChannels := range c.assetNodeChannels {
+		for node := range nodeChannels {
+			numChannels += len(nodeChannels[node])
+		}
+		retStr+=fmt.Sprintf("assetId=%v,  num_nodes=%d, "+ "num_channels=%d \n",
+			asserId,  len(nodeChannels), numChannels)
 	}
-	return fmt.Sprintf("num_node_features=%d, num_nodes=%d, "+
-		"num_channels=%d", len(c.nodeFeatures), len(c.nodeChannels),
-		numChannels)
+	return retStr
 }
 
 // AddNodeFeatures adds a graph node and its features to the cache.
@@ -270,18 +303,14 @@ func (c *GraphCache) AddChannel(info *ChannelEdgeInfo,
 		ChannelID: info.ChannelID,
 		IsNode1:   true,
 		OtherNode: info.NodeKey2Bytes,
-		/*obd update wxf*/
-		BtcCapacity:  info.BtcCapacity,
-		AssetCapacity:  info.AssetCapacity,
+		Capacity:  info.Capacity,
 		AssetId:  info.AssetId,
 	})
 	c.updateOrAddEdge(info.NodeKey2Bytes, &DirectedChannel{
 		ChannelID: info.ChannelID,
 		IsNode1:   false,
 		OtherNode: info.NodeKey1Bytes,
-		/*obd update wxf*/
-		BtcCapacity:  info.BtcCapacity,
-		AssetCapacity:  info.AssetCapacity,
+		Capacity:  info.Capacity,
 		AssetId:  info.AssetId,
 	})
 	c.mtx.Unlock()
@@ -309,11 +338,25 @@ func (c *GraphCache) AddChannel(info *ChannelEdgeInfo,
 // updateOrAddEdge makes sure the edge information for a node is either updated
 // if it already exists or is added to that node's list of channels.
 func (c *GraphCache) updateOrAddEdge(node route.Vertex, edge *DirectedChannel) {
-	if len(c.nodeChannels[node]) == 0 {
-		c.nodeChannels[node] = make(map[uint64]*DirectedChannel)
-	}
+	//if len(c.nodeChannels[node]) == 0 {
+	//	c.nodeChannels[node] = make(map[uint64]*DirectedChannel)
+	//}
+	//
+	//c.nodeChannels[node][edge.ChannelID] = edge
 
-	c.nodeChannels[node][edge.ChannelID] = edge
+	/*obd update wxf*/
+	assetId:=edge.AssetId
+	asset:=c.assetNodeChannels[assetId]
+	if len(asset) == 0 {
+		asset = make(map[route.Vertex]map[uint64]*DirectedChannel)
+		c.assetNodeChannels[assetId]=asset
+	}
+	nodeItem:=asset[node]
+	if len(nodeItem) == 0 {
+		nodeItem=make(map[uint64]*DirectedChannel)
+		asset[node]=nodeItem
+	}
+	nodeItem[edge.ChannelID] = edge
 }
 
 // UpdatePolicy updates a single policy on both the from and to node. The order
@@ -327,11 +370,26 @@ func (c *GraphCache) UpdatePolicy(policy *ChannelEdgePolicy, fromNode,
 	defer c.mtx.Unlock()
 
 	updatePolicy := func(nodeKey route.Vertex) {
-		if len(c.nodeChannels[nodeKey]) == 0 {
+		//if len(c.nodeChannels[nodeKey]) == 0 {
+		//	return
+		//}
+		//
+		//channel, ok := c.nodeChannels[nodeKey][policy.ChannelID]
+		//if !ok {
+		//	return
+		//}
+
+		/*obd update wxf*/
+		assetId:=policy.AssetId
+		asset:=c.assetNodeChannels[assetId]
+		if len(asset) == 0 {
 			return
 		}
-
-		channel, ok := c.nodeChannels[nodeKey][policy.ChannelID]
+		node:=asset[nodeKey]
+		if len(node) == 0 {
+			return
+		}
+		channel, ok := node[policy.ChannelID]
 		if !ok {
 			return
 		}
@@ -368,13 +426,20 @@ func (c *GraphCache) RemoveNode(node route.Vertex) {
 
 	delete(c.nodeFeatures, node)
 
-	// First remove all channels from the other nodes' lists.
-	for _, channel := range c.nodeChannels[node] {
-		c.removeChannelIfFound(channel.OtherNode, channel.ChannelID)
+	//// First remove all channels from the other nodes' lists.
+	//for _, channel := range c.nodeChannels[node] {
+	//	c.removeChannelIfFound(channel.OtherNode, channel.ChannelID)
+	//}
+	//
+	//// Then remove our whole node completely.
+	//delete(c.nodeChannels, node)
+	/*obd update wxf*/
+	for _,asset:=range c.assetNodeChannels{
+		for _, channel := range asset[node]{
+			c.removeChannelIfFound(channel.OtherNode, channel.ChannelID)
+		}
+		delete(asset, node)
 	}
-
-	// Then remove our whole node completely.
-	delete(c.nodeChannels, node)
 }
 
 // RemoveChannel removes a single channel between two nodes.
@@ -388,12 +453,20 @@ func (c *GraphCache) RemoveChannel(node1, node2 route.Vertex, chanID uint64) {
 }
 
 // removeChannelIfFound removes a single channel from one side.
-func (c *GraphCache) removeChannelIfFound(node route.Vertex, chanID uint64) {
-	if len(c.nodeChannels[node]) == 0 {
-		return
-	}
+func (c *GraphCache) removeChannelIfFound( node route.Vertex, chanID uint64) {
+	//if len(c.nodeChannels[node]) == 0 {
+	//	return
+	//}
+	//
+	//delete(c.nodeChannels[node], chanID)
+	/*obd update wxf*/
+	for _,asset:=range c.assetNodeChannels{
+		if len(asset[node]) == 0 {
+			return
+		}
 
-	delete(c.nodeChannels[node], chanID)
+		delete(asset[node], chanID)
+	}
 }
 
 // UpdateChannel updates the channel edge information for a specific edge. We
@@ -403,38 +476,71 @@ func (c *GraphCache) UpdateChannel(info *ChannelEdgeInfo) {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	if len(c.nodeChannels[info.NodeKey1Bytes]) == 0 ||
-		len(c.nodeChannels[info.NodeKey2Bytes]) == 0 {
+	//if len(c.nodeChannels[info.NodeKey1Bytes]) == 0 ||
+	//	len(c.nodeChannels[info.NodeKey2Bytes]) == 0 {
+	//
+	//	return
+	//}
+	//
+	//channel, ok := c.nodeChannels[info.NodeKey1Bytes][info.ChannelID]
+	//if ok {
+	//	// We only expect to be called when the channel is already
+	//	// known.
+	//	channel.BtcCapacity = info.BtcCapacity
+	//	channel.AssetCapacity = info.AssetCapacity
+	//	channel.AssetId = info.AssetId
+	//	channel.OtherNode = info.NodeKey2Bytes
+	//}
+	//
+	//channel, ok = c.nodeChannels[info.NodeKey2Bytes][info.ChannelID]
+	//if ok {
+	//	channel.BtcCapacity = info.BtcCapacity
+	//	channel.AssetCapacity = info.AssetCapacity
+	//	channel.AssetId = info.AssetId
+	//	channel.OtherNode = info.NodeKey1Bytes
+	//}
+	assetId:=info.AssetId
+	nodeChannels:=c.assetNodeChannels[assetId]
+	if len(nodeChannels[info.NodeKey1Bytes]) == 0 ||
+		len(nodeChannels[info.NodeKey2Bytes]) == 0 {
 
 		return
 	}
 
-	channel, ok := c.nodeChannels[info.NodeKey1Bytes][info.ChannelID]
+	channel, ok := nodeChannels[info.NodeKey1Bytes][info.ChannelID]
 	if ok {
 		// We only expect to be called when the channel is already
 		// known.
-		channel.BtcCapacity = info.BtcCapacity
-		channel.AssetCapacity = info.AssetCapacity
+		channel.Capacity = info.Capacity
 		channel.AssetId = info.AssetId
 		channel.OtherNode = info.NodeKey2Bytes
 	}
 
-	channel, ok = c.nodeChannels[info.NodeKey2Bytes][info.ChannelID]
+	channel, ok = nodeChannels[info.NodeKey2Bytes][info.ChannelID]
 	if ok {
-		channel.BtcCapacity = info.BtcCapacity
-		channel.AssetCapacity = info.AssetCapacity
+		channel.Capacity = info.Capacity
 		channel.AssetId = info.AssetId
 		channel.OtherNode = info.NodeKey1Bytes
 	}
+
 }
 
 // getChannels returns a copy of the passed node's channels or nil if there
 // isn't any.
-func (c *GraphCache) getChannels(node route.Vertex) []*DirectedChannel {
+func (c *GraphCache) getChannels(assetId uint32, node route.Vertex) []*DirectedChannel {
 	c.mtx.RLock()
 	defer c.mtx.RUnlock()
 
-	channels, ok := c.nodeChannels[node]
+	/*obd update wxf*/
+	//channels, ok := c.nodeChannels[node]
+	//if !ok {
+	//	return nil
+	//}
+	nodes, ok := c.assetNodeChannels[assetId]
+	if !ok {
+		return nil
+	}
+	channels, ok :=nodes[node]
 	if !ok {
 		return nil
 	}
@@ -475,7 +581,7 @@ func (c *GraphCache) getChannels(node route.Vertex) []*DirectedChannel {
 }
 
 // ForEachChannel invokes the given callback for each channel of the given node.
-func (c *GraphCache) ForEachChannel(node route.Vertex,
+func (c *GraphCache) ForEachChannel(assetId uint32, node route.Vertex,
 	cb func(channel *DirectedChannel) error) error {
 
 	// Obtain a copy of the node's channels. We need do this in order to
@@ -485,7 +591,7 @@ func (c *GraphCache) ForEachChannel(node route.Vertex,
 	// the real world graph and our representation may always become
 	// slightly out of sync for a short time and the actual channel state
 	// is stored separately.
-	channels := c.getChannels(node)
+	channels := c.getChannels(assetId, node)
 	for _, channel := range channels {
 		if err := cb(channel); err != nil {
 			return err
@@ -502,13 +608,13 @@ func (c *GraphCache) ForEachChannel(node route.Vertex,
 //
 // NOTE: This method should be considered _read only_, the channels or nodes
 // passed in MUST NOT be modified.
-func (c *GraphCache) ForEachNode(cb func(node route.Vertex,
+func (c *GraphCache) ForEachNode(assetId uint32, cb func(node route.Vertex,
 	channels map[uint64]*DirectedChannel) error) error {
 
 	c.mtx.RLock()
 	defer c.mtx.RUnlock()
-
-	for node, channels := range c.nodeChannels {
+	nodeChannels:=c.assetNodeChannels[assetId]
+	for node, channels := range nodeChannels {
 		// We don't make a copy here since this is a read-only RPC
 		// call. We also don't need the node features either for this
 		// call.

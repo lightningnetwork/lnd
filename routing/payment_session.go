@@ -136,7 +136,7 @@ type PaymentSession interface {
 	//
 	// A noRouteError is returned if a non-critical error is encountered
 	// during path finding.
-	RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
+	RequestRoute(maxAmt, feeLimit uint64,
 		activeShards, height uint32) (*route.Route, error)
 
 	// UpdateAdditionalEdge takes an additional channel edge policy
@@ -184,7 +184,8 @@ type paymentSession struct {
 	// the payment if no route is found. If the maximum number of htlcs
 	// specified in the payment is one, under no circumstances splitting
 	// will happen and this value remains unused.
-	minShardAmt lnwire.MilliSatoshi
+	/*obd update wxf*/
+	minShardAmt uint64
 
 	// log is a payment session-specific logger.
 	log btclog.Logger
@@ -212,9 +213,16 @@ func newPaymentSession(p *LightningPayment,
 		getRoutingGraph:   getRoutingGraph,
 		pathFindingConfig: pathFindingConfig,
 		missionControl:    missionControl,
-		minShardAmt:       DefaultShardMinAmt,
+		minShardAmt:       getAmtValue(DefaultShardMinAmt,p.AssetId),
 		log:               build.NewPrefixLog(logPrefix, log),
 	}, nil
+}
+func getAmtValue(msat lnwire.MilliSatoshi,assetId uint32) uint64{
+	if assetId>1{ //asset
+		return uint64(msat /1000)
+	}
+	//btc
+	return uint64(msat)
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully
@@ -226,7 +234,8 @@ func newPaymentSession(p *LightningPayment,
 //
 // NOTE: This function is safe for concurrent access.
 // NOTE: Part of the PaymentSession interface.
-func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
+/*obd udpate wxf*/
+func (p *paymentSession) RequestRoute(maxAmt, feeLimit uint64,
 	activeShards, height uint32) (*route.Route, error) {
 
 	if p.empty {
@@ -304,7 +313,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 			},
 			restrictions, &p.pathFindingConfig,
 			sourceVertex, p.payment.Target,
-			maxAmt, finalHtlcExpiry,
+			p.payment.AssetId,maxAmt, finalHtlcExpiry,
 		)
 
 		// Close routing graph.
@@ -415,8 +424,8 @@ func (p *paymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate,
 
 	// Update channel policy for the additional edge.
 	policy.TimeLockDelta = msg.TimeLockDelta
-	policy.FeeBaseMSat = lnwire.MilliSatoshi(msg.BaseFee)
-	policy.FeeProportionalMillionths = lnwire.MilliSatoshi(msg.FeeRate)
+	policy.FeeBaseMSat = uint64(msg.BaseFee)
+	policy.FeeProportionalMillionths = uint64(msg.FeeRate)
 
 	log.Debugf("New private channel update applied: %v",
 		newLogClosure(func() string { return spew.Sdump(msg) }))

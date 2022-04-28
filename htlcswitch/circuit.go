@@ -2,12 +2,10 @@ package htlcswitch
 
 import (
 	"encoding/binary"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
-	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // EmptyCircuitKey is a default value for an outgoing circuit key returned when
@@ -45,15 +43,13 @@ type PaymentCircuit struct {
 	PaymentHash [32]byte
 
 	// IncomingAmount is the value of the HTLC from the incoming link.
-	IncomingAmount lnwire.MilliSatoshi
+	IncomingAmount uint64
 
 	// OutgoingAmount specifies the value of the HTLC leaving the switch,
 	// either as a payment or forwarded amount.
-	OutgoingAmount lnwire.MilliSatoshi
+	OutgoingAmount uint64
 
 	/*obd add wxf*/
-	IncomingAssetAmount omnicore.Amount
-	OutgoingAssetAmount omnicore.Amount
 	AssetId uint32
 
 	// ErrorEncrypter is used to re-encrypt the onion failure before
@@ -90,9 +86,7 @@ func newPaymentCircuit(hash *[32]byte, pkt *htlcPacket) *PaymentCircuit {
 		},
 		PaymentHash:    *hash,
 		IncomingAmount: pkt.incomingAmount,
-		IncomingAssetAmount: pkt.incomingAssetAmount,
-		OutgoingAmount: pkt.btcAmount,
-		OutgoingAssetAmount: pkt.assetAmount,
+		OutgoingAmount: pkt.amount,
 		AssetId: pkt.assetId,
 		ErrorEncrypter: pkt.obfuscator,
 	}
@@ -114,9 +108,7 @@ func makePaymentCircuit(hash *[32]byte, pkt *htlcPacket) PaymentCircuit {
 		},
 		PaymentHash:    *hash,
 		IncomingAmount: pkt.incomingAmount,
-		OutgoingAmount: pkt.btcAmount,
-		IncomingAssetAmount: pkt.incomingAssetAmount,
-		OutgoingAssetAmount: pkt.assetAmount,
+		OutgoingAmount: pkt.amount,
 		AssetId: pkt.assetId,
 		ErrorEncrypter: pkt.obfuscator,
 	}
@@ -145,6 +137,12 @@ func (c *PaymentCircuit) Encode(w io.Writer) error {
 
 	binary.BigEndian.PutUint64(scratch[:], uint64(c.OutgoingAmount))
 	if _, err := w.Write(scratch[:]); err != nil {
+		return err
+	}
+
+	var bs [4]byte
+	binary.BigEndian.PutUint32(bs[:], (c.AssetId))
+	if _, err := w.Write(bs[:]); err != nil {
 		return err
 	}
 
@@ -186,14 +184,21 @@ func (c *PaymentCircuit) Decode(r io.Reader) error {
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return err
 	}
-	c.IncomingAmount = lnwire.MilliSatoshi(
+	c.IncomingAmount = (
 		binary.BigEndian.Uint64(scratch[:]))
 
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return err
 	}
-	c.OutgoingAmount = lnwire.MilliSatoshi(
+	c.OutgoingAmount = (
 		binary.BigEndian.Uint64(scratch[:]))
+
+	var bs [4]byte
+	if _, err := io.ReadFull(r, bs[:]); err != nil {
+		return err
+	}
+	c.AssetId = (
+		binary.BigEndian.Uint32(bs[:]))
 
 	// Read the encrypter type used for this circuit.
 	var encrypterType hop.EncrypterType

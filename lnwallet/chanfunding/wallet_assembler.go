@@ -2,6 +2,8 @@ package chanfunding
 
 import (
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore/op"
 	"math"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -65,7 +67,7 @@ func (f *FullIntent) BindKeys(localKey *keychain.KeyDescriptor,
 // returns, the Intent is assumed to be complete, as the output can be created
 // at any point.
 func (f *FullIntent) CompileFundingTx(extraInputs []*wire.TxIn,
-	extraOutputs []*wire.TxOut) (*wire.MsgTx, error) {
+	extraOutputs []*wire.TxOut,assetId uint32 ,capAsset omnicore.Amount) (*wire.MsgTx, error) {
 
 	// Create a blank, fresh transaction. Soon to be a complete funding
 	// transaction which will allow opening a lightning channel.
@@ -77,6 +79,10 @@ func (f *FullIntent) CompileFundingTx(extraInputs []*wire.TxIn,
 			PreviousOutPoint: coin.OutPoint,
 		})
 	}
+	/*obd update wxf
+	todo check asset ballance
+	*/
+
 	for _, theirInput := range extraInputs {
 		fundingTx.AddTxIn(theirInput)
 	}
@@ -98,12 +104,22 @@ func (f *FullIntent) CompileFundingTx(extraInputs []*wire.TxIn,
 	fundingTx.AddTxOut(fundingOutput)
 	txsort.InPlaceSort(fundingTx)
 
+	/*obd update wxf
+	add omni_payload to FundingTx
+	*/
+	pksAmt:=op.NewPksAmounts(assetId)
+	pksAmt.Add(fundingOutput.PkScript,capAsset)
+	if err:=op.AddOpReturnToTx(fundingTx,pksAmt);err!=nil{
+		return nil,err
+	}
+
 	// Now that the funding tx has been fully assembled, we'll locate the
 	// index of the funding output so we can create our final channel
 	// point.
 	_, multiSigIndex := input.FindScriptOutputIndex(
 		fundingTx, fundingOutput.PkScript,
 	)
+
 
 	// Next, sign all inputs that are ours, collecting the signatures in
 	// order of the inputs.

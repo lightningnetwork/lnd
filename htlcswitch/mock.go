@@ -728,7 +728,7 @@ func (f *mockChannelLink) handleLocalAddPacket(pkt *htlcPacket) error {
 	return nil
 }
 
-func (f *mockChannelLink) getDustSum(remote bool) lnwire.MilliSatoshi {
+func (f *mockChannelLink) getDustSum(remote bool) uint64 {
 	return 0
 }
 
@@ -737,7 +737,7 @@ func (f *mockChannelLink) getFeeRate() chainfee.SatPerKWeight {
 }
 
 func (f *mockChannelLink) getDustClosure() dustClosure {
-	dustLimit := btcutil.Amount(400)
+	dustLimit := uint64(btcutil.Amount(400))
 	return dustHelper(
 		channeldb.SingleFunderTweaklessBit, dustLimit, dustLimit,
 	)
@@ -748,14 +748,14 @@ func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 
 func (f *mockChannelLink) UpdateForwardingPolicy(_ ForwardingPolicy) {
 }
-func (f *mockChannelLink) CheckHtlcForward([32]byte, lnwire.MilliSatoshi,
-	lnwire.MilliSatoshi, uint32, uint32, uint32) *LinkError {
+func (f *mockChannelLink) CheckHtlcForward([32]byte, uint64,
+	uint64, uint32, uint32, uint32) *LinkError {
 
 	return f.checkHtlcForwardResult
 }
 
 func (f *mockChannelLink) CheckHtlcTransit(payHash [32]byte,
-	amt lnwire.MilliSatoshi, timeout uint32,
+	amt uint64, timeout uint32,
 	heightNow uint32) *LinkError {
 
 	return f.checkHtlcTransitResult
@@ -779,12 +779,12 @@ func (f *mockChannelLink) Start() error {
 
 func (f *mockChannelLink) ChanID() lnwire.ChannelID                     { return f.chanID }
 func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID           { return f.shortChanID }
-func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi               { return 99999999 }
+func (f *mockChannelLink) Bandwidth() uint64              { return 99999999 }
 func (f *mockChannelLink) Peer() lnpeer.Peer                            { return f.peer }
 func (f *mockChannelLink) ChannelPoint() *wire.OutPoint                 { return &wire.OutPoint{} }
 func (f *mockChannelLink) Stop()                                        {}
 func (f *mockChannelLink) EligibleToForward() bool                      { return f.eligible }
-func (f *mockChannelLink) MayAddOutgoingHtlc(lnwire.MilliSatoshi) error { return nil }
+func (f *mockChannelLink) MayAddOutgoingHtlc( uint64) error { return nil }
 func (f *mockChannelLink) ShutdownIfChannelClean() error                { return nil }
 func (f *mockChannelLink) setLiveShortChanID(sid lnwire.ShortChannelID) { f.shortChanID = sid }
 func (f *mockChannelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
@@ -876,13 +876,13 @@ func (i *mockInvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error
 }
 
 func (i *mockInvoiceRegistry) NotifyExitHopHtlc(rhash lntypes.Hash,
-	amt lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
+	amt uint64, expiry uint32, currentHeight int32,
 	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
 	payload invoices.Payload) (invoices.HtlcResolution, error) {
 
 	event, err := i.registry.NotifyExitHopHtlc(
 		rhash, amt, expiry, currentHeight, circuitKey, hodlChan,
-		payload,
+		payload,31,
 	)
 	if err != nil {
 		return nil, err

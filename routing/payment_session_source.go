@@ -66,7 +66,7 @@ func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 	PaymentSession, error) {
 
 	getBandwidthHints := func(graph routingGraph) (bandwidthHints, error) {
-		return newBandwidthManager(
+		return newBandwidthManager(p.AssetId,
 			graph, m.SourceNode.PubKeyBytes, m.GetLink,
 		)
 	}
@@ -132,10 +132,10 @@ func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
 				},
 				ToNodeFeatures: lnwire.EmptyFeatureVector(),
 				ChannelID:      hopHint.ChannelID,
-				FeeBaseMSat: lnwire.MilliSatoshi(
+				FeeBaseMSat: uint64(
 					hopHint.FeeBaseMSat,
 				),
-				FeeProportionalMillionths: lnwire.MilliSatoshi(
+				FeeProportionalMillionths: uint64(
 					hopHint.FeeProportionalMillionths,
 				),
 				TimeLockDelta: hopHint.CLTVExpiryDelta,

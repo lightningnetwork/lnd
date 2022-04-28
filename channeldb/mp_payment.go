@@ -191,8 +191,9 @@ func (m *MPPayment) TerminalInfo() (*HTLCSettleInfo, *FailureReason) {
 
 // SentAmt returns the sum of sent amount and fees for HTLCs that are either
 // settled or still in flight.
-func (m *MPPayment) SentAmt() (lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
-	var sent, fees lnwire.MilliSatoshi
+//func (m *MPPayment) SentAmt() (lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
+func (m *MPPayment) SentAmt() (uint64, uint64) {
+	var sent, fees uint64
 	for _, h := range m.HTLCs {
 		if h.Failure != nil {
 			continue

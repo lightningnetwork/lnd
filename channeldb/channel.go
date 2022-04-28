@@ -593,7 +593,22 @@ func (c ChannelStatus) String() string {
 
 	return statusStr
 }
-
+func (ch *OpenChannel) GetMsgCapForHtlc() uint64{
+	if ch.AssetID==1{
+		return uint64(ch.BtcCapacity)*1000
+	}else if ch.AssetID>1 {
+		return uint64(ch.AssetCapacity)
+	}
+	return 0
+}
+func (ch *OpenChannel) GetMsgCap() uint64{
+	if ch.AssetID==1{
+		return uint64(ch.BtcCapacity)
+	}else  if ch.AssetID>1{
+		return uint64(ch.AssetCapacity)
+	}
+	return 0
+}
 // OpenChannel encapsulates the persistent and dynamic state of an open channel
 // with a remote node. An open channel supports several options for on-disk
 // serialization depending on the exact context. Full (upon channel creation)
@@ -662,6 +677,8 @@ type OpenChannel struct {
 	BtcCapacity btcutil.Amount
 	AssetCapacity omnicore.Amount
 	AssetID uint32
+	TotalAssetSent omnicore.Amount
+	TotalAssetReceived omnicore.Amount
 
 	// TotalMSatSent is the total number of milli-satoshis we've sent
 	// within this channel.
@@ -670,11 +687,6 @@ type OpenChannel struct {
 	// TotalMSatReceived is the total number of milli-satoshis we've
 	// received within this channel.
 	TotalMSatReceived lnwire.MilliSatoshi
-	/*
-	  obd add wxf
-	*/
-	TotalAssetSent omnicore.Amount
-	TotalAssetReceived omnicore.Amount
 
 	// LocalChanCfg is the channel configuration for the local node.
 	LocalChanCfg ChannelConfig
@@ -1739,7 +1751,13 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 
 	return activeHtlcs
 }
-
+func(h *HTLC) GetAmt(assetId uint32) uint64{
+	if assetId>1{
+		return uint64(h.AssetAmt)
+	}else{
+		return uint64(h.BtcAmt)
+	}
+}
 // HTLC is the on-disk representation of a hash time-locked contract. HTLCs are
 // contained within ChannelDeltas which encode the current state of the
 // commitment between state updates.
@@ -1758,11 +1776,14 @@ type HTLC struct {
 	RHash [32]byte
 
 	// Amt is the amount of milli-satoshis this HTLC escrows.
-	BtcAmt lnwire.MilliSatoshi
+	//Amt uint64
 	/*
 	obd update wxf
 	*/
+	AssetId uint32
+	BtcAmt lnwire.MilliSatoshi
 	AssetAmt omnicore.Amount
+
 
 	// RefundTimeout is the absolute timeout on the HTLC that the sender
 	// must wait before reclaiming the funds in limbo.
@@ -1805,7 +1826,7 @@ func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 
 	for _, htlc := range htlcs {
 		if err := WriteElements(b,
-			htlc.Signature, htlc.RHash, htlc.BtcAmt,htlc.AssetAmt, htlc.RefundTimeout,
+			htlc.Signature, htlc.RHash, htlc.BtcAmt, htlc.AssetAmt,htlc.AssetId, htlc.RefundTimeout,
 			htlc.OutputIndex, htlc.Incoming, htlc.OnionBlob[:],
 			htlc.HtlcIndex, htlc.LogIndex,
 		); err != nil {
@@ -1836,8 +1857,8 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	htlcs = make([]HTLC, numHtlcs)
 	for i := uint16(0); i < numHtlcs; i++ {
 		if err := ReadElements(r,
-			&htlcs[i].Signature, &htlcs[i].RHash, &htlcs[i].BtcAmt,
-			&htlcs[i].AssetAmt,
+			&htlcs[i].Signature, &htlcs[i].RHash, &htlcs[i].BtcAmt, &htlcs[i].AssetAmt,
+			&htlcs[i].AssetId,
 			&htlcs[i].RefundTimeout, &htlcs[i].OutputIndex,
 			&htlcs[i].Incoming, &htlcs[i].OnionBlob,
 			&htlcs[i].HtlcIndex, &htlcs[i].LogIndex,
@@ -1855,6 +1876,7 @@ func (h *HTLC) Copy() HTLC {
 		Incoming:      h.Incoming,
 		BtcAmt:           h.BtcAmt,
 		AssetAmt:           h.AssetAmt,
+		AssetId:           h.AssetId,
 		RefundTimeout: h.RefundTimeout,
 		OutputIndex:   h.OutputIndex,
 	}

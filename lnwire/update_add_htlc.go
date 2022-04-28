@@ -2,7 +2,6 @@ package lnwire
 
 import (
 	"bytes"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 )
 
@@ -31,11 +30,10 @@ type UpdateAddHTLC struct {
 	ID uint64
 
 	// Amount is the amount of millisatoshis this HTLC is worth.
-	BtcAmount MilliSatoshi
+	Amount uint64
 	/*
 	obd add wxf
 	*/
-	AssetAmount omnicore.Amount
 	AssetID uint32
 
 	// PaymentHash is the payment hash to be included in the HTLC this
@@ -85,8 +83,7 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 		&c.ID,
 		/*obd update wxf*/
 		&c.AssetID,
-		&c.AssetAmount,
-		&c.BtcAmount,
+		&c.Amount,
 		c.PaymentHash[:],
 		&c.Expiry,
 		c.OnionBlob[:],
@@ -109,10 +106,7 @@ func (c *UpdateAddHTLC) Encode(w *bytes.Buffer, pver uint32) error {
 	if err := WriteUint32(w, c.AssetID); err != nil {
 		return err
 	}
-	if err := WriteAssetMinUnit(w, c.AssetAmount); err != nil {
-		return err
-	}
-	if err := WriteMilliSatoshi(w, c.BtcAmount); err != nil {
+	if err := WriteUint64(w, c.Amount); err != nil {
 		return err
 	}
 

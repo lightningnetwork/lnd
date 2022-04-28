@@ -558,7 +558,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBtcBalance,
 	for _, htlc := range filteredHTLCView.ourUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, isOurs, feePerKw,
-			htlc.BtcAmount.ToSatoshis(), dustLimit, htlc.AssetAmount,
+			htlc.GetHtlcAmt(), uint64(dustLimit), htlc.AssetID,
 		) {
 			continue
 		}
@@ -568,7 +568,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBtcBalance,
 	for _, htlc := range filteredHTLCView.theirUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, isOurs, feePerKw,
-			htlc.BtcAmount.ToSatoshis(), dustLimit, htlc.AssetAmount,
+			htlc.GetHtlcAmt(), uint64(dustLimit), htlc.AssetID,
 		) {
 			continue
 		}
@@ -588,22 +588,51 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBtcBalance,
 	commitFee := feePerKw.FeeForWeight(totalCommitWeight)
 	commitFeeMSat := lnwire.NewMSatFromSatoshis(commitFee)
 
-	// Currently, within the protocol, the initiator always pays the fees.
-	// So we'll subtract the fee amount from the balance of the current
-	// initiator. If the initiator is unable to pay the fee fully, then
-	// their entire output is consumed.
-	switch {
-	case cb.chanState.IsInitiator && commitFee > ourBtcBalance.ToSatoshis():
-		ourBtcBalance = 0
+	/*obd wxf update assetBalanceUpdate*/
+	if cb.chanState.AssetID>1{
+		if cb.chanState.IsInitiator{
+			theirBtcBalance=0
+			if theirAssetBalance>0{
+				theirBtcBalance=lnwire.NewMSatFromSatoshis(omnicore.OmniGas)
+			}
+			ourBtcBalance=lnwire.NewMSatFromSatoshis(cb.chanState.BtcCapacity)
+			ourBtcBalance-=theirBtcBalance
+			ourBtcBalance-=commitFeeMSat
+			ourBtcBalance-=lnwire.NewMSatFromSatoshis(omnicore.OmniGas*3* btcutil.Amount(numHTLCs))
+			if ourBtcBalance<0{
+				ourBtcBalance=0
+			}
+		}else{
+			ourBtcBalance=0
+			if ourAssetBalance>0{
+				ourBtcBalance=lnwire.NewMSatFromSatoshis(omnicore.OmniGas)
+			}
+			theirBtcBalance=lnwire.NewMSatFromSatoshis(cb.chanState.BtcCapacity)
+			theirBtcBalance-=ourBtcBalance
+			theirBtcBalance-=commitFeeMSat
+			theirBtcBalance-=lnwire.NewMSatFromSatoshis(omnicore.OmniGas*3* btcutil.Amount(numHTLCs))
+			if theirBtcBalance<0{
+				theirBtcBalance=0
+			}
+		}
+	}else {
+		// Currently, within the protocol, the initiator always pays the fees.
+		// So we'll subtract the fee amount from the balance of the current
+		// initiator. If the initiator is unable to pay the fee fully, then
+		// their entire output is consumed.
+		switch {
+		case cb.chanState.IsInitiator && commitFee > ourBtcBalance.ToSatoshis():
+			ourBtcBalance = 0
 
-	case cb.chanState.IsInitiator:
-		ourBtcBalance -= commitFeeMSat
+		case cb.chanState.IsInitiator:
+			ourBtcBalance -= commitFeeMSat
 
-	case !cb.chanState.IsInitiator && commitFee > theirBtcBalance.ToSatoshis():
-		theirBtcBalance = 0
+		case !cb.chanState.IsInitiator && commitFee > theirBtcBalance.ToSatoshis():
+			theirBtcBalance = 0
 
-	case !cb.chanState.IsInitiator:
-		theirBtcBalance -= commitFeeMSat
+		case !cb.chanState.IsInitiator:
+			theirBtcBalance -= commitFeeMSat
+		}
 	}
 
 	var (
@@ -659,7 +688,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBtcBalance,
 	for _, htlc := range filteredHTLCView.ourUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, isOurs, feePerKw,
-			htlc.BtcAmount.ToSatoshis(), dustLimit, htlc.AssetAmount,
+			htlc.GetHtlcAmt(), uint64(dustLimit), htlc.AssetID,
 		) {
 			continue
 		}
@@ -676,7 +705,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBtcBalance,
 	for _, htlc := range filteredHTLCView.theirUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, isOurs, feePerKw,
-			htlc.BtcAmount.ToSatoshis(), dustLimit, htlc.AssetAmount,
+			htlc.GetHtlcAmt(), uint64(dustLimit), htlc.AssetID,
 		) {
 			continue
 		}
@@ -790,7 +819,8 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	obd add wxf
 	*/
 	if !localOutput && assetAmountToLocal>0{
-		return nil,fmt.Errorf("CreateCommitTx err: localOutput less than DustLimit, it will ignore asset")
+		return nil,fmt.Errorf("CreateCommitTx err: localOutput less than DustLimit, it will ignore asset:btcAmt %v dust: %v assetAmt %v ",
+			btcAmountToLocal,localChanCfg.DustLimit,assetAmountToLocal)
 	}
 	if localOutput {
 		commitTx.AddTxOut(&wire.TxOut{

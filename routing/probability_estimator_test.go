@@ -53,7 +53,7 @@ func newEstimatorTestContext(t *testing.T) *estimatorTestContext {
 // assertPairProbability asserts that the calculated success probability is
 // correct.
 func (c *estimatorTestContext) assertPairProbability(now time.Time,
-	toNode byte, amt lnwire.MilliSatoshi, expectedProb float64) {
+	toNode byte, amt uint64, expectedProb float64) {
 
 	c.t.Helper()
 
@@ -87,7 +87,7 @@ func TestProbabilityEstimatorOneSuccess(t *testing.T) {
 
 	ctx.results = map[int]TimedPairResult{
 		node1: {
-			SuccessAmt: lnwire.MilliSatoshi(1000),
+			SuccessAmt: uint64( lnwire.MilliSatoshi(1000)),
 		},
 	}
 
@@ -111,7 +111,7 @@ func TestProbabilityEstimatorOneFailure(t *testing.T) {
 	ctx.results = map[int]TimedPairResult{
 		node1: {
 			FailTime: testTime.Add(-time.Hour),
-			FailAmt:  lnwire.MilliSatoshi(50),
+			FailAmt:  uint64( lnwire.MilliSatoshi(50)),
 		},
 	}
 
@@ -133,15 +133,15 @@ func TestProbabilityEstimatorMix(t *testing.T) {
 
 	ctx.results = map[int]TimedPairResult{
 		node1: {
-			SuccessAmt: lnwire.MilliSatoshi(1000),
+			SuccessAmt: uint64( lnwire.MilliSatoshi(1000)),
 		},
 		node2: {
 			FailTime: testTime.Add(-2 * time.Hour),
-			FailAmt:  lnwire.MilliSatoshi(50),
+			FailAmt:  uint64( lnwire.MilliSatoshi(50)),
 		},
 		node3: {
 			FailTime: testTime.Add(-3 * time.Hour),
-			FailAmt:  lnwire.MilliSatoshi(50),
+			FailAmt: uint64( lnwire.MilliSatoshi(50)),
 		},
 	}
 

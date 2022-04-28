@@ -766,7 +766,7 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	case <-time.After(time.Second * 5):
 		t.Fatalf("alice did not publish funding tx")
 	}
-
+	t.Log(1234)
 	// Make sure the notification about the pending channel was sent out.
 	select {
 	case <-alice.mockChanEvent.pendingOpenEvent:
@@ -778,12 +778,12 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	case <-time.After(time.Second * 5):
 		t.Fatalf("bob did not send pending channel event")
 	}
-
+	t.Log(12345)
 	// Finally, make sure neither have active reservation for the channel
 	// now pending open in the database.
 	assertNumPendingReservations(t, alice, bobPubKey, 0)
 	assertNumPendingReservations(t, bob, alicePubKey, 0)
-
+	t.Log(123456)
 	return publ
 }
 
@@ -1049,10 +1049,10 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 					minHtlc = customMinHtlc[j]
 				}
 
-				if m.HtlcBtcMinimumMsat != minHtlc {
+				if m.HtlcMinimumMsat != uint64(minHtlc) {
 					t.Fatalf("expected ChannelUpdate to "+
 						"advertise min HTLC %v, had %v",
-						minHtlc, m.HtlcBtcMinimumMsat)
+						minHtlc, uint64(m.HtlcMinimumMsat))
 				}
 
 				maxHtlc := alice.fundingMgr.cfg.RequiredRemoteMaxValue(
@@ -1073,11 +1073,11 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 						"be 1, was %v", m.MessageFlags)
 				}
 
-				if maxHtlc != m.HtlcBtcMaximumMsat {
+				if uint64(maxHtlc) != m.HtlcMaximumMsat {
 					t.Fatalf("expected ChannelUpdate to "+
 						"advertise max HTLC %v, had %v",
 						maxHtlc,
-						m.HtlcBtcMaximumMsat)
+						m.HtlcMaximumMsat)
 				}
 
 				gotChannelUpdate = true
@@ -1214,6 +1214,7 @@ func assertHandleFundingLocked(t *testing.T, alice, bob *testNode) {
 func TestFundingManagerNormalWorkflow(t *testing.T) {
 	t.Parallel()
 
+	//lnwallet.EnableTestLog()
 	alice, bob := setupFundingManagers(t)
 	defer tearDownFundingManagers(t, alice, bob)
 

@@ -2,7 +2,6 @@ package htlcswitch
 
 import (
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"strings"
 	"sync"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/subscribe"
 )
 
@@ -142,14 +140,12 @@ type HtlcInfo struct {
 	OutgoingTimeLock uint32
 
 	// IncomingAmt is the amount of the htlc on our incoming channel.
-	IncomingAmt lnwire.MilliSatoshi
+	IncomingAmt uint64
 
 	// OutgoingAmt is the amount of the htlc on our outgoing channel.
-	OutgoingAmt lnwire.MilliSatoshi
+	OutgoingAmt uint64
 
 	/*obd add wxf*/
-	IncomingAssetAmt omnicore.Amount
-	OutgoingAssetAmt omnicore.Amount
 	AssetId uint32
 
 
@@ -425,9 +421,7 @@ func newHtlcInfo(pkt *htlcPacket) HtlcInfo {
 		IncomingTimeLock: pkt.incomingTimeout,
 		OutgoingTimeLock: pkt.outgoingTimeout,
 		IncomingAmt:      pkt.incomingAmount,
-		OutgoingAmt:      pkt.btcAmount,
-		IncomingAssetAmt:      pkt.incomingAssetAmount,
-		OutgoingAssetAmt:      pkt.assetAmount,
+		OutgoingAmt:      pkt.amount,
 		AssetId:      pkt.assetId,
 	}
 }

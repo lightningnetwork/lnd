@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -212,12 +211,12 @@ func createTestCtxSingleNode(t *testing.T,
 }
 
 func createTestCtxFromFile(t *testing.T,
-	startingHeight uint32, testGraph string) (*testCtx, func()) {
+	assetId uint32,startingHeight uint32, testGraph string) (*testCtx, func()) {
 
 	// We'll attempt to locate and parse out the file
 	// that encodes the graph that our tests should be run against.
-	graphInstance, err := parseTestGraph(true, testGraph)
-	require.NoError(t, err, "unable to create test graph")
+	graphInstance, err := parseTestGraph(assetId, true, testGraph)
+	require.NoError(t, err, "unable to create test graph:"+testGraph)
 
 	return createTestCtxFromGraphInstance(
 		t, startingHeight, graphInstance, false,
@@ -245,10 +244,10 @@ func signErrChanUpdate(t *testing.T, key *btcec.PrivateKey,
 // limit.
 func TestFindRoutesWithFeeLimit(t *testing.T) {
 	t.Parallel()
-
+	assetId:=uint32(1)
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
+		t, assetId, startingBlockHeight, basicGraphFilePath,
 	)
 	defer cleanUp()
 
@@ -260,16 +259,24 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	// The second route violates our fee limit, so we should only expect to
 	// see the first route.
 	target := ctx.aliases["sophon"]
-	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
+
+
+	paymentAmt := uint64( 100)
+	feeLimit:=uint64( 10)
+	if assetId>0{
+		paymentAmt=1000*paymentAmt
+		feeLimit=1000*feeLimit
+	}
 	restrictions := &RestrictParams{
-		FeeLimit:          lnwire.NewMSatFromSatoshis(10),
+		FeeLimit:          feeLimit,
 		ProbabilitySource: noProbabilitySource,
 		CltvLimit:         math.MaxUint32,
 	}
 
 	route, err := ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		target, paymentAmt, restrictions, nil, nil,
+		target, assetId, paymentAmt, restrictions, nil, nil,
 		MinCLTVDelta,
 	)
 	require.NoError(t, err, "unable to find any routes")
@@ -298,17 +305,18 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
+		t, assetId, startingBlockHeight, basicGraphFilePath,
 	)
 	defer cleanUp()
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
 	var payHash lntypes.Hash
-	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
+	paymentAmt := getPayValue(lnwire.NewMSatFromSatoshis(1000))
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
 		Amount:      paymentAmt,
+		AssetId: 	 assetId,
 		FeeLimit:    noFeeLimit,
 		paymentHash: &payHash,
 	}
@@ -368,26 +376,32 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 // valid signature.
 func TestChannelUpdateValidation(t *testing.T) {
 	t.Parallel()
-
+	assetId:=1
 	// Setup a three node network.
-	chanCapSat := btcutil.Amount(100000)
-	feeRate := lnwire.MilliSatoshi(400)
+	chanCapSat := uint64(100000)
+	feeRate := uint64(400)
+
+	maxHtlc:=chanCapSat
+	if assetId==1{
+		maxHtlc=maxHtlc*1000
+	}
 	testChannels := []*testChannel{
 		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: feeRate,
 			MinHTLC: 1,
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+			MaxHTLC: maxHtlc,
 		}, 1),
 		symmetricTestChannel("b", "c", chanCapSat, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: feeRate,
 			MinHTLC: 1,
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+			MaxHTLC: maxHtlc,
 		}, 2),
 	}
 
-	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
+
+	testGraph, err := createTestGraphFromChannels(1,true, testChannels, "a")
 	require.NoError(t, err, "unable to create graph")
 	defer testGraph.cleanUp()
 
@@ -424,8 +438,12 @@ func TestChannelUpdateValidation(t *testing.T) {
 		},
 	}
 
+	ramt:=uint64(10)
+	if assetId==1{
+		ramt=10*1000
+	}
 	rt, err := route.NewRouteFromHops(
-		lnwire.MilliSatoshi(10000), 100,
+		ramt, 100,
 		ctx.aliases["a"], hops,
 	)
 	require.NoError(t, err, "unable to create route")
@@ -501,7 +519,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
+		t, assetId, startingBlockHeight, basicGraphFilePath,
 	)
 	defer cleanUp()
 
@@ -516,10 +534,11 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to sophon for 1000 satoshis.
 	var payHash lntypes.Hash
-	amt := lnwire.NewMSatFromSatoshis(1000)
+	amt := getPayValue(lnwire.NewMSatFromSatoshis(1000))
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
 		Amount:      amt,
+		AssetId: 	 assetId,
 		FeeLimit:    noFeeLimit,
 		paymentHash: &payHash,
 	}
@@ -611,7 +630,7 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
+		t, assetId, startingBlockHeight, basicGraphFilePath,
 	)
 	defer cleanUp()
 
@@ -623,13 +642,15 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	var (
 		payHash          lntypes.Hash
 		preImage         [32]byte
-		amt              = lnwire.NewMSatFromSatoshis(1000)
+		amt              = uint64(1)
 		privateChannelID = uint64(55555)
 		feeBaseMSat      = uint32(15)
 		expiryDelta      = uint16(32)
 		sgNode           = ctx.aliases["songoku"]
 	)
-
+	if assetId==1{
+		amt*=1000
+	}
 	sgNodeID, err := btcec.ParsePubKey(sgNode[:], btcec.S256())
 	require.NoError(t, err)
 
@@ -641,6 +662,7 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	payment := LightningPayment{
 		Target:      ctx.aliases["elst"],
 		Amount:      amt,
+		AssetId: 	 assetId,
 		FeeLimit:    noFeeLimit,
 		paymentHash: &payHash,
 		RouteHints: [][]zpay32.HopHint{{
@@ -722,8 +744,8 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 
 	// The route should have the updated fee.
 	require.Equal(t,
-		lnwire.MilliSatoshi(updatedFeeBaseMSat).String(),
-		route.HopFee(0).String(),
+		updatedFeeBaseMSat,
+		route.HopFee(0),
 		"fee to forward to the private channel not matched",
 	)
 }
@@ -744,7 +766,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
+		t, assetId, startingBlockHeight, basicGraphFilePath,
 	)
 	defer cleanUp()
 
@@ -756,14 +778,17 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 	var (
 		payHash          lntypes.Hash
 		preImage         [32]byte
-		amt              = lnwire.NewMSatFromSatoshis(1000)
+		//amt              = lnwire.NewMSatFromSatoshis(1000)
+		amt              = uint64(1)
 		privateChannelID = uint64(55555)
 		feeBaseMSat      = uint32(15)
 		expiryDelta      = uint16(32)
 		sgNode           = ctx.aliases["songoku"]
-		feeLimit         = lnwire.MilliSatoshi(500000)
+		feeLimit         = uint64(500000)
 	)
-
+	if assetId==1{
+		amt*=1000
+	}
 	sgNodeID, err := btcec.ParsePubKey(sgNode[:], btcec.S256())
 	require.NoError(t, err)
 
@@ -773,6 +798,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 	payment := LightningPayment{
 		Target:      ctx.aliases["elst"],
 		Amount:      amt,
+		AssetId: 	 assetId,
 		FeeLimit:    feeLimit,
 		paymentHash: &payHash,
 		RouteHints: [][]zpay32.HopHint{{
@@ -866,17 +892,18 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
+		t, assetId, startingBlockHeight, basicGraphFilePath,
 	)
 	defer cleanUp()
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to sophon for 1k satoshis.
 	var payHash lntypes.Hash
-	amt := lnwire.NewMSatFromSatoshis(1000)
+	amt := getPayValue(lnwire.NewMSatFromSatoshis(1000))
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
 		Amount:      amt,
+		AssetId: 	 assetId,
 		FeeLimit:    noFeeLimit,
 		paymentHash: &payHash,
 	}
@@ -990,17 +1017,22 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
+		t, assetId, startingBlockHeight, basicGraphFilePath,
 	)
 	defer cleanUp()
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
 	var payHash lntypes.Hash
-	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
+	//paymentAmt := lnwire.NewMSatFromSatoshis(1000)
+	paymentAmt := uint64(1)
+	if assetId==1{
+		paymentAmt=1000
+	}
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
 		Amount:      paymentAmt,
+		AssetId: 	 assetId,
 		FeeLimit:    noFeeLimit,
 		paymentHash: &payHash,
 	}
@@ -1214,7 +1246,7 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
+		t, assetId, startingBlockHeight, basicGraphFilePath,
 	)
 	defer cleanUp()
 
@@ -1246,7 +1278,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 	// Setup an initially empty network.
 	testChannels := []*testChannel{}
 	testGraph, err := createTestGraphFromChannels(
-		true, testChannels, "roasbeef",
+		assetId, true, testChannels, "roasbeef",
 	)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
@@ -1324,7 +1356,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
+		t, assetId, startingBlockHeight, basicGraphFilePath,
 	)
 	defer cleanUp()
 
@@ -1520,13 +1552,13 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 
 	// We should now be able to find a route to node 2.
-	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	paymentAmt := getPayValue(lnwire.NewMSatFromSatoshis(100))
 	targetNode := priv2.PubKey()
 	var targetPubKeyBytes route.Vertex
 	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
 	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions, nil, nil,
+		targetPubKeyBytes, assetId, paymentAmt, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
 	if err != nil {
@@ -1569,7 +1601,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// updated.
 	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions, nil, nil,
+		targetPubKeyBytes, assetId, paymentAmt, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
 	if err != nil {
@@ -2256,12 +2288,12 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 			LastUpdate: staleTimestamp,
 		}, 7),
 	}
-
+	assetId:=uint32(1)
 	for _, strictPruning := range []bool{true, false} {
 		// We'll create our test graph and router backed with these test
 		// channels we've created.
 		testGraph, err := createTestGraphFromChannels(
-			true, testChannels, "a",
+			assetId,true, testChannels, "a",
 		)
 		if err != nil {
 			t.Fatalf("unable to create test graph: %v", err)
@@ -2393,7 +2425,7 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 	// We'll create our test graph and router backed with these test
 	// channels we've created.
 	testGraph, err := createTestGraphFromChannels(
-		true, testChannels, "self",
+		assetId, true, testChannels, "self",
 	)
 	if err != nil {
 		t.Fatalf("unable to create test graph: %v", err)
@@ -2443,7 +2475,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
+		t, assetId,  startingBlockHeight, basicGraphFilePath,
 	)
 	defer cleanUp()
 
@@ -2455,7 +2487,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
-	amt := lnwire.MilliSatoshi(100)
+	amt := getPayValue(lnwire.MilliSatoshi(100))
 
 	target := ctx.aliases["luoji"]
 
@@ -2617,7 +2649,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
+		t,assetId, startingBlockHeight, basicGraphFilePath,
 	)
 	defer cleanUp()
 
@@ -2732,39 +2764,45 @@ func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
 func TestUnknownErrorSource(t *testing.T) {
 	t.Parallel()
 
+	assetId:=uint32(1)
+
 	// Setup a network. It contains two paths to c: a->b->c and an
 	// alternative a->d->c.
-	chanCapSat := btcutil.Amount(100000)
+	chanCapSat := uint64(100000)
+	mHtlc:=chanCapSat
+	if assetId==1{
+		mHtlc=mHtlc*1000
+	}
 	testChannels := []*testChannel{
 		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 400,
 			MinHTLC: 1,
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+			MaxHTLC: mHtlc,
 		}, 1),
 		symmetricTestChannel("b", "c", chanCapSat, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 400,
 			MinHTLC: 1,
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+			MaxHTLC: mHtlc,
 		}, 3),
 		symmetricTestChannel("a", "d", chanCapSat, &testChannelPolicy{
 			Expiry:      144,
 			FeeRate:     400,
 			FeeBaseMsat: 100000,
 			MinHTLC:     1,
-			MaxHTLC:     lnwire.NewMSatFromSatoshis(chanCapSat),
+			MaxHTLC:     mHtlc,
 		}, 2),
 		symmetricTestChannel("d", "c", chanCapSat, &testChannelPolicy{
 			Expiry:      144,
 			FeeRate:     400,
 			FeeBaseMsat: 100000,
 			MinHTLC:     1,
-			MaxHTLC:     lnwire.NewMSatFromSatoshis(chanCapSat),
+			MaxHTLC:     mHtlc,
 		}, 4),
 	}
 
-	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(assetId, true, testChannels, "a")
 	defer testGraph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
@@ -2776,11 +2814,16 @@ func TestUnknownErrorSource(t *testing.T) {
 	)
 	defer cleanUp()
 
+	pAmt:=uint64( 1000)
+	if assetId==1{
+		pAmt=pAmt*1000
+	}
 	// Create a payment to node c.
 	var payHash lntypes.Hash
 	payment := LightningPayment{
 		Target:      ctx.aliases["c"],
-		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		Amount:      pAmt,
+		AssetId: 	 assetId,
 		FeeLimit:    noFeeLimit,
 		paymentHash: &payHash,
 	}
@@ -2877,30 +2920,41 @@ func assertChannelsPruned(t *testing.T, graph *channeldb.ChannelGraph,
 		}
 	}
 }
-
+var assetId =uint32(1)
+func getPayValue(msat lnwire.MilliSatoshi) uint64{
+	if assetId>1{ //asset
+		return uint64(msat /1000)
+	}
+	//btc
+	return uint64(msat)
+}
 // TestSendToRouteStructuredError asserts that SendToRoute returns a structured
 // error.
 func TestSendToRouteStructuredError(t *testing.T) {
 	t.Parallel()
 
 	// Setup a three node network.
-	chanCapSat := btcutil.Amount(100000)
+	chanCapSat := uint64(100000)
+	mHtlc:=chanCapSat
+	if assetId==1{
+		mHtlc=mHtlc*1000
+	}
 	testChannels := []*testChannel{
 		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 400,
 			MinHTLC: 1,
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+			MaxHTLC: mHtlc,
 		}, 1),
 		symmetricTestChannel("b", "c", chanCapSat, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 400,
 			MinHTLC: 1,
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+			MaxHTLC: mHtlc,
 		}, 2),
 	}
 
-	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(assetId,true, testChannels, "a")
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -2920,7 +2974,10 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	// Setup a route from source a to destination c. The route will be used
 	// in a call to SendToRoute. SendToRoute also applies channel updates,
 	// but it saves us from including RequestRoute in the test scope too.
-	const payAmt = lnwire.MilliSatoshi(10000)
+	var payAmt = uint64(10000)
+	if assetId==1{
+		payAmt=payAmt*1000
+	}
 	hop1 := ctx.aliases["b"]
 	hop2 := ctx.aliases["c"]
 	hops := []*route.Hop{
@@ -3013,7 +3070,7 @@ func TestSendToRouteMultiShardSend(t *testing.T) {
 	defer cleanup()
 
 	const numShards = 3
-	const payAmt = lnwire.MilliSatoshi(numShards * 10000)
+	var payAmt = getPayValue(lnwire.MilliSatoshi(numShards * 10000))
 	node, err := createTestNode()
 	if err != nil {
 		t.Fatal(err)
@@ -3025,7 +3082,7 @@ func TestSendToRouteMultiShardSend(t *testing.T) {
 			ChannelID:    1,
 			PubKeyBytes:  node.PubKeyBytes,
 			AmtToForward: payAmt / numShards,
-			MPP:          record.NewMPP(payAmt, [32]byte{}),
+			MPP:          record.NewMPP(payAmt, [32]byte{},assetId),
 		},
 	}
 
@@ -3139,17 +3196,21 @@ func TestSendToRouteMaxHops(t *testing.T) {
 	t.Parallel()
 
 	// Setup a two node network.
-	chanCapSat := btcutil.Amount(100000)
+	chanCapSat := uint64(100000)
+	mHtlc:=chanCapSat
+	if assetId==1 {
+		mHtlc=mHtlc*1000
+	}
 	testChannels := []*testChannel{
 		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 400,
 			MinHTLC: 1,
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+			MaxHTLC: mHtlc,
 		}, 1),
 	}
 
-	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(assetId, true, testChannels, "a")
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -3163,7 +3224,10 @@ func TestSendToRouteMaxHops(t *testing.T) {
 	defer cleanUp()
 
 	// Create a 30 hop route that exceeds the maximum hop limit.
-	const payAmt = lnwire.MilliSatoshi(10000)
+	var payAmt = uint64(10000)
+	if assetId==1{
+		payAmt=payAmt*1000
+	}
 	hopA := ctx.aliases["a"]
 	hopB := ctx.aliases["b"]
 
@@ -3201,7 +3265,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 // TestBuildRoute tests whether correct routes are built.
 func TestBuildRoute(t *testing.T) {
 	// Setup a three node network.
-	chanCapSat := btcutil.Amount(100000)
+	chanCapSat := uint64(100000)
 	paymentAddrFeatures := lnwire.NewFeatureVector(
 		lnwire.NewRawFeatureVector(lnwire.PaymentAddrOptional),
 		lnwire.Features,
@@ -3214,14 +3278,14 @@ func TestBuildRoute(t *testing.T) {
 		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 20000,
-			MinHTLC: lnwire.NewMSatFromSatoshis(5),
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+			MinHTLC: 5,
+			MaxHTLC: chanCapSat,
 		}, 1),
 		symmetricTestChannel("a", "b", chanCapSat/2, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 20000,
-			MinHTLC: lnwire.NewMSatFromSatoshis(5),
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat / 2),
+			MinHTLC: 5,
+			MaxHTLC: chanCapSat/2,
 		}, 6),
 
 		// Create two channels from b to c. For building routes, we
@@ -3232,35 +3296,41 @@ func TestBuildRoute(t *testing.T) {
 		symmetricTestChannel("b", "c", chanCapSat, &testChannelPolicy{
 			Expiry:   144,
 			FeeRate:  50000,
-			MinHTLC:  lnwire.NewMSatFromSatoshis(20),
-			MaxHTLC:  lnwire.NewMSatFromSatoshis(120),
+			MinHTLC:  20,
+			MaxHTLC:  120,
 			Features: paymentAddrFeatures,
 		}, 2),
 		symmetricTestChannel("b", "c", chanCapSat, &testChannelPolicy{
 			Expiry:   144,
 			FeeRate:  60000,
-			MinHTLC:  lnwire.NewMSatFromSatoshis(20),
-			MaxHTLC:  lnwire.NewMSatFromSatoshis(120),
+			MinHTLC:  20,
+			MaxHTLC:  120,
 			Features: paymentAddrFeatures,
 		}, 7),
 
 		symmetricTestChannel("a", "e", chanCapSat, &testChannelPolicy{
 			Expiry:   144,
 			FeeRate:  80000,
-			MinHTLC:  lnwire.NewMSatFromSatoshis(5),
-			MaxHTLC:  lnwire.NewMSatFromSatoshis(10),
+			MinHTLC:  5,
+			MaxHTLC:  10,
 			Features: paymentAddrFeatures,
 		}, 5),
 		symmetricTestChannel("e", "c", chanCapSat, &testChannelPolicy{
 			Expiry:   144,
 			FeeRate:  100000,
-			MinHTLC:  lnwire.NewMSatFromSatoshis(20),
-			MaxHTLC:  lnwire.NewMSatFromSatoshis(chanCapSat),
+			MinHTLC:  20,
+			MaxHTLC:  chanCapSat,
 			Features: paymentAddrFeatures,
 		}, 4),
 	}
+	if assetId==1{
+		for _, channel := range testChannels {
+			channel.Node1.MaxHTLC*=1000
+			channel.Node1.MinHTLC*=1000
+		}
+	}
 
-	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(assetId, true, testChannels, "a")
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -3302,10 +3372,10 @@ func TestBuildRoute(t *testing.T) {
 	hops := []route.Vertex{
 		ctx.aliases["b"], ctx.aliases["c"],
 	}
-	amt := lnwire.NewMSatFromSatoshis(100)
+	amt := getPayValue(lnwire.NewMSatFromSatoshis(100))
 
 	// Build the route for the given amount.
-	rt, err := ctx.router.BuildRoute(
+	rt, err := ctx.router.BuildRoute(assetId,
 		&amt, hops, nil, 40, &payAddr,
 	)
 	if err != nil {
@@ -3321,7 +3391,7 @@ func TestBuildRoute(t *testing.T) {
 	}
 
 	// Build the route for the minimum amount.
-	rt, err = ctx.router.BuildRoute(
+	rt, err = ctx.router.BuildRoute(assetId,
 		nil, hops, nil, 40, &payAddr,
 	)
 	if err != nil {
@@ -3342,7 +3412,7 @@ func TestBuildRoute(t *testing.T) {
 	hops = []route.Vertex{
 		ctx.aliases["e"], ctx.aliases["c"],
 	}
-	_, err = ctx.router.BuildRoute(
+	_, err = ctx.router.BuildRoute(assetId,
 		nil, hops, nil, 40, nil,
 	)
 	errNoChannel, ok := err.(ErrNoChannel)
@@ -3484,29 +3554,33 @@ func TestChannelOnChainRejectionZombie(t *testing.T) {
 func createDummyTestGraph(t *testing.T) *testGraphInstance {
 	// Setup two simple channels such that we can mock sending along this
 	// route.
-	chanCapSat := btcutil.Amount(100000)
+	chanCapSat := uint64(100000)
+	maxHtlc:=chanCapSat
+	if assetId==1{
+		maxHtlc*=1000
+	}
 	testChannels := []*testChannel{
 		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 400,
 			MinHTLC: 1,
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+			MaxHTLC: maxHtlc,
 		}, 1),
 		symmetricTestChannel("b", "c", chanCapSat, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 400,
 			MinHTLC: 1,
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+			MaxHTLC: maxHtlc,
 		}, 2),
 	}
 
-	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(assetId, true, testChannels, "a")
 	require.NoError(t, err, "failed to create graph")
 	return testGraph
 }
 
 func createDummyLightningPayment(t *testing.T,
-	target route.Vertex, amt lnwire.MilliSatoshi) *LightningPayment {
+	target route.Vertex, amt uint64) *LightningPayment {
 
 	var preImage lntypes.Preimage
 	_, err := rand.Read(preImage[:])
@@ -3517,6 +3591,7 @@ func createDummyLightningPayment(t *testing.T,
 	return &LightningPayment{
 		Target:      target,
 		Amount:      amt,
+		AssetId: assetId,
 		FeeLimit:    noFeeLimit,
 		paymentHash: &payHash,
 	}
@@ -3580,7 +3655,7 @@ func TestSendMPPaymentSucceed(t *testing.T) {
 
 	// Mock the methods to the point where we are inside the function
 	// resumePayment.
-	paymentAmt := lnwire.MilliSatoshi(10000)
+	paymentAmt := getPayValue(lnwire.MilliSatoshi(10000))
 	req := createDummyLightningPayment(
 		t, testGraph.aliasMap["c"], paymentAmt,
 	)
@@ -3742,7 +3817,7 @@ func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
 
 	// Mock the methods to the point where we are inside the function
 	// resumePayment.
-	paymentAmt := lnwire.MilliSatoshi(20000)
+	paymentAmt := getPayValue(lnwire.MilliSatoshi(20000))
 	req := createDummyLightningPayment(
 		t, testGraph.aliasMap["c"], paymentAmt,
 	)
@@ -3950,7 +4025,7 @@ func TestSendMPPaymentFailed(t *testing.T) {
 
 	// Mock the methods to the point where we are inside the function
 	// resumePayment.
-	paymentAmt := lnwire.MilliSatoshi(10000)
+	paymentAmt := getPayValue(lnwire.MilliSatoshi(10000))
 	req := createDummyLightningPayment(
 		t, testGraph.aliasMap["c"], paymentAmt,
 	)
@@ -4152,7 +4227,11 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 
 	// Mock the methods to the point where we are inside the function
 	// resumePayment.
-	paymentAmt := lnwire.MilliSatoshi(10000)
+	//paymentAmt := lnwire.MilliSatoshi(10000)
+	paymentAmt := uint64(10)
+	if assetId==1{
+		paymentAmt*=1000
+	}
 	req := createDummyLightningPayment(
 		t, testGraph.aliasMap["c"], paymentAmt,
 	)

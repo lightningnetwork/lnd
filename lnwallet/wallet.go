@@ -1438,6 +1438,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		fundingTx, err := fundingIntent.CompileFundingTx(
 			theirContribution.Inputs,
 			theirContribution.ChangeOutputs,
+			pendingReservation.partialState.AssetID,
+			pendingReservation.partialState.AssetCapacity,
 		)
 		if err != nil {
 			req.err <- fmt.Errorf("unable to construct funding "+
@@ -1567,6 +1569,19 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	// With the funding tx complete, create both commitment transactions.
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBtcBalance.ToSatoshis()
 	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBtcBalance.ToSatoshis()
+
+	/*obd update wxf*/
+	if (chanState.AssetID>1){
+		//asset mode: all the btcBalance belong to Initiator
+		if chanState.IsInitiator{
+			remoteBalance=omnicore.OmniGas
+			localBalance=chanState.BtcCapacity-remoteBalance
+		}else{
+			localBalance=omnicore.OmniGas
+			remoteBalance=chanState.BtcCapacity-localBalance
+		}
+	}
+
 	/*
 	obd add wxf
 	*/
@@ -1954,6 +1969,19 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// remote node's commitment transactions.
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBtcBalance.ToSatoshis()
 	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBtcBalance.ToSatoshis()
+
+	/*obd update wxf*/
+	if (chanState.AssetID>1){
+		//asset mode: all the btcBalance belong to Initiator
+		if chanState.IsInitiator{
+			remoteBalance=omnicore.OmniGas
+			localBalance=chanState.BtcCapacity-remoteBalance
+		}else{
+			localBalance=omnicore.OmniGas
+			remoteBalance=chanState.BtcCapacity-localBalance
+		}
+	}
+
 	localAssetBalance := pendingReservation.partialState.LocalCommitment.LocalAssetBalance
 	remoteAssetBalance := pendingReservation.partialState.LocalCommitment.RemoteAssetBalance
 	var leaseExpiry uint32

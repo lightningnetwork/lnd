@@ -74,7 +74,7 @@ type probabilityEstimator struct {
 // that have not been tried before. The results parameter is a list of last
 // payment results for that node.
 func (p *probabilityEstimator) getNodeProbability(now time.Time,
-	results NodeResults, amt lnwire.MilliSatoshi) float64 {
+	results NodeResults, amt uint64) float64 {
 
 	// If the channel history is not to be taken into account, we can return
 	// early here with the configured a priori probability.
@@ -152,7 +152,7 @@ func (p *probabilityEstimator) getWeight(age time.Duration) float64 {
 // are passed in via the results parameter.
 func (p *probabilityEstimator) getPairProbability(
 	now time.Time, results NodeResults,
-	toNode route.Vertex, amt lnwire.MilliSatoshi) float64 {
+	toNode route.Vertex, amt uint64) float64 {
 
 	nodeProbability := p.getNodeProbability(now, results, amt)
 
@@ -173,7 +173,7 @@ func (p *probabilityEstimator) getLocalPairProbability(
 	nodeProbability := p.prevSuccessProbability
 
 	return p.calculateProbability(
-		now, results, nodeProbability, toNode, lnwire.MaxMilliSatoshi,
+		now, results, nodeProbability, toNode, uint64(lnwire.MaxMilliSatoshi),
 	)
 }
 
@@ -182,7 +182,7 @@ func (p *probabilityEstimator) getLocalPairProbability(
 func (p *probabilityEstimator) calculateProbability(
 	now time.Time, results NodeResults,
 	nodeProbability float64, toNode route.Vertex,
-	amt lnwire.MilliSatoshi) float64 {
+	amt uint64) float64 {
 
 	// Retrieve the last pair outcome.
 	lastPairResult, ok := results[toNode]

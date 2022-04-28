@@ -1,7 +1,6 @@
 package autopilot
 
 import (
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -65,8 +64,7 @@ type ChannelEdge struct {
 	ChanID lnwire.ShortChannelID
 
 	// Capacity is the capacity of the channel expressed in satoshis.
-	BtcCapacity btcutil.Amount
-	AssetCapacity omnicore.Amount
+	Capacity uint64
 	AsserId uint32
 
 	// Peer is the peer that this channel creates an edge to in the channel

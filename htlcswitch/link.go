@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	prand "math/rand"
 	"sync"
 	"sync/atomic"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/build"
@@ -72,10 +70,10 @@ const (
 // latest policy.
 type ForwardingPolicy struct {
 	// MinHTLC is the smallest HTLC that is to be forwarded.
-	MinHTLCOut lnwire.MilliSatoshi
+	MinHTLCOut uint64
 
 	// MaxHTLC is the largest HTLC that is to be forwarded.
-	MaxHTLC lnwire.MilliSatoshi
+	MaxHTLC uint64
 
 	// BaseFee is the base fee, expressed in milli-satoshi that must be
 	// paid for each incoming HTLC. This field, combined with FeeRate is
@@ -109,9 +107,9 @@ type ForwardingPolicy struct {
 // TODO(roasbeef): also add in current available channel bandwidth, inverse
 // func
 func ExpectedFee(f ForwardingPolicy,
-	htlcAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+	htlcAmt uint64) uint64 {
 
-	return f.BaseFee + (htlcAmt*f.FeeRate)/1000000
+	return uint64(f.BaseFee) + (uint64(htlcAmt)*uint64(f.FeeRate))/1000000
 }
 
 // ChannelLinkConfig defines the configuration for the channel link. ALL
@@ -1291,7 +1289,7 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 
 		// Get the lnwire failure message based on the resolution
 		// result.
-		failure := getResolutionFailure(res, htlc.pd.BtcAmount)
+		failure := getResolutionFailure(res, htlc.pd.GetHtlcAmt())
 
 		l.sendHTLCError(
 			htlc.pd, failure, htlc.obfuscator, true,
@@ -1309,7 +1307,7 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 // getResolutionFailure returns the wire message that a htlc resolution should
 // be failed with.
 func getResolutionFailure(resolution *invoices.HtlcFailResolution,
-	amount lnwire.MilliSatoshi) *LinkError {
+	amount uint64) *LinkError {
 
 	// If the resolution has been resolved as part of a MPP timeout,
 	// we need to fail the htlc with lnwire.FailMppTimeout.
@@ -1409,7 +1407,8 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 			IncomingTimeLock: pkt.incomingTimeout,
 			IncomingAmt:      pkt.incomingAmount,
 			OutgoingTimeLock: htlc.Expiry,
-			OutgoingAmt:      htlc.BtcAmount,
+			OutgoingAmt:      htlc.Amount,
+			AssetId: htlc.AssetID,
 		},
 		getEventType(pkt),
 	)
@@ -2197,7 +2196,7 @@ func (l *channelLink) ChanID() lnwire.ChannelID {
 // can accept an HTLC.
 //
 // NOTE: Part of the ChannelLink interface.
-func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
+func (l *channelLink) Bandwidth() uint64 {
 	// Get the balance available on the channel for new HTLCs. This takes
 	// the channel reserve into account so HTLCs up to this value won't
 	// violate it.
@@ -2208,7 +2207,7 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 // amount provided to the link. This check does not reserve a space, since
 // forwards or other payments may use the available slot, so it should be
 // considered best-effort.
-func (l *channelLink) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
+func (l *channelLink) MayAddOutgoingHtlc(amt uint64) error {
 	return l.channel.MayAddOutgoingHtlc(amt)
 }
 
@@ -2216,8 +2215,8 @@ func (l *channelLink) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 // method.
 //
 // NOTE: Part of the dustHandler interface.
-func (l *channelLink) getDustSum(remote bool) lnwire.MilliSatoshi {
-	return l.channel.GetDustSum(remote)
+func (l *channelLink) getDustSum(remote bool) uint64 {
+	return uint64( l.channel.GetDustSum(remote))
 }
 
 // getFeeRate is a wrapper method that retrieves the underlying channel's
@@ -2233,8 +2232,8 @@ func (l *channelLink) getFeeRate() chainfee.SatPerKWeight {
 //
 // NOTE: Part of the dustHandler interface.
 func (l *channelLink) getDustClosure() dustClosure {
-	localDustLimit := l.channel.State().LocalChanCfg.DustLimit
-	remoteDustLimit := l.channel.State().RemoteChanCfg.DustLimit
+	localDustLimit :=uint64( l.channel.State().LocalChanCfg.DustLimit)
+	remoteDustLimit := uint64(l.channel.State().RemoteChanCfg.DustLimit)
 	chanType := l.channel.State().ChanType
 
 	return dustHelper(chanType, localDustLimit, remoteDustLimit)
@@ -2245,25 +2244,25 @@ func (l *channelLink) getDustClosure() dustClosure {
 // the HTLC is incoming (i.e. one that the remote sent), a boolean denoting
 // whether to evaluate on the local or remote commit, and finally an HTLC
 // amount to test.
-type dustClosure func(chainfee.SatPerKWeight, bool, bool, btcutil.Amount,omnicore.Amount) bool
+type dustClosure func(chainfee.SatPerKWeight, bool, bool, uint64,uint32) bool
 
 // dustHelper is used to construct the dustClosure.
 func dustHelper(chantype channeldb.ChannelType, localDustLimit,
-	remoteDustLimit btcutil.Amount) dustClosure {
+	remoteDustLimit uint64) dustClosure {
 
 	isDust := func(feerate chainfee.SatPerKWeight, incoming,
-		localCommit bool, amt btcutil.Amount, assetAmount omnicore.Amount) bool {
+		localCommit bool, amt uint64, assetId uint32) bool {
 
 		if localCommit {
 			return lnwallet.HtlcIsDust(
 				chantype, incoming, true, feerate, amt,
-				localDustLimit,assetAmount,
+				localDustLimit,assetId,
 			)
 		}
 
 		return lnwallet.HtlcIsDust(
 			chantype, incoming, false, feerate, amt,
-			remoteDustLimit,assetAmount,
+			remoteDustLimit,assetId,
 		)
 	}
 
@@ -2311,7 +2310,7 @@ func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) CheckHtlcForward(payHash [32]byte,
-	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi,
+	incomingHtlcAmt, amtToForward uint64,
 	incomingTimeout, outgoingTimeout uint32,
 	heightNow uint32) *LinkError {
 
@@ -2386,7 +2385,7 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 // the violation. This call is intended to be used for locally initiated
 // payments for which there is no corresponding incoming htlc.
 func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
-	amt lnwire.MilliSatoshi, timeout uint32,
+	amt uint64, timeout uint32,
 	heightNow uint32) *LinkError {
 
 	l.RLock()
@@ -2401,7 +2400,7 @@ func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
 // canSendHtlc checks whether the given htlc parameters satisfy
 // the channel's amount and time lock constraints.
 func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
-	payHash [32]byte, amt lnwire.MilliSatoshi, timeout uint32,
+	payHash [32]byte, amt uint64, timeout uint32,
 	heightNow uint32) *LinkError {
 
 	// As our first sanity check, we'll ensure that the passed HTLC isn't
@@ -2682,7 +2681,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 				},
 			}
 
-			l.log.Debugf("Failed to send %s", pd.BtcAmount)
+			l.log.Debugf("Failed to send %s assetId", pd.GetMsgAmt() ,pd.AssetID)
 
 			// If the failure message lacks an HMAC (but includes
 			// the 4 bytes for encoding the message and padding
@@ -2890,7 +2889,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				// can collect it and continue.
 				addMsg := &lnwire.UpdateAddHTLC{
 					Expiry:      fwdInfo.OutgoingCTLV,
-					BtcAmount:      fwdInfo.AmountToForward,
+					Amount:      fwdInfo.AmountToForward,
+					AssetID: pd.AssetID,
 					PaymentHash: pd.RHash,
 				}
 
@@ -2909,10 +2909,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					incomingHTLCID:  pd.HtlcIndex,
 					outgoingChanID:  fwdInfo.NextHop,
 					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.BtcAmount,
-					incomingAssetAmount:  pd.AssetAmount,
-					btcAmount:          addMsg.BtcAmount,
-					assetAmount:          addMsg.AssetAmount,
+					incomingAmount:  pd.GetMsgAmt(),
+					amount:          addMsg.Amount,
 					assetId:          addMsg.AssetID,
 					htlc:            addMsg,
 					obfuscator:      obfuscator,
@@ -2935,7 +2933,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// specified in the forwarding info.
 			addMsg := &lnwire.UpdateAddHTLC{
 				Expiry:      fwdInfo.OutgoingCTLV,
-				BtcAmount:      fwdInfo.AmountToForward,
+				Amount:      fwdInfo.AmountToForward,
+				AssetID:      l.channel.State().AssetID,
 				PaymentHash: pd.RHash,
 			}
 
@@ -2976,9 +2975,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					incomingHTLCID:  pd.HtlcIndex,
 					outgoingChanID:  fwdInfo.NextHop,
 					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.BtcAmount,
-					btcAmount:          addMsg.BtcAmount,
-					assetAmount:          addMsg.AssetAmount,
+					incomingAmount:  pd.GetMsgAmt(),
+					amount:          addMsg.Amount,
 					assetId:          addMsg.AssetID,
 					htlc:            addMsg,
 					obfuscator:      obfuscator,
@@ -3037,14 +3035,14 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// As we're the exit hop, we'll double check the hop-payload included in
 	// the HTLC to ensure that it was crafted correctly by the sender and
 	// matches the HTLC we were extended.
-	if pd.BtcAmount != fwdInfo.AmountToForward {
+	if pd.GetMsgAmt() != fwdInfo.AmountToForward {
 
 		l.log.Errorf("onion payload of incoming htlc(%x) has incorrect "+
 			"value: expected %v, got %v", pd.RHash,
-			pd.BtcAmount, fwdInfo.AmountToForward)
+			pd.GetMsgAmt(), fwdInfo.AmountToForward)
 
 		failure := NewLinkError(
-			lnwire.NewFinalIncorrectHtlcAmount(pd.BtcAmount),
+			lnwire.NewFinalIncorrectHtlcAmount(pd.GetMsgAmt()),
 		)
 		l.sendHTLCError(pd, failure, obfuscator, true)
 
@@ -3077,7 +3075,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	}
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
-		invoiceHash, pd.BtcAmount, pd.Timeout, int32(heightNow),
+		invoiceHash, pd.GetMsgAmt(), pd.Timeout, int32(heightNow),
 		circuitKey, l.hodlQueue.ChanIn(), payload,
 	)
 	if err != nil {
@@ -3211,8 +3209,8 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		},
 		HtlcInfo{
 			IncomingTimeLock: pd.Timeout,
-			IncomingAmt:      pd.BtcAmount,
-			IncomingAssetAmt:      pd.AssetAmount,
+			IncomingAmt:      pd.GetMsgAmt(),
+			AssetId: pd.AssetID,
 		},
 		eventType,
 		failure,

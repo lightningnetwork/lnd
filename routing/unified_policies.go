@@ -1,9 +1,7 @@
 package routing
 
 import (
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -40,8 +38,9 @@ func newUnifiedPolicies(sourceNode, toNode route.Vertex,
 
 // addPolicy adds a single channel policy. Capacity may be zero if unknown
 // (light clients).
+/*obd update wxf*/
 func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
-	edge *channeldb.CachedEdgePolicy, capacity btcutil.Amount,Assetcapacity omnicore.Amount) {
+	edge *channeldb.CachedEdgePolicy, capacity uint64) {
 
 	localChan := fromNode == u.sourceNode
 
@@ -64,13 +63,12 @@ func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
 	policy.edges = append(policy.edges, &unifiedPolicyEdge{
 		policy:   edge,
 		capacity: capacity,
-		assetCapacity: Assetcapacity,
 	})
 }
 
 // addGraphPolicies adds all policies that are known for the toNode in the
 // graph.
-func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
+func (u *unifiedPolicies) addGraphPolicies(assetId uint32,g routingGraph) error {
 	cb := func(channel *channeldb.DirectedChannel) error {
 		// If there is no edge policy for this candidate node, skip.
 		// Note that we are searching backwards so this node would have
@@ -81,44 +79,48 @@ func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
 
 		// Add this policy to the unified policies map.
 		u.addPolicy(
-			channel.OtherNode, channel.InPolicy, channel.BtcCapacity,channel.AssetCapacity,
+			channel.OtherNode, channel.InPolicy, channel.Capacity,
 		)
 
 		return nil
 	}
 
 	// Iterate over all channels of the to node.
-	return g.forEachNodeChannel(u.toNode, cb)
+	return g.forEachNodeChannel(assetId,u.toNode, cb)
 }
 
 // unifiedPolicyEdge is the individual channel data that is kept inside an
 // unifiedPolicy object.
 type unifiedPolicyEdge struct {
 	policy   *channeldb.CachedEdgePolicy
-	capacity btcutil.Amount
-	assetCapacity omnicore.Amount
+	//capacity btcutil.Amount
+	/*obd update wxf*/
+	capacity uint64
 }
 
 // amtInRange checks whether an amount falls within the valid range for a
 // channel.
-func (u *unifiedPolicyEdge) amtInRange(amt lnwire.MilliSatoshi) bool {
+//func (u *unifiedPolicyEdge) amtInRange(amt lnwire.MilliSatoshi) bool {
+/*obd update wxf*/
+func (u *unifiedPolicyEdge) amtInRange(amt uint64) bool {
 	// If the capacity is available (non-light clients), skip channels that
 	// are too small.
 	if u.capacity > 0 &&
-		amt > lnwire.NewMSatFromSatoshis(u.capacity) {
+		//amt > lnwire.NewMSatFromSatoshis(u.capacity) {
+		amt > u.capacity*1000 {
 
 		return false
 	}
 
 	// Skip channels for which this htlc is too large.
 	if u.policy.MessageFlags.HasMaxHtlc() &&
-		amt > u.policy.MaxBtcHTLC {
+		amt > u.policy.MaxHTLC {
 
 		return false
 	}
 
 	// Skip channels for which this htlc is too small.
-	if amt < u.policy.MinBtcHTLC {
+	if amt < u.policy.MinHTLC {
 		return false
 	}
 
@@ -135,7 +137,10 @@ type unifiedPolicy struct {
 // getPolicy returns the optimal policy to use for this connection given a
 // specific amount to send. It differentiates between local and network
 // channels.
-func (u *unifiedPolicy) getPolicy(amt lnwire.MilliSatoshi,
+//func (u *unifiedPolicy) getPolicy(amt lnwire.MilliSatoshi,
+//	bandwidthHints bandwidthHints) *channeldb.CachedEdgePolicy {
+/*obd update wxf*/
+func (u *unifiedPolicy) getPolicy(amt uint64,
 	bandwidthHints bandwidthHints) *channeldb.CachedEdgePolicy {
 
 	if u.localChan {
@@ -147,12 +152,16 @@ func (u *unifiedPolicy) getPolicy(amt lnwire.MilliSatoshi,
 
 // getPolicyLocal returns the optimal policy to use for this local connection
 // given a specific amount to send.
-func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
+/*obd update wxf*/
+//func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
+//	bandwidthHints bandwidthHints) *channeldb.CachedEdgePolicy {
+func (u *unifiedPolicy) getPolicyLocal(amt uint64,
 	bandwidthHints bandwidthHints) *channeldb.CachedEdgePolicy {
 
 	var (
 		bestPolicy   *channeldb.CachedEdgePolicy
-		maxBandwidth lnwire.MilliSatoshi
+		//maxBandwidth lnwire.MilliSatoshi
+		maxBandwidth uint64
 	)
 
 	for _, edge := range u.edges {
@@ -176,7 +185,7 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 			edge.policy.ChannelID, amt,
 		)
 		if !ok {
-			bandwidth = lnwire.MaxMilliSatoshi
+			bandwidth = uint64(lnwire.MaxMilliSatoshi)
 		}
 
 		// Skip channels that can't carry the payment.
@@ -204,12 +213,13 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 // getPolicyNetwork returns the optimal policy to use for this connection given
 // a specific amount to send. The goal is to return a policy that maximizes the
 // probability of a successful forward in a non-strict forwarding context.
+/*obd update wxf*/
 func (u *unifiedPolicy) getPolicyNetwork(
-	amt lnwire.MilliSatoshi) *channeldb.CachedEdgePolicy {
+	amt uint64) *channeldb.CachedEdgePolicy {
 
 	var (
 		bestPolicy  *channeldb.CachedEdgePolicy
-		maxFee      lnwire.MilliSatoshi
+		maxFee      uint64
 		maxTimelock uint16
 	)
 
@@ -265,11 +275,12 @@ func (u *unifiedPolicy) getPolicyNetwork(
 }
 
 // minAmt returns the minimum amount that can be forwarded on this connection.
-func (u *unifiedPolicy) minAmt() lnwire.MilliSatoshi {
-	min := lnwire.MaxMilliSatoshi
+/*obd update wxf*/
+func (u *unifiedPolicy) minAmt() uint64 {
+	min := uint64(lnwire.MaxMilliSatoshi)
 	for _, edge := range u.edges {
-		if edge.policy.MinBtcHTLC < min {
-			min = edge.policy.MinBtcHTLC
+		if edge.policy.MinHTLC < min {
+			min = edge.policy.MinHTLC
 		}
 	}
 

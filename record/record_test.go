@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -17,7 +16,8 @@ type recordEncDecTest struct {
 }
 
 var (
-	testTotal      = lnwire.MilliSatoshi(45)
+	//testTotal      = lnwire.MilliSatoshi(45)
+	testTotal      = uint64(45)
 	testAddr       = [32]byte{0x01, 0x02}
 	testShare      = [32]byte{0x03, 0x04}
 	testSetID      = [32]byte{0x05, 0x06}
@@ -28,7 +28,7 @@ var recordEncDecTests = []recordEncDecTest{
 	{
 		name: "mpp",
 		encRecord: func() tlv.RecordProducer {
-			return record.NewMPP(testTotal, testAddr)
+			return record.NewMPP(testTotal, testAddr,1)
 		},
 		decRecord: func() tlv.RecordProducer {
 			return new(record.MPP)

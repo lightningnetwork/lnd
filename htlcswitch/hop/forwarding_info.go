@@ -21,7 +21,8 @@ type ForwardingInfo struct {
 
 	// AmountToForward is the amount of milli-satoshis that the receiving
 	// node should forward to the next hop.
-	AmountToForward lnwire.MilliSatoshi
+	//AmountToForward lnwire.MilliSatoshi
+	AmountToForward uint64
 
 	// OutgoingCTLV is the specified value of the CTLV timelock to be used
 	// in the outgoing HTLC.

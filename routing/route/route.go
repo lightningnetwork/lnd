@@ -6,14 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 	"strconv"
 	"strings"
 
 	"github.com/btcsuite/btcd/btcec"
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -107,10 +105,13 @@ type Hop struct {
 	// crafting the _outgoing_ HTLC from this hop.
 	OutgoingTimeLock uint32
 
+	/*obd update wxf
+	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+	*/
 	// AmtToForward is the amount that this hop will forward to the next
 	// hop. This value is less than the value that the incoming HTLC
 	// carries as a fee will be subtracted by the hop.
-	AmtToForward lnwire.MilliSatoshi
+	AmtToForward uint64
 
 	// MPP encapsulates the data required for option_mpp. This field should
 	// only be set for the final hop.
@@ -288,14 +289,17 @@ type Route struct {
 	// the payment preimage to complete the payment.
 	TotalTimeLock uint32
 
+	/*obd update wxf
+	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+	*/
 	// TotalAmount is the total amount of funds required to complete a
 	// payment over this route. This value includes the cumulative fees at
 	// each hop. As a result, the HTLC extended to the first-hop in the
 	// route will need to have at least this many satoshis, otherwise the
 	// route will fail at an intermediate node due to an insufficient
 	// amount of fees.
-	TotalAmount lnwire.MilliSatoshi
-	TotalAssetAmount omnicore.Amount
+	TotalAmount uint64
+	AssetId uint32
 
 	// SourcePubKey is the pubkey of the node where this route originates
 	// from.
@@ -317,10 +321,12 @@ func (r *Route) Copy() *Route {
 
 	return &c
 }
-
+/*obd update wxf
+AssetId >1 the unit is lnwire.MilliSatoshi, else omnicore.Amount
+*/
 // HopFee returns the fee charged by the route hop indicated by hopIndex.
-func (r *Route) HopFee(hopIndex int) lnwire.MilliSatoshi {
-	var incomingAmt lnwire.MilliSatoshi
+func (r *Route) HopFee(hopIndex int) uint64 {
+	var incomingAmt uint64
 	if hopIndex == 0 {
 		incomingAmt = r.TotalAmount
 	} else {
@@ -334,7 +340,7 @@ func (r *Route) HopFee(hopIndex int) lnwire.MilliSatoshi {
 // TotalFees is the sum of the fees paid at each hop within the final route. In
 // the case of a one-hop payment, this value will be zero as we don't need to
 // pay a fee to ourself.
-func (r *Route) TotalFees() lnwire.MilliSatoshi {
+func (r *Route) TotalFees() uint64 {
 	if len(r.Hops) == 0 {
 		return 0
 	}
@@ -343,7 +349,7 @@ func (r *Route) TotalFees() lnwire.MilliSatoshi {
 }
 
 // ReceiverAmt is the amount received by the final hop of this route.
-func (r *Route) ReceiverAmt() lnwire.MilliSatoshi {
+func (r *Route) ReceiverAmt() uint64 {
 	if len(r.Hops) == 0 {
 		return 0
 	}
@@ -363,7 +369,7 @@ func (r *Route) FinalHop() *Hop {
 // NewRouteFromHops creates a new Route structure from the minimally required
 // information to perform the payment. It infers fee amounts and populates the
 // node, chan and prev/next hop maps.
-func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
+func NewRouteFromHops(amtToSend uint64, timeLock uint32,
 	sourceVertex Vertex, hops []*Hop) (*Route, error) {
 
 	if len(hops) == 0 {

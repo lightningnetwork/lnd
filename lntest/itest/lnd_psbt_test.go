@@ -632,19 +632,19 @@ func testPsbtChanFundingSingleStep(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(t, net, carol, chanPoint, false)
 }
 
-// runSignPsbt tests that the SignPsbt RPC works correctly.
+// testSignPsbt tests that the SignPsbt RPC works correctly.
 func testSignPsbt(net *lntest.NetworkHarness, t *harnessTest) {
-	runSignPsbt(t, net, net.Alice)
+	runSignPsbtSegWitV0P2WKH(t, net, net.Alice)
 }
 
-// runSignPsbt tests that the SignPsbt RPC works correctly.
-func runSignPsbt(t *harnessTest, net *lntest.NetworkHarness,
+// runSignPsbtSegWitV0P2WKH tests that the SignPsbt RPC works correctly for a
+// SegWit v0 p2wkh input.
+func runSignPsbtSegWitV0P2WKH(t *harnessTest, net *lntest.NetworkHarness,
 	alice *lntest.HarnessNode) {
-
-	ctxb := context.Background()
 
 	// Everything we do here should be done within a second or two, so we
 	// can just keep a single timeout context around for all calls.
+	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 
@@ -699,13 +699,48 @@ func runSignPsbt(t *harnessTest, net *lntest.NetworkHarness,
 	pkScript, err := txscript.PayToAddrScript(witnessAddr)
 	require.NoError(t.t, err)
 
+	// Send some funds to the output and then try to get a signature through
+	// the SignPsbt RPC to spend that output again.
+	assertPsbtSpend(
+		ctxt, t, net, alice, pkScript,
+		func(packet *psbt.Packet) {
+			in := &packet.Inputs[0]
+			in.Bip32Derivation = []*psbt.Bip32Derivation{{
+				PubKey:    addrPubKey.SerializeCompressed(),
+				Bip32Path: fullDerivationPath,
+			}}
+			in.SighashType = txscript.SigHashAll
+		},
+		func(packet *psbt.Packet) {
+			require.Len(t.t, packet.Inputs, 1)
+			require.Len(t.t, packet.Inputs[0].PartialSigs, 1)
+
+			partialSig := packet.Inputs[0].PartialSigs[0]
+			require.Equal(
+				t.t, partialSig.PubKey,
+				addrPubKey.SerializeCompressed(),
+			)
+			require.Greater(
+				t.t, len(partialSig.Signature), ecdsa.MinSigLen,
+			)
+		},
+	)
+}
+
+// assertPsbtSpend creates an output with the given pkScript on chain and then
+// attempts to create a sweep transaction that is signed using the SignPsbt RPC
+// that spends that output again.
+func assertPsbtSpend(ctx context.Context, t *harnessTest,
+	net *lntest.NetworkHarness, alice *lntest.HarnessNode, pkScript []byte,
+	decorateUnsigned func(*psbt.Packet), verifySigned func(*psbt.Packet)) {
+
 	// Let's send some coins to that address now.
 	utxo := &wire.TxOut{
 		Value:    600_000,
 		PkScript: pkScript,
 	}
 	resp, err := alice.WalletKitClient.SendOutputs(
-		ctxt, &walletrpc.SendOutputsRequest{
+		ctx, &walletrpc.SendOutputsRequest{
 			Outputs: []*signrpc.TxOut{{
 				Value:    utxo.Value,
 				PkScript: utxo.PkScript,
@@ -748,13 +783,9 @@ func runSignPsbt(t *harnessTest, net *lntest.NetworkHarness,
 	require.NoError(t.t, err)
 
 	// Now let's add the meta information that we need for signing.
-	packet.Inputs[0].Bip32Derivation = []*psbt.Bip32Derivation{{
-		PubKey:    addrPubKey.SerializeCompressed(),
-		Bip32Path: fullDerivationPath,
-	}}
 	packet.Inputs[0].WitnessUtxo = utxo
 	packet.Inputs[0].NonWitnessUtxo = prevTx
-	packet.Inputs[0].SighashType = txscript.SigHashAll
+	decorateUnsigned(packet)
 
 	// That's it, we should be able to sign the PSBT now.
 	var buf bytes.Buffer
@@ -762,7 +793,7 @@ func runSignPsbt(t *harnessTest, net *lntest.NetworkHarness,
 	require.NoError(t.t, err)
 
 	signResp, err := alice.WalletKitClient.SignPsbt(
-		ctxt, &walletrpc.SignPsbtRequest{
+		ctx, &walletrpc.SignPsbtRequest{
 			FundedPsbt: buf.Bytes(),
 		},
 	)
@@ -774,12 +805,9 @@ func runSignPsbt(t *harnessTest, net *lntest.NetworkHarness,
 	)
 	require.NoError(t.t, err)
 
-	require.Len(t.t, signedPacket.Inputs, 1)
-	require.Len(t.t, signedPacket.Inputs[0].PartialSigs, 1)
-
-	partialSig := signedPacket.Inputs[0].PartialSigs[0]
-	require.Equal(t.t, partialSig.PubKey, addrPubKey.SerializeCompressed())
-	require.Greater(t.t, len(partialSig.Signature), ecdsa.MinSigLen)
+	// Allow the caller to also verify (and potentially move) some of the
+	// returned fields.
+	verifySigned(signedPacket)
 
 	// We should be able to finalize the PSBT and extract the final TX now.
 	err = psbt.MaybeFinalizeAll(signedPacket)
@@ -794,7 +822,7 @@ func runSignPsbt(t *harnessTest, net *lntest.NetworkHarness,
 
 	// Publish the second transaction and then mine both of them.
 	_, err = alice.WalletKitClient.PublishTransaction(
-		ctxt, &walletrpc.Transaction{
+		ctx, &walletrpc.Transaction{
 			TxHex: buf.Bytes(),
 		},
 	)

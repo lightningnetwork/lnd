@@ -3405,13 +3405,15 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			var chainConn *chain.BitcoindConn
 			err = wait.NoError(func() error {
 				chainConn, err = chain.NewBitcoindConn(&chain.BitcoindConfig{
-					ChainParams:     netParams,
-					Host:            host,
-					User:            "weks",
-					Pass:            "weks",
-					ZMQBlockHost:    zmqBlockHost,
-					ZMQTxHost:       zmqTxHost,
-					ZMQReadDeadline: 5 * time.Second,
+					ChainParams: netParams,
+					Host:        host,
+					User:        "weks",
+					Pass:        "weks",
+					ZMQConfig: &chain.ZMQConfig{
+						ZMQBlockHost:    zmqBlockHost,
+						ZMQTxHost:       zmqTxHost,
+						ZMQReadDeadline: 5 * time.Second,
+					},
 					// Fields only required for pruned nodes, not
 					// needed for these tests.
 					Dialer:             nil,

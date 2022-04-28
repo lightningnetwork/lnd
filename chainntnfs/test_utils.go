@@ -235,13 +235,15 @@ func NewBitcoindBackend(t *testing.T, minerAddr string,
 
 	host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
 	conn, err := chain.NewBitcoindConn(&chain.BitcoindConfig{
-		ChainParams:     NetParams,
-		Host:            host,
-		User:            "weks",
-		Pass:            "weks",
-		ZMQBlockHost:    zmqBlockHost,
-		ZMQTxHost:       zmqTxHost,
-		ZMQReadDeadline: 5 * time.Second,
+		ChainParams: NetParams,
+		Host:        host,
+		User:        "weks",
+		Pass:        "weks",
+		ZMQConfig: &chain.ZMQConfig{
+			ZMQBlockHost:    zmqBlockHost,
+			ZMQTxHost:       zmqTxHost,
+			ZMQReadDeadline: 5 * time.Second,
+		},
 		// Fields only required for pruned nodes, not needed for these
 		// tests.
 		Dialer:             nil,

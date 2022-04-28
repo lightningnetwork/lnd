@@ -828,13 +828,15 @@ var interfaceImpls = []struct {
 
 			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
 			chainConn, err := chain.NewBitcoindConn(&chain.BitcoindConfig{
-				ChainParams:     &chaincfg.RegressionNetParams,
-				Host:            host,
-				User:            "weks",
-				Pass:            "weks",
-				ZMQBlockHost:    zmqBlockHost,
-				ZMQTxHost:       zmqTxHost,
-				ZMQReadDeadline: 5 * time.Second,
+				ChainParams: &chaincfg.RegressionNetParams,
+				Host:        host,
+				User:        "weks",
+				Pass:        "weks",
+				ZMQConfig: &chain.ZMQConfig{
+					ZMQBlockHost:    zmqBlockHost,
+					ZMQTxHost:       zmqTxHost,
+					ZMQReadDeadline: 5 * time.Second,
+				},
 				// Fields only required for pruned nodes, not
 				// needed for these tests.
 				Dialer:             nil,

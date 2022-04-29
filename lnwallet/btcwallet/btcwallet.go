@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/blockcache"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -98,6 +99,9 @@ type BtcWallet struct {
 	chainKeyScope waddrmgr.KeyScope
 
 	blockCache *blockcache.BlockCache
+
+	musig2Sessions    map[input.MuSig2SessionID]*muSig2State
+	musig2SessionsMtx sync.Mutex
 }
 
 // A compile time check to ensure that BtcWallet implements the
@@ -160,13 +164,14 @@ func New(cfg Config, blockCache *blockcache.BlockCache) (*BtcWallet, error) {
 	}
 
 	return &BtcWallet{
-		cfg:           &cfg,
-		wallet:        wallet,
-		db:            wallet.Database(),
-		chain:         cfg.ChainSource,
-		netParams:     cfg.NetParams,
-		chainKeyScope: chainKeyScope,
-		blockCache:    blockCache,
+		cfg:            &cfg,
+		wallet:         wallet,
+		db:             wallet.Database(),
+		chain:          cfg.ChainSource,
+		netParams:      cfg.NetParams,
+		chainKeyScope:  chainKeyScope,
+		blockCache:     blockCache,
+		musig2Sessions: make(map[input.MuSig2SessionID]*muSig2State),
 	}, nil
 }
 

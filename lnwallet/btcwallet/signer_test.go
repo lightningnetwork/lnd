@@ -273,8 +273,9 @@ func TestScriptImport(t *testing.T) {
 	// Now, as a last test, make sure that when we try adding an address
 	// with partial script reveal, we get an error that the address already
 	// exists.
+	inclusionProof := leaf2.TapHash()
 	tapscript2 := input.TapscriptPartialReveal(
-		testPubKey, leaf1, leaf2.TapHash(),
+		testPubKey, leaf1, inclusionProof[:],
 	)
 	_, err = w.ImportTaprootScript(scope, tapscript2)
 	require.Error(t, err)

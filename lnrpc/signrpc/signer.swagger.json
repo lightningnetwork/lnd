@@ -50,6 +50,176 @@
         ]
       }
     },
+    "/v2/signer/musig2/combinekeys": {
+      "post": {
+        "summary": "MuSig2CombineKeys (experimental!) is a stateless helper RPC that can be used\nto calculate the combined MuSig2 public key from a list of all participating\nsigners' public keys. This RPC is completely stateless and deterministic and\ndoes not create any signing session. It can be used to determine the Taproot\npublic key that should be put in an on-chain output once all public keys are\nknown. A signing session is only needed later when that output should be\n_spent_ again.",
+        "description": "NOTE: The MuSig2 BIP is not final yet and therefore this API must be\nconsidered to be HIGHLY EXPERIMENTAL and subject to change in upcoming\nreleases. Backward compatibility is not guaranteed!",
+        "operationId": "Signer_MuSig2CombineKeys",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2CombineKeysResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2CombineKeysRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Signer"
+        ]
+      }
+    },
+    "/v2/signer/musig2/combinesig": {
+      "post": {
+        "summary": "MuSig2CombineSig (experimental!) combines the given partial signature(s)\nwith the local one, if it already exists. Once a partial signature of all\nparticipants is registered, the final signature will be combined and\nreturned.",
+        "description": "NOTE: The MuSig2 BIP is not final yet and therefore this API must be\nconsidered to be HIGHLY EXPERIMENTAL and subject to change in upcoming\nreleases. Backward compatibility is not guaranteed!",
+        "operationId": "Signer_MuSig2CombineSig",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2CombineSigResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2CombineSigRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Signer"
+        ]
+      }
+    },
+    "/v2/signer/musig2/createsession": {
+      "post": {
+        "summary": "MuSig2CreateSession (experimental!) creates a new MuSig2 signing session\nusing the local key identified by the key locator. The complete list of all\npublic keys of all signing parties must be provided, including the public\nkey of the local signing key. If nonces of other parties are already known,\nthey can be submitted as well to reduce the number of RPC calls necessary\nlater on.",
+        "description": "NOTE: The MuSig2 BIP is not final yet and therefore this API must be\nconsidered to be HIGHLY EXPERIMENTAL and subject to change in upcoming\nreleases. Backward compatibility is not guaranteed!",
+        "operationId": "Signer_MuSig2CreateSession",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2SessionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2SessionRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Signer"
+        ]
+      }
+    },
+    "/v2/signer/musig2/registernonces": {
+      "post": {
+        "summary": "MuSig2RegisterNonces (experimental!) registers one or more public nonces of\nother signing participants for a session identified by its ID. This RPC can\nbe called multiple times until all nonces are registered.",
+        "description": "NOTE: The MuSig2 BIP is not final yet and therefore this API must be\nconsidered to be HIGHLY EXPERIMENTAL and subject to change in upcoming\nreleases. Backward compatibility is not guaranteed!",
+        "operationId": "Signer_MuSig2RegisterNonces",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2RegisterNoncesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2RegisterNoncesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Signer"
+        ]
+      }
+    },
+    "/v2/signer/musig2/sign": {
+      "post": {
+        "summary": "MuSig2Sign (experimental!) creates a partial signature using the local\nsigning key that was specified when the session was created. This can only\nbe called when all public nonces of all participants are known and have been\nregistered with the session. If this node isn't responsible for combining\nall the partial signatures, then the cleanup flag should be set, indicating\nthat the session can be removed from memory once the signature was produced.",
+        "description": "NOTE: The MuSig2 BIP is not final yet and therefore this API must be\nconsidered to be HIGHLY EXPERIMENTAL and subject to change in upcoming\nreleases. Backward compatibility is not guaranteed!",
+        "operationId": "Signer_MuSig2Sign",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2SignResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2SignRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Signer"
+        ]
+      }
+    },
     "/v2/signer/sharedkey": {
       "post": {
         "summary": "DeriveSharedKey returns a shared secret key by performing Diffie-Hellman key\nderivation between the ephemeral public key in the request and the node's\nkey specified in the key_desc parameter. Either a key locator or a raw\npublic key is expected in the key_desc, if neither is supplied, defaults to\nthe node's identity private key:\nP_shared = privKeyNode * ephemeralPubkey\nThe resulting shared public key is serialized in the compressed format and\nhashed with sha256, resulting in the final key length of 256bit.",
@@ -276,6 +446,198 @@
         }
       }
     },
+    "signrpcMuSig2CombineKeysRequest": {
+      "type": "object",
+      "properties": {
+        "all_signer_pubkeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "A list of all public keys (serialized in 32-byte x-only format!)\nparticipating in the signing session. The list will always be sorted\nlexicographically internally. This must include the local key which is\ndescribed by the above key_loc."
+        },
+        "tweaks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/signrpcTweakDesc"
+          },
+          "description": "A series of optional generic tweaks to be applied to the the aggregated\npublic key."
+        },
+        "taproot_tweak": {
+          "$ref": "#/definitions/signrpcTaprootTweakDesc",
+          "description": "An optional taproot specific tweak that must be specified if the MuSig2\ncombined key will be used as the main taproot key of a taproot output\non-chain."
+        }
+      }
+    },
+    "signrpcMuSig2CombineKeysResponse": {
+      "type": "object",
+      "properties": {
+        "combined_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The combined public key (in the 32-byte x-only format) with all tweaks\napplied to it. If a taproot tweak is specified, this corresponds to the\ntaproot key that can be put into the on-chain output."
+        },
+        "taproot_internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw combined public key (in the 32-byte x-only format) before any tweaks\nare applied to it. If a taproot tweak is specified, this corresponds to the\ninternal key that needs to be put into the witness if the script spend path\nis used."
+        }
+      }
+    },
+    "signrpcMuSig2CombineSigRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique ID of the signing session to combine the signatures for."
+        },
+        "other_partial_signatures": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The list of all other participants' partial signatures to add to the current\nsession."
+        }
+      }
+    },
+    "signrpcMuSig2CombineSigResponse": {
+      "type": "object",
+      "properties": {
+        "have_all_signatures": {
+          "type": "boolean",
+          "description": "Indicates whether all partial signatures required to create a final, full\nsignature are known yet. If this is true, then the final_signature field is\nset, otherwise it is empty."
+        },
+        "final_signature": {
+          "type": "string",
+          "format": "byte",
+          "description": "The final, full signature that is valid for the combined public key."
+        }
+      }
+    },
+    "signrpcMuSig2RegisterNoncesRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique ID of the signing session those nonces should be registered with."
+        },
+        "other_signer_public_nonces": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "A list of all public nonces of other signing participants that should be\nregistered."
+        }
+      }
+    },
+    "signrpcMuSig2RegisterNoncesResponse": {
+      "type": "object",
+      "properties": {
+        "have_all_nonces": {
+          "type": "boolean",
+          "description": "Indicates whether all nonces required to start the signing process are known\nnow."
+        }
+      }
+    },
+    "signrpcMuSig2SessionRequest": {
+      "type": "object",
+      "properties": {
+        "key_loc": {
+          "$ref": "#/definitions/signrpcKeyLocator",
+          "description": "The key locator that identifies which key to use for signing."
+        },
+        "all_signer_pubkeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "A list of all public keys (serialized in 32-byte x-only format!)\nparticipating in the signing session. The list will always be sorted\nlexicographically internally. This must include the local key which is\ndescribed by the above key_loc."
+        },
+        "other_signer_public_nonces": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional list of all public nonces of other signing participants that\nmight already be known."
+        },
+        "tweaks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/signrpcTweakDesc"
+          },
+          "description": "A series of optional generic tweaks to be applied to the the aggregated\npublic key."
+        },
+        "taproot_tweak": {
+          "$ref": "#/definitions/signrpcTaprootTweakDesc",
+          "description": "An optional taproot specific tweak that must be specified if the MuSig2\ncombined key will be used as the main taproot key of a taproot output\non-chain."
+        }
+      }
+    },
+    "signrpcMuSig2SessionResponse": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique ID that represents this signing session. A session can be used\nfor producing a signature a single time. If the signing fails for any\nreason, a new session with the same participants needs to be created."
+        },
+        "combined_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The combined public key (in the 32-byte x-only format) with all tweaks\napplied to it. If a taproot tweak is specified, this corresponds to the\ntaproot key that can be put into the on-chain output."
+        },
+        "taproot_internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw combined public key (in the 32-byte x-only format) before any tweaks\nare applied to it. If a taproot tweak is specified, this corresponds to the\ninternal key that needs to be put into the witness if the script spend path\nis used."
+        },
+        "local_public_nonces": {
+          "type": "string",
+          "format": "byte",
+          "description": "The two public nonces the local signer uses, combined into a single value\nof 66 bytes. Can be split into the two 33-byte points to get the individual\nnonces."
+        },
+        "have_all_nonces": {
+          "type": "boolean",
+          "description": "Indicates whether all nonces required to start the signing process are known\nnow."
+        }
+      }
+    },
+    "signrpcMuSig2SignRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique ID of the signing session to use for signing."
+        },
+        "message_digest": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte SHA256 digest of the message to sign."
+        },
+        "cleanup": {
+          "type": "boolean",
+          "description": "Cleanup indicates that after signing, the session state can be cleaned up,\nsince another participant is going to be responsible for combining the\npartial signatures."
+        }
+      }
+    },
+    "signrpcMuSig2SignResponse": {
+      "type": "object",
+      "properties": {
+        "local_partial_signature": {
+          "type": "string",
+          "format": "byte",
+          "description": "The partial signature created by the local signer."
+        }
+      }
+    },
     "signrpcSharedKeyRequest": {
       "type": "object",
       "properties": {
@@ -413,6 +775,34 @@
             "format": "byte"
           },
           "description": "A set of signatures realized in a fixed 64-byte format ordered in ascending\ninput order."
+        }
+      }
+    },
+    "signrpcTaprootTweakDesc": {
+      "type": "object",
+      "properties": {
+        "script_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The root hash of the tapscript tree if a script path is committed to. If\nthe MuSig2 key put on chain doesn't also commit to a script path (BIP-0086\nkey spend only), then this needs to be empty and the key_spend_only field\nbelow must be set to true. This is required because gRPC cannot\ndifferentiate between a zero-size byte slice and a nil byte slice (both\nwould be serialized the same way). So the extra boolean is required."
+        },
+        "key_spend_only": {
+          "type": "boolean",
+          "description": "Indicates that the above script_root is expected to be empty because this\nis a BIP-0086 key spend only commitment where only the internal key is\ncommitted to instead of also including a script root hash."
+        }
+      }
+    },
+    "signrpcTweakDesc": {
+      "type": "object",
+      "properties": {
+        "tweak": {
+          "type": "string",
+          "format": "byte",
+          "description": "Tweak is the 32-byte value that will modify the public key."
+        },
+        "is_x_only": {
+          "type": "boolean",
+          "description": "Specifies if the target key should be converted to an x-only public key\nbefore tweaking. If true, then the public key will be mapped to an x-only\nkey before the tweaking operation is applied."
         }
       }
     },

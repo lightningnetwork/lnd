@@ -62,6 +62,76 @@ service Signer {
     hashed with sha256, resulting in the final key length of 256bit.
     */
     rpc DeriveSharedKey (SharedKeyRequest) returns (SharedKeyResponse);
+
+    /*
+    MuSig2CombineKeys (experimental!) is a stateless helper RPC that can be used
+    to calculate the combined MuSig2 public key from a list of all participating
+    signers' public keys. This RPC is completely stateless and deterministic and
+    does not create any signing session. It can be used to determine the Taproot
+    public key that should be put in an on-chain output once all public keys are
+    known. A signing session is only needed later when that output should be
+    _spent_ again.
+
+    NOTE: The MuSig2 BIP is not final yet and therefore this API must be
+    considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
+    releases. Backward compatibility is not guaranteed!
+    */
+    rpc MuSig2CombineKeys (MuSig2CombineKeysRequest)
+        returns (MuSig2CombineKeysResponse);
+
+    /*
+    MuSig2CreateSession (experimental!) creates a new MuSig2 signing session
+    using the local key identified by the key locator. The complete list of all
+    public keys of all signing parties must be provided, including the public
+    key of the local signing key. If nonces of other parties are already known,
+    they can be submitted as well to reduce the number of RPC calls necessary
+    later on.
+
+    NOTE: The MuSig2 BIP is not final yet and therefore this API must be
+    considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
+    releases. Backward compatibility is not guaranteed!
+    */
+    rpc MuSig2CreateSession (MuSig2SessionRequest)
+        returns (MuSig2SessionResponse);
+
+    /*
+    MuSig2RegisterNonces (experimental!) registers one or more public nonces of
+    other signing participants for a session identified by its ID. This RPC can
+    be called multiple times until all nonces are registered.
+
+    NOTE: The MuSig2 BIP is not final yet and therefore this API must be
+    considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
+    releases. Backward compatibility is not guaranteed!
+    */
+    rpc MuSig2RegisterNonces (MuSig2RegisterNoncesRequest)
+        returns (MuSig2RegisterNoncesResponse);
+
+    /*
+    MuSig2Sign (experimental!) creates a partial signature using the local
+    signing key that was specified when the session was created. This can only
+    be called when all public nonces of all participants are known and have been
+    registered with the session. If this node isn't responsible for combining
+    all the partial signatures, then the cleanup flag should be set, indicating
+    that the session can be removed from memory once the signature was produced.
+
+    NOTE: The MuSig2 BIP is not final yet and therefore this API must be
+    considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
+    releases. Backward compatibility is not guaranteed!
+    */
+    rpc MuSig2Sign (MuSig2SignRequest) returns (MuSig2SignResponse);
+
+    /*
+    MuSig2CombineSig (experimental!) combines the given partial signature(s)
+    with the local one, if it already exists. Once a partial signature of all
+    participants is registered, the final signature will be combined and
+    returned.
+
+    NOTE: The MuSig2 BIP is not final yet and therefore this API must be
+    considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
+    releases. Backward compatibility is not guaranteed!
+    */
+    rpc MuSig2CombineSig (MuSig2CombineSigRequest)
+        returns (MuSig2CombineSigResponse);
 }
 
 message KeyLocator {
@@ -264,4 +334,222 @@ message SharedKeyRequest {
 message SharedKeyResponse {
     // The shared public key, hashed with sha256.
     bytes shared_key = 1;
+}
+
+message TweakDesc {
+    /*
+    Tweak is the 32-byte value that will modify the public key.
+    */
+    bytes tweak = 1;
+
+    /*
+    Specifies if the target key should be converted to an x-only public key
+    before tweaking. If true, then the public key will be mapped to an x-only
+    key before the tweaking operation is applied.
+    */
+    bool is_x_only = 2;
+}
+
+message TaprootTweakDesc {
+    /*
+    The root hash of the tapscript tree if a script path is committed to. If
+    the MuSig2 key put on chain doesn't also commit to a script path (BIP-0086
+    key spend only), then this needs to be empty and the key_spend_only field
+    below must be set to true. This is required because gRPC cannot
+    differentiate between a zero-size byte slice and a nil byte slice (both
+    would be serialized the same way). So the extra boolean is required.
+    */
+    bytes script_root = 1;
+
+    /*
+    Indicates that the above script_root is expected to be empty because this
+    is a BIP-0086 key spend only commitment where only the internal key is
+    committed to instead of also including a script root hash.
+    */
+    bool key_spend_only = 2;
+}
+
+message MuSig2CombineKeysRequest {
+    /*
+    A list of all public keys (serialized in 32-byte x-only format!)
+    participating in the signing session. The list will always be sorted
+    lexicographically internally. This must include the local key which is
+    described by the above key_loc.
+    */
+    repeated bytes all_signer_pubkeys = 1;
+
+    /*
+    A series of optional generic tweaks to be applied to the the aggregated
+    public key.
+    */
+    repeated TweakDesc tweaks = 2;
+
+    /*
+    An optional taproot specific tweak that must be specified if the MuSig2
+    combined key will be used as the main taproot key of a taproot output
+    on-chain.
+    */
+    TaprootTweakDesc taproot_tweak = 3;
+}
+
+message MuSig2CombineKeysResponse {
+    /*
+    The combined public key (in the 32-byte x-only format) with all tweaks
+    applied to it. If a taproot tweak is specified, this corresponds to the
+    taproot key that can be put into the on-chain output.
+    */
+    bytes combined_key = 1;
+
+    /*
+    The raw combined public key (in the 32-byte x-only format) before any tweaks
+    are applied to it. If a taproot tweak is specified, this corresponds to the
+    internal key that needs to be put into the witness if the script spend path
+    is used.
+    */
+    bytes taproot_internal_key = 2;
+}
+
+message MuSig2SessionRequest {
+    /*
+    The key locator that identifies which key to use for signing.
+    */
+    KeyLocator key_loc = 1;
+
+    /*
+    A list of all public keys (serialized in 32-byte x-only format!)
+    participating in the signing session. The list will always be sorted
+    lexicographically internally. This must include the local key which is
+    described by the above key_loc.
+    */
+    repeated bytes all_signer_pubkeys = 2;
+
+    /*
+    An optional list of all public nonces of other signing participants that
+    might already be known.
+    */
+    repeated bytes other_signer_public_nonces = 3;
+
+    /*
+    A series of optional generic tweaks to be applied to the the aggregated
+    public key.
+    */
+    repeated TweakDesc tweaks = 4;
+
+    /*
+    An optional taproot specific tweak that must be specified if the MuSig2
+    combined key will be used as the main taproot key of a taproot output
+    on-chain.
+    */
+    TaprootTweakDesc taproot_tweak = 5;
+}
+
+message MuSig2SessionResponse {
+    /*
+    The unique ID that represents this signing session. A session can be used
+    for producing a signature a single time. If the signing fails for any
+    reason, a new session with the same participants needs to be created.
+    */
+    bytes session_id = 1;
+
+    /*
+    The combined public key (in the 32-byte x-only format) with all tweaks
+    applied to it. If a taproot tweak is specified, this corresponds to the
+    taproot key that can be put into the on-chain output.
+    */
+    bytes combined_key = 2;
+
+    /*
+    The raw combined public key (in the 32-byte x-only format) before any tweaks
+    are applied to it. If a taproot tweak is specified, this corresponds to the
+    internal key that needs to be put into the witness if the script spend path
+    is used.
+    */
+    bytes taproot_internal_key = 3;
+
+    /*
+    The two public nonces the local signer uses, combined into a single value
+    of 66 bytes. Can be split into the two 33-byte points to get the individual
+    nonces.
+    */
+    bytes local_public_nonces = 4;
+
+    /*
+    Indicates whether all nonces required to start the signing process are known
+    now.
+    */
+    bool have_all_nonces = 5;
+}
+
+message MuSig2RegisterNoncesRequest {
+    /*
+    The unique ID of the signing session those nonces should be registered with.
+    */
+    bytes session_id = 1;
+
+    /*
+    A list of all public nonces of other signing participants that should be
+    registered.
+    */
+    repeated bytes other_signer_public_nonces = 3;
+}
+
+message MuSig2RegisterNoncesResponse {
+    /*
+    Indicates whether all nonces required to start the signing process are known
+    now.
+    */
+    bool have_all_nonces = 1;
+}
+
+message MuSig2SignRequest {
+    /*
+    The unique ID of the signing session to use for signing.
+    */
+    bytes session_id = 1;
+
+    /*
+    The 32-byte SHA256 digest of the message to sign.
+    */
+    bytes message_digest = 2;
+
+    /*
+    Cleanup indicates that after signing, the session state can be cleaned up,
+    since another participant is going to be responsible for combining the
+    partial signatures.
+    */
+    bool cleanup = 3;
+}
+
+message MuSig2SignResponse {
+    /*
+    The partial signature created by the local signer.
+    */
+    bytes local_partial_signature = 1;
+}
+
+message MuSig2CombineSigRequest {
+    /*
+    The unique ID of the signing session to combine the signatures for.
+    */
+    bytes session_id = 1;
+
+    /*
+    The list of all other participants' partial signatures to add to the current
+    session.
+    */
+    repeated bytes other_partial_signatures = 2;
+}
+
+message MuSig2CombineSigResponse {
+    /*
+    Indicates whether all partial signatures required to create a final, full
+    signature are known yet. If this is true, then the final_signature field is
+    set, otherwise it is empty.
+    */
+    bool have_all_signatures = 1;
+
+    /*
+    The final, full signature that is valid for the combined public key.
+    */
+    bytes final_signature = 2;
 }

@@ -2,16 +2,20 @@ package input
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 var (
@@ -128,6 +132,50 @@ func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 	default:
 		return nil, fmt.Errorf("unexpected script type: %v", scriptType)
 	}
+}
+
+// MuSig2CreateSession creates a new MuSig2 signing session using the local
+// key identified by the key locator. The complete list of all public keys of
+// all signing parties must be provided, including the public key of the local
+// signing key. If nonces of other parties are already known, they can be
+// submitted as well to reduce the number of method calls necessary later on.
+func (m *MockSigner) MuSig2CreateSession(keychain.KeyLocator,
+	[]*btcec.PublicKey, *MuSig2Tweaks,
+	[][musig2.PubNonceSize]byte) (*MuSig2SessionInfo, error) {
+
+	return nil, nil
+}
+
+// MuSig2RegisterNonces registers one or more public nonces of other signing
+// participants for a session identified by its ID. This method returns true
+// once we have all nonces for all other signing participants.
+func (m *MockSigner) MuSig2RegisterNonces(MuSig2SessionID,
+	[][musig2.PubNonceSize]byte) (bool, error) {
+
+	return false, nil
+}
+
+// MuSig2Sign creates a partial signature using the local signing key
+// that was specified when the session was created. This can only be
+// called when all public nonces of all participants are known and have
+// been registered with the session. If this node isn't responsible for
+// combining all the partial signatures, then the cleanup parameter
+// should be set, indicating that the session can be removed from memory
+// once the signature was produced.
+func (m *MockSigner) MuSig2Sign(MuSig2SessionID,
+	[sha256.Size]byte, bool) (*musig2.PartialSignature, error) {
+
+	return nil, nil
+}
+
+// MuSig2CombineSig combines the given partial signature(s) with the
+// local one, if it already exists. Once a partial signature of all
+// participants is registered, the final signature will be combined and
+// returned.
+func (m *MockSigner) MuSig2CombineSig(MuSig2SessionID,
+	[]*musig2.PartialSignature) (*schnorr.Signature, bool, error) {
+
+	return nil, false, nil
 }
 
 // findKey searches through all stored private keys and returns one

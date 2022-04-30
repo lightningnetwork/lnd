@@ -14,7 +14,7 @@ invoices](https://lists.linuxfoundation.org/pipermail/lightning-dev/2021-Septemb
 ## Security
 
 * [Misconfigured ZMQ
-  setup now gets reported](https://github.com/lightningnetwork/lnd/pull/5710).
+  setup now logs a warning](https://github.com/lightningnetwork/lnd/pull/5710).
 
 ## Taproot
 

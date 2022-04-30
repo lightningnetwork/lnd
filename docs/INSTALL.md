@@ -238,6 +238,32 @@ used directly:
 ⛰  go install -v ./...
 ```
 
+**Tags**
+
+Release binaries and installations from source using `make release-install`
+will have the following tags:
+
+- [autopilotrpc](/lnrpc/autopilotrpc/autopilot.proto)
+- [signrpc](/lnrpc/signrpc/signer.proto)
+- [walletrpc](/lnrpc/walletrpc/walletkit.proto)
+- [chainrpc](/lnrpc/chainrpc/chainnotifier.proto)
+- [invoicesrpc](/lnrpc/invoicesrpc/invoices.proto)
+- [routerrpc](/lnrpc/routerrpc/router.proto)
+- [watchtowerrpc](/lnrpc/watchtowerrpc/watchtower.proto)
+- [monitoring](/monitoring) (for Prometheus integration)
+- [peersrpc](/lnrpc/peersrpc/peers.proto)
+- [kvdb_postrgres](/docs/postgres.md)
+- [kvdb_etcd](/docs/etcd.md)
+
+The `dev` tag is used for development builds, and is not included in the
+release builds & installation.
+
+You can specify a custom set of tags when installing from source using the `tags=""` parameter. For example:
+
+```shell
+make install tags="signrpc walletrpc routerrpc invoicesrpc"
+```
+
 **Updating**
 
 To update your version of `lnd` to the latest version run the following

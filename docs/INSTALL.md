@@ -248,6 +248,7 @@ will have the following tags:
 - [walletrpc](/lnrpc/walletrpc/walletkit.proto)
 - [chainrpc](/lnrpc/chainrpc/chainnotifier.proto)
 - [invoicesrpc](/lnrpc/invoicesrpc/invoices.proto)
+- [neutrinorpc](/lnrpc/neutrinorpc/neutrino.proto)
 - [routerrpc](/lnrpc/routerrpc/router.proto)
 - [watchtowerrpc](/lnrpc/watchtowerrpc/watchtower.proto)
 - [monitoring](/monitoring) (for Prometheus integration)

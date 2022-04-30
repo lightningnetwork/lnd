@@ -289,7 +289,8 @@ type Config struct {
 	ExternalIPs       []net.Addr
 	DisableListen     bool          `long:"nolisten" description:"Disable listening for incoming peer connections"`
 	DisableRest       bool          `long:"norest" description:"Disable REST API"`
-	DisableRestTLS    bool          `long:"no-rest-tls" description:"Disable TLS for REST connections"`
+	DisableTLS        bool          `long:"notls" description:"Disable TLS encryption for RPC"`
+	DisableRestTLS    bool          `long:"no-rest-tls" description:"Disable TLS for REST connections only"`
 	WSPingInterval    time.Duration `long:"ws-ping-interval" description:"The ping interval for REST based WebSocket connections, set to 0 to disable sending ping messages from the server side"`
 	WSPongWait        time.Duration `long:"ws-pong-wait" description:"The time we wait for a pong response message on REST based WebSocket connections before the connection is closed as inactive"`
 	NAT               bool          `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`

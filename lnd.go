@@ -626,6 +626,18 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 func getTLSConfig(cfg *Config) ([]grpc.ServerOption, []grpc.DialOption,
 	func(net.Addr) (net.Listener, error), func(), error) {
 
+	if cfg.DisableTLS {
+		rpcsLog.Infof("TLS encryption is disabled")
+		restDialOpts := []grpc.DialOption{
+			grpc.WithInsecure(),
+			grpc.WithDefaultCallOptions(
+				grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200),
+			),
+		}
+
+		return nil, restDialOpts, lncfg.ListenOnAddress, func() {}, nil
+	}
+
 	// Ensure we create TLS key and certificate if they don't exist.
 	if !fileExists(cfg.TLSCertPath) && !fileExists(cfg.TLSKeyPath) {
 		rpcsLog.Infof("Generating TLS certificates...")

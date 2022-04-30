@@ -239,6 +239,9 @@ close to continue after a peer disconnect](https://github.com/lightningnetwork/l
 * [Expose](https://github.com/lightningnetwork/lnd/pull/6454) always on mode of
   the HTLC interceptor API through GetInfo.
 
+* [Add --notls config option to disable TLS encryption for
+  RPC](https://github.com/lightningnetwork/lnd/pull/6479)
+
 ## Database
 
 * [Add ForAll implementation for etcd to speed up

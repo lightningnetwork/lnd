@@ -7,8 +7,10 @@ import (
 
 	mig25 "github.com/lightningnetwork/lnd/channeldb/migration25"
 	mig26 "github.com/lightningnetwork/lnd/channeldb/migration26"
+	mig "github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/channeldb/migtest"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -447,4 +449,56 @@ func assertRevocationLog(t testing.TB, want, got RevocationLog) {
 		require.Equal(t, expectedHTLC.RefundTimeout, htlc.RefundTimeout,
 			"wrong RefundTimeout")
 	}
+}
+
+// BenchmarkMigration creates a benchmark test for the migration. The test uses
+// the flag `-benchtime` to specify how many revocation logs we want to test.
+func BenchmarkMigration(b *testing.B) {
+	// Stop the timer and start it again later when the actual migration
+	// starts.
+	b.StopTimer()
+
+	// Gather number of records by reading `-benchtime` flag.
+	numLogs := b.N
+
+	// Create a mock store.
+	mockStore := &mockStore{}
+	mockStore.On("AddNextEntry", mock.Anything).Return(nil)
+	mockStore.On("Encode", mock.Anything).Return(nil)
+
+	// Build the test data.
+	oldLogs := make([]mig.ChannelCommitment, numLogs)
+	beforeMigration := func(db kvdb.Backend) error {
+		fmt.Printf("\nBuilding test data for %d logs...\n", numLogs)
+		defer fmt.Println("Finished building test data, migrating...")
+
+		// We use a mock store here to bypass the check in
+		// `AddNextEntry` so we don't need a "read" preimage here. This
+		// shouldn't affect our benchmark result as the migration will
+		// load the actual store from db.
+		c := createTestChannel(nil)
+		c.RevocationStore = mockStore
+
+		// Create the test logs.
+		for i := 0; i < numLogs; i++ {
+			oldLog := oldLog2
+			oldLog.CommitHeight = uint64(i)
+			oldLogs[i] = oldLog
+		}
+
+		return setupTestLogs(db, c, oldLogs, nil)
+	}
+
+	// Run the migration test.
+	migtest.ApplyMigrationWithDb(
+		b,
+		beforeMigration,
+		nil,
+		func(db kvdb.Backend) error {
+			b.StartTimer()
+			defer b.StopTimer()
+
+			return MigrateRevocationLog(db)
+		},
+	)
 }

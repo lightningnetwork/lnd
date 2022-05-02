@@ -23,9 +23,11 @@ type ChainNotifierClient interface {
 	//registers an intent for a client to be notified once a confirmation request
 	//has reached its required number of confirmations on-chain.
 	//
-	//A client can specify whether the confirmation request should be for a
-	//particular transaction by its hash or for an output script by specifying a
-	//zero hash.
+	//A confirmation request must have a valid output script. It is also possible
+	//to give a transaction ID. If the transaction ID is not set, a notification
+	//is sent once the output script confirms. If the transaction ID is also set,
+	//a notification is sent once the output script confirms in the given
+	//transaction.
 	RegisterConfirmationsNtfn(ctx context.Context, in *ConfRequest, opts ...grpc.CallOption) (ChainNotifier_RegisterConfirmationsNtfnClient, error)
 	//
 	//RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
@@ -161,9 +163,11 @@ type ChainNotifierServer interface {
 	//registers an intent for a client to be notified once a confirmation request
 	//has reached its required number of confirmations on-chain.
 	//
-	//A client can specify whether the confirmation request should be for a
-	//particular transaction by its hash or for an output script by specifying a
-	//zero hash.
+	//A confirmation request must have a valid output script. It is also possible
+	//to give a transaction ID. If the transaction ID is not set, a notification
+	//is sent once the output script confirms. If the transaction ID is also set,
+	//a notification is sent once the output script confirms in the given
+	//transaction.
 	RegisterConfirmationsNtfn(*ConfRequest, ChainNotifier_RegisterConfirmationsNtfnServer) error
 	//
 	//RegisterSpendNtfn is a synchronous response-streaming RPC that registers an

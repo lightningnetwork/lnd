@@ -206,6 +206,9 @@ close to continue after a peer disconnect](https://github.com/lightningnetwork/l
   options](https://github.com/lightningnetwork/lnd/pull/6064) to allow
   specifying non-default paths for the configuration and RPC cookie files.
 
+* [Clarify comment](https://github.com/lightningnetwork/lnd/pull/6481) on 
+  `chainnotifier.RegisterConfirmationsNtfn`.
+
 ## RPC Server
 
 * [Add value to the field

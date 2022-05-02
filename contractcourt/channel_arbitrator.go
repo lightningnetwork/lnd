@@ -1092,8 +1092,6 @@ func (c *ChannelArbitrator) stateStep(
 		if len(pktsToSend) != 0 {
 			err := c.cfg.DeliverResolutionMsg(pktsToSend...)
 			if err != nil {
-				// TODO(roasbeef): make sure packet sends are
-				// idempotent
 				log.Errorf("unable to send pkts: %v", err)
 				return StateError, closeTx, err
 			}

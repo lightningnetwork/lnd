@@ -297,15 +297,23 @@ type Switch struct {
 	// ack in the forwarding package of the outgoing link. This was added to
 	// make pipelining settles more efficient.
 	pendingSettleFails []channeldb.SettleFailRef
+
+	// resMsgStore is used to store the set of ResolutionMsg that come from
+	// contractcourt. This is used so the Switch can properly forward them,
+	// even on restarts.
+	resMsgStore *resolutionStore
 }
 
 // New creates the new instance of htlc switch.
 func New(cfg Config, currentHeight uint32) (*Switch, error) {
+	resStore := newResolutionStore(cfg.DB)
+
 	circuitMap, err := NewCircuitMap(&CircuitMapConfig{
 		DB:                    cfg.DB,
 		FetchAllOpenChannels:  cfg.FetchAllOpenChannels,
 		FetchClosedChannels:   cfg.FetchClosedChannels,
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
+		CheckResolutionMsg:    resStore.checkResolutionMsg,
 	})
 	if err != nil {
 		return nil, err
@@ -323,6 +331,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		htlcPlex:          make(chan *plexPacket),
 		chanCloseRequests: make(chan *ChanClose),
 		resolutionMsgs:    make(chan *resolutionMsg),
+		resMsgStore:       resStore,
 		quit:              make(chan struct{}),
 	}
 
@@ -342,7 +351,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 type resolutionMsg struct {
 	contractcourt.ResolutionMsg
 
-	doneChan chan struct{}
+	errChan chan error
 }
 
 // ProcessContractResolution is called by active contract resolvers once a
@@ -351,25 +360,23 @@ type resolutionMsg struct {
 // didn't need to go to the chain in order to fulfill a contract. We'll process
 // this message just as if it came from an active outgoing channel.
 func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) error {
-
-	done := make(chan struct{})
+	errChan := make(chan error, 1)
 
 	select {
 	case s.resolutionMsgs <- &resolutionMsg{
 		ResolutionMsg: msg,
-		doneChan:      done,
+		errChan:       errChan,
 	}:
 	case <-s.quit:
 		return ErrSwitchExiting
 	}
 
 	select {
-	case <-done:
+	case err := <-errChan:
+		return err
 	case <-s.quit:
 		return ErrSwitchExiting
 	}
-
-	return nil
 }
 
 // GetPaymentResult returns the the result of the payment attempt with the
@@ -1678,6 +1685,28 @@ out:
 			go s.cfg.LocalChannelClose(peerPub[:], req)
 
 		case resolutionMsg := <-s.resolutionMsgs:
+			// We'll persist the resolution message to the Switch's
+			// resolution store.
+			resMsg := resolutionMsg.ResolutionMsg
+			err := s.resMsgStore.addResolutionMsg(&resMsg)
+			if err != nil {
+				// This will only fail if there is a database
+				// error or a serialization error. Sending the
+				// error prevents the contractcourt from being
+				// in a state where it believes the send was
+				// successful, when it wasn't.
+				log.Errorf("unable to add resolution msg: %v",
+					err)
+				resolutionMsg.errChan <- err
+				continue
+			}
+
+			// At this point, the resolution message has been
+			// persisted. It is safe to signal success by sending
+			// a nil error since the Switch will re-deliver the
+			// resolution message on restart.
+			resolutionMsg.errChan <- nil
+
 			pkt := &htlcPacket{
 				outgoingChanID: resolutionMsg.SourceChan,
 				outgoingHTLCID: resolutionMsg.HtlcIndex,
@@ -1703,13 +1732,10 @@ out:
 			// encounter is due to the circuit already being
 			// closed. This is fine, as processing this message is
 			// meant to be idempotent.
-			err := s.handlePacketForward(pkt)
+			err = s.handlePacketForward(pkt)
 			if err != nil {
 				log.Errorf("Unable to forward resolution msg: %v", err)
 			}
-
-			// With the message processed, we'll now close out
-			close(resolutionMsg.doneChan)
 
 		// A new packet has arrived for forwarding, we'll interpret the
 		// packet concretely, then either forward it along, or
@@ -1860,6 +1886,72 @@ func (s *Switch) Start() error {
 	if err := s.reforwardResponses(); err != nil {
 		s.Stop()
 		log.Errorf("unable to reforward responses: %v", err)
+		return err
+	}
+
+	if err := s.reforwardResolutions(); err != nil {
+		// We are already stopping so we can ignore the error.
+		_ = s.Stop()
+		log.Errorf("unable to reforward resolutions: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// reforwardResolutions fetches the set of resolution messages stored on-disk
+// and reforwards them if their circuits are still open. If the circuits have
+// been deleted, then we will delete the resolution message from the database.
+func (s *Switch) reforwardResolutions() error {
+	// Fetch all stored resolution messages, deleting the ones that are
+	// resolved.
+	resMsgs, err := s.resMsgStore.fetchAllResolutionMsg()
+	if err != nil {
+		return err
+	}
+
+	switchPackets := make([]*htlcPacket, 0, len(resMsgs))
+	for _, resMsg := range resMsgs {
+		// If the open circuit no longer exists, then we can remove the
+		// message from the store.
+		outKey := CircuitKey{
+			ChanID: resMsg.SourceChan,
+			HtlcID: resMsg.HtlcIndex,
+		}
+
+		if s.circuits.LookupOpenCircuit(outKey) == nil {
+			// The open circuit doesn't exist.
+			err := s.resMsgStore.deleteResolutionMsg(&outKey)
+			if err != nil {
+				return err
+			}
+
+			continue
+		}
+
+		// The circuit is still open, so we can assume that the link or
+		// switch (if we are the source) hasn't cleaned it up yet.
+		resPkt := &htlcPacket{
+			outgoingChanID: resMsg.SourceChan,
+			outgoingHTLCID: resMsg.HtlcIndex,
+			isResolution:   true,
+		}
+
+		if resMsg.Failure != nil {
+			resPkt.htlc = &lnwire.UpdateFailHTLC{}
+		} else {
+			resPkt.htlc = &lnwire.UpdateFulfillHTLC{
+				PaymentPreimage: *resMsg.PreImage,
+			}
+		}
+
+		switchPackets = append(switchPackets, resPkt)
+	}
+
+	// We'll now dispatch the set of resolution messages to the proper
+	// destination. An error is only encountered here if the switch is
+	// shutting down.
+	if err := s.ForwardPackets(nil, switchPackets...); err != nil {
 		return err
 	}
 

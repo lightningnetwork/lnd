@@ -66,6 +66,11 @@ func TestCircuitMapCleanClosedChannels(t *testing.T) {
 		chanParams []closeChannelParams
 		deleted    []htlcswitch.Keystone
 		untouched  []htlcswitch.Keystone
+
+		// If resMsg is true, then closed channels will not delete
+		// circuits if the channel was the keystone / outgoing key in
+		// the open circuit.
+		resMsg bool
 	}{
 		{
 			name: "no deletion if there are no closed channels",
@@ -120,7 +125,7 @@ func TestCircuitMapCleanClosedChannels(t *testing.T) {
 				{InKey: inKey20, OutKey: outKey20},
 			},
 			deleted: []htlcswitch.Keystone{
-				{InKey: inKey00}, {InKey: inKey11},
+				{InKey: inKey10}, {InKey: inKey11},
 			},
 			untouched: []htlcswitch.Keystone{
 				{InKey: inKey20, OutKey: outKey20},
@@ -214,13 +219,33 @@ func TestCircuitMapCleanClosedChannels(t *testing.T) {
 				{InKey: inKey22, OutKey: outKey20},
 			},
 		},
+		{
+			name: "don't delete circuits for outgoing",
+			chanParams: []closeChannelParams{
+				// Creates a close channel with chanID1.
+				{chanID: chanID1, isPending: false},
+			},
+			keystones: []htlcswitch.Keystone{
+				// Creates a circuit and a keystone
+				{InKey: inKey10, OutKey: outKey10},
+				// Creates a circuit and a keystone
+				{InKey: inKey11, OutKey: outKey20},
+				// Creates a circuit and a keystone
+				{InKey: inKey00, OutKey: outKey11},
+			},
+			deleted: []htlcswitch.Keystone{
+				{InKey: inKey10, OutKey: outKey10},
+				{InKey: inKey11, OutKey: outKey20},
+			},
+			resMsg: true,
+		},
 	}
 
 	for _, tt := range testParams {
 		test := tt
 
 		t.Run(test.name, func(t *testing.T) {
-			cfg, circuitMap := newCircuitMap(t)
+			cfg, circuitMap := newCircuitMap(t, test.resMsg)
 
 			// create test circuits
 			for _, ks := range test.keystones {

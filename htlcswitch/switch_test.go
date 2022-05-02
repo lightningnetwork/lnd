@@ -15,6 +15,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -3922,4 +3923,145 @@ func TestSwitchMailboxDust(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no timely reply from switch")
 	}
+}
+
+// TestSwitchResolution checks the ability of the switch to persist and handle
+// resolution messages.
+func TestSwitchResolution(t *testing.T) {
+	t.Parallel()
+
+	alicePeer, err := newMockServer(
+		t, "alice", testStartingHeight, nil, testDefaultDelta,
+	)
+	require.NoError(t, err)
+
+	bobPeer, err := newMockServer(
+		t, "bob", testStartingHeight, nil, testDefaultDelta,
+	)
+	require.NoError(t, err)
+
+	s, err := initSwitchWithDB(testStartingHeight, nil)
+	require.NoError(t, err)
+
+	err = s.Start()
+	require.NoError(t, err)
+
+	chanID1, chanID2, aliceChanID, bobChanID := genIDs()
+
+	aliceChannelLink := newMockChannelLink(
+		s, chanID1, aliceChanID, alicePeer, true,
+	)
+	bobChannelLink := newMockChannelLink(
+		s, chanID2, bobChanID, bobPeer, true,
+	)
+	err = s.AddLink(aliceChannelLink)
+	require.NoError(t, err)
+	err = s.AddLink(bobChannelLink)
+	require.NoError(t, err)
+
+	// Create an add htlcPacket that Alice will send to Bob.
+	preimage, err := genPreimage()
+	require.NoError(t, err)
+
+	rhash := sha256.Sum256(preimage[:])
+	packet := &htlcPacket{
+		incomingChanID: aliceChannelLink.ShortChanID(),
+		incomingHTLCID: 0,
+		outgoingChanID: bobChannelLink.ShortChanID(),
+		obfuscator:     NewMockObfuscator(),
+		htlc: &lnwire.UpdateAddHTLC{
+			PaymentHash: rhash,
+			Amount:      1,
+		},
+	}
+
+	err = s.ForwardPackets(nil, packet)
+	require.NoError(t, err)
+
+	// Bob will receive the packet and open the circuit.
+	select {
+	case <-bobChannelLink.packets:
+		err = bobChannelLink.completeCircuit(packet)
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("request was not propagated to destination")
+	}
+
+	// Check that only one circuit is open.
+	require.Equal(t, 1, s.circuits.NumOpen())
+
+	// We'll send a settle resolution to Switch that should go to Alice.
+	settleResMsg := contractcourt.ResolutionMsg{
+		SourceChan: bobChanID,
+		HtlcIndex:  0,
+		PreImage:   &preimage,
+	}
+
+	// Before the resolution is sent, remove alice's link so we can assert
+	// that the resolution is actually stored. Otherwise, it would be
+	// deleted shortly after being sent.
+	s.RemoveLink(chanID1)
+
+	// Send the resolution message.
+	err = s.ProcessContractResolution(settleResMsg)
+	require.NoError(t, err)
+
+	// Assert that the resolution store contains the settle reoslution.
+	resMsgs, err := s.resMsgStore.fetchAllResolutionMsg()
+	require.NoError(t, err)
+
+	require.Equal(t, 1, len(resMsgs))
+	require.Equal(t, settleResMsg.SourceChan, resMsgs[0].SourceChan)
+	require.Equal(t, settleResMsg.HtlcIndex, resMsgs[0].HtlcIndex)
+	require.Nil(t, resMsgs[0].Failure)
+	require.Equal(t, preimage, *resMsgs[0].PreImage)
+
+	// Now we'll restart Alice's link and delete the circuit.
+	err = s.AddLink(aliceChannelLink)
+	require.NoError(t, err)
+
+	// Alice will receive the packet and open the circuit.
+	select {
+	case alicePkt := <-aliceChannelLink.packets:
+		err = aliceChannelLink.completeCircuit(alicePkt)
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("request was not propagated to destination")
+	}
+
+	// Assert that there are no more circuits.
+	require.Equal(t, 0, s.circuits.NumOpen())
+
+	// We'll restart the Switch and assert that Alice does not receive
+	// another packet.
+	switchDB := s.cfg.DB.(*channeldb.DB)
+	err = s.Stop()
+	require.NoError(t, err)
+
+	s, err = initSwitchWithDB(testStartingHeight, switchDB)
+	require.NoError(t, err)
+
+	err = s.Start()
+	require.NoError(t, err)
+	defer func() {
+		_ = s.Stop()
+	}()
+
+	err = s.AddLink(aliceChannelLink)
+	require.NoError(t, err)
+	err = s.AddLink(bobChannelLink)
+	require.NoError(t, err)
+
+	// Alice should not receive a packet since the Switch should have
+	// deleted the resolution message since the circuit was closed.
+	select {
+	case alicePkt := <-aliceChannelLink.packets:
+		t.Fatalf("received erroneous packet: %v", alicePkt)
+	case <-time.After(time.Second * 5):
+	}
+
+	// Check that the resolution message no longer exists in the store.
+	resMsgs, err = s.resMsgStore.fetchAllResolutionMsg()
+	require.NoError(t, err)
+	require.Equal(t, 0, len(resMsgs))
 }

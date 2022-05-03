@@ -158,7 +158,7 @@ func NewRegistry(cdb *channeldb.DB, expiryWatcher *InvoiceExpiryWatcher,
 }
 
 // scanInvoicesOnStart will scan all invoices on start and add active invoices
-// to the invoice expirt watcher while also attempting to delete all canceled
+// to the invoice expiry watcher while also attempting to delete all canceled
 // invoices.
 func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 	var (

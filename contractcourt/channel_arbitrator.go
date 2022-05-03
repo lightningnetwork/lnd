@@ -29,12 +29,6 @@ var (
 	// close a channel that's already in the process of doing so.
 	errAlreadyForceClosed = errors.New("channel is already in the " +
 		"process of being force closed")
-
-	// errChanArbShuttingDown is an error returned when the channel arb is
-	// shutting down during the hand-off in notifyContractUpdate. This is
-	// mainly used to be able to notify the original caller (the link) that
-	// an error occurred.
-	errChanArbShuttingDown = errors.New("channel arb shutting down")
 )
 
 const (
@@ -335,6 +329,13 @@ type ChannelArbitrator struct {
 	// currently valid commitment transactions.
 	activeHTLCs map[HtlcSetKey]htlcSet
 
+	// unmergedSet is used to update the activeHTLCs map in two callsites:
+	// checkLocalChainActions and sweepAnchors. It contains the latest
+	// updates from the link. It is not deleted from, its entries may be
+	// replaced on subsequent calls to notifyContractUpdate.
+	unmergedSet map[HtlcSetKey]htlcSet
+	unmergedMtx sync.RWMutex
+
 	// cfg contains all the functionality that the ChannelArbitrator requires
 	// to do its duty.
 	cfg ChannelArbitratorConfig
@@ -347,11 +348,6 @@ type ChannelArbitrator struct {
 	// signalUpdates is a channel that any new live signals for the channel
 	// we're watching over will be sent.
 	signalUpdates chan *signalUpdateMsg
-
-	// htlcUpdates is a channel that is sent upon with new updates from the
-	// active channel. Each time a new commitment state is accepted, the
-	// set of HTLC's on the new state should be sent across this channel.
-	htlcUpdates chan *contractUpdateSignal
 
 	// activeResolvers is a slice of any active resolvers. This is used to
 	// be able to signal them for shutdown in the case that we shutdown.
@@ -383,14 +379,27 @@ type ChannelArbitrator struct {
 func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 	htlcSets map[HtlcSetKey]htlcSet, log ArbitratorLog) *ChannelArbitrator {
 
+	// Create a new map for unmerged HTLC's as we will overwrite the values
+	// and want to avoid modifying activeHTLCs directly. This soft copying
+	// is done to ensure that activeHTLCs isn't reset as an empty map later
+	// on.
+	unmerged := make(map[HtlcSetKey]htlcSet)
+	unmerged[LocalHtlcSet] = htlcSets[LocalHtlcSet]
+	unmerged[RemoteHtlcSet] = htlcSets[RemoteHtlcSet]
+
+	// If the pending set exists, write that as well.
+	if _, ok := htlcSets[RemotePendingHtlcSet]; ok {
+		unmerged[RemotePendingHtlcSet] = htlcSets[RemotePendingHtlcSet]
+	}
+
 	return &ChannelArbitrator{
 		log:              log,
 		blocks:           make(chan int32, arbitratorBlockBufferSize),
 		signalUpdates:    make(chan *signalUpdateMsg),
-		htlcUpdates:      make(chan *contractUpdateSignal),
 		resolutionSignal: make(chan struct{}),
 		forceCloseReqs:   make(chan *forceCloseReq),
 		activeHTLCs:      htlcSets,
+		unmergedSet:      unmerged,
 		cfg:              cfg,
 		quit:             make(chan struct{}),
 	}
@@ -819,6 +828,10 @@ func (c *ChannelArbitrator) stateStep(
 		if confCommitSet != nil {
 			htlcs = confCommitSet.toActiveHTLCSets()
 		} else {
+			// Update the set of activeHTLCs so
+			// checkLocalChainActions has an up-to-date view of the
+			// commitments.
+			c.updateActiveHTLCs()
 			htlcs = c.activeHTLCs
 		}
 		chainActions, err := c.checkLocalChainActions(
@@ -1214,6 +1227,10 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 
 		return nil
 	}
+
+	// Update the set of activeHTLCs so that the sweeping routine has an
+	// up-to-date view of the set of commitments.
+	c.updateActiveHTLCs()
 
 	// Sweep anchors based on different HTLC sets. Notice the HTLC sets may
 	// differ across commitments, thus their deadline values could vary.
@@ -2394,39 +2411,40 @@ func (c *ChannelArbitrator) UpdateContractSignals(newSignals *ContractSignals) {
 	}
 }
 
-// contractUpdateSignal is a struct that carries the latest set of
-// ContractUpdate for a particular key. It also carries a done chan that should
-// be closed by the recipient.
-type contractUpdateSignal struct {
-	// newUpdate contains the latest ContractUpdate for a key.
-	newUpdate *ContractUpdate
+// notifyContractUpdate updates the ChannelArbitrator's unmerged mappings such
+// that it can later be merged with activeHTLCs when calling
+// checkLocalChainActions or sweepAnchors. These are the only two places that
+// activeHTLCs is used.
+func (c *ChannelArbitrator) notifyContractUpdate(upd *ContractUpdate) {
+	c.unmergedMtx.Lock()
+	defer c.unmergedMtx.Unlock()
 
-	// doneChan is an acknowledgement channel.
-	doneChan chan struct{}
+	// Update the mapping.
+	c.unmergedSet[upd.HtlcKey] = newHtlcSet(upd.Htlcs)
+
+	log.Tracef("ChannelArbitrator(%v): fresh set of htlcs=%v",
+		c.cfg.ChanPoint,
+		newLogClosure(func() string {
+			return spew.Sdump(upd)
+		}),
+	)
 }
 
-// notifyContractUpdate notifies the ChannelArbitrator that a new
-// ContractUpdate is available from the link. The link will be paused until
-// this function returns.
-func (c *ChannelArbitrator) notifyContractUpdate(upd *ContractUpdate) error {
-	done := make(chan struct{})
+// updateActiveHTLCs merges the unmerged set of HTLCs from the link with
+// activeHTLCs.
+func (c *ChannelArbitrator) updateActiveHTLCs() {
+	c.unmergedMtx.RLock()
+	defer c.unmergedMtx.RUnlock()
 
-	select {
-	case c.htlcUpdates <- &contractUpdateSignal{
-		newUpdate: upd,
-		doneChan:  done,
-	}:
-	case <-c.quit:
-		return errChanArbShuttingDown
+	// Update the mapping.
+	c.activeHTLCs[LocalHtlcSet] = c.unmergedSet[LocalHtlcSet]
+	c.activeHTLCs[RemoteHtlcSet] = c.unmergedSet[RemoteHtlcSet]
+
+	// If the pending set exists, update that as well.
+	if _, ok := c.unmergedSet[RemotePendingHtlcSet]; ok {
+		pendingSet := c.unmergedSet[RemotePendingHtlcSet]
+		c.activeHTLCs[RemotePendingHtlcSet] = pendingSet
 	}
-
-	select {
-	case <-done:
-	case <-c.quit:
-		return errChanArbShuttingDown
-	}
-
-	return nil
 }
 
 // channelAttendant is the primary goroutine that acts at the judicial
@@ -2497,30 +2515,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// close the done channel to signal to the caller we've
 			// registered the new ShortChannelID.
 			close(signalUpdate.doneChan)
-
-		// A new set of HTLC's has been added or removed from the
-		// commitment transaction. So we'll update our activeHTLCs map
-		// accordingly.
-		case htlcUpdate := <-c.htlcUpdates:
-			// We'll wipe out our old set of HTLC's for each
-			// htlcSetKey type included in this update in order to
-			// only monitor the HTLCs that are still active on this
-			// target commitment.
-			htlcKey := htlcUpdate.newUpdate.HtlcKey
-			c.activeHTLCs[htlcKey] = newHtlcSet(
-				htlcUpdate.newUpdate.Htlcs,
-			)
-
-			// Now that the activeHTLCs have been updated, we'll
-			// close the done channel.
-			close(htlcUpdate.doneChan)
-
-			log.Tracef("ChannelArbitrator(%v): fresh set of htlcs=%v",
-				c.cfg.ChanPoint,
-				newLogClosure(func() string {
-					return spew.Sdump(htlcUpdate.newUpdate)
-				}),
-			)
 
 		// We've cooperatively closed the channel, so we're no longer
 		// needed. We'll mark the channel as resolved and exit.

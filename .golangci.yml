@@ -17,6 +17,7 @@ run:
     - chainrpc
     - dev
     - invoicesrpc
+    - neutrinorpc
     - peersrpc
     - signrpc
     - walletrpc

@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -65,6 +66,10 @@ type subRPCServerConfigs struct {
 	// PeersRPC is a sub-RPC server that exposes peer related methods
 	// as a gRPC service.
 	PeersRPC *peersrpc.Config `group:"peersrpc" namespace:"peersrpc"`
+
+	// NeutrinoKitRPC is a sub-RPC server that exposes functionality allowing
+	// a client to interact with a running neutrino node.
+	NeutrinoKitRPC *neutrinorpc.Config `group:"neutrinorpc" namespace:"neutrinorpc"`
 
 	// RouterRPC is a sub-RPC server the exposes functionality that allows
 	// clients to send payments on the network, and perform Lightning
@@ -248,6 +253,13 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			)
 			subCfgValue.FieldByName("GenAmpInvoiceFeatures").Set(
 				reflect.ValueOf(genAmpInvoiceFeatures),
+			)
+
+		case *neutrinorpc.Config:
+			subCfgValue := extractReflectValue(subCfg)
+
+			subCfgValue.FieldByName("NeutrinoCS").Set(
+				reflect.ValueOf(cc.Cfg.NeutrinoCS),
 			)
 
 		// RouterRPC isn't conditionally compiled and doesn't need to be

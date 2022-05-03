@@ -1,0 +1,497 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "neutrinorpc/neutrino.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "NeutrinoKit"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v2/neutrino/addpeer": {
+      "post": {
+        "summary": "AddPeer adds a new peer that has already been connected to the server.",
+        "operationId": "NeutrinoKit_AddPeer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcAddPeerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcAddPeerRequest"
+            }
+          }
+        ],
+        "tags": [
+          "NeutrinoKit"
+        ]
+      }
+    },
+    "/v2/neutrino/block/{hash}": {
+      "get": {
+        "summary": "GetBlock returns a block with a particular block hash.",
+        "operationId": "NeutrinoKit_GetBlock",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcGetBlockResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "hash",
+            "description": "Block hash in hex notation.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "NeutrinoKit"
+        ]
+      }
+    },
+    "/v2/neutrino/blockheader/{hash}": {
+      "get": {
+        "summary": "GetBlockHeader returns a block header with a particular block hash.",
+        "operationId": "NeutrinoKit_GetBlockHeader",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcGetBlockHeaderResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "hash",
+            "description": "Block hash in hex notation.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "NeutrinoKit"
+        ]
+      }
+    },
+    "/v2/neutrino/cfilter/{hash}": {
+      "get": {
+        "summary": "GetCFilter returns a compact filter from a block.",
+        "operationId": "NeutrinoKit_GetCFilter",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcGetCFilterResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "hash",
+            "description": "Block hash in hex notation.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "NeutrinoKit"
+        ]
+      }
+    },
+    "/v2/neutrino/disconnect": {
+      "post": {
+        "summary": "DisconnectPeer disconnects a peer by target address. Both outbound and\ninbound nodes will be searched for the target node. An error message will\nbe returned if the peer was not found.",
+        "operationId": "NeutrinoKit_DisconnectPeer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcDisconnectPeerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcDisconnectPeerRequest"
+            }
+          }
+        ],
+        "tags": [
+          "NeutrinoKit"
+        ]
+      }
+    },
+    "/v2/neutrino/isbanned": {
+      "get": {
+        "summary": "IsBanned returns true if the peer is banned, otherwise false.",
+        "operationId": "NeutrinoKit_IsBanned",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcIsBannedResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "peer_addrs",
+            "description": "Peer to lookup.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "NeutrinoKit"
+        ]
+      }
+    },
+    "/v2/neutrino/status": {
+      "get": {
+        "summary": "Status returns the status of the light client neutrino instance,\nalong with height and hash of the best block, and a list of connected\npeers.",
+        "operationId": "NeutrinoKit_Status",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcStatusResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "NeutrinoKit"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "neutrinorpcAddPeerRequest": {
+      "type": "object",
+      "properties": {
+        "peer_addrs": {
+          "type": "string",
+          "description": "Peer to add."
+        }
+      }
+    },
+    "neutrinorpcAddPeerResponse": {
+      "type": "object"
+    },
+    "neutrinorpcDisconnectPeerRequest": {
+      "type": "object",
+      "properties": {
+        "peer_addrs": {
+          "type": "string",
+          "description": "Peer to disconnect."
+        }
+      }
+    },
+    "neutrinorpcDisconnectPeerResponse": {
+      "type": "object"
+    },
+    "neutrinorpcGetBlockHeaderResponse": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "The block hash (same as provided)."
+        },
+        "confirmations": {
+          "type": "string",
+          "format": "int64",
+          "description": "The number of confirmations."
+        },
+        "stripped_size": {
+          "type": "string",
+          "format": "int64",
+          "description": "The block size excluding witness data."
+        },
+        "size": {
+          "type": "string",
+          "format": "int64",
+          "description": "The block size (bytes)."
+        },
+        "weight": {
+          "type": "string",
+          "format": "int64",
+          "description": "The block weight as defined in BIP 141."
+        },
+        "height": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The block height or index."
+        },
+        "version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The block version."
+        },
+        "version_hex": {
+          "type": "string",
+          "description": "The block version."
+        },
+        "merkleroot": {
+          "type": "string",
+          "description": "The merkle root."
+        },
+        "time": {
+          "type": "string",
+          "format": "int64",
+          "description": "The block time in seconds since epoch (Jan 1 1970 GMT)."
+        },
+        "nonce": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The nonce."
+        },
+        "bits": {
+          "type": "string",
+          "description": "The bits in hex notation."
+        },
+        "ntx": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of transactions in the block."
+        },
+        "previous_block_hash": {
+          "type": "string",
+          "description": "The hash of the previous block."
+        },
+        "raw_hex": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw hex of the block."
+        }
+      }
+    },
+    "neutrinorpcGetBlockResponse": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "The block hash (same as provided)."
+        },
+        "confirmations": {
+          "type": "string",
+          "format": "int64",
+          "description": "The number of confirmations."
+        },
+        "stripped_size": {
+          "type": "string",
+          "format": "int64",
+          "description": "The block size excluding witness data."
+        },
+        "size": {
+          "type": "string",
+          "format": "int64",
+          "description": "The block size (bytes)."
+        },
+        "weight": {
+          "type": "string",
+          "format": "int64",
+          "description": "The block weight as defined in BIP 141."
+        },
+        "height": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The block height or index."
+        },
+        "version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The block version."
+        },
+        "version_hex": {
+          "type": "string",
+          "description": "The block version."
+        },
+        "merkleroot": {
+          "type": "string",
+          "description": "The merkle root."
+        },
+        "tx": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of transaction ids."
+        },
+        "time": {
+          "type": "string",
+          "format": "int64",
+          "description": "The block time in seconds since epoch (Jan 1 1970 GMT)."
+        },
+        "nonce": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The nonce."
+        },
+        "bits": {
+          "type": "string",
+          "description": "The bits in hex notation."
+        },
+        "ntx": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of transactions in the block."
+        },
+        "previous_block_hash": {
+          "type": "string",
+          "description": "The hash of the previous block."
+        },
+        "raw_hex": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw hex of the block."
+        }
+      }
+    },
+    "neutrinorpcGetCFilterResponse": {
+      "type": "object",
+      "properties": {
+        "filter": {
+          "type": "string",
+          "format": "byte",
+          "description": "GCS filter."
+        }
+      }
+    },
+    "neutrinorpcIsBannedResponse": {
+      "type": "object",
+      "properties": {
+        "banned": {
+          "type": "boolean"
+        }
+      }
+    },
+    "neutrinorpcStatusResponse": {
+      "type": "object",
+      "properties": {
+        "active": {
+          "type": "boolean",
+          "description": "Indicates whether the neutrino backend is active or not."
+        },
+        "synced": {
+          "type": "boolean",
+          "description": "Is fully synced."
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Best block height."
+        },
+        "block_hash": {
+          "type": "string",
+          "description": "Best block hash."
+        },
+        "peers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Connected peers."
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

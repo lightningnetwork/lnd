@@ -1121,6 +1121,11 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			}
 		}
 
+		var lockDuration time.Duration
+		if req.UtxoLeaseExpirationSeconds != 0 {
+			lockDuration = time.Duration(req.UtxoLeaseExpirationSeconds) * time.Second
+		}
+
 		// We made sure the input from the user is as sane as possible.
 		// We can now ask the wallet to fund the TX. This will not yet
 		// lock any coins but might still change the wallet DB by
@@ -1149,7 +1154,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		// happens in this function. If we ever need to do more after
 		// this function, we need to extract the rollback needs to be
 		// extracted into a defer.
-		locks, err = lockInputs(w.cfg.Wallet, packet)
+		locks, err = lockInputs(w.cfg.Wallet, packet, lockDuration)
 		if err != nil {
 			return fmt.Errorf("could not lock inputs: %v", err)
 		}

@@ -768,6 +768,10 @@ message FundPsbtRequest {
 
     // Whether unconfirmed outputs should be used as inputs for the transaction.
     bool spend_unconfirmed = 7;
+
+    // The time in seconds before the wallet's lock on the selected UTXOs expires.
+    // If set to zero, the default lock duration is used.
+    int32 utxo_lease_expiration_seconds = 8;
 }
 message FundPsbtResponse {
     /*

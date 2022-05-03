@@ -1036,7 +1036,12 @@
         "spend_unconfirmed": {
           "type": "boolean",
           "description": "Whether unconfirmed outputs should be used as inputs for the transaction."
-        }
+        },
+        "utxo_lease_expiration_seconds": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The time in seconds before the wallet's lock on the selected UTXOs expires. If set to zero, the default lock duration is used."
+        },
       }
     },
     "walletrpcFundPsbtResponse": {

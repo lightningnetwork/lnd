@@ -54,6 +54,12 @@ releases. Backward compatibility is not guaranteed!
 * Add [--socksproxy](https://github.com/lightningnetwork/lnd/pull/6422)
   to allow for RPC calls via Tor.
 
+## Neutrino
+
+[Neutrino now suports BIP
+155](https://github.com/lightningnetwork/lnd/pull/6468), allowing it to connect
+to Bitcoin nodes that advertise a Tor v3 onion service address.
+
 ## Bug Fixes
 
 * [Pipelining an UpdateFulfillHTLC message now only happens when the related UpdateAddHTLC is locked-in.](https://github.com/lightningnetwork/lnd/pull/6246)

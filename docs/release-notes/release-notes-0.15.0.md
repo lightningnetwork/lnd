@@ -245,6 +245,11 @@ from occurring that would result in an erroneous force close.](https://github.co
 * [Expose](https://github.com/lightningnetwork/lnd/pull/6454) always on mode of
   the HTLC interceptor API through GetInfo.
 
+* [The `lnrpc.ListPayments` RPC now has an optional `count_total_payments`
+  parameter that will cause the `total_num_payments` response field to be set
+  to the total number of payments (complete and incomplete) that are currently
+  in the payment database](https://github.com/lightningnetwork/lnd/pull/6463).
+
 ## Database
 
 * [Add ForAll implementation for etcd to speed up

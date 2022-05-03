@@ -532,6 +532,10 @@ type PaymentsQuery struct {
 	// fully completed. This means that pending payments, as well as failed
 	// payments will show up if this field is set to true.
 	IncludeIncomplete bool
+
+	// CountTotal indicates that all payments currently present in the
+	// payment index (complete and incomplete) should be counted.
+	CountTotal bool
 }
 
 // PaymentsResponse contains the result of a query to the payments database.
@@ -555,6 +559,11 @@ type PaymentsResponse struct {
 	// in the event that the slice has too many events to fit into a single
 	// response. The offset can be used to continue forward pagination.
 	LastIndexOffset uint64
+
+	// TotalCount represents the total number of payments that are currently
+	// stored in the payment database. This will only be set if the
+	// CountTotal field in the query was set to true.
+	TotalCount uint64
 }
 
 // QueryPayments is a query to the payments database which is restricted
@@ -622,6 +631,35 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 		// Run a paginated query, adding payments to our response.
 		if err := paginator.query(accumulatePayments); err != nil {
 			return err
+		}
+
+		// Counting the total number of payments is expensive, since we
+		// literally have to traverse the cursor linearly, which can
+		// take quite a while. So it's an optional query parameter.
+		if query.CountTotal {
+			var (
+				totalPayments uint64
+				err           error
+			)
+			countFn := func(_, _ []byte) error {
+				totalPayments++
+
+				return nil
+			}
+
+			// In non-boltdb database backends, there's a faster
+			// ForAll query that allows for batch fetching items.
+			if fastBucket, ok := indexes.(kvdb.ExtendedRBucket); ok {
+				err = fastBucket.ForAll(countFn)
+			} else {
+				err = indexes.ForEach(countFn)
+			}
+			if err != nil {
+				return fmt.Errorf("error counting payments: %v",
+					err)
+			}
+
+			resp.TotalCount = totalPayments
 		}
 
 		return nil

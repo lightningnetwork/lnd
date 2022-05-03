@@ -3633,6 +3633,14 @@ message ListPaymentsRequest {
     of the returned payments is always oldest first (ascending index order).
     */
     bool reversed = 4;
+
+    /*
+    If set, all payments (complete and incomplete, independent of the
+    max_payments parameter) will be counted. Note that setting this to true will
+    increase the run time of the call significantly on systems that have a lot
+    of payments, as all of them have to be iterated through to be counted.
+    */
+    bool count_total_payments = 5;
 }
 
 message ListPaymentsResponse {
@@ -3650,6 +3658,14 @@ message ListPaymentsResponse {
     as the index_offset to continue seeking forwards in the next request.
     */
     uint64 last_index_offset = 3;
+
+    /*
+    Will only be set if count_total_payments in the request was set. Represents
+    the total number of payments (complete and incomplete, independent of the
+    number of payments requested in the query) currently present in the payments
+    database.
+    */
+    uint64 total_num_payments = 4;
 }
 
 message DeletePaymentRequest {

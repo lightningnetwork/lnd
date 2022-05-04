@@ -33,7 +33,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 	"gopkg.in/macaroon.v2"
 )
 
@@ -199,12 +201,9 @@ func (r *RPCKeyRing) SignPsbt(packet *psbt.Packet) error {
 		FundedPsbt: buf.Bytes(),
 	})
 	if err != nil {
-		err = fmt.Errorf("error signing PSBT in remote signer "+
+		considerShutdown(err)
+		return fmt.Errorf("error signing PSBT in remote signer "+
 			"instance: %v", err)
-
-		// Log as critical as we should shut down if there is no signer.
-		log.Criticalf("RPC signer error: %v", err)
-		return err
 	}
 
 	signedPacket, err := psbt.NewFromRawBytes(
@@ -410,12 +409,9 @@ func (r *RPCKeyRing) ECDH(keyDesc keychain.KeyDescriptor,
 
 	resp, err := r.signerClient.DeriveSharedKey(ctxt, req)
 	if err != nil {
-		err = fmt.Errorf("error deriving shared key in remote signer "+
-			"instance: %v", err)
-
-		// Log as critical as we should shut down if there is no signer.
-		log.Criticalf("RPC signer error: %v", err)
-		return key, err
+		considerShutdown(err)
+		return key, fmt.Errorf("error deriving shared key in remote "+
+			"signer instance: %v", err)
 	}
 
 	copy(key[:], resp.SharedKey)
@@ -443,12 +439,9 @@ func (r *RPCKeyRing) SignMessage(keyLoc keychain.KeyLocator,
 		DoubleHash: doubleHash,
 	})
 	if err != nil {
-		err = fmt.Errorf("error signing message in remote signer "+
-			"instance: %v", err)
-
-		// Log as critical as we should shut down if there is no signer.
-		log.Criticalf("RPC signer error: %v", err)
-		return nil, err
+		considerShutdown(err)
+		return nil, fmt.Errorf("error signing message in remote "+
+			"signer instance: %v", err)
 	}
 
 	wireSig, err := lnwire.NewSigFromRawSignature(resp.Signature)
@@ -484,12 +477,9 @@ func (r *RPCKeyRing) SignMessageCompact(keyLoc keychain.KeyLocator,
 		CompactSig: true,
 	})
 	if err != nil {
-		err = fmt.Errorf("error signing message in remote signer "+
-			"instance: %v", err)
-
-		// Log as critical as we should shut down if there is no signer.
-		log.Criticalf("RPC signer error: %v", err)
-		return nil, err
+		considerShutdown(err)
+		return nil, fmt.Errorf("error signing message in remote "+
+			"signer instance: %v", err)
 	}
 
 	// The signature in the response is zbase32 encoded, so we need to
@@ -622,12 +612,9 @@ func (r *RPCKeyRing) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 
 	resp, err := r.signerClient.MuSig2CreateSession(ctxt, req)
 	if err != nil {
-		err = fmt.Errorf("error creating MuSig2 session in remote "+
-			"signer instance: %v", err)
-
-		// Log as critical as we should shut down if there is no signer.
-		log.Criticalf("RPC signer error: %v", err)
-		return nil, err
+		considerShutdown(err)
+		return nil, fmt.Errorf("error creating MuSig2 session in "+
+			"remote signer instance: %v", err)
 	}
 
 	// De-Serialize all the info back into our native struct.
@@ -678,12 +665,9 @@ func (r *RPCKeyRing) MuSig2RegisterNonces(sessionID input.MuSig2SessionID,
 
 	resp, err := r.signerClient.MuSig2RegisterNonces(ctxt, req)
 	if err != nil {
-		err = fmt.Errorf("error registering MuSig2 nonces in remote "+
-			"signer instance: %v", err)
-
-		// Log as critical as we should shut down if there is no signer.
-		log.Criticalf("RPC signer error: %v", err)
-		return false, err
+		considerShutdown(err)
+		return false, fmt.Errorf("error registering MuSig2 nonces in "+
+			"remote signer instance: %v", err)
 	}
 
 	return resp.HaveAllNonces, nil
@@ -712,12 +696,9 @@ func (r *RPCKeyRing) MuSig2Sign(sessionID input.MuSig2SessionID,
 
 	resp, err := r.signerClient.MuSig2Sign(ctxt, req)
 	if err != nil {
-		err = fmt.Errorf("error signing MuSig2 session in remote "+
-			"signer instance: %v", err)
-
-		// Log as critical as we should shut down if there is no signer.
-		log.Criticalf("RPC signer error: %v", err)
-		return nil, err
+		considerShutdown(err)
+		return nil, fmt.Errorf("error signing MuSig2 session in "+
+			"remote signer instance: %v", err)
 	}
 
 	partialSig, err := input.DeserializePartialSignature(
@@ -759,12 +740,9 @@ func (r *RPCKeyRing) MuSig2CombineSig(sessionID input.MuSig2SessionID,
 
 	resp, err := r.signerClient.MuSig2CombineSig(ctxt, req)
 	if err != nil {
-		err = fmt.Errorf("error combining MuSig2 signatures in remote "+
-			"signer instance: %v", err)
-
-		// Log as critical as we should shut down if there is no signer.
-		log.Criticalf("RPC signer error: %v", err)
-		return nil, false, err
+		considerShutdown(err)
+		return nil, false, fmt.Errorf("error combining MuSig2 "+
+			"signatures in remote signer instance: %v", err)
 	}
 
 	// The final signature is only available when we have all the other
@@ -793,6 +771,7 @@ func (r *RPCKeyRing) MuSig2Cleanup(sessionID input.MuSig2SessionID) error {
 
 	_, err := r.signerClient.MuSig2Cleanup(ctxt, req)
 	if err != nil {
+		considerShutdown(err)
 		return fmt.Errorf("error cleaning up MuSig2 session in remote "+
 			"signer instance: %v", err)
 	}
@@ -1000,12 +979,9 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 		ctxt, &walletrpc.SignPsbtRequest{FundedPsbt: buf.Bytes()},
 	)
 	if err != nil {
-		err = fmt.Errorf("error signing PSBT in remote signer "+
+		considerShutdown(err)
+		return nil, fmt.Errorf("error signing PSBT in remote signer "+
 			"instance: %v", err)
-
-		// Log as critical as we should shut down if there is no signer.
-		log.Criticalf("RPC signer error: %v", err)
-		return nil, err
 	}
 
 	signedPacket, err := psbt.NewFromRawBytes(
@@ -1131,4 +1107,27 @@ func packetFromTx(original *wire.MsgTx) (*psbt.Packet, error) {
 	}
 
 	return packet, nil
+}
+
+// considerShutdown inspects the error and issues a shutdown (through logging
+// a critical error, which will cause the logger to issue a clean shutdown
+// request) if the error looks like a connection or general availability error
+// and not some application specific problem.
+func considerShutdown(err error) {
+	statusErr, isStatusErr := status.FromError(err)
+	switch {
+	// The context attached to the client request has timed out. This can be
+	// due to not being able to reach the signing server, or it's taking too
+	// long to respond. In either case, request a shutdown.
+	case err == context.DeadlineExceeded:
+		fallthrough
+
+	// The signing server's context timed out before the client's due to
+	// clock skew, request a shutdown anyway.
+	case isStatusErr && statusErr.Code() == codes.DeadlineExceeded:
+		log.Critical("RPC signing timed out: %v", err)
+
+	case isStatusErr && statusErr.Code() == codes.Unavailable:
+		log.Critical("RPC signing server not available: %v", err)
+	}
 }

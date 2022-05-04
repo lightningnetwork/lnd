@@ -1543,6 +1543,10 @@ func (i *InvoiceRegistry) SubscribeNotifications(
 		}
 	}()
 
+	i.Lock()
+	i.notificationClients[client.id] = client
+	i.Unlock()
+
 	// Query the database to see if based on the provided addIndex and
 	// settledIndex we need to deliver any backlog notifications.
 	err := i.deliverBacklogEvents(client)
@@ -1551,12 +1555,6 @@ func (i *InvoiceRegistry) SubscribeNotifications(
 	}
 
 	log.Infof("New invoice subscription client: id=%v", client.id)
-
-	i.Lock()
-	// With the backlog notifications delivered (if any), we'll add this to
-	// our active subscriptions.
-	i.notificationClients[client.id] = client
-	i.Unlock()
 
 	return client, nil
 }
@@ -1617,6 +1615,10 @@ func (i *InvoiceRegistry) SubscribeSingleInvoice(
 		}
 	}()
 
+	i.Lock()
+	i.singleNotificationClients[client.id] = client
+	i.Unlock()
+
 	err := i.deliverSingleBacklogEvents(client)
 	if err != nil {
 		return nil, err
@@ -1624,10 +1626,6 @@ func (i *InvoiceRegistry) SubscribeSingleInvoice(
 
 	log.Infof("New single invoice subscription client: id=%v, ref=%v",
 		client.id, client.invoiceRef)
-
-	i.Lock()
-	i.singleNotificationClients[client.id] = client
-	i.Unlock()
 
 	return client, nil
 }

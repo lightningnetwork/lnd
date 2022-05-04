@@ -224,6 +224,10 @@ from occurring that would result in an erroneous force close.](https://github.co
 * [Clarify comment](https://github.com/lightningnetwork/lnd/pull/6481) on 
   `chainnotifier.RegisterConfirmationsNtfn`.
 
+* [The experimental MuSig2 API now also has a `MuSig2Cleanup` RPC that allows
+  the in-memory state to be cleaned up early if a session isn't expected to
+  succeed anymore](https://github.com/lightningnetwork/lnd/pull/6495).
+
 ## RPC Server
 
 * [Add value to the field

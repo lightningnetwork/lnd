@@ -94,6 +94,11 @@ func (d *DummySigner) MuSig2CombineSig(input.MuSig2SessionID,
 	return nil, false, nil
 }
 
+// MuSig2Cleanup removes a session from memory to free up resources.
+func (d *DummySigner) MuSig2Cleanup(input.MuSig2SessionID) error {
+	return nil
+}
+
 // SingleSigner is an implementation of the Signer interface that signs
 // everything with a single private key.
 type SingleSigner struct {
@@ -226,4 +231,9 @@ func (s *SingleSigner) MuSig2CombineSig(input.MuSig2SessionID,
 	[]*musig2.PartialSignature) (*schnorr.Signature, bool, error) {
 
 	return nil, false, nil
+}
+
+// MuSig2Cleanup removes a session from memory to free up resources.
+func (s *SingleSigner) MuSig2Cleanup(input.MuSig2SessionID) error {
+	return nil
 }

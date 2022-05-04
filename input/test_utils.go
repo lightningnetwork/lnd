@@ -178,6 +178,11 @@ func (m *MockSigner) MuSig2CombineSig(MuSig2SessionID,
 	return nil, false, nil
 }
 
+// MuSig2Cleanup removes a session from memory to free up resources.
+func (m *MockSigner) MuSig2Cleanup(MuSig2SessionID) error {
+	return nil
+}
+
 // findKey searches through all stored private keys and returns one
 // corresponding to the hashed pubkey if it can be found. The public key may
 // either correspond directly to the private key or to the private key with a

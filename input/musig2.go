@@ -58,6 +58,9 @@ type MuSig2Signer interface {
 	// returned.
 	MuSig2CombineSig(MuSig2SessionID,
 		[]*musig2.PartialSignature) (*schnorr.Signature, bool, error)
+
+	// MuSig2Cleanup removes a session from memory to free up resources.
+	MuSig2Cleanup(MuSig2SessionID) error
 }
 
 // MuSig2SessionInfo is a struct for keeping track of a signing session

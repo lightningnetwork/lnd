@@ -906,10 +906,28 @@ func testTaprootMuSig2CombinedLeafKeySpend(ctxt context.Context, t *harnessTest,
 		ctxt, &signrpc.MuSig2SignRequest{
 			SessionId:     sessResp3.SessionId,
 			MessageDigest: sigHash,
-			Cleanup:       true,
 		},
 	)
 	require.NoError(t.t, err)
+
+	// We manually clean up session 3, just to make sure that works as well.
+	_, err = alice.SignerClient.MuSig2Cleanup(
+		ctxt, &signrpc.MuSig2CleanupRequest{
+			SessionId: sessResp3.SessionId,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// A second call to that cleaned up session should now fail with a
+	// specific error.
+	_, err = alice.SignerClient.MuSig2Sign(
+		ctxt, &signrpc.MuSig2SignRequest{
+			SessionId:     sessResp3.SessionId,
+			MessageDigest: sigHash,
+		},
+	)
+	require.Error(t.t, err)
+	require.Contains(t.t, err.Error(), "not found")
 
 	// Luckily only one of the signers needs to combine the signature, so
 	// let's do that now.

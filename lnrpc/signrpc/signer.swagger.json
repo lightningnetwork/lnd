@@ -50,6 +50,40 @@
         ]
       }
     },
+    "/v2/signer/musig2/cleanup": {
+      "post": {
+        "summary": "MuSig2Cleanup (experimental!) allows a caller to clean up a session early in\ncases where it's obvious that the signing session won't succeed and the\nresources can be released.",
+        "description": "NOTE: The MuSig2 BIP is not final yet and therefore this API must be\nconsidered to be HIGHLY EXPERIMENTAL and subject to change in upcoming\nreleases. Backward compatibility is not guaranteed!",
+        "operationId": "Signer_MuSig2Cleanup",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2CleanupResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2CleanupRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Signer"
+        ]
+      }
+    },
     "/v2/signer/musig2/combinekeys": {
       "post": {
         "summary": "MuSig2CombineKeys (experimental!) is a stateless helper RPC that can be used\nto calculate the combined MuSig2 public key from a list of all participating\nsigners' public keys. This RPC is completely stateless and deterministic and\ndoes not create any signing session. It can be used to determine the Taproot\npublic key that should be put in an on-chain output once all public keys are\nknown. A signing session is only needed later when that output should be\n_spent_ again.",
@@ -445,6 +479,19 @@
           "description": "The precise index of the key being identified."
         }
       }
+    },
+    "signrpcMuSig2CleanupRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique ID of the signing session that should be removed/cleaned up."
+        }
+      }
+    },
+    "signrpcMuSig2CleanupResponse": {
+      "type": "object"
     },
     "signrpcMuSig2CombineKeysRequest": {
       "type": "object",

@@ -108,6 +108,11 @@ func (s *MockSigner) MuSig2CombineSig(input.MuSig2SessionID,
 	return nil, false, nil
 }
 
+// MuSig2Cleanup removes a session from memory to free up resources.
+func (s *MockSigner) MuSig2Cleanup(input.MuSig2SessionID) error {
+	return nil
+}
+
 // AddPrivKey records the passed privKey in the MockSigner's registry of keys it
 // can sign with in the future. A unique key locator is returned, allowing the
 // caller to sign with this key when presented via an input.SignDescriptor.

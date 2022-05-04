@@ -26,6 +26,7 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 )
 
 var (
@@ -193,10 +194,12 @@ func NewMiner(t *testing.T, extraArgs []string, createChain bool,
 
 // NewBitcoindBackend spawns a new bitcoind node that connects to a miner at the
 // specified address. The txindex boolean can be set to determine whether the
-// backend node should maintain a transaction index. A connection to the newly
-// spawned bitcoind node is returned.
-func NewBitcoindBackend(t *testing.T, minerAddr string,
-	txindex bool) (*chain.BitcoindConn, func()) {
+// backend node should maintain a transaction index. The rpcpolling boolean
+// can be set to determine whether bitcoind's RPC polling interface should be
+// used for block and tx notifications or if its ZMQ interface should be used.
+// A connection to the newly spawned bitcoind node is returned.
+func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
+	rpcpolling bool) (*chain.BitcoindConn, func()) {
 
 	t.Helper()
 
@@ -231,31 +234,41 @@ func NewBitcoindBackend(t *testing.T, minerAddr string,
 	}
 
 	// Wait for the bitcoind instance to start up.
-	time.Sleep(time.Second)
-
 	host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-	conn, err := chain.NewBitcoindConn(&chain.BitcoindConfig{
+	cfg := &chain.BitcoindConfig{
 		ChainParams: NetParams,
 		Host:        host,
 		User:        "weks",
 		Pass:        "weks",
-		ZMQConfig: &chain.ZMQConfig{
-			ZMQBlockHost:    zmqBlockHost,
-			ZMQTxHost:       zmqTxHost,
-			ZMQReadDeadline: 5 * time.Second,
-		},
 		// Fields only required for pruned nodes, not needed for these
 		// tests.
 		Dialer:             nil,
 		PrunedModeMaxPeers: 0,
-	})
-	if err != nil {
-		bitcoind.Process.Kill()
-		bitcoind.Wait()
-		os.RemoveAll(tempBitcoindDir)
-		t.Fatalf("unable to establish connection to bitcoind: %v", err)
 	}
-	if err := conn.Start(); err != nil {
+
+	if rpcpolling {
+		cfg.ZMQConfig = &chain.ZMQConfig{
+			ZMQBlockHost:    zmqBlockHost,
+			ZMQTxHost:       zmqTxHost,
+			ZMQReadDeadline: 5 * time.Second,
+		}
+	} else {
+		cfg.PollingConfig = &chain.PollingConfig{
+			BlockPollingInterval: time.Millisecond * 20,
+			TxPollingInterval:    time.Millisecond * 20,
+		}
+	}
+
+	var conn *chain.BitcoindConn
+	err = wait.NoError(func() error {
+		conn, err = chain.NewBitcoindConn(cfg)
+		if err != nil {
+			return err
+		}
+
+		return conn.Start()
+	}, 10*time.Second)
+	if err != nil {
 		bitcoind.Process.Kill()
 		bitcoind.Wait()
 		os.RemoveAll(tempBitcoindDir)

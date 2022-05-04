@@ -108,13 +108,18 @@ func syncNotifierWithMiner(t *testing.T, notifier *BitcoindNotifier,
 // TestHistoricalConfDetailsTxIndex ensures that we correctly retrieve
 // historical confirmation details using the backend node's txindex.
 func TestHistoricalConfDetailsTxIndex(t *testing.T) {
+	testHistoricalConfDetailsTxIndex(t, true)
+	testHistoricalConfDetailsTxIndex(t, false)
+}
+
+func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
 	miner, tearDown := chainntnfs.NewMiner(
 		t, []string{"--txindex"}, true, 25,
 	)
 	defer tearDown()
 
 	bitcoindConn, cleanUp := chainntnfs.NewBitcoindBackend(
-		t, miner.P2PAddress(), true,
+		t, miner.P2PAddress(), true, rpcPolling,
 	)
 	defer cleanUp()
 
@@ -206,11 +211,16 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 // historical confirmation details using the set of fallback methods when the
 // backend node's txindex is disabled.
 func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
+	testHistoricalConfDetailsNoTxIndex(t, true)
+	testHistoricalConfDetailsNoTxIndex(t, false)
+}
+
+func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
 	miner, tearDown := chainntnfs.NewMiner(t, nil, true, 25)
 	defer tearDown()
 
 	bitcoindConn, cleanUp := chainntnfs.NewBitcoindBackend(
-		t, miner.P2PAddress(), false,
+		t, miner.P2PAddress(), false, rpcpolling,
 	)
 	defer cleanUp()
 

@@ -13,4 +13,5 @@ import (
 // powered chain notifier.
 func TestInterfaces(t *testing.T) {
 	chainntnfstest.TestInterfaces(t, "bitcoind")
+	chainntnfstest.TestInterfaces(t, "bitcoind-rpc-polling")
 }

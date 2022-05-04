@@ -92,6 +92,10 @@ var (
 			Entity: "signer",
 			Action: "generate",
 		}},
+		"/signrpc.Signer/MuSig2Cleanup": {{
+			Entity: "signer",
+			Action: "generate",
+		}},
 	}
 
 	// DefaultSignerMacFilename is the default name of the signer macaroon
@@ -938,6 +942,24 @@ func (s *Server) MuSig2CombineSig(_ context.Context,
 		HaveAllSignatures: haveAllSigs,
 		FinalSignature:    finalSig.Serialize(),
 	}, nil
+}
+
+// MuSig2Cleanup removes a session from memory to free up resources.
+func (s *Server) MuSig2Cleanup(_ context.Context,
+	in *MuSig2CleanupRequest) (*MuSig2CleanupResponse, error) {
+
+	// Check session ID length.
+	sessionID, err := parseMuSig2SessionID(in.SessionId)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing session ID: %v", err)
+	}
+
+	err = s.cfg.Signer.MuSig2Cleanup(sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("error cleaning up session: %v", err)
+	}
+
+	return &MuSig2CleanupResponse{}, nil
 }
 
 // parseRawKeyBytes checks that the provided raw public key is valid and returns

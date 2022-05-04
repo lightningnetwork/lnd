@@ -1743,6 +1743,93 @@ func (x *MuSig2CombineSigResponse) GetFinalSignature() []byte {
 	return nil
 }
 
+type MuSig2CleanupRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	//
+	//The unique ID of the signing session that should be removed/cleaned up.
+	SessionId []byte `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+}
+
+func (x *MuSig2CleanupRequest) Reset() {
+	*x = MuSig2CleanupRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_signrpc_signer_proto_msgTypes[26]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *MuSig2CleanupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MuSig2CleanupRequest) ProtoMessage() {}
+
+func (x *MuSig2CleanupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_signrpc_signer_proto_msgTypes[26]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MuSig2CleanupRequest.ProtoReflect.Descriptor instead.
+func (*MuSig2CleanupRequest) Descriptor() ([]byte, []int) {
+	return file_signrpc_signer_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *MuSig2CleanupRequest) GetSessionId() []byte {
+	if x != nil {
+		return x.SessionId
+	}
+	return nil
+}
+
+type MuSig2CleanupResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+}
+
+func (x *MuSig2CleanupResponse) Reset() {
+	*x = MuSig2CleanupResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_signrpc_signer_proto_msgTypes[27]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *MuSig2CleanupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MuSig2CleanupResponse) ProtoMessage() {}
+
+func (x *MuSig2CleanupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_signrpc_signer_proto_msgTypes[27]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MuSig2CleanupResponse.ProtoReflect.Descriptor instead.
+func (*MuSig2CleanupResponse) Descriptor() ([]byte, []int) {
+	return file_signrpc_signer_proto_rawDescGZIP(), []int{27}
+}
+
 var File_signrpc_signer_proto protoreflect.FileDescriptor
 
 var file_signrpc_signer_proto_rawDesc = []byte{
@@ -1937,7 +2024,12 @@ var file_signrpc_signer_proto_rawDesc = []byte{
 	0x52, 0x11, 0x68, 0x61, 0x76, 0x65, 0x41, 0x6c, 0x6c, 0x53, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75,
 	0x72, 0x65, 0x73, 0x12, 0x27, 0x0a, 0x0f, 0x66, 0x69, 0x6e, 0x61, 0x6c, 0x5f, 0x73, 0x69, 0x67,
 	0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0e, 0x66, 0x69,
-	0x6e, 0x61, 0x6c, 0x53, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x32, 0x8b, 0x06, 0x0a,
+	0x6e, 0x61, 0x6c, 0x53, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x22, 0x35, 0x0a, 0x14,
+	0x4d, 0x75, 0x53, 0x69, 0x67, 0x32, 0x43, 0x6c, 0x65, 0x61, 0x6e, 0x75, 0x70, 0x52, 0x65, 0x71,
+	0x75, 0x65, 0x73, 0x74, 0x12, 0x1d, 0x0a, 0x0a, 0x73, 0x65, 0x73, 0x73, 0x69, 0x6f, 0x6e, 0x5f,
+	0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x09, 0x73, 0x65, 0x73, 0x73, 0x69, 0x6f,
+	0x6e, 0x49, 0x64, 0x22, 0x17, 0x0a, 0x15, 0x4d, 0x75, 0x53, 0x69, 0x67, 0x32, 0x43, 0x6c, 0x65,
+	0x61, 0x6e, 0x75, 0x70, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x32, 0xdb, 0x06, 0x0a,
 	0x06, 0x53, 0x69, 0x67, 0x6e, 0x65, 0x72, 0x12, 0x34, 0x0a, 0x0d, 0x53, 0x69, 0x67, 0x6e, 0x4f,
 	0x75, 0x74, 0x70, 0x75, 0x74, 0x52, 0x61, 0x77, 0x12, 0x10, 0x2e, 0x73, 0x69, 0x67, 0x6e, 0x72,
 	0x70, 0x63, 0x2e, 0x53, 0x69, 0x67, 0x6e, 0x52, 0x65, 0x71, 0x1a, 0x11, 0x2e, 0x73, 0x69, 0x67,
@@ -1986,7 +2078,12 @@ var file_signrpc_signer_proto_rawDesc = []byte{
 	0x4d, 0x75, 0x53, 0x69, 0x67, 0x32, 0x43, 0x6f, 0x6d, 0x62, 0x69, 0x6e, 0x65, 0x53, 0x69, 0x67,
 	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x21, 0x2e, 0x73, 0x69, 0x67, 0x6e, 0x72, 0x70,
 	0x63, 0x2e, 0x4d, 0x75, 0x53, 0x69, 0x67, 0x32, 0x43, 0x6f, 0x6d, 0x62, 0x69, 0x6e, 0x65, 0x53,
-	0x69, 0x67, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0x2f, 0x5a, 0x2d, 0x67, 0x69,
+	0x69, 0x67, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4e, 0x0a, 0x0d, 0x4d, 0x75,
+	0x53, 0x69, 0x67, 0x32, 0x43, 0x6c, 0x65, 0x61, 0x6e, 0x75, 0x70, 0x12, 0x1d, 0x2e, 0x73, 0x69,
+	0x67, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4d, 0x75, 0x53, 0x69, 0x67, 0x32, 0x43, 0x6c, 0x65, 0x61,
+	0x6e, 0x75, 0x70, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1e, 0x2e, 0x73, 0x69, 0x67,
+	0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4d, 0x75, 0x53, 0x69, 0x67, 0x32, 0x43, 0x6c, 0x65, 0x61, 0x6e,
+	0x75, 0x70, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0x2f, 0x5a, 0x2d, 0x67, 0x69,
 	0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x6e, 0x69,
 	0x6e, 0x67, 0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x2f, 0x6c, 0x6e, 0x64, 0x2f, 0x6c, 0x6e,
 	0x72, 0x70, 0x63, 0x2f, 0x73, 0x69, 0x67, 0x6e, 0x72, 0x70, 0x63, 0x62, 0x06, 0x70, 0x72, 0x6f,
@@ -2005,7 +2102,7 @@ func file_signrpc_signer_proto_rawDescGZIP() []byte {
 	return file_signrpc_signer_proto_rawDescData
 }
 
-var file_signrpc_signer_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_signrpc_signer_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_signrpc_signer_proto_goTypes = []interface{}{
 	(*KeyLocator)(nil),                   // 0: signrpc.KeyLocator
 	(*KeyDescriptor)(nil),                // 1: signrpc.KeyDescriptor
@@ -2033,6 +2130,8 @@ var file_signrpc_signer_proto_goTypes = []interface{}{
 	(*MuSig2SignResponse)(nil),           // 23: signrpc.MuSig2SignResponse
 	(*MuSig2CombineSigRequest)(nil),      // 24: signrpc.MuSig2CombineSigRequest
 	(*MuSig2CombineSigResponse)(nil),     // 25: signrpc.MuSig2CombineSigResponse
+	(*MuSig2CleanupRequest)(nil),         // 26: signrpc.MuSig2CleanupRequest
+	(*MuSig2CleanupResponse)(nil),        // 27: signrpc.MuSig2CleanupResponse
 }
 var file_signrpc_signer_proto_depIdxs = []int32{
 	0,  // 0: signrpc.KeyDescriptor.key_loc:type_name -> signrpc.KeyLocator
@@ -2059,18 +2158,20 @@ var file_signrpc_signer_proto_depIdxs = []int32{
 	20, // 21: signrpc.Signer.MuSig2RegisterNonces:input_type -> signrpc.MuSig2RegisterNoncesRequest
 	22, // 22: signrpc.Signer.MuSig2Sign:input_type -> signrpc.MuSig2SignRequest
 	24, // 23: signrpc.Signer.MuSig2CombineSig:input_type -> signrpc.MuSig2CombineSigRequest
-	5,  // 24: signrpc.Signer.SignOutputRaw:output_type -> signrpc.SignResp
-	7,  // 25: signrpc.Signer.ComputeInputScript:output_type -> signrpc.InputScriptResp
-	9,  // 26: signrpc.Signer.SignMessage:output_type -> signrpc.SignMessageResp
-	11, // 27: signrpc.Signer.VerifyMessage:output_type -> signrpc.VerifyMessageResp
-	13, // 28: signrpc.Signer.DeriveSharedKey:output_type -> signrpc.SharedKeyResponse
-	17, // 29: signrpc.Signer.MuSig2CombineKeys:output_type -> signrpc.MuSig2CombineKeysResponse
-	19, // 30: signrpc.Signer.MuSig2CreateSession:output_type -> signrpc.MuSig2SessionResponse
-	21, // 31: signrpc.Signer.MuSig2RegisterNonces:output_type -> signrpc.MuSig2RegisterNoncesResponse
-	23, // 32: signrpc.Signer.MuSig2Sign:output_type -> signrpc.MuSig2SignResponse
-	25, // 33: signrpc.Signer.MuSig2CombineSig:output_type -> signrpc.MuSig2CombineSigResponse
-	24, // [24:34] is the sub-list for method output_type
-	14, // [14:24] is the sub-list for method input_type
+	26, // 24: signrpc.Signer.MuSig2Cleanup:input_type -> signrpc.MuSig2CleanupRequest
+	5,  // 25: signrpc.Signer.SignOutputRaw:output_type -> signrpc.SignResp
+	7,  // 26: signrpc.Signer.ComputeInputScript:output_type -> signrpc.InputScriptResp
+	9,  // 27: signrpc.Signer.SignMessage:output_type -> signrpc.SignMessageResp
+	11, // 28: signrpc.Signer.VerifyMessage:output_type -> signrpc.VerifyMessageResp
+	13, // 29: signrpc.Signer.DeriveSharedKey:output_type -> signrpc.SharedKeyResponse
+	17, // 30: signrpc.Signer.MuSig2CombineKeys:output_type -> signrpc.MuSig2CombineKeysResponse
+	19, // 31: signrpc.Signer.MuSig2CreateSession:output_type -> signrpc.MuSig2SessionResponse
+	21, // 32: signrpc.Signer.MuSig2RegisterNonces:output_type -> signrpc.MuSig2RegisterNoncesResponse
+	23, // 33: signrpc.Signer.MuSig2Sign:output_type -> signrpc.MuSig2SignResponse
+	25, // 34: signrpc.Signer.MuSig2CombineSig:output_type -> signrpc.MuSig2CombineSigResponse
+	27, // 35: signrpc.Signer.MuSig2Cleanup:output_type -> signrpc.MuSig2CleanupResponse
+	25, // [25:36] is the sub-list for method output_type
+	14, // [14:25] is the sub-list for method input_type
 	14, // [14:14] is the sub-list for extension type_name
 	14, // [14:14] is the sub-list for extension extendee
 	0,  // [0:14] is the sub-list for field type_name
@@ -2394,6 +2495,30 @@ func file_signrpc_signer_proto_init() {
 				return nil
 			}
 		}
+		file_signrpc_signer_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*MuSig2CleanupRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_signrpc_signer_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*MuSig2CleanupResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2401,7 +2526,7 @@ func file_signrpc_signer_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_signrpc_signer_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   26,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

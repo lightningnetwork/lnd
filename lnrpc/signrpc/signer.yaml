@@ -33,3 +33,6 @@ http:
     - selector: signrpc.Signer.MuSig2CombineSig
       post: "/v2/signer/musig2/combinesig"
       body: "*"
+    - selector: signrpc.Signer.MuSig2Cleanup
+      post: "/v2/signer/musig2/cleanup"
+      body: "*"

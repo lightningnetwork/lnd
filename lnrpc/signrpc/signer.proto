@@ -132,6 +132,17 @@ service Signer {
     */
     rpc MuSig2CombineSig (MuSig2CombineSigRequest)
         returns (MuSig2CombineSigResponse);
+
+    /*
+    MuSig2Cleanup (experimental!) allows a caller to clean up a session early in
+    cases where it's obvious that the signing session won't succeed and the
+    resources can be released.
+
+    NOTE: The MuSig2 BIP is not final yet and therefore this API must be
+    considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
+    releases. Backward compatibility is not guaranteed!
+    */
+    rpc MuSig2Cleanup (MuSig2CleanupRequest) returns (MuSig2CleanupResponse);
 }
 
 message KeyLocator {
@@ -552,4 +563,14 @@ message MuSig2CombineSigResponse {
     The final, full signature that is valid for the combined public key.
     */
     bytes final_signature = 2;
+}
+
+message MuSig2CleanupRequest {
+    /*
+    The unique ID of the signing session that should be removed/cleaned up.
+    */
+    bytes session_id = 1;
+}
+
+message MuSig2CleanupResponse {
 }

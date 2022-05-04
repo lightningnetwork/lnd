@@ -120,6 +120,15 @@ type SignerClient interface {
 	//considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
 	//releases. Backward compatibility is not guaranteed!
 	MuSig2CombineSig(ctx context.Context, in *MuSig2CombineSigRequest, opts ...grpc.CallOption) (*MuSig2CombineSigResponse, error)
+	//
+	//MuSig2Cleanup (experimental!) allows a caller to clean up a session early in
+	//cases where it's obvious that the signing session won't succeed and the
+	//resources can be released.
+	//
+	//NOTE: The MuSig2 BIP is not final yet and therefore this API must be
+	//considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
+	//releases. Backward compatibility is not guaranteed!
+	MuSig2Cleanup(ctx context.Context, in *MuSig2CleanupRequest, opts ...grpc.CallOption) (*MuSig2CleanupResponse, error)
 }
 
 type signerClient struct {
@@ -214,6 +223,15 @@ func (c *signerClient) MuSig2Sign(ctx context.Context, in *MuSig2SignRequest, op
 func (c *signerClient) MuSig2CombineSig(ctx context.Context, in *MuSig2CombineSigRequest, opts ...grpc.CallOption) (*MuSig2CombineSigResponse, error) {
 	out := new(MuSig2CombineSigResponse)
 	err := c.cc.Invoke(ctx, "/signrpc.Signer/MuSig2CombineSig", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *signerClient) MuSig2Cleanup(ctx context.Context, in *MuSig2CleanupRequest, opts ...grpc.CallOption) (*MuSig2CleanupResponse, error) {
+	out := new(MuSig2CleanupResponse)
+	err := c.cc.Invoke(ctx, "/signrpc.Signer/MuSig2Cleanup", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -326,6 +344,15 @@ type SignerServer interface {
 	//considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
 	//releases. Backward compatibility is not guaranteed!
 	MuSig2CombineSig(context.Context, *MuSig2CombineSigRequest) (*MuSig2CombineSigResponse, error)
+	//
+	//MuSig2Cleanup (experimental!) allows a caller to clean up a session early in
+	//cases where it's obvious that the signing session won't succeed and the
+	//resources can be released.
+	//
+	//NOTE: The MuSig2 BIP is not final yet and therefore this API must be
+	//considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
+	//releases. Backward compatibility is not guaranteed!
+	MuSig2Cleanup(context.Context, *MuSig2CleanupRequest) (*MuSig2CleanupResponse, error)
 	mustEmbedUnimplementedSignerServer()
 }
 
@@ -362,6 +389,9 @@ func (UnimplementedSignerServer) MuSig2Sign(context.Context, *MuSig2SignRequest)
 }
 func (UnimplementedSignerServer) MuSig2CombineSig(context.Context, *MuSig2CombineSigRequest) (*MuSig2CombineSigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MuSig2CombineSig not implemented")
+}
+func (UnimplementedSignerServer) MuSig2Cleanup(context.Context, *MuSig2CleanupRequest) (*MuSig2CleanupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MuSig2Cleanup not implemented")
 }
 func (UnimplementedSignerServer) mustEmbedUnimplementedSignerServer() {}
 
@@ -556,6 +586,24 @@ func _Signer_MuSig2CombineSig_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Signer_MuSig2Cleanup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MuSig2CleanupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SignerServer).MuSig2Cleanup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/signrpc.Signer/MuSig2Cleanup",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SignerServer).MuSig2Cleanup(ctx, req.(*MuSig2CleanupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Signer_ServiceDesc is the grpc.ServiceDesc for Signer service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -602,6 +650,10 @@ var Signer_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MuSig2CombineSig",
 			Handler:    _Signer_MuSig2CombineSig_Handler,
+		},
+		{
+			MethodName: "MuSig2Cleanup",
+			Handler:    _Signer_MuSig2Cleanup_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

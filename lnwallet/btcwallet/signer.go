@@ -704,6 +704,24 @@ func (b *BtcWallet) MuSig2CombineSig(sessionID input.MuSig2SessionID,
 	return finalSig, session.HaveAllSigs, nil
 }
 
+// MuSig2Cleanup removes a session from memory to free up resources.
+func (b *BtcWallet) MuSig2Cleanup(sessionID input.MuSig2SessionID) error {
+	// We hold the lock during the whole operation, we don't want any
+	// interference with calls that might come through in parallel for the
+	// same session.
+	b.musig2SessionsMtx.Lock()
+	defer b.musig2SessionsMtx.Unlock()
+
+	_, ok := b.musig2Sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session with ID %x not found", sessionID[:])
+	}
+
+	delete(b.musig2Sessions, sessionID)
+
+	return nil
+}
+
 // A compile time check to ensure that BtcWallet implements the Signer
 // interface.
 var _ input.Signer = (*BtcWallet)(nil)

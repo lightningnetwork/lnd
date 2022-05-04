@@ -782,6 +782,24 @@ func (r *RPCKeyRing) MuSig2CombineSig(sessionID input.MuSig2SessionID,
 	return finalSig, resp.HaveAllSignatures, nil
 }
 
+// MuSig2Cleanup removes a session from memory to free up resources.
+func (r *RPCKeyRing) MuSig2Cleanup(sessionID input.MuSig2SessionID) error {
+	req := &signrpc.MuSig2CleanupRequest{
+		SessionId: sessionID[:],
+	}
+
+	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
+	defer cancel()
+
+	_, err := r.signerClient.MuSig2Cleanup(ctxt, req)
+	if err != nil {
+		return fmt.Errorf("error cleaning up MuSig2 session in remote "+
+			"signer instance: %v", err)
+	}
+
+	return nil
+}
+
 // remoteSign signs the input specified in signDesc of the given transaction tx
 // using the remote signing instance.
 func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,

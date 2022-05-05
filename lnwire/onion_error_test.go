@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -101,9 +102,7 @@ func TestChannelUpdateCompatabilityParsing(t *testing.T) {
 	err := parseChannelUpdateCompatabilityMode(
 		bufio.NewReader(&b), &newChanUpdate, 0,
 	)
-	if err != nil {
-		t.Fatalf("unable to parse channel update: %v", err)
-	}
+	require.NoError(t, err, "unable to parse channel update")
 
 	// At this point, we'll ensure that we get the exact same failure out
 	// on the other side.
@@ -130,9 +129,7 @@ func TestChannelUpdateCompatabilityParsing(t *testing.T) {
 	err = parseChannelUpdateCompatabilityMode(
 		bufio.NewReader(&b), &newChanUpdate2, 0,
 	)
-	if err != nil {
-		t.Fatalf("unable to parse channel update: %v", err)
-	}
+	require.NoError(t, err, "unable to parse channel update")
 
 	if !reflect.DeepEqual(newChanUpdate2, newChanUpdate) {
 		t.Fatalf("mismatched channel updates: %v", err)
@@ -158,9 +155,7 @@ func TestWriteOnionErrorChanUpdate(t *testing.T) {
 	// onion error message.
 	var errorBuf bytes.Buffer
 	err := writeOnionErrorChanUpdate(&errorBuf, &update, 0)
-	if err != nil {
-		t.Fatalf("unable to encode onion error: %v", err)
-	}
+	require.NoError(t, err, "unable to encode onion error")
 
 	// Finally, read the length encoded and ensure that it matches the raw
 	// length.
@@ -188,9 +183,7 @@ func TestFailIncorrectDetailsOptionalAmount(t *testing.T) {
 	}
 
 	onionError2, err := DecodeFailure(bytes.NewReader(b.Bytes()), 0)
-	if err != nil {
-		t.Fatalf("unable to decode error: %v", err)
-	}
+	require.NoError(t, err, "unable to decode error")
 
 	invalidDetailsErr, ok := onionError2.(*FailIncorrectDetails)
 	if !ok {
@@ -241,9 +234,7 @@ func TestFailIncorrectDetailsOptionalHeight(t *testing.T) {
 	}
 
 	onionError2, err := DecodeFailure(bytes.NewReader(b.Bytes()), 0)
-	if err != nil {
-		t.Fatalf("unable to decode error: %v", err)
-	}
+	require.NoError(t, err, "unable to decode error")
 
 	invalidDetailsErr, ok := onionError2.(*FailIncorrectDetails)
 	if !ok {

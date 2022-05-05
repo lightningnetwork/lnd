@@ -8,6 +8,7 @@ import (
 	"testing/quick"
 
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/require"
 )
 
 // TestExtraOpaqueDataEncodeDecode tests that we're able to encode/decode
@@ -128,9 +129,7 @@ func TestExtraOpaqueDataPackUnpackRecords(t *testing.T) {
 		&recordProducer{tlv.MakePrimitiveRecord(type2, &hop2)},
 	}
 	typeMap, err := extraBytes.ExtractRecords(newRecords...)
-	if err != nil {
-		t.Fatalf("unable to extract record: %v", err)
-	}
+	require.NoError(t, err, "unable to extract record")
 
 	// We should find that the new backing values have been populated with
 	// the proper value.

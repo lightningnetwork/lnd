@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 type managerTest struct {
@@ -73,9 +74,7 @@ func TestManager(t *testing.T) {
 
 func testManager(t *testing.T, test managerTest) {
 	m, err := newManager(test.cfg, testSetDesc)
-	if err != nil {
-		t.Fatalf("unable to create feature manager: %v", err)
-	}
+	require.NoError(t, err, "unable to create feature manager")
 
 	sets := []Set{
 		SetInit,

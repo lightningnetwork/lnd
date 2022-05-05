@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSphinxHopIteratorForwardingInstructions tests that we're able to
@@ -44,9 +45,7 @@ func TestSphinxHopIteratorForwardingInstructions(t *testing.T) {
 		record.NewNextHopIDRecord(&nextAddrInt),
 	}
 	tlvStream, err := tlv.NewStream(tlvRecords...)
-	if err != nil {
-		t.Fatalf("unable to create stream: %v", err)
-	}
+	require.NoError(t, err, "unable to create stream")
 	if err := tlvStream.Encode(&b); err != nil {
 		t.Fatalf("unable to encode stream: %v", err)
 	}

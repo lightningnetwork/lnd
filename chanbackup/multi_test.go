@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"net"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestMultiPackUnpack...
@@ -126,9 +128,7 @@ func TestPackedMultiUnpack(t *testing.T) {
 
 	// First, we'll make a new unpacked multi with a random channel.
 	testChannel, err := genRandomOpenChannelShell()
-	if err != nil {
-		t.Fatalf("unable to gen random channel: %v", err)
-	}
+	require.NoError(t, err, "unable to gen random channel")
 	var multi Multi
 	multi.StaticBackups = append(
 		multi.StaticBackups, NewSingle(testChannel, nil),
@@ -143,9 +143,7 @@ func TestPackedMultiUnpack(t *testing.T) {
 	// We should be able to properly unpack this typed packed multi.
 	packedMulti := PackedMulti(b.Bytes())
 	unpackedMulti, err := packedMulti.Unpack(keyRing)
-	if err != nil {
-		t.Fatalf("unable to unpack multi: %v", err)
-	}
+	require.NoError(t, err, "unable to unpack multi")
 
 	// Finally, the versions should match, and the unpacked singles also
 	// identical.

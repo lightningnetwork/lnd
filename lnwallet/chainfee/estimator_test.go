@@ -99,9 +99,7 @@ func TestStaticFeeEstimator(t *testing.T) {
 	defer feeEstimator.Stop()
 
 	feeRate, err := feeEstimator.EstimateFeePerKW(6)
-	if err != nil {
-		t.Fatalf("unable to get fee rate: %v", err)
-	}
+	require.NoError(t, err, "unable to get fee rate")
 
 	if feeRate != feePerKw {
 		t.Fatalf("expected fee rate %v, got %v", feePerKw, feeRate)
@@ -130,16 +128,12 @@ func TestSparseConfFeeSource(t *testing.T) {
 	}
 	testJSON := map[string]map[uint32]uint32{"fee_by_block_target": testFees}
 	jsonResp, err := json.Marshal(testJSON)
-	if err != nil {
-		t.Fatalf("unable to marshal JSON API response: %v", err)
-	}
+	require.NoError(t, err, "unable to marshal JSON API response")
 	reader := bytes.NewReader(jsonResp)
 
 	// Finally, ensure the expected map is returned without error.
 	fees, err := feeSource.ParseResponse(reader)
-	if err != nil {
-		t.Fatalf("unable to parse API response: %v", err)
-	}
+	require.NoError(t, err, "unable to parse API response")
 	if !reflect.DeepEqual(fees, testFees) {
 		t.Fatalf("expected %v, got %v", testFees, fees)
 	}
@@ -148,9 +142,7 @@ func TestSparseConfFeeSource(t *testing.T) {
 	badFees := map[string]uint32{"hi": 12345, "hello": 42, "satoshi": 54321}
 	badJSON := map[string]map[string]uint32{"fee_by_block_target": badFees}
 	jsonResp, err = json.Marshal(badJSON)
-	if err != nil {
-		t.Fatalf("unable to marshal JSON API response: %v", err)
-	}
+	require.NoError(t, err, "unable to marshal JSON API response")
 	reader = bytes.NewReader(jsonResp)
 
 	// Finally, ensure the improperly formatted fees error.

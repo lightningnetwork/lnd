@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/stretchr/testify/require"
 )
 
 type mockChannelSource struct {
@@ -86,13 +87,9 @@ func TestFetchBackupForChan(t *testing.T) {
 	// First, we'll make two channels, only one of them will have all the
 	// information we need to construct set of backups for them.
 	randomChan1, err := genRandomOpenChannelShell()
-	if err != nil {
-		t.Fatalf("unable to generate chan: %v", err)
-	}
+	require.NoError(t, err, "unable to generate chan")
 	randomChan2, err := genRandomOpenChannelShell()
-	if err != nil {
-		t.Fatalf("unable to generate chan: %v", err)
-	}
+	require.NoError(t, err, "unable to generate chan")
 
 	chanSource := newMockChannelSource()
 	chanSource.chans[randomChan1.FundingOutpoint] = randomChan1
@@ -152,13 +149,9 @@ func TestFetchStaticChanBackups(t *testing.T) {
 	// channel source.
 	const numChans = 2
 	randomChan1, err := genRandomOpenChannelShell()
-	if err != nil {
-		t.Fatalf("unable to generate chan: %v", err)
-	}
+	require.NoError(t, err, "unable to generate chan")
 	randomChan2, err := genRandomOpenChannelShell()
-	if err != nil {
-		t.Fatalf("unable to generate chan: %v", err)
-	}
+	require.NoError(t, err, "unable to generate chan")
 
 	chanSource := newMockChannelSource()
 	chanSource.chans[randomChan1.FundingOutpoint] = randomChan1
@@ -170,9 +163,7 @@ func TestFetchStaticChanBackups(t *testing.T) {
 	// of backups for all the channels. This should succeed, as all items
 	// are populated within the channel source.
 	backups, err := FetchStaticChanBackups(chanSource, chanSource)
-	if err != nil {
-		t.Fatalf("unable to create chan back ups: %v", err)
-	}
+	require.NoError(t, err, "unable to create chan back ups")
 
 	if len(backups) != numChans {
 		t.Fatalf("expected %v chans, instead got %v", numChans,

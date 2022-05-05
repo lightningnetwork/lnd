@@ -129,9 +129,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test basic insertion/deletion for vertexes from the
 	// graph, so we'll create a test vertex to start with.
@@ -158,9 +156,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// Next, fetch the node from the database to ensure everything was
 	// serialized properly.
 	dbNode, err := graph.FetchLightningNode(testPub)
-	if err != nil {
-		t.Fatalf("unable to locate node: %v", err)
-	}
+	require.NoError(t, err, "unable to locate node")
 
 	if _, exists, err := graph.HasLightningNode(dbNode.PubKeyBytes); err != nil {
 		t.Fatalf("unable to query for node: %v", err)
@@ -195,9 +191,7 @@ func TestPartialNode(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// We want to be able to insert nodes into the graph that only has the
 	// PubKey set.
@@ -214,9 +208,7 @@ func TestPartialNode(t *testing.T) {
 	// Next, fetch the node from the database to ensure everything was
 	// serialized properly.
 	dbNode, err := graph.FetchLightningNode(testPub)
-	if err != nil {
-		t.Fatalf("unable to locate node: %v", err)
-	}
+	require.NoError(t, err, "unable to locate node")
 
 	if _, exists, err := graph.HasLightningNode(dbNode.PubKeyBytes); err != nil {
 		t.Fatalf("unable to query for node: %v", err)
@@ -257,16 +249,12 @@ func TestAliasLookup(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test the alias index within the database, so first
 	// create a new test node.
 	testNode, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 
 	// Add the node to the graph's database, this should also insert an
 	// entry into the alias index for this node.
@@ -277,13 +265,9 @@ func TestAliasLookup(t *testing.T) {
 	// Next, attempt to lookup the alias. The alias should exactly match
 	// the one which the test node was assigned.
 	nodePub, err := testNode.PubKey()
-	if err != nil {
-		t.Fatalf("unable to generate pubkey: %v", err)
-	}
+	require.NoError(t, err, "unable to generate pubkey")
 	dbAlias, err := graph.LookupAlias(nodePub)
-	if err != nil {
-		t.Fatalf("unable to find alias: %v", err)
-	}
+	require.NoError(t, err, "unable to find alias")
 	if dbAlias != testNode.Alias {
 		t.Fatalf("aliases don't match, expected %v got %v",
 			testNode.Alias, dbAlias)
@@ -291,13 +275,9 @@ func TestAliasLookup(t *testing.T) {
 
 	// Ensure that looking up a non-existent alias results in an error.
 	node, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	nodePub, err = node.PubKey()
-	if err != nil {
-		t.Fatalf("unable to generate pubkey: %v", err)
-	}
+	require.NoError(t, err, "unable to generate pubkey")
 	_, err = graph.LookupAlias(nodePub)
 	if err != ErrNodeAliasNotFound {
 		t.Fatalf("alias lookup should fail for non-existent pubkey")
@@ -308,17 +288,13 @@ func TestSourceNode(t *testing.T) {
 	t.Parallel()
 
 	graph, cleanUp, err := MakeTestGraph()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	// We'd like to test the setting/getting of the source node, so we
 	// first create a fake node to use within the test.
 	testNode, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 
 	// Attempt to fetch the source node, this should return an error as the
 	// source node hasn't yet been set.
@@ -335,9 +311,7 @@ func TestSourceNode(t *testing.T) {
 	// Retrieve the source node from the database, it should exactly match
 	// the one we set above.
 	sourceNode, err := graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch source node")
 	if err := compareNodes(testNode, sourceNode); err != nil {
 		t.Fatalf("nodes don't match: %v", err)
 	}
@@ -348,20 +322,14 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test the insertion/deletion of edges, so we create two
 	// vertexes to connect.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 
 	// In addition to the fake vertexes we create some fake channel
 	// identifiers.
@@ -374,13 +342,9 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	// Add the new edge to the database, this should proceed without any
 	// errors.
 	node1Pub, err := node1.PubKey()
-	if err != nil {
-		t.Fatalf("unable to generate node key: %v", err)
-	}
+	require.NoError(t, err, "unable to generate node key")
 	node2Pub, err := node2.PubKey()
-	if err != nil {
-		t.Fatalf("unable to generate node key: %v", err)
-	}
+	require.NoError(t, err, "unable to generate node key")
 	edgeInfo := ChannelEdgeInfo{
 		ChannelID: chanID,
 		ChainHash: key,
@@ -483,14 +447,10 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	sourceNode, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create source node: %v", err)
-	}
+	require.NoError(t, err, "unable to create source node")
 	if err := graph.SetSourceNode(sourceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
@@ -498,13 +458,9 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	// We'd like to test the insertion/deletion of edges, so we create two
 	// vertexes to connect.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 
 	// In addition to the fake vertexes we create some fake channel
 	// identifiers.
@@ -515,16 +471,12 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	// Prune the graph a few times to make sure we have entries in the
 	// prune log.
 	_, err = graph.PruneGraph(spendOutputs, &blockHash, 155)
-	if err != nil {
-		t.Fatalf("unable to prune graph: %v", err)
-	}
+	require.NoError(t, err, "unable to prune graph")
 	var blockHash2 chainhash.Hash
 	copy(blockHash2[:], bytes.Repeat([]byte{2}, 32))
 
 	_, err = graph.PruneGraph(spendOutputs, &blockHash2, 156)
-	if err != nil {
-		t.Fatalf("unable to prune graph: %v", err)
-	}
+	require.NoError(t, err, "unable to prune graph")
 
 	// We'll create 3 almost identical edges, so first create a helper
 	// method containing all logic for doing so.
@@ -585,9 +537,7 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 
 	// The two first edges should be removed from the db.
 	_, _, has, isZombie, err := graph.HasChannelEdge(edgeInfo.ChannelID)
-	if err != nil {
-		t.Fatalf("unable to query for edge: %v", err)
-	}
+	require.NoError(t, err, "unable to query for edge")
 	if has {
 		t.Fatalf("edge1 was not pruned from the graph")
 	}
@@ -595,9 +545,7 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 		t.Fatal("reorged edge1 should not be marked as zombie")
 	}
 	_, _, has, isZombie, err = graph.HasChannelEdge(edgeInfo2.ChannelID)
-	if err != nil {
-		t.Fatalf("unable to query for edge: %v", err)
-	}
+	require.NoError(t, err, "unable to query for edge")
 	if has {
 		t.Fatalf("edge2 was not pruned from the graph")
 	}
@@ -607,9 +555,7 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 
 	// Edge 3 should not be removed.
 	_, _, has, isZombie, err = graph.HasChannelEdge(edgeInfo3.ChannelID)
-	if err != nil {
-		t.Fatalf("unable to query for edge: %v", err)
-	}
+	require.NoError(t, err, "unable to query for edge")
 	if !has {
 		t.Fatalf("edge3 was pruned from the graph")
 	}
@@ -620,9 +566,7 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	// PruneTip should be set to the blockHash we specified for the block
 	// at height 155.
 	hash, h, err := graph.PruneTip()
-	if err != nil {
-		t.Fatalf("unable to get prune tip: %v", err)
-	}
+	require.NoError(t, err, "unable to get prune tip")
 	if !blockHash.IsEqual(hash) {
 		t.Fatalf("expected best block to be %x, was %x", blockHash, hash)
 	}
@@ -775,24 +719,18 @@ func TestEdgeInfoUpdates(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	assertNodeInCache(t, graph, node1, testFeatures)
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -831,9 +769,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	// Check for existence of the edge within the database, it should be
 	// found.
 	_, _, found, isZombie, err := graph.HasChannelEdge(chanID)
-	if err != nil {
-		t.Fatalf("unable to query for edge: %v", err)
-	}
+	require.NoError(t, err, "unable to query for edge")
 	if !found {
 		t.Fatalf("graph should have of inserted edge")
 	}
@@ -844,9 +780,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	// We should also be able to retrieve the channelID only knowing the
 	// channel point of the channel.
 	dbChanID, err := graph.ChannelID(&outpoint)
-	if err != nil {
-		t.Fatalf("unable to retrieve channel ID: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve channel ID")
 	if dbChanID != chanID {
 		t.Fatalf("chan ID's mismatch, expected %v got %v", dbChanID,
 			chanID)
@@ -855,9 +789,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	// With the edges inserted, perform some queries to ensure that they've
 	// been inserted properly.
 	dbEdgeInfo, dbEdge1, dbEdge2, err := graph.FetchChannelEdgesByID(chanID)
-	if err != nil {
-		t.Fatalf("unable to fetch channel by ID: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch channel by ID")
 	if err := compareEdgePolicies(dbEdge1, edge1); err != nil {
 		t.Fatalf("edge doesn't match: %v", err)
 	}
@@ -869,9 +801,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	// Next, attempt to query the channel edges according to the outpoint
 	// of the channel.
 	dbEdgeInfo, dbEdge1, dbEdge2, err = graph.FetchChannelEdgesByOutpoint(&outpoint)
-	if err != nil {
-		t.Fatalf("unable to fetch channel by ID: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch channel by ID")
 	if err := compareEdgePolicies(dbEdge1, edge1); err != nil {
 		t.Fatalf("edge doesn't match: %v", err)
 	}
@@ -1094,9 +1024,7 @@ func TestGraphTraversal(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test some of the graph traversal capabilities within
 	// the DB, so we'll create a series of fake nodes to insert into the
@@ -1184,9 +1112,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test some of the graph traversal capabilities within
 	// the DB, so we'll create a series of fake nodes to insert into the
@@ -1488,14 +1414,10 @@ func TestGraphPruning(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	sourceNode, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create source node: %v", err)
-	}
+	require.NoError(t, err, "unable to create source node")
 	if err := graph.SetSourceNode(sourceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
@@ -1587,9 +1509,7 @@ func TestGraphPruning(t *testing.T) {
 	// With all the channel points added, we'll consult the graph to ensure
 	// it has the same channel view as the one we just constructed.
 	channelView, err := graph.ChannelView()
-	if err != nil {
-		t.Fatalf("unable to get graph channel view: %v", err)
-	}
+	require.NoError(t, err, "unable to get graph channel view")
 	assertChanViewEqual(t, channelView, edgePoints)
 
 	// Now with our test graph created, we can test the pruning
@@ -1602,9 +1522,7 @@ func TestGraphPruning(t *testing.T) {
 	blockHeight := uint32(1)
 	block := channelPoints[:2]
 	prunedChans, err := graph.PruneGraph(block, &blockHash, blockHeight)
-	if err != nil {
-		t.Fatalf("unable to prune graph: %v", err)
-	}
+	require.NoError(t, err, "unable to prune graph")
 	if len(prunedChans) != 2 {
 		t.Fatalf("incorrect number of channels pruned: "+
 			"expected %v, got %v", 2, prunedChans)
@@ -1619,9 +1537,7 @@ func TestGraphPruning(t *testing.T) {
 
 	// Those channels should also be missing from the channel view.
 	channelView, err = graph.ChannelView()
-	if err != nil {
-		t.Fatalf("unable to get graph channel view: %v", err)
-	}
+	require.NoError(t, err, "unable to get graph channel view")
 	assertChanViewEqualChanPoints(t, channelView, channelPoints[2:])
 
 	// Next we'll create a block that doesn't close any channels within the
@@ -1636,9 +1552,7 @@ func TestGraphPruning(t *testing.T) {
 	prunedChans, err = graph.PruneGraph(
 		[]*wire.OutPoint{nonChannel}, &blockHash, blockHeight,
 	)
-	if err != nil {
-		t.Fatalf("unable to prune graph: %v", err)
-	}
+	require.NoError(t, err, "unable to prune graph")
 
 	// No channels should have been detected as pruned.
 	if len(prunedChans) != 0 {
@@ -1658,9 +1572,7 @@ func TestGraphPruning(t *testing.T) {
 	prunedChans, err = graph.PruneGraph(
 		channelPoints[2:], &blockHash, blockHeight,
 	)
-	if err != nil {
-		t.Fatalf("unable to prune graph: %v", err)
-	}
+	require.NoError(t, err, "unable to prune graph")
 
 	// The remainder of the channels should have been pruned from the
 	// graph.
@@ -1679,9 +1591,7 @@ func TestGraphPruning(t *testing.T) {
 	// completely empty.  Those channels should also be missing from the
 	// channel view.
 	channelView, err = graph.ChannelView()
-	if err != nil {
-		t.Fatalf("unable to get graph channel view: %v", err)
-	}
+	require.NoError(t, err, "unable to get graph channel view")
 	if len(channelView) != 0 {
 		t.Fatalf("channel view should be empty, instead have: %v",
 			channelView)
@@ -1695,16 +1605,12 @@ func TestHighestChanID(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// If we don't yet have any channels in the database, then we should
 	// get a channel ID of zero if we ask for the highest channel ID.
 	bestID, err := graph.HighestChanID()
-	if err != nil {
-		t.Fatalf("unable to get highest ID: %v", err)
-	}
+	require.NoError(t, err, "unable to get highest ID")
 	if bestID != 0 {
 		t.Fatalf("best ID w/ no chan should be zero, is instead: %v",
 			bestID)
@@ -1713,13 +1619,9 @@ func TestHighestChanID(t *testing.T) {
 	// Next, we'll insert two channels into the database, with each channel
 	// connecting the same two nodes.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 
 	// The first channel with be at height 10, while the other will be at
 	// height 100.
@@ -1736,9 +1638,7 @@ func TestHighestChanID(t *testing.T) {
 	// Now that the edges has been inserted, we'll query for the highest
 	// known channel ID in the database.
 	bestID, err = graph.HighestChanID()
-	if err != nil {
-		t.Fatalf("unable to get highest ID: %v", err)
-	}
+	require.NoError(t, err, "unable to get highest ID")
 
 	if bestID != chanID2.ToUint64() {
 		t.Fatalf("expected %v got %v for best chan ID: ",
@@ -1752,9 +1652,7 @@ func TestHighestChanID(t *testing.T) {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
 	bestID, err = graph.HighestChanID()
-	if err != nil {
-		t.Fatalf("unable to get highest ID: %v", err)
-	}
+	require.NoError(t, err, "unable to get highest ID")
 
 	if bestID != chanID3.ToUint64() {
 		t.Fatalf("expected %v got %v for best chan ID: ",
@@ -1770,18 +1668,14 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// If we issue an arbitrary query before any channel updates are
 	// inserted in the database, we should get zero results.
 	chanUpdates, err := graph.ChanUpdatesInHorizon(
 		time.Unix(999, 0), time.Unix(9999, 0),
 	)
-	if err != nil {
-		t.Fatalf("unable to updates for updates: %v", err)
-	}
+	require.NoError(t, err, "unable to updates for updates")
 	if len(chanUpdates) != 0 {
 		t.Fatalf("expected 0 chan updates, instead got %v",
 			len(chanUpdates))
@@ -1789,16 +1683,12 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 
 	// We'll start by creating two nodes which will seed our test graph.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -1938,9 +1828,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	startTime := time.Unix(1234, 0)
 	endTime := startTime
@@ -1950,9 +1838,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 	nodeUpdates, err := graph.NodeUpdatesInHorizon(
 		time.Unix(999, 0), time.Unix(9999, 0),
 	)
-	if err != nil {
-		t.Fatalf("unable to query for node updates: %v", err)
-	}
+	require.NoError(t, err, "unable to query for node updates")
 	if len(nodeUpdates) != 0 {
 		t.Fatalf("expected 0 node updates, instead got %v",
 			len(nodeUpdates))
@@ -2059,33 +1945,25 @@ func TestFilterKnownChanIDs(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// If we try to filter out a set of channel ID's before we even know of
 	// any channels, then we should get the entire set back.
 	preChanIDs := []uint64{1, 2, 3, 4}
 	filteredIDs, err := graph.FilterKnownChanIDs(preChanIDs)
-	if err != nil {
-		t.Fatalf("unable to filter chan IDs: %v", err)
-	}
+	require.NoError(t, err, "unable to filter chan IDs")
 	if !reflect.DeepEqual(preChanIDs, filteredIDs) {
 		t.Fatalf("chan IDs shouldn't have been filtered!")
 	}
 
 	// We'll start by creating two nodes which will seed our test graph.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -2174,23 +2052,17 @@ func TestFilterChannelRange(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -2198,9 +2070,7 @@ func TestFilterChannelRange(t *testing.T) {
 	// If we try to filter a channel range before we have any channels
 	// inserted, we should get an empty slice of results.
 	resp, err := graph.FilterChannelRange(10, 100)
-	if err != nil {
-		t.Fatalf("unable to filter channels: %v", err)
-	}
+	require.NoError(t, err, "unable to filter channels")
 	if len(resp) != 0 {
 		t.Fatalf("expected zero chans, instead got %v", len(resp))
 	}
@@ -2306,23 +2176,17 @@ func TestFetchChanInfos(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -2388,18 +2252,14 @@ func TestFetchChanInfos(t *testing.T) {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
 	err = graph.DeleteChannelEdges(false, zombieChan.ChannelID)
-	if err != nil {
-		t.Fatalf("unable to delete and mark edge zombie: %v", err)
-	}
+	require.NoError(t, err, "unable to delete and mark edge zombie")
 	edgeQuery = append(edgeQuery, zombieChanID.ToUint64())
 
 	// We'll now attempt to query for the range of channel ID's we just
 	// inserted into the database. We should get the exact same set of
 	// edges back.
 	resp, err := graph.FetchChanInfos(edgeQuery)
-	if err != nil {
-		t.Fatalf("unable to fetch chan edges: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch chan edges")
 	if len(resp) != len(edges) {
 		t.Fatalf("expected %v edges, instead got %v", len(edges),
 			len(resp))
@@ -2426,22 +2286,16 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// Create two nodes.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -2532,14 +2386,10 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	sourceNode, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create source node: %v", err)
-	}
+	require.NoError(t, err, "unable to create source node")
 	if err := graph.SetSourceNode(sourceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
@@ -2547,16 +2397,12 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -2669,9 +2515,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	_, err = graph.PruneGraph(
 		[]*wire.OutPoint{&edgeInfo.ChannelPoint}, &blockHash, 101,
 	)
-	if err != nil {
-		t.Fatalf("unable to prune graph: %v", err)
-	}
+	require.NoError(t, err, "unable to prune graph")
 
 	// Finally, we'll check the database state one last time to conclude
 	// that we should no longer be able to locate _any_ entries within the
@@ -2686,16 +2530,12 @@ func TestPruneGraphNodes(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// We'll start off by inserting our source node, to ensure that it's
 	// the only node left after we prune the graph.
 	sourceNode, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create source node: %v", err)
-	}
+	require.NoError(t, err, "unable to create source node")
 	if err := graph.SetSourceNode(sourceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
@@ -2704,23 +2544,17 @@ func TestPruneGraphNodes(t *testing.T) {
 	// channel graph, at the end of the scenario, only two of these nodes
 	// should still be in the graph.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node3, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node3); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -2769,23 +2603,17 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// To start, we'll create two nodes, and only add one of them to the
 	// channel graph.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 
 	// We'll now create an edge between the two nodes, as a result, node2
 	// should be inserted into the database as a shell node.
@@ -2797,17 +2625,13 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 	// Ensure that node1 was inserted as a full node, while node2 only has
 	// a shell node present.
 	node1, err = graph.FetchLightningNode(node1.PubKeyBytes)
-	if err != nil {
-		t.Fatalf("unable to fetch node1: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch node1")
 	if !node1.HaveNodeAnnouncement {
 		t.Fatalf("have shell announcement for node1, shouldn't")
 	}
 
 	node2, err = graph.FetchLightningNode(node2.PubKeyBytes)
-	if err != nil {
-		t.Fatalf("unable to fetch node2: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch node2")
 	if node2.HaveNodeAnnouncement {
 		t.Fatalf("should have shell announcement for node2, but is full")
 	}
@@ -2821,16 +2645,12 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// We'll first populate our graph with a single node that will be
 	// removed shortly.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -2841,9 +2661,7 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	startTime := time.Unix(9, 0)
 	endTime := node1.LastUpdate.Add(time.Minute)
 	nodesInHorizon, err := graph.NodeUpdatesInHorizon(startTime, endTime)
-	if err != nil {
-		t.Fatalf("unable to fetch nodes in horizon: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch nodes in horizon")
 
 	// We should only have a single node, and that node should exactly
 	// match the node we just inserted.
@@ -2864,9 +2682,7 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	// Now that the node has been deleted, we'll again query the nodes in
 	// the horizon. This time we should have no nodes at all.
 	nodesInHorizon, err = graph.NodeUpdatesInHorizon(startTime, endTime)
-	if err != nil {
-		t.Fatalf("unable to fetch nodes in horizon: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch nodes in horizon")
 
 	if len(nodesInHorizon) != 0 {
 		t.Fatalf("should have zero nodes instead have: %v",
@@ -2889,39 +2705,27 @@ func TestNodeIsPublic(t *testing.T) {
 	// some graphs but not others, etc.).
 	aliceGraph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	aliceNode, err := createTestVertex(aliceGraph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := aliceGraph.SetSourceNode(aliceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
 	bobGraph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	bobNode, err := createTestVertex(bobGraph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := bobGraph.SetSourceNode(bobNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
 	carolGraph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	carolNode, err := createTestVertex(carolGraph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := carolGraph.SetSourceNode(carolNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
@@ -3034,25 +2838,19 @@ func TestDisabledChannelIDs(t *testing.T) {
 	t.Parallel()
 
 	graph, cleanUp, err := MakeTestGraph()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	// Create first node and add it to the graph.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
 	// Create second node and add it to the graph.
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -3069,9 +2867,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 
 	// Ensure no disabled channels exist in the bucket on start.
 	disabledChanIds, err := graph.DisabledChannelIDs()
-	if err != nil {
-		t.Fatalf("unable to get disabled channel ids: %v", err)
-	}
+	require.NoError(t, err, "unable to get disabled channel ids")
 	if len(disabledChanIds) > 0 {
 		t.Fatalf("expected empty disabled channels, got %v disabled channels",
 			len(disabledChanIds))
@@ -3084,9 +2880,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	disabledChanIds, err = graph.DisabledChannelIDs()
-	if err != nil {
-		t.Fatalf("unable to get disabled channel ids: %v", err)
-	}
+	require.NoError(t, err, "unable to get disabled channel ids")
 	if len(disabledChanIds) > 0 {
 		t.Fatalf("expected empty disabled channels, got %v disabled channels",
 			len(disabledChanIds))
@@ -3099,9 +2893,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	disabledChanIds, err = graph.DisabledChannelIDs()
-	if err != nil {
-		t.Fatalf("unable to get disabled channel ids: %v", err)
-	}
+	require.NoError(t, err, "unable to get disabled channel ids")
 	if len(disabledChanIds) != 1 || disabledChanIds[0] != edgeInfo.ChannelID {
 		t.Fatalf("expected disabled channel with id %v, "+
 			"got %v", edgeInfo.ChannelID, disabledChanIds)
@@ -3112,9 +2904,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 		t.Fatalf("unable to delete channel edge: %v", err)
 	}
 	disabledChanIds, err = graph.DisabledChannelIDs()
-	if err != nil {
-		t.Fatalf("unable to get disabled channel ids: %v", err)
-	}
+	require.NoError(t, err, "unable to get disabled channel ids")
 	if len(disabledChanIds) > 0 {
 		t.Fatalf("expected empty disabled channels, got %v disabled channels",
 			len(disabledChanIds))
@@ -3131,23 +2921,17 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	if err := graph.AddLightningNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 
 	edgeInfo, edge1, edge2 := createChannelEdge(graph.db, node1, node2)
 	if err := graph.AddLightningNode(node2); err != nil {
@@ -3204,9 +2988,7 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 
 		return nil
 	}, func() {})
-	if err != nil {
-		t.Fatalf("error reading db: %v", err)
-	}
+	require.NoError(t, err, "error reading db")
 
 	// Put the stripped bytes in the DB.
 	err = kvdb.Update(graph.db, func(tx kvdb.RwTx) error {
@@ -3240,9 +3022,7 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 
 		return edges.Put(edgeKey[:], stripped)
 	}, func() {})
-	if err != nil {
-		t.Fatalf("error writing db: %v", err)
-	}
+	require.NoError(t, err, "error writing db")
 
 	// And add the second, unmodified edge.
 	if err := graph.UpdateEdgePolicy(edge2); err != nil {
@@ -3254,9 +3034,7 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 	// are not aware of the policy (indicated by the policy returned being
 	// nil)
 	dbEdgeInfo, dbEdge1, dbEdge2, err := graph.FetchChannelEdgesByID(chanID)
-	if err != nil {
-		t.Fatalf("unable to fetch channel by ID: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch channel by ID")
 
 	// The first edge should have a nil-policy returned
 	if dbEdge1 != nil {
@@ -3274,9 +3052,7 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 	}
 
 	dbEdgeInfo, dbEdge1, dbEdge2, err = graph.FetchChannelEdgesByID(chanID)
-	if err != nil {
-		t.Fatalf("unable to fetch channel by ID: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch channel by ID")
 	if err := compareEdgePolicies(dbEdge1, edge1); err != nil {
 		t.Fatalf("edge doesn't match: %v", err)
 	}
@@ -3292,9 +3068,7 @@ func assertNumZombies(t *testing.T, graph *ChannelGraph, expZombies uint64) {
 	t.Helper()
 
 	numZombies, err := graph.NumZombies()
-	if err != nil {
-		t.Fatalf("unable to query number of zombies: %v", err)
-	}
+	require.NoError(t, err, "unable to query number of zombies")
 
 	if numZombies != expZombies {
 		t.Fatalf("expected %d zombies, found %d",
@@ -3309,18 +3083,12 @@ func TestGraphZombieIndex(t *testing.T) {
 	// We'll start by creating our test graph along with a test edge.
 	graph, cleanUp, err := MakeTestGraph()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to create test database: %v", err)
-	}
+	require.NoError(t, err, "unable to create test database")
 
 	node1, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test vertex: %v", err)
-	}
+	require.NoError(t, err, "unable to create test vertex")
 	node2, err := createTestVertex(graph.db)
-	if err != nil {
-		t.Fatalf("unable to create test vertex: %v", err)
-	}
+	require.NoError(t, err, "unable to create test vertex")
 
 	// Swap the nodes if the second's pubkey is smaller than the first.
 	// Without this, the comparisons at the end will fail probabilistically.
@@ -3344,9 +3112,7 @@ func TestGraphZombieIndex(t *testing.T) {
 	// If we delete the edge and mark it as a zombie, then we should expect
 	// to see it within the index.
 	err = graph.DeleteChannelEdges(false, edge.ChannelID)
-	if err != nil {
-		t.Fatalf("unable to mark edge as zombie: %v", err)
-	}
+	require.NoError(t, err, "unable to mark edge as zombie")
 	isZombie, pubKey1, pubKey2 := graph.IsZombieEdge(edge.ChannelID)
 	if !isZombie {
 		t.Fatal("expected edge to be marked as zombie")
@@ -3377,9 +3143,7 @@ func TestGraphZombieIndex(t *testing.T) {
 	err = graph.MarkEdgeZombie(
 		edge.ChannelID, node1.PubKeyBytes, node2.PubKeyBytes,
 	)
-	if err != nil {
-		t.Fatalf("unable to mark edge as zombie: %v", err)
-	}
+	require.NoError(t, err, "unable to mark edge as zombie")
 	isZombie, _, _ = graph.IsZombieEdge(edge.ChannelID)
 	if !isZombie {
 		t.Fatal("expected edge to be marked as zombie")
@@ -3494,9 +3258,7 @@ func TestLightningNodeSigVerification(t *testing.T) {
 
 	// Create private key and sign the data with it.
 	priv, err := btcec.NewPrivateKey()
-	if err != nil {
-		t.Fatalf("unable to crete priv key: %v", err)
-	}
+	require.NoError(t, err, "unable to crete priv key")
 
 	sign := ecdsa.Sign(priv, data[:])
 
@@ -3507,22 +3269,16 @@ func TestLightningNodeSigVerification(t *testing.T) {
 
 	// Create a LightningNode from the same private key.
 	graph, cleanUp, err := MakeTestGraph()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	node, err := createLightningNode(graph.db, priv)
-	if err != nil {
-		t.Fatalf("unable to create node: %v", err)
-	}
+	require.NoError(t, err, "unable to create node")
 
 	// And finally check that we can verify the same signature from the
 	// pubkey returned from the lightning node.
 	nodePub, err := node.PubKey()
-	if err != nil {
-		t.Fatalf("unable to get pubkey: %v", err)
-	}
+	require.NoError(t, err, "unable to get pubkey")
 
 	if !sign.Verify(data[:], nodePub) {
 		t.Fatalf("unable to verify sig")

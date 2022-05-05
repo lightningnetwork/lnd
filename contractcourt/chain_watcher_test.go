@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 // TestChainWatcherRemoteUnilateralClose tests that the chain watcher is able
@@ -27,9 +28,7 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 	aliceChannel, bobChannel, cleanUp, err := lnwallet.CreateTestChannels(
 		channeldb.SingleFunderTweaklessBit,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
+	require.NoError(t, err, "unable to create test channels")
 	defer cleanUp()
 
 	// With the channels created, we'll now create a chain watcher instance
@@ -45,13 +44,9 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 		signer:              aliceChannel.Signer,
 		extractStateNumHint: lnwallet.GetStateNumHint,
 	})
-	if err != nil {
-		t.Fatalf("unable to create chain watcher: %v", err)
-	}
+	require.NoError(t, err, "unable to create chain watcher")
 	err = aliceChainWatcher.Start()
-	if err != nil {
-		t.Fatalf("unable to start chain watcher: %v", err)
-	}
+	require.NoError(t, err, "unable to start chain watcher")
 	defer aliceChainWatcher.Stop()
 
 	// We'll request a new channel event subscription from Alice's chain
@@ -118,9 +113,7 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 	aliceChannel, bobChannel, cleanUp, err := lnwallet.CreateTestChannels(
 		channeldb.SingleFunderTweaklessBit,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
+	require.NoError(t, err, "unable to create test channels")
 	defer cleanUp()
 
 	// With the channels created, we'll now create a chain watcher instance
@@ -136,9 +129,7 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 		signer:              aliceChannel.Signer,
 		extractStateNumHint: lnwallet.GetStateNumHint,
 	})
-	if err != nil {
-		t.Fatalf("unable to create chain watcher: %v", err)
-	}
+	require.NoError(t, err, "unable to create chain watcher")
 	if err := aliceChainWatcher.Start(); err != nil {
 		t.Fatalf("unable to start chain watcher: %v", err)
 	}

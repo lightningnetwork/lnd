@@ -151,16 +151,12 @@ func TestInvoiceWorkflow(t *testing.T) {
 func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test db: %v", err)
-	}
+	require.NoError(t, err, "unable to make test db")
 
 	// Create a fake invoice which we'll use several times in the tests
 	// below.
 	fakeInvoice, err := randInvoice(10000)
-	if err != nil {
-		t.Fatalf("unable to create invoice: %v", err)
-	}
+	require.NoError(t, err, "unable to create invoice")
 	invPayHash := fakeInvoice.Terms.PaymentPreimage.Hash()
 
 	// Select the payment hash and payment address we will use to lookup or
@@ -216,13 +212,9 @@ func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 	// SettledDate
 	payAmt := fakeInvoice.Terms.Value * 2
 	_, err = db.UpdateInvoice(ref, nil, getUpdateInvoice(payAmt))
-	if err != nil {
-		t.Fatalf("unable to settle invoice: %v", err)
-	}
+	require.NoError(t, err, "unable to settle invoice")
 	dbInvoice2, err := db.LookupInvoice(ref)
-	if err != nil {
-		t.Fatalf("unable to fetch invoice: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch invoice")
 	if dbInvoice2.State != ContractSettled {
 		t.Fatalf("invoice should now be settled but isn't")
 	}
@@ -284,9 +276,7 @@ func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 	}
 
 	response, err := db.QueryInvoices(query)
-	if err != nil {
-		t.Fatalf("invoice query failed: %v", err)
-	}
+	require.NoError(t, err, "invoice query failed")
 
 	// The retrieve list of invoices should be identical as since we're
 	// using big endian, the invoices should be retrieved in ascending
@@ -443,9 +433,7 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 
 	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test db: %v", err)
-	}
+	require.NoError(t, err, "unable to make test db")
 
 	preimage := lntypes.Preimage{1}
 	paymentHash := preimage.Hash()
@@ -479,9 +467,7 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 				},
 			}, nil
 		})
-	if err != nil {
-		t.Fatalf("unable to add invoice htlc: %v", err)
-	}
+	require.NoError(t, err, "unable to add invoice htlc")
 	if len(invoice.Htlcs) != 1 {
 		t.Fatalf("expected the htlc to be added")
 	}
@@ -498,9 +484,7 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 				},
 			}, nil
 		})
-	if err != nil {
-		t.Fatalf("unable to cancel htlc: %v", err)
-	}
+	require.NoError(t, err, "unable to cancel htlc")
 	if len(invoice.Htlcs) != 1 {
 		t.Fatalf("expected the htlc to be present")
 	}
@@ -571,9 +555,7 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 				SetID: (*SetID)(setID1),
 			}, nil
 		})
-	if err != nil {
-		t.Fatalf("unable to cancel htlc: %v", err)
-	}
+	require.NoError(t, err, "unable to cancel htlc")
 
 	freshInvoice, err := db.LookupInvoice(ref)
 	require.Nil(t, err)
@@ -623,9 +605,7 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 				SetID: (*SetID)(setID2),
 			}, nil
 		})
-	if err != nil {
-		t.Fatalf("unable to cancel htlc: %v", err)
-	}
+	require.NoError(t, err, "unable to cancel htlc")
 
 	freshInvoice, err = db.LookupInvoice(ref)
 	require.Nil(t, err)
@@ -653,9 +633,7 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 				SetID: (*SetID)(setID2),
 			}, nil
 		})
-	if err != nil {
-		t.Fatalf("unable to cancel htlc: %v", err)
-	}
+	require.NoError(t, err, "unable to cancel htlc")
 
 	freshInvoice, err = db.LookupInvoice(ref)
 	require.Nil(t, err)
@@ -680,9 +658,7 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 
 	db, cleanUp, err := MakeTestDB(OptionClock(testClock))
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test db: %v", err)
-	}
+	require.NoError(t, err, "unable to make test db")
 
 	_, err = db.InvoicesAddedSince(0)
 	require.NoError(t, err)
@@ -995,9 +971,7 @@ func TestScanInvoices(t *testing.T) {
 
 	db, cleanup, err := MakeTestDB()
 	defer cleanup()
-	if err != nil {
-		t.Fatalf("unable to make test db: %v", err)
-	}
+	require.NoError(t, err, "unable to make test db")
 
 	var invoices map[lntypes.Hash]*Invoice
 	callCount := 0
@@ -1056,16 +1030,12 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 
 	db, cleanUp, err := MakeTestDB(OptionClock(testClock))
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test db: %v", err)
-	}
+	require.NoError(t, err, "unable to make test db")
 
 	// We'll start out by creating an invoice and writing it to the DB.
 	amt := lnwire.NewMSatFromSatoshis(1000)
 	invoice, err := randInvoice(amt)
-	if err != nil {
-		t.Fatalf("unable to create invoice: %v", err)
-	}
+	require.NoError(t, err, "unable to create invoice")
 
 	payHash := invoice.Terms.PaymentPreimage.Hash()
 
@@ -1076,9 +1046,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	// With the invoice in the DB, we'll now attempt to settle the invoice.
 	ref := InvoiceRefByHash(payHash)
 	dbInvoice, err := db.UpdateInvoice(ref, nil, getUpdateInvoice(amt))
-	if err != nil {
-		t.Fatalf("unable to settle invoice: %v", err)
-	}
+	require.NoError(t, err, "unable to settle invoice")
 
 	// We'll update what we expect the settle invoice to be so that our
 	// comparison below has the correct assumption.
@@ -1121,9 +1089,7 @@ func TestQueryInvoices(t *testing.T) {
 
 	db, cleanUp, err := MakeTestDB(OptionClock(testClock))
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test db: %v", err)
-	}
+	require.NoError(t, err, "unable to make test db")
 
 	// To begin the test, we'll add 50 invoices to the database. We'll
 	// assume that the index of the invoice within the database is the same
@@ -1436,9 +1402,7 @@ func TestCustomRecords(t *testing.T) {
 
 	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test db: %v", err)
-	}
+	require.NoError(t, err, "unable to make test db")
 
 	preimage := lntypes.Preimage{1}
 	paymentHash := preimage.Hash()
@@ -1477,16 +1441,12 @@ func TestCustomRecords(t *testing.T) {
 			}, nil
 		},
 	)
-	if err != nil {
-		t.Fatalf("unable to add invoice htlc: %v", err)
-	}
+	require.NoError(t, err, "unable to add invoice htlc")
 
 	// Retrieve the invoice from that database and verify that the custom
 	// records are present.
 	dbInvoice, err := db.LookupInvoice(ref)
-	if err != nil {
-		t.Fatalf("unable to lookup invoice: %v", err)
-	}
+	require.NoError(t, err, "unable to lookup invoice")
 
 	if len(dbInvoice.Htlcs) != 1 {
 		t.Fatalf("expected the htlc to be added")

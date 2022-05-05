@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -34,9 +35,7 @@ func randOutpoint(t *testing.T) wire.OutPoint {
 
 	var buf [36]byte
 	_, err := io.ReadFull(rand.Reader, buf[:])
-	if err != nil {
-		t.Fatalf("unable to generate random outpoint: %v", err)
-	}
+	require.NoError(t, err, "unable to generate random outpoint")
 
 	op := wire.OutPoint{}
 	copy(op.Hash[:], buf[:32])
@@ -86,9 +85,7 @@ func createEdgePolicies(t *testing.T, channel *channeldb.OpenChannel,
 
 	// Generate and set pubkey2 for THEIR pubkey.
 	privKey2, err := btcec.NewPrivateKey()
-	if err != nil {
-		t.Fatalf("unable to generate key pair: %v", err)
-	}
+	require.NoError(t, err, "unable to generate key pair")
 	copy(pubkey2[:], privKey2.PubKey().SerializeCompressed())
 
 	// Set pubkey1 to the lower of the two pubkeys.
@@ -316,9 +313,7 @@ func newManagerCfg(t *testing.T, numChannels int,
 	t.Helper()
 
 	privKey, err := btcec.NewPrivateKey()
-	if err != nil {
-		t.Fatalf("unable to generate key pair: %v", err)
-	}
+	require.NoError(t, err, "unable to generate key pair")
 	privKeySigner := keychain.NewPrivKeyMessageSigner(privKey, testKeyLoc)
 
 	graph := newMockGraph(
@@ -362,14 +357,10 @@ func newHarness(t *testing.T, numChannels int,
 	cfg, graph, htlcSwitch := newManagerCfg(t, numChannels, startEnabled)
 
 	mgr, err := netann.NewChanStatusManager(cfg)
-	if err != nil {
-		t.Fatalf("unable to create chan status manager: %v", err)
-	}
+	require.NoError(t, err, "unable to create chan status manager")
 
 	err = mgr.Start()
-	if err != nil {
-		t.Fatalf("unable to start chan status manager: %v", err)
-	}
+	require.NoError(t, err, "unable to start chan status manager")
 
 	h := testHarness{
 		t:                  t,

@@ -1237,9 +1237,7 @@ func TestBumpFeeRBF(t *testing.T) {
 	bumpResult, err := ctx.sweeper.UpdateParams(
 		*input.OutPoint(), ParamsUpdate{Fee: highFeePref},
 	)
-	if err != nil {
-		t.Fatalf("unable to bump input's fee: %v", err)
-	}
+	require.NoError(t, err, "unable to bump input's fee")
 
 	// A higher fee rate transaction should be immediately broadcast.
 	ctx.tick()

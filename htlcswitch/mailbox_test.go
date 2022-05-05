@@ -122,13 +122,9 @@ func TestMailBoxCouriers(t *testing.T) {
 	// With the packets drained and partially acked,  we reset the mailbox,
 	// simulating a link shutting down and then coming back up.
 	err := ctx.mailbox.ResetMessages()
-	if err != nil {
-		t.Fatalf("unable to reset messages: %v", err)
-	}
+	require.NoError(t, err, "unable to reset messages")
 	err = ctx.mailbox.ResetPackets()
-	if err != nil {
-		t.Fatalf("unable to reset packets: %v", err)
-	}
+	require.NoError(t, err, "unable to reset packets")
 
 	// Now, we'll use the same alternating strategy to read from our
 	// mailbox. All wire messages are dropped on startup, but any unacked
@@ -348,9 +344,7 @@ func TestMailBoxFailAdd(t *testing.T) {
 	// the link flapping and coming back up before the second batch's
 	// expiries have elapsed. We should see no failures sent back.
 	err := ctx.mailbox.ResetPackets()
-	if err != nil {
-		t.Fatalf("unable to reset packets: %v", err)
-	}
+	require.NoError(t, err, "unable to reset packets")
 	ctx.checkFails(nil)
 
 	// Redeliver the second batch to the link and hold them there.
@@ -369,9 +363,7 @@ func TestMailBoxFailAdd(t *testing.T) {
 	// Finally, reset the link which should cause the second batch to be
 	// cancelled immediately.
 	err = ctx.mailbox.ResetPackets()
-	if err != nil {
-		t.Fatalf("unable to reset packets: %v", err)
-	}
+	require.NoError(t, err, "unable to reset packets")
 	ctx.checkFails(secondBatch)
 }
 

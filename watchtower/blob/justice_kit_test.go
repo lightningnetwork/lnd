@@ -166,9 +166,7 @@ func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
 	// party's commitment txid as the key.
 	var key blob.BreachKey
 	_, err := rand.Read(key[:])
-	if err != nil {
-		t.Fatalf("unable to generate blob encryption key: %v", err)
-	}
+	require.NoError(t, err, "unable to generate blob encryption key")
 
 	// Encrypt the blob plaintext using the generated key and
 	// target version for this test.

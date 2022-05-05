@@ -25,17 +25,11 @@ func initHintCacheWithConfig(t *testing.T, cfg CacheConfig) *HeightHintCache {
 	t.Helper()
 
 	tempDir, err := ioutil.TempDir("", "kek")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
+	require.NoError(t, err, "unable to create temp dir")
 	db, err := channeldb.Open(tempDir)
-	if err != nil {
-		t.Fatalf("unable to create db: %v", err)
-	}
+	require.NoError(t, err, "unable to create db")
 	hintCache, err := NewHeightHintCache(cfg, db.Backend)
-	if err != nil {
-		t.Fatalf("unable to create hint cache: %v", err)
-	}
+	require.NoError(t, err, "unable to create hint cache")
 
 	return hintCache
 }
@@ -69,9 +63,7 @@ func TestHeightHintCacheConfirms(t *testing.T) {
 	}
 
 	err = hintCache.CommitConfirmHint(height, confRequests...)
-	if err != nil {
-		t.Fatalf("unable to add entries to cache: %v", err)
-	}
+	require.NoError(t, err, "unable to add entries to cache")
 
 	// With the hashes committed, we'll now query the cache to ensure that
 	// we're able to properly retrieve the confirm hints.
@@ -130,9 +122,7 @@ func TestHeightHintCacheSpends(t *testing.T) {
 	}
 
 	err = hintCache.CommitSpendHint(height, spendRequests...)
-	if err != nil {
-		t.Fatalf("unable to add entries to cache: %v", err)
-	}
+	require.NoError(t, err, "unable to add entries to cache")
 
 	// With the outpoints committed, we'll now query the cache to ensure
 	// that we're able to properly retrieve the confirm hints.

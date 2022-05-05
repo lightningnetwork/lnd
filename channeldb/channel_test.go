@@ -203,9 +203,7 @@ func createTestChannel(t *testing.T, cdb *ChannelStateDB,
 
 	// Mark the channel as open with the short channel id provided.
 	err = params.channel.MarkAsOpen(params.channel.ShortChannelID)
-	if err != nil {
-		t.Fatalf("unable to mark channel open: %v", err)
-	}
+	require.NoError(t, err, "unable to mark channel open")
 
 	return params.channel
 }
@@ -213,9 +211,7 @@ func createTestChannel(t *testing.T, cdb *ChannelStateDB,
 func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 	// Simulate 1000 channel updates.
 	producer, err := shachain.NewRevocationProducerFromBytes(key[:])
-	if err != nil {
-		t.Fatalf("could not get producer: %v", err)
-	}
+	require.NoError(t, err, "could not get producer")
 	store := shachain.NewRevocationStore()
 	for i := 0; i < 1; i++ {
 		preImage, err := producer.AtIndex(uint64(i))
@@ -351,9 +347,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	t.Parallel()
 
 	fullDB, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
@@ -388,9 +382,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	)
 
 	openChannels, err := cdb.FetchOpenChannels(state.IdentityPub)
-	if err != nil {
-		t.Fatalf("unable to fetch open channel: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch open channel")
 
 	newState := openChannels[0]
 
@@ -405,17 +397,13 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	// next revocation for the state machine. This tests the initial
 	// post-funding revocation exchange.
 	nextRevKey, err := btcec.NewPrivateKey()
-	if err != nil {
-		t.Fatalf("unable to create new private key: %v", err)
-	}
+	require.NoError(t, err, "unable to create new private key")
 	if err := state.InsertNextRevocation(nextRevKey.PubKey()); err != nil {
 		t.Fatalf("unable to update revocation: %v", err)
 	}
 
 	openChannels, err = cdb.FetchOpenChannels(state.IdentityPub)
-	if err != nil {
-		t.Fatalf("unable to fetch open channel: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch open channel")
 	updatedChan := openChannels[0]
 
 	// Ensure that the revocation was set properly.
@@ -442,9 +430,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	// As the channel is now closed, attempting to fetch all open channels
 	// for our fake node ID should return an empty slice.
 	openChans, err := cdb.FetchOpenChannels(state.IdentityPub)
-	if err != nil {
-		t.Fatalf("unable to fetch open channels: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch open channels")
 	if len(openChans) != 0 {
 		t.Fatalf("all channels not deleted, found %v", len(openChans))
 	}
@@ -587,9 +573,7 @@ func TestChannelStateTransition(t *testing.T) {
 	t.Parallel()
 
 	fullDB, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
@@ -661,15 +645,11 @@ func TestChannelStateTransition(t *testing.T) {
 	}
 
 	err = channel.UpdateCommitment(&commitment, unsignedAckedUpdates)
-	if err != nil {
-		t.Fatalf("unable to update commitment: %v", err)
-	}
+	require.NoError(t, err, "unable to update commitment")
 
 	// Assert that update is correctly written to the database.
 	dbUnsignedAckedUpdates, err := channel.UnsignedAckedUpdates()
-	if err != nil {
-		t.Fatalf("unable to fetch dangling remote updates: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch dangling remote updates")
 	if len(dbUnsignedAckedUpdates) != 1 {
 		t.Fatalf("unexpected number of dangling remote updates")
 	}
@@ -686,14 +666,10 @@ func TestChannelStateTransition(t *testing.T) {
 	// commitment transaction along with the modified signature should all
 	// have been updated.
 	updatedChannel, err := cdb.FetchOpenChannels(channel.IdentityPub)
-	if err != nil {
-		t.Fatalf("unable to fetch updated channel: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch updated channel")
 	assertCommitmentEqual(t, &commitment, &updatedChannel[0].LocalCommitment)
 	numDiskUpdates, err := updatedChannel[0].CommitmentHeight()
-	if err != nil {
-		t.Fatalf("unable to read commitment height from disk: %v", err)
-	}
+	require.NoError(t, err, "unable to read commitment height from disk")
 	if numDiskUpdates != uint64(commitment.CommitHeight) {
 		t.Fatalf("num disk updates doesn't match: %v vs %v",
 			numDiskUpdates, commitment.CommitHeight)
@@ -757,9 +733,7 @@ func TestChannelStateTransition(t *testing.T) {
 	// The commitment tip should now match the commitment that we just
 	// inserted.
 	diskCommitDiff, err := channel.RemoteCommitChainTip()
-	if err != nil {
-		t.Fatalf("unable to fetch commit diff: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch commit diff")
 	if !reflect.DeepEqual(commitDiff, diskCommitDiff) {
 		t.Fatalf("commit diffs don't match: %v vs %v", spew.Sdump(remoteCommit),
 			spew.Sdump(diskCommitDiff))
@@ -775,9 +749,7 @@ func TestChannelStateTransition(t *testing.T) {
 	// by the remote party.
 	channel.RemoteCurrentRevocation = channel.RemoteNextRevocation
 	newPriv, err := btcec.NewPrivateKey()
-	if err != nil {
-		t.Fatalf("unable to generate key: %v", err)
-	}
+	require.NoError(t, err, "unable to generate key")
 	channel.RemoteNextRevocation = newPriv.PubKey()
 
 	fwdPkg := NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight,
@@ -786,9 +758,7 @@ func TestChannelStateTransition(t *testing.T) {
 	err = channel.AdvanceCommitChainTail(
 		fwdPkg, nil, dummyLocalOutputIndex, dummyRemoteOutIndex,
 	)
-	if err != nil {
-		t.Fatalf("unable to append to revocation log: %v", err)
-	}
+	require.NoError(t, err, "unable to append to revocation log")
 
 	// At this point, the remote commit chain should be nil, and the posted
 	// remote commitment should match the one we added as a diff above.
@@ -801,9 +771,7 @@ func TestChannelStateTransition(t *testing.T) {
 	diskPrevCommit, _, err := channel.FindPreviousState(
 		oldRemoteCommit.CommitHeight,
 	)
-	if err != nil {
-		t.Fatalf("unable to fetch past delta: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch past delta")
 
 	// Check the output indexes are saved as expected.
 	require.EqualValues(
@@ -820,9 +788,7 @@ func TestChannelStateTransition(t *testing.T) {
 	// The state number recovered from the tail of the revocation log
 	// should be identical to this current state.
 	logTailHeight, err := channel.revocationLogTailCommitHeight()
-	if err != nil {
-		t.Fatalf("unable to retrieve log: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve log")
 	if logTailHeight != oldRemoteCommit.CommitHeight {
 		t.Fatal("update number doesn't match")
 	}
@@ -844,17 +810,13 @@ func TestChannelStateTransition(t *testing.T) {
 	err = channel.AdvanceCommitChainTail(
 		fwdPkg, nil, dummyLocalOutputIndex, dummyRemoteOutIndex,
 	)
-	if err != nil {
-		t.Fatalf("unable to append to revocation log: %v", err)
-	}
+	require.NoError(t, err, "unable to append to revocation log")
 
 	// Once again, fetch the state and ensure it has been properly updated.
 	prevCommit, _, err := channel.FindPreviousState(
 		oldRemoteCommit.CommitHeight,
 	)
-	if err != nil {
-		t.Fatalf("unable to fetch past delta: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch past delta")
 
 	// Check the output indexes are saved as expected.
 	require.EqualValues(
@@ -869,18 +831,14 @@ func TestChannelStateTransition(t *testing.T) {
 	// Once again, state number recovered from the tail of the revocation
 	// log should be identical to this current state.
 	logTailHeight, err = channel.revocationLogTailCommitHeight()
-	if err != nil {
-		t.Fatalf("unable to retrieve log: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve log")
 	if logTailHeight != oldRemoteCommit.CommitHeight {
 		t.Fatal("update number doesn't match")
 	}
 
 	// The revocation state stored on-disk should now also be identical.
 	updatedChannel, err = cdb.FetchOpenChannels(channel.IdentityPub)
-	if err != nil {
-		t.Fatalf("unable to fetch updated channel: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch updated channel")
 	if !channel.RemoteCurrentRevocation.IsEqual(updatedChannel[0].RemoteCurrentRevocation) {
 		t.Fatalf("revocation state was not synced")
 	}
@@ -908,9 +866,7 @@ func TestChannelStateTransition(t *testing.T) {
 	// If we attempt to fetch the target channel again, it shouldn't be
 	// found.
 	channels, err := cdb.FetchOpenChannels(channel.IdentityPub)
-	if err != nil {
-		t.Fatalf("unable to fetch updated channels: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch updated channels")
 	if len(channels) != 0 {
 		t.Fatalf("%v channels, found, but none should be",
 			len(channels))
@@ -934,9 +890,7 @@ func TestFetchPendingChannels(t *testing.T) {
 	t.Parallel()
 
 	fullDB, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
@@ -946,9 +900,7 @@ func TestFetchPendingChannels(t *testing.T) {
 	createTestChannel(t, cdb, pendingHeightOption(broadcastHeight))
 
 	pendingChannels, err := cdb.FetchPendingChannels()
-	if err != nil {
-		t.Fatalf("unable to list pending channels: %v", err)
-	}
+	require.NoError(t, err, "unable to list pending channels")
 
 	if len(pendingChannels) != 1 {
 		t.Fatalf("incorrect number of pending channels: expecting %v,"+
@@ -969,9 +921,7 @@ func TestFetchPendingChannels(t *testing.T) {
 		TxPosition:  15,
 	}
 	err = pendingChannels[0].MarkAsOpen(chanOpenLoc)
-	if err != nil {
-		t.Fatalf("unable to mark channel as open: %v", err)
-	}
+	require.NoError(t, err, "unable to mark channel as open")
 
 	if pendingChannels[0].IsPending {
 		t.Fatalf("channel marked open should no longer be pending")
@@ -986,9 +936,7 @@ func TestFetchPendingChannels(t *testing.T) {
 	// Next, we'll re-fetch the channel to ensure that the open height was
 	// properly set.
 	openChans, err := cdb.FetchAllChannels()
-	if err != nil {
-		t.Fatalf("unable to fetch channels: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch channels")
 	if openChans[0].ShortChanID() != chanOpenLoc {
 		t.Fatalf("channel opening heights don't match: expected %v, "+
 			"got %v", spew.Sdump(openChans[0].ShortChanID()),
@@ -1001,9 +949,7 @@ func TestFetchPendingChannels(t *testing.T) {
 	}
 
 	pendingChannels, err = cdb.FetchPendingChannels()
-	if err != nil {
-		t.Fatalf("unable to list pending channels: %v", err)
-	}
+	require.NoError(t, err, "unable to list pending channels")
 
 	if len(pendingChannels) != 0 {
 		t.Fatalf("incorrect number of pending channels: expecting %v,"+
@@ -1015,9 +961,7 @@ func TestFetchClosedChannels(t *testing.T) {
 	t.Parallel()
 
 	fullDB, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
@@ -1046,9 +990,7 @@ func TestFetchClosedChannels(t *testing.T) {
 	// closed. We should get the same result whether querying for pending
 	// channels only, or not.
 	pendingClosed, err := cdb.FetchClosedChannels(true)
-	if err != nil {
-		t.Fatalf("failed fetching closed channels: %v", err)
-	}
+	require.NoError(t, err, "failed fetching closed channels")
 	if len(pendingClosed) != 1 {
 		t.Fatalf("incorrect number of pending closed channels: expecting %v,"+
 			"got %v", 1, len(pendingClosed))
@@ -1058,9 +1000,7 @@ func TestFetchClosedChannels(t *testing.T) {
 			spew.Sdump(summary), spew.Sdump(pendingClosed[0]))
 	}
 	closed, err := cdb.FetchClosedChannels(false)
-	if err != nil {
-		t.Fatalf("failed fetching all closed channels: %v", err)
-	}
+	require.NoError(t, err, "failed fetching all closed channels")
 	if len(closed) != 1 {
 		t.Fatalf("incorrect number of closed channels: expecting %v, "+
 			"got %v", 1, len(closed))
@@ -1072,24 +1012,18 @@ func TestFetchClosedChannels(t *testing.T) {
 
 	// Mark the channel as fully closed.
 	err = cdb.MarkChanFullyClosed(&state.FundingOutpoint)
-	if err != nil {
-		t.Fatalf("failed fully closing channel: %v", err)
-	}
+	require.NoError(t, err, "failed fully closing channel")
 
 	// The channel should no longer be considered pending, but should still
 	// be retrieved when fetching all the closed channels.
 	closed, err = cdb.FetchClosedChannels(false)
-	if err != nil {
-		t.Fatalf("failed fetching closed channels: %v", err)
-	}
+	require.NoError(t, err, "failed fetching closed channels")
 	if len(closed) != 1 {
 		t.Fatalf("incorrect number of closed channels: expecting %v, "+
 			"got %v", 1, len(closed))
 	}
 	pendingClose, err := cdb.FetchClosedChannels(true)
-	if err != nil {
-		t.Fatalf("failed fetching channels pending close: %v", err)
-	}
+	require.NoError(t, err, "failed fetching channels pending close")
 	if len(pendingClose) != 0 {
 		t.Fatalf("incorrect number of closed channels: expecting %v, "+
 			"got %v", 0, len(closed))
@@ -1108,9 +1042,7 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 	// them will have their funding transaction confirmed on-chain, while
 	// the other one will remain unconfirmed.
 	fullDB, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
@@ -1172,9 +1104,7 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 	// database. We should expect to see both channels above, even if any of
 	// them haven't had their funding transaction confirm on-chain.
 	waitingCloseChannels, err := cdb.FetchWaitingCloseChannels()
-	if err != nil {
-		t.Fatalf("unable to fetch all waiting close channels: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch all waiting close channels")
 	if len(waitingCloseChannels) != numChannels {
 		t.Fatalf("expected %d channels waiting to be closed, got %d", 2,
 			len(waitingCloseChannels))
@@ -1225,9 +1155,7 @@ func TestRefreshShortChanID(t *testing.T) {
 	t.Parallel()
 
 	fullDB, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
@@ -1262,9 +1190,7 @@ func TestRefreshShortChanID(t *testing.T) {
 	}
 
 	err = state.MarkAsOpen(chanOpenLoc)
-	if err != nil {
-		t.Fatalf("unable to mark channel open: %v", err)
-	}
+	require.NoError(t, err, "unable to mark channel open")
 
 	// The short_chan_id of the receiver to MarkAsOpen should reflect the
 	// open location, but the other pending channel should remain unchanged.
@@ -1285,9 +1211,7 @@ func TestRefreshShortChanID(t *testing.T) {
 
 	// Now, refresh the short channel ID of the pending channel.
 	err = pendingChannel.RefreshShortChanID()
-	if err != nil {
-		t.Fatalf("unable to refresh short_chan_id: %v", err)
-	}
+	require.NoError(t, err, "unable to refresh short_chan_id")
 
 	// This should result in both OpenChannel's now having the same
 	// ShortChanID.
@@ -1447,9 +1371,7 @@ func TestCloseChannelStatus(t *testing.T) {
 	histChan, err := channel.Db.FetchHistoricalChannel(
 		&channel.FundingOutpoint,
 	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err, "unexpected error")
 
 	if !histChan.HasChanStatus(ChanStatusRemoteCloseInitiator) {
 		t.Fatalf("channel should have status")

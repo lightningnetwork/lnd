@@ -39,6 +39,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -966,21 +967,15 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	aliceServer, err := newMockServer(
 		t, "alice", startingHeight, aliceDb, hopNetwork.defaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 	bobServer, err := newMockServer(
 		t, "bob", startingHeight, bobDb, hopNetwork.defaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob server: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob server")
 	carolServer, err := newMockServer(
 		t, "carol", startingHeight, carolDb, hopNetwork.defaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create carol server: %v", err)
-	}
+	require.NoError(t, err, "unable to create carol server")
 
 	// Apply all additional functional options to the servers before
 	// creating any links.
@@ -1231,15 +1226,11 @@ func newTwoHopNetwork(t testing.TB,
 	aliceServer, err := newMockServer(
 		t, "alice", startingHeight, aliceDb, hopNetwork.defaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 	bobServer, err := newMockServer(
 		t, "bob", startingHeight, bobDb, hopNetwork.defaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob server: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob server")
 
 	// Create mock decoder instead of sphinx one in order to mock the route
 	// which htlc should follow.

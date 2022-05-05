@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -35,20 +36,14 @@ func initHintCache(t *testing.T) *chainntnfs.HeightHintCache {
 	t.Helper()
 
 	tempDir, err := ioutil.TempDir("", "kek")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
+	require.NoError(t, err, "unable to create temp dir")
 	db, err := channeldb.Open(tempDir)
-	if err != nil {
-		t.Fatalf("unable to create db: %v", err)
-	}
+	require.NoError(t, err, "unable to create db")
 	testCfg := chainntnfs.CacheConfig{
 		QueryDisable: false,
 	}
 	hintCache, err := chainntnfs.NewHeightHintCache(testCfg, db.Backend)
-	if err != nil {
-		t.Fatalf("unable to create hint cache: %v", err)
-	}
+	require.NoError(t, err, "unable to create hint cache")
 
 	return hintCache
 }
@@ -81,9 +76,7 @@ func syncNotifierWithMiner(t *testing.T, notifier *BitcoindNotifier,
 	t.Helper()
 
 	_, minerHeight, err := miner.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to retrieve miner's current height: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve miner's current height")
 
 	timeout := time.After(10 * time.Second)
 	for {
@@ -139,13 +132,9 @@ func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
 	var unknownHash chainhash.Hash
 	copy(unknownHash[:], bytes.Repeat([]byte{0x10}, 32))
 	unknownConfReq, err := chainntnfs.NewConfRequest(&unknownHash, testScript)
-	if err != nil {
-		t.Fatalf("unable to create conf request: %v", err)
-	}
+	require.NoError(t, err, "unable to create conf request")
 	_, txStatus, err := notifier.historicalConfDetails(unknownConfReq, 0, 0)
-	if err != nil {
-		t.Fatalf("unable to retrieve historical conf details: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve historical conf details")
 
 	switch txStatus {
 	case chainntnfs.TxNotFoundIndex:
@@ -158,22 +147,16 @@ func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
 	// Now, we'll create a test transaction, confirm it, and attempt to
 	// retrieve its confirmation details.
 	txid, pkScript, err := chainntnfs.GetTestTxidAndScript(miner)
-	if err != nil {
-		t.Fatalf("unable to create tx: %v", err)
-	}
+	require.NoError(t, err, "unable to create tx")
 	if err := chainntnfs.WaitForMempoolTx(miner, txid); err != nil {
 		t.Fatal(err)
 	}
 	confReq, err := chainntnfs.NewConfRequest(txid, pkScript)
-	if err != nil {
-		t.Fatalf("unable to create conf request: %v", err)
-	}
+	require.NoError(t, err, "unable to create conf request")
 
 	// The transaction should be found in the mempool at this point.
 	_, txStatus, err = notifier.historicalConfDetails(confReq, 0, 0)
-	if err != nil {
-		t.Fatalf("unable to retrieve historical conf details: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve historical conf details")
 
 	// Since it has yet to be included in a block, it should have been found
 	// within the mempool.
@@ -193,9 +176,7 @@ func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
 	syncNotifierWithMiner(t, notifier, miner)
 
 	_, txStatus, err = notifier.historicalConfDetails(confReq, 0, 0)
-	if err != nil {
-		t.Fatalf("unable to retrieve historical conf details: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve historical conf details")
 
 	// Since the backend node's txindex is enabled and the transaction has
 	// confirmed, we should be able to retrieve it using the txindex.
@@ -238,16 +219,12 @@ func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
 	var unknownHash chainhash.Hash
 	copy(unknownHash[:], bytes.Repeat([]byte{0x10}, 32))
 	unknownConfReq, err := chainntnfs.NewConfRequest(&unknownHash, testScript)
-	if err != nil {
-		t.Fatalf("unable to create conf request: %v", err)
-	}
+	require.NoError(t, err, "unable to create conf request")
 	broadcastHeight := syncNotifierWithMiner(t, notifier, miner)
 	_, txStatus, err := notifier.historicalConfDetails(
 		unknownConfReq, uint32(broadcastHeight), uint32(broadcastHeight),
 	)
-	if err != nil {
-		t.Fatalf("unable to retrieve historical conf details: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve historical conf details")
 
 	switch txStatus {
 	case chainntnfs.TxNotFoundManually:
@@ -267,9 +244,7 @@ func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
 	outpoint, output, privKey := chainntnfs.CreateSpendableOutput(t, miner)
 	spendTx := chainntnfs.CreateSpendTx(t, outpoint, output, privKey)
 	spendTxHash, err := miner.Client.SendRawTransaction(spendTx, true)
-	if err != nil {
-		t.Fatalf("unable to broadcast tx: %v", err)
-	}
+	require.NoError(t, err, "unable to broadcast tx")
 	if err := chainntnfs.WaitForMempoolTx(miner, spendTxHash); err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
@@ -280,16 +255,12 @@ func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
 	// Ensure the notifier and miner are synced to the same height to ensure
 	// we can find the transaction when manually scanning the chain.
 	confReq, err := chainntnfs.NewConfRequest(&outpoint.Hash, output.PkScript)
-	if err != nil {
-		t.Fatalf("unable to create conf request: %v", err)
-	}
+	require.NoError(t, err, "unable to create conf request")
 	currentHeight := syncNotifierWithMiner(t, notifier, miner)
 	_, txStatus, err = notifier.historicalConfDetails(
 		confReq, uint32(broadcastHeight), uint32(currentHeight),
 	)
-	if err != nil {
-		t.Fatalf("unable to retrieve historical conf details: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve historical conf details")
 
 	// Since the backend node's txindex is disabled and the transaction has
 	// confirmed, we should be able to find it by falling back to scanning

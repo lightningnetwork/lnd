@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -419,9 +420,7 @@ func createNurseryTestContext(t *testing.T,
 	// still considerable logic in the store.
 
 	cdb, cleanup, err := channeldb.MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to open channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to open channeldb")
 
 	store, err := NewNurseryStore(&chainhash.Hash{}, cdb)
 	if err != nil {

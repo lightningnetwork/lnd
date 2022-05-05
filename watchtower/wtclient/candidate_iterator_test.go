@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
+	"github.com/stretchr/testify/require"
 )
 
 func init() {
@@ -35,9 +36,7 @@ func randAddr(t *testing.T) net.Addr {
 
 func randTower(t *testing.T) *wtdb.Tower {
 	priv, err := btcec.NewPrivateKey()
-	if err != nil {
-		t.Fatalf("unable to create private key: %v", err)
-	}
+	require.NoError(t, err, "unable to create private key")
 	pubKey := priv.PubKey()
 	return &wtdb.Tower{
 		ID:          wtdb.TowerID(rand.Uint64()),

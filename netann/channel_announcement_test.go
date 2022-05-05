@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateChanAnnouncement(t *testing.T) {
@@ -59,9 +60,7 @@ func TestCreateChanAnnouncement(t *testing.T) {
 	chanAnn, _, _, err := CreateChanAnnouncement(
 		chanProof, chanInfo, nil, nil,
 	)
-	if err != nil {
-		t.Fatalf("unable to create channel announcement: %v", err)
-	}
+	require.NoError(t, err, "unable to create channel announcement")
 
 	assert.Equal(t, chanAnn, expChanAnn)
 }

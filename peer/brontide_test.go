@@ -48,9 +48,7 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	alicePeer, bobChan, cleanUp, err := createTestPeer(
 		notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
+	require.NoError(t, err, "unable to create test channels")
 	defer cleanUp()
 
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
@@ -102,14 +100,10 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	bobSig, _, _, err := bobChan.CreateCloseProposal(
 		aliceFee, dummyDeliveryScript, respDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err, "error creating close proposal")
 
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("error parsing signature: %v", err)
-	}
+	require.NoError(t, err, "error parsing signature")
 	closingSigned := lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
@@ -156,9 +150,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	alicePeer, bobChan, cleanUp, err := createTestPeer(
 		notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
+	require.NoError(t, err, "unable to create test channels")
 	defer cleanUp()
 
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
@@ -218,13 +210,9 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	bobSig, _, _, err := bobChan.CreateCloseProposal(
 		bobFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("unable to create close proposal: %v", err)
-	}
+	require.NoError(t, err, "unable to create close proposal")
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("unable to parse signature: %v", err)
-	}
+	require.NoError(t, err, "unable to parse signature")
 
 	closingSigned := lnwire.NewClosingSigned(shutdownMsg.ChannelID,
 		bobFee, parsedSig)
@@ -283,9 +271,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	alicePeer, bobChan, cleanUp, err := createTestPeer(
 		notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
+	require.NoError(t, err, "unable to create test channels")
 	defer cleanUp()
 
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
@@ -337,14 +323,10 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	bobSig, _, _, err := bobChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err, "error creating close proposal")
 
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("error parsing signature: %v", err)
-	}
+	require.NoError(t, err, "error parsing signature")
 	closingSigned := lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
@@ -381,14 +363,10 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	bobSig, _, _, err = bobChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err, "error creating close proposal")
 
 	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("error parsing signature: %v", err)
-	}
+	require.NoError(t, err, "error parsing signature")
 	closingSigned = lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
@@ -427,14 +405,10 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	bobSig, _, _, err = bobChan.CreateCloseProposal(
 		aliceFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err, "error creating close proposal")
 
 	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("error parsing signature: %v", err)
-	}
+	require.NoError(t, err, "error parsing signature")
 	closingSigned = lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
@@ -482,9 +456,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	alicePeer, bobChan, cleanUp, err := createTestPeer(
 		notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
+	require.NoError(t, err, "unable to create test channels")
 	defer cleanUp()
 
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
@@ -549,14 +521,10 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	bobSig, _, _, err := bobChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err, "error creating close proposal")
 
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("unable to parse signature: %v", err)
-	}
+	require.NoError(t, err, "unable to parse signature")
 
 	closingSigned := lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
 	alicePeer.chanCloseMsgs <- &closeMsg{
@@ -596,14 +564,10 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	bobSig, _, _, err = bobChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err, "error creating close proposal")
 
 	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("error parsing signature: %v", err)
-	}
+	require.NoError(t, err, "error parsing signature")
 
 	closingSigned = lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
 	alicePeer.chanCloseMsgs <- &closeMsg{
@@ -640,14 +604,10 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	bobSig, _, _, err = bobChan.CreateCloseProposal(
 		aliceFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err, "error creating close proposal")
 
 	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("error parsing signature: %v", err)
-	}
+	require.NoError(t, err, "error parsing signature")
 	closingSigned = lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
@@ -1024,14 +984,10 @@ func genScript(t *testing.T, address string) lnwire.DeliveryAddress {
 		address,
 		&chaincfg.TestNet3Params,
 	)
-	if err != nil {
-		t.Fatalf("invalid delivery address: %v", err)
-	}
+	require.NoError(t, err, "invalid delivery address")
 
 	script, err := txscript.PayToAddrScript(deliveryAddr)
-	if err != nil {
-		t.Fatalf("cannot create script: %v", err)
-	}
+	require.NoError(t, err, "cannot create script")
 
 	return script
 }

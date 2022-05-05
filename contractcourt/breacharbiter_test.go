@@ -711,9 +711,7 @@ func countRetributions(t *testing.T, rs RetributionStorer) int {
 	}, func() {
 		count = 0
 	})
-	if err != nil {
-		t.Fatalf("unable to list retributions in db: %v", err)
-	}
+	require.NoError(t, err, "unable to list retributions in db")
 	return count
 }
 
@@ -979,9 +977,7 @@ func initBreachedState(t *testing.T) (*BreachArbiter,
 	// a spend of the funding transaction. Alice's channel will be the on
 	// observing a breach.
 	alice, bob, cleanUpChans, err := createInitChannels(1)
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
+	require.NoError(t, err, "unable to create test channels")
 
 	// Instantiate a breach arbiter to handle the breach of alice's channel.
 	contractBreaches := make(chan *ContractBreachEvent)
@@ -989,9 +985,7 @@ func initBreachedState(t *testing.T) (*BreachArbiter,
 	brar, cleanUpArb, err := createTestArbiter(
 		t, contractBreaches, alice.State().Db.GetParentDB(),
 	)
-	if err != nil {
-		t.Fatalf("unable to initialize test breach arbiter: %v", err)
-	}
+	require.NoError(t, err, "unable to initialize test breach arbiter")
 
 	// Send one HTLC to Bob and perform a state transition to lock it in.
 	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
@@ -1009,9 +1003,7 @@ func initBreachedState(t *testing.T) (*BreachArbiter,
 	// Generate the force close summary at this point in time, this will
 	// serve as the old state bob will broadcast.
 	bobClose, err := bob.ForceClose()
-	if err != nil {
-		t.Fatalf("unable to force close bob's channel: %v", err)
-	}
+	require.NoError(t, err, "unable to force close bob's channel")
 
 	// Now send another HTLC and perform a state transition, this ensures
 	// Alice is ahead of the state Bob will broadcast.
@@ -1166,9 +1158,7 @@ func TestBreachHandoffFail(t *testing.T) {
 	brar, cleanUpArb, err := createTestArbiter(
 		t, contractBreaches, alice.State().Db.GetParentDB(),
 	)
-	if err != nil {
-		t.Fatalf("unable to initialize test breach arbiter: %v", err)
-	}
+	require.NoError(t, err, "unable to initialize test breach arbiter")
 	defer cleanUpArb()
 
 	// Signal a spend of the funding transaction and wait for the close
@@ -1623,9 +1613,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	retribution, err := lnwallet.NewBreachRetribution(
 		alice.State(), height, 1, forceCloseTx,
 	)
-	if err != nil {
-		t.Fatalf("unable to create breach retribution: %v", err)
-	}
+	require.NoError(t, err, "unable to create breach retribution")
 
 	processACK := make(chan error)
 	breach := &ContractBreachEvent{
@@ -1664,9 +1652,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 		RemoteNextRevocation:    state.RemoteNextRevocation,
 		LocalChanConfig:         state.LocalChanCfg,
 	})
-	if err != nil {
-		t.Fatalf("unable to close channel: %v", err)
-	}
+	require.NoError(t, err, "unable to close channel")
 
 	// After exiting, the breach arbiter should have persisted the
 	// retribution information and the channel should be shown as pending
@@ -1839,9 +1825,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	retribution, err := lnwallet.NewBreachRetribution(
 		alice.State(), height, uint32(blockHeight), forceCloseTx,
 	)
-	if err != nil {
-		t.Fatalf("unable to create breach retribution: %v", err)
-	}
+	require.NoError(t, err, "unable to create breach retribution")
 
 	processACK := make(chan error, 1)
 	breach := &ContractBreachEvent{
@@ -1881,9 +1865,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		RemoteNextRevocation:    state.RemoteNextRevocation,
 		LocalChanConfig:         state.LocalChanCfg,
 	})
-	if err != nil {
-		t.Fatalf("unable to close channel: %v", err)
-	}
+	require.NoError(t, err, "unable to close channel")
 
 	// After exiting, the breach arbiter should have persisted the
 	// retribution information and the channel should be shown as pending
@@ -2126,9 +2108,7 @@ func assertPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 	t.Helper()
 
 	closedChans, err := c.State().Db.FetchClosedChannels(true)
-	if err != nil {
-		t.Fatalf("unable to load pending closed channels: %v", err)
-	}
+	require.NoError(t, err, "unable to load pending closed channels")
 
 	for _, chanSummary := range closedChans {
 		if chanSummary.ChanPoint == *c.ChanPoint {
@@ -2145,9 +2125,7 @@ func assertNotPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 	t.Helper()
 
 	closedChans, err := c.State().Db.FetchClosedChannels(true)
-	if err != nil {
-		t.Fatalf("unable to load pending closed channels: %v", err)
-	}
+	require.NoError(t, err, "unable to load pending closed channels")
 
 	for _, chanSummary := range closedChans {
 		if chanSummary.ChanPoint == *c.ChanPoint {

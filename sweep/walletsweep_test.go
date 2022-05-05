@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/stretchr/testify/require"
 )
 
 // TestDetermineFeePerKw tests that given a fee preference, the
@@ -352,9 +353,7 @@ func TestCraftSweepAllTx(t *testing.T) {
 		0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
 		utxoLocker, feeEstimator, signer, 0,
 	)
-	if err != nil {
-		t.Fatalf("unable to make sweep tx: %v", err)
-	}
+	require.NoError(t, err, "unable to make sweep tx")
 
 	// At this point, all of the UTXOs that we made above should be locked
 	// and none of them unlocked.

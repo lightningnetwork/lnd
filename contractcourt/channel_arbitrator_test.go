@@ -462,9 +462,7 @@ func TestChannelArbitratorCooperativeClose(t *testing.T) {
 	}
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 
 	if err := chanArbCtx.chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
@@ -523,9 +521,7 @@ func TestChannelArbitratorRemoteForceClose(t *testing.T) {
 	}
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 	chanArb := chanArbCtx.chanArb
 
 	if err := chanArb.Start(nil); err != nil {
@@ -578,9 +574,7 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 	}
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 	chanArb := chanArbCtx.chanArb
 
 	if err := chanArb.Start(nil); err != nil {
@@ -686,9 +680,7 @@ func TestChannelArbitratorBreachClose(t *testing.T) {
 	}
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 	chanArb := chanArbCtx.chanArb
 	chanArb.cfg.PreimageDB = newMockWitnessBeacon()
 	chanArb.cfg.Registry = &mockRegistry{}
@@ -817,9 +809,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	// a real DB will be created. We need this for our test as we want to
 	// test proper restart recovery and resolver population.
 	chanArbCtx, err := createTestChannelArbitrator(t, nil)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 	chanArb := chanArbCtx.chanArb
 	chanArb.cfg.PreimageDB = newMockWitnessBeacon()
 	chanArb.cfg.Registry = &mockRegistry{}
@@ -990,9 +980,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	// We'll no re-create the resolver, notice that we use the existing
 	// arbLog so it carries over the same on-disk state.
 	chanArbCtxNew, err := chanArbCtx.Restart(nil)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 	chanArb = chanArbCtxNew.chanArb
 	defer chanArbCtxNew.CleanUp()
 
@@ -1088,9 +1076,7 @@ func TestChannelArbitratorLocalForceCloseRemoteConfirmed(t *testing.T) {
 	}
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 	chanArb := chanArbCtx.chanArb
 
 	if err := chanArb.Start(nil); err != nil {
@@ -1197,9 +1183,7 @@ func TestChannelArbitratorLocalForceDoubleSpend(t *testing.T) {
 	}
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 	chanArb := chanArbCtx.chanArb
 
 	if err := chanArb.Start(nil); err != nil {
@@ -1305,9 +1289,7 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 	}
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 
 	chanArb := chanArbCtx.chanArb
 	if err := chanArb.Start(nil); err != nil {
@@ -1340,9 +1322,7 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 	// Restart the channel arb, this'll use the same long and prior
 	// context.
 	chanArbCtx, err = chanArbCtx.Restart(nil)
-	if err != nil {
-		t.Fatalf("unable to restart channel arb: %v", err)
-	}
+	require.NoError(t, err, "unable to restart channel arb")
 	chanArb = chanArbCtx.chanArb
 
 	// Again, it should start up in the default state.
@@ -1371,9 +1351,7 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 
 	// Restart once again to simulate yet another restart.
 	chanArbCtx, err = chanArbCtx.Restart(nil)
-	if err != nil {
-		t.Fatalf("unable to restart channel arb: %v", err)
-	}
+	require.NoError(t, err, "unable to restart channel arb")
 	chanArb = chanArbCtx.chanArb
 
 	// Starts out in StateDefault.
@@ -1400,9 +1378,7 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 	// Create a new arbitrator, and now make fetching resolutions succeed.
 	log.failFetch = nil
 	chanArbCtx, err = chanArbCtx.Restart(nil)
-	if err != nil {
-		t.Fatalf("unable to restart channel arb: %v", err)
-	}
+	require.NoError(t, err, "unable to restart channel arb")
 	defer chanArbCtx.CleanUp()
 
 	// Finally it should advance to StateFullyResolved.
@@ -1431,9 +1407,7 @@ func TestChannelArbitratorForceCloseBreachedChannel(t *testing.T) {
 	}
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 
 	chanArb := chanArbCtx.chanArb
 	if err := chanArb.Start(nil); err != nil {
@@ -1515,9 +1489,7 @@ func TestChannelArbitratorForceCloseBreachedChannel(t *testing.T) {
 		c.chanArb.cfg.ClosingHeight = 100
 		c.chanArb.cfg.CloseType = channeldb.BreachClose
 	})
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 	defer chanArbCtx.CleanUp()
 
 	// We should transition to StateContractClosed.
@@ -1699,9 +1671,7 @@ func TestChannelArbitratorEmptyResolutions(t *testing.T) {
 	}
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 
 	chanArb := chanArbCtx.chanArb
 	chanArb.cfg.IsPendingClose = true
@@ -1736,9 +1706,7 @@ func TestChannelArbitratorAlreadyForceClosed(t *testing.T) {
 		state: StateCommitmentBroadcasted,
 	}
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 	chanArb := chanArbCtx.chanArb
 	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
@@ -2009,9 +1977,7 @@ func TestChannelArbitratorPendingExpiredHTLC(t *testing.T) {
 		resolvers: make(map[ContractResolver]struct{}),
 	}
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 	chanArb := chanArbCtx.chanArb
 
 	// We'll inject a test clock implementation so we can control the uptime.
@@ -2504,9 +2470,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 	}
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	require.NoError(t, err, "unable to create ChannelArbitrator")
 
 	// Replace our mocked put report function with one which will push
 	// reports into a channel for us to consume. We update this function

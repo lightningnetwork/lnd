@@ -44,14 +44,10 @@ func TestSwitchAddDuplicateLink(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 
 	s, err := initSwitchWithDB(testStartingHeight, nil)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -76,9 +72,7 @@ func TestSwitchAddDuplicateLink(t *testing.T) {
 	// Update the short chan id of the channel, so that the link goes live.
 	aliceChannelLink.setLiveShortChanID(aliceChanID)
 	err = s.UpdateShortChanID(chanID1)
-	if err != nil {
-		t.Fatalf("unable to update alice short_chan_id: %v", err)
-	}
+	require.NoError(t, err, "unable to update alice short_chan_id")
 
 	// Alice should have a live link, adding again should fail.
 	if err := s.AddLink(aliceChannelLink); err == nil {
@@ -104,14 +98,10 @@ func TestSwitchHasActiveLink(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 
 	s, err := initSwitchWithDB(testStartingHeight, nil)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -138,9 +128,7 @@ func TestSwitchHasActiveLink(t *testing.T) {
 	// Update the short chan id of the channel, so that the link goes live.
 	aliceChannelLink.setLiveShortChanID(aliceChanID)
 	err = s.UpdateShortChanID(chanID1)
-	if err != nil {
-		t.Fatalf("unable to update alice short_chan_id: %v", err)
-	}
+	require.NoError(t, err, "unable to update alice short_chan_id")
 
 	// UpdateShortChanID will cause the mock link to become eligible to
 	// forward. However, we can simulate the event where the short chan id
@@ -174,21 +162,15 @@ func TestSwitchSendPending(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 
 	bobPeer, err := newMockServer(
 		t, "bob", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob server: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob server")
 
 	s, err := initSwitchWithDB(testStartingHeight, nil)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -215,9 +197,7 @@ func TestSwitchSendPending(t *testing.T) {
 	// Create request which should is being forwarded from Bob channel
 	// link to Alice channel link.
 	preimage, err := genPreimage()
-	if err != nil {
-		t.Fatalf("unable to generate preimage: %v", err)
-	}
+	require.NoError(t, err, "unable to generate preimage")
 	rhash := sha256.Sum256(preimage[:])
 	packet := &htlcPacket{
 		incomingChanID: bobChanID,
@@ -269,9 +249,7 @@ func TestSwitchSendPending(t *testing.T) {
 	// move the link to the live state.
 	aliceChannelLink.setLiveShortChanID(aliceChanID)
 	err = s.UpdateShortChanID(chanID1)
-	if err != nil {
-		t.Fatalf("unable to update alice short_chan_id: %v", err)
-	}
+	require.NoError(t, err, "unable to update alice short_chan_id")
 
 	// Increment the packet's HTLC index, so that it does not collide with
 	// the prior attempt.
@@ -298,20 +276,14 @@ func TestSwitchForward(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 	bobPeer, err := newMockServer(
 		t, "bob", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob server: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob server")
 
 	s, err := initSwitchWithDB(testStartingHeight, nil)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -335,9 +307,7 @@ func TestSwitchForward(t *testing.T) {
 	// Create request which should be forwarded from Alice channel link to
 	// bob channel link.
 	preimage, err := genPreimage()
-	if err != nil {
-		t.Fatalf("unable to generate preimage: %v", err)
-	}
+	require.NoError(t, err, "unable to generate preimage")
 	rhash := sha256.Sum256(preimage[:])
 	packet := &htlcPacket{
 		incomingChanID: aliceChannelLink.ShortChanID(),
@@ -411,30 +381,20 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 	bobPeer, err := newMockServer(
 		t, "bob", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob server: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob server")
 
 	tempPath, err := ioutil.TempDir("", "circuitdb")
-	if err != nil {
-		t.Fatalf("unable to temporary path: %v", err)
-	}
+	require.NoError(t, err, "unable to temporary path")
 
 	cdb, err := channeldb.Open(tempPath)
-	if err != nil {
-		t.Fatalf("unable to open channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to open channeldb")
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -522,14 +482,10 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 	}
 
 	cdb2, err := channeldb.Open(tempPath)
-	if err != nil {
-		t.Fatalf("unable to reopen channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to reopen channeldb")
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
-	if err != nil {
-		t.Fatalf("unable reinit switch: %v", err)
-	}
+	require.NoError(t, err, "unable reinit switch")
 	if err := s2.Start(); err != nil {
 		t.Fatalf("unable to restart switch: %v", err)
 	}
@@ -610,30 +566,20 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 	bobPeer, err := newMockServer(
 		t, "bob", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob server: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob server")
 
 	tempPath, err := ioutil.TempDir("", "circuitdb")
-	if err != nil {
-		t.Fatalf("unable to temporary path: %v", err)
-	}
+	require.NoError(t, err, "unable to temporary path")
 
 	cdb, err := channeldb.Open(tempPath)
-	if err != nil {
-		t.Fatalf("unable to open channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to open channeldb")
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -721,14 +667,10 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 	}
 
 	cdb2, err := channeldb.Open(tempPath)
-	if err != nil {
-		t.Fatalf("unable to reopen channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to reopen channeldb")
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
-	if err != nil {
-		t.Fatalf("unable reinit switch: %v", err)
-	}
+	require.NoError(t, err, "unable reinit switch")
 	if err := s2.Start(); err != nil {
 		t.Fatalf("unable to restart switch: %v", err)
 	}
@@ -812,30 +754,20 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 	bobPeer, err := newMockServer(
 		t, "bob", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob server: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob server")
 
 	tempPath, err := ioutil.TempDir("", "circuitdb")
-	if err != nil {
-		t.Fatalf("unable to temporary path: %v", err)
-	}
+	require.NoError(t, err, "unable to temporary path")
 
 	cdb, err := channeldb.Open(tempPath)
-	if err != nil {
-		t.Fatalf("unable to open channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to open channeldb")
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -915,14 +847,10 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 	}
 
 	cdb2, err := channeldb.Open(tempPath)
-	if err != nil {
-		t.Fatalf("unable to reopen channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to reopen channeldb")
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
-	if err != nil {
-		t.Fatalf("unable reinit switch: %v", err)
-	}
+	require.NoError(t, err, "unable reinit switch")
 	if err := s2.Start(); err != nil {
 		t.Fatalf("unable to restart switch: %v", err)
 	}
@@ -977,30 +905,20 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 	bobPeer, err := newMockServer(
 		t, "bob", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob server: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob server")
 
 	tempPath, err := ioutil.TempDir("", "circuitdb")
-	if err != nil {
-		t.Fatalf("unable to temporary path: %v", err)
-	}
+	require.NoError(t, err, "unable to temporary path")
 
 	cdb, err := channeldb.Open(tempPath)
-	if err != nil {
-		t.Fatalf("unable to open channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to open channeldb")
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -1075,14 +993,10 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 	}
 
 	cdb2, err := channeldb.Open(tempPath)
-	if err != nil {
-		t.Fatalf("unable to reopen channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to reopen channeldb")
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
-	if err != nil {
-		t.Fatalf("unable reinit switch: %v", err)
-	}
+	require.NoError(t, err, "unable reinit switch")
 	if err := s2.Start(); err != nil {
 		t.Fatalf("unable to restart switch: %v", err)
 	}
@@ -1143,30 +1057,20 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 	bobPeer, err := newMockServer(
 		t, "bob", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob server: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob server")
 
 	tempPath, err := ioutil.TempDir("", "circuitdb")
-	if err != nil {
-		t.Fatalf("unable to temporary path: %v", err)
-	}
+	require.NoError(t, err, "unable to temporary path")
 
 	cdb, err := channeldb.Open(tempPath)
-	if err != nil {
-		t.Fatalf("unable to open channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to open channeldb")
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -1240,14 +1144,10 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 	}
 
 	cdb2, err := channeldb.Open(tempPath)
-	if err != nil {
-		t.Fatalf("unable to reopen channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to reopen channeldb")
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
-	if err != nil {
-		t.Fatalf("unable reinit switch: %v", err)
-	}
+	require.NoError(t, err, "unable reinit switch")
 	if err := s2.Start(); err != nil {
 		t.Fatalf("unable to restart switch: %v", err)
 	}
@@ -1333,14 +1233,10 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 	}
 
 	cdb3, err := channeldb.Open(tempPath)
-	if err != nil {
-		t.Fatalf("unable to reopen channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to reopen channeldb")
 
 	s3, err := initSwitchWithDB(testStartingHeight, cdb3)
-	if err != nil {
-		t.Fatalf("unable reinit switch: %v", err)
-	}
+	require.NoError(t, err, "unable reinit switch")
 	if err := s3.Start(); err != nil {
 		t.Fatalf("unable to restart switch: %v", err)
 	}
@@ -1617,20 +1513,14 @@ func testSkipIneligibleLinksMultiHopForward(t *testing.T,
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 	bobPeer, err := newMockServer(
 		t, "bob", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob server: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob server")
 
 	s, err := initSwitchWithDB(testStartingHeight, nil)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -1747,14 +1637,10 @@ func testSkipLinkLocalForward(t *testing.T, eligible bool,
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 
 	s, err := initSwitchWithDB(testStartingHeight, nil)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -1773,9 +1659,7 @@ func testSkipLinkLocalForward(t *testing.T, eligible bool,
 	}
 
 	preimage, err := genPreimage()
-	if err != nil {
-		t.Fatalf("unable to generate preimage: %v", err)
-	}
+	require.NoError(t, err, "unable to generate preimage")
 	rhash := sha256.Sum256(preimage[:])
 	addMsg := &lnwire.UpdateAddHTLC{
 		PaymentHash: rhash,
@@ -1803,20 +1687,14 @@ func TestSwitchCancel(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 	bobPeer, err := newMockServer(
 		t, "bob", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob server: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob server")
 
 	s, err := initSwitchWithDB(testStartingHeight, nil)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -1840,9 +1718,7 @@ func TestSwitchCancel(t *testing.T) {
 	// Create request which should be forwarder from alice channel link
 	// to bob channel link.
 	preimage, err := genPreimage()
-	if err != nil {
-		t.Fatalf("unable to generate preimage: %v", err)
-	}
+	require.NoError(t, err, "unable to generate preimage")
 	rhash := sha256.Sum256(preimage[:])
 	request := &htlcPacket{
 		incomingChanID: aliceChannelLink.ShortChanID(),
@@ -1920,20 +1796,14 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 	bobPeer, err := newMockServer(
 		t, "bob", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob server: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob server")
 
 	s, err := initSwitchWithDB(testStartingHeight, nil)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -1955,9 +1825,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	// Create request which should be forwarder from alice channel link
 	// to bob channel link.
 	preimage, err := genPreimage()
-	if err != nil {
-		t.Fatalf("unable to generate preimage: %v", err)
-	}
+	require.NoError(t, err, "unable to generate preimage")
 	rhash := sha256.Sum256(preimage[:])
 	request := &htlcPacket{
 		incomingChanID: aliceChannelLink.ShortChanID(),
@@ -2083,14 +1951,10 @@ func TestSwitchSendPayment(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 
 	s, err := initSwitchWithDB(testStartingHeight, nil)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -2108,9 +1972,7 @@ func TestSwitchSendPayment(t *testing.T) {
 	// Create request which should be forwarder from alice channel link
 	// to bob channel link.
 	preimage, err := genPreimage()
-	if err != nil {
-		t.Fatalf("unable to generate preimage: %v", err)
-	}
+	require.NoError(t, err, "unable to generate preimage")
 	rhash := sha256.Sum256(preimage[:])
 	update := &lnwire.UpdateAddHTLC{
 		PaymentHash: rhash,
@@ -2183,9 +2045,7 @@ func TestSwitchSendPayment(t *testing.T) {
 	obfuscator := NewMockObfuscator()
 	failure := lnwire.NewFailIncorrectDetails(update.Amount, 100)
 	reason, err := obfuscator.EncryptFirstHop(failure)
-	if err != nil {
-		t.Fatalf("unable obfuscate failure: %v", err)
-	}
+	require.NoError(t, err, "unable obfuscate failure")
 
 	if s.IsForwardedHTLC(aliceChannelLink.ShortChanID(), update.ID) {
 		t.Fatal("htlc should be identified as not forwarded")
@@ -2224,9 +2084,7 @@ func TestLocalPaymentNoForwardingEvents(t *testing.T) {
 	channels, cleanUp, _, err := createClusterChannels(
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5)
-	if err != nil {
-		t.Fatalf("unable to create channel: %v", err)
-	}
+	require.NoError(t, err, "unable to create channel")
 	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
@@ -2250,9 +2108,7 @@ func TestLocalPaymentNoForwardingEvents(t *testing.T) {
 		n.aliceServer, receiver, firstHop, hops, amount, htlcAmt,
 		totalTimelock,
 	).Wait(30 * time.Second)
-	if err != nil {
-		t.Fatalf("unable to make the payment: %v", err)
-	}
+	require.NoError(t, err, "unable to make the payment")
 
 	// At this point, we'll forcibly stop the three hop network. Doing
 	// this will cause any pending forwarding events to be flushed by the
@@ -2286,9 +2142,7 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 	channels, cleanUp, _, err := createClusterChannels(
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5)
-	if err != nil {
-		t.Fatalf("unable to create channel: %v", err)
-	}
+	require.NoError(t, err, "unable to create channel")
 	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
@@ -2443,9 +2297,7 @@ func TestUpdateFailMalformedHTLCErrorConversion(t *testing.T) {
 	channels, cleanUp, _, err := createClusterChannels(
 		btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
 	)
-	if err != nil {
-		t.Fatalf("unable to create channel: %v", err)
-	}
+	require.NoError(t, err, "unable to create channel")
 	defer cleanUp()
 
 	n := newThreeHopNetwork(
@@ -2518,9 +2370,7 @@ func TestSwitchGetPaymentResult(t *testing.T) {
 	preimg[0] = 3
 
 	s, err := initSwitchWithDB(testStartingHeight, nil)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -2549,9 +2399,7 @@ func TestSwitchGetPaymentResult(t *testing.T) {
 	resultChan, err := s.GetPaymentResult(
 		paymentID, lntypes.Hash{}, newMockDeobfuscator(),
 	)
-	if err != nil {
-		t.Fatalf("unable to get payment result: %v", err)
-	}
+	require.NoError(t, err, "unable to get payment result")
 
 	// Add the result to the store.
 	n := &networkResult{
@@ -2563,9 +2411,7 @@ func TestSwitchGetPaymentResult(t *testing.T) {
 	}
 
 	err = s.networkResults.storeResult(paymentID, n)
-	if err != nil {
-		t.Fatalf("unable to store result: %v", err)
-	}
+	require.NoError(t, err, "unable to store result")
 
 	// The result should be available.
 	select {
@@ -2594,9 +2440,7 @@ func TestSwitchGetPaymentResult(t *testing.T) {
 	resultChan, err = s.GetPaymentResult(
 		paymentID, lntypes.Hash{}, newMockDeobfuscator(),
 	)
-	if err != nil {
-		t.Fatalf("unable to get payment result: %v", err)
-	}
+	require.NoError(t, err, "unable to get payment result")
 
 	select {
 	case res, ok := <-resultChan:
@@ -2626,14 +2470,10 @@ func TestInvalidFailure(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 
 	s, err := initSwitchWithDB(testStartingHeight, nil)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -2651,9 +2491,7 @@ func TestInvalidFailure(t *testing.T) {
 
 	// Create a request which should be forwarded to the mock channel link.
 	preimage, err := genPreimage()
-	if err != nil {
-		t.Fatalf("unable to generate preimage: %v", err)
-	}
+	require.NoError(t, err, "unable to generate preimage")
 	rhash := sha256.Sum256(preimage[:])
 	update := &lnwire.UpdateAddHTLC{
 		PaymentHash: rhash,
@@ -2666,9 +2504,7 @@ func TestInvalidFailure(t *testing.T) {
 	err = s.SendHTLC(
 		aliceChannelLink.ShortChanID(), paymentID, update,
 	)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
+	require.NoError(t, err, "unable to send payment")
 
 	// Catch the packet and complete the circuit so that the switch is ready
 	// for a response.
@@ -2860,9 +2696,7 @@ func testHtcNotifier(t *testing.T, testOpts []serverOption, iterations int,
 	channels, cleanUp, _, err := createClusterChannels(
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5)
-	if err != nil {
-		t.Fatalf("unable to create channel: %v", err)
-	}
+	require.NoError(t, err, "unable to create channel")
 	defer cleanUp()
 
 	// Mock time so that all events are reported with a static timestamp.
@@ -3009,9 +2843,7 @@ func (n *threeHopNetwork) sendThreeHopPayment(t *testing.T) (*lnwire.UpdateAddHT
 	}
 
 	err = n.carolServer.registry.AddInvoice(*invoice, htlc.PaymentHash)
-	if err != nil {
-		t.Fatalf("unable to add invoice in carol registry: %v", err)
-	}
+	require.NoError(t, err, "unable to add invoice in carol registry")
 
 	if err := n.aliceServer.htlcSwitch.SendHTLC(
 		n.firstBobChannelLink.ShortChanID(), pid, htlc,
@@ -3219,30 +3051,20 @@ func TestSwitchHoldForward(t *testing.T) {
 	alicePeer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create alice server: %v", err)
-	}
+	require.NoError(t, err, "unable to create alice server")
 	bobPeer, err := newMockServer(
 		t, "bob", testStartingHeight, nil, testDefaultDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob server: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob server")
 
 	tempPath, err := ioutil.TempDir("", "circuitdb")
-	if err != nil {
-		t.Fatalf("unable to temporary path: %v", err)
-	}
+	require.NoError(t, err, "unable to temporary path")
 
 	cdb, err := channeldb.Open(tempPath)
-	if err != nil {
-		t.Fatalf("unable to open channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to open channeldb")
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
-	if err != nil {
-		t.Fatalf("unable to init switch: %v", err)
-	}
+	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
 	}
@@ -3320,9 +3142,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	packet.incomingTimeout = testStartingHeight + cltvRejectDelta - 1
 
 	err = switchForwardInterceptor.ForwardPackets(linkQuit, false, packet)
-	if err != nil {
-		t.Fatalf("can't forward htlc packet: %v", err)
-	}
+	require.NoError(t, err, "can't forward htlc packet")
 	assertOutgoingLinkReceive(t, bobChannelLink, false)
 	assertOutgoingLinkReceiveIntercepted(t, aliceChannelLink)
 	assertNumCircuits(t, s, 0, 0)
@@ -3340,9 +3160,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	}
 
 	err = switchForwardInterceptor.ForwardPackets(linkQuit, false, packet)
-	if err != nil {
-		t.Fatalf("can't forward htlc packet: %v", err)
-	}
+	require.NoError(t, err, "can't forward htlc packet")
 	receivedPkt := assertOutgoingLinkReceive(t, bobChannelLink, true)
 	assertNumCircuits(t, s, 1, 1)
 

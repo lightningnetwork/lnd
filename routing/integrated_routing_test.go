@@ -57,9 +57,7 @@ func TestProbabilityExtrapolation(t *testing.T) {
 	// modifications anywhere in the chain of components that is involved in
 	// this test.
 	attempts, err := ctx.testPayment(1)
-	if err != nil {
-		t.Fatalf("payment failed: %v", err)
-	}
+	require.NoError(t, err, "payment failed")
 	if len(attempts) != 5 {
 		t.Fatalf("expected 5 attempts, but needed %v", len(attempts))
 	}
@@ -69,9 +67,7 @@ func TestProbabilityExtrapolation(t *testing.T) {
 	// first before switching to the paid channel.
 	ctx.mcCfg.AprioriWeight = 1
 	attempts, err = ctx.testPayment(1)
-	if err != nil {
-		t.Fatalf("payment failed: %v", err)
-	}
+	require.NoError(t, err, "payment failed")
 	if len(attempts) != 11 {
 		t.Fatalf("expected 11 attempts, but needed %v", len(attempts))
 	}

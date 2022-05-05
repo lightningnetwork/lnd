@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/stretchr/testify/require"
 )
 
 // TestStore asserts that the store persists the presented data to disk and is
@@ -125,9 +126,7 @@ func testStore(t *testing.T, createStore func() (SweeperStore, error)) {
 	}
 
 	txns, err := store.ListSweeps()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err, "unexpected error")
 
 	// Create a map containing the sweeps we expect to be returned by list
 	// sweeps.

@@ -28,9 +28,7 @@ func assertEngineExecution(t *testing.T, testNum int, valid bool,
 
 	// Get a new VM to execute.
 	vm, err := newEngine()
-	if err != nil {
-		t.Fatalf("unable to create engine: %v", err)
-	}
+	require.NoError(t, err, "unable to create engine")
 
 	// Execute the VM, only go on to the step-by-step execution if
 	// it doesn't validate as expected.
@@ -42,9 +40,7 @@ func assertEngineExecution(t *testing.T, testNum int, valid bool,
 	// Now that the execution didn't match what we expected, fetch a new VM
 	// to step through.
 	vm, err = newEngine()
-	if err != nil {
-		t.Fatalf("unable to create engine: %v", err)
-	}
+	require.NoError(t, err, "unable to create engine")
 
 	// This buffer will trace execution of the Script, dumping out
 	// to stdout.
@@ -178,9 +174,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	// doesn't need to exist, as we'll only be validating spending from the
 	// transaction that references this.
 	txid, err := chainhash.NewHash(testHdSeed.CloneBytes())
-	if err != nil {
-		t.Fatalf("unable to create txid: %v", err)
-	}
+	require.NoError(t, err, "unable to create txid")
 	fundingOut := &wire.OutPoint{
 		Hash:  *txid,
 		Index: 50,
@@ -580,9 +574,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	// doesn't need to exist, as we'll only be validating spending from the
 	// transaction that references this.
 	txid, err := chainhash.NewHash(testHdSeed.CloneBytes())
-	if err != nil {
-		t.Fatalf("unable to create txid: %v", err)
-	}
+	require.NoError(t, err, "unable to create txid")
 	fundingOut := &wire.OutPoint{
 		Hash:  *txid,
 		Index: 50,
@@ -1009,9 +1001,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 	// Next, craft a fake HTLC outpoint that we'll use to generate the
 	// sweeping transaction using.
 	txid, err := chainhash.NewHash(testHdSeed.CloneBytes())
-	if err != nil {
-		t.Fatalf("unable to create txid: %v", err)
-	}
+	require.NoError(t, err, "unable to create txid")
 	htlcOutPoint := &wire.OutPoint{
 		Hash:  *txid,
 		Index: 0,
@@ -1039,13 +1029,9 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 	// sweep the output after a particular delay.
 	htlcWitnessScript, err := SecondLevelHtlcScript(revocationKey,
 		delayKey, claimDelay)
-	if err != nil {
-		t.Fatalf("unable to create htlc script: %v", err)
-	}
+	require.NoError(t, err, "unable to create htlc script")
 	htlcPkScript, err := WitnessScriptHash(htlcWitnessScript)
-	if err != nil {
-		t.Fatalf("unable to create htlc output: %v", err)
-	}
+	require.NoError(t, err, "unable to create htlc output")
 
 	htlcOutput := &wire.TxOut{
 		PkScript: htlcPkScript,
@@ -1644,21 +1630,15 @@ func TestCommitSpendToRemoteConfirmed(t *testing.T) {
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(testWalletPrivKey)
 
 	txid, err := chainhash.NewHash(testHdSeed.CloneBytes())
-	if err != nil {
-		t.Fatalf("unable to create txid: %v", err)
-	}
+	require.NoError(t, err, "unable to create txid")
 	commitOut := &wire.OutPoint{
 		Hash:  *txid,
 		Index: 0,
 	}
 	commitScript, err := CommitScriptToRemoteConfirmed(aliceKeyPub)
-	if err != nil {
-		t.Fatalf("unable to create htlc script: %v", err)
-	}
+	require.NoError(t, err, "unable to create htlc script")
 	commitPkScript, err := WitnessScriptHash(commitScript)
-	if err != nil {
-		t.Fatalf("unable to create htlc output: %v", err)
-	}
+	require.NoError(t, err, "unable to create htlc output")
 
 	commitOutput := &wire.TxOut{
 		PkScript: commitPkScript,
@@ -1902,9 +1882,7 @@ func TestSpendAnchor(t *testing.T) {
 	// Create a fake anchor outpoint that we'll use to generate the
 	// sweeping transaction.
 	txid, err := chainhash.NewHash(testHdSeed.CloneBytes())
-	if err != nil {
-		t.Fatalf("unable to create txid: %v", err)
-	}
+	require.NoError(t, err, "unable to create txid")
 	anchorOutPoint := &wire.OutPoint{
 		Hash:  *txid,
 		Index: 0,
@@ -1922,13 +1900,9 @@ func TestSpendAnchor(t *testing.T) {
 	// Generate the anchor script that can be spent by Alice immediately,
 	// or by anyone after 16 blocks.
 	anchorScript, err := CommitScriptAnchor(aliceKeyPub)
-	if err != nil {
-		t.Fatalf("unable to create htlc script: %v", err)
-	}
+	require.NoError(t, err, "unable to create htlc script")
 	anchorPkScript, err := WitnessScriptHash(anchorScript)
-	if err != nil {
-		t.Fatalf("unable to create htlc output: %v", err)
-	}
+	require.NoError(t, err, "unable to create htlc output")
 
 	anchorOutput := &wire.TxOut{
 		PkScript: anchorPkScript,
@@ -2011,21 +1985,13 @@ func TestSpecificationKeyDerivation(t *testing.T) {
 	)
 
 	baseSecret, err := privkeyFromHex(baseSecretHex)
-	if err != nil {
-		t.Fatalf("Failed to parse serialized privkey: %v", err)
-	}
+	require.NoError(t, err, "Failed to parse serialized privkey")
 	perCommitmentSecret, err := privkeyFromHex(perCommitmentSecretHex)
-	if err != nil {
-		t.Fatalf("Failed to parse serialized privkey: %v", err)
-	}
+	require.NoError(t, err, "Failed to parse serialized privkey")
 	basePoint, err := pubkeyFromHex(basePointHex)
-	if err != nil {
-		t.Fatalf("Failed to parse serialized pubkey: %v", err)
-	}
+	require.NoError(t, err, "Failed to parse serialized pubkey")
 	perCommitmentPoint, err := pubkeyFromHex(perCommitmentPointHex)
-	if err != nil {
-		t.Fatalf("Failed to parse serialized pubkey: %v", err)
-	}
+	require.NoError(t, err, "Failed to parse serialized pubkey")
 
 	// name: derivation of key from basepoint and per_commitment_point
 	const expectedLocalKeyHex = "0235f2dbfaa89b57ec7b055afe29849ef7ddfeb1cefdb9ebdc43f5494984db29e5"

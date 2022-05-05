@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/stretchr/testify/require"
 )
 
 // invoiceExpiryWatcherTest holds a test fixture and implements checks
@@ -72,9 +73,7 @@ func newInvoiceExpiryWatcherTest(t *testing.T, now time.Time,
 		return nil
 	})
 
-	if err != nil {
-		t.Fatalf("cannot start InvoiceExpiryWatcher: %v", err)
-	}
+	require.NoError(t, err, "cannot start InvoiceExpiryWatcher")
 
 	return test
 }

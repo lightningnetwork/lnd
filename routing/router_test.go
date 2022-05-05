@@ -1168,9 +1168,7 @@ func TestAddProof(t *testing.T) {
 	fundingTx, _, chanID, err := createChannelEdge(ctx,
 		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
 		100, 0)
-	if err != nil {
-		t.Fatalf("unable create channel edge: %v", err)
-	}
+	require.NoError(t, err, "unable create channel edge")
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
@@ -1197,9 +1195,7 @@ func TestAddProof(t *testing.T) {
 	}
 
 	info, _, _, err := ctx.router.GetChannelByID(*chanID)
-	if err != nil {
-		t.Fatalf("unable to get channel: %v", err)
-	}
+	require.NoError(t, err, "unable to get channel")
 	if info.AuthProof == nil {
 		t.Fatal("proof have been updated")
 	}
@@ -1247,9 +1243,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 	testGraph, err := createTestGraphFromChannels(
 		true, testChannels, "roasbeef",
 	)
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 	defer testGraph.cleanUp()
 
 	ctx, cleanUp := createTestCtxFromGraphInstance(
@@ -1269,9 +1263,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 		ctx, bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(), 10000, 500,
 	)
-	if err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	require.NoError(t, err, "unable to create channel edge")
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
@@ -1335,16 +1327,12 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// The two nodes we are about to add should not exist yet.
 	_, exists1, err := ctx.graph.HasLightningNode(pub1)
-	if err != nil {
-		t.Fatalf("unable to query graph: %v", err)
-	}
+	require.NoError(t, err, "unable to query graph")
 	if exists1 {
 		t.Fatalf("node already existed")
 	}
 	_, exists2, err := ctx.graph.HasLightningNode(pub2)
-	if err != nil {
-		t.Fatalf("unable to query graph: %v", err)
-	}
+	require.NoError(t, err, "unable to query graph")
 	if exists2 {
 		t.Fatalf("node already existed")
 	}
@@ -1356,9 +1344,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		bitcoinKey2.SerializeCompressed(),
 		10000, 500,
 	)
-	if err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	require.NoError(t, err, "unable to create channel edge")
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
@@ -1419,16 +1405,12 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// After adding the edge between the two previously unknown nodes, they
 	// should have been added to the graph.
 	_, exists1, err = ctx.graph.HasLightningNode(pub1)
-	if err != nil {
-		t.Fatalf("unable to query graph: %v", err)
-	}
+	require.NoError(t, err, "unable to query graph")
 	if !exists1 {
 		t.Fatalf("node1 was not added to the graph")
 	}
 	_, exists2, err = ctx.graph.HasLightningNode(pub2)
-	if err != nil {
-		t.Fatalf("unable to query graph: %v", err)
-	}
+	require.NoError(t, err, "unable to query graph")
 	if !exists2 {
 		t.Fatalf("node2 was not added to the graph")
 	}
@@ -1461,9 +1443,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	fundingTx, _, chanID, err = createChannelEdge(ctx,
 		pubKey1.SerializeCompressed(), pubKey2.SerializeCompressed(),
 		10000, 510)
-	if err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	require.NoError(t, err, "unable to create channel edge")
 	fundingBlock = &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
@@ -1528,9 +1508,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		targetPubKeyBytes, paymentAmt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to find any routes: %v", err)
-	}
+	require.NoError(t, err, "unable to find any routes")
 
 	// Now check that we can update the node info for the partial node
 	// without messing up the channel graph.
@@ -1571,23 +1549,17 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		targetPubKeyBytes, paymentAmt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to find any routes: %v", err)
-	}
+	require.NoError(t, err, "unable to find any routes")
 
 	copy1, err := ctx.graph.FetchLightningNode(pub1)
-	if err != nil {
-		t.Fatalf("unable to fetch node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch node")
 
 	if copy1.Alias != n1.Alias {
 		t.Fatalf("fetched node not equal to original")
 	}
 
 	copy2, err := ctx.graph.FetchLightningNode(pub2)
-	if err != nil {
-		t.Fatalf("unable to fetch node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch node")
 
 	if copy2.Alias != n2.Alias {
 		t.Fatalf("fetched node not equal to original")
@@ -1642,9 +1614,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	time.Sleep(time.Millisecond * 500)
 
 	_, forkHeight, err := ctx.chain.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to ge best block: %v", err)
-	}
+	require.NoError(t, err, "unable to ge best block")
 
 	// Create 10 blocks on the minority chain, confirming chanID2.
 	for i := uint32(1); i <= 10; i++ {
@@ -1675,13 +1645,9 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	// Now add the two edges to the channel graph, and check that they
 	// correctly show up in the database.
 	node1, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	node2, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 
 	edge1 := &channeldb.ChannelEdgeInfo{
 		ChannelID:     chanID1,
@@ -1851,9 +1817,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 	time.Sleep(time.Millisecond * 500)
 
 	_, forkHeight, err := ctx.chain.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get best block: %v", err)
-	}
+	require.NoError(t, err, "unable to get best block")
 
 	// Create 10 blocks on the minority chain, confirming chanID2.
 	var minorityChain []*wire.MsgBlock
@@ -1886,13 +1850,9 @@ func TestDisconnectedBlocks(t *testing.T) {
 	// Now add the two edges to the channel graph, and check that they
 	// correctly show up in the database.
 	node1, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	node2, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 
 	edge1 := &channeldb.ChannelEdgeInfo{
 		ChannelID:        chanID1,
@@ -2032,9 +1992,7 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 		bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(),
 		chanValue, uint32(nextHeight))
-	if err != nil {
-		t.Fatalf("unable create channel edge: %v", err)
-	}
+	require.NoError(t, err, "unable create channel edge")
 	block102.Transactions = append(block102.Transactions, fundingTx1)
 	ctx.chain.addBlock(block102, uint32(nextHeight), rand.Uint32())
 	ctx.chain.setBestBlock(int32(nextHeight))
@@ -2045,13 +2003,9 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 	// for the ChannelRouter to properly recognize the channel we added
 	// above.
 	node1, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	node2, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	edge1 := &channeldb.ChannelEdgeInfo{
 		ChannelID:     chanID1.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
@@ -2097,9 +2051,7 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 
 	// At this point, our starting height should be 107.
 	_, chainHeight, err := ctx.chain.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get best block: %v", err)
-	}
+	require.NoError(t, err, "unable to get best block")
 	if chainHeight != 107 {
 		t.Fatalf("incorrect chain height: expected %v, got %v",
 			107, chainHeight)
@@ -2139,9 +2091,7 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 
 	// At this point, our starting height should be 112.
 	_, chainHeight, err = ctx.chain.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get best block: %v", err)
-	}
+	require.NoError(t, err, "unable to get best block")
 	if chainHeight != 112 {
 		t.Fatalf("incorrect chain height: expected %v, got %v",
 			112, chainHeight)
@@ -2394,9 +2344,7 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 	testGraph, err := createTestGraphFromChannels(
 		true, testChannels, "self",
 	)
-	if err != nil {
-		t.Fatalf("unable to create test graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create test graph")
 	defer testGraph.cleanUp()
 
 	const startingHeight = 100
@@ -2450,9 +2398,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 
 	sourceNode, err := ctx.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch source node")
 
 	amt := lnwire.MilliSatoshi(100)
 
@@ -2467,9 +2413,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 		testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, amt, 0, 0,
 	)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 
 	// The route that was chosen should be exactly one hop, and should be
 	// directly to luoji.
@@ -2503,9 +2447,7 @@ func TestIsStaleNode(t *testing.T) {
 		bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(),
 		10000, 500)
-	if err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	require.NoError(t, err, "unable to create channel edge")
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
@@ -2582,9 +2524,7 @@ func TestIsKnownEdge(t *testing.T) {
 		bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(),
 		10000, 500)
-	if err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	require.NoError(t, err, "unable to create channel edge")
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
@@ -2633,9 +2573,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 		bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(),
 		10000, 500)
-	if err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	require.NoError(t, err, "unable to create channel edge")
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
@@ -2765,9 +2703,7 @@ func TestUnknownErrorSource(t *testing.T) {
 
 	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
 	defer testGraph.cleanUp()
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromGraphInstance(
@@ -2807,9 +2743,7 @@ func TestUnknownErrorSource(t *testing.T) {
 	// which should pruning the channel a->b. We expect the payment to
 	// succeed via a->d.
 	_, _, err = ctx.router.SendPayment(&payment)
-	if err != nil {
-		t.Fatalf("expected payment to succeed, but got: %v", err)
-	}
+	require.NoError(t, err, "expected payment to succeed, but got")
 
 	// Next we modify payment result to return an unknown failure.
 	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
@@ -2900,9 +2834,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	}
 
 	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 	defer testGraph.cleanUp()
 
 	const startingBlockHeight = 101
@@ -2938,9 +2870,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	}
 
 	rt, err := route.NewRouteFromHops(payAmt, 100, ctx.aliases["a"], hops)
-	if err != nil {
-		t.Fatalf("unable to create route: %v", err)
-	}
+	require.NoError(t, err, "unable to create route")
 
 	finalHopIndex := len(hops)
 	testCases := map[int]lnwire.FailureMessage{
@@ -3036,9 +2966,7 @@ func TestSendToRouteMultiShardSend(t *testing.T) {
 	rt, err := route.NewRouteFromHops(
 		payAmt, 100, sourceNode.PubKeyBytes, hops,
 	)
-	if err != nil {
-		t.Fatalf("unable to create route: %v", err)
-	}
+	require.NoError(t, err, "unable to create route")
 
 	// The first shard we send we'll fail immediately, to check that we are
 	// still allowed to retry with other shards after a failed one.
@@ -3149,9 +3077,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 	}
 
 	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 	defer testGraph.cleanUp()
 
 	const startingBlockHeight = 101
@@ -3184,9 +3110,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 	}
 
 	rt, err := route.NewRouteFromHops(payAmt, 100, ctx.aliases["a"], hops)
-	if err != nil {
-		t.Fatalf("unable to create route: %v", err)
-	}
+	require.NoError(t, err, "unable to create route")
 
 	// Send off the payment request to the router. We expect an error back
 	// indicating that the route is too long.
@@ -3260,9 +3184,7 @@ func TestBuildRoute(t *testing.T) {
 	}
 
 	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 	defer testGraph.cleanUp()
 
 	const startingBlockHeight = 101
@@ -4358,7 +4280,5 @@ func TestBlockDifferenceFix(t *testing.T) {
 
 		return nil
 	}, testTimeout)
-	if err != nil {
-		t.Fatalf("block height wasn't updated: %v", err)
-	}
+	require.NoError(t, err, "block height wasn't updated")
 }

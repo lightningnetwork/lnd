@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/stretchr/testify/require"
 )
 
 // applyMigration is a helper test function that encapsulates the general steps
@@ -425,14 +426,10 @@ func TestMigrationReversion(t *testing.T) {
 	defer func() {
 		os.RemoveAll(tempDirName)
 	}()
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
+	require.NoError(t, err, "unable to create temp dir")
 
 	backend, cleanup, err := kvdb.GetTestBackend(tempDirName, "cdb")
-	if err != nil {
-		t.Fatalf("unable to get test db backend: %v", err)
-	}
+	require.NoError(t, err, "unable to get test db backend")
 
 	cdb, err := CreateWithBackend(backend)
 	if err != nil {
@@ -454,14 +451,10 @@ func TestMigrationReversion(t *testing.T) {
 	cdb.Close()
 	cleanup()
 
-	if err != nil {
-		t.Fatalf("unable to increase db version: %v", err)
-	}
+	require.NoError(t, err, "unable to increase db version")
 
 	backend, cleanup, err = kvdb.GetTestBackend(tempDirName, "cdb")
-	if err != nil {
-		t.Fatalf("unable to get test db backend: %v", err)
-	}
+	require.NoError(t, err, "unable to get test db backend")
 	defer cleanup()
 
 	_, err = CreateWithBackend(backend)

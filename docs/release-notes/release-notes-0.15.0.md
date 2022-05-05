@@ -136,6 +136,9 @@ close to continue after a peer disconnect](https://github.com/lightningnetwork/l
 * [A subsystem hand-off between the contractcourt and htlcswitch has been fixed by adding a persistence layer. This avoids a rare edge case
 from occurring that would result in an erroneous force close.](https://github.com/lightningnetwork/lnd/pull/6250)
 
+* [Ignore addresses with unknown types in NodeAnnouncements](
+  https://github.com/lightningnetwork/lnd/pull/6435)
+
 ## Routing
 
 * [Add a new `time_pref` parameter to the QueryRoutes and SendPayment APIs](https://github.com/lightningnetwork/lnd/pull/6024) that

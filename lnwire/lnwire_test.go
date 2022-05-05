@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -158,6 +159,22 @@ func randV3OnionAddr(r *rand.Rand) (*tor.OnionAddr, error) {
 	return &tor.OnionAddr{OnionService: onionService, Port: addrPort}, nil
 }
 
+func randOpaqueAddr(r *rand.Rand) (*OpaqueAddrs, error) {
+	payloadLen := r.Int63n(64) + 1
+	payload := make([]byte, payloadLen)
+
+	// The first byte is the address type. So set it to one that we
+	// definitely don't know about.
+	payload[0] = math.MaxUint8
+
+	// Generate random bytes for the rest of the payload.
+	if _, err := r.Read(payload[1:]); err != nil {
+		return nil, err
+	}
+
+	return &OpaqueAddrs{Payload: payload}, nil
+}
+
 func randAddrs(r *rand.Rand) ([]net.Addr, error) {
 	tcp4Addr, err := randTCP4Addr(r)
 	if err != nil {
@@ -179,7 +196,14 @@ func randAddrs(r *rand.Rand) ([]net.Addr, error) {
 		return nil, err
 	}
 
-	return []net.Addr{tcp4Addr, tcp6Addr, v2OnionAddr, v3OnionAddr}, nil
+	opaqueAddrs, err := randOpaqueAddr(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return []net.Addr{
+		tcp4Addr, tcp6Addr, v2OnionAddr, v3OnionAddr, opaqueAddrs,
+	}, nil
 }
 
 // TestChanUpdateChanFlags ensures that converting the ChanUpdateChanFlags and
@@ -224,6 +248,45 @@ func TestChanUpdateChanFlags(t *testing.T) {
 				test.expected, toStr)
 		}
 	}
+}
+
+// TestDecodeUnknownAddressType shows that an unknown address type is currently
+// incorrectly dealt with.
+func TestDecodeUnknownAddressType(t *testing.T) {
+	// Add a normal, clearnet address.
+	tcpAddr := &net.TCPAddr{
+		IP:   net.IP{127, 0, 0, 1},
+		Port: 8080,
+	}
+
+	// Add an onion address.
+	onionAddr := &tor.OnionAddr{
+		OnionService: "abcdefghijklmnop.onion",
+		Port:         9065,
+	}
+
+	// Now add an address with an unknown type.
+	var newAddrType addressType = math.MaxUint8
+	data := make([]byte, 0, 16)
+	data = append(data, uint8(newAddrType))
+	opaqueAddrs := &OpaqueAddrs{
+		Payload: data,
+	}
+
+	buffer := bytes.NewBuffer(make([]byte, 0, MaxMsgBody))
+	err := WriteNetAddrs(
+		buffer, []net.Addr{tcpAddr, onionAddr, opaqueAddrs},
+	)
+	require.NoError(t, err)
+
+	// Now we attempt to parse the bytes and assert that we get an error.
+	var addrs []net.Addr
+	err = ReadElement(buffer, &addrs)
+	require.NoError(t, err)
+	require.Len(t, addrs, 3)
+	require.Equal(t, tcpAddr.String(), addrs[0].String())
+	require.Equal(t, onionAddr.String(), addrs[1].String())
+	require.Equal(t, hex.EncodeToString(data), addrs[2].String())
 }
 
 func TestMaxOutPointIndex(t *testing.T) {

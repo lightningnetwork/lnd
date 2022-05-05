@@ -25,7 +25,7 @@ var (
 
 // MailBox is an interface which represents a concurrent-safe, in-order
 // delivery queue for messages from the network and also from the main switch.
-// This struct servers as a buffer between incoming messages, and messages to
+// This struct serves as a buffer between incoming messages, and messages to
 // the handled by the link. Each of the mutating methods within this interface
 // should be implemented in a non-blocking manner.
 type MailBox interface {

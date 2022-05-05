@@ -15,7 +15,7 @@ type OpaqueReason []byte
 // next commitment transaction, with the UpdateFailHTLC propagated backwards in
 // the route to fully undo the HTLC.
 type UpdateFailHTLC struct {
-	// ChanIDPoint is the particular active channel that this
+	// ChanID is the particular active channel that this
 	// UpdateFailHTLC is bound to.
 	ChanID ChannelID
 

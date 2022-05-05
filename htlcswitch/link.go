@@ -919,9 +919,9 @@ func (l *channelLink) loadAndRemove() error {
 // This goroutine reads messages from the upstream (remote) peer, and also from
 // downstream channel managed by the channel link. In the event that an htlc
 // needs to be forwarded, then send-only forward handler is used which sends
-// htlc packets to the switch. Additionally, the this goroutine handles acting
-// upon all timeouts for any active HTLCs, manages the channel's revocation
-// window, and also the htlc trickle queue+timer for this active channels.
+// htlc packets to the switch. Additionally, this goroutine handles acting upon
+// all timeouts for any active HTLCs, manages the channel's revocation window,
+// and also the htlc trickle queue+timer for this active channels.
 //
 // NOTE: This MUST be run as a goroutine.
 func (l *channelLink) htlcManager() {

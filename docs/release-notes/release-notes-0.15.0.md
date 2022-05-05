@@ -104,6 +104,11 @@ compact filters and block/block headers.
   arbitrator relying on htlcswitch to be started
   first](https://github.com/lightningnetwork/lnd/pull/6214).
 
+* [Fixed an issue where invoice notifications could be missed when using the
+   SubscribeSingleInvoice or SubscribeNotifications rpcs.](https://github.com/lightningnetwork/lnd/pull/6477)
+  
+## Neutrino
+
 * [Fixed crash in MuSig2Combine](https://github.com/lightningnetwork/lnd/pull/6502)
 
 * [Added signature length

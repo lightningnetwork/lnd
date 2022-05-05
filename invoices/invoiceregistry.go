@@ -1403,8 +1403,6 @@ type invoiceSubscriptionKit struct {
 	// backlogDelivered is closed when the backlog events have been
 	// delivered.
 	backlogDelivered chan struct{}
-
-	wg sync.WaitGroup
 }
 
 // InvoiceSubscription represents an intent to receive updates for newly added
@@ -1460,8 +1458,6 @@ func (i *invoiceSubscriptionKit) Cancel() {
 
 	i.ntfnQueue.Stop()
 	close(i.cancelChan)
-
-	i.wg.Wait()
 }
 
 func (i *invoiceSubscriptionKit) notify(event *invoiceEvent) error {

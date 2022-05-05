@@ -938,10 +938,15 @@ func (s *Server) MuSig2CombineSig(_ context.Context,
 		return nil, fmt.Errorf("error combining signatures: %v", err)
 	}
 
-	return &MuSig2CombineSigResponse{
+	resp := &MuSig2CombineSigResponse{
 		HaveAllSignatures: haveAllSigs,
-		FinalSignature:    finalSig.Serialize(),
-	}, nil
+	}
+
+	if haveAllSigs {
+		resp.FinalSignature = finalSig.Serialize()
+	}
+
+	return resp, err
 }
 
 // MuSig2Cleanup removes a session from memory to free up resources.

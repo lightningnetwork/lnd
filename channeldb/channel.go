@@ -117,21 +117,14 @@ var (
 	// TODO(roasbeef): rename to commit chain?
 	commitDiffKey = []byte("commit-diff-key")
 
-	// revocationLogBucket is dedicated for storing the necessary delta
-	// state between channel updates required to re-construct a past state
-	// in order to punish a counterparty attempting a non-cooperative
-	// channel closure. This key should be accessed from within the
-	// sub-bucket of a target channel, identified by its channel point.
-	revocationLogBucket = []byte("revocation-log-key")
-
 	// frozenChanKey is the key where we store the information for any
 	// active "frozen" channels. This key is present only in the leaf
 	// bucket for a given channel.
 	frozenChanKey = []byte("frozen-chans")
 
-	// lastWasRevokeKey is a key that stores true when the last update we sent
-	// was a revocation and false when it was a commitment signature. This is
-	// nil in the case of new channels with no updates exchanged.
+	// lastWasRevokeKey is a key that stores true when the last update we
+	// sent was a revocation and false when it was a commitment signature.
+	// This is nil in the case of new channels with no updates exchanged.
 	lastWasRevokeKey = []byte("last-was-revoke")
 )
 
@@ -176,18 +169,9 @@ var (
 	// channel.
 	ErrChanBorked = fmt.Errorf("cannot mutate borked channel")
 
-	// ErrLogEntryNotFound is returned when we cannot find a log entry at
-	// the height requested in the revocation log.
-	ErrLogEntryNotFound = fmt.Errorf("log entry not found")
-
 	// ErrMissingIndexEntry is returned when a caller attempts to close a
 	// channel and the outpoint is missing from the index.
 	ErrMissingIndexEntry = fmt.Errorf("missing outpoint from index")
-
-	// errHeightNotFound is returned when a query for channel balances at
-	// a height that we have not reached yet is made.
-	errHeightNotReached = fmt.Errorf("height requested greater than " +
-		"current commit height")
 )
 
 const (
@@ -656,6 +640,15 @@ type OpenChannel struct {
 	// TotalMSatReceived is the total number of milli-satoshis we've
 	// received within this channel.
 	TotalMSatReceived lnwire.MilliSatoshi
+
+	// InitialLocalBalance is the balance we have during the channel
+	// opening. When we are not the initiator, this value represents the
+	// push amount.
+	InitialLocalBalance lnwire.MilliSatoshi
+
+	// InitialRemoteBalance is the balance they have during the channel
+	// opening.
+	InitialRemoteBalance lnwire.MilliSatoshi
 
 	// LocalChanCfg is the channel configuration for the local node.
 	LocalChanCfg ChannelConfig
@@ -1644,44 +1637,6 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 	return nil
 }
 
-// BalancesAtHeight returns the local and remote balances on our commitment
-// transactions as of a given height.
-//
-// NOTE: these are our balances *after* subtracting the commitment fee and
-// anchor outputs.
-func (c *OpenChannel) BalancesAtHeight(height uint64) (lnwire.MilliSatoshi,
-	lnwire.MilliSatoshi, error) {
-
-	if height > c.LocalCommitment.CommitHeight &&
-		height > c.RemoteCommitment.CommitHeight {
-
-		return 0, 0, errHeightNotReached
-	}
-
-	// If our current commit is as the desired height, we can return our
-	// current balances.
-	if c.LocalCommitment.CommitHeight == height {
-		return c.LocalCommitment.LocalBalance,
-			c.LocalCommitment.RemoteBalance, nil
-	}
-
-	// If our current remote commit is at the desired height, we can return
-	// the current balances.
-	if c.RemoteCommitment.CommitHeight == height {
-		return c.RemoteCommitment.LocalBalance,
-			c.RemoteCommitment.RemoteBalance, nil
-	}
-
-	// If we are not currently on the height requested, we need to look up
-	// the previous height to obtain our balances at the given height.
-	commit, err := c.FindPreviousState(height)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	return commit.LocalBalance, commit.RemoteBalance, nil
-}
-
 // ActiveHtlcs returns a slice of HTLC's which are currently active on *both*
 // commitment transactions.
 func (c *OpenChannel) ActiveHtlcs() []HTLC {
@@ -1718,6 +1673,8 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 //
 // TODO(roasbeef): save space by using smaller ints at tail end?
 type HTLC struct {
+	// TODO(yy): can embed an HTLCEntry here.
+
 	// Signature is the signature for the second level covenant transaction
 	// for this HTLC. The second level transaction is a timeout tx in the
 	// case that this is an outgoing HTLC, and a success tx in the case
@@ -2349,7 +2306,7 @@ func (c *OpenChannel) InsertNextRevocation(revKey *btcec.PublicKey) error {
 // set of local updates that the peer still needs to send us a signature for.
 // We store this set of updates in case we go down.
 func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
-	updates []LogUpdate) error {
+	updates []LogUpdate, ourOutputIndex, theirOutputIndex uint32) error {
 
 	c.Lock()
 	defer c.Unlock()
@@ -2422,9 +2379,10 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 
 		// With the commitment pointer swapped, we can now add the
 		// revoked (prior) state to the revocation log.
-		//
-		// TODO(roasbeef): store less
-		err = appendChannelLogEntry(logBucket, &c.RemoteCommitment)
+		err = putRevocationLog(
+			logBucket, &c.RemoteCommitment,
+			ourOutputIndex, theirOutputIndex,
+		)
 		if err != nil {
 			return err
 		}
@@ -2608,22 +2566,24 @@ func (c *OpenChannel) RemoveFwdPkgs(heights ...uint64) error {
 	}, func() {})
 }
 
-// RevocationLogTail returns the "tail", or the end of the current revocation
-// log. This entry represents the last previous state for the remote node's
-// commitment chain. The ChannelDelta returned by this method will always lag
-// one state behind the most current (unrevoked) state of the remote node's
-// commitment chain.
-func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
+// revocationLogTailCommitHeight returns the commit height at the end of the
+// revocation log. This entry represents the last previous state for the remote
+// node's commitment chain. The ChannelDelta returned by this method will
+// always lag one state behind the most current (unrevoked) state of the remote
+// node's commitment chain.
+// NOTE: used in unit test only.
+func (c *OpenChannel) revocationLogTailCommitHeight() (uint64, error) {
 	c.RLock()
 	defer c.RUnlock()
+
+	var height uint64
 
 	// If we haven't created any state updates yet, then we'll exit early as
 	// there's nothing to be found on disk in the revocation bucket.
 	if c.RemoteCommitment.CommitHeight == 0 {
-		return nil, nil
+		return height, nil
 	}
 
-	var commit ChannelCommitment
 	if err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
 			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
@@ -2632,33 +2592,25 @@ func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
 			return err
 		}
 
-		logBucket := chanBucket.NestedReadBucket(revocationLogBucket)
-		if logBucket == nil {
-			return ErrNoPastDeltas
+		logBucket, err := fetchLogBucket(chanBucket)
+		if err != nil {
+			return err
 		}
 
 		// Once we have the bucket that stores the revocation log from
-		// this channel, we'll jump to the _last_ key in bucket. As we
-		// store the update number on disk in a big-endian format,
-		// this will retrieve the latest entry.
+		// this channel, we'll jump to the _last_ key in bucket. Since
+		// the key is the commit height, we'll decode the bytes and
+		// return it.
 		cursor := logBucket.ReadCursor()
-		_, tailLogEntry := cursor.Last()
-		logEntryReader := bytes.NewReader(tailLogEntry)
-
-		// Once we have the entry, we'll decode it into the channel
-		// delta pointer we created above.
-		var dbErr error
-		commit, dbErr = deserializeChanCommit(logEntryReader)
-		if dbErr != nil {
-			return dbErr
-		}
+		rawHeight, _ := cursor.Last()
+		height = byteOrder.Uint64(rawHeight)
 
 		return nil
 	}, func() {}); err != nil {
-		return nil, err
+		return height, err
 	}
 
-	return &commit, nil
+	return height, nil
 }
 
 // CommitmentHeight returns the current commitment height. The commitment
@@ -2703,11 +2655,15 @@ func (c *OpenChannel) CommitmentHeight() (uint64, error) {
 // intended to be used for obtaining the relevant data needed to claim all
 // funds rightfully spendable in the case of an on-chain broadcast of the
 // commitment transaction.
-func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelCommitment, error) {
+func (c *OpenChannel) FindPreviousState(
+	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
+
 	c.RLock()
 	defer c.RUnlock()
 
-	var commit ChannelCommitment
+	commit := &ChannelCommitment{}
+	rl := &RevocationLog{}
+
 	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
 			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
@@ -2716,24 +2672,24 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelCommitment, e
 			return err
 		}
 
-		logBucket := chanBucket.NestedReadBucket(revocationLogBucket)
-		if logBucket == nil {
-			return ErrNoPastDeltas
-		}
-
-		c, err := fetchChannelLogEntry(logBucket, updateNum)
+		// Find the revocation log from both the new and the old
+		// bucket.
+		r, c, err := fetchRevocationLogCompatible(chanBucket, updateNum)
 		if err != nil {
 			return err
 		}
 
+		rl = r
 		commit = c
 		return nil
 	}, func() {})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return &commit, nil
+	// Either the `rl` or the `commit` is nil here. We return them as-is
+	// and leave it to the caller to decide its following action.
+	return rl, commit, nil
 }
 
 // ClosureType is an enum like structure that details exactly _how_ a channel
@@ -2930,12 +2886,8 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 
 		// With the base channel data deleted, attempt to delete the
 		// information stored within the revocation log.
-		logBucket := chanBucket.NestedReadWriteBucket(revocationLogBucket)
-		if logBucket != nil {
-			err = chanBucket.DeleteNestedBucket(revocationLogBucket)
-			if err != nil {
-				return err
-			}
+		if err := deleteLogBucket(chanBucket); err != nil {
+			return err
 		}
 
 		err = chainBucket.DeleteNestedBucket(chanPointBuf.Bytes())
@@ -3328,7 +3280,8 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 		channel.chanStatus, channel.FundingBroadcastHeight,
 		channel.NumConfsRequired, channel.ChannelFlags,
 		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
-		channel.TotalMSatReceived,
+		channel.TotalMSatReceived, channel.InitialLocalBalance,
+		channel.InitialRemoteBalance,
 	); err != nil {
 		return err
 	}
@@ -3515,7 +3468,8 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 		&channel.chanStatus, &channel.FundingBroadcastHeight,
 		&channel.NumConfsRequired, &channel.ChannelFlags,
 		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
-		&channel.TotalMSatReceived,
+		&channel.TotalMSatReceived, &channel.InitialLocalBalance,
+		&channel.InitialRemoteBalance,
 	); err != nil {
 		return err
 	}
@@ -3688,31 +3642,6 @@ func makeLogKey(updateNum uint64) [8]byte {
 	var key [8]byte
 	byteOrder.PutUint64(key[:], updateNum)
 	return key
-}
-
-func appendChannelLogEntry(log kvdb.RwBucket,
-	commit *ChannelCommitment) error {
-
-	var b bytes.Buffer
-	if err := serializeChanCommit(&b, commit); err != nil {
-		return err
-	}
-
-	logEntrykey := makeLogKey(commit.CommitHeight)
-	return log.Put(logEntrykey[:], b.Bytes())
-}
-
-func fetchChannelLogEntry(log kvdb.RBucket,
-	updateNum uint64) (ChannelCommitment, error) {
-
-	logEntrykey := makeLogKey(updateNum)
-	commitBytes := log.Get(logEntrykey[:])
-	if commitBytes == nil {
-		return ChannelCommitment{}, ErrLogEntryNotFound
-	}
-
-	commitReader := bytes.NewReader(commitBytes)
-	return deserializeChanCommit(commitReader)
 }
 
 func fetchThawHeight(chanBucket kvdb.RBucket) (uint32, error) {

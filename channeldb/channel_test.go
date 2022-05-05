@@ -52,8 +52,17 @@ var (
 		Port: 18555,
 	}
 
-	// keyLocIndex is the KeyLocator Index we use for TestKeyLocatorEncoding.
+	// keyLocIndex is the KeyLocator Index we use for
+	// TestKeyLocatorEncoding.
 	keyLocIndex = uint32(2049)
+
+	// dummyLocalOutputIndex specifics a default value for our output index
+	// in this test.
+	dummyLocalOutputIndex = uint32(0)
+
+	// dummyRemoteOutIndex specifics a default value for their output index
+	// in this test.
+	dummyRemoteOutIndex = uint32(1)
 )
 
 // testChannelParams is a struct which details the specifics of how a channel
@@ -77,25 +86,6 @@ type testChannelParams struct {
 // testChannelOption is a functional option which can be used to alter the
 // default channel that is creates for testing.
 type testChannelOption func(params *testChannelParams)
-
-// channelCommitmentOption is an option which allows overwriting of the default
-// commitment height and balances. The local boolean can be used to set these
-// balances on the local or remote commit.
-func channelCommitmentOption(height uint64, localBalance,
-	remoteBalance lnwire.MilliSatoshi, local bool) testChannelOption {
-
-	return func(params *testChannelParams) {
-		if local {
-			params.channel.LocalCommitment.CommitHeight = height
-			params.channel.LocalCommitment.LocalBalance = localBalance
-			params.channel.LocalCommitment.RemoteBalance = remoteBalance
-		} else {
-			params.channel.RemoteCommitment.CommitHeight = height
-			params.channel.RemoteCommitment.LocalBalance = localBalance
-			params.channel.RemoteCommitment.RemoteBalance = remoteBalance
-		}
-	}
-}
 
 // pendingHeightOption is an option which can be used to set the height the
 // channel is marked as pending at.
@@ -352,6 +342,8 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 		Packager:                NewChannelPackager(chanID),
 		FundingTxn:              channels.TestFundingTx,
 		ThawHeight:              uint32(defaultPendingHeight),
+		InitialLocalBalance:     lnwire.MilliSatoshi(9000),
+		InitialRemoteBalance:    lnwire.MilliSatoshi(3000),
 	}
 }
 
@@ -565,6 +557,32 @@ func assertCommitmentEqual(t *testing.T, a, b *ChannelCommitment) {
 	}
 }
 
+// assertRevocationLogEntryEqual asserts that, for all the fields of a given
+// revocation log entry, their values match those on a given ChannelCommitment.
+func assertRevocationLogEntryEqual(t *testing.T, c *ChannelCommitment,
+	r *RevocationLog) {
+
+	// Check the common fields.
+	require.EqualValues(
+		t, r.CommitTxHash, c.CommitTx.TxHash(), "CommitTx mismatch",
+	)
+
+	// Now check the common fields from the HTLCs.
+	require.Equal(t, len(r.HTLCEntries), len(c.Htlcs), "HTLCs len mismatch")
+	for i, rHtlc := range r.HTLCEntries {
+		cHtlc := c.Htlcs[i]
+		require.Equal(t, rHtlc.RHash, cHtlc.RHash, "RHash mismatch")
+		require.Equal(t, rHtlc.Amt, cHtlc.Amt.ToSatoshis(),
+			"Amt mismatch")
+		require.Equal(t, rHtlc.RefundTimeout, cHtlc.RefundTimeout,
+			"RefundTimeout mismatch")
+		require.EqualValues(t, rHtlc.OutputIndex, cHtlc.OutputIndex,
+			"OutputIndex mismatch")
+		require.Equal(t, rHtlc.Incoming, cHtlc.Incoming,
+			"Incoming mismatch")
+	}
+}
+
 func TestChannelStateTransition(t *testing.T) {
 	t.Parallel()
 
@@ -765,7 +783,9 @@ func TestChannelStateTransition(t *testing.T) {
 	fwdPkg := NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight,
 		diskCommitDiff.LogUpdates, nil)
 
-	err = channel.AdvanceCommitChainTail(fwdPkg, nil)
+	err = channel.AdvanceCommitChainTail(
+		fwdPkg, nil, dummyLocalOutputIndex, dummyRemoteOutIndex,
+	)
 	if err != nil {
 		t.Fatalf("unable to append to revocation log: %v", err)
 	}
@@ -778,24 +798,32 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// We should be able to fetch the channel delta created above by its
 	// update number with all the state properly reconstructed.
-	diskPrevCommit, err := channel.FindPreviousState(
+	diskPrevCommit, _, err := channel.FindPreviousState(
 		oldRemoteCommit.CommitHeight,
 	)
 	if err != nil {
 		t.Fatalf("unable to fetch past delta: %v", err)
 	}
 
+	// Check the output indexes are saved as expected.
+	require.EqualValues(
+		t, dummyLocalOutputIndex, diskPrevCommit.OurOutputIndex,
+	)
+	require.EqualValues(
+		t, dummyRemoteOutIndex, diskPrevCommit.TheirOutputIndex,
+	)
+
 	// The two deltas (the original vs the on-disk version) should
 	// identical, and all HTLC data should properly be retained.
-	assertCommitmentEqual(t, &oldRemoteCommit, diskPrevCommit)
+	assertRevocationLogEntryEqual(t, &oldRemoteCommit, diskPrevCommit)
 
 	// The state number recovered from the tail of the revocation log
 	// should be identical to this current state.
-	logTail, err := channel.RevocationLogTail()
+	logTailHeight, err := channel.revocationLogTailCommitHeight()
 	if err != nil {
 		t.Fatalf("unable to retrieve log: %v", err)
 	}
-	if logTail.CommitHeight != oldRemoteCommit.CommitHeight {
+	if logTailHeight != oldRemoteCommit.CommitHeight {
 		t.Fatal("update number doesn't match")
 	}
 
@@ -813,25 +841,38 @@ func TestChannelStateTransition(t *testing.T) {
 
 	fwdPkg = NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight, nil, nil)
 
-	err = channel.AdvanceCommitChainTail(fwdPkg, nil)
+	err = channel.AdvanceCommitChainTail(
+		fwdPkg, nil, dummyLocalOutputIndex, dummyRemoteOutIndex,
+	)
 	if err != nil {
 		t.Fatalf("unable to append to revocation log: %v", err)
 	}
 
 	// Once again, fetch the state and ensure it has been properly updated.
-	prevCommit, err := channel.FindPreviousState(oldRemoteCommit.CommitHeight)
+	prevCommit, _, err := channel.FindPreviousState(
+		oldRemoteCommit.CommitHeight,
+	)
 	if err != nil {
 		t.Fatalf("unable to fetch past delta: %v", err)
 	}
-	assertCommitmentEqual(t, &oldRemoteCommit, prevCommit)
+
+	// Check the output indexes are saved as expected.
+	require.EqualValues(
+		t, dummyLocalOutputIndex, diskPrevCommit.OurOutputIndex,
+	)
+	require.EqualValues(
+		t, dummyRemoteOutIndex, diskPrevCommit.TheirOutputIndex,
+	)
+
+	assertRevocationLogEntryEqual(t, &oldRemoteCommit, prevCommit)
 
 	// Once again, state number recovered from the tail of the revocation
 	// log should be identical to this current state.
-	logTail, err = channel.RevocationLogTail()
+	logTailHeight, err = channel.revocationLogTailCommitHeight()
 	if err != nil {
 		t.Fatalf("unable to retrieve log: %v", err)
 	}
-	if logTail.CommitHeight != oldRemoteCommit.CommitHeight {
+	if logTailHeight != oldRemoteCommit.CommitHeight {
 		t.Fatal("update number doesn't match")
 	}
 
@@ -877,7 +918,9 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// Attempting to find previous states on the channel should fail as the
 	// revocation log has been deleted.
-	_, err = updatedChannel[0].FindPreviousState(oldRemoteCommit.CommitHeight)
+	_, _, err = updatedChannel[0].FindPreviousState(
+		oldRemoteCommit.CommitHeight,
+	)
 	if err == nil {
 		t.Fatal("revocation log search should have failed")
 	}
@@ -1410,174 +1453,6 @@ func TestCloseChannelStatus(t *testing.T) {
 
 	if !histChan.HasChanStatus(ChanStatusRemoteCloseInitiator) {
 		t.Fatalf("channel should have status")
-	}
-}
-
-// TestBalanceAtHeight tests lookup of our local and remote balance at a given
-// height.
-func TestBalanceAtHeight(t *testing.T) {
-	const (
-		// Values that will be set on our current local commit in
-		// memory.
-		localHeight        = 2
-		localLocalBalance  = 1000
-		localRemoteBalance = 1500
-
-		// Values that will be set on our current remote commit in
-		// memory.
-		remoteHeight        = 3
-		remoteLocalBalance  = 2000
-		remoteRemoteBalance = 2500
-
-		// Values that will be written to disk in the revocation log.
-		oldHeight        = 0
-		oldLocalBalance  = 200
-		oldRemoteBalance = 300
-
-		// Heights to test error cases.
-		unknownHeight   = 1
-		unreachedHeight = 4
-	)
-
-	// putRevokedState is a helper function used to put commitments is
-	// the revocation log bucket to test lookup of balances at heights that
-	// are not our current height.
-	putRevokedState := func(c *OpenChannel, height uint64, local,
-		remote lnwire.MilliSatoshi) error {
-
-		err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
-			chanBucket, err := fetchChanBucketRw(
-				tx, c.IdentityPub, &c.FundingOutpoint,
-				c.ChainHash,
-			)
-			if err != nil {
-				return err
-			}
-
-			logKey := revocationLogBucket
-			logBucket, err := chanBucket.CreateBucketIfNotExists(
-				logKey,
-			)
-			if err != nil {
-				return err
-			}
-
-			// Make a copy of our current commitment so we do not
-			// need to re-fill all the required fields and copy in
-			// our new desired values.
-			commit := c.LocalCommitment
-			commit.CommitHeight = height
-			commit.LocalBalance = local
-			commit.RemoteBalance = remote
-
-			return appendChannelLogEntry(logBucket, &commit)
-		}, func() {})
-
-		return err
-	}
-
-	tests := []struct {
-		name                  string
-		targetHeight          uint64
-		expectedLocalBalance  lnwire.MilliSatoshi
-		expectedRemoteBalance lnwire.MilliSatoshi
-		expectedError         error
-	}{
-		{
-			name:                  "target is current local height",
-			targetHeight:          localHeight,
-			expectedLocalBalance:  localLocalBalance,
-			expectedRemoteBalance: localRemoteBalance,
-			expectedError:         nil,
-		},
-		{
-			name:                  "target is current remote height",
-			targetHeight:          remoteHeight,
-			expectedLocalBalance:  remoteLocalBalance,
-			expectedRemoteBalance: remoteRemoteBalance,
-			expectedError:         nil,
-		},
-		{
-			name:                  "need to lookup commit",
-			targetHeight:          oldHeight,
-			expectedLocalBalance:  oldLocalBalance,
-			expectedRemoteBalance: oldRemoteBalance,
-			expectedError:         nil,
-		},
-		{
-			name:                  "height not found",
-			targetHeight:          unknownHeight,
-			expectedLocalBalance:  0,
-			expectedRemoteBalance: 0,
-			expectedError:         ErrLogEntryNotFound,
-		},
-		{
-			name:                  "height not reached",
-			targetHeight:          unreachedHeight,
-			expectedLocalBalance:  0,
-			expectedRemoteBalance: 0,
-			expectedError:         errHeightNotReached,
-		},
-	}
-
-	for _, test := range tests {
-		test := test
-
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			fullDB, cleanUp, err := MakeTestDB()
-			if err != nil {
-				t.Fatalf("unable to make test database: %v",
-					err)
-			}
-			defer cleanUp()
-
-			cdb := fullDB.ChannelStateDB()
-
-			// Create options to set the heights and balances of
-			// our local and remote commitments.
-			localCommitOpt := channelCommitmentOption(
-				localHeight, localLocalBalance,
-				localRemoteBalance, true,
-			)
-
-			remoteCommitOpt := channelCommitmentOption(
-				remoteHeight, remoteLocalBalance,
-				remoteRemoteBalance, false,
-			)
-
-			// Create an open channel.
-			channel := createTestChannel(
-				t, cdb, openChannelOption(),
-				localCommitOpt, remoteCommitOpt,
-			)
-
-			// Write an older commit to disk.
-			err = putRevokedState(channel, oldHeight,
-				oldLocalBalance, oldRemoteBalance)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			local, remote, err := channel.BalancesAtHeight(
-				test.targetHeight,
-			)
-			if err != test.expectedError {
-				t.Fatalf("expected: %v, got: %v",
-					test.expectedError, err)
-			}
-
-			if local != test.expectedLocalBalance {
-				t.Fatalf("expected local: %v, got: %v",
-					test.expectedLocalBalance, local)
-			}
-
-			if remote != test.expectedRemoteBalance {
-				t.Fatalf("expected remote: %v, got: %v",
-					test.expectedRemoteBalance, remote)
-			}
-		})
 	}
 }
 

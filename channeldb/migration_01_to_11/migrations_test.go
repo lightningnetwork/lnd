@@ -203,7 +203,7 @@ func TestMigrateOptionalChannelCloseSummaryFields(t *testing.T) {
 	}
 
 	var chanPointBuf bytes.Buffer
-	err = writeOutpoint(&chanPointBuf, &chanState.FundingOutpoint)
+	err = WriteOutpoint(&chanPointBuf, &chanState.FundingOutpoint)
 	if err != nil {
 		t.Fatalf("unable to write outpoint: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestMigrateOptionalChannelCloseSummaryFields(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				err = writeChanConfig(&buf, &cs.LocalChanConfig)
+				err = WriteChanConfig(&buf, &cs.LocalChanConfig)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -354,7 +354,7 @@ func TestMigrateOptionalChannelCloseSummaryFields(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				err = writeChanConfig(&buf, &cs.LocalChanConfig)
+				err = WriteChanConfig(&buf, &cs.LocalChanConfig)
 				if err != nil {
 					t.Fatal(err)
 				}

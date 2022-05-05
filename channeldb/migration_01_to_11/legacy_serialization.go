@@ -34,7 +34,7 @@ func deserializeCloseChannelSummaryV6(r io.Reader) (*ChannelCloseSummary, error)
 		return nil, err
 	}
 
-	if err := readChanConfig(r, &c.LocalChanConfig); err != nil {
+	if err := ReadChanConfig(r, &c.LocalChanConfig); err != nil {
 		return nil, err
 	}
 

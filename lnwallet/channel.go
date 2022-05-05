@@ -96,6 +96,17 @@ var (
 	// both parties can retrieve their funds.
 	ErrCommitSyncRemoteDataLoss = fmt.Errorf("possible remote commitment " +
 		"state data loss")
+
+	// ErrNoRevocationLogFound is returned when both the returned logs are
+	// nil from querying the revocation log bucket. In theory this should
+	// never happen as the query will return `ErrLogEntryNotFound`, yet
+	// we'd still perform a sanity check to make sure at least one of the
+	// logs is non-nil.
+	ErrNoRevocationLogFound = errors.New("no revocation log found")
+
+	// ErrOutputIndexOutOfRange is returned when an output index is greater
+	// than or equal to the length of a given transaction's outputs.
+	ErrOutputIndexOutOfRange = errors.New("output index is out of range")
 )
 
 // ErrCommitSyncLocalDataLoss is returned in the case that we receive a valid
@@ -1036,26 +1047,29 @@ type updateLog struct {
 	logIndex uint64
 
 	// htlcCounter is a monotonically increasing integer that tracks the
-	// total number of offered HTLC's by the owner of this update log. We
-	// use a distinct index for this purpose, as update's that remove
-	// entries from the log will be indexed using this counter.
+	// total number of offered HTLC's by the owner of this update log,
+	// hence the `Add` update type. We use a distinct index for this
+	// purpose, as update's that remove entries from the log will be
+	// indexed using this counter.
 	htlcCounter uint64
 
 	// List is the updatelog itself, we embed this value so updateLog has
 	// access to all the method of a list.List.
 	*list.List
 
-	// updateIndex is an index that maps a particular entries index to the
-	// list element within the list.List above.
+	// updateIndex maps a `logIndex` to a particular update entry. It
+	// deals with the four update types:
+	//   `Fail|MalformedFail|Settle|FeeUpdate`
 	updateIndex map[uint64]*list.Element
 
-	// offerIndex is an index that maps the counter for offered HTLC's to
-	// their list element within the main list.List.
+	// htlcIndex maps a `htlcCounter` to an offered HTLC entry, hence the
+	// `Add` update.
 	htlcIndex map[uint64]*list.Element
 
 	// modifiedHtlcs is a set that keeps track of all the current modified
-	// htlcs. A modified HTLC is one that's present in the log, and has as
-	// a pending fail or settle that's attempting to consume it.
+	// htlcs, hence update types `Fail|MalformedFail|Settle`. A modified
+	// HTLC is one that's present in the log, and has as a pending fail or
+	// settle that's attempting to consume it.
 	modifiedHtlcs map[uint64]struct{}
 }
 
@@ -2210,10 +2224,10 @@ type HtlcRetribution struct {
 // transaction. The BreachRetribution is then sent over the ContractBreach
 // channel in order to allow the subscriber of the channel to dispatch justice.
 type BreachRetribution struct {
-	// BreachTransaction is the transaction which breached the channel
+	// BreachTxHash is the transaction hash which breached the channel
 	// contract by spending from the funding multi-sig with a revoked
 	// commitment transaction.
-	BreachTransaction *wire.MsgTx
+	BreachTxHash chainhash.Hash
 
 	// BreachHeight records the block height confirming the breach
 	// transaction, used as a height hint when registering for
@@ -2228,13 +2242,9 @@ type BreachRetribution struct {
 	// RevokedStateNum is the revoked state number which was broadcast.
 	RevokedStateNum uint64
 
-	// PendingHTLCs is a slice of the HTLCs which were pending at this
-	// point within the channel's history transcript.
-	PendingHTLCs []channeldb.HTLC
-
 	// LocalOutputSignDesc is a SignDescriptor which is capable of
 	// generating the signature necessary to sweep the output within the
-	// BreachTransaction that pays directly us.
+	// breach transaction that pays directly us.
 	//
 	// NOTE: A nil value indicates that the local output is considered dust
 	// according to the remote party's dust limit.
@@ -2279,16 +2289,22 @@ type BreachRetribution struct {
 // passed channel, at a particular revoked state number, and one which targets
 // the passed commitment transaction.
 func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
-	breachHeight uint32) (*BreachRetribution, error) {
+	breachHeight uint32, spendTx *wire.MsgTx) (*BreachRetribution, error) {
 
 	// Query the on-disk revocation log for the snapshot which was recorded
-	// at this particular state num.
-	revokedSnapshot, err := chanState.FindPreviousState(stateNum)
+	// at this particular state num. Based on whether a legacy revocation
+	// log is returned or not, we will process them differently.
+	revokedLog, revokedLogLegacy, err := chanState.FindPreviousState(
+		stateNum,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	commitHash := revokedSnapshot.CommitTx.TxHash()
+	// Sanity check that at least one of the logs is returned.
+	if revokedLog == nil && revokedLogLegacy == nil {
+		return nil, ErrNoRevocationLogFound
+	}
 
 	// With the state number broadcast known, we can now derive/restore the
 	// proper revocation preimage necessary to sweep the remote party's
@@ -2311,22 +2327,14 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// Next, reconstruct the scripts as they were present at this state
 	// number so we can have the proper witness script to sign and include
 	// within the final witness.
-	theirDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
-	isRemoteInitiator := !chanState.IsInitiator
 	var leaseExpiry uint32
 	if chanState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = chanState.ThawHeight
 	}
-	theirScript, err := CommitScriptToSelf(
-		chanState.ChanType, isRemoteInitiator, keyRing.ToLocalKey,
-		keyRing.RevocationKey, theirDelay, leaseExpiry,
-	)
-	if err != nil {
-		return nil, err
-	}
 
-	// Since it is the remote breach we are reconstructing, the output going
-	// to us will be a to-remote script with our local params.
+	// Since it is the remote breach we are reconstructing, the output
+	// going to us will be a to-remote script with our local params.
+	isRemoteInitiator := !chanState.IsInitiator
 	ourScript, ourDelay, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
 		leaseExpiry,
@@ -2335,15 +2343,248 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		return nil, err
 	}
 
-	// In order to fully populate the breach retribution struct, we'll need
-	// to find the exact index of the commitment outputs.
+	theirDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
+	theirScript, err := CommitScriptToSelf(
+		chanState.ChanType, isRemoteInitiator, keyRing.ToLocalKey,
+		keyRing.RevocationKey, theirDelay, leaseExpiry,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Define an empty breach retribution that will be overwritten based on
+	// different version of the revocation log found.
+	var br *BreachRetribution
+
+	// Define our and their amounts, that will be overwritten below.
+	var ourAmt, theirAmt int64
+
+	// If the returned *RevocationLog is non-nil, use it to derive the info
+	// we need.
+	if revokedLog != nil {
+		br, ourAmt, theirAmt, err = createBreachRetribution(
+			revokedLog, spendTx, chanState, keyRing,
+			commitmentSecret, leaseExpiry,
+		)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// The returned revocation log is in legacy format, which is a
+		// *ChannelCommitment.
+		//
+		// NOTE: this branch is kept for compatibility such that for
+		// old nodes which refuse to migrate the legacy revocation log
+		// data can still function. This branch can be deleted once we
+		// are confident that no legacy format is in use.
+		br, ourAmt, theirAmt, err = createBreachRetributionLegacy(
+			revokedLogLegacy, chanState, keyRing, commitmentSecret,
+			ourScript, theirScript, leaseExpiry,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Conditionally instantiate a sign descriptor for each of the
+	// commitment outputs. If either is considered dust using the remote
+	// party's dust limit, the respective sign descriptor will be nil.
+	//
+	// If our balance exceeds the remote party's dust limit, instantiate
+	// the sign descriptor for our output.
+	if ourAmt >= int64(chanState.RemoteChanCfg.DustLimit) {
+		br.LocalOutputSignDesc = &input.SignDescriptor{
+			SingleTweak:   keyRing.LocalCommitKeyTweak,
+			KeyDesc:       chanState.LocalChanCfg.PaymentBasePoint,
+			WitnessScript: ourScript.WitnessScript,
+			Output: &wire.TxOut{
+				PkScript: ourScript.PkScript,
+				Value:    ourAmt,
+			},
+			HashType: txscript.SigHashAll,
+		}
+	}
+
+	// Similarly, if their balance exceeds the remote party's dust limit,
+	// assemble the sign descriptor for their output, which we can sweep.
+	if theirAmt >= int64(chanState.RemoteChanCfg.DustLimit) {
+		br.RemoteOutputSignDesc = &input.SignDescriptor{
+			KeyDesc: chanState.LocalChanCfg.
+				RevocationBasePoint,
+			DoubleTweak:   commitmentSecret,
+			WitnessScript: theirScript.WitnessScript,
+			Output: &wire.TxOut{
+				PkScript: theirScript.PkScript,
+				Value:    theirAmt,
+			},
+			HashType: txscript.SigHashAll,
+		}
+	}
+
+	// Finally, with all the necessary data constructed, we can pad the
+	// BreachRetribution struct which houses all the data necessary to
+	// swiftly bring justice to the cheating remote party.
+	br.BreachHeight = breachHeight
+	br.RevokedStateNum = stateNum
+	br.LocalDelay = ourDelay
+	br.RemoteDelay = theirDelay
+
+	return br, nil
+}
+
+// createHtlcRetribution is a helper function to construct an HtlcRetribution
+// based on the passed params.
+func createHtlcRetribution(chanState *channeldb.OpenChannel,
+	keyRing *CommitmentKeyRing, commitHash chainhash.Hash,
+	commitmentSecret *btcec.PrivateKey, leaseExpiry uint32,
+	htlc *channeldb.HTLCEntry) (HtlcRetribution, error) {
+
+	var emptyRetribution HtlcRetribution
+
+	theirDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
+	isRemoteInitiator := !chanState.IsInitiator
+
+	// We'll generate the original second level witness script now, as
+	// we'll need it if we're revoking an HTLC output on the remote
+	// commitment transaction, and *they* go to the second level.
+	secondLevelScript, err := SecondLevelHtlcScript(
+		chanState.ChanType, isRemoteInitiator,
+		keyRing.RevocationKey, keyRing.ToLocalKey, theirDelay,
+		leaseExpiry,
+	)
+	if err != nil {
+		return emptyRetribution, err
+	}
+
+	// If this is an incoming HTLC, then this means that they were the
+	// sender of the HTLC (relative to us). So we'll re-generate the sender
+	// HTLC script. Otherwise, is this was an outgoing HTLC that we sent,
+	// then from the PoV of the remote commitment state, they're the
+	// receiver of this HTLC.
+	htlcPkScript, htlcWitnessScript, err := genHtlcScript(
+		chanState.ChanType, htlc.Incoming, false,
+		htlc.RefundTimeout, htlc.RHash, keyRing,
+	)
+	if err != nil {
+		return emptyRetribution, err
+	}
+
+	return HtlcRetribution{
+		SignDesc: input.SignDescriptor{
+			KeyDesc: chanState.LocalChanCfg.
+				RevocationBasePoint,
+			DoubleTweak:   commitmentSecret,
+			WitnessScript: htlcWitnessScript,
+			Output: &wire.TxOut{
+				PkScript: htlcPkScript,
+				Value:    int64(htlc.Amt),
+			},
+			HashType: txscript.SigHashAll,
+		},
+		OutPoint: wire.OutPoint{
+			Hash:  commitHash,
+			Index: uint32(htlc.OutputIndex),
+		},
+		SecondLevelWitnessScript: secondLevelScript.WitnessScript,
+		IsIncoming:               htlc.Incoming,
+	}, nil
+}
+
+// createBreachRetribution creates a partially initiated BreachRetribution
+// using a RevocationLog. Returns the constructed retribution, our amount,
+// their amount, and a possible non-nil error.
+func createBreachRetribution(revokedLog *channeldb.RevocationLog,
+	spendTx *wire.MsgTx, chanState *channeldb.OpenChannel,
+	keyRing *CommitmentKeyRing, commitmentSecret *btcec.PrivateKey,
+	leaseExpiry uint32) (*BreachRetribution, int64, int64, error) {
+
+	commitHash := revokedLog.CommitTxHash
+
+	// Create the htlc retributions.
+	htlcRetributions := make([]HtlcRetribution, len(revokedLog.HTLCEntries))
+	for i, htlc := range revokedLog.HTLCEntries {
+		hr, err := createHtlcRetribution(
+			chanState, keyRing, commitHash,
+			commitmentSecret, leaseExpiry, htlc,
+		)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		htlcRetributions[i] = hr
+	}
+
+	var ourAmt, theirAmt int64
+
+	// Construct the our outpoint.
+	ourOutpoint := wire.OutPoint{
+		Hash: commitHash,
+	}
+	if revokedLog.OurOutputIndex != channeldb.OutputIndexEmpty {
+		ourOutpoint.Index = uint32(revokedLog.OurOutputIndex)
+
+		// Sanity check that OurOutputIndex is within range.
+		if int(ourOutpoint.Index) >= len(spendTx.TxOut) {
+			return nil, 0, 0, fmt.Errorf("%w: ours=%v, "+
+				"len(TxOut)=%v", ErrOutputIndexOutOfRange,
+				ourOutpoint.Index, len(spendTx.TxOut),
+			)
+		}
+		// Read the amounts from the breach transaction.
+		//
+		// NOTE: ourAmt here includes commit fee and anchor amount(if
+		// enabled).
+		ourAmt = spendTx.TxOut[ourOutpoint.Index].Value
+	}
+
+	// Construct the their outpoint.
+	theirOutpoint := wire.OutPoint{
+		Hash: commitHash,
+	}
+	if revokedLog.TheirOutputIndex != channeldb.OutputIndexEmpty {
+		theirOutpoint.Index = uint32(revokedLog.TheirOutputIndex)
+
+		// Sanity check that TheirOutputIndex is within range.
+		if int(revokedLog.TheirOutputIndex) >= len(spendTx.TxOut) {
+			return nil, 0, 0, fmt.Errorf("%w: theirs=%v, "+
+				"len(TxOut)=%v", ErrOutputIndexOutOfRange,
+				revokedLog.TheirOutputIndex, len(spendTx.TxOut),
+			)
+		}
+
+		// Read the amounts from the breach transaction.
+		theirAmt = spendTx.TxOut[theirOutpoint.Index].Value
+	}
+
+	return &BreachRetribution{
+		BreachTxHash:     commitHash,
+		ChainHash:        chanState.ChainHash,
+		LocalOutpoint:    ourOutpoint,
+		RemoteOutpoint:   theirOutpoint,
+		HtlcRetributions: htlcRetributions,
+		KeyRing:          keyRing,
+	}, ourAmt, theirAmt, nil
+}
+
+// createBreachRetributionLegacy creates a partially initiated
+// BreachRetribution using a ChannelCommitment. Returns the constructed
+// retribution, our amount, their amount, and a possible non-nil error.
+func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
+	chanState *channeldb.OpenChannel, keyRing *CommitmentKeyRing,
+	commitmentSecret *btcec.PrivateKey,
+	ourScript, theirScript *ScriptInfo,
+	leaseExpiry uint32) (*BreachRetribution, int64, int64, error) {
+
+	commitHash := revokedLog.CommitTx.TxHash()
 	ourOutpoint := wire.OutPoint{
 		Hash: commitHash,
 	}
 	theirOutpoint := wire.OutPoint{
 		Hash: commitHash,
 	}
-	for i, txOut := range revokedSnapshot.CommitTx.TxOut {
+
+	// In order to fully populate the breach retribution struct, we'll need
+	// to find the exact index of the commitment outputs.
+	for i, txOut := range revokedLog.CommitTx.TxOut {
 		switch {
 		case bytes.Equal(txOut.PkScript, ourScript.PkScript):
 			ourOutpoint.Index = uint32(i)
@@ -2352,127 +2593,52 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		}
 	}
 
-	// Conditionally instantiate a sign descriptor for each of the
-	// commitment outputs. If either is considered dust using the remote
-	// party's dust limit, the respective sign descriptor will be nil.
-	var (
-		ourSignDesc   *input.SignDescriptor
-		theirSignDesc *input.SignDescriptor
-	)
-
-	// Compute the balances in satoshis.
-	ourAmt := revokedSnapshot.LocalBalance.ToSatoshis()
-	theirAmt := revokedSnapshot.RemoteBalance.ToSatoshis()
-
-	// If our balance exceeds the remote party's dust limit, instantiate
-	// the sign descriptor for our output.
-	if ourAmt >= chanState.RemoteChanCfg.DustLimit {
-		ourSignDesc = &input.SignDescriptor{
-			SingleTweak:   keyRing.LocalCommitKeyTweak,
-			KeyDesc:       chanState.LocalChanCfg.PaymentBasePoint,
-			WitnessScript: ourScript.WitnessScript,
-			Output: &wire.TxOut{
-				PkScript: ourScript.PkScript,
-				Value:    int64(ourAmt),
-			},
-			HashType: txscript.SigHashAll,
-		}
-	}
-
-	// Similarly, if their balance exceeds the remote party's dust limit,
-	// assemble the sign descriptor for their output, which we can sweep.
-	if theirAmt >= chanState.RemoteChanCfg.DustLimit {
-		theirSignDesc = &input.SignDescriptor{
-			KeyDesc:       chanState.LocalChanCfg.RevocationBasePoint,
-			DoubleTweak:   commitmentSecret,
-			WitnessScript: theirScript.WitnessScript,
-			Output: &wire.TxOut{
-				PkScript: theirScript.PkScript,
-				Value:    int64(theirAmt),
-			},
-			HashType: txscript.SigHashAll,
-		}
-	}
-
 	// With the commitment outputs located, we'll now generate all the
 	// retribution structs for each of the HTLC transactions active on the
 	// remote commitment transaction.
-	htlcRetributions := make([]HtlcRetribution, 0, len(revokedSnapshot.Htlcs))
-	for _, htlc := range revokedSnapshot.Htlcs {
+	htlcRetributions := make([]HtlcRetribution, len(revokedLog.Htlcs))
+	for i, htlc := range revokedLog.Htlcs {
 		// If the HTLC is dust, then we'll skip it as it doesn't have
 		// an output on the commitment transaction.
 		if HtlcIsDust(
 			chanState.ChanType, htlc.Incoming, false,
-			chainfee.SatPerKWeight(revokedSnapshot.FeePerKw),
-			htlc.Amt.ToSatoshis(), chanState.RemoteChanCfg.DustLimit,
+			chainfee.SatPerKWeight(revokedLog.FeePerKw),
+			htlc.Amt.ToSatoshis(),
+			chanState.RemoteChanCfg.DustLimit,
 		) {
+
 			continue
 		}
 
-		// We'll generate the original second level witness script now,
-		// as we'll need it if we're revoking an HTLC output on the
-		// remote commitment transaction, and *they* go to the second
-		// level.
-		secondLevelScript, err := SecondLevelHtlcScript(
-			chanState.ChanType, isRemoteInitiator,
-			keyRing.RevocationKey, keyRing.ToLocalKey, theirDelay,
-			leaseExpiry,
+		entry := &channeldb.HTLCEntry{
+			RHash:         htlc.RHash,
+			RefundTimeout: htlc.RefundTimeout,
+			OutputIndex:   uint16(htlc.OutputIndex),
+			Incoming:      htlc.Incoming,
+			Amt:           htlc.Amt.ToSatoshis(),
+		}
+		hr, err := createHtlcRetribution(
+			chanState, keyRing, commitHash,
+			commitmentSecret, leaseExpiry, entry,
 		)
 		if err != nil {
-			return nil, err
+			return nil, 0, 0, err
 		}
-
-		// If this is an incoming HTLC, then this means that they were
-		// the sender of the HTLC (relative to us). So we'll
-		// re-generate the sender HTLC script. Otherwise, is this was
-		// an outgoing HTLC that we sent, then from the PoV of the
-		// remote commitment state, they're the receiver of this HTLC.
-		htlcPkScript, htlcWitnessScript, err := genHtlcScript(
-			chanState.ChanType, htlc.Incoming, false,
-			htlc.RefundTimeout, htlc.RHash, keyRing,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		htlcRetributions = append(htlcRetributions, HtlcRetribution{
-			SignDesc: input.SignDescriptor{
-				KeyDesc:       chanState.LocalChanCfg.RevocationBasePoint,
-				DoubleTweak:   commitmentSecret,
-				WitnessScript: htlcWitnessScript,
-				Output: &wire.TxOut{
-					PkScript: htlcPkScript,
-					Value:    int64(htlc.Amt.ToSatoshis()),
-				},
-				HashType: txscript.SigHashAll,
-			},
-			OutPoint: wire.OutPoint{
-				Hash:  commitHash,
-				Index: uint32(htlc.OutputIndex),
-			},
-			SecondLevelWitnessScript: secondLevelScript.WitnessScript,
-			IsIncoming:               htlc.Incoming,
-		})
+		htlcRetributions[i] = hr
 	}
 
-	// Finally, with all the necessary data constructed, we can create the
-	// BreachRetribution struct which houses all the data necessary to
-	// swiftly bring justice to the cheating remote party.
+	// Compute the balances in satoshis.
+	ourAmt := int64(revokedLog.LocalBalance.ToSatoshis())
+	theirAmt := int64(revokedLog.RemoteBalance.ToSatoshis())
+
 	return &BreachRetribution{
-		ChainHash:            chanState.ChainHash,
-		BreachTransaction:    revokedSnapshot.CommitTx,
-		BreachHeight:         breachHeight,
-		RevokedStateNum:      stateNum,
-		PendingHTLCs:         revokedSnapshot.Htlcs,
-		LocalOutpoint:        ourOutpoint,
-		LocalOutputSignDesc:  ourSignDesc,
-		LocalDelay:           ourDelay,
-		RemoteOutpoint:       theirOutpoint,
-		RemoteOutputSignDesc: theirSignDesc,
-		RemoteDelay:          theirDelay,
-		HtlcRetributions:     htlcRetributions,
-		KeyRing:              keyRing,
-	}, nil
+		BreachTxHash:     commitHash,
+		ChainHash:        chanState.ChainHash,
+		LocalOutpoint:    ourOutpoint,
+		RemoteOutpoint:   theirOutpoint,
+		HtlcRetributions: htlcRetributions,
+		KeyRing:          keyRing,
+	}, ourAmt, theirAmt, nil
 }
 
 // HtlcIsDust determines if an HTLC output is dust or not depending on two
@@ -3822,7 +3988,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// but died before the signature was sent. We re-transmit our
 		// revocation, but also initiate a state transition to re-sync
 		// them.
-		if lc.OweCommitment(true) {
+		if lc.OweCommitment() {
 			commitSig, htlcSigs, _, err := lc.SignNextCommitment()
 			switch {
 
@@ -4536,11 +4702,11 @@ func (lc *LightningChannel) IsChannelClean() bool {
 // out a commitment signature because there are outstanding local updates and/or
 // updates in the local commit tx that aren't reflected in the remote commit tx
 // yet.
-func (lc *LightningChannel) OweCommitment(local bool) bool {
+func (lc *LightningChannel) OweCommitment() bool {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	return lc.oweCommitment(local)
+	return lc.oweCommitment(true)
 }
 
 // oweCommitment is the internal version of OweCommitment. This function expects
@@ -4874,12 +5040,28 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		source, remoteChainTail, addUpdates, settleFailUpdates,
 	)
 
+	// We will soon be saving the current remote commitment to revocation
+	// log bucket, which is `lc.channelState.RemoteCommitment`. After that,
+	// the `RemoteCommitment` will be replaced with a newer version found
+	// in `CommitDiff`. Thus we need to compute the output indexes here
+	// before the change since the indexes are meant for the current,
+	// revoked remote commitment.
+	ourOutputIndex, theirOutputIndex, err := findOutputIndexesFromRemote(
+		revocation, lc.channelState,
+	)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	// At this point, the revocation has been accepted, and we've rotated
 	// the current revocation key+hash for the remote party. Therefore we
 	// sync now to ensure the revocation producer state is consistent with
 	// the current commitment height and also to advance the on-disk
 	// commitment chain.
-	err = lc.channelState.AdvanceCommitChainTail(fwdPkg, localPeerUpdates)
+	err = lc.channelState.AdvanceCommitChainTail(
+		fwdPkg, localPeerUpdates,
+		ourOutputIndex, theirOutputIndex,
+	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

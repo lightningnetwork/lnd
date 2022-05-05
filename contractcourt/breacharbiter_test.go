@@ -1051,7 +1051,7 @@ func TestBreachHandoffSuccess(t *testing.T) {
 			processACK <- brarErr
 		},
 		BreachRetribution: &lnwallet.BreachRetribution{
-			BreachTransaction: bobClose.CloseTx,
+			BreachTxHash: bobClose.CloseTx.TxHash(),
 			LocalOutputSignDesc: &input.SignDescriptor{
 				Output: &wire.TxOut{
 					PkScript: breachKeys[0],
@@ -1085,7 +1085,7 @@ func TestBreachHandoffSuccess(t *testing.T) {
 			processACK <- brarErr
 		},
 		BreachRetribution: &lnwallet.BreachRetribution{
-			BreachTransaction: bobClose.CloseTx,
+			BreachTxHash: bobClose.CloseTx.TxHash(),
 			LocalOutputSignDesc: &input.SignDescriptor{
 				Output: &wire.TxOut{
 					PkScript: breachKeys[0],
@@ -1137,7 +1137,7 @@ func TestBreachHandoffFail(t *testing.T) {
 			processACK <- brarErr
 		},
 		BreachRetribution: &lnwallet.BreachRetribution{
-			BreachTransaction: bobClose.CloseTx,
+			BreachTxHash: bobClose.CloseTx.TxHash(),
 			LocalOutputSignDesc: &input.SignDescriptor{
 				Output: &wire.TxOut{
 					PkScript: breachKeys[0],
@@ -1179,7 +1179,7 @@ func TestBreachHandoffFail(t *testing.T) {
 			processACK <- brarErr
 		},
 		BreachRetribution: &lnwallet.BreachRetribution{
-			BreachTransaction: bobClose.CloseTx,
+			BreachTxHash: bobClose.CloseTx.TxHash(),
 			LocalOutputSignDesc: &input.SignDescriptor{
 				Output: &wire.TxOut{
 					PkScript: breachKeys[0],
@@ -1621,7 +1621,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 
 	// Notify the breach arbiter about the breach.
 	retribution, err := lnwallet.NewBreachRetribution(
-		alice.State(), height, 1,
+		alice.State(), height, 1, forceCloseTx,
 	)
 	if err != nil {
 		t.Fatalf("unable to create breach retribution: %v", err)
@@ -1837,7 +1837,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 
 	// Notify the breach arbiter about the breach.
 	retribution, err := lnwallet.NewBreachRetribution(
-		alice.State(), height, uint32(blockHeight),
+		alice.State(), height, uint32(blockHeight), forceCloseTx,
 	)
 	if err != nil {
 		t.Fatalf("unable to create breach retribution: %v", err)

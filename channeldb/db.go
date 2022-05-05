@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration21"
 	"github.com/lightningnetwork/lnd/channeldb/migration23"
 	"github.com/lightningnetwork/lnd/channeldb/migration24"
+	"github.com/lightningnetwork/lnd/channeldb/migration25"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -204,6 +205,12 @@ var (
 			// Remove old forwarding packages of closed channels.
 			number:    24,
 			migration: migration24.MigrateFwdPkgCleanup,
+		},
+		{
+			// Save the initial local/remote balances in channel
+			// info.
+			number:    25,
+			migration: migration25.MigrateInitialBalances,
 		},
 	}
 

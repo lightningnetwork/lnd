@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -300,7 +301,7 @@ func (c *mockChannel) createRemoteCommitTx(t *testing.T) {
 	}
 
 	retribution := &lnwallet.BreachRetribution{
-		BreachTransaction:    commitTxn,
+		BreachTxHash:         commitTxn.TxHash(),
 		RevokedStateNum:      c.commitHeight,
 		KeyRing:              commitKeyRing,
 		RemoteDelay:          c.csvDelay,
@@ -360,13 +361,15 @@ func (c *mockChannel) receivePayment(t *testing.T, amt lnwire.MilliSatoshi) {
 }
 
 // getState retrieves the channel's commitment and retribution at state i.
-func (c *mockChannel) getState(i uint64) (*wire.MsgTx, *lnwallet.BreachRetribution) {
+func (c *mockChannel) getState(
+	i uint64) (chainhash.Hash, *lnwallet.BreachRetribution) {
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	retribution := c.retributions[i]
 
-	return retribution.BreachTransaction, retribution
+	return retribution.BreachTxHash, retribution
 }
 
 type testHarness struct {
@@ -608,8 +611,7 @@ func (h *testHarness) advanceChannelN(id uint64, n int) []blob.BreachHint {
 	var hints []blob.BreachHint
 	for i := uint64(0); i < uint64(n); i++ {
 		channel.advanceState(h.t)
-		commitTx, _ := h.channel(id).getState(i)
-		breachTxID := commitTx.TxHash()
+		breachTxID, _ := h.channel(id).getState(i)
 		hints = append(hints, blob.NewBreachHintFromHash(&breachTxID))
 	}
 
@@ -654,8 +656,7 @@ func (h *testHarness) sendPayments(id, from, to uint64,
 	var hints []blob.BreachHint
 	for i := from; i < to; i++ {
 		h.channel(id).sendPayment(h.t, amt)
-		commitTx, _ := channel.getState(i)
-		breachTxID := commitTx.TxHash()
+		breachTxID, _ := channel.getState(i)
 		hints = append(hints, blob.NewBreachHintFromHash(&breachTxID))
 	}
 
@@ -675,8 +676,7 @@ func (h *testHarness) recvPayments(id, from, to uint64,
 	var hints []blob.BreachHint
 	for i := from; i < to; i++ {
 		channel.receivePayment(h.t, amt)
-		commitTx, _ := channel.getState(i)
-		breachTxID := commitTx.TxHash()
+		breachTxID, _ := channel.getState(i)
 		hints = append(hints, blob.NewBreachHintFromHash(&breachTxID))
 	}
 

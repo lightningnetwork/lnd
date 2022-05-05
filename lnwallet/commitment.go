@@ -1,11 +1,13 @@
 package lnwallet
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -959,4 +961,77 @@ func addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	}
 
 	return nil
+}
+
+// findOutputIndexesFromRemote finds the index of our and their outputs from
+// the remote commitment transaction. It derives the key ring to compute the
+// output scripts and compares them against the outputs inside the commitment
+// to find the match.
+func findOutputIndexesFromRemote(revocationPreimage *chainhash.Hash,
+	chanState *channeldb.OpenChannel) (uint32, uint32, error) {
+
+	// Init the output indexes as empty.
+	ourIndex := uint32(channeldb.OutputIndexEmpty)
+	theirIndex := uint32(channeldb.OutputIndexEmpty)
+
+	chanCommit := chanState.RemoteCommitment
+	_, commitmentPoint := btcec.PrivKeyFromBytes(revocationPreimage[:])
+
+	// With the commitment point generated, we can now derive the king ring
+	// which will be used to generate the output scripts.
+	keyRing := DeriveCommitmentKeys(
+		commitmentPoint, false, chanState.ChanType,
+		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+	)
+
+	// Since it's remote commitment chain, we'd used the mirrored values.
+	//
+	// We use the remote's channel config for the csv delay.
+	theirDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
+
+	// If we are the initiator of this channel, then it's be false from the
+	// remote's PoV.
+	isRemoteInitiator := !chanState.IsInitiator
+
+	var leaseExpiry uint32
+	if chanState.ChanType.HasLeaseExpiration() {
+		leaseExpiry = chanState.ThawHeight
+	}
+
+	// Map the scripts from our PoV. When facing a local commitment, the to
+	// local output belongs to us and the to remote output belongs to them.
+	// When facing a remote commitment, the to local output belongs to them
+	// and the to remote output belongs to us.
+
+	// Compute the to local script. From our PoV, when facing a remote
+	// commitment, the to local output belongs to them.
+	theirScript, err := CommitScriptToSelf(
+		chanState.ChanType, isRemoteInitiator, keyRing.ToLocalKey,
+		keyRing.RevocationKey, theirDelay, leaseExpiry,
+	)
+	if err != nil {
+		return ourIndex, theirIndex, err
+	}
+
+	// Compute the to remote script. From our PoV, when facing a remote
+	// commitment, the to remote output belongs to us.
+	ourScript, _, err := CommitScriptToRemote(
+		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
+		leaseExpiry,
+	)
+	if err != nil {
+		return ourIndex, theirIndex, err
+	}
+
+	// Now compare the scripts to find our/their output index.
+	for i, txOut := range chanCommit.CommitTx.TxOut {
+		switch {
+		case bytes.Equal(txOut.PkScript, ourScript.PkScript):
+			ourIndex = uint32(i)
+		case bytes.Equal(txOut.PkScript, theirScript.PkScript):
+			theirIndex = uint32(i)
+		}
+	}
+
+	return ourIndex, theirIndex, nil
 }

@@ -729,7 +729,6 @@ func (c *chainWatcher) handleKnownRemoteState(
 
 	commitTxBroadcast := commitSpend.SpendingTx
 	commitHash := commitTxBroadcast.TxHash()
-	spendHeight := uint32(commitSpend.SpendingHeight)
 
 	switch {
 	// If the spending transaction matches the current latest state, then
@@ -780,10 +779,22 @@ func (c *chainWatcher) handleKnownRemoteState(
 		return true, nil
 	}
 
+	// This is neither a remote force close or a "future" commitment, we
+	// now check whether it's a remote breach and properly handle it.
+	return c.handlePossibleBreach(commitSpend, broadcastStateNum, chainSet)
+}
+
+// handlePossibleBreach checks whether the remote has breached and dispatches a
+// breach resolution to claim funds.
+func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
+	broadcastStateNum uint64, chainSet *chainSet) (bool, error) {
+
 	// We check if we have a revoked state at this state num that matches
 	// the spend transaction.
+	spendHeight := uint32(commitSpend.SpendingHeight)
 	retribution, err := lnwallet.NewBreachRetribution(
 		c.cfg.chanState, broadcastStateNum, spendHeight,
+		commitSpend.SpendingTx,
 	)
 
 	switch {
@@ -801,7 +812,8 @@ func (c *chainWatcher) handleKnownRemoteState(
 	// We found a revoked state at this height, but it could still be our
 	// own broadcasted state we are looking at. Therefore check that the
 	// commit matches before assuming it was a breach.
-	if retribution.BreachTransaction.TxHash() != commitHash {
+	commitHash := commitSpend.SpendingTx.TxHash()
+	if retribution.BreachTxHash != commitHash {
 		return false, nil
 	}
 

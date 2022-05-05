@@ -47,11 +47,6 @@ var (
 	// procedure, we can recover and continue from the persisted state.
 	retributionBucket = []byte("retribution")
 
-	// justiceTxnBucket holds the finalized justice transactions for all
-	// breached contracts. Entries are added to the justice txn bucket just
-	// before broadcasting the sweep txn.
-	justiceTxnBucket = []byte("justice-txn")
-
 	// errBrarShuttingDown is an error returned if the breacharbiter has
 	// been signalled to exit.
 	errBrarShuttingDown = errors.New("breacharbiter shutting down")
@@ -1248,7 +1243,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	}
 
 	return &retributionInfo{
-		commitHash:      breachInfo.BreachTransaction.TxHash(),
+		commitHash:      breachInfo.BreachTxHash,
 		chainHash:       breachInfo.ChainHash,
 		chanPoint:       *chanPoint,
 		breachedOutputs: breachedOutputs,
@@ -1578,18 +1573,7 @@ func (rs *RetributionStore) Remove(chanPoint *wire.OutPoint) error {
 
 		// Remove the persisted retribution info and finalized justice
 		// transaction.
-		if err := retBucket.Delete(chanBytes); err != nil {
-			return err
-		}
-
-		// If we have not finalized this channel breach, we can exit
-		// early.
-		justiceBkt := tx.ReadWriteBucket(justiceTxnBucket)
-		if justiceBkt == nil {
-			return nil
-		}
-
-		return justiceBkt.Delete(chanBytes)
+		return retBucket.Delete(chanBytes)
 	}, func() {})
 }
 

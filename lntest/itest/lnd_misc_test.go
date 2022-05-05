@@ -340,8 +340,8 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 // testListChannels checks that the response from ListChannels is correct. It
 // tests the values in all ChannelConstraints are returned as expected. Once
-// ListChannels becomes mature, a test against all fields in ListChannels should
-// be performed.
+// ListChannels becomes mature, a test against all fields in ListChannels
+// should be performed.
 func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
@@ -369,8 +369,8 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
-	// being the sole funder of the channel. The minial HTLC amount is set to
-	// 4200 msats.
+	// being the sole funder of the channel. The minial HTLC amount is set
+	// to 4200 msats.
 	const customizedMinHtlc = 4200
 
 	chanAmt := btcutil.Amount(100000)
@@ -414,11 +414,19 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Check the returned response is correct.
 	aliceChannel := resp.Channels[0]
 
+	// Since Alice is the initiator, she pays the commit fee.
+	aliceBalance := int64(chanAmt) - aliceChannel.CommitFee
+
+	// Check the balance related fields are correct.
+	require.Equal(t.t, aliceBalance, aliceChannel.LocalBalance)
+	require.Zero(t.t, aliceChannel.RemoteBalance)
+	require.Zero(t.t, aliceChannel.PushAmountSat)
+
 	// Calculate the dust limit we'll use for the test.
 	dustLimit := lnwallet.DustLimitForSize(input.UnknownWitnessSize)
 
-	// defaultConstraints is a ChannelConstraints with default values. It is
-	// used to test against Alice's local channel constraints.
+	// defaultConstraints is a ChannelConstraints with default values. It
+	// is used to test against Alice's local channel constraints.
 	defaultConstraints := &lnrpc.ChannelConstraints{
 		CsvDelay:          4,
 		ChanReserveSat:    1000,
@@ -464,9 +472,14 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		)
 	}
 
-	// Check channel constraints match. Alice's local channel constraint should
-	// be equal to Bob's remote channel constraint, and her remote one should
-	// be equal to Bob's local one.
+	// Check the balance related fields are correct.
+	require.Equal(t.t, aliceBalance, bobChannel.RemoteBalance)
+	require.Zero(t.t, bobChannel.LocalBalance)
+	require.Zero(t.t, bobChannel.PushAmountSat)
+
+	// Check channel constraints match. Alice's local channel constraint
+	// should be equal to Bob's remote channel constraint, and her remote
+	// one should be equal to Bob's local one.
 	assertChannelConstraintsEqual(
 		t, aliceChannel.LocalConstraints, bobChannel.RemoteConstraints,
 	)

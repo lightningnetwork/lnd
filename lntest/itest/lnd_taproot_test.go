@@ -902,6 +902,20 @@ func testTaprootMuSig2CombinedLeafKeySpend(ctxt context.Context, t *harnessTest,
 	)
 	require.NoError(t.t, err)
 
+	// Before we have all partial signatures, we shouldn't get a final
+	// signature back.
+	combineSigResp, err := alice.SignerClient.MuSig2CombineSig(
+		ctxt, &signrpc.MuSig2CombineSigRequest{
+			SessionId: sessResp1.SessionId,
+			OtherPartialSignatures: [][]byte{
+				signResp2.LocalPartialSignature,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.False(t.t, combineSigResp.HaveAllSignatures)
+	require.Empty(t.t, combineSigResp.FinalSignature)
+
 	signResp3, err := alice.SignerClient.MuSig2Sign(
 		ctxt, &signrpc.MuSig2SignRequest{
 			SessionId:     sessResp3.SessionId,
@@ -935,7 +949,6 @@ func testTaprootMuSig2CombinedLeafKeySpend(ctxt context.Context, t *harnessTest,
 		ctxt, &signrpc.MuSig2CombineSigRequest{
 			SessionId: sessResp1.SessionId,
 			OtherPartialSignatures: [][]byte{
-				signResp2.LocalPartialSignature,
 				signResp3.LocalPartialSignature,
 			},
 		},

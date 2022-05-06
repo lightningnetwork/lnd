@@ -85,6 +85,8 @@ to Bitcoin nodes that advertise a Tor v3 onion service address.
 * [Fixed an edge case where the lnd might be stuck at starting due to channel
   arbitrator relying on htlcswitch to be started
   first](https://github.com/lightningnetwork/lnd/pull/6214).
+
+* [Fixed crash in MuSig2Combine](https://github.com/lightningnetwork/lnd/pull/6502)
   
 ## Neutrino
 

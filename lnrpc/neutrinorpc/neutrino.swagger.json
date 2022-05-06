@@ -232,6 +232,72 @@
           "NeutrinoKit"
         ]
       }
+    },
+    "/v2/neutrino/stoptxscan": {
+      "post": {
+        "summary": "Stop scan.",
+        "operationId": "NeutrinoKit_StopTxScan",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcStopTxScanResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcStopTxScanRequest"
+            }
+          }
+        ],
+        "tags": [
+          "NeutrinoKit"
+        ]
+      }
+    },
+    "/v2/neutrino/txscan": {
+      "post": {
+        "summary": "TxScan is starting a scan for transactions including specific\naddresses. At the moment only one instance can run at a time.",
+        "operationId": "NeutrinoKit_TxScan",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcTxScanResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcTxScanRequest"
+            }
+          }
+        ],
+        "tags": [
+          "NeutrinoKit"
+        ]
+      }
     }
   },
   "definitions": {
@@ -460,6 +526,112 @@
             "type": "string"
           },
           "description": "Connected peers."
+        }
+      }
+    },
+    "neutrinorpcStopTxScanRequest": {
+      "type": "object"
+    },
+    "neutrinorpcStopTxScanResponse": {
+      "type": "object"
+    },
+    "neutrinorpcTxScanRequest": {
+      "type": "object",
+      "properties": {
+        "addrs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Addresses to scan for."
+        },
+        "start_block": {
+          "type": "string",
+          "format": "int64",
+          "description": "Rescan starting block height."
+        },
+        "end_block": {
+          "type": "string",
+          "format": "int64",
+          "description": "Rescan ending block height."
+        },
+        "timeout": {
+          "type": "string",
+          "format": "int64",
+          "description": "Scan timeout (in seconds)."
+        }
+      }
+    },
+    "neutrinorpcTxScanResponse": {
+      "type": "object",
+      "properties": {
+        "txs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/neutrinorpctx"
+          },
+          "description": "Txs."
+        }
+      }
+    },
+    "neutrinorpctx": {
+      "type": "object",
+      "properties": {
+        "txid": {
+          "type": "string",
+          "description": "Txid."
+        },
+        "version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Version."
+        },
+        "locktime": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Locktime."
+        },
+        "blockhash": {
+          "type": "string",
+          "description": "Block hash."
+        },
+        "confirmations": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Number of confirmations."
+        },
+        "tx_in": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/neutrinorpctxIn"
+          },
+          "description": "Input txs."
+        },
+        "tx_out": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/neutrinorpctxOut"
+          },
+          "description": "Output txs."
+        }
+      }
+    },
+    "neutrinorpctxIn": {
+      "type": "object",
+      "properties": {
+        "previous_outpoint": {
+          "type": "string",
+          "description": "Previous OutPoint."
+        }
+      }
+    },
+    "neutrinorpctxOut": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "format": "int64",
+          "description": "Transaction value."
         }
       }
     },

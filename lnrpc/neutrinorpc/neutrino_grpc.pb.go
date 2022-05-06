@@ -43,6 +43,13 @@ type NeutrinoKitClient interface {
 	//
 	//GetCFilter returns a compact filter from a block.
 	GetCFilter(ctx context.Context, in *GetCFilterRequest, opts ...grpc.CallOption) (*GetCFilterResponse, error)
+	//
+	//TxScan is starting a scan for transactions including specific
+	//addresses. At the moment only one instance can run at a time.
+	TxScan(ctx context.Context, in *TxScanRequest, opts ...grpc.CallOption) (*TxScanResponse, error)
+	//
+	//Stop scan.
+	StopTxScan(ctx context.Context, in *StopTxScanRequest, opts ...grpc.CallOption) (*StopTxScanResponse, error)
 }
 
 type neutrinoKitClient struct {
@@ -116,6 +123,24 @@ func (c *neutrinoKitClient) GetCFilter(ctx context.Context, in *GetCFilterReques
 	return out, nil
 }
 
+func (c *neutrinoKitClient) TxScan(ctx context.Context, in *TxScanRequest, opts ...grpc.CallOption) (*TxScanResponse, error) {
+	out := new(TxScanResponse)
+	err := c.cc.Invoke(ctx, "/neutrinorpc.NeutrinoKit/TxScan", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *neutrinoKitClient) StopTxScan(ctx context.Context, in *StopTxScanRequest, opts ...grpc.CallOption) (*StopTxScanResponse, error) {
+	out := new(StopTxScanResponse)
+	err := c.cc.Invoke(ctx, "/neutrinorpc.NeutrinoKit/StopTxScan", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NeutrinoKitServer is the server API for NeutrinoKit service.
 // All implementations must embed UnimplementedNeutrinoKitServer
 // for forward compatibility
@@ -145,6 +170,13 @@ type NeutrinoKitServer interface {
 	//
 	//GetCFilter returns a compact filter from a block.
 	GetCFilter(context.Context, *GetCFilterRequest) (*GetCFilterResponse, error)
+	//
+	//TxScan is starting a scan for transactions including specific
+	//addresses. At the moment only one instance can run at a time.
+	TxScan(context.Context, *TxScanRequest) (*TxScanResponse, error)
+	//
+	//Stop scan.
+	StopTxScan(context.Context, *StopTxScanRequest) (*StopTxScanResponse, error)
 	mustEmbedUnimplementedNeutrinoKitServer()
 }
 
@@ -172,6 +204,12 @@ func (UnimplementedNeutrinoKitServer) GetBlock(context.Context, *GetBlockRequest
 }
 func (UnimplementedNeutrinoKitServer) GetCFilter(context.Context, *GetCFilterRequest) (*GetCFilterResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCFilter not implemented")
+}
+func (UnimplementedNeutrinoKitServer) TxScan(context.Context, *TxScanRequest) (*TxScanResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TxScan not implemented")
+}
+func (UnimplementedNeutrinoKitServer) StopTxScan(context.Context, *StopTxScanRequest) (*StopTxScanResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StopTxScan not implemented")
 }
 func (UnimplementedNeutrinoKitServer) mustEmbedUnimplementedNeutrinoKitServer() {}
 
@@ -312,6 +350,42 @@ func _NeutrinoKit_GetCFilter_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NeutrinoKit_TxScan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TxScanRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NeutrinoKitServer).TxScan(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/neutrinorpc.NeutrinoKit/TxScan",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NeutrinoKitServer).TxScan(ctx, req.(*TxScanRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NeutrinoKit_StopTxScan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StopTxScanRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NeutrinoKitServer).StopTxScan(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/neutrinorpc.NeutrinoKit/StopTxScan",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NeutrinoKitServer).StopTxScan(ctx, req.(*StopTxScanRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NeutrinoKit_ServiceDesc is the grpc.ServiceDesc for NeutrinoKit service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -346,6 +420,14 @@ var NeutrinoKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCFilter",
 			Handler:    _NeutrinoKit_GetCFilter_Handler,
+		},
+		{
+			MethodName: "TxScan",
+			Handler:    _NeutrinoKit_TxScan_Handler,
+		},
+		{
+			MethodName: "StopTxScan",
+			Handler:    _NeutrinoKit_StopTxScan_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

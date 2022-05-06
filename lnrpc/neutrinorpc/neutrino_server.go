@@ -7,11 +7,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/lightninglabs/neutrino"
+	"github.com/lightninglabs/neutrino/headerfs"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/wire"
@@ -56,6 +62,14 @@ var (
 			Action: "read",
 		}},
 		"/neutrinorpc.NeutrinoKit/GetCFilter": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
+		"/neutrinorpc.NeutrinoKit/TxScan": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
+		"/neutrinorpc.NeutrinoKit/StopTxScan": {{
 			Entity: "onchain",
 			Action: "read",
 		}},
@@ -372,6 +386,7 @@ func (s *Server) GetCFilter(ctx context.Context,
 
 func (s *Server) getBlock(hash chainhash.Hash) (*GetBlockResponse, error) {
 	block, err := s.cfg.NeutrinoCS.GetBlock(hash)
+
 	if err != nil {
 		return &GetBlockResponse{}, err
 	}
@@ -422,4 +437,231 @@ func (s *Server) getBlock(hash chainhash.Hash) (*GetBlockResponse, error) {
 		PreviousBlockHash: header.PrevBlock.String(),
 		RawHex:            blockData,
 	}, nil
+}
+
+// TxScan is scanning for transactions including specific addresses.
+// At the moment, only one rescan can be performed at a time.
+//
+// NOTE: Part of the NeutrinoKitServer interface.
+func (s *Server) TxScan(ctx context.Context,
+	in *TxScanRequest) (*TxScanResponse, error) {
+
+	if s.cfg.NeutrinoCS == nil {
+		return &TxScanResponse{}, ErrNeutrinoNotActive
+	}
+
+	if s.cfg.rescanRunning {
+		return &TxScanResponse{}, fmt.Errorf("rescan is already running")
+	}
+
+	defer func(*Server) {
+		s.cfg.rescanRunning = false
+		log.Debugf("Rescan ended")
+	}(s)
+
+	var netParams chaincfg.Params
+
+	switch s.cfg.NeutrinoCS.ChainParams().Net {
+	case wire.MainNet:
+		netParams = chaincfg.MainNetParams
+	case wire.TestNet3:
+		netParams = chaincfg.TestNet3Params
+	case wire.SimNet:
+		netParams = chaincfg.SimNetParams
+	default:
+		return &TxScanResponse{}, fmt.Errorf("not a valid network type")
+	}
+
+	var err error
+	addrs := make([]btcutil.Address, len(in.Addrs))
+	for i, addr := range in.Addrs {
+		addrs[i], err = btcutil.DecodeAddress(addr, &netParams)
+		if err != nil {
+			return &TxScanResponse{}, err
+		}
+	}
+
+	bestBlock, err := s.cfg.NeutrinoCS.BestBlock()
+	if err != nil {
+		return &TxScanResponse{}, fmt.Errorf("could not get best snapshot "+
+			"from chain service: %v", err)
+	}
+
+	s.cfg.CurFilteredBlockHeight = int32(in.StartBlock)
+
+	// ourKnownTxsByFilteredBlock lets the rescan goroutine keep track of
+	// transactions we're interested in.
+	ourKnownTxsByFilteredBlock := make(map[chainhash.Hash][]*btcutil.Tx)
+
+	s.cfg.RescanQuit = make(chan struct{})
+
+	handlers := rpcclient.NotificationHandlers{
+		OnFilteredBlockConnected: func(
+			height int32,
+			header *wire.BlockHeader,
+			relevantTxs []*btcutil.Tx) {
+
+			s.cfg.rescanMtx.Lock()
+			ourKnownTxsByFilteredBlock[header.BlockHash()] =
+				relevantTxs
+			s.cfg.CurFilteredBlockHeight = height
+			s.cfg.rescanMtx.Unlock()
+		},
+		OnFilteredBlockDisconnected: func(
+			height int32,
+			header *wire.BlockHeader) {
+
+			s.cfg.rescanMtx.Lock()
+			delete(ourKnownTxsByFilteredBlock,
+				header.BlockHash())
+			s.cfg.CurFilteredBlockHeight =
+				height - 1
+			s.cfg.rescanMtx.Unlock()
+		},
+	}
+	rescanOptions := []neutrino.RescanOption{
+		neutrino.NotificationHandlers(handlers),
+		neutrino.QuitChan(s.cfg.RescanQuit),
+		neutrino.WatchAddrs(addrs...),
+		neutrino.StartBlock(
+			&headerfs.BlockStamp{Height: int32(in.StartBlock)},
+		),
+		neutrino.EndBlock(
+			&headerfs.BlockStamp{Height: int32(in.EndBlock)},
+		),
+	}
+	rescanNeutrino := neutrino.NewRescan(
+		&neutrino.RescanChainSource{ChainService: s.cfg.NeutrinoCS},
+		rescanOptions...,
+	)
+
+	// Start a rescan.
+	errChan := rescanNeutrino.Start()
+	log.Debugf("Rescan started")
+	s.cfg.rescanRunning = true
+
+	// Waits for the rescan to complete.
+	err = s.waitForSync(ctx, int32(in.EndBlock), bestBlock.Height,
+		time.Duration(in.Timeout)*time.Second)
+
+	if err != nil {
+		select {
+		case err := <-errChan:
+			log.Errorf("got error from rescan: %v", err)
+		default:
+		}
+		return &TxScanResponse{},
+			fmt.Errorf("could not sync chain service: %v", err)
+	}
+
+	// Make sure the rescan is stopped.
+	close(s.cfg.RescanQuit)
+	err = <-errChan
+
+	if err != nil && err != neutrino.ErrRescanExit {
+		return &TxScanResponse{},
+			fmt.Errorf("got error from rescan: %v", err)
+	}
+
+	s.cfg.rescanMtx.RLock()
+	defer s.cfg.rescanMtx.RUnlock()
+
+	resp := &TxScanResponse{}
+
+	i := 0
+	for blockHash, txList := range ourKnownTxsByFilteredBlock {
+		for _, tx := range txList {
+			resp.Txs = append(resp.Txs,
+				&Tx{
+					Txid:     tx.MsgTx().TxHash().String(),
+					Version:  tx.MsgTx().Version,
+					Locktime: tx.MsgTx().LockTime,
+					Confirmations: uint32(bestBlock.Height) -
+						tx.MsgTx().LockTime,
+					Blockhash: blockHash.String(),
+					TxIn:      []*TxIn{},
+					TxOut:     []*TxOut{},
+				},
+			)
+			for _, intx := range tx.MsgTx().TxIn {
+				resp.Txs[i].TxIn = append(resp.Txs[i].TxIn,
+					&TxIn{PreviousOutpoint: intx.PreviousOutPoint.String()},
+				)
+			}
+			for _, outtx := range tx.MsgTx().TxOut {
+				resp.Txs[i].TxOut = append(resp.Txs[i].TxOut,
+					&TxOut{Value: outtx.Value},
+				)
+			}
+			i++
+		}
+	}
+
+	return resp, nil
+}
+
+// StopTxScan stops any tx scan routine.
+//
+// NOTE: Part of the NeutrinoKitServer interface.
+func (s *Server) StopTxScan(ctx context.Context,
+	in *StopTxScanRequest) (*StopTxScanResponse, error) {
+
+	if s.cfg.NeutrinoCS == nil {
+		return &StopTxScanResponse{}, ErrNeutrinoNotActive
+	}
+
+	s.cfg.rescanRunning = false
+	s.cfg.RescanQuit = nil
+
+	return &StopTxScanResponse{}, nil
+}
+
+// waitForSync waits for the chain service to sync to current chain
+// state, then lets the rescan to finish.
+func (s *Server) waitForSync(ctx context.Context, bestHeight int32,
+	endBlock int32, timeout time.Duration) error {
+
+	var syncUpdate = time.Second
+	var total time.Duration
+
+	for {
+		if total > timeout {
+			return fmt.Errorf(
+				"timed out after %v waiting for rescan to catch up",
+				timeout,
+			)
+		}
+		time.Sleep(syncUpdate)
+		total += syncUpdate
+
+		// Check if we're current.
+		if !s.cfg.NeutrinoCS.IsCurrent() {
+			continue
+		}
+
+		s.cfg.rescanMtx.RLock()
+
+		// We don't want to do this if we haven't started a rescan yet.
+		if !s.cfg.rescanRunning {
+			s.cfg.rescanMtx.RUnlock()
+			return fmt.Errorf("rescan stopped")
+		}
+
+		rescanHeight := s.cfg.CurFilteredBlockHeight
+		s.cfg.rescanMtx.RUnlock()
+
+		if ctx.Err() == context.Canceled {
+			return fmt.Errorf("rescan stopped")
+		}
+
+		log.Infof("Rescan caught up to block %d", rescanHeight)
+
+		if rescanHeight >= endBlock ||
+			rescanHeight == bestHeight {
+
+			break
+		}
+	}
+
+	return nil
 }

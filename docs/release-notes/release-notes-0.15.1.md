@@ -30,6 +30,23 @@
 * [Delete failed payment attempts](https://github.com/lightningnetwork/lnd/pull/6438)
   once payments are settled, unless specified with `keep-failed-payment-attempts` flag.
 
+* [A new db configuration flag
+  `db.prune-revocation`](https://github.com/lightningnetwork/lnd/pull/6469) is
+  introduced to take the advantage enabled by [a recent space
+  optimization](https://github.com/lightningnetwork/lnd/pull/6347). Users can
+  set this flag to `true` to run an optional db migration during `lnd`'s
+  startup. This flag will prune the old revocation logs and save them using the
+  new format that can save large amount of disk space. 
+  For a busy channel with millions of updates, this migration can take quite
+  some time. The benchmark shows it takes roughly 70 seconds to finish a
+  migration with 1 million logs. Of course the actual time taken can vary from
+  machine to machine. Users can run the following benchmark test to get an
+  accurate time it'll take for a channel with 1 millions updates to plan ahead,
+  ```sh
+  cd ./channeldb/migration30
+  go test -bench=. -run=TestMigrateRevocationLogMemCap -benchtime=1000000x -timeout=10m -benchmem
+  ```
+
 ## Documentation
 
 * [Add minor comment](https://github.com/lightningnetwork/lnd/pull/6559) on

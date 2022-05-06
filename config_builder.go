@@ -394,8 +394,12 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 	var macaroonService *macaroons.Service
 	if !d.cfg.NoMacaroons {
 		// Create the macaroon authentication/authorization service.
+		rootKeyStore, err := macaroons.NewRootKeyStorage(dbs.MacaroonDB)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		macaroonService, err = macaroons.NewService(
-			dbs.MacaroonDB, "lnd", walletInitParams.StatelessInit,
+			rootKeyStore, "lnd", walletInitParams.StatelessInit,
 			macaroons.IPLockChecker,
 			macaroons.CustomChecker(interceptorChain),
 		)

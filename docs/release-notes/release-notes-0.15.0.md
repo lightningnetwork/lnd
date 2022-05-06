@@ -291,6 +291,9 @@ to the htlc interceptor API.
 * Improved instructions on [how to build lnd for mobile](https://github.com/lightningnetwork/lnd/pull/6085).
 * [Log force-close related messages on "info" level](https://github.com/lightningnetwork/lnd/pull/6124).
 
+* [Add list of build tags](https://github.com/lightningnetwork/lnd/pull/6486)
+  to the install instructions.
+
 ## Monitoring
 
 A new [flag (`--prometheus.perfhistograms`) has been added to enable export of

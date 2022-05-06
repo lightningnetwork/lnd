@@ -59,6 +59,10 @@ var (
 			Entity: "onchain",
 			Action: "read",
 		}},
+		"/neutrinorpc.NeutrinoKit/GetBlockHash": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
 	}
 
 	// ErrNeutrinoNotActive is an error returned when there is no running
@@ -192,13 +196,12 @@ func (s *Server) Status(ctx context.Context,
 	in *StatusRequest) (*StatusResponse, error) {
 
 	if s.cfg.NeutrinoCS == nil {
-		return &StatusResponse{}, nil
+		return nil, ErrNeutrinoNotActive
 	}
 
 	bestBlock, err := s.cfg.NeutrinoCS.BestBlock()
 	if err != nil {
-		return &StatusResponse{},
-			fmt.Errorf("could not get best block: %v", err)
+		return nil, fmt.Errorf("could not get best block: %v", err)
 	}
 
 	peers := s.cfg.NeutrinoCS.Peers()
@@ -223,12 +226,12 @@ func (s *Server) AddPeer(ctx context.Context,
 	in *AddPeerRequest) (*AddPeerResponse, error) {
 
 	if s.cfg.NeutrinoCS == nil {
-		return &AddPeerResponse{}, ErrNeutrinoNotActive
+		return nil, ErrNeutrinoNotActive
 	}
 
 	peer := s.cfg.NeutrinoCS.PeerByAddr(in.PeerAddrs)
 	if peer == nil {
-		return &AddPeerResponse{},
+		return nil,
 			fmt.Errorf("could not found peer: %s", in.PeerAddrs)
 	}
 	s.cfg.NeutrinoCS.AddPeer(peer)
@@ -245,18 +248,18 @@ func (s *Server) DisconnectPeer(ctx context.Context,
 	in *DisconnectPeerRequest) (*DisconnectPeerResponse, error) {
 
 	if s.cfg.NeutrinoCS == nil {
-		return &DisconnectPeerResponse{}, ErrNeutrinoNotActive
+		return nil, ErrNeutrinoNotActive
 	}
 
 	peer := s.cfg.NeutrinoCS.PeerByAddr(in.PeerAddrs)
 	if peer == nil {
-		return &DisconnectPeerResponse{},
+		return nil,
 			fmt.Errorf("could not found peer: %s", in.PeerAddrs)
 	}
 
 	err := s.cfg.NeutrinoCS.DisconnectNodeByAddr(peer.Addr())
 	if err != nil {
-		return &DisconnectPeerResponse{}, err
+		return nil, err
 	}
 
 	return &DisconnectPeerResponse{}, nil
@@ -269,7 +272,7 @@ func (s *Server) IsBanned(ctx context.Context,
 	in *IsBannedRequest) (*IsBannedResponse, error) {
 
 	if s.cfg.NeutrinoCS == nil {
-		return &IsBannedResponse{}, ErrNeutrinoNotActive
+		return nil, ErrNeutrinoNotActive
 	}
 
 	return &IsBannedResponse{
@@ -287,17 +290,17 @@ func (s *Server) GetBlockHeader(ctx context.Context,
 	in *GetBlockHeaderRequest) (*GetBlockHeaderResponse, error) {
 
 	if s.cfg.NeutrinoCS == nil {
-		return &GetBlockHeaderResponse{}, ErrNeutrinoNotActive
+		return nil, ErrNeutrinoNotActive
 	}
 
 	var hash chainhash.Hash
 	if err := chainhash.Decode(&hash, in.Hash); err != nil {
-		return &GetBlockHeaderResponse{}, err
+		return nil, err
 	}
 
 	resp, err := s.getBlock(hash)
 	if err != nil {
-		return &GetBlockHeaderResponse{}, err
+		return nil, err
 	}
 
 	return &GetBlockHeaderResponse{
@@ -328,12 +331,12 @@ func (s *Server) GetBlock(ctx context.Context,
 	in *GetBlockRequest) (*GetBlockResponse, error) {
 
 	if s.cfg.NeutrinoCS == nil {
-		return &GetBlockResponse{}, ErrNeutrinoNotActive
+		return nil, ErrNeutrinoNotActive
 	}
 
 	var hash chainhash.Hash
 	if err := chainhash.Decode(&hash, in.Hash); err != nil {
-		return &GetBlockResponse{}, err
+		return nil, err
 	}
 
 	return s.getBlock(hash)
@@ -347,24 +350,24 @@ func (s *Server) GetCFilter(ctx context.Context,
 	in *GetCFilterRequest) (*GetCFilterResponse, error) {
 
 	if s.cfg.NeutrinoCS == nil {
-		return &GetCFilterResponse{}, ErrNeutrinoNotActive
+		return nil, ErrNeutrinoNotActive
 	}
 
 	var hash chainhash.Hash
 	if err := chainhash.Decode(&hash, in.Hash); err != nil {
-		return &GetCFilterResponse{}, err
+		return nil, err
 	}
 
-	// GetCFilter returns a compact filter from the database. If it is missing,
-	// it requests the compact filter from the network.
+	// GetCFilter returns a compact filter from the database. If it is
+	// missing, it requests the compact filter from the network.
 	filter, err := s.cfg.NeutrinoCS.GetCFilter(hash, wire.GCSFilterRegular)
 	if err != nil {
-		return &GetCFilterResponse{}, err
+		return nil, err
 	}
 
 	filterlBytes, err := filter.Bytes()
 	if err != nil {
-		return &GetCFilterResponse{}, err
+		return nil, err
 	}
 
 	return &GetCFilterResponse{Filter: filterlBytes}, nil
@@ -373,27 +376,27 @@ func (s *Server) GetCFilter(ctx context.Context,
 func (s *Server) getBlock(hash chainhash.Hash) (*GetBlockResponse, error) {
 	block, err := s.cfg.NeutrinoCS.GetBlock(hash)
 	if err != nil {
-		return &GetBlockResponse{}, err
+		return nil, err
 	}
 
 	header, _, err := s.cfg.NeutrinoCS.BlockHeaders.FetchHeader(&hash)
 	if err != nil {
-		return &GetBlockResponse{}, err
+		return nil, err
 	}
 
 	blockData, err := block.Bytes()
 	if err != nil {
-		return &GetBlockResponse{}, err
+		return nil, err
 	}
 
 	strippedData, err := block.BytesNoWitness()
 	if err != nil {
-		return &GetBlockResponse{}, err
+		return nil, err
 	}
 
 	bestBlock, err := s.cfg.NeutrinoCS.BestBlock()
 	if err != nil {
-		return &GetBlockResponse{}, err
+		return nil, err
 	}
 
 	// Convert txids to a string array.
@@ -422,4 +425,22 @@ func (s *Server) getBlock(hash chainhash.Hash) (*GetBlockResponse, error) {
 		PreviousBlockHash: header.PrevBlock.String(),
 		RawHex:            blockData,
 	}, nil
+}
+
+// GetBlockHash returns the header hash of a block at a given height.
+//
+// NOTE: Part of the NeutrinoKitServer interface.
+func (s *Server) GetBlockHash(ctx context.Context,
+	in *GetBlockHashRequest) (*GetBlockHashResponse, error) {
+
+	if s.cfg.NeutrinoCS == nil {
+		return nil, ErrNeutrinoNotActive
+	}
+
+	hash, err := s.cfg.NeutrinoCS.GetBlockHash(int64(in.Height))
+	if err != nil {
+		return nil, err
+	}
+
+	return &GetBlockHashResponse{Hash: hash.String()}, nil
 }

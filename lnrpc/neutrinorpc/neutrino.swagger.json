@@ -81,6 +81,39 @@
         ]
       }
     },
+    "/v2/neutrino/blockhash/{height}": {
+      "get": {
+        "summary": "GetBlockHash returns the header hash of a block at a given height.",
+        "operationId": "NeutrinoKit_GetBlockHash",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcGetBlockHashResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "height",
+            "description": "The block height or index.",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "NeutrinoKit"
+        ]
+      }
+    },
     "/v2/neutrino/blockheader/{hash}": {
       "get": {
         "summary": "GetBlockHeader returns a block header with a particular block hash.",
@@ -258,6 +291,15 @@
     },
     "neutrinorpcDisconnectPeerResponse": {
       "type": "object"
+    },
+    "neutrinorpcGetBlockHashResponse": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "The block hash."
+        }
+      }
     },
     "neutrinorpcGetBlockHeaderResponse": {
       "type": "object",

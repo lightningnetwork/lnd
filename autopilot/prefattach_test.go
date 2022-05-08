@@ -3,14 +3,13 @@ package autopilot
 import (
 	"bytes"
 	"io/ioutil"
+	prand "math/rand"
 	"os"
 	"testing"
 	"time"
 
-	prand "math/rand"
-
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 )
 
@@ -253,9 +252,7 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 				t1.Fatalf("unable to create channel: %v", err)
 			}
 			peerPubBytes := edge1.Peer.PubKey()
-			peerPub, err := btcec.ParsePubKey(
-				peerPubBytes[:], btcec.S256(),
-			)
+			peerPub, err := btcec.ParsePubKey(peerPubBytes[:])
 			if err != nil {
 				t.Fatalf("unable to parse pubkey: %v", err)
 			}

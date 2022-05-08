@@ -1,22 +1,20 @@
 package input_test
 
 import (
-	"math/big"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/stretchr/testify/require"
-
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -38,12 +36,9 @@ var (
 	testPreimage = make([]byte, 32)
 
 	// testPubkey is a pubkey used in script size calculation.
-	testPubkey = &btcec.PublicKey{
-		X: &big.Int{},
-		Y: &big.Int{},
-	}
+	testPubkey = &btcec.PublicKey{}
 
-	testPrivkey, _ = btcec.PrivKeyFromBytes(btcec.S256(), make([]byte, 32))
+	testPrivkey, _ = btcec.PrivKeyFromBytes(make([]byte, 32))
 
 	testTx = wire.NewMsgTx(2)
 
@@ -939,7 +934,6 @@ func genSuccessTx(chanType channeldb.ChannelType) (*wire.MsgTx, error) {
 	successTx.TxIn[0].Witness = successWitness
 
 	return successTx, nil
-
 }
 
 type txSizeTest struct {

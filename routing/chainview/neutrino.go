@@ -5,11 +5,11 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/gcs/builder"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/gcs/builder"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -64,6 +64,7 @@ var _ FilteredChainView = (*CfFilteredChainView)(nil)
 // this function.
 func NewCfFilteredChainView(node *neutrino.ChainService,
 	blockCache *blockcache.BlockCache) (*CfFilteredChainView, error) {
+
 	return &CfFilteredChainView{
 		blockQueue:    newBlockEventQueue(),
 		quit:          make(chan struct{}),

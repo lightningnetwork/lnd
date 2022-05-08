@@ -27,13 +27,17 @@ type Config struct {
 	// NoScriptEnforcementLease unsets any bits signaling support for script
 	// enforced leases.
 	NoScriptEnforcementLease bool
+
+	// NoKeysend unsets any bits signaling support for accepting keysend
+	// payments.
+	NoKeysend bool
 }
 
 // Manager is responsible for generating feature vectors for different requested
 // feature sets.
 type Manager struct {
 	// fsets is a static map of feature set to raw feature vectors. Requests
-	// are fulfilled by cloning these interal feature vectors.
+	// are fulfilled by cloning these internal feature vectors.
 	fsets map[Set]*lnwire.RawFeatureVector
 }
 
@@ -83,6 +87,8 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.MPPRequired)
 			raw.Unset(lnwire.AMPOptional)
 			raw.Unset(lnwire.AMPRequired)
+			raw.Unset(lnwire.KeysendOptional)
+			raw.Unset(lnwire.KeysendRequired)
 		}
 		if cfg.NoStaticRemoteKey {
 			raw.Unset(lnwire.StaticRemoteKeyOptional)
@@ -115,6 +121,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.ScriptEnforcedLeaseOptional)
 			raw.Unset(lnwire.ScriptEnforcedLeaseRequired)
 		}
+		if cfg.NoKeysend {
+			raw.Unset(lnwire.KeysendOptional)
+			raw.Unset(lnwire.KeysendRequired)
+		}
 
 		// Ensure that all of our feature sets properly set any
 		// dependent features.
@@ -139,6 +149,11 @@ func (m *Manager) GetRaw(set Set) *lnwire.RawFeatureVector {
 	}
 
 	return lnwire.NewRawFeatureVector()
+}
+
+// SetRaw sets a new raw feature vector for the given set.
+func (m *Manager) SetRaw(set Set, raw *lnwire.RawFeatureVector) {
+	m.fsets[set] = raw
 }
 
 // Get returns a feature vector for the passed set. If no set is known, an empty

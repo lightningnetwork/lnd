@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	priv, _ = btcec.NewPrivateKey(btcec.S256())
+	priv, _ = btcec.NewPrivateKey()
 	pub     = priv.PubKey()
 
 	testHop1 = &route.Hop{
@@ -31,7 +31,8 @@ var (
 			65536: []byte{},
 			80001: []byte{},
 		},
-		MPP: record.NewMPP(32, [32]byte{0x42}),
+		MPP:      record.NewMPP(32, [32]byte{0x42}),
+		Metadata: []byte{1, 2, 3},
 	}
 
 	testHop2 = &route.Hop{
@@ -487,6 +488,7 @@ func TestQueryPayments(t *testing.T) {
 			}
 			if tt.firstIndex != querySlice.FirstIndexOffset ||
 				tt.lastIndex != querySlice.LastIndexOffset {
+
 				t.Errorf("First or last index does not match "+
 					"expected index. Want (%d, %d), got (%d, %d).",
 					tt.firstIndex, tt.lastIndex,
@@ -614,9 +616,8 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			err := kvdb.Update(db,
-				func(tx walletdb.ReadWriteTx) error {
-
+			err := kvdb.Update(
+				db, func(tx walletdb.ReadWriteTx) error {
 					var seqNrBytes [8]byte
 					byteOrder.PutUint64(
 						seqNrBytes[:], test.sequenceNumber,
@@ -626,7 +627,8 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 						tx, test.paymentHash, seqNrBytes[:],
 					)
 					return err
-				}, func() {})
+				}, func() {},
+			)
 			require.Equal(t, test.expectedErr, err)
 		})
 	}

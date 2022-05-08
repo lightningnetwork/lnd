@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/txsort"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -107,9 +107,15 @@ func (f *FullIntent) CompileFundingTx(extraInputs []*wire.TxIn,
 
 	// Next, sign all inputs that are ours, collecting the signatures in
 	// order of the inputs.
+	prevOutFetcher := NewSegWitV0DualFundingPrevOutputFetcher(
+		f.coinSource, extraInputs,
+	)
 	signDesc := input.SignDescriptor{
-		HashType:  txscript.SigHashAll,
-		SigHashes: txscript.NewTxSigHashes(fundingTx),
+		HashType: txscript.SigHashAll,
+		SigHashes: txscript.NewTxSigHashes(
+			fundingTx, prevOutFetcher,
+		),
+		PrevOutputFetcher: prevOutFetcher,
 	}
 	for i, txIn := range fundingTx.TxIn {
 		// We can only sign this input if it's ours, so we'll ask the
@@ -374,3 +380,55 @@ func (w *WalletAssembler) FundingTxAvailable() {}
 // A compile-time assertion to ensure the WalletAssembler meets the
 // FundingTxAssembler interface.
 var _ FundingTxAssembler = (*WalletAssembler)(nil)
+
+// SegWitV0DualFundingPrevOutputFetcher is a txscript.PrevOutputFetcher that
+// knows about local and remote funding inputs.
+//
+// TODO(guggero): Support dual funding with p2tr inputs, currently only segwit
+// v0 inputs are supported.
+type SegWitV0DualFundingPrevOutputFetcher struct {
+	local  CoinSource
+	remote *txscript.MultiPrevOutFetcher
+}
+
+var _ txscript.PrevOutputFetcher = (*SegWitV0DualFundingPrevOutputFetcher)(nil)
+
+// NewSegWitV0DualFundingPrevOutputFetcher creates a new
+// txscript.PrevOutputFetcher from the given local and remote inputs.
+//
+// NOTE: Since the actual pkScript and amounts aren't passed in, this will just
+// make sure that nothing will panic when creating a SegWit v0 sighash. But this
+// code will NOT WORK for transactions that spend any Taproot inputs!
+func NewSegWitV0DualFundingPrevOutputFetcher(localSource CoinSource,
+	remoteInputs []*wire.TxIn) txscript.PrevOutputFetcher {
+
+	remote := txscript.NewMultiPrevOutFetcher(nil)
+	for _, inp := range remoteInputs {
+		// We add an empty output to prevent the sighash calculation
+		// from panicking. But this will always detect the inputs as
+		// SegWig v0!
+		remote.AddPrevOut(inp.PreviousOutPoint, &wire.TxOut{})
+	}
+	return &SegWitV0DualFundingPrevOutputFetcher{
+		local:  localSource,
+		remote: remote,
+	}
+}
+
+// FetchPrevOutput attempts to fetch the previous output referenced by the
+// passed outpoint.
+//
+// NOTE: This is a part of the txscript.PrevOutputFetcher interface.
+func (d *SegWitV0DualFundingPrevOutputFetcher) FetchPrevOutput(
+	op wire.OutPoint) *wire.TxOut {
+
+	// Try the local source first. This will return nil if our internal
+	// wallet doesn't know the outpoint.
+	coin, err := d.local.CoinFromOutPoint(op)
+	if err == nil && coin != nil {
+		return &coin.TxOut
+	}
+
+	// Fall back to the remote
+	return d.remote.FetchPrevOutput(op)
+}

@@ -12,10 +12,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -49,7 +49,7 @@ var (
 	// outpointBucket stores all of our channel outpoints and a tlv
 	// stream containing channel data.
 	//
-	// outpoint -> tlv stream
+	// outpoint -> tlv stream.
 	//
 	outpointBucket = []byte("outpoint-bucket")
 
@@ -287,7 +287,7 @@ func (c ChannelType) HasFundingTx() bool {
 	return c&NoFundingTxBit == 0
 }
 
-// HasAnchors returns true if this channel type has anchor ouputs on its
+// HasAnchors returns true if this channel type has anchor outputs on its
 // commitment.
 func (c ChannelType) HasAnchors() bool {
 	return c&AnchorOutputsBit == AnchorOutputsBit
@@ -882,8 +882,9 @@ func fetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
 // channel's data resides in given: the public key for the node, the outpoint,
 // and the chainhash that the channel resides on. This differs from
 // fetchChanBucket in that it returns a writeable bucket.
-func fetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey, // nolint:interfacer
-	outPoint *wire.OutPoint, chainHash chainhash.Hash) (kvdb.RwBucket, error) {
+func fetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey,
+	outPoint *wire.OutPoint, chainHash chainhash.Hash) (kvdb.RwBucket,
+	error) {
 
 	// First fetch the top level bucket which stores all data related to
 	// current, active channels.
@@ -1891,7 +1892,7 @@ func (k *CircuitKey) SetBytes(bs []byte) error {
 
 // Bytes returns the serialized bytes for this circuit key.
 func (k CircuitKey) Bytes() []byte {
-	var bs = make([]byte, 16)
+	bs := make([]byte, 16)
 	binary.BigEndian.PutUint64(bs[:8], k.ChanID.ToUint64())
 	binary.BigEndian.PutUint64(bs[8:], k.HtlcID)
 	return bs
@@ -3191,7 +3192,7 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 
 	// The RemoteNextRevocation field is optional, as it's possible for a
 	// channel to be closed before we learn of the next unrevoked
-	// revocation point for the remote party. Write a boolen indicating
+	// revocation point for the remote party. Write a boolean indicating
 	// whether this field is present or not.
 	if err := WriteElements(w, cs.RemoteNextRevocation != nil); err != nil {
 		return err
@@ -3310,7 +3311,7 @@ func writeChanConfig(b io.Writer, c *ChannelConfig) error {
 }
 
 // fundingTxPresent returns true if expect the funding transcation to be found
-// on disk or already populated within the passed oen chanel struct.
+// on disk or already populated within the passed open channel struct.
 func fundingTxPresent(channel *OpenChannel) bool {
 	chanType := channel.ChanType
 
@@ -3468,7 +3469,6 @@ func putChanCommitments(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 }
 
 func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
-
 	var b bytes.Buffer
 	err := WriteElements(
 		&b, channel.RemoteCurrentRevocation, channel.RevocationProducer,
@@ -3659,7 +3659,6 @@ func fetchChanRevocationState(chanBucket kvdb.RBucket, channel *OpenChannel) err
 }
 
 func deleteOpenChannel(chanBucket kvdb.RwBucket) error {
-
 	if err := chanBucket.Delete(chanInfoKey); err != nil {
 		return err
 	}
@@ -3682,7 +3681,6 @@ func deleteOpenChannel(chanBucket kvdb.RwBucket) error {
 	}
 
 	return nil
-
 }
 
 // makeLogKey converts a uint64 into an 8 byte array.

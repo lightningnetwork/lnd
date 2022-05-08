@@ -5,14 +5,14 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 )
 
 var (
 	testPrivKeyBytes, _ = hex.DecodeString("e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734")
-	_, testPubKey       = btcec.PrivKeyFromBytes(btcec.S256(), testPrivKeyBytes)
+	_, testPubKey       = btcec.PrivKeyFromBytes(testPrivKeyBytes)
 	testPubKeyBytes, _  = NewVertexFromBytes(testPubKey.SerializeCompressed())
 )
 
@@ -186,6 +186,7 @@ func TestPayloadSize(t *testing.T) {
 				100000:  {1, 2, 3},
 				1000000: {4, 5},
 			},
+			Metadata: []byte{10, 11},
 		},
 	}
 

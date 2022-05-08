@@ -951,7 +951,7 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 
 // TestGossipSyncerReplyChanRangeQuery tests a variety of
 // QueryChannelRange messages to ensure the underlying queries are
-// executed with the correct block range
+// executed with the correct block range.
 func TestGossipSyncerReplyChanRangeQueryBlockRange(t *testing.T) {
 	t.Parallel()
 
@@ -1027,7 +1027,6 @@ func TestGossipSyncerReplyChanRangeQueryBlockRange(t *testing.T) {
 				resultsCh <- capFilterReqs
 				return
 			}
-
 		}
 	}()
 
@@ -2126,7 +2125,7 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 		select {
 		case msgs := <-msgChan:
 			if len(msgs) != 1 {
-				t.Fatal("expected to send a single message at "+
+				t.Fatalf("expected to send a single message at "+
 					"a time, got %d", len(msgs))
 			}
 			msgSent = msgs[0]

@@ -315,7 +315,6 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	creationInfo, err := fetchCreationInfo(bucket)
 	if err != nil {
 		return nil, err
-
 	}
 
 	var htlcs []HTLCAttempt
@@ -358,7 +357,6 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	var paymentStatus PaymentStatus
 
 	switch {
-
 	// If any of the the HTLCs did succeed and there are no HTLCs in
 	// flight, the payment succeeded.
 	case !inflight && settled:
@@ -383,7 +381,7 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	}, nil
 }
 
-// fetchHtlcAttempts retrives all htlc attempts made for the payment found in
+// fetchHtlcAttempts retrieves all htlc attempts made for the payment found in
 // the given bucket.
 func fetchHtlcAttempts(bucket kvdb.RBucket) ([]HTLCAttempt, error) {
 	htlcsMap := make(map[uint64]*HTLCAttempt)
@@ -534,6 +532,10 @@ type PaymentsQuery struct {
 	// fully completed. This means that pending payments, as well as failed
 	// payments will show up if this field is set to true.
 	IncludeIncomplete bool
+
+	// CountTotal indicates that all payments currently present in the
+	// payment index (complete and incomplete) should be counted.
+	CountTotal bool
 }
 
 // PaymentsResponse contains the result of a query to the payments database.
@@ -557,6 +559,11 @@ type PaymentsResponse struct {
 	// in the event that the slice has too many events to fit into a single
 	// response. The offset can be used to continue forward pagination.
 	LastIndexOffset uint64
+
+	// TotalCount represents the total number of payments that are currently
+	// stored in the payment database. This will only be set if the
+	// CountTotal field in the query was set to true.
+	TotalCount uint64
 }
 
 // QueryPayments is a query to the payments database which is restricted
@@ -624,6 +631,35 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 		// Run a paginated query, adding payments to our response.
 		if err := paginator.query(accumulatePayments); err != nil {
 			return err
+		}
+
+		// Counting the total number of payments is expensive, since we
+		// literally have to traverse the cursor linearly, which can
+		// take quite a while. So it's an optional query parameter.
+		if query.CountTotal {
+			var (
+				totalPayments uint64
+				err           error
+			)
+			countFn := func(_, _ []byte) error {
+				totalPayments++
+
+				return nil
+			}
+
+			// In non-boltdb database backends, there's a faster
+			// ForAll query that allows for batch fetching items.
+			if fastBucket, ok := indexes.(kvdb.ExtendedRBucket); ok {
+				err = fastBucket.ForAll(countFn)
+			} else {
+				err = indexes.ForEach(countFn)
+			}
+			if err != nil {
+				return fmt.Errorf("error counting payments: %v",
+					err)
+			}
+
+			resp.TotalCount = totalPayments
 		}
 
 		return nil
@@ -732,7 +768,9 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 // DeletePayment deletes a payment from the DB given its payment hash. If
 // failedHtlcsOnly is set, only failed HTLC attempts of the payment will be
 // deleted.
-func (d *DB) DeletePayment(paymentHash lntypes.Hash, failedHtlcsOnly bool) error { // nolint:interfacer
+func (d *DB) DeletePayment(paymentHash lntypes.Hash,
+	failedHtlcsOnly bool) error {
+
 	return kvdb.Update(d, func(tx kvdb.RwTx) error {
 		payments := tx.ReadWriteBucket(paymentsRootBucket)
 		if payments == nil {
@@ -1092,7 +1130,6 @@ func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
 	_, err = io.ReadFull(r, hash[:])
 
 	switch {
-
 	// Older payment attempts wouldn't have the hash set, in which case we
 	// can just return.
 	case err == io.EOF, err == io.ErrUnexpectedEOF:
@@ -1140,6 +1177,10 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 	var records []tlv.Record
 	if h.MPP != nil {
 		records = append(records, h.MPP.Record())
+	}
+
+	if h.Metadata != nil {
+		records = append(records, record.NewMetadataRecord(&h.Metadata))
 	}
 
 	// Final sanity check to absolutely rule out custom records that are not
@@ -1254,6 +1295,13 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 			return nil, err
 		}
 		h.MPP = mpp
+	}
+
+	metadataType := uint64(record.MetadataOnionType)
+	if metadata, ok := tlvMap[metadataType]; ok {
+		delete(tlvMap, metadataType)
+
+		h.Metadata = metadata
 	}
 
 	h.CustomRecords = tlvMap

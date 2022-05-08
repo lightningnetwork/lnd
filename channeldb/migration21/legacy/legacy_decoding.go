@@ -257,7 +257,8 @@ func readChanConfig(b io.Reader, c *common.ChannelConfig) error { // nolint: dup
 	)
 }
 
-func DeserializeCloseChannelSummary(r io.Reader) (*common.ChannelCloseSummary, error) { // nolint: dupl
+func DeserializeCloseChannelSummary(
+	r io.Reader) (*common.ChannelCloseSummary, error) { // nolint: dupl
 
 	c := &common.ChannelCloseSummary{}
 
@@ -379,7 +380,7 @@ func SerializeChannelCloseSummary(w io.Writer, cs *common.ChannelCloseSummary) e
 
 	// The RemoteNextRevocation field is optional, as it's possible for a
 	// channel to be closed before we learn of the next unrevoked
-	// revocation point for the remote party. Write a boolen indicating
+	// revocation point for the remote party. Write a boolean indicating
 	// whether this field is present or not.
 	if err := WriteElements(w, cs.RemoteNextRevocation != nil); err != nil {
 		return err

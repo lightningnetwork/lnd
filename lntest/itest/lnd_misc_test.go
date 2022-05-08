@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -473,7 +473,6 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	assertChannelConstraintsEqual(
 		t, aliceChannel.RemoteConstraints, bobChannel.LocalConstraints,
 	)
-
 }
 
 // testMaxPendingChannels checks that error is returned from remote peer if
@@ -523,6 +522,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	} else if !strings.Contains(
 		err.Error(), lnwire.ErrMaxPendingChannels.Error(),
 	) {
+
 		t.Fatalf("not expected error was received: %v", err)
 	}
 
@@ -773,7 +773,6 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 		predErr = checkNumForceClosedChannels(pendingChanResp, 0)
 
 		return predErr == nil
-
 	}, defaultTimeout)
 	if err != nil {
 		t.Fatalf("channels not marked as fully resolved: %v", predErr)
@@ -1094,7 +1093,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		daveBalance := daveBalResp.ConfirmedBalance
 		if daveBalance <= daveStartingBalance {
 			return fmt.Errorf("expected dave to have balance "+
-				"above %d, intead had %v", daveStartingBalance,
+				"above %d, instead had %v", daveStartingBalance,
 				daveBalance)
 		}
 

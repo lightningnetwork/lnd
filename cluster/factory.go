@@ -23,7 +23,7 @@ func RegisterLeaderElectorFactory(id string, factory leaderElectorFactoryFunc) {
 	leaderElectorFactories[id] = factory
 }
 
-// MakeLeaderElector will constuct a LeaderElector identified by id with the
+// MakeLeaderElector will construct a LeaderElector identified by id with the
 // passed arguments.
 func MakeLeaderElector(ctx context.Context, id string, args ...interface{}) (
 	LeaderElector, error) {

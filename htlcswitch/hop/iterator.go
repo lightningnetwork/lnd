@@ -6,7 +6,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -132,6 +132,7 @@ func NewOnionProcessor(router *sphinx.Router) *OnionProcessor {
 
 // Start spins up the onion processor's sphinx router.
 func (p *OnionProcessor) Start() error {
+	log.Info("Onion processor starting")
 	return p.router.Start()
 }
 

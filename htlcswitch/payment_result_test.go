@@ -215,6 +215,5 @@ func TestNetworkResultStore(t *testing.T) {
 		if i >= 2 && err != ErrPaymentIDNotFound {
 			t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
 		}
-
 	}
 }

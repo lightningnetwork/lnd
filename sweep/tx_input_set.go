@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -210,7 +210,6 @@ func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *tx
 	inputYield := s.totalOutput() - t.totalOutput()
 
 	switch constraints {
-
 	// Don't sweep inputs that cost us more to sweep than they give us.
 	case constraintsRegular:
 		if inputYield <= 0 {

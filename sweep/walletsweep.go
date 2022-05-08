@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -254,6 +254,10 @@ func CraftSweepAllTx(feeRate chainfee.SatPerKWeight, blockHeight uint32,
 		// of the wallet, we'll assume it's a nested p2sh output.
 		case lnwallet.NestedWitnessPubKey:
 			witnessType = input.NestedWitnessKeyHash
+
+		case lnwallet.TaprootPubkey:
+			witnessType = input.TaprootPubKeySpend
+			signDesc.HashType = txscript.SigHashDefault
 
 		// All other output types we count as unknown and will fail to
 		// sweep.

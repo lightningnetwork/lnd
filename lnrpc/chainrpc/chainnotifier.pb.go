@@ -372,7 +372,11 @@ type SpendRequest struct {
 	//
 	//The outpoint for which we should request a spend notification for. If set to
 	//a zero outpoint, then the spend notification will be requested for the
-	//script instead.
+	//script instead. A zero or nil outpoint is not supported for Taproot spends
+	//because the output script cannot reliably be computed from the witness alone
+	//and the spent output script is not always available in the rescan context.
+	//So an outpoint must _always_ be specified when registering a spend
+	//notification for a Taproot output.
 	Outpoint *Outpoint `protobuf:"bytes,1,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
 	//
 	//The output script for the outpoint above. This will be used by light clients

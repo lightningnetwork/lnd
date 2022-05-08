@@ -213,6 +213,10 @@ type CircuitMapConfig struct {
 	// ExtractErrorEncrypter derives the shared secret used to encrypt
 	// errors from the obfuscator's ephemeral public key.
 	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
+
+	// CheckResolutionMsg checks whether a given resolution message exists
+	// for the passed CircuitKey.
+	CheckResolutionMsg func(outKey *CircuitKey) error
 }
 
 // NewCircuitMap creates a new instance of the circuitMap.
@@ -400,7 +404,19 @@ func (cm *circuitMap) cleanClosedChannels() error {
 			// Check if the outgoing channel ID can be found in the
 			// closed channel ID map. Notice that we need to store
 			// the outgoing key because it's used for db query.
+			//
+			// NOTE: We skip this if a resolution message can be
+			// found under the outKey. This means that there is an
+			// existing resolution message(s) that need to get to
+			// the incoming links.
 			if isClosedChannel(outKey.ChanID) {
+				// Check the resolution message store. A return
+				// value of nil means we need to skip deleting
+				// these circuits.
+				if cm.cfg.CheckResolutionMsg(&outKey) == nil {
+					return nil
+				}
+
 				keystoneKeySet[outKey] = struct{}{}
 
 				// Also update circuitKeySet to mark the
@@ -411,7 +427,6 @@ func (cm *circuitMap) cleanClosedChannels() error {
 			return nil
 		})
 		return err
-
 	}, func() {
 		// Reset the sets.
 		circuitKeySet = make(map[CircuitKey]struct{})
@@ -438,7 +453,7 @@ func (cm *circuitMap) cleanClosedChannels() error {
 			return ErrCorruptedCircuitMap
 		}
 
-		// Delete the ciruit.
+		// Delete the circuit.
 		for inKey := range circuitKeySet {
 			if err := circuitBkt.Delete(inKey.Bytes()); err != nil {
 				return err

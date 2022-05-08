@@ -10,10 +10,10 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -300,14 +300,12 @@ func genRandomChannelShell() (*ChannelShell, error) {
 		return nil, err
 	}
 
-	_, pub := btcec.PrivKeyFromBytes(btcec.S256(), testPriv[:])
+	_, pub := btcec.PrivKeyFromBytes(testPriv[:])
 
 	var chanPoint wire.OutPoint
 	if _, err := rand.Read(chanPoint.Hash[:]); err != nil {
 		return nil, err
 	}
-
-	pub.Curve = nil
 
 	chanPoint.Index = uint32(rand.Intn(math.MaxUint16))
 
@@ -448,7 +446,7 @@ func TestRestoreChannelShells(t *testing.T) {
 	// The node should have the same address, as specified in the channel
 	// shell.
 	if reflect.DeepEqual(linkNode.Addresses, channelShell.NodeAddrs) {
-		t.Fatalf("addr mismach: expected %v, got %v",
+		t.Fatalf("addr mismatch: expected %v, got %v",
 			linkNode.Addresses, channelShell.NodeAddrs)
 	}
 }
@@ -738,7 +736,7 @@ func TestFetchHistoricalChannel(t *testing.T) {
 
 	histChannel, err := cdb.FetchHistoricalChannel(&channel.FundingOutpoint)
 	if err != nil {
-		t.Fatalf("unexepected error getting channel: %v", err)
+		t.Fatalf("unexpected error getting channel: %v", err)
 	}
 
 	// FetchHistoricalChannel will attach the cdb to channel.Db, we set it
@@ -759,5 +757,4 @@ func TestFetchHistoricalChannel(t *testing.T) {
 	if err != ErrChannelNotFound {
 		t.Fatalf("expected chan not found, got: %v", err)
 	}
-
 }

@@ -99,7 +99,7 @@ type testProxy struct {
 
 // cleanUp is used after each test to properly close the ports/connections.
 func (tp *testProxy) cleanUp() {
-	// Don't bother cleanning if there's no a server created.
+	// Don't bother cleaning if there's no a server created.
 	if tp.server == nil {
 		return
 	}
@@ -148,7 +148,7 @@ func createTestProxy(t *testing.T) *testProxy {
 	return tc
 }
 
-// TestReadResponse contructs a series of possible responses returned by Tor
+// TestReadResponse constructs a series of possible responses returned by Tor
 // and asserts the readResponse can handle them correctly.
 func TestReadResponse(t *testing.T) {
 	// Create mock server and client connection.
@@ -258,7 +258,6 @@ func TestReadResponse(t *testing.T) {
 	for _, tc := range testCase {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-
 			// Let the server mocks a given response.
 			_, err := server.Write([]byte(tc.serverResp))
 			require.NoError(t, err, "server failed to write")

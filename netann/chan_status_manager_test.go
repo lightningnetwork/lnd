@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -21,6 +21,11 @@ import (
 
 var (
 	testKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
+
+	// testSigBytes specifies a testing signature with the minimal length.
+	testSigBytes = []byte{
+		0x30, 0x06, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00,
+	}
 )
 
 // randOutpoint creates a random wire.Outpoint.
@@ -80,7 +85,7 @@ func createEdgePolicies(t *testing.T, channel *channeldb.OpenChannel,
 	}
 
 	// Generate and set pubkey2 for THEIR pubkey.
-	privKey2, err := btcec.NewPrivateKey(btcec.S256())
+	privKey2, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to generate key pair: %v", err)
 	}
@@ -105,13 +110,13 @@ func createEdgePolicies(t *testing.T, channel *channeldb.OpenChannel,
 			ChannelID:    channel.ShortChanID().ToUint64(),
 			ChannelFlags: dir1,
 			LastUpdate:   time.Now(),
-			SigBytes:     make([]byte, 64),
+			SigBytes:     testSigBytes,
 		},
 		&channeldb.ChannelEdgePolicy{
 			ChannelID:    channel.ShortChanID().ToUint64(),
 			ChannelFlags: dir2,
 			LastUpdate:   time.Now(),
-			SigBytes:     make([]byte, 64),
+			SigBytes:     testSigBytes,
 		}
 }
 
@@ -209,7 +214,7 @@ func (g *mockGraph) ApplyChannelUpdate(update *lnwire.ChannelUpdate) error {
 		ChannelID:    update.ShortChannelID.ToUint64(),
 		ChannelFlags: update.ChannelFlags,
 		LastUpdate:   timestamp,
-		SigBytes:     make([]byte, 64),
+		SigBytes:     testSigBytes,
 	}
 
 	if update1 {
@@ -310,7 +315,7 @@ func newManagerCfg(t *testing.T, numChannels int,
 
 	t.Helper()
 
-	privKey, err := btcec.NewPrivateKey(btcec.S256())
+	privKey, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to generate key pair: %v", err)
 	}
@@ -651,7 +656,7 @@ var stateMachineTests = []stateMachineTest{
 			time.Sleep(100 * time.Millisecond)
 			// Simulate reconnect by making channels active.
 			h.markActive(h.graph.chans())
-			// Request that all channels be reenabled.
+			// Request that all channels be re-enabled.
 			h.assertEnables(h.graph.chans(), nil, false)
 			// Pending disable should have been canceled, and
 			// no updates sent. Channels remain enabled on the

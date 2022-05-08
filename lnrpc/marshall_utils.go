@@ -5,9 +5,9 @@ import (
 	"errors"
 	fmt "fmt"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -27,7 +27,6 @@ func CalculateFeeLimit(feeLimit *FeeLimit,
 	amount lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
 	switch feeLimit.GetLimit().(type) {
-
 	case *FeeLimit_Fixed:
 		return lnwire.NewMSatFromSatoshis(
 			btcutil.Amount(feeLimit.GetFixed()),
@@ -40,10 +39,9 @@ func CalculateFeeLimit(feeLimit *FeeLimit,
 		return amount * lnwire.MilliSatoshi(feeLimit.GetPercent()) / 100
 
 	default:
-		// If a fee limit was not specified, we'll use the payment's
-		// amount as an upper bound in order to avoid payment attempts
-		// from incurring fees higher than the payment amount itself.
-		return amount
+		// Fall back to a sane default value that is based on the amount
+		// itself.
+		return lnwallet.DefaultRoutingFeeLimitForAmount(amount)
 	}
 }
 
@@ -90,12 +88,14 @@ func MarshalUtxos(utxos []*lnwallet.Utxo, activeNetParams *chaincfg.Params) (
 		// address type.
 		var addrType AddressType
 		switch utxo.AddressType {
-
 		case lnwallet.WitnessPubKey:
 			addrType = AddressType_WITNESS_PUBKEY_HASH
 
 		case lnwallet.NestedWitnessPubKey:
 			addrType = AddressType_NESTED_PUBKEY_HASH
+
+		case lnwallet.TaprootPubkey:
+			addrType = AddressType_TAPROOT_PUBKEY
 
 		case lnwallet.UnknownAddressType:
 			continue
@@ -143,4 +143,32 @@ func MarshalUtxos(utxos []*lnwallet.Utxo, activeNetParams *chaincfg.Params) (
 	}
 
 	return res, nil
+}
+
+// MarshallOutputType translates a txscript.ScriptClass into a
+// lnrpc.OutputScriptType.
+func MarshallOutputType(o txscript.ScriptClass) (ret OutputScriptType) {
+	// Translate txscript ScriptClass type to the proper gRPC proto
+	// output script type.
+	switch o {
+	case txscript.PubKeyHashTy:
+		ret = OutputScriptType_SCRIPT_TYPE_PUBKEY_HASH
+	case txscript.ScriptHashTy:
+		ret = OutputScriptType_SCRIPT_TYPE_SCRIPT_HASH
+	case txscript.WitnessV0PubKeyHashTy:
+		ret = OutputScriptType_SCRIPT_TYPE_WITNESS_V0_PUBKEY_HASH
+	case txscript.WitnessV0ScriptHashTy:
+		ret = OutputScriptType_SCRIPT_TYPE_WITNESS_V0_SCRIPT_HASH
+	case txscript.PubKeyTy:
+		ret = OutputScriptType_SCRIPT_TYPE_PUBKEY
+	case txscript.MultiSigTy:
+		ret = OutputScriptType_SCRIPT_TYPE_MULTISIG
+	case txscript.NullDataTy:
+		ret = OutputScriptType_SCRIPT_TYPE_NULLDATA
+	case txscript.NonStandardTy:
+		ret = OutputScriptType_SCRIPT_TYPE_NON_STANDARD
+	case txscript.WitnessUnknownTy:
+		ret = OutputScriptType_SCRIPT_TYPE_WITNESS_UNKNOWN
+	}
+	return
 }

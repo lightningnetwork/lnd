@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -876,7 +876,7 @@ func TestCustomShutdownScript(t *testing.T) {
 
 			// If the test has not specified an expected address, do not check
 			// whether the shutdown address matches. This covers the case where
-			// we epect shutdown to a random address and cannot match it.
+			// we expect shutdown to a random address and cannot match it.
 			if len(test.expectedScript) == 0 {
 				return
 			}
@@ -1047,7 +1047,7 @@ func TestPeerCustomMessage(t *testing.T) {
 	dbAlice, err := channeldb.Open(alicePath)
 	require.NoError(t, err)
 
-	aliceKey, err := btcec.NewPrivateKey(btcec.S256())
+	aliceKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
 	writeBufferPool := pool.NewWriteBuffer(

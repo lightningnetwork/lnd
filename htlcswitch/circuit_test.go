@@ -2,13 +2,14 @@ package htlcswitch_test
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"reflect"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcutil"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -38,13 +39,13 @@ var (
 func init() {
 	// Generate a fresh key for our sphinx router.
 	var err error
-	sphinxPrivKey, err = btcec.NewPrivateKey(btcec.S256())
+	sphinxPrivKey, err = btcec.NewPrivateKey()
 	if err != nil {
 		panic(err)
 	}
 
 	// And another, whose public key will serve as the test ephemeral key.
-	testEphemeralPriv, err := btcec.NewPrivateKey(btcec.S256())
+	testEphemeralPriv, err := btcec.NewPrivateKey()
 	if err != nil {
 		panic(err)
 	}
@@ -97,8 +98,9 @@ func newOnionProcessor(t *testing.T) *hop.OnionProcessor {
 }
 
 // newCircuitMap creates a new htlcswitch.CircuitMap using a temp db and a
-// fresh sphinx router.
-func newCircuitMap(t *testing.T) (*htlcswitch.CircuitMapConfig,
+// fresh sphinx router. When resMsg is set to true, CheckResolutionMsg will
+// always return nil. Otherwise it will always return an error.
+func newCircuitMap(t *testing.T, resMsg bool) (*htlcswitch.CircuitMapConfig,
 	htlcswitch.CircuitMap) {
 
 	onionProcessor := newOnionProcessor(t)
@@ -109,6 +111,18 @@ func newCircuitMap(t *testing.T) (*htlcswitch.CircuitMapConfig,
 		FetchAllOpenChannels:  db.ChannelStateDB().FetchAllOpenChannels,
 		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
 		ExtractErrorEncrypter: onionProcessor.ExtractErrorEncrypter,
+	}
+
+	if resMsg {
+		checkRes := func(out *htlcswitch.CircuitKey) error {
+			return nil
+		}
+		circuitMapCfg.CheckResolutionMsg = checkRes
+	} else {
+		checkRes := func(out *htlcswitch.CircuitKey) error {
+			return fmt.Errorf("not found")
+		}
+		circuitMapCfg.CheckResolutionMsg = checkRes
 	}
 
 	circuitMap, err := htlcswitch.NewCircuitMap(circuitMapCfg)
@@ -124,7 +138,7 @@ func newCircuitMap(t *testing.T) (*htlcswitch.CircuitMapConfig,
 func TestCircuitMapInit(t *testing.T) {
 	t.Parallel()
 
-	cfg, _ := newCircuitMap(t)
+	cfg, _ := newCircuitMap(t, false)
 	restartCircuitMap(t, cfg)
 }
 
@@ -231,7 +245,7 @@ func TestCircuitMapPersistence(t *testing.T) {
 		err        error
 	)
 
-	cfg, circuitMap := newCircuitMap(t)
+	cfg, circuitMap := newCircuitMap(t, false)
 
 	circuit := circuitMap.LookupCircuit(htlcswitch.CircuitKey{
 		ChanID: chan1,
@@ -490,7 +504,7 @@ func TestCircuitMapPersistence(t *testing.T) {
 	// Removing already-removed circuit should return an error.
 	err = circuitMap.DeleteCircuits(circuit1.Incoming)
 	if err != nil {
-		t.Fatal("Unexpected failure when deleting already "+
+		t.Fatalf("Unexpected failure when deleting already "+
 			"deleted circuit: %v", err)
 	}
 
@@ -649,6 +663,7 @@ func restartCircuitMap(t *testing.T, cfg *htlcswitch.CircuitMapConfig) (
 		FetchAllOpenChannels:  db.ChannelStateDB().FetchAllOpenChannels,
 		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
+		CheckResolutionMsg:    cfg.CheckResolutionMsg,
 	}
 	cm2, err := htlcswitch.NewCircuitMap(cfg2)
 	if err != nil {
@@ -671,7 +686,7 @@ func TestCircuitMapCommitCircuits(t *testing.T) {
 		err        error
 	)
 
-	cfg, circuitMap := newCircuitMap(t)
+	cfg, circuitMap := newCircuitMap(t, false)
 
 	circuit := &htlcswitch.PaymentCircuit{
 		Incoming: htlcswitch.CircuitKey{
@@ -767,7 +782,7 @@ func TestCircuitMapOpenCircuits(t *testing.T) {
 		err        error
 	)
 
-	cfg, circuitMap := newCircuitMap(t)
+	cfg, circuitMap := newCircuitMap(t, false)
 
 	circuit := &htlcswitch.PaymentCircuit{
 		Incoming: htlcswitch.CircuitKey{
@@ -973,7 +988,7 @@ func TestCircuitMapTrimOpenCircuits(t *testing.T) {
 		err        error
 	)
 
-	cfg, circuitMap := newCircuitMap(t)
+	cfg, circuitMap := newCircuitMap(t, false)
 
 	const nCircuits = 10
 	const firstTrimIndex = 7
@@ -1122,7 +1137,7 @@ func TestCircuitMapCloseOpenCircuits(t *testing.T) {
 		err        error
 	)
 
-	cfg, circuitMap := newCircuitMap(t)
+	cfg, circuitMap := newCircuitMap(t, false)
 
 	circuit := &htlcswitch.PaymentCircuit{
 		Incoming: htlcswitch.CircuitKey{
@@ -1215,7 +1230,7 @@ func TestCircuitMapCloseUnopenedCircuit(t *testing.T) {
 		err        error
 	)
 
-	cfg, circuitMap := newCircuitMap(t)
+	cfg, circuitMap := newCircuitMap(t, false)
 
 	circuit := &htlcswitch.PaymentCircuit{
 		Incoming: htlcswitch.CircuitKey{
@@ -1272,7 +1287,7 @@ func TestCircuitMapDeleteUnopenedCircuit(t *testing.T) {
 		err        error
 	)
 
-	cfg, circuitMap := newCircuitMap(t)
+	cfg, circuitMap := newCircuitMap(t, false)
 
 	circuit := &htlcswitch.PaymentCircuit{
 		Incoming: htlcswitch.CircuitKey{
@@ -1331,7 +1346,7 @@ func TestCircuitMapDeleteOpenCircuit(t *testing.T) {
 		err        error
 	)
 
-	cfg, circuitMap := newCircuitMap(t)
+	cfg, circuitMap := newCircuitMap(t, false)
 
 	circuit := &htlcswitch.PaymentCircuit{
 		Incoming: htlcswitch.CircuitKey{

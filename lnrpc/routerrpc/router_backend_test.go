@@ -6,15 +6,14 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
-
-	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
 const (
@@ -124,8 +123,8 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 	}
 
 	findRoute := func(source, target route.Vertex,
-		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
-		_ record.CustomSet,
+		amt lnwire.MilliSatoshi, _ float64,
+		restrictions *routing.RestrictParams, _ record.CustomSet,
 		routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
 		finalExpiry uint16) (*route.Route, error) {
 
@@ -204,7 +203,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 			route.Vertex, error) {
 
 			if chanID != 555 {
-				t.Fatal("expected endpoints to be fetched for "+
+				t.Fatalf("expected endpoints to be fetched for "+
 					"channel 555, but got %v instead",
 					chanID)
 			}
@@ -337,7 +336,6 @@ func TestUnmarshalMPP(t *testing.T) {
 func testUnmarshalMPP(t *testing.T, test unmarshalMPPTest) {
 	mpp, err := UnmarshalMPP(test.mpp)
 	switch test.outcome {
-
 	// Valid arguments should result in no error, a non-nil MPP record, and
 	// the fields should be set correctly.
 	case valid:

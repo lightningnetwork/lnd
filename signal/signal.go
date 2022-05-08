@@ -1,7 +1,7 @@
 // Copyright (c) 2013-2017 The btcsuite developers
 // Copyright (c) 2015-2016 The Decred developers
 // Heavily inspired by https://github.com/btcsuite/btcd/blob/master/signal.go
-// Copyright (C) 2015-2017 The Lightning Network Developers
+// Copyright (C) 2015-2022 The Lightning Network Developers
 
 package signal
 
@@ -42,7 +42,8 @@ func systemdNotifyReady() error {
 	if notified {
 		log.Info("Systemd was notified about our readiness")
 	} else {
-		log.Info("We're not running within systemd")
+		log.Info("We're not running within systemd or the service " +
+			"type is not 'notify'")
 	}
 	return nil
 }

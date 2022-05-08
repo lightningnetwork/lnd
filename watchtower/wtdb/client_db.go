@@ -7,7 +7,7 @@ import (
 	"math"
 	"net"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
@@ -615,7 +615,7 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 	}, func() {})
 }
 
-// createSessionKeyIndexKey returns the indentifier used in the
+// createSessionKeyIndexKey returns the identifier used in the
 // session-key-index index, created as tower-id||blob-type.
 //
 // NOTE: The original serialization only used tower-id, which prevents
@@ -631,7 +631,7 @@ func createSessionKeyIndexKey(towerID TowerID, blobType blob.Type) []byte {
 	return keyBytes[:]
 }
 
-// getSessionKeyIndex is a helper method
+// getSessionKeyIndex is a helper method.
 func getSessionKeyIndex(keyIndexes kvdb.RwBucket, towerID TowerID,
 	blobType blob.Type) (uint32, error) {
 

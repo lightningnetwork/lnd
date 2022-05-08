@@ -68,7 +68,7 @@ func NewEmbeddedEtcdInstance(path string, clientPort, peerPort uint16,
 	cfg.Dir = path
 
 	// To ensure that we can submit large transactions.
-	cfg.MaxTxnOps = 8192
+	cfg.MaxTxnOps = 16384
 	cfg.MaxRequestBytes = 16384 * 1024
 	cfg.Logger = "zap"
 	if logFile != "" {
@@ -109,6 +109,7 @@ func NewEmbeddedEtcdInstance(path string, clientPort, peerPort uint16,
 		Host:               "http://" + clientURL,
 		InsecureSkipVerify: true,
 		Namespace:          defaultNamespace,
+		MaxMsgSize:         int(cfg.MaxRequestBytes),
 	}
 
 	return connConfig, func() {

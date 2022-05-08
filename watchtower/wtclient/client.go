@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
@@ -439,7 +439,7 @@ func (c *TowerClient) buildHighestCommitHeights() {
 func (c *TowerClient) Start() error {
 	var err error
 	c.started.Do(func() {
-		c.log.Infof("Starting watchtower client")
+		c.log.Infof("Watchtower client starting")
 
 		// First, restart a session queue for any sessions that have
 		// committed but unacked state updates. This ensures that these

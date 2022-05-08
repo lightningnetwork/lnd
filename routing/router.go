@@ -10,12 +10,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
-
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/amp"
 	"github.com/lightningnetwork/lnd/batch"
@@ -195,7 +194,7 @@ type PaymentAttemptDispatcher interface {
 }
 
 // PaymentSessionSource is an interface that defines a source for the router to
-// retrive new payment sessions.
+// retrieve new payment sessions.
 type PaymentSessionSource interface {
 	// NewPaymentSession creates a new payment session that will produce
 	// routes to the given target. An optional set of routing hints can be
@@ -491,7 +490,7 @@ func (r *ChannelRouter) Start() error {
 		return nil
 	}
 
-	log.Tracef("Channel Router starting")
+	log.Info("Channel Router starting")
 
 	bestHash, bestHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
@@ -1733,7 +1732,8 @@ type routingMsg struct {
 // particular target destination to which it is able to send `amt` after
 // factoring in channel capacities and cumulative fees along the route.
 func (r *ChannelRouter) FindRoute(source, target route.Vertex,
-	amt lnwire.MilliSatoshi, restrictions *RestrictParams,
+	amt lnwire.MilliSatoshi, timePref float64,
+	restrictions *RestrictParams,
 	destCustomRecords record.CustomSet,
 	routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
 	finalExpiry uint16) (*route.Route, error) {
@@ -1760,6 +1760,11 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	// execute our path finding algorithm.
 	finalHtlcExpiry := currentHeight + int32(finalExpiry)
 
+	// Validate time preference.
+	if timePref < -1 || timePref > 1 {
+		return nil, errors.New("time preference out of range")
+	}
+
 	path, err := findPath(
 		&graphParams{
 			additionalEdges: routeHints,
@@ -1768,7 +1773,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		},
 		restrictions,
 		&r.cfg.PathFindingConfig,
-		source, target, amt, finalHtlcExpiry,
+		source, target, amt, timePref, finalHtlcExpiry,
 	)
 	if err != nil {
 		return nil, err
@@ -1804,7 +1809,7 @@ func generateNewSessionKey() (*btcec.PrivateKey, error) {
 	// any replay.
 	//
 	// TODO(roasbeef): add more sources of randomness?
-	return btcec.NewPrivateKey(btcec.S256())
+	return btcec.NewPrivateKey()
 }
 
 // generateSphinxPacket generates then encodes a sphinx packet which encodes
@@ -1828,7 +1833,6 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 			path := make([]sphinx.OnionHop, sphinxPath.TrueRouteLength())
 			for i := range path {
 				hopCopy := sphinxPath[i]
-				hopCopy.NodePub.Curve = nil
 				path[i] = hopCopy
 			}
 			return spew.Sdump(path)
@@ -1858,7 +1862,6 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 			// internal curve here in order to keep the logs from
 			// getting noisy.
 			key := *sphinxPacket.EphemeralKey
-			key.Curve = nil
 			packetCopy := *sphinxPacket
 			packetCopy.EphemeralKey = &key
 			return spew.Sdump(packetCopy)
@@ -1963,6 +1966,15 @@ type LightningPayment struct {
 	//
 	// NOTE: This field is _optional_.
 	MaxShardAmt *lnwire.MilliSatoshi
+
+	// TimePref is the time preference for this payment. Set to -1 to
+	// optimize for fees only, to 1 to optimize for reliability only or a
+	// value in between for a mix.
+	TimePref float64
+
+	// Metadata is additional data that is sent along with the payment to
+	// the payee.
+	Metadata []byte
 }
 
 // AMPOptions houses information that must be known in order to send an AMP
@@ -2072,7 +2084,6 @@ func spewPayment(payment *LightningPayment) logClosure {
 			var hopHints []zpay32.HopHint
 			for _, hopHint := range routeHint {
 				h := hopHint.Copy()
-				h.NodeID.Curve = nil
 				hopHints = append(hopHints, h)
 			}
 			routeHints = append(routeHints, hopHints)
@@ -2111,7 +2122,6 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 	// this payment.
 	var shardTracker shards.ShardTracker
 	switch {
-
 	// If this is an AMP payment, we'll use the AMP shard tracker.
 	case payment.amp != nil:
 		shardTracker = amp.NewShardTracker(
@@ -2579,7 +2589,7 @@ func (r *ChannelRouter) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 	return exists || isZombie
 }
 
-// IsStaleEdgePolicy returns true if the graph soruce has a channel edge for
+// IsStaleEdgePolicy returns true if the graph source has a channel edge for
 // the passed channel ID (and flags) that have a more recent timestamp.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.

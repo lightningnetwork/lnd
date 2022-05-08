@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -608,6 +608,10 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	expectedPolicy.Disabled = false
 	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol)
 
+	// Wait until Carol and Eve are reconnected before we disconnect them
+	// again.
+	net.EnsureConnected(t.t, eve, carol)
+
 	// Now we'll test a long disconnection. Disconnect Carol and Eve and
 	// ensure they both detect each other as disabled. Their min backoffs
 	// are high enough to not interfere with disabling logic.
@@ -810,7 +814,7 @@ func testUpdateChannelPolicyForPrivateChannel(net *lntest.NetworkHarness,
 	assertAmountPaid(t, "Bob(local) [private=>] Carol(remote)",
 		net.Bob, bobFundPoint, paymentAmt, 0)
 
-	// Calcuate the amount in satoshis.
+	// Calculate the amount in satoshis.
 	amtExpected := int64(paymentAmt + baseFeeMSat/1000)
 
 	// Bob should have received 20k satoshis + fee from Alice.
@@ -905,5 +909,4 @@ func testUpdateChannelPolicyFeeRateAccuracy(net *lntest.NetworkHarness,
 	assertPolicyUpdate(
 		t, nodes, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
 	)
-
 }

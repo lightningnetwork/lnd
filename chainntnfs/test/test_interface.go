@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to auto-register the boltdb walletdb implementation.
 	"github.com/lightninglabs/neutrino"
@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/stretchr/testify/require"
 )
 
 func testSingleConfirmationNotification(miner *rpctest.Harness,
@@ -418,7 +419,7 @@ func testBlockEpochNotification(miner *rpctest.Harness,
 				// hash.
 				blockEpoch := <-epochClient.Epochs
 				if blockEpoch.BlockHeader == nil {
-					fmt.Println(i)
+					t.Logf("%d", i)
 					clientErrors <- fmt.Errorf("block " +
 						"header is nil")
 					return
@@ -1178,7 +1179,8 @@ func testReorgConf(miner *rpctest.Harness,
 
 	// Reorganize transaction out of the chain by generating a longer fork
 	// from the other miner. The transaction is not included in this fork.
-	miner2.Client.Generate(2)
+	_, err = miner2.Client.Generate(2)
+	require.NoError(t, err)
 
 	// Reconnect nodes to reach consensus on the longest chain. miner2's chain
 	// should win and become active on miner1.

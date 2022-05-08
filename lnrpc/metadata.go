@@ -14,4 +14,8 @@ var (
 		regexp.MustCompile("^/v1/channels/transaction-stream$"),
 		regexp.MustCompile("^/v2/router/htlcinterceptor$"),
 	}
+
+	// MaxGrpcMsgSize is used when we configure both server and clients to
+	// allow sending/receiving at most 200 MiB GRPC messages.
+	MaxGrpcMsgSize = 200 * 1024 * 1024
 )

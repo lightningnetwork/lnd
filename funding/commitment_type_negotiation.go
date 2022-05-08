@@ -76,6 +76,7 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
 			lnwire.StaticRemoteKeyOptional,
 		) {
+
 			return 0, errUnsupportedChannelType
 		}
 		return lnwallet.CommitmentTypeScriptEnforcedLease, nil
@@ -90,6 +91,7 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
 			lnwire.StaticRemoteKeyOptional,
 		) {
+
 			return 0, errUnsupportedChannelType
 		}
 		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, nil
@@ -112,7 +114,7 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType,
 
 // implicitNegotiateCommitmentType negotiates the commitment type of a channel
 // implicitly by choosing the latest type supported by the local and remote
-// fetures.
+// features.
 func implicitNegotiateCommitmentType(local,
 	remote *lnwire.FeatureVector) (*lnwire.ChannelType, lnwallet.CommitmentType) {
 

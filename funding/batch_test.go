@@ -8,11 +8,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/psbt"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -101,7 +101,7 @@ func newTestHarness(t *testing.T, failUpdate1, failUpdate2,
 func (h *testHarness) parseRequest(
 	in *lnrpc.OpenChannelRequest) (*InitFundingMsg, error) {
 
-	pubKey, err := btcec.ParsePubKey(in.NodePubkey, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(in.NodePubkey)
 	if err != nil {
 		return nil, err
 	}

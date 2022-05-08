@@ -84,7 +84,7 @@ const (
 	// us to sweep an HTLC output that we extended to a party, but was
 	// never fulfilled. This _is_ the HTLC output directly on our
 	// commitment transaction, and the input to the second-level HTLC
-	// tiemout transaction. It can only be spent after CLTV expiry, and
+	// timeout transaction. It can only be spent after CLTV expiry, and
 	// commitment confirmation.
 	HtlcOfferedTimeoutSecondLevelInputConfirmed StandardWitnessType = 15
 
@@ -175,6 +175,11 @@ const (
 	// and CLTV locktime as part of the script enforced lease commitment
 	// type.
 	LeaseHtlcAcceptedSuccessSecondLevel StandardWitnessType = 20
+
+	// TaprootPubKeySpend is a witness type that allows us to spend a
+	// regular p2tr output that's sent to an output which is under complete
+	// control of the backing wallet.
+	TaprootPubKeySpend StandardWitnessType = 21
 )
 
 // String returns a human readable version of the target WitnessType.
@@ -244,6 +249,9 @@ func (wt StandardWitnessType) String() string {
 
 	case LeaseHtlcAcceptedSuccessSecondLevel:
 		return "LeaseHtlcAcceptedSuccessSecondLevel"
+
+	case TaprootPubKeySpend:
+		return "TaprootPubKeySpend"
 
 	default:
 		return fmt.Sprintf("Unknown WitnessType: %v", uint32(wt))
@@ -388,6 +396,8 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 
 		case WitnessKeyHash:
 			fallthrough
+		case TaprootPubKeySpend:
+			fallthrough
 		case NestedWitnessKeyHash:
 			return signer.ComputeInputScript(tx, desc)
 
@@ -405,7 +415,6 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 // NOTE: This is part of the WitnessType interface.
 func (wt StandardWitnessType) SizeUpperBound() (int, bool, error) {
 	switch wt {
-
 	// Outputs on a remote commitment transaction that pay directly to us.
 	case CommitSpendNoDelayTweakless:
 		fallthrough
@@ -495,6 +504,9 @@ func (wt StandardWitnessType) SizeUpperBound() (int, bool, error) {
 	// The revocation output of a second level output of an HTLC.
 	case HtlcSecondLevelRevoke:
 		return ToLocalPenaltyWitnessSize, false, nil
+
+	case TaprootPubKeySpend:
+		return TaprootKeyPathCustomSighashWitnessSize, false, nil
 	}
 
 	return 0, false, fmt.Errorf("unexpected witness type: %v", wt)

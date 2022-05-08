@@ -8,11 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/bech32"
 	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 )
 
@@ -112,8 +113,7 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 	} else {
 		headerByte := recoveryID + 27 + 4
 		compactSign := append([]byte{headerByte}, sig[:]...)
-		pubkey, _, err := btcec.RecoverCompact(btcec.S256(),
-			compactSign, hash)
+		pubkey, _, err := ecdsa.RecoverCompact(compactSign, hash)
 		if err != nil {
 			return nil, err
 		}
@@ -350,7 +350,7 @@ func parseDestination(data []byte) (*btcec.PublicKey, error) {
 		return nil, err
 	}
 
-	return btcec.ParsePubKey(base256Data, btcec.S256())
+	return btcec.ParsePubKey(base256Data)
 }
 
 // parseExpiry converts the data (encoded in base32) into the expiry time.
@@ -452,7 +452,7 @@ func parseRouteHint(data []byte) ([]HopHint, error) {
 
 	for len(base256Data) > 0 {
 		hopHint := HopHint{}
-		hopHint.NodeID, err = btcec.ParsePubKey(base256Data[:33], btcec.S256())
+		hopHint.NodeID, err = btcec.ParsePubKey(base256Data[:33])
 		if err != nil {
 			return nil, err
 		}

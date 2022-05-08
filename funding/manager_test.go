@@ -5,10 +5,10 @@ package funding
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"math/big"
 	"net"
 	"os"
 	"path/filepath"
@@ -17,11 +17,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
@@ -76,8 +77,9 @@ var (
 		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
 
-	alicePrivKey, alicePubKey = btcec.PrivKeyFromBytes(btcec.S256(),
-		alicePrivKeyBytes[:])
+	alicePrivKey, alicePubKey = btcec.PrivKeyFromBytes(
+		alicePrivKeyBytes[:],
+	)
 
 	aliceTCPAddr, _ = net.ResolveTCPAddr("tcp", "10.0.0.2:9001")
 
@@ -93,8 +95,7 @@ var (
 		0x1e, 0xb, 0x4c, 0xfd, 0x9e, 0xc5, 0x8c, 0xe9,
 	}
 
-	bobPrivKey, bobPubKey = btcec.PrivKeyFromBytes(btcec.S256(),
-		bobPrivKeyBytes[:])
+	bobPrivKey, bobPubKey = btcec.PrivKeyFromBytes(bobPrivKeyBytes[:])
 
 	bobTCPAddr, _ = net.ResolveTCPAddr("tcp", "10.0.0.2:9000")
 
@@ -103,12 +104,13 @@ var (
 		Address:     bobTCPAddr,
 	}
 
-	testSig = &btcec.Signature{
-		R: new(big.Int),
-		S: new(big.Int),
-	}
-	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
-	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa1bf0314f882d7")
+	testSBytes, _ = hex.DecodeString("299105481d63e0f4bc2a88121167221b6700d72a0ead154c03be696a292d24ae")
+	testRScalar   = new(btcec.ModNScalar)
+	testSScalar   = new(btcec.ModNScalar)
+	_             = testRScalar.SetByteSlice(testRBytes)
+	_             = testSScalar.SetByteSlice(testSBytes)
+	testSig       = ecdsa.NewSignature(testRScalar, testSScalar)
 
 	testKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
 
@@ -362,7 +364,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		Notifier:     chainNotifier,
 		FeeEstimator: estimator,
 		SignMessage: func(_ keychain.KeyLocator,
-			_ []byte, _ bool) (*btcec.Signature, error) {
+			_ []byte, _ bool) (*ecdsa.Signature, error) {
 
 			return testSig, nil
 		},
@@ -510,7 +512,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		Notifier:     oldCfg.Notifier,
 		FeeEstimator: oldCfg.FeeEstimator,
 		SignMessage: func(_ keychain.KeyLocator,
-			_ []byte, _ bool) (*btcec.Signature, error) {
+			_ []byte, _ bool) (*ecdsa.Signature, error) {
 
 			return testSig, nil
 		},
@@ -996,6 +998,7 @@ func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
 func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 	capacity btcutil.Amount, customMinHtlc []lnwire.MilliSatoshi,
 	customMaxHtlc []lnwire.MilliSatoshi) {
+
 	t.Helper()
 
 	// After the FundingLocked message is sent, Alice and Bob will each
@@ -2584,7 +2587,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 }
 
 // TestFundingManagerCustomChannelParameters checks that custom requirements we
-// specify during the channel funding flow is preserved correcly on both sides.
+// specify during the channel funding flow is preserved correctly on both sides.
 func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	t.Parallel()
 
@@ -2780,7 +2783,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	}
 
 	// The max value in flight Alice can have should be maxValueAcceptChannel,
-	// which is the default value and the maxium Bob can offer should be
+	// which is the default value and the maximum Bob can offer should be
 	// maxValueInFlight.
 	if err := assertMaxHtlc(resCtx,
 		maxValueAcceptChannel, maxValueInFlight); err != nil {
@@ -3362,7 +3365,6 @@ func TestGetUpfrontShutdownScript(t *testing.T) {
 				t.Fatalf("expected address: %x, got: %x",
 					test.expectedScript, addr)
 			}
-
 		})
 	}
 }

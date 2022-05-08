@@ -7,7 +7,7 @@ import (
 
 var (
 	// private24BitBlock contains the set of private IPv4 addresses within
-	// the 10.0.0.0/8 adddress space.
+	// the 10.0.0.0/8 address space.
 	private24BitBlock *net.IPNet
 
 	// private20BitBlock contains the set of private IPv4 addresses within

@@ -284,6 +284,12 @@ message SendPaymentRequest {
     If set, an AMP-payment will be attempted.
     */
     bool amp = 22;
+
+    /*
+    The time preference for this payment. Set to -1 to optimize for fees
+    only, to 1 to optimize for reliability only or a value inbetween for a mix.
+    */
+    double time_pref = 23;
 }
 
 message TrackPaymentRequest {
@@ -781,6 +787,21 @@ message ForwardHtlcInterceptResponse {
 
     // The preimage in case the resolve action is Settle.
     bytes preimage = 3;
+
+    // Encrypted failure message in case the resolve action is Fail.
+    //
+    // If failure_message is specified, the failure_code field must be set
+    // to zero.
+    bytes failure_message = 4;
+
+    // Return the specified failure code in case the resolve action is Fail. The
+    // message data fields are populated automatically.
+    //
+    // If a non-zero failure_code is specified, failure_message must not be set.
+    //
+    // For backwards-compatibility reasons, TEMPORARY_CHANNEL_FAILURE is the
+    // default value for this field.
+    lnrpc.Failure.FailureCode failure_code = 5;
 }
 
 enum ResolveHoldForwardAction {

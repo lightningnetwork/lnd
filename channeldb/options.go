@@ -50,6 +50,11 @@ type Options struct {
 	// path finding.
 	UseGraphCache bool
 
+	// NoMigration specifies that underlying backend was opened in read-only
+	// mode and migrations shouldn't be performed. This can be useful for
+	// applications that use the channeldb package as a library.
+	NoMigration bool
+
 	// clock is the time source used by the database.
 	clock clock.Clock
 
@@ -71,6 +76,7 @@ func DefaultOptions() Options {
 		ChannelCacheSize:      DefaultChannelCacheSize,
 		PreAllocCacheNumNodes: DefaultPreAllocCacheNumNodes,
 		UseGraphCache:         true,
+		NoMigration:           false,
 		clock:                 clock.NewDefaultClock(),
 	}
 }
@@ -136,6 +142,14 @@ func OptionSetBatchCommitInterval(interval time.Duration) OptionModifier {
 	}
 }
 
+// OptionNoMigration allows the database to be opened in read only mode by
+// disabling migrations.
+func OptionNoMigration(b bool) OptionModifier {
+	return func(o *Options) {
+		o.NoMigration = b
+	}
+}
+
 // OptionClock sets a non-default clock dependency.
 func OptionClock(clock clock.Clock) OptionModifier {
 	return func(o *Options) {
@@ -143,7 +157,7 @@ func OptionClock(clock clock.Clock) OptionModifier {
 	}
 }
 
-// OptionDryRunMigration controls whether or not to intentially fail to commit a
+// OptionDryRunMigration controls whether or not to intentionally fail to commit a
 // successful migration that occurs when opening the database.
 func OptionDryRunMigration(dryRun bool) OptionModifier {
 	return func(o *Options) {

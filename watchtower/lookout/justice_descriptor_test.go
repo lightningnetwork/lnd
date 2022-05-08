@@ -5,11 +5,11 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/txsort"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -93,13 +93,13 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 
 	// Parse the key pairs for all keys used in the test.
 	revSK, revPK := btcec.PrivKeyFromBytes(
-		btcec.S256(), revPrivBytes,
+		revPrivBytes,
 	)
 	_, toLocalPK := btcec.PrivKeyFromBytes(
-		btcec.S256(), toLocalPrivBytes,
+		toLocalPrivBytes,
 	)
 	toRemoteSK, toRemotePK := btcec.PrivKeyFromBytes(
-		btcec.S256(), toRemotePrivBytes,
+		toRemotePrivBytes,
 	)
 
 	// Create the signer, and add the revocation and to-remote privkeys.
@@ -156,7 +156,6 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 
 		// As it should be.
 		toRemoteSigningScript = toRemoteRedeemScript
-
 	} else {
 		toRemoteRedeemScript = toRemotePK.SerializeCompressed()
 		toRemoteScriptHash, err = input.CommitScriptUnencumbered(
@@ -270,7 +269,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	justiceTxn.TxOut = outputs
 	txsort.InPlaceSort(justiceTxn)
 
-	hashCache := txscript.NewTxSigHashes(justiceTxn)
+	hashCache := input.NewTxSigHashesV0Only(justiceTxn)
 
 	// Create the sign descriptor used to sign for the to-local input.
 	toLocalSignDesc := &input.SignDescriptor{

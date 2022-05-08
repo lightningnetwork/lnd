@@ -142,6 +142,8 @@ func NewChannelEventStore(config *Config) *ChannelEventStore {
 // information from the store. If this function fails, it cancels its existing
 // subscriptions and returns an error.
 func (c *ChannelEventStore) Start() error {
+	log.Info("ChannelEventStore starting")
+
 	// Create a subscription to channel events.
 	channelClient, err := c.cfg.SubscribeChannelEvents()
 	if err != nil {

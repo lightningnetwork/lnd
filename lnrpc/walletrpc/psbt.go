@@ -8,8 +8,8 @@ import (
 	"math"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -70,7 +70,6 @@ func lockInputs(w lnwallet.WalletController, packet *psbt.Packet) (
 				if err := w.ReleaseOutput(
 					LndInternalLockID, op,
 				); err != nil {
-
 					log.Errorf("could not release the "+
 						"lock on %v: %v", op, err)
 				}

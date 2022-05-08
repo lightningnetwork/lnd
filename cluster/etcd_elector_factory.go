@@ -15,9 +15,9 @@ import (
 func makeEtcdElector(ctx context.Context, args ...interface{}) (LeaderElector,
 	error) {
 
-	if len(args) != 3 {
+	if len(args) != 4 {
 		return nil, fmt.Errorf("invalid number of arguments to "+
-			"cluster.makeEtcdElector(): expected 3, got %v",
+			"cluster.makeEtcdElector(): expected 4, got %v",
 			len(args))
 	}
 
@@ -33,13 +33,21 @@ func makeEtcdElector(ctx context.Context, args ...interface{}) (LeaderElector,
 			"cluster.makeEtcdElector(), expected: string")
 	}
 
-	etcdCfg, ok := args[2].(*etcd.Config)
+	leaderSessionTTL, ok := args[2].(int)
 	if !ok {
 		return nil, fmt.Errorf("invalid argument (2) to " +
+			"cluster.makeEtcdElector(), expected: int")
+	}
+
+	etcdCfg, ok := args[3].(*etcd.Config)
+	if !ok {
+		return nil, fmt.Errorf("invalid argument (3) to " +
 			"cluster.makeEtcdElector(), expected: *etcd.Config")
 	}
 
-	return newEtcdLeaderElector(ctx, id, electionPrefix, etcdCfg)
+	return newEtcdLeaderElector(
+		ctx, id, electionPrefix, leaderSessionTTL, etcdCfg,
+	)
 }
 
 func init() {

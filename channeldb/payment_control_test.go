@@ -495,7 +495,7 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 
 	var s, i int
 	for _, p := range dbPayments {
-		fmt.Println("fetch payment has status", p.Status)
+		t.Log("fetch payment has status", p.Status)
 		switch p.Status {
 		case StatusSucceeded:
 			s++
@@ -551,7 +551,7 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 	require.Equal(t, 1, indexCount)
 }
 
-// TestPaymentControlDeletePayments tests that DeletePayments correcly deletes
+// TestPaymentControlDeletePayments tests that DeletePayments correctly deletes
 // information about completed payments from the database.
 func TestPaymentControlDeletePayments(t *testing.T) {
 	t.Parallel()
@@ -605,7 +605,7 @@ func TestPaymentControlDeletePayments(t *testing.T) {
 	assertPayments(t, db, payments[2:])
 }
 
-// TestPaymentControlDeleteSinglePayment tests that DeletePayment correcly
+// TestPaymentControlDeleteSinglePayment tests that DeletePayment correctly
 // deletes information about a completed payment from the database.
 func TestPaymentControlDeleteSinglePayment(t *testing.T) {
 	t.Parallel()
@@ -1254,7 +1254,6 @@ func createTestPayments(t *testing.T, p *PaymentControl, payments []*payment) {
 		require.NoError(t, err, "unable to send htlc message")
 
 		switch payments[i].status {
-
 		// Fail the attempt and the payment overall.
 		case StatusFailed:
 			htlcFailure := HTLCFailUnreadable

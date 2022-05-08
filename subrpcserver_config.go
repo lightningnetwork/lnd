@@ -2,6 +2,7 @@ package lnd
 
 import (
 	"fmt"
+	"net"
 	"reflect"
 
 	"github.com/btcsuite/btcd/chaincfg"
@@ -14,7 +15,10 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
+	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -59,6 +63,14 @@ type subRPCServerConfigs struct {
 	// as a gRPC service.
 	InvoicesRPC *invoicesrpc.Config `group:"invoicesrpc" namespace:"invoicesrpc"`
 
+	// PeersRPC is a sub-RPC server that exposes peer related methods
+	// as a gRPC service.
+	PeersRPC *peersrpc.Config `group:"peersrpc" namespace:"peersrpc"`
+
+	// NeutrinoKitRPC is a sub-RPC server that exposes functionality allowing
+	// a client to interact with a running neutrino node.
+	NeutrinoKitRPC *neutrinorpc.Config `group:"neutrinorpc" namespace:"neutrinorpc"`
+
 	// RouterRPC is a sub-RPC server the exposes functionality that allows
 	// clients to send payments on the network, and perform Lightning
 	// payment related queries such as requests for estimates of off-chain
@@ -74,6 +86,11 @@ type subRPCServerConfigs struct {
 	// instance within lnd in order to add, remove, list registered client
 	// towers, etc.
 	WatchtowerClientRPC *wtclientrpc.Config `group:"wtclientrpc" namespace:"wtclientrpc"`
+
+	// DevRPC is a sub-RPC server that exposes functionality that allows
+	// developers manipulate LND state that is normally not possible.
+	// Should only be used for development purposes.
+	DevRPC *devrpc.Config `group:"devrpc" namespace:"devrpc"`
 }
 
 // PopulateDependencies attempts to iterate through all the sub-server configs
@@ -101,6 +118,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	tcpResolver lncfg.TCPResolver,
 	genInvoiceFeatures func() *lnwire.FeatureVector,
 	genAmpInvoiceFeatures func() *lnwire.FeatureVector,
+	getNodeAnnouncement func() (lnwire.NodeAnnouncement, error),
+	updateNodeAnnouncement func(modifiers ...netann.NodeAnnModifier) error,
+	parseAddr func(addr string) (net.Addr, error),
 	rpcLogger btclog.Logger) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
@@ -235,6 +255,13 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(genAmpInvoiceFeatures),
 			)
 
+		case *neutrinorpc.Config:
+			subCfgValue := extractReflectValue(subCfg)
+
+			subCfgValue.FieldByName("NeutrinoCS").Set(
+				reflect.ValueOf(cc.Cfg.NeutrinoCS),
+			)
+
 		// RouterRPC isn't conditionally compiled and doesn't need to be
 		// populated using reflection.
 		case *routerrpc.Config:
@@ -268,6 +295,32 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			)
 			subCfgValue.FieldByName("Log").Set(
 				reflect.ValueOf(rpcLogger),
+			)
+
+		case *devrpc.Config:
+			subCfgValue := extractReflectValue(subCfg)
+
+			subCfgValue.FieldByName("ActiveNetParams").Set(
+				reflect.ValueOf(activeNetParams),
+			)
+
+			subCfgValue.FieldByName("GraphDB").Set(
+				reflect.ValueOf(graphDB),
+			)
+
+		case *peersrpc.Config:
+			subCfgValue := extractReflectValue(subCfg)
+
+			subCfgValue.FieldByName("GetNodeAnnouncement").Set(
+				reflect.ValueOf(getNodeAnnouncement),
+			)
+
+			subCfgValue.FieldByName("ParseAddr").Set(
+				reflect.ValueOf(parseAddr),
+			)
+
+			subCfgValue.FieldByName("UpdateNodeAnnouncement").Set(
+				reflect.ValueOf(updateNodeAnnouncement),
 			)
 
 		default:

@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -369,6 +369,7 @@ func assertHtlcEvents(t *harnessTest, fwdCount, fwdFailCount, settleCount int,
 // type is different from the htlc event type (forward, link failure etc).
 func assertEventAndType(t *harnessTest, eventType routerrpc.HtlcEvent_EventType,
 	client routerrpc.Router_SubscribeHtlcEventsClient) *routerrpc.HtlcEvent {
+
 	event, err := client.Recv()
 	if err != nil {
 		t.Fatalf("could not get event")

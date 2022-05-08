@@ -39,6 +39,9 @@ const (
 	defaultUtxoMinConf = 1
 )
 
+var errBadChanPoint = errors.New("expecting chan_point to be in format of: " +
+	"txid:index")
+
 func getContext() context.Context {
 	shutdownInterceptor, err := signal.Intercept()
 	if err != nil {
@@ -98,7 +101,10 @@ func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 			// two commands.
 			if s.Code() == codes.Unimplemented &&
 				(c.Command.Name == "create" ||
-					c.Command.Name == "unlock") {
+					c.Command.Name == "unlock" ||
+					c.Command.Name == "changepassword" ||
+					c.Command.Name == "createwatchonly") {
+
 				return fmt.Errorf("Wallet is already unlocked")
 			}
 
@@ -136,7 +142,8 @@ var newAddressCommand = cli.Command{
 	Description: `
 	Generate a wallet new address. Address-types has to be one of:
 	    - p2wkh:  Pay to witness key hash
-	    - np2wkh: Pay to nested witness key hash`,
+	    - np2wkh: Pay to nested witness key hash
+	    - p2tr:   Pay to taproot pubkey`,
 	Action: actionDecorator(newAddress),
 }
 
@@ -158,6 +165,8 @@ func newAddress(ctx *cli.Context) error {
 		addrType = lnrpc.AddressType_WITNESS_PUBKEY_HASH
 	case "np2wkh":
 		addrType = lnrpc.AddressType_NESTED_PUBKEY_HASH
+	case "p2tr":
+		addrType = lnrpc.AddressType_TAPROOT_PUBKEY
 	default:
 		return fmt.Errorf("invalid address type %v, support address type "+
 			"are: p2wkh and np2wkh", stringAddrType)
@@ -719,6 +728,12 @@ var closeChannelCommand = cli.Command{
 			Usage: "the output index for the funding output of the funding " +
 				"transaction",
 		},
+		cli.StringFlag{
+			Name: "chan_point",
+			Usage: "(optional) the channel point. If set, " +
+				"funding_txid and output_index flags and " +
+				"positional arguments will be ignored",
+		},
 		cli.BoolFlag{
 			Name:  "force",
 			Usage: "attempt an uncooperative closure",
@@ -1183,10 +1198,19 @@ func abandonChannel(ctx *cli.Context) error {
 // line. Both named options as well as unnamed parameters are supported.
 func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
 	channelPoint := &lnrpc.ChannelPoint{}
+	var err error
 
 	args := ctx.Args()
 
 	switch {
+	case ctx.IsSet("chan_point"):
+		channelPoint, err = parseChanPoint(ctx.String("chan_point"))
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse chan_point: "+
+				"%v", err)
+		}
+		return channelPoint, nil
+
 	case ctx.IsSet("funding_txid"):
 		channelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
 			FundingTxidStr: ctx.String("funding_txid"),
@@ -1993,9 +2017,8 @@ var updateChannelPolicyCommand = cli.Command{
 
 func parseChanPoint(s string) (*lnrpc.ChannelPoint, error) {
 	split := strings.Split(s, ":")
-	if len(split) != 2 {
-		return nil, fmt.Errorf("expecting chan_point to be in format of: " +
-			"txid:index")
+	if len(split) != 2 || len(split[0]) == 0 || len(split[1]) == 0 {
+		return nil, errBadChanPoint
 	}
 
 	index, err := strconv.ParseInt(split[1], 10, 32)
@@ -2091,7 +2114,7 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	if chanPointStr != "" {
 		chanPoint, err = parseChanPoint(chanPointStr)
 		if err != nil {
-			return fmt.Errorf("unable to parse chan point: %v", err)
+			return fmt.Errorf("unable to parse chan_point: %v", err)
 		}
 	}
 
@@ -2144,6 +2167,22 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	printJSON(listFailedUpdateResp)
 
 	return nil
+}
+
+var fishCompletionCommand = cli.Command{
+	Name:   "fish-completion",
+	Hidden: true,
+	Action: func(c *cli.Context) error {
+		completion, err := c.App.ToFishCompletion()
+		if err != nil {
+			return err
+		}
+
+		// We don't want to suggest files, so we add this
+		// first line to the completions.
+		_, err = fmt.Printf("complete -c %q -f \n%s", c.App.Name, completion)
+		return err
+	},
 }
 
 var exportChanBackupCommand = cli.Command{
@@ -2230,7 +2269,7 @@ func exportChanBackup(ctx *cli.Context) error {
 	if chanPointStr != "" {
 		chanPointRPC, err := parseChanPoint(chanPointStr)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to parse chan_point: %v", err)
 		}
 
 		chanBackup, err := client.ExportChannelBackup(
@@ -2337,8 +2376,9 @@ var verifyChanBackupCommand = cli.Command{
 				"from exportchanbackup",
 		},
 		cli.StringFlag{
-			Name:  "multi_file",
-			Usage: "the path to a multi-channel back up file",
+			Name:      "multi_file",
+			Usage:     "the path to a multi-channel back up file",
+			TakesFile: true,
 		},
 	},
 	Action: actionDecorator(verifyChanBackup),
@@ -2419,8 +2459,9 @@ var restoreChanBackupCommand = cli.Command{
 				"from exportchanbackup",
 		},
 		cli.StringFlag{
-			Name:  "multi_file",
-			Usage: "the path to a multi-channel back up file",
+			Name:      "multi_file",
+			Usage:     "the path to a multi-channel back up file",
+			TakesFile: true,
 		},
 	},
 	Action: actionDecorator(restoreChanBackup),

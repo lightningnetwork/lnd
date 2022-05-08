@@ -7,9 +7,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -429,7 +429,6 @@ func (c *ChainArbitrator) getArbChannel(
 // This is only to be done once all contracts which were live on the channel
 // before hitting the chain have been resolved.
 func (c *ChainArbitrator) ResolveContract(chanPoint wire.OutPoint) error {
-
 	log.Infof("Marking ChannelPoint(%v) fully resolved", chanPoint)
 
 	// First, we'll we'll mark the channel as fully closed from the PoV of
@@ -488,7 +487,7 @@ func (c *ChainArbitrator) Start() error {
 		return nil
 	}
 
-	log.Tracef("Starting ChainArbitrator")
+	log.Info("ChainArbitrator starting")
 
 	// First, we'll fetch all the channels that are still open, in order to
 	// collect them within our set of active contracts.
@@ -848,8 +847,8 @@ func (c *ChainArbitrator) publishClosingTxs(
 // rebroadcast is a helper method which will republish the unilateral or
 // cooperative close transaction or a channel in a particular state.
 //
-// NOTE: There is no risk to caling this method if the channel isn't in either
-// CommimentBroadcasted or CoopBroadcasted, but the logs will be misleading.
+// NOTE: There is no risk to calling this method if the channel isn't in either
+// CommitmentBroadcasted or CoopBroadcasted, but the logs will be misleading.
 func (c *ChainArbitrator) rebroadcast(channel *channeldb.OpenChannel,
 	state channeldb.ChannelStatus) error {
 
@@ -874,7 +873,6 @@ func (c *ChainArbitrator) rebroadcast(channel *channeldb.OpenChannel,
 	}
 
 	switch {
-
 	// This can happen for channels that had their closing tx published
 	// before we started storing it to disk.
 	case err == channeldb.ErrNoCloseTx:
@@ -966,16 +964,9 @@ type ContractUpdate struct {
 	Htlcs []channeldb.HTLC
 }
 
-// ContractSignals wraps the two signals that affect the state of a channel
-// being watched by an arbitrator. The two signals we care about are: the
-// channel has a new set of HTLC's, and the remote party has just broadcast
-// their version of the commitment transaction.
+// ContractSignals is used by outside subsystems to notify a channel arbitrator
+// of its ShortChannelID.
 type ContractSignals struct {
-	// HtlcUpdates is a channel that the link will use to update the
-	// designated channel arbitrator when the set of HTLCs on any valid
-	// commitment changes.
-	HtlcUpdates chan *ContractUpdate
-
 	// ShortChanID is the up to date short channel ID for a contract. This
 	// can change either if when the contract was added it didn't yet have
 	// a stable identifier, or in the case of a reorg.
@@ -1000,6 +991,26 @@ func (c *ChainArbitrator) UpdateContractSignals(chanPoint wire.OutPoint,
 
 	arbitrator.UpdateContractSignals(signals)
 
+	return nil
+}
+
+// NotifyContractUpdate lets a channel arbitrator know that a new
+// ContractUpdate is available. This calls the ChannelArbitrator's internal
+// method NotifyContractUpdate which waits for a response on a done chan before
+// returning. This method will return an error if the ChannelArbitrator is not
+// in the activeChannels map. However, this only happens if the arbitrator is
+// resolved and the related link would already be shut down.
+func (c *ChainArbitrator) NotifyContractUpdate(chanPoint wire.OutPoint,
+	update *ContractUpdate) error {
+
+	c.Lock()
+	arbitrator, ok := c.activeChannels[chanPoint]
+	c.Unlock()
+	if !ok {
+		return fmt.Errorf("can't find arbitrator for %v", chanPoint)
+	}
+
+	arbitrator.notifyContractUpdate(update)
 	return nil
 }
 

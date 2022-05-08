@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -45,6 +45,9 @@ const (
 
 	// fieldTypeD contains a short description of the payment.
 	fieldTypeD = 13
+
+	// fieldTypeM contains the payment metadata.
+	fieldTypeM = 27
 
 	// fieldTypeN contains the pubkey of the target node.
 	fieldTypeN = 19
@@ -103,7 +106,7 @@ type MessageSigner struct {
 	// SignCompact signs the hash of the passed msg with the node's privkey.
 	// The returned signature should be 65 bytes, where the last 64 are the
 	// compact signature, and the first one is a header byte. This is the
-	// format returned by btcec.SignCompact.
+	// format returned by ecdsa.SignCompact.
 	SignCompact func(msg []byte) ([]byte, error)
 }
 
@@ -183,6 +186,10 @@ type Invoice struct {
 	// Features represents an optional field used to signal optional or
 	// required support for features by the receiver.
 	Features *lnwire.FeatureVector
+
+	// Metadata is additional data that is sent along with the payment to
+	// the payee.
+	Metadata []byte
 }
 
 // Amount is a functional option that allows callers of NewInvoice to set the
@@ -266,10 +273,18 @@ func Features(features *lnwire.FeatureVector) func(*Invoice) {
 }
 
 // PaymentAddr is a functional option that allows callers of NewInvoice to set
-// the desired payment address tht is advertised on the invoice.
+// the desired payment address that is advertised on the invoice.
 func PaymentAddr(addr [32]byte) func(*Invoice) {
 	return func(i *Invoice) {
 		i.PaymentAddr = &addr
+	}
+}
+
+// Metadata is a functional option that allows callers of NewInvoice to set
+// the desired payment Metadata tht is advertised on the invoice.
+func Metadata(metadata []byte) func(*Invoice) {
+	return func(i *Invoice) {
+		i.Metadata = metadata
 	}
 }
 

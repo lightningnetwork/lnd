@@ -8,11 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -84,7 +85,7 @@ const (
 
 	// MaxBtcFundingAmountWumbo is a soft-limit on the maximum size of wumbo
 	// channels. This limit is 10 BTC and is the only thing standing between
-	// you and limitless channel size (apart from 21 million cap)
+	// you and limitless channel size (apart from 21 million cap).
 	MaxBtcFundingAmountWumbo = btcutil.Amount(1000000000)
 
 	// MaxLtcFundingAmount is a soft-limit of the maximum channel size
@@ -92,7 +93,7 @@ const (
 	// Protocol.
 	MaxLtcFundingAmount = MaxBtcFundingAmount * chainreg.BtcToLtcConversionRate
 
-	// TODO(roasbeef): tune
+	// TODO(roasbeef): tune.
 	msgBufferSize = 50
 
 	// maxWaitNumBlocksFundingConf is the maximum number of blocks to wait
@@ -327,7 +328,7 @@ type Config struct {
 	// TODO(roasbeef): should instead pass on this responsibility to a
 	// distinct sub-system?
 	SignMessage func(keyLoc keychain.KeyLocator,
-		msg []byte, doubleHash bool) (*btcec.Signature, error)
+		msg []byte, doubleHash bool) (*ecdsa.Signature, error)
 
 	// CurrentNodeAnnouncement should return the latest, fully signed node
 	// announcement from the backing Lightning Network node.
@@ -588,14 +589,13 @@ func NewFundingManager(cfg Config) (*Manager, error) {
 func (f *Manager) Start() error {
 	var err error
 	f.started.Do(func() {
+		log.Info("Funding manager starting")
 		err = f.start()
 	})
 	return err
 }
 
 func (f *Manager) start() error {
-	log.Tracef("Funding manager running")
-
 	// Upon restart, the Funding Manager will check the database to load any
 	// channels that were  waiting for their funding transactions to be
 	// confirmed on the blockchain at the time when the daemon last went
@@ -723,7 +723,6 @@ func (f *Manager) nextPendingChanID() [32]byte {
 // passed node. This will ensure any outputs which have been pre committed,
 // (and thus locked from coin selection), are properly freed.
 func (f *Manager) CancelPeerReservations(nodePub [33]byte) {
-
 	log.Debugf("Cancelling all reservations for peer %x", nodePub[:])
 
 	f.resMtx.Lock()
@@ -939,7 +938,6 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		chanID, shortChanID, channelState)
 
 	switch channelState {
-
 	// The funding transaction was confirmed, but we did not successfully
 	// send the fundingLocked message to the peer, so let's do that now.
 	case markedOpen:
@@ -1112,7 +1110,6 @@ func (f *Manager) advancePendingChannelState(
 		}()
 
 		return timeoutErr
-
 	} else if err != nil {
 		return fmt.Errorf("error waiting for funding "+
 			"confirmation for ChannelPoint(%v): %v",
@@ -1149,7 +1146,7 @@ func (f *Manager) ProcessFundingMsg(msg lnwire.Message, peer lnpeer.Peer) {
 // the funding workflow.
 //
 // TODO(roasbeef): add error chan to all, let channelManager handle
-// error+propagate
+// error+propagate.
 func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	msg *lnwire.OpenChannel) {
 
@@ -1238,7 +1235,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	if amt < f.cfg.MinChanSize {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwallet.ErrChanTooSmall(amt, btcutil.Amount(f.cfg.MinChanSize)),
+			lnwallet.ErrChanTooSmall(amt, f.cfg.MinChanSize),
 		)
 		return
 	}
@@ -2382,6 +2379,7 @@ func (f *Manager) waitForFundingConfirmation(
 // NOTE: This MUST be run as a goroutine.
 func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 	cancelChan <-chan struct{}, timeoutChan chan<- error) {
+
 	defer f.wg.Done()
 
 	epochClient, err := f.cfg.Notifier.RegisterBlockEpochNtfn(nil)
@@ -2405,7 +2403,7 @@ func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 			}
 
 			// Close the timeout channel and exit if the block is
-			// aboce the max height.
+			// above the max height.
 			if uint32(epoch.Height) >= maxHeight {
 				log.Warnf("Waited for %v blocks without "+
 					"seeing funding transaction confirmed,"+
@@ -3295,6 +3293,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// maximum.
 	if commitType.HasAnchors() &&
 		commitFeePerKw > f.cfg.MaxAnchorsCommitFeeRate {
+
 		commitFeePerKw = f.cfg.MaxAnchorsCommitFeeRate
 	}
 
@@ -3514,7 +3513,8 @@ func (f *Manager) pruneZombieReservations() {
 
 	for pendingChanID, resCtx := range zombieReservations {
 		err := fmt.Errorf("reservation timed out waiting for peer "+
-			"(peer_id:%x, chan_id:%x)", resCtx.peer.IdentityKey(),
+			"(peer_id:%x, chan_id:%x)",
+			resCtx.peer.IdentityKey().SerializeCompressed(),
 			pendingChanID[:])
 		log.Warnf(err.Error())
 		f.failFundingFlow(resCtx.peer, pendingChanID, err)
@@ -3629,11 +3629,10 @@ func (f *Manager) IsPendingChannel(pendingChanID [32]byte,
 }
 
 func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
-	return &btcec.PublicKey{
-		Curve: btcec.S256(),
-		X:     pub.X,
-		Y:     pub.Y,
-	}
+	var tmp btcec.JacobianPoint
+	pub.AsJacobian(&tmp)
+	tmp.ToAffine()
+	return btcec.NewPublicKey(&tmp.X, &tmp.Y)
 }
 
 // saveChannelOpeningState saves the channelOpeningState for the provided

@@ -1,0 +1,203 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "peersrpc/peers.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "Peers"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v2/peers/nodeannouncement": {
+      "post": {
+        "summary": "lncli: peers updatenodeannouncement\nUpdateNodeAnnouncement allows the caller to update the node parameters\nand broadcasts a new version of the node announcement to its peers.",
+        "operationId": "Peers_UpdateNodeAnnouncement",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/peersrpcNodeAnnouncementUpdateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/peersrpcNodeAnnouncementUpdateRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Peers"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "lnrpcFeatureBit": {
+      "type": "string",
+      "enum": [
+        "DATALOSS_PROTECT_REQ",
+        "DATALOSS_PROTECT_OPT",
+        "INITIAL_ROUING_SYNC",
+        "UPFRONT_SHUTDOWN_SCRIPT_REQ",
+        "UPFRONT_SHUTDOWN_SCRIPT_OPT",
+        "GOSSIP_QUERIES_REQ",
+        "GOSSIP_QUERIES_OPT",
+        "TLV_ONION_REQ",
+        "TLV_ONION_OPT",
+        "EXT_GOSSIP_QUERIES_REQ",
+        "EXT_GOSSIP_QUERIES_OPT",
+        "STATIC_REMOTE_KEY_REQ",
+        "STATIC_REMOTE_KEY_OPT",
+        "PAYMENT_ADDR_REQ",
+        "PAYMENT_ADDR_OPT",
+        "MPP_REQ",
+        "MPP_OPT",
+        "WUMBO_CHANNELS_REQ",
+        "WUMBO_CHANNELS_OPT",
+        "ANCHORS_REQ",
+        "ANCHORS_OPT",
+        "ANCHORS_ZERO_FEE_HTLC_REQ",
+        "ANCHORS_ZERO_FEE_HTLC_OPT",
+        "AMP_REQ",
+        "AMP_OPT"
+      ],
+      "default": "DATALOSS_PROTECT_REQ"
+    },
+    "lnrpcOp": {
+      "type": "object",
+      "properties": {
+        "entity": {
+          "type": "string"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "peersrpcNodeAnnouncementUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "feature_updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/peersrpcUpdateFeatureAction"
+          },
+          "description": "Set of changes for the features that the node supports."
+        },
+        "color": {
+          "type": "string",
+          "description": "Color is the node's color in hex code format."
+        },
+        "alias": {
+          "type": "string",
+          "description": "Alias or nick name of the node."
+        },
+        "address_updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/peersrpcUpdateAddressAction"
+          },
+          "description": "Set of changes for the node's known addresses."
+        }
+      }
+    },
+    "peersrpcNodeAnnouncementUpdateResponse": {
+      "type": "object",
+      "properties": {
+        "ops": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcOp"
+          }
+        }
+      }
+    },
+    "peersrpcUpdateAction": {
+      "type": "string",
+      "enum": [
+        "ADD",
+        "REMOVE"
+      ],
+      "default": "ADD",
+      "description": "UpdateAction is used to determine the kind of action we are referring to.\n\n - ADD: ADD indicates this is an \"insertion\" kind of action.\n - REMOVE: REMOVE indicates this is a \"deletion\" kind of action."
+    },
+    "peersrpcUpdateAddressAction": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/peersrpcUpdateAction",
+          "description": "Determines the kind of action."
+        },
+        "address": {
+          "type": "string",
+          "description": "The address used to apply the update action."
+        }
+      }
+    },
+    "peersrpcUpdateFeatureAction": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/peersrpcUpdateAction",
+          "description": "Determines the kind of action."
+        },
+        "feature_bit": {
+          "$ref": "#/definitions/lnrpcFeatureBit",
+          "description": "The feature bit used to apply the update action."
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

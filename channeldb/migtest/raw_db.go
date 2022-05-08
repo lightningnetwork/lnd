@@ -72,7 +72,6 @@ func restoreDB(bucket kvdb.RwBucket, data map[string]interface{}) error {
 		key := []byte(k)
 
 		switch value := v.(type) {
-
 		// Key contains value.
 		case string:
 			err := bucket.Put(key, []byte(value))
@@ -114,7 +113,6 @@ func verifyDB(bucket kvdb.RBucket, data map[string]interface{}) error {
 		key := []byte(k)
 
 		switch value := v.(type) {
-
 		// Key contains value.
 		case string:
 			expectedValue := []byte(value)

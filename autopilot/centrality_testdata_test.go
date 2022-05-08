@@ -3,8 +3,8 @@ package autopilot
 import (
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,7 +35,7 @@ var normalizedTestGraphCentrality = []float64{
 	0.2, 0.0, 0.2, 1.0, 0.4, 0.4, 7.0 / 15.0, 0.0, 0.0,
 }
 
-// buildTestGraph builds a test graph from a passed graph desriptor.
+// buildTestGraph builds a test graph from a passed graph descriptor.
 func buildTestGraph(t *testing.T,
 	graph testGraph, desc testGraphDesc) map[int]*btcec.PublicKey {
 

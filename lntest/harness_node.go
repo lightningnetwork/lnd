@@ -17,13 +17,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -82,6 +84,10 @@ type BackendConfig interface {
 
 	// Name returns the name of the backend type.
 	Name() string
+
+	// Credentials returns the rpc username, password and host for the
+	// backend.
+	Credentials() (string, string, string, error)
 }
 
 // NodeConfig is the basic interface a node configuration must implement.
@@ -218,17 +224,13 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		fmt.Sprintf("--restcors=https://%v", cfg.RESTAddr()),
 		fmt.Sprintf("--listen=%v", cfg.P2PAddr()),
 		fmt.Sprintf("--externalip=%v", cfg.P2PAddr()),
-		fmt.Sprintf("--logdir=%v", cfg.LogDir),
-		fmt.Sprintf("--datadir=%v", cfg.DataDir),
-		fmt.Sprintf("--tlscertpath=%v", cfg.TLSCertPath),
-		fmt.Sprintf("--tlskeypath=%v", cfg.TLSKeyPath),
-		fmt.Sprintf("--configfile=%v", cfg.DataDir),
+		fmt.Sprintf("--lnddir=%v", cfg.BaseDir),
 		fmt.Sprintf("--adminmacaroonpath=%v", cfg.AdminMacPath),
 		fmt.Sprintf("--readonlymacaroonpath=%v", cfg.ReadMacPath),
 		fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath),
 		fmt.Sprintf("--trickledelay=%v", trickleDelay),
 		fmt.Sprintf("--profile=%d", cfg.ProfilePort),
-		fmt.Sprintf("--caches.rpc-graph-cache-duration=0"),
+		fmt.Sprintf("--caches.rpc-graph-cache-duration=%d", 0),
 	}
 	args = append(args, nodeArgs...)
 
@@ -295,7 +297,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 //       ]
 //  },
 //  "chanPoint2": ...
-// }
+// }.
 type policyUpdateMap map[string]map[string][]*lnrpc.RoutingPolicy
 
 // HarnessNode represents an instance of lnd running within our test network
@@ -355,12 +357,14 @@ type HarnessNode struct {
 	lnrpc.LightningClient
 	lnrpc.WalletUnlockerClient
 	invoicesrpc.InvoicesClient
+	peersrpc.PeersClient
 	SignerClient     signrpc.SignerClient
 	RouterClient     routerrpc.RouterClient
 	WalletKitClient  walletrpc.WalletKitClient
 	Watchtower       watchtowerrpc.WatchtowerClient
 	WatchtowerClient wtclientrpc.WatchtowerClientClient
 	StateClient      lnrpc.StateClient
+	ChainClient      chainrpc.ChainNotifierClient
 }
 
 // RPCClients wraps a list of RPC clients into a single struct for easier
@@ -378,12 +382,14 @@ type RPCClients struct {
 	Watchtower       watchtowerrpc.WatchtowerClient
 	WatchtowerClient wtclientrpc.WatchtowerClientClient
 	State            lnrpc.StateClient
+	ChainClient      chainrpc.ChainNotifierClient
 }
 
 // Assert *HarnessNode implements the lnrpc.LightningClient interface.
 var _ lnrpc.LightningClient = (*HarnessNode)(nil)
 var _ lnrpc.WalletUnlockerClient = (*HarnessNode)(nil)
 var _ invoicesrpc.InvoicesClient = (*HarnessNode)(nil)
+var _ peersrpc.PeersClient = (*HarnessNode)(nil)
 
 // nextNodeID generates a unique sequence to be used as the node's ID.
 func nextNodeID() int {
@@ -405,9 +411,9 @@ func newNode(cfg *BaseNodeConfig) (*HarnessNode, error) {
 		}
 	}
 	cfg.DataDir = filepath.Join(cfg.BaseDir, "data")
-	cfg.LogDir = filepath.Join(cfg.BaseDir, "log")
-	cfg.TLSCertPath = filepath.Join(cfg.DataDir, "tls.cert")
-	cfg.TLSKeyPath = filepath.Join(cfg.DataDir, "tls.key")
+	cfg.LogDir = filepath.Join(cfg.BaseDir, "logs")
+	cfg.TLSCertPath = filepath.Join(cfg.BaseDir, "tls.cert")
+	cfg.TLSKeyPath = filepath.Join(cfg.BaseDir, "tls.key")
 
 	networkDir := filepath.Join(
 		cfg.DataDir, "chain", "bitcoin", cfg.NetParams.Name,
@@ -816,7 +822,7 @@ func (hn *HarnessNode) Init(
 		initReq.StatelessInit, response.AdminMacaroon,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("faied to init: %w", err)
+		return nil, fmt.Errorf("failed to init: %w", err)
 	}
 
 	return response, nil
@@ -929,6 +935,7 @@ func (hn *HarnessNode) InitRPCClients(c *grpc.ClientConn) {
 		WatchtowerClient: wtclientrpc.NewWatchtowerClientClient(c),
 		Signer:           signrpc.NewSignerClient(c),
 		State:            lnrpc.NewStateClient(c),
+		ChainClient:      chainrpc.NewChainNotifierClient(c),
 	}
 }
 
@@ -948,7 +955,9 @@ func (hn *HarnessNode) initLightningClient() error {
 	hn.Watchtower = watchtowerrpc.NewWatchtowerClient(conn)
 	hn.WatchtowerClient = wtclientrpc.NewWatchtowerClientClient(conn)
 	hn.SignerClient = signrpc.NewSignerClient(conn)
+	hn.PeersClient = peersrpc.NewPeersClient(conn)
 	hn.StateClient = lnrpc.NewStateClient(conn)
+	hn.ChainClient = chainrpc.NewChainNotifierClient(conn)
 
 	// Wait until the server is fully started.
 	if err := hn.WaitUntilServerActive(); err != nil {
@@ -988,9 +997,9 @@ func (hn *HarnessNode) FetchNodeInfo() error {
 	return nil
 }
 
-// AddToLog adds a line of choice to the node's logfile. This is useful
+// AddToLogf adds a line of choice to the node's logfile. This is useful
 // to interleave test output with output from the node.
-func (hn *HarnessNode) AddToLog(format string, a ...interface{}) {
+func (hn *HarnessNode) AddToLogf(format string, a ...interface{}) {
 	// If this node was not set up with a log file, just return early.
 	if hn.logFile == nil {
 		return
@@ -998,7 +1007,7 @@ func (hn *HarnessNode) AddToLog(format string, a ...interface{}) {
 
 	desc := fmt.Sprintf("itest: %s\n", fmt.Sprintf(format, a...))
 	if _, err := hn.logFile.WriteString(desc); err != nil {
-		hn.PrintErr("write to log err: %v", err)
+		hn.PrintErrf("write to log err: %v", err)
 	}
 }
 
@@ -1189,7 +1198,6 @@ func (hn *HarnessNode) stop() error {
 			return fmt.Errorf("error attempting to stop "+
 				"grpc client: %v", err)
 		}
-
 	}
 
 	return nil
@@ -1207,7 +1215,7 @@ func (hn *HarnessNode) shutdown() error {
 	return nil
 }
 
-// kill kills the lnd process
+// kill kills the lnd process.
 func (hn *HarnessNode) kill() error {
 	return hn.cmd.Process.Kill()
 }
@@ -1244,7 +1252,6 @@ type chanWatchRequest struct {
 }
 
 func (hn *HarnessNode) checkChanPointInGraph(chanPoint wire.OutPoint) bool {
-
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
 
@@ -1281,14 +1288,13 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 		err := hn.receiveTopologyClientStream(graphUpdates)
 
 		if err != nil {
-			hn.PrintErr("receive topology client stream "+
+			hn.PrintErrf("receive topology client stream "+
 				"got err:%v", err)
 		}
 	}()
 
 	for {
 		select {
-
 		// A new graph update has just been received, so we'll examine
 		// the current set of registered clients to see if we can
 		// dispatch any requests.
@@ -1505,9 +1511,9 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount,
 	return nil
 }
 
-// PrintErr prints an error to the console.
-func (hn *HarnessNode) PrintErr(format string, a ...interface{}) {
-	fmt.Printf("itest error from [node:%s]: %s\n",
+// PrintErrf prints an error to the console.
+func (hn *HarnessNode) PrintErrf(format string, a ...interface{}) {
+	fmt.Printf("itest error from [node:%s]: %s\n", // nolint:forbidigo
 		hn.Cfg.Name, fmt.Sprintf(format, a...))
 }
 
@@ -1521,7 +1527,7 @@ func (hn *HarnessNode) handleChannelEdgeUpdates(
 	for _, newChan := range updates {
 		op, err := MakeOutpoint(newChan.ChanPoint)
 		if err != nil {
-			hn.PrintErr("failed to create outpoint for %v "+
+			hn.PrintErrf("failed to create outpoint for %v "+
 				"got err: %v", newChan.ChanPoint, err)
 			return
 		}
@@ -1607,7 +1613,7 @@ func (hn *HarnessNode) handleClosedChannelUpdate(
 	for _, closedChan := range updates {
 		op, err := MakeOutpoint(closedChan.ChanPoint)
 		if err != nil {
-			hn.PrintErr("failed to create outpoint for %v "+
+			hn.PrintErrf("failed to create outpoint for %v "+
 				"got err: %v", closedChan.ChanPoint, err)
 			return
 		}
@@ -1767,7 +1773,6 @@ func (hn *HarnessNode) handlePolicyUpdateWatchRequest(req *chanWatchRequest) {
 // getChannelPolicies queries the channel graph and formats the policies into
 // the format defined in type policyUpdateMap.
 func (hn *HarnessNode) getChannelPolicies(include bool) policyUpdateMap {
-
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
 
@@ -1775,14 +1780,13 @@ func (hn *HarnessNode) getChannelPolicies(include bool) policyUpdateMap {
 		IncludeUnannounced: include,
 	})
 	if err != nil {
-		hn.PrintErr("DescribeGraph got err: %v", err)
+		hn.PrintErrf("DescribeGraph got err: %v", err)
 		return nil
 	}
 
 	policyUpdates := policyUpdateMap{}
 
 	for _, e := range graph.Edges {
-
 		policies := policyUpdates[e.ChanPoint]
 
 		// If the map[op] is nil, we need to initialize the map first.
@@ -1813,7 +1817,7 @@ func (hn *HarnessNode) getChannelPolicies(include bool) policyUpdateMap {
 func renameFile(fromFileName, toFileName string) {
 	err := os.Rename(fromFileName, toFileName)
 	if err != nil {
-		fmt.Printf("could not rename %s to %s: %v\n",
+		fmt.Printf("could not rename %s to %s: %v\n", // nolint:forbidigo
 			fromFileName, toFileName, err)
 	}
 }

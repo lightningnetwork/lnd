@@ -1,24 +1,26 @@
 // Copyright (c) 2013-2017 The btcsuite developers
 // Copyright (c) 2015-2016 The Decred developers
-// Copyright (C) 2015-2017 The Lightning Network Developers
+// Copyright (C) 2015-2022 The Lightning Network Developers
 
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/urfave/cli"
-
 	"golang.org/x/term"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -39,7 +41,7 @@ var (
 
 	// maxMsgRecvSize is the largest message our client will receive. We
 	// set this to 200MiB atm.
-	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200)
+	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(lnrpc.MaxGrpcMsgSize)
 )
 
 func fatal(err error) {
@@ -174,10 +176,24 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		opts = append(opts, grpc.WithPerRPCCredentials(cred))
 	}
 
-	// We need to use a custom dialer so we can also connect to unix sockets
-	// and not just TCP addresses.
-	genericDialer := lncfg.ClientAddressDialer(defaultRPCPort)
-	opts = append(opts, grpc.WithContextDialer(genericDialer))
+	// If a socksproxy server is specified we use a tor dialer
+	// to connect to the grpc server.
+	if ctx.GlobalIsSet("socksproxy") {
+		socksProxy := ctx.GlobalString("socksproxy")
+		torDialer := func(_ context.Context, addr string) (net.Conn, error) {
+			return tor.Dial(
+				addr, socksProxy, false, false,
+				tor.DefaultConnTimeout,
+			)
+		}
+		opts = append(opts, grpc.WithContextDialer(torDialer))
+	} else {
+		// We need to use a custom dialer so we can also connect to
+		// unix sockets and not just TCP addresses.
+		genericDialer := lncfg.ClientAddressDialer(defaultRPCPort)
+		opts = append(opts, grpc.WithContextDialer(genericDialer))
+	}
+
 	opts = append(opts, grpc.WithDefaultCallOptions(maxMsgRecvSize))
 
 	conn, err := grpc.Dial(profile.RPCServer, opts...)
@@ -272,14 +288,22 @@ func main() {
 			Usage: "The host:port of LN daemon.",
 		},
 		cli.StringFlag{
-			Name:  "lnddir",
-			Value: defaultLndDir,
-			Usage: "The path to lnd's base directory.",
+			Name:      "lnddir",
+			Value:     defaultLndDir,
+			Usage:     "The path to lnd's base directory.",
+			TakesFile: true,
 		},
 		cli.StringFlag{
-			Name:  "tlscertpath",
-			Value: defaultTLSCertPath,
-			Usage: "The path to lnd's TLS certificate.",
+			Name: "socksproxy",
+			Usage: "The host:port of a SOCKS proxy through " +
+				"which all connections to the LN " +
+				"daemon will be established over.",
+		},
+		cli.StringFlag{
+			Name:      "tlscertpath",
+			Value:     defaultTLSCertPath,
+			Usage:     "The path to lnd's TLS certificate.",
+			TakesFile: true,
 		},
 		cli.StringFlag{
 			Name:  "chain, c",
@@ -297,8 +321,9 @@ func main() {
 			Usage: "Disable macaroon authentication.",
 		},
 		cli.StringFlag{
-			Name:  "macaroonpath",
-			Usage: "The path to macaroon file.",
+			Name:      "macaroonpath",
+			Usage:     "The path to macaroon file.",
+			TakesFile: true,
 		},
 		cli.Int64Flag{
 			Name:  "macaroontimeout",
@@ -387,15 +412,19 @@ func main() {
 		deletePaymentsCommand,
 		sendCustomCommand,
 		subscribeCustomCommand,
+		fishCompletionCommand,
 	}
 
 	// Add any extra commands determined by build flags.
 	app.Commands = append(app.Commands, autopilotCommands()...)
 	app.Commands = append(app.Commands, invoicesCommands()...)
+	app.Commands = append(app.Commands, neutrinoCommands()...)
 	app.Commands = append(app.Commands, routerCommands()...)
 	app.Commands = append(app.Commands, walletCommands()...)
 	app.Commands = append(app.Commands, watchtowerCommands()...)
 	app.Commands = append(app.Commands, wtclientCommands()...)
+	app.Commands = append(app.Commands, devCommands()...)
+	app.Commands = append(app.Commands, peersCommands()...)
 
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)

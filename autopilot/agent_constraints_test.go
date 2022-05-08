@@ -1,12 +1,11 @@
 package autopilot
 
 import (
+	prand "math/rand"
 	"testing"
 	"time"
 
-	prand "math/rand"
-
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 

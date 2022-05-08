@@ -35,7 +35,6 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
-	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/lightningnetwork/lnd/watchtower"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
@@ -691,7 +690,7 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 
 	rpcKeyRing, err := rpcwallet.NewRPCKeyRing(
 		baseKeyRing, walletController,
-		d.DefaultWalletImpl.cfg.RemoteSigner, walletConfig.CoinType,
+		d.DefaultWalletImpl.cfg.RemoteSigner, walletConfig.NetParams,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create RPC remote signing wallet "+
@@ -952,7 +951,6 @@ func waitForWalletPassword(cfg *Config,
 	// for creation or unlocking, as a new wallet db will be created if
 	// none exists when creating the chain control.
 	select {
-
 	// The wallet is being created for the first time, we'll check to see
 	// if the user provided any entropy for seed creation. If so, then
 	// we'll create the wallet early to load the seed.
@@ -1113,7 +1111,14 @@ func importWatchOnlyAccounts(wallet *wallet.Wallet,
 
 	for _, scope := range scopes {
 		addrSchema := waddrmgr.ScopeAddrMap[waddrmgr.KeyScopeBIP0084]
-		if scope.Scope.Purpose == waddrmgr.KeyScopeBIP0049Plus.Purpose {
+
+		// We want witness pubkey hash by default, except for BIP49
+		// where we want mixed and BIP86 where we want taproot address
+		// formats.
+		switch scope.Scope.Purpose {
+		case waddrmgr.KeyScopeBIP0049Plus.Purpose,
+			waddrmgr.KeyScopeBIP0086.Purpose:
+
 			addrSchema = waddrmgr.ScopeAddrMap[scope.Scope]
 		}
 
@@ -1195,43 +1200,12 @@ func initNeutrinoBackend(cfg *Config, chainDir string,
 		AddPeers:     cfg.NeutrinoMode.AddPeers,
 		ConnectPeers: cfg.NeutrinoMode.ConnectPeers,
 		Dialer: func(addr net.Addr) (net.Conn, error) {
-			dialAddr := addr
-			if tor.IsOnionFakeIP(addr) {
-				// Because the Neutrino address manager only
-				// knows IP addresses, we need to turn any fake
-				// tcp6 address that actually encodes an Onion
-				// v2 address back into the hostname
-				// representation before we can pass it to the
-				// dialer.
-				var err error
-				dialAddr, err = tor.FakeIPToOnionHost(addr)
-				if err != nil {
-					return nil, err
-				}
-			}
-
 			return cfg.net.Dial(
-				dialAddr.Network(), dialAddr.String(),
+				addr.Network(), addr.String(),
 				cfg.ConnectionTimeout,
 			)
 		},
 		NameResolver: func(host string) ([]net.IP, error) {
-			if tor.IsOnionHost(host) {
-				// Neutrino internally uses btcd's address
-				// manager which only operates on an IP level
-				// and does not understand onion hosts. We need
-				// to turn an onion host into a fake
-				// representation of an IP address to make it
-				// possible to connect to a block filter backend
-				// that serves on an Onion v2 hidden service.
-				fakeIP, err := tor.OnionHostToFakeIP(host)
-				if err != nil {
-					return nil, err
-				}
-
-				return []net.IP{fakeIP}, nil
-			}
-
 			addrs, err := cfg.net.LookupHost(host)
 			if err != nil {
 				return nil, err

@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/psbt"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -428,7 +428,6 @@ func (i *PsbtIntent) Inputs() []wire.OutPoint {
 	var inputs []wire.OutPoint
 
 	switch i.State {
-
 	// We return the inputs to the pending psbt.
 	case PsbtVerified:
 		for _, in := range i.PendingPsbt.UnsignedTx.TxIn {
@@ -453,7 +452,6 @@ func (i *PsbtIntent) Inputs() []wire.OutPoint {
 // know about. These are only known after the PSBT has been verified.
 func (i *PsbtIntent) Outputs() []*wire.TxOut {
 	switch i.State {
-
 	// We return the outputs of the pending psbt.
 	case PsbtVerified:
 		return i.PendingPsbt.UnsignedTx.TxOut

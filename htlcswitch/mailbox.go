@@ -91,7 +91,7 @@ type mailBoxConfig struct {
 	// belongs to.
 	shortChanID lnwire.ShortChannelID
 
-	// fetchUpdate retreives the most recent channel update for the channel
+	// fetchUpdate retrieves the most recent channel update for the channel
 	// this mailbox belongs to.
 	fetchUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
 
@@ -590,7 +590,6 @@ func (m *memoryMailBox) AddMessage(msg lnwire.Message) error {
 func (m *memoryMailBox) AddPacket(pkt *htlcPacket) error {
 	m.pktCond.L.Lock()
 	switch htlc := pkt.htlc.(type) {
-
 	// Split off Settle/Fail packets into the repPkts queue.
 	case *lnwire.UpdateFulfillHTLC, *lnwire.UpdateFailHTLC:
 		if _, ok := m.repIndex[pkt.inKey()]; ok {
@@ -674,6 +673,7 @@ func (m *memoryMailBox) DustPackets() (lnwire.MilliSatoshi,
 		if m.isDust(
 			m.feeRate, false, true, addPkt.amount.ToSatoshis(),
 		) {
+
 			localDustSum += addPkt.amount
 		}
 
@@ -681,6 +681,7 @@ func (m *memoryMailBox) DustPackets() (lnwire.MilliSatoshi,
 		if m.isDust(
 			m.feeRate, false, false, addPkt.amount.ToSatoshis(),
 		) {
+
 			remoteDustSum += addPkt.amount
 		}
 	}
@@ -803,7 +804,7 @@ type mailOrchestrator struct {
 	//   chan_id -> short_chan_id
 	//   short_chan_id -> mailbox
 	// so that Deliver can lookup mailbox directly once live,
-	// but still queriable by channel_id.
+	// but still queryable by channel_id.
 
 	// unclaimedPackets maps a live short chan id to queue of packets if no
 	// mailbox has been created.
@@ -816,7 +817,7 @@ type mailOrchConfig struct {
 	// properly exit during shutdown.
 	forwardPackets func(chan struct{}, ...*htlcPacket) error
 
-	// fetchUpdate retreives the most recent channel update for the channel
+	// fetchUpdate retrieves the most recent channel update for the channel
 	// this mailbox belongs to.
 	fetchUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
 

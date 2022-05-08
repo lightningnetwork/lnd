@@ -13,11 +13,13 @@ var getStateCommand = cli.Command{
 	Usage:    "Get the current state of the wallet and RPC",
 	Description: `
 	Get the current state of the wallet. The possible states are:
+	 - WAITING_TO_START: node is waiting to become the leader in a cluster
+	   and is not started yet.
 	 - NON_EXISTING: wallet has not yet been initialized.
 	 - LOCKED: wallet is locked.
-	 - UNLOCKED: wallet has been unlocked successfully, but the full RPC is
-	   not yet ready.
-	 - RPC_READY: the daemon has started and the RPC is fully available.
+	 - UNLOCKED: wallet was unlocked successfully, but RPC server isn't ready.
+	 - RPC_ACTIVE: RPC server is active but not fully ready for calls.
+	 - SERVER_ACTIVE: RPC server is available and ready to accept calls.
 	`,
 	Flags:  []cli.Flag{},
 	Action: actionDecorator(getState),

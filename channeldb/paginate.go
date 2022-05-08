@@ -69,7 +69,6 @@ func (p paginator) cursorStart() ([]byte, []byte) {
 	// handle a few offset cases.
 	if p.reversed {
 		switch {
-
 		// This indicates the default case, where no offset was
 		// specified. In that case we just start from the last
 		// entry.

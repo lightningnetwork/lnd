@@ -2,7 +2,7 @@
 
 With the recent introduction of the `kvdb` interface LND can support multiple
 database backends allowing experimentation with the storage model as well as
-improving robustness trough eg. replicating essential data.
+improving robustness through eg. replicating essential data.
 
 Building on `kvdb` in v0.11.0 we're adding experimental [etcd](https://etcd.io)
 support to LND. As this is an unstable feature heavily in development, it still
@@ -39,10 +39,8 @@ To start your local etcd instance for testing run:
 ```
 
 The large `max-txn-ops` and `max-request-bytes` values are currently required in
-case of running LND with the full graph in etcd. Upcoming versions will split
-the database to local and replicated parts and only essential parts will remain
-in the replicated database, removing the requirement for these additional 
-settings. These parameters have been tested to work with testnet LND.
+case of running LND with the full graph in etcd. These parameters have been
+tested to work with testnet LND.
 
 ## Configuring LND to run on etcd
 
@@ -71,7 +69,7 @@ db.etcd.keyfile=/home/user/etcd/bin/default.etcd/fixtures/client/key.pem
 db.etcd.insecure_skip_verify=true
 ```
 
-Optionally users can specifiy `db.etcd.user` and `db.etcd.pass` for db user
+Optionally users can specify `db.etcd.user` and `db.etcd.pass` for db user
 authentication. If the database is shared, it is possible to separate our data
 from other users by setting `db.etcd.namespace` to an (already existing) etcd
 namespace. In order to test without TLS, users are able to set `db.etcd.disabletls`

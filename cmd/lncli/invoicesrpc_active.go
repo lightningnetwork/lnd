@@ -6,7 +6,6 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
-
 	"strconv"
 
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"

@@ -1,12 +1,51 @@
 package lnwallet
 
 import (
+	"fmt"
 	"testing"
 
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
+
+// TestDefaultRoutingFeeLimitForAmount tests that we use the correct default
+// routing fee depending on the amount.
+func TestDefaultRoutingFeeLimitForAmount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		amount        lnwire.MilliSatoshi
+		expectedLimit lnwire.MilliSatoshi
+	}{
+		{
+			amount:        1,
+			expectedLimit: 1,
+		},
+		{
+			amount:        lnwire.NewMSatFromSatoshis(1_000),
+			expectedLimit: lnwire.NewMSatFromSatoshis(1_000),
+		},
+		{
+			amount:        lnwire.NewMSatFromSatoshis(1_001),
+			expectedLimit: 50_050,
+		},
+		{
+			amount:        5_000_000_000,
+			expectedLimit: 250_000_000,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(fmt.Sprintf("%d sats", test.amount), func(t *testing.T) {
+			feeLimit := DefaultRoutingFeeLimitForAmount(test.amount)
+			require.Equal(t, int64(test.expectedLimit), int64(feeLimit))
+		})
+	}
+}
 
 // TestDustLimitForSize tests that we receive the expected dust limits for
 // various script types from btcd's GetDustThreshold function.

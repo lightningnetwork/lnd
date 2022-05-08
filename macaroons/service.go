@@ -246,6 +246,7 @@ func (svc *Service) ListMacaroonIDs(ctxt context.Context) ([][]byte, error) {
 // found and deleted, it will be returned.
 func (svc *Service) DeleteMacaroonID(ctxt context.Context,
 	rootKeyID []byte) ([]byte, error) {
+
 	return svc.rks.DeleteMacaroonID(ctxt, rootKeyID)
 }
 

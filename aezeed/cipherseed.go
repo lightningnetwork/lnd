@@ -10,7 +10,6 @@ import (
 
 	"github.com/Yawning/aez"
 	"github.com/kkdai/bstream"
-
 	"golang.org/x/crypto/scrypt"
 )
 
@@ -498,7 +497,7 @@ func decipherCipherSeed(cipherSeedBytes [EncipheredCipherSeedSize]byte,
 }
 
 // Decipher attempts to decipher the encoded mnemonic by first mapping to the
-// original chipertext, then applying our deciphering scheme. ErrInvalidPass
+// original ciphertext, then applying our deciphering scheme. ErrInvalidPass
 // will be returned if the passphrase is incorrect.
 func (m *Mnemonic) Decipher(pass []byte) ([DecipheredCipherSeedSize]byte, error) {
 

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -622,7 +622,7 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 
 	// The RemoteNextRevocation field is optional, as it's possible for a
 	// channel to be closed before we learn of the next unrevoked
-	// revocation point for the remote party. Write a boolen indicating
+	// revocation point for the remote party. Write a boolean indicating
 	// whether this field is present or not.
 	if err := WriteElements(w, cs.RemoteNextRevocation != nil); err != nil {
 		return err

@@ -46,6 +46,7 @@ const (
 
 	AddrTypeWitnessPubkeyHash = lnrpc.AddressType_WITNESS_PUBKEY_HASH
 	AddrTypeNestedPubkeyHash  = lnrpc.AddressType_NESTED_PUBKEY_HASH
+	AddrTypeTaprootPubkey     = lnrpc.AddressType_TAPROOT_PUBKEY
 )
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
@@ -97,7 +98,6 @@ func (h *harnessTest) Fatalf(format string, a ...interface{}) {
 // RunTestCase executes a harness test case. Any errors or panics will be
 // represented as fatal.
 func (h *harnessTest) RunTestCase(testCase *testCase) {
-
 	h.testCase = testCase
 	defer func() {
 		h.testCase = nil

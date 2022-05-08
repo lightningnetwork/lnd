@@ -4,7 +4,7 @@
 # /make/builder.Dockerfile
 # /.github/workflows/main.yml
 # /.github/workflows/release.yml
-FROM golang:1.17.3-alpine as builder
+FROM golang:1.18-alpine as builder
 
 # Force Go to use the cgo based DNS resolver. This is required to ensure DNS
 # queries required to connect to linked containers succeed.
@@ -14,13 +14,14 @@ ENV GODEBUG netdns=cgo
 # image to be built from a specified Git state.  The default image
 # will use the Git tip of master by default.
 ARG checkout="master"
+ARG git_url="https://github.com/lightningnetwork/lnd"
 
 # Install dependencies and build the binaries.
 RUN apk add --no-cache --update alpine-sdk \
     git \
     make \
     gcc \
-&&  git clone https://github.com/lightningnetwork/lnd /go/src/github.com/lightningnetwork/lnd \
+&&  git clone $git_url /go/src/github.com/lightningnetwork/lnd \
 &&  cd /go/src/github.com/lightningnetwork/lnd \
 &&  git checkout $checkout \
 &&  make release-install

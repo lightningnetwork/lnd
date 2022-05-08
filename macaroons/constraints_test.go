@@ -6,9 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/stretchr/testify/require"
 	macaroon "gopkg.in/macaroon.v2"
 )
 
@@ -77,6 +76,7 @@ func TestTimeoutConstraint(t *testing.T) {
 		string(testMacaroon.Caveats()[0].Id),
 		expectedTimeCaveatSubstring,
 	) {
+
 		t.Fatalf("Added caveat '%s' does not meet the expectations!",
 			testMacaroon.Caveats()[0].Id)
 	}

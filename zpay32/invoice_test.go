@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
-
 	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
 )
 
@@ -27,6 +27,7 @@ var (
 	testMillisat2500uBTC = lnwire.MilliSatoshi(250000000)
 	testMillisat25mBTC   = lnwire.MilliSatoshi(2500000000)
 	testMillisat20mBTC   = lnwire.MilliSatoshi(2000000000)
+	testMillisat10mBTC   = lnwire.MilliSatoshi(1000000000)
 
 	testPaymentHash = [32]byte{
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -49,14 +50,15 @@ var (
 		0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
 	}
 
-	testEmptyString    = ""
-	testCupOfCoffee    = "1 cup coffee"
-	testCoffeeBeans    = "coffee beans"
-	testCupOfNonsense  = "ナンセンス 1杯"
-	testPleaseConsider = "Please consider supporting this project"
+	testEmptyString     = ""
+	testCupOfCoffee     = "1 cup coffee"
+	testCoffeeBeans     = "coffee beans"
+	testCupOfNonsense   = "ナンセンス 1杯"
+	testPleaseConsider  = "Please consider supporting this project"
+	testPaymentMetadata = "payment metadata inside"
 
 	testPrivKeyBytes, _     = hex.DecodeString("e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734")
-	testPrivKey, testPubKey = btcec.PrivKeyFromBytes(btcec.S256(), testPrivKeyBytes)
+	testPrivKey, testPubKey = btcec.PrivKeyFromBytes(testPrivKeyBytes)
 
 	testDescriptionHashSlice = chainhash.HashB([]byte("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon"))
 
@@ -70,9 +72,9 @@ var (
 	testAddrMainnetP2WSH, _  = btcutil.DecodeAddress("bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3", &chaincfg.MainNetParams)
 
 	testHopHintPubkeyBytes1, _ = hex.DecodeString("029e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255")
-	testHopHintPubkey1, _      = btcec.ParsePubKey(testHopHintPubkeyBytes1, btcec.S256())
+	testHopHintPubkey1, _      = btcec.ParsePubKey(testHopHintPubkeyBytes1)
 	testHopHintPubkeyBytes2, _ = hex.DecodeString("039e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255")
-	testHopHintPubkey2, _      = btcec.ParsePubKey(testHopHintPubkeyBytes2, btcec.S256())
+	testHopHintPubkey2, _      = btcec.ParsePubKey(testHopHintPubkeyBytes2)
 
 	testSingleHop = []HopHint{
 		{
@@ -103,9 +105,7 @@ var (
 	testMessageSigner = MessageSigner{
 		SignCompact: func(msg []byte) ([]byte, error) {
 			hash := chainhash.HashB(msg)
-			sig, err := btcec.SignCompact(
-				btcec.S256(), testPrivKey, hash, true,
-			)
+			sig, err := ecdsa.SignCompact(testPrivKey, hash, true)
 			if err != nil {
 				return nil, fmt.Errorf("can't sign the "+
 					"message: %v", err)
@@ -694,6 +694,33 @@ func TestDecodeEncode(t *testing.T) {
 				}
 			},
 		},
+		{
+			// Please send 0.01 BTC with payment metadata 0x01fafaf0.
+			encodedInvoice: "lnbc10m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdp9wpshjmt9de6zqmt9w3skgct5vysxjmnnd9jx2mq8q8a04uqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygs9q2gqqqqqqsgq7hf8he7ecf7n4ffphs6awl9t6676rrclv9ckg3d3ncn7fct63p6s365duk5wrk202cfy3aj5xnnp5gs3vrdvruverwwq7yzhkf5a3xqpd05wjc",
+			valid:          true,
+			decodedInvoice: func() *Invoice {
+				return &Invoice{
+					Net:         &chaincfg.MainNetParams,
+					MilliSat:    &testMillisat10mBTC,
+					Timestamp:   time.Unix(1496314658, 0),
+					PaymentHash: &testPaymentHash,
+					Description: &testPaymentMetadata,
+					Destination: testPubKey,
+					PaymentAddr: &specPaymentAddr,
+					Features: lnwire.NewFeatureVector(
+						lnwire.NewRawFeatureVector(8, 14, 48),
+						lnwire.Features,
+					),
+					Metadata: []byte{0x01, 0xfa, 0xfa, 0xf0},
+				}
+			},
+			beforeEncoding: func(i *Invoice) {
+				// Since this destination pubkey was recovered
+				// from the signature, we must set it nil before
+				// encoding to get back the same invoice string.
+				i.Destination = nil
+			},
+		},
 	}
 
 	for i, test := range tests {
@@ -915,11 +942,11 @@ func TestInvoiceChecksumMalleability(t *testing.T) {
 	var payHash [32]byte
 	ts := time.Unix(0, 0)
 
-	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), privKeyBytes)
+	privKey, _ := btcec.PrivKeyFromBytes(privKeyBytes)
 	msgSigner := MessageSigner{
 		SignCompact: func(msg []byte) ([]byte, error) {
 			hash := chainhash.HashB(msg)
-			return btcec.SignCompact(btcec.S256(), privKey, hash, true)
+			return ecdsa.SignCompact(privKey, hash, true)
 		},
 	}
 	opts := []func(*Invoice){Description("test")}
@@ -952,7 +979,6 @@ func TestInvoiceChecksumMalleability(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Did not get expected error when decoding invoice")
 	}
-
 }
 
 func compareInvoices(expected, actual *Invoice) error {
@@ -983,7 +1009,8 @@ func compareInvoices(expected, actual *Invoice) error {
 
 	if !comparePubkeys(expected.Destination, actual.Destination) {
 		return fmt.Errorf("expected destination pubkey %x, got %x",
-			expected.Destination, actual.Destination)
+			expected.Destination.SerializeCompressed(),
+			actual.Destination.SerializeCompressed())
 	}
 
 	if !compareHashes(expected.DescriptionHash, actual.DescriptionHash) {
@@ -1056,7 +1083,8 @@ func compareRouteHints(a, b []HopHint) error {
 	for i := 0; i < len(a); i++ {
 		if !comparePubkeys(a[i].NodeID, b[i].NodeID) {
 			return fmt.Errorf("expected routeHint nodeID %x, "+
-				"got %x", a[i].NodeID, b[i].NodeID)
+				"got %x", a[i].NodeID.SerializeCompressed(),
+				b[i].NodeID.SerializeCompressed())
 		}
 
 		if a[i].ChannelID != b[i].ChannelID {

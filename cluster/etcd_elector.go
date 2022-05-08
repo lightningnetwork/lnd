@@ -23,7 +23,7 @@ const (
 // Enforce that etcdLeaderElector implements the LeaderElector interface.
 var _ LeaderElector = (*etcdLeaderElector)(nil)
 
-// etcdLeaderElector is an implemetation of LeaderElector using etcd as the
+// etcdLeaderElector is an implementation of LeaderElector using etcd as the
 // election governor.
 type etcdLeaderElector struct {
 	id       string
@@ -35,7 +35,7 @@ type etcdLeaderElector struct {
 
 // newEtcdLeaderElector constructs a new etcdLeaderElector.
 func newEtcdLeaderElector(ctx context.Context, id, electionPrefix string,
-	cfg *etcd.Config) (*etcdLeaderElector, error) {
+	leaderSessionTTL int, cfg *etcd.Config) (*etcdLeaderElector, error) {
 
 	clientCfg := clientv3.Config{
 		Context:     ctx,
@@ -72,7 +72,9 @@ func newEtcdLeaderElector(ctx context.Context, id, electionPrefix string,
 	cli.Lease = namespace.NewLease(cli.Lease, cfg.Namespace)
 	log.Infof("Applied namespace to leader elector: %v", cfg.Namespace)
 
-	session, err := concurrency.NewSession(cli)
+	session, err := concurrency.NewSession(
+		cli, concurrency.WithTTL(leaderSessionTTL),
+	)
 	if err != nil {
 		log.Errorf("Unable to start new leader election session: %v",
 			err)

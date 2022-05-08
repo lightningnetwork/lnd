@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+  schedule:
+    # Every day at midnight (UTC).
+    - cron: '0 0 * * *'
 
 defaults:
   run:
@@ -30,7 +33,15 @@ jobs:
           password: ${{ secrets.DOCKER_API_KEY }}
 
       - name: Set env
-        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+        run: |
+          echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+      
+      - name: Set daily tag
+        if: github.event.schedule == '0 0 * * *'
+        run: |
+          echo "RELEASE_VERSION=master" >> $GITHUB_ENV
+          echo "IMAGE_TAG=daily-testing-$(date -u +%Y%m%d),${DOCKER_REPO}/${DOCKER_IMAGE}:daily-testing-only" >> $GITHUB_ENV
 
       - name: Build and push
         id: docker_build
@@ -38,7 +49,7 @@ jobs:
         with:
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: "${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:${{ env.RELEASE_VERSION }}"
+          tags: "${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}"
           build-args: checkout=${{ env.RELEASE_VERSION }}
 
       - name: Image digest

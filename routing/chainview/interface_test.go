@@ -12,19 +12,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcjson"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/walletdb"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
-
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -41,7 +40,7 @@ var (
 		0x1e, 0xb, 0x4c, 0xfd, 0x9e, 0xc5, 0x8c, 0xe9,
 	}
 
-	privKey, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), testPrivKey)
+	privKey, pubKey = btcec.PrivKeyFromBytes(testPrivKey)
 	addrPk, _       = btcutil.NewAddressPubKey(pubKey.SerializeCompressed(),
 		netParams)
 	testAddr = addrPk.AddressPubKeyHash()
@@ -548,14 +547,23 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 	}
 	defer reorgNode.TearDown()
 
+	// We want to overwrite some of the connection settings to make the
+	// tests more robust. We might need to restart the backend while there
+	// are already blocks present, which will take a bit longer than the
+	// 1 second the default settings amount to. Doubling both values will
+	// give us retries up to 4 seconds.
+	reorgNode.MaxConnRetries = rpctest.DefaultMaxConnectionRetries * 2
+	reorgNode.ConnectionRetryTimeout = rpctest.DefaultConnectionRetryTimeout * 2
+
 	// This node's chain will be 105 blocks.
 	if err := reorgNode.SetUp(true, 5); err != nil {
 		t.Fatalf("unable to set up mining node: %v", err)
 	}
 
 	// Init a chain view that has this node as its block source.
-	cleanUpFunc, reorgView, err := chainViewInit(reorgNode.RPCConfig(),
-		reorgNode.P2PAddress())
+	cleanUpFunc, reorgView, err := chainViewInit(
+		reorgNode.RPCConfig(), reorgNode.P2PAddress(),
+	)
 	if err != nil {
 		t.Fatalf("unable to create chain view: %v", err)
 	}
@@ -776,7 +784,9 @@ var interfaceImpls = []struct {
 }{
 	{
 		name: "bitcoind_zmq",
-		chainViewInit: func(_ rpcclient.ConnConfig, p2pAddr string) (func(), FilteredChainView, error) {
+		chainViewInit: func(_ rpcclient.ConnConfig,
+			p2pAddr string) (func(), FilteredChainView, error) {
+
 			// Start a bitcoind instance.
 			tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
 			if err != nil {
@@ -856,7 +866,9 @@ var interfaceImpls = []struct {
 	},
 	{
 		name: "p2p_neutrino",
-		chainViewInit: func(_ rpcclient.ConnConfig, p2pAddr string) (func(), FilteredChainView, error) {
+		chainViewInit: func(_ rpcclient.ConnConfig,
+			p2pAddr string) (func(), FilteredChainView, error) {
+
 			spvDir, err := ioutil.TempDir("", "neutrino")
 			if err != nil {
 				return nil, nil, err
@@ -909,7 +921,9 @@ var interfaceImpls = []struct {
 	},
 	{
 		name: "btcd_websockets",
-		chainViewInit: func(config rpcclient.ConnConfig, _ string) (func(), FilteredChainView, error) {
+		chainViewInit: func(config rpcclient.ConnConfig,
+			_ string) (func(), FilteredChainView, error) {
+
 			blockCache := blockcache.NewBlockCache(10000)
 			chainView, err := NewBtcdFilteredChainView(
 				config, blockCache,
@@ -944,7 +958,9 @@ func TestFilteredChainView(t *testing.T) {
 		t.Logf("Testing '%v' implementation of FilteredChainView",
 			chainViewImpl.name)
 
-		cleanUpFunc, chainView, err := chainViewImpl.chainViewInit(rpcConfig, p2pAddr)
+		cleanUpFunc, chainView, err := chainViewImpl.chainViewInit(
+			rpcConfig, p2pAddr,
+		)
 		if err != nil {
 			t.Fatalf("unable to make chain view: %v", err)
 		}
@@ -956,8 +972,10 @@ func TestFilteredChainView(t *testing.T) {
 			testName := fmt.Sprintf("%v: %v", chainViewImpl.name,
 				chainViewTest.name)
 			success := t.Run(testName, func(t *testing.T) {
-				chainViewTest.test(miner, chainView,
-					chainViewImpl.chainViewInit, t)
+				chainViewTest.test(
+					miner, chainView,
+					chainViewImpl.chainViewInit, t,
+				)
 			})
 
 			if !success {

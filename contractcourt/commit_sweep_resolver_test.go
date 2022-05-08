@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
@@ -347,7 +347,6 @@ func testCommitSweepResolverDelay(t *testing.T, sweepErr error) {
 		t.Fatalf("unexpected resolver report. want=%v got=%v",
 			expectedReport, report)
 	}
-
 }
 
 // TestCommitSweepResolverDelay tests resolution of a direct commitment output

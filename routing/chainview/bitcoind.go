@@ -231,7 +231,7 @@ func (b *BitcoindFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*Fil
 
 // chainFilterer is the primary goroutine which: listens for new blocks coming
 // and dispatches the relevant FilteredBlock notifications, updates the filter
-// due to requests by callers, and finally is able to preform targeted block
+// due to requests by callers, and finally is able to perform targeted block
 // filtration.
 //
 // TODO(roasbeef): change to use loadfilter RPC's

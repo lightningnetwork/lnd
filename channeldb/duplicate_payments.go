@@ -7,7 +7,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -150,7 +150,6 @@ func fetchDuplicatePayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	creationInfo, err := deserializeDuplicatePaymentCreationInfo(r)
 	if err != nil {
 		return nil, err
-
 	}
 
 	// Get failure reason if available.

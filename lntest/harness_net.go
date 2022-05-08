@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -96,8 +96,6 @@ type NetworkHarness struct {
 func NewNetworkHarness(m *HarnessMiner, b BackendConfig, lndBinary string,
 	dbBackend DatabaseBackend) (*NetworkHarness, error) {
 
-	feeService := startFeeService()
-
 	ctxt, cancel := context.WithCancel(context.Background())
 
 	n := NetworkHarness{
@@ -107,7 +105,6 @@ func NewNetworkHarness(m *HarnessMiner, b BackendConfig, lndBinary string,
 		netParams:    m.ActiveNet,
 		Miner:        m,
 		BackendCfg:   b,
-		feeService:   feeService,
 		runCtx:       ctxt,
 		cancel:       cancel,
 		lndBinary:    lndBinary,
@@ -117,8 +114,7 @@ func NewNetworkHarness(m *HarnessMiner, b BackendConfig, lndBinary string,
 }
 
 // LookUpNodeByPub queries the set of active nodes to locate a node according
-// to its public key. The second value will be true if the node was found, and
-// false otherwise.
+// to its public key. The error is returned if the node was not found.
 func (n *NetworkHarness) LookUpNodeByPub(pubStr string) (*HarnessNode, error) {
 	n.mtx.Lock()
 	defer n.mtx.Unlock()
@@ -151,6 +147,7 @@ func (n *NetworkHarness) SetUp(t *testing.T,
 	fakeLogger := grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard)
 	grpclog.SetLoggerV2(fakeLogger)
 	n.currentTestCase = testCase
+	n.feeService = startFeeService(t)
 
 	// Start the initial seeder nodes within the test network, then connect
 	// their respective RPC clients.
@@ -269,12 +266,18 @@ func (n *NetworkHarness) Stop() {
 	close(n.lndErrorChan)
 	n.cancel()
 
-	n.feeService.stop()
+	// feeService may not be created. For instance, running a non-exist
+	// test case.
+	if n.feeService != nil {
+		n.feeService.stop()
+	}
 }
 
 // extraArgsEtcd returns extra args for configuring LND to use an external etcd
 // database (for remote channel DB and wallet DB).
-func extraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool) []string {
+func extraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool,
+	leaderSessionTTL int) []string {
+
 	extraArgs := []string{
 		"--db.backend=etcd",
 		fmt.Sprintf("--db.etcd.host=%v", etcdCfg.Host),
@@ -285,14 +288,16 @@ func extraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool) []string {
 
 	if etcdCfg.InsecureSkipVerify {
 		extraArgs = append(extraArgs, "--db.etcd.insecure_skip_verify")
-
 	}
 
 	if cluster {
-		extraArgs = append(extraArgs, "--cluster.enable-leader-election")
-		extraArgs = append(
-			extraArgs, fmt.Sprintf("--cluster.id=%v", name),
-		)
+		clusterArgs := []string{
+			"--cluster.enable-leader-election",
+			fmt.Sprintf("--cluster.id=%v", name),
+			fmt.Sprintf("--cluster.leader-session-ttl=%v",
+				leaderSessionTTL),
+		}
+		extraArgs = append(extraArgs, clusterArgs...)
 	}
 
 	return extraArgs
@@ -302,13 +307,13 @@ func extraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool) []string {
 // etcd database as its (remote) channel and wallet DB. The passsed cluster
 // flag indicates that we'd like the node to join the cluster leader election.
 func (n *NetworkHarness) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
-	password []byte, entropy []byte, statelessInit, cluster bool) (
-	*HarnessNode, []string, []byte, error) {
+	password []byte, entropy []byte, statelessInit, cluster bool,
+	leaderSessionTTL int) (*HarnessNode, []string, []byte, error) {
 
 	// We don't want to use the embedded etcd instance.
 	const dbBackend = BackendBbolt
 
-	extraArgs := extraArgsEtcd(etcdCfg, name, cluster)
+	extraArgs := extraArgsEtcd(etcdCfg, name, cluster, leaderSessionTTL)
 	return n.newNodeWithSeed(
 		name, extraArgs, password, entropy, statelessInit, dbBackend,
 	)
@@ -320,12 +325,13 @@ func (n *NetworkHarness) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
 // If the wait flag is false then we won't wait until RPC is available (this is
 // useful when the node is not expected to become the leader right away).
 func (n *NetworkHarness) NewNodeEtcd(name string, etcdCfg *etcd.Config,
-	password []byte, cluster, wait bool) (*HarnessNode, error) {
+	password []byte, cluster, wait bool, leaderSessionTTL int) (
+	*HarnessNode, error) {
 
 	// We don't want to use the embedded etcd instance.
 	const dbBackend = BackendBbolt
 
-	extraArgs := extraArgsEtcd(etcdCfg, name, cluster)
+	extraArgs := extraArgsEtcd(etcdCfg, name, cluster, leaderSessionTTL)
 	return n.newNode(name, extraArgs, true, password, dbBackend, wait)
 }
 
@@ -619,7 +625,6 @@ func (n *NetworkHarness) EnsureConnected(t *testing.T, a, b *HarnessNode) {
 				predErr = err
 				return false
 			}
-
 		}, DefaultTimeout)
 		if err != nil {
 			return fmt.Errorf("connection not succeeded within 15 "+
@@ -1353,7 +1358,6 @@ func (n *NetworkHarness) WaitForChannelClose(
 // an optional set of check functions which can be used to make further
 // assertions using channel's values. These functions are responsible for
 // failing the test themselves if they do not pass.
-// nolint: interfacer
 func (n *NetworkHarness) AssertChannelExists(node *HarnessNode,
 	chanPoint *wire.OutPoint, checks ...func(*lnrpc.Channel)) error {
 
@@ -1445,6 +1449,17 @@ func (n *NetworkHarness) SendCoinsNP2WKH(t *testing.T, amt btcutil.Amount,
 	require.NoErrorf(
 		t, err, "unable to send NP2WKH coins for %s",
 		target.Cfg.Name,
+	)
+}
+
+// SendCoinsP2TR attempts to send amt satoshis from the internal mining node
+// to the targeted lightning node using a P2TR address.
+func (n *NetworkHarness) SendCoinsP2TR(t *testing.T, amt btcutil.Amount,
+	target *HarnessNode) {
+
+	err := n.sendCoins(amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true)
+	require.NoErrorf(
+		t, err, "unable to send P2TR coins for %s", target.Cfg.Name,
 	)
 }
 

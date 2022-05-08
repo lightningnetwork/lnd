@@ -6,23 +6,21 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"image/color"
 	"math/big"
 	prand "math/rand"
 	"net"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
@@ -116,10 +114,6 @@ var (
 	// gracefully exiting.
 	ErrServerShuttingDown = errors.New("server is shutting down")
 
-	// validColorRegexp is a regexp that lets you check if a particular
-	// color string matches the standard hex color format #RRGGBB.
-	validColorRegexp = regexp.MustCompile("^#[A-Fa-f0-9]{6}$")
-
 	// MaxFundingAmount is a soft-limit of the maximum channel size
 	// currently accepted within the Lightning Protocol. This is
 	// defined in BOLT-0002, and serves as an initial precautionary limit
@@ -128,7 +122,7 @@ var (
 	// At the moment, this value depends on which chain is active. It is set
 	// to the value under the Bitcoin chain as default.
 	//
-	// TODO(roasbeef): add command line param to modify
+	// TODO(roasbeef): add command line param to modify.
 	MaxFundingAmount = funding.MaxBtcFundingAmount
 )
 
@@ -346,7 +340,6 @@ func (s *server) updatePersistentPeerAddrs() error {
 
 		for {
 			select {
-
 			case <-s.quit:
 				return
 
@@ -536,6 +529,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoAnchors:                cfg.ProtocolOptions.NoAnchorCommitments(),
 		NoWumbo:                  !cfg.ProtocolOptions.Wumbo(),
 		NoScriptEnforcementLease: cfg.ProtocolOptions.NoScriptEnforcementLease(),
+		NoKeysend:                !cfg.AcceptKeySend,
 	})
 	if err != nil {
 		return nil, err
@@ -602,11 +596,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		quit:       make(chan struct{}),
 	}
 
-	s.witnessBeacon = &preimageBeacon{
-		wCache:      dbs.ChanStateDB.NewWitnessCache(),
-		subscribers: make(map[uint64]*preimageSubscriber),
-	}
-
 	currentHash, currentHeight, err := s.cc.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
@@ -661,7 +650,15 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	if err != nil {
 		return nil, err
 	}
-	s.interceptableSwitch = htlcswitch.NewInterceptableSwitch(s.htlcSwitch)
+	s.interceptableSwitch = htlcswitch.NewInterceptableSwitch(
+		s.htlcSwitch, lncfg.DefaultFinalCltvRejectDelta,
+		s.cfg.RequireInterceptor,
+	)
+
+	s.witnessBeacon = newPreimageBeacon(
+		dbs.ChanStateDB.NewWitnessCache(),
+		s.interceptableSwitch.ForwardPacket,
+	)
 
 	chanStatusMgrCfg := &netann.ChanStatusConfig{
 		ChanStatusSampleInterval: cfg.ChanStatusSampleInterval,
@@ -772,7 +769,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// the network.
 	//
 	// We'll start by parsing the node color from configuration.
-	color, err := parseHexColor(cfg.Color)
+	color, err := lncfg.ParseHexColor(cfg.Color)
 	if err != nil {
 		srvrLog.Errorf("unable to parse color: %v\n", err)
 		return nil, err
@@ -1501,20 +1498,28 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 // createLivenessMonitor creates a set of health checks using our configured
 // values and uses these checks to create a liveliness monitor. Available
 // health checks,
-//   - chainHealthCheck
+//   - chainHealthCheck (will be disabled for --nochainbackend mode)
 //   - diskCheck
 //   - tlsHealthCheck
 //   - torController, only created when tor is enabled.
 // If a health check has been disabled by setting attempts to 0, our monitor
 // will not run it.
 func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl) {
+	chainBackendAttempts := cfg.HealthChecks.ChainCheck.Attempts
+	if cfg.Bitcoin.Node == "nochainbackend" {
+		srvrLog.Info("Disabling chain backend checks for " +
+			"nochainbackend mode")
+
+		chainBackendAttempts = 0
+	}
+
 	chainHealthCheck := healthcheck.NewObservation(
 		"chain backend",
 		cc.HealthCheck,
 		cfg.HealthChecks.ChainCheck.Interval,
 		cfg.HealthChecks.ChainCheck.Timeout,
 		cfg.HealthChecks.ChainCheck.Backoff,
-		cfg.HealthChecks.ChainCheck.Attempts,
+		chainBackendAttempts,
 	)
 
 	diskCheck := healthcheck.NewObservation(
@@ -1637,16 +1642,16 @@ func (s *server) Started() bool {
 // cleaner is used to aggregate "cleanup" functions during an operation that
 // starts several subsystems. In case one of the subsystem fails to start
 // and a proper resource cleanup is required, the "run" method achieves this
-// by running all these added "cleanup" functions
+// by running all these added "cleanup" functions.
 type cleaner []func() error
 
 // add is used to add a cleanup function to be called when
-// the run function is executed
+// the run function is executed.
 func (c cleaner) add(cleanup func() error) cleaner {
 	return append(c, cleanup)
 }
 
-// run is used to run all the previousely added cleanup functions
+// run is used to run all the previousely added cleanup functions.
 func (c cleaner) run() {
 	for i := len(c) - 1; i >= 0; i-- {
 		if err := c[i](); err != nil {
@@ -1776,6 +1781,21 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.fundingMgr.Stop)
 
+		// htlcSwitch must be started before chainArb since the latter
+		// relies on htlcSwitch to deliver resolution message upon
+		// start.
+		if err := s.htlcSwitch.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.htlcSwitch.Stop)
+
+		if err := s.interceptableSwitch.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.interceptableSwitch.Stop)
+
 		if err := s.chainArb.Start(); err != nil {
 			startErr = err
 			return
@@ -1805,12 +1825,6 @@ func (s *server) Start() error {
 			return
 		}
 		cleanup = cleanup.add(s.sphinx.Stop)
-
-		if err := s.htlcSwitch.Start(); err != nil {
-			startErr = err
-			return
-		}
-		cleanup = cleanup.add(s.htlcSwitch.Stop)
 
 		if err := s.chanStatusMgr.Start(); err != nil {
 			startErr = err
@@ -1890,6 +1904,43 @@ func (s *server) Start() error {
 			s.connMgr.Stop()
 			return nil
 		})
+
+		// If peers are specified as a config option, we'll add those
+		// peers first.
+		for _, peerAddrCfg := range s.cfg.AddPeers {
+			parsedPubkey, parsedHost, err := lncfg.ParseLNAddressPubkey(
+				peerAddrCfg,
+			)
+			if err != nil {
+				startErr = fmt.Errorf("unable to parse peer "+
+					"pubkey from config: %v", err)
+				return
+			}
+			addr, err := parseAddr(parsedHost, s.cfg.net)
+			if err != nil {
+				startErr = fmt.Errorf("unable to parse peer "+
+					"address provided as a config option: "+
+					"%v", err)
+				return
+			}
+
+			peerAddr := &lnwire.NetAddress{
+				IdentityKey: parsedPubkey,
+				Address:     addr,
+				ChainNet:    s.cfg.ActiveNetParams.Net,
+			}
+
+			err = s.ConnectToPeer(
+				peerAddr, true,
+				s.cfg.ConnectionTimeout,
+			)
+			if err != nil {
+				startErr = fmt.Errorf("unable to connect to "+
+					"peer address provided as a config "+
+					"option: %v", err)
+				return
+			}
+		}
 
 		// Subscribe to NodeAnnouncements that advertise new addresses
 		// our persistent peers.
@@ -2722,6 +2773,59 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	return *s.currentNodeAnn, nil
 }
 
+// updateAndBrodcastSelfNode generates a new node announcement
+// applying the giving modifiers and updating the time stamp
+// to ensure it propagates through the network. Then it brodcasts
+// it to the network.
+func (s *server) updateAndBrodcastSelfNode(
+	modifiers ...netann.NodeAnnModifier) error {
+
+	newNodeAnn, err := s.genNodeAnnouncement(true, modifiers...)
+	if err != nil {
+		return fmt.Errorf("unable to generate new node "+
+			"announcement: %v", err)
+	}
+
+	// Update the on-disk version of our announcement.
+	// Load and modify self node istead of creating anew instance so we
+	// don't risk overwriting any existing values.
+	selfNode, err := s.graphDB.SourceNode()
+	if err != nil {
+		return fmt.Errorf("unable to get current source node: %v", err)
+	}
+
+	selfNode.HaveNodeAnnouncement = true
+	selfNode.LastUpdate = time.Unix(int64(newNodeAnn.Timestamp), 0)
+	selfNode.Addresses = newNodeAnn.Addresses
+	selfNode.Alias = newNodeAnn.Alias.String()
+	selfNode.Features = lnwire.NewFeatureVector(
+		newNodeAnn.Features, lnwire.Features,
+	)
+	selfNode.Color = newNodeAnn.RGBColor
+	selfNode.AuthSigBytes = newNodeAnn.Signature.ToSignatureBytes()
+
+	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
+
+	if err := s.graphDB.SetSourceNode(selfNode); err != nil {
+		return fmt.Errorf("can't set self node: %v", err)
+	}
+
+	// Update the feature bits for the SetNodeAnn in case they changed.
+	s.featureMgr.SetRaw(
+		feature.SetNodeAnn, selfNode.Features.RawFeatureVector,
+	)
+
+	// Finally, propagate it to the nodes in the network.
+	err = s.BroadcastMessage(nil, &newNodeAnn)
+	if err != nil {
+		rpcsLog.Debugf("Unable to broadcast new node "+
+			"announcement to peers: %v", err)
+		return err
+	}
+
+	return nil
+}
+
 type nodeAddresses struct {
 	pubKey    *btcec.PublicKey
 	addresses []net.Addr
@@ -3514,6 +3618,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
 		ChannelCommitInterval:  s.cfg.ChannelCommitInterval,
+		PendingCommitInterval:  s.cfg.PendingCommitInterval,
 		ChannelCommitBatchSize: s.cfg.ChannelCommitBatchSize,
 		HandleCustomMessage:    s.handleCustomMessage,
 		Quit:                   s.quit,
@@ -4196,26 +4301,6 @@ func (s *server) Peers() []*peer.Brontide {
 	return peers
 }
 
-// parseHexColor takes a hex string representation of a color in the
-// form "#RRGGBB", parses the hex color values, and returns a color.RGBA
-// struct of the same color.
-func parseHexColor(colorStr string) (color.RGBA, error) {
-	// Check if the hex color string is a valid color representation.
-	if !validColorRegexp.MatchString(colorStr) {
-		return color.RGBA{}, errors.New("Color must be specified " +
-			"using a hexadecimal value in the form #RRGGBB")
-	}
-
-	// Decode the hex color string to bytes.
-	// The resulting byte array is in the form [R, G, B].
-	colorBytes, err := hex.DecodeString(colorStr[1:])
-	if err != nil {
-		return color.RGBA{}, err
-	}
-
-	return color.RGBA{R: colorBytes[0], G: colorBytes[1], B: colorBytes[2]}, nil
-}
-
 // computeNextBackoff uses a truncated exponential backoff to compute the next
 // backoff using the value of the exiting backoff. The returned duration is
 // randomized in either direction by 1/20 to prevent tight loops from
@@ -4346,8 +4431,8 @@ func newSweepPkScriptGen(
 }
 
 // shouldPeerBootstrap returns true if we should attempt to perform peer
-// boostrapping to actively seek our peers using the set of active network
-// bootsrappers.
+// bootstrapping to actively seek our peers using the set of active network
+// bootstrappers.
 func shouldPeerBootstrap(cfg *Config) bool {
 	isSimnet := (cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet)
 	isSignet := (cfg.Bitcoin.SigNet || cfg.Litecoin.SigNet)

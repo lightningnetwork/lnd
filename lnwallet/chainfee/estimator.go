@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcutil"
 )
 
 const (
@@ -85,7 +85,6 @@ type StaticEstimator struct {
 
 // NewStaticEstimator returns a new static fee estimator instance.
 func NewStaticEstimator(feePerKW, relayFee SatPerKWeight) *StaticEstimator {
-
 	return &StaticEstimator{
 		feePerKW: feePerKW,
 		relayFee: relayFee,

@@ -174,7 +174,7 @@ func (m *MockNotifier) Start() error {
 	return nil
 }
 
-// Started checks if started
+// Started checks if started.
 func (m *MockNotifier) Started() bool {
 	return true
 }

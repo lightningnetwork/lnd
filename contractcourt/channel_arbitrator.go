@@ -9,11 +9,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
@@ -69,7 +70,9 @@ type WitnessSubscription struct {
 type WitnessBeacon interface {
 	// SubscribeUpdates returns a channel that will be sent upon *each* time
 	// a new preimage is discovered.
-	SubscribeUpdates() *WitnessSubscription
+	SubscribeUpdates(chanID lnwire.ShortChannelID, htlc *channeldb.HTLC,
+		payload *hop.Payload,
+		nextHopOnionBlob []byte) (*WitnessSubscription, error)
 
 	// LookupPreImage attempts to lookup a preimage in the global cache.
 	// True is returned for the second argument if the preimage is found.
@@ -326,6 +329,13 @@ type ChannelArbitrator struct {
 	// currently valid commitment transactions.
 	activeHTLCs map[HtlcSetKey]htlcSet
 
+	// unmergedSet is used to update the activeHTLCs map in two callsites:
+	// checkLocalChainActions and sweepAnchors. It contains the latest
+	// updates from the link. It is not deleted from, its entries may be
+	// replaced on subsequent calls to notifyContractUpdate.
+	unmergedSet map[HtlcSetKey]htlcSet
+	unmergedMtx sync.RWMutex
+
 	// cfg contains all the functionality that the ChannelArbitrator requires
 	// to do its duty.
 	cfg ChannelArbitratorConfig
@@ -338,11 +348,6 @@ type ChannelArbitrator struct {
 	// signalUpdates is a channel that any new live signals for the channel
 	// we're watching over will be sent.
 	signalUpdates chan *signalUpdateMsg
-
-	// htlcUpdates is a channel that is sent upon with new updates from the
-	// active channel. Each time a new commitment state is accepted, the
-	// set of HTLC's on the new state should be sent across this channel.
-	htlcUpdates <-chan *ContractUpdate
 
 	// activeResolvers is a slice of any active resolvers. This is used to
 	// be able to signal them for shutdown in the case that we shutdown.
@@ -374,14 +379,27 @@ type ChannelArbitrator struct {
 func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 	htlcSets map[HtlcSetKey]htlcSet, log ArbitratorLog) *ChannelArbitrator {
 
+	// Create a new map for unmerged HTLC's as we will overwrite the values
+	// and want to avoid modifying activeHTLCs directly. This soft copying
+	// is done to ensure that activeHTLCs isn't reset as an empty map later
+	// on.
+	unmerged := make(map[HtlcSetKey]htlcSet)
+	unmerged[LocalHtlcSet] = htlcSets[LocalHtlcSet]
+	unmerged[RemoteHtlcSet] = htlcSets[RemoteHtlcSet]
+
+	// If the pending set exists, write that as well.
+	if _, ok := htlcSets[RemotePendingHtlcSet]; ok {
+		unmerged[RemotePendingHtlcSet] = htlcSets[RemotePendingHtlcSet]
+	}
+
 	return &ChannelArbitrator{
 		log:              log,
 		blocks:           make(chan int32, arbitratorBlockBufferSize),
 		signalUpdates:    make(chan *signalUpdateMsg),
-		htlcUpdates:      make(<-chan *ContractUpdate),
 		resolutionSignal: make(chan struct{}),
 		forceCloseReqs:   make(chan *forceCloseReq),
 		activeHTLCs:      htlcSets,
+		unmergedSet:      unmerged,
 		cfg:              cfg,
 		quit:             make(chan struct{}),
 	}
@@ -810,6 +828,10 @@ func (c *ChannelArbitrator) stateStep(
 		if confCommitSet != nil {
 			htlcs = confCommitSet.toActiveHTLCSets()
 		} else {
+			// Update the set of activeHTLCs so
+			// checkLocalChainActions has an up-to-date view of the
+			// commitments.
+			c.updateActiveHTLCs()
 			htlcs = c.activeHTLCs
 		}
 		chainActions, err := c.checkLocalChainActions(
@@ -1083,8 +1105,6 @@ func (c *ChannelArbitrator) stateStep(
 		if len(pktsToSend) != 0 {
 			err := c.cfg.DeliverResolutionMsg(pktsToSend...)
 			if err != nil {
-				// TODO(roasbeef): make sure packet sends are
-				// idempotent
 				log.Errorf("unable to send pkts: %v", err)
 				return StateError, closeTx, err
 			}
@@ -1207,6 +1227,10 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 
 		return nil
 	}
+
+	// Update the set of activeHTLCs so that the sweeping routine has an
+	// up-to-date view of the set of commitments.
+	c.updateActiveHTLCs()
 
 	// Sweep anchors based on different HTLC sets. Notice the HTLC sets may
 	// differ across commitments, thus their deadline values could vary.
@@ -1556,7 +1580,7 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 		)
 
 		if toChain {
-			log.Debugf("ChannelArbitrator(%v): go to chain for "+
+			log.Infof("ChannelArbitrator(%v): go to chain for "+
 				"outgoing htlc %x: timeout=%v, "+
 				"blocks_until_expiry=%v, broadcast_delta=%v",
 				c.cfg.ChanPoint, htlc.RHash[:],
@@ -1571,7 +1595,7 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 	for _, htlc := range htlcs.incomingHTLCs {
 		// We'll need to go on-chain to pull an incoming HTLC iff we
 		// know the pre-image and it's close to timing out. We need to
-		// ensure that we claim the funds that our rightfully ours
+		// ensure that we claim the funds that are rightfully ours
 		// on-chain.
 		preimageAvailable, err := c.isPreimageAvailable(htlc.RHash)
 		if err != nil {
@@ -1587,7 +1611,7 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 		)
 
 		if toChain {
-			log.Debugf("ChannelArbitrator(%v): go to chain for "+
+			log.Infof("ChannelArbitrator(%v): go to chain for "+
 				"incoming htlc %x: timeout=%v, "+
 				"blocks_until_expiry=%v, broadcast_delta=%v",
 				c.cfg.ChanPoint, htlc.RHash[:],
@@ -1812,7 +1836,7 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 			continue
 		}
 
-		log.Tracef("ChannelArbitrator(%v): immediately failing "+
+		log.Infof("ChannelArbitrator(%v): immediately failing "+
 			"htlc=%x from remote commitment",
 			c.cfg.ChanPoint, htlc.RHash[:])
 
@@ -1848,7 +1872,7 @@ func (c *ChannelArbitrator) checkRemoteChainActions(
 		return nil, err
 	}
 
-	// With this actions computed, we'll now check the diff of the HTLCs on
+	// With these actions computed, we'll now check the diff of the HTLCs on
 	// the commitments, and cancel back any that are on the pending but not
 	// the non-pending.
 	remoteDiffActions := c.checkRemoteDiffActions(
@@ -1896,7 +1920,7 @@ func (c *ChannelArbitrator) checkRemoteDiffActions(height uint32,
 			actionMap[HtlcFailNowAction], htlc,
 		)
 
-		log.Tracef("ChannelArbitrator(%v): immediately failing "+
+		log.Infof("ChannelArbitrator(%v): immediately failing "+
 			"htlc=%x from remote commitment",
 			c.cfg.ChanPoint, htlc.RHash[:])
 	}
@@ -1919,7 +1943,7 @@ func (c *ChannelArbitrator) constructChainActions(confCommitSet *CommitSet,
 		return c.log.FetchChainActions()
 	}
 
-	// Otherwise we have the full commitment set written to disk, and can
+	// Otherwise, we have the full commitment set written to disk, and can
 	// proceed as normal.
 	htlcSets := confCommitSet.toActiveHTLCSets()
 	switch *confCommitSet.ConfCommitKey {
@@ -1950,7 +1974,7 @@ func (c *ChannelArbitrator) constructChainActions(confCommitSet *CommitSet,
 	return nil, fmt.Errorf("unable to locate chain actions")
 }
 
-// prepContractResolutions is called either int he case that we decide we need
+// prepContractResolutions is called either in the case that we decide we need
 // to go to chain, or the remote party goes to chain. Given a set of actions we
 // need to take for each HTLC, this method will return a set of contract
 // resolvers that will resolve the contracts on-chain if needed, and also a set
@@ -2387,6 +2411,42 @@ func (c *ChannelArbitrator) UpdateContractSignals(newSignals *ContractSignals) {
 	}
 }
 
+// notifyContractUpdate updates the ChannelArbitrator's unmerged mappings such
+// that it can later be merged with activeHTLCs when calling
+// checkLocalChainActions or sweepAnchors. These are the only two places that
+// activeHTLCs is used.
+func (c *ChannelArbitrator) notifyContractUpdate(upd *ContractUpdate) {
+	c.unmergedMtx.Lock()
+	defer c.unmergedMtx.Unlock()
+
+	// Update the mapping.
+	c.unmergedSet[upd.HtlcKey] = newHtlcSet(upd.Htlcs)
+
+	log.Tracef("ChannelArbitrator(%v): fresh set of htlcs=%v",
+		c.cfg.ChanPoint,
+		newLogClosure(func() string {
+			return spew.Sdump(upd)
+		}),
+	)
+}
+
+// updateActiveHTLCs merges the unmerged set of HTLCs from the link with
+// activeHTLCs.
+func (c *ChannelArbitrator) updateActiveHTLCs() {
+	c.unmergedMtx.RLock()
+	defer c.unmergedMtx.RUnlock()
+
+	// Update the mapping.
+	c.activeHTLCs[LocalHtlcSet] = c.unmergedSet[LocalHtlcSet]
+	c.activeHTLCs[RemoteHtlcSet] = c.unmergedSet[RemoteHtlcSet]
+
+	// If the pending set exists, update that as well.
+	if _, ok := c.unmergedSet[RemotePendingHtlcSet]; ok {
+		pendingSet := c.unmergedSet[RemotePendingHtlcSet]
+		c.activeHTLCs[RemotePendingHtlcSet] = pendingSet
+	}
+}
+
 // channelAttendant is the primary goroutine that acts at the judicial
 // arbitrator between our channel state, the remote channel peer, and the
 // blockchain (Our judge). This goroutine will ensure that we faithfully execute
@@ -2448,33 +2508,13 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			log.Tracef("ChannelArbitrator(%v) got new signal "+
 				"update!", c.cfg.ChanPoint)
 
-			// First, we'll update our set of signals.
-			c.htlcUpdates = signalUpdate.newSignals.HtlcUpdates
+			// We'll update the ShortChannelID.
 			c.cfg.ShortChanID = signalUpdate.newSignals.ShortChanID
 
-			// Now that the signals have been updated, we'll now
+			// Now that the signal has been updated, we'll now
 			// close the done channel to signal to the caller we've
-			// registered the new contracts.
+			// registered the new ShortChannelID.
 			close(signalUpdate.doneChan)
-
-		// A new set of HTLC's has been added or removed from the
-		// commitment transaction. So we'll update our activeHTLCs map
-		// accordingly.
-		case htlcUpdate := <-c.htlcUpdates:
-			// We'll wipe out our old set of HTLC's for each
-			// htlcSetKey type included in this update in order to
-			// only monitor the HTLCs that are still active on this
-			// target commitment.
-			c.activeHTLCs[htlcUpdate.HtlcKey] = newHtlcSet(
-				htlcUpdate.Htlcs,
-			)
-
-			log.Tracef("ChannelArbitrator(%v): fresh set of htlcs=%v",
-				c.cfg.ChanPoint,
-				newLogClosure(func() string {
-					return spew.Sdump(htlcUpdate)
-				}),
-			)
 
 		// We've cooperatively closed the channel, so we're no longer
 		// needed. We'll mark the channel as resolved and exit.

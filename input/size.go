@@ -2,7 +2,9 @@ package input
 
 import (
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 )
 
 const (
@@ -47,7 +49,7 @@ const (
 	//      - max-size: 40 bytes
 	UnknownWitnessSize = 1 + 1 + 40
 
-	// P2PKHSize 25 bytes
+	// P2PKHSize 25 bytes.
 	P2PKHSize = 25
 
 	// P2PKHOutputSize 34 bytes
@@ -68,7 +70,7 @@ const (
 	//      - pkscript (p2wsh): 34 bytes
 	P2WSHOutputSize = 8 + 1 + P2WSHSize
 
-	// P2SHSize 23 bytes
+	// P2SHSize 23 bytes.
 	P2SHSize = 23
 
 	// P2SHOutputSize 32 bytes
@@ -76,6 +78,18 @@ const (
 	//      - var_int: 1 byte (pkscript_length)
 	//      - pkscript (p2sh): 23 bytes
 	P2SHOutputSize = 8 + 1 + P2SHSize
+
+	// P2TRSize 34 bytes
+	//	- OP_0: 1 byte
+	//	- OP_DATA: 1 byte (x-only public key length)
+	//	- x-only public key length: 32 bytes
+	P2TRSize = 34
+
+	// P2TROutputSize 43 bytes
+	//      - value: 8 bytes
+	//      - var_int: 1 byte (pkscript_length)
+	//      - pkscript (p2tr): 34 bytes
+	P2TROutputSize = 8 + 1 + P2TRSize
 
 	// P2PKHScriptSigSize 108 bytes
 	//      - OP_DATA: 1 byte (signature length)
@@ -205,16 +219,16 @@ const (
 	BaseAnchorCommitmentTxSize = 4 + 1 + FundingInputSize + 3 +
 		2*CommitmentDelayOutput + 2*CommitmentAnchorOutput + 4
 
-	// BaseAnchorCommitmentTxWeight 900 weight
+	// BaseAnchorCommitmentTxWeight 900 weight.
 	BaseAnchorCommitmentTxWeight = witnessScaleFactor * BaseAnchorCommitmentTxSize
 
-	// CommitWeight 724 weight
+	// CommitWeight 724 weight.
 	CommitWeight = BaseCommitmentTxWeight + WitnessCommitmentTxWeight
 
-	// AnchorCommitWeight 1124 weight
+	// AnchorCommitWeight 1124 weight.
 	AnchorCommitWeight = BaseAnchorCommitmentTxWeight + WitnessCommitmentTxWeight
 
-	// HTLCWeight 172 weight
+	// HTLCWeight 172 weight.
 	HTLCWeight = witnessScaleFactor * HTLCSize
 
 	// HtlcTimeoutWeight 663 weight
@@ -358,7 +372,7 @@ const (
 	AcceptedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 8*1 + 20 + 4*1 +
 		33 + 5*1 + 4 + 5*1
 
-	// AcceptedHtlcScriptSizeConfirmed 143 bytes
+	// AcceptedHtlcScriptSizeConfirmed 143 bytes.
 	AcceptedHtlcScriptSizeConfirmed = AcceptedHtlcScriptSize +
 		HtlcConfirmedScriptOverhead
 
@@ -371,7 +385,7 @@ const (
 	//      - witness_script: (accepted_htlc_script)
 	AcceptedHtlcTimeoutWitnessSize = 1 + 1 + 73 + 1 + 1 + AcceptedHtlcScriptSize
 
-	// AcceptedHtlcTimeoutWitnessSizeConfirmed 220 bytes
+	// AcceptedHtlcTimeoutWitnessSizeConfirmed 220 bytes.
 	AcceptedHtlcTimeoutWitnessSizeConfirmed = 1 + 1 + 73 + 1 + 1 +
 		AcceptedHtlcScriptSizeConfirmed
 
@@ -385,7 +399,7 @@ const (
 	//      - witness_script (accepted_htlc_script)
 	AcceptedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + AcceptedHtlcScriptSize
 
-	// AcceptedHtlcPenaltyWitnessSizeConfirmed 253 bytes
+	// AcceptedHtlcPenaltyWitnessSizeConfirmed 253 bytes.
 	AcceptedHtlcPenaltyWitnessSizeConfirmed = 1 + 1 + 73 + 1 + 33 + 1 +
 		AcceptedHtlcScriptSizeConfirmed
 
@@ -448,7 +462,7 @@ const (
 	//      - OP_ENDIF: 1 byte
 	OfferedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 10*1 + 33 + 5*1 + 20 + 4*1
 
-	// OfferedHtlcScriptSizeConfirmed 136 bytes
+	// OfferedHtlcScriptSizeConfirmed 136 bytes.
 	OfferedHtlcScriptSizeConfirmed = OfferedHtlcScriptSize +
 		HtlcConfirmedScriptOverhead
 
@@ -462,7 +476,7 @@ const (
 	//      - witness_script (offered_htlc_script)
 	OfferedHtlcSuccessWitnessSize = 1 + 1 + 73 + 1 + 32 + 1 + OfferedHtlcScriptSize
 
-	// OfferedHtlcSuccessWitnessSizeConfirmed 245 bytes
+	// OfferedHtlcSuccessWitnessSizeConfirmed 245 bytes.
 	OfferedHtlcSuccessWitnessSizeConfirmed = 1 + 1 + 73 + 1 + 32 + 1 +
 		OfferedHtlcScriptSizeConfirmed
 
@@ -497,7 +511,7 @@ const (
 	//      - witness_script (offered_htlc_script)
 	OfferedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + OfferedHtlcScriptSize
 
-	// OfferedHtlcPenaltyWitnessSizeConfirmed 246 bytes
+	// OfferedHtlcPenaltyWitnessSizeConfirmed 246 bytes.
 	OfferedHtlcPenaltyWitnessSizeConfirmed = 1 + 1 + 73 + 1 + 33 + 1 +
 		OfferedHtlcScriptSizeConfirmed
 
@@ -519,6 +533,29 @@ const (
 	//      - witness_script_length: 1 byte
 	//      - witness_script (anchor_script)
 	AnchorWitnessSize = 1 + 1 + 73 + 1 + AnchorScriptSize
+
+	// TaprootSignatureWitnessSize 65 bytes
+	//	- sigLength: 1 byte
+	//	- sig: 64 bytes
+	TaprootSignatureWitnessSize = 1 + 64
+
+	// TaprootKeyPathWitnessSize 66 bytes
+	//	- NumberOfWitnessElements: 1 byte
+	//	- sigLength: 1 byte
+	//	- sig: 64 bytes
+	TaprootKeyPathWitnessSize = 1 + TaprootSignatureWitnessSize
+
+	// TaprootKeyPathCustomSighashWitnessSize 67 bytes
+	//	- NumberOfWitnessElements: 1 byte
+	//	- sigLength: 1 byte
+	//	- sig: 64 bytes
+	//      - sighashFlag: 1 byte
+	TaprootKeyPathCustomSighashWitnessSize = TaprootKeyPathWitnessSize + 1
+
+	// TaprootBaseControlBlockWitnessSize 33 bytes
+	//      - leafVersionAndParity: 1 byte
+	//      - schnorrPubKey: 32 byte
+	TaprootBaseControlBlockWitnessSize = 33
 )
 
 // EstimateCommitTxWeight estimate commitment transaction weight depending on
@@ -582,6 +619,52 @@ func (twe *TxWeightEstimator) AddWitnessInput(witnessSize int) *TxWeightEstimato
 	return twe
 }
 
+// AddTapscriptInput updates the weight estimate to account for an additional
+// input spending a segwit v1 pay-to-taproot output using the script path. This
+// accepts the total size of the witness for the script leaf that is executed
+// and adds the size of the control block to the total witness size.
+//
+// NOTE: The leaf witness size must be calculated without the byte that accounts
+// for the number of witness elements, only the total size of all elements on
+// the stack that are consumed by the revealed script should be counted.
+func (twe *TxWeightEstimator) AddTapscriptInput(leafWitnessSize int,
+	tapscript *waddrmgr.Tapscript) *TxWeightEstimator {
+
+	// We add 1 byte for the total number of witness elements.
+	controlBlockWitnessSize := 1 + TaprootBaseControlBlockWitnessSize +
+		// 1 byte for the length of the element plus the element itself.
+		1 + len(tapscript.RevealedScript) +
+		1 + len(tapscript.ControlBlock.InclusionProof)
+
+	twe.inputSize += InputSize
+	twe.inputWitnessSize += leafWitnessSize + controlBlockWitnessSize
+	twe.inputCount++
+	twe.hasWitness = true
+
+	return twe
+}
+
+// AddTaprootKeySpendInput updates the weight estimate to account for an
+// additional input spending a segwit v1 pay-to-taproot output using the key
+// spend path. This accepts the sighash type being used since that has an
+// influence on the total size of the signature.
+func (twe *TxWeightEstimator) AddTaprootKeySpendInput(
+	hashType txscript.SigHashType) *TxWeightEstimator {
+
+	twe.inputSize += InputSize
+
+	if hashType == txscript.SigHashDefault {
+		twe.inputWitnessSize += TaprootKeyPathWitnessSize
+	} else {
+		twe.inputWitnessSize += TaprootKeyPathCustomSighashWitnessSize
+	}
+
+	twe.inputCount++
+	twe.hasWitness = true
+
+	return twe
+}
+
 // AddNestedP2WKHInput updates the weight estimate to account for an additional
 // input spending a P2SH output with a nested P2WKH redeem script.
 func (twe *TxWeightEstimator) AddNestedP2WKHInput() *TxWeightEstimator {
@@ -634,6 +717,15 @@ func (twe *TxWeightEstimator) AddP2WKHOutput() *TxWeightEstimator {
 // native P2WSH output.
 func (twe *TxWeightEstimator) AddP2WSHOutput() *TxWeightEstimator {
 	twe.outputSize += P2WSHOutputSize
+	twe.outputCount++
+
+	return twe
+}
+
+// AddP2TROutput updates the weight estimate to account for an additional native
+// SegWit v1 P2TR output.
+func (twe *TxWeightEstimator) AddP2TROutput() *TxWeightEstimator {
+	twe.outputSize += P2TROutputSize
 	twe.outputCount++
 
 	return twe

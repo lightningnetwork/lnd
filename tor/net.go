@@ -101,7 +101,7 @@ func (p *ProxyNet) Dial(network, address string,
 	timeout time.Duration) (net.Conn, error) {
 
 	switch network {
-	case "tcp", "tcp4", "tcp6":
+	case "tcp", "tcp4", "tcp6", "onion":
 	default:
 		return nil, errors.New("cannot dial non-tcp network via Tor")
 	}
@@ -132,7 +132,7 @@ func (p *ProxyNet) LookupSRV(service, proto,
 // addresses over Tor.
 func (p *ProxyNet) ResolveTCPAddr(network, address string) (*net.TCPAddr, error) {
 	switch network {
-	case "tcp", "tcp4", "tcp6":
+	case "tcp", "tcp4", "tcp6", "onion":
 	default:
 		return nil, errors.New("cannot dial non-tcp network via Tor")
 	}

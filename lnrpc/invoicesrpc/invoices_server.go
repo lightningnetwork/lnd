@@ -10,16 +10,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"gopkg.in/macaroon-bakery.v2/bakery"
-
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
 const (
@@ -244,6 +243,8 @@ func (s *Server) SubscribeSingleInvoice(req *SubscribeSingleInvoiceRequest,
 	}
 	defer invoiceClient.Cancel()
 
+	log.Debugf("Created new single invoice(pay_hash=%v) subscription", hash)
+
 	for {
 		select {
 		case newInvoice := <-invoiceClient.Updates:
@@ -265,7 +266,9 @@ func (s *Server) SubscribeSingleInvoice(req *SubscribeSingleInvoiceRequest,
 			}
 
 		case <-updateStream.Context().Done():
-			return updateStream.Context().Err()
+			return fmt.Errorf("subscription for "+
+				"invoice(pay_hash=%v): %w", hash,
+				updateStream.Context().Err())
 
 		case <-s.quit:
 			return nil

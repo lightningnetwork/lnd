@@ -9,7 +9,7 @@ package lncfg
 type ProtocolOptions struct {
 	// LegacyProtocol is a sub-config that houses all the legacy protocol
 	// options.  These are mostly used for integration tests as most modern
-	// nodes shuld always run with them on by default.
+	// nodes should always run with them on by default.
 	LegacyProtocol `group:"legacy" namespace:"legacy"`
 
 	// ExperimentalProtocol is a sub-config that houses any experimental

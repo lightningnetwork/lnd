@@ -6,7 +6,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 type mockChannelRestorer struct {

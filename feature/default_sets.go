@@ -64,6 +64,9 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
+	lnwire.KeysendOptional: {
+		SetNodeAnn: {}, // N
+	},
 	lnwire.ScriptEnforcedLeaseOptional: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N

@@ -7,9 +7,11 @@ import (
 	"io"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -136,7 +138,7 @@ func completePaymentRequests(client lnrpc.LightningClient,
 	return nil
 }
 
-// makeFakePayHash creates random pre image hash
+// makeFakePayHash creates random pre image hash.
 func makeFakePayHash(t *harnessTest) []byte {
 	randBuf := make([]byte, 32)
 
@@ -190,7 +192,6 @@ func createPayReqs(node *lntest.HarnessNode, paymentAmt btcutil.Amount,
 // getChanInfo is a helper method for getting channel info for a node's sole
 // channel.
 func getChanInfo(node *lntest.HarnessNode) (*lnrpc.Channel, error) {
-
 	ctxb := context.Background()
 	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
@@ -301,7 +302,6 @@ func calculateMaxHtlc(chanCap btcutil.Amount) uint64 {
 // waitForNodeBlockHeight queries the node for its current block height until
 // it reaches the passed height.
 func waitForNodeBlockHeight(node *lntest.HarnessNode, height int32) error {
-
 	ctxb := context.Background()
 	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
@@ -464,4 +464,32 @@ func findTxAtHeight(t *harnessTest, height int32,
 	}
 
 	return nil
+}
+
+// getOutputIndex returns the output index of the given address in the given
+// transaction.
+func getOutputIndex(t *harnessTest, miner *lntest.HarnessMiner,
+	txid *chainhash.Hash, addr string) int {
+
+	t.t.Helper()
+
+	// We'll then extract the raw transaction from the mempool in order to
+	// determine the index of the p2tr output.
+	tx, err := miner.Client.GetRawTransaction(txid)
+	require.NoError(t.t, err)
+
+	p2trOutputIndex := -1
+	for i, txOut := range tx.MsgTx().TxOut {
+		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+			txOut.PkScript, miner.ActiveNet,
+		)
+		require.NoError(t.t, err)
+
+		if addrs[0].String() == addr {
+			p2trOutputIndex = i
+		}
+	}
+	require.Greater(t.t, p2trOutputIndex, -1)
+
+	return p2trOutputIndex
 }

@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -43,7 +43,7 @@ func createTestMessageStore(t *testing.T) (*MessageStore, func()) {
 }
 
 func randPubKey(t *testing.T) *btcec.PublicKey {
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	priv, err := btcec.NewPrivateKey()
 	if err != nil {
 		t.Fatalf("unable to create private key: %v", err)
 	}

@@ -28,7 +28,7 @@ func TestSimpleShardTracker(t *testing.T) {
 	_, err := tracker.GetHash(0)
 	require.Error(t, err)
 
-	// Getting id 1 should workd.
+	// Getting id 1 should work.
 	hash1, err := tracker.GetHash(1)
 	require.NoError(t, err)
 

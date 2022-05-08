@@ -1,7 +1,7 @@
 // Copyright (c) 2013-2017 The btcsuite developers
 // Copyright (c) 2015-2016 The Decred developers
 // code derived from https://github .com/btcsuite/btcd/blob/master/wire/message.go
-// Copyright (C) 2015-2017 The Lightning Network Developers
+// Copyright (C) 2015-2022 The Lightning Network Developers
 
 package lnwire
 
@@ -70,7 +70,6 @@ func ErrorPayloadTooLarge(size int) error {
 			"but maximum message payload is %d bytes",
 		size, MaxMsgBody,
 	)
-
 }
 
 // String return the string representation of message type.

@@ -34,7 +34,7 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 	}
 
 	// Before we try to make the new service instance, we'll perform
-	// some sanity checks on the arguments to ensure that they're useable.
+	// some sanity checks on the arguments to ensure that they're usable.
 	switch {
 	case config.Resolver == nil:
 		return nil, nil, errors.New("a lncfg.TCPResolver is required")

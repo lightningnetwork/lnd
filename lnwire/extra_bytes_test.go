@@ -60,7 +60,6 @@ func TestExtraOpaqueDataEncodeDecode(t *testing.T) {
 	// time, we'll actually feed in blank bytes.
 	quickCfg := &quick.Config{
 		Values: func(v []reflect.Value, r *rand.Rand) {
-
 			var newTestCase testCase
 			if r.Int31()%2 == 0 {
 				newTestCase.emptyBytes = true

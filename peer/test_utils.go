@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -38,6 +38,10 @@ const (
 	// timeout is a timeout value to use for tests which need to wait for
 	// a return value on a channel.
 	timeout = time.Second * 5
+
+	// testCltvRejectDelta is the minimum delta between expiry and current
+	// height below which htlcs are rejected.
+	testCltvRejectDelta = 13
 )
 
 var (
@@ -64,13 +68,13 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		Family: keychain.KeyFamilyNodeKey,
 	}
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
-		btcec.S256(), channels.AlicesPrivKey,
+		channels.AlicesPrivKey,
 	)
 	aliceKeySigner := keychain.NewPrivKeyMessageSigner(
 		aliceKeyPriv, nodeKeyLocator,
 	)
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(
-		btcec.S256(), channels.BobsPrivKey,
+		channels.BobsPrivKey,
 	)
 
 	channelCapacity := btcutil.Amount(10 * 1e8)
@@ -367,7 +371,9 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		Switch:      mockSwitch,
 
 		ChanActiveTimeout: chanActiveTimeout,
-		InterceptSwitch:   htlcswitch.NewInterceptableSwitch(nil),
+		InterceptSwitch: htlcswitch.NewInterceptableSwitch(
+			nil, testCltvRejectDelta, false,
+		),
 
 		ChannelDB:      dbAlice.ChannelStateDB(),
 		FeeEstimator:   estimator,

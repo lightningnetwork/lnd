@@ -184,7 +184,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	err = restartBob()
 	require.NoError(t.t, err)
 
-	// After the force close transacion is mined, we should expect Bob and
+	// After the force close transaction is mined, we should expect Bob and
 	// Carol to broadcast some transactions depending on the channel
 	// commitment type.
 	switch c {

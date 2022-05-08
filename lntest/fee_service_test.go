@@ -11,7 +11,7 @@ import (
 
 // TestFeeService tests the itest fee estimating web service.
 func TestFeeService(t *testing.T) {
-	service := startFeeService()
+	service := startFeeService(t)
 	defer service.stop()
 
 	service.setFee(5000)

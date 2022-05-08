@@ -5,17 +5,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/hdkeychain"
-	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
-
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -89,6 +88,13 @@ func (w *WalletController) LastUnusedAddress(lnwallet.AddressType,
 // IsOurAddress currently returns a dummy value.
 func (w *WalletController) IsOurAddress(btcutil.Address) bool {
 	return false
+}
+
+// AddressInfo currently returns a dummy value.
+func (w *WalletController) AddressInfo(
+	btcutil.Address) (waddrmgr.ManagedAddress, error) {
+
+	return nil, nil
 }
 
 // ListAccounts currently returns a dummy value.
@@ -236,5 +242,13 @@ func (w *WalletController) Start() error {
 
 // Stop currently does nothing.
 func (w *WalletController) Stop() error {
+	return nil
+}
+
+func (w *WalletController) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {
+	return nil, nil
+}
+
+func (w *WalletController) RemoveDescendants(*wire.MsgTx) error {
 	return nil
 }

@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -41,10 +41,10 @@ func testForwardInterceptorDedupHtlc(net *lntest.NetworkHarness, t *harnessTest)
 	defer shutdownAndAssert(net, t, alice)
 
 	bob := net.NewNode(t.t, "bob", nil)
-	defer shutdownAndAssert(net, t, alice)
+	defer shutdownAndAssert(net, t, bob)
 
 	carol := net.NewNode(t.t, "carol", nil)
-	defer shutdownAndAssert(net, t, alice)
+	defer shutdownAndAssert(net, t, carol)
 
 	tc := newInterceptorTestContext(t, net, alice, bob, carol)
 
@@ -210,10 +210,10 @@ func testForwardInterceptorBasic(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, alice)
 
 	bob := net.NewNode(t.t, "bob", nil)
-	defer shutdownAndAssert(net, t, alice)
+	defer shutdownAndAssert(net, t, bob)
 
 	carol := net.NewNode(t.t, "carol", nil)
-	defer shutdownAndAssert(net, t, alice)
+	defer shutdownAndAssert(net, t, carol)
 
 	testContext := newInterceptorTestContext(t, net, alice, bob, carol)
 
@@ -424,8 +424,7 @@ func testForwardInterceptorBasic(net *lntest.NetworkHarness, t *harnessTest) {
 		})
 		return err == nil && len(channels.Channels) > 0
 	}, defaultTimeout)
-	require.NoError(t.t, err, "alice <> bob channel didnt re-activate")
-
+	require.NoError(t.t, err, "alice <> bob channel didn't re-activate")
 }
 
 // interceptorTestContext is a helper struct to hold the test context and

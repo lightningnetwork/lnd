@@ -5,17 +5,21 @@ import (
 )
 
 const (
-	// AmtOnionType is the type used in the onion to refrence the amount to
+	// AmtOnionType is the type used in the onion to reference the amount to
 	// send to the next hop.
 	AmtOnionType tlv.Type = 2
 
-	// LockTimeTLV is the type used in the onion to refenernce the CLTV
+	// LockTimeTLV is the type used in the onion to reference the CLTV
 	// value that should be used for the next hop's HTLC.
 	LockTimeOnionType tlv.Type = 4
 
 	// NextHopOnionType is the type used in the onion to reference the ID
 	// of the next hop.
 	NextHopOnionType tlv.Type = 6
+
+	// MetadataOnionType is the type used in the onion for the payment
+	// metadata.
+	MetadataOnionType tlv.Type = 16
 )
 
 // NewAmtToFwdRecord creates a tlv.Record that encodes the amount_to_forward
@@ -44,4 +48,16 @@ func NewLockTimeRecord(lockTime *uint32) tlv.Record {
 // (type 6) for an onion payload.
 func NewNextHopIDRecord(cid *uint64) tlv.Record {
 	return tlv.MakePrimitiveRecord(NextHopOnionType, cid)
+}
+
+// NewMetadataRecord creates a tlv.Record that encodes the metadata (type 10)
+// for an onion payload.
+func NewMetadataRecord(metadata *[]byte) tlv.Record {
+	return tlv.MakeDynamicRecord(
+		MetadataOnionType, metadata,
+		func() uint64 {
+			return uint64(len(*metadata))
+		},
+		tlv.EVarBytes, tlv.DVarBytes,
+	)
 }

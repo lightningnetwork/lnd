@@ -61,6 +61,7 @@ func (c *Config) CloneWithSubNamespace(subNamespace string) *Config {
 		KeyFile:            c.KeyFile,
 		InsecureSkipVerify: c.InsecureSkipVerify,
 		CollectStats:       c.CollectStats,
+		MaxMsgSize:         c.MaxMsgSize,
 		SingleWriter:       c.SingleWriter,
 	}
 }
@@ -81,6 +82,7 @@ func (c *Config) CloneWithSingleWriter() *Config {
 		KeyFile:            c.KeyFile,
 		InsecureSkipVerify: c.InsecureSkipVerify,
 		CollectStats:       c.CollectStats,
+		MaxMsgSize:         c.MaxMsgSize,
 		SingleWriter:       true,
 	}
 }

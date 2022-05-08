@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -211,7 +211,6 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	err = wait.Predicate(func() bool {
 		predErr = assertNumActiveHtlcs(nodes, 0)
 		return predErr == nil
-
 	}, defaultTimeout)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", predErr)
@@ -737,7 +736,6 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	err = wait.Predicate(func() bool {
 		predErr = assertNumActiveHtlcs(nodes, numPayments)
 		return predErr == nil
-
 	}, defaultTimeout)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", predErr)

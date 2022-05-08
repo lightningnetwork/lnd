@@ -1,19 +1,19 @@
 PKG := github.com/lightningnetwork/lnd
 ESCPKG := github.com\/lightningnetwork\/lnd
 MOBILE_PKG := $(PKG)/mobile
+TOOLS_DIR := tools
 
 BTCD_PKG := github.com/btcsuite/btcd
-LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
-GOIMPORTS_PKG := golang.org/x/tools/cmd/goimports
+GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
 GOFUZZ_BUILD_PKG := github.com/dvyukov/go-fuzz/go-fuzz-build
 GOFUZZ_PKG := github.com/dvyukov/go-fuzz/go-fuzz
 GOFUZZ_DEP_PKG := github.com/dvyukov/go-fuzz/go-fuzz-dep
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
+GOIMPORTS_BIN := $(GO_BIN)/gosimports
 GOMOBILE_BIN := GO111MODULE=off $(GO_BIN)/gomobile
-LINT_BIN := $(GO_BIN)/golangci-lint
 GOACC_BIN := $(GO_BIN)/go-acc
 GOFUZZ_BUILD_BIN := $(GO_BIN)/go-fuzz-build
 GOFUZZ_BIN := $(GO_BIN)/go-fuzz
@@ -53,6 +53,7 @@ make_ldflags = $(2) -X $(PKG)/build.Commit=$(COMMIT) \
 	-X $(PKG)/build.GoVersion=$(GOVERSION) \
 	-X $(PKG)/build.RawTags=$(shell echo $(1) | sed -e 's/ /,/g')
 
+DEV_GCFLAGS := -gcflags "all=-N -l"
 LDFLAGS := -ldflags "$(call make_ldflags, ${tags}, -s -w)"
 DEV_LDFLAGS := -ldflags "$(call make_ldflags, $(DEV_TAGS))"
 ITEST_LDFLAGS := -ldflags "$(call make_ldflags, $(ITEST_TAGS))"
@@ -67,7 +68,7 @@ ifneq ($(workers),)
 LINT_WORKERS = --concurrency=$(workers)
 endif
 
-LINT = $(LINT_BIN) run -v $(LINT_WORKERS)
+DOCKER_TOOLS = docker run -v $$(pwd):/build lnd-tools
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -82,33 +83,29 @@ all: scratch check install
 # ============
 # DEPENDENCIES
 # ============
-$(LINT_BIN):
-	@$(call print, "Installing linter.")
-	go install $(LINT_PKG)
-
 $(GOACC_BIN):
 	@$(call print, "Installing go-acc.")
-	go install $(GOACC_PKG)
+	cd $(TOOLS_DIR); go install -trimpath -tags=tools $(GOACC_PKG)
 
-btcd:
+$(BTCD_BIN):
 	@$(call print, "Installing btcd.")
-	go install $(BTCD_PKG)
+	cd $(TOOLS_DIR); go install -trimpath $(BTCD_PKG)
 
-goimports:
+$(GOIMPORTS_BIN):
 	@$(call print, "Installing goimports.")
-	go install $(GOIMPORTS_PKG)
+	cd $(TOOLS_DIR); go install -trimpath $(GOIMPORTS_PKG)
 
 $(GOFUZZ_BIN):
 	@$(call print, "Installing go-fuzz.")
-	go install $(GOFUZZ_PKG)
+	cd $(TOOLS_DIR); go install -trimpath $(GOFUZZ_PKG)
 
 $(GOFUZZ_BUILD_BIN):
 	@$(call print, "Installing go-fuzz-build.")
-	go install $(GOFUZZ_BUILD_PKG)
+	cd $(TOOLS_DIR); go install -trimpath $(GOFUZZ_BUILD_PKG)
 
 $(GOFUZZ_DEP_BIN):
 	@$(call print, "Installing go-fuzz-dep.")
-	go install $(GOFUZZ_DEP_PKG)
+	cd $(TOOLS_DIR); go install -trimpath $(GOFUZZ_DEP_PKG)
 
 # ============
 # INSTALLATION
@@ -116,8 +113,8 @@ $(GOFUZZ_DEP_BIN):
 
 build:
 	@$(call print, "Building debug lnd and lncli.")
-	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(DEV_LDFLAGS) $(PKG)/cmd/lnd
-	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(DEV_LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/lnd
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/lncli
 
 build-itest:
 	@$(call print, "Building itest btcd and lnd.")
@@ -162,6 +159,10 @@ docker-release:
 	# that we might want to overwrite in manual tests.
 	$(DOCKER_RELEASE_HELPER) make release tag="$(tag)" sys="$(sys)" COMMIT="$(COMMIT)" COMMIT_HASH="$(COMMIT_HASH)"
 
+docker-tools:
+	@$(call print, "Building tools docker image.")
+	docker build -q -t lnd-tools $(TOOLS_DIR)
+
 scratch: build
 
 
@@ -204,11 +205,11 @@ itest-clean:
 	@$(call print, "Cleaning old itest processes")
 	killall lnd-itest || echo "no running lnd-itest process found";
 
-unit: btcd
+unit: $(BTCD_BIN)
 	@$(call print, "Running unit tests.")
 	$(UNIT)
 
-unit-debug: btcd
+unit-debug: $(BTCD_BIN)
 	@$(call print, "Running debug unit tests.")
 	$(UNIT_DEBUG)
 
@@ -251,15 +252,15 @@ fuzz-run: $(GOFUZZ_BIN)
 # UTILITIES
 # =========
 
-fmt: goimports
+fmt: $(GOIMPORTS_BIN)
 	@$(call print, "Fixing imports.")
-	goimports -w $(GOFILES_NOVENDOR)
+	gosimports -w $(GOFILES_NOVENDOR)
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s $(GOFILES_NOVENDOR)
 
-lint: $(LINT_BIN)
+lint: docker-tools
 	@$(call print, "Linting source.")
-	$(LINT)
+	$(DOCKER_TOOLS) golangci-lint run -v $(LINT_WORKERS)
 
 list:
 	@$(call print, "Listing commands.")
@@ -279,7 +280,7 @@ rpc-format:
 rpc-check: rpc
 	@$(call print, "Verifying protos.")
 	cd ./lnrpc; ../scripts/check-rest-annotations.sh
-	if test -n "$$(git describe --dirty | grep dirty)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
+	if test -n "$$(git status --porcelain)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
 
 rpc-js-compile:
 	@$(call print, "Compiling JSON/WASM stubs.")
@@ -297,15 +298,25 @@ vendor:
 	@$(call print, "Re-creating vendor directory.")
 	rm -r vendor/; go mod vendor
 
-ios: vendor mobile-rpc
-	@$(call print, "Building iOS framework ($(IOS_BUILD)).")
+apple: vendor mobile-rpc
+	@$(call print, "Building iOS and macOS cxframework ($(IOS_BUILD)).")
 	mkdir -p $(IOS_BUILD_DIR)
-	$(GOMOBILE_BIN) bind -target=ios -tags="mobile $(DEV_TAGS) autopilotrpc" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
+	$(GOMOBILE_BIN) bind -target=ios,iossimulator,macos -tags="mobile $(DEV_TAGS) autopilotrpc" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
+
+ios: vendor mobile-rpc
+	@$(call print, "Building iOS cxframework ($(IOS_BUILD)).")
+	mkdir -p $(IOS_BUILD_DIR)
+	$(GOMOBILE_BIN) bind -target=ios,iossimulator -tags="mobile $(DEV_TAGS) autopilotrpc neutrinorpc" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
+
+macos: vendor mobile-rpc
+	@$(call print, "Building macOS cxframework ($(IOS_BUILD)).")
+	mkdir -p $(IOS_BUILD_DIR)
+	$(GOMOBILE_BIN) bind -target=macos -tags="mobile $(DEV_TAGS) autopilotrpc" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
 
 android: vendor mobile-rpc
 	@$(call print, "Building Android library ($(ANDROID_BUILD)).")
 	mkdir -p $(ANDROID_BUILD_DIR)
-	$(GOMOBILE_BIN) bind -target=android -tags="mobile $(DEV_TAGS) autopilotrpc" $(LDFLAGS) -v -o $(ANDROID_BUILD) $(MOBILE_PKG)
+	$(GOMOBILE_BIN) bind -target=android -tags="mobile $(DEV_TAGS) autopilotrpc neutrinorpc" $(LDFLAGS) -v -o $(ANDROID_BUILD) $(MOBILE_PKG)
 
 mobile: ios android
 

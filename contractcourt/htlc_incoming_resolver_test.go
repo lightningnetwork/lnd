@@ -140,6 +140,7 @@ func TestHtlcIncomingResolverExitSettle(t *testing.T) {
 	if !bytes.Equal(
 		ctx.onionProcessor.offeredOnionBlob, testOnionBlob,
 	) {
+
 		t.Fatal("unexpected onion blob")
 	}
 }
@@ -273,6 +274,10 @@ func (h *mockHopIterator) HopPayload() (*hop.Payload, error) {
 		OutgoingCltv:  40,
 		ExtraBytes:    [12]byte{},
 	}), nil
+}
+
+func (h *mockHopIterator) EncodeNextHop(w io.Writer) error {
+	return nil
 }
 
 type mockOnionProcessor struct {

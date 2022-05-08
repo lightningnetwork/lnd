@@ -5,9 +5,9 @@ import (
 	"io"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -125,7 +125,6 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 	select {
 	case sweepRes := <-resultChan:
 		switch sweepRes.Err {
-
 		// Anchor was swept successfully.
 		case nil:
 			sweepTxID := sweepRes.Tx.TxHash()

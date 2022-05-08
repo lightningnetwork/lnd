@@ -5,13 +5,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -393,7 +395,7 @@ func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned b
 	// Bob stimmy.
 	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, bob)
 
-	// Assert that Bob has the correct sync type before proceeeding.
+	// Assert that Bob has the correct sync type before proceeding.
 	if pinned {
 		assertSyncType(t, alice, bobPubkey, lnrpc.Peer_PINNED_SYNC)
 	} else {
@@ -426,7 +428,7 @@ func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned b
 		// Ensure that a new update for both created edges is properly
 		// dispatched to our registered client.
 		case graphUpdate := <-graphSub.updateChan:
-			// Process all channel updates prsented in this update
+			// Process all channel updates presented in this update
 			// message.
 			for _, chanUpdate := range graphUpdate.ChannelUpdates {
 				switch chanUpdate.AdvertisingNode {
@@ -766,4 +768,264 @@ func subscribeGraphNotifications(ctxb context.Context, t *harnessTest,
 		errChan:    errChan,
 		quit:       quit,
 	}
+}
+
+// waitForNodeAnnUpdates monitors the nodeAnnUpdates until we get one for
+// the expected node and asserts that has the expected information.
+func waitForNodeAnnUpdates(graphSub graphSubscription, nodePubKey string,
+	expectedUpdate *lnrpc.NodeUpdate, t *harnessTest) {
+
+	for {
+		select {
+		case graphUpdate := <-graphSub.updateChan:
+			for _, update := range graphUpdate.NodeUpdates {
+				if update.IdentityKey == nodePubKey {
+					assertNodeAnnouncement(
+						t, update, expectedUpdate,
+					)
+					return
+				}
+			}
+		case err := <-graphSub.errChan:
+			t.Fatalf("unable to recv graph update: %v", err)
+		case <-time.After(defaultTimeout):
+			t.Fatalf("did not receive node ann update")
+		}
+	}
+}
+
+// testUpdateNodeAnnouncement ensures that the RPC endpoint validates
+// the requests correctly and that the new node announcement is brodcasted
+// with the right information after updating our node.
+func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
+	// context timeout for the whole test.
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), defaultTimeout,
+	)
+	defer cancel()
+
+	// Launch notification clients for alice, such that we can
+	// get notified when there are updates in the graph.
+	aliceSub := subscribeGraphNotifications(ctxt, t, net.Alice)
+	defer close(aliceSub.quit)
+
+	var lndArgs []string
+
+	// Add some exta addresses to the default ones.
+	extraAddrs := []string{
+		"192.168.1.1:8333",
+		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337",
+		"bkb6azqggsaiskzi.onion:9735",
+		"fomvuglh6h6vcag73xo5t5gv56ombih3zr2xvplkpbfd7wrog4swjwid.onion:1234",
+	}
+	for _, addr := range extraAddrs {
+		lndArgs = append(lndArgs, "--externalip="+addr)
+	}
+	dave := net.NewNode(t.t, "Dave", lndArgs)
+	defer shutdownAndAssert(net, t, dave)
+
+	// Get dave default information so we can compare
+	// it lately with the brodcasted updates.
+	nodeInfoReq := &lnrpc.GetInfoRequest{}
+	resp, err := dave.GetInfo(ctxt, nodeInfoReq)
+	require.NoError(t.t, err, "unable to get dave's information")
+
+	defaultAddrs := make([]*lnrpc.NodeAddress, 0, len(resp.Uris))
+	for _, uri := range resp.GetUris() {
+		values := strings.Split(uri, "@")
+		defaultAddrs = append(
+			defaultAddrs, &lnrpc.NodeAddress{
+				Addr:    values[1],
+				Network: "tcp",
+			},
+		)
+	}
+
+	// This feature bit is used to test that our endpoint sets/unsets
+	// feature bits properly. If the current FeatureBit is set by default
+	// update this one for another one unset by default at random.
+	featureBit := lnrpc.FeatureBit_WUMBO_CHANNELS_REQ
+	featureIdx := uint32(featureBit)
+	if _, ok := resp.Features[featureIdx]; ok {
+		t.Fatalf("unexpected feature bit enabled by default")
+	}
+
+	defaultDaveNodeAnn := &lnrpc.NodeUpdate{
+		Alias:         resp.Alias,
+		Color:         resp.Color,
+		NodeAddresses: defaultAddrs,
+	}
+
+	// Dave must have an open channel before he can send a node
+	// announcement, so we open a channel with Bob.
+	net.ConnectNodes(t.t, net.Bob, dave)
+
+	// Go ahead and open a channel between Bob and Dave. This
+	// ensures that Alice receives the node announcement from Bob as part of
+	// the announcement broadcast.
+	chanPoint := openChannelAndAssert(
+		t, net, net.Bob, dave,
+		lntest.OpenChannelParams{
+			Amt: 1000000,
+		},
+	)
+	require.NoError(t.t, err, "unexpected error opening a channel")
+
+	// Wait for Alice to receive dave's node announcement with the default
+	// values.
+	waitForNodeAnnUpdates(
+		aliceSub, dave.PubKeyStr, defaultDaveNodeAnn, t,
+	)
+
+	// We cannot differentiate between requests with Alias = "" and requests
+	// that do not provide that field. If a user sets Alias = "" in the request
+	// the field will simply be ignored. The request must fail because no
+	// modifiers are applied.
+	invalidNodeAnnReq := &peersrpc.NodeAnnouncementUpdateRequest{
+		Alias: "",
+	}
+
+	_, err = dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
+	require.Error(t.t, err, "requests without modifiers should field")
+
+	// Alias too long.
+	invalidNodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
+		Alias: strings.Repeat("a", 50),
+	}
+
+	_, err = dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
+	require.Error(t.t, err, "failed to validate an invalid alias for an "+
+		"update node announcement request")
+
+	// Update Node.
+	newAlias := "new-alias"
+	newColor := "#2288ee"
+
+	newAddresses := []string{
+		"192.168.1.10:8333",
+		"192.168.1.11:8333",
+	}
+
+	updateAddressActions := []*peersrpc.UpdateAddressAction{
+		{
+			Action:  peersrpc.UpdateAction_ADD,
+			Address: newAddresses[0],
+		},
+		{
+			Action:  peersrpc.UpdateAction_ADD,
+			Address: newAddresses[1],
+		},
+		{
+			Action:  peersrpc.UpdateAction_REMOVE,
+			Address: defaultAddrs[0].Addr,
+		},
+	}
+
+	updateFeatureActions := []*peersrpc.UpdateFeatureAction{
+		{
+			Action:     peersrpc.UpdateAction_ADD,
+			FeatureBit: featureBit,
+		},
+	}
+
+	nodeAnnReq := &peersrpc.NodeAnnouncementUpdateRequest{
+		Alias:          newAlias,
+		Color:          newColor,
+		AddressUpdates: updateAddressActions,
+		FeatureUpdates: updateFeatureActions,
+	}
+
+	response, err := dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
+	require.NoError(t.t, err, "unable to update dave's node announcement")
+
+	expectedOps := map[string]int{
+		"features":  1,
+		"color":     1,
+		"alias":     1,
+		"addresses": 3,
+	}
+	assertUpdateNodeAnnouncementResponse(t, response, expectedOps)
+
+	newNodeAddresses := []*lnrpc.NodeAddress{}
+	// We removed the first address.
+	newNodeAddresses = append(newNodeAddresses, defaultAddrs[1:]...)
+	newNodeAddresses = append(
+		newNodeAddresses,
+		&lnrpc.NodeAddress{Addr: newAddresses[0], Network: "tcp"},
+		&lnrpc.NodeAddress{Addr: newAddresses[1], Network: "tcp"},
+	)
+
+	// After updating the node we expect the update to contain
+	// the requested color, requested alias and the new added addresses.
+	newDaveNodeAnn := &lnrpc.NodeUpdate{
+		Alias:         newAlias,
+		Color:         newColor,
+		NodeAddresses: newNodeAddresses,
+	}
+
+	// We'll then wait for Alice to receive dave's node announcement
+	// with the new values.
+	waitForNodeAnnUpdates(
+		aliceSub, dave.PubKeyStr, newDaveNodeAnn, t,
+	)
+
+	// Check that the feature bit was set correctly.
+	resp, err = dave.GetInfo(ctxt, nodeInfoReq)
+	require.NoError(t.t, err, "unable to get dave's information")
+
+	if _, ok := resp.Features[featureIdx]; !ok {
+		t.Fatalf("failed to set feature bit")
+	}
+
+	// Check that we cannot set a feature bit that is already set.
+	nodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
+		FeatureUpdates: updateFeatureActions,
+	}
+
+	_, err = dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
+	require.Error(
+		t.t, err, "missing expected error: cannot set a feature bit "+
+			"that is already set",
+	)
+
+	// Check that we can unset feature bits.
+	updateFeatureActions = []*peersrpc.UpdateFeatureAction{
+		{
+			Action:     peersrpc.UpdateAction_REMOVE,
+			FeatureBit: featureBit,
+		},
+	}
+
+	nodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
+		FeatureUpdates: updateFeatureActions,
+	}
+
+	response, err = dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
+	require.NoError(t.t, err, "unable to update dave's node announcement")
+
+	expectedOps = map[string]int{
+		"features": 1,
+	}
+	assertUpdateNodeAnnouncementResponse(t, response, expectedOps)
+
+	resp, err = dave.GetInfo(ctxt, nodeInfoReq)
+	require.NoError(t.t, err, "unable to get dave's information")
+
+	if _, ok := resp.Features[featureIdx]; ok {
+		t.Fatalf("failed to unset feature bit")
+	}
+
+	// Check that we cannot unset a feature bit that is already unset.
+	nodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
+		FeatureUpdates: updateFeatureActions,
+	}
+
+	_, err = dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
+	require.Error(
+		t.t, err, "missing expected error: cannot unset a feature bit "+
+			"that is already unset",
+	)
+
+	// Close the channel between Bob and Dave.
+	closeChannelAndAssert(t, net, net.Bob, chanPoint, false)
 }

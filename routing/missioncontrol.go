@@ -45,7 +45,7 @@ const (
 	// DefaultMaxMcHistory is the default maximum history size.
 	DefaultMaxMcHistory = 1000
 
-	// DefaultMcFlushInterval is the defaul inteval we use to flush MC state
+	// DefaultMcFlushInterval is the default interval we use to flush MC state
 	// to the database.
 	DefaultMcFlushInterval = time.Second
 

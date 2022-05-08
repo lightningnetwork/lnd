@@ -168,7 +168,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	err = restartBob()
 	require.NoError(t.t, err)
 
-	// After the force close transacion is mined, transactions will be
+	// After the force close transaction is mined, transactions will be
 	// broadcast by both Bob and Carol.
 	switch c {
 	// Carol will broadcast her second level HTLC transaction and Bob will

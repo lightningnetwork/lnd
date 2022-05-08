@@ -236,7 +236,6 @@ func TestHostAnnouncerUpdates(t *testing.T) {
 		// If we expect an update, then we'll assert that we received
 		// the proper set of modified addresses.
 		if testCase.updateTriggered {
-
 			select {
 			// The receive update should match exactly what the
 			// test case dictates.

@@ -12,9 +12,11 @@ service ChainNotifier {
     registers an intent for a client to be notified once a confirmation request
     has reached its required number of confirmations on-chain.
 
-    A client can specify whether the confirmation request should be for a
-    particular transaction by its hash or for an output script by specifying a
-    zero hash.
+    A confirmation request must have a valid output script. It is also possible
+    to give a transaction ID. If the transaction ID is not set, a notification
+    is sent once the output script confirms. If the transaction ID is also set,
+    a notification is sent once the output script confirms in the given
+    transaction.
     */
     rpc RegisterConfirmationsNtfn (ConfRequest) returns (stream ConfEvent);
 
@@ -119,7 +121,11 @@ message SpendRequest {
     /*
     The outpoint for which we should request a spend notification for. If set to
     a zero outpoint, then the spend notification will be requested for the
-    script instead.
+    script instead. A zero or nil outpoint is not supported for Taproot spends
+    because the output script cannot reliably be computed from the witness alone
+    and the spent output script is not always available in the rescan context.
+    So an outpoint must _always_ be specified when registering a spend
+    notification for a Taproot output.
     */
     Outpoint outpoint = 1;
 

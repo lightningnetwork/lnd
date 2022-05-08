@@ -2,12 +2,13 @@ package migration21
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
-	"math/big"
 	"reflect"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -27,16 +28,17 @@ var (
 		0x1e, 0xb, 0x4c, 0xf9, 0x9e, 0xc5, 0x8c, 0xe9,
 	}
 
-	_, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), key[:])
+	_, pubKey = btcec.PrivKeyFromBytes(key[:])
 
 	wireSig, _ = lnwire.NewSigFromSignature(testSig)
 
-	testSig = &btcec.Signature{
-		R: new(big.Int),
-		S: new(big.Int),
-	}
-	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
-	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa1bf0314f882d7")
+	testSBytes, _ = hex.DecodeString("299105481d63e0f4bc2a88121167221b6700d72a0ead154c03be696a292d24ae")
+	testRScalar   = new(btcec.ModNScalar)
+	testSScalar   = new(btcec.ModNScalar)
+	_             = testRScalar.SetByteSlice(testRBytes)
+	_             = testSScalar.SetByteSlice(testSBytes)
+	testSig       = ecdsa.NewSignature(testRScalar, testSScalar)
 
 	testTx = &wire.MsgTx{
 		Version: 1,
@@ -175,7 +177,6 @@ var (
 // migrate three areas: open channel commit diffs, open channel unacked updates,
 // and network results in the switch.
 func TestMigrateDatabaseWireMessages(t *testing.T) {
-
 	var pub [33]byte
 	copy(pub[:], key[:])
 
@@ -344,6 +345,7 @@ func TestMigrateDatabaseWireMessages(t *testing.T) {
 			if !reflect.DeepEqual(
 				newUpdates, testCommitDiff.LogUpdates,
 			) {
+
 				return fmt.Errorf("updates mismatch: expected "+
 					"%v, got %v",
 					spew.Sdump(testCommitDiff.LogUpdates),
@@ -365,6 +367,7 @@ func TestMigrateDatabaseWireMessages(t *testing.T) {
 			if !reflect.DeepEqual(
 				newUpdates, testCommitDiff.LogUpdates,
 			) {
+
 				return fmt.Errorf("updates mismatch: expected "+
 					"%v, got %v",
 					spew.Sdump(testCommitDiff.LogUpdates),
@@ -389,19 +392,10 @@ func TestMigrateDatabaseWireMessages(t *testing.T) {
 				return err
 			}
 
-			testChanCloseSummary.RemotePub.Curve = nil
-			testChanCloseSummary.RemoteCurrentRevocation.Curve = nil
-			testChanCloseSummary.RemoteNextRevocation.Curve = nil
-			testChanCloseSummary.LastChanSyncMsg.LocalUnrevokedCommitPoint.Curve = nil
-
-			newChanCloseSummary.RemotePub.Curve = nil
-			newChanCloseSummary.RemoteCurrentRevocation.Curve = nil
-			newChanCloseSummary.RemoteNextRevocation.Curve = nil
-			newChanCloseSummary.LastChanSyncMsg.LocalUnrevokedCommitPoint.Curve = nil
-
 			if !reflect.DeepEqual(
 				newChanCloseSummary, testChanCloseSummary,
 			) {
+
 				return fmt.Errorf("summary mismatch: expected "+
 					"%v, got %v",
 					spew.Sdump(testChanCloseSummary),

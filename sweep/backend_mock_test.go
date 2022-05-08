@@ -89,6 +89,7 @@ func (b *mockBackend) PublishTransaction(tx *wire.MsgTx, _ string) error {
 
 func (b *mockBackend) ListUnspentWitnessFromDefaultAccount(minConfs, maxConfs int32) (
 	[]*lnwallet.Utxo, error) {
+
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
@@ -149,4 +150,12 @@ func (b *mockBackend) mine() {
 
 func (b *mockBackend) isDone() bool {
 	return len(b.unconfirmedTxes) == 0
+}
+
+func (b *mockBackend) RemoveDescendants(*wire.MsgTx) error {
+	return nil
+}
+
+func (b *mockBackend) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {
+	return nil, nil
 }

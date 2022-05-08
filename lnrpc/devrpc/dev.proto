@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+import "lightning.proto";
+
+package devrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/devrpc";
+
+service Dev {
+    /*
+    ImportGraph imports a ChannelGraph into the graph database. Should only be
+    used for development.
+    */
+    rpc ImportGraph (lnrpc.ChannelGraph) returns (ImportGraphResponse);
+}
+
+message ImportGraphResponse {
+}

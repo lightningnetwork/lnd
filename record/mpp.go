@@ -80,7 +80,6 @@ func MPPDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 		v.totalMsat = lnwire.MilliSatoshi(total)
 
 		return nil
-
 	}
 	return tlv.NewTypeForDecodingErr(val, "MPP", l, maxMPPLength)
 }

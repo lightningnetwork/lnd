@@ -12,10 +12,10 @@ import (
 	"testing/quick"
 
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -654,7 +654,7 @@ func testCommitHTLCSigTieBreak(t *testing.T, restart bool) {
 		lastIndex = htlc.OutputIndex
 	}
 
-	// If requsted, restart Alice so that we can test that the necessary
+	// If requested, restart Alice so that we can test that the necessary
 	// indexes can be reconstructed before needing to validate the
 	// signatures from Bob.
 	if restart {
@@ -990,9 +990,14 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	// the multi-sig clause within the output on the commitment transaction
 	// that produces this HTLC.
 	timeoutTx := htlcResolution.SignedTimeoutTx
-	vm, err := txscript.NewEngine(senderHtlcPkScript,
+	vm, err := txscript.NewEngine(
+		senderHtlcPkScript,
 		timeoutTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, int64(htlcAmount.ToSatoshis()))
+		nil, int64(htlcAmount.ToSatoshis()),
+		txscript.NewCannedPrevOutputFetcher(
+			senderHtlcPkScript, int64(htlcAmount.ToSatoshis()),
+		),
+	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
 	}
@@ -1028,6 +1033,10 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 		htlcResolution.SweepSignDesc.Output.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,
 		nil, htlcResolution.SweepSignDesc.Output.Value,
+		txscript.NewCannedPrevOutputFetcher(
+			htlcResolution.SweepSignDesc.Output.PkScript,
+			htlcResolution.SweepSignDesc.Output.Value,
+		),
 	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
@@ -1057,9 +1066,14 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	// before publication.
 	successTx := inHtlcResolution.SignedSuccessTx
 	successTx.TxIn[0].Witness[3] = preimageBob[:]
-	vm, err = txscript.NewEngine(receiverHtlcScript,
+	vm, err = txscript.NewEngine(
+		receiverHtlcScript,
 		successTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, int64(htlcAmount.ToSatoshis()))
+		nil, int64(htlcAmount.ToSatoshis()),
+		txscript.NewCannedPrevOutputFetcher(
+			receiverHtlcScript, int64(htlcAmount.ToSatoshis()),
+		),
+	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
 	}
@@ -1091,6 +1105,10 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 		inHtlcResolution.SweepSignDesc.Output.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,
 		nil, inHtlcResolution.SweepSignDesc.Output.Value,
+		txscript.NewCannedPrevOutputFetcher(
+			inHtlcResolution.SweepSignDesc.Output.PkScript,
+			inHtlcResolution.SweepSignDesc.Output.Value,
+		),
 	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
@@ -1172,7 +1190,7 @@ func TestForceCloseDustOutput(t *testing.T) {
 	defer cleanUp()
 
 	// We set both node's channel reserves to 0, to make sure
-	// they can create small dust ouputs without going under
+	// they can create small dust outputs without going under
 	// their channel reserves.
 	aliceChannel.channelState.LocalChanCfg.ChanReserve = 0
 	bobChannel.channelState.LocalChanCfg.ChanReserve = 0
@@ -2576,6 +2594,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) == fee {
+
 		t.Fatalf("bob's feePerKw was unexpectedly locked in")
 	}
 
@@ -2589,6 +2608,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) != fee {
+
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -2617,6 +2637,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) == fee {
+
 		t.Fatalf("alice's feePerKw was unexpectedly locked in")
 	}
 
@@ -2630,6 +2651,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) != fee {
+
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
 
@@ -2728,6 +2750,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) == fee {
+
 		t.Fatalf("bob's feePerKw was unexpectedly locked in")
 	}
 
@@ -2742,6 +2765,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) != fee {
+
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -2769,6 +2793,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) == fee {
+
 		t.Fatalf("alice's feePerKw was unexpectedly locked in")
 	}
 
@@ -2782,6 +2807,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) != fee {
+
 		t.Fatalf("Alice's feePerKw was not locked in")
 	}
 
@@ -2871,6 +2897,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) == fee {
+
 		t.Fatalf("bob's feePerKw was unexpectedly locked in")
 	}
 
@@ -2896,6 +2923,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) != fee {
+
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -2923,6 +2951,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) == fee {
+
 		t.Fatalf("alice's feePerKw was unexpectedly locked in")
 	}
 
@@ -2936,6 +2965,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) != fee {
+
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
 
@@ -4403,7 +4433,7 @@ func TestChanSyncFailure(t *testing.T) {
 	}
 	p := bobSyncMsg.LocalUnrevokedCommitPoint.SerializeCompressed()
 	p[4] ^= 0x01
-	modCommitPoint, err := btcec.ParsePubKey(p, btcec.S256())
+	modCommitPoint, err := btcec.ParsePubKey(p)
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
@@ -4632,11 +4662,13 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) != newFeeRate {
+
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) != newFeeRate {
+
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -4851,11 +4883,13 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) != newFeeRate {
+
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) != newFeeRate {
+
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -4880,11 +4914,13 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 	if chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	) != newFeeRate {
+
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
 	if chainfee.SatPerKWeight(
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	) != newFeeRate {
+
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 }
@@ -5427,7 +5463,7 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 		return w
 	}
 
-	// Start by getting the initial remote commitment wight seen from
+	// Start by getting the initial remote commitment weight seen from
 	// Alice's perspective. At this point there are no HTLCs on the
 	// commitment.
 	weight1 := remoteCommitWeight(aliceChannel)
@@ -5438,7 +5474,7 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 	bobDustHtlc := bobDustlimit + htlcSuccessFee - 1
 	preimg := addHtlc(bobDustHtlc)
 
-	// Now get the current wight of the remote commitment. We expect it to
+	// Now get the current weight of the remote commitment. We expect it to
 	// not have changed, since the HTLC we added is considered dust.
 	weight2 := remoteCommitWeight(aliceChannel)
 	require.Equal(t, weight1, weight2)
@@ -5711,7 +5747,7 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 		t.Fatalf("unable to restart bob: %v", err)
 	}
 
-	// Readd the Fail to both Alice and Bob's channels, as the non-committed
+	// Re-add the Fail to both Alice and Bob's channels, as the non-committed
 	// update will not have survived the restart.
 	err = bobChannel.FailHTLC(htlc2.ID, []byte("failreason"), nil, nil, nil)
 	if err != nil {
@@ -5723,7 +5759,7 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	}
 
 	// Have Alice initiate a state transition, which does not include the
-	// HTLCs just readded to the channel state.
+	// HTLCs just re-added to the channel state.
 	aliceSig, aliceHtlcSigs, _, err = aliceChannel.SignNextCommitment()
 	if err != nil {
 		t.Fatal(err)
@@ -5960,7 +5996,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		Value:    outHtlcResolution.SweepSignDesc.Output.Value,
 	})
 	outHtlcResolution.SweepSignDesc.InputIndex = 0
-	outHtlcResolution.SweepSignDesc.SigHashes = txscript.NewTxSigHashes(
+	outHtlcResolution.SweepSignDesc.SigHashes = input.NewTxSigHashesV0Only(
 		sweepTx,
 	)
 	sweepTx.LockTime = outHtlcResolution.Expiry
@@ -5978,6 +6014,10 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		outHtlcResolution.SweepSignDesc.Output.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,
 		nil, outHtlcResolution.SweepSignDesc.Output.Value,
+		txscript.NewCannedPrevOutputFetcher(
+			outHtlcResolution.SweepSignDesc.Output.PkScript,
+			outHtlcResolution.SweepSignDesc.Output.Value,
+		),
 	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
@@ -5998,7 +6038,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		Value:    inHtlcResolution.SweepSignDesc.Output.Value,
 	})
 	inHtlcResolution.SweepSignDesc.InputIndex = 0
-	inHtlcResolution.SweepSignDesc.SigHashes = txscript.NewTxSigHashes(
+	inHtlcResolution.SweepSignDesc.SigHashes = input.NewTxSigHashesV0Only(
 		sweepTx,
 	)
 	sweepTx.TxIn[0].Witness, err = input.SenderHtlcSpendRedeem(
@@ -6016,6 +6056,10 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		inHtlcResolution.SweepSignDesc.Output.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,
 		nil, inHtlcResolution.SweepSignDesc.Output.Value,
+		txscript.NewCannedPrevOutputFetcher(
+			inHtlcResolution.SweepSignDesc.Output.PkScript,
+			inHtlcResolution.SweepSignDesc.Output.Value,
+		),
 	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
@@ -6133,7 +6177,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		PkScript: testHdSeed[:],
 		Value:    aliceSignDesc.Output.Value,
 	})
-	aliceSignDesc.SigHashes = txscript.NewTxSigHashes(sweepTx)
+	aliceSignDesc.SigHashes = input.NewTxSigHashesV0Only(sweepTx)
 	sweepTx.TxIn[0].Witness, err = input.CommitSpendNoDelay(
 		aliceChannel.Signer, &aliceSignDesc, sweepTx, false,
 	)
@@ -6147,6 +6191,10 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		aliceSignDesc.Output.PkScript, sweepTx, 0,
 		txscript.StandardVerifyFlags, nil, nil,
 		aliceSignDesc.Output.Value,
+		txscript.NewCannedPrevOutputFetcher(
+			aliceSignDesc.Output.PkScript,
+			aliceSignDesc.Output.Value,
+		),
 	)
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
@@ -6808,7 +6856,7 @@ func TestChanReserveRemoteInitiator(t *testing.T) {
 	// Set Alice's channel reserve to be 5 BTC-commitfee. This means she
 	// has just enough balance to cover the comitment fee, but not enough
 	// to add any more HTLCs to the commitment. Although a reserve this
-	// high is unrealistic, a channel can easiliy get into a situation
+	// high is unrealistic, a channel can easily get into a situation
 	// where the initiator cannot pay for the fee of any more HTLCs.
 	commitFee := aliceChannel.channelState.LocalCommitment.CommitFee
 	aliceMinReserve := 5*btcutil.SatoshiPerBitcoin - commitFee
@@ -7203,7 +7251,7 @@ func TestChannelRestoreUpdateLogs(t *testing.T) {
 	// signature from Bob yet.
 	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	if err != nil {
-		t.Fatalf("unable to recive revocation: %v", err)
+		t.Fatalf("unable to receive revocation: %v", err)
 	}
 
 	// Now make Alice send and sign an additional HTLC. We don't let Bob
@@ -7709,7 +7757,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	// Alice receives the revocation, ACKing her pending commitment.
 	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	if err != nil {
-		t.Fatalf("unable to recive revocation: %v", err)
+		t.Fatalf("unable to receive revocation: %v", err)
 	}
 
 	// However, the HTLC is still not locked into her local commitment, so
@@ -7726,7 +7774,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	}
 
 	// At this stage Bob has a pending remote commitment. Make sure
-	// restoring at this stage correcly restores the HTLC add commit
+	// restoring at this stage correctly restores the HTLC add commit
 	// heights.
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 1, 1)
 
@@ -7746,7 +7794,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 
 	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	if err != nil {
-		t.Fatalf("unable to recive revocation: %v", err)
+		t.Fatalf("unable to receive revocation: %v", err)
 	}
 
 	// Alice ACKing Bob's pending commitment shouldn't change the heights
@@ -7790,7 +7838,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	}
 
 	// Since Bob just revoked another commitment, a restoration should
-	// increase the add height of the firt HTLC to 2, as we only keep the
+	// increase the add height of the first HTLC to 2, as we only keep the
 	// last unrevoked commitment. The new HTLC will also have a local add
 	// height of 2.
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 2, 1)
@@ -8506,7 +8554,6 @@ func TestFetchParent(t *testing.T) {
 					test.parentIndex, parent.HtlcIndex)
 			}
 		})
-
 	}
 }
 

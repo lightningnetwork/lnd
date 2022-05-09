@@ -46,6 +46,11 @@ const (
 	// remote party to force close the channel out on chain now as a
 	// result.
 	ErrRecoveryError
+
+	// ErrCircuitError indicates a duplicate keystone error was hit in the
+	// circuit map. This is non-fatal and will resolve itself (usually
+	// within several minutes).
+	ErrCircuitError
 )
 
 // LinkFailureError encapsulates an error that will make us fail the current
@@ -94,6 +99,8 @@ func (e LinkFailureError) Error() string {
 		return "invalid revocation"
 	case ErrRecoveryError:
 		return "unable to resume channel, recovery required"
+	case ErrCircuitError:
+		return "non-fatal circuit map error"
 	default:
 		return "unknown error"
 	}

@@ -296,14 +296,6 @@ type ChannelLinkConfig struct {
 	HtlcNotifier htlcNotifier
 }
 
-// localUpdateAddMsg contains a locally initiated htlc and a channel that will
-// receive the outcome of the link processing. This channel must be buffered to
-// prevent the link from blocking.
-type localUpdateAddMsg struct {
-	pkt *htlcPacket
-	err chan error
-}
-
 // shutdownReq contains an error channel that will be used by the channelLink
 // to send an error if shutdown failed. If shutdown succeeded, the channel will
 // be closed.
@@ -371,10 +363,6 @@ type channelLink struct {
 	// by the HTLC switch.
 	downstream chan *htlcPacket
 
-	// localUpdateAdd is a channel to which locally initiated HTLCs are
-	// sent across.
-	localUpdateAdd chan *localUpdateAddMsg
-
 	// shutdownRequest is a channel that the channelLink will listen on to
 	// service shutdown requests from ShutdownIfChannelClean calls.
 	shutdownRequest chan *shutdownReq
@@ -428,7 +416,6 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		hodlQueue:       queue.NewConcurrentQueue(10),
 		log:             build.NewPrefixLog(logPrefix, log),
 		quit:            make(chan struct{}),
-		localUpdateAdd:  make(chan *localUpdateAddMsg),
 	}
 }
 
@@ -1057,7 +1044,21 @@ func (l *channelLink) htlcManager() {
 	// the channel is not pending, otherwise we should have no htlcs to
 	// reforward.
 	if l.ShortChanID() != hop.Source {
-		if err := l.resolveFwdPkgs(); err != nil {
+		err := l.resolveFwdPkgs()
+		switch err {
+		// No error was encountered, success.
+		case nil:
+
+		// If the duplicate keystone error was encountered, we'll fail
+		// without sending an Error message to the peer.
+		case ErrDuplicateKeystone:
+			l.fail(LinkFailureError{code: ErrCircuitError},
+				"temporary circuit error: %v", err)
+			return
+
+		// A non-nil error was encountered, send an Error message to
+		// the peer.
+		default:
 			l.fail(LinkFailureError{code: ErrInternalError},
 				"unable to resolve fwd pkgs: %v", err)
 			return
@@ -1180,10 +1181,6 @@ func (l *channelLink) htlcManager() {
 		case pkt := <-l.downstream:
 			l.handleDownstreamPkt(pkt)
 
-		// A message containing a locally initiated add was received.
-		case msg := <-l.localUpdateAdd:
-			msg.err <- l.handleDownstreamUpdateAdd(msg.pkt)
-
 		// A message from the connected peer was just received. This
 		// indicates that we have a new incoming HTLC, either directly
 		// for us, or part of a multi-hop HTLC circuit.
@@ -1195,12 +1192,27 @@ func (l *channelLink) htlcManager() {
 		case hodlItem := <-l.hodlQueue.ChanOut():
 			htlcResolution := hodlItem.(invoices.HtlcResolution)
 			err := l.processHodlQueue(htlcResolution)
-			if err != nil {
-				l.fail(LinkFailureError{code: ErrInternalError},
-					fmt.Sprintf("process hodl queue: %v",
-						err.Error()),
+			switch err {
+			// No error, success.
+			case nil:
+
+			// If the duplicate keystone error was encountered,
+			// fail back gracefully.
+			case ErrDuplicateKeystone:
+				l.fail(LinkFailureError{code: ErrCircuitError},
+					fmt.Sprintf("process hodl queue: "+
+						"temporary circuit error: %v",
+						err,
+					),
 				)
-				return
+
+			// Send an Error message to the peer.
+			default:
+				l.fail(LinkFailureError{code: ErrInternalError},
+					fmt.Sprintf("process hodl queue: "+
+						"unable to update commitment:"+
+						" %v", err),
+				)
 			}
 
 		case req := <-l.shutdownRequest:
@@ -1259,7 +1271,7 @@ loop:
 
 	// Update the commitment tx.
 	if err := l.updateCommitTx(); err != nil {
-		return fmt.Errorf("unable to update commitment: %v", err)
+		return err
 	}
 
 	return nil
@@ -2081,7 +2093,21 @@ func (l *channelLink) ackDownStreamPackets() error {
 // updateCommitTxOrFail updates the commitment tx and if that fails, it fails
 // the link.
 func (l *channelLink) updateCommitTxOrFail() bool {
-	if err := l.updateCommitTx(); err != nil {
+	err := l.updateCommitTx()
+	switch err {
+	// No error encountered, success.
+	case nil:
+
+	// A duplicate keystone error should be resolved and is not fatal, so
+	// we won't send an Error message to the peer.
+	case ErrDuplicateKeystone:
+		l.fail(LinkFailureError{code: ErrCircuitError},
+			"temporary circuit error: %v", err)
+		return false
+
+	// Any other error is treated results in an Error message being sent to
+	// the peer.
+	default:
 		l.fail(LinkFailureError{code: ErrInternalError},
 			"unable to update commitment: %v", err)
 		return false
@@ -2099,6 +2125,8 @@ func (l *channelLink) updateCommitTx() error {
 	// sign a commitment state.
 	err := l.cfg.Circuits.OpenCircuits(l.keystoneBatch...)
 	if err != nil {
+		// If ErrDuplicateKeystone is returned, the caller will catch
+		// it.
 		return err
 	}
 
@@ -2566,33 +2594,6 @@ func (l *channelLink) handleSwitchPacket(pkt *htlcPacket) error {
 		pkt.inKey(), pkt.outKey())
 
 	return l.mailBox.AddPacket(pkt)
-}
-
-// handleLocalAddPacket handles a locally-initiated UpdateAddHTLC packet. It
-// will be processed synchronously.
-//
-// NOTE: Part of the packetHandler interface.
-func (l *channelLink) handleLocalAddPacket(pkt *htlcPacket) error {
-	l.log.Tracef("received switch packet outkey=%v", pkt.outKey())
-
-	// Create a buffered result channel to prevent the link from blocking.
-	errChan := make(chan error, 1)
-
-	select {
-	case l.localUpdateAdd <- &localUpdateAddMsg{
-		pkt: pkt,
-		err: errChan,
-	}:
-	case <-l.quit:
-		return ErrLinkShuttingDown
-	}
-
-	select {
-	case err := <-errChan:
-		return err
-	case <-l.quit:
-		return ErrLinkShuttingDown
-	}
 }
 
 // HandleChannelUpdate handles the htlc requests as settle/add/fail which sent

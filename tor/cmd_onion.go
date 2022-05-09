@@ -1,13 +1,22 @@
 package tor
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 )
 
 var (
+	// ErrEncryptedTorPrivateKey is thrown when a tor private key is
+	// encrypted, but the user requested an unencrypted key.
+	ErrEncryptedTorPrivateKey = errors.New("it appears the Tor private key " +
+		"is encrypted but you didn't pass the --tor.encryptkey flag. " +
+		"Please restart lnd with the --tor.encryptkey flag or delete " +
+		"the Tor key file for regeneration")
+
 	// ErrNoPrivateKey is an error returned by the OnionStore.PrivateKey
 	// method when a private key hasn't yet been stored.
 	ErrNoPrivateKey = errors.New("private key not found")
@@ -24,19 +33,34 @@ const (
 	V3
 )
 
+const (
+	// V2KeyParam is a parameter that Tor accepts for a new V2 service.
+	V2KeyParam = "RSA1024"
+
+	// V3KeyParam is a parameter that Tor accepts for a new V3 service.
+	V3KeyParam = "ED25519-V3"
+)
+
 // OnionStore is a store containing information about a particular onion
 // service.
 type OnionStore interface {
 	// StorePrivateKey stores the private key according to the
 	// implementation of the OnionStore interface.
-	StorePrivateKey(OnionType, []byte) error
+	StorePrivateKey([]byte) error
 
 	// PrivateKey retrieves a stored private key. If it is not found, then
 	// ErrNoPrivateKey should be returned.
-	PrivateKey(OnionType) ([]byte, error)
+	PrivateKey() ([]byte, error)
 
 	// DeletePrivateKey securely removes the private key from the store.
-	DeletePrivateKey(OnionType) error
+	DeletePrivateKey() error
+}
+
+// EncrypterDecrypter is used for encrypting and decrypting the onion service
+// private key.
+type EncrypterDecrypter interface {
+	EncryptPayloadToWriter([]byte, io.Writer) error
+	DecryptPayloadFromReader(io.Reader) ([]byte, error)
 }
 
 // OnionFile is a file-based implementation of the OnionStore interface that
@@ -44,6 +68,8 @@ type OnionStore interface {
 type OnionFile struct {
 	privateKeyPath string
 	privateKeyPerm os.FileMode
+	encryptKey     bool
+	encrypter      EncrypterDecrypter
 }
 
 // A compile-time constraint to ensure OnionFile satisfies the OnionStore
@@ -52,31 +78,85 @@ var _ OnionStore = (*OnionFile)(nil)
 
 // NewOnionFile creates a file-based implementation of the OnionStore interface
 // to store an onion service's private key.
-func NewOnionFile(privateKeyPath string,
-	privateKeyPerm os.FileMode) *OnionFile {
+func NewOnionFile(privateKeyPath string, privateKeyPerm os.FileMode,
+	encryptKey bool, encrypter EncrypterDecrypter) *OnionFile {
 
 	return &OnionFile{
 		privateKeyPath: privateKeyPath,
 		privateKeyPerm: privateKeyPerm,
+		encryptKey:     encryptKey,
+		encrypter:      encrypter,
 	}
 }
 
-// StorePrivateKey stores the private key at its expected path.
-func (f *OnionFile) StorePrivateKey(_ OnionType, privateKey []byte) error {
-	return ioutil.WriteFile(f.privateKeyPath, privateKey, f.privateKeyPerm)
+// StorePrivateKey stores the private key at its expected path. It also
+// encrypts the key before storing it if requested.
+func (f *OnionFile) StorePrivateKey(privateKey []byte) error {
+	privateKeyContent := privateKey
+
+	if f.encryptKey {
+		var b bytes.Buffer
+		err := f.encrypter.EncryptPayloadToWriter(
+			privateKey, &b,
+		)
+		if err != nil {
+			return err
+		}
+		privateKeyContent = b.Bytes()
+	}
+
+	err := ioutil.WriteFile(
+		f.privateKeyPath, privateKeyContent, f.privateKeyPerm,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to write private key "+
+			"to file: %v", err)
+	}
+	return nil
 }
 
-// PrivateKey retrieves the private key from its expected path. If the file
-// does not exist, then ErrNoPrivateKey is returned.
-func (f *OnionFile) PrivateKey(_ OnionType) ([]byte, error) {
-	if _, err := os.Stat(f.privateKeyPath); os.IsNotExist(err) {
+// PrivateKey retrieves the private key from its expected path. If the file does
+// not exist, then ErrNoPrivateKey is returned.
+func (f *OnionFile) PrivateKey() ([]byte, error) {
+	_, err := os.Stat(f.privateKeyPath)
+	if err != nil && errors.Is(err, os.ErrNotExist) {
 		return nil, ErrNoPrivateKey
 	}
-	return ioutil.ReadFile(f.privateKeyPath)
+
+	// Try to read the Tor private key to pass into the AddOnion call.
+	privateKeyContent, err := ioutil.ReadFile(f.privateKeyPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the privateKey starts with either v2 or v3 key params then
+	// it's likely not encrypted and we can return the data as is.
+	if bytes.HasPrefix(privateKeyContent, []byte(V2KeyParam)) ||
+		bytes.HasPrefix(privateKeyContent, []byte(V3KeyParam)) {
+
+		return privateKeyContent, nil
+	}
+
+	// If the privateKeyContent is encrypted but --tor.encryptkey
+	// wasn't set we return an error.
+	if !f.encryptKey {
+		return nil, ErrEncryptedTorPrivateKey
+	}
+
+	// Attempt to decrypt the key.
+	reader := bytes.NewReader(privateKeyContent)
+	privateKeyContent, err = f.encrypter.DecryptPayloadFromReader(
+		reader,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return privateKeyContent, nil
 }
 
 // DeletePrivateKey removes the file containing the private key.
-func (f *OnionFile) DeletePrivateKey(_ OnionType) error {
+func (f *OnionFile) DeletePrivateKey() error {
 	return os.Remove(f.privateKeyPath)
 }
 
@@ -117,13 +197,13 @@ func (c *Controller) prepareKeyparam(cfg AddOnionConfig) (string, error) {
 	switch cfg.Type {
 	// TODO(yy): drop support for v2.
 	case V2:
-		keyParam = "NEW:RSA1024"
+		keyParam = "NEW:" + V2KeyParam
 	case V3:
-		keyParam = "NEW:ED25519-V3"
+		keyParam = "NEW:" + V3KeyParam
 	}
 
 	if cfg.Store != nil {
-		privateKey, err := cfg.Store.PrivateKey(cfg.Type)
+		privateKey, err := cfg.Store.PrivateKey()
 		switch err {
 		// Proceed to request a new onion service.
 		case ErrNoPrivateKey:
@@ -142,11 +222,13 @@ func (c *Controller) prepareKeyparam(cfg AddOnionConfig) (string, error) {
 
 // prepareAddOnion constructs a cmd command string based on the specified
 // config.
-func (c *Controller) prepareAddOnion(cfg AddOnionConfig) (string, error) {
+func (c *Controller) prepareAddOnion(cfg AddOnionConfig) (string, string,
+	error) {
+
 	// Create the keyParam.
 	keyParam, err := c.prepareKeyparam(cfg)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Now, we'll create a mapping from the virtual port to each target
@@ -178,7 +260,7 @@ func (c *Controller) prepareAddOnion(cfg AddOnionConfig) (string, error) {
 	// await its response.
 	cmd := fmt.Sprintf("ADD_ONION %s %s", keyParam, portParam)
 
-	return cmd, nil
+	return cmd, keyParam, nil
 }
 
 // AddOnion creates an ephemeral onion service and returns its onion address.
@@ -202,7 +284,7 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 	}
 
 	// Construct the cmd command.
-	cmd, err := c.prepareAddOnion(cfg)
+	cmd, keyParam, err := c.prepareAddOnion(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -234,11 +316,19 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 		return nil, errors.New("service id not found in reply")
 	}
 
-	// If a new onion service was created and an onion store was provided,
-	// we'll store its private key to disk in the event that it needs to be
-	// recreated later on.
-	if privateKey, ok := replyParams["PrivateKey"]; cfg.Store != nil && ok {
-		err := cfg.Store.StorePrivateKey(cfg.Type, []byte(privateKey))
+	// If a new onion service was created, use the new private key for
+	// storage.
+	newPrivateKey, ok := replyParams["PrivateKey"]
+	if ok {
+		keyParam = newPrivateKey
+	}
+
+	// If an onion store was provided and a key return wasn't requested,
+	// we'll store its private key to disk in the event that it needs to
+	// be recreated later on. We write the private key to disk every time
+	// in case the user toggles the --tor.encryptkey flag.
+	if cfg.Store != nil {
+		err := cfg.Store.StorePrivateKey([]byte(keyParam))
 		if err != nil {
 			return nil, fmt.Errorf("unable to write private key "+
 				"to file: %v", err)
@@ -254,6 +344,7 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 	return &OnionAddr{
 		OnionService: serviceID + ".onion",
 		Port:         cfg.VirtualPort,
+		PrivateKey:   keyParam,
 	}, nil
 }
 

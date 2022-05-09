@@ -2490,19 +2490,69 @@ func (h *HarnessTest) LookupInvoiceV2(hn *HarnessNode,
 func (h *HarnessTest) AssertLastHTLCError(hn *HarnessNode,
 	code lnrpc.Failure_FailureCode) {
 
-	paymentsResp := h.ListPayments(hn, true)
+	// Use -1 to specify the last HTLC.
+	h.assertHTLCError(hn, code, -1)
+}
 
-	payments := paymentsResp.Payments
-	require.NotZero(h, len(payments), "no payments found")
+// AssertFirstHTLCError checks that the first HTLC of the last payment sent
+// by the given node failed with the expected failure code.
+func (h *HarnessTest) AssertFirstHTLCError(hn *HarnessNode,
+	code lnrpc.Failure_FailureCode) {
 
-	payment := payments[len(payments)-1]
-	htlcs := payment.Htlcs
-	require.NotZero(h, len(htlcs), "no htlcs")
+	// Use 0 to specify the first HTLC.
+	h.assertHTLCError(hn, code, 0)
+}
 
-	htlc := htlcs[len(htlcs)-1]
-	require.NotNil(h, htlc.Failure, "expected htlc failure")
+// assertLastHTLCError checks that the HTLC at the specified index of the last
+// payment sent by the given node failed with the expected failure code.
+func (h *HarnessTest) assertHTLCError(hn *HarnessNode,
+	code lnrpc.Failure_FailureCode, index int) {
 
-	require.Equal(h, code, htlc.Failure.Code, "unexpected failure code")
+	err := wait.NoError(func() error {
+		paymentsResp := h.ListPayments(hn, true)
+
+		payments := paymentsResp.Payments
+		if len(payments) == 0 {
+			return fmt.Errorf("no payments found")
+		}
+
+		payment := payments[len(payments)-1]
+		htlcs := payment.Htlcs
+		if len(htlcs) == 0 {
+			return fmt.Errorf("no htlcs found")
+		}
+
+		// If the index is greater than 0, check we have enough htlcs.
+		if index > 0 && len(htlcs) <= index {
+			return fmt.Errorf("not enough htlcs")
+		}
+
+		// If index is less than or equal to 0, we will read the last
+		// htlc.
+		if index <= 0 {
+			index = len(htlcs) - 1
+		}
+
+		htlc := htlcs[index]
+
+		// The htlc must have a status of failed.
+		if htlc.Status != lnrpc.HTLCAttempt_FAILED {
+			return fmt.Errorf("htlc should be failed")
+		}
+		// The failure field must not be empty.
+		if htlc.Failure == nil {
+			return fmt.Errorf("expected htlc failure")
+		}
+
+		// Exit if the expected code is found.
+		if htlc.Failure.Code == code {
+			return nil
+		}
+
+		return fmt.Errorf("unexpected failure code")
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout checking HTLC error")
 }
 
 // GetChanPointFundingTxid takes a channel point and converts it into a chain

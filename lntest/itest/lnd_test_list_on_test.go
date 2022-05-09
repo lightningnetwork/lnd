@@ -346,6 +346,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "switch offline delivery outgoing offline",
 		TestFunc: testSwitchOfflineDeliveryOutgoingOffline,
 	},
+	{
+		Name:     "resolution handoff",
+		TestFunc: testResHandoff,
+	},
 
 	// Revocation related tests.
 	{
@@ -448,10 +452,6 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "taproot",
 		TestFunc: testTaproot,
 	},
-	// {
-	// 	name: "resolution handoff",
-	// 	test: testResHandoff,
-	// },
 	// {
 	// 	name: "basic funding flow with all input types",
 	// 	test: testChannelFundingInputTypes,

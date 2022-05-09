@@ -2369,9 +2369,6 @@ message PendingChannelsResponse {
         // The pending channel
         PendingChannel channel = 1;
 
-        // The height at which this channel will be confirmed
-        uint32 confirmation_height = 2;
-
         /*
         The amount calculated to be paid in fees for the current set of
         commitment transactions. The fee amount is persisted with the channel
@@ -2390,6 +2387,9 @@ message PendingChannelsResponse {
         transaction. This value can later be updated once the channel is open.
         */
         int64 fee_per_kw = 6;
+
+        // Previously used for confirmation_height. Do not reuse.
+        reserved 2;
     }
 
     message WaitingCloseChannel {

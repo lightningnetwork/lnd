@@ -2792,11 +2792,6 @@
           "$ref": "#/definitions/PendingChannelsResponsePendingChannel",
           "title": "The pending channel"
         },
-        "confirmation_height": {
-          "type": "integer",
-          "format": "int64",
-          "title": "The height at which this channel will be confirmed"
-        },
         "commit_fee": {
           "type": "string",
           "format": "int64",

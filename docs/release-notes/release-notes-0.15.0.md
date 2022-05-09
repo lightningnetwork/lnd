@@ -271,6 +271,8 @@ from occurring that would result in an erroneous force close.](https://github.co
   to the total number of payments (complete and incomplete) that are currently
   in the payment database](https://github.com/lightningnetwork/lnd/pull/6463).
 
+* [Remove `confirmation_height` field from PendingChannel proto](https://github.com/lightningnetwork/lnd/pull/6472)
+
 ## Database
 
 * [Add ForAll implementation for etcd to speed up
@@ -368,6 +370,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * randymcmillan
 * Rong Ou
 * Thebora Kompanioni
+* Tommy Volk
 * Torkel Rogstad
 * Vsevolod Kaganovych
 * Yong Yu

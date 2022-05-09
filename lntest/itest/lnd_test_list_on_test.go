@@ -154,6 +154,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "node announcement",
 		TestFunc: testNodeAnnouncement,
 	},
+	{
+		Name:     "update node announcement rpc",
+		TestFunc: testUpdateNodeAnnouncement,
+	},
 
 	// {
 	// 	name: "reconnect after ip change",
@@ -425,10 +429,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "taproot",
 	// 	test: testTaproot,
-	// },
-	// {
-	// 	name: "test update node announcement rpc",
-	// 	test: testUpdateNodeAnnouncement,
 	// },
 	// {
 	// 	name: "resolution handoff",

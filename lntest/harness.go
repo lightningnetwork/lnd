@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -2638,4 +2639,33 @@ func (h *HarnessTest) AssertChannelClosedFromGraph(hn *HarnessNode,
 	require.NoError(h, err, "failed to wait for channel close")
 
 	return closedChan
+}
+
+type (
+	AnnReq  *peersrpc.NodeAnnouncementUpdateRequest
+	AnnResp *peersrpc.NodeAnnouncementUpdateResponse
+)
+
+// UpdateNodeAnnouncement makes an UpdateNodeAnnouncement RPC call the the
+// peersrpc client and asserts.
+func (h *HarnessTest) UpdateNodeAnnouncement(hn *HarnessNode,
+	req AnnReq) AnnResp {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Peer.UpdateNodeAnnouncement(ctxt, req)
+	require.NoError(h, err, "failed to update announcement")
+
+	return resp
+}
+
+// UpdateNodeAnnouncementErr makes an UpdateNodeAnnouncement RPC call the the
+// peersrpc client and asserts an error is returned.
+func (h *HarnessTest) UpdateNodeAnnouncementErr(hn *HarnessNode, req AnnReq) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := hn.rpc.Peer.UpdateNodeAnnouncement(ctxt, req)
+	require.Error(h, err, "expect an error from update announcement")
 }

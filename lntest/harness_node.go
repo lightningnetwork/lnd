@@ -392,6 +392,7 @@ type RPCClients struct {
 	WatchtowerClient wtclientrpc.WatchtowerClientClient
 	State            lnrpc.StateClient
 	ChainClient      chainrpc.ChainNotifierClient
+	Peer             peersrpc.PeersClient
 }
 
 // Assert *HarnessNode implements the lnrpc.LightningClient interface.
@@ -947,6 +948,7 @@ func (hn *HarnessNode) InitRPCClients(c *grpc.ClientConn) {
 		Signer:           signrpc.NewSignerClient(c),
 		State:            lnrpc.NewStateClient(c),
 		ChainClient:      chainrpc.NewChainNotifierClient(c),
+		Peer:             peersrpc.NewPeersClient(c),
 	}
 }
 

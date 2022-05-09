@@ -92,6 +92,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "reconnect after ip change",
 		TestFunc: testReconnectAfterIPChange,
 	},
+	{
+		Name:     "addpeer config",
+		TestFunc: testAddPeerConfig,
+	},
 
 	// Onion related tests.
 	{
@@ -452,10 +456,6 @@ var allTestCases = []*lntest.TestCase{
 	// {
 	// 	name: "resolution handoff",
 	// 	test: testResHandoff,
-	// },
-	// {
-	// 	name: "addpeer config",
-	// 	test: testAddPeerConfig,
 	// },
 	// {
 	// 	name: "basic funding flow with all input types",

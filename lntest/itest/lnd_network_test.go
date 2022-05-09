@@ -1,9 +1,8 @@
 package itest
 
 import (
-	"context"
 	"fmt"
-	network "net"
+	"net"
 
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -212,14 +211,9 @@ func testReconnectAfterIPChange(ht *lntest.HarnessTest) {
 
 // testAddPeerConfig tests that the "--addpeer" config flag successfully adds
 // a new peer.
-func testAddPeerConfig(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	alice := net.Alice
-	info, err := alice.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
-	require.NoError(t.t, err)
+func testAddPeerConfig(ht *lntest.HarnessTest) {
+	alice := ht.Alice()
+	info := ht.GetInfo(alice)
 
 	alicePeerAddress := info.Uris[0]
 
@@ -227,28 +221,24 @@ func testAddPeerConfig(net *lntest.NetworkHarness, t *harnessTest) {
 	args := []string{
 		fmt.Sprintf("--addpeer=%v", alicePeerAddress),
 	}
-	carol := net.NewNode(t.t, "Carol", args)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", args)
+	defer ht.Shutdown(carol)
 
-	assertConnected(t, alice, carol)
+	ht.EnsureConnected(alice, carol)
 
 	// If we list Carol's peers, Alice should already be
 	// listed as one, since we specified her using the
 	// addpeer flag.
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	listPeersRequest := &lnrpc.ListPeersRequest{}
-	listPeersResp, err := carol.ListPeers(ctxt, listPeersRequest)
-	require.NoError(t.t, err)
+	listPeersResp := ht.ListPeers(carol)
 
 	parsedPeerAddr, err := lncfg.ParseLNAddressString(
-		alicePeerAddress, "9735", network.ResolveTCPAddr,
+		alicePeerAddress, "9735", net.ResolveTCPAddr,
 	)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	parsedKeyStr := fmt.Sprintf(
 		"%x", parsedPeerAddr.IdentityKey.SerializeCompressed(),
 	)
 
-	require.Equal(t.t, parsedKeyStr, listPeersResp.Peers[0].PubKey)
+	require.Equal(ht, parsedKeyStr, listPeersResp.Peers[0].PubKey)
 }

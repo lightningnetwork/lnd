@@ -7,7 +7,17 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
-	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
+)
+
+const (
+	// PubKeyFormatCompressedOdd is the identifier prefix byte for a public
+	// key whose Y coordinate is odd when serialized in the compressed
+	// format per section 2.3.4 of
+	// [SEC1](https://secg.org/sec1-v2.pdf#subsubsection.2.3.4).
+	// This is copied from the github.com/decred/dcrd/dcrec/secp256k1/v4 to
+	// avoid needing to directly reference (and by accident pull in
+	// incompatible crypto primitives) the package.
+	PubKeyFormatCompressedOdd byte = 0x03
 )
 
 // NewTxSigHashesV0Only returns a new txscript.TxSigHashes instance that will
@@ -56,7 +66,7 @@ func TapscriptFullTree(internalKey *btcec.PublicKey,
 	tapKey := txscript.ComputeTaprootOutputKey(internalKey, rootHash[:])
 
 	var outputKeyYIsOdd bool
-	if tapKey.SerializeCompressed()[0] == secp.PubKeyFormatCompressedOdd {
+	if tapKey.SerializeCompressed()[0] == PubKeyFormatCompressedOdd {
 		outputKeyYIsOdd = true
 	}
 
@@ -85,7 +95,7 @@ func TapscriptPartialReveal(internalKey *btcec.PublicKey,
 	rootHash := controlBlock.RootHash(revealedLeaf.Script)
 	tapKey := txscript.ComputeTaprootOutputKey(internalKey, rootHash)
 
-	if tapKey.SerializeCompressed()[0] == secp.PubKeyFormatCompressedOdd {
+	if tapKey.SerializeCompressed()[0] == PubKeyFormatCompressedOdd {
 		controlBlock.OutputKeyYIsOdd = true
 	}
 

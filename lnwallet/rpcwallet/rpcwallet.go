@@ -22,7 +22,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	basewallet "github.com/btcsuite/btcwallet/wallet"
-	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -1057,7 +1056,7 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 		// of this RPC), we can get by with faking certain information
 		// that we don't have.
 		fakeInternalKey, _ := btcec.ParsePubKey(d.PubKey)
-		fakeKeyIsOdd := d.PubKey[0] == secp.PubKeyFormatCompressedOdd
+		fakeKeyIsOdd := d.PubKey[0] == input.PubKeyFormatCompressedOdd
 		controlBlock := txscript.ControlBlock{
 			InternalKey:     fakeInternalKey,
 			OutputKeyYIsOdd: fakeKeyIsOdd,

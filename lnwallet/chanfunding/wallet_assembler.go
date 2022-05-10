@@ -111,7 +111,6 @@ func (f *FullIntent) CompileFundingTx(extraInputs []*wire.TxIn,
 		f.coinSource, extraInputs,
 	)
 	signDesc := input.SignDescriptor{
-		HashType: txscript.SigHashAll,
 		SigHashes: txscript.NewTxSigHashes(
 			fundingTx, prevOutFetcher,
 		),
@@ -135,6 +134,13 @@ func (f *FullIntent) CompileFundingTx(extraInputs []*wire.TxIn,
 			PkScript: info.PkScript,
 		}
 		signDesc.InputIndex = i
+
+		// We support spending a p2tr input ourselves. But not as part
+		// of their inputs.
+		signDesc.HashType = txscript.SigHashAll
+		if txscript.IsPayToTaproot(info.PkScript) {
+			signDesc.HashType = txscript.SigHashDefault
+		}
 
 		// Finally, we'll sign the input as is, and populate the input
 		// with the witness and sigScript (if needed).
@@ -398,7 +404,9 @@ var _ txscript.PrevOutputFetcher = (*SegWitV0DualFundingPrevOutputFetcher)(nil)
 //
 // NOTE: Since the actual pkScript and amounts aren't passed in, this will just
 // make sure that nothing will panic when creating a SegWit v0 sighash. But this
-// code will NOT WORK for transactions that spend any Taproot inputs!
+// code will NOT WORK for transactions that spend any _remote_ Taproot inputs!
+// So basically dual-funding won't work with Taproot inputs unless the UTXO info
+// is exchanged between the peers.
 func NewSegWitV0DualFundingPrevOutputFetcher(localSource CoinSource,
 	remoteInputs []*wire.TxIn) txscript.PrevOutputFetcher {
 

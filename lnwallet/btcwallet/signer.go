@@ -41,6 +41,8 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo, erro
 		addressType = lnwallet.WitnessPubKey
 	case txscript.IsPayToScriptHash(txOut.PkScript):
 		addressType = lnwallet.NestedWitnessPubKey
+	case txscript.IsPayToTaproot(txOut.PkScript):
+		addressType = lnwallet.TaprootPubkey
 	}
 
 	return &lnwallet.Utxo{

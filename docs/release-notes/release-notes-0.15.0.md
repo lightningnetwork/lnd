@@ -60,6 +60,10 @@ releases. Backward compatibility is not guaranteed!
 155](https://github.com/lightningnetwork/lnd/pull/6468), allowing it to connect
 to Bitcoin nodes that advertise a Tor v3 onion service address.
 
+[A new neutrino sub-server](https://github.com/lightningnetwork/lnd/pull/5652)
+capable of status checks, adding, disconnecting and listing peers, fetching
+compact filters and block/block headers.
+
 ## Bug Fixes
 
 * [Pipelining an UpdateFulfillHTLC message now only happens when the related UpdateAddHTLC is locked-in.](https://github.com/lightningnetwork/lnd/pull/6246)
@@ -87,12 +91,6 @@ to Bitcoin nodes that advertise a Tor v3 onion service address.
   first](https://github.com/lightningnetwork/lnd/pull/6214).
 
 * [Fixed crash in MuSig2Combine](https://github.com/lightningnetwork/lnd/pull/6502)
-  
-## Neutrino
-
-* [New neutrino sub-server](https://github.com/lightningnetwork/lnd/pull/5652)
-  capable of status checks, adding, disconnecting and listing
-  peers, fetching compact filters and block/block headers.
 
 * [Added signature length
   validation](https://github.com/lightningnetwork/lnd/pull/6314) when calling
@@ -140,6 +138,9 @@ from occurring that would result in an erroneous force close.](https://github.co
 
 * [Ignore addresses with unknown types in NodeAnnouncements](
   https://github.com/lightningnetwork/lnd/pull/6435)
+
+* [Taproot wallet inputs can also be used to fund
+  channels](https://github.com/lightningnetwork/lnd/pull/6521)
 
 ## Routing
 

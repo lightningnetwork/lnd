@@ -1417,7 +1417,7 @@ func (n *NetworkHarness) DumpLogs(node *HarnessNode) (string, error) {
 func (n *NetworkHarness) SendCoins(t *testing.T, amt btcutil.Amount,
 	target *HarnessNode) {
 
-	err := n.sendCoins(
+	err := n.SendCoinsOfType(
 		amt, target, lnrpc.AddressType_WITNESS_PUBKEY_HASH, true,
 	)
 	require.NoErrorf(t, err, "unable to send coins for %s", target.Cfg.Name)
@@ -1429,7 +1429,7 @@ func (n *NetworkHarness) SendCoins(t *testing.T, amt btcutil.Amount,
 func (n *NetworkHarness) SendCoinsUnconfirmed(t *testing.T, amt btcutil.Amount,
 	target *HarnessNode) {
 
-	err := n.sendCoins(
+	err := n.SendCoinsOfType(
 		amt, target, lnrpc.AddressType_WITNESS_PUBKEY_HASH, false,
 	)
 	require.NoErrorf(
@@ -1443,7 +1443,7 @@ func (n *NetworkHarness) SendCoinsUnconfirmed(t *testing.T, amt btcutil.Amount,
 func (n *NetworkHarness) SendCoinsNP2WKH(t *testing.T, amt btcutil.Amount,
 	target *HarnessNode) {
 
-	err := n.sendCoins(
+	err := n.SendCoinsOfType(
 		amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH, true,
 	)
 	require.NoErrorf(
@@ -1457,16 +1457,18 @@ func (n *NetworkHarness) SendCoinsNP2WKH(t *testing.T, amt btcutil.Amount,
 func (n *NetworkHarness) SendCoinsP2TR(t *testing.T, amt btcutil.Amount,
 	target *HarnessNode) {
 
-	err := n.sendCoins(amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true)
+	err := n.SendCoinsOfType(
+		amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true,
+	)
 	require.NoErrorf(
 		t, err, "unable to send P2TR coins for %s", target.Cfg.Name,
 	)
 }
 
-// sendCoins attempts to send amt satoshis from the internal mining node to the
-// targeted lightning node. The confirmed boolean indicates whether the
+// SendCoinsOfType attempts to send amt satoshis from the internal mining node
+// to the targeted lightning node. The confirmed boolean indicates whether the
 // transaction that pays to the target should confirm.
-func (n *NetworkHarness) sendCoins(amt btcutil.Amount, target *HarnessNode,
+func (n *NetworkHarness) SendCoinsOfType(amt btcutil.Amount, target *HarnessNode,
 	addrType lnrpc.AddressType, confirmed bool) error {
 
 	ctx, cancel := context.WithTimeout(n.runCtx, DefaultTimeout)

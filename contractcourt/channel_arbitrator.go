@@ -1460,6 +1460,10 @@ const (
 	// other party time it out, or eventually learn of the pre-image, in
 	// which case we'll claim on chain.
 	HtlcIncomingWatchAction = 5
+
+	// HtlcIncomingDustFinalAction indicates that we should mark an incoming
+	// dust htlc as final because it can't be claimed on-chain.
+	HtlcIncomingDustFinalAction = 6
 )
 
 // String returns a human readable string describing a chain action.
@@ -1482,6 +1486,9 @@ func (c ChainAction) String() string {
 
 	case HtlcIncomingWatchAction:
 		return "HtlcIncomingWatchAction"
+
+	case HtlcIncomingDustFinalAction:
+		return "HtlcIncomingDustFinalAction"
 
 	default:
 		return "<unknown action>"
@@ -1697,6 +1704,10 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 			log.Debugf("ChannelArbitrator(%v): no resolution "+
 				"needed for incoming dust htlc=%x",
 				c.cfg.ChanPoint, htlc.RHash[:])
+
+			actionMap[HtlcIncomingDustFinalAction] = append(
+				actionMap[HtlcIncomingDustFinalAction], htlc,
+			)
 
 			continue
 		}
@@ -2211,6 +2222,27 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					resolver.SupplementState(chanState)
 				}
 				htlcResolvers = append(htlcResolvers, resolver)
+			}
+
+		// We've lost an htlc because it isn't manifested on the
+		// commitment transaction that closed the channel.
+		case HtlcIncomingDustFinalAction:
+			for _, htlc := range htlcs {
+				htlc := htlc
+
+				key := channeldb.CircuitKey{
+					ChanID: c.cfg.ShortChanID,
+					HtlcID: htlc.HtlcIndex,
+				}
+
+				// Mark this dust htlc as final failed.
+				chainArbCfg := c.cfg.ChainArbitratorConfig
+				err := chainArbCfg.PutFinalHtlcOutcome(
+					key.ChanID, key.HtlcID, false,
+				)
+				if err != nil {
+					return nil, nil, err
+				}
 			}
 
 		// Finally, if this is an outgoing HTLC we've sent, then we'll

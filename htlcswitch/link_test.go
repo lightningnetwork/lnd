@@ -1958,7 +1958,7 @@ func handleStateUpdate(link *channelLink,
 		return err
 	}
 
-	remoteRev, _, err := remoteChannel.RevokeCurrentCommitment()
+	remoteRev, _, _, err := remoteChannel.RevokeCurrentCommitment()
 	if err != nil {
 		return err
 	}
@@ -2062,7 +2062,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 	}
 
 	// Lastly, send a revocation back to the link.
-	remoteRev, _, err := remoteChannel.RevokeCurrentCommitment()
+	remoteRev, _, _, err := remoteChannel.RevokeCurrentCommitment()
 	if err != nil {
 		return err
 	}
@@ -3134,7 +3134,7 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 
 	// Next, revoke Bob's current commitment and send it to Alice so that we
 	// can test that Alice's circuits aren't trimmed.
-	rev, _, err := bobChan.RevokeCurrentCommitment()
+	rev, _, _, err := bobChan.RevokeCurrentCommitment()
 	require.NoError(t, err, "unable to revoke current commitment")
 
 	_, _, _, _, err = alice.channel.ReceiveRevocation(rev)

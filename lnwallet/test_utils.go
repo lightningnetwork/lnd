@@ -502,7 +502,7 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 		return err
 	}
 
-	bobRevocation, _, err := chanB.RevokeCurrentCommitment()
+	bobRevocation, _, _, err := chanB.RevokeCurrentCommitment()
 	if err != nil {
 		return err
 	}
@@ -518,7 +518,7 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 		return err
 	}
 
-	aliceRevocation, _, err := chanA.RevokeCurrentCommitment()
+	aliceRevocation, _, _, err := chanA.RevokeCurrentCommitment()
 	if err != nil {
 		return err
 	}

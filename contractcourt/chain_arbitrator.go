@@ -187,6 +187,11 @@ type ChainArbitratorConfig struct {
 	// complete.
 	SubscribeBreachComplete func(op *wire.OutPoint, c chan struct{}) (
 		bool, error)
+
+	// PutFinalHtlcOutcome stores the final outcome of an htlc in the
+	// database.
+	PutFinalHtlcOutcome func(chanId lnwire.ShortChannelID,
+		htlcId uint64, settled bool) error
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all

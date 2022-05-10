@@ -469,6 +469,14 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
 func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
 	outcome channeldb.ResolverOutcome) error {
 
+	// Mark the htlc as final settled.
+	err := h.ChainArbitratorConfig.PutFinalHtlcOutcome(
+		h.ChannelArbitratorConfig.ShortChanID, h.htlc.HtlcIndex, true,
+	)
+	if err != nil {
+		return err
+	}
+
 	// Create a resolver report for claiming of the htlc itself.
 	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
 	reports := []*channeldb.ResolverReport{

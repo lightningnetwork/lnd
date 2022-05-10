@@ -206,6 +206,8 @@ type chanArbTestCtx struct {
 
 	breachSubscribed     chan struct{}
 	breachResolutionChan chan struct{}
+
+	finalHtlcs map[uint64]bool
 }
 
 func (c *chanArbTestCtx) CleanUp() {
@@ -306,6 +308,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 
 	chanArbCtx := &chanArbTestCtx{
 		breachSubscribed: make(chan struct{}),
+		finalHtlcs:       make(map[uint64]bool),
 	}
 
 	chanPoint := wire.OutPoint{}
@@ -360,6 +363,13 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		},
 		Clock:   clock.NewDefaultClock(),
 		Sweeper: mockSweeper,
+		PutFinalHtlcOutcome: func(chanId lnwire.ShortChannelID,
+			htlcId uint64, settled bool) error {
+
+			chanArbCtx.finalHtlcs[htlcId] = settled
+
+			return nil
+		},
 	}
 
 	// We'll use the resolvedChan to synchronize on call to
@@ -965,6 +975,12 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	if err := chanArb.Stop(); err != nil {
 		t.Fatalf("unable to stop chan arb: %v", err)
 	}
+
+	// Assert that a final resolution was stored for the incoming dust htlc.
+	expectedFinalHtlcs := map[uint64]bool{
+		incomingDustHtlc.HtlcIndex: false,
+	}
+	require.Equal(t, expectedFinalHtlcs, chanArbCtx.finalHtlcs)
 
 	// We'll no re-create the resolver, notice that we use the existing
 	// arbLog so it carries over the same on-disk state.

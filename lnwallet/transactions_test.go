@@ -291,7 +291,7 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	err = remoteChannel.ReceiveNewCommitment(localSig, localHtlcSigs)
 	require.NoError(t, err)
 
-	revMsg, _, err := remoteChannel.RevokeCurrentCommitment()
+	revMsg, _, _, err := remoteChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
 
 	_, _, _, _, err = localChannel.ReceiveRevocation(revMsg)
@@ -309,7 +309,7 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	err = localChannel.ReceiveNewCommitment(remoteSig, remoteHtlcSigs)
 	require.NoError(t, err)
 
-	_, _, err = localChannel.RevokeCurrentCommitment()
+	_, _, _, err = localChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
 
 	// Now the local node force closes the channel so that we can inspect

@@ -4779,15 +4779,17 @@ func (lc *LightningChannel) PendingLocalUpdateCount() uint64 {
 // chain is advanced by a single commitment. This now lowest unrevoked
 // commitment becomes our currently accepted state within the channel. This
 // method also returns the set of HTLC's currently active within the commitment
-// transaction. This return value allows callers to act once an HTLC has been
-// locked into our commitment transaction.
-func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, []channeldb.HTLC, error) {
+// transaction and the htlcs the were resolved. This return value allows callers
+// to act once an HTLC has been locked into our commitment transaction.
+func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
+	[]channeldb.HTLC, map[uint64]bool, error) {
+
 	lc.Lock()
 	defer lc.Unlock()
 
 	revocationMsg, err := lc.generateRevocation(lc.currentHeight)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	lc.log.Tracef("revoking height=%v, now at height=%v",
@@ -4808,11 +4810,11 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, []c
 	// is committed locally.
 	unsignedAckedUpdates := lc.getUnsignedAckedUpdates()
 
-	err = lc.channelState.UpdateCommitment(
+	finalHtlcs, err := lc.channelState.UpdateCommitment(
 		newCommitment, unsignedAckedUpdates,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	lc.log.Tracef("state transition accepted: "+
@@ -4825,7 +4827,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, []c
 		&lc.channelState.FundingOutpoint,
 	)
 
-	return revocationMsg, newCommitment.Htlcs, nil
+	return revocationMsg, newCommitment.Htlcs, finalHtlcs, nil
 }
 
 // ReceiveRevocation processes a revocation sent by the remote party for the

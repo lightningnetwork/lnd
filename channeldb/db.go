@@ -1652,6 +1652,27 @@ func (c *ChannelStateDB) FetchHistoricalChannel(outPoint *wire.OutPoint) (
 	return channel, nil
 }
 
+// PutOnchainFinalHtlcOutcome stores the final on-chain outcome of an htlc in
+// the database.
+func (c *ChannelStateDB) PutOnchainFinalHtlcOutcome(
+	chanID lnwire.ShortChannelID, htlcID uint64, settled bool) error {
+
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		finalHtlcsBucket, err := fetchFinalHtlcsBucketRw(tx, chanID)
+		if err != nil {
+			return err
+		}
+
+		return putFinalHtlc(
+			finalHtlcsBucket, htlcID,
+			FinalHtlcInfo{
+				Settled:  settled,
+				Offchain: false,
+			},
+		)
+	}, func() {})
+}
+
 // MakeTestDB creates a new instance of the ChannelDB for testing purposes.
 // A callback which cleans up the created temporary directories is also
 // returned and intended to be executed after the test completes.

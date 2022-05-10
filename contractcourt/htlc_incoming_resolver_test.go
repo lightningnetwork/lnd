@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -298,14 +299,15 @@ func (o *mockOnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte) (
 }
 
 type incomingResolverTestContext struct {
-	registry       *mockRegistry
-	witnessBeacon  *mockWitnessBeacon
-	resolver       *htlcIncomingContestResolver
-	notifier       *mock.ChainNotifier
-	onionProcessor *mockOnionProcessor
-	resolveErr     chan error
-	nextResolver   ContractResolver
-	t              *testing.T
+	registry               *mockRegistry
+	witnessBeacon          *mockWitnessBeacon
+	resolver               *htlcIncomingContestResolver
+	notifier               *mock.ChainNotifier
+	onionProcessor         *mockOnionProcessor
+	resolveErr             chan error
+	nextResolver           ContractResolver
+	finalHtlcOutcomeStored bool
+	t                      *testing.T
 }
 
 func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolverTestContext {
@@ -323,12 +325,27 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 
 	checkPointChan := make(chan struct{}, 1)
 
+	c := &incomingResolverTestContext{
+		registry:       registry,
+		witnessBeacon:  witnessBeacon,
+		notifier:       notifier,
+		onionProcessor: onionProcessor,
+		t:              t,
+	}
+
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
 			Notifier:       notifier,
 			PreimageDB:     witnessBeacon,
 			Registry:       registry,
 			OnionProcessor: onionProcessor,
+			PutFinalHtlcOutcome: func(chanId lnwire.ShortChannelID,
+				htlcId uint64, settled bool) error {
+
+				c.finalHtlcOutcomeStored = true
+
+				return nil
+			},
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {
@@ -346,7 +363,8 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 			return nil
 		},
 	}
-	resolver := &htlcIncomingContestResolver{
+
+	c.resolver = &htlcIncomingContestResolver{
 		htlcSuccessResolver: &htlcSuccessResolver{
 			contractResolverKit: *newContractResolverKit(cfg),
 			htlcResolution:      lnwallet.IncomingHtlcResolution{},
@@ -359,14 +377,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		htlcExpiry: testHtlcExpiry,
 	}
 
-	return &incomingResolverTestContext{
-		registry:       registry,
-		witnessBeacon:  witnessBeacon,
-		resolver:       resolver,
-		notifier:       notifier,
-		onionProcessor: onionProcessor,
-		t:              t,
-	}
+	return c
 }
 
 func (i *incomingResolverTestContext) resolve() {
@@ -400,6 +411,10 @@ func (i *incomingResolverTestContext) waitForResult(expectSuccessRes bool) {
 		if i.nextResolver != nil {
 			i.t.Fatal("expected no next resolver")
 		}
+
+		require.True(i.t, i.finalHtlcOutcomeStored,
+			"expected final htlc outcome to be stored")
+
 		return
 	}
 

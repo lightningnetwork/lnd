@@ -179,7 +179,7 @@ func (l *linkTestContext) receiveCommitSigAlice(expHtlcs int) *lnwire.CommitSig 
 func (l *linkTestContext) sendRevAndAckBobToAlice() {
 	l.t.Helper()
 
-	rev, _, err := l.bobChannel.RevokeCurrentCommitment()
+	rev, _, _, err := l.bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		l.t.Fatalf("unable to revoke commitment: %v", err)
 	}

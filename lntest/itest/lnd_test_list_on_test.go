@@ -25,6 +25,10 @@ var allTestCases = []*testCase{
 		test: testBasicChannelFunding,
 	},
 	{
+		name: "basic funding flow with all input types",
+		test: testChannelFundingInputTypes,
+	},
+	{
 		name: "unconfirmed channel funding",
 		test: testUnconfirmedChannelFunding,
 	},

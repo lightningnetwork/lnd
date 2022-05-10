@@ -343,6 +343,141 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(t, net, carol, chanPoint, false)
 }
 
+// testChannelFundingInputTypes tests that any type of supported input type can
+// be used to fund channels.
+func testChannelFundingInputTypes(net *lntest.NetworkHarness, t *harnessTest) {
+	const (
+		chanAmt  = funding.MaxBtcFundingAmount
+		burnAddr = "bcrt1qxsnqpdc842lu8c0xlllgvejt6rhy49u6fmpgyz"
+	)
+	addrTypes := []lnrpc.AddressType{
+		lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+		lnrpc.AddressType_NESTED_PUBKEY_HASH,
+		lnrpc.AddressType_TAPROOT_PUBKEY,
+	}
+
+	// We'll start off by creating a node for Carol.
+	carol := net.NewNode(t.t, "Carol", nil)
+	defer shutdownAndAssert(net, t, carol)
+
+	// Now, we'll connect her to Alice so that they can open a
+	// channel together.
+	net.ConnectNodes(t.t, carol, net.Alice)
+
+	for _, addrType := range addrTypes {
+		// We'll send her some confirmed funds.
+		err := net.SendCoinsOfType(chanAmt*2, carol, addrType, true)
+		require.NoErrorf(
+			t.t, err, "unable to send coins for carol and addr "+
+				"type %v", addrType,
+		)
+
+		chanOpenUpdate := openChannelStream(
+			t, net, carol, net.Alice, lntest.OpenChannelParams{
+				Amt: chanAmt,
+			},
+		)
+
+		// Creates a helper closure to be used below which asserts the
+		// proper response to a channel balance RPC.
+		checkChannelBalance := func(node *lntest.HarnessNode,
+			local, remote, pendingLocal,
+			pendingRemote btcutil.Amount) {
+
+			expectedResponse := &lnrpc.ChannelBalanceResponse{
+				LocalBalance: &lnrpc.Amount{
+					Sat: uint64(local),
+					Msat: uint64(lnwire.NewMSatFromSatoshis(
+						local,
+					)),
+				},
+				RemoteBalance: &lnrpc.Amount{
+					Sat: uint64(remote),
+					Msat: uint64(lnwire.NewMSatFromSatoshis(
+						remote,
+					)),
+				},
+				PendingOpenLocalBalance: &lnrpc.Amount{
+					Sat: uint64(pendingLocal),
+					Msat: uint64(lnwire.NewMSatFromSatoshis(
+						pendingLocal,
+					)),
+				},
+				PendingOpenRemoteBalance: &lnrpc.Amount{
+					Sat: uint64(pendingRemote),
+					Msat: uint64(lnwire.NewMSatFromSatoshis(
+						pendingRemote,
+					)),
+				},
+				UnsettledLocalBalance:  &lnrpc.Amount{},
+				UnsettledRemoteBalance: &lnrpc.Amount{},
+				// Deprecated fields.
+				Balance:            int64(local),
+				PendingOpenBalance: int64(pendingLocal),
+			}
+			assertChannelBalanceResp(t, node, expectedResponse)
+		}
+
+		// As the channel is pending open, it's expected Carol has both
+		// zero local and remote balances, and pending local/remote
+		// should not be zero.
+		//
+		// Note that atm we haven't obtained the chanPoint yet, so we
+		// use the type directly.
+		cType := lnrpc.CommitmentType_STATIC_REMOTE_KEY
+		carolLocalBalance := chanAmt - calcStaticFee(cType, 0)
+		checkChannelBalance(carol, 0, 0, carolLocalBalance, 0)
+
+		// For Alice, her local/remote balances should be zero, and the
+		// local/remote balances are the mirror of Carol's.
+		checkChannelBalance(net.Alice, 0, 0, 0, carolLocalBalance)
+
+		// Confirm the channel and wait for it to be recognized by both
+		// parties. Two transactions should be mined, the unconfirmed
+		// spend and the funding tx.
+		mineBlocks(t, net, 6, 1)
+		chanPoint, err := net.WaitForChannelOpen(chanOpenUpdate)
+		require.NoError(
+			t.t, err, "error while waiting for channel open",
+		)
+
+		// With the channel open, we'll check the balances on each side
+		// of the channel as a sanity check to ensure things worked out
+		// as intended.
+		checkChannelBalance(carol, carolLocalBalance, 0, 0, 0)
+		checkChannelBalance(net.Alice, 0, carolLocalBalance, 0, 0)
+
+		// Now that we're done with the test, the channel can be closed.
+		closeChannelAndAssert(t, net, carol, chanPoint, false)
+
+		// Empty out the wallet so there aren't any lingering coins.
+		sendAllCoinsConfirm(net, carol, t, burnAddr)
+	}
+}
+
+// sendAllCoinsConfirm sends all coins of the node's wallet to the given address
+// and awaits one confirmation.
+func sendAllCoinsConfirm(net *lntest.NetworkHarness, node *lntest.HarnessNode,
+	t *harnessTest, addr string) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	sweepReq := &lnrpc.SendCoinsRequest{
+		Addr:    addr,
+		SendAll: true,
+	}
+	_, err := node.SendCoins(ctxt, sweepReq)
+	require.NoError(t.t, err)
+
+	// Make sure the unconfirmed tx is seen in the mempool.
+	_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
+	require.NoError(t.t, err, "failed to find tx in miner mempool")
+
+	mineBlocks(t, net, 1, 1)
+}
+
 // testExternalFundingChanPoint tests that we're able to carry out a normal
 // channel funding workflow given a channel point that was constructed outside
 // the main daemon.

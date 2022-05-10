@@ -79,6 +79,11 @@ func calculateFees(utxos []Coin, feeRate chainfee.SatPerKWeight) (btcutil.Amount
 		case txscript.IsPayToScriptHash(utxo.PkScript):
 			weightEstimate.AddNestedP2WKHInput()
 
+		case txscript.IsPayToTaproot(utxo.PkScript):
+			weightEstimate.AddTaprootKeySpendInput(
+				txscript.SigHashDefault,
+			)
+
 		default:
 			return 0, 0, &errUnsupportedInput{utxo.PkScript}
 		}

@@ -244,8 +244,6 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 // testUnconfirmedChannelFunding tests that our unconfirmed change outputs can
 // be used to fund channels.
 func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
 	const (
 		chanAmt = funding.MaxBtcFundingAmount
 		pushAmt = btcutil.Amount(100000)
@@ -256,27 +254,10 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, carol)
 
 	// We'll send her some confirmed funds.
-	net.SendCoins(t.t, 2*chanAmt, carol)
-
-	// Now let Carol send some funds to herself, making a unconfirmed
-	// change output.
-	addrReq := &lnrpc.NewAddressRequest{
-		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
-	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := carol.NewAddress(ctxt, addrReq)
-	require.NoError(t.t, err, "unable to get new address")
-
-	sendReq := &lnrpc.SendCoinsRequest{
-		Addr:   resp.Address,
-		Amount: int64(chanAmt) / 5,
-	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = carol.SendCoins(ctxt, sendReq)
-	require.NoError(t.t, err, "unable to send coins")
+	net.SendCoinsUnconfirmed(t.t, chanAmt*2, carol)
 
 	// Make sure the unconfirmed tx is seen in the mempool.
-	_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
+	_, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
 	require.NoError(t.t, err, "failed to find tx in miner mempool")
 
 	// Now, we'll connect her to Alice so that they can open a channel

@@ -305,6 +305,10 @@ to the htlc interceptor API.
   grow very large on disk given a busy operating channel, [which is now changed
   with a space deduction over (at least) 96 percents.](https://github.com/lightningnetwork/lnd/pull/6347) 
 
+* [Mobile builds now expose main sub-servers by default](https://github.com/lightningnetwork/lnd/pull/6464).
+  All API methods have prefixed the generated methods with the subserver name.
+  This is required to support subservers with name conflicts.
+
 ## Documentation
 
 * Improved instructions on [how to build lnd for mobile](https://github.com/lightningnetwork/lnd/pull/6085).
@@ -372,6 +376,7 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * Elle Mouton
 * ErikEk
 * Eugene Siegel
+* Evan Kaloudis
 * Hampus Sjöberg
 * henta
 * hieblmi

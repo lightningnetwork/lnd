@@ -29,7 +29,7 @@ COMMIT_HASH := $(shell git rev-parse HEAD)
 
 GOBUILD := go build -v
 GOINSTALL := go install -v
-GOTEST := go test 
+GOTEST := go test
 
 GOVERSION := $(shell go version | awk '{print $$3}')
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -name "*pb.go" -not -name "*pb.gw.go" -not -name "*.pb.json.go")
@@ -291,8 +291,8 @@ sample-conf-check:
 	for flag in $$(GO_FLAGS_COMPLETION=1 go run -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lnd -- | grep -v help | cut -c3-); do if ! grep -q $$flag sample-lnd.conf; then echo "Command line flag --$$flag not added to sample-lnd.conf"; exit 1; fi; done
 
 mobile-rpc:
-	@$(call print, "Creating mobile RPC from protos (prefix=$(prefix)).")
-	cd ./lnrpc; COMPILE_MOBILE=1 SUBSERVER_PREFIX=$(prefix) ./gen_protos_docker.sh
+	@$(call print, "Creating mobile RPC from protos.")
+	cd ./lnrpc; COMPILE_MOBILE=1 SUBSERVER_PREFIX=1 ./gen_protos_docker.sh
 
 vendor:
 	@$(call print, "Re-creating vendor directory.")
@@ -301,22 +301,22 @@ vendor:
 apple: vendor mobile-rpc
 	@$(call print, "Building iOS and macOS cxframework ($(IOS_BUILD)).")
 	mkdir -p $(IOS_BUILD_DIR)
-	$(GOMOBILE_BIN) bind -target=ios,iossimulator,macos -tags="mobile $(DEV_TAGS) autopilotrpc" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
+	$(GOMOBILE_BIN) bind -target=ios,iossimulator,macos -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
 
 ios: vendor mobile-rpc
 	@$(call print, "Building iOS cxframework ($(IOS_BUILD)).")
 	mkdir -p $(IOS_BUILD_DIR)
-	$(GOMOBILE_BIN) bind -target=ios,iossimulator -tags="mobile $(DEV_TAGS) autopilotrpc neutrinorpc" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
+	$(GOMOBILE_BIN) bind -target=ios,iossimulator -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
 
 macos: vendor mobile-rpc
 	@$(call print, "Building macOS cxframework ($(IOS_BUILD)).")
 	mkdir -p $(IOS_BUILD_DIR)
-	$(GOMOBILE_BIN) bind -target=macos -tags="mobile $(DEV_TAGS) autopilotrpc" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
+	$(GOMOBILE_BIN) bind -target=macos -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
 
 android: vendor mobile-rpc
 	@$(call print, "Building Android library ($(ANDROID_BUILD)).")
 	mkdir -p $(ANDROID_BUILD_DIR)
-	$(GOMOBILE_BIN) bind -target=android -tags="mobile $(DEV_TAGS) autopilotrpc neutrinorpc" $(LDFLAGS) -v -o $(ANDROID_BUILD) $(MOBILE_PKG)
+	$(GOMOBILE_BIN) bind -target=android -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" $(LDFLAGS) -v -o $(ANDROID_BUILD) $(MOBILE_PKG)
 
 mobile: ios android
 

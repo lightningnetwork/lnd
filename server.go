@@ -194,11 +194,8 @@ type server struct {
 	peerConnectedListeners    map[string][]chan<- lnpeer.Peer
 	peerDisconnectedListeners map[string][]chan<- struct{}
 
-	// TODO(yy): the Brontide.Start doesn't know this value, which means it
-	// will continue to send messages even if there are no active channels
-	// and the value below is false. Once it's pruned, all its connections
-	// will be closed, thus the Brontide.Start will return an error.
-	persistentPeers        map[string]bool
+	persistentPeerMgr *peer.PersistentPeerManager
+
 	persistentPeersBackoff map[string]time.Duration
 	persistentPeerAddrs    map[string][]*lnwire.NetAddress
 	persistentConnReqs     map[string][]*connmgr.ConnReq
@@ -359,7 +356,9 @@ func (s *server) updatePersistentPeerAddrs() error {
 					// We only care about updates from
 					// our persistentPeers.
 					s.mu.RLock()
-					_, ok := s.persistentPeers[pubKeyStr]
+					ok := s.persistentPeerMgr.IsPersistentPeer(
+						update.IdentityKey,
+					)
 					s.mu.RUnlock()
 					if !ok {
 						continue
@@ -574,7 +573,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 		torController: torController,
 
-		persistentPeers:         make(map[string]bool),
+		persistentPeerMgr:       peer.NewPersistentPeerManager(),
 		persistentPeersBackoff:  make(map[string]time.Duration),
 		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
 		persistentPeerAddrs:     make(map[string][]*lnwire.NetAddress),
@@ -1280,9 +1279,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// to connect to this peer even if the number of
 			// channels with this peer is zero.
 			s.mu.Lock()
-			pubStr := string(peerKey.SerializeCompressed())
-			if _, ok := s.persistentPeers[pubStr]; !ok {
-				s.persistentPeers[pubStr] = false
+			if !s.persistentPeerMgr.IsPersistentPeer(peerKey) {
+				s.persistentPeerMgr.AddPeer(peerKey, false)
 			}
 			s.mu.Unlock()
 
@@ -2416,9 +2414,9 @@ func (s *server) createBootstrapIgnorePeers() map[autopilot.NodeID]struct{} {
 
 	// Ignore all persistent peers as they have a dedicated reconnecting
 	// process.
-	for pubKeyStr := range s.persistentPeers {
+	for _, pubKey := range s.persistentPeerMgr.PersistentPeers() {
 		var nID autopilot.NodeID
-		copy(nID[:], []byte(pubKeyStr))
+		copy(nID[:], pubKey.SerializeCompressed())
 		ignore[nID] = struct{}{}
 	}
 
@@ -2967,7 +2965,7 @@ func (s *server) establishPersistentConnections() error {
 		// indicate that we should not continue to reconnect if the
 		// number of channels returns to zero, since this peer has not
 		// been requested as perm by the user.
-		s.persistentPeers[pubStr] = false
+		s.persistentPeerMgr.AddPeer(nodeAddr.pubKey, false)
 		if _, ok := s.persistentPeersBackoff[pubStr]; !ok {
 			s.persistentPeersBackoff[pubStr] = s.cfg.MinBackoff
 		}
@@ -3023,22 +3021,28 @@ func (s *server) delayInitialReconnect(pubStr string) {
 // persistent connections to a peer within the server. This is used to avoid
 // persistent connection retries to peers we do not have any open channels with.
 func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
-	pubKeyStr := string(compressedPubKey[:])
-
 	s.mu.Lock()
-	if perm, ok := s.persistentPeers[pubKeyStr]; ok && !perm {
-		delete(s.persistentPeers, pubKeyStr)
+	defer s.mu.Unlock()
+
+	pubKey, err := btcec.ParsePubKey(compressedPubKey[:])
+	if err != nil {
+		srvrLog.Errorf("could not convert pubKey bytes (%x) to "+
+			"btcec.PublicKey: %v", compressedPubKey, err)
+		return
+	}
+
+	pubKeyStr := string(compressedPubKey[:])
+	if s.persistentPeerMgr.IsNonPermPersistentPeer(pubKey) {
 		delete(s.persistentPeersBackoff, pubKeyStr)
 		delete(s.persistentPeerAddrs, pubKeyStr)
 		s.cancelConnReqs(pubKeyStr, nil)
-		s.mu.Unlock()
+		s.persistentPeerMgr.DelPeer(pubKey)
 
 		srvrLog.Infof("Pruned peer %x from persistent connections, "+
 			"peer has no open channels", compressedPubKey)
 
 		return
 	}
-	s.mu.Unlock()
 }
 
 // BroadcastMessage sends a request to the server to broadcast a set of
@@ -3830,7 +3834,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	s.removePeer(p)
 
 	// Next, check to see if this is a persistent peer or not.
-	if _, ok := s.persistentPeers[pubStr]; !ok {
+	if !s.persistentPeerMgr.IsPersistentPeer(pubKey) {
 		return
 	}
 
@@ -4132,7 +4136,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 		// the entry to true which will tell the server to continue
 		// reconnecting even if the number of channels with this peer is
 		// zero.
-		s.persistentPeers[targetPub] = true
+		s.persistentPeerMgr.AddPeer(addr.IdentityKey, true)
 		if _, ok := s.persistentPeersBackoff[targetPub]; !ok {
 			s.persistentPeersBackoff[targetPub] = s.cfg.MinBackoff
 		}
@@ -4214,7 +4218,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	// If this peer was formerly a persistent connection, then we'll remove
 	// them from this map so we don't attempt to re-connect after we
 	// disconnect.
-	delete(s.persistentPeers, pubStr)
+	s.persistentPeerMgr.DelPeer(pubKey)
 	delete(s.persistentPeersBackoff, pubStr)
 
 	// Remove the current peer from the server's internal state and signal

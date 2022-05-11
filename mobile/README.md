@@ -227,19 +227,11 @@ implementation project(":lndmobile", { "default" })
 ```
 --- 
 
-## Options
+## Calling the API
 
-Similar to lnd, subservers can be conditionally compiled with the build by setting the tags argument:
+In LND v0.15+ all API methods have prefixed the generated methods with the subserver name. This is required to support subservers with name conflicts.
 
-```shell
-⛰  make ios
-```
-
-To support subservers that have APIs with name conflicts, pass the "prefix" flag. This will add the subserver name as a prefix to each method name:
-
-```shell
-⛰  make ios prefix=1
-```
+eg. `QueryScores` is now `AutopilotQueryScores`. `GetBlockHeader` is now `NeutrinoKitGetBlockHeader`.
 
 ## API docs
 

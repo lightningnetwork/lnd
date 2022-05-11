@@ -1,5 +1,5 @@
-//go:build bitcoind && notxindex
-// +build bitcoind,notxindex
+//go:build bitcoind && notxindex && !rpcpolling
+// +build bitcoind,notxindex,!rpcpolling
 
 package lntest
 
@@ -18,5 +18,5 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 		"-disablewallet",
 	}
 
-	return newBackend(miner, netParams, extraArgs)
+	return newBackend(miner, netParams, extraArgs, false)
 }

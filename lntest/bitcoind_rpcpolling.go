@@ -1,5 +1,5 @@
-//go:build bitcoind && !notxindex && !rpcpolling
-// +build bitcoind,!notxindex,!rpcpolling
+//go:build bitcoind && rpcpolling
+// +build bitcoind,rpcpolling
 
 package lntest
 
@@ -7,8 +7,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 )
 
-// NewBackend starts a bitcoind node with the txindex enabled and returns a
-// BitcoindBackendConfig for that node.
+// NewBackend starts a bitcoind node without the txindex enabled and returns a
+// BitoindBackendConfig for that node.
 func NewBackend(miner string, netParams *chaincfg.Params) (
 	*BitcoindBackendConfig, func() error, error) {
 
@@ -19,5 +19,5 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 		"-disablewallet",
 	}
 
-	return newBackend(miner, netParams, extraArgs, false)
+	return newBackend(miner, netParams, extraArgs, true)
 }

@@ -399,19 +399,31 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			}
 		}
 
-		// Establish the connection to bitcoind and create the clients
-		// required for our relevant subsystems.
-		bitcoindConn, err := chain.NewBitcoindConn(&chain.BitcoindConfig{
+		bitcoindCfg := &chain.BitcoindConfig{
 			ChainParams:        cfg.ActiveNetParams.Params,
 			Host:               bitcoindHost,
 			User:               bitcoindMode.RPCUser,
 			Pass:               bitcoindMode.RPCPass,
-			ZMQBlockHost:       bitcoindMode.ZMQPubRawBlock,
-			ZMQTxHost:          bitcoindMode.ZMQPubRawTx,
-			ZMQReadDeadline:    5 * time.Second,
 			Dialer:             cfg.Dialer,
 			PrunedModeMaxPeers: bitcoindMode.PrunedNodeMaxPeers,
-		})
+		}
+
+		if bitcoindMode.RPCPolling {
+			bitcoindCfg.PollingConfig = &chain.PollingConfig{
+				BlockPollingInterval: bitcoindMode.BlockPollingInterval,
+				TxPollingInterval:    bitcoindMode.TxPollingInterval,
+			}
+		} else {
+			bitcoindCfg.ZMQConfig = &chain.ZMQConfig{
+				ZMQBlockHost:    bitcoindMode.ZMQPubRawBlock,
+				ZMQTxHost:       bitcoindMode.ZMQPubRawTx,
+				ZMQReadDeadline: bitcoindMode.ZMQReadDeadline,
+			}
+		}
+
+		// Establish the connection to bitcoind and create the clients
+		// required for our relevant subsystems.
+		bitcoindConn, err := chain.NewBitcoindConn(bitcoindCfg)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -495,7 +507,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		// version 0.17.0) we make sure lnd subscribes to the correct
 		// zmq events. We do this to avoid a situation in which we are
 		// not notified of new transactions or blocks.
-		if ver >= 170000 {
+		if ver >= 170000 && !bitcoindMode.RPCPolling {
 			zmqPubRawBlockURL, err := url.Parse(bitcoindMode.ZMQPubRawBlock)
 			if err != nil {
 				return nil, nil, err

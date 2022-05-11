@@ -932,7 +932,17 @@ func (b *BtcWallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint,
 
 // ListLeasedOutputs returns a list of all currently locked outputs.
 func (b *BtcWallet) ListLeasedOutputs() ([]*wtxmgr.LockedOutput, error) {
-	return b.wallet.ListLeasedOutputs()
+	leasedOutputs, err := b.wallet.ListLeasedOutputs()
+	if err != nil {
+		return nil, err
+	}
+
+	lockedOutputs := make([]*wtxmgr.LockedOutput, len(leasedOutputs))
+	for i, output := range leasedOutputs {
+		lockedOutputs[i] = output.LockedOutput
+	}
+
+	return lockedOutputs, nil
 }
 
 // ReleaseOutput unlocks an output, allowing it to be available for coin

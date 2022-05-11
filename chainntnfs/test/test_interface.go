@@ -1966,7 +1966,19 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 		case "bitcoind":
 			var bitcoindConn *chain.BitcoindConn
 			bitcoindConn, cleanUp = chainntnfs.NewBitcoindBackend(
-				t, p2pAddr, true,
+				t, p2pAddr, true, false,
+			)
+			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
+				return bitcoindnotify.New(
+					bitcoindConn, chainntnfs.NetParams,
+					hintCache, hintCache, blockCache,
+				), nil
+			}
+
+		case "bitcoind-rpc-polling":
+			var bitcoindConn *chain.BitcoindConn
+			bitcoindConn, cleanUp = chainntnfs.NewBitcoindBackend(
+				t, p2pAddr, true, true,
 			)
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return bitcoindnotify.New(

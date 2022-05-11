@@ -6,8 +6,14 @@ import (
 	lnwallettest "github.com/lightningnetwork/lnd/lnwallet/test"
 )
 
-// TestLightningWallet tests LightningWallet powered by bitcoind against our
-// suite of interface tests.
-func TestLightningWallet(t *testing.T) {
+// TestLightningWalletBitcoindZMQ tests LightningWallet powered by bitcoind,
+// using its ZMQ interface, against our suite of interface tests.
+func TestLightningWalletBitcoindZMQ(t *testing.T) {
 	lnwallettest.TestLightningWallet(t, "bitcoind")
+}
+
+// TestLightningWalletBitcoindRPCPolling tests LightningWallet powered by
+// bitcoind, using its RPC interface, against our suite of interface tests.
+func TestLightningWalletBitcoindRPCPolling(t *testing.T) {
+	lnwallettest.TestLightningWallet(t, "bitcoind-rpc-polling")
 }

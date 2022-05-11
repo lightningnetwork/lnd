@@ -259,6 +259,8 @@ jobs:
             args: backend=bitcoind
           - name: bitcoind-notxindex
             args: backend="bitcoind notxindex"
+          - name: bitcoind-rpcpolling
+            args: backend="bitcoind rpcpolling"
           - name: bitcoind-etcd
             args: backend=bitcoind dbbackend=etcd
           - name: bitcoind-postgres

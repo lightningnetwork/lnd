@@ -54,6 +54,10 @@ releases. Backward compatibility is not guaranteed!
 * Add [--socksproxy](https://github.com/lightningnetwork/lnd/pull/6422)
   to allow for RPC calls via Tor.
 
+* [Hop hints are now opt in when using `lncli
+  addinvoice`]https://github.com/lightningnetwork/lnd/pull/6523). Users now
+  need to explicitly specify the `--private` flag.
+
 ## Neutrino
 
 [Neutrino now suports BIP

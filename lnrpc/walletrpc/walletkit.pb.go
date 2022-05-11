@@ -13,6 +13,7 @@ import (
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
+	time "time"
 )
 
 const (
@@ -2210,6 +2211,9 @@ type FundPsbtRequest struct {
 	MinConfs int32 `protobuf:"varint,6,opt,name=min_confs,json=minConfs,proto3" json:"min_confs,omitempty"`
 	// Whether unconfirmed outputs should be used as inputs for the transaction.
 	SpendUnconfirmed bool `protobuf:"varint,7,opt,name=spend_unconfirmed,json=spendUnconfirmed,proto3" json:"spend_unconfirmed,omitempty"`
+	// The time in seconds before the wallet's lock on the selected UTXOs expires.
+  // If set to zero, the default lock duration is used.
+	UtxoLeaseExpirationSeconds int32 `protobuf:"varint,600,opt,name=utxo_lease_expiration_seconds,json=utxoLeaseExpirationSeconds,proto3" json:"utxo_lease_expiration_seconds,omitempty"`
 }
 
 func (x *FundPsbtRequest) Reset() {
@@ -2284,6 +2288,13 @@ func (x *FundPsbtRequest) GetSatPerVbyte() uint64 {
 		return x.SatPerVbyte
 	}
 	return 0
+}
+
+func (x *FundPsbtRequest) GetUtxoLeaseExpirationSeconds() time.Duration {
+	if x != nil {
+		return time.Duration(x.UtxoLeaseExpirationSeconds) * time.Second
+	}
+	return time.Duration(0)
 }
 
 func (x *FundPsbtRequest) GetAccount() string {

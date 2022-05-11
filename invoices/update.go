@@ -108,8 +108,16 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 			return nil, ctx.acceptRes(resultReplayToAccepted), nil
 
 		case channeldb.HtlcStateSettled:
+			pre := inv.Terms.PaymentPreimage
+
+			// Terms.PaymentPreimage will be nil for AMP invoices.
+			// Set it to the HTLC's AMP Preimage instead.
+			if pre == nil {
+				pre = htlc.AMP.Preimage
+			}
+
 			return nil, ctx.settleRes(
-				*inv.Terms.PaymentPreimage,
+				*pre,
 				ResultReplayToSettled,
 			), nil
 

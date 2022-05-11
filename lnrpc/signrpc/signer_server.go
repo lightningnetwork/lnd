@@ -361,16 +361,56 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 			}
 		}
 
-		// If a witness script isn't passed, then we can't proceed, as
-		// in the p2wsh case, we can't properly generate the sighash.
-		// A P2WKH doesn't need a witness script. But SignOutputRaw
-		// still needs to know the PK script that was used for the
-		// output. We'll send it in the WitnessScript field, the
-		// SignOutputRaw RPC will know what to do with it when creating
-		// the sighash.
-		if len(signDesc.WitnessScript) == 0 && !signDesc.TaprootKeySpend {
-			return nil, fmt.Errorf("witness script MUST be " +
-				"specified for non-taproot-key-spends")
+		// Check what sign method was selected by the user so, we know
+		// exactly what we're expecting and can prevent some of the more
+		// obvious usage errors.
+		signMethod, err := UnmarshalSignMethod(signDesc.SignMethod)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unmarshal sign "+
+				"method: %v", err)
+		}
+		if !signMethod.PkScriptCompatible(signDesc.Output.PkScript) {
+			return nil, fmt.Errorf("selected sign method %v is "+
+				"not compatible with given pk script %x",
+				signMethod, signDesc.Output.PkScript)
+		}
+
+		// Perform input validation according to the sign method. Not
+		// all methods require the same fields to be provided.
+		switch signMethod {
+		case input.WitnessV0SignMethod:
+			// If a witness script isn't passed, then we can't
+			// proceed, as in the p2wsh case, we can't properly
+			// generate the sighash. A P2WKH doesn't need a witness
+			// script. But SignOutputRaw still needs to know the PK
+			// script that was used for the output. We'll send it in
+			// the WitnessScript field, the SignOutputRaw RPC will
+			// know what to do with it when creating the sighash.
+			if len(signDesc.WitnessScript) == 0 {
+				return nil, fmt.Errorf("witness script MUST " +
+					"be specified for segwit v0 sign " +
+					"method")
+			}
+
+		case input.TaprootKeySpendBIP0086SignMethod:
+			if len(signDesc.TapTweak) > 0 {
+				return nil, fmt.Errorf("tap tweak must be " +
+					"empty for BIP0086 key spend")
+			}
+
+		case input.TaprootKeySpendSignMethod:
+			if len(signDesc.TapTweak) != sha256.Size {
+				return nil, fmt.Errorf("tap tweak must be " +
+					"specified for key spend with root " +
+					"hash")
+			}
+
+		case input.TaprootScriptSpendSignMethod:
+			if len(signDesc.WitnessScript) == 0 {
+				return nil, fmt.Errorf("witness script MUST " +
+					"be specified for taproot script " +
+					"spend method")
+			}
 		}
 
 		// If the users provided a double tweak, then we'll need to
@@ -390,10 +430,11 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 				KeyLocator: keyLoc,
 				PubKey:     targetPubKey,
 			},
-			SingleTweak:     signDesc.SingleTweak,
-			DoubleTweak:     tweakPrivKey,
-			WitnessScript:   signDesc.WitnessScript,
-			TaprootKeySpend: signDesc.TaprootKeySpend,
+			SingleTweak:   signDesc.SingleTweak,
+			DoubleTweak:   tweakPrivKey,
+			TapTweak:      signDesc.TapTweak,
+			WitnessScript: signDesc.WitnessScript,
+			SignMethod:    signMethod,
 			Output: &wire.TxOut{
 				Value:    signDesc.Output.Value,
 				PkScript: signDesc.Output.PkScript,
@@ -1096,4 +1137,25 @@ func UnmarshalTweaks(rpcTweaks []*TweakDesc,
 	}
 
 	return tweaks, nil
+}
+
+// UnmarshalSignMethod parses the RPC sign method into the native counterpart.
+func UnmarshalSignMethod(rpcSignMethod SignMethod) (input.SignMethod, error) {
+	switch rpcSignMethod {
+	case SignMethod_SIGN_METHOD_WITNESS_V0:
+		return input.WitnessV0SignMethod, nil
+
+	case SignMethod_SIGN_METHOD_TAPROOT_KEY_SPEND_BIP0086:
+		return input.TaprootKeySpendBIP0086SignMethod, nil
+
+	case SignMethod_SIGN_METHOD_TAPROOT_KEY_SPEND:
+		return input.TaprootKeySpendSignMethod, nil
+
+	case SignMethod_SIGN_METHOD_TAPROOT_SCRIPT_SPEND:
+		return input.TaprootScriptSpendSignMethod, nil
+
+	default:
+		return 0, fmt.Errorf("unknown RPC sign method <%d>",
+			rpcSignMethod)
+	}
 }

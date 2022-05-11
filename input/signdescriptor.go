@@ -3,6 +3,7 @@ package input
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -55,16 +56,29 @@ type SignDescriptor struct {
 	// DoubleTweak, not both.
 	DoubleTweak *btcec.PrivateKey
 
+	// TapTweak is a 32-byte value that will be used to derive a taproot
+	// output public key (or the corresponding private key) from an
+	// internal key and this tweak. The transformation applied is:
+	//  * outputKey = internalKey +
+	//        tagged_hash("tapTweak", internalKey || tapTweak)
+	//
+	// When attempting to sign an output derived via BIP 86, then this
+	// field should be an empty byte array.
+	//
+	// When attempting to sign for the key spend path of an output key that
+	// commits to an actual script tree, the script root should be used.
+	TapTweak []byte
+
 	// WitnessScript is the full script required to properly redeem the
 	// output. This field should be set to the full script if a p2wsh
 	// output is being signed. For p2wkh it should be set to the hashed
 	// script (PkScript).
 	WitnessScript []byte
 
-	// TaprootKeySpend indicates that instead of a witness script being
-	// spent by the signature that results from this signing request, a
-	// taproot key spend is performed instead.
-	TaprootKeySpend bool
+	// SignMethod specifies how the input should be signed. Depending on the
+	// selected method, either the TapTweak, WitnessScript or both need to
+	// be specified.
+	SignMethod SignMethod
 
 	// Output is the target output which should be signed. The PkScript and
 	// Value fields within the output should be properly populated,
@@ -87,6 +101,67 @@ type SignDescriptor struct {
 	// InputIndex is the target input within the transaction that should be
 	// signed.
 	InputIndex int
+}
+
+// SignMethod defines the different ways a signer can sign, given a specific
+// input.
+type SignMethod uint8
+
+const (
+	// WitnessV0SignMethod denotes that a SegWit v0 (p2wkh, np2wkh, p2wsh)
+	// input script should be signed.
+	WitnessV0SignMethod SignMethod = 0
+
+	// TaprootKeySpendBIP0086SignMethod denotes that a SegWit v1 (p2tr)
+	// input should be signed by using the BIP0086 method (commit to
+	// internal key only).
+	TaprootKeySpendBIP0086SignMethod SignMethod = 1
+
+	// TaprootKeySpendSignMethod denotes that a SegWit v1 (p2tr)
+	// input should be signed by using a given taproot hash to commit to in
+	// addition to the internal key.
+	TaprootKeySpendSignMethod SignMethod = 2
+
+	// TaprootScriptSpendSignMethod denotes that a SegWit v1 (p2tr) input
+	// should be spent using the script path and that a specific leaf script
+	// should be signed for.
+	TaprootScriptSpendSignMethod SignMethod = 3
+)
+
+// String returns a human-readable representation of the signing method.
+func (s SignMethod) String() string {
+	switch s {
+	case WitnessV0SignMethod:
+		return "witness_v0"
+	case TaprootKeySpendBIP0086SignMethod:
+		return "taproot_key_spend_bip86"
+	case TaprootKeySpendSignMethod:
+		return "taproot_key_spend"
+	case TaprootScriptSpendSignMethod:
+		return "taproot_script_spend"
+	default:
+		return fmt.Sprintf("unknown<%d>", s)
+	}
+}
+
+// PkScriptCompatible returns true if the given public key script is compatible
+// with the sign method.
+func (s SignMethod) PkScriptCompatible(pkScript []byte) bool {
+	switch s {
+	// SegWit v0 can be p2wkh, np2wkh, p2wsh.
+	case WitnessV0SignMethod:
+		return txscript.IsPayToWitnessPubKeyHash(pkScript) ||
+			txscript.IsPayToWitnessScriptHash(pkScript) ||
+			txscript.IsPayToScriptHash(pkScript)
+
+	case TaprootKeySpendBIP0086SignMethod, TaprootKeySpendSignMethod,
+		TaprootScriptSpendSignMethod:
+
+		return txscript.IsPayToTaproot(pkScript)
+
+	default:
+		return false
+	}
 }
 
 // WriteSignDescriptor serializes a SignDescriptor struct into the passed

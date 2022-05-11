@@ -26,6 +26,9 @@ import (
 const (
 	testTaprootKeyFamily = 77
 	testAmount           = 800_000
+	signMethodBip86      = signrpc.SignMethod_SIGN_METHOD_TAPROOT_KEY_SPEND_BIP0086
+	signMethodRootHash   = signrpc.SignMethod_SIGN_METHOD_TAPROOT_KEY_SPEND
+	signMethodTapscript  = signrpc.SignMethod_SIGN_METHOD_TAPROOT_SCRIPT_SPEND
 )
 
 var (
@@ -193,6 +196,7 @@ func testTaprootSignOutputRawScriptSpend(ctxt context.Context, t *harnessTest,
 				KeyDesc:       keyDesc,
 				Sighash:       uint32(txscript.SigHashDefault),
 				WitnessScript: leaf2.Script,
+				SignMethod:    signMethodTapscript,
 			}},
 		},
 	)
@@ -200,6 +204,27 @@ func testTaprootSignOutputRawScriptSpend(ctxt context.Context, t *harnessTest,
 	require.Contains(
 		t.t, err.Error(), "error signing taproot output, transaction "+
 			"input 0 is missing its previous outpoint information",
+	)
+
+	// We also want to make sure we get an error when we don't specify the
+	// correct signing method.
+	_, err = alice.SignerClient.SignOutputRaw(
+		ctxt, &signrpc.SignReq{
+			RawTxBytes: buf.Bytes(),
+			SignDescs: []*signrpc.SignDescriptor{{
+				Output:        utxoInfo[0],
+				InputIndex:    0,
+				KeyDesc:       keyDesc,
+				Sighash:       uint32(txscript.SigHashDefault),
+				WitnessScript: leaf2.Script,
+			}},
+			PrevOutputs: utxoInfo,
+		},
+	)
+	require.Error(t.t, err)
+	require.Contains(
+		t.t, err.Error(), "selected sign method witness_v0 is not "+
+			"compatible with given pk script 5120",
 	)
 
 	// Do the actual signing now.
@@ -212,6 +237,7 @@ func testTaprootSignOutputRawScriptSpend(ctxt context.Context, t *harnessTest,
 				KeyDesc:       keyDesc,
 				Sighash:       uint32(txscript.SigHashDefault),
 				WitnessScript: leaf2.Script,
+				SignMethod:    signMethodTapscript,
 			}},
 			PrevOutputs: utxoInfo,
 		},
@@ -307,12 +333,12 @@ func testTaprootSignOutputRawKeySpendBip86(ctxt context.Context,
 		ctxt, &signrpc.SignReq{
 			RawTxBytes: buf.Bytes(),
 			SignDescs: []*signrpc.SignDescriptor{{
-				Output:          utxoInfo[0],
-				InputIndex:      0,
-				KeyDesc:         keyDesc,
-				SingleTweak:     dummyKeyTweak[:],
-				Sighash:         uint32(txscript.SigHashDefault),
-				TaprootKeySpend: true,
+				Output:      utxoInfo[0],
+				InputIndex:  0,
+				KeyDesc:     keyDesc,
+				SingleTweak: dummyKeyTweak[:],
+				Sighash:     uint32(txscript.SigHashDefault),
+				SignMethod:  signMethodBip86,
 			}},
 			PrevOutputs: utxoInfo,
 		},
@@ -405,13 +431,13 @@ func testTaprootSignOutputRawKeySpendRootHash(ctxt context.Context,
 		ctxt, &signrpc.SignReq{
 			RawTxBytes: buf.Bytes(),
 			SignDescs: []*signrpc.SignDescriptor{{
-				Output:          utxoInfo[0],
-				InputIndex:      0,
-				KeyDesc:         keyDesc,
-				SingleTweak:     dummyKeyTweak[:],
-				Sighash:         uint32(txscript.SigHashDefault),
-				WitnessScript:   rootHash[:],
-				TaprootKeySpend: true,
+				Output:      utxoInfo[0],
+				InputIndex:  0,
+				KeyDesc:     keyDesc,
+				SingleTweak: dummyKeyTweak[:],
+				Sighash:     uint32(txscript.SigHashDefault),
+				TapTweak:    rootHash[:],
+				SignMethod:  signMethodRootHash,
 			}},
 			PrevOutputs: utxoInfo,
 		},

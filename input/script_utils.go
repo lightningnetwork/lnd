@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"golang.org/x/crypto/ripemd160"
 )
 
@@ -1399,7 +1398,7 @@ func TweakPubKeyWithTweak(pubKey *btcec.PublicKey,
 		tweakJacobian  btcec.JacobianPoint
 		resultJacobian btcec.JacobianPoint
 	)
-	tweakKey := secp.PrivKeyFromBytes(tweakBytes)
+	tweakKey, _ := btcec.PrivKeyFromBytes(tweakBytes)
 	btcec.ScalarBaseMultNonConst(&tweakKey.Key, &tweakJacobian)
 
 	pubKey.AsJacobian(&pubKeyJacobian)
@@ -1549,5 +1548,6 @@ func DeriveRevocationPrivKey(revokeBasePriv *btcec.PrivateKey,
 // the key-ring and also to used as a tweak to derive new public+private keys
 // for the state.
 func ComputeCommitmentPoint(commitSecret []byte) *btcec.PublicKey {
-	return secp.PrivKeyFromBytes(commitSecret).PubKey()
+	_, pubKey := btcec.PrivKeyFromBytes(commitSecret)
+	return pubKey
 }

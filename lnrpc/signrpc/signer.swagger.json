@@ -731,10 +731,15 @@
           "format": "byte",
           "description": "A private key that will be used in combination with its corresponding\nprivate key to derive the private key that is to be used to sign the target\ninput. Within the Lightning protocol, this value is typically the\ncommitment secret from a previously revoked commitment transaction. This\nvalue is in combination with two hash values, and the original private key\nto derive the private key to be used when signing.\n\nk = (privKey*sha256(pubKey || tweakPub) +\ntweakPriv*sha256(tweakPub || pubKey)) mod N"
         },
+        "tap_tweak": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32 byte input to the taproot tweak derivation that is used to derive\nthe output key from an internal key: outputKey = internalKey +\ntagged_hash(\"tapTweak\", internalKey || tapTweak).\n\nWhen doing a BIP 86 spend, this field can be an empty byte slice.\n\nWhen doing a normal key path spend, with the output key committing to an\nactual script root, then this field should be: the tapscript root hash."
+        },
         "witness_script": {
           "type": "string",
           "format": "byte",
-          "description": "The full script required to properly redeem the output. This field will\nonly be populated if a p2tr, p2wsh or a p2sh output is being signed. In case\ntaproot_key_spend is set to true then this value must correspond to the\ntaproot root hash (in case of a tapscript output) or the tap hashed internal\npublic key (in case of a BIP-0086 output)."
+          "description": "The full script required to properly redeem the output. This field will\nonly be populated if a p2tr, p2wsh or a p2sh output is being signed. If a\ntaproot script path spend is being attempted, then this should be the raw\nleaf script."
         },
         "output": {
           "$ref": "#/definitions/signrpcTxOut",
@@ -750,9 +755,9 @@
           "format": "int32",
           "description": "The target input within the transaction that should be signed."
         },
-        "taproot_key_spend": {
-          "type": "boolean",
-          "description": "Indicates that this should produce a signature that can be used for the key\nspend path of a taproot input. This requires the witness_script field to be\nset to the taproot root hash (in case of a tapscript output) or the tap\nhashed internal public key (in case of a BIP-0086 output)."
+        "sign_method": {
+          "$ref": "#/definitions/signrpcSignMethod",
+          "description": "The sign method specifies how the input should be signed. Depending on the\nmethod, either the tap_tweak, witness_script or both need to be specified.\nDefaults to SegWit v0 signing to be backward compatible with older RPC\nclients."
         }
       }
     },
@@ -787,6 +792,17 @@
           "description": "The signature for the given message in the fixed-size LN wire format."
         }
       }
+    },
+    "signrpcSignMethod": {
+      "type": "string",
+      "enum": [
+        "SIGN_METHOD_WITNESS_V0",
+        "SIGN_METHOD_TAPROOT_KEY_SPEND_BIP0086",
+        "SIGN_METHOD_TAPROOT_KEY_SPEND",
+        "SIGN_METHOD_TAPROOT_SCRIPT_SPEND"
+      ],
+      "default": "SIGN_METHOD_WITNESS_V0",
+      "description": " - SIGN_METHOD_WITNESS_V0: Specifies that a SegWit v0 (p2wkh, np2wkh, p2wsh) input script should be\nsigned.\n - SIGN_METHOD_TAPROOT_KEY_SPEND_BIP0086: Specifies that a SegWit v1 (p2tr) input should be signed by using the\nBIP0086 method (commit to internal key only).\n - SIGN_METHOD_TAPROOT_KEY_SPEND: Specifies that a SegWit v1 (p2tr) input should be signed by using a given\ntaproot hash to commit to in addition to the internal key.\n - SIGN_METHOD_TAPROOT_SCRIPT_SPEND: Specifies that a SegWit v1 (p2tr) input should be spent using the script\npath and that a specific leaf script should be signed for."
     },
     "signrpcSignReq": {
       "type": "object",

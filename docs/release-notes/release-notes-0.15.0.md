@@ -248,6 +248,8 @@ from occurring that would result in an erroneous force close.](https://github.co
   the in-memory state to be cleaned up early if a session isn't expected to
   succeed anymore](https://github.com/lightningnetwork/lnd/pull/6495).
 
+* [Some of the invoice update logic has been refactored to be less verbose.](https://github.com/lightningnetwork/lnd/pull/6415)
+
 ## RPC Server
 
 * [Add value to the field

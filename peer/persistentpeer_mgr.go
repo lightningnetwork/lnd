@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -24,6 +25,10 @@ type persistentPeer struct {
 	// perm indicates if a connection to the peer should be maintained even
 	// if there are no channels with the peer.
 	perm bool
+
+	// addrs is all the addresses we know about for this peer. It is a map
+	// from the address string to the address object.
+	addrs map[string]*lnwire.NetAddress
 }
 
 // NewPersistentPeerManager creates a new PersistentPeerManager instance.
@@ -42,6 +47,7 @@ func (m *PersistentPeerManager) AddPeer(pubKey *btcec.PublicKey, perm bool) {
 	m.conns[route.NewVertex(pubKey)] = &persistentPeer{
 		pubKey: pubKey,
 		perm:   perm,
+		addrs:  make(map[string]*lnwire.NetAddress),
 	}
 }
 
@@ -92,4 +98,62 @@ func (m *PersistentPeerManager) PersistentPeers() []*btcec.PublicKey {
 	}
 
 	return peers
+}
+
+// SetPeerAddresses can be used to manually set the addresses for the persistent
+// peer. These will then be used during connection request creation. This
+// function overwrites any previously stored addresses for the peer.
+func (m *PersistentPeerManager) SetPeerAddresses(pubKey *btcec.PublicKey,
+	addrs ...*lnwire.NetAddress) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	peer, ok := m.conns[route.NewVertex(pubKey)]
+	if !ok {
+		return
+	}
+
+	peer.addrs = make(map[string]*lnwire.NetAddress)
+	for _, addr := range addrs {
+		peer.addrs[addr.String()] = addr
+	}
+}
+
+// AddPeerAddresses is used to add addresses to a peers existing list of
+// addresses.
+func (m *PersistentPeerManager) AddPeerAddresses(pubKey *btcec.PublicKey,
+	addrs ...*lnwire.NetAddress) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	peer, ok := m.conns[route.NewVertex(pubKey)]
+	if !ok {
+		return
+	}
+
+	for _, addr := range addrs {
+		peer.addrs[addr.String()] = addr
+	}
+}
+
+// GetPeerAddresses returns all the addresses stored for the peer.
+func (m *PersistentPeerManager) GetPeerAddresses(
+	pubKey *btcec.PublicKey) []*lnwire.NetAddress {
+
+	m.RLock()
+	defer m.RUnlock()
+
+	peer, ok := m.conns[route.NewVertex(pubKey)]
+	if !ok {
+		return nil
+	}
+
+	addrs := make([]*lnwire.NetAddress, 0, len(peer.addrs))
+	for _, addr := range peer.addrs {
+		addrs = append(addrs, addr)
+	}
+
+	return addrs
 }

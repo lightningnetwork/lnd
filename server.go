@@ -197,7 +197,6 @@ type server struct {
 	persistentPeerMgr *peer.PersistentPeerManager
 
 	persistentPeersBackoff map[string]time.Duration
-	persistentPeerAddrs    map[string][]*lnwire.NetAddress
 	persistentConnReqs     map[string][]*connmgr.ConnReq
 	persistentRetryCancels map[string]chan struct{}
 
@@ -381,7 +380,9 @@ func (s *server) updatePersistentPeerAddrs() error {
 
 					// Update the stored addresses for this
 					// to peer to reflect the new set.
-					s.persistentPeerAddrs[pubKeyStr] = addrs
+					s.persistentPeerMgr.SetPeerAddresses(
+						update.IdentityKey, addrs...,
+					)
 
 					// If there are no outstanding
 					// connection requests for this peer
@@ -395,7 +396,9 @@ func (s *server) updatePersistentPeerAddrs() error {
 
 					s.mu.Unlock()
 
-					s.connectToPersistentPeer(pubKeyStr)
+					s.connectToPersistentPeer(
+						update.IdentityKey,
+					)
 				}
 			}
 		}
@@ -576,7 +579,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		persistentPeerMgr:       peer.NewPersistentPeerManager(),
 		persistentPeersBackoff:  make(map[string]time.Duration),
 		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
-		persistentPeerAddrs:     make(map[string][]*lnwire.NetAddress),
 		persistentRetryCancels:  make(map[string]chan struct{}),
 		peerErrors:              make(map[string]*queue.CircularBuffer),
 		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
@@ -2979,8 +2981,9 @@ func (s *server) establishPersistentConnections() error {
 				Address:     address,
 			}
 
-			s.persistentPeerAddrs[pubStr] = append(
-				s.persistentPeerAddrs[pubStr], lnAddr)
+			s.persistentPeerMgr.AddPeerAddresses(
+				nodeAddr.pubKey, lnAddr,
+			)
 		}
 
 		// We'll connect to the first 10 peers immediately, then
@@ -2993,9 +2996,9 @@ func (s *server) establishPersistentConnections() error {
 		if numOutboundConns < numInstantInitReconnect ||
 			!s.cfg.StaggerInitialReconnect {
 
-			go s.connectToPersistentPeer(pubStr)
+			go s.connectToPersistentPeer(nodeAddr.pubKey)
 		} else {
-			go s.delayInitialReconnect(pubStr)
+			go s.delayInitialReconnect(nodeAddr.pubKey)
 		}
 
 		numOutboundConns++
@@ -3008,11 +3011,11 @@ func (s *server) establishPersistentConnections() error {
 // sampling a value for the delay between 0s and the maxInitReconnectDelay.
 //
 // NOTE: This method MUST be run as a goroutine.
-func (s *server) delayInitialReconnect(pubStr string) {
+func (s *server) delayInitialReconnect(pubKey *btcec.PublicKey) {
 	delay := time.Duration(prand.Intn(maxInitReconnectDelay)) * time.Second
 	select {
 	case <-time.After(delay):
-		s.connectToPersistentPeer(pubStr)
+		s.connectToPersistentPeer(pubKey)
 	case <-s.quit:
 	}
 }
@@ -3034,7 +3037,6 @@ func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
 	pubKeyStr := string(compressedPubKey[:])
 	if s.persistentPeerMgr.IsNonPermPersistentPeer(pubKey) {
 		delete(s.persistentPeersBackoff, pubKeyStr)
-		delete(s.persistentPeerAddrs, pubKeyStr)
 		s.cancelConnReqs(pubKeyStr, nil)
 		s.persistentPeerMgr.DelPeer(pubKey)
 
@@ -3884,22 +3886,10 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 			err)
 	}
 
-	// Make an easy lookup map so that we can check if an address
-	// is already in the address list that we have stored for this peer.
-	existingAddrs := make(map[string]bool)
-	for _, addr := range s.persistentPeerAddrs[pubStr] {
-		existingAddrs[addr.String()] = true
-	}
-
 	// Add any missing addresses for this peer to persistentPeerAddr.
 	for _, addr := range addrs {
-		if existingAddrs[addr.String()] {
-			continue
-		}
-
-		s.persistentPeerAddrs[pubStr] = append(
-			s.persistentPeerAddrs[pubStr],
-			&lnwire.NetAddress{
+		s.persistentPeerMgr.AddPeerAddresses(
+			p.IdentityKey(), &lnwire.NetAddress{
 				IdentityKey: p.IdentityKey(),
 				Address:     addr,
 				ChainNet:    p.NetAddress().ChainNet,
@@ -3939,7 +3929,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 			"connection to peer %x",
 			p.IdentityKey().SerializeCompressed())
 
-		s.connectToPersistentPeer(pubStr)
+		s.connectToPersistentPeer(pubKey)
 	}()
 }
 
@@ -3948,7 +3938,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 // currently none for a given address and it removes old connection requests
 // if the associated address is no longer in the latest address list for the
 // peer.
-func (s *server) connectToPersistentPeer(pubKeyStr string) {
+func (s *server) connectToPersistentPeer(pubKey *btcec.PublicKey) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -3958,9 +3948,11 @@ func (s *server) connectToPersistentPeer(pubKeyStr string) {
 	// entries will indicate which addresses we should create new
 	// connection requests for.
 	addrMap := make(map[string]*lnwire.NetAddress)
-	for _, addr := range s.persistentPeerAddrs[pubKeyStr] {
+	for _, addr := range s.persistentPeerMgr.GetPeerAddresses(pubKey) {
 		addrMap[addr.String()] = addr
 	}
+
+	pubKeyStr := string(pubKey.SerializeCompressed())
 
 	// Go through each of the existing connection requests and
 	// check if they correspond to the latest set of addresses. If

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/connmgr"
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -19,6 +20,10 @@ var (
 
 	testAddr3 = &net.TCPAddr{IP: (net.IP)([]byte{0xA, 0x0, 0x0, 0x1}),
 		Port: 9003}
+
+	connReq1 = &connmgr.ConnReq{Addr: testAddr1}
+	connReq2 = &connmgr.ConnReq{Addr: testAddr2}
+	connReq3 = &connmgr.ConnReq{Addr: testAddr3}
 )
 
 // TestPersistentPeerManager tests that the PersistentPeerManager correctly
@@ -95,6 +100,33 @@ func TestPersistentPeerManager(t *testing.T) {
 	addrs = m.GetPeerAddresses(bobPubKey)
 	require.Len(t, addrs, 1)
 	require.Equal(t, addrs[0].Address.String(), testAddr3.String())
+
+	// Add a connection request for Bob.
+	m.AddPeerConnReq(bobPubKey, connReq1)
+	require.Equal(t, m.NumPeerConnReqs(bobPubKey), 1)
+
+	// Add another connection request for Bob.
+	m.AddPeerConnReq(bobPubKey, connReq2)
+	require.Equal(t, m.NumPeerConnReqs(bobPubKey), 2)
+
+	// Both connection requests should appear in Bob's connection request
+	// list.
+	reqs := m.GetPeerConnReqs(bobPubKey)
+	require.Len(t, reqs, 2)
+	if reqs[0].String() == connReq1.String() {
+		require.Equal(t, reqs[1].String(), connReq2.String())
+	} else {
+		require.Equal(t, reqs[0].String(), connReq2.String())
+		require.Equal(t, reqs[1].String(), connReq1.String())
+	}
+
+	// If SetPeerConnReqs is used, however, then this should overwrite any
+	// previously stored connection requests for Bob.
+	m.SetPeerConnReqs(bobPubKey, connReq3)
+	reqs = m.GetPeerConnReqs(bobPubKey)
+	require.Equal(t, m.NumPeerConnReqs(bobPubKey), 1)
+	require.Len(t, reqs, 1)
+	require.Equal(t, reqs[0].String(), connReq3.String())
 
 	// Delete Bob.
 	m.DelPeer(bobPubKey)

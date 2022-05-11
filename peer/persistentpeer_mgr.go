@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/connmgr"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -29,6 +30,10 @@ type persistentPeer struct {
 	// addrs is all the addresses we know about for this peer. It is a map
 	// from the address string to the address object.
 	addrs map[string]*lnwire.NetAddress
+
+	// connReqs holds all the active connection requests that we have for
+	// the peer.
+	connReqs []*connmgr.ConnReq
 }
 
 // NewPersistentPeerManager creates a new PersistentPeerManager instance.
@@ -156,4 +161,78 @@ func (m *PersistentPeerManager) GetPeerAddresses(
 	}
 
 	return addrs
+}
+
+// GetPeerConnReqs returns all the pending connection requests we have for the
+// given peer.
+func (m *PersistentPeerManager) GetPeerConnReqs(
+	pubKey *btcec.PublicKey) []*connmgr.ConnReq {
+
+	m.RLock()
+	defer m.RUnlock()
+
+	peer, ok := m.conns[route.NewVertex(pubKey)]
+	if !ok {
+		return nil
+	}
+
+	return peer.connReqs
+}
+
+// DelPeerConnReqs deletes all the connection requests for the given peer.
+func (m *PersistentPeerManager) DelPeerConnReqs(pubKey *btcec.PublicKey) {
+	m.Lock()
+	defer m.Unlock()
+
+	peer, ok := m.conns[route.NewVertex(pubKey)]
+	if !ok {
+		return
+	}
+
+	peer.connReqs = nil
+}
+
+// SetPeerConnReqs sets the connection requests for the given peer. Note that it
+// overrides any previously stored connection requests for the peer.
+func (m *PersistentPeerManager) SetPeerConnReqs(pubKey *btcec.PublicKey,
+	connReqs ...*connmgr.ConnReq) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	peer, ok := m.conns[route.NewVertex(pubKey)]
+	if !ok {
+		return
+	}
+
+	peer.connReqs = connReqs
+}
+
+// AddPeerConnReq appends the given connection request to the existing list for the
+// given peer.
+func (m *PersistentPeerManager) AddPeerConnReq(pubKey *btcec.PublicKey,
+	connReq *connmgr.ConnReq) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	peer, ok := m.conns[route.NewVertex(pubKey)]
+	if !ok {
+		return
+	}
+
+	peer.connReqs = append(peer.connReqs, connReq)
+}
+
+// NumPeerConnReqs returns the number of connection requests for the given peer.
+func (m *PersistentPeerManager) NumPeerConnReqs(pubKey *btcec.PublicKey) int {
+	m.RLock()
+	defer m.RUnlock()
+
+	peer, ok := m.conns[route.NewVertex(pubKey)]
+	if !ok {
+		return 0
+	}
+
+	return len(peer.connReqs)
 }

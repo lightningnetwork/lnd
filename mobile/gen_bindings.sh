@@ -33,13 +33,13 @@ target_pkg="github.com/lightningnetwork/lnd/lnrpc"
 
 # A mapping from grpc service to name of the custom listeners. The grpc server
 # must be configured to listen on these.
-listeners="lightning=lightningLis walletunlocker=lightningLis state=lightningLis"
+listeners="lightning=lightningLis walletunlocker=lightningLis state=lightningLis autopilot=lightningLis chainnotifier=lightningLis invoices=lightningLis neutrinokit=lightningLis peers=lightningLis router=lightningLis signer=lightningLis versioner=lightningLis walletkit=lightningLis watchtower=lightningLis watchtowerclient=lightningLis"
 
 # Set to 1 to create boiler plate grpc client code and listeners. If more than
 # one proto file is being parsed, it should only be done once.
 mem_rpc=1
 
-PROTOS="lightning.proto walletunlocker.proto stateservice.proto"
+PROTOS="lightning.proto walletunlocker.proto stateservice.proto autopilotrpc/autopilot.proto chainrpc/chainnotifier.proto invoicesrpc/invoices.proto neutrinorpc/neutrino.proto peersrpc/peers.proto routerrpc/router.proto signrpc/signer.proto verrpc/verrpc.proto walletrpc/walletkit.proto watchtowerrpc/watchtower.proto wtclientrpc/wtclient.proto"
 
 opts="package_name=$pkg,target_package=$target_pkg,listeners=$listeners,mem_rpc=$mem_rpc"
 

@@ -103,6 +103,35 @@ func TestAezeedVersion0TestVectors(t *testing.T) {
 	}
 }
 
+// TestWithRandomnessSource tests that seed generation is fully deterministic
+// when a custom static randomness source is provided.
+func TestWithRandomnessSource(t *testing.T) {
+	sourceData := append([]byte{}, testEntropy[:]...)
+	sourceData = append(sourceData, testSalt[:]...)
+	src := bytes.NewReader(sourceData)
+
+	// First, we create new cipher seed with the given values from the test
+	// vector but with no entropy.
+	v := version0TestVectors[0]
+	cipherSeed, err := New(
+		v.version, nil, v.time, WithRandomnessSource(src),
+	)
+	require.NoError(t, err)
+
+	// The salt should be set to our test salt.
+	require.Equal(t, testSalt, cipherSeed.salt)
+
+	// Now that the seed has been created, we'll attempt to convert it to a
+	// valid mnemonic.
+	mnemonic, err := cipherSeed.ToMnemonic(v.password)
+	require.NoError(t, err)
+
+	// Finally, we compare the generated mnemonic and birthday to the
+	// expected value.
+	require.Equal(t, v.expectedMnemonic[:], mnemonic[:])
+	require.Equal(t, v.expectedBirthday, cipherSeed.Birthday)
+}
+
 // TestEmptyPassphraseDerivation tests that the aezeed scheme is able to derive
 // a proper mnemonic, and decipher that mnemonic when the user uses an empty
 // passphrase.

@@ -128,6 +128,33 @@ var (
 	BitcoinGenesisDate = time.Unix(1231006505, 0)
 )
 
+// SeedOptions is a type that holds options that configure the generation of a
+// new cipher seed.
+type SeedOptions struct {
+	// randomnessSource is the source of randomness that is used to generate
+	// the salt that is used for encrypting the seed.
+	randomnessSource io.Reader
+}
+
+// DefaultOptions returns the default seed options.
+func DefaultOptions() *SeedOptions {
+	return &SeedOptions{
+		randomnessSource: rand.Reader,
+	}
+}
+
+// SeedOptionModifier is a function signature for modifying the default
+// SeedOptions.
+type SeedOptionModifier func(*SeedOptions)
+
+// WithRandomnessSource returns an option modifier that replaces the default
+// randomness source with the given reader.
+func WithRandomnessSource(src io.Reader) SeedOptionModifier {
+	return func(opts *SeedOptions) {
+		opts.randomnessSource = src
+	}
+}
+
 // CipherSeed is a fully decoded instance of the aezeed scheme. At a high
 // level, the encoded cipher seed is the enciphering of: a version byte, a set
 // of bytes for a timestamp, the entropy which will be used to directly
@@ -174,17 +201,22 @@ type CipherSeed struct {
 
 // New generates a new CipherSeed instance from an optional source of entropy.
 // If the entropy isn't provided, then a set of random bytes will be used in
-// place. The final argument should be the time at which the seed was created.
+// place. The final fixed argument should be the time at which the seed was
+// created, followed by optional seed option modifiers.
 func New(internalVersion uint8, entropy *[EntropySize]byte,
-	now time.Time) (*CipherSeed, error) {
+	now time.Time, modifiers ...SeedOptionModifier) (*CipherSeed, error) {
 
-	// TODO(roasbeef): pass randomness source? to make fully deterministic?
+	opts := DefaultOptions()
+	for _, modifier := range modifiers {
+		modifier(opts)
+	}
 
 	// If a set of entropy wasn't provided, then we'll read a set of bytes
-	// from the CSPRNG of our operating platform.
+	// from the randomness source provided (which by default is the system's
+	// CSPRNG).
 	var seed [EntropySize]byte
 	if entropy == nil {
-		if _, err := rand.Read(seed[:]); err != nil {
+		if _, err := opts.randomnessSource.Read(seed[:]); err != nil {
 			return nil, err
 		}
 	} else {
@@ -205,7 +237,7 @@ func New(internalVersion uint8, entropy *[EntropySize]byte,
 
 	// Next, we'll read a random salt that will be used with scrypt to
 	// eventually derive our key.
-	if _, err := rand.Read(c.salt[:]); err != nil {
+	if _, err := opts.randomnessSource.Read(c.salt[:]); err != nil {
 		return nil, err
 	}
 

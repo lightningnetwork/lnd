@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -338,7 +339,8 @@ type WalletController interface {
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
 	LeaseOutput(id wtxmgr.LockID, op wire.OutPoint,
-		duration time.Duration) (time.Time, error)
+		duration time.Duration) (time.Time, []byte, btcutil.Amount,
+		error)
 
 	// ReleaseOutput unlocks an output, allowing it to be available for coin
 	// selection if it remains unspent. The ID should match the one used to
@@ -348,7 +350,7 @@ type WalletController interface {
 	ReleaseOutput(id wtxmgr.LockID, op wire.OutPoint) error
 
 	// ListLeasedOutputs returns a list of all currently locked outputs.
-	ListLeasedOutputs() ([]*wtxmgr.LockedOutput, error)
+	ListLeasedOutputs() ([]*base.ListLeasedOutputResult, error)
 
 	// PublishTransaction performs cursory validation (dust checks, etc),
 	// then finally broadcasts the passed transaction to the Bitcoin network.

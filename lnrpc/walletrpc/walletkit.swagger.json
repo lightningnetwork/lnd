@@ -1557,6 +1557,16 @@
           "type": "string",
           "format": "uint64",
           "description": "The absolute expiration of the output lease represented as a unix timestamp."
+        },
+        "pk_script": {
+          "type": "string",
+          "format": "byte",
+          "description": "The public key script of the leased output."
+        },
+        "value": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The value of the leased output in satoshis."
         }
       }
     },

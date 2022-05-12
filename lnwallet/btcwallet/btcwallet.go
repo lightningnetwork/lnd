@@ -919,30 +919,43 @@ func (b *BtcWallet) UnlockOutpoint(o wire.OutPoint) {
 //
 // NOTE: This method requires the global coin selection lock to be held.
 func (b *BtcWallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint,
-	duration time.Duration) (time.Time, error) {
+	duration time.Duration) (time.Time, []byte, btcutil.Amount, error) {
 
 	// Make sure we don't attempt to double lock an output that's been
 	// locked by the in-memory implementation.
 	if b.wallet.LockedOutpoint(op) {
-		return time.Time{}, wtxmgr.ErrOutputAlreadyLocked
+		return time.Time{}, nil, 0, wtxmgr.ErrOutputAlreadyLocked
 	}
 
-	return b.wallet.LeaseOutput(id, op, duration)
+	lockedUntil, err := b.wallet.LeaseOutput(id, op, duration)
+	if err != nil {
+		return time.Time{}, nil, 0, err
+	}
+
+	// Get the pkScript and value for this lock from the list of all leased
+	// outputs.
+	allLeases, err := b.wallet.ListLeasedOutputs()
+	if err != nil {
+		return time.Time{}, nil, 0, err
+	}
+
+	for _, lease := range allLeases {
+		if lease.Outpoint == op {
+			return lockedUntil, lease.PkScript,
+				btcutil.Amount(lease.Value), nil
+		}
+	}
+
+	// We MUST find the leased output in the loop above, otherwise something
+	// is seriously wrong.
+	return time.Time{}, nil, 0, wtxmgr.ErrUnknownOutput
 }
 
 // ListLeasedOutputs returns a list of all currently locked outputs.
-func (b *BtcWallet) ListLeasedOutputs() ([]*wtxmgr.LockedOutput, error) {
-	leasedOutputs, err := b.wallet.ListLeasedOutputs()
-	if err != nil {
-		return nil, err
-	}
+func (b *BtcWallet) ListLeasedOutputs() ([]*base.ListLeasedOutputResult,
+	error) {
 
-	lockedOutputs := make([]*wtxmgr.LockedOutput, len(leasedOutputs))
-	for i, output := range leasedOutputs {
-		lockedOutputs[i] = output.LockedOutput
-	}
-
-	return lockedOutputs, nil
+	return b.wallet.ListLeasedOutputs()
 }
 
 // ReleaseOutput unlocks an output, allowing it to be available for coin

@@ -106,8 +106,6 @@ compact filters and block/block headers.
 
 * [Fixed an issue where invoice notifications could be missed when using the
    SubscribeSingleInvoice or SubscribeNotifications rpcs.](https://github.com/lightningnetwork/lnd/pull/6477)
-  
-## Neutrino
 
 * [Fixed crash in MuSig2Combine](https://github.com/lightningnetwork/lnd/pull/6502)
 
@@ -294,6 +292,10 @@ from occurring that would result in an erroneous force close.](https://github.co
   in the payment database](https://github.com/lightningnetwork/lnd/pull/6463).
 
 * [Remove `confirmation_height` field from PendingChannel proto](https://github.com/lightningnetwork/lnd/pull/6472)
+
+* [The `walletrpc.ListLeases` RPC (`lncli wallet listleases`) now shows the
+  pkScript and value of a leased
+  output](https://github.com/lightningnetwork/lnd/pull/6528).
 
 ## Database
 

@@ -844,6 +844,16 @@ message UtxoLease {
     The absolute expiration of the output lease represented as a unix timestamp.
     */
     uint64 expiration = 3;
+
+    /*
+    The public key script of the leased output.
+    */
+    bytes pk_script = 4;
+
+    /*
+    The value of the leased output in satoshis.
+    */
+    uint64 value = 5;
 }
 
 message SignPsbtRequest {

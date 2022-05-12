@@ -549,6 +549,8 @@ type utxoLease struct {
 	ID         string   `json:"id"`
 	OutPoint   OutPoint `json:"outpoint"`
 	Expiration uint64   `json:"expiration"`
+	PkScript   []byte   `json:"pk_script"`
+	Value      uint64   `json:"value"`
 }
 
 // fundPsbtResponse is a struct that contains JSON annotations for nice result
@@ -758,6 +760,8 @@ func marshallLocks(lockedUtxos []*walletrpc.UtxoLease) []*utxoLease {
 			ID:         hex.EncodeToString(lock.Id),
 			OutPoint:   NewOutPointFromProto(lock.Outpoint),
 			Expiration: lock.Expiration,
+			PkScript:   lock.PkScript,
+			Value:      lock.Value,
 		}
 	}
 

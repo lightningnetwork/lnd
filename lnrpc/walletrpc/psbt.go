@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
+	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -47,17 +48,21 @@ func verifyInputsUnspent(inputs []*wire.TxIn, utxos []*lnwallet.Utxo) error {
 
 // lockInputs requests a lock lease for all inputs specified in a PSBT packet
 // by using the internal, static lock ID of lnd's wallet.
-func lockInputs(w lnwallet.WalletController, packet *psbt.Packet) (
-	[]*wtxmgr.LockedOutput, error) {
+func lockInputs(w lnwallet.WalletController,
+	packet *psbt.Packet) ([]*base.ListLeasedOutputResult, error) {
 
-	locks := make([]*wtxmgr.LockedOutput, len(packet.UnsignedTx.TxIn))
+	locks := make(
+		[]*base.ListLeasedOutputResult, len(packet.UnsignedTx.TxIn),
+	)
 	for idx, rawInput := range packet.UnsignedTx.TxIn {
-		lock := &wtxmgr.LockedOutput{
-			LockID:   LndInternalLockID,
-			Outpoint: rawInput.PreviousOutPoint,
+		lock := &base.ListLeasedOutputResult{
+			LockedOutput: &wtxmgr.LockedOutput{
+				LockID:   LndInternalLockID,
+				Outpoint: rawInput.PreviousOutPoint,
+			},
 		}
 
-		expiration, err := w.LeaseOutput(
+		expiration, pkScript, value, err := w.LeaseOutput(
 			lock.LockID, lock.Outpoint, DefaultLockDuration,
 		)
 		if err != nil {
@@ -80,6 +85,8 @@ func lockInputs(w lnwallet.WalletController, packet *psbt.Packet) (
 		}
 
 		lock.Expiration = expiration
+		lock.PkScript = pkScript
+		lock.Value = int64(value)
 		locks[idx] = lock
 	}
 

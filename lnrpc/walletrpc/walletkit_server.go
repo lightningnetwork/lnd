@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/input"
@@ -423,7 +424,7 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 	// other concurrent processes attempting to lease the same UTXO.
 	var expiration time.Time
 	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
-		expiration, err = w.cfg.Wallet.LeaseOutput(
+		expiration, _, _, err = w.cfg.Wallet.LeaseOutput(
 			lockID, *op, duration,
 		)
 		return err
@@ -1003,7 +1004,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		err         error
 		packet      *psbt.Packet
 		feeSatPerKW chainfee.SatPerKWeight
-		locks       []*wtxmgr.LockedOutput
+		locks       []*base.ListLeasedOutputResult
 		rawPsbt     bytes.Buffer
 	)
 
@@ -1189,9 +1190,11 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 }
 
 // marshallLeases converts the lock leases to the RPC format.
-func marshallLeases(locks []*wtxmgr.LockedOutput) []*UtxoLease {
+func marshallLeases(locks []*base.ListLeasedOutputResult) []*UtxoLease {
 	rpcLocks := make([]*UtxoLease, len(locks))
 	for idx, lock := range locks {
+		lock := lock
+
 		rpcLocks[idx] = &UtxoLease{
 			Id: lock.LockID[:],
 			Outpoint: &lnrpc.OutPoint{
@@ -1200,6 +1203,8 @@ func marshallLeases(locks []*wtxmgr.LockedOutput) []*UtxoLease {
 				OutputIndex: lock.Outpoint.Index,
 			},
 			Expiration: uint64(lock.Expiration.Unix()),
+			PkScript:   lock.PkScript,
+			Value:      uint64(lock.Value),
 		}
 	}
 

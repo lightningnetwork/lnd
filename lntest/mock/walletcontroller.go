@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -174,9 +175,9 @@ func (w *WalletController) UnlockOutpoint(o wire.OutPoint) {}
 
 // LeaseOutput returns the current time and a nil error.
 func (w *WalletController) LeaseOutput(wtxmgr.LockID, wire.OutPoint,
-	time.Duration) (time.Time, error) {
+	time.Duration) (time.Time, []byte, btcutil.Amount, error) {
 
-	return time.Now(), nil
+	return time.Now(), nil, 0, nil
 }
 
 // ReleaseOutput currently does nothing.
@@ -184,7 +185,9 @@ func (w *WalletController) ReleaseOutput(wtxmgr.LockID, wire.OutPoint) error {
 	return nil
 }
 
-func (w *WalletController) ListLeasedOutputs() ([]*wtxmgr.LockedOutput, error) {
+func (w *WalletController) ListLeasedOutputs() ([]*base.ListLeasedOutputResult,
+	error) {
+
 	return nil, nil
 }
 

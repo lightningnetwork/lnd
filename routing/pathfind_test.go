@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io/ioutil"
 	"math"
 	"math/big"
@@ -355,13 +356,17 @@ func parseTestGraph(assetId uint32,useCache bool, path string) (*testGraphInstan
 			Index: 0,
 		}
 
+		cap:=edge.Capacity*30000
+		if assetId==omnicore.BtcAssetId{
+			cap=edge.Capacity
+		}
 		// We first insert the existence of the edge between the two
 		// nodes.
 		edgeInfo := channeldb.ChannelEdgeInfo{
 			ChannelID:    edge.ChannelID,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: fundingPoint,
-			Capacity:     edge.Capacity,
+			Capacity:     cap,
 			AssetId:     edge.AssetID,
 		}
 
@@ -372,9 +377,9 @@ func parseTestGraph(assetId uint32,useCache bool, path string) (*testGraphInstan
 
 		shortID := lnwire.NewShortChanIDFromInt(edge.ChannelID)
 
-		bw:=edgeInfo.Capacity * 1000
-		if edge.AssetID>1{
-			bw=edgeInfo.Capacity
+		bw:=uint64(edgeInfo.Capacity * 1000)
+		if assetId==omnicore.BtcAssetId{
+			bw=uint64(edgeInfo.Capacity*30)
 		}
 		links[shortID] = &mockLink{
 			assetId:edge.AssetID,
@@ -401,10 +406,10 @@ func parseTestGraph(assetId uint32,useCache bool, path string) (*testGraphInstan
 			AssetId: 				   edge.AssetID,
 			LastUpdate:                testTime,
 			TimeLockDelta:             edge.Expiry,
-			MinHTLC:                   edge.MinHTLC,
-			MaxHTLC:                   edge.MaxHTLC,
-			FeeBaseMSat:               edge.FeeBaseMsat,
-			FeeProportionalMillionths: edge.FeeRate,
+			MinHTLC:                   lnwire.MstatCfgToI64(assetId,lnwire.MilliSatoshi(edge.MinHTLC)),
+			MaxHTLC:                   lnwire.MstatCfgToI64(assetId,lnwire.MilliSatoshi(edge.MaxHTLC)),
+			FeeBaseMSat:               lnwire.MstatCfgToI64(assetId,lnwire.MilliSatoshi(edge.FeeBaseMsat)),
+			FeeProportionalMillionths: uint64(lnwire.MilliSatoshi(edge.FeeRate)),
 			Node: &channeldb.LightningNode{
 				Alias:       aliasForNode(targetNode),
 				PubKeyBytes: targetNode,
@@ -663,7 +668,7 @@ func createTestGraphFromChannels(assetId uint32,useCache bool, testChannels []*t
 
 
 		capacity := testChannel.Capacity
-		if assetId==1{
+		if assetId==omnicore.BtcAssetId{
 			capacity = testChannel.Capacity*1000
 		}
 		shortID := lnwire.NewShortChanIDFromInt(channelID)
@@ -937,7 +942,7 @@ func runFindLowestFeePath(t *testing.T, assetId uint32,useCache bool) {
 
 	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	paymentAmt := uint64(100)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		paymentAmt = uint64(100*1000)
 	}
 	target := ctx.keyFromAlias("target")
@@ -1075,7 +1080,7 @@ func testBasicGraphPathFindingCase(t *testing.T, assetId uint32, graphInstance *
 
 	//paymentAmt := lnwire.NewMSatFromSatoshis(test.paymentAmt)
 	paymentAmt := uint64(test.paymentAmt)
-	if assetId==1 {
+	if assetId==omnicore.BtcAssetId {
 		paymentAmt = uint64(test.paymentAmt * 1000)
 	}
 	target := graphInstance.aliasMap[test.target]
@@ -1231,7 +1236,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, assetId uint32, useCache bo
 
 	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	paymentAmt := uint64(100)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		paymentAmt = uint64(100*1000)
 	}
 
@@ -2545,7 +2550,7 @@ func runRestrictOutgoingChannel(t *testing.T,assetId uint32,  useCache bool) {
 
 	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	paymentAmt := uint64(100)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		paymentAmt = uint64(100*1000)
 	}
 
@@ -2610,7 +2615,7 @@ func runRestrictLastHop(t *testing.T,assetId uint32,  useCache bool) {
 
 	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	paymentAmt := uint64(100)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		paymentAmt = uint64(100*1000)
 	}
 	target := ctx.keyFromAlias("target")
@@ -2685,7 +2690,7 @@ func testCltvLimit(t *testing.T,assetId uint32, useCache bool, limit uint32,
 
 	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	paymentAmt := uint64(  100)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		paymentAmt = uint64(1000 * 100)
 	}
 	target := ctx.keyFromAlias("target")
@@ -2939,7 +2944,7 @@ func runEqualCostRouteSelection(t *testing.T,assetId uint32,  useCache bool) {
 
 	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	paymentAmt := uint64(100)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		paymentAmt= uint64(100*1000)
 	}
 	target := ctx.testGraphInstance.aliasMap["target"]
@@ -3071,7 +3076,7 @@ func runRouteToSelf(t *testing.T,assetId uint32,  useCache bool) {
 
 	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	paymentAmt := uint64(100)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		paymentAmt=paymentAmt*1000
 	}
 	target := ctx.source

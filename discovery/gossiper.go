@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/netann"
@@ -1399,7 +1400,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 			// not already present.
 			edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
 			amt:=info.Capacity
-			if info.AssetId==1{
+			if info.AssetId==omnicore.BtcAssetId{
 				amt*=1000
 			}
 			edge.MaxHTLC =  amt

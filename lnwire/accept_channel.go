@@ -5,7 +5,6 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -22,22 +21,26 @@ type AcceptChannel struct {
 	// would like enforced on their version of the commitment transaction.
 	// Any output below this value will be "trimmed" from the commitment
 	// transaction, with the amount of the HTLC going to dust.
-	DustLimit btcutil.Amount
+	//DustLimit btcutil.Amount
+	DustLimit uint64
 
 	// MaxValueInFlight represents the maximum amount of coins that can be
 	// pending within the channel at any given time. If the amount of funds
 	// in limbo exceeds this amount, then the channel will be failed.
-	MaxValueInFlight MilliSatoshi
+	//MaxValueInFlight MilliSatoshi
+	MaxValueInFlight uint64
 
 	// ChannelReserve is the amount of BTC that the receiving party MUST
 	// maintain a balance above at all times. This is a safety mechanism to
 	// ensure that both sides always have skin in the game during the
 	// channel's lifetime.
-	ChannelReserve btcutil.Amount
+	//ChannelReserve btcutil.Amount
+	ChannelReserve uint64
 
 	// HtlcMinimum is the smallest HTLC that the sender of this message
 	// will accept.
-	HtlcMinimum MilliSatoshi
+	//HtlcMinimum MilliSatoshi
+	HtlcMinimum uint64
 
 	// MinAcceptDepth is the minimum depth that the initiator of the
 	// channel should wait before considering the channel open.
@@ -143,19 +146,19 @@ func (a *AcceptChannel) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	if err := WriteSatoshi(w, a.DustLimit); err != nil {
+	if err := WriteUint64(w, a.DustLimit); err != nil {
 		return err
 	}
 
-	if err := WriteMilliSatoshi(w, a.MaxValueInFlight); err != nil {
+	if err := WriteUint64(w, a.MaxValueInFlight); err != nil {
 		return err
 	}
 
-	if err := WriteSatoshi(w, a.ChannelReserve); err != nil {
+	if err := WriteUint64(w, a.ChannelReserve); err != nil {
 		return err
 	}
 
-	if err := WriteMilliSatoshi(w, a.HtlcMinimum); err != nil {
+	if err := WriteUint64(w, a.HtlcMinimum); err != nil {
 		return err
 	}
 

@@ -156,7 +156,7 @@ const (
 // DefaultLtcChannelConstraints is the default set of channel constraints that
 // are meant to be used when initially funding a Litecoin channel.
 var DefaultLtcChannelConstraints = channeldb.ChannelConstraints{
-	DustLimit:        DefaultLitecoinDustLimit,
+	DustLimit:        uint64(DefaultLitecoinDustLimit),
 	MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 }
 
@@ -240,7 +240,7 @@ func GenDefaultBtcConstraints() channeldb.ChannelConstraints {
 	dustLimit := lnwallet.DustLimitForSize(input.UnknownWitnessSize)
 
 	return channeldb.ChannelConstraints{
-		DustLimit:        dustLimit,
+		DustLimit:        uint64(dustLimit),
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 	}
 }
@@ -264,9 +264,11 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	switch cfg.PrimaryChain() {
 	case BitcoinChain:
 		cc.RoutingPolicy = htlcswitch.ForwardingPolicy{
-			MinHTLCOut:    uint64( cfg.Bitcoin.MinHTLCOut),
-			BaseFee:       cfg.Bitcoin.BaseFee,
-			FeeRate:       cfg.Bitcoin.FeeRate,
+			Cfg: htlcswitch.ForwardingPolicyCfg{
+				MinHTLCOut: cfg.Bitcoin.MinHTLCOut,
+				BaseFee:    cfg.Bitcoin.BaseFee,
+				FeeRate:    cfg.Bitcoin.FeeRate,
+			},
 			TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
 		}
 		cc.MinHtlcIn = cfg.Bitcoin.MinHTLCIn
@@ -276,9 +278,11 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		)
 	case LitecoinChain:
 		cc.RoutingPolicy = htlcswitch.ForwardingPolicy{
-			MinHTLCOut:    uint64(cfg.Litecoin.MinHTLCOut),
-			BaseFee:       cfg.Litecoin.BaseFee,
-			FeeRate:       cfg.Litecoin.FeeRate,
+			Cfg: htlcswitch.ForwardingPolicyCfg{
+				MinHTLCOut: cfg.Litecoin.MinHTLCOut,
+				BaseFee:    cfg.Litecoin.BaseFee,
+				FeeRate:    cfg.Litecoin.FeeRate,
+			},
 			TimeLockDelta: cfg.Litecoin.TimeLockDelta,
 		}
 		cc.MinHtlcIn = cfg.Litecoin.MinHTLCIn

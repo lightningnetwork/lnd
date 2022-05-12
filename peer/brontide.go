@@ -742,6 +742,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				"for channel %v, using default values",
 				chanPoint)
 			forwardingPolicy = &p.cfg.RoutingPolicy
+			forwardingPolicy.LoadCfg(dbChan.AssetID)
 		}
 
 		peerLog.Tracef("Using link policy of: %v",
@@ -1606,7 +1607,7 @@ func messageSummary(msg lnwire.Message) string {
 		return fmt.Sprintf("temp_chan_id=%x, chain=%v, csv=%v, amt=%v, "+
 			"push_amt=%v, reserve=%v, flags=%v",
 			msg.PendingChannelID[:], msg.ChainHash,
-			msg.CsvDelay, msg.FundingAmount, msg.PushAmount,
+			msg.CsvDelay, msg.FundingBtcAmount, msg.PushBtcAmount,
 			msg.ChannelReserve, msg.ChannelFlags)
 
 	case *lnwire.AcceptChannel:
@@ -2277,6 +2278,7 @@ out:
 			// defaults to the cap on the total value of outstanding HTLCs.
 			fwdMinHtlc := lnChan.FwdMinHtlc()
 			defaultPolicy := p.cfg.RoutingPolicy
+			defaultPolicy.LoadCfg(newChan.AssetID)
 			forwardingPolicy := &htlcswitch.ForwardingPolicy{
 				MinHTLCOut:    fwdMinHtlc,
 				MaxHTLC:       newChan.LocalChanCfg.MaxPendingAmount,

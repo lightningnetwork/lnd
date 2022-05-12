@@ -2,8 +2,8 @@ package lnwire
 
 import (
 	"fmt"
-
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 )
 
 const (
@@ -49,3 +49,27 @@ func (m MilliSatoshi) String() string {
 }
 
 // TODO(roasbeef): extend with arithmetic operations?
+
+
+
+//RequiredRemoteMaxValue
+func AmtToMstat(assetId uint32,amt uint64) uint64{
+	if assetId==omnicore.BtcAssetId{
+		return amt * 1000
+	}else {
+		return amt
+	}
+}
+
+func MstatCfgToI64(assetId uint32,mstat MilliSatoshi) uint64{
+	if assetId==omnicore.BtcAssetId{
+		return uint64(mstat)
+	}else{
+		//truncate MilliSatoshi to 8 precision
+		//res:= uint64(mstat/1000)
+		//
+		//// get usdt value,btc/usdt ~ 30000
+		//return res *30000
+		return uint64(mstat*30000/1000)
+	}
+}

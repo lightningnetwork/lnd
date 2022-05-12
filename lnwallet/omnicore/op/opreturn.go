@@ -142,13 +142,13 @@ func (p *PksAmounts)Len()int {
 	return len(p.pksAmounts)
 }
 func (p *PksAmounts)Add(pks []byte, amount omnicore.Amount){
-	if p.assetID==0 || p.assetID==1 {
+	if p.assetID==0 || p.assetID==omnicore.BtcAssetId {
 		panic(fmt.Errorf("miss assetId"))
 	}
 	p.pksAmounts=append(p.pksAmounts,&pksAmount{pks,amount})
 }
 func AddOpReturnToTx(tx *wire.MsgTx ,p *PksAmounts  )error{
-	if p.assetID==0 || p.assetID==1{
+	if p.assetID==0 || p.assetID==omnicore.BtcAssetId{
 		return fmt.Errorf("miss assetId")
 	}
 	opOutPuts:=[]*Output{}

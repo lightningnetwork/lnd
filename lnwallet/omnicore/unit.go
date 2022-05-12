@@ -133,3 +133,4 @@ func (a Amount) MulF64(f float64) Amount {
 
 
 const OmniGas= btcutil.Amount(546)
+const BtcAssetId= 1

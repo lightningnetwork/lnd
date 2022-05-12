@@ -1,7 +1,9 @@
 package routing
 
 import (
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -103,11 +105,16 @@ type unifiedPolicyEdge struct {
 //func (u *unifiedPolicyEdge) amtInRange(amt lnwire.MilliSatoshi) bool {
 /*obd update wxf*/
 func (u *unifiedPolicyEdge) amtInRange(amt uint64) bool {
+
+	capAmout:=u.capacity
+	if u.policy.AssetId==omnicore.BtcAssetId{
+		capAmout=uint64(lnwire.NewMSatFromSatoshis(btcutil.Amount( u.capacity)))
+	}
 	// If the capacity is available (non-light clients), skip channels that
 	// are too small.
 	if u.capacity > 0 &&
 		//amt > lnwire.NewMSatFromSatoshis(u.capacity) {
-		amt > u.capacity*1000 {
+		amt > capAmout {
 
 		return false
 	}

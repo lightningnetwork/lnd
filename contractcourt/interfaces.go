@@ -10,7 +10,6 @@ import (
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
@@ -25,10 +24,10 @@ type Registry interface {
 	// invoices are never fully settled. The return value describes how the
 	// htlc should be resolved. If the htlc cannot be resolved immediately,
 	// the resolution is sent on the passed in hodlChan later.
-	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
+	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount uint64,
 		expiry uint32, currentHeight int32,
 		circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
-		payload invoices.Payload) (invoices.HtlcResolution, error)
+		payload invoices.Payload,assetId uint32) (invoices.HtlcResolution, error)
 
 	// HodlUnsubscribeAll unsubscribes from all htlc resolutions.
 	HodlUnsubscribeAll(subscriber chan<- interface{})

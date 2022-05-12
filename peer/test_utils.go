@@ -4,6 +4,7 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -89,10 +90,12 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 	aliceCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        aliceDustLimit,
-			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
-			ChanReserve:      btcutil.Amount(rand.Int63()),
-			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
+			Cfg: channeldb.ChannelConstraintsCfg{
+				DustLimit:        aliceDustLimit,
+				MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
+				ChanReserve:      btcutil.Amount(rand.Int63()),
+				MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
+			},
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 			CsvDelay:         uint16(csvTimeoutAlice),
 		},
@@ -112,12 +115,15 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 			PubKey: aliceKeyPub,
 		},
 	}
+	aliceCfg.LoadCfg(omnicore.BtcAssetId)
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        bobDustLimit,
-			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
-			ChanReserve:      btcutil.Amount(rand.Int63()),
-			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
+			Cfg: channeldb.ChannelConstraintsCfg{
+				DustLimit:        bobDustLimit,
+				MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
+				ChanReserve:      btcutil.Amount(rand.Int63()),
+				MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
+			},
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 			CsvDelay:         uint16(csvTimeoutBob),
 		},
@@ -137,6 +143,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 			PubKey: bobKeyPub,
 		},
 	}
+	bobCfg.LoadCfg(omnicore.BtcAssetId)
 
 	bobRoot, err := chainhash.NewHash(bobKeyPriv.Serialize())
 	if err != nil {
@@ -161,8 +168,8 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
-		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, channeldb.SingleFunderTweaklessBit,
+		channelBal, channelBal,0,0, &aliceCfg, &bobCfg, aliceCommitPoint,
+		bobCommitPoint, *fundingTxIn, channeldb.SingleFunderTweaklessBit, omnicore.BtcAssetId,
 		isAliceInitiator, 0,
 	)
 	if err != nil {
@@ -198,8 +205,8 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	// TODO(roasbeef): need to factor in commit fee?
 	aliceCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
-		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
+		LocalBtcBalance:  lnwire.NewMSatFromSatoshis(channelBal),
+		RemoteBtcBalance: lnwire.NewMSatFromSatoshis(channelBal),
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitFee:     feePerKw.FeeForWeight(input.CommitWeight),
 		CommitTx:      aliceCommitTx,
@@ -207,8 +214,8 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	}
 	bobCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
-		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
+		LocalBtcBalance:  lnwire.NewMSatFromSatoshis(channelBal),
+		RemoteBtcBalance: lnwire.NewMSatFromSatoshis(channelBal),
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitFee:     feePerKw.FeeForWeight(input.CommitWeight),
 		CommitTx:      bobCommitTx,
@@ -232,7 +239,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		ShortChannelID:          shortChanID,
 		ChanType:                channeldb.SingleFunderTweaklessBit,
 		IsInitiator:             isAliceInitiator,
-		Capacity:                channelCapacity,
+		BtcCapacity:                channelCapacity,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
@@ -249,7 +256,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunderTweaklessBit,
 		IsInitiator:             !isAliceInitiator,
-		Capacity:                channelCapacity,
+		BtcCapacity:                channelCapacity,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),

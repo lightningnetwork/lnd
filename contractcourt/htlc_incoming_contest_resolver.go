@@ -234,9 +234,11 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			HtlcID: h.htlc.HtlcIndex,
 		}
 
+		/*obd update wxf
+		todo check htlcIncomingContestResolver.Resolver*/
 		resolution, err := h.Registry.NotifyExitHopHtlc(
-			h.htlc.RHash, h.htlc.BtcAmt, h.htlcExpiry, currentHeight,
-			circuitKey, hodlChan, payload,
+			h.htlc.RHash, h.htlc.GetAmt(h.htlc.AssetId), h.htlcExpiry, currentHeight,
+			circuitKey, hodlChan, payload, h.htlc.AssetId,
 		)
 		if err != nil {
 			return nil, err

@@ -101,6 +101,7 @@ type CachedEdgePolicy struct {
 func (c *CachedEdgePolicy) ComputeFee(
 	amt uint64) uint64{
 
+
 	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
 }
 

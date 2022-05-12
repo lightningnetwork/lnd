@@ -61,19 +61,22 @@ const (
 	DefaultMaxLinkFeeAllocation float64 = 0.5
 )
 
-// ForwardingPolicy describes the set of constraints that a given ChannelLink
-// is to adhere to when forwarding HTLC's. For each incoming HTLC, this set of
-// constraints will be consulted in order to ensure that adequate fees are
-// paid, and our time-lock parameters are respected. In the event that an
-// incoming HTLC violates any of these constraints, it is to be _rejected_ with
-// the error possibly carrying along a ChannelUpdate message that includes the
-// latest policy.
-type ForwardingPolicy struct {
-	// MinHTLC is the smallest HTLC that is to be forwarded.
-	MinHTLCOut uint64
+func (fwdp *ForwardingPolicy)LoadCfg(assetId uint32)  {
+	fwdp.MinHTLCOut =lnwire.MstatCfgToI64(assetId,fwdp.Cfg.MinHTLCOut)
+	fwdp.BaseFee =lnwire.MstatCfgToI64(assetId,fwdp.Cfg.BaseFee)
+	fwdp.FeeRate =uint64(fwdp.Cfg.FeeRate)
 
-	// MaxHTLC is the largest HTLC that is to be forwarded.
-	MaxHTLC uint64
+}
+
+/*obd udpate wxf
+default config
+*/
+type ForwardingPolicyCfg struct {
+	// MinHTLC is the smallest HTLC that is to be forwarded.
+	MinHTLCOut lnwire.MilliSatoshi
+
+	//// MaxHTLC is the largest HTLC that is to be forwarded.
+	//MaxHTLC lnwire.MilliSatoshi
 
 	// BaseFee is the base fee, expressed in milli-satoshi that must be
 	// paid for each incoming HTLC. This field, combined with FeeRate is
@@ -84,6 +87,35 @@ type ForwardingPolicy struct {
 	// paid for each incoming HTLC. This field combined with BaseFee is
 	// used to compute the required fee for a given HTLC.
 	FeeRate lnwire.MilliSatoshi
+}
+// ForwardingPolicy describes the set of constraints that a given ChannelLink
+// is to adhere to when forwarding HTLC's. For each incoming HTLC, this set of
+// constraints will be consulted in order to ensure that adequate fees are
+// paid, and our time-lock parameters are respected. In the event that an
+// incoming HTLC violates any of these constraints, it is to be _rejected_ with
+// the error possibly carrying along a ChannelUpdate message that includes the
+// latest policy.
+type ForwardingPolicy struct {
+	/*obd udpate wxf
+	default config
+	*/
+	Cfg ForwardingPolicyCfg
+
+	// MinHTLC is the smallest HTLC that is to be forwarded.
+	MinHTLCOut uint64
+
+	// MaxHTLC is the largest HTLC that is to be forwarded.
+	MaxHTLC uint64
+
+	// BaseFee is the base fee, expressed in milli-satoshi that must be
+	// paid for each incoming HTLC. This field, combined with FeeRate is
+	// used to compute the required fee for a given HTLC.
+	BaseFee uint64
+
+	// FeeRate is the fee rate, expressed in milli-satoshi that must be
+	// paid for each incoming HTLC. This field combined with BaseFee is
+	// used to compute the required fee for a given HTLC.
+	FeeRate uint64
 
 	// TimeLockDelta is the absolute time-lock value, expressed in blocks,
 	// that will be subtracted from an incoming HTLC's timelock value to
@@ -3076,7 +3108,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, pd.GetMsgAmt(), pd.Timeout, int32(heightNow),
-		circuitKey, l.hodlQueue.ChanIn(), payload,
+		circuitKey, l.hodlQueue.ChanIn(), payload, pd.AssetID,
 	)
 	if err != nil {
 		return err

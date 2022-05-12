@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -48,7 +47,7 @@ func mergeInt64(name string, current, new int64) (int64, error) {
 // mergeMillisatoshi merges two msat values, failing if they have different
 // non-zero values.
 func mergeMillisatoshi(name string, current,
-	new lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
+	new uint64) (uint64, error) {
 
 	switch {
 	case current == 0:
@@ -123,7 +122,7 @@ func mergeResponse(current, new ChannelAcceptResponse) (ChannelAcceptResponse,
 	if err != nil {
 		return current, err
 	}
-	current.Reserve = btcutil.Amount(reserve)
+	current.Reserve = uint64(reserve)
 
 	current.MinHtlcIn, err = mergeMillisatoshi(
 		fieldMinIn, current.MinHtlcIn, new.MinHtlcIn,

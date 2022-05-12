@@ -814,7 +814,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	commitTx.AddTxIn(&fundingOutput)
 
 	// Avoid creating dust outputs within the commitment transaction.
-	localOutput := btcAmountToLocal >= localChanCfg.DustLimit
+	localOutput :=uint64(btcAmountToLocal) >= localChanCfg.DustLimit
 	/*
 	obd add wxf
 	*/
@@ -833,7 +833,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 		opAmounts.Add(toLocalScript.PkScript,assetAmountToLocal)
 	}
 
-	remoteOutput := btcAmountToRemote >= localChanCfg.DustLimit
+	remoteOutput := uint64(btcAmountToRemote) >= localChanCfg.DustLimit
 	/*
 		obd add wxf
 	*/

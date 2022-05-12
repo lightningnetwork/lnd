@@ -246,8 +246,10 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		feeMSat += 2 * lnwire.NewMSatFromSatoshis(anchorSize)
 	}
 
+	/*obd update wxf
+	todo use asset dust*/
 	// Used to cut down on verbosity.
-	defaultDust := wallet.Cfg.DefaultConstraints.DustLimit
+	defaultDust := wallet.Cfg.DefaultConstraints.Cfg.DustLimit
 
 	// If we're the responder to a single-funder reservation, then we have
 	// no initial balance in the channel unless the remote party is pushing
@@ -476,18 +478,21 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
 		return ErrChanReserveTooSmall(c.ChanReserve, c.DustLimit)
 	}
 
-	// Validate against the maximum-sized witness script dust limit, and
-	// also ensure that the DustLimit is not too large.
-	maxWitnessLimit := DustLimitForSize(input.UnknownWitnessSize)
-	if c.DustLimit < maxWitnessLimit || c.DustLimit > 3*maxWitnessLimit {
-		return ErrInvalidDustLimit(c.DustLimit)
-	}
+	if r.partialState.AssetID==omnicore.BtcAssetId{
+		btcDustLimt:=btcutil.Amount(c.DustLimit)
+		// Validate against the maximum-sized witness script dust limit, and
+		// also ensure that the DustLimit is not too large.
+		maxWitnessLimit := DustLimitForSize(input.UnknownWitnessSize)
+		if  btcDustLimt < maxWitnessLimit || btcDustLimt > 3*maxWitnessLimit {
+			return ErrInvalidDustLimit(c.DustLimit)
+		}
 
-	// Fail if we consider the channel reserve to be too large.  We
-	// currently fail if it is greater than 20% of the channel capacity.
-	maxChanReserve := r.partialState.BtcCapacity / 5
-	if c.ChanReserve > maxChanReserve {
-		return ErrChanReserveTooLarge(c.ChanReserve, maxChanReserve)
+		// Fail if we consider the channel reserve to be too large.  We
+		// currently fail if it is greater than 20% of the channel capacity.
+		maxChanReserve := r.partialState.BtcCapacity / 5
+		if btcutil.Amount(c.ChanReserve) > maxChanReserve {
+			return ErrChanReserveTooLarge(btcutil.Amount(c.ChanReserve), maxChanReserve)
+		}
 	}
 
 	// Fail if the minimum HTLC value is too large. If this is too large,

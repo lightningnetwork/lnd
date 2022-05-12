@@ -1212,7 +1212,9 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 	)
 
 	reservation.partialState.RevocationProducer = producer
-	reservation.ourContribution.ChannelConstraints = l.Cfg.DefaultConstraints
+	defaultConstraints:=l.Cfg.DefaultConstraints
+	defaultConstraints.LoadCfg(reservation.partialState.AssetID)
+	reservation.ourContribution.ChannelConstraints = defaultConstraints
 
 	return nil
 }

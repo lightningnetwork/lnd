@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -46,18 +45,21 @@ type ChannelAcceptResponse struct {
 
 	// Reserve is the amount that require the remote peer hold in reserve
 	// on the channel.
-	Reserve btcutil.Amount
+	//Reserve btcutil.Amount
+	Reserve uint64
 
 	// InFlightTotal is the maximum amount that we allow the remote peer to
 	// hold in outstanding htlcs.
-	InFlightTotal lnwire.MilliSatoshi
+	//InFlightTotal lnwire.MilliSatoshi
+	InFlightTotal uint64
 
 	// HtlcLimit is the maximum number of htlcs that we allow the remote
 	// peer to offer us.
 	HtlcLimit uint16
 
 	// MinHtlcIn is the minimum incoming htlc value allowed on the channel.
-	MinHtlcIn lnwire.MilliSatoshi
+	//MinHtlcIn lnwire.MilliSatoshi
+	MinHtlcIn uint64
 
 	// MinAcceptDepth is the minimum depth that the initiator of the
 	// channel should wait before considering the channel open.
@@ -71,8 +73,8 @@ type ChannelAcceptResponse struct {
 // error.
 func NewChannelAcceptResponse(accept bool, acceptErr error,
 	upfrontShutdown lnwire.DeliveryAddress, csvDelay, htlcLimit,
-	minDepth uint16, reserve btcutil.Amount, inFlight,
-	minHtlcIn lnwire.MilliSatoshi) *ChannelAcceptResponse {
+	minDepth uint16, reserve uint64, inFlight,
+	minHtlcIn uint64) *ChannelAcceptResponse {
 
 	resp := &ChannelAcceptResponse{
 		UpfrontShutdown: upfrontShutdown,

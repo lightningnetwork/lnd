@@ -127,7 +127,7 @@ type testLightningChannel struct {
 func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	aliceAmount, bobAmount, aliceReserve, bobReserve btcutil.Amount,
 	aliceAssetAmount, bobAssetAmount, aliceAssetReserve, bobAssetReserve omnicore.Amount,
-	chanID lnwire.ShortChannelID) (*testLightningChannel,
+	chanID lnwire.ShortChannelID,assetId uint32) (*testLightningChannel,
 	*testLightningChannel, func(), error) {
 
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), alicePrivKey)
@@ -138,21 +138,24 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	csvTimeoutBob := uint32(4)
 	isAliceInitiator := true
 
+	maxAmt:=uint64(channelCapacity)
+	if assetId==omnicore.BtcAssetId{
+		maxAmt=uint64(lnwire.NewMSatFromSatoshis(
+			channelCapacity))
+	}
 	aliceConstraints := &channeldb.ChannelConstraints{
-		DustLimit: btcutil.Amount(200),
-		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
-			channelCapacity),
-		ChanReserve:      aliceReserve,
+		DustLimit: uint64(btcutil.Amount(200)),
+		MaxPendingAmount: maxAmt,
+		ChanReserve:      uint64(aliceReserve),
 		MinHTLC:          0,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		CsvDelay:         uint16(csvTimeoutAlice),
 	}
 
 	bobConstraints := &channeldb.ChannelConstraints{
-		DustLimit: btcutil.Amount(800),
-		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
-			channelCapacity),
-		ChanReserve:      bobReserve,
+		DustLimit: uint64(btcutil.Amount(800)),
+		MaxPendingAmount: maxAmt,
+		ChanReserve:      uint64(bobReserve),
 		MinHTLC:          0,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		CsvDelay:         uint16(csvTimeoutBob),
@@ -888,7 +891,7 @@ func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 		createTestChannel(alicePrivKey, bobPrivKey, aliceToBob,
 			aliceToBob, 0, 0,
 			0,0,0,0,
-			firstChanID)
+			firstChanID,omnicore.BtcAssetId)
 	if err != nil {
 		return nil, nil, nil, errors.Errorf("unable to create "+
 			"alice<->bob channel: %v", err)
@@ -898,7 +901,7 @@ func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 		createTestChannel(bobPrivKey, carolPrivKey, bobToCarol,
 			bobToCarol, 0, 0,
 			0,0,0,0,
-			secondChanID)
+			secondChanID,omnicore.BtcAssetId)
 	if err != nil {
 		cleanAliceBob()
 		return nil, nil, nil, errors.Errorf("unable to create "+
@@ -1089,7 +1092,7 @@ func createTwoClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 		createTestChannel(alicePrivKey, bobPrivKey, aliceToBob,
 			aliceToBob, 0, 0,
 			0,0,0,0,
-			firstChanID)
+			firstChanID,omnicore.BtcAssetId)
 	if err != nil {
 		return nil, nil, nil, errors.Errorf("unable to create "+
 			"alice<->bob channel: %v", err)
@@ -1112,7 +1115,7 @@ func newHopNetwork() *hopNetwork {
 
 	globalPolicy := ForwardingPolicy{
 		MinHTLCOut:    uint64( lnwire.NewMSatFromSatoshis(5)),
-		BaseFee:       lnwire.NewMSatFromSatoshis(1),
+		BaseFee:       uint64(lnwire.NewMSatFromSatoshis(1)),
 		TimeLockDelta: defaultDelta,
 	}
 	obfuscator := NewMockObfuscator()

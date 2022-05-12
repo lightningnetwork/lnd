@@ -1735,6 +1735,11 @@ type routingMsg struct {
 // FindRoute attempts to query the ChannelRouter for the optimum path to a
 // particular target destination to which it is able to send `amt` after
 // factoring in channel capacities and cumulative fees along the route.
+//func (r *ChannelRouter) FindRoute(source, target route.Vertex,
+//	amt lnwire.MilliSatoshi, restrictions *RestrictParams,
+//	destCustomRecords record.CustomSet,
+//	routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
+//	finalExpiry uint16) (*route.Route, error) {
 func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	//amt lnwire.MilliSatoshi, restrictions *RestrictParams,
 	assetId uint32, amt uint64, restrictions *RestrictParams,

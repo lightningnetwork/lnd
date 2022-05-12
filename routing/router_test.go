@@ -3,6 +3,7 @@ package routing
 import (
 	"bytes"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"image/color"
 	"math"
 	"math/rand"
@@ -244,7 +245,7 @@ func signErrChanUpdate(t *testing.T, key *btcec.PrivateKey,
 // limit.
 func TestFindRoutesWithFeeLimit(t *testing.T) {
 	t.Parallel()
-	assetId:=uint32(1)
+	//assetId:=uint32(1)
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromFile(
 		t, assetId, startingBlockHeight, basicGraphFilePath,
@@ -261,12 +262,11 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	target := ctx.aliases["sophon"]
 	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
 
-
-	paymentAmt := uint64( 100)
-	feeLimit:=uint64( 10)
-	if assetId>0{
-		paymentAmt=1000*paymentAmt
-		feeLimit=1000*feeLimit
+	paymentAmt := uint64(100)*30000
+	feeLimit:=uint64( 10)*30000
+	if assetId==omnicore.BtcAssetId{
+		paymentAmt=1000*uint64( 100)
+		feeLimit=1000*uint64( 10)
 	}
 	restrictions := &RestrictParams{
 		FeeLimit:          feeLimit,
@@ -382,7 +382,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	feeRate := uint64(400)
 
 	maxHtlc:=chanCapSat
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		maxHtlc=maxHtlc*1000
 	}
 	testChannels := []*testChannel{
@@ -439,7 +439,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	}
 
 	ramt:=uint64(10)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		ramt=10*1000
 	}
 	rt, err := route.NewRouteFromHops(
@@ -648,7 +648,7 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 		expiryDelta      = uint16(32)
 		sgNode           = ctx.aliases["songoku"]
 	)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		amt*=1000
 	}
 	sgNodeID, err := btcec.ParsePubKey(sgNode[:], btcec.S256())
@@ -786,7 +786,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 		sgNode           = ctx.aliases["songoku"]
 		feeLimit         = uint64(500000)
 	)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		amt*=1000
 	}
 	sgNodeID, err := btcec.ParsePubKey(sgNode[:], btcec.S256())
@@ -1026,7 +1026,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	var payHash lntypes.Hash
 	//paymentAmt := lnwire.NewMSatFromSatoshis(1000)
 	paymentAmt := uint64(1)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		paymentAmt=1000
 	}
 	payment := LightningPayment{
@@ -2770,7 +2770,7 @@ func TestUnknownErrorSource(t *testing.T) {
 	// alternative a->d->c.
 	chanCapSat := uint64(100000)
 	mHtlc:=chanCapSat
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		mHtlc=mHtlc*1000
 	}
 	testChannels := []*testChannel{
@@ -2815,7 +2815,7 @@ func TestUnknownErrorSource(t *testing.T) {
 	defer cleanUp()
 
 	pAmt:=uint64( 1000)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		pAmt=pAmt*1000
 	}
 	// Create a payment to node c.
@@ -2920,9 +2920,9 @@ func assertChannelsPruned(t *testing.T, graph *channeldb.ChannelGraph,
 		}
 	}
 }
-var assetId =uint32(1)
+var assetId =uint32(31)
 func getPayValue(msat lnwire.MilliSatoshi) uint64{
-	if assetId>1{ //asset
+	if assetId!=omnicore.BtcAssetId{ //asset
 		return uint64(msat /1000)
 	}
 	//btc
@@ -2936,7 +2936,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	// Setup a three node network.
 	chanCapSat := uint64(100000)
 	mHtlc:=chanCapSat
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		mHtlc=mHtlc*1000
 	}
 	testChannels := []*testChannel{
@@ -2975,7 +2975,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	// in a call to SendToRoute. SendToRoute also applies channel updates,
 	// but it saves us from including RequestRoute in the test scope too.
 	var payAmt = uint64(10000)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		payAmt=payAmt*1000
 	}
 	hop1 := ctx.aliases["b"]
@@ -3198,7 +3198,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 	// Setup a two node network.
 	chanCapSat := uint64(100000)
 	mHtlc:=chanCapSat
-	if assetId==1 {
+	if assetId==omnicore.BtcAssetId {
 		mHtlc=mHtlc*1000
 	}
 	testChannels := []*testChannel{
@@ -3225,7 +3225,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 
 	// Create a 30 hop route that exceeds the maximum hop limit.
 	var payAmt = uint64(10000)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		payAmt=payAmt*1000
 	}
 	hopA := ctx.aliases["a"]
@@ -3323,7 +3323,7 @@ func TestBuildRoute(t *testing.T) {
 			Features: paymentAddrFeatures,
 		}, 4),
 	}
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		for _, channel := range testChannels {
 			channel.Node1.MaxHTLC*=1000
 			channel.Node1.MinHTLC*=1000
@@ -3556,7 +3556,7 @@ func createDummyTestGraph(t *testing.T) *testGraphInstance {
 	// route.
 	chanCapSat := uint64(100000)
 	maxHtlc:=chanCapSat
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		maxHtlc*=1000
 	}
 	testChannels := []*testChannel{
@@ -4229,7 +4229,7 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 	// resumePayment.
 	//paymentAmt := lnwire.MilliSatoshi(10000)
 	paymentAmt := uint64(10)
-	if assetId==1{
+	if assetId==omnicore.BtcAssetId{
 		paymentAmt*=1000
 	}
 	req := createDummyLightningPayment(

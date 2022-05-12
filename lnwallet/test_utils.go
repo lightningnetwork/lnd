@@ -103,7 +103,8 @@ var (
 	*/
 	//testChannelCapacity float64 = 10
 	testChannelBtcCapacity float64 = 10
-	testChannelAssetCapacity float64 = 10
+	testChannelAssetCapacity float64 = 10*30000
+	testAssetId=uint32(31)
 )
 
 // CreateTestChannels creates to fully populated channels to be used within
@@ -161,12 +162,16 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		bobKeys = append(bobKeys, bobKey)
 	}
 
+	/*obd update wxf
+	todo add asset ChannelConstraints*/
 	aliceCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        aliceDustLimit,
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelBtcCapacity),
-			ChanReserve:      channelBtcCapacity / 100,
-			MinHTLC:          0,
+			Cfg: channeldb.ChannelConstraintsCfg{
+				DustLimit:        aliceDustLimit,
+				MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelBtcCapacity),
+				ChanReserve:      channelBtcCapacity / 100,
+				MinHTLC:          0,
+			},
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 			CsvDelay:         uint16(csvTimeoutAlice),
 		},
@@ -186,12 +191,15 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 			PubKey: aliceKeys[4].PubKey(),
 		},
 	}
+	(&aliceCfg.ChannelConstraints).LoadCfg(testAssetId)
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        bobDustLimit,
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelBtcCapacity),
-			ChanReserve:      channelBtcCapacity / 100,
-			MinHTLC:          0,
+			Cfg: channeldb.ChannelConstraintsCfg{
+				DustLimit:        bobDustLimit,
+				MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelBtcCapacity),
+				ChanReserve:      channelBtcCapacity / 100,
+				MinHTLC:          0,
+			},
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 			CsvDelay:         uint16(csvTimeoutBob),
 		},
@@ -211,6 +219,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 			PubKey: bobKeys[4].PubKey(),
 		},
 	}
+	(&bobCfg.ChannelConstraints).LoadCfg(testAssetId)
 
 	bobRoot, err := chainhash.NewHash(bobKeys[0].Serialize())
 	if err != nil {
@@ -236,7 +245,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 
 	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(
 		channelBtcBal, channelBtcBal,channelAssetCapacity, 0, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, chanType, 31, isAliceInitiator, 0,
+		bobCommitPoint, *fundingTxIn, chanType, testAssetId, isAliceInitiator, 0,
 	)
 	if err != nil {
 		return nil, nil, nil, err
@@ -342,7 +351,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		IsInitiator:             isAliceInitiator,
 		BtcCapacity:             channelBtcCapacity,
 		AssetCapacity:           channelAssetCapacity,
-		AssetID:				 31,
+		AssetID:				 testAssetId,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
@@ -362,7 +371,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		IsInitiator:             !isAliceInitiator,
 		BtcCapacity:             channelBtcCapacity,
 		AssetCapacity:           0,
-		AssetID:				 31,
+		AssetID:				 testAssetId,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),

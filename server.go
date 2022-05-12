@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"image/color"
 	"math/big"
 	prand "math/rand"
@@ -1298,7 +1299,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			return s.htlcSwitch.UpdateShortChanID(cid)
 		},
 		RequiredRemoteChanReserve: func(chanAmt,
-			dustLimit btcutil.Amount) btcutil.Amount {
+			dustLimit uint64) uint64 {
 
 			// By default, we'll require the remote peer to maintain
 			// at least 1% of the total channel capacity at all
@@ -1312,12 +1313,16 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 			return reserve
 		},
-		RequiredRemoteMaxValue: func(chanAmt btcutil.Amount) lnwire.MilliSatoshi {
+		/*obd update wxf*/
+		RequiredRemoteMaxValue: func(assetId uint32, chanAmt uint64) uint64 {
 			// By default, we'll allow the remote peer to fully
 			// utilize the full bandwidth of the channel, minus our
 			// required reserve.
-			reserve := lnwire.NewMSatFromSatoshis(chanAmt / 100)
-			return lnwire.NewMSatFromSatoshis(chanAmt) - reserve
+			if assetId==omnicore.BtcAssetId {
+				reserve := lnwire.NewMSatFromSatoshis(btcutil.Amount(chanAmt) / 100)
+				return uint64(lnwire.NewMSatFromSatoshis(btcutil.Amount(chanAmt)) - reserve)
+			}
+			return chanAmt-chanAmt / 100
 		},
 		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
 			if cfg.DefaultRemoteMaxHtlcs > 0 {

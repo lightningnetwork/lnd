@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"math"
 	"time"
 
@@ -396,7 +397,7 @@ func getOutgoingBalance(assetId uint32,node route.Vertex, outgoingChans map[uint
 		if !ok {
 			/*obd update wxf*/
 			//bandwidth = lnwire.NewMSatFromSatoshis(channel.Capacity)
-			if channel.AssetId==1{
+			if channel.AssetId==omnicore.BtcAssetId{
 				bandwidth = channel.Capacity*1000
 			}else{
 				bandwidth = channel.Capacity
@@ -432,6 +433,9 @@ func getOutgoingBalance(assetId uint32,node route.Vertex, outgoingChans map[uint
 // source. This is to properly accumulate fees that need to be paid along the
 // path and accurately check the amount to forward at every node against the
 // available bandwidth.
+//func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
+//	source, target route.Vertex, amt lnwire.MilliSatoshi,
+//	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, assetId uint32, amt uint64,
 	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
@@ -912,6 +916,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		if !ok {
 			// If the node doesn't have a next hop it means we
 			// didn't find a path.
+			println("max %v < amt  %v", "currentNode", amt )
 			return nil, errNoPathFound
 		}
 

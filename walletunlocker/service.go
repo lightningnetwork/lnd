@@ -309,7 +309,7 @@ func (u *UnlockerService) GenSeed(_ context.Context,
 	// instance.
 	//
 	cipherSeed, err := aezeed.New(
-		keychain.KeyDerivationVersion, &entropy, time.Now(),
+		keychain.CurrentKeyDerivationVersion, &entropy, time.Now(),
 	)
 	if err != nil {
 		return nil, err

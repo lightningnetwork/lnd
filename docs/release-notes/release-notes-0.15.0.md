@@ -29,6 +29,11 @@ The `walletrpc.SignPsbt` RPC now also supports [Taproot PSBT
 signing](https://github.com/lightningnetwork/lnd/pull/6450) to fully support
 remote signing with Taproot outputs. 
 
+The internal version of the `aezeed` [was bumped to `1` to mark new seeds that
+were created after introducing the Taproot key
+derivation](https://github.com/lightningnetwork/lnd/pull/6524) to simplify
+detecting Taproot compatibility of a seed.
+
 ## MuSig2
 
 The [`signrpc.Signer` RPC service now supports EXPERIMENTAL MuSig2

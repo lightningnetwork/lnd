@@ -16,7 +16,7 @@ type TestVector struct {
 	version          uint8
 	time             time.Time
 	entropy          [EntropySize]byte
-	salt             [saltSize]byte
+	salt             [SaltSize]byte
 	password         []byte
 	expectedMnemonic [NumMnemonicWords]string
 	expectedBirthday uint16
@@ -29,7 +29,7 @@ var (
 		0x0d, 0xe7, 0x95, 0xe4,
 		0x1e, 0x0b, 0x4c, 0xfd,
 	}
-	testSalt = [saltSize]byte{
+	testSalt = [SaltSize]byte{
 		0x73, 0x61, 0x6c, 0x74, 0x31, // equal to "salt1"
 	}
 	version0TestVectors = []TestVector{{
@@ -70,6 +70,7 @@ func assertCipherSeedEqual(t *testing.T, cipherSeed *CipherSeed,
 	)
 	require.Equal(t, cipherSeed.Birthday, cipherSeed2.Birthday, "birthday")
 	require.Equal(t, cipherSeed.Entropy, cipherSeed2.Entropy, "entropy")
+	require.Equal(t, cipherSeed.salt, cipherSeed2.salt, "salt")
 }
 
 // TestAezeedVersion0TestVectors tests some fixed test vector values against
@@ -202,12 +203,15 @@ func TestRawEncipherDecipher(t *testing.T) {
 
 	// Now that we have the ciphertext (mapped to the mnemonic), we'll
 	// attempt to decipher it raw using the user's passphrase.
-	plainSeedBytes, err := mnemonic.Decipher(pass)
+	plainSeedBytes, salt, err := mnemonic.Decipher(pass)
 	require.NoError(t, err)
+	require.Equal(t, cipherSeed.salt, salt)
 
 	// If we deserialize the plaintext seed bytes, it should exactly match
 	// the original cipher seed.
-	var newSeed CipherSeed
+	newSeed := CipherSeed{
+		salt: salt,
+	}
 	err = newSeed.decode(bytes.NewReader(plainSeedBytes[:]))
 	require.NoError(t, err)
 
@@ -236,7 +240,7 @@ func TestInvalidExternalVersion(t *testing.T) {
 
 	// With the version swapped, if we try to decipher it, (no matter the
 	// passphrase), it should fail.
-	_, err = decipherCipherSeed(cipherText, []byte("kek"))
+	_, _, err = decipherCipherSeed(cipherText, []byte("kek"))
 	require.Equal(t, ErrIncorrectVersion, err)
 }
 

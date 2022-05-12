@@ -405,6 +405,7 @@ func main() {
 		deleteMacaroonIDCommand,
 		listPermissionsCommand,
 		printMacaroonCommand,
+		constrainMacaroonCommand,
 		trackPaymentCommand,
 		versionCommand,
 		profileSubCommand,

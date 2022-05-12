@@ -411,6 +411,76 @@ func printMacaroon(ctx *cli.Context) error {
 	return nil
 }
 
+var constrainMacaroonCommand = cli.Command{
+	Name:     "constrainmacaroon",
+	Category: "Macaroons",
+	Usage:    "Adds one or more restriction(s) to an existing macaroon",
+	ArgsUsage: "[--timeout=] [--ip_address=] [--custom_caveat_name= " +
+		"[--custom_caveat_condition=]] input-macaroon-file " +
+		"constrained-macaroon-file",
+	Description: `
+	Add one or more first-party caveat(s) (a.k.a. constraints/restrictions)
+	to an existing macaroon.
+	`,
+	Flags: []cli.Flag{
+		macTimeoutFlag,
+		macIPAddressFlag,
+		macCustomCaveatNameFlag,
+		macCustomCaveatConditionFlag,
+	},
+	Action: actionDecorator(constrainMacaroon),
+}
+
+func constrainMacaroon(ctx *cli.Context) error {
+	// Show command help if not enough arguments.
+	if ctx.NArg() != 2 {
+		return cli.ShowCommandHelp(ctx, "constrainmacaroon")
+	}
+	args := ctx.Args()
+
+	sourceMacFile := lncfg.CleanAndExpandPath(args.First())
+	args = args.Tail()
+
+	sourceMacBytes, err := ioutil.ReadFile(sourceMacFile)
+	if err != nil {
+		return fmt.Errorf("error trying to read source macaroon file "+
+			"%s: %v", sourceMacFile, err)
+	}
+
+	destMacFile := lncfg.CleanAndExpandPath(args.First())
+
+	// Now we should have gotten a valid macaroon. Unmarshal it so we can
+	// add first-party caveats (if necessary) to it.
+	sourceMac := &macaroon.Macaroon{}
+	if err = sourceMac.UnmarshalBinary(sourceMacBytes); err != nil {
+		return fmt.Errorf("error unmarshaling source macaroon file "+
+			"%s: %v", sourceMacFile, err)
+	}
+
+	// Now apply the desired constraints to the macaroon. This will always
+	// create a new macaroon object, even if no constraints are added.
+	constrainedMac, err := applyMacaroonConstraints(ctx, sourceMac)
+	if err != nil {
+		return err
+	}
+
+	destMacBytes, err := constrainedMac.MarshalBinary()
+	if err != nil {
+		return fmt.Errorf("error marshaling destination macaroon "+
+			"file: %v", err)
+	}
+
+	// Now we can output the result.
+	err = ioutil.WriteFile(destMacFile, destMacBytes, 0644)
+	if err != nil {
+		return fmt.Errorf("error writing destination macaroon file "+
+			"%s: %v", destMacFile, err)
+	}
+	fmt.Printf("Macaroon saved to %s\n", destMacFile)
+
+	return nil
+}
+
 // applyMacaroonConstraints parses and applies all currently supported macaroon
 // condition flags from the command line to the given macaroon and returns a new
 // macaroon instance.

@@ -254,7 +254,7 @@ func (c *CipherSeed) decode(r io.Reader) error {
 // our current enciphering operation. The AD is: version || salt.
 func encodeAD(version uint8, salt [saltSize]byte) [adSize]byte {
 	var ad [adSize]byte
-	ad[0] = byte(version)
+	ad[0] = version
 	copy(ad[1:], salt[:])
 
 	return ad
@@ -318,7 +318,7 @@ func (c *CipherSeed) encipher(pass []byte) ([EncipheredCipherSeedSize]byte,
 
 	// Finally, we'll pack the {version || ciphertext || salt || checksum}
 	// seed into a byte slice for encoding as a mnemonic.
-	cipherSeedBytes[0] = byte(CipherSeedVersion)
+	cipherSeedBytes[0] = CipherSeedVersion
 	copy(cipherSeedBytes[1:saltOffset], cipherText)
 	copy(cipherSeedBytes[saltOffset:], c.salt[:])
 
@@ -458,7 +458,7 @@ func decipherCipherSeed(cipherSeedBytes [EncipheredCipherSeedSize]byte,
 	// Before we do anything, we'll ensure that the version is one that we
 	// understand. Otherwise, we won't be able to decrypt, or even parse
 	// the cipher seed.
-	if uint8(cipherSeedBytes[0]) != CipherSeedVersion {
+	if cipherSeedBytes[0] != CipherSeedVersion {
 		return plainSeed, ErrIncorrectVersion
 	}
 

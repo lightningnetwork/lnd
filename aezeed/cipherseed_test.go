@@ -6,6 +6,8 @@ import (
 	"testing"
 	"testing/quick"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestVector defines the values that are used to create a fully initialized
@@ -30,53 +32,44 @@ var (
 	testSalt = [saltSize]byte{
 		0x73, 0x61, 0x6c, 0x74, 0x31, // equal to "salt1"
 	}
-	version0TestVectors = []TestVector{
-		{
-			version:  0,
-			time:     BitcoinGenesisDate,
-			entropy:  testEntropy,
-			salt:     testSalt,
-			password: []byte{},
-			expectedMnemonic: [NumMnemonicWords]string{
-				"ability", "liquid", "travel", "stem", "barely", "drastic",
-				"pact", "cupboard", "apple", "thrive", "morning", "oak",
-				"feature", "tissue", "couch", "old", "math", "inform",
-				"success", "suggest", "drink", "motion", "know", "royal",
-			},
-			expectedBirthday: 0,
+	version0TestVectors = []TestVector{{
+		version:  0,
+		time:     BitcoinGenesisDate,
+		entropy:  testEntropy,
+		salt:     testSalt,
+		password: []byte{},
+		expectedMnemonic: [NumMnemonicWords]string{
+			"ability", "liquid", "travel", "stem", "barely", "drastic",
+			"pact", "cupboard", "apple", "thrive", "morning", "oak",
+			"feature", "tissue", "couch", "old", "math", "inform",
+			"success", "suggest", "drink", "motion", "know", "royal",
 		},
-		{
-			version:  0,
-			time:     time.Unix(1521799345, 0), // 03/23/2018 @ 10:02am (UTC)
-			entropy:  testEntropy,
-			salt:     testSalt,
-			password: []byte("!very_safe_55345_password*"),
-			expectedMnemonic: [NumMnemonicWords]string{
-				"able", "tree", "stool", "crush", "transfer", "cloud",
-				"cross", "three", "profit", "outside", "hen", "citizen",
-				"plate", "ride", "require", "leg", "siren", "drum",
-				"success", "suggest", "drink", "require", "fiscal", "upgrade",
-			},
-			expectedBirthday: 3365,
+		expectedBirthday: 0,
+	}, {
+		version:  0,
+		time:     time.Unix(1521799345, 0), // 03/23/2018 @ 10:02am (UTC)
+		entropy:  testEntropy,
+		salt:     testSalt,
+		password: []byte("!very_safe_55345_password*"),
+		expectedMnemonic: [NumMnemonicWords]string{
+			"able", "tree", "stool", "crush", "transfer", "cloud",
+			"cross", "three", "profit", "outside", "hen", "citizen",
+			"plate", "ride", "require", "leg", "siren", "drum",
+			"success", "suggest", "drink", "require", "fiscal", "upgrade",
 		},
-	}
+		expectedBirthday: 3365,
+	}}
 )
 
 func assertCipherSeedEqual(t *testing.T, cipherSeed *CipherSeed,
 	cipherSeed2 *CipherSeed) {
 
-	if cipherSeed.InternalVersion != cipherSeed2.InternalVersion {
-		t.Fatalf("mismatched versions: expected %v, got %v",
-			cipherSeed.InternalVersion, cipherSeed2.InternalVersion)
-	}
-	if cipherSeed.Birthday != cipherSeed2.Birthday {
-		t.Fatalf("mismatched birthday: expected %v, got %v",
-			cipherSeed.Birthday, cipherSeed2.Birthday)
-	}
-	if cipherSeed.Entropy != cipherSeed2.Entropy {
-		t.Fatalf("mismatched versions: expected %x, got %x",
-			cipherSeed.Entropy[:], cipherSeed2.Entropy[:])
-	}
+	require.Equal(
+		t, cipherSeed.InternalVersion, cipherSeed2.InternalVersion,
+		"internal version",
+	)
+	require.Equal(t, cipherSeed.Birthday, cipherSeed2.Birthday, "birthday")
+	require.Equal(t, cipherSeed.Entropy, cipherSeed2.Entropy, "entropy")
 }
 
 // TestAezeedVersion0TestVectors tests some fixed test vector values against
@@ -91,31 +84,21 @@ func TestAezeedVersion0TestVectors(t *testing.T) {
 		// First, we create new cipher seed with the given values
 		// from the test vector.
 		cipherSeed, err := New(v.version, &v.entropy, v.time)
-		if err != nil {
-			t.Fatalf("unable to create seed: %v", err)
-		}
+		require.NoError(t, err)
 
 		// Then we need to set the salt to the pre-defined value,
 		// otherwise we'll end up with randomness in our mnemonics.
-		cipherSeed.salt = testSalt
+		cipherSeed.salt = v.salt
 
 		// Now that the seed has been created, we'll attempt to convert
 		// it to a valid mnemonic.
 		mnemonic, err := cipherSeed.ToMnemonic(v.password)
-		if err != nil {
-			t.Fatalf("unable to create mnemonic: %v", err)
-		}
+		require.NoError(t, err)
 
 		// Finally we compare the generated mnemonic and birthday to the
 		// expected value.
-		if mnemonic != v.expectedMnemonic {
-			t.Fatalf("mismatched mnemonic: expected %s, got %s",
-				v.expectedMnemonic, mnemonic)
-		}
-		if cipherSeed.Birthday != v.expectedBirthday {
-			t.Fatalf("mismatched birthday: expected %v, got %v",
-				v.expectedBirthday, cipherSeed.Birthday)
-		}
+		require.Equal(t, v.expectedMnemonic[:], mnemonic[:])
+		require.Equal(t, v.expectedBirthday, cipherSeed.Birthday)
 	}
 }
 
@@ -131,23 +114,17 @@ func TestEmptyPassphraseDerivation(t *testing.T) {
 	// We'll now create a new cipher seed with an internal version of zero
 	// to simulate a wallet that just adopted the scheme.
 	cipherSeed, err := New(0, &testEntropy, time.Now())
-	if err != nil {
-		t.Fatalf("unable to create seed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Now that the seed has been created, we'll attempt to convert it to a
 	// valid mnemonic.
 	mnemonic, err := cipherSeed.ToMnemonic(pass)
-	if err != nil {
-		t.Fatalf("unable to create mnemonic: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Next, we'll try to decrypt the mnemonic with the passphrase that we
 	// used.
 	cipherSeed2, err := mnemonic.ToCipherSeed(pass)
-	if err != nil {
-		t.Fatalf("unable to decrypt mnemonic: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Finally, we'll ensure that the uncovered cipher seed matches
 	// precisely.
@@ -165,23 +142,17 @@ func TestManualEntropyGeneration(t *testing.T) {
 	// We'll now create a new cipher seed with an internal version of zero
 	// to simulate a wallet that just adopted the scheme.
 	cipherSeed, err := New(0, nil, time.Now())
-	if err != nil {
-		t.Fatalf("unable to create seed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Now that the seed has been created, we'll attempt to convert it to a
 	// valid mnemonic.
 	mnemonic, err := cipherSeed.ToMnemonic(pass)
-	if err != nil {
-		t.Fatalf("unable to create mnemonic: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Next, we'll try to decrypt the mnemonic with the passphrase that we
 	// used.
 	cipherSeed2, err := mnemonic.ToCipherSeed(pass)
-	if err != nil {
-		t.Fatalf("unable to decrypt mnemonic: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Finally, we'll ensure that the uncovered cipher seed matches
 	// precisely.
@@ -197,23 +168,18 @@ func TestInvalidPassphraseRejection(t *testing.T) {
 	// First, we'll generate a new cipher seed with a test passphrase.
 	pass := []byte("test")
 	cipherSeed, err := New(0, &testEntropy, time.Now())
-	if err != nil {
-		t.Fatalf("unable to create seed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Now that we have our cipher seed, we'll encipher it and request a
 	// mnemonic that we can use to recover later.
 	mnemonic, err := cipherSeed.ToMnemonic(pass)
-	if err != nil {
-		t.Fatalf("unable to create mnemonic: %v", err)
-	}
+	require.NoError(t, err)
 
 	// If we try to decipher with the wrong passphrase, we should get the
 	// proper error.
 	wrongPass := []byte("kek")
-	if _, err := mnemonic.ToCipherSeed(wrongPass); err != ErrInvalidPass {
-		t.Fatalf("expected ErrInvalidPass, instead got %v", err)
-	}
+	_, err = mnemonic.ToCipherSeed(wrongPass)
+	require.Equal(t, ErrInvalidPass, err)
 }
 
 // TestRawEncipherDecipher tests that callers are able to use the raw methods
@@ -224,36 +190,26 @@ func TestRawEncipherDecipher(t *testing.T) {
 	// First, we'll generate a new cipher seed with a test passphrase.
 	pass := []byte("test")
 	cipherSeed, err := New(0, &testEntropy, time.Now())
-	if err != nil {
-		t.Fatalf("unable to create seed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// With the cipher seed obtained, we'll now use the raw encipher method
 	// to obtain our final cipher text.
 	cipherText, err := cipherSeed.Encipher(pass)
-	if err != nil {
-		t.Fatalf("unable to encipher seed: %v", err)
-	}
+	require.NoError(t, err)
 
 	mnemonic, err := cipherTextToMnemonic(cipherText)
-	if err != nil {
-		t.Fatalf("unable to create mnemonic: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Now that we have the ciphertext (mapped to the mnemonic), we'll
 	// attempt to decipher it raw using the user's passphrase.
 	plainSeedBytes, err := mnemonic.Decipher(pass)
-	if err != nil {
-		t.Fatalf("unable to decipher: %v", err)
-	}
+	require.NoError(t, err)
 
 	// If we deserialize the plaintext seed bytes, it should exactly match
 	// the original cipher seed.
 	var newSeed CipherSeed
 	err = newSeed.decode(bytes.NewReader(plainSeedBytes[:]))
-	if err != nil {
-		t.Fatalf("unable to decode cipher seed: %v", err)
-	}
+	require.NoError(t, err)
 
 	assertCipherSeedEqual(t, cipherSeed, &newSeed)
 }
@@ -266,17 +222,13 @@ func TestInvalidExternalVersion(t *testing.T) {
 
 	// First, we'll generate a new cipher seed.
 	cipherSeed, err := New(0, &testEntropy, time.Now())
-	if err != nil {
-		t.Fatalf("unable to create seed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// With the cipher seed obtained, we'll now use the raw encipher method
 	// to obtain our final cipher text.
 	pass := []byte("newpasswhodis")
 	cipherText, err := cipherSeed.Encipher(pass)
-	if err != nil {
-		t.Fatalf("unable to encipher seed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Now that we have the cipher text, we'll modify the first byte to be
 	// an invalid version.
@@ -285,10 +237,7 @@ func TestInvalidExternalVersion(t *testing.T) {
 	// With the version swapped, if we try to decipher it, (no matter the
 	// passphrase), it should fail.
 	_, err = decipherCipherSeed(cipherText, []byte("kek"))
-	if err != ErrIncorrectVersion {
-		t.Fatalf("wrong error: expected ErrIncorrectVersion, "+
-			"got %v", err)
-	}
+	require.Equal(t, ErrIncorrectVersion, err)
 }
 
 // TestChangePassphrase tests that we're able to generate a cipher seed, then
@@ -300,31 +249,23 @@ func TestChangePassphrase(t *testing.T) {
 	// First, we'll generate a new cipher seed with a test passphrase.
 	pass := []byte("test")
 	cipherSeed, err := New(0, &testEntropy, time.Now())
-	if err != nil {
-		t.Fatalf("unable to create seed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Now that we have our cipher seed, we'll encipher it and request a
 	// mnemonic that we can use to recover later.
 	mnemonic, err := cipherSeed.ToMnemonic(pass)
-	if err != nil {
-		t.Fatalf("unable to create mnemonic: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Now that have the mnemonic, we'll attempt to re-encipher the
 	// passphrase in order to get a brand-new mnemonic.
 	newPass := []byte("strongerpassyeh!")
 	newMnemonic, err := mnemonic.ChangePass(pass, newPass)
-	if err != nil {
-		t.Fatalf("unable to change passphrase: %v", err)
-	}
+	require.NoError(t, err)
 
 	// We'll now attempt to decipher the new mnemonic using the new
 	// passphrase to arrive at (what should be) the original cipher seed.
 	newCipherSeed, err := newMnemonic.ToCipherSeed(newPass)
-	if err != nil {
-		t.Fatalf("unable to decipher cipher seed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Now that we have the cipher seed, we'll verify that the plaintext
 	// seed matches *identically*.
@@ -340,16 +281,12 @@ func TestChangePassphraseWrongPass(t *testing.T) {
 	// First, we'll generate a new cipher seed with a test passphrase.
 	pass := []byte("test")
 	cipherSeed, err := New(0, &testEntropy, time.Now())
-	if err != nil {
-		t.Fatalf("unable to create seed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Now that we have our cipher seed, we'll encipher it and request a
 	// mnemonic that we can use to recover later.
 	mnemonic, err := cipherSeed.ToMnemonic(pass)
-	if err != nil {
-		t.Fatalf("unable to create mnemonic: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Now that have the mnemonic, we'll attempt to re-encipher the
 	// passphrase in order to get a brand-new mnemonic. However, we'll be
@@ -358,9 +295,7 @@ func TestChangePassphraseWrongPass(t *testing.T) {
 	wrongPass := []byte("kek")
 	newPass := []byte("strongerpassyeh!")
 	_, err = mnemonic.ChangePass(wrongPass, newPass)
-	if err != ErrInvalidPass {
-		t.Fatalf("expected ErrInvalidPass, instead got %v", err)
-	}
+	require.Equal(t, ErrInvalidPass, err)
 }
 
 // TestMnemonicEncoding uses quickcheck like property based testing to ensure
@@ -464,9 +399,11 @@ func TestSeedEncodeDecode(t *testing.T) {
 		entropy [EntropySize]byte) bool {
 
 		now := time.Unix(nowInt, 0)
+		day := time.Hour * 24
+		numDaysSinceGenesis := now.Sub(BitcoinGenesisDate) / day
 		seed := CipherSeed{
 			InternalVersion: version,
-			Birthday:        uint16(now.Sub(BitcoinGenesisDate) / (time.Hour * 24)),
+			Birthday:        uint16(numDaysSinceGenesis),
 			Entropy:         entropy,
 		}
 
@@ -515,16 +452,12 @@ func TestDecipherUnknownMnemonicWord(t *testing.T) {
 	// First, we'll create a new cipher seed with "test" ass a password.
 	pass := []byte("test")
 	cipherSeed, err := New(0, &testEntropy, time.Now())
-	if err != nil {
-		t.Fatalf("unable to create seed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Now that we have our cipher seed, we'll encipher it and request a
 	// mnemonic that we can use to recover later.
 	mnemonic, err := cipherSeed.ToMnemonic(pass)
-	if err != nil {
-		t.Fatalf("unable to create mnemonic: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Before we attempt to decrypt the cipher seed, we'll mutate one of
 	// the word so it isn't actually in our final word list.
@@ -534,22 +467,10 @@ func TestDecipherUnknownMnemonicWord(t *testing.T) {
 	// If we attempt to map back to the original cipher seed now, then we
 	// should get ErrUnknownMnemonicWord.
 	_, err = mnemonic.ToCipherSeed(pass)
-	if err == nil {
-		t.Fatalf("expected ErrUnknownMnemonicWord error")
-	}
-
-	wordErr, ok := err.(ErrUnknownMnemonicWord)
-	if !ok {
-		t.Fatalf("expected ErrUnknownMnemonicWord instead got %T", err)
-	}
-
-	if wordErr.Word != "kek" {
-		t.Fatalf("word mismatch: expected %v, got %v", "kek", wordErr.Word)
-	}
-	if int32(wordErr.Index) != randIndex {
-		t.Fatalf("wrong index detected: expected %v, got %v",
-			randIndex, wordErr.Index)
-	}
+	wordErr := &ErrUnknownMnemonicWord{}
+	require.ErrorAs(t, err, wordErr)
+	require.Equal(t, "kek", wordErr.Word)
+	require.Equal(t, uint8(randIndex), wordErr.Index)
 
 	// If the mnemonic includes a word that is not in the englishList it
 	// fails, even when it is a substring of a valid word Example: `heart`
@@ -559,13 +480,7 @@ func TestDecipherUnknownMnemonicWord(t *testing.T) {
 	// If we attempt to map back to the original cipher seed now, then we
 	// should get ErrUnknownMnemonicWord.
 	_, err = mnemonic.ToCipherSeed(pass)
-	if err == nil {
-		t.Fatalf("expected ErrUnknownMnemonicWord error")
-	}
-	_, ok = err.(ErrUnknownMnemonicWord)
-	if !ok {
-		t.Fatalf("expected ErrUnknownMnemonicWord instead got %T", err)
-	}
+	require.ErrorAs(t, err, wordErr)
 }
 
 // TestDecipherIncorrectMnemonic tests that if we obtain a cipher seed, but then
@@ -574,16 +489,12 @@ func TestDecipherIncorrectMnemonic(t *testing.T) {
 	// First, we'll create a new cipher seed with "test" ass a password.
 	pass := []byte("test")
 	cipherSeed, err := New(0, &testEntropy, time.Now())
-	if err != nil {
-		t.Fatalf("unable to create seed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Now that we have our cipher seed, we'll encipher it and request a
 	// mnemonic that we can use to recover later.
 	mnemonic, err := cipherSeed.ToMnemonic(pass)
-	if err != nil {
-		t.Fatalf("unable to create mnemonic: %v", err)
-	}
+	require.NoError(t, err)
 
 	// We'll now swap out two words from the mnemonic, which should trigger
 	// a checksum failure.
@@ -595,9 +506,7 @@ func TestDecipherIncorrectMnemonic(t *testing.T) {
 	// If we attempt to map back to the original cipher seed now, then we
 	// should get ErrIncorrectMnemonic.
 	_, err = mnemonic.ToCipherSeed(pass)
-	if err != ErrIncorrectMnemonic {
-		t.Fatalf("expected ErrIncorrectMnemonic error")
-	}
+	require.Equal(t, ErrIncorrectMnemonic, err)
 }
 
 // TODO(roasbeef): add test failure checksum fail is modified, new error

@@ -18,9 +18,9 @@ var (
 		"match")
 )
 
-// ErrUnknownMnenomicWord is returned when attempting to decipher and
+// ErrUnknownMnemonicWord is returned when attempting to decipher and
 // enciphered mnemonic, but a word encountered isn't a member of our word list.
-type ErrUnknownMnenomicWord struct {
+type ErrUnknownMnemonicWord struct {
 	// Word is the unknown word in the mnemonic phrase.
 	Word string
 
@@ -29,8 +29,8 @@ type ErrUnknownMnenomicWord struct {
 	Index uint8
 }
 
-// Error returns a human readable string describing the error.
-func (e ErrUnknownMnenomicWord) Error() string {
+// Error returns a human-readable string describing the error.
+func (e ErrUnknownMnemonicWord) Error() string {
 	return fmt.Sprintf("word %v isn't a part of default word list "+
 		"(index=%v)", e.Word, e.Index)
 }

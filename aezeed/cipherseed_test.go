@@ -84,9 +84,9 @@ func assertCipherSeedEqual(t *testing.T, cipherSeed *CipherSeed,
 func TestAezeedVersion0TestVectors(t *testing.T) {
 	t.Parallel()
 
-	// To minimize the number of tests that need to be run,
-	// go through all test vectors in the same test and also check
-	// the birthday calculation while we're at it.
+	// To minimize the number of tests that need to be run, go through all
+	// test vectors in the same test and also check the birthday calculation
+	// while we're at it.
 	for _, v := range version0TestVectors {
 		// First, we create new cipher seed with the given values
 		// from the test vector.
@@ -95,12 +95,12 @@ func TestAezeedVersion0TestVectors(t *testing.T) {
 			t.Fatalf("unable to create seed: %v", err)
 		}
 
-		// Then we need to set the salt to the pre-defined value, otherwise
-		// we'll end up with randomness in our mnemonics.
+		// Then we need to set the salt to the pre-defined value,
+		// otherwise we'll end up with randomness in our mnemonics.
 		cipherSeed.salt = testSalt
 
-		// Now that the seed has been created, we'll attempt to convert it to a
-		// valid mnemonic.
+		// Now that the seed has been created, we'll attempt to convert
+		// it to a valid mnemonic.
 		mnemonic, err := cipherSeed.ToMnemonic(v.password)
 		if err != nil {
 			t.Fatalf("unable to create mnemonic: %v", err)
@@ -189,7 +189,7 @@ func TestManualEntropyGeneration(t *testing.T) {
 }
 
 // TestInvalidPassphraseRejection tests if a caller attempts to use the
-// incorrect passprhase for an enciphered seed, then the proper error is
+// incorrect passphrase for an enciphered seed, then the proper error is
 // returned.
 func TestInvalidPassphraseRejection(t *testing.T) {
 	t.Parallel()
@@ -228,7 +228,7 @@ func TestRawEncipherDecipher(t *testing.T) {
 		t.Fatalf("unable to create seed: %v", err)
 	}
 
-	// With the cipherseed obtained, we'll now use the raw encipher method
+	// With the cipher seed obtained, we'll now use the raw encipher method
 	// to obtain our final cipher text.
 	cipherText, err := cipherSeed.Encipher(pass)
 	if err != nil {
@@ -270,7 +270,7 @@ func TestInvalidExternalVersion(t *testing.T) {
 		t.Fatalf("unable to create seed: %v", err)
 	}
 
-	// With the cipherseed obtained, we'll now use the raw encipher method
+	// With the cipher seed obtained, we'll now use the raw encipher method
 	// to obtain our final cipher text.
 	pass := []byte("newpasswhodis")
 	cipherText, err := cipherSeed.Encipher(pass)
@@ -312,16 +312,16 @@ func TestChangePassphrase(t *testing.T) {
 	}
 
 	// Now that have the mnemonic, we'll attempt to re-encipher the
-	// passphrase in order to get a brand new mnemonic.
+	// passphrase in order to get a brand-new mnemonic.
 	newPass := []byte("strongerpassyeh!")
-	newmnemonic, err := mnemonic.ChangePass(pass, newPass)
+	newMnemonic, err := mnemonic.ChangePass(pass, newPass)
 	if err != nil {
 		t.Fatalf("unable to change passphrase: %v", err)
 	}
 
 	// We'll now attempt to decipher the new mnemonic using the new
 	// passphrase to arrive at (what should be) the original cipher seed.
-	newCipherSeed, err := newmnemonic.ToCipherSeed(newPass)
+	newCipherSeed, err := newMnemonic.ToCipherSeed(newPass)
 	if err != nil {
 		t.Fatalf("unable to decipher cipher seed: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestChangePassphrase(t *testing.T) {
 }
 
 // TestChangePassphraseWrongPass tests that if we have a valid enciphered
-// cipherseed, but then try to change the password with the *wrong* password,
+// cipher seed, but then try to change the password with the *wrong* password,
 // then we get an error.
 func TestChangePassphraseWrongPass(t *testing.T) {
 	t.Parallel()
@@ -352,7 +352,7 @@ func TestChangePassphraseWrongPass(t *testing.T) {
 	}
 
 	// Now that have the mnemonic, we'll attempt to re-encipher the
-	// passphrase in order to get a brand new mnemonic. However, we'll be
+	// passphrase in order to get a brand-new mnemonic. However, we'll be
 	// using the *wrong* passphrase. This should result in an
 	// ErrInvalidPass error.
 	wrongPass := []byte("kek")
@@ -397,7 +397,7 @@ func TestMnemonicEncoding(t *testing.T) {
 }
 
 // TestEncipherDecipher is a property-based test that ensures that given a
-// version, entropy, and birthday, then we're able to map that to a cipherseed
+// version, entropy, and birthday, then we're able to map that to a cipher seed
 // mnemonic, then back to the original plaintext cipher seed.
 func TestEncipherDecipher(t *testing.T) {
 	t.Parallel()
@@ -406,7 +406,7 @@ func TestEncipherDecipher(t *testing.T) {
 	// ensure that given a random seed tuple (internal version, entropy,
 	// and birthday) we're able to convert that to a valid cipher seed.
 	// Additionally, we should be able to decipher the final mnemonic, and
-	// recover the original cipherseed.
+	// recover the original cipher seed.
 	mainScenario := func(version uint8, entropy [EntropySize]byte,
 		nowInt int64, pass [20]byte) bool {
 
@@ -458,7 +458,7 @@ func TestEncipherDecipher(t *testing.T) {
 // arbitrary raw seed.
 func TestSeedEncodeDecode(t *testing.T) {
 	// mainScenario is the primary driver of our property-based test. We'll
-	// ensure that given a random cipher seed, we can encode it an decode
+	// ensure that given a random cipher seed, we can encode it and decode
 	// it precisely.
 	mainScenario := func(version uint8, nowInt int64,
 		entropy [EntropySize]byte) bool {
@@ -506,10 +506,10 @@ func TestSeedEncodeDecode(t *testing.T) {
 	}
 }
 
-// TestDecipherUnknownMnenomicWord tests that if we obtain a mnemonic, the
+// TestDecipherUnknownMnemonicWord tests that if we obtain a mnemonic, then
 // modify one of the words to not be within the word list, then it's detected
 // when we attempt to map it back to the original cipher seed.
-func TestDecipherUnknownMnenomicWord(t *testing.T) {
+func TestDecipherUnknownMnemonicWord(t *testing.T) {
 	t.Parallel()
 
 	// First, we'll create a new cipher seed with "test" ass a password.
@@ -532,15 +532,15 @@ func TestDecipherUnknownMnenomicWord(t *testing.T) {
 	mnemonic[randIndex] = "kek"
 
 	// If we attempt to map back to the original cipher seed now, then we
-	// should get ErrUnknownMnenomicWord.
+	// should get ErrUnknownMnemonicWord.
 	_, err = mnemonic.ToCipherSeed(pass)
 	if err == nil {
-		t.Fatalf("expected ErrUnknownMnenomicWord error")
+		t.Fatalf("expected ErrUnknownMnemonicWord error")
 	}
 
-	wordErr, ok := err.(ErrUnknownMnenomicWord)
+	wordErr, ok := err.(ErrUnknownMnemonicWord)
 	if !ok {
-		t.Fatalf("expected ErrUnknownMnenomicWord instead got %T", err)
+		t.Fatalf("expected ErrUnknownMnemonicWord instead got %T", err)
 	}
 
 	if wordErr.Word != "kek" {
@@ -551,24 +551,24 @@ func TestDecipherUnknownMnenomicWord(t *testing.T) {
 			randIndex, wordErr.Index)
 	}
 
-	// If the mnemonic includes a word that is not in the englishList
-	// it fails, even when it is a substring of a valid word
-	// Example: `heart` is in the list, `hear` is not
+	// If the mnemonic includes a word that is not in the englishList it
+	// fails, even when it is a substring of a valid word Example: `heart`
+	// is in the list, `hear` is not.
 	mnemonic[randIndex] = "hear"
 
 	// If we attempt to map back to the original cipher seed now, then we
-	// should get ErrUnknownMnenomicWord.
+	// should get ErrUnknownMnemonicWord.
 	_, err = mnemonic.ToCipherSeed(pass)
 	if err == nil {
-		t.Fatalf("expected ErrUnknownMnenomicWord error")
+		t.Fatalf("expected ErrUnknownMnemonicWord error")
 	}
-	_, ok = err.(ErrUnknownMnenomicWord)
+	_, ok = err.(ErrUnknownMnemonicWord)
 	if !ok {
-		t.Fatalf("expected ErrUnknownMnenomicWord instead got %T", err)
+		t.Fatalf("expected ErrUnknownMnemonicWord instead got %T", err)
 	}
 }
 
-// TestDecipherIncorrectMnemonic tests that if we obtain a cipherseed, but then
+// TestDecipherIncorrectMnemonic tests that if we obtain a cipher seed, but then
 // swap out words, then checksum fails.
 func TestDecipherIncorrectMnemonic(t *testing.T) {
 	// First, we'll create a new cipher seed with "test" ass a password.
@@ -593,7 +593,7 @@ func TestDecipherIncorrectMnemonic(t *testing.T) {
 
 	// If we attempt to decrypt now, we should get a checksum failure.
 	// If we attempt to map back to the original cipher seed now, then we
-	// should get ErrUnknownMnenomicWord.
+	// should get ErrIncorrectMnemonic.
 	_, err = mnemonic.ToCipherSeed(pass)
 	if err != ErrIncorrectMnemonic {
 		t.Fatalf("expected ErrIncorrectMnemonic error")

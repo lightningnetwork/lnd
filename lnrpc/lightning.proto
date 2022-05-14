@@ -3351,7 +3351,7 @@ message Invoice {
     int64 value_msat = 23;
 
     /*
-    Whether this invoice has been fulfilled
+    Whether this invoice has been fulfilled.
 
     The field is deprecated. Use the state field instead (compare to SETTLED).
     */
@@ -3359,12 +3359,14 @@ message Invoice {
 
     /*
     When this invoice was created.
+    Measured in seconds since the unix epoch.
     Note: Output only, don't specify for creating an invoice.
     */
     int64 creation_date = 7;
 
     /*
     When this invoice was settled.
+    Measured in seconds since the unix epoch.
     Note: Output only, don't specify for creating an invoice.
     */
     int64 settle_date = 8;

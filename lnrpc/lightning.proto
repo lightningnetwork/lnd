@@ -3470,6 +3470,14 @@ message ListInvoiceRequest {
     specified index offset. This can be used to paginate backwards.
     */
     bool reversed = 6;
+
+    // Filters out all invoices with a creation date less than it.
+    // Measured in seconds since the unix epoch.
+    int64 min_creation_date = 7;
+
+    // Filters out all invoices with a creation date greater than it.
+    // Measured in seconds since the unix epoch.
+    int64 max_creation_date = 8;
 }
 message ListInvoiceResponse {
     /*

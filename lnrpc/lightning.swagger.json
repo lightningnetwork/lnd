@@ -1515,6 +1515,22 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "min_creation_date",
+            "description": "Filters out all invoices with a creation date less than it.\nMeasured in seconds since the unix epoch.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "max_creation_date",
+            "description": "Filters out all invoices with a creation date greater than it.\nMeasured in seconds since the unix epoch.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
           }
         ],
         "tags": [

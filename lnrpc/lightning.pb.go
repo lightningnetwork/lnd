@@ -11259,16 +11259,18 @@ type Invoice struct {
 	//
 	//The fields value and value_msat are mutually exclusive.
 	ValueMsat int64 `protobuf:"varint,23,opt,name=value_msat,json=valueMsat,proto3" json:"value_msat,omitempty"`
-	// Whether this invoice has been fulfilled
+	// Whether this invoice has been fulfilled.
 	//
 	// Deprecated: Do not use.
 	Settled bool `protobuf:"varint,6,opt,name=settled,proto3" json:"settled,omitempty"`
 	//
 	//When this invoice was created.
+	//Measured in seconds since the unix epoch.
 	//Note: Output only, don't specify for creating an invoice.
 	CreationDate int64 `protobuf:"varint,7,opt,name=creation_date,json=creationDate,proto3" json:"creation_date,omitempty"`
 	//
 	//When this invoice was settled.
+	//Measured in seconds since the unix epoch.
 	//Note: Output only, don't specify for creating an invoice.
 	SettleDate int64 `protobuf:"varint,8,opt,name=settle_date,json=settleDate,proto3" json:"settle_date,omitempty"`
 	//

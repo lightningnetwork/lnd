@@ -536,6 +536,14 @@ type PaymentsQuery struct {
 	// CountTotal indicates that all payments currently present in the
 	// payment index (complete and incomplete) should be counted.
 	CountTotal bool
+
+	// MinCreationTimeNs, if set, filters out all payments with a
+	// creation time less than it.
+	MinCreationTimeNs time.Time
+
+	// MaxCreationTimeNs, if set, filters out all payments with a
+	// creation time greater than it.
+	MaxCreationTimeNs time.Time
 }
 
 // PaymentsResponse contains the result of a query to the payments database.
@@ -570,7 +578,21 @@ type PaymentsResponse struct {
 // to a subset of payments by the payments query, containing an offset
 // index and a maximum number of returned payments.
 func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
-	var resp PaymentsResponse
+	var (
+		resp           PaymentsResponse
+		minCreationSet = !query.MinCreationTimeNs.IsZero()
+		maxCreationSet = !query.MaxCreationTimeNs.IsZero()
+	)
+
+	// If MinCreationTimeNs filter is greater than MaxCreationTimeNs, we
+	// know there will be no matching results and can safely return early.
+	if minCreationSet && maxCreationSet {
+		if query.MinCreationTimeNs.After(query.MaxCreationTimeNs) {
+			return resp, fmt.Errorf(
+				"MinCreationTimeNs is greater " +
+					"than MaxCreationTimeNs")
+		}
+	}
 
 	if err := kvdb.View(d, func(tx kvdb.RTx) error {
 		// Get the root payments bucket.
@@ -613,6 +635,24 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 				!query.IncludeIncomplete {
 
 				return false, err
+			}
+
+			// Skip any invoices that were created
+			// before the specified time.
+			subceedesMinCreationTime :=
+				query.MinCreationTimeNs.
+					After(payment.Info.CreationTime)
+			if minCreationSet && subceedesMinCreationTime {
+				return false, nil
+			}
+
+			// Skip any invoices that were created
+			// after the specified time.
+			exceedsMaxCreationTime :=
+				query.MaxCreationTimeNs.
+					Before(payment.Info.CreationTime)
+			if maxCreationSet && exceedsMaxCreationTime {
+				return false, nil
 			}
 
 			// At this point, we've exhausted the offset, so we'll

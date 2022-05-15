@@ -6168,6 +6168,8 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		Reversed:          req.Reversed,
 		IncludeIncomplete: req.IncludeIncomplete,
 		CountTotal:        req.CountTotalPayments,
+		MinCreationTimeNs: time.Unix(0, req.MinCreationTimeNs),
+		MaxCreationTimeNs: time.Unix(0, req.MaxCreationTimeNs),
 	}
 
 	// If the maximum number of payments wasn't specified, then we'll

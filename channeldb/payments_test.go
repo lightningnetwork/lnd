@@ -391,6 +391,48 @@ func TestQueryPayments(t *testing.T) {
 			lastIndex:      4,
 			expectedSeqNrs: []uint64{3, 4},
 		},
+		{
+			name: "query in forwards order, with min creation " +
+				"time",
+			query: PaymentsQuery{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+				MinCreationTimeNs: time.Unix(0, 5),
+			},
+			firstIndex:     5,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{5, 6},
+		},
+		{
+			name: "query in forwards order, with min creation " +
+				"time at end, overflow",
+			query: PaymentsQuery{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+				MinCreationTimeNs: time.Unix(0, 7),
+			},
+			firstIndex:     7,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{7},
+		},
+		{
+			name: "query with min and max creation time",
+			query: PaymentsQuery{
+				IndexOffset:       9,
+				MaxPayments:       math.MaxUint64,
+				Reversed:          true,
+				IncludeIncomplete: true,
+				MinCreationTimeNs: time.Unix(0, 3),
+				MaxCreationTimeNs: time.Unix(0, 5),
+			},
+			firstIndex:     3,
+			lastIndex:      5,
+			expectedSeqNrs: []uint64{3, 4, 5},
+		},
 	}
 
 	for _, tt := range tests {
@@ -427,6 +469,9 @@ func TestQueryPayments(t *testing.T) {
 					t.Fatalf("unable to create test "+
 						"payment: %v", err)
 				}
+				// Override creation time to allow for testing
+				// of MinCreationTimeNs and MaxCreationTimeNs.
+				info.CreationTime = time.Unix(0, int64(i+1))
 
 				// Create a new payment entry in the database.
 				err = pControl.InitPayment(info.PaymentIdentifier, info)
@@ -506,6 +551,29 @@ func TestQueryPayments(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestQueryPaymentsWithCrossingCreationTimeFilters ensures that querying
+// payments using a MinCreationTimeNs greater than MaxCreationTimeNs returns
+// an error.
+func TestQueryPaymentsWithCrossingCreationTimeFilters(t *testing.T) {
+	db, cleanUp, err := MakeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test db: %v", err)
+	}
+
+	query := PaymentsQuery{
+		MinCreationTimeNs: time.Unix(2, 0),
+		MaxCreationTimeNs: time.Unix(1, 0),
+	}
+
+	response, err := db.QueryPayments(query)
+	require.Equal(t, 0, len(response.Payments))
+	require.NotNil(t, err)
+	require.Equal(t,
+		"MinCreationTimeNs is greater than MaxCreationTimeNs",
+		err.Error())
 }
 
 // TestFetchPaymentWithSequenceNumber tests lookup of payments with their

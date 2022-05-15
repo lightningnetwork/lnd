@@ -169,7 +169,7 @@ type PaymentAttemptDispatcher interface {
 		attemptID uint64,
 		htlcAdd *lnwire.UpdateAddHTLC) error
 
-	// GetPaymentResult returns the the result of the payment attempt with
+	// GetPaymentResult returns the result of the payment attempt with
 	// the given attemptID. The paymentHash should be set to the payment's
 	// overall hash, or in case of AMP payments the payment's unique
 	// identifier.
@@ -186,7 +186,7 @@ type PaymentAttemptDispatcher interface {
 
 	// CleanStore calls the underlying result store, telling it is safe to
 	// delete all entries except the ones in the keepPids map. This should
-	// be called preiodically to let the switch clean up payment results
+	// be called periodically to let the switch clean up payment results
 	// that we have handled.
 	// NOTE: New payment attempts MUST NOT be made after the keepPids map
 	// has been created and this method has returned.
@@ -413,7 +413,7 @@ type ChannelRouter struct {
 	// UpdateFilter.
 	newBlocks <-chan *chainview.FilteredBlock
 
-	// staleBlocks is a channel in which blocks disconnected fromt the end
+	// staleBlocks is a channel in which blocks disconnected from the end
 	// of our currently known best chain are sent over.
 	staleBlocks <-chan *chainview.FilteredBlock
 
@@ -1046,7 +1046,7 @@ func (r *ChannelRouter) networkHandler() {
 		// on the exact type of the message.
 		case update := <-r.networkUpdates:
 			// We'll set up any dependants, and wait until a free
-			// slot for this job opens up, this allow us to not
+			// slot for this job opens up, this allows us to not
 			// have thousands of goroutines active.
 			validationBarrier.InitJobDependencies(update.msg)
 
@@ -1830,7 +1830,7 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 	sessionKey *btcec.PrivateKey) ([]byte, *sphinx.Circuit, error) {
 
 	// Now that we know we have an actual route, we'll map the route into a
-	// sphinx payument path which includes per-hop paylods for each hop
+	// sphinx payment path which includes per-hop payloads for each hop
 	// that give each node within the route the necessary information
 	// (fees, CLTV value, etc) to properly forward the payment.
 	sphinxPath, err := rt.ToSphinxPath()
@@ -2376,7 +2376,7 @@ func (r *ChannelRouter) extractChannelUpdate(
 }
 
 // applyChannelUpdate validates a channel update and if valid, applies it to the
-// database. It returns a bool indicating whether the updates was successful.
+// database. It returns a bool indicating whether the updates were successful.
 func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
 	pubKey *btcec.PublicKey) bool {
 

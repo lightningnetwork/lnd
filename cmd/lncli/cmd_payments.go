@@ -873,6 +873,13 @@ var sendToRouteCommand = cli.Command{
 			Usage: "a json array string in the format of the response " +
 				"of queryroutes that denotes which routes to use",
 		},
+		cli.BoolFlag{
+			Name: "skip_temp_err",
+			Usage: "Whether the payment should be marked as " +
+				"failed when a temporary error occurred. Set " +
+				"it to true so the payment won't be failed " +
+				"unless a terminal error has occurred.",
+		},
 	},
 	Action: sendToRoute,
 }
@@ -966,6 +973,7 @@ func sendToRoute(ctx *cli.Context) error {
 	req := &routerrpc.SendToRouteRequest{
 		PaymentHash: rHash,
 		Route:       route,
+		SkipTempErr: ctx.Bool("skip_temp_err"),
 	}
 
 	return sendToRouteRequest(ctx, req)

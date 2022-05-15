@@ -3667,6 +3667,18 @@ message ListPaymentsRequest {
     of payments, as all of them have to be iterated through to be counted.
     */
     bool count_total_payments = 5;
+
+    /*
+    Filters out all payments with a creation time less than it.
+    Measured in nanoseconds since the unix epoch.
+    */
+    int64 min_creation_time_ns = 6;
+
+    /*
+    Filters out all payments with a creation time greater than it.
+    Measured in nanoseconds since the unix epoch.
+    */
+    int64 max_creation_time_ns = 7;
 }
 
 message ListPaymentsResponse {

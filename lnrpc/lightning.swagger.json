@@ -1923,6 +1923,22 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "min_creation_time_ns",
+            "description": "Filters out all payments with a creation time less than it.\nMeasured in nanoseconds since the unix epoch.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "max_creation_time_ns",
+            "description": "Filters out all payments with a creation time greater than it.\nMeasured in nanoseconds since the unix epoch.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
           }
         ],
         "tags": [

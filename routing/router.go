@@ -2270,18 +2270,9 @@ func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route) (
 	var failureReason *channeldb.FailureReason
 	err = sh.handleSendError(attempt, shardError)
 
-	switch {
-	// If we weren't able to extract a proper failure reason (which can
-	// happen if the second chance logic is triggered), then we'll use the
-	// normal no route error.
-	case err == nil:
-		err = r.cfg.Control.Fail(
-			paymentIdentifier, channeldb.FailureReasonNoRoute,
-		)
-
 	// If this is a failure reason, then we'll apply the failure directly
 	// to the control tower, and return the normal response to the caller.
-	case goErrors.As(err, &failureReason):
+	if goErrors.As(err, &failureReason) {
 		err = r.cfg.Control.Fail(paymentIdentifier, *failureReason)
 	}
 	if err != nil {

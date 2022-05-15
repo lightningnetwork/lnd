@@ -69,6 +69,10 @@
   hints](https://github.com/lightningnetwork/lnd/pull/7082), up to `maxHopHints`
   (20 currently).
 
+* [Add `creation_date_start` and `creation_date_end` filter fields to
+  `ListInvoiceRequest` and
+  `ListPaymentsRequest`](https://github.com/lightningnetwork/lnd/pull/7159).
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only
@@ -290,4 +294,5 @@ refactor the itest for code health and maintenance.
 * Oliver Gugger
 * Priyansh Rastogi
 * Roei Erez
+* Tommy Volk
 * Yong Yu

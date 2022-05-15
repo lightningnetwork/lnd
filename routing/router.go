@@ -2155,13 +2155,30 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 	return paySession, shardTracker, nil
 }
 
-// SendToRoute attempts to send a payment with the given hash through the
+// SendToRoute sends a payment using the provided route and fails the payment
+// when an error is returned from the attempt.
+func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash,
+	rt *route.Route) (*channeldb.HTLCAttempt, error) {
+
+	return r.sendToRoute(htlcHash, rt, false)
+}
+
+// SendToRouteSkipTempErr sends a payment using the provided route and fails
+// the payment ONLY when a terminal error is returned from the attempt.
+func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
+	rt *route.Route) (*channeldb.HTLCAttempt, error) {
+
+	return r.sendToRoute(htlcHash, rt, true)
+}
+
+// sendToRoute attempts to send a payment with the given hash through the
 // provided route. This function is blocking and will return the attempt
 // information as it is stored in the database. For a successful htlc, this
 // information will contain the preimage. If an error occurs after the attempt
-// was initiated, both return values will be non-nil.
-func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route) (
-	*channeldb.HTLCAttempt, error) {
+// was initiated, both return values will be non-nil. If skipTempErr is true,
+// the payment won't be failed unless a terminal error has occurred.
+func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
+	skipTempErr bool) (*channeldb.HTLCAttempt, error) {
 
 	// Calculate amount paid to receiver.
 	amt := rt.ReceiverAmt()
@@ -2281,10 +2298,9 @@ func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route) (
 	err = sh.handleSendError(attempt, shardError)
 
 	switch {
-	// If we weren't able to extract a proper failure reason (which can
-	// happen if the second chance logic is triggered), then we'll use the
-	// normal no route error.
-	case err == nil:
+	// If a non-terminal error is returned and `skipTempErr` is false, then
+	// we'll use the normal no route error.
+	case err == nil && !skipTempErr:
 		err = r.cfg.Control.Fail(
 			paymentIdentifier, channeldb.FailureReasonNoRoute,
 		)

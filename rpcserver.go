@@ -5364,10 +5364,12 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 	// Next, we'll map the proto request into a format that is understood by
 	// the database.
 	q := channeldb.InvoiceQuery{
-		IndexOffset:    req.IndexOffset,
-		NumMaxInvoices: req.NumMaxInvoices,
-		PendingOnly:    req.PendingOnly,
-		Reversed:       req.Reversed,
+		IndexOffset:     req.IndexOffset,
+		NumMaxInvoices:  req.NumMaxInvoices,
+		PendingOnly:     req.PendingOnly,
+		Reversed:        req.Reversed,
+		MinCreationDate: time.Unix(req.MinCreationDate, 0),
+		MaxCreationDate: time.Unix(req.MaxCreationDate, 0),
 	}
 	invoiceSlice, err := r.server.miscDB.QueryInvoices(q)
 	if err != nil {

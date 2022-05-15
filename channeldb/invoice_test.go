@@ -1102,6 +1102,8 @@ func TestQueryInvoices(t *testing.T) {
 	for i := 1; i <= numInvoices; i++ {
 		amt := lnwire.MilliSatoshi(i)
 		invoice, err := randInvoice(amt)
+		invoice.CreationDate = invoice.CreationDate.Add(
+			time.Duration((i - 1)) * time.Second)
 		if err != nil {
 			t.Fatalf("unable to create invoice: %v", err)
 		}
@@ -1349,6 +1351,106 @@ func TestQueryInvoices(t *testing.T) {
 			},
 			expected: invoices,
 		},
+		// Fetch invoices <= 25 by creation date.
+		{
+			query: InvoiceQuery{
+				NumMaxInvoices:  numInvoices,
+				MaxCreationDate: time.Unix(25, 0),
+			},
+			expected: invoices[:25],
+		},
+		// Fetch invoices >= 26 creation date.
+		{
+			query: InvoiceQuery{
+				NumMaxInvoices:  numInvoices,
+				MinCreationDate: time.Unix(26, 0),
+			},
+			expected: invoices[25:],
+		},
+		// Fetch pending invoices <= 25 by creation date.
+		{
+			query: InvoiceQuery{
+				PendingOnly:     true,
+				NumMaxInvoices:  numInvoices,
+				MaxCreationDate: time.Unix(25, 0),
+			},
+			expected: pendingInvoices[:13],
+		},
+		// Fetch pending invoices >= 26 creation date.
+		{
+			query: InvoiceQuery{
+				PendingOnly:     true,
+				NumMaxInvoices:  numInvoices,
+				MinCreationDate: time.Unix(26, 0),
+			},
+			expected: pendingInvoices[13:],
+		},
+		// Fetch pending invoices with offset and max creation date.
+		{
+			query: InvoiceQuery{
+				IndexOffset:     20,
+				NumMaxInvoices:  numInvoices,
+				MaxCreationDate: time.Unix(30, 0),
+			},
+			// Since we're skipping to invoice 20 and iterating
+			// to invoice 30, we'll expect those invoices.
+			expected: invoices[20:30],
+		},
+		// Fetch pending invoices with offset and min creation date
+		// in reversed order.
+		{
+			query: InvoiceQuery{
+				IndexOffset:     21,
+				Reversed:        true,
+				NumMaxInvoices:  numInvoices,
+				MinCreationDate: time.Unix(11, 0),
+			},
+			// Since we're skipping to invoice 20 and iterating
+			// backward to invoice 10, we'll expect those invoices.
+			expected: invoices[10:20],
+		},
+		// Fetch invoices with min and max creation date.
+		{
+			query: InvoiceQuery{
+				NumMaxInvoices:  numInvoices,
+				MinCreationDate: time.Unix(11, 0),
+				MaxCreationDate: time.Unix(20, 0),
+			},
+			expected: invoices[10:20],
+		},
+		// Fetch pending invoices with min and max creation date.
+		{
+			query: InvoiceQuery{
+				PendingOnly:     true,
+				NumMaxInvoices:  numInvoices,
+				MinCreationDate: time.Unix(11, 0),
+				MaxCreationDate: time.Unix(20, 0),
+			},
+			expected: pendingInvoices[5:10],
+		},
+		// Fetch invoices with min and max creation date
+		// in reverse order.
+		{
+			query: InvoiceQuery{
+				Reversed:        true,
+				NumMaxInvoices:  numInvoices,
+				MinCreationDate: time.Unix(11, 0),
+				MaxCreationDate: time.Unix(20, 0),
+			},
+			expected: invoices[10:20],
+		},
+		// Fetch pending invoices with min and max creation date
+		// in reverse order.
+		{
+			query: InvoiceQuery{
+				PendingOnly:     true,
+				Reversed:        true,
+				NumMaxInvoices:  numInvoices,
+				MinCreationDate: time.Unix(11, 0),
+				MaxCreationDate: time.Unix(20, 0),
+			},
+			expected: pendingInvoices[5:10],
+		},
 	}
 
 	for i, testCase := range testCases {
@@ -1366,6 +1468,28 @@ func TestQueryInvoices(t *testing.T) {
 			)
 		}
 	}
+}
+
+// TestQueryInvoicesWithCrossingCreationTimeFilters ensures that querying
+// invoices using a MinCreationDate greater than MaxCreationDate returns
+// an error.
+func TestQueryInvoicesWithCrossingCreationTimeFilters(t *testing.T) {
+	db, cleanUp, err := MakeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test db: %v", err)
+	}
+
+	query := InvoiceQuery{
+		MinCreationDate: time.Unix(2, 0),
+		MaxCreationDate: time.Unix(1, 0),
+	}
+
+	response, err := db.QueryInvoices(query)
+	require.Equal(t, 0, len(response.Invoices))
+	require.NotNil(t, err)
+	require.Equal(t,
+		"MinCreationDate is greater than MaxCreationDate", err.Error())
 }
 
 // getUpdateInvoice returns an invoice update callback that, when called,

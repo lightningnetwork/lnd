@@ -1279,6 +1279,14 @@ type InvoiceQuery struct {
 	// Reversed, if set, indicates that the invoices returned should start
 	// from the IndexOffset and go backwards.
 	Reversed bool
+
+	// MinCreationDate, if set, filters out all invoices with a creation
+	// date less than it.
+	MinCreationDate time.Time
+
+	// MaxCreationDate, if set, filters out all invoices with a creation
+	// date greater than it.
+	MaxCreationDate time.Time
 }
 
 // InvoiceSlice is the response to a invoice query. It includes the original
@@ -1309,7 +1317,29 @@ type InvoiceSlice struct {
 // QueryInvoices allows a caller to query the invoice database for invoices
 // within the specified add index range.
 func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
-	var resp InvoiceSlice
+	var (
+		resp           InvoiceSlice
+		minCreationSet = !q.MinCreationDate.IsZero()
+		maxCreationSet = !q.MaxCreationDate.IsZero()
+	)
+
+	// If MinCreationDate filter is greater than MaxCreationDate, we know
+	// there will be no matching results and can safely return early.
+	if minCreationSet && maxCreationSet {
+		if q.MinCreationDate.After(q.MaxCreationDate) {
+			return resp, fmt.Errorf(
+				"MinCreationDate is greater than MaxCreationDate")
+		}
+	}
+
+	// If MinCreationDate filter is greater than MaxCreationDate, we know
+	// there will be no matching results and can safely return early.
+	if minCreationSet && maxCreationSet {
+		if q.MinCreationDate.After(q.MaxCreationDate) {
+			return resp, fmt.Errorf(
+				"MinCreationDate is greater than MaxCreationDate")
+		}
+	}
 
 	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		// If the bucket wasn't found, then there aren't any invoices
@@ -1346,6 +1376,22 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 			// Skip any settled or canceled invoices if the caller
 			// is only interested in pending ones.
 			if q.PendingOnly && !invoice.IsPending() {
+				return false, nil
+			}
+
+			// Skip any invoices that were created
+			// before the specified time.
+			subceedesMinCreationDate := q.MinCreationDate.After(
+				invoice.CreationDate)
+			if minCreationSet && subceedesMinCreationDate {
+				return false, nil
+			}
+
+			// Skip any invoices that were created
+			// after the specified time.
+			exceedsMaxCreationDate := q.MaxCreationDate.Before(
+				invoice.CreationDate)
+			if maxCreationSet && exceedsMaxCreationDate {
 				return false, nil
 			}
 

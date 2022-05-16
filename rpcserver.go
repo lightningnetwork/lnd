@@ -4085,9 +4085,11 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	// is the push amount. Otherwise, our starting balance is the push
 	// amount. If there is no push amount, these values will simply be zero.
 	if dbChannel.IsInitiator {
-		channel.PushAmountSat = uint64(dbChannel.InitialRemoteBalance)
+		amt := dbChannel.InitialRemoteBalance.ToSatoshis()
+		channel.PushAmountSat = uint64(amt)
 	} else {
-		channel.PushAmountSat = uint64(dbChannel.InitialLocalBalance)
+		amt := dbChannel.InitialLocalBalance.ToSatoshis()
+		channel.PushAmountSat = uint64(amt)
 	}
 
 	if len(dbChannel.LocalShutdownScript) > 0 {

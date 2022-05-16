@@ -374,10 +374,12 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	const customizedMinHtlc = 4200
 
 	chanAmt := btcutil.Amount(100000)
+	pushAmt := btcutil.Amount(1000)
 	chanPoint := openChannelAndAssert(
 		t, net, alice, bob,
 		lntest.OpenChannelParams{
 			Amt:            chanAmt,
+			PushAmt:        pushAmt,
 			MinHtlc:        customizedMinHtlc,
 			RemoteMaxHtlcs: aliceRemoteMaxHtlcs,
 		},
@@ -415,12 +417,12 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	aliceChannel := resp.Channels[0]
 
 	// Since Alice is the initiator, she pays the commit fee.
-	aliceBalance := int64(chanAmt) - aliceChannel.CommitFee
+	aliceBalance := int64(chanAmt) - aliceChannel.CommitFee - int64(pushAmt)
 
 	// Check the balance related fields are correct.
 	require.Equal(t.t, aliceBalance, aliceChannel.LocalBalance)
-	require.Zero(t.t, aliceChannel.RemoteBalance)
-	require.Zero(t.t, aliceChannel.PushAmountSat)
+	require.EqualValues(t.t, pushAmt, aliceChannel.RemoteBalance)
+	require.EqualValues(t.t, pushAmt, aliceChannel.PushAmountSat)
 
 	// Calculate the dust limit we'll use for the test.
 	dustLimit := lnwallet.DustLimitForSize(input.UnknownWitnessSize)
@@ -474,8 +476,8 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Check the balance related fields are correct.
 	require.Equal(t.t, aliceBalance, bobChannel.RemoteBalance)
-	require.Zero(t.t, bobChannel.LocalBalance)
-	require.Zero(t.t, bobChannel.PushAmountSat)
+	require.EqualValues(t.t, pushAmt, bobChannel.LocalBalance)
+	require.EqualValues(t.t, pushAmt, bobChannel.PushAmountSat)
 
 	// Check channel constraints match. Alice's local channel constraint
 	// should be equal to Bob's remote channel constraint, and her remote

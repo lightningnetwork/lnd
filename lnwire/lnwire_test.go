@@ -965,6 +965,12 @@ func TestLightningWireProtocol(t *testing.T) {
 			},
 		},
 		{
+			msgType: MsgWarning,
+			scenario: func(m Warning) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
 			msgType: MsgError,
 			scenario: func(m Error) bool {
 				return mainScenario(&m)

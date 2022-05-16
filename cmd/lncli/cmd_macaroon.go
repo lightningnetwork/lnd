@@ -19,12 +19,36 @@ import (
 	"gopkg.in/macaroon.v2"
 )
 
+var (
+	macTimeoutFlag = cli.Uint64Flag{
+		Name: "timeout",
+		Usage: "the number of seconds the macaroon will be " +
+			"valid before it times out",
+	}
+	macIPAddressFlag = cli.StringFlag{
+		Name:  "ip_address",
+		Usage: "the IP address the macaroon will be bound to",
+	}
+	macCustomCaveatNameFlag = cli.StringFlag{
+		Name:  "custom_caveat_name",
+		Usage: "the name of the custom caveat to add",
+	}
+	macCustomCaveatConditionFlag = cli.StringFlag{
+		Name: "custom_caveat_condition",
+		Usage: "the condition of the custom caveat to add, can be " +
+			"empty if custom caveat doesn't need a value",
+	}
+)
+
 var bakeMacaroonCommand = cli.Command{
 	Name:     "bakemacaroon",
 	Category: "Macaroons",
 	Usage: "Bakes a new macaroon with the provided list of permissions " +
 		"and restrictions.",
-	ArgsUsage: "[--save_to=] [--timeout=] [--ip_address=] [--allow_external_permissions] permissions...",
+	ArgsUsage: "[--save_to=] [--timeout=] [--ip_address=] " +
+		"[--custom_caveat_name= [--custom_caveat_condition=]] " +
+		"[--root_key_id=] [--allow_external_permissions] " +
+		"permissions...",
 	Description: `
 	Bake a new macaroon that grants the provided permissions and
 	optionally adds restrictions (timeout, IP address) to it.
@@ -57,32 +81,19 @@ var bakeMacaroonCommand = cli.Command{
 			Usage: "save the created macaroon to this file " +
 				"using the default binary format",
 		},
+		macTimeoutFlag,
+		macIPAddressFlag,
+		macCustomCaveatNameFlag,
+		macCustomCaveatConditionFlag,
 		cli.Uint64Flag{
-			Name: "timeout",
-			Usage: "the number of seconds the macaroon will be " +
-				"valid before it times out",
-		},
-		cli.StringFlag{
-			Name:  "ip_address",
-			Usage: "the IP address the macaroon will be bound to",
-		},
-		cli.StringFlag{
-			Name:  "custom_caveat_name",
-			Usage: "the name of the custom caveat to add",
-		},
-		cli.StringFlag{
-			Name: "custom_caveat_condition",
-			Usage: "the condition of the custom caveat to add, " +
-				"can be empty if custom caveat doesn't need " +
-				"a value",
-		},
-		cli.Uint64Flag{
-			Name:  "root_key_id",
-			Usage: "the numerical root key ID used to create the macaroon",
+			Name: "root_key_id",
+			Usage: "the numerical root key ID used to create the " +
+				"macaroon",
 		},
 		cli.BoolFlag{
-			Name:  "allow_external_permissions",
-			Usage: "whether permissions lnd is not familiar with are allowed",
+			Name: "allow_external_permissions",
+			Usage: "whether permissions lnd is not familiar with " +
+				"are allowed",
 		},
 	},
 	Action: actionDecorator(bakeMacaroon),
@@ -101,10 +112,6 @@ func bakeMacaroon(ctx *cli.Context) error {
 
 	var (
 		savePath          string
-		timeout           int64
-		ipAddress         net.IP
-		customCaveatName  string
-		customCaveatCond  string
 		rootKeyID         uint64
 		parsedPermissions []*lnrpc.MacaroonPermission
 		err               error
@@ -112,47 +119,6 @@ func bakeMacaroon(ctx *cli.Context) error {
 
 	if ctx.String("save_to") != "" {
 		savePath = lncfg.CleanAndExpandPath(ctx.String("save_to"))
-	}
-
-	if ctx.IsSet("timeout") {
-		timeout = ctx.Int64("timeout")
-		if timeout <= 0 {
-			return fmt.Errorf("timeout must be greater than 0")
-		}
-	}
-
-	if ctx.IsSet("ip_address") {
-		ipAddress = net.ParseIP(ctx.String("ip_address"))
-		if ipAddress == nil {
-			return fmt.Errorf("unable to parse ip_address: %s",
-				ctx.String("ip_address"))
-		}
-	}
-
-	if ctx.IsSet("custom_caveat_name") {
-		customCaveatName = ctx.String("custom_caveat_name")
-		if containsWhiteSpace(customCaveatName) {
-			return fmt.Errorf("unexpected white space found in " +
-				"custom caveat name")
-		}
-		if customCaveatName == "" {
-			return fmt.Errorf("invalid custom caveat name")
-		}
-	}
-
-	if ctx.IsSet("custom_caveat_condition") {
-		customCaveatCond = ctx.String("custom_caveat_condition")
-		if containsWhiteSpace(customCaveatCond) {
-			return fmt.Errorf("unexpected white space found in " +
-				"custom caveat condition")
-		}
-		if customCaveatCond == "" {
-			return fmt.Errorf("invalid custom caveat condition")
-		}
-		if customCaveatCond != "" && customCaveatName == "" {
-			return fmt.Errorf("cannot set custom caveat " +
-				"condition without custom caveat name")
-		}
 	}
 
 	if ctx.IsSet("root_key_id") {
@@ -213,32 +179,7 @@ func bakeMacaroon(ctx *cli.Context) error {
 
 	// Now apply the desired constraints to the macaroon. This will always
 	// create a new macaroon object, even if no constraints are added.
-	macConstraints := make([]macaroons.Constraint, 0)
-	if timeout > 0 {
-		macConstraints = append(
-			macConstraints, macaroons.TimeoutConstraint(timeout),
-		)
-	}
-	if ipAddress != nil {
-		macConstraints = append(
-			macConstraints,
-			macaroons.IPLockConstraint(ipAddress.String()),
-		)
-	}
-
-	// The custom caveat condition is optional, it could just be a marker
-	// tag in the macaroon with just a name. The interceptor itself doesn't
-	// care about the value anyway.
-	if customCaveatName != "" {
-		macConstraints = append(
-			macConstraints, macaroons.CustomConstraint(
-				customCaveatName, customCaveatCond,
-			),
-		)
-	}
-	constrainedMac, err := macaroons.AddConstraints(
-		unmarshalMac, macConstraints...,
-	)
+	constrainedMac, err := applyMacaroonConstraints(ctx, unmarshalMac)
 	if err != nil {
 		return err
 	}
@@ -468,6 +409,151 @@ func printMacaroon(ctx *cli.Context) error {
 	printJSON(content)
 
 	return nil
+}
+
+var constrainMacaroonCommand = cli.Command{
+	Name:     "constrainmacaroon",
+	Category: "Macaroons",
+	Usage:    "Adds one or more restriction(s) to an existing macaroon",
+	ArgsUsage: "[--timeout=] [--ip_address=] [--custom_caveat_name= " +
+		"[--custom_caveat_condition=]] input-macaroon-file " +
+		"constrained-macaroon-file",
+	Description: `
+	Add one or more first-party caveat(s) (a.k.a. constraints/restrictions)
+	to an existing macaroon.
+	`,
+	Flags: []cli.Flag{
+		macTimeoutFlag,
+		macIPAddressFlag,
+		macCustomCaveatNameFlag,
+		macCustomCaveatConditionFlag,
+	},
+	Action: actionDecorator(constrainMacaroon),
+}
+
+func constrainMacaroon(ctx *cli.Context) error {
+	// Show command help if not enough arguments.
+	if ctx.NArg() != 2 {
+		return cli.ShowCommandHelp(ctx, "constrainmacaroon")
+	}
+	args := ctx.Args()
+
+	sourceMacFile := lncfg.CleanAndExpandPath(args.First())
+	args = args.Tail()
+
+	sourceMacBytes, err := ioutil.ReadFile(sourceMacFile)
+	if err != nil {
+		return fmt.Errorf("error trying to read source macaroon file "+
+			"%s: %v", sourceMacFile, err)
+	}
+
+	destMacFile := lncfg.CleanAndExpandPath(args.First())
+
+	// Now we should have gotten a valid macaroon. Unmarshal it so we can
+	// add first-party caveats (if necessary) to it.
+	sourceMac := &macaroon.Macaroon{}
+	if err = sourceMac.UnmarshalBinary(sourceMacBytes); err != nil {
+		return fmt.Errorf("error unmarshaling source macaroon file "+
+			"%s: %v", sourceMacFile, err)
+	}
+
+	// Now apply the desired constraints to the macaroon. This will always
+	// create a new macaroon object, even if no constraints are added.
+	constrainedMac, err := applyMacaroonConstraints(ctx, sourceMac)
+	if err != nil {
+		return err
+	}
+
+	destMacBytes, err := constrainedMac.MarshalBinary()
+	if err != nil {
+		return fmt.Errorf("error marshaling destination macaroon "+
+			"file: %v", err)
+	}
+
+	// Now we can output the result.
+	err = ioutil.WriteFile(destMacFile, destMacBytes, 0644)
+	if err != nil {
+		return fmt.Errorf("error writing destination macaroon file "+
+			"%s: %v", destMacFile, err)
+	}
+	fmt.Printf("Macaroon saved to %s\n", destMacFile)
+
+	return nil
+}
+
+// applyMacaroonConstraints parses and applies all currently supported macaroon
+// condition flags from the command line to the given macaroon and returns a new
+// macaroon instance.
+func applyMacaroonConstraints(ctx *cli.Context,
+	mac *macaroon.Macaroon) (*macaroon.Macaroon, error) {
+
+	macConstraints := make([]macaroons.Constraint, 0)
+
+	if ctx.IsSet(macTimeoutFlag.Name) {
+		timeout := ctx.Int64(macTimeoutFlag.Name)
+		if timeout <= 0 {
+			return nil, fmt.Errorf("timeout must be greater than 0")
+		}
+		macConstraints = append(
+			macConstraints, macaroons.TimeoutConstraint(timeout),
+		)
+	}
+
+	if ctx.IsSet(macIPAddressFlag.Name) {
+		ipAddress := net.ParseIP(ctx.String(macIPAddressFlag.Name))
+		if ipAddress == nil {
+			return nil, fmt.Errorf("unable to parse ip_address: %s",
+				ctx.String("ip_address"))
+		}
+
+		macConstraints = append(
+			macConstraints,
+			macaroons.IPLockConstraint(ipAddress.String()),
+		)
+	}
+
+	if ctx.IsSet(macCustomCaveatNameFlag.Name) {
+		customCaveatName := ctx.String(macCustomCaveatNameFlag.Name)
+		if containsWhiteSpace(customCaveatName) {
+			return nil, fmt.Errorf("unexpected white space found " +
+				"in custom caveat name")
+		}
+		if customCaveatName == "" {
+			return nil, fmt.Errorf("invalid custom caveat name")
+		}
+
+		var customCaveatCond string
+		if ctx.IsSet(macCustomCaveatConditionFlag.Name) {
+			customCaveatCond = ctx.String(
+				macCustomCaveatConditionFlag.Name,
+			)
+			if containsWhiteSpace(customCaveatCond) {
+				return nil, fmt.Errorf("unexpected white " +
+					"space found in custom caveat " +
+					"condition")
+			}
+			if customCaveatCond == "" {
+				return nil, fmt.Errorf("invalid custom " +
+					"caveat condition")
+			}
+		}
+
+		// The custom caveat condition is optional, it could just be a
+		// marker tag in the macaroon with just a name. The interceptor
+		// itself doesn't care about the value anyway.
+		macConstraints = append(
+			macConstraints, macaroons.CustomConstraint(
+				customCaveatName, customCaveatCond,
+			),
+		)
+	}
+
+	constrainedMac, err := macaroons.AddConstraints(mac, macConstraints...)
+	if err != nil {
+		return nil, fmt.Errorf("error adding constraints: %v", err)
+	}
+
+	return constrainedMac, nil
 }
 
 // containsWhiteSpace returns true if the given string contains any character

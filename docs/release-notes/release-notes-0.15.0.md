@@ -64,8 +64,13 @@ releases. Backward compatibility is not guaranteed!
   to allow for RPC calls via Tor.
 
 * [Hop hints are now opt in when using `lncli
-  addinvoice`]https://github.com/lightningnetwork/lnd/pull/6523). Users now
+  addinvoice`](https://github.com/lightningnetwork/lnd/pull/6523). Users now
   need to explicitly specify the `--private` flag.
+
+* A new [`constrainmacaroon` command was
+  added](https://github.com/lightningnetwork/lnd/pull/6529) that allows
+  caveats/restrictions to be added to an existing macaroon (instead of needing
+  to bake a new one). 
 
 ## Neutrino
 

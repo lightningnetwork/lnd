@@ -1996,6 +1996,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// Update the mailbox's feerate as well.
 		l.mailBox.SetFeeRate(fee)
 
+	// In the case where we receive a warning message from our peer, just
+	// log it and move on. We choose not to disconnect from our peer,
+	// although we "MAY" do so according to the specification.
+	case *lnwire.Warning:
+		l.log.Warnf("received warning message from peer: %v",
+			msg.Error.Error())
+
 	case *lnwire.Error:
 		// Error received from remote, MUST fail channel, but should
 		// only print the contents of the error message if all

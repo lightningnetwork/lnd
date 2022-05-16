@@ -258,6 +258,8 @@ from occurring that would result in an erroneous force close.](https://github.co
 
 * [Some of the invoice update logic has been refactored to be less verbose.](https://github.com/lightningnetwork/lnd/pull/6415)
 
+* [Clarify error msg when bitcoind cookie file is missing](https://github.com/lightningnetwork/lnd/pull/6536).
+
 ## RPC Server
 
 * [Add value to the field

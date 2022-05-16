@@ -265,6 +265,9 @@ from occurring that would result in an erroneous force close.](https://github.co
 
 * [Clarify error msg when bitcoind cookie file is missing](https://github.com/lightningnetwork/lnd/pull/6536).
 
+* [Minor fix](https://github.com/lightningnetwork/lnd/pull/6535) to
+  how bitcoind.rpccookie and bitocind.config are parsed from config file.
+
 ## RPC Server
 
 * [Add value to the field

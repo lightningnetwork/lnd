@@ -859,7 +859,17 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	cfg.BtcdMode.Dir = CleanAndExpandPath(cfg.BtcdMode.Dir)
 	cfg.LtcdMode.Dir = CleanAndExpandPath(cfg.LtcdMode.Dir)
 	cfg.BitcoindMode.Dir = CleanAndExpandPath(cfg.BitcoindMode.Dir)
+	cfg.BitcoindMode.ConfigPath = CleanAndExpandPath(
+		cfg.BitcoindMode.ConfigPath,
+	)
+	cfg.BitcoindMode.RPCCookie = CleanAndExpandPath(cfg.BitcoindMode.RPCCookie)
 	cfg.LitecoindMode.Dir = CleanAndExpandPath(cfg.LitecoindMode.Dir)
+	cfg.LitecoindMode.ConfigPath = CleanAndExpandPath(
+		cfg.LitecoindMode.ConfigPath,
+	)
+	cfg.LitecoindMode.RPCCookie = CleanAndExpandPath(
+		cfg.LitecoindMode.RPCCookie,
+	)
 	cfg.Tor.PrivateKeyPath = CleanAndExpandPath(cfg.Tor.PrivateKeyPath)
 	cfg.Tor.WatchtowerKeyPath = CleanAndExpandPath(cfg.Tor.WatchtowerKeyPath)
 	cfg.Watchtower.TowerDir = CleanAndExpandPath(cfg.Watchtower.TowerDir)

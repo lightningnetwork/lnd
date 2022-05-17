@@ -1254,10 +1254,12 @@ func (c *ChannelStateDB) GetChannelOpeningState(outPoint []byte) ([]byte, error)
 			return ErrChannelNotFound
 		}
 
-		serializedState = bucket.Get(outPoint)
-		if serializedState == nil {
+		stateBytes := bucket.Get(outPoint)
+		if stateBytes == nil {
 			return ErrChannelNotFound
 		}
+
+		serializedState = append(serializedState, stateBytes...)
 
 		return nil
 	}, func() {

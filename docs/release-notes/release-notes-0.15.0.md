@@ -169,6 +169,9 @@ from occurring that would result in an erroneous force close.](https://github.co
 * [Taproot wallet inputs can also be used to fund
   channels](https://github.com/lightningnetwork/lnd/pull/6521)
 
+* [Fixed an intermittent panic that would occur due to a violated assumption with our
+  underlying database.](https://github.com/lightningnetwork/lnd/pull/6547)
+
 ## Routing
 
 * [Add a new `time_pref` parameter to the QueryRoutes and SendPayment APIs](https://github.com/lightningnetwork/lnd/pull/6024) that

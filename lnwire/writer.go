@@ -5,6 +5,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	
+	/*
+	 * Ben: isn't it an invalide import?
+	 */
 	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"image/color"
 	"math"

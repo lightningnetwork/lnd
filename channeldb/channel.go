@@ -182,6 +182,14 @@ const (
 	// A tlv type definition used to serialize and deserialize a KeyLocator
 	// from the database.
 	keyLocType tlv.Type = 1
+
+	// A tlv type used to serialize and deserialize the
+	// `InitialLocalBalance` field.
+	initialLocalBalanceType tlv.Type = 2
+
+	// A tlv type used to serialize and deserialize the
+	// `InitialRemoteBalance` field.
+	initialRemoteBalanceType tlv.Type = 3
 )
 
 // indexStatus is an enum-like type that describes what state the
@@ -3280,8 +3288,7 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 		channel.chanStatus, channel.FundingBroadcastHeight,
 		channel.NumConfsRequired, channel.ChannelFlags,
 		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
-		channel.TotalMSatReceived, channel.InitialLocalBalance,
-		channel.InitialRemoteBalance,
+		channel.TotalMSatReceived,
 	); err != nil {
 		return err
 	}
@@ -3301,12 +3308,24 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 		return err
 	}
 
-	// Write the RevocationKeyLocator as the first entry in a tlv stream.
-	keyLocRecord := MakeKeyLocRecord(
-		keyLocType, &channel.RevocationKeyLocator,
-	)
+	// Convert balance fields into uint64.
+	localBalance := uint64(channel.InitialLocalBalance)
+	remoteBalance := uint64(channel.InitialRemoteBalance)
 
-	tlvStream, err := tlv.NewStream(keyLocRecord)
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(
+		// Write the RevocationKeyLocator as the first entry in a tlv
+		// stream.
+		MakeKeyLocRecord(
+			keyLocType, &channel.RevocationKeyLocator,
+		),
+		tlv.MakePrimitiveRecord(
+			initialLocalBalanceType, &localBalance,
+		),
+		tlv.MakePrimitiveRecord(
+			initialRemoteBalanceType, &remoteBalance,
+		),
+	)
 	if err != nil {
 		return err
 	}
@@ -3468,8 +3487,7 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 		&channel.chanStatus, &channel.FundingBroadcastHeight,
 		&channel.NumConfsRequired, &channel.ChannelFlags,
 		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
-		&channel.TotalMSatReceived, &channel.InitialLocalBalance,
-		&channel.InitialRemoteBalance,
+		&channel.TotalMSatReceived,
 	); err != nil {
 		return err
 	}
@@ -3504,8 +3522,26 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 		}
 	}
 
-	keyLocRecord := MakeKeyLocRecord(keyLocType, &channel.RevocationKeyLocator)
-	tlvStream, err := tlv.NewStream(keyLocRecord)
+	// Create balance fields in uint64.
+	var (
+		localBalance  uint64
+		remoteBalance uint64
+	)
+
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(
+		// Write the RevocationKeyLocator as the first entry in a tlv
+		// stream.
+		MakeKeyLocRecord(
+			keyLocType, &channel.RevocationKeyLocator,
+		),
+		tlv.MakePrimitiveRecord(
+			initialLocalBalanceType, &localBalance,
+		),
+		tlv.MakePrimitiveRecord(
+			initialRemoteBalanceType, &remoteBalance,
+		),
+	)
 	if err != nil {
 		return err
 	}
@@ -3513,6 +3549,10 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	if err := tlvStream.Decode(r); err != nil {
 		return err
 	}
+
+	// Attach the balance fields.
+	channel.InitialLocalBalance = lnwire.MilliSatoshi(localBalance)
+	channel.InitialRemoteBalance = lnwire.MilliSatoshi(remoteBalance)
 
 	channel.Packager = NewChannelPackager(channel.ShortChannelID)
 

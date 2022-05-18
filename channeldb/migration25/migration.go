@@ -147,7 +147,7 @@ func findOpenChannels(openChanBucket kvdb.RBucket) ([]*OpenChannel, error) {
 // balances and save them to the channel info.
 func migrateBalances(tx kvdb.RwTx, c *OpenChannel) error {
 	// Get the bucket.
-	chanBucket, err := fetchChanBucket(tx, c)
+	chanBucket, err := FetchChanBucket(tx, c)
 	if err != nil {
 		return err
 	}
@@ -168,10 +168,10 @@ func migrateBalances(tx kvdb.RwTx, c *OpenChannel) error {
 	return nil
 }
 
-// fetchChanBucket is a helper function that returns the bucket where a
+// FetchChanBucket is a helper function that returns the bucket where a
 // channel's data resides in given: the public key for the node, the outpoint,
 // and the chainhash that the channel resides on.
-func fetchChanBucket(tx kvdb.RwTx, c *OpenChannel) (kvdb.RwBucket, error) {
+func FetchChanBucket(tx kvdb.RwTx, c *OpenChannel) (kvdb.RwBucket, error) {
 	// First fetch the top level bucket which stores all data related to
 	// current, active channels.
 	openChanBucket := tx.ReadWriteBucket(openChannelBucket)

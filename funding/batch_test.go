@@ -156,6 +156,9 @@ func (h *testHarness) openChannel(
 		Update: &lnrpc.OpenStatusUpdate_PsbtFund{
 			PsbtFund: &lnrpc.ReadyForPsbtFunding{
 				FundingAmount: int64(
+					/*
+					 * TODO(Ben, Wxf): here MUST test asset funding amount, not merely Bitcoin amount. 
+					 */
 					req.LocalFundingBtcAmt,
 				),
 				FundingAddress: fmt.Sprintf("foo%d", chanIndex),

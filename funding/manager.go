@@ -1358,8 +1358,6 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		scid                bool
 	)
 
-	anchors := commitType == lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx
-
 	if wasExplicit {
 		// Only echo back a channel type in AcceptChannel if we
 		// actually used explicit negotiation above.
@@ -1373,15 +1371,14 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 
 		// If the zero-conf channel type wasn't negotiated and the
 		// fundee still wants a zero-conf channel, perform more checks.
-		// Require that this channel has anchors and both sides also
-		// have the scid-alias feature bit set. This is for
-		// compatibility with LDK.
+		// Require that both sides have the scid-alias feature bit set.
+		// We don't require anchors here - this is for compatibility
+		// with LDK.
 		if !zeroConf && acceptorResp.ZeroConf {
-			if !anchors || !scidFeatureVal {
+			if !scidFeatureVal {
 				// Fail the funding flow.
 				flowErr := fmt.Errorf("scid-alias feature " +
-					"must be negotiated in addition to " +
-					"anchors")
+					"must be negotiated for zero-conf")
 				f.failFundingFlow(
 					peer, msg.PendingChannelID, flowErr,
 				)
@@ -1779,6 +1776,15 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	// Check that zero-conf channels have minimum depth set to 0.
 	if resCtx.reservation.IsZeroConf() && msg.MinAcceptDepth != 0 {
 		err = fmt.Errorf("zero-conf channel has min_depth non-zero")
+		log.Warn(err)
+		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		return
+	}
+
+	// Fail early if minimum depth is set to 0 and the channel is not
+	// zero-conf.
+	if !resCtx.reservation.IsZeroConf() && msg.MinAcceptDepth == 0 {
+		err = fmt.Errorf("non-zero-conf channel has min depth zero")
 		log.Warn(err)
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
 		return

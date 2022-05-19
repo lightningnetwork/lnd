@@ -23,6 +23,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBasicChannelFunding,
 	},
 	{
+		Name:     "basic funding flow with all input types",
+		TestFunc: testChannelFundingInputTypes,
+	},
+	{
 		Name:     "unconfirmed channel funding",
 		TestFunc: testUnconfirmedChannelFunding,
 	},
@@ -452,8 +456,4 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "taproot",
 		TestFunc: testTaproot,
 	},
-	// {
-	// 	name: "basic funding flow with all input types",
-	// 	test: testChannelFundingInputTypes,
-	// },
 }

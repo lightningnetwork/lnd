@@ -165,7 +165,7 @@ type TimedPairResult struct {
 
 	// FailAmt is the amount of the last failure. This amount may be pushed
 	// up if a later success is higher than the last failed amount.
-	FailAmt uint64
+	FailAmt lnwire.UnitPrec11
 
 	// SuccessTime is the time of the last success.
 	SuccessTime time.Time
@@ -175,7 +175,7 @@ type TimedPairResult struct {
 	// may also be pushed down if a later failure is lower than the highest
 	// success amount. Because of this, SuccessAmt may not match
 	// SuccessTime.
-	SuccessAmt uint64
+	SuccessAmt lnwire.UnitPrec11
 }
 
 // MissionControlSnapshot contains a snapshot of the current state of mission
@@ -333,7 +333,7 @@ func (m *MissionControl) ResetHistory() error {
 // GetProbability is expected to return the success probability of a payment
 // from fromNode along edge.
 func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
-	amt uint64) float64 {
+	amt lnwire.UnitPrec11) float64 {
 
 	m.Lock()
 	defer m.Unlock()

@@ -19,11 +19,11 @@ const (
 )
 
 type mockBandwidthHints struct {
-	hints map[uint64]uint64
+	hints map[uint64]lnwire.UnitPrec11
 }
 
 func (m *mockBandwidthHints) availableChanBandwidth(channelID uint64,
-	_ uint64) (uint64, bool) {
+	_ lnwire.UnitPrec11) (lnwire.UnitPrec11, bool) {
 
 	if m.hints == nil {
 		return 0, false
@@ -42,8 +42,8 @@ type integratedRoutingContext struct {
 	source *mockNode
 	target *mockNode
 
-	amt         uint64
-	maxShardAmt *uint64
+	amt         lnwire.UnitPrec11
+	maxShardAmt *lnwire.UnitPrec11
 	finalExpiry int32
 
 	mcCfg          MissionControlConfig
@@ -147,7 +147,7 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 
 	getBandwidthHints := func(_ routingGraph) (bandwidthHints, error) {
 		// Create bandwidth hints based on local channel balances.
-		bandwidthHints := map[uint64]uint64{}
+		bandwidthHints := map[uint64]lnwire.UnitPrec11{}
 		for _, ch := range c.graph.nodes[c.source.pubkey].channels {
 			bandwidthHints[ch.id] = ch.balance
 		}
@@ -160,7 +160,7 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 	var paymentAddr [32]byte
 	payment := LightningPayment{
 		FinalCLTVDelta: uint16(c.finalExpiry),
-		FeeLimit:       uint64( lnwire.MaxMilliSatoshi),
+		FeeLimit:       lnwire.UnitPrec11( lnwire.MaxMilliSatoshi),
 		Target:         c.target.pubkey,
 		PaymentAddr:    &paymentAddr,
 		DestFeatures:   lnwire.NewFeatureVector(baseFeatureBits, nil),
@@ -190,7 +190,7 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 	}
 
 	// Override default minimum shard amount.
-	session.minShardAmt = getPayValue( lnwire.NewMSatFromSatoshis(5000))
+	session.minShardAmt = lnwire.UnitPrec11( lnwire.NewMSatFromSatoshis(5000))
 
 	// Now the payment control loop starts. It will keep trying routes until
 	// the payment succeeds.
@@ -200,14 +200,14 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 	)
 	for {
 		// Create bandwidth hints based on local channel balances.
-		bandwidthHints := map[uint64]uint64{}
+		bandwidthHints := map[uint64]lnwire.UnitPrec11{}
 		for _, ch := range c.graph.nodes[c.source.pubkey].channels {
 			bandwidthHints[ch.id] = ch.balance
 		}
 
 		// Find a route.
 		route, err := session.RequestRoute(
-			amtRemaining, uint64(lnwire.MaxMilliSatoshi) , inFlightHtlcs, 0,
+			amtRemaining, lnwire.UnitPrec11(lnwire.MaxMilliSatoshi) , inFlightHtlcs, 0,
 		)
 		if err != nil {
 			return attempts, err

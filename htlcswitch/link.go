@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	prand "math/rand"
 	"sync"
 	"sync/atomic"
@@ -60,23 +61,29 @@ const (
 	// the initiator of the channel.
 	DefaultMaxLinkFeeAllocation float64 = 0.5
 )
-
-func (fwdp *ForwardingPolicy)LoadCfg(assetId uint32)  {
-	fwdp.MinHTLCOut =lnwire.MstatCfgToI64(assetId,fwdp.Cfg.MinHTLCOut)
-	fwdp.BaseFee =lnwire.MstatCfgToI64(assetId,fwdp.Cfg.BaseFee)
-	fwdp.FeeRate =uint64(fwdp.Cfg.FeeRate)
-
+func  (fpCfg *ForwardingPolicyCfg)LoadCfg(assetId uint32)(fp *ForwardingPolicy){
+	fp=new(ForwardingPolicy)
+	fp.TimeLockDelta=fpCfg.TimeLockDelta
+	fp.BaseFee=fpCfg.BaseFee
+	if assetId==omnicore.BtcAssetId{
+		fp.MinHTLCOut=lnwire.UnitPrec11(fpCfg.MinHTLCOut)
+		fp.MaxHTLC=lnwire.UnitPrec11(fpCfg.MaxHTLC)
+		fp.FeeRate=lnwire.UnitPrec11(fpCfg.FeeRate)
+		return fp
+	}
+	fp.MinHTLCOut=lnwire.UnitPrec11(fpCfg.AssetMinHTLCOut)
+	fp.MaxHTLC=lnwire.UnitPrec11(fpCfg.AssetMaxHTLC)
+	fp.FeeRate=lnwire.UnitPrec11(fpCfg.AssetFeeRate)
+	return fp
 }
-
-/*obd udpate wxf
-default config
-*/
 type ForwardingPolicyCfg struct {
 	// MinHTLC is the smallest HTLC that is to be forwarded.
 	MinHTLCOut lnwire.MilliSatoshi
+	AssetMinHTLCOut omnicore.Amount
 
-	//// MaxHTLC is the largest HTLC that is to be forwarded.
-	//MaxHTLC lnwire.MilliSatoshi
+	// MaxHTLC is the largest HTLC that is to be forwarded.
+	MaxHTLC lnwire.MilliSatoshi
+	AssetMaxHTLC omnicore.Amount
 
 	// BaseFee is the base fee, expressed in milli-satoshi that must be
 	// paid for each incoming HTLC. This field, combined with FeeRate is
@@ -87,7 +94,22 @@ type ForwardingPolicyCfg struct {
 	// paid for each incoming HTLC. This field combined with BaseFee is
 	// used to compute the required fee for a given HTLC.
 	FeeRate lnwire.MilliSatoshi
+	AssetFeeRate omnicore.Amount
+
+	// TimeLockDelta is the absolute time-lock value, expressed in blocks,
+	// that will be subtracted from an incoming HTLC's timelock value to
+	// create the time-lock value for the forwarded outgoing HTLC. The
+	// following constraint MUST hold for an HTLC to be forwarded:
+	//
+	//  * incomingHtlc.timeLock - timeLockDelta = fwdInfo.OutgoingCTLV
+	//
+	//    where fwdInfo is the forwarding information extracted from the
+	//    per-hop payload of the incoming HTLC's onion packet.
+	TimeLockDelta uint32
+
+	// TODO(roasbeef): add fee module inside of switch
 }
+
 // ForwardingPolicy describes the set of constraints that a given ChannelLink
 // is to adhere to when forwarding HTLC's. For each incoming HTLC, this set of
 // constraints will be consulted in order to ensure that adequate fees are
@@ -96,26 +118,23 @@ type ForwardingPolicyCfg struct {
 // the error possibly carrying along a ChannelUpdate message that includes the
 // latest policy.
 type ForwardingPolicy struct {
-	/*obd udpate wxf
-	default config
-	*/
-	Cfg ForwardingPolicyCfg
 
 	// MinHTLC is the smallest HTLC that is to be forwarded.
-	MinHTLCOut uint64
+	MinHTLCOut lnwire.UnitPrec11
 
 	// MaxHTLC is the largest HTLC that is to be forwarded.
-	MaxHTLC uint64
+	MaxHTLC lnwire.UnitPrec11
 
 	// BaseFee is the base fee, expressed in milli-satoshi that must be
 	// paid for each incoming HTLC. This field, combined with FeeRate is
 	// used to compute the required fee for a given HTLC.
-	BaseFee uint64
+	BaseFee lnwire.MilliSatoshi
 
 	// FeeRate is the fee rate, expressed in milli-satoshi that must be
 	// paid for each incoming HTLC. This field combined with BaseFee is
 	// used to compute the required fee for a given HTLC.
-	FeeRate uint64
+	//For asset , it is 1/10000
+	FeeRate lnwire.UnitPrec11
 
 	// TimeLockDelta is the absolute time-lock value, expressed in blocks,
 	// that will be subtracted from an incoming HTLC's timelock value to
@@ -139,9 +158,9 @@ type ForwardingPolicy struct {
 // TODO(roasbeef): also add in current available channel bandwidth, inverse
 // func
 func ExpectedFee(f ForwardingPolicy,
-	htlcAmt uint64) uint64 {
+	htlcAmt lnwire.UnitPrec11) lnwire.UnitPrec11 {
 
-	return uint64(f.BaseFee) + (uint64(htlcAmt)*uint64(f.FeeRate))/1000000
+	return lnwire.UnitPrec11(f.BaseFee) + (htlcAmt*f.FeeRate)/1000000
 }
 
 // ChannelLinkConfig defines the configuration for the channel link. ALL
@@ -2228,7 +2247,7 @@ func (l *channelLink) ChanID() lnwire.ChannelID {
 // can accept an HTLC.
 //
 // NOTE: Part of the ChannelLink interface.
-func (l *channelLink) Bandwidth() uint64 {
+func (l *channelLink) Bandwidth() lnwire.UnitPrec11  {
 	// Get the balance available on the channel for new HTLCs. This takes
 	// the channel reserve into account so HTLCs up to this value won't
 	// violate it.
@@ -2342,7 +2361,7 @@ func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) CheckHtlcForward(payHash [32]byte,
-	incomingHtlcAmt, amtToForward uint64,
+	incomingHtlcAmt, amtToForward lnwire.UnitPrec11,
 	incomingTimeout, outgoingTimeout uint32,
 	heightNow uint32) *LinkError {
 
@@ -2417,7 +2436,7 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 // the violation. This call is intended to be used for locally initiated
 // payments for which there is no corresponding incoming htlc.
 func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
-	amt uint64, timeout uint32,
+	amt lnwire.UnitPrec11, timeout uint32,
 	heightNow uint32) *LinkError {
 
 	l.RLock()
@@ -2432,7 +2451,7 @@ func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
 // canSendHtlc checks whether the given htlc parameters satisfy
 // the channel's amount and time lock constraints.
 func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
-	payHash [32]byte, amt uint64, timeout uint32,
+	payHash [32]byte, amt lnwire.UnitPrec11, timeout uint32,
 	heightNow uint32) *LinkError {
 
 	// As our first sanity check, we'll ensure that the passed HTLC isn't

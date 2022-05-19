@@ -57,29 +57,23 @@ type CachedEdgePolicy struct {
 	*/
 	// MinHTLC is the smallest value HTLC this node will forward, expressed
 	// in millisatoshi.
-	MinHTLC uint64
+	MinHTLC lnwire.UnitPrec11
 
 	/*obd update wxf
 	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
 	*/
 	// MaxHTLC is the largest value HTLC this node will forward, expressed
 	// in millisatoshi.
-	MaxHTLC uint64
+	MaxHTLC lnwire.UnitPrec11
 	AssetId uint32
 
-	/*obd update wxf
-	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
-	*/
 	// FeeBaseMSat is the base HTLC fee that will be charged for forwarding
 	// ANY HTLC, expressed in mSAT's.
-	FeeBaseMSat uint64
+	FeeBaseMSat lnwire.MilliSatoshi
 
-	/*obd update wxf
-	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
-	*/
 	// FeeProportionalMillionths is the rate that the node will charge for
 	// HTLCs for each millionth of a satoshi forwarded.
-	FeeProportionalMillionths uint64
+	FeeProportionalMillionths lnwire.UnitPrec11
 
 	// ToNodePubKey is a function that returns the to node of a policy.
 	// Since we only ever store the inbound policy, this is always the node
@@ -99,20 +93,29 @@ type CachedEdgePolicy struct {
 // the passed active payment channel. This value is currently computed as
 // specified in BOLT07, but will likely change in the near future.
 func (c *CachedEdgePolicy) ComputeFee(
-	amt uint64) uint64{
+	amt lnwire.UnitPrec11) lnwire.UnitPrec11 {
+	//feeBase := lnwire.MilliSatoshi(0)
+	//feeRate := lnwire.MilliSatoshi(100)
+	//if c.AssetId == omnicore.BtcAssetId {}
+	feeBase := c.FeeBaseMSat
+	feeRate := c.FeeProportionalMillionths
 
-
-	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
+	return lnwire.UnitPrec11(uint64(feeBase) + uint64(amt)*uint64(feeRate)/feeRateParts)
 }
 
 // ComputeFeeFromIncoming computes the fee to forward an HTLC given the incoming
 // amount.
 func (c *CachedEdgePolicy) ComputeFeeFromIncoming(
-	incomingAmt uint64) uint64 {
+	incomingAmt lnwire.UnitPrec11) lnwire.UnitPrec11 {
+	//feeBase := lnwire.MilliSatoshi(0)
+	//feeRate := lnwire.MilliSatoshi(100)
+	//if c.AssetId == omnicore.BtcAssetId {}
+	feeRate := lnwire.MilliSatoshi(c.FeeProportionalMillionths)
+	feeBase := c.FeeBaseMSat
 
-	return incomingAmt - divideCeil(
-		feeRateParts*(incomingAmt-c.FeeBaseMSat),
-		feeRateParts+c.FeeProportionalMillionths,
+	return lnwire.UnitPrec11(incomingAmt.ToMsat() - divideCeil(
+		feeRateParts*(incomingAmt.ToMsat()-feeBase),
+		feeRateParts+feeRate),
 	)
 }
 
@@ -148,7 +151,7 @@ type DirectedChannel struct {
 	AssetId >0 the unit is btcutil.Amount, else omnicore.Amount
 	*/
 	// Capacity is the announced capacity of this channel in satoshis.
-	Capacity uint64
+	Capacity lnwire.UnitPrec8
 	AssetId uint32
 
 	// OutPolicySet is a boolean that indicates whether the node has an

@@ -38,13 +38,13 @@ type htlcPacket struct {
 
 	// incomingAmount is the value in milli-satoshis that arrived on an
 	// incoming link.
-	incomingAmount uint64
+	incomingAmount lnwire.UnitPrec11
 
 	/*
 	obd update wxf
 	*/
 	// amount is the value of the HTLC that is being created or modified.
-	amount uint64
+	amount lnwire.UnitPrec11
 	assetId uint32
 
 	// htlc lnwire message type of which depends on switch request type.

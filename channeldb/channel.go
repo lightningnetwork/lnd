@@ -312,20 +312,7 @@ func (c ChannelType) HasLeaseExpiration() bool {
 	return c&LeaseExpirationBit == LeaseExpirationBit
 }
 
-func (ccc *ChannelConstraints)LoadCfg(assetId uint32){
-
-	// get usdt value,btc/usdt ~ 30000
-	ccc.DustLimit=30* uint64(ccc.Cfg.DustLimit)
-	ccc.ChanReserve=30* uint64(ccc.Cfg.ChanReserve)
-	if assetId==omnicore.BtcAssetId{
-		ccc.DustLimit=uint64(ccc.Cfg.DustLimit)
-		ccc.ChanReserve=uint64(ccc.Cfg.ChanReserve)
-	}
-	ccc.MaxPendingAmount=lnwire.MstatCfgToI64(assetId,ccc.Cfg.MaxPendingAmount)
-	ccc.MinHTLC=lnwire.MstatCfgToI64(assetId,ccc.Cfg.MinHTLC)
-}
-
-type ChannelConstraintsCfg struct {
+type ChannelConstraints struct {
 
 	// DustLimit is the threshold (in satoshis) below which any outputs
 	// should be trimmed. When an output is trimmed, it isn't materialized
@@ -337,46 +324,19 @@ type ChannelConstraintsCfg struct {
 	// settled balance for this node CANNOT dip below the reservation
 	// amount. This acts as a defense against costless attacks when
 	// either side no longer has any skin in the game.
-	ChanReserve btcutil.Amount
+	ChanReserve lnwire.UnitPrec8
 
 	// MaxPendingAmount is the maximum pending HTLC value that the
 	// owner of these constraints can offer the remote node at a
 	// particular time.
-	MaxPendingAmount lnwire.MilliSatoshi
+	MaxPendingAmount lnwire.UnitPrec11
 
 	// MinHTLC is the minimum HTLC value that the owner of these
 	// constraints can offer the remote node. If any HTLCs below this
 	// amount are offered, then the HTLC will be rejected. This, in
 	// tandem with the dust limit allows a node to regulate the
 	// smallest HTLC that it deems economically relevant.
-	MinHTLC lnwire.MilliSatoshi
-}
-type ChannelConstraints struct {
-	Cfg ChannelConstraintsCfg
-
-	// DustLimit is the threshold (in satoshis) below which any outputs
-	// should be trimmed. When an output is trimmed, it isn't materialized
-	// as an actual output, but is instead burned to miner's fees.
-	DustLimit uint64
-
-	// ChanReserve is an absolute reservation on the channel for the
-	// owner of this set of constraints. This means that the current
-	// settled balance for this node CANNOT dip below the reservation
-	// amount. This acts as a defense against costless attacks when
-	// either side no longer has any skin in the game.
-	ChanReserve uint64
-
-	// MaxPendingAmount is the maximum pending HTLC value that the
-	// owner of these constraints can offer the remote node at a
-	// particular time.
-	MaxPendingAmount uint64
-
-	// MinHTLC is the minimum HTLC value that the owner of these
-	// constraints can offer the remote node. If any HTLCs below this
-	// amount are offered, then the HTLC will be rejected. This, in
-	// tandem with the dust limit allows a node to regulate the
-	// smallest HTLC that it deems economically relevant.
-	MinHTLC uint64
+	MinHTLC lnwire.UnitPrec11
 
 	// MaxAcceptedHtlcs is the maximum number of HTLCs that the owner of
 	// this set of constraints can offer the remote node. This allows each
@@ -627,19 +587,19 @@ func (c ChannelStatus) String() string {
 
 	return statusStr
 }
-func (ch *OpenChannel) GetMsgCapForHtlc() uint64{
+func (ch *OpenChannel) GetMsgCapForHtlc() lnwire.UnitPrec11{
 	if ch.AssetID==omnicore.BtcAssetId{
-		return uint64(ch.BtcCapacity)*1000
-	}else if ch.AssetID>1 {
-		return uint64(ch.AssetCapacity)
+		return lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(ch.BtcCapacity))
+	}else {
+		return lnwire.UnitPrec11(ch.AssetCapacity)
 	}
 	return 0
 }
-func (ch *OpenChannel) GetMsgCap() uint64{
+func (ch *OpenChannel) GetRawCap() lnwire.UnitPrec8{
 	if ch.AssetID==omnicore.BtcAssetId{
-		return uint64(ch.BtcCapacity)
+		return lnwire.UnitPrec8(ch.BtcCapacity)
 	}else  if ch.AssetID>omnicore.BtcAssetId{
-		return uint64(ch.AssetCapacity)
+		return lnwire.UnitPrec8(ch.AssetCapacity)
 	}
 	return 0
 }

@@ -3,6 +3,7 @@ package tlv
 import (
 	"bytes"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"io"
 	"sort"
 
@@ -120,6 +121,15 @@ func MakePrimitiveRecord(typ Type, val interface{}) Record {
 		decoder = DUint32
 
 	case *uint64:
+		staticSize = 8
+		encoder = EUint64
+		decoder = DUint64
+
+	case *lnwire.UnitPrec11:
+		staticSize = 8
+		encoder = EUint64
+		decoder = DUint64
+	case *lnwire.UnitPrec8:
 		staticSize = 8
 		encoder = EUint64
 		decoder = DUint64

@@ -21,8 +21,8 @@ type mockChannel struct {
 	id       uint64
 	//capacity btcutil.Amount
 	//balance  lnwire.MilliSatoshi
-	capacity uint64
-	balance  uint64
+	capacity lnwire.UnitPrec8
+	balance  lnwire.UnitPrec11
 	assetId uint32
 }
 
@@ -30,8 +30,7 @@ type mockChannel struct {
 // mock graph.
 type mockNode struct {
 	channels map[route.Vertex]*mockChannel
-	//baseFee  lnwire.MilliSatoshi
-	baseFee  uint64
+	baseFee  lnwire.MilliSatoshi
 	pubkey   route.Vertex
 }
 
@@ -134,7 +133,7 @@ func (m *mockGraph) addNode(node *mockNode) {
 // capacities.
 // nolint:unparam
 func (m *mockGraph) addChannel(id uint64, node1id, node2id byte,
-	capacity uint64) {
+	capacity lnwire.UnitPrec8) {
 
 	node1pubkey := createPubkey(node1id)
 	node2pubkey := createPubkey(node2id)
@@ -149,12 +148,12 @@ func (m *mockGraph) addChannel(id uint64, node1id, node2id byte,
 	m.nodes[node1pubkey].channels[node2pubkey] = &mockChannel{
 		capacity: capacity,
 		id:       id,
-		balance:  1000*capacity/2,
+		balance:  lnwire.UnitPrec11(capacity.ToMsat())/2,
 	}
 	m.nodes[node2pubkey].channels[node1pubkey] = &mockChannel{
 		capacity: capacity,
 		id:       id,
-		balance:   1000*capacity/2,
+		balance:  lnwire.UnitPrec11(capacity.ToMsat())/2,
 	}
 }
 
@@ -235,7 +234,7 @@ type htlcResult struct {
 type hop struct {
 	node     *mockNode
 	//amtToFwd lnwire.MilliSatoshi
-	amtToFwd uint64
+	amtToFwd lnwire.UnitPrec11
 	next     *hop
 }
 

@@ -166,12 +166,10 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 	todo add asset ChannelConstraints*/
 	aliceCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			Cfg: channeldb.ChannelConstraintsCfg{
-				DustLimit:        aliceDustLimit,
-				MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelBtcCapacity),
-				ChanReserve:      channelBtcCapacity / 100,
-				MinHTLC:          0,
-			},
+			DustLimit:        aliceDustLimit,
+			MaxPendingAmount:  lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(channelBtcCapacity)),
+			ChanReserve:      lnwire.UnitPrec8(channelBtcCapacity) / 100,
+			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 			CsvDelay:         uint16(csvTimeoutAlice),
 		},
@@ -191,15 +189,13 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 			PubKey: aliceKeys[4].PubKey(),
 		},
 	}
-	(&aliceCfg.ChannelConstraints).LoadCfg(testAssetId)
+	//(&aliceCfg.ChannelConstraints).LoadCfg(testAssetId)
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			Cfg: channeldb.ChannelConstraintsCfg{
-				DustLimit:        bobDustLimit,
-				MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelBtcCapacity),
-				ChanReserve:      channelBtcCapacity / 100,
-				MinHTLC:          0,
-			},
+			DustLimit:        bobDustLimit,
+			MaxPendingAmount:  lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(channelBtcCapacity)),
+			ChanReserve:       lnwire.UnitPrec8(channelBtcCapacity) / 100,
+			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 			CsvDelay:         uint16(csvTimeoutBob),
 		},
@@ -219,7 +215,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 			PubKey: bobKeys[4].PubKey(),
 		},
 	}
-	(&bobCfg.ChannelConstraints).LoadCfg(testAssetId)
+	//(&bobCfg.ChannelConstraints).LoadCfg(testAssetId)
 
 	bobRoot, err := chainhash.NewHash(bobKeys[0].Serialize())
 	if err != nil {

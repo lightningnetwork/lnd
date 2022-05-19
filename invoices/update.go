@@ -16,7 +16,7 @@ type invoiceUpdateCtx struct {
 	hash                 lntypes.Hash
 	circuitKey           channeldb.CircuitKey
 	//amtPaid              lnwire.MilliSatoshi
-	amtPaid              uint64
+	amtPaid              lnwire.UnitPrec11
 	assetId              uint32
 	expiry               uint32
 	currentHeight        int32
@@ -190,7 +190,7 @@ func updateMpp(ctx *invoiceUpdateCtx,
 
 	// Check whether total amt matches other htlcs in the set.
 	//var newSetTotal lnwire.MilliSatoshi
-	var newSetTotal uint64
+	var newSetTotal lnwire.UnitPrec11
 	for _, htlc := range htlcSet {
 		// Only consider accepted mpp htlcs. It is possible that there
 		// are htlcs registered in the invoice database that previously

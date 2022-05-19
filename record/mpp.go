@@ -3,6 +3,7 @@ package record
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"io"
 
 	"github.com/lightningnetwork/lnd/tlv"
@@ -23,12 +24,12 @@ type MPP struct {
 	*/
 	// totalMsat is the total value of the payment, potentially spread
 	// across more than one HTLC.
-	totalMsat uint64
+	totalMsat lnwire.UnitPrec11
 	assetId uint32
 }
 
 // NewMPP generates a new MPP record with the given total and payment address.
-func NewMPP(total uint64, addr [32]byte, assetId uint32) *MPP {
+func NewMPP(total lnwire.UnitPrec11, addr [32]byte, assetId uint32) *MPP {
 	return &MPP{
 		paymentAddr: addr,
 		totalMsat:   total,
@@ -42,7 +43,7 @@ func (r *MPP) PaymentAddr() [32]byte {
 }
 
 // TotalMsat returns the total value of an MPP payment in msats.
-func (r *MPP) TotalMsat() uint64 {
+func (r *MPP) TotalMsat() lnwire.UnitPrec11 {
 	return r.totalMsat
 }
 
@@ -101,7 +102,7 @@ func MPPDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 		if err := tlv.DTUint64(r, &total, buf, l-32-4); err != nil {
 			return err
 		}
-		v.totalMsat =total
+		v.totalMsat =lnwire.UnitPrec11(total)
 
 		return nil
 

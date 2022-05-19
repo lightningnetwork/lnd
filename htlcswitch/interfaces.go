@@ -26,7 +26,7 @@ type InvoiceDatabase interface {
 	// the resolution is sent on the passed in hodlChan later. The eob
 	// field passes the entire onion hop payload into the invoice registry
 	// for decoding purposes.
-	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount uint64,
+	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.UnitPrec11,
 		expiry uint32, currentHeight int32,
 		circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
 		payload invoices.Payload, assetId uint32) (invoices.HtlcResolution, error)
@@ -94,7 +94,7 @@ type ChannelUpdateHandler interface {
 	// HTLC's which have been set to the over flow queue.
 	//Bandwidth() lnwire.MilliSatoshi
 	/*obd update wxf*/
-	Bandwidth() uint64
+	Bandwidth() lnwire.UnitPrec11
 
 	// EligibleToForward returns a bool indicating if the channel is able
 	// to actively accept requests to forward HTLC's. A channel may be
@@ -108,7 +108,7 @@ type ChannelUpdateHandler interface {
 	// parameter.
 	//MayAddOutgoingHtlc(lnwire.MilliSatoshi) error
 	/*obd update wxf*/
-	MayAddOutgoingHtlc(uint64) error
+	MayAddOutgoingHtlc(lnwire.UnitPrec11) error
 
 	// ShutdownIfChannelClean shuts the link down if the channel state is
 	// clean. This can be used with dynamic commitment negotiation or coop
@@ -170,8 +170,8 @@ type ChannelLink interface {
 	// a LinkError with a valid protocol failure message should be returned
 	// in order to signal to the source of the HTLC, the policy consistency
 	// issue.
-	CheckHtlcForward(payHash [32]byte, incomingAmt uint64,
-		amtToForward uint64,
+	CheckHtlcForward(payHash [32]byte, incomingAmt lnwire.UnitPrec11,
+		amtToForward lnwire.UnitPrec11,
 		incomingTimeout, outgoingTimeout uint32,
 		heightNow uint32) *LinkError
 
@@ -180,7 +180,7 @@ type ChannelLink interface {
 	// valid protocol failure message should be returned in order to signal
 	// the violation. This call is intended to be used for locally initiated
 	// payments for which there is no corresponding incoming htlc.
-	CheckHtlcTransit(payHash [32]byte, amt uint64,
+	CheckHtlcTransit(payHash [32]byte, amt lnwire.UnitPrec11,
 		timeout uint32, heightNow uint32) *LinkError
 
 	// Stats return the statistics of channel link. Number of updates,

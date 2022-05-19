@@ -126,7 +126,7 @@ func ValidateNodeAnn(a *lnwire.NodeAnnouncement) error {
 // signed by the node's private key, and (2) that the announcement's message
 // flags and optional fields are sane.
 //func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity btcutil.Amount,
-func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity uint64,
+func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity lnwire.UnitPrec8,
 	a *lnwire.ChannelUpdate) error {
 
 	if err := validateOptionalFields(capacity, a); err != nil {
@@ -163,7 +163,7 @@ func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate,
 // validateOptionalFields validates a channel update's message flags and
 // corresponding update fields.
 //func validateOptionalFields(capacity btcutil.Amount,
-func validateOptionalFields(capacity uint64,
+func validateOptionalFields(capacity lnwire.UnitPrec8,
 	msg *lnwire.ChannelUpdate) error {
 
 	if msg.MessageFlags.HasMaxHtlc() {
@@ -177,7 +177,7 @@ func validateOptionalFields(capacity uint64,
 		// checking whether the MaxHTLC value respects the channel's
 		// capacity.
 		//capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
-		capacityMsat := capacity
+		capacityMsat := lnwire.UnitPrec11(capacity.ToMsat())
 		if capacityMsat != 0 && maxHtlc > capacityMsat {
 			return errors.Errorf("max_htlc(%v) for channel "+
 				"update greater than capacity(%v)", maxHtlc,

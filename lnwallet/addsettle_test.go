@@ -38,7 +38,7 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool) {
 	paymentHash := sha256.Sum256(paymentPreimage)
 	//htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	//htlcAssetAmt,_ := omnicore.NewAmount(1.0)
-	htlcAssetAmt:=uint64(1)
+	htlcAssetAmt:=lnwire.UnitPrec11(1)
 	htlc := &lnwire.UpdateAddHTLC{
 		PaymentHash: paymentHash,
 		Amount:      htlcAssetAmt,

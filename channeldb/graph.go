@@ -3082,7 +3082,7 @@ type ChannelEdgeInfo struct {
 	*/
 	// Capacity is the total capacity of the channel, this is determined by
 	// the value output in the outpoint that created this channel.
-	Capacity uint64
+	Capacity lnwire.UnitPrec8
 	AssetId uint32
 
 	// ExtraOpaqueData is the set of data that was appended to this
@@ -3431,30 +3431,25 @@ type ChannelEdgePolicy struct {
 	*/
 	// MinHTLC is the smallest value HTLC this node will forward, expressed
 	// in millisatoshi.
-	MinHTLC uint64
+	MinHTLC lnwire.UnitPrec11
 
 	/*obd update wxf
 	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
 	*/
 	// MaxHTLC is the largest value HTLC this node will forward, expressed
 	// in millisatoshi.
-	MaxHTLC uint64
+	MaxHTLC lnwire.UnitPrec11
 	/*obd add wxf*/
 	AssetId uint32
 
-	/*obd update wxf
-	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
-	*/
 	// FeeBaseMSat is the base HTLC fee that will be charged for forwarding
 	// ANY HTLC, expressed in mSAT's.
-	FeeBaseMSat uint64
+	//asset will be zero
+	FeeBaseMSat lnwire.MilliSatoshi
 
-	/*obd update wxf
-	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
-	*/
 	// FeeProportionalMillionths is the rate that the node will charge for
 	// HTLCs for each millionth of a satoshi forwarded.
-	FeeProportionalMillionths uint64
+	FeeProportionalMillionths lnwire.UnitPrec11
 
 	// Node is the LightningNode that this directed edge leads to. Using
 	// this pointer the channel graph can further be traversed.
@@ -3510,25 +3505,34 @@ AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
 // the passed active payment channel. This value is currently computed as
 // specified in BOLT07, but will likely change in the near future.
 func (c *ChannelEdgePolicy) ComputeFee(
-	amt uint64) uint64 {
-
-	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
+	amt lnwire.UnitPrec11) lnwire.UnitPrec11 {
+	//feeBase := lnwire.MilliSatoshi(0)
+	//feeRate := lnwire.MilliSatoshi(100)
+	//if c.AssetId == omnicore.BtcAssetId {}
+	feeRate := lnwire.MilliSatoshi(c.FeeProportionalMillionths)
+	feeBase := c.FeeBaseMSat
+	return lnwire.UnitPrec11(feeBase + (amt.ToMsat()*feeRate)/feeRateParts)
 }
 
 // divideCeil divides dividend by factor and rounds the result up.
-func divideCeil(dividend, factor uint64) uint64 {
+func divideCeil(dividend, factor lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 	return (dividend + factor - 1) / factor
 }
 
 // ComputeFeeFromIncoming computes the fee to forward an HTLC given the incoming
 // amount.
 func (c *ChannelEdgePolicy) ComputeFeeFromIncoming(
-	incomingAmt uint64) uint64 {
+	incomingAmt lnwire.UnitPrec11) lnwire.UnitPrec11 {
+	//feeBase := lnwire.MilliSatoshi(0)
+	//feeRate := lnwire.MilliSatoshi(100)
+	//if c.AssetId == omnicore.BtcAssetId {}
+	feeRate := lnwire.MilliSatoshi(c.FeeProportionalMillionths)
+	feeBase := c.FeeBaseMSat
 
-	return incomingAmt - divideCeil(
-		feeRateParts*(incomingAmt-c.FeeBaseMSat),
-		feeRateParts+c.FeeProportionalMillionths,
-	)
+	return lnwire.UnitPrec11(incomingAmt.ToMsat() - divideCeil(
+		feeRateParts*(incomingAmt.ToMsat()-feeBase),
+		feeRateParts+feeRate,
+	))
 }
 
 // FetchChannelEdgesByOutpoint attempts to lookup the two directed edges for
@@ -4840,18 +4844,18 @@ func deserializeChanEdgePolicyRaw(r io.Reader) (*ChannelEdgePolicy, error) {
 	if err := binary.Read(r, byteOrder, &n); err != nil {
 		return nil, err
 	}
-	edge.MinHTLC = (n)
+	edge.MinHTLC = lnwire.UnitPrec11(n)
 
 
 	if err := binary.Read(r, byteOrder, &n); err != nil {
 		return nil, err
 	}
-	edge.FeeBaseMSat = (n)
+	edge.FeeBaseMSat = lnwire.MilliSatoshi(n)
 
 	if err := binary.Read(r, byteOrder, &n); err != nil {
 		return nil, err
 	}
-	edge.FeeProportionalMillionths = (n)
+	edge.FeeProportionalMillionths = lnwire.UnitPrec11(n)
 
 	var pub [33]byte
 	if _, err := r.Read(pub[:]); err != nil {
@@ -4888,7 +4892,7 @@ func deserializeChanEdgePolicyRaw(r io.Reader) (*ChannelEdgePolicy, error) {
 
 		/*obd update wxf*/
 		maxBtcHtlc := byteOrder.Uint64(opq[:8])
-		edge.MaxHTLC = maxBtcHtlc
+		edge.MaxHTLC = lnwire.UnitPrec11(maxBtcHtlc)
 
 		// Exclude the parsed field from the rest of the opaque data.
 		edge.ExtraOpaqueData = opq[8:]

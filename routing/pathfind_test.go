@@ -46,7 +46,7 @@ const (
 	// can use this value to signal there is no fee limit since payments
 	// should never be larger than this.
 	//noFeeLimit = lnwire.MilliSatoshi(math.MaxUint32)
-	noFeeLimit = uint64(math.MaxUint32)
+	noFeeLimit = lnwire.UnitPrec11(math.MaxUint32)
 )
 
 var (
@@ -106,7 +106,7 @@ var (
 
 // noProbabilitySource is used in testing to return the same probability 1 for
 // all edges.
-func noProbabilitySource(route.Vertex, route.Vertex, uint64) float64 {
+func noProbabilitySource(route.Vertex, route.Vertex, lnwire.UnitPrec11) float64 {
 	return 1
 }
 
@@ -356,17 +356,13 @@ func parseTestGraph(assetId uint32,useCache bool, path string) (*testGraphInstan
 			Index: 0,
 		}
 
-		cap:=edge.Capacity*30000
-		if assetId==omnicore.BtcAssetId{
-			cap=edge.Capacity
-		}
 		// We first insert the existence of the edge between the two
 		// nodes.
 		edgeInfo := channeldb.ChannelEdgeInfo{
 			ChannelID:    edge.ChannelID,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: fundingPoint,
-			Capacity:     cap,
+			Capacity:    lnwire.UnitPrec8(edge.Capacity),
 			AssetId:     edge.AssetID,
 		}
 
@@ -377,9 +373,9 @@ func parseTestGraph(assetId uint32,useCache bool, path string) (*testGraphInstan
 
 		shortID := lnwire.NewShortChanIDFromInt(edge.ChannelID)
 
-		bw:=uint64(edgeInfo.Capacity * 1000)
+		bw:=lnwire.UnitPrec11(edgeInfo.Capacity)
 		if assetId==omnicore.BtcAssetId{
-			bw=uint64(edgeInfo.Capacity*30)
+			bw=lnwire.UnitPrec11(edgeInfo.Capacity.ToMsat())
 		}
 		links[shortID] = &mockLink{
 			assetId:edge.AssetID,
@@ -398,6 +394,7 @@ func parseTestGraph(assetId uint32,useCache bool, path string) (*testGraphInstan
 			targetNode = edgeInfo.NodeKey2Bytes
 		}
 
+		//todo set amt for asset
 		edgePolicy := &channeldb.ChannelEdgePolicy{
 			SigBytes:                  testSig.Serialize(),
 			MessageFlags:              lnwire.ChanUpdateMsgFlags(edge.MessageFlags),
@@ -406,10 +403,10 @@ func parseTestGraph(assetId uint32,useCache bool, path string) (*testGraphInstan
 			AssetId: 				   edge.AssetID,
 			LastUpdate:                testTime,
 			TimeLockDelta:             edge.Expiry,
-			MinHTLC:                   lnwire.MstatCfgToI64(assetId,lnwire.MilliSatoshi(edge.MinHTLC)),
-			MaxHTLC:                   lnwire.MstatCfgToI64(assetId,lnwire.MilliSatoshi(edge.MaxHTLC)),
-			FeeBaseMSat:               lnwire.MstatCfgToI64(assetId,lnwire.MilliSatoshi(edge.FeeBaseMsat)),
-			FeeProportionalMillionths: uint64(lnwire.MilliSatoshi(edge.FeeRate)),
+			MinHTLC:                   lnwire.UnitPrec11(lnwire.MilliSatoshi(edge.MinHTLC)),
+			MaxHTLC:                   lnwire.UnitPrec11(lnwire.MilliSatoshi(edge.MaxHTLC)),
+			FeeBaseMSat:               lnwire.MilliSatoshi(edge.FeeBaseMsat),
+			FeeProportionalMillionths: lnwire.UnitPrec11(edge.FeeRate),
 			Node: &channeldb.LightningNode{
 				Alias:       aliasForNode(targetNode),
 				PubKeyBytes: targetNode,
@@ -454,10 +451,10 @@ func parseTestGraph(assetId uint32,useCache bool, path string) (*testGraphInstan
 
 type testChannelPolicy struct {
 	Expiry      uint16
-	MinHTLC     uint64
-	MaxHTLC     uint64
-	FeeBaseMsat uint64
-	FeeRate     uint64
+	MinHTLC     lnwire.UnitPrec11
+	MaxHTLC     lnwire.UnitPrec11
+	FeeBaseMsat lnwire.MilliSatoshi
+	FeeRate     lnwire.UnitPrec11
 	LastUpdate  time.Time
 	Disabled    bool
 	Features    *lnwire.FeatureVector
@@ -468,7 +465,7 @@ type testChannelEnd struct {
 	*testChannelPolicy
 }
 
-func symmetricTestChannel(alias1, alias2 string, capacity uint64,
+func symmetricTestChannel(alias1, alias2 string, capacity lnwire.UnitPrec8,
 	policy *testChannelPolicy, chanID ...uint64) *testChannel {
 
 	// Leaving id zero will result in auto-generation of a channel id during
@@ -485,7 +482,7 @@ func symmetricTestChannel(alias1, alias2 string, capacity uint64,
 	)
 }
 
-func asymmetricTestChannel(alias1, alias2 string, capacity uint64,
+func asymmetricTestChannel(alias1, alias2 string, capacity lnwire.UnitPrec8,
 	policy1, policy2 *testChannelPolicy, id uint64) *testChannel {
 
 	return &testChannel{
@@ -506,7 +503,7 @@ type testChannel struct {
 	Node1     *testChannelEnd
 	Node2     *testChannelEnd
 	//Capacity  btcutil.Amount
-	Capacity  uint64
+	Capacity  lnwire.UnitPrec8
 	ChannelID uint64
 }
 
@@ -667,9 +664,9 @@ func createTestGraphFromChannels(assetId uint32,useCache bool, testChannels []*t
 		}
 
 
-		capacity := testChannel.Capacity
+		capacity := lnwire.UnitPrec11(testChannel.Capacity)
 		if assetId==omnicore.BtcAssetId{
-			capacity = testChannel.Capacity*1000
+			capacity = lnwire.UnitPrec11(testChannel.Capacity.ToMsat())
 		}
 		shortID := lnwire.NewShortChanIDFromInt(channelID)
 		links[shortID] = &mockLink{
@@ -728,10 +725,10 @@ func createTestGraphFromChannels(assetId uint32,useCache bool, testChannels []*t
 				ChannelID:                 channelID,
 				LastUpdate:                node1.LastUpdate,
 				TimeLockDelta:             node1.Expiry,
-				MinHTLC:                   node1.MinHTLC,
-				MaxHTLC:                   node1.MaxHTLC,
-				FeeBaseMSat:               node1.FeeBaseMsat,
-				FeeProportionalMillionths: node1.FeeRate,
+				MinHTLC:                   lnwire.UnitPrec11( node1.MinHTLC),
+				MaxHTLC:                   lnwire.UnitPrec11(node1.MaxHTLC),
+				FeeBaseMSat:               lnwire.MilliSatoshi(node1.FeeBaseMsat),
+				FeeProportionalMillionths: lnwire.UnitPrec11(node1.FeeRate),
 				Node: &channeldb.LightningNode{
 					Alias:       node2.Alias,
 					PubKeyBytes: node2Vertex,
@@ -766,10 +763,10 @@ func createTestGraphFromChannels(assetId uint32,useCache bool, testChannels []*t
 				ChannelID:                 channelID,
 				LastUpdate:                node2.LastUpdate,
 				TimeLockDelta:             node2.Expiry,
-				MinHTLC:                   node2.MinHTLC,
-				MaxHTLC:                   node2.MaxHTLC,
-				FeeBaseMSat:               node2.FeeBaseMsat,
-				FeeProportionalMillionths: node2.FeeRate,
+				MinHTLC:                   lnwire.UnitPrec11(node2.MinHTLC),
+				MaxHTLC:                   lnwire.UnitPrec11(node2.MaxHTLC),
+				FeeBaseMSat:               lnwire.MilliSatoshi(node2.FeeBaseMsat),
+				FeeProportionalMillionths: lnwire.UnitPrec11(node2.FeeRate),
 				Node: &channeldb.LightningNode{
 					Alias:       node1.Alias,
 					PubKeyBytes: node1Vertex,
@@ -940,11 +937,7 @@ func runFindLowestFeePath(t *testing.T, assetId uint32,useCache bool) {
 		finalHopCLTV   = 1
 	)
 
-	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	paymentAmt := uint64(100)
-	if assetId==omnicore.BtcAssetId{
-		paymentAmt = uint64(100*1000)
-	}
+	paymentAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(100))
 	target := ctx.keyFromAlias("target")
 	path, err := ctx.findPath(target, paymentAmt)
 	if err != nil {
@@ -983,16 +976,16 @@ func getAliasFromPubKey(pubKey route.Vertex,
 
 type expectedHop struct {
 	alias     string
-	fee       uint64
-	fwdAmount uint64
+	fee       lnwire.UnitPrec11
+	fwdAmount lnwire.UnitPrec11
 	timeLock  uint32
 }
 
 type basicGraphPathFindingTestCase struct {
 	target                string
 	paymentAmt            btcutil.Amount
-	feeLimit              uint64
-	expectedTotalAmt      uint64
+	feeLimit              lnwire.UnitPrec11
+	expectedTotalAmt      lnwire.UnitPrec11
 	expectedTotalTimeLock uint32
 	expectedHops          []expectedHop
 	expectFailureNoPath   bool
@@ -1078,11 +1071,7 @@ func testBasicGraphPathFindingCase(t *testing.T, assetId uint32, graphInstance *
 		finalHopCLTV   = 1
 	)
 
-	//paymentAmt := lnwire.NewMSatFromSatoshis(test.paymentAmt)
-	paymentAmt := uint64(test.paymentAmt)
-	if assetId==omnicore.BtcAssetId {
-		paymentAmt = uint64(test.paymentAmt * 1000)
-	}
+	paymentAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(test.paymentAmt))
 	target := graphInstance.aliasMap[test.target]
 	path, err := dbFindPath(
 		graphInstance.graph, nil, &mockBandwidthHints{},
@@ -1176,7 +1165,7 @@ func testBasicGraphPathFindingCase(t *testing.T, assetId uint32, graphInstance *
 			exitHop[:], hopData.NextAddress)
 	}
 
-	var expectedTotalFee uint64
+	var expectedTotalFee lnwire.UnitPrec11
 	for i := 0; i < expectedHopCount; i++ {
 		// We'll ensure that the amount to forward, and fees
 		// computed for each hop are correct.
@@ -1234,11 +1223,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, assetId uint32, useCache bo
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
-	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	paymentAmt := uint64(100)
-	if assetId==omnicore.BtcAssetId{
-		paymentAmt = uint64(100*1000)
-	}
+	paymentAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(100))
 
 	// In this test, we'll test that we're able to find paths through
 	// private channels when providing them as additional edges in our path
@@ -1343,9 +1328,9 @@ func TestNewRoute(t *testing.T) {
 		finalHopCLTV   = 1
 	)
 
-	createHop := func(baseFee ,
-		feeRate ,
-		bandwidth uint64,
+	createHop := func(baseFee lnwire.MilliSatoshi,
+		feeRate lnwire.UnitPrec11,
+		bandwidth  lnwire.UnitPrec11,
 		timeLockDelta uint16) *channeldb.CachedEdgePolicy {
 
 		return &channeldb.CachedEdgePolicy{
@@ -1369,7 +1354,7 @@ func TestNewRoute(t *testing.T) {
 
 		// paymentAmount is the amount that is send into the route
 		// indicated by hops.
-		paymentAmount uint64
+		paymentAmount lnwire.UnitPrec11
 
 		// destFeatures is a feature vector, that if non-nil, will
 		// overwrite the final hop's feature vector in the graph.
@@ -1379,7 +1364,7 @@ func TestNewRoute(t *testing.T) {
 
 		// expectedFees is a list of fees that every hop is expected
 		// to charge for forwarding.
-		expectedFees []uint64
+		expectedFees []lnwire.UnitPrec11
 
 		// expectedTimeLocks is a list of time lock values that every
 		// hop is expected to specify in its outgoing HTLC. The time
@@ -1390,7 +1375,7 @@ func TestNewRoute(t *testing.T) {
 		// expectedTotalAmount is the total amount that is expected to
 		// be returned from newRoute. This amount should include all
 		// the fees to be paid to intermediate hops.
-		expectedTotalAmount uint64
+		expectedTotalAmount lnwire.UnitPrec11
 
 		// expectedTotalTimeLock is the time lock that is expected to
 		// be returned from newRoute. This is the time lock that should
@@ -1417,7 +1402,7 @@ func TestNewRoute(t *testing.T) {
 			hops: []*channeldb.CachedEdgePolicy{
 				createHop(100, 1000, 1000000, 10),
 			},
-			expectedFees:          []uint64{0},
+			expectedFees:          []lnwire.UnitPrec11{0},
 			expectedTimeLocks:     []uint32{1},
 			expectedTotalAmount:   100000,
 			expectedTotalTimeLock: 1,
@@ -1431,7 +1416,7 @@ func TestNewRoute(t *testing.T) {
 				createHop(0, 1000, 1000000, 10),
 				createHop(30, 1000, 1000000, 5),
 			},
-			expectedFees:          []uint64{130, 0},
+			expectedFees:          []lnwire.UnitPrec11{130, 0},
 			expectedTimeLocks:     []uint32{1, 1},
 			expectedTotalAmount:   100130,
 			expectedTotalTimeLock: 6,
@@ -1446,7 +1431,7 @@ func TestNewRoute(t *testing.T) {
 				createHop(0, 1000, 1000000, 10),
 				createHop(30, 1000, 1000000, 5),
 			},
-			expectedFees:          []uint64{130, 0},
+			expectedFees:          []lnwire.UnitPrec11{130, 0},
 			expectedTimeLocks:     []uint32{1, 1},
 			expectedTotalAmount:   100130,
 			expectedTotalTimeLock: 6,
@@ -1463,7 +1448,7 @@ func TestNewRoute(t *testing.T) {
 				createHop(0, 1000, 1000000, 10),
 				createHop(30, 1000, 1000000, 5),
 			},
-			expectedFees:          []uint64{130, 0},
+			expectedFees:          []lnwire.UnitPrec11{130, 0},
 			expectedTimeLocks:     []uint32{1, 1},
 			expectedTotalAmount:   100130,
 			expectedTotalTimeLock: 6,
@@ -1484,7 +1469,7 @@ func TestNewRoute(t *testing.T) {
 				createHop(0, 10, 1000000, 5),
 				createHop(0, 10, 1000000, 3),
 			},
-			expectedFees:          []uint64{1, 1, 0},
+			expectedFees:          []lnwire.UnitPrec11{1, 1, 0},
 			expectedTotalAmount:   100002,
 			expectedTimeLocks:     []uint32{4, 1, 1},
 			expectedTotalTimeLock: 9,
@@ -1499,7 +1484,7 @@ func TestNewRoute(t *testing.T) {
 				createHop(0, 10000, 1000000, 5),
 				createHop(0, 10000, 1000000, 3),
 			},
-			expectedFees:          []uint64{1010, 1000, 0},
+			expectedFees:          []lnwire.UnitPrec11{1010, 1000, 0},
 			expectedTotalAmount:   102010,
 			expectedTimeLocks:     []uint32{4, 1, 1},
 			expectedTotalTimeLock: 9,
@@ -1520,7 +1505,7 @@ func TestNewRoute(t *testing.T) {
 				// Second hop charges a fixed 1000 msat.
 				createHop(1000, 0, 1000000, 3),
 			},
-			expectedFees:          []uint64{101, 1000, 0},
+			expectedFees:          []lnwire.UnitPrec11{101, 1000, 0},
 			expectedTotalAmount:   101101,
 			expectedTimeLocks:     []uint32{4, 1, 1},
 			expectedTotalTimeLock: 9,
@@ -1654,7 +1639,7 @@ func runNewRoutePathTooLong(t *testing.T, assetId uint32, useCache bool) {
 
 	// Assert that we can find 20 hop routes.
 	node20 := ctx.keyFromAlias("node-20")
-	payAmt := uint64(100001)
+	payAmt := lnwire.UnitPrec11(100001)
 	_, err := ctx.findPath(node20, payAmt)
 	if err != nil {
 		t.Fatalf("unexpected pathfinding failure: %v", err)
@@ -2017,7 +2002,7 @@ func runPathInsufficientCapacity(t *testing.T,assetId uint32,  useCache bool) {
 	target := graph.aliasMap["sophon"]
 
 	//payAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	payAmt := uint64(btcutil.SatoshiPerBitcoin*1000)
+	payAmt := lnwire.UnitPrec11(btcutil.SatoshiPerBitcoin*1000)
 	_, err = dbFindPath(
 		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
@@ -2046,7 +2031,7 @@ func runRouteFailMinHTLC(t *testing.T,assetId uint32,  useCache bool) {
 	// Goku. However, the min HTLC of Son Goku is 1k SAT, as a result, this
 	// attempt should fail.
 	target := graph.aliasMap["songoku"]
-	payAmt := uint64(10)
+	payAmt := lnwire.UnitPrec11(10)
 	_, err = dbFindPath(
 		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
@@ -2092,7 +2077,7 @@ func runRouteFailMaxHTLC(t *testing.T,assetId uint32,  useCache bool) {
 	// First, attempt to send a payment greater than the max HTLC we are
 	// about to set, which should succeed.
 	target := ctx.keyFromAlias("target")
-	payAmt := uint64(100001)
+	payAmt := lnwire.UnitPrec11(100001)
 	_, err := ctx.findPath(target, payAmt)
 	if err != nil {
 		t.Fatalf("graph should've been able to support payment: %v", err)
@@ -2139,8 +2124,7 @@ func runRouteFailDisabledEdge(t *testing.T,assetId uint32,  useCache bool) {
 	// First, we'll try to route from roasbeef -> sophon. This should
 	// succeed without issue, and return a single path via phamnuwen
 	target := graph.aliasMap["sophon"]
-	//payAmt := lnwire.NewMSatFromSatoshis(105000)
-	payAmt := uint64(105000*1000)
+	payAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(105000))
 	_, err = dbFindPath(
 		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
@@ -2220,7 +2204,7 @@ func runPathSourceEdgesBandwidth(t *testing.T,assetId uint32,  useCache bool) {
 	// cheapest path.
 	target := graph.aliasMap["sophon"]
 	//payAmt := lnwire.NewMSatFromSatoshis(50000)
-	payAmt := uint64(50000*1000)
+	payAmt := lnwire.UnitPrec11(50000*1000)
 	path, err := dbFindPath(
 		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
@@ -2236,7 +2220,7 @@ func runPathSourceEdgesBandwidth(t *testing.T,assetId uint32,  useCache bool) {
 	roasToSongoku := uint64(12345)
 	roasToPham := uint64(999991)
 	bandwidths := &mockBandwidthHints{
-		hints: map[uint64]uint64{
+		hints: map[uint64]lnwire.UnitPrec11{
 			roasToSongoku: 0,
 			roasToPham:    0,
 		},
@@ -2335,7 +2319,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Query for a route of 4,999,999 mSAT to carol.
 	carol := ctx.aliases["C"]
 	//const amt lnwire.MilliSatoshi = 4999999
-	const amt uint64 = 4999999
+	const amt lnwire.UnitPrec11 = 4999999
 	route, err := ctx.router.FindRoute(
 		bobNode.PubKeyBytes, carol, assetId, amt, noRestrictions, nil, nil,
 		MinCLTVDelta,
@@ -2408,8 +2392,7 @@ func TestPathFindSpecExample(t *testing.T) {
 
 	// The total amount should factor in a fee of 10199 and also use a CLTV
 	// delta total of 38 (20 + 18),
-	//expectedAmt := lnwire.MilliSatoshi(5010198)
-	expectedAmt := uint64(5010198*1000)
+	expectedAmt := lnwire.UnitPrec11(lnwire.MilliSatoshi(5010198))
 	if route.TotalAmount != expectedAmt {
 		t.Fatalf("wrong amount: got %v, expected %v",
 			route.TotalAmount, expectedAmt)
@@ -2548,11 +2531,7 @@ func runRestrictOutgoingChannel(t *testing.T,assetId uint32,  useCache bool) {
 		finalHopCLTV   = 1
 	)
 
-	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	paymentAmt := uint64(100)
-	if assetId==omnicore.BtcAssetId{
-		paymentAmt = uint64(100*1000)
-	}
+	paymentAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(100))
 
 	target := ctx.keyFromAlias("target")
 	outgoingChannelID := uint64(chanSourceB1)
@@ -2613,11 +2592,7 @@ func runRestrictLastHop(t *testing.T,assetId uint32,  useCache bool) {
 	ctx := newPathFindingTestContext(t,assetId, useCache, testChannels, "source")
 	defer ctx.cleanup()
 
-	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	paymentAmt := uint64(100)
-	if assetId==omnicore.BtcAssetId{
-		paymentAmt = uint64(100*1000)
-	}
+	paymentAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(100))
 	target := ctx.keyFromAlias("target")
 	lastHop := ctx.keyFromAlias("b")
 
@@ -2688,11 +2663,7 @@ func testCltvLimit(t *testing.T,assetId uint32, useCache bool, limit uint32,
 	ctx := newPathFindingTestContext(t, assetId,useCache, testChannels, "roasbeef")
 	defer ctx.cleanup()
 
-	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	paymentAmt := uint64(  100)
-	if assetId==omnicore.BtcAssetId{
-		paymentAmt = uint64(1000 * 100)
-	}
+	paymentAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(100))
 	target := ctx.keyFromAlias("target")
 
 	ctx.restrictParams.CltvLimit = limit
@@ -2740,7 +2711,7 @@ func runProbabilityRouting(t *testing.T,assetId uint32,  useCache bool) {
 		p10, p11, p20  float64
 		minProbability float64
 		expectedChan   uint64
-		amount         uint64
+		amount         lnwire.UnitPrec11
 	}{
 		// Test two variations with probabilities that should multiply
 		// to the same total route probability. In both cases the three
@@ -2828,7 +2799,7 @@ func runProbabilityRouting(t *testing.T,assetId uint32,  useCache bool) {
 }
 
 func testProbabilityRouting(t *testing.T,assetId uint32, useCache bool,
-	paymentAmt uint64, p10, p11, p20, minProbability float64,
+	paymentAmt lnwire.UnitPrec11, p10, p11, p20, minProbability float64,
 	expectedChan uint64) {
 
 	t.Parallel()
@@ -2841,17 +2812,17 @@ func testProbabilityRouting(t *testing.T,assetId uint32, useCache bool,
 		symmetricTestChannel("roasbeef", "b", 100000, &testChannelPolicy{}),
 		symmetricTestChannel("a1", "a2", 100000, &testChannelPolicy{
 			Expiry:      144,
-			FeeBaseMsat: uint64(5*1000),
+			FeeBaseMsat: lnwire.MilliSatoshi(5*1000),
 			MinHTLC:     1,
 		}, 10),
 		symmetricTestChannel("a2", "target", 100000, &testChannelPolicy{
 			Expiry:      144,
-			FeeBaseMsat: uint64(8*1000),
+			FeeBaseMsat: lnwire.MilliSatoshi(8*1000),
 			MinHTLC:     1,
 		}, 11),
 		symmetricTestChannel("b", "target", 100000, &testChannelPolicy{
 			Expiry:      100,
-			FeeBaseMsat: uint64(25*1000),
+			FeeBaseMsat: lnwire.MilliSatoshi(25*1000),
 			MinHTLC:     1,
 		}, 20),
 	}
@@ -2865,7 +2836,7 @@ func testProbabilityRouting(t *testing.T,assetId uint32, useCache bool,
 
 	// Configure a probability source with the test parameters.
 	ctx.restrictParams.ProbabilitySource = func(fromNode, toNode route.Vertex,
-		amt uint64) float64 {
+		amt lnwire.UnitPrec11) float64 {
 
 		if amt == 0 {
 			t.Fatal("expected non-zero amount")
@@ -2927,12 +2898,12 @@ func runEqualCostRouteSelection(t *testing.T,assetId uint32,  useCache bool) {
 		symmetricTestChannel("source", "b", 100000, &testChannelPolicy{}),
 		symmetricTestChannel("a", "target", 100000, &testChannelPolicy{
 			Expiry:      144,
-			FeeBaseMsat: uint64(6*1000),
+			FeeBaseMsat: lnwire.MilliSatoshi(6*1000),
 			MinHTLC:     1,
 		}, 1),
 		symmetricTestChannel("b", "target", 100000, &testChannelPolicy{
 			Expiry:      100,
-			FeeBaseMsat: uint64(8*1000),
+			FeeBaseMsat: lnwire.MilliSatoshi(8*1000),
 			MinHTLC:     1,
 		}, 2),
 	}
@@ -2942,15 +2913,11 @@ func runEqualCostRouteSelection(t *testing.T,assetId uint32,  useCache bool) {
 
 	alias := ctx.testGraphInstance.aliasMap
 
-	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	paymentAmt := uint64(100)
-	if assetId==omnicore.BtcAssetId{
-		paymentAmt= uint64(100*1000)
-	}
+	paymentAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(100))
 	target := ctx.testGraphInstance.aliasMap["target"]
 
 	ctx.restrictParams.ProbabilitySource = func(fromNode, toNode route.Vertex,
-		amt uint64) float64 {
+		amt lnwire.UnitPrec11) float64 {
 
 		switch {
 		case fromNode == alias["source"] && toNode == alias["a"]:
@@ -3018,11 +2985,7 @@ func runNoCycle(t *testing.T,assetId uint32,  useCache bool) {
 		finalHopCLTV   = 1
 	)
 
-	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	paymentAmt := uint64(100)
-	if assetId==1{
-		paymentAmt=100*1000
-	}
+	paymentAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(100))
 	target := ctx.keyFromAlias("target")
 
 	// Find the best path given the restriction to only use channel 2 as the
@@ -3074,11 +3037,7 @@ func runRouteToSelf(t *testing.T,assetId uint32,  useCache bool) {
 	ctx := newPathFindingTestContext(t,assetId, useCache, testChannels, "source")
 	defer ctx.cleanup()
 
-	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	paymentAmt := uint64(100)
-	if assetId==omnicore.BtcAssetId{
-		paymentAmt=paymentAmt*1000
-	}
+	paymentAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(100))
 	target := ctx.source
 
 	// Find the best path to self. We expect this to be source->a->source,
@@ -3159,7 +3118,7 @@ func (c *pathFindingTestContext) cleanup() {
 }
 
 func (c *pathFindingTestContext) findPath(target route.Vertex,
-	amt uint64) ([]*channeldb.CachedEdgePolicy,
+	amt lnwire.UnitPrec11) ([]*channeldb.CachedEdgePolicy,
 	error) {
 
 	return dbFindPath(
@@ -3190,7 +3149,7 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 	additionalEdges map[route.Vertex][]*channeldb.CachedEdgePolicy,
 	bandwidthHints bandwidthHints,
 	r *RestrictParams, cfg *PathFindingConfig,
-	source, target route.Vertex, amt uint64,
+	source, target route.Vertex, amt lnwire.UnitPrec11,
 	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
 
 	sourceNode, err := graph.SourceNode()

@@ -43,7 +43,7 @@ const (
 /*obd update wxf*/
 type pathFinder = func(g *graphParams, r *RestrictParams,
 	cfg *PathFindingConfig, source, target route.Vertex,
-	assetId uint32, amt uint64,finalHtlcExpiry int32) (
+	assetId uint32, amt lnwire.UnitPrec11,finalHtlcExpiry int32) (
 	[]*channeldb.CachedEdgePolicy, error)
 
 var (
@@ -89,8 +89,8 @@ type finalHopParams struct {
 	/*obd update wxf
 	AssetId >0 amt and totalAmt's unit is lnwire.MilliSatoshi, else omnicore.Amount
 	*/
-	amt         uint64
-	totalAmt    uint64
+	amt         lnwire.UnitPrec11
+	totalAmt    lnwire.UnitPrec11
 	cltvDelta   uint16
 	records     record.CustomSet
 	paymentAddr *[32]byte
@@ -122,7 +122,7 @@ func newRoute(sourceVertex route.Vertex,
 		// the *next* hop. Since we're going to be walking the route
 		// backwards below, this next hop gets closer and closer to the
 		// sender of the payment.
-		nextIncomingAmount uint64
+		nextIncomingAmount lnwire.UnitPrec11
 	)
 
 	pathLength := len(pathEdges)
@@ -137,8 +137,8 @@ func newRoute(sourceVertex route.Vertex,
 		// contributions from the preceding hops back to the sender as
 		// we compute the route in reverse.
 		var (
-			amtToForward     uint64
-			fee              uint64
+			amtToForward     lnwire.UnitPrec11
+			fee              lnwire.UnitPrec11
 			outgoingTimeLock uint32
 			tlvPayload       bool
 			customRecords    record.CustomSet
@@ -269,7 +269,7 @@ func newRoute(sourceVertex route.Vertex,
 //func edgeWeight(lockedAmt lnwire.MilliSatoshi, fee lnwire.MilliSatoshi,
 //	timeLockDelta uint16) int64 {
 /*obd update wxf*/
-	func edgeWeight(lockedAmt, fee uint64, timeLockDelta uint16) int64 {
+	func edgeWeight(lockedAmt, fee lnwire.UnitPrec11, timeLockDelta uint16) int64 {
 	// timeLockPenalty is the penalty for the time lock delta of this channel.
 	// It is controlled by RiskFactorBillionths and scales proportional
 	// to the amount that will pass through channel. Rationale is that it if
@@ -309,14 +309,14 @@ type RestrictParams struct {
 	//	lnwire.MilliSatoshi) float64
 	/*obd update wxf*/
 	ProbabilitySource func(route.Vertex, route.Vertex,
-		uint64) float64
+		lnwire.UnitPrec11) float64
 
 	// FeeLimit is a maximum fee amount allowed to be used on the path from
 	// the source to the target.
 	//FeeLimit lnwire.MilliSatoshi
 
 	/*obd update wxf*/
-	FeeLimit uint64
+	FeeLimit lnwire.UnitPrec11
 
 	// OutgoingChannelIDs is the list of channels that are allowed for the
 	// first hop. If nil, any channel may be used.
@@ -370,9 +370,9 @@ type PathFindingConfig struct {
 // available balance.
 func getOutgoingBalance(assetId uint32,node route.Vertex, outgoingChans map[uint64]struct{},
 	bandwidthHints bandwidthHints,
-	g routingGraph) (uint64, uint64, error) {
+	g routingGraph) (lnwire.UnitPrec11, lnwire.UnitPrec11, error) {
 
-	var max, total uint64
+	var max, total lnwire.UnitPrec11
 	cb := func(channel *channeldb.DirectedChannel) error {
 		if !channel.OutPolicySet {
 			return nil
@@ -398,9 +398,9 @@ func getOutgoingBalance(assetId uint32,node route.Vertex, outgoingChans map[uint
 			/*obd update wxf*/
 			//bandwidth = lnwire.NewMSatFromSatoshis(channel.Capacity)
 			if channel.AssetId==omnicore.BtcAssetId{
-				bandwidth = channel.Capacity*1000
+				bandwidth = lnwire.UnitPrec11(channel.Capacity.ToMsat())
 			}else{
-				bandwidth = channel.Capacity
+				bandwidth = lnwire.UnitPrec11(channel.Capacity)
 			}
 
 		}
@@ -437,7 +437,7 @@ func getOutgoingBalance(assetId uint32,node route.Vertex, outgoingChans map[uint
 //	source, target route.Vertex, amt lnwire.MilliSatoshi,
 //	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
-	source, target route.Vertex, assetId uint32, amt uint64,
+	source, target route.Vertex, assetId uint32, amt lnwire.UnitPrec11,
 	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
 
 	// Pathfinding can be a significant portion of the total payment
@@ -647,7 +647,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		//var fee lnwire.MilliSatoshi
 
 		/*obd update wxf*/
-		var fee uint64
+		var fee lnwire.UnitPrec11
 		var timeLockDelta uint16
 		if fromVertex != source {
 			fee = edge.ComputeFee(amountToSend)

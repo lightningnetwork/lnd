@@ -46,12 +46,12 @@ type ChannelAcceptResponse struct {
 	// Reserve is the amount that require the remote peer hold in reserve
 	// on the channel.
 	//Reserve btcutil.Amount
-	Reserve uint64
+	Reserve lnwire.UnitPrec8
 
 	// InFlightTotal is the maximum amount that we allow the remote peer to
 	// hold in outstanding htlcs.
 	//InFlightTotal lnwire.MilliSatoshi
-	InFlightTotal uint64
+	InFlightTotal lnwire.UnitPrec11
 
 	// HtlcLimit is the maximum number of htlcs that we allow the remote
 	// peer to offer us.
@@ -59,7 +59,7 @@ type ChannelAcceptResponse struct {
 
 	// MinHtlcIn is the minimum incoming htlc value allowed on the channel.
 	//MinHtlcIn lnwire.MilliSatoshi
-	MinHtlcIn uint64
+	MinHtlcIn lnwire.UnitPrec11
 
 	// MinAcceptDepth is the minimum depth that the initiator of the
 	// channel should wait before considering the channel open.
@@ -73,8 +73,8 @@ type ChannelAcceptResponse struct {
 // error.
 func NewChannelAcceptResponse(accept bool, acceptErr error,
 	upfrontShutdown lnwire.DeliveryAddress, csvDelay, htlcLimit,
-	minDepth uint16, reserve uint64, inFlight,
-	minHtlcIn uint64) *ChannelAcceptResponse {
+	minDepth uint16, reserve lnwire.UnitPrec8, inFlight,
+	minHtlcIn lnwire.UnitPrec11) *ChannelAcceptResponse {
 
 	resp := &ChannelAcceptResponse{
 		UpfrontShutdown: upfrontShutdown,

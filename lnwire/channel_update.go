@@ -100,7 +100,7 @@ type ChannelUpdate struct {
 	TimeLockDelta uint16
 
 	// HtlcMinimumMsat is the minimum HTLC value which will be accepted.
-	HtlcMinimumMsat uint64
+	HtlcMinimumMsat UnitPrec11
 
 	// BaseFee is the base fee that must be used for incoming HTLC's to
 	// this particular channel. This value will be tacked onto the required
@@ -109,12 +109,12 @@ type ChannelUpdate struct {
 
 	// FeeRate is the fee rate that will be charged per millionth of a
 	// satoshi.
-	FeeRate uint32
+	FeeRate UnitPrec11
 
 	// HtlcMaximumMsat is the maximum HTLC value which will be accepted.
 	//HtlcMaximumMsat MilliSatoshi
 	/*obd update wxf*/
-	HtlcMaximumMsat uint64
+	HtlcMaximumMsat UnitPrec11
 	AssetId uint32
 
 	// ExtraData is the set of data that was appended to this message to
@@ -192,7 +192,7 @@ func (a *ChannelUpdate) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	if err := WriteUint64(w, a.HtlcMinimumMsat); err != nil {
+	if err := WriteUint64(w, uint64(a.HtlcMinimumMsat)); err != nil {
 		return err
 	}
 	if err := WriteUint32(w, a.AssetId); err != nil {
@@ -203,14 +203,14 @@ func (a *ChannelUpdate) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	if err := WriteUint32(w, a.FeeRate); err != nil {
+	if err := WriteUint64(w, uint64(a.FeeRate)); err != nil {
 		return err
 	}
 
 	// Now append optional fields if they are set. Currently, the only
 	// optional field is max HTLC.
 	if a.MessageFlags.HasMaxHtlc() {
-		err := WriteUint64(w, a.HtlcMaximumMsat)
+		err := WriteUint64(w, uint64(a.HtlcMaximumMsat))
 		if err != nil {
 			return err
 		}
@@ -257,7 +257,7 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 		return nil, err
 	}
 
-	if err := WriteUint64(buf, a.HtlcMinimumMsat); err != nil {
+	if err := WriteUint64(buf, uint64(a.HtlcMinimumMsat)); err != nil {
 		return nil, err
 	}
 	if err := WriteUint32(buf, a.AssetId); err != nil {
@@ -268,14 +268,14 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 		return nil, err
 	}
 
-	if err := WriteUint32(buf, a.FeeRate); err != nil {
+	if err := WriteUint64(buf, uint64(a.FeeRate)); err != nil {
 		return nil, err
 	}
 
 	// Now append optional fields if they are set. Currently, the only
 	// optional field is max HTLC.
 	if a.MessageFlags.HasMaxHtlc() {
-		err := WriteUint64(buf, a.HtlcMaximumMsat)
+		err := WriteUint64(buf, uint64(a.HtlcMaximumMsat))
 		if err != nil {
 			return nil, err
 		}

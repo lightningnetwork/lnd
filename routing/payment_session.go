@@ -137,7 +137,7 @@ type PaymentSession interface {
 	//
 	// A noRouteError is returned if a non-critical error is encountered
 	// during path finding.
-	RequestRoute(maxAmt, feeLimit uint64,
+	RequestRoute(maxAmt, feeLimit lnwire.UnitPrec11,
 		activeShards, height uint32) (*route.Route, error)
 
 	// UpdateAdditionalEdge takes an additional channel edge policy
@@ -186,7 +186,7 @@ type paymentSession struct {
 	// specified in the payment is one, under no circumstances splitting
 	// will happen and this value remains unused.
 	/*obd update wxf*/
-	minShardAmt uint64
+	minShardAmt lnwire.UnitPrec11
 
 	// log is a payment session-specific logger.
 	log btclog.Logger
@@ -214,7 +214,7 @@ func newPaymentSession(p *LightningPayment,
 		getRoutingGraph:   getRoutingGraph,
 		pathFindingConfig: pathFindingConfig,
 		missionControl:    missionControl,
-		minShardAmt:       getAmtValue(DefaultShardMinAmt,p.AssetId),
+		minShardAmt:      lnwire.UnitPrec11(DefaultShardMinAmt),
 		log:               build.NewPrefixLog(logPrefix, log),
 	}, nil
 }
@@ -236,7 +236,7 @@ func getAmtValue(msat lnwire.MilliSatoshi,assetId uint32) uint64{
 // NOTE: This function is safe for concurrent access.
 // NOTE: Part of the PaymentSession interface.
 /*obd udpate wxf*/
-func (p *paymentSession) RequestRoute(maxAmt, feeLimit uint64,
+func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.UnitPrec11,
 	activeShards, height uint32) (*route.Route, error) {
 
 	if p.empty {
@@ -425,8 +425,8 @@ func (p *paymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate,
 
 	// Update channel policy for the additional edge.
 	policy.TimeLockDelta = msg.TimeLockDelta
-	policy.FeeBaseMSat = uint64(msg.BaseFee)
-	policy.FeeProportionalMillionths = uint64(msg.FeeRate)
+	policy.FeeBaseMSat = lnwire.MilliSatoshi(msg.BaseFee)
+	policy.FeeProportionalMillionths = msg.FeeRate
 
 	log.Debugf("New private channel update applied: %v",
 		newLogClosure(func() string { return spew.Sdump(msg) }))

@@ -261,13 +261,16 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	// see the first route.
 	target := ctx.aliases["sophon"]
 	//paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	paymentAmt :=lnwire.UnitPrec11( lnwire.NewMSatFromSatoshis(100))
+	feeLimit:=lnwire.UnitPrec11( lnwire.NewMSatFromSatoshis(10))
 
-	paymentAmt := uint64(100)*30000
-	feeLimit:=uint64( 10)*30000
-	if assetId==omnicore.BtcAssetId{
-		paymentAmt=1000*uint64( 100)
-		feeLimit=1000*uint64( 10)
-	}
+	//paymentAmt := uint64(100)*30000
+	//feeLimit:=uint64( 10)*30000
+	//if assetId==omnicore.BtcAssetId{
+	//	paymentAmt=1000*uint64( 100)
+	//	feeLimit=1000*uint64( 10)
+	//}
+
 	restrictions := &RestrictParams{
 		FeeLimit:          feeLimit,
 		ProbabilitySource: noProbabilitySource,
@@ -312,7 +315,7 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
 	var payHash lntypes.Hash
-	paymentAmt := getPayValue(lnwire.NewMSatFromSatoshis(1000))
+	paymentAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(1000))
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
 		Amount:      paymentAmt,
@@ -378,12 +381,12 @@ func TestChannelUpdateValidation(t *testing.T) {
 	t.Parallel()
 	assetId:=1
 	// Setup a three node network.
-	chanCapSat := uint64(100000)
-	feeRate := uint64(400)
+	chanCapSat := lnwire.UnitPrec8(100000)
+	feeRate := lnwire.UnitPrec11(400)
 
-	maxHtlc:=chanCapSat
+	maxHtlc:=lnwire.UnitPrec11(chanCapSat)
 	if assetId==omnicore.BtcAssetId{
-		maxHtlc=maxHtlc*1000
+		maxHtlc=lnwire.UnitPrec11(chanCapSat.ToMsat())
 	}
 	testChannels := []*testChannel{
 		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
@@ -438,7 +441,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 		},
 	}
 
-	ramt:=uint64(10)
+	ramt:=lnwire.UnitPrec11(10)
 	if assetId==omnicore.BtcAssetId{
 		ramt=10*1000
 	}
@@ -534,7 +537,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to sophon for 1000 satoshis.
 	var payHash lntypes.Hash
-	amt := getPayValue(lnwire.NewMSatFromSatoshis(1000))
+	amt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(1000))
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
 		Amount:      amt,
@@ -565,7 +568,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 		HtlcMinimumMsat: edgeUpdateToFail.MinHTLC,
 		HtlcMaximumMsat: edgeUpdateToFail.MaxHTLC,
 		BaseFee:         uint32(edgeUpdateToFail.FeeBaseMSat),
-		FeeRate:         uint32(edgeUpdateToFail.FeeProportionalMillionths),
+		FeeRate:         edgeUpdateToFail.FeeProportionalMillionths,
 	}
 
 	signErrChanUpdate(t, ctx.privKeys["songoku"], &errChanUpdate)
@@ -642,15 +645,12 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	var (
 		payHash          lntypes.Hash
 		preImage         [32]byte
-		amt              = uint64(1)
+		amt              = lnwire.UnitPrec11(1)
 		privateChannelID = uint64(55555)
 		feeBaseMSat      = uint32(15)
 		expiryDelta      = uint16(32)
 		sgNode           = ctx.aliases["songoku"]
 	)
-	if assetId==omnicore.BtcAssetId{
-		amt*=1000
-	}
 	sgNodeID, err := btcec.ParsePubKey(sgNode[:], btcec.S256())
 	require.NoError(t, err)
 
@@ -779,12 +779,12 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 		payHash          lntypes.Hash
 		preImage         [32]byte
 		//amt              = lnwire.NewMSatFromSatoshis(1000)
-		amt              = uint64(1)
+		amt              = lnwire.UnitPrec11(1)
 		privateChannelID = uint64(55555)
 		feeBaseMSat      = uint32(15)
 		expiryDelta      = uint16(32)
 		sgNode           = ctx.aliases["songoku"]
-		feeLimit         = uint64(500000)
+		feeLimit         = lnwire.UnitPrec11(500000)
 	)
 	if assetId==omnicore.BtcAssetId{
 		amt*=1000
@@ -899,7 +899,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to sophon for 1k satoshis.
 	var payHash lntypes.Hash
-	amt := getPayValue(lnwire.NewMSatFromSatoshis(1000))
+	amt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(1000))
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
 		Amount:      amt,
@@ -930,7 +930,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 		HtlcMinimumMsat: edgeUpdateToFail.MinHTLC,
 		HtlcMaximumMsat: edgeUpdateToFail.MaxHTLC,
 		BaseFee:         uint32(edgeUpdateToFail.FeeBaseMSat),
-		FeeRate:         uint32(edgeUpdateToFail.FeeProportionalMillionths),
+		FeeRate:         edgeUpdateToFail.FeeProportionalMillionths,
 	}
 
 	// We'll now modify the SendToSwitch method to return an error for the
@@ -1025,10 +1025,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
 	var payHash lntypes.Hash
 	//paymentAmt := lnwire.NewMSatFromSatoshis(1000)
-	paymentAmt := uint64(1)
-	if assetId==omnicore.BtcAssetId{
-		paymentAmt=1000
-	}
+	paymentAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(1000))
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
 		Amount:      paymentAmt,
@@ -1552,7 +1549,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 
 	// We should now be able to find a route to node 2.
-	paymentAmt := getPayValue(lnwire.NewMSatFromSatoshis(100))
+	paymentAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(100))
 	targetNode := priv2.PubKey()
 	var targetPubKeyBytes route.Vertex
 	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
@@ -2487,7 +2484,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
-	amt := getPayValue(lnwire.MilliSatoshi(100))
+	amt := lnwire.UnitPrec11(lnwire.MilliSatoshi(100))
 
 	target := ctx.aliases["luoji"]
 
@@ -2768,10 +2765,10 @@ func TestUnknownErrorSource(t *testing.T) {
 
 	// Setup a network. It contains two paths to c: a->b->c and an
 	// alternative a->d->c.
-	chanCapSat := uint64(100000)
-	mHtlc:=chanCapSat
+	chanCapSat := lnwire.UnitPrec8(100000)
+	mHtlc:=lnwire.UnitPrec11( chanCapSat)
 	if assetId==omnicore.BtcAssetId{
-		mHtlc=mHtlc*1000
+		mHtlc=lnwire.UnitPrec11(mHtlc.ToMsat())
 	}
 	testChannels := []*testChannel{
 		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
@@ -2814,9 +2811,9 @@ func TestUnknownErrorSource(t *testing.T) {
 	)
 	defer cleanUp()
 
-	pAmt:=uint64( 1000)
+	pAmt:=lnwire.UnitPrec11( 1000)
 	if assetId==omnicore.BtcAssetId{
-		pAmt=pAmt*1000
+		pAmt=lnwire.UnitPrec11(1000*1000)
 	}
 	// Create a payment to node c.
 	var payHash lntypes.Hash
@@ -2934,10 +2931,10 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	t.Parallel()
 
 	// Setup a three node network.
-	chanCapSat := uint64(100000)
-	mHtlc:=chanCapSat
+	chanCapSat := lnwire.UnitPrec8(100000)
+	mHtlc:=lnwire.UnitPrec11(chanCapSat)
 	if assetId==omnicore.BtcAssetId{
-		mHtlc=mHtlc*1000
+		mHtlc=lnwire.UnitPrec11(mHtlc.ToMsat())
 	}
 	testChannels := []*testChannel{
 		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
@@ -2974,10 +2971,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	// Setup a route from source a to destination c. The route will be used
 	// in a call to SendToRoute. SendToRoute also applies channel updates,
 	// but it saves us from including RequestRoute in the test scope too.
-	var payAmt = uint64(10000)
-	if assetId==omnicore.BtcAssetId{
-		payAmt=payAmt*1000
-	}
+	var payAmt = lnwire.UnitPrec11(10000)
 	hop1 := ctx.aliases["b"]
 	hop2 := ctx.aliases["c"]
 	hops := []*route.Hop{
@@ -3070,7 +3064,7 @@ func TestSendToRouteMultiShardSend(t *testing.T) {
 	defer cleanup()
 
 	const numShards = 3
-	var payAmt = getPayValue(lnwire.MilliSatoshi(numShards * 10000))
+	var payAmt = lnwire.UnitPrec11(lnwire.MilliSatoshi(numShards * 10000))
 	node, err := createTestNode()
 	if err != nil {
 		t.Fatal(err)
@@ -3196,10 +3190,10 @@ func TestSendToRouteMaxHops(t *testing.T) {
 	t.Parallel()
 
 	// Setup a two node network.
-	chanCapSat := uint64(100000)
-	mHtlc:=chanCapSat
+	chanCapSat := lnwire.UnitPrec8(100000)
+	mHtlc:=lnwire.UnitPrec11(chanCapSat)
 	if assetId==omnicore.BtcAssetId {
-		mHtlc=mHtlc*1000
+		mHtlc=lnwire.UnitPrec11(chanCapSat.ToMsat())
 	}
 	testChannels := []*testChannel{
 		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
@@ -3224,10 +3218,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 	defer cleanUp()
 
 	// Create a 30 hop route that exceeds the maximum hop limit.
-	var payAmt = uint64(10000)
-	if assetId==omnicore.BtcAssetId{
-		payAmt=payAmt*1000
-	}
+	var payAmt = lnwire.UnitPrec11(10000)
 	hopA := ctx.aliases["a"]
 	hopB := ctx.aliases["b"]
 
@@ -3265,7 +3256,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 // TestBuildRoute tests whether correct routes are built.
 func TestBuildRoute(t *testing.T) {
 	// Setup a three node network.
-	chanCapSat := uint64(100000)
+	chanCapSat := lnwire.UnitPrec8(100000)
 	paymentAddrFeatures := lnwire.NewFeatureVector(
 		lnwire.NewRawFeatureVector(lnwire.PaymentAddrOptional),
 		lnwire.Features,
@@ -3279,13 +3270,13 @@ func TestBuildRoute(t *testing.T) {
 			Expiry:  144,
 			FeeRate: 20000,
 			MinHTLC: 5,
-			MaxHTLC: chanCapSat,
+			MaxHTLC: lnwire.UnitPrec11(chanCapSat.ToMsat()),
 		}, 1),
 		symmetricTestChannel("a", "b", chanCapSat/2, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 20000,
 			MinHTLC: 5,
-			MaxHTLC: chanCapSat/2,
+			MaxHTLC: lnwire.UnitPrec11(chanCapSat.ToMsat())/2,
 		}, 6),
 
 		// Create two channels from b to c. For building routes, we
@@ -3319,7 +3310,7 @@ func TestBuildRoute(t *testing.T) {
 			Expiry:   144,
 			FeeRate:  100000,
 			MinHTLC:  20,
-			MaxHTLC:  chanCapSat,
+			MaxHTLC:  lnwire.UnitPrec11(chanCapSat.ToMsat()),
 			Features: paymentAddrFeatures,
 		}, 4),
 	}
@@ -3372,7 +3363,7 @@ func TestBuildRoute(t *testing.T) {
 	hops := []route.Vertex{
 		ctx.aliases["b"], ctx.aliases["c"],
 	}
-	amt := getPayValue(lnwire.NewMSatFromSatoshis(100))
+	amt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(100))
 
 	// Build the route for the given amount.
 	rt, err := ctx.router.BuildRoute(assetId,
@@ -3554,10 +3545,10 @@ func TestChannelOnChainRejectionZombie(t *testing.T) {
 func createDummyTestGraph(t *testing.T) *testGraphInstance {
 	// Setup two simple channels such that we can mock sending along this
 	// route.
-	chanCapSat := uint64(100000)
-	maxHtlc:=chanCapSat
+	chanCapSat := lnwire.UnitPrec8(100000)
+	maxHtlc:=lnwire.UnitPrec11( chanCapSat)
 	if assetId==omnicore.BtcAssetId{
-		maxHtlc*=1000
+		maxHtlc=lnwire.UnitPrec11(chanCapSat.ToMsat())
 	}
 	testChannels := []*testChannel{
 		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
@@ -3580,7 +3571,7 @@ func createDummyTestGraph(t *testing.T) *testGraphInstance {
 }
 
 func createDummyLightningPayment(t *testing.T,
-	target route.Vertex, amt uint64) *LightningPayment {
+	target route.Vertex, amt lnwire.UnitPrec11) *LightningPayment {
 
 	var preImage lntypes.Preimage
 	_, err := rand.Read(preImage[:])
@@ -3655,7 +3646,7 @@ func TestSendMPPaymentSucceed(t *testing.T) {
 
 	// Mock the methods to the point where we are inside the function
 	// resumePayment.
-	paymentAmt := getPayValue(lnwire.MilliSatoshi(10000))
+	paymentAmt := lnwire.UnitPrec11(lnwire.MilliSatoshi(10000))
 	req := createDummyLightningPayment(
 		t, testGraph.aliasMap["c"], paymentAmt,
 	)
@@ -3817,7 +3808,7 @@ func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
 
 	// Mock the methods to the point where we are inside the function
 	// resumePayment.
-	paymentAmt := getPayValue(lnwire.MilliSatoshi(20000))
+	paymentAmt := lnwire.UnitPrec11(lnwire.MilliSatoshi(20000))
 	req := createDummyLightningPayment(
 		t, testGraph.aliasMap["c"], paymentAmt,
 	)
@@ -4025,7 +4016,7 @@ func TestSendMPPaymentFailed(t *testing.T) {
 
 	// Mock the methods to the point where we are inside the function
 	// resumePayment.
-	paymentAmt := getPayValue(lnwire.MilliSatoshi(10000))
+	paymentAmt := lnwire.UnitPrec11(lnwire.MilliSatoshi(10000))
 	req := createDummyLightningPayment(
 		t, testGraph.aliasMap["c"], paymentAmt,
 	)
@@ -4228,9 +4219,9 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 	// Mock the methods to the point where we are inside the function
 	// resumePayment.
 	//paymentAmt := lnwire.MilliSatoshi(10000)
-	paymentAmt := uint64(10)
+	paymentAmt := lnwire.UnitPrec11(10)
 	if assetId==omnicore.BtcAssetId{
-		paymentAmt*=1000
+		paymentAmt=lnwire.UnitPrec11(10000)
 	}
 	req := createDummyLightningPayment(
 		t, testGraph.aliasMap["c"], paymentAmt,

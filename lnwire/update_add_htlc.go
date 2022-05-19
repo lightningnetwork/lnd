@@ -30,7 +30,7 @@ type UpdateAddHTLC struct {
 	ID uint64
 
 	// Amount is the amount of millisatoshis this HTLC is worth.
-	Amount uint64
+	Amount UnitPrec11
 	/*
 	obd add wxf
 	*/
@@ -106,7 +106,7 @@ func (c *UpdateAddHTLC) Encode(w *bytes.Buffer, pver uint32) error {
 	if err := WriteUint32(w, c.AssetID); err != nil {
 		return err
 	}
-	if err := WriteUint64(w, c.Amount); err != nil {
+	if err := WriteUint64(w,uint64(c.Amount)); err != nil {
 		return err
 	}
 

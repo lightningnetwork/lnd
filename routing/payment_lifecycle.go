@@ -27,8 +27,8 @@ type paymentLifecycle struct {
 	/*obd update wxf*/
 	//totalAmount   lnwire.MilliSatoshi
 	//feeLimit      lnwire.MilliSatoshi
-	totalAmount   uint64
-	feeLimit      uint64
+	totalAmount   lnwire.UnitPrec11
+	feeLimit      lnwire.UnitPrec11
 	AssetId uint32
 	identifier    lntypes.Hash
 	paySession    PaymentSession
@@ -41,8 +41,8 @@ type paymentLifecycle struct {
 // that we use to determine what to do on each payment loop iteration.
 type paymentState struct {
 	numShardsInFlight int
-	remainingAmt      uint64
-	remainingFees     uint64
+	remainingAmt      lnwire.UnitPrec11
+	remainingFees     lnwire.UnitPrec11
 
 	// terminate indicates the payment is in its final stage and no more
 	// shards should be launched. This value is true if we have an HTLC

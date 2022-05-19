@@ -18,7 +18,7 @@ type bandwidthHints interface {
 	// will be used. If the channel is unavailable, a zero amount is
 	// returned.
 	availableChanBandwidth(channelID uint64,
-		amount uint64) (uint64, bool)
+		amount lnwire.UnitPrec11) (lnwire.UnitPrec11, bool)
 }
 
 // getLinkQuery is the function signature used to lookup a link.
@@ -71,7 +71,7 @@ func newBandwidthManager(assetId uint32, graph routingGraph, sourceNode route.Ve
 // queried is one of our local channels, so any failure to retrieve the link
 // is interpreted as the link being offline.
 func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
-	amount uint64) uint64 {
+	amount lnwire.UnitPrec11) lnwire.UnitPrec11 {
 	link, err := b.getLink(cid)
 	if err != nil {
 		// If the link isn't online, then we'll report that it has
@@ -102,7 +102,7 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 // unavailable, a zero amount is returned.
 func (b *bandwidthManager) availableChanBandwidth(channelID uint64,
 	//amount lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool) {
-	amount uint64) (uint64, bool) {
+	amount lnwire.UnitPrec11) (lnwire.UnitPrec11, bool) {
 
 	shortID := lnwire.NewShortChanIDFromInt(channelID)
 	_, ok := b.localChans[shortID]

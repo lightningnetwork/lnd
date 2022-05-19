@@ -155,7 +155,7 @@ type mockPaymentSessionOld struct {
 
 var _ PaymentSession = (*mockPaymentSessionOld)(nil)
 
-func (m *mockPaymentSessionOld) RequestRoute(_, _ uint64,
+func (m *mockPaymentSessionOld) RequestRoute(_, _ lnwire.UnitPrec11,
 	_, height uint32) (*route.Route, error) {
 
 	if m.release != nil {
@@ -618,7 +618,7 @@ func (m *mockMissionControl) ReportPaymentSuccess(paymentID uint64,
 }
 
 func (m *mockMissionControl) GetProbability(fromNode, toNode route.Vertex,
-	amt uint64) float64 {
+	amt lnwire.UnitPrec11) float64 {
 
 	args := m.Called(fromNode, toNode, amt)
 	return args.Get(0).(float64)
@@ -630,7 +630,7 @@ type mockPaymentSession struct {
 
 var _ PaymentSession = (*mockPaymentSession)(nil)
 
-func (m *mockPaymentSession) RequestRoute(maxAmt, feeLimit uint64,
+func (m *mockPaymentSession) RequestRoute(maxAmt, feeLimit lnwire.UnitPrec11,
 	activeShards, height uint32) (*route.Route, error) {
 	args := m.Called(maxAmt, feeLimit, activeShards, height)
 	return args.Get(0).(*route.Route), args.Error(1)
@@ -745,14 +745,14 @@ func (m *mockControlTower) SubscribePayment(paymentHash lntypes.Hash) (
 type mockLink struct {
 	htlcswitch.ChannelLink
 	//bandwidth         lnwire.MilliSatoshi
-	bandwidth         uint64
+	bandwidth         lnwire.UnitPrec11
 	assetId uint32
 	mayAddOutgoingErr error
 	ineligible        bool
 }
 
 // Bandwidth returns the bandwidth the mock was configured with.
-func (m *mockLink) Bandwidth() uint64 {
+func (m *mockLink) Bandwidth() lnwire.UnitPrec11 {
 	return m.bandwidth
 }
 

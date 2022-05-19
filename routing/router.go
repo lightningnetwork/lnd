@@ -228,7 +228,7 @@ type MissionController interface {
 	// payment from fromNode along edge.
 	/*obd update wxf*/
 	GetProbability(fromNode, toNode route.Vertex,
-		amt uint64) float64
+		amt lnwire.UnitPrec11) float64
 }
 
 // FeeSchema is the set fee configuration for a Lightning Node on the network.
@@ -1573,7 +1573,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		//msg.Capacity = btcutil.Amount(chanUtxo.Value)
 		/*obd update wxf*/
 		//todo asset'Capacity may err
-		msg.Capacity = uint64(chanUtxo.Value)
+		msg.Capacity = lnwire.UnitPrec8(chanUtxo.Value)
 		msg.ChannelPoint = *fundingPoint
 		if err := r.cfg.Graph.AddChannelEdge(msg, op...); err != nil {
 			return errors.Errorf("unable to add edge: %v", err)
@@ -1742,7 +1742,7 @@ type routingMsg struct {
 //	finalExpiry uint16) (*route.Route, error) {
 func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	//amt lnwire.MilliSatoshi, restrictions *RestrictParams,
-	assetId uint32, amt uint64, restrictions *RestrictParams,
+	assetId uint32, amt lnwire.UnitPrec11, restrictions *RestrictParams,
 	destCustomRecords record.CustomSet,
 	routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
 	finalExpiry uint16) (*route.Route, error) {
@@ -1891,7 +1891,7 @@ type LightningPayment struct {
 	//Amount lnwire.MilliSatoshi
 
 	/*obd update wxf*/
-	Amount uint64
+	Amount lnwire.UnitPrec11
 	AssetId uint32
 
 	// FeeLimit is the maximum fee in millisatoshis that the payment should
@@ -1900,7 +1900,7 @@ type LightningPayment struct {
 	//FeeLimit lnwire.MilliSatoshi
 
 	/*obd update wxf*/
-	FeeLimit uint64
+	FeeLimit lnwire.UnitPrec11
 
 	// CltvLimit is the maximum time lock that is allowed for attempts to
 	// complete this payment.
@@ -1978,7 +1978,7 @@ type LightningPayment struct {
 	// the payment amount is greater than it.
 	//
 	// NOTE: This field is _optional_.
-	MaxShardAmt *uint64
+	MaxShardAmt *lnwire.UnitPrec11
 }
 
 // AMPOptions houses information that must be known in order to send an AMP
@@ -2315,7 +2315,7 @@ func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route) (
 // router will call this method for every payment still in-flight according to
 // the ControlTower.
 func (r *ChannelRouter) sendPayment(
-	assetId uint32, totalAmt, feeLimit uint64, identifier lntypes.Hash,
+	assetId uint32, totalAmt, feeLimit lnwire.UnitPrec11, identifier lntypes.Hash,
 	timeout time.Duration, paySession PaymentSession,
 	shardTracker shards.ShardTracker) ([32]byte, *route.Route, error) {
 
@@ -2404,8 +2404,8 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
 		MinHTLC:                   msg.HtlcMinimumMsat,
 		MaxHTLC:                   msg.HtlcMaximumMsat,
 		AssetId:                   msg.AssetId,
-		FeeBaseMSat:               uint64(msg.BaseFee),
-		FeeProportionalMillionths: uint64(msg.FeeRate),
+		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
+		FeeProportionalMillionths: msg.FeeRate,
 	})
 	if err != nil && !IsError(err, ErrIgnored, ErrOutdated) {
 		log.Errorf("Unable to apply channel update: %v", err)
@@ -2684,7 +2684,7 @@ func (e ErrNoChannel) Error() string {
 // amount is nil, the minimum routable amount is used. To force a specific
 // outgoing channel, use the outgoingChan parameter.
 /*obd update wxf*/
-func (r *ChannelRouter) BuildRoute(assetId uint32, amt *uint64,
+func (r *ChannelRouter) BuildRoute(assetId uint32, amt *lnwire.UnitPrec11,
 	hops []route.Vertex, outgoingChan *uint64,
 	finalCltvDelta int32, payAddr *[32]byte) (*route.Route, error) {
 
@@ -2722,7 +2722,7 @@ func (r *ChannelRouter) BuildRoute(assetId uint32, amt *uint64,
 	// route.
 	edges := make([]*unifiedPolicy, len(hops))
 
-	var runningAmt uint64
+	var runningAmt lnwire.UnitPrec11
 	if useMinAmt {
 		// For minimum amount routes, aim to deliver at least 1 msat to
 		// the destination. There are nodes in the wild that have a

@@ -2,6 +2,7 @@ package routing
 
 import (
 	"container/heap"
+	"github.com/lightningnetwork/lnd/lnwire"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -24,7 +25,7 @@ type nodeWithDist struct {
 	//amountToReceive lnwire.MilliSatoshi
 
 	/*obd update wxf*/
-	amountToReceive uint64
+	amountToReceive lnwire.UnitPrec11
 
 	// incomingCltv is the expected absolute expiry height for the incoming
 	// htlc of this node. This value should already include the final cltv

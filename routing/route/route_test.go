@@ -3,6 +3,7 @@ package route
 import (
 	"bytes"
 	"encoding/hex"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -29,7 +30,7 @@ func TestRouteTotalFees(t *testing.T) {
 	}
 
 	// Make sure empty route won't be allowed in the constructor.
-	amt := uint64(1000)
+	amt := lnwire.UnitPrec11(1000)
 	_, err := NewRouteFromHops(amt, 100, Vertex{}, []*Hop{})
 	if err != ErrNoRouteHopsProvided {
 		t.Fatalf("expected ErrNoRouteHopsProvided, got %v", err)
@@ -59,7 +60,7 @@ func TestRouteTotalFees(t *testing.T) {
 	}
 
 	// Append the route with a node, making the first one take a fee.
-	fee := uint64(100)
+	fee := lnwire.UnitPrec11(100)
 	hops = append(hops, &Hop{
 		PubKeyBytes:      Vertex{},
 		ChannelID:        2,
@@ -83,7 +84,7 @@ func TestRouteTotalFees(t *testing.T) {
 }
 
 var (
-	testAmt  = uint64(1000)
+	testAmt  = lnwire.UnitPrec11(1000)
 	testAddr = [32]byte{0x01, 0x02}
 )
 
@@ -97,7 +98,7 @@ func TestMPPHop(t *testing.T) {
 		OutgoingTimeLock: 44,
 		AmtToForward:     testAmt,
 		LegacyPayload:    false,
-		MPP:              record.NewMPP(testAmt, testAddr),
+		MPP:              record.NewMPP(testAmt, testAddr,1),
 	}
 
 	// Encoding an MPP record to an intermediate hop should result in a
@@ -150,7 +151,7 @@ func TestAMPHop(t *testing.T) {
 
 	// Encoding an AMP record to a final hop w/ an MPP record should be
 	// successful.
-	hop.MPP = record.NewMPP(testAmt, testAddr)
+	hop.MPP = record.NewMPP(testAmt, testAddr,1)
 	b.Reset()
 	err = hop.PackHopPayload(&b, 0)
 	if err != nil {
@@ -179,7 +180,7 @@ func TestPayloadSize(t *testing.T) {
 			PubKeyBytes:      testPubKeyBytes,
 			AmtToForward:     1200,
 			OutgoingTimeLock: 700000,
-			MPP:              record.NewMPP(500, [32]byte{}),
+			MPP:              record.NewMPP(500, [32]byte{},1),
 			AMP:              record.NewAMP([32]byte{}, [32]byte{}, 8),
 			CustomRecords: map[uint64][]byte{
 				100000:  {1, 2, 3},

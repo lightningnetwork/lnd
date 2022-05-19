@@ -398,7 +398,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 			return nil, fmt.Errorf("unable to find channel")
 		},
-		DefaultRoutingPolicy: htlcswitch.ForwardingPolicy{
+		DefaultRoutingPolicyCfg: htlcswitch.ForwardingPolicyCfg{
 			MinHTLCOut:    5,
 			BaseFee:       100,
 			FeeRate:       1000,
@@ -409,30 +409,30 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			pushAmt lnwire.MilliSatoshi) uint16 {
 			return 3
 		},
-		RequiredRemoteDelay: func(amt btcutil.Amount) uint16 {
+		RequiredRemoteDelay: func(amt lnwire.UnitPrec8) uint16 {
 			return 4
 		},
-		RequiredRemoteChanReserve: func(chanAmt,
-			dustLimit uint64) uint64 {
+		RequiredRemoteChanReserve: func(assetId uint32, chanAmt lnwire.UnitPrec8,
+			dustLimit btcutil.Amount) lnwire.UnitPrec8 {
 
 			reserve := chanAmt / 100
-			if reserve < dustLimit {
-				reserve = dustLimit
-			}
+			//if reserve < dustLimit {
+			//	reserve = dustLimit
+			//}
 
 			return reserve
 		},
-		RequiredRemoteMaxValue: func(assetId uint32, chanAmt uint64) uint64 {
+		RequiredRemoteMaxValue: func(assetId uint32, chanAmt lnwire.UnitPrec8) lnwire.UnitPrec11 {
 			// By default, we'll allow the remote peer to fully
 			// utilize the full bandwidth of the channel, minus our
 			// required reserve.
 			if assetId==omnicore.BtcAssetId {
 				reserve := lnwire.NewMSatFromSatoshis(btcutil.Amount(chanAmt) / 100)
-				return uint64(lnwire.NewMSatFromSatoshis(btcutil.Amount(chanAmt)) - reserve)
+				return lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(btcutil.Amount(chanAmt)) - reserve)
 			}
-			return chanAmt-chanAmt / 100
+			return lnwire.UnitPrec11(chanAmt-chanAmt / 100)
 		},
-		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
+		RequiredRemoteMaxHTLCs: func(chanAmt lnwire.UnitPrec8) uint16 {
 			return uint16(input.MaxHTLCNumber / 2)
 		},
 		WatchNewChannel: func(*channeldb.OpenChannel, *btcec.PublicKey) error {
@@ -543,7 +543,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		},
 		TempChanIDSeed: oldCfg.TempChanIDSeed,
 		FindChannel:    oldCfg.FindChannel,
-		DefaultRoutingPolicy: htlcswitch.ForwardingPolicy{
+		DefaultRoutingPolicyCfg: htlcswitch.ForwardingPolicyCfg{
 			MinHTLCOut:    5,
 			BaseFee:       100,
 			FeeRate:       1000,
@@ -1006,8 +1006,8 @@ func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
 // advertised value will be checked against the other node's default min_htlc
 // value.
 func assertChannelAnnouncements(t *testing.T, assetId uint32, alice, bob *testNode,
-	capacity uint64, customMinHtlc []uint64,
-	customMaxHtlc []uint64) {
+	capacity lnwire.UnitPrec8, customMinHtlc []lnwire.UnitPrec11,
+	customMaxHtlc []lnwire.UnitPrec11) {
 	t.Helper()
 
 	// After the FundingLocked message is sent, Alice and Bob will each
@@ -1040,8 +1040,7 @@ func assertChannelAnnouncements(t *testing.T, assetId uint32, alice, bob *testNo
 				// advertise the MinHTLC value required by the
 				// _other_ node.
 				other := (j + 1) % 2
-				minHtlc :=lnwire.MstatCfgToI64(assetId, nodes[other].fundingMgr.cfg.
-					DefaultMinHtlcIn)
+				minHtlc :=nodes[other].fundingMgr.cfg.GetDefaultMinHtlc(assetId)
 
 				// We might expect a custom MinHTLC value.
 				if len(customMinHtlc) > 0 {
@@ -1054,7 +1053,7 @@ func assertChannelAnnouncements(t *testing.T, assetId uint32, alice, bob *testNo
 					minHtlc = customMinHtlc[j]
 				}
 
-				if m.HtlcMinimumMsat != uint64(minHtlc) {
+				if m.HtlcMinimumMsat != minHtlc {
 					t.Fatalf("expected ChannelUpdate to "+
 						"advertise min HTLC %v, had %v",
 						minHtlc, uint64(m.HtlcMinimumMsat))
@@ -1078,7 +1077,7 @@ func assertChannelAnnouncements(t *testing.T, assetId uint32, alice, bob *testNo
 						"be 1, was %v", m.MessageFlags)
 				}
 
-				if uint64(maxHtlc) != m.HtlcMaximumMsat {
+				if maxHtlc != m.HtlcMaximumMsat {
 					t.Fatalf("expected ChannelUpdate to "+
 						"advertise max HTLC %v, had %v",
 						maxHtlc,
@@ -1272,9 +1271,9 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	cap:=uint64(capacity)
+	cap:=lnwire.UnitPrec8(capacity)
 	if assetId>1{
-		cap=uint64(localAssetAmt)
+		cap=lnwire.UnitPrec8(localAssetAmt)
 	}
 	assertChannelAnnouncements(t,assetId, alice, bob, cap, nil, nil)
 
@@ -1333,7 +1332,7 @@ func testLocalCSVLimit(t *testing.T, aliceMaxCSV, bobRequiredCSV uint16) {
 	// Set a maximum local delay in alice's config to aliceMaxCSV and overwrite
 	// bob's required remote delay function to return bobRequiredCSV.
 	alice.fundingMgr.cfg.MaxLocalCSVDelay = aliceMaxCSV
-	bob.fundingMgr.cfg.RequiredRemoteDelay = func(_ btcutil.Amount) uint16 {
+	bob.fundingMgr.cfg.RequiredRemoteDelay = func(_ lnwire.UnitPrec8) uint16 {
 		return bobRequiredCSV
 	}
 
@@ -1586,7 +1585,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, uint64(capacity), nil, nil)
+	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, lnwire.UnitPrec8(capacity), nil, nil)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -1727,7 +1726,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 
 	/*obd update wxf
 	todo check asset cap*/
-	cap:=uint64(capacity)
+	cap:=lnwire.UnitPrec8(capacity)
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
 	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, nil, nil)
@@ -2144,7 +2143,7 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 
 	/*obd update wxf
 	todo check asset cap*/
-	cap:=uint64(capacity)
+	cap:=lnwire.UnitPrec8(capacity)
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
 	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, nil, nil)
@@ -2251,7 +2250,7 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 
 	/*obd update wxf
 	todo check asset cap*/
-	cap:=uint64(capacity)
+	cap:=lnwire.UnitPrec8(capacity)
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
 	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, nil, nil)
@@ -2356,7 +2355,7 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 
 	/*obd update wxf
 	todo check asset cap*/
-	cap:=uint64(capacity)
+	cap:=lnwire.UnitPrec8(capacity)
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
 	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, nil, nil)
@@ -2431,7 +2430,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 
 	/*obd update wxf
 	todo check asset cap*/
-	cap:=uint64(capacity)
+	cap:=lnwire.UnitPrec8(capacity)
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
 	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, nil, nil)
@@ -2548,7 +2547,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 
 	/*obd update wxf
 	todo check asset cap*/
-	cap:=uint64(capacity)
+	cap:=lnwire.UnitPrec8(capacity)
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
 	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, nil, nil)
@@ -2741,8 +2740,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	reserve := lnwire.NewMSatFromSatoshis(fundingAmt / 100)
 	/*obd update wxf
 	todo check asset*/
-	maxValueAcceptChannel := uint64(lnwire.NewMSatFromSatoshis(fundingAmt) - reserve)
-
+	maxValueAcceptChannel := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(fundingAmt) - reserve)
 	if acceptChannelResponse.MaxValueInFlight != maxValueAcceptChannel {
 		t.Fatalf("expected AcceptChannel to have MaxValueInFlight %v, got %v",
 			maxValueAcceptChannel, acceptChannelResponse.MaxValueInFlight)
@@ -2777,7 +2775,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// Helper method for checking the MinHtlc value stored for a
 	// reservation.
 	assertMinHtlc := func(resCtx *reservationWithCtx,
-		expOurMinHtlc, expTheirMinHtlc uint64) error {
+		expOurMinHtlc, expTheirMinHtlc lnwire.UnitPrec11) error {
 
 		ourMinHtlc := resCtx.reservation.OurContribution().MinHTLC
 		if ourMinHtlc != expOurMinHtlc {
@@ -2796,7 +2794,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// Helper method for checking the MaxValueInFlight stored for a
 	// reservation.
 	assertMaxHtlc := func(resCtx *reservationWithCtx,
-		expOurMaxValue, expTheirMaxValue uint64) error {
+		expOurMaxValue, expTheirMaxValue lnwire.UnitPrec11) error {
 
 		ourMaxValue :=
 			resCtx.reservation.OurContribution().MaxPendingAmount
@@ -2917,16 +2915,16 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// Alice should advertise the default MinHTLC value of
 	// 5, while bob should advertise the value minHtlc, since Alice
 	// required him to use it.
-	minHtlcArr := []uint64{5, minHtlcIn}
+	minHtlcArr := []lnwire.UnitPrec11{5, minHtlcIn}
 
 	// For maxHltc Alice should advertise the default MaxHtlc value of
 	// maxValueAcceptChannel, while bob should advertise the value
 	// maxValueInFlight since Alice required him to use it.
-	maxHtlcArr := []uint64{maxValueAcceptChannel, maxValueInFlight}
+	maxHtlcArr := []lnwire.UnitPrec11{maxValueAcceptChannel, maxValueInFlight}
 
 	/*obd update wxf
 	todo check asset cap*/
-	cap:=uint64(capacity)
+	cap:=lnwire.UnitPrec8(capacity)
 	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, minHtlcArr, maxHtlcArr)
 
 	// The funding transaction is now confirmed, wait for the

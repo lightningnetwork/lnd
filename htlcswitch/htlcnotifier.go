@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"strings"
 	"sync"
 	"time"
@@ -140,10 +141,10 @@ type HtlcInfo struct {
 	OutgoingTimeLock uint32
 
 	// IncomingAmt is the amount of the htlc on our incoming channel.
-	IncomingAmt uint64
+	IncomingAmt lnwire.UnitPrec11
 
 	// OutgoingAmt is the amount of the htlc on our outgoing channel.
-	OutgoingAmt uint64
+	OutgoingAmt lnwire.UnitPrec11
 
 	/*obd add wxf*/
 	AssetId uint32

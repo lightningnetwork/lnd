@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io/ioutil"
 	"net"
 	"os"
@@ -156,7 +157,7 @@ const (
 // DefaultLtcChannelConstraints is the default set of channel constraints that
 // are meant to be used when initially funding a Litecoin channel.
 var DefaultLtcChannelConstraints = channeldb.ChannelConstraints{
-	DustLimit:        uint64(DefaultLitecoinDustLimit),
+	DustLimit:        DefaultLitecoinDustLimit,
 	MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 }
 
@@ -190,10 +191,11 @@ type PartialChainControl struct {
 	ChainSource chain.Interface
 
 	// RoutingPolicy is the routing policy we have decided to use.
-	RoutingPolicy htlcswitch.ForwardingPolicy
+	RoutingPolicyCfg htlcswitch.ForwardingPolicyCfg
 
 	// MinHtlcIn is the minimum HTLC we will accept.
 	MinHtlcIn lnwire.MilliSatoshi
+	AssetMinHtlcIn omnicore.Amount
 
 	// ChannelConstraints is the set of default constraints that will be
 	// used for any incoming or outgoing channel reservation requests.
@@ -240,7 +242,7 @@ func GenDefaultBtcConstraints() channeldb.ChannelConstraints {
 	dustLimit := lnwallet.DustLimitForSize(input.UnknownWitnessSize)
 
 	return channeldb.ChannelConstraints{
-		DustLimit:        uint64(dustLimit),
+		DustLimit:        dustLimit,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 	}
 }
@@ -263,26 +265,24 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 
 	switch cfg.PrimaryChain() {
 	case BitcoinChain:
-		cc.RoutingPolicy = htlcswitch.ForwardingPolicy{
-			Cfg: htlcswitch.ForwardingPolicyCfg{
-				MinHTLCOut: cfg.Bitcoin.MinHTLCOut,
-				BaseFee:    cfg.Bitcoin.BaseFee,
-				FeeRate:    cfg.Bitcoin.FeeRate,
-			},
+		cc.RoutingPolicyCfg = htlcswitch.ForwardingPolicyCfg{
+			MinHTLCOut: cfg.Bitcoin.MinHTLCOut,
+			AssetMinHTLCOut: cfg.Bitcoin.AssetMinHTLCOut,
+			BaseFee:    cfg.Bitcoin.BaseFee,
+			FeeRate:    cfg.Bitcoin.FeeRate,
 			TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
 		}
 		cc.MinHtlcIn = cfg.Bitcoin.MinHTLCIn
+		cc.AssetMinHtlcIn = cfg.Bitcoin.AssetMinHTLCIn
 		cc.FeeEstimator = chainfee.NewStaticEstimator(
 			DefaultBitcoinStaticFeePerKW,
 			DefaultBitcoinStaticMinRelayFeeRate,
 		)
 	case LitecoinChain:
-		cc.RoutingPolicy = htlcswitch.ForwardingPolicy{
-			Cfg: htlcswitch.ForwardingPolicyCfg{
-				MinHTLCOut: cfg.Litecoin.MinHTLCOut,
-				BaseFee:    cfg.Litecoin.BaseFee,
-				FeeRate:    cfg.Litecoin.FeeRate,
-			},
+		cc.RoutingPolicyCfg = htlcswitch.ForwardingPolicyCfg{
+			MinHTLCOut: cfg.Litecoin.MinHTLCOut,
+			BaseFee:    cfg.Litecoin.BaseFee,
+			FeeRate:    cfg.Litecoin.FeeRate,
 			TimeLockDelta: cfg.Litecoin.TimeLockDelta,
 		}
 		cc.MinHtlcIn = cfg.Litecoin.MinHTLCIn

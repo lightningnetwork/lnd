@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"io"
 	"strconv"
 	"strings"
@@ -111,7 +112,7 @@ type Hop struct {
 	// AmtToForward is the amount that this hop will forward to the next
 	// hop. This value is less than the value that the incoming HTLC
 	// carries as a fee will be subtracted by the hop.
-	AmtToForward uint64
+	AmtToForward lnwire.UnitPrec11
 
 	// MPP encapsulates the data required for option_mpp. This field should
 	// only be set for the final hop.
@@ -298,7 +299,7 @@ type Route struct {
 	// route will need to have at least this many satoshis, otherwise the
 	// route will fail at an intermediate node due to an insufficient
 	// amount of fees.
-	TotalAmount uint64
+	TotalAmount lnwire.UnitPrec11
 	AssetId uint32
 
 	// SourcePubKey is the pubkey of the node where this route originates
@@ -325,8 +326,8 @@ func (r *Route) Copy() *Route {
 AssetId >1 the unit is lnwire.MilliSatoshi, else omnicore.Amount
 */
 // HopFee returns the fee charged by the route hop indicated by hopIndex.
-func (r *Route) HopFee(hopIndex int) uint64 {
-	var incomingAmt uint64
+func (r *Route) HopFee(hopIndex int) lnwire.UnitPrec11 {
+	var incomingAmt lnwire.UnitPrec11
 	if hopIndex == 0 {
 		incomingAmt = r.TotalAmount
 	} else {
@@ -340,7 +341,7 @@ func (r *Route) HopFee(hopIndex int) uint64 {
 // TotalFees is the sum of the fees paid at each hop within the final route. In
 // the case of a one-hop payment, this value will be zero as we don't need to
 // pay a fee to ourself.
-func (r *Route) TotalFees() uint64 {
+func (r *Route) TotalFees() lnwire.UnitPrec11 {
 	if len(r.Hops) == 0 {
 		return 0
 	}
@@ -349,7 +350,7 @@ func (r *Route) TotalFees() uint64 {
 }
 
 // ReceiverAmt is the amount received by the final hop of this route.
-func (r *Route) ReceiverAmt() uint64 {
+func (r *Route) ReceiverAmt() lnwire.UnitPrec11 {
 	if len(r.Hops) == 0 {
 		return 0
 	}
@@ -369,7 +370,7 @@ func (r *Route) FinalHop() *Hop {
 // NewRouteFromHops creates a new Route structure from the minimally required
 // information to perform the payment. It infers fee amounts and populates the
 // node, chan and prev/next hop maps.
-func NewRouteFromHops(amtToSend uint64, timeLock uint32,
+func NewRouteFromHops(amtToSend lnwire.UnitPrec11, timeLock uint32,
 	sourceVertex Vertex, hops []*Hop) (*Route, error) {
 
 	if len(hops) == 0 {

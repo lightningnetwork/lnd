@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -49,7 +50,7 @@ type ShardTracker struct {
 	paymentAddr [32]byte
 	//totalAmt    lnwire.MilliSatoshi
 	/*obd update wxf*/
-	totalAmt    uint64
+	totalAmt    lnwire.UnitPrec11
 	assetId uint32
 
 	sharer Sharer
@@ -68,7 +69,7 @@ var _ shards.ShardTracker = (*ShardTracker)(nil)
 // correctly.
 func NewShardTracker(root, setID, payAddr [32]byte,
 	//totalAmt lnwire.MilliSatoshi) *ShardTracker {
-	totalAmt uint64,assetId uint32) *ShardTracker {
+	totalAmt lnwire.UnitPrec11,assetId uint32) *ShardTracker {
 
 	// Create a new seed sharer from this root.
 	rootShare := Share(root)

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"io"
 	"sort"
 	"time"
@@ -220,7 +221,7 @@ type PaymentCreationInfo struct {
 
 	// Value is the amount we are paying.
 	//Value lnwire.MilliSatoshi
-	Value uint64
+	Value lnwire.UnitPrec11
 	AssetId uint32
 
 	// CreationTime is the time when this payment was initiated.
@@ -1023,7 +1024,7 @@ func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo, error) {
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return nil, err
 	}
-	c.Value = byteOrder.Uint64(scratch[:])
+	c.Value = lnwire.UnitPrec11(byteOrder.Uint64(scratch[:]))
 
 	creationTime, err := deserializeTime(r)
 	if err != nil {

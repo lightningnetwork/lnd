@@ -212,11 +212,11 @@ func (u updateType) String() string {
 	}
 }
 
-func (pd *PaymentDescriptor)GetMsgAmt() uint64{
-	if pd.AssetID>1{
-		return uint64(pd.AssetAmount)
+func (pd *PaymentDescriptor)GetMsgAmt() lnwire.UnitPrec11{
+	if pd.AssetID==omnicore.BtcAssetId{
+		return lnwire.UnitPrec11(pd.BtcAmount)
 	}
-	return uint64(pd.BtcAmount)
+	return lnwire.UnitPrec11(pd.AssetAmount)
 }
 func (pd *PaymentDescriptor)SetAmtFromHtlcMsg(htlc *lnwire.UpdateAddHTLC){
 	if htlc.AssetID==omnicore.BtcAssetId{
@@ -549,8 +549,7 @@ type commitment struct {
 
 	// dustLimit is the limit on the commitment transaction such that no
 	// output values should be below this amount.
-	//dustLimit btcutil.Amount
-	dustLimit uint64
+	dustLimit btcutil.Amount
 
 	// outgoingHTLCs is a slice of all the outgoing HTLC's (from our PoV)
 	// on this commitment transaction.
@@ -3547,11 +3546,11 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 		commitChain = lc.remoteCommitChain
 	}
 
-	ourInitialBalance := uint64(commitChain.tip().ourAssetBalance)
-	theirInitialBalance := uint64(commitChain.tip().theirAssetBalance)
+	ourInitialBalance := lnwire.UnitPrec11(commitChain.tip().ourAssetBalance)
+	theirInitialBalance := lnwire.UnitPrec11(commitChain.tip().theirAssetBalance)
 	if lc.channelState.AssetID == omnicore.BtcAssetId {
-		ourInitialBalance = uint64(commitChain.tip().ourBtcBalance)
-		theirInitialBalance = uint64(commitChain.tip().theirBtcBalance)
+		ourInitialBalance = lnwire.UnitPrec11(commitChain.tip().ourBtcBalance)
+		theirInitialBalance = lnwire.UnitPrec11(commitChain.tip().theirBtcBalance)
 	}
 
 	/*
@@ -3597,23 +3596,27 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 			feePerKw, chainfee.FeePerKwFloor)
 	}
 
-	ourAmt:=uint64(ourAssetBalance)
+	ourAmt:=lnwire.UnitPrec11(ourAssetBalance)
 	if lc.channelState.AssetID==omnicore.BtcAssetId{
-		ourAmt=uint64(ourBtcBalance)
+		ourAmt=lnwire.UnitPrec11(ourBtcBalance)
 	}
-	thireAmt:=uint64(theirAssetBalance)
+	thireAmt:=lnwire.UnitPrec11(theirAssetBalance)
+	ourReserve:=lnwire.UnitPrec11(lc.channelState.LocalChanCfg.ChanReserve)
+	theirReserve:=lnwire.UnitPrec11(lc.channelState.RemoteChanCfg.ChanReserve)
 	if lc.channelState.AssetID==omnicore.BtcAssetId{
-		thireAmt=uint64(theirBtcBalance)
+		thireAmt=lnwire.UnitPrec11(theirBtcBalance)
+		ourReserve=lnwire.UnitPrec11(lc.channelState.LocalChanCfg.ChanReserve.ToMsat())
+		theirReserve=lnwire.UnitPrec11(lc.channelState.RemoteChanCfg.ChanReserve.ToMsat())
 	}
 	// If the added HTLCs will decrease the balance, make sure they won't
 	// dip the local and remote balances below the channel reserves.
 	switch {
 	case ourAmt < ourInitialBalance &&
-		ourAmt < lc.channelState.LocalChanCfg.ChanReserve:
+		ourAmt < ourReserve:
 
 		return ErrBelowChanReserve
 	case thireAmt < theirInitialBalance &&
-		thireAmt <lc.channelState.RemoteChanCfg.ChanReserve:
+		thireAmt <theirReserve:
 
 		return ErrBelowChanReserve
 	}
@@ -3626,7 +3629,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 		// We keep track of the number of HTLCs in flight for the
 		// commitment, and the amount in flight.
 		var numInFlight uint16
-		var amtInFlight uint64
+		var amtInFlight lnwire.UnitPrec11
 
 		// Go through all updates, checking that they don't violate the
 		// channel constraints.
@@ -6688,11 +6691,9 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	/* obd update wxf
 	todo check asset
 	*/
-	ourAmt:=uint64(ourBalance)
-	theirAmt:=uint64(theirBalance)
 	closeTx := CreateCooperativeCloseTx(
 		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
-		lc.channelState.RemoteChanCfg.DustLimit, ourAmt, theirAmt,
+		lc.channelState.RemoteChanCfg.DustLimit, ourBalance, theirBalance,
 		localDeliveryScript, remoteDeliveryScript,
 	)
 
@@ -6763,14 +6764,12 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	/* obd update wxf
 	todo check asset
 	*/
-	ourAmt:=uint64(ourBalance)
-	theirAmt:=uint64(theirBalance)
 	// Create the transaction used to return the current settled balance
 	// on this active channel back to both parties. In this current model,
 	// the initiator pays full fees for the cooperative close transaction.
 	closeTx := CreateCooperativeCloseTx(
 		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
-		lc.channelState.RemoteChanCfg.DustLimit, ourAmt, theirAmt,
+		lc.channelState.RemoteChanCfg.DustLimit, ourBalance, theirBalance,
 		localDeliveryScript, remoteDeliveryScript,
 	)
 
@@ -6951,7 +6950,7 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 // initiator), and that we cannot spend from the channel reserve. This method
 // is useful when deciding if a given channel can accept an HTLC in the
 // multi-hop forwarding scenario.
-func (lc *LightningChannel) AvailableBalance() uint64 {
+func (lc *LightningChannel) AvailableBalance() lnwire.UnitPrec11  {
 	lc.RLock()
 	defer lc.RUnlock()
 
@@ -6963,7 +6962,7 @@ func (lc *LightningChannel) AvailableBalance() uint64 {
 // This method is provided so methods that already hold the lock can access
 // this method. Additionally, the total weight of the next to be created
 // commitment is returned for accounting purposes.
-func (lc *LightningChannel) availableBalance() (uint64, int64) {
+func (lc *LightningChannel) availableBalance() (lnwire.UnitPrec11, int64) {
 	// We'll grab the current set of log updates that the remote has
 	// ACKed.
 	remoteACKedIndex := lc.localCommitChain.tip().theirMessageIndex
@@ -7002,7 +7001,7 @@ func (lc *LightningChannel) availableBalance() (uint64, int64) {
 // eating into our balance. It will make sure we won't violate the channel
 // reserve constraints for this amount.
 func (lc *LightningChannel) availableCommitmentBalance(view *htlcView,
-	remoteChain bool) (uint64, int64) {
+	remoteChain bool) (lnwire.UnitPrec11, int64) {
 
 	// Compute the current balances for this commitment. This will take
 	// into account HTLCs to determine the commit weight, which the
@@ -7021,13 +7020,13 @@ func (lc *LightningChannel) availableCommitmentBalance(view *htlcView,
 	//ourReserve := lnwire.NewMSatFromSatoshis(
 	//	lc.channelState.LocalChanCfg.ChanReserve,
 	//)
-	ourAmt:=uint64(ourAssetBalance)
-	theirAmt:=uint64(theirAssetBalance)
-	ourReserve:=uint64(lc.channelState.LocalChanCfg.ChanReserve)
+	ourAmt:=lnwire.UnitPrec11(ourAssetBalance)
+	theirAmt:=lnwire.UnitPrec11(theirAssetBalance)
+	ourReserve:=lnwire.UnitPrec11(lc.channelState.LocalChanCfg.ChanReserve)
 	if lc.channelState.AssetID==omnicore.BtcAssetId{
-		ourReserve=1000* lc.channelState.LocalChanCfg.ChanReserve
-		ourAmt=uint64(ourBalance)
-		theirAmt=uint64(theirBalance)
+		ourReserve=lnwire.UnitPrec11(lc.channelState.LocalChanCfg.ChanReserve.ToMsat())
+		ourAmt=lnwire.UnitPrec11(ourBalance)
+		theirAmt=lnwire.UnitPrec11(theirBalance)
 	}
 
 	if ourReserve <= ourAmt {
@@ -7056,10 +7055,10 @@ func (lc *LightningChannel) availableCommitmentBalance(view *htlcView,
 		// bad state wehere neither we nor our channel counterparty can
 		// add HTLCs.
 		if lc.channelState.AssetID==omnicore.BtcAssetId {
-			if ourAmt < uint64( htlcCommitFee) {
+			if lnwire.MilliSatoshi(ourAmt) < htlcCommitFee {
 				return 0, commitWeight
 			}
-			return uint64(lnwire.MilliSatoshi(ourAmt) - htlcCommitFee), commitWeight
+			return lnwire.UnitPrec11(lnwire.MilliSatoshi(ourAmt) - htlcCommitFee), commitWeight
 		}else {
 			return ourAmt,	commitWeight
 		}
@@ -7072,9 +7071,9 @@ func (lc *LightningChannel) availableCommitmentBalance(view *htlcView,
 	//theirReserve := lnwire.NewMSatFromSatoshis(
 	//	lc.channelState.RemoteChanCfg.ChanReserve,
 	//)
-	theirReserve:=uint64(lc.channelState.RemoteChanCfg.ChanReserve)
+	theirReserve:=lnwire.UnitPrec11(lc.channelState.RemoteChanCfg.ChanReserve)
 	if lc.channelState.AssetID==omnicore.BtcAssetId{
-		theirReserve=1000* lc.channelState.RemoteChanCfg.ChanReserve
+		theirReserve=lnwire.UnitPrec11(lc.channelState.RemoteChanCfg.ChanReserve.ToMsat())
 	}
 	if theirReserve <= theirAmt {
 		theirAmt -= theirReserve
@@ -7107,17 +7106,17 @@ func (lc *LightningChannel) availableCommitmentBalance(view *htlcView,
 		dustlimitBtc:= lnwire.NewMSatFromSatoshis(btcutil.Amount( dustlimit))
 		// The HTLC output will be manifested on the commitment if it
 		// is non-dust after paying the HTLC fee.
-		nonDustHtlcAmt :=uint64(dustlimitBtc + htlcFee)
+		nonDustHtlcAmt :=dustlimitBtc + htlcFee
 
 		// If they cannot pay the fee if we add another non-dust HTLC, we'll
 		// report our available balance just below the non-dust amount, to
 		// avoid attempting HTLCs larger than this size.
-		if theirAmt < uint64(htlcCommitFee) && ourAmt >=nonDustHtlcAmt {
-			ourAmt = nonDustHtlcAmt - 1
+		if  lnwire.MilliSatoshi(theirAmt) < htlcCommitFee &&  lnwire.MilliSatoshi(ourAmt) >=nonDustHtlcAmt {
+			ourAmt =lnwire.UnitPrec11(nonDustHtlcAmt - 1)
 		}
 	}
 
-	return uint64(ourAmt), commitWeight
+	return ourAmt, commitWeight
 }
 
 // StateSnapshot returns a snapshot of the current fully committed state within
@@ -7277,7 +7276,7 @@ todo check asset*/
 // expected that the initiator pays the transaction fees for the closing
 // transaction in full.
 func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
-	localDust, remoteDust, ourBalance, theirBalance uint64,
+	localDust, remoteDust , ourBalance, theirBalance btcutil.Amount,
 	ourDeliveryScript, theirDeliveryScript []byte) *wire.MsgTx {
 
 	// Construct the transaction to perform a cooperative closure of the
@@ -7510,7 +7509,7 @@ func (lc *LightningChannel) ActiveHtlcs() []channeldb.HTLC {
 }
 
 // LocalChanReserve returns our local ChanReserve requirement for the remote party.
-func (lc *LightningChannel) LocalChanReserve() uint64 {
+func (lc *LightningChannel) LocalChanReserve() lnwire.UnitPrec8 {
 	return lc.channelState.LocalChanCfg.ChanReserve
 }
 
@@ -7527,7 +7526,7 @@ func (lc *LightningChannel) NextLocalHtlcIndex() (uint64, error) {
 
 // FwdMinHtlc returns the minimum HTLC value required by the remote node, i.e.
 // the minimum value HTLC we can forward on this channel.
-func (lc *LightningChannel) FwdMinHtlc() uint64 {
+func (lc *LightningChannel) FwdMinHtlc() lnwire.UnitPrec11 {
 	return lc.channelState.LocalChanCfg.MinHTLC
 }
 

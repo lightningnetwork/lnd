@@ -70,7 +70,7 @@ var (
 // announcement.
 type optionalMsgFields struct {
 	//Capacity     *btcutil.Amount
-	Capacity     *uint64
+	Capacity     *lnwire.UnitPrec8
 	channelPoint *wire.OutPoint
 }
 
@@ -88,7 +88,7 @@ type OptionalMsgField func(*optionalMsgFields)
 
 // ChannelCapacity is an optional field that lets the gossiper know of the
 // capacity of a channel.
-func ChannelCapacity(capacity uint64) OptionalMsgField {
+func ChannelCapacity(capacity lnwire.UnitPrec8) OptionalMsgField {
 	return func(f *optionalMsgFields) {
 		f.Capacity = &capacity
 	}
@@ -1399,9 +1399,9 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 			// We'll make sure we support the new max_htlc field if
 			// not already present.
 			edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
-			amt:=info.Capacity
+			amt:=lnwire.UnitPrec11(info.Capacity)
 			if info.AssetId==omnicore.BtcAssetId{
-				amt*=1000
+				amt=lnwire.UnitPrec11(info.Capacity.ToMsat())
 			}
 			edge.MaxHTLC =  amt
 			edgesToUpdate = append(edgesToUpdate, updateTuple{
@@ -2311,8 +2311,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			MaxHTLC:                   msg.HtlcMinimumMsat,
 			/*ob update wxf*/
 			AssetId: 						msg.AssetId,
-			FeeBaseMSat:               uint64(msg.BaseFee),
-			FeeProportionalMillionths: uint64(msg.FeeRate),
+			FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
+			FeeProportionalMillionths: msg.FeeRate,
 			ExtraOpaqueData:           msg.ExtraOpaqueData,
 		}
 
@@ -2950,10 +2950,10 @@ func IsKeepAliveUpdate(update *lnwire.ChannelUpdate,
 	if update.ChannelFlags.IsDisabled() != prev.ChannelFlags.IsDisabled() {
 		return false
 	}
-	if uint64(update.BaseFee) != prev.FeeBaseMSat {
+	if lnwire.MilliSatoshi(update.BaseFee) != prev.FeeBaseMSat {
 		return false
 	}
-	if uint64(update.FeeRate) != prev.FeeProportionalMillionths {
+	if update.FeeRate != prev.FeeProportionalMillionths {
 		return false
 	}
 	if update.TimeLockDelta != prev.TimeLockDelta {

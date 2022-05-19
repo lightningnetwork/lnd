@@ -145,8 +145,8 @@ type reservationWithCtx struct {
 	//remoteBtcMinHtlc  lnwire.MilliSatoshi
 	//remoteBtcMaxValue lnwire.MilliSatoshi
 
-	remoteMinHtlc  uint64
-	remoteMaxValue uint64
+	remoteMinHtlc  lnwire.UnitPrec11
+	remoteMaxValue lnwire.UnitPrec11
 	remoteMaxHtlcs uint16
 
 
@@ -219,7 +219,7 @@ type InitFundingMsg struct {
 
 	// MinHtlcIn is the minimum incoming HTLC that we accept.
 	//MinHtlcIn lnwire.MilliSatoshi
-	MinHtlcIn uint64
+	MinHtlcIn lnwire.UnitPrec11
 
 	// RemoteCsvDelay is the CSV delay we require for the remote peer.
 	RemoteCsvDelay uint16
@@ -236,7 +236,7 @@ type InitFundingMsg struct {
 	// that can be pending within the channel. It only applies to the
 	// remote party.
 	//MaxValueInFlight lnwire.MilliSatoshi
-	MaxValueInFlight uint64
+	MaxValueInFlight lnwire.UnitPrec11
 
 	// MaxHtlcs is the maximum number of HTLCs that the remote peer
 	// can offer us.
@@ -296,6 +296,12 @@ func newSerializedKey(pubKey *btcec.PublicKey) serializedPubKey {
 	return s
 }
 
+func (cfg *Config)GetDefaultMinHtlc(assetId uint32) lnwire.UnitPrec11{
+	if assetId==omnicore.BtcAssetId{
+		return lnwire.UnitPrec11(cfg.DefaultMinHtlcIn)
+	}
+	return lnwire.UnitPrec11(cfg.DefaultAssetMinHtlcIn)
+}
 // Config defines the configuration for the FundingManager. All elements
 // within the configuration MUST be non-nil for the FundingManager to carry out
 // its duties.
@@ -373,11 +379,12 @@ type Config struct {
 
 	// DefaultRoutingPolicy is the default routing policy used when
 	// initially announcing channels.
-	DefaultRoutingPolicy htlcswitch.ForwardingPolicy
+	DefaultRoutingPolicyCfg htlcswitch.ForwardingPolicyCfg
 
 	// DefaultMinHtlcIn is the default minimum incoming htlc value that is
 	// set as a channel parameter.
 	DefaultMinHtlcIn lnwire.MilliSatoshi
+	DefaultAssetMinHtlcIn omnicore.Amount
 
 	// NumRequiredConfs is a function closure that helps the funding
 	// manager decide how many confirmations it should require for a
@@ -391,23 +398,23 @@ type Config struct {
 	// party. Naturally a larger channel should require a higher CSV delay
 	// in order to give us more time to claim funds in the case of a
 	// contract breach.
-	RequiredRemoteDelay func(btcutil.Amount) uint16
+	RequiredRemoteDelay func(lnwire.UnitPrec8) uint16
 
 	// RequiredRemoteChanReserve is a function closure that, given the
 	// channel capacity and dust limit, will return an appropriate amount
 	// for the remote peer's required channel reserve that is to be adhered
 	// to at all times.
-	RequiredRemoteChanReserve func(capacity, dustLimit uint64) uint64
+	RequiredRemoteChanReserve func(assetId uint32, capacity lnwire.UnitPrec8, dustLimit btcutil.Amount) lnwire.UnitPrec8
 
 	// RequiredRemoteMaxValue is a function closure that, given the channel
 	// capacity, returns the amount of MilliSatoshis that our remote peer
 	// can have in total outstanding HTLCs with us.
-	RequiredRemoteMaxValue func(assetId uint32, chanAmt uint64) uint64
+	RequiredRemoteMaxValue func(assetId uint32, chanCap lnwire.UnitPrec8) lnwire.UnitPrec11
 
 	// RequiredRemoteMaxHTLCs is a function closure that, given the channel
 	// capacity, returns the number of maximum HTLCs the remote peer can
 	// offer us.
-	RequiredRemoteMaxHTLCs func(btcutil.Amount) uint16
+	RequiredRemoteMaxHTLCs func(lnwire.UnitPrec8) uint16
 
 	// WatchNewChannel is to be called once a new channel enters the final
 	// funding stage: waiting for on-chain confirmation. This method sends
@@ -1449,9 +1456,14 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 			"amt=%v, push_amt=%v", msg.PendingChannelID, assetAmt, msg.PushAssetAmount)
 	}
 
+	amt:=lnwire.UnitPrec8(assetAmt)
+	if msg.AssetId==omnicore.BtcAssetId{
+		amt=lnwire.UnitPrec8(btcAmt)
+	}
+
 	// Generate our required constraints for the remote party, using the
 	// values provided by the channel acceptor if they are non-zero.
-	remoteCsvDelay := f.cfg.RequiredRemoteDelay(btcAmt)
+	remoteCsvDelay := f.cfg.RequiredRemoteDelay(amt)
 	if acceptorResp.CSVDelay != 0 {
 		remoteCsvDelay = acceptorResp.CSVDelay
 	}
@@ -1467,11 +1479,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	if msg.DustLimit > maxDustLimit {
 		maxDustLimit = msg.DustLimit
 	}
-	amt:=uint64(assetAmt)
-	if msg.AssetId==omnicore.BtcAssetId{
-		amt=uint64(btcAmt)
-	}
-	chanReserve := f.cfg.RequiredRemoteChanReserve(amt, maxDustLimit)
+	chanReserve := f.cfg.RequiredRemoteChanReserve(msg.AssetId, amt, maxDustLimit)
 	if acceptorResp.Reserve != 0 {
 		chanReserve = acceptorResp.Reserve
 	}
@@ -1482,14 +1490,14 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		remoteMaxValue = acceptorResp.InFlightTotal
 	}
 
-	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(btcAmt)
+	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(amt)
 	if acceptorResp.HtlcLimit != 0 {
 		maxHtlcs = acceptorResp.HtlcLimit
 	}
 
 	// Default to our default minimum hltc value, replacing it with the
 	// channel acceptor's value if it is set.
-	minHtlc := lnwire.MstatCfgToI64(msg.AssetId, f.cfg.DefaultMinHtlcIn)
+	minHtlc := omnicore.LoadDefaultMinHtlc(msg.AssetId, f.cfg.DefaultMinHtlcIn)
 	if acceptorResp.MinHtlcIn != 0 {
 		minHtlc = acceptorResp.MinHtlcIn
 	}
@@ -1717,15 +1725,15 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		return
 	}
 
-	amt:=uint64(resCtx.chanAssetAmt)
+	amt:=lnwire.UnitPrec8(resCtx.chanAssetAmt)
 	if resCtx.assetId==omnicore.BtcAssetId{
-		amt=uint64(resCtx.chanBtcAmt)
+		amt=lnwire.UnitPrec8(resCtx.chanBtcAmt)
 	}
 	// As they've accepted our channel constraints, we'll regenerate them
 	// here so we can properly commit their accepted constraints to the
 	// reservation. Also make sure that we re-generate the ChannelReserve
 	// with our dust limit or we can get stuck channels.
-	chanReserve := f.cfg.RequiredRemoteChanReserve(
+	chanReserve := f.cfg.RequiredRemoteChanReserve(resCtx.assetId,
 		amt, resCtx.reservation.OurContribution().DustLimit,
 	)
 
@@ -2652,18 +2660,18 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	// we'll use this value within our ChannelUpdate. This constraint is
 	// originally set by the remote node, as it will be the one that will
 	// need to determine the smallest HTLC it deems economically relevant.
-	fwdMinHTLC := uint64(completeChan.LocalChanCfg.MinHTLC)
-
+	fwdMinHTLC := completeChan.LocalChanCfg.MinHTLC
+	defCfg:=f.cfg.DefaultRoutingPolicyCfg.LoadCfg(completeChan.AssetID)
 	// We don't necessarily want to go as low as the remote party
 	// allows. Check it against our default forwarding policy.
-	if fwdMinHTLC < f.cfg.DefaultRoutingPolicy.MinHTLCOut {
-		fwdMinHTLC = f.cfg.DefaultRoutingPolicy.MinHTLCOut
+	if fwdMinHTLC < defCfg.MinHTLCOut {
+		fwdMinHTLC = defCfg.MinHTLCOut
 	}
 
 	// We'll obtain the max HTLC value we can forward in our direction, as
 	// we'll use this value within our ChannelUpdate. This value must be <=
 	// channel capacity and <= the maximum in-flight msats set by the peer.
-	fwdMaxHTLC := uint64(completeChan.LocalChanCfg.MaxPendingAmount)
+	fwdMaxHTLC := completeChan.LocalChanCfg.MaxPendingAmount
 	/*
 	obd update wxf
 	*/
@@ -2690,7 +2698,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	// Send ChannelAnnouncement and ChannelUpdate to the gossiper to add
 	// to the Router's topology.
 	errChan := f.cfg.SendAnnouncement(
-		ann.chanAnn, discovery.ChannelCapacity(completeChan.GetMsgCap()),
+		ann.chanAnn, discovery.ChannelCapacity(completeChan.GetRawCap()),
 		discovery.ChannelPoint(completeChan.FundingOutpoint),
 	)
 	select {
@@ -2985,7 +2993,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	remotePubKey *btcec.PublicKey, localFundingKey *keychain.KeyDescriptor,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
 	chanID lnwire.ChannelID, fwdMinHTLC,
-	fwdMaxHTLC uint64, assetId uint32) (*chanAnnouncement, error) {
+	fwdMaxHTLC lnwire.UnitPrec11, assetId uint32) (*chanAnnouncement, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 
@@ -3038,6 +3046,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// max_htlc field.
 	msgFlags := lnwire.ChanUpdateOptionMaxHtlc
 
+	defRp:=f.cfg.DefaultRoutingPolicyCfg.LoadCfg(assetId)
 	// We announce the channel with the default values. Some of
 	// these values can later be changed by crafting a new ChannelUpdate.
 	chanUpdateAnn := &lnwire.ChannelUpdate{
@@ -3046,7 +3055,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 		Timestamp:      uint32(time.Now().Unix()),
 		MessageFlags:   msgFlags,
 		ChannelFlags:   chanFlags,
-		TimeLockDelta:  uint16(f.cfg.DefaultRoutingPolicy.TimeLockDelta),
+		TimeLockDelta:  uint16(defRp.TimeLockDelta),
 
 		// We use the HtlcMinimumMsat that the remote party required us
 		// to use, as our ChannelUpdate will be used to carry HTLCs
@@ -3057,8 +3066,8 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 		HtlcMinimumMsat: fwdMinHTLC,
 		HtlcMaximumMsat: fwdMaxHTLC,
 		AssetId: assetId,
-		BaseFee: uint32(f.cfg.DefaultRoutingPolicy.BaseFee),
-		FeeRate: uint32(f.cfg.DefaultRoutingPolicy.FeeRate),
+		BaseFee: uint32(defRp.BaseFee),
+		FeeRate: defRp.FeeRate,
 
 	}
 
@@ -3416,9 +3425,9 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	log.Infof("Target commit tx sat/kw for pendingID(%x): %v", chanID,
 		int64(commitFeePerKw))
 
-	amt:=uint64(assetCapacity)
+	amt:=lnwire.UnitPrec8(assetCapacity)
 	if msg.AssetId==omnicore.BtcAssetId{
-		amt=uint64(btcCapacity)
+		amt=lnwire.UnitPrec8(btcCapacity)
 	}
 
 	/*obd update wxf
@@ -3427,12 +3436,13 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// we'll use the RequiredRemoteDelay closure to compute the delay we
 	// require given the total amount of funds within the channel.
 	if remoteCsvDelay == 0 {
-		remoteCsvDelay = f.cfg.RequiredRemoteDelay(btcCapacity)
+		remoteCsvDelay = f.cfg.RequiredRemoteDelay(amt)
 	}
 
 	// If no minimum HTLC value was specified, use the default one.
 	if minHtlcIn == 0 {
-		minHtlcIn = lnwire.MstatCfgToI64(msg.AssetId, f.cfg.DefaultMinHtlcIn)
+		minHtlcIn =f.cfg.GetDefaultMinHtlc(msg.AssetId)
+		//omnicore.LoadDefaultMinHtlc(msg.AssetId, f.cfg.DefaultMinHtlcIn)
 	}
 
 	// If no max value was specified, use the default one.
@@ -3441,7 +3451,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	}
 
 	if maxHtlcs == 0 {
-		maxHtlcs = f.cfg.RequiredRemoteMaxHTLCs(btcCapacity)
+		maxHtlcs = f.cfg.RequiredRemoteMaxHTLCs(amt)
 	}
 
 	// If a pending channel map for this peer isn't already created, then
@@ -3488,7 +3498,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// Finally, we'll use the current value of the channels and our default
 	// policy to determine of required commitment constraints for the
 	// remote party.
-	chanReserve := f.cfg.RequiredRemoteChanReserve(amt, ourDustLimit)
+	chanReserve := f.cfg.RequiredRemoteChanReserve(msg.AssetId, amt, ourDustLimit)
 
 	// When opening a script enforced channel lease, include the required
 	// expiry TLV record in our proposal.

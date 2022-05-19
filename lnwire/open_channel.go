@@ -59,22 +59,22 @@ type OpenChannel struct {
 	// would like enforced on their version of the commitment transaction.
 	// Any output below this value will be "trimmed" from the commitment
 	// transaction, with the amount of the HTLC going to dust.
-	DustLimit uint64
+	DustLimit btcutil.Amount
 
 	// MaxValueInFlight represents the maximum amount of coins that can be
 	// pending within the channel at any given time. If the amount of funds
 	// in limbo exceeds this amount, then the channel will be failed.
-	MaxValueInFlight uint64
+	MaxValueInFlight UnitPrec11
 
 	// ChannelReserve is the amount of BTC that the receiving party MUST
 	// maintain a balance above at all times. This is a safety mechanism to
 	// ensure that both sides always have skin in the game during the
 	// channel's lifetime.
-	ChannelReserve uint64
+	ChannelReserve UnitPrec8
 
 	// HtlcMinimum is the smallest HTLC that the sender of this message
 	// will accept.
-	HtlcMinimum uint64
+	HtlcMinimum UnitPrec11
 
 	// FeePerKiloWeight is the initial fee rate that the initiator suggests
 	// for both commitment transaction. This value is expressed in sat per
@@ -209,19 +209,19 @@ func (o *OpenChannel) Encode(w *bytes.Buffer, pver uint32) error {
 	}
 
 	/*obd update wxf*/
-	if err := WriteUint64(w, o.DustLimit); err != nil {
+	if err := WriteSatoshi(w, o.DustLimit); err != nil {
 		return err
 	}
 
-	if err := WriteUint64(w, o.MaxValueInFlight); err != nil {
+	if err := WriteUint64(w, uint64(o.MaxValueInFlight )); err != nil {
 		return err
 	}
 
-	if err := WriteUint64(w, o.ChannelReserve); err != nil {
+	if err := WriteUint64(w, uint64(o.ChannelReserve)); err != nil {
 		return err
 	}
 
-	if err := WriteUint64(w, o.HtlcMinimum); err != nil {
+	if err := WriteUint64(w, uint64(o.HtlcMinimum)); err != nil {
 		return err
 	}
 

@@ -1193,8 +1193,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 			return nil, fmt.Errorf("unable to find channel")
 		},
-		DefaultRoutingPolicy: cc.RoutingPolicy,
+		DefaultRoutingPolicyCfg: cc.RoutingPolicyCfg,
 		DefaultMinHtlcIn:     cc.MinHtlcIn,
+		DefaultAssetMinHtlcIn: cc.AssetMinHtlcIn,
 		NumRequiredConfs: func(chanAmt btcutil.Amount,
 			pushAmt lnwire.MilliSatoshi) uint16 {
 			// For large channels we increase the number
@@ -1241,7 +1242,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			}
 			return uint16(conf)
 		},
-		RequiredRemoteDelay: func(chanAmt btcutil.Amount) uint16 {
+		RequiredRemoteDelay: func(chanAmt lnwire.UnitPrec8) uint16 {
 			// We scale the remote CSV delay (the time the
 			// remote have to claim funds in case of a unilateral
 			// close) linearly from minRemoteDelay blocks
@@ -1259,13 +1260,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 			// If this is a wumbo channel, then we'll require the
 			// max value.
-			if chanAmt > MaxFundingAmount {
+			if chanAmt > lnwire.UnitPrec8(MaxFundingAmount) {
 				return maxRemoteDelay
 			}
 
 			// If not we scale according to channel size.
 			delay := uint16(btcutil.Amount(maxRemoteDelay) *
-				chanAmt / MaxFundingAmount)
+				btcutil.Amount(chanAmt) / MaxFundingAmount)
 			if delay < minRemoteDelay {
 				delay = minRemoteDelay
 			}
@@ -1298,8 +1299,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
 			return s.htlcSwitch.UpdateShortChanID(cid)
 		},
-		RequiredRemoteChanReserve: func(chanAmt,
-			dustLimit uint64) uint64 {
+		RequiredRemoteChanReserve: func(assetId uint32, chanAmt lnwire.UnitPrec8,
+			dustLimit btcutil.Amount) lnwire.UnitPrec8 {
 
 			// By default, we'll require the remote peer to maintain
 			// at least 1% of the total channel capacity at all
@@ -1307,24 +1308,26 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// limit, then we'll use the dust limit itself as the
 			// reserve as required by BOLT #2.
 			reserve := chanAmt / 100
-			if reserve < dustLimit {
-				reserve = dustLimit
+			if assetId==omnicore.BtcAssetId{
+				if reserve < lnwire.UnitPrec8(dustLimit) {
+					reserve = lnwire.UnitPrec8(dustLimit)
+				}
 			}
 
 			return reserve
 		},
 		/*obd update wxf*/
-		RequiredRemoteMaxValue: func(assetId uint32, chanAmt uint64) uint64 {
+		RequiredRemoteMaxValue: func(assetId uint32, chanAmt lnwire.UnitPrec8) lnwire.UnitPrec11 {
 			// By default, we'll allow the remote peer to fully
 			// utilize the full bandwidth of the channel, minus our
 			// required reserve.
 			if assetId==omnicore.BtcAssetId {
 				reserve := lnwire.NewMSatFromSatoshis(btcutil.Amount(chanAmt) / 100)
-				return uint64(lnwire.NewMSatFromSatoshis(btcutil.Amount(chanAmt)) - reserve)
+				return lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(btcutil.Amount(chanAmt)) - reserve)
 			}
-			return chanAmt-chanAmt / 100
+			return lnwire.UnitPrec11(chanAmt-chanAmt / 100)
 		},
-		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
+		RequiredRemoteMaxHTLCs: func(chanAmt lnwire.UnitPrec8) uint16 {
 			if cfg.DefaultRemoteMaxHtlcs > 0 {
 				return cfg.DefaultRemoteMaxHtlcs
 			}
@@ -3492,7 +3495,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		SigPool:                 s.sigPool,
 		Wallet:                  s.cc.Wallet,
 		ChainNotifier:           s.cc.ChainNotifier,
-		RoutingPolicy:           s.cc.RoutingPolicy,
+		RoutingPolicyCfg:        s.cc.RoutingPolicyCfg,
 		Sphinx:                  s.sphinx,
 		WitnessBeacon:           s.witnessBeacon,
 		Invoices:                s.invoices,

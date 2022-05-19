@@ -2,6 +2,7 @@ package lncfg
 
 import (
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -26,8 +27,11 @@ type Chain struct {
 	MaxLocalDelay       uint16              `long:"maxlocaldelay" description:"The maximum blocks we will allow our funds to be timelocked before accessing its funds in case of unilateral close. If a peer proposes a value greater than this, we will reject the channel."`
 	MinHTLCIn           lnwire.MilliSatoshi `long:"minhtlc" description:"The smallest HTLC we are willing to accept on our channels, in millisatoshi"`
 	MinHTLCOut          lnwire.MilliSatoshi `long:"minhtlcout" description:"The smallest HTLC we are willing to send out on our channels, in millisatoshi"`
+	AssetMinHTLCIn      omnicore.Amount `long:"assetminhtlc" description:"The smallest HTLC we are willing to accept on our asset-channels, in omnicore.Amount, 1 AssetUnit= 100000000 omnicore.Amount"`
+	AssetMinHTLCOut     omnicore.Amount `long:"assetminhtlcout" description:"The smallest HTLC we are willing to send out on our asset-channels, in omnicore.Amount, 1 AssetUnit= 100000000 omnicore.Amount"`
 	BaseFee             lnwire.MilliSatoshi `long:"basefee" description:"The base fee in millisatoshi we will charge for forwarding payments on our channels"`
 	FeeRate             lnwire.MilliSatoshi `long:"feerate" description:"The fee rate used when forwarding payments on our channels. The total fee charged is basefee + (amount * feerate / 1000000), where amount is the forwarded amount."`
+	AssetFeeRate        omnicore.Amount `long:"assetfeerate" description:"The fee rate used when forwarding payments on our asset-channels. The total fee charged is (amount * feerate / 1000000), where amount is the forwarded amount. default value is 100"`
 	TimeLockDelta       uint32              `long:"timelockdelta" description:"The CLTV delta we will subtract from a forwarded HTLC's timelock value"`
 	DNSSeeds            []string            `long:"dnsseed" description:"The seed DNS server(s) to use for initial peer discovery. Must be specified as a '<primary_dns>[,<soa_primary_dns>]' tuple where the SOA address is needed for DNS resolution through Tor but is optional for clearnet users. Multiple tuples can be specified, will overwrite the default seed servers."`
 }

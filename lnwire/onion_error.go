@@ -341,7 +341,7 @@ func (f *FailIncorrectPaymentAmount) Error() string {
 // NOTE: May only be returned by the final node in the path.
 type FailIncorrectDetails struct {
 	// amount is the value of the extended HTLC.
-	amount uint64
+	amount UnitPrec11
 
 	// height is the block height when the htlc was received.
 	height uint32
@@ -349,7 +349,7 @@ type FailIncorrectDetails struct {
 
 // NewFailIncorrectDetails makes a new instance of the FailIncorrectDetails
 // error bound to the specified HTLC amount and acceptance height.
-func NewFailIncorrectDetails(amt uint64,
+func NewFailIncorrectDetails(amt UnitPrec11,
 	height uint32) *FailIncorrectDetails {
 
 	return &FailIncorrectDetails{
@@ -359,7 +359,7 @@ func NewFailIncorrectDetails(amt uint64,
 }
 
 // Amount is the value of the extended HTLC.
-func (f *FailIncorrectDetails) Amount() uint64 {
+func (f *FailIncorrectDetails) Amount() UnitPrec11 {
 	return f.amount
 }
 
@@ -420,7 +420,7 @@ func (f *FailIncorrectDetails) Decode(r io.Reader, pver uint32) error {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailIncorrectDetails) Encode(w *bytes.Buffer, pver uint32) error {
-	if err := WriteUint64(w, f.amount); err != nil {
+	if err := WriteUint64(w, uint64(f.amount)); err != nil {
 		return err
 	}
 
@@ -701,7 +701,7 @@ func (f *FailTemporaryChannelFailure) Encode(w *bytes.Buffer,
 // NOTE: May only be returned by the intermediate nodes in the path.
 type FailAmountBelowMinimum struct {
 	// HtlcMsat is the wrong amount of the incoming HTLC.
-	HtlcMsat uint64
+	HtlcMsat UnitPrec11
 
 	// Update is used to update information about state of the channel
 	// which caused the failure.
@@ -709,7 +709,7 @@ type FailAmountBelowMinimum struct {
 }
 
 // NewAmountBelowMinimum creates new instance of the FailAmountBelowMinimum.
-func NewAmountBelowMinimum(htlcMsat uint64,
+func NewAmountBelowMinimum(htlcMsat UnitPrec11,
 	update ChannelUpdate) *FailAmountBelowMinimum {
 
 	return &FailAmountBelowMinimum{
@@ -756,7 +756,7 @@ func (f *FailAmountBelowMinimum) Decode(r io.Reader, pver uint32) error {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailAmountBelowMinimum) Encode(w *bytes.Buffer, pver uint32) error {
-	if err := WriteUint64(w, f.HtlcMsat); err != nil {
+	if err := WriteUint64(w,uint64(f.HtlcMsat)); err != nil {
 		return err
 	}
 
@@ -770,7 +770,7 @@ func (f *FailAmountBelowMinimum) Encode(w *bytes.Buffer, pver uint32) error {
 // NOTE: May only be returned by intermediate nodes.
 type FailFeeInsufficient struct {
 	// HtlcMsat is the wrong amount of the incoming HTLC.
-	HtlcMsat uint64
+	HtlcMsat UnitPrec11
 
 	// Update is used to update information about state of the channel
 	// which caused the failure.
@@ -778,7 +778,7 @@ type FailFeeInsufficient struct {
 }
 
 // NewFeeInsufficient creates new instance of the FailFeeInsufficient.
-func NewFeeInsufficient(htlcMsat uint64,
+func NewFeeInsufficient(htlcMsat UnitPrec11,
 	update ChannelUpdate) *FailFeeInsufficient {
 	return &FailFeeInsufficient{
 		HtlcMsat: htlcMsat,
@@ -824,7 +824,7 @@ func (f *FailFeeInsufficient) Decode(r io.Reader, pver uint32) error {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailFeeInsufficient) Encode(w *bytes.Buffer, pver uint32) error {
-	if err := WriteUint64(w, f.HtlcMsat); err != nil {
+	if err := WriteUint64(w, uint64(f.HtlcMsat)); err != nil {
 		return err
 	}
 
@@ -1074,7 +1074,7 @@ func (f *FailFinalIncorrectCltvExpiry) Encode(w *bytes.Buffer,
 // NOTE: May only be returned by the final node.
 type FailFinalIncorrectHtlcAmount struct {
 	// IncomingHTLCAmount is the wrong forwarded htlc amount.
-	IncomingHTLCAmount uint64
+	IncomingHTLCAmount UnitPrec11
 }
 
 // Returns a human readable string describing the target FailureMessage.
@@ -1087,7 +1087,7 @@ func (f *FailFinalIncorrectHtlcAmount) Error() string {
 
 // NewFinalIncorrectHtlcAmount creates new instance of the
 // FailFinalIncorrectHtlcAmount.
-func NewFinalIncorrectHtlcAmount(amount uint64) *FailFinalIncorrectHtlcAmount {
+func NewFinalIncorrectHtlcAmount(amount UnitPrec11) *FailFinalIncorrectHtlcAmount {
 	return &FailFinalIncorrectHtlcAmount{
 		IncomingHTLCAmount: amount,
 	}
@@ -1113,7 +1113,7 @@ func (f *FailFinalIncorrectHtlcAmount) Decode(r io.Reader, pver uint32) error {
 func (f *FailFinalIncorrectHtlcAmount) Encode(w *bytes.Buffer,
 	pver uint32) error {
 
-	return WriteUint64(w, f.IncomingHTLCAmount)
+	return WriteUint64(w, uint64(f.IncomingHTLCAmount))
 }
 
 // FailExpiryTooFar is returned if the CLTV expiry in the HTLC is too far in the

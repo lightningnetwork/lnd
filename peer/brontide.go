@@ -231,7 +231,7 @@ type Config struct {
 
 	// RoutingPolicy is used to set the forwarding policy for links created by
 	// the Brontide.
-	RoutingPolicy htlcswitch.ForwardingPolicy
+	RoutingPolicyCfg htlcswitch.ForwardingPolicyCfg
 
 	// Sphinx is used when setting up ChannelLinks so they can decode sphinx
 	// onion blobs.
@@ -741,8 +741,8 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			peerLog.Warnf("Unable to find our forwarding policy "+
 				"for channel %v, using default values",
 				chanPoint)
-			forwardingPolicy = &p.cfg.RoutingPolicy
-			forwardingPolicy.LoadCfg(dbChan.AssetID)
+			forwardingPolicyCfg := &p.cfg.RoutingPolicyCfg
+			forwardingPolicy = forwardingPolicyCfg.LoadCfg(dbChan.AssetID)
 		}
 
 		peerLog.Tracef("Using link policy of: %v",
@@ -2277,8 +2277,8 @@ out:
 			// at initial channel creation. Note that the maximum HTLC value
 			// defaults to the cap on the total value of outstanding HTLCs.
 			fwdMinHtlc := lnChan.FwdMinHtlc()
-			defaultPolicy := p.cfg.RoutingPolicy
-			defaultPolicy.LoadCfg(newChan.AssetID)
+			defaultPolicyCfg := p.cfg.RoutingPolicyCfg
+			defaultPolicy := defaultPolicyCfg.LoadCfg(newChan.AssetID)
 			forwardingPolicy := &htlcswitch.ForwardingPolicy{
 				MinHTLCOut:    fwdMinHtlc,
 				MaxHTLC:       newChan.LocalChanCfg.MaxPendingAmount,

@@ -447,7 +447,7 @@ type ContractTerm struct {
 
 	// Value is the expected amount of milli-satoshis to be paid to an HTLC
 	// which can be satisfied by the above preimage.
-	Value uint64
+	Value lnwire.UnitPrec11
 	/*obd update wxf*/
 	AssetId uint32
 
@@ -496,7 +496,7 @@ type InvoiceStateAMP struct {
 	// custom records as well as the break down of the payment splits used
 	// when paying.
 	//AmtPaid lnwire.MilliSatoshi
-	AmtPaid uint64
+	AmtPaid lnwire.UnitPrec11
 	AssetId uint32
 }
 
@@ -586,7 +586,7 @@ type Invoice struct {
 	// that the invoice originally didn't specify an amount, or the sender
 	// overpaid.
 	//AmtPaid lnwire.MilliSatoshi
-	AmtPaid uint64
+	AmtPaid lnwire.UnitPrec11
 	AssetId uint32
 
 	// Htlcs records all htlcs that paid to this invoice. Some of these
@@ -672,14 +672,14 @@ const (
 type InvoiceHTLC struct {
 	// Amt is the amount that is carried by this htlc.
 	//Amt lnwire.MilliSatoshi
-	Amt uint64
+	Amt lnwire.UnitPrec11
 	AssetId uint32
 
 
 	// MppTotalAmt is a field for mpp that indicates the expected total
 	// amount.
 	//MppTotalAmt lnwire.MilliSatoshi
-	MppTotalAmt uint64
+	MppTotalAmt lnwire.UnitPrec11
 
 	// AcceptHeight is the block height at which the invoice registry
 	// decided to accept this htlc as a payment to the invoice. At this
@@ -803,13 +803,13 @@ type HtlcAcceptDesc struct {
 
 	// Amt is the amount that is carried by this htlc.
 	//Amt lnwire.MilliSatoshi
-	Amt uint64
+	Amt lnwire.UnitPrec11
 	AssetId uint32
 
 	// MppTotalAmt is a field for mpp that indicates the expected total
 	// amount.
 	//MppTotalAmt lnwire.MilliSatoshi
-	MppTotalAmt uint64
+	MppTotalAmt lnwire.UnitPrec11
 
 	// Expiry is the expiry height of this htlc.
 	Expiry uint32
@@ -1994,10 +1994,10 @@ func fetchInvoiceStateAMP(invoiceNum []byte,
 func deserializeInvoice(r io.Reader) (Invoice, error) {
 	var (
 		preimageBytes [32]byte
-		value         uint64
+		value         lnwire.UnitPrec11
 		cltvDelta     uint32
 		expiry        uint64
-		amtPaid       uint64
+		amtPaid       lnwire.UnitPrec11
 		state         uint8
 		hodlInvoice   uint8
 
@@ -2322,7 +2322,7 @@ func ampStateDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error
 				SettleIndex: settleIndex,
 				SettleDate:  settleDate,
 				InvoiceKeys: invoiceKeys,
-				AmtPaid:     (amtPaid),
+				AmtPaid:     lnwire.UnitPrec11(amtPaid),
 			}
 		}
 
@@ -2359,7 +2359,7 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 			chanID                  uint64
 			state                   uint8
 			acceptTime, resolveTime uint64
-			amt, mppTotalAmt        uint64
+			amt, mppTotalAmt        lnwire.UnitPrec11
 			assetId uint32
 			amp                     = &record.AMP{}
 			hash32                  = &[32]byte{}
@@ -2832,7 +2832,7 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *SetID, invoices,
 	var (
 		settledSetIDs = make(map[SetID]struct{})
 		//amtPaid       lnwire.MilliSatoshi
-		amtPaid       uint64
+		amtPaid       lnwire.UnitPrec11
 	)
 	for key, htlc := range invoice.Htlcs {
 		// Set the HTLC preimage for any AMP HTLCs.

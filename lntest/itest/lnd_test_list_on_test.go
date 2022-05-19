@@ -428,11 +428,11 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "remote signer",
 		TestFunc: testRemoteSigner,
 	},
+	{
+		Name:     "sign psbt",
+		TestFunc: testSignPsbt,
+	},
 
-	// {
-	// 	name: "sign psbt",
-	// 	test: testSignPsbt,
-	// },
 	// {
 	// 	name: "update channel policy fee rate accuracy",
 	// 	test: testUpdateChannelPolicyFeeRateAccuracy,

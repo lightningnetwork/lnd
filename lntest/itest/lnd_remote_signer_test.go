@@ -100,11 +100,10 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 		name: "psbt",
 		fn: func(tt *lntest.HarnessTest, wo, carol *lntest.HarnessNode) {
 			runPsbtChanFunding(tt, carol, wo)
-			// TODO(yy): bring it back
-			// runSignPsbtSegWitV0P2WKH(tt, net, wo)
-			// runSignPsbtSegWitV1KeySpendBip86(tt, net, wo)
-			// runSignPsbtSegWitV1KeySpendRootHash(tt, net, wo)
-			// runSignPsbtSegWitV1ScriptSpend(tt, net, wo)
+			runSignPsbtSegWitV0P2WKH(tt, wo)
+			runSignPsbtSegWitV1KeySpendBip86(tt, wo)
+			runSignPsbtSegWitV1KeySpendRootHash(tt, wo)
+			runSignPsbtSegWitV1ScriptSpend(tt, wo)
 		},
 	}, {
 		name:      "sign output raw",

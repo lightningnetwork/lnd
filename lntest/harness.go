@@ -2035,7 +2035,7 @@ func (h *HarnessTest) GetChannelCommitType(hn *HarnessNode,
 	return 0
 }
 
-// DeriveKey makes a RPC call the DeriveKey and asserts.
+// DeriveKey makes a RPC call to the DeriveKey and asserts.
 func (h *HarnessTest) DeriveKey(hn *HarnessNode,
 	kl *signrpc.KeyLocator) *signrpc.KeyDescriptor {
 
@@ -2044,6 +2044,20 @@ func (h *HarnessTest) DeriveKey(hn *HarnessNode,
 
 	key, err := hn.rpc.WalletKit.DeriveKey(ctxt, kl)
 	require.NoError(h, err, "failed to derive key for node %s", hn.Name())
+
+	return key
+}
+
+// DeriveNextKey makes a RPC call to the DeriveNextKey and asserts.
+func (h *HarnessTest) DeriveNextKey(hn *HarnessNode,
+	req *walletrpc.KeyReq) *signrpc.KeyDescriptor {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	key, err := hn.rpc.WalletKit.DeriveNextKey(ctxt, req)
+	require.NoError(h, err, "failed to derive next key for node %s",
+		hn.Name())
 
 	return key
 }
@@ -3550,6 +3564,32 @@ func (h *HarnessTest) ReceiveHtlcInterceptor(
 	}
 
 	return nil
+}
+
+// SendOutputs makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessTest) SendOutputs(hn *HarnessNode,
+	req *walletrpc.SendOutputsRequest) *walletrpc.SendOutputsResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.WalletKit.SendOutputs(ctxt, req)
+	require.NoError(h, err, "failed to SendOutputs")
+
+	return resp
+}
+
+// SignPsbt makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessTest) SignPsbt(hn *HarnessNode,
+	req *walletrpc.SignPsbtRequest) *walletrpc.SignPsbtResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.WalletKit.SignPsbt(ctxt, req)
+	require.NoError(h, err, "failed to SignPsbt")
+
+	return resp
 }
 
 // ListAccounts makes a RPC call to the node's WalletKitClient and asserts.

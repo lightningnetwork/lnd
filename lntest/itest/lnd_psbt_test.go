@@ -2,8 +2,6 @@ package itest
 
 import (
 	"bytes"
-	"context"
-	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
@@ -555,43 +553,35 @@ func testPsbtChanFundingSingleStep(ht *lntest.HarnessTest) {
 }
 
 // testSignPsbt tests that the SignPsbt RPC works correctly.
-func testSignPsbt(net *lntest.NetworkHarness, t *harnessTest) {
-	runSignPsbtSegWitV0P2WKH(t, net, net.Alice)
-	runSignPsbtSegWitV1KeySpendBip86(t, net, net.Alice)
-	runSignPsbtSegWitV1KeySpendRootHash(t, net, net.Alice)
-	runSignPsbtSegWitV1ScriptSpend(t, net, net.Alice)
+func testSignPsbt(ht *lntest.HarnessTest) {
+	alice := ht.Alice()
+	runSignPsbtSegWitV0P2WKH(ht, alice)
+	runSignPsbtSegWitV1KeySpendBip86(ht, alice)
+	runSignPsbtSegWitV1KeySpendRootHash(ht, alice)
+	runSignPsbtSegWitV1ScriptSpend(ht, alice)
 }
 
 // runSignPsbtSegWitV0P2WKH tests that the SignPsbt RPC works correctly for a
 // SegWit v0 p2wkh input.
-func runSignPsbtSegWitV0P2WKH(t *harnessTest, net *lntest.NetworkHarness,
+func runSignPsbtSegWitV0P2WKH(ht *lntest.HarnessTest,
 	alice *lntest.HarnessNode) {
-
-	// Everything we do here should be done within a second or two, so we
-	// can just keep a single timeout context around for all calls.
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
 
 	// We test that we can sign a PSBT that spends funds from an input that
 	// the wallet doesn't know about. To set up that test case, we first
 	// derive an address manually that the wallet won't be watching on
 	// chain. We can do that by exporting the account xpub of lnd's main
 	// account.
-	accounts, err := alice.WalletKitClient.ListAccounts(
-		ctxt, &walletrpc.ListAccountsRequest{},
-	)
-	require.NoError(t.t, err)
-	require.NotEmpty(t.t, accounts.Accounts)
+	accounts := ht.ListAccounts(alice, &walletrpc.ListAccountsRequest{})
+	require.NotEmpty(ht, accounts.Accounts)
 
 	// We also need to parse the accounts, so we have easy access to the
 	// parsed derivation paths.
 	parsedAccounts, err := walletrpc.AccountsToWatchOnly(accounts.Accounts)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	account := parsedAccounts[0]
 	xpub, err := hdkeychain.NewKeyFromString(account.Xpub)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	const (
 		changeIndex = 1
@@ -607,27 +597,27 @@ func runSignPsbtSegWitV0P2WKH(t *harnessTest, net *lntest.NetworkHarness,
 
 	// Let's simulate a change address.
 	change, err := xpub.DeriveNonStandard(changeIndex) // nolint:staticcheck
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// At an index that we are certainly not watching in the wallet.
 	addrKey, err := change.DeriveNonStandard(addrIndex) // nolint:staticcheck
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	addrPubKey, err := addrKey.ECPubKey()
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 	pubKeyHash := btcutil.Hash160(addrPubKey.SerializeCompressed())
 	witnessAddr, err := btcutil.NewAddressWitnessPubKeyHash(
 		pubKeyHash, harnessNetParams,
 	)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	pkScript, err := txscript.PayToAddrScript(witnessAddr)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// Send some funds to the output and then try to get a signature through
 	// the SignPsbt RPC to spend that output again.
 	assertPsbtSpend(
-		ctxt, t, net, alice, pkScript,
+		ht, alice, pkScript,
 		func(packet *psbt.Packet) {
 			in := &packet.Inputs[0]
 			in.Bip32Derivation = []*psbt.Bip32Derivation{{
@@ -637,16 +627,16 @@ func runSignPsbtSegWitV0P2WKH(t *harnessTest, net *lntest.NetworkHarness,
 			in.SighashType = txscript.SigHashAll
 		},
 		func(packet *psbt.Packet) {
-			require.Len(t.t, packet.Inputs, 1)
-			require.Len(t.t, packet.Inputs[0].PartialSigs, 1)
+			require.Len(ht, packet.Inputs, 1)
+			require.Len(ht, packet.Inputs[0].PartialSigs, 1)
 
 			partialSig := packet.Inputs[0].PartialSigs[0]
 			require.Equal(
-				t.t, partialSig.PubKey,
+				ht, partialSig.PubKey,
 				addrPubKey.SerializeCompressed(),
 			)
 			require.Greater(
-				t.t, len(partialSig.Signature), ecdsa.MinSigLen,
+				ht, len(partialSig.Signature), ecdsa.MinSigLen,
 			)
 		},
 	)
@@ -654,19 +644,11 @@ func runSignPsbtSegWitV0P2WKH(t *harnessTest, net *lntest.NetworkHarness,
 
 // runSignPsbtSegWitV1KeySpendBip86 tests that the SignPsbt RPC works correctly
 // for a SegWit v1 p2tr key spend BIP-0086 input.
-func runSignPsbtSegWitV1KeySpendBip86(t *harnessTest, net *lntest.NetworkHarness,
+func runSignPsbtSegWitV1KeySpendBip86(ht *lntest.HarnessTest,
 	alice *lntest.HarnessNode) {
 
-	// Everything we do here should be done within a second or two, so we
-	// can just keep a single timeout context around for all calls.
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-
 	// Derive a key we can use for signing.
-	keyDesc, internalKey, fullDerivationPath := deriveInternalKey(
-		ctxt, t, alice,
-	)
+	keyDesc, internalKey, fullDerivationPath := deriveInternalKey(ht, alice)
 
 	// Our taproot key is a BIP0086 key spend only construction that just
 	// commits to the internal key and no root hash.
@@ -674,14 +656,14 @@ func runSignPsbtSegWitV1KeySpendBip86(t *harnessTest, net *lntest.NetworkHarness
 	tapScriptAddr, err := btcutil.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey), harnessNetParams,
 	)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 	p2trPkScript, err := txscript.PayToAddrScript(tapScriptAddr)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// Send some funds to the output and then try to get a signature through
 	// the SignPsbt RPC to spend that output again.
 	assertPsbtSpend(
-		ctxt, t, net, alice, p2trPkScript,
+		ht, alice, p2trPkScript,
 		func(packet *psbt.Packet) {
 			in := &packet.Inputs[0]
 			in.Bip32Derivation = []*psbt.Bip32Derivation{{
@@ -695,9 +677,9 @@ func runSignPsbtSegWitV1KeySpendBip86(t *harnessTest, net *lntest.NetworkHarness
 			in.SighashType = txscript.SigHashDefault
 		},
 		func(packet *psbt.Packet) {
-			require.Len(t.t, packet.Inputs, 1)
+			require.Len(ht, packet.Inputs, 1)
 			require.Len(
-				t.t, packet.Inputs[0].TaprootKeySpendSig, 64,
+				ht, packet.Inputs[0].TaprootKeySpendSig, 64,
 			)
 		},
 	)
@@ -706,37 +688,29 @@ func runSignPsbtSegWitV1KeySpendBip86(t *harnessTest, net *lntest.NetworkHarness
 // runSignPsbtSegWitV1KeySpendRootHash tests that the SignPsbt RPC works
 // correctly for a SegWit v1 p2tr key spend that also commits to a script tree
 // root hash.
-func runSignPsbtSegWitV1KeySpendRootHash(t *harnessTest,
-	net *lntest.NetworkHarness, alice *lntest.HarnessNode) {
-
-	// Everything we do here should be done within a second or two, so we
-	// can just keep a single timeout context around for all calls.
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
+func runSignPsbtSegWitV1KeySpendRootHash(ht *lntest.HarnessTest,
+	alice *lntest.HarnessNode) {
 
 	// Derive a key we can use for signing.
-	keyDesc, internalKey, fullDerivationPath := deriveInternalKey(
-		ctxt, t, alice,
-	)
+	keyDesc, internalKey, fullDerivationPath := deriveInternalKey(ht, alice)
 
 	// Let's create a taproot script output now. This is a hash lock with a
 	// simple preimage of "foobar".
-	leaf1 := testScriptHashLock(t.t, []byte("foobar"))
+	leaf1 := testScriptHashLock(ht.T, []byte("foobar"))
 
 	rootHash := leaf1.TapHash()
 	taprootKey := txscript.ComputeTaprootOutputKey(internalKey, rootHash[:])
 	tapScriptAddr, err := btcutil.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey), harnessNetParams,
 	)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 	p2trPkScript, err := txscript.PayToAddrScript(tapScriptAddr)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// Send some funds to the output and then try to get a signature through
 	// the SignPsbt RPC to spend that output again.
 	assertPsbtSpend(
-		ctxt, t, net, alice, p2trPkScript,
+		ht, alice, p2trPkScript,
 		func(packet *psbt.Packet) {
 			in := &packet.Inputs[0]
 			in.Bip32Derivation = []*psbt.Bip32Derivation{{
@@ -751,9 +725,9 @@ func runSignPsbtSegWitV1KeySpendRootHash(t *harnessTest,
 			in.SighashType = txscript.SigHashDefault
 		},
 		func(packet *psbt.Packet) {
-			require.Len(t.t, packet.Inputs, 1)
+			require.Len(ht, packet.Inputs, 1)
 			require.Len(
-				t.t, packet.Inputs[0].TaprootKeySpendSig, 64,
+				ht, packet.Inputs[0].TaprootKeySpendSig, 64,
 			)
 		},
 	)
@@ -761,43 +735,35 @@ func runSignPsbtSegWitV1KeySpendRootHash(t *harnessTest,
 
 // runSignPsbtSegWitV1ScriptSpend tests that the SignPsbt RPC works correctly
 // for a SegWit v1 p2tr script spend.
-func runSignPsbtSegWitV1ScriptSpend(t *harnessTest,
-	net *lntest.NetworkHarness, alice *lntest.HarnessNode) {
-
-	// Everything we do here should be done within a second or two, so we
-	// can just keep a single timeout context around for all calls.
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
+func runSignPsbtSegWitV1ScriptSpend(ht *lntest.HarnessTest,
+	alice *lntest.HarnessNode) {
 
 	// Derive a key we can use for signing.
-	keyDesc, internalKey, fullDerivationPath := deriveInternalKey(
-		ctxt, t, alice,
-	)
+	keyDesc, internalKey, fullDerivationPath := deriveInternalKey(ht, alice)
 
 	// Let's create a taproot script output now. This is a hash lock with a
 	// simple preimage of "foobar".
-	leaf1 := testScriptSchnorrSig(t.t, internalKey)
+	leaf1 := testScriptSchnorrSig(ht.T, internalKey)
 
 	rootHash := leaf1.TapHash()
 	taprootKey := txscript.ComputeTaprootOutputKey(internalKey, rootHash[:])
 	tapScriptAddr, err := btcutil.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey), harnessNetParams,
 	)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 	p2trPkScript, err := txscript.PayToAddrScript(tapScriptAddr)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// We need to assemble the control block to be able to spend through the
 	// script path.
 	tapscript := input.TapscriptPartialReveal(internalKey, leaf1, nil)
 	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// Send some funds to the output and then try to get a signature through
 	// the SignPsbt RPC to spend that output again.
 	assertPsbtSpend(
-		ctxt, t, net, alice, p2trPkScript,
+		ht, alice, p2trPkScript,
 		func(packet *psbt.Packet) {
 			in := &packet.Inputs[0]
 			in.Bip32Derivation = []*psbt.Bip32Derivation{{
@@ -817,13 +783,13 @@ func runSignPsbtSegWitV1ScriptSpend(t *harnessTest,
 			}}
 		},
 		func(packet *psbt.Packet) {
-			require.Len(t.t, packet.Inputs, 1)
+			require.Len(ht, packet.Inputs, 1)
 			require.Len(
-				t.t, packet.Inputs[0].TaprootScriptSpendSig, 1,
+				ht, packet.Inputs[0].TaprootScriptSpendSig, 1,
 			)
 
 			scriptSpendSig := packet.Inputs[0].TaprootScriptSpendSig[0]
-			require.Len(t.t, scriptSpendSig.Signature, 64)
+			require.Len(ht, scriptSpendSig.Signature, 64)
 		},
 	)
 }
@@ -831,31 +797,29 @@ func runSignPsbtSegWitV1ScriptSpend(t *harnessTest,
 // assertPsbtSpend creates an output with the given pkScript on chain and then
 // attempts to create a sweep transaction that is signed using the SignPsbt RPC
 // that spends that output again.
-func assertPsbtSpend(ctx context.Context, t *harnessTest,
-	net *lntest.NetworkHarness, alice *lntest.HarnessNode, pkScript []byte,
-	decorateUnsigned func(*psbt.Packet), verifySigned func(*psbt.Packet)) {
+func assertPsbtSpend(ht *lntest.HarnessTest, alice *lntest.HarnessNode,
+	pkScript []byte, decorateUnsigned func(*psbt.Packet),
+	verifySigned func(*psbt.Packet)) {
 
 	// Let's send some coins to that address now.
 	utxo := &wire.TxOut{
 		Value:    600_000,
 		PkScript: pkScript,
 	}
-	resp, err := alice.WalletKitClient.SendOutputs(
-		ctx, &walletrpc.SendOutputsRequest{
-			Outputs: []*signrpc.TxOut{{
-				Value:    utxo.Value,
-				PkScript: utxo.PkScript,
-			}},
-			MinConfs:         0,
-			SpendUnconfirmed: true,
-			SatPerKw:         2500,
-		},
-	)
-	require.NoError(t.t, err)
+	req := &walletrpc.SendOutputsRequest{
+		Outputs: []*signrpc.TxOut{{
+			Value:    utxo.Value,
+			PkScript: utxo.PkScript,
+		}},
+		MinConfs:         0,
+		SpendUnconfirmed: true,
+		SatPerKw:         2500,
+	}
+	resp := ht.SendOutputs(alice, req)
 
 	prevTx := wire.NewMsgTx(2)
-	err = prevTx.Deserialize(bytes.NewReader(resp.RawTx))
-	require.NoError(t.t, err)
+	err := prevTx.Deserialize(bytes.NewReader(resp.RawTx))
+	require.NoError(ht, err)
 
 	prevOut := -1
 	for idx, txOut := range prevTx.TxOut {
@@ -863,7 +827,7 @@ func assertPsbtSpend(ctx context.Context, t *harnessTest,
 			prevOut = idx
 		}
 	}
-	require.Greater(t.t, prevOut, -1)
+	require.Greater(ht, prevOut, -1)
 
 	// Okay, we have everything we need to create a PSBT now.
 	pendingTx := &wire.MsgTx{
@@ -881,7 +845,7 @@ func assertPsbtSpend(ctx context.Context, t *harnessTest,
 		}},
 	}
 	packet, err := psbt.NewFromUnsignedTx(pendingTx)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// Now let's add the meta information that we need for signing.
 	packet.Inputs[0].WitnessUtxo = utxo
@@ -891,20 +855,16 @@ func assertPsbtSpend(ctx context.Context, t *harnessTest,
 	// That's it, we should be able to sign the PSBT now.
 	var buf bytes.Buffer
 	err = packet.Serialize(&buf)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
-	signResp, err := alice.WalletKitClient.SignPsbt(
-		ctx, &walletrpc.SignPsbtRequest{
-			FundedPsbt: buf.Bytes(),
-		},
-	)
-	require.NoError(t.t, err)
+	signReq := &walletrpc.SignPsbtRequest{FundedPsbt: buf.Bytes()}
+	signResp := ht.SignPsbt(alice, signReq)
 
 	// Let's make sure we have a partial signature.
 	signedPacket, err := psbt.NewFromRawBytes(
 		bytes.NewReader(signResp.SignedPsbt), false,
 	)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// Allow the caller to also verify (and potentially move) some of the
 	// returned fields.
@@ -912,43 +872,37 @@ func assertPsbtSpend(ctx context.Context, t *harnessTest,
 
 	// We should be able to finalize the PSBT and extract the final TX now.
 	err = psbt.MaybeFinalizeAll(signedPacket)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	finalTx, err := psbt.Extract(signedPacket)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	buf.Reset()
 	err = finalTx.Serialize(&buf)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// Publish the second transaction and then mine both of them.
-	_, err = alice.WalletKitClient.PublishTransaction(
-		ctx, &walletrpc.Transaction{
-			TxHex: buf.Bytes(),
-		},
-	)
-	require.NoError(t.t, err)
+	txReq := &walletrpc.Transaction{TxHex: buf.Bytes()}
+	ht.PublishTransaction(alice, txReq)
 
 	// Mine one block which should contain two transactions.
-	block := mineBlocks(t, net, 1, 2)[0]
+	block := ht.MineBlocksAndAssertTx(1, 2)[0]
 	firstTxHash := prevTx.TxHash()
 	secondTxHash := finalTx.TxHash()
-	assertTxInBlock(t, block, &firstTxHash)
-	assertTxInBlock(t, block, &secondTxHash)
+	ht.AssertTxInBlock(block, &firstTxHash)
+	ht.AssertTxInBlock(block, &secondTxHash)
 }
 
 // deriveInternalKey derives a signing key and returns its descriptor, full
 // derivation path and parsed public key.
-func deriveInternalKey(ctx context.Context, t *harnessTest,
+func deriveInternalKey(ht *lntest.HarnessTest,
 	alice *lntest.HarnessNode) (*signrpc.KeyDescriptor, *btcec.PublicKey,
 	[]uint32) {
 
 	// For the next step, we need a public key. Let's use a special family
 	// for this.
-	keyDesc, err := alice.WalletKitClient.DeriveNextKey(
-		ctx, &walletrpc.KeyReq{KeyFamily: testTaprootKeyFamily},
-	)
-	require.NoError(t.t, err)
+	req := &walletrpc.KeyReq{KeyFamily: testTaprootKeyFamily}
+	keyDesc := ht.DeriveNextKey(alice, req)
 
 	// The DeriveNextKey returns a key from the internal 1017 scope.
 	fullDerivationPath := []uint32{
@@ -960,96 +914,7 @@ func deriveInternalKey(ctx context.Context, t *harnessTest,
 	}
 
 	parsedPubKey, err := btcec.ParsePubKey(keyDesc.RawKeyBytes)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	return keyDesc, parsedPubKey, fullDerivationPath
-}
-
-// openChannelPsbt attempts to open a channel between srcNode and destNode with
-// the passed channel funding parameters. If the passed context has a timeout,
-// then if the timeout is reached before the channel pending notification is
-// received, an error is returned. An error is returned if the expected step
-// of funding the PSBT is not received from the source node.
-// TODO(yy): delete
-func openChannelPsbt(ctx context.Context, srcNode, destNode *lntest.HarnessNode,
-	p lntest.OpenChannelParams) (lnrpc.Lightning_OpenChannelClient, []byte,
-	error) {
-
-	// Wait until srcNode and destNode have the latest chain synced.
-	// Otherwise, we may run into a check within the funding manager that
-	// prevents any funding workflows from being kicked off if the chain
-	// isn't yet synced.
-	if err := srcNode.WaitForBlockchainSync(); err != nil {
-		return nil, nil, fmt.Errorf("unable to sync srcNode chain: %v",
-			err)
-	}
-	if err := destNode.WaitForBlockchainSync(); err != nil {
-		return nil, nil, fmt.Errorf("unable to sync destNode chain: %v",
-			err)
-	}
-
-	// Send the request to open a channel to the source node now. This will
-	// open a long-lived stream where we'll receive status updates about the
-	// progress of the channel.
-	respStream, err := srcNode.OpenChannel(ctx, &lnrpc.OpenChannelRequest{
-		NodePubkey:         destNode.PubKey[:],
-		LocalFundingAmount: int64(p.Amt),
-		PushSat:            int64(p.PushAmt),
-		Private:            p.Private,
-		SpendUnconfirmed:   p.SpendUnconfirmed,
-		MinHtlcMsat:        int64(p.MinHtlc),
-		FundingShim:        p.FundingShim,
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to open channel between "+
-			"source and dest: %v", err)
-	}
-
-	// Consume the "PSBT funding ready" update. This waits until the node
-	// notifies us that the PSBT can now be funded.
-	resp, err := receiveChanUpdate(ctx, respStream)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to consume channel update "+
-			"message: %v", err)
-	}
-	upd, ok := resp.Update.(*lnrpc.OpenStatusUpdate_PsbtFund)
-	if !ok {
-		return nil, nil, fmt.Errorf("expected PSBT funding update, "+
-			"instead got %v", resp)
-	}
-	return respStream, upd.PsbtFund.Psbt, nil
-}
-
-// receiveChanUpdate waits until a message is received on the stream or the
-// context is canceled. The context must have a timeout or must be canceled
-// in case no message is received, otherwise this function will block forever.
-// TODO(yy): delete
-func receiveChanUpdate(ctx context.Context,
-	stream lnrpc.Lightning_OpenChannelClient) (*lnrpc.OpenStatusUpdate,
-	error) {
-
-	chanMsg := make(chan *lnrpc.OpenStatusUpdate)
-	errChan := make(chan error)
-	go func() {
-		// Consume one message. This will block until the message is
-		// received.
-		resp, err := stream.Recv()
-		if err != nil {
-			errChan <- err
-			return
-		}
-		chanMsg <- resp
-	}()
-
-	select {
-	case <-ctx.Done():
-		return nil, fmt.Errorf("timeout reached before chan pending " +
-			"update sent")
-
-	case err := <-errChan:
-		return nil, err
-
-	case updateMsg := <-chanMsg:
-		return updateMsg, nil
-	}
 }

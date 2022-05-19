@@ -4,6 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	/*
+	 * Ben: Isn't it a invalide import?
+	 */
 	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 	"io/ioutil"

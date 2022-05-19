@@ -1256,6 +1256,9 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		return
 	}
 
+	/*
+	 * OBD TO DO(Ben, Wxf): MUST check the asset amount is within the Max-Min range. NOT only the bitcoin  
+	 */
 	// Ensure that the remote party respects our maximum channel size.
 	if btcAmt > f.cfg.MaxChanSize {
 		f.failFundingFlow(
@@ -1265,6 +1268,9 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		return
 	}
 
+	/*
+	 * OBD TO DO(Ben, Wxf): MUST check the asset amount is within the Max-Min range. NOT only the bitcoin  
+	 */
 	// We'll, also ensure that the remote party isn't attempting to propose
 	// a channel that's below our current min channel size.
 	if btcAmt < f.cfg.MinChanSize {
@@ -1275,6 +1281,9 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		return
 	}
 
+	/*
+	 * OBD TO DO(Ben, Wxf): MUST check the asset push amount. NOT only the bitcoin  
+	 */
 	// If request specifies non-zero push amount and 'rejectpush' is set,
 	// signal an error.
 	if f.cfg.RejectPush && msg.PushBtcAmount > 0 {
@@ -1479,7 +1488,12 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	if msg.DustLimit > maxDustLimit {
 		maxDustLimit = msg.DustLimit
 	}
+
+	/*
+	 * OBD TODO(Ben, Wxf): must check the remote channel reserve in certain asset, not only bitcoin.
+	 */
 	chanReserve := f.cfg.RequiredRemoteChanReserve(msg.AssetId, amt, maxDustLimit)
+
 	if acceptorResp.Reserve != 0 {
 		chanReserve = acceptorResp.Reserve
 	}
@@ -1490,14 +1504,21 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		remoteMaxValue = acceptorResp.InFlightTotal
 	}
 
+	/*
+	 * OBD TODO(Ben, Wxf): the maxHTLC MUST be asset amount, not the bitcoin amount. MUST consistent to the minHTLC below.
+	 */
 	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(amt)
+
 	if acceptorResp.HtlcLimit != 0 {
 		maxHtlcs = acceptorResp.HtlcLimit
 	}
 
+	/*
+	 * OBD TODO(Ben, Wxf): the minHtlc MUST be asset amount, not the bitcoin amount. 
+	 */
 	// Default to our default minimum hltc value, replacing it with the
 	// channel acceptor's value if it is set.
-	minHtlc := omnicore.LoadDefaultMinHtlc(msg.AssetId, f.cfg.DefaultMinHtlcIn)
+	minHtlc :=f.cfg.GetDefaultMinHtlc(msg.AssetId)
 	if acceptorResp.MinHtlcIn != 0 {
 		minHtlc = acceptorResp.MinHtlcIn
 	}
@@ -1729,6 +1750,12 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	if resCtx.assetId==omnicore.BtcAssetId{
 		amt=lnwire.UnitPrec8(resCtx.chanBtcAmt)
 	}
+	
+	/*
+	 * OBD TODO(Ben, Wxf): not only the asset reserve should be required from remote, but also the bitcoin reserve, 
+	 * which is used in calculating dust to avoid channel stuck.
+	 */
+	
 	// As they've accepted our channel constraints, we'll regenerate them
 	// here so we can properly commit their accepted constraints to the
 	// reservation. Also make sure that we re-generate the ChannelReserve

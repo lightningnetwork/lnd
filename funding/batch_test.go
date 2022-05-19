@@ -108,6 +108,9 @@ func (h *testHarness) parseRequest(
 
 	return &InitFundingMsg{
 		TargetPubkey:    pubKey,
+		/*
+		 * TODO(Ben, Wxf): MUST test asset funding request, not just btc only. 
+		 */
 		LocalFundingBtcAmt: btcutil.Amount(in.LocalFundingAmount),
 		PushBtcAmt: lnwire.NewMSatFromSatoshis(
 			btcutil.Amount(in.PushSat),
@@ -153,6 +156,9 @@ func (h *testHarness) openChannel(
 		Update: &lnrpc.OpenStatusUpdate_PsbtFund{
 			PsbtFund: &lnrpc.ReadyForPsbtFunding{
 				FundingAmount: int64(
+					/*
+					 * TODO(Ben, Wxf): here MUST test asset funding amount, not merely Bitcoin amount. 
+					 */
 					req.LocalFundingBtcAmt,
 				),
 				FundingAddress: fmt.Sprintf("foo%d", chanIndex),

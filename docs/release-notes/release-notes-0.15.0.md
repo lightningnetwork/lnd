@@ -332,6 +332,14 @@ to the htlc interceptor API.
   grow very large on disk given a busy operating channel, [which is now changed
   with a space deduction over (at least) 96 percents.](https://github.com/lightningnetwork/lnd/pull/6347) 
 
+* Aside from the above database optimization, two new fields,
+  [`InitialLocalBalance` and `InitialRemoteBalance` have been added to each
+  channel to keep track of the push
+  amount](https://github.com/lightningnetwork/lnd/pull/6551). For open
+  channels, these values are taken from reading its past states. For
+  historical(closed) channels, they are patched with empty values as the
+  channels' past states have been deleted during closing.
+
 * [Mobile builds now expose main sub-servers by default](https://github.com/lightningnetwork/lnd/pull/6464).
   All API methods have prefixed the generated methods with the subserver name.
   This is required to support subservers with name conflicts.

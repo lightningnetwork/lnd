@@ -256,7 +256,7 @@ func genBeforeMigration(c *OpenChannel,
 		}
 
 		// Create the channel bucket.
-		chanBucket, err := createChanBucket(tx, c)
+		chanBucket, err := CreateChanBucket(tx, c)
 		if err != nil {
 			return err
 		}
@@ -295,7 +295,7 @@ func genAfterMigration(ourAmt, theirAmt lnwire.MilliSatoshi,
 			return nil
 		}
 
-		chanBucket, err := fetchChanBucket(tx, c)
+		chanBucket, err := FetchChanBucket(tx, c)
 		if err != nil {
 			return err
 		}
@@ -332,42 +332,6 @@ func genAfterMigration(ourAmt, theirAmt lnwire.MilliSatoshi,
 
 		return nil
 	}
-}
-
-func createChanBucket(tx kvdb.RwTx, c *OpenChannel) (kvdb.RwBucket, error) {
-	// First fetch the top level bucket which stores all data related to
-	// current, active channels.
-	openChanBucket, err := tx.CreateTopLevelBucket(openChannelBucket)
-	if err != nil {
-		return nil, err
-	}
-
-	// Within this top level bucket, fetch the bucket dedicated to storing
-	// open channel data specific to the remote node.
-	nodePub := c.IdentityPub.SerializeCompressed()
-	nodeChanBucket, err := openChanBucket.CreateBucketIfNotExists(nodePub)
-	if err != nil {
-		return nil, err
-	}
-
-	// We'll then recurse down an additional layer in order to fetch the
-	// bucket for this particular chain.
-	chainBucket, err := nodeChanBucket.CreateBucketIfNotExists(
-		c.ChainHash[:],
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	var chanPointBuf bytes.Buffer
-	err = mig.WriteOutpoint(&chanPointBuf, &c.FundingOutpoint)
-	if err != nil {
-		return nil, err
-	}
-
-	// With the bucket for the node fetched, we can now go down another
-	// level, creating the bucket for this channel itself.
-	return chainBucket.CreateBucketIfNotExists(chanPointBuf.Bytes())
 }
 
 // putChannelLogEntryLegacy saves an old format revocation log to the bucket.

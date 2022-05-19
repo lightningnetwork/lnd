@@ -20,6 +20,8 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration23"
 	"github.com/lightningnetwork/lnd/channeldb/migration24"
 	"github.com/lightningnetwork/lnd/channeldb/migration25"
+	"github.com/lightningnetwork/lnd/channeldb/migration26"
+	"github.com/lightningnetwork/lnd/channeldb/migration27"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -211,6 +213,18 @@ var (
 			// info.
 			number:    25,
 			migration: migration25.MigrateInitialBalances,
+		},
+		{
+			// Migrate the initial local/remote balance fields into
+			// tlv records.
+			number:    26,
+			migration: migration26.MigrateBalancesToTlvRecords,
+		},
+		{
+			// Patch the initial local/remote balance fields with
+			// empty values for historical channels.
+			number:    27,
+			migration: migration27.MigrateHistoricalBalances,
 		},
 	}
 

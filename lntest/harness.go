@@ -472,6 +472,16 @@ func (h *HarnessTest) EnsureConnected(a, b *HarnessNode) {
 	h.assertPeerConnected(b, a)
 }
 
+// SendCoinsOfType attempts to send amt satoshis from the internal mining node
+// to the targeted lightning node. The confirmed boolean indicates whether the
+// transaction that pays to the target should confirm.
+func (h *HarnessTest) SendCoinsOfType(amt btcutil.Amount, hn *HarnessNode,
+	addrType lnrpc.AddressType, confirmed bool) {
+
+	err := h.net.SendCoinsOfType(amt, hn, addrType, confirmed)
+	require.NoErrorf(h, err, "unable to send coins for %s", hn.Cfg.Name)
+}
+
 // SendCoins attempts to send amt satoshis from the internal mining node to the
 // targeted lightning node using a P2WKH address. 6 blocks are mined after in
 // order to confirm the transaction.

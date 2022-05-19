@@ -108,6 +108,9 @@ func (h *testHarness) parseRequest(
 
 	return &InitFundingMsg{
 		TargetPubkey:    pubKey,
+		/*
+		 * TODO(Ben, Wxf): MUST test asset funding request, not just btc only. 
+		 */
 		LocalFundingBtcAmt: btcutil.Amount(in.LocalFundingAmount),
 		PushBtcAmt: lnwire.NewMSatFromSatoshis(
 			btcutil.Amount(in.PushSat),

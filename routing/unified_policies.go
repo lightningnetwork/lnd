@@ -283,6 +283,8 @@ func (u *unifiedPolicy) getPolicyNetwork(
 // minAmt returns the minimum amount that can be forwarded on this connection.
 /*obd update wxf*/
 func (u *unifiedPolicy) minAmt() lnwire.UnitPrec11 {
+	// min := lnwire.MaxMilliSatosh
+	// Ben: check it, may error if set 1
 	min := lnwire.UnitPrec11(1)
 	for _, edge := range u.edges {
 		if edge.policy.MinHTLC < min {

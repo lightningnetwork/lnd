@@ -49,10 +49,10 @@ func (m MilliSatoshi) String() string {
 
 // TODO(roasbeef): extend with arithmetic operations?
 
-//8 precision used for lnwire.MilliSatoshi
+// OBD Wxf: 11 precision used for lnwire.MilliSatoshi
 type   UnitPrec11 uint64
 
-//11 precision, used for btcutil.Amount
+// OBD Wxf: 8 precision, used for btcutil.Amount
 type   UnitPrec8 uint64
 
 func (i UnitPrec8) ToMsat() MilliSatoshi {

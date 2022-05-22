@@ -54,42 +54,80 @@ var (
 		},
 	}
 
-	// testChannel is used to test the balance fields are correctly set.
-	testChannel = &OpenChannel{
-		OpenChannel: mig26.OpenChannel{
-			OpenChannel: mig25.OpenChannel{
-				OpenChannel: mig.OpenChannel{
-					IdentityPub:     dummyPubKey,
-					FundingOutpoint: dummyOp,
-					FundingTxn:      commitTx1,
-					IsInitiator:     true,
-				},
-			},
-		},
-	}
+	// testChanStatus specifies the following channel status,
+	// ChanStatusLocalDataLoss|ChanStatusRestored|ChanStatusRemoteCloseInitiator
+	testChanStatus = mig25.ChannelStatus(0x4c)
 )
 
 // TestMigrateHistoricalBalances checks that the initial balances fields are
 // patched to the historical channel info.
 func TestMigrateHistoricalBalances(t *testing.T) {
-	// Test that when the historical channel doesn't have the two new
-	// fields.
-	migtest.ApplyMigration(
-		t,
-		genBeforeMigration(testChannel, false),
-		genAfterMigration(testChannel),
-		MigrateHistoricalBalances,
-		false,
-	)
+	testCases := []struct {
+		name               string
+		isAfterMigration25 bool
+		isRestored         bool
+	}{
+		{
+			// Test that when the restored historical channel
+			// doesn't have the two new fields.
+			name:               "restored before migration25",
+			isAfterMigration25: false,
+			isRestored:         true,
+		},
+		{
+			// Test that when the restored historical channel have
+			// the two new fields.
+			name:               "restored after migration25",
+			isAfterMigration25: true,
+			isRestored:         true,
+		},
+		{
+			// Test that when the historical channel with a default
+			// channel status flag doesn't have the two new fields.
+			name:               "default before migration25",
+			isAfterMigration25: false,
+			isRestored:         false,
+		},
+		{
+			// Test that when the historical channel with a default
+			// channel status flag have the two new fields.
+			name:               "default after migration25",
+			isAfterMigration25: true,
+			isRestored:         false,
+		},
+	}
 
-	// Test that when the historical channel have the two new fields.
-	migtest.ApplyMigration(
-		t,
-		genBeforeMigration(testChannel, true),
-		genAfterMigration(testChannel),
-		MigrateHistoricalBalances,
-		false,
-	)
+	for _, tc := range testCases {
+		tc := tc
+
+		// testChannel is used to test the balance fields are correctly
+		// set.
+		testChannel := &OpenChannel{}
+		testChannel.IdentityPub = dummyPubKey
+		testChannel.FundingOutpoint = dummyOp
+		testChannel.FundingTxn = commitTx1
+		testChannel.IsInitiator = true
+
+		// Set the channel status flag is we are testing the restored
+		// case.
+		if tc.isRestored {
+			testChannel.ChanStatus = testChanStatus
+		}
+
+		// Create before and after migration functions.
+		beforeFn := genBeforeMigration(
+			testChannel, tc.isAfterMigration25,
+		)
+		afterFn := genAfterMigration(testChannel, tc.isRestored)
+
+		// Run the test.
+		t.Run(tc.name, func(t *testing.T) {
+			migtest.ApplyMigration(
+				t, beforeFn, afterFn,
+				MigrateHistoricalBalances, false,
+			)
+		})
+	}
 }
 
 func genBeforeMigration(c *OpenChannel, regression bool) func(kvdb.RwTx) error {
@@ -116,7 +154,7 @@ func genBeforeMigration(c *OpenChannel, regression bool) func(kvdb.RwTx) error {
 	}
 }
 
-func genAfterMigration(c *OpenChannel) func(kvdb.RwTx) error {
+func genAfterMigration(c *OpenChannel, restored bool) func(kvdb.RwTx) error {
 	return func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchHistoricalChanBucket(tx, c)
 		if err != nil {
@@ -159,6 +197,16 @@ func genAfterMigration(c *OpenChannel) func(kvdb.RwTx) error {
 		if !newChan.IsInitiator {
 			return fmt.Errorf("wrong IsInitiator")
 		}
+
+		// If it's restored, there should be no funding tx.
+		if restored {
+			if newChan.FundingTxn != nil {
+				return fmt.Errorf("expect nil FundingTxn")
+			}
+			return nil
+		}
+
+		// Otherwise check the funding tx is read as expected.
 		if newChan.FundingTxn.TxHash() != commitTx1.TxHash() {
 			return fmt.Errorf("wrong FundingTxn")
 		}
@@ -167,7 +215,9 @@ func genAfterMigration(c *OpenChannel) func(kvdb.RwTx) error {
 	}
 }
 
-func createHistoricalBucket(tx kvdb.RwTx, c *OpenChannel) (kvdb.RwBucket, error) {
+func createHistoricalBucket(tx kvdb.RwTx,
+	c *OpenChannel) (kvdb.RwBucket, error) {
+
 	// First fetch the top level bucket which stores all data related to
 	// historical channels.
 	rootBucket, err := tx.CreateTopLevelBucket(historicalChannelBucket)

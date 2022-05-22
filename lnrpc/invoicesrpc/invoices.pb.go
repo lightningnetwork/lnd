@@ -84,7 +84,8 @@ type CancelInvoiceMsg struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Hash corresponding to the (hold) invoice to cancel.
+	// Hash corresponding to the (hold) invoice to cancel. When using
+	// REST, this field must be encoded as base64.
 	PaymentHash []byte `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
 }
 
@@ -477,7 +478,8 @@ type SubscribeSingleInvoiceRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Hash corresponding to the (hold) invoice to subscribe to.
+	// Hash corresponding to the (hold) invoice to subscribe to. When using
+	// REST, this field must be encoded as base64url.
 	RHash []byte `protobuf:"bytes,2,opt,name=r_hash,json=rHash,proto3" json:"r_hash,omitempty"`
 }
 
@@ -605,6 +607,7 @@ type isLookupInvoiceMsg_InvoiceRef interface {
 }
 
 type LookupInvoiceMsg_PaymentHash struct {
+	// When using REST, this field must be encoded as base64.
 	PaymentHash []byte `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3,oneof"`
 }
 

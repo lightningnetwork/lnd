@@ -103,6 +103,7 @@
         "parameters": [
           {
             "name": "payment_hash",
+            "description": "When using REST, this field must be encoded as base64.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -204,7 +205,7 @@
         "parameters": [
           {
             "name": "r_hash",
-            "description": "Hash corresponding to the (hold) invoice to subscribe to.",
+            "description": "Hash corresponding to the (hold) invoice to subscribe to. When using\nREST, this field must be encoded as base64url.",
             "in": "path",
             "required": true,
             "type": "string",
@@ -309,7 +310,7 @@
         "payment_hash": {
           "type": "string",
           "format": "byte",
-          "description": "Hash corresponding to the (hold) invoice to cancel."
+          "description": "Hash corresponding to the (hold) invoice to cancel. When using\nREST, this field must be encoded as base64."
         }
       }
     },

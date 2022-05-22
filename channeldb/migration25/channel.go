@@ -277,9 +277,13 @@ type OpenChannel struct {
 	// ChanType denotes which type of channel this is.
 	ChanType ChannelType
 
-	// chanStatus is the current status of this channel. If it is not in
+	// ChanStatus is the current status of this channel. If it is not in
 	// the state Default, it should not be used for forwarding payments.
-	chanStatus ChannelStatus
+	//
+	// NOTE: In `channeldb.OpenChannel`, this field is private. We choose
+	// to export this private field such that following migrations can
+	// access this field directly.
+	ChanStatus ChannelStatus
 
 	// InitialLocalBalance is the balance we have during the channel
 	// opening. When we are not the initiator, this value represents the
@@ -320,10 +324,10 @@ func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
 	// Special case ChanStatusDefualt since it isn't actually flag, but a
 	// particular combination (or lack-there-of) of flags.
 	if status == ChanStatusDefault {
-		return c.chanStatus == ChanStatusDefault
+		return c.ChanStatus == ChanStatusDefault
 	}
 
-	return c.chanStatus&status == status
+	return c.ChanStatus&status == status
 }
 
 // FundingTxPresent returns true if expect the funding transcation to be found
@@ -361,7 +365,7 @@ func fetchChanInfo(chanBucket kvdb.RBucket, c *OpenChannel, legacy bool) error {
 	}
 
 	c.ChanType = ChannelType(chanType)
-	c.chanStatus = ChannelStatus(chanStatus)
+	c.ChanStatus = ChannelStatus(chanStatus)
 
 	// If this is not the legacy format, we need to read the extra two new
 	// fields.
@@ -432,7 +436,7 @@ func putChanInfo(chanBucket kvdb.RwBucket, c *OpenChannel, legacy bool) error {
 	if err := mig.WriteElements(&w,
 		mig.ChannelType(c.ChanType), c.ChainHash, c.FundingOutpoint,
 		c.ShortChannelID, c.IsPending, c.IsInitiator,
-		mig.ChannelStatus(c.chanStatus), c.FundingBroadcastHeight,
+		mig.ChannelStatus(c.ChanStatus), c.FundingBroadcastHeight,
 		c.NumConfsRequired, c.ChannelFlags,
 		c.IdentityPub, c.Capacity, c.TotalMSatSent,
 		c.TotalMSatReceived,

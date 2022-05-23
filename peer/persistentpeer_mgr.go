@@ -62,6 +62,10 @@ type persistentPeer struct {
 
 	// backoff is the time to wait before trying to reconnect to a peer.
 	backoff time.Duration
+
+	// retryCanceller is used to cancel any retry attempt with backoff
+	// that is still maturing.
+	retryCanceller *chan struct{}
 }
 
 // NewPersistentPeerManager creates a new PersistentPeerManager instance.
@@ -362,4 +366,47 @@ func computeNextBackoff(currBackoff, maxBackoff time.Duration) time.Duration {
 	// Otherwise add in our wiggle, but subtract out half of the margin so
 	// that the backoff can tweaked by 1/20 in either direction.
 	return nextBackoff + (time.Duration(wiggle.Uint64()) - margin/2)
+}
+
+// CancelRetries closes the retry canceller channel of the given peer.
+func (m *PersistentPeerManager) CancelRetries(pubKey *btcec.PublicKey) {
+	m.Lock()
+	defer m.Unlock()
+
+	peer, ok := m.conns[route.NewVertex(pubKey)]
+	if !ok {
+		return
+	}
+
+	if peer.retryCanceller == nil {
+		return
+	}
+
+	// Cancel any lingering persistent retry attempts, which will
+	// prevent retries for any with backoffs that are still maturing.
+	close(*peer.retryCanceller)
+	peer.retryCanceller = nil
+}
+
+// GetRetryCanceller returns the existing retry canceller channel of the peer
+// or creates one if one does not exist yet.
+func (m *PersistentPeerManager) GetRetryCanceller(
+	pubKey *btcec.PublicKey) chan struct{} {
+
+	m.Lock()
+	defer m.Unlock()
+
+	peer, ok := m.conns[route.NewVertex(pubKey)]
+	if !ok {
+		return nil
+	}
+
+	if peer.retryCanceller != nil {
+		return *peer.retryCanceller
+	}
+
+	cancelChan := make(chan struct{})
+	peer.retryCanceller = &cancelChan
+
+	return cancelChan
 }

@@ -189,8 +189,6 @@ type server struct {
 
 	persistentPeerMgr *peer.PersistentPeerManager
 
-	persistentRetryCancels map[string]chan struct{}
-
 	// peerErrors keeps a set of peer error buffers for peers that have
 	// disconnected from us. This allows us to track historic peer errors
 	// over connections. The string of the peer's compressed pubkey is used
@@ -571,7 +569,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				MaxBackoff: cfg.MaxBackoff,
 			},
 		),
-		persistentRetryCancels:  make(map[string]chan struct{}),
 		peerErrors:              make(map[string]*queue.CircularBuffer),
 		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
 		scheduledPeerConnection: make(map[string]func()),
@@ -3416,14 +3413,9 @@ const UnassignedConnID uint64 = 0
 // canceling a successful request. All persistent connreqs for the provided
 // pubkey are discarded after the operationjw.
 func (s *server) cancelConnReqs(pubKey *btcec.PublicKey, skip *uint64) {
-	pubStr := string(pubKey.SerializeCompressed())
-
 	// First, cancel any lingering persistent retry attempts, which will
 	// prevent retries for any with backoffs that are still maturing.
-	if cancelChan, ok := s.persistentRetryCancels[pubStr]; ok {
-		close(cancelChan)
-		delete(s.persistentRetryCancels, pubStr)
-	}
+	s.persistentPeerMgr.CancelRetries(pubKey)
 
 	// Next, check to see if we have any outstanding persistent connection
 	// requests to this peer. If so, then we'll remove all of these
@@ -3847,11 +3839,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 
 	// Initialize a retry canceller for this peer if one does not
 	// exist.
-	cancelChan, ok := s.persistentRetryCancels[pubStr]
-	if !ok {
-		cancelChan = make(chan struct{})
-		s.persistentRetryCancels[pubStr] = cancelChan
-	}
+	cancelChan := s.persistentPeerMgr.GetRetryCanceller(pubKey)
 
 	// We choose not to wait group this go routine since the Connect
 	// call can stall for arbitrarily long if we shutdown while an
@@ -3896,8 +3884,6 @@ func (s *server) connectToPersistentPeer(pubKey *btcec.PublicKey) {
 		addrMap[addr.String()] = addr
 	}
 
-	pubKeyStr := string(pubKey.SerializeCompressed())
-
 	// Go through each of the existing connection requests and
 	// check if they correspond to the latest set of addresses. If
 	// there is a connection requests that does not use one of the latest
@@ -3930,12 +3916,7 @@ func (s *server) connectToPersistentPeer(pubKey *btcec.PublicKey) {
 	}
 
 	s.persistentPeerMgr.SetPeerConnReqs(pubKey, updatedConnReqs...)
-
-	cancelChan, ok := s.persistentRetryCancels[pubKeyStr]
-	if !ok {
-		cancelChan = make(chan struct{})
-		s.persistentRetryCancels[pubKeyStr] = cancelChan
-	}
+	cancelChan := s.persistentPeerMgr.GetRetryCanceller(pubKey)
 
 	// Any addresses left in addrMap are new ones that we have not made
 	// connection requests for. So create new connection requests for those.

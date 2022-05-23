@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -136,4 +137,50 @@ func TestPersistentPeerManager(t *testing.T) {
 	m.DelPeer(bobPubKey)
 	peers = m.PersistentPeers()
 	require.Len(t, peers, 0)
+}
+
+// TestRetryCanceller tests that the peer retry canceller channel logic works
+// as expected.
+func TestRetryCanceller(t *testing.T) {
+	m := NewPersistentPeerManager(&PersistentPeerMgrConfig{
+		MinBackoff: time.Millisecond * 10,
+		MaxBackoff: time.Millisecond * 100,
+	})
+
+	_, alicePubKey := btcec.PrivKeyFromBytes(channels.AlicesPrivKey)
+	m.AddPeer(alicePubKey, false)
+
+	rc := m.GetRetryCanceller(alicePubKey)
+
+	// retryFunction represents a function that should be canceled if the
+	// retry canceller channel is closed.
+	errs := make(chan error, 3)
+	retryFunction := func() {
+		select {
+		case <-time.After(time.Second * 10):
+			errs <- fmt.Errorf("retry canceller was not cancelled")
+		case <-rc:
+			errs <- nil
+		}
+	}
+
+	// Spin off a few retry functions.
+	go retryFunction()
+	go retryFunction()
+	go retryFunction()
+
+	// Cancel the retries. This should cause all the retry functions to
+	// exit.
+	m.CancelRetries(alicePubKey)
+
+	for i := 0; i < 3; i++ {
+		err := <-errs
+		if err != nil {
+			t.Fatalf(err.Error())
+		}
+	}
+
+	// Calling cancel again should not cause any closing-of-nil-channel
+	// panics.
+	m.CancelRetries(alicePubKey)
 }

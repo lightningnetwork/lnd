@@ -172,6 +172,9 @@ from occurring that would result in an erroneous force close.](https://github.co
 * [Fixed an intermittent panic that would occur due to a violated assumption with our
   underlying database.](https://github.com/lightningnetwork/lnd/pull/6547)
 
+* [Fixed a wrong channel status inheritance used in `migration26` and
+  `migration27`](https://github.com/lightningnetwork/lnd/pull/6563).
+
 ## Routing
 
 * [Add a new `time_pref` parameter to the QueryRoutes and SendPayment APIs](https://github.com/lightningnetwork/lnd/pull/6024) that

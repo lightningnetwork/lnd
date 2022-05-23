@@ -59,10 +59,6 @@ var (
 // NOTE: doesn't have the Packager field as it's not used in current migration.
 type OpenChannel struct {
 	mig26.OpenChannel
-
-	// chanStatus is the current status of this channel. If it is not in
-	// the state Default, it should not be used for forwarding payments.
-	chanStatus mig25.ChannelStatus
 }
 
 // FetchChanInfo deserializes the channel info based on the legacy boolean.
@@ -90,7 +86,7 @@ func FetchChanInfo(chanBucket kvdb.RBucket, c *OpenChannel, legacy bool) error {
 	}
 
 	c.ChanType = mig25.ChannelType(chanType)
-	c.chanStatus = mig25.ChannelStatus(chanStatus)
+	c.ChanStatus = mig25.ChannelStatus(chanStatus)
 
 	// For single funder channels that we initiated and have the funding
 	// transaction to, read the funding txn.
@@ -182,7 +178,7 @@ func PutChanInfo(chanBucket kvdb.RwBucket, c *OpenChannel, legacy bool) error {
 	if err := mig.WriteElements(&w,
 		mig.ChannelType(c.ChanType), c.ChainHash, c.FundingOutpoint,
 		c.ShortChannelID, c.IsPending, c.IsInitiator,
-		mig.ChannelStatus(c.chanStatus), c.FundingBroadcastHeight,
+		mig.ChannelStatus(c.ChanStatus), c.FundingBroadcastHeight,
 		c.NumConfsRequired, c.ChannelFlags,
 		c.IdentityPub, c.Capacity, c.TotalMSatSent,
 		c.TotalMSatReceived,

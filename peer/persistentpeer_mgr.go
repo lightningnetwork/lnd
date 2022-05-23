@@ -18,10 +18,18 @@ const (
 	// durations exceeding this value will be eligible to have their
 	// backoffs reduced.
 	defaultStableConnDuration = 10 * time.Minute
+
+	// multiAddrConnectionStagger is the number of seconds to wait between
+	// attempting to a peer with each of its advertised addresses.
+	multiAddrConnectionStagger = 10 * time.Second
 )
 
 // PersistentPeerMgrConfig holds the config of the PersistentPeerManager.
 type PersistentPeerMgrConfig struct {
+	// ConnMgr is used to manage the creation and removal of connection
+	// requests. It handles the actual connection to a peer.
+	ConnMgr connMgr
+
 	// MinBackoff is the shortest backoff when reconnecting to a persistent
 	// peer.
 	MinBackoff time.Duration
@@ -39,6 +47,8 @@ type PersistentPeerManager struct {
 	// conns maps a peer's public key to a persistentPeer object.
 	conns map[route.Vertex]*persistentPeer
 
+	quit chan struct{}
+	wg   sync.WaitGroup
 	sync.RWMutex
 }
 
@@ -68,6 +78,13 @@ type persistentPeer struct {
 	retryCanceller *chan struct{}
 }
 
+// connMgr is what the PersistentPeerManager will use to create and remove
+// connection requests. The purpose of this interface is to make testing easier.
+type connMgr interface {
+	Connect(c *connmgr.ConnReq)
+	Remove(id uint64)
+}
+
 // NewPersistentPeerManager creates a new PersistentPeerManager instance.
 func NewPersistentPeerManager(
 	cfg *PersistentPeerMgrConfig) *PersistentPeerManager {
@@ -75,7 +92,15 @@ func NewPersistentPeerManager(
 	return &PersistentPeerManager{
 		cfg:   cfg,
 		conns: make(map[route.Vertex]*persistentPeer),
+		quit:  make(chan struct{}),
 	}
+}
+
+// Stop closes the quit channel of the PersistentPeerManager and waits for all
+// goroutines to exit.
+func (m *PersistentPeerManager) Stop() {
+	close(m.quit)
+	m.wg.Wait()
 }
 
 // AddPeer adds a new persistent peer for the PersistentPeerManager to keep
@@ -186,26 +211,6 @@ func (m *PersistentPeerManager) AddPeerAddresses(pubKey *btcec.PublicKey,
 	}
 }
 
-// GetPeerAddresses returns all the addresses stored for the peer.
-func (m *PersistentPeerManager) GetPeerAddresses(
-	pubKey *btcec.PublicKey) []*lnwire.NetAddress {
-
-	m.RLock()
-	defer m.RUnlock()
-
-	peer, ok := m.conns[route.NewVertex(pubKey)]
-	if !ok {
-		return nil
-	}
-
-	addrs := make([]*lnwire.NetAddress, 0, len(peer.addrs))
-	for _, addr := range peer.addrs {
-		addrs = append(addrs, addr)
-	}
-
-	return addrs
-}
-
 // GetPeerConnReqs returns all the pending connection requests we have for the
 // given peer.
 func (m *PersistentPeerManager) GetPeerConnReqs(
@@ -233,22 +238,6 @@ func (m *PersistentPeerManager) DelPeerConnReqs(pubKey *btcec.PublicKey) {
 	}
 
 	peer.connReqs = nil
-}
-
-// SetPeerConnReqs sets the connection requests for the given peer. Note that it
-// overrides any previously stored connection requests for the peer.
-func (m *PersistentPeerManager) SetPeerConnReqs(pubKey *btcec.PublicKey,
-	connReqs ...*connmgr.ConnReq) {
-
-	m.Lock()
-	defer m.Unlock()
-
-	peer, ok := m.conns[route.NewVertex(pubKey)]
-	if !ok {
-		return
-	}
-
-	peer.connReqs = connReqs
 }
 
 // AddPeerConnReq appends the given connection request to the existing list for the
@@ -401,12 +390,121 @@ func (m *PersistentPeerManager) GetRetryCanceller(
 		return nil
 	}
 
-	if peer.retryCanceller != nil {
-		return *peer.retryCanceller
+	return peer.getRetryCanceller()
+}
+
+// getRetryCanceller returns the existing retry canceller channel of the peer
+// or creates a new one if none exists.
+func (p *persistentPeer) getRetryCanceller() chan struct{} {
+	if p.retryCanceller != nil {
+		return *p.retryCanceller
 	}
 
 	cancelChan := make(chan struct{})
-	peer.retryCanceller = &cancelChan
+	p.retryCanceller = &cancelChan
 
 	return cancelChan
+}
+
+// ConnectPeer uses all the stored addresses for a peer to attempt to connect
+// to the peer. It creates connection requests if there are currently none for
+// a given address, and it removes old connection requests if the associated
+// address is no longer in the latest address list for the peer.
+func (m *PersistentPeerManager) ConnectPeer(pubKey *btcec.PublicKey) {
+	m.Lock()
+	defer m.Unlock()
+
+	peer, ok := m.conns[route.NewVertex(pubKey)]
+	if !ok {
+		peerLog.Debugf("Peer %x is not a persistent peer. Ignoring "+
+			"connection attempt", pubKey.SerializeCompressed())
+		return
+	}
+
+	if len(peer.addrs) == 0 {
+		peerLog.Debugf("Ignoring connection attempt to peer %s "+
+			"without any stored address",
+			pubKey.SerializeCompressed())
+		return
+	}
+
+	// Create an easy lookup map of the addresses we have stored for the
+	// peer. We will remove entries from this map if we have existing
+	// connection requests for the associated address and then any leftover
+	// entries will indicate which addresses we should create new
+	// connection requests for.
+	addrMap := make(map[string]*lnwire.NetAddress)
+	for _, addr := range peer.addrs {
+		addrMap[addr.String()] = addr
+	}
+
+	// Go through each of the existing connection requests and
+	// check if they correspond to the latest set of addresses. If there is
+	// a connection requests that does not use one of the latest advertised
+	// addresses then remove that connection request.
+	var updatedConnReqs []*connmgr.ConnReq
+	for _, connReq := range peer.connReqs {
+		lnAddr := connReq.Addr.(*lnwire.NetAddress).String()
+
+		switch _, ok := addrMap[lnAddr]; ok {
+		// If the existing connection request is using one of the
+		// latest advertised addresses for the peer then we add it to
+		// updatedConnReqs and remove the associated address from
+		// addrMap so that we don't recreate this connReq later on.
+		case true:
+			updatedConnReqs = append(
+				updatedConnReqs, connReq,
+			)
+			delete(addrMap, lnAddr)
+
+		// If the existing connection request is using an address that
+		// is not one of the latest advertised addresses for the peer
+		// then we remove the connecting request from the connection
+		// manager.
+		case false:
+			peerLog.Info(
+				"Removing conn req:", connReq.Addr.String(),
+			)
+			m.cfg.ConnMgr.Remove(connReq.ID())
+		}
+	}
+
+	peer.connReqs = updatedConnReqs
+	cancelChan := peer.getRetryCanceller()
+
+	// Any addresses left in addrMap are new ones that we have not made
+	// connection requests for. So create new connection requests for those.
+	// If there is more than one address in the address map, stagger the
+	// creation of the connection requests for those.
+	go func() {
+		ticker := time.NewTicker(multiAddrConnectionStagger)
+		defer ticker.Stop()
+
+		for _, addr := range addrMap {
+			// Send the persistent connection request to the
+			// connection manager, saving the request itself so we
+			// can cancel/restart the process as needed.
+			connReq := &connmgr.ConnReq{
+				Addr:      addr,
+				Permanent: true,
+			}
+
+			m.Lock()
+			peer.connReqs = append(peer.connReqs, connReq)
+			m.Unlock()
+
+			peerLog.Debugf("Attempting persistent connection to "+
+				"channel peer %v", addr)
+
+			go m.cfg.ConnMgr.Connect(connReq)
+
+			select {
+			case <-m.quit:
+				return
+			case <-cancelChan:
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 }

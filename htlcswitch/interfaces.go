@@ -52,10 +52,6 @@ type packetHandler interface {
 	//
 	// NOTE: This function should block as little as possible.
 	handleSwitchPacket(*htlcPacket) error
-
-	// handleLocalAddPacket handles a locally-initiated UpdateAddHTLC
-	// packet. It will be processed synchronously.
-	handleLocalAddPacket(*htlcPacket) error
 }
 
 // dustHandler is an interface used exclusively by the Switch to evaluate

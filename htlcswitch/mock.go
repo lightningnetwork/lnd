@@ -729,11 +729,6 @@ func (f *mockChannelLink) handleSwitchPacket(pkt *htlcPacket) error {
 	return nil
 }
 
-func (f *mockChannelLink) handleLocalAddPacket(pkt *htlcPacket) error {
-	_ = f.mailBox.AddPacket(pkt)
-	return nil
-}
-
 func (f *mockChannelLink) getDustSum(remote bool) lnwire.MilliSatoshi {
 	return 0
 }

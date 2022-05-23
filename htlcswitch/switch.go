@@ -484,6 +484,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 		incomingHTLCID: attemptID,
 		outgoingChanID: firstHop,
 		htlc:           htlc,
+		amount:         htlc.Amount,
 	}
 
 	// Attempt to fetch the target link before creating a circuit so that
@@ -547,10 +548,11 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 		return ErrLocalAddFailed
 	}
 
-	// Send packet to link.
+	// Give the packet to the link's mailbox so that HTLC's are properly
+	// canceled back if the mailbox timeout elapses.
 	packet.circuit = circuit
 
-	return link.handleLocalAddPacket(packet)
+	return link.handleSwitchPacket(packet)
 }
 
 // UpdateForwardingPolicies sends a message to the switch to update the

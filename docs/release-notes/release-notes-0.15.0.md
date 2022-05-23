@@ -119,6 +119,15 @@ compact filters and block/block headers.
 
 * [Fixed crash in MuSig2Combine](https://github.com/lightningnetwork/lnd/pull/6502)
 
+* [Fixed an issue where lnd would end up sending an Error and triggering a force
+  close.](https://github.com/lightningnetwork/lnd/pull/6518)
+  
+## Neutrino
+
+* [New neutrino sub-server](https://github.com/lightningnetwork/lnd/pull/5652)
+  capable of status checks, adding, disconnecting and listing
+  peers, fetching compact filters and block/block headers.
+
 * [Added signature length
   validation](https://github.com/lightningnetwork/lnd/pull/6314) when calling
   `NewSigFromRawSignature`.

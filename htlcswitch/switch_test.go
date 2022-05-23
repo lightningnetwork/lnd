@@ -3600,8 +3600,6 @@ func TestSwitchDustForwarding(t *testing.T) {
 
 	// We'll test that once the default threshold is exceeded on the
 	// Alice -> Bob channel, either side's calls to SendHTLC will fail.
-	// This does not rely on the mailbox sum since there's no intermediate
-	// hop.
 	//
 	// Alice will send 357 HTLC's of 700sats. Bob will also send 357 HTLC's
 	// of 700sats. If either side attempts to send a dust HTLC, it will
@@ -3629,6 +3627,47 @@ func TestSwitchDustForwarding(t *testing.T) {
 		Expiry:      timelock,
 		OnionBlob:   blob,
 	}
+
+	checkAlmostDust := func(link *channelLink, mbox MailBox,
+		remote bool) bool {
+
+		timeout := time.After(15 * time.Second)
+		pollInterval := 300 * time.Millisecond
+		expectedDust := 357 * 2 * amt
+
+		for {
+			<-time.After(pollInterval)
+
+			select {
+			case <-timeout:
+				return false
+			default:
+			}
+
+			linkDust := link.getDustSum(remote)
+			localMailDust, remoteMailDust := mbox.DustPackets()
+
+			totalDust := linkDust
+			if remote {
+				totalDust += remoteMailDust
+			} else {
+				totalDust += localMailDust
+			}
+
+			if totalDust == expectedDust {
+				break
+			}
+		}
+
+		return true
+	}
+
+	// Wait until Bob is almost at the dust threshold.
+	bobMbox := n.bobServer.htlcSwitch.mailOrchestrator.GetOrCreateMailBox(
+		n.firstBobChannelLink.ChanID(),
+		n.firstBobChannelLink.ShortChanID(),
+	)
+	require.True(t, checkAlmostDust(n.firstBobChannelLink, bobMbox, false))
 
 	// Assert that the HTLC is failed due to the dust threshold.
 	err = n.bobServer.htlcSwitch.SendHTLC(
@@ -3723,6 +3762,14 @@ func TestSwitchDustForwarding(t *testing.T) {
 		OnionBlob:   blob,
 	}
 
+	// Wait until Alice's expected dust for the remote commitment is just
+	// under the dust threshold.
+	aliceOrch := n.aliceServer.htlcSwitch.mailOrchestrator
+	aliceMbox := aliceOrch.GetOrCreateMailBox(
+		n.aliceChannelLink.ChanID(), n.aliceChannelLink.ShortChanID(),
+	)
+	require.True(t, checkAlmostDust(n.aliceChannelLink, aliceMbox, true))
+
 	err = n.aliceServer.htlcSwitch.SendHTLC(
 		n.aliceChannelLink.ShortChanID(), uint64(357),
 		aliceMultihopHtlc,
@@ -3792,8 +3839,17 @@ func sendDustHtlcs(t *testing.T, n *threeHopNetwork, alice bool,
 			OnionBlob:   blob,
 		}
 
-		err = sendingSwitch.SendHTLC(sid, attemptID, htlc)
-		require.NoError(t, err)
+		for {
+			// It may be the case that the dust threshold is hit
+			// before all 357*2 HTLC's are sent due to double
+			// counting. Get around this by continuing to send
+			// until successful.
+			err = sendingSwitch.SendHTLC(sid, attemptID, htlc)
+			if err == nil {
+				break
+			}
+		}
+
 		attemptID++
 	}
 }

@@ -3,6 +3,7 @@ package peer
 import (
 	"net"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/connmgr"
@@ -32,7 +33,10 @@ func TestPersistentPeerManager(t *testing.T) {
 	_, alicePubKey := btcec.PrivKeyFromBytes(channels.AlicesPrivKey)
 	_, bobPubKey := btcec.PrivKeyFromBytes(channels.BobsPrivKey)
 
-	m := NewPersistentPeerManager()
+	m := NewPersistentPeerManager(&PersistentPeerMgrConfig{
+		MinBackoff: time.Millisecond * 10,
+		MaxBackoff: time.Millisecond * 100,
+	})
 
 	// Alice should not initially be a persistent peer.
 	require.False(t, m.IsPersistentPeer(alicePubKey))

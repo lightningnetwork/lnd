@@ -3021,7 +3021,7 @@ func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
 	}
 
 	if s.persistentPeerMgr.IsNonPermPersistentPeer(pubKey) {
-		s.cancelConnReqs(pubKey, nil)
+		s.persistentPeerMgr.CancelConnReqs(pubKey, nil)
 		s.persistentPeerMgr.DelPeer(pubKey)
 
 		srvrLog.Infof("Pruned peer %x from persistent connections, "+
@@ -3247,7 +3247,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		s.cancelConnReqs(nodePub, nil)
+		s.persistentPeerMgr.CancelConnReqs(nodePub, nil)
 		s.peerConnected(conn, nil, true)
 
 	case nil:
@@ -3272,7 +3272,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		srvrLog.Debugf("Disconnecting stale connection to %v",
 			connectedPeer)
 
-		s.cancelConnReqs(nodePub, nil)
+		s.persistentPeerMgr.CancelConnReqs(nodePub, nil)
 
 		// Remove the current peer from the server's internal state and
 		// signal that the peer termination watcher does not need to
@@ -3345,11 +3345,11 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// Immediately cancel all pending requests, excluding the
 		// outbound connection we just established.
 		ignore := connReq.ID()
-		s.cancelConnReqs(nodePub, &ignore)
+		s.persistentPeerMgr.CancelConnReqs(nodePub, &ignore)
 	} else {
 		// This was a successful connection made by some other
 		// subsystem. Remove all requests being managed by the connmgr.
-		s.cancelConnReqs(nodePub, nil)
+		s.persistentPeerMgr.CancelConnReqs(nodePub, nil)
 	}
 
 	// If we already have a connection with this peer, decide whether or not
@@ -3398,53 +3398,6 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 			s.peerConnected(conn, connReq, false)
 		}
 	}
-}
-
-// UnassignedConnID is the default connection ID that a request can have before
-// it actually is submitted to the connmgr.
-// TODO(conner): move into connmgr package, or better, add connmgr method for
-// generating atomic IDs
-const UnassignedConnID uint64 = 0
-
-// cancelConnReqs stops all persistent connection requests for a given pubkey.
-// Any attempts initiated by the peerTerminationWatcher are canceled first.
-// Afterwards, each connection request removed from the connmgr. The caller can
-// optionally specify a connection ID to ignore, which prevents us from
-// canceling a successful request. All persistent connreqs for the provided
-// pubkey are discarded after the operationjw.
-func (s *server) cancelConnReqs(pubKey *btcec.PublicKey, skip *uint64) {
-	// First, cancel any lingering persistent retry attempts, which will
-	// prevent retries for any with backoffs that are still maturing.
-	s.persistentPeerMgr.CancelRetries(pubKey)
-
-	// Next, check to see if we have any outstanding persistent connection
-	// requests to this peer. If so, then we'll remove all of these
-	// connection requests, and also delete the entry from the map.
-	if s.persistentPeerMgr.NumPeerConnReqs(pubKey) == 0 {
-		return
-	}
-
-	for _, connReq := range s.persistentPeerMgr.GetPeerConnReqs(pubKey) {
-		srvrLog.Tracef("Canceling %s:", connReq)
-
-		// Atomically capture the current request identifier.
-		connID := connReq.ID()
-
-		// Skip any zero IDs, this indicates the request has not
-		// yet been schedule.
-		if connID == UnassignedConnID {
-			continue
-		}
-
-		// Skip a particular connection ID if instructed.
-		if skip != nil && connID == *skip {
-			continue
-		}
-
-		s.connMgr.Remove(connID)
-	}
-
-	s.persistentPeerMgr.DelPeerConnReqs(pubKey)
 }
 
 // handleCustomMessage dispatches an incoming custom peers message to
@@ -4029,7 +3982,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 
 	srvrLog.Infof("Disconnecting from %v", peer)
 
-	s.cancelConnReqs(pubKey, nil)
+	s.persistentPeerMgr.CancelConnReqs(pubKey, nil)
 
 	// If this peer was formerly a persistent connection, then we'll remove
 	// them from this map so we don't attempt to re-connect after we

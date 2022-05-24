@@ -153,7 +153,7 @@ func TestRetryCanceller(t *testing.T) {
 
 	// Cancel the retries. This should cause all the retry functions to
 	// exit.
-	m.CancelRetries(alicePubKey)
+	m.conns[route.NewVertex(alicePubKey)].cancelRetries()
 
 	for i := 0; i < 3; i++ {
 		err := <-errs
@@ -164,7 +164,7 @@ func TestRetryCanceller(t *testing.T) {
 
 	// Calling cancel again should not cause any closing-of-nil-channel
 	// panics.
-	m.CancelRetries(alicePubKey)
+	m.conns[route.NewVertex(alicePubKey)].cancelRetries()
 }
 
 // TestConnectPeer tests that the PersistentPeerManager's ConnectPeer function
@@ -230,6 +230,14 @@ func TestConnectPeer(t *testing.T) {
 	m.ConnectPeer(alicePubKey)
 	assertOneConnReqPerAddress(t, cm, testAddr2, testAddr3)
 	assertNoConnReqs(t, cm, testAddr1)
+
+	// Test that calling CancelConnReqs with ignore set to address 2, will
+	// cancel the connection request for address 3 but leave the one for
+	// address 2 intact.
+	skip := cm.getID(testAddr2)
+	m.CancelConnReqs(alicePubKey, &skip)
+	assertOneConnReqPerAddress(t, cm, testAddr2)
+	assertNoConnReqs(t, cm, testAddr3)
 }
 
 var _ connMgr = (*mockConnMgr)(nil)
@@ -294,6 +302,23 @@ func (m *mockConnMgr) numConnReqs(addr net.Addr) int {
 	}
 
 	return count
+}
+
+// getID returns the ID that was assigned to the connection request for the
+// given address.
+func (m *mockConnMgr) getID(addr net.Addr) uint64 {
+	m.Lock()
+	defer m.Unlock()
+
+	for id, cr := range m.reqs {
+		if cr.Addr.(*lnwire.NetAddress).Address.String() ==
+			addr.String() {
+
+			return id
+		}
+	}
+
+	return UnassignedConnID
 }
 
 // Connect adds the given connection request to the active set and generates

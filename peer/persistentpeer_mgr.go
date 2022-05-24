@@ -181,6 +181,8 @@ func (m *PersistentPeerManager) DelPeer(pubKey *btcec.PublicKey) {
 	m.Lock()
 	defer m.Unlock()
 
+	m.cancelConnReqsUnsafe(pubKey, nil)
+
 	delete(m.conns, route.NewVertex(pubKey))
 }
 
@@ -462,7 +464,7 @@ func (m *PersistentPeerManager) ConnectPeer(pubKey *btcec.PublicKey) {
 // generating atomic IDs.
 const UnassignedConnID uint64 = 0
 
-// CancelConnReqs stops all persistent connection requests for a given pubkey.
+// CancelConnReqs stops all persistent connection requests for a given pubKey.
 // Any retry canceller channel is canceled first. Afterwards, each connection
 // request is removed from the connmgr. The caller can optionally specify a
 // connection ID to ignore, which prevents us from canceling a successful
@@ -473,6 +475,17 @@ func (m *PersistentPeerManager) CancelConnReqs(pubKey *btcec.PublicKey,
 
 	m.Lock()
 	defer m.Unlock()
+
+	m.cancelConnReqsUnsafe(pubKey, skip)
+}
+
+// cancelConnReqsUnsafe cancels all the connection requests for a peer with the
+// given pubKey. An optional skip ID can be specified if any connReqs should be
+// ignored. This function will also cancel the retry canceler of the peer.
+// NOTE: that this is the method is not thread safe and should only be called if
+// the PersistentPeerManager mutex lock is held.
+func (m *PersistentPeerManager) cancelConnReqsUnsafe(pubKey *btcec.PublicKey,
+	skip *uint64) {
 
 	peer, ok := m.conns[route.NewVertex(pubKey)]
 	if !ok {

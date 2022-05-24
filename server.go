@@ -1392,6 +1392,21 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			ChainNet:          s.cfg.ActiveNetParams.Net,
 			MinBackoff:        cfg.MinBackoff,
 			MaxBackoff:        cfg.MaxBackoff,
+			AddrTypeIsSupported: func(addr net.Addr) bool {
+				switch addr.(type) {
+				case *net.TCPAddr:
+					return true
+
+				// We'll only attempt to connect to Tor
+				// addresses if Tor outbound support is enabled.
+				case *tor.OnionAddr:
+					if s.cfg.Tor.Active {
+						return true
+					}
+				}
+
+				return false
+			},
 		},
 	)
 

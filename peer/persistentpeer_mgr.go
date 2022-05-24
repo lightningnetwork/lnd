@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"net"
 	"sync"
 	"time"
 
@@ -47,6 +48,10 @@ type PersistentPeerMgrConfig struct {
 	// MaxBackoff is the longest backoff when reconnecting to a persistent
 	// peer.
 	MaxBackoff time.Duration
+
+	// AddrTypeIsSupported returns true if we can connect to this type of
+	// address.
+	AddrTypeIsSupported func(addr net.Addr) bool
 }
 
 // PersistentPeerManager manages persistent peers.
@@ -198,17 +203,13 @@ func (m *PersistentPeerManager) AddPeer(pubKey *btcec.PublicKey, perm bool,
 		backoff = peer.backoff
 	}
 
-	addrMap := make(map[string]*lnwire.NetAddress)
-	for _, addr := range addrs {
-		addrMap[addr.String()] = addr
-	}
-
 	m.conns[peerKey] = &persistentPeer{
 		pubKey:  pubKey,
 		perm:    perm,
-		addrs:   addrMap,
 		backoff: backoff,
 	}
+
+	m.setPeerAddrsUnsafe(peerKey, nil, addrs)
 }
 
 // IsPersistentPeer returns true if the given peer is a peer that the
@@ -270,14 +271,19 @@ func (m *PersistentPeerManager) AddPeerAddresses(pubKey *btcec.PublicKey,
 	m.Lock()
 	defer m.Unlock()
 
-	peer, ok := m.conns[route.NewVertex(pubKey)]
+	peerKey := route.NewVertex(pubKey)
+
+	peer, ok := m.conns[peerKey]
 	if !ok {
 		return
 	}
 
-	for _, addr := range addrs {
-		peer.addrs[addr.String()] = addr
+	peerAddrs := make([]*lnwire.NetAddress, 0, len(peer.addrs))
+	for _, addr := range peer.addrs {
+		peerAddrs = append(peerAddrs, addr)
 	}
+
+	m.setPeerAddrsUnsafe(peerKey, nil, append(peerAddrs, addrs...))
 }
 
 // NumPeerConnReqs returns the number of connection requests for the given peer.
@@ -584,21 +590,44 @@ func (m *PersistentPeerManager) processSingleNodeUpdate(
 		return false
 	}
 
-	addrs := make(map[string]*lnwire.NetAddress)
-	for _, addr := range update.Addresses {
-		lnAddr := &lnwire.NetAddress{
-			IdentityKey: update.IdentityKey,
-			Address:     addr,
-			ChainNet:    m.cfg.ChainNet,
-		}
-
-		addrs[lnAddr.String()] = lnAddr
-	}
-
-	peer.addrs = addrs
+	m.setPeerAddrsUnsafe(peerKey, update.Addresses, nil)
 
 	// If there are no outstanding connection requests for this peer then
 	// our work is done since we are not currently trying to connect to
 	// them.
 	return len(peer.connReqs) != 0
+}
+
+// setPeerAddrsUnsafe can be used to set the addresses of a peer. It only adds
+// supported addresses.
+// NOTE: that this is the method is not thread safe and should only be called
+// if the PersistentPeerManager mutex lock is held.
+func (m *PersistentPeerManager) setPeerAddrsUnsafe(peerKey route.Vertex,
+	addrs []net.Addr, lnwireAddrs []*lnwire.NetAddress) {
+
+	peer := m.conns[peerKey]
+
+	peer.addrs = make(map[string]*lnwire.NetAddress)
+
+	for _, addr := range lnwireAddrs {
+		if !m.cfg.AddrTypeIsSupported(addr) {
+			continue
+		}
+
+		peer.addrs[addr.String()] = addr
+	}
+
+	for _, addr := range addrs {
+		if !m.cfg.AddrTypeIsSupported(addr) {
+			continue
+		}
+
+		lnAddr := &lnwire.NetAddress{
+			IdentityKey: peer.pubKey,
+			Address:     addr,
+			ChainNet:    m.cfg.ChainNet,
+		}
+
+		peer.addrs[lnAddr.String()] = lnAddr
+	}
 }

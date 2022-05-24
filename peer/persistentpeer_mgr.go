@@ -52,6 +52,11 @@ type PersistentPeerMgrConfig struct {
 	// AddrTypeIsSupported returns true if we can connect to this type of
 	// address.
 	AddrTypeIsSupported func(addr net.Addr) bool
+
+	// FetchNodeAdvertisedAddrs can be used to fetch the advertised
+	// addresses of a node that we have persisted. This should only ge used
+	// to fetch an initial set of addresses for the peer.
+	FetchNodeAdvertisedAddrs func(route.Vertex) ([]net.Addr, error)
 }
 
 // PersistentPeerManager manages persistent peers.
@@ -193,10 +198,17 @@ func (m *PersistentPeerManager) Stop() {
 func (m *PersistentPeerManager) AddPeer(pubKey *btcec.PublicKey, perm bool,
 	addrs ...*lnwire.NetAddress) {
 
+	peerKey := route.NewVertex(pubKey)
+
+	// Fetch any stored addresses we may have for this peer.
+	advertisedAddrs, err := m.cfg.FetchNodeAdvertisedAddrs(peerKey)
+	if err != nil {
+		peerLog.Errorf("Unable to retrieve advertised address for "+
+			"node %s: %v", peerKey, err)
+	}
+
 	m.Lock()
 	defer m.Unlock()
-
-	peerKey := route.NewVertex(pubKey)
 
 	backoff := m.cfg.MinBackoff
 	if peer, ok := m.conns[peerKey]; ok {
@@ -209,7 +221,7 @@ func (m *PersistentPeerManager) AddPeer(pubKey *btcec.PublicKey, perm bool,
 		backoff: backoff,
 	}
 
-	m.setPeerAddrsUnsafe(peerKey, nil, addrs)
+	m.setPeerAddrsUnsafe(peerKey, advertisedAddrs, addrs)
 }
 
 // IsPersistentPeer returns true if the given peer is a peer that the
@@ -261,29 +273,6 @@ func (m *PersistentPeerManager) PersistentPeers() []*btcec.PublicKey {
 	}
 
 	return peers
-}
-
-// AddPeerAddresses is used to add addresses to a peers existing list of
-// addresses.
-func (m *PersistentPeerManager) AddPeerAddresses(pubKey *btcec.PublicKey,
-	addrs ...*lnwire.NetAddress) {
-
-	m.Lock()
-	defer m.Unlock()
-
-	peerKey := route.NewVertex(pubKey)
-
-	peer, ok := m.conns[peerKey]
-	if !ok {
-		return
-	}
-
-	peerAddrs := make([]*lnwire.NetAddress, 0, len(peer.addrs))
-	for _, addr := range peer.addrs {
-		peerAddrs = append(peerAddrs, addr)
-	}
-
-	m.setPeerAddrsUnsafe(peerKey, nil, append(peerAddrs, addrs...))
 }
 
 // NumPeerConnReqs returns the number of connection requests for the given peer.

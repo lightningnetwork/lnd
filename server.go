@@ -2870,26 +2870,23 @@ func (s *server) establishPersistentConnections() error {
 	// node announcements and attempt to reconnect to each node.
 	var numOutboundConns int
 	for _, nodeAddr := range nodeAddrsMap {
+		addrs := make([]*lnwire.NetAddress, len(nodeAddr.addresses))
+		for i, address := range nodeAddr.addresses {
+			// Create a wrapper address which couples the IP and
+			// the pubkey so the brontide authenticated connection
+			// can be established.
+			addrs[i] = &lnwire.NetAddress{
+				IdentityKey: nodeAddr.pubKey,
+				Address:     address,
+			}
+		}
+
 		// Add this peer to the set of peers we should maintain a
 		// persistent connection with. We set the value to false to
 		// indicate that we should not continue to reconnect if the
 		// number of channels returns to zero, since this peer has not
 		// been requested as perm by the user.
-		s.persistentPeerMgr.AddPeer(nodeAddr.pubKey, false)
-
-		for _, address := range nodeAddr.addresses {
-			// Create a wrapper address which couples the IP and
-			// the pubkey so the brontide authenticated connection
-			// can be established.
-			lnAddr := &lnwire.NetAddress{
-				IdentityKey: nodeAddr.pubKey,
-				Address:     address,
-			}
-
-			s.persistentPeerMgr.AddPeerAddresses(
-				nodeAddr.pubKey, lnAddr,
-			)
-		}
+		s.persistentPeerMgr.AddPeer(nodeAddr.pubKey, false, addrs...)
 
 		// We'll connect to the first 10 peers immediately, then
 		// randomly stagger any remaining connections if the
@@ -3828,8 +3825,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 		// the entry to true which will tell the server to continue
 		// reconnecting even if the number of channels with this peer is
 		// zero.
-		s.persistentPeerMgr.AddPeer(addr.IdentityKey, true)
-		s.persistentPeerMgr.AddPeerAddresses(addr.IdentityKey, addr)
+		s.persistentPeerMgr.AddPeer(addr.IdentityKey, true, addr)
 		s.mu.Unlock()
 
 		go s.persistentPeerMgr.ConnectPeer(addr.IdentityKey)

@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"context"
 	"net"
 	"sync"
 	"testing"
@@ -8,9 +9,11 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/connmgr"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 )
@@ -28,9 +31,9 @@ var (
 		Port: 9003}
 )
 
-// TestPersistentPeerManager tests that the PersistentPeerManager correctly
-// manages the persistent peers.
-func TestPersistentPeerManager(t *testing.T) {
+// TestPersistentPeerManagerBasics tests the basic getters and setters of the
+// PersistentPeerManager.
+func TestPersistentPeerManagerBasics(t *testing.T) {
 	_, alicePubKey := btcec.PrivKeyFromBytes(channels.AlicesPrivKey)
 	_, bobPubKey := btcec.PrivKeyFromBytes(channels.BobsPrivKey)
 
@@ -100,19 +103,6 @@ func TestPersistentPeerManager(t *testing.T) {
 		require.Equal(t, addrs[1].Address.String(), testAddr1.String())
 	}
 
-	// If SetAddresses is used, however, then this should overwrite any
-	// previous addresses stored for Bob.
-	m.SetPeerAddresses(bobPubKey, &lnwire.NetAddress{
-		IdentityKey: bobPubKey,
-		Address:     testAddr3,
-	})
-	addrs = []*lnwire.NetAddress{}
-	for _, addr := range m.conns[route.NewVertex(bobPubKey)].addrs {
-		addrs = append(addrs, addr)
-	}
-	require.Len(t, addrs, 1)
-	require.Equal(t, addrs[0].Address.String(), testAddr3.String())
-
 	// Delete Bob.
 	m.DelPeer(bobPubKey)
 	peers = m.PersistentPeers()
@@ -162,19 +152,51 @@ func TestRetryCanceller(t *testing.T) {
 	m.conns[route.NewVertex(alicePubKey)].cancelRetries()
 }
 
-// TestConnectPeer tests that the PersistentPeerManager's ConnectPeer function
-// correctly creates and cancels connection requests.
-func TestConnectPeer(t *testing.T) {
+// TestConnectionLogic tests that the PersistentPeerManager's correctly adds
+// and removes connection requests.
+func TestConnectionLogic(t *testing.T) {
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// topChangeChan is a channel that will be used to send network updates
+	// on.
+	topChangeChan := make(chan *routing.TopologyChange)
+
+	// addUpdate is a closure helper used to send mock NodeAnnouncement
+	// network updates.
+	addUpdate := func(pubKey *btcec.PublicKey, addrs ...net.Addr) {
+		topChangeChan <- &routing.TopologyChange{
+			NodeUpdates: []*routing.NetworkNodeUpdate{
+				{
+					IdentityKey: pubKey,
+					Addresses:   addrs,
+				},
+			},
+		}
+	}
+
+	// updates will be used by the PersistentPeerManger to subscribe to
+	// network updates from topChangeChan.
+	updates := func() (*routing.TopologyClient, error) {
+		return &routing.TopologyClient{
+			TopologyChanges: topChangeChan,
+			Cancel:          cancel,
+		}, nil
+	}
+
 	// Create and a new mock connection manager.
 	cm := newMockConnMgr(t)
 	defer cm.stop()
 
 	// Create a new PersistentPeerManager.
 	m := NewPersistentPeerManager(&PersistentPeerMgrConfig{
-		ConnMgr:    cm,
-		MinBackoff: time.Millisecond * 10,
-		MaxBackoff: time.Millisecond * 100,
+		ConnMgr:           cm,
+		SubscribeTopology: updates,
+		ChainNet:          wire.MainNet,
+		MinBackoff:        time.Millisecond * 10,
+		MaxBackoff:        time.Millisecond * 100,
 	})
+	require.NoError(t, m.Start())
 	defer m.Stop()
 
 	_, alicePubKey := btcec.PrivKeyFromBytes(channels.AlicesPrivKey)
@@ -206,22 +228,13 @@ func TestConnectPeer(t *testing.T) {
 	m.ConnectPeer(alicePubKey)
 	assertOneConnReqPerAddress(t, cm, testAddr1, testAddr2)
 
-	// If we use SetAddresses to overwrite the current list of addresses
-	// stored for Alice and then call ConnectPeer again, the appropriate
-	// connection requests should be added and removed. We will set
-	// addresses 2 and 3. We then expect the connection request for address
-	// 1 to be removed, the connReq for 2 to remain and a connReq for 3
-	// to be added.
-	m.SetPeerAddresses(
-		alicePubKey,
-		&lnwire.NetAddress{
-			IdentityKey: alicePubKey,
-			Address:     testAddr2,
-		}, &lnwire.NetAddress{
-			IdentityKey: alicePubKey,
-			Address:     testAddr3,
-		},
-	)
+	// If addresses come through from NodeAnnouncement updates, they should
+	// overwrite the current list of addresses stored for Alice and then
+	// call ConnectPeer again, the appropriate connection requests should
+	// be added and removed. We will set addresses 2 and 3. We then expect
+	// the connection request for address 1 to be removed, the connReq for
+	// 2 to remain and a connReq for 3 to be added.
+	addUpdate(alicePubKey, testAddr2, testAddr3)
 	m.ConnectPeer(alicePubKey)
 	assertOneConnReqPerAddress(t, cm, testAddr2, testAddr3)
 	assertNoConnReqs(t, cm, testAddr1)

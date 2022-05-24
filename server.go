@@ -304,92 +304,6 @@ type server struct {
 	wg sync.WaitGroup
 }
 
-// updatePersistentPeerAddrs subscribes to topology changes and stores
-// advertised addresses for any NodeAnnouncements from our persisted peers.
-func (s *server) updatePersistentPeerAddrs() error {
-	graphSub, err := s.chanRouter.SubscribeTopology()
-	if err != nil {
-		return err
-	}
-
-	s.wg.Add(1)
-	go func() {
-		defer func() {
-			graphSub.Cancel()
-			s.wg.Done()
-		}()
-
-		for {
-			select {
-			case <-s.quit:
-				return
-
-			case topChange, ok := <-graphSub.TopologyChanges:
-				// If the router is shutting down, then we will
-				// as well.
-				if !ok {
-					return
-				}
-
-				for _, update := range topChange.NodeUpdates {
-					// We only care about updates from
-					// our persistentPeers.
-					s.mu.RLock()
-					ok := s.persistentPeerMgr.IsPersistentPeer(
-						update.IdentityKey,
-					)
-					s.mu.RUnlock()
-					if !ok {
-						continue
-					}
-
-					addrs := make([]*lnwire.NetAddress, 0,
-						len(update.Addresses))
-
-					for _, addr := range update.Addresses {
-						addrs = append(addrs,
-							&lnwire.NetAddress{
-								IdentityKey: update.IdentityKey,
-								Address:     addr,
-								ChainNet:    s.cfg.ActiveNetParams.Net,
-							},
-						)
-					}
-
-					s.mu.Lock()
-
-					// Update the stored addresses for this
-					// to peer to reflect the new set.
-					s.persistentPeerMgr.SetPeerAddresses(
-						update.IdentityKey, addrs...,
-					)
-
-					// If there are no outstanding
-					// connection requests for this peer
-					// then our work is done since we are
-					// not currently trying to connect to
-					// them.
-					numReqs := s.persistentPeerMgr.NumPeerConnReqs(
-						update.IdentityKey,
-					)
-					if numReqs == 0 {
-						s.mu.Unlock()
-						continue
-					}
-
-					s.mu.Unlock()
-
-					s.persistentPeerMgr.ConnectPeer(
-						update.IdentityKey,
-					)
-				}
-			}
-		}
-	}()
-
-	return nil
-}
-
 // CustomMessage is a custom message that is received from a peer.
 type CustomMessage struct {
 	// Peer is the peer pubkey
@@ -1473,9 +1387,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.persistentPeerMgr = peer.NewPersistentPeerManager(
 		&peer.PersistentPeerMgrConfig{
-			ConnMgr:    cmgr,
-			MinBackoff: cfg.MinBackoff,
-			MaxBackoff: cfg.MaxBackoff,
+			ConnMgr:           cmgr,
+			SubscribeTopology: s.chanRouter.SubscribeTopology,
+			ChainNet:          s.cfg.ActiveNetParams.Net,
+			MinBackoff:        cfg.MinBackoff,
+			MaxBackoff:        cfg.MaxBackoff,
 		},
 	)
 
@@ -1929,12 +1845,15 @@ func (s *server) Start() error {
 			}
 		}
 
-		// Subscribe to NodeAnnouncements that advertise new addresses
-		// our persistent peers.
-		if err := s.updatePersistentPeerAddrs(); err != nil {
+		// Start the persistent peer manager.
+		if err := s.persistentPeerMgr.Start(); err != nil {
 			startErr = err
 			return
 		}
+		cleanup = cleanup.add(func() error {
+			s.persistentPeerMgr.Stop()
+			return nil
+		})
 
 		// With all the relevant sub-systems started, we'll now attempt
 		// to establish persistent connections to our direct channel

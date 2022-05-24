@@ -110,12 +110,10 @@ func (p *persistentPeer) cancelRetries() {
 	p.retryCanceller = nil
 }
 
-// getRetryCanceller returns the existing retry canceller channel of the peer
-// or creates a new one if none exists.
+// getRetryCanceller cancels any existing retry canceler and then creates and
+// returns a new one.
 func (p *persistentPeer) getRetryCanceller() chan struct{} {
-	if p.retryCanceller != nil {
-		return *p.retryCanceller
-	}
+	p.cancelRetries()
 
 	cancelChan := make(chan struct{})
 	p.retryCanceller = &cancelChan

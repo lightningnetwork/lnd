@@ -41,6 +41,9 @@ func TestPersistentPeerManagerBasics(t *testing.T) {
 	m := NewPersistentPeerManager(&PersistentPeerMgrConfig{
 		MinBackoff: time.Millisecond * 10,
 		MaxBackoff: time.Millisecond * 100,
+		AddrTypeIsSupported: func(addr net.Addr) bool {
+			return true
+		},
 	})
 	defer m.Stop()
 
@@ -200,6 +203,9 @@ func TestConnectionLogic(t *testing.T) {
 		ChainNet:          wire.MainNet,
 		MinBackoff:        time.Millisecond * 10,
 		MaxBackoff:        time.Millisecond * 100,
+		AddrTypeIsSupported: func(addr net.Addr) bool {
+			return true
+		},
 	})
 	require.NoError(t, m.Start())
 	defer m.Stop()

@@ -5,7 +5,7 @@ package kvdb
 
 import "github.com/lightningnetwork/lnd/kvdb/postgres"
 
-const PostgresBackend = true
+const TestBackend = PostgresBackendName
 
 func NewPostgresFixture(dbName string) (postgres.Fixture, error) {
 	return postgres.NewFixture(dbName)

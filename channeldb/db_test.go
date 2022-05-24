@@ -26,7 +26,7 @@ func TestOpenWithCreate(t *testing.T) {
 	t.Parallel()
 
 	// Checking for db file existence is not possible with postgres.
-	if kvdb.PostgresBackend {
+	if kvdb.TestBackend == kvdb.PostgresBackendName {
 		t.Skip()
 	}
 

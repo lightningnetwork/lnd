@@ -247,8 +247,8 @@ func updateLastCompactionDate(dbFile string) error {
 func GetTestBackend(path, name string) (Backend, func(), error) {
 	empty := func() {}
 
-	switch {
-	case PostgresBackend:
+	switch TestBackend {
+	case PostgresBackendName:
 		key := filepath.Join(path, name)
 		keyHash := sha256.Sum256([]byte(key))
 
@@ -260,7 +260,7 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 			_ = f.DB().Close()
 		}, nil
 
-	case TestBackend == BoltBackendName:
+	case BoltBackendName:
 		db, err := GetBoltBackend(&BoltBackendConfig{
 			DBPath:         path,
 			DBFileName:     name,
@@ -272,7 +272,7 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 		}
 		return db, empty, nil
 
-	case TestBackend == EtcdBackendName:
+	case EtcdBackendName:
 		etcdConfig, cancel, err := StartEtcdTestBackend(path, 0, 0, "")
 		if err != nil {
 			return nil, empty, err

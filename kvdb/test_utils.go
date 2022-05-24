@@ -10,7 +10,7 @@ import (
 // initialization and tear-down of a test kvdb backend.
 func RunTests(m *testing.M) {
 	var close func() error
-	if PostgresBackend {
+	if TestBackend == PostgresBackendName {
 		var err error
 		close, err = StartEmbeddedPostgres()
 		if err != nil {

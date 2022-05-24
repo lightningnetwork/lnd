@@ -9,8 +9,6 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb/postgres"
 )
 
-const PostgresBackend = false
-
 func NewPostgresFixture(dbName string) (postgres.Fixture, error) {
 	return nil, errors.New("postgres backend not available")
 }

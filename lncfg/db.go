@@ -8,6 +8,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/kvdb/postgres"
+	"github.com/lightningnetwork/lnd/kvdb/sqlite"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 )
 
@@ -21,6 +22,7 @@ const (
 	BoltBackend                = "bolt"
 	EtcdBackend                = "etcd"
 	PostgresBackend            = "postgres"
+	SqliteBackend              = "sqlite"
 	DefaultBatchCommitInterval = 500 * time.Millisecond
 
 	defaultPostgresMaxConnections = 50
@@ -60,6 +62,8 @@ type DB struct {
 
 	Postgres *postgres.Config `group:"postgres" namespace:"postgres" description:"Postgres settings."`
 
+	Sqlite *sqlite.Config `group:"sqlite" namespace:"sqlite" description:"Sqlite settings."`
+
 	NoGraphCache bool `long:"no-graph-cache" description:"Don't use the in-memory graph cache for path finding. Much slower but uses less RAM. Can only be used with a bolt database backend."`
 }
 
@@ -80,6 +84,7 @@ func DefaultDB() *DB {
 		Postgres: &postgres.Config{
 			MaxConnections: defaultPostgresMaxConnections,
 		},
+		Sqlite: &sqlite.Config{},
 	}
 }
 
@@ -91,7 +96,7 @@ func (db *DB) Validate() error {
 		if db.Postgres.Dsn == "" {
 			return fmt.Errorf("postgres dsn must be set")
 		}
-
+	case SqliteBackend:
 	case EtcdBackend:
 		if !db.Etcd.Embedded && db.Etcd.Host == "" {
 			return fmt.Errorf("etcd host must be set")

@@ -2,7 +2,7 @@ package chanfunding
 
 import (
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"

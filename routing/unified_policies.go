@@ -2,7 +2,6 @@ package routing
 
 import (
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -106,7 +105,7 @@ type unifiedPolicyEdge struct {
 func (u *unifiedPolicyEdge) amtInRange(amt lnwire.UnitPrec11) bool {
 
 	capAmout:=lnwire.UnitPrec11(u.capacity)
-	if u.policy.AssetId==omnicore.BtcAssetId{
+	if u.policy.AssetId==lnwire.BtcAssetId{
 		capAmout=lnwire.UnitPrec11(u.capacity.ToMsat())
 	}
 	// If the capacity is available (non-light clients), skip channels that
@@ -283,7 +282,8 @@ func (u *unifiedPolicy) getPolicyNetwork(
 // minAmt returns the minimum amount that can be forwarded on this connection.
 /*obd update wxf*/
 func (u *unifiedPolicy) minAmt() lnwire.UnitPrec11 {
-	min := lnwire.UnitPrec11(1)
+	//min := lnwire.MaxMilliSatoshi
+	min := lnwire.UnitPrec11(lnwire.MaxMilliSatoshi)
 	for _, edge := range u.edges {
 		if edge.policy.MinHTLC < min {
 			min = edge.policy.MinHTLC

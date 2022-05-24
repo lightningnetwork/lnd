@@ -194,10 +194,9 @@ type ClosedChanSummary struct {
 	ChanID uint64
 
 	/*obd update wxf
-	AssetId >0 the unit is btcutil.Amount, else omnicore.Amount
 	*/
 	// Capacity was the total capacity of the channel before it was closed.
-	Capacity uint64
+	Capacity lnwire.UnitPrec8
 	AssetId uint32
 
 	// ClosedHeight is the height in the chain that the channel was closed
@@ -273,29 +272,25 @@ type ChannelEdgeUpdate struct {
 	AssetId >0 the unit is btcutil.Amount, else omnicore.Amount
 	*/
 	// Capacity is the capacity of the newly created channel.
-	Capacity uint64
+	Capacity lnwire.UnitPrec8
 	AssetId uint32
 
 	/*obd update wxf
-	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
 	*/
 	// MinHTLC is the minimum HTLC amount that this channel will forward.
-	MinHTLC uint64
+	MinHTLC lnwire.UnitPrec11
 
-	/*obd update wxf
-	AssetId >0 the unit is lnwire.MilliSatoshi, else omnicore.Amount
-	*/
 	// MaxHTLC is the maximum HTLC amount that this channel will forward.
-	MaxHTLC uint64
+	MaxHTLC lnwire.UnitPrec11
 
 
 	// BaseFee is the base fee that will charged for all HTLC's forwarded
 	// across the this channel direction.
-	BaseFee uint64
+	BaseFee lnwire.MilliSatoshi
 
 	// FeeRate is the fee rate that will be shared for all HTLC's forwarded
 	// across this channel direction.
-	FeeRate uint64
+	FeeRate lnwire.UnitPrec11
 
 	// TimeLockDelta is the time-lock expressed in blocks that will be
 	// added to outgoing HTLC's from incoming HTLC's. This value is the

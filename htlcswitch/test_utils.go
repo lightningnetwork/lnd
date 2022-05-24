@@ -6,7 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"io/ioutil"
 	"math/big"
 	"net"
@@ -133,29 +133,31 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), alicePrivKey)
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), bobPrivKey)
 
-	channelCapacity := aliceAmount + bobAmount
+	channelCapacity:=lnwire.UnitPrec8(aliceAssetAmount+ bobAssetAmount)
+	if assetId==lnwire.BtcAssetId{
+		channelCapacity=lnwire.UnitPrec8(aliceAmount + bobAmount)
+	}
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
 	isAliceInitiator := true
 
-	maxAmt:=uint64(channelCapacity)
-	if assetId==omnicore.BtcAssetId{
-		maxAmt=uint64(lnwire.NewMSatFromSatoshis(
-			channelCapacity))
+	maxAmt:=lnwire.UnitPrec11(channelCapacity)
+	if assetId==lnwire.BtcAssetId{
+		maxAmt=lnwire.UnitPrec11(channelCapacity.ToMsat())
 	}
 	aliceConstraints := &channeldb.ChannelConstraints{
-		DustLimit: uint64(btcutil.Amount(200)),
+		DustLimit: (btcutil.Amount(200)),
 		MaxPendingAmount: maxAmt,
-		ChanReserve:      uint64(aliceReserve),
+		ChanReserve:      lnwire.UnitPrec8(aliceReserve),
 		MinHTLC:          0,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		CsvDelay:         uint16(csvTimeoutAlice),
 	}
 
 	bobConstraints := &channeldb.ChannelConstraints{
-		DustLimit: uint64(btcutil.Amount(800)),
+		DustLimit: (btcutil.Amount(800)),
 		MaxPendingAmount: maxAmt,
-		ChanReserve:      uint64(bobReserve),
+		ChanReserve:      lnwire.UnitPrec8(bobReserve),
 		MinHTLC:          0,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		CsvDelay:         uint16(csvTimeoutBob),
@@ -306,7 +308,8 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunderTweaklessBit,
 		IsInitiator:             isAliceInitiator,
-		BtcCapacity:                channelCapacity,
+		BtcCapacity:                aliceAmount + bobAmount,
+		AssetCapacity:                aliceAssetAmount + bobAssetAmount,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
@@ -325,7 +328,8 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunderTweaklessBit,
 		IsInitiator:             !isAliceInitiator,
-		BtcCapacity:                channelCapacity,
+		BtcCapacity:                aliceAmount + bobAmount,
+		AssetCapacity:                aliceAssetAmount + bobAssetAmount,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
@@ -524,7 +528,7 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 
 // generateHoldPayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
-func generatePaymentWithPreimage(invoiceAmt, htlcAmt uint64,
+func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.UnitPrec11,
 	assetId uint32,
 	timelock uint32, blob [lnwire.OnionPacketSize]byte,
 	preimage *lntypes.Preimage, rhash, payAddr [32]byte) (
@@ -570,7 +574,7 @@ func generatePaymentWithPreimage(invoiceAmt, htlcAmt uint64,
 
 // generatePayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
-func generatePayment(invoiceAmt, htlcAmt uint64,
+func generatePayment(invoiceAmt, htlcAmt lnwire.UnitPrec11,
 	assetId uint32,
 	timelock uint32,
 	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice,
@@ -638,8 +642,8 @@ type threeHopNetwork struct {
 // generateHops creates the per hop payload, the total amount to be sent, and
 // also the time lock value needed to route an HTLC with the target amount over
 // the specified path.
-func generateHops(payAmt uint64, startingHeight uint32,
-	path ...*channelLink) (uint64, uint32, []*hop.Payload) {
+func generateHops(payAmt lnwire.UnitPrec11, startingHeight uint32,
+	path ...*channelLink) (lnwire.UnitPrec11, uint32, []*hop.Payload) {
 
 	totalTimelock := startingHeight
 	runningAmt := payAmt
@@ -739,7 +743,7 @@ func waitForPayFuncResult(payFunc func() error, d time.Duration) error {
 // * from Alice to some another peer through the Bob
 func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	firstHop lnwire.ShortChannelID, hops []*hop.Payload,
-	invoiceAmt, htlcAmt uint64,
+	invoiceAmt, htlcAmt lnwire.UnitPrec11,
 	htlcAssetAmt omnicore.Amount,assetId uint32,
 	timelock uint32) *paymentResponse {
 
@@ -774,7 +778,7 @@ func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 // that, when called, launches the payment from the sendingPeer.
 func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	firstHop lnwire.ShortChannelID, hops []*hop.Payload,
-	invoiceAmt, htlcAmt uint64,assetId uint32,
+	invoiceAmt, htlcAmt lnwire.UnitPrec11,assetId uint32,
 	timelock uint32) (*channeldb.Invoice, func() error, error) {
 
 	sender := sendingPeer.(*mockServer)
@@ -891,7 +895,7 @@ func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 		createTestChannel(alicePrivKey, bobPrivKey, aliceToBob,
 			aliceToBob, 0, 0,
 			0,0,0,0,
-			firstChanID,omnicore.BtcAssetId)
+			firstChanID,lnwire.BtcAssetId)
 	if err != nil {
 		return nil, nil, nil, errors.Errorf("unable to create "+
 			"alice<->bob channel: %v", err)
@@ -901,7 +905,7 @@ func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 		createTestChannel(bobPrivKey, carolPrivKey, bobToCarol,
 			bobToCarol, 0, 0,
 			0,0,0,0,
-			secondChanID,omnicore.BtcAssetId)
+			secondChanID,lnwire.BtcAssetId)
 	if err != nil {
 		cleanAliceBob()
 		return nil, nil, nil, errors.Errorf("unable to create "+
@@ -1092,7 +1096,7 @@ func createTwoClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 		createTestChannel(alicePrivKey, bobPrivKey, aliceToBob,
 			aliceToBob, 0, 0,
 			0,0,0,0,
-			firstChanID,omnicore.BtcAssetId)
+			firstChanID,lnwire.BtcAssetId)
 	if err != nil {
 		return nil, nil, nil, errors.Errorf("unable to create "+
 			"alice<->bob channel: %v", err)
@@ -1114,8 +1118,8 @@ func newHopNetwork() *hopNetwork {
 	defaultDelta := uint32(6)
 
 	globalPolicy := ForwardingPolicy{
-		MinHTLCOut:    uint64( lnwire.NewMSatFromSatoshis(5)),
-		BaseFee:       uint64(lnwire.NewMSatFromSatoshis(1)),
+		MinHTLCOut:    lnwire.UnitPrec11( lnwire.NewMSatFromSatoshis(5)),
+		BaseFee:       (lnwire.NewMSatFromSatoshis(1)),
 		TimeLockDelta: defaultDelta,
 	}
 	obfuscator := NewMockObfuscator()
@@ -1308,7 +1312,7 @@ func (n *twoHopNetwork) stop() {
 
 func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 	firstHop lnwire.ShortChannelID, hops []*hop.Payload,
-	invoiceAmt, htlcAmt uint64,
+	invoiceAmt, htlcAmt lnwire.UnitPrec11,
 	htlcAssetAmount omnicore.Amount,assetId uint32,
 	timelock uint32, preimage lntypes.Preimage) chan error {
 

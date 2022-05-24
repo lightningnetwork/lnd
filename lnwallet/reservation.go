@@ -2,7 +2,7 @@ package lnwallet
 
 import (
 	"errors"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"net"
 	"sync"
 
@@ -249,7 +249,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	/*obd update wxf
 	todo use asset dust*/
 	// Used to cut down on verbosity.
-	defaultDust := wallet.Cfg.DefaultConstraints.Cfg.DustLimit
+	defaultDust := wallet.Cfg.DefaultConstraints.DustLimit
 
 	// If we're the responder to a single-funder reservation, then we have
 	// no initial balance in the channel unless the remote party is pushing
@@ -462,7 +462,7 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 // of satoshis that can be transferred in a single commitment. This function
 // will also attempt to verify the constraints for sanity, returning an error
 // if the parameters are seemed unsound.
-func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
+func (r *ChannelReservation) CommitConstraints(assetId uint32, c *channeldb.ChannelConstraints,
 	maxLocalCSVDelay uint16, responder bool) error {
 	r.Lock()
 	defer r.Unlock()
@@ -474,16 +474,17 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
 
 	// The channel reserve should always be greater or equal to the dust
 	// limit. The reservation request should be denied if otherwise.
-	if c.DustLimit > c.ChanReserve {
-		return ErrChanReserveTooSmall(c.ChanReserve, c.DustLimit)
-	}
 
-	if r.partialState.AssetID==omnicore.BtcAssetId{
-		btcDustLimt:=btcutil.Amount(c.DustLimit)
+	if r.partialState.AssetID==lnwire.BtcAssetId{
+		res:=btcutil.Amount( c.ChanReserve)
+		if  c.DustLimit > res {
+			return ErrChanReserveTooSmall(res, c.DustLimit)
+		}
+
 		// Validate against the maximum-sized witness script dust limit, and
 		// also ensure that the DustLimit is not too large.
 		maxWitnessLimit := DustLimitForSize(input.UnknownWitnessSize)
-		if  btcDustLimt < maxWitnessLimit || btcDustLimt > 3*maxWitnessLimit {
+		if  c.DustLimit < maxWitnessLimit || c.DustLimit > 3*maxWitnessLimit {
 			return ErrInvalidDustLimit(c.DustLimit)
 		}
 
@@ -500,7 +501,7 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
 	// is currently set to maxValueInFlight, effectively letting the remote
 	// setting this as large as it wants.
 	if c.MinHTLC > c.MaxPendingAmount {
-		return ErrMinHtlcTooLarge(c.MinHTLC, c.MaxPendingAmount)
+		return ErrMinHtlcTooLarge(uint64(c.MinHTLC ), uint64(c.MaxPendingAmount))
 	}
 
 	// Fail if maxHtlcs is above the maximum allowed number of 483.  This
@@ -528,8 +529,10 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
 
 	// Our dust limit should always be less than or equal to our proposed
 	// channel reserve.
-	if responder && r.ourContribution.DustLimit > c.ChanReserve {
-		r.ourContribution.DustLimit = c.ChanReserve
+	if assetId==lnwire.BtcAssetId {
+		if responder && r.ourContribution.DustLimit > btcutil.Amount(c.ChanReserve) {
+			r.ourContribution.DustLimit = btcutil.Amount(c.ChanReserve)
+		}
 	}
 
 	r.ourContribution.ChanReserve = c.ChanReserve
@@ -545,25 +548,27 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
 // DustLimit values. This not only avoids stuck channels, but is also mandated
 // by BOLT#02 even if it's not explicit. This returns true if the bounds are
 // valid. This function should be called with the lock held.
-func (r *ChannelReservation) validateReserveBounds() bool {
-	ourDustLimit := r.ourContribution.DustLimit
-	ourRequiredReserve := r.ourContribution.ChanReserve
-	theirDustLimit := r.theirContribution.DustLimit
-	theirRequiredReserve := r.theirContribution.ChanReserve
+func (r *ChannelReservation) validateReserveBounds(assetId uint32) bool {
+	if assetId==lnwire.BtcAssetId {
+		ourDustLimit := r.ourContribution.DustLimit
+		ourRequiredReserve := r.ourContribution.ChanReserve
+		theirDustLimit := r.theirContribution.DustLimit
+		theirRequiredReserve := r.theirContribution.ChanReserve
 
-	// We take the smaller of the two ChannelReserves and compare it
-	// against the larger of the two DustLimits.
-	minChanReserve := ourRequiredReserve
-	if minChanReserve > theirRequiredReserve {
-		minChanReserve = theirRequiredReserve
+		// We take the smaller of the two ChannelReserves and compare it
+		// against the larger of the two DustLimits.
+		minChanReserve := ourRequiredReserve
+		if minChanReserve > theirRequiredReserve {
+			minChanReserve = theirRequiredReserve
+		}
+
+		maxDustLimit := ourDustLimit
+		if maxDustLimit < theirDustLimit {
+			maxDustLimit = theirDustLimit
+		}
+		return btcutil.Amount(minChanReserve) >= maxDustLimit
 	}
-
-	maxDustLimit := ourDustLimit
-	if maxDustLimit < theirDustLimit {
-		maxDustLimit = theirDustLimit
-	}
-
-	return minChanReserve >= maxDustLimit
+	return true
 }
 
 // OurContribution returns the wallet's fully populated contribution to the

@@ -2,7 +2,7 @@ package chanfunding
 
 import (
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"github.com/lightningnetwork/lnd/lnwallet/omnicore/op"
 	"math"
 

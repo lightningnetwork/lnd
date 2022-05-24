@@ -3,7 +3,7 @@ package lnwallet
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"github.com/lightningnetwork/lnd/lnwallet/omnicore/op"
 
 	"github.com/btcsuite/btcd/btcec"

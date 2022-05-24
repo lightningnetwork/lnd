@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"image/color"
 	"math/big"
 	prand "math/rand"
@@ -1308,7 +1308,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// limit, then we'll use the dust limit itself as the
 			// reserve as required by BOLT #2.
 			reserve := chanAmt / 100
-			if assetId==omnicore.BtcAssetId{
+			if assetId==lnwire.BtcAssetId{
 				if reserve < lnwire.UnitPrec8(dustLimit) {
 					reserve = lnwire.UnitPrec8(dustLimit)
 				}
@@ -1321,7 +1321,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// By default, we'll allow the remote peer to fully
 			// utilize the full bandwidth of the channel, minus our
 			// required reserve.
-			if assetId==omnicore.BtcAssetId {
+			if assetId==lnwire.BtcAssetId {
 				reserve := lnwire.NewMSatFromSatoshis(btcutil.Amount(chanAmt) / 100)
 				return lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(btcutil.Amount(chanAmt)) - reserve)
 			}

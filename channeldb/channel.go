@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"io"
 	"net"
 	"strconv"
@@ -588,7 +588,7 @@ func (c ChannelStatus) String() string {
 	return statusStr
 }
 func (ch *OpenChannel) GetMsgCapForHtlc() lnwire.UnitPrec11{
-	if ch.AssetID==omnicore.BtcAssetId{
+	if ch.AssetID==lnwire.BtcAssetId{
 		return lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(ch.BtcCapacity))
 	}else {
 		return lnwire.UnitPrec11(ch.AssetCapacity)
@@ -596,9 +596,9 @@ func (ch *OpenChannel) GetMsgCapForHtlc() lnwire.UnitPrec11{
 	return 0
 }
 func (ch *OpenChannel) GetRawCap() lnwire.UnitPrec8{
-	if ch.AssetID==omnicore.BtcAssetId{
+	if ch.AssetID==lnwire.BtcAssetId{
 		return lnwire.UnitPrec8(ch.BtcCapacity)
-	}else  if ch.AssetID>omnicore.BtcAssetId{
+	}else  if ch.AssetID>lnwire.BtcAssetId{
 		return lnwire.UnitPrec8(ch.AssetCapacity)
 	}
 	return 0

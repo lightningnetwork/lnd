@@ -2,7 +2,6 @@ package routing
 
 import (
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btclog"
@@ -219,7 +218,7 @@ func newPaymentSession(p *LightningPayment,
 	}, nil
 }
 func getAmtValue(msat lnwire.MilliSatoshi,assetId uint32) uint64{
-	if assetId!=omnicore.BtcAssetId{ //asset
+	if assetId!=lnwire.BtcAssetId{ //asset
 		return uint64(msat /1000)
 	}
 	//btc

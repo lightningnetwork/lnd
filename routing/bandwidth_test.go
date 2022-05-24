@@ -15,7 +15,7 @@ func TestBandwidthManager(t *testing.T) {
 	var (
 		chan1ID      uint64         = 101
 		chan2ID      uint64         = 102
-		chanCapacity uint64 = 100000
+		chanCapacity lnwire.UnitPrec8 = 100000
 	)
 
 	testCases := []struct {

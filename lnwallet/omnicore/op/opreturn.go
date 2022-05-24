@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"log"
 )
@@ -142,13 +142,13 @@ func (p *PksAmounts)Len()int {
 	return len(p.pksAmounts)
 }
 func (p *PksAmounts)Add(pks []byte, amount omnicore.Amount){
-	if p.assetID==0 || p.assetID==omnicore.BtcAssetId {
+	if p.assetID==0 || p.assetID==lnwire.BtcAssetId {
 		panic(fmt.Errorf("miss assetId"))
 	}
 	p.pksAmounts=append(p.pksAmounts,&pksAmount{pks,amount})
 }
 func AddOpReturnToTx(tx *wire.MsgTx ,p *PksAmounts  )error{
-	if p.assetID==0 || p.assetID==omnicore.BtcAssetId{
+	if p.assetID==0 || p.assetID==lnwire.BtcAssetId{
 		return fmt.Errorf("miss assetId")
 	}
 	opOutPuts:=[]*Output{}

@@ -4,7 +4,6 @@ import (
 	"container/heap"
 	"errors"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"math"
 	"time"
 
@@ -397,7 +396,7 @@ func getOutgoingBalance(assetId uint32,node route.Vertex, outgoingChans map[uint
 		if !ok {
 			/*obd update wxf*/
 			//bandwidth = lnwire.NewMSatFromSatoshis(channel.Capacity)
-			if channel.AssetId==omnicore.BtcAssetId{
+			if channel.AssetId==lnwire.BtcAssetId{
 				bandwidth = lnwire.UnitPrec11(channel.Capacity.ToMsat())
 			}else{
 				bandwidth = lnwire.UnitPrec11(channel.Capacity)

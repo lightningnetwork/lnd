@@ -2,8 +2,8 @@ package lnwallet
 
 import (
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"github.com/lightningnetwork/lnd/lnwallet/omnicore/op"
+	"github.com/lightningnetwork/lnd/omnicore"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec"
@@ -558,7 +558,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBtcBalance,
 	for _, htlc := range filteredHTLCView.ourUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, isOurs, feePerKw,
-			htlc.GetHtlcAmt(), uint64(dustLimit), htlc.AssetID,
+			htlc.BtcAmount.ToSatoshis(), dustLimit, htlc.AssetID,
 		) {
 			continue
 		}
@@ -568,7 +568,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBtcBalance,
 	for _, htlc := range filteredHTLCView.theirUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, isOurs, feePerKw,
-			htlc.GetHtlcAmt(), uint64(dustLimit), htlc.AssetID,
+			htlc.BtcAmount.ToSatoshis(), dustLimit, htlc.AssetID,
 		) {
 			continue
 		}
@@ -593,24 +593,24 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBtcBalance,
 		if cb.chanState.IsInitiator{
 			theirBtcBalance=0
 			if theirAssetBalance>0{
-				theirBtcBalance=lnwire.NewMSatFromSatoshis(omnicore.OmniGas)
+				theirBtcBalance=lnwire.NewMSatFromSatoshis(lnwire.OmniGas)
 			}
 			ourBtcBalance=lnwire.NewMSatFromSatoshis(cb.chanState.BtcCapacity)
 			ourBtcBalance-=theirBtcBalance
 			ourBtcBalance-=commitFeeMSat
-			ourBtcBalance-=lnwire.NewMSatFromSatoshis(omnicore.OmniGas*3* btcutil.Amount(numHTLCs))
+			ourBtcBalance-=lnwire.NewMSatFromSatoshis(lnwire.OmniGas*3* btcutil.Amount(numHTLCs))
 			if ourBtcBalance<0{
 				ourBtcBalance=0
 			}
 		}else{
 			ourBtcBalance=0
 			if ourAssetBalance>0{
-				ourBtcBalance=lnwire.NewMSatFromSatoshis(omnicore.OmniGas)
+				ourBtcBalance=lnwire.NewMSatFromSatoshis(lnwire.OmniGas)
 			}
 			theirBtcBalance=lnwire.NewMSatFromSatoshis(cb.chanState.BtcCapacity)
 			theirBtcBalance-=ourBtcBalance
 			theirBtcBalance-=commitFeeMSat
-			theirBtcBalance-=lnwire.NewMSatFromSatoshis(omnicore.OmniGas*3* btcutil.Amount(numHTLCs))
+			theirBtcBalance-=lnwire.NewMSatFromSatoshis(lnwire.OmniGas*3* btcutil.Amount(numHTLCs))
 			if theirBtcBalance<0{
 				theirBtcBalance=0
 			}
@@ -688,7 +688,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBtcBalance,
 	for _, htlc := range filteredHTLCView.ourUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, isOurs, feePerKw,
-			htlc.GetHtlcAmt(), uint64(dustLimit), htlc.AssetID,
+			htlc.BtcAmount.ToSatoshis(), dustLimit, htlc.AssetID,
 		) {
 			continue
 		}
@@ -705,7 +705,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBtcBalance,
 	for _, htlc := range filteredHTLCView.theirUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, isOurs, feePerKw,
-			htlc.GetHtlcAmt(), uint64(dustLimit), htlc.AssetID,
+			htlc.BtcAmount.ToSatoshis(), dustLimit, htlc.AssetID,
 		) {
 			continue
 		}
@@ -814,7 +814,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	commitTx.AddTxIn(&fundingOutput)
 
 	// Avoid creating dust outputs within the commitment transaction.
-	localOutput :=uint64(btcAmountToLocal) >= localChanCfg.DustLimit
+	localOutput :=btcAmountToLocal >= localChanCfg.DustLimit
 	/*
 	obd add wxf
 	*/
@@ -833,7 +833,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 		opAmounts.Add(toLocalScript.PkScript,assetAmountToLocal)
 	}
 
-	remoteOutput := uint64(btcAmountToRemote) >= localChanCfg.DustLimit
+	remoteOutput := btcAmountToRemote >= localChanCfg.DustLimit
 	/*
 		obd add wxf
 	*/

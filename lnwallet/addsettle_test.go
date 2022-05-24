@@ -7,7 +7,6 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"testing"
 )
@@ -201,7 +200,7 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool) {
 	}
 	assertOutputExistsByValue(t,
 		aliceChannel.channelState.LocalCommitment.CommitTx,
-		omnicore.OmniGas*3)
+		lnwire.OmniGas*3)
 	//assertOutputExistsByValue(t,
 	//	bobChannel.channelState.LocalCommitment.CommitTx,
 	//	htlcAmt.ToSatoshis())
@@ -292,7 +291,7 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool) {
 	// commitment height two, with the revocation window extended by 1 (5).
 	mSatTransferred := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	if aliceChannel.channelState.AssetID>1{
-		mSatTransferred=lnwire.NewMSatFromSatoshis(omnicore.OmniGas*3)
+		mSatTransferred=lnwire.NewMSatFromSatoshis(lnwire.OmniGas*3)
 	}
 	if aliceChannel.channelState.TotalMSatSent != mSatTransferred {
 		t.Fatalf("alice satoshis sent incorrect %v vs %v expected",

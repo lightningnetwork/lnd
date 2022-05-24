@@ -9,7 +9,7 @@ import (
 	/*
 	 * Ben: isn't it an invalide import?
 	 */
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"image/color"
 	"math"
 	"net"

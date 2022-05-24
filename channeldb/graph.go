@@ -3508,7 +3508,7 @@ func (c *ChannelEdgePolicy) ComputeFee(
 	amt lnwire.UnitPrec11) lnwire.UnitPrec11 {
 	//feeBase := lnwire.MilliSatoshi(0)
 	//feeRate := lnwire.MilliSatoshi(100)
-	//if c.AssetId == omnicore.BtcAssetId {}
+	//if c.AssetId == lnwire.BtcAssetId {}
 	feeRate := lnwire.MilliSatoshi(c.FeeProportionalMillionths)
 	feeBase := c.FeeBaseMSat
 	return lnwire.UnitPrec11(feeBase + (amt.ToMsat()*feeRate)/feeRateParts)
@@ -3525,7 +3525,7 @@ func (c *ChannelEdgePolicy) ComputeFeeFromIncoming(
 	incomingAmt lnwire.UnitPrec11) lnwire.UnitPrec11 {
 	//feeBase := lnwire.MilliSatoshi(0)
 	//feeRate := lnwire.MilliSatoshi(100)
-	//if c.AssetId == omnicore.BtcAssetId {}
+	//if c.AssetId == lnwire.BtcAssetId {}
 	feeRate := lnwire.MilliSatoshi(c.FeeProportionalMillionths)
 	feeBase := c.FeeBaseMSat
 

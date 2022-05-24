@@ -7,7 +7,7 @@ import (
 	/*
 	 * Ben: Isn't it an invalide import?
 	 */
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"image/color"
 	"io"
 	"math"
@@ -127,6 +127,24 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 			return err
 		}
 	case MilliSatoshi:
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], uint64(e))
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
+	case omnicore.Amount:
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], uint64(e))
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
+	case UnitPrec11:
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], uint64(e))
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
+	case UnitPrec8:
 		var b [8]byte
 		binary.BigEndian.PutUint64(b[:], uint64(e))
 		if _, err := w.Write(b[:]); err != nil {

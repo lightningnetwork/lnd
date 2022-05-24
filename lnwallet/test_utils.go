@@ -7,7 +7,7 @@ import (
 	/*
 	 * Ben: Isn't it a invalide import?
 	 */
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"io"
 	"io/ioutil"
 	prand "math/rand"
@@ -270,7 +270,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		return nil, nil, nil, err
 	}
 
-	estimator := chainfee.NewStaticEstimator(6000, 0)
+	estimator := chainfee.NewStaticEstimator(1000, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, nil, err

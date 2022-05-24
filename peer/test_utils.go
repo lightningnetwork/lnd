@@ -4,7 +4,6 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -90,12 +89,10 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 	aliceCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			Cfg: channeldb.ChannelConstraintsCfg{
-				DustLimit:        aliceDustLimit,
-				MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
-				ChanReserve:      btcutil.Amount(rand.Int63()),
-				MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
-			},
+			DustLimit:        aliceDustLimit,
+			MaxPendingAmount: lnwire.UnitPrec11(rand.Int63()),
+			ChanReserve:      lnwire.UnitPrec8(rand.Int63()),
+			MinHTLC:          lnwire.UnitPrec11(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 			CsvDelay:         uint16(csvTimeoutAlice),
 		},
@@ -115,15 +112,13 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 			PubKey: aliceKeyPub,
 		},
 	}
-	aliceCfg.LoadCfg(omnicore.BtcAssetId)
+	//aliceCfg.LoadCfg(lnwire.BtcAssetId)
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			Cfg: channeldb.ChannelConstraintsCfg{
-				DustLimit:        bobDustLimit,
-				MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
-				ChanReserve:      btcutil.Amount(rand.Int63()),
-				MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
-			},
+			DustLimit:        bobDustLimit,
+			MaxPendingAmount: lnwire.UnitPrec11(rand.Int63()),
+			ChanReserve:      lnwire.UnitPrec8(rand.Int63()),
+			MinHTLC:          lnwire.UnitPrec11(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 			CsvDelay:         uint16(csvTimeoutBob),
 		},
@@ -143,7 +138,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 			PubKey: bobKeyPub,
 		},
 	}
-	bobCfg.LoadCfg(omnicore.BtcAssetId)
+	//bobCfg.LoadCfg(lnwire.BtcAssetId)
 
 	bobRoot, err := chainhash.NewHash(bobKeyPriv.Serialize())
 	if err != nil {
@@ -169,7 +164,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
 		channelBal, channelBal,0,0, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, channeldb.SingleFunderTweaklessBit, omnicore.BtcAssetId,
+		bobCommitPoint, *fundingTxIn, channeldb.SingleFunderTweaklessBit, lnwire.BtcAssetId,
 		isAliceInitiator, 0,
 	)
 	if err != nil {

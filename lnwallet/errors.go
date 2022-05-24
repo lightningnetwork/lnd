@@ -61,10 +61,10 @@ func ErrCsvDelayTooLarge(remoteDelay, maxDelay uint16) ReservationError {
 
 // ErrChanReserveTooSmall returns an error indicating that the channel reserve
 // the remote is requiring is too small to be accepted.
-func ErrChanReserveTooSmall(reserve, dustLimit uint64) ReservationError {
+func ErrChanReserveTooSmall(reserve, dustLimit btcutil.Amount) ReservationError {
 	return ReservationError{
 		fmt.Errorf("channel reserve of %v sat is too small, min is %v "+
-			"sat", int64(reserve), int64(dustLimit)),
+			"sat", reserve, dustLimit),
 	}
 }
 
@@ -74,7 +74,7 @@ func ErrChanReserveTooLarge(reserve,
 	maxReserve btcutil.Amount) ReservationError {
 	return ReservationError{
 		fmt.Errorf("channel reserve is too large: %v sat, max "+
-			"is %v sat", int64(reserve), int64(maxReserve)),
+			"is %v sat", reserve, maxReserve),
 	}
 }
 
@@ -116,7 +116,7 @@ func ErrMaxHtlcNumTooSmall(maxHtlc, minMaxHtlc uint16) ReservationError {
 // ErrMaxValueInFlightTooSmall returns an error indicating that the 'max HTLC
 // value in flight' the remote required is too small to be accepted.
 func ErrMaxValueInFlightTooSmall(maxValInFlight,
-	minMaxValInFlight uint64) ReservationError {
+	minMaxValInFlight lnwire.UnitPrec11) ReservationError {
 	return ReservationError{
 		fmt.Errorf("maxValueInFlight too small: %v, min is %v",
 			maxValInFlight, minMaxValInFlight),
@@ -154,7 +154,7 @@ func ErrChanTooLarge(chanSize, maxChanSize btcutil.Amount) ReservationError {
 
 // ErrInvalidDustLimit returns an error indicating that a proposed DustLimit
 // was rejected.
-func ErrInvalidDustLimit(dustLimit uint64) ReservationError {
+func ErrInvalidDustLimit(dustLimit btcutil.Amount) ReservationError {
 	return ReservationError{
 		fmt.Errorf("dust limit %v is invalid", dustLimit),
 	}

@@ -2,8 +2,6 @@ package omnicore
 
 import (
 	"errors"
-	"github.com/btcsuite/btcutil"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"math"
 	"strconv"
 )
@@ -133,13 +131,4 @@ func (a Amount) MulF64(f float64) Amount {
 }
 
 
-const OmniGas= btcutil.Amount(546)
-const BtcAssetId= 1
-const AssetMinHtlc= lnwire.UnitPrec11(10000)
 
-func LoadDefaultMinHtlc(assetId uint32,minHtlc lnwire.MilliSatoshi)lnwire.UnitPrec11 {
-	if assetId==BtcAssetId{
-		return lnwire.UnitPrec11(minHtlc)
-	}
-	return AssetMinHtlc
-}

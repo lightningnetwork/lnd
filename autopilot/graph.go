@@ -136,7 +136,7 @@ func (d *databaseChannelGraph) ForEachNode(cb func(Node) error) error {
 // meant to aide in the generation of random graphs for use within test cases
 // the exercise the autopilot package.
 func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
-	capacity uint64,assetId uint32) (*ChannelEdge, *ChannelEdge, error) {
+	capacity lnwire.UnitPrec8,assetId uint32) (*ChannelEdge, *ChannelEdge, error) {
 
 	fetchNode := func(pub *btcec.PublicKey) (*channeldb.LightningNode, error) {
 		if pub != nil {
@@ -234,7 +234,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
-		MaxHTLC:                   capacity*1000,
+		MaxHTLC:                   lnwire.UnitPrec11(capacity.ToMsat()),
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 		MessageFlags:              1,
@@ -250,7 +250,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
-		MaxHTLC:                   uint64(capacity),
+		MaxHTLC:                   lnwire.UnitPrec11(capacity.ToMsat()),
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 		MessageFlags:              1,
@@ -358,7 +358,7 @@ func randKey() (*btcec.PublicKey, error) {
 // meant to aide in the generation of random graphs for use within test cases
 // the exercise the autopilot package.
 func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
-	capacity uint64 ,assetId uint32 ) (*ChannelEdge, *ChannelEdge, error) {
+	capacity lnwire.UnitPrec8 ,assetId uint32 ) (*ChannelEdge, *ChannelEdge, error) {
 
 	var (
 		vertex1, vertex2 *memNode
@@ -509,7 +509,7 @@ func (m memNode) ForEachChannel(cb func(ChannelEdge) error) error {
 }
 
 // Median returns the median value in the slice of Amounts.
-func Median(vals []uint64) uint64 {
+func Median(vals []lnwire.UnitPrec8) lnwire.UnitPrec8 {
 	sort.Slice(vals, func(i, j int) bool {
 		return vals[i] < vals[j]
 	})

@@ -64,7 +64,7 @@ type ChannelEdge struct {
 	ChanID lnwire.ShortChannelID
 
 	// Capacity is the capacity of the channel expressed in satoshis.
-	Capacity uint64
+	Capacity lnwire.UnitPrec8
 	AsserId uint32
 
 	// Peer is the peer that this channel creates an edge to in the channel

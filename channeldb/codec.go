@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"io"
 	"net"
 
@@ -156,6 +156,14 @@ func WriteElement(w io.Writer, element interface{}) error {
 			return err
 		}
 
+	case lnwire.UnitPrec11:
+		if err := binary.Write(w, byteOrder, uint64(e)); err != nil {
+			return err
+		}
+	case lnwire.UnitPrec8:
+		if err := binary.Write(w, byteOrder, uint64(e)); err != nil {
+			return err
+		}
 	case *btcec.PrivateKey:
 		b := e.Serialize()
 		if _, err := w.Write(b); err != nil {
@@ -358,6 +366,20 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 
 		*e = lnwire.MilliSatoshi(a)
+	case *lnwire.UnitPrec11:
+		var a uint64
+		if err := binary.Read(r, byteOrder, &a); err != nil {
+			return err
+		}
+
+		*e = lnwire.UnitPrec11(a)
+	case *lnwire.UnitPrec8:
+		var a uint64
+		if err := binary.Read(r, byteOrder, &a); err != nil {
+			return err
+		}
+
+		*e = lnwire.UnitPrec8(a)
 
 	case **btcec.PrivateKey:
 		var b [btcec.PrivKeyBytesLen]byte

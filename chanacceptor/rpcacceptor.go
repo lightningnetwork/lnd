@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/btcsuite/btcutil"
 	"sync"
 	"time"
 
@@ -349,9 +350,9 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 				uint16(resp.CsvDelay),
 				uint16(resp.MaxHtlcCount),
 				uint16(resp.MinAcceptDepth),
-				resp.ReserveSat,
-				resp.InFlightMaxMsat,
-				resp.MinHtlcIn,
+				lnwire.UnitPrec8(resp.ReserveSat),
+				lnwire.UnitPrec11(resp.InFlightMaxMsat),
+				lnwire.UnitPrec11(resp.MinHtlcIn),
 			)
 
 			// Delete the channel from the acceptRequests map.
@@ -372,7 +373,7 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 // validateAcceptorResponse validates the response we get from the channel
 // acceptor, returning a boolean indicating whether to accept the channel, an
 // error to send to the peer, and any validation errors that occurred.
-func (r *RPCAcceptor) validateAcceptorResponse(dustLimit uint64,
+func (r *RPCAcceptor) validateAcceptorResponse(dustLimit btcutil.Amount,
 	req *lnrpc.ChannelAcceptResponse) (bool, error, lnwire.DeliveryAddress,
 	error) {
 
@@ -392,7 +393,7 @@ func (r *RPCAcceptor) validateAcceptorResponse(dustLimit uint64,
 	// Ensure that the reserve that has been proposed, if it is set, is at
 	// least the dust limit that was proposed by the remote peer. This is
 	// required by BOLT 2.
-	reserveSat := req.ReserveSat
+	reserveSat := btcutil.Amount(req.ReserveSat)
 	if reserveSat != 0 && reserveSat < dustLimit {
 		log.Errorf("Remote reserve: %v sat for channel: %v must be "+
 			"at least equal to proposed dust limit: %v",

@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"io/ioutil"
 	"math/big"
 	"net"
@@ -426,7 +426,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			// By default, we'll allow the remote peer to fully
 			// utilize the full bandwidth of the channel, minus our
 			// required reserve.
-			if assetId==omnicore.BtcAssetId {
+			if assetId==lnwire.BtcAssetId {
 				reserve := lnwire.NewMSatFromSatoshis(btcutil.Amount(chanAmt) / 100)
 				return lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(btcutil.Amount(chanAmt)) - reserve)
 			}
@@ -1585,7 +1585,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, lnwire.UnitPrec8(capacity), nil, nil)
+	assertChannelAnnouncements(t, lnwire.BtcAssetId, alice, bob, lnwire.UnitPrec8(capacity), nil, nil)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -1729,7 +1729,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	cap:=lnwire.UnitPrec8(capacity)
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, nil, nil)
+	assertChannelAnnouncements(t, lnwire.BtcAssetId, alice, bob, cap, nil, nil)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -2146,7 +2146,7 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 	cap:=lnwire.UnitPrec8(capacity)
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, nil, nil)
+	assertChannelAnnouncements(t, lnwire.BtcAssetId, alice, bob, cap, nil, nil)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -2253,7 +2253,7 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	cap:=lnwire.UnitPrec8(capacity)
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, nil, nil)
+	assertChannelAnnouncements(t, lnwire.BtcAssetId, alice, bob, cap, nil, nil)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -2358,7 +2358,7 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 	cap:=lnwire.UnitPrec8(capacity)
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, nil, nil)
+	assertChannelAnnouncements(t, lnwire.BtcAssetId, alice, bob, cap, nil, nil)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -2433,7 +2433,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	cap:=lnwire.UnitPrec8(capacity)
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, nil, nil)
+	assertChannelAnnouncements(t, lnwire.BtcAssetId, alice, bob, cap, nil, nil)
 
 	// The funding transaction is now confirmed, wait for the
 	// OpenStatusUpdate_ChanOpen update
@@ -2550,7 +2550,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	cap:=lnwire.UnitPrec8(capacity)
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, nil, nil)
+	assertChannelAnnouncements(t, lnwire.BtcAssetId, alice, bob, cap, nil, nil)
 
 	// Note: We don't check for the addedToRouterGraph state because in
 	// the private channel mode, the state is quickly changed from
@@ -2925,7 +2925,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	/*obd update wxf
 	todo check asset cap*/
 	cap:=lnwire.UnitPrec8(capacity)
-	assertChannelAnnouncements(t, omnicore.BtcAssetId, alice, bob, cap, minHtlcArr, maxHtlcArr)
+	assertChannelAnnouncements(t, lnwire.BtcAssetId, alice, bob, cap, minHtlcArr, maxHtlcArr)
 
 	// The funding transaction is now confirmed, wait for the
 	// OpenStatusUpdate_ChanOpen update

@@ -111,7 +111,7 @@ func onePathGraph(g *mockGraph) {
 	g.addChannel(chanIm1Target, targetNodeID, im1NodeID, 100000)
 }
 
-func twoPathGraph(g *mockGraph, capacityOut, capacityIn uint64) {
+func twoPathGraph(g *mockGraph, capacityOut, capacityIn lnwire.UnitPrec8) {
 	// Create the following network of nodes:
 	// source -> intermediate1 -> target
 	// source -> intermediate2 -> target
@@ -255,10 +255,10 @@ func testMppSend(t *testing.T, testCase *mppSendTestCase) {
 	g := ctx.graph
 	testCase.graph(g)
 
-	ctx.amt = getPayValue(lnwire.NewMSatFromSatoshis(testCase.amt))
+	ctx.amt =lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(testCase.amt))
 
 	if testCase.maxShardSize != 0 {
-		shardAmt := getPayValue(lnwire.NewMSatFromSatoshis(testCase.maxShardSize))
+		shardAmt := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(testCase.maxShardSize))
 		ctx.maxShardAmt = &shardAmt
 	}
 
@@ -288,7 +288,7 @@ type expectedHtlcSuccess struct {
 // equals matches the expectation with an actual attempt.
 func (e *expectedHtlcSuccess) equals(a htlcAttempt) bool {
 	if a.route.TotalAmount !=
-		getPayValue(lnwire.NewMSatFromSatoshis(e.amt)) {
+		lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(e.amt)) {
 
 		return false
 	}
@@ -362,7 +362,7 @@ func TestPaymentAddrOnlyNoSplit(t *testing.T) {
 	// We'll set a non-zero value for max parts as well, which should be
 	// ignored.
 	const maxParts = 5
-	ctx.amt = getPayValue(lnwire.NewMSatFromSatoshis(1_500_000))
+	ctx.amt = lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(1_500_000))
 
 	attempts, err := ctx.testPayment(maxParts, payAddrOnlyFeatures...)
 	require.NotNil(

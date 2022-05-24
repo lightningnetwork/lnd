@@ -3,6 +3,7 @@ package lnwire
 import (
 	"fmt"
 	"github.com/btcsuite/btcutil"
+	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 )
 
 const (
@@ -49,10 +50,10 @@ func (m MilliSatoshi) String() string {
 
 // TODO(roasbeef): extend with arithmetic operations?
 
-//8 precision used for lnwire.MilliSatoshi
+//11 precision used for lnwire.MilliSatoshi
 type   UnitPrec11 uint64
 
-//11 precision, used for btcutil.Amount
+//8 precision, used for btcutil.Amount
 type   UnitPrec8 uint64
 
 func (i UnitPrec8) ToMsat() MilliSatoshi {
@@ -66,6 +67,16 @@ func (i UnitPrec11) ToMsat() MilliSatoshi {
 }
 func (i UnitPrec11) ToSat() btcutil.Amount {
 	return btcutil.Amount(i/1000)
+}
+
+const OmniGas= btcutil.Amount(546)
+const BtcAssetId= 1
+const AssetMinHtlc= UnitPrec11(10000)
+func LoadDefaultMinHtlc(assetId uint32,minHtlc lnwire.MilliSatoshi) UnitPrec11 {
+	if assetId==BtcAssetId{
+		return UnitPrec11(minHtlc)
+	}
+	return AssetMinHtlc
 }
 
 

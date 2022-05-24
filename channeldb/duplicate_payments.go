@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"io"
 	"time"
 
@@ -105,7 +106,7 @@ func deserializeDuplicatePaymentCreationInfo(r io.Reader) (
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return nil, err
 	}
-	c.Value = (byteOrder.Uint64(scratch[:]))
+	c.Value =  lnwire.UnitPrec11(byteOrder.Uint64(scratch[:]))
 
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return nil, err

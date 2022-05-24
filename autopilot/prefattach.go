@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"github.com/lightningnetwork/lnd/lnwire"
 	prand "math/rand"
 	"time"
 
@@ -85,7 +86,7 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []LocalChannel,
 	// We first run though the graph once in order to find the median
 	// channel size.
 	var (
-		allChans  []uint64
+		allChans  []lnwire.UnitPrec8
 		seenChans = make(map[uint64]struct{})
 	)
 	if err := g.ForEachNode(func(n Node) error {

@@ -3,7 +3,6 @@ package routing
 import (
 	"bytes"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"image/color"
 	"math"
 	"math/rand"
@@ -266,7 +265,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 
 	//paymentAmt := uint64(100)*30000
 	//feeLimit:=uint64( 10)*30000
-	//if assetId==omnicore.BtcAssetId{
+	//if assetId==lnwire.BtcAssetId{
 	//	paymentAmt=1000*uint64( 100)
 	//	feeLimit=1000*uint64( 10)
 	//}
@@ -385,7 +384,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	feeRate := lnwire.UnitPrec11(400)
 
 	maxHtlc:=lnwire.UnitPrec11(chanCapSat)
-	if assetId==omnicore.BtcAssetId{
+	if assetId==lnwire.BtcAssetId{
 		maxHtlc=lnwire.UnitPrec11(chanCapSat.ToMsat())
 	}
 	testChannels := []*testChannel{
@@ -442,7 +441,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	}
 
 	ramt:=lnwire.UnitPrec11(10)
-	if assetId==omnicore.BtcAssetId{
+	if assetId==lnwire.BtcAssetId{
 		ramt=10*1000
 	}
 	rt, err := route.NewRouteFromHops(
@@ -786,7 +785,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 		sgNode           = ctx.aliases["songoku"]
 		feeLimit         = lnwire.UnitPrec11(500000)
 	)
-	if assetId==omnicore.BtcAssetId{
+	if assetId==lnwire.BtcAssetId{
 		amt*=1000
 	}
 	sgNodeID, err := btcec.ParsePubKey(sgNode[:], btcec.S256())
@@ -2767,7 +2766,7 @@ func TestUnknownErrorSource(t *testing.T) {
 	// alternative a->d->c.
 	chanCapSat := lnwire.UnitPrec8(100000)
 	mHtlc:=lnwire.UnitPrec11( chanCapSat)
-	if assetId==omnicore.BtcAssetId{
+	if assetId==lnwire.BtcAssetId{
 		mHtlc=lnwire.UnitPrec11(mHtlc.ToMsat())
 	}
 	testChannels := []*testChannel{
@@ -2812,7 +2811,7 @@ func TestUnknownErrorSource(t *testing.T) {
 	defer cleanUp()
 
 	pAmt:=lnwire.UnitPrec11( 1000)
-	if assetId==omnicore.BtcAssetId{
+	if assetId==lnwire.BtcAssetId{
 		pAmt=lnwire.UnitPrec11(1000*1000)
 	}
 	// Create a payment to node c.
@@ -2919,7 +2918,7 @@ func assertChannelsPruned(t *testing.T, graph *channeldb.ChannelGraph,
 }
 var assetId =uint32(31)
 func getPayValue(msat lnwire.MilliSatoshi) uint64{
-	if assetId!=omnicore.BtcAssetId{ //asset
+	if assetId!=lnwire.BtcAssetId{ //asset
 		return uint64(msat /1000)
 	}
 	//btc
@@ -2933,7 +2932,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	// Setup a three node network.
 	chanCapSat := lnwire.UnitPrec8(100000)
 	mHtlc:=lnwire.UnitPrec11(chanCapSat)
-	if assetId==omnicore.BtcAssetId{
+	if assetId==lnwire.BtcAssetId{
 		mHtlc=lnwire.UnitPrec11(mHtlc.ToMsat())
 	}
 	testChannels := []*testChannel{
@@ -3192,7 +3191,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 	// Setup a two node network.
 	chanCapSat := lnwire.UnitPrec8(100000)
 	mHtlc:=lnwire.UnitPrec11(chanCapSat)
-	if assetId==omnicore.BtcAssetId {
+	if assetId==lnwire.BtcAssetId {
 		mHtlc=lnwire.UnitPrec11(chanCapSat.ToMsat())
 	}
 	testChannels := []*testChannel{
@@ -3314,7 +3313,7 @@ func TestBuildRoute(t *testing.T) {
 			Features: paymentAddrFeatures,
 		}, 4),
 	}
-	if assetId==omnicore.BtcAssetId{
+	if assetId==lnwire.BtcAssetId{
 		for _, channel := range testChannels {
 			channel.Node1.MaxHTLC*=1000
 			channel.Node1.MinHTLC*=1000
@@ -3547,7 +3546,7 @@ func createDummyTestGraph(t *testing.T) *testGraphInstance {
 	// route.
 	chanCapSat := lnwire.UnitPrec8(100000)
 	maxHtlc:=lnwire.UnitPrec11( chanCapSat)
-	if assetId==omnicore.BtcAssetId{
+	if assetId==lnwire.BtcAssetId{
 		maxHtlc=lnwire.UnitPrec11(chanCapSat.ToMsat())
 	}
 	testChannels := []*testChannel{
@@ -4220,7 +4219,7 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 	// resumePayment.
 	//paymentAmt := lnwire.MilliSatoshi(10000)
 	paymentAmt := lnwire.UnitPrec11(10)
-	if assetId==omnicore.BtcAssetId{
+	if assetId==lnwire.BtcAssetId{
 		paymentAmt=lnwire.UnitPrec11(10000)
 	}
 	req := createDummyLightningPayment(

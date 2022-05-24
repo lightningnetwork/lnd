@@ -63,7 +63,7 @@ type packetHandler interface {
 type dustHandler interface {
 	// getDustSum returns the dust sum on either the local or remote
 	// commitment.
-	getDustSum(remote bool) uint64
+	getDustSum(remote bool) lnwire.MilliSatoshi
 
 	// getFeeRate returns the current channel feerate.
 	getFeeRate() chainfee.SatPerKWeight
@@ -266,14 +266,14 @@ type InterceptedPacket struct {
 	OutgoingExpiry uint32
 
 	// OutgoingAmount is the amount to forward.
-	OutgoingAmount uint64
+	OutgoingAmount lnwire.UnitPrec11
 
 	// IncomingExpiry is the absolute block height at which the incoming
 	// htlc expires.
 	IncomingExpiry uint32
 
 	// IncomingAmount is the amount of the accepted htlc.
-	IncomingAmount uint64
+	IncomingAmount lnwire.UnitPrec11
 	AssetId uint32
 
 	// CustomRecords are user-defined records in the custom type range that

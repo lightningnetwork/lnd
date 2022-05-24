@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"io"
 	"sync"
 	"time"
@@ -297,7 +297,7 @@ func newSerializedKey(pubKey *btcec.PublicKey) serializedPubKey {
 }
 
 func (cfg *Config)GetDefaultMinHtlc(assetId uint32) lnwire.UnitPrec11{
-	if assetId==omnicore.BtcAssetId{
+	if assetId==lnwire.BtcAssetId{
 		return lnwire.UnitPrec11(cfg.DefaultMinHtlcIn)
 	}
 	return lnwire.UnitPrec11(cfg.DefaultAssetMinHtlcIn)
@@ -1399,7 +1399,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
 		CsvDelay:         msg.CsvDelay,
 	}
-	err = reservation.CommitConstraints(
+	err = reservation.CommitConstraints(assetId,
 		channelConstraints, f.cfg.MaxLocalCSVDelay, true,
 	)
 	if err != nil {
@@ -1466,7 +1466,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	}
 
 	amt:=lnwire.UnitPrec8(assetAmt)
-	if msg.AssetId==omnicore.BtcAssetId{
+	if msg.AssetId==lnwire.BtcAssetId{
 		amt=lnwire.UnitPrec8(btcAmt)
 	}
 
@@ -1737,7 +1737,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
 		CsvDelay:         msg.CsvDelay,
 	}
-	err = resCtx.reservation.CommitConstraints(
+	err = resCtx.reservation.CommitConstraints(resCtx.assetId,
 		channelConstraints, resCtx.maxLocalCsv, false,
 	)
 	if err != nil {
@@ -1747,7 +1747,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	}
 
 	amt:=lnwire.UnitPrec8(resCtx.chanAssetAmt)
-	if resCtx.assetId==omnicore.BtcAssetId{
+	if resCtx.assetId==lnwire.BtcAssetId{
 		amt=lnwire.UnitPrec8(resCtx.chanBtcAmt)
 	}
 	
@@ -3453,7 +3453,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		int64(commitFeePerKw))
 
 	amt:=lnwire.UnitPrec8(assetCapacity)
-	if msg.AssetId==omnicore.BtcAssetId{
+	if msg.AssetId==lnwire.BtcAssetId{
 		amt=lnwire.UnitPrec8(btcCapacity)
 	}
 

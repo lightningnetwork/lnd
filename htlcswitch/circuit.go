@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"encoding/binary"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"io"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -43,11 +44,11 @@ type PaymentCircuit struct {
 	PaymentHash [32]byte
 
 	// IncomingAmount is the value of the HTLC from the incoming link.
-	IncomingAmount uint64
+	IncomingAmount lnwire.UnitPrec11
 
 	// OutgoingAmount specifies the value of the HTLC leaving the switch,
 	// either as a payment or forwarded amount.
-	OutgoingAmount uint64
+	OutgoingAmount lnwire.UnitPrec11
 
 	/*obd add wxf*/
 	AssetId uint32
@@ -184,13 +185,13 @@ func (c *PaymentCircuit) Decode(r io.Reader) error {
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return err
 	}
-	c.IncomingAmount = (
+	c.IncomingAmount = lnwire.UnitPrec11(
 		binary.BigEndian.Uint64(scratch[:]))
 
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return err
 	}
-	c.OutgoingAmount = (
+	c.OutgoingAmount = lnwire.UnitPrec11(
 		binary.BigEndian.Uint64(scratch[:]))
 
 	var bs [4]byte

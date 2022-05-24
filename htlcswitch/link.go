@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/omnicore"
 	prand "math/rand"
 	"sync"
 	"sync/atomic"
@@ -65,7 +66,7 @@ func  (fpCfg *ForwardingPolicyCfg)LoadCfg(assetId uint32)(fp *ForwardingPolicy){
 	fp=new(ForwardingPolicy)
 	fp.TimeLockDelta=fpCfg.TimeLockDelta
 	fp.BaseFee=fpCfg.BaseFee
-	if assetId==omnicore.BtcAssetId{
+	if assetId==lnwire.BtcAssetId{
 		fp.MinHTLCOut=lnwire.UnitPrec11(fpCfg.MinHTLCOut)
 		fp.MaxHTLC=lnwire.UnitPrec11(fpCfg.MaxHTLC)
 		fp.FeeRate=lnwire.UnitPrec11(fpCfg.FeeRate)
@@ -1358,7 +1359,7 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 // getResolutionFailure returns the wire message that a htlc resolution should
 // be failed with.
 func getResolutionFailure(resolution *invoices.HtlcFailResolution,
-	amount uint64) *LinkError {
+	amount lnwire.UnitPrec11) *LinkError {
 
 	// If the resolution has been resolved as part of a MPP timeout,
 	// we need to fail the htlc with lnwire.FailMppTimeout.
@@ -2258,7 +2259,7 @@ func (l *channelLink) Bandwidth() lnwire.UnitPrec11  {
 // amount provided to the link. This check does not reserve a space, since
 // forwards or other payments may use the available slot, so it should be
 // considered best-effort.
-func (l *channelLink) MayAddOutgoingHtlc(amt uint64) error {
+func (l *channelLink) MayAddOutgoingHtlc(amt lnwire.UnitPrec11) error {
 	return l.channel.MayAddOutgoingHtlc(amt)
 }
 
@@ -2266,8 +2267,8 @@ func (l *channelLink) MayAddOutgoingHtlc(amt uint64) error {
 // method.
 //
 // NOTE: Part of the dustHandler interface.
-func (l *channelLink) getDustSum(remote bool) uint64 {
-	return uint64( l.channel.GetDustSum(remote))
+func (l *channelLink) getDustSum(remote bool) lnwire.MilliSatoshi {
+	return  l.channel.GetDustSum(remote)
 }
 
 // getFeeRate is a wrapper method that retrieves the underlying channel's
@@ -2283,8 +2284,8 @@ func (l *channelLink) getFeeRate() chainfee.SatPerKWeight {
 //
 // NOTE: Part of the dustHandler interface.
 func (l *channelLink) getDustClosure() dustClosure {
-	localDustLimit :=uint64( l.channel.State().LocalChanCfg.DustLimit)
-	remoteDustLimit := uint64(l.channel.State().RemoteChanCfg.DustLimit)
+	localDustLimit := l.channel.State().LocalChanCfg.DustLimit
+	remoteDustLimit := l.channel.State().RemoteChanCfg.DustLimit
 	chanType := l.channel.State().ChanType
 
 	return dustHelper(chanType, localDustLimit, remoteDustLimit)
@@ -2295,14 +2296,14 @@ func (l *channelLink) getDustClosure() dustClosure {
 // the HTLC is incoming (i.e. one that the remote sent), a boolean denoting
 // whether to evaluate on the local or remote commit, and finally an HTLC
 // amount to test.
-type dustClosure func(chainfee.SatPerKWeight, bool, bool, uint64,uint32) bool
+type dustClosure func(chainfee.SatPerKWeight, bool, bool, btcutil.Amount,uint32) bool
 
 // dustHelper is used to construct the dustClosure.
 func dustHelper(chantype channeldb.ChannelType, localDustLimit,
-	remoteDustLimit uint64) dustClosure {
+	remoteDustLimit btcutil.Amount) dustClosure {
 
 	isDust := func(feerate chainfee.SatPerKWeight, incoming,
-		localCommit bool, amt uint64, assetId uint32) bool {
+		localCommit bool, amt btcutil.Amount, assetId uint32) bool {
 
 		if localCommit {
 			return lnwallet.HtlcIsDust(

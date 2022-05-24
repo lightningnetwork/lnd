@@ -2,7 +2,7 @@ package lnwire
 
 import (
 	"bytes"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"

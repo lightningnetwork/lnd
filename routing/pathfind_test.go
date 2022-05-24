@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"io/ioutil"
 	"math"
 	"math/big"
@@ -355,6 +354,10 @@ func parseTestGraph(assetId uint32,useCache bool, path string) (*testGraphInstan
 			Hash:  *txidBytes,
 			Index: 0,
 		}
+		cap:=lnwire.UnitPrec8(edge.Capacity)
+		if edge.AssetID!=lnwire.BtcAssetId{
+			cap=lnwire.UnitPrec8(edge.Capacity*1000)
+		}
 
 		// We first insert the existence of the edge between the two
 		// nodes.
@@ -362,7 +365,7 @@ func parseTestGraph(assetId uint32,useCache bool, path string) (*testGraphInstan
 			ChannelID:    edge.ChannelID,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: fundingPoint,
-			Capacity:    lnwire.UnitPrec8(edge.Capacity),
+			Capacity:    cap,
 			AssetId:     edge.AssetID,
 		}
 
@@ -374,9 +377,10 @@ func parseTestGraph(assetId uint32,useCache bool, path string) (*testGraphInstan
 		shortID := lnwire.NewShortChanIDFromInt(edge.ChannelID)
 
 		bw:=lnwire.UnitPrec11(edgeInfo.Capacity)
-		if assetId==omnicore.BtcAssetId{
-			bw=lnwire.UnitPrec11(edgeInfo.Capacity.ToMsat())
-		}
+		bw=lnwire.UnitPrec11(edgeInfo.Capacity.ToMsat())
+		//if assetId==lnwire.BtcAssetId{
+		//	bw=lnwire.UnitPrec11(edgeInfo.Capacity.ToMsat())
+		//}
 		links[shortID] = &mockLink{
 			assetId:edge.AssetID,
 			bandwidth: bw,
@@ -665,7 +669,7 @@ func createTestGraphFromChannels(assetId uint32,useCache bool, testChannels []*t
 
 
 		capacity := lnwire.UnitPrec11(testChannel.Capacity)
-		if assetId==omnicore.BtcAssetId{
+		if assetId==lnwire.BtcAssetId{
 			capacity = lnwire.UnitPrec11(testChannel.Capacity.ToMsat())
 		}
 		shortID := lnwire.NewShortChanIDFromInt(channelID)

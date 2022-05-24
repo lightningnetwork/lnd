@@ -504,7 +504,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 
 	// Evaluate whether this HTLC would increase our exposure to dust. If
 	// it does, don't send it out and instead return an error.
-	if s.evaluateDustThreshold(link, htlc.Amount,htlc.AssetID, false) {
+	if s.evaluateDustThreshold(link, lnwire.MilliSatoshi(htlc.Amount),htlc.AssetID, false) {
 		// Notify the htlc notifier of a link failure on our outgoing
 		// link. We use the FailTemporaryChannelFailure in place of a
 		// more descriptive error message.
@@ -1153,7 +1153,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// Evaluate whether this HTLC would increase our exposure to
 		// dust on the incoming link. If it does, fail it backwards.
 		if s.evaluateDustThreshold(
-			incomingLink, packet.amount,packet.assetId, true,
+			incomingLink, lnwire.MilliSatoshi( packet.amount),packet.assetId, true,
 		) {
 			// The incoming dust exceeds the threshold, so we fail
 			// the add back.
@@ -1167,7 +1167,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// Also evaluate whether this HTLC would increase our exposure
 		// to dust on the destination link. If it does, fail it back.
 		if s.evaluateDustThreshold(
-			destination, packet.amount,packet.assetId, false,
+			destination, lnwire.MilliSatoshi(packet.amount),packet.assetId, false,
 		) {
 			// The outgoing dust exceeds the threshold, so we fail
 			// the add back.
@@ -2369,15 +2369,15 @@ func (s *Switch) BestHeight() uint32 {
 // in the sum as it was already included in the commitment's dust. A boolean is
 // returned telling the caller whether the HTLC should be failed back.
 func (s *Switch) evaluateDustThreshold(link ChannelLink,
-	amount uint64,assetId uint32, incoming bool) bool {
+	amount lnwire.MilliSatoshi,assetId uint32, incoming bool) bool {
 
 	// Retrieve the link's current commitment feerate and dustClosure.
 	feeRate := link.getFeeRate()
 	isDust := link.getDustClosure()
 
 	// Evaluate if the HTLC is dust on either sides' commitment.
-	isLocalDust := isDust(feeRate, incoming, true, amount,assetId)
-	isRemoteDust := isDust(feeRate, incoming, false, amount,assetId)
+	isLocalDust := isDust(feeRate, incoming, true, amount.ToSatoshis(),assetId)
+	isRemoteDust := isDust(feeRate, incoming, false, amount.ToSatoshis(),assetId)
 
 	if !(isLocalDust || isRemoteDust) {
 		// If the HTLC is not dust on either commitment, it's fine to
@@ -2404,7 +2404,7 @@ func (s *Switch) evaluateDustThreshold(link ChannelLink,
 		}
 
 		// Finally check against the defined dust threshold.
-		if localSum > uint64( s.cfg.DustThreshold) {
+		if localSum >  s.cfg.DustThreshold {
 			return true
 		}
 	}
@@ -2422,7 +2422,7 @@ func (s *Switch) evaluateDustThreshold(link ChannelLink,
 		}
 
 		// Finally check against the defined dust threshold.
-		if remoteSum > uint64(s.cfg.DustThreshold) {
+		if remoteSum > s.cfg.DustThreshold {
 			return true
 		}
 	}

@@ -139,7 +139,7 @@ func (m *mockMissionControlOld) ReportPaymentSuccess(paymentID uint64,
 }
 
 func (m *mockMissionControlOld) GetProbability(fromNode, toNode route.Vertex,
-	amt uint64) float64 {
+	amt lnwire.UnitPrec11) float64 {
 
 	return 0
 }
@@ -762,6 +762,6 @@ func (m *mockLink) EligibleToForward() bool {
 }
 
 // MayAddOutgoingHtlc returns the error configured in our mock.
-func (m *mockLink) MayAddOutgoingHtlc(_ uint64) error {
+func (m *mockLink) MayAddOutgoingHtlc(_ lnwire.UnitPrec11) error {
 	return m.mayAddOutgoingErr
 }

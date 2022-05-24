@@ -47,7 +47,7 @@ func mergeInt64(name string, current, new int64) (int64, error) {
 // mergeMillisatoshi merges two msat values, failing if they have different
 // non-zero values.
 func mergeMillisatoshi(name string, current,
-	new uint64) (uint64, error) {
+	new lnwire.UnitPrec11) (lnwire.UnitPrec11, error) {
 
 	switch {
 	case current == 0:
@@ -122,7 +122,7 @@ func mergeResponse(current, new ChannelAcceptResponse) (ChannelAcceptResponse,
 	if err != nil {
 		return current, err
 	}
-	current.Reserve = uint64(reserve)
+	current.Reserve = lnwire.UnitPrec8(reserve)
 
 	current.MinHtlcIn, err = mergeMillisatoshi(
 		fieldMinIn, current.MinHtlcIn, new.MinHtlcIn,

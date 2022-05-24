@@ -132,10 +132,10 @@ func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
 				},
 				ToNodeFeatures: lnwire.EmptyFeatureVector(),
 				ChannelID:      hopHint.ChannelID,
-				FeeBaseMSat: uint64(
+				FeeBaseMSat: lnwire.MilliSatoshi(
 					hopHint.FeeBaseMSat,
 				),
-				FeeProportionalMillionths: uint64(
+				FeeProportionalMillionths: lnwire.UnitPrec11(
 					hopHint.FeeProportionalMillionths,
 				),
 				TimeLockDelta: hopHint.CLTVExpiryDelta,

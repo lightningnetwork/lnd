@@ -131,7 +131,7 @@ func UnsignedChannelUpdateFromEdge(info *channeldb.ChannelEdgeInfo,
 		HtlcMinimumMsat: policy.MinHTLC,
 		HtlcMaximumMsat: policy.MaxHTLC,
 		BaseFee:         uint32(policy.FeeBaseMSat),
-		FeeRate:         uint32(policy.FeeProportionalMillionths),
+		FeeRate:         policy.FeeProportionalMillionths,
 		ExtraOpaqueData: policy.ExtraOpaqueData,
 	}
 }

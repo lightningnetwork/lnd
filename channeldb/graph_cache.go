@@ -96,7 +96,7 @@ func (c *CachedEdgePolicy) ComputeFee(
 	amt lnwire.UnitPrec11) lnwire.UnitPrec11 {
 	//feeBase := lnwire.MilliSatoshi(0)
 	//feeRate := lnwire.MilliSatoshi(100)
-	//if c.AssetId == omnicore.BtcAssetId {}
+	//if c.AssetId == lnwire.BtcAssetId {}
 	feeBase := c.FeeBaseMSat
 	feeRate := c.FeeProportionalMillionths
 
@@ -109,7 +109,7 @@ func (c *CachedEdgePolicy) ComputeFeeFromIncoming(
 	incomingAmt lnwire.UnitPrec11) lnwire.UnitPrec11 {
 	//feeBase := lnwire.MilliSatoshi(0)
 	//feeRate := lnwire.MilliSatoshi(100)
-	//if c.AssetId == omnicore.BtcAssetId {}
+	//if c.AssetId == lnwire.BtcAssetId {}
 	feeRate := lnwire.MilliSatoshi(c.FeeProportionalMillionths)
 	feeBase := c.FeeBaseMSat
 

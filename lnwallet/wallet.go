@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/btcsuite/btcutil/txsort"
-	"github.com/lightningnetwork/lnd/lnwallet/omnicore"
 	"github.com/lightningnetwork/lnd/lnwallet/omnicore/op"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"math"
 	"net"
 	"sync"
@@ -1213,7 +1213,7 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 
 	reservation.partialState.RevocationProducer = producer
 	defaultConstraints:=l.Cfg.DefaultConstraints
-	defaultConstraints.LoadCfg(reservation.partialState.AssetID)
+	//defaultConstraints.LoadCfg(reservation.partialState.AssetID)
 	reservation.ourContribution.ChannelConstraints = defaultConstraints
 
 	return nil
@@ -1368,7 +1368,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Perform bounds-checking on both ChannelReserve and DustLimit
 	// parameters.
-	if !pendingReservation.validateReserveBounds() {
+	if !pendingReservation.validateReserveBounds(req.contribution.AssetId) {
 		req.err <- fmt.Errorf("invalid reserve and dust bounds")
 		return
 	}
@@ -1576,10 +1576,10 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	if (chanState.AssetID>1){
 		//asset mode: all the btcBalance belong to Initiator
 		if chanState.IsInitiator{
-			remoteBalance=omnicore.OmniGas
+			remoteBalance=lnwire.OmniGas
 			localBalance=chanState.BtcCapacity-remoteBalance
 		}else{
-			localBalance=omnicore.OmniGas
+			localBalance=lnwire.OmniGas
 			remoteBalance=chanState.BtcCapacity-localBalance
 		}
 	}
@@ -1726,7 +1726,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	// Perform bounds checking on both ChannelReserve and DustLimit
 	// parameters. The ChannelReserve may have been changed by the
 	// ChannelAcceptor RPC, so this is necessary.
-	if !pendingReservation.validateReserveBounds() {
+	if !pendingReservation.validateReserveBounds(req.contribution.AssetId) {
 		req.err <- fmt.Errorf("invalid reserve and dust bounds")
 		return
 	}
@@ -1976,10 +1976,10 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	if (chanState.AssetID>1){
 		//asset mode: all the btcBalance belong to Initiator
 		if chanState.IsInitiator{
-			remoteBalance=omnicore.OmniGas
+			remoteBalance=lnwire.OmniGas
 			localBalance=chanState.BtcCapacity-remoteBalance
 		}else{
-			localBalance=omnicore.OmniGas
+			localBalance=lnwire.OmniGas
 			remoteBalance=chanState.BtcCapacity-localBalance
 		}
 	}

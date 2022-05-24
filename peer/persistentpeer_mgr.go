@@ -184,8 +184,10 @@ func (m *PersistentPeerManager) Stop() {
 }
 
 // AddPeer adds a new persistent peer for the PersistentPeerManager to keep
-// track of.
-func (m *PersistentPeerManager) AddPeer(pubKey *btcec.PublicKey, perm bool) {
+// track of. The peer may be initialised with an initial set of addresses.
+func (m *PersistentPeerManager) AddPeer(pubKey *btcec.PublicKey, perm bool,
+	addrs ...*lnwire.NetAddress) {
+
 	m.Lock()
 	defer m.Unlock()
 
@@ -196,10 +198,15 @@ func (m *PersistentPeerManager) AddPeer(pubKey *btcec.PublicKey, perm bool) {
 		backoff = peer.backoff
 	}
 
+	addrMap := make(map[string]*lnwire.NetAddress)
+	for _, addr := range addrs {
+		addrMap[addr.String()] = addr
+	}
+
 	m.conns[peerKey] = &persistentPeer{
 		pubKey:  pubKey,
 		perm:    perm,
-		addrs:   make(map[string]*lnwire.NetAddress),
+		addrs:   addrMap,
 		backoff: backoff,
 	}
 }

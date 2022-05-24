@@ -50,10 +50,14 @@ func (m MilliSatoshi) String() string {
 
 // TODO(roasbeef): extend with arithmetic operations?
 
-//11 precision used for lnwire.MilliSatoshi
+
+// OBD Wxf: 11 precision used for lnwire.MilliSatoshi
+// When the asset is bitcoin, this is the same to milli-satoshi, using 11 decimal,
+// when the asset is omni-asset, this is a simple unsigned 64 int, 8 decimal when translats to string.
+// Better using name "universalPrec"
 type   UnitPrec11 uint64
 
-//8 precision, used for btcutil.Amount
+// OBD Wxf: 8 precision, used for btcutil.Amount
 type   UnitPrec8 uint64
 
 func (i UnitPrec8) ToMsat() MilliSatoshi {

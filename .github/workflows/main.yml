@@ -266,6 +266,8 @@ jobs:
             args: backend=bitcoind dbbackend=etcd
           - name: bitcoind-postgres
             args: backend=bitcoind dbbackend=postgres
+          - name: bitcoind-sqlite
+            args: backend=bitcoind dbbackend=sqlite
           - name: neutrino
             args: backend=neutrino
     steps:

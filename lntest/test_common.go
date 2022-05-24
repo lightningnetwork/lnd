@@ -33,6 +33,7 @@ const (
 	BackendBbolt DatabaseBackend = iota
 	BackendEtcd
 	BackendPostgres
+	BackendSqlite
 )
 
 var (

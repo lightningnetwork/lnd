@@ -277,6 +277,9 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	case BackendPostgres:
 		args = append(args, "--db.backend=postgres")
 		args = append(args, "--db.postgres.dsn="+cfg.PostgresDsn)
+
+	case BackendSqlite:
+		args = append(args, "--db.backend=sqlite")
 	}
 
 	if cfg.FeeURL != "" {

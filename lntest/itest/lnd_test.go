@@ -44,7 +44,7 @@ var (
 
 	// dbBackendFlag specifies the backend to use.
 	dbBackendFlag = flag.String("dbbackend", "bbolt", "Database backend "+
-		"(bbolt, etcd, postgres)")
+		"(bbolt, etcd, postgres, sqlite)")
 )
 
 // getTestCaseSplitTranche returns the sub slice of the test cases that should
@@ -151,6 +151,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	case "postgres":
 		dbBackend = lntest.BackendPostgres
+
+	case "sqlite":
+		dbBackend = lntest.BackendSqlite
 
 	default:
 		require.Fail(t, "unknown db backend")

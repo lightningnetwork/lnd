@@ -282,6 +282,15 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 		)
 		return backend, cancel, err
 
+	case SqliteBackendName:
+		f, err := NewSqliteFixture()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return f.DB(), func() {
+			_ = f.DB().Close()
+		}, nil
 	}
 
 	return nil, nil, fmt.Errorf("unknown backend")

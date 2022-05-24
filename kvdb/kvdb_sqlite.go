@@ -3,8 +3,12 @@
 
 package kvdb
 
-const SqliteBackend = true
+import "github.com/lightningnetwork/lnd/kvdb/sqlite"
 
-func NewSqliteFixture(dbName string) (string, error) {
-	return "", nil
+const TestBackend = SqliteBackendName
+
+func NewSqliteFixture() (sqlite.Fixture, error) {
+	f, err := sqlite.NewFixture()
+
+	return f, err
 }

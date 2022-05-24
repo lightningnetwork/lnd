@@ -5,10 +5,10 @@ package kvdb
 
 import (
 	"errors"
+
+	"github.com/lightningnetwork/lnd/kvdb/sqlite"
 )
 
-const SqliteBackend = false
-
-func NewSqliteFixture(dbName string) (string, error) {
-	return "", errors.New("sqlite backend not available")
+func NewSqliteFixture() (sqlite.Fixture, error) {
+	return nil, errors.New("sqlite backend not available")
 }

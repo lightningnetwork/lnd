@@ -3953,20 +3953,15 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 	// persistent connection to the peer.
 	srvrLog.Debugf("Connecting to %v", addr)
 	if perm {
-		connReq := &connmgr.ConnReq{
-			Addr:      addr,
-			Permanent: true,
-		}
-
 		// Since the user requested a permanent connection, we'll set
 		// the entry to true which will tell the server to continue
 		// reconnecting even if the number of channels with this peer is
 		// zero.
 		s.persistentPeerMgr.AddPeer(addr.IdentityKey, true)
-		s.persistentPeerMgr.AddPeerConnReq(addr.IdentityKey, connReq)
+		s.persistentPeerMgr.AddPeerAddresses(addr.IdentityKey, addr)
 		s.mu.Unlock()
 
-		go s.connMgr.Connect(connReq)
+		go s.persistentPeerMgr.ConnectPeer(addr.IdentityKey)
 
 		return nil
 	}

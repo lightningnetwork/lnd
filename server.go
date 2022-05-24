@@ -3562,40 +3562,8 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	// in question.
 	s.removePeer(p)
 
-	// Next, check to see if this is a persistent peer or not.
-	if !s.persistentPeerMgr.IsPersistentPeer(pubKey) {
-		return
-	}
-
-	// Record the computed backoff in the backoff map.
-	backoff := s.persistentPeerMgr.NextPeerBackoff(pubKey, p.StartTime())
-
-	// Initialize a retry canceller for this peer if one does not
-	// exist.
-	cancelChan := s.persistentPeerMgr.GetRetryCanceller(pubKey)
-
-	// We choose not to wait group this go routine since the Connect
-	// call can stall for arbitrarily long if we shutdown while an
-	// outbound connection attempt is being made.
-	go func() {
-		srvrLog.Debugf("Scheduling connection re-establishment to "+
-			"persistent peer %x in %s",
-			p.IdentityKey().SerializeCompressed(), backoff)
-
-		select {
-		case <-time.After(backoff):
-		case <-cancelChan:
-			return
-		case <-s.quit:
-			return
-		}
-
-		srvrLog.Debugf("Attempting to re-establish persistent "+
-			"connection to peer %x",
-			p.IdentityKey().SerializeCompressed())
-
-		s.persistentPeerMgr.ConnectPeer(pubKey)
-	}()
+	// If this is a persistent peer, then schedule a reconnection attempt.
+	s.persistentPeerMgr.ConnectPeerWithBackoff(pubKey, p.StartTime())
 }
 
 // removePeer removes the passed peer from the server's state of all active

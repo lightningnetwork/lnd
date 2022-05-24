@@ -288,26 +288,6 @@ func (m *PersistentPeerManager) NumPeerConnReqs(pubKey *btcec.PublicKey) int {
 	return len(peer.connReqs)
 }
 
-// NextPeerBackoff calculates, sets and returns the next backoff duration that
-// should be used before attempting to reconnect to the peer.
-func (m *PersistentPeerManager) NextPeerBackoff(pubKey *btcec.PublicKey,
-	startTime time.Time) time.Duration {
-
-	m.Lock()
-	defer m.Unlock()
-
-	peer, ok := m.conns[route.NewVertex(pubKey)]
-	if !ok {
-		return m.cfg.MinBackoff
-	}
-
-	peer.backoff = nextPeerBackoff(
-		peer.backoff, m.cfg.MinBackoff, m.cfg.MaxBackoff, startTime,
-	)
-
-	return peer.backoff
-}
-
 // nextPeerBackoff computes the next backoff duration for a peer using
 // exponential backoff. If no previous backoff was known, the default is
 // returned.
@@ -374,22 +354,6 @@ func computeNextBackoff(currBackoff, maxBackoff time.Duration) time.Duration {
 	// Otherwise add in our wiggle, but subtract out half of the margin so
 	// that the backoff can tweaked by 1/20 in either direction.
 	return nextBackoff + (time.Duration(wiggle.Uint64()) - margin/2)
-}
-
-// GetRetryCanceller returns the existing retry canceller channel of the peer
-// or creates one if one does not exist yet.
-func (m *PersistentPeerManager) GetRetryCanceller(
-	pubKey *btcec.PublicKey) chan struct{} {
-
-	m.Lock()
-	defer m.Unlock()
-
-	peer, ok := m.conns[route.NewVertex(pubKey)]
-	if !ok {
-		return nil
-	}
-
-	return peer.getRetryCanceller()
 }
 
 // ConnectPeer uses all the stored addresses for a peer to attempt to connect
@@ -611,4 +575,49 @@ func (m *PersistentPeerManager) setPeerAddrsUnsafe(peerKey route.Vertex,
 
 		peer.addrs[lnAddr.String()] = lnAddr
 	}
+}
+
+// ConnectPeerWithBackoff starts a connection attempt to the given peer after
+// the peer's backoff time has passed.
+func (m *PersistentPeerManager) ConnectPeerWithBackoff(pubKey *btcec.PublicKey,
+	startTime time.Time) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	peer, ok := m.conns[route.NewVertex(pubKey)]
+	if !ok {
+		return
+	}
+
+	backoff := nextPeerBackoff(
+		peer.backoff, m.cfg.MinBackoff, m.cfg.MaxBackoff, startTime,
+	)
+	peer.backoff = backoff
+
+	// Initialize a retry canceller for this peer if one does not
+	// exist.
+	cancelChan := peer.getRetryCanceller()
+
+	// We choose not to wait group this go routine since the Connect call
+	// can stall for arbitrarily long if we shutdown while an outbound
+	// connection attempt is being made.
+	go func() {
+		peerLog.Debugf("Scheduling connection re-establishment to "+
+			"persistent peer %x in %s",
+			pubKey)
+
+		select {
+		case <-time.After(backoff):
+		case <-cancelChan:
+			return
+		case <-m.quit:
+			return
+		}
+
+		peerLog.Debugf("Attempting to re-establish persistent "+
+			"connection to peer %x", pubKey)
+
+		m.ConnectPeer(pubKey)
+	}()
 }

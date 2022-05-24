@@ -110,7 +110,7 @@ func TestRetryCanceller(t *testing.T) {
 	_, alicePubKey := btcec.PrivKeyFromBytes(channels.AlicesPrivKey)
 	m.AddPeer(alicePubKey, false)
 
-	rc := m.GetRetryCanceller(alicePubKey)
+	rc := m.conns[route.NewVertex(alicePubKey)].getRetryCanceller()
 
 	// retryFunction represents a function that should be canceled if the
 	// retry canceller channel is closed.

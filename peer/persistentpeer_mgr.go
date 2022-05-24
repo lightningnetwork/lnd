@@ -240,22 +240,6 @@ func (m *PersistentPeerManager) DelPeerConnReqs(pubKey *btcec.PublicKey) {
 	peer.connReqs = nil
 }
 
-// AddPeerConnReq appends the given connection request to the existing list for the
-// given peer.
-func (m *PersistentPeerManager) AddPeerConnReq(pubKey *btcec.PublicKey,
-	connReq *connmgr.ConnReq) {
-
-	m.Lock()
-	defer m.Unlock()
-
-	peer, ok := m.conns[route.NewVertex(pubKey)]
-	if !ok {
-		return
-	}
-
-	peer.connReqs = append(peer.connReqs, connReq)
-}
-
 // NumPeerConnReqs returns the number of connection requests for the given peer.
 func (m *PersistentPeerManager) NumPeerConnReqs(pubKey *btcec.PublicKey) int {
 	m.RLock()

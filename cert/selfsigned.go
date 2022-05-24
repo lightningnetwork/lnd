@@ -27,7 +27,9 @@ var (
 // ipAddresses returns the parserd IP addresses to use when creating the TLS
 // certificate. If tlsDisableAutofill is true, we don't include interface
 // addresses to protect users privacy.
-func ipAddresses(tlsExtraIPs []string, tlsDisableAutofill bool) ([]net.IP, error) {
+func ipAddresses(tlsExtraIPs []string, tlsDisableAutofill bool) ([]net.IP,
+	error) {
+
 	// Collect the host's IP addresses, including loopback, in a slice.
 	ipAddresses := []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
 
@@ -71,7 +73,9 @@ func ipAddresses(tlsExtraIPs []string, tlsDisableAutofill bool) ([]net.IP, error
 
 // dnsNames returns the host and DNS names to use when creating the TLS
 // ceftificate.
-func dnsNames(tlsExtraDomains []string, tlsDisableAutofill bool) (string, []string) {
+func dnsNames(tlsExtraDomains []string, tlsDisableAutofill bool) (string,
+	[]string) {
+
 	// Collect the host's names into a slice.
 	host, err := os.Hostname()
 
@@ -187,9 +191,10 @@ func IsOutdated(cert *x509.Certificate, tlsExtraIPs,
 	return false, nil
 }
 
-// GenCertPair generates a key/cert pair to the paths provided. The
-// auto-generated certificates should *not* be used in production for public
-// access as they're self-signed and don't necessarily contain all of the
+// GenCertPair generates a key/cert pair and returns the pair in byte form.
+//
+// The auto-generated certificates should *not* be used in production for
+// public access as they're self-signed and don't necessarily contain all of the
 // desired hostnames for the service. For production/public use, consider a
 // real PKI.
 //
@@ -197,7 +202,7 @@ func IsOutdated(cert *x509.Certificate, tlsExtraIPs,
 // https://github.com/btcsuite/btcd/btcutil
 func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	tlsExtraDomains []string, tlsDisableAutofill bool,
-	certValidity time.Duration) error {
+	certValidity time.Duration) ([]byte, []byte, error) {
 
 	now := time.Now()
 	validUntil := now.Add(certValidity)
@@ -210,7 +215,8 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	// Generate a serial number that's below the serialNumberLimit.
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
-		return fmt.Errorf("failed to generate serial number: %s", err)
+		return nil, nil, fmt.Errorf("failed to generate serial "+
+			"number: %s", err)
 	}
 
 	// Get all DNS names and IP addresses to use when creating the
@@ -218,13 +224,13 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	host, dnsNames := dnsNames(tlsExtraDomains, tlsDisableAutofill)
 	ipAddresses, err := ipAddresses(tlsExtraIPs, tlsDisableAutofill)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// Generate a private key for the certificate.
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// Construct the certificate template.
@@ -238,8 +244,11 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 		NotAfter:  validUntil,
 
 		KeyUsage: x509.KeyUsageKeyEncipherment |
-			x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			x509.KeyUsageDigitalSignature |
+			x509.KeyUsageCertSign,
+		ExtKeyUsage: []x509.ExtKeyUsage{
+			x509.ExtKeyUsageServerAuth,
+		},
 		IsCA:                  true, // so can sign self.
 		BasicConstraintsValid: true,
 
@@ -247,37 +256,57 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 		IPAddresses: ipAddresses,
 	}
 
-	derBytes, err := x509.CreateCertificate(rand.Reader, &template,
-		&template, &priv.PublicKey, priv)
+	derBytes, err := x509.CreateCertificate(
+		rand.Reader, &template,
+		&template, &priv.PublicKey, priv,
+	)
 	if err != nil {
-		return fmt.Errorf("failed to create certificate: %v", err)
+		return nil, nil, fmt.Errorf("failed to create certificate: %v",
+			err)
 	}
 
 	certBuf := &bytes.Buffer{}
-	err = pem.Encode(certBuf, &pem.Block{Type: "CERTIFICATE",
-		Bytes: derBytes})
+	err = pem.Encode(
+		certBuf, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes},
+	)
 	if err != nil {
-		return fmt.Errorf("failed to encode certificate: %v", err)
+		return nil, nil, fmt.Errorf("failed to encode certificate: %v",
+			err)
 	}
 
 	keybytes, err := x509.MarshalECPrivateKey(priv)
 	if err != nil {
-		return fmt.Errorf("unable to encode privkey: %v", err)
+		return nil, nil, fmt.Errorf("unable to encode privkey: %v",
+			err)
 	}
 	keyBuf := &bytes.Buffer{}
-	err = pem.Encode(keyBuf, &pem.Block{Type: "EC PRIVATE KEY",
-		Bytes: keybytes})
+	err = pem.Encode(
+		keyBuf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keybytes},
+	)
 	if err != nil {
-		return fmt.Errorf("failed to encode private key: %v", err)
+		return nil, nil, fmt.Errorf("failed to encode private key: %v",
+			err)
 	}
 
+	return certBuf.Bytes(), keyBuf.Bytes(), nil
+}
+
+// WriteCertPair writes certificate and key data to disk if a path is provided.
+func WriteCertPair(certFile, keyFile string, certBytes, keyBytes []byte) error {
 	// Write cert and key files.
-	if err = ioutil.WriteFile(certFile, certBuf.Bytes(), 0644); err != nil {
-		return err
+	if certFile != "" {
+		err := ioutil.WriteFile(certFile, certBytes, 0644)
+		if err != nil {
+			return err
+		}
 	}
-	if err = ioutil.WriteFile(keyFile, keyBuf.Bytes(), 0600); err != nil {
-		os.Remove(certFile)
-		return err
+
+	if keyFile != "" {
+		err := ioutil.WriteFile(keyFile, keyBytes, 0600)
+		if err != nil {
+			os.Remove(certFile)
+			return err
+		}
 	}
 
 	return nil

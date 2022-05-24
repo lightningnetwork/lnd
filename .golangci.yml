@@ -24,6 +24,7 @@ run:
     - watchtowerrpc
     - kvdb_etcd
     - kvdb_postgres
+    - kvdb_sqlite
 
 linters-settings:
   govet:

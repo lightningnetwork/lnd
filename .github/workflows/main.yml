@@ -208,6 +208,7 @@ jobs:
           - btcd unit-cover
           - unit tags="kvdb_etcd"
           - unit tags="kvdb_postgres"
+          - unit tags="kvdb_sqlite"
           - btcd unit-race
     steps:
       - name: git checkout

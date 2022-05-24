@@ -1,5 +1,5 @@
-//go:build darwin && !kvdb_etcd && !kvdb_postgres
-// +build darwin,!kvdb_etcd,!kvdb_postgres
+//go:build darwin && !kvdb_etcd && !kvdb_postgres && !kvdb_sqlite
+// +build darwin,!kvdb_etcd,!kvdb_postgres,!kvdb_sqlite
 
 package lntest
 

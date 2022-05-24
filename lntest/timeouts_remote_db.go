@@ -1,5 +1,7 @@
-//go:build kvdb_etcd || kvdb_postgres
-// +build kvdb_etcd kvdb_postgres
+//go:build kvdb_etcd || kvdb_postgres || kvdb_sqlite
+// +build kvdb_etcd kvdb_postgres kvdb_sqlite
+
+// TODO: should sqlite use remote or local timeouts?
 
 package lntest
 

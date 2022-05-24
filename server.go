@@ -1407,6 +1407,16 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 				return false
 			},
+			FetchNodeAdvertisedAddrs: func(
+				peer route.Vertex) ([]net.Addr, error) {
+
+				node, err := s.graphDB.FetchLightningNode(peer)
+				if err != nil {
+					return nil, err
+				}
+
+				return node.Addresses, nil
+			},
 		},
 	)
 
@@ -3660,63 +3670,6 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 		return
 	}
 
-	// Get the last address that we used to connect to the peer.
-	addrs := []net.Addr{
-		p.NetAddress().Address,
-	}
-
-	// We'll ensure that we locate all the peers advertised addresses for
-	// reconnection purposes.
-	advertisedAddrs, err := s.fetchNodeAdvertisedAddrs(pubKey)
-	switch {
-	// We found advertised addresses, so use them.
-	case err == nil:
-		addrs = advertisedAddrs
-
-	// The peer doesn't have an advertised address.
-	case err == errNoAdvertisedAddr:
-		// If it is an outbound peer then we fall back to the existing
-		// peer address.
-		if !p.Inbound() {
-			break
-		}
-
-		// Fall back to the existing peer address if
-		// we're not accepting connections over Tor.
-		if s.torController == nil {
-			break
-		}
-
-		// If we are, the peer's address won't be known
-		// to us (we'll see a private address, which is
-		// the address used by our onion service to dial
-		// to lnd), so we don't have enough information
-		// to attempt a reconnect.
-		srvrLog.Debugf("Ignoring reconnection attempt "+
-			"to inbound peer %v without "+
-			"advertised address", p)
-		return
-
-	// We came across an error retrieving an advertised
-	// address, log it, and fall back to the existing peer
-	// address.
-	default:
-		srvrLog.Errorf("Unable to retrieve advertised "+
-			"address for node %x: %v", p.PubKey(),
-			err)
-	}
-
-	// Add any missing addresses for this peer to persistentPeerAddr.
-	for _, addr := range addrs {
-		s.persistentPeerMgr.AddPeerAddresses(
-			p.IdentityKey(), &lnwire.NetAddress{
-				IdentityKey: p.IdentityKey(),
-				Address:     addr,
-				ChainNet:    p.NetAddress().ChainNet,
-			},
-		)
-	}
-
 	// Record the computed backoff in the backoff map.
 	backoff := s.persistentPeerMgr.NextPeerBackoff(pubKey, p.StartTime())
 
@@ -3998,29 +3951,6 @@ func (s *server) Peers() []*peer.Brontide {
 	}
 
 	return peers
-}
-
-// errNoAdvertisedAddr is an error returned when we attempt to retrieve the
-// advertised address of a node, but they don't have one.
-var errNoAdvertisedAddr = errors.New("no advertised address found")
-
-// fetchNodeAdvertisedAddrs attempts to fetch the advertised addresses of a node.
-func (s *server) fetchNodeAdvertisedAddrs(pub *btcec.PublicKey) ([]net.Addr, error) {
-	vertex, err := route.NewVertexFromBytes(pub.SerializeCompressed())
-	if err != nil {
-		return nil, err
-	}
-
-	node, err := s.graphDB.FetchLightningNode(vertex)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(node.Addresses) == 0 {
-		return nil, errNoAdvertisedAddr
-	}
-
-	return node.Addresses, nil
 }
 
 // fetchLastChanUpdate returns a function which is able to retrieve our latest

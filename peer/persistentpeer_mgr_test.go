@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -43,6 +44,11 @@ func TestPersistentPeerManagerBasics(t *testing.T) {
 		AddrTypeIsSupported: func(addr net.Addr) bool {
 			return true
 		},
+		FetchNodeAdvertisedAddrs: func(vertex route.Vertex) ([]net.Addr,
+			error) {
+
+			return nil, nil
+		},
 	})
 	defer m.Stop()
 
@@ -81,31 +87,6 @@ func TestPersistentPeerManagerBasics(t *testing.T) {
 	require.Len(t, peers, 1)
 	require.True(t, peers[0].IsEqual(bobPubKey))
 
-	// Add an address for Bob.
-	m.AddPeerAddresses(bobPubKey, &lnwire.NetAddress{
-		IdentityKey: bobPubKey,
-		Address:     testAddr1,
-	})
-
-	// Add another address for Bob.
-	m.AddPeerAddresses(bobPubKey, &lnwire.NetAddress{
-		IdentityKey: bobPubKey,
-		Address:     testAddr2,
-	})
-
-	// Both addresses should appear in Bob's address list.
-	var addrs []*lnwire.NetAddress
-	for _, addr := range m.conns[route.NewVertex(bobPubKey)].addrs {
-		addrs = append(addrs, addr)
-	}
-	require.Len(t, addrs, 2)
-	if addrs[0].Address.String() == testAddr1.String() {
-		require.Equal(t, addrs[1].Address.String(), testAddr2.String())
-	} else {
-		require.Equal(t, addrs[0].Address.String(), testAddr2.String())
-		require.Equal(t, addrs[1].Address.String(), testAddr1.String())
-	}
-
 	// Delete Bob.
 	m.DelPeer(bobPubKey)
 	peers = m.PersistentPeers()
@@ -118,6 +99,11 @@ func TestRetryCanceller(t *testing.T) {
 	m := NewPersistentPeerManager(&PersistentPeerMgrConfig{
 		MinBackoff: time.Millisecond * 10,
 		MaxBackoff: time.Millisecond * 100,
+		FetchNodeAdvertisedAddrs: func(_ route.Vertex) ([]net.Addr,
+			error) {
+
+			return nil, nil
+		},
 	})
 	defer m.Stop()
 
@@ -191,6 +177,8 @@ func TestConnectionLogic(t *testing.T) {
 	cm := newMockConnMgr(t)
 	defer cm.stop()
 
+	_, alicePubKey := btcec.PrivKeyFromBytes(channels.AlicesPrivKey)
+
 	// Create a new PersistentPeerManager.
 	m := NewPersistentPeerManager(&PersistentPeerMgrConfig{
 		ConnMgr:           cm,
@@ -201,37 +189,37 @@ func TestConnectionLogic(t *testing.T) {
 		AddrTypeIsSupported: func(addr net.Addr) bool {
 			return true
 		},
+		FetchNodeAdvertisedAddrs: func(vertex route.Vertex) ([]net.Addr,
+			error) {
+
+			switch vertex {
+			case route.NewVertex(alicePubKey):
+				return []net.Addr{testAddr1}, nil
+			default:
+				return nil, fmt.Errorf("unknown node")
+			}
+		},
 	})
 	require.NoError(t, m.Start())
 	defer m.Stop()
 
-	_, alicePubKey := btcec.PrivKeyFromBytes(channels.AlicesPrivKey)
-
 	// Add Alice as a persistent peer.
 	m.AddPeer(alicePubKey, false)
 
-	// There are currently no addresses stored for Alice, so calling
-	// ConnectPeer should not result in any connection requests.
-	m.ConnectPeer(alicePubKey)
-	require.Equal(t, cm.totalNumConnReqs(), 0)
-
-	// Now we add an address for Alice and attempt to connect again. This
-	// should result in 1 connection request for the given address.
-	m.AddPeerAddresses(alicePubKey, &lnwire.NetAddress{
-		IdentityKey: alicePubKey,
-		Address:     testAddr1,
-	})
+	// Since an address from FetchNodeAdvertisedAddrs would have been found
+	// for Alice, calling ConnectPeer should result in a connection request
+	// for that address.
 	m.ConnectPeer(alicePubKey)
 	assertOneConnReqPerAddress(t, cm, testAddr1)
 
-	// If we now add a second address for Alice, calling ConnectPeer again
-	// should result in one more connection request for the new address.
-	// The connection for the first address should remain intact.
-	m.AddPeerAddresses(alicePubKey, &lnwire.NetAddress{
-		IdentityKey: alicePubKey,
-		Address:     testAddr2,
-	})
-	m.ConnectPeer(alicePubKey)
+	// Advertise the same address for Alice in a new NodeAnnouncement.
+	// There should still only be one connection request for this address.
+	addUpdate(alicePubKey, testAddr1)
+	assertOneConnReqPerAddress(t, cm, testAddr1)
+
+	// Advertise new addresses for Alice, one being the same as what she
+	// had before and the other being a new one.
+	addUpdate(alicePubKey, testAddr1, testAddr2)
 	assertOneConnReqPerAddress(t, cm, testAddr1, testAddr2)
 
 	// If addresses come through from NodeAnnouncement updates, they should

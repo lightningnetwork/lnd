@@ -404,6 +404,9 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * [The channel-commit-interval is now clamped to a reasonable timeframe of 1h.](https://github.com/lightningnetwork/lnd/pull/6220)
 
 * [A function in the gossiper `processNetworkAnnouncements` has been refactored for readability and for future deduplication efforts.](https://github.com/lightningnetwork/lnd/pull/6278)
+ 
+* [Refactor of all persistent peer related management to the new
+    PersistentPeerManager](https://github.com/lightningnetwork/lnd/pull/5700).
 
 # Contributors (Alphabetical Order)
 

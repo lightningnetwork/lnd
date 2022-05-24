@@ -196,7 +196,7 @@ func (m *PersistentPeerManager) Stop() {
 // AddPeer adds a new persistent peer for the PersistentPeerManager to keep
 // track of. The peer may be initialised with an initial set of addresses.
 func (m *PersistentPeerManager) AddPeer(pubKey *btcec.PublicKey, perm bool,
-	addrs ...*lnwire.NetAddress) {
+	addrs ...net.Addr) {
 
 	peerKey := route.NewVertex(pubKey)
 
@@ -221,7 +221,7 @@ func (m *PersistentPeerManager) AddPeer(pubKey *btcec.PublicKey, perm bool,
 		backoff: backoff,
 	}
 
-	m.setPeerAddrsUnsafe(peerKey, advertisedAddrs, addrs)
+	m.setPeerAddrsUnsafe(peerKey, append(advertisedAddrs, addrs...))
 }
 
 // IsPersistentPeer returns true if the given peer is a peer that the
@@ -580,7 +580,7 @@ func (m *PersistentPeerManager) processSingleNodeUpdate(
 		return false
 	}
 
-	m.setPeerAddrsUnsafe(peerKey, update.Addresses, nil)
+	m.setPeerAddrsUnsafe(peerKey, update.Addresses)
 
 	// If there are no outstanding connection requests for this peer then
 	// our work is done since we are not currently trying to connect to
@@ -593,20 +593,11 @@ func (m *PersistentPeerManager) processSingleNodeUpdate(
 // NOTE: that this is the method is not thread safe and should only be called
 // if the PersistentPeerManager mutex lock is held.
 func (m *PersistentPeerManager) setPeerAddrsUnsafe(peerKey route.Vertex,
-	addrs []net.Addr, lnwireAddrs []*lnwire.NetAddress) {
+	addrs []net.Addr) {
 
 	peer := m.conns[peerKey]
 
 	peer.addrs = make(map[string]*lnwire.NetAddress)
-
-	for _, addr := range lnwireAddrs {
-		if !m.cfg.AddrTypeIsSupported(addr) {
-			continue
-		}
-
-		peer.addrs[addr.String()] = addr
-	}
-
 	for _, addr := range addrs {
 		if !m.cfg.AddrTypeIsSupported(addr) {
 			continue

@@ -184,7 +184,7 @@ var addHoldInvoiceCommand = cli.Command{
 				"specified, an expiry of 3600 seconds (1 hour) " +
 				"is implied.",
 		},
-		cli.BoolTFlag{
+		cli.BoolFlag{
 			Name: "private",
 			Usage: "encode routing hints in the invoice with " +
 				"private channels in order to assist the " +

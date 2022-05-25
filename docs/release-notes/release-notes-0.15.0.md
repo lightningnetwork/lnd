@@ -72,6 +72,10 @@ releases. Backward compatibility is not guaranteed!
   caveats/restrictions to be added to an existing macaroon (instead of needing
   to bake a new one). 
 
+* [Hop hints are now opt in when using `lncli
+  addholdinvoice`](https://github.com/lightningnetwork/lnd/pull/6577). Users now
+  need to explicitly specify the `--private` flag.
+
 ## Neutrino
 
 [Neutrino now suports BIP
@@ -441,3 +445,4 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * Torkel Rogstad
 * Vsevolod Kaganovych
 * Yong Yu
+* Ziggie

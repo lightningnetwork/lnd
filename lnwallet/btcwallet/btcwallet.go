@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
@@ -1051,6 +1052,32 @@ func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32,
 // (currently ErrDoubleSpend). If the transaction is already published to the
 // network (either in the mempool or chain) no error will be returned.
 func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
+	// Before we publish the transaction, we'll do some basic sanity checks
+	// here to ensure we don't publish something that can never actually
+	// confirm.
+	//
+	// Note that we just use the time of the last block header here vs
+	// calculating the full median time past (BIP 113). We do this as a
+	// block's timestamp MUST be greater than the MTP of the prior block.
+	bestHash, bestHeight, err := b.chain.GetBestBlock()
+	if err != nil {
+		return err
+	}
+	bestHeader, err := b.chain.GetBlockHeader(bestHash)
+	if err != nil {
+		return err
+	}
+	maxTxVersion := int32(2)
+	err = mempool.CheckTransactionStandard(
+		btcutil.NewTx(tx), bestHeight, bestHeader.Timestamp,
+		txrules.DefaultRelayFeePerKb, maxTxVersion,
+	)
+	if err != nil {
+		return fmt.Errorf("tx failed policy checks: %w", err)
+	}
+
+	// TODO(roasbeef): can also use testmempoolaccept here
+
 	if err := b.wallet.PublishTransaction(tx, label); err != nil {
 		// If we failed to publish the transaction, check whether we
 		// got an error of known type.

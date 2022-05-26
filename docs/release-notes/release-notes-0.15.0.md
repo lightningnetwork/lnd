@@ -122,11 +122,10 @@ compact filters and block/block headers.
 * [Fixed an issue where lnd would end up sending an Error and triggering a force
   close.](https://github.com/lightningnetwork/lnd/pull/6518)
   
-## Neutrino
+## Bug Fixes
 
-* [New neutrino sub-server](https://github.com/lightningnetwork/lnd/pull/5652)
-  capable of status checks, adding, disconnecting and listing
-  peers, fetching compact filters and block/block headers.
+* [lnd will no longer attempt to broadcast transactions the violate the size
+  policy limit](https://github.com/lightningnetwork/lnd/pull/6583).
 
 * [Added signature length
   validation](https://github.com/lightningnetwork/lnd/pull/6314) when calling

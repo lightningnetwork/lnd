@@ -5,6 +5,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -150,8 +151,8 @@ func (p *probabilityEstimator) getWeight(age time.Duration) float64 {
 // toNode based on historical payment outcomes for the from node. Those outcomes
 // are passed in via the results parameter.
 func (p *probabilityEstimator) getPairProbability(
-	now time.Time, results NodeResults,
-	toNode route.Vertex, amt lnwire.MilliSatoshi) float64 {
+	now time.Time, results NodeResults, toNode route.Vertex,
+	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
 
 	nodeProbability := p.getNodeProbability(now, results, amt)
 

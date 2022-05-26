@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -23,6 +24,9 @@ const (
 	aprioriHopProb     = 0.6
 	aprioriWeight      = 0.75
 	aprioriPrevSucProb = 0.95
+
+	// testCapacity is used to define a capacity for some channels.
+	testCapacity = btcutil.Amount(100_000)
 )
 
 type estimatorTestContext struct {
@@ -53,7 +57,8 @@ func newEstimatorTestContext(t *testing.T) *estimatorTestContext {
 // assertPairProbability asserts that the calculated success probability is
 // correct.
 func (c *estimatorTestContext) assertPairProbability(now time.Time,
-	toNode byte, amt lnwire.MilliSatoshi, expectedProb float64) {
+	toNode byte, amt lnwire.MilliSatoshi, capacity btcutil.Amount,
+	expectedProb float64) {
 
 	c.t.Helper()
 
@@ -64,7 +69,9 @@ func (c *estimatorTestContext) assertPairProbability(now time.Time,
 
 	const tolerance = 0.01
 
-	p := c.estimator.getPairProbability(now, results, route.Vertex{toNode}, amt)
+	p := c.estimator.getPairProbability(
+		now, results, route.Vertex{toNode}, amt, capacity,
+	)
 	diff := p - expectedProb
 	if diff > tolerance || diff < -tolerance {
 		c.t.Fatalf("expected probability %v for node %v, but got %v",
@@ -77,7 +84,7 @@ func (c *estimatorTestContext) assertPairProbability(now time.Time,
 func TestProbabilityEstimatorNoResults(t *testing.T) {
 	ctx := newEstimatorTestContext(t)
 
-	ctx.assertPairProbability(testTime, 0, 0, aprioriHopProb)
+	ctx.assertPairProbability(testTime, 0, 0, testCapacity, aprioriHopProb)
 }
 
 // TestProbabilityEstimatorOneSuccess tests the probability estimation for nodes
@@ -94,13 +101,15 @@ func TestProbabilityEstimatorOneSuccess(t *testing.T) {
 	// Because of the previous success, this channel keep reporting a high
 	// probability.
 	ctx.assertPairProbability(
-		testTime, node1, 100, aprioriPrevSucProb,
+		testTime, node1, 100, testCapacity, aprioriPrevSucProb,
 	)
 
 	// Untried channels are also influenced by the success. With a
 	// aprioriWeight of 0.75, the a priori probability is assigned weight 3.
 	expectedP := (3*aprioriHopProb + 1*aprioriPrevSucProb) / 4
-	ctx.assertPairProbability(testTime, untriedNode, 100, expectedP)
+	ctx.assertPairProbability(
+		testTime, untriedNode, 100, testCapacity, expectedP,
+	)
 }
 
 // TestProbabilityEstimatorOneFailure tests the probability estimation for nodes
@@ -119,11 +128,15 @@ func TestProbabilityEstimatorOneFailure(t *testing.T) {
 	// the failure after one hour is 0.5. This makes the node probability
 	// 0.51:
 	expectedNodeProb := (3*aprioriHopProb + 0.5*0) / 3.5
-	ctx.assertPairProbability(testTime, untriedNode, 100, expectedNodeProb)
+	ctx.assertPairProbability(
+		testTime, untriedNode, 100, testCapacity, expectedNodeProb,
+	)
 
 	// The pair probability decays back to the node probability. With the
 	// weight at 0.5, we expected a pair probability of 0.5 * 0.51 = 0.25.
-	ctx.assertPairProbability(testTime, node1, 100, expectedNodeProb/2)
+	ctx.assertPairProbability(
+		testTime, node1, 100, testCapacity, expectedNodeProb/2,
+	)
 }
 
 // TestProbabilityEstimatorMix tests the probability estimation for nodes for
@@ -147,7 +160,9 @@ func TestProbabilityEstimatorMix(t *testing.T) {
 
 	// We expect the probability for a previously successful channel to
 	// remain high.
-	ctx.assertPairProbability(testTime, node1, 100, prevSuccessProbability)
+	ctx.assertPairProbability(
+		testTime, node1, 100, testCapacity, prevSuccessProbability,
+	)
 
 	// For an untried node, we expected the node probability to be returned.
 	// This is a weighted average of the results above and the a priori
@@ -155,9 +170,13 @@ func TestProbabilityEstimatorMix(t *testing.T) {
 	expectedNodeProb := (3*aprioriHopProb + 1*prevSuccessProbability) /
 		(3 + 1 + 0.25 + 0.125)
 
-	ctx.assertPairProbability(testTime, untriedNode, 100, expectedNodeProb)
+	ctx.assertPairProbability(
+		testTime, untriedNode, 100, testCapacity, expectedNodeProb,
+	)
 
 	// For the previously failed connection with node 1, we expect 0.75 *
 	// the node probability = 0.47.
-	ctx.assertPairProbability(testTime, node2, 100, expectedNodeProb*0.75)
+	ctx.assertPairProbability(
+		testTime, node2, 100, testCapacity, expectedNodeProb*0.75,
+	)
 }

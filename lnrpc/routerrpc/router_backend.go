@@ -103,7 +103,7 @@ type MissionControl interface {
 	// GetProbability is expected to return the success probability of a
 	// payment from fromNode to toNode.
 	GetProbability(fromNode, toNode route.Vertex,
-		amt lnwire.MilliSatoshi) float64
+		amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64
 
 	// ResetHistory resets the history of MissionControl returning it to a
 	// state as if no payment attempts have been made.
@@ -258,7 +258,8 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	restrictions := &routing.RestrictParams{
 		FeeLimit: feeLimit,
 		ProbabilitySource: func(fromNode, toNode route.Vertex,
-			amt lnwire.MilliSatoshi) float64 {
+			amt lnwire.MilliSatoshi,
+			capacity btcutil.Amount) float64 {
 
 			if _, ok := ignoredNodes[fromNode]; ok {
 				return 0
@@ -277,7 +278,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 			}
 
 			return r.MissionControl.GetProbability(
-				fromNode, toNode, amt,
+				fromNode, toNode, amt, capacity,
 			)
 		},
 		DestCustomRecords: record.CustomSet(in.DestCustomRecords),
@@ -362,7 +363,7 @@ func (r *RouterBackend) getSuccessProbability(rt *route.Route) float64 {
 		toNode := hop.PubKeyBytes
 
 		probability := r.MissionControl.GetProbability(
-			fromNode, toNode, amtToFwd,
+			fromNode, toNode, amtToFwd, 0,
 		)
 
 		successProb *= probability

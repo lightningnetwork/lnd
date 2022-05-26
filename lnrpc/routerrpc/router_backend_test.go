@@ -145,18 +145,18 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		}
 
 		if restrictions.ProbabilitySource(route.Vertex{2},
-			route.Vertex{1}, 0,
+			route.Vertex{1}, 0, 0,
 		) != 0 {
 			t.Fatal("expecting 0% probability for ignored edge")
 		}
 
 		if restrictions.ProbabilitySource(ignoreNodeVertex,
-			route.Vertex{6}, 0,
+			route.Vertex{6}, 0, 0,
 		) != 0 {
 			t.Fatal("expecting 0% probability for ignored node")
 		}
 
-		if restrictions.ProbabilitySource(node1, node2, 0) != 0 {
+		if restrictions.ProbabilitySource(node1, node2, 0, 0) != 0 {
 			t.Fatal("expecting 0% probability for ignored pair")
 		}
 
@@ -181,7 +181,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 			expectedProb = testMissionControlProb
 		}
 		if restrictions.ProbabilitySource(route.Vertex{4},
-			route.Vertex{5}, 0,
+			route.Vertex{5}, 0, 0,
 		) != expectedProb {
 			t.Fatal("expecting 100% probability")
 		}
@@ -239,7 +239,7 @@ type mockMissionControl struct {
 }
 
 func (m *mockMissionControl) GetProbability(fromNode, toNode route.Vertex,
-	amt lnwire.MilliSatoshi) float64 {
+	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
 
 	return testMissionControlProb
 }

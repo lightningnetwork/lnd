@@ -710,7 +710,7 @@ func (s *Server) QueryProbability(ctx context.Context,
 	amt := lnwire.MilliSatoshi(req.AmtMsat)
 
 	mc := s.cfg.RouterBackend.MissionControl
-	prob := mc.GetProbability(fromNode, toNode, amt)
+	prob := mc.GetProbability(fromNode, toNode, amt, 0)
 	history := mc.GetPairHistorySnapshot(fromNode, toNode)
 
 	return &QueryProbabilityResponse{

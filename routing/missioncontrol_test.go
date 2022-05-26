@@ -112,7 +112,7 @@ func (ctx *mcTestContext) restartMc() {
 func (ctx *mcTestContext) expectP(amt lnwire.MilliSatoshi, expected float64) {
 	ctx.t.Helper()
 
-	p := ctx.mc.GetProbability(mcTestNode1, mcTestNode2, amt)
+	p := ctx.mc.GetProbability(mcTestNode1, mcTestNode2, amt, testCapacity)
 	if p != expected {
 		ctx.t.Fatalf("expected probability %v but got %v", expected, p)
 	}
@@ -148,9 +148,11 @@ func TestMissionControl(t *testing.T) {
 
 	testTime := time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
 
-	// For local channels, we expect a higher probability than our a prior
+	// For local channels, we expect a higher probability than our apriori
 	// test probability.
-	selfP := ctx.mc.GetProbability(mcTestSelf, mcTestNode1, 100)
+	selfP := ctx.mc.GetProbability(
+		mcTestSelf, mcTestNode1, 100, testCapacity,
+	)
 	if selfP != prevSuccessProbability {
 		t.Fatalf("expected prev success prob for untried local chans")
 	}

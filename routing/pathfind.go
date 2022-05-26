@@ -7,6 +7,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
@@ -306,7 +307,7 @@ type RestrictParams struct {
 	// ProbabilitySource is a callback that is expected to return the
 	// success probability of traversing the channel from the node.
 	ProbabilitySource func(route.Vertex, route.Vertex,
-		lnwire.MilliSatoshi) float64
+		lnwire.MilliSatoshi, btcutil.Amount) float64
 
 	// FeeLimit is a maximum fee amount allowed to be used on the path from
 	// the source to the target.
@@ -639,6 +640,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// Request the success probability for this edge.
 		edgeProbability := r.ProbabilitySource(
 			fromVertex, toNodeDist.node, amountToSend,
+			edge.capacity,
 		)
 
 		log.Trace(newLogClosure(func() string {

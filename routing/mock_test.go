@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -139,7 +140,7 @@ func (m *mockMissionControlOld) ReportPaymentSuccess(paymentID uint64,
 }
 
 func (m *mockMissionControlOld) GetProbability(fromNode, toNode route.Vertex,
-	amt lnwire.MilliSatoshi) float64 {
+	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
 
 	return 0
 }
@@ -650,9 +651,9 @@ func (m *mockMissionControl) ReportPaymentSuccess(paymentID uint64,
 }
 
 func (m *mockMissionControl) GetProbability(fromNode, toNode route.Vertex,
-	amt lnwire.MilliSatoshi) float64 {
+	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
 
-	args := m.Called(fromNode, toNode, amt)
+	args := m.Called(fromNode, toNode, amt, capacity)
 	return args.Get(0).(float64)
 }
 

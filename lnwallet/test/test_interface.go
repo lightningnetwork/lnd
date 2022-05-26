@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
@@ -1885,6 +1886,31 @@ func testPublishTransaction(r *rpctest.Harness,
 			err = alice.PublishTransaction(tx7, labels.External)
 			require.ErrorIs(t, err, lnwallet.ErrDoubleSpend)
 		}
+	})
+
+	t.Run("test_tx_size_limit", func(t *testing.T) {
+		// In this test, we'll try to create a massive transaction that
+		// can't be mined as dictacted by widely deployed transaction
+		// policy.
+		//
+		// To do this, we'll take out of the prior transactions, and
+		// add a bunch of outputs, putting it over the max weight
+		// limit.
+		testTx := tx3.Copy()
+		for i := 0; i < blockchain.MaxOutputsPerBlock; i++ {
+			testTx.AddTxOut(&wire.TxOut{
+				Value:    tx3.TxOut[0].Value,
+				PkScript: tx3.TxOut[0].PkScript,
+			})
+		}
+
+		// Now broadcast the transaction, we should get an error that
+		// the weight is too large.
+		//
+		// TODO(roasbeef): we can't use Unwrap() here as TxRuleError
+		// doesn't define it
+		err := alice.PublishTransaction(testTx, labels.External)
+		require.Contains(t, err.Error(), "bad-txns-oversize")
 	})
 }
 

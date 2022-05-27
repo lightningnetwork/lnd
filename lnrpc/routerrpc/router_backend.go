@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -43,7 +42,7 @@ type RouterBackend struct {
 
 	// FetchChannelCapacity is a closure that we'll use the fetch the total
 	// capacity of a channel to populate in responses.
-	FetchChannelCapacity func(chanID uint64) (btcutil.Amount, error)
+	FetchChannelCapacity func(chanID uint64) (lnwire.UnitPrec8, error)
 
 	// FetchChannelEndpoints returns the pubkeys of both endpoints of the
 	// given channel id.
@@ -52,8 +51,8 @@ type RouterBackend struct {
 
 	// FindRoutes is a closure that abstracts away how we locate/query for
 	// routes.
-	FindRoute func(source, target route.Vertex,
-		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
+	FindRoute func(source, target route.Vertex, assetId uint32,
+		amt lnwire.UnitPrec11, restrictions *routing.RestrictParams,
 		destCustomRecords record.CustomSet,
 		routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
 		finalExpiry uint16) (*route.Route, error)
@@ -102,7 +101,7 @@ type MissionControl interface {
 	// GetProbability is expected to return the success probability of a
 	// payment from fromNode to toNode.
 	GetProbability(fromNode, toNode route.Vertex,
-		amt lnwire.MilliSatoshi) float64
+		amt lnwire.UnitPrec11) float64
 
 	// ResetHistory resets the history of MissionControl returning it to a
 	// state as if no payment attempts have been made.
@@ -142,6 +141,9 @@ type MissionControl interface {
 func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
+	if in.AssetId==0{
+		return nil, errors.New("rpc QueryRoutes err:miss assetId ")
+	}
 	parsePubKey := func(key string) (route.Vertex, error) {
 		pubKeyBytes, err := hex.DecodeString(key)
 		if err != nil {
@@ -173,10 +175,11 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// Currently, within the bootstrap phase of the network, we limit the
 	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
 	// satoshis.
-	amt, err := lnrpc.UnmarshallAmt(in.Amt, in.AmtMsat)
-	if err != nil {
-		return nil, err
-	}
+	//amt, err := lnrpc.UnmarshallAmt(in.Amt, in.MilliSat)
+	//if err != nil {
+	//	return nil, err
+	//}
+	amt:=lnwire.UnitPrec11(in.AmtMsat)
 
 	// Unmarshall restrictions from request.
 	feeLimit := lnrpc.CalculateFeeLimit(in.FeeLimit, amt)
@@ -257,7 +260,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	restrictions := &routing.RestrictParams{
 		FeeLimit: feeLimit,
 		ProbabilitySource: func(fromNode, toNode route.Vertex,
-			amt lnwire.MilliSatoshi) float64 {
+			amt lnwire.UnitPrec11) float64 {
 
 			if _, ok := ignoredNodes[fromNode]; ok {
 				return 0
@@ -324,7 +327,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
 	route, err := r.FindRoute(
-		sourcePubKey, targetPubKey, amt, restrictions,
+		sourcePubKey, targetPubKey, in.AssetId, amt, restrictions,
 		customRecords, routeHintEdges, finalCLTVDelta,
 	)
 	if err != nil {
@@ -397,26 +400,25 @@ func (r *RouterBackend) rpcEdgeToPair(e *lnrpc.EdgeLocator) (
 func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) {
 	resp := &lnrpc.Route{
 		TotalTimeLock: route.TotalTimeLock,
-		TotalFees:     int64(route.TotalFees().ToSatoshis()),
 		TotalFeesMsat: int64(route.TotalFees()),
-		TotalAmt:      int64(route.TotalAmount.ToSatoshis()),
 		TotalAmtMsat:  int64(route.TotalAmount),
 		Hops:          make([]*lnrpc.Hop, len(route.Hops)),
 	}
-	incomingAmt := route.TotalAmount
+	//incomingAmt := route.TotalAmount
 	for i, hop := range route.Hops {
 		fee := route.HopFee(i)
 
 		// Channel capacity is not a defining property of a route. For
 		// backwards RPC compatibility, we retrieve it here from the
 		// graph.
-		chanCapacity, err := r.FetchChannelCapacity(hop.ChannelID)
-		if err != nil {
-			// If capacity cannot be retrieved, this may be a
-			// not-yet-received or private channel. Then report
-			// amount that is sent through the channel as capacity.
-			chanCapacity = incomingAmt.ToSatoshis()
-		}
+		//chanCapacity, err := r.FetchChannelCapacity(hop.ChannelID)
+		//if err != nil {
+		//	// If capacity cannot be retrieved, this may be a
+		//	// not-yet-received or private channel. Then report
+		//	// amount that is sent through the channel as capacity.
+		//	//chanCapacity = incomingAmt.ToSatoshis()
+		//}
+
 
 		// Extract the MPP fields if present on this hop.
 		var mpp *lnrpc.MPPRecord
@@ -431,10 +433,14 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 
 		resp.Hops[i] = &lnrpc.Hop{
 			ChanId:           hop.ChannelID,
-			ChanCapacity:     int64(chanCapacity),
-			AmtToForward:     int64(hop.AmtToForward.ToSatoshis()),
+			/*
+			obd update wxf
+			Deprecated fields: ChanCapacity AmtToForward Fee
+			*/
+			//ChanCapacity:     int64(chanCapacity),
+			//AmtToForward:     int64(hop.AmtToForward.ToSatoshis()),
 			AmtToForwardMsat: int64(hop.AmtToForward),
-			Fee:              int64(fee.ToSatoshis()),
+			//Fee:              int64(fee.ToSatoshis()),
 			FeeMsat:          int64(fee),
 			Expiry:           uint32(hop.OutgoingTimeLock),
 			PubKey: hex.EncodeToString(
@@ -444,7 +450,7 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			TlvPayload:    !hop.LegacyPayload,
 			MppRecord:     mpp,
 		}
-		incomingAmt = hop.AmtToForward
+		//incomingAmt = hop.AmtToForward
 	}
 
 	return resp, nil
@@ -472,7 +478,7 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 
 	return &route.Hop{
 		OutgoingTimeLock: rpcHop.Expiry,
-		AmtToForward:     lnwire.MilliSatoshi(rpcHop.AmtToForwardMsat),
+		AmtToForward:     lnwire.UnitPrec11(rpcHop.AmtToForwardMsat),
 		PubKeyBytes:      pubkey,
 		ChannelID:        rpcHop.ChanId,
 		CustomRecords:    customRecords,
@@ -523,7 +529,9 @@ func (r *RouterBackend) UnmarshallHop(rpcHop *lnrpc.Hop,
 // pubkey, the channel graph is queried.
 func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 	*route.Route, error) {
-
+	if rpcroute.AssetId==0{
+		return nil, errors.New("RouterBackend UnmarshallRoute err: miss assetId ")
+	}
 	prevNodePubKey := r.SelfNode
 
 	hops := make([]*route.Hop, len(rpcroute.Hops))
@@ -538,8 +546,8 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 		prevNodePubKey = routeHop.PubKeyBytes
 	}
 
-	route, err := route.NewRouteFromHops(
-		lnwire.MilliSatoshi(rpcroute.TotalAmtMsat),
+	route, err := route.NewRouteFromHops(rpcroute.AssetId,
+		lnwire.UnitPrec11(rpcroute.TotalAmtMsat),
 		rpcroute.TotalTimeLock,
 		r.SelfNode,
 		hops,
@@ -607,17 +615,18 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	// that now, which'll force us to always make payment splits smaller
 	// than this.
 	if rpcPayReq.MaxShardSizeMsat > 0 {
-		shardAmtMsat := lnwire.MilliSatoshi(rpcPayReq.MaxShardSizeMsat)
+		shardAmtMsat := lnwire.UnitPrec11(rpcPayReq.MaxShardSizeMsat)
 		payIntent.MaxShardAmt = &shardAmtMsat
 	}
 
 	// Take fee limit from request.
-	payIntent.FeeLimit, err = lnrpc.UnmarshallAmt(
-		rpcPayReq.FeeLimitSat, rpcPayReq.FeeLimitMsat,
-	)
-	if err != nil {
-		return nil, err
-	}
+	//payIntent.FeeLimit, err = lnrpc.UnmarshallAmt(
+	//	rpcPayReq.FeeLimitSat, rpcPayReq.FeeLimitMsat,
+	//)
+	//if err != nil {
+	//	return nil, err
+	//}
+	payIntent.FeeLimit=lnwire.UnitPrec11(rpcPayReq.FeeLimitMsat)
 
 	// Set payment attempt timeout.
 	if rpcPayReq.TimeoutSeconds == 0 {
@@ -643,12 +652,13 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	payIntent.RouteHints = routeHints
 
 	// Unmarshall either sat or msat amount from request.
-	reqAmt, err := lnrpc.UnmarshallAmt(
-		rpcPayReq.Amt, rpcPayReq.AmtMsat,
-	)
-	if err != nil {
-		return nil, err
-	}
+	//reqAmt, err := lnrpc.UnmarshallAmt(
+	//	rpcPayReq.Amt, rpcPayReq.MilliSat,
+	//)
+	//if err != nil {
+	//	return nil, err
+	//}
+	reqAmt:=lnwire.UnitPrec11(rpcPayReq.AmtMsat)
 
 	// If the payment request field isn't blank, then the details of the
 	// invoice are encoded entirely within the encoded payReq.  So we'll
@@ -1028,9 +1038,9 @@ func UnmarshalMPP(reqMPP *lnrpc.MPPRecord) (*record.MPP, error) {
 			"payment_addr: %v", err)
 	}
 
-	total := lnwire.MilliSatoshi(reqTotal)
+	total := lnwire.UnitPrec11(reqTotal)
 
-	return record.NewMPP(total, addr), nil
+	return record.NewMPP(total, addr,reqMPP.AssetId), nil
 }
 
 func UnmarshalAMP(reqAMP *lnrpc.AMPRecord) (*record.AMP, error) {
@@ -1307,7 +1317,7 @@ func marshallChannelUpdate(update *lnwire.ChannelUpdate) *lnrpc.ChannelUpdate {
 		TimeLockDelta:   uint32(update.TimeLockDelta),
 		HtlcMinimumMsat: uint64(update.HtlcMinimumMsat),
 		BaseFee:         update.BaseFee,
-		FeeRate:         update.FeeRate,
+		FeeRate:         uint32(update.FeeRate),
 		HtlcMaximumMsat: uint64(update.HtlcMaximumMsat),
 		ExtraOpaqueData: update.ExtraOpaqueData,
 	}
@@ -1319,7 +1329,7 @@ func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 
 	// Fetch the payment's preimage and the total paid in fees.
 	var (
-		fee      lnwire.MilliSatoshi
+		fee      lnwire.UnitPrec11
 		preimage lntypes.Preimage
 	)
 	for _, htlc := range payment.HTLCs {
@@ -1332,7 +1342,7 @@ func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 	}
 
 	msatValue := int64(payment.Info.Value)
-	satValue := int64(payment.Info.Value.ToSatoshis())
+	//satValue := int64(payment.Info.Value.ToSatoshis())
 
 	status, err := convertPaymentStatus(payment.Status)
 	if err != nil {
@@ -1362,13 +1372,9 @@ func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 	return &lnrpc.Payment{
 		// TODO: set this to setID for AMP-payments?
 		PaymentHash:     hex.EncodeToString(paymentID[:]),
-		Value:           satValue,
 		ValueMsat:       msatValue,
-		ValueSat:        satValue,
 		CreationDate:    payment.Info.CreationTime.Unix(),
 		CreationTimeNs:  creationTimeNS,
-		Fee:             int64(fee.ToSatoshis()),
-		FeeSat:          int64(fee.ToSatoshis()),
 		FeeMsat:         int64(fee),
 		PaymentPreimage: hex.EncodeToString(preimage[:]),
 		PaymentRequest:  string(payment.Info.PaymentRequest),

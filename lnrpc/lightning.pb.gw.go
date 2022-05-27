@@ -808,15 +808,6 @@ func request_Lightning_ChannelAcceptor_0(ctx context.Context, marshaler runtime.
 		}
 		return nil
 	}
-	if err := handleSend(); err != nil {
-		if cerr := stream.CloseSend(); cerr != nil {
-			grpclog.Infof("Failed to terminate client stream: %v", cerr)
-		}
-		if err == io.EOF {
-			return stream, metadata, nil
-		}
-		return nil, metadata, err
-	}
 	go func() {
 		for {
 			if err := handleSend(); err != nil {
@@ -1004,15 +995,6 @@ func request_Lightning_SendPayment_0(ctx context.Context, marshaler runtime.Mars
 			return err
 		}
 		return nil
-	}
-	if err := handleSend(); err != nil {
-		if cerr := stream.CloseSend(); cerr != nil {
-			grpclog.Infof("Failed to terminate client stream: %v", cerr)
-		}
-		if err == io.EOF {
-			return stream, metadata, nil
-		}
-		return nil, metadata, err
 	}
 	go func() {
 		for {
@@ -1624,7 +1606,7 @@ func local_request_Lightning_GetNodeInfo_0(ctx context.Context, marshaler runtim
 }
 
 var (
-	filter_Lightning_QueryRoutes_0 = &utilities.DoubleArray{Encoding: map[string]int{"pub_key": 0, "amt": 1}, Base: []int{1, 1, 2, 0, 0}, Check: []int{0, 1, 1, 2, 3}}
+	filter_Lightning_QueryRoutes_0 = &utilities.DoubleArray{Encoding: map[string]int{"pub_key": 0, "amt_msat": 1}, Base: []int{1, 1, 2, 0, 0}, Check: []int{0, 1, 1, 2, 3}}
 )
 
 func request_Lightning_QueryRoutes_0(ctx context.Context, marshaler runtime.Marshaler, client LightningClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -1648,14 +1630,14 @@ func request_Lightning_QueryRoutes_0(ctx context.Context, marshaler runtime.Mars
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "pub_key", err)
 	}
 
-	val, ok = pathParams["amt"]
+	val, ok = pathParams["amt_msat"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "amt")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "amt_msat")
 	}
 
-	protoReq.Amt, err = runtime.Int64(val)
+	protoReq.AmtMsat, err = runtime.Int64(val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "amt", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "amt_msat", err)
 	}
 
 	if err := req.ParseForm(); err != nil {
@@ -1691,14 +1673,14 @@ func local_request_Lightning_QueryRoutes_0(ctx context.Context, marshaler runtim
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "pub_key", err)
 	}
 
-	val, ok = pathParams["amt"]
+	val, ok = pathParams["amt_msat"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "amt")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "amt_msat")
 	}
 
-	protoReq.Amt, err = runtime.Int64(val)
+	protoReq.AmtMsat, err = runtime.Int64(val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "amt", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "amt_msat", err)
 	}
 
 	if err := req.ParseForm(); err != nil {
@@ -2274,15 +2256,6 @@ func request_Lightning_RegisterRPCMiddleware_0(ctx context.Context, marshaler ru
 			return err
 		}
 		return nil
-	}
-	if err := handleSend(); err != nil {
-		if cerr := stream.CloseSend(); cerr != nil {
-			grpclog.Infof("Failed to terminate client stream: %v", cerr)
-		}
-		if err == io.EOF {
-			return stream, metadata, nil
-		}
-		return nil, metadata, err
 	}
 	go func() {
 		for {
@@ -3227,7 +3200,7 @@ func RegisterLightningHandlerServer(ctx context.Context, mux *runtime.ServeMux, 
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/lnrpc.Lightning/QueryRoutes", runtime.WithHTTPPathPattern("/v1/graph/routes/{pub_key}/{amt}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/lnrpc.Lightning/QueryRoutes", runtime.WithHTTPPathPattern("/v1/graph/routes/{pub_key}/{amt_msat}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -4545,7 +4518,7 @@ func RegisterLightningHandlerClient(ctx context.Context, mux *runtime.ServeMux, 
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/lnrpc.Lightning/QueryRoutes", runtime.WithHTTPPathPattern("/v1/graph/routes/{pub_key}/{amt}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/lnrpc.Lightning/QueryRoutes", runtime.WithHTTPPathPattern("/v1/graph/routes/{pub_key}/{amt_msat}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -5051,7 +5024,7 @@ var (
 
 	pattern_Lightning_GetNodeInfo_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "graph", "node", "pub_key"}, ""))
 
-	pattern_Lightning_QueryRoutes_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "graph", "routes", "pub_key", "amt"}, ""))
+	pattern_Lightning_QueryRoutes_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "graph", "routes", "pub_key", "amt_msat"}, ""))
 
 	pattern_Lightning_GetNetworkInfo_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "graph", "info"}, ""))
 

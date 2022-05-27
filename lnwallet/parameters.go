@@ -11,7 +11,7 @@ import (
 var (
 	// RoutingFee100PercentUpTo is the cut-off amount we allow 100% fees to
 	// be charged up to.
-	RoutingFee100PercentUpTo = lnwire.NewMSatFromSatoshis(1_000)
+	RoutingFee100PercentUpTo =lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(1_000))
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 	// DefaultRoutingFeePercentage is the default off-chain routing fee we
 	// allow to be charged for a payment over the RoutingFee100PercentUpTo
 	// size.
-	DefaultRoutingFeePercentage lnwire.MilliSatoshi = 5
+	DefaultRoutingFeePercentage lnwire.UnitPrec11 = 5
 )
 
 // DefaultRoutingFeeLimitForAmount returns the default off-chain routing fee
@@ -28,7 +28,7 @@ const (
 // channels. For example the default base fee is 1 satoshi. So sending a payment
 // of one satoshi will cost 1 satoshi in fees over most channels, which comes to
 // a fee of 100%. That's why for very small amounts we allow 100% fee.
-func DefaultRoutingFeeLimitForAmount(a lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+func DefaultRoutingFeeLimitForAmount(a lnwire.UnitPrec11) lnwire.UnitPrec11 {
 	// Allow 100% fees up to a certain amount to accommodate for base fees.
 	if a <= RoutingFee100PercentUpTo {
 		return a

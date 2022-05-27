@@ -1,6 +1,7 @@
 package contractcourt
 
 import (
+	"github.com/lightningnetwork/lnd/lnwire"
 	"io"
 
 	"github.com/btcsuite/btcd/wire"
@@ -24,7 +25,7 @@ type Registry interface {
 	// invoices are never fully settled. The return value describes how the
 	// htlc should be resolved. If the htlc cannot be resolved immediately,
 	// the resolution is sent on the passed in hodlChan later.
-	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount uint64,
+	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.UnitPrec11,
 		expiry uint32, currentHeight int32,
 		circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
 		payload invoices.Payload,assetId uint32) (invoices.HtlcResolution, error)

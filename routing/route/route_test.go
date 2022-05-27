@@ -31,7 +31,7 @@ func TestRouteTotalFees(t *testing.T) {
 
 	// Make sure empty route won't be allowed in the constructor.
 	amt := lnwire.UnitPrec11(1000)
-	_, err := NewRouteFromHops(amt, 100, Vertex{}, []*Hop{})
+	_, err := NewRouteFromHops(lnwire.BtcAssetId, amt, 100, Vertex{}, []*Hop{})
 	if err != ErrNoRouteHopsProvided {
 		t.Fatalf("expected ErrNoRouteHopsProvided, got %v", err)
 	}
@@ -46,7 +46,7 @@ func TestRouteTotalFees(t *testing.T) {
 			AmtToForward:     amt,
 		},
 	}
-	r, err = NewRouteFromHops(amt, 100, Vertex{}, hops)
+	r, err = NewRouteFromHops(lnwire.BtcAssetId,amt, 100, Vertex{}, hops)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestRouteTotalFees(t *testing.T) {
 	},
 	)
 
-	r, err = NewRouteFromHops(amt, 100, Vertex{}, hops)
+	r, err = NewRouteFromHops(lnwire.BtcAssetId,amt, 100, Vertex{}, hops)
 	if err != nil {
 		t.Fatal(err)
 	}

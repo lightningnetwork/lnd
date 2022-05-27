@@ -270,6 +270,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			AssetMinHTLCOut: cfg.Bitcoin.AssetMinHTLCOut,
 			BaseFee:    cfg.Bitcoin.BaseFee,
 			FeeRate:    cfg.Bitcoin.FeeRate,
+			AssetFeeRate:    cfg.Bitcoin.AssetFeeRate,
 			TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
 		}
 		cc.MinHtlcIn = cfg.Bitcoin.MinHTLCIn

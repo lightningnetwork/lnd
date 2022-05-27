@@ -47,7 +47,7 @@ func TestManager(t *testing.T) {
 	}
 
 	currentPolicy := channeldb.ChannelEdgePolicy{
-		MinHTLC:      minHTLC,
+		MinHTLC:       lnwire.UnitPrec11(minHTLC),
 		MessageFlags: lnwire.ChanUpdateOptionMaxHtlc,
 	}
 
@@ -69,7 +69,7 @@ func TestManager(t *testing.T) {
 		if policy.BaseFee != newPolicy.BaseFee {
 			t.Fatal("unexpected base fee")
 		}
-		if uint32(policy.FeeRate) != newPolicy.FeeRate {
+		if policy.FeeRate != newPolicy.FeeRate {
 			t.Fatal("unexpected base fee")
 		}
 		if policy.MaxHTLC != newPolicy.MaxHTLC {
@@ -97,7 +97,7 @@ func TestManager(t *testing.T) {
 			if policy.FeeBaseMSat != newPolicy.BaseFee {
 				t.Fatal("unexpected base fee")
 			}
-			if uint32(policy.FeeProportionalMillionths) != newPolicy.FeeRate {
+			if policy.FeeProportionalMillionths != newPolicy.FeeRate {
 				t.Fatal("unexpected base fee")
 			}
 			if policy.MaxHTLC != newPolicy.MaxHTLC {
@@ -128,8 +128,8 @@ func TestManager(t *testing.T) {
 		}
 
 		constraints := channeldb.ChannelConstraints{
-			MaxPendingAmount: maxPendingAmount,
-			MinHTLC:          minHTLC,
+			MaxPendingAmount: lnwire.UnitPrec11(maxPendingAmount),
+			MinHTLC:          lnwire.UnitPrec11(minHTLC),
 		}
 
 		return &channeldb.OpenChannel{
@@ -169,7 +169,7 @@ func TestManager(t *testing.T) {
 			channelSet: []channel{
 				{
 					edgeInfo: &channeldb.ChannelEdgeInfo{
-						Capacity:     chanCap,
+						Capacity:     lnwire.UnitPrec8( chanCap),
 						ChannelPoint: chanPointValid,
 					},
 				},
@@ -186,7 +186,7 @@ func TestManager(t *testing.T) {
 			channelSet: []channel{
 				{
 					edgeInfo: &channeldb.ChannelEdgeInfo{
-						Capacity:     chanCap,
+						Capacity:      lnwire.UnitPrec8(chanCap),
 						ChannelPoint: chanPointValid,
 					},
 				},
@@ -203,7 +203,7 @@ func TestManager(t *testing.T) {
 			channelSet: []channel{
 				{
 					edgeInfo: &channeldb.ChannelEdgeInfo{
-						Capacity:     chanCap,
+						Capacity:     lnwire.UnitPrec8( chanCap),
 						ChannelPoint: chanPointValid,
 					},
 				},
@@ -224,7 +224,7 @@ func TestManager(t *testing.T) {
 			channelSet: []channel{
 				{
 					edgeInfo: &channeldb.ChannelEdgeInfo{
-						Capacity:     chanCap,
+						Capacity:      lnwire.UnitPrec8(chanCap),
 						ChannelPoint: chanPointValid,
 					},
 				},

@@ -829,13 +829,14 @@ func (a *Agent) executeDirective(directive AttachmentDirective) {
 	// peers if the connection attempt happens to take too long.
 	delete(a.pendingConns, nodeID)
 	a.pendingOpens[nodeID] = LocalChannel{
-		Balance: directive.ChanAmt,
+		BtcBalance: directive.ChanAmt,
+		AssetBalance: directive.ChanAssetAmt,
 		Node:    nodeID,
 	}
 	a.pendingMtx.Unlock()
 
 	// We can then begin the funding workflow with this peer.
-	err = a.cfg.ChanController.OpenChannel(pub, directive.ChanAmt)
+	err = a.cfg.ChanController.OpenChannel(pub, directive.AssetId, directive.ChanAmt,directive.ChanAssetAmt)
 	if err != nil {
 		log.Warnf("Unable to open channel to %x of %v: %v",
 			pub.SerializeCompressed(), directive.ChanAmt, err)

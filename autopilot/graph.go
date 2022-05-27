@@ -228,13 +228,18 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	if err := d.db.AddChannelEdge(edge); err != nil {
 		return nil, nil, err
 	}
+	maxHtlc:=lnwire.UnitPrec11(capacity)
+	if assetId==lnwire.BtcAssetId{
+		maxHtlc=lnwire.UnitPrec11(capacity.ToMsat())
+	}
 	edgePolicy := &channeldb.ChannelEdgePolicy{
+		AssetId: assetId,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
-		MaxHTLC:                   lnwire.UnitPrec11(capacity.ToMsat()),
+		MaxHTLC:                   maxHtlc,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 		MessageFlags:              1,
@@ -245,12 +250,13 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		return nil, nil, err
 	}
 	edgePolicy = &channeldb.ChannelEdgePolicy{
+		AssetId: assetId,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
-		MaxHTLC:                   lnwire.UnitPrec11(capacity.ToMsat()),
+		MaxHTLC:                   maxHtlc,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 		MessageFlags:              1,

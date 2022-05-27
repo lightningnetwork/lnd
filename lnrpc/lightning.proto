@@ -683,7 +683,11 @@ message FeeLimit {
 
         The fields fixed and fixed_msat are mutually exclusive.
         */
-        int64 fixed = 1;
+        /*
+        obd  update wxf
+        disable for asset.
+         */
+        // int64 fixed = 1;
 
         /*
         The fee limit expressed as a fixed amount of millisatoshis.
@@ -715,7 +719,7 @@ message SendRequest {
 
     The fields amt and amt_msat are mutually exclusive.
     */
-    int64 amt = 3;
+    //    int64 amt = 3;
 
     /*
     The amount to send expressed in millisatoshis.
@@ -723,6 +727,7 @@ message SendRequest {
     The fields amt and amt_msat are mutually exclusive.
     */
     int64 amt_msat = 12;
+    uint32 asset_id = 17;
 
     /*
     The hash to use within the payment's HTLC. When using REST, this field
@@ -1187,7 +1192,9 @@ message DisconnectPeerResponse {
 
 message HTLC {
     bool incoming = 1;
-    int64 amount = 2;
+    int64 btc_amount = 2;
+    int64 asset_amount = 8;
+    uint32 asset_id = 9;
     bytes hash_lock = 3;
     uint32 expiration_height = 4;
 
@@ -1289,14 +1296,25 @@ message Channel {
     */
     uint64 chan_id = 4 [jstype = JS_STRING];
 
-    // The total amount of funds held in this channel
-    int64 capacity = 5;
+    // The total amount of btc funds held in this channel
+    int64 btc_capacity = 5;
+
+    // The total amount of asset funds held in this channel
+    int64 asset_capacity = 34;
 
     // This node's current balance in this channel
     int64 local_balance = 6;
 
     // The counterparty's current balance in this channel
     int64 remote_balance = 7;
+
+    // This node's current asset balance in this channel
+
+    int64 local_asset_balance = 31;
+
+    // The counterparty's current asset balance in this channel
+    int64 remote_asset_balance = 32;
+    uint32 asset_id = 33;
 
     /*
     The amount calculated to be paid in fees for the current set of commitment
@@ -1401,7 +1419,8 @@ message Channel {
     pushed this amount to our peer, if it is false, the remote peer pushed this
     amount to us.
     */
-    uint64 push_amount_sat = 27;
+    uint64 push_btc_amount_sat = 27;
+    uint64 push_asset_amount_sat = 35;
 
     /*
     This uint32 indicates if this channel is to be considered 'frozen'. A
@@ -1462,7 +1481,9 @@ message ChannelCloseSummary {
     string remote_pubkey = 5;
 
     // Total capacity of the channel.
-    int64 capacity = 6;
+    int64 btc_capacity = 6;
+    int64 asset_capacity = 14;
+    uint32 asset_id = 15;
 
     // Height at which the funding transaction was spent.
     uint32 close_height = 7;
@@ -1908,11 +1929,14 @@ message BatchOpenChannel {
     bytes node_pubkey = 1;
 
     // The number of satoshis the wallet should commit to the channel.
-    int64 local_funding_amount = 2;
+    int64 local_funding_btc_amount = 2;
+    int64 local_funding_asset_amount = 10;
 
     // The number of satoshis to push to the remote side as part of the initial
     // commitment state.
-    int64 push_sat = 3;
+    int64 push_btc_sat = 3;
+    int64 push_asset_sat = 11;
+    uint32 asset_id = 12;
 
     // Whether this channel should be private, not announced to the greater
     // network.
@@ -1974,11 +1998,15 @@ message OpenChannelRequest {
     string node_pubkey_string = 3 [deprecated = true];
 
     // The number of satoshis the wallet should commit to the channel
-    int64 local_funding_amount = 4;
+    int64 local_funding_btc_amount = 4;
 
     // The number of satoshis to push to the remote side as part of the initial
     // commitment state
-    int64 push_sat = 5;
+    int64 push_btc_sat = 5;
+
+    uint32 asset_id = 19;
+    int64 push_asset_sat = 20;
+    int64 local_funding_asset_amount = 21;
 
     // The target number of blocks that the funding transaction should be
     // confirmed by.
@@ -2290,7 +2318,9 @@ message PendingChannelsResponse {
         string remote_node_pub = 1;
         string channel_point = 2;
 
-        int64 capacity = 3;
+        int64 btc_capacity = 3;
+        int64 asset_capacity = 12;
+        uint32 asset_id = 13;
 
         int64 local_balance = 4;
         int64 remote_balance = 5;
@@ -2505,7 +2535,7 @@ message WalletBalanceResponse {
 
 message Amount {
     // Value denominated in satoshis.
-    uint64 sat = 1;
+    //    uint64 sat = 1;
 
     // Value denominated in milli-satoshis.
     uint64 msat = 2;
@@ -2548,7 +2578,7 @@ message QueryRoutesRequest {
 
     The fields amt and amt_msat are mutually exclusive.
     */
-    int64 amt = 2;
+    //    int64 amt = 2;
 
     /*
     The amount to send expressed in millisatoshis.
@@ -2556,6 +2586,7 @@ message QueryRoutesRequest {
     The fields amt and amt_msat are mutually exclusive.
     */
     int64 amt_msat = 12;
+    uint32 asset_id = 18;
 
     reserved 3;
 
@@ -2758,6 +2789,7 @@ message MPPRecord {
     total_amt_msat must be used on all subpayments.
     */
     int64 total_amt_msat = 10;
+    uint32 asset_id = 12;
 }
 
 message AMPRecord {
@@ -2789,7 +2821,7 @@ message Route {
     of a one-hop payment, this value will be zero as we don't need to pay a fee
     to ourselves.
     */
-    int64 total_fees = 2 [deprecated = true];
+    //    int64 total_fees = 2 [deprecated = true];
 
     /*
     The total amount of funds required to complete a payment over this route.
@@ -2798,7 +2830,7 @@ message Route {
     satoshis, otherwise the route will fail at an intermediate node due to an
     insufficient amount of fees.
     */
-    int64 total_amt = 3 [deprecated = true];
+    //    int64 total_amt = 3 [deprecated = true];
 
     /*
     Contains details concerning the specific forwarding details at each hop.
@@ -2814,6 +2846,7 @@ message Route {
     The total amount in millisatoshis.
     */
     int64 total_amt_msat = 6;
+    uint32 asset_id = 7;
 }
 
 message NodeInfoRequest {
@@ -3119,7 +3152,9 @@ message Invoice {
 
     The fields value and value_msat are mutually exclusive.
     */
-    int64 value = 5;
+    //    int64 value = 5;
+
+    uint32 asset_id = 6;
 
     /*
     The value of this invoice in millisatoshis
@@ -3129,7 +3164,7 @@ message Invoice {
     int64 value_msat = 23;
 
     // Whether this invoice has been fulfilled
-    bool settled = 6 [deprecated = true];
+    bool settled = 19 [deprecated = true];
 
     // When this invoice was created
     int64 creation_date = 7;
@@ -3187,7 +3222,7 @@ message Invoice {
     uint64 settle_index = 17;
 
     // Deprecated, use amt_paid_sat or amt_paid_msat.
-    int64 amt_paid = 18 [deprecated = true];
+    //    int64 amt_paid = 18 [deprecated = true];
 
     /*
     The amount that was accepted for this invoice, in satoshis. This will ONLY
@@ -3197,7 +3232,7 @@ message Invoice {
     MORE that was specified in the original invoice. So we'll record that here
     as well.
     */
-    int64 amt_paid_sat = 19;
+    //    int64 amt_paid_sat = 19;
 
     /*
     The amount that was accepted for this invoice, in millisatoshis. This will
@@ -3460,7 +3495,7 @@ message Payment {
     string payment_hash = 1;
 
     // Deprecated, use value_sat or value_msat.
-    int64 value = 2 [deprecated = true];
+    //    int64 value = 2 [deprecated = true];
 
     // Deprecated, use creation_time_ns
     int64 creation_date = 3 [deprecated = true];
@@ -3468,13 +3503,13 @@ message Payment {
     reserved 4;
 
     // Deprecated, use fee_sat or fee_msat.
-    int64 fee = 5 [deprecated = true];
+    //    int64 fee = 5 [deprecated = true];
 
     // The payment preimage
     string payment_preimage = 6;
 
     // The value of the payment in satoshis
-    int64 value_sat = 7;
+    //    int64 value_sat = 7;
 
     // The value of the payment in milli-satoshis
     int64 value_msat = 8;
@@ -3493,7 +3528,7 @@ message Payment {
     PaymentStatus status = 10;
 
     //  The fee paid for this payment in satoshis
-    int64 fee_sat = 11;
+    //    int64 fee_sat = 11;
 
     //  The fee paid for this payment in milli-satoshis
     int64 fee_msat = 12;
@@ -3649,7 +3684,7 @@ message PayReqString {
 message PayReq {
     string destination = 1;
     string payment_hash = 2;
-    int64 num_satoshis = 3;
+    //    int64 num_satoshis = 3;
     int64 timestamp = 4;
     int64 expiry = 5;
     string description = 6;
@@ -3658,7 +3693,8 @@ message PayReq {
     int64 cltv_expiry = 9;
     repeated RouteHint route_hints = 10;
     bytes payment_addr = 11;
-    int64 num_msat = 12;
+    int64 amt_msat = 12;
+    uint32 asset_id = 14;
     map<uint32, Feature> features = 13;
 }
 

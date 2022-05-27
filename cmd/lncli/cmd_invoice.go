@@ -79,7 +79,7 @@ func addInvoice(ctx *cli.Context) error {
 	var (
 		preimage []byte
 		descHash []byte
-		amt      int64
+		//amt      int64
 		amtMsat  int64
 		err      error
 	)
@@ -89,13 +89,21 @@ func addInvoice(ctx *cli.Context) error {
 
 	args := ctx.Args()
 
-	amt = ctx.Int64("amt")
+	//amt = ctx.Int64("amt")
+	//amtMsat = ctx.Int64("amt_msat")
+	//if !ctx.IsSet("amt") && !ctx.IsSet("amt_msat") && args.Present() {
+	//	amt, err = strconv.ParseInt(args.First(), 10, 64)
+	//	args = args.Tail()
+	//	if err != nil {
+	//		return fmt.Errorf("unable to decode amt argument: %v", err)
+	//	}
+	//}
 	amtMsat = ctx.Int64("amt_msat")
-	if !ctx.IsSet("amt") && !ctx.IsSet("amt_msat") && args.Present() {
-		amt, err = strconv.ParseInt(args.First(), 10, 64)
+	if  !ctx.IsSet("amt_msat") && args.Present() {
+		amtMsat, err = strconv.ParseInt(args.First(), 10, 64)
 		args = args.Tail()
 		if err != nil {
-			return fmt.Errorf("unable to decode amt argument: %v", err)
+			return fmt.Errorf("unable to decode amt_msat argument: %v", err)
 		}
 	}
 
@@ -118,7 +126,7 @@ func addInvoice(ctx *cli.Context) error {
 	invoice := &lnrpc.Invoice{
 		Memo:            ctx.String("memo"),
 		RPreimage:       preimage,
-		Value:           amt,
+		//Value:           amt,
 		ValueMsat:       amtMsat,
 		DescriptionHash: descHash,
 		FallbackAddr:    ctx.String("fallback_addr"),

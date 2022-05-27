@@ -396,7 +396,25 @@ type ChannelConfig struct {
 	// within any HTLC output scripts.
 	HtlcBasePoint keychain.KeyDescriptor
 }
+func (cc ChannelCommitment)GetLocalBalance(assetId uint32)lnwire.UnitPrec11 {
+	if assetId == lnwire.BtcAssetId {
+		return lnwire.UnitPrec11(cc.LocalBtcBalance)
+	}
+	return lnwire.UnitPrec11(cc.LocalAssetBalance)
+}
 
+func (cc ChannelCommitment)GetLocalCapBalance(assetId uint32)lnwire.UnitPrec8 {
+	if assetId == lnwire.BtcAssetId {
+		return lnwire.UnitPrec8(cc.LocalBtcBalance.ToSatoshis())
+	}
+	return lnwire.UnitPrec8(cc.LocalAssetBalance)
+}
+func (cc ChannelCommitment)GetRemoteBalance(assetId uint32)lnwire.UnitPrec11 {
+	if assetId == lnwire.BtcAssetId {
+		return lnwire.UnitPrec11(cc.RemoteBtcBalance)
+	}
+	return lnwire.UnitPrec11(cc.RemoteAssetBalance)
+}
 // ChannelCommitment is a snapshot of the commitment state at a particular
 // point in the commitment chain. With each state transition, a snapshot of the
 // current state along with all non-settled HTLCs are recorded. These snapshots
@@ -1745,11 +1763,11 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 
 	return activeHtlcs
 }
-func(h *HTLC) GetAmt(assetId uint32) uint64{
+func(h *HTLC) GetAmt(assetId uint32) lnwire.UnitPrec11{
 	if assetId>1{
-		return uint64(h.AssetAmt)
+		return lnwire.UnitPrec11(h.AssetAmt)
 	}else{
-		return uint64(h.BtcAmt)
+		return lnwire.UnitPrec11(h.BtcAmt)
 	}
 }
 // HTLC is the on-disk representation of a hash time-locked contract. HTLCs are
@@ -2848,6 +2866,7 @@ type ChannelCloseSummary struct {
 	// a channel with.
 	RemotePub *btcec.PublicKey
 
+	AssetId uint32
 	// Capacity was the total capacity of the channel.
 	BtcCapacity btcutil.Amount
 	/*
@@ -2862,12 +2881,8 @@ type ChannelCloseSummary struct {
 	// SettledBalance is our total balance settled balance at the time of
 	// channel closure. This _does not_ include the sum of any outputs that
 	// have been time-locked as a result of the unilateral channel closure.
-	SettledBtcBalance btcutil.Amount
-	/*
-	obd add wxf
-	*/
-	SettledAssetBalance omnicore.Amount
-	TimeLockedAssetBalance omnicore.Amount
+	SettledBalance lnwire.UnitPrec8
+
 
 	// TimeLockedBalance is the sum of all the time-locked outputs at the
 	// time of channel closure. If we triggered the force closure of this
@@ -2875,7 +2890,7 @@ type ChannelCloseSummary struct {
 	// above the dust limit. If we were on the receiving side of a channel
 	// force closure, then this value will be non-zero if we had any
 	// outstanding outgoing HTLC's at the time of channel closure.
-	TimeLockedBtcBalance btcutil.Amount
+	TimeLockedBalance lnwire.UnitPrec8
 
 	// CloseType details exactly _how_ the channel was closed. Five closure
 	// types are possible: cooperative, local force, remote force, breach
@@ -3239,8 +3254,8 @@ func putChannelCloseSummary(tx kvdb.RwTx, chanID []byte,
 func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 	err := WriteElements(w,
 		cs.ChanPoint, cs.ShortChanID, cs.ChainHash, cs.ClosingTXID,
-		cs.CloseHeight, cs.RemotePub, cs.BtcCapacity, cs.AssetCapacity, cs.SettledBtcBalance, cs.SettledAssetBalance,
-		cs.TimeLockedBtcBalance, cs.TimeLockedAssetBalance, cs.CloseType, cs.IsPending,
+		cs.CloseHeight, cs.RemotePub, cs.AssetId, cs.BtcCapacity, cs.AssetCapacity, cs.SettledBalance,
+		cs.TimeLockedBalance, cs.CloseType, cs.IsPending,
 	)
 	if err != nil {
 		return err
@@ -3300,8 +3315,8 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 
 	err := ReadElements(r,
 		&c.ChanPoint, &c.ShortChanID, &c.ChainHash, &c.ClosingTXID,
-		&c.CloseHeight, &c.RemotePub, &c.BtcCapacity, &c.AssetCapacity, &c.SettledBtcBalance, &c.SettledAssetBalance,
-		&c.TimeLockedBtcBalance, &c.TimeLockedAssetBalance, &c.CloseType, &c.IsPending,
+		&c.CloseHeight, &c.RemotePub,  &c.AssetId, &c.BtcCapacity, &c.AssetCapacity, &c.SettledBalance,
+		&c.TimeLockedBalance, &c.CloseType, &c.IsPending,
 	)
 	if err != nil {
 		return nil, err

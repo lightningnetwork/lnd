@@ -74,8 +74,9 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 	routeHints := CreateRPCRouteHints(decoded.RouteHints)
 
 	preimage := invoice.Terms.PaymentPreimage
-	satAmt := invoice.Terms.Value.ToSatoshis()
-	satAmtPaid := invoice.AmtPaid.ToSatoshis()
+	//satAmt := invoice.Terms.Value.ToSatoshis()
+	//satAmtPaid := invoice.AmtPaid.ToSatoshis()
+
 
 	isSettled := invoice.State == channeldb.ContractSettled
 
@@ -152,8 +153,9 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 	rpcInvoice := &lnrpc.Invoice{
 		Memo:            string(invoice.Memo),
 		RHash:           rHash,
-		Value:           int64(satAmt),
+		//Value:           int64(satAmt),
 		ValueMsat:       int64(invoice.Terms.Value),
+		AssetId: invoice.AssetId,
 		CreationDate:    invoice.CreationDate.Unix(),
 		SettleDate:      settleDate,
 		Settled:         isSettled,
@@ -166,9 +168,9 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		AddIndex:        invoice.AddIndex,
 		Private:         len(routeHints) > 0,
 		SettleIndex:     invoice.SettleIndex,
-		AmtPaidSat:      int64(satAmtPaid),
+		//AmtPaidSat:      int64(satAmtPaid),
 		AmtPaidMsat:     int64(invoice.AmtPaid),
-		AmtPaid:         int64(invoice.AmtPaid),
+		//AmtPaid:         int64(invoice.AmtPaid),
 		State:           state,
 		Htlcs:           rpcHtlcs,
 		Features:        CreateRPCFeatures(invoice.Terms.Features),

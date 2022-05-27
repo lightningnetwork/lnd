@@ -232,8 +232,11 @@ func (b *Batcher) BatchFund(ctx context.Context,
 		fundingReq, err := b.cfg.RequestParser(&lnrpc.OpenChannelRequest{
 			SatPerVbyte:        uint64(req.SatPerVbyte),
 			NodePubkey:         rpcChannel.NodePubkey,
-			LocalFundingAmount: rpcChannel.LocalFundingAmount,
-			PushSat:            rpcChannel.PushSat,
+			LocalFundingBtcAmount: rpcChannel.LocalFundingBtcAmount,
+			LocalFundingAssetAmount: rpcChannel.LocalFundingAssetAmount,
+			PushBtcSat:            rpcChannel.PushBtcSat,
+			PushAssetSat:            rpcChannel.PushAssetSat,
+			AssetId:rpcChannel.AssetId,
 			TargetConf:         req.TargetConf,
 			Private:            rpcChannel.Private,
 			MinHtlcMsat:        rpcChannel.MinHtlcMsat,
@@ -260,7 +263,7 @@ func (b *Batcher) BatchFund(ctx context.Context,
 		// funding.
 		fundingReq.PendingChanID = pendingChanID
 		fundingReq.ChanFunder = chanfunding.NewPsbtAssembler(
-			btcutil.Amount(rpcChannel.LocalFundingAmount), nil,
+			btcutil.Amount(rpcChannel.LocalFundingBtcAmount), nil,
 			b.cfg.NetParams, false,
 		)
 

@@ -88,7 +88,8 @@ type AddInvoiceData struct {
 	Hash *lntypes.Hash
 
 	// The value of this invoice in millisatoshis.
-	Value lnwire.MilliSatoshi
+	Value lnwire.UnitPrec11
+	AssetId uint32
 
 	// Hash (SHA-256) of a description of the payment. Used if the
 	// description of payment (memo) is too long to naturally fit within the
@@ -236,7 +237,11 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	// We set the max invoice amount to 100k BTC, which itself is several
 	// multiples off the current block reward.
-	maxInvoiceAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin * 100000)
+	//maxInvoiceAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin * 100000)
+	maxInvoiceAmt := lnwire.UnitPrec11(btcutil.SatoshiPerBitcoin * 100000 *1000)
+	if invoice.AssetId!=lnwire.BtcAssetId{ //for asset
+		maxInvoiceAmt = lnwire.UnitPrec11(btcutil.SatoshiPerBitcoin * 100000)
+	}
 
 	switch {
 	// The value of the invoice must not be negative.
@@ -246,9 +251,9 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	// Also ensure that the invoice is actually realistic, while preventing
 	// any issues due to underflow.
-	case invoice.Value.ToSatoshis() > maxInvoiceAmt:
+	case invoice.Value > maxInvoiceAmt:
 		return nil, nil, fmt.Errorf("invoice amount %v is "+
-			"too large, max is %v", invoice.Value.ToSatoshis(),
+			"too large, max is %v", invoice.Value,
 			maxInvoiceAmt)
 	}
 
@@ -554,14 +559,14 @@ func addHopHint(hopHints *[]func(*zpay32.Invoice),
 // options that'll append the route hint to the set of all route hints.
 //
 // TODO(roasbeef): do proper sub-set sum max hints usually << numChans
-func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
+func SelectHopHints(amtMSat lnwire.UnitPrec11, cfg *AddInvoiceConfig,
 	openChannels []*channeldb.OpenChannel,
 	numMaxHophints int) []func(*zpay32.Invoice) {
 
 	// We'll add our hop hints in two passes, first we'll add all channels
 	// that are eligible to be hop hints, and also have a local balance
 	// above the payment amount.
-	var totalHintBandwidth lnwire.MilliSatoshi
+	var totalHintBandwidth lnwire.UnitPrec11
 	hopHintChans := make(map[wire.OutPoint]struct{})
 	hopHints := make([]func(*zpay32.Invoice), 0, numMaxHophints)
 	for _, channel := range openChannels {
@@ -573,7 +578,7 @@ func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 
 		// Similarly, in this first pass, we'll ignore all channels in
 		// isolation can't satisfy this payment.
-		if channel.LocalCommitment.RemoteBalance < amtMSat {
+		if channel.LocalCommitment.GetRemoteBalance(channel.AssetID) < amtMSat {
 			continue
 		}
 
@@ -582,7 +587,7 @@ func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 		addHopHint(&hopHints, channel, edgePolicy)
 
 		hopHintChans[channel.FundingOutpoint] = struct{}{}
-		totalHintBandwidth += channel.LocalCommitment.RemoteBalance
+		totalHintBandwidth += channel.LocalCommitment.GetRemoteBalance(channel.AssetID)
 	}
 
 	// If we have enough hop hints at this point, then we'll exit early.
@@ -596,7 +601,7 @@ func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 	// or if the sum of available bandwidth in the routing hints exceeds 2x
 	// the payment amount. We do 2x here to account for a margin of error
 	// if some of the selected channels no longer become operable.
-	hopHintFactor := lnwire.MilliSatoshi(2)
+	hopHintFactor := lnwire.UnitPrec11(2)
 	for i := 0; i < len(openChannels); i++ {
 		// If we hit either of our early termination conditions, then
 		// we'll break the loop here.
@@ -629,7 +634,7 @@ func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 		// available balance now to update our tally.
 		//
 		// TODO(roasbeef): have a cut off based on min bandwidth?
-		totalHintBandwidth += channel.LocalCommitment.RemoteBalance
+		totalHintBandwidth += channel.LocalCommitment.GetRemoteBalance(channel.AssetID)
 	}
 
 	return hopHints

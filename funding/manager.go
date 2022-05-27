@@ -1087,19 +1087,19 @@ func (f *Manager) advancePendingChannelState(
 		/*
 		obd update wxf
 		*/
-		localBtcBalance := ch.LocalCommitment.LocalBtcBalance.ToSatoshis()
-		localAssetBalance := ch.LocalCommitment.LocalAssetBalance
+		bal:= lnwire.UnitPrec8(ch.LocalCommitment.GetLocalBalance(ch.AssetID))
+		if ch.AssetID==lnwire.BtcAssetId{
+			bal=bal/1000
+		}
+		//localBtcBalance := ch.LocalCommitment.LocalBtcBalance.ToSatoshis()
+		//localAssetBalance := ch.LocalCommitment.LocalAssetBalance
 		closeInfo := &channeldb.ChannelCloseSummary{
 			ChainHash:               ch.ChainHash,
 			ChanPoint:               ch.FundingOutpoint,
 			RemotePub:               ch.IdentityPub,
-			/*
-				obd update wxf
-			*/
 			BtcCapacity:                ch.BtcCapacity,
 			AssetCapacity:                ch.AssetCapacity,
-			SettledBtcBalance:          localBtcBalance,
-			SettledAssetBalance:          localAssetBalance,
+			SettledBalance:          bal,
 			CloseType:               channeldb.FundingCanceled,
 			RemoteCurrentRevocation: ch.RemoteCurrentRevocation,
 			RemoteNextRevocation:    ch.RemoteNextRevocation,
@@ -2048,8 +2048,12 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 		/*
 		obd update wxf
 		*/
-		localBtcBalance := completeChan.LocalCommitment.LocalBtcBalance.ToSatoshis()
-		localAssetBalance := completeChan.LocalCommitment.LocalAssetBalance
+		//localBtcBalance := completeChan.LocalCommitment.LocalBtcBalance.ToSatoshis()
+		//localAssetBalance := completeChan.LocalCommitment.LocalAssetBalance
+		bal:=lnwire.UnitPrec8(completeChan.LocalCommitment.GetLocalBalance(completeChan.AssetID))
+		if completeChan.AssetID==lnwire.BtcAssetId{
+			bal=bal/1000
+		}
 		closeInfo := &channeldb.ChannelCloseSummary{
 			ChanPoint:               completeChan.FundingOutpoint,
 			ChainHash:               completeChan.ChainHash,
@@ -2059,9 +2063,9 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 				obd update wxf
 			*/
 			BtcCapacity:                completeChan.BtcCapacity,
-			SettledBtcBalance:          localBtcBalance,
 			AssetCapacity:                completeChan.AssetCapacity,
-			SettledAssetBalance:          localAssetBalance,
+			AssetId:     			 completeChan.AssetID,
+			SettledBalance:          bal,
 			RemoteCurrentRevocation: completeChan.RemoteCurrentRevocation,
 			RemoteNextRevocation:    completeChan.RemoteNextRevocation,
 			LocalChanConfig:         completeChan.LocalChanCfg,

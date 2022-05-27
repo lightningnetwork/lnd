@@ -110,7 +110,7 @@ http:
     - selector: lnrpc.Lightning.GetNodeInfo
       get: "/v1/graph/node/{pub_key}"
     - selector: lnrpc.Lightning.QueryRoutes
-      get: "/v1/graph/routes/{pub_key}/{amt}"
+      get: "/v1/graph/routes/{pub_key}/{amt_msat}"
     - selector: lnrpc.Lightning.GetNetworkInfo
       get: "/v1/graph/info"
     - selector: lnrpc.Lightning.StopDaemon

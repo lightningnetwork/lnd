@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"github.com/lightningnetwork/lnd/omnicore"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -45,7 +46,10 @@ type LocalChannel struct {
 	ChanID lnwire.ShortChannelID
 
 	// Balance is the local balance of the channel expressed in satoshis.
-	Balance btcutil.Amount
+	/*obd update wxf*/
+	BtcBalance btcutil.Amount
+	AssetBalance omnicore.Amount
+	AssetId uint32
 
 	// Node is the peer that this channel has been established with.
 	Node NodeID
@@ -110,6 +114,8 @@ type AttachmentDirective struct {
 	// ChanAmt is the size of the channel that should be opened, expressed
 	// in satoshis.
 	ChanAmt btcutil.Amount
+	ChanAssetAmt omnicore.Amount
+	AssetId uint32
 
 	// Addrs is a list of addresses that the target peer may be reachable
 	// at.
@@ -210,7 +216,7 @@ type ChannelController interface {
 	// slightly less to account for fees. This function should un-block
 	// immediately after the funding transaction that marks the channel
 	// open has been broadcast.
-	OpenChannel(target *btcec.PublicKey, amt btcutil.Amount) error
+	OpenChannel(target *btcec.PublicKey,assetId uint32, amt btcutil.Amount,assetAmt omnicore.Amount) error
 
 	// CloseChannel attempts to close out the target channel.
 	//

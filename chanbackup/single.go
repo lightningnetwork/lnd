@@ -3,6 +3,7 @@ package chanbackup
 import (
 	"bytes"
 	"fmt"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"io"
 	"net"
 
@@ -97,11 +98,9 @@ type Single struct {
 	Addresses []net.Addr
 
 	// Capacity is the size of the original channel.
-	Capacity btcutil.Amount
-	/*
-		obd update
-		todo add BtcCapacity AssetCapacity
-	*/
+	BtcCapacity btcutil.Amount
+	AssetCapacity omnicore.Amount
+	AssetID uint32
 
 	// LocalChanCfg is our local channel configuration. It contains all the
 	// information we need to re-derive the keys we used within the
@@ -191,7 +190,9 @@ func NewSingle(channel *channeldb.OpenChannel,
 		ShortChannelID:   chanID,
 		RemoteNodePub:    channel.IdentityPub,
 		Addresses:        nodeAddrs,
-		Capacity:         channel.BtcCapacity,
+		BtcCapacity:         channel.BtcCapacity,
+		AssetCapacity:         channel.AssetCapacity,
+		AssetID:         channel.AssetID,
 		LocalChanCfg:     channel.LocalChanCfg,
 		RemoteChanCfg:    channel.RemoteChanCfg,
 		ShaChainRootDesc: shaChainRootDesc,
@@ -257,7 +258,9 @@ func (s *Single) Serialize(w io.Writer) error {
 		s.ShortChannelID,
 		s.RemoteNodePub,
 		s.Addresses,
-		s.Capacity,
+		s.BtcCapacity,
+		s.AssetCapacity,
+		s.AssetID,
 
 		s.LocalChanCfg.CsvDelay,
 
@@ -415,7 +418,7 @@ func (s *Single) Deserialize(r io.Reader) error {
 
 	err = lnwire.ReadElements(
 		r, &s.IsInitiator, s.ChainHash[:], &s.FundingOutpoint,
-		&s.ShortChannelID, &s.RemoteNodePub, &s.Addresses, &s.Capacity,
+		&s.ShortChannelID, &s.RemoteNodePub, &s.Addresses, &s.BtcCapacity, &s.AssetCapacity, &s.AssetID,
 	)
 	if err != nil {
 		return err

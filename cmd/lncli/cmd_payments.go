@@ -104,11 +104,11 @@ func paymentFlags() []cli.Flag {
 			Name:  "pay_req",
 			Usage: "a zpay32 encoded payment request to fulfill",
 		},
-		cli.Int64Flag{
-			Name: "fee_limit",
-			Usage: "maximum fee allowed in satoshis when " +
-				"sending the payment",
-		},
+		//cli.Int64Flag{
+		//	Name: "fee_limit",
+		//	Usage: "maximum fee allowed in satoshis when " +
+		//		"sending the payment",
+		//},
 		cli.Int64Flag{
 			Name: "fee_limit_percent",
 			Usage: "percentage of the payment's amount used as " +
@@ -174,7 +174,7 @@ var sendPaymentCommand = cli.Command{
 		},
 		cli.Int64Flag{
 			Name:  "amt, a",
-			Usage: "number of satoshis to send",
+			Usage: "number of min-unit to send ,for btc is MilliSatoshi (1/1.0e11 btc) ,for asset is omnicore.Amount (1/1.0e8 asset)",
 		},
 		cli.StringFlag{
 			Name:  "payment_hash, r",
@@ -219,9 +219,10 @@ func retrieveFeeLimit(ctx *cli.Context, amt int64) (int64, error) {
 	}
 
 	// If no fee limit is set, use a default value based on the amount.
-	amtMsat := lnwire.NewMSatFromSatoshis(btcutil.Amount(amt))
-	limitMsat := lnwallet.DefaultRoutingFeeLimitForAmount(amtMsat)
-	return int64(limitMsat.ToSatoshis()), nil
+	//amtMsat := lnwire.NewMSatFromSatoshis(btcutil.Amount(amt))
+	//limitMsat := lnwallet.DefaultRoutingFeeLimitForAmount(amtMsat)
+	//return int64(limitMsat.ToSatoshis()), nil
+	return int64(lnwallet.DefaultRoutingFeeLimitForAmount(lnwire.UnitPrec11(amt))),nil
 }
 
 func confirmPayReq(resp *lnrpc.PayReq, amt, feeLimit int64) error {
@@ -279,7 +280,8 @@ func sendPayment(ctx *cli.Context) error {
 	if ctx.IsSet("pay_req") {
 		req := &routerrpc.SendPaymentRequest{
 			PaymentRequest:    ctx.String("pay_req"),
-			Amt:               ctx.Int64("amt"),
+			//Amt:               ctx.Int64("amt"),
+			AmtMsat:               ctx.Int64("amt"),
 			DestCustomRecords: make(map[uint64][]byte),
 		}
 
@@ -332,7 +334,8 @@ func sendPayment(ctx *cli.Context) error {
 
 	req := &routerrpc.SendPaymentRequest{
 		Dest:              destNode,
-		Amt:               amount,
+		//Amt:               amount,
+		AmtMsat:               amount,
 		DestCustomRecords: make(map[uint64][]byte),
 		Amp:               ctx.Bool(ampFlag.Name),
 	}
@@ -494,7 +497,8 @@ func sendPaymentRequest(ctx *cli.Context,
 
 		// If amount is present in the request, override the request
 		// amount.
-		amt := req.Amt
+		//amt := req.Amt
+		amt := req.AmtMsat
 		invoiceAmt := decodeResp.GetNumSatoshis()
 		if invoiceAmt != 0 {
 			amt = invoiceAmt
@@ -516,13 +520,13 @@ func sendPaymentRequest(ctx *cli.Context,
 		}
 	} else {
 		var err error
-		feeLimit, err = retrieveFeeLimit(ctx, req.Amt)
+		feeLimit, err = retrieveFeeLimit(ctx, req.AmtMsat)
 		if err != nil {
 			return err
 		}
 	}
 
-	req.FeeLimitSat = feeLimit
+	req.FeeLimitMsat = feeLimit
 
 	// Always print in-flight updates for the table output.
 	printJSON := ctx.Bool(jsonFlag.Name)
@@ -819,7 +823,8 @@ func payInvoice(ctx *cli.Context) error {
 
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest:    payReq,
-		Amt:               ctx.Int64("amt"),
+		//Amt:               ctx.Int64("amt"),
+		AmtMsat:               ctx.Int64("amt"),
 		DestCustomRecords: make(map[uint64][]byte),
 	}
 
@@ -1066,7 +1071,8 @@ func queryRoutes(ctx *cli.Context) error {
 
 	req := &lnrpc.QueryRoutesRequest{
 		PubKey:            dest,
-		Amt:               amt,
+		//Amt:               amt,
+		AmtMsat:               amt,
 		FeeLimit:          feeLimit,
 		FinalCltvDelta:    int32(ctx.Int("final_cltv_delta")),
 		UseMissionControl: ctx.Bool("use_mc"),
@@ -1091,12 +1097,12 @@ func retrieveFeeLimitLegacy(ctx *cli.Context) (*lnrpc.FeeLimit, error) {
 	case ctx.IsSet("fee_limit") && ctx.IsSet("fee_limit_percent"):
 		return nil, fmt.Errorf("either fee_limit or fee_limit_percent " +
 			"can be set, but not both")
-	case ctx.IsSet("fee_limit"):
-		return &lnrpc.FeeLimit{
-			Limit: &lnrpc.FeeLimit_Fixed{
-				Fixed: ctx.Int64("fee_limit"),
-			},
-		}, nil
+	//case ctx.IsSet("fee_limit"):
+	//	return &lnrpc.FeeLimit{
+	//		Limit: &lnrpc.FeeLimit_Fixed{
+	//			Fixed: ctx.Int64("fee_limit"),
+	//		},
+	//	}, nil
 	case ctx.IsSet("fee_limit_percent"):
 		feeLimitPercent := ctx.Int64("fee_limit_percent")
 		if feeLimitPercent < 0 {

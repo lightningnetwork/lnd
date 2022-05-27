@@ -3,6 +3,7 @@ package lnd
 import (
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -78,15 +79,22 @@ type chanController struct {
 	private       bool
 	minConfs      int32
 	confTarget    uint32
-	chanMinHtlcIn lnwire.MilliSatoshi
+	chanBtcMinHtlcIn lnwire.MilliSatoshi
+	chanAssetMinHtlcIn omnicore.Amount
 	netParams     chainreg.BitcoinNetParams
+}
+func (cfg *chanController)getMinHtlc(assetId uint32) lnwire.UnitPrec11{
+	if assetId==lnwire.BtcAssetId{
+		return lnwire.UnitPrec11(cfg.chanBtcMinHtlcIn)
+	}
+	return lnwire.UnitPrec11(cfg.chanAssetMinHtlcIn)
 }
 
 // OpenChannel opens a channel to a target peer, with a capacity of the
 // specified amount. This function should un-block immediately after the
 // funding transaction that marks the channel open has been broadcast.
 func (c *chanController) OpenChannel(target *btcec.PublicKey,
-	amt btcutil.Amount) error {
+	assetId uint32, amt btcutil.Amount,assetAmt omnicore.Amount) error {
 
 	// With the connection established, we'll now establish our connection
 	// to the target peer, waiting for the first update before we exit.
@@ -100,12 +108,15 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	// Construct the open channel request and send it to the server to begin
 	// the funding workflow.
 	req := &funding.InitFundingMsg{
+		AssetId: assetId,
 		TargetPubkey:     target,
 		ChainHash:        *c.netParams.GenesisHash,
 		SubtractFees:     true,
-		LocalFundingAmt:  amt,
-		PushAmt:          0,
-		MinHtlcIn:        c.chanMinHtlcIn,
+		LocalFundingBtcAmt:  amt,
+		LocalFundingAssetAmt:  assetAmt,
+		PushBtcAmt:          0,
+		PushAssetAmt:          0,
+		MinHtlcIn:        c.getMinHtlc(assetId),
 		FundingFeePerKw:  feePerKw,
 		Private:          c.private,
 		RemoteCsvDelay:   0,
@@ -137,7 +148,7 @@ var _ autopilot.ChannelController = (*chanController)(nil)
 // interfaces needed to drive it won't be launched before the Manager's
 // StartAgent method is called.
 func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
-	minHTLCIn lnwire.MilliSatoshi, netParams chainreg.BitcoinNetParams) (
+	minHTLCIn lnwire.MilliSatoshi,minAssetHTLCIn omnicore.Amount, netParams chainreg.BitcoinNetParams) (
 	*autopilot.ManagerCfg, error) {
 
 	atplLog.Infof("Instantiating autopilot with active=%v, "+
@@ -177,7 +188,8 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			private:       cfg.Private,
 			minConfs:      cfg.MinConfs,
 			confTarget:    cfg.ConfTarget,
-			chanMinHtlcIn: minHTLCIn,
+			chanBtcMinHtlcIn: minHTLCIn,
+			chanAssetMinHtlcIn: minAssetHTLCIn,
 			netParams:     netParams,
 		},
 		WalletBalance: func() (btcutil.Amount, error) {
@@ -265,12 +277,11 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			chanState := make([]autopilot.LocalChannel,
 				len(activeChannels))
 			for i, channel := range activeChannels {
-				localCommit := channel.LocalCommitment
-				balance := localCommit.LocalBalance.ToSatoshis()
-
 				chanState[i] = autopilot.LocalChannel{
+					AssetId: channel.AssetID,
 					ChanID:  channel.ShortChanID(),
-					Balance: balance,
+					BtcBalance: channel.LocalCommitment.LocalBtcBalance.ToSatoshis(),
+					AssetBalance: channel.LocalCommitment.LocalAssetBalance,
 					Node: autopilot.NewNodeID(
 						channel.IdentityPub,
 					),
@@ -290,7 +301,9 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			localCommit := channel.LocalCommitment
 			return &autopilot.LocalChannel{
 				ChanID:  channel.ShortChanID(),
-				Balance: localCommit.LocalBalance.ToSatoshis(),
+				BtcBalance: localCommit.LocalBtcBalance.ToSatoshis(),
+				AssetBalance: localCommit.LocalAssetBalance,
+				AssetId: channel.AssetID,
 				Node:    autopilot.NewNodeID(channel.IdentityPub),
 			}, nil
 		},

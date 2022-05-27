@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"io/ioutil"
 	"net"
 	"os"
@@ -443,12 +444,18 @@ func DefaultConfig() Config {
 		WSPongWait:        lnrpc.DefaultPongWait,
 		Bitcoin: &lncfg.Chain{
 			MinHTLCIn:     chainreg.DefaultBitcoinMinHTLCInMSat,
+			AssetMinHTLCIn:     omnicore.Amount(10),
 			MinHTLCOut:    chainreg.DefaultBitcoinMinHTLCOutMSat,
+			AssetMinHTLCOut:    omnicore.Amount(10000),
 			BaseFee:       chainreg.DefaultBitcoinBaseFeeMSat,
 			FeeRate:       chainreg.DefaultBitcoinFeeRate,
+			AssetFeeRate:       omnicore.Amount(100),
 			TimeLockDelta: chainreg.DefaultBitcoinTimeLockDelta,
 			MaxLocalDelay: defaultMaxLocalCSVDelay,
-			Node:          "btcd",
+			//Node:          "btcd",
+			//for asset
+			Active: true,
+			Node:          "bitcoind",
 		},
 		BtcdMode: &lncfg.Btcd{
 			Dir:     defaultBtcdDir,

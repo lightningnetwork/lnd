@@ -244,7 +244,7 @@ type FeeSchema struct {
 	// (fixed point arithmetic) whose denominator is 1 million. As a result
 	// the effective fee rate charged per mSAT will be: (amount *
 	// FeeRate/1,000,000).
-	FeeRate uint32
+	FeeRate lnwire.UnitPrec11
 }
 
 // ChannelPolicy holds the parameters that determine the policy we enforce
@@ -260,11 +260,11 @@ type ChannelPolicy struct {
 
 	// MaxHTLC is the maximum HTLC size including fees we are allowed to
 	// forward over this channel.
-	MaxHTLC lnwire.MilliSatoshi
+	MaxHTLC lnwire.UnitPrec11
 
 	// MinHTLC is the minimum HTLC size including fees we are allowed to
 	// forward over this channel.
-	MinHTLC *lnwire.MilliSatoshi
+	MinHTLC *lnwire.UnitPrec11
 }
 
 // Config defines the configuration for the ChannelRouter. ALL elements within

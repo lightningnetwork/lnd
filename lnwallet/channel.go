@@ -5913,7 +5913,10 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 		CloseHeight:             uint32(commitSpend.SpendingHeight),
 		RemotePub:               chanState.IdentityPub,
 		BtcCapacity:                chanState.BtcCapacity,
-		SettledBtcBalance:          btcutil.Amount(localBalance),
+		/*obd update wxf
+		todo check SettledBalance for asset
+		*/
+		SettledBalance:          lnwire.UnitPrec8(localBalance),
 		AssetCapacity:                chanState.AssetCapacity,
 		//SettledAssetBalance:          btcutil.Amount(localBalance),
 		CloseType:               channeldb.RemoteForceClose,

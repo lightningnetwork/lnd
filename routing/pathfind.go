@@ -124,12 +124,13 @@ func newRoute(sourceVertex route.Vertex,
 		nextIncomingAmount lnwire.UnitPrec11
 	)
 
+	assetId:=uint32(0)
 	pathLength := len(pathEdges)
 	for i := pathLength - 1; i >= 0; i-- {
 		// Now we'll start to calculate the items within the per-hop
 		// payload for the hop this edge is leading to.
 		edge := pathEdges[i]
-
+		assetId=edge.AssetId
 		// We'll calculate the amounts, timelocks, and fees for each hop
 		// in the route. The base case is the final hop which includes
 		// their amount and timelocks. These values will accumulate
@@ -248,7 +249,7 @@ func newRoute(sourceVertex route.Vertex,
 	}
 
 	// With the base routing data expressed as hops, build the full route
-	newRoute, err := route.NewRouteFromHops(
+	newRoute, err := route.NewRouteFromHops(assetId,
 		nextIncomingAmount, totalTimeLock, route.Vertex(sourceVertex),
 		hops,
 	)

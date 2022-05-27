@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"github.com/lightningnetwork/lnd/omnicore"
 	"image/color"
 	"math/big"
 	prand "math/rand"

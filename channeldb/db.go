@@ -1191,6 +1191,11 @@ func (c *ChannelStateDB) AbandonChannel(chanPoint *wire.OutPoint,
 		return err
 	}
 
+	settledBalance:=dbChan.LocalCommitment.GetLocalBalance(dbChan.AssetID)
+	sBalance:=lnwire.UnitPrec8(settledBalance)
+	if dbChan.AssetID==lnwire.BtcAssetId{
+		sBalance=lnwire.UnitPrec8(settledBalance.ToSat())
+	}
 	// Now that we've found the channel, we'll populate a close summary for
 	// the channel, so we can store as much information for this abounded
 	// channel as possible. We also ensure that we set Pending to false, to
@@ -1201,10 +1206,9 @@ func (c *ChannelStateDB) AbandonChannel(chanPoint *wire.OutPoint,
 		ChainHash:               dbChan.ChainHash,
 		CloseHeight:             bestHeight,
 		RemotePub:               dbChan.IdentityPub,
-		BtcCapacity:                dbChan.BtcCapacity,
-		AssetCapacity:                dbChan.AssetCapacity,
-		SettledBtcBalance:          dbChan.LocalCommitment.LocalBtcBalance.ToSatoshis(),
-		SettledAssetBalance:          dbChan.LocalCommitment.LocalAssetBalance,
+		BtcCapacity:             dbChan.BtcCapacity,
+		AssetCapacity:           dbChan.AssetCapacity,
+		SettledBalance:          sBalance,
 		ShortChanID:             dbChan.ShortChanID(),
 		RemoteCurrentRevocation: dbChan.RemoteCurrentRevocation,
 		RemoteNextRevocation:    dbChan.RemoteNextRevocation,

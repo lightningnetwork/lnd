@@ -378,7 +378,7 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 // valid signature.
 func TestChannelUpdateValidation(t *testing.T) {
 	t.Parallel()
-	assetId:=1
+	assetId:=uint32(1)
 	// Setup a three node network.
 	chanCapSat := lnwire.UnitPrec8(100000)
 	feeRate := lnwire.UnitPrec11(400)
@@ -444,7 +444,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	if assetId==lnwire.BtcAssetId{
 		ramt=10*1000
 	}
-	rt, err := route.NewRouteFromHops(
+	rt, err := route.NewRouteFromHops(assetId,
 		ramt, 100,
 		ctx.aliases["a"], hops,
 	)
@@ -2988,7 +2988,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 		},
 	}
 
-	rt, err := route.NewRouteFromHops(payAmt, 100, ctx.aliases["a"], hops)
+	rt, err := route.NewRouteFromHops(assetId,payAmt, 100, ctx.aliases["a"], hops)
 	if err != nil {
 		t.Fatalf("unable to create route: %v", err)
 	}
@@ -3084,7 +3084,7 @@ func TestSendToRouteMultiShardSend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rt, err := route.NewRouteFromHops(
+	rt, err := route.NewRouteFromHops(assetId,
 		payAmt, 100, sourceNode.PubKeyBytes, hops,
 	)
 	if err != nil {
@@ -3238,7 +3238,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 		})
 	}
 
-	rt, err := route.NewRouteFromHops(payAmt, 100, ctx.aliases["a"], hops)
+	rt, err := route.NewRouteFromHops(assetId,payAmt, 100, ctx.aliases["a"], hops)
 	if err != nil {
 		t.Fatalf("unable to create route: %v", err)
 	}

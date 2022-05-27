@@ -23,10 +23,10 @@ import (
 )
 
 var (
-	testMillisat24BTC    = lnwire.MilliSatoshi(2400000000000)
-	testMillisat2500uBTC = lnwire.MilliSatoshi(250000000)
-	testMillisat25mBTC   = lnwire.MilliSatoshi(2500000000)
-	testMillisat20mBTC   = lnwire.MilliSatoshi(2000000000)
+	testMillisat24BTC    = lnwire.UnitPrec11(2400000000000)
+	testMillisat2500uBTC = lnwire.UnitPrec11(250000000)
+	testMillisat25mBTC   = lnwire.UnitPrec11(2500000000)
+	testMillisat20mBTC   = lnwire.UnitPrec11(2000000000)
 
 	testPaymentHash = [32]byte{
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,

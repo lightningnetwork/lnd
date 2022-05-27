@@ -61,16 +61,6 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 	}
 	decodedInvoice.Net = net
 
-	// Optionally, if there's anything left of the HRP after ln + the segwit
-	// prefix, we try to decode this as the payment amount.
-	var netPrefixLength = len(expectedPrefix) + 2
-	if len(hrp) > netPrefixLength {
-		amount, err := decodeAmount(hrp[netPrefixLength:])
-		if err != nil {
-			return nil, err
-		}
-		decodedInvoice.MilliSat = &amount
-	}
 
 	// Everything except the last 520 bits of the data encodes the invoice's
 	// timestamp and tagged fields.
@@ -82,6 +72,21 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 	// Parse the timestamp and tagged fields, and fill the Invoice struct.
 	if err := parseData(&decodedInvoice, invoiceData, net); err != nil {
 		return nil, err
+	}
+
+	// Optionally, if there's anything left of the HRP after ln + the segwit
+	// prefix, we try to decode this as the payment amount.
+	var netPrefixLength = len(expectedPrefix) + 2
+	if len(hrp) > netPrefixLength {
+		aid:=uint32(0)
+		if decodedInvoice.AssetId!=nil{
+			aid=*decodedInvoice.AssetId
+		}
+		amount, err := decodeAmt(hrp[netPrefixLength:],aid)
+		if err != nil {
+			return nil, err
+		}
+		decodedInvoice.MilliSat = &amount
 	}
 
 	// The last 520 bits (104 groups) make up the signature.
@@ -253,6 +258,13 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.expiry, err = parseExpiry(base32Data)
+		case fieldTypeA:
+			if invoice.AssetId != nil {
+				// We skip the field if we have already seen a
+				// supported one.
+				continue
+			}
+			invoice.AssetId,err=parseAssetId(base32Data)
 		case fieldTypeC:
 			if invoice.minFinalCLTVExpiry != nil {
 				// We skip the field if we have already seen a
@@ -372,6 +384,14 @@ func parseExpiry(data []byte) (*time.Duration, error) {
 	duration := time.Duration(expiry) * time.Second
 
 	return &duration, nil
+}
+func parseAssetId(data []byte) (*uint32, error) {
+	tmpInt, err := base32ToUint64(data)
+	if err != nil {
+		return nil, err
+	}
+	res:=uint32(tmpInt)
+	return &res, nil
 }
 
 // parseMinFinalCLTVExpiry converts the data (encoded in base32) into a uint64

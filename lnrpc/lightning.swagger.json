@@ -1218,7 +1218,7 @@
         ]
       }
     },
-    "/v1/graph/routes/{pub_key}/{amt}": {
+    "/v1/graph/routes/{pub_key}/{amt_msat}": {
       "get": {
         "summary": "lncli: `queryroutes`\nQueryRoutes attempts to query the daemon's Channel Router for a possible\nroute to a target destination capable of carrying a specific amount of\nsatoshis. The returned route contains the full details required to craft and\nsend an HTLC, also including the necessary information that should be\npresent within the Sphinx packet encapsulated within the HTLC.",
         "description": "When using REST, the `dest_custom_records` map type can be set by appending\n`\u0026dest_custom_records[\u003crecord_number\u003e]=\u003crecord_data_base64_url_encoded\u003e`\nto the URL. Unfortunately this map type doesn't appear in the REST API\ndocumentation because of a bug in the grpc-gateway library.",
@@ -1246,19 +1246,18 @@
             "type": "string"
           },
           {
-            "name": "amt",
-            "description": "The amount to send expressed in satoshis.\n\nThe fields amt and amt_msat are mutually exclusive.",
+            "name": "amt_msat",
+            "description": "The amount to send expressed in millisatoshis.\n\nThe fields amt and amt_msat are mutually exclusive.",
             "in": "path",
             "required": true,
             "type": "string",
             "format": "int64"
           },
           {
-            "name": "amt_msat",
-            "description": "The amount to send expressed in millisatoshis.\n\nThe fields amt and amt_msat are mutually exclusive.",
+            "name": "asset_id",
             "in": "query",
             "required": false,
-            "type": "string",
+            "type": "integer",
             "format": "int64"
           },
           {
@@ -1268,14 +1267,6 @@
             "required": false,
             "type": "integer",
             "format": "int32"
-          },
-          {
-            "name": "fee_limit.fixed",
-            "description": "The fee limit expressed as a fixed amount of satoshis.\n\nThe fields fixed and fixed_msat are mutually exclusive.",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "format": "int64"
           },
           {
             "name": "fee_limit.fixed_msat",
@@ -1767,6 +1758,59 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "ref_msg_id",
+            "description": "The request message ID this response refers to. Must always be set when\ngiving feedback to an intercept but is ignored for the initial registration\nmessage.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "register.middleware_name",
+            "description": "The name of the middleware to register. The name should be as informative\nas possible and is logged on registration.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "register.custom_macaroon_caveat_name",
+            "description": "The name of the custom macaroon caveat that this middleware is responsible\nfor. Only requests/responses that contain a macaroon with the registered\ncustom caveat are forwarded for interception to the middleware. The\nexception being the read-only mode: All requests/responses are forwarded to\na middleware that requests read-only access but such a middleware won't be\nallowed to _alter_ responses. As a security measure, _no_ middleware can\nchange responses to requests made with _unencumbered_ macaroons!\nNOTE: Cannot be used at the same time as read_only_mode.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "register.read_only_mode",
+            "description": "Instead of defining a custom macaroon caveat name a middleware can register\nitself for read-only access only. In that mode all requests/responses are\nforwarded to the middleware but the middleware isn't allowed to alter any of\nthe responses.\nNOTE: Cannot be used at the same time as custom_macaroon_caveat_name.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "feedback.error",
+            "description": "The error to return to the user. If this is non-empty, the incoming gRPC\nstream/request is aborted and the error is returned to the gRPC client. If\nthis value is empty, it means the middleware accepts the stream/request/\nresponse and the processing of it can continue.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "feedback.replace_response",
+            "description": "A boolean indicating that the gRPC response should be replaced/overwritten.\nAs its name suggests, this can only be used as a feedback to an intercepted\nresponse RPC message and is ignored for feedback on any other message. This\nboolean is needed because in protobuf an empty message is serialized as a\n0-length or nil byte slice and we wouldn't be able to distinguish between\nan empty replacement message and the \"don't replace anything\" case.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "feedback.replacement_serialized",
+            "description": "If the replace_response field is set to true, this field must contain the\nbinary serialized gRPC response message in the protobuf format.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -2723,8 +2767,16 @@
         "channel_point": {
           "type": "string"
         },
-        "capacity": {
+        "btc_capacity": {
           "type": "string",
+          "format": "int64"
+        },
+        "asset_capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "asset_id": {
+          "type": "integer",
           "format": "int64"
         },
         "local_balance": {
@@ -2928,11 +2980,6 @@
     "lnrpcAmount": {
       "type": "object",
       "properties": {
-        "sat": {
-          "type": "string",
-          "format": "uint64",
-          "description": "Value denominated in satoshis."
-        },
         "msat": {
           "type": "string",
           "format": "uint64",
@@ -2978,15 +3025,27 @@
           "format": "byte",
           "description": "The pubkey of the node to open a channel with. When using REST, this\nfield must be encoded as base64."
         },
-        "local_funding_amount": {
+        "local_funding_btc_amount": {
           "type": "string",
           "format": "int64",
           "description": "The number of satoshis the wallet should commit to the channel."
         },
-        "push_sat": {
+        "local_funding_asset_amount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "push_btc_sat": {
           "type": "string",
           "format": "int64",
           "description": "The number of satoshis to push to the remote side as part of the initial\ncommitment state."
+        },
+        "push_asset_sat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "asset_id": {
+          "type": "integer",
+          "format": "int64"
         },
         "private": {
           "type": "boolean",
@@ -3142,10 +3201,15 @@
           "format": "uint64",
           "description": "The unique channel ID for the channel. The first 3 bytes are the block\nheight, the next 3 the index within the block, and the last 2 bytes are the\noutput index for the channel."
         },
-        "capacity": {
+        "btc_capacity": {
           "type": "string",
           "format": "int64",
-          "title": "The total amount of funds held in this channel"
+          "title": "The total amount of btc funds held in this channel"
+        },
+        "asset_capacity": {
+          "type": "string",
+          "format": "int64",
+          "title": "The total amount of asset funds held in this channel"
         },
         "local_balance": {
           "type": "string",
@@ -3156,6 +3220,19 @@
           "type": "string",
           "format": "int64",
           "title": "The counterparty's current balance in this channel"
+        },
+        "local_asset_balance": {
+          "type": "string",
+          "format": "int64"
+        },
+        "remote_asset_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "The counterparty's current asset balance in this channel"
+        },
+        "asset_id": {
+          "type": "integer",
+          "format": "int64"
         },
         "commit_fee": {
           "type": "string",
@@ -3248,10 +3325,14 @@
           "type": "string",
           "description": "Close address is the address that we will enforce payout to on cooperative\nclose if the channel was opened utilizing option upfront shutdown. This\nvalue can be set on channel open by setting close_address in an open channel\nrequest. If this value is not set, you can still choose a payout address by\ncooperatively closing with the delivery_address field set."
         },
-        "push_amount_sat": {
+        "push_btc_amount_sat": {
           "type": "string",
           "format": "uint64",
           "description": "The amount that the initiator of the channel optionally pushed to the remote\nparty on channel open. This amount will be zero if the channel initiator did\nnot push any funds to the remote peer. If the initiator field is true, we\npushed this amount to our peer, if it is false, the remote peer pushed this\namount to us."
+        },
+        "push_asset_amount_sat": {
+          "type": "string",
+          "format": "uint64"
         },
         "thaw_height": {
           "type": "integer",
@@ -3483,10 +3564,18 @@
           "type": "string",
           "description": "Public key of the remote peer that we formerly had a channel with."
         },
-        "capacity": {
+        "btc_capacity": {
           "type": "string",
           "format": "int64",
           "description": "Total capacity of the channel."
+        },
+        "asset_capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "asset_id": {
+          "type": "integer",
+          "format": "int64"
         },
         "close_height": {
           "type": "integer",
@@ -4098,11 +4187,6 @@
     "lnrpcFeeLimit": {
       "type": "object",
       "properties": {
-        "fixed": {
-          "type": "string",
-          "format": "int64",
-          "description": "The fee limit expressed as a fixed amount of satoshis.\n\nThe fields fixed and fixed_msat are mutually exclusive."
-        },
         "fixed_msat": {
           "type": "string",
           "format": "int64",
@@ -4479,8 +4563,16 @@
         "incoming": {
           "type": "boolean"
         },
-        "amount": {
+        "btc_amount": {
           "type": "string",
+          "format": "int64"
+        },
+        "asset_amount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "asset_id": {
+          "type": "integer",
           "format": "int64"
         },
         "hash_lock": {
@@ -4677,11 +4769,9 @@
           "format": "byte",
           "description": "The hash of the preimage. When using REST, this field must be encoded as\nbase64."
         },
-        "value": {
-          "type": "string",
-          "format": "int64",
-          "description": "The fields value and value_msat are mutually exclusive.",
-          "title": "The value of this invoice in satoshis"
+        "asset_id": {
+          "type": "integer",
+          "format": "int64"
         },
         "value_msat": {
           "type": "string",
@@ -4746,16 +4836,6 @@
           "type": "string",
           "format": "uint64",
           "description": "The \"settle\" index of this invoice. Each newly settled invoice will\nincrement this index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all\nsettled invoices with an settle_index greater than this one."
-        },
-        "amt_paid": {
-          "type": "string",
-          "format": "int64",
-          "description": "Deprecated, use amt_paid_sat or amt_paid_msat."
-        },
-        "amt_paid_sat": {
-          "type": "string",
-          "format": "int64",
-          "description": "The amount that was accepted for this invoice, in satoshis. This will ONLY\nbe set if this invoice has been settled. We provide this field as if the\ninvoice was created with a zero value, then we need to record what amount\nwas ultimately accepted. Additionally, it's possible that the sender paid\nMORE that was specified in the original invoice. So we'll record that here\nas well."
         },
         "amt_paid_msat": {
           "type": "string",
@@ -5064,6 +5144,10 @@
           "type": "string",
           "format": "int64",
           "description": "The total amount in milli-satoshis being sent as part of a larger multi-path\npayment. The caller is responsible for ensuring subpayments to the same node\nand payment_hash sum exactly to total_amt_msat. The same\ntotal_amt_msat must be used on all subpayments."
+        },
+        "asset_id": {
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -5313,15 +5397,27 @@
           "type": "string",
           "description": "The hex encoded pubkey of the node to open a channel with. Deprecated now\nthat the REST gateway supports base64 encoding of bytes fields."
         },
-        "local_funding_amount": {
+        "local_funding_btc_amount": {
           "type": "string",
           "format": "int64",
           "title": "The number of satoshis the wallet should commit to the channel"
         },
-        "push_sat": {
+        "push_btc_sat": {
           "type": "string",
           "format": "int64",
           "title": "The number of satoshis to push to the remote side as part of the initial\ncommitment state"
+        },
+        "asset_id": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "push_asset_sat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "local_funding_asset_amount": {
+          "type": "string",
+          "format": "int64"
         },
         "target_conf": {
           "type": "integer",
@@ -5435,13 +5531,10 @@
         "payment_hash": {
           "type": "string"
         },
-        "num_satoshis": {
-          "type": "string",
-          "format": "int64"
-        },
         "timestamp": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "title": "int64 num_satoshis = 3;"
         },
         "expiry": {
           "type": "string",
@@ -5470,8 +5563,12 @@
           "type": "string",
           "format": "byte"
         },
-        "num_msat": {
+        "amt_msat": {
           "type": "string",
+          "format": "int64"
+        },
+        "asset_id": {
+          "type": "integer",
           "format": "int64"
         },
         "features": {
@@ -5489,29 +5586,14 @@
           "type": "string",
           "title": "The payment hash"
         },
-        "value": {
-          "type": "string",
-          "format": "int64",
-          "description": "Deprecated, use value_sat or value_msat."
-        },
         "creation_date": {
           "type": "string",
           "format": "int64",
           "title": "Deprecated, use creation_time_ns"
         },
-        "fee": {
-          "type": "string",
-          "format": "int64",
-          "description": "Deprecated, use fee_sat or fee_msat."
-        },
         "payment_preimage": {
           "type": "string",
           "title": "The payment preimage"
-        },
-        "value_sat": {
-          "type": "string",
-          "format": "int64",
-          "title": "The value of the payment in satoshis"
         },
         "value_msat": {
           "type": "string",
@@ -5525,11 +5607,6 @@
         "status": {
           "$ref": "#/definitions/PaymentPaymentStatus",
           "description": "The status of the payment."
-        },
-        "fee_sat": {
-          "type": "string",
-          "format": "int64",
-          "title": "The fee paid for this payment in satoshis"
         },
         "fee_msat": {
           "type": "string",
@@ -5990,16 +6067,6 @@
           "format": "int64",
           "description": "The cumulative (final) time lock across the entire route. This is the CLTV\nvalue that should be extended to the first hop in the route. All other hops\nwill decrement the time-lock as advertised, leaving enough time for all\nhops to wait for or present the payment preimage to complete the payment."
         },
-        "total_fees": {
-          "type": "string",
-          "format": "int64",
-          "description": "The sum of the fees paid at each hop within the final route. In the case\nof a one-hop payment, this value will be zero as we don't need to pay a fee\nto ourselves."
-        },
-        "total_amt": {
-          "type": "string",
-          "format": "int64",
-          "description": "The total amount of funds required to complete a payment over this route.\nThis value includes the cumulative fees at each hop. As a result, the HTLC\nextended to the first-hop in the route will need to have at least this many\nsatoshis, otherwise the route will fail at an intermediate node due to an\ninsufficient amount of fees."
-        },
         "hops": {
           "type": "array",
           "items": {
@@ -6016,6 +6083,10 @@
           "type": "string",
           "format": "int64",
           "description": "The total amount in millisatoshis."
+        },
+        "asset_id": {
+          "type": "integer",
+          "format": "int64"
         }
       },
       "description": "A path through the channel graph which runs over one or more channels in\nsuccession. This struct carries all the information required to craft the\nSphinx onion packet, and send the payment along the first hop in the path. A\nroute is only selected as valid if all the channels have sufficient capacity to\ncarry the initial payment amount after fees are accounted for."
@@ -6204,15 +6275,14 @@
           "type": "string",
           "description": "The hex-encoded identity pubkey of the payment recipient. Deprecated now\nthat the REST gateway supports base64 encoding of bytes fields."
         },
-        "amt": {
-          "type": "string",
-          "format": "int64",
-          "description": "The amount to send expressed in satoshis.\n\nThe fields amt and amt_msat are mutually exclusive."
-        },
         "amt_msat": {
           "type": "string",
           "format": "int64",
           "description": "The amount to send expressed in millisatoshis.\n\nThe fields amt and amt_msat are mutually exclusive."
+        },
+        "asset_id": {
+          "type": "integer",
+          "format": "int64"
         },
         "payment_hash": {
           "type": "string",
@@ -6548,14 +6618,11 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
     "rpcStatus": {
       "type": "object",

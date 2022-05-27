@@ -370,7 +370,7 @@ func (r *Route) FinalHop() *Hop {
 // NewRouteFromHops creates a new Route structure from the minimally required
 // information to perform the payment. It infers fee amounts and populates the
 // node, chan and prev/next hop maps.
-func NewRouteFromHops(amtToSend lnwire.UnitPrec11, timeLock uint32,
+func NewRouteFromHops(assetId uint32, amtToSend lnwire.UnitPrec11,timeLock uint32,
 	sourceVertex Vertex, hops []*Hop) (*Route, error) {
 
 	if len(hops) == 0 {
@@ -383,6 +383,7 @@ func NewRouteFromHops(amtToSend lnwire.UnitPrec11, timeLock uint32,
 	// that is send from the source and the final amount that is received
 	// by the destination.
 	route := &Route{
+		AssetId: assetId,
 		SourcePubKey:  sourceVertex,
 		Hops:          hops,
 		TotalTimeLock: timeLock,

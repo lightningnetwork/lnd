@@ -342,7 +342,9 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 // may cost to send an HTLC to the target end destination.
 func (s *Server) EstimateRouteFee(ctx context.Context,
 	req *RouteFeeRequest) (*RouteFeeResponse, error) {
-
+	if req.AssetId== 0{
+		return  nil,errors.New("EstimateRouteFee:miss AssetId")
+	}
 	if len(req.Dest) != 33 {
 		return nil, errors.New("invalid length destination key")
 	}
@@ -351,12 +353,13 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 
 	// Next, we'll convert the amount in satoshis to mSAT, which are the
 	// native unit of LN.
-	amtMsat := lnwire.NewMSatFromSatoshis(btcutil.Amount(req.AmtSat))
+	//amtMsat := lnwire.NewMSatFromSatoshis(btcutil.Amount(req.AmtSat))
+	amtMsat := lnwire.UnitPrec11(req.AmtMsat)
 
 	// Pick a fee limit
 	//
 	// TODO: Change this into behaviour that makes more sense.
-	feeLimit := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	feeLimit := lnwire.UnitPrec11(lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin))
 
 	// Finally, we'll query for a route to the destination that can carry
 	// that target amount, we'll only request a single route. Set a
@@ -364,10 +367,13 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	// that exceeds it and is useless to us.
 	mc := s.cfg.RouterBackend.MissionControl
 	route, err := s.cfg.Router.FindRoute(
-		s.cfg.RouterBackend.SelfNode, destNode, amtMsat,
+		s.cfg.RouterBackend.SelfNode, destNode,req.AssetId, amtMsat,
 		&routing.RestrictParams{
 			FeeLimit:          feeLimit,
 			CltvLimit:         s.cfg.RouterBackend.MaxTotalTimelock,
+			/*obd update wxf
+			todo check MissionControl:  mc.GetProbability may err.
+			*/
 			ProbabilitySource: mc.GetProbability,
 		}, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
 	)
@@ -511,9 +517,9 @@ func (s *Server) QueryMissionControl(ctx context.Context,
 // toRPCPairData marshalls mission control pair data to the rpc struct.
 func toRPCPairData(data *routing.TimedPairResult) *PairData {
 	rpcData := PairData{
-		FailAmtSat:     int64(data.FailAmt.ToSatoshis()),
+		//FailAmtSat:     int64(data.FailAmt.ToSatoshis()),
 		FailAmtMsat:    int64(data.FailAmt),
-		SuccessAmtSat:  int64(data.SuccessAmt.ToSatoshis()),
+		//SuccessAmtSat:  int64(data.SuccessAmt.ToSatoshis()),
 		SuccessAmtMsat: int64(data.SuccessAmt),
 	}
 
@@ -584,8 +590,7 @@ func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapsho
 	}
 
 	failAmt, failTime, err := getPair(
-		lnwire.MilliSatoshi(pairResult.History.FailAmtMsat),
-		btcutil.Amount(pairResult.History.FailAmtSat),
+		lnwire.UnitPrec11(pairResult.History.FailAmtMsat),
 		pairResult.History.FailTime,
 	)
 	if err != nil {
@@ -594,8 +599,7 @@ func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapsho
 	}
 
 	successAmt, successTime, err := getPair(
-		lnwire.MilliSatoshi(pairResult.History.SuccessAmtMsat),
-		btcutil.Amount(pairResult.History.SuccessAmtSat),
+		lnwire.UnitPrec11(pairResult.History.SuccessAmtMsat),
 		pairResult.History.SuccessTime,
 	)
 	if err != nil {
@@ -625,13 +629,14 @@ func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapsho
 
 // getPair validates the values provided for a mission control result and
 // returns the msat amount and timestamp for it.
-func getPair(amtMsat lnwire.MilliSatoshi, amtSat btcutil.Amount,
-	timestamp int64) (lnwire.MilliSatoshi, time.Time, error) {
+func getPair(amtMsat lnwire.UnitPrec11,
+	timestamp int64) (lnwire.UnitPrec11, time.Time, error) {
 
-	amt, err := getMsatPairValue(amtMsat, amtSat)
-	if err != nil {
-		return 0, time.Time{}, err
-	}
+	//amt, err := getMsatPairValue(amtMsat, amtSat)
+	//if err != nil {
+	//	return 0, time.Time{}, err
+	//}
+	amt:=amtMsat
 
 	var (
 		timeSet   = timestamp != 0
@@ -698,7 +703,7 @@ func (s *Server) QueryProbability(ctx context.Context,
 		return nil, err
 	}
 
-	amt := lnwire.MilliSatoshi(req.AmtMsat)
+	amt := lnwire.UnitPrec11(req.AmtMsat)
 
 	mc := s.cfg.RouterBackend.MissionControl
 	prob := mc.GetProbability(fromNode, toNode, amt)
@@ -786,6 +791,9 @@ func (s *Server) trackPayment(identifier lntypes.Hash,
 func (s *Server) BuildRoute(ctx context.Context,
 	req *BuildRouteRequest) (*BuildRouteResponse, error) {
 
+	if req.AssetId==0{
+		return nil, errors.New("BuildRoute err:miss AssetId")
+	}
 	// Unmarshall hop list.
 	hops := make([]route.Vertex, len(req.HopPubkeys))
 	for i, pubkeyBytes := range req.HopPubkeys {
@@ -797,9 +805,9 @@ func (s *Server) BuildRoute(ctx context.Context,
 	}
 
 	// Prepare BuildRoute call parameters from rpc request.
-	var amt *lnwire.MilliSatoshi
+	var amt *lnwire.UnitPrec11
 	if req.AmtMsat != 0 {
-		rpcAmt := lnwire.MilliSatoshi(req.AmtMsat)
+		rpcAmt := lnwire.UnitPrec11(req.AmtMsat)
 		amt = &rpcAmt
 	}
 
@@ -817,7 +825,7 @@ func (s *Server) BuildRoute(ctx context.Context,
 	}
 
 	// Build the route and return it to the caller.
-	route, err := s.cfg.Router.BuildRoute(
+	route, err := s.cfg.Router.BuildRoute(req.AssetId,
 		amt, hops, outgoingChan, req.FinalCltvDelta, payAddr,
 	)
 	if err != nil {

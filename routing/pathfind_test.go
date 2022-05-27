@@ -2483,7 +2483,7 @@ func TestNewRouteFromEmptyHops(t *testing.T) {
 	t.Parallel()
 
 	var source route.Vertex
-	_, err := route.NewRouteFromHops(0, 0, source, []*route.Hop{})
+	_, err := route.NewRouteFromHops(assetId, 0,0, source, []*route.Hop{})
 	if err != route.ErrNoRouteHopsProvided {
 		t.Fatalf("expected empty hops error: instead got: %v", err)
 	}

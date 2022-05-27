@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -115,16 +114,16 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 			},
 		}
 	} else {
-		request.Amt = amtSat
-		request.FeeLimit = &lnrpc.FeeLimit{
-			Limit: &lnrpc.FeeLimit_Fixed{
-				Fixed: 250,
-			},
-		}
+		//request.Amt = amtSat
+		//request.FeeLimit = &lnrpc.FeeLimit{
+		//	Limit: &lnrpc.FeeLimit_Fixed{
+		//		Fixed: 250,
+		//	},
+		//}
 	}
 
 	findRoute := func(source, target route.Vertex,
-		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
+		assetId uint32, amt lnwire.UnitPrec11, restrictions *routing.RestrictParams,
 		_ record.CustomSet,
 		routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
 		finalExpiry uint16) (*route.Route, error) {
@@ -188,14 +187,14 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		}
 
 		hops := []*route.Hop{{}}
-		return route.NewRouteFromHops(amt, 144, source, hops)
+		return route.NewRouteFromHops(assetId, amt, 144, source, hops)
 	}
 
 	backend := &RouterBackend{
 		FindRoute: findRoute,
 		SelfNode:  route.Vertex{1, 2, 3},
 		FetchChannelCapacity: func(chanID uint64) (
-			btcutil.Amount, error) {
+			lnwire.UnitPrec8, error) {
 
 			return 1, nil
 		},

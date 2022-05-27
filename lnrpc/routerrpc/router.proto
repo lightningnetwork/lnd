@@ -150,7 +150,7 @@ message SendPaymentRequest {
 
     The fields amt and amt_msat are mutually exclusive.
     */
-    int64 amt = 2;
+    //    int64 amt = 2;
 
     /*
     Number of millisatoshis to send.
@@ -158,6 +158,7 @@ message SendPaymentRequest {
     The fields amt and amt_msat are mutually exclusive.
     */
     int64 amt_msat = 12;
+    uint32 asset_id = 23;
 
     // The hash to use within the payment's HTLC
     bytes payment_hash = 3;
@@ -196,7 +197,7 @@ message SendPaymentRequest {
 
     The fields fee_limit_sat and fee_limit_msat are mutually exclusive.
     */
-    int64 fee_limit_sat = 7;
+    //    int64 fee_limit_sat = 7;
 
     /*
     The maximum number of millisatoshis that will be paid as a fee of the
@@ -306,7 +307,8 @@ message RouteFeeRequest {
     /*
     The amount one wishes to send to the target destination.
     */
-    int64 amt_sat = 2;
+    int64 amt_msat = 2;
+    uint32 asset_id = 23;
 }
 
 message RouteFeeResponse {
@@ -391,7 +393,11 @@ message PairData {
     Lowest amount that failed to forward rounded to whole sats. This may be
     set to zero if the failure is independent of amount.
     */
-    int64 fail_amt_sat = 2;
+    /*obd update wxf
+    disable fail_amt_sat, asset not support fail_amt_sat fail_amt_msat at the
+    same time
+    */
+    //    int64 fail_amt_sat = 2;
 
     /*
     Lowest amount that failed to forward in millisats. This may be
@@ -405,7 +411,7 @@ message PairData {
     int64 success_time = 5;
 
     // Highest amount that we could successfully forward rounded to whole sats.
-    int64 success_amt_sat = 6;
+    //    int64 success_amt_sat = 6;
 
     // Highest amount that we could successfully forward in millisats.
     int64 success_amt_msat = 7;
@@ -497,6 +503,7 @@ message BuildRouteRequest {
     amount is used.
     */
     int64 amt_msat = 1;
+    uint32 asset_id = 6;
 
     /*
     CLTV delta from the current height that should be used for the timelock

@@ -63,8 +63,12 @@ func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
 		hrp = "lntbs"
 	}
 	if invoice.MilliSat != nil {
+		aid:=uint32(0)
+		if invoice.AssetId!=nil{
+			aid=*invoice.AssetId
+		}
 		// Encode the amount using the fewest possible characters.
-		am, err := encodeAmount(*invoice.MilliSat)
+		am, err := encodeAmt(*invoice.MilliSat,aid)
 		if err != nil {
 			return "", err
 		}
@@ -176,6 +180,13 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 		seconds := invoice.expiry.Seconds()
 		expiry := uint64ToBase32(uint64(seconds))
 		err := writeTaggedField(bufferBase32, fieldTypeX, expiry)
+		if err != nil {
+			return err
+		}
+	}
+	if invoice.AssetId != nil {
+		b32 := uint64ToBase32(uint64(*invoice.AssetId))
+		err := writeTaggedField(bufferBase32, fieldTypeX, b32)
 		if err != nil {
 			return err
 		}

@@ -44,7 +44,7 @@ func createTestRoute(amt lnwire.UnitPrec11,
 
 	// We create a simple route that we will supply every time the router
 	// requests one.
-	return route.NewRouteFromHops(
+	return route.NewRouteFromHops(assetId,
 		amt+2*hopFee, 100, aliasMap["a"], hops,
 	)
 }

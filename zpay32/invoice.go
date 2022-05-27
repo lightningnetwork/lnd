@@ -14,6 +14,7 @@ import (
 const (
 	// mSatPerBtc is the number of millisatoshis in 1 BTC.
 	mSatPerBtc = 100000000000
+	amtPerAsset = 100000000
 
 	// signatureBase32Len is the number of 5-bit groups needed to encode
 	// the 512 bit signature + 8 bit recovery ID.
@@ -72,6 +73,8 @@ const (
 	// included in the final hop's payload to prevent intermediaries from
 	// probing the recipient.
 	fieldTypeS = 16
+	//assetId
+	fieldTypeA = 17
 
 	// maxInvoiceLength is the maximum total length an invoice can have.
 	// This is chosen to be the maximum number of bytes that can fit into a
@@ -117,8 +120,8 @@ type Invoice struct {
 
 	// MilliSat specifies the amount of this invoice in millisatoshi.
 	// Optional.
-	MilliSat *lnwire.MilliSatoshi
-
+	MilliSat *lnwire.UnitPrec11
+	AssetId  *uint32
 	// Timestamp specifies the time this invoice was created.
 	// Mandatory
 	Timestamp time.Time
@@ -187,7 +190,7 @@ type Invoice struct {
 
 // Amount is a functional option that allows callers of NewInvoice to set the
 // amount in millisatoshis that the Invoice should encode.
-func Amount(milliSat lnwire.MilliSatoshi) func(*Invoice) {
+func Amount(milliSat lnwire.UnitPrec11) func(*Invoice) {
 	return func(i *Invoice) {
 		i.MilliSat = &milliSat
 	}

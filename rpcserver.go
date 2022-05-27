@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/omnicore"
 	"io"
 	"math"
 	"net/http"
@@ -682,7 +683,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 	graph := s.graphDB
 	routerBackend := &routerrpc.RouterBackend{
 		SelfNode: selfNode.PubKeyBytes,
-		FetchChannelCapacity: func(chanID uint64) (btcutil.Amount,
+		FetchChannelCapacity: func(chanID uint64) (lnwire.UnitPrec8,
 			error) {
 
 			info, _, _, err := graph.FetchChannelEdgesByID(chanID)
@@ -1838,7 +1839,7 @@ func newPsbtAssembler(req *lnrpc.OpenChannelRequest, normalizedMinConfs int32,
 	// With all the parts assembled, we can now make the canned assembler
 	// to pass into the wallet.
 	return chanfunding.NewPsbtAssembler(
-		btcutil.Amount(req.LocalFundingAmount), packet, netParams,
+		btcutil.Amount(req.LocalFundingBtcAmount), packet, netParams,
 		!psbtShim.NoPublish,
 	), nil
 }
@@ -1873,10 +1874,12 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 	rpcsLog.Debugf("[openchannel] request to NodeKey(%x) "+
 		"allocation(us=%v, them=%v)", in.NodePubkey,
-		in.LocalFundingAmount, in.PushSat)
+		in.LocalFundingAssetAmount, in.PushAssetSat)
 
-	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
-	remoteInitialBalance := btcutil.Amount(in.PushSat)
+	localFundingBtcAmt := btcutil.Amount(in.LocalFundingBtcAmount)
+	remoteInitialBtcBalance := btcutil.Amount(in.PushBtcSat)
+	localFundingAssetAmt := omnicore.Amount(in.LocalFundingAssetAmount)
+	remoteInitialAssetBalance := omnicore.Amount(in.PushAssetSat)
 	minHtlcIn := lnwire.MilliSatoshi(in.MinHtlcMsat)
 	remoteCsvDelay := uint16(in.RemoteCsvDelay)
 	maxValue := lnwire.MilliSatoshi(in.RemoteMaxValueInFlightMsat)
@@ -1889,7 +1892,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// for funding.
 	//
 	// TODO(roasbeef): incorporate base fee?
-	if remoteInitialBalance >= localFundingAmt {
+	if remoteInitialBtcBalance >= localFundingBtcAmt ||remoteInitialAssetBalance >= localFundingAssetAmt{
 		return nil, fmt.Errorf("amount pushed to remote peer for " +
 			"initial state must be below the local funding amount")
 	}
@@ -1900,7 +1903,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	wumboEnabled := globalFeatureSet.HasFeature(
 		lnwire.WumboChannelsOptional,
 	)
-	if !wumboEnabled && localFundingAmt > MaxFundingAmount {
+	if !wumboEnabled && localFundingBtcAmt > MaxFundingAmount {
 		return nil, fmt.Errorf("funding amount is too large, the max "+
 			"channel size is: %v", MaxFundingAmount)
 	}
@@ -1908,7 +1911,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// Restrict the size of the channel we'll actually open. At a later
 	// level, we'll ensure that the output we create after accounting for
 	// fees that a dust output isn't created.
-	if localFundingAmt < funding.MinChanFundingSize {
+	if localFundingBtcAmt < funding.MinChanFundingSize {
 		return nil, fmt.Errorf("channel is too small, the minimum "+
 			"channel size is: %v SAT", int64(funding.MinChanFundingSize))
 	}
@@ -2030,15 +2033,18 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	return &funding.InitFundingMsg{
 		TargetPubkey:     nodePubKey,
 		ChainHash:        *r.cfg.ActiveNetParams.GenesisHash,
-		LocalFundingAmt:  localFundingAmt,
-		PushAmt:          lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		MinHtlcIn:        minHtlcIn,
+		AssetId: in.AssetId,
+		LocalFundingBtcAmt:  localFundingBtcAmt,
+		LocalFundingAssetAmt:  localFundingAssetAmt,
+		PushBtcAmt:          lnwire.NewMSatFromSatoshis(remoteInitialBtcBalance),
+		PushAssetAmt:          remoteInitialAssetBalance,
+		MinHtlcIn:        lnwire.UnitPrec11(minHtlcIn),
 		FundingFeePerKw:  feeRate,
 		Private:          in.Private,
 		RemoteCsvDelay:   remoteCsvDelay,
 		MinConfs:         minConfs,
 		ShutdownScript:   script,
-		MaxValueInFlight: maxValue,
+		MaxValueInFlight: lnwire.UnitPrec11(maxValue),
 		MaxHtlcs:         maxHtlcs,
 		MaxLocalCsv:      uint16(in.MaxLocalCsv),
 		ChannelType:      channelType,
@@ -3111,13 +3117,17 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 	in *lnrpc.ChannelBalanceRequest) (
 	*lnrpc.ChannelBalanceResponse, error) {
 
+	/*obd update wxf
+	todo check ChannelBalance: all channels should group by assetid */
+
+	return nil, errors.New("ChannelBalance disabled")
 	var (
-		localBalance             lnwire.MilliSatoshi
-		remoteBalance            lnwire.MilliSatoshi
-		unsettledLocalBalance    lnwire.MilliSatoshi
-		unsettledRemoteBalance   lnwire.MilliSatoshi
-		pendingOpenLocalBalance  lnwire.MilliSatoshi
-		pendingOpenRemoteBalance lnwire.MilliSatoshi
+		localBalance             lnwire.UnitPrec11
+		remoteBalance            lnwire.UnitPrec11
+		unsettledLocalBalance    lnwire.UnitPrec11
+		unsettledRemoteBalance   lnwire.UnitPrec11
+		pendingOpenLocalBalance  lnwire.UnitPrec11
+		pendingOpenRemoteBalance lnwire.UnitPrec11
 	)
 
 	openChannels, err := r.server.chanStateDB.FetchAllOpenChannels()
@@ -3127,15 +3137,17 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 
 	for _, channel := range openChannels {
 		c := channel.LocalCommitment
-		localBalance += c.LocalBalance
-		remoteBalance += c.RemoteBalance
+		//localBalance += c.LocalBalance
+		//remoteBalance += c.RemoteBalance
+		localBalance += c.GetLocalBalance(channel.AssetID)
+		remoteBalance += c.GetRemoteBalance(channel.AssetID)
 
 		// Add pending htlc amount.
 		for _, htlc := range c.Htlcs {
 			if htlc.Incoming {
-				unsettledLocalBalance += htlc.Amt
+				unsettledLocalBalance += htlc.GetAmt(channel.AssetID)
 			} else {
-				unsettledRemoteBalance += htlc.Amt
+				unsettledRemoteBalance += htlc.GetAmt(channel.AssetID)
 			}
 		}
 	}
@@ -3147,8 +3159,8 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 
 	for _, channel := range pendingChannels {
 		c := channel.LocalCommitment
-		pendingOpenLocalBalance += c.LocalBalance
-		pendingOpenRemoteBalance += c.RemoteBalance
+		pendingOpenLocalBalance += c.GetLocalBalance(channel.AssetID)
+		pendingOpenRemoteBalance +=c.GetRemoteBalance(channel.AssetID)
 	}
 
 	rpcsLog.Debugf("[channelbalance] local_balance=%v remote_balance=%v "+
@@ -3160,33 +3172,33 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 
 	return &lnrpc.ChannelBalanceResponse{
 		LocalBalance: &lnrpc.Amount{
-			Sat:  uint64(localBalance.ToSatoshis()),
+			//Sat:  uint64(localBalance.ToSatoshis()),
 			Msat: uint64(localBalance),
 		},
 		RemoteBalance: &lnrpc.Amount{
-			Sat:  uint64(remoteBalance.ToSatoshis()),
+			//Sat:  uint64(remoteBalance.ToSatoshis()),
 			Msat: uint64(remoteBalance),
 		},
 		UnsettledLocalBalance: &lnrpc.Amount{
-			Sat:  uint64(unsettledLocalBalance.ToSatoshis()),
+			//Sat:  uint64(unsettledLocalBalance.ToSatoshis()),
 			Msat: uint64(unsettledLocalBalance),
 		},
 		UnsettledRemoteBalance: &lnrpc.Amount{
-			Sat:  uint64(unsettledRemoteBalance.ToSatoshis()),
+			//Sat:  uint64(unsettledRemoteBalance.ToSatoshis()),
 			Msat: uint64(unsettledRemoteBalance),
 		},
 		PendingOpenLocalBalance: &lnrpc.Amount{
-			Sat:  uint64(pendingOpenLocalBalance.ToSatoshis()),
+			//Sat:  uint64(pendingOpenLocalBalance.ToSatoshis()),
 			Msat: uint64(pendingOpenLocalBalance),
 		},
 		PendingOpenRemoteBalance: &lnrpc.Amount{
-			Sat:  uint64(pendingOpenRemoteBalance.ToSatoshis()),
+			//Sat:  uint64(pendingOpenRemoteBalance.ToSatoshis()),
 			Msat: uint64(pendingOpenRemoteBalance),
 		},
 
 		// Deprecated fields.
-		Balance:            int64(localBalance.ToSatoshis()),
-		PendingOpenBalance: int64(pendingOpenLocalBalance.ToSatoshis()),
+		//Balance:            int64(localBalance.ToSatoshis()),
+		//PendingOpenBalance: int64(pendingOpenLocalBalance.ToSatoshis()),
 	}, nil
 }
 
@@ -3229,9 +3241,10 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 			Channel: &lnrpc.PendingChannelsResponse_PendingChannel{
 				RemoteNodePub:        hex.EncodeToString(pub),
 				ChannelPoint:         pendingChan.FundingOutpoint.String(),
-				Capacity:             int64(pendingChan.Capacity),
-				LocalBalance:         int64(localCommitment.LocalBalance.ToSatoshis()),
-				RemoteBalance:        int64(localCommitment.RemoteBalance.ToSatoshis()),
+				BtcCapacity:             int64(pendingChan.BtcCapacity),
+				AssetId:              pendingChan.AssetID,
+				LocalBalance:         int64(localCommitment.GetLocalBalance(pendingChan.AssetID)),
+				RemoteBalance:        int64(localCommitment.GetRemoteBalance(pendingChan.AssetID)),
 				LocalChanReserveSat:  int64(pendingChan.LocalChanCfg.ChanReserve),
 				RemoteChanReserveSat: int64(pendingChan.RemoteChanCfg.ChanReserve),
 				Initiator:            rpcInitiator(pendingChan.IsInitiator),
@@ -3282,7 +3295,9 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
 			RemoteNodePub:  hex.EncodeToString(pub),
 			ChannelPoint:   chanPoint.String(),
-			Capacity:       int64(pendingClose.Capacity),
+			AssetId: pendingClose.AssetId,
+			BtcCapacity:       int64(pendingClose.BtcCapacity),
+			AssetCapacity:       int64(pendingClose.AssetCapacity),
 			LocalBalance:   int64(pendingClose.SettledBalance),
 			CommitmentType: lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE,
 			Initiator:      lnrpc.Initiator_INITIATOR_UNKNOWN,
@@ -3505,9 +3520,11 @@ func (r *rpcServer) fetchWaitingCloseChannels() (waitingCloseChannels,
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
 			RemoteNodePub:         hex.EncodeToString(pub),
 			ChannelPoint:          chanPoint.String(),
-			Capacity:              int64(waitingClose.Capacity),
-			LocalBalance:          int64(waitingClose.LocalCommitment.LocalBalance.ToSatoshis()),
-			RemoteBalance:         int64(waitingClose.LocalCommitment.RemoteBalance.ToSatoshis()),
+			AssetId: waitingClose.AssetID,
+			BtcCapacity:              int64(waitingClose.BtcCapacity),
+			AssetCapacity:              int64(waitingClose.AssetCapacity),
+			LocalBalance:          int64(waitingClose.LocalCommitment.GetLocalBalance(waitingClose.AssetID)),
+			RemoteBalance:         int64(waitingClose.LocalCommitment.GetRemoteBalance(waitingClose.AssetID)),
 			LocalChanReserveSat:   int64(waitingClose.LocalChanCfg.ChanReserve),
 			RemoteChanReserveSat:  int64(waitingClose.RemoteChanCfg.ChanReserve),
 			Initiator:             rpcInitiator(waitingClose.IsInitiator),
@@ -3919,8 +3936,10 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	commitBaseWeight := blockchain.GetTransactionWeight(utx)
 	commitWeight := commitBaseWeight + input.WitnessCommitmentTxWeight
 
-	localBalance := localCommit.LocalBalance
-	remoteBalance := localCommit.RemoteBalance
+	localBtcBalance := localCommit.LocalBtcBalance
+	remoteBtcBalance := localCommit.RemoteBtcBalance
+	localAssetBalance := localCommit.LocalAssetBalance
+	remoteAssetBalance := localCommit.RemoteAssetBalance
 
 	// As an artifact of our usage of mSAT internally, either party
 	// may end up in a state where they're holding a fractional
@@ -3933,7 +3952,7 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	for _, txOut := range localCommit.CommitTx.TxOut {
 		sumOutputs += btcutil.Amount(txOut.Value)
 	}
-	externalCommitFee := dbChannel.Capacity - sumOutputs
+	externalCommitFee := dbChannel.BtcCapacity - sumOutputs
 
 	// Extract the commitment type from the channel type flags.
 	commitmentType := rpcCommitmentType(dbChannel.ChanType)
@@ -3944,9 +3963,13 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		RemotePubkey:          nodeID,
 		ChannelPoint:          chanPoint.String(),
 		ChanId:                dbChannel.ShortChannelID.ToUint64(),
-		Capacity:              int64(dbChannel.Capacity),
-		LocalBalance:          int64(localBalance.ToSatoshis()),
-		RemoteBalance:         int64(remoteBalance.ToSatoshis()),
+		BtcCapacity:              int64(dbChannel.BtcCapacity),
+		AssetCapacity:              int64(dbChannel.AssetCapacity),
+		LocalBalance:          int64(localBtcBalance.ToSatoshis()),
+		RemoteBalance:         int64(remoteBtcBalance.ToSatoshis()),
+		LocalAssetBalance:          int64(localAssetBalance),
+		RemoteAssetBalance:         int64(remoteAssetBalance),
+		AssetId: dbChannel.AssetID,
 		CommitFee:             int64(externalCommitFee),
 		CommitWeight:          commitWeight,
 		FeePerKw:              int64(localCommit.FeePerKw),
@@ -4016,7 +4039,8 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 
 		channel.PendingHtlcs[i] = &lnrpc.HTLC{
 			Incoming:            htlc.Incoming,
-			Amount:              int64(htlc.Amt.ToSatoshis()),
+			BtcAmount:              int64(htlc.BtcAmt.ToSatoshis()),
+			AssetAmount:              int64(htlc.AssetAmt),
 			HashLock:            rHash[:],
 			ExpirationHeight:    htlc.RefundTimeout,
 			HtlcIndex:           htlc.HtlcIndex,
@@ -4025,13 +4049,14 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		}
 
 		// Add the Pending Htlc Amount to UnsettledBalance field.
-		channel.UnsettledBalance += channel.PendingHtlcs[i].Amount
+		//channel.UnsettledBalance += channel.PendingHtlcs[i].Amount
+		channel.UnsettledBalance +=int64(htlc.GetAmt(htlc.AssetId))
 	}
 
 	// Lookup our balances at height 0, because they will reflect any
 	// push amounts that may have been present when this channel was
 	// created.
-	localBalance, remoteBalance, err := dbChannel.BalancesAtHeight(0)
+	localBtcBalance, remoteBtcBalance,localAssetBalance, remoteAssetBalance, err := dbChannel.BalancesAtHeight(0)
 	if err != nil {
 		return nil, err
 	}
@@ -4040,9 +4065,11 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	// is the push amount. Otherwise, our starting balance is the push
 	// amount. If there is no push amount, these values will simply be zero.
 	if dbChannel.IsInitiator {
-		channel.PushAmountSat = uint64(remoteBalance.ToSatoshis())
+		channel.PushBtcAmountSat = uint64(remoteBtcBalance.ToSatoshis())
+		channel.PushAssetAmountSat = uint64(remoteAssetBalance)
 	} else {
-		channel.PushAmountSat = uint64(localBalance.ToSatoshis())
+		channel.PushBtcAmountSat = uint64(localBtcBalance.ToSatoshis())
+		channel.PushAssetAmountSat = uint64(localAssetBalance)
 	}
 
 	if len(dbChannel.LocalShutdownScript) > 0 {
@@ -4143,7 +4170,9 @@ func (r *rpcServer) createRPCClosedChannel(
 	}
 
 	channel := &lnrpc.ChannelCloseSummary{
-		Capacity:          int64(dbChannel.Capacity),
+		AssetId: 			dbChannel.AssetId,
+		BtcCapacity:       int64(dbChannel.BtcCapacity),
+		AssetCapacity:     int64(dbChannel.AssetCapacity),
 		RemotePubkey:      nodeID,
 		CloseHeight:       dbChannel.CloseHeight,
 		CloseType:         closeType,
@@ -4539,8 +4568,9 @@ func (r *rpcServer) unmarshallSendToRouteRequest(
 // hints), or we'll get a fully populated route from the user that we'll pass
 // directly to the channel router for dispatching.
 type rpcPaymentIntent struct {
-	msat               lnwire.MilliSatoshi
-	feeLimit           lnwire.MilliSatoshi
+	assetId uint32
+	msat               lnwire.UnitPrec11
+	feeLimit           lnwire.UnitPrec11
 	cltvLimit          uint32
 	dest               route.Vertex
 	rHash              [32]byte
@@ -4564,6 +4594,10 @@ type rpcPaymentIntent struct {
 func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error) {
 	payIntent := rpcPaymentIntent{}
 
+	if rpcPayReq.AssetId==0{
+		return payIntent, errors.New("extractPaymentIntent err:miss AssetId")
+	}
+	payIntent.assetId=rpcPayReq.AssetId
 	// If a route was specified, then we can use that directly.
 	if rpcPayReq.route != nil {
 		// If the user is using the REST interface, then they'll be
@@ -4654,19 +4688,20 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 		// We override the amount to pay with the amount provided from
 		// the payment request.
 		if payReq.MilliSat == nil {
-			amt, err := lnrpc.UnmarshallAmt(
-				rpcPayReq.Amt, rpcPayReq.AmtMsat,
-			)
-			if err != nil {
-				return payIntent, err
-			}
+			//amt, err := lnrpc.UnmarshallAmt(
+			//	rpcPayReq.Amt, rpcPayReq.MilliSat,
+			//)
+			//if err != nil {
+			//	return payIntent, err
+			//}
+			amt:=rpcPayReq.AmtMsat
 			if amt == 0 {
 				return payIntent, errors.New("amount must be " +
 					"specified when paying a zero amount " +
 					"invoice")
 			}
 
-			payIntent.msat = amt
+			payIntent.msat = lnwire.UnitPrec11(amt)
 		} else {
 			payIntent.msat = *payReq.MilliSat
 		}
@@ -4739,12 +4774,13 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 	// Otherwise, If the payment request field was not specified
 	// (and a custom route wasn't specified), construct the payment
 	// from the other fields.
-	payIntent.msat, err = lnrpc.UnmarshallAmt(
-		rpcPayReq.Amt, rpcPayReq.AmtMsat,
-	)
-	if err != nil {
-		return payIntent, err
-	}
+	//payIntent.msat, err = lnrpc.UnmarshallAmt(
+	//	rpcPayReq.Amt, rpcPayReq.MilliSat,
+	//)
+	//if err != nil {
+	//	return payIntent, err
+	//}
+	payIntent.msat=lnwire.UnitPrec11(rpcPayReq.AmtMsat)
 
 	// Calculate the fee limit that should be used for this payment.
 	payIntent.feeLimit = lnrpc.CalculateFeeLimit(
@@ -5179,7 +5215,9 @@ func (r *rpcServer) sendPaymentSync(ctx context.Context,
 // unique payment preimage.
 func (r *rpcServer) AddInvoice(ctx context.Context,
 	invoice *lnrpc.Invoice) (*lnrpc.AddInvoiceResponse, error) {
-
+	if invoice.AssetId==0{
+		return nil, errors.New("rpc AddInvoice err: miss assetid")
+	}
 	defaultDelta := r.cfg.Bitcoin.TimeLockDelta
 	if r.cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
 		defaultDelta = r.cfg.Litecoin.TimeLockDelta
@@ -5201,11 +5239,11 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		},
 	}
 
-	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
-	if err != nil {
-		return nil, err
-	}
-
+	//value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
+	//if err != nil {
+	//	return nil, err
+	//}
+	value:=lnwire.UnitPrec11( invoice.ValueMsat)
 	// Convert the passed routing hints to the required format.
 	routeHints, err := invoicesrpc.CreateZpay32HopHints(invoice.RouteHints)
 	if err != nil {
@@ -5213,6 +5251,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	}
 	addInvoiceData := &invoicesrpc.AddInvoiceData{
 		Memo:            invoice.Memo,
+		AssetId: invoice.AssetId,
 		Value:           value,
 		DescriptionHash: invoice.DescriptionHash,
 		Expiry:          invoice.Expiry,
@@ -5725,7 +5764,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// edges to gather some basic statistics about its out going channels.
 	var (
 		numChannels   uint32
-		totalCapacity btcutil.Amount
+		totalCapacity lnwire.UnitPrec8
 		channels      []*lnrpc.ChannelEdge
 	)
 
@@ -5802,128 +5841,134 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	_ *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
 
-	graph := r.server.graphDB
+	/*
+		ob update wxf
+		todo should GetNetworkInfo for all assets.
+	*/
+	return nil,errors.New("disalbe GetNetworkInfo")
 
-	var (
-		numNodes             uint32
-		numChannels          uint32
-		maxChanOut           uint32
-		totalNetworkCapacity btcutil.Amount
-		minChannelSize       btcutil.Amount = math.MaxInt64
-		maxChannelSize       btcutil.Amount
-		medianChanSize       btcutil.Amount
-	)
-
-	// We'll use this map to de-duplicate channels during our traversal.
-	// This is needed since channels are directional, so there will be two
-	// edges for each channel within the graph.
-	seenChans := make(map[uint64]struct{})
-
-	// We also keep a list of all encountered capacities, in order to
-	// calculate the median channel size.
-	var allChans []btcutil.Amount
+	//graph := r.server.graphDB
+	//
+	//var (
+	//	numNodes             uint32
+	//	numChannels          uint32
+	//	maxChanOut           uint32
+	//	totalNetworkCapacity btcutil.Amount
+	//	minChannelSize       btcutil.Amount = math.MaxInt64
+	//	maxChannelSize       btcutil.Amount
+	//	medianChanSize       btcutil.Amount
+	//)
+	//
+	//// We'll use this map to de-duplicate channels during our traversal.
+	//// This is needed since channels are directional, so there will be two
+	//// edges for each channel within the graph.
+	//seenChans := make(map[uint64]struct{})
+	//
+	//// We also keep a list of all encountered capacities, in order to
+	//// calculate the median channel size.
+	//var allChans []btcutil.Amount
 
 	// We'll run through all the known nodes in the within our view of the
 	// network, tallying up the total number of nodes, and also gathering
 	// each node so we can measure the graph diameter and degree stats
 	// below.
-	err := graph.ForEachNodeCached(func(node route.Vertex,
-		edges map[uint64]*channeldb.DirectedChannel) error {
-
-		// Increment the total number of nodes with each iteration.
-		numNodes++
-
-		// For each channel we'll compute the out degree of each node,
-		// and also update our running tallies of the min/max channel
-		// capacity, as well as the total channel capacity. We pass
-		// through the db transaction from the outer view so we can
-		// re-use it within this inner view.
-		var outDegree uint32
-		for _, edge := range edges {
-			// Bump up the out degree for this node for each
-			// channel encountered.
-			outDegree++
-
-			// If we've already seen this channel, then we'll
-			// return early to ensure that we don't double-count
-			// stats.
-			if _, ok := seenChans[edge.ChannelID]; ok {
-				return nil
-			}
-
-			// Compare the capacity of this channel against the
-			// running min/max to see if we should update the
-			// extrema.
-			chanCapacity := edge.Capacity
-			if chanCapacity < minChannelSize {
-				minChannelSize = chanCapacity
-			}
-			if chanCapacity > maxChannelSize {
-				maxChannelSize = chanCapacity
-			}
-
-			// Accumulate the total capacity of this channel to the
-			// network wide-capacity.
-			totalNetworkCapacity += chanCapacity
-
-			numChannels++
-
-			seenChans[edge.ChannelID] = struct{}{}
-			allChans = append(allChans, edge.Capacity)
-		}
-
-		// Finally, if the out degree of this node is greater than what
-		// we've seen so far, update the maxChanOut variable.
-		if outDegree > maxChanOut {
-			maxChanOut = outDegree
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Query the graph for the current number of zombie channels.
-	numZombies, err := graph.NumZombies()
-	if err != nil {
-		return nil, err
-	}
-
-	// Find the median.
-	medianChanSize = autopilot.Median(allChans)
-
-	// If we don't have any channels, then reset the minChannelSize to zero
-	// to avoid outputting NaN in encoded JSON.
-	if numChannels == 0 {
-		minChannelSize = 0
-	}
-
-	// TODO(roasbeef): graph diameter
-
-	// TODO(roasbeef): also add oldest channel?
-	netInfo := &lnrpc.NetworkInfo{
-		MaxOutDegree:         maxChanOut,
-		AvgOutDegree:         float64(2*numChannels) / float64(numNodes),
-		NumNodes:             numNodes,
-		NumChannels:          numChannels,
-		TotalNetworkCapacity: int64(totalNetworkCapacity),
-		AvgChannelSize:       float64(totalNetworkCapacity) / float64(numChannels),
-
-		MinChannelSize:       int64(minChannelSize),
-		MaxChannelSize:       int64(maxChannelSize),
-		MedianChannelSizeSat: int64(medianChanSize),
-		NumZombieChans:       numZombies,
-	}
-
-	// Similarly, if we don't have any channels, then we'll also set the
-	// average channel size to zero in order to avoid weird JSON encoding
-	// outputs.
-	if numChannels == 0 {
-		netInfo.AvgChannelSize = 0
-	}
-
-	return netInfo, nil
+	//err := graph.ForEachNodeCached( func(node route.Vertex,
+	//	edges map[uint64]*channeldb.DirectedChannel) error {
+	//
+	//	// Increment the total number of nodes with each iteration.
+	//	numNodes++
+	//
+	//	// For each channel we'll compute the out degree of each node,
+	//	// and also update our running tallies of the min/max channel
+	//	// capacity, as well as the total channel capacity. We pass
+	//	// through the db transaction from the outer view so we can
+	//	// re-use it within this inner view.
+	//	var outDegree uint32
+	//	for _, edge := range edges {
+	//		// Bump up the out degree for this node for each
+	//		// channel encountered.
+	//		outDegree++
+	//
+	//		// If we've already seen this channel, then we'll
+	//		// return early to ensure that we don't double-count
+	//		// stats.
+	//		if _, ok := seenChans[edge.ChannelID]; ok {
+	//			return nil
+	//		}
+	//
+	//		// Compare the capacity of this channel against the
+	//		// running min/max to see if we should update the
+	//		// extrema.
+	//		chanCapacity := edge.Capacity
+	//		if chanCapacity < minChannelSize {
+	//			minChannelSize = chanCapacity
+	//		}
+	//		if chanCapacity > maxChannelSize {
+	//			maxChannelSize = chanCapacity
+	//		}
+	//
+	//		// Accumulate the total capacity of this channel to the
+	//		// network wide-capacity.
+	//		totalNetworkCapacity += chanCapacity
+	//
+	//		numChannels++
+	//
+	//		seenChans[edge.ChannelID] = struct{}{}
+	//		allChans = append(allChans, edge.Capacity)
+	//	}
+	//
+	//	// Finally, if the out degree of this node is greater than what
+	//	// we've seen so far, update the maxChanOut variable.
+	//	if outDegree > maxChanOut {
+	//		maxChanOut = outDegree
+	//	}
+	//
+	//	return nil
+	//})
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//// Query the graph for the current number of zombie channels.
+	//numZombies, err := graph.NumZombies()
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//// Find the median.
+	//medianChanSize = autopilot.Median(allChans)
+	//
+	//// If we don't have any channels, then reset the minChannelSize to zero
+	//// to avoid outputting NaN in encoded JSON.
+	//if numChannels == 0 {
+	//	minChannelSize = 0
+	//}
+	//
+	//// TODO(roasbeef): graph diameter
+	//
+	//// TODO(roasbeef): also add oldest channel?
+	//netInfo := &lnrpc.NetworkInfo{
+	//	MaxOutDegree:         maxChanOut,
+	//	AvgOutDegree:         float64(2*numChannels) / float64(numNodes),
+	//	NumNodes:             numNodes,
+	//	NumChannels:          numChannels,
+	//	TotalNetworkCapacity: int64(totalNetworkCapacity),
+	//	AvgChannelSize:       float64(totalNetworkCapacity) / float64(numChannels),
+	//
+	//	MinChannelSize:       int64(minChannelSize),
+	//	MaxChannelSize:       int64(maxChannelSize),
+	//	MedianChannelSizeSat: int64(medianChanSize),
+	//	NumZombieChans:       numZombies,
+	//}
+	//
+	//// Similarly, if we don't have any channels, then we'll also set the
+	//// average channel size to zero in order to avoid weird JSON encoding
+	//// outputs.
+	//if numChannels == 0 {
+	//	netInfo.AvgChannelSize = 0
+	//}
+	//
+	//return netInfo, nil
 }
 
 // StopDaemon will send a shutdown request to the interrupt handler, triggering
@@ -6252,9 +6297,13 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 	// Convert between the `lnrpc` and `routing` types.
 	routeHints := invoicesrpc.CreateRPCRouteHints(payReq.RouteHints)
 
-	var amtSat, amtMsat int64
+	//var amtSat, amtMsat int64
+	//if payReq.MilliSat != nil {
+	//	amtSat = int64(payReq.MilliSat.ToSatoshis())
+	//	amtMsat = int64(*payReq.MilliSat)
+	//}
+	var  amtMsat int64
 	if payReq.MilliSat != nil {
-		amtSat = int64(payReq.MilliSat.ToSatoshis())
 		amtMsat = int64(*payReq.MilliSat)
 	}
 
@@ -6266,10 +6315,10 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 
 	dest := payReq.Destination.SerializeCompressed()
 	return &lnrpc.PayReq{
+		AssetId:         *payReq.AssetId,
 		Destination:     hex.EncodeToString(dest),
 		PaymentHash:     hex.EncodeToString(payReq.PaymentHash[:]),
-		NumSatoshis:     amtSat,
-		NumMsat:         amtMsat,
+		AmtMsat:         amtMsat,
 		Timestamp:       payReq.Timestamp.Unix(),
 		Description:     desc,
 		DescriptionHash: hex.EncodeToString(descHash[:]),
@@ -6340,9 +6389,9 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 
 	// computeFeeSum is a helper function that computes the total fees for
 	// a particular time slice described by a forwarding event query.
-	computeFeeSum := func(query channeldb.ForwardingEventQuery) (lnwire.MilliSatoshi, error) {
+	computeFeeSum := func(query channeldb.ForwardingEventQuery) (lnwire.UnitPrec11, error) {
 
-		var totalFees lnwire.MilliSatoshi
+		var totalFees lnwire.UnitPrec11
 
 		// We'll continue to fetch the next query and accumulate the
 		// fees until the next query returns no events.
@@ -6421,9 +6470,9 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 
 	return &lnrpc.FeeReportResponse{
 		ChannelFees: feeReports,
-		DayFeeSum:   uint64(dayFees.ToSatoshis()),
-		WeekFeeSum:  uint64(weekFees.ToSatoshis()),
-		MonthFeeSum: uint64(monthFees.ToSatoshis()),
+		DayFeeSum:   uint64(dayFees),
+		WeekFeeSum:  uint64(weekFees),
+		MonthFeeSum: uint64(monthFees),
 	}, nil
 }
 
@@ -6438,6 +6487,10 @@ const minFeeRate = 1e-6
 func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	req *lnrpc.PolicyUpdateRequest) (*lnrpc.PolicyUpdateResponse, error) {
 
+	/*
+	todo check PolicyUpdate
+	PolicyUpdateRequest should update by asset
+	*/
 	var targetChans []wire.OutPoint
 	switch scope := req.Scope.(type) {
 	// If the request is targeting all active channels, then we don't need
@@ -6508,13 +6561,13 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)
 	feeSchema := routing.FeeSchema{
 		BaseFee: baseFeeMsat,
-		FeeRate: feeRateFixed,
+		FeeRate: lnwire.UnitPrec11(feeRateFixed),
 	}
 
-	maxHtlc := lnwire.MilliSatoshi(req.MaxHtlcMsat)
-	var minHtlc *lnwire.MilliSatoshi
+	maxHtlc := lnwire.UnitPrec11(req.MaxHtlcMsat)
+	var minHtlc *lnwire.UnitPrec11
 	if req.MinHtlcMsatSpecified {
-		min := lnwire.MilliSatoshi(req.MinHtlcMsat)
+		min := lnwire.UnitPrec11(req.MinHtlcMsat)
 		minHtlc = &min
 	}
 
@@ -6627,9 +6680,9 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			TimestampNs: uint64(event.Timestamp.UnixNano()),
 			ChanIdIn:    event.IncomingChanID.ToUint64(),
 			ChanIdOut:   event.OutgoingChanID.ToUint64(),
-			AmtIn:       uint64(amtInMsat.ToSatoshis()),
-			AmtOut:      uint64(amtOutMsat.ToSatoshis()),
-			Fee:         uint64(feeMsat.ToSatoshis()),
+			AmtIn:       uint64(amtInMsat),
+			AmtOut:      uint64(amtOutMsat),
+			Fee:         uint64(feeMsat),
 			FeeMsat:     uint64(feeMsat),
 			AmtInMsat:   uint64(amtInMsat),
 			AmtOutMsat:  uint64(amtOutMsat),

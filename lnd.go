@@ -512,7 +512,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// used to manage the underlying autopilot agent, starting and stopping
 	// it at will.
 	atplCfg, err := initAutoPilot(
-		server, cfg.Autopilot, activeChainControl.MinHtlcIn,
+		server, cfg.Autopilot, activeChainControl.MinHtlcIn,activeChainControl.AssetMinHtlcIn,
 		cfg.ActiveNetParams,
 	)
 	if err != nil {

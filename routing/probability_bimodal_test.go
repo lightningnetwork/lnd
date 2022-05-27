@@ -1,0 +1,664 @@
+package routing
+
+import (
+	"math"
+	"testing"
+	"time"
+
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
+)
+
+const (
+	smallAmount = lnwire.MilliSatoshi(400_000)
+	largeAmount = lnwire.MilliSatoshi(5_000_000)
+	capacity    = lnwire.MilliSatoshi(10_000_000)
+	scale       = lnwire.MilliSatoshi(400_000)
+)
+
+// TestSuccessProbability tests that we get correct probability estimates for
+// the direct channel probability.
+func TestSuccessProbability(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                string
+		expectedProbability float64
+		tolerance           float64
+		successAmount       lnwire.MilliSatoshi
+		failAmount          lnwire.MilliSatoshi
+		amount              lnwire.MilliSatoshi
+		capacity            lnwire.MilliSatoshi
+	}{
+		// We can't send more than the capacity.
+		{
+			name:                "no info, larger than capacity",
+			capacity:            capacity,
+			successAmount:       0,
+			failAmount:          capacity,
+			amount:              capacity + 1,
+			expectedProbability: 0.0,
+		},
+		// With the current model we don't prefer any channels if the
+		// send amount is large compared to the scale but small compared
+		// to the capacity.
+		{
+			name:                "no info, large amount",
+			capacity:            capacity,
+			successAmount:       0,
+			failAmount:          capacity,
+			amount:              largeAmount,
+			expectedProbability: 0.5,
+		},
+		// We always expect to be able to "send" an amount of 0.
+		{
+			name:                "no info, zero amount",
+			capacity:            capacity,
+			successAmount:       0,
+			failAmount:          capacity,
+			amount:              0,
+			expectedProbability: 1.0,
+		},
+		// We can't send the whole capacity.
+		{
+			name:                "no info, full capacity",
+			capacity:            capacity,
+			successAmount:       0,
+			failAmount:          capacity,
+			amount:              capacity,
+			expectedProbability: 0.0,
+		},
+		// Sending a small amount will have a higher probability to go
+		// through than a large amount.
+		{
+			name:                "no info, small amount",
+			capacity:            capacity,
+			successAmount:       0,
+			failAmount:          capacity,
+			amount:              smallAmount,
+			expectedProbability: 0.684,
+			tolerance:           0.001,
+		},
+		// If we had an unsettled success, we are sure we can send a
+		// lower amount.
+		{
+			name:                "previous success, lower amount",
+			capacity:            capacity,
+			successAmount:       largeAmount,
+			failAmount:          capacity,
+			amount:              smallAmount,
+			expectedProbability: 1.0,
+		},
+		// If we had an unsettled success, we are sure we can send the
+		// same amount.
+		{
+			name:                "previous success, success amount",
+			capacity:            capacity,
+			successAmount:       largeAmount,
+			failAmount:          capacity,
+			amount:              largeAmount,
+			expectedProbability: 1.0,
+		},
+		// If we had an unsettled success with a small amount, we know
+		// with increased probability that we can send a comparable
+		// higher amount.
+		{
+			name:                "previous success, larger amount",
+			capacity:            capacity,
+			successAmount:       smallAmount / 2,
+			failAmount:          capacity,
+			amount:              smallAmount,
+			expectedProbability: 0.851,
+			tolerance:           0.001,
+		},
+		// If we had a large unsettled success before, we know we can
+		// send even larger payments with high probability.
+		{
+			name: "previous large success, larger " +
+				"amount",
+			capacity:            capacity,
+			successAmount:       largeAmount / 2,
+			failAmount:          capacity,
+			amount:              largeAmount,
+			expectedProbability: 0.998,
+			tolerance:           0.001,
+		},
+		// If we had a failure before, we can't send with the fail
+		// amount.
+		{
+			name:                "previous failure, fail amount",
+			capacity:            capacity,
+			failAmount:          largeAmount,
+			amount:              largeAmount,
+			expectedProbability: 0.0,
+		},
+		// We can't send a higher amount than the fail amount either.
+		{
+			name: "previous failure, larger fail " +
+				"amount",
+			capacity:            capacity,
+			failAmount:          largeAmount,
+			amount:              largeAmount + smallAmount,
+			expectedProbability: 0.0,
+		},
+		// We expect a diminished non-zero probability if we try to send
+		// an amount that's lower than the last fail amount.
+		{
+			name: "previous failure, lower than fail " +
+				"amount",
+			capacity:            capacity,
+			failAmount:          largeAmount,
+			amount:              smallAmount,
+			expectedProbability: 0.368,
+			tolerance:           0.001,
+		},
+		// From here on we deal with mixed previous successes and
+		// failures.
+		// We expect to be always able to send a tiny amount.
+		{
+			name:                "previous f/s, very small amount",
+			capacity:            capacity,
+			failAmount:          largeAmount,
+			successAmount:       smallAmount,
+			amount:              0,
+			expectedProbability: 1.0,
+		},
+		// We expect to be able to send up to the previous success
+		// amount will full certainty.
+		{
+			name:                "previous f/s, success amount",
+			capacity:            capacity,
+			failAmount:          largeAmount,
+			successAmount:       smallAmount,
+			amount:              smallAmount,
+			expectedProbability: 1.0,
+		},
+		// This tests a random value between small amount and large
+		// amount.
+		{
+			name:                "previous f/s, between f/s",
+			capacity:            capacity,
+			failAmount:          largeAmount,
+			successAmount:       smallAmount,
+			amount:              smallAmount + largeAmount/10,
+			expectedProbability: 0.287,
+			tolerance:           0.001,
+		},
+		// We still can't send the fail amount.
+		{
+			name:                "previous f/s, fail amount",
+			capacity:            capacity,
+			failAmount:          largeAmount,
+			successAmount:       smallAmount,
+			amount:              largeAmount,
+			expectedProbability: 0.0,
+		},
+		// Same success and failure amounts (illogical).
+		{
+			name:                "previous f/s, same",
+			capacity:            capacity,
+			failAmount:          largeAmount,
+			successAmount:       largeAmount,
+			amount:              largeAmount,
+			expectedProbability: 0.0,
+		},
+		// Higher success than failure amount (illogical).
+		{
+			name:                "previous f/s, higher success",
+			capacity:            capacity,
+			failAmount:          smallAmount,
+			successAmount:       largeAmount,
+			expectedProbability: 0.0,
+		},
+	}
+
+	estimator := BimodalEstimator{
+		BimodalConfig: BimodalConfig{BimodalScaleMsat: scale},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			p, err := estimator.probabilityFormula(
+				test.capacity, test.successAmount,
+				test.failAmount, test.amount,
+			)
+			require.InDelta(t, test.expectedProbability, p,
+				test.tolerance)
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestIntegral tests certain limits of the probability distribution integral.
+func TestIntegral(t *testing.T) {
+	t.Parallel()
+
+	defaultScale := lnwire.NewMSatFromSatoshis(300_000)
+
+	tests := []struct {
+		name     string
+		capacity float64
+		lower    float64
+		upper    float64
+		scale    lnwire.MilliSatoshi
+		expected float64
+	}{
+		{
+			name:     "all zero",
+			expected: math.NaN(),
+			scale:    defaultScale,
+		},
+		{
+			name:     "all same",
+			capacity: 1,
+			lower:    1,
+			upper:    1,
+			scale:    defaultScale,
+		},
+		{
+			name:     "large numbers, low lower",
+			capacity: 21e17,
+			lower:    0,
+			upper:    21e17,
+			expected: 1,
+			scale:    defaultScale,
+		},
+		{
+			name:     "large numbers, high lower",
+			capacity: 21e17,
+			lower:    21e17,
+			upper:    21e17,
+			scale:    defaultScale,
+		},
+		{
+			name:     "same scale and capacity",
+			capacity: 21e17,
+			lower:    21e17,
+			upper:    21e17,
+			scale:    21e17,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			estimator := BimodalEstimator{
+				BimodalConfig: BimodalConfig{
+					BimodalScaleMsat: test.scale,
+				},
+			}
+
+			p := estimator.integral(
+				test.capacity, test.lower, test.upper,
+			)
+			require.InDelta(t, test.expected, p, 0.001)
+		})
+	}
+}
+
+// TestCanSend tests that the success amount drops to zero over time.
+func TestCanSend(t *testing.T) {
+	t.Parallel()
+
+	successAmount := lnwire.MilliSatoshi(1_000_000)
+	successTime := time.Unix(1_000, 0)
+	now := time.Unix(2_000, 0)
+	decayTime := time.Duration(1_000) * time.Second
+	infinity := time.Unix(10_000_000_000, 0)
+
+	// Test an immediate retry.
+	require.Equal(t, successAmount, canSend(
+		successAmount, successTime, successTime, decayTime,
+	))
+
+	// Test that after the decay time, the successAmount is 1/e of its
+	// value.
+	decayAmount := lnwire.MilliSatoshi(float64(successAmount) / math.E)
+	require.Equal(t, decayAmount, canSend(
+		successAmount, now, successTime, decayTime,
+	))
+
+	// After a long time, we want the amount to approach 0.
+	require.Equal(t, lnwire.MilliSatoshi(0), canSend(
+		successAmount, infinity, successTime, decayTime,
+	))
+}
+
+// TestCannotSend tests that the fail amount approaches the capacity over time.
+func TestCannotSend(t *testing.T) {
+	t.Parallel()
+
+	failAmount := lnwire.MilliSatoshi(1_000_000)
+	failTime := time.Unix(1_000, 0)
+	now := time.Unix(2_000, 0)
+	decayTime := time.Duration(1_000) * time.Second
+	infinity := time.Unix(10_000_000_000, 0)
+	capacity := lnwire.MilliSatoshi(3_000_000)
+
+	// Test immediate retry.
+	require.EqualValues(t, failAmount, cannotSend(
+		failAmount, capacity, failTime, failTime, decayTime,
+	))
+
+	// After the decay time we want to be between the fail amount and
+	// the capacity.
+	summand := lnwire.MilliSatoshi(float64(capacity-failAmount) / math.E)
+	expected := capacity - summand
+	require.Equal(t, expected, cannotSend(
+		failAmount, capacity, now, failTime, decayTime,
+	))
+
+	// After a long time, we want the amount to approach the capacity.
+	require.Equal(t, capacity, cannotSend(
+		failAmount, capacity, infinity, failTime, decayTime,
+	))
+}
+
+// TestComputeProbability tests the inclusion of previous forwarding results of
+// other channels of the node into the total probability.
+func TestComputeProbability(t *testing.T) {
+	t.Parallel()
+
+	nodeWeight := 1 / 5.
+	toNode := route.Vertex{10}
+	tolerance := 0.01
+	decayTime := time.Duration(1) * time.Hour * 24
+
+	// makeNodeResults prepares forwarding data for the other channels of
+	// the node.
+	makeNodeResults := func(successes []bool, now time.Time) NodeResults {
+		results := make(NodeResults, len(successes))
+
+		for i, s := range successes {
+			vertex := route.Vertex{byte(i)}
+
+			results[vertex] = TimedPairResult{
+				FailTime: now, FailAmt: 1,
+			}
+			if s {
+				results[vertex] = TimedPairResult{
+					SuccessTime: now, SuccessAmt: 1,
+				}
+			}
+		}
+
+		return results
+	}
+
+	tests := []struct {
+		name                string
+		directProbability   float64
+		otherResults        []bool
+		expectedProbability float64
+		delay               time.Duration
+	}{
+		// If no other information is available, use the direct
+		// probability.
+		{
+			name:                "unknown, only direct",
+			directProbability:   0.5,
+			expectedProbability: 0.5,
+		},
+		// If there was a single success, expect increased success
+		// probability.
+		{
+			name:                "unknown, single success",
+			directProbability:   0.5,
+			otherResults:        []bool{true},
+			expectedProbability: 0.583,
+		},
+		// If there were many successes, expect even higher success
+		// probability.
+		{
+			name:              "unknown, many successes",
+			directProbability: 0.5,
+			otherResults: []bool{
+				true, true, true, true, true,
+			},
+			expectedProbability: 0.75,
+		},
+		// If there was a single failure, we expect a slightly decreased
+		// probability.
+		{
+			name:                "unknown, single failure",
+			directProbability:   0.5,
+			otherResults:        []bool{false},
+			expectedProbability: 0.416,
+		},
+		// If there were many failures, we expect a strongly decreased
+		// probability.
+		{
+			name:              "unknown, many failures",
+			directProbability: 0.5,
+			otherResults: []bool{
+				false, false, false, false, false,
+			},
+			expectedProbability: 0.25,
+		},
+		// A success and a failure neutralize themselves.
+		{
+			name:                "unknown, mixed even",
+			directProbability:   0.5,
+			otherResults:        []bool{true, false},
+			expectedProbability: 0.5,
+		},
+		// A mixed result history leads to increase/decrease of the most
+		// experienced successes/failures.
+		{
+			name:              "unknown, mixed uneven",
+			directProbability: 0.5,
+			otherResults: []bool{
+				true, true, false, false, false,
+			},
+			expectedProbability: 0.45,
+		},
+		// Many successes don't elevate the probability above 1.
+		{
+			name:              "success, successes",
+			directProbability: 1.0,
+			otherResults: []bool{
+				true, true, true, true, true,
+			},
+			expectedProbability: 1.0,
+		},
+		// Five failures on a very certain channel will lower its
+		// success probability to the unknown probability.
+		{
+			name:              "success, failures",
+			directProbability: 1.0,
+			otherResults: []bool{
+				false, false, false, false, false,
+			},
+			expectedProbability: 0.5,
+		},
+		// If we are sure that the channel can send, a single failure
+		// will not decrease the outcome significantly.
+		{
+			name:                "success, single failure",
+			directProbability:   1.0,
+			otherResults:        []bool{false},
+			expectedProbability: 0.8333,
+		},
+		{
+			name:              "success, many failures",
+			directProbability: 1.0,
+			otherResults: []bool{
+				false, false, false, false, false, false, false,
+			},
+			expectedProbability: 0.416,
+		},
+		// Failures won't decrease the probability below zero.
+		{
+			name:                "fail, failures",
+			directProbability:   0.0,
+			otherResults:        []bool{false, false, false},
+			expectedProbability: 0.0,
+		},
+		{
+			name:              "fail, successes",
+			directProbability: 0.0,
+			otherResults: []bool{
+				true, true, true, true, true,
+			},
+			expectedProbability: 0.5,
+		},
+		// We test forgetting information with the time decay.
+		// A past success won't alter the certain success probability.
+		{
+			name: "success, single success, decay " +
+				"time",
+			directProbability:   1.0,
+			otherResults:        []bool{true},
+			delay:               decayTime,
+			expectedProbability: 1.00,
+		},
+		// A failure that was experienced some time ago won't influence
+		// as much as a recent one.
+		{
+			name:                "success, single fail, decay time",
+			directProbability:   1.0,
+			otherResults:        []bool{false},
+			delay:               decayTime,
+			expectedProbability: 0.9314,
+		},
+		// Information from a long time ago doesn't have any effect.
+		{
+			name:                "success, single fail, long ago",
+			directProbability:   1.0,
+			otherResults:        []bool{false},
+			delay:               10 * decayTime,
+			expectedProbability: 1.0,
+		},
+		{
+			name:              "fail, successes decay time",
+			directProbability: 0.0,
+			otherResults: []bool{
+				true, true, true, true, true,
+			},
+			delay:               decayTime,
+			expectedProbability: 0.269,
+		},
+		// Very recent info approaches the case with no time decay.
+		{
+			name:              "unknown, successes close",
+			directProbability: 0.5,
+			otherResults: []bool{
+				true, true, true, true, true,
+			},
+			delay:               decayTime / 10,
+			expectedProbability: 0.741,
+		},
+	}
+
+	estimator := BimodalEstimator{
+		BimodalConfig: BimodalConfig{
+			BimodalScaleMsat: scale, BimodalNodeWeight: nodeWeight,
+			BimodalDecayTime: decayTime,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			then := time.Unix(0, 0)
+			results := makeNodeResults(test.otherResults, then)
+			now := then.Add(test.delay)
+
+			p := estimator.calculateProbability(
+				test.directProbability, now, results, toNode,
+			)
+
+			require.InDelta(t, test.expectedProbability, p,
+				tolerance)
+		})
+	}
+}
+
+// TestLocalPairProbability tests that we reduce probability for failed direct
+// neighbors.
+func TestLocalPairProbability(t *testing.T) {
+	t.Parallel()
+
+	decayTime := time.Hour
+	now := time.Unix(1000000000, 0)
+	toNode := route.Vertex{1}
+
+	createFailedResult := func(timeAgo time.Duration) NodeResults {
+		return NodeResults{
+			toNode: TimedPairResult{
+				FailTime: now.Add(-timeAgo),
+			},
+		}
+	}
+
+	tests := []struct {
+		name                string
+		expectedProbability float64
+		results             NodeResults
+	}{
+		{
+			name:                "no results",
+			expectedProbability: 1.0,
+		},
+		{
+			name:                "recent failure",
+			results:             createFailedResult(0),
+			expectedProbability: 0.0,
+		},
+		{
+			name:                "after decay time",
+			results:             createFailedResult(decayTime),
+			expectedProbability: 1 - 1/math.E,
+		},
+		{
+			name:                "long ago",
+			results:             createFailedResult(10 * decayTime),
+			expectedProbability: 1.0,
+		},
+	}
+
+	estimator := BimodalEstimator{
+		BimodalConfig: BimodalConfig{BimodalDecayTime: decayTime},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			p := estimator.LocalPairProbability(
+				now, test.results, toNode,
+			)
+			require.InDelta(t, test.expectedProbability, p, 0.001)
+		})
+	}
+}
+
+// FuzzProbability checks that we don't encounter errors related to NaNs.
+func FuzzProbability(f *testing.F) {
+	estimator := BimodalEstimator{
+		BimodalConfig: BimodalConfig{BimodalScaleMsat: scale},
+	}
+	f.Add(uint64(0), uint64(0), uint64(0), uint64(0))
+
+	f.Fuzz(func(t *testing.T, capacity, successAmt, failAmt, amt uint64) {
+		_, err := estimator.probabilityFormula(
+			lnwire.MilliSatoshi(capacity),
+			lnwire.MilliSatoshi(successAmt),
+			lnwire.MilliSatoshi(failAmt), lnwire.MilliSatoshi(amt),
+		)
+
+		require.NoError(t, err, "c: %v s: %v f: %v a: %v", capacity,
+			successAmt, failAmt, amt)
+	})
+}

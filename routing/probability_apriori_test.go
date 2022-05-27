@@ -87,6 +87,8 @@ func (c *estimatorTestContext) assertPairProbability(now time.Time,
 // TestProbabilityEstimatorNoResults tests the probability estimation when no
 // results are available.
 func TestProbabilityEstimatorNoResults(t *testing.T) {
+	t.Parallel()
+
 	ctx := newEstimatorTestContext(t)
 
 	// A zero amount does not trigger capacity rescaling.
@@ -104,6 +106,8 @@ func TestProbabilityEstimatorNoResults(t *testing.T) {
 // TestProbabilityEstimatorOneSuccess tests the probability estimation for nodes
 // that have a single success result.
 func TestProbabilityEstimatorOneSuccess(t *testing.T) {
+	t.Parallel()
+
 	ctx := newEstimatorTestContext(t)
 
 	ctx.results = map[int]TimedPairResult{
@@ -144,6 +148,8 @@ func TestProbabilityEstimatorOneSuccess(t *testing.T) {
 // TestProbabilityEstimatorOneFailure tests the probability estimation for nodes
 // that have a single failure.
 func TestProbabilityEstimatorOneFailure(t *testing.T) {
+	t.Parallel()
+
 	ctx := newEstimatorTestContext(t)
 
 	ctx.results = map[int]TimedPairResult{
@@ -171,6 +177,8 @@ func TestProbabilityEstimatorOneFailure(t *testing.T) {
 // TestProbabilityEstimatorMix tests the probability estimation for nodes for
 // which a mix of successes and failures is recorded.
 func TestProbabilityEstimatorMix(t *testing.T) {
+	t.Parallel()
+
 	ctx := newEstimatorTestContext(t)
 
 	ctx.results = map[int]TimedPairResult{

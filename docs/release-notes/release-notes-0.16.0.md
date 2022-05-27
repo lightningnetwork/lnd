@@ -389,6 +389,16 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
 
 * [Pathfinding takes capacity of edges into account to improve success
   probability estimation.](https://github.com/lightningnetwork/lnd/pull/6857)
+* [A new probability model ("bimodal") is added which models channel based
+  liquidities within a probability theory framework.](
+  https://github.com/lightningnetwork/lnd/pull/6815)
+
+## Configuration
+* Note that [this pathfinding change](https://github.com/lightningnetwork/lnd/pull/6815)
+  introduces a breaking change in lnd.conf apriori parameters under the routing
+  section, see sample-lnd.conf for an updated configuration. The behavior of
+  `lncli setmccfg/getmccfg` is altered as well.
+
 
 ### Tooling and documentation
 
@@ -445,6 +455,7 @@ refactor the itest for code health and maintenance.
 * Alyssa Hertig
 * andreihod
 * Antoni Spaanderman
+* bitromortac
 * Carla Kirk-Cohen
 * Carsten Otto
 * Chris Geihsler

@@ -601,11 +601,13 @@ func (c *ChainArbitrator) Start() error {
 			return c.ResolveContract(chanPoint)
 		}
 
-		// We can also leave off the set of HTLC's here as since the
-		// channel is already in the process of being full resolved, no
-		// new HTLC's will be added.
+		// We create an empty map of HTLC's here since it's possible
+		// that the channel is in StateDefault and updateActiveHTLCs is
+		// called. We want to avoid writing to an empty map. Since the
+		// channel is already in the process of being resolved, no new
+		// HTLCs will be added.
 		c.activeChannels[chanPoint] = NewChannelArbitrator(
-			arbCfg, nil, chanLog,
+			arbCfg, make(map[HtlcSetKey]htlcSet), chanLog,
 		)
 	}
 

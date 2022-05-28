@@ -15,8 +15,10 @@ import (
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/buffer"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
@@ -450,6 +452,9 @@ type Brontide struct {
 	queueQuit chan struct{}
 	quit      chan struct{}
 	wg        sync.WaitGroup
+
+	// log is a peer-specific logging instance.
+	log btclog.Logger
 }
 
 // A compile-time check to ensure that Brontide satisfies the lnpeer.Peer interface.
@@ -457,6 +462,8 @@ var _ lnpeer.Peer = (*Brontide)(nil)
 
 // NewBrontide creates a new Brontide from a peer.Config struct.
 func NewBrontide(cfg Config) *Brontide {
+	logPrefix := fmt.Sprintf("Peer(%x):", cfg.PubKeyBytes)
+
 	p := &Brontide{
 		cfg:            cfg,
 		activeSignal:   make(chan struct{}),
@@ -474,6 +481,7 @@ func NewBrontide(cfg Config) *Brontide {
 		resentChanSyncMsg:  make(map[lnwire.ChannelID]struct{}),
 		queueQuit:          make(chan struct{}),
 		quit:               make(chan struct{}),
+		log:                build.NewPrefixLog(logPrefix, peerLog),
 	}
 
 	return p
@@ -486,7 +494,7 @@ func (p *Brontide) Start() error {
 		return nil
 	}
 
-	peerLog.Tracef("Peer %v starting with conn[%v->%v]", p,
+	p.log.Tracef("starting with conn[%v->%v]",
 		p.cfg.Conn.LocalAddr(), p.cfg.Conn.RemoteAddr())
 
 	// Fetch and then load all the active channels we have with this remote
@@ -495,8 +503,8 @@ func (p *Brontide) Start() error {
 		p.cfg.Addr.IdentityKey,
 	)
 	if err != nil {
-		peerLog.Errorf("Unable to fetch active chans "+
-			"for peer %v: %v", p, err)
+		p.log.Errorf("Unable to fetch active chans "+
+			"for peer: %v", err)
 		return err
 	}
 
@@ -569,8 +577,8 @@ func (p *Brontide) Start() error {
 	// Next, load all the active channels we have with this peer,
 	// registering them with the switch and launching the necessary
 	// goroutines required to operate them.
-	peerLog.Debugf("Loaded %v active channels from database with "+
-		"NodeKey(%x)", len(activeChans), p.PubKey())
+	p.log.Debugf("Loaded %v active channels from database",
+		len(activeChans))
 
 	msgs, err := p.loadActiveChannels(activeChans)
 	if err != nil {
@@ -592,11 +600,11 @@ func (p *Brontide) Start() error {
 	// Now that the peer has started up, we send any channel sync messages
 	// that must be resent for borked channels.
 	if len(msgs) > 0 {
-		peerLog.Infof("Sending %d channel sync messages to peer after "+
+		p.log.Infof("Sending %d channel sync messages to peer after "+
 			"loading active channels", len(msgs))
 		if err := p.SendMessage(true, msgs...); err != nil {
-			peerLog.Warnf("Failed sending channel sync "+
-				"messages to peer %v: %v", p, err)
+			p.log.Warnf("Failed sending channel sync "+
+				"messages to peer: %v", err)
 		}
 	}
 
@@ -622,8 +630,7 @@ func (p *Brontide) initGossipSync() {
 	// If the remote peer knows of the new gossip queries feature, then
 	// we'll create a new gossipSyncer in the AuthenticatedGossiper for it.
 	if p.remoteFeatures.HasFeature(lnwire.GossipQueriesOptional) {
-		peerLog.Infof("Negotiated chan series queries with %x",
-			p.cfg.PubKeyBytes[:])
+		p.log.Info("Negotiated chan series queries")
 
 		// Register the peer's gossip syncer with the gossiper.
 		// This blocks synchronously to ensure the gossip syncer is
@@ -671,15 +678,14 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 		chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
-		peerLog.Infof("NodeKey(%x) loading ChannelPoint(%v)",
-			p.PubKey(), chanPoint)
+		p.log.Infof("loading ChannelPoint(%v)", chanPoint)
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
 		if !dbChan.HasChanStatus(channeldb.ChanStatusDefault) &&
 			!dbChan.HasChanStatus(channeldb.ChanStatusRestored) {
 
-			peerLog.Warnf("ChannelPoint(%v) has status %v, won't "+
+			p.log.Warnf("ChannelPoint(%v) has status %v, won't "+
 				"start.", chanPoint, dbChan.ChanStatus())
 
 			// To help our peer recover from a potential data loss,
@@ -690,7 +696,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			// marking the channel borked.
 			chanSync, err := dbChan.ChanSyncMsg()
 			if err != nil {
-				peerLog.Errorf("Unable to create channel "+
+				p.log.Errorf("Unable to create channel "+
 					"reestablish message for channel %v: "+
 					"%v", chanPoint, err)
 				continue
@@ -707,7 +713,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 				shutdownMsg, err := p.restartCoopClose(lnChan)
 				if err != nil {
-					peerLog.Errorf("Unable to restart "+
+					p.log.Errorf("Unable to restart "+
 						"coop close for channel: %v",
 						err)
 					continue
@@ -763,13 +769,13 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				TimeLockDelta: uint32(selfPolicy.TimeLockDelta),
 			}
 		} else {
-			peerLog.Warnf("Unable to find our forwarding policy "+
+			p.log.Warnf("Unable to find our forwarding policy "+
 				"for channel %v, using default values",
 				chanPoint)
 			forwardingPolicy = &p.cfg.RoutingPolicy
 		}
 
-		peerLog.Tracef("Using link policy of: %v",
+		p.log.Tracef("Using link policy of: %v",
 			spew.Sdump(forwardingPolicy))
 
 		// If the channel is pending, set the value to nil in the
@@ -930,13 +936,12 @@ func (p *Brontide) maybeSendNodeAnn(channels []*channeldb.OpenChannel) {
 
 	ourNodeAnn, err := p.cfg.GenNodeAnnouncement(false)
 	if err != nil {
-		peerLog.Debugf("Unable to retrieve node announcement: %v", err)
+		p.log.Debugf("Unable to retrieve node announcement: %v", err)
 		return
 	}
 
 	if err := p.SendMessageLazy(false, &ourNodeAnn); err != nil {
-		peerLog.Debugf("Unable to resend node announcement to %x: %v",
-			p.cfg.PubKeyBytes, err)
+		p.log.Debugf("Unable to resend node announcement: %v", err)
 	}
 }
 
@@ -968,7 +973,7 @@ func (p *Brontide) Disconnect(reason error) {
 	err := fmt.Errorf("disconnecting %s, reason: %v", p, reason)
 	p.storeError(err)
 
-	peerLog.Infof(err.Error())
+	p.log.Infof(err.Error())
 
 	// Ensure that the TCP connection is properly closed before continuing.
 	p.cfg.Conn.Close()
@@ -1366,8 +1371,7 @@ out:
 			}
 		}
 		if err != nil {
-			peerLog.Infof("unable to read message from %v: %v",
-				p, err)
+			p.log.Infof("unable to read message from peer: %v", err)
 
 			// If we could not read our peer's message due to an
 			// unknown type or invalid alias, we continue processing
@@ -1473,7 +1477,7 @@ out:
 				err := p.resendChanSyncMsg(targetChan)
 				if err != nil {
 					// TODO(halseth): send error to peer?
-					peerLog.Errorf("resend failed: %v",
+					p.log.Errorf("resend failed: %v",
 						err)
 				}
 			}
@@ -1498,7 +1502,7 @@ out:
 			err := p.handleCustomMessage(msg)
 			if err != nil {
 				p.storeError(err)
-				peerLog.Errorf("peer: %v, %v", p, err)
+				p.log.Errorf("%v", err)
 			}
 
 		default:
@@ -1508,7 +1512,7 @@ out:
 				uint16(msg.MsgType()))
 			p.storeError(err)
 
-			peerLog.Errorf("peer: %v, %v", p, err)
+			p.log.Errorf("%v", err)
 		}
 
 		if isLinkUpdate {
@@ -1535,7 +1539,7 @@ out:
 
 	p.Disconnect(errors.New("read handler closed"))
 
-	peerLog.Tracef("readHandler for peer %v done", p)
+	p.log.Trace("readHandler for peer done")
 }
 
 // handleCustomMessage handles the given custom message if a handler is
@@ -1580,7 +1584,7 @@ func (p *Brontide) storeError(err error) {
 	// If we do not have any active channels with the peer, we do not store
 	// errors as a dos mitigation.
 	if !haveChannels {
-		peerLog.Tracef("no channels with peer: %v, not storing err", p)
+		p.log.Trace("no channels with peer, not storing err")
 		return
 	}
 
@@ -1766,7 +1770,7 @@ func (p *Brontide) logWireMessage(msg lnwire.Message, read bool) {
 		summaryPrefix = "Sending"
 	}
 
-	peerLog.Debugf("%v", newLogClosure(func() string {
+	p.log.Debugf("%v", newLogClosure(func() string {
 		// Debug summary of message.
 		summary := messageSummary(msg)
 		if len(summary) > 0 {
@@ -1789,12 +1793,12 @@ func (p *Brontide) logWireMessage(msg lnwire.Message, read bool) {
 			msgType, summary, preposition, p)
 	}))
 
-	prefix := "readMessage from"
+	prefix := "readMessage from peer"
 	if !read {
-		prefix = "writeMessage to"
+		prefix = "writeMessage to peer"
 	}
 
-	peerLog.Tracef(prefix+" %v: %v", p, newLogClosure(func() string {
+	p.log.Tracef(prefix+": %v", newLogClosure(func() string {
 		return spew.Sdump(msg)
 	}))
 }
@@ -1912,9 +1916,9 @@ out:
 			// slow to process messages from the wire.
 			err := p.writeMessage(outMsg.msg)
 			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
-				peerLog.Debugf("Write timeout detected for "+
-					"peer %s, first write for message "+
-					"attempted %v ago", p,
+				p.log.Debugf("Write timeout detected for "+
+					"peer, first write for message "+
+					"attempted %v ago",
 					time.Since(startTime))
 
 				// If we received a timeout error, this implies
@@ -1963,7 +1967,7 @@ out:
 
 	p.Disconnect(exitErr)
 
-	peerLog.Tracef("writeHandler for peer %v done", p)
+	p.log.Trace("writeHandler for peer done")
 }
 
 // queueHandler is responsible for accepting messages from outside subsystems
@@ -2049,7 +2053,7 @@ func (p *Brontide) pingHandler() {
 
 	blockEpochs, err := p.cfg.ChainNotifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
-		peerLog.Errorf("unable to establish block epoch "+
+		p.log.Errorf("unable to establish block epoch "+
 			"subscription: %v", err)
 		return
 	}
@@ -2070,7 +2074,7 @@ out:
 		// types of eclipse attacks.
 		case epoch, ok := <-blockEpochs.Epochs:
 			if !ok {
-				peerLog.Debugf("block notifications " +
+				p.log.Debugf("block notifications " +
 					"canceled")
 				return
 			}
@@ -2079,7 +2083,7 @@ out:
 			headerBuf := bytes.NewBuffer(pingPayload[0:0])
 			err := blockHeader.Serialize(headerBuf)
 			if err != nil {
-				peerLog.Errorf("unable to encode header: %v",
+				p.log.Errorf("unable to encode header: %v",
 					err)
 			}
 
@@ -2125,7 +2129,7 @@ func (p *Brontide) queue(priority bool, msg lnwire.Message,
 	select {
 	case p.outgoingQueue <- outgoingMsg{priority, msg, errChan}:
 	case <-p.quit:
-		peerLog.Tracef("Peer shutting down, could not enqueue msg: %v.",
+		p.log.Tracef("Peer shutting down, could not enqueue msg: %v.",
 			spew.Sdump(msg))
 		if errChan != nil {
 			errChan <- lnpeer.ErrPeerExiting
@@ -2168,7 +2172,7 @@ func (p *Brontide) genDeliveryScript() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	peerLog.Infof("Delivery addr for channel close: %v",
+	p.log.Infof("Delivery addr for channel close: %v",
 		deliveryAddr)
 
 	return txscript.PayToAddrScript(deliveryAddr)
@@ -2204,7 +2208,7 @@ out:
 			p.activeChanMtx.Lock()
 			currentChan, ok := p.activeChannels[chanID]
 			if ok && currentChan != nil {
-				peerLog.Infof("Already have ChannelPoint(%v), "+
+				p.log.Infof("Already have ChannelPoint(%v), "+
 					"ignoring.", chanPoint)
 
 				p.activeChanMtx.Unlock()
@@ -2218,14 +2222,14 @@ out:
 					continue
 				}
 
-				peerLog.Infof("Processing retransmitted "+
+				p.log.Infof("Processing retransmitted "+
 					"FundingLocked for ChannelPoint(%v)",
 					chanPoint)
 
 				nextRevoke := newChan.RemoteNextRevocation
 				err := currentChan.InitNextRevocation(nextRevoke)
 				if err != nil {
-					peerLog.Errorf("unable to init chan "+
+					p.log.Errorf("unable to init chan "+
 						"revocation: %v", err)
 					continue
 				}
@@ -2243,7 +2247,7 @@ out:
 				p.activeChanMtx.Unlock()
 				err := fmt.Errorf("unable to create "+
 					"LightningChannel: %v", err)
-				peerLog.Errorf(err.Error())
+				p.log.Errorf(err.Error())
 
 				newChanReq.err <- err
 				continue
@@ -2255,8 +2259,8 @@ out:
 			p.addedChannels[chanID] = struct{}{}
 			p.activeChanMtx.Unlock()
 
-			peerLog.Infof("New channel active ChannelPoint(%v) "+
-				"with NodeKey(%x)", chanPoint, p.PubKey())
+			p.log.Infof("New channel active ChannelPoint(%v) "+
+				"with peer", chanPoint)
 
 			// Next, we'll assemble a ChannelLink along with the
 			// necessary items it needs to function.
@@ -2268,7 +2272,7 @@ out:
 			if err != nil {
 				err := fmt.Errorf("unable to subscribe to "+
 					"chain events: %v", err)
-				peerLog.Errorf(err.Error())
+				p.log.Errorf(err.Error())
 
 				newChanReq.err <- err
 				continue
@@ -2304,9 +2308,8 @@ out:
 			)
 			if err != nil {
 				err := fmt.Errorf("can't register new channel "+
-					"link(%v) with NodeKey(%x)", chanPoint,
-					p.PubKey())
-				peerLog.Errorf(err.Error())
+					"link(%v) with peer", chanPoint)
+				p.log.Errorf(err.Error())
 
 				newChanReq.err <- err
 				continue
@@ -2412,10 +2415,10 @@ func (p *Brontide) reenableActiveChannels() {
 	for _, chanPoint := range activePublicChans {
 		err := p.cfg.ChanStatusMgr.RequestEnable(chanPoint, false)
 		if err == netann.ErrEnableManuallyDisabledChan {
-			peerLog.Debugf("Channel(%v) was manually disabled, ignoring "+
+			p.log.Debugf("Channel(%v) was manually disabled, ignoring "+
 				"automatic enable request", chanPoint)
 		} else if err != nil {
-			peerLog.Errorf("Unable to enable channel %v: %v",
+			p.log.Errorf("Unable to enable channel %v: %v",
 				chanPoint, err)
 		}
 	}
@@ -2451,7 +2454,7 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 
 	// Optimistically try a link shutdown, erroring out if it failed.
 	if err := p.tryLinkShutdown(chanID); err != nil {
-		peerLog.Errorf("failed link shutdown: %v", err)
+		p.log.Errorf("failed link shutdown: %v", err)
 		return nil, err
 	}
 
@@ -2468,7 +2471,7 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 		var err error
 		deliveryScript, err = p.genDeliveryScript()
 		if err != nil {
-			peerLog.Errorf("unable to gen delivery script: %v",
+			p.log.Errorf("unable to gen delivery script: %v",
 				err)
 			return nil, fmt.Errorf("close addr unavailable")
 		}
@@ -2480,7 +2483,7 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 		p.cfg.CoopCloseTargetConfs,
 	)
 	if err != nil {
-		peerLog.Errorf("unable to query fee estimator: %v", err)
+		p.log.Errorf("unable to query fee estimator: %v", err)
 		return nil, fmt.Errorf("unable to estimate fee")
 	}
 
@@ -2488,7 +2491,7 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 		channel, deliveryScript, feePerKw, nil, false,
 	)
 	if err != nil {
-		peerLog.Errorf("unable to create chan closer: %v", err)
+		p.log.Errorf("unable to create chan closer: %v", err)
 		return nil, fmt.Errorf("unable to create chan closer")
 	}
 
@@ -2557,7 +2560,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 		var err error
 		deliveryScript, err = p.genDeliveryScript()
 		if err != nil {
-			peerLog.Errorf("unable to gen delivery script: %v",
+			p.log.Errorf("unable to gen delivery script: %v",
 				err)
 			return nil, fmt.Errorf("close addr unavailable")
 		}
@@ -2568,7 +2571,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 		p.cfg.CoopCloseTargetConfs,
 	)
 	if err != nil {
-		peerLog.Errorf("unable to query fee estimator: %v", err)
+		p.log.Errorf("unable to query fee estimator: %v", err)
 		return nil, fmt.Errorf("unable to estimate fee")
 	}
 
@@ -2582,7 +2585,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 		lnChan, deliveryScript, feePerKw, nil, locallyInitiated,
 	)
 	if err != nil {
-		peerLog.Errorf("unable to create chan closer: %v", err)
+		p.log.Errorf("unable to create chan closer: %v", err)
 		return nil, fmt.Errorf("unable to create chan closer")
 	}
 
@@ -2595,7 +2598,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	// Create the Shutdown message.
 	shutdownMsg, err := chanCloser.ShutdownChan()
 	if err != nil {
-		peerLog.Errorf("unable to create shutdown message: %v", err)
+		p.log.Errorf("unable to create shutdown message: %v", err)
 		delete(p.activeChanCloses, chanID)
 		return nil, err
 	}
@@ -2612,7 +2615,7 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 
 	_, startingHeight, err := p.cfg.ChainIO.GetBestBlock()
 	if err != nil {
-		peerLog.Errorf("unable to obtain best block: %v", err)
+		p.log.Errorf("unable to obtain best block: %v", err)
 		return nil, fmt.Errorf("cannot obtain best block")
 	}
 
@@ -2654,7 +2657,7 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	if !ok || channel == nil {
 		err := fmt.Errorf("unable to close channel, ChannelID(%v) is "+
 			"unknown", chanID)
-		peerLog.Errorf(err.Error())
+		p.log.Errorf(err.Error())
 		req.Err <- err
 		return
 	}
@@ -2676,7 +2679,7 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			channel.LocalUpfrontShutdownScript(), req.DeliveryScript,
 		)
 		if err != nil {
-			peerLog.Errorf("cannot close channel %v: %v", req.ChanPoint, err)
+			p.log.Errorf("cannot close channel %v: %v", req.ChanPoint, err)
 			req.Err <- err
 			return
 		}
@@ -2686,7 +2689,7 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		if len(deliveryScript) == 0 {
 			deliveryScript, err = p.genDeliveryScript()
 			if err != nil {
-				peerLog.Errorf(err.Error())
+				p.log.Errorf(err.Error())
 				req.Err <- err
 				return
 			}
@@ -2695,7 +2698,7 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		// Optimistically try a link shutdown, erroring out if it
 		// failed.
 		if err := p.tryLinkShutdown(chanID); err != nil {
-			peerLog.Errorf("failed link shutdown: %v", err)
+			p.log.Errorf("failed link shutdown: %v", err)
 			req.Err <- err
 			return
 		}
@@ -2704,7 +2707,7 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			channel, deliveryScript, req.TargetFeePerKw, req, true,
 		)
 		if err != nil {
-			peerLog.Errorf(err.Error())
+			p.log.Errorf(err.Error())
 			req.Err <- err
 			return
 		}
@@ -2716,7 +2719,7 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		// party to kick things off.
 		shutdownMsg, err := chanCloser.ShutdownChan()
 		if err != nil {
-			peerLog.Errorf(err.Error())
+			p.log.Errorf(err.Error())
 			req.Err <- err
 			delete(p.activeChanCloses, chanID)
 
@@ -2732,7 +2735,7 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	// the channel therefore we need to clean up our local state.
 	case contractcourt.CloseBreach:
 		// TODO(roasbeef): no longer need with newer beach logic?
-		peerLog.Infof("ChannelPoint(%v) has been breached, wiping "+
+		p.log.Infof("ChannelPoint(%v) has been breached, wiping "+
 			"channel", req.ChanPoint)
 		p.WipeChannel(req.ChanPoint)
 	}
@@ -2773,17 +2776,17 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 	// If the error encountered was severe enough, we'll now force close the
 	// channel to prevent reading it to the switch in the future.
 	if failure.linkErr.ForceClose {
-		peerLog.Warnf("Force closing link(%v)",
+		p.log.Warnf("Force closing link(%v)",
 			failure.shortChanID)
 
 		closeTx, err := p.cfg.ChainArb.ForceCloseContract(
 			failure.chanPoint,
 		)
 		if err != nil {
-			peerLog.Errorf("unable to force close "+
+			p.log.Errorf("unable to force close "+
 				"link(%v): %v", failure.shortChanID, err)
 		} else {
-			peerLog.Infof("channel(%v) force "+
+			p.log.Infof("channel(%v) force "+
 				"closed with txid %v",
 				failure.shortChanID, closeTx.TxHash())
 		}
@@ -2791,11 +2794,11 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 
 	// If this is a permanent failure, we will mark the channel borked.
 	if failure.linkErr.PermanentFailure && lnChan != nil {
-		peerLog.Warnf("Marking link(%v) borked due to permanent "+
+		p.log.Warnf("Marking link(%v) borked due to permanent "+
 			"failure", failure.shortChanID)
 
 		if err := lnChan.State().MarkBorked(); err != nil {
-			peerLog.Errorf("Unable to mark channel %v borked: %v",
+			p.log.Errorf("Unable to mark channel %v borked: %v",
 				failure.shortChanID, err)
 		}
 	}
@@ -2815,7 +2818,7 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 			Data:   data,
 		})
 		if err != nil {
-			peerLog.Errorf("unable to send msg to "+
+			p.log.Errorf("unable to send msg to "+
 				"remote peer: %v", err)
 		}
 	}
@@ -2902,7 +2905,7 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 	closingTx, err := chanCloser.ClosingTx()
 	if err != nil {
 		if closeReq != nil {
-			peerLog.Error(err)
+			p.log.Error(err)
 			closeReq.Err <- err
 		}
 	}
@@ -3056,9 +3059,9 @@ func (p *Brontide) sendInitMsg(legacyChan bool) error {
 	// connection because it does not understand a required feature bit, and
 	// our channel will be unusable.
 	if legacyChan && features.RequiresFeature(lnwire.StaticRemoteKeyRequired) {
-		peerLog.Infof("Legacy channel open with peer: %x, "+
-			"downgrading static remote required feature bit to "+
-			"optional", p.PubKey())
+		p.log.Infof("Legacy channel open with peer, " +
+			"downgrading static remote required feature bit to " +
+			"optional")
 
 		// Unset and set in both the local and global features to
 		// ensure both sets are consistent and merge able by old and
@@ -3104,16 +3107,16 @@ func (p *Brontide) resendChanSyncMsg(cid lnwire.ChannelID) error {
 			"peer=%x", p.IdentityKey().SerializeCompressed())
 	}
 
-	peerLog.Debugf("Re-sending channel sync message for channel %v to "+
-		"peer %v", cid, p)
+	p.log.Debugf("Re-sending channel sync message for channel %v to "+
+		"peer", cid)
 
 	if err := p.SendMessage(true, c.LastChanSyncMsg); err != nil {
 		return fmt.Errorf("failed resending channel sync "+
 			"message to peer %v: %v", p, err)
 	}
 
-	peerLog.Debugf("Re-sent channel sync message for channel %v to peer "+
-		"%v", cid, p)
+	p.log.Debugf("Re-sent channel sync message for channel %v to peer ",
+		cid)
 
 	// Note down that we sent the message, so we won't resend it again for
 	// this connection.
@@ -3257,7 +3260,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 			return
 		}
 
-		peerLog.Errorf("Unable to respond to remote close msg: %v", err)
+		p.log.Errorf("Unable to respond to remote close msg: %v", err)
 
 		errMsg := &lnwire.Error{
 			ChanID: msg.cid,
@@ -3274,7 +3277,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to process close msg: %v", err)
-		peerLog.Error(err)
+		p.log.Error(err)
 
 		// As the negotiations failed, we'll reset the channel state machine to
 		// ensure we act to on-chain events as normal.
@@ -3311,11 +3314,11 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 func (p *Brontide) HandleLocalCloseChanReqs(req *htlcswitch.ChanClose) {
 	select {
 	case p.localCloseChanReqs <- req:
-		peerLog.Infof("Local close channel request delivered to "+
-			"peer: %x", p.PubKey())
+		p.log.Info("Local close channel request delivered to " +
+			"peer")
 	case <-p.quit:
-		peerLog.Infof("Unable to deliver local close channel request "+
-			"to peer %x", p.PubKey())
+		p.log.Info("Unable to deliver local close channel request " +
+			"to peer")
 	}
 }
 

@@ -961,6 +961,7 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 					WritePool:      writePool,
 					PongBuf:        make([]byte, lnwire.MaxPongBytes),
 				},
+				log: peerLog,
 			}
 
 			var b bytes.Buffer

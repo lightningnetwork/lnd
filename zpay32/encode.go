@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"strconv"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -11,7 +12,21 @@ import (
 	"github.com/btcsuite/btcutil/bech32"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
-
+/*
+https://github.com/omnilaboratory/OmniBOLT-spec/blob/master/OmniBOLT-07-Hierarchical-Deterministic-(HD)-wallet.md#human-readable-part
+*/
+func getObdHrpPre(cc *chaincfg.Params ) string {
+	switch cc.Name {
+	case chaincfg.MainNetParams.Name:
+		return "o";
+	case chaincfg.TestNet3Params.Name:
+		return "to";
+	case chaincfg.RegressionNetParams.Name:
+		return "ort";
+	}
+	panic("getObdHrpPre err: "+cc.Name)
+	return ""
+}
 // Encode takes the given MessageSigner and returns a string encoding this
 // invoice signed by the node key of the signer.
 func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
@@ -58,9 +73,14 @@ func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
 	// signet as for testnet3 which is not optimal for LN). See
 	// https://github.com/lightningnetwork/lightning-rfc/pull/844 for more
 	// information.
-	hrp := "ln" + invoice.Net.Bech32HRPSegwit
-	if invoice.Net.Name == chaincfg.SigNetParams.Name {
-		hrp = "lntbs"
+
+	//hrp := "ln" + invoice.Net.Bech32HRPSegwit
+	//if invoice.Net.Name == chaincfg.SigNetParams.Name {
+	//	hrp = "lntbs"
+	//}
+	hrp:="ob" +getObdHrpPre(invoice.Net)
+	if invoice.AssetId != nil {
+		hrp+=strconv.Itoa(int(*invoice.AssetId))+":"
 	}
 	if invoice.MilliSat != nil {
 		aid:=uint32(0)
@@ -186,7 +206,7 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 	}
 	if invoice.AssetId != nil {
 		b32 := uint64ToBase32(uint64(*invoice.AssetId))
-		err := writeTaggedField(bufferBase32, fieldTypeX, b32)
+		err := writeTaggedField(bufferBase32, fieldTypeA, b32)
 		if err != nil {
 			return err
 		}

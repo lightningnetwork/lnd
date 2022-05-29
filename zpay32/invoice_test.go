@@ -871,6 +871,72 @@ func TestNewInvoice(t *testing.T) {
 		}
 	}
 }
+func TestEncodeObdInvoice(t *testing.T) {
+	tests := []struct {
+		newInvoice     func() (*Invoice, error)
+		encodedInvoice string
+		valid          bool
+	}{
+		{
+			// Invoice with no amount.
+			newInvoice: func() (*Invoice, error) {
+				return NewInvoice(
+					&chaincfg.TestNet3Params,
+					testPaymentHash,
+					time.Unix(1496314658, 0),
+					Amount(lnwire.UnitPrec11(20000000)),
+					AssetId(31),
+					Description(testCupOfCoffee),
+				)
+			},
+			valid:          true,
+			encodedInvoice: "lnbc1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jshwlglv23cytkzvq8ld39drs8sq656yh2zn0aevrwu6uqctaklelhtpjnmgjdzmvwsh0kuxuwqf69fjeap9m5mev2qzpp27xfswhs5vgqmn9xzq",
+		},
+		{
+			// 'n' field set.
+			newInvoice: func() (*Invoice, error) {
+				return NewInvoice(&chaincfg.TestNet3Params,
+					testPaymentHash, time.Unix(1503429093, 0),
+					AssetId(31),
+					Amount(testMillisat24BTC),
+					Description(testEmptyString),
+					Destination(testPubKey))
+			},
+			valid:          true,
+			encodedInvoice: "lnbc241pveeq09pp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdqqnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66jd3m5klcwhq68vdsmx2rjgxeay5v0tkt2v5sjaky4eqahe4fx3k9sqavvce3capfuwv8rvjng57jrtfajn5dkpqv8yelsewtljwmmycq62k443",
+		},
+	}
+	for i, test := range tests {
+
+		invoice, err := test.newInvoice()
+		if err != nil && !test.valid {
+			continue
+		}
+		encoded, err := invoice.Encode(testMessageSigner)
+		if (err == nil) != test.valid {
+			t.Errorf("NewInvoice test %d failed: %v", i, err)
+			return
+		}
+
+		t.Log(encoded)
+
+		tmp_invoice, err := Decode(encoded, &chaincfg.TestNet3Params)
+		if (err == nil) != test.valid {
+			t.Errorf("Decoding test %d failed: %v", i, err)
+			return
+		}
+		t.Log(*tmp_invoice.AssetId,*tmp_invoice.MilliSat)
+
+		continue
+
+		if test.valid && test.encodedInvoice != encoded {
+			t.Errorf("Encoding %d failed, expected %v, got %v",
+				i, test.encodedInvoice, encoded)
+			return
+		}
+	}
+
+}
 
 // TestMaxInvoiceLength tests that attempting to decode an invoice greater than
 // maxInvoiceLength fails with ErrInvoiceTooLarge.

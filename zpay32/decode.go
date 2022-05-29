@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,7 +41,7 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 	}
 
 	// First two characters of HRP should be "ln".
-	if hrp[:2] != "ln" {
+	if hrp[:2] != "ob" {
 		return nil, fmt.Errorf("prefix should be \"ln\"")
 	}
 
@@ -51,10 +52,12 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 	// not optimal for LN). See
 	// https://github.com/lightningnetwork/lightning-rfc/pull/844 for more
 	// information.
-	expectedPrefix := net.Bech32HRPSegwit
-	if net.Name == chaincfg.SigNetParams.Name {
-		expectedPrefix = "tbs"
-	}
+	//expectedPrefix := net.Bech32HRPSegwit
+	//if net.Name == chaincfg.SigNetParams.Name {
+	//	expectedPrefix = "tbs"
+	//}
+
+	expectedPrefix:=getObdHrpPre(net)
 	if !strings.HasPrefix(hrp[2:], expectedPrefix) {
 		return nil, fmt.Errorf(
 			"invoice not for current active network '%s'", net.Name)
@@ -78,16 +81,34 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 	// prefix, we try to decode this as the payment amount.
 	var netPrefixLength = len(expectedPrefix) + 2
 	if len(hrp) > netPrefixLength {
+
 		aid:=uint32(0)
 		if decodedInvoice.AssetId!=nil{
 			aid=*decodedInvoice.AssetId
 		}
-		amount, err := decodeAmt(hrp[netPrefixLength:],aid)
+		items:=strings.Split(hrp[netPrefixLength:],":")
+		tmp_aid,_:=strconv.Atoi(items[0])
+		if tmp_aid != int(aid) {
+			return nil, fmt.Errorf("assetId %v %v not match in hrb and data", aid, tmp_aid)
+		}
+
+		amount, err := decodeAmt(items[1],aid)
 		if err != nil {
 			return nil, err
 		}
 		decodedInvoice.MilliSat = &amount
 	}
+	//if len(hrp) > netPrefixLength {
+	//	aid:=uint32(0)
+	//	if decodedInvoice.AssetId!=nil{
+	//		aid=*decodedInvoice.AssetId
+	//	}
+	//	amount, err := decodeAmt(hrp[netPrefixLength:],aid)
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//	decodedInvoice.MilliSat = &amount
+	//}
 
 	// The last 520 bits (104 groups) make up the signature.
 	sigBase32 := data[len(data)-signatureBase32Len:]

@@ -195,6 +195,13 @@ func Amount(milliSat lnwire.UnitPrec11) func(*Invoice) {
 		i.MilliSat = &milliSat
 	}
 }
+// Amount is a functional option that allows callers of NewInvoice to set the
+// amount in millisatoshis that the Invoice should encode.
+func AssetId(assetId uint32) func(*Invoice) {
+	return func(i *Invoice) {
+		i.AssetId = &assetId
+	}
+}
 
 // Destination is a functional option that allows callers of NewInvoice to
 // explicitly set the pubkey of the Invoice's destination node.

@@ -8,10 +8,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"io"
 	"io/ioutil"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -96,16 +96,32 @@ var openChannelCommand = cli.Command{
 			Usage: "the identity public key of the target node/peer " +
 				"serialized in compressed format",
 		},
+		cli.IntFlag{
+			Name:  "asset_id",
+			Usage: "asset_id of the channel",
+		},
 		cli.StringFlag{
 			Name:  "connect",
 			Usage: "(optional) the host:port of the target node",
 		},
 		cli.IntFlag{
-			Name:  "local_amt",
+			Name:  "local_btc_amt",
 			Usage: "the number of satoshis the wallet should commit to the channel",
 		},
 		cli.IntFlag{
-			Name: "push_amt",
+			Name:  "local_asset_amt",
+			Usage: "the number of satoshis the wallet should commit to the channel",
+		},
+		cli.IntFlag{
+			Name: "push_btc_amt",
+			Usage: "the number of satoshis to give the remote side " +
+				"as part of the initial commitment state, " +
+				"this is equivalent to first opening a " +
+				"channel and sending the remote party funds, " +
+				"but done all in one step",
+		},
+		cli.IntFlag{
+			Name: "push_asset_amt",
 			Usage: "the number of satoshis to give the remote side " +
 				"as part of the initial commitment state, " +
 				"this is equivalent to first opening a " +
@@ -293,27 +309,42 @@ func openChannel(ctx *cli.Context) error {
 		}
 	}
 
+	if !ctx.IsSet("asset_id"){
+		return fmt.Errorf("asset_id missing")
+	}
+	req.AssetId=uint32(ctx.Int("asset_id"))
+
 	switch {
-	case ctx.IsSet("local_amt"):
-		req.LocalFundingAmount = int64(ctx.Int("local_amt"))
-	case args.Present():
-		req.LocalFundingAmount, err = strconv.ParseInt(args.First(), 10, 64)
-		if err != nil {
-			return fmt.Errorf("unable to decode local amt: %v", err)
-		}
-		args = args.Tail()
+	case ctx.IsSet("local_btc_amt"):
+		req.LocalFundingBtcAmount = int64(ctx.Int("local_btc_amt"))
+	//case args.Present():
+	//	req.LocalFundingBtcAmount, err = strconv.ParseInt(args.First(), 10, 64)
+	//	if err != nil {
+	//		return fmt.Errorf("unable to decode local btc amt: %v", err)
+	//	}
+	//	args = args.Tail()
 	default:
 		return fmt.Errorf("local amt argument missing")
 	}
 
-	if ctx.IsSet("push_amt") {
-		req.PushSat = int64(ctx.Int("push_amt"))
-	} else if args.Present() {
-		req.PushSat, err = strconv.ParseInt(args.First(), 10, 64)
-		if err != nil {
-			return fmt.Errorf("unable to decode push amt: %v", err)
+	//asset-channel must set local_asset_amt
+	if req.AssetId!=lnwire.BtcAssetId{
+		switch {
+		case ctx.IsSet("local_asset_amt"):
+			req.LocalFundingBtcAmount = int64(ctx.Int("local_asset_amt"))
+		default:
+			return fmt.Errorf("local_asset_amt argument missing")
 		}
 	}
+
+
+	if ctx.IsSet("push_btc_amt") {
+		req.PushBtcSat = int64(ctx.Int("push_btc_amt"))
+	}
+	if ctx.IsSet("push_asset_amt") {
+		req.PushAssetSat = int64(ctx.Int("push_asset_amt"))
+	}
+
 
 	req.Private = ctx.Bool("private")
 
@@ -700,8 +731,11 @@ var batchOpenChannelCommand = cli.Command{
 
 type batchChannelJSON struct {
 	NodePubkey         string `json:"node_pubkey,omitempty"`
-	LocalFundingAmount int64  `json:"local_funding_amount,omitempty"`
-	PushSat            int64  `json:"push_sat,omitempty"`
+	AssetId 			uint32 	 `json:"asset_id,omitempty"`
+	LocalFundingBtcAmount int64  `json:"local_funding_btc_amount,omitempty"`
+	PushBtcSat            int64  `json:"push_btc_sat,omitempty"`
+	LocalFundingAssetAmount int64  `json:"local_funding_asset_amount,omitempty"`
+	PushAssetSat            int64  `json:"push_asset_sat,omitempty"`
 	Private            bool   `json:"private,omitempty"`
 	MinHtlcMsat        int64  `json:"min_htlc_msat,omitempty"`
 	RemoteCsvDelay     uint32 `json:"remote_csv_delay,omitempty"`
@@ -756,8 +790,11 @@ func batchOpenChannel(ctx *cli.Context) error {
 
 		req.Channels[idx] = &lnrpc.BatchOpenChannel{
 			NodePubkey:         pubKeyBytes,
-			LocalFundingAmount: jsonChannel.LocalFundingAmount,
-			PushSat:            jsonChannel.PushSat,
+			AssetId: jsonChannel.AssetId,
+			LocalFundingBtcAmount: jsonChannel.LocalFundingBtcAmount,
+			PushBtcSat:            jsonChannel.PushBtcSat,
+			LocalFundingAssetAmount: jsonChannel.LocalFundingAssetAmount,
+			PushAssetSat:            jsonChannel.PushAssetSat,
 			Private:            jsonChannel.Private,
 			MinHtlcMsat:        jsonChannel.MinHtlcMsat,
 			RemoteCsvDelay:     jsonChannel.RemoteCsvDelay,

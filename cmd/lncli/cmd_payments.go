@@ -499,7 +499,7 @@ func sendPaymentRequest(ctx *cli.Context,
 		// amount.
 		//amt := req.Amt
 		amt := req.AmtMsat
-		invoiceAmt := decodeResp.GetNumSatoshis()
+		invoiceAmt := decodeResp.GetAmtMsat()
 		if invoiceAmt != 0 {
 			amt = invoiceAmt
 		}

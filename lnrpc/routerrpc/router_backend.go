@@ -713,6 +713,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 
 			payIntent.Amount = *payReq.MilliSat
 		}
+		payIntent.AssetId= *payReq.AssetId
 
 		if !payReq.Features.HasFeature(lnwire.MPPOptional) &&
 			!payReq.Features.HasFeature(lnwire.AMPOptional) {
@@ -795,6 +796,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		}
 
 		payIntent.Amount = reqAmt
+		payIntent.AssetId = rpcPayReq.AssetId
 
 		// Parse destination feature bits.
 		features, err := UnmarshalFeatures(rpcPayReq.DestFeatures)

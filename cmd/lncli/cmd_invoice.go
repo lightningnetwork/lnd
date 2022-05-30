@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -19,7 +20,7 @@ var addInvoiceCommand = cli.Command{
 	Invoices without an amount can be created by not supplying any
 	parameters or providing an amount of 0. These invoices allow the payee
 	to specify the amount of satoshis they wish to send.`,
-	ArgsUsage: "value preimage",
+	ArgsUsage: "asset_id value preimage",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "memo",
@@ -36,6 +37,10 @@ var addInvoiceCommand = cli.Command{
 		cli.Int64Flag{
 			Name:  "amt",
 			Usage: "the amt of satoshis in this invoice",
+		},
+		cli.Int64Flag{
+			Name:  "asset_id",
+			Usage: "asset_id of this invoice",
 		},
 		cli.Int64Flag{
 			Name:  "amt_msat",
@@ -98,6 +103,23 @@ func addInvoice(ctx *cli.Context) error {
 	//		return fmt.Errorf("unable to decode amt argument: %v", err)
 	//	}
 	//}
+	if !ctx.IsSet("asset_id"){
+		return errors.New("addInvoice err miss asset_id")
+	}
+
+	assetId:=uint32(0)
+	switch {
+	case ctx.IsSet("asset_id"):
+		assetId=uint32(ctx.Int64("asset_id"))
+	case args.Present():
+		 asset_Id, err := strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return err
+		}
+		assetId=uint32(asset_Id)
+		args = args.Tail()
+	}
+
 	amtMsat = ctx.Int64("amt_msat")
 	if  !ctx.IsSet("amt_msat") && args.Present() {
 		amtMsat, err = strconv.ParseInt(args.First(), 10, 64)
@@ -127,6 +149,7 @@ func addInvoice(ctx *cli.Context) error {
 		Memo:            ctx.String("memo"),
 		RPreimage:       preimage,
 		//Value:           amt,
+		AssetId: assetId,
 		ValueMsat:       amtMsat,
 		DescriptionHash: descHash,
 		FallbackAddr:    ctx.String("fallback_addr"),

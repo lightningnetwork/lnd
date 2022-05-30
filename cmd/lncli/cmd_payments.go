@@ -165,12 +165,16 @@ var sendPaymentCommand = cli.Command{
 	For invoice with payment address:
 	    --dest=N --amt=A --payment_hash=H --final_cltv_delta=T --pay_addr=H
 	`,
-	ArgsUsage: "dest amt payment_hash final_cltv_delta pay_addr | --pay_req=[payment request]",
+	ArgsUsage: "asset_id dest amt payment_hash final_cltv_delta pay_addr | --pay_req=[payment request]",
 	Flags: append(paymentFlags(),
 		cli.StringFlag{
 			Name: "dest, d",
 			Usage: "the compressed identity pubkey of the " +
 				"payment recipient",
+		},
+		cli.Int64Flag{
+			Name:  "asset_id",
+			Usage: "",
 		},
 		cli.Int64Flag{
 			Name:  "amt, a",
@@ -279,6 +283,7 @@ func sendPayment(ctx *cli.Context) error {
 	// details of the payment are encoded within the request.
 	if ctx.IsSet("pay_req") {
 		req := &routerrpc.SendPaymentRequest{
+			AssetId: uint32(ctx.Int64("asset_id")),
 			PaymentRequest:    ctx.String("pay_req"),
 			//Amt:               ctx.Int64("amt"),
 			AmtMsat:               ctx.Int64("amt"),
@@ -299,10 +304,25 @@ func sendPayment(ctx *cli.Context) error {
 	}
 
 	var (
+		assetId uint32
 		destNode []byte
 		amount   int64
 		err      error
 	)
+
+	switch {
+	case ctx.IsSet("asset_id"):
+		assetId = uint32(ctx.Int64("asset_id"))
+	case args.Present():
+		assetId1, err := strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return err
+		}
+		assetId = uint32(assetId1)
+		args = args.Tail()
+	default:
+		return fmt.Errorf("sendPayment asset_id argument missing")
+	}
 
 	switch {
 	case ctx.IsSet("dest"):
@@ -333,6 +353,7 @@ func sendPayment(ctx *cli.Context) error {
 	}
 
 	req := &routerrpc.SendPaymentRequest{
+		AssetId: assetId,
 		Dest:              destNode,
 		//Amt:               amount,
 		AmtMsat:               amount,

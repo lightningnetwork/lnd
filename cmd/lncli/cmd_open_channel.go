@@ -111,7 +111,7 @@ var openChannelCommand = cli.Command{
 		},
 		cli.IntFlag{
 			Name:  "local_asset_amt",
-			Usage: "the number of satoshis the wallet should commit to the channel",
+			Usage: "the number of assets the wallet should commit to the channel",
 		},
 		cli.IntFlag{
 			Name: "push_btc_amt",
@@ -123,7 +123,7 @@ var openChannelCommand = cli.Command{
 		},
 		cli.IntFlag{
 			Name: "push_asset_amt",
-			Usage: "the number of satoshis to give the remote side " +
+			Usage: "the number of assets to give the remote side " +
 				"as part of the initial commitment state, " +
 				"this is equivalent to first opening a " +
 				"channel and sending the remote party funds, " +

@@ -125,12 +125,6 @@ compact filters and block/block headers.
 * [Fixed deadlock in the invoice registry](
   https://github.com/lightningnetwork/lnd/pull/6600)
 
-## Neutrino
-
-* [New neutrino sub-server](https://github.com/lightningnetwork/lnd/pull/5652)
-  capable of status checks, adding, disconnecting and listing
-  peers, fetching compact filters and block/block headers.
-
 * [Added signature length
   validation](https://github.com/lightningnetwork/lnd/pull/6314) when calling
   `NewSigFromRawSignature`.
@@ -186,6 +180,8 @@ from occurring that would result in an erroneous force close.](https://github.co
 
 * [Fixed a wrong channel status inheritance used in `migration26` and
   `migration27`](https://github.com/lightningnetwork/lnd/pull/6563).
+
+* [Fixes an issue related to HTLCs on lease enforced channels that can lead to itest flakes](https://github.com/lightningnetwork/lnd/pull/6605/files)
 
 ## Routing
 

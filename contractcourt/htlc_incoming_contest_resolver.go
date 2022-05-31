@@ -439,13 +439,6 @@ func (h *htlcIncomingContestResolver) Supplement(htlc channeldb.HTLC) {
 	h.htlc = htlc
 }
 
-// SupplementState allows the user of a ContractResolver to supplement it with
-// state required for the proper resolution of a contract.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcIncomingContestResolver) SupplementState(_ *channeldb.OpenChannel) {
-}
-
 // decodePayload (re)decodes the hop payload of a received htlc.
 func (h *htlcIncomingContestResolver) decodePayload() (*hop.Payload,
 	[]byte, error) {

@@ -89,7 +89,8 @@ var openChannelCommand = cli.Command{
 
 	One can manually set the fee to be used for the funding transaction via either
 	the --conf_target or --sat_per_vbyte arguments. This is optional.`,
-	ArgsUsage: "node-key local-amt push-amt",
+	//ArgsUsage: "node-key local-amt push-amt --local_btc_amt",
+	ArgsUsage: "openchannel --asset_id --local_btc_amt [options]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "node_key",
@@ -331,7 +332,7 @@ func openChannel(ctx *cli.Context) error {
 	if req.AssetId!=lnwire.BtcAssetId{
 		switch {
 		case ctx.IsSet("local_asset_amt"):
-			req.LocalFundingBtcAmount = int64(ctx.Int("local_asset_amt"))
+			req.LocalFundingAssetAmount = int64(ctx.Int("local_asset_amt"))
 		default:
 			return fmt.Errorf("local_asset_amt argument missing")
 		}

@@ -6,6 +6,7 @@ package invoicesrpc
 import (
 	"context"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -335,10 +336,10 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
-	if err != nil {
-		return nil, err
-	}
+	//value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	// Convert the passed routing hints to the required format.
 	routeHints, err := CreateZpay32HopHints(invoice.RouteHints)
@@ -348,7 +349,7 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 	addInvoiceData := &AddInvoiceData{
 		Memo:            invoice.Memo,
 		Hash:            &hash,
-		Value:           value,
+		Value:           lnwire.UnitPrec11(invoice.ValueMsat),
 		DescriptionHash: invoice.DescriptionHash,
 		Expiry:          invoice.Expiry,
 		FallbackAddr:    invoice.FallbackAddr,

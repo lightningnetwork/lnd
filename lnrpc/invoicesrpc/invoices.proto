@@ -67,7 +67,7 @@ message AddHoldInvoiceRequest {
 
     The fields value and value_msat are mutually exclusive.
     */
-    int64 value = 3;
+    //    int64 value = 3;
 
     /*
     The value of this invoice in millisatoshis

@@ -151,17 +151,17 @@ var addHoldInvoiceCommand = cli.Command{
 	Invoices without an amount can be created by not supplying any
 	parameters or providing an amount of 0. These invoices allow the payee
 	to specify the amount of satoshis they wish to send.`,
-	ArgsUsage: "hash [amt]",
+	ArgsUsage: "hash [amtMsat]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "memo",
 			Usage: "a description of the payment to attach along " +
 				"with the invoice (default=\"\")",
 		},
-		cli.Int64Flag{
-			Name:  "amt",
-			Usage: "the amt of satoshis in this invoice",
-		},
+		//cli.Int64Flag{
+		//	Name:  "amt",
+		//	Usage: "the amt of satoshis in this invoice",
+		//},
 		cli.Int64Flag{
 			Name:  "amt_msat",
 			Usage: "the amt of millisatoshis in this invoice",
@@ -218,11 +218,11 @@ func addHoldInvoice(ctx *cli.Context) error {
 
 	args = args.Tail()
 
-	amt := ctx.Int64("amt")
+	//amt := ctx.Int64("amt")
 	amtMsat := ctx.Int64("amt_msat")
 
 	if !ctx.IsSet("amt") && !ctx.IsSet("amt_msat") && args.Present() {
-		amt, err = strconv.ParseInt(args.First(), 10, 64)
+		amtMsat, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode amt argument: %v", err)
 		}
@@ -236,7 +236,7 @@ func addHoldInvoice(ctx *cli.Context) error {
 	invoice := &invoicesrpc.AddHoldInvoiceRequest{
 		Memo:            ctx.String("memo"),
 		Hash:            hash,
-		Value:           amt,
+		//Value:           amt,
 		ValueMsat:       amtMsat,
 		DescriptionHash: descHash,
 		FallbackAddr:    ctx.String("fallback_addr"),

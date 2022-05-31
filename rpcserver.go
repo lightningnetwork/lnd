@@ -1894,7 +1894,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// TODO(roasbeef): incorporate base fee?
 	if remoteInitialBtcBalance >= localFundingBtcAmt ||remoteInitialAssetBalance >= localFundingAssetAmt{
 		return nil, fmt.Errorf("amount pushed to remote peer for " +
-			"initial state must be below the local funding amount")
+			"initial state must be below the local funding amount ,%v ,%v")
 	}
 
 	// Ensure that the user doesn't exceed the current soft-limit for

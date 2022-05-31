@@ -4359,7 +4359,7 @@ func shouldPeerBootstrap(cfg *Config) bool {
 	isSimnet := (cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet)
 	isSignet := (cfg.Bitcoin.SigNet || cfg.Litecoin.SigNet)
 	isRegtest := (cfg.Bitcoin.RegTest || cfg.Litecoin.RegTest)
-	isDevNetwork := isSimnet || isSignet || isRegtest
+	isDevNetwork := isSimnet || isSignet || isRegtest ||cfg.Bitcoin.TestNet3
 
 	// TODO(yy): remove the check on simnet/regtest such that the itest is
 	// covering the bootstrapping process.

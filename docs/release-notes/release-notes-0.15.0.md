@@ -121,7 +121,10 @@ compact filters and block/block headers.
 
 * [Fixed an issue where lnd would end up sending an Error and triggering a force
   close.](https://github.com/lightningnetwork/lnd/pull/6518)
-  
+
+* [Fixed deadlock in the invoice registry](
+  https://github.com/lightningnetwork/lnd/pull/6600)
+
 ## Neutrino
 
 * [New neutrino sub-server](https://github.com/lightningnetwork/lnd/pull/5652)

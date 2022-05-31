@@ -108,6 +108,12 @@ type InvoiceRegistry struct {
 	// cfg contains the registry's configuration parameters.
 	cfg *RegistryConfig
 
+	// notificationClientMux locks notificationClients and
+	// singleNotificationClients. Using a separate mutex for these maps is
+	// necessary to avoid deadlocks in the registry when processing invoice
+	// events.
+	notificationClientMux sync.RWMutex
+
 	notificationClients map[uint32]*InvoiceSubscription
 
 	// TODO(yy): use map[lntypes.Hash]*SingleInvoiceSubscription for better
@@ -1584,9 +1590,9 @@ func (i *InvoiceRegistry) SubscribeNotifications(
 		}
 	}()
 
-	i.Lock()
+	i.notificationClientMux.Lock()
 	i.notificationClients[client.id] = client
-	i.Unlock()
+	i.notificationClientMux.Unlock()
 
 	// Query the database to see if based on the provided addIndex and
 	// settledIndex we need to deliver any backlog notifications.
@@ -1660,9 +1666,9 @@ func (i *InvoiceRegistry) SubscribeSingleInvoice(
 		}
 	}()
 
-	i.Lock()
+	i.notificationClientMux.Lock()
 	i.singleNotificationClients[client.id] = client
-	i.Unlock()
+	i.notificationClientMux.Unlock()
 
 	err := i.deliverSingleBacklogEvents(client)
 	if err != nil {
@@ -1739,8 +1745,8 @@ func (i *InvoiceRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {
 // copySingleClients copies i.SingleInvoiceSubscription inside a lock. This is
 // useful when we need to iterate the map to send notifications.
 func (i *InvoiceRegistry) copySingleClients() map[uint32]*SingleInvoiceSubscription {
-	i.RLock()
-	defer i.RUnlock()
+	i.notificationClientMux.RLock()
+	defer i.notificationClientMux.RUnlock()
 
 	clients := make(map[uint32]*SingleInvoiceSubscription)
 	for k, v := range i.singleNotificationClients {
@@ -1752,8 +1758,8 @@ func (i *InvoiceRegistry) copySingleClients() map[uint32]*SingleInvoiceSubscript
 // copyClients copies i.notificationClients inside a lock. This is useful when
 // we need to iterate the map to send notifications.
 func (i *InvoiceRegistry) copyClients() map[uint32]*InvoiceSubscription {
-	i.RLock()
-	defer i.RUnlock()
+	i.notificationClientMux.RLock()
+	defer i.notificationClientMux.RUnlock()
 
 	clients := make(map[uint32]*InvoiceSubscription)
 	for k, v := range i.notificationClients {
@@ -1765,8 +1771,8 @@ func (i *InvoiceRegistry) copyClients() map[uint32]*InvoiceSubscription {
 // deleteClient removes a client by its ID inside a lock. Noop if the client is
 // not found.
 func (i *InvoiceRegistry) deleteClient(clientID uint32) {
-	i.Lock()
-	defer i.Unlock()
+	i.notificationClientMux.Lock()
+	defer i.notificationClientMux.Unlock()
 
 	log.Infof("Cancelling invoice subscription for client=%v", clientID)
 	delete(i.notificationClients, clientID)

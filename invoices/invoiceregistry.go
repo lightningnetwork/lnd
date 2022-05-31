@@ -124,6 +124,11 @@ type InvoiceRegistry struct {
 	// carried.
 	invoiceEvents chan *invoiceEvent
 
+	// hodlSubscriptionsMux locks the hodlSubscriptions and
+	// hodlReverseSubscriptions. Using a separate mutex for these maps is
+	// necessary to avoid deadlocks in the registry when processing invoice
+	// events.
+	hodlSubscriptionsMux sync.RWMutex
 	// subscriptions is a map from a circuit key to a list of subscribers.
 	// It is used for efficient notification of links.
 	hodlSubscriptions map[channeldb.CircuitKey]map[chan<- interface{}]struct{}
@@ -640,9 +645,6 @@ func (i *InvoiceRegistry) startHtlcTimer(invoiceRef channeldb.InvoiceRef,
 // resolvers of the details of the htlc cancellation.
 func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
 	key channeldb.CircuitKey, result FailResolutionResult) error {
-
-	i.Lock()
-	defer i.Unlock()
 
 	updateInvoice := func(invoice *channeldb.Invoice) (
 		*channeldb.InvoiceUpdateDesc, error) {
@@ -1684,6 +1686,9 @@ func (i *InvoiceRegistry) SubscribeSingleInvoice(
 // notifyHodlSubscribers sends out the htlc resolution to all current
 // subscribers.
 func (i *InvoiceRegistry) notifyHodlSubscribers(htlcResolution HtlcResolution) {
+	i.hodlSubscriptionsMux.Lock()
+	defer i.hodlSubscriptionsMux.Unlock()
+
 	subscribers, ok := i.hodlSubscriptions[htlcResolution.CircuitKey()]
 	if !ok {
 		return
@@ -1712,6 +1717,9 @@ func (i *InvoiceRegistry) notifyHodlSubscribers(htlcResolution HtlcResolution) {
 func (i *InvoiceRegistry) hodlSubscribe(subscriber chan<- interface{},
 	circuitKey channeldb.CircuitKey) {
 
+	i.hodlSubscriptionsMux.Lock()
+	defer i.hodlSubscriptionsMux.Unlock()
+
 	log.Debugf("Hodl subscribe for %v", circuitKey)
 
 	subscriptions, ok := i.hodlSubscriptions[circuitKey]
@@ -1731,8 +1739,8 @@ func (i *InvoiceRegistry) hodlSubscribe(subscriber chan<- interface{},
 
 // HodlUnsubscribeAll cancels the subscription.
 func (i *InvoiceRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {
-	i.Lock()
-	defer i.Unlock()
+	i.hodlSubscriptionsMux.Lock()
+	defer i.hodlSubscriptionsMux.Unlock()
 
 	hashes := i.hodlReverseSubscriptions[subscriber]
 	for hash := range hashes {

@@ -213,6 +213,7 @@ func TestSerializeRevocationLog(t *testing.T) {
 
 	// Copy the testRevocationLog.
 	rl := testRevocationLog
+	rl.HTLCEntries = []*HTLCEntry{&testHTLCEntry}
 
 	// Write the tlv stream.
 	buf := bytes.NewBuffer([]byte{})

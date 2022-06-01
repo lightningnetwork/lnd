@@ -219,7 +219,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// When asserting the amount of satoshis moved, we'll factor in the
 	// default base fee, as we didn't modify the fee structure when
 	// creating the seed nodes in the network.
-	const baseFee = 1
+	const baseFee = 0
 
 	// At this point all the channels within our proto network should be
 	// shifted by 5k satoshis in the direction of Carol, the sink within the
@@ -516,7 +516,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	// When asserting the amount of satoshis moved, we'll factor in the
 	// default base fee, as we didn't modify the fee structure when
 	// creating the seed nodes in the network.
-	const baseFee = 1
+	const baseFee = 0
 
 	// At this point all the channels within our proto network should be
 	// shifted by 5k satoshis in the direction of Carol, the sink within the
@@ -799,7 +799,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	// When asserting the amount of satoshis moved, we'll factor in the
 	// default base fee, as we didn't modify the fee structure when
 	// creating the seed nodes in the network.
-	const baseFee = 1
+	const baseFee = 0
 
 	// At this point all the channels within our proto network should be
 	// shifted by 5k satoshis in the direction of Carol, the sink within the
@@ -1094,7 +1094,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// When asserting the amount of satoshis moved, we'll factor in the
 	// default base fee, as we didn't modify the fee structure when
 	// creating the seed nodes in the network.
-	const baseFee = 1
+	const baseFee = 0
 
 	// At this point, all channels (minus Carol, who is shutdown) should
 	// show a shift of 5k satoshis towards Carol.  The order of asserts

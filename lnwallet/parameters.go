@@ -25,7 +25,7 @@ const (
 // DefaultRoutingFeeLimitForAmount returns the default off-chain routing fee
 // limit lnd uses if the user does not specify a limit manually. The fee is
 // amount dependent because of the base routing fee that is set on many
-// channels. For example the default base fee is 1 satoshi. So sending a payment
+// channels. For example a very common base fee is 1 satoshi. So sending a payment
 // of one satoshi will cost 1 satoshi in fees over most channels, which comes to
 // a fee of 100%. That's why for very small amounts we allow 100% fee.
 func DefaultRoutingFeeLimitForAmount(a lnwire.MilliSatoshi) lnwire.MilliSatoshi {

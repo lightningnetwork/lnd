@@ -607,6 +607,7 @@ func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
 	// default base fee, as we didn't modify the fee structure when
 	// creating the seed nodes in the network.
 	const baseFee = 1
+	const feeRatePpm = 10000
 
 	// At this point all the channels within our proto network should be
 	// shifted by 5k satoshis in the direction of Carol, the sink within the
@@ -615,14 +616,15 @@ func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
 	// transaction, in channel Alice->Bob->Carol, order is Carol, Bob,
 	// Alice.
 	const amountPaid = int64(5000)
+	const fees = amountPaid*feeRatePpm/1000000 + baseFee*numPayments
 	assertAmountPaid(t, "Bob(local) => Carol(remote)", carol,
 		bobFundPoint, int64(0), amountPaid)
 	assertAmountPaid(t, "Bob(local) => Carol(remote)", net.Bob,
 		bobFundPoint, amountPaid, int64(0))
 	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Bob,
-		aliceFundPoint, int64(0), amountPaid+(baseFee*numPayments))
+		aliceFundPoint, int64(0), amountPaid+fees)
 	assertAmountPaid(t, "Alice(local) => Bob(remote)", alice,
-		aliceFundPoint, amountPaid+(baseFee*numPayments), int64(0))
+		aliceFundPoint, amountPaid+fees, int64(0))
 
 	closeChannelAndAssert(t, net, alice, chanPointAlice, false)
 	closeChannelAndAssert(t, net, carol, chanPointBob, false)

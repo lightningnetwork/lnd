@@ -284,7 +284,8 @@ from occurring that would result in an erroneous force close.](https://github.co
   how bitcoind.rpccookie and bitocind.config are parsed from config file.
 
 * [Fix a data race found when running unit test for revocation log](https://github.com/lightningnetwork/lnd/pull/6594).
-
+  
+* [Set default fee rate to 10000ppm](https://github.com/lightningnetwork/lnd/pull/6610).
 
 ## RPC Server
 

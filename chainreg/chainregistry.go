@@ -124,7 +124,7 @@ const (
 	DefaultBitcoinBaseFeeMSat = lnwire.MilliSatoshi(1000)
 
 	// DefaultBitcoinFeeRate is the default forwarding fee rate.
-	DefaultBitcoinFeeRate = lnwire.MilliSatoshi(1)
+	DefaultBitcoinFeeRate = lnwire.MilliSatoshi(10000)
 
 	// DefaultBitcoinTimeLockDelta is the default forwarding time lock
 	// delta.

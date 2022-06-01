@@ -424,6 +424,10 @@ type Brontide struct {
 	// the state machine will be deleted from the map.
 	activeChanCloses map[lnwire.ChannelID]*chancloser.ChanCloser
 
+	// activeChanClosesMtx is a mutex that guards access to the
+	// activeChanCloses map.
+	activeChanClosesMtx sync.RWMutex
+
 	// localCloseChanReqs is a channel in which any local requests to close
 	// a particular channel are sent over.
 	localCloseChanReqs chan *htlcswitch.ChanClose
@@ -1462,19 +1466,38 @@ out:
 		case *lnwire.ChannelReestablish:
 			targetChan = msg.ChanID
 			isLinkUpdate = p.isActiveChannel(targetChan)
+			isClosing := p.isCoopClosing(targetChan)
 
 			// If we failed to find the link in question, and the
 			// message received was a channel sync message, then
-			// this might be a peer trying to resync closed channel.
-			// In this case we'll try to resend our last channel
-			// sync message, such that the peer can recover funds
-			// from the closed channel.
+			// this is either a peer trying to resync a closed
+			// channel or this is a peer trying to restart the coop
+			// close process.
+			//
+			// In the first case, we'll try to resend our last
+			// channel sync message, such that the peer can recover
+			// funds from the closed channel.
+			//
+			// In the latter case, we'll ignore the reestablish as
+			// it does not matter here. We'll know this is a coop
+			// close if there is an entry in the activeChanCloses
+			// map.
 			if !isLinkUpdate {
-				err := p.resendChanSyncMsg(targetChan)
-				if err != nil {
-					// TODO(halseth): send error to peer?
-					peerLog.Errorf("resend failed: %v",
-						err)
+				if isClosing {
+					// Ignore the reestablish. Attempting
+					// to fetch our channel sync message
+					// will fail since the channel isn't
+					// closed yet.
+				} else {
+					// This is a peer trying to resync a
+					// closed channel.
+					err := p.resendChanSyncMsg(targetChan)
+					if err != nil {
+						// TODO(halseth): send error to
+						// peer?
+						peerLog.Errorf("resend failed"+
+							": %v", err)
+					}
 				}
 			}
 
@@ -1555,6 +1578,15 @@ func (p *Brontide) isActiveChannel(chanID lnwire.ChannelID) bool {
 	p.activeChanMtx.RLock()
 	_, ok := p.activeChannels[chanID]
 	p.activeChanMtx.RUnlock()
+	return ok
+}
+
+// isCoopClosing returns true if the provided channel id is in the process of
+// being cooperatively closed.
+func (p *Brontide) isCoopClosing(chanID lnwire.ChannelID) bool {
+	p.activeChanClosesMtx.RLock()
+	_, ok := p.activeChanCloses[chanID]
+	p.activeChanClosesMtx.RUnlock()
 	return ok
 }
 
@@ -2428,7 +2460,9 @@ func (p *Brontide) reenableActiveChannels() {
 func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 	*chancloser.ChanCloser, error) {
 
+	p.activeChanClosesMtx.RLock()
 	chanCloser, found := p.activeChanCloses[chanID]
+	p.activeChanClosesMtx.RUnlock()
 	if found {
 		// An entry will only be found if the closer has already been
 		// created for a non-pending channel or for a channel that had
@@ -2492,7 +2526,9 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 		return nil, fmt.Errorf("unable to create chan closer")
 	}
 
+	p.activeChanClosesMtx.Lock()
 	p.activeChanCloses[chanID] = chanCloser
+	p.activeChanClosesMtx.Unlock()
 
 	return chanCloser, nil
 }
@@ -2588,15 +2624,19 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 
 	// This does not need a mutex even though it is in a different
 	// goroutine since this is done before the channelManager goroutine is
-	// created.
+	// created. We use one anyways.
 	chanID := lnwire.NewChanIDFromOutPoint(&c.FundingOutpoint)
+	p.activeChanClosesMtx.Lock()
 	p.activeChanCloses[chanID] = chanCloser
+	p.activeChanClosesMtx.Unlock()
 
 	// Create the Shutdown message.
 	shutdownMsg, err := chanCloser.ShutdownChan()
 	if err != nil {
 		peerLog.Errorf("unable to create shutdown message: %v", err)
+		p.activeChanClosesMtx.Lock()
 		delete(p.activeChanCloses, chanID)
+		p.activeChanClosesMtx.Unlock()
 		return nil, err
 	}
 
@@ -2709,7 +2749,9 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			return
 		}
 
+		p.activeChanClosesMtx.Lock()
 		p.activeChanCloses[chanID] = chanCloser
+		p.activeChanClosesMtx.Unlock()
 
 		// Finally, we'll initiate the channel shutdown within the
 		// chanCloser, and send the shutdown message to the remote
@@ -2718,7 +2760,9 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		if err != nil {
 			peerLog.Errorf(err.Error())
 			req.Err <- err
+			p.activeChanClosesMtx.Lock()
 			delete(p.activeChanCloses, chanID)
+			p.activeChanClosesMtx.Unlock()
 
 			// As we were unable to shutdown the channel, we'll
 			// return it back to its normal state.
@@ -2884,7 +2928,9 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 
 	// Also clear the activeChanCloses map of this channel.
 	cid := lnwire.NewChanIDFromOutPoint(chanPoint)
+	p.activeChanClosesMtx.Lock()
 	delete(p.activeChanCloses, cid)
+	p.activeChanClosesMtx.Unlock()
 
 	// Next, we'll launch a goroutine which will request to be notified by
 	// the ChainNotifier once the closure transaction obtains a single
@@ -3283,7 +3329,9 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 		if chanCloser.CloseRequest() != nil {
 			chanCloser.CloseRequest().Err <- err
 		}
+		p.activeChanClosesMtx.Lock()
 		delete(p.activeChanCloses, msg.cid)
+		p.activeChanClosesMtx.Unlock()
 		return
 	}
 

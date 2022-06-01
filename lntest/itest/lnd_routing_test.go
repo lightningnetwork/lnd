@@ -606,7 +606,7 @@ func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
 	// When asserting the amount of satoshis moved, we'll factor in the
 	// default base fee, as we didn't modify the fee structure when
 	// creating the seed nodes in the network.
-	const baseFee = 1
+	const baseFee = 0
 
 	// At this point all the channels within our proto network should be
 	// shifted by 5k satoshis in the direction of Carol, the sink within the
@@ -914,7 +914,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// When asserting the amount of satoshis moved, we'll factor in the
 	// default base fee, as we didn't modify the fee structure when
 	// creating the seed nodes in the network.
-	const baseFee = 1
+	const baseFee = 0
 
 	// Bob should have received 140k satoshis from Alice.
 	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Bob,
@@ -1389,7 +1389,7 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 	// When asserting the amount of satoshis moved, we'll factor in the
 	// default base fee, as we didn't modify the fee structure when opening
 	// the channels.
-	const baseFee = 1
+	const baseFee = 0
 
 	// Dave should have received 20k satoshis from Carol.
 	assertAmountPaid(t, "Carol(local) [private=>] Dave(remote)",

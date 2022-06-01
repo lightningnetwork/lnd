@@ -121,7 +121,7 @@ const (
 	DefaultBitcoinMinHTLCOutMSat = lnwire.MilliSatoshi(1000)
 
 	// DefaultBitcoinBaseFeeMSat is the default forwarding base fee.
-	DefaultBitcoinBaseFeeMSat = lnwire.MilliSatoshi(1000)
+	DefaultBitcoinBaseFeeMSat = lnwire.MilliSatoshi(0)
 
 	// DefaultBitcoinFeeRate is the default forwarding fee rate.
 	DefaultBitcoinFeeRate = lnwire.MilliSatoshi(1)

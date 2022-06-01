@@ -285,6 +285,7 @@ from occurring that would result in an erroneous force close.](https://github.co
 
 * [Fix a data race found when running unit test for revocation log](https://github.com/lightningnetwork/lnd/pull/6594).
 
+* [Set default base fee to 0](https://github.com/lightningnetwork/lnd/pull/6609).
 
 ## RPC Server
 

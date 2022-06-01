@@ -1234,6 +1234,19 @@ func (w *WalletKit) SignPsbt(_ context.Context, req *SignPsbtRequest) (
 		return nil, fmt.Errorf("error parsing PSBT: %v", err)
 	}
 
+	// Before we attempt to sign the packet, ensure that every input either
+	// has a witness UTXO, or a non witness UTXO.
+	for idx := range packet.UnsignedTx.TxIn {
+		in := packet.Inputs[idx]
+
+		// Doesn't have either a witness or non witness UTXO so we need
+		// to exit here as otherwise signing will fail.
+		if in.WitnessUtxo == nil && in.NonWitnessUtxo == nil {
+			return nil, fmt.Errorf("input (index=%v) doesn't "+
+				"specify any UTXO info", idx)
+		}
+	}
+
 	// Let the wallet do the heavy lifting. This will sign all inputs that
 	// we have the UTXO for. If some inputs can't be signed and don't have
 	// witness data attached, they will just be skipped.

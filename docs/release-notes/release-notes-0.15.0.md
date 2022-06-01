@@ -183,6 +183,8 @@ from occurring that would result in an erroneous force close.](https://github.co
 
 * [Fixes an issue related to HTLCs on lease enforced channels that can lead to itest flakes](https://github.com/lightningnetwork/lnd/pull/6605/files)
 
+* [Fixes a bug that would cause `SignPsbt` to panic w/ an underspecified packet](https://github.com/lightningnetwork/lnd/pull/6611)
+
 ## Routing
 
 * [Add a new `time_pref` parameter to the QueryRoutes and SendPayment APIs](https://github.com/lightningnetwork/lnd/pull/6024) that

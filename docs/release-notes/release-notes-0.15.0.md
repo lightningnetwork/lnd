@@ -285,6 +285,8 @@ from occurring that would result in an erroneous force close.](https://github.co
 
 * [Fix a data race found when running unit test for revocation log](https://github.com/lightningnetwork/lnd/pull/6594).
 
+* [A new version of the internal `tor` module was tagged and updated for the main module](https://github.com/lightningnetwork/lnd/pull/6612).
+
 
 ## RPC Server
 

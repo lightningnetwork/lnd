@@ -108,6 +108,12 @@ type InvoiceRegistry struct {
 	// cfg contains the registry's configuration parameters.
 	cfg *RegistryConfig
 
+	// notificationClientMux locks notificationClients and
+	// singleNotificationClients. Using a separate mutex for these maps is
+	// necessary to avoid deadlocks in the registry when processing invoice
+	// events.
+	notificationClientMux sync.RWMutex
+
 	notificationClients map[uint32]*InvoiceSubscription
 
 	// TODO(yy): use map[lntypes.Hash]*SingleInvoiceSubscription for better
@@ -118,6 +124,11 @@ type InvoiceRegistry struct {
 	// carried.
 	invoiceEvents chan *invoiceEvent
 
+	// hodlSubscriptionsMux locks the hodlSubscriptions and
+	// hodlReverseSubscriptions. Using a separate mutex for these maps is
+	// necessary to avoid deadlocks in the registry when processing invoice
+	// events.
+	hodlSubscriptionsMux sync.RWMutex
 	// subscriptions is a map from a circuit key to a list of subscribers.
 	// It is used for efficient notification of links.
 	hodlSubscriptions map[channeldb.CircuitKey]map[chan<- interface{}]struct{}
@@ -634,9 +645,6 @@ func (i *InvoiceRegistry) startHtlcTimer(invoiceRef channeldb.InvoiceRef,
 // resolvers of the details of the htlc cancellation.
 func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
 	key channeldb.CircuitKey, result FailResolutionResult) error {
-
-	i.Lock()
-	defer i.Unlock()
 
 	updateInvoice := func(invoice *channeldb.Invoice) (
 		*channeldb.InvoiceUpdateDesc, error) {
@@ -1584,9 +1592,9 @@ func (i *InvoiceRegistry) SubscribeNotifications(
 		}
 	}()
 
-	i.Lock()
+	i.notificationClientMux.Lock()
 	i.notificationClients[client.id] = client
-	i.Unlock()
+	i.notificationClientMux.Unlock()
 
 	// Query the database to see if based on the provided addIndex and
 	// settledIndex we need to deliver any backlog notifications.
@@ -1660,9 +1668,9 @@ func (i *InvoiceRegistry) SubscribeSingleInvoice(
 		}
 	}()
 
-	i.Lock()
+	i.notificationClientMux.Lock()
 	i.singleNotificationClients[client.id] = client
-	i.Unlock()
+	i.notificationClientMux.Unlock()
 
 	err := i.deliverSingleBacklogEvents(client)
 	if err != nil {
@@ -1678,6 +1686,9 @@ func (i *InvoiceRegistry) SubscribeSingleInvoice(
 // notifyHodlSubscribers sends out the htlc resolution to all current
 // subscribers.
 func (i *InvoiceRegistry) notifyHodlSubscribers(htlcResolution HtlcResolution) {
+	i.hodlSubscriptionsMux.Lock()
+	defer i.hodlSubscriptionsMux.Unlock()
+
 	subscribers, ok := i.hodlSubscriptions[htlcResolution.CircuitKey()]
 	if !ok {
 		return
@@ -1706,6 +1717,9 @@ func (i *InvoiceRegistry) notifyHodlSubscribers(htlcResolution HtlcResolution) {
 func (i *InvoiceRegistry) hodlSubscribe(subscriber chan<- interface{},
 	circuitKey channeldb.CircuitKey) {
 
+	i.hodlSubscriptionsMux.Lock()
+	defer i.hodlSubscriptionsMux.Unlock()
+
 	log.Debugf("Hodl subscribe for %v", circuitKey)
 
 	subscriptions, ok := i.hodlSubscriptions[circuitKey]
@@ -1725,8 +1739,8 @@ func (i *InvoiceRegistry) hodlSubscribe(subscriber chan<- interface{},
 
 // HodlUnsubscribeAll cancels the subscription.
 func (i *InvoiceRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {
-	i.Lock()
-	defer i.Unlock()
+	i.hodlSubscriptionsMux.Lock()
+	defer i.hodlSubscriptionsMux.Unlock()
 
 	hashes := i.hodlReverseSubscriptions[subscriber]
 	for hash := range hashes {
@@ -1739,8 +1753,8 @@ func (i *InvoiceRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {
 // copySingleClients copies i.SingleInvoiceSubscription inside a lock. This is
 // useful when we need to iterate the map to send notifications.
 func (i *InvoiceRegistry) copySingleClients() map[uint32]*SingleInvoiceSubscription {
-	i.RLock()
-	defer i.RUnlock()
+	i.notificationClientMux.RLock()
+	defer i.notificationClientMux.RUnlock()
 
 	clients := make(map[uint32]*SingleInvoiceSubscription)
 	for k, v := range i.singleNotificationClients {
@@ -1752,8 +1766,8 @@ func (i *InvoiceRegistry) copySingleClients() map[uint32]*SingleInvoiceSubscript
 // copyClients copies i.notificationClients inside a lock. This is useful when
 // we need to iterate the map to send notifications.
 func (i *InvoiceRegistry) copyClients() map[uint32]*InvoiceSubscription {
-	i.RLock()
-	defer i.RUnlock()
+	i.notificationClientMux.RLock()
+	defer i.notificationClientMux.RUnlock()
 
 	clients := make(map[uint32]*InvoiceSubscription)
 	for k, v := range i.notificationClients {
@@ -1765,8 +1779,8 @@ func (i *InvoiceRegistry) copyClients() map[uint32]*InvoiceSubscription {
 // deleteClient removes a client by its ID inside a lock. Noop if the client is
 // not found.
 func (i *InvoiceRegistry) deleteClient(clientID uint32) {
-	i.Lock()
-	defer i.Unlock()
+	i.notificationClientMux.Lock()
+	defer i.notificationClientMux.Unlock()
 
 	log.Infof("Cancelling invoice subscription for client=%v", clientID)
 	delete(i.notificationClients, clientID)

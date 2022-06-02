@@ -67,6 +67,8 @@ type htlcSuccessResolver struct {
 	reportLock sync.Mutex
 
 	contractResolverKit
+
+	htlcLeaseResolver
 }
 
 // newSuccessResolver instanties a new htlc success resolver.
@@ -292,9 +294,12 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 		}
 	}
 
-	// The HTLC success tx has a CSV lock that we must wait for.
-	waitHeight := uint32(commitSpend.SpendingHeight) +
-		h.htlcResolution.CsvDelay - 1
+	// The HTLC success tx has a CSV lock that we must wait for, and if
+	// this is a lease enforced channel and we're the imitator, we may need
+	// to wait for longer.
+	waitHeight := h.deriveWaitHeight(
+		h.htlcResolution.CsvDelay, commitSpend,
+	)
 
 	// Now that the sweeper has broadcasted the second-level transaction,
 	// it has confirmed, and we have checkpointed our state, we'll sweep
@@ -305,8 +310,14 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 	h.currentReport.MaturityHeight = waitHeight
 	h.reportLock.Unlock()
 
-	log.Infof("%T(%x): waiting for CSV lock to expire at height %v",
-		h, h.htlc.RHash[:], waitHeight)
+	if h.hasCLTV() {
+		log.Infof("%T(%x): waiting for CSV and CLTV lock to "+
+			"expire at height %v", h, h.htlc.RHash[:],
+			waitHeight)
+	} else {
+		log.Infof("%T(%x): waiting for CSV lock to expire at "+
+			"height %v", h, h.htlc.RHash[:], waitHeight)
+	}
 
 	err := waitForHeight(waitHeight, h.Notifier, h.quit)
 	if err != nil {
@@ -327,10 +338,14 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 	log.Infof("%T(%x): CSV lock expired, offering second-layer "+
 		"output to sweeper: %v", h, h.htlc.RHash[:], op)
 
-	inp := input.NewCsvInput(
+	// Let the sweeper sweep the second-level output now that the
+	// CSV/CLTV locks have expired.
+	inp := h.makeSweepInput(
 		op, input.HtlcAcceptedSuccessSecondLevel,
-		&h.htlcResolution.SweepSignDesc, h.broadcastHeight,
-		h.htlcResolution.CsvDelay,
+		input.LeaseHtlcAcceptedSuccessSecondLevel,
+		&h.htlcResolution.SweepSignDesc,
+		h.htlcResolution.CsvDelay, h.broadcastHeight,
+		h.htlc.RHash,
 	)
 	_, err = h.Sweeper.SweepInput(
 		inp,
@@ -624,13 +639,6 @@ func newSuccessResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 // NOTE: Part of the htlcContractResolver interface.
 func (h *htlcSuccessResolver) Supplement(htlc channeldb.HTLC) {
 	h.htlc = htlc
-}
-
-// SupplementState allows the user of a ContractResolver to supplement it with
-// state required for the proper resolution of a contract.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcSuccessResolver) SupplementState(_ *channeldb.OpenChannel) {
 }
 
 // HtlcPoint returns the htlc's outpoint on the commitment tx.

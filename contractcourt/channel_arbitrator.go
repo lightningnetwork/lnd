@@ -2146,6 +2146,9 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				resolver := newSuccessResolver(
 					resolution, height, htlc, resolverCfg,
 				)
+				if chanState != nil {
+					resolver.SupplementState(chanState)
+				}
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 
@@ -2204,6 +2207,9 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					resolution, height, htlc,
 					resolverCfg,
 				)
+				if chanState != nil {
+					resolver.SupplementState(chanState)
+				}
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 

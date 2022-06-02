@@ -13,6 +13,7 @@ require (
 	github.com/klauspost/pgzip v1.2.5 // indirect
 	github.com/lib/pq v1.10.3 // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.0.0
+	github.com/mattn/go-sqlite3 v1.14.13 // indirect
 	github.com/nwaples/rardecode v1.1.2 // indirect
 	github.com/pierrec/lz4/v4 v4.1.8 // indirect
 	github.com/stretchr/testify v1.7.0

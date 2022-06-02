@@ -479,8 +479,6 @@ github.com/lightningnetwork/lnd/clock v1.1.0/go.mod h1:KnQudQ6w0IAMZi1SgvecLZQZ4
 github.com/lightningnetwork/lnd/healthcheck v1.0.0/go.mod h1:u92p1JGFJNMSkMvztKEwmt1P3TRnLeJBXZ3M85xkU1E=
 github.com/lightningnetwork/lnd/healthcheck v1.2.2 h1:im+qcpgSuteqRCGeorT9yqVXuLrS6A7/acYzGgarMS4=
 github.com/lightningnetwork/lnd/healthcheck v1.2.2/go.mod h1:IWY0GChlarRbXFkFDdE4WY5POYJabe/7/H1iCZt4ZKs=
-github.com/lightningnetwork/lnd/kvdb v1.3.1 h1:gEz3zudNNRrCLEvqRaktYoKwsUblyHX+MKjR0aI3QnM=
-github.com/lightningnetwork/lnd/kvdb v1.3.1/go.mod h1:x+IpsuDynubjokUofavLXroeGfS/WrqUXXTK6vN/gp4=
 github.com/lightningnetwork/lnd/queue v1.0.1/go.mod h1:vaQwexir73flPW43Mrm7JOgJHmcEFBWWSl9HlyASoms=
 github.com/lightningnetwork/lnd/queue v1.1.0 h1:YpCJjlIvVxN/R7ww2aNiY8ex7U2fucZDLJ67tI3HFx8=
 github.com/lightningnetwork/lnd/queue v1.1.0/go.mod h1:YTkTVZCxz8tAYreH27EO3s8572ODumWrNdYW2E/YKxg=
@@ -513,6 +511,8 @@ github.com/mattn/go-isatty v0.0.7/go.mod h1:Iq45c/XA43vh69/j3iqttzPXn0bhXyGjM0Hd
 github.com/mattn/go-isatty v0.0.12/go.mod h1:cbi8OIDigv2wuxKPP5vlRcQ1OAZbq2CE4Kysco4FUpU=
 github.com/mattn/go-runewidth v0.0.13 h1:lTGmDsbAYt5DmK6OnoV7EuIF1wEIFAcxld6ypU4OSgU=
 github.com/mattn/go-runewidth v0.0.13/go.mod h1:Jdepj2loyihRzMpdS35Xk/zdY8IAYHsh153qUoGf23w=
+github.com/mattn/go-sqlite3 v1.14.13 h1:1tj15ngiFfcZzii7yd82foL+ks+ouQcj8j/TPq3fk1I=
+github.com/mattn/go-sqlite3 v1.14.13/go.mod h1:NyWgC/yNuGj7Q9rpYnZvas74GogHl5/Z4A/KQRfk6bU=
 github.com/matttproud/golang_protobuf_extensions v1.0.1 h1:4hp9jkHxhMHkqkrB3Ix0jegS5sx/RkqARlsWZ6pIwiU=
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
 github.com/mholt/archiver/v3 v3.5.0 h1:nE8gZIrw66cu4osS/U7UW7YDuGMHssxKutU8IfWxwWE=

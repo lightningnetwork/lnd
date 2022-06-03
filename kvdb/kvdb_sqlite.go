@@ -8,7 +8,7 @@ import "github.com/lightningnetwork/lnd/kvdb/sqlite"
 const TestBackend = SqliteBackendName
 
 func NewSqliteFixture() (sqlite.Fixture, error) {
-	f, err := sqlite.NewFixture()
+	f, err := sqlite.NewSqliteTestFixture("test")
 
 	return f, err
 }

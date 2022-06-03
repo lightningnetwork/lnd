@@ -33,10 +33,10 @@ func TestSqlite(t *testing.T) {
 			expectedDb: m{
 				"test_kv": []m{
 					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": nil, "value": nil},
+					{"id": int64(3), "key": "c", "parent_id": int64(1), "sequence": nil, "value": "3"},
 					{"id": int64(4), "key": "da", "parent_id": int64(1), "sequence": nil, "value": "3"},
 					{"id": int64(6), "key": "a", "parent_id": int64(1), "sequence": nil, "value": "0"},
 					{"id": int64(7), "key": "f", "parent_id": int64(1), "sequence": nil, "value": "5"},
-					{"id": int64(3), "key": "c", "parent_id": int64(1), "sequence": nil, "value": "3"},
 					{"id": int64(9), "key": "cx", "parent_id": int64(1), "sequence": nil, "value": "x"},
 					{"id": int64(10), "key": "cy", "parent_id": int64(1), "sequence": nil, "value": "y"},
 				},
@@ -140,8 +140,8 @@ func TestSqlite(t *testing.T) {
 			test: testBucketSequence,
 			expectedDb: m{
 				"test_kv": []m{
-					{"id": int64(2), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
 					{"id": int64(1), "key": "apple", "parent_id": nil, "sequence": int64(4), "value": nil},
+					{"id": int64(2), "key": "banana", "parent_id": int64(1), "sequence": nil, "value": nil},
 				},
 			},
 		},
@@ -199,8 +199,9 @@ func TestSqlite(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			f, err := sqlite.NewFixture()
+			f, err := sqlite.NewSqliteTestFixture("test")
 			require.NoError(t, err)
+			defer f.Cleanup()
 
 			test.test(t, f.Db)
 

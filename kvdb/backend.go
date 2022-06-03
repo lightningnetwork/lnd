@@ -240,8 +240,9 @@ func updateLastCompactionDate(dbFile string) error {
 
 // GetTestBackend opens (or creates if doesn't exist) a bbolt or etcd
 // backed database (for testing), and returns a kvdb.Backend and a cleanup
-// func. Whether to create/open bbolt or embedded etcd database is based
-// on the TestBackend constant which is conditionally compiled with build tag.
+// func. Whether to create/open bbolt, embedded etcd, postgres, or sqlite
+// database is based on the TestBackend constant which is conditionally compiled
+// with build tag.
 // The passed path is used to hold all db files, while the name is only used
 // for bbolt.
 func GetTestBackend(path, name string) (Backend, func(), error) {
@@ -288,9 +289,7 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 			return nil, nil, err
 		}
 
-		return f.DB(), func() {
-			_ = f.DB().Close()
-		}, nil
+		return f.DB(), f.Cleanup, nil
 	}
 
 	return nil, nil, fmt.Errorf("unknown backend")

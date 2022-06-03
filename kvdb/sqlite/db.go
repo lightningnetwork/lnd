@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcwallet/walletdb"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const (
@@ -30,10 +32,6 @@ type KV struct {
 type db struct {
 	// cfg is the sqlite connection config.
 	cfg *Config
-
-	// prefix is the table name prefix that is used to simulate namespaces.
-	// We don't use schemas because at least sqlite does not support that.
-	prefix string
 
 	// ctx is the overall context for the database driver.
 	//
@@ -61,28 +59,90 @@ func Init() {
 }
 
 // newsqliteBackend returns a db object initialized with the passed backend
-// config. If sqlite connection cannot be estabished, then returns error.
-func newSqliteBackend(ctx context.Context, config *Config, prefix string) (
+// config. If the sqlite database cannot be opened, then returns error.
+func newSqliteBackend(ctx context.Context, config *Config) (
 	*db, error) {
 
-	if prefix == "" {
-		return nil, errors.New("empty sqlite prefix")
+	if config.Filename == "" {
+		return nil, errors.New("empty sqlite database file")
+	}
+
+	if config.TablePrefix == "" {
+		return nil, errors.New("empty sqlite table prefix")
+	}
+
+	dbConn, err := sql.Open("sqlite3", config.Filename)
+	if err != nil {
+		return nil, err
+	}
+
+	// Compose system table names.
+	table := fmt.Sprintf(
+		"%s_%s", config.TablePrefix, kvTableName,
+	)
+
+	// Execute the create statements to set up a kv table in postgres. Every
+	// row points to the bucket that it is one via its parent_id field. A
+	// NULL parent_id means that the key belongs to the upper-most bucket in
+	// this table. A constraint on parent_id is enforcing referential
+	// integrity.
+	//
+	// Furthermore there is a <table>_p index on parent_id that is required
+	// for the foreign key constraint.
+	//
+	// Finally there are unique indices on (parent_id, key) to prevent the
+	// same key being present in a bucket more than once (<table>_up and
+	// <table>_unp). In sqlite, a single index wouldn't enforce the unique
+	// constraint on rows with a NULL parent_id. Therefore two indices are
+	// defined.
+	_, err = dbConn.ExecContext(ctx, `
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS `+table+`
+(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key bytea NOT NULL,
+    value bytea,
+    parent_id bigint,
+    sequence bigint,
+    CONSTRAINT `+table+`_parent FOREIGN KEY (parent_id)
+        REFERENCES `+table+` (id) MATCH SIMPLE
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS `+table+`_p
+    ON `+table+` (parent_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS `+table+`_up
+    ON `+table+`
+    (parent_id, key) WHERE parent_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS `+table+`_unp 
+    ON `+table+` (key) WHERE parent_id IS NULL;
+`)
+
+	if err != nil {
+		_ = dbConn.Close()
+
+		return nil, err
 	}
 
 	backend := &db{
-		cfg:    config,
-		prefix: prefix,
-		ctx:    ctx,
-		db:     nil,
-		table:  "",
+		cfg:   config,
+		ctx:   ctx,
+		db:    dbConn,
+		table: table,
 	}
 
 	return backend, nil
 }
 
-// getPrefixedTableName returns a table name for this prefix (namespace).
-func (db *db) getPrefixedTableName(table string) string {
-	return fmt.Sprintf("%s_%s", db.prefix, table)
+// getTimeoutCtx gets a timeout context for database requests.
+func (db *db) getTimeoutCtx() (context.Context, func()) {
+	if db.cfg.Timeout == time.Duration(0) {
+		return db.ctx, func() {}
+	}
+
+	return context.WithTimeout(db.ctx, db.cfg.Timeout)
 }
 
 // catchPanic executes the specified function. If a panic occurs, it is returned
@@ -115,7 +175,12 @@ func catchPanic(f func() error) (err error) {
 // expect retries of the f closure (depending on the database backend used), the
 // reset function will be called before each retry respectively.
 func (db *db) View(f func(tx walletdb.ReadTx) error, reset func()) error {
-	return nil
+	return db.executeTransaction(
+		func(tx walletdb.ReadWriteTx) error {
+			return f(tx.(walletdb.ReadTx))
+		},
+		reset, true,
+	)
 }
 
 // Update opens a database read/write transaction and executes the function f
@@ -126,8 +191,7 @@ func (db *db) View(f func(tx walletdb.ReadTx) error, reset func()) error {
 // returned. As callers may expect retries of the f closure, the reset function
 // will be called before each retry respectively.
 func (db *db) Update(f func(tx walletdb.ReadWriteTx) error, reset func()) (err error) {
-	err = nil
-	return nil
+	return db.executeTransaction(f, reset, false)
 }
 
 // executeTransaction creates a new read-only or read-write transaction and
@@ -137,7 +201,21 @@ func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 
 	reset()
 
-	return nil
+	tx, err := newReadWriteTx(db, readOnly)
+	if err != nil {
+		return err
+	}
+
+	err = catchPanic(func() error { return f(tx) })
+	if err != nil {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			log.Errorf("Error rolling back tx: %v", rollbackErr)
+		}
+
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // PrintStats returns all collected stats pretty printed into a string.
@@ -147,12 +225,12 @@ func (db *db) PrintStats() string {
 
 // BeginReadWriteTx opens a database read+write transaction.
 func (db *db) BeginReadWriteTx() (walletdb.ReadWriteTx, error) {
-	return nil, nil
+	return newReadWriteTx(db, false)
 }
 
 // BeginReadTx opens a database read transaction.
 func (db *db) BeginReadTx() (walletdb.ReadTx, error) {
-	return nil, nil
+	return newReadWriteTx(db, true)
 }
 
 // Copy writes a copy of the database to the provided writer. This call will
@@ -165,5 +243,7 @@ func (db *db) Copy(w io.Writer) error {
 // Close cleanly shuts down the database and syncs all data.
 // This function is part of the walletdb.Db interface implementation.
 func (db *db) Close() error {
-	return nil
+	log.Infof("Closing database %v", db.cfg.Filename)
+
+	return db.db.Close()
 }

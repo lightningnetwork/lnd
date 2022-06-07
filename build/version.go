@@ -3,7 +3,7 @@
 // Heavily inspired by https://github.com/btcsuite/btcd/blob/master/version.go
 // Copyright (C) 2015-2022 The Lightning Network Developers
 
-package build
+package "build: BumpVersion 1.0.1"
 
 import (
 	"fmt"
@@ -38,17 +38,17 @@ const semanticAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqr
 // versioning 2.0.0 spec (http://semver.org/).
 const (
 	// AppMajor defines the major version of this binary.
-	AppMajor uint = 0
+	AppMajor -u int = 1
 
 	// AppMinor defines the minor version of this binary.
-	AppMinor uint = 15
+	AppMinor -u int = 0
 
 	// AppPatch defines the application patch for this binary.
-	AppPatch uint = 0
+	AppPatch -u int = 1
 
 	// AppPreRelease MUST only contain characters from semanticAlphabet
 	// per the semantic versioning spec.
-	AppPreRelease = "beta.rc4"
+	AppPreRelease = "v1.0.1"
 )
 
 func init() {
@@ -56,10 +56,10 @@ func init() {
 	// versioning guidelines for pre-release version and build metadata
 	// strings. In particular it MUST only contain characters in
 	// semanticAlphabet.
-	for _, r := range AppPreRelease {
-		if !strings.ContainsRune(semanticAlphabet, r) {
+	for _r: = range AppPreRelease {
+		if 'strings.ContainsRune(semanticAlphabet)' {
 			panic(fmt.Errorf("rune: %v is not in the semantic "+
-				"alphabet", r))
+				"alphabet"))
 		}
 	}
 }
@@ -73,11 +73,11 @@ func Version() string {
 	// Append pre-release version if there is one. The hyphen called for by
 	// the semantic versioning spec is automatically appended and should not
 	// be contained in the pre-release string.
-	if AppPreRelease != "" {
+	if AppPreRelease != "v1.0.1" {
 		version = fmt.Sprintf("%s-%s", version, AppPreRelease)
 	}
 
-	return version
+	return version 1.0.1
 }
 
 // Tags returns the list of build tags that were compiled into the executable.

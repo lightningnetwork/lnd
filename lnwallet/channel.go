@@ -1553,6 +1553,16 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(
 	logUpdate *channeldb.LogUpdate, remoteUpdateLog *updateLog,
 	commitHeight uint64) (*PaymentDescriptor, error) {
 
+	// Init a PaymentDescriptor with the common fields.
+	pd := &PaymentDescriptor{
+		LogIndex:                 logUpdate.LogIndex,
+		removeCommitHeightRemote: commitHeight,
+	}
+
+	// Init an htlc index which will be used for looking up the htlc entry
+	// from the remote update logs.
+	var htlcIndex uint64
+
 	// Since Add updates aren't saved to disk under this key, the update
 	// will never be an Add.
 	switch wireMsg := logUpdate.UpdateMsg.(type) {
@@ -1560,64 +1570,59 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(
 	// from the remote update log so we can retrieve the same
 	// PaymentDescriptor that ReceiveHTLCSettle would produce.
 	case *lnwire.UpdateFulfillHTLC:
-		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
+		pd.EntryType = Settle
+		pd.RPreimage = wireMsg.PaymentPreimage
 
-		return &PaymentDescriptor{
-			Amount:                   ogHTLC.Amount,
-			RHash:                    ogHTLC.RHash,
-			RPreimage:                wireMsg.PaymentPreimage,
-			LogIndex:                 logUpdate.LogIndex,
-			ParentIndex:              ogHTLC.HtlcIndex,
-			EntryType:                Settle,
-			removeCommitHeightRemote: commitHeight,
-		}, nil
+		htlcIndex = wireMsg.ID
 
 	// If we sent a failure for a prior incoming HTLC, then we'll consult
 	// the remote update log so we can retrieve the information of the
 	// original HTLC we're failing.
 	case *lnwire.UpdateFailHTLC:
-		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
+		pd.EntryType = Fail
+		pd.FailReason = wireMsg.Reason[:]
 
-		return &PaymentDescriptor{
-			Amount:                   ogHTLC.Amount,
-			RHash:                    ogHTLC.RHash,
-			ParentIndex:              ogHTLC.HtlcIndex,
-			LogIndex:                 logUpdate.LogIndex,
-			EntryType:                Fail,
-			FailReason:               wireMsg.Reason[:],
-			removeCommitHeightRemote: commitHeight,
-		}, nil
+		htlcIndex = wireMsg.ID
 
 	// HTLC fails due to malformed onion blocks are treated the exact same
 	// way as regular HTLC fails.
 	case *lnwire.UpdateFailMalformedHTLC:
-		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
+		pd.EntryType = MalformedFail
+		pd.FailCode = wireMsg.FailureCode
+		pd.ShaOnionBlob = wireMsg.ShaOnionBlob
 
-		return &PaymentDescriptor{
-			Amount:                   ogHTLC.Amount,
-			RHash:                    ogHTLC.RHash,
-			ParentIndex:              ogHTLC.HtlcIndex,
-			LogIndex:                 logUpdate.LogIndex,
-			EntryType:                MalformedFail,
-			FailCode:                 wireMsg.FailureCode,
-			ShaOnionBlob:             wireMsg.ShaOnionBlob,
-			removeCommitHeightRemote: commitHeight,
-		}, nil
+		htlcIndex = wireMsg.ID
 
+	// For UpdateFee we will patch the fields for the PaymentDescriptor and
+	// return it here since there's no need to look up the entry from the
+	// remote update logs.
 	case *lnwire.UpdateFee:
-		return &PaymentDescriptor{
-			LogIndex: logUpdate.LogIndex,
-			Amount: lnwire.NewMSatFromSatoshis(
-				btcutil.Amount(wireMsg.FeePerKw),
-			),
-			EntryType:                FeeUpdate,
-			addCommitHeightRemote:    commitHeight,
-			removeCommitHeightRemote: commitHeight,
-		}, nil
+		pd.EntryType = FeeUpdate
+		pd.Amount = lnwire.NewMSatFromSatoshis(
+			btcutil.Amount(wireMsg.FeePerKw),
+		)
+		pd.addCommitHeightRemote = commitHeight
 
+		return pd, nil
+
+	// If none of the above message types matched, return an error.
 	default:
 		return nil, fmt.Errorf("unknown message type: %T", wireMsg)
 	}
+
+	// Look up the entry from the remote update logs.
+	htlc := remoteUpdateLog.lookupHtlc(htlcIndex)
+	if htlc == nil {
+		return nil, fmt.Errorf("Failed to convert local LogUpdate: %w",
+			ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex})
+	}
+
+	// Patch the common fields.
+	pd.Amount = htlc.Amount
+	pd.RHash = htlc.RHash
+	pd.ParentIndex = htlc.HtlcIndex
+
+	return pd, nil
 }
 
 // remoteLogUpdateToPayDesc converts a LogUpdate into a matching
@@ -1828,11 +1833,23 @@ func (lc *LightningChannel) restoreCommitState(
 		return err
 	}
 
+	lc.log.Tracef("unsignedAckedUpdates: %v",
+		newLogClosure(func() string {
+			return spew.Sdump(unsignedAckedUpdates)
+		}),
+	)
+
 	// Fetch the local updates the peer still needs to sign for.
 	remoteUnsignedLocalUpdates, err := lc.channelState.RemoteUnsignedLocalUpdates()
 	if err != nil {
 		return err
 	}
+
+	lc.log.Tracef("remoteUnsignedLocalUpdates: %v",
+		newLogClosure(func() string {
+			return spew.Sdump(remoteUnsignedLocalUpdates)
+		}),
+	)
 
 	// Finally, with the commitment states restored, we'll now restore the
 	// state logs based on the current local+remote commit, and any pending

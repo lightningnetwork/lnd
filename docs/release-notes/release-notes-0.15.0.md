@@ -288,6 +288,8 @@ from occurring that would result in an erroneous force close.](https://github.co
 
 * [A new version of the internal `tor` module was tagged and updated for the main module](https://github.com/lightningnetwork/lnd/pull/6612).
 
+* [`lnd` now packages the latest versions of the btcd libraries, btcwallet, and neutrino](https://github.com/lightningnetwork/lnd/pull/6627)
+
 
 ## RPC Server
 

@@ -1540,25 +1540,25 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 	return pd, nil
 }
 
-// localLogUpdateToPayDesc converts a LogUpdate into a matching PaymentDescriptor
-// entry that can be re-inserted into the local update log. This method is used
-// when we sent an update+sig, receive a revocation, but drop right before the
-// counterparty can sign for the update we just sent. In this case, we need to
-// re-insert the original entries back into the update log so we'll be expecting
-// the peer to sign them. The height of the remote commitment is expected to be
-// provided and we restore all log update entries with this height, even though
-// the real height may be lower. In the way these fields are used elsewhere, this
-// doesn't change anything.
-func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
-	remoteUpdateLog *updateLog, commitHeight uint64) (*PaymentDescriptor,
-	error) {
+// localLogUpdateToPayDesc converts a LogUpdate into a matching
+// PaymentDescriptor entry that can be re-inserted into the local update log.
+// This method is used when we sent an update+sig, receive a revocation, but
+// drop right before the counterparty can sign for the update we just sent. In
+// this case, we need to re-insert the original entries back into the update
+// log so we'll be expecting the peer to sign them. The height of the remote
+// commitment is expected to be provided and we restore all log update entries
+// with this height, even though the real height may be lower. In the way these
+// fields are used elsewhere, this doesn't change anything.
+func (lc *LightningChannel) localLogUpdateToPayDesc(
+	logUpdate *channeldb.LogUpdate, remoteUpdateLog *updateLog,
+	commitHeight uint64) (*PaymentDescriptor, error) {
 
-	// Since Add updates aren't saved to disk under this key, the update will
-	// never be an Add.
+	// Since Add updates aren't saved to disk under this key, the update
+	// will never be an Add.
 	switch wireMsg := logUpdate.UpdateMsg.(type) {
-	// For HTLCs that we settled, we'll fetch the original offered HTLC from
-	// the remote update log so we can retrieve the same PaymentDescriptor that
-	// ReceiveHTLCSettle would produce.
+	// For HTLCs that we settled, we'll fetch the original offered HTLC
+	// from the remote update log so we can retrieve the same
+	// PaymentDescriptor that ReceiveHTLCSettle would produce.
 	case *lnwire.UpdateFulfillHTLC:
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
@@ -1572,9 +1572,9 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpda
 			removeCommitHeightRemote: commitHeight,
 		}, nil
 
-	// If we sent a failure for a prior incoming HTLC, then we'll consult the
-	// remote update log so we can retrieve the information of the original
-	// HTLC we're failing.
+	// If we sent a failure for a prior incoming HTLC, then we'll consult
+	// the remote update log so we can retrieve the information of the
+	// original HTLC we're failing.
 	case *lnwire.UpdateFailHTLC:
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 

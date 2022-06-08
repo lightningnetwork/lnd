@@ -337,7 +337,6 @@ lifecycle:
 		// Now that the shard was successfully sent, launch a go
 		// routine that will handle its result when its back.
 		shardHandler.collectResultAsync(attempt)
-
 	}
 }
 

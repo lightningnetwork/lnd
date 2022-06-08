@@ -353,6 +353,9 @@ bitcoind:
 
 On FreeBSD, use gmake instead of make.
 
+In order to be able to utilize the latest Taproot features, [`btcd` version
+`v0.23.1`](https://github.com/btcsuite/btcd/releases/tag/v0.23.1) MUST be used.
+
 To install btcd, run the following commands:
 
 Install **btcd**:

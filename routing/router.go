@@ -169,7 +169,7 @@ type PaymentAttemptDispatcher interface {
 		attemptID uint64,
 		htlcAdd *lnwire.UpdateAddHTLC) error
 
-	// GetPaymentResult returns the result of the payment attempt with
+	// GetAttemptResult returns the result of the payment attempt with
 	// the given attemptID. The paymentHash should be set to the payment's
 	// overall hash, or in case of AMP payments the payment's unique
 	// identifier.
@@ -180,7 +180,7 @@ type PaymentAttemptDispatcher interface {
 	// longer be in flight.  The switch shutting down is signaled by
 	// closing the channel. If the attemptID is unknown,
 	// ErrPaymentIDNotFound will be returned.
-	GetPaymentResult(attemptID uint64, paymentHash lntypes.Hash,
+	GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 		deobfuscator htlcswitch.ErrorDecrypter) (
 		<-chan *htlcswitch.PaymentResult, error)
 

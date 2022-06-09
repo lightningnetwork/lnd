@@ -56,7 +56,7 @@ func (m *mockPaymentAttemptDispatcherOld) SendHTLC(
 	return nil
 }
 
-func (m *mockPaymentAttemptDispatcherOld) GetPaymentResult(paymentID uint64,
+func (m *mockPaymentAttemptDispatcherOld) GetAttemptResult(paymentID uint64,
 	_ lntypes.Hash, _ htlcswitch.ErrorDecrypter) (
 	<-chan *htlcswitch.PaymentResult, error) {
 
@@ -205,7 +205,7 @@ func (m *mockPayerOld) SendHTLC(_ lnwire.ShortChannelID,
 
 }
 
-func (m *mockPayerOld) GetPaymentResult(paymentID uint64, _ lntypes.Hash,
+func (m *mockPayerOld) GetAttemptResult(paymentID uint64, _ lntypes.Hash,
 	_ htlcswitch.ErrorDecrypter) (<-chan *htlcswitch.PaymentResult, error) {
 
 	select {
@@ -578,7 +578,7 @@ func (m *mockPaymentAttemptDispatcher) SendHTLC(firstHop lnwire.ShortChannelID,
 	return args.Error(0)
 }
 
-func (m *mockPaymentAttemptDispatcher) GetPaymentResult(attemptID uint64,
+func (m *mockPaymentAttemptDispatcher) GetAttemptResult(attemptID uint64,
 	paymentHash lntypes.Hash, deobfuscator htlcswitch.ErrorDecrypter) (
 	<-chan *htlcswitch.PaymentResult, error) {
 

@@ -427,16 +427,16 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 	}
 }
 
-// GetPaymentResult returns the the result of the payment attempt with the
-// given attemptID. The paymentHash should be set to the payment's overall
-// hash, or in case of AMP payments the payment's unique identifier.
+// GetAttemptResult returns the result of the payment attempt with the given
+// attemptID. The paymentHash should be set to the payment's overall hash, or
+// in case of AMP payments the payment's unique identifier.
 //
 // The method returns a channel where the payment result will be sent when
 // available, or an error is encountered during forwarding. When a result is
 // received on the channel, the HTLC is guaranteed to no longer be in flight.
 // The switch shutting down is signaled by closing the channel. If the
 // attemptID is unknown, ErrPaymentIDNotFound will be returned.
-func (s *Switch) GetPaymentResult(attemptID uint64, paymentHash lntypes.Hash,
+func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 	deobfuscator ErrorDecrypter) (<-chan *PaymentResult, error) {
 
 	var (

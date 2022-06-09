@@ -562,7 +562,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 
 	// Now ask the switch to return the result of the payment when
 	// available.
-	resultChan, err := p.router.cfg.Payer.GetPaymentResult(
+	resultChan, err := p.router.cfg.Payer.GetAttemptResult(
 		attempt.AttemptID, p.identifier, errorDecryptor,
 	)
 	switch {

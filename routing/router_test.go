@@ -3896,7 +3896,7 @@ func TestSendMPPaymentFailed(t *testing.T) {
 	})
 
 	// Simple mocking the rest.
-	controlTower.On("Fail", identifier, failureReason).Return(nil)
+	controlTower.On("FailPayment", identifier, failureReason).Return(nil)
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil)
@@ -4091,7 +4091,7 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 
 	// Simple mocking the rest.
 	cntFail := 0
-	controlTower.On("Fail", identifier, failureReason).Return(nil)
+	controlTower.On("FailPayment", identifier, failureReason).Return(nil)
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil).Run(func(args mock.Arguments) {
@@ -4412,7 +4412,7 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 	).Return(testAttempt, nil)
 
 	// Expect the payment to be failed.
-	controlTower.On("Fail", payHash, mock.Anything).Return(nil)
+	controlTower.On("FailPayment", payHash, mock.Anything).Return(nil)
 
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
@@ -4501,7 +4501,7 @@ func TestSendToRouteTempFailure(t *testing.T) {
 	).Return(testAttempt, nil)
 
 	// Expect the payment to be failed.
-	controlTower.On("Fail", payHash, mock.Anything).Return(nil)
+	controlTower.On("FailPayment", payHash, mock.Anything).Return(nil)
 
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,

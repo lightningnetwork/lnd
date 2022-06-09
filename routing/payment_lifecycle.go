@@ -233,7 +233,7 @@ lifecycle:
 			// tower, no further shards will be launched and we'll
 			// return with an error the moment all active shards
 			// have finished.
-			saveErr := p.router.cfg.Control.Fail(
+			saveErr := p.router.cfg.Control.FailPayment(
 				p.identifier, channeldb.FailureReasonTimeout,
 			)
 			if saveErr != nil {
@@ -273,7 +273,7 @@ lifecycle:
 					"failed with no route: %v",
 					p.identifier, failureCode)
 
-				saveErr := p.router.cfg.Control.Fail(
+				saveErr := p.router.cfg.Control.FailPayment(
 					p.identifier, failureCode,
 				)
 				if saveErr != nil {
@@ -784,7 +784,7 @@ func (p *shardHandler) handleSendError(attempt *channeldb.HTLCAttemptInfo,
 			p.identifier, *reason, sendErr)
 
 		// Fail the payment via control tower.
-		if err := p.router.cfg.Control.Fail(
+		if err := p.router.cfg.Control.FailPayment(
 			p.identifier, *reason,
 		); err != nil {
 			log.Errorf("unable to report failure to control "+

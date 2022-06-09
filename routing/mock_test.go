@@ -469,7 +469,7 @@ func (m *mockControlTowerOld) FailAttempt(phash lntypes.Hash, pid uint64,
 	return nil, fmt.Errorf("pid not found")
 }
 
-func (m *mockControlTowerOld) Fail(phash lntypes.Hash,
+func (m *mockControlTowerOld) FailPayment(phash lntypes.Hash,
 	reason channeldb.FailureReason) error {
 
 	m.Lock()
@@ -733,7 +733,7 @@ func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
 	return args.Get(0).(*channeldb.HTLCAttempt), args.Error(1)
 }
 
-func (m *mockControlTower) Fail(phash lntypes.Hash,
+func (m *mockControlTower) FailPayment(phash lntypes.Hash,
 	reason channeldb.FailureReason) error {
 
 	m.Lock()

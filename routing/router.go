@@ -2253,7 +2253,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 		log.Debugf("Invalid route provided for payment %x: %v",
 			paymentIdentifier, err)
 
-		controlErr := r.cfg.Control.Fail(
+		controlErr := r.cfg.Control.FailPayment(
 			paymentIdentifier, channeldb.FailureReasonError,
 		)
 		if controlErr != nil {
@@ -2301,14 +2301,16 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// If a non-terminal error is returned and `skipTempErr` is false, then
 	// we'll use the normal no route error.
 	case err == nil && !skipTempErr:
-		err = r.cfg.Control.Fail(
+		err = r.cfg.Control.FailPayment(
 			paymentIdentifier, channeldb.FailureReasonNoRoute,
 		)
 
 	// If this is a failure reason, then we'll apply the failure directly
 	// to the control tower, and return the normal response to the caller.
 	case goErrors.As(err, &failureReason):
-		err = r.cfg.Control.Fail(paymentIdentifier, *failureReason)
+		err = r.cfg.Control.FailPayment(
+			paymentIdentifier, *failureReason,
+		)
 	}
 	if err != nil {
 		return nil, err

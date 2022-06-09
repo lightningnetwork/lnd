@@ -23,7 +23,6 @@ var errShardHandlerExiting = fmt.Errorf("shard handler exiting")
 // needed to resume if from any point.
 type paymentLifecycle struct {
 	router        *ChannelRouter
-	totalAmount   lnwire.MilliSatoshi
 	feeLimit      lnwire.MilliSatoshi
 	identifier    lntypes.Hash
 	paySession    PaymentSession
@@ -83,9 +82,10 @@ func (p *paymentLifecycle) fetchPaymentState() (*channeldb.MPPayment,
 	sentAmt, fees := payment.SentAmt()
 
 	// Sanity check we haven't sent a value larger than the payment amount.
-	if sentAmt > p.totalAmount {
+	totalAmt := payment.Info.Value
+	if sentAmt > totalAmt {
 		return nil, nil, fmt.Errorf("amount sent %v exceeds "+
-			"total amount %v", sentAmt, p.totalAmount)
+			"total amount %v", sentAmt, totalAmt)
 	}
 
 	// We'll subtract the used fee from our fee budget, but allow the fees
@@ -109,7 +109,7 @@ func (p *paymentLifecycle) fetchPaymentState() (*channeldb.MPPayment,
 	// Update the payment state.
 	state := &paymentState{
 		numShardsInFlight: len(payment.InFlightHTLCs()),
-		remainingAmt:      p.totalAmount - sentAmt,
+		remainingAmt:      totalAmt - sentAmt,
 		remainingFees:     feeBudget,
 		terminate:         terminate,
 	}

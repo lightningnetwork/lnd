@@ -3421,7 +3421,9 @@ func TestSendMPPaymentSucceed(t *testing.T) {
 	// The following mocked methods are called inside resumePayment. Note
 	// that the payment object below will determine the state of the
 	// paymentLifecycle.
-	payment := &channeldb.MPPayment{}
+	payment := &channeldb.MPPayment{
+		Info: &channeldb.PaymentCreationInfo{Value: paymentAmt},
+	}
 	controlTower.On("FetchPayment", identifier).Return(payment, nil)
 
 	// Create a route that can send 1/4 of the total amount. This value
@@ -3588,7 +3590,9 @@ func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
 	// The following mocked methods are called inside resumePayment. Note
 	// that the payment object below will determine the state of the
 	// paymentLifecycle.
-	payment := &channeldb.MPPayment{}
+	payment := &channeldb.MPPayment{
+		Info: &channeldb.PaymentCreationInfo{Value: paymentAmt},
+	}
 	controlTower.On("FetchPayment", identifier).Return(payment, nil)
 
 	// Create a route that can send 1/4 of the total amount. This value
@@ -3800,7 +3804,9 @@ func TestSendMPPaymentFailed(t *testing.T) {
 	// The following mocked methods are called inside resumePayment. Note
 	// that the payment object below will determine the state of the
 	// paymentLifecycle.
-	payment := &channeldb.MPPayment{}
+	payment := &channeldb.MPPayment{
+		Info: &channeldb.PaymentCreationInfo{Value: paymentAmt},
+	}
 	controlTower.On("FetchPayment", identifier).Return(payment, nil)
 
 	// Create a route that can send 1/4 of the total amount. This value
@@ -4004,7 +4010,9 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 	// The following mocked methods are called inside resumePayment. Note
 	// that the payment object below will determine the state of the
 	// paymentLifecycle.
-	payment := &channeldb.MPPayment{}
+	payment := &channeldb.MPPayment{
+		Info: &channeldb.PaymentCreationInfo{Value: paymentAmt},
+	}
 	controlTower.On("FetchPayment", identifier).Return(payment, nil)
 
 	// Create a route that can send 1/4 of the total amount. This value

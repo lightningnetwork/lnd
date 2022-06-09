@@ -1052,10 +1052,9 @@ func TestUpdatePaymentState(t *testing.T) {
 			ct := &mockControlTower{}
 			rt := &ChannelRouter{cfg: &Config{Control: ct}}
 			pl := &paymentLifecycle{
-				router:      rt,
-				identifier:  paymentHash,
-				totalAmount: lnwire.MilliSatoshi(tc.totalAmt),
-				feeLimit:    lnwire.MilliSatoshi(tc.feeLimit),
+				router:     rt,
+				identifier: paymentHash,
+				feeLimit:   lnwire.MilliSatoshi(tc.feeLimit),
 			}
 
 			if tc.payment == nil {
@@ -1066,6 +1065,12 @@ func TestUpdatePaymentState(t *testing.T) {
 					nil, dummyErr,
 				)
 			} else {
+				// Attach the payment info.
+				info := &channeldb.PaymentCreationInfo{
+					Value: lnwire.MilliSatoshi(tc.totalAmt),
+				}
+				tc.payment.Info = info
+
 				// Otherwise we will return the payment.
 				ct.On("FetchPayment", paymentHash).Return(
 					tc.payment, nil,

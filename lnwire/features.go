@@ -129,6 +129,18 @@ const (
 	// transactions, which also imply anchor commitments.
 	AnchorsZeroFeeHtlcTxOptional FeatureBit = 23
 
+	// ShutdownAnySegwitRequired is an required feature bit that signals
+	// that the sender is able to properly handle/parse segwit witness
+	// programs up to version 16. This enables utilization of Taproot
+	// addresses for cooperative closure addresses.
+	ShutdownAnySegwitRequired FeatureBit = 26
+
+	// ShutdownAnySegwitOptional is an optional feature bit that signals
+	// that the sender is able to properly handle/parse segwit witness
+	// programs up to version 16. This enables utilization of Taproot
+	// addresses for cooperative closure addresses.
+	ShutdownAnySegwitOptional FeatureBit = 27
+
 	// AMPRequired is a required feature bit that signals that the receiver
 	// of a payment supports accepts spontaneous payments, i.e.
 	// sender-generated preimages according to BOLT XX.
@@ -266,6 +278,8 @@ var Features = map[FeatureBit]string{
 	ScidAliasOptional:             "scid-alias",
 	ZeroConfRequired:              "zero-conf",
 	ZeroConfOptional:              "zero-conf",
+	ShutdownAnySegwitRequired:     "shutdown-any-segwit",
+	ShutdownAnySegwitOptional:     "shutdown-any-segwit",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

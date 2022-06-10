@@ -1070,6 +1070,21 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(req)
 		},
+		MsgUpdateAddHTLC: func(v []reflect.Value, r *rand.Rand) {
+			req := NewUpdateAddHTLC()
+
+			pubkey, err := randPubKey()
+			if err != nil {
+				t.Fatalf("unable to generate key: %v", err)
+				return
+			}
+
+			req.BlindingPoint = BlindingPoint{
+				PublicKey: pubkey,
+			}
+
+			v[0] = reflect.ValueOf(*req)
+		},
 	}
 
 	// With the above types defined, we'll now generate a slice of

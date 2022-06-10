@@ -45,9 +45,6 @@ const (
 )
 
 var (
-	// Just use some arbitrary bytes as delivery script.
-	dummyDeliveryScript = channels.AlicesPrivKey
-
 	testKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
 )
 
@@ -368,26 +365,26 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	}
 
 	cfg := &Config{
-		Addr:        cfgAddr,
-		PubKeyBytes: pubKey,
-		ErrorBuffer: errBuffer,
-		ChainIO:     chainIO,
-		Switch:      mockSwitch,
-
+		Addr:              cfgAddr,
+		PubKeyBytes:       pubKey,
+		ErrorBuffer:       errBuffer,
+		ChainIO:           chainIO,
+		Switch:            mockSwitch,
 		ChanActiveTimeout: chanActiveTimeout,
 		InterceptSwitch: htlcswitch.NewInterceptableSwitch(
 			nil, testCltvRejectDelta, false,
 		),
-
 		ChannelDB:      dbAlice.ChannelStateDB(),
 		FeeEstimator:   estimator,
 		Wallet:         wallet,
 		ChainNotifier:  notifier,
 		ChanStatusMgr:  chanStatusMgr,
+		Features:       lnwire.NewFeatureVector(nil, lnwire.Features),
 		DisconnectPeer: func(b *btcec.PublicKey) error { return nil },
 	}
 
 	alicePeer := NewBrontide(*cfg)
+	alicePeer.remoteFeatures = lnwire.NewFeatureVector(nil, lnwire.Features)
 
 	chanID := lnwire.NewChanIDFromOutPoint(channelAlice.ChannelPoint())
 	alicePeer.activeChannels[chanID] = channelAlice

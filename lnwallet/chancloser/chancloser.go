@@ -43,6 +43,10 @@ var (
 	// responder.
 	ErrProposalExeceedsMaxFee = fmt.Errorf("latest fee proposal exceeds " +
 		"max fee")
+
+	// ErrInvalidShutdownScript is returned when we receive an address from
+	// a peer that isn't either a p2wsh or p2tr address.
+	ErrInvalidShutdownScript = fmt.Errorf("invalid shutdown script")
 )
 
 // closeState represents all the possible states the channel closer state
@@ -152,6 +156,9 @@ type ChanCloseCfg struct {
 	// MaxFee, is non-zero represents the highest fee that the initiator is
 	// willing to pay to close the channel.
 	MaxFee chainfee.SatPerKWeight
+
+	// ChainParams holds the parameters of the chain that we're active on.
+	ChainParams *chaincfg.Params
 
 	// Quit is a channel that should be sent upon in the occasion the state
 	// machine should cease all progress and shutdown.
@@ -359,17 +366,33 @@ func (c *ChanCloser) NegotiationHeight() uint32 {
 	return c.negotiationHeight
 }
 
-// maybeMatchScript attempts to match the script provided in our peer's
-// shutdown message with the upfront shutdown script we have on record. If no
-// upfront shutdown script was set, we do not need to enforce option upfront
-// shutdown, so the function returns early. If an upfront script is set, we
-// check whether it matches the script provided by our peer. If they do not
-// match, we use the disconnect function provided to disconnect from the peer.
-func maybeMatchScript(disconnect func() error, upfrontScript,
-	peerScript lnwire.DeliveryAddress) error {
+// validateShutdownScript attempts to match and validate the script provided in
+// our peer's shutdown message with the upfront shutdown script we have on
+// record. For any script specified, we also make sure it matches our
+// requirements. If no upfront shutdown script was set, we do not need to
+// enforce option upfront shutdown, so the function returns early. If an
+// upfront script is set, we check whether it matches the script provided by
+// our peer. If they do not match, we use the disconnect function provided to
+// disconnect from the peer.
+func validateShutdownScript(disconnect func() error, upfrontScript,
+	peerScript lnwire.DeliveryAddress, netParams *chaincfg.Params) error {
 
-	// If no upfront shutdown script was set, return early because we do not
-	// need to enforce closure to a specific script.
+	// Either way, we'll make sure that the script passed meets our
+	// standards. The upfrontScript should have already been checked at an
+	// earlier stage, but we'll repeat the check here for defense in depth.
+	if len(upfrontScript) != 0 {
+		if !lnwallet.ValidateUpfrontShutdown(upfrontScript, netParams) {
+			return ErrInvalidShutdownScript
+		}
+	}
+	if len(peerScript) != 0 {
+		if !lnwallet.ValidateUpfrontShutdown(peerScript, netParams) {
+			return ErrInvalidShutdownScript
+		}
+	}
+
+	// If no upfront shutdown script was set, return early because we do
+	// not need to enforce closure to a specific script.
 	if len(upfrontScript) == 0 {
 		return nil
 	}
@@ -435,9 +458,9 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 
 		// If the remote node opened the channel with option upfront shutdown
 		// script, check that the script they provided matches.
-		if err := maybeMatchScript(
+		if err := validateShutdownScript(
 			c.cfg.Disconnect, c.cfg.Channel.RemoteUpfrontShutdownScript(),
-			shutdownMsg.Address,
+			shutdownMsg.Address, c.cfg.ChainParams,
 		); err != nil {
 			return nil, false, err
 		}
@@ -494,8 +517,10 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 
 		// If the remote node opened the channel with option upfront shutdown
 		// script, check that the script they provided matches.
-		if err := maybeMatchScript(c.cfg.Disconnect,
+		if err := validateShutdownScript(
+			c.cfg.Disconnect,
 			c.cfg.Channel.RemoteUpfrontShutdownScript(), shutdownMsg.Address,
+			c.cfg.ChainParams,
 		); err != nil {
 			return nil, false, err
 		}

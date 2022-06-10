@@ -2706,7 +2706,8 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 			Disconnect: func() error {
 				return p.cfg.DisconnectPeer(p.IdentityKey())
 			},
-			Quit: p.quit,
+			ChainParams: &p.cfg.Wallet.Cfg.NetParams,
+			Quit:        p.quit,
 		},
 		deliveryScript,
 		fee,

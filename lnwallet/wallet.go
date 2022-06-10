@@ -1329,7 +1329,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	shutdown := req.contribution.UpfrontShutdown
 	if len(shutdown) > 0 {
 		// Validate the shutdown script.
-		if !validateUpfrontShutdown(shutdown, &l.Cfg.NetParams) {
+		if !ValidateUpfrontShutdown(shutdown, &l.Cfg.NetParams) {
 			req.err <- fmt.Errorf("invalid shutdown script")
 			return
 		}
@@ -1660,7 +1660,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	shutdown := req.contribution.UpfrontShutdown
 	if len(shutdown) > 0 {
 		// Validate the shutdown script.
-		if !validateUpfrontShutdown(shutdown, &l.Cfg.NetParams) {
+		if !ValidateUpfrontShutdown(shutdown, &l.Cfg.NetParams) {
 			req.err <- fmt.Errorf("invalid shutdown script")
 			return
 		}
@@ -2087,8 +2087,8 @@ func (l *LightningWallet) WithCoinSelectLock(f func() error) error {
 // state hints from the root to be used for a new channel. The obfuscator is
 // generated via the following computation:
 //
-//   * sha256(initiatorKey || responderKey)[26:]
-//     * where both keys are the multi-sig keys of the respective parties
+//   - sha256(initiatorKey || responderKey)[26:]
+//     -- where both keys are the multi-sig keys of the respective parties
 //
 // The first 6 bytes of the resulting hash are used as the state hint.
 func DeriveStateHintObfuscator(key1, key2 *btcec.PublicKey) [StateHintSize]byte {
@@ -2254,23 +2254,36 @@ func (s *shimKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (keychain.KeyDesc
 	return *fundingKeys.LocalKey, nil
 }
 
-// validateUpfrontShutdown checks whether the provided upfront_shutdown_script
+// ValidateUpfrontShutdown checks whether the provided upfront_shutdown_script
 // is of a valid type that we accept.
-func validateUpfrontShutdown(shutdown lnwire.DeliveryAddress,
+func ValidateUpfrontShutdown(shutdown lnwire.DeliveryAddress,
 	params *chaincfg.Params) bool {
 
 	// We don't need to worry about a large UpfrontShutdownScript since it
 	// was already checked in lnwire when decoding from the wire.
 	scriptClass, _, _, _ := txscript.ExtractPkScriptAddrs(shutdown, params)
 
-	switch scriptClass {
-	case txscript.PubKeyHashTy,
-		txscript.WitnessV0PubKeyHashTy,
-		txscript.ScriptHashTy,
-		txscript.WitnessV0ScriptHashTy:
-		// The above four types are permitted according to BOLT#02.
-		// Everything else is disallowed.
+	switch {
+	case scriptClass == txscript.WitnessV0PubKeyHashTy,
+		scriptClass == txscript.WitnessV0ScriptHashTy,
+		scriptClass == txscript.WitnessV1TaprootTy:
+
+		// The above three types are permitted according to BOLT#02 and
+		// BOLT#05.  Everything else is disallowed.
 		return true
+
+	// In this case, we don't know about the actual script template, but it
+	// might be a witness program with versions 2-16. So we'll check that
+	// now
+	case txscript.IsWitnessProgram(shutdown):
+		version, _, err := txscript.ExtractWitnessProgramInfo(shutdown)
+		if err != nil {
+			walletLog.Warnf("unable to extract witness program "+
+				"version (script=%x): %v", shutdown, err)
+			return false
+		}
+
+		return version >= 1 && version <= 16
 
 	default:
 		return false

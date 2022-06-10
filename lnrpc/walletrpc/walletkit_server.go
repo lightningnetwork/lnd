@@ -542,6 +542,9 @@ func (w *WalletKit) NextAddr(ctx context.Context,
 	case AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 		return nil, fmt.Errorf("invalid address type for next "+
 			"address: %v", req.Type)
+
+	case AddressType_TAPROOT_PUBKEY:
+		addrType = lnwallet.TaprootPubkey
 	}
 
 	addr, err := w.cfg.Wallet.NewAddress(addrType, req.Change, account)
@@ -858,22 +861,25 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 			"transaction")
 	}
 
-	var witnessType input.WitnessType
-	switch utxo.AddressType {
-	case lnwallet.WitnessPubKey:
-		witnessType = input.WitnessKeyHash
-	case lnwallet.NestedWitnessPubKey:
-		witnessType = input.NestedWitnessKeyHash
-	default:
-		return nil, fmt.Errorf("unknown input witness %v", op)
-	}
-
 	signDesc := &input.SignDescriptor{
 		Output: &wire.TxOut{
 			PkScript: utxo.PkScript,
 			Value:    int64(utxo.Value),
 		},
 		HashType: txscript.SigHashAll,
+	}
+
+	var witnessType input.WitnessType
+	switch utxo.AddressType {
+	case lnwallet.WitnessPubKey:
+		witnessType = input.WitnessKeyHash
+	case lnwallet.NestedWitnessPubKey:
+		witnessType = input.NestedWitnessKeyHash
+	case lnwallet.TaprootPubkey:
+		witnessType = input.TaprootPubKeySpend
+		signDesc.HashType = txscript.SigHashDefault
+	default:
+		return nil, fmt.Errorf("unknown input witness %v", op)
 	}
 
 	// We'll use the current height as the height hint since we're dealing
@@ -884,8 +890,9 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 			err)
 	}
 
-	input := input.NewBaseInput(op, witnessType, signDesc, uint32(currentHeight))
-	if _, err = w.cfg.Sweeper.SweepInput(input, sweep.Params{Fee: feePreference}); err != nil {
+	inp := input.NewBaseInput(op, witnessType, signDesc, uint32(currentHeight))
+	sweepParams := sweep.Params{Fee: feePreference}
+	if _, err = w.cfg.Sweeper.SweepInput(inp, sweepParams); err != nil {
 		return nil, err
 	}
 

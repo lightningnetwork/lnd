@@ -355,23 +355,26 @@ func (t *txInputSet) tryAddWalletInputsIfNeeded() error {
 // createWalletTxInput converts a wallet utxo into an object that can be added
 // to the other inputs to sweep.
 func createWalletTxInput(utxo *lnwallet.Utxo) (input.Input, error) {
-	var witnessType input.WitnessType
-	switch utxo.AddressType {
-	case lnwallet.WitnessPubKey:
-		witnessType = input.WitnessKeyHash
-	case lnwallet.NestedWitnessPubKey:
-		witnessType = input.NestedWitnessKeyHash
-	default:
-		return nil, fmt.Errorf("unknown address type %v",
-			utxo.AddressType)
-	}
-
 	signDesc := &input.SignDescriptor{
 		Output: &wire.TxOut{
 			PkScript: utxo.PkScript,
 			Value:    int64(utxo.Value),
 		},
 		HashType: txscript.SigHashAll,
+	}
+
+	var witnessType input.WitnessType
+	switch utxo.AddressType {
+	case lnwallet.WitnessPubKey:
+		witnessType = input.WitnessKeyHash
+	case lnwallet.NestedWitnessPubKey:
+		witnessType = input.NestedWitnessKeyHash
+	case lnwallet.TaprootPubkey:
+		witnessType = input.TaprootPubKeySpend
+		signDesc.HashType = txscript.SigHashDefault
+	default:
+		return nil, fmt.Errorf("unknown address type %v",
+			utxo.AddressType)
 	}
 
 	// A height hint doesn't need to be set, because we don't monitor these

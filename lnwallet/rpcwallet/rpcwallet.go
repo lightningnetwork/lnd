@@ -259,7 +259,8 @@ func (r *RPCKeyRing) FinalizePsbt(packet *psbt.Packet, _ string) error {
 	// ones to sign. If there is any input without witness data that we
 	// cannot sign because it's not our UTXO, this will be a hard failure.
 	tx := packet.UnsignedTx
-	sigHashes := input.NewTxSigHashesV0Only(tx)
+	prevOutFetcher := basewallet.PsbtPrevOutputFetcher(packet)
+	sigHashes := txscript.NewTxSigHashes(tx, prevOutFetcher)
 	for idx, txIn := range tx.TxIn {
 		in := packet.Inputs[idx]
 

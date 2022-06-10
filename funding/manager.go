@@ -131,7 +131,7 @@ var (
 // via a local signal such as RPC.
 //
 // TODO(roasbeef): actually use the context package
-//  * deadlines, etc.
+//   - deadlines, etc.
 type reservationWithCtx struct {
 	reservation *lnwallet.ChannelReservation
 	peer        lnpeer.Peer
@@ -1483,16 +1483,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// (if any) in lieu of user input.
 	shutdown, err := getUpfrontShutdownScript(
 		f.cfg.EnableUpfrontShutdown, peer, acceptorResp.UpfrontShutdown,
-		func() (lnwire.DeliveryAddress, error) {
-			addr, err := f.cfg.Wallet.NewAddress(
-				lnwallet.WitnessPubKey, false,
-				lnwallet.DefaultAccountName,
-			)
-			if err != nil {
-				return nil, err
-			}
-			return txscript.PayToAddrScript(addr)
-		},
+		f.selectShutdownScript,
 	)
 	if err != nil {
 		f.failFundingFlow(
@@ -3686,7 +3677,7 @@ func (f *Manager) InitFundingWorkflow(msg *InitFundingMsg) {
 // upfront shutdown scripts automatically.
 func getUpfrontShutdownScript(enableUpfrontShutdown bool, peer lnpeer.Peer,
 	script lnwire.DeliveryAddress,
-	getScript func() (lnwire.DeliveryAddress, error)) (lnwire.DeliveryAddress,
+	getScript func(bool) (lnwire.DeliveryAddress, error)) (lnwire.DeliveryAddress,
 	error) {
 
 	// Check whether the remote peer supports upfront shutdown scripts.
@@ -3718,7 +3709,12 @@ func getUpfrontShutdownScript(enableUpfrontShutdown bool, peer lnpeer.Peer,
 		return nil, nil
 	}
 
-	return getScript()
+	// We can safely send a taproot address iff, both sides have negotiated
+	// the shutdown-any-segwit feature.
+	taprootOK := peer.RemoteFeatures().HasFeature(lnwire.ShutdownAnySegwitOptional) &&
+		peer.LocalFeatures().HasFeature(lnwire.ShutdownAnySegwitOptional)
+
+	return getScript(taprootOK)
 }
 
 // handleInitFundingMsg creates a channel reservation within the daemon's
@@ -3777,18 +3773,8 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// address from the wallet if our node is configured to set shutdown
 	// address by default).
 	shutdown, err := getUpfrontShutdownScript(
-		f.cfg.EnableUpfrontShutdown, msg.Peer,
-		msg.ShutdownScript,
-		func() (lnwire.DeliveryAddress, error) {
-			addr, err := f.cfg.Wallet.NewAddress(
-				lnwallet.WitnessPubKey, false,
-				lnwallet.DefaultAccountName,
-			)
-			if err != nil {
-				return nil, err
-			}
-			return txscript.PayToAddrScript(addr)
-		},
+		f.cfg.EnableUpfrontShutdown, msg.Peer, msg.ShutdownScript,
+		f.selectShutdownScript,
 	)
 	if err != nil {
 		msg.Err <- err
@@ -4266,4 +4252,25 @@ func (f *Manager) deleteChannelOpeningState(chanPoint *wire.OutPoint) error {
 	return f.cfg.Wallet.Cfg.Database.DeleteChannelOpeningState(
 		outpointBytes.Bytes(),
 	)
+}
+
+// selectShutdownScript selects the shutdown script we should send to the peer.
+// If we can use taproot, then we prefer that, otherwise we'll use a p2wkh
+// script.
+func (f *Manager) selectShutdownScript(taprootOK bool,
+) (lnwire.DeliveryAddress, error) {
+
+	addrType := lnwallet.WitnessPubKey
+	if taprootOK {
+		addrType = lnwallet.TaprootPubkey
+	}
+
+	addr, err := f.cfg.Wallet.NewAddress(
+		addrType, false, lnwallet.DefaultAccountName,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return txscript.PayToAddrScript(addr)
 }

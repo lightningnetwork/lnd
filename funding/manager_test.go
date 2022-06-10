@@ -3331,13 +3331,13 @@ func TestGetUpfrontShutdownScript(t *testing.T) {
 	upfrontScript := []byte("upfront script")
 	generatedScript := []byte("generated script")
 
-	getScript := func() (lnwire.DeliveryAddress, error) {
+	getScript := func(_ bool) (lnwire.DeliveryAddress, error) {
 		return generatedScript, nil
 	}
 
 	tests := []struct {
 		name           string
-		getScript      func() (lnwire.DeliveryAddress, error)
+		getScript      func(bool) (lnwire.DeliveryAddress, error)
 		upfrontScript  lnwire.DeliveryAddress
 		peerEnabled    bool
 		localEnabled   bool
@@ -3628,14 +3628,14 @@ func TestFundingManagerUpfrontShutdown(t *testing.T) {
 			pkscript: []byte("\xa9\x14\xfe\x44\x10\x65\xb6\x53" +
 				"\x22\x31\xde\x2f\xac\x56\x31\x52\x20\x5e" +
 				"\xc4\xf5\x9c\x74\x87"),
-			expectErr: false,
+			expectErr: true,
 		},
 		{
 			name: "p2pkh script",
 			pkscript: []byte("\x76\xa9\x14\x64\x1a\xd5\x05\x1e" +
 				"\xdd\x97\x02\x9a\x00\x3f\xe9\xef\xb2\x93" +
 				"\x59\xfc\xee\x40\x9d\x88\xac"),
-			expectErr: false,
+			expectErr: true,
 		},
 		{
 			name: "p2wpkh script",

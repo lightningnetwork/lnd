@@ -169,7 +169,7 @@ func newAddress(ctx *cli.Context) error {
 		addrType = lnrpc.AddressType_TAPROOT_PUBKEY
 	default:
 		return fmt.Errorf("invalid address type %v, support address type "+
-			"are: p2wkh and np2wkh", stringAddrType)
+			"are: p2wkh, np2wkh, and p2tr", stringAddrType)
 	}
 
 	client, cleanUp := getClient(ctx)

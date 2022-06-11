@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/neutrino/cache"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -173,10 +172,10 @@ func TestBlockCacheMutexes(t *testing.T) {
 		go func(e int) {
 			if e%2 == 0 {
 				_, err := bc.GetBlock(&blockhash1, getBlockImpl)
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			} else {
 				_, err := bc.GetBlock(&blockhash2, getBlockImpl)
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 
 			wg.Done()

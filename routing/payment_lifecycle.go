@@ -186,9 +186,21 @@ lifecycle:
 			// Find the first successful shard and return
 			// the preimage and route.
 			for _, a := range payment.HTLCs {
-				if a.Settle != nil {
-					return a.Settle.Preimage, &a.Route, nil
+				if a.Settle == nil {
+					continue
 				}
+
+				err := p.router.cfg.Control.
+					DeleteFailedAttempts(
+						p.identifier)
+				if err != nil {
+					log.Errorf("Error deleting failed "+
+						"payment attempts for "+
+						"payment %v: %v", p.identifier,
+						err)
+				}
+
+				return a.Settle.Preimage, &a.Route, nil
 			}
 
 			// Payment failed.

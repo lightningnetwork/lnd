@@ -3571,6 +3571,7 @@ func TestSendMPPaymentSucceed(t *testing.T) {
 			}
 		}
 	})
+	controlTower.On("DeleteFailedAttempts", identifier).Return(nil)
 
 	// Call the actual method SendPayment on router. This is place inside a
 	// goroutine so we can set a timeout for the whole test, in case
@@ -3782,6 +3783,7 @@ func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
 			return
 		}
 	})
+	controlTower.On("DeleteFailedAttempts", identifier).Return(nil)
 
 	// Call the actual method SendPayment on router. This is place inside a
 	// goroutine so we can set a timeout for the whole test, in case

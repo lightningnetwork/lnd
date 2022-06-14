@@ -267,6 +267,15 @@ type Switch struct {
 	// channels that the switch maintains with that peer.
 	interfaceIndex map[[33]byte]map[lnwire.ChannelID]ChannelLink
 
+	// linkStopIndex stores the currently stopping ChannelLinks,
+	// represented by their ChannelID. The key is the link's ChannelID and
+	// the value is a chan that is closed when the link has fully stopped.
+	// This map is only added to if RemoveLink is called and is not added
+	// to when the Switch is shutting down and calls Stop() on each link.
+	//
+	// MUST be used with the indexMtx.
+	linkStopIndex map[lnwire.ChannelID]chan struct{}
+
 	// htlcPlex is the channel which all connected links use to coordinate
 	// the setup/teardown of Sphinx (onion routing) payment circuits.
 	// Active links forward any add/settle messages over this channel each
@@ -327,6 +336,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		forwardingIndex:   make(map[lnwire.ShortChannelID]ChannelLink),
 		interfaceIndex:    make(map[[33]byte]map[lnwire.ChannelID]ChannelLink),
 		pendingLinkIndex:  make(map[lnwire.ChannelID]ChannelLink),
+		linkStopIndex:     make(map[lnwire.ChannelID]chan struct{}),
 		networkResults:    newNetworkResultStore(cfg.DB),
 		htlcPlex:          make(chan *plexPacket),
 		chanCloseRequests: make(chan *ChanClose),
@@ -2269,12 +2279,50 @@ func (s *Switch) HasActiveLink(chanID lnwire.ChannelID) bool {
 // returns after the link has been completely shutdown.
 func (s *Switch) RemoveLink(chanID lnwire.ChannelID) {
 	s.indexMtx.Lock()
-	link := s.removeLink(chanID)
+	link, err := s.getLink(chanID)
+	if err != nil {
+		// If err is non-nil, this means that link is also nil. The
+		// link variable cannot be nil without err being non-nil.
+		s.indexMtx.Unlock()
+		log.Tracef("Unable to remove link for ChannelID(%v): %v",
+			chanID, err)
+		return
+	}
+
+	// Check if the link is already stopping and grab the stop chan if it
+	// is.
+	stopChan, ok := s.linkStopIndex[chanID]
+	if !ok {
+		// If the link is non-nil, it is not currently stopping, so
+		// we'll add a stop chan to the linkStopIndex.
+		stopChan = make(chan struct{})
+		s.linkStopIndex[chanID] = stopChan
+	}
 	s.indexMtx.Unlock()
 
-	if link != nil {
-		link.Stop()
+	if ok {
+		// If the stop chan exists, we will wait for it to be closed.
+		// Once it is closed, we will exit.
+		select {
+		case <-stopChan:
+			return
+		case <-s.quit:
+			return
+		}
 	}
+
+	// Stop the link before removing it from the maps.
+	link.Stop()
+
+	s.indexMtx.Lock()
+	_ = s.removeLink(chanID)
+
+	// Close stopChan and remove this link from the linkStopIndex.
+	// Deleting from the index and removing from the link must be done
+	// in the same block while the mutex is held.
+	close(stopChan)
+	delete(s.linkStopIndex, chanID)
+	s.indexMtx.Unlock()
 }
 
 // removeLink is used to remove and stop the channel link.

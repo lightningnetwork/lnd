@@ -678,6 +678,50 @@ func EmptyFeatureVector() *FeatureVector {
 	return NewFeatureVector(nil, Features)
 }
 
+// Record implements the RecordProducer interface for FeatureVector. Note that
+// it uses a zero-value type is used to produce the record, as we expect this
+// type value to be overwritten when used in generic TLV record production.
+// This allows a single Record function to serve in the many different contexts
+// in which feature vectors are encoded. This record wraps the encoding/
+// decoding for our raw feature vectors so that we can directly parse fully
+// formed feature vector types.
+func (fv *FeatureVector) Record() tlv.Record {
+	return tlv.MakeDynamicRecord(0, fv, fv.sizeFunc,
+		func(w io.Writer, val interface{}, buf *[8]byte) error {
+			if f, ok := val.(*FeatureVector); ok {
+				return rawFeatureEncoder(
+					w, f.RawFeatureVector, buf,
+				)
+			}
+
+			return tlv.NewTypeForEncodingErr(
+				val, "*lnwire.FeatureVector",
+			)
+		},
+		func(r io.Reader, val interface{}, buf *[8]byte,
+			l uint64) error {
+
+			if f, ok := val.(*FeatureVector); ok {
+				features := NewFeatureVector(nil, Features)
+				err := rawFeatureDecoder(
+					r, features.RawFeatureVector, buf, l,
+				)
+				if err != nil {
+					return err
+				}
+
+				*f = *features
+
+				return nil
+			}
+
+			return tlv.NewTypeForDecodingErr(
+				val, "*lnwire.FeatureVector", l, l,
+			)
+		},
+	)
+}
+
 // HasFeature returns whether a particular feature is included in the set. The
 // feature can be seen as set either if the bit is set directly OR the queried
 // bit has the same meaning as its corresponding even/odd bit, which is set

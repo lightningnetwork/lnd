@@ -3171,6 +3171,7 @@ message Invoice {
     /*
     The hash of the preimage. When using REST, this field must be encoded as
     base64.
+    Note: Output only, don't specify for creating an invoice.
     */
     bytes r_hash = 4;
 
@@ -3191,16 +3192,23 @@ message Invoice {
     // Whether this invoice has been fulfilled
     bool settled = 6 [deprecated = true];
 
-    // When this invoice was created
+    /*
+    When this invoice was created.
+    Note: Output only, don't specify for creating an invoice.
+    */
     int64 creation_date = 7;
 
-    // When this invoice was settled
+    /*
+    When this invoice was settled.
+    Note: Output only, don't specify for creating an invoice.
+    */
     int64 settle_date = 8;
 
     /*
     A bare-bones invoice for a payment within the Lightning Network. With the
     details of the invoice, the sender has all the data necessary to send a
     payment to the recipient.
+    Note: Output only, don't specify for creating an invoice.
     */
     string payment_request = 9;
 
@@ -3235,6 +3243,7 @@ message Invoice {
     this index making it monotonically increasing. Callers to the
     SubscribeInvoices call can use this to instantly get notified of all added
     invoices with an add_index greater than this one.
+    Note: Output only, don't specify for creating an invoice.
     */
     uint64 add_index = 16;
 
@@ -3243,6 +3252,7 @@ message Invoice {
     increment this index making it monotonically increasing. Callers to the
     SubscribeInvoices call can use this to instantly get notified of all
     settled invoices with an settle_index greater than this one.
+    Note: Output only, don't specify for creating an invoice.
     */
     uint64 settle_index = 17;
 
@@ -3256,6 +3266,7 @@ message Invoice {
     was ultimately accepted. Additionally, it's possible that the sender paid
     MORE that was specified in the original invoice. So we'll record that here
     as well.
+    Note: Output only, don't specify for creating an invoice.
     */
     int64 amt_paid_sat = 19;
 
@@ -3266,6 +3277,7 @@ message Invoice {
     amount was ultimately accepted. Additionally, it's possible that the sender
     paid MORE that was specified in the original invoice. So we'll record that
     here as well.
+    Note: Output only, don't specify for creating an invoice.
     */
     int64 amt_paid_msat = 20;
 
@@ -3278,18 +3290,26 @@ message Invoice {
 
     /*
     The state the invoice is in.
+    Note: Output only, don't specify for creating an invoice.
     */
     InvoiceState state = 21;
 
-    // List of HTLCs paying to this invoice [EXPERIMENTAL].
+    /*
+    List of HTLCs paying to this invoice [EXPERIMENTAL].
+    Note: Output only, don't specify for creating an invoice.
+    */
     repeated InvoiceHTLC htlcs = 22;
 
-    // List of features advertised on the invoice.
+    /*
+    List of features advertised on the invoice.
+    Note: Output only, don't specify for creating an invoice.
+    */
     map<uint32, Feature> features = 24;
 
     /*
     Indicates if this invoice was a spontaneous payment that arrived via keysend
     [EXPERIMENTAL].
+    Note: Output only, don't specify for creating an invoice.
     */
     bool is_keysend = 25;
 
@@ -3297,6 +3317,7 @@ message Invoice {
     The payment address of this invoice. This value will be used in MPP
     payments, and also for newer invoices that always require the MPP payload
     for added end-to-end security.
+    Note: Output only, don't specify for creating an invoice.
     */
     bytes payment_addr = 26;
 
@@ -3312,6 +3333,7 @@ message Invoice {
     given set ID. This field is always populated for AMP invoices, and can be
     used along side LookupInvoice to obtain the HTLC information related to a
     given sub-invoice.
+    Note: Output only, don't specify for creating an invoice.
     */
     map<string, AMPInvoiceState> amp_invoice_state = 28;
 }

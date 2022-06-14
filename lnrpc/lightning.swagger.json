@@ -4702,7 +4702,7 @@
         "r_hash": {
           "type": "string",
           "format": "byte",
-          "description": "The hash of the preimage. When using REST, this field must be encoded as\nbase64."
+          "description": "The hash of the preimage. When using REST, this field must be encoded as\nbase64.\nNote: Output only, don't specify for creating an invoice."
         },
         "value": {
           "type": "string",
@@ -4723,16 +4723,16 @@
         "creation_date": {
           "type": "string",
           "format": "int64",
-          "title": "When this invoice was created"
+          "description": "When this invoice was created.\nNote: Output only, don't specify for creating an invoice."
         },
         "settle_date": {
           "type": "string",
           "format": "int64",
-          "title": "When this invoice was settled"
+          "description": "When this invoice was settled.\nNote: Output only, don't specify for creating an invoice."
         },
         "payment_request": {
           "type": "string",
-          "description": "A bare-bones invoice for a payment within the Lightning Network. With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+          "description": "A bare-bones invoice for a payment within the Lightning Network. With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient.\nNote: Output only, don't specify for creating an invoice."
         },
         "description_hash": {
           "type": "string",
@@ -4767,12 +4767,12 @@
         "add_index": {
           "type": "string",
           "format": "uint64",
-          "description": "The \"add\" index of this invoice. Each newly created invoice will increment\nthis index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all added\ninvoices with an add_index greater than this one."
+          "description": "The \"add\" index of this invoice. Each newly created invoice will increment\nthis index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all added\ninvoices with an add_index greater than this one.\nNote: Output only, don't specify for creating an invoice."
         },
         "settle_index": {
           "type": "string",
           "format": "uint64",
-          "description": "The \"settle\" index of this invoice. Each newly settled invoice will\nincrement this index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all\nsettled invoices with an settle_index greater than this one."
+          "description": "The \"settle\" index of this invoice. Each newly settled invoice will\nincrement this index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all\nsettled invoices with an settle_index greater than this one.\nNote: Output only, don't specify for creating an invoice."
         },
         "amt_paid": {
           "type": "string",
@@ -4782,39 +4782,39 @@
         "amt_paid_sat": {
           "type": "string",
           "format": "int64",
-          "description": "The amount that was accepted for this invoice, in satoshis. This will ONLY\nbe set if this invoice has been settled. We provide this field as if the\ninvoice was created with a zero value, then we need to record what amount\nwas ultimately accepted. Additionally, it's possible that the sender paid\nMORE that was specified in the original invoice. So we'll record that here\nas well."
+          "description": "The amount that was accepted for this invoice, in satoshis. This will ONLY\nbe set if this invoice has been settled. We provide this field as if the\ninvoice was created with a zero value, then we need to record what amount\nwas ultimately accepted. Additionally, it's possible that the sender paid\nMORE that was specified in the original invoice. So we'll record that here\nas well.\nNote: Output only, don't specify for creating an invoice."
         },
         "amt_paid_msat": {
           "type": "string",
           "format": "int64",
-          "description": "The amount that was accepted for this invoice, in millisatoshis. This will\nONLY be set if this invoice has been settled. We provide this field as if\nthe invoice was created with a zero value, then we need to record what\namount was ultimately accepted. Additionally, it's possible that the sender\npaid MORE that was specified in the original invoice. So we'll record that\nhere as well."
+          "description": "The amount that was accepted for this invoice, in millisatoshis. This will\nONLY be set if this invoice has been settled. We provide this field as if\nthe invoice was created with a zero value, then we need to record what\namount was ultimately accepted. Additionally, it's possible that the sender\npaid MORE that was specified in the original invoice. So we'll record that\nhere as well.\nNote: Output only, don't specify for creating an invoice."
         },
         "state": {
           "$ref": "#/definitions/InvoiceInvoiceState",
-          "description": "The state the invoice is in."
+          "description": "The state the invoice is in.\nNote: Output only, don't specify for creating an invoice."
         },
         "htlcs": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/lnrpcInvoiceHTLC"
           },
-          "description": "List of HTLCs paying to this invoice [EXPERIMENTAL]."
+          "description": "List of HTLCs paying to this invoice [EXPERIMENTAL].\nNote: Output only, don't specify for creating an invoice."
         },
         "features": {
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/lnrpcFeature"
           },
-          "description": "List of features advertised on the invoice."
+          "description": "List of features advertised on the invoice.\nNote: Output only, don't specify for creating an invoice."
         },
         "is_keysend": {
           "type": "boolean",
-          "description": "Indicates if this invoice was a spontaneous payment that arrived via keysend\n[EXPERIMENTAL]."
+          "description": "Indicates if this invoice was a spontaneous payment that arrived via keysend\n[EXPERIMENTAL].\nNote: Output only, don't specify for creating an invoice."
         },
         "payment_addr": {
           "type": "string",
           "format": "byte",
-          "description": "The payment address of this invoice. This value will be used in MPP\npayments, and also for newer invoices that always require the MPP payload\nfor added end-to-end security."
+          "description": "The payment address of this invoice. This value will be used in MPP\npayments, and also for newer invoices that always require the MPP payload\nfor added end-to-end security.\nNote: Output only, don't specify for creating an invoice."
         },
         "is_amp": {
           "type": "boolean",
@@ -4825,7 +4825,7 @@
           "additionalProperties": {
             "$ref": "#/definitions/lnrpcAMPInvoiceState"
           },
-          "description": "Maps a 32-byte hex-encoded set ID to the sub-invoice AMP state for the\ngiven set ID. This field is always populated for AMP invoices, and can be\nused along side LookupInvoice to obtain the HTLC information related to a\ngiven sub-invoice.",
+          "description": "Maps a 32-byte hex-encoded set ID to the sub-invoice AMP state for the\ngiven set ID. This field is always populated for AMP invoices, and can be\nused along side LookupInvoice to obtain the HTLC information related to a\ngiven sub-invoice.\nNote: Output only, don't specify for creating an invoice.",
           "title": "[EXPERIMENTAL]:"
         }
       }

@@ -11245,6 +11245,7 @@ type Invoice struct {
 	//
 	//The hash of the preimage. When using REST, this field must be encoded as
 	//base64.
+	//Note: Output only, don't specify for creating an invoice.
 	RHash []byte `protobuf:"bytes,4,opt,name=r_hash,json=rHash,proto3" json:"r_hash,omitempty"`
 	//
 	//The value of this invoice in satoshis
@@ -11260,14 +11261,19 @@ type Invoice struct {
 	//
 	// Deprecated: Do not use.
 	Settled bool `protobuf:"varint,6,opt,name=settled,proto3" json:"settled,omitempty"`
-	// When this invoice was created
+	//
+	//When this invoice was created.
+	//Note: Output only, don't specify for creating an invoice.
 	CreationDate int64 `protobuf:"varint,7,opt,name=creation_date,json=creationDate,proto3" json:"creation_date,omitempty"`
-	// When this invoice was settled
+	//
+	//When this invoice was settled.
+	//Note: Output only, don't specify for creating an invoice.
 	SettleDate int64 `protobuf:"varint,8,opt,name=settle_date,json=settleDate,proto3" json:"settle_date,omitempty"`
 	//
 	//A bare-bones invoice for a payment within the Lightning Network. With the
 	//details of the invoice, the sender has all the data necessary to send a
 	//payment to the recipient.
+	//Note: Output only, don't specify for creating an invoice.
 	PaymentRequest string `protobuf:"bytes,9,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
 	//
 	//Hash (SHA-256) of a description of the payment. Used if the description of
@@ -11292,12 +11298,14 @@ type Invoice struct {
 	//this index making it monotonically increasing. Callers to the
 	//SubscribeInvoices call can use this to instantly get notified of all added
 	//invoices with an add_index greater than this one.
+	//Note: Output only, don't specify for creating an invoice.
 	AddIndex uint64 `protobuf:"varint,16,opt,name=add_index,json=addIndex,proto3" json:"add_index,omitempty"`
 	//
 	//The "settle" index of this invoice. Each newly settled invoice will
 	//increment this index making it monotonically increasing. Callers to the
 	//SubscribeInvoices call can use this to instantly get notified of all
 	//settled invoices with an settle_index greater than this one.
+	//Note: Output only, don't specify for creating an invoice.
 	SettleIndex uint64 `protobuf:"varint,17,opt,name=settle_index,json=settleIndex,proto3" json:"settle_index,omitempty"`
 	// Deprecated, use amt_paid_sat or amt_paid_msat.
 	//
@@ -11310,6 +11318,7 @@ type Invoice struct {
 	//was ultimately accepted. Additionally, it's possible that the sender paid
 	//MORE that was specified in the original invoice. So we'll record that here
 	//as well.
+	//Note: Output only, don't specify for creating an invoice.
 	AmtPaidSat int64 `protobuf:"varint,19,opt,name=amt_paid_sat,json=amtPaidSat,proto3" json:"amt_paid_sat,omitempty"`
 	//
 	//The amount that was accepted for this invoice, in millisatoshis. This will
@@ -11318,22 +11327,30 @@ type Invoice struct {
 	//amount was ultimately accepted. Additionally, it's possible that the sender
 	//paid MORE that was specified in the original invoice. So we'll record that
 	//here as well.
+	//Note: Output only, don't specify for creating an invoice.
 	AmtPaidMsat int64 `protobuf:"varint,20,opt,name=amt_paid_msat,json=amtPaidMsat,proto3" json:"amt_paid_msat,omitempty"`
 	//
 	//The state the invoice is in.
+	//Note: Output only, don't specify for creating an invoice.
 	State Invoice_InvoiceState `protobuf:"varint,21,opt,name=state,proto3,enum=lnrpc.Invoice_InvoiceState" json:"state,omitempty"`
-	// List of HTLCs paying to this invoice [EXPERIMENTAL].
+	//
+	//List of HTLCs paying to this invoice [EXPERIMENTAL].
+	//Note: Output only, don't specify for creating an invoice.
 	Htlcs []*InvoiceHTLC `protobuf:"bytes,22,rep,name=htlcs,proto3" json:"htlcs,omitempty"`
-	// List of features advertised on the invoice.
+	//
+	//List of features advertised on the invoice.
+	//Note: Output only, don't specify for creating an invoice.
 	Features map[uint32]*Feature `protobuf:"bytes,24,rep,name=features,proto3" json:"features,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	//
 	//Indicates if this invoice was a spontaneous payment that arrived via keysend
 	//[EXPERIMENTAL].
+	//Note: Output only, don't specify for creating an invoice.
 	IsKeysend bool `protobuf:"varint,25,opt,name=is_keysend,json=isKeysend,proto3" json:"is_keysend,omitempty"`
 	//
 	//The payment address of this invoice. This value will be used in MPP
 	//payments, and also for newer invoices that always require the MPP payload
 	//for added end-to-end security.
+	//Note: Output only, don't specify for creating an invoice.
 	PaymentAddr []byte `protobuf:"bytes,26,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
 	//
 	//Signals whether or not this is an AMP invoice.
@@ -11345,6 +11362,7 @@ type Invoice struct {
 	//given set ID. This field is always populated for AMP invoices, and can be
 	//used along side LookupInvoice to obtain the HTLC information related to a
 	//given sub-invoice.
+	//Note: Output only, don't specify for creating an invoice.
 	AmpInvoiceState map[string]*AMPInvoiceState `protobuf:"bytes,28,rep,name=amp_invoice_state,json=ampInvoiceState,proto3" json:"amp_invoice_state,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 }
 

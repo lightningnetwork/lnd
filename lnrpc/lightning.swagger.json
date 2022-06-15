@@ -3901,7 +3901,7 @@
       "properties": {
         "addr": {
           "$ref": "#/definitions/lnrpcLightningAddress",
-          "title": "Lightning address of the peer, in the format `\u003cpubkey\u003e@host`"
+          "description": "Lightning address of the peer to connect to."
         },
         "perm": {
           "type": "boolean",
@@ -4935,11 +4935,11 @@
       "properties": {
         "pubkey": {
           "type": "string",
-          "title": "The identity pubkey of the Lightning node"
+          "description": "The identity pubkey of the Lightning node."
         },
         "host": {
           "type": "string",
-          "title": "The network location of the lightning node, e.g. `69.69.69.69:1337` or\n`localhost:10011`"
+          "description": "The network location of the lightning node, e.g. `69.69.69.69:1337` or\n`localhost:10011`."
         }
       }
     },

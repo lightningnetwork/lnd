@@ -1008,11 +1008,11 @@ message OutPoint {
 }
 
 message LightningAddress {
-    // The identity pubkey of the Lightning node
+    // The identity pubkey of the Lightning node.
     string pubkey = 1;
 
     // The network location of the lightning node, e.g. `69.69.69.69:1337` or
-    // `localhost:10011`
+    // `localhost:10011`.
     string host = 2;
 }
 
@@ -1201,11 +1201,15 @@ message VerifyMessageResponse {
 }
 
 message ConnectPeerRequest {
-    // Lightning address of the peer, in the format `<pubkey>@host`
+    /*
+    Lightning address of the peer to connect to.
+    */
     LightningAddress addr = 1;
 
-    /* If set, the daemon will attempt to persistently connect to the target
-     * peer. Otherwise, the call will be synchronous. */
+    /*
+    If set, the daemon will attempt to persistently connect to the target
+    peer. Otherwise, the call will be synchronous.
+    */
     bool perm = 2;
 
     /*

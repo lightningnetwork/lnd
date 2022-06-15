@@ -2931,10 +2931,10 @@ type LightningAddress struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// The identity pubkey of the Lightning node
+	// The identity pubkey of the Lightning node.
 	Pubkey string `protobuf:"bytes,1,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
 	// The network location of the lightning node, e.g. `69.69.69.69:1337` or
-	// `localhost:10011`
+	// `localhost:10011`.
 	Host string `protobuf:"bytes,2,opt,name=host,proto3" json:"host,omitempty"`
 }
 
@@ -3919,10 +3919,12 @@ type ConnectPeerRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Lightning address of the peer, in the format `<pubkey>@host`
+	//
+	//Lightning address of the peer to connect to.
 	Addr *LightningAddress `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
-	// If set, the daemon will attempt to persistently connect to the target
-	// peer. Otherwise, the call will be synchronous.
+	//
+	//If set, the daemon will attempt to persistently connect to the target
+	//peer. Otherwise, the call will be synchronous.
 	Perm bool `protobuf:"varint,2,opt,name=perm,proto3" json:"perm,omitempty"`
 	//
 	//The connection timeout value (in seconds) for this request. It won't affect

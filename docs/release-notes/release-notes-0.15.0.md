@@ -185,6 +185,9 @@ from occurring that would result in an erroneous force close.](https://github.co
 
 * [Fixes a bug that would cause `SignPsbt` to panic w/ an underspecified packet](https://github.com/lightningnetwork/lnd/pull/6611)
 
+* [Fixes a panic in the graph diameter calculation if the graph is
+  empty](https://github.com/lightningnetwork/lnd/pull/6647).
+
 ## Routing
 
 * [Add a new `time_pref` parameter to the QueryRoutes and SendPayment APIs](https://github.com/lightningnetwork/lnd/pull/6024) that

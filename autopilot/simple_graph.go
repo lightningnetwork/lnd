@@ -132,6 +132,11 @@ func (graph *SimpleGraph) shortestPathLengths(node int) map[int]uint32 {
 	// thisLevel contains the nodes that are explored in the round.
 	thisLevel := make([]int, 0, graphOrder)
 
+	// Abort if we have an empty graph.
+	if len(graph.Adj) == 0 {
+		return seen
+	}
+
 	// We discover other nodes in a ring-like structure as long as we don't
 	// have more nodes to explore.
 	for len(nextLevel) > 0 {

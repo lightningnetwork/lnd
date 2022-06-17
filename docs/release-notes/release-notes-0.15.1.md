@@ -56,6 +56,12 @@
 * [The HtlcSwitch now waits for a ChannelLink to stop before replacing it. This fixes a race
   condition.](https://github.com/lightningnetwork/lnd/pull/6642)
 
+## Code Health
+
+### Code cleanup, refactor, typo fixes
+
+* [Migrate instances of assert.NoError to require.NoError](https://github.com/lightningnetwork/lnd/pull/6636).
+
 # Contributors (Alphabetical Order)
 
 * Carsten Otto

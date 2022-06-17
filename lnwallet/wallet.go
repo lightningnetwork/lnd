@@ -35,18 +35,18 @@ const (
 	// outside word.
 	msgBufferSize = 100
 
-	// anchorChanReservedValue is the amount we'll keep around in the
+	// AnchorChanReservedValue is the amount we'll keep around in the
 	// wallet in case we have to fee bump anchor channels on force close.
 	// TODO(halseth): update constant to target a specific commit size at
 	// set fee rate.
-	anchorChanReservedValue = btcutil.Amount(10_000)
+	AnchorChanReservedValue = btcutil.Amount(10_000)
 
-	// maxAnchorChanReservedValue is the maximum value we'll reserve for
+	// MaxAnchorChanReservedValue is the maximum value we'll reserve for
 	// anchor channel fee bumping. We cap it at 10 times the per-channel
 	// amount such that nodes with a high number of channels don't have to
 	// keep around a very large amount for the unlikely scenario that they
 	// all close at the same time.
-	maxAnchorChanReservedValue = 10 * anchorChanReservedValue
+	MaxAnchorChanReservedValue = 10 * AnchorChanReservedValue
 )
 
 var (
@@ -900,7 +900,7 @@ func (l *LightningWallet) enforceNewReservedValue(fundingIntent chanfunding.Inte
 		return nil
 	}
 
-	numAnchors, err := l.currentNumAnchorChans()
+	numAnchors, err := l.CurrentNumAnchorChans()
 	if err != nil {
 		return err
 	}
@@ -919,9 +919,9 @@ func (l *LightningWallet) enforceNewReservedValue(fundingIntent chanfunding.Inte
 	})
 }
 
-// currentNumAnchorChans returns the current number of non-private anchor
+// CurrentNumAnchorChans returns the current number of non-private anchor
 // channels the wallet should be ready to fee bump if needed.
-func (l *LightningWallet) currentNumAnchorChans() (int, error) {
+func (l *LightningWallet) CurrentNumAnchorChans() (int, error) {
 	// Count all anchor channels that are open or pending
 	// open, or waiting close.
 	chans, err := l.Cfg.Database.FetchAllChannels()
@@ -1046,9 +1046,9 @@ func (l *LightningWallet) CheckReservedValue(in []wire.OutPoint,
 	}
 
 	// We reserve a given amount for each anchor channel.
-	reserved := btcutil.Amount(numAnchorChans) * anchorChanReservedValue
-	if reserved > maxAnchorChanReservedValue {
-		reserved = maxAnchorChanReservedValue
+	reserved := btcutil.Amount(numAnchorChans) * AnchorChanReservedValue
+	if reserved > MaxAnchorChanReservedValue {
+		reserved = MaxAnchorChanReservedValue
 	}
 
 	if walletBalance < reserved {
@@ -1069,7 +1069,7 @@ func (l *LightningWallet) CheckReservedValue(in []wire.OutPoint,
 func (l *LightningWallet) CheckReservedValueTx(req CheckReservedValueTxReq) (
 	btcutil.Amount, error) {
 
-	numAnchors, err := l.currentNumAnchorChans()
+	numAnchors, err := l.CurrentNumAnchorChans()
 	if err != nil {
 		return 0, err
 	}

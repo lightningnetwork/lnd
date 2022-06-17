@@ -341,6 +341,39 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	// The reserved value is now back in Alice's wallet.
 	aliceBalance := waitForConfirmedBalance()
 
+	// The reserved value should be equal to the required reserve for anchor
+	// channels.
+	walletBalanceResp, err := alice.WalletBalance(
+		ctxb, &lnrpc.WalletBalanceRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Equal(
+		t.t, aliceBalance, walletBalanceResp.ReservedBalanceAnchorChan,
+	)
+
+	additionalChannels := int64(1)
+
+	// Required reserve when additional channels are provided.
+	requiredReserveResp, err := alice.WalletKitClient.RequiredReserve(
+		ctxb, &walletrpc.RequiredReserveRequest{
+			AdditionalPublicChannels: uint32(additionalChannels),
+		},
+	)
+	require.NoError(t.t, err)
+
+	additionalReservedValue := btcutil.Amount(additionalChannels *
+		int64(lnwallet.AnchorChanReservedValue))
+	totalReserved := btcutil.Amount(aliceBalance) + additionalReservedValue
+
+	// The total reserved value should not exceed the maximum value reserved
+	// for anchor channels.
+	if totalReserved > lnwallet.MaxAnchorChanReservedValue {
+		totalReserved = lnwallet.MaxAnchorChanReservedValue
+	}
+	require.Equal(
+		t.t, int64(totalReserved), requiredReserveResp.RequiredReserve,
+	)
+
 	// Alice closes channel, should now be allowed to send everything to an
 	// external address.
 	for _, chanPoint := range chanPoints {

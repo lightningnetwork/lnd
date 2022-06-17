@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/stretchr/testify/require"
 )
 
 // TestWitnessCacheSha256Retrieval tests that we're able to add and lookup new
@@ -13,9 +14,7 @@ func TestWitnessCacheSha256Retrieval(t *testing.T) {
 	t.Parallel()
 
 	cdb, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	wCache := cdb.NewWitnessCache()
@@ -30,9 +29,7 @@ func TestWitnessCacheSha256Retrieval(t *testing.T) {
 
 	// First, we'll attempt to add the preimages to the database.
 	err = wCache.AddSha256Witnesses(preimages...)
-	if err != nil {
-		t.Fatalf("unable to add witness: %v", err)
-	}
+	require.NoError(t, err, "unable to add witness")
 
 	// With the preimages stored, we'll now attempt to look them up.
 	for i, hash := range hashes {
@@ -58,9 +55,7 @@ func TestWitnessCacheSha256Deletion(t *testing.T) {
 	t.Parallel()
 
 	cdb, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	wCache := cdb.NewWitnessCache()
@@ -83,9 +78,7 @@ func TestWitnessCacheSha256Deletion(t *testing.T) {
 	// We'll now delete the first preimage. If we attempt to look it up, we
 	// should get ErrNoWitnesses.
 	err = wCache.DeleteSha256Witness(hash1)
-	if err != nil {
-		t.Fatalf("unable to delete witness: %v", err)
-	}
+	require.NoError(t, err, "unable to delete witness")
 	_, err = wCache.LookupSha256Witness(hash1)
 	if err != ErrNoWitnesses {
 		t.Fatalf("expected ErrNoWitnesses instead got: %v", err)
@@ -109,9 +102,7 @@ func TestWitnessCacheUnknownWitness(t *testing.T) {
 	t.Parallel()
 
 	cdb, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	wCache := cdb.NewWitnessCache()
@@ -128,9 +119,7 @@ func TestWitnessCacheUnknownWitness(t *testing.T) {
 // identically to the insertion via the generalized interface.
 func TestAddSha256Witnesses(t *testing.T) {
 	cdb, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	wCache := cdb.NewWitnessCache()
@@ -152,9 +141,7 @@ func TestAddSha256Witnesses(t *testing.T) {
 	)
 
 	err = wCache.legacyAddWitnesses(Sha256HashWitness, witnesses...)
-	if err != nil {
-		t.Fatalf("unable to add witness: %v", err)
-	}
+	require.NoError(t, err, "unable to add witness")
 
 	for i, hash := range hashes {
 		preimage := preimages[i]
@@ -181,9 +168,7 @@ func TestAddSha256Witnesses(t *testing.T) {
 	// Now, add the same witnesses using the type-safe interface for
 	// lntypes.Preimages..
 	err = wCache.AddSha256Witnesses(preimages...)
-	if err != nil {
-		t.Fatalf("unable to add sha256 preimage: %v", err)
-	}
+	require.NoError(t, err, "unable to add sha256 preimage")
 
 	// Finally, iterate over the keys and assert that the returned witnesses
 	// match the original witnesses. This asserts that the specialized

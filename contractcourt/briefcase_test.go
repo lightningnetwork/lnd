@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -306,9 +307,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	testLog, cleanUp, err := newTestBoltArbLog(
 		testChainHash, testChanPoint1,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test log: %v", err)
-	}
+	require.NoError(t, err, "unable to create test log")
 	defer cleanUp()
 
 	// The log created, we'll create a series of resolvers, each properly
@@ -386,17 +385,13 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	// Now, we'll insert the resolver into the log, we do not need to apply
 	// any closures, so we will pass in nil.
 	err = testLog.InsertUnresolvedContracts(nil, resolvers...)
-	if err != nil {
-		t.Fatalf("unable to insert resolvers: %v", err)
-	}
+	require.NoError(t, err, "unable to insert resolvers")
 
 	// With the resolvers inserted, we'll now attempt to retrieve them from
 	// the database, so we can compare them to the versions we created
 	// above.
 	diskResolvers, err := testLog.FetchUnresolvedContracts()
-	if err != nil {
-		t.Fatalf("unable to retrieve resolvers: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve resolvers")
 
 	if len(diskResolvers) != len(resolvers) {
 		t.Fatalf("expected %v got resolvers, instead got %v: %#v",
@@ -423,9 +418,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 		t.Fatalf("unable to wipe log: %v", err)
 	}
 	diskResolvers, err = testLog.FetchUnresolvedContracts()
-	if err != nil {
-		t.Fatalf("unable to fetch unresolved contracts: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch unresolved contracts")
 	if len(diskResolvers) != 0 {
 		t.Fatalf("no resolvers should be found, instead %v were",
 			len(diskResolvers))
@@ -442,9 +435,7 @@ func TestContractResolution(t *testing.T) {
 	testLog, cleanUp, err := newTestBoltArbLog(
 		testChainHash, testChanPoint1,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test log: %v", err)
-	}
+	require.NoError(t, err, "unable to create test log")
 	defer cleanUp()
 
 	// We'll now create a timeout resolver that we'll be using for the
@@ -469,13 +460,9 @@ func TestContractResolution(t *testing.T) {
 	// we get the same resolver out the other side. We do not need to apply
 	// any closures.
 	err = testLog.InsertUnresolvedContracts(nil, timeoutResolver)
-	if err != nil {
-		t.Fatalf("unable to insert contract into db: %v", err)
-	}
+	require.NoError(t, err, "unable to insert contract into db")
 	dbContracts, err := testLog.FetchUnresolvedContracts()
-	if err != nil {
-		t.Fatalf("unable to fetch contracts from db: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch contracts from db")
 	assertResolversEqual(t, timeoutResolver, dbContracts[0])
 
 	// Now, we'll mark the contract as resolved within the database.
@@ -485,9 +472,7 @@ func TestContractResolution(t *testing.T) {
 
 	// At this point, no contracts should exist within the log.
 	dbContracts, err = testLog.FetchUnresolvedContracts()
-	if err != nil {
-		t.Fatalf("unable to fetch contracts from db: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch contracts from db")
 	if len(dbContracts) != 0 {
 		t.Fatalf("no contract should be from in the db, instead %v "+
 			"were", len(dbContracts))
@@ -504,9 +489,7 @@ func TestContractSwapping(t *testing.T) {
 	testLog, cleanUp, err := newTestBoltArbLog(
 		testChainHash, testChanPoint1,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test log: %v", err)
-	}
+	require.NoError(t, err, "unable to create test log")
 	defer cleanUp()
 
 	// We'll create two resolvers, a regular timeout resolver, and the
@@ -533,23 +516,17 @@ func TestContractSwapping(t *testing.T) {
 	// We'll first insert the contest resolver into the log with no
 	// additional updates.
 	err = testLog.InsertUnresolvedContracts(nil, contestResolver)
-	if err != nil {
-		t.Fatalf("unable to insert contract into db: %v", err)
-	}
+	require.NoError(t, err, "unable to insert contract into db")
 
 	// With the resolver inserted, we'll now attempt to atomically swap it
 	// for its underlying timeout resolver.
 	err = testLog.SwapContract(contestResolver, timeoutResolver)
-	if err != nil {
-		t.Fatalf("unable to swap contracts: %v", err)
-	}
+	require.NoError(t, err, "unable to swap contracts")
 
 	// At this point, there should now only be a single contract in the
 	// database.
 	dbContracts, err := testLog.FetchUnresolvedContracts()
-	if err != nil {
-		t.Fatalf("unable to fetch contracts from db: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch contracts from db")
 	if len(dbContracts) != 1 {
 		t.Fatalf("one contract should be from in the db, instead %v "+
 			"were", len(dbContracts))
@@ -569,9 +546,7 @@ func TestContractResolutionsStorage(t *testing.T) {
 	testLog, cleanUp, err := newTestBoltArbLog(
 		testChainHash, testChanPoint1,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test log: %v", err)
-	}
+	require.NoError(t, err, "unable to create test log")
 	defer cleanUp()
 
 	// With the test log created, we'll now craft a contact resolution that
@@ -661,9 +636,7 @@ func TestContractResolutionsStorage(t *testing.T) {
 		t.Fatalf("unable to insert resolutions into db: %v", err)
 	}
 	diskRes, err := testLog.FetchContractResolutions()
-	if err != nil {
-		t.Fatalf("unable to read resolution from db: %v", err)
-	}
+	require.NoError(t, err, "unable to read resolution from db")
 
 	if !reflect.DeepEqual(&res, diskRes) {
 		t.Fatalf("resolution mismatch: expected %v\n, got %v",
@@ -689,16 +662,12 @@ func TestStateMutation(t *testing.T) {
 	testLog, cleanUp, err := newTestBoltArbLog(
 		testChainHash, testChanPoint1,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test log: %v", err)
-	}
+	require.NoError(t, err, "unable to create test log")
 	defer cleanUp()
 
 	// The default state of an arbitrator should be StateDefault.
 	arbState, err := testLog.CurrentState(nil)
-	if err != nil {
-		t.Fatalf("unable to read arb state: %v", err)
-	}
+	require.NoError(t, err, "unable to read arb state")
 	if arbState != StateDefault {
 		t.Fatalf("state mismatch: expected %v, got %v", StateDefault,
 			arbState)
@@ -710,9 +679,7 @@ func TestStateMutation(t *testing.T) {
 		t.Fatalf("unable to write state: %v", err)
 	}
 	arbState, err = testLog.CurrentState(nil)
-	if err != nil {
-		t.Fatalf("unable to read arb state: %v", err)
-	}
+	require.NoError(t, err, "unable to read arb state")
 	if arbState != StateFullyResolved {
 		t.Fatalf("state mismatch: expected %v, got %v", StateFullyResolved,
 			arbState)
@@ -721,16 +688,12 @@ func TestStateMutation(t *testing.T) {
 	// Next, we'll wipe our state and ensure that if we try to query for
 	// the current state, we get the proper error.
 	err = testLog.WipeHistory()
-	if err != nil {
-		t.Fatalf("unable to wipe history: %v", err)
-	}
+	require.NoError(t, err, "unable to wipe history")
 
 	// If we try to query for the state again, we should get the default
 	// state again.
 	arbState, err = testLog.CurrentState(nil)
-	if err != nil {
-		t.Fatalf("unable to query current state: %v", err)
-	}
+	require.NoError(t, err, "unable to query current state")
 	if arbState != StateDefault {
 		t.Fatalf("state mismatch: expected %v, got %v", StateDefault,
 			arbState)
@@ -747,17 +710,13 @@ func TestScopeIsolation(t *testing.T) {
 	testLog1, cleanUp1, err := newTestBoltArbLog(
 		testChainHash, testChanPoint1,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test log: %v", err)
-	}
+	require.NoError(t, err, "unable to create test log")
 	defer cleanUp1()
 
 	testLog2, cleanUp2, err := newTestBoltArbLog(
 		testChainHash, testChanPoint2,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test log: %v", err)
-	}
+	require.NoError(t, err, "unable to create test log")
 	defer cleanUp2()
 
 	// We'll now update the current state of both the logs to a unique
@@ -772,13 +731,9 @@ func TestScopeIsolation(t *testing.T) {
 	// Querying each log, the states should be the prior one we set, and be
 	// disjoint.
 	log1State, err := testLog1.CurrentState(nil)
-	if err != nil {
-		t.Fatalf("unable to read arb state: %v", err)
-	}
+	require.NoError(t, err, "unable to read arb state")
 	log2State, err := testLog2.CurrentState(nil)
-	if err != nil {
-		t.Fatalf("unable to read arb state: %v", err)
-	}
+	require.NoError(t, err, "unable to read arb state")
 
 	if log1State == log2State {
 		t.Fatalf("log states are the same: %v", log1State)
@@ -802,9 +757,7 @@ func TestCommitSetStorage(t *testing.T) {
 	testLog, cleanUp, err := newTestBoltArbLog(
 		testChainHash, testChanPoint1,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test log: %v", err)
-	}
+	require.NoError(t, err, "unable to create test log")
 	defer cleanUp()
 
 	activeHTLCs := []channeldb.HTLC{

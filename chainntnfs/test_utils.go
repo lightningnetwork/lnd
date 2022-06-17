@@ -27,6 +27,7 @@ import (
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -127,14 +128,10 @@ func CreateSpendableOutput(t *testing.T,
 	// Create a transaction that only has one output, the one destined for
 	// the recipient.
 	pkScript, privKey, err := randPubKeyHashScript()
-	if err != nil {
-		t.Fatalf("unable to generate pkScript: %v", err)
-	}
+	require.NoError(t, err, "unable to generate pkScript")
 	output := &wire.TxOut{Value: 2e8, PkScript: pkScript}
 	txid, err := miner.SendOutputsWithoutChange([]*wire.TxOut{output}, 10)
-	if err != nil {
-		t.Fatalf("unable to create tx: %v", err)
-	}
+	require.NoError(t, err, "unable to create tx")
 
 	// Mine the transaction to mark the output as spendable.
 	if err := WaitForMempoolTx(miner, txid); err != nil {
@@ -161,9 +158,7 @@ func CreateSpendTx(t *testing.T, prevOutPoint *wire.OutPoint,
 		spendingTx, 0, prevOutput.PkScript, txscript.SigHashAll,
 		privKey, true,
 	)
-	if err != nil {
-		t.Fatalf("unable to sign tx: %v", err)
-	}
+	require.NoError(t, err, "unable to sign tx")
 	spendingTx.TxIn[0].SignatureScript = sigScript
 
 	return spendingTx
@@ -181,9 +176,7 @@ func NewMiner(t *testing.T, extraArgs []string, createChain bool,
 	extraArgs = append(extraArgs, trickle)
 
 	node, err := rpctest.New(NetParams, nil, extraArgs, "")
-	if err != nil {
-		t.Fatalf("unable to create backend node: %v", err)
-	}
+	require.NoError(t, err, "unable to create backend node")
 	if err := node.SetUp(createChain, spendableOutputs); err != nil {
 		node.TearDown()
 		t.Fatalf("unable to set up backend node: %v", err)
@@ -204,9 +197,7 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 	t.Helper()
 
 	tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
+	require.NoError(t, err, "unable to create temp dir")
 
 	rpcPort := rand.Intn(65536-1024) + 1024
 	zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
@@ -289,9 +280,7 @@ func NewNeutrinoBackend(t *testing.T, minerAddr string) (*neutrino.ChainService,
 	t.Helper()
 
 	spvDir, err := ioutil.TempDir("", "neutrino")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
+	require.NoError(t, err, "unable to create temp dir")
 
 	dbName := filepath.Join(spvDir, "neutrino.db")
 	spvDatabase, err := walletdb.Create(

@@ -56,42 +56,26 @@ func TestTxWeightEstimator(t *testing.T) {
 
 	p2pkhAddr, err := btcutil.NewAddressPubKeyHash(
 		make([]byte, 20), netParams)
-	if err != nil {
-		t.Fatalf("Failed to generate address: %v", err)
-	}
+	require.NoError(t, err, "Failed to generate address")
 	p2pkhScript, err := txscript.PayToAddrScript(p2pkhAddr)
-	if err != nil {
-		t.Fatalf("Failed to generate scriptPubKey: %v", err)
-	}
+	require.NoError(t, err, "Failed to generate scriptPubKey")
 
 	p2wkhAddr, err := btcutil.NewAddressWitnessPubKeyHash(
 		make([]byte, 20), netParams)
-	if err != nil {
-		t.Fatalf("Failed to generate address: %v", err)
-	}
+	require.NoError(t, err, "Failed to generate address")
 	p2wkhScript, err := txscript.PayToAddrScript(p2wkhAddr)
-	if err != nil {
-		t.Fatalf("Failed to generate scriptPubKey: %v", err)
-	}
+	require.NoError(t, err, "Failed to generate scriptPubKey")
 
 	p2wshAddr, err := btcutil.NewAddressWitnessScriptHash(
 		make([]byte, 32), netParams)
-	if err != nil {
-		t.Fatalf("Failed to generate address: %v", err)
-	}
+	require.NoError(t, err, "Failed to generate address")
 	p2wshScript, err := txscript.PayToAddrScript(p2wshAddr)
-	if err != nil {
-		t.Fatalf("Failed to generate scriptPubKey: %v", err)
-	}
+	require.NoError(t, err, "Failed to generate scriptPubKey")
 
 	p2shAddr, err := btcutil.NewAddressScriptHash([]byte{0}, netParams)
-	if err != nil {
-		t.Fatalf("Failed to generate address: %v", err)
-	}
+	require.NoError(t, err, "Failed to generate address")
 	p2shScript, err := txscript.PayToAddrScript(p2shAddr)
-	if err != nil {
-		t.Fatalf("Failed to generate scriptPubKey: %v", err)
-	}
+	require.NoError(t, err, "Failed to generate scriptPubKey")
 
 	testCases := []struct {
 		numP2PKHInputs       int

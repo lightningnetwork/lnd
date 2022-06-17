@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/stretchr/testify/require"
 )
 
 type genGraphFunc func() (testGraph, func(), error)
@@ -77,9 +78,7 @@ func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 
 	// Create a random public key, which we will query to get a score for.
 	pub, err := randKey()
-	if err != nil {
-		t.Fatalf("unable to generate key: %v", err)
-	}
+	require.NoError(t, err, "unable to generate key")
 
 	nodes := map[NodeID]struct{}{
 		NewNodeID(pub): {},

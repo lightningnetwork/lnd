@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -126,9 +127,7 @@ func newCircuitMap(t *testing.T, resMsg bool) (*htlcswitch.CircuitMapConfig,
 	}
 
 	circuitMap, err := htlcswitch.NewCircuitMap(circuitMapCfg)
-	if err != nil {
-		t.Fatalf("unable to create persistent circuit map: %v", err)
-	}
+	require.NoError(t, err, "unable to create persistent circuit map")
 
 	return circuitMapCfg, circuitMap
 }
@@ -489,9 +488,7 @@ func TestCircuitMapPersistence(t *testing.T) {
 
 	// Test removing circuits and the subsequent lookups.
 	err = circuitMap.DeleteCircuits(circuit1.Incoming)
-	if err != nil {
-		t.Fatalf("Remove returned unexpected error: %v", err)
-	}
+	require.NoError(t, err, "Remove returned unexpected error")
 
 	// There should be exactly one remaining circuit with hash1, and it
 	// should be circuit4.
@@ -514,9 +511,7 @@ func TestCircuitMapPersistence(t *testing.T) {
 
 	// Remove last remaining circuit with payment hash hash1.
 	err = circuitMap.DeleteCircuits(circuit4.Incoming)
-	if err != nil {
-		t.Fatalf("Remove returned unexpected error: %v", err)
-	}
+	require.NoError(t, err, "Remove returned unexpected error")
 
 	assertNumCircuitsWithHash(t, circuitMap, hash1, 0)
 	assertNumCircuitsWithHash(t, circuitMap, hash2, 1)
@@ -528,9 +523,7 @@ func TestCircuitMapPersistence(t *testing.T) {
 
 	// Remove last remaining circuit with payment hash hash2.
 	err = circuitMap.DeleteCircuits(circuit2.Incoming)
-	if err != nil {
-		t.Fatalf("Remove returned unexpected error: %v", err)
-	}
+	require.NoError(t, err, "Remove returned unexpected error")
 
 	// There should now only be one remaining circuit, with hash3.
 	assertNumCircuitsWithHash(t, circuitMap, hash2, 0)
@@ -639,9 +632,7 @@ func makeCircuitDB(t *testing.T, path string) *channeldb.DB {
 	}
 
 	db, err := channeldb.Open(path)
-	if err != nil {
-		t.Fatalf("unable to open channel db: %v", err)
-	}
+	require.NoError(t, err, "unable to open channel db")
 
 	return db
 }
@@ -666,9 +657,7 @@ func restartCircuitMap(t *testing.T, cfg *htlcswitch.CircuitMapConfig) (
 		CheckResolutionMsg:    cfg.CheckResolutionMsg,
 	}
 	cm2, err := htlcswitch.NewCircuitMap(cfg2)
-	if err != nil {
-		t.Fatalf("unable to recreate persistent circuit map: %v", err)
-	}
+	require.NoError(t, err, "unable to recreate persistent circuit map")
 
 	return cfg2, cm2
 }
@@ -699,9 +688,7 @@ func TestCircuitMapCommitCircuits(t *testing.T) {
 	// First we will try to add an new circuit to the circuit map, this
 	// should succeed.
 	actions, err := circuitMap.CommitCircuits(circuit)
-	if err != nil {
-		t.Fatalf("failed to commit circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to commit circuits")
 	if len(actions.Drops) > 0 {
 		t.Fatalf("new circuit should not have been dropped")
 	}
@@ -723,9 +710,7 @@ func TestCircuitMapCommitCircuits(t *testing.T) {
 	// in the circuit being dropped. This can happen if the incoming link
 	// flaps.
 	actions, err = circuitMap.CommitCircuits(circuit)
-	if err != nil {
-		t.Fatalf("failed to commit circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to commit circuits")
 	if len(actions.Adds) > 0 {
 		t.Fatalf("duplicate circuit should not have been added to circuit map")
 	}
@@ -744,9 +729,7 @@ func TestCircuitMapCommitCircuits(t *testing.T) {
 	_, circuitMap = restartCircuitMap(t, cfg)
 
 	actions, err = circuitMap.CommitCircuits(circuit)
-	if err != nil {
-		t.Fatalf("failed to commit circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to commit circuits")
 	if len(actions.Adds) > 0 {
 		t.Fatalf("duplicate circuit with incomplete forwarding " +
 			"decision should not have been added to circuit map")
@@ -795,9 +778,7 @@ func TestCircuitMapOpenCircuits(t *testing.T) {
 	// First we will try to add an new circuit to the circuit map, this
 	// should succeed.
 	_, err = circuitMap.CommitCircuits(circuit)
-	if err != nil {
-		t.Fatalf("failed to commit circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to commit circuits")
 
 	keystone := htlcswitch.Keystone{
 		InKey: circuit.Incoming,
@@ -809,9 +790,7 @@ func TestCircuitMapOpenCircuits(t *testing.T) {
 
 	// Open the circuit for the first time.
 	err = circuitMap.OpenCircuits(keystone)
-	if err != nil {
-		t.Fatalf("failed to open circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to open circuits")
 
 	// Check that we can retrieve the open circuit if the circuit map before
 	// the circuit map is restarted.
@@ -841,9 +820,7 @@ func TestCircuitMapOpenCircuits(t *testing.T) {
 	// flaps OR the switch is entirely restarted and the outgoing link has
 	// not received a response.
 	actions, err := circuitMap.CommitCircuits(circuit)
-	if err != nil {
-		t.Fatalf("failed to commit circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to commit circuits")
 	if len(actions.Adds) > 0 {
 		t.Fatalf("duplicate circuit should not have been added to circuit map")
 	}
@@ -882,9 +859,7 @@ func TestCircuitMapOpenCircuits(t *testing.T) {
 	// if the incoming link flaps OR the switch is entirely restarted and
 	// the outgoing link has not received a response.
 	actions, err = circuitMap.CommitCircuits(circuit)
-	if err != nil {
-		t.Fatalf("failed to commit circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to commit circuits")
 	if len(actions.Adds) > 0 {
 		t.Fatalf("duplicate circuit should not have been added to circuit map")
 	}
@@ -1012,9 +987,7 @@ func TestCircuitMapTrimOpenCircuits(t *testing.T) {
 	// First we will try to add an new circuit to the circuit map, this
 	// should succeed.
 	_, err = circuitMap.CommitCircuits(circuits...)
-	if err != nil {
-		t.Fatalf("failed to commit circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to commit circuits")
 
 	// Now create a list of the keystones that we will use to preemptively
 	// open the circuits. We set the index as the outgoing HtlcID to i
@@ -1032,9 +1005,7 @@ func TestCircuitMapTrimOpenCircuits(t *testing.T) {
 
 	// Open the circuits for the first time.
 	err = circuitMap.OpenCircuits(keystones...)
-	if err != nil {
-		t.Fatalf("failed to open circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to open circuits")
 
 	// Check that all circuits are marked open.
 	assertCircuitsOpenedPreRestart(t, circuitMap, circuits, keystones)
@@ -1152,9 +1123,7 @@ func TestCircuitMapCloseOpenCircuits(t *testing.T) {
 	// First we will try to add an new circuit to the circuit map, this
 	// should succeed.
 	_, err = circuitMap.CommitCircuits(circuit)
-	if err != nil {
-		t.Fatalf("failed to commit circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to commit circuits")
 
 	keystone := htlcswitch.Keystone{
 		InKey: circuit.Incoming,
@@ -1166,9 +1135,7 @@ func TestCircuitMapCloseOpenCircuits(t *testing.T) {
 
 	// Open the circuit for the first time.
 	err = circuitMap.OpenCircuits(keystone)
-	if err != nil {
-		t.Fatalf("failed to open circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to open circuits")
 
 	// Check that we can retrieve the open circuit if the circuit map before
 	// the circuit map is restarted.
@@ -1243,9 +1210,7 @@ func TestCircuitMapCloseUnopenedCircuit(t *testing.T) {
 	// First we will try to add an new circuit to the circuit map, this
 	// should succeed.
 	_, err = circuitMap.CommitCircuits(circuit)
-	if err != nil {
-		t.Fatalf("failed to commit circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to commit circuits")
 
 	// Close the open circuit for the first time, which should succeed.
 	_, err = circuitMap.FailCircuit(circuit.Incoming)
@@ -1300,9 +1265,7 @@ func TestCircuitMapDeleteUnopenedCircuit(t *testing.T) {
 	// First we will try to add an new circuit to the circuit map, this
 	// should succeed.
 	_, err = circuitMap.CommitCircuits(circuit)
-	if err != nil {
-		t.Fatalf("failed to commit circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to commit circuits")
 
 	// Close the open circuit for the first time, which should succeed.
 	_, err = circuitMap.FailCircuit(circuit.Incoming)
@@ -1359,9 +1322,7 @@ func TestCircuitMapDeleteOpenCircuit(t *testing.T) {
 	// First we will try to add an new circuit to the circuit map, this
 	// should succeed.
 	_, err = circuitMap.CommitCircuits(circuit)
-	if err != nil {
-		t.Fatalf("failed to commit circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to commit circuits")
 
 	keystone := htlcswitch.Keystone{
 		InKey: circuit.Incoming,
@@ -1373,9 +1334,7 @@ func TestCircuitMapDeleteOpenCircuit(t *testing.T) {
 
 	// Open the circuit for the first time.
 	err = circuitMap.OpenCircuits(keystone)
-	if err != nil {
-		t.Fatalf("failed to open circuits: %v", err)
-	}
+	require.NoError(t, err, "failed to open circuits")
 
 	// Close the open circuit for the first time, which should succeed.
 	_, err = circuitMap.FailCircuit(circuit.Incoming)

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/go-errors/errors"
+	"github.com/stretchr/testify/require"
 )
 
 // bitsToIndex is a helper function which takes 'n' last bits as input and
@@ -48,13 +49,9 @@ func generateTests(t *testing.T) []deriveTest {
 	)
 
 	from, err = bitsToIndex(0)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	to, err = bitsToIndex(0)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	tests = append(tests, deriveTest{
 		name:       "zero 'from' 'to'",
 		from:       from,
@@ -64,13 +61,9 @@ func generateTests(t *testing.T) []deriveTest {
 	})
 
 	from, err = bitsToIndex(0, 1, 0, 0)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	to, err = bitsToIndex(0, 1, 0, 0)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	tests = append(tests, deriveTest{
 		name:       "same indexes #1",
 		from:       from,
@@ -80,13 +73,9 @@ func generateTests(t *testing.T) []deriveTest {
 	})
 
 	from, err = bitsToIndex(1)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	to, err = bitsToIndex(0)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	tests = append(tests, deriveTest{
 		name:       "same indexes #2",
 		from:       from,
@@ -95,13 +84,9 @@ func generateTests(t *testing.T) []deriveTest {
 	})
 
 	from, err = bitsToIndex(0, 0, 0, 0)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	to, err = bitsToIndex(0, 0, 1, 0)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	tests = append(tests, deriveTest{
 		name:       "test seed 'from'",
 		from:       from,
@@ -111,13 +96,9 @@ func generateTests(t *testing.T) []deriveTest {
 	})
 
 	from, err = bitsToIndex(1, 1, 0, 0)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	to, err = bitsToIndex(0, 1, 0, 0)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	tests = append(tests, deriveTest{
 		name:       "not the same indexes",
 		from:       from,
@@ -126,13 +107,9 @@ func generateTests(t *testing.T) []deriveTest {
 	})
 
 	from, err = bitsToIndex(1, 0, 1, 0)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	to, err = bitsToIndex(1, 0, 0, 0)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	tests = append(tests, deriveTest{
 		name:       "'from' index greater then 'to' index",
 		from:       from,
@@ -141,13 +118,9 @@ func generateTests(t *testing.T) []deriveTest {
 	})
 
 	from, err = bitsToIndex(1)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	to, err = bitsToIndex(1)
-	if err != nil {
-		t.Fatalf("can't generate from index: %v", err)
-	}
+	require.NoError(t, err, "can't generate from index")
 	tests = append(tests, deriveTest{
 		name:       "zero number trailing zeros",
 		from:       from,

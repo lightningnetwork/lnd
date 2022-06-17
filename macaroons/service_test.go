@@ -35,16 +35,12 @@ var (
 // and read the store on its own.
 func setupTestRootKeyStorage(t *testing.T) (string, kvdb.Backend) {
 	tempDir, err := ioutil.TempDir("", "macaroonstore-")
-	if err != nil {
-		t.Fatalf("Error creating temp dir: %v", err)
-	}
+	require.NoError(t, err, "Error creating temp dir")
 	db, err := kvdb.Create(
 		kvdb.BoltBackendName, path.Join(tempDir, "macaroons.db"), true,
 		kvdb.DefaultDBTimeout,
 	)
-	if err != nil {
-		t.Fatalf("Error opening store DB: %v", err)
-	}
+	require.NoError(t, err, "Error opening store DB")
 	store, err := macaroons.NewRootKeyStorage(db)
 	if err != nil {
 		db.Close()
@@ -52,9 +48,7 @@ func setupTestRootKeyStorage(t *testing.T) (string, kvdb.Backend) {
 	}
 	defer store.Close()
 	err = store.CreateUnlock(&defaultPw)
-	if err != nil {
-		t.Fatalf("error creating unlock: %v", err)
-	}
+	require.NoError(t, err, "error creating unlock")
 	return tempDir, db
 }
 
@@ -70,14 +64,10 @@ func TestNewService(t *testing.T) {
 	service, err := macaroons.NewService(
 		db, "lnd", false, macaroons.IPLockChecker,
 	)
-	if err != nil {
-		t.Fatalf("Error creating new service: %v", err)
-	}
+	require.NoError(t, err, "Error creating new service")
 	defer service.Close()
 	err = service.CreateUnlock(&defaultPw)
-	if err != nil {
-		t.Fatalf("Error unlocking root key storage: %v", err)
-	}
+	require.NoError(t, err, "Error unlocking root key storage")
 
 	// Third, check if the created service can bake macaroons.
 	_, err = service.NewMacaroon(context.TODO(), nil, testOperation)
@@ -88,9 +78,7 @@ func TestNewService(t *testing.T) {
 	macaroon, err := service.NewMacaroon(
 		context.TODO(), macaroons.DefaultRootKeyID, testOperation,
 	)
-	if err != nil {
-		t.Fatalf("Error creating macaroon from service: %v", err)
-	}
+	require.NoError(t, err, "Error creating macaroon from service")
 	if macaroon.Namespace().String() != "std:" {
 		t.Fatalf("The created macaroon has an invalid namespace: %s",
 			macaroon.Namespace().String())
@@ -121,28 +109,20 @@ func TestValidateMacaroon(t *testing.T) {
 	service, err := macaroons.NewService(
 		db, "lnd", false, macaroons.IPLockChecker,
 	)
-	if err != nil {
-		t.Fatalf("Error creating new service: %v", err)
-	}
+	require.NoError(t, err, "Error creating new service")
 	defer service.Close()
 
 	err = service.CreateUnlock(&defaultPw)
-	if err != nil {
-		t.Fatalf("Error unlocking root key storage: %v", err)
-	}
+	require.NoError(t, err, "Error unlocking root key storage")
 
 	// Then, create a new macaroon that we can serialize.
 	macaroon, err := service.NewMacaroon(
 		context.TODO(), macaroons.DefaultRootKeyID, testOperation,
 		testOperationURI,
 	)
-	if err != nil {
-		t.Fatalf("Error creating macaroon from service: %v", err)
-	}
+	require.NoError(t, err, "Error creating macaroon from service")
 	macaroonBinary, err := macaroon.M().MarshalBinary()
-	if err != nil {
-		t.Fatalf("Error serializing macaroon: %v", err)
-	}
+	require.NoError(t, err, "Error serializing macaroon")
 
 	// Because the macaroons are always passed in a context, we need to
 	// mock one that has just the serialized macaroon as a value.
@@ -155,18 +135,14 @@ func TestValidateMacaroon(t *testing.T) {
 	err = service.ValidateMacaroon(
 		mockContext, []bakery.Op{testOperation}, "FooMethod",
 	)
-	if err != nil {
-		t.Fatalf("Error validating the macaroon: %v", err)
-	}
+	require.NoError(t, err, "Error validating the macaroon")
 
 	// If the macaroon has the method specific URI permission, the list of
 	// required entity/action pairs is irrelevant.
 	err = service.ValidateMacaroon(
 		mockContext, []bakery.Op{{Entity: "irrelevant"}}, "SomeMethod",
 	)
-	if err != nil {
-		t.Fatalf("Error validating the macaroon: %v", err)
-	}
+	require.NoError(t, err, "Error validating the macaroon")
 }
 
 // TestListMacaroonIDs checks that ListMacaroonIDs returns the expected result.

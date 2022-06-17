@@ -349,9 +349,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		cdb, netParams, chainNotifier, wc, signer, keyRing, bio,
 		estimator,
 	)
-	if err != nil {
-		t.Fatalf("unable to create test ln wallet: %v", err)
-	}
+	require.NoError(t, err, "unable to create test ln wallet")
 
 	var chanIDSeed [32]byte
 
@@ -459,9 +457,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	}
 
 	f, err := NewFundingManager(fundingCfg)
-	if err != nil {
-		t.Fatalf("failed creating fundingManager: %v", err)
-	}
+	require.NoError(t, err, "failed creating fundingManager")
 	if err = f.Start(); err != nil {
 		t.Fatalf("failed starting fundingManager: %v", err)
 	}
@@ -557,9 +553,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		ReservationTimeout:    oldCfg.ReservationTimeout,
 		OpenChannelPredicate:  chainedAcceptor,
 	})
-	if err != nil {
-		t.Fatalf("failed recreating aliceFundingManager: %v", err)
-	}
+	require.NoError(t, err, "failed recreating aliceFundingManager")
 
 	alice.fundingMgr = f
 	alice.msgChan = aliceMsgChan
@@ -578,28 +572,20 @@ func setupFundingManagers(t *testing.T,
 	options ...cfgOption) (*testNode, *testNode) {
 
 	aliceTestDir, err := ioutil.TempDir("", "alicelnwallet")
-	if err != nil {
-		t.Fatalf("unable to create temp directory: %v", err)
-	}
+	require.NoError(t, err, "unable to create temp directory")
 
 	alice, err := createTestFundingManager(
 		t, alicePrivKey, aliceAddr, aliceTestDir, options...,
 	)
-	if err != nil {
-		t.Fatalf("failed creating fundingManager: %v", err)
-	}
+	require.NoError(t, err, "failed creating fundingManager")
 
 	bobTestDir, err := ioutil.TempDir("", "boblnwallet")
-	if err != nil {
-		t.Fatalf("unable to create temp directory: %v", err)
-	}
+	require.NoError(t, err, "unable to create temp directory")
 
 	bob, err := createTestFundingManager(
 		t, bobPrivKey, bobAddr, bobTestDir, options...,
 	)
-	if err != nil {
-		t.Fatalf("failed creating fundingManager: %v", err)
-	}
+	require.NoError(t, err, "failed creating fundingManager")
 
 	// With the funding manager's created, we'll now attempt to mimic a
 	// connection pipe between them. In order to intercept the messages
@@ -1968,9 +1954,7 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 	// Bob will at this point be waiting for the funding transaction to be
 	// confirmed, so the channel should be considered pending.
 	pendingChannels, err := bob.fundingMgr.cfg.Wallet.Cfg.Database.FetchPendingChannels()
-	if err != nil {
-		t.Fatalf("unable to fetch pending channels: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch pending channels")
 	if len(pendingChannels) != 1 {
 		t.Fatalf("Expected Bob to have 1 pending channel, had  %v",
 			len(pendingChannels))
@@ -2014,9 +1998,7 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 	// Alice will at this point be waiting for the funding transaction to be
 	// confirmed, so the channel should be considered pending.
 	pendingChannels, err := alice.fundingMgr.cfg.Wallet.Cfg.Database.FetchPendingChannels()
-	if err != nil {
-		t.Fatalf("unable to fetch pending channels: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch pending channels")
 	if len(pendingChannels) != 1 {
 		t.Fatalf("Expected Alice to have 1 pending channel, had  %v",
 			len(pendingChannels))
@@ -2766,9 +2748,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// Check that the custom channel parameters were properly set in the
 	// channel reservation.
 	resCtx, err := alice.fundingMgr.getReservationCtx(bobPubKey, chanID)
-	if err != nil {
-		t.Fatalf("unable to find ctx: %v", err)
-	}
+	require.NoError(t, err, "unable to find ctx")
 
 	// Alice's CSV delay should be 4 since Bob sent the default value, and
 	// Bob's should be 67 since Alice sent the custom value.
@@ -2792,9 +2772,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 	// Also make sure the parameters are properly set on Bob's end.
 	resCtx, err = bob.fundingMgr.getReservationCtx(alicePubKey, chanID)
-	if err != nil {
-		t.Fatalf("unable to find ctx: %v", err)
-	}
+	require.NoError(t, err, "unable to find ctx")
 
 	if err := assertDelay(resCtx, csvDelay, 4); err != nil {
 		t.Fatal(err)

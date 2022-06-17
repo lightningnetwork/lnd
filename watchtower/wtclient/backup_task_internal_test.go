@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtmock"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
+	"github.com/stretchr/testify/require"
 )
 
 const csvDelay uint32 = 144
@@ -602,9 +603,7 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 	// Now, we'll construct, sign, and encrypt the blob containing the parts
 	// needed to reconstruct the justice transaction.
 	hint, encBlob, err := task.craftSessionPayload(test.signer)
-	if err != nil {
-		t.Fatalf("unable to craft session payload: %v", err)
-	}
+	require.NoError(t, err, "unable to craft session payload")
 
 	// Verify that the breach hint matches the breach txid's prefix.
 	breachTxID := test.breachInfo.BreachTxHash
@@ -618,9 +617,7 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 	// contents.
 	key := blob.NewBreachKeyFromHash(&breachTxID)
 	jKit, err := blob.Decrypt(key, encBlob, policy.BlobType)
-	if err != nil {
-		t.Fatalf("unable to decrypt blob: %v", err)
-	}
+	require.NoError(t, err, "unable to decrypt blob")
 
 	keyRing := test.breachInfo.KeyRing
 	expToLocalPK := keyRing.ToLocalKey.SerializeCompressed()

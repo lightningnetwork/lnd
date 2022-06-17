@@ -132,9 +132,7 @@ func TestSettleInvoice(t *testing.T) {
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(0), hodlChan, testPayload,
 	)
-	if err != nil {
-		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
-	}
+	require.NoError(t, err, "unexpected NotifyExitHopHtlc error")
 	require.NotNil(t, resolution)
 	settleResolution = checkSettleResolution(
 		t, resolution, testInvoicePreimage,
@@ -148,9 +146,7 @@ func TestSettleInvoice(t *testing.T) {
 		testInvoicePaymentHash, amtPaid+600, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(1), hodlChan, testPayload,
 	)
-	if err != nil {
-		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
-	}
+	require.NoError(t, err, "unexpected NotifyExitHopHtlc error")
 	require.NotNil(t, resolution)
 	settleResolution = checkSettleResolution(
 		t, resolution, testInvoicePreimage,
@@ -163,9 +159,7 @@ func TestSettleInvoice(t *testing.T) {
 		testInvoicePaymentHash, amtPaid-600, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(2), hodlChan, testPayload,
 	)
-	if err != nil {
-		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
-	}
+	require.NoError(t, err, "unexpected NotifyExitHopHtlc error")
 	require.NotNil(t, resolution)
 	checkFailResolution(t, resolution, ResultAmountTooLow)
 

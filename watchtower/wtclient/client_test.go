@@ -69,9 +69,7 @@ func randPrivKey(t *testing.T) *btcec.PrivateKey {
 	t.Helper()
 
 	sk, err := btcec.NewPrivateKey()
-	if err != nil {
-		t.Fatalf("unable to generate pubkey: %v", err)
-	}
+	require.NoError(t, err, "unable to generate pubkey")
 
 	return sk
 }
@@ -200,21 +198,15 @@ func (c *mockChannel) createRemoteCommitTx(t *testing.T) {
 	toLocalScript, err := input.CommitScriptToSelf(
 		c.csvDelay, c.toLocalPK, c.revPK,
 	)
-	if err != nil {
-		t.Fatalf("unable to create to-local script: %v", err)
-	}
+	require.NoError(t, err, "unable to create to-local script")
 
 	// Compute the to-local witness script hash.
 	toLocalScriptHash, err := input.WitnessScriptHash(toLocalScript)
-	if err != nil {
-		t.Fatalf("unable to create to-local witness script hash: %v", err)
-	}
+	require.NoError(t, err, "unable to create to-local witness script hash")
 
 	// Compute the to-remote witness script hash.
 	toRemoteScriptHash, err := input.CommitScriptUnencumbered(c.toRemotePK)
-	if err != nil {
-		t.Fatalf("unable to create to-remote script: %v", err)
-	}
+	require.NoError(t, err, "unable to create to-remote script")
 
 	// Construct the remote commitment txn, containing the to-local and
 	// to-remote outputs. The balances are flipped since the transaction is
@@ -400,14 +392,10 @@ type harnessCfg struct {
 
 func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	towerTCPAddr, err := net.ResolveTCPAddr("tcp", towerAddrStr)
-	if err != nil {
-		t.Fatalf("Unable to resolve tower TCP addr: %v", err)
-	}
+	require.NoError(t, err, "Unable to resolve tower TCP addr")
 
 	privKey, err := btcec.NewPrivateKey()
-	if err != nil {
-		t.Fatalf("Unable to generate tower private key: %v", err)
-	}
+	require.NoError(t, err, "Unable to generate tower private key")
 	privKeyECDH := &keychain.PrivKeyECDH{PrivKey: privKey}
 
 	towerPubKey := privKey.PubKey()
@@ -432,9 +420,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	}
 
 	server, err := wtserver.New(serverCfg)
-	if err != nil {
-		t.Fatalf("unable to create wtserver: %v", err)
-	}
+	require.NoError(t, err, "unable to create wtserver")
 
 	signer := wtmock.NewMockSigner()
 	mockNet := newMockNet(server.InboundPeerConnected)
@@ -457,9 +443,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		ForceQuitDelay: 10 * time.Second,
 	}
 	client, err := wtclient.New(clientCfg)
-	if err != nil {
-		t.Fatalf("Unable to create wtclient: %v", err)
-	}
+	require.NoError(t, err, "Unable to create wtclient")
 
 	if err := server.Start(); err != nil {
 		t.Fatalf("Unable to start wtserver: %v", err)

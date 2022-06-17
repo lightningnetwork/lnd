@@ -962,9 +962,7 @@ func runFindLowestFeePath(t *testing.T, useCache bool) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.keyFromAlias("target")
 	path, err := ctx.findPath(target, paymentAmt)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 	route, err := newRoute(
 		ctx.source, path, startingHeight,
 		finalHopParams{
@@ -973,9 +971,7 @@ func runFindLowestFeePath(t *testing.T, useCache bool) {
 			records:   nil,
 		},
 	)
-	if err != nil {
-		t.Fatalf("unable to create path: %v", err)
-	}
+	require.NoError(t, err, "unable to create path")
 
 	// Assert that the lowest fee route is returned.
 	if route.Hops[1].PubKeyBytes != ctx.keyFromAlias("b") {
@@ -1058,9 +1054,7 @@ var basicGraphPathFindingTests = []basicGraphPathFindingTestCase{
 
 func runBasicGraphPathFinding(t *testing.T, useCache bool) {
 	testGraphInstance, err := parseTestGraph(useCache, basicGraphFilePath)
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 	defer testGraphInstance.cleanUp()
 
 	// With the test graph loaded, we'll test some basic path finding using
@@ -1083,9 +1077,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	expectedHopCount := len(expectedHops)
 
 	sourceNode, err := graphInstance.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch source node")
 	sourceVertex := route.Vertex(sourceNode.PubKeyBytes)
 
 	const (
@@ -1112,9 +1104,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 		}
 		return
 	}
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 
 	route, err := newRoute(
 		sourceVertex, path, startingHeight,
@@ -1124,9 +1114,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 			records:   nil,
 		},
 	)
-	if err != nil {
-		t.Fatalf("unable to create path: %v", err)
-	}
+	require.NoError(t, err, "unable to create path")
 
 	if len(route.Hops) != len(expectedHops) {
 		t.Fatalf("route is of incorrect length, expected %v got %v",
@@ -1148,9 +1136,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	// properly points to the channel ID that the HTLC should be forwarded
 	// along.
 	sphinxPath, err := route.ToSphinxPath()
-	if err != nil {
-		t.Fatalf("unable to make sphinx path: %v", err)
-	}
+	require.NoError(t, err, "unable to make sphinx path")
 	if sphinxPath.TrueRouteLength() != expectedHopCount {
 		t.Fatalf("incorrect number of hop payloads: expected %v, got %v",
 			expectedHopCount, sphinxPath.TrueRouteLength())
@@ -1178,9 +1164,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	lastHopIndex := len(expectedHops) - 1
 
 	hopData, err := sphinxPath[lastHopIndex].HopPayload.HopData()
-	if err != nil {
-		t.Fatalf("unable to create hop data: %v", err)
-	}
+	require.NoError(t, err, "unable to create hop data")
 
 	if !bytes.Equal(hopData.NextAddress[:], exitHop[:]) {
 		t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
@@ -1235,15 +1219,11 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 // appropriate circumstances.
 func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(useCache, basicGraphFilePath)
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch source node")
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 
@@ -1254,13 +1234,9 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	// to find a path from our source node, roasbeef, to doge.
 	dogePubKeyHex := "03dd46ff29a6941b4a2607525b043ec9b020b3f318a1bf281536fd7011ec59c882"
 	dogePubKeyBytes, err := hex.DecodeString(dogePubKeyHex)
-	if err != nil {
-		t.Fatalf("unable to decode public key: %v", err)
-	}
+	require.NoError(t, err, "unable to decode public key")
 	dogePubKey, err := btcec.ParsePubKey(dogePubKeyBytes)
-	if err != nil {
-		t.Fatalf("unable to parse public key from bytes: %v", err)
-	}
+	require.NoError(t, err, "unable to parse public key from bytes")
 
 	doge := &channeldb.LightningNode{}
 	doge.AddPubKey(dogePubKey)
@@ -1298,9 +1274,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 
 	// We should now be able to find a path from roasbeef to doge.
 	path, err := find(noRestrictions)
-	if err != nil {
-		t.Fatalf("unable to find private path to doge: %v", err)
-	}
+	require.NoError(t, err, "unable to find private path to doge")
 
 	// The path should represent the following hops:
 	//	roasbeef -> songoku -> doge
@@ -1330,9 +1304,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	restrictions.DestFeatures = tlvFeatures
 
 	path, err = find(&restrictions)
-	if err != nil {
-		t.Fatalf("path should have been found: %v", err)
-	}
+	require.NoError(t, err, "path should have been found")
 	assertExpectedPath(t, graph.aliasMap, path, "songoku", "doge")
 }
 
@@ -1675,9 +1647,7 @@ func runNewRoutePathTooLong(t *testing.T, useCache bool) {
 	node20 := ctx.keyFromAlias("node-20")
 	payAmt := lnwire.MilliSatoshi(100001)
 	_, err := ctx.findPath(node20, payAmt)
-	if err != nil {
-		t.Fatalf("unexpected pathfinding failure: %v", err)
-	}
+	require.NoError(t, err, "unexpected pathfinding failure")
 
 	// Assert that finding a 21 hop route fails.
 	node21 := ctx.keyFromAlias("node-21")
@@ -1700,24 +1670,18 @@ func runNewRoutePathTooLong(t *testing.T, useCache bool) {
 
 func runPathNotAvailable(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(useCache, basicGraphFilePath)
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch source node")
 
 	// With the test graph loaded, we'll test that queries for target that
 	// are either unreachable within the graph, or unknown result in an
 	// error.
 	unknownNodeStr := "03dd46ff29a6941b4a2607525b043ec9b020b3f318a1bf281536fd7011ec59c882"
 	unknownNodeBytes, err := hex.DecodeString(unknownNodeStr)
-	if err != nil {
-		t.Fatalf("unable to parse bytes: %v", err)
-	}
+	require.NoError(t, err, "unable to parse bytes")
 	var unknownNode route.Vertex
 	copy(unknownNode[:], unknownNodeBytes)
 
@@ -1767,9 +1731,7 @@ func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 	defer ctx.cleanup()
 
 	sourceNode, err := ctx.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch source node")
 
 	find := func(r *RestrictParams,
 		target route.Vertex) ([]*channeldb.CachedEdgePolicy, error) {
@@ -1801,9 +1763,7 @@ func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 	// However, path to satoshi should succeed via the fallback because his
 	// node ann features have the TLV bit.
 	path, err := find(&restrictions, satoshi)
-	if err != nil {
-		t.Fatalf("path should have been found: %v", err)
-	}
+	require.NoError(t, err, "path should have been found")
 	assertExpectedPath(t, ctx.testGraphInstance.aliasMap, path, "satoshi")
 
 	// Add empty destination features. This should cause both paths to fail,
@@ -1824,9 +1784,7 @@ func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 	restrictions.DestFeatures = tlvFeatures
 
 	path, err = find(&restrictions, luoji)
-	if err != nil {
-		t.Fatalf("path should have been found: %v", err)
-	}
+	require.NoError(t, err, "path should have been found")
 	assertExpectedPath(t, ctx.testGraphInstance.aliasMap, path, "luoji")
 }
 
@@ -1888,9 +1846,7 @@ func runMissingFeatureDep(t *testing.T, useCache bool) {
 	ctx.restrictParams.DestFeatures = tlvPayAddrFeatures
 
 	path, err := ctx.findPath(conner, 100)
-	if err != nil {
-		t.Fatalf("path should have been found: %v", err)
-	}
+	require.NoError(t, err, "path should have been found")
 	assertExpectedPath(t, ctx.testGraphInstance.aliasMap, path, "conner")
 
 	// Finally, try to find a route to joost through conner. The
@@ -2006,23 +1962,17 @@ func runDestPaymentAddr(t *testing.T, useCache bool) {
 	ctx.restrictParams.DestFeatures = tlvPayAddrFeatures
 
 	path, err := ctx.findPath(luoji, 100)
-	if err != nil {
-		t.Fatalf("path should have been found: %v", err)
-	}
+	require.NoError(t, err, "path should have been found")
 	assertExpectedPath(t, ctx.testGraphInstance.aliasMap, path, "luoji")
 }
 
 func runPathInsufficientCapacity(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(useCache, basicGraphFilePath)
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch source node")
 
 	// Next, test that attempting to find a path in which the current
 	// channel graph cannot support due to insufficient capacity triggers
@@ -2049,15 +1999,11 @@ func runPathInsufficientCapacity(t *testing.T, useCache bool) {
 // smaller than the advertised minHTLC of an edge, then path finding fails.
 func runRouteFailMinHTLC(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(useCache, basicGraphFilePath)
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch source node")
 
 	// We'll not attempt to route an HTLC of 10 SAT from roasbeef to Son
 	// Goku. However, the min HTLC of Son Goku is 1k SAT, as a result, this
@@ -2111,17 +2057,13 @@ func runRouteFailMaxHTLC(t *testing.T, useCache bool) {
 	target := ctx.keyFromAlias("target")
 	payAmt := lnwire.MilliSatoshi(100001)
 	_, err := ctx.findPath(target, payAmt)
-	if err != nil {
-		t.Fatalf("graph should've been able to support payment: %v", err)
-	}
+	require.NoError(t, err, "graph should've been able to support payment")
 
 	// Next, update the middle edge policy to only allow payments up to 100k
 	// msat.
 	graph := ctx.testGraphInstance.graph
 	_, midEdge, _, err := graph.FetchChannelEdgesByID(firstToSecondID)
-	if err != nil {
-		t.Fatalf("unable to fetch channel edges by ID: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch channel edges by ID")
 	midEdge.MessageFlags = 1
 	midEdge.MaxHTLC = payAmt - 1
 	if err := graph.UpdateEdgePolicy(midEdge); err != nil {
@@ -2143,15 +2085,11 @@ func runRouteFailMaxHTLC(t *testing.T, useCache bool) {
 // found among the bandwidth hints.
 func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(useCache, basicGraphFilePath)
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch source node")
 
 	// First, we'll try to route from roasbeef -> sophon. This should
 	// succeed without issue, and return a single path via phamnuwen
@@ -2162,18 +2100,14 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 
 	// Disable the edge roasbeef->phamnuwen. This should not impact the
 	// path finding, as we don't consider the disable flag for local
 	// channels (and roasbeef is the source).
 	roasToPham := uint64(999991)
 	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToPham)
-	if err != nil {
-		t.Fatalf("unable to fetch edge: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch edge")
 	e1.ChannelFlags |= lnwire.ChanUpdateDisabled
 	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
@@ -2188,17 +2122,13 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 
 	// Now, we'll modify the edge from phamnuwen -> sophon, to read that
 	// it's disabled.
 	phamToSophon := uint64(99999)
 	_, e, _, err := graph.graph.FetchChannelEdgesByID(phamToSophon)
-	if err != nil {
-		t.Fatalf("unable to fetch edge: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch edge")
 	e.ChannelFlags |= lnwire.ChanUpdateDisabled
 	if err := graph.graph.UpdateEdgePolicy(e); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
@@ -2221,15 +2151,11 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 // use a local channel.
 func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(useCache, basicGraphFilePath)
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch source node")
 
 	// First, we'll try to route from roasbeef -> sophon. This should
 	// succeed without issue, and return a path via songoku, as that's the
@@ -2241,9 +2167,7 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 	assertExpectedPath(t, graph.aliasMap, path, "songoku", "sophon")
 
 	// Now we'll set the bandwidth of the edge roasbeef->songoku and
@@ -2279,18 +2203,14 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 	assertExpectedPath(t, graph.aliasMap, path, "phamnuwen", "sophon")
 
 	// Finally, set the roasbeef->songoku bandwidth, but also set its
 	// disable flag.
 	bandwidths.hints[roasToSongoku] = 2 * payAmt
 	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToSongoku)
-	if err != nil {
-		t.Fatalf("unable to fetch edge: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch edge")
 	e1.ChannelFlags |= lnwire.ChanUpdateDisabled
 	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
@@ -2307,9 +2227,7 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0, 0,
 	)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 	assertExpectedPath(t, graph.aliasMap, path, "songoku", "sophon")
 }
 
@@ -2340,9 +2258,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Bob.
 	bob := ctx.aliases["B"]
 	bobNode, err := ctx.graph.FetchLightningNode(bob)
-	if err != nil {
-		t.Fatalf("unable to find bob: %v", err)
-	}
+	require.NoError(t, err, "unable to find bob")
 	if err := ctx.graph.SetSourceNode(bobNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
@@ -2354,9 +2270,7 @@ func TestPathFindSpecExample(t *testing.T) {
 		bobNode.PubKeyBytes, carol, amt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to find route: %v", err)
-	}
+	require.NoError(t, err, "unable to find route")
 
 	// Now we'll examine the route returned for correctness.
 	//
@@ -2390,17 +2304,13 @@ func TestPathFindSpecExample(t *testing.T) {
 	// the proper route for any queries starting with Alice.
 	alice := ctx.aliases["A"]
 	aliceNode, err := ctx.graph.FetchLightningNode(alice)
-	if err != nil {
-		t.Fatalf("unable to find alice: %v", err)
-	}
+	require.NoError(t, err, "unable to find alice")
 	if err := ctx.graph.SetSourceNode(aliceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 	ctx.router.selfNode = aliceNode
 	source, err := ctx.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to retrieve source node: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve source node")
 	if source.PubKeyBytes != alice {
 		t.Fatalf("source node not set")
 	}
@@ -2410,9 +2320,7 @@ func TestPathFindSpecExample(t *testing.T) {
 		source.PubKeyBytes, carol, amt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
-	if err != nil {
-		t.Fatalf("unable to find routes: %v", err)
-	}
+	require.NoError(t, err, "unable to find routes")
 
 	// The route should be two hops.
 	if len(route.Hops) != 2 {
@@ -2569,9 +2477,7 @@ func runRestrictOutgoingChannel(t *testing.T, useCache bool) {
 	// outgoing channel.
 	ctx.restrictParams.OutgoingChannelIDs = []uint64{outgoingChannelID}
 	path, err := ctx.findPath(target, paymentAmt)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 
 	// Assert that the route starts with channel chanSourceB1, in line with
 	// the specified restriction.
@@ -2587,9 +2493,7 @@ func runRestrictOutgoingChannel(t *testing.T, useCache bool) {
 		chanSourceB1, chanSourceTarget,
 	}
 	path, err = ctx.findPath(target, paymentAmt)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 	if path[0].ChannelID != chanSourceTarget {
 		t.Fatalf("expected route to pass through channel %v",
 			chanSourceTarget)
@@ -2629,9 +2533,7 @@ func runRestrictLastHop(t *testing.T, useCache bool) {
 	// This should force pathfinding to not take the lowest cost option.
 	ctx.restrictParams.LastHop = &lastHop
 	path, err := ctx.findPath(target, paymentAmt)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 	if path[0].ChannelID != 3 {
 		t.Fatalf("expected route to pass through channel 3, "+
 			"but channel %v was selected instead",
@@ -2704,9 +2606,7 @@ func testCltvLimit(t *testing.T, useCache bool, limit uint32,
 		}
 		t.Fatal("expected no path to be found")
 	}
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 
 	const (
 		startingHeight = 100
@@ -2720,9 +2620,7 @@ func testCltvLimit(t *testing.T, useCache bool, limit uint32,
 			records:   nil,
 		},
 	)
-	if err != nil {
-		t.Fatalf("unable to create path: %v", err)
-	}
+	require.NoError(t, err, "unable to create path")
 
 	// Assert that the route starts with the expected channel.
 	if route.Hops[0].ChannelID != expectedChannel {
@@ -3037,9 +2935,7 @@ func runNoCycle(t *testing.T, useCache bool) {
 	// Find the best path given the restriction to only use channel 2 as the
 	// outgoing channel.
 	path, err := ctx.findPath(target, paymentAmt)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 	route, err := newRoute(
 		ctx.source, path, startingHeight,
 		finalHopParams{
@@ -3048,9 +2944,7 @@ func runNoCycle(t *testing.T, useCache bool) {
 			records:   nil,
 		},
 	)
-	if err != nil {
-		t.Fatalf("unable to create path: %v", err)
-	}
+	require.NoError(t, err, "unable to create path")
 
 	if len(route.Hops) != 2 {
 		t.Fatalf("unexpected route")
@@ -3089,9 +2983,7 @@ func runRouteToSelf(t *testing.T, useCache bool) {
 	// Find the best path to self. We expect this to be source->a->source,
 	// because a charges the lowest forwarding fee.
 	path, err := ctx.findPath(target, paymentAmt)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 	ctx.assertPath(path, []uint64{1, 1})
 
 	outgoingChanID := uint64(1)
@@ -3102,9 +2994,7 @@ func runRouteToSelf(t *testing.T, useCache bool) {
 	// Find the best path to self given that we want to go out via channel 1
 	// and return through node b.
 	path, err = ctx.findPath(target, paymentAmt)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
-	}
+	require.NoError(t, err, "unable to find path")
 	ctx.assertPath(path, []uint64{1, 3, 2})
 }
 
@@ -3125,14 +3015,10 @@ func newPathFindingTestContext(t *testing.T, useCache bool,
 	testGraphInstance, err := createTestGraphFromChannels(
 		useCache, testChannels, source,
 	)
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 
 	sourceNode, err := testGraphInstance.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch source node")
 
 	ctx := &pathFindingTestContext{
 		t:                 t,

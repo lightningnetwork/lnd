@@ -400,9 +400,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	fundingTx, chanPoint, chanID, err := createChannelEdge(ctx,
 		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
 		chanValue, 0)
-	if err != nil {
-		t.Fatalf("unable create channel edge: %v", err)
-	}
+	require.NoError(t, err, "unable create channel edge")
 
 	// We'll also add a record for the block that included our funding
 	// transaction.
@@ -414,13 +412,9 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	// Next we'll create two test nodes that the fake channel will be open
 	// between.
 	node1, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	node2, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 
 	// Finally, to conclude our test set up, we'll create a channel
 	// update to announce the created channel between the two nodes.
@@ -445,9 +439,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	// With the channel edge now in place, we'll subscribe for topology
 	// notifications.
 	ntfnClient, err := ctx.router.SubscribeTopology()
-	if err != nil {
-		t.Fatalf("unable to subscribe for channel notifications: %v", err)
-	}
+	require.NoError(t, err, "unable to subscribe for channel notifications")
 
 	// Create random policy edges that are stemmed to the channel id
 	// created above.
@@ -514,13 +506,9 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	}
 
 	node1Pub, err := node1.PubKey()
-	if err != nil {
-		t.Fatalf("unable to encode key: %v", err)
-	}
+	require.NoError(t, err, "unable to encode key")
 	node2Pub, err := node2.PubKey()
-	if err != nil {
-		t.Fatalf("unable to encode key: %v", err)
-	}
+	require.NoError(t, err, "unable to encode key")
 
 	const numEdgePolicies = 2
 	for i := 0; i < numEdgePolicies; i++ {
@@ -593,9 +581,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 		bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(),
 		chanValue, startingBlockHeight)
-	if err != nil {
-		t.Fatalf("unable create channel edge: %v", err)
-	}
+	require.NoError(t, err, "unable create channel edge")
 
 	// We'll also add a record for the block that included our funding
 	// transaction.
@@ -608,13 +594,9 @@ func TestNodeUpdateNotification(t *testing.T) {
 	// them to trigger notifications by sending updated node announcement
 	// messages.
 	node1, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	node2, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 
 	testFeaturesBuf := new(bytes.Buffer)
 	require.NoError(t, testFeatures.Encode(testFeaturesBuf))
@@ -641,9 +623,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 
 	// Create a new client to receive notifications.
 	ntfnClient, err := ctx.router.SubscribeTopology()
-	if err != nil {
-		t.Fatalf("unable to subscribe for channel notifications: %v", err)
-	}
+	require.NoError(t, err, "unable to subscribe for channel notifications")
 
 	// Change network topology by adding the updated info for the two nodes
 	// to the channel router.
@@ -778,9 +758,7 @@ func TestNotificationCancellation(t *testing.T) {
 
 	// Create a new client to receive notifications.
 	ntfnClient, err := ctx.router.SubscribeTopology()
-	if err != nil {
-		t.Fatalf("unable to subscribe for channel notifications: %v", err)
-	}
+	require.NoError(t, err, "unable to subscribe for channel notifications")
 
 	// We'll create the utxo for a new channel.
 	const chanValue = 10000
@@ -788,9 +766,7 @@ func TestNotificationCancellation(t *testing.T) {
 		bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(),
 		chanValue, startingBlockHeight)
-	if err != nil {
-		t.Fatalf("unable create channel edge: %v", err)
-	}
+	require.NoError(t, err, "unable create channel edge")
 
 	// We'll also add a record for the block that included our funding
 	// transaction.
@@ -802,13 +778,9 @@ func TestNotificationCancellation(t *testing.T) {
 	// We'll create a fresh new node topology update to feed to the channel
 	// router.
 	node1, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	node2, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 
 	// Before we send the message to the channel router, we'll cancel the
 	// notifications for this client. As a result, the notification
@@ -870,9 +842,7 @@ func TestChannelCloseNotification(t *testing.T) {
 	fundingTx, chanUtxo, chanID, err := createChannelEdge(ctx,
 		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
 		chanValue, startingBlockHeight)
-	if err != nil {
-		t.Fatalf("unable create channel edge: %v", err)
-	}
+	require.NoError(t, err, "unable create channel edge")
 
 	// We'll also add a record for the block that included our funding
 	// transaction.
@@ -884,13 +854,9 @@ func TestChannelCloseNotification(t *testing.T) {
 	// Next we'll create two test nodes that the fake channel will be open
 	// between.
 	node1, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	node2, err := createTestNode()
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 
 	// Finally, to conclude our test set up, we'll create a channel
 	// announcement to announce the created channel between the two nodes.
@@ -914,9 +880,7 @@ func TestChannelCloseNotification(t *testing.T) {
 	// With the channel edge now in place, we'll subscribe for topology
 	// notifications.
 	ntfnClient, err := ctx.router.SubscribeTopology()
-	if err != nil {
-		t.Fatalf("unable to subscribe for channel notifications: %v", err)
-	}
+	require.NoError(t, err, "unable to subscribe for channel notifications")
 
 	// Next, we'll simulate the closure of our channel by generating a new
 	// block at height 102 which spends the original multi-sig output of

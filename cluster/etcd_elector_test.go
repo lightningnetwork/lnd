@@ -42,9 +42,7 @@ func TestEtcdElector(t *testing.T) {
 	defer guard()
 
 	tmpDir, err := ioutil.TempDir("", "etcd")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
+	require.NoError(t, err, "unable to create temp dir")
 
 	etcdCfg, cleanup, err := etcd.NewEmbeddedEtcdInstance(tmpDir, 0, 0, "")
 	require.NoError(t, err)

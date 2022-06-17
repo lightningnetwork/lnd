@@ -33,23 +33,17 @@ func TestOpenWithCreate(t *testing.T) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
 	tempDirName, err := ioutil.TempDir("", "channeldb")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
+	require.NoError(t, err, "unable to create temp dir")
 	defer os.RemoveAll(tempDirName)
 
 	// Next, open thereby creating channeldb for the first time.
 	dbPath := filepath.Join(tempDirName, "cdb")
 	backend, cleanup, err := kvdb.GetTestBackend(dbPath, "cdb")
-	if err != nil {
-		t.Fatalf("unable to get test db backend: %v", err)
-	}
+	require.NoError(t, err, "unable to get test db backend")
 	defer cleanup()
 
 	cdb, err := CreateWithBackend(backend)
-	if err != nil {
-		t.Fatalf("unable to create channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to create channeldb")
 	if err := cdb.Close(); err != nil {
 		t.Fatalf("unable to close channeldb: %v", err)
 	}
@@ -62,9 +56,7 @@ func TestOpenWithCreate(t *testing.T) {
 	// Now, reopen the same db in dry run migration mode. Since we have not
 	// applied any migrations, this should ignore the flag and not fail.
 	cdb, err = Open(dbPath, OptionDryRunMigration(true))
-	if err != nil {
-		t.Fatalf("unable to create channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to create channeldb")
 	if err := cdb.Close(); err != nil {
 		t.Fatalf("unable to close channeldb: %v", err)
 	}
@@ -79,23 +71,17 @@ func TestWipe(t *testing.T) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
 	tempDirName, err := ioutil.TempDir("", "channeldb")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
+	require.NoError(t, err, "unable to create temp dir")
 	defer os.RemoveAll(tempDirName)
 
 	// Next, open thereby creating channeldb for the first time.
 	dbPath := filepath.Join(tempDirName, "cdb")
 	backend, cleanup, err := kvdb.GetTestBackend(dbPath, "cdb")
-	if err != nil {
-		t.Fatalf("unable to get test db backend: %v", err)
-	}
+	require.NoError(t, err, "unable to get test db backend")
 	defer cleanup()
 
 	fullDB, err := CreateWithBackend(backend)
-	if err != nil {
-		t.Fatalf("unable to create channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to create channeldb")
 	defer fullDB.Close()
 
 	if err := fullDB.Wipe(); err != nil {
@@ -122,9 +108,7 @@ func TestFetchClosedChannelForID(t *testing.T) {
 	const numChans = 101
 
 	fullDB, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
@@ -195,9 +179,7 @@ func TestAddrsForNode(t *testing.T) {
 	t.Parallel()
 
 	fullDB, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	graph := fullDB.ChannelGraph()
@@ -206,9 +188,7 @@ func TestAddrsForNode(t *testing.T) {
 	// node, but this node will only have half the number of addresses it
 	// usually does.
 	testNode, err := createTestVertex(fullDB)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
+	require.NoError(t, err, "unable to create test node")
 	testNode.Addresses = []net.Addr{testAddr}
 	if err := graph.SetSourceNode(testNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
@@ -217,9 +197,7 @@ func TestAddrsForNode(t *testing.T) {
 	// Next, we'll make a link node with the same pubkey, but with an
 	// additional address.
 	nodePub, err := testNode.PubKey()
-	if err != nil {
-		t.Fatalf("unable to recv node pub: %v", err)
-	}
+	require.NoError(t, err, "unable to recv node pub")
 	linkNode := NewLinkNode(
 		fullDB.channelStateDB.linkNodeDB, wire.MainNet, nodePub,
 		anotherAddr,
@@ -231,9 +209,7 @@ func TestAddrsForNode(t *testing.T) {
 	// Now that we've created a link node, as well as a vertex for the
 	// node, we'll query for all its addresses.
 	nodeAddrs, err := fullDB.AddrsForNode(nodePub)
-	if err != nil {
-		t.Fatalf("unable to obtain node addrs: %v", err)
-	}
+	require.NoError(t, err, "unable to obtain node addrs")
 
 	expectedAddrs := make(map[string]struct{})
 	expectedAddrs[testAddr.String()] = struct{}{}
@@ -257,9 +233,7 @@ func TestFetchChannel(t *testing.T) {
 	t.Parallel()
 
 	fullDB, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
@@ -269,9 +243,7 @@ func TestFetchChannel(t *testing.T) {
 
 	// Next, attempt to fetch the channel by its chan point.
 	dbChannel, err := cdb.FetchChannel(nil, channelState.FundingOutpoint)
-	if err != nil {
-		t.Fatalf("unable to fetch channel: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch channel")
 
 	// The decoded channel state should be identical to what we stored
 	// above.
@@ -283,9 +255,7 @@ func TestFetchChannel(t *testing.T) {
 	// If we attempt to query for a non-exist ante channel, then we should
 	// get an error.
 	channelState2 := createTestChannelState(t, cdb)
-	if err != nil {
-		t.Fatalf("unable to create channel state: %v", err)
-	}
+	require.NoError(t, err, "unable to create channel state")
 	channelState2.FundingOutpoint.Index ^= 1
 
 	_, err = cdb.FetchChannel(nil, channelState2.FundingOutpoint)
@@ -361,9 +331,7 @@ func TestRestoreChannelShells(t *testing.T) {
 	t.Parallel()
 
 	fullDB, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
@@ -372,9 +340,7 @@ func TestRestoreChannelShells(t *testing.T) {
 	// amount of information required for us to initiate the data loss
 	// protection feature.
 	channelShell, err := genRandomChannelShell()
-	if err != nil {
-		t.Fatalf("unable to gen channel shell: %v", err)
-	}
+	require.NoError(t, err, "unable to gen channel shell")
 
 	// With the channel shell constructed, we'll now insert it into the
 	// database with the restoration method.
@@ -388,9 +354,7 @@ func TestRestoreChannelShells(t *testing.T) {
 	// First, we'll attempt to query for all channels that we have with the
 	// node public key that was restored.
 	nodeChans, err := cdb.FetchOpenChannels(channelShell.Chan.IdentityPub)
-	if err != nil {
-		t.Fatalf("unable find channel: %v", err)
-	}
+	require.NoError(t, err, "unable find channel")
 
 	// We should now find a single channel from the database.
 	if len(nodeChans) != 1 {
@@ -432,18 +396,14 @@ func TestRestoreChannelShells(t *testing.T) {
 	// We should also be able to find the channel if we query for it
 	// directly.
 	_, err = cdb.FetchChannel(nil, channelShell.Chan.FundingOutpoint)
-	if err != nil {
-		t.Fatalf("unable to fetch channel: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch channel")
 
 	// We should also be able to find the link node that was inserted by
 	// its public key.
 	linkNode, err := fullDB.channelStateDB.linkNodeDB.FetchLinkNode(
 		channelShell.Chan.IdentityPub,
 	)
-	if err != nil {
-		t.Fatalf("unable to fetch link node: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch link node")
 
 	// The node should have the same address, as specified in the channel
 	// shell.
@@ -461,9 +421,7 @@ func TestAbandonChannel(t *testing.T) {
 	t.Parallel()
 
 	fullDB, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
@@ -483,9 +441,7 @@ func TestAbandonChannel(t *testing.T) {
 	// We should now be able to abandon the channel without any errors.
 	closeHeight := uint32(11)
 	err = cdb.AbandonChannel(&chanState.FundingOutpoint, closeHeight)
-	if err != nil {
-		t.Fatalf("unable to abandon channel: %v", err)
-	}
+	require.NoError(t, err, "unable to abandon channel")
 
 	// At this point, the channel should no longer be found in the set of
 	// open channels.
@@ -497,16 +453,12 @@ func TestAbandonChannel(t *testing.T) {
 	// However we should be able to retrieve a close channel summary for
 	// the channel.
 	_, err = cdb.FetchClosedChannel(&chanState.FundingOutpoint)
-	if err != nil {
-		t.Fatalf("unable to fetch closed channel: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch closed channel")
 
 	// Finally, if we attempt to abandon the channel again, we should get a
 	// nil error as the channel has already been abandoned.
 	err = cdb.AbandonChannel(&chanState.FundingOutpoint, closeHeight)
-	if err != nil {
-		t.Fatalf("unable to abandon channel: %v", err)
-	}
+	require.NoError(t, err, "unable to abandon channel")
 }
 
 // TestFetchChannels tests the filtering of open channels in fetchChannels.
@@ -707,9 +659,7 @@ func TestFetchChannels(t *testing.T) {
 // TestFetchHistoricalChannel tests lookup of historical channels.
 func TestFetchHistoricalChannel(t *testing.T) {
 	fullDB, cleanUp, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
+	require.NoError(t, err, "unable to make test database")
 	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
@@ -737,9 +687,7 @@ func TestFetchHistoricalChannel(t *testing.T) {
 	}
 
 	histChannel, err := cdb.FetchHistoricalChannel(&channel.FundingOutpoint)
-	if err != nil {
-		t.Fatalf("unexpected error getting channel: %v", err)
-	}
+	require.NoError(t, err, "unexpected error getting channel")
 
 	// FetchHistoricalChannel will attach the cdb to channel.Db, we set it
 	// here so that we can check that all other fields on the channel equal

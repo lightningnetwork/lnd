@@ -82,9 +82,7 @@ func testParsedTypes(t *testing.T, test parsedTypeTest) {
 	parsedTypes, err := decStream.DecodeWithParsedTypes(
 		bytes.NewReader(b.Bytes()),
 	)
-	if err != nil {
-		t.Fatalf("error decoding: %v", err)
-	}
+	require.NoError(t, err, "error decoding")
 	if !reflect.DeepEqual(parsedTypes, test.expParsedTypes) {
 		t.Fatalf("error mismatch on parsed types")
 	}

@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -200,34 +201,22 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	// To start the test, we'll create to fresh outputs paying to the
 	// private key that we generated above.
 	txid1, err := getTestTXID(node)
-	if err != nil {
-		t.Fatalf("unable to get test txid: %v", err)
-	}
+	require.NoError(t, err, "unable to get test txid")
 	err = waitForMempoolTx(node, txid1)
-	if err != nil {
-		t.Fatalf("unable to get test txid in mempool: %v", err)
-	}
+	require.NoError(t, err, "unable to get test txid in mempool")
 	txid2, err := getTestTXID(node)
-	if err != nil {
-		t.Fatalf("unable to get test txid: %v", err)
-	}
+	require.NoError(t, err, "unable to get test txid")
 	err = waitForMempoolTx(node, txid2)
-	if err != nil {
-		t.Fatalf("unable to get test txid in mempool: %v", err)
-	}
+	require.NoError(t, err, "unable to get test txid in mempool")
 
 	blockChan := chainView.FilteredBlocks()
 
 	// Next we'll mine a block confirming the output generated above.
 	newBlockHashes, err := node.Client.Generate(1)
-	if err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	require.NoError(t, err, "unable to generate block")
 
 	_, currentHeight, err := node.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get current height: %v", err)
-	}
+	require.NoError(t, err, "unable to get current height")
 
 	// We should get an update, however it shouldn't yet contain any
 	// filtered transaction as the filter hasn't been update.
@@ -243,34 +232,22 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	// so we can add them to the filter, and also craft transaction
 	// spending the outputs we created.
 	tx1, err := node.Client.GetRawTransaction(txid1)
-	if err != nil {
-		t.Fatalf("unable to fetch transaction: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch transaction")
 	tx2, err := node.Client.GetRawTransaction(txid2)
-	if err != nil {
-		t.Fatalf("unable to fetch transaction: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch transaction")
 
 	targetScript, err := txscript.PayToAddrScript(testAddr)
-	if err != nil {
-		t.Fatalf("unable to create target output: %v", err)
-	}
+	require.NoError(t, err, "unable to create target output")
 
 	// Next, we'll locate the two outputs generated above that pay to use
 	// so we can properly add them to the filter.
 	outPoint1, _, err := locateOutput(tx1.MsgTx(), targetScript)
-	if err != nil {
-		t.Fatalf("unable to find output: %v", err)
-	}
+	require.NoError(t, err, "unable to find output")
 	outPoint2, _, err := locateOutput(tx2.MsgTx(), targetScript)
-	if err != nil {
-		t.Fatalf("unable to find output: %v", err)
-	}
+	require.NoError(t, err, "unable to find output")
 
 	_, currentHeight, err = node.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get current height: %v", err)
-	}
+	require.NoError(t, err, "unable to get current height")
 
 	// Now we'll add both outpoints to the current filter.
 	filter := []channeldb.EdgePoint{
@@ -278,35 +255,23 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 		{FundingPkScript: targetScript, OutPoint: *outPoint2},
 	}
 	err = chainView.UpdateFilter(filter, uint32(currentHeight))
-	if err != nil {
-		t.Fatalf("unable to update filter: %v", err)
-	}
+	require.NoError(t, err, "unable to update filter")
 
 	// With the filter updated, we'll now create two transaction spending
 	// the outputs we created.
 	spendingTx1, err := craftSpendTransaction(*outPoint1, targetScript)
-	if err != nil {
-		t.Fatalf("unable to create spending tx: %v", err)
-	}
+	require.NoError(t, err, "unable to create spending tx")
 	spendingTx2, err := craftSpendTransaction(*outPoint2, targetScript)
-	if err != nil {
-		t.Fatalf("unable to create spending tx: %v", err)
-	}
+	require.NoError(t, err, "unable to create spending tx")
 
 	// Now we'll broadcast the first spending transaction and also mine a
 	// block which should include it.
 	spendTxid1, err := node.Client.SendRawTransaction(spendingTx1, true)
-	if err != nil {
-		t.Fatalf("unable to broadcast transaction: %v", err)
-	}
+	require.NoError(t, err, "unable to broadcast transaction")
 	err = waitForMempoolTx(node, spendTxid1)
-	if err != nil {
-		t.Fatalf("unable to get spending txid in mempool: %v", err)
-	}
+	require.NoError(t, err, "unable to get spending txid in mempool")
 	newBlockHashes, err = node.Client.Generate(1)
-	if err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	require.NoError(t, err, "unable to generate block")
 
 	// We should receive a notification over the channel. The notification
 	// should correspond to the current block height and have that single
@@ -322,17 +287,11 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	// Next, mine the second transaction which spends the second output.
 	// This should also generate a notification.
 	spendTxid2, err := node.Client.SendRawTransaction(spendingTx2, true)
-	if err != nil {
-		t.Fatalf("unable to broadcast transaction: %v", err)
-	}
+	require.NoError(t, err, "unable to broadcast transaction")
 	err = waitForMempoolTx(node, spendTxid2)
-	if err != nil {
-		t.Fatalf("unable to get spending txid in mempool: %v", err)
-	}
+	require.NoError(t, err, "unable to get spending txid in mempool")
 	newBlockHashes, err = node.Client.Generate(1)
-	if err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	require.NoError(t, err, "unable to generate block")
 
 	select {
 	case filteredBlock := <-blockChan:
@@ -354,22 +313,16 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 		t.Fatalf("unable to get test txid")
 	}
 	err = waitForMempoolTx(node, txid)
-	if err != nil {
-		t.Fatalf("unable to get test txid in mempool: %v", err)
-	}
+	require.NoError(t, err, "unable to get test txid in mempool")
 
 	// Next we'll mine a block confirming the output generated above.
 	initBlockHashes, err := node.Client.Generate(1)
-	if err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	require.NoError(t, err, "unable to generate block")
 
 	blockChan := chainView.FilteredBlocks()
 
 	_, currentHeight, err := node.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get current height: %v", err)
-	}
+	require.NoError(t, err, "unable to get current height")
 
 	// Consume the notification sent which contains an empty filtered
 	// block.
@@ -384,29 +337,17 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 	// Next, create a transaction which spends the output created above,
 	// mining the spend into a block.
 	tx, err := node.Client.GetRawTransaction(txid)
-	if err != nil {
-		t.Fatalf("unable to fetch transaction: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch transaction")
 	outPoint, _, err := locateOutput(tx.MsgTx(), testScript)
-	if err != nil {
-		t.Fatalf("unable to find output: %v", err)
-	}
+	require.NoError(t, err, "unable to find output")
 	spendingTx, err := craftSpendTransaction(*outPoint, testScript)
-	if err != nil {
-		t.Fatalf("unable to create spending tx: %v", err)
-	}
+	require.NoError(t, err, "unable to create spending tx")
 	spendTxid, err := node.Client.SendRawTransaction(spendingTx, true)
-	if err != nil {
-		t.Fatalf("unable to broadcast transaction: %v", err)
-	}
+	require.NoError(t, err, "unable to broadcast transaction")
 	err = waitForMempoolTx(node, spendTxid)
-	if err != nil {
-		t.Fatalf("unable to get spending txid in mempool: %v", err)
-	}
+	require.NoError(t, err, "unable to get spending txid in mempool")
 	newBlockHashes, err := node.Client.Generate(1)
-	if err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	require.NoError(t, err, "unable to generate block")
 
 	// We should have received another empty filtered block notification.
 	select {
@@ -423,9 +364,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 		{FundingPkScript: testScript, OutPoint: *outPoint},
 	}
 	err = chainView.UpdateFilter(filter, uint32(currentHeight))
-	if err != nil {
-		t.Fatalf("unable to update filter: %v", err)
-	}
+	require.NoError(t, err, "unable to update filter")
 
 	// We should now receive a fresh filtered block notification that
 	// includes the transaction spend we included above.
@@ -451,30 +390,22 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 		t.Fatalf("unable to get test txid")
 	}
 	err = waitForMempoolTx(node, txid1)
-	if err != nil {
-		t.Fatalf("unable to get test txid in mempool: %v", err)
-	}
+	require.NoError(t, err, "unable to get test txid in mempool")
 	txid2, err := getTestTXID(node)
 	if err != nil {
 		t.Fatalf("unable to get test txid")
 	}
 	err = waitForMempoolTx(node, txid2)
-	if err != nil {
-		t.Fatalf("unable to get test txid in mempool: %v", err)
-	}
+	require.NoError(t, err, "unable to get test txid in mempool")
 
 	blockChan := chainView.FilteredBlocks()
 
 	// Next we'll mine a block confirming the output generated above.
 	newBlockHashes, err := node.Client.Generate(1)
-	if err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	require.NoError(t, err, "unable to generate block")
 
 	_, currentHeight, err := node.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get current height: %v", err)
-	}
+	require.NoError(t, err, "unable to get current height")
 
 	// We should get an update, however it shouldn't yet contain any
 	// filtered transaction as the filter hasn't been updated.
@@ -487,37 +418,23 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 	}
 
 	tx1, err := node.Client.GetRawTransaction(txid1)
-	if err != nil {
-		t.Fatalf("unable to fetch transaction: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch transaction")
 	tx2, err := node.Client.GetRawTransaction(txid2)
-	if err != nil {
-		t.Fatalf("unable to fetch transaction: %v", err)
-	}
+	require.NoError(t, err, "unable to fetch transaction")
 
 	// Next, we'll create a block that includes two transactions, each
 	// which spend one of the outputs created.
 	outPoint1, _, err := locateOutput(tx1.MsgTx(), testScript)
-	if err != nil {
-		t.Fatalf("unable to find output: %v", err)
-	}
+	require.NoError(t, err, "unable to find output")
 	outPoint2, _, err := locateOutput(tx2.MsgTx(), testScript)
-	if err != nil {
-		t.Fatalf("unable to find output: %v", err)
-	}
+	require.NoError(t, err, "unable to find output")
 	spendingTx1, err := craftSpendTransaction(*outPoint1, testScript)
-	if err != nil {
-		t.Fatalf("unable to create spending tx: %v", err)
-	}
+	require.NoError(t, err, "unable to create spending tx")
 	spendingTx2, err := craftSpendTransaction(*outPoint2, testScript)
-	if err != nil {
-		t.Fatalf("unable to create spending tx: %v", err)
-	}
+	require.NoError(t, err, "unable to create spending tx")
 	txns := []*btcutil.Tx{btcutil.NewTx(spendingTx1), btcutil.NewTx(spendingTx2)}
 	block, err := node.GenerateAndSubmitBlock(txns, 11, time.Time{})
-	if err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	require.NoError(t, err, "unable to generate block")
 
 	select {
 	case filteredBlock := <-blockChan:
@@ -528,9 +445,7 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 	}
 
 	_, currentHeight, err = node.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get current height: %v", err)
-	}
+	require.NoError(t, err, "unable to get current height")
 
 	// Now we'll manually trigger filtering the block generated above.
 	// First, we'll add the two outpoints to our filter.
@@ -539,9 +454,7 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 		{FundingPkScript: testScript, OutPoint: *outPoint2},
 	}
 	err = chainView.UpdateFilter(filter, uint32(currentHeight))
-	if err != nil {
-		t.Fatalf("unable to update filter: %v", err)
-	}
+	require.NoError(t, err, "unable to update filter")
 
 	// We set the filter with the current height, so we shouldn't get any
 	// notifications.
@@ -554,9 +467,7 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 	// Now we'll manually rescan that past block. This should include two
 	// filtered transactions, the spending transactions we created above.
 	filteredBlock, err := chainView.FilterBlock(block.Hash())
-	if err != nil {
-		t.Fatalf("unable to filter block: %v", err)
-	}
+	require.NoError(t, err, "unable to filter block")
 	txn1, txn2 := spendingTx1.TxHash(), spendingTx2.TxHash()
 	expectedTxns := []*chainhash.Hash{&txn1, &txn2}
 	assertFilteredBlock(t, filteredBlock, currentHeight, block.Hash(),
@@ -573,9 +484,7 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 	// Create a node that has a shorter chain than the main chain, so we
 	// can trigger a reorg.
 	reorgNode, err := rpctest.New(netParams, nil, []string{"--txindex"}, "")
-	if err != nil {
-		t.Fatalf("unable to create mining node: %v", err)
-	}
+	require.NoError(t, err, "unable to create mining node")
 	defer reorgNode.TearDown()
 
 	// We want to overwrite some of the connection settings to make the
@@ -592,17 +501,13 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 	}
 
 	_, bestHeight, err := reorgNode.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("error getting best block: %v", err)
-	}
+	require.NoError(t, err, "error getting best block")
 
 	// Init a chain view that has this node as its block source.
 	cleanUpFunc, reorgView, err := chainViewInit(
 		reorgNode.RPCConfig(), reorgNode.P2PAddress(), bestHeight,
 	)
-	if err != nil {
-		t.Fatalf("unable to create chain view: %v", err)
-	}
+	require.NoError(t, err, "unable to create chain view")
 	defer func() {
 		if cleanUpFunc != nil {
 			cleanUpFunc()
@@ -625,9 +530,7 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 	}
 
 	_, oldHeight, err := reorgNode.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get current height: %v", err)
-	}
+	require.NoError(t, err, "unable to get current height")
 
 	// Now connect the node with the short chain to the main node, and wait
 	// for their chains to synchronize. The short chain will be reorged all
@@ -641,9 +544,7 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 	}
 
 	_, newHeight, err := reorgNode.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get current height: %v", err)
-	}
+	require.NoError(t, err, "unable to get current height")
 
 	// We should be getting oldHeight number of blocks marked as
 	// stale/disconnected. We expect to first get all stale blocks,
@@ -681,16 +582,12 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 	// Now we trigger a small reorg, by disconnecting the nodes, mining
 	// a few blocks on each, then connecting them again.
 	peers, err := reorgNode.Client.GetPeerInfo()
-	if err != nil {
-		t.Fatalf("unable to get peer info: %v", err)
-	}
+	require.NoError(t, err, "unable to get peer info")
 	numPeers := len(peers)
 
 	// Disconnect the nodes.
 	err = reorgNode.Client.AddNode(node.P2PAddress(), rpcclient.ANRemove)
-	if err != nil {
-		t.Fatalf("unable to disconnect mining nodes: %v", err)
-	}
+	require.NoError(t, err, "unable to disconnect mining nodes")
 
 	// Wait for disconnection
 	for {
@@ -732,9 +629,7 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 	}
 
 	_, oldHeight, err = reorgNode.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get current height: %v", err)
-	}
+	require.NoError(t, err, "unable to get current height")
 
 	// Now connect the two nodes, and wait for their chains to sync up.
 	if err := rpctest.ConnectNode(reorgNode, node); err != nil {
@@ -1135,9 +1030,7 @@ func TestFilteredChainView(t *testing.T) {
 	// this node with a chain length of 125, so we have plenty of BTC to
 	// play around with.
 	miner, err := rpctest.New(netParams, nil, []string{"--txindex"}, "")
-	if err != nil {
-		t.Fatalf("unable to create mining node: %v", err)
-	}
+	require.NoError(t, err, "unable to create mining node")
 	defer miner.TearDown()
 	if err := miner.SetUp(true, 25); err != nil {
 		t.Fatalf("unable to set up mining node: %v", err)

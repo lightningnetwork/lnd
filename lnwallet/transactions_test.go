@@ -495,9 +495,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	// doesn't need to exist, as we'll only be validating spending from the
 	// transaction that references this.
 	txid, err := chainhash.NewHash(testHdSeed.CloneBytes())
-	if err != nil {
-		t.Fatalf("unable to create txid: %v", err)
-	}
+	require.NoError(t, err, "unable to create txid")
 	fundingOut := &wire.OutPoint{
 		Hash:  *txid,
 		Index: 50,
@@ -585,9 +583,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	// We're testing an uncooperative close, output sweep, so construct a
 	// transaction which sweeps the funds to a random address.
 	targetOutput, err := input.CommitScriptUnencumbered(aliceKeyPub)
-	if err != nil {
-		t.Fatalf("unable to create target output: %v", err)
-	}
+	require.NoError(t, err, "unable to create target output")
 	sweepTx := wire.NewMsgTx(2)
 	sweepTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{
 		Hash:  commitmentTx.TxHash(),
@@ -602,9 +598,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	delayScript, err := input.CommitScriptToSelf(
 		csvTimeout, aliceDelayKey, revokePubKey,
 	)
-	if err != nil {
-		t.Fatalf("unable to generate alice delay script: %v", err)
-	}
+	require.NoError(t, err, "unable to generate alice delay script")
 	sweepTx.TxIn[0].Sequence = input.LockTimeToSequence(false, csvTimeout)
 	signDesc := &input.SignDescriptor{
 		WitnessScript: delayScript,
@@ -622,18 +616,14 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	aliceWitnessSpend, err := input.CommitSpendTimeout(
 		aliceSelfOutputSigner, signDesc, sweepTx,
 	)
-	if err != nil {
-		t.Fatalf("unable to generate delay commit spend witness: %v", err)
-	}
+	require.NoError(t, err, "unable to generate delay commit spend witness")
 	sweepTx.TxIn[0].Witness = aliceWitnessSpend
 	vm, err := txscript.NewEngine(
 		delayOutput.PkScript, sweepTx, 0, txscript.StandardVerifyFlags,
 		nil, nil, int64(channelBalance),
 		txscript.NewCannedPrevOutputFetcher(nil, 0),
 	)
-	if err != nil {
-		t.Fatalf("unable to create engine: %v", err)
-	}
+	require.NoError(t, err, "unable to create engine")
 	if err := vm.Execute(); err != nil {
 		t.Fatalf("spend from delay output is invalid: %v", err)
 	}
@@ -658,18 +648,14 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	}
 	bobWitnessSpend, err := input.CommitSpendRevoke(localSigner, signDesc,
 		sweepTx)
-	if err != nil {
-		t.Fatalf("unable to generate revocation witness: %v", err)
-	}
+	require.NoError(t, err, "unable to generate revocation witness")
 	sweepTx.TxIn[0].Witness = bobWitnessSpend
 	vm, err = txscript.NewEngine(
 		delayOutput.PkScript, sweepTx, 0, txscript.StandardVerifyFlags,
 		nil, nil, int64(channelBalance),
 		txscript.NewCannedPrevOutputFetcher(nil, 0),
 	)
-	if err != nil {
-		t.Fatalf("unable to create engine: %v", err)
-	}
+	require.NoError(t, err, "unable to create engine")
 	if err := vm.Execute(); err != nil {
 		t.Fatalf("revocation spend is invalid: %v", err)
 	}
@@ -687,9 +673,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	// Finally, we test bob sweeping his output as normal in the case that
 	// Alice broadcasts this commitment transaction.
 	bobScriptP2WKH, err := input.CommitScriptUnencumbered(bobPayKey)
-	if err != nil {
-		t.Fatalf("unable to create bob p2wkh script: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob p2wkh script")
 	signDesc = &input.SignDescriptor{
 		KeyDesc: keychain.KeyDescriptor{
 			PubKey: bobKeyPub,
@@ -709,9 +693,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	bobRegularSpend, err := input.CommitSpendNoDelay(
 		localSigner, signDesc, sweepTx, tweakless,
 	)
-	if err != nil {
-		t.Fatalf("unable to create bob regular spend: %v", err)
-	}
+	require.NoError(t, err, "unable to create bob regular spend")
 	sweepTx.TxIn[0].Witness = bobRegularSpend
 	vm, err = txscript.NewEngine(
 		regularOutput.PkScript,
@@ -719,9 +701,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		nil, int64(channelBalance),
 		txscript.NewCannedPrevOutputFetcher(bobScriptP2WKH, 0),
 	)
-	if err != nil {
-		t.Fatalf("unable to create engine: %v", err)
-	}
+	require.NoError(t, err, "unable to create engine")
 	if err := vm.Execute(); err != nil {
 		t.Fatalf("bob p2wkh spend is invalid: %v", err)
 	}

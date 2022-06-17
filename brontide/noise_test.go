@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/stretchr/testify/require"
 )
 
 type maybeNetConn struct {
@@ -103,9 +104,7 @@ func TestConnectionCorrectness(t *testing.T) {
 	// into local variables. If the initial crypto handshake fails, then
 	// we'll get a non-nil error here.
 	localConn, remoteConn, cleanUp, err := establishTestConnection()
-	if err != nil {
-		t.Fatalf("unable to establish test connection: %v", err)
-	}
+	require.NoError(t, err, "unable to establish test connection")
 	defer cleanUp()
 
 	// Test out some message full-message reads.
@@ -155,9 +154,7 @@ func TestConnectionCorrectness(t *testing.T) {
 // stalled.
 func TestConcurrentHandshakes(t *testing.T) {
 	listener, netAddr, err := makeListener()
-	if err != nil {
-		t.Fatalf("unable to create listener connection: %v", err)
-	}
+	require.NoError(t, err, "unable to create listener connection")
 	defer listener.Close()
 
 	const nblocking = 5
@@ -194,9 +191,7 @@ func TestConcurrentHandshakes(t *testing.T) {
 	// Now, construct a new private key and use the brontide dialer to
 	// connect to the listener.
 	remotePriv, err := btcec.NewPrivateKey()
-	if err != nil {
-		t.Fatalf("unable to generate private key: %v", err)
-	}
+	require.NoError(t, err, "unable to generate private key")
 	remoteKeyECDH := &keychain.PrivKeyECDH{PrivKey: remotePriv}
 
 	go func() {
@@ -210,9 +205,7 @@ func TestConcurrentHandshakes(t *testing.T) {
 	// This connection should be accepted without error, as the brontide
 	// connection should bypass stalled tcp connections.
 	conn, err := listener.Accept()
-	if err != nil {
-		t.Fatalf("unable to accept dial: %v", err)
-	}
+	require.NoError(t, err, "unable to accept dial")
 	defer conn.Close()
 
 	result := <-connChan
@@ -265,9 +258,7 @@ func TestWriteMessageChunking(t *testing.T) {
 	// into local variables. If the initial crypto handshake fails, then
 	// we'll get a non-nil error here.
 	localConn, remoteConn, cleanUp, err := establishTestConnection()
-	if err != nil {
-		t.Fatalf("unable to establish test connection: %v", err)
-	}
+	require.NoError(t, err, "unable to establish test connection")
 	defer cleanUp()
 
 	// Attempt to write a message which is over 3x the max allowed payload
@@ -322,9 +313,7 @@ func TestBolt0008TestVectors(t *testing.T) {
 	// vectors at the appendix of BOLT-0008
 	initiatorKeyBytes, err := hex.DecodeString("1111111111111111111111" +
 		"111111111111111111111111111111111111111111")
-	if err != nil {
-		t.Fatalf("unable to decode hex: %v", err)
-	}
+	require.NoError(t, err, "unable to decode hex")
 	initiatorPriv, _ := btcec.PrivKeyFromBytes(
 		initiatorKeyBytes,
 	)
@@ -333,9 +322,7 @@ func TestBolt0008TestVectors(t *testing.T) {
 	// We'll then do the same for the responder.
 	responderKeyBytes, err := hex.DecodeString("212121212121212121212121" +
 		"2121212121212121212121212121212121212121")
-	if err != nil {
-		t.Fatalf("unable to decode hex: %v", err)
-	}
+	require.NoError(t, err, "unable to decode hex")
 	responderPriv, responderPub := btcec.PrivKeyFromBytes(
 		responderKeyBytes,
 	)
@@ -382,15 +369,11 @@ func TestBolt0008TestVectors(t *testing.T) {
 	// the payload return is _exactly_ the same as what's specified within
 	// the test vectors.
 	actOne, err := initiator.GenActOne()
-	if err != nil {
-		t.Fatalf("unable to generate act one: %v", err)
-	}
+	require.NoError(t, err, "unable to generate act one")
 	expectedActOne, err := hex.DecodeString("00036360e856310ce5d294e" +
 		"8be33fc807077dc56ac80d95d9cd4ddbd21325eff73f70df608655115" +
 		"1f58b8afe6c195782c6a")
-	if err != nil {
-		t.Fatalf("unable to parse expected act one: %v", err)
-	}
+	require.NoError(t, err, "unable to parse expected act one")
 	if !bytes.Equal(expectedActOne, actOne[:]) {
 		t.Fatalf("act one mismatch: expected %x, got %x",
 			expectedActOne, actOne)
@@ -407,15 +390,11 @@ func TestBolt0008TestVectors(t *testing.T) {
 	// produce the _exact_ same byte stream as advertised within the spec's
 	// test vectors.
 	actTwo, err := responder.GenActTwo()
-	if err != nil {
-		t.Fatalf("unable to generate act two: %v", err)
-	}
+	require.NoError(t, err, "unable to generate act two")
 	expectedActTwo, err := hex.DecodeString("0002466d7fcae563e5cb09a0" +
 		"d1870bb580344804617879a14949cf22285f1bae3f276e2470b93aac58" +
 		"3c9ef6eafca3f730ae")
-	if err != nil {
-		t.Fatalf("unable to parse expected act two: %v", err)
-	}
+	require.NoError(t, err, "unable to parse expected act two")
 	if !bytes.Equal(expectedActTwo, actTwo[:]) {
 		t.Fatalf("act two mismatch: expected %x, got %x",
 			expectedActTwo, actTwo)
@@ -430,15 +409,11 @@ func TestBolt0008TestVectors(t *testing.T) {
 	// At the final step, we'll generate the last act from the initiator
 	// and once again verify that it properly matches the test vectors.
 	actThree, err := initiator.GenActThree()
-	if err != nil {
-		t.Fatalf("unable to generate act three: %v", err)
-	}
+	require.NoError(t, err, "unable to generate act three")
 	expectedActThree, err := hex.DecodeString("00b9e3a702e93e3a9948c2e" +
 		"d6e5fd7590a6e1c3a0344cfc9d5b57357049aa22355361aa02e55a8f" +
 		"c28fef5bd6d71ad0c38228dc68b1c466263b47fdf31e560e139ba")
-	if err != nil {
-		t.Fatalf("unable to parse expected act three: %v", err)
-	}
+	require.NoError(t, err, "unable to parse expected act three")
 	if !bytes.Equal(expectedActThree, actThree[:]) {
 		t.Fatalf("act three mismatch: expected %x, got %x",
 			expectedActThree, actThree)
@@ -454,20 +429,14 @@ func TestBolt0008TestVectors(t *testing.T) {
 	// proper symmetric encryption keys.
 	sendingKey, err := hex.DecodeString("969ab31b4d288cedf6218839b27a3e2" +
 		"140827047f2c0f01bf5c04435d43511a9")
-	if err != nil {
-		t.Fatalf("unable to parse sending key: %v", err)
-	}
+	require.NoError(t, err, "unable to parse sending key")
 	recvKey, err := hex.DecodeString("bb9020b8965f4df047e07f955f3c4b884" +
 		"18984aadc5cdb35096b9ea8fa5c3442")
-	if err != nil {
-		t.Fatalf("unable to parse receiving key: %v", err)
-	}
+	require.NoError(t, err, "unable to parse receiving key")
 
 	chainKey, err := hex.DecodeString("919219dbb2920afa8db80f9a51787a840" +
 		"bcf111ed8d588caf9ab4be716e42b01")
-	if err != nil {
-		t.Fatalf("unable to parse chaining key: %v", err)
-	}
+	require.NoError(t, err, "unable to parse chaining key")
 
 	if !bytes.Equal(initiator.sendCipher.secretKey[:], sendingKey) {
 		t.Fatalf("sending key mismatch: expected %x, got %x",

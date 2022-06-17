@@ -17,9 +17,7 @@ func TestOnionFile(t *testing.T) {
 	t.Parallel()
 
 	tempDir, err := ioutil.TempDir("", "onion_store")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
+	require.NoError(t, err, "unable to create temp dir")
 
 	privateKey := []byte("hide_me_plz")
 	privateKeyPath := filepath.Join(tempDir, "secret")
@@ -36,9 +34,7 @@ func TestOnionFile(t *testing.T) {
 		t.Fatalf("unable to store private key: %v", err)
 	}
 	storePrivateKey, err := onionFile.PrivateKey(V2)
-	if err != nil {
-		t.Fatalf("unable to retrieve private key: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve private key")
 	if !bytes.Equal(storePrivateKey, privateKey) {
 		t.Fatalf("expected private key \"%v\", got \"%v\"",
 			string(privateKey), string(storePrivateKey))

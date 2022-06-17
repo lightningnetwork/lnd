@@ -11,6 +11,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/pool"
+	"github.com/stretchr/testify/require"
 )
 
 type workerPoolTest struct {
@@ -256,9 +257,7 @@ func startGeneric(t *testing.T, p interface{}) {
 		t.Fatalf("unknown worker pool type: %T", p)
 	}
 
-	if err != nil {
-		t.Fatalf("unable to start worker pool: %v", err)
-	}
+	require.NoError(t, err, "unable to start worker pool")
 }
 
 func stopGeneric(t *testing.T, p interface{}) {
@@ -276,9 +275,7 @@ func stopGeneric(t *testing.T, p interface{}) {
 		t.Fatalf("unknown worker pool type: %T", p)
 	}
 
-	if err != nil {
-		t.Fatalf("unable to stop worker pool: %v", err)
-	}
+	require.NoError(t, err, "unable to stop worker pool")
 }
 
 func submitGeneric(p interface{}, sem <-chan struct{}) error {

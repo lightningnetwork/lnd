@@ -272,15 +272,11 @@ func newTestInvoice(t *testing.T, preimage lntypes.Preimage,
 		zpay32.Expiry(expiry),
 		zpay32.PaymentAddr(payAddr),
 	)
-	if err != nil {
-		t.Fatalf("Error while creating new invoice: %v", err)
-	}
+	require.NoError(t, err, "Error while creating new invoice")
 
 	paymentRequest, err := rawInvoice.Encode(testMessageSigner)
 
-	if err != nil {
-		t.Fatalf("Error while encoding payment request: %v", err)
-	}
+	require.NoError(t, err, "Error while encoding payment request")
 
 	return &channeldb.Invoice{
 		Terms: channeldb.ContractTerm{

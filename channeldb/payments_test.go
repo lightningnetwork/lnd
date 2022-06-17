@@ -87,9 +87,7 @@ func TestSentPaymentSerialization(t *testing.T) {
 	}
 
 	newCreationInfo, err := deserializePaymentCreationInfo(&b)
-	if err != nil {
-		t.Fatalf("unable to deserialize creation info: %v", err)
-	}
+	require.NoError(t, err, "unable to deserialize creation info")
 
 	if !reflect.DeepEqual(c, newCreationInfo) {
 		t.Fatalf("Payments do not match after "+
@@ -104,9 +102,7 @@ func TestSentPaymentSerialization(t *testing.T) {
 	}
 
 	newWireInfo, err := deserializeHTLCAttemptInfo(&b)
-	if err != nil {
-		t.Fatalf("unable to deserialize info: %v", err)
-	}
+	require.NoError(t, err, "unable to deserialize info")
 	newWireInfo.AttemptID = s.AttemptID
 
 	// First we verify all the records match up porperly, as they aren't
@@ -673,9 +669,7 @@ func appendDuplicatePayment(t *testing.T, db *DB, paymentHash lntypes.Hash,
 
 		return nil
 	}, func() {})
-	if err != nil {
-		t.Fatalf("could not create payment: %v", err)
-	}
+	require.NoError(t, err, "could not create payment")
 }
 
 // putDuplicatePayment creates a duplicate payment in the duplicates bucket

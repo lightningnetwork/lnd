@@ -293,6 +293,8 @@ from occurring that would result in an erroneous force close.](https://github.co
 
 * [`lnd` now packages the latest versions of the btcd libraries, btcwallet, and neutrino](https://github.com/lightningnetwork/lnd/pull/6627)
 
+* [Refactor simple t.Fatalf test assertions to require.NoError
+  ](https://github.com/lightningnetwork/lnd/pull/6504).
 
 ## RPC Server
 

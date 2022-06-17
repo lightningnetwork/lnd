@@ -202,9 +202,7 @@ func testLNAddress(t *testing.T, test lnAddressCase) {
 	lnAddr, err := ParseLNAddressString(
 		test.lnAddress, defaultTestPort, net.ResolveTCPAddr,
 	)
-	if err != nil {
-		t.Fatalf("unable to parse ln address: %v", err)
-	}
+	require.NoError(t, err, "unable to parse ln address")
 
 	// Assert that the public key matches the expected public key.
 	pkBytes := lnAddr.IdentityKey.SerializeCompressed()

@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -155,9 +156,7 @@ func TestValidate(t *testing.T) {
 
 	chanSize := int64(1000000)
 	channelCtx, err := newChannelTestCtx(chanSize)
-	if err != nil {
-		t.Fatalf("unable to make channel context: %v", err)
-	}
+	require.NoError(t, err, "unable to make channel context")
 
 	testCases := []struct {
 		// expectedErr is the error we expect, this should be nil if

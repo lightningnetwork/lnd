@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 // randDeliveryAddress generates a random delivery address for testing.
@@ -13,9 +14,7 @@ func randDeliveryAddress(t *testing.T) lnwire.DeliveryAddress {
 	da := lnwire.DeliveryAddress(make([]byte, 34))
 
 	_, err := rand.Read(da)
-	if err != nil {
-		t.Fatalf("cannot generate random address: %v", err)
-	}
+	require.NoError(t, err, "cannot generate random address")
 
 	return da
 }

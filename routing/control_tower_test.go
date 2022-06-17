@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -48,9 +49,7 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 	t.Parallel()
 
 	db, err := initDB()
-	if err != nil {
-		t.Fatalf("unable to init db: %v", err)
-	}
+	require.NoError(t, err, "unable to init db")
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
 
@@ -67,9 +66,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
 	db, err := initDB()
-	if err != nil {
-		t.Fatalf("unable to init db: %v", err)
-	}
+	require.NoError(t, err, "unable to init db")
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
 
@@ -87,9 +84,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	// Subscription should succeed and immediately report the InFlight
 	// status.
 	subscriber1, err := pControl.SubscribePayment(info.PaymentIdentifier)
-	if err != nil {
-		t.Fatalf("expected subscribe to succeed, but got: %v", err)
-	}
+	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// Register an attempt.
 	err = pControl.RegisterAttempt(info.PaymentIdentifier, attempt)
@@ -99,9 +94,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 
 	// Register a second subscriber after the first attempt has started.
 	subscriber2, err := pControl.SubscribePayment(info.PaymentIdentifier)
-	if err != nil {
-		t.Fatalf("expected subscribe to succeed, but got: %v", err)
-	}
+	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// Mark the payment as successful.
 	settleInfo := channeldb.HTLCSettleInfo{
@@ -119,9 +112,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 
 	// Register a third subscriber after the payment succeeded.
 	subscriber3, err := pControl.SubscribePayment(info.PaymentIdentifier)
-	if err != nil {
-		t.Fatalf("expected subscribe to succeed, but got: %v", err)
-	}
+	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// We expect all subscribers to now report the final outcome followed by
 	// no other events.
@@ -184,9 +175,7 @@ func TestPaymentControlSubscribeFail(t *testing.T) {
 
 func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
 	db, err := initDB()
-	if err != nil {
-		t.Fatalf("unable to init db: %v", err)
-	}
+	require.NoError(t, err, "unable to init db")
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
 
@@ -203,9 +192,7 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
 
 	// Subscription should succeed.
 	subscriber1, err := pControl.SubscribePayment(info.PaymentIdentifier)
-	if err != nil {
-		t.Fatalf("expected subscribe to succeed, but got: %v", err)
-	}
+	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// Conditionally register the attempt based on the test type. This
 	// allows us to simulate failing after attempting with an htlc or before
@@ -239,9 +226,7 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
 
 	// Register a second subscriber after the payment failed.
 	subscriber2, err := pControl.SubscribePayment(info.PaymentIdentifier)
-	if err != nil {
-		t.Fatalf("expected subscribe to succeed, but got: %v", err)
-	}
+	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// We expect all subscribers to now report the final outcome followed by
 	// no other events.

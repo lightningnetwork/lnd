@@ -181,9 +181,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 	}
 
 	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
+	require.NoError(t, err, "unable to create graph")
 	defer testGraph.cleanUp()
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
@@ -191,9 +189,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 	// We create a simple route that we will supply every time the router
 	// requests one.
 	rt, err := createTestRoute(paymentAmt, testGraph.aliasMap)
-	if err != nil {
-		t.Fatalf("unable to create route: %v", err)
-	}
+	require.NoError(t, err, "unable to create route")
 
 	tests := []paymentLifecycleTestCase{
 		{

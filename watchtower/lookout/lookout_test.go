@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtmock"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
+	"github.com/stretchr/testify/require"
 )
 
 type mockPunisher struct {
@@ -116,13 +117,9 @@ func TestLookoutBreachMatching(t *testing.T) {
 
 	// Insert both sessions into the watchtower's database.
 	err := db.InsertSessionInfo(sessionInfo1)
-	if err != nil {
-		t.Fatalf("unable to insert session info: %v", err)
-	}
+	require.NoError(t, err, "unable to insert session info")
 	err = db.InsertSessionInfo(sessionInfo2)
-	if err != nil {
-		t.Fatalf("unable to insert session info: %v", err)
-	}
+	require.NoError(t, err, "unable to insert session info")
 
 	// Construct two distinct transactions, that will be used to test the
 	// breach hint matching.
@@ -160,15 +157,11 @@ func TestLookoutBreachMatching(t *testing.T) {
 
 	// Encrypt the first justice kit under breach key one.
 	encBlob1, err := blob1.Encrypt(key1)
-	if err != nil {
-		t.Fatalf("unable to encrypt sweep detail 1: %v", err)
-	}
+	require.NoError(t, err, "unable to encrypt sweep detail 1")
 
 	// Encrypt the second justice kit under breach key two.
 	encBlob2, err := blob2.Encrypt(key2)
-	if err != nil {
-		t.Fatalf("unable to encrypt sweep detail 2: %v", err)
-	}
+	require.NoError(t, err, "unable to encrypt sweep detail 2")
 
 	// Add both state updates to the tower's database.
 	txBlob1 := &wtdb.SessionStateUpdate{

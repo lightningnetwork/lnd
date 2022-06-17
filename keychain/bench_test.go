@@ -11,9 +11,7 @@ func BenchmarkDerivePrivKey(t *testing.B) {
 	cleanUp, wallet, err := createTestBtcWallet(
 		CoinTypeBitcoin,
 	)
-	if err != nil {
-		t.Fatalf("unable to create wallet: %v", err)
-	}
+	require.NoError(t, err, "unable to create wallet")
 
 	keyRing := NewBtcWalletKeyRing(wallet, CoinTypeBitcoin)
 

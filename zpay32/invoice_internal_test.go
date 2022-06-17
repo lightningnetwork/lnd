@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 // TestDecodeAmount ensures that the amount string in the hrp of the Invoice
@@ -567,9 +568,7 @@ func TestParseMaxUint64Expiry(t *testing.T) {
 	expiryBytes := uint64ToBase32(expiry)
 
 	expiryReParse, err := base32ToUint64(expiryBytes)
-	if err != nil {
-		t.Fatalf("unable to parse uint64: %v", err)
-	}
+	require.NoError(t, err, "unable to parse uint64")
 
 	if expiryReParse != expiry {
 		t.Fatalf("wrong expiry: expected %v got %v", expiry,

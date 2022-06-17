@@ -7,6 +7,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 // TestWaitingProofStore tests add/get/remove functions of the waiting proof
@@ -15,9 +16,7 @@ func TestWaitingProofStore(t *testing.T) {
 	t.Parallel()
 
 	db, cleanup, err := MakeTestDB()
-	if err != nil {
-		t.Fatalf("failed to make test database: %s", err)
-	}
+	require.NoError(t, err, "failed to make test database")
 	defer cleanup()
 
 	proof1 := NewWaitingProof(true, &lnwire.AnnounceSignatures{
@@ -37,9 +36,7 @@ func TestWaitingProofStore(t *testing.T) {
 	}
 
 	proof2, err := store.Get(proof1.Key())
-	if err != nil {
-		t.Fatalf("unable retrieve proof from storage: %v", err)
-	}
+	require.NoError(t, err, "unable retrieve proof from storage")
 	if !reflect.DeepEqual(proof1, proof2) {
 		t.Fatalf("wrong proof retrieved: expected %v, got %v",
 			spew.Sdump(proof1), spew.Sdump(proof2))

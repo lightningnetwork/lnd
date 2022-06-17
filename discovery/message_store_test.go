@@ -13,15 +13,14 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 func createTestMessageStore(t *testing.T) (*MessageStore, func()) {
 	t.Helper()
 
 	tempDir, err := ioutil.TempDir("", "channeldb")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
+	require.NoError(t, err, "unable to create temp dir")
 	db, err := channeldb.Open(tempDir)
 	if err != nil {
 		os.RemoveAll(tempDir)
@@ -44,9 +43,7 @@ func createTestMessageStore(t *testing.T) (*MessageStore, func()) {
 
 func randPubKey(t *testing.T) *btcec.PublicKey {
 	priv, err := btcec.NewPrivateKey()
-	if err != nil {
-		t.Fatalf("unable to create private key: %v", err)
-	}
+	require.NoError(t, err, "unable to create private key")
 
 	return priv.PubKey()
 }
@@ -242,24 +239,18 @@ func TestMessageStoreUnsupportedMessage(t *testing.T) {
 		messageStore := tx.ReadWriteBucket(messageStoreBucket)
 		return messageStore.Put(msgKey, rawMsg.Bytes())
 	}, func() {})
-	if err != nil {
-		t.Fatalf("unable to add unsupported message to store: %v", err)
-	}
+	require.NoError(t, err, "unable to add unsupported message to store")
 
 	// Finally, we'll check that the store can properly filter out messages
 	// that are currently unknown to it. We'll make sure this is done for
 	// both Messages and MessagesForPeer.
 	totalMsgs, err := msgStore.Messages()
-	if err != nil {
-		t.Fatalf("unable to retrieve messages: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve messages")
 	if len(totalMsgs) != 0 {
 		t.Fatalf("expected to filter out unsupported message")
 	}
 	peerMsgs, err := msgStore.MessagesForPeer(peer)
-	if err != nil {
-		t.Fatalf("unable to retrieve peer messages: %v", err)
-	}
+	require.NoError(t, err, "unable to retrieve peer messages")
 	if len(peerMsgs) != 0 {
 		t.Fatalf("expected to filter out unsupported message")
 	}

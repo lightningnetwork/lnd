@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/stretchr/testify/require"
 )
 
 type mockSwapper struct {
@@ -157,9 +158,7 @@ func TestSubSwapperIdempotentStartStop(t *testing.T) {
 
 	swapper := newMockSwapper(keyRing)
 	subSwapper, err := NewSubSwapper(nil, &chanNotifier, keyRing, swapper)
-	if err != nil {
-		t.Fatalf("unable to init subSwapper: %v", err)
-	}
+	require.NoError(t, err, "unable to init subSwapper")
 
 	if err := subSwapper.Start(); err != nil {
 		t.Fatalf("unable to start swapper: %v", err)
@@ -226,9 +225,7 @@ func TestSubSwapperUpdater(t *testing.T) {
 	subSwapper, err := NewSubSwapper(
 		initialChanSet, chanNotifier, keyRing, swapper,
 	)
-	if err != nil {
-		t.Fatalf("unable to make swapper: %v", err)
-	}
+	require.NoError(t, err, "unable to make swapper")
 	if err := subSwapper.Start(); err != nil {
 		t.Fatalf("unable to start sub swapper: %v", err)
 	}
@@ -241,9 +238,7 @@ func TestSubSwapperUpdater(t *testing.T) {
 	// Now that the sub-swapper is active, we'll notify to add a brand new
 	// channel to the channel state.
 	newChannel, err := genRandomOpenChannelShell()
-	if err != nil {
-		t.Fatalf("unable to create new chan: %v", err)
-	}
+	require.NoError(t, err, "unable to create new chan")
 
 	// With the new channel created, we'll send a new update to the main
 	// goroutine telling it about this new channel.

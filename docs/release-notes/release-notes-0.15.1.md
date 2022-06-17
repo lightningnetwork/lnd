@@ -14,11 +14,14 @@
 
 * [Add previous_outpoints to listchaintxns](https://github.com/lightningnetwork/lnd/pull/6321)
 
-
 ## Bug Fixes
 
 * Fixed data race found in
   [`TestSerializeHTLCEntries`](https://github.com/lightningnetwork/lnd/pull/6673).
+
+## RPC Server
+
+* [Add wallet reserve rpc & field in wallet balance](https://github.com/lightningnetwork/lnd/pull/6592)
 
 # Contributors (Alphabetical Order)
 

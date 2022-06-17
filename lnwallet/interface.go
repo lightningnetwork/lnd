@@ -244,6 +244,12 @@ type WalletController interface {
 	ListAccounts(string, *waddrmgr.KeyScope) ([]*waddrmgr.AccountProperties,
 		error)
 
+	// RequiredReserve returns the minimum amount of satoshis that should be
+	// kept in the wallet in order to fee bump anchor channels if necessary.
+	// The value scales with the number of public anchor channels but is
+	// capped at a maximum.
+	RequiredReserve(uint32) btcutil.Amount
+
 	// ImportAccount imports an account backed by an account extended public
 	// key. The master key fingerprint denotes the fingerprint of the root
 	// key corresponding to the account public key (also known as the key

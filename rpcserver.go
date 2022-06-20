@@ -3136,16 +3136,28 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 		lockedBalance += utxoInfo.Value
 	}
 
+	// Get the current number of non-private anchor channels.
+	currentNumAnchorChans, err := r.server.cc.Wallet.CurrentNumAnchorChans()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the required reserve for the wallet.
+	requiredReserve := r.server.cc.Wallet.RequiredReserve(
+		uint32(currentNumAnchorChans),
+	)
+
 	rpcsLog.Debugf("[walletbalance] Total balance=%v (confirmed=%v, "+
 		"unconfirmed=%v)", totalBalance, confirmedBalance,
 		unconfirmedBalance)
 
 	return &lnrpc.WalletBalanceResponse{
-		TotalBalance:       int64(totalBalance),
-		ConfirmedBalance:   int64(confirmedBalance),
-		UnconfirmedBalance: int64(unconfirmedBalance),
-		LockedBalance:      int64(lockedBalance),
-		AccountBalance:     rpcAccountBalances,
+		TotalBalance:              int64(totalBalance),
+		ConfirmedBalance:          int64(confirmedBalance),
+		UnconfirmedBalance:        int64(unconfirmedBalance),
+		LockedBalance:             int64(lockedBalance),
+		ReservedBalanceAnchorChan: int64(requiredReserve),
+		AccountBalance:            rpcAccountBalances,
 	}, nil
 }
 

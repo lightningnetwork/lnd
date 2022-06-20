@@ -193,6 +193,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			subCfgValue.FieldByName("ChainParams").Set(
 				reflect.ValueOf(activeNetParams),
 			)
+			subCfgValue.FieldByName("CurrentNumAnchorChans").Set(
+				reflect.ValueOf(cc.Wallet.CurrentNumAnchorChans),
+			)
 
 		case *autopilotrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)

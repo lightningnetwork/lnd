@@ -399,6 +399,39 @@
         ]
       }
     },
+    "/v2/wallet/reserve": {
+      "get": {
+        "summary": "RequiredReserve returns the minimum amount of satoshis that should be kept\nin the wallet in order to fee bump anchor channels if necessary. The value\nscales with the number of public anchor channels but is capped at a maximum.",
+        "operationId": "WalletKit_RequiredReserve",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcRequiredReserveResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "additional_public_channels",
+            "description": "The number of additional channels the user would like to open.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/send": {
       "post": {
         "summary": "SendOutputs is similar to the existing sendmany call in Bitcoind, and\nallows the caller to create a transaction that sends to several outputs at\nonce. This is ideal when wanting to batch create a set of transactions.",
@@ -1466,6 +1499,16 @@
     },
     "walletrpcReleaseOutputResponse": {
       "type": "object"
+    },
+    "walletrpcRequiredReserveResponse": {
+      "type": "object",
+      "properties": {
+        "required_reserve": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount of reserve required."
+        }
+      }
     },
     "walletrpcSendOutputsRequest": {
       "type": "object",

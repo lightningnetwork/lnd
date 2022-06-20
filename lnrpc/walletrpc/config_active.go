@@ -67,4 +67,8 @@ type Config struct {
 
 	// ChainParams are the parameters of the wallet's backing chain.
 	ChainParams *chaincfg.Params
+
+	// CurrentNumAnchorChans returns the current number of non-private
+	// anchor channels the wallet should be ready to fee bump if needed.
+	CurrentNumAnchorChans func() (int, error)
 }

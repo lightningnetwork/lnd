@@ -6646,6 +6646,11 @@
           "format": "int64",
           "description": "The total amount of wallet UTXOs held in outputs that are locked for\nother usage."
         },
+        "reserved_balance_anchor_chan": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount of reserve required."
+        },
         "account_balance": {
           "type": "object",
           "additionalProperties": {

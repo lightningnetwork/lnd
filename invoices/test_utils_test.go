@@ -366,7 +366,7 @@ func checkSettleResolution(t *testing.T, res HtlcResolution,
 }
 
 // checkFailResolution asserts the resolution is a fail with the correct reason.
-// If successful, the HtlcFailResolutionis returned in case further checks are
+// If successful, the HtlcFailResolution is returned in case further checks are
 // desired.
 func checkFailResolution(t *testing.T, res HtlcResolution,
 	expOutcome FailResolutionResult) *HtlcFailResolution {

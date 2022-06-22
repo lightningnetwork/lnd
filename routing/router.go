@@ -2495,15 +2495,17 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// shard we'll now launch.
 	shardTracker := shards.NewSimpleShardTracker(htlcHash, nil)
 
-	// Launch a shard along the given route.
-	sh := &shardHandler{
-		router:       r,
-		identifier:   paymentIdentifier,
-		shardTracker: shardTracker,
-	}
+	// Create a payment lifecycle using the given route with,
+	// - zero fee limit as we are not requesting routes.
+	// - nil payment session (since we already have a route).
+	// - no payment timeout.
+	// - no current block height.
+	p := newPaymentLifecycle(
+		r, 0, paymentIdentifier, nil, shardTracker, 0, 0,
+	)
 
 	var shardError error
-	attempt, outcome, err := sh.launchShard(rt, false)
+	attempt, outcome, err := p.launchShard(rt, false)
 
 	// With SendToRoute, it can happen that the route exceeds protocol
 	// constraints. Mark the payment as failed with an internal error.
@@ -2535,7 +2537,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 
 	// Shard successfully launched, wait for the result to be available.
 	default:
-		result, err := sh.collectResult(attempt)
+		result, err := p.collectResult(attempt)
 		if err != nil {
 			return nil, err
 		}
@@ -2555,7 +2557,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// the error to check if it maps into a terminal error code, if not use
 	// a generic NO_ROUTE error.
 	var failureReason *channeldb.FailureReason
-	err = sh.handleSwitchErr(attempt, shardError)
+	err = p.handleSwitchErr(attempt, shardError)
 
 	switch {
 	// If a non-terminal error is returned and `skipTempErr` is false, then

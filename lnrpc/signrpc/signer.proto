@@ -320,7 +320,8 @@ message InputScriptResp {
 }
 
 message SignMessageReq {
-    // The message to be signed.
+    // The message to be signed. When using REST, this
+    // field must be encoded as base64.
     bytes msg = 1;
 
     // The key locator that identifies which key to use for signing.
@@ -334,6 +335,11 @@ message SignMessageReq {
     format.
     */
     bool compact_sig = 4;
+
+    /*
+    Use Schnorr signature. This option can not be used with compact format.
+    */
+    bool schnorr_sig = 5;
 }
 message SignMessageResp {
     /*
@@ -343,18 +349,26 @@ message SignMessageResp {
 }
 
 message VerifyMessageReq {
-    // The message over which the signature is to be verified.
+    // The message over which the signature is to be verified. When using
+    // REST, this field must be encoded as base64.
     bytes msg = 1;
 
     /*
     The fixed-size LN wire encoded signature to be verified over the given
-    message.
+    message. When using REST, this field must be encoded as base64.
     */
     bytes signature = 2;
 
-    // The public key the signature has to be valid for.
+    // The public key the signature has to be valid for. When using REST,
+    // this field must be encoded as base64.
     bytes pubkey = 3;
+
+    /*
+    Specifies if the signature is a Schnorr signature.
+    */
+    bool is_schnorr_sig = 4;
 }
+
 message VerifyMessageResp {
     // Whether the signature was valid over the given message.
     bool valid = 1;

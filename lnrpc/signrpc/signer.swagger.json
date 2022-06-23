@@ -767,7 +767,7 @@
         "msg": {
           "type": "string",
           "format": "byte",
-          "description": "The message to be signed."
+          "description": "The message to be signed. When using REST, this\nfield must be encoded as base64."
         },
         "key_loc": {
           "$ref": "#/definitions/signrpcKeyLocator",
@@ -780,6 +780,10 @@
         "compact_sig": {
           "type": "boolean",
           "description": "Use the compact (pubkey recoverable) format instead of the raw lnwire\nformat."
+        },
+        "schnorr_sig": {
+          "type": "boolean",
+          "description": "Use Schnorr signature. This option can not be used with compact format."
         }
       }
     },
@@ -890,17 +894,21 @@
         "msg": {
           "type": "string",
           "format": "byte",
-          "description": "The message over which the signature is to be verified."
+          "description": "The message over which the signature is to be verified. When using\nREST, this field must be encoded as base64."
         },
         "signature": {
           "type": "string",
           "format": "byte",
-          "description": "The fixed-size LN wire encoded signature to be verified over the given\nmessage."
+          "description": "The fixed-size LN wire encoded signature to be verified over the given\nmessage. When using REST, this field must be encoded as base64."
         },
         "pubkey": {
           "type": "string",
           "format": "byte",
-          "description": "The public key the signature has to be valid for."
+          "description": "The public key the signature has to be valid for. When using REST,\nthis field must be encoded as base64."
+        },
+        "is_schnorr_sig": {
+          "type": "boolean",
+          "description": "Specifies if the signature is a Schnorr signature."
         }
       }
     },

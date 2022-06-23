@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -608,6 +609,31 @@ func (s *Server) SignMessage(_ context.Context,
 		Index:  uint32(in.KeyLoc.KeyIndex),
 	}
 
+	if in.SchnorrSig {
+		if in.CompactSig {
+			return nil, fmt.Errorf("compact format can not be used " +
+				"for Schnorr signatures")
+		}
+
+		// Use the schnorr signature algorithm to sign the message.
+		sig, err := s.cfg.KeyRing.SignMessageSchnorr(
+			keyLocator, in.Msg, in.DoubleHash,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("can't sign the hash: %v", err)
+		}
+
+		sigParsed, err := schnorr.ParseSignature(sig.Serialize())
+		if err != nil {
+			return nil, fmt.Errorf("can't parse Schnorr signature: %v",
+				err)
+		}
+
+		return &SignMessageResp{
+			Signature: sigParsed.Serialize(),
+		}, nil
+	}
+
 	// To allow a watch-only wallet to forward the SignMessageCompact to an
 	// endpoint that doesn't add the message prefix, we allow this RPC to
 	// also return the compact signature format instead of adding a flag to
@@ -657,6 +683,36 @@ func (s *Server) VerifyMessage(ctx context.Context,
 	if in.Pubkey == nil {
 		return nil, fmt.Errorf("a pubkey to verify MUST be passed in")
 	}
+
+	// We allow for Schnorr signatures to be verified.
+	if in.IsSchnorrSig {
+		var err error
+		var pubkey *secp256k1.PublicKey
+
+		// If the public key is in the the BIP-340 32-byte format.
+		if len(in.Pubkey) == 32 {
+			pubkey, err = schnorr.ParsePubKey(in.Pubkey)
+		} else {
+			pubkey, err = btcec.ParsePubKey(in.Pubkey)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse pubkey: %v", err)
+		}
+
+		sigParsed, err := schnorr.ParseSignature(in.Signature)
+		if err != nil {
+			return nil, fmt.Errorf("can't parse Schnorr signature: %v",
+				err)
+		}
+
+		digest := chainhash.HashB(in.Msg)
+		valid := sigParsed.Verify(digest, pubkey)
+
+		return &VerifyMessageResp{
+			Valid: valid,
+		}, nil
+	}
+
 	pubkey, err := btcec.ParsePubKey(in.Pubkey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse pubkey: %v", err)

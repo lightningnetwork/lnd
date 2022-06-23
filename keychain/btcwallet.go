@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
@@ -451,4 +452,28 @@ func (b *BtcWalletKeyRing) SignMessageCompact(keyLoc KeyLocator,
 		digest = chainhash.HashB(msg)
 	}
 	return ecdsa.SignCompact(privKey, digest, true)
+}
+
+// SignMessageSchnorr uses the Schnorr signature algorithm to
+// sign the given message, single or double SHA256 hashing it
+// first, with the private key described in the key locator.
+//
+// NOTE: This is part of the keychain.MessageSignerRing interface.
+func (b *BtcWalletKeyRing) SignMessageSchnorr(keyLoc KeyLocator,
+	msg []byte, doubleHash bool) (*schnorr.Signature, error) {
+
+	privKey, err := b.DerivePrivKey(KeyDescriptor{
+		KeyLocator: keyLoc,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var digest []byte
+	if doubleHash {
+		digest = chainhash.DoubleHashB(msg)
+	} else {
+		digest = chainhash.HashB(msg)
+	}
+	return schnorr.Sign(privKey, digest)
 }

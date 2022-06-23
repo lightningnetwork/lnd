@@ -981,6 +981,22 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 	// fundingLocked was sent to peer, but the channel was not added to the
 	// router graph and the channel announcement was not sent.
 	case fundingLockedSent:
+		// We must wait until we've received the peer's funding locked
+		// before sending a channel_update according to BOLT#07.
+		received, err := f.receivedFundingLocked(
+			channel.IdentityPub, chanID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to check if funding locked "+
+				"was received: %v", err)
+		}
+
+		if !received {
+			// We haven't received FundingLocked, so we'll continue
+			// to the next iteration of the loop.
+			return nil
+		}
+
 		var peerAlias *lnwire.ShortChannelID
 		if channel.IsZeroConf() {
 			// We'll need to wait until funding_locked has been
@@ -1003,7 +1019,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 			peerAlias = &foundAlias
 		}
 
-		err := f.addToRouterGraph(channel, shortChanID, peerAlias, nil)
+		err = f.addToRouterGraph(channel, shortChanID, peerAlias, nil)
 		if err != nil {
 			return fmt.Errorf("failed adding to "+
 				"router graph: %v", err)
@@ -2869,6 +2885,44 @@ func (f *Manager) sendFundingLocked(completeChan *channeldb.OpenChannel,
 	}
 
 	return nil
+}
+
+// receivedFundingLocked checks whether or not we've received a FundingLocked
+// from the remote peer. If we have, RemoteNextRevocation will be set.
+func (f *Manager) receivedFundingLocked(node *btcec.PublicKey,
+	chanID lnwire.ChannelID) (bool, error) {
+
+	// If the funding manager has exited, return an error to stop looping.
+	// Note that the peer may appear as online while the funding manager
+	// has stopped due to the shutdown order in the server.
+	select {
+	case <-f.quit:
+		return false, ErrFundingManagerShuttingDown
+	default:
+	}
+
+	// Check whether the peer is online. If it's not, we'll wait for them
+	// to come online before proceeding. This is to avoid a tight loop if
+	// they're offline.
+	connected := make(chan lnpeer.Peer, 1)
+	var peerKey [33]byte
+	copy(peerKey[:], node.SerializeCompressed())
+	f.cfg.NotifyWhenOnline(peerKey, connected)
+
+	select {
+	case <-connected:
+	case <-f.quit:
+		return false, ErrFundingManagerShuttingDown
+	}
+
+	channel, err := f.cfg.FindChannel(node, chanID)
+	if err != nil {
+		log.Errorf("Unable to locate ChannelID(%v) to determine if "+
+			"FundingLocked was received", chanID)
+		return false, err
+	}
+
+	return channel.RemoteNextRevocation != nil, nil
 }
 
 // extractAnnounceParams extracts the various channel announcement and update

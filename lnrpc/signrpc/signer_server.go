@@ -601,11 +601,36 @@ func (s *Server) SignMessage(_ context.Context,
 	if in.KeyLoc == nil {
 		return nil, fmt.Errorf("a key locator MUST be passed in")
 	}
+	if in.SchnorrSig && in.CompactSig {
+		return nil, fmt.Errorf("compact format can not be used for " +
+			"Schnorr signatures")
+	}
 
 	// Describe the private key we'll be using for signing.
 	keyLocator := keychain.KeyLocator{
 		Family: keychain.KeyFamily(in.KeyLoc.KeyFamily),
 		Index:  uint32(in.KeyLoc.KeyIndex),
+	}
+
+	// Use the schnorr signature algorithm to sign the message.
+	if in.SchnorrSig {
+		sig, err := s.cfg.KeyRing.SignMessageSchnorr(
+			keyLocator, in.Msg, in.DoubleHash,
+			in.SchnorrSigTapTweak,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("can't sign the hash: %v", err)
+		}
+
+		sigParsed, err := schnorr.ParseSignature(sig.Serialize())
+		if err != nil {
+			return nil, fmt.Errorf("can't parse Schnorr "+
+				"signature: %v", err)
+		}
+
+		return &SignMessageResp{
+			Signature: sigParsed.Serialize(),
+		}, nil
 	}
 
 	// To allow a watch-only wallet to forward the SignMessageCompact to an
@@ -644,7 +669,7 @@ func (s *Server) SignMessage(_ context.Context,
 
 // VerifyMessage verifies a signature over a message using the public key
 // provided. The signature must be fixed-size LN wire format encoded.
-func (s *Server) VerifyMessage(ctx context.Context,
+func (s *Server) VerifyMessage(_ context.Context,
 	in *VerifyMessageReq) (*VerifyMessageResp, error) {
 
 	if in.Msg == nil {
@@ -657,6 +682,31 @@ func (s *Server) VerifyMessage(ctx context.Context,
 	if in.Pubkey == nil {
 		return nil, fmt.Errorf("a pubkey to verify MUST be passed in")
 	}
+
+	// We allow for Schnorr signatures to be verified.
+	if in.IsSchnorrSig {
+		// We expect the public key to be in the BIP-340 32-byte format
+		// for Schnorr signatures.
+		pubkey, err := schnorr.ParsePubKey(in.Pubkey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse pubkey: %v",
+				err)
+		}
+
+		sigParsed, err := schnorr.ParseSignature(in.Signature)
+		if err != nil {
+			return nil, fmt.Errorf("can't parse Schnorr "+
+				"signature: %v", err)
+		}
+
+		digest := chainhash.HashB(in.Msg)
+		valid := sigParsed.Verify(digest, pubkey)
+
+		return &VerifyMessageResp{
+			Valid: valid,
+		}, nil
+	}
+
 	pubkey, err := btcec.ParsePubKey(in.Pubkey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse pubkey: %v", err)

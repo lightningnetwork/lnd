@@ -767,7 +767,7 @@
         "msg": {
           "type": "string",
           "format": "byte",
-          "description": "The message to be signed."
+          "description": "The message to be signed. When using REST, this field must be encoded as\nbase64."
         },
         "key_loc": {
           "$ref": "#/definitions/signrpcKeyLocator",
@@ -779,7 +779,16 @@
         },
         "compact_sig": {
           "type": "boolean",
-          "description": "Use the compact (pubkey recoverable) format instead of the raw lnwire\nformat."
+          "description": "Use the compact (pubkey recoverable) format instead of the raw lnwire\nformat. This option cannot be used with Schnorr signatures."
+        },
+        "schnorr_sig": {
+          "type": "boolean",
+          "description": "Use Schnorr signature. This option cannot be used with compact format."
+        },
+        "schnorr_sig_tap_tweak": {
+          "type": "string",
+          "format": "byte",
+          "title": "The optional Taproot tweak bytes to apply to the private key before creating\na Schnorr signature. The private key is tweaked as described in BIP-341:\nprivKey + h_tapTweak(internalKey || tapTweak)"
         }
       }
     },
@@ -890,17 +899,21 @@
         "msg": {
           "type": "string",
           "format": "byte",
-          "description": "The message over which the signature is to be verified."
+          "description": "The message over which the signature is to be verified. When using\nREST, this field must be encoded as base64."
         },
         "signature": {
           "type": "string",
           "format": "byte",
-          "description": "The fixed-size LN wire encoded signature to be verified over the given\nmessage."
+          "description": "The fixed-size LN wire encoded signature to be verified over the given\nmessage. When using REST, this field must be encoded as base64."
         },
         "pubkey": {
           "type": "string",
           "format": "byte",
-          "description": "The public key the signature has to be valid for."
+          "description": "The public key the signature has to be valid for. When using REST, this\nfield must be encoded as base64. If the is_schnorr_sig option is true, then\nthe public key is expected to be in the 32-byte x-only serialization\naccording to BIP-340."
+        },
+        "is_schnorr_sig": {
+          "type": "boolean",
+          "description": "Specifies if the signature is a Schnorr signature."
         }
       }
     },

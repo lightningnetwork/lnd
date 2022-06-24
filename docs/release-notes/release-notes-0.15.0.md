@@ -72,9 +72,6 @@ releases. Backward compatibility is not guaranteed!
   caveats/restrictions to be added to an existing macaroon (instead of needing
   to bake a new one). 
 
-* [Add `payment_addr` flag to `buildroute`](https://github.com/lightningnetwork/lnd/pull/6576)
-  so that the mpp record of the route can be set correctly.
-
 ## Neutrino
 
 [Neutrino now suports BIP

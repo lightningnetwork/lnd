@@ -672,6 +672,12 @@ func (m *mockPaymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	activeShards, height uint32) (*route.Route, error) {
 
 	args := m.Called(maxAmt, feeLimit, activeShards, height)
+
+	// Type assertion on nil will fail, so we check and return here.
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
 	return args.Get(0).(*route.Route), args.Error(1)
 }
 

@@ -437,9 +437,7 @@ func (p *shardHandler) launchShard(rt *route.Route,
 
 	// Using the route received from the payment session, create a new
 	// shard to send.
-	firstHop, htlcAdd, attempt, err := p.createNewPaymentAttempt(
-		rt, lastShard,
-	)
+	attempt, err := p.createNewPaymentAttempt(rt, lastShard)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -456,7 +454,7 @@ func (p *shardHandler) launchShard(rt *route.Route,
 
 	// Now that the attempt is created and checkpointed to the DB, we send
 	// it.
-	sendErr := p.sendPaymentAttempt(attempt, firstHop, htlcAdd)
+	sendErr := p.sendAttempt(attempt)
 	if sendErr != nil {
 		// TODO(joostjager): Distinguish unexpected internal errors
 		// from real send errors.
@@ -664,21 +662,20 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 }
 
 // createNewPaymentAttempt creates a new payment attempt from the given route.
-func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) (
-	lnwire.ShortChannelID, *lnwire.UpdateAddHTLC,
-	*channeldb.HTLCAttemptInfo, error) {
+func (p *shardHandler) createNewPaymentAttempt(rt *route.Route,
+	lastShard bool) (*channeldb.HTLCAttemptInfo, error) {
 
 	// Generate a new key to be used for this attempt.
 	sessionKey, err := generateNewSessionKey()
 	if err != nil {
-		return lnwire.ShortChannelID{}, nil, nil, err
+		return nil, err
 	}
 
 	// We generate a new, unique payment ID that we will use for
 	// this HTLC.
 	attemptID, err := p.router.cfg.NextPaymentID()
 	if err != nil {
-		return lnwire.ShortChannelID{}, nil, nil, err
+		return nil, err
 	}
 
 	// Request a new shard from the ShardTracker. If this is an AMP
@@ -688,7 +685,7 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) 
 	// simple shard with the payment's static payment hash.
 	shard, err := p.shardTracker.NewShard(attemptID, lastShard)
 	if err != nil {
-		return lnwire.ShortChannelID{}, nil, nil, err
+		return nil, err
 	}
 
 	// It this shard carries MPP or AMP options, add them to the last hop
@@ -702,31 +699,7 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) 
 		hop.AMP = shard.AMP()
 	}
 
-	// Generate the raw encoded sphinx packet to be included along
-	// with the htlcAdd message that we send directly to the
-	// switch.
 	hash := shard.Hash()
-	onionBlob, _, err := generateSphinxPacket(rt, hash[:], sessionKey)
-	if err != nil {
-		return lnwire.ShortChannelID{}, nil, nil, err
-	}
-
-	// Craft an HTLC packet to send to the layer 2 switch. The
-	// metadata within this packet will be used to route the
-	// payment through the network, starting with the first-hop.
-	htlcAdd := &lnwire.UpdateAddHTLC{
-		Amount:      rt.TotalAmount,
-		Expiry:      rt.TotalTimeLock,
-		PaymentHash: hash,
-	}
-	copy(htlcAdd.OnionBlob[:], onionBlob)
-
-	// Attempt to send this payment through the network to complete
-	// the payment. If this attempt fails, then we'll continue on
-	// to the next available route.
-	firstHop := lnwire.NewShortChanIDFromInt(
-		rt.Hops[0].ChannelID,
-	)
 
 	// We now have all the information needed to populate the current
 	// attempt information.
@@ -734,13 +707,14 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) 
 		attemptID, sessionKey, *rt, p.router.cfg.Clock.Now(), &hash,
 	)
 
-	return firstHop, htlcAdd, attempt, nil
+	return attempt, nil
 }
 
-// sendPaymentAttempt attempts to send the current attempt to the switch.
-func (p *shardHandler) sendPaymentAttempt(
-	attempt *channeldb.HTLCAttemptInfo, firstHop lnwire.ShortChannelID,
-	htlcAdd *lnwire.UpdateAddHTLC) error {
+// sendAttempt attempts to send the current attempt to the switch to complete
+// the payment. If this attempt fails, then we'll continue on to the next
+// available route.
+func (p *shardHandler) sendAttempt(
+	attempt *channeldb.HTLCAttemptInfo) error {
 
 	log.Tracef("Attempting to send payment %v (pid=%v), "+
 		"using route: %v", p.identifier, attempt.AttemptID,
@@ -749,17 +723,40 @@ func (p *shardHandler) sendPaymentAttempt(
 		}),
 	)
 
+	rt := attempt.Route
+
+	// Construct the first hop.
+	firstHop := lnwire.NewShortChanIDFromInt(rt.Hops[0].ChannelID)
+
+	// Craft an HTLC packet to send to the htlcswitch. The metadata within
+	// this packet will be used to route the payment through the network,
+	// starting with the first-hop.
+	htlcAdd := &lnwire.UpdateAddHTLC{
+		Amount:      rt.TotalAmount,
+		Expiry:      rt.TotalTimeLock,
+		PaymentHash: *attempt.Hash,
+	}
+
+	// Generate the raw encoded sphinx packet to be included along
+	// with the htlcAdd message that we send directly to the
+	// switch.
+	onionBlob, _, err := generateSphinxPacket(
+		&rt, attempt.Hash[:], attempt.SessionKey(),
+	)
+	if err != nil {
+		return err
+	}
+	copy(htlcAdd.OnionBlob[:], onionBlob)
+
 	// Send it to the Switch. When this method returns we assume
 	// the Switch successfully has persisted the payment attempt,
 	// such that we can resume waiting for the result after a
 	// restart.
-	err := p.router.cfg.Payer.SendHTLC(
-		firstHop, attempt.AttemptID, htlcAdd,
-	)
+	err = p.router.cfg.Payer.SendHTLC(firstHop, attempt.AttemptID, htlcAdd)
 	if err != nil {
-		log.Errorf("Failed sending attempt %d for payment "+
-			"%v to switch: %v", attempt.AttemptID,
-			p.identifier, err)
+		log.Errorf("Failed sending attempt %d for payment %v to "+
+			"switch: %v", attempt.AttemptID, p.identifier, err)
+
 		return err
 	}
 

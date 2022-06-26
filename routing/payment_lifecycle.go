@@ -1,12 +1,13 @@
 package routing
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -203,70 +204,19 @@ lifecycle:
 		// router is exiting. In either case, we'll stop this payment
 		// attempt short. If a timeout is not applicable, timeoutChan
 		// will be nil.
-		select {
-		case <-p.timeoutChan:
-			log.Warnf("payment attempt not completed before " +
-				"timeout")
-
-			// By marking the payment failed with the control
-			// tower, no further shards will be launched and we'll
-			// return with an error the moment all active shards
-			// have finished.
-			saveErr := p.router.cfg.Control.FailPayment(
-				p.identifier, channeldb.FailureReasonTimeout,
-			)
-			if saveErr != nil {
-				return exitWithErr(saveErr)
-			}
-
-			continue lifecycle
-
-		case <-p.router.quit:
-			return exitWithErr(ErrRouterShuttingDown)
-
-		// Fall through if we haven't hit our time limit.
-		default:
+		if err := p.checkTimeout(); err != nil {
+			return exitWithErr(err)
 		}
 
-		// Create a new payment attempt from the given payment session.
-		rt, err := p.paySession.RequestRoute(
-			ps.RemainingAmt, remainingFees,
-			uint32(ps.NumAttemptsInFlight),
-			uint32(p.currentHeight),
-		)
+		// Now request a route to be used to create our HTLC attempt.
+		rt, err := p.requestRoute(ps)
 		if err != nil {
-			log.Warnf("Failed to find route for payment %v: %v",
-				p.identifier, err)
+			return exitWithErr(err)
+		}
 
-			routeErr, ok := err.(noRouteError)
-			if !ok {
-				return exitWithErr(err)
-			}
-
-			// There is no route to try, and we have no active
-			// shards. This means that there is no way for us to
-			// send the payment, so mark it failed with no route.
-			if ps.NumAttemptsInFlight == 0 {
-				failureCode := routeErr.FailureReason()
-				log.Debugf("Marking payment %v permanently "+
-					"failed with no route: %v",
-					p.identifier, failureCode)
-
-				saveErr := p.router.cfg.Control.FailPayment(
-					p.identifier, failureCode,
-				)
-				if saveErr != nil {
-					return exitWithErr(saveErr)
-				}
-
-				continue lifecycle
-			}
-
-			// We still have active shards, we'll wait for an
-			// outcome to be available before retrying.
-			if err := p.waitForShard(); err != nil {
-				return exitWithErr(err)
-			}
+		// NOTE: might cause an infinite loop, see notes in
+		// `requestRoute` for details.
+		if rt == nil {
 			continue lifecycle
 		}
 
@@ -290,6 +240,95 @@ lifecycle:
 			p.collectResultAsync(attempt)
 		}
 	}
+}
+
+// checkTimeout checks whether the payment has reached its timeout.
+func (p *paymentLifecycle) checkTimeout() error {
+	select {
+	case <-p.timeoutChan:
+		log.Warnf("payment attempt not completed before timeout")
+
+		// By marking the payment failed, depending on whether it has
+		// inflight HTLCs or not, its status will now either be
+		// `StatusInflight` or `StatusFailed`. In either case, no more
+		// HTLCs will be attempted.
+		err := p.router.cfg.Control.FailPayment(
+			p.identifier, channeldb.FailureReasonTimeout,
+		)
+		if err != nil {
+			return fmt.Errorf("FailPayment got %w", err)
+		}
+
+	case <-p.router.quit:
+		return fmt.Errorf("check payment timeout got: %w",
+			ErrRouterShuttingDown)
+
+	// Fall through if we haven't hit our time limit.
+	default:
+	}
+
+	return nil
+}
+
+// requestRoute is responsible for finding a route to be used to create an HTLC
+// attempt.
+func (p *paymentLifecycle) requestRoute(
+	ps *channeldb.MPPaymentState) (*route.Route, error) {
+
+	remainingFees := p.calcFeeBudget(ps.FeesPaid)
+
+	// Query our payment session to construct a route.
+	rt, err := p.paySession.RequestRoute(
+		ps.RemainingAmt, remainingFees,
+		uint32(ps.NumAttemptsInFlight), uint32(p.currentHeight),
+	)
+
+	// Exit early if there's no error.
+	if err == nil {
+		return rt, nil
+	}
+
+	// Otherwise we need to handle the error.
+	log.Warnf("Failed to find route for payment %v: %v", p.identifier, err)
+
+	// If the error belongs to `noRouteError` set, it means a non-critical
+	// error has happened during path finding and we might be able to find
+	// another route during next HTLC attempt. Otherwise, we'll return the
+	// critical error found.
+	var routeErr noRouteError
+	if !errors.As(err, &routeErr) {
+		return nil, fmt.Errorf("requestRoute got: %w", err)
+	}
+
+	// There is no route to try, and we have no active shards. This means
+	// that there is no way for us to send the payment, so mark it failed
+	// with no route.
+	//
+	// NOTE: if we have zero `numShardsInFlight`, it means all the HTLC
+	// attempts have failed. Otherwise, if there are still inflight
+	// attempts, we might enter an infinite loop in our lifecycle if
+	// there's still remaining amount since we will keep adding new HTLC
+	// attempts and they all fail with `noRouteError`.
+	//
+	// TODO(yy): further check the error returned here. It's the
+	// `paymentSession`'s responsibility to find a route for us with best
+	// effort. When it cannot find a path, we need to treat it as a
+	// terminal condition and fail the payment no matter it has inflight
+	// HTLCs or not.
+	if ps.NumAttemptsInFlight == 0 {
+		failureCode := routeErr.FailureReason()
+		log.Debugf("Marking payment %v permanently failed with no "+
+			"route: %v", p.identifier, failureCode)
+
+		err := p.router.cfg.Control.FailPayment(
+			p.identifier, failureCode,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("FailPayment got: %w", err)
+		}
+	}
+
+	return nil, nil
 }
 
 // stop signals any active shard goroutine to exit and waits for them to exit.

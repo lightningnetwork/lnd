@@ -65,7 +65,6 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 	// If we had any existing attempts outstanding, we'll start by spinning
 	// up goroutines that'll collect their results and deliver them to the
 	// lifecycle loop below.
-	// Fetch the latest payment from db.
 	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
 	if err != nil {
 		return [32]byte{}, nil, err
@@ -80,6 +79,13 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 		shardHandler.collectResultAsync(&a.HTLCAttemptInfo)
 	}
 
+	// exitWithErr is a helper closure that logs and returns an error.
+	exitWithErr := func(err error) ([32]byte, *route.Route, error) {
+		log.Errorf("Payment %v with status=%v failed: %v",
+			p.identifier, payment.Status, err)
+		return [32]byte{}, nil, err
+	}
+
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
 lifecycle:
@@ -87,7 +93,7 @@ lifecycle:
 		// Start by quickly checking if there are any outcomes already
 		// available to handle before we reevaluate our state.
 		if err := shardHandler.checkShards(); err != nil {
-			return [32]byte{}, nil, err
+			return exitWithErr(err)
 		}
 
 		// We update the payment state on every iteration. Since the
@@ -99,7 +105,7 @@ lifecycle:
 		// Fetch the latest payment from db.
 		payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
 		if err != nil {
-			return [32]byte{}, nil, err
+			return exitWithErr(err)
 		}
 
 		ps := payment.State
@@ -136,7 +142,7 @@ lifecycle:
 			}
 
 			// Payment failed.
-			return [32]byte{}, nil, *payment.FailureReason
+			return exitWithErr(*payment.FailureReason)
 		}
 
 		// If we either reached a terminal error condition (but had
@@ -144,7 +150,7 @@ lifecycle:
 		// we'll wait for a shard outcome.
 		wait, err := payment.NeedWaitAttempts()
 		if err != nil {
-			return [32]byte{}, nil, err
+			return exitWithErr(err)
 		}
 
 		if wait {
@@ -152,7 +158,7 @@ lifecycle:
 			// outcome to be available before re-evaluating our
 			// state.
 			if err := shardHandler.waitForShard(); err != nil {
-				return [32]byte{}, nil, err
+				return exitWithErr(err)
 			}
 			continue lifecycle
 		}
@@ -175,13 +181,13 @@ lifecycle:
 				p.identifier, channeldb.FailureReasonTimeout,
 			)
 			if saveErr != nil {
-				return [32]byte{}, nil, saveErr
+				return exitWithErr(saveErr)
 			}
 
 			continue lifecycle
 
 		case <-p.router.quit:
-			return [32]byte{}, nil, ErrRouterShuttingDown
+			return exitWithErr(ErrRouterShuttingDown)
 
 		// Fall through if we haven't hit our time limit.
 		default:
@@ -199,7 +205,7 @@ lifecycle:
 
 			routeErr, ok := err.(noRouteError)
 			if !ok {
-				return [32]byte{}, nil, err
+				return exitWithErr(err)
 			}
 
 			// There is no route to try, and we have no active
@@ -215,7 +221,7 @@ lifecycle:
 					p.identifier, failureCode,
 				)
 				if saveErr != nil {
-					return [32]byte{}, nil, saveErr
+					return exitWithErr(saveErr)
 				}
 
 				continue lifecycle
@@ -224,7 +230,7 @@ lifecycle:
 			// We still have active shards, we'll wait for an
 			// outcome to be available before retrying.
 			if err := shardHandler.waitForShard(); err != nil {
-				return [32]byte{}, nil, err
+				return exitWithErr(err)
 			}
 			continue lifecycle
 		}
@@ -249,7 +255,7 @@ lifecycle:
 			continue lifecycle
 
 		case err != nil:
-			return [32]byte{}, nil, err
+			return exitWithErr(err)
 		}
 
 		// If we encountered a non-critical error when launching the
@@ -266,7 +272,7 @@ lifecycle:
 				attempt, outcome.err,
 			)
 			if err != nil {
-				return [32]byte{}, nil, err
+				return exitWithErr(err)
 			}
 
 			// Error was handled successfully, continue to make a

@@ -98,6 +98,17 @@ type OutputDetail struct {
 	IsOurAddress bool
 }
 
+// PreviousOutPoint contains information about the previous outpoint.
+type PreviousOutPoint struct {
+	// OutPoint is the transaction out point in the format txid:n.
+	OutPoint string
+
+	// IsOurOutput denotes if the previous output is controlled by the
+	// internal wallet. The flag will only detect p2wkh, np2wkh and p2tr
+	// inputs as its own.
+	IsOurOutput bool
+}
+
 // TransactionDetail describes a transaction with either inputs which belong to
 // the wallet, or has outputs that pay to the wallet.
 type TransactionDetail struct {
@@ -141,6 +152,9 @@ type TransactionDetail struct {
 
 	// Label is an optional transaction label.
 	Label string
+
+	// PreviousOutpoints are the inputs for a transaction.
+	PreviousOutpoints []PreviousOutPoint
 }
 
 // TransactionSubscription is an interface which describes an object capable of

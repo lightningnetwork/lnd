@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/wallet"
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wallet/txrules"
@@ -1104,6 +1105,32 @@ func extractBalanceDelta(
 	return balanceDelta, nil
 }
 
+// getPreviousOutpoints is a helper function which gets the previous
+// outpoints of a transaction.
+func getPreviousOutpoints(wireTx *wire.MsgTx,
+	myInputs []wallet.TransactionSummaryInput) []lnwallet.PreviousOutPoint {
+
+	// isOurOutput is a map containing the output indices
+	// controlled by the wallet.
+	// Note: We make use of the information in `myInputs` provided
+	// by the `wallet.TransactionSummary` structure that holds
+	// information only if the input/previous_output is controlled by the wallet.
+	isOurOutput := make(map[uint32]bool, len(myInputs))
+	for _, myInput := range myInputs {
+		isOurOutput[myInput.Index] = true
+	}
+
+	previousOutpoints := make([]lnwallet.PreviousOutPoint, len(wireTx.TxIn))
+	for idx, txIn := range wireTx.TxIn {
+		previousOutpoints[idx] = lnwallet.PreviousOutPoint{
+			OutPoint:    txIn.PreviousOutPoint.String(),
+			IsOurOutput: isOurOutput[uint32(idx)],
+		}
+	}
+
+	return previousOutpoints
+}
+
 // minedTransactionsToDetails is a helper function which converts a summary
 // information about mined transactions to a TransactionDetail.
 func minedTransactionsToDetails(
@@ -1152,16 +1179,19 @@ func minedTransactionsToDetails(
 			})
 		}
 
+		previousOutpoints := getPreviousOutpoints(wireTx, tx.MyInputs)
+
 		txDetail := &lnwallet.TransactionDetail{
-			Hash:             *tx.Hash,
-			NumConfirmations: currentHeight - block.Height + 1,
-			BlockHash:        block.Hash,
-			BlockHeight:      block.Height,
-			Timestamp:        block.Timestamp,
-			TotalFees:        int64(tx.Fee),
-			OutputDetails:    outputDetails,
-			RawTx:            tx.Transaction,
-			Label:            tx.Label,
+			Hash:              *tx.Hash,
+			NumConfirmations:  currentHeight - block.Height + 1,
+			BlockHash:         block.Hash,
+			BlockHeight:       block.Height,
+			Timestamp:         block.Timestamp,
+			TotalFees:         int64(tx.Fee),
+			OutputDetails:     outputDetails,
+			RawTx:             tx.Transaction,
+			Label:             tx.Label,
+			PreviousOutpoints: previousOutpoints,
 		}
 
 		balanceDelta, err := extractBalanceDelta(tx, wireTx)
@@ -1221,13 +1251,16 @@ func unminedTransactionsToDetail(
 		})
 	}
 
+	previousOutpoints := getPreviousOutpoints(wireTx, summary.MyInputs)
+
 	txDetail := &lnwallet.TransactionDetail{
-		Hash:          *summary.Hash,
-		TotalFees:     int64(summary.Fee),
-		Timestamp:     summary.Timestamp,
-		OutputDetails: outputDetails,
-		RawTx:         summary.Transaction,
-		Label:         summary.Label,
+		Hash:              *summary.Hash,
+		TotalFees:         int64(summary.Fee),
+		Timestamp:         summary.Timestamp,
+		OutputDetails:     outputDetails,
+		RawTx:             summary.Transaction,
+		Label:             summary.Label,
+		PreviousOutpoints: previousOutpoints,
 	}
 
 	balanceDelta, err := extractBalanceDelta(summary, wireTx)

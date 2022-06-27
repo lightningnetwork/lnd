@@ -686,7 +686,11 @@ message Transaction {
 
     // A label that was optionally set on transaction broadcast.
     string label = 10;
+
+    // PreviousOutpoints/Inputs of this transaction.
+    repeated PreviousOutPoint previous_outpoints = 12;
 }
+
 message GetTransactionsRequest {
     /*
     The height from which to list transactions, inclusive. If this value is
@@ -1005,6 +1009,15 @@ message OutPoint {
 
     // The index of the output on the transaction.
     uint32 output_index = 3;
+}
+
+message PreviousOutPoint {
+    // The outpoint in format txid:n.
+    string outpoint = 1;
+
+    // Denotes if the outpoint is controlled by the internal wallet.
+    // The flag will only detect p2wkh, np2wkh and p2tr inputs as its own.
+    bool is_our_output = 2;
 }
 
 message LightningAddress {

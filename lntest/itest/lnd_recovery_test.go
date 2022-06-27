@@ -199,6 +199,18 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 			fn(node)
 		}
 
+		// Check if the previous outpoints are set correctly.
+		req := &lnrpc.GetTransactionsRequest{
+			StartHeight: 0,
+			EndHeight:   -1,
+		}
+		txDetails, err := node.GetTransactions(ctxb, req)
+		require.NoError(t.t, err)
+
+		for _, tx := range txDetails.Transactions {
+			require.Greater(t.t, len(tx.PreviousOutpoints), 0)
+		}
+
 		// Lastly, shutdown this Carol so we can move on to the next
 		// restoration.
 		shutdownAndAssert(net, t, node)

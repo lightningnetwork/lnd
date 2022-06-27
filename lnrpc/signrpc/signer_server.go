@@ -489,7 +489,8 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 // ComputeInputScript generates a complete InputIndex for the passed
 // transaction with the signature as defined within the passed SignDescriptor.
 // This method should be capable of generating the proper input script for both
-// regular p2wkh output and p2wkh outputs nested within a regular p2sh output.
+// regular p2wkh/p2tr outputs and p2wkh outputs nested within a regular p2sh
+// output.
 //
 // Note that when using this method to sign inputs belonging to the wallet, the
 // only items of the SignDescriptor that need to be populated are pkScript in
@@ -519,7 +520,33 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 		return nil, fmt.Errorf("unable to decode tx: %v", err)
 	}
 
-	sigHashCache := input.NewTxSigHashesV0Only(&txToSign)
+	var (
+		sigHashCache      = input.NewTxSigHashesV0Only(&txToSign)
+		prevOutputFetcher = txscript.NewMultiPrevOutFetcher(nil)
+	)
+
+	// If we're spending one or more SegWit v1 (Taproot) inputs, then we
+	// need the full UTXO information available.
+	if len(in.PrevOutputs) > 0 {
+		if len(in.PrevOutputs) != len(txToSign.TxIn) {
+			return nil, fmt.Errorf("provided previous outputs " +
+				"doesn't match number of transaction inputs")
+		}
+
+		// Add all previous inputs to our sighash prev out fetcher so we
+		// can calculate the sighash correctly.
+		for idx, txIn := range txToSign.TxIn {
+			prevOutputFetcher.AddPrevOut(
+				txIn.PreviousOutPoint, &wire.TxOut{
+					Value:    in.PrevOutputs[idx].Value,
+					PkScript: in.PrevOutputs[idx].PkScript,
+				},
+			)
+		}
+		sigHashCache = txscript.NewTxSigHashes(
+			&txToSign, prevOutputFetcher,
+		)
+	}
 
 	signDescs := make([]*input.SignDescriptor, 0, len(in.SignDescs))
 	for _, signDesc := range in.SignDescs {
@@ -532,9 +559,10 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 				Value:    signDesc.Output.Value,
 				PkScript: signDesc.Output.PkScript,
 			},
-			HashType:   txscript.SigHashType(signDesc.Sighash),
-			SigHashes:  sigHashCache,
-			InputIndex: int(signDesc.InputIndex),
+			HashType:          txscript.SigHashType(signDesc.Sighash),
+			SigHashes:         sigHashCache,
+			PrevOutputFetcher: prevOutputFetcher,
+			InputIndex:        int(signDesc.InputIndex),
 		})
 	}
 

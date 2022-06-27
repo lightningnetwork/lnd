@@ -25,12 +25,12 @@ type Signer interface {
 	// ComputeInputScript generates a complete InputIndex for the passed
 	// transaction with the signature as defined within the passed
 	// SignDescriptor. This method should be capable of generating the
-	// proper input script for both regular p2wkh output and p2wkh outputs
-	// nested within a regular p2sh output.
+	// proper input script for both regular p2wkh/p2tr outputs and p2wkh
+	// outputs nested within a regular p2sh output.
 	//
 	// NOTE: This method will ignore any tweak parameters set within the
 	// passed SignDescriptor as it assumes a set of typical script
-	// templates (p2wkh, np2wkh, etc).
+	// templates (p2wkh, p2tr, np2wkh, etc).
 	ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor) (*Script,
 		error)
 }

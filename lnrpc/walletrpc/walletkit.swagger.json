@@ -769,6 +769,19 @@
       ],
       "default": "SCRIPT_TYPE_PUBKEY_HASH"
     },
+    "lnrpcPreviousOutPoint": {
+      "type": "object",
+      "properties": {
+        "outpoint": {
+          "type": "string",
+          "description": "The outpoint in format txid:n."
+        },
+        "is_our_output": {
+          "type": "boolean",
+          "description": "Denotes if the outpoint is controlled by the internal wallet.\nThe flag will only detect p2wkh, np2wkh and p2tr inputs as its own."
+        }
+      }
+    },
     "lnrpcTransaction": {
       "type": "object",
       "properties": {
@@ -826,6 +839,13 @@
         "label": {
           "type": "string",
           "description": "A label that was optionally set on transaction broadcast."
+        },
+        "previous_outpoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcPreviousOutPoint"
+          },
+          "description": "PreviousOutpoints/Inputs of this transaction."
         }
       }
     },

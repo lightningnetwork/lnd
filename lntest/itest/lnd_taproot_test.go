@@ -1043,20 +1043,20 @@ func newAddrWithScript(ctx context.Context, t *testing.T,
 	node *lntest.HarnessNode, addrType lnrpc.AddressType) (btcutil.Address,
 	[]byte) {
 
-	p2wkhResp, err := node.NewAddress(ctx, &lnrpc.NewAddressRequest{
+	newAddrResp, err := node.NewAddress(ctx, &lnrpc.NewAddressRequest{
 		Type: addrType,
 	})
 	require.NoError(t, err)
 
-	p2wkhAddr, err := btcutil.DecodeAddress(
-		p2wkhResp.Address, harnessNetParams,
+	addr, err := btcutil.DecodeAddress(
+		newAddrResp.Address, harnessNetParams,
 	)
 	require.NoError(t, err)
 
-	p2wkhPkScript, err := txscript.PayToAddrScript(p2wkhAddr)
+	pkScript, err := txscript.PayToAddrScript(addr)
 	require.NoError(t, err)
 
-	return p2wkhAddr, p2wkhPkScript
+	return addr, pkScript
 }
 
 // sendToTaprootOutput sends coins to a p2tr output of the given taproot key and

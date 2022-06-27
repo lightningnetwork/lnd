@@ -9,7 +9,14 @@
 
 * [Add minor comment](https://github.com/lightningnetwork/lnd/pull/6559) on
   subscribe/cancel/lookup invoice parameter encoding.
+  
+## RPC Server
+
+* [Add previous_outpoints to listchaintxns](https://github.com/lightningnetwork/lnd/pull/6321)
+
 
 # Contributors (Alphabetical Order)
+
 * Elle Mouton
 * ErikEk
+* Priyansh Rastogi

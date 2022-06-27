@@ -211,9 +211,10 @@ func TestSerializeHTLCEntries(t *testing.T) {
 func TestSerializeRevocationLog(t *testing.T) {
 	t.Parallel()
 
-	// Copy the testRevocationLog.
+	// Copy the testRevocationLog and testHTLCEntry.
 	rl := testRevocationLog
-	rl.HTLCEntries = []*HTLCEntry{&testHTLCEntry}
+	htlc := testHTLCEntry
+	rl.HTLCEntries = []*HTLCEntry{&htlc}
 
 	// Write the tlv stream.
 	buf := bytes.NewBuffer([]byte{})

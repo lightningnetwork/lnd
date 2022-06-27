@@ -1,5 +1,11 @@
 # Release Notes
 
+## Build system
+
+* [Add the release build directory to the `.gitignore` file to avoid the release
+  binary digest to be different whether that folder exists or
+  not](https://github.com/lightningnetwork/lnd/pull/6676)
+
 ## `lncli`
 
 * [Add `payment_addr` flag to `buildroute`](https://github.com/lightningnetwork/lnd/pull/6576)
@@ -19,4 +25,5 @@
 
 * Elle Mouton
 * ErikEk
+* Oliver Gugger
 * Priyansh Rastogi

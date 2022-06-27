@@ -126,9 +126,7 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 			)
 			defer cancel()
 
-			testTaprootComputeInputScriptKeySpendBip86(
-				ctxt, tt, wo, net,
-			)
+			testTaprootSendCoinsKeySpendBip86(ctxt, tt, wo, net)
 			testTaprootSignOutputRawScriptSpend(ctxt, tt, wo, net)
 			testTaprootSignOutputRawKeySpendBip86(ctxt, tt, wo, net)
 			testTaprootSignOutputRawKeySpendRootHash(

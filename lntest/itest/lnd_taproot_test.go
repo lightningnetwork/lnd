@@ -46,7 +46,7 @@ func testTaproot(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, cancel := context.WithTimeout(ctxb, 2*defaultTimeout)
 	defer cancel()
 
-	testTaprootComputeInputScriptKeySpendBip86(ctxt, t, net.Alice, net)
+	testTaprootSendCoinsKeySpendBip86(ctxt, t, net.Alice, net)
 	testTaprootSignOutputRawScriptSpend(ctxt, t, net.Alice, net)
 	testTaprootSignOutputRawKeySpendBip86(ctxt, t, net.Alice, net)
 	testTaprootSignOutputRawKeySpendRootHash(ctxt, t, net.Alice, net)
@@ -56,10 +56,10 @@ func testTaproot(net *lntest.NetworkHarness, t *harnessTest) {
 	testTaprootMuSig2CombinedLeafKeySpend(ctxt, t, net.Alice, net)
 }
 
-// testTaprootComputeInputScriptKeySpendBip86 tests sending to and spending from
+// testTaprootSendCoinsKeySpendBip86 tests sending to and spending from
 // p2tr key spend only (BIP-0086) addresses through the SendCoins RPC which
 // internally uses the ComputeInputScript method for signing.
-func testTaprootComputeInputScriptKeySpendBip86(ctxt context.Context,
+func testTaprootSendCoinsKeySpendBip86(ctxt context.Context,
 	t *harnessTest, alice *lntest.HarnessNode, net *lntest.NetworkHarness) {
 
 	// We'll start the test by sending Alice some coins, which she'll use to

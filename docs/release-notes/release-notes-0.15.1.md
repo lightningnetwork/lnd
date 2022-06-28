@@ -23,6 +23,11 @@
 
 * [Add wallet reserve rpc & field in wallet balance](https://github.com/lightningnetwork/lnd/pull/6592)
 
+## Bug Fixes
+
+* [Update the urfave/cli package](https://github.com/lightningnetwork/lnd/pull/6682) because
+  of a flag parsing bug.
+
 # Contributors (Alphabetical Order)
 
 * Elle Mouton

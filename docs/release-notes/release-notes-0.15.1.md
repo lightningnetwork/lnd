@@ -20,6 +20,11 @@
 * Fixed data race found in
   [`TestSerializeHTLCEntries`](https://github.com/lightningnetwork/lnd/pull/6673).
 
+## Bug Fixes
+
+* [Update the urfave/cli package](https://github.com/lightningnetwork/lnd/pull/6682) because
+  of a flag parsing bug.
+
 # Contributors (Alphabetical Order)
 
 * Elle Mouton

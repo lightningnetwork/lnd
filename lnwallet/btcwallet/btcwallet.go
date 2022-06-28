@@ -711,6 +711,22 @@ func (b *BtcWallet) ListAccounts(name string,
 	return res, nil
 }
 
+// RequiredReserve returns the minimum amount of satoshis that should be
+// kept in the wallet in order to fee bump anchor channels if necessary.
+// The value scales with the number of public anchor channels but is
+// capped at a maximum.
+func (b *BtcWallet) RequiredReserve(
+	numAnchorChans uint32) btcutil.Amount {
+
+	anchorChanReservedValue := lnwallet.AnchorChanReservedValue
+	reserved := btcutil.Amount(numAnchorChans) * anchorChanReservedValue
+	if reserved > lnwallet.MaxAnchorChanReservedValue {
+		reserved = lnwallet.MaxAnchorChanReservedValue
+	}
+
+	return reserved
+}
+
 // ImportAccount imports an account backed by an account extended public key.
 // The master key fingerprint denotes the fingerprint of the root key
 // corresponding to the account public key (also known as the key with

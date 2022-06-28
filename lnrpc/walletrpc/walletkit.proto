@@ -65,6 +65,14 @@ service WalletKit {
     rpc ListAccounts (ListAccountsRequest) returns (ListAccountsResponse);
 
     /*
+    RequiredReserve returns the minimum amount of satoshis that should be kept
+    in the wallet in order to fee bump anchor channels if necessary. The value
+    scales with the number of public anchor channels but is capped at a maximum.
+    */
+    rpc RequiredReserve (RequiredReserveRequest)
+        returns (RequiredReserveResponse);
+
+    /*
     ImportAccount imports an account backed by an account extended public key.
     The master key fingerprint denotes the fingerprint of the root key
     corresponding to the account public key (also known as the key with
@@ -398,6 +406,16 @@ message ListAccountsRequest {
 }
 message ListAccountsResponse {
     repeated Account accounts = 1;
+}
+
+message RequiredReserveRequest {
+    // The number of additional channels the user would like to open.
+    uint32 additional_public_channels = 1;
+}
+
+message RequiredReserveResponse {
+    // The amount of reserve required.
+    int64 required_reserve = 1;
 }
 
 message ImportAccountRequest {

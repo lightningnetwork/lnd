@@ -105,6 +105,11 @@ func (w *WalletController) ListAccounts(string,
 	return nil, nil
 }
 
+// RequiredReserve currently returns a dummy value.
+func (w *WalletController) RequiredReserve(uint32) btcutil.Amount {
+	return 0
+}
+
 // ImportAccount currently returns a dummy value.
 func (w *WalletController) ImportAccount(string, *hdkeychain.ExtendedKey,
 	uint32, *waddrmgr.AddressType, bool) (*waddrmgr.AccountProperties,

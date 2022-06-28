@@ -2567,6 +2567,9 @@ message WalletBalanceResponse {
     // other usage.
     int64 locked_balance = 5;
 
+    // The amount of reserve required.
+    int64 reserved_balance_anchor_chan = 6;
+
     // A mapping of each wallet account's name to its balance.
     map<string, WalletAccountBalance> account_balance = 4;
 }

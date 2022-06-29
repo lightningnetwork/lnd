@@ -23,10 +23,9 @@
 ## RPC Server
 
 * [Add previous_outpoints to listchaintxns](https://github.com/lightningnetwork/lnd/pull/6321)
+
 * [Fix P2TR support in
   `ComputeInputScript`](https://github.com/lightningnetwork/lnd/pull/6680).
-
-## RPC Server
 
 * [Add wallet reserve rpc & field in wallet balance](https://github.com/lightningnetwork/lnd/pull/6592)
 

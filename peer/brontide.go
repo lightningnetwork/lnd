@@ -2664,9 +2664,9 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	// have a closing transaction, then the cooperative close process was
 	// started but never finished. We'll re-create the chanCloser state
 	// machine and resend Shutdown. BOLT#2 requires that we retransmit
-	// Shutdown exactly, but doing so would mean persisting the RPC
-	// provided close script. Instead use the LocalUpfrontShutdownScript
-	// or generate a script.
+	// Shutdown exactly, but for 0.15.0 nodes, we don't persist the RPC
+	// provided close script. 0.16.0 nodes do persist the closing script
+	// if it's not an upfront shutdown script.
 	c := lnChan.State()
 	_, err := c.BroadcastedCooperative()
 	if err != nil && err != channeldb.ErrNoCloseTx {
@@ -2678,8 +2678,9 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 		return nil, nil
 	}
 
-	// As mentioned above, we don't re-create the delivery script.
-	deliveryScript := c.LocalShutdownScript
+	// As mentioned above, we may not re-create the delivery script for
+	// older nodes.
+	deliveryScript := c.GetLocalShutdownScript()
 	if len(deliveryScript) == 0 {
 		var err error
 		deliveryScript, err = p.genDeliveryScript()

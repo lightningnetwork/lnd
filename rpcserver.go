@@ -4210,9 +4210,10 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		channel.PushAmountSat = uint64(amt)
 	}
 
-	if len(dbChannel.LocalShutdownScript) > 0 {
+	if len(dbChannel.GetLocalShutdownScript()) > 0 {
 		_, addresses, _, err := txscript.ExtractPkScriptAddrs(
-			dbChannel.LocalShutdownScript, r.cfg.ActiveNetParams.Params,
+			dbChannel.GetLocalShutdownScript(),
+			r.cfg.ActiveNetParams.Params,
 		)
 		if err != nil {
 			return nil, err

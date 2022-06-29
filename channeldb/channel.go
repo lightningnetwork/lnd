@@ -1364,6 +1364,51 @@ func (c *OpenChannel) SecondCommitmentPoint() (*btcec.PublicKey, error) {
 	return input.ComputeCommitmentPoint(revocation[:]), nil
 }
 
+// PersistDeliveryScript is used during the cooperative close flow to persist
+// a script sent in Shutdown when we did not set an upfront shutdown script
+// during the funding flow.
+func (c *OpenChannel) PersistDeliveryScript(
+	deliveryScript lnwire.DeliveryAddress) error {
+
+	c.Lock()
+	defer c.Unlock()
+
+	if err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+		chanBucket, err := fetchChanBucketRw(
+			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		channel, err := fetchOpenChannel(
+			chanBucket, &c.FundingOutpoint,
+		)
+		if err != nil {
+			return err
+		}
+
+		channel.LocalShutdownScript = deliveryScript
+
+		return putOpenChannel(chanBucket, channel)
+	}, func() {}); err != nil {
+		return err
+	}
+
+	c.LocalShutdownScript = deliveryScript
+
+	return nil
+}
+
+// GetLocalShutdownScript fetches the local shutdown script with the read
+// mutex.
+func (c *OpenChannel) GetLocalShutdownScript() lnwire.DeliveryAddress {
+	c.RLock()
+	defer c.RUnlock()
+
+	return c.LocalShutdownScript
+}
+
 // ChanSyncMsg returns the ChannelReestablish message that should be sent upon
 // reconnection with the remote peer that we're maintaining this channel with.
 // The information contained within this message is necessary to re-sync our

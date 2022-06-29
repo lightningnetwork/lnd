@@ -375,6 +375,17 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 			c.chanPoint, err)
 	}
 
+	// Persist the delivery script used before marking the state as coop
+	// broadcasted so we can recover in case of a crash.
+	if len(c.Channel().LocalUpfrontShutdownScript()) == 0 {
+		err := c.Channel().State().PersistDeliveryScript(
+			c.localDeliveryScript,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Before continuing, mark the channel as cooperatively closed with a nil
 	// txn. Even though we haven't negotiated the final txn, this guarantees
 	// that our listchannels rpc will be externally consistent, and reflect

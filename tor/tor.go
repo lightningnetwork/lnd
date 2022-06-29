@@ -220,9 +220,14 @@ func ResolveTCPAddr(address, socksAddr string) (*net.TCPAddr, error) {
 		return nil, err
 	}
 
-	ip, err := LookupHost(host, socksAddr)
-	if err != nil {
-		return nil, err
+	// avoid using Tor's LookupHost if the address is already a resolved IP
+	ip_byte := net.ParseIP(host)
+	if ip_byte == nil {
+		ip, err := LookupHost(host, socksAddr)
+		if err != nil {
+			return nil, err
+		}
+		ip_byte = net.ParseIP(ip[0])
 	}
 
 	p, err := strconv.Atoi(port)
@@ -231,7 +236,7 @@ func ResolveTCPAddr(address, socksAddr string) (*net.TCPAddr, error) {
 	}
 
 	return &net.TCPAddr{
-		IP:   net.ParseIP(ip[0]),
+		IP:   ip_byte,
 		Port: p,
 	}, nil
 }

@@ -330,14 +330,7 @@ func signSegWitV0(in *psbt.PInput, tx *wire.MsgTx,
 	// requirement that the PkScript of a P2PKH must be given as the witness
 	// script in order for it to arrive at the correct sighash. That's why
 	// we call it subScript here instead of witness script.
-	subScript, scriptSig, err := prepareScriptsV0(in)
-	if err != nil {
-		// We derived the correct key so we _are_ expected to sign this.
-		// Not being able to sign at this point means there's something
-		// wrong.
-		return fmt.Errorf("error deriving script for input %d: %v", idx,
-			err)
-	}
+	subScript := prepareScriptsV0(in)
 
 	// We have everything we need for signing the input now.
 	sig, err := txscript.RawTxInWitnessSignature(
@@ -347,7 +340,6 @@ func signSegWitV0(in *psbt.PInput, tx *wire.MsgTx,
 	if err != nil {
 		return fmt.Errorf("error signing input %d: %v", idx, err)
 	}
-	in.FinalScriptSig = scriptSig
 	in.PartialSigs = append(in.PartialSigs, &psbt.PartialSig{
 		PubKey:    pubKeyBytes,
 		Signature: sig,
@@ -409,27 +401,19 @@ func signSegWitV1ScriptSpend(in *psbt.PInput, tx *wire.MsgTx,
 
 // prepareScriptsV0 returns the appropriate witness v0 and/or legacy scripts,
 // depending on the type of input that should be signed.
-func prepareScriptsV0(in *psbt.PInput) ([]byte, []byte, error) {
+func prepareScriptsV0(in *psbt.PInput) []byte {
 	switch {
 	// It's a NP2WKH input:
 	case len(in.RedeemScript) > 0:
-		builder := txscript.NewScriptBuilder()
-		builder.AddData(in.RedeemScript)
-		sigScript, err := builder.Script()
-		if err != nil {
-			return nil, nil, fmt.Errorf("error building np2wkh "+
-				"script: %v", err)
-		}
-
-		return in.RedeemScript, sigScript, nil
+		return in.RedeemScript
 
 	// It's a P2WSH input:
 	case len(in.WitnessScript) > 0:
-		return in.WitnessScript, nil, nil
+		return in.WitnessScript
 
 	// It's a P2WKH input:
 	default:
-		return in.WitnessUtxo.PkScript, nil, nil
+		return in.WitnessUtxo.PkScript
 	}
 }
 

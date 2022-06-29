@@ -11,6 +11,10 @@
 * [Add `payment_addr` flag to `buildroute`](https://github.com/lightningnetwork/lnd/pull/6576)
   so that the mpp record of the route can be set correctly.
 
+* [Hop hints are now opt in when using `lncli
+  addholdinvoice`](https://github.com/lightningnetwork/lnd/pull/6577). Users now
+  need to explicitly specify the `--private` flag.
+
 ## Documentation
 
 * [Add minor comment](https://github.com/lightningnetwork/lnd/pull/6559) on

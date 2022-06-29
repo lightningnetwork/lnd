@@ -639,9 +639,15 @@ func testPsbtChanFundingSingleStep(net *lntest.NetworkHarness, t *harnessTest) {
 // testSignPsbt tests that the SignPsbt RPC works correctly.
 func testSignPsbt(net *lntest.NetworkHarness, t *harnessTest) {
 	runSignPsbtSegWitV0P2WKH(t, net, net.Alice)
+	runSignPsbtSegWitV0NP2WKH(t, net, net.Alice)
 	runSignPsbtSegWitV1KeySpendBip86(t, net, net.Alice)
 	runSignPsbtSegWitV1KeySpendRootHash(t, net, net.Alice)
 	runSignPsbtSegWitV1ScriptSpend(t, net, net.Alice)
+
+	// The above tests all make sure we can sign for keys that aren't in the
+	// wallet. But we also want to make sure we can fund and then sign PSBTs
+	// from our wallet.
+	runFundAndSignPsbt(t, net, net.Alice)
 }
 
 // runSignPsbtSegWitV0P2WKH tests that the SignPsbt RPC works correctly for a
@@ -712,6 +718,104 @@ func runSignPsbtSegWitV0P2WKH(t *harnessTest, net *lntest.NetworkHarness,
 		ctxt, t, net, alice, pkScript,
 		func(packet *psbt.Packet) {
 			in := &packet.Inputs[0]
+			in.Bip32Derivation = []*psbt.Bip32Derivation{{
+				PubKey:    addrPubKey.SerializeCompressed(),
+				Bip32Path: fullDerivationPath,
+			}}
+			in.SighashType = txscript.SigHashAll
+		},
+		func(packet *psbt.Packet) {
+			require.Len(t.t, packet.Inputs, 1)
+			require.Len(t.t, packet.Inputs[0].PartialSigs, 1)
+
+			partialSig := packet.Inputs[0].PartialSigs[0]
+			require.Equal(
+				t.t, partialSig.PubKey,
+				addrPubKey.SerializeCompressed(),
+			)
+			require.Greater(
+				t.t, len(partialSig.Signature), ecdsa.MinSigLen,
+			)
+		},
+	)
+}
+
+// runSignPsbtSegWitV0NP2WKH tests that the SignPsbt RPC works correctly for a
+// SegWit v0 np2wkh input.
+func runSignPsbtSegWitV0NP2WKH(t *harnessTest, net *lntest.NetworkHarness,
+	alice *lntest.HarnessNode) {
+
+	// Everything we do here should be done within a second or two, so we
+	// can just keep a single timeout context around for all calls.
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	// We test that we can sign a PSBT that spends funds from an input that
+	// the wallet doesn't know about. To set up that test case, we first
+	// derive an address manually that the wallet won't be watching on
+	// chain. We can do that by exporting the account xpub of lnd's main
+	// account.
+	accounts, err := alice.WalletKitClient.ListAccounts(
+		ctxt, &walletrpc.ListAccountsRequest{},
+	)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, accounts.Accounts)
+
+	// We also need to parse the accounts, so we have easy access to the
+	// parsed derivation paths.
+	parsedAccounts, err := walletrpc.AccountsToWatchOnly(accounts.Accounts)
+	require.NoError(t.t, err)
+
+	account := parsedAccounts[0]
+	xpub, err := hdkeychain.NewKeyFromString(account.Xpub)
+	require.NoError(t.t, err)
+
+	const (
+		changeIndex = 1
+		addrIndex   = 1337
+	)
+	fullDerivationPath := []uint32{
+		hdkeychain.HardenedKeyStart + account.Purpose,
+		hdkeychain.HardenedKeyStart + account.CoinType,
+		hdkeychain.HardenedKeyStart + account.Account,
+		changeIndex,
+		addrIndex,
+	}
+
+	// Let's simulate a change address.
+	change, err := xpub.DeriveNonStandard(changeIndex) // nolint:staticcheck
+	require.NoError(t.t, err)
+
+	// At an index that we are certainly not watching in the wallet.
+	addrKey, err := change.DeriveNonStandard(addrIndex) // nolint:staticcheck
+	require.NoError(t.t, err)
+
+	addrPubKey, err := addrKey.ECPubKey()
+	require.NoError(t.t, err)
+	pubKeyHash := btcutil.Hash160(addrPubKey.SerializeCompressed())
+	witnessAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+		pubKeyHash, harnessNetParams,
+	)
+	require.NoError(t.t, err)
+
+	witnessProgram, err := txscript.PayToAddrScript(witnessAddr)
+	require.NoError(t.t, err)
+	np2wkhAddr, err := btcutil.NewAddressScriptHash(
+		witnessProgram, harnessNetParams,
+	)
+	require.NoError(t.t, err)
+
+	pkScript, err := txscript.PayToAddrScript(np2wkhAddr)
+	require.NoError(t.t, err)
+
+	// Send some funds to the output and then try to get a signature through
+	// the SignPsbt RPC to spend that output again.
+	assertPsbtSpend(
+		ctxt, t, net, alice, pkScript,
+		func(packet *psbt.Packet) {
+			in := &packet.Inputs[0]
+			in.RedeemScript = witnessProgram
 			in.Bip32Derivation = []*psbt.Bip32Derivation{{
 				PubKey:    addrPubKey.SerializeCompressed(),
 				Bip32Path: fullDerivationPath,
@@ -910,6 +1014,52 @@ func runSignPsbtSegWitV1ScriptSpend(t *harnessTest,
 	)
 }
 
+// runFundAndSignPsbt makes sure we can sign PSBTs that were funded by our
+// internal wallet.
+func runFundAndSignPsbt(t *harnessTest, net *lntest.NetworkHarness,
+	alice *lntest.HarnessNode) {
+
+	// Everything we do here should be done within a second or two, so we
+	// can just keep a single timeout context around for all calls.
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	// We'll be using a "main" address where we send the funds to and from
+	// several times.
+	mainAddrResp, err := alice.NewAddress(ctxt, &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	})
+	require.NoError(t.t, err)
+
+	fundOutputs := map[string]uint64{
+		mainAddrResp.Address: 999000,
+	}
+	spendAddrTypes := []lnrpc.AddressType{
+		lnrpc.AddressType_NESTED_PUBKEY_HASH,
+		lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+		lnrpc.AddressType_TAPROOT_PUBKEY,
+	}
+
+	for _, addrType := range spendAddrTypes {
+		// First, spend all the coins in the wallet to an address of the
+		// given type so that UTXO will be picked when funding a PSBT.
+		sendAllCoinsToAddrType(ctxt, t, net, alice, addrType)
+
+		// Let's fund a PSBT now where we want to send a few sats to our
+		// main address.
+		assertPsbtFundSignSpend(ctxt, t, net, alice, fundOutputs, false)
+
+		// Send all coins back to a single address once again.
+		sendAllCoinsToAddrType(ctxt, t, net, alice, addrType)
+
+		// And now make sure the alternate way of signing a PSBT, which
+		// is calling FinalizePsbt directly, also works for this address
+		// type.
+		assertPsbtFundSignSpend(ctxt, t, net, alice, fundOutputs, true)
+	}
+}
+
 // assertPsbtSpend creates an output with the given pkScript on chain and then
 // attempts to create a sweep transaction that is signed using the SignPsbt RPC
 // that spends that output again.
@@ -1017,6 +1167,83 @@ func assertPsbtSpend(ctx context.Context, t *harnessTest,
 	secondTxHash := finalTx.TxHash()
 	assertTxInBlock(t, block, &firstTxHash)
 	assertTxInBlock(t, block, &secondTxHash)
+}
+
+// assertPsbtFundSignSpend funds a PSBT from the internal wallet and then
+// attempts to sign it by using the SignPsbt or FinalizePsbt method.
+func assertPsbtFundSignSpend(ctx context.Context, t *harnessTest,
+	net *lntest.NetworkHarness, alice *lntest.HarnessNode,
+	fundOutputs map[string]uint64, useFinalize bool) {
+
+	fundResp, err := alice.WalletKitClient.FundPsbt(
+		ctx, &walletrpc.FundPsbtRequest{
+			Template: &walletrpc.FundPsbtRequest_Raw{
+				Raw: &walletrpc.TxTemplate{
+					Outputs: fundOutputs,
+				},
+			},
+			Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+				SatPerVbyte: 2,
+			},
+			MinConfs: 1,
+		},
+	)
+	require.NoError(t.t, err)
+	require.GreaterOrEqual(
+		t.t, fundResp.ChangeOutputIndex, int32(-1),
+	)
+
+	var signedPsbt []byte
+	if useFinalize {
+		finalizeResp, err := alice.WalletKitClient.FinalizePsbt(
+			ctx, &walletrpc.FinalizePsbtRequest{
+				FundedPsbt: fundResp.FundedPsbt,
+			},
+		)
+		require.NoError(t.t, err)
+
+		signedPsbt = finalizeResp.SignedPsbt
+	} else {
+		signResp, err := alice.WalletKitClient.SignPsbt(
+			ctx, &walletrpc.SignPsbtRequest{
+				FundedPsbt: fundResp.FundedPsbt,
+			},
+		)
+		require.NoError(t.t, err)
+
+		signedPsbt = signResp.SignedPsbt
+	}
+
+	// Let's make sure we have a partial signature.
+	signedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(signedPsbt), false,
+	)
+	require.NoError(t.t, err)
+
+	// We should be able to finalize the PSBT and extract the final
+	// TX now.
+	err = psbt.MaybeFinalizeAll(signedPacket)
+	require.NoError(t.t, err)
+
+	finalTx, err := psbt.Extract(signedPacket)
+	require.NoError(t.t, err)
+
+	var buf bytes.Buffer
+	err = finalTx.Serialize(&buf)
+	require.NoError(t.t, err)
+
+	// Publish the second transaction and then mine both of them.
+	_, err = alice.WalletKitClient.PublishTransaction(
+		ctx, &walletrpc.Transaction{
+			TxHex: buf.Bytes(),
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Mine one block which should contain two transactions.
+	block := mineBlocks(t, net, 1, 1)[0]
+	finalTxHash := finalTx.TxHash()
+	assertTxInBlock(t, block, &finalTxHash)
 }
 
 // deriveInternalKey derives a signing key and returns its descriptor, full
@@ -1132,4 +1359,24 @@ func receiveChanUpdate(ctx context.Context,
 	case updateMsg := <-chanMsg:
 		return updateMsg, nil
 	}
+}
+
+// sendAllCoinsToAddrType sweeps all coins from the wallet and sends them to a
+// new address of the given type.
+func sendAllCoinsToAddrType(ctx context.Context, t *harnessTest,
+	net *lntest.NetworkHarness, node *lntest.HarnessNode,
+	addrType lnrpc.AddressType) {
+
+	resp, err := node.NewAddress(ctx, &lnrpc.NewAddressRequest{
+		Type: addrType,
+	})
+	require.NoError(t.t, err)
+
+	_, err = node.SendCoins(ctx, &lnrpc.SendCoinsRequest{
+		Addr:    resp.Address,
+		SendAll: true,
+	})
+	require.NoError(t.t, err)
+
+	_ = mineBlocks(t, net, 1, 1)[0]
 }

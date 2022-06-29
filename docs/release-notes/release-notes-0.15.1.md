@@ -31,6 +31,9 @@
 * Fixed data race found in
   [`TestSerializeHTLCEntries`](https://github.com/lightningnetwork/lnd/pull/6673).
 
+* [Fixed a bug in the `SignPsbt` RPC that produced an invalid response when
+  signing a NP2WKH input](https://github.com/lightningnetwork/lnd/pull/6687).
+
 * [Update the urfave/cli package](https://github.com/lightningnetwork/lnd/pull/6682) because
   of a flag parsing bug.
 

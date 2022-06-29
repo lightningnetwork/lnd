@@ -23,8 +23,11 @@
 ## RPC Server
 
 * [Add previous_outpoints to listchaintxns](https://github.com/lightningnetwork/lnd/pull/6321)
+
 * [Fix P2TR support in
   `ComputeInputScript`](https://github.com/lightningnetwork/lnd/pull/6680).
+
+* [Add wallet reserve rpc & field in wallet balance](https://github.com/lightningnetwork/lnd/pull/6592)
 
 ## Bug Fixes
 
@@ -33,12 +36,6 @@
 
 * [Fixed a bug in the `SignPsbt` RPC that produced an invalid response when
   signing a NP2WKH input](https://github.com/lightningnetwork/lnd/pull/6687).
-
-## RPC Server
-
-* [Add wallet reserve rpc & field in wallet balance](https://github.com/lightningnetwork/lnd/pull/6592)
-
-## Bug Fixes
 
 * [Update the urfave/cli package](https://github.com/lightningnetwork/lnd/pull/6682) because
   of a flag parsing bug.

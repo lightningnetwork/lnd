@@ -18,7 +18,7 @@
   "paths": {
     "/v2/signer/inputscript": {
       "post": {
-        "summary": "ComputeInputScript generates a complete InputIndex for the passed\ntransaction with the signature as defined within the passed SignDescriptor.\nThis method should be capable of generating the proper input script for\nboth regular p2wkh output and p2wkh outputs nested within a regular p2sh\noutput.",
+        "summary": "ComputeInputScript generates a complete InputIndex for the passed\ntransaction with the signature as defined within the passed SignDescriptor.\nThis method should be capable of generating the proper input script for both\nregular p2wkh/p2tr outputs and p2wkh outputs nested within a regular p2sh\noutput.",
         "description": "Note that when using this method to sign inputs belonging to the wallet,\nthe only items of the SignDescriptor that need to be populated are pkScript\nin the TxOut field, the value in that same field, and finally the input\nindex.",
         "operationId": "Signer_ComputeInputScript",
         "responses": {

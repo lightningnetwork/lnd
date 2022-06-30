@@ -34,10 +34,14 @@
 * [Update the urfave/cli package](https://github.com/lightningnetwork/lnd/pull/6682) because
   of a flag parsing bug.
 
+* [DisconnectPeer no longer interferes with the peerTerminationWatcher. This previously caused
+  force closes.](https://github.com/lightningnetwork/lnd/pull/6655)
+
 # Contributors (Alphabetical Order)
 
 * Elle Mouton
 * ErikEk
+* Eugene Siegel
 * Oliver Gugger
 * Priyansh Rastogi
 * Yong Yu

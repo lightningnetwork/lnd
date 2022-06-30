@@ -42,6 +42,9 @@
 * [DisconnectPeer no longer interferes with the peerTerminationWatcher. This previously caused
   force closes.](https://github.com/lightningnetwork/lnd/pull/6655)
 
+* [The HtlcSwitch now waits for a ChannelLink to stop before replacing it. This fixes a race
+  condition.](https://github.com/lightningnetwork/lnd/pull/6642)
+
 # Contributors (Alphabetical Order)
 
 * Elle Mouton

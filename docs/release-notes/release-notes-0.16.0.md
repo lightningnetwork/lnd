@@ -1,5 +1,10 @@
 # Release Notes
 
+## RPC Server
+
+* The `signrpc.SignMessage` and `signrpc.VerifyMessage` now
+  supports [Schnorr signatures](https://github.com/lightningnetwork/lnd/pull/6663).
+
 ## Misc
 * Warning messages from peers are now recognized and [logged](https://github.com/lightningnetwork/lnd/pull/6546) by lnd.
 

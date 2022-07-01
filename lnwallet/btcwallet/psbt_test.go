@@ -205,10 +205,9 @@ func (i testInputType) decorateInput(t *testing.T, privKey *btcec.PrivateKey,
 	}
 }
 
-func (i testInputType) beforeFinalize(t *testing.T, packet *psbt.Packet) {
+func (i testInputType) finalize(t *testing.T, packet *psbt.Packet) {
 	in := &packet.Inputs[0]
 	sigBytes := in.PartialSigs[0].Signature
-	pubKeyBytes := in.PartialSigs[0].PubKey
 
 	var witnessStack wire.TxWitness
 	switch i {
@@ -227,9 +226,12 @@ func (i testInputType) beforeFinalize(t *testing.T, packet *psbt.Packet) {
 		witnessStack[2] = in.WitnessScript
 
 	default:
-		witnessStack = make([][]byte, 2)
-		witnessStack[0] = sigBytes
-		witnessStack[1] = pubKeyBytes
+		// The PSBT finalizer knows what to do if we're not using a
+		// custom script.
+		err := psbt.MaybeFinalizeAll(packet)
+		require.NoError(t, err)
+
+		return
 	}
 
 	var err error
@@ -321,7 +323,7 @@ func TestSignPsbt(t *testing.T) {
 
 		// If the witness stack needs to be assembled, give the caller
 		// the option to do that now.
-		tc.inputType.beforeFinalize(t, packet)
+		tc.inputType.finalize(t, packet)
 
 		finalTx, err := psbt.Extract(packet)
 		require.NoError(t, err)

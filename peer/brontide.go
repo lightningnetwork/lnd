@@ -1455,6 +1455,10 @@ out:
 				break out
 			}
 
+		case *lnwire.Warning:
+			targetChan = msg.ChanID
+			isLinkUpdate = p.handleError(&msg.Error)
+
 		case *lnwire.Error:
 			targetChan = msg.ChanID
 			isLinkUpdate = p.handleError(msg)
@@ -1687,6 +1691,9 @@ func messageSummary(msg lnwire.Message) string {
 	case *lnwire.UpdateFailMalformedHTLC:
 		return fmt.Sprintf("chan_id=%v, id=%v, fail_code=%v",
 			msg.ChanID, msg.ID, msg.FailureCode)
+
+	case *lnwire.Warning:
+		return fmt.Sprintf("%v", msg.Error.Error())
 
 	case *lnwire.Error:
 		return fmt.Sprintf("%v", msg.Error())

@@ -57,6 +57,9 @@
   responses. In addition to that, errors returned from `lnd` can now also be
   intercepted and changed by the middleware.
 
+* The `signrpc.SignMessage` and `signrpc.VerifyMessage` now supports [Schnorr
+  signatures](https://github.com/lightningnetwork/lnd/pull/6722).
+
 ## Bug Fixes
 
 * Fixed data race found in

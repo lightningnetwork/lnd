@@ -309,6 +309,32 @@ func (m *mockControlTowerOld) InitPayment(phash lntypes.Hash,
 	return nil
 }
 
+func (m *mockControlTowerOld) DeleteFailedAttempts(phash lntypes.Hash) error {
+	p, ok := m.payments[phash]
+	if !ok {
+		return channeldb.ErrPaymentNotInitiated
+	}
+
+	var inFlight bool
+	for _, a := range p.attempts {
+		if a.Settle != nil {
+			continue
+		}
+
+		if a.Failure != nil {
+			continue
+		}
+
+		inFlight = true
+	}
+
+	if inFlight {
+		return channeldb.ErrPaymentInFlight
+	}
+
+	return nil
+}
+
 func (m *mockControlTowerOld) RegisterAttempt(phash lntypes.Hash,
 	a *channeldb.HTLCAttemptInfo) error {
 
@@ -662,6 +688,11 @@ func (m *mockControlTower) InitPayment(phash lntypes.Hash,
 	c *channeldb.PaymentCreationInfo) error {
 
 	args := m.Called(phash, c)
+	return args.Error(0)
+}
+
+func (m *mockControlTower) DeleteFailedAttempts(phash lntypes.Hash) error {
+	args := m.Called(phash)
 	return args.Error(0)
 }
 

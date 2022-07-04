@@ -308,7 +308,7 @@ func TestPaymentControlFailsWithoutInFlight(t *testing.T) {
 
 // TestPaymentControlDeleteNonInFlight checks that calling DeletePayments only
 // deletes payments from the database that are not in-flight.
-func TestPaymentControlDeleteNonInFligt(t *testing.T) {
+func TestPaymentControlDeleteNonInFlight(t *testing.T) {
 	t.Parallel()
 
 	db, cleanup, err := MakeTestDB()
@@ -528,7 +528,7 @@ func TestPaymentControlDeletePayments(t *testing.T) {
 
 	// Register three payments:
 	// 1. A payment with two failed attempts.
-	// 2. A Payment with one failed and one settled attempt.
+	// 2. A payment with one failed and one settled attempt.
 	// 3. A payment with one failed and one in-flight attempt.
 	payments := []*payment{
 		{status: StatusFailed},
@@ -585,7 +585,7 @@ func TestPaymentControlDeleteSinglePayment(t *testing.T) {
 	// according to its final status.
 	// 1. A payment with two failed attempts.
 	// 2. Another payment with two failed attempts.
-	// 3. A Payment with one failed and one settled attempt.
+	// 3. A payment with one failed and one settled attempt.
 	// 4. A payment with one failed and one in-flight attempt.
 
 	// Initiate payments, which is a slice of payment that is used as
@@ -1000,6 +1000,96 @@ func TestPaymentControlMPPRecordValidation(t *testing.T) {
 	_, err = pControl.RegisterAttempt(info.PaymentIdentifier, &b)
 	if err != ErrNonMPPayment {
 		t.Fatalf("expected ErrNonMPPayment, got: %v", err)
+	}
+}
+
+// TestDeleteFailedAttempts checks that DeleteFailedAttempts properly removes
+// failed HTLCs from finished payments.
+func TestDeleteFailedAttempts(t *testing.T) {
+	t.Parallel()
+
+	t.Run("keep failed payment attempts", func(t *testing.T) {
+		testDeleteFailedAttempts(t, true)
+	})
+	t.Run("remove failed payment attempts", func(t *testing.T) {
+		testDeleteFailedAttempts(t, false)
+	})
+}
+
+func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
+	db, cleanup, err := MakeTestDB()
+	defer cleanup()
+
+	require.NoError(t, err, "unable to init db")
+	db.keepFailedPaymentAttempts = keepFailedPaymentAttempts
+
+	pControl := NewPaymentControl(db)
+
+	// Register three payments:
+	// All payments will have one failed HTLC attempt and one HTLC attempt
+	// according to its final status.
+	// 1. A payment with two failed attempts.
+	// 2. A payment with one failed and one in-flight attempt.
+	// 3. A payment with one failed and one settled attempt.
+
+	// Initiate payments, which is a slice of payment that is used as
+	// template to create the corresponding test payments in the database.
+	//
+	// Note: The payment id and number of htlc attempts of each payment will
+	// be added to this slice when creating the payments below.
+	// This allows the slice to be used directly for testing purposes.
+	payments := []*payment{
+		{status: StatusFailed},
+		{status: StatusInFlight},
+		{status: StatusSucceeded},
+	}
+
+	// Use helper function to register the test payments in the data and
+	// populate the data to the payments slice.
+	createTestPayments(t, pControl, payments)
+
+	// Check that all payments are there as we added them.
+	assertPayments(t, db, payments)
+
+	// Calling DeleteFailedAttempts on a failed payment should delete all
+	// HTLCs.
+	require.NoError(t, pControl.DeleteFailedAttempts(payments[0].id))
+
+	// Expect all HTLCs to be deleted if the config is set to delete them.
+	if !keepFailedPaymentAttempts {
+		payments[0].htlcs = 0
+	}
+	assertPayments(t, db, payments)
+
+	// Calling DeleteFailedAttempts on an in-flight payment should return
+	// an error.
+	if keepFailedPaymentAttempts {
+		require.NoError(t, pControl.DeleteFailedAttempts(payments[1].id))
+	} else {
+		require.Error(t, pControl.DeleteFailedAttempts(payments[1].id))
+	}
+
+	// Since DeleteFailedAttempts returned an error, we should expect the
+	// payment to be unchanged.
+	assertPayments(t, db, payments)
+
+	// Cleaning up a successful payment should remove failed htlcs.
+	require.NoError(t, pControl.DeleteFailedAttempts(payments[2].id))
+	// Expect all HTLCs except for the settled one to be deleted if the
+	// config is set to delete them.
+	if !keepFailedPaymentAttempts {
+		payments[2].htlcs = 1
+	}
+	assertPayments(t, db, payments)
+
+	if keepFailedPaymentAttempts {
+		// DeleteFailedAttempts is ignored, even for non-existent
+		// payments, if the control tower is configured to keep failed
+		// HTLCs.
+		require.NoError(t, pControl.DeleteFailedAttempts(lntypes.ZeroHash))
+	} else {
+		// Attempting to cleanup a non-existent payment returns an error.
+		require.Error(t, pControl.DeleteFailedAttempts(lntypes.ZeroHash))
 	}
 }
 

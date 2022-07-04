@@ -19,6 +19,11 @@ type ControlTower interface {
 	// hash.
 	InitPayment(lntypes.Hash, *channeldb.PaymentCreationInfo) error
 
+	// DeleteFailedAttempts removes all failed HTLCs from the db. It should
+	// be called for a given payment whenever all inflight htlcs are
+	// completed, and the payment has reached a final settled state.
+	DeleteFailedAttempts(lntypes.Hash) error
+
 	// RegisterAttempt atomically records the provided HTLCAttemptInfo.
 	RegisterAttempt(lntypes.Hash, *channeldb.HTLCAttemptInfo) error
 
@@ -123,6 +128,12 @@ func (p *controlTower) InitPayment(paymentHash lntypes.Hash,
 	info *channeldb.PaymentCreationInfo) error {
 
 	return p.db.InitPayment(paymentHash, info)
+}
+
+// DeleteFailedAttempts deletes all failed htlcs if the payment was
+// successfully settled.
+func (p *controlTower) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
+	return p.db.DeleteFailedAttempts(paymentHash)
 }
 
 // RegisterAttempt atomically records the provided HTLCAttemptInfo to the

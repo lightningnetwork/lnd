@@ -16,6 +16,11 @@
   addholdinvoice`](https://github.com/lightningnetwork/lnd/pull/6577). Users now
   need to explicitly specify the `--private` flag.
 
+## Database
+
+* [Delete failed payment attempts](https://github.com/lightningnetwork/lnd/pull/6438)
+  once payments are settled, unless specified with `keep-failed-payment-attempts` flag.
+
 ## Documentation
 
 * [Add minor comment](https://github.com/lightningnetwork/lnd/pull/6559) on
@@ -57,4 +62,5 @@
 * Eugene Siegel
 * Oliver Gugger
 * Priyansh Rastogi
+* Tommy Volk
 * Yong Yu

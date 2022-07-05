@@ -87,7 +87,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	// Lookup the payment so we can get its old sequence number before it is
 	// overwritten.
 	payment, err := pControl.FetchPayment(info.PaymentIdentifier)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Sends the htlc again, which should succeed since the prior payment
 	// failed.

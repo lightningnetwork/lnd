@@ -19,7 +19,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/pool"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1078,7 +1077,7 @@ func TestPeerCustomMessage(t *testing.T) {
 		)
 		var b bytes.Buffer
 		_, err = lnwire.WriteMessage(&b, initReplyMsg, 0)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		mockConn.readMessages <- b.Bytes()
 	}()

@@ -1,8 +1,11 @@
 package routing
 
 import (
+	"math"
+
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -38,9 +41,11 @@ func newUnifiedPolicies(sourceNode, toNode route.Vertex,
 }
 
 // addPolicy adds a single channel policy. Capacity may be zero if unknown
-// (light clients).
+// (light clients). Inbound fee is the fee that is charged by the node on the
+// receiving end of the channel.
 func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
-	edge *channeldb.CachedEdgePolicy, capacity btcutil.Amount) {
+	edge *channeldb.CachedEdgePolicy, inboundFee htlcswitch.InboundFee,
+	capacity btcutil.Amount) {
 
 	localChan := fromNode == u.sourceNode
 
@@ -61,8 +66,9 @@ func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
 	}
 
 	policy.edges = append(policy.edges, &unifiedPolicyEdge{
-		policy:   edge,
-		capacity: capacity,
+		policy:      edge,
+		capacity:    capacity,
+		inboundFees: inboundFee,
 	})
 }
 
@@ -78,8 +84,13 @@ func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
 		}
 
 		// Add this policy to the unified policies map.
+		inboundFee := htlcswitch.NewInboundFeeFromWire(
+			channel.InboundFee,
+		)
+
 		u.addPolicy(
-			channel.OtherNode, channel.InPolicy, channel.Capacity,
+			channel.OtherNode, channel.InPolicy, inboundFee,
+			channel.Capacity,
 		)
 
 		return nil
@@ -92,8 +103,9 @@ func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
 // unifiedPolicyEdge is the individual channel data that is kept inside an
 // unifiedPolicy object.
 type unifiedPolicyEdge struct {
-	policy   *channeldb.CachedEdgePolicy
-	capacity btcutil.Amount
+	policy      *channeldb.CachedEdgePolicy
+	capacity    btcutil.Amount
+	inboundFees htlcswitch.InboundFee
 }
 
 // amtInRange checks whether an amount falls within the valid range for a
@@ -153,8 +165,13 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 	)
 
 	for _, edge := range u.edges {
+		// Add inbound fee to the amount that is sent over the local
+		// channel.
+		amtWithInboundFee := amt +
+			lnwire.MilliSatoshi(edge.inboundFees.CalcFee(amt))
+
 		// Check valid amount range for the channel.
-		if !edge.amtInRange(amt) {
+		if !edge.amtInRange(amtWithInboundFee) {
 			continue
 		}
 
@@ -177,7 +194,7 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 		}
 
 		// Skip channels that can't carry the payment.
-		if amt > bandwidth {
+		if amtWithInboundFee > bandwidth {
 			continue
 		}
 
@@ -193,7 +210,8 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 
 		// Update best policy.
 		bestPolicy = &unifiedPolicyEdge{
-			policy: edge.policy,
+			policy:      edge.policy,
+			inboundFees: edge.inboundFees,
 		}
 	}
 
@@ -208,13 +226,17 @@ func (u *unifiedPolicy) getPolicyNetwork(
 
 	var (
 		bestPolicy  *unifiedPolicyEdge
-		maxFee      lnwire.MilliSatoshi
+		maxFee      int64 = math.MinInt64
 		maxTimelock uint16
 	)
 
 	for _, edge := range u.edges {
+		// Add inbound fee to the amount that is sent over the channel.
+		amtWithInboundFee := amt +
+			lnwire.MilliSatoshi(edge.inboundFees.CalcFee(amt))
+
 		// Check valid amount range for the channel.
-		if !edge.amtInRange(amt) {
+		if !edge.amtInRange(amtWithInboundFee) {
 			continue
 		}
 
@@ -233,14 +255,15 @@ func (u *unifiedPolicy) getPolicyNetwork(
 
 		// Use the policy that results in the highest fee for this
 		// specific amount.
-		fee := edge.policy.ComputeFee(amt)
+		fee := int64(edge.policy.ComputeFee(amtWithInboundFee))
 		if fee < maxFee {
 			continue
 		}
 		maxFee = fee
 
 		bestPolicy = &unifiedPolicyEdge{
-			policy: edge.policy,
+			policy:      edge.policy,
+			inboundFees: edge.inboundFees,
 		}
 	}
 

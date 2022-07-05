@@ -426,14 +426,16 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 }
 
 type testChannelPolicy struct {
-	Expiry      uint16
-	MinHTLC     lnwire.MilliSatoshi
-	MaxHTLC     lnwire.MilliSatoshi
-	FeeBaseMsat lnwire.MilliSatoshi
-	FeeRate     lnwire.MilliSatoshi
-	LastUpdate  time.Time
-	Disabled    bool
-	Features    *lnwire.FeatureVector
+	Expiry             uint16
+	MinHTLC            lnwire.MilliSatoshi
+	MaxHTLC            lnwire.MilliSatoshi
+	FeeBaseMsat        lnwire.MilliSatoshi
+	FeeRate            lnwire.MilliSatoshi
+	InboundFeeBaseMsat int64
+	InboundFeeRate     int64
+	LastUpdate         time.Time
+	Disabled           bool
+	Features           *lnwire.FeatureVector
 }
 
 type testChannelEnd struct {
@@ -671,6 +673,19 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			return nil, err
 		}
 
+		getExtraData := func(
+			end *testChannelEnd) lnwire.ExtraOpaqueData {
+
+			var extraData lnwire.ExtraOpaqueData
+			inboundFee := lnwire.Fee{
+				BaseFee: int32(end.InboundFeeBaseMsat),
+				FeeRate: int32(end.InboundFeeRate),
+			}
+			require.NoError(t, extraData.PackRecords(&inboundFee))
+
+			return extraData
+		}
+
 		if node1.testChannelPolicy != nil {
 			var msgFlags lnwire.ChanUpdateMsgFlags
 			if node1.MaxHTLC != 0 {
@@ -702,6 +717,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 					PubKeyBytes: node2Vertex,
 					Features:    node2Features,
 				},
+				ExtraOpaqueData: getExtraData(node1),
 			}
 			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 				return nil, err
@@ -740,6 +756,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 					PubKeyBytes: node1Vertex,
 					Features:    node1Features,
 				},
+				ExtraOpaqueData: getExtraData(node2),
 			}
 			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 				return nil, err
@@ -830,6 +847,9 @@ func TestPathFinding(t *testing.T) {
 	}, {
 		name: "with metadata",
 		fn:   runFindPathWithMetadata,
+	}, {
+		name: "inbound fees",
+		fn:   runInboundFees,
 	}}
 
 	// Run with graph cache enabled.
@@ -2967,6 +2987,118 @@ func runRouteToSelf(t *testing.T, useCache bool) {
 	path, err = ctx.findPath(target, paymentAmt)
 	require.NoError(t, err, "unable to find path")
 	ctx.assertPath(path, []uint64{1, 3, 2})
+}
+
+// runInboundFees tests whether correct routes are built when inbound fees
+// apply.
+func runInboundFees(t *testing.T, useCache bool) {
+	// Setup a test network.
+	chanCapSat := btcutil.Amount(100000)
+	features := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.PaymentAddrOptional,
+			lnwire.TLVOnionPayloadRequired,
+		),
+		lnwire.Features,
+	)
+
+	testChannels := []*testChannel{
+		asymmetricTestChannel("a", "b", chanCapSat,
+			&testChannelPolicy{
+				MinHTLC:  lnwire.NewMSatFromSatoshis(2),
+				Features: features,
+			},
+			&testChannelPolicy{
+				Features:           features,
+				InboundFeeRate:     000,
+				InboundFeeBaseMsat: 5000,
+			}, 10,
+		),
+		asymmetricTestChannel("b", "c", chanCapSat,
+			&testChannelPolicy{
+				Expiry:      20,
+				FeeRate:     50000,
+				FeeBaseMsat: 0,
+				MinHTLC:     lnwire.NewMSatFromSatoshis(2),
+				Features:    features,
+			},
+			&testChannelPolicy{
+				Features:           features,
+				InboundFeeRate:     -200000,
+				InboundFeeBaseMsat: -8000,
+			}, 11,
+		),
+		asymmetricTestChannel("c", "d", chanCapSat,
+			&testChannelPolicy{
+				Expiry:      20,
+				FeeRate:     100000,
+				FeeBaseMsat: 9000,
+				MinHTLC:     lnwire.NewMSatFromSatoshis(2),
+				Features:    features,
+			},
+			&testChannelPolicy{
+				Features:           features,
+				InboundFeeRate:     80000,
+				InboundFeeBaseMsat: 2000,
+			}, 12,
+		),
+	}
+
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "a")
+
+	payAddr := [32]byte{1}
+	ctx.restrictParams.PaymentAddr = &payAddr
+	ctx.restrictParams.DestFeatures = tlvPayAddrFeatures
+
+	const (
+		startingHeight = 100
+		finalHopCLTV   = 1
+	)
+
+	paymentAmt := lnwire.MilliSatoshi(100_000)
+	target := ctx.keyFromAlias("d")
+	path, err := ctx.findPath(target, paymentAmt)
+	require.NoError(t, err, "unable to find path")
+
+	rt, err := newRoute(
+		ctx.source, path, startingHeight,
+		finalHopParams{
+			amt:         paymentAmt,
+			cltvDelta:   finalHopCLTV,
+			records:     nil,
+			paymentAddr: &payAddr,
+			totalAmt:    paymentAmt,
+		},
+	)
+	require.NoError(t, err, "unable to create path")
+
+	expectedRt := &route.Route{
+		TotalAmount:   105_800,
+		TotalTimeLock: 141,
+		SourcePubKey:  ctx.keyFromAlias("a"),
+		Hops: []*route.Hop{
+			{
+				PubKeyBytes:      ctx.keyFromAlias("b"),
+				ChannelID:        10,
+				AmtToForward:     96_000,
+				OutgoingTimeLock: 121,
+			},
+			{
+				PubKeyBytes:      ctx.keyFromAlias("c"),
+				ChannelID:        11,
+				AmtToForward:     110_000,
+				OutgoingTimeLock: 101,
+			},
+			{
+				PubKeyBytes:      ctx.keyFromAlias("d"),
+				ChannelID:        12,
+				AmtToForward:     100_000,
+				OutgoingTimeLock: 101,
+				MPP:              record.NewMPP(100_000, payAddr),
+			},
+		},
+	}
+	require.Equal(t, expectedRt, rt)
 }
 
 type pathFindingTestContext struct {

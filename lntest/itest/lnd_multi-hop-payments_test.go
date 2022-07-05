@@ -233,11 +233,16 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		aliceFundPoint, expectedAmountPaidAtoBMsat/1000, int64(0))
 
 	// To forward a payment of 1000 sat, Alice is charging a fee of 1 sat +
-	// 10% = 101 sat. Note that this does not include the inbound fee
-	// (discount) because there is no sender support yet.
-	const aliceFeePerPaymentMsat = aliceBaseFeeMsat +
+	// 10% = 101 sat, plus the inbound fee over 1101 (= 1000 + 101) sat of
+	// -1 msat - 1% = 11011 msat.
+	const aliceOutFeePerPaymentMsat = aliceBaseFeeMsat +
 		(paymentAmtMsat * aliceFeeRatePPM / 1_000_000)
-	const expectedFeeAliceMsat = numPayments * aliceFeePerPaymentMsat
+	const aliceInFeePerPaymentMsat = aliceInboundBaseFeeMsat +
+		((paymentAmtMsat + aliceOutFeePerPaymentMsat) *
+			aliceInboundFeeRate / 1_000_000)
+
+	const expectedFeeAliceMsat = numPayments *
+		(aliceOutFeePerPaymentMsat + aliceInFeePerPaymentMsat)
 
 	// Dave needs to pay what Alice pays plus Alice's fee.
 	expectedAmountPaidDtoAMsat := expectedAmountPaidAtoBMsat +
@@ -248,12 +253,13 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	assertAmountPaid(t, "Dave(local) => Alice(remote)", dave,
 		daveFundPoint, expectedAmountPaidDtoAMsat/1000, int64(0))
 
-	// To forward a payment of 1101 sat, Dave is charging a fee of
-	// 5 sat + 15% = 170.15 sat. This is rounded down in rpcserver to 170.
-	const davePaymentAmtMsat = paymentAmtMsat + aliceFeePerPaymentMsat
-	const daveFeePerPaymentMsat = daveBaseFeeMsat +
-		(davePaymentAmtMsat * daveFeeRatePPM / 1_000_000)
-	const expectedFeeDaveMsat = numPayments * daveFeePerPaymentMsat
+	// To forward a payment of 1011011 msat, Dave is charging a fee of
+	// 5 sat + 15% = 156651 msat.
+	const davePaymentAmt = paymentAmtMsat +
+		aliceInFeePerPaymentMsat + aliceOutFeePerPaymentMsat
+	const daveFeePerPayment = daveBaseFeeMsat +
+		(davePaymentAmt * daveFeeRatePPM / 1_000_000)
+	const expectedFeeDaveMsat = numPayments * daveFeePerPayment
 
 	// Carol needs to pay what Dave pays plus Dave's fee.
 	expectedAmountPaidCtoDMsat := expectedAmountPaidDtoAMsat +

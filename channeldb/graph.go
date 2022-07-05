@@ -491,6 +491,16 @@ func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, node route.Vertex,
 			cachedInPolicy.ToNodeFeatures = toNodeFeatures
 		}
 
+		var inboundFee lnwire.Fee
+		if p1 != nil {
+			// Extract inbound fee. If there is a decoding error,
+			// skip this edge.
+			_, err := p1.ExtraOpaqueData.ExtractRecords(&inboundFee)
+			if err != nil {
+				return nil
+			}
+		}
+
 		directedChannel := &DirectedChannel{
 			ChannelID:    e.ChannelID,
 			IsNode1:      node == e.NodeKey1Bytes,
@@ -498,6 +508,7 @@ func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, node route.Vertex,
 			Capacity:     e.Capacity,
 			OutPolicySet: p1 != nil,
 			InPolicy:     cachedInPolicy,
+			InboundFee:   inboundFee,
 		}
 
 		if node == e.NodeKey2Bytes {

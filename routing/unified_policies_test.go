@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -36,8 +37,8 @@ func TestUnifiedPolicies(t *testing.T) {
 		MaxHTLC:                   400,
 		MinHTLC:                   100,
 	}
-	u.addPolicy(fromNode, &p1, 7)
-	u.addPolicy(fromNode, &p2, 7)
+	u.addPolicy(fromNode, &p1, htlcswitch.InboundFee{}, 7)
+	u.addPolicy(fromNode, &p2, htlcswitch.InboundFee{}, 7)
 
 	checkPolicy := func(unifiedPolicy *unifiedPolicyEdge,
 		feeBase lnwire.MilliSatoshi, feeRate lnwire.MilliSatoshi,

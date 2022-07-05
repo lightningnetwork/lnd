@@ -674,7 +674,7 @@ func createChannelEdge(db kvdb.Backend, node1, node2 *LightningNode) (
 		FeeBaseMSat:               4352345,
 		FeeProportionalMillionths: 3452352,
 		ToNode:                    secondNode,
-		ExtraOpaqueData:           []byte("new unknown feature2"),
+		ExtraOpaqueData:           []byte{1, 0},
 	}
 	edge2 := &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
@@ -688,7 +688,7 @@ func createChannelEdge(db kvdb.Backend, node1, node2 *LightningNode) (
 		FeeBaseMSat:               4352345,
 		FeeProportionalMillionths: 90392423,
 		ToNode:                    firstNode,
-		ExtraOpaqueData:           []byte("new unknown feature1"),
+		ExtraOpaqueData:           []byte{1, 0},
 	}
 
 	return edgeInfo, edge1, edge2
@@ -3929,7 +3929,17 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	require.Nil(t, err)
 
 	// Create an edge and add it to the db.
-	edgeInfo, _, _ := createChannelEdge(graph.db, node1, node2)
+	edgeInfo, e1, e2 := createChannelEdge(graph.db, node1, node2)
+
+	// Because of lexigraphical sorting and the usage of random node keys in
+	// this test, we need to determine which edge belongs to node 1 at
+	// runtime.
+	var edge1 *models.ChannelEdgePolicy
+	if e1.ToNode == node2.PubKeyBytes {
+		edge1 = e1
+	} else {
+		edge1 = e2
+	}
 
 	// Add the channel, but only insert a single edge into the graph.
 	require.NoError(t, graph.AddChannelEdge(edgeInfo))
@@ -3952,6 +3962,28 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	// We should be able to accumulate the single channel added, even
 	// though we have a nil edge policy here.
 	require.NotNil(t, getSingleChannel())
+
+	// Set an inbound fee and check that it is properly returned.
+	edge1.ExtraOpaqueData = []byte{
+		253, 217, 3, 8, 0, 0, 0, 10, 0, 0, 0, 20,
+	}
+	require.NoError(t, graph.UpdateEdgePolicy(edge1))
+
+	directedChan := getSingleChannel()
+	require.NotNil(t, directedChan)
+	require.Equal(t, directedChan.InboundFee, lnwire.Fee{
+		BaseFee: 10,
+		FeeRate: 20,
+	})
+
+	// Set an invalid inbound fee and check that the edge is no longer
+	// returned.
+	edge1.ExtraOpaqueData = []byte{
+		253, 217, 3, 8, 0,
+	}
+	require.NoError(t, graph.UpdateEdgePolicy(edge1))
+
+	require.Nil(t, getSingleChannel())
 }
 
 // TestGraphLoading asserts that the cache is properly reconstructed after a

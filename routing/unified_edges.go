@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"math"
+
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -21,6 +23,9 @@ type nodeEdgeUnifier struct {
 	// toNode is the node for which the edge unifiers are instantiated.
 	toNode route.Vertex
 
+	// useInboundFees indicates whether to take inbound fees into account.
+	useInboundFees bool
+
 	// outChanRestr is an optional outgoing channel restriction for the
 	// local channel to use.
 	outChanRestr map[uint64]struct{}
@@ -28,21 +33,23 @@ type nodeEdgeUnifier struct {
 
 // newNodeEdgeUnifier instantiates a new nodeEdgeUnifier object. Channel
 // policies can be added to this object.
-func newNodeEdgeUnifier(sourceNode, toNode route.Vertex,
+func newNodeEdgeUnifier(sourceNode, toNode route.Vertex, useInboundFees bool,
 	outChanRestr map[uint64]struct{}) *nodeEdgeUnifier {
 
 	return &nodeEdgeUnifier{
-		edgeUnifiers: make(map[route.Vertex]*edgeUnifier),
-		toNode:       toNode,
-		sourceNode:   sourceNode,
-		outChanRestr: outChanRestr,
+		edgeUnifiers:   make(map[route.Vertex]*edgeUnifier),
+		toNode:         toNode,
+		useInboundFees: useInboundFees,
+		sourceNode:     sourceNode,
+		outChanRestr:   outChanRestr,
 	}
 }
 
 // addPolicy adds a single channel policy. Capacity may be zero if unknown
 // (light clients).
 func (u *nodeEdgeUnifier) addPolicy(fromNode route.Vertex,
-	edge *models.CachedEdgePolicy, capacity btcutil.Amount) {
+	edge *models.CachedEdgePolicy, inboundFee models.InboundFee,
+	capacity btcutil.Amount) {
 
 	localChan := fromNode == u.sourceNode
 
@@ -62,9 +69,15 @@ func (u *nodeEdgeUnifier) addPolicy(fromNode route.Vertex,
 		u.edgeUnifiers[fromNode] = unifier
 	}
 
+	// Zero inbound fee for exit hops.
+	if !u.useInboundFees {
+		inboundFee = models.InboundFee{}
+	}
+
 	unifier.edges = append(unifier.edges, &unifiedEdge{
-		policy:   edge,
-		capacity: capacity,
+		policy:      edge,
+		capacity:    capacity,
+		inboundFees: inboundFee,
 	})
 }
 
@@ -80,8 +93,13 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g routingGraph) error {
 		}
 
 		// Add this policy to the corresponding edgeUnifier.
+		inboundFee := models.NewInboundFeeFromWire(
+			channel.InboundFee,
+		)
+
 		u.addPolicy(
-			channel.OtherNode, channel.InPolicy, channel.Capacity,
+			channel.OtherNode, channel.InPolicy, inboundFee,
+			channel.Capacity,
 		)
 
 		return nil
@@ -94,8 +112,9 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g routingGraph) error {
 // unifiedEdge is the individual channel data that is kept inside an edgeUnifier
 // object.
 type unifiedEdge struct {
-	policy   *models.CachedEdgePolicy
-	capacity btcutil.Amount
+	policy      *models.CachedEdgePolicy
+	capacity    btcutil.Amount
+	inboundFees models.InboundFee
 }
 
 // amtInRange checks whether an amount falls within the valid range for a
@@ -139,20 +158,41 @@ type edgeUnifier struct {
 // getEdge returns the optimal unified edge to use for this connection given a
 // specific amount to send. It differentiates between local and network
 // channels.
-func (u *edgeUnifier) getEdge(amt lnwire.MilliSatoshi,
-	bandwidthHints bandwidthHints) *unifiedEdge {
+func (u *edgeUnifier) getEdge(netAmtReceived lnwire.MilliSatoshi,
+	bandwidthHints bandwidthHints,
+	nextOutFee lnwire.MilliSatoshi) *unifiedEdge {
 
 	if u.localChan {
-		return u.getEdgeLocal(amt, bandwidthHints)
+		return u.getEdgeLocal(
+			netAmtReceived, bandwidthHints, nextOutFee,
+		)
 	}
 
-	return u.getEdgeNetwork(amt)
+	return u.getEdgeNetwork(netAmtReceived, nextOutFee)
+}
+
+// calcCappedInboundFee calculates the inbound fee for a channel, taking into
+// account the total node fee for the "to" node.
+func calcCappedInboundFee(edge *unifiedEdge, amt lnwire.MilliSatoshi,
+	nextOutFee lnwire.MilliSatoshi) int64 {
+
+	// Calculate the inbound fee charged for the amount that passes over the
+	// channel.
+	inboundFee := edge.inboundFees.CalcFee(amt)
+
+	// Take into account that the total node fee cannot be negative.
+	if inboundFee < -int64(nextOutFee) {
+		inboundFee = -int64(nextOutFee)
+	}
+
+	return inboundFee
 }
 
 // getEdgeLocal returns the optimal unified edge to use for this local
 // connection given a specific amount to send.
-func (u *edgeUnifier) getEdgeLocal(amt lnwire.MilliSatoshi,
-	bandwidthHints bandwidthHints) *unifiedEdge {
+func (u *edgeUnifier) getEdgeLocal(netAmtReceived lnwire.MilliSatoshi,
+	bandwidthHints bandwidthHints,
+	nextOutFee lnwire.MilliSatoshi) *unifiedEdge {
 
 	var (
 		bestEdge     *unifiedEdge
@@ -160,10 +200,20 @@ func (u *edgeUnifier) getEdgeLocal(amt lnwire.MilliSatoshi,
 	)
 
 	for _, edge := range u.edges {
+		// Calculate the inbound fee charged at the receiving node.
+		inboundFee := calcCappedInboundFee(
+			edge, netAmtReceived, nextOutFee,
+		)
+
+		// Add inbound fee to get to the amount that is sent over the
+		// local channel.
+		amt := netAmtReceived + lnwire.MilliSatoshi(inboundFee)
+
 		// Check valid amount range for the channel.
 		if !edge.amtInRange(amt) {
 			log.Debugf("Amount %v not in range for edge %v",
-				amt, edge.policy.ChannelID)
+				netAmtReceived, edge.policy.ChannelID)
+
 			continue
 		}
 
@@ -202,6 +252,7 @@ func (u *edgeUnifier) getEdgeLocal(amt lnwire.MilliSatoshi,
 			log.Debugf("Skipped edge %v: not enough bandwidth, "+
 				"bandwidth=%v, amt=%v", edge.policy.ChannelID,
 				bandwidth, amt)
+
 			continue
 		}
 
@@ -214,14 +265,16 @@ func (u *edgeUnifier) getEdgeLocal(amt lnwire.MilliSatoshi,
 			log.Debugf("Skipped edge %v: not max bandwidth, "+
 				"bandwidth=%v, maxBandwidth=%v",
 				bandwidth, maxBandwidth)
+
 			continue
 		}
 		maxBandwidth = bandwidth
 
 		// Update best edge.
 		bestEdge = &unifiedEdge{
-			policy:   edge.policy,
-			capacity: edge.capacity,
+			policy:      edge.policy,
+			capacity:    edge.capacity,
+			inboundFees: edge.inboundFees,
 		}
 	}
 
@@ -232,15 +285,26 @@ func (u *edgeUnifier) getEdgeLocal(amt lnwire.MilliSatoshi,
 // given a specific amount to send. The goal is to return a unified edge with a
 // policy that maximizes the probability of a successful forward in a non-strict
 // forwarding context.
-func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
+func (u *edgeUnifier) getEdgeNetwork(netAmtReceived lnwire.MilliSatoshi,
+	nextOutFee lnwire.MilliSatoshi) *unifiedEdge {
+
 	var (
-		bestPolicy  *models.CachedEdgePolicy
-		maxFee      lnwire.MilliSatoshi
+		bestPolicy  *unifiedEdge
+		maxFee      int64 = math.MinInt64
 		maxTimelock uint16
 		maxCapMsat  lnwire.MilliSatoshi
 	)
 
 	for _, edge := range u.edges {
+		// Calculate the inbound fee charged at the receiving node.
+		inboundFee := calcCappedInboundFee(
+			edge, netAmtReceived, nextOutFee,
+		)
+
+		// Add inbound fee to get to the amount that is sent over the
+		// channel.
+		amt := netAmtReceived + lnwire.MilliSatoshi(inboundFee)
+
 		// Check valid amount range for the channel.
 		if !edge.amtInRange(amt) {
 			log.Debugf("Amount %v not in range for edge %v",
@@ -275,18 +339,24 @@ func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 			maxTimelock, edge.policy.TimeLockDelta,
 		)
 
+		outboundFee := int64(edge.policy.ComputeFee(amt))
+		fee := outboundFee + inboundFee
+
 		// Use the policy that results in the highest fee for this
 		// specific amount.
-		fee := edge.policy.ComputeFee(amt)
 		if fee < maxFee {
 			log.Debugf("Skipped edge %v due to it produces less "+
 				"fee: fee=%v, maxFee=%v",
 				edge.policy.ChannelID, fee, maxFee)
+
 			continue
 		}
 		maxFee = fee
 
-		bestPolicy = edge.policy
+		bestPolicy = &unifiedEdge{
+			policy:      edge.policy,
+			inboundFees: edge.inboundFees,
+		}
 	}
 
 	// Return early if no channel matches.
@@ -304,8 +374,11 @@ func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 	// get forwarded. Because we penalize pair-wise, there won't be a second
 	// chance for this node pair. But this is all only needed for nodes that
 	// have distinct policies for channels to the same peer.
-	policyCopy := *bestPolicy
-	modifiedEdge := unifiedEdge{policy: &policyCopy}
+	policyCopy := *bestPolicy.policy
+	modifiedEdge := unifiedEdge{
+		policy:      &policyCopy,
+		inboundFees: bestPolicy.inboundFees,
+	}
 	modifiedEdge.policy.TimeLockDelta = maxTimelock
 	modifiedEdge.capacity = maxCapMsat.ToSatoshis()
 

@@ -103,7 +103,10 @@ func (g *CachedGraph) FetchAmountPairCapacity(nodeFrom, nodeTo route.Vertex,
 	amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
 
 	// Create unified edges for all incoming connections.
-	u := newNodeEdgeUnifier(g.sourceNode(), nodeTo, nil)
+	//
+	// Note: Inbound fees are not used here because this method is only used
+	// by a deprecated router rpc.
+	u := newNodeEdgeUnifier(g.sourceNode(), nodeTo, false, nil)
 
 	err := u.addGraphPolicies(g)
 	if err != nil {
@@ -116,7 +119,7 @@ func (g *CachedGraph) FetchAmountPairCapacity(nodeFrom, nodeTo route.Vertex,
 			nodeFrom, nodeTo)
 	}
 
-	edge := edgeUnifier.getEdgeNetwork(amount)
+	edge := edgeUnifier.getEdgeNetwork(amount, 0)
 	if edge == nil {
 		return 0, fmt.Errorf("no edge for node pair %v -> %v "+
 			"(amount %v)", nodeFrom, nodeTo, amount)

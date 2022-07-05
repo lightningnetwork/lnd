@@ -70,7 +70,7 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	// channel edges to relatively large non default values. This makes it
 	// possible to pick up more subtle fee calculation errors.
 	maxHtlc := lntest.CalculateMaxHtlc(chanAmt)
-	const aliceBaseFeeSat = 1
+	const aliceBaseFeeSat = 20
 	const aliceFeeRatePPM = 100000
 	updateChannelPolicy(
 		ht, alice, chanPointAlice, aliceBaseFeeSat*1000,
@@ -81,8 +81,8 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	// Define a negative inbound fee for Alice, to verify that this is
 	// backwards compatible with an older sender ignoring the discount.
 	const (
-		aliceInboundBaseFeeMsat = -1
-		aliceInboundFeeRate     = -10000
+		aliceInboundBaseFeeMsat = -2000
+		aliceInboundFeeRate     = -50000 // 5%
 	)
 
 	updateChannelPolicy(
@@ -119,12 +119,11 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	ht.AssertAmountPaid("Alice(local) => Bob(remote)", alice,
 		chanPointAlice, expectedAmountPaidAtoB, int64(0))
 
-	// To forward a payment of 1000 sat, Alice is charging a fee of 1 sat +
-	// 10% = 101 sat. Note that this does not include the inbound fee
-	// (discount) because there is no sender support yet.
-	const aliceFeePerPayment = aliceBaseFeeSat +
-		(paymentAmt * aliceFeeRatePPM / 1_000_000)
-	const expectedFeeAlice = numPayments * aliceFeePerPayment
+	// To forward a payment of 1000 sat, Alice is charging a fee of 20 sat +
+	// 10% = 120 sat, plus the inbound fee over 1120 (= 1000 + 120) sat of
+	// -2 sat - 5% = -58 sat. This makes a total of 62 sat per payment. For
+	// 5 payments, it works out to 310 sat.
+	const expectedFeeAlice = 310
 
 	// Dave needs to pay what Alice pays plus Alice's fee.
 	expectedAmountPaidDtoA := expectedAmountPaidAtoB + expectedFeeAlice
@@ -134,12 +133,10 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	ht.AssertAmountPaid("Dave(local) => Alice(remote)", dave,
 		chanPointDave, expectedAmountPaidDtoA, int64(0))
 
-	// To forward a payment of 1101 sat, Dave is charging a fee of
-	// 5 sat + 15% = 170.15 sat. This is rounded down in rpcserver to 170.
-	const davePaymentAmt = paymentAmt + aliceFeePerPayment
-	const daveFeePerPayment = daveBaseFeeSat +
-		(davePaymentAmt * daveFeeRatePPM / 1_000_000)
-	const expectedFeeDave = numPayments * daveFeePerPayment
+	// To forward a payment of 1062 sat, Dave is charging a fee of 5 sat +
+	// 15% = 164.3 sat. For 5 payments this is 821.5 sat. This test works
+	// with sats, so we need to round down to 821.
+	const expectedFeeDave = 821
 
 	// Carol needs to pay what Dave pays plus Dave's fee.
 	expectedAmountPaidCtoD := expectedAmountPaidDtoA + expectedFeeDave

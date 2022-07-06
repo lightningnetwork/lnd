@@ -263,11 +263,9 @@ func (h *MiddlewareHandler) sendInterceptRequests(errChan chan error,
 					break
 				}
 
-				// For intercepted responses we also allow the
+				// For intercepted messages we also allow the
 				// content itself to be overwritten.
-				if requestInfo.request.Type == TypeResponse &&
-					t.ReplaceResponse {
-
+				if t.ReplaceResponse {
 					response.replace = true
 					protoMsg, err := parseProto(
 						requestInfo.request.ProtoTypeName,
@@ -322,7 +320,8 @@ const (
 	// TypeRequest is the type of intercept message that is sent when an RPC
 	// request message is sent to lnd. For client-streaming RPCs a new
 	// message of this type is sent for each individual RPC request sent to
-	// the stream.
+	// the stream. Middleware has the option to modify a request message
+	// before it is delivered to lnd.
 	TypeRequest InterceptType = 2
 
 	// TypeResponse is the type of intercept message that is sent when an

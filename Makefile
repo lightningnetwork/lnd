@@ -122,7 +122,15 @@ build-itest:
 	@$(call print, "Building itest binary for ${backend} backend.")
 	CGO_ENABLED=0 $(GOTEST) -v ./itest -tags="$(DEV_TAGS) $(RPC_TAGS) integration $(backend)" -c -o itest/itest.test$(EXEC_SUFFIX)
 
-#? build-itest-race: Build integration test binaries in race detector mode, place them in itest directory
+build-itest-b12:
+	@$(call print, "Building itest btcd and lnd.")
+	CGO_ENABLED=0 $(GOBUILD) -tags="integration bolt12" -o itest/btcd-itest$(EXEC_SUFFIX) $(ITEST_LDFLAGS) $(BTCD_PKG)
+	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS) bolt12" -o itest/lnd-itest$(EXEC_SUFFIX) $(ITEST_LDFLAGS) $(PKG)/cmd/lnd
+
+	@$(call print, "Building itest binary for ${backend} backend.")
+	CGO_ENABLED=0 $(GOTEST) -v ./itest -tags="$(DEV_TAGS) $(RPC_TAGS) rpctest bolt12 $(backend)" -c -o itest/itest.test$(EXEC_SUFFIX)
+
+
 build-itest-race:
 	@$(call print, "Building itest btcd and lnd with race detector.")
 	CGO_ENABLED=0 $(GOBUILD) -tags="integration" -o itest/btcd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(BTCD_PKG)
@@ -214,7 +222,8 @@ itest-only: db-instance
 #? itest: Build and run integration tests
 itest: build-itest itest-only
 
-#? itest-race: Build and run integration tests in race detector mode
+itest-b12: build-itest-b12 itest-only
+	 
 itest-race: build-itest-race itest-only
 
 #? itest-parallel: Build and run integration tests in parallel mode, running up to ITEST_PARALLELISM test tranches in parallel (default 4)

@@ -1,4 +1,4 @@
-//go:build !integration
+//go:build !integration && !bolt12
 
 package itest
 

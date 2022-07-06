@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"gopkg.in/macaroon.v2"
@@ -41,13 +42,20 @@ func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 		net.Alice.ReadMacPath(), defaultTimeout,
 	)
 	require.NoError(t.t, err)
+	adminMac, err := net.Alice.ReadMacaroon(
+		net.Alice.AdminMacPath(), defaultTimeout,
+	)
+	require.NoError(t.t, err)
 
-	customCaveatMac, err := macaroons.SafeCopyMacaroon(readonlyMac)
+	customCaveatReadonlyMac, err := macaroons.SafeCopyMacaroon(readonlyMac)
 	require.NoError(t.t, err)
 	addConstraint := macaroons.CustomConstraint(
 		"itest-caveat", "itest-value",
 	)
-	require.NoError(t.t, addConstraint(customCaveatMac))
+	require.NoError(t.t, addConstraint(customCaveatReadonlyMac))
+	customCaveatAdminMac, err := macaroons.SafeCopyMacaroon(adminMac)
+	require.NoError(t.t, err)
+	require.NoError(t.t, addConstraint(customCaveatAdminMac))
 
 	// Run all sub-tests now. We can't run anything in parallel because that
 	// would cause the main test function to exit and the nodes being
@@ -66,7 +74,7 @@ func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 
 		middlewareInterceptionTest(
 			tt, net.Alice, net.Bob, registration, readonlyMac,
-			customCaveatMac, true,
+			customCaveatReadonlyMac, true,
 		)
 	})
 
@@ -83,8 +91,8 @@ func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 		defer registration.cancel()
 
 		middlewareInterceptionTest(
-			tt, net.Alice, net.Bob, registration, customCaveatMac,
-			readonlyMac, false,
+			tt, net.Alice, net.Bob, registration,
+			customCaveatReadonlyMac, readonlyMac, false,
 		)
 	})
 
@@ -99,7 +107,10 @@ func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 		)
 		defer registration.cancel()
 
-		middlewareManipulationTest(
+		middlewareRequestManipulationTest(
+			tt, net.Alice, registration, adminMac, true,
+		)
+		middlewareResponseManipulationTest(
 			tt, net.Alice, net.Bob, registration, readonlyMac, true,
 		)
 	})
@@ -113,9 +124,13 @@ func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 		)
 		defer registration.cancel()
 
-		middlewareManipulationTest(
-			tt, net.Alice, net.Bob, registration, customCaveatMac,
+		middlewareRequestManipulationTest(
+			tt, net.Alice, registration, customCaveatAdminMac,
 			false,
+		)
+		middlewareResponseManipulationTest(
+			tt, net.Alice, net.Bob, registration,
+			customCaveatReadonlyMac, false,
 		)
 	})
 
@@ -195,7 +210,7 @@ func middlewareInterceptionTest(t *testing.T, node *lntest.HarnessNode,
 	// block the execution of the main task otherwise.
 	req := &lnrpc.ListChannelsRequest{ActiveOnly: true}
 	go registration.interceptUnary(
-		"/lnrpc.Lightning/ListChannels", req, nil, readOnly,
+		"/lnrpc.Lightning/ListChannels", req, nil, readOnly, false,
 	)
 
 	// Do the actual call now and wait for the interceptor to do its thing.
@@ -292,10 +307,10 @@ func middlewareInterceptionTest(t *testing.T, node *lntest.HarnessNode,
 	}
 }
 
-// middlewareManipulationTest tests that unary and streaming requests can be
-// intercepted and also manipulated, at least if the middleware didn't register
-// for read-only access.
-func middlewareManipulationTest(t *testing.T, node *lntest.HarnessNode,
+// middlewareResponseManipulationTest tests that unary and streaming responses
+// can be intercepted and also manipulated, at least if the middleware didn't
+// register for read-only access.
+func middlewareResponseManipulationTest(t *testing.T, node *lntest.HarnessNode,
 	peer *lntest.HarnessNode, registration *middlewareHarness,
 	userMac *macaroon.Macaroon, readOnly bool) {
 
@@ -327,7 +342,7 @@ func middlewareManipulationTest(t *testing.T, node *lntest.HarnessNode,
 	req := &lnrpc.ListChannelsRequest{ActiveOnly: true}
 	go registration.interceptUnary(
 		"/lnrpc.Lightning/ListChannels", req, replacementResponse,
-		readOnly,
+		readOnly, false,
 	)
 
 	// Do the actual call now and wait for the interceptor to do its thing.
@@ -382,6 +397,58 @@ func middlewareManipulationTest(t *testing.T, node *lntest.HarnessNode,
 
 	// Stop the peer stream again, otherwise we'll produce more events.
 	peerCancel()
+}
+
+// middlewareRequestManipulationTest tests that unary and streaming requests
+// can be intercepted and also manipulated, at least if the middleware didn't
+// register for read-only access.
+func middlewareRequestManipulationTest(t *testing.T, node *lntest.HarnessNode,
+	registration *middlewareHarness, userMac *macaroon.Macaroon,
+	readOnly bool) {
+
+	// Everything we test here should be executed in a matter of
+	// milliseconds, so we can use one single timeout context for all calls.
+	ctxb := context.Background()
+	ctxc, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	// Create a client connection that we'll use to simulate user requests
+	// to lnd with.
+	cleanup, client := macaroonClient(t, node, userMac)
+	defer cleanup()
+
+	// We're going to attempt to replace the request with our own. But since
+	// we only registered for read-only access, our replacement should just
+	// be ignored.
+	replacementRequest := &lnrpc.Invoice{
+		Memo:  "This is the replaced memo",
+		Value: 777444,
+	}
+
+	// We're going to send a simple RPC request to add an invoice. We need
+	// to invoke the intercept logic in a goroutine because we'd block the
+	// execution of the main task otherwise.
+	req := &lnrpc.Invoice{
+		Memo:  "Plz pay me",
+		Value: 123456,
+	}
+	go registration.interceptUnary(
+		"/lnrpc.Lightning/AddInvoice", req, replacementRequest,
+		readOnly, true,
+	)
+
+	// Do the actual call now and wait for the interceptor to do its thing.
+	resp, err := client.AddInvoice(ctxc, req)
+	require.NoError(t, err)
+
+	// Did we get the manipulated response or the original one?
+	invoice, err := zpay32.Decode(resp.PaymentRequest, harnessNetParams)
+	require.NoError(t, err)
+	if readOnly {
+		require.Equal(t, req.Memo, *invoice.Description)
+	} else {
+		require.Equal(t, replacementRequest.Memo, *invoice.Description)
+	}
 }
 
 // middlewareMandatoryTest tests that all RPC requests are blocked if there is
@@ -524,7 +591,7 @@ func registerMiddleware(t *testing.T, node *lntest.HarnessNode,
 // read from the response channel.
 func (h *middlewareHarness) interceptUnary(methodURI string,
 	expectedRequest proto.Message, responseReplacement proto.Message,
-	readOnly bool) {
+	readOnly bool, replaceRequest bool) {
 
 	// Read intercept message and make sure it's for an RPC request.
 	reqIntercept, err := h.stream.Recv()
@@ -547,7 +614,11 @@ func (h *middlewareHarness) interceptUnary(methodURI string,
 	assertInterceptedType(h.t, expectedRequest, req)
 
 	// We need to accept the request.
-	h.sendAccept(reqIntercept.MsgId, nil)
+	if replaceRequest {
+		h.sendAccept(reqIntercept.MsgId, responseReplacement)
+	} else {
+		h.sendAccept(reqIntercept.MsgId, nil)
+	}
 
 	// Now read the intercept message for the response.
 	respIntercept, err := h.stream.Recv()
@@ -562,7 +633,11 @@ func (h *middlewareHarness) interceptUnary(methodURI string,
 	require.NotEqual(h.t, reqIntercept.MsgId, respIntercept.MsgId)
 
 	// We need to accept the response as well.
-	h.sendAccept(respIntercept.MsgId, responseReplacement)
+	if replaceRequest {
+		h.sendAccept(respIntercept.MsgId, nil)
+	} else {
+		h.sendAccept(respIntercept.MsgId, responseReplacement)
+	}
 
 	h.responsesChan <- res
 }

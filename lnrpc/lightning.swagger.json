@@ -5953,12 +5953,16 @@
         },
         "type_name": {
           "type": "string",
-          "description": "The full canonical gRPC name of the message type (in the format\n\u003crpcpackage\u003e.TypeName, for example lnrpc.GetInfoRequest)."
+          "description": "The full canonical gRPC name of the message type (in the format\n\u003crpcpackage\u003e.TypeName, for example lnrpc.GetInfoRequest). In case of an\nerror being returned from lnd, this simply contains the string \"error\"."
         },
         "serialized": {
           "type": "string",
           "format": "byte",
           "description": "The full content of the gRPC message, serialized in the binary protobuf\nformat."
+        },
+        "is_error": {
+          "type": "boolean",
+          "description": "Indicates that the response from lnd was an error, not a gRPC response. If\nthis is set to true then the type_name contains the string \"error\" and\nserialized contains the error string."
         }
       }
     },

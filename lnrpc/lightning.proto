@@ -4416,7 +4416,8 @@ message RPCMessage {
 
     /*
     The full canonical gRPC name of the message type (in the format
-    <rpcpackage>.TypeName, for example lnrpc.GetInfoRequest).
+    <rpcpackage>.TypeName, for example lnrpc.GetInfoRequest). In case of an
+    error being returned from lnd, this simply contains the string "error".
     */
     string type_name = 3;
 
@@ -4425,6 +4426,13 @@ message RPCMessage {
     format.
     */
     bytes serialized = 4;
+
+    /*
+    Indicates that the response from lnd was an error, not a gRPC response. If
+    this is set to true then the type_name contains the string "error" and
+    serialized contains the error string.
+    */
+    bool is_error = 5;
 }
 
 message RPCMiddlewareResponse {

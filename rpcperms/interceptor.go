@@ -817,14 +817,27 @@ func (r *InterceptorChain) middlewareUnaryServerInterceptor() grpc.UnaryServerIn
 			return nil, err
 		}
 
-		resp, respErr := handler(ctx, req)
-		if respErr != nil {
-			return resp, respErr
+		// Call the handler, which executes the request against lnd.
+		lndResp, lndErr := handler(ctx, req)
+		if lndErr != nil {
+			// The call to lnd ended in an error and not a normal
+			// proto message response. Send the error to the
+			// interceptor as well to inform about the abnormal
+			// termination of the stream and to give the option to
+			// replace the error message with a custom one.
+			replacedErr, err := r.interceptMessage(
+				ctx, TypeResponse, requestID, false,
+				info.FullMethod, lndErr,
+			)
+			if err != nil {
+				return nil, err
+			}
+			return lndResp, replacedErr.(error)
 		}
 
 		return r.interceptMessage(
 			ctx, TypeResponse, requestID, false, info.FullMethod,
-			resp,
+			lndResp,
 		)
 	}
 }
@@ -883,7 +896,27 @@ func (r *InterceptorChain) middlewareStreamServerInterceptor() grpc.StreamServer
 			interceptor:  r,
 		}
 
-		return handler(srv, wrappedSS)
+		// Call the stream handler, which will block as long as the
+		// stream is alive.
+		lndErr := handler(srv, wrappedSS)
+		if lndErr != nil {
+			// This is an error being returned from lnd. Send it to
+			// the interceptor as well to inform about the abnormal
+			// termination of the stream and to give the option to
+			// replace the error message with a custom one.
+			replacedErr, err := r.interceptMessage(
+				ss.Context(), TypeResponse, requestID,
+				true, info.FullMethod, lndErr,
+			)
+			if err != nil {
+				return err
+			}
+
+			return replacedErr.(error)
+		}
+
+		// Normal/successful termination of the stream.
+		return nil
 	}
 }
 

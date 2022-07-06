@@ -16206,16 +16206,14 @@ type InterceptFeedback struct {
 	//response and the processing of it can continue.
 	Error string `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
 	//
-	//A boolean indicating that the gRPC response should be replaced/overwritten.
-	//As its name suggests, this can only be used as a feedback to an intercepted
-	//response RPC message and is ignored for feedback on any other message. This
-	//boolean is needed because in protobuf an empty message is serialized as a
-	//0-length or nil byte slice and we wouldn't be able to distinguish between
+	//A boolean indicating that the gRPC message should be replaced/overwritten.
+	//This boolean is needed because in protobuf an empty message is serialized as
+	//a 0-length or nil byte slice and we wouldn't be able to distinguish between
 	//an empty replacement message and the "don't replace anything" case.
 	ReplaceResponse bool `protobuf:"varint,2,opt,name=replace_response,json=replaceResponse,proto3" json:"replace_response,omitempty"`
 	//
 	//If the replace_response field is set to true, this field must contain the
-	//binary serialized gRPC response message in the protobuf format.
+	//binary serialized gRPC message in the protobuf format.
 	ReplacementSerialized []byte `protobuf:"bytes,3,opt,name=replacement_serialized,json=replacementSerialized,proto3" json:"replacement_serialized,omitempty"`
 }
 

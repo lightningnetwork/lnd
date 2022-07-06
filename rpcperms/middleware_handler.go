@@ -529,3 +529,29 @@ func parseProto(typeName string, serialized []byte) (proto.Message, error) {
 
 	return msg.Interface(), nil
 }
+
+// replaceProtoMsg replaces the given target message with the content of the
+// replacement message.
+func replaceProtoMsg(target interface{}, replacement interface{}) error {
+	targetMsg, ok := target.(proto.Message)
+	if !ok {
+		return fmt.Errorf("target is not a proto message: %v", target)
+	}
+
+	replacementMsg, ok := replacement.(proto.Message)
+	if !ok {
+		return fmt.Errorf("replacement is not a proto message: %v",
+			replacement)
+	}
+
+	if targetMsg.ProtoReflect().Type() !=
+		replacementMsg.ProtoReflect().Type() {
+
+		return fmt.Errorf("replacement message is of wrong type")
+	}
+
+	proto.Reset(targetMsg)
+	proto.Merge(targetMsg, replacementMsg)
+
+	return nil
+}

@@ -220,6 +220,26 @@ func middlewareInterceptionTest(t *testing.T, node *lntest.HarnessNode,
 	// Did we receive the correct intercept message?
 	assertInterceptedType(t, resp, <-registration.responsesChan)
 
+	// Also try the interception of a request that is expected to result in
+	// an error being returned from lnd.
+	expectedErr := "either `active_only` or `inactive_only` can be set"
+	invalidReq := &lnrpc.ListChannelsRequest{
+		ActiveOnly:   true,
+		InactiveOnly: true,
+	}
+	go registration.interceptUnary(
+		"/lnrpc.Lightning/ListChannels", invalidReq, nil, readOnly,
+		false,
+	)
+
+	// Do the actual call now and wait for the interceptor to do its thing.
+	_, err = client.ListChannels(ctxc, invalidReq)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), expectedErr)
+
+	// Did we receive the correct intercept message with the error?
+	assertInterceptedErr(t, expectedErr, <-registration.responsesChan)
+
 	// Let's test the same for a streaming endpoint.
 	req2 := &lnrpc.PeerEventSubscription{}
 	go registration.interceptStream(
@@ -357,6 +377,32 @@ func middlewareResponseManipulationTest(t *testing.T, node *lntest.HarnessNode,
 		require.Len(t, resp.Channels, 2)
 	}
 
+	// Let's see if we can also replace an error message sent out by lnd
+	// with a custom one.
+	betterError := fmt.Errorf("yo, this request is no good")
+	invalidReq := &lnrpc.ListChannelsRequest{
+		ActiveOnly:   true,
+		InactiveOnly: true,
+	}
+	go registration.interceptUnary(
+		"/lnrpc.Lightning/ListChannels", invalidReq, betterError,
+		readOnly, false,
+	)
+
+	// Do the actual call now and wait for the interceptor to do its thing.
+	_, err = client.ListChannels(ctxc, invalidReq)
+	require.Error(t, err)
+
+	// Did we get the manipulated error or the original one?
+	if readOnly {
+		require.Contains(
+			t, err.Error(), "either `active_only` or "+
+				"`inactive_only` can be set",
+		)
+	} else {
+		require.Contains(t, err.Error(), betterError.Error())
+	}
+
 	// Let's test the same for a streaming endpoint.
 	replacementResponse2 := &lnrpc.PeerEvent{
 		Type:   lnrpc.PeerEvent_PEER_ONLINE,
@@ -421,8 +467,7 @@ func middlewareRequestManipulationTest(t *testing.T, node *lntest.HarnessNode,
 	// we only registered for read-only access, our replacement should just
 	// be ignored.
 	replacementRequest := &lnrpc.Invoice{
-		Memo:  "This is the replaced memo",
-		Value: 777444,
+		Memo: "This is the replaced memo",
 	}
 
 	// We're going to send a simple RPC request to add an invoice. We need
@@ -449,6 +494,36 @@ func middlewareRequestManipulationTest(t *testing.T, node *lntest.HarnessNode,
 	} else {
 		require.Equal(t, replacementRequest.Memo, *invoice.Description)
 	}
+
+	// Read the message from the registration, otherwise we cannot check the
+	// next one.
+	<-registration.responsesChan
+
+	// Make sure we also get errors intercepted for stream events. We do
+	// this in the request manipulation test because only here we have a
+	// macaroon with sufficient permissions (admin macaroon) to attempt to
+	// call a streaming RPC that actually accepts request parameters that we
+	// can use to provoke an error message.
+	expectedErr := "channel is too small"
+	invalidReq := &lnrpc.OpenChannelRequest{
+		LocalFundingAmount: 5,
+	}
+	go registration.interceptStream(
+		"/lnrpc.Lightning/OpenChannel", invalidReq, nil, readOnly,
+	)
+
+	// Do the actual call now and wait for the interceptor to do its thing.
+	// We don't receive the error on the RPC call directly, because that
+	// only returns the stream. We have to attempt to read a response first
+	// to get the expected error.
+	responseStream, err := client.OpenChannel(ctxc, invalidReq)
+	require.NoError(t, err)
+
+	_, err = responseStream.Recv()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), expectedErr)
+
+	assertInterceptedErr(t, expectedErr, <-registration.responsesChan)
 }
 
 // middlewareMandatoryTest tests that all RPC requests are blocked if there is
@@ -545,6 +620,19 @@ func assertInterceptedType(t *testing.T, rpcMessage proto.Message,
 	require.Equal(t, rawRequest, interceptMessage.Serialized)
 }
 
+// assertInterceptedErr makes sure that the intercept message sent by the RPC
+// interceptor contains an error message instead of a serialized proto message.
+func assertInterceptedErr(t *testing.T, errString string,
+	interceptMessage *lnrpc.RPCMessage) {
+
+	t.Helper()
+
+	require.Equal(t, "error", interceptMessage.TypeName)
+	require.True(t, interceptMessage.IsError)
+
+	require.Contains(t, string(interceptMessage.Serialized), errString)
+}
+
 // middlewareStream is a type alias to shorten the long definition.
 type middlewareStream lnrpc.Lightning_RegisterRPCMiddlewareClient
 
@@ -590,7 +678,7 @@ func registerMiddleware(t *testing.T, node *lntest.HarnessNode,
 // NOTE: Must be called in a goroutine as this will block until the response is
 // read from the response channel.
 func (h *middlewareHarness) interceptUnary(methodURI string,
-	expectedRequest proto.Message, responseReplacement proto.Message,
+	expectedRequest proto.Message, responseReplacement interface{},
 	readOnly bool, replaceRequest bool) {
 
 	// Read intercept message and make sure it's for an RPC request.
@@ -711,13 +799,23 @@ func (h *middlewareHarness) interceptStream(methodURI string,
 
 // sendAccept sends an accept feedback to the RPC server.
 func (h *middlewareHarness) sendAccept(msgID uint64,
-	responseReplacement proto.Message) {
+	responseReplacement interface{}) {
 
 	var replacementBytes []byte
 	if responseReplacement != nil {
 		var err error
-		replacementBytes, err = proto.Marshal(responseReplacement)
-		require.NoError(h.t, err)
+
+		switch t := responseReplacement.(type) {
+		case proto.Message:
+			replacementBytes, err = proto.Marshal(t)
+			require.NoError(h.t, err)
+
+		case error:
+			replacementBytes = []byte(t.Error())
+
+		default:
+			require.Fail(h.t, "invalid replacement type")
+		}
 	}
 
 	err := h.stream.Send(&lnrpc.RPCMiddlewareResponse{

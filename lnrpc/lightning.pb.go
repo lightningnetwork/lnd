@@ -1517,6 +1517,9 @@ type SendCustomMessageRequest struct {
 	// Peer to send the message to
 	Peer []byte `protobuf:"bytes,1,opt,name=peer,proto3" json:"peer,omitempty"`
 	// Message type. This value needs to be in the custom range (>= 32768).
+	// To send a type < custom range, lnd needs to be compiled with the `dev`
+	// build tag, and the message type to override should be specified in lnd's
+	// experimental protocol configuration.
 	Type uint32 `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`
 	// Raw message data.
 	Data []byte `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`

@@ -567,6 +567,10 @@ service Lightning {
     /* lncli: `subscribecustom`
     SubscribeCustomMessages subscribes to a stream of incoming custom peer
     messages.
+
+    To include messages with type outside of the custom range (>= 32768) lnd
+    needs to be compiled with  the `dev` build tag, and the message type to
+    override should be specified in lnd's experimental protocol configuration.
     */
     rpc SubscribeCustomMessages (SubscribeCustomMessagesRequest)
         returns (stream CustomMessage);
@@ -612,6 +616,9 @@ message SendCustomMessageRequest {
     bytes peer = 1;
 
     // Message type. This value needs to be in the custom range (>= 32768).
+    // To send a type < custom range, lnd needs to be compiled with the `dev`
+    // build tag, and the message type to override should be specified in lnd's
+    // experimental protocol configuration.
     uint32 type = 2;
 
     // Raw message data.

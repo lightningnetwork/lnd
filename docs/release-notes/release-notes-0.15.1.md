@@ -52,6 +52,11 @@
 * [Add wallet reserve RPC & field in wallet
   balance](https://github.com/lightningnetwork/lnd/pull/6592).
 
+* The RPC middleware interceptor now also allows [requests to be
+  replaced](https://github.com/lightningnetwork/lnd/pull/6630) instead of just
+  responses. In addition to that, errors returned from `lnd` can now also be
+  intercepted and changed by the middleware.
+
 ## Bug Fixes
 
 * Fixed data race found in

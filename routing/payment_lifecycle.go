@@ -190,9 +190,9 @@ lifecycle:
 					continue
 				}
 
-				err := p.router.cfg.Control.
-					DeleteFailedAttempts(
-						p.identifier)
+				err := p.router.cfg.Control.DeleteFailedAttempts(
+					p.identifier,
+				)
 				if err != nil {
 					log.Errorf("Error deleting failed "+
 						"payment attempts for "+

@@ -62,6 +62,15 @@
 
 * [Migrate instances of assert.NoError to require.NoError](https://github.com/lightningnetwork/lnd/pull/6636).
 
+### Tooling and documentation
+
+* An [`.editorconfig` file was
+  added](https://github.com/lightningnetwork/lnd/pull/6681) to autoconfigure
+  most text editors to respect the 80 character line length and to use 8 spaces
+  as the tab size. Rules for Visual Studio Code were also added. And finally,
+  the code formatting rules were extracted into their [own
+  document](../code_formatting_rules.md).
+
 # Contributors (Alphabetical Order)
 
 * Carsten Otto

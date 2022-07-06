@@ -274,4 +274,8 @@ var allTestCases = []*testCase{
 		name: "open channel fee policy",
 		test: testOpenChannelUpdateFeePolicy,
 	},
+	{
+		name: "custom messaging",
+		test: testCustomMessage,
+	},
 }

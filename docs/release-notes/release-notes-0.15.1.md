@@ -60,6 +60,8 @@
 * [The HtlcSwitch now waits for a ChannelLink to stop before replacing it. This fixes a race
   condition.](https://github.com/lightningnetwork/lnd/pull/6642)
 
+* [Integration tests now always run with nodes never deleting failed payments](https://github.com/lightningnetwork/lnd/pull/6712).
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes
@@ -83,6 +85,7 @@
 * Eugene Siegel
 * Slyghtning
 * Oliver Gugger
+* Olaoluwa Osuntokun
 * Priyansh Rastogi
 * Tommy Volk
 * Yong Yu

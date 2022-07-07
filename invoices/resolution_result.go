@@ -142,7 +142,7 @@ func (f FailResolutionResult) FailureString() string {
 		return "invoice already canceled"
 
 	case ResultInvoiceAlreadySettled:
-		return "invoice alread settled"
+		return "invoice already settled"
 
 	case ResultAmountTooLow:
 		return "amount too low"

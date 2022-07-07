@@ -59,10 +59,13 @@ func TestNewService(t *testing.T) {
 	tempDir, db := setupTestRootKeyStorage(t)
 	defer os.RemoveAll(tempDir)
 
+	rootKeyStore, err := macaroons.NewRootKeyStorage(db)
+	require.NoError(t, err)
+
 	// Second, create the new service instance, unlock it and pass in a
 	// checker that we expect it to add to the bakery.
 	service, err := macaroons.NewService(
-		db, "lnd", false, macaroons.IPLockChecker,
+		rootKeyStore, "lnd", false, macaroons.IPLockChecker,
 	)
 	require.NoError(t, err, "Error creating new service")
 	defer service.Close()
@@ -106,8 +109,10 @@ func TestValidateMacaroon(t *testing.T) {
 	// First, initialize the service and unlock it.
 	tempDir, db := setupTestRootKeyStorage(t)
 	defer os.RemoveAll(tempDir)
+	rootKeyStore, err := macaroons.NewRootKeyStorage(db)
+	require.NoError(t, err)
 	service, err := macaroons.NewService(
-		db, "lnd", false, macaroons.IPLockChecker,
+		rootKeyStore, "lnd", false, macaroons.IPLockChecker,
 	)
 	require.NoError(t, err, "Error creating new service")
 	defer service.Close()
@@ -154,8 +159,10 @@ func TestListMacaroonIDs(t *testing.T) {
 
 	// Second, create the new service instance, unlock it and pass in a
 	// checker that we expect it to add to the bakery.
+	rootKeyStore, err := macaroons.NewRootKeyStorage(db)
+	require.NoError(t, err)
 	service, err := macaroons.NewService(
-		db, "lnd", false, macaroons.IPLockChecker,
+		rootKeyStore, "lnd", false, macaroons.IPLockChecker,
 	)
 	require.NoError(t, err, "Error creating new service")
 	defer service.Close()
@@ -186,8 +193,10 @@ func TestDeleteMacaroonID(t *testing.T) {
 
 	// Second, create the new service instance, unlock it and pass in a
 	// checker that we expect it to add to the bakery.
+	rootKeyStore, err := macaroons.NewRootKeyStorage(db)
+	require.NoError(t, err)
 	service, err := macaroons.NewService(
-		db, "lnd", false, macaroons.IPLockChecker,
+		rootKeyStore, "lnd", false, macaroons.IPLockChecker,
 	)
 	require.NoError(t, err, "Error creating new service")
 	defer service.Close()

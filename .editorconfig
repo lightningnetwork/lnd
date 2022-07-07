@@ -1,0 +1,16 @@
+# EditorConfig is awesome: https://EditorConfig.org
+
+# Top-most EditorConfig file.
+root = true
+
+# Unix-style newlines with a newline ending every file.
+[*.md]
+end_of_line = lf
+insert_final_newline = true
+max_line_length = 80
+
+# 8 space indentation for Golang code.
+[*.go]
+indent_style = tab
+indent_size = 8
+max_line_length = 80

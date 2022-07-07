@@ -807,8 +807,12 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 	// then close it again.
 	// Attempt to open the macaroon DB, unlock it and then change
 	// the passphrase.
+	rootKeyStore, err := macaroons.NewRootKeyStorage(u.macaroonDB)
+	if err != nil {
+		return nil, err
+	}
 	macaroonService, err := macaroons.NewService(
-		u.macaroonDB, "lnd", in.StatelessInit,
+		rootKeyStore, "lnd", in.StatelessInit,
 	)
 	if err != nil {
 		return nil, err

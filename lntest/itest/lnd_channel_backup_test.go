@@ -1063,6 +1063,18 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		)
 
 	default:
+		// If we are testing zero-conf channels, setup a
+		// ChannelAcceptor for the fundee.
+		var cancel context.CancelFunc
+		if testCase.zeroConf {
+			// Setup a ChannelAcceptor.
+			var ctxc context.Context
+			ctxc, cancel = context.WithCancel(ctxb)
+			acceptStream, err := to.ChannelAcceptor(ctxc)
+			require.NoError(t.t, err)
+			go acceptChannel(t, true, acceptStream)
+		}
+
 		var fundingShim *lnrpc.FundingShim
 		if testCase.commitmentType == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
 			_, minerHeight, err := net.Miner.Client.GetBestBlock()
@@ -1084,6 +1096,11 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		chanPoint = openChannelAndAssert(
 			t, net, from, to, params,
 		)
+
+		// Remove the ChannelAcceptor.
+		if testCase.zeroConf {
+			cancel()
+		}
 
 		// Wait for both sides to see the opened channel.
 		err = dave.WaitForNetworkChannelOpen(chanPoint)

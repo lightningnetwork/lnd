@@ -70,6 +70,14 @@ var (
 		InternalAddrType: waddrmgr.WitnessPubKey,
 	}
 
+	// LndDefaultKeyScopes is the list of default key scopes that lnd adds
+	// to its wallet.
+	LndDefaultKeyScopes = []waddrmgr.KeyScope{
+		waddrmgr.KeyScopeBIP0049Plus,
+		waddrmgr.KeyScopeBIP0084,
+		waddrmgr.KeyScopeBIP0086,
+	}
+
 	// errNoImportedAddrGen is an error returned when a new address is
 	// requested for the default imported account within the wallet.
 	errNoImportedAddrGen = errors.New("addresses cannot be generated for " +
@@ -333,7 +341,7 @@ func (b *BtcWallet) Start() error {
 	// Because we might add new "default" key scopes over time, they are
 	// created correctly for new wallets. Existing wallets don't
 	// automatically add them, we need to do that manually now.
-	for _, scope := range waddrmgr.DefaultKeyScopes {
+	for _, scope := range LndDefaultKeyScopes {
 		_, err := b.wallet.Manager.FetchScopedKeyManager(scope)
 		if waddrmgr.IsError(err, waddrmgr.ErrScopeNotFound) {
 			// The default scope wasn't found, that probably means
@@ -615,29 +623,16 @@ func (b *BtcWallet) ListAccounts(name string,
 		if name == lnwallet.DefaultAccountName ||
 			name == waddrmgr.ImportedAddrAccountName {
 
-			a1, err := b.wallet.AccountPropertiesByName(
-				waddrmgr.KeyScopeBIP0049Plus, name,
-			)
-			if err != nil {
-				return nil, err
+			for _, defaultScope := range LndDefaultKeyScopes {
+				a, err := b.wallet.AccountPropertiesByName(
+					defaultScope, name,
+				)
+				if err != nil {
+					return nil, err
+				}
+				res = append(res, a)
 			}
-			res = append(res, a1)
 
-			a2, err := b.wallet.AccountPropertiesByName(
-				waddrmgr.KeyScopeBIP0084, name,
-			)
-			if err != nil {
-				return nil, err
-			}
-			res = append(res, a2)
-
-			a3, err := b.wallet.AccountPropertiesByName(
-				waddrmgr.KeyScopeBIP0086, name,
-			)
-			if err != nil {
-				return nil, err
-			}
-			res = append(res, a3)
 			break
 		}
 
@@ -668,34 +663,18 @@ func (b *BtcWallet) ListAccounts(name string,
 	// Neither of the filters were provided, so return all accounts for our
 	// supported key scopes.
 	case name == "" && keyScope == nil:
-		accounts, err := b.wallet.Accounts(waddrmgr.KeyScopeBIP0049Plus)
-		if err != nil {
-			return nil, err
-		}
-		for _, account := range accounts.Accounts {
-			account := account
-			res = append(res, &account.AccountProperties)
-		}
-
-		accounts, err = b.wallet.Accounts(waddrmgr.KeyScopeBIP0084)
-		if err != nil {
-			return nil, err
-		}
-		for _, account := range accounts.Accounts {
-			account := account
-			res = append(res, &account.AccountProperties)
+		for _, defaultScope := range LndDefaultKeyScopes {
+			accounts, err := b.wallet.Accounts(defaultScope)
+			if err != nil {
+				return nil, err
+			}
+			for _, account := range accounts.Accounts {
+				account := account
+				res = append(res, &account.AccountProperties)
+			}
 		}
 
-		accounts, err = b.wallet.Accounts(waddrmgr.KeyScopeBIP0086)
-		if err != nil {
-			return nil, err
-		}
-		for _, account := range accounts.Accounts {
-			account := account
-			res = append(res, &account.AccountProperties)
-		}
-
-		accounts, err = b.wallet.Accounts(waddrmgr.KeyScope{
+		accounts, err := b.wallet.Accounts(waddrmgr.KeyScope{
 			Purpose: keychain.BIP0043Purpose,
 			Coin:    b.cfg.CoinType,
 		})

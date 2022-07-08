@@ -612,7 +612,7 @@ type rpcServer struct {
 
 	// chanPredicate is used in the bidirectional ChannelAcceptor streaming
 	// method.
-	chanPredicate *chanacceptor.ChainedAcceptor
+	chanPredicate chanacceptor.MultiplexAcceptor
 
 	quit chan struct{}
 
@@ -676,7 +676,7 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, atpl *autopilot.Manager,
 	invoiceRegistry *invoices.InvoiceRegistry, tower *watchtower.Standalone,
-	chanPredicate *chanacceptor.ChainedAcceptor) error {
+	chanPredicate chanacceptor.MultiplexAcceptor) error {
 
 	// Set up router rpc backend.
 	selfNode, err := s.graphDB.SourceNode()

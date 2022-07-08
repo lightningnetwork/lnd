@@ -25,7 +25,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainreg"
-	"github.com/lightningnetwork/lnd/chanacceptor"
+	acpt "github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/discovery"
@@ -222,6 +222,19 @@ func (m *mockChanEvent) NotifyPendingOpenChannelEvent(outpoint wire.OutPoint,
 	}
 }
 
+// mockZeroConfAcceptor always accepts the channel open request for zero-conf
+// channels. It will set the ZeroConf bool in the ChannelAcceptResponse. This
+// is needed to properly unit test the zero-conf logic in the funding manager.
+type mockZeroConfAcceptor struct{}
+
+func (m *mockZeroConfAcceptor) Accept(
+	req *acpt.ChannelAcceptRequest) *acpt.ChannelAcceptResponse {
+
+	return &acpt.ChannelAcceptResponse{
+		ZeroConf: true,
+	}
+}
+
 type newChannelMsg struct {
 	channel *channeldb.OpenChannel
 	err     chan error
@@ -400,7 +413,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 	var chanIDSeed [32]byte
 
-	chainedAcceptor := chanacceptor.NewChainedAcceptor()
+	chainedAcceptor := acpt.NewChainedAcceptor()
 
 	fundingCfg := Config{
 		IDKey:        privKey.PubKey(),
@@ -556,7 +569,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 
 	oldCfg := alice.fundingMgr.cfg
 
-	chainedAcceptor := chanacceptor.NewChainedAcceptor()
+	chainedAcceptor := acpt.NewChainedAcceptor()
 
 	f, err := NewFundingManager(Config{
 		IDKey:        oldCfg.IDKey,
@@ -3759,6 +3772,11 @@ func TestFundingManagerZeroConf(t *testing.T) {
 	channelType := lnwire.ChannelType(
 		*lnwire.NewRawFeatureVector(channelTypeBits...),
 	)
+
+	// Create a default-accept channelacceptor so that the test passes and
+	// we don't have to use any goroutines.
+	mockAcceptor := &mockZeroConfAcceptor{}
+	bob.fundingMgr.cfg.OpenChannelPredicate = mockAcceptor
 
 	// Call fundChannel with the zero-conf ChannelType.
 	fundingTx := fundChannel(

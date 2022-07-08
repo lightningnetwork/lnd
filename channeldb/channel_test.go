@@ -1148,10 +1148,10 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 	}
 }
 
-// TestRefreshShortChanID asserts that RefreshShortChanID updates the in-memory
-// state of another OpenChannel to reflect a preceding call to MarkOpen on a
-// different OpenChannel.
-func TestRefreshShortChanID(t *testing.T) {
+// TestRefresh asserts that Refresh updates the in-memory state of another
+// OpenChannel to reflect a preceding call to MarkOpen on a different
+// OpenChannel.
+func TestRefresh(t *testing.T) {
 	t.Parallel()
 
 	fullDB, cleanUp, err := MakeTestDB()
@@ -1209,8 +1209,8 @@ func TestRefreshShortChanID(t *testing.T) {
 			state.Packager.(*ChannelPackager).source)
 	}
 
-	// Now, refresh the short channel ID of the pending channel.
-	err = pendingChannel.RefreshShortChanID()
+	// Now, refresh the state of the pending channel.
+	err = pendingChannel.Refresh()
 	require.NoError(t, err, "unable to refresh short_chan_id")
 
 	// This should result in both OpenChannel's now having the same

@@ -31,6 +31,15 @@ type Config struct {
 	// NoKeysend unsets any bits signaling support for accepting keysend
 	// payments.
 	NoKeysend bool
+
+	// NoOptionScidAlias unsets any bits signalling support for
+	// option_scid_alias. This also implicitly disables zero-conf channels.
+	NoOptionScidAlias bool
+
+	// NoZeroConf unsets any bits signalling support for zero-conf
+	// channels. This should be used instead of NoOptionScidAlias to still
+	// keep option-scid-alias support.
+	NoZeroConf bool
 }
 
 // Manager is responsible for generating feature vectors for different requested
@@ -124,6 +133,14 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoKeysend {
 			raw.Unset(lnwire.KeysendOptional)
 			raw.Unset(lnwire.KeysendRequired)
+		}
+		if cfg.NoOptionScidAlias {
+			raw.Unset(lnwire.ScidAliasOptional)
+			raw.Unset(lnwire.ScidAliasRequired)
+		}
+		if cfg.NoZeroConf {
+			raw.Unset(lnwire.ZeroConfOptional)
+			raw.Unset(lnwire.ZeroConfRequired)
 		}
 
 		// Ensure that all of our feature sets properly set any

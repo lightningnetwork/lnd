@@ -107,7 +107,7 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse {
 	// Create a rejection response which we can use for the cases where we
 	// reject the channel.
 	rejectChannel := NewChannelAcceptResponse(
-		false, errChannelRejected, nil, 0, 0, 0, 0, 0, 0,
+		false, errChannelRejected, nil, 0, 0, 0, 0, 0, 0, false,
 	)
 
 	// Send the request to the newRequests channel.
@@ -216,6 +216,7 @@ func (r *RPCAcceptor) receiveResponses(errChan chan error,
 			MaxHtlcCount:    resp.MaxHtlcCount,
 			MinHtlcIn:       resp.MinHtlcIn,
 			MinAcceptDepth:  resp.MinAcceptDepth,
+			ZeroConf:        resp.ZeroConf,
 		}
 
 		// We have received a decision for one of our channel
@@ -348,6 +349,7 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 				btcutil.Amount(resp.ReserveSat),
 				lnwire.MilliSatoshi(resp.InFlightMaxMsat),
 				lnwire.MilliSatoshi(resp.MinHtlcIn),
+				resp.ZeroConf,
 			)
 
 			// Delete the channel from the acceptRequests map.

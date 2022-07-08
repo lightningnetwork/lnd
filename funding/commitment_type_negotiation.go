@@ -24,10 +24,12 @@ var (
 // negotiateCommitmentType negotiates the commitment type of a newly opened
 // channel. If a channelType is provided, explicit negotiation for said type
 // will be attempted if the set of both local and remote features support it.
-// Otherwise, implicit negotiation will be attempted.
-func negotiateCommitmentType(channelType *lnwire.ChannelType,
-	local, remote *lnwire.FeatureVector, mustBeExplicit bool,
-) (bool, *lnwire.ChannelType, lnwallet.CommitmentType, error) {
+// Otherwise, implicit negotiation will be attempted. Two booleans are
+// returned letting the caller know if the option-scid-alias or zero-conf
+// channel types were negotiated.
+func negotiateCommitmentType(channelType *lnwire.ChannelType, local,
+	remote *lnwire.FeatureVector, mustBeExplicit bool) (bool,
+	*lnwire.ChannelType, lnwallet.CommitmentType, error) {
 
 	if channelType != nil {
 		// If the peer does know explicit negotiation, let's attempt
@@ -57,12 +59,127 @@ func negotiateCommitmentType(channelType *lnwire.ChannelType,
 // specific channel type. Since the channel type is comprised of a set of even
 // feature bits, we also make sure each feature is supported by both peers. An
 // error is returned if either peer does not support said channel type.
-func explicitNegotiateCommitmentType(channelType lnwire.ChannelType,
-	local, remote *lnwire.FeatureVector) (lnwallet.CommitmentType, error) {
+func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
+	remote *lnwire.FeatureVector) (lnwallet.CommitmentType, error) {
 
 	channelFeatures := lnwire.RawFeatureVector(channelType)
 
 	switch {
+	// Lease script enforcement + anchors zero fee + static remote key +
+	// zero conf + scid alias features only.
+	case channelFeatures.OnlyContains(
+		lnwire.ZeroConfRequired,
+		lnwire.ScidAliasRequired,
+		lnwire.ScriptEnforcedLeaseRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+		lnwire.StaticRemoteKeyRequired,
+	):
+		if !hasFeatures(
+			local, remote,
+			lnwire.ZeroConfOptional,
+			lnwire.ScriptEnforcedLeaseOptional,
+			lnwire.AnchorsZeroFeeHtlcTxOptional,
+			lnwire.StaticRemoteKeyOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+		return lnwallet.CommitmentTypeScriptEnforcedLease, nil
+
+	// Anchors zero fee + static remote key + zero conf + scid alias
+	// features only.
+	case channelFeatures.OnlyContains(
+		lnwire.ZeroConfRequired,
+		lnwire.ScidAliasRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+		lnwire.StaticRemoteKeyRequired,
+	):
+		if !hasFeatures(
+			local, remote,
+			lnwire.ZeroConfOptional,
+			lnwire.AnchorsZeroFeeHtlcTxOptional,
+			lnwire.StaticRemoteKeyOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, nil
+
+	// Lease script enforcement + anchors zero fee + static remote key +
+	// zero conf features only.
+	case channelFeatures.OnlyContains(
+		lnwire.ZeroConfRequired,
+		lnwire.ScriptEnforcedLeaseRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+		lnwire.StaticRemoteKeyRequired,
+	):
+		if !hasFeatures(
+			local, remote,
+			lnwire.ZeroConfOptional,
+			lnwire.ScriptEnforcedLeaseOptional,
+			lnwire.AnchorsZeroFeeHtlcTxOptional,
+			lnwire.StaticRemoteKeyOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+		return lnwallet.CommitmentTypeScriptEnforcedLease, nil
+
+	// Anchors zero fee + static remote key + zero conf features only.
+	case channelFeatures.OnlyContains(
+		lnwire.ZeroConfRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+		lnwire.StaticRemoteKeyRequired,
+	):
+		if !hasFeatures(
+			local, remote,
+			lnwire.ZeroConfOptional,
+			lnwire.AnchorsZeroFeeHtlcTxOptional,
+			lnwire.StaticRemoteKeyOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, nil
+
+	// Lease script enforcement + anchors zero fee + static remote key +
+	// option-scid-alias features only.
+	case channelFeatures.OnlyContains(
+		lnwire.ScidAliasRequired,
+		lnwire.ScriptEnforcedLeaseRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+		lnwire.StaticRemoteKeyRequired,
+	):
+		if !hasFeatures(
+			local, remote,
+			lnwire.ScidAliasOptional,
+			lnwire.ScriptEnforcedLeaseOptional,
+			lnwire.AnchorsZeroFeeHtlcTxOptional,
+			lnwire.StaticRemoteKeyOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+		return lnwallet.CommitmentTypeScriptEnforcedLease, nil
+
+	// Anchors zero fee + static remote key + option-scid-alias features
+	// only.
+	case channelFeatures.OnlyContains(
+		lnwire.ScidAliasRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+		lnwire.StaticRemoteKeyRequired,
+	):
+		if !hasFeatures(
+			local, remote,
+			lnwire.ScidAliasOptional,
+			lnwire.AnchorsZeroFeeHtlcTxOptional,
+			lnwire.StaticRemoteKeyOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, nil
+
 	// Lease script enforcement + anchors zero fee + static remote key
 	// features only.
 	case channelFeatures.OnlyContains(

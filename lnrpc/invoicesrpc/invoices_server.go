@@ -331,6 +331,7 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		Graph:                 s.cfg.GraphDB,
 		GenInvoiceFeatures:    s.cfg.GenInvoiceFeatures,
 		GenAmpInvoiceFeatures: s.cfg.GenAmpInvoiceFeatures,
+		GetAlias:              s.cfg.GetAlias,
 	}
 
 	hash, err := lntypes.MakeHash(invoice.Hash)

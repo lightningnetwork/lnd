@@ -756,6 +756,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		r.cfg.net.ResolveTCPAddr, genInvoiceFeatures,
 		genAmpInvoiceFeatures, getNodeAnnouncement,
 		s.updateAndBrodcastSelfNode, parseAddr, rpcsLog,
+		s.aliasMgr.GetPeerAlias,
 	)
 	if err != nil {
 		return err
@@ -2012,7 +2013,9 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	var channelType *lnwire.ChannelType
 	switch in.CommitmentType {
 	case lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE:
-		break
+		if in.ZeroConf {
+			return nil, fmt.Errorf("use anchors for zero-conf")
+		}
 
 	case lnrpc.CommitmentType_LEGACY:
 		channelType = new(lnwire.ChannelType)
@@ -2026,18 +2029,38 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 	case lnrpc.CommitmentType_ANCHORS:
 		channelType = new(lnwire.ChannelType)
-		*channelType = lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+		fv := lnwire.NewRawFeatureVector(
 			lnwire.StaticRemoteKeyRequired,
 			lnwire.AnchorsZeroFeeHtlcTxRequired,
-		))
+		)
+
+		if in.ZeroConf {
+			fv.Set(lnwire.ZeroConfRequired)
+		}
+
+		if in.ScidAlias {
+			fv.Set(lnwire.ScidAliasRequired)
+		}
+
+		*channelType = lnwire.ChannelType(*fv)
 
 	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
 		channelType = new(lnwire.ChannelType)
-		*channelType = lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+		fv := lnwire.NewRawFeatureVector(
 			lnwire.StaticRemoteKeyRequired,
 			lnwire.AnchorsZeroFeeHtlcTxRequired,
 			lnwire.ScriptEnforcedLeaseRequired,
-		))
+		)
+
+		if in.ZeroConf {
+			fv.Set(lnwire.ZeroConfRequired)
+		}
+
+		if in.ScidAlias {
+			fv.Set(lnwire.ScidAliasRequired)
+		}
+
+		*channelType = lnwire.ChannelType(*fv)
 
 	default:
 		return nil, fmt.Errorf("unhandled request channel type %v",
@@ -2576,7 +2599,7 @@ func abandonChanFromGraph(chanGraph *channeldb.ChannelGraph,
 
 	// If the channel ID is still in the graph, then that means the channel
 	// is still open, so we'll now move to purge it from the graph.
-	return chanGraph.DeleteChannelEdges(false, chanID)
+	return chanGraph.DeleteChannelEdges(false, true, chanID)
 }
 
 // abandonChan removes a channel from the database, graph and contract court.
@@ -3039,7 +3062,7 @@ func (r *rpcServer) SubscribePeerEvents(req *lnrpc.PeerEventSubscription,
 // confirmed unspent outputs and all unconfirmed unspent outputs under control
 // by the wallet. This method can be modified by having the request specify
 // only witness outputs should be factored into the final output sum.
-// TODO(roasbeef): add async hooks into wallet balance changes
+// TODO(roasbeef): add async hooks into wallet balance changes.
 func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
 
@@ -5260,6 +5283,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		GenAmpInvoiceFeatures: func() *lnwire.FeatureVector {
 			return r.server.featureMgr.Get(feature.SetInvoiceAmp)
 		},
+		GetAlias: r.server.aliasMgr.GetPeerAlias,
 	}
 
 	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)

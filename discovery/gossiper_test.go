@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -734,6 +735,27 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 	}
 
 	broadcastedMessage := make(chan msgWithSenders, 10)
+
+	isAlias := func(lnwire.ShortChannelID) bool {
+		return false
+	}
+
+	signAliasUpdate := func(*lnwire.ChannelUpdate) (*ecdsa.Signature,
+		error) {
+
+		return nil, nil
+	}
+
+	findBaseByAlias := func(lnwire.ShortChannelID) (lnwire.ShortChannelID,
+		error) {
+
+		return lnwire.ShortChannelID{}, fmt.Errorf("no base scid")
+	}
+
+	getAlias := func(lnwire.ChannelID) (lnwire.ShortChannelID, error) {
+		return lnwire.ShortChannelID{}, fmt.Errorf("no peer alias")
+	}
+
 	gossiper := New(Config{
 		Notifier: notifier,
 		Broadcast: func(senders map[route.Vertex]struct{},
@@ -778,6 +800,10 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 		MinimumBatchSize:      10,
 		MaxChannelUpdateBurst: DefaultMaxChannelUpdateBurst,
 		ChannelUpdateInterval: DefaultChannelUpdateInterval,
+		IsAlias:               isAlias,
+		SignAliasUpdate:       signAliasUpdate,
+		FindBaseByAlias:       findBaseByAlias,
+		GetAlias:              getAlias,
 	}, selfKeyDesc)
 
 	if err := gossiper.Start(); err != nil {
@@ -1387,6 +1413,27 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 	// NotifyWhenOffline methods. This should trigger a new attempt to send
 	// the message to the peer.
 	ctx.gossiper.Stop()
+
+	isAlias := func(lnwire.ShortChannelID) bool {
+		return false
+	}
+
+	signAliasUpdate := func(*lnwire.ChannelUpdate) (*ecdsa.Signature,
+		error) {
+
+		return nil, nil
+	}
+
+	findBaseByAlias := func(lnwire.ShortChannelID) (lnwire.ShortChannelID,
+		error) {
+
+		return lnwire.ShortChannelID{}, fmt.Errorf("no base scid")
+	}
+
+	getAlias := func(lnwire.ChannelID) (lnwire.ShortChannelID, error) {
+		return lnwire.ShortChannelID{}, fmt.Errorf("no peer alias")
+	}
+
 	gossiper := New(Config{
 		Notifier:             ctx.gossiper.cfg.Notifier,
 		Broadcast:            ctx.gossiper.cfg.Broadcast,
@@ -1405,6 +1452,10 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		NumActiveSyncers:     3,
 		MinimumBatchSize:     10,
 		SubBatchDelay:        time.Second * 5,
+		IsAlias:              isAlias,
+		SignAliasUpdate:      signAliasUpdate,
+		FindBaseByAlias:      findBaseByAlias,
+		GetAlias:             getAlias,
 	}, &keychain.KeyDescriptor{
 		PubKey:     ctx.gossiper.selfKey,
 		KeyLocator: ctx.gossiper.selfKeyLoc,

@@ -80,7 +80,7 @@ func (c *ChainedAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptRespon
 
 			return NewChannelAcceptResponse(
 				false, errChannelRejected, nil, 0, 0,
-				0, 0, 0, 0,
+				0, 0, 0, 0, false,
 			)
 		}
 	}

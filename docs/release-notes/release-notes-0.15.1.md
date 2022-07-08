@@ -65,7 +65,11 @@
 * [The HtlcSwitch now waits for a ChannelLink to stop before replacing it. This fixes a race
   condition.](https://github.com/lightningnetwork/lnd/pull/6642)
 
-* [Integration tests now always run with nodes never deleting failed payments](https://github.com/lightningnetwork/lnd/pull/6712).
+* [Integration tests now always run with nodes never deleting failed
+  payments](https://github.com/lightningnetwork/lnd/pull/6712).
+
+* [Fixes a key scope issue preventing new remote signing setups to be created
+  with `v0.15.0-beta`](https://github.com/lightningnetwork/lnd/pull/6714).
 
 ## Code Health
 

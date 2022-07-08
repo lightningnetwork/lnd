@@ -70,6 +70,9 @@
 ### Code cleanup, refactor, typo fixes
 
 * [Migrate instances of assert.NoError to require.NoError](https://github.com/lightningnetwork/lnd/pull/6636).
+ 
+* [Enforce the order of rpc interceptor execution](https://github.com/lightningnetwork/lnd/pull/6709) to be the same as the
+  order in which they were registered.
 
 ### Tooling and documentation
 

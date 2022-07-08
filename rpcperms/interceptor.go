@@ -167,10 +167,19 @@ type InterceptorChain struct {
 	// rpcsLog is the logger used to log calls to the RPCs intercepted.
 	rpcsLog btclog.Logger
 
-	// registeredMiddleware is a map of all macaroon permission based RPC
-	// middleware clients that are currently registered. The map is keyed
-	// by the middleware's name.
-	registeredMiddleware map[string]*MiddlewareHandler
+	// registeredMiddleware is a slice of all macaroon permission based RPC
+	// middleware clients that are currently registered. The
+	// registeredMiddlewareNames can be used to find the index of a specific
+	// interceptor within the registeredMiddleware slide using the name of
+	// the interceptor as the key. The reason for using these two separate
+	// structures is so that the order in which interceptors are run is
+	// the same as the order in which they were registered.
+	registeredMiddleware []*MiddlewareHandler
+
+	// registeredMiddlewareNames is a map of registered middleware names
+	// to the index at which they are stored in the registeredMiddleware
+	// map.
+	registeredMiddlewareNames map[string]int
 
 	// mandatoryMiddleware is a list of all middleware that is considered to
 	// be mandatory. If any of them is not registered then all RPC requests
@@ -193,14 +202,14 @@ func NewInterceptorChain(log btclog.Logger, noMacaroons bool,
 	mandatoryMiddleware []string) *InterceptorChain {
 
 	return &InterceptorChain{
-		state:                waitingToStart,
-		ntfnServer:           subscribe.NewServer(),
-		noMacaroons:          noMacaroons,
-		permissionMap:        make(map[string][]bakery.Op),
-		rpcsLog:              log,
-		registeredMiddleware: make(map[string]*MiddlewareHandler),
-		mandatoryMiddleware:  mandatoryMiddleware,
-		quit:                 make(chan struct{}),
+		state:                     waitingToStart,
+		ntfnServer:                subscribe.NewServer(),
+		noMacaroons:               noMacaroons,
+		permissionMap:             make(map[string][]bakery.Op),
+		rpcsLog:                   log,
+		registeredMiddlewareNames: make(map[string]int),
+		mandatoryMiddleware:       mandatoryMiddleware,
+		quit:                      make(chan struct{}),
 	}
 }
 
@@ -442,25 +451,27 @@ func (r *InterceptorChain) RegisterMiddleware(mw *MiddlewareHandler) error {
 	defer r.Unlock()
 
 	// The name of the middleware is the unique identifier.
-	registered, ok := r.registeredMiddleware[mw.middlewareName]
+	_, ok := r.registeredMiddlewareNames[mw.middlewareName]
 	if ok {
 		return fmt.Errorf("a middleware with the name '%s' is already "+
-			"registered", registered.middlewareName)
+			"registered", mw.middlewareName)
 	}
 
 	// For now, we only want one middleware per custom caveat name. If we
 	// allowed multiple middlewares handling the same caveat there would be
 	// a need for extra call chaining logic, and they could overwrite each
 	// other's responses.
-	for name, middleware := range r.registeredMiddleware {
+	for _, middleware := range r.registeredMiddleware {
 		if middleware.customCaveatName == mw.customCaveatName {
 			return fmt.Errorf("a middleware is already registered "+
 				"for the custom caveat name '%s': %v",
-				mw.customCaveatName, name)
+				mw.customCaveatName, middleware.middlewareName)
 		}
 	}
 
-	r.registeredMiddleware[mw.middlewareName] = mw
+	r.registeredMiddleware = append(r.registeredMiddleware, mw)
+	index := len(r.registeredMiddleware) - 1
+	r.registeredMiddlewareNames[mw.middlewareName] = index
 
 	return nil
 }
@@ -473,7 +484,15 @@ func (r *InterceptorChain) RemoveMiddleware(middlewareName string) {
 
 	log.Debugf("Removing middleware %s", middlewareName)
 
-	delete(r.registeredMiddleware, middlewareName)
+	index, ok := r.registeredMiddlewareNames[middlewareName]
+	if !ok {
+		return
+	}
+	delete(r.registeredMiddlewareNames, middlewareName)
+	r.registeredMiddleware = append(
+		r.registeredMiddleware[:index],
+		r.registeredMiddleware[index+1:]...,
+	)
 }
 
 // CustomCaveatSupported makes sure a middleware that handles the given custom
@@ -888,7 +907,7 @@ func (r *InterceptorChain) checkMandatoryMiddleware(fullMethod string) error {
 	// Not a white listed call so make sure every mandatory middleware is
 	// currently connected to lnd.
 	for _, name := range r.mandatoryMiddleware {
-		if _, ok := r.registeredMiddleware[name]; !ok {
+		if _, ok := r.registeredMiddlewareNames[name]; !ok {
 			return fmt.Errorf("mandatory middleware '%s' is "+
 				"currently not registered, not allowing any "+
 				"RPC calls", name)

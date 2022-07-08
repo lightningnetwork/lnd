@@ -265,6 +265,23 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 			net, t, alice, bob, chanAmt, thawHeight, true,
 		)
 	}
+
+	// If a zero-conf channel is being opened, the nodes are signalling the
+	// zero-conf feature bit. Setup a ChannelAcceptor for the fundee.
+	ctxb := context.Background()
+
+	var (
+		cancel context.CancelFunc
+		ctxc   context.Context
+	)
+
+	if zeroConf {
+		ctxc, cancel = context.WithCancel(ctxb)
+		acceptStream, err := bob.ChannelAcceptor(ctxc)
+		require.NoError(t.t, err)
+		go acceptChannel(t, true, acceptStream)
+	}
+
 	aliceChanPoint := openChannelAndAssert(
 		t, net, alice, bob,
 		lntest.OpenChannelParams{
@@ -274,6 +291,11 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 			ZeroConf:       zeroConf,
 		},
 	)
+
+	// Remove the ChannelAcceptor for Bob.
+	if zeroConf {
+		cancel()
+	}
 
 	err := alice.WaitForNetworkChannelOpen(aliceChanPoint)
 	if err != nil {
@@ -320,6 +342,16 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 			net, t, bob, carol, chanAmt, thawHeight, true,
 		)
 	}
+
+	// Setup a ChannelAcceptor for Carol if a zero-conf channel open is
+	// being attempted.
+	if zeroConf {
+		ctxc, cancel = context.WithCancel(ctxb)
+		acceptStream, err := carol.ChannelAcceptor(ctxc)
+		require.NoError(t.t, err)
+		go acceptChannel(t, true, acceptStream)
+	}
+
 	bobChanPoint := openChannelAndAssert(
 		t, net, bob, carol,
 		lntest.OpenChannelParams{
@@ -329,6 +361,12 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 			ZeroConf:       zeroConf,
 		},
 	)
+
+	// Remove the ChannelAcceptor for Carol.
+	if zeroConf {
+		cancel()
+	}
+
 	err = bob.WaitForNetworkChannelOpen(bobChanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)

@@ -22,7 +22,7 @@
   need to explicitly specify the `--private` flag.
 
 * [Add `chan_point` flag to
-  `updatechanstatus`](https://github.com/lightningnetwork/lnd/pull/6705)
+  `updatechanstatus` and `abandonchannel`](https://github.com/lightningnetwork/lnd/pull/6705)
   to offer a convenient way to specify the channel to be updated.
 
 * [Add `ignore_pair` flag to 

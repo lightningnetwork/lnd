@@ -172,6 +172,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("could not subscribe events: %v", err)
 	}
+	assertSubscribed(t, aliceEvents)
 
 	bobEvents, err := net.Bob.RouterClient.SubscribeHtlcEvents(
 		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
@@ -179,6 +180,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("could not subscribe events: %v", err)
 	}
+	assertSubscribed(t, bobEvents)
 
 	carolEvents, err := carol.RouterClient.SubscribeHtlcEvents(
 		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
@@ -186,6 +188,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("could not subscribe events: %v", err)
 	}
+	assertSubscribed(t, carolEvents)
 
 	daveEvents, err := dave.RouterClient.SubscribeHtlcEvents(
 		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
@@ -193,6 +196,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("could not subscribe events: %v", err)
 	}
+	assertSubscribed(t, daveEvents)
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
@@ -397,6 +401,14 @@ func assertEventAndType(t *harnessTest, eventType routerrpc.HtlcEvent_EventType,
 	}
 
 	return event
+}
+
+func assertSubscribed(t *harnessTest,
+	client routerrpc.Router_SubscribeHtlcEventsClient) {
+
+	event, err := client.Recv()
+	require.NoError(t.t, err)
+	require.NotNil(t.t, event.GetSubscribedEvent())
 }
 
 // updateChannelPolicy updates the channel policy of node to the

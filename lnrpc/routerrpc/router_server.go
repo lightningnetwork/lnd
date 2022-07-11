@@ -900,6 +900,16 @@ func (s *Server) SubscribeHtlcEvents(req *SubscribeHtlcEventsRequest,
 	}
 	defer htlcClient.Cancel()
 
+	// Send out an initial subscribed event so that the caller knows the
+	// point from which new events will be transmitted.
+	if err := stream.Send(&HtlcEvent{
+		Event: &HtlcEvent_SubscribedEvent{
+			SubscribedEvent: &SubscribedEvent{},
+		},
+	}); err != nil {
+		return err
+	}
+
 	for {
 		select {
 		case event := <-htlcClient.Updates():

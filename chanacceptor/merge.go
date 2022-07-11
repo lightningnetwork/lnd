@@ -20,11 +20,22 @@ const (
 	fieldUpfrontShutdown = "upfront shutdown"
 )
 
+var (
+	errZeroConf = fmt.Errorf("zero-conf set with non-zero min-depth")
+)
+
 // fieldMismatchError returns a merge error for a named field when we get two
 // channel acceptor responses which have different values set.
 func fieldMismatchError(name string, current, newValue interface{}) error {
 	return fmt.Errorf("multiple values set for: %v, %v and %v",
 		name, current, newValue)
+}
+
+// mergeBool merges two boolean values.
+func mergeBool(current, newValue bool) bool {
+	// If either is true, return true. It is not possible to have different
+	// "non-zero" values like the other cases.
+	return current || newValue
 }
 
 // mergeInt64 merges two int64 values, failing if they have different non-zero
@@ -116,6 +127,13 @@ func mergeResponse(current,
 		return current, err
 	}
 	current.MinAcceptDepth = uint16(minDepth)
+
+	current.ZeroConf = mergeBool(current.ZeroConf, newValue.ZeroConf)
+
+	// Assert that if zero-conf is set, min-depth is zero.
+	if current.ZeroConf && current.MinAcceptDepth != 0 {
+		return current, errZeroConf
+	}
 
 	reserve, err := mergeInt64(
 		fieldReserve, int64(current.Reserve), int64(newValue.Reserve),

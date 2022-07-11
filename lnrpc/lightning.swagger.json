@@ -3409,6 +3409,10 @@
           "type": "integer",
           "format": "int64",
           "description": "The number of confirmations we require before we consider the channel open."
+        },
+        "zero_conf": {
+          "type": "boolean",
+          "description": "Whether the responder wants this to be a zero-conf channel. This will fail\nif either side does not have the scid-alias feature bit set. The minimum\ndepth field must be zero if this is true."
         }
       }
     },
@@ -5414,6 +5418,14 @@
         "commitment_type": {
           "$ref": "#/definitions/lnrpcCommitmentType",
           "description": "The explicit commitment type to use. Note this field will only be used if\nthe remote peer supports explicit channel negotiation."
+        },
+        "zero_conf": {
+          "type": "boolean",
+          "description": "If this is true, then a zero-conf channel open will be attempted."
+        },
+        "scid_alias": {
+          "type": "boolean",
+          "description": "If this is true, then an option-scid-alias channel-type open will be\nattempted."
         }
       }
     },

@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration25"
 	"github.com/lightningnetwork/lnd/channeldb/migration26"
 	"github.com/lightningnetwork/lnd/channeldb/migration27"
+	"github.com/lightningnetwork/lnd/channeldb/migration29"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -226,6 +227,14 @@ var (
 			number:    27,
 			migration: migration27.MigrateHistoricalBalances,
 		},
+		{
+			number:    28,
+			migration: mig.CreateTLB(chanIDBucket),
+		},
+		{
+			number:    29,
+			migration: migration29.MigrateChanID,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over
@@ -352,6 +361,7 @@ var dbTopLevelBuckets = [][]byte{
 	metaBucket,
 	closeSummaryBucket,
 	outpointBucket,
+	chanIDBucket,
 	historicalChannelBucket,
 }
 

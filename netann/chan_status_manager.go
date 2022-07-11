@@ -60,7 +60,8 @@ type ChanStatusConfig struct {
 	// ApplyChannelUpdate processes new ChannelUpdates signed by our node by
 	// updating our local routing table and broadcasting the update to our
 	// peers.
-	ApplyChannelUpdate func(*lnwire.ChannelUpdate) error
+	ApplyChannelUpdate func(*lnwire.ChannelUpdate, *wire.OutPoint,
+		bool) error
 
 	// DB stores the set of channels that are to be monitored.
 	DB DB
@@ -621,7 +622,7 @@ func (m *ChanStatusManager) signAndSendNextUpdate(outpoint wire.OutPoint,
 
 	// Retrieve the latest update for this channel. We'll use this
 	// as our starting point to send the new update.
-	chanUpdate, err := m.fetchLastChanUpdateByOutPoint(outpoint)
+	chanUpdate, private, err := m.fetchLastChanUpdateByOutPoint(outpoint)
 	if err != nil {
 		return err
 	}
@@ -634,22 +635,26 @@ func (m *ChanStatusManager) signAndSendNextUpdate(outpoint wire.OutPoint,
 		return err
 	}
 
-	return m.cfg.ApplyChannelUpdate(chanUpdate)
+	return m.cfg.ApplyChannelUpdate(chanUpdate, &outpoint, private)
 }
 
 // fetchLastChanUpdateByOutPoint fetches the latest policy for our direction of
 // a channel, and crafts a new ChannelUpdate with this policy. Returns an error
-// in case our ChannelEdgePolicy is not found in the database.
+// in case our ChannelEdgePolicy is not found in the database. Also returns if
+// the channel is private by checking AuthProof for nil.
 func (m *ChanStatusManager) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
-	*lnwire.ChannelUpdate, error) {
+	*lnwire.ChannelUpdate, bool, error) {
 
 	// Get the edge info and policies for this channel from the graph.
 	info, edge1, edge2, err := m.cfg.Graph.FetchChannelEdgesByOutpoint(&op)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return ExtractChannelUpdate(m.ourPubKeyBytes, info, edge1, edge2)
+	update, err := ExtractChannelUpdate(
+		m.ourPubKeyBytes, info, edge1, edge2,
+	)
+	return update, info.AuthProof == nil, err
 }
 
 // loadInitialChanState determines the initial ChannelState for a particular
@@ -660,7 +665,7 @@ func (m *ChanStatusManager) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
 func (m *ChanStatusManager) loadInitialChanState(
 	outpoint *wire.OutPoint) (ChannelState, error) {
 
-	lastUpdate, err := m.fetchLastChanUpdateByOutPoint(*outpoint)
+	lastUpdate, _, err := m.fetchLastChanUpdateByOutPoint(*outpoint)
 	if err != nil {
 		return ChannelState{}, err
 	}

@@ -243,7 +243,7 @@ func (c *chanDBRestorer) RestoreChansFromSingles(backups ...chanbackup.Single) e
 		// funding broadcast height to a reasonable value that we
 		// determined earlier.
 		case channel.ShortChanID().BlockHeight == 0:
-			channel.FundingBroadcastHeight = firstChanHeight
+			channel.SetBroadcastHeight(firstChanHeight)
 
 		// Fallback case 2: It is extremely unlikely at this point that
 		// a channel we are trying to restore has a coinbase funding TX.
@@ -255,7 +255,7 @@ func (c *chanDBRestorer) RestoreChansFromSingles(backups ...chanbackup.Single) e
 		// unconfirmed one here.
 		case channel.ShortChannelID.TxIndex == 0:
 			broadcastHeight := channel.ShortChannelID.BlockHeight
-			channel.FundingBroadcastHeight = broadcastHeight
+			channel.SetBroadcastHeight(broadcastHeight)
 			channel.ShortChannelID.BlockHeight = 0
 		}
 	}

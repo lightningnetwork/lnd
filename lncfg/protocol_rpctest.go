@@ -30,6 +30,15 @@ type ProtocolOptions struct {
 	//
 	// TODO: Move to experimental?
 	ScriptEnforcedLease bool `long:"script-enforced-lease" description:"enable support for script enforced lease commitments"`
+
+	// OptionScidAlias should be set if we want to signal the
+	// option-scid-alias feature bit. This allows scid aliases and the
+	// option-scid-alias channel-type.
+	OptionScidAlias bool `long:"option-scid-alias" description:"enable support for option_scid_alias channels"`
+
+	// OptionZeroConf should be set if we want to signal the zero-conf
+	// feature bit.
+	OptionZeroConf bool `long:"zero-conf" description:"enable support for zero-conf channels, must have option-scid-alias set also"`
 }
 
 // Wumbo returns true if lnd should permit the creation and acceptance of wumbo
@@ -48,4 +57,14 @@ func (l *ProtocolOptions) NoAnchorCommitments() bool {
 // script enforcement commitment type for leased channels.
 func (l *ProtocolOptions) NoScriptEnforcementLease() bool {
 	return !l.ScriptEnforcedLease
+}
+
+// ScidAlias returns true if we have enabled the option-scid-alias feature bit.
+func (l *ProtocolOptions) ScidAlias() bool {
+	return l.OptionScidAlias
+}
+
+// ZeroConf returns true if we have enabled the zero-conf feature bit.
+func (l *ProtocolOptions) ZeroConf() bool {
+	return l.OptionZeroConf
 }

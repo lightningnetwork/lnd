@@ -979,6 +979,13 @@ message ChannelAcceptResponse {
     The number of confirmations we require before we consider the channel open.
     */
     uint32 min_accept_depth = 10;
+
+    /*
+    Whether the responder wants this to be a zero-conf channel. This will fail
+    if either side does not have the scid-alias feature bit set. The minimum
+    depth field must be zero if this is true.
+    */
+    bool zero_conf = 11;
 }
 
 message ChannelPoint {
@@ -2114,6 +2121,17 @@ message OpenChannelRequest {
     the remote peer supports explicit channel negotiation.
     */
     CommitmentType commitment_type = 18;
+
+    /*
+    If this is true, then a zero-conf channel open will be attempted.
+    */
+    bool zero_conf = 19;
+
+    /*
+    If this is true, then an option-scid-alias channel-type open will be
+    attempted.
+    */
+    bool scid_alias = 20;
 }
 message OpenStatusUpdate {
     oneof update {

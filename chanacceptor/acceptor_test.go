@@ -184,13 +184,15 @@ func TestMultipleAcceptClients(t *testing.T) {
 		queries = map[*lnwire.OpenChannel]*ChannelAcceptResponse{
 			chan1: NewChannelAcceptResponse(
 				true, nil, testUpfront, 1, 2, 3, 4, 5, 6,
+				false,
 			),
 			chan2: NewChannelAcceptResponse(
 				false, errChannelRejected, nil, 0, 0, 0,
-				0, 0, 0,
+				0, 0, 0, false,
 			),
 			chan3: NewChannelAcceptResponse(
 				false, customError, nil, 0, 0, 0, 0, 0, 0,
+				false,
 			),
 		}
 
@@ -245,7 +247,7 @@ func TestInvalidResponse(t *testing.T) {
 				PendingChannelID: chan1,
 			}: NewChannelAcceptResponse(
 				false, errChannelRejected, nil, 0, 0,
-				0, 0, 0, 0,
+				0, 0, 0, 0, false,
 			),
 		}
 
@@ -288,7 +290,7 @@ func TestInvalidReserve(t *testing.T) {
 				DustLimit:        dustLimit,
 			}: NewChannelAcceptResponse(
 				false, errChannelRejected, nil, 0, 0,
-				0, reserve, 0, 0,
+				0, reserve, 0, 0, false,
 			),
 		}
 

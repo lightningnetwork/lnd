@@ -527,11 +527,18 @@ func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
 		}
 
 	case lnwire.CodeTemporaryChannelFailure:
-		update, err := f.htlcSwitch.cfg.FetchLastChannelUpdate(
-			f.packet.incomingChanID,
+		update := f.htlcSwitch.failAliasUpdate(
+			f.packet.incomingChanID, true,
 		)
-		if err != nil {
-			return err
+		if update == nil {
+			// Fallback to the original, non-alias behavior.
+			var err error
+			update, err = f.htlcSwitch.cfg.FetchLastChannelUpdate(
+				f.packet.incomingChanID,
+			)
+			if err != nil {
+				return err
+			}
 		}
 
 		failureMsg = lnwire.NewTemporaryChannelFailure(update)

@@ -167,6 +167,18 @@ func TestMergeResponse(t *testing.T) {
 			},
 			err: nil,
 		},
+		{
+			// Test the case where one response has ZeroConf set
+			// and another has a non-zero min depth set.
+			name: "zero conf conflict",
+			current: ChannelAcceptResponse{
+				ZeroConf: true,
+			},
+			new: ChannelAcceptResponse{
+				MinAcceptDepth: 5,
+			},
+			err: errZeroConf,
+		},
 	}
 
 	for _, test := range tests {

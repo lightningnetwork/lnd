@@ -121,7 +121,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	getNodeAnnouncement func() (lnwire.NodeAnnouncement, error),
 	updateNodeAnnouncement func(modifiers ...netann.NodeAnnModifier) error,
 	parseAddr func(addr string) (net.Addr, error),
-	rpcLogger btclog.Logger) error {
+	rpcLogger btclog.Logger,
+	getAlias func(lnwire.ChannelID) (lnwire.ShortChannelID, error)) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -256,6 +257,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			)
 			subCfgValue.FieldByName("GenAmpInvoiceFeatures").Set(
 				reflect.ValueOf(genAmpInvoiceFeatures),
+			)
+			subCfgValue.FieldByName("GetAlias").Set(
+				reflect.ValueOf(getAlias),
 			)
 
 		case *neutrinorpc.Config:

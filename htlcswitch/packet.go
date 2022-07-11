@@ -96,6 +96,13 @@ type htlcPacket struct {
 	// customRecords are user-defined records in the custom type range that
 	// were included in the payload.
 	customRecords record.CustomSet
+
+	// originalOutgoingChanID is used when sending back failure messages.
+	// It is only used for forwarded Adds on option_scid_alias channels.
+	// This is to avoid possible confusion if a payer uses the public SCID
+	// but receives a channel_update with the alias SCID. Instead, the
+	// payer should receive a channel_update with the public SCID.
+	originalOutgoingChanID lnwire.ShortChannelID
 }
 
 // inKey returns the circuit key used to identify the incoming htlc.

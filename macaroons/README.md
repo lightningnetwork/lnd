@@ -82,7 +82,7 @@ be found in `constraints.go`:
 
 * `TimeoutConstraint`: Set a timeout in seconds after which the macaroon is no
   longer valid.
-  This constraint can be set by adding the parameter `--macaroontimeout xy` to
+  This constraint can be set by adding the parameter `--timeout xy` to
   the `lncli` command.
 * `IPLockConstraint`: Locks the macaroon to a specific IP address.
   This constraint can be set by adding the parameter `--macaroonip a.b.c.d` to

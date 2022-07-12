@@ -176,6 +176,19 @@ var (
 		},
 	}
 
+	// newLog3 defines an revocation log that's been created after v0.15.0.
+	newLog3 = mig.ChannelCommitment{
+		CommitHeight:    logHeight2 + 1,
+		LocalLogIndex:   1,
+		LocalHtlcIndex:  1,
+		RemoteLogIndex:  0,
+		RemoteHtlcIndex: 0,
+		LocalBalance:    lnwire.MilliSatoshi(888_800_000),
+		RemoteBalance:   0,
+		CommitTx:        commitTx2,
+		Htlcs:           []mig.HTLC{htlc},
+	}
+
 	// The following public keys are taken from the itest results.
 	localMusigKey, _ = btcec.ParsePubKey([]byte{
 		0x2,
@@ -489,27 +502,53 @@ func createTestStore() (shachain.Store, error) {
 }
 
 // createNotStarted will setup a situation where we haven't started the
-// migration for the channel.
-func createNotStarted(cdb kvdb.Backend, c *mig26.OpenChannel) error {
+// migration for the channel. We use the legacy to denote whether to simulate a
+// node with v0.15.0.
+func createNotStarted(cdb kvdb.Backend, c *mig26.OpenChannel,
+	legacy bool) error {
+
+	var newLogs []mig.ChannelCommitment
+
 	// Create test logs.
 	oldLogs := []mig.ChannelCommitment{oldLog1, oldLog2}
-	return setupTestLogs(cdb, c, oldLogs, nil)
+
+	// Add a new log if the node is running with v0.15.0.
+	if !legacy {
+		newLogs = []mig.ChannelCommitment{newLog3}
+	}
+	return setupTestLogs(cdb, c, oldLogs, newLogs)
 }
 
 // createNotFinished will setup a situation where we have un-migrated logs and
-// return the next migration height.
-func createNotFinished(cdb kvdb.Backend, c *mig26.OpenChannel) error {
+// return the next migration height. We use the legacy to denote whether to
+// simulate a node with v0.15.0.
+func createNotFinished(cdb kvdb.Backend, c *mig26.OpenChannel,
+	legacy bool) error {
+
 	// Create test logs.
 	oldLogs := []mig.ChannelCommitment{oldLog1, oldLog2}
 	newLogs := []mig.ChannelCommitment{oldLog1}
+
+	// Add a new log if the node is running with v0.15.0.
+	if !legacy {
+		newLogs = append(newLogs, newLog3)
+	}
 	return setupTestLogs(cdb, c, oldLogs, newLogs)
 }
 
 // createFinished will setup a situation where all the old logs have been
-// migrated and return a nil.
-func createFinished(cdb kvdb.Backend, c *mig26.OpenChannel) error {
+// migrated and return a nil. We use the legacy to denote whether to simulate a
+// node with v0.15.0.
+func createFinished(cdb kvdb.Backend, c *mig26.OpenChannel,
+	legacy bool) error {
+
 	// Create test logs.
 	oldLogs := []mig.ChannelCommitment{oldLog1, oldLog2}
 	newLogs := []mig.ChannelCommitment{oldLog1, oldLog2}
+
+	// Add a new log if the node is running with v0.15.0.
+	if !legacy {
+		newLogs = append(newLogs, newLog3)
+	}
 	return setupTestLogs(cdb, c, oldLogs, newLogs)
 }

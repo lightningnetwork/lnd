@@ -2,6 +2,7 @@ package migration30
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 
@@ -71,7 +72,7 @@ func (ul *updateLocator) locateChanBucket(rootBucket kvdb.RwBucket) (
 // findNextMigrateHeight finds the next commit height that's not migrated. It
 // returns the commit height bytes found. A nil return value means the
 // migration has been completed for this particular channel bucket.
-func findNextMigrateHeight(chanBucket kvdb.RwBucket) ([]byte, error) {
+func findNextMigrateHeight(chanBucket kvdb.RwBucket) []byte {
 	// Read the old log bucket. The old bucket doesn't exist, indicating
 	// either we don't have any old logs for this channel, or the migration
 	// has been finished and the old bucket has been deleted.
@@ -79,7 +80,7 @@ func findNextMigrateHeight(chanBucket kvdb.RwBucket) ([]byte, error) {
 		revocationLogBucketDeprecated,
 	)
 	if oldBucket == nil {
-		return nil, nil
+		return nil
 	}
 
 	// Acquire a read cursor for the old bucket.
@@ -92,7 +93,7 @@ func findNextMigrateHeight(chanBucket kvdb.RwBucket) ([]byte, error) {
 	logBucket := chanBucket.NestedReadBucket(revocationLogBucket)
 	if logBucket == nil {
 		nextHeight, _ := oldCursor.First()
-		return nextHeight, nil
+		return nextHeight
 	}
 
 	// Acquire a read cursor for the new bucket.
@@ -100,37 +101,111 @@ func findNextMigrateHeight(chanBucket kvdb.RwBucket) ([]byte, error) {
 
 	// Read the last migrated record. If the key is nil, we haven't
 	// migrated any logs yet. In this case we return the first commit
-	// height found from the old revocation log bucket.
+	// height found from the old revocation log bucket. For instance,
+	// - old log: [1, 2]
+	// - new log: []
+	// We will return the first key [1].
 	migratedHeight, _ := cursor.Last()
 	if migratedHeight == nil {
 		nextHeight, _ := oldCursor.First()
-		return nextHeight, nil
+		return nextHeight
 	}
 
-	// Read the last height from the old log bucket. If the height of the
-	// last old revocation equals to the migrated height, we've done
-	// migrating for this channel.
+	// Read the last height from the old log bucket.
 	endHeight, _ := oldCursor.Last()
-	if bytes.Equal(migratedHeight, endHeight) {
-		return nil, nil
+
+	switch bytes.Compare(migratedHeight, endHeight) {
+	// If the height of the last old revocation equals to the migrated
+	// height, we've done migrating for this channel. For instance,
+	// - old log: [1, 2]
+	// - new log: [1, 2]
+	case 0:
+		return nil
+
+	// If the migrated height is smaller, it means this is a resumed
+	// migration. In this case we will return the next height found in the
+	// old bucket. For instance,
+	// - old log: [1, 2]
+	// - new log: [1]
+	// We will return the key [2].
+	case -1:
+		// Now point the cursor to the migratedHeight. If we cannot
+		// find this key from the old log bucket, the database might be
+		// corrupted. In this case, we would return the first key so
+		// that we would redo the migration for this chan bucket.
+		matchedHeight, _ := oldCursor.Seek(migratedHeight)
+
+		// NOTE: because Seek will return the next key when the passed
+		// key cannot be found, we need to compare the `matchedHeight`
+		// to decide whether `migratedHeight` is found or not.
+		if !bytes.Equal(matchedHeight, migratedHeight) {
+			log.Warnf("Old revocation bucket doesn't have "+
+				"CommitHeight=%v yet it's found in the new "+
+				"bucket. It's likely the new revocation log "+
+				"bucket is corrupted. Migrations will be"+
+				"applied again.",
+				binary.BigEndian.Uint64(migratedHeight))
+
+			// Now return the first height found in the old bucket
+			// so we can redo the migration.
+			nextHeight, _ := oldCursor.First()
+			return nextHeight
+		}
+
+		// Otherwise, find the next height to be migrated.
+		nextHeight, _ := oldCursor.Next()
+		return nextHeight
+
+	// If the migrated height is greater, it means this node has new logs
+	// saved after v0.15.0. In this case, we need to further decide whether
+	// the old logs have been migrated or not.
+	case 1:
 	}
 
-	// Now point the cursor to the migratedHeight. If we cannot find this
-	// key from the old log bucket, the database might be corrupted. In
-	// this case, we would return the first key so that we would redo the
-	// migration for this chan bucket.
-	matchedHeight, _ := oldCursor.Seek(migratedHeight)
-	if matchedHeight == nil {
-		// Now return the first height found in the old bucket so we
-		// can redo the migration.
-		nextHeight, _ := oldCursor.First()
-		return nextHeight, nil
+	// If we ever reached here, it means we have a mixed of new and old
+	// logs saved. Suppose we have old logs as,
+	//   - old log: [1, 2]
+	// We'd have four possible scenarios,
+	//   - new log: [      3, 4] <- no migration happened, return [1].
+	//   - new log: [1,    3, 4] <- resumed migration, return [2].
+	//   - new log: [   2, 3, 4] <- corrupted migration, return [1].
+	//   - new log: [1, 2, 3, 4] <- finished migration, return nil.
+	// To find the next migration height, we will iterate the old logs to
+	// grab the heights and query them in the new bucket until an height
+	// cannot be found, which is our next migration height. Or, if the old
+	// heights can all be found, it indicates a finished migration.
+
+	// Move the cursor to the first record.
+	oldKey, _ := oldCursor.First()
+
+	// NOTE: this action can be time-consuming as we are iterating the
+	// records and compare them. However, we would only ever hit here if
+	// this is a resumed migration with new logs created after v.0.15.0.
+	for {
+		// Try to locate the old key in the new bucket. If it cannot be
+		// found, it will be the next migrate height.
+		newKey, _ := cursor.Seek(oldKey)
+
+		// If the old key is not found in the new bucket, return it as
+		// our next migration height.
+		//
+		// NOTE: because Seek will return the next key when the passed
+		// key cannot be found, we need to compare the keys to deicde
+		// whether the old key is found or not.
+		if !bytes.Equal(newKey, oldKey) {
+			return oldKey
+		}
+
+		// Otherwise, keep iterating the old bucket.
+		oldKey, _ = oldCursor.Next()
+
+		// If we've done iterating, yet all the old keys can be found
+		// in the new bucket, this means the migration has been
+		// finished.
+		if oldKey == nil {
+			return nil
+		}
 	}
-
-	// Otherwise, find the next height to be migrated.
-	nextHeight, _ := oldCursor.Next()
-
-	return nextHeight, nil
 }
 
 // locateNextUpdateNum returns a locator that's used to start our migration. A
@@ -142,10 +217,7 @@ func locateNextUpdateNum(openChanBucket kvdb.RwBucket) (*updateLocator, error) {
 	cb := func(chanBucket kvdb.RwBucket, l *updateLocator) error {
 		locator = l
 
-		updateNum, err := findNextMigrateHeight(chanBucket)
-		if err != nil {
-			return err
-		}
+		updateNum := findNextMigrateHeight(chanBucket)
 
 		// We've found the next commit height and can now exit.
 		if updateNum != nil {

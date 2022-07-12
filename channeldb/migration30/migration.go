@@ -243,38 +243,33 @@ func logMigrationStat(db kvdb.Backend) (uint64, uint64, error) {
 		// total is the number of total records.
 		total uint64
 
-		// migrated is the number of already migrated records.
-		migrated uint64
-
 		// unmigrated is the number of unmigrated records.
 		unmigrated uint64
 	)
 
 	err = kvdb.Update(db, func(tx kvdb.RwTx) error {
-		total, unmigrated, migrated, err = fetchLogStats(tx)
+		total, unmigrated, err = fetchLogStats(tx)
 		return err
 	}, func() {})
 
-	log.Debugf("Total logs=%d, migrated=%d, unmigrated=%d", total, migrated,
-		unmigrated)
-	return total, migrated, err
+	log.Debugf("Total logs=%d, unmigrated=%d", total, unmigrated)
+	return total, total - unmigrated, err
 }
 
 // fetchLogStats iterates all the chan buckets to provide stats about the logs.
-// The returned values are num of total records, num of un-migrated records,
-// and num of migrated records.
-func fetchLogStats(tx kvdb.RwTx) (uint64, uint64, uint64, error) {
+// The returned values are num of total records, and num of un-migrated
+// records.
+func fetchLogStats(tx kvdb.RwTx) (uint64, uint64, error) {
 	var (
 		total           uint64
 		totalUnmigrated uint64
-		totalMigrated   uint64
 	)
 
 	openChanBucket := tx.ReadWriteBucket(openChannelBucket)
 
 	// If no bucket is found, we can exit early.
 	if openChanBucket == nil {
-		return 0, 0, 0, fmt.Errorf("root bucket not found")
+		return 0, 0, fmt.Errorf("root bucket not found")
 	}
 
 	// counter is a helper closure used to count the number of records
@@ -317,19 +312,10 @@ func fetchLogStats(tx kvdb.RwTx) (uint64, uint64, uint64, error) {
 		return nil
 	}
 
-	// countMigrated is a callback function used to count the total number
-	// of migrated records.
-	countMigrated := func(chanBucket kvdb.RwBucket,
-		l *updateLocator) error {
-
-		totalMigrated += counter(chanBucket, revocationLogBucket)
-		return nil
-	}
-
 	// Locate the next migration height.
 	locator, err := locateNextUpdateNum(openChanBucket)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("locator got error: %v", err)
+		return 0, 0, fmt.Errorf("locator got error: %v", err)
 	}
 
 	// If the returned locator is not nil, we still have un-migrated
@@ -338,20 +324,17 @@ func fetchLogStats(tx kvdb.RwTx) (uint64, uint64, uint64, error) {
 	if locator != nil {
 		err = iterateBuckets(openChanBucket, locator, countUnmigrated)
 		if err != nil {
-			return 0, 0, 0, err
+			return 0, 0, err
 		}
 	}
 
 	// Count the total number of records by supplying a nil locator.
 	err = iterateBuckets(openChanBucket, nil, countTotal)
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, err
 	}
 
-	// Count the total number of already migrated records by supplying a
-	// nil locator.
-	err = iterateBuckets(openChanBucket, nil, countMigrated)
-	return total, totalUnmigrated, totalMigrated, err
+	return total, totalUnmigrated, err
 }
 
 // logEntry houses the info needed to write a new revocation log.

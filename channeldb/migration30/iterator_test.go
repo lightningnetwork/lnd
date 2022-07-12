@@ -154,8 +154,8 @@ func TestFindNextMigrateHeight(t *testing.T) {
 				return err
 			}
 
-			height, err = findNextMigrateHeight(chanBucket)
-			return err
+			height = findNextMigrateHeight(chanBucket)
+			return nil
 		}, func() {})
 		require.NoError(t, err)
 
@@ -175,10 +175,10 @@ func TestFindNextMigrateHeight(t *testing.T) {
 			expectedHeight: nil,
 		},
 		{
-			// When we don't have any new logs, our next migration
-			// height would be the first height found in the old
-			// logs.
-			name: "empty new logs",
+			// When we don't have any migrated logs, our next
+			// migration height would be the first height found in
+			// the old logs.
+			name: "empty migrated logs",
 			oldLogs: []mig.ChannelCommitment{
 				createDummyChannelCommit(1),
 				createDummyChannelCommit(2),
@@ -186,10 +186,10 @@ func TestFindNextMigrateHeight(t *testing.T) {
 			expectedHeight: []byte{0, 0, 0, 0, 0, 0, 0, 1},
 		},
 		{
-			// When we have new logs, the next migration height
-			// should be the first height found in the old logs but
-			// not in the new logs.
-			name: "have new logs",
+			// When we have migrated logs, the next migration
+			// height should be the first height found in the old
+			// logs but not in the migrated logs.
+			name: "have migrated logs",
 			oldLogs: []mig.ChannelCommitment{
 				createDummyChannelCommit(1),
 				createDummyChannelCommit(2),
@@ -200,10 +200,10 @@ func TestFindNextMigrateHeight(t *testing.T) {
 			expectedHeight: []byte{0, 0, 0, 0, 0, 0, 0, 2},
 		},
 		{
-			// When both the logs have equal length, the next
+			// When both the logs have equal indexes, the next
 			// migration should be nil as we've finished migrating
 			// for this bucket.
-			name: "have equal logs",
+			name: "have finished logs",
 			oldLogs: []mig.ChannelCommitment{
 				createDummyChannelCommit(1),
 				createDummyChannelCommit(2),
@@ -215,10 +215,45 @@ func TestFindNextMigrateHeight(t *testing.T) {
 			expectedHeight: nil,
 		},
 		{
-			// When the lastest height found from the new logs is
-			// ahead of the old logs, we still return the old log's
-			// height.
-			name: "corrupted logs",
+			// When there are new logs saved in the new bucket,
+			// which happens when the node is running with
+			// v.0.15.0, and we don't have any migrated logs, the
+			// next migration height should be the first height
+			// found in the old bucket.
+			name: "have new logs but no migrated logs",
+			oldLogs: []mig.ChannelCommitment{
+				createDummyChannelCommit(1),
+				createDummyChannelCommit(2),
+			},
+			newLogs: []mig.ChannelCommitment{
+				createDummyChannelCommit(3),
+				createDummyChannelCommit(4),
+			},
+			expectedHeight: []byte{0, 0, 0, 0, 0, 0, 0, 1},
+		},
+		{
+			// When there are new logs saved in the new bucket,
+			// which happens when the node is running with
+			// v.0.15.0, and we have migrated logs, the returned
+			// value should be the next un-migrated height.
+			name: "have new logs and migrated logs",
+			oldLogs: []mig.ChannelCommitment{
+				createDummyChannelCommit(1),
+				createDummyChannelCommit(2),
+			},
+			newLogs: []mig.ChannelCommitment{
+				createDummyChannelCommit(1),
+				createDummyChannelCommit(3),
+				createDummyChannelCommit(4),
+			},
+			expectedHeight: []byte{0, 0, 0, 0, 0, 0, 0, 2},
+		},
+		{
+			// When there are new logs saved in the new bucket,
+			// which happens when the node is running with
+			// v.0.15.0, and we have corrupted logs, the returned
+			// value should be the first height in the old bucket.
+			name: "have new logs but missing logs",
 			oldLogs: []mig.ChannelCommitment{
 				createDummyChannelCommit(1),
 				createDummyChannelCommit(2),
@@ -226,8 +261,27 @@ func TestFindNextMigrateHeight(t *testing.T) {
 			newLogs: []mig.ChannelCommitment{
 				createDummyChannelCommit(2),
 				createDummyChannelCommit(3),
+				createDummyChannelCommit(4),
 			},
 			expectedHeight: []byte{0, 0, 0, 0, 0, 0, 0, 1},
+		},
+		{
+			// When there are new logs saved in the new bucket,
+			// which happens when the node is running with
+			// v.0.15.0, and we have finished the migration, we
+			// expect a nil height to be returned.
+			name: "have new logs and finished logs",
+			oldLogs: []mig.ChannelCommitment{
+				createDummyChannelCommit(1),
+				createDummyChannelCommit(2),
+			},
+			newLogs: []mig.ChannelCommitment{
+				createDummyChannelCommit(1),
+				createDummyChannelCommit(2),
+				createDummyChannelCommit(3),
+				createDummyChannelCommit(4),
+			},
+			expectedHeight: nil,
 		},
 	}
 

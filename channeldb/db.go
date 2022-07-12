@@ -1422,6 +1422,14 @@ func (d *DB) syncVersions(versions []mandatoryVersion) error {
 //
 // NOTE: only support the prune_revocation_log optional migration atm.
 func (d *DB) applyOptionalVersions(cfg OptionalMiragtionConfig) error {
+	// TODO(yy): need to design the db to support dry run for optional
+	// migrations.
+	if d.dryRun {
+		log.Info("Skipped optional migrations as dry run mode is not " +
+			"supported yet")
+		return nil
+	}
+
 	om, err := d.fetchOptionalMeta()
 	if err != nil {
 		if err == ErrMetaNotFound {

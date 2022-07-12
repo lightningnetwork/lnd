@@ -116,6 +116,76 @@ func TestMigrateRevocationLog(t *testing.T) {
 	}
 }
 
+// TestValidateMigration checks that the function `validateMigration` behaves
+// as expected.
+func TestValidateMigration(t *testing.T) {
+	c := createTestChannel(nil)
+
+	testCases := []struct {
+		name       string
+		setup      func(db kvdb.Backend) error
+		expectFail bool
+	}{
+		{
+			// Finished prior to v0.15.0.
+			name: "valid migration",
+			setup: func(db kvdb.Backend) error {
+				return createFinished(db, c, true)
+			},
+			expectFail: false,
+		},
+		{
+			// Finished after to v0.15.0.
+			name: "valid migration after v0.15.0",
+			setup: func(db kvdb.Backend) error {
+				return createFinished(db, c, false)
+			},
+			expectFail: false,
+		},
+		{
+			// Missing logs prior to v0.15.0.
+			name: "invalid migration",
+			setup: func(db kvdb.Backend) error {
+				return createNotFinished(db, c, true)
+			},
+			expectFail: true,
+		},
+		{
+			// Missing logs after to v0.15.0.
+			name: "invalid migration after v0.15.0",
+			setup: func(db kvdb.Backend) error {
+				return createNotFinished(db, c, false)
+			},
+			expectFail: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		// Create a test db.
+		cdb, cleanUp, err := migtest.MakeDB()
+		defer cleanUp()
+		require.NoError(t, err, "failed to create test db")
+
+		t.Run(tc.name, func(t *testing.T) {
+			// Setup test logs.
+			err := tc.setup(cdb)
+			require.NoError(t, err, "failed to setup")
+
+			// Call the actual function and check the error is
+			// returned as expected.
+			err = kvdb.Update(cdb, validateMigration, func() {})
+
+			if tc.expectFail {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 // createTwoChannels creates two channels that have the same chainHash and
 // IdentityPub, simulating having two channels under the same peer.
 func createTwoChannels() (*mig26.OpenChannel, *mig26.OpenChannel) {
@@ -186,7 +256,7 @@ func buildChannelCases(c *mig26.OpenChannel,
 	case3 := &channelTestCase{
 		name: "finished migration",
 		setup: func(db kvdb.Backend) error {
-			return createFinished(db, c)
+			return createFinished(db, c, true)
 		},
 		asserter: func(t *testing.T, db kvdb.Backend) {
 			// Check that the old bucket is removed.
@@ -227,7 +297,7 @@ func buildChannelCases(c *mig26.OpenChannel,
 	case4 := &channelTestCase{
 		name: "unfinished migration",
 		setup: func(db kvdb.Backend) error {
-			return createNotFinished(db, c)
+			return createNotFinished(db, c, true)
 		},
 		asserter: func(t *testing.T, db kvdb.Backend) {
 			// Check that the old bucket is removed.
@@ -259,7 +329,7 @@ func buildChannelCases(c *mig26.OpenChannel,
 	case5 := &channelTestCase{
 		name: "initial migration",
 		setup: func(db kvdb.Backend) error {
-			return createNotStarted(db, c)
+			return createNotStarted(db, c, true)
 		},
 		asserter:   assertNewLogs,
 		unfinished: true,

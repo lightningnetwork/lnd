@@ -92,6 +92,15 @@ func MigrateRevocationLog(db kvdb.Backend) error {
 			progress, total-migrated)
 	}
 
+	// Before we can safety delete the old buckets, we perform a check to
+	// make sure the logs are migrated as expected.
+	err = kvdb.Update(db, validateMigration, func() {})
+	if err != nil {
+		return fmt.Errorf("validate migration failed: %v", err)
+	}
+
+	log.Info("Migration check passed, now deleting the old logs...")
+
 	// Once the migration completes, we can now safety delete the old
 	// revocation logs.
 	if err := deleteOldBuckets(db); err != nil {
@@ -550,4 +559,98 @@ func convertRevocationLog(commit *mig.ChannelCommitment,
 	}
 
 	return rl, nil
+}
+
+// validateMigration checks that the data saved in the new buckets match those
+// saved in the old buckets. It does so by checking the last keys saved in both
+// buckets can match, given the assumption that the `CommitHeight` is
+// monotonically increased value so the last key represents the total number of
+// records saved.
+func validateMigration(tx kvdb.RwTx) error {
+	openChanBucket := tx.ReadWriteBucket(openChannelBucket)
+
+	// If no bucket is found, we can exit early.
+	if openChanBucket == nil {
+		return nil
+	}
+
+	// exitWithErr is a helper closure that prepends an error message with
+	// the locator info.
+	exitWithErr := func(l *updateLocator, msg string) error {
+		return fmt.Errorf("unmatched records found under <nodePub=%x"+
+			", chainHash=%x, fundingOutpoint=%x>: %v", l.nodePub,
+			l.chainHash, l.fundingOutpoint, msg)
+	}
+
+	// cb is the callback function to be used when iterating the buckets.
+	cb := func(chanBucket kvdb.RwBucket, l *updateLocator) error {
+		// Read both the old and new revocation log buckets.
+		oldBucket := chanBucket.NestedReadBucket(
+			revocationLogBucketDeprecated,
+		)
+		newBucket := chanBucket.NestedReadBucket(revocationLogBucket)
+
+		// Exit early if the old bucket is nil.
+		//
+		// NOTE: the new bucket may not be nil here as new logs might
+		// have been created using lnd@v0.15.0.
+		if oldBucket == nil {
+			return nil
+		}
+
+		// Return an error if the expected new bucket cannot be found.
+		if newBucket == nil {
+			return exitWithErr(l, "expected new bucket")
+		}
+
+		// Acquire the cursors.
+		oldCursor := oldBucket.ReadCursor()
+		newCursor := newBucket.ReadCursor()
+
+		// Jump to the end of the cursors to do a quick check.
+		newKey, _ := oldCursor.Last()
+		oldKey, _ := newCursor.Last()
+
+		// We expected the CommitHeights to be matched for nodes prior
+		// to v0.15.0.
+		if bytes.Equal(newKey, oldKey) {
+			return nil
+		}
+
+		// If the keys do not match, it's likely the node is running
+		// v0.15.0 and have new logs created. In this case, we will
+		// validate that every record in the old bucket can be found in
+		// the new bucket.
+		oldKey, _ = oldCursor.First()
+
+		for {
+			// Try to locate the old key in the new bucket and we
+			// expect it to be found.
+			newKey, _ := newCursor.Seek(oldKey)
+
+			// If the old key is not found in the new bucket,
+			// return an error.
+			//
+			// NOTE: because Seek will return the next key when the
+			// passed key cannot be found, we need to compare the
+			// keys to deicde whether the old key is found or not.
+			if !bytes.Equal(newKey, oldKey) {
+				errMsg := fmt.Sprintf("old bucket has "+
+					"CommitHeight=%v cannot be found in "+
+					"new bucket", oldKey)
+				return exitWithErr(l, errMsg)
+			}
+
+			// Otherwise, keep iterating the old bucket.
+			oldKey, _ = oldCursor.Next()
+
+			// If we've done iterating, all keys have been matched
+			// and we can safely exit.
+			if oldKey == nil {
+				return nil
+			}
+		}
+	}
+
+	return iterateBuckets(openChanBucket, nil, cb)
 }

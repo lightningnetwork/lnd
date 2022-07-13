@@ -15,6 +15,7 @@ import (
 	"time"
 
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Import to register backend.
+	"github.com/lightningnetwork/lnd/io"
 )
 
 const (
@@ -235,7 +236,7 @@ func updateLastCompactionDate(dbFile string) error {
 	byteOrder.PutUint64(tsBytes[:], uint64(time.Now().UnixNano()))
 
 	tsFile := fmt.Sprintf("%s%s", dbFile, LastCompactionFileNameSuffix)
-	return ioutil.WriteFile(tsFile, tsBytes[:], 0600)
+	return io.WriteFileToDisk(tsFile, tsBytes[:], 0600)
 }
 
 // GetTestBackend opens (or creates if doesn't exist) a bbolt or etcd

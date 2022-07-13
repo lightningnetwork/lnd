@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+
+	"github.com/lightningnetwork/lnd/io"
 )
 
 var (
@@ -63,7 +65,7 @@ func NewOnionFile(privateKeyPath string,
 
 // StorePrivateKey stores the private key at its expected path.
 func (f *OnionFile) StorePrivateKey(_ OnionType, privateKey []byte) error {
-	return ioutil.WriteFile(f.privateKeyPath, privateKey, f.privateKeyPerm)
+	return io.WriteFileToDisk(f.privateKeyPath, privateKey, f.privateKeyPerm)
 }
 
 // PrivateKey retrieves the private key from its expected path. If the file

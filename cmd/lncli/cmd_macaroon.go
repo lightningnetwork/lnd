@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/lightningnetwork/lnd/io"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -192,7 +193,7 @@ func bakeMacaroon(ctx *cli.Context) error {
 	// a file or write to the standard output using hex encoding.
 	switch {
 	case savePath != "":
-		err = ioutil.WriteFile(savePath, macBytes, 0644)
+		err = io.WriteFileToDisk(savePath, macBytes, 0644)
 		if err != nil {
 			return err
 		}
@@ -471,7 +472,7 @@ func constrainMacaroon(ctx *cli.Context) error {
 	}
 
 	// Now we can output the result.
-	err = ioutil.WriteFile(destMacFile, destMacBytes, 0644)
+	err = io.WriteFileToDisk(destMacFile, destMacBytes, 0644)
 	if err != nil {
 		return fmt.Errorf("error writing destination macaroon file "+
 			"%s: %v", destMacFile, err)

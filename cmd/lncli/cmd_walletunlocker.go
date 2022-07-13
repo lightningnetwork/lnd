@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
+	"github.com/lightningnetwork/lnd/io"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -769,7 +770,7 @@ func storeOrPrintAdminMac(ctx *cli.Context, adminMac []byte) error {
 	// macaroon to that file.
 	if ctx.IsSet("save_to") {
 		macSavePath := lncfg.CleanAndExpandPath(ctx.String("save_to"))
-		err := ioutil.WriteFile(macSavePath, adminMac, 0644)
+		err := io.WriteFileToDisk(macSavePath, adminMac, 0644)
 		if err != nil {
 			_ = os.Remove(macSavePath)
 			return err

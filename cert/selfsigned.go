@@ -9,11 +9,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"math/big"
 	"net"
 	"os"
 	"time"
+
+	"github.com/lightningnetwork/lnd/io"
 )
 
 var (
@@ -272,10 +273,10 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	}
 
 	// Write cert and key files.
-	if err = ioutil.WriteFile(certFile, certBuf.Bytes(), 0644); err != nil {
+	if err = io.WriteFileToDisk(certFile, certBuf.Bytes(), 0644); err != nil {
 		return err
 	}
-	if err = ioutil.WriteFile(keyFile, keyBuf.Bytes(), 0600); err != nil {
+	if err = io.WriteFileToDisk(keyFile, keyBuf.Bytes(), 0600); err != nil {
 		os.Remove(certFile)
 		return err
 	}

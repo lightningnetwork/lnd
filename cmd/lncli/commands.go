@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/protobuf-hex-display/json"
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightninglabs/protobuf-hex-display/proto"
+	lnio "github.com/lightningnetwork/lnd/io"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
@@ -2315,7 +2316,7 @@ func exportChanBackup(ctx *cli.Context) error {
 	}
 
 	if ctx.IsSet("output_file") {
-		return ioutil.WriteFile(
+		return lnio.WriteFileToDisk(
 			ctx.String("output_file"),
 			chanBackup.MultiChanBackup.MultiChanBackup,
 			0666,

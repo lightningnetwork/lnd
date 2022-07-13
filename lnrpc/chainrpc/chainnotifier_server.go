@@ -7,8 +7,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io/ioutil"
-	"os"
 	"path/filepath"
 	"sync"
 
@@ -16,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/io"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
@@ -135,9 +134,11 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		err = ioutil.WriteFile(macFilePath, chainNotifierMacBytes, 0644)
+		err = io.WriteFileToDisk(
+			macFilePath, chainNotifierMacBytes,
+			0644, io.RemoveOnFailure,
+		)
 		if err != nil {
-			_ = os.Remove(macFilePath)
 			return nil, nil, err
 		}
 	}

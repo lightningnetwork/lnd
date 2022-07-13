@@ -9,9 +9,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math"
-	"os"
 	"path/filepath"
 	"sort"
 	"time"
@@ -29,6 +27,7 @@ import (
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/io"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -237,9 +236,10 @@ func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		err = ioutil.WriteFile(macFilePath, walletKitMacBytes, 0644)
+		err = io.WriteFileToDisk(
+			macFilePath, walletKitMacBytes,
+			0644, io.RemoveOnFailure)
 		if err != nil {
-			_ = os.Remove(macFilePath)
 			return nil, nil, err
 		}
 	}

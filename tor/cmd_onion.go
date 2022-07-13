@@ -7,6 +7,8 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+
+	lnio "github.com/lightningnetwork/lnd/io"
 )
 
 var (
@@ -105,8 +107,9 @@ func (f *OnionFile) StorePrivateKey(privateKey []byte) error {
 		privateKeyContent = b.Bytes()
 	}
 
-	err := ioutil.WriteFile(
-		f.privateKeyPath, privateKeyContent, f.privateKeyPerm,
+	err := lnio.WriteFileToDisk(
+		f.privateKeyPath, privateKeyContent,
+		f.privateKeyPerm, lnio.Default,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to write private key "+

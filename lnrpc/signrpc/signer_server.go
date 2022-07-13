@@ -8,8 +8,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"io/ioutil"
-	"os"
 	"path/filepath"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -20,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/io"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -164,9 +163,10 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		err = ioutil.WriteFile(macFilePath, signerMacBytes, 0644)
+		err = io.WriteFileToDisk(
+			macFilePath, signerMacBytes,
+			0644, io.RemoveOnFailure)
 		if err != nil {
-			_ = os.Remove(macFilePath)
 			return nil, nil, err
 		}
 	}

@@ -101,6 +101,7 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   test](https://github.com/lightningnetwork/lnd/pull/6792).
 
 * [Fixed error typo](https://github.com/lightningnetwork/lnd/pull/6659).
+* File writes [use fsync](https://github.com/lightningnetwork/lnd/pull/7192)
 
 * [The macaroon key store implementation was refactored to be more generally
   usable](https://github.com/lightningnetwork/lnd/pull/6509).
@@ -278,3 +279,5 @@ refactor the itest for code health and maintenance.
 * Priyansh Rastogi
 * Roei Erez
 * Yong Yu
+* Maurice Poirrier
+* Greg Weber

@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/io"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -841,9 +842,10 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(invoiceFile, invoiceMacBytes, 0644)
-	if err != nil {
-		_ = os.Remove(invoiceFile)
+
+	if err = io.WriteFileToDisk(
+		invoiceFile, invoiceMacBytes,
+		0644, io.RemoveOnFailure); err != nil {
 		return err
 	}
 
@@ -852,8 +854,9 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	if err != nil {
 		return err
 	}
-	if err = ioutil.WriteFile(roFile, roBytes, 0644); err != nil {
-		_ = os.Remove(roFile)
+
+	if err = io.WriteFileToDisk(
+		roFile, roBytes, 0644, io.RemoveOnFailure); err != nil {
 		return err
 	}
 
@@ -863,9 +866,9 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 		return err
 	}
 
-	err = ioutil.WriteFile(admFile, admBytes, adminMacaroonFilePermissions)
-	if err != nil {
-		_ = os.Remove(admFile)
+	if err = io.WriteFileToDisk(
+		admFile, admBytes,
+		adminMacaroonFilePermissions, io.RemoveOnFailure); err != nil {
 		return err
 	}
 

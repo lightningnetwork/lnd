@@ -1482,6 +1482,18 @@ message Channel {
 
     // List constraints for the remote node.
     ChannelConstraints remote_constraints = 30;
+
+    /*
+    This lists out the set of alias short channel ids that exist for a channel.
+    This may be empty.
+    */
+    repeated uint64 alias_scids = 31;
+
+    // Whether or not this is a zero-conf channel.
+    bool zero_conf = 32;
+
+    // This is the confirmed / on-chain zero-conf SCID.
+    uint64 zero_conf_confirmed_scid = 33;
 }
 
 message ListChannelsRequest {
@@ -1565,6 +1577,15 @@ message ChannelCloseSummary {
     Initiator close_initiator = 12;
 
     repeated Resolution resolutions = 13;
+
+    /*
+    This lists out the set of alias short channel ids that existed for the
+    closed channel. This may be empty.
+    */
+    repeated uint64 alias_scids = 14;
+
+    //  The confirmed SCID for a zero-conf channel.
+    uint64 zero_conf_confirmed_scid = 15 [jstype = JS_STRING];
 }
 
 enum ResolutionType {

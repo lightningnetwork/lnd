@@ -3291,6 +3291,23 @@
         "remote_constraints": {
           "$ref": "#/definitions/lnrpcChannelConstraints",
           "description": "List constraints for the remote node."
+        },
+        "alias_scids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "This lists out the set of alias short channel ids that exist for a channel.\nThis may be empty."
+        },
+        "zero_conf": {
+          "type": "boolean",
+          "description": "Whether or not this is a zero-conf channel."
+        },
+        "zero_conf_confirmed_scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "This is the confirmed / on-chain zero-conf SCID."
         }
       }
     },
@@ -3550,6 +3567,19 @@
           "items": {
             "$ref": "#/definitions/lnrpcResolution"
           }
+        },
+        "alias_scids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "This lists out the set of alias short channel ids that existed for the\nclosed channel. This may be empty."
+        },
+        "zero_conf_confirmed_scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The confirmed SCID for a zero-conf channel."
         }
       }
     },

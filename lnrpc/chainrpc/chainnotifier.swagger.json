@@ -184,6 +184,11 @@
           "type": "integer",
           "format": "int64",
           "description": "The index of the confirmed transaction within the transaction."
+        },
+        "raw_block": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the block that mined the transaction. Only included if\ninclude_block was set in the request."
         }
       }
     },
@@ -222,6 +227,10 @@
           "type": "integer",
           "format": "int64",
           "description": "The earliest height in the chain for which the transaction/output script\ncould have been included in a block. This should in most cases be set to the\nbroadcast height of the transaction/output script."
+        },
+        "include_block": {
+          "type": "boolean",
+          "description": "If true, then the block that mines the specified txid/script will be\nincluded in eventual the notification event."
         }
       }
     },

@@ -257,9 +257,14 @@ func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 	var txid chainhash.Hash
 	copy(txid[:], in.Txid)
 
+	var opts []chainntnfs.NotifierOption
+	if in.IncludeBlock {
+		opts = append(opts, chainntnfs.WithIncludeBlock())
+	}
+
 	// We'll then register for the spend notification of the request.
 	confEvent, err := s.cfg.ChainNotifier.RegisterConfirmationsNtfn(
-		&txid, in.Script, in.NumConfs, in.HeightHint,
+		&txid, in.Script, in.NumConfs, in.HeightHint, opts...,
 	)
 	if err != nil {
 		return err
@@ -284,11 +289,26 @@ func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 				return err
 			}
 
+			// If the block was included (should only be there if
+			// IncludeBlock is true), then we'll encode the bytes
+			// to send with the response.
+			var blockBytes []byte
+			if details.Block != nil {
+				var blockBuf bytes.Buffer
+				err := details.Block.Serialize(&blockBuf)
+				if err != nil {
+					return err
+				}
+
+				blockBytes = blockBuf.Bytes()
+			}
+
 			rpcConfDetails := &ConfDetails{
 				RawTx:       rawTxBuf.Bytes(),
 				BlockHash:   details.BlockHash[:],
 				BlockHeight: details.BlockHeight,
 				TxIndex:     details.TxIndex,
+				RawBlock:    blockBytes,
 			}
 
 			conf := &ConfEvent{

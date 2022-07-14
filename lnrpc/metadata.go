@@ -13,6 +13,7 @@ var (
 		regexp.MustCompile("^/v1/channels/acceptor$"),
 		regexp.MustCompile("^/v1/channels/transaction-stream$"),
 		regexp.MustCompile("^/v2/router/htlcinterceptor$"),
+		regexp.MustCompile("^/v1/middleware$"),
 	}
 
 	// MaxGrpcMsgSize is used when we configure both server and clients to

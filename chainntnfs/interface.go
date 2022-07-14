@@ -8,7 +8,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcjson"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 )
@@ -67,6 +69,31 @@ func (t TxConfStatus) String() string {
 	}
 }
 
+// notifierOptions is a set of functional options that allow callers to further
+// modify the type of chain event notifications they receive.
+type notifierOptions struct {
+	// includeBlock if true, then the dispatched confirmation notification
+	// will include the block that mined the transaction.
+	includeBlock bool
+}
+
+// defaultNotifierOptions returns the set of default options for the notifier.
+func defaultNotifierOptions() *notifierOptions {
+	return &notifierOptions{}
+}
+
+// NotifierOption is a functional option that allows a caller to modify the
+// events received from the notifier.
+type NotifierOption func(*notifierOptions)
+
+// WithIncludeBlock is an optional argument that allows the calelr to specify
+// that the block that mined a transaction should be included in the response.
+func WithIncludeBlock() NotifierOption {
+	return func(o *notifierOptions) {
+		o.includeBlock = true
+	}
+}
+
 // ChainNotifier represents a trusted source to receive notifications concerning
 // targeted events on the Bitcoin blockchain. The interface specification is
 // intentionally general in order to support a wide array of chain notification
@@ -97,7 +124,8 @@ type ChainNotifier interface {
 	// NOTE: Dispatching notifications to multiple clients subscribed to
 	// the same (txid, numConfs) tuple MUST be supported.
 	RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte,
-		numConfs, heightHint uint32) (*ConfirmationEvent, error)
+		numConfs, heightHint uint32,
+		opts ...NotifierOption) (*ConfirmationEvent, error)
 
 	// RegisterSpendNtfn registers an intent to be notified once the target
 	// outpoint is successfully spent within a transaction. The script that
@@ -166,6 +194,12 @@ type TxConfirmation struct {
 
 	// Tx is the transaction for which the notification was requested for.
 	Tx *wire.MsgTx
+
+	// Block is the block that contains the transaction referenced above.
+	//
+	// NOTE: This is only specified if the confirmation request opts to
+	// have the response include the block itself.
+	Block *wire.MsgBlock
 }
 
 // ConfirmationEvent encapsulates a confirmation notification. With this struct,
@@ -628,9 +662,8 @@ type TxIndexConn interface {
 	// block that the transaction confirmed.
 	GetRawTransactionVerbose(*chainhash.Hash) (*btcjson.TxRawResult, error)
 
-	// GetBlockVerbose returns the block identified by the chain hash along
-	// with additional information such as the block's height in the chain.
-	GetBlockVerbose(*chainhash.Hash) (*btcjson.GetBlockVerboseResult, error)
+	// GetBlock returns the block identified by the chain hash.
+	GetBlock(*chainhash.Hash) (*wire.MsgBlock, error)
 }
 
 // ConfDetailsFromTxIndex looks up whether a transaction is already included in
@@ -700,26 +733,38 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, r ConfRequest,
 			fmt.Errorf("unable to get block hash %v for "+
 				"historical dispatch: %v", rawTxRes.BlockHash, err)
 	}
-	block, err := chainConn.GetBlockVerbose(blockHash)
+	block, err := chainConn.GetBlock(blockHash)
 	if err != nil {
 		return nil, TxNotFoundIndex,
 			fmt.Errorf("unable to get block with hash %v for "+
 				"historical dispatch: %v", blockHash, err)
 	}
 
+	// In the modern chain (the only one we really care about for LN), the
+	// coinbase transaction of all blocks will include the block height.
+	// Therefore we can save another query, and just use that height
+	// directly.
+	blockHeight, err := blockchain.ExtractCoinbaseHeight(
+		btcutil.NewTx(block.Transactions[0]),
+	)
+	if err != nil {
+		return nil, TxNotFoundIndex, fmt.Errorf("unable to extract "+
+			"coinbase height: %w", err)
+	}
+
 	// If the block was obtained, locate the transaction's index within the
 	// block so we can give the subscriber full confirmation details.
-	txidStr := r.TxID.String()
-	for txIndex, txHash := range block.Tx {
-		if txHash != txidStr {
+	for txIndex, blockTx := range block.Transactions {
+		if blockTx.TxHash() != r.TxID {
 			continue
 		}
 
 		return &TxConfirmation{
 			Tx:          &tx,
 			BlockHash:   blockHash,
-			BlockHeight: uint32(block.Height),
+			BlockHeight: uint32(blockHeight),
 			TxIndex:     uint32(txIndex),
+			Block:       block,
 		}, TxFoundIndex, nil
 	}
 

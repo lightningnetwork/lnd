@@ -164,7 +164,7 @@ type mockNotifier struct {
 }
 
 func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	_ []byte, numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
+	_ []byte, numConfs, heightHint uint32, opts ...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent, error) {
 
 	if numConfs == 6 {
 		return &chainntnfs.ConfirmationEvent{

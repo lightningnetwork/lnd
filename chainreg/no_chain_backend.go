@@ -57,7 +57,8 @@ func (n *NoChainBackend) RelayFeePerKW() chainfee.SatPerKWeight {
 }
 
 func (n *NoChainBackend) RegisterConfirmationsNtfn(*chainhash.Hash, []byte,
-	uint32, uint32) (*chainntnfs.ConfirmationEvent, error) {
+	uint32, uint32,
+	...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent, error) {
 
 	return nil, errNotImplemented
 }

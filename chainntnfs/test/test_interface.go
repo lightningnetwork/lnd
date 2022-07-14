@@ -160,6 +160,13 @@ func testBatchConfirmationNotification(miner *rpctest.Harness,
 	// verify they're each notified at the proper number of confirmations
 	// below.
 	for i, numConfs := range confSpread {
+		// All the clients with an even index will ask for the block
+		// along side the conf ntfn.
+		var opts []chainntnfs.NotifierOption
+		if i%2 == 0 {
+			opts = append(opts, chainntnfs.WithIncludeBlock())
+		}
+
 		txid, pkScript, err := chainntnfs.GetTestTxidAndScript(miner)
 		if err != nil {
 			t.Fatalf("unable to create test addr: %v", err)
@@ -168,10 +175,12 @@ func testBatchConfirmationNotification(miner *rpctest.Harness,
 		if scriptDispatch {
 			confIntent, err = notifier.RegisterConfirmationsNtfn(
 				nil, pkScript, numConfs, uint32(currentHeight),
+				opts...,
 			)
 		} else {
 			confIntent, err = notifier.RegisterConfirmationsNtfn(
 				txid, pkScript, numConfs, uint32(currentHeight),
+				opts...,
 			)
 		}
 		if err != nil {
@@ -218,6 +227,12 @@ func testBatchConfirmationNotification(miner *rpctest.Harness,
 					"conf height: expected %v, got %v",
 					initialConfHeight, conf.BlockHeight)
 			}
+
+			// If this is an even client index, then we expect the
+			// block to be populated. Otherwise, it should be
+			// empty.
+			expectBlock := i%2 == 0
+			require.Equal(t, expectBlock, conf.Block != nil)
 			continue
 		case <-time.After(20 * time.Second):
 			t.Fatalf("confirmation notification never received: %v", numConfs)
@@ -547,6 +562,7 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	if scriptDispatch {
 		ntfn1, err = notifier.RegisterConfirmationsNtfn(
 			nil, pkScript1, 1, uint32(currentHeight),
+			chainntnfs.WithIncludeBlock(),
 		)
 	} else {
 		ntfn1, err = notifier.RegisterConfirmationsNtfn(
@@ -579,6 +595,13 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 			t.Fatalf("incorrect block height: expected %v, got %v",
 				confInfo.BlockHeight, currentHeight)
 		}
+
+		// Ensure that if this was a script dispatch, the block is set
+		// as well.
+		if scriptDispatch {
+			require.NotNil(t, confInfo.Block)
+		}
+
 		break
 	case <-time.After(20 * time.Second):
 		t.Fatalf("confirmation notification never received")
@@ -591,6 +614,7 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	if scriptDispatch {
 		ntfn2, err = notifier.RegisterConfirmationsNtfn(
 			nil, pkScript2, 3, uint32(currentHeight),
+			chainntnfs.WithIncludeBlock(),
 		)
 	} else {
 		ntfn2, err = notifier.RegisterConfirmationsNtfn(
@@ -622,6 +646,7 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	if scriptDispatch {
 		ntfn3, err = notifier.RegisterConfirmationsNtfn(
 			nil, pkScript3, 1, uint32(currentHeight-1),
+			chainntnfs.WithIncludeBlock(),
 		)
 	} else {
 		ntfn3, err = notifier.RegisterConfirmationsNtfn(
@@ -640,7 +665,10 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	require.NoError(t, err, "unable to register ntfn")
 
 	select {
-	case <-ntfn3.Confirmed:
+	case confInfo := <-ntfn3.Confirmed:
+		if scriptDispatch {
+			require.NotNil(t, confInfo.Block)
+		}
 	case <-time.After(10 * time.Second):
 		t.Fatalf("confirmation notification never received")
 	}

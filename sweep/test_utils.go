@@ -109,8 +109,8 @@ func (m *MockNotifier) sendSpend(channel chan *chainntnfs.SpendDetail,
 
 // RegisterConfirmationsNtfn registers for tx confirm notifications.
 func (m *MockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	_ []byte, numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent,
-	error) {
+	_ []byte, numConfs, heightHint uint32,
+	opt ...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent, error) {
 
 	return &chainntnfs.ConfirmationEvent{
 		Confirmed: m.getConfChannel(txid),

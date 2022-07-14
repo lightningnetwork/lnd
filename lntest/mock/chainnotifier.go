@@ -16,8 +16,8 @@ type ChainNotifier struct {
 // RegisterConfirmationsNtfn returns a ConfirmationEvent that contains a channel
 // that the tx confirmation will go over.
 func (c *ChainNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	pkScript []byte, numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent,
-	error) {
+	pkScript []byte, numConfs, heightHint uint32,
+	opts ...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent, error) {
 
 	return &chainntnfs.ConfirmationEvent{
 		Confirmed: c.ConfChan,

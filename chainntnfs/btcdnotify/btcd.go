@@ -263,13 +263,14 @@ func (b *BtcdNotifier) onBlockConnected(hash *chainhash.Hash, height int32, t ti
 // chain. The slice of transactions will only be populated if the block
 // includes a transaction that confirmed one of our watched txids, or spends
 // one of the outputs currently being watched.
+//
 // TODO(halseth): this is currently used for complete blocks. Change to use
 // onFilteredBlockConnected and onFilteredBlockDisconnected, making it easier
 // to unify with the Neutrino implementation.
 type filteredBlock struct {
 	hash   chainhash.Hash
 	height uint32
-	txns   []*btcutil.Tx
+	block  *btcutil.Block
 
 	// connected is true if this update is a new block and false if it is a
 	// disconnected block.
@@ -619,6 +620,7 @@ func (b *BtcdNotifier) confDetailsManually(confRequest chainntnfs.ConfRequest,
 				BlockHash:   blockHash,
 				BlockHeight: height,
 				TxIndex:     uint32(txIndex),
+				Block:       block,
 			}, chainntnfs.TxFoundManually, nil
 		}
 	}
@@ -644,16 +646,14 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 	newBlock := &filteredBlock{
 		hash:    *epoch.Hash,
 		height:  uint32(epoch.Height),
-		txns:    btcutil.NewBlock(rawBlock).Transactions(),
+		block:   btcutil.NewBlock(rawBlock),
 		connect: true,
 	}
 
 	// We'll then extend the txNotifier's height with the information of
 	// this new block, which will handle all of the notification logic for
 	// us.
-	err = b.txNotifier.ConnectTip(
-		&newBlock.hash, newBlock.height, newBlock.txns,
-	)
+	err = b.txNotifier.ConnectTip(newBlock.block, newBlock.height)
 	if err != nil {
 		return fmt.Errorf("unable to connect tip: %v", err)
 	}
@@ -903,15 +903,15 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 // channel. Once it has reached all of its confirmations, a notification will be
 // sent across the 'Confirmed' channel.
 func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	pkScript []byte,
-	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
+	pkScript []byte, numConfs, heightHint uint32,
+	opts ...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent, error) {
 
 	// Register the conf notification with the TxNotifier. A non-nil value
 	// for `dispatch` will be returned if we are required to perform a
 	// manual scan for the confirmation. Otherwise the notifier will begin
 	// watching at tip for the transaction to confirm.
 	ntfn, err := b.txNotifier.RegisterConf(
-		txid, pkScript, numConfs, heightHint,
+		txid, pkScript, numConfs, heightHint, opts...,
 	)
 	if err != nil {
 		return nil, err

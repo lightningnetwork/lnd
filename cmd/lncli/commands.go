@@ -1150,6 +1150,12 @@ var abandonChannelCommand = cli.Command{
 			Usage: "the output index for the funding output of the funding " +
 				"transaction",
 		},
+		cli.StringFlag{
+			Name: "chan_point",
+			Usage: "(optional) the channel point. If set, " +
+				"funding_txid and output_index flags and " +
+				"positional arguments will be ignored",
+		},
 		cli.BoolFlag{
 			Name: "i_know_what_i_am_doing",
 			Usage: "override the requirement for lnd needing to " +

@@ -570,6 +570,13 @@ service Lightning {
     */
     rpc SubscribeCustomMessages (SubscribeCustomMessagesRequest)
         returns (stream CustomMessage);
+
+    /* lncli: `listaliases`
+    ListAliases returns the set of all aliases that have ever existed with
+    their confirmed SCID (if it exists) and/or the base SCID (in the case of
+    zero conf).
+    */
+    rpc ListAliases (ListAliasesRequest) returns (ListAliasesResponse);
 }
 
 message SubscribeCustomMessagesRequest {
@@ -1511,6 +1518,22 @@ message ListChannelsRequest {
 message ListChannelsResponse {
     // The list of active channels
     repeated Channel channels = 11;
+}
+
+message AliasMap {
+    /*
+    For non-zero-conf channels, this is the confirmed SCID. Otherwise, this is
+    the first assigned "base" alias.
+    */
+    uint64 base_scid = 1;
+
+    // The set of all aliases stored for the base SCID.
+    repeated uint64 aliases = 2;
+}
+message ListAliasesRequest {
+}
+message ListAliasesResponse {
+    repeated AliasMap alias_maps = 1;
 }
 
 enum Initiator {

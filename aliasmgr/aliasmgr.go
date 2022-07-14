@@ -399,6 +399,23 @@ func (m *Manager) RequestAlias() (lnwire.ShortChannelID, error) {
 	return nextAlias, nil
 }
 
+// ListAliases returns a carbon copy of baseToSet. This is used by the rpc
+// layer.
+func (m *Manager) ListAliases() map[lnwire.ShortChannelID][]lnwire.ShortChannelID {
+	m.RLock()
+	defer m.RUnlock()
+
+	baseCopy := make(map[lnwire.ShortChannelID][]lnwire.ShortChannelID)
+
+	for k, v := range m.baseToSet {
+		setCopy := make([]lnwire.ShortChannelID, len(v))
+		copy(setCopy, v)
+		baseCopy[k] = setCopy
+	}
+
+	return baseCopy
+}
+
 // getNextScid is a utility function that returns the next SCID for a given
 // alias SCID. The BlockHeight ranges from [16000000, 16250000], the TxIndex
 // ranges from [1, 16777215], and the TxPosition ranges from [1, 65535].

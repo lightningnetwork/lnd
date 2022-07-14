@@ -576,6 +576,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/ListAliases": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 	}
 }
 
@@ -7726,6 +7730,37 @@ func (r *rpcServer) SubscribeCustomMessages(req *lnrpc.SubscribeCustomMessagesRe
 			}
 		}
 	}
+}
+
+// ListAliases returns the set of all aliases we have ever allocated along with
+// their base SCID's and possibly a separate confirmed SCID in the case of
+// zero-conf.
+func (r *rpcServer) ListAliases(ctx context.Context,
+	in *lnrpc.ListAliasesRequest) (*lnrpc.ListAliasesResponse, error) {
+
+	// Fetch the map of all aliases.
+	mapAliases := r.server.aliasMgr.ListAliases()
+
+	// Fill out the response. This does not include the zero-conf confirmed
+	// SCID. Doing so would require more database lookups and it can be
+	// cross-referenced with the output of listchannels/closedchannels.
+	resp := &lnrpc.ListAliasesResponse{
+		AliasMaps: make([]*lnrpc.AliasMap, 0),
+	}
+
+	for base, set := range mapAliases {
+		rpcMap := &lnrpc.AliasMap{
+			BaseScid: base.ToUint64(),
+		}
+		for _, alias := range set {
+			rpcMap.Aliases = append(
+				rpcMap.Aliases, alias.ToUint64(),
+			)
+		}
+		resp.AliasMaps = append(resp.AliasMaps, rpcMap)
+	}
+
+	return resp, nil
 }
 
 // rpcInitiator returns the correct lnrpc initiator for channels where we have

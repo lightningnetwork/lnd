@@ -55,7 +55,7 @@ Retrieving information about your tower’s configurations can be done using
 }
 ```
 
-The entire set of watchtower configuration options can be found using 
+The entire set of watchtower configuration options can be found using
 `lnd -h`:
 
 ```shell
@@ -84,7 +84,7 @@ properly configured to point to an active listener.
 
 Additionally, users can specify their tower’s external IP address(es) using
 `watchtower.externalip=`, which will expose the full tower URIs
-(pubkey@host:port) over RPC or `lncli tower info`: 
+(pubkey@host:port) over RPC or `lncli tower info`:
 
 ```shell
 ⛰  lncli tower info
@@ -102,9 +102,9 @@ tower with the following command:
 ```
 
 If the watchtower's clients will need remote access, be sure to either:
- - Open port 9911 or a port chosen via `watchtower.listen`.
- - Use a proxy to direct traffic from an open port to the watchtower's listening
-   address.
+- Open port 9911 or a port chosen via `watchtower.listen`.
+- Use a proxy to direct traffic from an open port to the watchtower's listening
+  address.
 
 ### Tor Hidden Services
 
@@ -147,6 +147,7 @@ On Linux, for example, the default watchtower database will be located at:
 In order to set up a watchtower client, you’ll need two things:
 
 1. The watchtower client must be enabled with the `--wtclient.active` flag.
+(Deprecated, default value is true)
 
 ```shell
 ⛰  lnd --wtclient.active
@@ -236,4 +237,12 @@ COMMANDS:
 
 OPTIONS:
    --help, -h  show help
+```
+
+## Disabling a Watchtower Client
+
+The watchtower client can be disabled with the `--wtclient.deactivate` flag.
+
+```shell
+⛰  lnd --wtclient.deactivate
 ```

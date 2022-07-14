@@ -6,7 +6,8 @@ import "fmt"
 type WtClient struct {
 	// Active determines whether a watchtower client should be created to
 	// back up channel states with registered watchtowers.
-	Active bool `long:"active" description:"Whether the daemon should use private watchtowers to back up revoked channel states."`
+	// Note: Default value is true.
+	Active bool `long:"active" description:"(Deprecated) Whether the daemon should use private watchtowers to back up revoked channel states. This will always be set to true by default, and is here for backwards compatibility."`
 
 	// PrivateTowerURIs specifies the lightning URIs of the towers the
 	// watchtower client should send new backups to.
@@ -15,6 +16,9 @@ type WtClient struct {
 	// SweepFeeRate specifies the fee rate in sat/byte to be used when
 	// constructing justice transactions sent to the tower.
 	SweepFeeRate uint64 `long:"sweep-fee-rate" description:"Specifies the fee rate in sat/byte to be used when constructing justice transactions sent to the watchtower."`
+
+	// Deactivate determines whether the watchtower client be stopped
+	Deactivate bool `long:"deactivate" description:"Whether the daemon should not use private watchtowers to back up revoked channel states."`
 }
 
 // Validate ensures the user has provided a valid configuration.

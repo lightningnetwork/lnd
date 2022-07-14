@@ -7,7 +7,10 @@
 
 * [The macaroon key store implementation was refactored to be more generally useable](https://github.com/lightningnetwork/lnd/pull/6509).
 
+* [Adds `wtclient.deactivate` flag and defaults `wtclient.active` to `true`](https://github.com/lightningnetwork/lnd/pull/6733).
+
 # Contributors (Alphabetical Order)
 * Carla Kirk-Cohen
 * ErikEk
 * Olaoluwa Osuntokun
+* Priyansh Rastogi

@@ -815,7 +815,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			cfg.Watchtower.TowerDir,
 			cfg.registeredChains.PrimaryChain().String(),
 			lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
-		), cfg.WtClient.Active, cfg.Watchtower.Active,
+		), !cfg.WtClient.Deactivate, cfg.Watchtower.Active,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to obtain database "+
@@ -904,7 +904,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	dbs.ChanStateDB = dbs.GraphDB
 
 	// Wrap the watchtower client DB and make sure we clean up.
-	if cfg.WtClient.Active {
+	if !cfg.WtClient.Deactivate {
 		dbs.TowerClientDB, err = wtdb.OpenClientDB(
 			databaseBackends.TowerClientDB,
 		)

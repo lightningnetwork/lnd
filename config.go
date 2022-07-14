@@ -203,6 +203,10 @@ const (
 	// defaultKeepFailedPaymentAttempts is the default setting for whether
 	// to keep failed payments in the database.
 	defaultKeepFailedPaymentAttempts = false
+
+	// deafultWtClientActive sets the watchTower client to start
+	// automatically along with lnd.
+	deafultWtClientActive = true
 )
 
 var (
@@ -634,6 +638,9 @@ func DefaultConfig() Config {
 		KeepFailedPaymentAttempts: defaultKeepFailedPaymentAttempts,
 		RemoteSigner: &lncfg.RemoteSigner{
 			Timeout: lncfg.DefaultRemoteSignerRPCTimeout,
+		},
+		WtClient: &lncfg.WtClient{
+			Active: deafultWtClientActive,
 		},
 	}
 }

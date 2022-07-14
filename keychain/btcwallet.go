@@ -6,7 +6,9 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -451,4 +453,34 @@ func (b *BtcWalletKeyRing) SignMessageCompact(keyLoc KeyLocator,
 		digest = chainhash.HashB(msg)
 	}
 	return ecdsa.SignCompact(privKey, digest, true)
+}
+
+// SignMessageSchnorr uses the Schnorr signature algorithm to sign the given
+// message, single or double SHA256 hashing it first, with the private key
+// described in the key locator and the optional tweak applied to the private
+// key.
+//
+// NOTE: This is part of the keychain.MessageSignerRing interface.
+func (b *BtcWalletKeyRing) SignMessageSchnorr(keyLoc KeyLocator,
+	msg []byte, doubleHash bool, taprootTweak []byte) (*schnorr.Signature,
+	error) {
+
+	privKey, err := b.DerivePrivKey(KeyDescriptor{
+		KeyLocator: keyLoc,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(taprootTweak) > 0 {
+		privKey = txscript.TweakTaprootPrivKey(privKey, taprootTweak)
+	}
+
+	var digest []byte
+	if doubleHash {
+		digest = chainhash.DoubleHashB(msg)
+	} else {
+		digest = chainhash.HashB(msg)
+	}
+	return schnorr.Sign(privKey, digest)
 }

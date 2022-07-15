@@ -108,6 +108,7 @@ linters:
   - contextcheck
   - errname
   - exhaustivestruct
+  - exhaustruct
   - goerr113
   - gomnd
   - ifshort

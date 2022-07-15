@@ -41,6 +41,12 @@ var updateChanStatusCommand = cli.Command{
 				"transaction",
 		},
 		cli.StringFlag{
+			Name: "chan_point",
+			Usage: "(optional) the channel point. If set, " +
+				"funding_txid and output_index flags and " +
+				"positional arguments will be ignored",
+		},
+		cli.StringFlag{
 			Name: "action",
 			Usage: `the action to take: must be one of "enable", "disable", ` +
 				`or "auto"`,

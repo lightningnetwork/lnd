@@ -1,6 +1,7 @@
 package sweep
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -139,9 +140,13 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	feePerKw chainfee.SatPerKWeight, signer input.Signer) (*wire.MsgTx,
 	error) {
 
-	inputs, estimator := getWeightEstimate(
+	inputs, estimator, err := getWeightEstimate(
 		inputs, outputs, feePerKw, changePkScript,
 	)
+	if err != nil {
+		return nil, err
+	}
+
 	txFee := estimator.fee()
 
 	var (
@@ -315,7 +320,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 // Additionally, it returns counts for the number of csv and cltv inputs.
 func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 	feeRate chainfee.SatPerKWeight, outputPkScript []byte) ([]input.Input,
-	*weightEstimator) {
+	*weightEstimator, error) {
 
 	// We initialize a weight estimator so we can accurately asses the
 	// amount of fees we need to pay for this sweep transaction.
@@ -337,10 +342,25 @@ func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 	// change output to the weight estimate regardless, since the estimated
 	// fee will just be subtracted from this already dust output, and
 	// trimmed.
-	if txscript.IsPayToTaproot(outputPkScript) {
+	switch {
+	case txscript.IsPayToTaproot(outputPkScript):
 		weightEstimate.addP2TROutput()
-	} else {
+
+	case txscript.IsPayToWitnessScriptHash(outputPkScript):
+		weightEstimate.addP2WSHOutput()
+
+	case txscript.IsPayToWitnessPubKeyHash(outputPkScript):
 		weightEstimate.addP2WKHOutput()
+
+	case txscript.IsPayToPubKeyHash(outputPkScript):
+		weightEstimate.estimator.AddP2PKHOutput()
+
+	case txscript.IsPayToScriptHash(outputPkScript):
+		weightEstimate.estimator.AddP2SHOutput()
+
+	default:
+		// Unknown script type.
+		return nil, nil, errors.New("unknown script type")
 	}
 
 	// For each output, use its witness type to determine the estimate
@@ -368,7 +388,7 @@ func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 		sweepInputs = append(sweepInputs, inp)
 	}
 
-	return sweepInputs, weightEstimate
+	return sweepInputs, weightEstimate, nil
 }
 
 // inputSummary returns a string containing a human readable summary about the

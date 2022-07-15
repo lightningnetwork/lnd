@@ -427,4 +427,8 @@ var allTestCases = []*testCase{
 		name: "scid alias upgrade",
 		test: testOptionScidUpgrade,
 	},
+	{
+		name: "nonstd sweep",
+		test: testNonstdSweep,
+	},
 }

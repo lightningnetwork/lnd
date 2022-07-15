@@ -84,6 +84,9 @@
 * [Fixes a key scope issue preventing new remote signing setups to be created
   with `v0.15.0-beta`](https://github.com/lightningnetwork/lnd/pull/6714).
 
+* [Re-initialise registered middleware index lookup map after removal of a 
+  registered middleware](https://github.com/lightningnetwork/lnd/pull/6739)
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes

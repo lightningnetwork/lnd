@@ -489,10 +489,17 @@ func (r *InterceptorChain) RemoveMiddleware(middlewareName string) {
 		return
 	}
 	delete(r.registeredMiddlewareNames, middlewareName)
+
 	r.registeredMiddleware = append(
 		r.registeredMiddleware[:index],
 		r.registeredMiddleware[index+1:]...,
 	)
+
+	// Re-initialise the middleware look-up map with the updated indexes.
+	r.registeredMiddlewareNames = make(map[string]int)
+	for i, mw := range r.registeredMiddleware {
+		r.registeredMiddlewareNames[mw.middlewareName] = i
+	}
 }
 
 // CustomCaveatSupported makes sure a middleware that handles the given custom

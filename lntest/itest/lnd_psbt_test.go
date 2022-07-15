@@ -1381,4 +1381,6 @@ func sendAllCoinsToAddrType(ctx context.Context, t *harnessTest,
 	require.NoError(t.t, err)
 
 	_ = mineBlocks(t, net, 1, 1)[0]
+	err = node.WaitForBlockchainSync()
+	require.NoError(t.t, err)
 }

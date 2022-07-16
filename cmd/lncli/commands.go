@@ -1133,7 +1133,7 @@ var abandonChannelCommand = cli.Command{
 	channels due to bugs fixed in newer versions of lnd.
 
 	Only available when lnd is built in debug mode. The flag
-	--i_know_what_im_doing can be set to override the debug/dev mode
+	--i_know_what_i_am_doing can be set to override the debug/dev mode
 	requirement.
 
 	To view which funding_txids/output_indexes can be used for this command,

@@ -975,10 +975,21 @@ func sendToRoute(ctx *cli.Context) error {
 		route = routes.Route
 	}
 
+	var onionBlob []byte
+
+	if ctx.IsSet("onion_blob") {
+		onionBlob, err = hex.DecodeString(ctx.String("onion_blob"))
+
+		if err != nil {
+			return err
+		}
+	}
+
 	req := &routerrpc.SendToRouteRequest{
 		PaymentHash: rHash,
 		Route:       route,
 		SkipTempErr: ctx.Bool("skip_temp_err"),
+		OnionBlob:   onionBlob,
 	}
 
 	return sendToRouteRequest(ctx, req)

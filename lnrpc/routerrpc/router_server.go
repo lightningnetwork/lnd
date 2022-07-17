@@ -392,6 +392,10 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 	if req.Route == nil {
 		return nil, fmt.Errorf("unable to send, no routes provided")
 	}
+	if len(req.OnionBlob) > lnwire.OnionPacketSize {
+		return nil, fmt.Errorf("the provided onion blob is to large, "+
+			"size is limited to %d bytes", lnwire.OnionPacketSize)
+	}
 
 	route, err := s.cfg.RouterBackend.UnmarshallRoute(req.Route)
 	if err != nil {
@@ -412,9 +416,13 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 	// case, we give precedence to the attempt information as stored in the
 	// db.
 	if req.SkipTempErr {
-		attempt, err = s.cfg.Router.SendToRouteSkipTempErr(hash, route)
+		attempt, err = s.cfg.Router.SendToRouteSkipTempErr(
+			hash, route, req.OnionBlob,
+		)
 	} else {
-		attempt, err = s.cfg.Router.SendToRoute(hash, route)
+		attempt, err = s.cfg.Router.SendToRoute(
+			hash, route, req.OnionBlob,
+		)
 	}
 	if attempt != nil {
 		rpcAttempt, err := s.cfg.RouterBackend.MarshalHTLCAttempt(

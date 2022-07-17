@@ -362,6 +362,12 @@ message SendToRouteRequest {
     routes, incorrect payment details, or insufficient funds.
     */
     bool skip_temp_err = 3;
+
+    /*
+    Custom onion blob. Limited to 1366 bytes. This will be used instead of the
+    standard generated sphinx package.
+    */
+    bytes onion_blob = 4;
 }
 
 message SendToRouteResponse {

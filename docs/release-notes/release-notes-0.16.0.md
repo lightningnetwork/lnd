@@ -21,6 +21,9 @@
   that were signed by our wallet. Prior to this change `SignPsbt` didn't
   indicate whether the Psbt held any inputs for our wallet to sign.
 
+* Allowing users to parse a [custom onion blob though the
+  sendtoroute interface](https://github.com/lightningnetwork/lnd/pull/6750).
+
 * [Add list addresses RPC](https://github.com/lightningnetwork/lnd/pull/6596).
 
 * Add [TrackPayments](https://github.com/lightningnetwork/lnd/pull/6335)

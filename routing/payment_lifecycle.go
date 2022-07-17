@@ -296,7 +296,9 @@ lifecycle:
 		lastShard := rt.ReceiverAmt() == currentState.remainingAmt
 
 		// We found a route to try, launch a new shard.
-		attempt, outcome, err := shardHandler.launchShard(rt, lastShard)
+		attempt, outcome, err := shardHandler.launchShard(
+			rt, lastShard, nil,
+		)
 		switch {
 		// We may get a terminal error if we've processed a shard with
 		// a terminal state (settled or permanent failure), while we
@@ -426,12 +428,13 @@ type launchOutcome struct {
 // non-nil error, it means that the attempt was not sent onto the network, so
 // no result will be available in the future for it.
 func (p *shardHandler) launchShard(rt *route.Route,
-	lastShard bool) (*channeldb.HTLCAttemptInfo, *launchOutcome, error) {
+	lastShard bool, customOnionBlob []byte) (*channeldb.HTLCAttemptInfo,
+	*launchOutcome, error) {
 
 	// Using the route received from the payment session, create a new
 	// shard to send.
 	firstHop, htlcAdd, attempt, err := p.createNewPaymentAttempt(
-		rt, lastShard,
+		rt, lastShard, customOnionBlob,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -658,7 +661,8 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 }
 
 // createNewPaymentAttempt creates a new payment attempt from the given route.
-func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) (
+func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool,
+	customOninonBlob []byte) (
 	lnwire.ShortChannelID, *lnwire.UpdateAddHTLC,
 	*channeldb.HTLCAttemptInfo, error) {
 
@@ -696,14 +700,7 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) 
 		hop.AMP = shard.AMP()
 	}
 
-	// Generate the raw encoded sphinx packet to be included along
-	// with the htlcAdd message that we send directly to the
-	// switch.
 	hash := shard.Hash()
-	onionBlob, _, err := generateSphinxPacket(rt, hash[:], sessionKey)
-	if err != nil {
-		return lnwire.ShortChannelID{}, nil, nil, err
-	}
 
 	// Craft an HTLC packet to send to the layer 2 switch. The
 	// metadata within this packet will be used to route the
@@ -713,7 +710,21 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) 
 		Expiry:      rt.TotalTimeLock,
 		PaymentHash: hash,
 	}
-	copy(htlcAdd.OnionBlob[:], onionBlob)
+
+	// Use the custom onion blob if it is provided. Otherwise, we will
+	// generate the raw encoded sphinx packet to be included along
+	// with the htlcAdd message that we send directly to the
+	// switch.
+	if customOninonBlob != nil {
+		copy(htlcAdd.OnionBlob[:], customOninonBlob)
+	} else {
+		onionBlob, _, err := generateSphinxPacket(rt, hash[:],
+			sessionKey)
+		if err != nil {
+			return lnwire.ShortChannelID{}, nil, nil, err
+		}
+		copy(htlcAdd.OnionBlob[:], onionBlob)
+	}
 
 	// Attempt to send this payment through the network to complete
 	// the payment. If this attempt fails, then we'll continue on

@@ -3,9 +3,11 @@ package itest
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -61,8 +63,12 @@ func runDeriveSharedKey(t *harnessTest, alice *lntest.HarnessNode) {
 
 	customizedKeyFamily := int32(keychain.KeyFamilyMultiSig)
 	customizedIndex := int32(1)
+
 	customizedPub, err := deriveCustomizedKey(
-		ctxb, alice, customizedKeyFamily, customizedIndex,
+		ctxb, alice, &signrpc.KeyLocator{
+			KeyFamily: customizedKeyFamily,
+			KeyIndex:  customizedIndex,
+		},
 	)
 	require.NoError(t.t, err, "failed to create customized pubkey")
 
@@ -394,14 +400,12 @@ func assertSignOutputRaw(t *harnessTest, net *lntest.NetworkHarness,
 // deriveCustomizedKey uses the family and index to derive a public key from
 // the node's walletkit client.
 func deriveCustomizedKey(ctx context.Context, node *lntest.HarnessNode,
-	family, index int32) (*btcec.PublicKey, error) {
+	keyLoc *signrpc.KeyLocator) (*btcec.PublicKey, error) {
 
-	ctxt, _ := context.WithTimeout(ctx, defaultTimeout)
-	req := &signrpc.KeyLocator{
-		KeyFamily: family,
-		KeyIndex:  index,
-	}
-	resp, err := node.WalletKitClient.DeriveKey(ctxt, req)
+	ctxt, cancel := context.WithTimeout(ctx, defaultTimeout)
+	defer cancel()
+
+	resp, err := node.WalletKitClient.DeriveKey(ctxt, keyLoc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive key: %v", err)
 	}
@@ -410,4 +414,105 @@ func deriveCustomizedKey(ctx context.Context, node *lntest.HarnessNode,
 		return nil, fmt.Errorf("failed to parse node pubkey: %v", err)
 	}
 	return pub, nil
+}
+
+// testSignVerifyMessage makes sure that the SignMessage RPC can be used with
+// all custom flags by verifying with VerifyMessage. Tests both ECDSA and
+// Schnorr signatures.
+func testSignVerifyMessage(net *lntest.NetworkHarness, t *harnessTest) {
+	runSignVerifyMessage(t, net, net.Alice)
+}
+
+// runSignVerifyMessage makes sure that the SignMessage RPC can be used with all
+// custom flags by verifying with VerifyMessage. Tests both ECDSA and Schnorr
+// signatures.
+func runSignVerifyMessage(t *harnessTest, net *lntest.NetworkHarness,
+	alice *lntest.HarnessNode) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	aliceMsg := []byte("alice msg")
+	keyLoc := &signrpc.KeyLocator{
+		KeyFamily: int32(keychain.KeyFamilyNodeKey),
+		KeyIndex:  1,
+	}
+
+	// Sign a message with the default ECDSA.
+	signMsgReq := &signrpc.SignMessageReq{
+		Msg:        aliceMsg,
+		KeyLoc:     keyLoc,
+		SchnorrSig: false,
+	}
+
+	signMsgResp, err := alice.SignerClient.SignMessage(ctxt, signMsgReq)
+	require.NoError(t.t, err, "failed to sign message")
+
+	customPubKey, err := deriveCustomizedKey(ctxt, alice, keyLoc)
+	require.NoError(t.t, err, "failed to create customized pubkey")
+
+	verifyReq := &signrpc.VerifyMessageReq{
+		Msg:          aliceMsg,
+		Signature:    signMsgResp.Signature,
+		Pubkey:       customPubKey.SerializeCompressed(),
+		IsSchnorrSig: false,
+	}
+	verifyResp, err := alice.SignerClient.VerifyMessage(ctxt, verifyReq)
+	require.NoError(t.t, err)
+
+	require.True(t.t, verifyResp.Valid, "failed to verify message")
+
+	// Use a different key locator.
+	keyLoc = &signrpc.KeyLocator{
+		KeyFamily: int32(keychain.KeyFamilyNodeKey),
+		KeyIndex:  2,
+	}
+
+	// Sign a message with Schnorr signature.
+	signMsgReq = &signrpc.SignMessageReq{
+		Msg:        aliceMsg,
+		KeyLoc:     keyLoc,
+		SchnorrSig: true,
+	}
+
+	signMsgResp, err = alice.SignerClient.SignMessage(ctxt, signMsgReq)
+	require.NoError(t.t, err)
+
+	customPubKey, err = deriveCustomizedKey(ctxt, alice, keyLoc)
+	require.NoError(t.t, err, "failed to create customized pubkey")
+
+	// Verify the Schnorr signature.
+	verifyReq = &signrpc.VerifyMessageReq{
+		Msg:          aliceMsg,
+		Signature:    signMsgResp.Signature,
+		Pubkey:       schnorr.SerializePubKey(customPubKey),
+		IsSchnorrSig: true,
+	}
+	verifyResp, err = alice.SignerClient.VerifyMessage(ctxt, verifyReq)
+	require.NoError(t.t, err)
+
+	require.True(t.t, verifyResp.Valid, "failed to verify message")
+
+	// Also test that we can tweak a private key and verify the message
+	// against the tweaked public key.
+	tweakBytes := sha256.Sum256([]byte("some text"))
+	tweakedPubKey := txscript.ComputeTaprootOutputKey(
+		customPubKey, tweakBytes[:],
+	)
+
+	signMsgReq.SchnorrSigTapTweak = tweakBytes[:]
+	signMsgResp, err = alice.SignerClient.SignMessage(ctxt, signMsgReq)
+	require.NoError(t.t, err)
+
+	verifyReq = &signrpc.VerifyMessageReq{
+		Msg:          aliceMsg,
+		Signature:    signMsgResp.Signature,
+		Pubkey:       schnorr.SerializePubKey(tweakedPubKey),
+		IsSchnorrSig: true,
+	}
+	verifyResp, err = alice.SignerClient.VerifyMessage(ctxt, verifyReq)
+	require.NoError(t.t, err)
+
+	require.True(t.t, verifyResp.Valid, "failed to verify message")
 }

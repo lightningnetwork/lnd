@@ -118,7 +118,7 @@ var (
 //      | Macaroon Interceptor             |
 //      +----------------------------------+--------> +---------------------+
 //      | RPC Macaroon Middleware Handler  |<-------- | External Middleware |
-//      +----------------------------------+          |   - approve request |
+//      +----------------------------------+          |   - modify request |
 //      | Prometheus Interceptor           |          +---------------------+
 //      +-+--------------------------------+
 //        | validated gRPC request from client
@@ -808,26 +808,36 @@ func (r *InterceptorChain) middlewareUnaryServerInterceptor() grpc.UnaryServerIn
 			return handler(ctx, req)
 		}
 
-		msg, err := NewMessageInterceptionRequest(
-			ctx, TypeRequest, false, info.FullMethod, req,
+		requestID := atomic.AddUint64(&r.lastRequestID, 1)
+		req, err := r.interceptMessage(
+			ctx, TypeRequest, requestID, false, info.FullMethod,
+			req,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		requestID := atomic.AddUint64(&r.lastRequestID, 1)
-		err = r.acceptRequest(requestID, msg)
-		if err != nil {
-			return nil, err
+		// Call the handler, which executes the request against lnd.
+		lndResp, lndErr := handler(ctx, req)
+		if lndErr != nil {
+			// The call to lnd ended in an error and not a normal
+			// proto message response. Send the error to the
+			// interceptor as well to inform about the abnormal
+			// termination of the stream and to give the option to
+			// replace the error message with a custom one.
+			replacedErr, err := r.interceptMessage(
+				ctx, TypeResponse, requestID, false,
+				info.FullMethod, lndErr,
+			)
+			if err != nil {
+				return nil, err
+			}
+			return lndResp, replacedErr.(error)
 		}
 
-		resp, respErr := handler(ctx, req)
-		if respErr != nil {
-			return resp, respErr
-		}
-
-		return r.interceptResponse(
-			ctx, requestID, false, info.FullMethod, resp,
+		return r.interceptMessage(
+			ctx, TypeResponse, requestID, false, info.FullMethod,
+			lndResp,
 		)
 	}
 }
@@ -874,7 +884,7 @@ func (r *InterceptorChain) middlewareStreamServerInterceptor() grpc.StreamServer
 		}
 
 		requestID := atomic.AddUint64(&r.lastRequestID, 1)
-		err = r.acceptRequest(requestID, msg)
+		err = r.acceptStream(requestID, msg)
 		if err != nil {
 			return err
 		}
@@ -886,7 +896,27 @@ func (r *InterceptorChain) middlewareStreamServerInterceptor() grpc.StreamServer
 			interceptor:  r,
 		}
 
-		return handler(srv, wrappedSS)
+		// Call the stream handler, which will block as long as the
+		// stream is alive.
+		lndErr := handler(srv, wrappedSS)
+		if lndErr != nil {
+			// This is an error being returned from lnd. Send it to
+			// the interceptor as well to inform about the abnormal
+			// termination of the stream and to give the option to
+			// replace the error message with a custom one.
+			replacedErr, err := r.interceptMessage(
+				ss.Context(), TypeResponse, requestID,
+				true, info.FullMethod, lndErr,
+			)
+			if err != nil {
+				return err
+			}
+
+			return replacedErr.(error)
+		}
+
+		// Normal/successful termination of the stream.
+		return nil
 	}
 }
 
@@ -926,11 +956,11 @@ func (r *InterceptorChain) middlewareRegistered() bool {
 	return len(r.registeredMiddleware) > 0
 }
 
-// acceptRequest sends an intercept request to all middlewares that have
+// acceptStream sends an intercept request to all middlewares that have
 // registered for it. This means either a middleware has requested read-only
 // access or the request actually has a macaroon with a caveat the middleware
 // registered for.
-func (r *InterceptorChain) acceptRequest(requestID uint64,
+func (r *InterceptorChain) acceptStream(requestID uint64,
 	msg *InterceptionRequest) error {
 
 	r.RLock()
@@ -967,13 +997,13 @@ func (r *InterceptorChain) acceptRequest(requestID uint64,
 	return nil
 }
 
-// interceptResponse sends out an intercept request for an RPC response. Since
+// interceptMessage sends out an intercept request for an RPC response. Since
 // middleware that hasn't registered for the read-only mode has the option to
-// overwrite/replace the response, this needs to be handled differently than the
-// request/auth path above.
-func (r *InterceptorChain) interceptResponse(ctx context.Context,
-	requestID uint64, isStream bool, fullMethod string,
-	m interface{}) (interface{}, error) {
+// overwrite/replace the message, this needs to be handled differently than the
+// auth path above.
+func (r *InterceptorChain) interceptMessage(ctx context.Context,
+	interceptType InterceptType, requestID uint64, isStream bool,
+	fullMethod string, m interface{}) (interface{}, error) {
 
 	r.RLock()
 	defer r.RUnlock()
@@ -981,7 +1011,8 @@ func (r *InterceptorChain) interceptResponse(ctx context.Context,
 	currentMessage := m
 	for _, middleware := range r.registeredMiddleware {
 		msg, err := NewMessageInterceptionRequest(
-			ctx, TypeResponse, isStream, fullMethod, currentMessage,
+			ctx, interceptType, isStream, fullMethod,
+			currentMessage,
 		)
 		if err != nil {
 			return nil, err
@@ -1039,8 +1070,9 @@ type serverStreamWrapper struct {
 // SendMsg is called when lnd sends a message to the client. This is wrapped to
 // intercept streaming RPC responses.
 func (w *serverStreamWrapper) SendMsg(m interface{}) error {
-	newMsg, err := w.interceptor.interceptResponse(
-		w.ServerStream.Context(), w.requestID, true, w.fullMethod, m,
+	newMsg, err := w.interceptor.interceptMessage(
+		w.ServerStream.Context(), TypeResponse, w.requestID, true,
+		w.fullMethod, m,
 	)
 	if err != nil {
 		return err
@@ -1057,13 +1089,13 @@ func (w *serverStreamWrapper) RecvMsg(m interface{}) error {
 		return err
 	}
 
-	msg, err := NewMessageInterceptionRequest(
-		w.ServerStream.Context(), TypeRequest, true, w.fullMethod,
-		m,
+	req, err := w.interceptor.interceptMessage(
+		w.ServerStream.Context(), TypeRequest, w.requestID, true,
+		w.fullMethod, m,
 	)
 	if err != nil {
 		return err
 	}
 
-	return w.interceptor.acceptRequest(w.requestID, msg)
+	return replaceProtoMsg(m, req)
 }

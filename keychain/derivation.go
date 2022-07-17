@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 )
 
 const (
@@ -234,6 +235,13 @@ type MessageSignerRing interface {
 	// format.
 	SignMessageCompact(keyLoc KeyLocator, msg []byte,
 		doubleHash bool) ([]byte, error)
+
+	// SignMessageSchnorr signs the given message, single or double SHA256
+	// hashing it first, with the private key described in the key locator
+	// and the optional Taproot tweak applied to the private key.
+	SignMessageSchnorr(keyLoc KeyLocator, msg []byte,
+		doubleHash bool, taprootTweak []byte) (*schnorr.Signature,
+		error)
 }
 
 // SingleKeyMessageSigner is an abstraction interface that hides the

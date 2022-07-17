@@ -60,8 +60,8 @@ type testContext struct {
 
 // newTestContext populates a new testContext struct with the constant
 // parameters defined in the BOLT 03 spec.
-func newTestContext(t *testing.T) (tc *testContext) {
-	tc = new(testContext)
+func newTestContext(t *testing.T) *testContext {
+	tc := new(testContext)
 
 	priv := func(v string) *btcec.PrivateKey {
 		k, err := privkeyFromHex(v)

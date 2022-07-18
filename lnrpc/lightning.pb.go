@@ -11368,7 +11368,10 @@ type Invoice struct {
 	//
 	//The fields value and value_msat are mutually exclusive.
 	ValueMsat int64 `protobuf:"varint,23,opt,name=value_msat,json=valueMsat,proto3" json:"value_msat,omitempty"`
-	// Whether this invoice has been fulfilled
+	//
+	//Whether this invoice has been fulfilled
+	//
+	//The field is deprecated. Use the state field instead (compare to SETTLED).
 	//
 	// Deprecated: Do not use.
 	Settled bool `protobuf:"varint,6,opt,name=settled,proto3" json:"settled,omitempty"`

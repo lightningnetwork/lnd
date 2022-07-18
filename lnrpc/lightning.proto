@@ -3227,7 +3227,11 @@ message Invoice {
     */
     int64 value_msat = 23;
 
-    // Whether this invoice has been fulfilled
+    /*
+    Whether this invoice has been fulfilled
+
+    The field is deprecated. Use the state field instead (compare to SETTLED).
+    */
     bool settled = 6 [deprecated = true];
 
     /*

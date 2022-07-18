@@ -469,6 +469,7 @@
         },
         "settled": {
           "type": "boolean",
+          "description": "The field is deprecated. Use the state field instead (compare to SETTLED).",
           "title": "Whether this invoice has been fulfilled"
         },
         "creation_date": {

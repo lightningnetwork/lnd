@@ -468,7 +468,7 @@ func testPsbtChanFundingSingleStep(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Everything we do here should be done within a second or two, so we
 	// can just keep a single timeout context around for all calls.
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, cancel := context.WithTimeout(ctxb, 2*defaultTimeout)
 	defer cancel()
 
 	args := nodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
@@ -1019,8 +1019,6 @@ func runSignPsbtSegWitV1ScriptSpend(t *harnessTest,
 func runFundAndSignPsbt(t *harnessTest, net *lntest.NetworkHarness,
 	alice *lntest.HarnessNode) {
 
-	// Everything we do here should be done within a second or two, so we
-	// can just keep a single timeout context around for all calls.
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
@@ -1042,6 +1040,8 @@ func runFundAndSignPsbt(t *harnessTest, net *lntest.NetworkHarness,
 	}
 
 	for _, addrType := range spendAddrTypes {
+		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+
 		// First, spend all the coins in the wallet to an address of the
 		// given type so that UTXO will be picked when funding a PSBT.
 		sendAllCoinsToAddrType(ctxt, t, net, alice, addrType)
@@ -1057,6 +1057,8 @@ func runFundAndSignPsbt(t *harnessTest, net *lntest.NetworkHarness,
 		// is calling FinalizePsbt directly, also works for this address
 		// type.
 		assertPsbtFundSignSpend(ctxt, t, net, alice, fundOutputs, true)
+
+		cancel()
 	}
 }
 

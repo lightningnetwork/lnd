@@ -4379,6 +4379,14 @@ message RPCMiddlewareRequest {
         the same type, or replaced by an error message.
         */
         RPCMessage response = 6;
+
+        /*
+        This is used to indicate to the client that the server has successfully
+        registered the interceptor. This is only used in the very first message
+        that the server sends to the client after the client sends the server
+        the middleware registration message.
+        */
+        bool reg_complete = 8;
     }
 
     /*

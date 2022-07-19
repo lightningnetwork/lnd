@@ -132,11 +132,6 @@ type Config struct {
 	// settle is eventually received.
 	FwdingLog ForwardingLog
 
-	// LocalChannelClose kicks-off the workflow to execute a cooperative or
-	// forced unilateral closure of the channel initiated by a local
-	// subsystem.
-	LocalChannelClose func(pubKey []byte, request *ChanClose)
-
 	// DB is the database backend that will be used to back the switch's
 	// persistent circuit map.
 	DB kvdb.Backend
@@ -1805,11 +1800,14 @@ out:
 			}
 			s.indexMtx.RUnlock()
 
-			peerPub := link.Peer().PubKey()
 			log.Debugf("Requesting local channel close: peer=%v, "+
 				"chan_id=%x", link.Peer(), chanID[:])
 
-			go s.cfg.LocalChannelClose(peerPub[:], req)
+			// Tell link to shutdown. If an error is received,
+			// we'll pass it to the caller.
+			if err := link.NotifyShouldShutdown(req); err != nil {
+				req.Err <- err
+			}
 
 		case resolutionMsg := <-s.resolutionMsgs:
 			// We'll persist the resolution message to the Switch's

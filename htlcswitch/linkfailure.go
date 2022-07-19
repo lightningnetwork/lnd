@@ -8,6 +8,10 @@ var (
 
 	// ErrLinkFailedShutdown signals that a requested shutdown failed.
 	ErrLinkFailedShutdown = errors.New("link failed to shutdown")
+
+	// ErrLinkCoopClosing signals that the link is in the shutdown phase of
+	// the coop close flow.
+	ErrLinkCoopClosing = errors.New("link coop closing")
 )
 
 // errorCode encodes the possible types of errors that will make us fail the

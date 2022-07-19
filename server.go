@@ -628,24 +628,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
-		DB:                   dbs.ChanStateDB,
-		FetchAllOpenChannels: s.chanStateDB.FetchAllOpenChannels,
-		FetchAllChannels:     s.chanStateDB.FetchAllChannels,
-		FetchClosedChannels:  s.chanStateDB.FetchClosedChannels,
-		LocalChannelClose: func(pubKey []byte,
-			request *htlcswitch.ChanClose) {
-
-			peer, err := s.FindPeerByPubStr(string(pubKey))
-			if err != nil {
-				srvrLog.Errorf("unable to close channel, peer"+
-					" with %v id can't be found: %v",
-					pubKey, err,
-				)
-				return
-			}
-
-			peer.HandleLocalCloseChanReqs(request)
-		},
+		DB:                     dbs.ChanStateDB,
+		FetchAllOpenChannels:   s.chanStateDB.FetchAllOpenChannels,
+		FetchAllChannels:       s.chanStateDB.FetchAllChannels,
+		FetchClosedChannels:    s.chanStateDB.FetchClosedChannels,
 		FwdingLog:              dbs.ChanStateDB.ForwardingLog(),
 		SwitchPackager:         channeldb.NewSwitchPackager(),
 		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,

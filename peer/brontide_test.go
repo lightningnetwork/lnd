@@ -15,16 +15,12 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntest/mock"
-	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/stretchr/testify/require"
 )
 
 var (
-	// p2SHAddress is a valid pay to script hash address.
-	p2SHAddress = "2NBFNJTktNa7GZusGbDbGKRZTxdK9VVez3n"
-
 	// p2wshAddress is a valid pay to witness script hash address.
 	p2wshAddress = "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
 )
@@ -56,31 +52,34 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	dummyDeliveryScript := genScript(t, p2wshAddress)
 
 	// We send a shutdown request to Alice. She will now be the responding
-	// node in this shutdown procedure. We first expect Alice to answer
-	// this shutdown request with a Shutdown message.
+	// node in this shutdown procedure.
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: lnwire.NewShutdown(chanID, dummyDeliveryScript),
 	}
 
-	var msg lnwire.Message
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive shutdown message")
+	// Alice calls HandleLocalCloseChanReqs to notify us that the link has
+	// sent Shutdown.
+	aliceDelivery := genScript(t, p2wshAddress)
+	aliceClose := &htlcswitch.ChanClose{
+		CloseType:      contractcourt.CloseRegular,
+		ChanPoint:      bobChan.ChannelPoint(),
+		TargetFeePerKw: 300,
+		DeliveryScript: aliceDelivery,
+		Updates:        make(chan interface{}, 2),
+		Err:            make(chan error, 1),
 	}
+	aliceQuit := make(chan struct{})
+	alicePeer.HandleLocalCloseChanReqs(aliceClose, aliceQuit)
 
-	shutdownMsg, ok := msg.(*lnwire.Shutdown)
-	if !ok {
-		t.Fatalf("expected Shutdown message, got %T", msg)
-	}
-
-	respDeliveryScript := shutdownMsg.Address
+	// Alice calls HandleCoopReady which marks the coop close flow as
+	// ready.
+	alicePeer.HandleCoopReady(bobChan.ChannelPoint(), aliceQuit)
 
 	// Alice will then send a ClosingSigned message, indicating her proposed
 	// closing transaction fee. Alice sends the ClosingSigned message as she is
 	// the initiator of the channel.
+	var msg lnwire.Message
 	select {
 	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
@@ -97,7 +96,7 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	// so she knows we agreed.
 	aliceFee := respClosingSigned.FeeSatoshis
 	bobSig, _, _, err := bobChan.CreateCloseProposal(
-		aliceFee, dummyDeliveryScript, respDeliveryScript,
+		aliceFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 
@@ -158,32 +157,18 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	dummyDeliveryScript := genScript(t, p2wshAddress)
 
 	// We make Alice send a shutdown request.
+	aliceDelivery := genScript(t, p2wshAddress)
 	updateChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      contractcourt.CloseRegular,
 		ChanPoint:      bobChan.ChannelPoint(),
 		Updates:        updateChan,
+		DeliveryScript: aliceDelivery,
 		TargetFeePerKw: 12500,
 		Err:            errChan,
 	}
 	alicePeer.localCloseChanReqs <- closeCommand
-
-	// We can now pull a Shutdown message off of Alice's outgoingQueue.
-	var msg lnwire.Message
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive shutdown request")
-	}
-
-	shutdownMsg, ok := msg.(*lnwire.Shutdown)
-	if !ok {
-		t.Fatalf("expected Shutdown message, got %T", msg)
-	}
-
-	aliceDeliveryScript := shutdownMsg.Address
 
 	// Bob will respond with his own Shutdown message.
 	alicePeer.chanCloseMsgs <- &closeMsg{
@@ -192,7 +177,12 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 			dummyDeliveryScript),
 	}
 
+	// Alice calls HandleCoopReady and will send ClosingSigned.
+	aliceQuit := make(chan struct{})
+	alicePeer.HandleCoopReady(bobChan.ChannelPoint(), aliceQuit)
+
 	// Alice will reply with a ClosingSigned here.
+	var msg lnwire.Message
 	select {
 	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
@@ -208,13 +198,13 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	// message.
 	bobFee := closingSignedMsg.FeeSatoshis
 	bobSig, _, _, err := bobChan.CreateCloseProposal(
-		bobFee, dummyDeliveryScript, aliceDeliveryScript,
+		bobFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "unable to create close proposal")
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
 	require.NoError(t, err, "unable to parse signature")
 
-	closingSigned := lnwire.NewClosingSigned(shutdownMsg.ChannelID,
+	closingSigned := lnwire.NewClosingSigned(chanID,
 		bobFee, parsedSig)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
@@ -288,23 +278,24 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 			dummyDeliveryScript),
 	}
 
+	// Alice calls HandleLocalCloseChanReqs to notify that she sent
+	// Shutdown.
+	aliceDelivery := genScript(t, p2wshAddress)
+	aliceClose := &htlcswitch.ChanClose{
+		CloseType:      contractcourt.CloseRegular,
+		ChanPoint:      bobChan.ChannelPoint(),
+		TargetFeePerKw: 300,
+		DeliveryScript: aliceDelivery,
+		Updates:        make(chan interface{}, 2),
+		Err:            make(chan error, 1),
+	}
+	aliceQuit := make(chan struct{})
+	alicePeer.HandleLocalCloseChanReqs(aliceClose, aliceQuit)
+
+	// Alice will now call HandleCoopReady and send ClosingSigned.
+	alicePeer.HandleCoopReady(bobChan.ChannelPoint(), aliceQuit)
+
 	var msg lnwire.Message
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive shutdown message")
-	}
-
-	shutdownMsg, ok := msg.(*lnwire.Shutdown)
-	if !ok {
-		t.Fatalf("expected Shutdown message, got %T", msg)
-	}
-
-	aliceDeliveryScript := shutdownMsg.Address
-
-	// As Alice is the channel initiator, she will send her ClosingSigned
-	// message.
 	select {
 	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
@@ -321,7 +312,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	preferredRespFee := aliceClosingSigned.FeeSatoshis
 	increasedFee := btcutil.Amount(float64(preferredRespFee) * 2.5)
 	bobSig, _, _, err := bobChan.CreateCloseProposal(
-		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
+		increasedFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 
@@ -361,7 +352,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	// We try negotiating a 2.1x fee, which should also be rejected.
 	increasedFee = btcutil.Amount(float64(preferredRespFee) * 2.1)
 	bobSig, _, _, err = bobChan.CreateCloseProposal(
-		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
+		increasedFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 
@@ -403,7 +394,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	// Finally, Bob will accept the fee by echoing back the same fee that Alice
 	// just sent over.
 	bobSig, _, _, err = bobChan.CreateCloseProposal(
-		aliceFee, dummyDeliveryScript, aliceDeliveryScript,
+		aliceFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 
@@ -465,31 +456,17 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	// We make the initiator send a shutdown request.
 	updateChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
+	aliceDelivery := genScript(t, p2wshAddress)
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      contractcourt.CloseRegular,
 		ChanPoint:      bobChan.ChannelPoint(),
 		Updates:        updateChan,
+		DeliveryScript: aliceDelivery,
 		TargetFeePerKw: 12500,
 		Err:            errChan,
 	}
 
 	alicePeer.localCloseChanReqs <- closeCommand
-
-	// Alice should now send a Shutdown request to Bob.
-	var msg lnwire.Message
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive shutdown request")
-	}
-
-	shutdownMsg, ok := msg.(*lnwire.Shutdown)
-	if !ok {
-		t.Fatalf("expected Shutdown message, got %T", msg)
-	}
-
-	aliceDeliveryScript := shutdownMsg.Address
 
 	// Bob will answer the Shutdown message with his own Shutdown.
 	dummyDeliveryScript := genScript(t, p2wshAddress)
@@ -499,8 +476,13 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		msg: respShutdown,
 	}
 
+	// Alice will now mark the channel clean and send ClosingSigned.
+	aliceQuit := make(chan struct{})
+	alicePeer.HandleCoopReady(bobChan.ChannelPoint(), aliceQuit)
+
 	// Alice should now respond with a ClosingSigned message with her ideal
 	// fee rate.
+	var msg lnwire.Message
 	select {
 	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
@@ -519,7 +501,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	lastSentFee := increasedFee
 
 	bobSig, _, _, err := bobChan.CreateCloseProposal(
-		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
+		increasedFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 
@@ -562,7 +544,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	lastSentFee = increasedFee
 
 	bobSig, _, _, err = bobChan.CreateCloseProposal(
-		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
+		increasedFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 
@@ -602,7 +584,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	// Bob will now accept their fee by sending back a ClosingSigned message
 	// with an identical fee.
 	bobSig, _, _, err = bobChan.CreateCloseProposal(
-		aliceFee, dummyDeliveryScript, aliceDeliveryScript,
+		aliceFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 
@@ -634,220 +616,6 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 
 	// Alice should be waiting on a single confirmation for the coop close tx.
 	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
-}
-
-// TestChooseDeliveryScript tests that chooseDeliveryScript correctly errors
-// when upfront and user set scripts that do not match are provided, allows
-// matching values and returns appropriate values in the case where one or none
-// are set.
-func TestChooseDeliveryScript(t *testing.T) {
-	// generate non-zero scripts for testing.
-	script1 := genScript(t, p2SHAddress)
-	script2 := genScript(t, p2wshAddress)
-
-	tests := []struct {
-		name           string
-		userScript     lnwire.DeliveryAddress
-		shutdownScript lnwire.DeliveryAddress
-		expectedScript lnwire.DeliveryAddress
-		expectedError  error
-	}{
-		{
-			name:           "Neither set",
-			userScript:     nil,
-			shutdownScript: nil,
-			expectedScript: nil,
-			expectedError:  nil,
-		},
-		{
-			name:           "Both set and equal",
-			userScript:     script1,
-			shutdownScript: script1,
-			expectedScript: script1,
-			expectedError:  nil,
-		},
-		{
-			name:           "Both set and not equal",
-			userScript:     script1,
-			shutdownScript: script2,
-			expectedScript: nil,
-			expectedError:  chancloser.ErrUpfrontShutdownScriptMismatch,
-		},
-		{
-			name:           "Only upfront script",
-			userScript:     nil,
-			shutdownScript: script1,
-			expectedScript: script1,
-			expectedError:  nil,
-		},
-		{
-			name:           "Only user script",
-			userScript:     script2,
-			shutdownScript: nil,
-			expectedScript: script2,
-			expectedError:  nil,
-		},
-	}
-
-	for _, test := range tests {
-		test := test
-
-		t.Run(test.name, func(t *testing.T) {
-			script, err := chooseDeliveryScript(
-				test.shutdownScript, test.userScript,
-			)
-			if err != test.expectedError {
-				t.Fatalf("Expected: %v, got: %v", test.expectedError, err)
-			}
-
-			if !bytes.Equal(script, test.expectedScript) {
-				t.Fatalf("Expected: %x, got: %x", test.expectedScript, script)
-			}
-		})
-	}
-}
-
-// TestCustomShutdownScript tests that the delivery script of a shutdown
-// message can be set to a specified address. It checks that setting a close
-// script fails for channels which have an upfront shutdown script already set.
-func TestCustomShutdownScript(t *testing.T) {
-	script := genScript(t, p2SHAddress)
-
-	// setShutdown is a function which sets the upfront shutdown address for
-	// the local channel.
-	setShutdown := func(a, b *channeldb.OpenChannel) {
-		a.LocalShutdownScript = script
-		b.RemoteShutdownScript = script
-	}
-
-	tests := []struct {
-		name string
-
-		// update is a function used to set values on the channel set up for the
-		// test. It is used to set values for upfront shutdown addresses.
-		update func(a, b *channeldb.OpenChannel)
-
-		// userCloseScript is the address specified by the user.
-		userCloseScript lnwire.DeliveryAddress
-
-		// expectedScript is the address we expect to be set on the shutdown
-		// message.
-		expectedScript lnwire.DeliveryAddress
-
-		// expectedError is the error we expect, if any.
-		expectedError error
-	}{
-		{
-			name:            "User set script",
-			update:          noUpdate,
-			userCloseScript: script,
-			expectedScript:  script,
-		},
-		{
-			name:   "No user set script",
-			update: noUpdate,
-		},
-		{
-			name:           "Shutdown set, no user script",
-			update:         setShutdown,
-			expectedScript: script,
-		},
-		{
-			name:            "Shutdown set, user script matches",
-			update:          setShutdown,
-			userCloseScript: script,
-			expectedScript:  script,
-		},
-		{
-			name:            "Shutdown set, user script different",
-			update:          setShutdown,
-			userCloseScript: []byte("different addr"),
-			expectedError:   chancloser.ErrUpfrontShutdownScriptMismatch,
-		},
-	}
-
-	for _, test := range tests {
-		test := test
-
-		t.Run(test.name, func(t *testing.T) {
-			notifier := &mock.ChainNotifier{
-				SpendChan: make(chan *chainntnfs.SpendDetail),
-				EpochChan: make(chan *chainntnfs.BlockEpoch),
-				ConfChan:  make(chan *chainntnfs.TxConfirmation),
-			}
-			broadcastTxChan := make(chan *wire.MsgTx)
-
-			mockSwitch := &mockMessageSwitch{}
-
-			// Open a channel.
-			alicePeer, bobChan, err := createTestPeer(
-				t, notifier, broadcastTxChan, test.update,
-				mockSwitch,
-			)
-			if err != nil {
-				t.Fatalf("unable to create test channels: %v", err)
-			}
-
-			chanPoint := bobChan.ChannelPoint()
-			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
-			mockLink := newMockUpdateHandler(chanID)
-			mockSwitch.links = append(mockSwitch.links, mockLink)
-
-			// Request initiator to cooperatively close the channel, with
-			// a specified delivery address.
-			updateChan := make(chan interface{}, 1)
-			errChan := make(chan error, 1)
-			closeCommand := htlcswitch.ChanClose{
-				CloseType:      contractcourt.CloseRegular,
-				ChanPoint:      chanPoint,
-				Updates:        updateChan,
-				TargetFeePerKw: 12500,
-				DeliveryScript: test.userCloseScript,
-				Err:            errChan,
-			}
-
-			// Send the close command for the correct channel and check that a
-			// shutdown message is sent.
-			alicePeer.localCloseChanReqs <- &closeCommand
-
-			var msg lnwire.Message
-			select {
-			case outMsg := <-alicePeer.outgoingQueue:
-				msg = outMsg.msg
-			case <-time.After(timeout):
-				t.Fatalf("did not receive shutdown message")
-			case err := <-errChan:
-				// Fail if we do not expect an error.
-				if err != test.expectedError {
-					t.Fatalf("error closing channel: %v", err)
-				}
-
-				// Terminate the test early if have received an error, no
-				// further action is expected.
-				return
-			}
-
-			// Check that we have received a shutdown message.
-			shutdownMsg, ok := msg.(*lnwire.Shutdown)
-			if !ok {
-				t.Fatalf("expected shutdown message, got %T", msg)
-			}
-
-			// If the test has not specified an expected address, do not check
-			// whether the shutdown address matches. This covers the case where
-			// we expect shutdown to a random address and cannot match it.
-			if len(test.expectedScript) == 0 {
-				return
-			}
-
-			// Check that the Shutdown message includes the expected delivery
-			// script.
-			if !bytes.Equal(test.expectedScript, shutdownMsg.Address) {
-				t.Fatalf("expected delivery script: %x, got: %x",
-					test.expectedScript, shutdownMsg.Address)
-			}
-		})
-	}
 }
 
 // TestStaticRemoteDowngrade tests that we downgrade our static remote feature

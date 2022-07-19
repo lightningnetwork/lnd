@@ -132,10 +132,9 @@ type ChannelUpdateHandler interface {
 	// parameter.
 	MayAddOutgoingHtlc(lnwire.MilliSatoshi) error
 
-	// ShutdownIfChannelClean shuts the link down if the channel state is
-	// clean. This can be used with dynamic commitment negotiation or coop
-	// close negotiation which require a clean channel state.
-	ShutdownIfChannelClean() error
+	// NotifyShouldShutdown is used by the Switch to inform the link that
+	// it should begin the shutdown flow.
+	NotifyShouldShutdown(req *ChanClose) error
 }
 
 // ChannelLink is an interface which represents the subsystem for managing the

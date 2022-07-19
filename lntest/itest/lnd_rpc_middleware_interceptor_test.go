@@ -68,7 +68,7 @@ func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 			tt, net.Alice, &lnrpc.MiddlewareRegistration{
 				MiddlewareName: "itest-interceptor",
 				ReadOnlyMode:   true,
-			},
+			}, true,
 		)
 		defer registration.cancel()
 
@@ -86,7 +86,7 @@ func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 			tt, net.Alice, &lnrpc.MiddlewareRegistration{
 				MiddlewareName:           "itest-interceptor",
 				CustomMacaroonCaveatName: "itest-caveat",
-			},
+			}, true,
 		)
 		defer registration.cancel()
 
@@ -103,7 +103,7 @@ func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 			tt, net.Alice, &lnrpc.MiddlewareRegistration{
 				MiddlewareName: "itest-interceptor",
 				ReadOnlyMode:   true,
-			},
+			}, true,
 		)
 		defer registration.cancel()
 
@@ -120,7 +120,7 @@ func testRPCMiddlewareInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 			tt, net.Alice, &lnrpc.MiddlewareRegistration{
 				MiddlewareName:           "itest-interceptor",
 				CustomMacaroonCaveatName: "itest-caveat",
-			},
+			}, true,
 		)
 		defer registration.cancel()
 
@@ -174,7 +174,7 @@ func middlewareRegistrationRestrictionTests(t *testing.T,
 
 		t.Run(fmt.Sprintf("%d", idx), func(tt *testing.T) {
 			invalidName := registerMiddleware(
-				tt, node, tc.registration,
+				tt, node, tc.registration, false,
 			)
 			_, err := invalidName.stream.Recv()
 			require.Error(tt, err)
@@ -578,7 +578,7 @@ func middlewareMandatoryTest(t *testing.T, node *lntest.HarnessNode,
 		t, node, &lnrpc.MiddlewareRegistration{
 			MiddlewareName:           "itest-interceptor",
 			CustomMacaroonCaveatName: "itest-caveat",
-		},
+		}, true,
 	)
 	defer registration.cancel()
 
@@ -649,7 +649,8 @@ type middlewareHarness struct {
 // registerMiddleware creates a new middleware harness and sends the initial
 // register message to the RPC server.
 func registerMiddleware(t *testing.T, node *lntest.HarnessNode,
-	registration *lnrpc.MiddlewareRegistration) *middlewareHarness {
+	registration *lnrpc.MiddlewareRegistration,
+	waitForRegister bool) *middlewareHarness {
 
 	ctxc, cancel := context.WithCancel(context.Background())
 
@@ -662,6 +663,13 @@ func registerMiddleware(t *testing.T, node *lntest.HarnessNode,
 		},
 	})
 	require.NoError(t, err)
+
+	if waitForRegister {
+		// Wait for the registration complete message.
+		regCompleteMsg, err := middlewareStream.Recv()
+		require.NoError(t, err)
+		require.True(t, regCompleteMsg.GetRegComplete())
+	}
 
 	return &middlewareHarness{
 		t:             t,

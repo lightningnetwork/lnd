@@ -77,16 +77,15 @@ func findOpenChannels(openChanBucket kvdb.RBucket) ([]*OpenChannel, error) {
 		c := &OpenChannel{}
 
 		// Read the sub-bucket level 3.
-		chanBucket := chainBucket.NestedReadBucket(
-			cp,
-		)
+		chanBucket := chainBucket.NestedReadBucket(cp)
 		if chanBucket == nil {
 			log.Errorf("unable to read bucket for chanPoint=%x", cp)
 			return nil
 		}
 		// Get the old channel info.
 		if err := fetchChanInfo(chanBucket, c, true); err != nil {
-			return fmt.Errorf("unable to fetch chan info: %v", err)
+			return fmt.Errorf("chanPoint=%x, unable to fetch "+
+				"chan info: %v", cp, err)
 		}
 
 		// Fetch the channel commitments, which are useful for freshly

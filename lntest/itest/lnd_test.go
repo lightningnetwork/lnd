@@ -45,6 +45,13 @@ var (
 	// dbBackendFlag specifies the backend to use.
 	dbBackendFlag = flag.String("dbbackend", "bbolt", "Database backend "+
 		"(bbolt, etcd, postgres)")
+
+	// tempTest is a flag used to mark whether we should run the old or the
+	// new test cases. Used here so we can transit smoothly during our new
+	// itest construction.
+	//
+	// TODO(yy): remove temp flag.
+	tempTest = flag.Bool("temptest", false, "run the new tests(temp)")
 )
 
 // getTestCaseSplitTranche returns the sub slice of the test cases that should
@@ -83,6 +90,10 @@ func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
 // TestLightningNetworkDaemon performs a series of integration tests amongst a
 // programmatically driven network of lnd nodes.
 func TestLightningNetworkDaemon(t *testing.T) {
+	if *tempTest {
+		t.Skip("Running new tests, old tests are skipped")
+	}
+
 	// If no tests are registered, then we can exit early.
 	if len(allTestCases) == 0 {
 		t.Skip("integration tests not selected with flag 'rpctest'")

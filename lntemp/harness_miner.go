@@ -1,6 +1,7 @@
 package lntemp
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/ioutil"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
@@ -185,4 +187,82 @@ func (h *HarnessMiner) AssertNumTxsInMempool(n int) []*chainhash.Hash {
 	require.NoError(h, err, "assert tx in mempool timeout")
 
 	return mem
+}
+
+// AssertTxInBlock asserts that a given txid can be found in the passed block.
+func (h *HarnessMiner) AssertTxInBlock(block *wire.MsgBlock,
+	txid *chainhash.Hash) {
+
+	blockTxes := make([]chainhash.Hash, 0)
+
+	for _, tx := range block.Transactions {
+		sha := tx.TxHash()
+		blockTxes = append(blockTxes, sha)
+
+		if bytes.Equal(txid[:], sha[:]) {
+			return
+		}
+	}
+
+	require.Failf(h, "tx was not included in block", "tx:%v, block has:%v",
+		txid, blockTxes)
+}
+
+// MineBlocksAndAssertNumTxes mine 'num' of blocks and check that blocks are
+// present in node blockchain. numTxs should be set to the number of
+// transactions (excluding the coinbase) we expect to be included in the first
+// mined block.
+func (h *HarnessMiner) MineBlocksAndAssertNumTxes(num uint32,
+	numTxs int) []*wire.MsgBlock {
+
+	// If we expect transactions to be included in the blocks we'll mine,
+	// we wait here until they are seen in the miner's mempool.
+	txids := h.AssertNumTxsInMempool(numTxs)
+
+	// Mine blocks.
+	blocks := h.MineBlocks(num)
+
+	// Finally, assert that all the transactions were included in the first
+	// block.
+	for _, txid := range txids {
+		h.AssertTxInBlock(blocks[0], txid)
+	}
+
+	return blocks
+}
+
+// GetRawTransaction makes a RPC call to the miner's GetRawTransaction and
+// asserts.
+func (h *HarnessMiner) GetRawTransaction(txid *chainhash.Hash) *btcutil.Tx {
+	tx, err := h.Client.GetRawTransaction(txid)
+	require.NoErrorf(h, err, "failed to get raw tx: %v", txid)
+	return tx
+}
+
+// AssertTxInMempool asserts a given transaction can be found in the mempool.
+func (h *HarnessMiner) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
+	var msgTx *wire.MsgTx
+
+	err := wait.NoError(func() error {
+		// We require the RPC call to be succeeded and won't wait for
+		// it as it's an unexpected behavior.
+		mempool := h.GetRawMempool()
+
+		if len(mempool) == 0 {
+			return fmt.Errorf("empty mempool")
+		}
+
+		for _, memTx := range mempool {
+			// Check the values are equal.
+			if *memTx == *txid {
+				return nil
+			}
+		}
+
+		return fmt.Errorf("txid %v not found in mempool: %v", txid,
+			mempool)
+	}, lntest.MinerMempoolTimeout)
+
+	require.NoError(h, err, "timeout checking mempool")
+	return msgTx
 }

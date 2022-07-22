@@ -188,3 +188,29 @@ func (h *HarnessRPC) ChannelBalance() *lnrpc.ChannelBalanceResponse {
 
 	return resp
 }
+
+type OpenChanClient lnrpc.Lightning_OpenChannelClient
+
+// OpenChannel makes a rpc call to LightningClient and returns the open channel
+// client.
+func (h *HarnessRPC) OpenChannel(req *lnrpc.OpenChannelRequest) OpenChanClient {
+	stream, err := h.LN.OpenChannel(h.runCtx, req)
+	h.NoError(err, "OpenChannel")
+
+	return stream
+}
+
+type CloseChanClient lnrpc.Lightning_CloseChannelClient
+
+// CloseChannel makes a rpc call to LightningClient and returns the close
+// channel client.
+func (h *HarnessRPC) CloseChannel(
+	req *lnrpc.CloseChannelRequest) CloseChanClient {
+
+	// Use runCtx here instead of a timeout context to keep the client
+	// alive for the entire test case.
+	stream, err := h.LN.CloseChannel(h.runCtx, req)
+	h.NoError(err, "CloseChannel")
+
+	return stream
+}

@@ -6,14 +6,17 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntemp/rpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
 
@@ -465,4 +468,203 @@ func (h *HarnessTest) validateNodeState(hn *node.HarnessNode) {
 	require.Zerof(h, hn.State.Payment.Total, "%s: found "+
 		"uncleaned payments, please delete all of them properly",
 		hn.Name())
+}
+
+// GetChanPointFundingTxid takes a channel point and converts it into a chain
+// hash.
+func (h *HarnessTest) GetChanPointFundingTxid(
+	cp *lnrpc.ChannelPoint) *chainhash.Hash {
+
+	txid, err := lnrpc.GetChanPointFundingTxid(cp)
+	require.NoError(h, err, "unable to get txid")
+
+	return txid
+}
+
+// OutPointFromChannelPoint creates an outpoint from a given channel point.
+func (h *HarnessTest) OutPointFromChannelPoint(
+	cp *lnrpc.ChannelPoint) wire.OutPoint {
+
+	txid := h.GetChanPointFundingTxid(cp)
+	return wire.OutPoint{
+		Hash:  *txid,
+		Index: cp.OutputIndex,
+	}
+}
+
+// OpenChannelParams houses the params to specify when opening a new channel.
+type OpenChannelParams struct {
+	// Amt is the local amount being put into the channel.
+	Amt btcutil.Amount
+
+	// PushAmt is the amount that should be pushed to the remote when the
+	// channel is opened.
+	PushAmt btcutil.Amount
+
+	// Private is a boolan indicating whether the opened channel should be
+	// private.
+	Private bool
+
+	// SpendUnconfirmed is a boolean indicating whether we can utilize
+	// unconfirmed outputs to fund the channel.
+	SpendUnconfirmed bool
+
+	// MinHtlc is the htlc_minimum_msat value set when opening the channel.
+	MinHtlc lnwire.MilliSatoshi
+
+	// RemoteMaxHtlcs is the remote_max_htlcs value set when opening the
+	// channel, restricting the number of concurrent HTLCs the remote party
+	// can add to a commitment.
+	RemoteMaxHtlcs uint16
+
+	// FundingShim is an optional funding shim that the caller can specify
+	// in order to modify the channel funding workflow.
+	FundingShim *lnrpc.FundingShim
+
+	// SatPerVByte is the amount of satoshis to spend in chain fees per
+	// virtual byte of the transaction.
+	SatPerVByte btcutil.Amount
+
+	// CommitmentType is the commitment type that should be used for the
+	// channel to be opened.
+	CommitmentType lnrpc.CommitmentType
+}
+
+// openChannel attempts to open a channel between srcNode and destNode with the
+// passed channel funding parameters. Once the `OpenChannel` is called, it will
+// consume the first event it receives from the open channel client and asserts
+// it's a channel pending event.
+func (h *HarnessTest) openChannel(srcNode, destNode *node.HarnessNode,
+	p OpenChannelParams) rpc.OpenChanClient {
+
+	// Specify the minimal confirmations of the UTXOs used for channel
+	// funding.
+	minConfs := int32(1)
+	if p.SpendUnconfirmed {
+		minConfs = 0
+	}
+
+	// Prepare the request and open the channel.
+	openReq := &lnrpc.OpenChannelRequest{
+		NodePubkey:         destNode.PubKey[:],
+		LocalFundingAmount: int64(p.Amt),
+		PushSat:            int64(p.PushAmt),
+		Private:            p.Private,
+		MinConfs:           minConfs,
+		SpendUnconfirmed:   p.SpendUnconfirmed,
+		MinHtlcMsat:        int64(p.MinHtlc),
+		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
+		FundingShim:        p.FundingShim,
+		SatPerByte:         int64(p.SatPerVByte),
+		CommitmentType:     p.CommitmentType,
+	}
+	respStream := srcNode.RPC.OpenChannel(openReq)
+
+	// Consume the "channel pending" update. This waits until the node
+	// notifies us that the final message in the channel funding workflow
+	// has been sent to the remote node.
+	resp := h.ReceiveOpenChannelUpdate(respStream)
+
+	// Check that the update is channel pending.
+	_, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	require.Truef(h, ok, "expected channel pending: update, instead got %v",
+		resp)
+
+	return respStream
+}
+
+// OpenChannel attempts to open a channel with the specified parameters
+// extended from Alice to Bob. Additionally, the following items are asserted,
+//   - 6 blocks will be mined so the channel will be announced if it's public.
+//   - the funding transaction should be found in the first block.
+//   - both nodes should see the channel edge update in their network graph.
+//   - both nodes can report the status of the new channel from ListChannels.
+func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
+	p OpenChannelParams) *lnrpc.ChannelPoint {
+
+	// Wait until srcNode and destNode have the latest chain synced.
+	// Otherwise, we may run into a check within the funding manager that
+	// prevents any funding workflows from being kicked off if the chain
+	// isn't yet synced.
+	h.WaitForBlockchainSync(alice)
+	h.WaitForBlockchainSync(bob)
+
+	chanOpenUpdate := h.openChannel(alice, bob, p)
+
+	// Mine 6 blocks, then wait for Alice's node to notify us that the
+	// channel has been opened. The funding transaction should be found
+	// within the first newly mined block. We mine 6 blocks so that in the
+	// case that the channel is public, it is announced to the network.
+	block := h.Miner.MineBlocksAndAssertNumTxes(6, 1)[0]
+
+	// Wait for the channel open event.
+	fundingChanPoint := h.WaitForChannelOpenEvent(chanOpenUpdate)
+
+	// Check that the funding tx is found in the first block.
+	fundingTxID := h.GetChanPointFundingTxid(fundingChanPoint)
+	h.Miner.AssertTxInBlock(block, fundingTxID)
+
+	// Check that both alice and bob have seen the channel from their
+	// network topology.
+	h.AssertTopologyChannelOpen(alice, fundingChanPoint)
+	h.AssertTopologyChannelOpen(bob, fundingChanPoint)
+
+	// Check that the channel can be seen in their ListChannels.
+	h.AssertChannelExists(alice, fundingChanPoint)
+	h.AssertChannelExists(bob, fundingChanPoint)
+
+	// Finally, check the blocks are synced.
+	h.WaitForBlockchainSync(alice)
+	h.WaitForBlockchainSync(bob)
+
+	return fundingChanPoint
+}
+
+// closeChannel attempts to close the channel indicated by the passed channel
+// point, initiated by the passed node. Once the CloseChannel rpc is called, it
+// will consume one event and assert it's a close pending event. In addition,
+// it will check that the closing tx can be found in the mempool.
+func (h *HarnessTest) closeChannel(hn *node.HarnessNode, cp *lnrpc.ChannelPoint,
+	force bool) (rpc.CloseChanClient, *chainhash.Hash) {
+
+	// Calls the rpc to close the channel.
+	closeReq := &lnrpc.CloseChannelRequest{
+		ChannelPoint: cp,
+		Force:        force,
+	}
+	stream := hn.RPC.CloseChannel(closeReq)
+
+	// Consume the "channel close" update in order to wait for the closing
+	// transaction to be broadcast, then wait for the closing tx to be seen
+	// within the network.
+	event := h.ReceiveCloseChannelUpdate(stream)
+	pendingClose, ok := event.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
+	require.Truef(h, ok, "expected channel close update, instead got %v",
+		pendingClose)
+
+	closeTxid, err := chainhash.NewHash(pendingClose.ClosePending.Txid)
+	require.NoErrorf(h, err, "unable to decode closeTxid: %v",
+		pendingClose.ClosePending.Txid)
+
+	// Assert the closing tx is in the mempool.
+	h.Miner.AssertTxInMempool(closeTxid)
+
+	return stream, closeTxid
+}
+
+// CloseChannel attempts to close a non-anchored channel identified by the
+// passed channel point owned by the passed harness node. The following items
+// are asserted,
+//  1. a close pending event is sent from the close channel client.
+//  2. the closing tx is found in the mempool.
+//  3. the node reports the channel being waiting to close.
+//  4. a block is mined and the closing tx should be found in it.
+//  5. the node reports zero waiting close channels.
+//  6. the node receives a topology update regarding the channel close.
+func (h *HarnessTest) CloseChannel(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
+
+	stream, _ := h.closeChannel(hn, cp, force)
+
+	return h.assertChannelClosed(hn, cp, false, stream)
 }

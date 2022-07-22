@@ -1,6 +1,7 @@
 package lntemp
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -34,4 +35,12 @@ func CopyFile(dest, src string) error {
 	}
 
 	return d.Close()
+}
+
+// errNumNotMatched is a helper method to return a nicely formatted error.
+func errNumNotMatched(name string, subject string,
+	want, got, total, old int) error {
+
+	return fmt.Errorf("%s: assert %s failed: want %d, got: %d, total: "+
+		"%d, previously had: %d", name, subject, want, got, total, old)
 }

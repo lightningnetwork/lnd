@@ -89,10 +89,6 @@ var allTestCases = []*testCase{
 		test: testListChannels,
 	},
 	{
-		name: "update channel status",
-		test: testUpdateChanStatus,
-	},
-	{
 		name: "test update node announcement rpc",
 		test: testUpdateNodeAnnouncement,
 	},

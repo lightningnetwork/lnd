@@ -15,6 +15,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -23,120 +25,60 @@ import (
 // testUpdateChanStatus checks that calls to the UpdateChanStatus RPC update
 // the channel graph as expected, and that channel state is properly updated
 // in the presence of interleaved node disconnects / reconnects.
-func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+//
+// NOTE: this test can be flaky as we are testing the chan-enable-timeout and
+// chan-disable-timeout flags here.
+//
+// For chan-enable-timeout, setting this value too small will cause an enabled
+// channel never be considered active by our channel status manager. Upon
+// reconnection, our Brontide will send a request to enable this channel after
+// the "chan-enable-timeout" has passed. The request is handled by the channel
+// status manager, which will check the channel's eligibility to forward links
+// by asking htlcswitch/link. Meanwhile, the htlcswitch/link won't mark the
+// link as eligible unless it has finished its initialization, which takes some
+// time. Thus, if the Brontide sends a request too early it will get a false
+// report saying the channel link is not eligible because that link hasn't
+// finished its initialization.
+//
+// For chan-disable-timeout, setting this value too small will cause an already
+// enabled channel being marked as disabled. For instance, if some operations
+// take more than 5 seconds to finish, the channel will be marked as disabled,
+// thus a following operation will fail if it relies on the channel being
+// enabled.
+func testUpdateChanStatus(ht *lntemp.HarnessTest) {
 	// Create two fresh nodes and open a channel between them.
-	alice := net.NewNode(t.t, "Alice", []string{
-		"--minbackoff=10s",
-		"--chan-enable-timeout=1.5s",
-		"--chan-disable-timeout=3s",
-		"--chan-status-sample-interval=.5s",
-	})
-	defer shutdownAndAssert(net, t, alice)
-
-	bob := net.NewNode(t.t, "Bob", []string{
-		"--minbackoff=10s",
-		"--chan-enable-timeout=1.5s",
-		"--chan-disable-timeout=3s",
-		"--chan-status-sample-interval=.5s",
-	})
-	defer shutdownAndAssert(net, t, bob)
-
-	// Connect Alice to Bob.
-	net.ConnectNodes(t.t, alice, bob)
-
-	// Give Alice some coins so she can fund a channel.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
+	alice, bob := ht.Alice, ht.Bob
+	args := []string{
+		"--minbackoff=60s",
+		"--chan-enable-timeout=3s",
+		"--chan-disable-timeout=6s",
+		"--chan-status-sample-interval=0.5s",
+	}
+	ht.RestartNodeWithExtraArgs(alice, args)
+	ht.RestartNodeWithExtraArgs(bob, args)
+	ht.EnsureConnected(alice, bob)
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
-	chanPoint := openChannelAndAssert(
-		t, net, alice, bob, lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	chanPoint := ht.OpenChannel(
+		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
 	)
+	defer ht.CloseChannel(alice, chanPoint, false)
 
-	// Wait for Alice and Bob to receive the channel edge from the
-	// funding manager.
-	err := alice.WaitForNetworkChannelOpen(chanPoint)
-	require.NoError(t.t, err, "alice didn't see the alice->bob channel")
+	// assertEdgeDisabled ensures that Alice has the correct Disabled state
+	// for given channel from her DescribeGraph.
+	assertEdgeDisabled := func(disabled bool) {
+		outPoint := ht.OutPointFromChannelPoint(chanPoint)
 
-	err = bob.WaitForNetworkChannelOpen(chanPoint)
-	require.NoError(t.t, err, "bob didn't see the alice->bob channel")
-
-	// Launch a node for Carol which will connect to Alice and Bob in order
-	// to receive graph updates. This will ensure that the channel updates
-	// are propagated throughout the network.
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
-
-	// Connect both Alice and Bob to the new node Carol, so she can sync her
-	// graph.
-	net.ConnectNodes(t.t, alice, carol)
-	net.ConnectNodes(t.t, bob, carol)
-	waitForGraphSync(t, carol)
-
-	// assertChannelUpdate checks that the required policy update has
-	// happened on the given node.
-	assertChannelUpdate := func(node *lntest.HarnessNode,
-		policy *lnrpc.RoutingPolicy) {
-
-		require.NoError(
-			t.t, carol.WaitForChannelPolicyUpdate(
-				node.PubKeyStr, policy, chanPoint, false,
-			), "error while waiting for channel update",
-		)
-	}
-
-	// sendReq sends an UpdateChanStatus request to the given node.
-	sendReq := func(node *lntest.HarnessNode, chanPoint *lnrpc.ChannelPoint,
-		action routerrpc.ChanStatusAction) {
-
-		req := &routerrpc.UpdateChanStatusRequest{
-			ChanPoint: chanPoint,
-			Action:    action,
-		}
-		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-		defer cancel()
-
-		_, err = node.RouterClient.UpdateChanStatus(ctxt, req)
-		require.NoErrorf(t.t, err, "UpdateChanStatus")
-	}
-
-	// assertEdgeDisabled ensures that a given node has the correct
-	// Disabled state for a channel.
-	assertEdgeDisabled := func(node *lntest.HarnessNode,
-		chanPoint *lnrpc.ChannelPoint, disabled bool) {
-
-		outPoint, err := lntest.MakeOutpoint(chanPoint)
-		require.NoError(t.t, err)
-
-		err = wait.NoError(func() error {
-			req := &lnrpc.ChannelGraphRequest{
-				IncludeUnannounced: true,
-			}
-			ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-			defer cancel()
-
-			chanGraph, err := node.DescribeGraph(ctxt, req)
-			if err != nil {
-				return fmt.Errorf("unable to query node %v's "+
-					"graph: %v", node, err)
-			}
-			numEdges := len(chanGraph.Edges)
-			if numEdges != 1 {
-				return fmt.Errorf("expected to find 1 edge in "+
-					"the graph, found %d", numEdges)
-			}
-			edge := chanGraph.Edges[0]
+		err := wait.NoError(func() error {
+			edge := ht.AssertNumEdges(alice, 1, true)[0]
 			if edge.ChanPoint != outPoint.String() {
 				return fmt.Errorf("expected chan_point %v, "+
 					"got %v", outPoint, edge.ChanPoint)
 			}
 			var policy *lnrpc.RoutingPolicy
-			if node.PubKeyStr == edge.Node1Pub {
+			if alice.PubKeyStr == edge.Node1Pub {
 				policy = edge.Node1Policy
 			} else {
 				policy = edge.Node2Policy
@@ -144,18 +86,61 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 			if disabled != policy.Disabled {
 				return fmt.Errorf("expected policy.Disabled "+
 					"to be %v, but policy was %v", disabled,
-					policy)
+					policy.Disabled)
 			}
 
 			return nil
 		}, defaultTimeout)
-		require.NoError(t.t, err)
+		require.NoError(ht, err, "assert edge disabled timeout")
 	}
+
+	// aliceSendReq sends an UpdateChanStatus request to Alice.
+	aliceSendReq := func(action routerrpc.ChanStatusAction) {
+		req := &routerrpc.UpdateChanStatusRequest{
+			ChanPoint: chanPoint,
+			Action:    action,
+		}
+		alice.RPC.UpdateChanStatus(req)
+	}
+
+	// Initially, the channel between Alice and Bob should not be disabled.
+	//
+	// NOTE: This check should happen right after the channel openning as
+	// we've used a short timeout value for `--chan-disable-timeout`. If we
+	// wait longer than that we might get a flake saying the channel is
+	// disabled.
+	assertEdgeDisabled(false)
+
+	// Launch a node for Carol which will connect to Alice and Bob in order
+	// to receive graph updates. This will ensure that the channel updates
+	// are propagated throughout the network.
+	carol := ht.NewNode("Carol", nil)
+
+	// assertChannelUpdate checks that the required policy update has been
+	// heard in Carol's network.
+	assertChannelUpdate := func(node *node.HarnessNode,
+		policy *lnrpc.RoutingPolicy) {
+
+		ht.AssertChannelPolicyUpdate(
+			carol, node, policy, chanPoint, false,
+		)
+	}
+
+	// Connect both Alice and Bob to the new node Carol, so she can sync
+	// her graph.
+	ht.ConnectNodes(alice, carol)
+	ht.ConnectNodes(bob, carol)
+	ht.WaitForGraphSync(carol)
+
+	// If the above waitForGraphSync takes more than 4 seconds, the channel
+	// Alice=>Bob will be marked as disabled now. Thus we connect Alice and
+	// Bob again to make sure the channel is alive.
+	ht.EnsureConnected(alice, bob)
 
 	// When updating the state of the channel between Alice and Bob, we
 	// should expect to see channel updates with the default routing
-	// policy. The value of "Disabled" will depend on the specific
-	// scenario being tested.
+	// policy. The value of "Disabled" will depend on the specific scenario
+	// being tested.
 	expectedPolicy := &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      int64(chainreg.DefaultBitcoinBaseFeeMSat),
 		FeeRateMilliMsat: int64(chainreg.DefaultBitcoinFeeRate),
@@ -164,83 +149,75 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 		MaxHtlcMsat:      calculateMaxHtlc(chanAmt),
 	}
 
-	// Initially, the channel between Alice and Bob should not be
-	// disabled.
-	assertEdgeDisabled(alice, chanPoint, false)
-
 	// Manually disable the channel and ensure that a "Disabled = true"
 	// update is propagated.
-	sendReq(alice, chanPoint, routerrpc.ChanStatusAction_DISABLE)
+	aliceSendReq(routerrpc.ChanStatusAction_DISABLE)
 	expectedPolicy.Disabled = true
 	assertChannelUpdate(alice, expectedPolicy)
 
-	// Re-enable the channel and ensure that a "Disabled = false" update
-	// is propagated.
-	sendReq(alice, chanPoint, routerrpc.ChanStatusAction_ENABLE)
+	// Re-enable the channel and ensure that a "Disabled = false" update is
+	// propagated.
+	aliceSendReq(routerrpc.ChanStatusAction_ENABLE)
 	expectedPolicy.Disabled = false
 	assertChannelUpdate(alice, expectedPolicy)
 
 	// Manually enabling a channel should NOT prevent subsequent
-	// disconnections from automatically disabling the channel again
-	// (we don't want to clutter the network with channels that are
-	// falsely advertised as enabled when they don't work).
-	require.NoError(t.t, net.DisconnectNodes(alice, bob))
+	// disconnections from automatically disabling the channel again (we
+	// don't want to clutter the network with channels that are falsely
+	// advertised as enabled when they don't work).
+	ht.DisconnectNodes(alice, bob)
 	expectedPolicy.Disabled = true
 	assertChannelUpdate(alice, expectedPolicy)
 	assertChannelUpdate(bob, expectedPolicy)
 
 	// Reconnecting the nodes should propagate a "Disabled = false" update.
-	net.EnsureConnected(t.t, alice, bob)
+	ht.EnsureConnected(alice, bob)
 	expectedPolicy.Disabled = false
 	assertChannelUpdate(alice, expectedPolicy)
 	assertChannelUpdate(bob, expectedPolicy)
 
 	// Manually disabling the channel should prevent a subsequent
-	// disconnect / reconnect from re-enabling the channel on
-	// Alice's end. Note the asymmetry between manual enable and
-	// manual disable!
-	sendReq(alice, chanPoint, routerrpc.ChanStatusAction_DISABLE)
+	// disconnect/reconnect from re-enabling the channel on Alice's end.
+	// Note the asymmetry between manual enable and manual disable!
+	aliceSendReq(routerrpc.ChanStatusAction_DISABLE)
 
-	// Alice sends out the "Disabled = true" update in response to
-	// the ChanStatusAction_DISABLE request.
+	// Alice sends out the "Disabled = true" update in response to the
+	// ChanStatusAction_DISABLE request.
 	expectedPolicy.Disabled = true
 	assertChannelUpdate(alice, expectedPolicy)
 
-	require.NoError(t.t, net.DisconnectNodes(alice, bob))
+	ht.DisconnectNodes(alice, bob)
 
-	// Bob sends a "Disabled = true" update upon detecting the
-	// disconnect.
+	// Bob sends a "Disabled = true" update upon detecting the disconnect.
 	expectedPolicy.Disabled = true
 	assertChannelUpdate(bob, expectedPolicy)
 
-	// Bob sends a "Disabled = false" update upon detecting the
-	// reconnect.
-	net.EnsureConnected(t.t, alice, bob)
+	// Bob sends a "Disabled = false" update upon detecting the reconnect.
+	ht.EnsureConnected(alice, bob)
 	expectedPolicy.Disabled = false
 	assertChannelUpdate(bob, expectedPolicy)
 
-	// However, since we manually disabled the channel on Alice's end,
-	// the policy on Alice's end should still be "Disabled = true". Again,
-	// note the asymmetry between manual enable and manual disable!
-	assertEdgeDisabled(alice, chanPoint, true)
+	// However, since we manually disabled the channel on Alice's end, the
+	// policy on Alice's end should still be "Disabled = true". Again, note
+	// the asymmetry between manual enable and manual disable!
+	assertEdgeDisabled(true)
 
-	require.NoError(t.t, net.DisconnectNodes(alice, bob))
+	ht.DisconnectNodes(alice, bob)
 
-	// Bob sends a "Disabled = true" update upon detecting the
-	// disconnect.
+	// Bob sends a "Disabled = true" update upon detecting the disconnect.
 	expectedPolicy.Disabled = true
 	assertChannelUpdate(bob, expectedPolicy)
 
 	// After restoring automatic channel state management on Alice's end,
-	// BOTH Alice and Bob should set the channel state back to "enabled"
-	// on reconnect.
-	sendReq(alice, chanPoint, routerrpc.ChanStatusAction_AUTO)
-	net.EnsureConnected(t.t, alice, bob)
+	// BOTH Alice and Bob should set the channel state back to "enabled" on
+	// reconnect.
+	aliceSendReq(routerrpc.ChanStatusAction_AUTO)
+	ht.EnsureConnected(alice, bob)
 
 	expectedPolicy.Disabled = false
 	assertChannelUpdate(alice, expectedPolicy)
 	assertChannelUpdate(bob, expectedPolicy)
-	assertEdgeDisabled(alice, chanPoint, false)
+	assertEdgeDisabled(false)
 }
 
 // testUnannouncedChannels checks unannounced channels are not returned by

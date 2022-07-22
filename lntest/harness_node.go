@@ -609,7 +609,7 @@ func (hn *HarnessNode) startLnd(lndBinary string, lndError chan<- error) error {
 		fileName string
 		err      error
 	)
-	if *logOutput {
+	if *LogOutput {
 		fileName, err = addLogFile(hn)
 		if err != nil {
 			return err
@@ -1843,7 +1843,7 @@ func finalizeLogfile(hn *HarnessNode, fileName string) {
 		hn.logFile.Close()
 
 		// If logoutput flag is not set, return early.
-		if !*logOutput {
+		if !*LogOutput {
 			return
 		}
 

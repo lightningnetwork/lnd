@@ -42,7 +42,9 @@ var (
 
 	// logOutput is a flag that can be set to append the output from the
 	// seed nodes to log files.
-	logOutput = flag.Bool("logoutput", false,
+	//
+	// TODO(yy): remove the export.
+	LogOutput = flag.Bool("logoutput", false,
 		"log output from node n to file output-n.log")
 
 	// logSubDir is the default directory where the logs are written to if

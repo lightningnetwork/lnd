@@ -9,6 +9,11 @@
 * [The macaroon key store implementation was refactored to be more generally
   usable](https://github.com/lightningnetwork/lnd/pull/6509).
 
+* [Changed logging behavior](https://github.com/lightningnetwork/lnd/pull/6756) 
+  around routing htlcs to only log "insufficient bandwidth" warnings when
+  the htlc fails. When channels have insufficient bandwidth, they emit
+  debug logs instead. 
+
 ## Code Health
 
 ### Tooling and documentation
@@ -22,3 +27,4 @@
 * ErikEk
 * Olaoluwa Osuntokun
 * Oliver Gugger
+* Sachin Meier

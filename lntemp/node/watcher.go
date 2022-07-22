@@ -200,6 +200,65 @@ func (nw *nodeWatcher) WaitForChannelClose(
 	}
 }
 
+// WaitForChannelPolicyUpdate will block until a channel policy with the target
+// outpoint and advertisingNode is seen within the network.
+func (nw *nodeWatcher) WaitForChannelPolicyUpdate(
+	advertisingNode *HarnessNode, policy *lnrpc.RoutingPolicy,
+	chanPoint *lnrpc.ChannelPoint, includeUnannounced bool) error {
+
+	op := nw.rpc.MakeOutpoint(chanPoint)
+
+	ticker := time.NewTicker(wait.PollInterval)
+	timer := time.After(DefaultTimeout)
+	defer ticker.Stop()
+
+	eventChan := make(chan struct{})
+	for {
+		select {
+		// Send a watch request every second.
+		case <-ticker.C:
+			// Did the event can close in the meantime? We want to
+			// avoid a "close of closed channel" panic since we're
+			// re-using the same event chan for multiple requests.
+			select {
+			case <-eventChan:
+				return nil
+			default:
+			}
+
+			nw.chanWatchRequests <- &chanWatchRequest{
+				chanPoint:          op,
+				eventChan:          eventChan,
+				chanWatchType:      watchPolicyUpdate,
+				policy:             policy,
+				advertisingNode:    advertisingNode.PubKeyStr,
+				includeUnannounced: includeUnannounced,
+			}
+
+		case <-eventChan:
+			return nil
+
+		case <-timer:
+			expected, err := json.MarshalIndent(policy, "", "\t")
+			if err != nil {
+				return fmt.Errorf("encode policy err: %v", err)
+			}
+			policies, err := syncMapToJSON(
+				&nw.state.policyUpdates.Map,
+			)
+			if err != nil {
+				return err
+			}
+
+			return fmt.Errorf("policy not updated before timeout:"+
+				"\nchannel: %v \nadvertisingNode: %s:%v"+
+				"\nwant policy:%s\nhave updates:%s", op,
+				advertisingNode.Name(),
+				advertisingNode.PubKeyStr, expected, policies)
+		}
+	}
+}
+
 // syncMapToJSON is a helper function that creates json bytes from the sync.Map
 // used in the node. Expect the sync.Map to have map[string]interface.
 func syncMapToJSON(state *sync.Map) ([]byte, error) {

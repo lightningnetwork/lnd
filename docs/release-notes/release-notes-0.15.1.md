@@ -73,6 +73,8 @@
 * [Fixed a bug in the `SignPsbt` RPC that produced an invalid response when
   signing a NP2WKH input](https://github.com/lightningnetwork/lnd/pull/6687).
 
+* [Fix race condition in `sign_psbt` test](https://github.com/lightningnetwork/lnd/pull/6741).
+
 * [Update the `urfave/cli`
   package](https://github.com/lightningnetwork/lnd/pull/6682) because of a flag
   parsing bug.
@@ -88,6 +90,9 @@
 
 * [Fixes a key scope issue preventing new remote signing setups to be created
   with `v0.15.0-beta`](https://github.com/lightningnetwork/lnd/pull/6714).
+
+* [Re-initialise registered middleware index lookup map after removal of a 
+  registered middleware](https://github.com/lightningnetwork/lnd/pull/6739)
 
 ## Code Health
 
@@ -113,6 +118,7 @@
 * Elle Mouton
 * ErikEk
 * Eugene Siegel
+* Matt Morehouse
 * Slyghtning
 * Oliver Gugger
 * Olaoluwa Osuntokun

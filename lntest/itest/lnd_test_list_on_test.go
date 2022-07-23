@@ -13,6 +13,10 @@ var allTestCases = []*testCase{
 		test: testSweepAllCoins,
 	},
 	{
+		name: "list addresses",
+		test: testListAddresses,
+	},
+	{
 		name: "recovery info",
 		test: testGetRecoveryInfo,
 	},

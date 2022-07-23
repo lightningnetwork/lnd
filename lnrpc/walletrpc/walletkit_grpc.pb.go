@@ -63,6 +63,11 @@ type WalletKitClient interface {
 	//scales with the number of public anchor channels but is capped at a maximum.
 	RequiredReserve(ctx context.Context, in *RequiredReserveRequest, opts ...grpc.CallOption) (*RequiredReserveResponse, error)
 	//
+	//ListAddresses retrieves all the addresses along with their balance. An
+	//account name filter can be provided to filter through all of the
+	//wallet accounts and return the addresses of only those matching.
+	ListAddresses(ctx context.Context, in *ListAddressesRequest, opts ...grpc.CallOption) (*ListAddressesResponse, error)
+	//
 	//ImportAccount imports an account backed by an account extended public key.
 	//The master key fingerprint denotes the fingerprint of the root key
 	//corresponding to the account public key (also known as the key with
@@ -295,6 +300,15 @@ func (c *walletKitClient) RequiredReserve(ctx context.Context, in *RequiredReser
 	return out, nil
 }
 
+func (c *walletKitClient) ListAddresses(ctx context.Context, in *ListAddressesRequest, opts ...grpc.CallOption) (*ListAddressesResponse, error) {
+	out := new(ListAddressesResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/ListAddresses", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *walletKitClient) ImportAccount(ctx context.Context, in *ImportAccountRequest, opts ...grpc.CallOption) (*ImportAccountResponse, error) {
 	out := new(ImportAccountResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/ImportAccount", in, out, opts...)
@@ -450,6 +464,11 @@ type WalletKitServer interface {
 	//in the wallet in order to fee bump anchor channels if necessary. The value
 	//scales with the number of public anchor channels but is capped at a maximum.
 	RequiredReserve(context.Context, *RequiredReserveRequest) (*RequiredReserveResponse, error)
+	//
+	//ListAddresses retrieves all the addresses along with their balance. An
+	//account name filter can be provided to filter through all of the
+	//wallet accounts and return the addresses of only those matching.
+	ListAddresses(context.Context, *ListAddressesRequest) (*ListAddressesResponse, error)
 	//
 	//ImportAccount imports an account backed by an account extended public key.
 	//The master key fingerprint denotes the fingerprint of the root key
@@ -625,6 +644,9 @@ func (UnimplementedWalletKitServer) ListAccounts(context.Context, *ListAccountsR
 }
 func (UnimplementedWalletKitServer) RequiredReserve(context.Context, *RequiredReserveRequest) (*RequiredReserveResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RequiredReserve not implemented")
+}
+func (UnimplementedWalletKitServer) ListAddresses(context.Context, *ListAddressesRequest) (*ListAddressesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAddresses not implemented")
 }
 func (UnimplementedWalletKitServer) ImportAccount(context.Context, *ImportAccountRequest) (*ImportAccountResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ImportAccount not implemented")
@@ -833,6 +855,24 @@ func _WalletKit_RequiredReserve_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WalletKitServer).RequiredReserve(ctx, req.(*RequiredReserveRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WalletKit_ListAddresses_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAddressesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).ListAddresses(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/ListAddresses",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).ListAddresses(ctx, req.(*ListAddressesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1095,6 +1135,10 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RequiredReserve",
 			Handler:    _WalletKit_RequiredReserve_Handler,
+		},
+		{
+			MethodName: "ListAddresses",
+			Handler:    _WalletKit_ListAddresses_Handler,
 		},
 		{
 			MethodName: "ImportAccount",

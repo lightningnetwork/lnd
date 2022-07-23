@@ -130,6 +130,45 @@
         ]
       }
     },
+    "/v2/wallet/addresses": {
+      "get": {
+        "summary": "ListAddresses retrieves all the addresses along with their balance. An\naccount name filter can be provided to filter through all of the\nwallet accounts and return the addresses of only those matching.",
+        "operationId": "WalletKit_ListAddresses",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcListAddressesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "account_name",
+            "description": "An optional filter to only return addresses matching this account.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "show_custom_accounts",
+            "description": "An optional flag to return LND's custom accounts (Purpose=1017)\npublic key along with other addresses.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/bumpfee": {
       "post": {
         "summary": "BumpFee bumps the fee of an arbitrary input within a transaction. This RPC\ntakes a different approach than bitcoind's bumpfee command. lnd has a\ncentral batching engine in which inputs with similar fee rates are batched\ntogether to save on transaction fees. Due to this, we cannot rely on\nbumping the fee on a specific transaction, since transactions can change at\nany point with the addition of new inputs. The list of inputs that\ncurrently exist within lnd's central batching engine can be retrieved\nthrough the PendingSweeps RPC.",
@@ -1008,7 +1047,7 @@
         },
         "address_type": {
           "$ref": "#/definitions/walletrpcAddressType",
-          "title": "The type of addresses the account supports.\nAddressType                       | External Branch | Internal Branch\n---------------------------------------------------------------------\nWITNESS_PUBKEY_HASH               | P2WPKH          | P2WPKH\nNESTED_WITNESS_PUBKEY_HASH        | NP2WPKH         | NP2WPKH\nHYBRID_NESTED_WITNESS_PUBKEY_HASH | NP2WPKH         | P2WPKH"
+          "description": "The type of addresses the account supports."
         },
         "extended_public_key": {
           "type": "string",
@@ -1039,6 +1078,30 @@
         }
       }
     },
+    "walletrpcAccountWithAddresses": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name used to identify the account."
+        },
+        "address_type": {
+          "$ref": "#/definitions/walletrpcAddressType",
+          "description": "The type of addresses the account supports."
+        },
+        "derivation_path": {
+          "type": "string",
+          "description": "The derivation path corresponding to the account public key. This will\nalways be empty for the default imported account in which single public keys\nare imported into."
+        },
+        "addresses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/walletrpcAddressProperty"
+          },
+          "description": "List of address, its type internal/external \u0026 balance.\nNote that the order of addresses will be random and not according to the\nderivation index, since that information is not stored by the underlying\nwallet."
+        }
+      }
+    },
     "walletrpcAddrRequest": {
       "type": "object",
       "properties": {
@@ -1062,6 +1125,24 @@
         "addr": {
           "type": "string",
           "description": "The address encoded using a bech32 format."
+        }
+      }
+    },
+    "walletrpcAddressProperty": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "description": "The address encoded using the appropriate format depending on the\naddress type (base58, bech32, bech32m).\n\nNote that lnd's internal/custom keys for channels and other\nfunctionality are derived from the same scope. Since they\naren't really used as addresses and will never have an\non-chain balance, we'll show the public key instead (only if\nthe show_custom_accounts flag is provided)."
+        },
+        "is_internal": {
+          "type": "boolean",
+          "description": "Denotes if the address is a change address."
+        },
+        "balance": {
+          "type": "string",
+          "format": "int64",
+          "description": "The balance of the address."
         }
       }
     },
@@ -1344,6 +1425,18 @@
           "items": {
             "$ref": "#/definitions/walletrpcAccount"
           }
+        }
+      }
+    },
+    "walletrpcListAddressesResponse": {
+      "type": "object",
+      "properties": {
+        "account_with_addresses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/walletrpcAccountWithAddresses"
+          },
+          "description": "A list of all the accounts and their addresses."
         }
       }
     },

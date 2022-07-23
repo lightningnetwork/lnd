@@ -13,6 +13,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -117,6 +118,10 @@ var (
 			Action: "read",
 		}},
 		"/walletrpc.WalletKit/ListUnspent": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
+		"/walletrpc.WalletKit/ListAddresses": {{
 			Entity: "onchain",
 			Action: "read",
 		}},
@@ -368,6 +373,7 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 		utxos, err = w.cfg.Wallet.ListUnspentWitness(
 			minConfs, maxConfs, req.Account,
 		)
+
 		return err
 	})
 	if err != nil {
@@ -1416,6 +1422,38 @@ func marshalWalletAccount(internalScope waddrmgr.KeyScope,
 	return rpcAccount, nil
 }
 
+// marshalWalletAddressList converts the list of address into its RPC
+// representation.
+func marshalWalletAddressList(w *WalletKit, account *waddrmgr.AccountProperties,
+	addressList []lnwallet.AddressProperty) (*AccountWithAddresses, error) {
+
+	// Get the RPC representation of account.
+	rpcAccount, err := marshalWalletAccount(
+		w.internalScope(), account,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	addresses := make([]*AddressProperty, len(addressList))
+	for idx, addr := range addressList {
+		addresses[idx] = &AddressProperty{
+			Address:    addr.Address,
+			IsInternal: addr.Internal,
+			Balance:    int64(addr.Balance),
+		}
+	}
+
+	rpcAddressList := &AccountWithAddresses{
+		Name:           rpcAccount.Name,
+		AddressType:    rpcAccount.AddressType,
+		DerivationPath: rpcAccount.DerivationPath,
+		Addresses:      addresses,
+	}
+
+	return rpcAddressList, nil
+}
+
 // ListAccounts retrieves all accounts belonging to the wallet by default. A
 // name and key scope filter can be provided to filter through all of the wallet
 // accounts and return only those matching.
@@ -1491,6 +1529,61 @@ func (w *WalletKit) RequiredReserve(ctx context.Context,
 
 	return &RequiredReserveResponse{
 		RequiredReserve: int64(reserved),
+	}, nil
+}
+
+// ListAddresses retrieves all the addresses along with their balance. An
+// account name filter can be provided to filter through all of the
+// wallet accounts and return the addresses of only those matching.
+func (w *WalletKit) ListAddresses(ctx context.Context,
+	req *ListAddressesRequest) (*ListAddressesResponse, error) {
+
+	addressLists, err := w.cfg.Wallet.ListAddresses(
+		req.AccountName,
+		req.ShowCustomAccounts,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a slice of accounts from addressLists map.
+	accounts := make([]*waddrmgr.AccountProperties, 0, len(addressLists))
+	for account := range addressLists {
+		accounts = append(accounts, account)
+	}
+
+	// Sort the accounts by derivation path.
+	sort.Slice(accounts, func(i, j int) bool {
+		scopeI := accounts[i].KeyScope
+		scopeJ := accounts[j].KeyScope
+		if scopeI.Purpose == scopeJ.Purpose {
+			if scopeI.Coin == scopeJ.Coin {
+				acntNumI := accounts[i].AccountNumber
+				acntNumJ := accounts[j].AccountNumber
+				return acntNumI < acntNumJ
+			}
+
+			return scopeI.Coin < scopeJ.Coin
+		}
+
+		return scopeI.Purpose < scopeJ.Purpose
+	})
+
+	rpcAddressLists := make([]*AccountWithAddresses, 0, len(addressLists))
+	for _, account := range accounts {
+		addressList := addressLists[account]
+		rpcAddressList, err := marshalWalletAddressList(
+			w, account, addressList,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		rpcAddressLists = append(rpcAddressLists, rpcAddressList)
+	}
+
+	return &ListAddressesResponse{
+		AccountWithAddresses: rpcAddressLists,
 	}, nil
 }
 

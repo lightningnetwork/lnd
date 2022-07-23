@@ -2003,9 +2003,9 @@ var updateChannelPolicyCommand = cli.Command{
 				"be charged for each forwarded HTLC, regardless " +
 				"of payment size",
 		},
-		cli.StringFlag{
+		cli.Float64Flag{
 			Name: "fee_rate",
-			Usage: "the fee rate that will be charged " +
+			Usage: "if set, the fee rate that will be charged " +
 				"proportionally based on the value of each " +
 				"forwarded HTLC, the lowest possible rate is 0 " +
 				"with a granularity of 0.000001 (millionths). Can not " +
@@ -2013,7 +2013,7 @@ var updateChannelPolicyCommand = cli.Command{
 		},
 		cli.Uint64Flag{
 			Name: "fee_rate_ppm",
-			Usage: "the fee rate ppm (parts per million) that " +
+			Usage: "if set, the fee rate ppm (parts per million) that " +
 				"will be charged proportionally based on the value of each " +
 				"forwarded HTLC, the lowest possible rate is 0 " +
 				"with a granularity of 0.000001 (millionths). Can not " +
@@ -2022,13 +2022,16 @@ var updateChannelPolicyCommand = cli.Command{
 		cli.Int64Flag{
 			Name: "time_lock_delta",
 			Usage: "the CLTV delta that will be applied to all " +
-				"forwarded HTLCs",
+				"forwarded HTLCs. If unset, the CLTV delta " +
+				"is left unchanged.",
+			Value: 40,
 		},
 		cli.Uint64Flag{
 			Name: "min_htlc_msat",
 			Usage: "if set, the min HTLC size that will be applied " +
 				"to all forwarded HTLCs. If unset, the min HTLC " +
 				"is left unchanged.",
+			Value: 1,
 		},
 		cli.Uint64Flag{
 			Name: "max_htlc_msat",
@@ -2126,8 +2129,6 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		}
 
 		args = args.Tail()
-	default:
-		return fmt.Errorf("time_lock_delta argument missing")
 	}
 
 	var (
@@ -2170,11 +2171,11 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		}
 	}
 
-	if feeRate != 0 {
-		req.FeeRate = feeRate
-	} else if feeRatePpm != 0 {
-		req.FeeRatePpm = uint32(feeRatePpm)
-	}
+	// set both feerate values. Since we have
+	// already checked that at most one value was
+	// passed, at least one of these is zero.
+	req.FeeRate = feeRate
+	req.FeeRatePpm = uint32(feeRatePpm)
 
 	resp, err := client.UpdateChannelPolicy(ctxc, req)
 	if err != nil {

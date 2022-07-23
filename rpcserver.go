@@ -6736,7 +6736,8 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 
 	// We'll also ensure that the user isn't setting a CLTV delta that
 	// won't give outgoing HTLCs enough time to fully resolve if needed.
-	if req.TimeLockDelta < minTimeLockDelta {
+	// We allow a zero CLTV to leave this value unchanged.
+	if req.TimeLockDelta != 0 && req.TimeLockDelta < minTimeLockDelta {
 		return nil, fmt.Errorf("time lock delta of %v is too small, "+
 			"minimum supported is %v", req.TimeLockDelta,
 			minTimeLockDelta)

@@ -153,6 +153,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   received](https://github.com/lightningnetwork/lnd/pull/7095) to avoid CPU
   spike.
 
+* [Clarify CLI help and make setting CLTV value optional for updatechanpolicy 
+  command](https://github.com/lightningnetwork/lnd/pull/6762)
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test
@@ -237,4 +240,5 @@ to refactor the itest for code health and maintenance.
 * Oliver Gugger
 * Priyansh Rastogi
 * Roei Erez
+* Sachin Meier
 * Yong Yu

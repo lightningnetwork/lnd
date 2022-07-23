@@ -180,7 +180,9 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	edge.FeeProportionalMillionths = lnwire.MilliSatoshi(
 		newSchema.FeeRate,
 	)
-	edge.TimeLockDelta = uint16(newSchema.TimeLockDelta)
+	if newSchema.TimeLockDelta != 0 {
+		edge.TimeLockDelta = uint16(newSchema.TimeLockDelta)
+	}
 
 	// Retrieve negotiated channel htlc amt limits.
 	amtMin, amtMax, err := r.getHtlcAmtLimits(tx, chanPoint)

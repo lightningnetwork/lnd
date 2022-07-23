@@ -16,6 +16,8 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
   that were signed by our wallet. Prior to this change `SignPsbt` didn't 
   indicate whether the Psbt held any inputs for our wallet to sign.
 
+* [Add list addresses RPC](https://github.com/lightningnetwork/lnd/pull/6596).
+
 ## Misc
 * Warning messages from peers are now recognized and
   [logged](https://github.com/lightningnetwork/lnd/pull/6546) by lnd.
@@ -52,3 +54,4 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 * hieblmi
 * Olaoluwa Osuntokun
 * Oliver Gugger
+* Priyansh Rastogi

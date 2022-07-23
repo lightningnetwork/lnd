@@ -127,7 +127,7 @@ the following commands for your OS:
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  tar -C /usr/local -xzf go1.17.1.linux-armv6l.tar.gz
+  tar -C /usr/local -xzf go1.18.linux-armv6l.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```  
   

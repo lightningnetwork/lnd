@@ -1077,7 +1077,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 			require.NoError(t.t, err)
 			thawHeight := uint32(minerHeight + 144)
 
-			fundingShim, _, _ = deriveFundingShim(
+			fundingShim, _, _ = deriveFundingShimOld(
 				net, t, from, to, chanAmt, thawHeight, true,
 			)
 		}

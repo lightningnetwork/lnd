@@ -261,7 +261,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 		_, minerHeight, err := net.Miner.Client.GetBestBlock()
 		require.NoError(t.t, err)
 		thawHeight = uint32(minerHeight + 144)
-		aliceFundingShim, _, _ = deriveFundingShim(
+		aliceFundingShim, _, _ = deriveFundingShimOld(
 			net, t, alice, bob, chanAmt, thawHeight, true,
 		)
 	}
@@ -338,7 +338,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	// open, our topology looks like:  A -> B -> C.
 	var bobFundingShim *lnrpc.FundingShim
 	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		bobFundingShim, _, _ = deriveFundingShim(
+		bobFundingShim, _, _ = deriveFundingShimOld(
 			net, t, bob, carol, chanAmt, thawHeight, true,
 		)
 	}

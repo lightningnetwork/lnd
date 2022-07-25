@@ -505,7 +505,7 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	// a transaction that will never be published.
 	const thawHeight uint32 = 10
 	const chanSize = funding.MaxBtcFundingAmount
-	fundingShim1, chanPoint1, _ := deriveFundingShim(
+	fundingShim1, chanPoint1, _ := deriveFundingShimOld(
 		net, t, carol, dave, chanSize, thawHeight, false,
 	)
 	_ = openChannelStream(
@@ -521,7 +521,7 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	// externally funded, we should still be able to open another one. Let's
 	// do exactly that now. For this one we publish the transaction so we
 	// can mine it later.
-	fundingShim2, chanPoint2, _ := deriveFundingShim(
+	fundingShim2, chanPoint2, _ := deriveFundingShimOld(
 		net, t, carol, dave, chanSize, thawHeight, true,
 	)
 
@@ -748,7 +748,8 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 // deriveFundingShim creates a channel funding shim by deriving the necessary
 // keys on both sides.
-func deriveFundingShim(net *lntest.NetworkHarness, t *harnessTest,
+// TODO(yy): remove.
+func deriveFundingShimOld(net *lntest.NetworkHarness, t *harnessTest,
 	carol, dave *lntest.HarnessNode, chanSize btcutil.Amount,
 	thawHeight uint32, publish bool) (*lnrpc.FundingShim,
 	*lnrpc.ChannelPoint, *chainhash.Hash) {

@@ -23,14 +23,14 @@ func WriteFileToDisk(file string, fileBytes []byte, perm fs.FileMode) error {
 // Additionally, if there is an error after opening,
 // it attempts to remove the file in question.
 func WriteFileTransactional(file string, fileBytes []byte, perm fs.FileMode) error {
-	tmp_name := file + ".tmp"
+	tmpName := file + ".tmp"
 	// Ignore any errors during file removal
 	// since we don't really care about the .tmp file
-	defer os.Remove(tmp_name)
-	if err := WriteFileToDisk(tmp_name, fileBytes, perm); err != nil {
+	defer os.Remove(tmpName)
+	if err := WriteFileToDisk(tmpName, fileBytes, perm); err != nil {
 		return err
 	}
-	err := os.Rename(tmp_name, file)
+	err := os.Rename(tmpName, file)
 	if err != nil {
 		// Ignore this error and return the prior error
 		// This may be unecessary but shouldn't cause a problem
@@ -41,8 +41,11 @@ func WriteFileTransactional(file string, fileBytes []byte, perm fs.FileMode) err
 
 func writeClose(f *os.File, fileBytes []byte) error {
 	_, err := f.Write(fileBytes)
-	if err2 := f.Close(); err2 != nil && err == nil {
-		err = err2
+	// prioritize the error on Write because it happens first
+	// But make sure to call Close regardless to avoid leaking a file handle
+	err2 := f.Close()
+	if err != nil {
+		return err
 	}
-	return err
+	return err2
 }

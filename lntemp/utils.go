@@ -3,6 +3,7 @@ package lntemp
 import (
 	"fmt"
 	"io"
+	"math"
 	"os"
 
 	"github.com/lightningnetwork/lnd/lntest"
@@ -14,6 +15,14 @@ const (
 
 	// TODO(yy): delete.
 	DefaultTimeout = lntest.DefaultTimeout
+
+	// noFeeLimitMsat is used to specify we will put no requirements on fee
+	// charged when choosing a route path.
+	noFeeLimitMsat = math.MaxInt64
+
+	// defaultPaymentTimeout specifies the default timeout in seconds when
+	// sending a payment.
+	defaultPaymentTimeout = 60
 )
 
 // CopyFile copies the file src to dest.

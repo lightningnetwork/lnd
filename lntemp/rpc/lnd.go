@@ -238,3 +238,27 @@ func (h *HarnessRPC) FundingStateStepAssertErr(m *lnrpc.FundingTransitionMsg) {
 	_, err := h.LN.FundingStateStep(ctxt, m)
 	require.Error(h, err, "expected an error from FundingStateStep")
 }
+
+// AddInvoice adds a invoice for the given node and asserts.
+func (h *HarnessRPC) AddInvoice(req *lnrpc.Invoice) *lnrpc.AddInvoiceResponse {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	invoice, err := h.LN.AddInvoice(ctxt, req)
+	h.NoError(err, "AddInvoice")
+
+	return invoice
+}
+
+// AbandonChannel makes a RPC call to AbandonChannel and asserts.
+func (h *HarnessRPC) AbandonChannel(
+	req *lnrpc.AbandonChannelRequest) *lnrpc.AbandonChannelResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.AbandonChannel(ctxt, req)
+	h.NoError(err, "AbandonChannel")
+
+	return resp
+}

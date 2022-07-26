@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
@@ -300,10 +301,10 @@ func (h *HarnessTest) findChannel(hn *node.HarnessNode,
 	return nil, fmt.Errorf("channel not found using %s", chanPoint)
 }
 
-// ReceiveCloseChannelUpdate waits until a message is received on the subscribe
-// channel close stream or the timeout is reached.
+// ReceiveCloseChannelUpdate waits until a message or an error is received on
+// the subscribe channel close stream or the timeout is reached.
 func (h *HarnessTest) ReceiveCloseChannelUpdate(
-	stream rpc.CloseChanClient) *lnrpc.CloseStatusUpdate {
+	stream rpc.CloseChanClient) (*lnrpc.CloseStatusUpdate, error) {
 
 	chanMsg := make(chan *lnrpc.CloseStatusUpdate)
 	errChan := make(chan error)
@@ -322,16 +323,15 @@ func (h *HarnessTest) ReceiveCloseChannelUpdate(
 	case <-time.After(DefaultTimeout):
 		require.Fail(h, "timeout", "timeout waiting for close channel "+
 			"update sent")
+		return nil, nil
 
 	case err := <-errChan:
-		require.Failf(h, "close channel stream",
-			"received err from close channel stream: %v", err)
+		return nil, fmt.Errorf("received err from close channel "+
+			"stream: %v", err)
 
 	case updateMsg := <-chanMsg:
-		return updateMsg
+		return updateMsg, nil
 	}
-
-	return nil
 }
 
 type WaitingCloseChannel *lnrpc.PendingChannelsResponse_WaitingCloseChannel
@@ -382,7 +382,8 @@ func (h HarnessTest) WaitForChannelCloseEvent(
 	stream rpc.CloseChanClient) *chainhash.Hash {
 
 	// Consume one event.
-	event := h.ReceiveCloseChannelUpdate(stream)
+	event, err := h.ReceiveCloseChannelUpdate(stream)
+	require.NoError(h, err)
 
 	resp, ok := event.Update.(*lnrpc.CloseStatusUpdate_ChanClose)
 	require.Truef(h, ok, "expected channel open update, instead got %v",
@@ -686,4 +687,138 @@ func (h *HarnessTest) GetChannelCommitType(hn *node.HarnessNode,
 	c := h.GetChannelByChanPoint(hn, chanPoint)
 
 	return c.CommitmentType
+}
+
+// AssertNumPendingOpenChannels asserts that a given node have the expected
+// number of pending open channels.
+func (h *HarnessTest) AssertNumPendingOpenChannels(hn *node.HarnessNode,
+	expected int) []*lnrpc.PendingChannelsResponse_PendingOpenChannel {
+
+	var channels []*lnrpc.PendingChannelsResponse_PendingOpenChannel
+
+	oldNum := hn.State.OpenChannel.Pending
+
+	err := wait.NoError(func() error {
+		resp := hn.RPC.PendingChannels()
+		channels = resp.PendingOpenChannels
+		total := len(channels)
+
+		numChans := total - oldNum
+
+		if numChans != expected {
+			return errNumNotMatched(hn.Name(),
+				"pending open channels", expected,
+				numChans, total, oldNum)
+		}
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "num of pending open channels not match")
+
+	return channels
+}
+
+// AssertNodesNumPendingOpenChannels asserts that both of the nodes have the
+// expected number of pending open channels.
+func (h *HarnessTest) AssertNodesNumPendingOpenChannels(a, b *node.HarnessNode,
+	expected int) {
+
+	h.AssertNumPendingOpenChannels(a, expected)
+	h.AssertNumPendingOpenChannels(b, expected)
+}
+
+// AssertPaymentStatusFromStream takes a client stream and asserts the payment
+// is in desired status before default timeout. The payment found is returned
+// once succeeded.
+func (h *HarnessTest) AssertPaymentStatusFromStream(stream rpc.PaymentClient,
+	status lnrpc.Payment_PaymentStatus) *lnrpc.Payment {
+
+	return h.assertPaymentStatusWithTimeout(stream, status, DefaultTimeout)
+}
+
+// assertPaymentStatusWithTimeout takes a client stream and asserts the payment
+// is in desired status before the specified timeout. The payment found is
+// returned once succeeded.
+func (h *HarnessTest) assertPaymentStatusWithTimeout(stream rpc.PaymentClient,
+	status lnrpc.Payment_PaymentStatus,
+	timeout time.Duration) *lnrpc.Payment {
+
+	var target *lnrpc.Payment
+	err := wait.NoError(func() error {
+		// Consume one message. This will raise an error if the message
+		// is not received within DefaultTimeout.
+		payment := h.ReceivePaymentUpdate(stream)
+
+		// Return if the desired payment state is reached.
+		if payment.Status == status {
+			target = payment
+
+			return nil
+		}
+
+		// Return the err so that it can be used for debugging when
+		// timeout is reached.
+		return fmt.Errorf("payment status, got %v, want %v",
+			payment.Status, status)
+	}, timeout)
+
+	require.NoError(h, err, "timeout while waiting payment")
+
+	return target
+}
+
+// ReceivePaymentUpdate waits until a message is received on the payment client
+// stream or the timeout is reached.
+func (h *HarnessTest) ReceivePaymentUpdate(
+	stream rpc.PaymentClient) *lnrpc.Payment {
+
+	chanMsg := make(chan *lnrpc.Payment, 1)
+	errChan := make(chan error, 1)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout waiting for payment update")
+
+	case err := <-errChan:
+		require.Failf(h, "payment stream",
+			"received err from payment stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}
+
+// AssertInvoiceSettled asserts a given invoice specified by its payment
+// address is settled.
+func (h *HarnessTest) AssertInvoiceSettled(hn *node.HarnessNode, addr []byte) {
+	msg := &invoicesrpc.LookupInvoiceMsg{
+		InvoiceRef: &invoicesrpc.LookupInvoiceMsg_PaymentAddr{
+			PaymentAddr: addr,
+		},
+	}
+
+	err := wait.NoError(func() error {
+		invoice := hn.RPC.LookupInvoiceV2(msg)
+		if invoice.State == lnrpc.Invoice_SETTLED {
+			return nil
+		}
+
+		return fmt.Errorf("%s: invoice with payment address %x not "+
+			"settled", hn.Name(), addr)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout waiting for invoice settled state")
 }

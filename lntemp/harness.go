@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -12,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -542,11 +544,12 @@ type OpenChannelParams struct {
 	CommitmentType lnrpc.CommitmentType
 }
 
-// openChannel attempts to open a channel between srcNode and destNode with the
-// passed channel funding parameters. Once the `OpenChannel` is called, it will
-// consume the first event it receives from the open channel client and asserts
-// it's a channel pending event.
-func (h *HarnessTest) openChannel(srcNode, destNode *node.HarnessNode,
+// OpenChannelAssertPending attempts to open a channel between srcNode and
+// destNode with the passed channel funding parameters. Once the `OpenChannel`
+// is called, it will consume the first event it receives from the open channel
+// client and asserts it's a channel pending event.
+func (h *HarnessTest) OpenChannelAssertPending(
+	srcNode, destNode *node.HarnessNode,
 	p OpenChannelParams) rpc.OpenChanClient {
 
 	// Specify the minimal confirmations of the UTXOs used for channel
@@ -601,7 +604,7 @@ func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
 	h.WaitForBlockchainSync(alice)
 	h.WaitForBlockchainSync(bob)
 
-	chanOpenUpdate := h.openChannel(alice, bob, p)
+	chanOpenUpdate := h.OpenChannelAssertPending(alice, bob, p)
 
 	// Mine 6 blocks, then wait for Alice's node to notify us that the
 	// channel has been opened. The funding transaction should be found
@@ -649,7 +652,9 @@ func (h *HarnessTest) closeChannel(hn *node.HarnessNode, cp *lnrpc.ChannelPoint,
 	// Consume the "channel close" update in order to wait for the closing
 	// transaction to be broadcast, then wait for the closing tx to be seen
 	// within the network.
-	event := h.ReceiveCloseChannelUpdate(stream)
+	event, err := h.ReceiveCloseChannelUpdate(stream)
+	require.NoError(h, err)
+
 	pendingClose, ok := event.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
 	require.Truef(h, ok, "expected channel close update, instead got %v",
 		pendingClose)
@@ -679,6 +684,26 @@ func (h *HarnessTest) CloseChannel(hn *node.HarnessNode,
 	stream, _ := h.closeChannel(hn, cp, force)
 
 	return h.assertChannelClosed(hn, cp, false, stream)
+}
+
+// CloseChannelAssertErr closes the given channel and asserts an error
+// returned.
+func (h *HarnessTest) CloseChannelAssertErr(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint, force bool) {
+
+	// Calls the rpc to close the channel.
+	closeReq := &lnrpc.CloseChannelRequest{
+		ChannelPoint: cp,
+		Force:        force,
+	}
+	stream := hn.RPC.CloseChannel(closeReq)
+
+	// Consume the "channel close" update in order to wait for the closing
+	// transaction to be broadcast, then wait for the closing tx to be seen
+	// within the network.
+	_, err := h.ReceiveCloseChannelUpdate(stream)
+	require.Errorf(h, err, "%s: expect close channel to return an error",
+		hn.Name())
 }
 
 // IsNeutrinoBackend returns a bool indicating whether the node is using a
@@ -757,4 +782,85 @@ func (h *HarnessTest) fundCoins(amt btcutil.Amount, target *node.HarnessNode,
 // order to confirm the transaction.
 func (h *HarnessTest) FundCoins(amt btcutil.Amount, hn *node.HarnessNode) {
 	h.fundCoins(amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, true)
+}
+
+// CompletePaymentRequests sends payments from a node to complete all payment
+// requests. This function does not return until all payments successfully
+// complete without errors.
+func (h *HarnessTest) CompletePaymentRequests(hn *node.HarnessNode,
+	paymentRequests []string) {
+
+	var wg sync.WaitGroup
+
+	// send sends a payment and asserts if it doesn't succeeded.
+	send := func(payReq string) {
+		defer wg.Done()
+
+		req := &routerrpc.SendPaymentRequest{
+			PaymentRequest: payReq,
+			TimeoutSeconds: defaultPaymentTimeout,
+			FeeLimitMsat:   noFeeLimitMsat,
+		}
+		stream := hn.RPC.SendPayment(req)
+		h.AssertPaymentStatusFromStream(stream, lnrpc.Payment_SUCCEEDED)
+	}
+
+	// Launch all payments simultaneously.
+	for _, payReq := range paymentRequests {
+		payReqCopy := payReq
+		wg.Add(1)
+		go send(payReqCopy)
+	}
+
+	// Wait for all payments to report success.
+	wg.Wait()
+}
+
+// CompletePaymentRequestsNoWait sends payments from a node to complete all
+// payment requests without waiting for the results. Instead, it checks the
+// number of updates in the specified channel has increased.
+func (h *HarnessTest) CompletePaymentRequestsNoWait(hn *node.HarnessNode,
+	paymentRequests []string, chanPoint *lnrpc.ChannelPoint) {
+
+	// We start by getting the current state of the client's channels. This
+	// is needed to ensure the payments actually have been committed before
+	// we return.
+	oldResp := h.GetChannelByChanPoint(hn, chanPoint)
+
+	// send sends a payment and asserts if it doesn't succeeded.
+	send := func(payReq string) {
+		req := &routerrpc.SendPaymentRequest{
+			PaymentRequest: payReq,
+			TimeoutSeconds: defaultPaymentTimeout,
+			FeeLimitMsat:   noFeeLimitMsat,
+		}
+		hn.RPC.SendPayment(req)
+	}
+
+	// Launch all payments simultaneously.
+	for _, payReq := range paymentRequests {
+		payReqCopy := payReq
+		go send(payReqCopy)
+	}
+
+	// We are not waiting for feedback in the form of a response, but we
+	// should still wait long enough for the server to receive and handle
+	// the send before cancelling the request. We wait for the number of
+	// updates to one of our channels has increased before we return.
+	err := wait.NoError(func() error {
+		newResp := h.GetChannelByChanPoint(hn, chanPoint)
+
+		// If this channel has an increased number of updates, we
+		// assume the payments are committed, and we can return.
+		if newResp.NumUpdates > oldResp.NumUpdates {
+			return nil
+		}
+
+		// Otherwise return an error as the NumUpdates are not
+		// increased.
+		return fmt.Errorf("%s: channel:%v not updated after sending "+
+			"payments, old updates: %v, new updates: %v", hn.Name(),
+			chanPoint, oldResp.NumUpdates, newResp.NumUpdates)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout while checking for channel updates")
 }

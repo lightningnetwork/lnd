@@ -22,8 +22,13 @@
   need to explicitly specify the `--private` flag.
 
 * [Add `chan_point` flag to
-  `updatechanstatus`](https://github.com/lightningnetwork/lnd/pull/6705)
+  `updatechanstatus` and `abandonchannel`](https://github.com/lightningnetwork/lnd/pull/6705)
   to offer a convenient way to specify the channel to be updated.
+
+* [Add `ignore_pair` flag to 
+  queryroutes](https://github.com/lightningnetwork/lnd/pull/6724) to allow a 
+  user to request that specific directional node pairs be ignored during the 
+  route search.
 
 ## Database
 
@@ -47,6 +52,19 @@
 * [Add wallet reserve RPC & field in wallet
   balance](https://github.com/lightningnetwork/lnd/pull/6592).
 
+* The RPC middleware interceptor now also allows [requests to be
+  replaced](https://github.com/lightningnetwork/lnd/pull/6630) instead of just
+  responses. In addition to that, errors returned from `lnd` can now also be
+  intercepted and changed by the middleware.
+
+* The `signrpc.SignMessage` and `signrpc.VerifyMessage` now supports [Schnorr
+  signatures](https://github.com/lightningnetwork/lnd/pull/6722).
+
+* [A new flag `skip_temp_err` is added to
+  `SendToRoute`](https://github.com/lightningnetwork/lnd/pull/6545). Set it to
+  true so the payment won't be failed unless a terminal error has occurred,
+  which is useful for constructing MPP.
+
 ## Bug Fixes
 
 * Fixed data race found in
@@ -54,6 +72,8 @@
 
 * [Fixed a bug in the `SignPsbt` RPC that produced an invalid response when
   signing a NP2WKH input](https://github.com/lightningnetwork/lnd/pull/6687).
+
+* [Fix race condition in `sign_psbt` test](https://github.com/lightningnetwork/lnd/pull/6741).
 
 * [Update the `urfave/cli`
   package](https://github.com/lightningnetwork/lnd/pull/6682) because of a flag
@@ -65,7 +85,14 @@
 * [The HtlcSwitch now waits for a ChannelLink to stop before replacing it. This fixes a race
   condition.](https://github.com/lightningnetwork/lnd/pull/6642)
 
-* [Integration tests now always run with nodes never deleting failed payments](https://github.com/lightningnetwork/lnd/pull/6712).
+* [Integration tests now always run with nodes never deleting failed
+  payments](https://github.com/lightningnetwork/lnd/pull/6712).
+
+* [Fixes a key scope issue preventing new remote signing setups to be created
+  with `v0.15.0-beta`](https://github.com/lightningnetwork/lnd/pull/6714).
+
+* [Re-initialise registered middleware index lookup map after removal of a 
+  registered middleware](https://github.com/lightningnetwork/lnd/pull/6739)
 
 ## Code Health
 
@@ -91,6 +118,7 @@
 * Elle Mouton
 * ErikEk
 * Eugene Siegel
+* Matt Morehouse
 * Slyghtning
 * Oliver Gugger
 * Olaoluwa Osuntokun

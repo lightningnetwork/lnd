@@ -263,25 +263,40 @@ func (h *MiddlewareHandler) sendInterceptRequests(errChan chan error,
 					break
 				}
 
-				// For intercepted responses we also allow the
-				// content itself to be overwritten.
-				if requestInfo.request.Type == TypeResponse &&
-					t.ReplaceResponse {
+				// If there's nothing to replace, we're done,
+				// this request was just accepted.
+				if !t.ReplaceResponse {
+					break
+				}
 
-					response.replace = true
-					protoMsg, err := parseProto(
-						requestInfo.request.ProtoTypeName,
-						t.ReplacementSerialized,
+				// We are replacing the response, the question
+				// now just is: was it an error or a proper
+				// proto message?
+				response.replace = true
+				if requestInfo.request.IsError {
+					response.replacement = errors.New(
+						string(t.ReplacementSerialized),
 					)
 
-					if err != nil {
-						response.err = err
-
-						break
-					}
-
-					response.replacement = protoMsg
+					break
 				}
+
+				// Not an error but a proper proto message that
+				// needs to be replaced. For that we need to
+				// parse it from the raw bytes into the full RPC
+				// message.
+				protoMsg, err := parseProto(
+					requestInfo.request.ProtoTypeName,
+					t.ReplacementSerialized,
+				)
+
+				if err != nil {
+					response.err = err
+
+					break
+				}
+
+				response.replacement = protoMsg
 
 			default:
 				return fmt.Errorf("unknown middleware "+
@@ -322,7 +337,8 @@ const (
 	// TypeRequest is the type of intercept message that is sent when an RPC
 	// request message is sent to lnd. For client-streaming RPCs a new
 	// message of this type is sent for each individual RPC request sent to
-	// the stream.
+	// the stream. Middleware has the option to modify a request message
+	// before it is delivered to lnd.
 	TypeRequest InterceptType = 2
 
 	// TypeResponse is the type of intercept message that is sent when an
@@ -370,6 +386,10 @@ type InterceptionRequest struct {
 	// ProtoTypeName is the fully qualified name of the protobuf type of the
 	// request or response message that is serialized in the field above.
 	ProtoTypeName string
+
+	// IsError indicates that the message contained within this request is
+	// an error. Will only ever be true for response messages.
+	IsError bool
 }
 
 // NewMessageInterceptionRequest creates a new interception request for either
@@ -383,24 +403,36 @@ func NewMessageInterceptionRequest(ctx context.Context,
 		return nil, err
 	}
 
-	rpcReq, ok := m.(proto.Message)
-	if !ok {
-		return nil, fmt.Errorf("msg is not proto message: %v", m)
-	}
-	rawRequest, err := proto.Marshal(rpcReq)
-	if err != nil {
-		return nil, fmt.Errorf("cannot marshal proto msg: %v", err)
+	req := &InterceptionRequest{
+		Type:        authType,
+		StreamRPC:   isStream,
+		Macaroon:    mac,
+		RawMacaroon: rawMacaroon,
+		FullURI:     fullMethod,
 	}
 
-	return &InterceptionRequest{
-		Type:            authType,
-		StreamRPC:       isStream,
-		Macaroon:        mac,
-		RawMacaroon:     rawMacaroon,
-		FullURI:         fullMethod,
-		ProtoSerialized: rawRequest,
-		ProtoTypeName:   string(proto.MessageName(rpcReq)),
-	}, nil
+	// The message is either a proto message or an error, we don't support
+	// any other types being intercepted.
+	switch t := m.(type) {
+	case proto.Message:
+		req.ProtoSerialized, err = proto.Marshal(t)
+		if err != nil {
+			return nil, fmt.Errorf("cannot marshal proto msg: %v",
+				err)
+		}
+		req.ProtoTypeName = string(proto.MessageName(t))
+
+	case error:
+		req.ProtoSerialized = []byte(t.Error())
+		req.ProtoTypeName = "error"
+		req.IsError = true
+
+	default:
+		return nil, fmt.Errorf("unsupported type for interception "+
+			"request: %v", m)
+	}
+
+	return req, nil
 }
 
 // NewStreamAuthInterceptionRequest creates a new interception request for a
@@ -485,6 +517,7 @@ func (r *InterceptionRequest) ToRPC(requestID,
 				StreamRpc:     r.StreamRPC,
 				TypeName:      r.ProtoTypeName,
 				Serialized:    r.ProtoSerialized,
+				IsError:       r.IsError,
 			},
 		}
 
@@ -528,4 +561,36 @@ func parseProto(typeName string, serialized []byte) (proto.Message, error) {
 	}
 
 	return msg.Interface(), nil
+}
+
+// replaceProtoMsg replaces the given target message with the content of the
+// replacement message.
+func replaceProtoMsg(target interface{}, replacement interface{}) error {
+	targetMsg, ok := target.(proto.Message)
+	if !ok {
+		return fmt.Errorf("target is not a proto message: %v", target)
+	}
+
+	replacementMsg, ok := replacement.(proto.Message)
+	if !ok {
+		return fmt.Errorf("replacement is not a proto message: %v",
+			replacement)
+	}
+
+	if targetMsg.ProtoReflect().Type() !=
+		replacementMsg.ProtoReflect().Type() {
+
+		return fmt.Errorf("replacement message is of wrong type")
+	}
+
+	replacementBytes, err := proto.Marshal(replacementMsg)
+	if err != nil {
+		return fmt.Errorf("error marshaling replacement: %v", err)
+	}
+	err = proto.Unmarshal(replacementBytes, targetMsg)
+	if err != nil {
+		return fmt.Errorf("error unmarshaling replacement: %v", err)
+	}
+
+	return nil
 }

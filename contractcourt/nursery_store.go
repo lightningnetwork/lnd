@@ -531,7 +531,7 @@ func (ns *NurseryStore) GraduateKinder(height uint32, kid *kidOutput) error {
 // FetchClass returns a list of the kindergarten and crib outputs whose timeouts
 // are expiring
 func (ns *NurseryStore) FetchClass(
-	height uint32) ([]kidOutput, []babyOutput, error) { // nolint:golint
+	height uint32) ([]kidOutput, []babyOutput, error) { // nolint:revive
 
 	// Construct list of all crib and kindergarten outputs that need to be
 	// processed at the provided block height.
@@ -592,7 +592,7 @@ func (ns *NurseryStore) FetchClass(
 
 // FetchPreschools returns a list of all outputs currently stored in the
 // preschool bucket.
-func (ns *NurseryStore) FetchPreschools() ([]kidOutput, error) { // nolint:golint
+func (ns *NurseryStore) FetchPreschools() ([]kidOutput, error) { // nolint:revive
 	var kids []kidOutput
 	if err := kvdb.View(ns.db, func(tx kvdb.RTx) error {
 		// Retrieve the existing chain bucket for this nursery store.

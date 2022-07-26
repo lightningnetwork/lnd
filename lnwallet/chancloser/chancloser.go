@@ -6,10 +6,12 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -87,11 +89,55 @@ const (
 	defaultMaxFeeMultiplier = 3
 )
 
+// Channel abstracts away from the core channel state machine by exposing an
+// interface that requires only the methods we need to carry out the channel
+// closing process.
+type Channel interface {
+	// CalcFee returns the absolute fee for the given fee rate.
+	CalcFee(chainfee.SatPerKWeight) btcutil.Amount
+
+	// ChannelPoint returns the channel point of the target channel.
+	ChannelPoint() *wire.OutPoint
+
+	// MarkCoopBroadcasted persistently marks that the channel close
+	// transaction has been broadcast.
+	MarkCoopBroadcasted(*wire.MsgTx, bool) error
+
+	// IsInitiator returns true we are the initiator of the channel.
+	IsInitiator() bool
+
+	// ShortChanID returns the scid of the channel.
+	ShortChanID() lnwire.ShortChannelID
+
+	// AbsoluteThawHeight returns the absolute thaw height of the channel.
+	// If the channel is pending, or an unconfirmed zero conf channel, then
+	// an error should be returned.
+	AbsoluteThawHeight() (uint32, error)
+
+	// RemoteUpfrontShutdownScript returns the upfront shutdown script of
+	// the remote party. If the remote party didn't specify such a script,
+	// an empty delivery address should be returned.
+	RemoteUpfrontShutdownScript() lnwire.DeliveryAddress
+
+	// CreateCloseProposal creates a new co-op close proposal in the form
+	// of a valid signature, the chainhash of the final txid, and our final
+	// balance in the created state.
+	CreateCloseProposal(proposedFee btcutil.Amount, localDeliveryScript []byte,
+		remoteDeliveryScript []byte) (input.Signature, *chainhash.Hash,
+		btcutil.Amount, error)
+
+	// CompleteCooperativeClose persistently "completes" the cooperative
+	// close by producing a fully signed co-op close transaction.
+	CompleteCooperativeClose(localSig, remoteSig input.Signature,
+		localDeliveryScript, remoteDeliveryScript []byte,
+		proposedFee btcutil.Amount) (*wire.MsgTx, btcutil.Amount, error)
+}
+
 // ChanCloseCfg holds all the items that a ChanCloser requires to carry out its
 // duties.
 type ChanCloseCfg struct {
 	// Channel is the channel that should be closed.
-	Channel *lnwallet.LightningChannel
+	Channel Channel
 
 	// BroadcastTx broadcasts the passed transaction to the network.
 	BroadcastTx func(*wire.MsgTx, string) error
@@ -106,6 +152,7 @@ type ChanCloseCfg struct {
 	// MaxFee, is non-zero represents the highest fee that the initiator is
 	// willing to pay to close the channel.
 	MaxFee chainfee.SatPerKWeight
+
 	// Quit is a channel that should be sent upon in the occasion the state
 	// machine should cease all progress and shutdown.
 	Quit chan struct{}
@@ -184,10 +231,8 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 	idealFeePerKw chainfee.SatPerKWeight, negotiationHeight uint32,
 	closeReq *htlcswitch.ChanClose, locallyInitiated bool) *ChanCloser {
 
-	// Given the target fee-per-kw, we'll compute what our ideal _total_ fee
-	// will be starting at for this fee negotiation.
-	//
-	// TODO(roasbeef): should factor in minimal commit
+	// Given the target fee-per-kw, we'll compute what our ideal _total_
+	// fee will be starting at for this fee negotiation.
 	idealFeeSat := cfg.Channel.CalcFee(idealFeePerKw)
 
 	// When we're the initiator, we'll want to also factor in the highest
@@ -300,9 +345,13 @@ func (c *ChanCloser) CloseRequest() *htlcswitch.ChanClose {
 	return c.closeReq
 }
 
-// Channel returns the channel stored in the config.
+// Channel returns the channel stored in the config as a
+// *lnwallet.LightningChannel.
+//
+// NOTE: This method will PANIC if the underlying channel implementation isn't
+// the desired type.
 func (c *ChanCloser) Channel() *lnwallet.LightningChannel {
-	return c.cfg.Channel
+	return c.cfg.Channel.(*lnwallet.LightningChannel)
 }
 
 // NegotiationHeight returns the negotiation height.
@@ -370,9 +419,8 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// initiator of the channel opening, then we'll deny their close
 		// attempt.
 		chanInitiator := c.cfg.Channel.IsInitiator()
-		chanState := c.cfg.Channel.State()
 		if !chanInitiator {
-			absoluteThawHeight, err := chanState.AbsoluteThawHeight()
+			absoluteThawHeight, err := c.cfg.Channel.AbsoluteThawHeight()
 			if err != nil {
 				return nil, false, err
 			}

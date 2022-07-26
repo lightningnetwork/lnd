@@ -19,7 +19,7 @@ func WriteFileToDisk(file string, fileBytes []byte, perm fs.FileMode) error {
 
 // WriteFileTransactional does a write with sync like WriteFileToDisk
 // Additionally, if there is an error after opening,
-// it attempts to remove the file in question
+// it attempts to remove the file in question.
 func WriteFileTransactional(file string, fileBytes []byte, perm fs.FileMode) error {
 	f, err := createFileForWrite(file, perm)
 	if err != nil {
@@ -35,7 +35,7 @@ func WriteFileTransactional(file string, fileBytes []byte, perm fs.FileMode) err
 // WriteRemoveOnError is the same as WriteFileTransactional
 // It will remove the file if there is an error on write
 // However it takes an open handle as an argument instead of a file:
-// this is at least useful for testing purposes
+// this is at least useful for testing purposes.
 func WriteRemoveOnError(f *os.File, fileBytes []byte) error {
 	err := writeSyncClose(f, fileBytes)
 	if err != nil {

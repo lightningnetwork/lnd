@@ -106,7 +106,6 @@ func ensureTempfile(t *testing.T) (*os.File, func()) {
 		f.Close()
 		os.Remove(f.Name())
 	}
-
 }
 
 func ensureFileContents(t *testing.T, filename string, data string) {

@@ -35,6 +35,12 @@ var (
 	// shutdown script previously set for that party.
 	ErrUpfrontShutdownScriptMismatch = fmt.Errorf("shutdown script does not " +
 		"match upfront shutdown script")
+
+	// ErrProposalExeceedsMaxFee is returned when as the initiator, the
+	// latest fee proposal sent by the responder exceed our max fee.
+	// responder.
+	ErrProposalExeceedsMaxFee = fmt.Errorf("latest fee proposal exceeds " +
+		"max fee")
 )
 
 // closeState represents all the possible states the channel closer state
@@ -73,6 +79,14 @@ const (
 	closeFinished
 )
 
+const (
+	// defaultMaxFeeMultiplier is a multiplier we'll apply to the ideal fee
+	// of the initiator, to decide when the negotiated fee is too high. By
+	// default, we want to bail out if we attempt to negotiate a fee that's
+	// 3x higher than our max fee.
+	defaultMaxFeeMultiplier = 3
+)
+
 // ChanCloseCfg holds all the items that a ChanCloser requires to carry out its
 // duties.
 type ChanCloseCfg struct {
@@ -89,6 +103,9 @@ type ChanCloseCfg struct {
 	// Disconnect will disconnect from the remote peer in this close.
 	Disconnect func() error
 
+	// MaxFee, is non-zero represents the highest fee that the initiator is
+	// willing to pay to close the channel.
+	MaxFee chainfee.SatPerKWeight
 	// Quit is a channel that should be sent upon in the occasion the state
 	// machine should cease all progress and shutdown.
 	Quit chan struct{}
@@ -121,6 +138,11 @@ type ChanCloser struct {
 	// idealFeeSat is the ideal fee that the state machine should initially
 	// offer when starting negotiation. This will be used as a baseline.
 	idealFeeSat btcutil.Amount
+
+	// maxFee is the highest fee the initiator is willing to pay to close
+	// out the channel. This is either a use specified value, or a default
+	// multiplier based of the initial starting ideal fee.
+	maxFee btcutil.Amount
 
 	// lastFeeProposal is the last fee that we proposed to the remote party.
 	// We'll use this as a pivot point to ratchet our next offer up, down, or
@@ -168,17 +190,12 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 	// TODO(roasbeef): should factor in minimal commit
 	idealFeeSat := cfg.Channel.CalcFee(idealFeePerKw)
 
-	// If this fee is greater than the fee currently present within the
-	// commitment transaction, then we'll clamp it down to be within the proper
-	// range.
-	//
-	// TODO(roasbeef): clamp fee func?
-	channelCommitFee := cfg.Channel.StateSnapshot().CommitFee
-	if idealFeeSat > channelCommitFee {
-		chancloserLog.Infof("Ideal starting fee of %v is greater than commit "+
-			"fee of %v, clamping", int64(idealFeeSat), int64(channelCommitFee))
-
-		idealFeeSat = channelCommitFee
+	// When we're the initiator, we'll want to also factor in the highest
+	// fee we want to pay. This'll either be 3x the ideal fee, or the
+	// specified explicit max fee.
+	maxFee := idealFeeSat * defaultMaxFeeMultiplier
+	if cfg.MaxFee > 0 {
+		maxFee = cfg.Channel.CalcFee(cfg.MaxFee)
 	}
 
 	chancloserLog.Infof("Ideal fee for closure of ChannelPoint(%v) is: %v sat",
@@ -193,6 +210,7 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 		cfg:                 cfg,
 		negotiationHeight:   negotiationHeight,
 		idealFeeSat:         idealFeeSat,
+		maxFee:              maxFee,
 		localDeliveryScript: deliveryScript,
 		priorFeeOffers:      make(map[btcutil.Amount]*lnwire.ClosingSigned),
 		locallyInitiated:    locallyInitiated,
@@ -483,9 +501,10 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			feeProposal := calcCompromiseFee(c.chanPoint, c.idealFeeSat,
 				c.lastFeeProposal, remoteProposedFee,
 			)
-			if feeProposal > c.idealFeeSat*3 {
-				return nil, false, fmt.Errorf("couldn't find" +
-					" compromise fee")
+			if c.cfg.Channel.IsInitiator() && feeProposal > c.maxFee {
+				return nil, false, fmt.Errorf("%w: %v > %v",
+					ErrProposalExeceedsMaxFee, feeProposal,
+					c.maxFee)
 			}
 
 			// With our new fee proposal calculated, we'll craft a new close

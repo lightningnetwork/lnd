@@ -423,4 +423,8 @@ var allTestCases = []*testCase{
 		name: "open channel fee policy",
 		test: testOpenChannelUpdateFeePolicy,
 	},
+	{
+		name: "coop close",
+		test: testCoopClose,
+	},
 }

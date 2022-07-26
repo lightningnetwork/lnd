@@ -266,3 +266,38 @@ func (h *HarnessMiner) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
 	require.NoError(h, err, "timeout checking mempool")
 	return msgTx
 }
+
+// SendOutputsWithoutChange uses the miner to send the given outputs using the
+// specified fee rate and returns the txid.
+func (h *HarnessMiner) SendOutputsWithoutChange(outputs []*wire.TxOut,
+	feeRate btcutil.Amount) *chainhash.Hash {
+
+	txid, err := h.Harness.SendOutputsWithoutChange(
+		outputs, feeRate,
+	)
+	require.NoErrorf(h, err, "failed to send output")
+
+	return txid
+}
+
+// CreateTransaction uses the miner to create a transaction using the given
+// outputs using the specified fee rate and returns the transaction.
+func (h *HarnessMiner) CreateTransaction(outputs []*wire.TxOut,
+	feeRate btcutil.Amount) *wire.MsgTx {
+
+	tx, err := h.Harness.CreateTransaction(outputs, feeRate, false)
+	require.NoErrorf(h, err, "failed to create transaction")
+
+	return tx
+}
+
+// SendOutput creates, signs, and finally broadcasts a transaction spending
+// the harness' available mature coinbase outputs to create the new output.
+func (h *HarnessMiner) SendOutput(newOutput *wire.TxOut,
+	feeRate btcutil.Amount) *chainhash.Hash {
+
+	hash, err := h.Harness.SendOutputs([]*wire.TxOut{newOutput}, feeRate)
+	require.NoErrorf(h, err, "failed to send outputs")
+
+	return hash
+}

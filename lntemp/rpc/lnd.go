@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/stretchr/testify/require"
 )
 
 // =====================
@@ -213,4 +214,27 @@ func (h *HarnessRPC) CloseChannel(
 	h.NoError(err, "CloseChannel")
 
 	return stream
+}
+
+// FundingStateStep makes a RPC call to FundingStateStep and asserts.
+func (h *HarnessRPC) FundingStateStep(
+	msg *lnrpc.FundingTransitionMsg) *lnrpc.FundingStateStepResp {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.FundingStateStep(ctxt, msg)
+	h.NoError(err, "FundingStateStep")
+
+	return resp
+}
+
+// FundingStateStepAssertErr makes a RPC call to FundingStateStep and asserts
+// there's an error.
+func (h *HarnessRPC) FundingStateStepAssertErr(m *lnrpc.FundingTransitionMsg) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.FundingStateStep(ctxt, m)
+	require.Error(h, err, "expected an error from FundingStateStep")
 }

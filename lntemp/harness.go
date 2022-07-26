@@ -2,6 +2,7 @@ package lntemp
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"testing"
 
@@ -18,6 +19,12 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
+)
+
+const (
+	// defaultMinerFeeRate specifies the fee rate in sats when sending
+	// outputs from the miner.
+	defaultMinerFeeRate = 7500
 )
 
 // TestCase defines a test case that's been used in the integration test.
@@ -179,10 +186,7 @@ func (h *HarnessTest) SetupStandbyNodes() {
 				PkScript: addrScript,
 				Value:    10 * btcutil.SatoshiPerBitcoin,
 			}
-			_, err = h.Miner.SendOutputs(
-				[]*wire.TxOut{output}, 7500,
-			)
-			require.NoError(h, err, "send output failed")
+			h.Miner.SendOutput(output, 7500)
 		}
 	}
 
@@ -675,4 +679,82 @@ func (h *HarnessTest) CloseChannel(hn *node.HarnessNode,
 	stream, _ := h.closeChannel(hn, cp, force)
 
 	return h.assertChannelClosed(hn, cp, false, stream)
+}
+
+// IsNeutrinoBackend returns a bool indicating whether the node is using a
+// neutrino as its backend. This is useful when we want to skip certain tests
+// which cannot be done with a neutrino backend.
+func (h *HarnessTest) IsNeutrinoBackend() bool {
+	return h.manager.chainBackend.Name() == NeutrinoBackendName
+}
+
+// fundCoins attempts to send amt satoshis from the internal mining node to the
+// targeted lightning node. The confirmed boolean indicates whether the
+// transaction that pays to the target should confirm. For neutrino backend,
+// the `confirmed` param is ignored.
+func (h *HarnessTest) fundCoins(amt btcutil.Amount, target *node.HarnessNode,
+	addrType lnrpc.AddressType, confirmed bool) {
+
+	initialBalance := target.RPC.WalletBalance()
+
+	// First, obtain an address from the target lightning node, preferring
+	// to receive a p2wkh address s.t the output can immediately be used as
+	// an input to a funding transaction.
+	req := &lnrpc.NewAddressRequest{Type: addrType}
+	resp := target.RPC.NewAddress(req)
+	addr := h.DecodeAddress(resp.Address)
+	addrScript := h.PayToAddrScript(addr)
+
+	// Generate a transaction which creates an output to the target
+	// pkScript of the desired amount.
+	output := &wire.TxOut{
+		PkScript: addrScript,
+		Value:    int64(amt),
+	}
+	h.Miner.SendOutput(output, defaultMinerFeeRate)
+
+	// Encode the pkScript in hex as this the format that it will be
+	// returned via rpc.
+	expPkScriptStr := hex.EncodeToString(addrScript)
+
+	// Now, wait for ListUnspent to show the unconfirmed transaction
+	// containing the correct pkscript.
+	//
+	// Since neutrino doesn't support unconfirmed outputs, skip this check.
+	if !h.IsNeutrinoBackend() {
+		utxos := h.AssertNumUTXOsUnconfirmed(target, 1)
+
+		// Assert that the lone unconfirmed utxo contains the same
+		// pkscript as the output generated above.
+		pkScriptStr := utxos[0].PkScript
+		require.Equal(h, pkScriptStr, expPkScriptStr,
+			"pkscript mismatch")
+	}
+
+	// If the transaction should remain unconfirmed, then we'll wait until
+	// the target node's unconfirmed balance reflects the expected balance
+	// and exit.
+	if !confirmed && !h.IsNeutrinoBackend() {
+		expectedBalance := btcutil.Amount(
+			initialBalance.UnconfirmedBalance,
+		) + amt
+		h.WaitForBalanceUnconfirmed(target, expectedBalance)
+
+		return
+	}
+
+	// Otherwise, we'll generate 2 new blocks to ensure the output gains a
+	// sufficient number of confirmations and wait for the balance to
+	// reflect what's expected.
+	h.Miner.MineBlocks(2)
+
+	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
+	h.WaitForBalanceConfirmed(target, expectedBalance)
+}
+
+// FundCoins attempts to send amt satoshis from the internal mining node to the
+// targeted lightning node using a P2WKH address. 2 blocks are mined after in
+// order to confirm the transaction.
+func (h *HarnessTest) FundCoins(amt btcutil.Amount, hn *node.HarnessNode) {
+	h.fundCoins(amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, true)
 }

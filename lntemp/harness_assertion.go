@@ -2,17 +2,24 @@ package lntemp
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 // WaitForBlockchainSync waits until the node is synced to chain.
@@ -497,4 +504,186 @@ func (h *HarnessTest) WaitForGraphSync(hn *node.HarnessNode) {
 		return fmt.Errorf("node not synced to graph")
 	}, DefaultTimeout)
 	require.NoError(h, err, "%s: timeout while sync to graph", hn.Name())
+}
+
+// AssertNumUTXOsWithConf waits for the given number of UTXOs with the
+// specified confirmations range to be available or fails if that isn't the
+// case before the default timeout.
+//
+// NOTE: for standby nodes(Alice and Bob), this method takes account of the
+// previous state of the node's UTXOs. The previous state is snapshotted when
+// finishing a previous test case via the cleanup function in `Subtest`. In
+// other words, this assertion only checks the new changes made in the current
+// test.
+func (h *HarnessTest) AssertNumUTXOsWithConf(hn *node.HarnessNode,
+	expectedUtxos int, max, min int32) []*lnrpc.Utxo {
+
+	var unconfirmed bool
+
+	old := hn.State.UTXO.Confirmed
+	if max == 0 {
+		old = hn.State.UTXO.Unconfirmed
+		unconfirmed = true
+	}
+
+	var utxos []*lnrpc.Utxo
+	err := wait.NoError(func() error {
+		req := &walletrpc.ListUnspentRequest{
+			Account:         "",
+			MaxConfs:        max,
+			MinConfs:        min,
+			UnconfirmedOnly: unconfirmed,
+		}
+		resp := hn.RPC.ListUnspent(req)
+		total := len(resp.Utxos)
+
+		if total-old == expectedUtxos {
+			utxos = resp.Utxos[old:]
+
+			return nil
+		}
+
+		return errNumNotMatched(hn.Name(), "num of UTXOs",
+			expectedUtxos, total-old, total, old)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout waiting for UTXOs")
+
+	return utxos
+}
+
+// AssertNumUTXOsUnconfirmed asserts the expected num of unconfirmed utxos are
+// seen.
+//
+// NOTE: for standby nodes(Alice and Bob), this method takes account of the
+// previous state of the node's UTXOs. Check `AssertNumUTXOsWithConf` for
+// details.
+func (h *HarnessTest) AssertNumUTXOsUnconfirmed(hn *node.HarnessNode,
+	num int) []*lnrpc.Utxo {
+
+	return h.AssertNumUTXOsWithConf(hn, num, 0, 0)
+}
+
+// AssertNumUTXOsConfirmed asserts the expected num of confirmed utxos are
+// seen, which means the returned utxos have at least one confirmation.
+//
+// NOTE: for standby nodes(Alice and Bob), this method takes account of the
+// previous state of the node's UTXOs. Check `AssertNumUTXOsWithConf` for
+// details.
+func (h *HarnessTest) AssertNumUTXOsConfirmed(hn *node.HarnessNode,
+	num int) []*lnrpc.Utxo {
+
+	return h.AssertNumUTXOsWithConf(hn, num, math.MaxInt32, 1)
+}
+
+// AssertNumUTXOs asserts the expected num of utxos are seen, including
+// confirmed and unconfirmed outputs.
+//
+// NOTE: for standby nodes(Alice and Bob), this method takes account of the
+// previous state of the node's UTXOs. Check `AssertNumUTXOsWithConf` for
+// details.
+func (h *HarnessTest) AssertNumUTXOs(hn *node.HarnessNode,
+	num int) []*lnrpc.Utxo {
+
+	return h.AssertNumUTXOsWithConf(hn, num, math.MaxInt32, 0)
+}
+
+// WaitForBalanceConfirmed waits until the node sees the expected confirmed
+// balance in its wallet.
+func (h *HarnessTest) WaitForBalanceConfirmed(hn *node.HarnessNode,
+	expected btcutil.Amount) {
+
+	var lastBalance btcutil.Amount
+	err := wait.NoError(func() error {
+		resp := hn.RPC.WalletBalance()
+
+		lastBalance = btcutil.Amount(resp.ConfirmedBalance)
+		if lastBalance == expected {
+			return nil
+		}
+
+		return fmt.Errorf("expected %v, only have %v", expected,
+			lastBalance)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout waiting for confirmed balances")
+}
+
+// WaitForBalanceUnconfirmed waits until the node sees the expected unconfirmed
+// balance in its wallet.
+func (h *HarnessTest) WaitForBalanceUnconfirmed(hn *node.HarnessNode,
+	expected btcutil.Amount) {
+
+	var lastBalance btcutil.Amount
+	err := wait.NoError(func() error {
+		resp := hn.RPC.WalletBalance()
+
+		lastBalance = btcutil.Amount(resp.UnconfirmedBalance)
+		if lastBalance == expected {
+			return nil
+		}
+
+		return fmt.Errorf("expected %v, only have %v", expected,
+			lastBalance)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout waiting for unconfirmed balances")
+}
+
+// Random32Bytes generates a random 32 bytes which can be used as a pay hash,
+// preimage, etc.
+func (h *HarnessTest) Random32Bytes() []byte {
+	randBuf := make([]byte, lntypes.HashSize)
+
+	_, err := rand.Read(randBuf)
+	require.NoErrorf(h, err, "internal error, cannot generate random bytes")
+
+	return randBuf
+}
+
+// DecodeAddress decodes a given address and asserts there's no error.
+func (h *HarnessTest) DecodeAddress(addr string) btcutil.Address {
+	resp, err := btcutil.DecodeAddress(addr, harnessNetParams)
+	require.NoError(h, err, "DecodeAddress failed")
+
+	return resp
+}
+
+// PayToAddrScript creates a new script from the given address and asserts
+// there's no error.
+func (h *HarnessTest) PayToAddrScript(addr btcutil.Address) []byte {
+	addrScript, err := txscript.PayToAddrScript(addr)
+	require.NoError(h, err, "PayToAddrScript failed")
+
+	return addrScript
+}
+
+// AssertChannelBalanceResp makes a ChannelBalance request and checks the
+// returned response matches the expected.
+func (h *HarnessTest) AssertChannelBalanceResp(hn *node.HarnessNode,
+	expected *lnrpc.ChannelBalanceResponse) {
+
+	resp := hn.RPC.ChannelBalance()
+	require.True(h, proto.Equal(expected, resp), "balance is incorrect "+
+		"got: %v, want: %v", resp, expected)
+}
+
+// GetChannelByChanPoint tries to find a channel matching the channel point and
+// asserts. It returns the channel found.
+func (h *HarnessTest) GetChannelByChanPoint(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) *lnrpc.Channel {
+
+	channel, err := h.findChannel(hn, chanPoint)
+	require.NoErrorf(h, err, "channel not found using %v", chanPoint)
+
+	return channel
+}
+
+// GetChannelCommitType retrieves the active channel commitment type for the
+// given chan point.
+func (h *HarnessTest) GetChannelCommitType(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) lnrpc.CommitmentType {
+
+	c := h.GetChannelByChanPoint(hn, chanPoint)
+
+	return c.CommitmentType
 }

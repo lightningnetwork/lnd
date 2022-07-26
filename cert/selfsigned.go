@@ -273,11 +273,11 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	}
 
 	// Write cert and key files.
-	if err = io.WriteFileToDisk(certFile, certBuf.Bytes(), 0644); err != nil {
+	if err = io.WriteFileTransactional(certFile, certBuf.Bytes(), 0644); err != nil {
 		return err
 	}
-	if err = io.WriteFileToDisk(keyFile, keyBuf.Bytes(), 0600); err != nil {
-		os.Remove(certFile)
+	if err = io.WriteFileTransactional(keyFile, keyBuf.Bytes(), 0600); err != nil {
+		_ = os.Remove(certFile)
 		return err
 	}
 

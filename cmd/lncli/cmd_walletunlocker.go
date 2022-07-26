@@ -770,9 +770,8 @@ func storeOrPrintAdminMac(ctx *cli.Context, adminMac []byte) error {
 	// macaroon to that file.
 	if ctx.IsSet("save_to") {
 		macSavePath := lncfg.CleanAndExpandPath(ctx.String("save_to"))
-		err := io.WriteFileToDisk(macSavePath, adminMac, 0644)
+		err := io.WriteFileTransactional(macSavePath, adminMac, 0644)
 		if err != nil {
-			_ = os.Remove(macSavePath)
 			return err
 		}
 		fmt.Printf("Admin macaroon saved to %s\n", macSavePath)

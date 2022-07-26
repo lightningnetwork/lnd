@@ -131,9 +131,8 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		err = io.WriteFileToDisk(macFilePath, invoicesMacBytes, 0644)
+		err = io.WriteFileTransactional(macFilePath, invoicesMacBytes, 0644)
 		if err != nil {
-			_ = os.Remove(macFilePath)
 			return nil, nil, err
 		}
 	}

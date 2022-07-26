@@ -834,8 +834,7 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 		return err
 	}
 
-	if err = io.WriteFileToDisk(invoiceFile, invoiceMacBytes, 0644); err != nil {
-		_ = os.Remove(invoiceFile)
+	if err = io.WriteFileTransactional(invoiceFile, invoiceMacBytes, 0644); err != nil {
 		return err
 	}
 
@@ -845,8 +844,7 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 		return err
 	}
 
-	if err = io.WriteFileToDisk(roFile, roBytes, 0644); err != nil {
-		_ = os.Remove(roFile)
+	if err = io.WriteFileTransactional(roFile, roBytes, 0644); err != nil {
 		return err
 	}
 
@@ -856,8 +854,7 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 		return err
 	}
 
-	if err = io.WriteFileToDisk(admFile, admBytes, 0644); err != nil {
-		_ = os.Remove(admFile)
+	if err = io.WriteFileTransactional(admFile, admBytes, 0644); err != nil {
 		return err
 	}
 

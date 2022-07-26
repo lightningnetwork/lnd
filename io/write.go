@@ -5,41 +5,36 @@ import (
 	"os"
 )
 
-// WriteFileToDisk writes data to specified file with perm file mode.
-// If file exists trucates it and forces new permissions; otherwise creates it with specified permission
-// This method uses same parameters as ioutil.WriteFile but persists the newly created file on storage
-// using f.sync.
+// WriteFileToDisk ensures the data is written to disk.
+// This is done by opening the file with O_SYNC and closing it after write.
+// It also opens the file with O_WRONLY, O_CREATE, O_TRUNC, and the given permissions
+// This method uses same parameters as ioutil.WriteFile.
 func WriteFileToDisk(file string, fileBytes []byte, perm fs.FileMode) error {
-	f, err := createFileForWrite(file, perm)
+	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_SYNC, perm)
 	if err != nil {
 		return err
 	}
 	return writeClose(f, fileBytes)
 }
 
-// WriteFileTransactional does a write with sync like WriteFileToDisk
+// WriteFileTransactional first writes to file.tmp
+// Once the write is successful, it will rename it to file.
+// This avoids the possiblity of ending up with an empty file.
 // Additionally, if there is an error after opening,
 // it attempts to remove the file in question.
 func WriteFileTransactional(file string, fileBytes []byte, perm fs.FileMode) error {
-	f, err := createFileForWrite(file, perm)
-	if err != nil {
+	tmp_name := file + ".tmp"
+	// Ignore any errors during file removal
+	// since we don't really care about the .tmp file
+	defer os.Remove(tmp_name)
+	if err := WriteFileToDisk(tmp_name, fileBytes, perm); err != nil {
 		return err
 	}
-	err = writeClose(f, fileBytes)
+	err := os.Rename(tmp_name, file)
 	if err != nil {
+		// Ignore this error and return the prior error
+		// This may be unecessary but shouldn't cause a problem
 		_ = os.Remove(file)
-	}
-	return err
-}
-
-// WriteRemoveOnError is the same as WriteFileTransactional
-// It will remove the file if there is an error on write
-// However it takes an open handle as an argument instead of a file:
-// this is at least useful for testing purposes.
-func WriteRemoveOnError(f *os.File, fileBytes []byte) error {
-	err := writeClose(f, fileBytes)
-	if err != nil {
-		_ = os.Remove(f.Name())
 	}
 	return err
 }
@@ -50,8 +45,4 @@ func writeClose(f *os.File, fileBytes []byte) error {
 		err = err2
 	}
 	return err
-}
-
-func createFileForWrite(file string, perm fs.FileMode) (*os.File, error) {
-	return os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_SYNC, perm)
 }

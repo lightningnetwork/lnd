@@ -1,7 +1,6 @@
 package io_test
 
 import (
-	"errors"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -54,45 +53,34 @@ func TestWriteFileTransactional(t *testing.T) {
 	ensureFileContents(t, filename, data1)
 
 	// Changing the permission to read-only will cause the write to fail
-	if err := os.Chmod(filename, 0444); err != nil {
+	// transactional first writes to a tmp file and then renames
+	tmp_name := filename + ".tmp"
+	_, err := os.Stat(tmp_name)
+	if err == nil {
+		t.Fatalf("WriteFileTransactional tmp exists %s: %v", tmp_name, err)
+	}
+	if fh, err := os.Create(tmp_name); err != nil {
+		t.Fatalf("Error setting up read-only %s: %v", filename, err)
+		fh.Close()
+	}
+	if err := os.Chmod(tmp_name, 0444); err != nil {
 		t.Fatalf("Error changing to read-only %s: %v", filename, err)
 	}
 
 	if err := io.WriteFileTransactional(filename, []byte(data2), 0644); err == nil {
 		t.Fatalf("WriteFileTransactional expected permission error %s", filename)
 	}
-	// Because the permission error occurs on file open, the file is not removed
-	_, err := os.Stat(filename)
+
+	// The original file is not altered
+	_, err = os.Stat(filename)
 	if err != nil {
-		t.Fatalf("WriteFileTransactional %s: %v", filename, err)
+		t.Fatalf("WriteFileTransactional original does not exist %s: %v", filename, err)
 	}
 	ensureFileContents(t, filename, data1)
-}
 
-func TestWriteRemoveOnError(t *testing.T) {
-	f, deferred := ensureTempfile(t)
-	filename := f.Name()
-	defer deferred()
-
-	if err := io.WriteRemoveOnError(f, []byte(data1)); err != nil {
-		t.Fatalf("WriteRemoveOnError %s: %v", filename, err)
-	}
-
-	ensureFileContents(t, filename, data1)
-
-	// Changing the permission to read-only will cause the write to fail
-	if err := os.Chmod(filename, 0444); err != nil {
-		t.Fatalf("Error changing to read-only %s: %v", filename, err)
-	}
-
-	if err := io.WriteRemoveOnError(f, []byte(data2)); err == nil {
-		t.Fatalf("WriteRemoveOnError expected permission error %s", filename)
-	}
-
-	// The file should be removed on failure
-	_, err := os.Stat(filename)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("WriteRemoveOnError %s: %v", filename, err)
+	_, err = os.Stat(tmp_name)
+	if err == nil {
+		t.Fatalf("WriteFileTransactional tmp exists %s: %v", tmp_name, err)
 	}
 }
 

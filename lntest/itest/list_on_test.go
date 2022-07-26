@@ -15,4 +15,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "basic funding flow",
 		TestFunc: testBasicChannelFunding,
 	},
+	{
+		Name:     "external channel funding",
+		TestFunc: testExternalFundingChanPoint,
+	},
 }

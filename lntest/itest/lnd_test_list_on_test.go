@@ -288,10 +288,6 @@ var allTestCases = []*testCase{
 		test: testPaymentFollowingChannelOpen,
 	},
 	{
-		name: "external channel funding",
-		test: testExternalFundingChanPoint,
-	},
-	{
 		name: "psbt channel funding",
 		test: testPsbtChanFunding,
 	},

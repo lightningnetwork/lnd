@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -248,7 +249,9 @@ func nodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
 func calcStaticFee(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 	const htlcWeight = input.HTLCWeight
 	var (
-		feePerKw     = chainfee.SatPerKVByte(50000).FeePerKWeight()
+		feePerKw = chainfee.SatPerKWeight(
+			lntemp.DefaultFeeRateSatPerKw,
+		)
 		commitWeight = input.CommitWeight
 		anchors      = btcutil.Amount(0)
 	)

@@ -2508,9 +2508,12 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			}
 		}
 
+		maxFee := chainfee.SatPerKVByte(
+			in.MaxFeePerVbyte * 1000,
+		).FeePerKWeight()
 		updateChan, errChan = r.server.htlcSwitch.CloseLink(
 			chanPoint, contractcourt.CloseRegular, feeRate,
-			deliveryScript,
+			maxFee, deliveryScript,
 		)
 	}
 out:

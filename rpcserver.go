@@ -2557,6 +2557,9 @@ func createRPCCloseUpdate(update interface{}) (
 	*lnrpc.CloseStatusUpdate, error) {
 
 	switch u := update.(type) {
+	// nolint: typecheck
+	// The linter error "previous case (typecheck)" can be given.
+	// This doesn't make sense since this is the first case of the switch.
 	case *peer.ChannelCloseUpdate:
 		return &lnrpc.CloseStatusUpdate{
 			Update: &lnrpc.CloseStatusUpdate_ChanClose{

@@ -276,7 +276,7 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 		return err
 	}
 	if err = ioutil.WriteFile(keyFile, keyBuf.Bytes(), 0600); err != nil {
-		os.Remove(certFile)
+		os.Remove(keyFile)
 		return err
 	}
 

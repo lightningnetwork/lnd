@@ -1,6 +1,10 @@
 # Release Notes
 
-## Protocol Extensions
+## Protocol/Spec Updates
+
+* [We'll now no longer clamp the co-op close fee to the commitment
+ fee](https://github.com/lightningnetwork/lnd/pull/6770). Instead, if users are
+ the initiator, they can now specify a max fee that should be respected.
 
 ### Zero-Conf Channel Opens
 * [Introduces support for zero-conf channel opens and non-zero-conf option_scid_alias channels.](https://github.com/lightningnetwork/lnd/pull/5955)

@@ -25,10 +25,6 @@ var allTestCases = []*testCase{
 		test: testOnchainFundRecovery,
 	},
 	{
-		name: "basic funding flow",
-		test: testBasicChannelFunding,
-	},
-	{
 		name: "basic funding flow with all input types",
 		test: testChannelFundingInputTypes,
 	},

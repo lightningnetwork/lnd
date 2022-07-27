@@ -854,7 +854,7 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 		return err
 	}
 
-	if err = io.WriteFileTransactional(admFile, admBytes, 0644); err != nil {
+	if err = io.WriteFileTransactional(admFile, admBytes, adminMacaroonFilePermissions); err != nil {
 		return err
 	}
 

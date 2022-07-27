@@ -6,7 +6,6 @@ package invoicesrpc
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"

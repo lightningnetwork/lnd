@@ -54,16 +54,16 @@ func TestWriteFileTransactional(t *testing.T) {
 
 	// Changing the permission to read-only will cause the write to fail
 	// transactional first writes to a tmp file and then renames
-	tmp_name := filename + ".tmp"
-	_, err := os.Stat(tmp_name)
+	tmpName := filename + ".tmp"
+	_, err := os.Stat(tmpName)
 	if err == nil {
-		t.Fatalf("WriteFileTransactional tmp exists %s: %v", tmp_name, err)
+		t.Fatalf("WriteFileTransactional tmp exists %s: %v", tmpName, err)
 	}
-	if fh, err := os.Create(tmp_name); err != nil {
+	if fh, err := os.Create(tmpName); err != nil {
 		t.Fatalf("Error setting up read-only %s: %v", filename, err)
 		fh.Close()
 	}
-	if err := os.Chmod(tmp_name, 0444); err != nil {
+	if err := os.Chmod(tmpName, 0444); err != nil {
 		t.Fatalf("Error changing to read-only %s: %v", filename, err)
 	}
 
@@ -78,9 +78,9 @@ func TestWriteFileTransactional(t *testing.T) {
 	}
 	ensureFileContents(t, filename, data1)
 
-	_, err = os.Stat(tmp_name)
+	_, err = os.Stat(tmpName)
 	if err == nil {
-		t.Fatalf("WriteFileTransactional tmp exists %s: %v", tmp_name, err)
+		t.Fatalf("WriteFileTransactional tmp exists %s: %v", tmpName, err)
 	}
 }
 

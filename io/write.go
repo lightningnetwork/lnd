@@ -33,7 +33,7 @@ func WriteFileTransactional(file string, fileBytes []byte, perm fs.FileMode) err
 	err := os.Rename(tmpName, file)
 	if err != nil {
 		// Ignore this error and return the prior error
-		// This may be unecessary but shouldn't cause a problem
+		// This may be unnecessary but shouldn't cause a problem
 		_ = os.Remove(file)
 	}
 	return err

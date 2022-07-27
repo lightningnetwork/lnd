@@ -65,6 +65,10 @@
   true so the payment won't be failed unless a terminal error has occurred,
   which is useful for constructing MPP.
 
+* [Add a message to the RPC MW registration 
+  flow](https://github.com/lightningnetwork/lnd/pull/6754) so that the server 
+  can indicate to the client that it has completed the RPC MW registration.
+
 ## Bug Fixes
 
 * Fixed data race found in

@@ -7504,8 +7504,9 @@ func (r *rpcServer) RegisterRPCMiddleware(
 	// middleware must be a registration message containing its name and the
 	// custom caveat it wants to register for.
 	var (
-		registerChan = make(chan *lnrpc.MiddlewareRegistration, 1)
-		errChan      = make(chan error, 1)
+		registerChan     = make(chan *lnrpc.MiddlewareRegistration, 1)
+		registerDoneChan = make(chan struct{})
+		errChan          = make(chan error, 1)
 	)
 	ctxc, cancel := context.WithTimeout(
 		stream.Context(), r.cfg.RPCMiddleware.InterceptTimeout,
@@ -7579,6 +7580,40 @@ func (r *rpcServer) RegisterRPCMiddleware(
 		return fmt.Errorf("error registering middleware: %v", err)
 	}
 	defer r.interceptorChain.RemoveMiddleware(registerMsg.MiddlewareName)
+
+	// Send a message to the client to indicate that the registration has
+	// successfully completed.
+	regCompleteMsg := &lnrpc.RPCMiddlewareRequest{
+		InterceptType: &lnrpc.RPCMiddlewareRequest_RegComplete{
+			RegComplete: true,
+		},
+	}
+
+	// Send the message in a goroutine because the Send method blocks until
+	// the message is read by the client.
+	go func() {
+		err := stream.Send(regCompleteMsg)
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		close(registerDoneChan)
+	}()
+
+	select {
+	case err := <-errChan:
+		return fmt.Errorf("error sending middleware registration "+
+			"complete message: %v", err)
+
+	case <-ctxc.Done():
+		return ctxc.Err()
+
+	case <-r.quit:
+		return ErrServerShuttingDown
+
+	case <-registerDoneChan:
+	}
 
 	return middleware.Run()
 }

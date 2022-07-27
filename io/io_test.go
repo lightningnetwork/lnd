@@ -22,10 +22,15 @@ func TestWriteFileToDisk(t *testing.T) {
 	filename := f.Name()
 	defer deferred()
 
+	if err := io.WriteFileToDisk(filename, []byte(data2), 0644); err != nil {
+		t.Fatalf("WriteFile %s: %v", filename, err)
+	}
+	ensureFileContents(t, filename, data2)
+
+	// overwrite existing file
 	if err := io.WriteFileToDisk(filename, []byte(data1), 0644); err != nil {
 		t.Fatalf("WriteFile %s: %v", filename, err)
 	}
-
 	ensureFileContents(t, filename, data1)
 
 	// Changing the permission to read-only will cause the write to fail
@@ -46,10 +51,15 @@ func TestWriteFileTransactional(t *testing.T) {
 	f, deferred := ensureTempfile(t)
 	filename := f.Name()
 	defer deferred()
+	if err := io.WriteFileTransactional(filename, []byte(data2), 0644); err != nil {
+		t.Fatalf("WriteFileTransactional %s: %v", filename, err)
+	}
+	ensureFileContents(t, filename, data2)
+
+	// overwrite existing file
 	if err := io.WriteFileTransactional(filename, []byte(data1), 0644); err != nil {
 		t.Fatalf("WriteFileTransactional %s: %v", filename, err)
 	}
-
 	ensureFileContents(t, filename, data1)
 
 	// Changing the permission to read-only will cause the write to fail

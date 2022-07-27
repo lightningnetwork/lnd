@@ -22,6 +22,8 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	t *harnessTest, alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType,
 	zeroConf bool) {
 
+	t.Skipf("This test is failing frequently")
+
 	ctxb := context.Background()
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with

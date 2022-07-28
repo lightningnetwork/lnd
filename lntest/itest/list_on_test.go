@@ -16,6 +16,10 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		TestFunc: testBasicChannelFunding,
 	},
 	{
+		Name:     "test multi-hop htlc",
+		TestFunc: testMultiHopHtlcClaims,
+	},
+	{
 		Name:     "external channel funding",
 		TestFunc: testExternalFundingChanPoint,
 	},

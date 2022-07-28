@@ -428,6 +428,15 @@ func (h *HarnessTest) Shutdown(node *node.HarnessNode) {
 	require.NoErrorf(h, err, "unable to shutdown %v", node.Name())
 }
 
+// SuspendNode stops the given node and returns a callback that can be used to
+// start it again.
+func (h *HarnessTest) SuspendNode(node *node.HarnessNode) func() error {
+	err := node.Stop()
+	require.NoErrorf(h, err, "failed to stop %s", node.Name())
+
+	return func() error { return node.Start(h.runCtx) }
+}
+
 // RestartNode restarts a given node and asserts.
 func (h *HarnessTest) RestartNode(hn *node.HarnessNode,
 	chanBackups ...*lnrpc.ChanBackupSnapshot) {
@@ -446,6 +455,100 @@ func (h *HarnessTest) RestartNodeWithExtraArgs(hn *node.HarnessNode,
 
 	hn.SetExtraArgs(extraArgs)
 	h.RestartNode(hn, nil)
+}
+
+// NewNodeWithSeed fully initializes a new HarnessNode after creating a fresh
+// aezeed. The provided password is used as both the aezeed password and the
+// wallet password. The generated mnemonic is returned along with the
+// initialized harness node.
+func (h *HarnessTest) NewNodeWithSeed(name string,
+	extraArgs []string, password []byte,
+	statelessInit bool) (*node.HarnessNode, []string, []byte) {
+
+	// Create a request to generate a new aezeed. The new seed will have
+	// the same password as the internal wallet.
+	req := &lnrpc.GenSeedRequest{
+		AezeedPassphrase: password,
+		SeedEntropy:      nil,
+	}
+
+	return h.newNodeWithSeed(name, extraArgs, req, statelessInit)
+}
+
+// newNodeWithSeed creates and initializes a new HarnessNode such that it'll be
+// ready to accept RPC calls. A `GenSeedRequest` is needed to generate the
+// seed.
+func (h *HarnessTest) newNodeWithSeed(name string,
+	extraArgs []string, req *lnrpc.GenSeedRequest,
+	statelessInit bool) (*node.HarnessNode, []string, []byte) {
+
+	node, err := h.manager.newNode(
+		h.T, name, extraArgs, req.AezeedPassphrase, true,
+	)
+	require.NoErrorf(h, err, "unable to create new node for %s", name)
+
+	// Start the node with seed only, which will only create the `State`
+	// and `WalletUnlocker` clients.
+	err = node.StartWithSeed(h.runCtx)
+	require.NoErrorf(h, err, "failed to start node %s", node.Name())
+
+	// Generate a new seed.
+	genSeedResp := node.RPC.GenSeed(req)
+
+	// With the seed created, construct the init request to the node,
+	// including the newly generated seed.
+	initReq := &lnrpc.InitWalletRequest{
+		WalletPassword:     req.AezeedPassphrase,
+		CipherSeedMnemonic: genSeedResp.CipherSeedMnemonic,
+		AezeedPassphrase:   req.AezeedPassphrase,
+		StatelessInit:      statelessInit,
+	}
+
+	// Pass the init request via rpc to finish unlocking the node. This
+	// will also initialize the macaroon-authenticated LightningClient.
+	adminMac, err := h.manager.initWalletAndNode(node, initReq)
+	require.NoErrorf(h, err, "failed to unlock and init node %s",
+		node.Name())
+
+	// In stateless initialization mode we get a macaroon back that we have
+	// to return to the test, otherwise gRPC calls won't be possible since
+	// there are no macaroon files created in that mode.
+	// In stateful init the admin macaroon will just be nil.
+	return node, genSeedResp.CipherSeedMnemonic, adminMac
+}
+
+// RestoreNodeWithSeed fully initializes a HarnessNode using a chosen mnemonic,
+// password, recovery window, and optionally a set of static channel backups.
+// After providing the initialization request to unlock the node, this method
+// will finish initializing the LightningClient such that the HarnessNode can
+// be used for regular rpc operations.
+func (h *HarnessTest) RestoreNodeWithSeed(name string, extraArgs []string,
+	password []byte, mnemonic []string, rootKey string,
+	recoveryWindow int32, chanBackups *lnrpc.ChanBackupSnapshot,
+	opts ...node.Option) *node.HarnessNode {
+
+	node, err := h.manager.newNode(h.T, name, extraArgs, password, true)
+	require.NoErrorf(h, err, "unable to create new node for %s", name)
+
+	// Start the node with seed only, which will only create the `State`
+	// and `WalletUnlocker` clients.
+	err = node.StartWithSeed(h.runCtx)
+	require.NoErrorf(h, err, "failed to start node %s", node.Name())
+
+	// Create the wallet.
+	initReq := &lnrpc.InitWalletRequest{
+		WalletPassword:     password,
+		CipherSeedMnemonic: mnemonic,
+		AezeedPassphrase:   password,
+		ExtendedMasterKey:  rootKey,
+		RecoveryWindow:     recoveryWindow,
+		ChannelBackups:     chanBackups,
+	}
+	_, err = h.manager.initWalletAndNode(node, initReq)
+	require.NoErrorf(h, err, "failed to unlock and init node %s",
+		node.Name())
+
+	return node
 }
 
 // SetFeeEstimate sets a fee rate to be returned from fee estimator.

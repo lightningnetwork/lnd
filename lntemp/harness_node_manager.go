@@ -194,3 +194,28 @@ func (nm *nodeManager) restartNodeNoUnlock(ctxt context.Context,
 
 	return node.Start(ctxt)
 }
+
+// initWalletAndNode will unlock the node's wallet and finish setting up the
+// node so it's ready to take RPC requests.
+func (nm *nodeManager) initWalletAndNode(hn *node.HarnessNode,
+	req *lnrpc.InitWalletRequest) ([]byte, error) {
+
+	// Pass the init request via rpc to finish unlocking the node.
+	resp := hn.RPC.InitWallet(req)
+
+	// Now that the wallet is unlocked, before creating an authed
+	// connection we will close the old unauthed connection.
+	if err := hn.CloseConn(); err != nil {
+		return nil, fmt.Errorf("close unauthed conn failed")
+	}
+
+	// Init the node, which will create the authed grpc conn and all its
+	// rpc clients.
+	err := hn.InitNode(resp.AdminMacaroon)
+
+	// In stateless initialization mode we get a macaroon back that we have
+	// to return to the test, otherwise gRPC calls won't be possible since
+	// there are no macaroon files created in that mode.
+	// In stateful init the admin macaroon will just be nil.
+	return resp.AdminMacaroon, err
+}

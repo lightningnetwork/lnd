@@ -332,9 +332,9 @@ func (hn *HarnessNode) SetExtraArgs(extraArgs []string) {
 
 // StartLndCmd handles the startup of lnd, creating log files, and possibly
 // kills the process when needed.
-func (hn *HarnessNode) StartLndCmd() error {
-	// Init the runCtx.
-	hn.runCtx, hn.cancel = context.WithCancel(context.Background())
+func (hn *HarnessNode) StartLndCmd(ctxb context.Context) error {
+	// Init the run context.
+	hn.runCtx, hn.cancel = context.WithCancel(ctxb)
 
 	args := hn.Cfg.GenArgs()
 	hn.cmd = exec.Command(hn.Cfg.LndBinary, args...) //nolint:gosec
@@ -365,9 +365,9 @@ func (hn *HarnessNode) StartLndCmd() error {
 // start.
 //
 // NOTE: caller needs to take extra step to create and unlock the wallet.
-func (hn *HarnessNode) StartWithSeed() error {
+func (hn *HarnessNode) StartWithSeed(ctxt context.Context) error {
 	// Start lnd process and prepare logs.
-	if err := hn.StartLndCmd(); err != nil {
+	if err := hn.StartLndCmd(ctxt); err != nil {
 		return fmt.Errorf("start lnd error: %w", err)
 	}
 
@@ -388,9 +388,9 @@ func (hn *HarnessNode) StartWithSeed() error {
 
 // Start will start the lnd process, creates the grpc connection, and waits
 // until the server is fully started.
-func (hn *HarnessNode) Start() error {
+func (hn *HarnessNode) Start(ctxt context.Context) error {
 	// Start lnd process and prepare logs.
-	if err := hn.StartLndCmd(); err != nil {
+	if err := hn.StartLndCmd(ctxt); err != nil {
 		return fmt.Errorf("start lnd error: %w", err)
 	}
 
@@ -500,7 +500,7 @@ func (hn *HarnessNode) waitTillServerState(
 func (hn *HarnessNode) initLightningClient() error {
 	// Wait until the server is fully started.
 	if err := hn.WaitUntilServerActive(); err != nil {
-		return err
+		return fmt.Errorf("waiting for server active: %v", err)
 	}
 
 	// Set the harness node's pubkey to what the node claims in GetInfo.
@@ -677,27 +677,34 @@ func (hn *HarnessNode) Stop() error {
 
 	// Close any attempts at further grpc connections.
 	if hn.conn != nil {
-		err := status.Code(hn.conn.Close())
-		switch err {
-		case codes.OK:
-			return nil
-
-		// When the context is canceled above, we might get the
-		// following error as the context is no longer active.
-		case codes.Canceled:
-			return nil
-
-		case codes.Unknown:
-			return fmt.Errorf("unknown error attempting to stop "+
-				"grpc client: %v", err)
-
-		default:
-			return fmt.Errorf("error attempting to stop "+
-				"grpc client: %v", err)
+		if err := hn.CloseConn(); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+// CloseConn closes the grpc connection.
+func (hn *HarnessNode) CloseConn() error {
+	err := status.Code(hn.conn.Close())
+	switch err {
+	case codes.OK:
+		return nil
+
+	// When the context is canceled above, we might get the
+	// following error as the context is no longer active.
+	case codes.Canceled:
+		return nil
+
+	case codes.Unknown:
+		return fmt.Errorf("unknown error attempting to stop "+
+			"grpc client: %v", err)
+
+	default:
+		return fmt.Errorf("error attempting to stop "+
+			"grpc client: %v", err)
+	}
 }
 
 // Shutdown stops the active lnd process and cleans up any temporary

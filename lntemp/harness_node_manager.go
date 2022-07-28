@@ -1,6 +1,7 @@
 package lntemp
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -70,7 +71,7 @@ func (nm *nodeManager) nextNodeID() uint32 {
 // node can be used immediately. Otherwise, the node will require an additional
 // initialization phase where the wallet is either created or restored.
 func (nm *nodeManager) newNode(t *testing.T, name string, extraArgs []string,
-	useSeed bool, password []byte, cmdOnly bool,
+	password []byte, useSeed bool,
 	opts ...node.Option) (*node.HarnessNode, error) {
 
 	cfg := &node.BaseNodeConfig{
@@ -84,6 +85,7 @@ func (nm *nodeManager) newNode(t *testing.T, name string, extraArgs []string,
 		NodeID:            nm.nextNodeID(),
 		LndBinary:         nm.lndBinary,
 		NetParams:         harnessNetParams,
+		HasSeed:           useSeed,
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -96,27 +98,7 @@ func (nm *nodeManager) newNode(t *testing.T, name string, extraArgs []string,
 
 	// Put node in activeNodes to ensure Shutdown is called even if start
 	// returns an error.
-	defer nm.registerNode(node)
-
-	switch {
-	// If the node uses seed to start, we'll need to create the wallet and
-	// unlock the wallet later.
-	case useSeed:
-		err = node.StartWithSeed()
-
-	// Start the node only with the lnd process without creating the grpc
-	// connection, which is used in testing etcd leader selection.
-	case cmdOnly:
-		err = node.StartLndCmd()
-
-	// By default, we'll create a node with wallet being unlocked.
-	default:
-		err = node.Start()
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to start: %w", err)
-	}
+	nm.registerNode(node)
 
 	return node, nil
 }
@@ -153,10 +135,10 @@ func (nm *nodeManager) shutdownNode(node *node.HarnessNode) error {
 // crashes, etc. Additionally, each time the node is restarted, the caller can
 // pass a set of SCBs to pass in via the Unlock method allowing them to restore
 // channels during restart.
-func (nm *nodeManager) restartNode(node *node.HarnessNode,
+func (nm *nodeManager) restartNode(ctxt context.Context, node *node.HarnessNode,
 	callback func() error, chanBackups ...*lnrpc.ChanBackupSnapshot) error {
 
-	err := nm.restartNodeNoUnlock(node, callback)
+	err := nm.restartNodeNoUnlock(ctxt, node, callback)
 	if err != nil {
 		return err
 	}
@@ -193,8 +175,8 @@ func (nm *nodeManager) restartNode(node *node.HarnessNode,
 // blocking. If the callback parameter is non-nil, then the function will be
 // executed after the node shuts down, but *before* the process has been
 // started up again.
-func (nm *nodeManager) restartNodeNoUnlock(node *node.HarnessNode,
-	callback func() error) error {
+func (nm *nodeManager) restartNodeNoUnlock(ctxt context.Context,
+	node *node.HarnessNode, callback func() error) error {
 
 	if err := node.Stop(); err != nil {
 		return fmt.Errorf("restart node got error: %w", err)
@@ -206,5 +188,9 @@ func (nm *nodeManager) restartNodeNoUnlock(node *node.HarnessNode,
 		}
 	}
 
-	return node.Start()
+	if node.Cfg.HasSeed {
+		return node.StartWithSeed(ctxt)
+	}
+
+	return node.Start(ctxt)
 }

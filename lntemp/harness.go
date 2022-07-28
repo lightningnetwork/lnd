@@ -408,8 +408,12 @@ func (h *HarnessTest) SetTestName(name string) {
 func (h *HarnessTest) NewNode(name string,
 	extraArgs []string) *node.HarnessNode {
 
-	node, err := h.manager.newNode(h.T, name, extraArgs, false, nil, false)
+	node, err := h.manager.newNode(h.T, name, extraArgs, nil, false)
 	require.NoErrorf(h, err, "unable to create new node for %s", name)
+
+	// Start the node.
+	err = node.Start(h.runCtx)
+	require.NoError(h, err, "failed to start node %s", node.Name())
 
 	return node
 }
@@ -428,7 +432,7 @@ func (h *HarnessTest) Shutdown(node *node.HarnessNode) {
 func (h *HarnessTest) RestartNode(hn *node.HarnessNode,
 	chanBackups ...*lnrpc.ChanBackupSnapshot) {
 
-	err := h.manager.restartNode(hn, nil, chanBackups...)
+	err := h.manager.restartNode(h.runCtx, hn, nil, chanBackups...)
 	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
 
 	// Give the node some time to catch up with the chain before we

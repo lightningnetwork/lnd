@@ -19,3 +19,9 @@ http:
       get: "/v2/neutrino/blockheader/{hash}"
     - selector: neutrinorpc.NeutrinoKit.GetCFilter
       get: "/v2/neutrino/cfilter/{hash}"
+    - selector: neutrinorpc.NeutrinoKit.TxScan
+      post: "/v2/neutrino/txscan"
+      body: "*"
+    - selector: neutrinorpc.NeutrinoKit.StopTxScan
+      post: "/v2/neutrino/stoptxscan"
+      body: "*"

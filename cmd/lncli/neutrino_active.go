@@ -4,6 +4,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
 	"github.com/urfave/cli"
 )
@@ -261,6 +262,118 @@ func getCFilter(ctx *cli.Context) error {
 	return nil
 }
 
+var findTxsCommand = cli.Command{
+	Name:     "txscan",
+	Usage:    "Scan for transactions.",
+	Category: "Neutrino",
+	Description: "Trigger a rescan for transactions containing any of the " +
+		"given addresses. This may take some time depending on the initial " +
+		"conditions.",
+	ArgsUsage: "[flags] <addr> <addr> <addr>",
+	Flags: []cli.Flag{
+		cli.Int64Flag{
+			Name: "start_block",
+			Usage: "Start the rescan at this block height. If no start block is " +
+				"specified, the scan will be started from current best block.",
+		},
+		cli.Int64Flag{
+			Name:  "end_block",
+			Usage: "End the rescan at this block height.",
+		},
+		cli.Int64Flag{
+			Name:  "timeout",
+			Usage: "Rescan timeout (in seconds).",
+		},
+	},
+	Action: actionDecorator(findTxsFunc),
+}
+
+func findTxsFunc(ctx *cli.Context) error {
+	ctxc := getContext()
+	args := ctx.Args()
+
+	if !args.Present() {
+		return fmt.Errorf("txs argument missing")
+	}
+
+	if !ctx.IsSet("end_block") {
+		return fmt.Errorf("end_block must be set")
+	}
+
+	if !ctx.IsSet("timeout") {
+		return fmt.Errorf("timeout must be set")
+	}
+
+	client, cleanUp := getNeutrinoKitClient(ctx)
+	defer cleanUp()
+
+	var txs = make([]string, ctx.NArg())
+	for i := range args {
+		txs[i] = args.Get(i)
+	}
+
+	startBlock := ctx.Int64("start_block")
+	endBlock := ctx.Int64("end_block")
+	timeout := ctx.Int64("timeout")
+
+	if endBlock == 0 {
+		return fmt.Errorf(
+			"end_block must be greater than zero",
+		)
+	} else if endBlock < startBlock {
+		return fmt.Errorf(
+			"end_block must be greater than start_block",
+		)
+	}
+
+	if timeout < 0 {
+		return fmt.Errorf("timeout can not be negative")
+	}
+
+	req := &neutrinorpc.TxScanRequest{
+		Addrs:      txs,
+		StartBlock: startBlock,
+		EndBlock:   endBlock,
+		Timeout:    timeout,
+	}
+
+	resp, err := client.TxScan(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}
+
+var stopTxScanCommad = cli.Command{
+	Name:        "stoptxscan",
+	Usage:       "Stop any tx scan.",
+	Category:    "Neutrino",
+	Description: "",
+	ArgsUsage:   "",
+	Action:      actionDecorator(stopTxScanFunc),
+}
+
+func stopTxScanFunc(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	client, cleanUp := getNeutrinoKitClient(ctx)
+	defer cleanUp()
+
+	req := &neutrinorpc.StopTxScanRequest{}
+
+	resp, err := client.StopTxScan(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}
+
 // neutrinoCommands will return the set of commands to enable for neutrinorpc
 // builds.
 func neutrinoCommands() []cli.Command {
@@ -278,6 +391,8 @@ func neutrinoCommands() []cli.Command {
 				getBlockCommand,
 				getBlockHeaderCommand,
 				getCFilterCommand,
+				findTxsCommand,
+				stopTxScanCommad,
 			},
 		},
 	}

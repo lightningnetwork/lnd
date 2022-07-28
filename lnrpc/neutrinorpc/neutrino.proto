@@ -45,6 +45,17 @@ service NeutrinoKit {
     GetCFilter returns a compact filter from a block.
     */
     rpc GetCFilter (GetCFilterRequest) returns (GetCFilterResponse);
+
+    /*
+    TxScan is starting a scan for transactions including specific
+    addresses. At the moment only one instance can run at a time.
+    */
+    rpc TxScan (TxScanRequest) returns (TxScanResponse);
+
+    /*
+    Stop scan.
+    */
+    rpc StopTxScan (StopTxScanRequest) returns (StopTxScanResponse);
 }
 
 message StatusRequest {
@@ -207,4 +218,62 @@ message GetCFilterRequest {
 message GetCFilterResponse {
     // GCS filter.
     bytes filter = 1;
+}
+
+message TxScanRequest {
+    // Addresses to scan for.
+    repeated string addrs = 1;
+
+    // Rescan starting block height.
+    int64 start_block = 2;
+
+    // Rescan ending block height.
+    int64 end_block = 3;
+
+    // Scan timeout (in seconds).
+    int64 timeout = 4;
+}
+
+message tx {
+    // Txid.
+    string txid = 1;
+
+    // Version.
+    int32 version = 2;
+
+    // Locktime.
+    uint32 locktime = 3;
+
+    // Block hash.
+    string blockhash = 4;
+
+    // Number of confirmations.
+    uint32 confirmations = 5;
+
+    // Input txs.
+    repeated txIn tx_in = 6;
+
+    // Output txs.
+    repeated txOut tx_out = 7;
+}
+
+message TxScanResponse {
+    // Txs.
+    repeated tx txs = 1;
+}
+
+message StopTxScanRequest {
+}
+
+message StopTxScanResponse {
+}
+
+message txIn {
+    // Previous OutPoint.
+    string previous_outpoint = 1;
+}
+
+message txOut {
+    // Transaction value.
+    int64 value = 1;
 }

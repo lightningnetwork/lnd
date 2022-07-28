@@ -1105,3 +1105,58 @@ func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
 
 	require.NoErrorf(h, err, "assert force close resolved timeout")
 }
+
+// CreatePayReqs is a helper method that will create a slice of payment
+// requests for the given node.
+func (h *HarnessTest) CreatePayReqs(hn *node.HarnessNode,
+	paymentAmt btcutil.Amount, numInvoices int) ([]string,
+	[][]byte, []*lnrpc.Invoice) {
+
+	payReqs := make([]string, numInvoices)
+	rHashes := make([][]byte, numInvoices)
+	invoices := make([]*lnrpc.Invoice, numInvoices)
+	for i := 0; i < numInvoices; i++ {
+		preimage := h.Random32Bytes()
+
+		invoice := &lnrpc.Invoice{
+			Memo:      "testing",
+			RPreimage: preimage,
+			Value:     int64(paymentAmt),
+		}
+		resp := hn.RPC.AddInvoice(invoice)
+
+		// Set the payment address in the invoice so the caller can
+		// properly use it.
+		invoice.PaymentAddr = resp.PaymentAddr
+
+		payReqs[i] = resp.PaymentRequest
+		rHashes[i] = resp.RHash
+		invoices[i] = invoice
+	}
+
+	return payReqs, rHashes, invoices
+}
+
+// BackupDB creates a backup of the current database. It will stop the node
+// first, copy the database files, and restart the node.
+func (h *HarnessTest) BackupDB(hn *node.HarnessNode) {
+	restart := h.SuspendNode(hn)
+
+	err := hn.BackupDB()
+	require.NoErrorf(h, err, "%s: failed to backup db", hn.Name())
+
+	err = restart()
+	require.NoErrorf(h, err, "%s: failed to restart", hn.Name())
+}
+
+// RestartNodeAndRestoreDB restarts a given node with a callback to restore the
+// db.
+func (h *HarnessTest) RestartNodeAndRestoreDB(hn *node.HarnessNode) {
+	cb := func() error { return hn.RestoreDB() }
+	err := h.manager.restartNode(h.runCtx, hn, cb)
+	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
+
+	// Give the node some time to catch up with the chain before we
+	// continue with the tests.
+	h.WaitForBlockchainSync(hn)
+}

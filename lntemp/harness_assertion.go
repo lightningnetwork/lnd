@@ -905,3 +905,59 @@ func (h *HarnessTest) AssertNodeNumChannels(hn *node.HarnessNode,
 
 	require.NoError(h, err, "timeout checking node's num of channels")
 }
+
+// AssertChannelLocalBalance checks the local balance of the given channel is
+// expected. The channel found using the specified channel point is returned.
+func (h *HarnessTest) AssertChannelLocalBalance(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint, balance int64) *lnrpc.Channel {
+
+	var result *lnrpc.Channel
+
+	// Get the funding point.
+	err := wait.NoError(func() error {
+		// Find the target channel first.
+		target, err := h.findChannel(hn, cp)
+
+		// Exit early if the channel is not found.
+		if err != nil {
+			return fmt.Errorf("check balance failed: %w", err)
+		}
+
+		result = target
+
+		// Check local balance.
+		if target.LocalBalance == balance {
+			return nil
+		}
+
+		return fmt.Errorf("balance is incorrect, got %v, expected %v",
+			target.LocalBalance, balance)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout while checking for balance")
+
+	return result
+}
+
+// AssertChannelNumUpdates checks the num of updates is expected from the given
+// channel.
+func (h *HarnessTest) AssertChannelNumUpdates(hn *node.HarnessNode,
+	num uint64, cp *lnrpc.ChannelPoint) {
+
+	old := int(hn.State.OpenChannel.NumUpdates)
+
+	// Find the target channel first.
+	target, err := h.findChannel(hn, cp)
+	require.NoError(h, err, "unable to find channel")
+
+	err = wait.NoError(func() error {
+		total := int(target.NumUpdates)
+		if total-old == int(num) {
+			return nil
+		}
+
+		return errNumNotMatched(hn.Name(), "channel updates",
+			int(num), total-old, total, old)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout while checking for num of updates")
+}

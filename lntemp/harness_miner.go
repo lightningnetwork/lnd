@@ -327,3 +327,37 @@ func (h *HarnessMiner) MineBlocksSlow(num uint32) []*wire.MsgBlock {
 
 	return blocks
 }
+
+// AssertOutpointInMempool asserts a given outpoint can be found in the mempool.
+func (h *HarnessMiner) AssertOutpointInMempool(op wire.OutPoint) *wire.MsgTx {
+	var msgTx *wire.MsgTx
+
+	err := wait.NoError(func() error {
+		// We require the RPC call to be succeeded and won't wait for
+		// it as it's an unexpected behavior.
+		mempool := h.GetRawMempool()
+
+		if len(mempool) == 0 {
+			return fmt.Errorf("empty mempool")
+		}
+
+		for _, txid := range mempool {
+			// We require the RPC call to be succeeded and won't
+			// wait for it as it's an unexpected behavior.
+			tx := h.GetRawTransaction(txid)
+
+			msgTx = tx.MsgTx()
+			for _, txIn := range msgTx.TxIn {
+				if txIn.PreviousOutPoint == op {
+					return nil
+				}
+			}
+		}
+
+		return fmt.Errorf("outpoint %v not found in mempool", op)
+	}, lntest.MinerMempoolTimeout)
+
+	require.NoError(h, err, "timeout checking mempool")
+
+	return msgTx
+}

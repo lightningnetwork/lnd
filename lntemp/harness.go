@@ -434,7 +434,14 @@ func (h *HarnessTest) SuspendNode(node *node.HarnessNode) func() error {
 	err := node.Stop()
 	require.NoErrorf(h, err, "failed to stop %s", node.Name())
 
-	return func() error { return node.Start(h.runCtx) }
+	// Remove the node from active nodes.
+	delete(h.manager.activeNodes, node.Cfg.NodeID)
+
+	return func() error {
+		h.manager.registerNode(node)
+
+		return node.Start(h.runCtx)
+	}
 }
 
 // RestartNode restarts a given node and asserts.
@@ -1159,4 +1166,24 @@ func (h *HarnessTest) RestartNodeAndRestoreDB(hn *node.HarnessNode) {
 	// Give the node some time to catch up with the chain before we
 	// continue with the tests.
 	h.WaitForBlockchainSync(hn)
+}
+
+// MineBlocksAssertNodesSync mines blocks and asserts all active nodes have
+// synced to the chain. Use this method when more than 3 blocks are mined to
+// make sure the nodes stay synced.
+//
+// TODO(yy): replace directly mining with this one.
+func (h *HarnessTest) MineBlocksAssertNodesSync(num uint32) {
+	// If we are mining more than 3 blocks, use the slow mining.
+	if num > 3 {
+		h.Miner.MineBlocksSlow(num)
+	} else {
+		// Mine the blocks.
+		h.Miner.MineBlocks(num)
+	}
+
+	// Make sure all the active nodes are synced.
+	for _, node := range h.manager.activeNodes {
+		h.WaitForBlockchainSync(node)
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -40,6 +41,7 @@ type HarnessRPC struct {
 	State            lnrpc.StateClient
 	ChainClient      chainrpc.ChainNotifierClient
 	ChainKit         chainrpc.ChainKitClient
+	NeutrinoKit      neutrinorpc.NeutrinoKitClient
 	Peer             peersrpc.PeersClient
 
 	// Name is the HarnessNode's name.
@@ -70,6 +72,7 @@ func NewHarnessRPC(ctxt context.Context, t *testing.T, c *grpc.ClientConn,
 		State:            lnrpc.NewStateClient(c),
 		ChainClient:      chainrpc.NewChainNotifierClient(c),
 		ChainKit:         chainrpc.NewChainKitClient(c),
+		NeutrinoKit:      neutrinorpc.NewNeutrinoKitClient(c),
 		Peer:             peersrpc.NewPeersClient(c),
 		Name:             name,
 	}

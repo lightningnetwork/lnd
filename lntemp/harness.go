@@ -172,7 +172,7 @@ func (h *HarnessTest) SetupStandbyNodes() {
 	// each.
 	nodes := []*node.HarnessNode{h.Alice, h.Bob}
 	for _, hn := range nodes {
-		h.manager.standbyNodes[hn.PubKeyStr] = hn
+		h.manager.standbyNodes[hn.Cfg.NodeID] = hn
 		for i := 0; i < 10; i++ {
 			resp := hn.RPC.NewAddress(addrReq)
 
@@ -342,9 +342,9 @@ func (h *HarnessTest) Subtest(t *testing.T) (*HarnessTest, func()) {
 
 // shutdownNonStandbyNodes will shutdown any non-standby nodes.
 func (h *HarnessTest) shutdownNonStandbyNodes() {
-	for pks, node := range h.manager.activeNodes {
+	for nid, node := range h.manager.activeNodes {
 		// If it's a standby node, skip.
-		_, ok := h.manager.standbyNodes[pks]
+		_, ok := h.manager.standbyNodes[nid]
 		if ok {
 			continue
 		}

@@ -33,11 +33,11 @@ type nodeManager struct {
 
 	// activeNodes is a map of all running nodes, format:
 	// {pubkey: *HarnessNode}.
-	activeNodes map[string]*node.HarnessNode
+	activeNodes map[uint32]*node.HarnessNode
 
 	// standbyNodes is a map of all the standby nodes, format:
 	// {pubkey: *HarnessNode}.
-	standbyNodes map[string]*node.HarnessNode
+	standbyNodes map[uint32]*node.HarnessNode
 
 	// nodeCounter is a monotonically increasing counter that's used as the
 	// node's unique ID.
@@ -54,8 +54,8 @@ func newNodeManager(lndBinary string,
 	return &nodeManager{
 		lndBinary:    lndBinary,
 		dbBackend:    dbBackend,
-		activeNodes:  make(map[string]*node.HarnessNode),
-		standbyNodes: make(map[string]*node.HarnessNode),
+		activeNodes:  make(map[uint32]*node.HarnessNode),
+		standbyNodes: make(map[uint32]*node.HarnessNode),
 	}
 }
 
@@ -126,7 +126,7 @@ func (nm *nodeManager) newNode(t *testing.T, name string, extraArgs []string,
 // retrieved their public keys via FetchNodeInfo.
 func (nm *nodeManager) registerNode(node *node.HarnessNode) {
 	nm.Lock()
-	nm.activeNodes[node.PubKeyStr] = node
+	nm.activeNodes[node.Cfg.NodeID] = node
 	nm.Unlock()
 }
 
@@ -137,7 +137,7 @@ func (nm *nodeManager) shutdownNode(node *node.HarnessNode) error {
 		return err
 	}
 
-	delete(nm.activeNodes, node.PubKeyStr)
+	delete(nm.activeNodes, node.Cfg.NodeID)
 	return nil
 }
 

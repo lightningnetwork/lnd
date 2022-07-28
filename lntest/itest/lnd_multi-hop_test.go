@@ -239,7 +239,8 @@ func checkPaymentStatus(node *lntest.HarnessNode, preimage lntypes.Preimage,
 	return nil
 }
 
-func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
+// TODO(yy): delete
+func createThreeHopNetworkOld(t *harnessTest, net *lntest.NetworkHarness,
 	alice, bob *lntest.HarnessNode, carolHodl bool, c lnrpc.CommitmentType,
 	zeroConf bool) (
 	*lnrpc.ChannelPoint, *lnrpc.ChannelPoint, *lntest.HarnessNode) {

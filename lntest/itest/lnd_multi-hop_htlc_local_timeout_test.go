@@ -28,7 +28,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
-	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
+	aliceChanPoint, bobChanPoint, carol := createThreeHopNetworkOld(
 		t, net, alice, bob, true, c, zeroConf,
 	)
 

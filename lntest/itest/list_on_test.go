@@ -19,4 +19,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "external channel funding",
 		TestFunc: testExternalFundingChanPoint,
 	},
+	{
+		Name:     "channel backup restore",
+		TestFunc: testChannelBackupRestore,
+	},
 }

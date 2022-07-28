@@ -306,3 +306,16 @@ func (h *HarnessRPC) RestoreChanBackups(
 
 	return resp
 }
+
+type AcceptorClient lnrpc.Lightning_ChannelAcceptorClient
+
+// ChannelAcceptor makes a RPC call to the node's ChannelAcceptor and asserts.
+func (h *HarnessRPC) ChannelAcceptor() (AcceptorClient, context.CancelFunc) {
+	// Use runCtx here instead of a timeout context to keep the client
+	// alive for the entire test case.
+	ctxt, cancel := context.WithCancel(h.runCtx)
+	resp, err := h.LN.ChannelAcceptor(ctxt)
+	h.NoError(err, "ChannelAcceptor")
+
+	return resp, cancel
+}

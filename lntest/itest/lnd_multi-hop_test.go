@@ -279,7 +279,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 		ctxc, cancel = context.WithCancel(ctxb)
 		acceptStream, err := bob.ChannelAcceptor(ctxc)
 		require.NoError(t.t, err)
-		go acceptChannel(t, true, acceptStream)
+		go acceptChannel(t.t, true, acceptStream)
 	}
 
 	aliceChanPoint := openChannelAndAssert(
@@ -349,7 +349,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 		ctxc, cancel = context.WithCancel(ctxb)
 		acceptStream, err := carol.ChannelAcceptor(ctxc)
 		require.NoError(t.t, err)
-		go acceptChannel(t, true, acceptStream)
+		go acceptChannel(t.t, true, acceptStream)
 	}
 
 	bobChanPoint := openChannelAndAssert(

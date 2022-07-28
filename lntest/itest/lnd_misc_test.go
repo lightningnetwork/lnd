@@ -1019,7 +1019,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Assert that once Dave comes up, they reconnect, Carol force closes
 	// on chain, and both of them properly carry out the DLP protocol.
-	assertDLPExecuted(
+	assertDLPExecutedOld(
 		net, t, carol, carolStartingBalance, dave, daveStartingBalance,
 		lnrpc.CommitmentType_STATIC_REMOTE_KEY,
 	)

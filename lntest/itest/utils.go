@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -19,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/rpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -538,11 +540,9 @@ func parseDerivationPath(path string) ([]uint32, error) {
 // acceptChannel is used to accept a single channel that comes across. This
 // should be run in a goroutine and is used to test nodes with the zero-conf
 // feature bit.
-func acceptChannel(t *harnessTest, zeroConf bool,
-	stream lnrpc.Lightning_ChannelAcceptorClient) {
-
+func acceptChannel(t *testing.T, zeroConf bool, stream rpc.AcceptorClient) {
 	req, err := stream.Recv()
-	require.NoError(t.t, err)
+	require.NoError(t, err)
 
 	resp := &lnrpc.ChannelAcceptResponse{
 		Accept:        true,
@@ -550,5 +550,5 @@ func acceptChannel(t *harnessTest, zeroConf bool,
 		ZeroConf:      zeroConf,
 	}
 	err = stream.Send(resp)
-	require.NoError(t.t, err)
+	require.NoError(t, err)
 }

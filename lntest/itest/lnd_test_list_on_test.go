@@ -248,10 +248,6 @@ var allTestCases = []*testCase{
 		test: testExportChannelBackup,
 	},
 	{
-		name: "channel backup restore",
-		test: testChannelBackupRestore,
-	},
-	{
 		name: "hold invoice sender persistence",
 		test: testHoldInvoicePersistence,
 	},

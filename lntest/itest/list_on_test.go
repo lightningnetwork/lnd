@@ -23,4 +23,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "channel backup restore",
 		TestFunc: testChannelBackupRestore,
 	},
+	{
+		Name:     "data loss protection",
+		TestFunc: testDataLossProtection,
+	},
 }

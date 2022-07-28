@@ -224,10 +224,6 @@ var allTestCases = []*testCase{
 		test: testRevokedCloseRetributionAltruistWatchtower,
 	},
 	{
-		name: "data loss protection",
-		test: testDataLossProtection,
-	},
-	{
 		name: "query routes",
 		test: testQueryRoutes,
 	},

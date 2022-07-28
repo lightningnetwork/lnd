@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -27,6 +28,8 @@ const (
 
 	// minerLogDir is the default log dir for the miner node.
 	minerLogDir = ".minerlogs"
+
+	slowMineDelay = 20 * time.Millisecond
 )
 
 var harnessNetParams = &chaincfg.RegressionNetParams
@@ -300,4 +303,27 @@ func (h *HarnessMiner) SendOutput(newOutput *wire.TxOut,
 	require.NoErrorf(h, err, "failed to send outputs")
 
 	return hash
+}
+
+// MineBlocksSlow mines 'num' of blocks. Between each mined block an artificial
+// delay is introduced to give all network participants time to catch up.
+func (h *HarnessMiner) MineBlocksSlow(num uint32) []*wire.MsgBlock {
+	blocks := make([]*wire.MsgBlock, num)
+	blockHashes := make([]*chainhash.Hash, 0, num)
+
+	for i := uint32(0); i < num; i++ {
+		generatedHashes := h.GenerateBlocks(1)
+		blockHashes = append(blockHashes, generatedHashes...)
+
+		time.Sleep(slowMineDelay)
+	}
+
+	for i, blockHash := range blockHashes {
+		block, err := h.Client.GetBlock(blockHash)
+		require.NoError(h, err, "get blocks")
+
+		blocks[i] = block
+	}
+
+	return blocks
 }

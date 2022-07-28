@@ -69,27 +69,24 @@ func testBasicChannelFunding(ht *lntemp.HarnessTest) {
 		require.Equal(ht, chansCommitType, daveChan.CommitmentType,
 			"commit types don't match")
 
-		// Now check that the commitment type reported
-		// by both nodes is what we expect. It will be
-		// the minimum of the two nodes' preference, in
-		// the order Legacy, Tweakless, Anchors.
+		// Now check that the commitment type reported by both nodes is
+		// what we expect. It will be the minimum of the two nodes'
+		// preference, in the order Legacy, Tweakless, Anchors.
 		expType := carolCommitType
 
 		switch daveCommitType {
-		// Dave supports anchors, type will be what
-		// Carol supports.
+		// Dave supports anchors, type will be what Carol supports.
 		case lnrpc.CommitmentType_ANCHORS:
 
-		// Dave only supports tweakless, channel will
-		// be downgraded to this type if Carol supports
-		// anchors.
+		// Dave only supports tweakless, channel will be downgraded to
+		// this type if Carol supports anchors.
 		case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
 			if expType == lnrpc.CommitmentType_ANCHORS {
 				expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
 			}
 
-		// Dave only supoprts legacy type, channel will
-		// be downgraded to this type.
+		// Dave only supoprts legacy type, channel will be downgraded
+		// to this type.
 		case lnrpc.CommitmentType_LEGACY:
 			expType = lnrpc.CommitmentType_LEGACY
 
@@ -97,8 +94,7 @@ func testBasicChannelFunding(ht *lntemp.HarnessTest) {
 			ht.Fatalf("invalid commit type %v", daveCommitType)
 		}
 
-		// Check that the signalled type matches what we
-		// expect.
+		// Check that the signalled type matches what we expect.
 		switch {
 		case expType == lnrpc.CommitmentType_ANCHORS &&
 			chansCommitType == lnrpc.CommitmentType_ANCHORS:
@@ -115,8 +111,8 @@ func testBasicChannelFunding(ht *lntemp.HarnessTest) {
 				"%v", expType, chansCommitType)
 		}
 
-		// As we've concluded this sub-test case we'll
-		// now close out the channel for both sides.
+		// As we've concluded this sub-test case we'll now close out
+		// the channel for both sides.
 		closeChan()
 	}
 
@@ -217,7 +213,7 @@ func basicChannelFundingTest(ht *lntemp.HarnessTest,
 		// Finally, immediately close the channel. This function will
 		// also block until the channel is closed and will additionally
 		// assert the relevant channel closing post conditions.
-		ht.CloseChannel(alice, chanPoint, false)
+		ht.CloseChannel(alice, chanPoint)
 	}
 
 	return aliceChannel, bobChannel, closeChan
@@ -533,16 +529,25 @@ func testExternalFundingChanPoint(ht *lntemp.HarnessTest) {
 	// First, we'll try to close the channel as Carol, the initiator. This
 	// should fail as a frozen channel only allows the responder to
 	// initiate a channel close.
-	ht.CloseChannelAssertErr(carol, chanPoint2, false)
+	err := ht.CloseChannelAssertErr(carol, chanPoint2, false)
+	require.Contains(ht, err.Error(), "cannot co-op close frozen channel")
 
 	// Before Dave closes the channel, he needs to check the invoice is
 	// settled to avoid an error saying cannot close channel due to active
 	// HTLCs.
 	ht.AssertInvoiceSettled(dave, resp.PaymentAddr)
 
+	// TODO(yy): remove the sleep once the following bug is fixed.
+	// When the invoice is reported settled, the commitment dance is not
+	// yet finished, which can cause an error when closing the channel,
+	// saying there's active HTLCs. We need to investigate this issue and
+	// reverse the order to, first finish the commitment dance, then report
+	// the invoice as settled.
+	time.Sleep(2 * time.Second)
+
 	// Next we'll try but this time with Dave (the responder) as the
 	// initiator. This time the channel should be closed as normal.
-	ht.CloseChannel(dave, chanPoint2, false)
+	ht.CloseChannel(dave, chanPoint2)
 
 	// As a last step, we check if we still have the pending channel
 	// hanging around because we never published the funding TX.

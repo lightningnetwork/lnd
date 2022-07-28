@@ -47,3 +47,29 @@ func (h *HarnessRPC) SendOutputs(
 
 	return resp
 }
+
+// FundPsbt makes a RPC call to node's FundPsbt and asserts.
+func (h *HarnessRPC) FundPsbt(
+	req *walletrpc.FundPsbtRequest) *walletrpc.FundPsbtResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.FundPsbt(ctxt, req)
+	h.NoError(err, "FundPsbt")
+
+	return resp
+}
+
+// FinalizePsbt makes a RPC call to node's FinalizePsbt and asserts.
+func (h *HarnessRPC) FinalizePsbt(
+	req *walletrpc.FinalizePsbtRequest) *walletrpc.FinalizePsbtResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.FinalizePsbt(ctxt, req)
+	h.NoError(err, "FinalizePsbt")
+
+	return resp
+}

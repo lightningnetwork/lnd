@@ -649,6 +649,15 @@ type OpenChannelParams struct {
 	// CommitmentType is the commitment type that should be used for the
 	// channel to be opened.
 	CommitmentType lnrpc.CommitmentType
+
+	// ZeroConf is used to determine if the channel will be a zero-conf
+	// channel. This only works if the explicit negotiation is used with
+	// anchors or script enforced leases.
+	ZeroConf bool
+
+	// ScidAlias denotes whether the channel will be an option-scid-alias
+	// channel type negotiation.
+	ScidAlias bool
 }
 
 // OpenChannelAssertPending attempts to open a channel between srcNode and
@@ -679,6 +688,8 @@ func (h *HarnessTest) OpenChannelAssertPending(
 		FundingShim:        p.FundingShim,
 		SatPerByte:         int64(p.SatPerVByte),
 		CommitmentType:     p.CommitmentType,
+		ZeroConf:           p.ZeroConf,
+		ScidAlias:          p.ScidAlias,
 	}
 	respStream := srcNode.RPC.OpenChannel(openReq)
 
@@ -742,11 +753,13 @@ func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
 	return fundingChanPoint
 }
 
-// closeChannel attempts to close the channel indicated by the passed channel
-// point, initiated by the passed node. Once the CloseChannel rpc is called, it
-// will consume one event and assert it's a close pending event. In addition,
-// it will check that the closing tx can be found in the mempool.
-func (h *HarnessTest) closeChannel(hn *node.HarnessNode, cp *lnrpc.ChannelPoint,
+// CloseChannelAssertPending attempts to close the channel indicated by the
+// passed channel point, initiated by the passed node. Once the CloseChannel
+// rpc is called, it will consume one event and assert it's a close pending
+// event. In addition, it will check that the closing tx can be found in the
+// mempool.
+func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint,
 	force bool) (rpc.CloseChanClient, *chainhash.Hash) {
 
 	// Calls the rpc to close the channel.
@@ -776,7 +789,7 @@ func (h *HarnessTest) closeChannel(hn *node.HarnessNode, cp *lnrpc.ChannelPoint,
 	return stream, closeTxid
 }
 
-// CloseChannel attempts to close a non-anchored channel identified by the
+// CloseChannel attempts to coop close a non-anchored channel identified by the
 // passed channel point owned by the passed harness node. The following items
 // are asserted,
 //  1. a close pending event is sent from the close channel client.
@@ -786,17 +799,41 @@ func (h *HarnessTest) closeChannel(hn *node.HarnessNode, cp *lnrpc.ChannelPoint,
 //  5. the node reports zero waiting close channels.
 //  6. the node receives a topology update regarding the channel close.
 func (h *HarnessTest) CloseChannel(hn *node.HarnessNode,
-	cp *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
+	cp *lnrpc.ChannelPoint) *chainhash.Hash {
 
-	stream, _ := h.closeChannel(hn, cp, force)
+	stream, _ := h.CloseChannelAssertPending(hn, cp, false)
 
-	return h.assertChannelClosed(hn, cp, false, stream)
+	return h.assertChannelCoopClosed(hn, cp, false, stream)
+}
+
+// ForceCloseChannel attempts to force close a non-anchored channel identified
+// by the passed channel point owned by the passed harness node. The following
+// items are asserted,
+//  1. a close pending event is sent from the close channel client.
+//  2. the closing tx is found in the mempool.
+//  3. the node reports the channel being waiting to close.
+//  4. a block is mined and the closing tx should be found in it.
+//  5. the node reports zero waiting close channels.
+//  6. the node receives a topology update regarding the channel close.
+//  7. mine DefaultCSV-1 blocks.
+//  8. the node reports zero pending force close channels.
+func (h *HarnessTest) ForceCloseChannel(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint) *chainhash.Hash {
+
+	stream, _ := h.CloseChannelAssertPending(hn, cp, true)
+
+	closingTxid := h.AssertStreamChannelForceClosed(hn, cp, false, stream)
+
+	// Cleanup the force close.
+	h.CleanupForceClose(hn, cp)
+
+	return closingTxid
 }
 
 // CloseChannelAssertErr closes the given channel and asserts an error
 // returned.
 func (h *HarnessTest) CloseChannelAssertErr(hn *node.HarnessNode,
-	cp *lnrpc.ChannelPoint, force bool) {
+	cp *lnrpc.ChannelPoint, force bool) error {
 
 	// Calls the rpc to close the channel.
 	closeReq := &lnrpc.CloseChannelRequest{
@@ -811,6 +848,8 @@ func (h *HarnessTest) CloseChannelAssertErr(hn *node.HarnessNode,
 	_, err := h.ReceiveCloseChannelUpdate(stream)
 	require.Errorf(h, err, "%s: expect close channel to return an error",
 		hn.Name())
+
+	return err
 }
 
 // IsNeutrinoBackend returns a bool indicating whether the node is using a
@@ -970,4 +1009,99 @@ func (h *HarnessTest) CompletePaymentRequestsNoWait(hn *node.HarnessNode,
 			chanPoint, oldResp.NumUpdates, newResp.NumUpdates)
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout while checking for channel updates")
+}
+
+// OpenChannelPsbt attempts to open a channel between srcNode and destNode with
+// the passed channel funding parameters. It will assert if the expected step
+// of funding the PSBT is not received from the source node.
+func (h *HarnessTest) OpenChannelPsbt(srcNode, destNode *node.HarnessNode,
+	p OpenChannelParams) (rpc.OpenChanClient, []byte) {
+
+	// Wait until srcNode and destNode have the latest chain synced.
+	// Otherwise, we may run into a check within the funding manager that
+	// prevents any funding workflows from being kicked off if the chain
+	// isn't yet synced.
+	h.WaitForBlockchainSync(srcNode)
+	h.WaitForBlockchainSync(destNode)
+
+	// Send the request to open a channel to the source node now. This will
+	// open a long-lived stream where we'll receive status updates about
+	// the progress of the channel.
+	// respStream := h.OpenChannelStreamAndAssert(srcNode, destNode, p)
+	req := &lnrpc.OpenChannelRequest{
+		NodePubkey:         destNode.PubKey[:],
+		LocalFundingAmount: int64(p.Amt),
+		PushSat:            int64(p.PushAmt),
+		Private:            p.Private,
+		SpendUnconfirmed:   p.SpendUnconfirmed,
+		MinHtlcMsat:        int64(p.MinHtlc),
+		FundingShim:        p.FundingShim,
+	}
+	respStream := srcNode.RPC.OpenChannel(req)
+
+	// Consume the "PSBT funding ready" update. This waits until the node
+	// notifies us that the PSBT can now be funded.
+	resp := h.ReceiveOpenChannelUpdate(respStream)
+	upd, ok := resp.Update.(*lnrpc.OpenStatusUpdate_PsbtFund)
+	require.Truef(h, ok, "expected PSBT funding update, got %v", resp)
+
+	return respStream, upd.PsbtFund.Psbt
+}
+
+// CleanupForceClose mines a force close commitment found in the mempool and
+// the following sweep transaction from the force closing node.
+func (h *HarnessTest) CleanupForceClose(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) {
+
+	// Wait for the channel to be marked pending force close.
+	h.AssertNumPendingForceClose(hn, 1)
+
+	// Mine enough blocks for the node to sweep its funds from the force
+	// closed channel.
+	//
+	// The commit sweep resolver is able to broadcast the sweep tx up to
+	// one block before the CSV elapses, so wait until defaulCSV-1.
+	h.Miner.MineBlocks(lntest.DefaultCSV - 1)
+
+	// The node should now sweep the funds, clean up by mining the sweeping
+	// tx.
+	h.Miner.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Mine blocks to get any second level HTLC resolved. If there are no
+	// HTLCs, this will behave like h.AssertNumPendingCloseChannels.
+	h.mineTillForceCloseResolved(hn)
+}
+
+// mineTillForceCloseResolved asserts that the number of pending close channels
+// are zero. Each time it checks, a new block is mined using MineBlocksSlow to
+// give the node some time to catch up the chain.
+//
+// NOTE: this method is a workaround to make sure we have a clean mempool at
+// the end of a channel force closure. We cannot directly mine blocks and
+// assert channels being fully closed because the subsystems in lnd don't share
+// the same block height. This is especially the case when blocks are produced
+// too fast.
+// TODO(yy): remove this workaround when syncing blocks are unified in all the
+// subsystems.
+func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
+	_, startHeight := h.Miner.GetBestBlock()
+
+	err := wait.NoError(func() error {
+		resp := hn.RPC.PendingChannels()
+		total := len(resp.PendingForceClosingChannels)
+		if total != 0 {
+			h.Miner.MineBlocksSlow(1)
+
+			return fmt.Errorf("expected num of pending force " +
+				"close channel to be zero")
+		}
+
+		_, height := h.Miner.GetBestBlock()
+		h.Logf("Mined %d blocks while waiting for force closed "+
+			"channel to be resolved", height-startHeight)
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoErrorf(h, err, "assert force close resolved timeout")
 }

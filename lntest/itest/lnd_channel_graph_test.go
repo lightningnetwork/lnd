@@ -64,7 +64,7 @@ func testUpdateChanStatus(ht *lntemp.HarnessTest) {
 	chanPoint := ht.OpenChannel(
 		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
 	)
-	defer ht.CloseChannel(alice, chanPoint, false)
+	defer ht.CloseChannel(alice, chanPoint)
 
 	// assertEdgeDisabled ensures that Alice has the correct Disabled state
 	// for given channel from her DescribeGraph.

@@ -398,12 +398,16 @@ func (h HarnessTest) WaitForChannelCloseEvent(
 
 // AssertNumWaitingClose checks that a PendingChannels response from the node
 // reports the expected number of waiting close channels.
-func (h *HarnessTest) AssertNumWaitingClose(hn *node.HarnessNode, num int) {
+func (h *HarnessTest) AssertNumWaitingClose(hn *node.HarnessNode,
+	num int) []*lnrpc.PendingChannelsResponse_WaitingCloseChannel {
+
+	var channels []*lnrpc.PendingChannelsResponse_WaitingCloseChannel
 	oldWaiting := hn.State.CloseChannel.WaitingClose
 
 	err := wait.NoError(func() error {
 		resp := hn.RPC.PendingChannels()
-		total := len(resp.WaitingCloseChannels)
+		channels = resp.WaitingCloseChannels
+		total := len(channels)
 
 		got := total - oldWaiting
 		if got == num {
@@ -416,18 +420,22 @@ func (h *HarnessTest) AssertNumWaitingClose(hn *node.HarnessNode, num int) {
 
 	require.NoErrorf(h, err, "%s: assert waiting close timeout",
 		hn.Name())
+
+	return channels
 }
 
 // AssertNumPendingForceClose checks that a PendingChannels response from the
 // node reports the expected number of pending force close channels.
 func (h *HarnessTest) AssertNumPendingForceClose(hn *node.HarnessNode,
-	num int) {
+	num int) []*lnrpc.PendingChannelsResponse_ForceClosedChannel {
 
+	var channels []*lnrpc.PendingChannelsResponse_ForceClosedChannel
 	oldForce := hn.State.CloseChannel.PendingForceClose
 
 	err := wait.NoError(func() error {
 		resp := hn.RPC.PendingChannels()
-		total := len(resp.PendingForceClosingChannels)
+		channels = resp.PendingForceClosingChannels
+		total := len(channels)
 
 		got := total - oldForce
 		if got == num {
@@ -440,11 +448,13 @@ func (h *HarnessTest) AssertNumPendingForceClose(hn *node.HarnessNode,
 
 	require.NoErrorf(h, err, "%s: assert pending force close timeout",
 		hn.Name())
+
+	return channels
 }
 
-// assertChannelClosed asserts that the channel is properly cleaned up after
-// initiating a cooperative or local close.
-func (h *HarnessTest) assertChannelClosed(hn *node.HarnessNode,
+// assertChannelCoopClosed asserts that the channel is properly cleaned up
+// after initiating a cooperative close.
+func (h *HarnessTest) assertChannelCoopClosed(hn *node.HarnessNode,
 	cp *lnrpc.ChannelPoint, anchors bool,
 	stream rpc.CloseChanClient) *chainhash.Hash {
 
@@ -472,6 +482,52 @@ func (h *HarnessTest) assertChannelClosed(hn *node.HarnessNode,
 
 	// We should see zero waiting close channels now.
 	h.AssertNumWaitingClose(hn, 0)
+
+	// Finally, check that the node's topology graph has seen this channel
+	// closed.
+	h.AssertTopologyChannelClosed(hn, cp)
+
+	return closingTxid
+}
+
+// AssertStreamChannelForceClosed reads an update from the close channel client
+// stream and asserts that the mempool state and node's topology match a local
+// force close. In specific,
+// - assert the channel is waiting close and has the expected ChanStatusFlags.
+// - assert the mempool has the closing txes and anchor sweeps.
+// - mine a block and assert the closing txid is mined.
+// - assert the channel is pending force close.
+// - assert the node has seen the channel close update.
+func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint, anchors bool,
+	stream rpc.CloseChanClient) *chainhash.Hash {
+
+	// Assert the channel is waiting close.
+	resp := h.AssertChannelWaitingClose(hn, cp)
+
+	// Assert that the channel is in local force broadcasted.
+	require.Contains(h, resp.Channel.ChanStatusFlags,
+		channeldb.ChanStatusLocalCloseInitiator.String(),
+		"channel not coop broadcasted")
+
+	// We'll now, generate a single block, wait for the final close status
+	// update, then ensure that the closing transaction was included in the
+	// block. If there are anchors, we also expect an anchor sweep.
+	expectedTxes := 1
+	if anchors {
+		expectedTxes = 2
+	}
+	block := h.Miner.MineBlocksAndAssertNumTxes(1, expectedTxes)[0]
+
+	// Consume one close event and assert the closing txid can be found in
+	// the block.
+	closingTxid := h.WaitForChannelCloseEvent(stream)
+	h.Miner.AssertTxInBlock(block, closingTxid)
+
+	// We should see zero waiting close channels and 1 pending force close
+	// channels now.
+	h.AssertNumWaitingClose(hn, 0)
+	h.AssertNumPendingForceClose(hn, 1)
 
 	// Finally, check that the node's topology graph has seen this channel
 	// closed.
@@ -821,4 +877,31 @@ func (h *HarnessTest) AssertInvoiceSettled(hn *node.HarnessNode, addr []byte) {
 			"settled", hn.Name(), addr)
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout waiting for invoice settled state")
+}
+
+// AssertNodeNumChannels polls the provided node's list channels rpc until it
+// reaches the desired number of total channels.
+func (h *HarnessTest) AssertNodeNumChannels(hn *node.HarnessNode,
+	numChannels int) {
+
+	// Get the total number of channels.
+	old := hn.State.OpenChannel.Active + hn.State.OpenChannel.Inactive
+
+	err := wait.NoError(func() error {
+		// We require the RPC call to be succeeded and won't wait for
+		// it as it's an unexpected behavior.
+		chanInfo := hn.RPC.ListChannels(&lnrpc.ListChannelsRequest{})
+
+		// Return true if the query returned the expected number of
+		// channels.
+		num := len(chanInfo.Channels) - old
+		if num != numChannels {
+			return fmt.Errorf("expected %v channels, got %v",
+				numChannels, num)
+		}
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout checking node's num of channels")
 }

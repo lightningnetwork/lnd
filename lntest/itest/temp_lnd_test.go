@@ -97,6 +97,7 @@ func TestLightningNetworkDaemonTemp(t *testing.T) {
 			ht, cleanup := harnessTest.Subtest(t1)
 			defer cleanup()
 
+			// TODO(yy): split log files.
 			cleanTestCaseName := strings.ReplaceAll(
 				testCase.Name, " ", "_",
 			)

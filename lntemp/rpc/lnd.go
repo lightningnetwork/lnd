@@ -262,3 +262,47 @@ func (h *HarnessRPC) AbandonChannel(
 
 	return resp
 }
+
+// ExportAllChanBackups makes a RPC call to the node's ExportAllChannelBackups
+// and asserts.
+func (h *HarnessRPC) ExportAllChanBackups() *lnrpc.ChanBackupSnapshot {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.ChanBackupExportRequest{}
+	chanBackup, err := h.LN.ExportAllChannelBackups(ctxt, req)
+	h.NoError(err, "ExportAllChannelBackups")
+
+	return chanBackup
+}
+
+// ExportChanBackup makes a RPC call to the node's ExportChannelBackup
+// and asserts.
+func (h *HarnessRPC) ExportChanBackup(
+	chanPoint *lnrpc.ChannelPoint) *lnrpc.ChannelBackup {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.ExportChannelBackupRequest{
+		ChanPoint: chanPoint,
+	}
+	chanBackup, err := h.LN.ExportChannelBackup(ctxt, req)
+	h.NoError(err, "ExportChannelBackup")
+
+	return chanBackup
+}
+
+// RestoreChanBackups makes a RPC call to the node's RestoreChannelBackups and
+// asserts.
+func (h *HarnessRPC) RestoreChanBackups(
+	req *lnrpc.RestoreChanBackupRequest) *lnrpc.RestoreBackupResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.RestoreChannelBackups(ctxt, req)
+	h.NoError(err, "RestoreChannelBackups")
+
+	return resp
+}

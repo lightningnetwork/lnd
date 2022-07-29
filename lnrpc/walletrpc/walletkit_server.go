@@ -154,6 +154,10 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/walletrpc.WalletKit/ImportTapscript": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
 	}
 
 	// DefaultWalletKitMacFilename is the default name of the wallet kit
@@ -1699,7 +1703,9 @@ func (w *WalletKit) ImportAccount(_ context.Context,
 // address type can usually be inferred from the key's version, but in the case
 // of legacy versions (xpub, tpub), an address type must be specified as we
 // intend to not support importing BIP-44 keys into the wallet using the legacy
-// pay-to-pubkey-hash (P2PKH) scheme.
+// pay-to-pubkey-hash (P2PKH) scheme. For Taproot keys, this will only watch
+// the BIP-0086 style output script. Use ImportTapscript for more advanced key
+// spend or script spend outputs.
 func (w *WalletKit) ImportPublicKey(_ context.Context,
 	req *ImportPublicKeyRequest) (*ImportPublicKeyResponse, error) {
 
@@ -1728,4 +1734,85 @@ func (w *WalletKit) ImportPublicKey(_ context.Context,
 	}
 
 	return &ImportPublicKeyResponse{}, nil
+}
+
+// ImportTapscript imports a Taproot script and internal key and adds the
+// resulting Taproot output key as a watch-only output script into the wallet.
+// For BIP-0086 style Taproot keys (no root hash commitment and no script spend
+// path) use ImportPublicKey.
+//
+// NOTE: Taproot keys imported through this RPC currently _cannot_ be used for
+// funding PSBTs. Only tracking the balance and UTXOs is currently supported.
+func (w *WalletKit) ImportTapscript(_ context.Context,
+	req *ImportTapscriptRequest) (*ImportTapscriptResponse, error) {
+
+	internalKey, err := schnorr.ParsePubKey(req.InternalPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing internal key: %v", err)
+	}
+
+	var tapscript *waddrmgr.Tapscript
+	switch {
+	case req.GetFullTree() != nil:
+		tree := req.GetFullTree()
+		leaves := make([]txscript.TapLeaf, len(tree.AllLeaves))
+		for idx, leaf := range tree.AllLeaves {
+			leaves[idx] = txscript.TapLeaf{
+				LeafVersion: txscript.TapscriptLeafVersion(
+					leaf.LeafVersion,
+				),
+				Script: leaf.Script,
+			}
+		}
+
+		tapscript = input.TapscriptFullTree(internalKey, leaves...)
+
+	case req.GetPartialReveal() != nil:
+		partialReveal := req.GetPartialReveal()
+		if partialReveal.RevealedLeaf == nil {
+			return nil, fmt.Errorf("missing revealed leaf")
+		}
+
+		revealedLeaf := txscript.TapLeaf{
+			LeafVersion: txscript.TapscriptLeafVersion(
+				partialReveal.RevealedLeaf.LeafVersion,
+			),
+			Script: partialReveal.RevealedLeaf.Script,
+		}
+		if len(partialReveal.FullInclusionProof)%32 != 0 {
+			return nil, fmt.Errorf("invalid inclusion proof "+
+				"length, expected multiple of 32, got %d",
+				len(partialReveal.FullInclusionProof)%32)
+		}
+
+		tapscript = input.TapscriptPartialReveal(
+			internalKey, revealedLeaf,
+			partialReveal.FullInclusionProof,
+		)
+
+	case req.GetRootHashOnly() != nil:
+		rootHash := req.GetRootHashOnly()
+		if len(rootHash) == 0 {
+			return nil, fmt.Errorf("missing root hash")
+		}
+
+		tapscript = input.TapscriptRootHashOnly(internalKey, rootHash)
+
+	case req.GetFullKeyOnly():
+		tapscript = input.TapscriptFullKeyOnly(internalKey)
+
+	default:
+		return nil, fmt.Errorf("invalid script")
+	}
+
+	taprootScope := waddrmgr.KeyScopeBIP0086
+	addr, err := w.cfg.Wallet.ImportTaprootScript(taprootScope, tapscript)
+	if err != nil {
+		return nil, fmt.Errorf("error importing script into wallet: %v",
+			err)
+	}
+
+	return &ImportTapscriptResponse{
+		P2TrAddress: addr.Address().String(),
+	}, nil
 }

@@ -107,7 +107,11 @@ service WalletKit {
     rpc ImportAccount (ImportAccountRequest) returns (ImportAccountResponse);
 
     /*
-    ImportPublicKey imports a public key as watch-only into the wallet.
+    ImportPublicKey imports a public key as watch-only into the wallet. The
+    public key is converted into a simple address of the given type and that
+    address script is watched on chain. For Taproot keys, this will only watch
+    the BIP-0086 style output script. Use ImportTapscript for more advanced key
+    spend or script spend outputs.
 
     NOTE: Events (deposits/spends) for a key will only be detected by lnd if
     they happen after the import. Rescans to detect past events will be
@@ -115,6 +119,22 @@ service WalletKit {
     */
     rpc ImportPublicKey (ImportPublicKeyRequest)
         returns (ImportPublicKeyResponse);
+
+    /*
+    ImportTapscript imports a Taproot script and internal key and adds the
+    resulting Taproot output key as a watch-only output script into the wallet.
+    For BIP-0086 style Taproot keys (no root hash commitment and no script spend
+    path) use ImportPublicKey.
+
+    NOTE: Events (deposits/spends) for a key will only be detected by lnd if
+    they happen after the import. Rescans to detect past events will be
+    supported later on.
+
+    NOTE: Taproot keys imported through this RPC currently _cannot_ be used for
+    funding PSBTs. Only tracking the balance and UTXOs is currently supported.
+    */
+    rpc ImportTapscript (ImportTapscriptRequest)
+        returns (ImportTapscriptResponse);
 
     /*
     PublishTransaction attempts to publish the passed transaction to the
@@ -539,6 +559,77 @@ message ImportPublicKeyRequest {
     AddressType address_type = 2;
 }
 message ImportPublicKeyResponse {
+}
+
+message ImportTapscriptRequest {
+    /*
+    The internal public key, serialized as 32-byte x-only public key.
+    */
+    bytes internal_public_key = 1;
+
+    oneof script {
+        /*
+        The full script tree with all individual leaves is known and the root
+        hash can be constructed from the full tree directly.
+        */
+        TapscriptFullTree full_tree = 2;
+
+        /*
+        Only a single script leaf is known. To construct the root hash, the full
+        inclusion proof must also be provided.
+        */
+        TapscriptPartialReveal partial_reveal = 3;
+
+        /*
+        Only the root hash of the Taproot script tree (or other form of Taproot
+        commitment) is known.
+        */
+        bytes root_hash_only = 4;
+
+        /*
+        Only the final, tweaked Taproot key is known and no additional
+        information about the internal key or type of tweak that was used to
+        derive it. When this is set, the wallet treats the key in
+        internal_public_key as the Taproot key directly. This can be useful for
+        tracking arbitrary Taproot outputs without the goal of ever being able
+        to spend from them through the internal wallet.
+        */
+        bool full_key_only = 5;
+    }
+}
+
+message TapscriptFullTree {
+    /*
+    The complete, ordered list of all tap leaves of the tree.
+    */
+    repeated TapLeaf all_leaves = 1;
+}
+
+message TapLeaf {
+    // The leaf version. Should be 0xc0 (192) in case of a SegWit v1 script.
+    uint32 leaf_version = 1;
+
+    // The script of the tap leaf.
+    bytes script = 2;
+}
+
+message TapscriptPartialReveal {
+    // The tap leaf that is known and will be revealed.
+    TapLeaf revealed_leaf = 1;
+
+    // The BIP-0341 serialized inclusion proof that is required to prove that
+    // the revealed leaf is part of the tree. This contains 0..n blocks of 32
+    // bytes. If the tree only contained a single leaf (which is the revealed
+    // leaf), this can be empty.
+    bytes full_inclusion_proof = 2;
+}
+
+message ImportTapscriptResponse {
+    /*
+    The resulting pay-to-Taproot address that represents the imported internal
+    key with the script committed to it.
+    */
+    string p2tr_address = 1;
 }
 
 message Transaction {

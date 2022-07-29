@@ -23,6 +23,13 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 
 * [Add list addresses RPC](https://github.com/lightningnetwork/lnd/pull/6596).
 
+## Wallet
+
+* [Allows Taproot public keys and tap scripts to be imported as watch-only
+  addresses into the internal
+  wallet](https://github.com/lightningnetwork/lnd/pull/6775). NOTE that funding
+  PSBTs from imported tap scripts is not currently possible.
+
 ## Build
 
 [The project has updated to Go

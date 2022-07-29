@@ -1997,6 +1997,7 @@ var updateChannelPolicyCommand = cli.Command{
 			Name: "time_lock_delta",
 			Usage: "the CLTV delta that will be applied to all " +
 				"forwarded HTLCs",
+			DefaultText: "no default",
 		},
 		&cli.Uint64Flag{
 			Name: "min_htlc_msat",

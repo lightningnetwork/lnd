@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -31,7 +32,9 @@ const (
 )
 
 // walletToLNAddrType maps walletrpc.AddressType to lnrpc.AddressType.
-func walletToLNAddrType(t *testing.T, addrType walletrpc.AddressType) lnrpc.AddressType {
+func walletToLNAddrType(t *testing.T,
+	addrType walletrpc.AddressType) lnrpc.AddressType {
+
 	switch addrType {
 	case walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH,
 		walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
@@ -40,6 +43,9 @@ func walletToLNAddrType(t *testing.T, addrType walletrpc.AddressType) lnrpc.Addr
 
 	case walletrpc.AddressType_WITNESS_PUBKEY_HASH:
 		return lnrpc.AddressType_WITNESS_PUBKEY_HASH
+
+	case walletrpc.AddressType_TAPROOT_PUBKEY:
+		return lnrpc.AddressType_TAPROOT_PUBKEY
 
 	default:
 		t.Fatalf("unhandled addr type %v", addrType)
@@ -65,8 +71,6 @@ func newExternalAddr(t *testing.T, funder, signer *lntest.HarnessNode,
 
 	// Carol also needs to generate the address for the sake of this test to
 	// be able to sign the channel funding input.
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
 	signerResp, err := signer.NewAddress(ctxt, &lnrpc.NewAddressRequest{
 		Type: walletToLNAddrType(t, addrType),
 	})
@@ -95,6 +99,9 @@ func assertExternalAddrType(t *testing.T, addrStr string,
 		walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 
 		require.IsType(t, addr, &btcutil.AddressScriptHash{})
+
+	case walletrpc.AddressType_TAPROOT_PUBKEY:
+		require.IsType(t, addr, &btcutil.AddressTaproot{})
 
 	default:
 		t.Fatalf("unsupported account addr type %v", accountAddrType)
@@ -208,7 +215,9 @@ func psbtSendFromImportedAccount(t *harnessTest, srcNode, destNode,
 
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
-	balanceResp, err := srcNode.WalletBalance(ctxt, &lnrpc.WalletBalanceRequest{})
+	balanceResp, err := srcNode.WalletBalance(
+		ctxt, &lnrpc.WalletBalanceRequest{},
+	)
 	require.NoError(t.t, err)
 	require.Contains(t.t, balanceResp.AccountBalance, account)
 	confBalance := balanceResp.AccountBalance[account].ConfirmedBalance
@@ -246,7 +255,9 @@ func psbtSendFromImportedAccount(t *harnessTest, srcNode, destNode,
 	finalizeReq := &walletrpc.FinalizePsbtRequest{
 		FundedPsbt: fundResp.FundedPsbt,
 	}
-	finalizeResp, err := signer.WalletKitClient.FinalizePsbt(ctxt, finalizeReq)
+	finalizeResp, err := signer.WalletKitClient.FinalizePsbt(
+		ctxt, finalizeReq,
+	)
 	require.NoError(t.t, err)
 
 	// With the PSBT signed, we can broadcast the resulting transaction.
@@ -282,6 +293,18 @@ func psbtSendFromImportedAccount(t *harnessTest, srcNode, destNode,
 
 	case walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 		expTxFee = 164
+		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
+
+	case walletrpc.AddressType_TAPROOT_PUBKEY:
+		if account != defaultImportedAccount {
+			expTxFee = 190
+			expChangeScriptType = txscript.WitnessV1TaprootTy
+			break
+		}
+
+		// Spends from the default imported account fall back to a P2WKH
+		// change. We'll want to change that, but in a separate PR.
+		expTxFee = 221
 		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
 
 	default:
@@ -322,7 +345,9 @@ func fundChanAndCloseFromImportedAccount(t *harnessTest, srcNode, destNode,
 	// on.
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
-	balanceResp, err := srcNode.WalletBalance(ctxt, &lnrpc.WalletBalanceRequest{})
+	balanceResp, err := srcNode.WalletBalance(
+		ctxt, &lnrpc.WalletBalanceRequest{},
+	)
 	require.NoError(t.t, err)
 	require.Contains(t.t, balanceResp.AccountBalance, account)
 	accountConfBalance := balanceResp.
@@ -435,6 +460,18 @@ func fundChanAndCloseFromImportedAccount(t *harnessTest, srcNode, destNode,
 
 	case walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 		expChanTxFee = 176
+		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
+
+	case walletrpc.AddressType_TAPROOT_PUBKEY:
+		if account != defaultImportedAccount {
+			expChanTxFee = 202
+			expChangeScriptType = txscript.WitnessV1TaprootTy
+			break
+		}
+
+		// Spends from the default imported account fall back to a P2WKH
+		// change. We'll want to change that, but in a separate PR.
+		expChanTxFee = 233
 		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
 
 	default:
@@ -563,6 +600,10 @@ func testWalletImportAccount(net *lntest.NetworkHarness, t *harnessTest) {
 			name:     "standard BIP-0084",
 			addrType: walletrpc.AddressType_WITNESS_PUBKEY_HASH,
 		},
+		{
+			name:     "standard BIP-0086",
+			addrType: walletrpc.AddressType_TAPROOT_PUBKEY,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -571,7 +612,9 @@ func testWalletImportAccount(net *lntest.NetworkHarness, t *harnessTest) {
 			ht := newHarnessTest(tt, net)
 			ht.RunTestCase(&testCase{
 				name: tc.name,
-				test: func(net1 *lntest.NetworkHarness, t1 *harnessTest) {
+				test: func(net1 *lntest.NetworkHarness,
+					t1 *harnessTest) {
+
 					testWalletImportAccountScenario(
 						net, t, tc.addrType,
 					)
@@ -669,7 +712,9 @@ func runWalletImportAccountScenario(net *lntest.NetworkHarness, t *harnessTest,
 	// some assertions we'll make later on.
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
-	balanceResp, err := dave.WalletBalance(ctxt, &lnrpc.WalletBalanceRequest{})
+	balanceResp, err := dave.WalletBalance(
+		ctxt, &lnrpc.WalletBalanceRequest{},
+	)
 	require.NoError(t.t, err)
 	require.Contains(t.t, balanceResp.AccountBalance, importedAccount)
 	confBalance := balanceResp.AccountBalance[importedAccount].ConfirmedBalance
@@ -716,6 +761,10 @@ func testWalletImportPubKey(net *lntest.NetworkHarness, t *harnessTest) {
 			name:     "BIP-0084",
 			addrType: walletrpc.AddressType_WITNESS_PUBKEY_HASH,
 		},
+		{
+			name:     "BIP-0086",
+			addrType: walletrpc.AddressType_TAPROOT_PUBKEY,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -724,7 +773,9 @@ func testWalletImportPubKey(net *lntest.NetworkHarness, t *harnessTest) {
 			ht := newHarnessTest(tt, net)
 			ht.RunTestCase(&testCase{
 				name: tc.name,
-				test: func(net1 *lntest.NetworkHarness, t1 *harnessTest) {
+				test: func(net1 *lntest.NetworkHarness,
+					t1 *harnessTest) {
+
 					testWalletImportPubKeyScenario(
 						net, t, tc.addrType,
 					)
@@ -758,7 +809,9 @@ func testWalletImportPubKeyScenario(net *lntest.NetworkHarness, t *harnessTest,
 	// We'll define a helper closure that we'll use throughout the test to
 	// generate a new address of the given type from Carol's perspective,
 	// import it into Dave's wallet, and fund it.
-	importPubKey := func(keyIndex uint32, prevConfBalance, prevUnconfBalance int64) {
+	importPubKey := func(keyIndex uint32, prevConfBalance,
+		prevUnconfBalance int64) {
+
 		// Retrieve Carol's account public key for the corresponding
 		// address type.
 		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
@@ -767,7 +820,9 @@ func testWalletImportPubKeyScenario(net *lntest.NetworkHarness, t *harnessTest,
 			Name:        "default",
 			AddressType: addrType,
 		}
-		listResp, err := carol.WalletKitClient.ListAccounts(ctxt, listReq)
+		listResp, err := carol.WalletKitClient.ListAccounts(
+			ctxt, listReq,
+		)
 		require.NoError(t.t, err)
 		require.Equal(t.t, len(listResp.Accounts), 1)
 		p2wkhAccount := listResp.Accounts[0]
@@ -784,11 +839,19 @@ func testWalletImportPubKeyScenario(net *lntest.NetworkHarness, t *harnessTest,
 		externalAddrPubKey, err := externalAddrExtKey.ECPubKey()
 		require.NoError(t.t, err)
 
+		// Serialize as 32-byte x-only pubkey for Taproot addresses.
+		serializedPubKey := externalAddrPubKey.SerializeCompressed()
+		if addrType == walletrpc.AddressType_TAPROOT_PUBKEY {
+			serializedPubKey = schnorr.SerializePubKey(
+				externalAddrPubKey,
+			)
+		}
+
 		// Import the public key into Dave.
 		ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 		defer cancel()
 		importReq := &walletrpc.ImportPublicKeyRequest{
-			PublicKey:   externalAddrPubKey.SerializeCompressed(),
+			PublicKey:   serializedPubKey,
 			AddressType: addrType,
 		}
 		_, err = dave.WalletKitClient.ImportPublicKey(ctxt, importReq)
@@ -798,9 +861,11 @@ func testWalletImportPubKeyScenario(net *lntest.NetworkHarness, t *harnessTest,
 		// required later when signing.
 		ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 		defer cancel()
-		carolAddrResp, err := carol.NewAddress(ctxt, &lnrpc.NewAddressRequest{
-			Type: walletToLNAddrType(t.t, addrType),
-		})
+		carolAddrResp, err := carol.NewAddress(
+			ctxt, &lnrpc.NewAddressRequest{
+				Type: walletToLNAddrType(t.t, addrType),
+			},
+		)
 		require.NoError(t.t, err)
 
 		// Send coins to Carol's address and confirm them, making sure
@@ -842,9 +907,13 @@ func testWalletImportPubKeyScenario(net *lntest.NetworkHarness, t *harnessTest,
 	// import into Dave again.
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
-	balanceResp, err := dave.WalletBalance(ctxt, &lnrpc.WalletBalanceRequest{})
+	balanceResp, err := dave.WalletBalance(
+		ctxt, &lnrpc.WalletBalanceRequest{},
+	)
 	require.NoError(t.t, err)
-	require.Contains(t.t, balanceResp.AccountBalance, defaultImportedAccount)
+	require.Contains(
+		t.t, balanceResp.AccountBalance, defaultImportedAccount,
+	)
 	confBalance := balanceResp.
 		AccountBalance[defaultImportedAccount].ConfirmedBalance
 	importPubKey(1, confBalance, 0)

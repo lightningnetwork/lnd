@@ -59,14 +59,14 @@ func testMultiHopHtlcClaims(ht *lntemp.HarnessTest) {
 			name: "local chain claim",
 			test: testMultiHopHtlcLocalChainClaim,
 		},
-		// {
-		// 	// bob: outgoing their commit watch and see, they sweep
-		// 	// on chain
-		// 	// bob: incoming their commit watch and learn preimage
-		// 	// carol: incoming our commit know preimage
-		// 	name: "remote chain claim",
-		// 	test: testMultiHopHtlcRemoteChainClaim,
-		// },
+		{
+			// bob: outgoing their commit watch and see, they sweep
+			// on chain
+			// bob: incoming their commit watch and learn preimage
+			// carol: incoming our commit know preimage
+			name: "remote chain claim",
+			test: testMultiHopHtlcRemoteChainClaim,
+		},
 		// {
 		// 	// bob: outgoing and incoming, sweep all on chain
 		// 	name: "local htlc aggregation",

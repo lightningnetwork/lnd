@@ -15,7 +15,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/stretchr/testify/require"
 )
 
 func testMultiHopHtlcClaims(ht *lntemp.HarnessTest) {
@@ -67,11 +66,11 @@ func testMultiHopHtlcClaims(ht *lntemp.HarnessTest) {
 			name: "remote chain claim",
 			test: testMultiHopHtlcRemoteChainClaim,
 		},
-		// {
-		// 	// bob: outgoing and incoming, sweep all on chain
-		// 	name: "local htlc aggregation",
-		// 	test: testMultiHopHtlcAggregation,
-		// },
+		{
+			// bob: outgoing and incoming, sweep all on chain
+			name: "local htlc aggregation",
+			test: testMultiHopHtlcAggregation,
+		},
 	}
 
 	commitWithZeroConf := []struct {
@@ -235,151 +234,6 @@ func checkPaymentStatus(node *lntest.HarnessNode, preimage lntypes.Preimage,
 	}
 
 	return nil
-}
-
-// TODO(yy): delete.
-func createThreeHopNetworkOld(t *harnessTest, net *lntest.NetworkHarness,
-	alice, bob *lntest.HarnessNode, carolHodl bool, c lnrpc.CommitmentType,
-	zeroConf bool) (
-	*lnrpc.ChannelPoint, *lnrpc.ChannelPoint, *lntest.HarnessNode) {
-
-	net.EnsureConnected(t.t, alice, bob)
-
-	// Make sure there are enough utxos for anchoring.
-	for i := 0; i < 2; i++ {
-		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
-		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, bob)
-	}
-
-	// We'll start the test by creating a channel between Alice and Bob,
-	// which will act as the first leg for out multi-hop HTLC.
-	const chanAmt = 1000000
-	var aliceFundingShim *lnrpc.FundingShim
-	var thawHeight uint32
-	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		_, minerHeight, err := net.Miner.Client.GetBestBlock()
-		require.NoError(t.t, err)
-		thawHeight = uint32(minerHeight + 144)
-		aliceFundingShim, _, _ = deriveFundingShimOld(
-			net, t, alice, bob, chanAmt, thawHeight, true,
-		)
-	}
-
-	// If a zero-conf channel is being opened, the nodes are signalling the
-	// zero-conf feature bit. Setup a ChannelAcceptor for the fundee.
-	ctxb := context.Background()
-
-	var (
-		cancel context.CancelFunc
-		ctxc   context.Context
-	)
-
-	if zeroConf {
-		ctxc, cancel = context.WithCancel(ctxb)
-		acceptStream, err := bob.ChannelAcceptor(ctxc)
-		require.NoError(t.t, err)
-		go acceptChannel(t.t, true, acceptStream)
-	}
-
-	aliceChanPoint := openChannelAndAssert(
-		t, net, alice, bob,
-		lntest.OpenChannelParams{
-			Amt:            chanAmt,
-			CommitmentType: c,
-			FundingShim:    aliceFundingShim,
-			ZeroConf:       zeroConf,
-		},
-	)
-
-	// Remove the ChannelAcceptor for Bob.
-	if zeroConf {
-		cancel()
-	}
-
-	err := alice.WaitForNetworkChannelOpen(aliceChanPoint)
-	if err != nil {
-		t.Fatalf("alice didn't report channel: %v", err)
-	}
-
-	err = bob.WaitForNetworkChannelOpen(aliceChanPoint)
-	if err != nil {
-		t.Fatalf("bob didn't report channel: %v", err)
-	}
-
-	// Next, we'll create a new node "carol" and have Bob connect to her. If
-	// the carolHodl flag is set, we'll make carol always hold onto the
-	// HTLC, this way it'll force Bob to go to chain to resolve the HTLC.
-	carolFlags := nodeArgsForCommitType(c)
-	if carolHodl {
-		carolFlags = append(carolFlags, "--hodl.exit-settle")
-	}
-
-	if zeroConf {
-		carolFlags = append(
-			carolFlags, "--protocol.option-scid-alias",
-			"--protocol.zero-conf",
-		)
-	}
-
-	carol := net.NewNode(t.t, "Carol", carolFlags)
-
-	net.ConnectNodes(t.t, bob, carol)
-
-	// Make sure Carol has enough utxos for anchoring. Because the anchor by
-	// itself often doesn't meet the dust limit, a utxo from the wallet
-	// needs to be attached as an additional input. This can still lead to a
-	// positively-yielding transaction.
-	for i := 0; i < 2; i++ {
-		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
-	}
-
-	// We'll then create a channel from Bob to Carol. After this channel is
-	// open, our topology looks like:  A -> B -> C.
-	var bobFundingShim *lnrpc.FundingShim
-	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		bobFundingShim, _, _ = deriveFundingShimOld(
-			net, t, bob, carol, chanAmt, thawHeight, true,
-		)
-	}
-
-	// Setup a ChannelAcceptor for Carol if a zero-conf channel open is
-	// being attempted.
-	if zeroConf {
-		ctxc, cancel = context.WithCancel(ctxb)
-		acceptStream, err := carol.ChannelAcceptor(ctxc)
-		require.NoError(t.t, err)
-		go acceptChannel(t.t, true, acceptStream)
-	}
-
-	bobChanPoint := openChannelAndAssert(
-		t, net, bob, carol,
-		lntest.OpenChannelParams{
-			Amt:            chanAmt,
-			CommitmentType: c,
-			FundingShim:    bobFundingShim,
-			ZeroConf:       zeroConf,
-		},
-	)
-
-	// Remove the ChannelAcceptor for Carol.
-	if zeroConf {
-		cancel()
-	}
-
-	err = bob.WaitForNetworkChannelOpen(bobChanPoint)
-	if err != nil {
-		t.Fatalf("alice didn't report channel: %v", err)
-	}
-	err = carol.WaitForNetworkChannelOpen(bobChanPoint)
-	if err != nil {
-		t.Fatalf("bob didn't report channel: %v", err)
-	}
-	err = alice.WaitForNetworkChannelOpen(bobChanPoint)
-	if err != nil {
-		t.Fatalf("bob didn't report channel: %v", err)
-	}
-
-	return aliceChanPoint, bobChanPoint, carol
 }
 
 // assertAllTxesSpendFrom asserts that all txes in the list spend from the given

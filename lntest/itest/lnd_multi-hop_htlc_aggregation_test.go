@@ -1,18 +1,16 @@
 package itest
 
 import (
-	"context"
-	"fmt"
-	"time"
-
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntest"
-	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntemp/rpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
 )
@@ -22,41 +20,35 @@ import (
 // resolve them using the second level timeout and success transactions. In
 // case of anchor channels, the second-level spends can also be aggregated and
 // properly feebumped, so we'll check that as well.
-func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
-	alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType,
-	zeroConf bool) {
+func testMultiHopHtlcAggregation(ht *lntemp.HarnessTest,
+	alice, bob *node.HarnessNode, c lnrpc.CommitmentType, zeroConf bool) {
 
 	const finalCltvDelta = 40
-	ctxb := context.Background()
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol.
-	aliceChanPoint, bobChanPoint, carol := createThreeHopNetworkOld(
-		t, net, alice, bob, false, c, zeroConf,
+	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
+		ht, alice, bob, false, c, zeroConf,
 	)
-	defer shutdownAndAssert(net, t, carol)
+
+	// For neutrino backend, we need one additional UTXO to create
+	// the sweeping tx for the second-level success txes.
+	if ht.IsNeutrinoBackend() {
+		ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+	}
 
 	// To ensure we have capacity in both directions of the route, we'll
-	// make  a fairly large payment Alice->Carol and settle it.
+	// make a fairly large payment Alice->Carol and settle it.
 	const reBalanceAmt = 500_000
-	invoice := &lnrpc.Invoice{
-		Value: reBalanceAmt,
-	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := carol.AddInvoice(ctxt, invoice)
-	require.NoError(t.t, err)
+	invoice := &lnrpc.Invoice{Value: reBalanceAmt}
+	resp := carol.RPC.AddInvoice(invoice)
 
 	sendReq := &routerrpc.SendPaymentRequest{
 		PaymentRequest: resp.PaymentRequest,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	stream, err := alice.RouterClient.SendPaymentV2(ctxt, sendReq)
-	require.NoError(t.t, err)
-
-	result, err := getPaymentResult(stream)
-	require.NoError(t.t, err)
-	require.Equal(t.t, result.Status, lnrpc.Payment_SUCCEEDED)
+	stream := alice.RPC.SendPayment(sendReq)
+	ht.AssertPaymentStatusFromStream(stream, lnrpc.Payment_SUCCEEDED)
 
 	// With the network active, we'll now add a new hodl invoices at both
 	// Alice's and Carol's end. Make sure the cltv expiry delta is large
@@ -65,116 +57,105 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 	const invoiceAmt = 50_000
 
 	var (
-		carolInvoices  []*invoicesrpc.AddHoldInvoiceResp
-		aliceInvoices  []*invoicesrpc.AddHoldInvoiceResp
-		alicePreimages []lntypes.Preimage
-		payHashes      [][]byte
-		alicePayHashes [][]byte
-		carolPayHashes [][]byte
+		carolInvoices       []*invoicesrpc.AddHoldInvoiceResp
+		aliceInvoices       []*invoicesrpc.AddHoldInvoiceResp
+		alicePreimages      []lntypes.Preimage
+		payHashes           [][]byte
+		invoiceStreamsCarol []rpc.SingleInvoiceClient
+		invoiceStreamsAlice []rpc.SingleInvoiceClient
 	)
 
 	// Add Carol invoices.
 	for i := 0; i < numInvoices; i++ {
-		preimage := lntypes.Preimage{1, 1, 1, byte(i)}
+		var preimage lntypes.Preimage
+		copy(preimage[:], ht.Random32Bytes())
 		payHash := preimage.Hash()
 		invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 			Value:      invoiceAmt,
 			CltvExpiry: finalCltvDelta,
 			Hash:       payHash[:],
 		}
-		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-		defer cancel()
-		carolInvoice, err := carol.AddHoldInvoice(ctxt, invoiceReq)
-		require.NoError(t.t, err)
+		carolInvoice := carol.RPC.AddHoldInvoice(invoiceReq)
 
 		carolInvoices = append(carolInvoices, carolInvoice)
 		payHashes = append(payHashes, payHash[:])
-		carolPayHashes = append(carolPayHashes, payHash[:])
+
+		// Subscribe the invoice.
+		stream := carol.RPC.SubscribeSingleInvoice(payHash[:])
+		invoiceStreamsCarol = append(invoiceStreamsCarol, stream)
 	}
 
 	// We'll give Alice's invoices a longer CLTV expiry, to ensure the
 	// channel Bob<->Carol will be closed first.
 	for i := 0; i < numInvoices; i++ {
-		preimage := lntypes.Preimage{2, 2, 2, byte(i)}
+		var preimage lntypes.Preimage
+		copy(preimage[:], ht.Random32Bytes())
 		payHash := preimage.Hash()
 		invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 			Value:      invoiceAmt,
 			CltvExpiry: 2 * finalCltvDelta,
 			Hash:       payHash[:],
 		}
-		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-		defer cancel()
-		aliceInvoice, err := alice.AddHoldInvoice(ctxt, invoiceReq)
-		require.NoError(t.t, err)
+		aliceInvoice := alice.RPC.AddHoldInvoice(invoiceReq)
 
 		aliceInvoices = append(aliceInvoices, aliceInvoice)
 		alicePreimages = append(alicePreimages, preimage)
 		payHashes = append(payHashes, payHash[:])
-		alicePayHashes = append(alicePayHashes, payHash[:])
+
+		// Subscribe the invoice.
+		stream := alice.RPC.SubscribeSingleInvoice(payHash[:])
+		invoiceStreamsAlice = append(invoiceStreamsAlice, stream)
 	}
 
 	// Now that we've created the invoices, we'll pay them all from
 	// Alice<->Carol, going through Bob. We won't wait for the response
 	// however, as neither will immediately settle the payment.
-	ctx, cancel := context.WithCancel(ctxb)
-	defer cancel()
 
 	// Alice will pay all of Carol's invoices.
 	for _, carolInvoice := range carolInvoices {
-		_, err = alice.RouterClient.SendPaymentV2(
-			ctx, &routerrpc.SendPaymentRequest{
-				PaymentRequest: carolInvoice.PaymentRequest,
-				TimeoutSeconds: 60,
-				FeeLimitMsat:   noFeeLimitMsat,
-			},
-		)
-		require.NoError(t.t, err)
+		req := &routerrpc.SendPaymentRequest{
+			PaymentRequest: carolInvoice.PaymentRequest,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		}
+		alice.RPC.SendPayment(req)
 	}
 
 	// And Carol will pay Alice's.
 	for _, aliceInvoice := range aliceInvoices {
-		_, err = carol.RouterClient.SendPaymentV2(
-			ctx, &routerrpc.SendPaymentRequest{
-				PaymentRequest: aliceInvoice.PaymentRequest,
-				TimeoutSeconds: 60,
-				FeeLimitMsat:   noFeeLimitMsat,
-			},
-		)
-		require.NoError(t.t, err)
+		req := &routerrpc.SendPaymentRequest{
+			PaymentRequest: aliceInvoice.PaymentRequest,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		}
+		carol.RPC.SendPayment(req)
 	}
 
 	// At this point, all 3 nodes should now the HTLCs active on their
 	// channels.
-	nodes := []*lntest.HarnessNode{alice, bob, carol}
-	err = wait.NoError(func() error {
-		return assertActiveHtlcs(nodes, payHashes...)
-	}, defaultTimeout)
-	require.NoError(t.t, err)
+	ht.AssertActiveHtlcs(alice, payHashes...)
+	ht.AssertActiveHtlcs(bob, payHashes...)
+	ht.AssertActiveHtlcs(carol, payHashes...)
 
 	// Wait for Alice and Carol to mark the invoices as accepted. There is
 	// a small gap to bridge between adding the htlc to the channel and
 	// executing the exit hop logic.
-	for _, payHash := range carolPayHashes {
-		h := lntypes.Hash{}
-		copy(h[:], payHash)
-		waitForInvoiceAccepted(t, carol, h)
+	for _, stream := range invoiceStreamsCarol {
+		ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
 	}
 
-	for _, payHash := range alicePayHashes {
-		h := lntypes.Hash{}
-		copy(h[:], payHash)
-		waitForInvoiceAccepted(t, alice, h)
+	for _, stream := range invoiceStreamsAlice {
+		ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
 	}
 
 	// Increase the fee estimate so that the following force close tx will
 	// be cpfp'ed.
-	net.SetFeeEstimate(30000)
+	ht.SetFeeEstimate(30000)
 
 	// We want Carol's htlcs to expire off-chain to demonstrate bob's force
 	// close. However, Carol will cancel her invoices to prevent force
 	// closes, so we shut her down for now.
-	restartCarol, err := net.SuspendNode(carol)
-	require.NoError(t.t, err)
+	restartCarol := ht.SuspendNode(carol)
 
 	// We'll now mine enough blocks to trigger Bob's broadcast of his
 	// commitment transaction due to the fact that the Carol's HTLCs are
@@ -183,8 +164,7 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 	numBlocks := padCLTV(
 		uint32(finalCltvDelta - lncfg.DefaultOutgoingBroadcastDelta),
 	)
-	_, err = net.Miner.Client.Generate(numBlocks)
-	require.NoError(t.t, err)
+	ht.MineBlocksAssertNodesSync(numBlocks)
 
 	// Bob's force close transaction should now be found in the mempool. If
 	// there are anchors, we also expect Bob's anchor sweep.
@@ -193,22 +173,15 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 	if hasAnchors {
 		expectedTxes = 2
 	}
+	ht.Miner.AssertNumTxsInMempool(expectedTxes)
 
-	bobFundingTxid, err := lnrpc.GetChanPointFundingTxid(bobChanPoint)
-	require.NoError(t.t, err)
-	_, err = waitForNTxsInMempool(
-		net.Miner.Client, expectedTxes, minerMempoolTimeout,
-	)
-	require.NoError(t.t, err)
-	closeTx := getSpendingTxInMempool(
-		t, net.Miner.Client, minerMempoolTimeout, wire.OutPoint{
-			Hash:  *bobFundingTxid,
-			Index: bobChanPoint.OutputIndex,
-		},
+	closeTx := ht.Miner.AssertOutpointInMempool(
+		ht.OutPointFromChannelPoint(bobChanPoint),
 	)
 	closeTxid := closeTx.TxHash()
 
-	// Go through the closing transaction outputs, and make an index for the HTLC outputs.
+	// Go through the closing transaction outputs, and make an index for
+	// the HTLC outputs.
 	successOuts := make(map[wire.OutPoint]struct{})
 	timeoutOuts := make(map[wire.OutPoint]struct{})
 	for i, txOut := range closeTx.TxOut {
@@ -224,33 +197,26 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 		case invoiceAmt:
 			timeoutOuts[op] = struct{}{}
 
-		// If the HTLC has direction towards Alice, Bob will
-		// claim it with the success TX when he learns the preimage. In
-		// this case one extra sat will be on the output, because of
-		// the routing fee.
+		// If the HTLC has direction towards Alice, Bob will claim it
+		// with the success TX when he learns the preimage. In this
+		// case one extra sat will be on the output, because of the
+		// routing fee.
 		case invoiceAmt + 1:
 			successOuts[op] = struct{}{}
 		}
 	}
 
 	// Once bob has force closed, we can restart carol.
-	require.NoError(t.t, restartCarol())
+	require.NoError(ht, restartCarol())
 
 	// Mine a block to confirm the closing transaction.
-	mineBlocks(t, net, 1, expectedTxes)
-
-	time.Sleep(1 * time.Second)
+	ht.Miner.MineBlocksAndAssertNumTxes(1, expectedTxes)
 
 	// Let Alice settle her invoices. When Bob now gets the preimages, he
 	// has no other option than to broadcast his second-level transactions
 	// to claim the money.
 	for _, preimage := range alicePreimages {
-		ctx, cancel = context.WithTimeout(ctxb, defaultTimeout)
-		defer cancel()
-		_, err = alice.SettleInvoice(ctx, &invoicesrpc.SettleInvoiceMsg{
-			Preimage: preimage[:],
-		})
-		require.NoError(t.t, err)
+		alice.RPC.SettleInvoice(preimage[:])
 	}
 
 	switch c {
@@ -271,13 +237,9 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 		expectedTxes = 4
 
 	default:
-		t.Fatalf("unhandled commitment type %v", c)
+		ht.Fatalf("unhandled commitment type %v", c)
 	}
-
-	txes, err := getNTxsFromMempool(
-		net.Miner.Client, expectedTxes, minerMempoolTimeout,
-	)
-	require.NoError(t.t, err)
+	txes := ht.Miner.GetNumTxsFromMempool(expectedTxes)
 
 	// Since Bob can aggregate the transactions, we expect a single
 	// transaction, that have multiple spends from the commitment.
@@ -306,81 +268,53 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 	// levels to be aggregated into one tx. For earlier channel types, they
 	// will be separate transactions.
 	if hasAnchors {
-		require.Len(t.t, timeoutTxs, 1)
-		require.Len(t.t, successTxs, 1)
+		require.Len(ht, timeoutTxs, 1)
+		require.Len(ht, successTxs, 1)
 	} else {
-		require.Len(t.t, timeoutTxs, numInvoices)
-		require.Len(t.t, successTxs, numInvoices)
+		require.Len(ht, timeoutTxs, numInvoices)
+		require.Len(ht, successTxs, numInvoices)
 	}
 
 	// All mempool transactions should be spending from the commitment
 	// transaction.
-	assertAllTxesSpendFrom(t, txes, closeTxid)
+	ht.AssertAllTxesSpendFrom(txes, closeTxid)
 
-	// Mine a block to confirm the transactions.
-	block := mineBlocks(t, net, 1, expectedTxes)[0]
-	require.Len(t.t, block.Transactions, expectedTxes+1)
+	// Mine a block to confirm the all the transactions, including Carol's
+	// commitment tx, anchor tx(optional), and the second-level timeout and
+	// success txes.
+	block := ht.Miner.MineBlocksAndAssertNumTxes(1, expectedTxes)[0]
+	require.Len(ht, block.Transactions, expectedTxes+1)
 
 	// At this point, Bob should have broadcast his second layer success
 	// transaction, and should have sent it to the nursery for incubation,
 	// or to the sweeper for sweeping.
-	err = waitForNumChannelPendingForceClose(
-		bob, 1, func(c *lnrpcForceCloseChannel) error {
-			if c.Channel.LocalBalance != 0 {
-				return nil
-			}
+	ht.AssertNumPendingForceClose(bob, 1)
 
-			if len(c.PendingHtlcs) != 1 {
-				return fmt.Errorf("bob should have pending " +
-					"htlc but doesn't")
-			}
-
-			if c.PendingHtlcs[0].Stage != 1 {
-				return fmt.Errorf("bob's htlc should have "+
-					"advanced to the first stage but was "+
-					"stage: %v", c.PendingHtlcs[0].Stage)
-			}
-
-			return nil
-		},
-	)
-	require.NoError(t.t, err)
+	// For this channel, we also check the number of HTLCs and the stage
+	// are correct.
+	ht.AssertNumHTLCsAndStage(bob, bobChanPoint, numInvoices*2, 2)
 
 	if c != lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		// If we then mine additional blocks, Bob can sweep his commitment
-		// output.
-		_, err = net.Miner.Client.Generate(defaultCSV - 2)
-		require.NoError(t.t, err)
+		// If we then mine additional blocks, Bob can sweep his
+		// commitment output.
+		ht.MineBlocksAssertNodesSync(defaultCSV - 2)
 
 		// Find the commitment sweep.
-		bobCommitSweepHash, err := waitForTxInMempool(
-			net.Miner.Client, minerMempoolTimeout,
-		)
-		require.NoError(t.t, err)
-		bobCommitSweep, err := net.Miner.Client.GetRawTransaction(
-			bobCommitSweepHash,
-		)
-		require.NoError(t.t, err)
-
-		require.Equal(
-			t.t, closeTxid,
-			bobCommitSweep.MsgTx().TxIn[0].PreviousOutPoint.Hash,
-		)
+		bobCommitSweep := ht.Miner.GetNumTxsFromMempool(1)[0]
+		ht.AssertTxSpendFrom(bobCommitSweep, closeTxid)
 
 		// Also ensure it is not spending from any of the HTLC output.
-		for _, txin := range bobCommitSweep.MsgTx().TxIn {
+		for _, txin := range bobCommitSweep.TxIn {
 			for _, timeoutTx := range timeoutTxs {
-				if *timeoutTx == txin.PreviousOutPoint.Hash {
-					t.Fatalf("found unexpected spend of " +
-						"timeout tx")
-				}
+				require.NotEqual(ht, *timeoutTx,
+					txin.PreviousOutPoint.Hash,
+					"found unexpected spend of timeout tx")
 			}
 
 			for _, successTx := range successTxs {
-				if *successTx == txin.PreviousOutPoint.Hash {
-					t.Fatalf("found unexpected spend of " +
-						"success tx")
-				}
+				require.NotEqual(ht, *successTx,
+					txin.PreviousOutPoint.Hash,
+					"found unexpected spend of success tx")
 			}
 		}
 	}
@@ -390,43 +324,42 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 	// the nursery waits an extra block before sweeping. Before the blocks
 	// are mined, we should expect to see Bob's commit sweep in the mempool.
 	case lnrpc.CommitmentType_LEGACY:
-		_ = mineBlocks(t, net, 2, 1)
+		ht.Miner.MineBlocksAndAssertNumTxes(2, 1)
 
 	// Mining one additional block, Bob's second level tx is mature, and he
 	// can sweep the output. Before the blocks are mined, we should expect
 	// to see Bob's commit sweep in the mempool.
 	case lnrpc.CommitmentType_ANCHORS:
-		_ = mineBlocks(t, net, 1, 1)
+		ht.Miner.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Since Bob is the initiator of the Bob-Carol script-enforced leased
 	// channel, he incurs an additional CLTV when sweeping outputs back to
 	// his wallet. We'll need to mine enough blocks for the timelock to
 	// expire to prompt his broadcast.
 	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		resp, err := bob.PendingChannels(
-			ctxt, &lnrpc.PendingChannelsRequest{},
-		)
-		require.NoError(t.t, err)
-		require.Len(t.t, resp.PendingForceClosingChannels, 1)
+		resp := bob.RPC.PendingChannels()
+		require.Len(ht, resp.PendingForceClosingChannels, 1)
 		forceCloseChan := resp.PendingForceClosingChannels[0]
-		require.Positive(t.t, forceCloseChan.BlocksTilMaturity)
-		_ = mineBlocks(t, net, uint32(forceCloseChan.BlocksTilMaturity), 0)
+		require.Positive(ht, forceCloseChan.BlocksTilMaturity)
+		numBlocks := uint32(forceCloseChan.BlocksTilMaturity)
+
+		// Add debug log.
+		_, height := ht.Miner.GetBestBlock()
+		bob.AddToLogf("itest: now mine %d blocks at height %d",
+			numBlocks, height)
+		ht.MineBlocksAssertNodesSync(numBlocks)
 
 	default:
-		t.Fatalf("unhandled commitment type %v", c)
+		ht.Fatalf("unhandled commitment type %v", c)
 	}
 
-	bobSweep, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
-	require.NoError(t.t, err)
-
 	// Make sure it spends from the second level tx.
-	secondLevelSweep, err := net.Miner.Client.GetRawTransaction(bobSweep)
-	require.NoError(t.t, err)
+	secondLevelSweep := ht.Miner.GetNumTxsFromMempool(1)[0]
+	bobSweep := secondLevelSweep.TxHash()
 
 	// It should be sweeping all the second-level outputs.
 	var secondLvlSpends int
-	for _, txin := range secondLevelSweep.MsgTx().TxIn {
+	for _, txin := range secondLevelSweep.TxIn {
 		for _, timeoutTx := range timeoutTxs {
 			if *timeoutTx == txin.PreviousOutPoint.Hash {
 				secondLvlSpends++
@@ -440,25 +373,22 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 		}
 	}
 
-	require.Equal(t.t, 2*numInvoices, secondLvlSpends)
+	require.Equal(ht, 2*numInvoices, secondLvlSpends)
 
 	// When we mine one additional block, that will confirm Bob's second
 	// level sweep.  Now Bob should have no pending channels anymore, as
 	// this just resolved it by the confirmation of the sweep transaction.
-	block = mineBlocks(t, net, 1, 1)[0]
-	assertTxInBlock(t, block, bobSweep)
-
-	err = waitForNumChannelPendingForceClose(bob, 0, nil)
-	require.NoError(t.t, err)
+	block = ht.Miner.MineBlocksAndAssertNumTxes(1, 1)[0]
+	ht.Miner.AssertTxInBlock(block, &bobSweep)
+	ht.AssertNumPendingForceClose(bob, 0)
 
 	// THe channel with Alice is still open.
-	assertNodeNumChannels(t, bob, 1)
+	ht.AssertNodeNumChannels(bob, 1)
 
 	// Carol should have no channels left (open nor pending).
-	err = waitForNumChannelPendingForceClose(carol, 0, nil)
-	require.NoError(t.t, err)
-	assertNodeNumChannels(t, carol, 0)
+	ht.AssertNumPendingForceClose(carol, 0)
+	ht.AssertNodeNumChannels(carol, 0)
 
-	// Coop close channel, expect no anchors.
-	closeChannelAndAssertType(t, net, alice, aliceChanPoint, false, false)
+	// Coop close, no anchors.
+	ht.CloseChannel(alice, aliceChanPoint)
 }

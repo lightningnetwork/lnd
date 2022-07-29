@@ -2,7 +2,6 @@ package itest
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"testing"
 	"time"
@@ -15,7 +14,6 @@ import (
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -715,115 +713,6 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
 	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
-}
-
-// deriveFundingShim creates a channel funding shim by deriving the necessary
-// keys on both sides.
-// TODO(yy): remove.
-func deriveFundingShimOld(net *lntest.NetworkHarness, t *harnessTest,
-	carol, dave *lntest.HarnessNode, chanSize btcutil.Amount,
-	thawHeight uint32, publish bool) (*lnrpc.FundingShim,
-	*lnrpc.ChannelPoint, *chainhash.Hash) {
-
-	ctxb := context.Background()
-	keyLoc := &walletrpc.KeyReq{KeyFamily: 9999}
-	carolFundingKey, err := carol.WalletKitClient.DeriveNextKey(ctxb, keyLoc)
-	require.NoError(t.t, err)
-	daveFundingKey, err := dave.WalletKitClient.DeriveNextKey(ctxb, keyLoc)
-	require.NoError(t.t, err)
-
-	// Now that we have the multi-sig keys for each party, we can manually
-	// construct the funding transaction. We'll instruct the backend to
-	// immediately create and broadcast a transaction paying out an exact
-	// amount. Normally this would reside in the mempool, but we just
-	// confirm it now for simplicity.
-	_, fundingOutput, err := input.GenFundingPkScript(
-		carolFundingKey.RawKeyBytes, daveFundingKey.RawKeyBytes,
-		int64(chanSize),
-	)
-	require.NoError(t.t, err)
-
-	var txid *chainhash.Hash
-	targetOutputs := []*wire.TxOut{fundingOutput}
-	if publish {
-		txid, err = net.Miner.SendOutputsWithoutChange(
-			targetOutputs, 5,
-		)
-		require.NoError(t.t, err)
-	} else {
-		tx, err := net.Miner.CreateTransaction(targetOutputs, 5, false)
-		require.NoError(t.t, err)
-
-		txHash := tx.TxHash()
-		txid = &txHash
-	}
-
-	// At this point, we can being our external channel funding workflow.
-	// We'll start by generating a pending channel ID externally that will
-	// be used to track this new funding type.
-	var pendingChanID [32]byte
-	_, err = rand.Read(pendingChanID[:])
-	require.NoError(t.t, err)
-
-	// Now that we have the pending channel ID, Dave (our responder) will
-	// register the intent to receive a new channel funding workflow using
-	// the pending channel ID.
-	chanPoint := &lnrpc.ChannelPoint{
-		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-			FundingTxidBytes: txid[:],
-		},
-	}
-	chanPointShim := &lnrpc.ChanPointShim{
-		Amt:       int64(chanSize),
-		ChanPoint: chanPoint,
-		LocalKey: &lnrpc.KeyDescriptor{
-			RawKeyBytes: daveFundingKey.RawKeyBytes,
-			KeyLoc: &lnrpc.KeyLocator{
-				KeyFamily: daveFundingKey.KeyLoc.KeyFamily,
-				KeyIndex:  daveFundingKey.KeyLoc.KeyIndex,
-			},
-		},
-		RemoteKey:     carolFundingKey.RawKeyBytes,
-		PendingChanId: pendingChanID[:],
-		ThawHeight:    thawHeight,
-	}
-	fundingShim := &lnrpc.FundingShim{
-		Shim: &lnrpc.FundingShim_ChanPointShim{
-			ChanPointShim: chanPointShim,
-		},
-	}
-	_, err = dave.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
-		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
-			ShimRegister: fundingShim,
-		},
-	})
-	require.NoError(t.t, err)
-
-	// If we attempt to register the same shim (has the same pending chan
-	// ID), then we should get an error.
-	_, err = dave.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
-		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
-			ShimRegister: fundingShim,
-		},
-	})
-	if err == nil {
-		t.Fatalf("duplicate pending channel ID funding shim " +
-			"registration should trigger an error")
-	}
-
-	// We'll take the chan point shim we just registered for Dave (the
-	// responder), and swap the local/remote keys before we feed it in as
-	// Carol's funding shim as the initiator.
-	fundingShim.GetChanPointShim().LocalKey = &lnrpc.KeyDescriptor{
-		RawKeyBytes: carolFundingKey.RawKeyBytes,
-		KeyLoc: &lnrpc.KeyLocator{
-			KeyFamily: carolFundingKey.KeyLoc.KeyFamily,
-			KeyIndex:  carolFundingKey.KeyLoc.KeyIndex,
-		},
-	}
-	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
-
-	return fundingShim, chanPoint, txid
 }
 
 // testBatchChanFunding makes sure multiple channels can be opened in one batch

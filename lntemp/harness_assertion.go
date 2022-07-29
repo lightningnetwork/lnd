@@ -454,9 +454,15 @@ func (h *HarnessTest) AssertNumPendingForceClose(hn *node.HarnessNode,
 	return channels
 }
 
-// assertChannelCoopClosed asserts that the channel is properly cleaned up
-// after initiating a cooperative close.
-func (h *HarnessTest) assertChannelCoopClosed(hn *node.HarnessNode,
+// AssertStreamChannelCoopClosed reads an update from the close channel client
+// stream and asserts that the mempool state and node's topology match a coop
+// close. In specific,
+// - assert the channel is waiting close and has the expected ChanStatusFlags.
+// - assert the mempool has the closing txes and anchor sweeps.
+// - mine a block and assert the closing txid is mined.
+// - assert the node has zero waiting close channels.
+// - assert the node has seen the channel close update.
+func (h *HarnessTest) AssertStreamChannelCoopClosed(hn *node.HarnessNode,
 	cp *lnrpc.ChannelPoint, anchors bool,
 	stream rpc.CloseChanClient) *chainhash.Hash {
 

@@ -45,12 +45,12 @@ func testMultiHopHtlcClaims(ht *lntemp.HarnessTest) {
 			name: "local force close on-chain htlc timeout",
 			test: testMultiHopLocalForceCloseOnChainHtlcTimeout,
 		},
-		// {
-		// 	// bob: outgoing their commit watch and see timeout
-		// 	// carol: incoming our commit watch and see timeout
-		// 	name: "remote force close on-chain htlc timeout",
-		// 	test: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
-		// },
+		{
+			// bob: outgoing their commit watch and see timeout
+			// carol: incoming our commit watch and see timeout
+			name: "remote force close on-chain htlc timeout",
+			test: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
+		},
 		// {
 		// 	// bob: outgoing our commit watch and see, they sweep
 		// 	// on chain

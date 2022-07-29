@@ -7,23 +7,23 @@ import (
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 // wtclientCommands will return nil for non-wtclientrpc builds.
-func wtclientCommands() []cli.Command {
-	return []cli.Command{
+func wtclientCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:     "wtclient",
 			Usage:    "Interact with the watchtower client.",
 			Category: "Watchtower",
-			Subcommands: []cli.Command{
-				addTowerCommand,
-				removeTowerCommand,
-				listTowersCommand,
-				getTowerCommand,
-				statsCommand,
-				policyCommand,
+			Subcommands: []*cli.Command{
+				&addTowerCommand,
+				&removeTowerCommand,
+				&listTowersCommand,
+				&getTowerCommand,
+				&statsCommand,
+				&policyCommand,
 			},
 		},
 	}
@@ -146,7 +146,7 @@ var listTowersCommand = cli.Command{
 	Name:  "towers",
 	Usage: "Display information about all registered watchtowers.",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "include_sessions",
 			Usage: "include sessions with the watchtower in the " +
 				"response",
@@ -185,7 +185,7 @@ var getTowerCommand = cli.Command{
 	Usage:     "Display information about a specific registered watchtower.",
 	ArgsUsage: "pubkey",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "include_sessions",
 			Usage: "include sessions with the watchtower in the " +
 				"response",
@@ -260,12 +260,12 @@ var policyCommand = cli.Command{
 	Usage:  "Display the active watchtower client policy configuration.",
 	Action: actionDecorator(policy),
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "legacy",
 			Usage: "Retrieve the legacy tower client's current " +
 				"policy. (default)",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "anchor",
 			Usage: "Retrieve the anchor tower client's current policy.",
 		},

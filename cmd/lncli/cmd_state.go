@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 var getStateCommand = cli.Command{

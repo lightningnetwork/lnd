@@ -5,7 +5,7 @@ package main
 
 import (
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 func getAutopilotClient(ctx *cli.Context) (autopilotrpc.AutopilotClient, func()) {
@@ -100,7 +100,7 @@ var queryScoresCommand = cli.Command{
 	Description: "",
 	Action:      actionDecorator(queryScores),
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "ignorelocalstate, i",
 			Usage: "Ignore local channel state when calculating " +
 				"scores.",
@@ -113,16 +113,16 @@ func queryScores(ctx *cli.Context) error {
 	client, cleanUp := getAutopilotClient(ctx)
 	defer cleanUp()
 
-	args := ctx.Args()
+	argStrings := ctx.Args().Slice()
 	var pubs []string
 
 	// Keep reading pubkeys as long as there are arguments.
 loop:
 	for {
 		switch {
-		case args.Present():
-			pubs = append(pubs, args.First())
-			args = args.Tail()
+		case len(argStrings) > 0:
+			pubs = append(pubs, argStrings[0])
+			argStrings = argStrings[1:]
 		default:
 			break loop
 		}
@@ -144,18 +144,18 @@ loop:
 
 // autopilotCommands will return the set of commands to enable for autopilotrpc
 // builds.
-func autopilotCommands() []cli.Command {
-	return []cli.Command{
+func autopilotCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:        "autopilot",
 			Category:    "Autopilot",
 			Usage:       "Interact with a running autopilot.",
 			Description: "",
-			Subcommands: []cli.Command{
-				getStatusCommand,
-				enableCommand,
-				disableCommand,
-				queryScoresCommand,
+			Subcommands: []*cli.Command{
+				&getStatusCommand,
+				&enableCommand,
+				&disableCommand,
+				&queryScoresCommand,
 			},
 		},
 	}

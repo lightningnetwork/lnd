@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 var updateChanStatusCommand = cli.Command{
@@ -31,21 +31,21 @@ var updateChanStatusCommand = cli.Command{
 	a prior "disable" action, and will be a no-op otherwise.`,
 	ArgsUsage: "funding_txid [output_index] action",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "funding_txid",
 			Usage: "the txid of the channel's funding transaction",
 		},
-		cli.IntFlag{
+		&cli.IntFlag{
 			Name: "output_index",
 			Usage: "the output index for the funding output of " +
 				"the funding transaction",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "chan_point",
 			Usage: "the channel whose status should be updated. " +
 				"Takes the form of: txid:output_index",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "action",
 			Usage: `the action to take: must be one of "enable", ` +
 				`"disable", or "auto"`,

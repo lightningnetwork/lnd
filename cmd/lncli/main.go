@@ -20,7 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/tor"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 	"golang.org/x/term"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -116,8 +116,8 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	if !profile.NoMacaroons && !skipMacaroons {
 		// Find out which macaroon to load.
 		macName := profile.Macaroons.Default
-		if ctx.GlobalIsSet("macfromjar") {
-			macName = ctx.GlobalString("macfromjar")
+		if ctx.IsSet("macfromjar") {
+			macName = ctx.String("macfromjar")
 		}
 		var macEntry *macaroonEntry
 		for _, entry := range profile.Macaroons.Jar {
@@ -178,8 +178,8 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 
 	// If a socksproxy server is specified we use a tor dialer
 	// to connect to the grpc server.
-	if ctx.GlobalIsSet("socksproxy") {
-		socksProxy := ctx.GlobalString("socksproxy")
+	if ctx.IsSet("socksproxy") {
+		socksProxy := ctx.String("socksproxy")
 		torDialer := func(_ context.Context, addr string) (net.Conn, error) {
 			return tor.Dial(
 				addr, socksProxy, false, false,
@@ -210,14 +210,14 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 	// We'll start off by parsing the active chain and network. These are
 	// needed to determine the correct path to the macaroon when not
 	// specified.
-	chain := strings.ToLower(ctx.GlobalString("chain"))
+	chain := strings.ToLower(ctx.String("chain"))
 	switch chain {
 	case "bitcoin", "litecoin":
 	default:
 		return "", "", fmt.Errorf("unknown chain: %v", chain)
 	}
 
-	network := strings.ToLower(ctx.GlobalString("network"))
+	network := strings.ToLower(ctx.String("network"))
 	switch network {
 	case "mainnet", "testnet", "regtest", "simnet", "signet":
 	default:
@@ -228,13 +228,13 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 	// properly read the macaroons (if needed) and also the cert. This will
 	// either be the default, or will have been overwritten by the end
 	// user.
-	lndDir := lncfg.CleanAndExpandPath(ctx.GlobalString("lnddir"))
+	lndDir := lncfg.CleanAndExpandPath(ctx.String("lnddir"))
 
 	// If the macaroon path as been manually provided, then we'll only
 	// target the specified file.
 	var macPath string
-	if ctx.GlobalString("macaroonpath") != "" {
-		macPath = lncfg.CleanAndExpandPath(ctx.GlobalString("macaroonpath"))
+	if ctx.String("macaroonpath") != "" {
+		macPath = lncfg.CleanAndExpandPath(ctx.String("macaroonpath"))
 	} else {
 		// Otherwise, we'll go into the path:
 		// lnddir/data/chain/<chain>/<network> in order to fetch the
@@ -245,7 +245,7 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 		)
 	}
 
-	tlsCertPath := lncfg.CleanAndExpandPath(ctx.GlobalString("tlscertpath"))
+	tlsCertPath := lncfg.CleanAndExpandPath(ctx.String("tlscertpath"))
 
 	// If a custom lnd directory was set, we'll also check if custom paths
 	// for the TLS cert and macaroon file were set as well. If not, we'll
@@ -282,59 +282,59 @@ func main() {
 	app.Version = build.Version() + " commit=" + build.Commit
 	app.Usage = "control plane for your Lightning Network Daemon (lnd)"
 	app.Flags = []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "rpcserver",
 			Value: defaultRPCHostPort,
 			Usage: "The host:port of LN daemon.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:      "lnddir",
 			Value:     defaultLndDir,
 			Usage:     "The path to lnd's base directory.",
 			TakesFile: true,
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "socksproxy",
 			Usage: "The host:port of a SOCKS proxy through " +
 				"which all connections to the LN " +
 				"daemon will be established over.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:      "tlscertpath",
 			Value:     defaultTLSCertPath,
 			Usage:     "The path to lnd's TLS certificate.",
 			TakesFile: true,
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "chain, c",
 			Usage: "The chain lnd is running on, e.g. bitcoin.",
 			Value: "bitcoin",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "network, n",
 			Usage: "The network lnd is running on, e.g. mainnet, " +
 				"testnet, etc.",
 			Value: "mainnet",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "no-macaroons",
 			Usage: "Disable macaroon authentication.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:      "macaroonpath",
 			Usage:     "The path to macaroon file.",
 			TakesFile: true,
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:  "macaroontimeout",
 			Value: 60,
 			Usage: "Anti-replay macaroon validity time in seconds.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "macaroonip",
 			Usage: "If set, lock macaroon to specific IP address.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "profile, p",
 			Usage: "Instead of reading settings from command " +
 				"line parameters or using the default " +
@@ -343,77 +343,77 @@ func main() {
 				"set to an empty string to disable reading " +
 				"values from the profiles file.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "macfromjar",
 			Usage: "Use this macaroon from the profile's " +
 				"macaroon jar instead of the default one. " +
 				"Can only be used if profiles are defined.",
 		},
 	}
-	app.Commands = []cli.Command{
-		createCommand,
-		createWatchOnlyCommand,
-		unlockCommand,
-		changePasswordCommand,
-		newAddressCommand,
-		estimateFeeCommand,
-		sendManyCommand,
-		sendCoinsCommand,
-		listUnspentCommand,
-		connectCommand,
-		disconnectCommand,
-		openChannelCommand,
-		batchOpenChannelCommand,
-		closeChannelCommand,
-		closeAllChannelsCommand,
-		abandonChannelCommand,
-		listPeersCommand,
-		walletBalanceCommand,
-		channelBalanceCommand,
-		getInfoCommand,
-		getRecoveryInfoCommand,
-		pendingChannelsCommand,
-		sendPaymentCommand,
-		payInvoiceCommand,
-		sendToRouteCommand,
-		addInvoiceCommand,
-		lookupInvoiceCommand,
-		listInvoicesCommand,
-		listChannelsCommand,
-		closedChannelsCommand,
-		listPaymentsCommand,
-		describeGraphCommand,
-		getNodeMetricsCommand,
-		getChanInfoCommand,
-		getNodeInfoCommand,
-		queryRoutesCommand,
-		getNetworkInfoCommand,
-		debugLevelCommand,
-		decodePayReqCommand,
-		listChainTxnsCommand,
-		stopCommand,
-		signMessageCommand,
-		verifyMessageCommand,
-		feeReportCommand,
-		updateChannelPolicyCommand,
-		forwardingHistoryCommand,
-		exportChanBackupCommand,
-		verifyChanBackupCommand,
-		restoreChanBackupCommand,
-		bakeMacaroonCommand,
-		listMacaroonIDsCommand,
-		deleteMacaroonIDCommand,
-		listPermissionsCommand,
-		printMacaroonCommand,
-		constrainMacaroonCommand,
-		trackPaymentCommand,
-		versionCommand,
-		profileSubCommand,
-		getStateCommand,
-		deletePaymentsCommand,
-		sendCustomCommand,
-		subscribeCustomCommand,
-		fishCompletionCommand,
+	app.Commands = []*cli.Command{
+		&createCommand,
+		&createWatchOnlyCommand,
+		&unlockCommand,
+		&changePasswordCommand,
+		&newAddressCommand,
+		&estimateFeeCommand,
+		&sendManyCommand,
+		&sendCoinsCommand,
+		&listUnspentCommand,
+		&connectCommand,
+		&disconnectCommand,
+		&openChannelCommand,
+		&batchOpenChannelCommand,
+		&closeChannelCommand,
+		&closeAllChannelsCommand,
+		&abandonChannelCommand,
+		&listPeersCommand,
+		&walletBalanceCommand,
+		&channelBalanceCommand,
+		&getInfoCommand,
+		&getRecoveryInfoCommand,
+		&pendingChannelsCommand,
+		&sendPaymentCommand,
+		&payInvoiceCommand,
+		&sendToRouteCommand,
+		&addInvoiceCommand,
+		&lookupInvoiceCommand,
+		&listInvoicesCommand,
+		&listChannelsCommand,
+		&closedChannelsCommand,
+		&listPaymentsCommand,
+		&describeGraphCommand,
+		&getNodeMetricsCommand,
+		&getChanInfoCommand,
+		&getNodeInfoCommand,
+		&queryRoutesCommand,
+		&getNetworkInfoCommand,
+		&debugLevelCommand,
+		&decodePayReqCommand,
+		&listChainTxnsCommand,
+		&stopCommand,
+		&signMessageCommand,
+		&verifyMessageCommand,
+		&feeReportCommand,
+		&updateChannelPolicyCommand,
+		&forwardingHistoryCommand,
+		&exportChanBackupCommand,
+		&verifyChanBackupCommand,
+		&restoreChanBackupCommand,
+		&bakeMacaroonCommand,
+		&listMacaroonIDsCommand,
+		&deleteMacaroonIDCommand,
+		&listPermissionsCommand,
+		&printMacaroonCommand,
+		&constrainMacaroonCommand,
+		&trackPaymentCommand,
+		&versionCommand,
+		&profileSubCommand,
+		&getStateCommand,
+		&deletePaymentsCommand,
+		&sendCustomCommand,
+		&subscribeCustomCommand,
+		&fishCompletionCommand,
 	}
 
 	// Add any extra commands determined by build flags.

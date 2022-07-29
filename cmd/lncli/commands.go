@@ -23,7 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -87,7 +87,7 @@ func printRespJSON(resp proto.Message) {
 
 // actionDecorator is used to add additional information and error handling
 // to command actions.
-func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
+func actionDecorator(f func(ctx *cli.Context) error) func(*cli.Context) error {
 	return func(c *cli.Context) error {
 		if err := f(c); err != nil {
 			s, ok := status.FromError(err)
@@ -133,7 +133,7 @@ var newAddressCommand = cli.Command{
 	Usage:     "Generates a new address.",
 	ArgsUsage: "address-type",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "account",
 			Usage: "(optional) the name of the account to " +
 				"generate a new address for",
@@ -200,7 +200,7 @@ var estimateFeeCommand = cli.Command{
 	    '{"ExampleAddr": NumCoinsInSatoshis, "SecondAddr": NumCoins}'
 	`,
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "conf_target",
 			Usage: "(optional) the number of blocks that the transaction *should* " +
 				"confirm in",
@@ -252,47 +252,47 @@ var sendCoinsCommand = cli.Command{
 	Positional arguments and flags can be used interchangeably but not at the same time!
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "addr",
 			Usage: "the base58 or bech32 encoded bitcoin address to send coins " +
 				"to on-chain",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "sweepall",
 			Usage: "if set, then the amount field will be ignored, " +
 				"and the wallet will attempt to sweep all " +
 				"outputs within the wallet to the target " +
 				"address",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:  "amt",
 			Usage: "the number of bitcoin denominated in satoshis to send",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "conf_target",
 			Usage: "(optional) the number of blocks that the " +
 				"transaction *should* confirm in, will be " +
 				"used for fee estimation",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
 				"the transaction",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "min_confs",
 			Usage: "(optional) the minimum number of confirmations " +
 				"each one of your outputs used for the transaction " +
 				"must satisfy",
 			Value: defaultUtxoMinConf,
 		},
-		txLabelFlag,
+		&txLabelFlag,
 	},
 	Action: actionDecorator(sendCoins),
 }
@@ -304,7 +304,7 @@ func sendCoins(ctx *cli.Context) error {
 		err  error
 	)
 	ctxc := getContext()
-	args := ctx.Args()
+	argStrings := ctx.Args().Slice()
 
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
 		cli.ShowCommandHelp(ctx, "sendcoins")
@@ -330,9 +330,9 @@ func sendCoins(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("addr"):
 		addr = ctx.String("addr")
-	case args.Present():
-		addr = args.First()
-		args = args.Tail()
+	case len(argStrings) > 0:
+		addr = argStrings[0]
+		argStrings = argStrings[1:]
 	default:
 		return fmt.Errorf("Address argument missing")
 	}
@@ -340,8 +340,8 @@ func sendCoins(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("amt"):
 		amt = ctx.Int64("amt")
-	case args.Present():
-		amt, err = strconv.ParseInt(args.First(), 10, 64)
+	case len(argStrings) > 0:
+		amt, err = strconv.ParseInt(argStrings[0], 10, 64)
 	case !ctx.Bool("sweepall"):
 		return fmt.Errorf("Amount argument missing")
 	}
@@ -394,15 +394,15 @@ var listUnspentCommand = cli.Command{
 	not present.
 	`,
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:  "min_confs",
 			Usage: "the minimum number of confirmations for a utxo",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:  "max_confs",
 			Usage: "the maximum number of confirmations for a utxo",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "unconfirmed_only",
 			Usage: "when min_confs and max_confs are zero, " +
 				"setting false implicitly overrides max_confs " +
@@ -422,7 +422,7 @@ func listUnspent(ctx *cli.Context) error {
 		err         error
 	)
 	ctxc := getContext()
-	args := ctx.Args()
+	argStrings := ctx.Args().Slice()
 
 	if ctx.IsSet("max_confs") && !ctx.IsSet("min_confs") {
 		return fmt.Errorf("max_confs cannot be set without " +
@@ -432,25 +432,24 @@ func listUnspent(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("min_confs"):
 		minConfirms = ctx.Int64("min_confs")
-	case args.Present():
-		minConfirms, err = strconv.ParseInt(args.First(), 10, 64)
+	case len(argStrings) > 0:
+		minConfirms, err = strconv.ParseInt(argStrings[0], 10, 64)
 		if err != nil {
 			cli.ShowCommandHelp(ctx, "listunspent")
 			return nil
 		}
-		args = args.Tail()
+		argStrings = argStrings[1:]
 	}
 
 	switch {
 	case ctx.IsSet("max_confs"):
 		maxConfirms = ctx.Int64("max_confs")
-	case args.Present():
-		maxConfirms, err = strconv.ParseInt(args.First(), 10, 64)
+	case len(argStrings) > 0:
+		maxConfirms, err = strconv.ParseInt(argStrings[0], 10, 64)
 		if err != nil {
 			cli.ShowCommandHelp(ctx, "listunspent")
 			return nil
 		}
-		args = args.Tail()
 	}
 
 	unconfirmedOnly := ctx.Bool("unconfirmed_only")
@@ -512,30 +511,30 @@ var sendManyCommand = cli.Command{
 	    '{"ExampleAddr": NumCoinsInSatoshis, "SecondAddr": NumCoins}'
 	`,
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "conf_target",
 			Usage: "(optional) the number of blocks that the transaction *should* " +
 				"confirm in, will be used for fee estimation",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
 				"the transaction",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "min_confs",
 			Usage: "(optional) the minimum number of confirmations " +
 				"each one of your outputs used for the transaction " +
 				"must satisfy",
 			Value: defaultUtxoMinConf,
 		},
-		txLabelFlag,
+		&txLabelFlag,
 	},
 	Action: actionDecorator(sendMany),
 }
@@ -599,13 +598,13 @@ var connectCommand = cli.Command{
 	lncli connect <pubkey>@host --timeout 30s
 	`,
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "perm",
 			Usage: "If set, the daemon will attempt to persistently " +
 				"connect to the target peer.\n" +
 				"           If not, the call will be synchronous.",
 		},
-		cli.DurationFlag{
+		&cli.DurationFlag{
 			Name: "timeout",
 			Usage: "The connection timeout value for current request. " +
 				"Valid uints are {ms, s, m, h}.\n" +
@@ -653,7 +652,7 @@ var disconnectCommand = cli.Command{
 	Usage:     "Disconnect a remote lnd peer identified by public key.",
 	ArgsUsage: "<pubkey>",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "node_key",
 			Usage: "The hex-encoded compressed public key of the peer " +
 				"to disconnect from",
@@ -719,30 +718,30 @@ var closeChannelCommand = cli.Command{
 	The format for a channel_point is 'funding_txid:output_index'.`,
 	ArgsUsage: "funding_txid [output_index]",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "funding_txid",
 			Usage: "the txid of the channel's funding transaction",
 		},
-		cli.IntFlag{
+		&cli.IntFlag{
 			Name: "output_index",
 			Usage: "the output index for the funding output of the funding " +
 				"transaction",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "chan_point",
 			Usage: "(optional) the channel point. If set, " +
 				"funding_txid and output_index flags and " +
 				"positional arguments will be ignored",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "force",
 			Usage: "attempt an uncooperative closure",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "block",
 			Usage: "block until the channel is closed",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "conf_target",
 			Usage: "(optional) the number of blocks that the " +
 				"transaction *should* confirm in, will be " +
@@ -750,18 +749,18 @@ var closeChannelCommand = cli.Command{
 				"then the conf-target value set in the main " +
 				"lnd config will be used.",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
 				"the transaction",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "delivery_addr",
 			Usage: "(optional) an address to deliver funds " +
 				"upon cooperative channel closing, may only " +
@@ -902,27 +901,27 @@ var closeAllChannelsCommand = cli.Command{
 	--sat_per_vbyte arguments. This will be the starting value used during
 	fee negotiation. This is optional.`,
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "inactive_only",
 			Usage: "close inactive channels only",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "force",
 			Usage: "ask for confirmation once before attempting " +
 				"to close existing channels",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "conf_target",
 			Usage: "(optional) the number of blocks that the " +
 				"closing transactions *should* confirm in, will be " +
 				"used for fee estimation",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
@@ -1141,22 +1140,22 @@ var abandonChannelCommand = cli.Command{
 	The format for a channel_point is 'funding_txid:output_index'.`,
 	ArgsUsage: "funding_txid [output_index]",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "funding_txid",
 			Usage: "the txid of the channel's funding transaction",
 		},
-		cli.IntFlag{
+		&cli.IntFlag{
 			Name: "output_index",
 			Usage: "the output index for the funding output of the funding " +
 				"transaction",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "chan_point",
 			Usage: "(optional) the channel point. If set, " +
 				"funding_txid and output_index flags and " +
 				"positional arguments will be ignored",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "i_know_what_i_am_doing",
 			Usage: "override the requirement for lnd needing to " +
 				"be in dev/debug mode to use this command; " +
@@ -1206,7 +1205,7 @@ func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
 	channelPoint := &lnrpc.ChannelPoint{}
 	var err error
 
-	args := ctx.Args()
+	argStrings := ctx.Args().Slice()
 
 	switch {
 	case ctx.IsSet("chan_point"):
@@ -1221,11 +1220,11 @@ func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
 		channelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
 			FundingTxidStr: ctx.String("funding_txid"),
 		}
-	case args.Present():
+	case len(argStrings) > 0:
 		channelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
-			FundingTxidStr: args.First(),
+			FundingTxidStr: argStrings[0],
 		}
-		args = args.Tail()
+		argStrings = argStrings[1:]
 	default:
 		return nil, fmt.Errorf("funding txid argument missing")
 	}
@@ -1233,8 +1232,8 @@ func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
 	switch {
 	case ctx.IsSet("output_index"):
 		channelPoint.OutputIndex = uint32(ctx.Int("output_index"))
-	case args.Present():
-		index, err := strconv.ParseUint(args.First(), 10, 32)
+	case len(argStrings) > 0:
+		index, err := strconv.ParseUint(argStrings[0], 10, 32)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode output index: %v", err)
 		}
@@ -1251,7 +1250,7 @@ var listPeersCommand = cli.Command{
 	Category: "Peers",
 	Usage:    "List all active, currently connected peers.",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "list_errors",
 			Usage: "list a full set of most recent errors for the peer",
 		},
@@ -1393,23 +1392,23 @@ var listChannelsCommand = cli.Command{
 	Category: "Channels",
 	Usage:    "List all open channels.",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "active_only",
 			Usage: "only list channels which are currently active",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "inactive_only",
 			Usage: "only list channels which are currently inactive",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "public_only",
 			Usage: "only list channels which are currently public",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "private_only",
 			Usage: "only list channels which are currently private",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "peer",
 			Usage: "(optional) only display channels with a " +
 				"particular peer, accepts 66-byte, " +
@@ -1461,31 +1460,31 @@ var closedChannelsCommand = cli.Command{
 	Category: "Channels",
 	Usage:    "List all closed channels.",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "cooperative",
 			Usage: "list channels that were closed cooperatively",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "local_force",
 			Usage: "list channels that were force-closed " +
 				"by the local node",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "remote_force",
 			Usage: "list channels that were force-closed " +
 				"by the remote node",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "breach",
 			Usage: "list channels for which the remote node " +
 				"attempted to broadcast a prior " +
 				"revoked channel state",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "funding_canceled",
 			Usage: "list channels that were never fully opened",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "abandoned",
 			Usage: "list channels that were abandoned by " +
 				"the local node",
@@ -1525,7 +1524,7 @@ var describeGraphCommand = cli.Command{
 		"graph from the PoV of the node",
 	Usage: "Describe the network graph.",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "include_unannounced",
 			Usage: "If set, unannounced channels will be included in the " +
 				"graph. Unannounced channels are both private channels, and " +
@@ -1587,7 +1586,7 @@ var getChanInfoCommand = cli.Command{
 		"particular channel",
 	ArgsUsage: "chan_id",
 	Flags: []cli.Flag{
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name:  "chan_id",
 			Usage: "the 8-byte compact channel ID to query for",
 		},
@@ -1637,12 +1636,12 @@ var getNodeInfoCommand = cli.Command{
 	Description: "Prints out the latest authenticated node state for an " +
 		"advertised node",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "pub_key",
 			Usage: "the 33-byte hex-encoded compressed public of the target " +
 				"node",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "include_channels",
 			Usage: "if true, will return all known channels " +
 				"associated with the node",
@@ -1716,11 +1715,11 @@ var debugLevelCommand = cli.Command{
 
 	Use show to list available subsystems`,
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "show",
 			Usage: "if true, then the list of available sub-systems will be printed out",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "level",
 			Usage: "the level specification to target either a coarse logging level, or granular set of specific sub-systems with logging levels for each",
 		},
@@ -1751,12 +1750,12 @@ var listChainTxnsCommand = cli.Command{
 	Category: "On-chain",
 	Usage:    "List transactions from the wallet.",
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "start_height",
 			Usage: "the block height from which to list " +
 				"transactions, inclusive",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "end_height",
 			Usage: "the block height until which to list " +
 				"transactions, inclusive, to get transactions " +
@@ -1836,7 +1835,7 @@ var signMessageCommand = cli.Command{
 
 	Positional arguments and flags can be used interchangeably but not at the same time!`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "msg",
 			Usage: "the message to sign",
 		},
@@ -1881,11 +1880,11 @@ var verifyMessageCommand = cli.Command{
 
 	Positional arguments and flags can be used interchangeably but not at the same time!`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "msg",
 			Usage: "the message to verify",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "sig",
 			Usage: "the zbase32 encoded signature of the message",
 		},
@@ -1903,14 +1902,14 @@ func verifyMessage(ctx *cli.Context) error {
 		sig string
 	)
 
-	args := ctx.Args()
+	argStrings := ctx.Args().Slice()
 
 	switch {
 	case ctx.IsSet("msg"):
 		msg = []byte(ctx.String("msg"))
-	case args.Present():
+	case len(argStrings) > 0:
 		msg = []byte(ctx.Args().First())
-		args = args.Tail()
+		argStrings = argStrings[1:]
 	default:
 		return fmt.Errorf("msg argument missing")
 	}
@@ -1918,8 +1917,8 @@ func verifyMessage(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("sig"):
 		sig = ctx.String("sig")
-	case args.Present():
-		sig = args.First()
+	case len(argStrings) > 0:
+		sig = argStrings[0]
 	default:
 		return fmt.Errorf("signature argument missing")
 	}
@@ -1972,13 +1971,13 @@ var updateChannelPolicyCommand = cli.Command{
 	broadcast to the rest of the network within the next batch.
 	Channel points are encoded as: funding_txid:output_index`,
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "base_fee_msat",
 			Usage: "the base fee in milli-satoshis that will " +
 				"be charged for each forwarded HTLC, regardless " +
 				"of payment size",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "fee_rate",
 			Usage: "the fee rate that will be charged " +
 				"proportionally based on the value of each " +
@@ -1986,7 +1985,7 @@ var updateChannelPolicyCommand = cli.Command{
 				"with a granularity of 0.000001 (millionths). Can not " +
 				"be set at the same time as fee_rate_ppm.",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "fee_rate_ppm",
 			Usage: "the fee rate ppm (parts per million) that " +
 				"will be charged proportionally based on the value of each " +
@@ -1994,24 +1993,24 @@ var updateChannelPolicyCommand = cli.Command{
 				"with a granularity of 0.000001 (millionths). Can not " +
 				"be set at the same time as fee_rate.",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "time_lock_delta",
 			Usage: "the CLTV delta that will be applied to all " +
 				"forwarded HTLCs",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "min_htlc_msat",
 			Usage: "if set, the min HTLC size that will be applied " +
 				"to all forwarded HTLCs. If unset, the min HTLC " +
 				"is left unchanged.",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "max_htlc_msat",
 			Usage: "if set, the max HTLC size that will be applied " +
 				"to all forwarded HTLCs. If unset, the max HTLC " +
 				"is left unchanged.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "chan_point",
 			Usage: "The channel whose fee policy should be " +
 				"updated, if nil the policies for all channels " +
@@ -2057,17 +2056,17 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		timeLockDelta int64
 		err           error
 	)
-	args := ctx.Args()
+	argStrings := ctx.Args().Slice()
 
 	switch {
 	case ctx.IsSet("base_fee_msat"):
 		baseFee = ctx.Int64("base_fee_msat")
-	case args.Present():
-		baseFee, err = strconv.ParseInt(args.First(), 10, 64)
+	case len(argStrings) > 0:
+		baseFee, err = strconv.ParseInt(argStrings[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode base_fee_msat: %v", err)
 		}
-		args = args.Tail()
+		argStrings = argStrings[1:]
 	default:
 		return fmt.Errorf("base_fee_msat argument missing")
 	}
@@ -2079,13 +2078,13 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		feeRate = ctx.Float64("fee_rate")
 	case ctx.IsSet("fee_rate_ppm"):
 		feeRatePpm = ctx.Uint64("fee_rate_ppm")
-	case args.Present():
-		feeRate, err = strconv.ParseFloat(args.First(), 64)
+	case len(argStrings) > 0:
+		feeRate, err = strconv.ParseFloat(argStrings[0], 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode fee_rate: %v", err)
 		}
 
-		args = args.Tail()
+		argStrings = argStrings[1:]
 	default:
 		return fmt.Errorf("fee_rate or fee_rate_ppm argument missing")
 	}
@@ -2093,14 +2092,14 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("time_lock_delta"):
 		timeLockDelta = ctx.Int64("time_lock_delta")
-	case args.Present():
-		timeLockDelta, err = strconv.ParseInt(args.First(), 10, 64)
+	case len(argStrings) > 0:
+		timeLockDelta, err = strconv.ParseInt(argStrings[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode time_lock_delta: %v",
 				err)
 		}
 
-		args = args.Tail()
+		argStrings = argStrings[1:]
 	default:
 		return fmt.Errorf("time_lock_delta argument missing")
 	}
@@ -2113,8 +2112,8 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("chan_point"):
 		chanPointStr = ctx.String("chan_point")
-	case args.Present():
-		chanPointStr = args.First()
+	case len(argStrings) > 0:
+		chanPointStr = argStrings[0]
 	}
 
 	if chanPointStr != "" {
@@ -2222,16 +2221,16 @@ var exportChanBackupCommand = cli.Command{
 	command.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "chan_point",
 			Usage: "the target channel to obtain an SCB for",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "all",
 			Usage: "if specified, then a multi backup of all " +
 				"active channels will be returned",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "output_file",
 			Usage: `
 			if specified, then rather than printing a JSON output
@@ -2371,17 +2370,17 @@ var verifyChanBackupCommand = cli.Command{
 	 file.
     `,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "single_backup",
 			Usage: "a hex encoded single channel backup obtained " +
 				"from exportchanbackup",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "multi_backup",
 			Usage: "a hex encoded multi-channel backup obtained " +
 				"from exportchanbackup",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:      "multi_file",
 			Usage:     "the path to a multi-channel back up file",
 			TakesFile: true,
@@ -2454,17 +2453,17 @@ var restoreChanBackupCommand = cli.Command{
 	     file.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "single_backup",
 			Usage: "a hex encoded single channel backup obtained " +
 				"from exportchanbackup",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "multi_backup",
 			Usage: "a hex encoded multi-channel backup obtained " +
 				"from exportchanbackup",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:      "multi_file",
 			Usage:     "the path to a multi-channel back up file",
 			TakesFile: true,

@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -312,13 +313,20 @@ func assertTxInBlock(t *harnessTest, block *wire.MsgBlock, txid *chainhash.Hash)
 	t.Fatalf("tx was not included in block")
 }
 
-func assertWalletUnspent(t *harnessTest, node *lntest.HarnessNode, out *lnrpc.OutPoint) {
+func assertWalletUnspent(t *harnessTest, node *lntest.HarnessNode,
+	out *lnrpc.OutPoint, account string) {
+
 	t.t.Helper()
 
+	ctxb := context.Background()
 	err := wait.NoError(func() error {
-		ctxt, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 		defer cancel()
-		unspent, err := node.ListUnspent(ctxt, &lnrpc.ListUnspentRequest{})
+		unspent, err := node.WalletKitClient.ListUnspent(
+			ctxt, &walletrpc.ListUnspentRequest{
+				Account: account,
+			},
+		)
 		if err != nil {
 			return err
 		}
@@ -339,8 +347,5 @@ func assertWalletUnspent(t *harnessTest, node *lntest.HarnessNode, out *lnrpc.Ou
 
 		return err
 	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("outpoint %s not unspent by %s's wallet: %v", out,
-			node.Name(), err)
-	}
+	require.NoError(t.t, err)
 }

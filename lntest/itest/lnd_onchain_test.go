@@ -99,7 +99,7 @@ func runCPFP(net *lntest.NetworkHarness, t *harnessTest,
 		TxidBytes:   txid[:],
 		OutputIndex: uint32(bobOutputIdx),
 	}
-	assertWalletUnspent(t, bob, op)
+	assertWalletUnspent(t, bob, op, "")
 
 	// We'll attempt to bump the fee of this transaction by performing a
 	// CPFP from Alice's point of view.

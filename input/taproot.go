@@ -126,3 +126,12 @@ func TapscriptRootHashOnly(internalKey *btcec.PublicKey,
 		RootHash:     rootHash,
 	}
 }
+
+// TapscriptFullKeyOnly creates a waddrmgr.Tapscript for the given full Taproot
+// key.
+func TapscriptFullKeyOnly(taprootKey *btcec.PublicKey) *waddrmgr.Tapscript {
+	return &waddrmgr.Tapscript{
+		Type:          waddrmgr.TaprootFullKeyOnly,
+		FullOutputKey: taprootKey,
+	}
+}

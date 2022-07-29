@@ -105,3 +105,24 @@ func TapscriptPartialReveal(internalKey *btcec.PublicKey,
 		RevealedScript: revealedLeaf.Script,
 	}
 }
+
+// TapscriptRootHashOnly creates a waddrmgr.Tapscript for the given internal key
+// and root hash.
+func TapscriptRootHashOnly(internalKey *btcec.PublicKey,
+	rootHash []byte) *waddrmgr.Tapscript {
+
+	controlBlock := &txscript.ControlBlock{
+		InternalKey: internalKey,
+	}
+
+	tapKey := txscript.ComputeTaprootOutputKey(internalKey, rootHash)
+	if tapKey.SerializeCompressed()[0] == PubKeyFormatCompressedOdd {
+		controlBlock.OutputKeyYIsOdd = true
+	}
+
+	return &waddrmgr.Tapscript{
+		Type:         waddrmgr.TaprootKeySpendRootHash,
+		ControlBlock: controlBlock,
+		RootHash:     rootHash,
+	}
+}

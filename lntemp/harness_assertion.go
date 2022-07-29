@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -1038,4 +1039,228 @@ func (h *HarnessTest) AssertActiveHtlcs(hn *node.HarnessNode,
 		return nil
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout checking active HTLCs")
+}
+
+// ReceiveSingleInvoice waits until a message is received on the subscribe
+// single invoice stream or the timeout is reached.
+func (h *HarnessTest) ReceiveSingleInvoice(
+	stream rpc.SingleInvoiceClient) *lnrpc.Invoice {
+
+	chanMsg := make(chan *lnrpc.Invoice, 1)
+	errChan := make(chan error, 1)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout receiving single invoice")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}
+
+// AssertInvoiceState takes a single invoice subscription stream and asserts
+// that a given invoice has became the desired state before timeout and returns
+// the invoice found.
+func (h *HarnessTest) AssertInvoiceState(stream rpc.SingleInvoiceClient,
+	state lnrpc.Invoice_InvoiceState) *lnrpc.Invoice {
+
+	var invoice *lnrpc.Invoice
+
+	err := wait.NoError(func() error {
+		invoice = h.ReceiveSingleInvoice(stream)
+		if invoice.State == state {
+			return nil
+		}
+
+		return fmt.Errorf("mismatched invoice state, want %v, got %v",
+			state, invoice.State)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout waiting for invoice state: %v", state)
+
+	return invoice
+}
+
+// assertAllTxesSpendFrom asserts that all txes in the list spend from the
+// given tx.
+func (h *HarnessTest) AssertAllTxesSpendFrom(txes []*wire.MsgTx,
+	prevTxid chainhash.Hash) {
+
+	for _, tx := range txes {
+		if tx.TxIn[0].PreviousOutPoint.Hash != prevTxid {
+			require.Failf(h, "", "tx %v did not spend from %v",
+				tx.TxHash(), prevTxid)
+		}
+	}
+}
+
+// AssertTxSpendFrom asserts that a given tx is spent from a previous tx.
+// tx.
+func (h *HarnessTest) AssertTxSpendFrom(tx *wire.MsgTx,
+	prevTxid chainhash.Hash) {
+
+	if tx.TxIn[0].PreviousOutPoint.Hash != prevTxid {
+		require.Failf(h, "", "tx %v did not spend from %v",
+			tx.TxHash(), prevTxid)
+	}
+}
+
+type PendingForceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel
+
+// AssertChannelPendingForceClose asserts that the given channel found in the
+// node is pending force close. Returns the PendingForceClose if found.
+func (h *HarnessTest) AssertChannelPendingForceClose(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) PendingForceClose {
+
+	var target PendingForceClose
+
+	op := h.OutPointFromChannelPoint(chanPoint)
+
+	err := wait.NoError(func() error {
+		resp := hn.RPC.PendingChannels()
+
+		forceCloseChans := resp.PendingForceClosingChannels
+		for _, ch := range forceCloseChans {
+			if ch.Channel.ChannelPoint == op.String() {
+				target = ch
+
+				return nil
+			}
+		}
+
+		return fmt.Errorf("%v: channel %s not found in pending "+
+			"force close", hn.Name(), chanPoint)
+	}, DefaultTimeout)
+	require.NoError(h, err, "assert pending force close timed out")
+
+	return target
+}
+
+// AssertNumHTLCsAndStage takes a pending force close channel's channel point
+// and asserts the expected number of pending HTLCs and HTLC stage are matched.
+func (h *HarnessTest) AssertNumHTLCsAndStage(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint, num int, stage uint32) {
+
+	// Get the channel output point.
+	cp := h.OutPointFromChannelPoint(chanPoint)
+
+	var target PendingForceClose
+	checkStage := func() error {
+		resp := hn.RPC.PendingChannels()
+		if len(resp.PendingForceClosingChannels) == 0 {
+			return fmt.Errorf("zero pending force closing channels")
+		}
+
+		for _, ch := range resp.PendingForceClosingChannels {
+			if ch.Channel.ChannelPoint == cp.String() {
+				target = ch
+
+				break
+			}
+		}
+
+		if target == nil {
+			return fmt.Errorf("cannot find pending force closing "+
+				"channel using %v", cp)
+		}
+
+		if target.LimboBalance == 0 {
+			return fmt.Errorf("zero limbo balance")
+		}
+
+		if len(target.PendingHtlcs) != num {
+			return fmt.Errorf("got %d pending htlcs, want %d",
+				len(target.PendingHtlcs), num)
+		}
+
+		for i, htlc := range target.PendingHtlcs {
+			if htlc.Stage == stage {
+				continue
+			}
+
+			return fmt.Errorf("HTLC %d got stage: %v, "+
+				"want stage: %v", i, htlc.Stage, stage)
+		}
+
+		return nil
+	}
+
+	require.NoErrorf(h, wait.NoError(checkStage, DefaultTimeout),
+		"timeout waiting for htlc stage")
+}
+
+// findPayment queries the payment from the node's ListPayments which matches
+// the specified preimage hash.
+func (h *HarnessTest) findPayment(hn *node.HarnessNode,
+	preimage lntypes.Preimage) *lnrpc.Payment {
+
+	req := &lnrpc.ListPaymentsRequest{IncludeIncomplete: true}
+	paymentsResp := hn.RPC.ListPayments(req)
+
+	payHash := preimage.Hash()
+	for _, p := range paymentsResp.Payments {
+		if p.PaymentHash != payHash.String() {
+			continue
+		}
+
+		return p
+	}
+
+	require.Fail(h, "payment: %v not found", payHash)
+
+	return nil
+}
+
+// AssertPaymentStatus asserts that the given node list a payment with the
+// given preimage has the expected status. It also checks that the payment has
+// the expected preimage, which is empty when it's not settled and matches the
+// given preimage when it's succeeded.
+func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
+	preimage lntypes.Preimage,
+	status lnrpc.Payment_PaymentStatus) *lnrpc.Payment {
+
+	var target *lnrpc.Payment
+
+	err := wait.NoError(func() error {
+		p := h.findPayment(hn, preimage)
+		if status == p.Status {
+			target = p
+			return nil
+		}
+
+		return fmt.Errorf("payment: %v status not match, want %s "+
+			"got %s", preimage, status, p.Status)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking payment status")
+
+	switch status {
+	// If this expected status is SUCCEEDED, we expect the final
+	// preimage.
+	case lnrpc.Payment_SUCCEEDED:
+		require.Equal(h, preimage.String(), target.PaymentPreimage,
+			"preimage not match")
+
+	// Otherwise we expect an all-zero preimage.
+	default:
+		require.Equal(h, (lntypes.Preimage{}).String(),
+			target.PaymentPreimage, "expected zero preimage")
+	}
+
+	return target
 }

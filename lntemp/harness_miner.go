@@ -361,3 +361,17 @@ func (h *HarnessMiner) AssertOutpointInMempool(op wire.OutPoint) *wire.MsgTx {
 
 	return msgTx
 }
+
+// GetNumTxsFromMempool polls until finding the desired number of transactions
+// in the miner's mempool and returns the full transactions to the caller.
+func (h *HarnessMiner) GetNumTxsFromMempool(n int) []*wire.MsgTx {
+	txids := h.AssertNumTxsInMempool(n)
+
+	var txes []*wire.MsgTx
+	for _, txid := range txids {
+		tx := h.GetRawTransaction(txid)
+		txes = append(txes, tx.MsgTx())
+	}
+
+	return txes
+}

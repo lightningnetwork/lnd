@@ -671,9 +671,15 @@ type OpenChannelParams struct {
 // destNode with the passed channel funding parameters. Once the `OpenChannel`
 // is called, it will consume the first event it receives from the open channel
 // client and asserts it's a channel pending event.
-func (h *HarnessTest) OpenChannelAssertPending(
-	srcNode, destNode *node.HarnessNode,
-	p OpenChannelParams) rpc.OpenChanClient {
+func (h *HarnessTest) OpenChannelAssertPending(srcNode,
+	destNode *node.HarnessNode, p OpenChannelParams) rpc.OpenChanClient {
+
+	// Wait until srcNode and destNode have the latest chain synced.
+	// Otherwise, we may run into a check within the funding manager that
+	// prevents any funding workflows from being kicked off if the chain
+	// isn't yet synced.
+	h.WaitForBlockchainSync(srcNode)
+	h.WaitForBlockchainSync(destNode)
 
 	// Specify the minimal confirmations of the UTXOs used for channel
 	// funding.
@@ -721,13 +727,6 @@ func (h *HarnessTest) OpenChannelAssertPending(
 //   - both nodes can report the status of the new channel from ListChannels.
 func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
 	p OpenChannelParams) *lnrpc.ChannelPoint {
-
-	// Wait until srcNode and destNode have the latest chain synced.
-	// Otherwise, we may run into a check within the funding manager that
-	// prevents any funding workflows from being kicked off if the chain
-	// isn't yet synced.
-	h.WaitForBlockchainSync(alice)
-	h.WaitForBlockchainSync(bob)
 
 	chanOpenUpdate := h.OpenChannelAssertPending(alice, bob, p)
 

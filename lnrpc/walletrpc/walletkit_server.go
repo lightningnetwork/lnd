@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -1639,7 +1640,7 @@ func parseAddrType(addrType AddressType,
 // distinction between the standard BIP-0049 address schema (nested witness
 // pubkeys everywhere) and our own BIP-0049Plus address schema (nested pubkeys
 // externally, witness pubkeys internally).
-func (w *WalletKit) ImportAccount(ctx context.Context,
+func (w *WalletKit) ImportAccount(_ context.Context,
 	req *ImportAccountRequest) (*ImportAccountResponse, error) {
 
 	accountPubKey, err := hdkeychain.NewKeyFromString(req.ExtendedPublicKey)
@@ -1699,13 +1700,24 @@ func (w *WalletKit) ImportAccount(ctx context.Context,
 // of legacy versions (xpub, tpub), an address type must be specified as we
 // intend to not support importing BIP-44 keys into the wallet using the legacy
 // pay-to-pubkey-hash (P2PKH) scheme.
-func (w *WalletKit) ImportPublicKey(ctx context.Context,
+func (w *WalletKit) ImportPublicKey(_ context.Context,
 	req *ImportPublicKeyRequest) (*ImportPublicKeyResponse, error) {
 
-	pubKey, err := btcec.ParsePubKey(req.PublicKey)
+	var (
+		pubKey *btcec.PublicKey
+		err    error
+	)
+	switch req.AddressType {
+	case AddressType_TAPROOT_PUBKEY:
+		pubKey, err = schnorr.ParsePubKey(req.PublicKey)
+
+	default:
+		pubKey, err = btcec.ParsePubKey(req.PublicKey)
+	}
 	if err != nil {
 		return nil, err
 	}
+
 	addrType, err := parseAddrType(req.AddressType, true)
 	if err != nil {
 		return nil, err

@@ -111,11 +111,11 @@ func (s *Stream) Encode(w io.Writer) error {
 	return nil
 }
 
-// Decode deserializes TLV Stream from the passed io.Reader. The Stream will
-// inspect each record that is parsed and check to see if it has a corresponding
-// Record to facilitate deserialization of that field. If the record is unknown,
-// the Stream will discard the record's bytes and proceed to the subsequent
-// record.
+// Decode deserializes TLV Stream from the passed io.Reader for non-P2P
+// settings. The Stream will inspect each record that is parsed and check to
+// see if it has a corresponding Record to facilitate deserialization of that
+// field. If the record is unknown, the Stream will discard the record's bytes
+// and proceed to the subsequent record.
 //
 // Each record has the following format:
 //
@@ -137,7 +137,14 @@ func (s *Stream) Encode(w io.Writer) error {
 // the last record was read cleanly and we should stop parsing. All other io.EOF
 // or io.ErrUnexpectedEOF errors are returned.
 func (s *Stream) Decode(r io.Reader) error {
-	_, err := s.decode(r, nil)
+	_, err := s.decode(r, nil, false)
+	return err
+}
+
+// DecodeP2P is identical to Decode except that the maximum record size is
+// capped at 65535.
+func (s *Stream) DecodeP2P(r io.Reader) error {
+	_, err := s.decode(r, nil, true)
 	return err
 }
 
@@ -145,13 +152,23 @@ func (s *Stream) Decode(r io.Reader) error {
 // TypeMap containing the types of all records that were decoded or ignored from
 // the stream.
 func (s *Stream) DecodeWithParsedTypes(r io.Reader) (TypeMap, error) {
-	return s.decode(r, make(TypeMap))
+	return s.decode(r, make(TypeMap), false)
+}
+
+// DecodeWithParsedTypesP2P is identical to DecodeWithParsedTypes except that
+// the record size is capped at 65535. This should only be called from a p2p
+// setting where untrusted input is being deserialized.
+func (s *Stream) DecodeWithParsedTypesP2P(r io.Reader) (TypeMap, error) {
+	return s.decode(r, make(TypeMap), true)
 }
 
 // decode is a helper function that performs the basis of stream decoding. If
 // the caller needs the set of parsed types, it must provide an initialized
-// parsedTypes, otherwise the returned TypeMap will be nil.
-func (s *Stream) decode(r io.Reader, parsedTypes TypeMap) (TypeMap, error) {
+// parsedTypes, otherwise the returned TypeMap will be nil. If the p2p bool is
+// true, then the record size is capped at 65535. Otherwise, it is not capped.
+func (s *Stream) decode(r io.Reader, parsedTypes TypeMap, p2p bool) (TypeMap,
+	error) {
+
 	var (
 		typ       Type
 		min       Type
@@ -204,8 +221,8 @@ func (s *Stream) decode(r io.Reader, parsedTypes TypeMap) (TypeMap, error) {
 		// Place a soft limit on the size of a sane record, which
 		// prevents malicious encoders from causing us to allocate an
 		// unbounded amount of memory when decoding variable-sized
-		// fields.
-		if length > MaxRecordSize {
+		// fields. This is only checked when the p2p bool is true.
+		if p2p && length > MaxRecordSize {
 			return nil, ErrRecordTooLarge
 		}
 

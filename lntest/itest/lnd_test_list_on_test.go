@@ -439,4 +439,8 @@ var allTestCases = []*testCase{
 		name: "taproot coop close",
 		test: testTaprootCoopClose,
 	},
+	{
+		name: "trackpayments",
+		test: testTrackPayments,
+	},
 }

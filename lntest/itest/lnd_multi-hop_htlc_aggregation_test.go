@@ -23,8 +23,6 @@ import (
 func testMultiHopHtlcAggregation(ht *lntemp.HarnessTest,
 	alice, bob *node.HarnessNode, c lnrpc.CommitmentType, zeroConf bool) {
 
-	const finalCltvDelta = 40
-
 	// First, we'll create a three hop network: Alice -> Bob -> Carol.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
 		ht, alice, bob, false, c, zeroConf,

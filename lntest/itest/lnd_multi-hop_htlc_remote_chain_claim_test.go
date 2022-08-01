@@ -36,7 +36,7 @@ func testMultiHopHtlcRemoteChainClaim(ht *lntemp.HarnessTest,
 	payHash := preimage.Hash()
 	invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 		Value:      invoiceAmt,
-		CltvExpiry: 40,
+		CltvExpiry: finalCltvDelta,
 		Hash:       payHash[:],
 	}
 	carolInvoice := carol.RPC.AddHoldInvoice(invoiceReq)

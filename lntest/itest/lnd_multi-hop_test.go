@@ -15,6 +15,12 @@ import (
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/routing"
+)
+
+const (
+	finalCltvDelta  = routing.MinCLTVDelta // 18.
+	thawHeightDelta = finalCltvDelta * 2   // 36.
 )
 
 func testMultiHopHtlcClaims(ht *lntemp.HarnessTest) {
@@ -280,9 +286,12 @@ func createThreeHopNetwork(ht *lntemp.HarnessTest,
 	// needs to be attached as an additional input. This can still lead to
 	// a positively-yielding transaction.
 	for i := 0; i < 2; i++ {
-		ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
-		ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
-		ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, alice)
+		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, bob)
+		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, carol)
+
+		// Mine 1 block to get the above coins confirmed.
+		ht.MineBlocksAssertNodesSync(1)
 	}
 
 	// We'll start the test by creating a channel between Alice and Bob,
@@ -292,7 +301,7 @@ func createThreeHopNetwork(ht *lntemp.HarnessTest,
 	var thawHeight uint32
 	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
 		_, minerHeight := ht.Miner.GetBestBlock()
-		thawHeight = uint32(minerHeight + 144)
+		thawHeight = uint32(minerHeight + thawHeightDelta)
 		aliceFundingShim, _, _ = deriveFundingShim(
 			ht, alice, bob, chanAmt, thawHeight, true,
 		)

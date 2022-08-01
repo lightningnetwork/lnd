@@ -30,9 +30,8 @@ func testMultiHopHtlcLocalTimeout(ht *lntemp.HarnessTest,
 	// to Carol. The first HTLC will be universally considered "dust",
 	// while the second will be a proper fully valued HTLC.
 	const (
-		dustHtlcAmt    = btcutil.Amount(100)
-		htlcAmt        = btcutil.Amount(300_000)
-		finalCltvDelta = 40
+		dustHtlcAmt = btcutil.Amount(100)
+		htlcAmt     = btcutil.Amount(300_000)
 	)
 
 	// We'll create two random payment hashes unknown to carol, then send

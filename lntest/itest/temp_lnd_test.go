@@ -127,10 +127,6 @@ func TestLightningNetworkDaemonTemp(t *testing.T) {
 			break
 		}
 	}
-
-	_, height := harnessTest.Miner.GetBestBlock()
-	t.Logf("=========> tests finished for tranche: %v, tested %d "+
-		"cases, end height: %d\n", trancheIndex, len(testCases), height)
 }
 
 // getTestCaseSplitTranche returns the sub slice of the test cases that should

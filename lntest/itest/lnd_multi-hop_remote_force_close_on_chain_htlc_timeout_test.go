@@ -30,10 +30,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest,
 	// With our channels set up, we'll then send a single HTLC from Alice
 	// to Carol. As Carol is in hodl mode, she won't settle this HTLC which
 	// opens up the base for out tests.
-	const (
-		finalCltvDelta = 40
-		htlcAmt        = btcutil.Amount(30000)
-	)
+	const htlcAmt = btcutil.Amount(30000)
 
 	// We'll now send a single HTLC across our multi-hop network.
 	var preimage lntypes.Preimage
@@ -41,7 +38,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest,
 	payHash := preimage.Hash()
 	invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 		Value:      int64(htlcAmt),
-		CltvExpiry: 40,
+		CltvExpiry: finalCltvDelta,
 		Hash:       payHash[:],
 	}
 	carolInvoice := carol.RPC.AddHoldInvoice(invoiceReq)

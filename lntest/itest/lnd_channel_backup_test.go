@@ -990,7 +990,7 @@ func testChanRestoreScenario(ht *lntemp.HarnessTest,
 		var fundingShim *lnrpc.FundingShim
 		if testCase.commitmentType == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
 			_, minerHeight := ht.Miner.GetBestBlock()
-			thawHeight := uint32(minerHeight + 144)
+			thawHeight := uint32(minerHeight + thawHeightDelta)
 
 			fundingShim, _, _ = deriveFundingShim(
 				ht, from, to, chanAmt, thawHeight, true,
@@ -1512,7 +1512,7 @@ func assertTimeLockSwept(ht *lntemp.HarnessTest,
 	// The commit sweep resolver publishes the sweep tx at defaultCSV-1 and
 	// we already mined one block after the commitment was published, so
 	// take that into account.
-	ht.Miner.MineBlocks(defaultCSV - 1 - 1)
+	ht.MineBlocksAssertNodesSync(defaultCSV - 1 - 1)
 	daveSweep := ht.Miner.AssertNumTxsInMempool(1)[0]
 	block := ht.Miner.MineBlocksAndAssertNumTxes(1, 1)[0]
 	ht.Miner.AssertTxInBlock(block, daveSweep)

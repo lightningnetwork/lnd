@@ -28,10 +28,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest,
 	// With our channels set up, we'll then send a single HTLC from Alice
 	// to Carol. As Carol is in hodl mode, she won't settle this HTLC which
 	// opens up the base for out tests.
-	const (
-		finalCltvDelta = 40
-		htlcAmt        = btcutil.Amount(300_000)
-	)
+	const htlcAmt = btcutil.Amount(300_000)
 
 	// We'll now send a single HTLC across our multi-hop network.
 	carolPubKey := carol.PubKey[:]

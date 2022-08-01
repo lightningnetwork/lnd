@@ -292,10 +292,22 @@ func (h *HarnessTest) Subtest(t *testing.T) (*HarnessTest, func()) {
 	// Inherit context from the main test.
 	st.runCtx, st.cancel = context.WithCancel(h.runCtx)
 
+	// Inherit the subtest for the miner.
+	st.Miner.T = st.T
+
 	// Reset the standby nodes.
 	st.resetStandbyNodes(t)
 
+	// Record block height.
+	_, startHeight := h.Miner.GetBestBlock()
+
 	cleanup := func() {
+		_, endHeight := h.Miner.GetBestBlock()
+
+		st.Logf("finished test: %s, start height=%d, end height=%d, "+
+			"mined blocks=%d", st.manager.currentTestCase,
+			startHeight, endHeight, endHeight-startHeight)
+
 		// Don't bother run the cleanups if the test is failed.
 		if st.Failed() {
 			st.Log("test failed, skipped cleanup")
@@ -920,10 +932,10 @@ func (h *HarnessTest) fundCoins(amt btcutil.Amount, target *node.HarnessNode,
 		return
 	}
 
-	// Otherwise, we'll generate 2 new blocks to ensure the output gains a
+	// Otherwise, we'll generate 1 new blocks to ensure the output gains a
 	// sufficient number of confirmations and wait for the balance to
 	// reflect what's expected.
-	h.Miner.MineBlocks(2)
+	h.Miner.MineBlocks(1)
 
 	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
 	h.WaitForBalanceConfirmed(target, expectedBalance)
@@ -934,6 +946,15 @@ func (h *HarnessTest) fundCoins(amt btcutil.Amount, target *node.HarnessNode,
 // order to confirm the transaction.
 func (h *HarnessTest) FundCoins(amt btcutil.Amount, hn *node.HarnessNode) {
 	h.fundCoins(amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, true)
+}
+
+// FundCoinsUnconfirmed attempts to send amt satoshis from the internal mining
+// node to the targeted lightning node using a P2WKH address. No blocks are
+// mined after and the UTXOs are unconfirmed.
+func (h *HarnessTest) FundCoinsUnconfirmed(amt btcutil.Amount,
+	hn *node.HarnessNode) {
+
+	h.fundCoins(amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, false)
 }
 
 // CompletePaymentRequests sends payments from a node to complete all payment

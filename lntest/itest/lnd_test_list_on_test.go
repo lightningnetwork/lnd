@@ -65,10 +65,6 @@ var allTestCases = []*testCase{
 		test: testSingleHopInvoice,
 	},
 	{
-		name: "sphinx replay persistence",
-		test: testSphinxReplayPersistence,
-	},
-	{
 		name: "list channels",
 		test: testListChannels,
 	},

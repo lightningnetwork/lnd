@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -13,12 +12,12 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
@@ -120,38 +119,28 @@ func testDisconnectingTargetPeer(ht *lntemp.HarnessTest) {
 	ht.AssertConnected(alice, bob)
 }
 
-// testSphinxReplayPersistence verifies that replayed onion packets are rejected
-// by a remote peer after a restart. We use a combination of unsafe
-// configuration arguments to force Carol to replay the same sphinx packet after
-// reconnecting to Dave, and compare the returned failure message with what we
-// expect for replayed onion packets.
-func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	// Open a channel with 100k satoshis between Carol and Dave with Carol being
-	// the sole funder of the channel.
+// testSphinxReplayPersistence verifies that replayed onion packets are
+// rejected by a remote peer after a restart. We use a combination of unsafe
+// configuration arguments to force Carol to replay the same sphinx packet
+// after reconnecting to Dave, and compare the returned failure message with
+// what we expect for replayed onion packets.
+func testSphinxReplayPersistence(ht *lntemp.HarnessTest) {
+	// Open a channel with 100k satoshis between Carol and Dave with Carol
+	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
 
 	// First, we'll create Dave, the receiver, and start him in hodl mode.
-	dave := net.NewNode(t.t, "Dave", []string{"--hodl.exit-settle"})
-
-	// We must remember to shutdown the nodes we created for the duration
-	// of the tests, only leaving the two seed nodes (Alice and Bob) within
-	// our test network.
-	defer shutdownAndAssert(net, t, dave)
+	dave := ht.NewNode("Dave", []string{"--hodl.exit-settle"})
 
 	// Next, we'll create Carol and establish a channel to from her to
 	// Dave. Carol is started in both unsafe-replay which will cause her to
 	// replay any pending Adds held in memory upon reconnection.
-	carol := net.NewNode(t.t, "Carol", []string{"--unsafe-replay"})
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", []string{"--unsafe-replay"})
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
-	net.ConnectNodes(t.t, carol, dave)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
-
-	chanPoint := openChannelAndAssert(
-		t, net, carol, dave,
-		lntest.OpenChannelParams{
+	ht.ConnectNodes(carol, dave)
+	chanPoint := ht.OpenChannel(
+		carol, dave, lntemp.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -161,136 +150,87 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// by paying from Carol directly to Dave, because the '--unsafe-replay'
 	// setup doesn't apply to locally added htlcs. In that case, the
 	// mailbox, that is responsible for generating the replay, is bypassed.
-	fred := net.NewNode(t.t, "Fred", nil)
-	defer shutdownAndAssert(net, t, fred)
+	fred := ht.NewNode("Fred", nil)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, fred)
 
-	net.ConnectNodes(t.t, fred, carol)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, fred)
-
-	chanPointFC := openChannelAndAssert(
-		t, net, fred, carol,
-		lntest.OpenChannelParams{
+	ht.ConnectNodes(fred, carol)
+	chanPointFC := ht.OpenChannel(
+		fred, carol, lntemp.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
+	defer ht.CloseChannel(fred, chanPointFC)
 
 	// Now that the channel is open, create an invoice for Dave which
 	// expects a payment of 1000 satoshis from Carol paid via a particular
 	// preimage.
 	const paymentAmt = 1000
-	preimage := bytes.Repeat([]byte("A"), 32)
+	preimage := ht.Random32Bytes()
 	invoice := &lnrpc.Invoice{
 		Memo:      "testing",
 		RPreimage: preimage,
 		Value:     paymentAmt,
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	invoiceResp, err := dave.AddInvoice(ctxt, invoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
+	invoiceResp := dave.RPC.AddInvoice(invoice)
 
 	// Wait for all channels to be recognized and advertized.
-	err = carol.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("alice didn't advertise channel before "+
-			"timeout: %v", err)
-	}
-	err = dave.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("bob didn't advertise channel before "+
-			"timeout: %v", err)
-	}
-	err = carol.WaitForNetworkChannelOpen(chanPointFC)
-	if err != nil {
-		t.Fatalf("alice didn't advertise channel before "+
-			"timeout: %v", err)
-	}
-	err = fred.WaitForNetworkChannelOpen(chanPointFC)
-	if err != nil {
-		t.Fatalf("bob didn't advertise channel before "+
-			"timeout: %v", err)
-	}
+	ht.AssertTopologyChannelOpen(carol, chanPoint)
+	ht.AssertTopologyChannelOpen(dave, chanPoint)
+	ht.AssertTopologyChannelOpen(carol, chanPointFC)
+	ht.AssertTopologyChannelOpen(fred, chanPointFC)
 
 	// With the invoice for Dave added, send a payment from Fred paying
 	// to the above generated invoice.
-	ctx, cancel := context.WithCancel(ctxb)
-	defer cancel()
-
-	payStream, err := fred.RouterClient.SendPaymentV2(
-		ctx,
-		&routerrpc.SendPaymentRequest{
-			PaymentRequest: invoiceResp.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
-	)
-	if err != nil {
-		t.Fatalf("unable to open payment stream: %v", err)
+	req := &routerrpc.SendPaymentRequest{
+		PaymentRequest: invoiceResp.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
 	}
-
-	time.Sleep(200 * time.Millisecond)
+	payStream := fred.RPC.SendPayment(req)
 
 	// Dave's invoice should not be marked as settled.
-	payHash := &lnrpc.PaymentHash{
-		RHash: invoiceResp.RHash,
+	msg := &invoicesrpc.LookupInvoiceMsg{
+		InvoiceRef: &invoicesrpc.LookupInvoiceMsg_PaymentAddr{
+			PaymentAddr: invoiceResp.PaymentAddr,
+		},
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	dbInvoice, err := dave.LookupInvoice(ctxt, payHash)
-	if err != nil {
-		t.Fatalf("unable to lookup invoice: %v", err)
-	}
-	if dbInvoice.Settled { // nolint:staticcheck
-		t.Fatalf("dave's invoice should not be marked as settled: %v",
-			spew.Sdump(dbInvoice))
-	}
+	dbInvoice := dave.RPC.LookupInvoiceV2(msg)
+	require.NotEqual(ht, lnrpc.InvoiceHTLCState_SETTLED, dbInvoice.State,
+		"dave's invoice should not be marked as settled")
 
 	// With the payment sent but hedl, all balance related stats should not
 	// have changed.
-	err = wait.InvariantNoError(
-		assertAmountSent(0, carol, dave), 3*time.Second,
-	)
-	if err != nil {
-		t.Fatalf(err.Error())
-	}
+	ht.AssertAmountPaid("carol => dave", carol, chanPoint, 0, 0)
+	ht.AssertAmountPaid("dave <= carol", dave, chanPoint, 0, 0)
+
+	// Before we restart Dave, make sure both Carol and Dave have added the
+	// HTLC.
+	ht.AssertNumActiveHtlcs(carol, 2)
+	ht.AssertNumActiveHtlcs(dave, 1)
 
 	// With the first payment sent, restart dave to make sure he is
 	// persisting the information required to detect replayed sphinx
 	// packets.
-	if err := net.RestartNode(dave, nil); err != nil {
-		t.Fatalf("unable to restart dave: %v", err)
-	}
+	ht.RestartNode(dave)
 
 	// Carol should retransmit the Add hedl in her mailbox on startup. Dave
 	// should not accept the replayed Add, and actually fail back the
 	// pending payment. Even though he still holds the original settle, if
 	// he does fail, it is almost certainly caused by the sphinx replay
 	// protection, as it is the only validation we do in hodl mode.
-	result, err := getPaymentResult(payStream)
-	if err != nil {
-		t.Fatalf("unable to receive payment response: %v", err)
-	}
-
+	//
 	// Assert that Fred receives the expected failure after Carol sent a
 	// duplicate packet that fails due to sphinx replay detection.
-	if result.Status == lnrpc.Payment_SUCCEEDED {
-		t.Fatalf("expected payment error")
-	}
-	assertLastHTLCError(t, fred, lnrpc.Failure_INVALID_ONION_KEY)
+	ht.AssertPaymentStatusFromStream(payStream, lnrpc.Payment_FAILED)
+	ht.AssertLastHTLCError(fred, lnrpc.Failure_INVALID_ONION_KEY)
 
 	// Since the payment failed, the balance should still be left
 	// unaltered.
-	err = wait.InvariantNoError(
-		assertAmountSent(0, carol, dave), 3*time.Second,
-	)
-	if err != nil {
-		t.Fatalf(err.Error())
-	}
-
-	closeChannelAndAssert(t, net, carol, chanPoint, true)
+	ht.AssertAmountPaid("carol => dave", carol, chanPoint, 0, 0)
+	ht.AssertAmountPaid("dave <= carol", dave, chanPoint, 0, 0)
 
 	// Cleanup by mining the force close and sweep transaction.
-	cleanupForceClose(t, net, carol, chanPoint)
+	ht.ForceCloseChannel(carol, chanPoint)
 }
 
 // testListChannels checks that the response from ListChannels is correct. It

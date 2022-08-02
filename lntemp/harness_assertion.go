@@ -1329,3 +1329,117 @@ func (h *HarnessTest) AssertConnected(a, b *node.HarnessNode) {
 	h.AssertPeerConnected(a, b)
 	h.AssertPeerConnected(b, a)
 }
+
+// AssertAmountPaid checks that the ListChannels command of the provided
+// node list the total amount sent and received as expected for the
+// provided channel.
+func (h *HarnessTest) AssertAmountPaid(channelName string, hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint, amountSent, amountReceived int64) {
+
+	checkAmountPaid := func() error {
+		// Find the targeted channel.
+		channel, err := h.findChannel(hn, chanPoint)
+		if err != nil {
+			return fmt.Errorf("assert amount failed: %w", err)
+		}
+
+		if channel.TotalSatoshisSent != amountSent {
+			return fmt.Errorf("%v: incorrect amount"+
+				" sent: %v != %v", channelName,
+				channel.TotalSatoshisSent,
+				amountSent)
+		}
+		if channel.TotalSatoshisReceived !=
+			amountReceived {
+
+			return fmt.Errorf("%v: incorrect amount"+
+				" received: %v != %v",
+				channelName,
+				channel.TotalSatoshisReceived,
+				amountReceived)
+		}
+
+		return nil
+	}
+
+	// As far as HTLC inclusion in commitment transaction might be
+	// postponed we will try to check the balance couple of times,
+	// and then if after some period of time we receive wrong
+	// balance return the error.
+	err := wait.NoError(checkAmountPaid, DefaultTimeout)
+	require.NoError(h, err, "timeout while checking amount paid")
+}
+
+// AssertLastHTLCError checks that the last sent HTLC of the last payment sent
+// by the given node failed with the expected failure code.
+func (h *HarnessTest) AssertLastHTLCError(hn *node.HarnessNode,
+	code lnrpc.Failure_FailureCode) {
+
+	// Use -1 to specify the last HTLC.
+	h.assertHTLCError(hn, code, -1)
+}
+
+// AssertFirstHTLCError checks that the first HTLC of the last payment sent
+// by the given node failed with the expected failure code.
+func (h *HarnessTest) AssertFirstHTLCError(hn *node.HarnessNode,
+	code lnrpc.Failure_FailureCode) {
+
+	// Use 0 to specify the first HTLC.
+	h.assertHTLCError(hn, code, 0)
+}
+
+// assertLastHTLCError checks that the HTLC at the specified index of the last
+// payment sent by the given node failed with the expected failure code.
+func (h *HarnessTest) assertHTLCError(hn *node.HarnessNode,
+	code lnrpc.Failure_FailureCode, index int) {
+
+	req := &lnrpc.ListPaymentsRequest{
+		IncludeIncomplete: true,
+	}
+
+	err := wait.NoError(func() error {
+		paymentsResp := hn.RPC.ListPayments(req)
+
+		payments := paymentsResp.Payments
+		if len(payments) == 0 {
+			return fmt.Errorf("no payments found")
+		}
+
+		payment := payments[len(payments)-1]
+		htlcs := payment.Htlcs
+		if len(htlcs) == 0 {
+			return fmt.Errorf("no htlcs found")
+		}
+
+		// If the index is greater than 0, check we have enough htlcs.
+		if index > 0 && len(htlcs) <= index {
+			return fmt.Errorf("not enough htlcs")
+		}
+
+		// If index is less than or equal to 0, we will read the last
+		// htlc.
+		if index <= 0 {
+			index = len(htlcs) - 1
+		}
+
+		htlc := htlcs[index]
+
+		// The htlc must have a status of failed.
+		if htlc.Status != lnrpc.HTLCAttempt_FAILED {
+			return fmt.Errorf("htlc should be failed")
+		}
+		// The failure field must not be empty.
+		if htlc.Failure == nil {
+			return fmt.Errorf("expected htlc failure")
+		}
+
+		// Exit if the expected code is found.
+		if htlc.Failure.Code == code {
+			return nil
+		}
+
+		return fmt.Errorf("unexpected failure code")
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout checking HTLC error")
+}

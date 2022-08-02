@@ -79,4 +79,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "disconnecting target peer",
 		TestFunc: testDisconnectingTargetPeer,
 	},
+	{
+		Name:     "sphinx replay persistence",
+		TestFunc: testSphinxReplayPersistence,
+	},
 }

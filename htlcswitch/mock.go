@@ -194,6 +194,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 	cfg := Config{
 		DB:                   db,
 		FetchAllOpenChannels: db.ChannelStateDB().FetchAllOpenChannels,
+		FetchAllChannels:     db.ChannelStateDB().FetchAllChannels,
 		FetchClosedChannels:  db.ChannelStateDB().FetchClosedChannels,
 		SwitchPackager:       channeldb.NewSwitchPackager(),
 		FwdingLog: &mockForwardingLog{

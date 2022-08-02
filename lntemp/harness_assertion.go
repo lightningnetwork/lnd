@@ -435,7 +435,24 @@ func (h *HarnessTest) AssertNumPendingForceClose(hn *node.HarnessNode,
 	oldForce := hn.State.CloseChannel.PendingForceClose
 
 	err := wait.NoError(func() error {
-		resp := hn.RPC.PendingChannels()
+		// TODO(yy): we should be able to use `hn.RPC.PendingChannels`
+		// here to avoid checking the RPC error. However, we may get a
+		// `unable to find arbitrator` error from the rpc point, due to
+		// a timing issue in rpcserver,
+		// 1. `r.server.chanStateDB.FetchClosedChannels` fetches
+		//    the pending force close channel.
+		// 2. `r.arbitratorPopulateForceCloseResp` relies on the
+		//    channel arbitrator to get the report, and,
+		// 3. the arbitrator may be deleted due to the force close
+		//    channel being resolved.
+		// Somewhere along the line is missing a lock to keep the data
+		// consistent.
+		req := &lnrpc.PendingChannelsRequest{}
+		resp, err := hn.RPC.LN.PendingChannels(h.runCtx, req)
+		if err != nil {
+			return fmt.Errorf("PendingChannels got: %w", err)
+		}
+
 		channels = resp.PendingForceClosingChannels
 		total := len(channels)
 

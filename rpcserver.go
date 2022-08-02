@@ -3479,6 +3479,9 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 				&chanPoint, currentHeight, forceClose,
 			)
 			if err != nil {
+				rpcsLog.Errorf("unable to populate nursery "+
+					"force close resp:%s, %v",
+					chanPoint, err)
 				return nil, 0, err
 			}
 
@@ -3486,6 +3489,9 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 				&chanPoint, currentHeight, forceClose,
 			)
 			if err != nil {
+				rpcsLog.Errorf("unable to populate arbitrator "+
+					"force close resp:%s, %v",
+					chanPoint, err)
 				return nil, 0, err
 			}
 

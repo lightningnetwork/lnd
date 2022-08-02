@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/davecgh/go-spew/spew"
@@ -30,10 +29,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testDisconnectingTargetPeer performs a test which disconnects Alice-peer from
-// Bob-peer and then re-connects them again. We expect Alice to be able to
+// testDisconnectingTargetPeer performs a test which disconnects Alice-peer
+// from Bob-peer and then re-connects them again. We expect Alice to be able to
 // disconnect at any point.
-func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
+//
+// TODO(yy): move to lnd_network_test.
+func testDisconnectingTargetPeer(ht *lntemp.HarnessTest) {
 	// We'll start both nodes with a high backoff so that they don't
 	// reconnect automatically during our test.
 	args := []string{
@@ -41,20 +42,12 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 		"--maxbackoff=1m",
 	}
 
-	alice := net.NewNode(t.t, "Alice", args)
-	defer shutdownAndAssert(net, t, alice)
-
-	bob := net.NewNode(t.t, "Bob", args)
-	defer shutdownAndAssert(net, t, bob)
+	alice, bob := ht.Alice, ht.Bob
+	ht.RestartNodeWithExtraArgs(alice, args)
+	ht.RestartNodeWithExtraArgs(bob, args)
 
 	// Start by connecting Alice and Bob with no channels.
-	net.ConnectNodes(t.t, alice, bob)
-
-	// Check existing connection.
-	assertConnected(t, alice, bob)
-
-	// Give Alice some coins so she can fund a channel.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
+	ht.EnsureConnected(alice, bob)
 
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(0)
@@ -62,109 +55,69 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	// Create a new channel that requires 1 confs before it's considered
 	// open, then broadcast the funding transaction
 	const numConfs = 1
-	pendingUpdate, err := net.OpenPendingChannel(
-		alice, bob, chanAmt, pushAmt,
-	)
-	if err != nil {
-		t.Fatalf("unable to open channel: %v", err)
+	p := lntemp.OpenChannelParams{
+		Amt:     chanAmt,
+		PushAmt: pushAmt,
 	}
+	stream := ht.OpenChannelAssertPending(alice, bob, p)
 
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed. Alice and Bob's nodes should reflect
 	// this when queried via RPC.
-	assertNumOpenChannelsPending(t, alice, bob, 1)
+	ht.AssertNumPendingOpenChannels(alice, 1)
+	ht.AssertNumPendingOpenChannels(bob, 1)
 
-	// Disconnect Alice-peer from Bob-peer and get error causes by one
-	// pending channel with detach node is existing.
-	if err := net.DisconnectNodes(alice, bob); err != nil {
-		t.Fatalf("Bob's peer was disconnected from Alice's"+
-			" while one pending channel is existing: err %v", err)
-	}
-
-	time.Sleep(time.Millisecond * 300)
+	// Disconnect Alice-peer from Bob-peer should have no error.
+	ht.DisconnectNodes(alice, bob)
 
 	// Assert that the connection was torn down.
-	assertNotConnected(t, alice, bob)
-
-	fundingTxID, err := chainhash.NewHash(pendingUpdate.Txid)
-	if err != nil {
-		t.Fatalf("unable to convert funding txid into chainhash.Hash:"+
-			" %v", err)
-	}
+	ht.AssertNotConnected(alice, bob)
 
 	// Mine a block, then wait for Alice's node to notify us that the
-	// channel has been opened. The funding transaction should be found
-	// within the newly mined block.
-	block := mineBlocks(t, net, numConfs, 1)[0]
-	assertTxInBlock(t, block, fundingTxID)
+	// channel has been opened.
+	ht.MineBlocksAndAssertNumTxes(numConfs, 1)
 
-	// At this point, the channel should be fully opened and there should be
-	// no pending channels remaining for either node.
-	time.Sleep(time.Millisecond * 300)
-
-	assertNumOpenChannelsPending(t, alice, bob, 0)
+	// At this point, the channel should be fully opened and there should
+	// be no pending channels remaining for either node.
+	ht.AssertNumPendingOpenChannels(alice, 0)
+	ht.AssertNumPendingOpenChannels(bob, 0)
 
 	// Reconnect the nodes so that the channel can become active.
-	net.ConnectNodes(t.t, alice, bob)
+	ht.ConnectNodes(alice, bob)
 
-	// The channel should be listed in the peer information returned by both
-	// peers.
-	outPoint := wire.OutPoint{
-		Hash:  *fundingTxID,
-		Index: pendingUpdate.OutputIndex,
-	}
+	// The channel should be listed in the peer information returned by
+	// both peers.
+	chanPoint := ht.WaitForChannelOpenEvent(stream)
 
 	// Check both nodes to ensure that the channel is ready for operation.
-	if err := net.AssertChannelExists(alice, &outPoint); err != nil {
-		t.Fatalf("unable to assert channel existence: %v", err)
-	}
-	if err := net.AssertChannelExists(bob, &outPoint); err != nil {
-		t.Fatalf("unable to assert channel existence: %v", err)
-	}
+	ht.AssertChannelExists(alice, chanPoint)
+	ht.AssertChannelExists(bob, chanPoint)
 
-	// Disconnect Alice-peer from Bob-peer and get error causes by one
-	// active channel with detach node is existing.
-	if err := net.DisconnectNodes(alice, bob); err != nil {
-		t.Fatalf("Bob's peer was disconnected from Alice's"+
-			" while one active channel is existing: err %v", err)
-	}
+	// Disconnect Alice-peer from Bob-peer should have no error.
+	ht.DisconnectNodes(alice, bob)
 
 	// Check existing connection.
-	assertNotConnected(t, alice, bob)
+	ht.AssertNotConnected(alice, bob)
 
 	// Reconnect both nodes before force closing the channel.
-	net.ConnectNodes(t.t, alice, bob)
+	ht.ConnectNodes(alice, bob)
 
-	// Finally, immediately close the channel. This function will also block
-	// until the channel is closed and will additionally assert the relevant
-	// channel closing post conditions.
-	chanPoint := &lnrpc.ChannelPoint{
-		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-			FundingTxidBytes: pendingUpdate.Txid,
-		},
-		OutputIndex: pendingUpdate.OutputIndex,
-	}
+	// Finally, immediately close the channel. This function will also
+	// block until the channel is closed and will additionally assert the
+	// relevant channel closing post conditions.
+	ht.ForceCloseChannel(alice, chanPoint)
 
-	closeChannelAndAssert(t, net, alice, chanPoint, true)
-
-	// Disconnect Alice-peer from Bob-peer without getting error about
-	// existing channels.
-	if err := net.DisconnectNodes(alice, bob); err != nil {
-		t.Fatalf("unable to disconnect Bob's peer from Alice's: err %v",
-			err)
-	}
+	// Disconnect Alice-peer from Bob-peer should have no error.
+	ht.DisconnectNodes(alice, bob)
 
 	// Check that the nodes not connected.
-	assertNotConnected(t, alice, bob)
+	ht.AssertNotConnected(alice, bob)
 
 	// Finally, re-connect both nodes.
-	net.ConnectNodes(t.t, alice, bob)
+	ht.ConnectNodes(alice, bob)
 
 	// Check existing connection.
-	assertConnected(t, alice, bob)
-
-	// Cleanup by mining the force close and sweep transaction.
-	cleanupForceClose(t, net, alice, chanPoint)
+	ht.AssertConnected(alice, bob)
 }
 
 // testSphinxReplayPersistence verifies that replayed onion packets are rejected

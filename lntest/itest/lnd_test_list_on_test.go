@@ -37,10 +37,6 @@ var allTestCases = []*testCase{
 		test: testOpenChannelAfterReorg,
 	},
 	{
-		name: "disconnecting target peer",
-		test: testDisconnectingTargetPeer,
-	},
-	{
 		name: "reconnect after ip change",
 		test: testReconnectAfterIPChange,
 	},

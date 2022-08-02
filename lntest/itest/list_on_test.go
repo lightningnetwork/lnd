@@ -75,4 +75,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "sweep coins",
 		TestFunc: testSweepAllCoins,
 	},
+	{
+		Name:     "disconnecting target peer",
+		TestFunc: testDisconnectingTargetPeer,
+	},
 }

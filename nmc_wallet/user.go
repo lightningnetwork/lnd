@@ -8,12 +8,20 @@ import (
 	"strings"
 )
 
-type Res struct {
-	Result string
+// Hex string returns
+type Hex struct {
+	Result struct {
+		hex string
+	}
 }
-type Res2 struct {
-	Result []string
+
+type Hex2 struct {
+	Result []struct {
+		hex string
+	}
 }
+
+// struct for list unspent
 type ListUnspent struct {
 	Result []struct {
 		Txid          string  `json:"txid"`
@@ -30,14 +38,18 @@ type ListUnspent struct {
 	ID    string `json:"id"`
 }
 
+// input struct
 type Input struct {
 	txid string
 	vout int
 }
+
+//output struct
 type Output struct {
 	data string
 }
 
+// return struct for sign transaction
 type SignRawTransaction struct {
 	Result struct {
 		Hex      string `json:"hex"`
@@ -54,6 +66,7 @@ type SignRawTransaction struct {
 	ID    string `json:"id"`
 }
 
+// return struct for decoding transactions
 type DecodeRawTransaction struct {
 	Result struct {
 		Txid     string `json:"txid"`
@@ -87,28 +100,8 @@ type DecodeRawTransaction struct {
 	ID    string `json:"id"`
 }
 
-// func main() {
-// 	tx := "fcc512ce4af6092e3a812425635bf68e3d97403fe11461acad466e673a37f203"
-// 	wal := "brandon"
-// 	proof := NmcGetProofTest(tx, wal)
-// 	fmt.Println(proof)
-// 	fmt.Println(NmcVerifyProofTest(proof))
-// 	list := NmcUnlistTest(wal)
-// 	in := Input{list.Result[0].Txid, 0}
-// 	out := Output{"68656C6C6F20776F726C64"}
-// 	createtx := NmcCreateRawTransactionTest(in, out, wal)
-// 	signtx := NmcSignRawTransactionTest(createtx, wal)
-// 	fmt.Println(signtx)
-// 	sendtx := NmcSendRawTransactionTest(wal, signtx.Result.Hex)
-// 	fmt.Println(sendtx)
-// 	gettx := NmcGetRawTransactionTest(wal, list.Result[0].Txid)
-// 	fmt.Println(gettx)
-// 	decodetx := NmcDecodeRawTransactionTest(gettx)
-// 	fmt.Println(decodetx)
-// 	fmt.Println(decodetx.Result.Vout[0].ScriptPubKey.Asm)
-// }
-
-func NmcGetProofTest(txid string, wallet string) string {
+// Namecoin test proof generator
+func NmcGetProofTest(txid string, wallet string) Hex {
 	testRequest := fmt.Sprintf(`{"jsonrpc": "2.0", "id":"", "method": "gettxoutproof", "params": [["%s"]]}`, txid)
 	req, _ := http.NewRequest("POST", fmt.Sprintf("http://10.10.10.120:8332/wallet/%s", wallet), strings.NewReader(testRequest))
 	req.SetBasicAuth("bitcoinrpc", "rpc")
@@ -118,14 +111,15 @@ func NmcGetProofTest(txid string, wallet string) string {
 		fmt.Println(err)
 	} else {
 		defer res.Body.Close()
-		var j Res
+		var j Hex
 		body, _ := ioutil.ReadAll(res.Body)
 		json.Unmarshal(body, &j)
-		return j.Result
+		return j
 	}
-	return ""
+	return Hex{}
 }
 
+// Namecoin test unspent transaction
 func NmcUnlistTest(wallet string) ListUnspent {
 	testRequest := `{"jsonrpc": "2.0", "id":"", "method": "listunspent", "params": []}`
 	req, _ := http.NewRequest("POST", fmt.Sprintf("http://10.10.10.120:8332/wallet/%s", wallet), strings.NewReader(testRequest))
@@ -144,7 +138,8 @@ func NmcUnlistTest(wallet string) ListUnspent {
 	return ListUnspent{}
 }
 
-func NmcVerifyProofTest(proof string) []string {
+// Namecoin test proof verifier
+func NmcVerifyProofTest(proof string) Hex2 {
 	testRequest := fmt.Sprintf(`{"jsonrpc": "2.0", "id":"", "method": "verifytxoutproof", "params": ["%s"]}`, proof)
 	req, _ := http.NewRequest("POST", "http://10.10.10.120:8332", strings.NewReader(testRequest))
 	req.SetBasicAuth("bitcoinrpc", "rpc")
@@ -154,16 +149,16 @@ func NmcVerifyProofTest(proof string) []string {
 		fmt.Println(err)
 	} else {
 		defer res.Body.Close()
-		var j Res2
+		var j Hex2
 		body, _ := ioutil.ReadAll(res.Body)
 		json.Unmarshal(body, &j)
-		return j.Result
+		return j
 	}
-	a := []string{""}
-	return a
+	return Hex2{}
 }
 
-func NmcCreateRawTransactionTest(in Input, out Output, wal string) string {
+// Namecoin test transaction methods
+func NmcCreateRawTransactionTest(in Input, out Output, wal string) Hex {
 	testRequest := fmt.Sprint(`{"jsonrpc": "2.0", "id":"", "method": "createrawtransaction", "params": [[{"txid":"`, in.txid, `","vout":`, in.vout, `}], {"data": "`, out.data, `"}]}`)
 	req, _ := http.NewRequest("POST", fmt.Sprintf("http://10.10.10.120:8332/wallet/%s", wal), strings.NewReader(testRequest))
 	req.SetBasicAuth("bitcoinrpc", "rpc")
@@ -173,12 +168,12 @@ func NmcCreateRawTransactionTest(in Input, out Output, wal string) string {
 		fmt.Println(err)
 	} else {
 		defer res.Body.Close()
-		var j Res
+		var j Hex
 		body, _ := ioutil.ReadAll(res.Body)
 		json.Unmarshal(body, &j)
-		return j.Result
+		return j
 	}
-	return ""
+	return Hex{}
 }
 
 func NmcSignRawTransactionTest(hex string, wal string) SignRawTransaction {
@@ -189,7 +184,6 @@ func NmcSignRawTransactionTest(hex string, wal string) SignRawTransaction {
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		fmt.Println(err)
-
 	} else {
 		defer res.Body.Close()
 		var j SignRawTransaction
@@ -201,7 +195,7 @@ func NmcSignRawTransactionTest(hex string, wal string) SignRawTransaction {
 	return SignRawTransaction{}
 }
 
-func NmcSendRawTransactionTest(wal string, hex string) string {
+func NmcSendRawTransactionTest(wal string, hex string) Hex {
 	testRequest := fmt.Sprint(`{"jsonrpc": "2.0", "id":"", "method": "sendrawtransaction", "params": ["`, hex, `", 0]}`)
 	req, _ := http.NewRequest("POST", fmt.Sprintf("http://10.10.10.120:8332/wallet/%s", wal), strings.NewReader(testRequest))
 	req.SetBasicAuth("bitcoinrpc", "rpc")
@@ -211,15 +205,15 @@ func NmcSendRawTransactionTest(wal string, hex string) string {
 		fmt.Println(err)
 	} else {
 		defer res.Body.Close()
-		var j Res
+		var j Hex
 		body, _ := ioutil.ReadAll(res.Body)
 		json.Unmarshal(body, &j)
-		return j.Result
+		return j
 	}
-	return ""
+	return Hex{}
 }
 
-func NmcGetRawTransactionTest(wal string, txid string) string {
+func NmcGetRawTransactionTest(wal string, txid string) Hex {
 	testRequest := fmt.Sprint(`{"jsonrpc": "2.0", "id":"", "method": "getrawtransaction", "params": ["`, txid, `"]}`)
 	req, _ := http.NewRequest("POST", fmt.Sprintf("http://10.10.10.120:8332/wallet/%s", wal), strings.NewReader(testRequest))
 	req.SetBasicAuth("bitcoinrpc", "rpc")
@@ -229,12 +223,12 @@ func NmcGetRawTransactionTest(wal string, txid string) string {
 		fmt.Println(err)
 	} else {
 		defer res.Body.Close()
-		var j Res
+		var j Hex
 		body, _ := ioutil.ReadAll(res.Body)
 		json.Unmarshal(body, &j)
-		return j.Result
+		return j
 	}
-	return ""
+	return Hex{}
 }
 
 func NmcDecodeRawTransactionTest(hex string) DecodeRawTransaction {

@@ -5,10 +5,6 @@ package itest
 
 var allTestCases = []*testCase{
 	{
-		name: "sweep coins",
-		test: testSweepAllCoins,
-	},
-	{
 		name: "list addresses",
 		test: testListAddresses,
 	},

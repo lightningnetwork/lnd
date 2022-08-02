@@ -319,3 +319,39 @@ func (h *HarnessRPC) ChannelAcceptor() (AcceptorClient, context.CancelFunc) {
 
 	return resp, cancel
 }
+
+// SendCoins sends a given amount of money to the specified address from the
+// passed node.
+func (h *HarnessRPC) SendCoins(
+	req *lnrpc.SendCoinsRequest) *lnrpc.SendCoinsResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.SendCoins(ctxt, req)
+	require.NoErrorf(h, err, "node %s failed to send coins to address %s",
+		h.Name, req.Addr)
+
+	return resp
+}
+
+// SendCoinsAssertErr sends a given amount of money to the specified address
+// from the passed node and asserts an error has returned.
+func (h *HarnessRPC) SendCoinsAssertErr(req *lnrpc.SendCoinsRequest) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.SendCoins(ctxt, req)
+	require.Error(h, err, "node %s didn't not return an error", h.Name)
+}
+
+// GetTransactions makes a RPC call to GetTransactions and asserts.
+func (h *HarnessRPC) GetTransactions() *lnrpc.TransactionDetails {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.GetTransactions(ctxt, &lnrpc.GetTransactionsRequest{})
+	require.NoErrorf(h, err, "failed to GetTransactions for %s", h.Name)
+
+	return resp
+}

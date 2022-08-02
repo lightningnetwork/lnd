@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -1180,26 +1181,23 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 // testSweepAllCoins tests that we're able to properly sweep all coins from the
 // wallet into a single target address at the specified fee rate.
-func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+//
+// TODO(yy): expand this test to also use P2TR.
+func testSweepAllCoins(ht *lntemp.HarnessTest) {
 	// First, we'll make a new node, ainz who'll we'll use to test wallet
 	// sweeping.
-	ainz := net.NewNode(t.t, "Ainz", nil)
-	defer shutdownAndAssert(net, t, ainz)
+	//
+	// NOTE: we won't use standby nodes here since the test will change
+	// each of the node's wallet state.
+	ainz := ht.NewNode("Ainz", nil)
 
 	// Next, we'll give Ainz exactly 2 utxos of 1 BTC each, with one of
 	// them being p2wkh and the other being a n2wpkh address.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, ainz)
-
-	net.SendCoinsNP2WKH(t.t, btcutil.SatoshiPerBitcoin, ainz)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, ainz)
+	ht.FundCoinsNP2WKH(btcutil.SatoshiPerBitcoin, ainz)
 
 	// Ensure that we can't send coins to our own Pubkey.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	info, err := ainz.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
-	if err != nil {
-		t.Fatalf("unable to get node info: %v", err)
-	}
+	info := ainz.RPC.GetInfo()
 
 	// Create a label that we will used to label the transaction with.
 	sendCoinsLabel := "send all coins"
@@ -1209,171 +1207,132 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 		SendAll: true,
 		Label:   sendCoinsLabel,
 	}
-	_, err = ainz.SendCoins(ctxt, sweepReq)
-	if err == nil {
-		t.Fatalf("expected SendCoins to users own pubkey to fail")
-	}
+	ainz.RPC.SendCoinsAssertErr(sweepReq)
 
-	// Ensure that we can't send coins to another users Pubkey.
-	info, err = net.Alice.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
-	if err != nil {
-		t.Fatalf("unable to get node info: %v", err)
-	}
+	// Ensure that we can't send coins to another user's Pubkey.
+	info = ht.Alice.RPC.GetInfo()
 
 	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:    info.IdentityPubkey,
 		SendAll: true,
 		Label:   sendCoinsLabel,
 	}
-	_, err = ainz.SendCoins(ctxt, sweepReq)
-	if err == nil {
-		t.Fatalf("expected SendCoins to Alices pubkey to fail")
-	}
+	ainz.RPC.SendCoinsAssertErr(sweepReq)
 
 	// With the two coins above mined, we'll now instruct ainz to sweep all
-	// the coins to an external address not under its control.
-	// We will first attempt to send the coins to addresses that are not
-	// compatible with the current network. This is to test that the wallet
-	// will prevent any onchain transactions to addresses that are not on the
+	// the coins to an external address not under its control.  We will
+	// first attempt to send the coins to addresses that are not compatible
+	// with the current network. This is to test that the wallet will
+	// prevent any onchain transactions to addresses that are not on the
 	// same network as the user.
 
 	// Send coins to a testnet3 address.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:    "tb1qfc8fusa98jx8uvnhzavxccqlzvg749tvjw82tg",
 		SendAll: true,
 		Label:   sendCoinsLabel,
 	}
-	_, err = ainz.SendCoins(ctxt, sweepReq)
-	if err == nil {
-		t.Fatalf("expected SendCoins to different network to fail")
-	}
+	ainz.RPC.SendCoinsAssertErr(sweepReq)
 
 	// Send coins to a mainnet address.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:    "1MPaXKp5HhsLNjVSqaL7fChE3TVyrTMRT3",
 		SendAll: true,
 		Label:   sendCoinsLabel,
 	}
-	_, err = ainz.SendCoins(ctxt, sweepReq)
-	if err == nil {
-		t.Fatalf("expected SendCoins to different network to fail")
-	}
+	ainz.RPC.SendCoinsAssertErr(sweepReq)
 
 	// Send coins to a compatible address.
-	minerAddr, err := net.Miner.NewAddress()
-	if err != nil {
-		t.Fatalf("unable to create new miner addr: %v", err)
-	}
-
+	minerAddr := ht.Miner.NewMinerAddress()
 	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:    minerAddr.String(),
 		SendAll: true,
 		Label:   sendCoinsLabel,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = ainz.SendCoins(ctxt, sweepReq)
-	if err != nil {
-		t.Fatalf("unable to sweep coins: %v", err)
-	}
+	ainz.RPC.SendCoins(sweepReq)
 
 	// We'll mine a block which should include the sweep transaction we
 	// generated above.
-	block := mineBlocks(t, net, 1, 1)[0]
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 
 	// The sweep transaction should have exactly two inputs as we only had
 	// two UTXOs in the wallet.
 	sweepTx := block.Transactions[1]
-	if len(sweepTx.TxIn) != 2 {
-		t.Fatalf("expected 2 inputs instead have %v", len(sweepTx.TxIn))
+	require.Len(ht, sweepTx.TxIn, 2, "expected 2 inputs")
+
+	// assertTxLabel is a helper function which finds a target tx in our
+	// set of transactions and checks that it has the desired label.
+	assertTxLabel := func(targetTx, label string) {
+		// List all transactions relevant to our wallet, and find the
+		// tx so that we can check the correct label has been set.
+		txResp := ainz.RPC.GetTransactions()
+
+		// Find our transaction in the set of transactions returned and
+		// check its label.
+		for _, txn := range txResp.Transactions {
+			if txn.TxHash == targetTx {
+				require.Equal(ht, label, txn.Label,
+					"labels not match")
+			}
+		}
 	}
 
 	sweepTxStr := sweepTx.TxHash().String()
-	assertTxLabel(t, ainz, sweepTxStr, sendCoinsLabel)
+	assertTxLabel(sweepTxStr, sendCoinsLabel)
 
-	// While we are looking at labels, we test our label transaction command
-	// to make sure it is behaving as expected. First, we try to label our
-	// transaction with an empty label, and check that we fail as expected.
+	// While we are looking at labels, we test our label transaction
+	// command to make sure it is behaving as expected. First, we try to
+	// label our transaction with an empty label, and check that we fail as
+	// expected.
 	sweepHash := sweepTx.TxHash()
-	_, err = ainz.WalletKitClient.LabelTransaction(
-		ctxt, &walletrpc.LabelTransactionRequest{
-			Txid:      sweepHash[:],
-			Label:     "",
-			Overwrite: false,
-		},
-	)
-	if err == nil {
-		t.Fatalf("expected error for zero transaction label")
+	req := &walletrpc.LabelTransactionRequest{
+		Txid:      sweepHash[:],
+		Label:     "",
+		Overwrite: false,
 	}
+	err := ainz.RPC.LabelTransactionAssertErr(req)
 
 	// Our error will be wrapped in a rpc error, so we check that it
 	// contains the error we expect.
 	errZeroLabel := "cannot label transaction with empty label"
-	if !strings.Contains(err.Error(), errZeroLabel) {
-		t.Fatalf("expected: zero label error, got: %v", err)
-	}
+	require.Contains(ht, err.Error(), errZeroLabel,
+		"expected: zero label errorv")
 
 	// Next, we try to relabel our transaction without setting the overwrite
 	// boolean. We expect this to fail, because the wallet requires setting
 	// of this param to prevent accidental overwrite of labels.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = ainz.WalletKitClient.LabelTransaction(
-		ctxt, &walletrpc.LabelTransactionRequest{
-			Txid:      sweepHash[:],
-			Label:     "label that will not work",
-			Overwrite: false,
-		},
-	)
-	if err == nil {
-		t.Fatalf("expected error for tx already labelled")
+	req = &walletrpc.LabelTransactionRequest{
+		Txid:      sweepHash[:],
+		Label:     "label that will not work",
+		Overwrite: false,
 	}
+	err = ainz.RPC.LabelTransactionAssertErr(req)
 
 	// Our error will be wrapped in a rpc error, so we check that it
 	// contains the error we expect.
-	if !strings.Contains(err.Error(), wallet.ErrTxLabelExists.Error()) {
-		t.Fatalf("expected: label exists, got: %v", err)
-	}
+	require.Contains(ht, err.Error(), wallet.ErrTxLabelExists.Error())
 
 	// Finally, we overwrite our label with a new label, which should not
 	// fail.
 	newLabel := "new sweep tx label"
-	_, err = ainz.WalletKitClient.LabelTransaction(
-		ctxt, &walletrpc.LabelTransactionRequest{
-			Txid:      sweepHash[:],
-			Label:     newLabel,
-			Overwrite: true,
-		},
-	)
-	if err != nil {
-		t.Fatalf("could not label tx: %v", err)
+	req = &walletrpc.LabelTransactionRequest{
+		Txid:      sweepHash[:],
+		Label:     newLabel,
+		Overwrite: true,
 	}
+	ainz.RPC.LabelTransaction(req)
 
-	assertTxLabel(t, ainz, sweepTxStr, newLabel)
+	assertTxLabel(sweepTxStr, newLabel)
 
 	// Finally, Ainz should now have no coins at all within his wallet.
-	balReq := &lnrpc.WalletBalanceRequest{}
-	resp, err := ainz.WalletBalance(ctxt, balReq)
-	if err != nil {
-		t.Fatalf("unable to get ainz's balance: %v", err)
-	}
-	switch {
-	case resp.ConfirmedBalance != 0:
-		t.Fatalf("expected no confirmed balance, instead have %v",
-			resp.ConfirmedBalance)
-
-	case resp.UnconfirmedBalance != 0:
-		t.Fatalf("expected no unconfirmed balance, instead have %v",
-			resp.UnconfirmedBalance)
-	}
+	resp := ainz.RPC.WalletBalance()
+	require.Zero(ht, resp.ConfirmedBalance, "wrong confirmed balance")
+	require.Zero(ht, resp.UnconfirmedBalance, "wrong unconfirmed balance")
 
 	// If we try again, but this time specifying an amount, then the call
 	// should fail.
 	sweepReq.Amount = 10000
-	_, err = ainz.SendCoins(ctxt, sweepReq)
-	if err == nil {
-		t.Fatalf("sweep attempt should fail")
-	}
+	ainz.RPC.SendCoinsAssertErr(sweepReq)
 }
 
 // testListAddresses tests that we get all the addresses and their

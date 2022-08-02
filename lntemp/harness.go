@@ -971,6 +971,22 @@ func (h *HarnessTest) FundCoinsUnconfirmed(amt btcutil.Amount,
 	h.fundCoins(amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, false)
 }
 
+// FundCoinsNP2WKH attempts to send amt satoshis from the internal mining node
+// to the targeted lightning node using a NP2WKH address.
+func (h *HarnessTest) FundCoinsNP2WKH(amt btcutil.Amount,
+	target *node.HarnessNode) {
+
+	h.fundCoins(amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH, true)
+}
+
+// FundCoinsP2TR attempts to send amt satoshis from the internal mining node to
+// the targeted lightning node using a P2TR address.
+func (h *HarnessTest) FundCoinsP2TR(amt btcutil.Amount,
+	target *node.HarnessNode) {
+
+	h.fundCoins(amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true)
+}
+
 // CompletePaymentRequests sends payments from a node to complete all payment
 // requests. This function does not return until all payments successfully
 // complete without errors.

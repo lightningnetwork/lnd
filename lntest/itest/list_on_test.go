@@ -71,4 +71,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "data loss protection",
 		TestFunc: testDataLossProtection,
 	},
+	{
+		Name:     "sweep coins",
+		TestFunc: testSweepAllCoins,
+	},
 }

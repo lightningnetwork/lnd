@@ -5,6 +5,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/stretchr/testify/require"
 )
 
 // =====================
@@ -72,4 +73,28 @@ func (h *HarnessRPC) FinalizePsbt(
 	h.NoError(err, "FinalizePsbt")
 
 	return resp
+}
+
+// LabelTransactionAssertErr makes a RPC call to the node's LabelTransaction
+// and asserts an error is returned. It then returns the error.
+func (h *HarnessRPC) LabelTransactionAssertErr(
+	req *walletrpc.LabelTransactionRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.WalletKit.LabelTransaction(ctxt, req)
+	require.Error(h, err, "expected error returned")
+
+	return err
+}
+
+// LabelTransaction makes a RPC call to the node's LabelTransaction
+// and asserts no error is returned.
+func (h *HarnessRPC) LabelTransaction(req *walletrpc.LabelTransactionRequest) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.WalletKit.LabelTransaction(ctxt, req)
+	h.NoError(err, "LabelTransaction")
 }

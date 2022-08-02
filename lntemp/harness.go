@@ -1259,3 +1259,13 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 
 	return blocks
 }
+
+// QueryChannelByChanPoint tries to find a channel matching the channel point
+// and asserts. It returns the channel found.
+func (h *HarnessTest) QueryChannelByChanPoint(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) *lnrpc.Channel {
+
+	channel, err := h.findChannel(hn, chanPoint)
+	require.NoError(h, err, "failed to query channel")
+	return channel
+}

@@ -977,34 +977,6 @@ func assertLastHTLCError(t *harnessTest, node *lntest.HarnessNode,
 	require.Equal(t.t, code, htlc.Failure.Code, "unexpected failure code")
 }
 
-func assertChannelConstraintsEqual(
-	t *harnessTest, want, got *lnrpc.ChannelConstraints) {
-
-	t.t.Helper()
-
-	require.Equal(t.t, want.CsvDelay, got.CsvDelay, "CsvDelay mismatched")
-	require.Equal(
-		t.t, want.ChanReserveSat, got.ChanReserveSat,
-		"ChanReserveSat mismatched",
-	)
-	require.Equal(
-		t.t, want.DustLimitSat, got.DustLimitSat,
-		"DustLimitSat mismatched",
-	)
-	require.Equal(
-		t.t, want.MaxPendingAmtMsat, got.MaxPendingAmtMsat,
-		"MaxPendingAmtMsat mismatched",
-	)
-	require.Equal(
-		t.t, want.MinHtlcMsat, got.MinHtlcMsat,
-		"MinHtlcMsat mismatched",
-	)
-	require.Equal(
-		t.t, want.MaxAcceptedHtlcs, got.MaxAcceptedHtlcs,
-		"MaxAcceptedHtlcs mismatched",
-	)
-}
-
 // assertAmountPaid checks that the ListChannels command of the provided
 // node list the total amount sent and received as expected for the
 // provided channel.

@@ -65,10 +65,6 @@ var allTestCases = []*testCase{
 		test: testSingleHopInvoice,
 	},
 	{
-		name: "list channels",
-		test: testListChannels,
-	},
-	{
 		name: "test update node announcement rpc",
 		test: testUpdateNodeAnnouncement,
 	},

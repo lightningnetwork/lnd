@@ -83,4 +83,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "sphinx replay persistence",
 		TestFunc: testSphinxReplayPersistence,
 	},
+	{
+		Name:     "list channels",
+		TestFunc: testListChannels,
+	},
 }

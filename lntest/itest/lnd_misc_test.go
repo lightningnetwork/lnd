@@ -237,31 +237,21 @@ func testSphinxReplayPersistence(ht *lntemp.HarnessTest) {
 // tests the values in all ChannelConstraints are returned as expected. Once
 // ListChannels becomes mature, a test against all fields in ListChannels
 // should be performed.
-func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testListChannels(ht *lntemp.HarnessTest) {
 	const aliceRemoteMaxHtlcs = 50
 	const bobRemoteMaxHtlcs = 100
 
-	// Create two fresh nodes and open a channel between them.
-	alice := net.NewNode(t.t, "Alice", nil)
-	defer shutdownAndAssert(net, t, alice)
+	// Get the standby nodes and open a channel between them.
+	alice, bob := ht.Alice, ht.Bob
 
-	bob := net.NewNode(
-		t.t, "Bob", []string{
-			fmt.Sprintf(
-				"--default-remote-max-htlcs=%v",
-				bobRemoteMaxHtlcs,
-			),
-		},
-	)
-	defer shutdownAndAssert(net, t, bob)
+	args := []string{fmt.Sprintf(
+		"--default-remote-max-htlcs=%v",
+		bobRemoteMaxHtlcs,
+	)}
+	ht.RestartNodeWithExtraArgs(bob, args)
 
 	// Connect Alice to Bob.
-	net.ConnectNodes(t.t, alice, bob)
-
-	// Give Alice some coins so she can fund a channel.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
+	ht.EnsureConnected(alice, bob)
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel. The minial HTLC amount is set
@@ -270,54 +260,30 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	chanAmt := btcutil.Amount(100000)
 	pushAmt := btcutil.Amount(1000)
-	chanPoint := openChannelAndAssert(
-		t, net, alice, bob,
-		lntest.OpenChannelParams{
-			Amt:            chanAmt,
-			PushAmt:        pushAmt,
-			MinHtlc:        customizedMinHtlc,
-			RemoteMaxHtlcs: aliceRemoteMaxHtlcs,
-		},
-	)
-
-	// Wait for Alice and Bob to receive the channel edge from the
-	// funding manager.
-	err := alice.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("alice didn't see the alice->bob channel before "+
-			"timeout: %v", err)
+	p := lntemp.OpenChannelParams{
+		Amt:            chanAmt,
+		PushAmt:        pushAmt,
+		MinHtlc:        customizedMinHtlc,
+		RemoteMaxHtlcs: aliceRemoteMaxHtlcs,
 	}
-
-	err = bob.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("bob didn't see the bob->alice channel before "+
-			"timeout: %v", err)
-	}
+	chanPoint := ht.OpenChannel(alice, bob, p)
+	defer ht.CloseChannel(alice, chanPoint)
 
 	// Alice should have one channel opened with Bob.
-	assertNodeNumChannels(t, alice, 1)
+	ht.AssertNodeNumChannels(alice, 1)
 	// Bob should have one channel opened with Alice.
-	assertNodeNumChannels(t, bob, 1)
-
-	// Get the ListChannel response from Alice.
-	listReq := &lnrpc.ListChannelsRequest{}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := alice.ListChannels(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("unable to query for %s's channel list: %v",
-			alice.Name(), err)
-	}
+	ht.AssertNodeNumChannels(bob, 1)
 
 	// Check the returned response is correct.
-	aliceChannel := resp.Channels[0]
+	aliceChannel := ht.QueryChannelByChanPoint(alice, chanPoint)
 
 	// Since Alice is the initiator, she pays the commit fee.
 	aliceBalance := int64(chanAmt) - aliceChannel.CommitFee - int64(pushAmt)
 
 	// Check the balance related fields are correct.
-	require.Equal(t.t, aliceBalance, aliceChannel.LocalBalance)
-	require.EqualValues(t.t, pushAmt, aliceChannel.RemoteBalance)
-	require.EqualValues(t.t, pushAmt, aliceChannel.PushAmountSat)
+	require.Equal(ht, aliceBalance, aliceChannel.LocalBalance)
+	require.EqualValues(ht, pushAmt, aliceChannel.RemoteBalance)
+	require.EqualValues(ht, pushAmt, aliceChannel.PushAmountSat)
 
 	// Calculate the dust limit we'll use for the test.
 	dustLimit := lnwallet.DustLimitForSize(input.UnknownWitnessSize)
@@ -333,13 +299,13 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		MaxAcceptedHtlcs:  bobRemoteMaxHtlcs,
 	}
 	assertChannelConstraintsEqual(
-		t, defaultConstraints, aliceChannel.LocalConstraints,
+		ht, defaultConstraints, aliceChannel.LocalConstraints,
 	)
 
-	// customizedConstraints is a ChannelConstraints with customized values.
-	// Ideally, all these values can be passed in when creating the channel.
-	// Currently, only the MinHtlcMsat is customized. It is used to check
-	// against Alice's remote channel constratins.
+	// customizedConstraints is a ChannelConstraints with customized
+	// values. Ideally, all these values can be passed in when creating the
+	// channel. Currently, only the MinHtlcMsat is customized. It is used
+	// to check against Alice's remote channel constratins.
 	customizedConstraints := &lnrpc.ChannelConstraints{
 		CsvDelay:          4,
 		ChanReserveSat:    1000,
@@ -349,39 +315,27 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		MaxAcceptedHtlcs:  aliceRemoteMaxHtlcs,
 	}
 	assertChannelConstraintsEqual(
-		t, customizedConstraints, aliceChannel.RemoteConstraints,
+		ht, customizedConstraints, aliceChannel.RemoteConstraints,
 	)
 
 	// Get the ListChannel response for Bob.
-	listReq = &lnrpc.ListChannelsRequest{}
-	ctxb = context.Background()
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	resp, err = bob.ListChannels(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("unable to query for %s's channel "+
-			"list: %v", bob.Name(), err)
-	}
-
-	bobChannel := resp.Channels[0]
-	if bobChannel.ChannelPoint != aliceChannel.ChannelPoint {
-		t.Fatalf("Bob's channel point mismatched, want: %s, got: %s",
-			chanPoint.String(), bobChannel.ChannelPoint,
-		)
-	}
+	bobChannel := ht.QueryChannelByChanPoint(bob, chanPoint)
+	require.Equal(ht, aliceChannel.ChannelPoint, bobChannel.ChannelPoint,
+		"Bob's channel point mismatched")
 
 	// Check the balance related fields are correct.
-	require.Equal(t.t, aliceBalance, bobChannel.RemoteBalance)
-	require.EqualValues(t.t, pushAmt, bobChannel.LocalBalance)
-	require.EqualValues(t.t, pushAmt, bobChannel.PushAmountSat)
+	require.Equal(ht, aliceBalance, bobChannel.RemoteBalance)
+	require.EqualValues(ht, pushAmt, bobChannel.LocalBalance)
+	require.EqualValues(ht, pushAmt, bobChannel.PushAmountSat)
 
 	// Check channel constraints match. Alice's local channel constraint
 	// should be equal to Bob's remote channel constraint, and her remote
 	// one should be equal to Bob's local one.
 	assertChannelConstraintsEqual(
-		t, aliceChannel.LocalConstraints, bobChannel.RemoteConstraints,
+		ht, aliceChannel.LocalConstraints, bobChannel.RemoteConstraints,
 	)
 	assertChannelConstraintsEqual(
-		t, aliceChannel.RemoteConstraints, bobChannel.LocalConstraints,
+		ht, aliceChannel.RemoteConstraints, bobChannel.LocalConstraints,
 	)
 }
 
@@ -1396,4 +1350,25 @@ func testListAddresses(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	require.Equal(t.t, len(generatedAddr), foundAddresses)
+}
+
+func assertChannelConstraintsEqual(ht *lntemp.HarnessTest,
+	want, got *lnrpc.ChannelConstraints) {
+
+	require.Equal(ht, want.CsvDelay, got.CsvDelay, "CsvDelay mismatched")
+
+	require.Equal(ht, want.ChanReserveSat, got.ChanReserveSat,
+		"ChanReserveSat mismatched")
+
+	require.Equal(ht, want.DustLimitSat, got.DustLimitSat,
+		"DustLimitSat mismatched")
+
+	require.Equal(ht, want.MaxPendingAmtMsat, got.MaxPendingAmtMsat,
+		"MaxPendingAmtMsat mismatched")
+
+	require.Equal(ht, want.MinHtlcMsat, got.MinHtlcMsat,
+		"MinHtlcMsat mismatched")
+
+	require.Equal(ht, want.MaxAcceptedHtlcs, got.MaxAcceptedHtlcs,
+		"MaxAcceptedHtlcs mismatched")
 }

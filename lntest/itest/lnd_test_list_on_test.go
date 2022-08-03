@@ -69,10 +69,6 @@ var allTestCases = []*testCase{
 		test: testPrivateChannels,
 	},
 	{
-		name: "private channel update policy",
-		test: testUpdateChannelPolicyForPrivateChannel,
-	},
-	{
 		name: "invoice routing hints",
 		test: testInvoiceRoutingHints,
 	},

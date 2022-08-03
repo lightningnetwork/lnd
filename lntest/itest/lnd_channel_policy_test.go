@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -672,80 +671,53 @@ func testSendUpdateDisableChannel(ht *lntemp.HarnessTest) {
 // Bob will update the base fee via UpdateChannelPolicy, we will test that
 // Alice will not fail the payment and send it using the updated channel
 // policy.
-func testUpdateChannelPolicyForPrivateChannel(net *lntest.NetworkHarness,
-	t *harnessTest) {
-
-	ctxb := context.Background()
-	defer ctxb.Done()
+func testUpdateChannelPolicyForPrivateChannel(ht *lntemp.HarnessTest) {
+	const (
+		chanAmt     = btcutil.Amount(100000)
+		paymentAmt  = 20000
+		baseFeeMSat = 33000
+	)
 
 	// We'll create the following topology first,
 	// Alice <--public:100k--> Bob <--private:100k--> Carol
-	const chanAmt = btcutil.Amount(100000)
+	alice, bob := ht.Alice, ht.Bob
 
 	// Open a channel with 100k satoshis between Alice and Bob.
-	chanPointAliceBob := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
+	chanPointAliceBob := ht.OpenChannel(
+		alice, bob, lntemp.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
-	defer closeChannelAndAssert(t, net, net.Alice, chanPointAliceBob, false)
-
-	// Get Alice's funding point.
-	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAliceBob)
-	require.NoError(t.t, err, "unable to get txid")
-	aliceFundPoint := wire.OutPoint{
-		Hash:  *aliceChanTXID,
-		Index: chanPointAliceBob.OutputIndex,
-	}
 
 	// Create a new node Carol.
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", nil)
 
 	// Connect Carol to Bob.
-	net.ConnectNodes(t.t, carol, net.Bob)
+	ht.ConnectNodes(carol, bob)
 
 	// Open a channel with 100k satoshis between Bob and Carol.
-	chanPointBobCarol := openChannelAndAssert(
-		t, net, net.Bob, carol,
-		lntest.OpenChannelParams{
+	chanPointBobCarol := ht.OpenChannel(
+		bob, carol, lntemp.OpenChannelParams{
 			Amt:     chanAmt,
 			Private: true,
 		},
 	)
-	defer closeChannelAndAssert(t, net, net.Bob, chanPointBobCarol, false)
 
 	// Carol should be aware of the channel between Alice and Bob.
-	err = carol.WaitForNetworkChannelOpen(chanPointAliceBob)
-	require.NoError(t.t, err)
-
-	// Get Bob's funding point.
-	bobChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointBobCarol)
-	require.NoError(t.t, err, "unable to get txid")
-	bobFundPoint := wire.OutPoint{
-		Hash:  *bobChanTXID,
-		Index: chanPointBobCarol.OutputIndex,
-	}
+	ht.AssertTopologyChannelOpen(carol, chanPointAliceBob)
 
 	// We should have the following topology now,
 	// Alice <--public:100k--> Bob <--private:100k--> Carol
 	//
 	// Now we will create an invoice for Carol.
-	const paymentAmt = 20000
 	invoice := &lnrpc.Invoice{
 		Memo:    "routing hints",
 		Value:   paymentAmt,
 		Private: true,
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := carol.AddInvoice(ctxt, invoice)
-	require.NoError(t.t, err, "unable to create invoice for carol")
+	resp := carol.RPC.AddInvoice(invoice)
 
 	// Bob now updates the channel edge policy for the private channel.
-	const (
-		baseFeeMSat = 33000
-	)
 	timeLockDelta := uint32(chainreg.DefaultBitcoinTimeLockDelta)
 	updateFeeReq := &lnrpc.PolicyUpdateRequest{
 		BaseFeeMsat:   baseFeeMSat,
@@ -754,58 +726,46 @@ func testUpdateChannelPolicyForPrivateChannel(net *lntest.NetworkHarness,
 			ChanPoint: chanPointBobCarol,
 		},
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = net.Bob.UpdateChannelPolicy(ctxt, updateFeeReq)
-	require.NoError(t.t, err, "unable to update chan policy")
+	bob.RPC.UpdateChannelPolicy(updateFeeReq)
 
 	// Alice pays the invoices. She will use the updated baseFeeMSat in the
 	// payment
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	payReqs := []string{resp.PaymentRequest}
-	require.NoError(t.t,
-		completePaymentRequests(
-			net.Alice, net.Alice.RouterClient, payReqs, true,
-		), "unable to send payment",
-	)
+	ht.CompletePaymentRequests(alice, payReqs)
 
 	// Check that Alice did make the payment with two HTLCs, one failed and
 	// one succeeded.
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
-	paymentsResp, err := net.Alice.ListPayments(
-		ctxt, &lnrpc.ListPaymentsRequest{},
-	)
-	require.NoError(t.t, err, "failed to obtain payments for Alice")
-	require.Equal(t.t, 1, len(paymentsResp.Payments), "expected 1 payment")
+	payment := ht.AssertNumPayments(alice, 1)[0]
 
-	htlcs := paymentsResp.Payments[0].Htlcs
-	require.Equal(t.t, 2, len(htlcs), "expected to have 2 HTLCs")
-	require.Equal(
-		t.t, lnrpc.HTLCAttempt_FAILED, htlcs[0].Status,
-		"the first HTLC attempt should fail",
-	)
-	require.Equal(
-		t.t, lnrpc.HTLCAttempt_SUCCEEDED, htlcs[1].Status,
-		"the second HTLC attempt should succeed",
-	)
+	htlcs := payment.Htlcs
+	require.Equal(ht, 2, len(htlcs), "expected to have 2 HTLCs")
+	require.Equal(ht, lnrpc.HTLCAttempt_FAILED, htlcs[0].Status,
+		"the first HTLC attempt should fail")
+	require.Equal(ht, lnrpc.HTLCAttempt_SUCCEEDED, htlcs[1].Status,
+		"the second HTLC attempt should succeed")
 
 	// Carol should have received 20k satoshis from Bob.
-	assertAmountPaid(t, "Carol(remote) [<=private] Bob(local)",
-		carol, bobFundPoint, 0, paymentAmt)
+	ht.AssertAmountPaid("Carol(remote) [<=private] Bob(local)",
+		carol, chanPointBobCarol, 0, paymentAmt)
 
 	// Bob should have sent 20k satoshis to Carol.
-	assertAmountPaid(t, "Bob(local) [private=>] Carol(remote)",
-		net.Bob, bobFundPoint, paymentAmt, 0)
+	ht.AssertAmountPaid("Bob(local) [private=>] Carol(remote)",
+		bob, chanPointBobCarol, paymentAmt, 0)
 
 	// Calculate the amount in satoshis.
 	amtExpected := int64(paymentAmt + baseFeeMSat/1000)
 
 	// Bob should have received 20k satoshis + fee from Alice.
-	assertAmountPaid(t, "Bob(remote) <= Alice(local)",
-		net.Bob, aliceFundPoint, 0, amtExpected)
+	ht.AssertAmountPaid("Bob(remote) <= Alice(local)",
+		bob, chanPointAliceBob, 0, amtExpected)
 
 	// Alice should have sent 20k satoshis + fee to Bob.
-	assertAmountPaid(t, "Alice(local) => Bob(remote)",
-		net.Alice, aliceFundPoint, amtExpected, 0)
+	ht.AssertAmountPaid("Alice(local) => Bob(remote)",
+		alice, chanPointAliceBob, amtExpected, 0)
+
+	// Finally, close the channels.
+	ht.CloseChannel(alice, chanPointAliceBob)
+	ht.CloseChannel(bob, chanPointBobCarol)
 }
 
 // testUpdateChannelPolicyFeeRateAccuracy tests that updating the channel policy

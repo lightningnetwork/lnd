@@ -1261,21 +1261,20 @@ func (h *HarnessTest) AssertNumHTLCsAndStage(hn *node.HarnessNode,
 // findPayment queries the payment from the node's ListPayments which matches
 // the specified preimage hash.
 func (h *HarnessTest) findPayment(hn *node.HarnessNode,
-	preimage lntypes.Preimage) *lnrpc.Payment {
+	paymentHash string) *lnrpc.Payment {
 
 	req := &lnrpc.ListPaymentsRequest{IncludeIncomplete: true}
 	paymentsResp := hn.RPC.ListPayments(req)
 
-	payHash := preimage.Hash()
 	for _, p := range paymentsResp.Payments {
-		if p.PaymentHash != payHash.String() {
+		if p.PaymentHash != paymentHash {
 			continue
 		}
 
 		return p
 	}
 
-	require.Fail(h, "payment: %v not found", payHash)
+	require.Fail(h, "payment: %v not found", paymentHash)
 
 	return nil
 }
@@ -1291,7 +1290,7 @@ func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
 	var target *lnrpc.Payment
 
 	err := wait.NoError(func() error {
-		p := h.findPayment(hn, preimage)
+		p := h.findPayment(hn, preimage.Hash().String())
 		if status == p.Status {
 			target = p
 			return nil
@@ -1595,4 +1594,33 @@ func (h *HarnessTest) AssertNumPolicyUpdates(hn *node.HarnessNode,
 
 	require.NoError(h, err, "%s: timeout waiting for num of policy updates",
 		hn.Name())
+}
+
+// AssertNumPayments asserts that the number of payments made within the test
+// scope is as expected, including the incomplete ones.
+func (h *HarnessTest) AssertNumPayments(hn *node.HarnessNode,
+	num int) []*lnrpc.Payment {
+
+	// Get the number of payments we already have from the previous test.
+	have := hn.State.Payment.Total
+
+	req := &lnrpc.ListPaymentsRequest{
+		IncludeIncomplete: true,
+	}
+
+	var payments []*lnrpc.Payment
+	err := wait.NoError(func() error {
+		resp := hn.RPC.ListPayments(req)
+
+		payments = resp.Payments
+		if len(payments) == num {
+			return nil
+		}
+
+		return errNumNotMatched(hn.Name(), "num of payments",
+			num, len(payments), have+len(payments), have)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking num of payments")
+
+	return payments
 }

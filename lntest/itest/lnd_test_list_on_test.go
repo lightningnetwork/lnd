@@ -73,10 +73,6 @@ var allTestCases = []*testCase{
 		test: testListPayments,
 	},
 	{
-		name: "max pending channel",
-		test: testMaxPendingChannels,
-	},
-	{
 		name: "multi-hop payments",
 		test: testMultiHopPayments,
 	},

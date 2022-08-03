@@ -87,4 +87,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "list channels",
 		TestFunc: testListChannels,
 	},
+	{
+		Name:     "max pending channel",
+		TestFunc: testMaxPendingChannels,
+	},
 }

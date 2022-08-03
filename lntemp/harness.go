@@ -693,12 +693,10 @@ type OpenChannelParams struct {
 	ScidAlias bool
 }
 
-// OpenChannelAssertPending attempts to open a channel between srcNode and
-// destNode with the passed channel funding parameters. Once the `OpenChannel`
-// is called, it will consume the first event it receives from the open channel
-// client and asserts it's a channel pending event.
-func (h *HarnessTest) OpenChannelAssertPending(srcNode,
-	destNode *node.HarnessNode, p OpenChannelParams) rpc.OpenChanClient {
+// prepareOpenChannel waits for both nodes to be synced to chain and returns an
+// OpenChannelRequest.
+func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
+	p OpenChannelParams) *lnrpc.OpenChannelRequest {
 
 	// Wait until srcNode and destNode have the latest chain synced.
 	// Otherwise, we may run into a check within the funding manager that
@@ -714,8 +712,8 @@ func (h *HarnessTest) OpenChannelAssertPending(srcNode,
 		minConfs = 0
 	}
 
-	// Prepare the request and open the channel.
-	openReq := &lnrpc.OpenChannelRequest{
+	// Prepare the request.
+	return &lnrpc.OpenChannelRequest{
 		NodePubkey:         destNode.PubKey[:],
 		LocalFundingAmount: int64(p.Amt),
 		PushSat:            int64(p.PushAmt),
@@ -730,6 +728,17 @@ func (h *HarnessTest) OpenChannelAssertPending(srcNode,
 		ZeroConf:           p.ZeroConf,
 		ScidAlias:          p.ScidAlias,
 	}
+}
+
+// OpenChannelAssertPending attempts to open a channel between srcNode and
+// destNode with the passed channel funding parameters. Once the `OpenChannel`
+// is called, it will consume the first event it receives from the open channel
+// client and asserts it's a channel pending event.
+func (h *HarnessTest) OpenChannelAssertPending(srcNode,
+	destNode *node.HarnessNode, p OpenChannelParams) rpc.OpenChanClient {
+
+	// Prepare the request and open the channel.
+	openReq := h.prepareOpenChannel(srcNode, destNode, p)
 	respStream := srcNode.RPC.OpenChannel(openReq)
 
 	// Consume the "channel pending" update. This waits until the node
@@ -783,6 +792,24 @@ func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
 	h.WaitForBlockchainSync(bob)
 
 	return fundingChanPoint
+}
+
+// OpenChannelAssertErr opens a channel between node srcNode and destNode,
+// asserts that the expected error is returned from the channel opening.
+func (h *HarnessTest) OpenChannelAssertErr(srcNode, destNode *node.HarnessNode,
+	p OpenChannelParams, expectedErr error) {
+
+	// Prepare the request and open the channel.
+	openReq := h.prepareOpenChannel(srcNode, destNode, p)
+	respStream := srcNode.RPC.OpenChannel(openReq)
+
+	// Receive an error to be sent from the stream.
+	_, err := h.receiveOpenChannelUpdate(respStream)
+
+	// Use string comparison here as we haven't codified all the RPC errors
+	// yet.
+	require.Containsf(h, err.Error(), expectedErr.Error(), "unexpected "+
+		"error returned, want %v, got %v", expectedErr, err)
 }
 
 // CloseChannelAssertPending attempts to close the channel indicated by the

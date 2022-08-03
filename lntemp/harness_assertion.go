@@ -199,6 +199,20 @@ func (h *HarnessTest) AssertNumEdges(hn *node.HarnessNode,
 func (h *HarnessTest) ReceiveOpenChannelUpdate(
 	stream rpc.OpenChanClient) *lnrpc.OpenStatusUpdate {
 
+	update, err := h.receiveOpenChannelUpdate(stream)
+	require.NoError(h, err, "received err from open channel stream")
+
+	return update
+}
+
+// receiveOpenChannelUpdate waits until a message or an error is received on
+// the stream or the timeout is reached.
+//
+// TODO(yy): use generics to unify all receiving stream update once go@1.18 is
+// used.
+func (h *HarnessTest) receiveOpenChannelUpdate(
+	stream rpc.OpenChanClient) (*lnrpc.OpenStatusUpdate, error) {
+
 	chanMsg := make(chan *lnrpc.OpenStatusUpdate)
 	errChan := make(chan error)
 	go func() {
@@ -216,16 +230,14 @@ func (h *HarnessTest) ReceiveOpenChannelUpdate(
 	case <-time.After(DefaultTimeout):
 		require.Fail(h, "timeout", "timeout waiting for open channel "+
 			"update sent")
+		return nil, nil
 
 	case err := <-errChan:
-		require.Failf(h, "open channel stream",
-			"received err from open channel stream: %v", err)
+		return nil, err
 
 	case updateMsg := <-chanMsg:
-		return updateMsg
+		return updateMsg, nil
 	}
-
-	return nil
 }
 
 // WaitForChannelOpenEvent waits for a notification that a channel is open by

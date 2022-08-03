@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
@@ -342,7 +341,7 @@ func testListChannels(ht *lntemp.HarnessTest) {
 // testMaxPendingChannels checks that error is returned from remote peer if
 // max pending channel number was exceeded and that '--maxpendingchannels' flag
 // exists and works properly.
-func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
+func testMaxPendingChannels(ht *lntemp.HarnessTest) {
 	maxPendingChannels := lncfg.DefaultMaxPendingChannels + 1
 	amount := funding.MaxBtcFundingAmount
 
@@ -351,22 +350,23 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	args := []string{
 		fmt.Sprintf("--maxpendingchannels=%v", maxPendingChannels),
 	}
-	carol := net.NewNode(t.t, "Carol", args)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", args)
 
-	net.ConnectNodes(t.t, net.Alice, carol)
+	alice := ht.Alice
+	ht.ConnectNodes(alice, carol)
 
 	carolBalance := btcutil.Amount(maxPendingChannels) * amount
-	net.SendCoins(t.t, carolBalance, carol)
+	ht.FundCoins(carolBalance, carol)
 
 	// Send open channel requests without generating new blocks thereby
 	// increasing pool of pending channels. Then check that we can't open
 	// the channel if the number of pending channels exceed max value.
-	openStreams := make([]lnrpc.Lightning_OpenChannelClient, maxPendingChannels)
+	openStreams := make(
+		[]lnrpc.Lightning_OpenChannelClient, maxPendingChannels,
+	)
 	for i := 0; i < maxPendingChannels; i++ {
-		stream := openChannelStream(
-			t, net, net.Alice, carol,
-			lntest.OpenChannelParams{
+		stream := ht.OpenChannelAssertPending(
+			alice, carol, lntemp.OpenChannelParams{
 				Amt: amount,
 			},
 		)
@@ -375,60 +375,36 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Carol exhausted available amount of pending channels, next open
 	// channel request should cause ErrorGeneric to be sent back to Alice.
-	_, err := net.OpenChannel(
-		net.Alice, carol, lntest.OpenChannelParams{
+	ht.OpenChannelAssertErr(
+		alice, carol, lntemp.OpenChannelParams{
 			Amt: amount,
-		},
+		}, lnwire.ErrMaxPendingChannels,
 	)
-
-	if err == nil {
-		t.Fatalf("error wasn't received")
-	} else if !strings.Contains(
-		err.Error(), lnwire.ErrMaxPendingChannels.Error(),
-	) {
-
-		t.Fatalf("not expected error was received: %v", err)
-	}
 
 	// For now our channels are in pending state, in order to not interfere
 	// with other tests we should clean up - complete opening of the
 	// channel and then close it.
 
-	// Mine 6 blocks, then wait for node's to notify us that the channel has
-	// been opened. The funding transactions should be found within the
+	// Mine 6 blocks, then wait for node's to notify us that the channel
+	// has been opened. The funding transactions should be found within the
 	// first newly mined block. 6 blocks make sure the funding transaction
 	// has enough confirmations to be announced publicly.
-	block := mineBlocks(t, net, 6, maxPendingChannels)[0]
+	block := ht.MineBlocksAndAssertNumTxes(6, maxPendingChannels)[0]
 
 	chanPoints := make([]*lnrpc.ChannelPoint, maxPendingChannels)
 	for i, stream := range openStreams {
-		fundingChanPoint, err := net.WaitForChannelOpen(stream)
-		if err != nil {
-			t.Fatalf("error while waiting for channel open: %v", err)
-		}
+		fundingChanPoint := ht.WaitForChannelOpenEvent(stream)
 
-		fundingTxID, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
-		if err != nil {
-			t.Fatalf("unable to get txid: %v", err)
-		}
+		fundingTxID := ht.GetChanPointFundingTxid(fundingChanPoint)
 
 		// Ensure that the funding transaction enters a block, and is
 		// properly advertised by Alice.
-		assertTxInBlock(t, block, fundingTxID)
-		err = net.Alice.WaitForNetworkChannelOpen(fundingChanPoint)
-		if err != nil {
-			t.Fatalf("channel not seen on network before "+
-				"timeout: %v", err)
-		}
+		ht.Miner.AssertTxInBlock(block, fundingTxID)
+		ht.AssertTopologyChannelOpen(alice, fundingChanPoint)
 
 		// The channel should be listed in the peer information
 		// returned by both peers.
-		chanPoint := wire.OutPoint{
-			Hash:  *fundingTxID,
-			Index: fundingChanPoint.OutputIndex,
-		}
-		err = net.AssertChannelExists(net.Alice, &chanPoint)
-		require.NoError(t.t, err, "unable to assert channel existence")
+		ht.AssertChannelExists(alice, fundingChanPoint)
 
 		chanPoints[i] = fundingChanPoint
 	}
@@ -436,7 +412,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Next, close the channel between Alice and Carol, asserting that the
 	// channel has been properly closed on-chain.
 	for _, chanPoint := range chanPoints {
-		closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+		ht.CloseChannel(alice, chanPoint)
 	}
 }
 

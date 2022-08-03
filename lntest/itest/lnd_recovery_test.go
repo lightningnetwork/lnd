@@ -2,12 +2,14 @@ package itest
 
 import (
 	"context"
+	"fmt"
 	"math"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/lightningnetwork/lnd/aezeed"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -15,87 +17,53 @@ import (
 
 // testGetRecoveryInfo checks whether lnd gives the right information about
 // the wallet recovery process.
-func testGetRecoveryInfo(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testGetRecoveryInfo(ht *lntemp.HarnessTest) {
 	// First, create a new node with strong passphrase and grab the mnemonic
 	// used for key derivation. This will bring up Carol with an empty
 	// wallet, and such that she is synced up.
 	password := []byte("The Magic Words are Squeamish Ossifrage")
-	carol, mnemonic, _, err := net.NewNodeWithSeed(
-		"Carol", nil, password, false,
-	)
-	if err != nil {
-		t.Fatalf("unable to create node with seed; %v", err)
-	}
-
-	shutdownAndAssert(net, t, carol)
+	carol, mnemonic, _ := ht.NewNodeWithSeed("Carol", nil, password, false)
 
 	checkInfo := func(expectedRecoveryMode, expectedRecoveryFinished bool,
 		expectedProgress float64, recoveryWindow int32) {
 
 		// Restore Carol, passing in the password, mnemonic, and
 		// desired recovery window.
-		node, err := net.RestoreNodeWithSeed(
-			"Carol", nil, password, mnemonic, "", recoveryWindow,
-			nil,
+		node := ht.RestoreNodeWithSeed(
+			carol.Name(), nil, password, mnemonic, "",
+			recoveryWindow, nil,
 		)
-		if err != nil {
-			t.Fatalf("unable to restore node: %v", err)
-		}
-
-		// Wait for Carol to sync to the chain.
-		_, minerHeight, err := net.Miner.Client.GetBestBlock()
-		if err != nil {
-			t.Fatalf("unable to get current blockheight %v", err)
-		}
-		err = waitForNodeBlockHeight(node, minerHeight)
-		if err != nil {
-			t.Fatalf("unable to sync to chain: %v", err)
-		}
 
 		// Query carol for her current wallet recovery progress.
-		var (
-			recoveryMode     bool
-			recoveryFinished bool
-			progress         float64
-		)
-
-		err = wait.Predicate(func() bool {
+		err := wait.NoError(func() error {
 			// Verify that recovery info gives the right response.
-			req := &lnrpc.GetRecoveryInfoRequest{}
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			resp, err := node.GetRecoveryInfo(ctxt, req)
-			if err != nil {
-				t.Fatalf("unable to query recovery info: %v", err)
+			resp := node.RPC.GetRecoveryInfo(nil)
+
+			mode := resp.RecoveryMode
+			finished := resp.RecoveryFinished
+			progress := resp.Progress
+
+			if mode != expectedRecoveryMode {
+				return fmt.Errorf("expected recovery mode %v "+
+					"got %v", expectedRecoveryMode, mode)
+			}
+			if finished != expectedRecoveryFinished {
+				return fmt.Errorf("expected finished %v "+
+					"got %v", expectedRecoveryFinished,
+					finished)
+			}
+			if progress != expectedProgress {
+				return fmt.Errorf("expected progress %v"+
+					"got %v", expectedProgress, progress)
 			}
 
-			recoveryMode = resp.RecoveryMode
-			recoveryFinished = resp.RecoveryFinished
-			progress = resp.Progress
-
-			if recoveryMode != expectedRecoveryMode ||
-				recoveryFinished != expectedRecoveryFinished ||
-				progress != expectedProgress {
-
-				return false
-			}
-
-			return true
+			return nil
 		}, defaultTimeout)
-		if err != nil {
-			t.Fatalf("expected recovery mode to be %v, got %v, "+
-				"expected recovery finished to be %v, got %v, "+
-				"expected progress %v, got %v",
-				expectedRecoveryMode, recoveryMode,
-				expectedRecoveryFinished, recoveryFinished,
-				expectedProgress, progress,
-			)
-		}
+		require.NoError(ht, err)
 
 		// Lastly, shutdown this Carol so we can move on to the next
 		// restoration.
-		shutdownAndAssert(net, t, node)
+		ht.Shutdown(node)
 	}
 
 	// Restore Carol with a recovery window of 0. Since it's not in recovery
@@ -103,15 +71,15 @@ func testGetRecoveryInfo(net *lntest.NetworkHarness, t *harnessTest) {
 	// recoveryFinished=false, and progress=0
 	checkInfo(false, false, 0, 0)
 
-	// Change the recovery windown to be 1 to turn on recovery mode. Since the
-	// current chain height is the same as the birthday height, it should
-	// indicate the recovery process is finished.
+	// Change the recovery windown to be 1 to turn on recovery mode. Since
+	// the current chain height is the same as the birthday height, it
+	// should indicate the recovery process is finished.
 	checkInfo(true, true, 1, 1)
 
 	// We now go ahead 5 blocks. Because the wallet's syncing process is
-	// controlled by a goroutine in the background, it will catch up quickly.
-	// This makes the recovery progress back to 1.
-	mineBlocks(t, net, 5, 0)
+	// controlled by a goroutine in the background, it will catch up
+	// quickly. This makes the recovery progress back to 1.
+	ht.MineBlocks(5)
 	checkInfo(true, true, 1, 1)
 }
 

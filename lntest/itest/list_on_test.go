@@ -111,4 +111,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "abandonchannel",
 		TestFunc: testAbandonChannel,
 	},
+	{
+		Name:     "recovery info",
+		TestFunc: testGetRecoveryInfo,
+	},
 }

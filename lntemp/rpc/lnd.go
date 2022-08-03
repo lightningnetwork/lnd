@@ -381,3 +381,21 @@ func (h *HarnessRPC) VerifyMessage(msg []byte,
 
 	return resp
 }
+
+// GetRecoveryInfo uses the specified node to make a RPC call to
+// GetRecoveryInfo and asserts.
+func (h *HarnessRPC) GetRecoveryInfo(
+	req *lnrpc.GetRecoveryInfoRequest) *lnrpc.GetRecoveryInfoResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	if req == nil {
+		req = &lnrpc.GetRecoveryInfoRequest{}
+	}
+
+	resp, err := h.LN.GetRecoveryInfo(ctxt, req)
+	require.NoErrorf(h, err, "failed to GetRecoveryInfo")
+
+	return resp
+}

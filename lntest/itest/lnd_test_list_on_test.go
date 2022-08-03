@@ -5,10 +5,6 @@ package itest
 
 var allTestCases = []*testCase{
 	{
-		name: "recovery info",
-		test: testGetRecoveryInfo,
-	},
-	{
 		name: "onchain fund recovery",
 		test: testOnchainFundRecovery,
 	},

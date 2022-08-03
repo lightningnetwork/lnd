@@ -218,31 +218,27 @@ func basicChannelFundingTest(ht *lntemp.HarnessTest,
 
 // testUnconfirmedChannelFunding tests that our unconfirmed change outputs can
 // be used to fund channels.
-func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
+func testUnconfirmedChannelFunding(ht *lntemp.HarnessTest) {
 	const (
 		chanAmt = funding.MaxBtcFundingAmount
 		pushAmt = btcutil.Amount(100000)
 	)
 
 	// We'll start off by creating a node for Carol.
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", nil)
 
-	// We'll send her some confirmed funds.
-	net.SendCoinsUnconfirmed(t.t, chanAmt*2, carol)
+	alice := ht.Alice
 
-	// Make sure the unconfirmed tx is seen in the mempool.
-	_, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
-	require.NoError(t.t, err, "failed to find tx in miner mempool")
+	// We'll send her some unconfirmed funds.
+	ht.FundCoinsUnconfirmed(2*chanAmt, carol)
 
 	// Now, we'll connect her to Alice so that they can open a channel
 	// together. The funding flow should select Carol's unconfirmed output
 	// as she doesn't have any other funds since it's a new node.
-	net.ConnectNodes(t.t, carol, net.Alice)
+	ht.ConnectNodes(carol, alice)
 
-	chanOpenUpdate := openChannelStream(
-		t, net, carol, net.Alice,
-		lntest.OpenChannelParams{
+	chanOpenUpdate := ht.OpenChannelAssertPending(
+		carol, alice, lntemp.OpenChannelParams{
 			Amt:              chanAmt,
 			PushAmt:          pushAmt,
 			SpendUnconfirmed: true,
@@ -251,7 +247,7 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Creates a helper closure to be used below which asserts the proper
 	// response to a channel balance RPC.
-	checkChannelBalance := func(node *lntest.HarnessNode,
+	checkChannelBalance := func(node *node.HarnessNode,
 		local, remote, pendingLocal, pendingRemote btcutil.Amount) {
 
 		expectedResponse := &lnrpc.ChannelBalanceResponse{
@@ -285,7 +281,7 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 			Balance:            int64(local),
 			PendingOpenBalance: int64(pendingLocal),
 		}
-		assertChannelBalanceResp(t, node, expectedResponse)
+		ht.AssertChannelBalanceResp(node, expectedResponse)
 	}
 
 	// As the channel is pending open, it's expected Carol has both zero
@@ -300,22 +296,37 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// For Alice, her local/remote balances should be zero, and the
 	// local/remote balances are the mirror of Carol's.
-	checkChannelBalance(net.Alice, 0, 0, pushAmt, carolLocalBalance)
+	checkChannelBalance(alice, 0, 0, pushAmt, carolLocalBalance)
 
 	// Confirm the channel and wait for it to be recognized by both
-	// parties. Two transactions should be mined, the unconfirmed spend and
-	// the funding tx.
-	mineBlocks(t, net, 6, 2)
-	chanPoint, err := net.WaitForChannelOpen(chanOpenUpdate)
-	require.NoError(t.t, err, "error while waitinng for channel open")
+	// parties. For neutrino backend, the funding transaction should be
+	// mined. Otherwise, two transactions should be mined, the unconfirmed
+	// spend and the funding tx.
+	if ht.IsNeutrinoBackend() {
+		ht.MineBlocksAndAssertNumTxes(6, 1)
+	} else {
+		ht.MineBlocksAndAssertNumTxes(6, 2)
+	}
+
+	chanPoint := ht.WaitForChannelOpenEvent(chanOpenUpdate)
 
 	// With the channel open, we'll check the balances on each side of the
 	// channel as a sanity check to ensure things worked out as intended.
 	checkChannelBalance(carol, carolLocalBalance, pushAmt, 0, 0)
-	checkChannelBalance(net.Alice, pushAmt, carolLocalBalance, 0, 0)
+	checkChannelBalance(alice, pushAmt, carolLocalBalance, 0, 0)
+
+	// TODO(yy): remove the sleep once the following bug is fixed.
+	//
+	// We may get the error `unable to gracefully close channel while peer
+	// is offline (try force closing it instead): channel link not found`.
+	// This happens because the channel link hasn't been added yet but we
+	// now proceed to closing the channel. We may need to revisit how the
+	// channel open event is created and make sure the event is only sent
+	// after all relevant states have been updated.
+	time.Sleep(2 * time.Second)
 
 	// Now that we're done with the test, the channel can be closed.
-	closeChannelAndAssert(t, net, carol, chanPoint, false)
+	ht.CloseChannel(carol, chanPoint)
 }
 
 // testChannelFundingInputTypes tests that any type of supported input type can

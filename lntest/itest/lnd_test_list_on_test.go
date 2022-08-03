@@ -260,10 +260,6 @@ var allTestCases = []*testCase{
 		test: testMaxChannelSize,
 	},
 	{
-		name: "connection timeout",
-		test: testNetworkConnectionTimeout,
-	},
-	{
 		name: "stateless init",
 		test: testStatelessInit,
 	},

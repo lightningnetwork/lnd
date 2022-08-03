@@ -98,6 +98,18 @@ func (h *HarnessRPC) ConnectPeer(
 	return resp
 }
 
+// ConnectPeerAssertErr makes a RPC call to ConnectPeer and asserts an error
+// returned.
+func (h *HarnessRPC) ConnectPeerAssertErr(req *lnrpc.ConnectPeerRequest) error {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.ConnectPeer(ctxt, req)
+	require.Error(h, err, "expected an error from ConnectPeer")
+
+	return err
+}
+
 // ListChannels list the channels for the given node and asserts it's
 // successful.
 func (h *HarnessRPC) ListChannels(

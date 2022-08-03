@@ -151,4 +151,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "update channel policy fee rate accuracy",
 		TestFunc: testUpdateChannelPolicyFeeRateAccuracy,
 	},
+	{
+		Name:     "connection timeout",
+		TestFunc: testNetworkConnectionTimeout,
+	},
 }

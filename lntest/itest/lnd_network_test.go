@@ -10,21 +10,21 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
 
 // testNetworkConnectionTimeout checks that the connectiontimeout is taking
-// effect. It creates a node with a small connection timeout value, and connects
-// it to a non-routable IP address.
-func testNetworkConnectionTimeout(net *lntest.NetworkHarness, t *harnessTest) {
+// effect. It creates a node with a small connection timeout value, and
+// connects it to a non-routable IP address.
+func testNetworkConnectionTimeout(ht *lntemp.HarnessTest) {
 	var (
-		ctxt, _ = context.WithTimeout(
-			context.Background(), defaultTimeout,
-		)
 		// testPub is a random public key for testing only.
 		testPub = "0332bda7da70fefe4b6ab92f53b3c4f4ee7999" +
 			"f312284a8e89c8670bb3f67dbee2"
+
 		// testHost is a non-routable IP address. It's used to cause a
 		// connection timeout.
 		testHost = "10.255.255.255"
@@ -32,8 +32,7 @@ func testNetworkConnectionTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// First, test the global timeout settings.
 	// Create Carol with a connection timeout of 1 millisecond.
-	carol := net.NewNode(t.t, "Carol", []string{"--connectiontimeout=1ms"})
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", []string{"--connectiontimeout=1ms"})
 
 	// Try to connect Carol to a non-routable IP address, which should give
 	// us a timeout error.
@@ -43,12 +42,27 @@ func testNetworkConnectionTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 			Host:   testHost,
 		},
 	}
-	assertTimeoutError(ctxt, t, carol, req)
+
+	// assertTimeoutError asserts that a connection timeout error is
+	// raised. A context with a default timeout is used to make the
+	// request. If our customized connection timeout is less than the
+	// default, we won't see the request context times out, instead a
+	// network connection timeout will be returned.
+	assertTimeoutError := func(hn *node.HarnessNode,
+		req *lnrpc.ConnectPeerRequest) {
+
+		err := hn.RPC.ConnectPeerAssertErr(req)
+
+		// Check that the network returns a timeout error.
+		require.Containsf(ht, err.Error(), "i/o timeout",
+			"expected to get a timeout error, instead got: %v", err)
+	}
+
+	assertTimeoutError(carol, req)
 
 	// Second, test timeout on the connect peer request.
 	// Create Dave with the default timeout setting.
-	dave := net.NewNode(t.t, "Dave", nil)
-	defer shutdownAndAssert(net, t, dave)
+	dave := ht.NewNode("Dave", nil)
 
 	// Try to connect Dave to a non-routable IP address, using a timeout
 	// value of 1ms, which should give us a timeout error immediately.
@@ -59,7 +73,7 @@ func testNetworkConnectionTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 		Timeout: 1,
 	}
-	assertTimeoutError(ctxt, t, dave, req)
+	assertTimeoutError(dave, req)
 }
 
 // testReconnectAfterIPChange verifies that if a persistent inbound node changes
@@ -227,28 +241,6 @@ func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 	// address to one not listed in Dave's original advertised list of
 	// addresses.
 	assertConnected(t, dave, charlie)
-}
-
-// assertTimeoutError asserts that a connection timeout error is raised. A
-// context with a default timeout is used to make the request. If our customized
-// connection timeout is less than the default, we won't see the request context
-// times out, instead a network connection timeout will be returned.
-func assertTimeoutError(ctxt context.Context, t *harnessTest,
-	node *lntest.HarnessNode, req *lnrpc.ConnectPeerRequest) {
-
-	t.t.Helper()
-
-	err := connect(ctxt, node, req)
-
-	// a DeadlineExceeded error will appear in the context if the above
-	// ctxtTimeout value is reached.
-	require.NoError(t.t, ctxt.Err(), "context time out")
-
-	// Check that the network returns a timeout error.
-	require.Containsf(
-		t.t, err.Error(), "i/o timeout",
-		"expected to get a timeout error, instead got: %v", err,
-	)
 }
 
 func connect(ctxt context.Context, node *lntest.HarnessNode,

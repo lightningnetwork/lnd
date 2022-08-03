@@ -405,3 +405,30 @@ func (h *HarnessRPC) GetRecoveryInfo(
 
 	return resp
 }
+
+// BatchOpenChannel makes a RPC call to BatchOpenChannel and asserts.
+func (h *HarnessRPC) BatchOpenChannel(
+	req *lnrpc.BatchOpenChannelRequest) *lnrpc.BatchOpenChannelResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.BatchOpenChannel(ctxt, req)
+	require.NoErrorf(h, err, "failed to batch open channel")
+
+	return resp
+}
+
+// BatchOpenChannelAssertErr makes a RPC call to BatchOpenChannel and asserts
+// there's an error returned.
+func (h *HarnessRPC) BatchOpenChannelAssertErr(
+	req *lnrpc.BatchOpenChannelRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.BatchOpenChannel(ctxt, req)
+	require.Error(h, err, "expecte batch open channel fail")
+
+	return err
+}

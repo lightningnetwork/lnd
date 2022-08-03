@@ -228,10 +228,6 @@ var allTestCases = []*testCase{
 		test: testSignPsbt,
 	},
 	{
-		name: "batch channel funding",
-		test: testBatchChanFunding,
-	},
-	{
 		name: "psbt channel funding single step",
 		test: testPsbtChanFundingSingleStep,
 	},

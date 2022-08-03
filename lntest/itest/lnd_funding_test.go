@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -16,7 +15,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -680,23 +678,20 @@ func testChannelFundingPersistence(ht *lntemp.HarnessTest) {
 
 // testBatchChanFunding makes sure multiple channels can be opened in one batch
 // transaction in an atomic way.
-func testBatchChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testBatchChanFunding(ht *lntemp.HarnessTest) {
 	// First, we'll create two new nodes that we'll use to open channels
 	// to during this test. Carol has a high minimum funding amount that
 	// we'll use to trigger an error during the batch channel open.
-	carol := net.NewNode(t.t, "carol", []string{"--minchansize=200000"})
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("carol", []string{"--minchansize=200000"})
+	dave := ht.NewNode("dave", nil)
 
-	dave := net.NewNode(t.t, "dave", nil)
-	defer shutdownAndAssert(net, t, dave)
+	alice, bob := ht.Alice, ht.Bob
 
 	// Before we start the test, we'll ensure Alice is connected to Carol
 	// and Dave so she can open channels to both of them (and Bob).
-	net.EnsureConnected(t.t, net.Alice, net.Bob)
-	net.EnsureConnected(t.t, net.Alice, carol)
-	net.EnsureConnected(t.t, net.Alice, dave)
+	ht.EnsureConnected(alice, bob)
+	ht.EnsureConnected(alice, carol)
+	ht.EnsureConnected(alice, dave)
 
 	// Let's create our batch TX request. This first one should fail as we
 	// open a channel to Carol that is too small for her min chan size.
@@ -704,7 +699,7 @@ func testBatchChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		SatPerVbyte: 12,
 		MinConfs:    1,
 		Channels: []*lnrpc.BatchOpenChannel{{
-			NodePubkey:         net.Bob.PubKey[:],
+			NodePubkey:         bob.PubKey[:],
 			LocalFundingAmount: 100_000,
 		}, {
 			NodePubkey:         carol.PubKey[:],
@@ -715,22 +710,16 @@ func testBatchChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		}},
 	}
 
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	_, err := net.Alice.BatchOpenChannel(ctxt, batchReq)
-	require.Error(t.t, err)
-	require.Contains(t.t, err.Error(), "initial negotiation failed")
+	err := alice.RPC.BatchOpenChannelAssertErr(batchReq)
+	require.Contains(ht, err.Error(), "initial negotiation failed")
 
-	// Let's fix the minimum amount for Carol now and try again.
+	// Let's fix the minimum amount for Alice now and try again.
 	batchReq.Channels[1].LocalFundingAmount = 200_000
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	batchResp, err := net.Alice.BatchOpenChannel(ctxt, batchReq)
-	require.NoError(t.t, err)
-	require.Len(t.t, batchResp.PendingChannels, 3)
+	batchResp := alice.RPC.BatchOpenChannel(batchReq)
+	require.Len(ht, batchResp.PendingChannels, 3)
 
 	txHash, err := chainhash.NewHash(batchResp.PendingChannels[0].Txid)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	chanPoint1 := &lnrpc.ChannelPoint{
 		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
@@ -751,23 +740,16 @@ func testBatchChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		OutputIndex: batchResp.PendingChannels[2].OutputIndex,
 	}
 
-	block := mineBlocks(t, net, 6, 1)[0]
-	assertTxInBlock(t, block, txHash)
-	err = net.Alice.WaitForNetworkChannelOpen(chanPoint1)
-	require.NoError(t.t, err)
-	err = net.Alice.WaitForNetworkChannelOpen(chanPoint2)
-	require.NoError(t.t, err)
-	err = net.Alice.WaitForNetworkChannelOpen(chanPoint3)
-	require.NoError(t.t, err)
+	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
+	ht.Miner.AssertTxInBlock(block, txHash)
+	ht.AssertTopologyChannelOpen(alice, chanPoint1)
+	ht.AssertTopologyChannelOpen(alice, chanPoint2)
+	ht.AssertTopologyChannelOpen(alice, chanPoint3)
 
-	// With the channel open, ensure that it is counted towards Carol's
+	// With the channel open, ensure that it is counted towards Alice's
 	// total channel balance.
-	balReq := &lnrpc.ChannelBalanceRequest{}
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	balRes, err := net.Alice.ChannelBalance(ctxt, balReq)
-	require.NoError(t.t, err)
-	require.NotEqual(t.t, int64(0), balRes.LocalBalance.Sat)
+	balRes := alice.RPC.ChannelBalance()
+	require.NotEqual(ht, int64(0), balRes.LocalBalance.Sat)
 
 	// Next, to make sure the channel functions as normal, we'll make some
 	// payments within the channel.
@@ -776,23 +758,16 @@ func testBatchChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		Memo:  "new chans",
 		Value: int64(payAmt),
 	}
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	resp, err := carol.AddInvoice(ctxt, invoice)
-	require.NoError(t.t, err)
-	err = completePaymentRequests(
-		net.Alice, net.Alice.RouterClient,
-		[]string{resp.PaymentRequest}, true,
-	)
-	require.NoError(t.t, err)
+	resp := carol.RPC.AddInvoice(invoice)
+	ht.CompletePaymentRequests(alice, []string{resp.PaymentRequest})
 
 	// To conclude, we'll close the newly created channel between Carol and
 	// Dave. This function will also block until the channel is closed and
 	// will additionally assert the relevant channel closing post
 	// conditions.
-	closeChannelAndAssert(t, net, net.Alice, chanPoint1, false)
-	closeChannelAndAssert(t, net, net.Alice, chanPoint2, false)
-	closeChannelAndAssert(t, net, net.Alice, chanPoint3, false)
+	ht.CloseChannel(alice, chanPoint1)
+	ht.CloseChannel(alice, chanPoint2)
+	ht.CloseChannel(alice, chanPoint3)
 }
 
 // deriveFundingShim creates a channel funding shim by deriving the necessary

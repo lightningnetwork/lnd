@@ -1,13 +1,9 @@
 package itest
 
 import (
-	"context"
 	"fmt"
-	network "net"
-	"strings"
-	"time"
+	"net"
 
-	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
@@ -212,75 +208,33 @@ func testReconnectAfterIPChange(ht *lntemp.HarnessTest) {
 	ht.CloseChannel(alice, chanPoint)
 }
 
-func connect(ctxt context.Context, node *lntest.HarnessNode,
-	req *lnrpc.ConnectPeerRequest) error {
-
-	syncTimeout := time.After(15 * time.Second)
-	ticker := time.NewTicker(time.Millisecond * 100)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			_, err := node.ConnectPeer(ctxt, req)
-			// If there's no error, return nil
-			if err == nil {
-				return err
-			}
-			// If the error is no ErrServerNotActive, return it.
-			// Otherwise, we will retry until timeout.
-			if !strings.Contains(err.Error(),
-				lnd.ErrServerNotActive.Error()) {
-
-				return err
-			}
-		case <-syncTimeout:
-			return fmt.Errorf("chain backend did not " +
-				"finish syncing")
-		}
-	}
-	return nil
-}
-
 // testAddPeerConfig tests that the "--addpeer" config flag successfully adds
 // a new peer.
-func testAddPeerConfig(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	alice := net.Alice
-	info, err := alice.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
-	require.NoError(t.t, err)
+func testAddPeerConfig(ht *lntemp.HarnessTest) {
+	alice := ht.Alice
+	info := alice.RPC.GetInfo()
 
 	alicePeerAddress := info.Uris[0]
 
 	// Create a new node (Carol) with Alice as a peer.
-	args := []string{
-		fmt.Sprintf("--addpeer=%v", alicePeerAddress),
-	}
-	carol := net.NewNode(t.t, "Carol", args)
-	defer shutdownAndAssert(net, t, carol)
+	args := []string{fmt.Sprintf("--addpeer=%v", alicePeerAddress)}
+	carol := ht.NewNode("Carol", args)
 
-	assertConnected(t, alice, carol)
+	ht.EnsureConnected(alice, carol)
 
 	// If we list Carol's peers, Alice should already be
 	// listed as one, since we specified her using the
 	// addpeer flag.
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	listPeersRequest := &lnrpc.ListPeersRequest{}
-	listPeersResp, err := carol.ListPeers(ctxt, listPeersRequest)
-	require.NoError(t.t, err)
+	listPeersResp := carol.RPC.ListPeers()
 
 	parsedPeerAddr, err := lncfg.ParseLNAddressString(
-		alicePeerAddress, "9735", network.ResolveTCPAddr,
+		alicePeerAddress, "9735", net.ResolveTCPAddr,
 	)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	parsedKeyStr := fmt.Sprintf(
 		"%x", parsedPeerAddr.IdentityKey.SerializeCompressed(),
 	)
 
-	require.Equal(t.t, parsedKeyStr, listPeersResp.Peers[0].PubKey)
+	require.Equal(ht, parsedKeyStr, listPeersResp.Peers[0].PubKey)
 }

@@ -159,4 +159,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "reconnect after ip change",
 		TestFunc: testReconnectAfterIPChange,
 	},
+	{
+		Name:     "addpeer config",
+		TestFunc: testAddPeerConfig,
+	},
 }

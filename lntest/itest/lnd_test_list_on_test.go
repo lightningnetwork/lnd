@@ -296,10 +296,6 @@ var allTestCases = []*testCase{
 		test: testTaproot,
 	},
 	{
-		name: "addpeer config",
-		test: testAddPeerConfig,
-	},
-	{
 		name: "resolution handoff",
 		test: testResHandoff,
 	},

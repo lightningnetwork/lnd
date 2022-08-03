@@ -115,4 +115,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "recovery info",
 		TestFunc: testGetRecoveryInfo,
 	},
+	{
+		Name:     "onchain fund recovery",
+		TestFunc: testOnchainFundRecovery,
+	},
 }

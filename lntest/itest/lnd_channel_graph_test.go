@@ -222,106 +222,39 @@ func testUpdateChanStatus(ht *lntemp.HarnessTest) {
 
 // testUnannouncedChannels checks unannounced channels are not returned by
 // describeGraph RPC request unless explicitly asked for.
-func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testUnannouncedChannels(ht *lntemp.HarnessTest) {
 	amount := funding.MaxBtcFundingAmount
+	alice, bob := ht.Alice, ht.Bob
 
 	// Open a channel between Alice and Bob, ensuring the
 	// channel has been opened properly.
-	chanOpenUpdate := openChannelStream(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
-			Amt: amount,
-		},
+	chanOpenUpdate := ht.OpenChannelAssertStream(
+		alice, bob, lntemp.OpenChannelParams{Amt: amount},
 	)
 
 	// Mine 2 blocks, and check that the channel is opened but not yet
 	// announced to the network.
-	mineBlocks(t, net, 2, 1)
+	ht.MineBlocksAndAssertNumTxes(2, 1)
 
 	// One block is enough to make the channel ready for use, since the
 	// nodes have defaultNumConfs=1 set.
-	fundingChanPoint, err := net.WaitForChannelOpen(chanOpenUpdate)
-	if err != nil {
-		t.Fatalf("error while waiting for channel open: %v", err)
-	}
+	fundingChanPoint := ht.WaitForChannelOpenEvent(chanOpenUpdate)
 
 	// Alice should have 1 edge in her graph.
-	req := &lnrpc.ChannelGraphRequest{
-		IncludeUnannounced: true,
-	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	chanGraph, err := net.Alice.DescribeGraph(ctxt, req)
-	if err != nil {
-		t.Fatalf("unable to query alice's graph: %v", err)
-	}
-
-	numEdges := len(chanGraph.Edges)
-	if numEdges != 1 {
-		t.Fatalf("expected to find 1 edge in the graph, found %d", numEdges)
-	}
+	ht.AssertNumEdges(alice, 1, true)
 
 	// Channels should not be announced yet, hence Alice should have no
 	// announced edges in her graph.
-	req.IncludeUnannounced = false
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	chanGraph, err = net.Alice.DescribeGraph(ctxt, req)
-	if err != nil {
-		t.Fatalf("unable to query alice's graph: %v", err)
-	}
-
-	numEdges = len(chanGraph.Edges)
-	if numEdges != 0 {
-		t.Fatalf("expected to find 0 announced edges in the graph, found %d",
-			numEdges)
-	}
+	ht.AssertNumEdges(alice, 0, false)
 
 	// Mine 4 more blocks, and check that the channel is now announced.
-	mineBlocks(t, net, 4, 0)
+	ht.MineBlocks(4)
 
 	// Give the network a chance to learn that auth proof is confirmed.
-	var predErr error
-	err = wait.Predicate(func() bool {
-		// The channel should now be announced. Check that Alice has 1
-		// announced edge.
-		req.IncludeUnannounced = false
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		chanGraph, err = net.Alice.DescribeGraph(ctxt, req)
-		if err != nil {
-			predErr = fmt.Errorf("unable to query alice's graph: %v", err)
-			return false
-		}
-
-		numEdges = len(chanGraph.Edges)
-		if numEdges != 1 {
-			predErr = fmt.Errorf("expected to find 1 announced edge in "+
-				"the graph, found %d", numEdges)
-			return false
-		}
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("%v", predErr)
-	}
-
-	// The channel should now be announced. Check that Alice has 1 announced
-	// edge.
-	req.IncludeUnannounced = false
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	chanGraph, err = net.Alice.DescribeGraph(ctxt, req)
-	if err != nil {
-		t.Fatalf("unable to query alice's graph: %v", err)
-	}
-
-	numEdges = len(chanGraph.Edges)
-	if numEdges != 1 {
-		t.Fatalf("expected to find 1 announced edge in the graph, found %d",
-			numEdges)
-	}
+	ht.AssertNumEdges(alice, 1, false)
 
 	// Close the channel used during the test.
-	closeChannelAndAssert(t, net, net.Alice, fundingChanPoint, false)
+	ht.CloseChannel(alice, fundingChanPoint)
 }
 
 func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) {

@@ -163,4 +163,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "addpeer config",
 		TestFunc: testAddPeerConfig,
 	},
+	{
+		Name:     "unannounced channels",
+		TestFunc: testUnannouncedChannels,
+	},
 }

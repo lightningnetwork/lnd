@@ -53,10 +53,6 @@ var allTestCases = []*testCase{
 		test: testSendToRouteErrorPropagation,
 	},
 	{
-		name: "unannounced channels",
-		test: testUnannouncedChannels,
-	},
-	{
 		name: "private channels",
 		test: testPrivateChannels,
 	},

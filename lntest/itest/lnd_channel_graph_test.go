@@ -370,17 +370,15 @@ func testGraphTopologyNtfns(ht *lntemp.HarnessTest, pinned bool) {
 // testNodeAnnouncement ensures that when a node is started with one or more
 // external IP addresses specified on the command line, that those addresses
 // announced to the network and reported in the network graph.
-func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	aliceSub := subscribeGraphNotifications(ctxb, t, net.Alice)
-	defer close(aliceSub.quit)
+func testNodeAnnouncement(ht *lntemp.HarnessTest) {
+	alice, bob := ht.Alice, ht.Bob
 
 	advertisedAddrs := []string{
 		"192.168.1.1:8333",
 		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337",
 		"bkb6azqggsaiskzi.onion:9735",
-		"fomvuglh6h6vcag73xo5t5gv56ombih3zr2xvplkpbfd7wrog4swjwid.onion:1234",
+		"fomvuglh6h6vcag73xo5t5gv56ombih3zr2xvplkpbfd7wrog4swj" +
+			"wid.onion:1234",
 	}
 
 	var lndArgs []string
@@ -388,29 +386,17 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 		lndArgs = append(lndArgs, "--externalip="+addr)
 	}
 
-	dave := net.NewNode(t.t, "Dave", lndArgs)
-	defer shutdownAndAssert(net, t, dave)
+	dave := ht.NewNode("Dave", lndArgs)
 
 	// We must let Dave have an open channel before he can send a node
 	// announcement, so we open a channel with Bob,
-	net.ConnectNodes(t.t, net.Bob, dave)
-
-	// Alice shouldn't receive any new updates yet since the channel has yet
-	// to be opened.
-	select {
-	case <-aliceSub.updateChan:
-		t.Fatalf("received unexpected update from dave")
-	case <-time.After(time.Second):
-	}
+	ht.ConnectNodes(bob, dave)
 
 	// We'll then go ahead and open a channel between Bob and Dave. This
 	// ensures that Alice receives the node announcement from Bob as part of
 	// the announcement broadcast.
-	chanPoint := openChannelAndAssert(
-		t, net, net.Bob, dave,
-		lntest.OpenChannelParams{
-			Amt: 1000000,
-		},
+	chanPoint := ht.OpenChannel(
+		bob, dave, lntemp.OpenChannelParams{Amt: 1000000},
 	)
 
 	assertAddrs := func(addrsFound []string, targetAddrs ...string) {
@@ -420,45 +406,20 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 
 		for _, addr := range targetAddrs {
-			if _, ok := addrs[addr]; !ok {
-				t.Fatalf("address %v not found in node "+
-					"announcement", addr)
-			}
+			_, ok := addrs[addr]
+			require.True(ht, ok, "address %v not found in node "+
+				"announcement", addr)
 		}
 	}
-
-	waitForAddrsInUpdate := func(graphSub graphSubscription,
-		nodePubKey string, targetAddrs ...string) {
-
-		for {
-			select {
-			case graphUpdate := <-graphSub.updateChan:
-				for _, update := range graphUpdate.NodeUpdates {
-					if update.IdentityKey == nodePubKey {
-						assertAddrs(
-							update.Addresses, // nolint:staticcheck
-							targetAddrs...,
-						)
-						return
-					}
-				}
-			case err := <-graphSub.errChan:
-				t.Fatalf("unable to recv graph update: %v", err)
-			case <-time.After(defaultTimeout):
-				t.Fatalf("did not receive node ann update")
-			}
-		}
-	}
-
 	// We'll then wait for Alice to receive Dave's node announcement
 	// including the expected advertised addresses from Bob since they
 	// should already be connected.
-	waitForAddrsInUpdate(
-		aliceSub, dave.PubKeyStr, advertisedAddrs...,
-	)
+	allUpdates := ht.AssertNumNodeAnns(alice, dave.PubKeyStr, 1)
+	nodeUpdate := allUpdates[len(allUpdates)-1]
+	assertAddrs(nodeUpdate.Addresses, advertisedAddrs...)
 
 	// Close the channel between Bob and Dave.
-	closeChannelAndAssert(t, net, net.Bob, chanPoint, false)
+	ht.CloseChannel(bob, chanPoint)
 }
 
 // graphSubscription houses the proxied update and error chans for a node's

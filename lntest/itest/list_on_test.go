@@ -171,4 +171,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "graph topology notifications",
 		TestFunc: testGraphTopologyNotifications,
 	},
+	{
+		Name:     "node announcement",
+		TestFunc: testNodeAnnouncement,
+	},
 }

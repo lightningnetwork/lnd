@@ -72,11 +72,6 @@ var allTestCases = []*testCase{
 		name: "multi-hop htlc error propagation",
 		test: testHtlcErrorPropagation,
 	},
-	// TODO(roasbeef): multi-path integration test
-	{
-		name: "node announcement",
-		test: testNodeAnnouncement,
-	},
 	{
 		name: "derive shared key",
 		test: testDeriveSharedKey,

@@ -147,4 +147,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "private channel update policy",
 		TestFunc: testUpdateChannelPolicyForPrivateChannel,
 	},
+	{
+		Name:     "update channel policy fee rate accuracy",
+		TestFunc: testUpdateChannelPolicyFeeRateAccuracy,
+	},
 }

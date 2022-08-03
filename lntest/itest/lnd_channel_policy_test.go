@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"time"
@@ -771,24 +770,21 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntemp.HarnessTest) {
 // testUpdateChannelPolicyFeeRateAccuracy tests that updating the channel policy
 // rounds fee rate values correctly as well as setting fee rate with ppm works
 // as expected.
-func testUpdateChannelPolicyFeeRateAccuracy(net *lntest.NetworkHarness,
-	t *harnessTest) {
-
+func testUpdateChannelPolicyFeeRateAccuracy(ht *lntemp.HarnessTest) {
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := chanAmt / 2
 
 	// Create a channel Alice -> Bob.
-	chanPoint := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
+	alice, bob := ht.Alice, ht.Bob
+	chanPoint := ht.OpenChannel(
+		alice, bob, lntemp.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 		},
 	)
-	defer closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 
 	// Nodes that we need to make sure receive the channel updates.
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob}
+	nodes := []*node.HarnessNode{alice, bob}
 
 	baseFee := int64(1500)
 	timeLockDelta := uint32(66)
@@ -823,17 +819,10 @@ func testUpdateChannelPolicyFeeRateAccuracy(net *lntest.NetworkHarness,
 			ChanPoint: chanPoint,
 		},
 	}
-
-	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if _, err := net.Alice.UpdateChannelPolicy(ctxt, req); err != nil {
-		t.Fatalf("unable to get alice's balance: %v", err)
-	}
+	alice.RPC.UpdateChannelPolicy(req)
 
 	// Make sure that both Alice and Bob sees the same policy after update.
-	assertPolicyUpdate(
-		t, nodes, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
-	)
+	assertNodesPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint)
 
 	// Now use the new PPM feerate field and make sure that the feerate is
 	// correctly set.
@@ -842,15 +831,12 @@ func testUpdateChannelPolicyFeeRateAccuracy(net *lntest.NetworkHarness,
 	req.FeeRatePpm = feeRatePPM
 	expectedPolicy.FeeRateMilliMsat = int64(feeRatePPM)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if _, err := net.Alice.UpdateChannelPolicy(ctxt, req); err != nil {
-		t.Fatalf("unable to get alice's balance: %v", err)
-	}
+	alice.RPC.UpdateChannelPolicy(req)
 
 	// Make sure that both Alice and Bob sees the same policy after update.
-	assertPolicyUpdate(
-		t, nodes, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
-	)
+	assertNodesPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint)
+
+	ht.CloseChannel(alice, chanPoint)
 }
 
 // assertNodesPolicyUpdate checks that a given policy update has been received

@@ -126,10 +126,6 @@ var allTestCases = []*testCase{
 		test: testNodeAnnouncement,
 	},
 	{
-		name: "node sign verify",
-		test: testNodeSignVerify,
-	},
-	{
 		name: "derive shared key",
 		test: testDeriveSharedKey,
 	},

@@ -99,4 +99,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "reject onward htlc",
 		TestFunc: testRejectHTLC,
 	},
+	{
+		Name:     "node sign verify",
+		TestFunc: testNodeSignVerify,
+	},
 }

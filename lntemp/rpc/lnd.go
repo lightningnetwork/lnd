@@ -355,3 +355,29 @@ func (h *HarnessRPC) GetTransactions() *lnrpc.TransactionDetails {
 
 	return resp
 }
+
+// SignMessage makes a RPC call to node's SignMessage and asserts.
+func (h *HarnessRPC) SignMessage(msg []byte) *lnrpc.SignMessageResponse {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.SignMessageRequest{Msg: msg}
+	resp, err := h.LN.SignMessage(ctxt, req)
+	require.NoErrorf(h, err, "SignMessage rpc call failed")
+
+	return resp
+}
+
+// VerifyMessage makes a RPC call to node's VerifyMessage and asserts.
+func (h *HarnessRPC) VerifyMessage(msg []byte,
+	sig string) *lnrpc.VerifyMessageResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.VerifyMessageRequest{Msg: msg, Signature: sig}
+	resp, err := h.LN.VerifyMessage(ctxt, req)
+	require.NoErrorf(h, err, "VerifyMessage failed")
+
+	return resp
+}

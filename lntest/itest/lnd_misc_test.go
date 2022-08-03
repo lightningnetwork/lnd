@@ -624,78 +624,50 @@ func testRejectHTLC(ht *lntemp.HarnessTest) {
 	ht.CloseChannel(carol, chanPointCarol)
 }
 
-func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+// testNodeSignVerify checks that only connected nodes are allowed to perform
+// signing and verifying messages.
+func testNodeSignVerify(ht *lntemp.HarnessTest) {
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
+	alice, bob := ht.Alice, ht.Bob
 
 	// Create a channel between alice and bob.
-	aliceBobCh := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
+	aliceBobCh := ht.OpenChannel(
+		alice, bob, lntemp.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 		},
 	)
 
-	aliceMsg := []byte("alice msg")
-
 	// alice signs "alice msg" and sends her signature to bob.
-	sigReq := &lnrpc.SignMessageRequest{Msg: aliceMsg}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	sigResp, err := net.Alice.SignMessage(ctxt, sigReq)
-	if err != nil {
-		t.Fatalf("SignMessage rpc call failed: %v", err)
-	}
+	aliceMsg := []byte("alice msg")
+	sigResp := alice.RPC.SignMessage(aliceMsg)
 	aliceSig := sigResp.Signature
 
-	// bob verifying alice's signature should succeed since alice and bob are
-	// connected.
-	verifyReq := &lnrpc.VerifyMessageRequest{Msg: aliceMsg, Signature: aliceSig}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	verifyResp, err := net.Bob.VerifyMessage(ctxt, verifyReq)
-	if err != nil {
-		t.Fatalf("VerifyMessage failed: %v", err)
-	}
-	if !verifyResp.Valid {
-		t.Fatalf("alice's signature didn't validate")
-	}
-	if verifyResp.Pubkey != net.Alice.PubKeyStr {
-		t.Fatalf("alice's signature doesn't contain alice's pubkey.")
-	}
+	// bob verifying alice's signature should succeed since alice and bob
+	// are connected.
+	verifyResp := bob.RPC.VerifyMessage(aliceMsg, aliceSig)
+	require.True(ht, verifyResp.Valid, "alice's signature didn't validate")
+	require.Equal(ht, verifyResp.Pubkey, alice.PubKeyStr,
+		"alice's signature doesn't contain alice's pubkey.")
 
 	// carol is a new node that is unconnected to alice or bob.
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
-
-	carolMsg := []byte("carol msg")
+	carol := ht.NewNode("Carol", nil)
 
 	// carol signs "carol msg" and sends her signature to bob.
-	sigReq = &lnrpc.SignMessageRequest{Msg: carolMsg}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	sigResp, err = carol.SignMessage(ctxt, sigReq)
-	if err != nil {
-		t.Fatalf("SignMessage rpc call failed: %v", err)
-	}
+	carolMsg := []byte("carol msg")
+	sigResp = carol.RPC.SignMessage(carolMsg)
 	carolSig := sigResp.Signature
 
-	// bob verifying carol's signature should fail since they are not connected.
-	verifyReq = &lnrpc.VerifyMessageRequest{Msg: carolMsg, Signature: carolSig}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	verifyResp, err = net.Bob.VerifyMessage(ctxt, verifyReq)
-	if err != nil {
-		t.Fatalf("VerifyMessage failed: %v", err)
-	}
-	if verifyResp.Valid {
-		t.Fatalf("carol's signature should not be valid")
-	}
-	if verifyResp.Pubkey != carol.PubKeyStr {
-		t.Fatalf("carol's signature doesn't contain her pubkey")
-	}
+	// bob verifying carol's signature should fail since they are not
+	// connected.
+	verifyResp = bob.RPC.VerifyMessage(carolMsg, carolSig)
+	require.False(ht, verifyResp.Valid, "carol's signature didn't validate")
+	require.Equal(ht, verifyResp.Pubkey, carol.PubKeyStr,
+		"carol's signature doesn't contain alice's pubkey.")
 
 	// Close the channel between alice and bob.
-	closeChannelAndAssert(t, net, net.Alice, aliceBobCh, false)
+	ht.CloseChannel(alice, aliceBobCh)
 }
 
 // testAbandonChannel abandones a channel and asserts that it is no

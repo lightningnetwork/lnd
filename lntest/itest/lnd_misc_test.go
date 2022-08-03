@@ -53,7 +53,7 @@ func testDisconnectingTargetPeer(ht *lntemp.HarnessTest) {
 		Amt:     chanAmt,
 		PushAmt: pushAmt,
 	}
-	stream := ht.OpenChannelAssertPending(alice, bob, p)
+	stream := ht.OpenChannelAssertStream(alice, bob, p)
 
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed. Alice and Bob's nodes should reflect
@@ -361,7 +361,7 @@ func testMaxPendingChannels(ht *lntemp.HarnessTest) {
 		[]lnrpc.Lightning_OpenChannelClient, maxPendingChannels,
 	)
 	for i := 0; i < maxPendingChannels; i++ {
-		stream := ht.OpenChannelAssertPending(
+		stream := ht.OpenChannelAssertStream(
 			alice, carol, lntemp.OpenChannelParams{
 				Amt: amount,
 			},
@@ -823,7 +823,7 @@ func testSweepAllCoins(ht *lntemp.HarnessTest) {
 	assertTxLabel := func(targetTx, label string) error {
 		// List all transactions relevant to our wallet, and find the
 		// tx so that we can check the correct label has been set.
-		txResp := ainz.RPC.GetTransactions()
+		txResp := ainz.RPC.GetTransactions(nil)
 
 		var target *lnrpc.Transaction
 

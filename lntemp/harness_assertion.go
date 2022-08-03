@@ -1479,3 +1479,27 @@ func (h *HarnessTest) AssertZombieChannel(hn *node.HarnessNode, chanID uint64) {
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout while checking zombie channel")
 }
+
+// AssertTxAtHeight gets all of the transactions that a node's wallet has a
+// record of at the target height, and finds and returns the tx with the target
+// txid, failing if it is not found.
+func (h *HarnessTest) AssertTxAtHeight(hn *node.HarnessNode, height int32,
+	txid *chainhash.Hash) *lnrpc.Transaction {
+
+	req := &lnrpc.GetTransactionsRequest{
+		StartHeight: height,
+		EndHeight:   height,
+	}
+	txns := hn.RPC.GetTransactions(req)
+
+	for _, tx := range txns.Transactions {
+		if tx.TxHash == txid.String() {
+			return tx
+		}
+	}
+
+	require.Failf(h, "fail to find tx", "tx:%v not found at height:%v",
+		txid, height)
+
+	return nil
+}

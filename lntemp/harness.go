@@ -734,8 +734,9 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 // destNode with the passed channel funding parameters. Once the `OpenChannel`
 // is called, it will consume the first event it receives from the open channel
 // client and asserts it's a channel pending event.
-func (h *HarnessTest) OpenChannelAssertPending(srcNode,
-	destNode *node.HarnessNode, p OpenChannelParams) rpc.OpenChanClient {
+func (h *HarnessTest) openChannelAssertPending(srcNode,
+	destNode *node.HarnessNode,
+	p OpenChannelParams) (*lnrpc.PendingUpdate, rpc.OpenChanClient) {
 
 	// Prepare the request and open the channel.
 	openReq := h.prepareOpenChannel(srcNode, destNode, p)
@@ -747,11 +748,35 @@ func (h *HarnessTest) OpenChannelAssertPending(srcNode,
 	resp := h.ReceiveOpenChannelUpdate(respStream)
 
 	// Check that the update is channel pending.
-	_, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	update, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
 	require.Truef(h, ok, "expected channel pending: update, instead got %v",
 		resp)
 
-	return respStream
+	return update.ChanPending, respStream
+}
+
+// OpenChannelAssertPending attempts to open a channel between srcNode and
+// destNode with the passed channel funding parameters. Once the `OpenChannel`
+// is called, it will consume the first event it receives from the open channel
+// client and asserts it's a channel pending event. It returns the
+// `PendingUpdate`.
+func (h *HarnessTest) OpenChannelAssertPending(srcNode,
+	destNode *node.HarnessNode, p OpenChannelParams) *lnrpc.PendingUpdate {
+
+	resp, _ := h.openChannelAssertPending(srcNode, destNode, p)
+	return resp
+}
+
+// OpenChannelAssertStream attempts to open a channel between srcNode and
+// destNode with the passed channel funding parameters. Once the `OpenChannel`
+// is called, it will consume the first event it receives from the open channel
+// client and asserts it's a channel pending event. It returns the open channel
+// stream.
+func (h *HarnessTest) OpenChannelAssertStream(srcNode,
+	destNode *node.HarnessNode, p OpenChannelParams) rpc.OpenChanClient {
+
+	_, stream := h.openChannelAssertPending(srcNode, destNode, p)
+	return stream
 }
 
 // OpenChannel attempts to open a channel with the specified parameters
@@ -763,7 +788,7 @@ func (h *HarnessTest) OpenChannelAssertPending(srcNode,
 func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
 	p OpenChannelParams) *lnrpc.ChannelPoint {
 
-	chanOpenUpdate := h.OpenChannelAssertPending(alice, bob, p)
+	chanOpenUpdate := h.OpenChannelAssertStream(alice, bob, p)
 
 	// Mine 6 blocks, then wait for Alice's node to notify us that the
 	// channel has been opened. The funding transaction should be found

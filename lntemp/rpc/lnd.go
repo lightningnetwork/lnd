@@ -346,11 +346,17 @@ func (h *HarnessRPC) SendCoinsAssertErr(req *lnrpc.SendCoinsRequest) {
 }
 
 // GetTransactions makes a RPC call to GetTransactions and asserts.
-func (h *HarnessRPC) GetTransactions() *lnrpc.TransactionDetails {
+func (h *HarnessRPC) GetTransactions(
+	req *lnrpc.GetTransactionsRequest) *lnrpc.TransactionDetails {
+
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
-	resp, err := h.LN.GetTransactions(ctxt, &lnrpc.GetTransactionsRequest{})
+	if req == nil {
+		req = &lnrpc.GetTransactionsRequest{}
+	}
+
+	resp, err := h.LN.GetTransactions(ctxt, req)
 	require.NoErrorf(h, err, "failed to GetTransactions for %s", h.Name)
 
 	return resp

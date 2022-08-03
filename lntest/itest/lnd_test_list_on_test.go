@@ -25,10 +25,6 @@ var allTestCases = []*testCase{
 		test: testGraphTopologyNotifications,
 	},
 	{
-		name: "funding flow persistence",
-		test: testChannelFundingPersistence,
-	},
-	{
 		name: "channel force closure",
 		test: testChannelForceClosure,
 	},

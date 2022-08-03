@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 )
 
@@ -91,4 +92,17 @@ func ParseDerivationPath(path string) ([]uint32, error) {
 	}
 
 	return indices, nil
+}
+
+// ChanPointFromPendingUpdate constructs a channel point from a lnrpc pending
+// update.
+func ChanPointFromPendingUpdate(pu *lnrpc.PendingUpdate) *lnrpc.ChannelPoint {
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: pu.Txid,
+		},
+		OutputIndex: pu.OutputIndex,
+	}
+
+	return chanPoint
 }

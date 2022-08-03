@@ -2,7 +2,6 @@ package itest
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -531,41 +530,35 @@ func testGarbageCollectLinkNodes(ht *lntemp.HarnessTest) {
 // testRejectHTLC tests that a node can be created with the flag --rejecthtlc.
 // This means that the node will reject all forwarded HTLCs but can still
 // accept direct HTLCs as well as send HTLCs.
-func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
+func testRejectHTLC(ht *lntemp.HarnessTest) {
 	//             RejectHTLC
 	// Alice ------> Carol ------> Bob
 	//
 	const chanAmt = btcutil.Amount(1000000)
-	ctxb := context.Background()
+	alice, bob := ht.Alice, ht.Bob
 
 	// Create Carol with reject htlc flag.
-	carol := net.NewNode(t.t, "Carol", []string{"--rejecthtlc"})
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", []string{"--rejecthtlc"})
 
 	// Connect Alice to Carol.
-	net.ConnectNodes(t.t, net.Alice, carol)
+	ht.ConnectNodes(alice, carol)
 
 	// Connect Carol to Bob.
-	net.ConnectNodes(t.t, carol, net.Bob)
+	ht.ConnectNodes(carol, bob)
 
 	// Send coins to Carol.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
-
-	// Send coins to Alice.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcent, net.Alice)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// Open a channel between Alice and Carol.
-	chanPointAlice := openChannelAndAssert(
-		t, net, net.Alice, carol,
-		lntest.OpenChannelParams{
+	chanPointAlice := ht.OpenChannel(
+		alice, carol, lntemp.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
 
 	// Open a channel between Carol and Bob.
-	chanPointCarol := openChannelAndAssert(
-		t, net, carol, net.Bob,
-		lntest.OpenChannelParams{
+	chanPointCarol := ht.OpenChannel(
+		carol, bob, lntemp.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -573,103 +566,62 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	// Channel should be ready for payments.
 	const payAmt = 100
 
-	// Helper closure to generate a random pre image.
-	genPreImage := func() []byte {
-		preimage := make([]byte, 32)
-
-		_, err := rand.Read(preimage)
-		if err != nil {
-			t.Fatalf("unable to generate preimage: %v", err)
-		}
-
-		return preimage
-	}
-
 	// Create an invoice from Carol of 100 satoshis.
 	// We expect Alice to be able to pay this invoice.
-	preimage := genPreImage()
-
 	carolInvoice := &lnrpc.Invoice{
 		Memo:      "testing - alice should pay carol",
-		RPreimage: preimage,
+		RPreimage: ht.Random32Bytes(),
 		Value:     payAmt,
 	}
 
 	// Carol adds the invoice to her database.
-	resp, err := carol.AddInvoice(ctxb, carolInvoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
+	resp := carol.RPC.AddInvoice(carolInvoice)
 
 	// Alice pays Carols invoice.
-	err = completePaymentRequests(
-		net.Alice, net.Alice.RouterClient,
-		[]string{resp.PaymentRequest}, true,
-	)
-	if err != nil {
-		t.Fatalf("unable to send payments from alice to carol: %v", err)
-	}
+	ht.CompletePaymentRequests(alice, []string{resp.PaymentRequest})
 
 	// Create an invoice from Bob of 100 satoshis.
 	// We expect Carol to be able to pay this invoice.
-	preimage = genPreImage()
-
 	bobInvoice := &lnrpc.Invoice{
 		Memo:      "testing - carol should pay bob",
-		RPreimage: preimage,
+		RPreimage: ht.Random32Bytes(),
 		Value:     payAmt,
 	}
 
 	// Bob adds the invoice to his database.
-	resp, err = net.Bob.AddInvoice(ctxb, bobInvoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
+	resp = bob.RPC.AddInvoice(bobInvoice)
 
 	// Carol pays Bobs invoice.
-	err = completePaymentRequests(
-		carol, carol.RouterClient,
-		[]string{resp.PaymentRequest}, true,
-	)
-	if err != nil {
-		t.Fatalf("unable to send payments from carol to bob: %v", err)
-	}
+	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
 
 	// Create an invoice from Bob of 100 satoshis.
 	// Alice attempts to pay Bob but this should fail, since we are
 	// using Carol as a hop and her node will reject onward HTLCs.
-	preimage = genPreImage()
-
 	bobInvoice = &lnrpc.Invoice{
 		Memo:      "testing - alice tries to pay bob",
-		RPreimage: preimage,
+		RPreimage: ht.Random32Bytes(),
 		Value:     payAmt,
 	}
 
 	// Bob adds the invoice to his database.
-	resp, err = net.Bob.AddInvoice(ctxb, bobInvoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
+	resp = bob.RPC.AddInvoice(bobInvoice)
 
-	// Alice attempts to pay Bobs invoice. This payment should be rejected since
-	// we are using Carol as an intermediary hop, Carol is running lnd with
-	// --rejecthtlc.
-	err = completePaymentRequests(
-		net.Alice, net.Alice.RouterClient,
-		[]string{resp.PaymentRequest}, true,
-	)
-	if err == nil {
-		t.Fatalf(
-			"should have been rejected, carol will not accept forwarded htlcs",
-		)
+	// Alice attempts to pay Bobs invoice. This payment should be rejected
+	// since we are using Carol as an intermediary hop, Carol is running
+	// lnd with --rejecthtlc.
+	paymentReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest: resp.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
 	}
+	payStream := alice.RPC.SendPayment(paymentReq)
+	ht.AssertPaymentStatusFromStream(payStream, lnrpc.Payment_FAILED)
 
-	assertLastHTLCError(t, net.Alice, lnrpc.Failure_CHANNEL_DISABLED)
+	ht.AssertLastHTLCError(alice, lnrpc.Failure_CHANNEL_DISABLED)
 
 	// Close all channels.
-	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
-	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
+	ht.CloseChannel(alice, chanPointAlice)
+	ht.CloseChannel(carol, chanPointCarol)
 }
 
 func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {

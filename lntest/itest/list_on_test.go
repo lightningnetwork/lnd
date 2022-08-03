@@ -95,4 +95,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "garbage collect link nodes",
 		TestFunc: testGarbageCollectLinkNodes,
 	},
+	{
+		Name:     "reject onward htlc",
+		TestFunc: testRejectHTLC,
+	},
 }

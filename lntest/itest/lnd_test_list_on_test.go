@@ -120,10 +120,6 @@ var allTestCases = []*testCase{
 		name: "multi-hop htlc error propagation",
 		test: testHtlcErrorPropagation,
 	},
-	{
-		name: "reject onward htlc",
-		test: testRejectHTLC,
-	},
 	// TODO(roasbeef): multi-path integration test
 	{
 		name: "node announcement",

@@ -1,6 +1,6 @@
 # Sending a Keysend Payment in Python with `lnd`'s REST API endpoint
 
-This document is born out of some personal frustration: I found it particularlly hard to find working examples of using the LND Rest API (specifically on an Umbrel) from Python.
+This document is born out of some personal frustration: I found it particularly hard to find working examples of using the LND Rest API (specifically on an Umbrel) from Python.
 
 I will present here some working code examples to send a Keysend payment from Python. At first you'd think this was trivial considering how easy it is with `lncli`:
 

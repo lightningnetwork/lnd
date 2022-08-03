@@ -16,7 +16,6 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -1561,30 +1560,6 @@ func assertNodeAnnouncement(t *harnessTest, n1, n2 *lnrpc.NodeUpdate) {
 		if _, ok := addrs[nodeAddr.Addr]; !ok {
 			t.Fatalf("address %v not found in node announcement",
 				nodeAddr.Addr)
-		}
-	}
-}
-
-// assertUpdateNodeAnnouncementResponse is a helper function to assert
-// the response expected values.
-func assertUpdateNodeAnnouncementResponse(t *harnessTest,
-	response *peersrpc.NodeAnnouncementUpdateResponse,
-	expectedOps map[string]int) {
-
-	require.Equal(
-		t.t, len(response.Ops), len(expectedOps),
-		"unexpected number of Ops updating dave's node announcement",
-	)
-
-	ops := make(map[string]int, len(response.Ops))
-	for _, op := range response.Ops {
-		ops[op.Entity] = len(op.Actions)
-	}
-
-	for k, v := range expectedOps {
-		if v != ops[k] {
-			t.Fatalf("unexpected number of actions for operation "+
-				"%s: got %d wanted %d", k, ops[k], v)
 		}
 	}
 }

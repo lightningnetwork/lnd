@@ -1,12 +1,9 @@
 package itest
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -16,7 +13,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -422,110 +418,11 @@ func testNodeAnnouncement(ht *lntemp.HarnessTest) {
 	ht.CloseChannel(bob, chanPoint)
 }
 
-// graphSubscription houses the proxied update and error chans for a node's
-// graph subscriptions.
-type graphSubscription struct {
-	updateChan chan *lnrpc.GraphTopologyUpdate
-	errChan    chan error
-	quit       chan struct{}
-}
-
-// subscribeGraphNotifications subscribes to channel graph updates and launches
-// a goroutine that forwards these to the returned channel.
-func subscribeGraphNotifications(ctxb context.Context, t *harnessTest,
-	node *lntest.HarnessNode) graphSubscription {
-
-	// We'll first start by establishing a notification client which will
-	// send us notifications upon detected changes in the channel graph.
-	req := &lnrpc.GraphTopologySubscription{}
-	ctx, cancelFunc := context.WithCancel(ctxb)
-	topologyClient, err := node.SubscribeChannelGraph(ctx, req)
-	require.NoError(t.t, err, "unable to create topology client")
-
-	// We'll launch a goroutine that will be responsible for proxying all
-	// notifications recv'd from the client into the channel below.
-	errChan := make(chan error, 1)
-	quit := make(chan struct{})
-	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate, 20)
-	go func() {
-		for {
-			defer cancelFunc()
-
-			select {
-			case <-quit:
-				return
-			default:
-				graphUpdate, err := topologyClient.Recv()
-				select {
-				case <-quit:
-					return
-				default:
-				}
-
-				if err == io.EOF {
-					return
-				} else if err != nil {
-					select {
-					case errChan <- err:
-					case <-quit:
-					}
-					return
-				}
-
-				select {
-				case graphUpdates <- graphUpdate:
-				case <-quit:
-					return
-				}
-			}
-		}
-	}()
-
-	return graphSubscription{
-		updateChan: graphUpdates,
-		errChan:    errChan,
-		quit:       quit,
-	}
-}
-
-// waitForNodeAnnUpdates monitors the nodeAnnUpdates until we get one for
-// the expected node and asserts that has the expected information.
-func waitForNodeAnnUpdates(graphSub graphSubscription, nodePubKey string,
-	expectedUpdate *lnrpc.NodeUpdate, t *harnessTest) {
-
-	for {
-		select {
-		case graphUpdate := <-graphSub.updateChan:
-			for _, update := range graphUpdate.NodeUpdates {
-				if update.IdentityKey == nodePubKey {
-					assertNodeAnnouncement(
-						t, update, expectedUpdate,
-					)
-					return
-				}
-			}
-		case err := <-graphSub.errChan:
-			t.Fatalf("unable to recv graph update: %v", err)
-		case <-time.After(defaultTimeout):
-			t.Fatalf("did not receive node ann update")
-		}
-	}
-}
-
 // testUpdateNodeAnnouncement ensures that the RPC endpoint validates
 // the requests correctly and that the new node announcement is brodcasted
 // with the right information after updating our node.
-func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
-	// context timeout for the whole test.
-	ctxt, cancel := context.WithTimeout(
-		context.Background(), defaultTimeout,
-	)
-	defer cancel()
-
-	// Launch notification clients for alice, such that we can
-	// get notified when there are updates in the graph.
-	aliceSub := subscribeGraphNotifications(ctxt, t, net.Alice)
-	defer close(aliceSub.quit)
+func testUpdateNodeAnnouncement(ht *lntemp.HarnessTest) {
+	alice, bob := ht.Alice, ht.Bob
 
 	var lndArgs []string
 
@@ -534,20 +431,42 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 		"192.168.1.1:8333",
 		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337",
 		"bkb6azqggsaiskzi.onion:9735",
-		"fomvuglh6h6vcag73xo5t5gv56ombih3zr2xvplkpbfd7wrog4swjwid.onion:1234",
+		"fomvuglh6h6vcag73xo5t5gv56ombih3zr2xvplkpbfd7wrog4swj" +
+			"wid.onion:1234",
 	}
 	for _, addr := range extraAddrs {
 		lndArgs = append(lndArgs, "--externalip="+addr)
 	}
-	dave := net.NewNode(t.t, "Dave", lndArgs)
-	defer shutdownAndAssert(net, t, dave)
+	dave := ht.NewNode("Dave", lndArgs)
 
-	// Get dave default information so we can compare
-	// it lately with the brodcasted updates.
-	nodeInfoReq := &lnrpc.GetInfoRequest{}
-	resp, err := dave.GetInfo(ctxt, nodeInfoReq)
-	require.NoError(t.t, err, "unable to get dave's information")
+	// assertNodeAnn is a helper closure that checks a given node update
+	// from Dave is seen by Alice.
+	assertNodeAnn := func(expected *lnrpc.NodeUpdate) {
+		err := wait.NoError(func() error {
+			// Get a list of node updates seen by Alice.
+			updates := alice.Watcher.GetNodeUpdates(dave.PubKeyStr)
 
+			// Check at least one of the updates matches the given
+			// node update.
+			for _, update := range updates {
+				err := compareNodeAnns(update, expected)
+				// Found a match, return nil.
+				if err == nil {
+					return nil
+				}
+			}
+
+			// We've check all the updates and no match found.
+			return fmt.Errorf("alice didn't see the update: %v",
+				expected)
+		}, defaultTimeout)
+
+		require.NoError(ht, err, "assertNodeAnn failed")
+	}
+
+	// Get dave default information so we can compare it lately with the
+	// brodcasted updates.
+	resp := dave.RPC.GetInfo()
 	defaultAddrs := make([]*lnrpc.NodeAddress, 0, len(resp.Uris))
 	for _, uri := range resp.GetUris() {
 		values := strings.Split(uri, "@")
@@ -564,9 +483,8 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	// update this one for another one unset by default at random.
 	featureBit := lnrpc.FeatureBit_WUMBO_CHANNELS_REQ
 	featureIdx := uint32(featureBit)
-	if _, ok := resp.Features[featureIdx]; ok {
-		t.Fatalf("unexpected feature bit enabled by default")
-	}
+	_, ok := resp.Features[featureIdx]
+	require.False(ht, ok, "unexpected feature bit enabled by default")
 
 	defaultDaveNodeAnn := &lnrpc.NodeUpdate{
 		Alias:         resp.Alias,
@@ -576,44 +494,33 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Dave must have an open channel before he can send a node
 	// announcement, so we open a channel with Bob.
-	net.ConnectNodes(t.t, net.Bob, dave)
+	ht.ConnectNodes(bob, dave)
 
 	// Go ahead and open a channel between Bob and Dave. This
 	// ensures that Alice receives the node announcement from Bob as part of
 	// the announcement broadcast.
-	chanPoint := openChannelAndAssert(
-		t, net, net.Bob, dave,
-		lntest.OpenChannelParams{
+	chanPoint := ht.OpenChannel(
+		bob, dave, lntemp.OpenChannelParams{
 			Amt: 1000000,
 		},
 	)
-	require.NoError(t.t, err, "unexpected error opening a channel")
 
 	// Wait for Alice to receive dave's node announcement with the default
 	// values.
-	waitForNodeAnnUpdates(
-		aliceSub, dave.PubKeyStr, defaultDaveNodeAnn, t,
-	)
+	assertNodeAnn(defaultDaveNodeAnn)
 
-	// We cannot differentiate between requests with Alias = "" and requests
-	// that do not provide that field. If a user sets Alias = "" in the request
-	// the field will simply be ignored. The request must fail because no
-	// modifiers are applied.
-	invalidNodeAnnReq := &peersrpc.NodeAnnouncementUpdateRequest{
-		Alias: "",
-	}
-
-	_, err = dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
-	require.Error(t.t, err, "requests without modifiers should field")
+	// We cannot differentiate between requests with Alias = "" and
+	// requests that do not provide that field. If a user sets Alias = ""
+	// in the request the field will simply be ignored. The request must
+	// fail because no modifiers are applied.
+	invalidNodeAnnReq := &peersrpc.NodeAnnouncementUpdateRequest{Alias: ""}
+	dave.RPC.UpdateNodeAnnouncementErr(invalidNodeAnnReq)
 
 	// Alias too long.
 	invalidNodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
 		Alias: strings.Repeat("a", 50),
 	}
-
-	_, err = dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
-	require.Error(t.t, err, "failed to validate an invalid alias for an "+
-		"update node announcement request")
+	dave.RPC.UpdateNodeAnnouncementErr(invalidNodeAnnReq)
 
 	// Update Node.
 	newAlias := "new-alias"
@@ -653,8 +560,7 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 		FeatureUpdates: updateFeatureActions,
 	}
 
-	response, err := dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
-	require.NoError(t.t, err, "unable to update dave's node announcement")
+	response := dave.RPC.UpdateNodeAnnouncement(nodeAnnReq)
 
 	expectedOps := map[string]int{
 		"features":  1,
@@ -662,7 +568,7 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 		"alias":     1,
 		"addresses": 3,
 	}
-	assertUpdateNodeAnnouncementResponse(t, response, expectedOps)
+	assertUpdateNodeAnnouncementResponse(ht, response, expectedOps)
 
 	newNodeAddresses := []*lnrpc.NodeAddress{}
 	// We removed the first address.
@@ -683,28 +589,18 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll then wait for Alice to receive dave's node announcement
 	// with the new values.
-	waitForNodeAnnUpdates(
-		aliceSub, dave.PubKeyStr, newDaveNodeAnn, t,
-	)
+	assertNodeAnn(newDaveNodeAnn)
 
 	// Check that the feature bit was set correctly.
-	resp, err = dave.GetInfo(ctxt, nodeInfoReq)
-	require.NoError(t.t, err, "unable to get dave's information")
-
-	if _, ok := resp.Features[featureIdx]; !ok {
-		t.Fatalf("failed to set feature bit")
-	}
+	resp = dave.RPC.GetInfo()
+	_, ok = resp.Features[featureIdx]
+	require.True(ht, ok, "failed to set feature bit")
 
 	// Check that we cannot set a feature bit that is already set.
 	nodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
 		FeatureUpdates: updateFeatureActions,
 	}
-
-	_, err = dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
-	require.Error(
-		t.t, err, "missing expected error: cannot set a feature bit "+
-			"that is already set",
-	)
+	dave.RPC.UpdateNodeAnnouncementErr(nodeAnnReq)
 
 	// Check that we can unset feature bits.
 	updateFeatureActions = []*peersrpc.UpdateFeatureAction{
@@ -717,35 +613,25 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
 		FeatureUpdates: updateFeatureActions,
 	}
-
-	response, err = dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
-	require.NoError(t.t, err, "unable to update dave's node announcement")
+	response = dave.RPC.UpdateNodeAnnouncement(nodeAnnReq)
 
 	expectedOps = map[string]int{
 		"features": 1,
 	}
-	assertUpdateNodeAnnouncementResponse(t, response, expectedOps)
+	assertUpdateNodeAnnouncementResponse(ht, response, expectedOps)
 
-	resp, err = dave.GetInfo(ctxt, nodeInfoReq)
-	require.NoError(t.t, err, "unable to get dave's information")
-
-	if _, ok := resp.Features[featureIdx]; ok {
-		t.Fatalf("failed to unset feature bit")
-	}
+	resp = dave.RPC.GetInfo()
+	_, ok = resp.Features[featureIdx]
+	require.False(ht, ok, "failed to unset feature bit")
 
 	// Check that we cannot unset a feature bit that is already unset.
 	nodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
 		FeatureUpdates: updateFeatureActions,
 	}
-
-	_, err = dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
-	require.Error(
-		t.t, err, "missing expected error: cannot unset a feature bit "+
-			"that is already unset",
-	)
+	dave.RPC.UpdateNodeAnnouncementErr(nodeAnnReq)
 
 	// Close the channel between Bob and Dave.
-	closeChannelAndAssert(t, net, net.Bob, chanPoint, false)
+	ht.CloseChannel(bob, chanPoint)
 }
 
 // assertSyncType asserts that the peer has an expected syncType.
@@ -766,4 +652,65 @@ func assertSyncType(ht *lntemp.HarnessTest, hn *node.HarnessNode,
 	}
 
 	ht.Fatalf("unable to find peer: %s", peer)
+}
+
+// compareNodeAnns compares that two node announcements match or returns an
+// error.
+//
+// NOTE: only used for tests in this file.
+func compareNodeAnns(n1, n2 *lnrpc.NodeUpdate) error {
+	// Alias should match.
+	if n1.Alias != n2.Alias {
+		return fmt.Errorf("alias not match")
+	}
+
+	// Color should match.
+	if n1.Color != n2.Color {
+		return fmt.Errorf("color not match")
+	}
+
+	// NodeAddresses should match.
+	if len(n1.NodeAddresses) != len(n2.NodeAddresses) {
+		return fmt.Errorf("node addresses don't match")
+	}
+
+	addrs := make(map[string]struct{}, len(n1.NodeAddresses))
+	for _, nodeAddr := range n1.NodeAddresses {
+		addrs[nodeAddr.Addr] = struct{}{}
+	}
+
+	for _, nodeAddr := range n2.NodeAddresses {
+		if _, ok := addrs[nodeAddr.Addr]; !ok {
+			return fmt.Errorf("address %v not found in node "+
+				"announcement", nodeAddr.Addr)
+		}
+	}
+
+	return nil
+}
+
+// assertUpdateNodeAnnouncementResponse is a helper function to assert
+// the response expected values.
+//
+// NOTE: only used for tests in this file.
+func assertUpdateNodeAnnouncementResponse(ht *lntemp.HarnessTest,
+	response *peersrpc.NodeAnnouncementUpdateResponse,
+	expectedOps map[string]int) {
+
+	require.Equal(
+		ht, len(response.Ops), len(expectedOps),
+		"unexpected number of Ops updating dave's node announcement",
+	)
+
+	ops := make(map[string]int, len(response.Ops))
+	for _, op := range response.Ops {
+		ops[op.Entity] = len(op.Actions)
+	}
+
+	for k, v := range expectedOps {
+		if v != ops[k] {
+			ht.Fatalf("unexpected number of actions for operation "+
+				"%s: got %d wanted %d", k, ops[k], v)
+		}
+	}
 }

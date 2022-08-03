@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -73,6 +74,22 @@ func (h *HarnessTest) ConnectNodes(a, b *node.HarnessNode) {
 			Pubkey: bobInfo.IdentityPubkey,
 			Host:   b.Cfg.P2PAddr(),
 		},
+	}
+	a.RPC.ConnectPeer(req)
+	h.AssertPeerConnected(a, b)
+}
+
+// ConnectNodesPerm creates a persistent connection between the two nodes and
+// asserts the connection is succeeded.
+func (h *HarnessTest) ConnectNodesPerm(a, b *node.HarnessNode) {
+	bobInfo := b.RPC.GetInfo()
+
+	req := &lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   b.Cfg.P2PAddr(),
+		},
+		Perm: true,
 	}
 	a.RPC.ConnectPeer(req)
 	h.AssertPeerConnected(a, b)
@@ -1543,4 +1560,39 @@ func (h *HarnessTest) AssertChannelPolicy(hn *node.HarnessNode,
 
 	err = node.CheckChannelPolicy(policy, expectedPolicy)
 	require.NoErrorf(h, err, "%s: check policy failed", hn.Name())
+}
+
+// AssertNumPolicyUpdates asserts that a given number of channel policy updates
+// has been seen in the specified node.
+func (h *HarnessTest) AssertNumPolicyUpdates(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint,
+	advertisingNode *node.HarnessNode, num int) {
+
+	op := h.OutPointFromChannelPoint(chanPoint)
+
+	var policies []*node.PolicyUpdateInfo
+
+	err := wait.NoError(func() error {
+		policyMap := hn.Watcher.GetPolicyUpdates(op)
+		nodePolicy, ok := policyMap[advertisingNode.PubKeyStr]
+		if ok {
+			policies = nodePolicy
+		}
+
+		if len(policies) == num {
+			return nil
+		}
+
+		p, err := json.MarshalIndent(policies, "", "\t")
+		require.NoError(h, err, "encode policy err")
+
+		return fmt.Errorf("expected to find %d policy updates, "+
+			"instead got: %d, chanPoint: %v, "+
+			"advertisingNode: %s:%s, policy: %s", num,
+			len(policies), op, advertisingNode.Name(),
+			advertisingNode.PubKeyStr, p)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "%s: timeout waiting for num of policy updates",
+		hn.Name())
 }

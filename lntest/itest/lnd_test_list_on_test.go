@@ -164,10 +164,6 @@ var allTestCases = []*testCase{
 		test: testRouteFeeCutoff,
 	},
 	{
-		name: "send update disable channel",
-		test: testSendUpdateDisableChannel,
-	},
-	{
 		name: "streaming channel backup update",
 		test: testChannelBackupUpdates,
 	},

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -1343,4 +1344,101 @@ func (h *HarnessTest) SendPaymentAssertFail(hn *node.HarnessNode,
 		"payment failureReason not matched")
 
 	return payment
+}
+
+// OpenChannelRequest is used to open a channel using the method
+// OpenMultiChannelsAsync.
+type OpenChannelRequest struct {
+	// Local is the funding node.
+	Local *node.HarnessNode
+
+	// Remote is the receiving node.
+	Remote *node.HarnessNode
+
+	// Param is the open channel params.
+	Param OpenChannelParams
+
+	// stream is the client created after calling OpenChannel RPC.
+	stream rpc.OpenChanClient
+
+	// result is a channel used to send the channel point once the funding
+	// has succeeded.
+	result chan *lnrpc.ChannelPoint
+}
+
+// OpenMultiChannelsAsync takes a list of OpenChannelRequest and opens them in
+// batch. The channel points are returned in same the order of the requests
+// once all of the channel open succeeded.
+//
+// NOTE: compared to open multiple channel sequentially, this method will be
+// faster as it doesn't need to mine 6 blocks for each channel open. However,
+// it does make debugging the logs more difficult as messages are intertwined.
+func (h *HarnessTest) OpenMultiChannelsAsync(
+	reqs []*OpenChannelRequest) []*lnrpc.ChannelPoint {
+
+	// openChannel opens a channel based on the request.
+	openChannel := func(req *OpenChannelRequest) {
+		stream := h.OpenChannelAssertStream(
+			req.Local, req.Remote, req.Param,
+		)
+		req.stream = stream
+	}
+
+	// assertChannelOpen is a helper closure that asserts a channel is
+	// open.
+	assertChannelOpen := func(req *OpenChannelRequest) {
+		// Wait for the channel open event from the stream.
+		cp := h.WaitForChannelOpenEvent(req.stream)
+
+		// Check that both alice and bob have seen the channel
+		// from their channel watch request.
+		h.AssertTopologyChannelOpen(req.Local, cp)
+		h.AssertTopologyChannelOpen(req.Remote, cp)
+
+		// Finally, check that the channel can be seen in their
+		// ListChannels.
+		h.AssertChannelExists(req.Local, cp)
+		h.AssertChannelExists(req.Remote, cp)
+
+		req.result <- cp
+	}
+
+	// Go through the requests and make the OpenChannel RPC call.
+	for _, r := range reqs {
+		openChannel(r)
+	}
+
+	// Mine one block to confirm all the funding transactions.
+	h.MineBlocksAndAssertNumTxes(1, len(reqs))
+
+	// Mine 5 more blocks so all the public channels are announced to the
+	// network.
+	h.MineBlocks(numBlocksOpenChannel - 1)
+
+	// Once the blocks are mined, we fire goroutines for each of the
+	// request to watch for the channel openning.
+	for _, r := range reqs {
+		r.result = make(chan *lnrpc.ChannelPoint, 1)
+		go assertChannelOpen(r)
+	}
+
+	// Finally, collect the results.
+	channelPoints := make([]*lnrpc.ChannelPoint, 0)
+	for _, r := range reqs {
+		select {
+		case cp := <-r.result:
+			channelPoints = append(channelPoints, cp)
+
+		case <-time.After(lntest.ChannelOpenTimeout):
+			require.Failf(h, "timeout", "wait channel point "+
+				"timeout for channel %s=>%s", r.Local.Name(),
+				r.Remote.Name())
+		}
+	}
+
+	// Assert that we have the expected num of channel points.
+	require.Len(h, channelPoints, len(reqs),
+		"returned channel points not match")
+
+	return channelPoints
 }

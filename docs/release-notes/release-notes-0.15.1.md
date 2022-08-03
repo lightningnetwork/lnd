@@ -98,6 +98,8 @@
 * [Re-initialise registered middleware index lookup map after removal of a 
   registered middleware](https://github.com/lightningnetwork/lnd/pull/6739)
 
+* [Fix bit rot of fuzzer build](https://github.com/lightningnetwork/lnd/pull/6794).
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes

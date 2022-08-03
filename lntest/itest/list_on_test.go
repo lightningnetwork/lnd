@@ -91,4 +91,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "max pending channel",
 		TestFunc: testMaxPendingChannels,
 	},
+	{
+		Name:     "garbage collect link nodes",
+		TestFunc: testGarbageCollectLinkNodes,
+	},
 }

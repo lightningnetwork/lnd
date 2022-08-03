@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"strings"
-	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcwallet/wallet"
@@ -20,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -416,32 +416,30 @@ func testMaxPendingChannels(ht *lntemp.HarnessTest) {
 	}
 }
 
-// testGarbageCollectLinkNodes tests that we properly garbage collect link nodes
-// from the database and the set of persistent connections within the server.
-func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
+// testGarbageCollectLinkNodes tests that we properly garbage collect link
+// nodes from the database and the set of persistent connections within the
+// server.
+func testGarbageCollectLinkNodes(ht *lntemp.HarnessTest) {
+	const chanAmt = 1000000
 
-	const (
-		chanAmt = 1000000
-	)
+	alice, bob := ht.Alice, ht.Bob
 
 	// Open a channel between Alice and Bob which will later be
 	// cooperatively closed.
-	coopChanPoint := openChannelAndAssert(
-		t, net, net.Alice, net.Bob, lntest.OpenChannelParams{
+	coopChanPoint := ht.OpenChannel(
+		alice, bob, lntemp.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
 
 	// Create Carol's node and connect Alice to her.
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
-	net.ConnectNodes(t.t, net.Alice, carol)
+	carol := ht.NewNode("Carol", nil)
+	ht.ConnectNodes(alice, carol)
 
 	// Open a channel between Alice and Carol which will later be force
 	// closed.
-	forceCloseChanPoint := openChannelAndAssert(
-		t, net, net.Alice, carol, lntest.OpenChannelParams{
+	forceCloseChanPoint := ht.OpenChannel(
+		alice, carol, lntemp.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -449,200 +447,85 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now, create Dave's a node and also open a channel between Alice and
 	// him. This link will serve as the only persistent link throughout
 	// restarts in this test.
-	dave := net.NewNode(t.t, "Dave", nil)
-	defer shutdownAndAssert(net, t, dave)
+	dave := ht.NewNode("Dave", nil)
 
-	net.ConnectNodes(t.t, net.Alice, dave)
-	persistentChanPoint := openChannelAndAssert(
-		t, net, net.Alice, dave, lntest.OpenChannelParams{
+	ht.ConnectNodes(alice, dave)
+	persistentChanPoint := ht.OpenChannel(
+		alice, dave, lntemp.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
 
-	// isConnected is a helper closure that checks if a peer is connected to
-	// Alice.
-	isConnected := func(pubKey string) bool {
-		req := &lnrpc.ListPeersRequest{}
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		resp, err := net.Alice.ListPeers(ctxt, req)
-		if err != nil {
-			t.Fatalf("unable to retrieve alice's peers: %v", err)
-		}
-
-		for _, peer := range resp.Peers {
-			if peer.PubKey == pubKey {
-				return true
-			}
-		}
-
-		return false
-	}
-
 	// Restart both Bob and Carol to ensure Alice is able to reconnect to
 	// them.
-	if err := net.RestartNode(net.Bob, nil); err != nil {
-		t.Fatalf("unable to restart bob's node: %v", err)
-	}
-	if err := net.RestartNode(carol, nil); err != nil {
-		t.Fatalf("unable to restart carol's node: %v", err)
-	}
+	ht.RestartNode(bob)
+	ht.RestartNode(carol)
 
-	require.Eventually(t.t, func() bool {
-		return isConnected(net.Bob.PubKeyStr)
-	}, defaultTimeout, 20*time.Millisecond)
-	require.Eventually(t.t, func() bool {
-		return isConnected(carol.PubKeyStr)
-	}, defaultTimeout, 20*time.Millisecond)
+	ht.AssertConnected(alice, bob)
+	ht.AssertConnected(alice, carol)
 
 	// We'll also restart Alice to ensure she can reconnect to her peers
 	// with open channels.
-	if err := net.RestartNode(net.Alice, nil); err != nil {
-		t.Fatalf("unable to restart alice's node: %v", err)
-	}
+	ht.RestartNode(alice)
 
-	require.Eventually(t.t, func() bool {
-		return isConnected(net.Bob.PubKeyStr)
-	}, defaultTimeout, 20*time.Millisecond)
-	require.Eventually(t.t, func() bool {
-		return isConnected(carol.PubKeyStr)
-	}, defaultTimeout, 20*time.Millisecond)
-	require.Eventually(t.t, func() bool {
-		return isConnected(dave.PubKeyStr)
-	}, defaultTimeout, 20*time.Millisecond)
-	err := wait.Predicate(func() bool {
-		return isConnected(dave.PubKeyStr)
-	}, defaultTimeout)
+	ht.AssertConnected(alice, bob)
+	ht.AssertConnected(alice, carol)
+	ht.AssertConnected(alice, dave)
 
 	// testReconnection is a helper closure that restarts the nodes at both
 	// ends of a channel to ensure they do not reconnect after restarting.
 	// When restarting Alice, we'll first need to ensure she has
 	// reestablished her connection with Dave, as they still have an open
 	// channel together.
-	testReconnection := func(node *lntest.HarnessNode) {
+	testReconnection := func(node *node.HarnessNode) {
 		// Restart both nodes, to trigger the pruning logic.
-		if err := net.RestartNode(node, nil); err != nil {
-			t.Fatalf("unable to restart %v's node: %v",
-				node.Name(), err)
-		}
-
-		if err := net.RestartNode(net.Alice, nil); err != nil {
-			t.Fatalf("unable to restart alice's node: %v", err)
-		}
+		ht.RestartNode(node)
+		ht.RestartNode(alice)
 
 		// Now restart both nodes and make sure they don't reconnect.
-		if err := net.RestartNode(node, nil); err != nil {
-			t.Fatalf("unable to restart %v's node: %v", node.Name(),
-				err)
-		}
-		err = wait.Invariant(func() bool {
-			return !isConnected(node.PubKeyStr)
-		}, 5*time.Second)
-		if err != nil {
-			t.Fatalf("alice reconnected to %v", node.Name())
-		}
+		ht.RestartNode(node)
+		ht.AssertNotConnected(alice, node)
 
-		if err := net.RestartNode(net.Alice, nil); err != nil {
-			t.Fatalf("unable to restart alice's node: %v", err)
-		}
-		err = wait.Predicate(func() bool {
-			return isConnected(dave.PubKeyStr)
-		}, defaultTimeout)
-		if err != nil {
-			t.Fatalf("alice didn't reconnect to Dave")
-		}
-
-		err = wait.Invariant(func() bool {
-			return !isConnected(node.PubKeyStr)
-		}, 5*time.Second)
-		if err != nil {
-			t.Fatalf("alice reconnected to %v", node.Name())
-		}
+		ht.RestartNode(alice)
+		ht.AssertConnected(alice, dave)
+		ht.AssertNotConnected(alice, node)
 	}
 
 	// Now, we'll close the channel between Alice and Bob and ensure there
 	// is no reconnection logic between the both once the channel is fully
 	// closed.
-	closeChannelAndAssert(t, net, net.Alice, coopChanPoint, false)
+	ht.CloseChannel(alice, coopChanPoint)
 
-	testReconnection(net.Bob)
+	testReconnection(bob)
 
 	// We'll do the same with Alice and Carol, but this time we'll force
 	// close the channel instead.
-	closeChannelAndAssert(t, net, net.Alice, forceCloseChanPoint, true)
-
-	// Cleanup by mining the force close and sweep transaction.
-	cleanupForceClose(t, net, net.Alice, forceCloseChanPoint)
+	ht.ForceCloseChannel(alice, forceCloseChanPoint)
 
 	// We'll need to mine some blocks in order to mark the channel fully
 	// closed.
-	_, err = net.Miner.Client.Generate(chainreg.DefaultBitcoinTimeLockDelta - defaultCSV)
-	if err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
-	}
+	ht.MineBlocks(
+		chainreg.DefaultBitcoinTimeLockDelta - defaultCSV,
+	)
 
 	// Before we test reconnection, we'll ensure that the channel has been
 	// fully cleaned up for both Carol and Alice.
-	var predErr error
-	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-	err = wait.Predicate(func() bool {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Alice.PendingChannels(
-			ctxt, pendingChansRequest,
-		)
-		if err != nil {
-			predErr = fmt.Errorf("unable to query for pending "+
-				"channels: %v", err)
-			return false
-		}
-
-		predErr = checkNumForceClosedChannels(pendingChanResp, 0)
-		if predErr != nil {
-			return false
-		}
-
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err = carol.PendingChannels(
-			ctxt, pendingChansRequest,
-		)
-		if err != nil {
-			predErr = fmt.Errorf("unable to query for pending "+
-				"channels: %v", err)
-			return false
-		}
-
-		predErr = checkNumForceClosedChannels(pendingChanResp, 0)
-
-		return predErr == nil
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("channels not marked as fully resolved: %v", predErr)
-	}
+	ht.AssertNumPendingForceClose(alice, 0)
+	ht.AssertNumPendingForceClose(carol, 0)
 
 	testReconnection(carol)
 
 	// Finally, we'll ensure that Bob and Carol no longer show in Alice's
 	// channel graph.
-	describeGraphReq := &lnrpc.ChannelGraphRequest{
-		IncludeUnannounced: true,
-	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	channelGraph, err := net.Alice.DescribeGraph(ctxt, describeGraphReq)
-	if err != nil {
-		t.Fatalf("unable to query for alice's channel graph: %v", err)
-	}
-	for _, node := range channelGraph.Nodes {
-		if node.PubKey == net.Bob.PubKeyStr {
-			t.Fatalf("did not expect to find bob in the channel " +
-				"graph, but did")
-		}
-		if node.PubKey == carol.PubKeyStr {
-			t.Fatalf("did not expect to find carol in the channel " +
-				"graph, but did")
-		}
-	}
+	req := &lnrpc.ChannelGraphRequest{IncludeUnannounced: true}
+	channelGraph := alice.RPC.DescribeGraph(req)
+	require.NotContains(ht, channelGraph.Nodes, bob.PubKeyStr,
+		"did not expect to find bob in the channel graph, but did")
+	require.NotContains(ht, channelGraph.Nodes, carol.PubKeyStr,
+		"did not expect to find carol in the channel graph, but did")
 
 	// Now that the test is done, we can also close the persistent link.
-	closeChannelAndAssert(t, net, net.Alice, persistentChanPoint, false)
+	ht.CloseChannel(alice, persistentChanPoint)
 }
 
 // testRejectHTLC tests that a node can be created with the flag --rejecthtlc.

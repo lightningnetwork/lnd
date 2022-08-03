@@ -180,10 +180,6 @@ var allTestCases = []*testCase{
 		test: testFailingChannel,
 	},
 	{
-		name: "garbage collect link nodes",
-		test: testGarbageCollectLinkNodes,
-	},
-	{
 		name: "abandonchannel",
 		test: testAbandonChannel,
 	},

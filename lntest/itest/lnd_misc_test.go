@@ -1,11 +1,9 @@
 package itest
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
-	"strings"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcwallet/wallet"
@@ -19,7 +17,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -670,116 +667,52 @@ func testNodeSignVerify(ht *lntemp.HarnessTest) {
 	ht.CloseChannel(alice, aliceBobCh)
 }
 
-// testAbandonChannel abandones a channel and asserts that it is no
-// longer open and not in one of the pending closure states. It also
-// verifies that the abandoned channel is reported as closed with close
-// type 'abandoned'.
-func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
+// testAbandonChannel abandons a channel and asserts that it is no longer open
+// and not in one of the pending closure states. It also verifies that the
+// abandoned channel is reported as closed with close type 'abandoned'.
+func testAbandonChannel(ht *lntemp.HarnessTest) {
+	alice, bob := ht.Alice, ht.Bob
 
 	// First establish a channel between Alice and Bob.
-	channelParam := lntest.OpenChannelParams{
+	channelParam := lntemp.OpenChannelParams{
 		Amt:     funding.MaxBtcFundingAmount,
 		PushAmt: btcutil.Amount(100000),
 	}
-
-	chanPoint := openChannelAndAssert(
-		t, net, net.Alice, net.Bob, channelParam,
-	)
-	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-	require.NoError(t.t, err, "alice bob get channel funding txid")
-	chanPointStr := fmt.Sprintf("%v:%v", txid, chanPoint.OutputIndex)
-
-	// Wait for channel to be confirmed open.
-	err = net.Alice.WaitForNetworkChannelOpen(chanPoint)
-	require.NoError(t.t, err, "alice wait for network channel open")
-	err = net.Bob.WaitForNetworkChannelOpen(chanPoint)
-	require.NoError(t.t, err, "bob wait for network channel open")
+	chanPoint := ht.OpenChannel(alice, bob, channelParam)
 
 	// Now that the channel is open, we'll obtain its channel ID real quick
 	// so we can use it to query the graph below.
-	listReq := &lnrpc.ListChannelsRequest{}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	aliceChannelList, err := net.Alice.ListChannels(ctxt, listReq)
-	require.NoError(t.t, err)
-	var chanID uint64
-	for _, channel := range aliceChannelList.Channels {
-		if channel.ChannelPoint == chanPointStr {
-			chanID = channel.ChanId
-		}
-	}
+	chanID := ht.QueryChannelByChanPoint(alice, chanPoint).ChanId
 
-	require.NotZero(t.t, chanID, "unable to find channel")
-
-	// To make sure the channel is removed from the backup file as well when
-	// being abandoned, grab a backup snapshot so we can compare it with the
-	// later state.
-	bkupBefore, err := ioutil.ReadFile(net.Alice.ChanBackupPath())
-	require.NoError(t.t, err, "channel backup before abandoning channel")
+	// To make sure the channel is removed from the backup file as well
+	// when being abandoned, grab a backup snapshot so we can compare it
+	// with the later state.
+	bkupBefore, err := ioutil.ReadFile(alice.Cfg.ChanBackupPath())
+	require.NoError(ht, err, "channel backup before abandoning channel")
 
 	// Send request to abandon channel.
 	abandonChannelRequest := &lnrpc.AbandonChannelRequest{
 		ChannelPoint: chanPoint,
 	}
-
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = net.Alice.AbandonChannel(ctxt, abandonChannelRequest)
-	require.NoError(t.t, err, "abandon channel")
+	alice.RPC.AbandonChannel(abandonChannelRequest)
 
 	// Assert that channel in no longer open.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceChannelList, err = net.Alice.ListChannels(ctxt, listReq)
-	require.NoError(t.t, err, "list channels")
-	require.Zero(t.t, len(aliceChannelList.Channels), "alice open channels")
+	ht.AssertNodeNumChannels(alice, 0)
 
 	// Assert that channel is not pending closure.
-	pendingReq := &lnrpc.PendingChannelsRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	alicePendingList, err := net.Alice.PendingChannels(ctxt, pendingReq)
-	require.NoError(t.t, err, "alice list pending channels")
-	require.Zero(
-		t.t, len(alicePendingList.PendingClosingChannels), //nolint:staticcheck
-		"alice pending channels",
-	)
-	require.Zero(
-		t.t, len(alicePendingList.PendingForceClosingChannels),
-		"alice pending force close channels",
-	)
-	require.Zero(
-		t.t, len(alicePendingList.WaitingCloseChannels),
-		"alice waiting close channels",
-	)
+	ht.AssertNumWaitingClose(alice, 0)
 
 	// Assert that channel is listed as abandoned.
-	closedReq := &lnrpc.ClosedChannelsRequest{
-		Abandoned: true,
-	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceClosedList, err := net.Alice.ClosedChannels(ctxt, closedReq)
-	require.NoError(t.t, err, "alice list closed channels")
-	require.Len(t.t, aliceClosedList.Channels, 1, "alice closed channels")
+	req := &lnrpc.ClosedChannelsRequest{Abandoned: true}
+	aliceClosedList := alice.RPC.ClosedChannels(req)
+	require.Len(ht, aliceClosedList.Channels, 1, "alice closed channels")
 
 	// Ensure that the channel can no longer be found in the channel graph.
-	err = wait.NoError(func() error {
-		_, err := net.Alice.GetChanInfo(ctxb, &lnrpc.ChanInfoRequest{
-			ChanId: chanID,
-		})
-		if err == nil {
-			return fmt.Errorf("expected error but got nil")
-		}
-
-		if !strings.Contains(err.Error(), "marked as zombie") {
-			return fmt.Errorf("expected error to contain '%s' but "+
-				"was '%v'", "marked as zombie", err)
-		}
-
-		return nil
-	}, defaultTimeout)
-	require.NoError(t.t, err, "marked as zombie")
+	ht.AssertZombieChannel(alice, chanID)
 
 	// Make sure the channel is no longer in the channel backup list.
 	err = wait.NoError(func() error {
-		bkupAfter, err := ioutil.ReadFile(net.Alice.ChanBackupPath())
+		bkupAfter, err := ioutil.ReadFile(alice.Cfg.ChanBackupPath())
 		if err != nil {
 			return fmt.Errorf("could not get channel backup "+
 				"before abandoning channel: %v", err)
@@ -792,21 +725,16 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 		return nil
 	}, defaultTimeout)
-	require.NoError(t.t, err, "channel removed from backup file")
+	require.NoError(ht, err, "channel removed from backup file")
 
 	// Calling AbandonChannel again, should result in no new errors, as the
 	// channel has already been removed.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = net.Alice.AbandonChannel(ctxt, abandonChannelRequest)
-	require.NoError(t.t, err, "abandon channel second time")
+	alice.RPC.AbandonChannel(abandonChannelRequest)
 
 	// Now that we're done with the test, the channel can be closed. This
 	// is necessary to avoid unexpected outcomes of other tests that use
 	// Bob's lnd instance.
-	closeChannelAndAssert(t, net, net.Bob, chanPoint, true)
-
-	// Cleanup by mining the force close and sweep transaction.
-	cleanupForceClose(t, net, net.Bob, chanPoint)
+	ht.ForceCloseChannel(bob, chanPoint)
 }
 
 // testSweepAllCoins tests that we're able to properly sweep all coins from the

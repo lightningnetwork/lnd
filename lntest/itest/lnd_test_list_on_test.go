@@ -168,10 +168,6 @@ var allTestCases = []*testCase{
 		test: testFailingChannel,
 	},
 	{
-		name: "abandonchannel",
-		test: testAbandonChannel,
-	},
-	{
 		name: "revoked uncooperative close retribution zero value remote output",
 		test: testRevokedCloseRetributionZeroValueRemoteOutput,
 	},

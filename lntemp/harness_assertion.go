@@ -1455,3 +1455,27 @@ func (h *HarnessTest) assertHTLCError(hn *node.HarnessNode,
 
 	require.NoError(h, err, "timeout checking HTLC error")
 }
+
+// AssertZombieChannel asserts that a given channel found using the chanID is
+// marked as zombie.
+func (h *HarnessTest) AssertZombieChannel(hn *node.HarnessNode, chanID uint64) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	err := wait.NoError(func() error {
+		_, err := hn.RPC.LN.GetChanInfo(
+			ctxt, &lnrpc.ChanInfoRequest{ChanId: chanID},
+		)
+		if err == nil {
+			return fmt.Errorf("expected error but got nil")
+		}
+
+		if !strings.Contains(err.Error(), "marked as zombie") {
+			return fmt.Errorf("expected error to contain '%s' but "+
+				"was '%v'", "marked as zombie", err)
+		}
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout while checking zombie channel")
+}

@@ -107,4 +107,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "list addresses",
 		TestFunc: testListAddresses,
 	},
+	{
+		Name:     "abandonchannel",
+		TestFunc: testAbandonChannel,
+	},
 }

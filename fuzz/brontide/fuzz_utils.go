@@ -108,7 +108,7 @@ func nilAndPanic(initiator, responder *brontide.Machine, err error) {
 func getBrontideMachines() (*brontide.Machine, *brontide.Machine) {
 	initPriv, _ := btcec.NewPrivateKey()
 	respPriv, _ := btcec.NewPrivateKey()
-	respPub := (*btcec.PublicKey)(&respPriv.PublicKey)
+	respPub := (*btcec.PublicKey)(respPriv.PubKey())
 
 	initPrivECDH := &keychain.PrivKeyECDH{PrivKey: initPriv}
 	respPrivECDH := &keychain.PrivKeyECDH{PrivKey: respPriv}

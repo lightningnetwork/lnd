@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 )
@@ -105,4 +106,19 @@ func ChanPointFromPendingUpdate(pu *lnrpc.PendingUpdate) *lnrpc.ChannelPoint {
 	}
 
 	return chanPoint
+}
+
+// channelPointStr returns the string representation of the channel's
+// funding transaction.
+func channelPointStr(chanPoint *lnrpc.ChannelPoint) string {
+	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+	if err != nil {
+		return ""
+	}
+	cp := wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: chanPoint.OutputIndex,
+	}
+
+	return cp.String()
 }

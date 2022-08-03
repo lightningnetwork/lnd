@@ -135,4 +135,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "batch channel funding",
 		TestFunc: testBatchChanFunding,
 	},
+	{
+		Name:     "update channel policy",
+		TestFunc: testUpdateChannelPolicy,
+	},
 }

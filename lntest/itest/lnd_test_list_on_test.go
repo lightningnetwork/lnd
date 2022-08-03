@@ -5,10 +5,6 @@ package itest
 
 var allTestCases = []*testCase{
 	{
-		name: "update channel policy",
-		test: testUpdateChannelPolicy,
-	},
-	{
 		name: "update channel policy fee rate accuracy",
 		test: testUpdateChannelPolicyFeeRateAccuracy,
 	},

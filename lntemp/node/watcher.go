@@ -559,7 +559,7 @@ func (nw *nodeWatcher) handlePolicyUpdateWatchRequest(req *chanWatchRequest) {
 
 	// Check if the latest policy is matched.
 	policy := policies[len(policies)-1]
-	if checkChannelPolicy(policy.RoutingPolicy, req.policy) == nil {
+	if CheckChannelPolicy(policy.RoutingPolicy, req.policy) == nil {
 		close(req.eventChan)
 		return
 	}
@@ -653,8 +653,8 @@ func (nw *nodeWatcher) getChannelPolicies(include bool) policyUpdateMap {
 	return policyUpdates
 }
 
-// checkChannelPolicy checks that the policy matches the expected one.
-func checkChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
+// CheckChannelPolicy checks that the policy matches the expected one.
+func CheckChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
 	if policy.FeeBaseMsat != expectedPolicy.FeeBaseMsat {
 		return fmt.Errorf("expected base fee %v, got %v",
 			expectedPolicy.FeeBaseMsat, policy.FeeBaseMsat)

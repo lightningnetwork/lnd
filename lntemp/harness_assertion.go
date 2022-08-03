@@ -1503,3 +1503,44 @@ func (h *HarnessTest) AssertTxAtHeight(hn *node.HarnessNode, height int32,
 
 	return nil
 }
+
+// getChannelPolicies queries the channel graph and retrieves the current edge
+// policies for the provided channel point.
+func (h *HarnessTest) getChannelPolicies(hn *node.HarnessNode,
+	advertisingNode string,
+	cp *lnrpc.ChannelPoint) (*lnrpc.RoutingPolicy, error) {
+
+	req := &lnrpc.ChannelGraphRequest{IncludeUnannounced: true}
+	chanGraph := hn.RPC.DescribeGraph(req)
+
+	cpStr := channelPointStr(cp)
+	for _, e := range chanGraph.Edges {
+		if e.ChanPoint != cpStr {
+			continue
+		}
+
+		if e.Node1Pub == advertisingNode {
+			return e.Node1Policy, nil
+		}
+
+		return e.Node2Policy, nil
+	}
+
+	// If we've iterated over all the known edges and we weren't
+	// able to find this specific one, then we'll fail.
+	return nil, fmt.Errorf("did not find edge with advertisingNode: %s"+
+		", channel point: %s", advertisingNode, cpStr)
+}
+
+// AssertChannelPolicy asserts that the passed node's known channel policy for
+// the passed chanPoint is consistent with the expected policy values.
+func (h *HarnessTest) AssertChannelPolicy(hn *node.HarnessNode,
+	advertisingNode string, expectedPolicy *lnrpc.RoutingPolicy,
+	chanPoint *lnrpc.ChannelPoint) {
+
+	policy, err := h.getChannelPolicies(hn, advertisingNode, chanPoint)
+	require.NoErrorf(h, err, "%s: failed to find policy", hn.Name())
+
+	err = node.CheckChannelPolicy(policy, expectedPolicy)
+	require.NoErrorf(h, err, "%s: check policy failed", hn.Name())
+}

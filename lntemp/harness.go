@@ -1321,3 +1321,26 @@ func (h *HarnessTest) QueryChannelByChanPoint(hn *node.HarnessNode,
 	require.NoError(h, err, "failed to query channel")
 	return channel
 }
+
+// SendPaymentAndAssertStatus sends a payment from the passed node and asserts
+// the desired status is reached.
+func (h *HarnessTest) SendPaymentAndAssertStatus(hn *node.HarnessNode,
+	req *routerrpc.SendPaymentRequest,
+	status lnrpc.Payment_PaymentStatus) *lnrpc.Payment {
+
+	stream := hn.RPC.SendPayment(req)
+	return h.AssertPaymentStatusFromStream(stream, status)
+}
+
+// SendPaymentAssertFail sends a payment from the passed node and asserts the
+// payment is failed with the specified failure reason .
+func (h *HarnessTest) SendPaymentAssertFail(hn *node.HarnessNode,
+	req *routerrpc.SendPaymentRequest,
+	reason lnrpc.PaymentFailureReason) *lnrpc.Payment {
+
+	payment := h.SendPaymentAndAssertStatus(hn, req, lnrpc.Payment_FAILED)
+	require.Equal(h, reason, payment.FailureReason,
+		"payment failureReason not matched")
+
+	return payment
+}

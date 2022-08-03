@@ -1637,3 +1637,13 @@ func (h *HarnessTest) AssertNumNodeAnns(hn *node.HarnessNode,
 
 	return anns
 }
+
+// AssertNumChannelUpdates asserts that a given number of channel updates has
+// been seen in the specified node's network topology.
+func (h *HarnessTest) AssertNumChannelUpdates(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint, num int) {
+
+	op := h.OutPointFromChannelPoint(chanPoint)
+	err := hn.Watcher.WaitForNumChannelUpdates(op, num)
+	require.NoError(h, err, "failed to assert num of channel updates")
+}

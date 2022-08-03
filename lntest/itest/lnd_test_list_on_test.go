@@ -9,10 +9,6 @@ var allTestCases = []*testCase{
 		test: testOpenChannelAfterReorg,
 	},
 	{
-		name: "graph topology notifications",
-		test: testGraphTopologyNotifications,
-	},
-	{
 		name: "channel force closure",
 		test: testChannelForceClosure,
 	},

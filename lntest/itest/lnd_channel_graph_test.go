@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -257,31 +256,29 @@ func testUnannouncedChannels(ht *lntemp.HarnessTest) {
 	ht.CloseChannel(alice, fundingChanPoint)
 }
 
-func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) {
-	t.t.Run("pinned", func(t *testing.T) {
-		ht := newHarnessTest(t, net)
-		testGraphTopologyNtfns(net, ht, true)
+func testGraphTopologyNotifications(ht *lntemp.HarnessTest) {
+	ht.Run("pinned", func(t *testing.T) {
+		subT := ht.Subtest(t)
+		testGraphTopologyNtfns(subT, true)
 	})
-	t.t.Run("unpinned", func(t *testing.T) {
-		ht := newHarnessTest(t, net)
-		testGraphTopologyNtfns(net, ht, false)
+	ht.Run("unpinned", func(t *testing.T) {
+		subT := ht.Subtest(t)
+		testGraphTopologyNtfns(subT, false)
 	})
 }
 
-func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned bool) {
-	ctxb := context.Background()
-
+func testGraphTopologyNtfns(ht *lntemp.HarnessTest, pinned bool) {
 	const chanAmt = funding.MaxBtcFundingAmount
 
 	// Spin up Bob first, since we will need to grab his pubkey when
 	// starting Alice to test pinned syncing.
-	bob := net.NewNode(t.t, "bob", nil)
-	defer shutdownAndAssert(net, t, bob)
-
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	bobInfo, err := bob.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
-	require.NoError(t.t, err)
+	bob := ht.Bob
+	bobInfo := bob.RPC.GetInfo()
 	bobPubkey := bobInfo.IdentityPubkey
+
+	// Restart Bob as he may have leftover announcements from previous
+	// tests, causing the graph to be unsynced.
+	ht.RestartNodeWithExtraArgs(bob, nil)
 
 	// For unpinned syncing, start Alice as usual. Otherwise grab Bob's
 	// pubkey to include in his pinned syncer set.
@@ -293,169 +290,64 @@ func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned b
 		}
 	}
 
-	alice := net.NewNode(t.t, "alice", aliceArgs)
-	defer shutdownAndAssert(net, t, alice)
+	alice := ht.Alice
+	ht.RestartNodeWithExtraArgs(alice, aliceArgs)
 
 	// Connect Alice and Bob.
-	net.EnsureConnected(t.t, alice, bob)
-
-	// Alice stimmy.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
-
-	// Bob stimmy.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, bob)
+	ht.EnsureConnected(alice, bob)
 
 	// Assert that Bob has the correct sync type before proceeding.
 	if pinned {
-		assertSyncType(t, alice, bobPubkey, lnrpc.Peer_PINNED_SYNC)
+		assertSyncType(ht, alice, bobPubkey, lnrpc.Peer_PINNED_SYNC)
 	} else {
-		assertSyncType(t, alice, bobPubkey, lnrpc.Peer_ACTIVE_SYNC)
+		assertSyncType(ht, alice, bobPubkey, lnrpc.Peer_ACTIVE_SYNC)
 	}
 
 	// Regardless of syncer type, ensure that both peers report having
 	// completed their initial sync before continuing to make a channel.
-	waitForGraphSync(t, alice)
-
-	// Let Alice subscribe to graph notifications.
-	graphSub := subscribeGraphNotifications(ctxb, t, alice)
-	defer close(graphSub.quit)
+	ht.WaitForGraphSync(alice)
 
 	// Open a new channel between Alice and Bob.
-	chanPoint := openChannelAndAssert(
-		t, net, alice, bob,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	chanPoint := ht.OpenChannel(
+		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// The channel opening above should have triggered a few notifications
 	// sent to the notification client. We'll expect two channel updates,
 	// and two node announcements.
-	var numChannelUpds int
-	var numNodeAnns int
-	for numChannelUpds < 2 && numNodeAnns < 2 {
-		select {
-		// Ensure that a new update for both created edges is properly
-		// dispatched to our registered client.
-		case graphUpdate := <-graphSub.updateChan:
-			// Process all channel updates presented in this update
-			// message.
-			for _, chanUpdate := range graphUpdate.ChannelUpdates {
-				switch chanUpdate.AdvertisingNode {
-				case alice.PubKeyStr:
-				case bob.PubKeyStr:
-				default:
-					t.Fatalf("unknown advertising node: %v",
-						chanUpdate.AdvertisingNode)
-				}
-				switch chanUpdate.ConnectingNode {
-				case alice.PubKeyStr:
-				case bob.PubKeyStr:
-				default:
-					t.Fatalf("unknown connecting node: %v",
-						chanUpdate.ConnectingNode)
-				}
+	ht.AssertNumChannelUpdates(alice, chanPoint, 2)
+	ht.AssertNumNodeAnns(alice, alice.PubKeyStr, 1)
+	ht.AssertNumNodeAnns(alice, bob.PubKeyStr, 1)
 
-				if chanUpdate.Capacity != int64(chanAmt) {
-					t.Fatalf("channel capacities mismatch:"+
-						" expected %v, got %v", chanAmt,
-						btcutil.Amount(chanUpdate.Capacity))
-				}
-				numChannelUpds++
-			}
+	_, blockHeight := ht.Miner.GetBestBlock()
 
-			for _, nodeUpdate := range graphUpdate.NodeUpdates {
-				switch nodeUpdate.IdentityKey {
-				case alice.PubKeyStr:
-				case bob.PubKeyStr:
-				default:
-					t.Fatalf("unknown node: %v",
-						nodeUpdate.IdentityKey)
-				}
-				numNodeAnns++
-			}
-		case err := <-graphSub.errChan:
-			t.Fatalf("unable to recv graph update: %v", err)
-		case <-time.After(time.Second * 10):
-			t.Fatalf("timeout waiting for graph notifications, "+
-				"only received %d/2 chanupds and %d/2 nodeanns",
-				numChannelUpds, numNodeAnns)
-		}
-	}
-
-	_, blockHeight, err := net.Miner.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get current blockheight %v", err)
-	}
-
-	// Now we'll test that updates are properly sent after channels are closed
-	// within the network.
-	closeChannelAndAssert(t, net, alice, chanPoint, false)
+	// Now we'll test that updates are properly sent after channels are
+	// closed within the network.
+	ht.CloseChannel(alice, chanPoint)
 
 	// Now that the channel has been closed, we should receive a
 	// notification indicating so.
-out:
-	for {
-		select {
-		case graphUpdate := <-graphSub.updateChan:
-			if len(graphUpdate.ClosedChans) != 1 {
-				continue
-			}
+	closedChan := ht.AssertTopologyChannelClosed(alice, chanPoint)
 
-			closedChan := graphUpdate.ClosedChans[0]
-			if closedChan.ClosedHeight != uint32(blockHeight+1) {
-				t.Fatalf("close heights of channel mismatch: "+
-					"expected %v, got %v", blockHeight+1,
-					closedChan.ClosedHeight)
-			}
-			chanPointTxid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-			if err != nil {
-				t.Fatalf("unable to get txid: %v", err)
-			}
-			closedChanTxid, err := lnrpc.GetChanPointFundingTxid(
-				closedChan.ChanPoint,
-			)
-			if err != nil {
-				t.Fatalf("unable to get txid: %v", err)
-			}
-			if !bytes.Equal(closedChanTxid[:], chanPointTxid[:]) {
-				t.Fatalf("channel point hash mismatch: "+
-					"expected %v, got %v", chanPointTxid,
-					closedChanTxid)
-			}
-			if closedChan.ChanPoint.OutputIndex != chanPoint.OutputIndex {
-				t.Fatalf("output index mismatch: expected %v, "+
-					"got %v", chanPoint.OutputIndex,
-					closedChan.ChanPoint)
-			}
+	require.Equal(ht, uint32(blockHeight+1), closedChan.ClosedHeight,
+		"close heights of channel mismatch")
 
-			break out
-
-		case err := <-graphSub.errChan:
-			t.Fatalf("unable to recv graph update: %v", err)
-		case <-time.After(time.Second * 10):
-			t.Fatalf("notification for channel closure not " +
-				"sent")
-		}
-	}
+	fundingTxid := ht.OutPointFromChannelPoint(chanPoint)
+	closeTxid := ht.OutPointFromChannelPoint(closedChan.ChanPoint)
+	require.EqualValues(ht, fundingTxid, closeTxid,
+		"channel point hash mismatch")
 
 	// For the final portion of the test, we'll ensure that once a new node
 	// appears in the network, the proper notification is dispatched. Note
 	// that a node that does not have any channels open is ignored, so first
 	// we disconnect Alice and Bob, open a channel between Bob and Carol,
 	// and finally connect Alice to Bob again.
-	if err := net.DisconnectNodes(alice, bob); err != nil {
-		t.Fatalf("unable to disconnect alice and bob: %v", err)
-	}
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	ht.DisconnectNodes(alice, bob)
 
-	net.ConnectNodes(t.t, bob, carol)
-	chanPoint = openChannelAndAssert(
-		t, net, bob, carol,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	carol := ht.NewNode("Carol", nil)
+	ht.ConnectNodes(bob, carol)
+	chanPoint = ht.OpenChannel(
+		bob, carol, lntemp.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Reconnect Alice and Bob. This should result in the nodes syncing up
@@ -464,60 +356,15 @@ out:
 	// and Carol. Note that we will also receive a node announcement from
 	// Bob, since a node will update its node announcement after a new
 	// channel is opened.
-	net.EnsureConnected(t.t, alice, bob)
+	ht.EnsureConnected(alice, bob)
 
 	// We should receive an update advertising the newly connected node,
 	// Bob's new node announcement, and the channel between Bob and Carol.
-	numNodeAnns = 0
-	numChannelUpds = 0
-	for numChannelUpds < 2 && numNodeAnns < 1 {
-		select {
-		case graphUpdate := <-graphSub.updateChan:
-			for _, nodeUpdate := range graphUpdate.NodeUpdates {
-				switch nodeUpdate.IdentityKey {
-				case carol.PubKeyStr:
-				case bob.PubKeyStr:
-				default:
-					t.Fatalf("unknown node update pubey: %v",
-						nodeUpdate.IdentityKey)
-				}
-				numNodeAnns++
-			}
-
-			for _, chanUpdate := range graphUpdate.ChannelUpdates {
-				switch chanUpdate.AdvertisingNode {
-				case carol.PubKeyStr:
-				case bob.PubKeyStr:
-				default:
-					t.Fatalf("unknown advertising node: %v",
-						chanUpdate.AdvertisingNode)
-				}
-				switch chanUpdate.ConnectingNode {
-				case carol.PubKeyStr:
-				case bob.PubKeyStr:
-				default:
-					t.Fatalf("unknown connecting node: %v",
-						chanUpdate.ConnectingNode)
-				}
-
-				if chanUpdate.Capacity != int64(chanAmt) {
-					t.Fatalf("channel capacities mismatch:"+
-						" expected %v, got %v", chanAmt,
-						btcutil.Amount(chanUpdate.Capacity))
-				}
-				numChannelUpds++
-			}
-		case err := <-graphSub.errChan:
-			t.Fatalf("unable to recv graph update: %v", err)
-		case <-time.After(time.Second * 10):
-			t.Fatalf("timeout waiting for graph notifications, "+
-				"only received %d/2 chanupds and %d/2 nodeanns",
-				numChannelUpds, numNodeAnns)
-		}
-	}
+	ht.AssertNumChannelUpdates(alice, chanPoint, 2)
+	ht.AssertNumNodeAnns(alice, bob.PubKeyStr, 1)
 
 	// Close the channel between Bob and Carol.
-	closeChannelAndAssert(t, net, bob, chanPoint, false)
+	ht.CloseChannel(bob, chanPoint)
 }
 
 // testNodeAnnouncement ensures that when a node is started with one or more
@@ -938,4 +785,24 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Close the channel between Bob and Dave.
 	closeChannelAndAssert(t, net, net.Bob, chanPoint, false)
+}
+
+// assertSyncType asserts that the peer has an expected syncType.
+//
+// NOTE: only made for tests in this file.
+func assertSyncType(ht *lntemp.HarnessTest, hn *node.HarnessNode,
+	peer string, syncType lnrpc.Peer_SyncType) {
+
+	resp := hn.RPC.ListPeers()
+	for _, rpcPeer := range resp.Peers {
+		if rpcPeer.PubKey != peer {
+			continue
+		}
+
+		require.Equal(ht, syncType, rpcPeer.SyncType)
+
+		return
+	}
+
+	ht.Fatalf("unable to find peer: %s", peer)
 }

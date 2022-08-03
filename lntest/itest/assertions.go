@@ -1171,28 +1171,6 @@ func assertNodeNumChannels(t *harnessTest, node *lntest.HarnessNode,
 	)
 }
 
-func assertSyncType(t *harnessTest, node *lntest.HarnessNode,
-	peer string, syncType lnrpc.Peer_SyncType) {
-
-	t.t.Helper()
-
-	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := node.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
-	require.NoError(t.t, err)
-
-	for _, rpcPeer := range resp.Peers {
-		if rpcPeer.PubKey != peer {
-			continue
-		}
-
-		require.Equal(t.t, syncType, rpcPeer.SyncType)
-		return
-	}
-
-	t.t.Fatalf("unable to find peer: %s", peer)
-}
-
 // assertActiveHtlcs makes sure all the passed nodes have the _exact_ HTLCs
 // matching payHashes on _all_ their channels.
 func assertActiveHtlcs(nodes []*lntest.HarnessNode, payHashes ...[]byte) error {

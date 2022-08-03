@@ -25,10 +25,6 @@ var allTestCases = []*testCase{
 		test: testSingleHopInvoice,
 	},
 	{
-		name: "list outgoing payments",
-		test: testListPayments,
-	},
-	{
 		name: "multi-hop payments",
 		test: testMultiHopPayments,
 	},

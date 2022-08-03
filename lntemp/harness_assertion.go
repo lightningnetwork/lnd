@@ -1606,6 +1606,7 @@ func (h *HarnessTest) AssertNumPayments(hn *node.HarnessNode,
 
 	req := &lnrpc.ListPaymentsRequest{
 		IncludeIncomplete: true,
+		IndexOffset:       hn.State.Payment.LastIndexOffset,
 	}
 
 	var payments []*lnrpc.Payment

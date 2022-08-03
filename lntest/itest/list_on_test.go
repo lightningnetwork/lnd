@@ -179,4 +179,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "update node announcement rpc",
 		TestFunc: testUpdateNodeAnnouncement,
 	},
+	{
+		Name:     "list outgoing payments",
+		TestFunc: testListPayments,
+	},
 }

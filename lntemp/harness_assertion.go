@@ -1624,3 +1624,16 @@ func (h *HarnessTest) AssertNumPayments(hn *node.HarnessNode,
 
 	return payments
 }
+
+// AssertNumNodeAnns asserts that a given number of node announcements has been
+// seen in the specified node.
+func (h *HarnessTest) AssertNumNodeAnns(hn *node.HarnessNode,
+	pubkey string, num int) []*lnrpc.NodeUpdate {
+
+	// We will get the current number of channel updates first and add it
+	// to our expected number of newly created channel updates.
+	anns, err := hn.Watcher.WaitForNumNodeUpdates(pubkey, num)
+	require.NoError(h, err, "failed to assert num of channel updates")
+
+	return anns
+}

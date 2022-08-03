@@ -155,4 +155,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "connection timeout",
 		TestFunc: testNetworkConnectionTimeout,
 	},
+	{
+		Name:     "reconnect after ip change",
+		TestFunc: testReconnectAfterIPChange,
+	},
 }

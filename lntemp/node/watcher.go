@@ -124,10 +124,12 @@ func (nw *nodeWatcher) WaitForNumChannelUpdates(op wire.OutPoint,
 // WaitForNumNodeUpdates will block until a given number of node updates has
 // been seen in the node's network topology.
 func (nw *nodeWatcher) WaitForNumNodeUpdates(pubkey string,
-	expected int) error {
+	expected int) ([]*lnrpc.NodeUpdate, error) {
 
+	updates := make([]*lnrpc.NodeUpdate, 0)
 	checkNumUpdates := func() error {
-		num := len(nw.GetNodeUpdates(pubkey))
+		updates = nw.GetNodeUpdates(pubkey)
+		num := len(updates)
 		if num >= expected {
 			return nil
 		}
@@ -136,7 +138,9 @@ func (nw *nodeWatcher) WaitForNumNodeUpdates(pubkey string,
 			"want %d, got %d", expected, num)
 	}
 
-	return wait.NoError(checkNumUpdates, DefaultTimeout)
+	err := wait.NoError(checkNumUpdates, DefaultTimeout)
+
+	return updates, err
 }
 
 // WaitForChannelOpen will block until a channel with the target outpoint is

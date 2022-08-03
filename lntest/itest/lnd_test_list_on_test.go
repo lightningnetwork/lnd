@@ -9,10 +9,6 @@ var allTestCases = []*testCase{
 		test: testOpenChannelAfterReorg,
 	},
 	{
-		name: "reconnect after ip change",
-		test: testReconnectAfterIPChange,
-	},
-	{
 		name: "graph topology notifications",
 		test: testGraphTopologyNotifications,
 	},

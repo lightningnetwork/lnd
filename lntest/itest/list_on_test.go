@@ -215,4 +215,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "channel force closure",
 		TestFunc: testChannelForceClosure,
 	},
+	{
+		Name:     "failing link",
+		TestFunc: testFailingChannel,
+	},
 }

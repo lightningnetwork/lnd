@@ -91,10 +91,6 @@ var allTestCases = []*testCase{
 		test: testRevokedCloseRetribution,
 	},
 	{
-		name: "failing link",
-		test: testFailingChannel,
-	},
-	{
 		name: "revoked uncooperative close retribution zero value remote output",
 		test: testRevokedCloseRetributionZeroValueRemoteOutput,
 	},

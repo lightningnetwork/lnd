@@ -211,4 +211,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "commitment deadline",
 		TestFunc: testCommitmentTransactionDeadline,
 	},
+	{
+		Name:     "channel force closure",
+		TestFunc: testChannelForceClosure,
+	},
 }

@@ -124,3 +124,28 @@ func (h *HarnessRPC) ListAddresses(
 
 	return key
 }
+
+// ListSweeps makes a ListSweeps RPC call to the node's WalletKit client.
+func (h *HarnessRPC) ListSweeps(verbose bool) *walletrpc.ListSweepsResponse {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &walletrpc.ListSweepsRequest{Verbose: verbose}
+	resp, err := h.WalletKit.ListSweeps(ctxt, req)
+	h.NoError(err, "ListSweeps")
+
+	return resp
+}
+
+// PendingSweeps makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) PendingSweeps() *walletrpc.PendingSweepsResponse {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &walletrpc.PendingSweepsRequest{}
+
+	resp, err := h.WalletKit.PendingSweeps(ctxt, req)
+	h.NoError(err, "PendingSweeps")
+
+	return resp
+}

@@ -16,6 +16,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -1522,4 +1523,108 @@ func (h *HarnessTest) CalculateTxesFeeRate(txns []*wire.MsgTx) int64 {
 	feeRate := totalFee * scale / totalWeight
 
 	return feeRate
+}
+
+type SweptOutput struct {
+	OutPoint wire.OutPoint
+	SweepTx  *wire.MsgTx
+}
+
+// FindCommitAndAnchor looks for a commitment sweep and anchor sweep in the
+// mempool. Our anchor output is identified by having multiple inputs in its
+// sweep transition, because we have to bring another input to add fees to the
+// anchor. Note that the anchor swept output may be nil if the channel did not
+// have anchors.
+func (h *HarnessTest) FindCommitAndAnchor(sweepTxns []*wire.MsgTx,
+	closeTx string) (*SweptOutput, *SweptOutput) {
+
+	var commitSweep, anchorSweep *SweptOutput
+
+	for _, tx := range sweepTxns {
+		txHash := tx.TxHash()
+		sweepTx := h.Miner.GetRawTransaction(&txHash)
+
+		// We expect our commitment sweep to have a single input, and,
+		// our anchor sweep to have more inputs (because the wallet
+		// needs to add balance to the anchor amount). We find their
+		// sweep txids here to setup appropriate resolutions. We also
+		// need to find the outpoint for our resolution, which we do by
+		// matching the inputs to the sweep to the close transaction.
+		inputs := sweepTx.MsgTx().TxIn
+		if len(inputs) == 1 {
+			commitSweep = &SweptOutput{
+				OutPoint: inputs[0].PreviousOutPoint,
+				SweepTx:  tx,
+			}
+		} else {
+			// Since we have more than one input, we run through
+			// them to find the one whose previous outpoint matches
+			// the closing txid, which means this input is spending
+			// the close tx. This will be our anchor output.
+			for _, txin := range inputs {
+				op := txin.PreviousOutPoint.Hash.String()
+				if op == closeTx {
+					anchorSweep = &SweptOutput{
+						OutPoint: txin.PreviousOutPoint,
+						SweepTx:  tx,
+					}
+				}
+			}
+		}
+	}
+
+	return commitSweep, anchorSweep
+}
+
+// AssertSweepFound looks up a sweep in a nodes list of broadcast sweeps and
+// asserts it's found.
+//
+// NOTE: Does not account for node's internal state.
+func (h *HarnessTest) AssertSweepFound(hn *node.HarnessNode,
+	sweep string, verbose bool) {
+
+	// List all sweeps that alice's node had broadcast.
+	sweepResp := hn.RPC.ListSweeps(verbose)
+
+	var found bool
+	if verbose {
+		found = findSweepInDetails(h, sweep, sweepResp)
+	} else {
+		found = findSweepInTxids(h, sweep, sweepResp)
+	}
+
+	require.Truef(h, found, "%s: sweep: %v not found", sweep, hn.Name())
+}
+
+func findSweepInTxids(ht *HarnessTest, sweepTxid string,
+	sweepResp *walletrpc.ListSweepsResponse) bool {
+
+	sweepTxIDs := sweepResp.GetTransactionIds()
+	require.NotNil(ht, sweepTxIDs, "expected transaction ids")
+	require.Nil(ht, sweepResp.GetTransactionDetails())
+
+	// Check that the sweep tx we have just produced is present.
+	for _, tx := range sweepTxIDs.TransactionIds {
+		if tx == sweepTxid {
+			return true
+		}
+	}
+
+	return false
+}
+
+func findSweepInDetails(ht *HarnessTest, sweepTxid string,
+	sweepResp *walletrpc.ListSweepsResponse) bool {
+
+	sweepDetails := sweepResp.GetTransactionDetails()
+	require.NotNil(ht, sweepDetails, "expected transaction details")
+	require.Nil(ht, sweepResp.GetTransactionIds())
+
+	for _, tx := range sweepDetails.Transactions {
+		if tx.TxHash == sweepTxid {
+			return true
+		}
+	}
+
+	return false
 }

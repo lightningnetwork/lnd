@@ -9,10 +9,6 @@ var allTestCases = []*testCase{
 		test: testOpenChannelAfterReorg,
 	},
 	{
-		name: "channel force closure",
-		test: testChannelForceClosure,
-	},
-	{
 		name: "single hop invoice",
 		test: testSingleHopInvoice,
 	},

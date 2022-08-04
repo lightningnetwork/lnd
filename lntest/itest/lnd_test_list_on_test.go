@@ -127,10 +127,6 @@ var allTestCases = []*testCase{
 		test: testRouteFeeCutoff,
 	},
 	{
-		name: "export channel backup",
-		test: testExportChannelBackup,
-	},
-	{
 		name: "hold invoice sender persistence",
 		test: testHoldInvoicePersistence,
 	},

@@ -195,4 +195,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "streaming channel backup update",
 		TestFunc: testChannelBackupUpdates,
 	},
+	{
+		Name:     "export channel backup",
+		TestFunc: testExportChannelBackup,
+	},
 }

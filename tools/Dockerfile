@@ -1,4 +1,4 @@
-FROM golang:1.18.2-buster
+FROM golang:1.19-buster
 
 RUN apt-get update && apt-get install -y git
 ENV GOCACHE=/tmp/build/.cache

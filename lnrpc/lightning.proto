@@ -926,6 +926,14 @@ message ChannelAcceptRequest {
 
     // The commitment type the initiator wishes to use for the proposed channel.
     CommitmentType commitment_type = 14;
+
+    // Whether the initiator wants to open a zero-conf channel via the channel
+    // type.
+    bool wants_zero_conf = 15;
+
+    // Whether the initiator wants to use the scid-alias channel type. This is
+    // separate from the feature bit.
+    bool wants_scid_alias = 16;
 }
 
 message ChannelAcceptResponse {

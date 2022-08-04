@@ -258,19 +258,72 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 			pendingChanID := req.OpenChanMsg.PendingChannelID
 
 			// Map the channel commitment type to its RPC
-			// counterpart.
-			var commitmentType lnrpc.CommitmentType
+			// counterpart. Also determine whether the zero-conf or
+			// scid-alias channel types are set.
+			var (
+				commitmentType lnrpc.CommitmentType
+				wantsZeroConf  bool
+				wantsScidAlias bool
+			)
+
 			if req.OpenChanMsg.ChannelType != nil {
 				channelFeatures := lnwire.RawFeatureVector(
 					*req.OpenChanMsg.ChannelType,
 				)
 				switch {
 				case channelFeatures.OnlyContains(
+					lnwire.ZeroConfRequired,
+					lnwire.ScidAliasRequired,
 					lnwire.ScriptEnforcedLeaseRequired,
 					lnwire.AnchorsZeroFeeHtlcTxRequired,
 					lnwire.StaticRemoteKeyRequired,
 				):
 					commitmentType = lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE
+
+				case channelFeatures.OnlyContains(
+					lnwire.ZeroConfRequired,
+					lnwire.ScriptEnforcedLeaseRequired,
+					lnwire.AnchorsZeroFeeHtlcTxRequired,
+					lnwire.StaticRemoteKeyRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE
+
+				case channelFeatures.OnlyContains(
+					lnwire.ScidAliasRequired,
+					lnwire.ScriptEnforcedLeaseRequired,
+					lnwire.AnchorsZeroFeeHtlcTxRequired,
+					lnwire.StaticRemoteKeyRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE
+
+				case channelFeatures.OnlyContains(
+					lnwire.ScriptEnforcedLeaseRequired,
+					lnwire.AnchorsZeroFeeHtlcTxRequired,
+					lnwire.StaticRemoteKeyRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE
+
+				case channelFeatures.OnlyContains(
+					lnwire.ZeroConfRequired,
+					lnwire.ScidAliasRequired,
+					lnwire.AnchorsZeroFeeHtlcTxRequired,
+					lnwire.StaticRemoteKeyRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_ANCHORS
+
+				case channelFeatures.OnlyContains(
+					lnwire.ZeroConfRequired,
+					lnwire.AnchorsZeroFeeHtlcTxRequired,
+					lnwire.StaticRemoteKeyRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_ANCHORS
+
+				case channelFeatures.OnlyContains(
+					lnwire.ScidAliasRequired,
+					lnwire.AnchorsZeroFeeHtlcTxRequired,
+					lnwire.StaticRemoteKeyRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_ANCHORS
 
 				case channelFeatures.OnlyContains(
 					lnwire.AnchorsZeroFeeHtlcTxRequired,
@@ -290,6 +343,20 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 					log.Warnf("Unhandled commitment type "+
 						"in channel acceptor request: %v",
 						req.OpenChanMsg.ChannelType)
+				}
+
+				if channelFeatures.IsSet(
+					lnwire.ZeroConfRequired,
+				) {
+
+					wantsZeroConf = true
+				}
+
+				if channelFeatures.IsSet(
+					lnwire.ScidAliasRequired,
+				) {
+
+					wantsScidAlias = true
 				}
 			}
 
@@ -311,6 +378,8 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 				MaxAcceptedHtlcs: uint32(req.OpenChanMsg.MaxAcceptedHTLCs),
 				ChannelFlags:     uint32(req.OpenChanMsg.ChannelFlags),
 				CommitmentType:   commitmentType,
+				WantsZeroConf:    wantsZeroConf,
+				WantsScidAlias:   wantsScidAlias,
 			}
 
 			if err := r.send(chanAcceptReq); err != nil {

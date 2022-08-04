@@ -203,4 +203,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "channel balance",
 		TestFunc: testChannelBalance,
 	},
+	{
+		Name:     "channel unsettled balance",
+		TestFunc: testChannelUnsettledBalance,
+	},
 }

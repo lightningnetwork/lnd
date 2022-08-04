@@ -1,17 +1,14 @@
 package itest
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -76,13 +73,12 @@ func testChannelBalance(ht *lntemp.HarnessTest) {
 // Alice will send Htlcs to Carol while she is in hodl mode. This will result
 // in a build of pending Htlcs. We expect the channels unsettled balance to
 // equal the sum of all the Pending Htlcs.
-func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
+func testChannelUnsettledBalance(ht *lntemp.HarnessTest) {
 	const chanAmt = btcutil.Amount(1000000)
-	ctxb := context.Background()
 
 	// Creates a helper closure to be used below which asserts the proper
 	// response to a channel balance RPC.
-	checkChannelBalance := func(node *lntest.HarnessNode,
+	checkChannelBalance := func(node *node.HarnessNode,
 		local, remote, unsettledLocal, unsettledRemote btcutil.Amount) {
 
 		expectedResponse := &lnrpc.ChannelBalanceResponse{
@@ -115,44 +111,25 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 			// Deprecated fields.
 			Balance: int64(local),
 		}
-		assertChannelBalanceResp(t, node, expectedResponse)
+		ht.AssertChannelBalanceResp(node, expectedResponse)
 	}
 
 	// Create carol in hodl mode.
-	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", []string{"--hodl.exit-settle"})
 
 	// Connect Alice to Carol.
-	net.ConnectNodes(t.t, net.Alice, carol)
+	alice := ht.Alice
+	ht.ConnectNodes(alice, carol)
 
 	// Open a channel between Alice and Carol.
-	chanPointAlice := openChannelAndAssert(
-		t, net, net.Alice, carol,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	chanPointAlice := ht.OpenChannel(
+		alice, carol, lntemp.OpenChannelParams{Amt: chanAmt},
 	)
-
-	// Wait for Alice and Carol to receive the channel edge from the
-	// funding manager.
-	err := net.Alice.WaitForNetworkChannelOpen(chanPointAlice)
-	if err != nil {
-		t.Fatalf("alice didn't see the alice->carol channel before "+
-			"timeout: %v", err)
-	}
-
-	err = carol.WaitForNetworkChannelOpen(chanPointAlice)
-	if err != nil {
-		t.Fatalf("alice didn't see the alice->carol channel before "+
-			"timeout: %v", err)
-	}
-
-	cType, err := channelCommitType(net.Alice, chanPointAlice)
-	require.NoError(t.t, err, "unable to get channel type")
+	cType := ht.GetChannelCommitType(alice, chanPointAlice)
 
 	// Check alice's channel balance, which should have zero remote and zero
 	// pending balance.
-	checkChannelBalance(net.Alice, chanAmt-calcStaticFee(cType, 0), 0, 0, 0)
+	checkChannelBalance(alice, chanAmt-calcStaticFee(cType, 0), 0, 0, 0)
 
 	// Check carol's channel balance, which should have zero local and zero
 	// pending balance.
@@ -165,79 +142,61 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// Simulateneously send numInvoices payments from Alice to Carol.
-	carolPubKey := carol.PubKey[:]
-	errChan := make(chan error)
 	for i := 0; i < numInvoices; i++ {
 		go func() {
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			_, err := net.Alice.RouterClient.SendPaymentV2(ctxt,
-				&routerrpc.SendPaymentRequest{
-					Dest:           carolPubKey,
-					Amt:            int64(payAmt),
-					PaymentHash:    makeFakePayHash(t),
-					FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
-					TimeoutSeconds: 60,
-					FeeLimitMsat:   noFeeLimitMsat,
-				})
-
-			if err != nil {
-				errChan <- err
+			req := &routerrpc.SendPaymentRequest{
+				Dest:           carol.PubKey[:],
+				Amt:            int64(payAmt),
+				PaymentHash:    ht.Random32Bytes(),
+				FinalCltvDelta: finalCltvDelta,
+				TimeoutSeconds: 60,
+				FeeLimitMsat:   noFeeLimitMsat,
 			}
+			alice.RPC.SendPayment(req)
 		}()
 	}
 
+	// There should be a number of PendingHtlcs equal
+	// to the amount of Invoices sent.
+	ht.AssertNumActiveHtlcs(alice, numInvoices)
+	ht.AssertNumActiveHtlcs(carol, numInvoices)
+
+	// Set the amount expected for the Unsettled Balance for this channel.
+	expectedBalance := numInvoices * payAmt
+
 	// Test that the UnsettledBalance for both Alice and Carol
 	// is equal to the amount of invoices * payAmt.
-	var unsettledErr error
-	nodes := []*lntest.HarnessNode{net.Alice, carol}
-	err = wait.Predicate(func() bool {
-		// There should be a number of PendingHtlcs equal
-		// to the amount of Invoices sent.
-		unsettledErr = assertNumActiveHtlcs(nodes, numInvoices)
-		if unsettledErr != nil {
-			return false
+	checkUnsettledBalance := func() error {
+		// Get channel info for the Alice.
+		chanInfo := ht.QueryChannelByChanPoint(alice, chanPointAlice)
+
+		// Check that UnsettledBalance is what we expect.
+		if int(chanInfo.UnsettledBalance) != expectedBalance {
+			return fmt.Errorf("unsettled balance failed "+
+				"expected: %v, received: %v", expectedBalance,
+				chanInfo.UnsettledBalance)
 		}
 
-		// Set the amount expected for the Unsettled Balance for
-		// this channel.
-		expectedBalance := numInvoices * payAmt
+		// Get channel info for the Carol.
+		chanInfo = ht.QueryChannelByChanPoint(carol, chanPointAlice)
 
-		// Check each nodes UnsettledBalance field.
-		for _, node := range nodes {
-			// Get channel info for the node.
-			chanInfo, err := getChanInfo(node)
-			if err != nil {
-				unsettledErr = err
-				return false
-			}
-
-			// Check that UnsettledBalance is what we expect.
-			if int(chanInfo.UnsettledBalance) != expectedBalance {
-				unsettledErr = fmt.Errorf("unsettled balance failed "+
-					"expected: %v, received: %v", expectedBalance,
-					chanInfo.UnsettledBalance)
-				return false
-			}
+		// Check that UnsettledBalance is what we expect.
+		if int(chanInfo.UnsettledBalance) != expectedBalance {
+			return fmt.Errorf("unsettled balance failed "+
+				"expected: %v, received: %v", expectedBalance,
+				chanInfo.UnsettledBalance)
 		}
 
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("unsettled balace error: %v", unsettledErr)
+		return nil
 	}
-
-	// Check for payment errors.
-	select {
-	case err := <-errChan:
-		t.Fatalf("payment error: %v", err)
-	default:
-	}
+	require.NoError(ht, wait.NoError(checkUnsettledBalance, defaultTimeout),
+		"timeout while checking unsettled balance")
 
 	// Check alice's channel balance, which should have a remote unsettled
 	// balance that equals to the amount of invoices * payAmt. The remote
 	// balance remains zero.
 	aliceLocal := chanAmt - calcStaticFee(cType, 0) - numInvoices*payAmt
-	checkChannelBalance(net.Alice, aliceLocal, 0, 0, numInvoices*payAmt)
+	checkChannelBalance(alice, aliceLocal, 0, 0, numInvoices*payAmt)
 
 	// Check carol's channel balance, which should have a local unsettled
 	// balance that equals to the amount of invoices * payAmt. The local
@@ -245,8 +204,5 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	checkChannelBalance(carol, 0, aliceLocal, numInvoices*payAmt, 0)
 
 	// Force and assert the channel closure.
-	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, true)
-
-	// Cleanup by mining the force close and sweep transaction.
-	cleanupForceClose(t, net, net.Alice, chanPointAlice)
+	ht.ForceCloseChannel(alice, chanPointAlice)
 }

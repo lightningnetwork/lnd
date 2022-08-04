@@ -13,10 +13,6 @@ var allTestCases = []*testCase{
 		test: testChannelForceClosure,
 	},
 	{
-		name: "channel unsettled balance",
-		test: testChannelUnsettledBalance,
-	},
-	{
 		name: "single hop invoice",
 		test: testSingleHopInvoice,
 	},

@@ -13,10 +13,6 @@ var allTestCases = []*testCase{
 		test: testChannelForceClosure,
 	},
 	{
-		name: "channel balance",
-		test: testChannelBalance,
-	},
-	{
 		name: "channel unsettled balance",
 		test: testChannelUnsettledBalance,
 	},

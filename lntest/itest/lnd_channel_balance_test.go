@@ -9,6 +9,8 @@ import (
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -17,14 +19,14 @@ import (
 
 // testChannelBalance creates a new channel between Alice and Bob, then checks
 // channel balance to be equal amount specified while creation of channel.
-func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
+func testChannelBalance(ht *lntemp.HarnessTest) {
 	// Open a channel with 0.16 BTC between Alice and Bob, ensuring the
 	// channel has been opened properly.
 	amount := funding.MaxBtcFundingAmount
 
 	// Creates a helper closure to be used below which asserts the proper
 	// response to a channel balance RPC.
-	checkChannelBalance := func(node *lntest.HarnessNode,
+	checkChannelBalance := func(node *node.HarnessNode,
 		local, remote btcutil.Amount) {
 
 		expectedResponse := &lnrpc.ChannelBalanceResponse{
@@ -45,46 +47,28 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 			// Deprecated fields.
 			Balance: int64(local),
 		}
-		assertChannelBalanceResp(t, node, expectedResponse)
+		ht.AssertChannelBalanceResp(node, expectedResponse)
 	}
 
 	// Before beginning, make sure alice and bob are connected.
-	net.EnsureConnected(t.t, net.Alice, net.Bob)
+	alice, bob := ht.Alice, ht.Bob
+	ht.EnsureConnected(alice, bob)
 
-	chanPoint := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
-			Amt: amount,
-		},
+	chanPoint := ht.OpenChannel(
+		alice, bob, lntemp.OpenChannelParams{Amt: amount},
 	)
-
-	// Wait for both Alice and Bob to recognize this new channel.
-	err := net.Alice.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("alice didn't advertise channel before "+
-			"timeout: %v", err)
-	}
-	err = net.Bob.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("bob didn't advertise channel before "+
-			"timeout: %v", err)
-	}
-
-	cType, err := channelCommitType(net.Alice, chanPoint)
-	if err != nil {
-		t.Fatalf("unable to get channel type: %v", err)
-	}
+	cType := ht.GetChannelCommitType(alice, chanPoint)
 
 	// As this is a single funder channel, Alice's balance should be
 	// exactly 0.5 BTC since now state transitions have taken place yet.
-	checkChannelBalance(net.Alice, amount-calcStaticFee(cType, 0), 0)
+	checkChannelBalance(alice, amount-calcStaticFee(cType, 0), 0)
 
 	// Ensure Bob currently has no available balance within the channel.
-	checkChannelBalance(net.Bob, 0, amount-calcStaticFee(cType, 0))
+	checkChannelBalance(bob, 0, amount-calcStaticFee(cType, 0))
 
 	// Finally close the channel between Alice and Bob, asserting that the
 	// channel has been properly closed on-chain.
-	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+	ht.CloseChannel(alice, chanPoint)
 }
 
 // testChannelUnsettledBalance will test that the UnsettledBalance field

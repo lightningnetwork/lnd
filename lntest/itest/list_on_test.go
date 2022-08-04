@@ -187,4 +187,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "immediate payment after channel opened",
 		TestFunc: testPaymentFollowingChannelOpen,
 	},
+	{
+		Name:     "invoice update subscription",
+		TestFunc: testInvoiceSubscriptions,
+	},
 }

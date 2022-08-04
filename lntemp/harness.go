@@ -1442,3 +1442,36 @@ func (h *HarnessTest) OpenMultiChannelsAsync(
 
 	return channelPoints
 }
+
+// ReceiveInvoiceUpdate waits until a message is received on the subscribe
+// invoice stream or the timeout is reached.
+func (h *HarnessTest) ReceiveInvoiceUpdate(
+	stream rpc.InvoiceUpdateClient) *lnrpc.Invoice {
+
+	chanMsg := make(chan *lnrpc.Invoice)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout receiving invoice update")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}

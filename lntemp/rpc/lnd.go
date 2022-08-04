@@ -494,3 +494,26 @@ func (h *HarnessRPC) UpdateChannelPolicy(
 
 	return resp
 }
+
+type InvoiceUpdateClient lnrpc.Lightning_SubscribeInvoicesClient
+
+// SubscribeInvoices creates a subscription client for invoice events and
+// asserts its creation.
+//
+// NOTE: make sure to subscribe an invoice as early as possible as it takes
+// some time for the lnd to create the subscription client. If an invoice is
+// added right after the subscription, it may be missed. However, if AddIndex
+// or SettleIndex is used in the request, it will be fine as a backlog will
+// always be sent.
+func (h *HarnessRPC) SubscribeInvoices(
+	req *lnrpc.InvoiceSubscription) InvoiceUpdateClient {
+
+	// SubscribeInvoices needs to have the context alive for the
+	// entire test case as the returned client will be used for send and
+	// receive events stream. Thus we use runCtx here instead of a timeout
+	// context.
+	client, err := h.LN.SubscribeInvoices(h.runCtx, req)
+	require.NoError(h, err, "unable to create invoice subscription client")
+
+	return client
+}

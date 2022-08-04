@@ -57,10 +57,6 @@ var allTestCases = []*testCase{
 		test: testBasicChannelCreationAndUpdates,
 	},
 	{
-		name: "invoice update subscription",
-		test: testInvoiceSubscriptions,
-	},
-	{
 		name: "multi-hop htlc error propagation",
 		test: testHtlcErrorPropagation,
 	},

@@ -127,10 +127,6 @@ var allTestCases = []*testCase{
 		test: testHoldInvoiceForceClose,
 	},
 	{
-		name: "commitment deadline",
-		test: testCommitmentTransactionDeadline,
-	},
-	{
 		name: "cpfp",
 		test: testCPFP,
 	},

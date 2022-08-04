@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -593,6 +594,14 @@ func (h *HarnessTest) RestoreNodeWithSeed(name string, extraArgs []string,
 // estimator will use that value instead.
 func (h *HarnessTest) SetFeeEstimate(fee chainfee.SatPerKWeight) {
 	h.feeService.SetFeeRate(fee, 1)
+}
+
+// SetFeeEstimateWithConf sets a fee rate of a specified conf target to be
+// returned from fee estimator.
+func (h *HarnessTest) SetFeeEstimateWithConf(
+	fee chainfee.SatPerKWeight, conf uint32) {
+
+	h.feeService.SetFeeRate(fee, conf)
 }
 
 // validateNodeState checks that the node doesn't have any uncleaned states
@@ -1474,4 +1483,43 @@ func (h *HarnessTest) ReceiveInvoiceUpdate(
 	}
 
 	return nil
+}
+
+// CalculateTxFee retrieves parent transactions and reconstructs the fee paid.
+func (h *HarnessTest) CalculateTxFee(tx *wire.MsgTx) btcutil.Amount {
+	var balance btcutil.Amount
+	for _, in := range tx.TxIn {
+		parentHash := in.PreviousOutPoint.Hash
+		rawTx := h.Miner.GetRawTransaction(&parentHash)
+		parent := rawTx.MsgTx()
+		balance += btcutil.Amount(
+			parent.TxOut[in.PreviousOutPoint.Index].Value,
+		)
+	}
+
+	for _, out := range tx.TxOut {
+		balance -= btcutil.Amount(out.Value)
+	}
+
+	return balance
+}
+
+// CalculateTxesFeeRate takes a list of transactions and estimates the fee rate
+// used to sweep them.
+//
+// NOTE: only used in current test file.
+func (h *HarnessTest) CalculateTxesFeeRate(txns []*wire.MsgTx) int64 {
+	const scale = 1000
+
+	var totalWeight, totalFee int64
+	for _, tx := range txns {
+		utx := btcutil.NewTx(tx)
+		totalWeight += blockchain.GetTransactionWeight(utx)
+
+		fee := h.CalculateTxFee(tx)
+		totalFee += int64(fee)
+	}
+	feeRate := totalFee * scale / totalWeight
+
+	return feeRate
 }

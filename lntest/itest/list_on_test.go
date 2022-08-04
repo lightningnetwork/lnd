@@ -231,4 +231,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "neutrino kit",
 		TestFunc: testNeutrino,
 	},
+	{
+		Name:     "etcd failover",
+		TestFunc: testEtcdFailover,
+	},
 }

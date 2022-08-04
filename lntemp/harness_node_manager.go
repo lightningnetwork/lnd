@@ -71,8 +71,7 @@ func (nm *nodeManager) nextNodeID() uint32 {
 // node can be used immediately. Otherwise, the node will require an additional
 // initialization phase where the wallet is either created or restored.
 func (nm *nodeManager) newNode(t *testing.T, name string, extraArgs []string,
-	password []byte, useSeed bool,
-	opts ...node.Option) (*node.HarnessNode, error) {
+	password []byte, useSeed bool) (*node.HarnessNode, error) {
 
 	cfg := &node.BaseNodeConfig{
 		Name:              name,
@@ -86,9 +85,6 @@ func (nm *nodeManager) newNode(t *testing.T, name string, extraArgs []string,
 		LndBinary:         nm.lndBinary,
 		NetParams:         harnessNetParams,
 		HasSeed:           useSeed,
-	}
-	for _, opt := range opts {
-		opt(cfg)
 	}
 
 	node, err := node.NewHarnessNode(t, cfg)

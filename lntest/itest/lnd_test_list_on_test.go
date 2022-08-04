@@ -211,10 +211,6 @@ var allTestCases = []*testCase{
 		test: testWalletImportPubKey,
 	},
 	{
-		name: "etcd_failover",
-		test: testEtcdFailover,
-	},
-	{
 		name: "max htlc pathfind",
 		test: testMaxHtlcPathfind,
 	},

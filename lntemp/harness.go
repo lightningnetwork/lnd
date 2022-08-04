@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -153,6 +154,16 @@ func (h *HarnessTest) Start(chain node.BackendConfig, miner *HarnessMiner) {
 // ChainBackendName returns the chain backend name used in the test.
 func (h *HarnessTest) ChainBackendName() string {
 	return h.manager.chainBackend.Name()
+}
+
+// Context returns the run context used in this test. Usaually it should be
+// managed by the test itself otherwise undefined behaviors will occur. It can
+// be used, however, when a test needs to have its own context being managed
+// differently. In that case, instead of using a background context, the run
+// context should be used such that the test context scope can be fully
+// controlled.
+func (h *HarnessTest) Context() context.Context {
+	return h.runCtx
 }
 
 // SetUp starts the initial seeder nodes within the test harness. The initial
@@ -585,6 +596,61 @@ func (h *HarnessTest) RestoreNodeWithSeed(name string, extraArgs []string,
 		node.Name())
 
 	return node
+}
+
+// NewNodeEtcd starts a new node with seed that'll use an external etcd
+// database as its storage. The passed cluster flag indicates that we'd like
+// the node to join the cluster leader election. We won't wait until RPC is
+// available (this is useful when the node is not expected to become the leader
+// right away).
+func (h *HarnessTest) NewNodeEtcd(name string, etcdCfg *etcd.Config,
+	password []byte, cluster bool,
+	leaderSessionTTL int) *node.HarnessNode {
+
+	// We don't want to use the embedded etcd instance.
+	h.manager.dbBackend = lntest.BackendBbolt
+
+	extraArgs := node.ExtraArgsEtcd(
+		etcdCfg, name, cluster, leaderSessionTTL,
+	)
+	node, err := h.manager.newNode(h.T, name, extraArgs, password, true)
+	require.NoError(h, err, "failed to create new node with etcd")
+
+	// Start the node daemon only.
+	err = node.StartLndCmd(h.runCtx)
+	require.NoError(h, err, "failed to start node %s", node.Name())
+
+	return node
+}
+
+// NewNodeWithSeedEtcd starts a new node with seed that'll use an external etcd
+// database as its storage. The passed cluster flag indicates that we'd like
+// the node to join the cluster leader election.
+func (h *HarnessTest) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
+	password []byte, entropy []byte, statelessInit, cluster bool,
+	leaderSessionTTL int) (*node.HarnessNode, []string, []byte) {
+
+	// We don't want to use the embedded etcd instance.
+	h.manager.dbBackend = lntest.BackendBbolt
+
+	// Create a request to generate a new aezeed. The new seed will have
+	// the same password as the internal wallet.
+	req := &lnrpc.GenSeedRequest{
+		AezeedPassphrase: password,
+		SeedEntropy:      nil,
+	}
+
+	extraArgs := node.ExtraArgsEtcd(
+		etcdCfg, name, cluster, leaderSessionTTL,
+	)
+
+	return h.newNodeWithSeed(name, extraArgs, req, statelessInit)
+}
+
+// KillNode kills the node (but won't wait for the node process to stop).
+func (h *HarnessTest) KillNode(hn *node.HarnessNode) {
+	require.NoErrorf(h, hn.Kill(), "%s: kill got error", hn.Name())
+	delete(h.manager.activeNodes, hn.Cfg.NodeID)
 }
 
 // SetFeeEstimate sets a fee rate to be returned from fee estimator.

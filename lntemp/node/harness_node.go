@@ -215,6 +215,33 @@ func (hn *HarnessNode) WaitUntilServerActive() error {
 	})
 }
 
+// WaitUntilLeader attempts to finish the start procedure by initiating an RPC
+// connection and setting up the wallet unlocker client. This is needed when
+// a node that has recently been started was waiting to become the leader and
+// we're at the point when we expect that it is the leader now (awaiting
+// unlock).
+func (hn *HarnessNode) WaitUntilLeader(timeout time.Duration) error {
+	var (
+		conn    *grpc.ClientConn
+		connErr error
+	)
+
+	if err := wait.NoError(func() error {
+		conn, connErr = hn.ConnectRPCWithMacaroon(nil)
+		return connErr
+	}, timeout); err != nil {
+		return err
+	}
+
+	// Since the conn is not authed, only the `WalletUnlocker` and `State`
+	// clients can be inited from this conn.
+	hn.conn = conn
+	hn.RPC = rpc.NewHarnessRPC(hn.runCtx, hn.T, conn, hn.Name())
+
+	// Wait till the server is starting.
+	return hn.WaitUntilStarted()
+}
+
 // Unlock attempts to unlock the wallet of the target HarnessNode. This method
 // should be called after the restart of a HarnessNode that was created with a
 // seed+password. Once this method returns, the HarnessNode will be ready to
@@ -399,7 +426,7 @@ func (hn *HarnessNode) Start(ctxt context.Context) error {
 	conn, err := hn.ConnectRPC()
 	if err != nil {
 		err = fmt.Errorf("ConnectRPC err: %w", err)
-		cmdErr := hn.kill()
+		cmdErr := hn.Kill()
 		if cmdErr != nil {
 			err = fmt.Errorf("kill process got err: %w: %v",
 				cmdErr, err)
@@ -452,6 +479,11 @@ func (hn *HarnessNode) InitNode(macBytes []byte) error {
 
 	// Init all the RPC clients.
 	hn.InitRPCClients(conn)
+
+	// Wait till the server is starting.
+	if err := hn.WaitUntilStarted(); err != nil {
+		return fmt.Errorf("waiting for start got: %w", err)
+	}
 
 	return hn.initLightningClient()
 }
@@ -670,7 +702,7 @@ func (hn *HarnessNode) Stop() error {
 		// If the rpc clients are not initiated, we'd kill the process
 		// manually.
 		hn.printErrf("found nil RPC clients")
-		if err := hn.kill(); err != nil {
+		if err := hn.Kill(); err != nil {
 			return fmt.Errorf("killing process got: %v", err)
 		}
 	}
@@ -719,8 +751,8 @@ func (hn *HarnessNode) Shutdown() error {
 	return nil
 }
 
-// kill kills the lnd process.
-func (hn *HarnessNode) kill() error {
+// Kill kills the lnd process.
+func (hn *HarnessNode) Kill() error {
 	return hn.cmd.Process.Kill()
 }
 

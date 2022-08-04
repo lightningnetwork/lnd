@@ -884,7 +884,11 @@ func (h *HarnessTest) assertPaymentStatusWithTimeout(stream rpc.PaymentClient,
 	err := wait.NoError(func() error {
 		// Consume one message. This will raise an error if the message
 		// is not received within DefaultTimeout.
-		payment := h.ReceivePaymentUpdate(stream)
+		payment, err := h.ReceivePaymentUpdate(stream)
+		if err != nil {
+			return fmt.Errorf("received error from payment "+
+				"stream: %s", err)
+		}
 
 		// Return if the desired payment state is reached.
 		if payment.Status == status {
@@ -895,8 +899,8 @@ func (h *HarnessTest) assertPaymentStatusWithTimeout(stream rpc.PaymentClient,
 
 		// Return the err so that it can be used for debugging when
 		// timeout is reached.
-		return fmt.Errorf("payment status, got %v, want %v",
-			payment.Status, status)
+		return fmt.Errorf("payment %v status, got %v, want %v",
+			payment.PaymentHash, payment.Status, status)
 	}, timeout)
 
 	require.NoError(h, err, "timeout while waiting payment")
@@ -907,7 +911,7 @@ func (h *HarnessTest) assertPaymentStatusWithTimeout(stream rpc.PaymentClient,
 // ReceivePaymentUpdate waits until a message is received on the payment client
 // stream or the timeout is reached.
 func (h *HarnessTest) ReceivePaymentUpdate(
-	stream rpc.PaymentClient) *lnrpc.Payment {
+	stream rpc.PaymentClient) (*lnrpc.Payment, error) {
 
 	chanMsg := make(chan *lnrpc.Payment, 1)
 	errChan := make(chan error, 1)
@@ -926,16 +930,14 @@ func (h *HarnessTest) ReceivePaymentUpdate(
 	select {
 	case <-time.After(DefaultTimeout):
 		require.Fail(h, "timeout", "timeout waiting for payment update")
+		return nil, nil
 
 	case err := <-errChan:
-		require.Failf(h, "payment stream",
-			"received err from payment stream: %v", err)
+		return nil, err
 
 	case updateMsg := <-chanMsg:
-		return updateMsg
+		return updateMsg, nil
 	}
-
-	return nil
 }
 
 // AssertInvoiceSettled asserts a given invoice specified by its payment

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
@@ -132,6 +133,29 @@ func (h *HarnessRPC) PendingChannels() *lnrpc.PendingChannelsResponse {
 
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	resp, err := h.LN.PendingChannels(ctxt, pendingChansRequest)
+
+	// TODO(yy): We may get a `unable to find arbitrator` error from the
+	// rpc point, due to a timing issue in rpcserver,
+	// 1. `r.server.chanStateDB.FetchClosedChannels` fetches
+	//    the pending force close channel.
+	// 2. `r.arbitratorPopulateForceCloseResp` relies on the
+	//    channel arbitrator to get the report, and,
+	// 3. the arbitrator may be deleted due to the force close
+	//    channel being resolved.
+	// Somewhere along the line is missing a lock to keep the data
+	// consistent.
+	//
+	// Return if there's no error.
+	if err == nil {
+		return resp
+	}
+
+	// Otherwise, give it a second shot if it's the arbitrator error.
+	if strings.Contains(err.Error(), "unable to find arbitrator") {
+		resp, err = h.LN.PendingChannels(ctxt, pendingChansRequest)
+	}
+
+	// It's very unlikely we'd get the arbitrator not found error again.
 	h.NoError(err, "PendingChannels")
 
 	return resp
@@ -516,4 +540,31 @@ func (h *HarnessRPC) SubscribeInvoices(
 	require.NoError(h, err, "unable to create invoice subscription client")
 
 	return client
+}
+
+type BackupSubscriber lnrpc.Lightning_SubscribeChannelBackupsClient
+
+// SubscribeChannelBackups creates a client to listen to channel backup stream.
+func (h *HarnessRPC) SubscribeChannelBackups() BackupSubscriber {
+	// Use runCtx here instead of timeout context to keep the stream client
+	// alive.
+	backupStream, err := h.LN.SubscribeChannelBackups(
+		h.runCtx, &lnrpc.ChannelBackupSubscription{},
+	)
+	require.NoErrorf(h, err, "unable to create backup stream")
+
+	return backupStream
+}
+
+// VerifyChanBackup makes a RPC call to node's VerifyChanBackup and asserts.
+func (h *HarnessRPC) VerifyChanBackup(
+	ss *lnrpc.ChanBackupSnapshot) *lnrpc.VerifyChanBackupResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.VerifyChanBackup(ctxt, ss)
+	require.NoErrorf(h, err, "unable to verify backup")
+
+	return resp
 }

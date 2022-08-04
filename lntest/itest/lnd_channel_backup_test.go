@@ -782,12 +782,12 @@ func runChanRestoreScenarioForceClose(ht *lntemp.HarnessTest, zeroConf bool) {
 // testChannelBackupUpdates tests that both the streaming channel update RPC,
 // and the on-disk channel.backup are updated each time a channel is
 // opened/closed.
-func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
+func testChannelBackupUpdates(ht *lntemp.HarnessTest) {
+	alice := ht.Alice
 
 	// First, we'll make a temp directory that we'll use to store our
 	// backup file, so we can check in on it during the test easily.
-	backupDir := t.t.TempDir()
+	backupDir := ht.T.TempDir()
 
 	// First, we'll create a new node, Carol. We'll also create a temporary
 	// file that Carol will use to store her channel backups.
@@ -795,17 +795,11 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 		backupDir, chanbackup.DefaultBackupFileName,
 	)
 	carolArgs := fmt.Sprintf("--backupfilepath=%v", backupFilePath)
-	carol := net.NewNode(t.t, "carol", []string{carolArgs})
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("carol", []string{carolArgs})
 
 	// Next, we'll register for streaming notifications for changes to the
 	// backup file.
-	backupStream, err := carol.SubscribeChannelBackups(
-		ctxb, &lnrpc.ChannelBackupSubscription{},
-	)
-	if err != nil {
-		t.Fatalf("unable to create backup stream: %v", err)
-	}
+	backupStream := carol.RPC.SubscribeChannelBackups()
 
 	// We'll use this goroutine to proxy any updates to a channel we can
 	// easily use below.
@@ -838,18 +832,16 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With Carol up, we'll now connect her to Alice, and open a channel
 	// between them.
-	net.ConnectNodes(t.t, carol, net.Alice)
+	ht.ConnectNodes(carol, alice)
 
 	// Next, we'll open two channels between Alice and Carol back to back.
 	var chanPoints []*lnrpc.ChannelPoint
 	numChans := 2
 	chanAmt := btcutil.Amount(1000000)
 	for i := 0; i < numChans; i++ {
-		chanPoint := openChannelAndAssert(
-			t, net, net.Alice, carol,
-			lntest.OpenChannelParams{Amt: chanAmt},
+		chanPoint := ht.OpenChannel(
+			alice, carol, lntemp.OpenChannelParams{Amt: chanAmt},
 		)
-
 		chanPoints = append(chanPoints, chanPoint)
 	}
 
@@ -860,12 +852,14 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 		for i := 0; i < numNtfns; i++ {
 			select {
 			case err := <-streamErr:
-				t.Fatalf("error with backup stream: %v", err)
+				require.Failf(ht, "stream err",
+					"error with backup stream: %v", err)
 
 			case currentBackup = <-backupUpdates:
 
 			case <-time.After(time.Second * 5):
-				t.Fatalf("didn't receive channel backup "+
+				require.Failf(ht, "timeout", "didn't "+
+					"receive channel backup "+
 					"notification %v", i+1)
 			}
 		}
@@ -885,32 +879,29 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 			// nonce, we can't compare them directly, so instead
 			// we'll compare the length which is a proxy for the
 			// number of channels that the multi-backup contains.
-			rawBackup := currentBackup.MultiChanBackup.MultiChanBackup
-			if len(rawBackup) != len(packedBackup) {
+			backup := currentBackup.MultiChanBackup.MultiChanBackup
+			if len(backup) != len(packedBackup) {
 				return fmt.Errorf("backup files don't match: "+
-					"expected %x got %x", rawBackup, packedBackup)
+					"expected %x got %x", backup,
+					packedBackup)
 			}
 
 			// Additionally, we'll assert that both backups up
 			// returned are valid.
-			for i, backup := range [][]byte{rawBackup, packedBackup} {
+			for _, backup := range [][]byte{backup, packedBackup} {
 				snapshot := &lnrpc.ChanBackupSnapshot{
 					MultiChanBackup: &lnrpc.MultiChanBackup{
 						MultiChanBackup: backup,
 					},
 				}
-				_, err := carol.VerifyChanBackup(ctxb, snapshot)
-				if err != nil {
-					return fmt.Errorf("unable to verify "+
-						"backup #%d: %v", i, err)
-				}
+
+				carol.RPC.VerifyChanBackup(snapshot)
 			}
 
 			return nil
 		}, defaultTimeout)
-		if err != nil {
-			t.Fatalf("backup state invalid: %v", err)
-		}
+		require.NoError(ht, err, "timeout while checking "+
+			"backup state: %v", err)
 	}
 
 	// As these two channels were just opened, we should've got two times
@@ -931,11 +922,11 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 
 		chanPoint := chanPoints[i]
 
-		closeChannelAndAssert(t, net, net.Alice, chanPoint, forceClose)
-
 		// If we force closed the channel, then we'll mine enough
 		// blocks to ensure all outputs have been swept.
 		if forceClose {
+			ht.ForceCloseChannel(alice, chanPoint)
+
 			// A local force closed channel will trigger a
 			// notification once the commitment TX confirms on
 			// chain. But that won't remove the channel from the
@@ -943,13 +934,12 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 			// locked contract was fully resolved on chain.
 			assertBackupNtfns(1)
 
-			cleanupForceClose(t, net, net.Alice, chanPoint)
-
-			// Now that the channel's been fully resolved, we expect
-			// another notification.
+			// Now that the channel's been fully resolved, we
+			// expect another notification.
 			assertBackupNtfns(1)
 			assertBackupFileState()
 		} else {
+			ht.CloseChannel(alice, chanPoint)
 			// We should get a single notification after closing,
 			// and the on-disk state should match this latest
 			// notifications.

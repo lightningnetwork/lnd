@@ -127,10 +127,6 @@ var allTestCases = []*testCase{
 		test: testRouteFeeCutoff,
 	},
 	{
-		name: "streaming channel backup update",
-		test: testChannelBackupUpdates,
-	},
-	{
 		name: "export channel backup",
 		test: testExportChannelBackup,
 	},

@@ -171,10 +171,6 @@ var allTestCases = []*testCase{
 		test: testDeleteMacaroonID,
 	},
 	{
-		name: "immediate payment after channel opened",
-		test: testPaymentFollowingChannelOpen,
-	},
-	{
 		name: "psbt channel funding",
 		test: testPsbtChanFunding,
 	},

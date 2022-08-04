@@ -100,81 +100,58 @@ func testListPayments(ht *lntemp.HarnessTest) {
 // subsystems trying to update the channel state in the db. We follow this
 // transition with a payment that updates the commitment state and verify that
 // the pending state is up to date.
-func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testPaymentFollowingChannelOpen(ht *lntemp.HarnessTest) {
 	const paymentAmt = btcutil.Amount(100)
 	channelCapacity := paymentAmt * 1000
 
 	// We first establish a channel between Alice and Bob.
-	pendingUpdate, err := net.OpenPendingChannel(
-		net.Alice, net.Bob, channelCapacity, 0,
-	)
-	if err != nil {
-		t.Fatalf("unable to open channel: %v", err)
+	alice, bob := ht.Alice, ht.Bob
+	p := lntemp.OpenChannelParams{
+		Amt: channelCapacity,
 	}
+	pendingUpdate := ht.OpenChannelAssertPending(alice, bob, p)
 
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed. Alice and Bob's nodes
 	// should reflect this when queried via RPC.
-	assertNumOpenChannelsPending(t, net.Alice, net.Bob, 1)
+	ht.AssertNodesNumPendingOpenChannels(alice, bob, 1)
 
 	// We are restarting Bob's node to let the link be created for the
 	// pending channel.
-	if err := net.RestartNode(net.Bob, nil); err != nil {
-		t.Fatalf("Bob restart failed: %v", err)
-	}
+	ht.RestartNode(bob)
 
 	// We ensure that Bob reconnects to Alice.
-	net.EnsureConnected(t.t, net.Bob, net.Alice)
+	ht.EnsureConnected(bob, alice)
 
-	// We mine one block for the channel to be confirmed.
-	_ = mineBlocks(t, net, 6, 1)[0]
+	// We mine six blocks for the channel to be confirmed.
+	ht.MineBlocksAndAssertNumTxes(6, 1)
 
 	// We verify that the channel is open from both nodes point of view.
-	assertNumOpenChannelsPending(t, net.Alice, net.Bob, 0)
+	chanPoint := lntemp.ChanPointFromPendingUpdate(pendingUpdate)
+	ht.AssertNodesNumPendingOpenChannels(alice, bob, 0)
+	ht.AssertChannelExists(alice, chanPoint)
+	ht.AssertChannelExists(bob, chanPoint)
 
 	// With the channel open, we'll create invoices for Bob that Alice will
 	// pay to in order to advance the state of the channel.
-	bobPayReqs, _, _, err := createPayReqs(
-		net.Bob, paymentAmt, 1,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
-	}
+	bobPayReqs, _, _ := ht.CreatePayReqs(bob, paymentAmt, 1)
 
 	// Send payment to Bob so that a channel update to disk will be
 	// executed.
-	sendAndAssertSuccess(
-		t, net.Alice, &routerrpc.SendPaymentRequest{
-			PaymentRequest: bobPayReqs[0],
-			TimeoutSeconds: 60,
-			FeeLimitSat:    1000000,
-		},
-	)
+	ht.CompletePaymentRequests(alice, []string{bobPayReqs[0]})
 
-	// At this point we want to make sure the channel is opened and not
-	// pending.
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	res, err := net.Bob.ListChannels(ctxt, &lnrpc.ListChannelsRequest{})
-	if err != nil {
-		t.Fatalf("unable to list bob channels: %v", err)
-	}
-	if len(res.Channels) == 0 {
-		t.Fatalf("bob list of channels is empty")
-	}
+	// TODO(yy): remove the sleep once the following bug is fixed.
+	// When the invoice is reported settled, the commitment dance is not
+	// yet finished, which can cause an error when closing the channel,
+	// saying there's active HTLCs. We need to investigate this issue and
+	// reverse the order to, first finish the commitment dance, then report
+	// the invoice as settled.
+	time.Sleep(2 * time.Second)
 
 	// Finally, immediately close the channel. This function will also
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
-	chanPoint := &lnrpc.ChannelPoint{
-		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-			FundingTxidBytes: pendingUpdate.Txid,
-		},
-		OutputIndex: pendingUpdate.OutputIndex,
-	}
-	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+	ht.CloseChannel(alice, chanPoint)
 }
 
 // testAsyncPayments tests the performance of the async payments.

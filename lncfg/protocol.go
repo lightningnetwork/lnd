@@ -38,6 +38,10 @@ type ProtocolOptions struct {
 	// OptionZeroConf should be set if we want to signal the zero-conf
 	// feature bit.
 	OptionZeroConf bool `long:"zero-conf" description:"enable support for zero-conf channels, must have option-scid-alias set also"`
+
+	// NoOptionAnySegwit should be set to true if we don't want to use any
+	// Taproot (and beyond) addresses for co-op closing.
+	NoOptionAnySegwit bool `long:"no-any-segwit" description:"disallow using any segiwt witness version as a co-op close address"`
 }
 
 // Wumbo returns true if lnd should permit the creation and acceptance of wumbo
@@ -66,4 +70,10 @@ func (l *ProtocolOptions) ScidAlias() bool {
 // ZeroConf returns true if we have enabled the zero-conf feature bit.
 func (l *ProtocolOptions) ZeroConf() bool {
 	return l.OptionZeroConf
+}
+
+// NoAnySegwit returns true if we don't signal that we understand other newer
+// segwit witness versions for co-op close addresses.
+func (l *ProtocolOptions) NoAnySegwit() bool {
+	return l.NoOptionAnySegwit
 }

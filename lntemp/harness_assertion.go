@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
@@ -1758,4 +1759,96 @@ func (h *HarnessTest) ReceiveTrackPayment(
 	}
 
 	return nil
+}
+
+// ReceiveHtlcEvent waits until a message is received on the subscribe
+// htlc event stream or the timeout is reached.
+func (h *HarnessTest) ReceiveHtlcEvent(
+	stream rpc.HtlcEventsClient) *routerrpc.HtlcEvent {
+
+	chanMsg := make(chan *routerrpc.HtlcEvent)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout receiving htlc "+
+			"event update")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}
+
+// AssertHtlcEventType consumes one event from a client and asserts the event
+// type is matched.
+func (h *HarnessTest) AssertHtlcEventType(client rpc.HtlcEventsClient,
+	userType routerrpc.HtlcEvent_EventType) *routerrpc.HtlcEvent {
+
+	event := h.ReceiveHtlcEvent(client)
+	require.Equalf(h, userType, event.EventType, "wrong event type, "+
+		"want %v got %v", userType, event.EventType)
+
+	return event
+}
+
+// HtlcEvent maps the series of event types used in `*routerrpc.HtlcEvent_*`.
+type HtlcEvent int
+
+const (
+	HtlcEventForward HtlcEvent = iota
+	HtlcEventForwardFail
+	HtlcEventSettle
+	HtlcEventLinkFail
+	HtlcEventFinal
+)
+
+// AssertHtlcEventType consumes one event from a client and asserts both the
+// user event type the event.Event type is matched.
+func (h *HarnessTest) AssertHtlcEventTypes(client rpc.HtlcEventsClient,
+	userType routerrpc.HtlcEvent_EventType,
+	eventType HtlcEvent) *routerrpc.HtlcEvent {
+
+	event := h.ReceiveHtlcEvent(client)
+	require.Equalf(h, userType, event.EventType, "wrong event type, "+
+		"want %v got %v", userType, event.EventType)
+
+	var ok bool
+
+	switch eventType {
+	case HtlcEventForward:
+		_, ok = event.Event.(*routerrpc.HtlcEvent_ForwardEvent)
+
+	case HtlcEventForwardFail:
+		_, ok = event.Event.(*routerrpc.HtlcEvent_ForwardFailEvent)
+
+	case HtlcEventSettle:
+		_, ok = event.Event.(*routerrpc.HtlcEvent_SettleEvent)
+
+	case HtlcEventLinkFail:
+		_, ok = event.Event.(*routerrpc.HtlcEvent_LinkFailEvent)
+
+	case HtlcEventFinal:
+		_, ok = event.Event.(*routerrpc.HtlcEvent_FinalHtlcEvent)
+	}
+
+	require.Truef(h, ok, "wrong event type: %T, want %T", event.Event,
+		eventType)
+
+	return event
 }

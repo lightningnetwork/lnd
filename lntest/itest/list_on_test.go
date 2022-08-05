@@ -255,4 +255,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "max htlc pathfind",
 		TestFunc: testMaxHtlcPathfind,
 	},
+	{
+		Name:     "multi-hop htlc error propagation",
+		TestFunc: testHtlcErrorPropagation,
+	},
 }

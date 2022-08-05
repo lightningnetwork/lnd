@@ -45,10 +45,6 @@ var allTestCases = []*testCase{
 		test: testBasicChannelCreationAndUpdates,
 	},
 	{
-		name: "multi-hop htlc error propagation",
-		test: testHtlcErrorPropagation,
-	},
-	{
 		name: "derive shared key",
 		test: testDeriveSharedKey,
 	},

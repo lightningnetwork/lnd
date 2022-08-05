@@ -39,3 +39,56 @@ func (h *HarnessRPC) SendPayment(
 
 	return stream
 }
+
+type HtlcEventsClient routerrpc.Router_SubscribeHtlcEventsClient
+
+// SubscribeHtlcEvents makes a subscription to the HTLC events and returns a
+// htlc event client.
+func (h *HarnessRPC) SubscribeHtlcEvents() HtlcEventsClient {
+	// Use runCtx here to keep the client alive for the scope of the test.
+	client, err := h.Router.SubscribeHtlcEvents(
+		h.runCtx, &routerrpc.SubscribeHtlcEventsRequest{},
+	)
+	h.NoError(err, "SubscribeHtlcEvents")
+
+	return client
+}
+
+// GetMissionControlConfig makes a RPC call to the node's
+// GetMissionControlConfig and asserts.
+//
+//nolint:lll
+func (h *HarnessRPC) GetMissionControlConfig() *routerrpc.GetMissionControlConfigResponse {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &routerrpc.GetMissionControlConfigRequest{}
+	resp, err := h.Router.GetMissionControlConfig(ctxt, req)
+	h.NoError(err, "GetMissionControlConfig")
+
+	return resp
+}
+
+// SetMissionControlConfig makes a RPC call to the node's
+// SetMissionControlConfig and asserts.
+func (h *HarnessRPC) SetMissionControlConfig(
+	config *routerrpc.MissionControlConfig) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &routerrpc.SetMissionControlConfigRequest{Config: config}
+	_, err := h.Router.SetMissionControlConfig(ctxt, req)
+	h.NoError(err, "SetMissionControlConfig")
+}
+
+// ResetMissionControl makes a RPC call to the node's ResetMissionControl and
+// asserts.
+func (h *HarnessRPC) ResetMissionControl() {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &routerrpc.ResetMissionControlRequest{}
+	_, err := h.Router.ResetMissionControl(ctxt, req)
+	h.NoError(err, "ResetMissionControl")
+}

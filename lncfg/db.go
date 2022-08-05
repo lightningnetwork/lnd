@@ -61,6 +61,8 @@ type DB struct {
 	Postgres *postgres.Config `group:"postgres" namespace:"postgres" description:"Postgres settings."`
 
 	NoGraphCache bool `long:"no-graph-cache" description:"Don't use the in-memory graph cache for path finding. Much slower but uses less RAM. Can only be used with a bolt database backend."`
+
+	PruneRevocation bool `long:"prune-revocation" description:"Run the optional migration that prunes the revocation logs to save disk space."`
 }
 
 // DefaultDB creates and returns a new default DB config.

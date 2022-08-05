@@ -25,9 +25,18 @@ const (
 	DefaultPreAllocCacheNumNodes = 15000
 )
 
+// OptionalMiragtionConfig defines the flags used to signal whether a
+// particular migration needs to be applied.
+type OptionalMiragtionConfig struct {
+	// PruneRevocationLog specifies that the revocation log migration needs
+	// to be applied.
+	PruneRevocationLog bool
+}
+
 // Options holds parameters for tuning and customizing a channeldb.DB.
 type Options struct {
 	kvdb.BoltBackendConfig
+	OptionalMiragtionConfig
 
 	// RejectCacheSize is the maximum number of rejectCacheEntries to hold
 	// in the rejection cache.
@@ -76,12 +85,13 @@ func DefaultOptions() Options {
 			AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
 			DBTimeout:         kvdb.DefaultDBTimeout,
 		},
-		RejectCacheSize:       DefaultRejectCacheSize,
-		ChannelCacheSize:      DefaultChannelCacheSize,
-		PreAllocCacheNumNodes: DefaultPreAllocCacheNumNodes,
-		UseGraphCache:         true,
-		NoMigration:           false,
-		clock:                 clock.NewDefaultClock(),
+		OptionalMiragtionConfig: OptionalMiragtionConfig{},
+		RejectCacheSize:         DefaultRejectCacheSize,
+		ChannelCacheSize:        DefaultChannelCacheSize,
+		PreAllocCacheNumNodes:   DefaultPreAllocCacheNumNodes,
+		UseGraphCache:           true,
+		NoMigration:             false,
+		clock:                   clock.NewDefaultClock(),
 	}
 }
 
@@ -174,5 +184,13 @@ func OptionDryRunMigration(dryRun bool) OptionModifier {
 func OptionKeepFailedPaymentAttempts(keepFailedPaymentAttempts bool) OptionModifier {
 	return func(o *Options) {
 		o.keepFailedPaymentAttempts = keepFailedPaymentAttempts
+	}
+}
+
+// OptionPruneRevocationLog specifies whether the migration for pruning
+// revocation logs needs to be applied or not.
+func OptionPruneRevocationLog(prune bool) OptionModifier {
+	return func(o *Options) {
+		o.OptionalMiragtionConfig.PruneRevocationLog = prune
 	}
 }

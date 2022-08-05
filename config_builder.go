@@ -857,6 +857,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
 		channeldb.OptionSetUseGraphCache(!cfg.DB.NoGraphCache),
 		channeldb.OptionKeepFailedPaymentAttempts(cfg.KeepFailedPaymentAttempts),
+		channeldb.OptionPruneRevocationLog(cfg.DB.PruneRevocation),
 	}
 
 	// We want to pre-allocate the channel graph cache according to what we

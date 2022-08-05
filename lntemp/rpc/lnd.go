@@ -579,3 +579,15 @@ func (h *HarnessRPC) LookupInvoice(rHash []byte) *lnrpc.Invoice {
 
 	return resp
 }
+
+// DecodePayReq makes a RPC call to node's DecodePayReq and asserts.
+func (h *HarnessRPC) DecodePayReq(req string) *lnrpc.PayReq {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	payReq := &lnrpc.PayReqString{PayReq: req}
+	resp, err := h.LN.DecodePayReq(ctxt, payReq)
+	h.NoError(err, "DecodePayReq")
+
+	return resp
+}

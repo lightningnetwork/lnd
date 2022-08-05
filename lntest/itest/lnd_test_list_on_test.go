@@ -111,10 +111,6 @@ var allTestCases = []*testCase{
 		test: testRouteFeeCutoff,
 	},
 	{
-		name: "hold invoice sender persistence",
-		test: testHoldInvoicePersistence,
-	},
-	{
 		name: "cpfp",
 		test: testCPFP,
 	},

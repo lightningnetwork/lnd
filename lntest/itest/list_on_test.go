@@ -239,4 +239,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "hold invoice force close",
 		TestFunc: testHoldInvoiceForceClose,
 	},
+	{
+		Name:     "hold invoice sender persistence",
+		TestFunc: testHoldInvoicePersistence,
+	},
 }

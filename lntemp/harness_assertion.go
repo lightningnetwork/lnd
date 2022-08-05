@@ -1726,3 +1726,36 @@ func (h *HarnessTest) CreateBurnAddr(addrType lnrpc.AddressType) ([]byte,
 
 	return h.PayToAddrScript(addr), addr
 }
+
+// ReceiveTrackPayment waits until a message is received on the track payment
+// stream or the timeout is reached.
+func (h *HarnessTest) ReceiveTrackPayment(
+	stream rpc.TrackPaymentClient) *lnrpc.Payment {
+
+	chanMsg := make(chan *lnrpc.Payment)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout trakcing payment")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}

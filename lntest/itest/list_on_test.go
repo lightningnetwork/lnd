@@ -251,4 +251,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "wumbo channels",
 		TestFunc: testWumboChannels,
 	},
+	{
+		Name:     "max htlc pathfind",
+		TestFunc: testMaxHtlcPathfind,
+	},
 }

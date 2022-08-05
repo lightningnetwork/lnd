@@ -195,10 +195,6 @@ var allTestCases = []*testCase{
 		test: testWalletImportPubKey,
 	},
 	{
-		name: "max htlc pathfind",
-		test: testMaxHtlcPathfind,
-	},
-	{
 		name: "rpc middleware interceptor",
 		test: testRPCMiddlewareInterceptor,
 	},

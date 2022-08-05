@@ -5,17 +5,17 @@ package main
 
 import (
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
-func watchtowerCommands() []cli.Command {
-	return []cli.Command{
+func watchtowerCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:     "tower",
 			Usage:    "Interact with the watchtower.",
 			Category: "Watchtower",
-			Subcommands: []cli.Command{
-				towerInfoCommand,
+			Subcommands: []*cli.Command{
+				&towerInfoCommand,
 			},
 		},
 	}

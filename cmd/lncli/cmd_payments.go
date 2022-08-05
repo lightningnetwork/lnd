@@ -26,7 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 const (
@@ -105,47 +105,47 @@ var (
 // paymentFlags returns common flags for sendpayment and payinvoice.
 func paymentFlags() []cli.Flag {
 	return []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "pay_req",
 			Usage: "a zpay32 encoded payment request to fulfill",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "fee_limit",
 			Usage: "maximum fee allowed in satoshis when " +
 				"sending the payment",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "fee_limit_percent",
 			Usage: "percentage of the payment's amount used as " +
 				"the maximum fee allowed when sending the " +
 				"payment",
 		},
-		cli.DurationFlag{
+		&cli.DurationFlag{
 			Name: "timeout",
 			Usage: "the maximum amount of time we should spend " +
 				"trying to fulfill the payment, failing " +
 				"after the timeout has elapsed",
 			Value: paymentTimeout,
 		},
-		cltvLimitFlag,
-		lastHopFlag,
-		cli.Uint64Flag{
+		&cltvLimitFlag,
+		&lastHopFlag,
+		&cli.Uint64Flag{
 			Name: "outgoing_chan_id",
 			Usage: "short channel id of the outgoing channel to " +
 				"use for the first hop of the payment",
 			Value: 0,
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "force, f",
 			Usage: "will skip payment request confirmation",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "allow_self_payment",
 			Usage: "allow sending a circular payment to self",
 		},
-		dataFlag, inflightUpdatesFlag, maxPartsFlag, jsonFlag,
-		maxShardSizeSatFlag, maxShardSizeMsatFlag, ampFlag,
-		timePrefFlag,
+		&dataFlag, &inflightUpdatesFlag, &maxPartsFlag, &jsonFlag,
+		&maxShardSizeSatFlag, &maxShardSizeMsatFlag, &ampFlag,
+		&timePrefFlag,
 	}
 }
 
@@ -173,28 +173,28 @@ var sendPaymentCommand = cli.Command{
 	`,
 	ArgsUsage: "dest amt payment_hash final_cltv_delta pay_addr | --pay_req=[payment request]",
 	Flags: append(paymentFlags(),
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "dest, d",
 			Usage: "the compressed identity pubkey of the " +
 				"payment recipient",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:  "amt, a",
 			Usage: "number of satoshis to send",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "payment_hash, r",
 			Usage: "the hash to use within the payment's HTLC",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:  "final_cltv_delta",
 			Usage: "the number of blocks the last hop has to reveal the preimage",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "pay_addr",
 			Usage: "the payment address of the generated invoice",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "keysend",
 			Usage: "will generate a pre-image and encode it in the sphinx packet, a dest must be set [experimental]",
 		},
@@ -277,7 +277,7 @@ func sendPayment(ctx *cli.Context) error {
 		return nil
 	}
 
-	args := ctx.Args()
+	argStrings := ctx.Args().Slice()
 
 	// If a payment request was provided, we can exit early since all of the
 	// details of the payment are encoded within the request.
@@ -310,9 +310,9 @@ func sendPayment(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("dest"):
 		destNode, err = hex.DecodeString(ctx.String("dest"))
-	case args.Present():
-		destNode, err = hex.DecodeString(args.First())
-		args = args.Tail()
+	case len(argStrings) > 0:
+		destNode, err = hex.DecodeString(argStrings[0])
+		argStrings = argStrings[1:]
 	default:
 		return fmt.Errorf("destination txid argument missing")
 	}
@@ -327,9 +327,9 @@ func sendPayment(ctx *cli.Context) error {
 
 	if ctx.IsSet("amt") {
 		amount = ctx.Int64("amt")
-	} else if args.Present() {
-		amount, err = strconv.ParseInt(args.First(), 10, 64)
-		args = args.Tail()
+	} else if len(argStrings) > 0 {
+		amount, err = strconv.ParseInt(argStrings[0], 10, 64)
+		argStrings = argStrings[1:]
 		if err != nil {
 			return fmt.Errorf("unable to decode payment amount: %v", err)
 		}
@@ -369,9 +369,9 @@ func sendPayment(ctx *cli.Context) error {
 		switch {
 		case ctx.IsSet("payment_hash"):
 			rHash, err = hex.DecodeString(ctx.String("payment_hash"))
-		case args.Present():
-			rHash, err = hex.DecodeString(args.First())
-			args = args.Tail()
+		case len(argStrings) > 1:
+			rHash, err = hex.DecodeString(argStrings[0])
+			argStrings = argStrings[1:]
 		default:
 			return fmt.Errorf("payment hash argument missing")
 		}
@@ -389,8 +389,8 @@ func sendPayment(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("final_cltv_delta"):
 		req.FinalCltvDelta = int32(ctx.Int64("final_cltv_delta"))
-	case args.Present():
-		delta, err := strconv.ParseInt(args.First(), 10, 64)
+	case len(argStrings) > 0:
+		delta, err := strconv.ParseInt(argStrings[0], 10, 64)
 		if err != nil {
 			return err
 		}
@@ -568,7 +568,7 @@ var trackPaymentCommand = cli.Command{
 	`,
 	ArgsUsage: "hash",
 	Flags: []cli.Flag{
-		jsonFlag,
+		&jsonFlag,
 	},
 	Action: actionDecorator(trackPayment),
 }
@@ -804,7 +804,7 @@ var payInvoiceCommand = cli.Command{
 	Usage:     "Pay an invoice over lightning.",
 	ArgsUsage: "pay_req",
 	Flags: append(paymentFlags(),
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "amt",
 			Usage: "(optional) number of satoshis to fulfill the " +
 				"invoice",
@@ -864,16 +864,16 @@ var sendToRouteCommand = cli.Command{
 	     the route in from stdin
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "payment_hash, pay_hash",
 			Usage: "the hash to use within the payment's HTLC",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "routes, r",
 			Usage: "a json array string in the format of the response " +
 				"of queryroutes that denotes which routes to use",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "skip_temp_err",
 			Usage: "Whether the payment should be marked as " +
 				"failed when a temporary error occurred. Set " +
@@ -891,7 +891,7 @@ func sendToRoute(ctx *cli.Context) error {
 		return nil
 	}
 
-	args := ctx.Args()
+	argStrings := ctx.Args().Slice()
 
 	var (
 		rHash []byte
@@ -900,10 +900,10 @@ func sendToRoute(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("payment_hash"):
 		rHash, err = hex.DecodeString(ctx.String("payment_hash"))
-	case args.Present():
-		rHash, err = hex.DecodeString(args.First())
+	case len(argStrings) > 0:
+		rHash, err = hex.DecodeString(argStrings[0])
 
-		args = args.Tail()
+		argStrings = argStrings[1:]
 	default:
 		return fmt.Errorf("payment hash argument missing")
 	}
@@ -925,12 +925,12 @@ func sendToRoute(ctx *cli.Context) error {
 		jsonRoutes = ctx.String("routes")
 
 	// The user is specifying the routes as a positional argument.
-	case args.Present() && args.First() != "-":
-		jsonRoutes = args.First()
+	case len(argStrings) > 0 && argStrings[0] != "-":
+		jsonRoutes = argStrings[0]
 
 	// The user is signalling that we should read stdin in order to parse
 	// the set of target routes.
-	case args.Present() && args.First() == "-":
+	case len(argStrings) > 0 && argStrings[0] == "-":
 		b, err := ioutil.ReadAll(os.Stdin)
 		if err != nil {
 			return err
@@ -1003,48 +1003,48 @@ var queryRoutesCommand = cli.Command{
 	Description: "Queries the channel router for a potential path to the destination that has sufficient flow for the amount including fees",
 	ArgsUsage:   "dest amt",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "dest",
 			Usage: "the 33-byte hex-encoded public key for the payment " +
 				"destination",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:  "amt",
 			Usage: "the amount to send expressed in satoshis",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "fee_limit",
 			Usage: "maximum fee allowed in satoshis when sending " +
 				"the payment",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "fee_limit_percent",
 			Usage: "percentage of the payment's amount used as the " +
 				"maximum fee allowed when sending the payment",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "final_cltv_delta",
 			Usage: "(optional) number of blocks the last hop has to reveal " +
 				"the preimage",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "use_mc",
 			Usage: "use mission control probabilities",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "outgoing_chanid",
 			Usage: "(optional) the channel id of the channel " +
 				"that must be taken to the first hop",
 		},
-		cli.StringSliceFlag{
+		&cli.StringSliceFlag{
 			Name: "ignore_pair",
 			Usage: "ignore directional node pair " +
 				"<node1>:<node2>. This flag can be specified " +
 				"multiple times if multiple node pairs are " +
 				"to be ignored",
 		},
-		timePrefFlag,
-		cltvLimitFlag,
+		&timePrefFlag,
+		&cltvLimitFlag,
 	},
 	Action: actionDecorator(queryRoutes),
 }
@@ -1060,14 +1060,14 @@ func queryRoutes(ctx *cli.Context) error {
 		err  error
 	)
 
-	args := ctx.Args()
+	argStrings := ctx.Args().Slice()
 
 	switch {
 	case ctx.IsSet("dest"):
 		dest = ctx.String("dest")
-	case args.Present():
-		dest = args.First()
-		args = args.Tail()
+	case len(argStrings) > 0:
+		dest = argStrings[0]
+		argStrings = argStrings[1:]
 	default:
 		return fmt.Errorf("dest argument missing")
 	}
@@ -1075,8 +1075,8 @@ func queryRoutes(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("amt"):
 		amt = ctx.Int64("amt")
-	case args.Present():
-		amt, err = strconv.ParseInt(args.First(), 10, 64)
+	case len(argStrings) > 0:
+		amt, err = strconv.ParseInt(argStrings[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode amt argument: %v", err)
 		}
@@ -1188,14 +1188,14 @@ var listPaymentsCommand = cli.Command{
 	flag.
 	`,
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "include_incomplete",
 			Usage: "if set to true, payments still in flight (or " +
 				"failed) will be returned as well, keeping" +
 				"indices for payments the same as without " +
 				"the flag",
 		},
-		cli.UintFlag{
+		&cli.UintFlag{
 			Name: "index_offset",
 			Usage: "The index of a payment that will be used as " +
 				"either the start (in forwards mode) or end " +
@@ -1206,18 +1206,18 @@ var listPaymentsCommand = cli.Command{
 				"reversed mode, the query will end with the " +
 				"last payment made.",
 		},
-		cli.UintFlag{
+		&cli.UintFlag{
 			Name: "max_payments",
 			Usage: "the max number of payments to return, by " +
 				"default, all completed payments are returned",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "paginate_forwards",
 			Usage: "if set, payments succeeding the " +
 				"index_offset will be returned, allowing " +
 				"forwards pagination",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "count_total_payments",
 			Usage: "if set, all payments (complete or incomplete, " +
 				"independent of max_payments parameter) will " +
@@ -1274,21 +1274,21 @@ var forwardingHistoryCommand = cli.Command{
 	entry. Using this callers can manually paginate within a time slice.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "start_time",
 			Usage: "the starting time for the query " +
 				`as unix timestamp or relative e.g. "-1w"`,
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "end_time",
 			Usage: "the end time for the query " +
 				`as unix timestamp or relative e.g. "-1w"`,
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:  "index_offset",
 			Usage: "the number of events to skip",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:  "max_events",
 			Usage: "the max number of events to return",
 		},
@@ -1306,15 +1306,15 @@ func forwardingHistory(ctx *cli.Context) error {
 		indexOffset, maxEvents uint32
 		err                    error
 	)
-	args := ctx.Args()
+	argStrings := ctx.Args().Slice()
 	now := time.Now()
 
 	switch {
 	case ctx.IsSet("start_time"):
 		startTime, err = parseTime(ctx.String("start_time"), now)
-	case args.Present():
-		startTime, err = parseTime(args.First(), now)
-		args = args.Tail()
+	case len(argStrings) > 0:
+		startTime, err = parseTime(argStrings[0], now)
+		argStrings = argStrings[1:]
 	default:
 		now := time.Now()
 		startTime = uint64(now.Add(-time.Hour * 24).Unix())
@@ -1326,9 +1326,9 @@ func forwardingHistory(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("end_time"):
 		endTime, err = parseTime(ctx.String("end_time"), now)
-	case args.Present():
-		endTime, err = parseTime(args.First(), now)
-		args = args.Tail()
+	case len(argStrings) > 0:
+		endTime, err = parseTime(argStrings[0], now)
+		argStrings = argStrings[1:]
 	default:
 		endTime = uint64(now.Unix())
 	}
@@ -1339,20 +1339,20 @@ func forwardingHistory(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("index_offset"):
 		indexOffset = uint32(ctx.Int64("index_offset"))
-	case args.Present():
-		i, err := strconv.ParseInt(args.First(), 10, 64)
+	case len(argStrings) > 0:
+		i, err := strconv.ParseInt(argStrings[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode index_offset: %v", err)
 		}
 		indexOffset = uint32(i)
-		args = args.Tail()
+		argStrings = argStrings[1:]
 	}
 
 	switch {
 	case ctx.IsSet("max_events"):
 		maxEvents = uint32(ctx.Int64("max_events"))
-	case args.Present():
-		m, err := strconv.ParseInt(args.First(), 10, 64)
+	case len(argStrings) > 0:
+		m, err := strconv.ParseInt(argStrings[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode max_events: %v", err)
 		}
@@ -1380,28 +1380,28 @@ var buildRouteCommand = cli.Command{
 	Usage:    "Build a route from a list of hop pubkeys.",
 	Action:   actionDecorator(buildRoute),
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "amt",
 			Usage: "the amount to send expressed in satoshis. If" +
 				"not set, the minimum routable amount is used",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "final_cltv_delta",
 			Usage: "number of blocks the last hop has to reveal " +
 				"the preimage",
 			Value: chainreg.DefaultBitcoinTimeLockDelta,
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "hops",
 			Usage: "comma separated hex pubkeys",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "outgoing_chan_id",
 			Usage: "short channel id of the outgoing channel to " +
 				"use for the first hop of the payment",
 			Value: 0,
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "payment_addr",
 			Usage: "hex encoded payment address to set in the " +
 				"last hop's mpp record",
@@ -1500,21 +1500,21 @@ var deletePaymentsCommand = cli.Command{
 	`,
 	Action: actionDecorator(deletePayments),
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "all",
 			Usage: "delete all failed payments",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "payment_hash",
 			Usage: "delete a specific payment identified by its " +
 				"payment hash",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "failed_htlcs_only",
 			Usage: "only delete failed HTLCs from payments, not " +
 				"the payment itself",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "include_non_failed",
 			Usage: "delete ALL payments, not just the failed ones",
 		},

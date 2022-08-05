@@ -6,7 +6,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lnrpc/lnclipb"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 var versionCommand = cli.Command{

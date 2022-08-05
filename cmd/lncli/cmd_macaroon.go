@@ -14,7 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon.v2"
 )
@@ -76,21 +76,21 @@ var bakeMacaroonCommand = cli.Command{
 	"lncli listpermissions" command.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "save_to",
 			Usage: "save the created macaroon to this file " +
 				"using the default binary format",
 		},
-		macTimeoutFlag,
-		macIPAddressFlag,
-		macCustomCaveatNameFlag,
-		macCustomCaveatConditionFlag,
-		cli.Uint64Flag{
+		&macTimeoutFlag,
+		&macIPAddressFlag,
+		&macCustomCaveatNameFlag,
+		&macCustomCaveatConditionFlag,
+		&cli.Uint64Flag{
 			Name: "root_key_id",
 			Usage: "the numerical root key ID used to create the " +
 				"macaroon",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "allow_external_permissions",
 			Usage: "whether permissions lnd is not familiar with " +
 				"are allowed",
@@ -128,7 +128,7 @@ func bakeMacaroon(ctx *cli.Context) error {
 	// A command line argument can't be an empty string. So we'll check each
 	// entry if it's a valid entity:action tuple. The content itself is
 	// validated server side. We just make sure we can parse it correctly.
-	for _, permission := range args {
+	for _, permission := range args.Slice() {
 		tuple := strings.Split(permission, ":")
 		if len(tuple) != 2 {
 			return fmt.Errorf("unable to parse "+
@@ -327,7 +327,7 @@ var printMacaroonCommand = cli.Command{
 	or loaded from a file.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "macaroon_file",
 			Usage: "load the macaroon from a file instead of the " +
 				"command line directly",
@@ -423,10 +423,10 @@ var constrainMacaroonCommand = cli.Command{
 	to an existing macaroon.
 	`,
 	Flags: []cli.Flag{
-		macTimeoutFlag,
-		macIPAddressFlag,
-		macCustomCaveatNameFlag,
-		macCustomCaveatConditionFlag,
+		&macTimeoutFlag,
+		&macIPAddressFlag,
+		&macCustomCaveatNameFlag,
+		&macCustomCaveatConditionFlag,
 	},
 	Action: actionDecorator(constrainMacaroon),
 }
@@ -438,8 +438,7 @@ func constrainMacaroon(ctx *cli.Context) error {
 	}
 	args := ctx.Args()
 
-	sourceMacFile := lncfg.CleanAndExpandPath(args.First())
-	args = args.Tail()
+	sourceMacFile := lncfg.CleanAndExpandPath(args.Get(1))
 
 	sourceMacBytes, err := ioutil.ReadFile(sourceMacFile)
 	if err != nil {
@@ -447,7 +446,7 @@ func constrainMacaroon(ctx *cli.Context) error {
 			"%s: %v", sourceMacFile, err)
 	}
 
-	destMacFile := lncfg.CleanAndExpandPath(args.First())
+	destMacFile := lncfg.CleanAndExpandPath(args.Get(2))
 
 	// Now we should have gotten a valid macaroon. Unmarshal it so we can
 	// add first-party caveats (if necessary) to it.

@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 var addInvoiceCommand = cli.Command{
@@ -21,27 +21,27 @@ var addInvoiceCommand = cli.Command{
 	to specify the amount of satoshis they wish to send.`,
 	ArgsUsage: "value preimage",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "memo",
 			Usage: "a description of the payment to attach along " +
 				"with the invoice (default=\"\")",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "preimage",
 			Usage: "the hex-encoded preimage (32 byte) which will " +
 				"allow settling an incoming HTLC payable to this " +
 				"preimage. If not set, a random preimage will be " +
 				"created.",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:  "amt",
 			Usage: "the amt of satoshis in this invoice",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:  "amt_msat",
 			Usage: "the amt of millisatoshis in this invoice",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "description_hash",
 			Usage: "SHA-256 hash of the description of the payment. " +
 				"Used if the purpose of payment cannot naturally " +
@@ -49,24 +49,24 @@ var addInvoiceCommand = cli.Command{
 				"used instead of the description(memo) field in " +
 				"the encoded invoice.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "fallback_addr",
 			Usage: "fallback on-chain address that can be used in " +
 				"case the lightning payment fails",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "expiry",
 			Usage: "the invoice's expiry time in seconds. If not " +
 				"specified an expiry of 3600 seconds (1 hour) " +
 				"is implied.",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "private",
 			Usage: "encode routing hints in the invoice with " +
 				"private channels in order to assist the " +
 				"payer in reaching you",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "amp",
 			Usage: "creates an AMP invoice. If true, preimage " +
 				"should not be set.",
@@ -87,13 +87,13 @@ func addInvoice(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	args := ctx.Args()
+	argStrings := ctx.Args().Slice()
 
 	amt = ctx.Int64("amt")
 	amtMsat = ctx.Int64("amt_msat")
-	if !ctx.IsSet("amt") && !ctx.IsSet("amt_msat") && args.Present() {
-		amt, err = strconv.ParseInt(args.First(), 10, 64)
-		args = args.Tail()
+	if !ctx.IsSet("amt") && !ctx.IsSet("amt_msat") && len(argStrings) > 0 {
+		amt, err = strconv.ParseInt(argStrings[0], 10, 64)
+		argStrings = argStrings[1:]
 		if err != nil {
 			return fmt.Errorf("unable to decode amt argument: %v", err)
 		}
@@ -102,8 +102,8 @@ func addInvoice(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("preimage"):
 		preimage, err = hex.DecodeString(ctx.String("preimage"))
-	case args.Present():
-		preimage, err = hex.DecodeString(args.First())
+	case len(argStrings) > 0:
+		preimage, err = hex.DecodeString(argStrings[0])
 	}
 
 	if err != nil {
@@ -143,7 +143,7 @@ var lookupInvoiceCommand = cli.Command{
 	Usage:     "Lookup an existing invoice by its payment hash.",
 	ArgsUsage: "rhash",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "rhash",
 			Usage: "the 32 byte payment hash of the invoice to query for, the hash " +
 				"should be a hex-encoded string",
@@ -210,23 +210,23 @@ var listInvoicesCommand = cli.Command{
 	first_offset_index of the response can be used as the index_offset of
 	the next listinvoices request.`,
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "pending_only",
 			Usage: "toggles if all invoices should be returned, " +
 				"or only those that are currently unsettled",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "index_offset",
 			Usage: "the index of an invoice that will be used as " +
 				"either the start or end of a query to " +
 				"determine which invoices should be returned " +
 				"in the response",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name:  "max_invoices",
 			Usage: "the max number of invoices to return",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "paginate-forwards",
 			Usage: "if set, invoices succeeding the " +
 				"index_offset will be returned",
@@ -264,7 +264,7 @@ var decodePayReqCommand = cli.Command{
 	Description: "Decode the passed payment request revealing the destination, payment hash and value of the payment request",
 	ArgsUsage:   "pay_req",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "pay_req",
 			Usage: "the bech32 encoded payment request",
 		},

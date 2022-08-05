@@ -9,15 +9,15 @@ import (
 	"strconv"
 
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 // invoicesCommands will return nil for non-invoicesrpc builds.
-func invoicesCommands() []cli.Command {
-	return []cli.Command{
-		cancelInvoiceCommand,
-		addHoldInvoiceCommand,
-		settleInvoiceCommand,
+func invoicesCommands() []*cli.Command {
+	return []*cli.Command{
+		&cancelInvoiceCommand,
+		&addHoldInvoiceCommand,
+		&settleInvoiceCommand,
 	}
 }
 
@@ -39,7 +39,7 @@ var settleInvoiceCommand = cli.Command{
 	Todo.`,
 	ArgsUsage: "preimage",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "preimage",
 			Usage: "the hex-encoded preimage (32 byte) which will " +
 				"allow settling an incoming HTLC payable to this " +
@@ -94,7 +94,7 @@ var cancelInvoiceCommand = cli.Command{
 	Todo.`,
 	ArgsUsage: "paymenthash",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "paymenthash",
 			Usage: "the hex-encoded payment hash (32 byte) for which the " +
 				"corresponding invoice will be canceled.",
@@ -152,20 +152,20 @@ var addHoldInvoiceCommand = cli.Command{
 	to specify the amount of satoshis they wish to send.`,
 	ArgsUsage: "hash [amt]",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "memo",
 			Usage: "a description of the payment to attach along " +
 				"with the invoice (default=\"\")",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:  "amt",
 			Usage: "the amt of satoshis in this invoice",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name:  "amt_msat",
 			Usage: "the amt of millisatoshis in this invoice",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "description_hash",
 			Usage: "SHA-256 hash of the description of the payment. " +
 				"Used if the purpose of payment cannot naturally " +
@@ -173,18 +173,18 @@ var addHoldInvoiceCommand = cli.Command{
 				"used instead of the description(memo) field in " +
 				"the encoded invoice.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "fallback_addr",
 			Usage: "fallback on-chain address that can be used in " +
 				"case the lightning payment fails",
 		},
-		cli.Int64Flag{
+		&cli.Int64Flag{
 			Name: "expiry",
 			Usage: "the invoice's expiry time in seconds. If not " +
 				"specified, an expiry of 3600 seconds (1 hour) " +
 				"is implied.",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "private",
 			Usage: "encode routing hints in the invoice with " +
 				"private channels in order to assist the " +
@@ -204,24 +204,24 @@ func addHoldInvoice(ctx *cli.Context) error {
 	client, cleanUp := getInvoicesClient(ctx)
 	defer cleanUp()
 
-	args := ctx.Args()
+	argStrings := ctx.Args().Slice()
 	if ctx.NArg() == 0 {
 		cli.ShowCommandHelp(ctx, "addholdinvoice")
 		return nil
 	}
 
-	hash, err := hex.DecodeString(args.First())
+	hash, err := hex.DecodeString(argStrings[0])
 	if err != nil {
 		return fmt.Errorf("unable to parse hash: %v", err)
 	}
 
-	args = args.Tail()
+	argStrings = argStrings[1:]
 
 	amt := ctx.Int64("amt")
 	amtMsat := ctx.Int64("amt_msat")
 
-	if !ctx.IsSet("amt") && !ctx.IsSet("amt_msat") && args.Present() {
-		amt, err = strconv.ParseInt(args.First(), 10, 64)
+	if !ctx.IsSet("amt") && !ctx.IsSet("amt_msat") && len(argStrings) > 0 {
+		amt, err = strconv.ParseInt(argStrings[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode amt argument: %v", err)
 		}

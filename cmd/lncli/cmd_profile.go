@@ -9,7 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lncfg"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 	"gopkg.in/macaroon.v2"
 )
 
@@ -51,13 +51,13 @@ var profileSubCommand = cli.Command{
 		~/.lncli/profiles.json on Linux
 		~/Library/Application Support/Lncli/profiles.json on MacOS
 	`,
-	Subcommands: []cli.Command{
-		profileListCommand,
-		profileAddCommand,
-		profileRemoveCommand,
-		profileSetDefaultCommand,
-		profileUnsetDefaultCommand,
-		profileAddMacaroonCommand,
+	Subcommands: []*cli.Command{
+		&profileListCommand,
+		&profileAddCommand,
+		&profileRemoveCommand,
+		&profileSetDefaultCommand,
+		&profileUnsetDefaultCommand,
+		&profileAddMacaroonCommand,
 	},
 }
 
@@ -87,11 +87,11 @@ var profileAddCommand = cli.Command{
 	profile.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "name",
 			Usage: "the name of the new profile",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "default",
 			Usage: "set the new profile to be the default profile",
 		},
@@ -165,7 +165,7 @@ var profileRemoveCommand = cli.Command{
 	ArgsUsage:   "name",
 	Description: `Remove the specified profile from the profile file.`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "name",
 			Usage: "the name of the profile to delete",
 		},
@@ -240,7 +240,7 @@ var profileSetDefaultCommand = cli.Command{
 	set '--profile= '.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "name",
 			Usage: "the name of the profile to set as default",
 		},
@@ -333,11 +333,11 @@ var profileAddMacaroonCommand = cli.Command{
 	can be specified with the global option --macfromjar=xyz.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "name",
 			Usage: "the name of the macaroon",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "default",
 			Usage: "set the new macaroon to be the default " +
 				"macaroon in the jar",
@@ -375,7 +375,7 @@ func profileAddMacaroon(ctx *cli.Context) error {
 	}
 
 	// Make sure the user actually set a macaroon path to use.
-	if !ctx.GlobalIsSet("macaroonpath") {
+	if !ctx.IsSet("macaroonpath") {
 		return fmt.Errorf("macaroonpath global option missing")
 	}
 
@@ -384,8 +384,8 @@ func profileAddMacaroon(ctx *cli.Context) error {
 	if f.Default != "" {
 		profileName = f.Default
 	}
-	if ctx.GlobalIsSet("profile") {
-		profileName = ctx.GlobalString("profile")
+	if ctx.IsSet("profile") {
+		profileName = ctx.String("profile")
 	}
 	if len(strings.TrimSpace(profileName)) == 0 {
 		return fmt.Errorf("no profile specified and no default " +
@@ -418,7 +418,7 @@ func profileAddMacaroon(ctx *cli.Context) error {
 	}
 
 	// Now load and possibly encrypt the macaroon file.
-	macPath := lncfg.CleanAndExpandPath(ctx.GlobalString("macaroonpath"))
+	macPath := lncfg.CleanAndExpandPath(ctx.String("macaroonpath"))
 	macBytes, err := ioutil.ReadFile(macPath)
 	if err != nil {
 		return fmt.Errorf("unable to read macaroon path: %v", err)

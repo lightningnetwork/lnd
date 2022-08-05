@@ -431,4 +431,8 @@ var allTestCases = []*testCase{
 		name: "nonstd sweep",
 		test: testNonstdSweep,
 	},
+	{
+		name: "taproot coop close",
+		test: testTaprootCoopClose,
+	},
 }

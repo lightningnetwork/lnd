@@ -1,14 +1,13 @@
 package itest
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
@@ -16,17 +15,11 @@ import (
 
 // testHoldInvoiceForceClose tests cancellation of accepted hold invoices which
 // would otherwise trigger force closes when they expire.
-func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+func testHoldInvoiceForceClose(ht *lntemp.HarnessTest) {
 	// Open a channel between alice and bob.
-	chanReq := lntest.OpenChannelParams{
-		Amt: 300000,
-	}
-
-	chanPoint := openChannelAndAssert(
-		t, net, net.Alice, net.Bob, chanReq,
+	alice, bob := ht.Alice, ht.Bob
+	chanPoint := ht.OpenChannel(
+		alice, bob, lntemp.OpenChannelParams{Amt: 300000},
 	)
 
 	// Create a non-dust hold invoice for bob.
@@ -39,87 +32,76 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 		CltvExpiry: 40,
 		Hash:       payHash[:],
 	}
+	bobInvoice := bob.RPC.AddHoldInvoice(invoiceReq)
 
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	bobInvoice, err := net.Bob.AddHoldInvoice(ctxt, invoiceReq)
-	require.NoError(t.t, err)
+	// Subscribe the invoice.
+	stream := bob.RPC.SubscribeSingleInvoice(payHash[:])
 
 	// Pay this invoice from Alice -> Bob, we should achieve this with a
 	// single htlc.
-	_, err = net.Alice.RouterClient.SendPaymentV2(
-		ctxb, &routerrpc.SendPaymentRequest{
-			PaymentRequest: bobInvoice.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
-	)
-	require.NoError(t.t, err)
+	req := &routerrpc.SendPaymentRequest{
+		PaymentRequest: bobInvoice.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+	}
+	alice.RPC.SendPayment(req)
 
-	waitForInvoiceAccepted(t, net.Bob, payHash)
+	ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
 
 	// Once the HTLC has cleared, alice and bob should both have a single
 	// htlc locked in.
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob}
-	err = wait.NoError(func() error {
-		return assertActiveHtlcs(nodes, payHash[:])
-	}, defaultTimeout)
-	require.NoError(t.t, err)
+	ht.AssertActiveHtlcs(alice, payHash[:])
+	ht.AssertActiveHtlcs(bob, payHash[:])
 
 	// Get our htlc expiry height and current block height so that we
 	// can mine the exact number of blocks required to expire the htlc.
-	chans, err := net.Alice.ListChannels(ctxb, &lnrpc.ListChannelsRequest{})
-	require.NoError(t.t, err)
-	require.Len(t.t, chans.Channels, 1)
-	require.Len(t.t, chans.Channels[0].PendingHtlcs, 1)
-	activeHtlc := chans.Channels[0].PendingHtlcs[0]
+	channel := ht.QueryChannelByChanPoint(alice, chanPoint)
+	require.Len(ht, channel.PendingHtlcs, 1)
+	activeHtlc := channel.PendingHtlcs[0]
 
-	require.NoError(t.t, net.Alice.WaitForBlockchainSync())
-	require.NoError(t.t, net.Bob.WaitForBlockchainSync())
-
-	info, err := net.Alice.GetInfo(ctxb, &lnrpc.GetInfoRequest{})
-	require.NoError(t.t, err)
+	_, currentHeight := ht.Miner.GetBestBlock()
 
 	// Now we will mine blocks until the htlc expires, and wait for each
 	// node to sync to our latest height. Sanity check that we won't
 	// underflow.
-	require.Greater(
-		t.t, activeHtlc.ExpirationHeight, info.BlockHeight,
-		"expected expiry after current height",
-	)
-	blocksTillExpiry := activeHtlc.ExpirationHeight - info.BlockHeight
+	require.Greater(ht, activeHtlc.ExpirationHeight, uint32(currentHeight),
+		"expected expiry after current height")
+	blocksTillExpiry := activeHtlc.ExpirationHeight - uint32(currentHeight)
 
 	// Alice will go to chain with some delta, sanity check that we won't
 	// underflow and subtract this from our mined blocks.
-	require.Greater(
-		t.t, blocksTillExpiry,
-		uint32(lncfg.DefaultOutgoingBroadcastDelta),
-	)
-	blocksTillForce := blocksTillExpiry - lncfg.DefaultOutgoingBroadcastDelta
+	require.Greater(ht, blocksTillExpiry,
+		uint32(lncfg.DefaultOutgoingBroadcastDelta))
 
-	mineBlocksSlow(t, net, blocksTillForce, 0)
+	// blocksTillForce is the number of blocks should be mined to
+	// trigger a force close from Alice iff the invoice cancelation
+	// failed. This value is 48 in current test setup.
+	blocksTillForce := blocksTillExpiry -
+		lncfg.DefaultOutgoingBroadcastDelta
 
-	require.NoError(t.t, net.Alice.WaitForBlockchainSync())
-	require.NoError(t.t, net.Bob.WaitForBlockchainSync())
+	// blocksTillCancel is the number of blocks should be mined to trigger
+	// an invoice cancelation from Bob. This value is 30 in current test
+	// setup.
+	blocksTillCancel := blocksTillExpiry -
+		lncfg.DefaultHoldInvoiceExpiryDelta
 
-	// Our channel should not have been force closed, instead we expect our
-	// channel to still be open and our invoice to have been canceled before
-	// expiry.
-	chanInfo, err := getChanInfo(net.Alice)
-	require.NoError(t.t, err)
+	// When using ht.MineBlocks, for bitcoind backend, the block height
+	// synced differ significantly among subsystems. From observation, the
+	// LNWL syncs much faster than other subsystems, with more than 10
+	// blocks ahead. For this test case, CRTR may be lagging behind for
+	// more than 20 blocks. Thus we use slow mining instead.
+	// TODO(yy): fix block height asymmetry among all the subsystems.
+	//
+	// We first mine enough blocks to trigger an invoice cancelation.
+	ht.MineBlocks(blocksTillCancel)
 
-	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-	require.NoError(t.t, err)
-	chanStr := fmt.Sprintf("%v:%v", fundingTxID, chanPoint.OutputIndex)
-	require.Equal(t.t, chanStr, chanInfo.ChannelPoint)
+	// Wait for the nodes to be synced.
+	ht.WaitForBlockchainSync(alice)
+	ht.WaitForBlockchainSync(bob)
 
-	err = wait.NoError(func() error {
-		inv, err := net.Bob.LookupInvoice(ctxt, &lnrpc.PaymentHash{
-			RHash: payHash[:],
-		})
-		if err != nil {
-			return err
-		}
+	// Check that the invoice is canceled by Bob.
+	err := wait.NoError(func() error {
+		inv := bob.RPC.LookupInvoice(payHash[:])
 
 		if inv.State != lnrpc.Invoice_CANCELED {
 			return fmt.Errorf("expected canceled invoice, got: %v",
@@ -135,8 +117,33 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 
 		return nil
 	}, defaultTimeout)
-	require.NoError(t.t, err, "expected canceled invoice")
+	require.NoError(ht, err, "expected canceled invoice")
+
+	// We now continue to mine more blocks to the point where it could have
+	// triggered a force close if the invoice cancelation was failed.
+	//
+	// NOTE: we need to mine blocks in two sections because of a following
+	// case has happened frequently with bitcoind backend,
+	// - when mining all the blocks together, subsystems were syncing
+	// blocks under very different speed.
+	// - Bob would cancel the invoice in INVC, and send an UpdateFailHTLC
+	// in PEER.
+	// - Alice, however, would need to receive the message before her
+	// subsystem CNCT being synced to the force close height. This didn't
+	// happen in bitcoind backend, as Alice's CNCT was syncing way faster
+	// than Bob's INVC, causing the channel being force closed before the
+	// invoice cancelation message was received by Alice.
+	ht.MineBlocks(blocksTillForce - blocksTillCancel)
+
+	// Wait for the nodes to be synced.
+	ht.WaitForBlockchainSync(alice)
+	ht.WaitForBlockchainSync(bob)
+
+	// Check that Alice has not closed the channel because there are no
+	// outgoing HTLCs in her channel as the only HTLC has already been
+	// canceled.
+	ht.AssertNumPendingForceClose(alice, 0)
 
 	// Clean up the channel.
-	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+	ht.CloseChannel(alice, chanPoint)
 }

@@ -567,3 +567,15 @@ func (h *HarnessRPC) VerifyChanBackup(
 
 	return resp
 }
+
+// LookupInvoice queries the node's invoices using the specified rHash.
+func (h *HarnessRPC) LookupInvoice(rHash []byte) *lnrpc.Invoice {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	payHash := &lnrpc.PaymentHash{RHash: rHash}
+	resp, err := h.LN.LookupInvoice(ctxt, payHash)
+	h.NoError(err, "LookupInvoice")
+
+	return resp
+}

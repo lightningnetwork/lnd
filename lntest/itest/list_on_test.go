@@ -235,4 +235,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "etcd failover",
 		TestFunc: testEtcdFailover,
 	},
+	{
+		Name:     "hold invoice force close",
+		TestFunc: testHoldInvoiceForceClose,
+	},
 }

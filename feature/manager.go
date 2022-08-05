@@ -40,6 +40,10 @@ type Config struct {
 	// channels. This should be used instead of NoOptionScidAlias to still
 	// keep option-scid-alias support.
 	NoZeroConf bool
+
+	// NoAnySegwit unsets any bits that signal support for using other
+	// segwit witness versions for co-op closes.
+	NoAnySegwit bool
 }
 
 // Manager is responsible for generating feature vectors for different requested
@@ -141,6 +145,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoZeroConf {
 			raw.Unset(lnwire.ZeroConfOptional)
 			raw.Unset(lnwire.ZeroConfRequired)
+		}
+		if cfg.NoAnySegwit {
+			raw.Unset(lnwire.ShutdownAnySegwitOptional)
+			raw.Unset(lnwire.ShutdownAnySegwitRequired)
 		}
 
 		// Ensure that all of our feature sets properly set any

@@ -5,19 +5,19 @@ import (
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 var sendCustomCommand = cli.Command{
 	Name: "sendcustom",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "peer",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "type",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "data",
 		},
 	},

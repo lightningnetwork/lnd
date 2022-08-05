@@ -12,12 +12,12 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 // devCommands will return the set of commands to enable for devrpc builds.
-func devCommands() []cli.Command {
-	return []cli.Command{
+func devCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:        "importgraph",
 			Category:    "Development",

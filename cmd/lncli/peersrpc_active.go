@@ -8,20 +8,20 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 // peersCommands will return the set of commands to enable for peersrpc
 // builds.
-func peersCommands() []cli.Command {
-	return []cli.Command{
+func peersCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:     "peers",
 			Category: "Peers",
 			Usage: "Interacts with the other nodes of the " +
 				"newtwork",
-			Subcommands: []cli.Command{
-				updateNodeAnnouncementCommand,
+			Subcommands: []*cli.Command{
+				&updateNodeAnnouncementCommand,
 			},
 		},
 	}
@@ -49,32 +49,32 @@ var updateNodeAnnouncementCommand = cli.Command{
 	ArgsUsage: "[--address_add=] [--address_remove=] [--alias=] " +
 		"[--color=] [--feature_bit_add=] [--feature_bit_remove=]",
 	Flags: []cli.Flag{
-		cli.StringSliceFlag{
+		&cli.StringSliceFlag{
 			Name: "address_add",
 			Usage: "a new address that should be added to the " +
 				"set of URIs of this node. Can be set " +
 				"multiple times in the same command",
 		},
-		cli.StringSliceFlag{
+		&cli.StringSliceFlag{
 			Name: "address_remove",
 			Usage: "an address that needs to be removed from the " +
 				"set of URIs of this node. Can be set " +
 				"multiple times in the same command",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "alias",
 			Usage: "the new alias for this node, e.g. \"bob\"",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "color",
 			Usage: "the new color for this node, e.g. #c42a81",
 		},
-		cli.Int64SliceFlag{
+		&cli.Int64SliceFlag{
 			Name: "feature_bit_add",
 			Usage: "a feature bit index that needs to be enabled. " +
 				"Can be set multiple times in the same command",
 		},
-		cli.Int64SliceFlag{
+		&cli.Int64SliceFlag{
 			Name: "feature_bit_remove",
 			Usage: "a feature bit that needs to be disabled" +
 				"Can be set multiple times in the same command",

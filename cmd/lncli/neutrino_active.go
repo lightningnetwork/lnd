@@ -5,7 +5,7 @@ package main
 
 import (
 	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 func getNeutrinoKitClient(ctx *cli.Context) (neutrinorpc.NeutrinoKitClient, func()) {
@@ -263,21 +263,21 @@ func getCFilter(ctx *cli.Context) error {
 
 // neutrinoCommands will return the set of commands to enable for neutrinorpc
 // builds.
-func neutrinoCommands() []cli.Command {
-	return []cli.Command{
+func neutrinoCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:        "neutrino",
 			Category:    "Neutrino",
 			Usage:       "Interact with a running neutrino instance.",
 			Description: "",
-			Subcommands: []cli.Command{
-				getNeutrinoStatusCommand,
-				addPeerCommand,
-				disconnectPeerCommand,
-				isBannedCommand,
-				getBlockCommand,
-				getBlockHeaderCommand,
-				getCFilterCommand,
+			Subcommands: []*cli.Command{
+				&getNeutrinoStatusCommand,
+				&addPeerCommand,
+				&disconnectPeerCommand,
+				&isBannedCommand,
+				&getBlockCommand,
+				&getBlockHeaderCommand,
+				&getCFilterCommand,
 			},
 		},
 	}

@@ -16,7 +16,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 var (
@@ -26,9 +26,9 @@ var (
 		Name: "psbt",
 		Usage: "Interact with partially signed bitcoin transactions " +
 			"(PSBTs).",
-		Subcommands: []cli.Command{
-			fundPsbtCommand,
-			finalizePsbtCommand,
+		Subcommands: []*cli.Command{
+			&fundPsbtCommand,
+			&finalizePsbtCommand,
 		},
 	}
 
@@ -37,36 +37,36 @@ var (
 	accountsCommand = cli.Command{
 		Name:  "accounts",
 		Usage: "Interact with wallet accounts.",
-		Subcommands: []cli.Command{
-			listAccountsCommand,
-			importAccountCommand,
-			importPubKeyCommand,
+		Subcommands: []*cli.Command{
+			&listAccountsCommand,
+			&importAccountCommand,
+			&importPubKeyCommand,
 		},
 	}
 )
 
 // walletCommands will return the set of commands to enable for walletrpc
 // builds.
-func walletCommands() []cli.Command {
-	return []cli.Command{
+func walletCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:        "wallet",
 			Category:    "Wallet",
 			Usage:       "Interact with the wallet.",
 			Description: "",
-			Subcommands: []cli.Command{
-				pendingSweepsCommand,
-				bumpFeeCommand,
-				bumpCloseFeeCommand,
-				listSweepsCommand,
-				labelTxCommand,
-				publishTxCommand,
-				releaseOutputCommand,
-				leaseOutputCommand,
-				listLeasesCommand,
-				psbtCommand,
-				accountsCommand,
-				requiredReserveCommand,
+			Subcommands: []*cli.Command{
+				&pendingSweepsCommand,
+				&bumpFeeCommand,
+				&bumpCloseFeeCommand,
+				&listSweepsCommand,
+				&labelTxCommand,
+				&publishTxCommand,
+				&releaseOutputCommand,
+				&leaseOutputCommand,
+				&listLeasesCommand,
+				&psbtCommand,
+				&accountsCommand,
+				&requiredReserveCommand,
 			},
 		},
 	}
@@ -181,22 +181,22 @@ var bumpFeeCommand = cli.Command{
 	output available to attach the child transaction to.
 	`,
 	Flags: []cli.Flag{
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "conf_target",
 			Usage: "the number of blocks that the output should " +
 				"be swept on-chain within",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "a manual fee expressed in sat/vbyte that " +
 				"should be used when sweeping the output",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "force",
 			Usage: "sweep even if the yield is negative",
 		},
@@ -258,17 +258,17 @@ var bumpCloseFeeCommand = cli.Command{
 	rate or confirmation target.
 	`,
 	Flags: []cli.Flag{
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "conf_target",
 			Usage: "the number of blocks that the output should " +
 				"be swept on-chain within",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "a manual fee expressed in sat/vbyte that " +
 				"should be used when sweeping the output",
@@ -392,7 +392,7 @@ var listSweepsCommand = cli.Command{
 	Name:  "listsweeps",
 	Usage: "Lists all sweeps that have been published by our node.",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "verbose",
 			Usage: "lookup full transaction",
 		},
@@ -438,7 +438,7 @@ var labelTxCommand = cli.Command{
 	in quotation marks ("").
 	`,
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "overwrite",
 			Usage: "set to overwrite existing labels",
 		},
@@ -494,7 +494,7 @@ var publishTxCommand = cli.Command{
 	that multi word labels must be contained in quotation marks ("").
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "label",
 			Usage: "(optional) transaction label",
 		},
@@ -593,35 +593,35 @@ var fundPsbtCommand = cli.Command{
 	    --inputs='["<txid1>:<output-index1>","<txid2>:<output-index2>",...]'
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "template_psbt",
 			Usage: "the outputs to fund and optional inputs to " +
 				"spend provided in the base64 PSBT format",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "outputs",
 			Usage: "a JSON compatible map of destination " +
 				"addresses to amounts to send, must not " +
 				"include a change address as that will be " +
 				"added automatically by the wallet",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "inputs",
 			Usage: "an optional JSON compatible list of UTXO " +
 				"outpoints to use as the PSBT's inputs",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "conf_target",
 			Usage: "the number of blocks that the transaction " +
 				"should be confirmed on-chain within",
 			Value: 6,
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "a manual fee expressed in sat/vbyte that " +
 				"should be used when creating the transaction",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "account",
 			Usage: "(optional) the name of the account to use to " +
 				"create/fund the PSBT",
@@ -793,11 +793,11 @@ var finalizePsbtCommand = cli.Command{
 	successfully.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "funded_psbt",
 			Usage: "the base64 encoded PSBT to finalize",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "account",
 			Usage: "(optional) the name of the account to " +
 				"finalize the PSBT with",
@@ -864,15 +864,15 @@ var leaseOutputCommand = cli.Command{
 	the output.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "outpoint",
 			Usage: "the output to lock",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "lockid",
 			Usage: "the hex-encoded app lock ID",
 		},
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name:  "expiry",
 			Usage: "expiration duration in seconds",
 		},
@@ -941,11 +941,11 @@ var releaseOutputCommand = cli.Command{
 	fundpsbt command can be released.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "outpoint",
 			Usage: "the output to unlock",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "lockid",
 			Usage: "the hex-encoded app lock ID",
 		},
@@ -1039,12 +1039,12 @@ var listAccountsCommand = cli.Command{
 	accounts and return only those matching.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "name",
 			Usage: "(optional) only accounts matching this name " +
 				"are returned",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "address_type",
 			Usage: "(optional) only accounts matching this " +
 				"address type are returned",
@@ -1097,7 +1097,7 @@ var requiredReserveCommand = cli.Command{
 	on the additional channels you would like to open.
 	`,
 	Flags: []cli.Flag{
-		cli.Uint64Flag{
+		&cli.Uint64Flag{
 			Name: "additional_channels",
 			Usage: "(optional) specify the additional public channels " +
 				"that you would like to open",
@@ -1162,18 +1162,18 @@ var importAccountCommand = cli.Command{
 	detect past events will be supported later on.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "address_type",
 			Usage: "(optional) specify the type of addresses the " +
 				"imported account should generate",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "master_key_fingerprint",
 			Usage: "(optional) the fingerprint of the root key " +
 				"(derivation path m/) corresponding to the " +
 				"account public key",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "dry_run",
 			Usage: "(optional) perform a dry run",
 		},

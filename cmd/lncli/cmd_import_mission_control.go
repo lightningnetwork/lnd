@@ -8,7 +8,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 const argsStr = "[source node] [dest node] [unix ts seconds] [amount in msat]"
@@ -20,11 +20,11 @@ var importMissionControlCommand = cli.Command{
 	ArgsUsage: fmt.Sprintf("importmc %v", argsStr),
 	Action:    actionDecorator(importMissionControl),
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "failure",
 			Usage: "whether the routing history entry was a failure",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "force",
 			Usage: "whether to force the history entry import",
 		},
@@ -41,17 +41,17 @@ func importMissionControl(ctx *cli.Context) error {
 
 	args := ctx.Args()
 
-	sourceNode, err := route.NewVertexFromStr(args[0])
+	sourceNode, err := route.NewVertexFromStr(args.Get(0))
 	if err != nil {
 		return fmt.Errorf("please provide valid source node: %v", err)
 	}
 
-	destNode, err := route.NewVertexFromStr(args[1])
+	destNode, err := route.NewVertexFromStr(args.Get(1))
 	if err != nil {
 		return fmt.Errorf("please provide valid dest node: %v", err)
 	}
 
-	ts, err := strconv.ParseInt(args[2], 10, 64)
+	ts, err := strconv.ParseInt(args.Get(2), 10, 64)
 	if err != nil {
 		return fmt.Errorf("please provide unix timestamp "+
 			"in seconds: %v", err)
@@ -61,7 +61,7 @@ func importMissionControl(ctx *cli.Context) error {
 		return errors.New("please provide positive timestamp")
 	}
 
-	amt, err := strconv.ParseInt(args[3], 10, 64)
+	amt, err := strconv.ParseInt(args.Get(3), 10, 64)
 	if err != nil {
 		return fmt.Errorf("please provide amount in msat: %v", err)
 	}

@@ -8,7 +8,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 var getCfgCommand = cli.Command{
@@ -49,27 +49,28 @@ var setCfgCommand = cli.Command{
 	the probability that payment routes will succeed.
 	`,
 	Flags: []cli.Flag{
-		cli.DurationFlag{
+		&cli.DurationFlag{
 			Name: "halflife",
 			Usage: "the amount of time taken to restore a node " +
 				"or channel to 50% probability of success.",
 		},
-		cli.Float64Flag{
+		&cli.Float64Flag{
 			Name: "hopprob",
 			Usage: "the probability of success assigned " +
 				"to hops that we have no information about",
 		},
-		cli.Float64Flag{
+		&cli.Float64Flag{
 			Name: "weight",
 			Usage: "the degree to which mission control should " +
 				"rely on historical results, expressed as " +
 				"value in [0;1]",
-		}, cli.UintFlag{
+		},
+		&cli.UintFlag{
 			Name: "pmtnr",
 			Usage: "the number of payments mission control " +
 				"should store",
 		},
-		cli.DurationFlag{
+		&cli.DurationFlag{
 			Name: "failrelax",
 			Usage: "the amount of time to wait after a failure " +
 				"before raising failure amount",
@@ -172,7 +173,7 @@ func queryProb(ctx *cli.Context) error {
 	ctxc := getContext()
 	args := ctx.Args()
 
-	if len(args) != 3 {
+	if ctx.NArg() != 3 {
 		return cli.ShowCommandHelp(ctx, "queryprob")
 	}
 

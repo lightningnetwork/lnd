@@ -247,4 +247,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "maximum channel size",
 		TestFunc: testMaxChannelSize,
 	},
+	{
+		Name:     "wumbo channels",
+		TestFunc: testWumboChannels,
+	},
 }

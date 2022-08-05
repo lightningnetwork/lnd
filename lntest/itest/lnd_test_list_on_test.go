@@ -183,10 +183,6 @@ var allTestCases = []*testCase{
 		test: testForwardInterceptorDedupHtlc,
 	},
 	{
-		name: "wumbo channels",
-		test: testWumboChannels,
-	},
-	{
 		name: "stateless init",
 		test: testStatelessInit,
 	},

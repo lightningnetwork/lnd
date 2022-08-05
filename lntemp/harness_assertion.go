@@ -1852,3 +1852,78 @@ func (h *HarnessTest) AssertHtlcEventTypes(client rpc.HtlcEventsClient,
 
 	return event
 }
+
+// AssertFeeReport checks that the fee report from the given node has the
+// desired day, week, and month sum values.
+func (h *HarnessTest) AssertFeeReport(hn *node.HarnessNode,
+	day, week, month int) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	feeReport, err := hn.RPC.LN.FeeReport(ctxt, &lnrpc.FeeReportRequest{})
+	require.NoError(h, err, "unable to query for fee report")
+
+	require.EqualValues(h, day, feeReport.DayFeeSum, "day fee mismatch")
+	require.EqualValues(h, week, feeReport.WeekFeeSum, "day week mismatch")
+	require.EqualValues(h, month, feeReport.MonthFeeSum,
+		"day month mismatch")
+}
+
+// AssertHtlcEvents consumes events from a client and ensures that they are of
+// the expected type and contain the expected number of forwards, forward
+// failures and settles.
+//
+// TODO(yy): needs refactor to reduce its complexity.
+func (h *HarnessTest) AssertHtlcEvents(client rpc.HtlcEventsClient,
+	fwdCount, fwdFailCount, settleCount int,
+	userType routerrpc.HtlcEvent_EventType) []*routerrpc.HtlcEvent {
+
+	var forwards, forwardFails, settles int
+
+	numEvents := fwdCount + fwdFailCount + settleCount
+	events := make([]*routerrpc.HtlcEvent, 0)
+
+	// It's either the userType or the unknown type.
+	//
+	// TODO(yy): maybe the FinalHtlcEvent shouldn't be in UNKNOWN type?
+	eventTypes := []routerrpc.HtlcEvent_EventType{
+		userType, routerrpc.HtlcEvent_UNKNOWN,
+	}
+
+	for i := 0; i < numEvents; i++ {
+		event := h.ReceiveHtlcEvent(client)
+
+		require.Containsf(h, eventTypes, event.EventType,
+			"wrong event type, got %v", userType, event.EventType)
+
+		events = append(events, event)
+
+		switch e := event.Event.(type) {
+		case *routerrpc.HtlcEvent_ForwardEvent:
+			forwards++
+
+		case *routerrpc.HtlcEvent_ForwardFailEvent:
+			forwardFails++
+
+		case *routerrpc.HtlcEvent_SettleEvent:
+			settles++
+
+		case *routerrpc.HtlcEvent_FinalHtlcEvent:
+			if e.FinalHtlcEvent.Settled {
+				settles++
+			}
+
+		default:
+			require.Fail(h, "assert event fail",
+				"unexpected event: %T", event.Event)
+		}
+	}
+
+	require.Equal(h, fwdCount, forwards, "num of forwards mismatch")
+	require.Equal(h, fwdFailCount, forwardFails,
+		"num of forward fails mismatch")
+	require.Equal(h, settleCount, settles, "num of settles mismatch")
+
+	return events
+}

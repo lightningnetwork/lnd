@@ -13,10 +13,6 @@ var allTestCases = []*testCase{
 		test: testSingleHopInvoice,
 	},
 	{
-		name: "multi-hop payments",
-		test: testMultiHopPayments,
-	},
-	{
 		name: "single-hop send to route",
 		test: testSingleHopSendToRoute,
 	},

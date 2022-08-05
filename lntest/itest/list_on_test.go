@@ -259,4 +259,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "multi-hop htlc error propagation",
 		TestFunc: testHtlcErrorPropagation,
 	},
+	{
+		Name:     "multi-hop payments",
+		TestFunc: testMultiHopPayments,
+	},
 }

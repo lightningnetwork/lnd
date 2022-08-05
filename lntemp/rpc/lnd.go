@@ -591,3 +591,21 @@ func (h *HarnessRPC) DecodePayReq(req string) *lnrpc.PayReq {
 
 	return resp
 }
+
+// ForwardingHistory makes a RPC call to the node's ForwardingHistory and
+// asserts.
+func (h *HarnessRPC) ForwardingHistory(
+	req *lnrpc.ForwardingHistoryRequest) *lnrpc.ForwardingHistoryResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	if req == nil {
+		req = &lnrpc.ForwardingHistoryRequest{}
+	}
+
+	resp, err := h.LN.ForwardingHistory(ctxt, req)
+	h.NoError(err, "ForwardingHistory")
+
+	return resp
+}

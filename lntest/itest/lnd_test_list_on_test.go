@@ -187,10 +187,6 @@ var allTestCases = []*testCase{
 		test: testWumboChannels,
 	},
 	{
-		name: "maximum channel size",
-		test: testMaxChannelSize,
-	},
-	{
 		name: "stateless init",
 		test: testStatelessInit,
 	},

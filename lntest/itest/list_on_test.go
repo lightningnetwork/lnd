@@ -243,4 +243,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "hold invoice sender persistence",
 		TestFunc: testHoldInvoicePersistence,
 	},
+	{
+		Name:     "maximum channel size",
+		TestFunc: testMaxChannelSize,
+	},
 }

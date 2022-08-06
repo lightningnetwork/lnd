@@ -1709,3 +1709,16 @@ func findSweepInDetails(ht *HarnessTest, sweepTxid string,
 
 	return false
 }
+
+// ConnectMiner connects the miner with the chain backend in the network.
+func (h *HarnessTest) ConnectMiner() {
+	err := h.manager.chainBackend.ConnectMiner()
+	require.NoError(h, err, "failed to connect miner")
+}
+
+// DisconnectMiner removes the connection between the miner and the chain
+// backend in the network.
+func (h *HarnessTest) DisconnectMiner() {
+	err := h.manager.chainBackend.DisconnectMiner()
+	require.NoError(h, err, "failed to disconnect miner")
+}

@@ -57,6 +57,16 @@ func NewMiner(ctxt context.Context, t *testing.T) *HarnessMiner {
 	return newMiner(ctxt, t, minerLogDir, minerLogFilename)
 }
 
+// NewTempMiner creates a new miner using btcd backend with the specified log
+// file dir and name.
+func NewTempMiner(ctxt context.Context, t *testing.T,
+	tempDir, tempLogFilename string) *HarnessMiner {
+
+	t.Helper()
+
+	return newMiner(ctxt, t, tempDir, tempLogFilename)
+}
+
 // newMiner creates a new miner using btcd's rpctest.
 func newMiner(ctxb context.Context, t *testing.T, minerDirName,
 	logFilename string) *HarnessMiner {

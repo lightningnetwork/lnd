@@ -271,4 +271,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "3rd party anchor spend",
 		TestFunc: testAnchorThirdPartySpend,
 	},
+	{
+		Name:     "open channel reorg test",
+		TestFunc: testOpenChannelAfterReorg,
+	},
 }

@@ -565,8 +565,10 @@ func (h *HarnessTest) AssertStreamChannelCoopClosed(hn *node.HarnessNode,
 	h.AssertNumWaitingClose(hn, 0)
 
 	// Finally, check that the node's topology graph has seen this channel
-	// closed.
-	h.AssertTopologyChannelClosed(hn, cp)
+	// closed if it's a public channel.
+	if !resp.Channel.Private {
+		h.AssertTopologyChannelClosed(hn, cp)
+	}
 
 	return closingTxid
 }
@@ -611,8 +613,10 @@ func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
 	h.AssertNumPendingForceClose(hn, 1)
 
 	// Finally, check that the node's topology graph has seen this channel
-	// closed.
-	h.AssertTopologyChannelClosed(hn, cp)
+	// closed if it's a public channel.
+	if !resp.Channel.Private {
+		h.AssertTopologyChannelClosed(hn, cp)
+	}
 
 	return closingTxid
 }
@@ -1968,4 +1972,23 @@ func (h *HarnessTest) AssertTransactionNotInWallet(hn *node.HarnessNode,
 	}, DefaultTimeout)
 
 	require.NoErrorf(h, err, "%s: failed to assert tx not found", hn.Name())
+}
+
+// WaitForNodeBlockHeight queries the node for its current block height until
+// it reaches the passed height.
+func (h *HarnessTest) WaitForNodeBlockHeight(hn *node.HarnessNode,
+	height int32) {
+
+	err := wait.NoError(func() error {
+		info := hn.RPC.GetInfo()
+		if int32(info.BlockHeight) != height {
+			return fmt.Errorf("expected block height to "+
+				"be %v, was %v", height, info.BlockHeight)
+		}
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoErrorf(h, err, "%s: timeout while waiting for height",
+		hn.Name())
 }

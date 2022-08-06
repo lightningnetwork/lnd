@@ -690,41 +690,6 @@ func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 	}
 }
 
-// assertMinerBlockHeightDelta ensures that tempMiner is 'delta' blocks ahead
-// of miner.
-func assertMinerBlockHeightDelta(t *harnessTest,
-	miner, tempMiner *lntest.HarnessMiner, delta int32) {
-
-	// Ensure the chain lengths are what we expect.
-	var predErr error
-	err := wait.Predicate(func() bool {
-		_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
-		if err != nil {
-			predErr = fmt.Errorf("unable to get current "+
-				"blockheight %v", err)
-			return false
-		}
-
-		_, minerHeight, err := miner.Client.GetBestBlock()
-		if err != nil {
-			predErr = fmt.Errorf("unable to get current "+
-				"blockheight %v", err)
-			return false
-		}
-
-		if tempMinerHeight != minerHeight+delta {
-			predErr = fmt.Errorf("expected new miner(%d) to be %d "+
-				"blocks ahead of original miner(%d)",
-				tempMinerHeight, delta, minerHeight)
-			return false
-		}
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf(predErr.Error())
-	}
-}
-
 func checkCommitmentMaturity(
 	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel,
 	maturityHeight uint32, blocksTilMaturity int32) error {

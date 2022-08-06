@@ -867,7 +867,7 @@ func (s *Switch) getLocalLink(pkt *htlcPacket, htlc *lnwire.UpdateAddHTLC) (
 		link, err = s.getLinkByShortID(baseScid)
 		if err != nil {
 			log.Errorf("Link %v not found", baseScid)
-			return nil, NewLinkError(&lnwire.FailUnknownNextPeer{})
+			return nil, NewLinkError(&lnwire.FailTemporaryChannelFailure{})
 		}
 	}
 

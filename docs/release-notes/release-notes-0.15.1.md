@@ -115,6 +115,9 @@
 * [Re-initialise registered middleware index lookup map after removal of a 
   registered middleware](https://github.com/lightningnetwork/lnd/pull/6739)
 
+* [Only return permanent "Unknown next peer" error if peer/channel is
+  unknown](https://github.com/lightningnetwork/lnd/pull/6803)
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes

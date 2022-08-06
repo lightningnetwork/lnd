@@ -30,6 +30,20 @@ import (
 var zeroCircuit = channeldb.CircuitKey{}
 var emptyScid = lnwire.ShortChannelID{}
 
+type SuccessOrFailureOption string
+
+const (
+	Success        SuccessOrFailureOption = "success"
+	PeerOffline                           = "peerOffline"
+	UnknownChannel                        = "unknownChannel"
+)
+
+var SuccessOrFailureOptions = []SuccessOrFailureOption{
+	Success,
+	PeerOffline,
+	UnknownChannel,
+}
+
 func genPreimage() ([32]byte, error) {
 	var preimage [32]byte
 	if _, err := io.ReadFull(rand.Reader, preimage[:]); err != nil {
@@ -656,22 +670,40 @@ func TestSwitchSendHTLCMapping(t *testing.T) {
 				TxPosition:  45,
 			},
 		},
+		{
+			name:     "zero-conf unknown scid",
+			zeroConf: true,
+			useAlias: false,
+			alias: lnwire.ShortChannelID{
+				BlockHeight: 10035,
+				TxIndex:     35,
+				TxPosition:  35,
+			},
+			real: lnwire.ShortChannelID{
+				BlockHeight: 470000,
+				TxIndex:     35,
+				TxPosition:  45,
+			},
+		},
 	}
 
-	for _, test := range tests {
-		test := test
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			testSwitchSendHtlcMapping(
-				t, test.zeroConf, test.useAlias, test.alias,
-				test.real, test.optionFeature,
-			)
-		})
+	for _, successOrFailure := range SuccessOrFailureOptions {
+		for _, test := range tests {
+			test := test
+			testName := fmt.Sprintf("%s[%s]", test.name, successOrFailure)
+			t.Run(testName, func(t *testing.T) {
+				testSwitchSendHtlcMapping(
+					t, test.zeroConf, test.useAlias, test.alias,
+					test.real, test.optionFeature, successOrFailure,
+				)
+			})
+		}
 	}
 }
 
 func testSwitchSendHtlcMapping(t *testing.T, zeroConf, useAlias bool, alias,
-	realScid lnwire.ShortChannelID, optionFeature bool) {
+	realScid lnwire.ShortChannelID, optionFeature bool,
+	successOrFailureOption SuccessOrFailureOption) {
 
 	peer, err := newMockServer(
 		t, "alice", testStartingHeight, nil, testDefaultDelta,
@@ -708,6 +740,10 @@ func testSwitchSendHtlcMapping(t *testing.T, zeroConf, useAlias bool, alias,
 	err = s.AddLink(link)
 	require.NoError(t, err)
 
+	if successOrFailureOption == PeerOffline {
+		s.RemoveLink(link.chanID)
+	}
+
 	// Generate preimage.
 	preimage, err := genPreimage()
 	require.NoError(t, err)
@@ -718,15 +754,29 @@ func testSwitchSendHtlcMapping(t *testing.T, zeroConf, useAlias bool, alias,
 	if useAlias {
 		outgoingSCID = alias
 	}
+	if successOrFailureOption == UnknownChannel {
+		outgoingSCID = lnwire.ShortChannelID{
+			BlockHeight: 123,
+			TxIndex:     123,
+			TxPosition:  123,
+		}
+	}
 
 	// Send the HTLC and assert that we don't get an error.
 	htlc := &lnwire.UpdateAddHTLC{
 		PaymentHash: rhash,
 		Amount:      1,
 	}
-
 	err = s.SendHTLC(outgoingSCID, 0, htlc)
-	require.NoError(t, err)
+
+	switch successOrFailureOption {
+	case Success:
+		require.NoError(t, err)
+	case PeerOffline:
+		require.EqualError(t, err, "TemporaryChannelFailure")
+	case UnknownChannel:
+		require.EqualError(t, err, "UnknownNextPeer")
+	}
 }
 
 // TestSwitchUpdateScid verifies that zero-conf and non-zero-conf

@@ -195,10 +195,6 @@ var allTestCases = []*testCase{
 		test: testRemoteSigner,
 	},
 	{
-		name: "3rd party anchor spend",
-		test: testAnchorThirdPartySpend,
-	},
-	{
 		name: "taproot",
 		test: testTaproot,
 	},

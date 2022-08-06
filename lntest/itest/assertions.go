@@ -1418,30 +1418,6 @@ func assertTransactionNotInWallet(t *testing.T, node *lntest.HarnessNode,
 	)
 }
 
-func assertAnchorOutputLost(t *harnessTest, node *lntest.HarnessNode,
-	chanPoint wire.OutPoint) {
-
-	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-	err := wait.Predicate(func() bool {
-		resp, pErr := node.PendingChannels(
-			context.Background(), pendingChansRequest,
-		)
-		if pErr != nil {
-			return false
-		}
-
-		for _, pendingChan := range resp.PendingForceClosingChannels {
-			if pendingChan.Channel.ChannelPoint == chanPoint.String() {
-				return (pendingChan.Anchor ==
-					lnrpc.PendingChannelsResponse_ForceClosedChannel_LOST)
-			}
-		}
-
-		return false
-	}, defaultTimeout)
-	require.NoError(t.t, err, "anchor doesn't show as being lost")
-}
-
 // assertNodeAnnouncement compares that two node announcements match.
 func assertNodeAnnouncement(t *harnessTest, n1, n2 *lnrpc.NodeUpdate) {
 	// Alias should match.

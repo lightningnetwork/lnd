@@ -1927,3 +1927,45 @@ func (h *HarnessTest) AssertHtlcEvents(client rpc.HtlcEventsClient,
 
 	return events
 }
+
+// AssertTransactionInWallet asserts a given txid can be found in the node's
+// wallet.
+func (h *HarnessTest) AssertTransactionInWallet(hn *node.HarnessNode,
+	txid chainhash.Hash) {
+
+	req := &lnrpc.GetTransactionsRequest{}
+	err := wait.NoError(func() error {
+		txResp := hn.RPC.GetTransactions(req)
+		for _, txn := range txResp.Transactions {
+			if txn.TxHash == txid.String() {
+				return nil
+			}
+		}
+
+		return fmt.Errorf("%s: expected txid=%v not found in wallet",
+			hn.Name(), txid)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "failed to find tx")
+}
+
+// AssertTransactionNotInWallet asserts a given txid can NOT be found in the
+// node's wallet.
+func (h *HarnessTest) AssertTransactionNotInWallet(hn *node.HarnessNode,
+	txid chainhash.Hash) {
+
+	req := &lnrpc.GetTransactionsRequest{}
+	err := wait.NoError(func() error {
+		txResp := hn.RPC.GetTransactions(req)
+		for _, txn := range txResp.Transactions {
+			if txn.TxHash == txid.String() {
+				return fmt.Errorf("expected txid=%v to be "+
+					"not found", txid)
+			}
+		}
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoErrorf(h, err, "%s: failed to assert tx not found", hn.Name())
+}

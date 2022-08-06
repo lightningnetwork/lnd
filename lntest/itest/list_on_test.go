@@ -267,4 +267,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "anchors reserved value",
 		TestFunc: testAnchorReservedValue,
 	},
+	{
+		Name:     "3rd party anchor spend",
+		TestFunc: testAnchorThirdPartySpend,
+	},
 }

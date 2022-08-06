@@ -15,7 +15,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -982,57 +981,6 @@ func channelForceClosureTest(ht *lntemp.HarnessTest,
 // padding.
 func padCLTV(cltv uint32) uint32 {
 	return cltv + uint32(routing.BlockPadding)
-}
-
-type sweptOutput struct {
-	OutPoint wire.OutPoint
-	SweepTx  *wire.MsgTx
-}
-
-// findCommitAndAnchor looks for a commitment sweep and anchor sweep in the
-// mempool. Our anchor output is identified by having multiple inputs, because
-// we have to bring another input to add fees to the anchor. Note that the
-// anchor swept output may be nil if the channel did not have anchors.
-// TODO(yy): delete.
-func findCommitAndAnchor(t *harnessTest, net *lntest.NetworkHarness,
-	sweepTxns []*wire.MsgTx, closeTx string) (*sweptOutput, *sweptOutput) {
-
-	var commitSweep, anchorSweep *sweptOutput
-
-	for _, tx := range sweepTxns {
-		txHash := tx.TxHash()
-		sweepTx, err := net.Miner.Client.GetRawTransaction(&txHash)
-		require.NoError(t.t, err)
-
-		// We expect our commitment sweep to have a single input, and,
-		// our anchor sweep to have more inputs (because the wallet
-		// needs to add balance to the anchor amount). We find their
-		// sweep txids here to setup appropriate resolutions. We also
-		// need to find the outpoint for our resolution, which we do by
-		// matching the inputs to the sweep to the close transaction.
-		inputs := sweepTx.MsgTx().TxIn
-		if len(inputs) == 1 {
-			commitSweep = &sweptOutput{
-				OutPoint: inputs[0].PreviousOutPoint,
-				SweepTx:  tx,
-			}
-		} else {
-			// Since we have more than one input, we run through
-			// them to find the outpoint that spends from the close
-			// tx. This will be our anchor output.
-			for _, txin := range inputs {
-				outpointStr := txin.PreviousOutPoint.Hash.String()
-				if outpointStr == closeTx {
-					anchorSweep = &sweptOutput{
-						OutPoint: txin.PreviousOutPoint,
-						SweepTx:  tx,
-					}
-				}
-			}
-		}
-	}
-
-	return commitSweep, anchorSweep
 }
 
 // testFailingChannel tests that we will fail the channel by force closing it

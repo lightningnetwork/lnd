@@ -383,3 +383,35 @@ func (h *HarnessMiner) NewMinerAddress() btcutil.Address {
 	require.NoError(h, err, "failed to create new miner address")
 	return addr
 }
+
+// MineBlocksWithTxes mines a single block to include the specifies
+// transactions only.
+func (h *HarnessMiner) MineBlockWithTxes(txes []*btcutil.Tx) *wire.MsgBlock {
+	var emptyTime time.Time
+
+	// Generate a block.
+	b, err := h.GenerateAndSubmitBlock(txes, -1, emptyTime)
+	require.NoError(h, err, "unable to mine block")
+
+	block, err := h.Client.GetBlock(b.Hash())
+	require.NoError(h, err, "unable to get block")
+
+	return block
+}
+
+// MineEmptyBlocks mines a given number of empty blocks.
+func (h *HarnessMiner) MineEmptyBlocks(num int) []*wire.MsgBlock {
+	var emptyTime time.Time
+
+	blocks := make([]*wire.MsgBlock, num)
+	for i := 0; i < num; i++ {
+		// Generate an empty block.
+		b, err := h.GenerateAndSubmitBlock(nil, -1, emptyTime)
+		require.NoError(h, err, "unable to mine empty block")
+
+		block := h.GetBlock(b.Hash())
+		blocks[i] = block
+	}
+
+	return blocks
+}

@@ -1391,6 +1391,19 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	return blocks
 }
 
+// MineEmptyBlocks mines a given number of empty blocks.
+//
+// NOTE: this differs from miner's `MineEmptyBlocks` as it requires the nodes
+// to be synced.
+func (h *HarnessTest) MineEmptyBlocks(num int) []*wire.MsgBlock {
+	blocks := h.Miner.MineEmptyBlocks(num)
+
+	// Finally, make sure all the active nodes are synced.
+	h.AssertActiveNodesSynced()
+
+	return blocks
+}
+
 // QueryChannelByChanPoint tries to find a channel matching the channel point
 // and asserts. It returns the channel found.
 func (h *HarnessTest) QueryChannelByChanPoint(hn *node.HarnessNode,

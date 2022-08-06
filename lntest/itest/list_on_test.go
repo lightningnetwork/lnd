@@ -263,4 +263,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "multi-hop payments",
 		TestFunc: testMultiHopPayments,
 	},
+	{
+		Name:     "anchors reserved value",
+		TestFunc: testAnchorReservedValue,
+	},
 }

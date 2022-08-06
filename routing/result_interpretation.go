@@ -307,10 +307,10 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 
 	// If a node reports onion payload corruption or an invalid version,
 	// that node may be responsible, but it could also be that it is just
-	// relaying a malformed htlc failure from it successor. By reporting the
+	// relaying a malformed htlc failure from its successor. By reporting the
 	// outgoing channel set, we will surely hit the responsible node. At
 	// this point, it is not possible that the node's predecessor corrupted
-	// the onion blob. If the predecessor would have corrupted the payload,
+	// the onion blob. If the predecessor had corrupted the payload,
 	// the error source wouldn't have been able to encrypt this failure
 	// message for us.
 	case *lnwire.FailInvalidOnionVersion,
@@ -360,7 +360,7 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 	// When an HTLC parameter is incorrect, the node sending the error may
 	// be doing something wrong. But it could also be that its predecessor
 	// is intentionally modifying the htlc parameters that we instructed it
-	// via the hop payload. Therefore we penalize the incoming node pair. A
+	// via the hop payload. Therefore, we penalize the incoming node pair. A
 	// third cause of this error may be that we have an out of date channel
 	// update. This is handled by the second chance logic up in mission
 	// control.

@@ -851,7 +851,7 @@ func (s *Switch) getLocalLink(pkt *htlcPacket, htlc *lnwire.UpdateAddHTLC) (
 		// If the link was not found for the outgoingChanID, an outside
 		// subsystem may be using the confirmed SCID of a zero-conf
 		// channel. In this case, we'll consult the Switch maps to see
-		// if an alias exists and use the alias to lookup the link.
+		// if an alias exists and use the alias to look up the link.
 		// This extra step is a consequence of not updating the Switch
 		// forwardingIndex when a zero-conf channel is confirmed. We
 		// don't need to change the outgoingChanID since the link will
@@ -1125,7 +1125,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				"destination %v", packet.outgoingChanID)
 
 			// If packet was forwarded from another channel link
-			// than we should notify this link that some error
+			// then we should notify this link that some error
 			// occurred.
 			linkError := NewLinkError(
 				&lnwire.FailUnknownNextPeer{},

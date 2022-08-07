@@ -5341,6 +5341,22 @@ func TestChannelLinkFail(t *testing.T) {
 			false,
 		},
 		{
+			// Test that we don't force close the channel when
+			// we receive a warning message.
+			func(c *channelLink) {},
+			func(t *testing.T, c *channelLink,
+				_ *lnwallet.LightningChannel) {
+
+				// Sent a random warning message.
+				warning := &lnwire.Warning{
+					Error: *lnwire.NewError()}
+				c.handleUpstreamMsg(warning)
+			},
+			false,
+			false,
+			false,
+		},
+		{
 			// Test that we force close the channel if we receive
 			// an invalid CommitSig, not containing enough HTLC
 			// sigs.

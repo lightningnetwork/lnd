@@ -4,6 +4,9 @@
 * Warning messages from peers are now recognized and
   [logged](https://github.com/lightningnetwork/lnd/pull/6546) by lnd.
 
+* [Add tests](https://github.com/lightningnetwork/lnd/pull/6805) for warning
+  messages from peers.
+
 * [Fixed error typo](https://github.com/lightningnetwork/lnd/pull/6659).
 
 * [The macaroon key store implementation was refactored to be more generally
@@ -20,5 +23,6 @@
 
 * Carla Kirk-Cohen
 * ErikEk
+* Jordi Montes
 * Olaoluwa Osuntokun
 * Oliver Gugger

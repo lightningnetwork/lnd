@@ -4247,7 +4247,9 @@ func (h *persistentLinkHarness) checkSent(pkts []*htlcPacket) {
 // commitCircuits accepts a list of circuits and tries to commit them to the
 // switch's circuit map. The forwarding actions are returned if there was no
 // failure.
-func (h *persistentLinkHarness) commitCircuits(circuits []*PaymentCircuit) *CircuitFwdActions {
+func (h *persistentLinkHarness) commitCircuits(
+	circuits []*PaymentCircuit) *CircuitFwdActions {
+
 	fwdActions, err := h.coreLink.cfg.Switch.commitCircuits(circuits...)
 	if err != nil {
 		h.t.Fatalf("unable to commit circuit: %v", err)
@@ -4347,20 +4349,25 @@ func (h *persistentLinkHarness) restartLink(
 		Switch:        aliceSwitch,
 		BestHeight:    aliceSwitch.BestHeight,
 		Circuits:      aliceSwitch.CircuitModifier(),
-		ForwardPackets: func(linkQuit chan struct{}, _ bool, packets ...*htlcPacket) error {
+		ForwardPackets: func(linkQuit chan struct{}, _ bool,
+			packets ...*htlcPacket) error {
+
 			return aliceSwitch.ForwardPackets(linkQuit, packets...)
 		},
 		DecodeHopIterators: decoder.DecodeHopIterators,
 		ExtractErrorEncrypter: func(*btcec.PublicKey) (
 			hop.ErrorEncrypter, lnwire.FailCode) {
+
 			return obfuscator, lnwire.CodeNone
 		},
 		FetchLastChannelUpdate: mockGetChanUpdateMessage,
 		PreimageCache:          pCache,
 		OnChannelFailure: func(lnwire.ChannelID,
-			lnwire.ShortChannelID, LinkFailureError) {
+			lnwire.ShortChannelID, LinkFailureError) { //nolint: whitespace
 		},
-		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
+		UpdateContractSignals: func(
+			*contractcourt.ContractSignals) error {
+
 			return nil
 		},
 		NotifyContractUpdate: notifyContractUpdate,
@@ -5247,8 +5254,8 @@ func (*mockPackager) AckSettleFails(tx kvdb.RwTx,
 	return nil
 }
 
-// TestChannelLinkFail tests that we will fail the channel, and force close the
-// channel in certain situations.
+// TestChannelLinkFail tests that certain messages fail the channel, and some
+// may force close the channel.
 func TestChannelLinkFail(t *testing.T) {
 	t.Parallel()
 
@@ -5259,7 +5266,12 @@ func TestChannelLinkFail(t *testing.T) {
 
 		// link test is used to execute the given test on the channel
 		// link after it is started.
-		linkTest func(*testing.T, *channelLink, *lnwallet.LightningChannel)
+		linkTest func(*testing.T, *channelLink,
+			*lnwallet.LightningChannel)
+
+		// shouldFailChannel indicates whether we expect the test to
+		// fail the channel or not.
+		shouldFailChannel bool
 
 		// shouldForceClose indicates whether we expect the link to
 		// force close the channel in response to the actions performed
@@ -5281,9 +5293,11 @@ func TestChannelLinkFail(t *testing.T) {
 				// the SendMessage call fail.
 				c.cfg.Peer.(*mockPeer).disconnected = true
 			},
-			func(t *testing.T, c *channelLink, _ *lnwallet.LightningChannel) {
+			func(*testing.T, *channelLink,
+				*lnwallet.LightningChannel) { //nolint: whitespace
 				// Should fail at startup.
 			},
+			true,
 			false,
 			false,
 		},
@@ -5298,9 +5312,11 @@ func TestChannelLinkFail(t *testing.T) {
 				}
 				c.channel.State().Packager = pkg
 			},
-			func(t *testing.T, c *channelLink, _ *lnwallet.LightningChannel) {
+			func(*testing.T, *channelLink,
+				*lnwallet.LightningChannel) { //nolint: whitespace
 				// Should fail at startup.
 			},
+			true,
 			false,
 			false,
 		},
@@ -5309,8 +5325,10 @@ func TestChannelLinkFail(t *testing.T) {
 			// receive an invalid Settle message.
 			func(c *channelLink) {
 			},
-			func(t *testing.T, c *channelLink, _ *lnwallet.LightningChannel) {
-				// Recevive an htlc settle for an htlc that was
+			func(t *testing.T, c *channelLink,
+				_ *lnwallet.LightningChannel) {
+
+				// Receive an htlc settle for an htlc that was
 				// never added.
 				htlcSettle := &lnwire.UpdateFulfillHTLC{
 					ID:              0,
@@ -5318,6 +5336,7 @@ func TestChannelLinkFail(t *testing.T) {
 				}
 				c.HandleChannelUpdate(htlcSettle)
 			},
+			true,
 			false,
 			false,
 		},
@@ -5327,7 +5346,8 @@ func TestChannelLinkFail(t *testing.T) {
 			// sigs.
 			func(c *channelLink) {
 			},
-			func(t *testing.T, c *channelLink, remoteChannel *lnwallet.LightningChannel) {
+			func(t *testing.T, c *channelLink,
+				remoteChannel *lnwallet.LightningChannel) {
 
 				// Generate an HTLC and send to the link.
 				htlc1 := generateHtlc(t, c, 0)
@@ -5357,6 +5377,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.HandleChannelUpdate(commitSig)
 			},
 			true,
+			true,
 			false,
 		},
 		{
@@ -5365,7 +5386,8 @@ func TestChannelLinkFail(t *testing.T) {
 			// corrupted.
 			func(c *channelLink) {
 			},
-			func(t *testing.T, c *channelLink, remoteChannel *lnwallet.LightningChannel) {
+			func(t *testing.T, c *channelLink,
+				remoteChannel *lnwallet.LightningChannel) {
 
 				// Generate an HTLC and send to the link.
 				htlc1 := generateHtlc(t, c, 0)
@@ -5397,6 +5419,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.HandleChannelUpdate(commitSig)
 			},
 			true,
+			true,
 			false,
 		},
 		{
@@ -5404,10 +5427,13 @@ func TestChannelLinkFail(t *testing.T) {
 			// receive a link error from the remote.
 			func(c *channelLink) {
 			},
-			func(t *testing.T, c *channelLink, remoteChannel *lnwallet.LightningChannel) {
+			func(t *testing.T, c *channelLink,
+				remoteChannel *lnwallet.LightningChannel) {
+
 				err := &lnwire.Error{}
 				c.HandleChannelUpdate(err)
 			},
+			true,
 			false,
 			// TODO(halseth) For compatibility with CL we currently
 			// don't treat Errors as permanent errors.
@@ -5418,12 +5444,10 @@ func TestChannelLinkFail(t *testing.T) {
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 
 	// Execute each test case.
-	for i, test := range testCases {
+	for _, test := range testCases {
 		link, remoteChannel, _, start, cleanUp, _, err :=
 			newSingleLinkTestHarness(chanAmt, 0)
-		if err != nil {
-			t.Fatalf("unable to create link: %v", err)
-		}
+		require.NoError(t, err)
 
 		coreLink := link.(*channelLink)
 
@@ -5437,36 +5461,38 @@ func TestChannelLinkFail(t *testing.T) {
 
 		// Set up the link before starting it.
 		test.options(coreLink)
-		if err := start(); err != nil {
-			t.Fatalf("unable to start test harness: %v", err)
-		}
+		err = start()
+		require.NoError(t, err)
 
 		// Execute the test case.
 		test.linkTest(t, coreLink, remoteChannel)
 
-		// Currently we expect all test cases to lead to link error.
-		var linkErr LinkFailureError
+		var (
+			linkErr LinkFailureError
+			timeout bool
+		)
+
 		select {
 		case linkErr = <-linkErrors:
 		case <-time.After(10 * time.Second):
-			t.Fatalf("%d) Alice did not fail"+
-				"channel", i)
+			timeout = true
+		}
+
+		if test.shouldFailChannel && timeout {
+			require.Fail(t, "expected link errors did not happen "+
+				"before timeout")
+		} else if !test.shouldFailChannel && !timeout {
+			require.Fail(t, "unexpected link errors happened")
 		}
 
 		// If we expect the link to force close the channel in this
 		// case, check that it happens. If not, make sure it does not
 		// happen.
-		if test.shouldForceClose != linkErr.ForceClose {
-			t.Fatalf("%d) Expected Alice to force close(%v), "+
-				"instead got(%v)", i, test.shouldForceClose,
-				linkErr.ForceClose)
-		}
+		require.Equal(t, test.shouldForceClose, linkErr.ForceClose)
 
-		if test.permanentFailure != linkErr.PermanentFailure {
-			t.Fatalf("%d) Expected Alice set permanent failure(%v), "+
-				"instead got(%v)", i, test.permanentFailure,
-				linkErr.PermanentFailure)
-		}
+		require.Equal(
+			t, test.permanentFailure, linkErr.PermanentFailure,
+		)
 
 		// Clean up before starting next test case.
 		cleanUp()

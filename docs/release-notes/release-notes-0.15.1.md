@@ -118,6 +118,9 @@
 * [Bitcoind cookie file path can be specified with zmq
   options](https://github.com/lightningnetwork/lnd/pull/6736)
 
+* [Remove `ScidAliasOptional` dependency on 
+`ExplicitChannelTypeOptional`](https://github.com/lightningnetwork/lnd/pull/6809)
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes
@@ -143,6 +146,7 @@
 * Elle Mouton
 * ErikEk
 * Eugene Siegel
+* Jordi Montes
 * Matt Morehouse
 * Slyghtning
 * Oliver Gugger

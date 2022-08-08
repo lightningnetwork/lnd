@@ -9,10 +9,6 @@ var allTestCases = []*testCase{
 		test: testSingleHopInvoice,
 	},
 	{
-		name: "multi-hop send to route",
-		test: testMultiHopSendToRoute,
-	},
-	{
 		name: "send to route error propagation",
 		test: testSendToRouteErrorPropagation,
 	},

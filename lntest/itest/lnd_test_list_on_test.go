@@ -123,10 +123,6 @@ var allTestCases = []*testCase{
 		test: testSignPsbt,
 	},
 	{
-		name: "psbt channel funding single step",
-		test: testPsbtChanFundingSingleStep,
-	},
-	{
 		name: "sendtoroute multi path payment",
 		test: testSendToRouteMultiPath,
 	},

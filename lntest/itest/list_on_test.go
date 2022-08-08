@@ -337,4 +337,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "query routes",
 		TestFunc: testQueryRoutes,
 	},
+	{
+		Name:     "route fee cutoff",
+		TestFunc: testRouteFeeCutoff,
+	},
 }

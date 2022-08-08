@@ -1439,6 +1439,14 @@ func (h *HarnessTest) SendPaymentAssertFail(hn *node.HarnessNode,
 	return payment
 }
 
+// SendPaymentAssertSettled sends a payment from the passed node and asserts the
+// payment is settled.
+func (h *HarnessTest) SendPaymentAssertSettled(hn *node.HarnessNode,
+	req *routerrpc.SendPaymentRequest) *lnrpc.Payment {
+
+	return h.SendPaymentAndAssertStatus(hn, req, lnrpc.Payment_SUCCEEDED)
+}
+
 // OpenChannelRequest is used to open a channel using the method
 // OpenMultiChannelsAsync.
 type OpenChannelRequest struct {

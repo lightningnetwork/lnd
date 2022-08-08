@@ -321,4 +321,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "send to route error propagation",
 		TestFunc: testSendToRouteErrorPropagation,
 	},
+	{
+		Name:     "private channels",
+		TestFunc: testPrivateChannels,
+	},
 }

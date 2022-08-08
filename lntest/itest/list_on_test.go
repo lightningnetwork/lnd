@@ -304,4 +304,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "revoked uncooperative close retribution remote hodl",
 		TestFunc: testRevokedCloseRetributionRemoteHodl,
 	},
+	{
+		Name:     "revoked uncooperative close retribution altruist watchtower",
+		TestFunc: testRevokedCloseRetributionAltruistWatchtower,
+	},
 }

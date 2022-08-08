@@ -73,10 +73,6 @@ var allTestCases = []*testCase{
 		test: testSwitchOfflineDeliveryOutgoingOffline,
 	},
 	{
-		name: "revoked uncooperative close retribution altruist watchtower",
-		test: testRevokedCloseRetributionAltruistWatchtower,
-	},
-	{
 		name: "query routes",
 		test: testQueryRoutes,
 	},

@@ -119,10 +119,6 @@ var allTestCases = []*testCase{
 		test: testPsbtChanFunding,
 	},
 	{
-		name: "psbt channel funding external",
-		test: testPsbtChanFundingExternal,
-	},
-	{
 		name: "sign psbt",
 		test: testSignPsbt,
 	},

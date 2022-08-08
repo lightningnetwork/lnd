@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
@@ -20,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
@@ -255,69 +257,56 @@ func runPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest, carol,
 // and dave by using a Partially Signed Bitcoin Transaction that funds the
 // channel multisig funding output and is fully funded by an external third
 // party.
-func testPsbtChanFundingExternal(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
+func testPsbtChanFundingExternal(ht *lntemp.HarnessTest) {
 	const chanSize = funding.MaxBtcFundingAmount
-
-	// Everything we do here should be done within a second or two, so we
-	// can just keep a single timeout context around for all calls.
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
 
 	// First, we'll create two new nodes that we'll use to open channels
 	// between for this test. Both these nodes have an empty wallet as Alice
 	// will be funding the channel.
-	carol := net.NewNode(t.t, "carol", nil)
-	defer shutdownAndAssert(net, t, carol)
-
-	dave := net.NewNode(t.t, "dave", nil)
-	defer shutdownAndAssert(net, t, dave)
+	carol := ht.NewNode("carol", nil)
+	dave := ht.NewNode("dave", nil)
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.
-	net.EnsureConnected(t.t, carol, dave)
-	net.EnsureConnected(t.t, carol, net.Alice)
+	alice := ht.Alice
+	ht.EnsureConnected(carol, dave)
+	ht.EnsureConnected(carol, alice)
 
 	// At this point, we can begin our PSBT channel funding workflow. We'll
 	// start by generating a pending channel ID externally that will be used
 	// to track this new funding type.
-	var pendingChanID [32]byte
-	_, err := rand.Read(pendingChanID[:])
-	require.NoError(t.t, err)
+	pendingChanID := ht.Random32Bytes()
 
 	// We'll also test batch funding of two channels so we need another ID.
-	var pendingChanID2 [32]byte
-	_, err = rand.Read(pendingChanID2[:])
-	require.NoError(t.t, err)
+	pendingChanID2 := ht.Random32Bytes()
 
 	// Now that we have the pending channel ID, Carol will open the channel
 	// by specifying a PSBT shim. We use the NoPublish flag here to avoid
 	// publishing the whole batch TX too early.
-	chanUpdates, tempPsbt, err := openChannelPsbt(
-		ctxt, carol, dave, lntest.OpenChannelParams{
+	chanUpdates, tempPsbt := ht.OpenChannelPsbt(
+		carol, dave, lntemp.OpenChannelParams{
 			Amt: chanSize,
 			FundingShim: &lnrpc.FundingShim{
 				Shim: &lnrpc.FundingShim_PsbtShim{
 					PsbtShim: &lnrpc.PsbtShim{
-						PendingChanId: pendingChanID[:],
+						PendingChanId: pendingChanID,
 						NoPublish:     true,
 					},
 				},
 			},
 		},
 	)
-	require.NoError(t.t, err)
 
 	// Let's add a second channel to the batch. This time between Carol and
 	// Alice. We will publish the batch TX once this channel funding is
 	// complete.
-	chanUpdates2, psbtBytes2, err := openChannelPsbt(
-		ctxt, carol, net.Alice, lntest.OpenChannelParams{
+	chanUpdates2, psbtBytes2 := ht.OpenChannelPsbt(
+		carol, alice, lntemp.OpenChannelParams{
 			Amt: chanSize,
 			FundingShim: &lnrpc.FundingShim{
 				Shim: &lnrpc.FundingShim_PsbtShim{
 					PsbtShim: &lnrpc.PsbtShim{
-						PendingChanId: pendingChanID2[:],
+						PendingChanId: pendingChanID2,
 						NoPublish:     true,
 						BasePsbt:      tempPsbt,
 					},
@@ -325,7 +314,6 @@ func testPsbtChanFundingExternal(net *lntest.NetworkHarness, t *harnessTest) {
 			},
 		},
 	)
-	require.NoError(t.t, err)
 
 	// We'll now ask Alice's wallet to fund the PSBT for us. This will
 	// return a packet with inputs and outputs set but without any witness
@@ -338,8 +326,7 @@ func testPsbtChanFundingExternal(net *lntest.NetworkHarness, t *harnessTest) {
 			SatPerVbyte: 2,
 		},
 	}
-	fundResp, err := net.Alice.WalletKitClient.FundPsbt(ctxt, fundReq)
-	require.NoError(t.t, err)
+	fundResp := alice.RPC.FundPsbt(fundReq)
 
 	// We have a PSBT that has no witness data yet, which is exactly what we
 	// need for the next step: Verify the PSBT with the funding intents.
@@ -349,92 +336,77 @@ func testPsbtChanFundingExternal(net *lntest.NetworkHarness, t *harnessTest) {
 	// direct communication with Carol and won't send the signed TX to her
 	// before broadcasting it. So we cannot call the finalize step but
 	// instead just tell lnd to wait for a TX to be published/confirmed.
-	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+	carol.RPC.FundingStateStep(&lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
 			PsbtVerify: &lnrpc.FundingPsbtVerify{
-				PendingChanId: pendingChanID[:],
+				PendingChanId: pendingChanID,
 				FundedPsbt:    fundResp.FundedPsbt,
 				SkipFinalize:  true,
 			},
 		},
 	})
-	require.NoError(t.t, err)
-	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+	carol.RPC.FundingStateStep(&lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
 			PsbtVerify: &lnrpc.FundingPsbtVerify{
-				PendingChanId: pendingChanID2[:],
+				PendingChanId: pendingChanID2,
 				FundedPsbt:    fundResp.FundedPsbt,
 				SkipFinalize:  true,
 			},
 		},
 	})
-	require.NoError(t.t, err)
 
 	// Consume the "channel pending" update. This waits until the funding
 	// transaction was fully compiled for both channels.
-	updateResp, err := receiveChanUpdate(ctxt, chanUpdates)
-	require.NoError(t.t, err)
+	updateResp := ht.ReceiveOpenChannelUpdate(chanUpdates)
 	upd, ok := updateResp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
-	require.True(t.t, ok)
+	require.True(ht, ok)
 	chanPoint := &lnrpc.ChannelPoint{
 		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 			FundingTxidBytes: upd.ChanPending.Txid,
 		},
 		OutputIndex: upd.ChanPending.OutputIndex,
 	}
-	updateResp2, err := receiveChanUpdate(ctxt, chanUpdates2)
-	require.NoError(t.t, err)
+	updateResp2 := ht.ReceiveOpenChannelUpdate(chanUpdates2)
 	upd2, ok := updateResp2.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
-	require.True(t.t, ok)
+	require.True(ht, ok)
 	chanPoint2 := &lnrpc.ChannelPoint{
 		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 			FundingTxidBytes: upd2.ChanPending.Txid,
 		},
 		OutputIndex: upd2.ChanPending.OutputIndex,
 	}
-	numPending, err := numOpenChannelsPending(ctxt, carol)
-	require.NoError(t.t, err)
-	require.Equal(t.t, 2, numPending)
+	ht.AssertNumPendingOpenChannels(carol, 2)
 
 	// Now we'll ask Alice's wallet to sign the PSBT so we can finish the
 	// funding flow.
 	finalizeReq := &walletrpc.FinalizePsbtRequest{
 		FundedPsbt: fundResp.FundedPsbt,
 	}
-	finalizeRes, err := net.Alice.WalletKitClient.FinalizePsbt(
-		ctxt, finalizeReq,
-	)
-	require.NoError(t.t, err)
+	finalizeRes := alice.RPC.FinalizePsbt(finalizeReq)
 
 	// No transaction should have been published yet.
-	mempool, err := net.Miner.Client.GetRawMempool()
-	require.NoError(t.t, err)
-	require.Equal(t.t, 0, len(mempool))
+	ht.Miner.AssertNumTxsInMempool(0)
 
 	// Great, now let's publish the final raw transaction.
 	var finalTx wire.MsgTx
-	err = finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))
-	require.NoError(t.t, err)
+	err := finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))
+	require.NoError(ht, err)
 
 	txHash := finalTx.TxHash()
-	_, err = net.Miner.Client.SendRawTransaction(&finalTx, false)
-	require.NoError(t.t, err)
+	_, err = ht.Miner.Client.SendRawTransaction(&finalTx, false)
+	require.NoError(ht, err)
 
 	// Now we can mine a block to get the transaction confirmed, then wait
 	// for the new channel to be propagated through the network.
-	block := mineBlocks(t, net, 6, 1)[0]
-	assertTxInBlock(t, block, &txHash)
-	err = carol.WaitForNetworkChannelOpen(chanPoint)
-	require.NoError(t.t, err)
-	err = carol.WaitForNetworkChannelOpen(chanPoint2)
-	require.NoError(t.t, err)
+	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
+	ht.Miner.AssertTxInBlock(block, &txHash)
+	ht.AssertTopologyChannelOpen(carol, chanPoint)
+	ht.AssertTopologyChannelOpen(carol, chanPoint2)
 
 	// With the channel open, ensure that it is counted towards Carol's
 	// total channel balance.
-	balReq := &lnrpc.ChannelBalanceRequest{}
-	balRes, err := carol.ChannelBalance(ctxt, balReq)
-	require.NoError(t.t, err)
-	require.NotEqual(t.t, int64(0), balRes.LocalBalance.Sat)
+	balRes := carol.RPC.ChannelBalance()
+	require.NotZero(ht, balRes.LocalBalance.Sat)
 
 	// Next, to make sure the channel functions as normal, we'll make some
 	// payments within the channel.
@@ -443,19 +415,24 @@ func testPsbtChanFundingExternal(net *lntest.NetworkHarness, t *harnessTest) {
 		Memo:  "new chans",
 		Value: int64(payAmt),
 	}
-	resp, err := dave.AddInvoice(ctxt, invoice)
-	require.NoError(t.t, err)
-	err = completePaymentRequests(
-		carol, carol.RouterClient, []string{resp.PaymentRequest}, true,
-	)
-	require.NoError(t.t, err)
+	resp := dave.RPC.AddInvoice(invoice)
+	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
+
+	// TODO(yy): remove the sleep once the following bug is fixed. When the
+	// payment is reported as settled by Carol, it's expected the
+	// commitment dance is finished and all subsequent states have been
+	// updated. Yet we'd receive the error `cannot co-op close channel with
+	// active htlcs` or `link failed to shutdown` if we close the channel.
+	// We need to investigate the order of settling the payments and
+	// updating commitments to understand and fix .
+	time.Sleep(2 * time.Second)
 
 	// To conclude, we'll close the newly created channel between Carol and
 	// Dave. This function will also block until the channels are closed and
 	// will additionally assert the relevant channel closing post
 	// conditions.
-	closeChannelAndAssert(t, net, carol, chanPoint, false)
-	closeChannelAndAssert(t, net, carol, chanPoint2, false)
+	ht.CloseChannel(carol, chanPoint)
+	ht.CloseChannel(carol, chanPoint2)
 }
 
 // testPsbtChanFundingSingleStep checks whether PSBT funding works also when the

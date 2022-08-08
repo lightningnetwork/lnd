@@ -275,4 +275,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "open channel reorg test",
 		TestFunc: testOpenChannelAfterReorg,
 	},
+	{
+		Name:     "psbt channel funding external",
+		TestFunc: testPsbtChanFundingExternal,
+	},
 }

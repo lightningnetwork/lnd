@@ -325,4 +325,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "private channels",
 		TestFunc: testPrivateChannels,
 	},
+	{
+		Name:     "invoice routing hints",
+		TestFunc: testInvoiceRoutingHints,
+	},
 }

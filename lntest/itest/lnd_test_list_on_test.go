@@ -9,10 +9,6 @@ var allTestCases = []*testCase{
 		test: testSingleHopInvoice,
 	},
 	{
-		name: "invoice routing hints",
-		test: testInvoiceRoutingHints,
-	},
-	{
 		name: "multi-hop payments over private channels",
 		test: testMultiHopOverPrivateChannels,
 	},

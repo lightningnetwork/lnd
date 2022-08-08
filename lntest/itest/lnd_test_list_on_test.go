@@ -73,10 +73,6 @@ var allTestCases = []*testCase{
 		test: testSwitchOfflineDeliveryOutgoingOffline,
 	},
 	{
-		name: "revoked uncooperative close retribution zero value remote output",
-		test: testRevokedCloseRetributionZeroValueRemoteOutput,
-	},
-	{
 		name: "revoked uncooperative close retribution remote hodl",
 		test: testRevokedCloseRetributionRemoteHodl,
 	},

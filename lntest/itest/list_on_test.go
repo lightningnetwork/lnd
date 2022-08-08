@@ -295,4 +295,9 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "revoked uncooperative close retribution",
 		TestFunc: testRevokedCloseRetribution,
 	},
+	{
+		Name: "revoked uncooperative close retribution zero value " +
+			"remote output",
+		TestFunc: testRevokedCloseRetributionZeroValueRemoteOutput,
+	},
 }

@@ -291,4 +291,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "REST API",
 		TestFunc: testRestAPI,
 	},
+	{
+		Name:     "revoked uncooperative close retribution",
+		TestFunc: testRevokedCloseRetribution,
+	},
 }

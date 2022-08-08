@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -23,7 +24,7 @@ import (
 // testRevokedCloseRetribution tests that Carol is able carry out
 // retribution in the event that she fails immediately after detecting Bob's
 // breach txn in the mempool.
-func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
+func testRevokedCloseRetribution(ht *lntemp.HarnessTest) {
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
 		paymentAmt  = 10000
@@ -35,77 +36,38 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	// protection logic automatically. We also can't have Carol
 	// automatically re-connect too early, otherwise DLP would be initiated
 	// instead of the breach we want to provoke.
-	carol := net.NewNode(
-		t.t, "Carol",
+	carol := ht.NewNode(
+		"Carol",
 		[]string{"--hodl.exit-settle", "--nolisten", "--minbackoff=1h"},
 	)
-	defer shutdownAndAssert(net, t, carol)
 
 	// We must let Bob communicate with Carol before they are able to open
 	// channel, so we connect Bob and Carol,
-	net.ConnectNodes(t.t, carol, net.Bob)
+	bob := ht.Bob
+	ht.ConnectNodes(carol, bob)
 
 	// Before we make a channel, we'll load up Carol with some coins sent
 	// directly from the miner.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// In order to test Carol's response to an uncooperative channel
 	// closure by Bob, we'll first open up a channel between them with a
 	// 0.5 BTC value.
-	chanPoint := openChannelAndAssert(
-		t, net, carol, net.Bob,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	chanPoint := ht.OpenChannel(
+		carol, bob, lntemp.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// With the channel open, we'll create a few invoices for Bob that
 	// Carol will pay to in order to advance the state of the channel.
-	bobPayReqs, _, _, err := createPayReqs(
-		net.Bob, paymentAmt, numInvoices,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
-	}
-
-	// Wait for Carol to receive the channel edge from the funding manager.
-	err = carol.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("carol didn't see the carol->bob channel before "+
-			"timeout: %v", err)
-	}
+	bobPayReqs, _, _ := ht.CreatePayReqs(bob, paymentAmt, numInvoices)
 
 	// Send payments from Carol to Bob using 3 of Bob's payment hashes
 	// generated above.
-	err = completePaymentRequests(
-		carol, carol.RouterClient, bobPayReqs[:numInvoices/2], true,
-	)
-	if err != nil {
-		t.Fatalf("unable to send payments: %v", err)
-	}
+	ht.CompletePaymentRequests(carol, bobPayReqs[:numInvoices/2])
 
 	// Next query for Bob's channel state, as we sent 3 payments of 10k
 	// satoshis each, Bob should now see his balance as being 30k satoshis.
-	var bobChan *lnrpc.Channel
-	var predErr error
-	err = wait.Predicate(func() bool {
-		bChan, err := getChanInfo(net.Bob)
-		if err != nil {
-			t.Fatalf("unable to get bob's channel info: %v", err)
-		}
-		if bChan.LocalBalance != 30000 {
-			predErr = fmt.Errorf("bob's balance is incorrect, "+
-				"got %v, expected %v", bChan.LocalBalance,
-				30000)
-			return false
-		}
-
-		bobChan = bChan
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("%v", predErr)
-	}
+	bobChan := ht.AssertChannelLocalBalance(bob, chanPoint, 30_000)
 
 	// Grab Bob's current commitment height (update number), we'll later
 	// revert him to this state after additional updates to force him to
@@ -115,141 +77,93 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	// With the temporary file created, copy Bob's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	if err := net.BackupDb(net.Bob); err != nil {
-		t.Fatalf("unable to copy database files: %v", err)
-	}
+	ht.BackupDB(bob)
 
 	// Reconnect the peers after the restart that was needed for the db
 	// backup.
-	net.EnsureConnected(t.t, carol, net.Bob)
+	ht.EnsureConnected(carol, bob)
+
+	// Because Bob has been restarted, we need to make sure Carol has
+	// remarked the channel as active after that.
+	ht.AssertChannelExists(carol, chanPoint)
 
 	// Finally, send payments from Carol to Bob, consuming Bob's remaining
 	// payment hashes.
-	err = completePaymentRequests(
-		carol, carol.RouterClient, bobPayReqs[numInvoices/2:], true,
-	)
-	if err != nil {
-		t.Fatalf("unable to send payments: %v", err)
-	}
-
-	bobChan, err = getChanInfo(net.Bob)
-	if err != nil {
-		t.Fatalf("unable to get bob chan info: %v", err)
-	}
+	ht.CompletePaymentRequests(carol, bobPayReqs[numInvoices/2:])
 
 	// Now we shutdown Bob, copying over the his temporary database state
 	// which has the *prior* channel state over his current most up to date
 	// state. With this, we essentially force Bob to travel back in time
 	// within the channel's history.
-	if err = net.RestartNode(net.Bob, func() error {
-		return net.RestoreDb(net.Bob)
-	}); err != nil {
-		t.Fatalf("unable to restart node: %v", err)
-	}
+	ht.RestartNodeAndRestoreDB(bob)
 
 	// Now query for Bob's channel state, it should show that he's at a
 	// state number in the past, not the *latest* state.
-	bobChan, err = getChanInfo(net.Bob)
-	if err != nil {
-		t.Fatalf("unable to get bob chan info: %v", err)
-	}
-	if bobChan.NumUpdates != bobStateNumPreCopy {
-		t.Fatalf("db copy failed: %v", bobChan.NumUpdates)
-	}
+	ht.AssertChannelCommitHeight(bob, chanPoint, int(bobStateNumPreCopy))
 
 	// Now force Bob to execute a *force* channel closure by unilaterally
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Carol's retribution.
-	force := true
-	closeUpdates, _, err := net.CloseChannel(
-		net.Bob, chanPoint, force,
-	)
-	require.NoError(t.t, err, "unable to close channel")
+	_, breachTXID := ht.CloseChannelAssertPending(bob, chanPoint, true)
 
-	// Wait for Bob's breach transaction to show up in the mempool to ensure
-	// that Carol's node has started waiting for confirmations.
-	_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("unable to find Bob's breach tx in mempool: %v", err)
-	}
-
-	// Here, Carol sees Bob's breach transaction in the mempool, but is waiting
-	// for it to confirm before continuing her retribution. We restart Carol to
-	// ensure that she is persisting her retribution state and continues
-	// watching for the breach transaction to confirm even after her node
-	// restarts.
-	if err := net.RestartNode(carol, nil); err != nil {
-		t.Fatalf("unable to restart Carol's node: %v", err)
-	}
+	// Here, Carol sees Bob's breach transaction in the mempool, but is
+	// waiting for it to confirm before continuing her retribution. We
+	// restart Carol to ensure that she is persisting her retribution state
+	// and continues watching for the breach transaction to confirm even
+	// after her node restarts.
+	ht.RestartNode(carol)
 
 	// Finally, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
 	// block.
-	block := mineBlocks(t, net, 1, 1)[0]
-
-	breachTXID, err := net.WaitForChannelClose(closeUpdates)
-	if err != nil {
-		t.Fatalf("error while waiting for channel close: %v", err)
-	}
-	assertTxInBlock(t, block, breachTXID)
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	ht.Miner.AssertTxInBlock(block, breachTXID)
 
 	// Query the mempool for Carol's justice transaction, this should be
 	// broadcast as Bob's contract breaching transaction gets confirmed
 	// above.
-	justiceTXID, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("unable to find Carol's justice tx in mempool: %v", err)
-	}
-	time.Sleep(100 * time.Millisecond)
+	justiceTXID := ht.Miner.AssertNumTxsInMempool(1)[0]
 
 	// Query for the mempool transaction found above. Then assert that all
 	// the inputs of this transaction are spending outputs generated by
 	// Bob's breach transaction above.
-	justiceTx, err := net.Miner.Client.GetRawTransaction(justiceTXID)
-	if err != nil {
-		t.Fatalf("unable to query for justice tx: %v", err)
-	}
+	justiceTx := ht.Miner.GetRawTransaction(justiceTXID)
 	for _, txIn := range justiceTx.MsgTx().TxIn {
-		if !bytes.Equal(txIn.PreviousOutPoint.Hash[:], breachTXID[:]) {
-			t.Fatalf("justice tx not spending commitment utxo "+
-				"instead is: %v", txIn.PreviousOutPoint)
-		}
+		require.Equal(ht, breachTXID[:], txIn.PreviousOutPoint.Hash[:],
+			"justice tx not spending commitment utxo")
 	}
 
-	// We restart Carol here to ensure that she persists her retribution state
-	// and successfully continues exacting retribution after restarting. At
-	// this point, Carol has broadcast the justice transaction, but it hasn't
-	// been confirmed yet; when Carol restarts, she should start waiting for
-	// the justice transaction to confirm again.
-	if err := net.RestartNode(carol, nil); err != nil {
-		t.Fatalf("unable to restart Carol's node: %v", err)
-	}
+	// We restart Carol here to ensure that she persists her retribution
+	// state and successfully continues exacting retribution after
+	// restarting. At this point, Carol has broadcast the justice
+	// transaction, but it hasn't been confirmed yet; when Carol restarts,
+	// she should start waiting for the justice transaction to confirm
+	// again.
+	ht.RestartNode(carol)
 
 	// Now mine a block, this transaction should include Carol's justice
 	// transaction which was just accepted into the mempool.
-	block = mineBlocks(t, net, 1, 1)[0]
+	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 
 	// The block should have exactly *two* transactions, one of which is
 	// the justice transaction.
-	if len(block.Transactions) != 2 {
-		t.Fatalf("transaction wasn't mined")
-	}
-	justiceSha := block.Transactions[1].TxHash()
-	if !bytes.Equal(justiceTx.Hash()[:], justiceSha[:]) {
-		t.Fatalf("justice tx wasn't mined")
-	}
+	require.Len(ht, block.Transactions, 2, "transaction wasn't mined")
 
-	assertNodeNumChannels(t, carol, 0)
+	justiceSha := block.Transactions[1].TxHash()
+	require.Equal(ht, justiceTx.Hash()[:], justiceSha[:],
+		"justice tx wasn't mined")
+
+	ht.AssertNodeNumChannels(carol, 0)
 
 	// Mine enough blocks for Bob's channel arbitrator to wrap up the
 	// references to the breached channel. The chanarb waits for commitment
 	// tx's confHeight+CSV-1 blocks and since we've already mined one that
 	// included the justice tx we only need to mine extra DefaultCSV-2
 	// blocks to unlock it.
-	mineBlocks(t, net, lntest.DefaultCSV-2, 0)
+	ht.MineBlocks(lntest.DefaultCSV - 2)
 
-	assertNumPendingChannels(t, net.Bob, 0, 0)
+	ht.AssertNumPendingForceClose(bob, 0)
 }
 
 // testRevokedCloseRetributionZeroValueRemoteOutput tests that Dave is able

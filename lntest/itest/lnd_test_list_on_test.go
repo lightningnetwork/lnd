@@ -73,12 +73,6 @@ var allTestCases = []*testCase{
 		test: testSwitchOfflineDeliveryOutgoingOffline,
 	},
 	{
-		// TODO(roasbeef): test always needs to be last as Bob's state
-		// is borked since we trick him into attempting to cheat Alice?
-		name: "revoked uncooperative close retribution",
-		test: testRevokedCloseRetribution,
-	},
-	{
 		name: "revoked uncooperative close retribution zero value remote output",
 		test: testRevokedCloseRetributionZeroValueRemoteOutput,
 	},

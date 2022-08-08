@@ -2014,3 +2014,31 @@ func (h *HarnessTest) AssertChannelCommitHeight(hn *node.HarnessNode,
 
 	require.NoError(h, err, "timeout while waiting for commit height")
 }
+
+// AssertNumInvoices asserts that the number of invoices made within the test
+// scope is as expected.
+func (h *HarnessTest) AssertNumInvoices(hn *node.HarnessNode,
+	num int) []*lnrpc.Invoice {
+
+	have := hn.State.Invoice.Total
+	req := &lnrpc.ListInvoiceRequest{
+		NumMaxInvoices: math.MaxUint64,
+		IndexOffset:    hn.State.Invoice.LastIndexOffset,
+	}
+
+	var invoices []*lnrpc.Invoice
+	err := wait.NoError(func() error {
+		resp := hn.RPC.ListInvoices(req)
+
+		invoices = resp.Invoices
+		if len(invoices) == num {
+			return nil
+		}
+
+		return errNumNotMatched(hn.Name(), "num of invoices",
+			num, len(invoices), have+len(invoices), have)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking num of invoices")
+
+	return invoices
+}

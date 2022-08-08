@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 )
 
@@ -91,4 +92,17 @@ func (h *HarnessRPC) ResetMissionControl() {
 	req := &routerrpc.ResetMissionControlRequest{}
 	_, err := h.Router.ResetMissionControl(ctxt, req)
 	h.NoError(err, "ResetMissionControl")
+}
+
+// SendToRouteV2 makes a RPC call to SendToRouteV2 and asserts.
+func (h *HarnessRPC) SendToRouteV2(
+	req *routerrpc.SendToRouteRequest) *lnrpc.HTLCAttempt {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Router.SendToRouteV2(ctxt, req)
+	h.NoError(err, "SendToRouteV2")
+
+	return resp
 }

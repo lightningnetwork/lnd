@@ -305,7 +305,12 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		TestFunc: testRevokedCloseRetributionRemoteHodl,
 	},
 	{
-		Name:     "revoked uncooperative close retribution altruist watchtower",
+		Name: "revoked uncooperative close retribution altruist " +
+			"watchtower",
 		TestFunc: testRevokedCloseRetributionAltruistWatchtower,
+	},
+	{
+		Name:     "single-hop send to route",
+		TestFunc: testSingleHopSendToRoute,
 	},
 }

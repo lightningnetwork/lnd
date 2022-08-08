@@ -496,6 +496,14 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			return nil, nil, err
 		}
 
+		// Before we continue any further, we'll ensure that the
+		// backend understands Taproot. If not, then all the default
+		// features can't be used.
+		if !backendSupportsTaproot(chainConn) {
+			return nil, nil, fmt.Errorf("node backend does not " +
+				"support taproot")
+		}
+
 		// The api we will use for our health check depends on the
 		// bitcoind version.
 		cmd, ver, err := getBitcoindHealthCheckCmd(chainConn)
@@ -673,6 +681,21 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		)
 		if err != nil {
 			return nil, nil, err
+		}
+
+		// Before we continue any further, we'll ensure that the
+		// backend understands Taproot. If not, then all the default
+		// features can't be used.
+		restConfCopy := *rpcConfig
+		restConfCopy.Endpoint = ""
+		restConfCopy.HTTPPostMode = true
+		chainConn, err := rpcclient.New(&restConfCopy, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !backendSupportsTaproot(chainConn) {
+			return nil, nil, fmt.Errorf("node backend does not " +
+				"support taproot")
 		}
 
 		cc.ChainSource = chainRPC

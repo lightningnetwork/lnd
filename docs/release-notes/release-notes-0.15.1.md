@@ -115,6 +115,9 @@
 * [Re-initialise registered middleware index lookup map after removal of a 
   registered middleware](https://github.com/lightningnetwork/lnd/pull/6739)
 
+* [Bitcoind cookie file path can be specified with zmq
+  options](https://github.com/lightningnetwork/lnd/pull/6736)
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes
@@ -135,6 +138,7 @@
 
 # Contributors (Alphabetical Order)
 
+* bitromortac
 * Carsten Otto
 * Elle Mouton
 * ErikEk

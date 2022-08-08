@@ -329,4 +329,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "invoice routing hints",
 		TestFunc: testInvoiceRoutingHints,
 	},
+	{
+		Name:     "multi-hop payments over private channels",
+		TestFunc: testMultiHopOverPrivateChannels,
+	},
 }

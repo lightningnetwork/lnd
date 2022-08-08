@@ -88,6 +88,10 @@
 
 ## Bug Fixes
 
+* [LND no longer creates non-standard transactions when calling SendCoins with the
+  all flag. This would manifest with p2wsh/p2pkh output scripts at
+  1sat/vbyte.](https://github.com/lightningnetwork/lnd/pull/6740)
+
 * Fixed data race found in
   [`TestSerializeHTLCEntries`](https://github.com/lightningnetwork/lnd/pull/6673).
 

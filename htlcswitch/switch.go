@@ -1202,10 +1202,29 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 					}))
 			}
 
-			log.Tracef("incoming HTLC(%x) violated "+
-				"target outgoing link (id=%v) policy: %v",
-				htlc.PaymentHash[:], packet.outgoingChanID,
-				linkErr)
+			// while we send back the error sourced at the target link,
+			// it is most useful to log the error sourced from the most
+			// proximate link to the failure. In the case of insufficient
+			// bandwidth, this would be the channel with the most bandwidth.
+			if linkErr.FailureDetail == OutgoingFailureInsufficientBalance {
+				maxBandwidth := interfaceLinks[0].Bandwidth()
+				linkWithMaxBandwidth := &(interfaceLinks[0])
+				for _, link := range interfaceLinks {
+					currBandwidth := link.Bandwidth()
+					if currBandwidth > maxBandwidth {
+						maxBandwidth = currBandwidth
+						linkWithMaxBandwidth = &link
+					}
+				}
+				var logPrefix = fmt.Sprintf("ChannelLink(%v)", (*linkWithMaxBandwidth).ChannelPoint())
+				log.Warnf("%v: insufficient bandwidth to route htlc: %v is "+
+					"larger than %v (largest channel bandwidth)", logPrefix, packet.amount, maxBandwidth)
+			} else {
+				log.Tracef("incoming HTLC(%x) violated "+
+					"target outgoing link (id=%v) policy: %v",
+					htlc.PaymentHash[:], packet.outgoingChanID,
+					linkErr)
+			}
 
 			return s.failAddPacket(packet, linkErr)
 		}

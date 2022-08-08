@@ -147,10 +147,6 @@ var allTestCases = []*testCase{
 		test: testSendMultiPathPayment,
 	},
 	{
-		name: "REST API",
-		test: testRestAPI,
-	},
-	{
 		name: "forward interceptor",
 		test: testForwardInterceptorBasic,
 	},

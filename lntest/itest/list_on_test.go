@@ -287,4 +287,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "resolution handoff",
 		TestFunc: testResHandoff,
 	},
+	{
+		Name:     "REST API",
+		TestFunc: testRestAPI,
+	},
 }

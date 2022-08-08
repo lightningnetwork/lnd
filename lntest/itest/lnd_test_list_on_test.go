@@ -187,10 +187,6 @@ var allTestCases = []*testCase{
 		test: testTaproot,
 	},
 	{
-		name: "resolution handoff",
-		test: testResHandoff,
-	},
-	{
 		name: "zero conf channel open",
 		test: testZeroConfChannelOpen,
 	},

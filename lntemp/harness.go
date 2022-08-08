@@ -480,7 +480,12 @@ func (h *HarnessTest) SuspendNode(node *node.HarnessNode) func() error {
 	return func() error {
 		h.manager.registerNode(node)
 
-		return node.Start(h.runCtx)
+		if err := node.Start(h.runCtx); err != nil {
+			return err
+		}
+		h.WaitForBlockchainSync(node)
+
+		return nil
 	}
 }
 

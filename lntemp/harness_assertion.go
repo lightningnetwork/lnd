@@ -1992,3 +1992,25 @@ func (h *HarnessTest) WaitForNodeBlockHeight(hn *node.HarnessNode,
 	require.NoErrorf(h, err, "%s: timeout while waiting for height",
 		hn.Name())
 }
+
+// AssertChannelCommitHeight asserts the given channel for the node has the
+// expected commit height(`NumUpdates`).
+func (h *HarnessTest) AssertChannelCommitHeight(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint, height int) {
+
+	err := wait.NoError(func() error {
+		c, err := h.findChannel(hn, cp)
+		if err != nil {
+			return err
+		}
+
+		if int(c.NumUpdates) == height {
+			return nil
+		}
+
+		return fmt.Errorf("expected commit height to be %v, was %v",
+			height, c.NumUpdates)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout while waiting for commit height")
+}

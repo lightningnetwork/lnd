@@ -7,7 +7,7 @@ package peersrpc;
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/peersrpc";
 
 // Peers is a service that can be used to get information and interact
-// with the other nodes of the newtwork.
+// with the other nodes of the network.
 service Peers {
     /* lncli: peers updatenodeannouncement
     UpdateNodeAnnouncement allows the caller to update the node parameters

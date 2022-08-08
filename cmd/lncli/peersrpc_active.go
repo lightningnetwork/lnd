@@ -19,7 +19,7 @@ func peersCommands() []cli.Command {
 			Name:     "peers",
 			Category: "Peers",
 			Usage: "Interacts with the other nodes of the " +
-				"newtwork",
+				"network",
 			Subcommands: []cli.Command{
 				updateNodeAnnouncementCommand,
 			},

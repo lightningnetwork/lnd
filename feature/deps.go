@@ -72,9 +72,6 @@ var deps = depDesc{
 	lnwire.KeysendOptional: {
 		lnwire.TLVOnionPayloadOptional: {},
 	},
-	lnwire.ScidAliasOptional: {
-		lnwire.ExplicitChannelTypeOptional: {},
-	},
 	lnwire.ZeroConfOptional: {
 		lnwire.ScidAliasOptional: {},
 	},

@@ -16,6 +16,10 @@
 * [Adds a `ZeroConfAcceptor` that rejects any zero-conf channel opens unless an RPC `ChannelAcceptor` is
   active. This is a safety measure to avoid funds loss.](https://github.com/lightningnetwork/lnd/pull/6716)
 
+### Interoperability 
+* [LND now waits until the peer's `funding_locked` is received before sending the initial
+  `channel_update`. The BOLT specification requires this.](https://github.com/lightningnetwork/lnd/pull/6664)
+
 ## Build system
 
 * [Add the release build directory to the `.gitignore` file to avoid the release

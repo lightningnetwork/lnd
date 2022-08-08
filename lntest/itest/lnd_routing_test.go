@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -410,24 +409,15 @@ func runMultiHopSendToRoute(ht *lntemp.HarnessTest, useGraphCache bool) {
 
 // testSendToRouteErrorPropagation tests propagation of errors that occur
 // while processing a multi-hop payment through an unknown route.
-func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testSendToRouteErrorPropagation(ht *lntemp.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
-	chanPointAlice := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	alice, bob := ht.Alice, ht.Bob
+	chanPointAlice := ht.OpenChannel(
+		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
 	)
-
-	err := net.Alice.WaitForNetworkChannelOpen(chanPointAlice)
-	if err != nil {
-		t.Fatalf("alice didn't advertise her channel: %v", err)
-	}
 
 	// Create a new nodes (Carol and Charlie), load her with some funds,
 	// then establish a connection between Carol and Charlie with a channel
@@ -435,29 +425,16 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 	// get route via queryroutes call which will be fake route for Alice ->
 	// Bob graph.
 	//
-	// The network topology should now look like: Alice -> Bob; Carol -> Charlie.
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	// The network topology should now look like:
+	// Alice -> Bob; Carol -> Charlie.
+	carol := ht.NewNode("Carol", nil)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+	charlie := ht.NewNode("Charlie", nil)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, charlie)
 
-	charlie := net.NewNode(t.t, "Charlie", nil)
-	defer shutdownAndAssert(net, t, charlie)
-
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, charlie)
-
-	net.ConnectNodes(t.t, carol, charlie)
-
-	chanPointCarol := openChannelAndAssert(
-		t, net, carol, charlie,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
-	)
-	err = carol.WaitForNetworkChannelOpen(chanPointCarol)
-	if err != nil {
-		t.Fatalf("carol didn't advertise her channel: %v", err)
-	}
+	ht.ConnectNodes(carol, charlie)
+	ht.OpenChannel(carol, charlie, lntemp.OpenChannelParams{Amt: chanAmt})
 
 	// Query routes from Carol to Charlie which will be an invalid route
 	// for Alice -> Bob.
@@ -465,54 +442,37 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 		PubKey: charlie.PubKeyStr,
 		Amt:    int64(1),
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	fakeRoute, err := carol.QueryRoutes(ctxt, fakeReq)
-	if err != nil {
-		t.Fatalf("unable get fake route: %v", err)
-	}
+	fakeRoute := carol.RPC.QueryRoutes(fakeReq)
 
-	// Create 1 invoices for Bob, which expect a payment from Alice for 1k
-	// satoshis
+	// Create 1 invoice for Bob, which expect a payment from Alice for 1k
+	// satoshis.
 	const paymentAmt = 1000
 
 	invoice := &lnrpc.Invoice{
 		Memo:  "testing",
 		Value: paymentAmt,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := net.Bob.AddInvoice(ctxt, invoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
-
+	resp := bob.RPC.AddInvoice(invoice)
 	rHash := resp.RHash
 
-	// Using Alice as the source, pay to the 5 invoices from Bob created above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	alicePayStream, err := net.Alice.SendToRoute(ctxt) // nolint:staticcheck
-	if err != nil {
-		t.Fatalf("unable to create payment stream for alice: %v", err)
-	}
+	// Using Alice as the source, pay to the invoice from Bob.
+	alicePayStream := alice.RPC.SendToRoute()
 
 	sendReq := &lnrpc.SendToRouteRequest{
 		PaymentHash: rHash,
 		Route:       fakeRoute.Routes[0],
 	}
-
-	if err := alicePayStream.Send(sendReq); err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
+	err := alicePayStream.Send(sendReq)
+	require.NoError(ht, err, "unable to send payment")
 
 	// At this place we should get an rpc error with notification
 	// that edge is not found on hop(0)
-	_, err = alicePayStream.Recv()
-	if err != nil && strings.Contains(err.Error(), "edge not found") {
-	} else if err != nil {
-		t.Fatalf("payment stream has been closed but fake route has consumed: %v", err)
-	}
+	event, err := ht.ReceiveSendToRouteUpdate(alicePayStream)
+	require.NoError(ht, err, "payment stream has been closed but fake "+
+		"route has consumed")
+	require.Contains(ht, event.PaymentError, "UnknownNextPeer")
 
-	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
-	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
+	ht.CloseChannel(alice, chanPointAlice)
 }
 
 // testPrivateChannels tests that a private channel can be used for

@@ -317,4 +317,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "multi-hop send to route",
 		TestFunc: testMultiHopSendToRoute,
 	},
+	{
+		Name:     "send to route error propagation",
+		TestFunc: testSendToRouteErrorPropagation,
+	},
 }

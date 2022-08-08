@@ -481,8 +481,10 @@ func (h *HarnessRPC) QueryRoutes(
 	return routes
 }
 
+type SendToRouteClient lnrpc.Lightning_SendToRouteClient
+
 // SendToRoute makes a RPC call to SendToRoute and asserts.
-func (h *HarnessRPC) SendToRoute() lnrpc.Lightning_SendToRouteClient {
+func (h *HarnessRPC) SendToRoute() SendToRouteClient {
 	// SendToRoute needs to have the context alive for the entire test case
 	// as the returned client will be used for send and receive payment
 	// stream. Thus we use runCtx here instead of a timeout context.

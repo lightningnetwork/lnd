@@ -5,6 +5,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/stretchr/testify/require"
 )
 
 // =====================
@@ -105,4 +106,45 @@ func (h *HarnessRPC) SendToRouteV2(
 	h.NoError(err, "SendToRouteV2")
 
 	return resp
+}
+
+// QueryProbability makes a RPC call to the node's QueryProbability and
+// asserts.
+//
+//nolint:lll
+func (h *HarnessRPC) QueryProbability(
+	req *routerrpc.QueryProbabilityRequest) *routerrpc.QueryProbabilityResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Router.QueryProbability(ctxt, req)
+	h.NoError(err, "QueryProbability")
+
+	return resp
+}
+
+// XImportMissionControl makes a RPC call to the node's XImportMissionControl
+// and asserts.
+func (h *HarnessRPC) XImportMissionControl(
+	req *routerrpc.XImportMissionControlRequest) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.Router.XImportMissionControl(ctxt, req)
+	h.NoError(err, "XImportMissionControl")
+}
+
+// XImportMissionControlAssertErr makes a RPC call to the node's
+// XImportMissionControl
+// and asserts an error occurred.
+func (h *HarnessRPC) XImportMissionControlAssertErr(
+	req *routerrpc.XImportMissionControlRequest) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.Router.XImportMissionControl(ctxt, req)
+	require.Error(h, err, "expect an error from x import mission control")
 }

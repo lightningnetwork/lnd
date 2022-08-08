@@ -1724,3 +1724,38 @@ func (h *HarnessTest) DisconnectMiner() {
 	err := h.manager.chainBackend.DisconnectMiner()
 	require.NoError(h, err, "failed to disconnect miner")
 }
+
+// QueryRoutesAndRetry attempts to keep querying a route until timeout is
+// reached.
+//
+// NOTE: when a channel is opened, we may need to query multiple times to get
+// it in our QueryRoutes RPC. This happens even after we check the channel is
+// heard by the node using ht.AssertChannelOpen. Deep down, this is because our
+// GraphTopologySubscription and QueryRoutes give different results regarding a
+// specific channel, with the formal reporting it being open while the latter
+// not, resulting GraphTopologySubscription acting "faster" than QueryRoutes.
+// TODO(yy): make sure related subsystems share the same view on a given
+// channel.
+func (h *HarnessTest) QueryRoutesAndRetry(hn *node.HarnessNode,
+	req *lnrpc.QueryRoutesRequest) *lnrpc.QueryRoutesResponse {
+
+	var routes *lnrpc.QueryRoutesResponse
+	err := wait.NoError(func() error {
+		ctxt, cancel := context.WithCancel(h.runCtx)
+		defer cancel()
+
+		resp, err := hn.RPC.LN.QueryRoutes(ctxt, req)
+		if err != nil {
+			return fmt.Errorf("%s: failed to query route: %w",
+				hn.Name(), err)
+		}
+
+		routes = resp
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout querying routes")
+
+	return routes
+}

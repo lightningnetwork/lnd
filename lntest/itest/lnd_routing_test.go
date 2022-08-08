@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -853,73 +854,41 @@ func testMultiHopOverPrivateChannels(ht *lntemp.HarnessTest) {
 //	Alice --> Bob --> Carol --> Dave
 //
 // and query the daemon for routes from Alice to Dave.
-func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testQueryRoutes(ht *lntemp.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
-	var networkChans []*lnrpc.ChannelPoint
 
-	// Open a channel between Alice and Bob.
-	chanPointAlice := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
-	)
-	networkChans = append(networkChans, chanPointAlice)
+	// Grab Alice and Bob from the standby nodes.
+	alice, bob := ht.Alice, ht.Bob
 
-	// Create Carol and establish a channel from Bob.
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	// Create Carol and connect her to Bob. We also send her some coins for
+	// channel opening.
+	carol := ht.NewNode("Carol", nil)
+	ht.ConnectNodes(carol, bob)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
-	net.ConnectNodes(t.t, carol, net.Bob)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, net.Bob)
+	// Create Dave and connect him to Carol.
+	dave := ht.NewNode("Dave", nil)
+	ht.ConnectNodes(dave, carol)
 
-	chanPointBob := openChannelAndAssert(
-		t, net, net.Bob, carol,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
-	)
-	networkChans = append(networkChans, chanPointBob)
-
-	// Create Dave and establish a channel from Carol.
-	dave := net.NewNode(t.t, "Dave", nil)
-	defer shutdownAndAssert(net, t, dave)
-
-	net.ConnectNodes(t.t, dave, carol)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
-
-	chanPointCarol := openChannelAndAssert(
-		t, net, carol, dave,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
-	)
-	networkChans = append(networkChans, chanPointCarol)
-
-	// Wait for all nodes to have seen all channels.
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave}
-	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
-	for _, chanPoint := range networkChans {
-		for i, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-			if err != nil {
-				t.Fatalf("unable to get txid: %v", err)
-			}
-			point := wire.OutPoint{
-				Hash:  *txid,
-				Index: chanPoint.OutputIndex,
-			}
-
-			err = node.WaitForNetworkChannelOpen(chanPoint)
-			if err != nil {
-				t.Fatalf("%s(%d): timeout waiting for "+
-					"channel(%s) open: %v", nodeNames[i],
-					node.NodeID, point, err)
-			}
-		}
+	// We now proceed to open channels:
+	//   Alice=>Bob, Bob=>Carol and Carol=>Dave.
+	p := lntemp.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntemp.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: p},
+		{Local: bob, Remote: carol, Param: p},
+		{Local: carol, Remote: dave, Param: p},
 	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+
+	// Extract channel points from the response.
+	chanPointAlice := resp[0]
+	chanPointBob := resp[1]
+	chanPointCarol := resp[2]
+
+	// Before we continue, give Alice some time to catch up with the newly
+	// opened channels.
+	ht.AssertTopologyChannelOpen(alice, chanPointBob)
+	ht.AssertTopologyChannelOpen(alice, chanPointCarol)
 
 	// Query for routes to pay from Alice to Dave.
 	const paymentAmt = 1000
@@ -927,11 +896,7 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 		PubKey: dave.PubKeyStr,
 		Amt:    paymentAmt,
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	routesRes, err := net.Alice.QueryRoutes(ctxt, routesReq)
-	if err != nil {
-		t.Fatalf("unable to get route: %v", err)
-	}
+	routesRes := ht.QueryRoutesAndRetry(alice, routesReq)
 
 	const mSat = 1000
 	feePerHopMSat := computeFee(1000, 1, paymentAmt*mSat)
@@ -942,22 +907,22 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 		expectedTotalAmtMSat := (paymentAmt * mSat) + expectedTotalFeesMSat
 
 		if route.TotalFees != route.TotalFeesMsat/mSat { // nolint:staticcheck
-			t.Fatalf("route %v: total fees %v (msat) does not "+
+			ht.Fatalf("route %v: total fees %v (msat) does not "+
 				"round down to %v (sat)",
 				i, route.TotalFeesMsat, route.TotalFees) // nolint:staticcheck
 		}
 		if route.TotalFeesMsat != int64(expectedTotalFeesMSat) {
-			t.Fatalf("route %v: total fees in msat expected %v got %v",
+			ht.Fatalf("route %v: total fees in msat expected %v got %v",
 				i, expectedTotalFeesMSat, route.TotalFeesMsat)
 		}
 
 		if route.TotalAmt != route.TotalAmtMsat/mSat { // nolint:staticcheck
-			t.Fatalf("route %v: total amt %v (msat) does not "+
+			ht.Fatalf("route %v: total amt %v (msat) does not "+
 				"round down to %v (sat)",
 				i, route.TotalAmtMsat, route.TotalAmt) // nolint:staticcheck
 		}
 		if route.TotalAmtMsat != int64(expectedTotalAmtMSat) {
-			t.Fatalf("route %v: total amt in msat expected %v got %v",
+			ht.Fatalf("route %v: total amt in msat expected %v got %v",
 				i, expectedTotalAmtMSat, route.TotalAmtMsat)
 		}
 
@@ -968,22 +933,22 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 			expectedAmtToForwardMSat -= feePerHopMSat
 
 			if hop.Fee != hop.FeeMsat/mSat { // nolint:staticcheck
-				t.Fatalf("route %v hop %v: fee %v (msat) does not "+
+				ht.Fatalf("route %v hop %v: fee %v (msat) does not "+
 					"round down to %v (sat)",
 					i, j, hop.FeeMsat, hop.Fee) // nolint:staticcheck
 			}
 			if hop.FeeMsat != int64(feePerHopMSat) {
-				t.Fatalf("route %v hop %v: fee in msat expected %v got %v",
+				ht.Fatalf("route %v hop %v: fee in msat expected %v got %v",
 					i, j, feePerHopMSat, hop.FeeMsat)
 			}
 
 			if hop.AmtToForward != hop.AmtToForwardMsat/mSat { // nolint:staticcheck
-				t.Fatalf("route %v hop %v: amt to forward %v (msat) does not "+
+				ht.Fatalf("route %v hop %v: amt to forward %v (msat) does not "+
 					"round down to %v (sat)",
 					i, j, hop.AmtToForwardMsat, hop.AmtToForward) // nolint:staticcheck
 			}
 			if hop.AmtToForwardMsat != int64(expectedAmtToForwardMSat) {
-				t.Fatalf("route %v hop %v: amt to forward in msat "+
+				ht.Fatalf("route %v hop %v: amt to forward in msat "+
 					"expected %v got %v",
 					i, j, expectedAmtToForwardMSat, hop.AmtToForwardMsat)
 			}
@@ -993,17 +958,17 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 		hop := route.Hops[len(route.Hops)-1]
 
 		if hop.Fee != 0 || hop.FeeMsat != 0 { // nolint:staticcheck
-			t.Fatalf("route %v hop %v: fee expected 0 got %v (sat) %v (msat)",
+			ht.Fatalf("route %v hop %v: fee expected 0 got %v (sat) %v (msat)",
 				i, len(route.Hops)-1, hop.Fee, hop.FeeMsat) // nolint:staticcheck
 		}
 
 		if hop.AmtToForward != hop.AmtToForwardMsat/mSat { // nolint:staticcheck
-			t.Fatalf("route %v hop %v: amt to forward %v (msat) does not "+
+			ht.Fatalf("route %v hop %v: amt to forward %v (msat) does not "+
 				"round down to %v (sat)",
 				i, len(route.Hops)-1, hop.AmtToForwardMsat, hop.AmtToForward) // nolint:staticcheck
 		}
 		if hop.AmtToForwardMsat != paymentAmt*mSat {
-			t.Fatalf("route %v hop %v: amt to forward in msat "+
+			ht.Fatalf("route %v hop %v: amt to forward in msat "+
 				"expected %v got %v",
 				i, len(route.Hops)-1, paymentAmt*mSat, hop.AmtToForwardMsat)
 		}
@@ -1012,27 +977,23 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 	// While we're here, we test updating mission control's config values
 	// and assert that they are correctly updated and check that our mission
 	// control import function updates appropriately.
-	testMissionControlCfg(t.t, net.Alice)
-	testMissionControlImport(
-		t.t, net.Alice, net.Bob.PubKey[:], carol.PubKey[:],
-	)
+	testMissionControlCfg(ht.T, alice)
+	testMissionControlImport(ht, alice, bob.PubKey[:], carol.PubKey[:])
 
 	// We clean up the test case by closing channels that were created for
 	// the duration of the tests.
-	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
-	closeChannelAndAssert(t, net, net.Bob, chanPointBob, false)
-	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
+	ht.CloseChannel(alice, chanPointAlice)
+	ht.CloseChannel(bob, chanPointBob)
+	ht.CloseChannel(carol, chanPointCarol)
 }
 
 // testMissionControlCfg tests getting and setting of a node's mission control
 // config, resetting to the original values after testing so that no other
 // tests are affected.
-func testMissionControlCfg(t *testing.T, node *lntest.HarnessNode) {
-	ctxb := context.Background()
-	startCfg, err := node.RouterClient.GetMissionControlConfig(
-		ctxb, &routerrpc.GetMissionControlConfigRequest{},
-	)
-	require.NoError(t, err)
+func testMissionControlCfg(t *testing.T, hn *node.HarnessNode) {
+	t.Helper()
+
+	startCfg := hn.RPC.GetMissionControlConfig()
 
 	cfg := &routerrpc.MissionControlConfig{
 		HalfLifeSeconds:             8000,
@@ -1042,40 +1003,25 @@ func testMissionControlCfg(t *testing.T, node *lntest.HarnessNode) {
 		MinimumFailureRelaxInterval: 60,
 	}
 
-	_, err = node.RouterClient.SetMissionControlConfig(
-		ctxb, &routerrpc.SetMissionControlConfigRequest{
-			Config: cfg,
-		},
-	)
-	require.NoError(t, err)
+	hn.RPC.SetMissionControlConfig(cfg)
 
-	resp, err := node.RouterClient.GetMissionControlConfig(
-		ctxb, &routerrpc.GetMissionControlConfigRequest{},
-	)
-	require.NoError(t, err)
+	resp := hn.RPC.GetMissionControlConfig()
 	require.True(t, proto.Equal(cfg, resp.Config))
 
-	_, err = node.RouterClient.SetMissionControlConfig(
-		ctxb, &routerrpc.SetMissionControlConfigRequest{
-			Config: startCfg.Config,
-		},
-	)
-	require.NoError(t, err)
+	hn.RPC.SetMissionControlConfig(startCfg.Config)
+
+	resp = hn.RPC.GetMissionControlConfig()
+	require.True(t, proto.Equal(startCfg.Config, resp.Config))
 }
 
 // testMissionControlImport tests import of mission control results from an
 // external source.
-func testMissionControlImport(t *testing.T, node *lntest.HarnessNode,
+func testMissionControlImport(ht *lntemp.HarnessTest, hn *node.HarnessNode,
 	fromNode, toNode []byte) {
-
-	ctxb := context.Background()
 
 	// Reset mission control so that our query will return the default
 	// probability for our first request.
-	_, err := node.RouterClient.ResetMissionControl(
-		ctxb, &routerrpc.ResetMissionControlRequest{},
-	)
-	require.NoError(t, err, "could not reset mission control")
+	hn.RPC.ResetMissionControl()
 
 	// Get our baseline probability for a 10 msat hop between our target
 	// nodes.
@@ -1093,10 +1039,9 @@ func testMissionControlImport(t *testing.T, node *lntest.HarnessNode,
 
 	// Assert that our history is not already equal to the value we want to
 	// set. This should not happen because we have just cleared our state.
-	resp1, err := node.RouterClient.QueryProbability(ctxb, probReq)
-	require.NoError(t, err, "query probability failed")
-	require.Zero(t, resp1.History.FailTime)
-	require.Zero(t, resp1.History.FailAmtMsat)
+	resp1 := hn.RPC.QueryProbability(probReq)
+	require.Zero(ht, resp1.History.FailTime)
+	require.Zero(ht, resp1.History.FailAmtMsat)
 
 	// Now, we import a single entry which tracks a failure of the amount
 	// we want to query between our nodes.
@@ -1109,20 +1054,16 @@ func testMissionControlImport(t *testing.T, node *lntest.HarnessNode,
 			},
 		},
 	}
+	hn.RPC.XImportMissionControl(req)
 
-	_, err = node.RouterClient.XImportMissionControl(ctxb, req)
-	require.NoError(t, err, "could not import config")
-
-	resp2, err := node.RouterClient.QueryProbability(ctxb, probReq)
-	require.NoError(t, err, "query probability failed")
-	require.Equal(t, importHistory.FailTime, resp2.History.FailTime)
-	require.Equal(t, importHistory.FailAmtMsat, resp2.History.FailAmtMsat)
+	resp2 := hn.RPC.QueryProbability(probReq)
+	require.Equal(ht, importHistory.FailTime, resp2.History.FailTime)
+	require.Equal(ht, importHistory.FailAmtMsat, resp2.History.FailAmtMsat)
 
 	// Finally, check that we will fail if inconsistent sat/msat values are
 	// set.
 	importHistory.FailAmtSat = amount * 2
-	_, err = node.RouterClient.XImportMissionControl(ctxb, req)
-	require.Error(t, err, "mismatched import amounts succeeded")
+	hn.RPC.XImportMissionControlAssertErr(req)
 }
 
 // testRouteFeeCutoff tests that we are able to prevent querying routes and

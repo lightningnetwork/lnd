@@ -49,10 +49,6 @@ var allTestCases = []*testCase{
 		test: testSwitchOfflineDeliveryOutgoingOffline,
 	},
 	{
-		name: "query routes",
-		test: testQueryRoutes,
-	},
-	{
 		name: "route fee cutoff",
 		test: testRouteFeeCutoff,
 	},

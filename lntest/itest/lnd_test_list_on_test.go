@@ -73,10 +73,6 @@ var allTestCases = []*testCase{
 		test: testSwitchOfflineDeliveryOutgoingOffline,
 	},
 	{
-		name: "revoked uncooperative close retribution remote hodl",
-		test: testRevokedCloseRetributionRemoteHodl,
-	},
-	{
 		name: "revoked uncooperative close retribution altruist watchtower",
 		test: testRevokedCloseRetributionAltruistWatchtower,
 	},

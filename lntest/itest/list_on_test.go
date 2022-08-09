@@ -369,4 +369,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "wipe forwarding packages",
 		TestFunc: testWipeForwardingPackages,
 	},
+	{
+		Name:     "switch circuit persistence",
+		TestFunc: testSwitchCircuitPersistence,
+	},
 }

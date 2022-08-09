@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -1145,36 +1144,59 @@ func (h *HarnessTest) FundCoinsP2TR(amt btcutil.Amount,
 	h.fundCoins(amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true)
 }
 
-// CompletePaymentRequests sends payments from a node to complete all payment
-// requests. This function does not return until all payments successfully
-// complete without errors.
-func (h *HarnessTest) CompletePaymentRequests(hn *node.HarnessNode,
-	paymentRequests []string) {
+// completePaymentRequestsAssertStatus sends payments from a node to complete
+// all payment requests. This function does not return until all payments
+// have reached the specified status.
+func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
+	paymentRequests []string, status lnrpc.Payment_PaymentStatus) {
 
-	var wg sync.WaitGroup
+	// Create a buffered chan to signal the results.
+	results := make(chan struct{}, len(paymentRequests))
 
 	// send sends a payment and asserts if it doesn't succeeded.
 	send := func(payReq string) {
-		defer wg.Done()
-
 		req := &routerrpc.SendPaymentRequest{
 			PaymentRequest: payReq,
 			TimeoutSeconds: defaultPaymentTimeout,
 			FeeLimitMsat:   noFeeLimitMsat,
 		}
 		stream := hn.RPC.SendPayment(req)
-		h.AssertPaymentStatusFromStream(stream, lnrpc.Payment_SUCCEEDED)
+		h.AssertPaymentStatusFromStream(stream, status)
+
+		// Signal success.
+		results <- struct{}{}
 	}
 
 	// Launch all payments simultaneously.
 	for _, payReq := range paymentRequests {
 		payReqCopy := payReq
-		wg.Add(1)
 		go send(payReqCopy)
 	}
 
 	// Wait for all payments to report success.
-	wg.Wait()
+	timer := time.After(DefaultTimeout)
+	count := 0
+	select {
+	case <-results:
+		count++
+		// Exit if the expected number of results are received.
+		if count == len(paymentRequests) {
+			return
+		}
+	case <-timer:
+		require.Fail(h, "timeout", "waiting payment results timeout")
+	}
+}
+
+// CompletePaymentRequests sends payments from a node to complete all payment
+// requests. This function does not return until all payments successfully
+// complete without errors.
+func (h *HarnessTest) CompletePaymentRequests(hn *node.HarnessNode,
+	paymentRequests []string) {
+
+	h.completePaymentRequestsAssertStatus(
+		hn, paymentRequests, lnrpc.Payment_SUCCEEDED,
+	)
 }
 
 // CompletePaymentRequestsNoWait sends payments from a node to complete all
@@ -1188,21 +1210,10 @@ func (h *HarnessTest) CompletePaymentRequestsNoWait(hn *node.HarnessNode,
 	// we return.
 	oldResp := h.GetChannelByChanPoint(hn, chanPoint)
 
-	// send sends a payment and asserts if it doesn't succeeded.
-	send := func(payReq string) {
-		req := &routerrpc.SendPaymentRequest{
-			PaymentRequest: payReq,
-			TimeoutSeconds: defaultPaymentTimeout,
-			FeeLimitMsat:   noFeeLimitMsat,
-		}
-		hn.RPC.SendPayment(req)
-	}
-
-	// Launch all payments simultaneously.
-	for _, payReq := range paymentRequests {
-		payReqCopy := payReq
-		go send(payReqCopy)
-	}
+	// Send payments and assert they are in-flight.
+	h.completePaymentRequestsAssertStatus(
+		hn, paymentRequests, lnrpc.Payment_IN_FLIGHT,
+	)
 
 	// We are not waiting for feedback in the form of a response, but we
 	// should still wait long enough for the server to receive and handle

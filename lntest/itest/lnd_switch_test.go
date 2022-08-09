@@ -2,14 +2,21 @@ package itest
 
 import (
 	"context"
-	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
+)
+
+const (
+	numPayments = 5
+	paymentAmt  = 1000
+	baseFee     = 1
 )
 
 // testSwitchCircuitPersistence creates a multihop network to ensure the sender
@@ -19,228 +26,51 @@ import (
 //
 // The general flow of this test:
 //  1. Carol --> Dave --> Alice --> Bob  forward payment
-//  2. X        X         X  Bob  restart sender and intermediaries
+//  2. -------X       X         X   Bob  restart sender and intermediaries
 //  3. Carol <-- Dave <-- Alice <-- Bob  expect settle to propagate
-func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	const chanAmt = btcutil.Amount(1000000)
-	const pushAmt = btcutil.Amount(900000)
-	var networkChans []*lnrpc.ChannelPoint
-
-	// Open a channel with 100k satoshis between Alice and Bob with Alice
-	// being the sole funder of the channel.
-	chanPointAlice := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
-			Amt:     chanAmt,
-			PushAmt: pushAmt,
-		},
-	)
-	networkChans = append(networkChans, chanPointAlice)
-
-	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
-	aliceFundPoint := wire.OutPoint{
-		Hash:  *aliceChanTXID,
-		Index: chanPointAlice.OutputIndex,
-	}
-
-	// As preliminary setup, we'll create two new nodes: Carol and Dave,
-	// such that we now have a 4 ndoe, 3 channel topology. Dave will make
-	// a channel with Alice, and Carol with Dave. After this setup, the
-	// network topology should now look like:
-	//     Carol -> Dave -> Alice -> Bob
-	//
-	// First, we'll create Dave and establish a channel to Alice.
-	dave := net.NewNode(t.t, "Dave", nil)
-	defer shutdownAndAssert(net, t, dave)
-
-	net.ConnectNodes(t.t, dave, net.Alice)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
-
-	chanPointDave := openChannelAndAssert(
-		t, net, dave, net.Alice,
-		lntest.OpenChannelParams{
-			Amt:     chanAmt,
-			PushAmt: pushAmt,
-		},
-	)
-	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointDave)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
-	daveFundPoint := wire.OutPoint{
-		Hash:  *daveChanTXID,
-		Index: chanPointDave.OutputIndex,
-	}
-
-	// Next, we'll create Carol and establish a channel to from her to
-	// Dave. Carol is started in htlchodl mode so that we can disconnect the
-	// intermediary hops before starting the settle.
-	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
-	defer shutdownAndAssert(net, t, carol)
-
-	net.ConnectNodes(t.t, carol, dave)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
-
-	chanPointCarol := openChannelAndAssert(
-		t, net, carol, dave,
-		lntest.OpenChannelParams{
-			Amt:     chanAmt,
-			PushAmt: pushAmt,
-		},
-	)
-	networkChans = append(networkChans, chanPointCarol)
-
-	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
-	carolFundPoint := wire.OutPoint{
-		Hash:  *carolChanTXID,
-		Index: chanPointCarol.OutputIndex,
-	}
-
-	// Wait for all nodes to have seen all channels.
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave}
-	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
-	for _, chanPoint := range networkChans {
-		for i, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-			if err != nil {
-				t.Fatalf("unable to get txid: %v", err)
-			}
-			point := wire.OutPoint{
-				Hash:  *txid,
-				Index: chanPoint.OutputIndex,
-			}
-
-			err = node.WaitForNetworkChannelOpen(chanPoint)
-			if err != nil {
-				t.Fatalf("%s(%d): timeout waiting for "+
-					"channel(%s) open: %v", nodeNames[i],
-					node.NodeID, point, err)
-			}
-		}
-	}
-
-	// Create 5 invoices for Carol, which expect a payment from Bob for 1k
-	// satoshis with a different preimage each time.
-	const numPayments = 5
-	const paymentAmt = 1000
-	payReqs, _, _, err := createPayReqs(
-		carol, paymentAmt, numPayments,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
-	}
-
-	// We'll wait for all parties to recognize the new channels within the
-	// network.
-	err = dave.WaitForNetworkChannelOpen(chanPointDave)
-	if err != nil {
-		t.Fatalf("dave didn't advertise his channel: %v", err)
-	}
-	err = carol.WaitForNetworkChannelOpen(chanPointCarol)
-	if err != nil {
-		t.Fatalf("carol didn't advertise her channel in time: %v",
-			err)
-	}
-
-	time.Sleep(time.Millisecond * 50)
-
-	// Using Carol as the source, pay to the 5 invoices from Bob created
-	// above.
-	err = completePaymentRequests(
-		net.Bob, net.Bob.RouterClient, payReqs, false,
-	)
-	if err != nil {
-		t.Fatalf("unable to send payments: %v", err)
-	}
-
-	// Wait until all nodes in the network have 5 outstanding htlcs.
-	var predErr error
-	err = wait.Predicate(func() bool {
-		predErr = assertNumActiveHtlcs(nodes, numPayments)
-		return predErr == nil
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("htlc mismatch: %v", predErr)
-	}
+//
+//nolint:dupword
+func testSwitchCircuitPersistence(ht *lntemp.HarnessTest) {
+	// Setup our test scenario. We should now have four nodes running with
+	// three channels.
+	s := setupScenarioFourNodes(ht)
+	defer s.cleanUp()
 
 	// Restart the intermediaries and the sender.
-	if err := net.RestartNode(dave, nil); err != nil {
-		t.Fatalf("Node restart failed: %v", err)
-	}
-
-	if err := net.RestartNode(net.Alice, nil); err != nil {
-		t.Fatalf("Node restart failed: %v", err)
-	}
-
-	if err := net.RestartNode(net.Bob, nil); err != nil {
-		t.Fatalf("Node restart failed: %v", err)
-	}
+	ht.RestartNode(s.dave)
+	ht.RestartNode(s.alice)
+	ht.RestartNode(s.bob)
 
 	// Ensure all of the intermediate links are reconnected.
-	net.EnsureConnected(t.t, net.Alice, dave)
-	net.EnsureConnected(t.t, net.Bob, net.Alice)
+	ht.EnsureConnected(s.alice, s.dave)
+	ht.EnsureConnected(s.bob, s.alice)
 
 	// Ensure all nodes in the network still have 5 outstanding htlcs.
-	err = wait.Predicate(func() bool {
-		predErr = assertNumActiveHtlcs(nodes, numPayments)
-		return predErr == nil
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("htlc mismatch: %v", predErr)
-	}
+	s.assertHTLCs(ht, numPayments)
 
 	// Now restart carol without hodl mode, to settle back the outstanding
 	// payments.
-	carol.SetExtraArgs(nil)
-	if err := net.RestartNode(carol, nil); err != nil {
-		t.Fatalf("Node restart failed: %v", err)
-	}
+	s.carol.SetExtraArgs(nil)
+	ht.RestartNode(s.carol)
 
-	net.EnsureConnected(t.t, dave, carol)
+	ht.EnsureConnected(s.dave, s.carol)
 
 	// After the payments settle, there should be no active htlcs on any of
 	// the nodes in the network.
-	err = wait.Predicate(func() bool {
-		predErr = assertNumActiveHtlcs(nodes, 0)
-		return predErr == nil
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("htlc mismatch: %v", predErr)
-	}
+	s.assertHTLCs(ht, 0)
 
 	// When asserting the amount of satoshis moved, we'll factor in the
 	// default base fee, as we didn't modify the fee structure when
 	// creating the seed nodes in the network.
-	const baseFee = 1
 
 	// At this point all the channels within our proto network should be
-	// shifted by 5k satoshis in the direction of Carol, the sink within the
-	// payment flow generated above. The order of asserts corresponds to
-	// increasing of time is needed to embed the HTLC in commitment
+	// shifted by 5k satoshis in the direction of Carol, the sink within
+	// the payment flow generated above. The order of asserts corresponds
+	// to increasing of time is needed to embed the HTLC in commitment
 	// transaction, in channel Bob->Alice->David->Carol, order is Carol,
 	// David, Alice, Bob.
 	var amountPaid = int64(5000)
-	assertAmountPaid(t, "Dave(local) => Carol(remote)", carol,
-		carolFundPoint, int64(0), amountPaid)
-	assertAmountPaid(t, "Dave(local) => Carol(remote)", dave,
-		carolFundPoint, amountPaid, int64(0))
-	assertAmountPaid(t, "Alice(local) => Dave(remote)", dave,
-		daveFundPoint, int64(0), amountPaid+(baseFee*numPayments))
-	assertAmountPaid(t, "Alice(local) => Dave(remote)", net.Alice,
-		daveFundPoint, amountPaid+(baseFee*numPayments), int64(0))
-	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Alice,
-		aliceFundPoint, int64(0), amountPaid+((baseFee*numPayments)*2))
-	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Bob,
-		aliceFundPoint, amountPaid+(baseFee*numPayments)*2, int64(0))
+	s.assertAmoutPaid(ht, amountPaid, numPayments)
 
 	// Lastly, we will send one more payment to ensure all channels are
 	// still functioning properly.
@@ -248,40 +78,15 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		Memo:  "testing",
 		Value: paymentAmt,
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := carol.AddInvoice(ctxt, finalInvoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
-
-	payReqs = []string{resp.PaymentRequest}
+	resp := s.carol.RPC.AddInvoice(finalInvoice)
+	payReqs := []string{resp.PaymentRequest}
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
-	err = completePaymentRequests(
-		net.Bob, net.Bob.RouterClient, payReqs, true,
-	)
-	if err != nil {
-		t.Fatalf("unable to send payments: %v", err)
-	}
+	ht.CompletePaymentRequests(s.bob, payReqs)
 
 	amountPaid = int64(6000)
-	assertAmountPaid(t, "Dave(local) => Carol(remote)", carol,
-		carolFundPoint, int64(0), amountPaid)
-	assertAmountPaid(t, "Dave(local) => Carol(remote)", dave,
-		carolFundPoint, amountPaid, int64(0))
-	assertAmountPaid(t, "Alice(local) => Dave(remote)", dave,
-		daveFundPoint, int64(0), amountPaid+(baseFee*(numPayments+1)))
-	assertAmountPaid(t, "Alice(local) => Dave(remote)", net.Alice,
-		daveFundPoint, amountPaid+(baseFee*(numPayments+1)), int64(0))
-	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Alice,
-		aliceFundPoint, int64(0), amountPaid+((baseFee*(numPayments+1))*2))
-	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Bob,
-		aliceFundPoint, amountPaid+(baseFee*(numPayments+1))*2, int64(0))
-
-	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
-	closeChannelAndAssert(t, net, dave, chanPointDave, false)
-	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
+	s.assertAmoutPaid(ht, amountPaid, numPayments+1)
 }
 
 // testSwitchOfflineDelivery constructs a set of multihop payments, and tests
@@ -1133,4 +938,165 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 
 	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
 	closeChannelAndAssert(t, net, dave, chanPointDave, false)
+}
+
+// scenarioFourNodes specifies a scenario which we have a topology that has
+// four nodes and three channels.
+type scenarioFourNodes struct {
+	alice *node.HarnessNode
+	bob   *node.HarnessNode
+	carol *node.HarnessNode
+	dave  *node.HarnessNode
+
+	chanPointAliceBob  *lnrpc.ChannelPoint
+	chanPointCarolDave *lnrpc.ChannelPoint
+	chanPointDaveAlice *lnrpc.ChannelPoint
+
+	cleanUp func()
+}
+
+// setupScenarioFourNodes creates a topology for switch tests. It will create
+// two new nodes: Carol and Dave, such that there will be a 4 nodes, 3 channel
+// topology. Dave will make a channel with Alice, and Carol with Dave. After
+// this setup, the network topology should now look like:
+//
+//	Carol -> Dave -> Alice -> Bob
+//
+// Once the network is created, Carol will generate 5 invoices and Bob will pay
+// them using the above path.
+//
+// NOTE: caller needs to call cleanUp to clean the nodes and channels created
+// from this setup.
+func setupScenarioFourNodes(ht *lntemp.HarnessTest) *scenarioFourNodes {
+	const (
+		chanAmt = btcutil.Amount(1000000)
+		pushAmt = btcutil.Amount(900000)
+	)
+
+	params := lntemp.OpenChannelParams{
+		Amt:     chanAmt,
+		PushAmt: pushAmt,
+	}
+
+	// Grab the standby nodes.
+	alice, bob := ht.Alice, ht.Bob
+
+	// As preliminary setup, we'll create two new nodes: Carol and Dave,
+	// such that we now have a 4 node, 3 channel topology. Dave will make
+	// a channel with Alice, and Carol with Dave. After this setup, the
+	// network topology should now look like:
+	//     Carol -> Dave -> Alice -> Bob
+	//
+	// First, we'll create Dave and establish a channel to Alice.
+	dave := ht.NewNode("Dave", nil)
+	ht.ConnectNodes(dave, alice)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
+
+	// Next, we'll create Carol and establish a channel to from her to
+	// Dave. Carol is started in htlchodl mode so that we can disconnect
+	// the intermediary hops before starting the settle.
+	carol := ht.NewNode("Carol", []string{"--hodl.exit-settle"})
+	ht.ConnectNodes(carol, dave)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+
+	// Open channels in batch to save blocks mined.
+	reqs := []*lntemp.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: params},
+		{Local: dave, Remote: alice, Param: params},
+		{Local: carol, Remote: dave, Param: params},
+	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+
+	// Wait for all nodes to have seen all channels.
+	nodes := []*node.HarnessNode{alice, bob, carol, dave}
+	for _, chanPoint := range resp {
+		for _, node := range nodes {
+			ht.AssertTopologyChannelOpen(node, chanPoint)
+		}
+	}
+
+	chanPointAliceBob := resp[0]
+	chanPointDaveAlice := resp[1]
+	chanPointCarolDave := resp[2]
+
+	// Create 5 invoices for Carol, which expect a payment from Bob for 1k
+	// satoshis with a different preimage each time.
+	payReqs, _, _ := ht.CreatePayReqs(carol, paymentAmt, numPayments)
+
+	// Using Carol as the source, pay to the 5 invoices from Bob created
+	// above.
+	ht.CompletePaymentRequestsNoWait(bob, payReqs, chanPointAliceBob)
+
+	// Create a cleanUp to wipe the states.
+	cleanUp := func() {
+		if ht.Failed() {
+			ht.Skip("Skipped cleanup for failed test")
+			return
+		}
+
+		ht.CloseChannel(alice, chanPointAliceBob)
+		ht.CloseChannel(dave, chanPointDaveAlice)
+		ht.CloseChannel(carol, chanPointCarolDave)
+	}
+
+	s := &scenarioFourNodes{
+		alice, bob, carol, dave, chanPointAliceBob,
+		chanPointCarolDave, chanPointDaveAlice, cleanUp,
+	}
+
+	// Wait until all nodes in the network have 5 outstanding htlcs.
+	s.assertHTLCs(ht, numPayments)
+
+	return s
+}
+
+// assertHTLCs is a helper function which asserts the desired num of
+// HTLCs has been seen in the nodes.
+func (s *scenarioFourNodes) assertHTLCs(ht *lntemp.HarnessTest, num int) {
+	// Alice should have both the same number of outgoing and
+	// incoming HTLCs.
+	ht.AssertNumActiveHtlcs(s.alice, num*2)
+	// Bob should have num of incoming HTLCs.
+	ht.AssertNumActiveHtlcs(s.bob, num)
+	// Dave should have both the same number of outgoing and
+	// incoming HTLCs.
+	ht.AssertNumActiveHtlcs(s.dave, num*2)
+	// Carol should have the num of outgoing HTLCs.
+	ht.AssertNumActiveHtlcs(s.carol, num)
+}
+
+// assertAmoutPaid is a helper method which takes a given paid amount
+// and number of payments and asserts the desired payments are made in
+// the four nodes.
+func (s *scenarioFourNodes) assertAmoutPaid(ht *lntemp.HarnessTest,
+	amt int64, num int64) {
+
+	ht.AssertAmountPaid(
+		"Dave(local) => Carol(remote)", s.carol,
+		s.chanPointCarolDave, int64(0), amt,
+	)
+	ht.AssertAmountPaid(
+		"Dave(local) => Carol(remote)", s.dave,
+		s.chanPointCarolDave, amt, int64(0),
+	)
+	ht.AssertAmountPaid(
+		"Alice(local) => Dave(remote)", s.dave,
+		s.chanPointDaveAlice,
+		int64(0), amt+(baseFee*num),
+	)
+	ht.AssertAmountPaid(
+		"Alice(local) => Dave(remote)", s.alice,
+		s.chanPointDaveAlice,
+		amt+(baseFee*num), int64(0),
+	)
+	ht.AssertAmountPaid(
+		"Bob(local) => Alice(remote)", s.alice,
+		s.chanPointAliceBob,
+		int64(0), amt+((baseFee*num)*2),
+	)
+	ht.AssertAmountPaid(
+		"Bob(local) => Alice(remote)", s.bob,
+		s.chanPointAliceBob,
+		amt+(baseFee*num)*2, int64(0),
+	)
 }

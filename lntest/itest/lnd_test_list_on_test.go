@@ -29,10 +29,6 @@ var allTestCases = []*testCase{
 		test: testBidirectionalAsyncPayments,
 	},
 	{
-		name: "switch circuit persistence",
-		test: testSwitchCircuitPersistence,
-	},
-	{
 		name: "switch offline delivery",
 		test: testSwitchOfflineDelivery,
 	},

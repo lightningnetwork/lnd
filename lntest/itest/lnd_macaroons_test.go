@@ -520,26 +520,26 @@ func testBakeMacaroon(ht *lntemp.HarnessTest) {
 // specified ID and invalidates all macaroons derived from the key with that ID.
 // Also, it checks deleting the reserved marcaroon ID, DefaultRootKeyID or is
 // forbidden.
-func testDeleteMacaroonID(net *lntest.NetworkHarness, t *harnessTest) {
+func testDeleteMacaroonID(ht *lntemp.HarnessTest) {
 	var (
-		ctxb     = context.Background()
-		testNode = net.Alice
+		ctxb     = ht.Context()
+		testNode = ht.Alice
 	)
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 
 	// Use admin macaroon to create a connection.
 	adminMac, err := testNode.ReadMacaroon(
-		testNode.AdminMacPath(), defaultTimeout,
+		testNode.Cfg.AdminMacPath, defaultTimeout,
 	)
-	require.NoError(t.t, err)
-	cleanup, client := macaroonClientOld(t.t, testNode, adminMac)
+	require.NoError(ht, err)
+	cleanup, client := macaroonClient(ht.T, testNode, adminMac)
 	defer cleanup()
 
 	// Record the number of macaroon IDs before creation.
 	listReq := &lnrpc.ListMacaroonIDsRequest{}
 	listResp, err := client.ListMacaroonIDs(ctxt, listReq)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 	numMacIDs := len(listResp.RootKeyIds)
 
 	// Create macaroons for testing.
@@ -554,17 +554,17 @@ func testDeleteMacaroonID(net *lntest.NetworkHarness, t *harnessTest) {
 			}},
 		}
 		resp, err := client.BakeMacaroon(ctxt, req)
-		require.NoError(t.t, err)
+		require.NoError(ht, err)
 		macList = append(macList, resp.Macaroon)
 	}
 
 	// Check that the creation is successful.
 	listReq = &lnrpc.ListMacaroonIDsRequest{}
 	listResp, err = client.ListMacaroonIDs(ctxt, listReq)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// The number of macaroon IDs should be increased by len(rootKeyIDs).
-	require.Equal(t.t, numMacIDs+len(rootKeyIDs), len(listResp.RootKeyIds))
+	require.Equal(ht, numMacIDs+len(rootKeyIDs), len(listResp.RootKeyIds))
 
 	// First test: check deleting the DefaultRootKeyID returns an error.
 	defaultID, _ := strconv.ParseUint(
@@ -574,38 +574,38 @@ func testDeleteMacaroonID(net *lntest.NetworkHarness, t *harnessTest) {
 		RootKeyId: defaultID,
 	}
 	_, err = client.DeleteMacaroonID(ctxt, req)
-	require.Error(t.t, err)
-	require.Contains(
-		t.t, err.Error(), macaroons.ErrDeletionForbidden.Error(),
-	)
+	require.Error(ht, err)
+	require.Contains(ht, err.Error(),
+		macaroons.ErrDeletionForbidden.Error())
 
 	// Second test: check deleting the customized ID returns success.
 	req = &lnrpc.DeleteMacaroonIDRequest{
 		RootKeyId: rootKeyIDs[0],
 	}
 	resp, err := client.DeleteMacaroonID(ctxt, req)
-	require.NoError(t.t, err)
-	require.True(t.t, resp.Deleted)
+	require.NoError(ht, err)
+	require.True(ht, resp.Deleted)
 
 	// Check that the deletion is successful.
 	listReq = &lnrpc.ListMacaroonIDsRequest{}
 	listResp, err = client.ListMacaroonIDs(ctxt, listReq)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// The number of macaroon IDs should be decreased by 1.
-	require.Equal(t.t, numMacIDs+len(rootKeyIDs)-1, len(listResp.RootKeyIds))
+	require.Equal(ht, numMacIDs+len(rootKeyIDs)-1, len(listResp.RootKeyIds))
 
 	// Check that the deleted macaroon can no longer access macaroon:read.
 	deletedMac, err := readMacaroonFromHex(macList[0])
-	require.NoError(t.t, err)
-	cleanup, client = macaroonClientOld(t.t, testNode, deletedMac)
+	require.NoError(ht, err)
+	cleanup, client = macaroonClient(ht.T, testNode, deletedMac)
 	defer cleanup()
 
-	// Because the macaroon is deleted, it will be treated as an invalid one.
+	// Because the macaroon is deleted, it will be treated as an invalid
+	// one.
 	listReq = &lnrpc.ListMacaroonIDsRequest{}
 	_, err = client.ListMacaroonIDs(ctxt, listReq)
-	require.Error(t.t, err)
-	require.Contains(t.t, err.Error(), "cannot get macaroon")
+	require.Error(ht, err)
+	require.Contains(ht, err.Error(), "cannot get macaroon")
 }
 
 // testStatelessInit checks that the stateless initialization of the daemon

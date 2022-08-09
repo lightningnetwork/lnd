@@ -53,10 +53,6 @@ var allTestCases = []*testCase{
 		test: testCPFP,
 	},
 	{
-		name: "delete macaroon id",
-		test: testDeleteMacaroonID,
-	},
-	{
 		name: "psbt channel funding",
 		test: testPsbtChanFunding,
 	},

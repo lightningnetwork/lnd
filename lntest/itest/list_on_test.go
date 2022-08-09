@@ -353,4 +353,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "bake macaroon",
 		TestFunc: testBakeMacaroon,
 	},
+	{
+		Name:     "delete macaroon id",
+		TestFunc: testDeleteMacaroonID,
+	},
 }

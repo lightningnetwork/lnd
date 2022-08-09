@@ -345,4 +345,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "rpc middleware interceptor",
 		TestFunc: testRPCMiddlewareInterceptor,
 	},
+	{
+		Name:     "macaroon authentication",
+		TestFunc: testMacaroonAuthentication,
+	},
 }

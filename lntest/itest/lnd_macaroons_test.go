@@ -12,6 +12,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -24,13 +25,14 @@ import (
 // enabled on the gRPC interface, no requests with missing or invalid
 // macaroons are allowed. Further, the specific access rights (read/write,
 // entity based) and first-party caveats are tested as well.
-func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
+func testMacaroonAuthentication(ht *lntemp.HarnessTest) {
 	var (
 		infoReq    = &lnrpc.GetInfoRequest{}
 		newAddrReq = &lnrpc.NewAddressRequest{
 			Type: AddrTypeWitnessPubkeyHash,
 		}
-		testNode = net.Alice
+		testNode   = ht.Alice
+		testClient = testNode.RPC.LN
 	)
 
 	testCases := []struct {
@@ -42,7 +44,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 		// enabled.
 		name: "no macaroon",
 		run: func(ctxt context.Context, t *testing.T) {
-			conn, err := testNode.ConnectRPC(false)
+			conn, err := testNode.ConnectRPCWithMacaroon(nil)
 			require.NoError(t, err)
 			defer func() { _ = conn.Close() }()
 			client := lnrpc.NewLightningClient(conn)
@@ -59,7 +61,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 				[]byte("dummy_root_key"), []byte("0"), "itest",
 				macaroon.LatestVersion,
 			)
-			cleanup, client := macaroonClientOld(
+			cleanup, client := macaroonClient(
 				t, testNode, invalidMac,
 			)
 			defer cleanup()
@@ -73,10 +75,10 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 		name: "read only macaroon",
 		run: func(ctxt context.Context, t *testing.T) {
 			readonlyMac, err := testNode.ReadMacaroon(
-				testNode.ReadMacPath(), defaultTimeout,
+				testNode.Cfg.ReadMacPath, defaultTimeout,
 			)
 			require.NoError(t, err)
-			cleanup, client := macaroonClientOld(
+			cleanup, client := macaroonClient(
 				t, testNode, readonlyMac,
 			)
 			defer cleanup()
@@ -90,14 +92,14 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 		name: "expired macaroon",
 		run: func(ctxt context.Context, t *testing.T) {
 			readonlyMac, err := testNode.ReadMacaroon(
-				testNode.ReadMacPath(), defaultTimeout,
+				testNode.Cfg.ReadMacPath, defaultTimeout,
 			)
 			require.NoError(t, err)
 			timeoutMac, err := macaroons.AddConstraints(
 				readonlyMac, macaroons.TimeoutConstraint(-30),
 			)
 			require.NoError(t, err)
-			cleanup, client := macaroonClientOld(
+			cleanup, client := macaroonClient(
 				t, testNode, timeoutMac,
 			)
 			defer cleanup()
@@ -110,7 +112,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 		name: "invalid IP macaroon",
 		run: func(ctxt context.Context, t *testing.T) {
 			readonlyMac, err := testNode.ReadMacaroon(
-				testNode.ReadMacPath(), defaultTimeout,
+				testNode.Cfg.ReadMacPath, defaultTimeout,
 			)
 			require.NoError(t, err)
 			invalidIPAddrMac, err := macaroons.AddConstraints(
@@ -119,7 +121,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 				),
 			)
 			require.NoError(t, err)
-			cleanup, client := macaroonClientOld(
+			cleanup, client := macaroonClient(
 				t, testNode, invalidIPAddrMac,
 			)
 			defer cleanup()
@@ -134,7 +136,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 		name: "correct macaroon",
 		run: func(ctxt context.Context, t *testing.T) {
 			adminMac, err := testNode.ReadMacaroon(
-				testNode.AdminMacPath(), defaultTimeout,
+				testNode.Cfg.AdminMacPath, defaultTimeout,
 			)
 			require.NoError(t, err)
 			adminMac, err = macaroons.AddConstraints(
@@ -142,7 +144,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 				macaroons.IPLockConstraint("127.0.0.1"),
 			)
 			require.NoError(t, err)
-			cleanup, client := macaroonClientOld(t, testNode, adminMac)
+			cleanup, client := macaroonClient(t, testNode, adminMac)
 			defer cleanup()
 			res, err := client.NewAddress(ctxt, newAddrReq)
 			require.NoError(t, err, "get new address")
@@ -164,7 +166,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 						"Permissions",
 				}},
 			}
-			bakeRes, err := testNode.BakeMacaroon(ctxt, req)
+			bakeRes, err := testClient.BakeMacaroon(ctxt, req)
 			require.NoError(t, err)
 
 			// Create a connection that uses the custom macaroon.
@@ -175,7 +177,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 			customMac := &macaroon.Macaroon{}
 			err = customMac.UnmarshalBinary(customMacBytes)
 			require.NoError(t, err)
-			cleanup, client := macaroonClientOld(
+			cleanup, client := macaroonClient(
 				t, testNode, customMac,
 			)
 			defer cleanup()
@@ -219,7 +221,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 				}},
 				AllowExternalPermissions: true,
 			}
-			bakeResp, err := testNode.BakeMacaroon(ctxt, req)
+			bakeResp, err := testClient.BakeMacaroon(ctxt, req)
 			require.NoError(t, err)
 
 			macBytes, err := hex.DecodeString(bakeResp.Macaroon)
@@ -233,7 +235,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 			// Test that CheckMacaroonPermissions accurately
 			// characterizes macaroon as valid, even if the
 			// permissions are not native to LND.
-			checkResp, err := testNode.CheckMacaroonPermissions(
+			checkResp, err := testClient.CheckMacaroonPermissions(
 				ctxt, checkReq,
 			)
 			require.NoError(t, err)
@@ -254,7 +256,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 
 			checkReq.Macaroon = timeoutMacBytes
 
-			_, err = testNode.CheckMacaroonPermissions(
+			_, err = testClient.CheckMacaroonPermissions(
 				ctxt, checkReq,
 			)
 			require.Error(t, err)
@@ -270,7 +272,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 			checkReq.Permissions = wrongPermissions
 			checkReq.Macaroon = macBytes
 
-			_, err = testNode.CheckMacaroonPermissions(
+			_, err = testClient.CheckMacaroonPermissions(
 				ctxt, checkReq,
 			)
 			require.Error(t, err)
@@ -280,9 +282,9 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 
 	for _, tc := range testCases {
 		tc := tc
-		ht.t.Run(tc.name, func(tt *testing.T) {
+		ht.Run(tc.name, func(tt *testing.T) {
 			ctxt, cancel := context.WithTimeout(
-				context.Background(), defaultTimeout,
+				ht.Context(), defaultTimeout,
 			)
 			defer cancel()
 

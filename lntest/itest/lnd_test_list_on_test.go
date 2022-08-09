@@ -97,10 +97,6 @@ var allTestCases = []*testCase{
 		test: testWalletImportPubKey,
 	},
 	{
-		name: "wipe forwarding packages",
-		test: testWipeForwardingPackages,
-	},
-	{
 		name: "remote signer",
 		test: testRemoteSigner,
 	},

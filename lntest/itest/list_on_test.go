@@ -365,4 +365,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "single hop invoice",
 		TestFunc: testSingleHopInvoice,
 	},
+	{
+		Name:     "wipe forwarding packages",
+		TestFunc: testWipeForwardingPackages,
+	},
 }

@@ -41,10 +41,6 @@ var allTestCases = []*testCase{
 		test: testSignPsbt,
 	},
 	{
-		name: "sendtoroute multi path payment",
-		test: testSendToRouteMultiPath,
-	},
-	{
 		name: "sendtoroute amp",
 		test: testSendToRouteAMP,
 	},

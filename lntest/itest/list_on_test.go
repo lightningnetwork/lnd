@@ -385,4 +385,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "switch offline delivery outgoing offline",
 		TestFunc: testSwitchOfflineDeliveryOutgoingOffline,
 	},
+	{
+		Name:     "sendtoroute multi path payment",
+		TestFunc: testSendToRouteMultiPath,
+	},
 }

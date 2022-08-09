@@ -150,3 +150,15 @@ func (h *HarnessRPC) XImportMissionControlAssertErr(
 	_, err := h.Router.XImportMissionControl(ctxt, req)
 	require.Error(h, err, "expect an error from x import mission control")
 }
+
+// BuildRoute makes a RPC call to the node's RouterClient and asserts.
+func (h *HarnessRPC) BuildRoute(
+	req *routerrpc.BuildRouteRequest) *routerrpc.BuildRouteResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Router.BuildRoute(ctxt, req)
+	h.NoError(err, "BuildRoute")
+	return resp
+}

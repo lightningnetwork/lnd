@@ -381,4 +381,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "switch offline delivery persistence",
 		TestFunc: testSwitchOfflineDeliveryPersistence,
 	},
+	{
+		Name:     "switch offline delivery outgoing offline",
+		TestFunc: testSwitchOfflineDeliveryOutgoingOffline,
+	},
 }

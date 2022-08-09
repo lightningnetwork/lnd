@@ -5,10 +5,6 @@ package itest
 
 var allTestCases = []*testCase{
 	{
-		name: "single hop invoice",
-		test: testSingleHopInvoice,
-	},
-	{
 		name: "multiple channel creation and update subscription",
 		test: testBasicChannelCreationAndUpdates,
 	},

@@ -361,4 +361,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "stateless init",
 		TestFunc: testStatelessInit,
 	},
+	{
+		Name:     "single hop invoice",
+		TestFunc: testSingleHopInvoice,
+	},
 }

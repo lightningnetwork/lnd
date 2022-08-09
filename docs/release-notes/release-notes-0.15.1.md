@@ -9,6 +9,10 @@
 ### Zero-Conf Channel Opens
 * [Introduces support for zero-conf channel opens and non-zero-conf option_scid_alias channels.](https://github.com/lightningnetwork/lnd/pull/5955)
 
+* [The `listchannels` and `closedchannels` APIs have been updated to return alias and zero-conf
+  information. A new `listaliases` API has also been added that returns a data dump of all
+  existing alias info.](https://github.com/lightningnetwork/lnd/pull/6734)
+
 ## Build system
 
 * [Add the release build directory to the `.gitignore` file to avoid the release

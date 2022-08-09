@@ -502,6 +502,12 @@ func (h *HarnessTest) RestartNode(hn *node.HarnessNode) {
 	}
 }
 
+// RestartNodeNoUnlock restarts a given node without unlocking its wallet.
+func (h *HarnessTest) RestartNodeNoUnlock(hn *node.HarnessNode) {
+	err := h.manager.restartNode(h.runCtx, hn, nil)
+	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
+}
+
 // RestartNodeWithChanBackups restarts a given node with the specified channel
 // backups.
 func (h *HarnessTest) RestartNodeWithChanBackups(hn *node.HarnessNode,

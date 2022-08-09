@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"os"
@@ -14,7 +13,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -612,7 +610,7 @@ func testDeleteMacaroonID(ht *lntemp.HarnessTest) {
 // does not write any macaroon files to the daemon's file system and returns
 // the admin macaroon in the response. It then checks that the password
 // change of the wallet can also happen stateless.
-func testStatelessInit(net *lntest.NetworkHarness, t *harnessTest) {
+func testStatelessInit(ht *lntemp.HarnessTest) {
 	var (
 		initPw     = []byte("stateless")
 		newPw      = []byte("stateless-new")
@@ -624,85 +622,79 @@ func testStatelessInit(net *lntest.NetworkHarness, t *harnessTest) {
 	// First, create a new node and request it to initialize stateless.
 	// This should return us the binary serialized admin macaroon that we
 	// can then use for further calls.
-	carol, _, macBytes, err := net.NewNodeWithSeed(
-		"Carol", nil, initPw, true,
-	)
-	require.NoError(t.t, err)
-	if len(macBytes) == 0 {
-		t.Fatalf("invalid macaroon returned in stateless init")
-	}
+	carol, _, macBytes := ht.NewNodeWithSeed("Carol", nil, initPw, true)
+	require.NotEmpty(ht, macBytes,
+		"invalid macaroon returned in stateless init")
 
 	// Now make sure no macaroon files have been created by the node Carol.
-	_, err = os.Stat(carol.AdminMacPath())
-	require.Error(t.t, err)
-	_, err = os.Stat(carol.ReadMacPath())
-	require.Error(t.t, err)
-	_, err = os.Stat(carol.InvoiceMacPath())
-	require.Error(t.t, err)
+	_, err := os.Stat(carol.Cfg.AdminMacPath)
+	require.Error(ht, err)
+	_, err = os.Stat(carol.Cfg.ReadMacPath)
+	require.Error(ht, err)
+	_, err = os.Stat(carol.Cfg.InvoiceMacPath)
+	require.Error(ht, err)
 
 	// Then check that we can unmarshal the binary serialized macaroon.
 	adminMac := &macaroon.Macaroon{}
 	err = adminMac.UnmarshalBinary(macBytes)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// Find out if we can actually use the macaroon that has been returned
 	// to us for a RPC call.
 	conn, err := carol.ConnectRPCWithMacaroon(adminMac)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 	defer conn.Close()
 	adminMacClient := lnrpc.NewLightningClient(conn)
-	ctxt, _ := context.WithTimeout(context.Background(), defaultTimeout)
+	ctxt, cancel := context.WithTimeout(ht.Context(), defaultTimeout)
+	defer cancel()
 	res, err := adminMacClient.NewAddress(ctxt, newAddrReq)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 	if !strings.HasPrefix(res.Address, harnessNetParams.Bech32HRPSegwit) {
-		t.Fatalf("returned address was not a regtest address")
+		require.Fail(ht, "returned address was not a regtest address")
 	}
 
 	// As a second part, shut down the node and then try to change the
 	// password when we start it up again.
-	if err := net.RestartNodeNoUnlock(carol, nil, true); err != nil {
-		t.Fatalf("Node restart failed: %v", err)
-	}
+	ht.RestartNodeNoUnlock(carol)
 	changePwReq := &lnrpc.ChangePasswordRequest{
 		CurrentPassword: initPw,
 		NewPassword:     newPw,
 		StatelessInit:   true,
 	}
-	response, err := carol.InitChangePassword(changePwReq)
-	require.NoError(t.t, err)
+	response, err := carol.ChangePasswordAndInit(changePwReq)
+	require.NoError(ht, err)
 
 	// Again, make  sure no macaroon files have been created by the node
 	// Carol.
-	_, err = os.Stat(carol.AdminMacPath())
-	require.Error(t.t, err)
-	_, err = os.Stat(carol.ReadMacPath())
-	require.Error(t.t, err)
-	_, err = os.Stat(carol.InvoiceMacPath())
-	require.Error(t.t, err)
+	_, err = os.Stat(carol.Cfg.AdminMacPath)
+	require.Error(ht, err)
+	_, err = os.Stat(carol.Cfg.ReadMacPath)
+	require.Error(ht, err)
+	_, err = os.Stat(carol.Cfg.InvoiceMacPath)
+	require.Error(ht, err)
 
 	// Then check that we can unmarshal the new binary serialized macaroon
 	// and that it really is a new macaroon.
-	if err = adminMac.UnmarshalBinary(response.AdminMacaroon); err != nil {
-		t.Fatalf("unable to unmarshal macaroon: %v", err)
-	}
-	if bytes.Equal(response.AdminMacaroon, macBytes) {
-		t.Fatalf("expected new macaroon to be different")
-	}
+	err = adminMac.UnmarshalBinary(response.AdminMacaroon)
+	require.NoError(ht, err, "unable to unmarshal macaroon")
+	require.NotEqual(ht, response.AdminMacaroon, macBytes,
+		"expected new macaroon to be different")
 
 	// Finally, find out if we can actually use the new macaroon that has
 	// been returned to us for a RPC call.
 	conn2, err := carol.ConnectRPCWithMacaroon(adminMac)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 	defer conn2.Close()
 	adminMacClient = lnrpc.NewLightningClient(conn2)
 
 	// Changing the password takes a while, so we use the default timeout
 	// of 30 seconds to wait for the connection to be ready.
-	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
+	ctxt, cancel = context.WithTimeout(ht.Context(), defaultTimeout)
+	defer cancel()
 	res, err = adminMacClient.NewAddress(ctxt, newAddrReq)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 	if !strings.HasPrefix(res.Address, harnessNetParams.Bech32HRPSegwit) {
-		t.Fatalf("returned address was not a regtest address")
+		require.Fail(ht, "returned address was not a regtest address")
 	}
 }
 
@@ -718,20 +710,6 @@ func readMacaroonFromHex(macHex string) (*macaroon.Macaroon, error) {
 		return nil, err
 	}
 	return mac, nil
-}
-
-// TODO(yy): remove.
-func macaroonClientOld(t *testing.T, testNode *lntest.HarnessNode,
-	mac *macaroon.Macaroon) (func(), lnrpc.LightningClient) {
-
-	conn, err := testNode.ConnectRPCWithMacaroon(mac)
-	require.NoError(t, err, "connect to alice")
-
-	cleanup := func() {
-		err := conn.Close()
-		require.NoError(t, err, "close")
-	}
-	return cleanup, lnrpc.NewLightningClient(conn)
 }
 
 func macaroonClient(t *testing.T, testNode *node.HarnessNode,

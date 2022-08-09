@@ -357,4 +357,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "delete macaroon id",
 		TestFunc: testDeleteMacaroonID,
 	},
+	{
+		Name:     "stateless init",
+		TestFunc: testStatelessInit,
+	},
 }

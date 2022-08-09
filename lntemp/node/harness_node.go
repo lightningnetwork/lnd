@@ -488,6 +488,19 @@ func (hn *HarnessNode) InitNode(macBytes []byte) error {
 	return hn.initLightningClient()
 }
 
+// InitChangePassword initializes a harness node by passing the change password
+// request via RPC. After the request is submitted, this method will block until
+// a macaroon-authenticated RPC connection can be established to the harness
+// node. Once established, the new connection is used to initialize the
+// RPC clients and subscribes the HarnessNode to topology changes.
+func (hn *HarnessNode) ChangePasswordAndInit(
+	req *lnrpc.ChangePasswordRequest) (
+	*lnrpc.ChangePasswordResponse, error) {
+
+	response := hn.RPC.ChangePassword(req)
+	return response, hn.InitNode(response.AdminMacaroon)
+}
+
 // waitTillServerState makes a subscription to the server's state change and
 // blocks until the server is in the targeted state.
 func (hn *HarnessNode) waitTillServerState(

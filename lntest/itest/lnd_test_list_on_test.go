@@ -93,10 +93,6 @@ var allTestCases = []*testCase{
 		test: testForwardInterceptorDedupHtlc,
 	},
 	{
-		name: "stateless init",
-		test: testStatelessInit,
-	},
-	{
 		name: "wallet import account",
 		test: testWalletImportAccount,
 	},

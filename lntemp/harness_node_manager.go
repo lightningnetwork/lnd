@@ -71,7 +71,7 @@ func (nm *nodeManager) nextNodeID() uint32 {
 // node can be used immediately. Otherwise, the node will require an additional
 // initialization phase where the wallet is either created or restored.
 func (nm *nodeManager) newNode(t *testing.T, name string, extraArgs []string,
-	password []byte, useSeed bool) (*node.HarnessNode, error) {
+	password []byte, noAuth bool) (*node.HarnessNode, error) {
 
 	cfg := &node.BaseNodeConfig{
 		Name:              name,
@@ -84,7 +84,7 @@ func (nm *nodeManager) newNode(t *testing.T, name string, extraArgs []string,
 		NodeID:            nm.nextNodeID(),
 		LndBinary:         nm.lndBinary,
 		NetParams:         harnessNetParams,
-		HasSeed:           useSeed,
+		SkipUnlock:        noAuth,
 	}
 
 	node, err := node.NewHarnessNode(t, cfg)
@@ -125,56 +125,11 @@ func (nm *nodeManager) shutdownNode(node *node.HarnessNode) error {
 // the connection attempt is successful. If the callback parameter is non-nil,
 // then the function will be executed after the node shuts down, but *before*
 // the process has been started up again.
-//
-// This method can be useful when testing edge cases such as a node broadcast
-// and invalidated prior state, or persistent state recovery, simulating node
-// crashes, etc. Additionally, each time the node is restarted, the caller can
-// pass a set of SCBs to pass in via the Unlock method allowing them to restore
-// channels during restart.
-func (nm *nodeManager) restartNode(ctxt context.Context, node *node.HarnessNode,
-	callback func() error, chanBackups ...*lnrpc.ChanBackupSnapshot) error {
+func (nm *nodeManager) restartNode(ctxt context.Context,
+	hn *node.HarnessNode, callback func() error) error {
 
-	err := nm.restartNodeNoUnlock(ctxt, node, callback)
-	if err != nil {
-		return err
-	}
-
-	// If the node doesn't have a password set, then we can exit here as we
-	// don't need to unlock it.
-	if len(node.Cfg.Password) == 0 {
-		return nil
-	}
-
-	// Otherwise, we'll unlock the wallet, then complete the final steps
-	// for the node initialization process.
-	unlockReq := &lnrpc.UnlockWalletRequest{
-		WalletPassword: node.Cfg.Password,
-	}
-	if len(chanBackups) != 0 {
-		unlockReq.ChannelBackups = chanBackups[0]
-		unlockReq.RecoveryWindow = 100
-	}
-
-	err = wait.NoError(func() error {
-		return node.Unlock(unlockReq)
-	}, DefaultTimeout)
-	if err != nil {
-		return fmt.Errorf("%s: failed to unlock: %w", node.Name(), err)
-	}
-
-	return nil
-}
-
-// restartNodeNoUnlock attempts to restart a lightning node by shutting it down
-// cleanly, then restarting the process. In case the node was setup with a
-// seed, it will be left in the unlocked state. This function is fully
-// blocking. If the callback parameter is non-nil, then the function will be
-// executed after the node shuts down, but *before* the process has been
-// started up again.
-func (nm *nodeManager) restartNodeNoUnlock(ctxt context.Context,
-	node *node.HarnessNode, callback func() error) error {
-
-	if err := node.Stop(); err != nil {
+	// Stop the node.
+	if err := hn.Stop(); err != nil {
 		return fmt.Errorf("restart node got error: %w", err)
 	}
 
@@ -184,11 +139,45 @@ func (nm *nodeManager) restartNodeNoUnlock(ctxt context.Context,
 		}
 	}
 
-	if node.Cfg.HasSeed {
-		return node.StartWithSeed(ctxt)
+	// Start the node without unlocking the wallet.
+	if hn.Cfg.SkipUnlock {
+		return hn.StartWithNoAuth(ctxt)
 	}
 
-	return node.Start(ctxt)
+	return hn.Start(ctxt)
+}
+
+// unlockNode unlocks the node's wallet if the password is configured.
+// Additionally, each time the node is unlocked, the caller can pass a set of
+// SCBs to pass in via the Unlock method allowing them to restore channels
+// during restart.
+func (nm *nodeManager) unlockNode(hn *node.HarnessNode,
+	chanBackups ...*lnrpc.ChanBackupSnapshot) error {
+
+	// If the node doesn't have a password set, then we can exit here as we
+	// don't need to unlock it.
+	if len(hn.Cfg.Password) == 0 {
+		return nil
+	}
+
+	// Otherwise, we'll unlock the wallet, then complete the final steps
+	// for the node initialization process.
+	unlockReq := &lnrpc.UnlockWalletRequest{
+		WalletPassword: hn.Cfg.Password,
+	}
+	if len(chanBackups) != 0 {
+		unlockReq.ChannelBackups = chanBackups[0]
+		unlockReq.RecoveryWindow = 100
+	}
+
+	err := wait.NoError(func() error {
+		return hn.Unlock(unlockReq)
+	}, DefaultTimeout)
+	if err != nil {
+		return fmt.Errorf("%s: failed to unlock: %w", hn.Name(), err)
+	}
+
+	return nil
 }
 
 // initWalletAndNode will unlock the node's wallet and finish setting up the

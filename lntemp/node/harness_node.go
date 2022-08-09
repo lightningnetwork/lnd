@@ -387,12 +387,12 @@ func (hn *HarnessNode) StartLndCmd(ctxb context.Context) error {
 	return nil
 }
 
-// StartWithSeed will start the lnd process, creates the grpc connection
+// StartWithNoAuth will start the lnd process, creates the grpc connection
 // without macaroon auth, and waits until the server is reported as waiting to
 // start.
 //
 // NOTE: caller needs to take extra step to create and unlock the wallet.
-func (hn *HarnessNode) StartWithSeed(ctxt context.Context) error {
+func (hn *HarnessNode) StartWithNoAuth(ctxt context.Context) error {
 	// Start lnd process and prepare logs.
 	if err := hn.StartLndCmd(ctxt); err != nil {
 		return fmt.Errorf("start lnd error: %w", err)

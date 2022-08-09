@@ -63,8 +63,8 @@ type BaseNodeConfig struct {
 	ReadMacPath    string
 	InvoiceMacPath string
 
-	HasSeed  bool
-	Password []byte
+	SkipUnlock bool
+	Password   []byte
 
 	P2PPort     int
 	RPCPort     int
@@ -190,7 +190,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	}
 	args = append(args, nodeArgs...)
 
-	if !cfg.HasSeed {
+	if cfg.Password == nil {
 		args = append(args, "--noseedbackup")
 	}
 

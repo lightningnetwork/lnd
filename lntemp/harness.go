@@ -486,12 +486,32 @@ func (h *HarnessTest) SuspendNode(node *node.HarnessNode) func() error {
 	}
 }
 
-// RestartNode restarts a given node and asserts.
-func (h *HarnessTest) RestartNode(hn *node.HarnessNode,
+// RestartNode restarts a given node, unlocks it and asserts it's successfully
+// started.
+func (h *HarnessTest) RestartNode(hn *node.HarnessNode) {
+	err := h.manager.restartNode(h.runCtx, hn, nil)
+	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
+
+	err = h.manager.unlockNode(hn)
+	require.NoErrorf(h, err, "failed to unlock node %s", hn.Name())
+
+	if !hn.Cfg.SkipUnlock {
+		// Give the node some time to catch up with the chain before we
+		// continue with the tests.
+		h.WaitForBlockchainSync(hn)
+	}
+}
+
+// RestartNodeWithChanBackups restarts a given node with the specified channel
+// backups.
+func (h *HarnessTest) RestartNodeWithChanBackups(hn *node.HarnessNode,
 	chanBackups ...*lnrpc.ChanBackupSnapshot) {
 
-	err := h.manager.restartNode(h.runCtx, hn, nil, chanBackups...)
+	err := h.manager.restartNode(h.runCtx, hn, nil)
 	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
+
+	err = h.manager.unlockNode(hn, chanBackups...)
+	require.NoErrorf(h, err, "failed to unlock node %s", hn.Name())
 
 	// Give the node some time to catch up with the chain before we
 	// continue with the tests.
@@ -503,7 +523,7 @@ func (h *HarnessTest) RestartNodeWithExtraArgs(hn *node.HarnessNode,
 	extraArgs []string) {
 
 	hn.SetExtraArgs(extraArgs)
-	h.RestartNode(hn, nil)
+	h.RestartNode(hn)
 }
 
 // NewNodeWithSeed fully initializes a new HarnessNode after creating a fresh
@@ -538,7 +558,7 @@ func (h *HarnessTest) newNodeWithSeed(name string,
 
 	// Start the node with seed only, which will only create the `State`
 	// and `WalletUnlocker` clients.
-	err = node.StartWithSeed(h.runCtx)
+	err = node.StartWithNoAuth(h.runCtx)
 	require.NoErrorf(h, err, "failed to start node %s", node.Name())
 
 	// Generate a new seed.
@@ -581,7 +601,7 @@ func (h *HarnessTest) RestoreNodeWithSeed(name string, extraArgs []string,
 
 	// Start the node with seed only, which will only create the `State`
 	// and `WalletUnlocker` clients.
-	err = node.StartWithSeed(h.runCtx)
+	err = node.StartWithNoAuth(h.runCtx)
 	require.NoErrorf(h, err, "failed to start node %s", node.Name())
 
 	// Create the wallet.
@@ -1343,6 +1363,9 @@ func (h *HarnessTest) RestartNodeAndRestoreDB(hn *node.HarnessNode) {
 	cb := func() error { return hn.RestoreDB() }
 	err := h.manager.restartNode(h.runCtx, hn, cb)
 	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
+
+	err = h.manager.unlockNode(hn)
+	require.NoErrorf(h, err, "failed to unlock node %s", hn.Name())
 
 	// Give the node some time to catch up with the chain before we
 	// continue with the tests.

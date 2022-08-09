@@ -349,8 +349,9 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 						"", revocationWindow, nil,
 						copyPorts(oldNode),
 					)
-
-					st.RestartNode(newNode, backupSnapshot)
+					st.RestartNodeWithChanBackups(
+						newNode, backupSnapshot,
+					)
 
 					return newNode
 				}

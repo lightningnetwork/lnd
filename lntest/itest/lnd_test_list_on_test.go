@@ -29,10 +29,6 @@ var allTestCases = []*testCase{
 		test: testBidirectionalAsyncPayments,
 	},
 	{
-		name: "switch offline delivery",
-		test: testSwitchOfflineDelivery,
-	},
-	{
 		name: "switch offline delivery persistence",
 		test: testSwitchOfflineDeliveryPersistence,
 	},

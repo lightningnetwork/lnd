@@ -127,6 +127,9 @@ func (h *HarnessTest) ConnectNodesPerm(a, b *node.HarnessNode) {
 func (h *HarnessTest) DisconnectNodes(a, b *node.HarnessNode) {
 	bobInfo := b.RPC.GetInfo()
 	a.RPC.DisconnectPeer(bobInfo.IdentityPubkey)
+
+	// Assert disconnected.
+	h.AssertPeerNotConnected(a, b)
 }
 
 // EnsureConnected will try to connect to two nodes, returning no error if they

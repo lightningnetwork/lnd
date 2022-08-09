@@ -349,4 +349,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "macaroon authentication",
 		TestFunc: testMacaroonAuthentication,
 	},
+	{
+		Name:     "bake macaroon",
+		TestFunc: testBakeMacaroon,
+	},
 }

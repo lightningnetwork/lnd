@@ -296,8 +296,8 @@ func testMacaroonAuthentication(ht *lntemp.HarnessTest) {
 // testBakeMacaroon checks that when creating macaroons, the permissions param
 // in the request must be set correctly, and the baked macaroon has the intended
 // permissions.
-func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
-	var testNode = net.Alice
+func testBakeMacaroon(ht *lntemp.HarnessTest) {
+	var testNode = ht.Alice
 
 	testCases := []struct {
 		name string
@@ -429,7 +429,7 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 
 			newMac, err := readMacaroonFromHex(bakeResp.Macaroon)
 			require.NoError(t, err)
-			cleanup, readOnlyClient := macaroonClientOld(
+			cleanup, readOnlyClient := macaroonClient(
 				t, testNode, newMac,
 			)
 			defer cleanup()
@@ -498,17 +498,17 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 
 	for _, tc := range testCases {
 		tc := tc
-		t.t.Run(tc.name, func(tt *testing.T) {
+		ht.Run(tc.name, func(tt *testing.T) {
 			ctxt, cancel := context.WithTimeout(
-				context.Background(), defaultTimeout,
+				ht.Context(), defaultTimeout,
 			)
 			defer cancel()
 
 			adminMac, err := testNode.ReadMacaroon(
-				testNode.AdminMacPath(), defaultTimeout,
+				testNode.Cfg.AdminMacPath, defaultTimeout,
 			)
 			require.NoError(tt, err)
-			cleanup, client := macaroonClientOld(tt, testNode, adminMac)
+			cleanup, client := macaroonClient(tt, testNode, adminMac)
 			defer cleanup()
 
 			tc.run(ctxt, tt, client)

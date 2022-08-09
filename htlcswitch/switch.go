@@ -106,6 +106,12 @@ type ChanClose struct {
 	// process for the cooperative closure transaction kicks off.
 	TargetFeePerKw chainfee.SatPerKWeight
 
+	// MaxFee is the highest fee the caller is willing to pay.
+	//
+	// NOTE: This field is only respected if the caller is the initiator of
+	// the channel.
+	MaxFee chainfee.SatPerKWeight
+
 	// DeliveryScript is an optional delivery script to pay funds out to.
 	DeliveryScript lnwire.DeliveryAddress
 
@@ -1656,7 +1662,7 @@ func (s *Switch) teardownCircuit(pkt *htlcPacket) error {
 // optional parameter which sets a user specified script to close out to.
 func (s *Switch) CloseLink(chanPoint *wire.OutPoint,
 	closeType contractcourt.ChannelCloseType,
-	targetFeePerKw chainfee.SatPerKWeight,
+	targetFeePerKw, maxFee chainfee.SatPerKWeight,
 	deliveryScript lnwire.DeliveryAddress) (chan interface{}, chan error) {
 
 	// TODO(roasbeef) abstract out the close updates.
@@ -1668,6 +1674,7 @@ func (s *Switch) CloseLink(chanPoint *wire.OutPoint,
 		ChanPoint:      chanPoint,
 		Updates:        updateChan,
 		TargetFeePerKw: targetFeePerKw,
+		MaxFee:         maxFee,
 		DeliveryScript: deliveryScript,
 		Err:            errChan,
 	}

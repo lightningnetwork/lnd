@@ -189,7 +189,7 @@ func testZeroConfChannelOpen(ht *lntemp.HarnessTest) {
 
 // testOptionScidAlias checks that opening an option_scid_alias channel-type
 // channel or w/o the channel-type works properly.
-func testOptionScidAlias(net *lntest.NetworkHarness, t *harnessTest) {
+func testOptionScidAlias(ht *lntemp.HarnessTest) {
 	type scidTestCase struct {
 		name string
 
@@ -220,10 +220,10 @@ func testOptionScidAlias(net *lntest.NetworkHarness, t *harnessTest) {
 
 	for _, testCase := range testCases {
 		testCase := testCase
-		success := t.t.Run(testCase.name, func(t *testing.T) {
-			h := newHarnessTest(t, net)
+		success := ht.Run(testCase.name, func(t *testing.T) {
+			st := ht.Subtest(t)
 			optionScidAliasScenario(
-				net, h, testCase.chantype, testCase.private,
+				st, testCase.chantype, testCase.private,
 			)
 		})
 		if !success {
@@ -232,110 +232,89 @@ func testOptionScidAlias(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
-func optionScidAliasScenario(net *lntest.NetworkHarness, t *harnessTest,
-	chantype, private bool) {
-
-	ctxb := context.Background()
-
+func optionScidAliasScenario(ht *lntemp.HarnessTest, chantype, private bool) {
 	// Option-scid-alias is opt-in, as is anchors.
 	scidAliasArgs := []string{
 		"--protocol.option-scid-alias",
 		"--protocol.anchors",
 	}
 
-	carol := net.NewNode(t.t, "Carol", scidAliasArgs)
-	defer shutdownAndAssert(net, t, carol)
-
-	dave := net.NewNode(t.t, "Dave", scidAliasArgs)
-	defer shutdownAndAssert(net, t, dave)
+	bob := ht.Bob
+	carol := ht.NewNode("Carol", scidAliasArgs)
+	dave := ht.NewNode("Dave", scidAliasArgs)
 
 	// Ensure Bob, Carol are connected.
-	net.EnsureConnected(t.t, net.Bob, carol)
+	ht.EnsureConnected(bob, carol)
 
 	// Ensure Carol, Dave are connected.
-	net.EnsureConnected(t.t, carol, dave)
+	ht.EnsureConnected(carol, dave)
 
 	// Give Carol some coins so she can open the channel.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	chanAmt := btcutil.Amount(1_000_000)
 
-	params := lntest.OpenChannelParams{
+	params := lntemp.OpenChannelParams{
 		Amt:            chanAmt,
 		Private:        private,
 		CommitmentType: lnrpc.CommitmentType_ANCHORS,
 		ScidAlias:      chantype,
 	}
-	fundingPoint := openChannelAndAssert(t, net, carol, dave, params)
+	fundingPoint := ht.OpenChannel(carol, dave, params)
 
+	// Make sure Bob knows this channel if it's public.
 	if !private {
-		err := net.Bob.WaitForNetworkChannelOpen(fundingPoint)
-		require.NoError(t.t, err, "bob didn't report channel")
+		ht.AssertTopologyChannelOpen(bob, fundingPoint)
 	}
-
-	err := carol.WaitForNetworkChannelOpen(fundingPoint)
-	require.NoError(t.t, err, "carol didn't report channel")
-	err = dave.WaitForNetworkChannelOpen(fundingPoint)
-	require.NoError(t.t, err, "dave didn't report channel")
 
 	// Assert that a payment from Carol to Dave works as expected.
 	daveInvoiceParams := &lnrpc.Invoice{
 		Value:   int64(10_000),
 		Private: true,
 	}
-	daveInvoiceResp, err := dave.AddInvoice(ctxb, daveInvoiceParams)
-	require.NoError(t.t, err)
-	_ = sendAndAssertSuccess(
-		t, carol, &routerrpc.SendPaymentRequest{
-			PaymentRequest: daveInvoiceResp.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
+	daveInvoiceResp := dave.RPC.AddInvoice(daveInvoiceParams)
+	ht.CompletePaymentRequests(
+		carol, []string{daveInvoiceResp.PaymentRequest},
 	)
 
 	// We'll now open a regular public channel between Bob and Carol and
 	// assert that Bob can pay Dave. We'll also assert that the invoice
 	// Dave issues has the startingAlias as a hop hint.
-	fundingPoint2 := openChannelAndAssert(
-		t, net, net.Bob, carol,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
-	)
+	p := lntemp.OpenChannelParams{
+		Amt: chanAmt,
+	}
+	fundingPoint2 := ht.OpenChannel(bob, carol, p)
 
-	err = net.Bob.WaitForNetworkChannelOpen(fundingPoint2)
-	require.NoError(t.t, err)
-	err = carol.WaitForNetworkChannelOpen(fundingPoint2)
-	require.NoError(t.t, err)
+	defer func() {
+		// TODO(yy): remove the sleep once the following bug is fixed.
+		// When the payment is reported as settled by Bob, it's
+		// expected the commitment dance is finished and all subsequent
+		// states have been updated. Yet we'd receive the error `cannot
+		// co-op close channel with active htlcs` or `link failed to
+		// shutdown` if we close the channel. We need to investigate
+		// the order of settling the payments and updating commitments
+		// to understand and fix.
+		time.Sleep(2 * time.Second)
+
+		// Close standby node's channels.
+		ht.CloseChannel(bob, fundingPoint2)
+	}()
 
 	// Wait until Dave receives the Bob<->Carol channel.
-	err = dave.WaitForNetworkChannelOpen(fundingPoint2)
-	require.NoError(t.t, err)
+	ht.AssertTopologyChannelOpen(dave, fundingPoint2)
 
-	daveInvoiceResp2, err := dave.AddInvoice(ctxb, daveInvoiceParams)
-	require.NoError(t.t, err)
-	davePayReq := &lnrpc.PayReqString{
-		PayReq: daveInvoiceResp2.PaymentRequest,
-	}
-
-	decodedReq, err := dave.DecodePayReq(ctxb, davePayReq)
-	require.NoError(t.t, err)
+	daveInvoiceResp2 := dave.RPC.AddInvoice(daveInvoiceParams)
+	decodedReq := dave.RPC.DecodePayReq(daveInvoiceResp2.PaymentRequest)
 
 	if !private {
-		require.Equal(t.t, 0, len(decodedReq.RouteHints))
+		require.Len(ht, decodedReq.RouteHints, 0)
 		payReq := daveInvoiceResp2.PaymentRequest
-		_ = sendAndAssertSuccess(
-			t, net.Bob, &routerrpc.SendPaymentRequest{
-				PaymentRequest: payReq,
-				TimeoutSeconds: 60,
-				FeeLimitMsat:   noFeeLimitMsat,
-			},
-		)
+		ht.CompletePaymentRequests(bob, []string{payReq})
 		return
 	}
 
-	require.Equal(t.t, 1, len(decodedReq.RouteHints))
-	require.Equal(t.t, 1, len(decodedReq.RouteHints[0].HopHints))
+	require.Len(ht, decodedReq.RouteHints, 1)
+	require.Len(ht, decodedReq.RouteHints[0].HopHints, 1)
 
 	startingAlias := lnwire.ShortChannelID{
 		BlockHeight: 16_000_000,
@@ -344,14 +323,10 @@ func optionScidAliasScenario(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	daveHopHint := decodedReq.RouteHints[0].HopHints[0].ChanId
-	require.Equal(t.t, startingAlias.ToUint64(), daveHopHint)
+	require.Equal(ht, startingAlias.ToUint64(), daveHopHint)
 
-	_ = sendAndAssertSuccess(
-		t, net.Bob, &routerrpc.SendPaymentRequest{
-			PaymentRequest: daveInvoiceResp2.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
+	ht.CompletePaymentRequests(
+		bob, []string{daveInvoiceResp2.PaymentRequest},
 	)
 }
 

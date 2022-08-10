@@ -885,24 +885,76 @@ func (h *HarnessTest) OpenChannelAssertStream(srcNode,
 }
 
 // OpenChannel attempts to open a channel with the specified parameters
-// extended from Alice to Bob. Additionally, the following items are asserted,
-//   - 6 blocks will be mined so the channel will be announced if it's public.
-//   - the funding transaction should be found in the first block.
+// extended from Alice to Bob. Additionally, for public channels, it will mine
+// extra blocks so they are announced to the network. In specific, the
+// following items are asserted,
+//   - for non-zero conf channel, 1 blocks will be mined to confirm the funding
+//     tx.
 //   - both nodes should see the channel edge update in their network graph.
 //   - both nodes can report the status of the new channel from ListChannels.
+//   - extra blocks are mined if it's a public channel.
 func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
+	p OpenChannelParams) *lnrpc.ChannelPoint {
+
+	// First, open the channel without announcing it.
+	cp := h.OpenChannelNoAnnounce(alice, bob, p)
+
+	// If this is a private channel, there's no need to mine extra blocks
+	// since it will never be announced to the network.
+	if p.Private {
+		return cp
+	}
+
+	// Mine extra blocks to announce the channel.
+	if p.ZeroConf {
+		// For a zero-conf channel, no blocks have been mined so we
+		// need to mine 6 blocks.
+		//
+		// Mine 1 block to confirm the funding transaction.
+		h.MineBlocksAndAssertNumTxes(numBlocksOpenChannel, 1)
+	} else {
+		// For a regular channel, 1 block has already been mined to
+		// confirm the funding transaction, so we mine 5 blocks.
+		h.MineBlocks(numBlocksOpenChannel - 1)
+	}
+
+	return cp
+}
+
+// OpenChannelNoAnnounce attempts to open a channel with the specified
+// parameters extended from Alice to Bob without mining the necessary blocks to
+// announce the channel. Additionally, the following items are asserted,
+//   - for non-zero conf channel, 1 blocks will be mined to confirm the funding
+//     tx.
+//   - both nodes should see the channel edge update in their network graph.
+//   - both nodes can report the status of the new channel from ListChannels.
+func (h *HarnessTest) OpenChannelNoAnnounce(alice, bob *node.HarnessNode,
 	p OpenChannelParams) *lnrpc.ChannelPoint {
 
 	chanOpenUpdate := h.OpenChannelAssertStream(alice, bob, p)
 
-	// Mine 6 blocks, then wait for Alice's node to notify us that the
-	// channel has been opened. The funding transaction should be found
-	// within the first newly mined block. We mine 6 blocks so that in the
-	// case that the channel is public, it is announced to the network.
-	block := h.MineBlocksAndAssertNumTxes(numBlocksOpenChannel, 1)[0]
+	// Open a zero conf channel.
+	if p.ZeroConf {
+		return h.openChannelZeroConf(alice, bob, chanOpenUpdate)
+	}
+
+	// Open a non-zero conf channel.
+	return h.openChannel(alice, bob, chanOpenUpdate)
+}
+
+// openChannel attempts to open a channel with the specified parameters
+// extended from Alice to Bob. Additionally, the following items are asserted,
+//   - 1 block is mined and the funding transaction should be found in it.
+//   - both nodes should see the channel edge update in their network graph.
+//   - both nodes can report the status of the new channel from ListChannels.
+func (h *HarnessTest) openChannel(alice, bob *node.HarnessNode,
+	stream rpc.OpenChanClient) *lnrpc.ChannelPoint {
+
+	// Mine 1 block to confirm the funding transaction.
+	block := h.MineBlocksAndAssertNumTxes(1, 1)[0]
 
 	// Wait for the channel open event.
-	fundingChanPoint := h.WaitForChannelOpenEvent(chanOpenUpdate)
+	fundingChanPoint := h.WaitForChannelOpenEvent(stream)
 
 	// Check that the funding tx is found in the first block.
 	fundingTxID := h.GetChanPointFundingTxid(fundingChanPoint)
@@ -917,9 +969,27 @@ func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
 	h.AssertChannelExists(alice, fundingChanPoint)
 	h.AssertChannelExists(bob, fundingChanPoint)
 
-	// Finally, check the blocks are synced.
-	h.WaitForBlockchainSync(alice)
-	h.WaitForBlockchainSync(bob)
+	return fundingChanPoint
+}
+
+// openChannelZeroConf attempts to open a channel with the specified parameters
+// extended from Alice to Bob. Additionally, the following items are asserted,
+//   - both nodes should see the channel edge update in their network graph.
+//   - both nodes can report the status of the new channel from ListChannels.
+func (h *HarnessTest) openChannelZeroConf(alice, bob *node.HarnessNode,
+	stream rpc.OpenChanClient) *lnrpc.ChannelPoint {
+
+	// Wait for the channel open event.
+	fundingChanPoint := h.WaitForChannelOpenEvent(stream)
+
+	// Check that both alice and bob have seen the channel from their
+	// network topology.
+	h.AssertTopologyChannelOpen(alice, fundingChanPoint)
+	h.AssertTopologyChannelOpen(bob, fundingChanPoint)
+
+	// Finally, check that the channel can be seen in their ListChannels.
+	h.AssertChannelExists(alice, fundingChanPoint)
+	h.AssertChannelExists(bob, fundingChanPoint)
 
 	return fundingChanPoint
 }

@@ -421,4 +421,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "zero conf channel open",
 		TestFunc: testZeroConfChannelOpen,
 	},
+	{
+		Name:     "option scid alias",
+		TestFunc: testOptionScidAlias,
+	},
 }

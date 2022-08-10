@@ -57,10 +57,6 @@ var allTestCases = []*testCase{
 		test: testTaproot,
 	},
 	{
-		name: "option scid alias",
-		test: testOptionScidAlias,
-	},
-	{
 		name: "scid alias channel update",
 		test: testUpdateChannelPolicyScidAlias,
 	},

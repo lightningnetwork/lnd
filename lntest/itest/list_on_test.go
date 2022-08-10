@@ -397,4 +397,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "sendpayment amp invoice",
 		TestFunc: testSendPaymentAMPInvoice,
 	},
+	{
+		Name:     "sendpayment amp invoice repeat",
+		TestFunc: testSendPaymentAMPInvoiceRepeat,
+	},
 }

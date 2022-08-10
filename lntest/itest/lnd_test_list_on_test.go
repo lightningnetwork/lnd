@@ -49,10 +49,6 @@ var allTestCases = []*testCase{
 		test: testSendPaymentAMP,
 	},
 	{
-		name: "sendpayment amp invoice repeat",
-		test: testSendPaymentAMPInvoiceRepeat,
-	},
-	{
 		name: "forward interceptor",
 		test: testForwardInterceptorBasic,
 	},

@@ -199,167 +199,141 @@ func testSendPaymentAMPInvoiceCase(ht *lntemp.HarnessTest,
 
 // testSendPaymentAMPInvoiceRepeat tests that it's possible to pay an AMP
 // invoice multiple times by having the client generate a new setID each time.
-func testSendPaymentAMPInvoiceRepeat(net *lntest.NetworkHarness,
-	t *harnessTest) {
-
+func testSendPaymentAMPInvoiceRepeat(ht *lntemp.HarnessTest) {
 	// In this basic test, we'll only need two nodes as we want to
 	// primarily test the recurring payment feature. So we'll re-use the
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", nil)
 
 	// Send Carol enough coins to be able to open a channel to Dave.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
-	dave := net.NewNode(t.t, "Dave", nil)
-	defer shutdownAndAssert(net, t, dave)
-
-	// Before we start the test, we'll ensure both sides are connected to
-	// the funding flow can properly be executed.
-	net.EnsureConnected(t.t, carol, dave)
+	dave := ht.NewNode("Dave", nil)
 
 	// Set up an invoice subscription so we can be notified when Dave
 	// receives his repeated payments.
 	req := &lnrpc.InvoiceSubscription{}
-	ctxb := context.Background()
-	ctxc, cancelSubscription := context.WithCancel(ctxb)
-	invSubscription, err := dave.SubscribeInvoices(ctxc, req)
-	require.NoError(t.t, err)
-	defer cancelSubscription()
+	invSubscription := dave.RPC.SubscribeInvoices(req)
+
+	// Before we start the test, we'll ensure both sides are connected to
+	// the funding flow can properly be executed.
+	ht.EnsureConnected(carol, dave)
 
 	// Establish a channel between Carol and Dave.
 	chanAmt := btcutil.Amount(100_000)
-	chanPoint := openChannelAndAssert(
-		t, net, carol, dave,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	ht.OpenChannel(
+		carol, dave, lntemp.OpenChannelParams{Amt: chanAmt},
 	)
-	err = carol.WaitForNetworkChannelOpen(chanPoint)
-	require.NoError(t.t, err, "carol didn't report channel")
-	err = dave.WaitForNetworkChannelOpen(chanPoint)
-	require.NoError(t.t, err, "dave didn't report channel")
 
 	// Create an AMP invoice of a trivial amount, that we'll pay repeatedly
 	// in this integration test.
 	paymentAmt := 10000
-	addInvoiceResp, err := dave.AddInvoice(ctxb, &lnrpc.Invoice{
+	invoice := &lnrpc.Invoice{
 		Value: int64(paymentAmt),
 		IsAmp: true,
-	})
-	require.NoError(t.t, err)
+	}
+	addInvoiceResp := dave.RPC.AddInvoice(invoice)
 
 	// We should get an initial notification that the HTLC has been added.
-	rpcInvoice, err := invSubscription.Recv()
-	require.NoError(t.t, err)
-	require.False(t.t, rpcInvoice.Settled) // nolint:staticcheck
-	require.Equal(t.t, lnrpc.Invoice_OPEN, rpcInvoice.State)
-	require.Equal(t.t, int64(0), rpcInvoice.AmtPaidSat)
-	require.Equal(t.t, int64(0), rpcInvoice.AmtPaidMsat)
-
-	require.Equal(t.t, 0, len(rpcInvoice.Htlcs))
+	rpcInvoice := ht.ReceiveInvoiceUpdate(invSubscription)
+	require.False(ht, rpcInvoice.Settled) // nolint:staticcheck
+	require.Equal(ht, lnrpc.Invoice_OPEN, rpcInvoice.State)
+	require.Equal(ht, int64(0), rpcInvoice.AmtPaidSat)
+	require.Equal(ht, int64(0), rpcInvoice.AmtPaidMsat)
+	require.Equal(ht, 0, len(rpcInvoice.Htlcs))
 
 	// Now we'll use Carol to pay the invoice that Dave created.
-	_ = sendAndAssertSuccess(
-		t, carol, &routerrpc.SendPaymentRequest{
-			PaymentRequest: addInvoiceResp.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
+	ht.CompletePaymentRequests(
+		carol, []string{addInvoiceResp.PaymentRequest},
 	)
 
 	// Dave should get a notification that the invoice has been settled.
-	invoiceNtfn, err := invSubscription.Recv()
-	require.NoError(t.t, err)
+	invoiceNtfn := ht.ReceiveInvoiceUpdate(invSubscription)
 
 	// The notification should signal that the invoice is now settled, and
 	// should also include the set ID, and show the proper amount paid.
-	require.True(t.t, invoiceNtfn.Settled) // nolint:staticcheck
-	require.Equal(t.t, lnrpc.Invoice_SETTLED, invoiceNtfn.State)
-	require.Equal(t.t, paymentAmt, int(invoiceNtfn.AmtPaidSat))
-	require.Equal(t.t, 1, len(invoiceNtfn.AmpInvoiceState))
+	require.True(ht, invoiceNtfn.Settled) // nolint:staticcheck
+	require.Equal(ht, lnrpc.Invoice_SETTLED, invoiceNtfn.State)
+	require.Equal(ht, paymentAmt, int(invoiceNtfn.AmtPaidSat))
+	require.Equal(ht, 1, len(invoiceNtfn.AmpInvoiceState))
 	var firstSetID []byte
 	for setIDStr, ampState := range invoiceNtfn.AmpInvoiceState {
 		firstSetID, _ = hex.DecodeString(setIDStr)
-		require.Equal(t.t, lnrpc.InvoiceHTLCState_SETTLED, ampState.State)
+		require.Equal(ht, lnrpc.InvoiceHTLCState_SETTLED,
+			ampState.State)
 	}
 
 	// Pay the invoice again, we should get another notification that Dave
 	// has received another payment.
-	_ = sendAndAssertSuccess(
-		t, carol, &routerrpc.SendPaymentRequest{
-			PaymentRequest: addInvoiceResp.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
+	ht.CompletePaymentRequests(
+		carol, []string{addInvoiceResp.PaymentRequest},
 	)
 
 	// Dave should get another notification.
-	invoiceNtfn, err = invSubscription.Recv()
-	require.NoError(t.t, err)
+	invoiceNtfn = ht.ReceiveInvoiceUpdate(invSubscription)
 
 	// The invoice should still be shown as settled, and also include the
 	// information about this newly generated setID, showing 2x the amount
 	// paid.
-	require.True(t.t, invoiceNtfn.Settled) // nolint:staticcheck
-	require.Equal(t.t, paymentAmt*2, int(invoiceNtfn.AmtPaidSat))
+	require.True(ht, invoiceNtfn.Settled) // nolint:staticcheck
+	require.Equal(ht, paymentAmt*2, int(invoiceNtfn.AmtPaidSat))
 
 	var secondSetID []byte
 	for setIDStr, ampState := range invoiceNtfn.AmpInvoiceState {
 		secondSetID, _ = hex.DecodeString(setIDStr)
-		require.Equal(t.t, lnrpc.InvoiceHTLCState_SETTLED, ampState.State)
+		require.Equal(ht, lnrpc.InvoiceHTLCState_SETTLED,
+			ampState.State)
 	}
 
 	// The returned invoice should only include a single HTLC since we
 	// return the "projected" sub-invoice for a given setID.
-	require.Equal(t.t, 1, len(invoiceNtfn.Htlcs))
+	require.Equal(ht, 1, len(invoiceNtfn.Htlcs))
 
 	// However the AMP state index should show that there've been two
 	// repeated payments to this invoice so far.
-	require.Equal(t.t, 2, len(invoiceNtfn.AmpInvoiceState))
+	require.Equal(ht, 2, len(invoiceNtfn.AmpInvoiceState))
 
 	// Now we'll look up the invoice using the new LookupInvoice2 RPC call
 	// by the set ID of each of the invoices.
-	subInvoice1, err := dave.LookupInvoiceV2(ctxb, &invoicesrpc.LookupInvoiceMsg{
+	msg := &invoicesrpc.LookupInvoiceMsg{
 		InvoiceRef: &invoicesrpc.LookupInvoiceMsg_SetId{
 			SetId: firstSetID,
 		},
 		LookupModifier: invoicesrpc.LookupModifier_HTLC_SET_ONLY,
-	})
-	require.Nil(t.t, err)
-	subInvoice2, err := dave.LookupInvoiceV2(ctxb, &invoicesrpc.LookupInvoiceMsg{
+	}
+	subInvoice1 := dave.RPC.LookupInvoiceV2(msg)
+	msg = &invoicesrpc.LookupInvoiceMsg{
 		InvoiceRef: &invoicesrpc.LookupInvoiceMsg_SetId{
 			SetId: secondSetID,
 		},
 		LookupModifier: invoicesrpc.LookupModifier_HTLC_SET_ONLY,
-	})
-	require.Nil(t.t, err)
+	}
+	subInvoice2 := dave.RPC.LookupInvoiceV2(msg)
 
 	// Each invoice should only show a single HTLC present, as we passed
 	// the HTLC set only modifier.
-	require.Equal(t.t, 1, len(subInvoice1.Htlcs))
-	require.Equal(t.t, 1, len(subInvoice2.Htlcs))
+	require.Equal(ht, 1, len(subInvoice1.Htlcs))
+	require.Equal(ht, 1, len(subInvoice2.Htlcs))
 
 	// If we look up the same invoice, by its payment address, but now with
 	// the HTLC blank modifier, then none of them should be returned.
-	rootInvoice, err := dave.LookupInvoiceV2(ctxb, &invoicesrpc.LookupInvoiceMsg{
+	msg = &invoicesrpc.LookupInvoiceMsg{
 		InvoiceRef: &invoicesrpc.LookupInvoiceMsg_PaymentAddr{
 			PaymentAddr: addInvoiceResp.PaymentAddr,
 		},
 		LookupModifier: invoicesrpc.LookupModifier_HTLC_SET_BLANK,
-	})
-	require.Nil(t.t, err)
-	require.Equal(t.t, 0, len(rootInvoice.Htlcs))
+	}
+	rootInvoice := dave.RPC.LookupInvoiceV2(msg)
+	require.Equal(ht, 0, len(rootInvoice.Htlcs))
 
 	// If we look up the same invoice, by its payment address, but without
 	// that modified, then we should get all the relevant HTLCs.
-	rootInvoice, err = dave.LookupInvoiceV2(ctxb,
-		&invoicesrpc.LookupInvoiceMsg{
-			InvoiceRef: &invoicesrpc.LookupInvoiceMsg_PaymentAddr{
-				PaymentAddr: addInvoiceResp.PaymentAddr,
-			},
-		})
-	require.Nil(t.t, err)
-	require.Equal(t.t, 2, len(rootInvoice.Htlcs))
+	msg = &invoicesrpc.LookupInvoiceMsg{
+		InvoiceRef: &invoicesrpc.LookupInvoiceMsg_PaymentAddr{
+			PaymentAddr: addInvoiceResp.PaymentAddr,
+		},
+	}
+	rootInvoice = dave.RPC.LookupInvoiceV2(msg)
+	require.Equal(ht, 2, len(rootInvoice.Htlcs))
 
 	// Finally, we'll test that if we subscribe for notifications of
 	// settled invoices, we get a backlog, which includes the invoice we
@@ -368,19 +342,16 @@ func testSendPaymentAMPInvoiceRepeat(net *lntest.NetworkHarness,
 	req = &lnrpc.InvoiceSubscription{
 		SettleIndex: 1,
 	}
-	ctxc, cancelSubscription2 := context.WithCancel(ctxb)
-	invSub2, err := dave.SubscribeInvoices(ctxc, req)
-	require.NoError(t.t, err)
-	defer cancelSubscription2()
+	invSub2 := dave.RPC.SubscribeInvoices(req)
 
 	// The first invoice we get back should match the state of the invoice
 	// after our second payment: amt updated, but only a single HTLC shown
 	// through.
-	backlogInv, _ := invSub2.Recv()
-	require.Equal(t.t, 1, len(backlogInv.Htlcs))
-	require.Equal(t.t, 2, len(backlogInv.AmpInvoiceState))
-	require.True(t.t, backlogInv.Settled) // nolint:staticcheck
-	require.Equal(t.t, paymentAmt*2, int(backlogInv.AmtPaidSat))
+	backlogInv := ht.ReceiveInvoiceUpdate(invSub2)
+	require.Equal(ht, 1, len(backlogInv.Htlcs))
+	require.Equal(ht, 2, len(backlogInv.AmpInvoiceState))
+	require.True(ht, backlogInv.Settled) // nolint:staticcheck
+	require.Equal(ht, paymentAmt*2, int(backlogInv.AmtPaidSat))
 }
 
 // testSendPaymentAMP tests that we can send an AMP payment to a specified

@@ -356,12 +356,8 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntemp.HarnessTest) {
 
 // testSendPaymentAMP tests that we can send an AMP payment to a specified
 // destination using SendPaymentV2.
-func testSendPaymentAMP(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	ctx := newMppTestContext(t, net)
-	defer ctx.shutdownNodes()
-
+func testSendPaymentAMP(ht *lntemp.HarnessTest) {
+	mts := newMppTestScenario(ht)
 	const paymentAmt = btcutil.Amount(300000)
 
 	// Set up a network with three different paths Alice <-> Bob. Channel
@@ -374,43 +370,36 @@ func testSendPaymentAMP(net *lntest.NetworkHarness, t *harnessTest) {
 	//      \              /
 	//       \__ Dave ____/
 	//
-	ctx.openChannel(ctx.carol, ctx.bob, 135000)
-	ctx.openChannel(ctx.alice, ctx.carol, 235000)
-	ctx.openChannel(ctx.dave, ctx.bob, 135000)
-	ctx.openChannel(ctx.alice, ctx.dave, 135000)
-	ctx.openChannel(ctx.eve, ctx.bob, 135000)
-	ctx.openChannel(ctx.carol, ctx.eve, 135000)
-
-	defer ctx.closeChannels()
-
-	ctx.waitForChannels()
+	mppReq := &mppOpenChannelRequest{
+		amtAliceCarol: 235000,
+		amtAliceDave:  135000,
+		amtCarolBob:   135000,
+		amtCarolEve:   135000,
+		amtDaveBob:    135000,
+		amtEveBob:     135000,
+	}
+	mts.openChannels(mppReq)
+	chanPointAliceDave := mts.channelPoints[1]
 
 	// Increase Dave's fee to make the test deterministic. Otherwise it
 	// would be unpredictable whether pathfinding would go through Charlie
 	// or Dave for the first shard.
-	_, err := ctx.dave.UpdateChannelPolicy(
-		context.Background(),
-		&lnrpc.PolicyUpdateRequest{
-			Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
-			BaseFeeMsat:   500000,
-			FeeRate:       0.001,
-			TimeLockDelta: 40,
-		},
-	)
-	if err != nil {
-		t.Fatalf("dave policy update: %v", err)
-	}
+	expectedPolicy := mts.updateDaveGlobalPolicy()
 
-	payment := sendAndAssertSuccess(
-		t, ctx.alice, &routerrpc.SendPaymentRequest{
-			Dest:           ctx.bob.PubKey[:],
-			Amt:            int64(paymentAmt),
-			FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-			Amp:            true,
-		},
+	// Make sure Alice has heard it.
+	ht.AssertChannelPolicyUpdate(
+		mts.alice, mts.dave, expectedPolicy, chanPointAliceDave, false,
 	)
+
+	sendReq := &routerrpc.SendPaymentRequest{
+		Dest:           mts.bob.PubKey[:],
+		Amt:            int64(paymentAmt),
+		FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+		Amp:            true,
+	}
+	payment := ht.SendPaymentAssertSettled(mts.alice, sendReq)
 
 	// Check that Alice split the payment in at least three shards. Because
 	// the hand-off of the htlc to the link is asynchronous (via a mailbox),
@@ -427,56 +416,51 @@ func testSendPaymentAMP(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	const minExpectedShards = 3
-	if succeeded < minExpectedShards {
-		t.Fatalf("expected at least %v shards, but got %v",
-			minExpectedShards, succeeded)
-	}
+	require.GreaterOrEqual(ht, succeeded, minExpectedShards,
+		"expected num of shards not reached")
 
-	// Fetch Bob's invoices.
-	invoiceResp, err := ctx.bob.ListInvoices(
-		ctxb, &lnrpc.ListInvoiceRequest{},
-	)
-	require.NoError(t.t, err)
-
-	// There should only be one invoice.
-	require.Equal(t.t, 1, len(invoiceResp.Invoices))
-	rpcInvoice := invoiceResp.Invoices[0]
+	// Fetch Bob's invoices. There should only be one invoice.
+	invoices := ht.AssertNumInvoices(mts.bob, 1)
+	rpcInvoice := invoices[0]
 
 	// Assert that the invoice is settled for the total payment amount and
 	// has the correct payment address.
-	require.True(t.t, rpcInvoice.Settled) // nolint:staticcheck
-	require.Equal(t.t, lnrpc.Invoice_SETTLED, rpcInvoice.State)
-	require.Equal(t.t, int64(paymentAmt), rpcInvoice.AmtPaidSat)
-	require.Equal(t.t, int64(paymentAmt*1000), rpcInvoice.AmtPaidMsat)
+	require.True(ht, rpcInvoice.Settled) // nolint:staticcheck
+	require.Equal(ht, lnrpc.Invoice_SETTLED, rpcInvoice.State)
+	require.Equal(ht, int64(paymentAmt), rpcInvoice.AmtPaidSat)
+	require.Equal(ht, int64(paymentAmt*1000), rpcInvoice.AmtPaidMsat)
 
 	// Finally, assert that the same set id is recorded for each htlc, and
 	// that the preimage hash pair is valid.
 	var setID []byte
-	require.Equal(t.t, succeeded, len(rpcInvoice.Htlcs))
+	require.Equal(ht, succeeded, len(rpcInvoice.Htlcs))
 	for _, htlc := range rpcInvoice.Htlcs {
-		require.NotNil(t.t, htlc.Amp)
+		require.NotNil(ht, htlc.Amp)
 		if setID == nil {
 			setID = make([]byte, 32)
 			copy(setID, htlc.Amp.SetId)
 		}
-		require.Equal(t.t, setID, htlc.Amp.SetId)
+		require.Equal(ht, setID, htlc.Amp.SetId)
 
 		// Parse the child hash and child preimage, and assert they are
 		// well-formed.
 		childHash, err := lntypes.MakeHash(htlc.Amp.Hash)
-		require.NoError(t.t, err)
+		require.NoError(ht, err)
 		childPreimage, err := lntypes.MakePreimage(htlc.Amp.Preimage)
-		require.NoError(t.t, err)
+		require.NoError(ht, err)
 
 		// Assert that the preimage actually matches the hashes.
 		validPreimage := childPreimage.Matches(childHash)
-		require.True(t.t, validPreimage)
+		require.True(ht, validPreimage)
 	}
 
 	// The set ID we extract above should be shown in the final settled
 	// state.
 	ampState := rpcInvoice.AmpInvoiceState[hex.EncodeToString(setID)]
-	require.Equal(t.t, lnrpc.InvoiceHTLCState_SETTLED, ampState.State)
+	require.Equal(ht, lnrpc.InvoiceHTLCState_SETTLED, ampState.State)
+
+	// Finally, close all channels.
+	mts.closeChannels()
 }
 
 func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {

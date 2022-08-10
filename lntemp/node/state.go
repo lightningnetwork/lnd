@@ -241,6 +241,14 @@ func (s *State) updatePaymentStats() {
 	}
 	resp := s.rpc.ListPayments(req)
 
+	// Exit early when the there's no payment.
+	//
+	// NOTE: we need to exit early here because when there's no invoice the
+	// `LastOffsetIndex` will be zero.
+	if len(resp.Payments) == 0 {
+		return
+	}
+
 	s.Payment.LastIndexOffset = resp.LastIndexOffset
 	for _, payment := range resp.Payments {
 		if payment.Status == lnrpc.Payment_FAILED ||
@@ -260,6 +268,14 @@ func (s *State) updateInvoiceStats() {
 		IndexOffset:    s.Invoice.LastIndexOffset,
 	}
 	resp := s.rpc.ListInvoices(req)
+
+	// Exit early when the there's no invoice.
+	//
+	// NOTE: we need to exit early here because when there's no invoice the
+	// `LastOffsetIndex` will be zero.
+	if len(resp.Invoices) == 0 {
+		return
+	}
 
 	s.Invoice.LastIndexOffset = resp.LastIndexOffset
 	for _, invoice := range resp.Invoices {

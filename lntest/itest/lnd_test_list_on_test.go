@@ -45,10 +45,6 @@ var allTestCases = []*testCase{
 		test: testSendToRouteAMP,
 	},
 	{
-		name: "sendpayment amp",
-		test: testSendPaymentAMP,
-	},
-	{
 		name: "forward interceptor",
 		test: testForwardInterceptorBasic,
 	},

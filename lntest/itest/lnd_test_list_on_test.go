@@ -41,10 +41,6 @@ var allTestCases = []*testCase{
 		test: testSignPsbt,
 	},
 	{
-		name: "sendtoroute amp",
-		test: testSendToRouteAMP,
-	},
-	{
 		name: "forward interceptor",
 		test: testForwardInterceptorBasic,
 	},

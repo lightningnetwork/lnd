@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -2075,5 +2076,60 @@ func (h *HarnessTest) ReceiveSendToRouteUpdate(
 
 	case updateMsg := <-chanMsg:
 		return updateMsg, nil
+	}
+}
+
+// AssertInvoiceEqual asserts that two lnrpc.Invoices are equivalent. A custom
+// comparison function is defined for these tests, since proto message returned
+// from unary and streaming RPCs (as of protobuf 1.23.0 and grpc 1.29.1) aren't
+// consistent with the private fields set on the messages. As a result, we
+// avoid using require.Equal and test only the actual data members.
+func (h *HarnessTest) AssertInvoiceEqual(a, b *lnrpc.Invoice) {
+	// Ensure the HTLCs are sorted properly before attempting to compare.
+	sort.Slice(a.Htlcs, func(i, j int) bool {
+		return a.Htlcs[i].ChanId < a.Htlcs[j].ChanId
+	})
+	sort.Slice(b.Htlcs, func(i, j int) bool {
+		return b.Htlcs[i].ChanId < b.Htlcs[j].ChanId
+	})
+
+	require.Equal(h, a.Memo, b.Memo)
+	require.Equal(h, a.RPreimage, b.RPreimage)
+	require.Equal(h, a.RHash, b.RHash)
+	require.Equal(h, a.Value, b.Value)
+	require.Equal(h, a.ValueMsat, b.ValueMsat)
+	require.Equal(h, a.CreationDate, b.CreationDate)
+	require.Equal(h, a.SettleDate, b.SettleDate)
+	require.Equal(h, a.PaymentRequest, b.PaymentRequest)
+	require.Equal(h, a.DescriptionHash, b.DescriptionHash)
+	require.Equal(h, a.Expiry, b.Expiry)
+	require.Equal(h, a.FallbackAddr, b.FallbackAddr)
+	require.Equal(h, a.CltvExpiry, b.CltvExpiry)
+	require.Equal(h, a.RouteHints, b.RouteHints)
+	require.Equal(h, a.Private, b.Private)
+	require.Equal(h, a.AddIndex, b.AddIndex)
+	require.Equal(h, a.SettleIndex, b.SettleIndex)
+	require.Equal(h, a.AmtPaidSat, b.AmtPaidSat)
+	require.Equal(h, a.AmtPaidMsat, b.AmtPaidMsat)
+	require.Equal(h, a.State, b.State)
+	require.Equal(h, a.Features, b.Features)
+	require.Equal(h, a.IsKeysend, b.IsKeysend)
+	require.Equal(h, a.PaymentAddr, b.PaymentAddr)
+	require.Equal(h, a.IsAmp, b.IsAmp)
+
+	require.Equal(h, len(a.Htlcs), len(b.Htlcs))
+	for i := range a.Htlcs {
+		htlcA, htlcB := a.Htlcs[i], b.Htlcs[i]
+		require.Equal(h, htlcA.ChanId, htlcB.ChanId)
+		require.Equal(h, htlcA.HtlcIndex, htlcB.HtlcIndex)
+		require.Equal(h, htlcA.AmtMsat, htlcB.AmtMsat)
+		require.Equal(h, htlcA.AcceptHeight, htlcB.AcceptHeight)
+		require.Equal(h, htlcA.AcceptTime, htlcB.AcceptTime)
+		require.Equal(h, htlcA.ResolveTime, htlcB.ResolveTime)
+		require.Equal(h, htlcA.ExpiryHeight, htlcB.ExpiryHeight)
+		require.Equal(h, htlcA.State, htlcB.State)
+		require.Equal(h, htlcA.CustomRecords, htlcB.CustomRecords)
+		require.Equal(h, htlcA.MppTotalAmtMsat, htlcB.MppTotalAmtMsat)
+		require.Equal(h, htlcA.Amp, htlcB.Amp)
 	}
 }

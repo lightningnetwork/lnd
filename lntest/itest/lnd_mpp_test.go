@@ -1,18 +1,14 @@
 package itest
 
 import (
-	"context"
-	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -160,138 +156,6 @@ func testSendToRouteMultiPath(ht *lntemp.HarnessTest) {
 
 	// Finally, close all channels.
 	mts.closeChannels()
-}
-
-type mppTestContext struct {
-	t   *harnessTest
-	net *lntest.NetworkHarness
-
-	// Keep a list of all our active channels.
-	networkChans      []*lnrpc.ChannelPoint
-	closeChannelFuncs []func()
-
-	alice, bob, carol, dave, eve *lntest.HarnessNode
-	nodes                        []*lntest.HarnessNode
-}
-
-func newMppTestContext(t *harnessTest,
-	net *lntest.NetworkHarness) *mppTestContext {
-
-	alice := net.NewNode(t.t, "alice", nil)
-	bob := net.NewNode(t.t, "bob", []string{"--accept-amp"})
-
-	// Create a five-node context consisting of Alice, Bob and three new
-	// nodes.
-	carol := net.NewNode(t.t, "carol", nil)
-	dave := net.NewNode(t.t, "dave", nil)
-	eve := net.NewNode(t.t, "eve", nil)
-
-	// Connect nodes to ensure propagation of channels.
-	nodes := []*lntest.HarnessNode{alice, bob, carol, dave, eve}
-	for i := 0; i < len(nodes); i++ {
-		for j := i + 1; j < len(nodes); j++ {
-			net.EnsureConnected(t.t, nodes[i], nodes[j])
-		}
-	}
-
-	ctx := mppTestContext{
-		t:     t,
-		net:   net,
-		alice: alice,
-		bob:   bob,
-		carol: carol,
-		dave:  dave,
-		eve:   eve,
-		nodes: nodes,
-	}
-
-	return &ctx
-}
-
-// openChannel is a helper to open a channel from->to.
-func (c *mppTestContext) openChannel(from, to *lntest.HarnessNode,
-	chanSize btcutil.Amount) {
-
-	c.net.SendCoins(c.t.t, btcutil.SatoshiPerBitcoin, from)
-
-	chanPoint := openChannelAndAssert(
-		c.t, c.net, from, to,
-		lntest.OpenChannelParams{Amt: chanSize},
-	)
-
-	c.closeChannelFuncs = append(c.closeChannelFuncs, func() {
-		closeChannelAndAssert(c.t, c.net, from, chanPoint, false)
-	})
-
-	c.networkChans = append(c.networkChans, chanPoint)
-}
-
-func (c *mppTestContext) closeChannels() {
-	for _, f := range c.closeChannelFuncs {
-		f()
-	}
-}
-
-func (c *mppTestContext) shutdownNodes() {
-	shutdownAndAssert(c.net, c.t, c.alice)
-	shutdownAndAssert(c.net, c.t, c.bob)
-	shutdownAndAssert(c.net, c.t, c.carol)
-	shutdownAndAssert(c.net, c.t, c.dave)
-	shutdownAndAssert(c.net, c.t, c.eve)
-}
-
-func (c *mppTestContext) waitForChannels() {
-	// Wait for all nodes to have seen all channels.
-	for _, chanPoint := range c.networkChans {
-		for _, node := range c.nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-			if err != nil {
-				c.t.Fatalf("unable to get txid: %v", err)
-			}
-			point := wire.OutPoint{
-				Hash:  *txid,
-				Index: chanPoint.OutputIndex,
-			}
-
-			err = node.WaitForNetworkChannelOpen(chanPoint)
-			if err != nil {
-				c.t.Fatalf("(%v:%d): timeout waiting for "+
-					"channel(%s) open: %v",
-					node.Cfg.Name, node.NodeID, point, err)
-			}
-		}
-	}
-}
-
-// Helper function for Alice to build a route from pubkeys.
-func (c *mppTestContext) buildRoute(ctxb context.Context, amt btcutil.Amount,
-	sender *lntest.HarnessNode, hops []*lntest.HarnessNode) (*lnrpc.Route,
-	error) {
-
-	rpcHops := make([][]byte, 0, len(hops))
-	for _, hop := range hops {
-		k := hop.PubKeyStr
-		pubkey, err := route.NewVertexFromStr(k)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing %v: %v",
-				k, err)
-		}
-		rpcHops = append(rpcHops, pubkey[:])
-	}
-
-	req := &routerrpc.BuildRouteRequest{
-		AmtMsat:        int64(amt * 1000),
-		FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
-		HopPubkeys:     rpcHops,
-	}
-
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	routeResp, err := sender.RouterClient.BuildRoute(ctxt, req)
-	if err != nil {
-		return nil, err
-	}
-
-	return routeResp.Route, nil
 }
 
 // mppTestScenario defines a test scenario used for testing MPP-related tests.

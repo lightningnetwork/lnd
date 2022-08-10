@@ -188,7 +188,10 @@ func newMppTestScenario(ht *lntemp.HarnessTest) *mppTestScenario {
 
 	// Create a five-node context consisting of Alice, Bob and three new
 	// nodes.
-	carol := ht.NewNode("carol", []string{"--maxpendingchannels=2"})
+	carol := ht.NewNode("carol", []string{
+		"--maxpendingchannels=2",
+		"--accept-amp",
+	})
 	dave := ht.NewNode("dave", nil)
 	eve := ht.NewNode("eve", nil)
 

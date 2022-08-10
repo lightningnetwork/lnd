@@ -41,10 +41,6 @@ var allTestCases = []*testCase{
 		test: testSignPsbt,
 	},
 	{
-		name: "forward interceptor",
-		test: testForwardInterceptorBasic,
-	},
-	{
 		name: "wallet import account",
 		test: testWalletImportAccount,
 	},

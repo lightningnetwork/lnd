@@ -413,4 +413,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "forward interceptor dedup htlcs",
 		TestFunc: testForwardInterceptorDedupHtlc,
 	},
+	{
+		Name:     "forward interceptor",
+		TestFunc: testForwardInterceptorBasic,
+	},
 }

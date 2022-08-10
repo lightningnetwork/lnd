@@ -417,4 +417,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "forward interceptor",
 		TestFunc: testForwardInterceptorBasic,
 	},
+	{
+		Name:     "zero conf channel open",
+		TestFunc: testZeroConfChannelOpen,
+	},
 }

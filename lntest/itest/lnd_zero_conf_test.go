@@ -10,6 +10,9 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntemp/rpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -18,9 +21,7 @@ import (
 
 // testZeroConfChannelOpen tests that opening a zero-conf channel works and
 // sending payments also works.
-func testZeroConfChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testZeroConfChannelOpen(ht *lntemp.HarnessTest) {
 	// Since option-scid-alias is opt-in, the provided harness nodes will
 	// not have the feature bit set. Also need to set anchors as those are
 	// default-off in itests.
@@ -30,93 +31,65 @@ func testZeroConfChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
 		"--protocol.anchors",
 	}
 
-	carol := net.NewNode(t.t, "Carol", scidAliasArgs)
-	defer shutdownAndAssert(net, t, carol)
+	bob := ht.Bob
+	carol := ht.NewNode("Carol", scidAliasArgs)
+	ht.EnsureConnected(bob, carol)
 
 	// We'll open a regular public channel between Bob and Carol here.
-	net.EnsureConnected(t.t, net.Bob, carol)
-
 	chanAmt := btcutil.Amount(1_000_000)
-
-	fundingPoint := openChannelAndAssert(
-		t, net, net.Bob, carol,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
-	)
-
-	// Wait for both Bob and Carol to view the channel as active.
-	err := net.Bob.WaitForNetworkChannelOpen(fundingPoint)
-	require.NoError(t.t, err, "bob didn't report channel")
-	err = carol.WaitForNetworkChannelOpen(fundingPoint)
-	require.NoError(t.t, err, "carol didn't report channel")
+	p := lntemp.OpenChannelParams{
+		Amt: chanAmt,
+	}
+	chanPoint := ht.OpenChannel(bob, carol, p)
 
 	// Spin-up Dave so Carol can open a zero-conf channel to him.
-	dave := net.NewNode(t.t, "Dave", scidAliasArgs)
-	defer shutdownAndAssert(net, t, dave)
+	dave := ht.NewNode("Dave", scidAliasArgs)
 
 	// We'll give Carol some coins in order to fund the channel.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// Ensure that both Carol and Dave are connected.
-	net.EnsureConnected(t.t, carol, dave)
+	ht.EnsureConnected(carol, dave)
 
 	// Setup a ChannelAcceptor for Dave.
-	ctxc, cancel := context.WithCancel(ctxb)
-	acceptStream, err := dave.ChannelAcceptor(ctxc)
-	require.NoError(t.t, err)
-	go acceptChannel(t.t, true, acceptStream)
+	acceptStream, cancel := dave.RPC.ChannelAcceptor()
+	go acceptChannel(ht.T, true, acceptStream)
 
 	// Open a private zero-conf anchors channel of 1M satoshis.
-	params := lntest.OpenChannelParams{
+	params := lntemp.OpenChannelParams{
 		Amt:            chanAmt,
 		Private:        true,
 		CommitmentType: lnrpc.CommitmentType_ANCHORS,
 		ZeroConf:       true,
 	}
-	chanOpenUpdate := openChannelStream(t, net, carol, dave, params)
+	stream := ht.OpenChannelAssertStream(carol, dave, params)
 
 	// Remove the ChannelAcceptor.
 	cancel()
 
 	// We should receive the OpenStatusUpdate_ChanOpen update without
 	// having to mine any blocks.
-	fundingPoint2, err := net.WaitForChannelOpen(chanOpenUpdate)
-	require.NoError(t.t, err, "error while waiting for channel open")
+	fundingPoint2 := ht.WaitForChannelOpenEvent(stream)
 
-	err = carol.WaitForNetworkChannelOpen(fundingPoint2)
-	require.NoError(t.t, err, "carol didn't report channel")
-	err = dave.WaitForNetworkChannelOpen(fundingPoint2)
-	require.NoError(t.t, err, "dave didn't report channel")
+	ht.AssertTopologyChannelOpen(carol, fundingPoint2)
+	ht.AssertTopologyChannelOpen(dave, fundingPoint2)
 
 	// Attempt to send a 10K satoshi payment from Carol to Dave.
 	daveInvoiceParams := &lnrpc.Invoice{
 		Value:   int64(10_000),
 		Private: true,
 	}
-	daveInvoiceResp, err := dave.AddInvoice(
-		ctxb, daveInvoiceParams,
-	)
-	require.NoError(t.t, err, "unable to add invoice")
-	_ = sendAndAssertSuccess(
-		t, carol, &routerrpc.SendPaymentRequest{
-			PaymentRequest: daveInvoiceResp.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
+	daveInvoiceResp := dave.RPC.AddInvoice(daveInvoiceParams)
+	ht.CompletePaymentRequests(
+		carol, []string{daveInvoiceResp.PaymentRequest},
 	)
 
 	// Now attempt to send a multi-hop payment from Bob to Dave. This tests
 	// that Dave issues an invoice with an alias SCID that Carol knows and
 	// uses to forward to Dave.
-	daveInvoiceResp2, err := dave.AddInvoice(ctxb, daveInvoiceParams)
-	require.NoError(t.t, err, "unable to add invoice")
-	_ = sendAndAssertSuccess(
-		t, net.Bob, &routerrpc.SendPaymentRequest{
-			PaymentRequest: daveInvoiceResp2.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
+	daveInvoiceResp2 := dave.RPC.AddInvoice(daveInvoiceParams)
+	ht.CompletePaymentRequests(
+		bob, []string{daveInvoiceResp2.PaymentRequest},
 	)
 
 	// Check that Dave has a zero-conf alias SCID in the graph.
@@ -124,121 +97,94 @@ func testZeroConfChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
 		IncludeUnannounced: true,
 	}
 
-	err = waitForZeroConfGraphChange(ctxb, dave, descReq, true)
-	require.NoError(t.t, err)
+	err := waitForZeroConfGraphChange(dave, descReq, true)
+	require.NoError(ht, err)
 
 	// We'll now confirm the zero-conf channel between Carol and Dave and
 	// assert that sending is still possible.
-	block := mineBlocks(t, net, 6, 1)[0]
+	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
 
 	// Dave should still have the alias edge in his db.
-	err = waitForZeroConfGraphChange(ctxb, dave, descReq, true)
-	require.NoError(t.t, err)
+	err = waitForZeroConfGraphChange(dave, descReq, true)
+	require.NoError(ht, err)
 
-	fundingTxID, err := lnrpc.GetChanPointFundingTxid(fundingPoint2)
-	require.NoError(t.t, err, "unable to get txid")
+	fundingTxID := ht.GetChanPointFundingTxid(fundingPoint2)
 
-	assertTxInBlock(t, block, fundingTxID)
+	ht.Miner.AssertTxInBlock(block, fundingTxID)
 
-	daveInvoiceResp3, err := dave.AddInvoice(
-		ctxb, daveInvoiceParams,
-	)
-	require.NoError(t.t, err, "unable to add invoice")
-	_ = sendAndAssertSuccess(
-		t, net.Bob, &routerrpc.SendPaymentRequest{
-			PaymentRequest: daveInvoiceResp3.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
+	daveInvoiceResp3 := dave.RPC.AddInvoice(daveInvoiceParams)
+	ht.CompletePaymentRequests(
+		bob, []string{daveInvoiceResp3.PaymentRequest},
 	)
 
 	// Eve will now initiate a zero-conf channel with Carol. This tests
 	// that the ChannelUpdates sent are correct since they will be
 	// referring to different alias SCIDs.
-	eve := net.NewNode(t.t, "Eve", scidAliasArgs)
-	defer shutdownAndAssert(net, t, eve)
-
-	net.EnsureConnected(t.t, eve, carol)
+	eve := ht.NewNode("Eve", scidAliasArgs)
+	ht.EnsureConnected(eve, carol)
 
 	// Give Eve some coins to fund the channel.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, eve)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, eve)
 
 	// Setup a ChannelAcceptor.
-	ctxc, cancel = context.WithCancel(ctxb)
-	acceptStream, err = carol.ChannelAcceptor(ctxc)
-	require.NoError(t.t, err)
-	go acceptChannel(t.t, true, acceptStream)
+	acceptStream, cancel = carol.RPC.ChannelAcceptor()
+	go acceptChannel(ht.T, true, acceptStream)
 
 	// We'll open a public zero-conf anchors channel of 1M satoshis.
 	params.Private = false
-	chanOpenUpdate2 := openChannelStream(t, net, eve, carol, params)
+	stream = ht.OpenChannelAssertStream(eve, carol, params)
 
 	// Remove the ChannelAcceptor.
 	cancel()
 
 	// Wait to receive the OpenStatusUpdate_ChanOpen update.
-	fundingPoint3, err := net.WaitForChannelOpen(chanOpenUpdate2)
-	require.NoError(t.t, err, "error while waiting for channel open")
+	fundingPoint3 := ht.WaitForChannelOpenEvent(stream)
 
-	err = eve.WaitForNetworkChannelOpen(fundingPoint3)
-	require.NoError(t.t, err, "eve didn't report channel")
-	err = carol.WaitForNetworkChannelOpen(fundingPoint3)
-	require.NoError(t.t, err, "carol didn't report channel")
+	ht.AssertTopologyChannelOpen(eve, fundingPoint3)
+	ht.AssertTopologyChannelOpen(carol, fundingPoint3)
 
 	// Attempt to send a 20K satoshi payment from Eve to Dave.
 	daveInvoiceParams.Value = int64(20_000)
-	daveInvoiceResp4, err := dave.AddInvoice(
-		ctxb, daveInvoiceParams,
-	)
-	require.NoError(t.t, err, "unable to add invoice")
-	_ = sendAndAssertSuccess(
-		t, eve, &routerrpc.SendPaymentRequest{
-			PaymentRequest: daveInvoiceResp4.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
+	daveInvoiceResp4 := dave.RPC.AddInvoice(daveInvoiceParams)
+	ht.CompletePaymentRequests(
+		eve, []string{daveInvoiceResp4.PaymentRequest},
 	)
 
 	// Assert that Eve has stored the zero-conf alias in her graph.
-	err = waitForZeroConfGraphChange(ctxb, eve, descReq, true)
-	require.NoError(t.t, err)
+	err = waitForZeroConfGraphChange(eve, descReq, true)
+	require.NoError(ht, err, "expected to not receive error")
 
 	// We'll confirm the zero-conf channel between Eve and Carol and assert
 	// that sending is still possible.
-	block = mineBlocks(t, net, 6, 1)[0]
+	block = ht.MineBlocksAndAssertNumTxes(6, 1)[0]
 
-	fundingTxID, err = lnrpc.GetChanPointFundingTxid(fundingPoint3)
-	require.NoError(t.t, err, "unable to get txid")
-
-	assertTxInBlock(t, block, fundingTxID)
+	fundingTxID = ht.GetChanPointFundingTxid(fundingPoint3)
+	ht.Miner.AssertTxInBlock(block, fundingTxID)
 
 	// Wait until Eve's ZeroConf channel is replaced by the confirmed SCID
 	// in her graph.
-	err = waitForZeroConfGraphChange(ctxb, eve, descReq, false)
-	require.NoError(t.t, err, "expected to not receive error")
+	err = waitForZeroConfGraphChange(eve, descReq, false)
+	require.NoError(ht, err, "expected to not receive error")
 
 	// Attempt to send a 6K satoshi payment from Dave to Eve.
 	eveInvoiceParams := &lnrpc.Invoice{
 		Value:   int64(6_000),
 		Private: true,
 	}
-	eveInvoiceResp, err := eve.AddInvoice(ctxb, eveInvoiceParams)
-	require.NoError(t.t, err, "unable to add invoice")
+	eveInvoiceResp := eve.RPC.AddInvoice(eveInvoiceParams)
 
 	// Assert that route hints is empty since the channel is public.
-	payReq, err := eve.DecodePayReq(ctxb, &lnrpc.PayReqString{
-		PayReq: eveInvoiceResp.PaymentRequest,
-	})
-	require.NoError(t.t, err)
-	require.True(t.t, len(payReq.RouteHints) == 0)
+	payReq := eve.RPC.DecodePayReq(eveInvoiceResp.PaymentRequest)
+	require.Len(ht, payReq.RouteHints, 0)
 
-	_ = sendAndAssertSuccess(
-		t, dave, &routerrpc.SendPaymentRequest{
-			PaymentRequest: eveInvoiceResp.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
+	// Make sure Dave is aware of this channel and send the payment.
+	ht.AssertTopologyChannelOpen(dave, fundingPoint3)
+	ht.CompletePaymentRequests(
+		dave, []string{eveInvoiceResp.PaymentRequest},
 	)
+
+	// Close standby node's channels.
+	ht.CloseChannel(bob, chanPoint)
 }
 
 // testOptionScidAlias checks that opening an option_scid_alias channel-type
@@ -413,15 +359,11 @@ func optionScidAliasScenario(net *lntest.NetworkHarness, t *harnessTest,
 // the graph after confirmation or not. The expect argument denotes whether the
 // zero-conf is expected in the graph or not. There should always be at least
 // one channel of the passed HarnessNode, zero-conf or not.
-func waitForZeroConfGraphChange(ctxb context.Context, n *lntest.HarnessNode,
+func waitForZeroConfGraphChange(hn *node.HarnessNode,
 	req *lnrpc.ChannelGraphRequest, expect bool) error {
 
 	return wait.NoError(func() error {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		graph, err := n.DescribeGraph(ctxt, req)
-		if err != nil {
-			return err
-		}
+		graph := hn.RPC.DescribeGraph(req)
 
 		if expect {
 			// If we expect a zero-conf channel, we'll assert that
@@ -447,8 +389,8 @@ func waitForZeroConfGraphChange(ctxb context.Context, n *lntest.HarnessNode,
 
 				// Check if we are party to the zero-conf
 				// channel.
-				if e.Node1Pub == n.PubKeyStr ||
-					e.Node2Pub == n.PubKeyStr {
+				if e.Node1Pub == hn.PubKeyStr ||
+					e.Node2Pub == hn.PubKeyStr {
 
 					return nil
 				}
@@ -474,8 +416,8 @@ func waitForZeroConfGraphChange(ctxb context.Context, n *lntest.HarnessNode,
 			}
 
 			// If we are part of this channel, exit gracefully.
-			if e.Node1Pub == n.PubKeyStr ||
-				e.Node2Pub == n.PubKeyStr {
+			if e.Node1Pub == hn.PubKeyStr ||
+				e.Node2Pub == hn.PubKeyStr {
 
 				return nil
 			}
@@ -1067,4 +1009,23 @@ func testOptionScidUpgrade(net *lntest.NetworkHarness, t *harnessTest) {
 			FeeLimitMsat:   noFeeLimitMsat,
 		},
 	)
+}
+
+// acceptChannel is used to accept a single channel that comes across. This
+// should be run in a goroutine and is used to test nodes with the zero-conf
+// feature bit.
+func acceptChannel(t *testing.T, zeroConf bool, stream rpc.AcceptorClient) {
+
+	t.Helper()
+
+	req, err := stream.Recv()
+	require.NoError(t, err)
+
+	resp := &lnrpc.ChannelAcceptResponse{
+		Accept:        true,
+		PendingChanId: req.PendingChanId,
+		ZeroConf:      zeroConf,
+	}
+	err = stream.Send(resp)
+	require.NoError(t, err)
 }

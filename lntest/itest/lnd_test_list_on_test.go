@@ -57,10 +57,6 @@ var allTestCases = []*testCase{
 		test: testTaproot,
 	},
 	{
-		name: "zero conf channel open",
-		test: testZeroConfChannelOpen,
-	},
-	{
 		name: "option scid alias",
 		test: testOptionScidAlias,
 	},

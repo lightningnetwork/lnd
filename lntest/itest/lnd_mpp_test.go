@@ -488,7 +488,8 @@ func (m *mppTestScenario) buildRoute(amt btcutil.Amount,
 }
 
 // updatePolicy updates a Dave's global channel policy and returns the expected
-// policy for further check.
+// policy for further check. It changes Dave's `FeeBaseMsat` from 1000 msat to
+// 500,000 msat, and `FeeProportionalMillonths` from 1 msat to 1000 msat.
 func (m *mppTestScenario) updateDaveGlobalPolicy() *lnrpc.RoutingPolicy {
 	const (
 		baseFeeMsat = 500_000

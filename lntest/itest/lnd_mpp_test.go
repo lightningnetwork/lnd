@@ -439,6 +439,15 @@ func (m *mppTestScenario) closeChannels() {
 		return
 	}
 
+	// TODO(yy): remove the sleep once the following bug is fixed. When the
+	// payment is reported as settled by Alice, it's expected the
+	// commitment dance is finished and all subsequent states have been
+	// updated. Yet we'd receive the error `cannot co-op close channel with
+	// active htlcs` or `link failed to shutdown` if we close the channel.
+	// We need to investigate the order of settling the payments and
+	// updating commitments to understand and fix .
+	time.Sleep(2 * time.Second)
+
 	// Close all channels without mining the closing transactions.
 	m.ht.CloseChannelAssertPending(m.alice, m.channelPoints[0], false)
 	m.ht.CloseChannelAssertPending(m.alice, m.channelPoints[1], false)

@@ -1297,12 +1297,16 @@ func confirmAddress(ctx context.Context, t *harnessTest,
 
 	_, currentHeight, err := net.Miner.Client.GetBestBlock()
 	require.NoError(t.t, err)
+
+	// We'll register for a conf notification, and also request the block
+	// that included it as well.
 	confClient, err := node.ChainClient.RegisterConfirmationsNtfn(
 		ctx, &chainrpc.ConfRequest{
-			Script:     addrPkScript,
-			Txid:       txid[:],
-			HeightHint: uint32(currentHeight),
-			NumConfs:   1,
+			Script:       addrPkScript,
+			Txid:         txid[:],
+			HeightHint:   uint32(currentHeight),
+			NumConfs:     1,
+			IncludeBlock: true,
 		},
 	)
 	require.NoError(t.t, err)
@@ -1310,12 +1314,18 @@ func confirmAddress(ctx context.Context, t *harnessTest,
 	// Mine another block to clean up the mempool.
 	mineBlocks(t, net, 1, 1)
 
-	// We now expect our confirmation to go through.
+	// We now expect our confirmation to go through, and also that the
+	// block was specified.
 	confMsg, err := confClient.Recv()
 	require.NoError(t.t, err)
 	conf := confMsg.GetConf()
 	require.NotNil(t.t, conf)
 	require.Equal(t.t, conf.BlockHeight, uint32(currentHeight+1))
+	require.NotNil(t.t, conf.RawBlock)
+
+	// We should also be able to decode the raw block.
+	var blk wire.MsgBlock
+	require.NoError(t.t, blk.Deserialize(bytes.NewReader(conf.RawBlock)))
 }
 
 // deriveSigningKeys derives three signing keys and returns their descriptors,

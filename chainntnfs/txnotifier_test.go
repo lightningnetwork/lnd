@@ -256,7 +256,7 @@ func TestTxNotifierFutureConfDispatch(t *testing.T) {
 		Transactions: []*wire.MsgTx{&tx1, &tx2},
 	})
 
-	err = n.ConnectTip(block1.Hash(), 11, block1.Transactions())
+	err = n.ConnectTip(block1, 11)
 	require.NoError(t, err, "Failed to connect block")
 	if err := n.NotifyHeight(11); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -316,7 +316,7 @@ func TestTxNotifierFutureConfDispatch(t *testing.T) {
 	// Create a new block and add it to the TxNotifier at the next height.
 	// This should confirm tx2.
 	block2 := btcutil.NewBlock(&wire.MsgBlock{})
-	err = n.ConnectTip(block2.Hash(), 12, block2.Transactions())
+	err = n.ConnectTip(block2, 12)
 	require.NoError(t, err, "Failed to connect block")
 	if err := n.NotifyHeight(12); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -460,7 +460,7 @@ func TestTxNotifierHistoricalConfDispatch(t *testing.T) {
 		Transactions: []*wire.MsgTx{&tx3},
 	})
 
-	err = n.ConnectTip(block.Hash(), 11, block.Transactions())
+	err = n.ConnectTip(block, 11)
 	require.NoError(t, err, "Failed to connect block")
 	if err := n.NotifyHeight(11); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -536,7 +536,7 @@ func TestTxNotifierFutureSpendDispatch(t *testing.T) {
 	block := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{spendTx},
 	})
-	err = n.ConnectTip(block.Hash(), 11, block.Transactions())
+	err = n.ConnectTip(block, 11)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(11); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -569,7 +569,7 @@ func TestTxNotifierFutureSpendDispatch(t *testing.T) {
 	block = btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{spendOfSpend},
 	})
-	err = n.ConnectTip(block.Hash(), 12, block.Transactions())
+	err = n.ConnectTip(block, 12)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(12); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -609,7 +609,7 @@ func TestTxNotifierFutureConfDispatchReuseSafe(t *testing.T) {
 		Transactions: []*wire.MsgTx{&tx1},
 	})
 	currentBlock++
-	err = n.ConnectTip(block.Hash(), currentBlock, block.Transactions())
+	err = n.ConnectTip(block, currentBlock)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(currentBlock); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -662,7 +662,7 @@ func TestTxNotifierFutureConfDispatchReuseSafe(t *testing.T) {
 		Transactions: []*wire.MsgTx{&tx2},
 	})
 	currentBlock++
-	err = n.ConnectTip(block2.Hash(), currentBlock, block2.Transactions())
+	err = n.ConnectTip(block2, currentBlock)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(currentBlock); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -706,9 +706,7 @@ func TestTxNotifierFutureConfDispatchReuseSafe(t *testing.T) {
 	for currentBlock < 15 {
 		block := btcutil.NewBlock(&wire.MsgBlock{})
 		currentBlock++
-		err = n.ConnectTip(
-			block.Hash(), currentBlock, block.Transactions(),
-		)
+		err = n.ConnectTip(block, currentBlock)
 		if err != nil {
 			t.Fatalf("unable to connect block: %v", err)
 		}
@@ -801,7 +799,7 @@ func TestTxNotifierHistoricalSpendDispatch(t *testing.T) {
 	block := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{spendOfSpend},
 	})
-	err = n.ConnectTip(block.Hash(), startingHeight+1, block.Transactions())
+	err = n.ConnectTip(block, startingHeight+1)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(startingHeight + 1); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -1110,7 +1108,7 @@ func TestTxNotifierCancelConf(t *testing.T) {
 	// Cancel the second notification before connecting the block.
 	ntfn2.Event.Cancel()
 
-	err = n.ConnectTip(block.Hash(), startingHeight+1, block.Transactions())
+	err = n.ConnectTip(block, startingHeight+1)
 	require.NoError(t, err, "unable to connect block")
 
 	// Cancel the third notification before notifying to ensure its queued
@@ -1155,7 +1153,7 @@ func TestTxNotifierCancelConf(t *testing.T) {
 		Transactions: []*wire.MsgTx{},
 	})
 
-	err = n.ConnectTip(block1.Hash(), startingHeight+2, block1.Transactions())
+	err = n.ConnectTip(block1, startingHeight+2)
 	require.NoError(t, err, "unable to connect block")
 
 	if err := n.NotifyHeight(startingHeight + 2); err != nil {
@@ -1187,7 +1185,7 @@ func TestTxNotifierCancelConf(t *testing.T) {
 		Transactions: []*wire.MsgTx{},
 	})
 
-	err = n.ConnectTip(block2.Hash(), startingHeight+3, block2.Transactions())
+	err = n.ConnectTip(block2, startingHeight+3)
 	require.NoError(t, err, "unable to connect block")
 
 	if err := n.NotifyHeight(startingHeight + 3); err != nil {
@@ -1241,7 +1239,7 @@ func TestTxNotifierCancelSpend(t *testing.T) {
 	// cancel the second request.
 	n.CancelSpend(ntfn2.HistoricalDispatch.SpendRequest, 2)
 
-	err = n.ConnectTip(block.Hash(), startingHeight+1, block.Transactions())
+	err = n.ConnectTip(block, startingHeight+1)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(startingHeight + 1); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -1320,13 +1318,13 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	block1 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{&tx1},
 	})
-	if err := n.ConnectTip(nil, 8, block1.Transactions()); err != nil {
+	if err := n.ConnectTip(block1, 8); err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
 	if err := n.NotifyHeight(8); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
-	if err := n.ConnectTip(nil, 9, nil); err != nil {
+	if err := n.ConnectTip(nil, 9); err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
 	if err := n.NotifyHeight(9); err != nil {
@@ -1336,7 +1334,7 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	block2 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{&tx2, &tx3},
 	})
-	if err := n.ConnectTip(nil, 10, block2.Transactions()); err != nil {
+	if err := n.ConnectTip(block2, 10); err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
 	if err := n.NotifyHeight(10); err != nil {
@@ -1399,14 +1397,14 @@ func TestTxNotifierConfReorg(t *testing.T) {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
 
-	if err := n.ConnectTip(nil, 10, nil); err != nil {
+	if err := n.ConnectTip(nil, 10); err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
 	if err := n.NotifyHeight(10); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
-	if err := n.ConnectTip(nil, 11, nil); err != nil {
+	if err := n.ConnectTip(nil, 11); err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
 	if err := n.NotifyHeight(11); err != nil {
@@ -1456,13 +1454,13 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	})
 	block4 := btcutil.NewBlock(&wire.MsgBlock{})
 
-	err = n.ConnectTip(block3.Hash(), 12, block3.Transactions())
+	err = n.ConnectTip(block3, 12)
 	require.NoError(t, err, "Failed to connect block")
 	if err := n.NotifyHeight(12); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
-	err = n.ConnectTip(block4.Hash(), 13, block4.Transactions())
+	err = n.ConnectTip(block4, 13)
 	require.NoError(t, err, "Failed to connect block")
 	if err := n.NotifyHeight(13); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -1600,7 +1598,7 @@ func TestTxNotifierSpendReorg(t *testing.T) {
 	block1 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{spendTx1},
 	})
-	err = n.ConnectTip(block1.Hash(), startingHeight+1, block1.Transactions())
+	err = n.ConnectTip(block1, startingHeight+1)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(startingHeight + 1); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -1628,7 +1626,7 @@ func TestTxNotifierSpendReorg(t *testing.T) {
 	block2 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{spendTx2},
 	})
-	err = n.ConnectTip(block2.Hash(), startingHeight+2, block2.Transactions())
+	err = n.ConnectTip(block2, startingHeight+2)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(startingHeight + 2); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -1680,9 +1678,7 @@ func TestTxNotifierSpendReorg(t *testing.T) {
 	// We'll now extend the chain with an empty block, to ensure that we can
 	// properly detect when an outpoint has been re-spent at a later height.
 	emptyBlock := btcutil.NewBlock(&wire.MsgBlock{})
-	err = n.ConnectTip(
-		emptyBlock.Hash(), startingHeight+2, emptyBlock.Transactions(),
-	)
+	err = n.ConnectTip(emptyBlock, startingHeight+2)
 	require.NoError(t, err, "unable to disconnect block")
 	if err := n.NotifyHeight(startingHeight + 2); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -1703,9 +1699,7 @@ func TestTxNotifierSpendReorg(t *testing.T) {
 
 	// Finally, extend the chain with another block containing the same
 	// spending transaction of the second outpoint.
-	err = n.ConnectTip(
-		block2.Hash(), startingHeight+3, block2.Transactions(),
-	)
+	err = n.ConnectTip(block2, startingHeight+3)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(startingHeight + 3); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -1767,7 +1761,7 @@ func TestTxNotifierSpendReorgMissed(t *testing.T) {
 	block := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{spendTx},
 	})
-	err := n.ConnectTip(block.Hash(), startingHeight+1, block.Transactions())
+	err := n.ConnectTip(block, startingHeight+1)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(startingHeight + 1); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -1875,7 +1869,7 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 		Transactions: []*wire.MsgTx{&txDummy},
 	})
 
-	err = n.ConnectTip(block1.Hash(), txDummyHeight, block1.Transactions())
+	err = n.ConnectTip(block1, txDummyHeight)
 	require.NoError(t, err, "Failed to connect block")
 	if err := n.NotifyHeight(txDummyHeight); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -1912,7 +1906,7 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 		Transactions: []*wire.MsgTx{&tx1},
 	})
 
-	err = n.ConnectTip(block2.Hash(), tx1Height, block2.Transactions())
+	err = n.ConnectTip(block2, tx1Height)
 	require.NoError(t, err, "Failed to connect block")
 	if err := n.NotifyHeight(tx1Height); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -1941,7 +1935,7 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 		Transactions: []*wire.MsgTx{&tx2},
 	})
 
-	err = n.ConnectTip(block3.Hash(), tx2Height, block3.Transactions())
+	err = n.ConnectTip(block3, tx2Height)
 	require.NoError(t, err, "Failed to connect block")
 	if err := n.NotifyHeight(tx2Height); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -2037,9 +2031,7 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 
 	// Create a new empty block and extend the chain.
 	emptyBlock := btcutil.NewBlock(&wire.MsgBlock{})
-	err = n.ConnectTip(
-		emptyBlock.Hash(), dummyHeight, emptyBlock.Transactions(),
-	)
+	err = n.ConnectTip(emptyBlock, dummyHeight)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(dummyHeight); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -2079,7 +2071,7 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	block1 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{spendTx1},
 	})
-	err = n.ConnectTip(block1.Hash(), op1Height, block1.Transactions())
+	err = n.ConnectTip(block1, op1Height)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(op1Height); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -2108,7 +2100,7 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	block2 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{spendTx2},
 	})
-	err = n.ConnectTip(block2.Hash(), op2Height, block2.Transactions())
+	err = n.ConnectTip(block2, op2Height)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(op2Height); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -2194,9 +2186,7 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 	// Create a new empty block and extend the chain.
 	height := uint32(startingHeight) + 1
 	emptyBlock := btcutil.NewBlock(&wire.MsgBlock{})
-	err = n.ConnectTip(
-		emptyBlock.Hash(), height, emptyBlock.Transactions(),
-	)
+	err = n.ConnectTip(emptyBlock, height)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(height); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -2237,9 +2227,7 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 			block = btcutil.NewBlock(&wire.MsgBlock{})
 		}
 
-		err = n.ConnectTip(
-			block.Hash(), height, block.Transactions(),
-		)
+		err = n.ConnectTip(block, height)
 		if err != nil {
 			t.Fatalf("unable to connect block: %v", err)
 		}
@@ -2290,7 +2278,7 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 	block2 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{spendTx2},
 	})
-	err = n.ConnectTip(block2.Hash(), height, block2.Transactions())
+	err = n.ConnectTip(block2, height)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(height); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -2309,9 +2297,7 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 		height++
 		block := btcutil.NewBlock(&wire.MsgBlock{})
 
-		err := n.ConnectTip(
-			block.Hash(), height, block.Transactions(),
-		)
+		err := n.ConnectTip(block, height)
 		if err != nil {
 			t.Fatalf("unable to connect block: %v", err)
 		}
@@ -2368,7 +2354,7 @@ func TestTxNotifierNtfnDone(t *testing.T) {
 		Transactions: []*wire.MsgTx{tx, spendTx},
 	})
 
-	err = n.ConnectTip(block.Hash(), 11, block.Transactions())
+	err = n.ConnectTip(block, 11)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(11); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -2418,7 +2404,7 @@ func TestTxNotifierNtfnDone(t *testing.T) {
 
 	// We'll reconnect the block that satisfies both of these requests.
 	// We should see notifications dispatched for both once again.
-	err = n.ConnectTip(block.Hash(), 11, block.Transactions())
+	err = n.ConnectTip(block, 11)
 	require.NoError(t, err, "unable to connect block")
 	if err := n.NotifyHeight(11); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -2442,7 +2428,7 @@ func TestTxNotifierNtfnDone(t *testing.T) {
 	nextHeight := uint32(12)
 	for i := nextHeight; i < nextHeight+reorgSafetyLimit; i++ {
 		dummyBlock := btcutil.NewBlock(&wire.MsgBlock{})
-		if err := n.ConnectTip(dummyBlock.Hash(), i, nil); err != nil {
+		if err := n.ConnectTip(dummyBlock, i); err != nil {
 			t.Fatalf("unable to connect block: %v", err)
 		}
 	}

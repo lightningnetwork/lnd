@@ -72,6 +72,12 @@ message ConfRequest {
     broadcast height of the transaction/output script.
     */
     uint32 height_hint = 4;
+
+    /*
+    If true, then the block that mines the specified txid/script will be
+    included in eventual the notification event.
+    */
+    bool include_block = 5;
 }
 
 message ConfDetails {
@@ -87,6 +93,12 @@ message ConfDetails {
 
     // The index of the confirmed transaction within the transaction.
     uint32 tx_index = 4;
+
+    /*
+    The raw bytes of the block that mined the transaction. Only included if
+    include_block was set in the request.
+    */
+    bytes raw_block = 5;
 }
 
 message Reorg {

@@ -1,5 +1,11 @@
 # Release Notes
 
+## RPC
+
+The `RegisterConfirmationsNtfn` call of the `chainnotifier` RPC sub-server [now
+optionally supports returning the entire block that confirmed the
+transaction](https://github.com/lightningnetwork/lnd/pull/6730).
+
 ## Misc
 * Warning messages from peers are now recognized and
   [logged](https://github.com/lightningnetwork/lnd/pull/6546) by lnd.

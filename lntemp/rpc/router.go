@@ -162,3 +162,18 @@ func (h *HarnessRPC) BuildRoute(
 	h.NoError(err, "BuildRoute")
 	return resp
 }
+
+type InterceptorClient routerrpc.Router_HtlcInterceptorClient
+
+// HtlcInterceptor makes a RPC call to the node's RouterClient and asserts.
+func (h *HarnessRPC) HtlcInterceptor() (InterceptorClient, context.CancelFunc) {
+	// HtlcInterceptor needs to have the context alive for the entire test
+	// case as the returned client will be used for send and receive events
+	// stream. Thus we use cancel context here instead of a timeout
+	// context.
+	ctxt, cancel := context.WithCancel(h.runCtx)
+	resp, err := h.Router.HtlcInterceptor(ctxt)
+	h.NoError(err, "HtlcInterceptor")
+
+	return resp, cancel
+}

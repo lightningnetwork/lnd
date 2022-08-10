@@ -45,10 +45,6 @@ var allTestCases = []*testCase{
 		test: testForwardInterceptorBasic,
 	},
 	{
-		name: "forward interceptor dedup htlcs",
-		test: testForwardInterceptorDedupHtlc,
-	},
-	{
 		name: "wallet import account",
 		test: testWalletImportAccount,
 	},

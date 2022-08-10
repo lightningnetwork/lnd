@@ -409,4 +409,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "sendtoroute amp",
 		TestFunc: testSendToRouteAMP,
 	},
+	{
+		Name:     "forward interceptor dedup htlcs",
+		TestFunc: testForwardInterceptorDedupHtlc,
+	},
 }

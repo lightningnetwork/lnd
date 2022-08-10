@@ -1388,9 +1388,6 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 			// Set zeroConf to true to enable the zero-conf flow.
 			zeroConf = true
 		}
-
-		// TODO: default to zero-conf false all the time unless
-		// acceptor even with chan-type?
 	}
 
 	// Sending the option-scid-alias channel type for a public channel is

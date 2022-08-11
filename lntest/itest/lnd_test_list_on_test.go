@@ -13,14 +13,6 @@ var allTestCases = []*testCase{
 		test: testBidirectionalAsyncPayments,
 	},
 	{
-		name: "wallet import account",
-		test: testWalletImportAccount,
-	},
-	{
-		name: "wallet import pubkey",
-		test: testWalletImportPubKey,
-	},
-	{
 		name: "remote signer",
 		test: testRemoteSigner,
 	},

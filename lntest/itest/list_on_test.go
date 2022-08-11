@@ -469,4 +469,12 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "taproot",
 		TestFunc: testTaproot,
 	},
+	{
+		Name:     "wallet import account",
+		TestFunc: testWalletImportAccount,
+	},
+	{
+		Name:     "wallet import pubkey",
+		TestFunc: testWalletImportPubKey,
+	},
 }

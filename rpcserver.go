@@ -1330,7 +1330,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			// ensures this is an address the wallet knows about,
 			// allowing us to pass the reserved value check.
 			changeAddr, err := r.server.cc.Wallet.NewAddress(
-				lnwallet.WitnessPubKey, true,
+				lnwallet.TaprootPubkey, true,
 				lnwallet.DefaultAccountName,
 			)
 			if err != nil {

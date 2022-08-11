@@ -247,7 +247,7 @@ func genTaskTest(
 			RewardPkScript: rewardScript,
 		},
 		bindErr:        bindErr,
-		expSweepScript: makeAddrSlice(22),
+		expSweepScript: sweepAddr,
 		signer:         signer,
 		chanType:       chanType,
 	}
@@ -259,10 +259,18 @@ var (
 	blobTypeCommitReward = (blob.FlagCommitOutputs | blob.FlagReward).Type()
 
 	addr, _ = btcutil.DecodeAddress(
-		"mrX9vMRYLfVy1BnZbc5gZjuyaqH3ZW2ZHz", &chaincfg.TestNet3Params,
+		"tb1pw8gzj8clt3v5lxykpgacpju5n8xteskt7gxhmudu6pa70nwfhe6s3unsyk",
+		&chaincfg.TestNet3Params,
 	)
 
 	addrScript, _ = txscript.PayToAddrScript(addr)
+
+	sweepAddrScript, _ = btcutil.DecodeAddress(
+		"tb1qs3jyc9sf5kak3x0w99cav9u605aeu3t600xxx0",
+		&chaincfg.TestNet3Params,
+	)
+
+	sweepAddr, _ = txscript.PayToAddrScript(sweepAddrScript)
 )
 
 // TestBackupTaskBind tests the initialization and binding of a backupTask to a
@@ -297,9 +305,9 @@ func TestBackupTask(t *testing.T) {
 			expSweepCommitNoRewardBoth     int64                  = 299241
 			expSweepCommitNoRewardLocal    int64                  = 199514
 			expSweepCommitNoRewardRemote   int64                  = 99561
-			expSweepCommitRewardBoth       int64                  = 296117
-			expSweepCommitRewardLocal      int64                  = 197390
-			expSweepCommitRewardRemote     int64                  = 98437
+			expSweepCommitRewardBoth       int64                  = 296069
+			expSweepCommitRewardLocal      int64                  = 197342
+			expSweepCommitRewardRemote     int64                  = 98389
 			sweepFeeRateNoRewardRemoteDust chainfee.SatPerKWeight = 227500
 			sweepFeeRateRewardRemoteDust   chainfee.SatPerKWeight = 175350
 		)
@@ -307,9 +315,9 @@ func TestBackupTask(t *testing.T) {
 			expSweepCommitNoRewardBoth = 299236
 			expSweepCommitNoRewardLocal = 199513
 			expSweepCommitNoRewardRemote = 99557
-			expSweepCommitRewardBoth = 296112
-			expSweepCommitRewardLocal = 197389
-			expSweepCommitRewardRemote = 98433
+			expSweepCommitRewardBoth = 296064
+			expSweepCommitRewardLocal = 197341
+			expSweepCommitRewardRemote = 98385
 			sweepFeeRateNoRewardRemoteDust = 225400
 			sweepFeeRateRewardRemoteDust = 174100
 		}
@@ -436,7 +444,7 @@ func TestBackupTask(t *testing.T) {
 				"commit reward, to-remote output only, creates dust",
 				1,                            // stateNum
 				0,                            // toLocalAmt
-				100000,                       // toRemoteAmt
+				108221,                       // toRemoteAmt
 				blobTypeCommitReward,         // blobType
 				sweepFeeRateRewardRemoteDust, // sweepFeeRate
 				addrScript,                   // rewardScript

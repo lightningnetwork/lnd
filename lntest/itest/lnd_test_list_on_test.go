@@ -57,10 +57,6 @@ var allTestCases = []*testCase{
 		test: testTaproot,
 	},
 	{
-		name: "nonstd sweep",
-		test: testNonstdSweep,
-	},
-	{
 		name: "taproot coop close",
 		test: testTaprootCoopClose,
 	},

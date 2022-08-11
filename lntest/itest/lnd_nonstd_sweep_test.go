@@ -1,40 +1,39 @@
 package itest
 
 import (
-	"context"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/stretchr/testify/require"
 )
 
-func testNonstdSweep(net *lntest.NetworkHarness, t *harnessTest) {
+func testNonstdSweep(ht *lntemp.HarnessTest) {
 	p2shAddr, err := btcutil.NewAddressScriptHash(
 		make([]byte, 1), harnessNetParams,
 	)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	p2pkhAddr, err := btcutil.NewAddressPubKeyHash(
 		make([]byte, 20), harnessNetParams,
 	)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	p2wshAddr, err := btcutil.NewAddressWitnessScriptHash(
 		make([]byte, 32), harnessNetParams,
 	)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	p2wkhAddr, err := btcutil.NewAddressWitnessPubKeyHash(
 		make([]byte, 20), harnessNetParams,
 	)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	p2trAddr, err := btcutil.NewAddressTaproot(
 		make([]byte, 32), harnessNetParams,
 	)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	tests := []struct {
 		name    string
@@ -64,10 +63,10 @@ func testNonstdSweep(net *lntest.NetworkHarness, t *harnessTest) {
 
 	for _, test := range tests {
 		test := test
-		success := t.t.Run(test.name, func(t *testing.T) {
-			h := newHarnessTest(t, net)
+		success := ht.Run(test.name, func(t *testing.T) {
+			st := ht.Subtest(t)
 
-			testNonStdSweepInner(net, h, test.address)
+			testNonStdSweepInner(st, test.address)
 		})
 		if !success {
 			break
@@ -75,18 +74,14 @@ func testNonstdSweep(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
-func testNonStdSweepInner(net *lntest.NetworkHarness, t *harnessTest,
-	address string) {
-
-	ctxb := context.Background()
-
-	carol := net.NewNode(t.t, "carol", nil)
+func testNonStdSweepInner(ht *lntemp.HarnessTest, address string) {
+	carol := ht.NewNode("carol", nil)
 
 	// Give Carol a UTXO so SendCoins will behave as expected.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// Set the fee estimate to 1sat/vbyte.
-	net.SetFeeEstimate(250)
+	ht.SetFeeEstimate(250)
 
 	// Make Carol call SendCoins with the SendAll flag and the created
 	// address.
@@ -96,20 +91,13 @@ func testNonStdSweepInner(net *lntest.NetworkHarness, t *harnessTest,
 		SendAll:     true,
 	}
 
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-
 	// If a non-standard transaction was created, then this SendCoins call
 	// will fail.
-	_, err := carol.SendCoins(ctxt, sendReq)
-	require.NoError(t.t, err)
+	carol.RPC.SendCoins(sendReq)
 
 	// Fetch the txid so we can grab the raw transaction.
-	txid, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
-	require.NoError(t.t, err)
-
-	tx, err := net.Miner.Client.GetRawTransaction(txid)
-	require.NoError(t.t, err)
+	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
+	tx := ht.Miner.GetRawTransaction(txid)
 
 	msgTx := tx.MsgTx()
 
@@ -123,9 +111,7 @@ func testNonStdSweepInner(net *lntest.NetworkHarness, t *harnessTest,
 	for _, inp := range msgTx.TxIn {
 		// Fetch the previous outpoint's value.
 		prevOut := inp.PreviousOutPoint
-
-		ptx, err := net.Miner.Client.GetRawTransaction(&prevOut.Hash)
-		require.NoError(t.t, err)
+		ptx := ht.Miner.GetRawTransaction(&prevOut.Hash)
 
 		pout := ptx.MsgTx().TxOut[prevOut.Index]
 		inputVal += int(pout.Value)
@@ -139,9 +125,11 @@ func testNonStdSweepInner(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Fetch the vsize of the transaction so we can determine if the
 	// transaction pays >= 1 sat/vbyte.
-	rawTx, err := net.Miner.Client.GetRawTransactionVerbose(txid)
-	require.NoError(t.t, err)
+	rawTx := ht.Miner.GetRawTransactionVerbose(txid)
 
 	// Require fee >= vbytes.
-	require.True(t.t, fee >= int(rawTx.Vsize))
+	require.True(ht, fee >= int(rawTx.Vsize))
+
+	// Mine a block to keep the mempool clean.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 }

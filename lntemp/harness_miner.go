@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -250,6 +251,16 @@ func (h *HarnessMiner) MineBlocksAndAssertNumTxes(num uint32,
 func (h *HarnessMiner) GetRawTransaction(txid *chainhash.Hash) *btcutil.Tx {
 	tx, err := h.Client.GetRawTransaction(txid)
 	require.NoErrorf(h, err, "failed to get raw tx: %v", txid)
+	return tx
+}
+
+// GetRawTransactionVerbose makes a RPC call to the miner's
+// GetRawTransactionVerbose and asserts.
+func (h *HarnessMiner) GetRawTransactionVerbose(
+	txid *chainhash.Hash) *btcjson.TxRawResult {
+
+	tx, err := h.Client.GetRawTransactionVerbose(txid)
+	require.NoErrorf(h, err, "failed to get raw tx verbose: %v", txid)
 	return tx
 }
 

@@ -433,4 +433,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "scid alias upgrade",
 		TestFunc: testOptionScidUpgrade,
 	},
+	{
+		Name:     "nonstd sweep",
+		TestFunc: testNonstdSweep,
+	},
 }

@@ -20,6 +20,8 @@
 [`lnd` will now refuse to start if it detects the full node backned does not
 support Tapoot](https://github.com/lightningnetwork/lnd/pull/6798).
 
+[`lnd` will now use taproot addresses for co-op closes if the remote peer
+supports the feature.](https://github.com/lightningnetwork/lnd/pull/6633)
 
 ## `lncli`
 

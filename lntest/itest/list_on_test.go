@@ -477,4 +477,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "wallet import pubkey",
 		TestFunc: testWalletImportPubKey,
 	},
+	{
+		Name:     "async payments benchmark",
+		TestFunc: testAsyncPayments,
+	},
 }

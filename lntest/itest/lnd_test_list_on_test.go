@@ -5,10 +5,6 @@ package itest
 
 var allTestCases = []*testCase{
 	{
-		name: "async payments benchmark",
-		test: testAsyncPayments,
-	},
-	{
 		name: "async bidirectional payments",
 		test: testBidirectionalAsyncPayments,
 	},

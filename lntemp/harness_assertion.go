@@ -928,6 +928,16 @@ func (h *HarnessTest) AssertPaymentStatusFromStream(stream rpc.PaymentClient,
 	return h.assertPaymentStatusWithTimeout(stream, status, DefaultTimeout)
 }
 
+// AssertPaymentSucceedWithTimeout asserts that a payment is succeeded within
+// the specified timeout.
+func (h *HarnessTest) AssertPaymentSucceedWithTimeout(stream rpc.PaymentClient,
+	timeout time.Duration) *lnrpc.Payment {
+
+	return h.assertPaymentStatusWithTimeout(
+		stream, lnrpc.Payment_SUCCEEDED, timeout,
+	)
+}
+
 // assertPaymentStatusWithTimeout takes a client stream and asserts the payment
 // is in desired status before the specified timeout. The payment found is
 // returned once succeeded.
@@ -939,7 +949,9 @@ func (h *HarnessTest) assertPaymentStatusWithTimeout(stream rpc.PaymentClient,
 	err := wait.NoError(func() error {
 		// Consume one message. This will raise an error if the message
 		// is not received within DefaultTimeout.
-		payment, err := h.ReceivePaymentUpdate(stream)
+		payment, err := h.receivePaymentUpdateWithTimeout(
+			stream, timeout,
+		)
 		if err != nil {
 			return fmt.Errorf("received error from payment "+
 				"stream: %s", err)
@@ -968,8 +980,17 @@ func (h *HarnessTest) assertPaymentStatusWithTimeout(stream rpc.PaymentClient,
 func (h *HarnessTest) ReceivePaymentUpdate(
 	stream rpc.PaymentClient) (*lnrpc.Payment, error) {
 
+	return h.receivePaymentUpdateWithTimeout(stream, DefaultTimeout)
+}
+
+// receivePaymentUpdateWithTimeout waits until a message is received on the
+// payment client stream or the timeout is reached.
+func (h *HarnessTest) receivePaymentUpdateWithTimeout(stream rpc.PaymentClient,
+	timeout time.Duration) (*lnrpc.Payment, error) {
+
 	chanMsg := make(chan *lnrpc.Payment, 1)
 	errChan := make(chan error, 1)
+
 	go func() {
 		// Consume one message. This will block until the message is
 		// received.
@@ -983,7 +1004,7 @@ func (h *HarnessTest) ReceivePaymentUpdate(
 	}()
 
 	select {
-	case <-time.After(DefaultTimeout):
+	case <-time.After(timeout):
 		require.Fail(h, "timeout", "timeout waiting for payment update")
 		return nil, nil
 

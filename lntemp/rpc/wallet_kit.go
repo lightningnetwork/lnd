@@ -198,7 +198,7 @@ func (h *HarnessRPC) ImportAccount(
 	defer cancel()
 
 	resp, err := h.WalletKit.ImportAccount(ctxt, req)
-	require.NoErrorf(h, err, "failed to import account")
+	h.NoError(err, "ImportAccount")
 
 	return resp
 }

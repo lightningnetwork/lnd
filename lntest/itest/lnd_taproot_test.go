@@ -1136,7 +1136,7 @@ func testTaprootImportTapscriptFullTree(ctxt context.Context, t *harnessTest,
 
 	// For the next step, we need a public key. Let's use a special family
 	// for this.
-	_, internalKey, derivationPath := deriveInternalKey(ctxt, t, alice)
+	_, internalKey, derivationPath := deriveInternalKeyOld(ctxt, t, alice)
 
 	// Let's create a taproot script output now. This is a hash lock with a
 	// simple preimage of "foobar".
@@ -1213,7 +1213,7 @@ func testTaprootImportTapscriptPartialReveal(ctxt context.Context,
 
 	// For the next step, we need a public key. Let's use a special family
 	// for this.
-	_, internalKey, derivationPath := deriveInternalKey(ctxt, t, alice)
+	_, internalKey, derivationPath := deriveInternalKeyOld(ctxt, t, alice)
 
 	// Let's create a taproot script output now. This is a hash lock with a
 	// simple preimage of "foobar".
@@ -1286,7 +1286,7 @@ func testTaprootImportTapscriptRootHashOnly(ctxt context.Context,
 
 	// For the next step, we need a public key. Let's use a special family
 	// for this.
-	_, internalKey, derivationPath := deriveInternalKey(ctxt, t, alice)
+	_, internalKey, derivationPath := deriveInternalKeyOld(ctxt, t, alice)
 
 	// Let's create a taproot script output now. This is a hash lock with a
 	// simple preimage of "foobar".
@@ -1347,7 +1347,7 @@ func testTaprootImportTapscriptFullKey(ctxt context.Context, t *harnessTest,
 
 	// For the next step, we need a public key. Let's use a special family
 	// for this.
-	_, internalKey, derivationPath := deriveInternalKey(ctxt, t, alice)
+	_, internalKey, derivationPath := deriveInternalKeyOld(ctxt, t, alice)
 
 	// Let's create a taproot script output now. This is a hash lock with a
 	// simple preimage of "foobar".

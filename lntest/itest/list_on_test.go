@@ -288,6 +288,10 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		TestFunc: testPsbtChanFundingSingleStep,
 	},
 	{
+		Name:     "sign psbt",
+		TestFunc: testSignPsbt,
+	},
+	{
 		Name:     "resolution handoff",
 		TestFunc: testResHandoff,
 	},

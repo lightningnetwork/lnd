@@ -13,10 +13,6 @@ var allTestCases = []*testCase{
 		test: testBidirectionalAsyncPayments,
 	},
 	{
-		name: "sign psbt",
-		test: testSignPsbt,
-	},
-	{
 		name: "wallet import account",
 		test: testWalletImportAccount,
 	},

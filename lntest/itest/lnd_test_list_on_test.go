@@ -9,10 +9,6 @@ var allTestCases = []*testCase{
 		test: testBidirectionalAsyncPayments,
 	},
 	{
-		name: "remote signer",
-		test: testRemoteSigner,
-	},
-	{
 		name: "taproot coop close",
 		test: testTaprootCoopClose,
 	},

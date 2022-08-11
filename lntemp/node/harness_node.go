@@ -164,11 +164,11 @@ func (hn *HarnessNode) String() string {
 	type nodeCfg struct {
 		LogFilenamePrefix string
 		ExtraArgs         []string
-		HasSeed           bool
+		SkipUnlock        bool
+		Password          []byte
 		P2PPort           int
 		RPCPort           int
 		RESTPort          int
-		ProfilePort       int
 		AcceptKeySend     bool
 		FeeURL            string
 	}
@@ -185,6 +185,8 @@ func (hn *HarnessNode) String() string {
 		PubKey: hn.PubKeyStr,
 		State:  hn.State,
 		NodeCfg: nodeCfg{
+			SkipUnlock:        hn.Cfg.SkipUnlock,
+			Password:          hn.Cfg.Password,
 			LogFilenamePrefix: hn.Cfg.LogFilenamePrefix,
 			ExtraArgs:         hn.Cfg.ExtraArgs,
 			P2PPort:           hn.Cfg.P2PPort,

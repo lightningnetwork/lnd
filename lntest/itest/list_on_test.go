@@ -481,4 +481,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "async payments benchmark",
 		TestFunc: testAsyncPayments,
 	},
+	{
+		Name:     "remote signer",
+		TestFunc: testRemoteSigner,
+	},
 }

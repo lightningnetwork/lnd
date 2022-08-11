@@ -675,6 +675,32 @@ func (h *HarnessTest) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
 	return h.newNodeWithSeed(name, extraArgs, req, statelessInit)
 }
 
+// NewNodeRemoteSigner creates a new remote signer node and asserts its
+// creation.
+func (h *HarnessTest) NewNodeRemoteSigner(name string, extraArgs []string,
+	password []byte, watchOnly *lnrpc.WatchOnly) *node.HarnessNode {
+
+	hn, err := h.manager.newNode(h.T, name, extraArgs, password, true)
+	require.NoErrorf(h, err, "unable to create new node for %s", name)
+
+	err = hn.StartWithNoAuth(h.runCtx)
+	require.NoError(h, err, "failed to start node %s", name)
+
+	// With the seed created, construct the init request to the node,
+	// including the newly generated seed.
+	initReq := &lnrpc.InitWalletRequest{
+		WalletPassword: password,
+		WatchOnly:      watchOnly,
+	}
+
+	// Pass the init request via rpc to finish unlocking the node. This
+	// will also initialize the macaroon-authenticated LightningClient.
+	_, err = h.manager.initWalletAndNode(hn, initReq)
+	require.NoErrorf(h, err, "failed to init node %s", name)
+
+	return hn
+}
+
 // KillNode kills the node (but won't wait for the node process to stop).
 func (h *HarnessTest) KillNode(hn *node.HarnessNode) {
 	require.NoErrorf(h, hn.Kill(), "%s: kill got error", hn.Name())

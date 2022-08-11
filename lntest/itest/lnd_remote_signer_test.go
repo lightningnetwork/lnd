@@ -1,13 +1,17 @@
 package itest
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -50,192 +54,182 @@ var (
 
 // testRemoteSigner tests that a watch-only wallet can use a remote signing
 // wallet to perform any signing or ECDH operations.
-func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
-	// ctxb := context.Background()
+func testRemoteSigner(ht *lntemp.HarnessTest) {
+	type testCase struct {
+		name       string
+		randomSeed bool
+		sendCoins  bool
+		fn         func(tt *lntemp.HarnessTest,
+			wo, carol *node.HarnessNode)
+	}
 
-	// subTests := []struct {
-	// 	name       string
-	// 	randomSeed bool
-	// 	sendCoins  bool
-	// 	fn         func(tt *harnessTest, wo, carol *lntest.HarnessNode)
-	// }{{
-	// 	name:       "random seed",
-	// 	randomSeed: true,
-	// 	fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-	// 		// Nothing more to test here.
-	// 	},
-	// }, {
-	// 	name: "account import",
-	// 	fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-	// 		runWalletImportAccountScenario(
-	// 			net, tt,
-	// 			walletrpc.AddressType_WITNESS_PUBKEY_HASH,
-	// 			carol, wo,
-	// 		)
-	// 	},
-	// }, {
-	// 	name:      "basic channel open close",
-	// 	sendCoins: true,
-	// 	fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-	// 		runBasicChannelCreationAndUpdates(
-	// 			net, tt, wo, carol,
-	// 		)
-	// 	},
-	// }, {
-	// 	name:      "async payments",
-	// 	sendCoins: true,
-	// 	fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-	// 		runAsyncPayments(net, tt, wo, carol)
-	// 	},
-	// }, {
-	// 	name: "shared key",
-	// 	fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-	// 		runDeriveSharedKey(tt, wo)
-	// 	},
-	// }, {
-	// 	name:      "cpfp",
-	// 	sendCoins: true,
-	// 	fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-	// 		runCPFP(net, tt, wo, carol)
-	// 	},
-	// }, {
-	// 	name: "psbt",
-	//	randomSeed: true,
-	// 	fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-	// 		runPsbtChanFunding(net, tt, carol, wo)
-	// 		runSignPsbtSegWitV0P2WKH(tt, net, wo)
-	// 		runSignPsbtSegWitV1KeySpendBip86(tt, net, wo)
-	// 		runSignPsbtSegWitV1KeySpendRootHash(tt, net, wo)
-	// 		runSignPsbtSegWitV1ScriptSpend(tt, net, wo)
-	// 	},
-	// }, {
-	// 	name:      "sign output raw",
-	// 	sendCoins: true,
-	// 	fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-	// 		runSignOutputRaw(tt, net, wo)
-	// 	},
-	// }, {
-	// 	name:      "sign verify msg",
-	// 	sendCoins: true,
-	// 	fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-	// 		runSignVerifyMessage(tt, net, wo)
-	// 	},
-	// }, {
-	// 	name:      "taproot",
-	// 	sendCoins: true,
-	//	randomSeed: true,
-	// 	fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-	// 		ctxt, cancel := context.WithTimeout(
-	// 			ctxb, 3*defaultTimeout,
-	// 		)
-	// 		defer cancel()
+	subTests := []testCase{{
+		name:       "random seed",
+		randomSeed: true,
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			// Nothing more to test here.
+		},
+	}, {
+		name: "account import",
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runWalletImportAccountScenario(
+				tt, walletrpc.AddressType_WITNESS_PUBKEY_HASH,
+				carol, wo,
+			)
+		},
+	}, {
+		name:      "basic channel open close",
+		sendCoins: true,
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runBasicChannelCreationAndUpdates(tt, wo, carol)
+		},
+	}, {
+		name:      "async payments",
+		sendCoins: true,
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runAsyncPayments(tt, wo, carol)
+		},
+	}, {
+		name: "shared key",
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runDeriveSharedKey(tt, wo)
+		},
+	}, {
+		name:      "cpfp",
+		sendCoins: true,
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runCPFP(tt, wo, carol)
+		},
+	}, {
+		name:       "psbt",
+		randomSeed: true,
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runPsbtChanFunding(tt, carol, wo)
+			runSignPsbtSegWitV0P2WKH(tt, wo)
+			runSignPsbtSegWitV1KeySpendBip86(tt, wo)
+			runSignPsbtSegWitV1KeySpendRootHash(tt, wo)
+			runSignPsbtSegWitV1ScriptSpend(tt, wo)
+		},
+	}, {
+		name:      "sign output raw",
+		sendCoins: true,
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runSignOutputRaw(tt, wo)
+		},
+	}, {
+		name:      "sign verify msg",
+		sendCoins: true,
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runSignVerifyMessage(tt, wo)
+		},
+	}, {
+		name:       "taproot",
+		sendCoins:  true,
+		randomSeed: true,
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			testTaprootSendCoinsKeySpendBip86(tt, wo)
+			testTaprootComputeInputScriptKeySpendBip86(tt, wo)
+			testTaprootSignOutputRawScriptSpend(tt, wo)
+			testTaprootSignOutputRawKeySpendBip86(tt, wo)
+			testTaprootSignOutputRawKeySpendRootHash(tt, wo)
+			testTaprootMuSig2KeySpendRootHash(tt, wo)
+			testTaprootMuSig2ScriptSpend(tt, wo)
+			testTaprootMuSig2KeySpendBip86(tt, wo)
+			testTaprootMuSig2CombinedLeafKeySpend(tt, wo)
+		},
+	}}
 
-	// 		testTaprootSendCoinsKeySpendBip86(ctxt, tt, wo, net)
-	// 		testTaprootComputeInputScriptKeySpendBip86(
-	// 			ctxt, tt, wo, net,
-	// 		)
-	// 		testTaprootSignOutputRawScriptSpend(ctxt, tt, wo, net)
-	// 		testTaprootSignOutputRawKeySpendBip86(ctxt, tt, wo, net)
-	// 		testTaprootSignOutputRawKeySpendRootHash(
-	// 			ctxt, tt, wo, net,
-	// 		)
-	// 		testTaprootMuSig2KeySpendRootHash(ctxt, tt, wo, net)
-	// 		testTaprootMuSig2ScriptSpend(ctxt, tt, wo, net)
-	// 		testTaprootMuSig2KeySpendBip86(ctxt, tt, wo, net)
-	// 		testTaprootMuSig2CombinedLeafKeySpend(ctxt, tt, wo, net)
-	// 	},
-	// }}
+	prepareTest := func(st *lntemp.HarnessTest,
+		subTest testCase) (*node.HarnessNode,
+		*node.HarnessNode, *node.HarnessNode) {
 
-	// for _, st := range subTests {
-	// 	subTest := st
+		// Signer is our signing node and has the wallet with the full
+		// master private key. We test that we can create the watch-only
+		// wallet from the exported accounts but also from a static key
+		// to make sure the derivation of the account public keys is
+		// correct in both cases.
+		password := []byte("itestpassword")
+		var (
+			signerNodePubKey  = nodePubKey
+			watchOnlyAccounts = deriveCustomScopeAccounts(ht.T)
+			signer            *node.HarnessNode
+			err               error
+		)
+		if !subTest.randomSeed {
+			signer = st.RestoreNodeWithSeed(
+				"Signer", nil, password, nil, rootKey, 0, nil,
+			)
+		} else {
+			signer = st.NewNode("Signer", nil)
+			signerNodePubKey = signer.PubKeyStr
 
-	// 	// Signer is our signing node and has the wallet with the full
-	// 	// master private key. We test that we can create the watch-only
-	// 	// wallet from the exported accounts but also from a static key
-	// 	// to make sure the derivation of the account public keys is
-	// 	// correct in both cases.
-	// 	password := []byte("itestpassword")
-	// 	var (
-	// 		signerNodePubKey  = nodePubKey
-	// 		watchOnlyAccounts = deriveCustomScopeAccounts(t.t)
-	// 		signer            *lntest.HarnessNode
-	// 		err               error
-	// 	)
-	// 	if !subTest.randomSeed {
-	// 		signer, err = net.RestoreNodeWithSeed(
-	// 			"Signer", nil, password, nil, rootKey, 0, nil,
-	// 		)
-	// 		require.NoError(t.t, err)
-	// 	} else {
-	// 		signer = net.NewNode(t.t, "Signer", nil)
-	// 		signerNodePubKey = signer.PubKeyStr
+			rpcAccts := signer.RPC.ListAccounts(
+				&walletrpc.ListAccountsRequest{},
+			)
 
-	// 		rpcAccts, err := signer.WalletKitClient.ListAccounts(
-	// 			ctxb, &walletrpc.ListAccountsRequest{},
-	// 		)
-	// 		require.NoError(t.t, err)
+			watchOnlyAccounts, err = walletrpc.AccountsToWatchOnly(
+				rpcAccts.Accounts,
+			)
+			require.NoError(st, err)
+		}
 
-	// 		watchOnlyAccounts, err = walletrpc.AccountsToWatchOnly(
-	// 			rpcAccts.Accounts,
-	// 		)
-	// 		require.NoError(t.t, err)
-	// 	}
+		// WatchOnly is the node that has a watch-only wallet and uses
+		// the Signer node for any operation that requires access to
+		// private keys.
+		watchOnly := st.NewNodeRemoteSigner(
+			"WatchOnly", []string{
+				"--remotesigner.enable",
+				fmt.Sprintf(
+					"--remotesigner.rpchost=localhost:%d",
+					signer.Cfg.RPCPort,
+				),
+				fmt.Sprintf(
+					"--remotesigner.tlscertpath=%s",
+					signer.Cfg.TLSCertPath,
+				),
+				fmt.Sprintf(
+					"--remotesigner.macaroonpath=%s",
+					signer.Cfg.AdminMacPath,
+				),
+			}, password, &lnrpc.WatchOnly{
+				MasterKeyBirthdayTimestamp: 0,
+				MasterKeyFingerprint:       nil,
+				Accounts:                   watchOnlyAccounts,
+			},
+		)
 
-	// 	// WatchOnly is the node that has a watch-only wallet and uses
-	// 	// the Signer node for any operation that requires access to
-	// 	// private keys.
-	// 	watchOnly, err := net.NewNodeRemoteSigner(
-	// 		"WatchOnly", []string{
-	// 			"--remotesigner.enable",
-	// 			fmt.Sprintf(
-	// 				"--remotesigner.rpchost=localhost:%d",
-	// 				signer.Cfg.RPCPort,
-	// 			),
-	// 			fmt.Sprintf(
-	// 				"--remotesigner.tlscertpath=%s",
-	// 				signer.Cfg.TLSCertPath,
-	// 			),
-	// 			fmt.Sprintf(
-	// 				"--remotesigner.macaroonpath=%s",
-	// 				signer.Cfg.AdminMacPath,
-	// 			),
-	// 		}, password, &lnrpc.WatchOnly{
-	// 			MasterKeyBirthdayTimestamp: 0,
-	// 			MasterKeyFingerprint:       nil,
-	// 			Accounts:                   watchOnlyAccounts,
-	// 		},
-	// 	)
-	// 	require.NoError(t.t, err)
+		resp := watchOnly.RPC.GetInfo()
+		require.Equal(st, signerNodePubKey, resp.IdentityPubkey)
 
-	// 	resp, err := watchOnly.GetInfo(ctxb, &lnrpc.GetInfoRequest{})
-	// 	require.NoError(t.t, err)
+		if subTest.sendCoins {
+			st.FundCoins(btcutil.SatoshiPerBitcoin, watchOnly)
+			ht.AssertWalletAccountBalance(
+				watchOnly, "default",
+				btcutil.SatoshiPerBitcoin, 0,
+			)
+		}
 
-	// 	require.Equal(t.t, signerNodePubKey, resp.IdentityPubkey)
+		carol := st.NewNode("carol", nil)
+		st.EnsureConnected(watchOnly, carol)
 
-	// 	if subTest.sendCoins {
-	// 		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, watchOnly)
-	// 		assertAccountBalance(
-	// 			t.t, watchOnly, "default",
-	// 			btcutil.SatoshiPerBitcoin, 0,
-	// 		)
-	// 	}
+		return signer, watchOnly, carol
+	}
 
-	// 	carol := net.NewNode(t.t, "carol", nil)
-	// 	net.EnsureConnected(t.t, watchOnly, carol)
+	for _, testCase := range subTests {
+		subTest := testCase
 
-	// 	success := t.t.Run(subTest.name, func(tt *testing.T) {
-	// 		ht := newHarnessTest(tt, net)
-	// 		subTest.fn(ht, watchOnly, carol)
-	// 	})
+		success := ht.Run(subTest.name, func(tt *testing.T) {
+			// Skip the cleanup here as no standby node is used.
+			st := ht.Subtest(tt)
 
-	// 	shutdownAndAssert(net, t, carol)
-	// 	shutdownAndAssert(net, t, watchOnly)
-	// 	shutdownAndAssert(net, t, signer)
+			_, watchOnly, carol := prepareTest(st, subTest)
+			subTest.fn(st, watchOnly, carol)
+		})
 
-	// 	if !success {
-	// 		return
-	// 	}
-	// }
+		if !success {
+			return
+		}
+	}
 }
 
 // deriveCustomScopeAccounts derives the first 255 default accounts of the custom lnd

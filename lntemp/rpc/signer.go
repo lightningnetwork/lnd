@@ -147,3 +147,33 @@ func (h *HarnessRPC) MuSig2Cleanup(
 
 	return resp
 }
+
+// SignMessageSigner makes a RPC call to the node's SignerClient and asserts.
+//
+// NOTE: there's already `SignMessage` in `h.LN`.
+func (h *HarnessRPC) SignMessageSigner(
+	req *signrpc.SignMessageReq) *signrpc.SignMessageResp {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Signer.SignMessage(ctxt, req)
+	h.NoError(err, "SignMessage")
+
+	return resp
+}
+
+// VerifyMessageSigner makes a RPC call to the node's SignerClient and asserts.
+//
+// NOTE: there's already `VerifyMessageSigner` in `h.LN`.
+func (h *HarnessRPC) VerifyMessageSigner(
+	req *signrpc.VerifyMessageReq) *signrpc.VerifyMessageResp {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Signer.VerifyMessage(ctxt, req)
+	h.NoError(err, "VerifyMessage")
+
+	return resp
+}

@@ -1944,3 +1944,26 @@ func (h *HarnessTest) ReceiveChannelEvent(
 
 	return nil
 }
+
+// GetOutputIndex returns the output index of the given address in the given
+// transaction.
+func (h *HarnessTest) GetOutputIndex(txid *chainhash.Hash, addr string) int {
+	// We'll then extract the raw transaction from the mempool in order to
+	// determine the index of the p2tr output.
+	tx := h.Miner.GetRawTransaction(txid)
+
+	p2trOutputIndex := -1
+	for i, txOut := range tx.MsgTx().TxOut {
+		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+			txOut.PkScript, h.Miner.ActiveNet,
+		)
+		require.NoError(h, err)
+
+		if addrs[0].String() == addr {
+			p2trOutputIndex = i
+		}
+	}
+	require.Greater(h, p2trOutputIndex, -1)
+
+	return p2trOutputIndex
+}

@@ -1,6 +1,7 @@
 package lntemp
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -2132,4 +2133,37 @@ func (h *HarnessTest) AssertInvoiceEqual(a, b *lnrpc.Invoice) {
 		require.Equal(h, htlcA.MppTotalAmtMsat, htlcB.MppTotalAmtMsat)
 		require.Equal(h, htlcA.Amp, htlcB.Amp)
 	}
+}
+
+// AssertUTXOInWallet asserts that a given UTXO can be found in the node's
+// wallet.
+func (h *HarnessTest) AssertUTXOInWallet(hn *node.HarnessNode,
+	op *lnrpc.OutPoint, account string) {
+
+	err := wait.NoError(func() error {
+		req := &walletrpc.ListUnspentRequest{
+			Account: account,
+		}
+		resp := hn.RPC.ListUnspent(req)
+
+		err := fmt.Errorf("tx with hash %x not found", op.TxidBytes)
+		for _, utxo := range resp.Utxos {
+			if !bytes.Equal(utxo.Outpoint.TxidBytes, op.TxidBytes) {
+				continue
+			}
+
+			err = fmt.Errorf("tx with output index %v not found",
+				op.OutputIndex)
+			if utxo.Outpoint.OutputIndex != op.OutputIndex {
+				continue
+			}
+
+			return nil
+		}
+
+		return err
+	}, DefaultTimeout)
+
+	require.NoErrorf(h, err, "outpoint %v not found in %s's wallet",
+		op, hn.Name())
 }

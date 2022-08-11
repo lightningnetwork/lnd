@@ -445,4 +445,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "derive shared key",
 		TestFunc: testDeriveSharedKey,
 	},
+	{
+		Name:     "sign output raw",
+		TestFunc: testSignOutputRaw,
+	},
 }

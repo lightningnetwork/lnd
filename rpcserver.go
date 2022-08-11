@@ -576,6 +576,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/ListAliases": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 	}
 }
 
@@ -4029,12 +4033,17 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	// Extract the commitment type from the channel type flags.
 	commitmentType := rpcCommitmentType(dbChannel.ChanType)
 
+	dbScid := dbChannel.ShortChannelID
+
+	// Fetch the set of aliases for the channel.
+	channelAliases := r.server.aliasMgr.GetAliases(dbScid)
+
 	channel := &lnrpc.Channel{
 		Active:                isActive,
 		Private:               isPrivate(dbChannel),
 		RemotePubkey:          nodeID,
 		ChannelPoint:          chanPoint.String(),
-		ChanId:                dbChannel.ShortChannelID.ToUint64(),
+		ChanId:                dbScid.ToUint64(),
 		Capacity:              int64(dbChannel.Capacity),
 		LocalBalance:          int64(localBalance.ToSatoshis()),
 		RemoteBalance:         int64(remoteBalance.ToSatoshis()),
@@ -4056,10 +4065,20 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		RemoteConstraints: createChannelConstraint(
 			&dbChannel.RemoteChanCfg,
 		),
+		AliasScids:            make([]uint64, 0, len(channelAliases)),
+		ZeroConf:              dbChannel.IsZeroConf(),
+		ZeroConfConfirmedScid: dbChannel.ZeroConfRealScid().ToUint64(),
 		// TODO: remove the following deprecated fields
 		CsvDelay:             uint32(dbChannel.LocalChanCfg.CsvDelay),
 		LocalChanReserveSat:  int64(dbChannel.LocalChanCfg.ChanReserve),
 		RemoteChanReserveSat: int64(dbChannel.RemoteChanCfg.ChanReserve),
+	}
+
+	// Populate the set of aliases.
+	for _, chanAlias := range channelAliases {
+		channel.AliasScids = append(
+			channel.AliasScids, chanAlias.ToUint64(),
+		)
 	}
 
 	for i, htlc := range localCommit.Htlcs {
@@ -4227,6 +4246,11 @@ func (r *rpcServer) createRPCClosedChannel(
 		closeType = lnrpc.ChannelCloseSummary_ABANDONED
 	}
 
+	dbScid := dbChannel.ShortChanID
+
+	// Fetch the set of aliases for this channel.
+	channelAliases := r.server.aliasMgr.GetAliases(dbScid)
+
 	channel := &lnrpc.ChannelCloseSummary{
 		Capacity:          int64(dbChannel.Capacity),
 		RemotePubkey:      nodeID,
@@ -4240,6 +4264,37 @@ func (r *rpcServer) createRPCClosedChannel(
 		ClosingTxHash:     dbChannel.ClosingTXID.String(),
 		OpenInitiator:     openInit,
 		CloseInitiator:    closeInitiator,
+		AliasScids:        make([]uint64, 0, len(channelAliases)),
+	}
+
+	// Populate the set of aliases.
+	for _, chanAlias := range channelAliases {
+		channel.AliasScids = append(
+			channel.AliasScids, chanAlias.ToUint64(),
+		)
+	}
+
+	// Populate any historical data that the summary needs.
+	histChan, err := r.server.chanStateDB.FetchHistoricalChannel(
+		&dbChannel.ChanPoint,
+	)
+	switch err {
+	// The channel was closed in a pre-historic version of lnd. Ignore the
+	// error.
+	case channeldb.ErrNoHistoricalBucket:
+	case channeldb.ErrChannelNotFound:
+
+	case nil:
+		if histChan.IsZeroConf() && histChan.ZeroConfConfirmed() {
+			// If the channel was zero-conf, it may have confirmed.
+			// Populate the confirmed SCID if so.
+			confirmedScid := histChan.ZeroConfRealScid().ToUint64()
+			channel.ZeroConfConfirmedScid = confirmedScid
+		}
+
+	// Non-nil error not due to older versions of lnd.
+	default:
+		return nil, err
 	}
 
 	reports, err := r.server.miscDB.FetchChannelReports(
@@ -7675,6 +7730,37 @@ func (r *rpcServer) SubscribeCustomMessages(req *lnrpc.SubscribeCustomMessagesRe
 			}
 		}
 	}
+}
+
+// ListAliases returns the set of all aliases we have ever allocated along with
+// their base SCID's and possibly a separate confirmed SCID in the case of
+// zero-conf.
+func (r *rpcServer) ListAliases(ctx context.Context,
+	in *lnrpc.ListAliasesRequest) (*lnrpc.ListAliasesResponse, error) {
+
+	// Fetch the map of all aliases.
+	mapAliases := r.server.aliasMgr.ListAliases()
+
+	// Fill out the response. This does not include the zero-conf confirmed
+	// SCID. Doing so would require more database lookups and it can be
+	// cross-referenced with the output of listchannels/closedchannels.
+	resp := &lnrpc.ListAliasesResponse{
+		AliasMaps: make([]*lnrpc.AliasMap, 0),
+	}
+
+	for base, set := range mapAliases {
+		rpcMap := &lnrpc.AliasMap{
+			BaseScid: base.ToUint64(),
+		}
+		for _, alias := range set {
+			rpcMap.Aliases = append(
+				rpcMap.Aliases, alias.ToUint64(),
+			)
+		}
+		resp.AliasMaps = append(resp.AliasMaps, rpcMap)
+	}
+
+	return resp, nil
 }
 
 // rpcInitiator returns the correct lnrpc initiator for channels where we have

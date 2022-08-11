@@ -1419,6 +1419,31 @@ var listChannelsCommand = cli.Command{
 	Action: actionDecorator(listChannels),
 }
 
+var listAliasesCommand = cli.Command{
+	Name:     "listaliases",
+	Category: "Channels",
+	Usage:    "List all aliases.",
+	Flags:    []cli.Flag{},
+	Action:   actionDecorator(listaliases),
+}
+
+func listaliases(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &lnrpc.ListAliasesRequest{}
+
+	resp, err := client.ListAliases(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}
+
 func listChannels(ctx *cli.Context) error {
 	ctxc := getContext()
 	client, cleanUp := getClient(ctx)

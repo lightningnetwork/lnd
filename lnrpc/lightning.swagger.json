@@ -16,6 +16,29 @@
     "application/json"
   ],
   "paths": {
+    "/v1/aliases/list": {
+      "get": {
+        "summary": "lncli: `listaliases`\nListAliases returns the set of all aliases that have ever existed with\ntheir confirmed SCID (if it exists) and/or the base SCID (in the case of\nzero conf).",
+        "operationId": "Lightning_ListAliases",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListAliasesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/balance/blockchain": {
       "get": {
         "summary": "lncli: `walletbalance`\nWalletBalance returns total unspent outputs(confirmed and unconfirmed), all\nconfirmed unspent outputs and all unconfirmed unspent outputs under control\nof the wallet.",
@@ -2951,6 +2974,24 @@
       "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)\n- `p2tr`: Pay to taproot pubkey (`TAPROOT_PUBKEY` = 4)",
       "title": "`AddressType` has to be one of:"
     },
+    "lnrpcAliasMap": {
+      "type": "object",
+      "properties": {
+        "base_scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "For non-zero-conf channels, this is the confirmed SCID. Otherwise, this is\nthe first assigned \"base\" alias."
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The set of all aliases stored for the base SCID."
+        }
+      }
+    },
     "lnrpcAmount": {
       "type": "object",
       "properties": {
@@ -3291,6 +3332,23 @@
         "remote_constraints": {
           "$ref": "#/definitions/lnrpcChannelConstraints",
           "description": "List constraints for the remote node."
+        },
+        "alias_scids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "This lists out the set of alias short channel ids that exist for a channel.\nThis may be empty."
+        },
+        "zero_conf": {
+          "type": "boolean",
+          "description": "Whether or not this is a zero-conf channel."
+        },
+        "zero_conf_confirmed_scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "This is the confirmed / on-chain zero-conf SCID."
         }
       }
     },
@@ -3550,6 +3608,19 @@
           "items": {
             "$ref": "#/definitions/lnrpcResolution"
           }
+        },
+        "alias_scids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "This lists out the set of alias short channel ids that existed for the\nclosed channel. This may be empty."
+        },
+        "zero_conf_confirmed_scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The confirmed SCID for a zero-conf channel."
         }
       }
     },
@@ -4986,6 +5057,17 @@
         }
       },
       "description": "An individual vertex/node within the channel graph. A node is\nconnected to other nodes by one or more channel edges emanating from it. As the\ngraph is directed, a node will also have an incoming edge attached to it for\neach outgoing edge."
+    },
+    "lnrpcListAliasesResponse": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
     },
     "lnrpcListChannelsResponse": {
       "type": "object",

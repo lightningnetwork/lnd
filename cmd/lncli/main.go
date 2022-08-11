@@ -88,34 +88,40 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		fatal(fmt.Errorf("could not load global options: %v", err))
 	}
 
-	// Load the specified TLS certificate.
-	certPool, err := profile.cert()
-	if err != nil {
-		fatal(fmt.Errorf("could not create cert pool: %v", err))
-	}
-
-	// Build transport credentials from the certificate pool. If there is no
-	// certificate pool, we expect the server to use a non-self-signed
-	// certificate such as a certificate obtained from Let's Encrypt.
-	var creds credentials.TransportCredentials
-	if certPool != nil {
-		creds = credentials.NewClientTLSFromCert(certPool, "")
-	} else {
-		// Fallback to the system pool. Using an empty tls config is an
-		// alternative to x509.SystemCertPool(). That call is not
-		// supported on Windows.
-		creds = credentials.NewTLS(&tls.Config{})
-	}
-
 	// Create a dial options array.
 	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(creds),
 		grpc.WithUnaryInterceptor(
 			addMetadataUnaryInterceptor(profile.Metadata),
 		),
 		grpc.WithStreamInterceptor(
 			addMetaDataStreamInterceptor(profile.Metadata),
 		),
+	}
+
+	if profile.Insecure {
+		opts = append(opts, grpc.WithInsecure())
+	} else {
+		// Load the specified TLS certificate.
+		certPool, err := profile.cert()
+		if err != nil {
+			fatal(fmt.Errorf("could not create cert pool: %v", err))
+		}
+
+		// Build transport credentials from the certificate pool. If
+		// there is no certificate pool, we expect the server to use a
+		// non-self-signed certificate such as a certificate obtained
+		// from Let's Encrypt.
+		var creds credentials.TransportCredentials
+		if certPool != nil {
+			creds = credentials.NewClientTLSFromCert(certPool, "")
+		} else {
+			// Fallback to the system pool. Using an empty tls
+			// config is an alternative to x509.SystemCertPool().
+			// That call is not supported on Windows.
+			creds = credentials.NewTLS(&tls.Config{})
+		}
+
+		opts = append(opts, grpc.WithTransportCredentials(creds))
 	}
 
 	// Only process macaroon credentials if --no-macaroons isn't set and
@@ -409,6 +415,12 @@ func main() {
 				"outgoing context before the request is sent " +
 				"to lnd. This flag may be specified multiple " +
 				"times. The format is: \"key:value\".",
+		},
+		cli.BoolFlag{
+			Name: "insecure",
+			Usage: "Connect to the rpc server without TLS " +
+				"authentication",
+			Hidden: true,
 		},
 	}
 	app.Commands = []cli.Command{

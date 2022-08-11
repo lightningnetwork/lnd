@@ -33,6 +33,7 @@ type profileEntry struct {
 	TLSCert     string            `json:"tlscert"`
 	Macaroons   *macaroonJar      `json:"macaroons"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
+	Insecure    bool              `json:"insecure,omitempty"`
 }
 
 // cert returns the profile's TLS certificate as a x509 certificate pool.
@@ -122,10 +123,12 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 		return nil, err
 	}
 
+	insecure := ctx.GlobalBool("insecure")
+
 	// Load the certificate file now, if specified. We store it as plain PEM
 	// directly.
 	var tlsCert []byte
-	if tlsCertPath != "" {
+	if tlsCertPath != "" && !insecure {
 		var err error
 		tlsCert, err = ioutil.ReadFile(tlsCertPath)
 		if err != nil {
@@ -155,6 +158,7 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 		NoMacaroons: ctx.GlobalBool("no-macaroons"),
 		TLSCert:     string(tlsCert),
 		Metadata:    metadata,
+		Insecure:    insecure,
 	}
 
 	// If we aren't using macaroons in general (flag --no-macaroons) or

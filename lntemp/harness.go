@@ -1911,3 +1911,36 @@ func (h *HarnessTest) ReceiveHtlcInterceptor(
 
 	return nil
 }
+
+// ReceiveChannelEvent waits until a message is received from the
+// ChannelEventsClient stream or the timeout is reached.
+func (h *HarnessTest) ReceiveChannelEvent(
+	stream rpc.ChannelEventsClient) *lnrpc.ChannelEventUpdate {
+
+	chanMsg := make(chan *lnrpc.ChannelEventUpdate)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout intercepting htlc")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}

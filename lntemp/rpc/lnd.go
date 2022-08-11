@@ -631,3 +631,20 @@ func (h *HarnessRPC) RegisterRPCMiddleware() (MiddlewareClient,
 
 	return stream, cancel
 }
+
+type ChannelEventsClient lnrpc.Lightning_SubscribeChannelEventsClient
+
+// SubscribeChannelEvents creates a subscription client for channel events and
+// asserts its creation.
+func (h *HarnessRPC) SubscribeChannelEvents() ChannelEventsClient {
+	req := &lnrpc.ChannelEventSubscription{}
+
+	// SubscribeChannelEvents needs to have the context alive for the
+	// entire test case as the returned client will be used for send and
+	// receive events stream. Thus we use runCtx here instead of a timeout
+	// context.
+	client, err := h.LN.SubscribeChannelEvents(h.runCtx, req)
+	h.NoError(err, "SubscribeChannelEvents")
+
+	return client
+}

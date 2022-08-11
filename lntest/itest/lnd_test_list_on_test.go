@@ -5,10 +5,6 @@ package itest
 
 var allTestCases = []*testCase{
 	{
-		name: "multiple channel creation and update subscription",
-		test: testBasicChannelCreationAndUpdates,
-	},
-	{
 		name: "derive shared key",
 		test: testDeriveSharedKey,
 	},

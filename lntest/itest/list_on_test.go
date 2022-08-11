@@ -437,4 +437,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "nonstd sweep",
 		TestFunc: testNonstdSweep,
 	},
+	{
+		Name:     "multiple channel creation and update subscription",
+		TestFunc: testBasicChannelCreationAndUpdates,
+	},
 }

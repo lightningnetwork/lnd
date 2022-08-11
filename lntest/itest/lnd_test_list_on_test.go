@@ -13,10 +13,6 @@ var allTestCases = []*testCase{
 		test: testBidirectionalAsyncPayments,
 	},
 	{
-		name: "cpfp",
-		test: testCPFP,
-	},
-	{
 		name: "psbt channel funding",
 		test: testPsbtChanFunding,
 	},

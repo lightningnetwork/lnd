@@ -453,4 +453,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "sign verify message",
 		TestFunc: testSignVerifyMessage,
 	},
+	{
+		Name:     "cpfp",
+		TestFunc: testCPFP,
+	},
 }

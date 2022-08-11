@@ -22,7 +22,8 @@ import (
 var (
 	// addr is the server's reward address given to watchtower clients.
 	addr, _ = btcutil.DecodeAddress(
-		"mrX9vMRYLfVy1BnZbc5gZjuyaqH3ZW2ZHz", &chaincfg.TestNet3Params,
+		"tb1pw8gzj8clt3v5lxykpgacpju5n8xteskt7gxhmudu6pa70nwfhe6s3unsyk",
+		&chaincfg.TestNet3Params,
 	)
 
 	addrScript, _ = txscript.PayToAddrScript(addr)

@@ -458,7 +458,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			Net:            cfg.net,
 			NewAddress: func() (btcutil.Address, error) {
 				return activeChainControl.Wallet.NewAddress(
-					lnwallet.WitnessPubKey, false,
+					lnwallet.TaprootPubkey, false,
 					lnwallet.DefaultAccountName,
 				)
 			},

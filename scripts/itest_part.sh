@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Let's work with absolute paths only, we run in the itest directory itself.
-WORKDIR=$(pwd)/lntest/itest
+WORKDIR=$(pwd)/itest
 
 TRANCHE=$1
 NUM_TRANCHES=$2

@@ -407,9 +407,7 @@ func waitForZeroConfGraphChange(hn *node.HarnessNode,
 // testUpdateChannelPolicyScidAlias checks that option-scid-alias, zero-conf
 // channel-types, and option-scid-alias feature-bit-only channels have the
 // expected graph and that payments work when updating the channel policy.
-func testUpdateChannelPolicyScidAlias(net *lntest.NetworkHarness,
-	t *harnessTest) {
-
+func testUpdateChannelPolicyScidAlias(ht *lntemp.HarnessTest) {
 	tests := []struct {
 		name string
 
@@ -447,10 +445,11 @@ func testUpdateChannelPolicyScidAlias(net *lntest.NetworkHarness,
 	for _, test := range tests {
 		test := test
 
-		success := t.t.Run(test.name, func(t *testing.T) {
-			ht := newHarnessTest(t, net)
+		success := ht.Run(test.name, func(t *testing.T) {
+			st := ht.Subtest(t)
+
 			testPrivateUpdateAlias(
-				net, ht, test.zeroConf, test.scidAliasType,
+				st, test.zeroConf, test.scidAliasType,
 				test.private,
 			)
 		})
@@ -460,17 +459,13 @@ func testUpdateChannelPolicyScidAlias(net *lntest.NetworkHarness,
 	}
 }
 
-func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
+func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
 	zeroConf, scidAliasType, private bool) {
-
-	ctxb := context.Background()
-	defer ctxb.Done()
 
 	// We'll create a new node Eve that will not have option-scid-alias
 	// channels.
-	eve := net.NewNode(t.t, "Eve", nil)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, eve)
-	defer shutdownAndAssert(net, t, eve)
+	eve := ht.NewNode("Eve", nil)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, eve)
 
 	// Since option-scid-alias is opt-in we'll need to specify the protocol
 	// arguments when creating a new node.
@@ -479,52 +474,39 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 		"--protocol.zero-conf",
 		"--protocol.anchors",
 	}
-
-	carol := net.NewNode(t.t, "Carol", scidAliasArgs)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", scidAliasArgs)
 
 	// Spin-up Dave who will have an option-scid-alias feature-bit-only or
 	// channel-type channel with Carol.
-	dave := net.NewNode(t.t, "Dave", scidAliasArgs)
-	defer shutdownAndAssert(net, t, dave)
+	dave := ht.NewNode("Dave", scidAliasArgs)
 
 	// We'll give Carol some coins in order to fund the channel.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// Ensure that Carol and Dave are connected.
-	net.EnsureConnected(t.t, carol, dave)
+	ht.EnsureConnected(carol, dave)
 
 	// We'll open a regular public channel between Eve and Carol here. Eve
 	// will be the one receiving the onion-encrypted ChannelUpdate.
-	net.EnsureConnected(t.t, eve, carol)
+	ht.EnsureConnected(eve, carol)
 
 	chanAmt := btcutil.Amount(1_000_000)
 
-	fundingPoint := openChannelAndAssert(
-		t, net, eve, carol,
-		lntest.OpenChannelParams{
-			Amt:     chanAmt,
-			PushAmt: chanAmt / 2,
-		},
-	)
-	defer closeChannelAndAssert(t, net, eve, fundingPoint, false)
+	p := lntemp.OpenChannelParams{
+		Amt:     chanAmt,
+		PushAmt: chanAmt / 2,
+	}
+	fundingPoint := ht.OpenChannel(eve, carol, p)
 
-	// Wait for all to view the channel as active.
-	err := eve.WaitForNetworkChannelOpen(fundingPoint)
-	require.NoError(t.t, err, "eve didn't report channel")
-	err = carol.WaitForNetworkChannelOpen(fundingPoint)
-	require.NoError(t.t, err, "carol didn't report channel")
-	err = dave.WaitForNetworkChannelOpen(fundingPoint)
-	require.NoError(t.t, err, "dave didn't report channel")
+	// Make sure Dave has seen this public channel.
+	ht.AssertTopologyChannelOpen(dave, fundingPoint)
 
 	// Setup a ChannelAcceptor for Dave.
-	ctxc, cancel := context.WithCancel(ctxb)
-	acceptStream, err := dave.ChannelAcceptor(ctxc)
-	require.NoError(t.t, err)
-	go acceptChannel(t.t, zeroConf, acceptStream)
+	acceptStream, cancel := dave.RPC.ChannelAcceptor()
+	go acceptChannel(ht.T, zeroConf, acceptStream)
 
 	// Open a private channel, optionally specifying a channel-type.
-	params := lntest.OpenChannelParams{
+	params := lntemp.OpenChannelParams{
 		Amt:            chanAmt,
 		Private:        private,
 		CommitmentType: lnrpc.CommitmentType_ANCHORS,
@@ -532,25 +514,10 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 		ScidAlias:      scidAliasType,
 		PushAmt:        chanAmt / 2,
 	}
-	chanOpenUpdate := openChannelStream(t, net, carol, dave, params)
+	fundingPoint2 := ht.OpenChannelNoAnnounce(carol, dave, params)
 
 	// Remove the ChannelAcceptor.
 	cancel()
-
-	if !zeroConf {
-		// If this is not a zero-conf channel, mine a single block to
-		// confirm the channel.
-		_ = mineBlocks(t, net, 1, 1)
-	}
-
-	// Wait for both Carol and Dave to see the channel as open.
-	fundingPoint2, err := net.WaitForChannelOpen(chanOpenUpdate)
-	require.NoError(t.t, err, "error while waiting for channel open")
-
-	err = carol.WaitForNetworkChannelOpen(fundingPoint2)
-	require.NoError(t.t, err, "carol didn't report channel")
-	err = dave.WaitForNetworkChannelOpen(fundingPoint2)
-	require.NoError(t.t, err, "dave didn't report channel")
 
 	// Carol will now update the channel edge policy for her channel with
 	// Dave.
@@ -565,9 +532,7 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 			ChanPoint: fundingPoint2,
 		},
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	_, err = carol.UpdateChannelPolicy(ctxt, updateFeeReq)
-	require.NoError(t.t, err, "unable to update chan policy")
+	carol.RPC.UpdateChannelPolicy(updateFeeReq)
 
 	expectedPolicy := &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      int64(baseFeeMSat),
@@ -578,9 +543,8 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	// Assert that Dave receives Carol's policy update.
-	assertChannelPolicyUpdate(
-		t.t, dave, carol.PubKeyStr, expectedPolicy, fundingPoint2,
-		true,
+	ht.AssertChannelPolicyUpdate(
+		dave, carol, expectedPolicy, fundingPoint2, true,
 	)
 
 	// Have Dave also update his policy.
@@ -594,9 +558,7 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 			ChanPoint: fundingPoint2,
 		},
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = dave.UpdateChannelPolicy(ctxt, updateFeeReq)
-	require.NoError(t.t, err, "unable to update chan policy")
+	dave.RPC.UpdateChannelPolicy(updateFeeReq)
 
 	expectedPolicy = &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      int64(baseFeeMSat),
@@ -607,9 +569,8 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	// Assert that Carol receives Dave's policy update.
-	assertChannelPolicyUpdate(
-		t.t, carol, dave.PubKeyStr, expectedPolicy, fundingPoint2,
-		true,
+	ht.AssertChannelPolicyUpdate(
+		carol, dave, expectedPolicy, fundingPoint2, true,
 	)
 
 	// Assert that if Dave disables the channel, Carol sees it.
@@ -617,16 +578,11 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 		ChanPoint: fundingPoint2,
 		Action:    routerrpc.ChanStatusAction_DISABLE,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = dave.RouterClient.UpdateChanStatus(ctxt, disableReq)
-	require.NoError(t.t, err)
+	dave.RPC.UpdateChanStatus(disableReq)
 
-	davePolicy := getChannelPolicies(
-		t, carol, dave.PubKeyStr, fundingPoint2,
-	)[0]
-	davePolicy.Disabled = true
-	assertChannelPolicyUpdate(
-		t.t, carol, dave.PubKeyStr, davePolicy, fundingPoint2, true,
+	expectedPolicy.Disabled = true
+	ht.AssertChannelPolicyUpdate(
+		carol, dave, expectedPolicy, fundingPoint2, true,
 	)
 
 	// Assert that if Dave enables the channel, Carol sees it.
@@ -634,13 +590,11 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 		ChanPoint: fundingPoint2,
 		Action:    routerrpc.ChanStatusAction_ENABLE,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = dave.RouterClient.UpdateChanStatus(ctxt, enableReq)
-	require.NoError(t.t, err)
+	dave.RPC.UpdateChanStatus(enableReq)
 
-	davePolicy.Disabled = false
-	assertChannelPolicyUpdate(
-		t.t, carol, dave.PubKeyStr, davePolicy, fundingPoint2, true,
+	expectedPolicy.Disabled = false
+	ht.AssertChannelPolicyUpdate(
+		carol, dave, expectedPolicy, fundingPoint2, true,
 	)
 
 	// Create an invoice for Carol to pay.
@@ -648,27 +602,16 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 		Value:   int64(10_000),
 		Private: true,
 	}
-	daveInvoiceResp, err := dave.AddInvoice(ctxb, invoiceParams)
-	require.NoError(t.t, err, "unable to add invoice")
+	daveInvoiceResp := dave.RPC.AddInvoice(invoiceParams)
 
 	// Carol will attempt to send Dave an HTLC.
 	payReqs := []string{daveInvoiceResp.PaymentRequest}
-	require.NoError(
-		t.t, completePaymentRequests(
-			carol, carol.RouterClient, payReqs, true,
-		), "unable to send payment",
-	)
+	ht.CompletePaymentRequests(carol, payReqs)
 
 	// Now Eve will create an invoice that Dave will pay.
-	eveInvoiceResp, err := eve.AddInvoice(ctxb, invoiceParams)
-	require.NoError(t.t, err, "unable to add invoice")
-
+	eveInvoiceResp := eve.RPC.AddInvoice(invoiceParams)
 	payReqs = []string{eveInvoiceResp.PaymentRequest}
-	require.NoError(
-		t.t, completePaymentRequests(
-			dave, dave.RouterClient, payReqs, true,
-		), "unable to send payment",
-	)
+	ht.CompletePaymentRequests(dave, payReqs)
 
 	// If this is a public channel, it won't be included in the hop hints,
 	// so we'll mine enough for 6 confs here. We only expect a tx in the
@@ -678,18 +621,19 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 		if zeroConf {
 			expectTx = 1
 		}
-		_ = mineBlocks(t, net, 6, expectTx)
+		ht.MineBlocksAndAssertNumTxes(6, expectTx)
 
 		// Sleep here so that the edge can be deleted and re-inserted.
 		// This is necessary since the edge may have a policy for the
 		// peer that is "correct" but has an invalid signature from the
 		// PoV of BOLT#7.
+		//
+		// TODO(yy): further investigate this sleep.
 		time.Sleep(time.Second * 5)
 	}
 
 	// Dave creates an invoice that Eve will pay.
-	daveInvoiceResp2, err := dave.AddInvoice(ctxb, invoiceParams)
-	require.NoError(t.t, err, "unable to add invoice")
+	daveInvoiceResp2 := dave.RPC.AddInvoice(invoiceParams)
 
 	// Carol then updates the channel policy again.
 	feeRate = int64(2)
@@ -701,9 +645,7 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 			ChanPoint: fundingPoint2,
 		},
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = carol.UpdateChannelPolicy(ctxt, updateFeeReq)
-	require.NoError(t.t, err, "unable to update chan policy")
+	carol.RPC.UpdateChannelPolicy(updateFeeReq)
 
 	expectedPolicy = &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      int64(baseFeeMSat),
@@ -714,38 +656,26 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	// Assert Dave receives Carol's policy update.
-	assertChannelPolicyUpdate(
-		t.t, dave, carol.PubKeyStr, expectedPolicy, fundingPoint2,
-		true,
+	ht.AssertChannelPolicyUpdate(
+		dave, carol, expectedPolicy, fundingPoint2, true,
 	)
 
 	// If the channel is public, check that Eve receives Carol's policy
 	// update.
 	if !private {
-		assertChannelPolicyUpdate(
-			t.t, eve, carol.PubKeyStr, expectedPolicy,
-			fundingPoint2, true,
+		ht.AssertChannelPolicyUpdate(
+			eve, carol, expectedPolicy, fundingPoint2, true,
 		)
 	}
 
 	// Eve will pay Dave's invoice and should use the updated base fee.
 	payReqs = []string{daveInvoiceResp2.PaymentRequest}
-	require.NoError(
-		t.t, completePaymentRequests(
-			eve, eve.RouterClient, payReqs, true,
-		), "unable to send payment",
-	)
+	ht.CompletePaymentRequests(eve, payReqs)
 
 	// Eve will issue an invoice that Dave will pay.
-	eveInvoiceResp2, err := eve.AddInvoice(ctxb, invoiceParams)
-	require.NoError(t.t, err, "unable to add invoice")
-
+	eveInvoiceResp2 := eve.RPC.AddInvoice(invoiceParams)
 	payReqs = []string{eveInvoiceResp2.PaymentRequest}
-	require.NoError(
-		t.t, completePaymentRequests(
-			dave, dave.RouterClient, payReqs, true,
-		), "unable to send payment",
-	)
+	ht.CompletePaymentRequests(dave, payReqs)
 
 	// If this is a private channel, we'll mine 6 blocks here to test the
 	// funding manager logic that deals with ChannelUpdates. If this is not
@@ -755,62 +685,45 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 		if zeroConf {
 			expectTx = 1
 		}
-		_ = mineBlocks(t, net, 6, expectTx)
+		ht.MineBlocksAndAssertNumTxes(6, expectTx)
 	}
 
 	// Dave will issue an invoice and Eve will pay it.
-	daveInvoiceResp3, err := dave.AddInvoice(ctxb, invoiceParams)
-	require.NoError(t.t, err, "unable to add invoice")
-
+	daveInvoiceResp3 := dave.RPC.AddInvoice(invoiceParams)
 	payReqs = []string{daveInvoiceResp3.PaymentRequest}
-	require.NoError(
-		t.t, completePaymentRequests(
-			eve, eve.RouterClient, payReqs, true,
-		), "unable to send payment",
-	)
+	ht.CompletePaymentRequests(eve, payReqs)
 
 	// Carol will disable the channel, assert that Dave sees it and Eve as
 	// well if the channel is public.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = carol.RouterClient.UpdateChanStatus(ctxt, disableReq)
-	require.NoError(t.t, err)
+	carol.RPC.UpdateChanStatus(disableReq)
 
-	carolPolicy := getChannelPolicies(
-		t, dave, carol.PubKeyStr, fundingPoint2,
-	)[0]
-	carolPolicy.Disabled = true
-	assertChannelPolicyUpdate(
-		t.t, dave, carol.PubKeyStr, carolPolicy, fundingPoint2, true,
+	expectedPolicy.Disabled = true
+	ht.AssertChannelPolicyUpdate(
+		dave, carol, expectedPolicy, fundingPoint2, true,
 	)
 
 	if !private {
-		assertChannelPolicyUpdate(
-			t.t, eve, carol.PubKeyStr, carolPolicy, fundingPoint2,
-			true,
+		ht.AssertChannelPolicyUpdate(
+			eve, carol, expectedPolicy, fundingPoint2, true,
 		)
 	}
 
 	// Carol will enable the channel, assert the same as above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = carol.RouterClient.UpdateChanStatus(ctxt, enableReq)
-	require.NoError(t.t, err)
-
-	carolPolicy.Disabled = false
-	assertChannelPolicyUpdate(
-		t.t, dave, carol.PubKeyStr, carolPolicy, fundingPoint2, true,
+	carol.RPC.UpdateChanStatus(enableReq)
+	expectedPolicy.Disabled = false
+	ht.AssertChannelPolicyUpdate(
+		dave, carol, expectedPolicy, fundingPoint2, true,
 	)
 
 	if !private {
-		assertChannelPolicyUpdate(
-			t.t, eve, carol.PubKeyStr, carolPolicy, fundingPoint2,
-			true,
+		ht.AssertChannelPolicyUpdate(
+			eve, carol, expectedPolicy, fundingPoint2, true,
 		)
 	}
 
 	// Dave will issue an invoice and Eve should pay it after Carol updates
 	// her channel policy.
-	daveInvoiceResp4, err := dave.AddInvoice(ctxb, invoiceParams)
-	require.NoError(t.t, err, "unable to add invoice")
+	daveInvoiceResp4 := dave.RPC.AddInvoice(invoiceParams)
 
 	feeRate = int64(3)
 	updateFeeReq = &lnrpc.PolicyUpdateRequest{
@@ -821,9 +734,7 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 			ChanPoint: fundingPoint2,
 		},
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = carol.UpdateChannelPolicy(ctxt, updateFeeReq)
-	require.NoError(t.t, err, "unable to update chan policy")
+	carol.RPC.UpdateChannelPolicy(updateFeeReq)
 
 	expectedPolicy = &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      int64(baseFeeMSat),
@@ -834,24 +745,18 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	// Assert Dave and optionally Eve receives Carol's update.
-	assertChannelPolicyUpdate(
-		t.t, dave, carol.PubKeyStr, expectedPolicy, fundingPoint2,
-		true,
+	ht.AssertChannelPolicyUpdate(
+		dave, carol, expectedPolicy, fundingPoint2, true,
 	)
 
 	if !private {
-		assertChannelPolicyUpdate(
-			t.t, eve, carol.PubKeyStr, expectedPolicy,
-			fundingPoint2, true,
+		ht.AssertChannelPolicyUpdate(
+			eve, carol, expectedPolicy, fundingPoint2, true,
 		)
 	}
 
 	payReqs = []string{daveInvoiceResp4.PaymentRequest}
-	require.NoError(
-		t.t, completePaymentRequests(
-			eve, eve.RouterClient, payReqs, true,
-		), "unable to send payment",
-	)
+	ht.CompletePaymentRequests(eve, payReqs)
 }
 
 // testOptionScidUpgrade tests that toggling the option-scid-alias feature bit

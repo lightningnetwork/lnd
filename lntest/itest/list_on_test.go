@@ -441,4 +441,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "multiple channel creation and update subscription",
 		TestFunc: testBasicChannelCreationAndUpdates,
 	},
+	{
+		Name:     "derive shared key",
+		TestFunc: testDeriveSharedKey,
+	},
 }

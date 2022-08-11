@@ -15,6 +15,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
@@ -23,21 +25,19 @@ import (
 // DeriveSharedKey. It creates an ephemeral private key, performing an ECDH with
 // the node's pubkey and a customized public key to check the validity of the
 // result.
-func testDeriveSharedKey(net *lntest.NetworkHarness, t *harnessTest) {
-	runDeriveSharedKey(t, net.Alice)
+func testDeriveSharedKey(ht *lntemp.HarnessTest) {
+	runDeriveSharedKey(ht, ht.Alice)
 }
 
 // runDeriveSharedKey checks the ECDH performed by the endpoint
 // DeriveSharedKey. It creates an ephemeral private key, performing an ECDH with
 // the node's pubkey and a customized public key to check the validity of the
 // result.
-func runDeriveSharedKey(t *harnessTest, alice *lntest.HarnessNode) {
-	ctxb := context.Background()
-
+func runDeriveSharedKey(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
 	// Create an ephemeral key, extracts its public key, and make a
 	// PrivKeyECDH using the ephemeral key.
 	ephemeralPriv, err := btcec.NewPrivateKey()
-	require.NoError(t.t, err, "failed to create ephemeral key")
+	require.NoError(ht, err, "failed to create ephemeral key")
 
 	ephemeralPubBytes := ephemeralPriv.PubKey().SerializeCompressed()
 	privKeyECDH := &keychain.PrivKeyECDH{PrivKey: ephemeralPriv}
@@ -47,30 +47,27 @@ func runDeriveSharedKey(t *harnessTest, alice *lntest.HarnessNode) {
 	assertECDHMatch := func(pub *btcec.PublicKey,
 		req *signrpc.SharedKeyRequest) {
 
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		resp, err := alice.SignerClient.DeriveSharedKey(ctxt, req)
-		require.NoError(t.t, err, "calling DeriveSharedKey failed")
+		resp := alice.RPC.DeriveSharedKey(req)
 
 		sharedKey, _ := privKeyECDH.ECDH(pub)
-		require.Equal(
-			t.t, sharedKey[:], resp.SharedKey,
-			"failed to derive the expected key",
-		)
+		require.Equal(ht, sharedKey[:], resp.SharedKey,
+			"failed to derive the expected key")
 	}
 
 	nodePub, err := btcec.ParsePubKey(alice.PubKey[:])
-	require.NoError(t.t, err, "failed to parse node pubkey")
+	require.NoError(ht, err, "failed to parse node pubkey")
 
 	customizedKeyFamily := int32(keychain.KeyFamilyMultiSig)
 	customizedIndex := int32(1)
 
-	customizedPub, err := deriveCustomizedKey(
-		ctxb, alice, &signrpc.KeyLocator{
-			KeyFamily: customizedKeyFamily,
-			KeyIndex:  customizedIndex,
-		},
-	)
-	require.NoError(t.t, err, "failed to create customized pubkey")
+	// Derive a customized key.
+	deriveReq := &signrpc.KeyLocator{
+		KeyFamily: customizedKeyFamily,
+		KeyIndex:  customizedIndex,
+	}
+	resp := alice.RPC.DeriveKey(deriveReq)
+	customizedPub, err := btcec.ParsePubKey(resp.RawKeyBytes)
+	require.NoError(ht, err, "failed to parse node pubkey")
 
 	// Test DeriveSharedKey with no optional arguments. It will result in
 	// performing an ECDH between the ephemeral key and the node's pubkey.
@@ -154,12 +151,8 @@ func runDeriveSharedKey(t *harnessTest, alice *lntest.HarnessNode) {
 	// assertErrorMatch checks when calling DeriveSharedKey with invalid
 	// params, the expected error is returned.
 	assertErrorMatch := func(match string, req *signrpc.SharedKeyRequest) {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		_, err := alice.SignerClient.DeriveSharedKey(ctxt, req)
-		require.Error(t.t, err, "expected to have an error")
-		require.Contains(
-			t.t, err.Error(), match, "error failed to match",
-		)
+		err := alice.RPC.DeriveSharedKeyErr(req)
+		require.Contains(ht, err.Error(), match, "error not match")
 	}
 
 	// Test that EphemeralPubkey must be supplied.

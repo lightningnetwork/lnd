@@ -163,3 +163,68 @@ func (h *HarnessRPC) PublishTransaction(
 
 	return resp
 }
+
+// BumpFee makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) BumpFee(
+	req *walletrpc.BumpFeeRequest) *walletrpc.BumpFeeResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.BumpFee(ctxt, req)
+	h.NoError(err, "BumpFee")
+
+	return resp
+}
+
+// ListAccounts makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) ListAccounts(
+	req *walletrpc.ListAccountsRequest) *walletrpc.ListAccountsResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.ListAccounts(ctxt, req)
+	h.NoError(err, "ListAccounts")
+
+	return resp
+}
+
+// ImportAccount makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) ImportAccount(
+	req *walletrpc.ImportAccountRequest) *walletrpc.ImportAccountResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.ImportAccount(ctxt, req)
+	require.NoErrorf(h, err, "failed to import account")
+
+	return resp
+}
+
+// ImportPublicKey makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) ImportPublicKey(
+	req *walletrpc.ImportPublicKeyRequest) *walletrpc.ImportPublicKeyResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.ImportPublicKey(ctxt, req)
+	h.NoError(err, "ImportPublicKey")
+
+	return resp
+}
+
+// SignPsbt makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) SignPsbt(
+	req *walletrpc.SignPsbtRequest) *walletrpc.SignPsbtResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.SignPsbt(ctxt, req)
+	h.NoError(err, "SignPsbt")
+
+	return resp
+}

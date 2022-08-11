@@ -5,10 +5,6 @@ package itest
 
 var allTestCases = []*testCase{
 	{
-		name: "derive shared key",
-		test: testDeriveSharedKey,
-	},
-	{
 		name: "sign output raw",
 		test: testSignOutputRaw,
 	},

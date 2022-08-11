@@ -429,4 +429,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "scid alias channel update",
 		TestFunc: testUpdateChannelPolicyScidAlias,
 	},
+	{
+		Name:     "scid alias upgrade",
+		TestFunc: testOptionScidUpgrade,
+	},
 }

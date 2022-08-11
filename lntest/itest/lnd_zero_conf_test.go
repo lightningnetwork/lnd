@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -761,68 +759,51 @@ func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
 
 // testOptionScidUpgrade tests that toggling the option-scid-alias feature bit
 // correctly upgrades existing channels.
-func testOptionScidUpgrade(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
+func testOptionScidUpgrade(ht *lntemp.HarnessTest) {
+	bob := ht.Bob
 
 	// Start carol with anchors only.
 	carolArgs := []string{
 		"--protocol.anchors",
 	}
-	carol := net.NewNode(t.t, "carol", carolArgs)
+	carol := ht.NewNode("carol", carolArgs)
 
 	// Start dave with anchors + scid-alias.
 	daveArgs := []string{
 		"--protocol.anchors",
 		"--protocol.option-scid-alias",
 	}
-	dave := net.NewNode(t.t, "dave", daveArgs)
-	defer shutdownAndAssert(net, t, dave)
+	dave := ht.NewNode("dave", daveArgs)
 
 	// Give carol some coins.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// Ensure carol and are connected.
-	net.EnsureConnected(t.t, carol, dave)
+	ht.EnsureConnected(carol, dave)
 
 	chanAmt := btcutil.Amount(1_000_000)
 
-	fundingPoint := openChannelAndAssert(
-		t, net, carol, dave,
-		lntest.OpenChannelParams{
-			Amt:     chanAmt,
-			PushAmt: chanAmt / 2,
-			Private: true,
-		},
-	)
-	defer closeChannelAndAssert(t, net, carol, fundingPoint, false)
-
-	err := carol.WaitForNetworkChannelOpen(fundingPoint)
-	require.NoError(t.t, err)
-	err = dave.WaitForNetworkChannelOpen(fundingPoint)
-	require.NoError(t.t, err)
+	p := lntemp.OpenChannelParams{
+		Amt:     chanAmt,
+		PushAmt: chanAmt / 2,
+		Private: true,
+	}
+	ht.OpenChannel(carol, dave, p)
 
 	// Bob will open a channel to Carol now.
-	net.EnsureConnected(t.t, net.Bob, carol)
+	ht.EnsureConnected(bob, carol)
 
-	fundingPoint2 := openChannelAndAssert(
-		t, net, net.Bob, carol,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
-	)
+	p = lntemp.OpenChannelParams{
+		Amt: chanAmt,
+	}
+	fundingPoint2 := ht.OpenChannel(bob, carol, p)
 
-	err = net.Bob.WaitForNetworkChannelOpen(fundingPoint2)
-	require.NoError(t.t, err)
-	err = carol.WaitForNetworkChannelOpen(fundingPoint2)
-	require.NoError(t.t, err)
-	err = dave.WaitForNetworkChannelOpen(fundingPoint2)
-	require.NoError(t.t, err)
+	// Make sure Dave knows this channel.
+	ht.AssertTopologyChannelOpen(dave, fundingPoint2)
 
 	// Carol will now set the option-scid-alias feature bit and restart.
 	carolArgs = append(carolArgs, "--protocol.option-scid-alias")
-	carol.SetExtraArgs(carolArgs)
-	err = net.RestartNode(carol, nil)
-	require.NoError(t.t, err)
+	ht.RestartNodeWithExtraArgs(carol, carolArgs)
 
 	// Dave will create an invoice for Carol to pay, it should contain an
 	// alias in the hop hints.
@@ -836,21 +817,9 @@ func testOptionScidUpgrade(net *lntest.NetworkHarness, t *harnessTest) {
 	var startingAlias lnwire.ShortChannelID
 	startingAlias.BlockHeight = 16_000_000
 
-	err = wait.Predicate(func() bool {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		invoiceResp, err := dave.AddInvoice(ctxt, daveParams)
-		if err != nil {
-			return false
-		}
-
-		payReq := &lnrpc.PayReqString{
-			PayReq: invoiceResp.PaymentRequest,
-		}
-
-		decodedReq, err := dave.DecodePayReq(ctxb, payReq)
-		if err != nil {
-			return false
-		}
+	err := wait.Predicate(func() bool {
+		invoiceResp := dave.RPC.AddInvoice(daveParams)
+		decodedReq := dave.RPC.DecodePayReq(invoiceResp.PaymentRequest)
 
 		if len(decodedReq.RouteHints) != 1 {
 			return false
@@ -868,27 +837,33 @@ func testOptionScidUpgrade(net *lntest.NetworkHarness, t *harnessTest) {
 
 		return false
 	}, defaultTimeout)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 
 	// Carol should be able to pay it.
-	_ = sendAndAssertSuccess(
-		t, carol, &routerrpc.SendPaymentRequest{
-			PaymentRequest: daveInvoice.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
-	)
+	ht.CompletePaymentRequests(carol, []string{daveInvoice.PaymentRequest})
 
-	daveInvoice2, err := dave.AddInvoice(ctxb, daveParams)
-	require.NoError(t.t, err)
+	// TODO(yy): remove this connection once the following bug is fixed.
+	// When Carol restarts, she will try to make a persistent connection to
+	// Bob. Meanwhile, Bob will also make a conn request as he notices the
+	// connection is broken. If they make these conn requests at the same
+	// time, they both have an outbound conn request, and will close the
+	// inbound conn they receives, which ends up in no conn.
+	ht.EnsureConnected(bob, carol)
 
-	_ = sendAndAssertSuccess(
-		t, net.Bob, &routerrpc.SendPaymentRequest{
-			PaymentRequest: daveInvoice2.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
-	)
+	daveInvoice2 := dave.RPC.AddInvoice(daveParams)
+	ht.CompletePaymentRequests(bob, []string{daveInvoice2.PaymentRequest})
+
+	// TODO(yy): remove the sleep once the following bug is fixed.  When
+	// the payment is reported as settled by Bob, it's expected the
+	// commitment dance is finished and all subsequent states have been
+	// updated. Yet we'd receive the error `cannot co-op close channel with
+	// active htlcs` or `link failed to shutdown` if we close the channel.
+	// We need to investigate the order of settling the payments and
+	// updating commitments to understand and fix.
+	time.Sleep(2 * time.Second)
+
+	// Close standby node's channels.
+	ht.CloseChannel(bob, fundingPoint2)
 }
 
 // acceptChannel is used to accept a single channel that comes across. This

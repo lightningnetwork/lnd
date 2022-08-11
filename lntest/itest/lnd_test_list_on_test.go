@@ -57,10 +57,6 @@ var allTestCases = []*testCase{
 		test: testTaproot,
 	},
 	{
-		name: "scid alias upgrade",
-		test: testOptionScidUpgrade,
-	},
-	{
 		name: "nonstd sweep",
 		test: testNonstdSweep,
 	},

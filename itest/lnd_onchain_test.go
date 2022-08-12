@@ -182,7 +182,7 @@ func runCPFP(ht *lntemp.HarnessTest, alice, bob *node.HarnessNode) {
 // wallet.
 func testAnchorReservedValue(ht *lntemp.HarnessTest) {
 	// Start two nodes supporting anchor channels.
-	args := nodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	args := lntemp.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 
 	// NOTE: we cannot reuse the standby node here as the test requires the
 	// node to start with no UTXOs.
@@ -353,7 +353,7 @@ func testAnchorThirdPartySpend(ht *lntemp.HarnessTest) {
 	//
 	// NOTE: The itests differ here as anchors is default off vs the normal
 	// lnd binary.
-	args := nodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	args := lntemp.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 	alice := ht.NewNode("Alice", args)
 	defer ht.Shutdown(alice)
 

@@ -70,7 +70,7 @@ func newChanRestoreScenario(ht *lntemp.HarnessTest, ct lnrpc.CommitmentType,
 	}
 
 	if ct != lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE {
-		args := nodeArgsForCommitType(ct)
+		args := lntemp.NodeArgsForCommitType(ct)
 		nodeArgs = append(nodeArgs, args...)
 	}
 
@@ -99,7 +99,7 @@ func newChanRestoreScenario(ht *lntemp.HarnessTest, ct lnrpc.CommitmentType,
 
 	// For the anchor output case we need two UTXOs for Carol so she can
 	// sweep both the local and remote anchor.
-	if commitTypeHasAnchors(ct) {
+	if lntemp.CommitTypeHasAnchors(ct) {
 		ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 	}
 
@@ -212,7 +212,7 @@ func (c *chanRestoreScenario) testScenario(ht *lntemp.HarnessTest,
 	// let's start up Carol again.
 	require.NoError(ht, restartCarol(), "restart carol failed")
 
-	if commitTypeHasAnchors(c.params.CommitmentType) {
+	if lntemp.CommitTypeHasAnchors(c.params.CommitmentType) {
 		ht.AssertNumUTXOs(carol, 2)
 	} else {
 		ht.AssertNumUTXOs(carol, 1)
@@ -1467,7 +1467,7 @@ func assertDLPExecuted(ht *lntemp.HarnessTest,
 	// Upon reconnection, the nodes should detect that Dave is out of sync.
 	// Carol should force close the channel using her latest commitment.
 	expectedTxes := 1
-	if commitTypeHasAnchors(commitType) {
+	if lntemp.CommitTypeHasAnchors(commitType) {
 		expectedTxes = 2
 	}
 	ht.Miner.AssertNumTxsInMempool(expectedTxes)

@@ -65,7 +65,7 @@ func runMultiHopHtlcClaimTest(ht *lntemp.HarnessTest, tester caseRunner) {
 
 		// Create the nodes here so that separate logs will be created
 		// for Alice and Bob.
-		args := nodeArgsForCommitType(typeAndConf.commitType)
+		args := lntemp.NodeArgsForCommitType(typeAndConf.commitType)
 		if typeAndConf.zeroConf {
 			args = append(
 				args, "--protocol.option-scid-alias",
@@ -171,7 +171,7 @@ func runMultiHopHtlcLocalTimeout(ht *lntemp.HarnessTest,
 	// Bob's force close transaction should now be found in the mempool. If
 	// there are anchors, we also expect Bob's anchor sweep.
 	expectedTxes := 1
-	hasAnchors := commitTypeHasAnchors(c)
+	hasAnchors := lntemp.CommitTypeHasAnchors(c)
 	if hasAnchors {
 		expectedTxes = 2
 	}
@@ -348,7 +348,7 @@ func runMultiHopReceiverChainClaim(ht *lntemp.HarnessTest,
 	// transaction in order to go to the chain and sweep her HTLC. If there
 	// are anchors, Carol also sweeps hers.
 	expectedTxes := 1
-	hasAnchors := commitTypeHasAnchors(c)
+	hasAnchors := lntemp.CommitTypeHasAnchors(c)
 	if hasAnchors {
 		expectedTxes = 2
 	}
@@ -517,7 +517,7 @@ func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest,
 	// Now that all parties have the HTLC locked in, we'll immediately
 	// force close the Bob -> Carol channel. This should trigger contract
 	// resolution mode for both of them.
-	hasAnchors := commitTypeHasAnchors(c)
+	hasAnchors := lntemp.CommitTypeHasAnchors(c)
 	stream, _ := ht.CloseChannelAssertPending(bob, bobChanPoint, true)
 	closeTx := ht.AssertStreamChannelForceClosed(
 		bob, bobChanPoint, hasAnchors, stream,
@@ -682,7 +682,7 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest,
 	// transaction. This will let us exercise that Bob is able to sweep the
 	// expired HTLC on Carol's version of the commitment transaction. If
 	// Carol has an anchor, it will be swept too.
-	hasAnchors := commitTypeHasAnchors(c)
+	hasAnchors := lntemp.CommitTypeHasAnchors(c)
 	closeStream, _ := ht.CloseChannelAssertPending(
 		carol, bobChanPoint, true,
 	)
@@ -840,7 +840,7 @@ func runMultiHopHtlcLocalChainClaim(ht *lntemp.HarnessTest,
 
 	// At this point, Bob decides that he wants to exit the channel
 	// immediately, so he force closes his commitment transaction.
-	hasAnchors := commitTypeHasAnchors(c)
+	hasAnchors := lntemp.CommitTypeHasAnchors(c)
 	closeStream, _ := ht.CloseChannelAssertPending(
 		bob, aliceChanPoint, true,
 	)
@@ -888,7 +888,7 @@ func runMultiHopHtlcLocalChainClaim(ht *lntemp.HarnessTest,
 
 	// Carol's commitment transaction should now be in the mempool. If
 	// there is an anchor, Carol will sweep that too.
-	if commitTypeHasAnchors(c) {
+	if lntemp.CommitTypeHasAnchors(c) {
 		expectedTxes = 2
 	}
 	ht.Miner.AssertNumTxsInMempool(expectedTxes)
@@ -1135,7 +1135,7 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntemp.HarnessTest,
 	// Next, Alice decides that she wants to exit the channel, so she'll
 	// immediately force close the channel by broadcast her commitment
 	// transaction.
-	hasAnchors := commitTypeHasAnchors(c)
+	hasAnchors := lntemp.CommitTypeHasAnchors(c)
 	closeStream, _ := ht.CloseChannelAssertPending(
 		alice, aliceChanPoint, true,
 	)
@@ -1489,7 +1489,7 @@ func runMultiHopHtlcAggregation(ht *lntemp.HarnessTest,
 
 	// Bob's force close transaction should now be found in the mempool. If
 	// there are anchors, we also expect Bob's anchor sweep.
-	hasAnchors := commitTypeHasAnchors(c)
+	hasAnchors := lntemp.CommitTypeHasAnchors(c)
 	expectedTxes := 1
 	if hasAnchors {
 		expectedTxes = 2
@@ -1738,7 +1738,7 @@ func createThreeHopNetwork(ht *lntemp.HarnessTest,
 	// We'll create a new node "carol" and have Bob connect to her.
 	// If the carolHodl flag is set, we'll make carol always hold onto the
 	// HTLC, this way it'll force Bob to go to chain to resolve the HTLC.
-	carolFlags := nodeArgsForCommitType(c)
+	carolFlags := lntemp.NodeArgsForCommitType(c)
 	if carolHodl {
 		carolFlags = append(carolFlags, "--hodl.exit-settle")
 	}

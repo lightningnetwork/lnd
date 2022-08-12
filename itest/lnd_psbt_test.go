@@ -415,7 +415,7 @@ func testPsbtChanFundingExternal(ht *lntemp.HarnessTest) {
 func testPsbtChanFundingSingleStep(ht *lntemp.HarnessTest) {
 	const chanSize = funding.MaxBtcFundingAmount
 
-	args := nodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	args := lntemp.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 
 	// First, we'll create two new nodes that we'll use to open channels
 	// between for this test. But in this case both nodes have an empty

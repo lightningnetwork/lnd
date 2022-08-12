@@ -121,3 +121,34 @@ func channelPointStr(chanPoint *lnrpc.ChannelPoint) string {
 
 	return cp.String()
 }
+
+// CommitTypeHasAnchors returns whether commitType uses anchor outputs.
+func CommitTypeHasAnchors(commitType lnrpc.CommitmentType) bool {
+	switch commitType {
+	case lnrpc.CommitmentType_ANCHORS,
+		lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
+		return true
+	default:
+		return false
+	}
+}
+
+// NodeArgsForCommitType returns the command line flag to supply to enable this
+// commitment type.
+func NodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
+	switch commitType {
+	case lnrpc.CommitmentType_LEGACY:
+		return []string{"--protocol.legacy.committweak"}
+	case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+		return []string{}
+	case lnrpc.CommitmentType_ANCHORS:
+		return []string{"--protocol.anchors"}
+	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
+		return []string{
+			"--protocol.anchors",
+			"--protocol.script-enforced-lease",
+		}
+	}
+
+	return nil
+}

@@ -41,14 +41,14 @@ func testBasicChannelFunding(ht *lntemp.HarnessTest) {
 		// Based on the current tweak variable for Carol, we'll
 		// preferentially signal the legacy commitment format.  We do
 		// the same for Dave shortly below.
-		carolArgs := nodeArgsForCommitType(carolCommitType)
+		carolArgs := lntemp.NodeArgsForCommitType(carolCommitType)
 		carol := ht.NewNode("Carol", carolArgs)
 
 		// Each time, we'll send Carol a new set of coins in order to
 		// fund the channel.
 		ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
-		daveArgs := nodeArgsForCommitType(daveCommitType)
+		daveArgs := lntemp.NodeArgsForCommitType(daveCommitType)
 		dave := ht.NewNode("Dave", daveArgs)
 
 		// Before we start the test, we'll ensure both sides are

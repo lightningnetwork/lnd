@@ -38,37 +38,6 @@ var (
 	)
 )
 
-// commitTypeHasAnchors returns whether commitType uses anchor outputs.
-func commitTypeHasAnchors(commitType lnrpc.CommitmentType) bool {
-	switch commitType {
-	case lnrpc.CommitmentType_ANCHORS,
-		lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
-		return true
-	default:
-		return false
-	}
-}
-
-// nodeArgsForCommitType returns the command line flag to supply to enable this
-// commitment type.
-func nodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
-	switch commitType {
-	case lnrpc.CommitmentType_LEGACY:
-		return []string{"--protocol.legacy.committweak"}
-	case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
-		return []string{}
-	case lnrpc.CommitmentType_ANCHORS:
-		return []string{"--protocol.anchors"}
-	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
-		return []string{
-			"--protocol.anchors",
-			"--protocol.script-enforced-lease",
-		}
-	}
-
-	return nil
-}
-
 // calcStaticFee calculates appropriate fees for commitment transactions.  This
 // function provides a simple way to allow test balance assertions to take fee
 // calculations into account.
@@ -87,7 +56,7 @@ func calcStaticFee(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 	// the value of the two anchors to the resulting fee the initiator
 	// pays. In addition the fee rate is capped at 10 sat/vbyte for anchor
 	// channels.
-	if commitTypeHasAnchors(c) {
+	if lntemp.CommitTypeHasAnchors(c) {
 		feePerKw = chainfee.SatPerKVByte(
 			defaultSatPerVByte * 1000).FeePerKWeight()
 		commitWeight = input.AnchorCommitWeight

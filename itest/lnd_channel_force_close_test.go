@@ -72,7 +72,7 @@ func testCommitmentTransactionDeadline(ht *lntemp.HarnessTest) {
 	setupNode := func(name string) *node.HarnessNode {
 		// Create the node.
 		args := []string{"--hodl.exit-settle"}
-		args = append(args, nodeArgsForCommitType(
+		args = append(args, lntemp.NodeArgsForCommitType(
 			lnrpc.CommitmentType_ANCHORS)...,
 		)
 		node := ht.NewNode(name, args)
@@ -209,7 +209,7 @@ func testChannelForceClosure(ht *lntemp.HarnessTest) {
 		success := ht.Run(testName, func(t *testing.T) {
 			st := ht.Subtest(t)
 
-			args := nodeArgsForCommitType(channelType)
+			args := lntemp.NodeArgsForCommitType(channelType)
 			alice := st.NewNode("Alice", args)
 			defer st.Shutdown(alice)
 

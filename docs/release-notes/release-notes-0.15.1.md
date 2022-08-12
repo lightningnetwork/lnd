@@ -15,8 +15,14 @@
 * [Add previous_outpoints to listchaintxns](https://github.com/lightningnetwork/lnd/pull/6321)
 
 
+## Bug Fixes
+
+* Fixed data race found in
+  [`TestSerializeHTLCEntries`](https://github.com/lightningnetwork/lnd/pull/6673).
+
 # Contributors (Alphabetical Order)
 
 * Elle Mouton
 * ErikEk
 * Priyansh Rastogi
+* Yong Yu

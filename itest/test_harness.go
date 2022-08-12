@@ -38,9 +38,9 @@ var (
 const (
 	testFeeBase         = 1e+6
 	defaultCSV          = lntest.DefaultCSV
-	defaultTimeout      = lntest.DefaultTimeout
-	minerMempoolTimeout = lntest.MinerMempoolTimeout
-	channelCloseTimeout = lntest.ChannelCloseTimeout
+	defaultTimeout      = wait.DefaultTimeout
+	minerMempoolTimeout = wait.MinerMempoolTimeout
+	channelCloseTimeout = wait.ChannelCloseTimeout
 	itestLndBinary      = "../../lnd-itest"
 	anchorSize          = 330
 	noFeeLimitMsat      = math.MaxInt64

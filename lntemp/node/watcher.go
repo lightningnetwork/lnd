@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnutils"
 )
@@ -31,9 +30,6 @@ const (
 	// watchPolicyUpdate specifies that this is a request to watch a policy
 	// update event.
 	watchPolicyUpdate
-
-	// TODO(yy): remove once temp tests is finished.
-	DefaultTimeout = lntest.DefaultTimeout
 )
 
 // chanWatchRequest is a request to the lightningNetworkWatcher to be notified
@@ -123,7 +119,7 @@ func (nw *nodeWatcher) WaitForNumChannelUpdates(op wire.OutPoint,
 			"want %d, got %d", expected, num)
 	}
 
-	return wait.NoError(checkNumUpdates, DefaultTimeout)
+	return wait.NoError(checkNumUpdates, wait.DefaultTimeout)
 }
 
 // WaitForNumNodeUpdates will block until a given number of node updates has
@@ -142,8 +138,7 @@ func (nw *nodeWatcher) WaitForNumNodeUpdates(pubkey string,
 		return fmt.Errorf("timeout waiting for num node updates, "+
 			"want %d, got %d", expected, num)
 	}
-
-	err := wait.NoError(checkNumUpdates, DefaultTimeout)
+	err := wait.NoError(checkNumUpdates, wait.DefaultTimeout)
 
 	return updates, err
 }
@@ -161,7 +156,7 @@ func (nw *nodeWatcher) WaitForChannelOpen(chanPoint *lnrpc.ChannelPoint) error {
 		chanWatchType: watchOpenChannel,
 	}
 
-	timer := time.After(DefaultTimeout)
+	timer := time.After(wait.DefaultTimeout)
 	select {
 	case <-eventChan:
 		return nil
@@ -192,7 +187,7 @@ func (nw *nodeWatcher) WaitForChannelClose(
 		chanWatchType: watchCloseChannel,
 	}
 
-	timer := time.After(DefaultTimeout)
+	timer := time.After(wait.DefaultTimeout)
 	select {
 	case <-eventChan:
 		closedChan, ok := nw.state.closedChans.Load(op)
@@ -218,7 +213,7 @@ func (nw *nodeWatcher) WaitForChannelPolicyUpdate(
 	op := nw.rpc.MakeOutpoint(chanPoint)
 
 	ticker := time.NewTicker(wait.PollInterval)
-	timer := time.After(DefaultTimeout)
+	timer := time.After(wait.DefaultTimeout)
 	defer ticker.Stop()
 
 	eventChan := make(chan struct{})

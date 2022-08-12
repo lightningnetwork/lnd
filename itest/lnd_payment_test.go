@@ -12,7 +12,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -272,7 +271,7 @@ func runAsyncPayments(ht *lntemp.HarnessTest, alice, bob *node.HarnessNode) {
 	settled := make(chan struct{})
 	defer close(settled)
 
-	timeout := lntest.AsyncBenchmarkTimeout * 2
+	timeout := wait.AsyncBenchmarkTimeout * 2
 	for i := 0; i < numInvoices; i++ {
 		payReq := bobPayReqs[i]
 		go func() {
@@ -376,7 +375,7 @@ func testBidirectionalAsyncPayments(ht *lntemp.HarnessTest) {
 	settled := make(chan struct{})
 	defer close(settled)
 
-	timeout := lntest.AsyncBenchmarkTimeout * 4
+	timeout := wait.AsyncBenchmarkTimeout * 4
 	send := func(node *node.HarnessNode, payReq string) {
 		req := &routerrpc.SendPaymentRequest{
 			PaymentRequest: payReq,

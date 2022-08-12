@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 )
 
 const (
@@ -228,7 +229,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	case lntest.BackendSqlite:
 		args = append(args, "--db.backend=sqlite")
 		args = append(args, fmt.Sprintf("--db.sqlite.busytimeout=%v",
-			lntest.SqliteBusyTimeout))
+			wait.SqliteBusyTimeout))
 	}
 
 	if cfg.FeeURL != "" {

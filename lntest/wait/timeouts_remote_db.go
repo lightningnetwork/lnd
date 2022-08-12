@@ -1,7 +1,7 @@
-//go:build !darwin && !kvdb_etcd && !kvdb_postgres
-// +build !darwin,!kvdb_etcd,!kvdb_postgres
+//go:build kvdb_etcd || kvdb_postgres
+// +build kvdb_etcd kvdb_postgres
 
-package lntest
+package wait
 
 import "time"
 
@@ -16,7 +16,7 @@ const (
 
 	// ChannelCloseTimeout is the max time we will wait before a channel is
 	// considered closed.
-	ChannelCloseTimeout = time.Second * 30
+	ChannelCloseTimeout = time.Second * 120
 
 	// DefaultTimeout is a timeout that will be used for various wait
 	// scenarios where no custom timeout value is defined.
@@ -24,7 +24,7 @@ const (
 
 	// AsyncBenchmarkTimeout is the timeout used when running the async
 	// payments benchmark.
-	AsyncBenchmarkTimeout = 2 * time.Minute
+	AsyncBenchmarkTimeout = 3 * time.Minute
 
 	// NodeStartTimeout is the timeout value when waiting for a node to
 	// become fully started.

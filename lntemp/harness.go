@@ -1686,7 +1686,7 @@ func (h *HarnessTest) OpenMultiChannelsAsync(
 		case cp := <-r.result:
 			channelPoints = append(channelPoints, cp)
 
-		case <-time.After(lntest.ChannelOpenTimeout):
+		case <-time.After(wait.ChannelOpenTimeout):
 			require.Failf(h, "timeout", "wait channel point "+
 				"timeout for channel %s=>%s", r.Local.Name(),
 				r.Remote.Name())

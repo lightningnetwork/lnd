@@ -324,7 +324,7 @@ func (hn *HarnessNode) ConnectRPCWithMacaroon(mac *macaroon.Macaroon) (
 			hn.Cfg.TLSCertPath, "",
 		)
 		return err
-	}, DefaultTimeout)
+	}, wait.DefaultTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("error reading TLS cert: %v", err)
 	}
@@ -334,7 +334,7 @@ func (hn *HarnessNode) ConnectRPCWithMacaroon(mac *macaroon.Macaroon) (
 		grpc.WithTransportCredentials(tlsCreds),
 	}
 
-	ctx, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
+	ctx, cancel := context.WithTimeout(hn.runCtx, wait.DefaultTimeout)
 	defer cancel()
 
 	if mac == nil {
@@ -354,7 +354,7 @@ func (hn *HarnessNode) ConnectRPCWithMacaroon(mac *macaroon.Macaroon) (
 func (hn *HarnessNode) ConnectRPC() (*grpc.ClientConn, error) {
 	// If we should use a macaroon, always take the admin macaroon as a
 	// default.
-	mac, err := hn.ReadMacaroon(hn.Cfg.AdminMacPath, DefaultTimeout)
+	mac, err := hn.ReadMacaroon(hn.Cfg.AdminMacPath, wait.DefaultTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -540,7 +540,7 @@ func (hn *HarnessNode) waitTillServerState(
 
 	for {
 		select {
-		case <-time.After(lntest.NodeStartTimeout):
+		case <-time.After(wait.NodeStartTimeout):
 			return fmt.Errorf("timeout waiting for server state")
 		case err := <-errChan:
 			return fmt.Errorf("receive server state err: %v", err)
@@ -581,7 +581,7 @@ func (hn *HarnessNode) initLightningClient() error {
 				"got err: %v", err)
 		}
 
-	case <-time.After(DefaultTimeout):
+	case <-time.After(wait.DefaultTimeout):
 		return fmt.Errorf("timeout creating topology client stream")
 	}
 
@@ -652,7 +652,7 @@ func (hn *HarnessNode) waitForProcessExit() {
 		hn.printErrf("wait process exit got err: %v", err)
 		break
 
-	case <-time.After(DefaultTimeout * 2):
+	case <-time.After(wait.DefaultTimeout * 2):
 		hn.printErrf("timeout waiting for process to exit")
 	}
 
@@ -705,7 +705,7 @@ func (hn *HarnessNode) Stop() error {
 			default:
 				return nil
 			}
-		}, DefaultTimeout)
+		}, wait.DefaultTimeout)
 		if err != nil {
 			return err
 		}
@@ -720,7 +720,7 @@ func (hn *HarnessNode) Stop() error {
 		// If the goroutines fail to finish before timeout, we'll print
 		// the error to console and continue.
 		select {
-		case <-time.After(DefaultTimeout):
+		case <-time.After(wait.DefaultTimeout):
 			hn.printErrf("timeout on wait group")
 		case <-done:
 		}

@@ -58,6 +58,11 @@ const (
 	// will wait between attempting to flush a batch of modifications to
 	// disk(db.batch-commit-interval).
 	commitInterval = 10 * time.Millisecond
+
+	DefaultTimeout      = wait.DefaultTimeout
+	NodeStartTimeout    = wait.NodeStartTimeout
+	ChannelOpenTimeout  = wait.ChannelOpenTimeout
+	ChannelCloseTimeout = wait.ChannelCloseTimeout
 )
 
 var (
@@ -282,7 +287,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	case BackendSqlite:
 		args = append(args, "--db.backend=sqlite")
 		args = append(args, fmt.Sprintf("--db.sqlite.busytimeout=%v",
-			SqliteBusyTimeout))
+			wait.SqliteBusyTimeout))
 	}
 
 	if cfg.FeeURL != "" {

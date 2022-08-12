@@ -198,7 +198,7 @@ func (h *HarnessMiner) AssertNumTxsInMempool(n int) []*chainhash.Hash {
 
 		return fmt.Errorf("want %v, got %v in mempool: %v",
 			n, len(mem), mem)
-	}, lntest.MinerMempoolTimeout)
+	}, wait.MinerMempoolTimeout)
 	require.NoError(h, err, "assert tx in mempool timeout")
 
 	return mem
@@ -286,7 +286,7 @@ func (h *HarnessMiner) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
 
 		return fmt.Errorf("txid %v not found in mempool: %v", txid,
 			mempool)
-	}, lntest.MinerMempoolTimeout)
+	}, wait.MinerMempoolTimeout)
 
 	require.NoError(h, err, "timeout checking mempool")
 	return msgTx
@@ -377,7 +377,7 @@ func (h *HarnessMiner) AssertOutpointInMempool(op wire.OutPoint) *wire.MsgTx {
 		}
 
 		return fmt.Errorf("outpoint %v not found in mempool", op)
-	}, lntest.MinerMempoolTimeout)
+	}, wait.MinerMempoolTimeout)
 
 	require.NoError(h, err, "timeout checking mempool")
 

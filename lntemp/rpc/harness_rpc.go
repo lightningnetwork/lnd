@@ -15,14 +15,13 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 )
 
 const (
-	// TODO(yy): remove once temp tests is finished.
-	DefaultTimeout = lntest.DefaultTimeout
+	DefaultTimeout = wait.DefaultTimeout
 )
 
 // HarnessRPC wraps all lnd's RPC clients into a single struct for easier

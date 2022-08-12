@@ -93,19 +93,19 @@ build:
 
 build-itest:
 	@$(call print, "Building itest btcd and lnd.")
-	CGO_ENABLED=0 $(GOBUILD) -tags="rpctest" -o itest/btcd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(BTCD_PKG)
+	CGO_ENABLED=0 $(GOBUILD) -tags="integration" -o itest/btcd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(BTCD_PKG)
 	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" -o itest/lnd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(PKG)/cmd/lnd
 
 	@$(call print, "Building itest binary for ${backend} backend.")
-	CGO_ENABLED=0 $(GOTEST) -v ./itest -tags="$(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)" -c -o itest/itest.test$(EXEC_SUFFIX)
+	CGO_ENABLED=0 $(GOTEST) -v ./itest -tags="$(DEV_TAGS) $(RPC_TAGS) integration $(backend)" -c -o itest/itest.test$(EXEC_SUFFIX)
 
 build-itest-race:
 	@$(call print, "Building itest btcd and lnd with race detector.")
-	CGO_ENABLED=0 $(GOBUILD) -tags="rpctest" -o itest/btcd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(BTCD_PKG)
+	CGO_ENABLED=0 $(GOBUILD) -tags="integration" -o itest/btcd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(BTCD_PKG)
 	CGO_ENABLED=1 $(GOBUILD) -race -tags="$(ITEST_TAGS)" -o itest/lnd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(PKG)/cmd/lnd
 
 	@$(call print, "Building itest binary for ${backend} backend.")
-	CGO_ENABLED=0 $(GOTEST) -v ./itest -tags="$(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)" -c -o itest/itest.test$(EXEC_SUFFIX)
+	CGO_ENABLED=0 $(GOTEST) -v ./itest -tags="$(DEV_TAGS) $(RPC_TAGS) integration $(backend)" -c -o itest/itest.test$(EXEC_SUFFIX)
 
 install:
 	@$(call print, "Installing lnd and lncli.")

@@ -115,4 +115,4 @@ backend = btcd
 endif
 
 # Construct the integration test command with the added build flags.
-ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)
+ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) integration $(backend)

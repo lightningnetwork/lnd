@@ -1,11 +1,12 @@
-//go:build rpctest
-// +build rpctest
+//go:build integration
 
 package lncfg
 
 // ProtocolOptions is a struct that we use to be able to test backwards
 // compatibility of protocol additions, while defaulting to the latest within
 // lnd, or to enable experimental protocol changes.
+//
+// TODO(yy): delete this build flag to unify with `lncfg/protocol.go`.
 //
 //nolint:lll
 type ProtocolOptions struct {

@@ -1,4 +1,4 @@
-//go:build rpctest
+//go:build integration
 
 package funding
 

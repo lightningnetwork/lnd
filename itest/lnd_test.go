@@ -57,7 +57,7 @@ var (
 func TestLightningNetworkDaemon(t *testing.T) {
 	// If no tests are registered, then we can exit early.
 	if len(allTestCases) == 0 {
-		t.Skip("integration tests not selected with flag 'rpctest'")
+		t.Skip("integration tests not selected with flag 'integration'")
 	}
 
 	// Get the test cases to be run in this tranche.

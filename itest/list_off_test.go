@@ -1,5 +1,4 @@
-//go:build !rpctest
-// +build !rpctest
+//go:build !integration
 
 package itest
 

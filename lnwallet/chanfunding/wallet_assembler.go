@@ -21,7 +21,7 @@ import (
 //
 // Steps to final channel provisioning:
 //  1. Call BindKeys to notify the intent which keys to use when constructing
-//  the multi-sig output.
+//     the multi-sig output.
 //  2. Call CompileFundingTx afterwards to obtain the funding transaction.
 //
 // If either of these steps fail, then the Cancel method MUST be called.

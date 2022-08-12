@@ -2709,6 +2709,14 @@ var walletTests = []walletTestCase{
 		test: testChangeOutputSpendConfirmation,
 	},
 	{
+		// TODO(guggero): this test should remain second until dual
+		// funding can properly exchange full UTXO information and we
+		// can use P2TR change outputs as the funding inputs for a dual
+		// funded channel.
+		name: "dual funder workflow",
+		test: testDualFundingReservationWorkflow,
+	},
+	{
 		name: "spend unconfirmed outputs",
 		test: testSpendUnconfirmed,
 	},
@@ -2743,10 +2751,6 @@ var walletTests = []walletTestCase{
 	{
 		name: "single funding workflow external funding tx",
 		test: testSingleFunderExternalFundingTx,
-	},
-	{
-		name: "dual funder workflow",
-		test: testDualFundingReservationWorkflow,
 	},
 	{
 		name: "output locking",

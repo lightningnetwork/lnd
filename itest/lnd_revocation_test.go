@@ -13,7 +13,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -158,7 +157,7 @@ func testRevokedCloseRetribution(ht *lntemp.HarnessTest) {
 	// tx's confHeight+CSV-1 blocks and since we've already mined one that
 	// included the justice tx we only need to mine extra DefaultCSV-2
 	// blocks to unlock it.
-	ht.MineBlocks(lntest.DefaultCSV - 2)
+	ht.MineBlocks(defaultCSV - 2)
 
 	ht.AssertNumPendingForceClose(bob, 0)
 }

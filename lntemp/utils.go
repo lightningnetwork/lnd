@@ -10,15 +10,14 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 )
 
 const (
 	// NeutrinoBackendName is the name of the neutrino backend.
 	NeutrinoBackendName = "neutrino"
 
-	// TODO(yy): delete.
-	DefaultTimeout = lntest.DefaultTimeout
+	DefaultTimeout = wait.DefaultTimeout
 
 	// noFeeLimitMsat is used to specify we will put no requirements on fee
 	// charged when choosing a route path.

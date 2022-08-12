@@ -1087,3 +1087,71 @@ func assertReports(ht *lntemp.HarnessTest, hn *node.HarnessNode,
 		require.Equal(ht, expected, res)
 	}
 }
+
+// checkCommitmentMaturity checks that both the maturity height and blocks
+// maturity height are as expected.
+//
+// NOTE: only used in current test file.
+func checkCommitmentMaturity(forceClose lntemp.PendingForceClose,
+	maturityHeight uint32, blocksTilMaturity int32) error {
+
+	if forceClose.MaturityHeight != maturityHeight {
+		return fmt.Errorf("expected commitment maturity height to be "+
+			"%d, found %d instead", maturityHeight,
+			forceClose.MaturityHeight)
+	}
+	if forceClose.BlocksTilMaturity != blocksTilMaturity {
+		return fmt.Errorf("expected commitment blocks til maturity to "+
+			"be %d, found %d instead", blocksTilMaturity,
+			forceClose.BlocksTilMaturity)
+	}
+
+	return nil
+}
+
+// checkForceClosedChannelNumHtlcs verifies that a force closed channel has the
+// proper number of htlcs.
+//
+// NOTE: only used in current test file.
+func checkPendingChannelNumHtlcs(
+	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel,
+	expectedNumHtlcs int) error {
+
+	if len(forceClose.PendingHtlcs) != expectedNumHtlcs {
+		return fmt.Errorf("expected force closed channel to have %d "+
+			"pending htlcs, found %d instead", expectedNumHtlcs,
+			len(forceClose.PendingHtlcs))
+	}
+
+	return nil
+}
+
+// checkPendingHtlcStageAndMaturity uniformly tests all pending htlc's belonging
+// to a force closed channel, testing for the expected stage number, blocks till
+// maturity, and the maturity height.
+//
+// NOTE: only used in current test file.
+func checkPendingHtlcStageAndMaturity(
+	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel,
+	stage, maturityHeight uint32, blocksTillMaturity int32) error {
+
+	for _, pendingHtlc := range forceClose.PendingHtlcs {
+		if pendingHtlc.Stage != stage {
+			return fmt.Errorf("expected pending htlc to be stage "+
+				"%d, found %d", stage, pendingHtlc.Stage)
+		}
+		if pendingHtlc.MaturityHeight != maturityHeight {
+			return fmt.Errorf("expected pending htlc maturity "+
+				"height to be %d, instead has %d",
+				maturityHeight, pendingHtlc.MaturityHeight)
+		}
+		if pendingHtlc.BlocksTilMaturity != blocksTillMaturity {
+			return fmt.Errorf("expected pending htlc blocks til "+
+				"maturity to be %d, instead has %d",
+				blocksTillMaturity,
+				pendingHtlc.BlocksTilMaturity)
+		}
+	}
+
+	return nil
+}

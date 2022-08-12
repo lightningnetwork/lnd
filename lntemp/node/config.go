@@ -1,14 +1,18 @@
 package node
 
 import (
+	"flag"
 	"fmt"
+	"io"
+	"net"
+	"os"
 	"path"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 )
 
@@ -16,6 +20,49 @@ const (
 	// ListenerFormat is the format string that is used to generate local
 	// listener addresses.
 	ListenerFormat = "127.0.0.1:%d"
+
+	// DefaultCSV is the CSV delay (remotedelay) we will start our test
+	// nodes with.
+	DefaultCSV = 4
+
+	// defaultNodePort is the start of the range for listening ports of
+	// harness nodes. Ports are monotonically increasing starting from this
+	// number and are determined by the results of NextAvailablePort().
+	defaultNodePort = 5555
+)
+
+var (
+	// lastPort is the last port determined to be free for use by a new
+	// node. It should be used atomically.
+	lastPort uint32 = defaultNodePort
+
+	// logOutput is a flag that can be set to append the output from the
+	// seed nodes to log files.
+	logOutput = flag.Bool("logoutput", false,
+		"log output from node n to file output-n.log")
+
+	// logSubDir is the default directory where the logs are written to if
+	// logOutput is true.
+	logSubDir = flag.String("logdir", ".", "default dir to write logs to")
+
+	// goroutineDump is a flag that can be set to dump the active
+	// goroutines of test nodes on failure.
+	goroutineDump = flag.Bool("goroutinedump", false,
+		"write goroutine dump from node n to file pprof-n.log")
+
+	// btcdExecutable is the full path to the btcd binary.
+	btcdExecutable = flag.String(
+		"btcdexec", "", "full path to btcd binary",
+	)
+)
+
+type DatabaseBackend int
+
+const (
+	BackendBbolt DatabaseBackend = iota
+	BackendEtcd
+	BackendPostgres
+	BackendSqlite
 )
 
 // Option is a function for updating a node's configuration.
@@ -74,7 +121,7 @@ type BaseNodeConfig struct {
 
 	FeeURL string
 
-	DbBackend   lntest.DatabaseBackend
+	DbBackend   DatabaseBackend
 	PostgresDsn string
 
 	// NodeID is a unique ID used to identify the node.
@@ -127,16 +174,16 @@ func (cfg BaseNodeConfig) ChanBackupPath() string {
 // current lightning network test.
 func (cfg *BaseNodeConfig) GenerateListeningPorts() {
 	if cfg.P2PPort == 0 {
-		cfg.P2PPort = lntest.NextAvailablePort()
+		cfg.P2PPort = NextAvailablePort()
 	}
 	if cfg.RPCPort == 0 {
-		cfg.RPCPort = lntest.NextAvailablePort()
+		cfg.RPCPort = NextAvailablePort()
 	}
 	if cfg.RESTPort == 0 {
-		cfg.RESTPort = lntest.NextAvailablePort()
+		cfg.RESTPort = NextAvailablePort()
 	}
 	if cfg.ProfilePort == 0 {
-		cfg.ProfilePort = lntest.NextAvailablePort()
+		cfg.ProfilePort = NextAvailablePort()
 	}
 }
 
@@ -170,8 +217,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		"--accept-keysend",
 		"--keep-failed-payment-attempts",
 		fmt.Sprintf("--db.batch-commit-interval=%v", commitInterval),
-		fmt.Sprintf("--bitcoin.defaultremotedelay=%v",
-			lntest.DefaultCSV),
+		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV),
 		fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()),
 		fmt.Sprintf("--restlisten=%v", cfg.RESTAddr()),
 		fmt.Sprintf("--restcors=https://%v", cfg.RESTAddr()),
@@ -200,19 +246,19 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	}
 
 	switch cfg.DbBackend {
-	case lntest.BackendEtcd:
+	case BackendEtcd:
 		args = append(args, "--db.backend=etcd")
 		args = append(args, "--db.etcd.embedded")
 		args = append(
 			args, fmt.Sprintf(
 				"--db.etcd.embedded_client_port=%v",
-				lntest.NextAvailablePort(),
+				NextAvailablePort(),
 			),
 		)
 		args = append(
 			args, fmt.Sprintf(
 				"--db.etcd.embedded_peer_port=%v",
-				lntest.NextAvailablePort(),
+				NextAvailablePort(),
 			),
 		)
 		args = append(
@@ -222,11 +268,11 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 			),
 		)
 
-	case lntest.BackendPostgres:
+	case BackendPostgres:
 		args = append(args, "--db.backend=postgres")
 		args = append(args, "--db.postgres.dsn="+cfg.PostgresDsn)
 
-	case lntest.BackendSqlite:
+	case BackendSqlite:
 		args = append(args, "--db.backend=sqlite")
 		args = append(args, fmt.Sprintf("--db.sqlite.busytimeout=%v",
 			wait.SqliteBusyTimeout))
@@ -272,4 +318,86 @@ func ExtraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool,
 	}
 
 	return extraArgs
+}
+
+// NextAvailablePort returns the first port that is available for listening by
+// a new node. It panics if no port is found and the maximum available TCP port
+// is reached.
+func NextAvailablePort() int {
+	port := atomic.AddUint32(&lastPort, 1)
+	for port < 65535 {
+		// If there are no errors while attempting to listen on this
+		// port, close the socket and return it as available. While it
+		// could be the case that some other process picks up this port
+		// between the time the socket is closed and it's reopened in
+		// the harness node, in practice in CI servers this seems much
+		// less likely than simply some other process already being
+		// bound at the start of the tests.
+		addr := fmt.Sprintf(ListenerFormat, port)
+		l, err := net.Listen("tcp4", addr)
+		if err == nil {
+			err := l.Close()
+			if err == nil {
+				return int(port)
+			}
+		}
+		port = atomic.AddUint32(&lastPort, 1)
+	}
+
+	// No ports available? Must be a mistake.
+	panic("no ports available for listening")
+}
+
+// GetLogDir returns the passed --logdir flag or the default value if it wasn't
+// set.
+func GetLogDir() string {
+	if logSubDir != nil && *logSubDir != "" {
+		return *logSubDir
+	}
+	return "."
+}
+
+// CopyFile copies the file src to dest.
+func CopyFile(dest, src string) error {
+	s, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	d, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(d, s); err != nil {
+		d.Close()
+		return err
+	}
+
+	return d.Close()
+}
+
+// GetBtcdBinary returns the full path to the binary of the custom built btcd
+// executable or an empty string if none is set.
+func GetBtcdBinary() string {
+	if btcdExecutable != nil {
+		return *btcdExecutable
+	}
+
+	return ""
+}
+
+// GenerateBtcdListenerAddresses is a function that returns two listener
+// addresses with unique ports and should be used to overwrite rpctest's
+// default generator which is prone to use colliding ports.
+func GenerateBtcdListenerAddresses() (string, string) {
+	return fmt.Sprintf(ListenerFormat, NextAvailablePort()),
+		fmt.Sprintf(ListenerFormat, NextAvailablePort())
+}
+
+// ApplyPortOffset adds the given offset to the lastPort variable, making it
+// possible to run the tests in parallel without colliding on the same ports.
+func ApplyPortOffset(offset uint32) {
+	_ = atomic.AddUint32(&lastPort, offset)
 }

@@ -19,7 +19,6 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
@@ -117,7 +116,7 @@ func NewHarnessNode(t *testing.T, cfg *BaseNodeConfig) (*HarnessNode, error) {
 
 	// Create temporary database.
 	var dbName string
-	if cfg.DbBackend == lntest.BackendPostgres {
+	if cfg.DbBackend == BackendPostgres {
 		var err error
 		dbName, err = createTempPgDb()
 		if err != nil {
@@ -383,7 +382,7 @@ func (hn *HarnessNode) StartLndCmd(ctxb context.Context) error {
 
 	// If the logoutput flag is passed, redirect output from the nodes to
 	// log files.
-	if *lntest.LogOutput {
+	if *logOutput {
 		err := addLogFile(hn)
 		if err != nil {
 			return err
@@ -918,10 +917,8 @@ func getFinalizedLogFilePrefix(hn *HarnessNode) string {
 		hn.PubKey[:logPubKeyBytes],
 	)
 
-	return fmt.Sprintf("%s/%d-%s-%s-%s",
-		lntest.GetLogDir(), hn.Cfg.NodeID,
-		hn.Cfg.LogFilenamePrefix,
-		hn.Cfg.Name, pubKeyHex)
+	return fmt.Sprintf("%s/%d-%s-%s-%s", GetLogDir(), hn.Cfg.NodeID,
+		hn.Cfg.LogFilenamePrefix, hn.Cfg.Name, pubKeyHex)
 }
 
 // finalizeLogfile makes sure the log file cleanup function is initialized,
@@ -935,7 +932,7 @@ func finalizeLogfile(hn *HarnessNode) {
 	hn.logFile.Close()
 
 	// If logoutput flag is not set, return early.
-	if !*lntest.LogOutput {
+	if !*logOutput {
 		return
 	}
 
@@ -948,7 +945,7 @@ func finalizeLogfile(hn *HarnessNode) {
 // finalizeEtcdLog saves the etcd log files when test ends.
 func finalizeEtcdLog(hn *HarnessNode) {
 	// Exit early if this is not etcd backend.
-	if hn.Cfg.DbBackend != lntest.BackendEtcd {
+	if hn.Cfg.DbBackend != BackendEtcd {
 		return
 	}
 
@@ -964,7 +961,7 @@ func finalizeEtcdLog(hn *HarnessNode) {
 func addLogFile(hn *HarnessNode) error {
 	var fileName string
 
-	dir := lntest.GetLogDir()
+	dir := GetLogDir()
 	fileName = fmt.Sprintf("%s/%d-%s-%s-%s.log", dir, hn.Cfg.NodeID,
 		hn.Cfg.LogFilenamePrefix, hn.Cfg.Name,
 		hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
@@ -1028,7 +1025,7 @@ func copyAll(dstDir, srcDir string) error {
 			if err != nil {
 				return err
 			}
-		} else if err := lntest.CopyFile(dstPath, srcPath); err != nil {
+		} else if err := CopyFile(dstPath, srcPath); err != nil {
 			return err
 		}
 	}

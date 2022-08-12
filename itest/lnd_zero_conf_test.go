@@ -16,7 +16,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -893,7 +892,7 @@ func acceptChannel(t *testing.T, zeroConf bool, stream rpc.AcceptorClient) {
 // be deleted from the channel graph. This was previously the case due to logic
 // in the function DisconnectBlockAtHeight.
 func testZeroConfReorg(ht *lntemp.HarnessTest) {
-	if ht.ChainBackendName() == lntest.NeutrinoBackendName {
+	if ht.IsNeutrinoBackend() {
 		ht.Skipf("skipping zero-conf reorg test for neutrino backend")
 	}
 

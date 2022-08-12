@@ -18,7 +18,7 @@ import (
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -73,8 +73,8 @@ func newMiner(ctxb context.Context, t *testing.T, minerDirName,
 	logFilename string) *HarnessMiner {
 
 	handler := &rpcclient.NotificationHandlers{}
-	btcdBinary := lntest.GetBtcdBinary()
-	baseLogPath := fmt.Sprintf("%s/%s", lntest.GetLogDir(), minerDirName)
+	btcdBinary := node.GetBtcdBinary()
+	baseLogPath := fmt.Sprintf("%s/%s", node.GetLogDir(), minerDirName)
 
 	args := []string{
 		"--rejectnonstd",

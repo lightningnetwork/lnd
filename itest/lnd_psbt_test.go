@@ -22,7 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1185,60 +1184,6 @@ func deriveInternalKey(ht *lntemp.HarnessTest,
 	require.NoError(ht, err)
 
 	return keyDesc, parsedPubKey, fullDerivationPath
-}
-
-// openChannelPsbt attempts to open a channel between srcNode and destNode with
-// the passed channel funding parameters. If the passed context has a timeout,
-// then if the timeout is reached before the channel pending notification is
-// received, an error is returned. An error is returned if the expected step
-// of funding the PSBT is not received from the source node.
-func openChannelPsbt(ctx context.Context, srcNode, destNode *lntest.HarnessNode,
-	p lntest.OpenChannelParams) (lnrpc.Lightning_OpenChannelClient, []byte,
-	error) {
-
-	// Wait until srcNode and destNode have the latest chain synced.
-	// Otherwise, we may run into a check within the funding manager that
-	// prevents any funding workflows from being kicked off if the chain
-	// isn't yet synced.
-	if err := srcNode.WaitForBlockchainSync(); err != nil {
-		return nil, nil, fmt.Errorf("unable to sync srcNode chain: %v",
-			err)
-	}
-	if err := destNode.WaitForBlockchainSync(); err != nil {
-		return nil, nil, fmt.Errorf("unable to sync destNode chain: %v",
-			err)
-	}
-
-	// Send the request to open a channel to the source node now. This will
-	// open a long-lived stream where we'll receive status updates about the
-	// progress of the channel.
-	respStream, err := srcNode.OpenChannel(ctx, &lnrpc.OpenChannelRequest{
-		NodePubkey:         destNode.PubKey[:],
-		LocalFundingAmount: int64(p.Amt),
-		PushSat:            int64(p.PushAmt),
-		Private:            p.Private,
-		SpendUnconfirmed:   p.SpendUnconfirmed,
-		MinHtlcMsat:        int64(p.MinHtlc),
-		FundingShim:        p.FundingShim,
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to open channel between "+
-			"source and dest: %v", err)
-	}
-
-	// Consume the "PSBT funding ready" update. This waits until the node
-	// notifies us that the PSBT can now be funded.
-	resp, err := receiveChanUpdate(ctx, respStream)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to consume channel update "+
-			"message: %v", err)
-	}
-	upd, ok := resp.Update.(*lnrpc.OpenStatusUpdate_PsbtFund)
-	if !ok {
-		return nil, nil, fmt.Errorf("expected PSBT funding update, "+
-			"instead got %v", resp)
-	}
-	return respStream, upd.PsbtFund.Psbt, nil
 }
 
 // receiveChanUpdate waits until a message is received on the stream or the

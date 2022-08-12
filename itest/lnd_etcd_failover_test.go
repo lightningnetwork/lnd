@@ -13,7 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,8 +56,8 @@ func testEtcdFailover(ht *lntemp.HarnessTest) {
 
 func testEtcdFailoverCase(ht *lntemp.HarnessTest, kill bool) {
 	etcdCfg, cleanup, err := kvdb.StartEtcdTestBackend(
-		ht.T.TempDir(), uint16(lntest.NextAvailablePort()),
-		uint16(lntest.NextAvailablePort()), "",
+		ht.T.TempDir(), uint16(node.NextAvailablePort()),
+		uint16(node.NextAvailablePort()), "",
 	)
 	require.NoError(ht, err, "Failed to start etcd instance")
 	defer cleanup()

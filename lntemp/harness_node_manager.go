@@ -9,7 +9,6 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 )
 
@@ -30,7 +29,7 @@ type nodeManager struct {
 	lndBinary string
 
 	// dbBackend sets the database backend to use.
-	dbBackend lntest.DatabaseBackend
+	dbBackend node.DatabaseBackend
 
 	// activeNodes is a map of all running nodes, format:
 	// {pubkey: *HarnessNode}.
@@ -50,7 +49,7 @@ type nodeManager struct {
 
 // newNodeManager creates a new node manager instance.
 func newNodeManager(lndBinary string,
-	dbBackend lntest.DatabaseBackend) *nodeManager {
+	dbBackend node.DatabaseBackend) *nodeManager {
 
 	return &nodeManager{
 		lndBinary:    lndBinary,

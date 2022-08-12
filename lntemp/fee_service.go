@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
@@ -61,7 +61,7 @@ var _ WebFeeService = (*FeeService)(nil)
 
 // Start spins up a go-routine to serve fee estimates.
 func NewFeeService(t *testing.T) *FeeService {
-	port := lntest.NextAvailablePort()
+	port := node.NextAvailablePort()
 	f := FeeService{
 		T: t,
 		url: fmt.Sprintf(

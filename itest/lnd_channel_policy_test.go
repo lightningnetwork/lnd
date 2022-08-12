@@ -12,24 +12,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
-
-// assertPolicyUpdate checks that a given policy update has been received by a
-// list of given nodes.
-// TODO(yy): delete.
-func assertPolicyUpdate(t *harnessTest, nodes []*lntest.HarnessNode,
-	advertisingNode string, policy *lnrpc.RoutingPolicy,
-	chanPoint *lnrpc.ChannelPoint) {
-
-	for _, node := range nodes {
-		assertChannelPolicyUpdate(
-			t.t, node, advertisingNode, policy, chanPoint, false,
-		)
-	}
-}
 
 // testUpdateChannelPolicy tests that policy updates made to a channel
 // gets propagated to other nodes in the network.

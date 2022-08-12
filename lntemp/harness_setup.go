@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +24,7 @@ func SetupHarness(t *testing.T, binaryPath, dbBackendName string,
 	t.Log("Setting up HarnessTest...")
 
 	// Parse testing flags that influence our test execution.
-	logDir := lntest.GetLogDir()
+	logDir := node.GetLogDir()
 	require.NoError(t, os.MkdirAll(logDir, 0700), "create log dir failed")
 
 	// Parse database backend
@@ -82,7 +83,7 @@ func prepareMiner(ctxt context.Context, t *testing.T) *HarnessMiner {
 
 // prepareChainBackend creates a new chain backend.
 func prepareChainBackend(t *testing.T,
-	minerAddr string) (lntest.BackendConfig, func()) {
+	minerAddr string) (node.BackendConfig, func()) {
 
 	chainBackend, cleanUp, err := lntest.NewBackend(
 		minerAddr, harnessNetParams,
@@ -96,21 +97,21 @@ func prepareChainBackend(t *testing.T,
 
 // prepareDbBackend parses a DatabaseBackend based on the name given.
 func prepareDbBackend(t *testing.T,
-	dbBackendName string) lntest.DatabaseBackend {
+	dbBackendName string) node.DatabaseBackend {
 
-	var dbBackend lntest.DatabaseBackend
+	var dbBackend node.DatabaseBackend
 	switch dbBackendName {
 	case "bbolt":
-		dbBackend = lntest.BackendBbolt
+		dbBackend = node.BackendBbolt
 
 	case "etcd":
-		dbBackend = lntest.BackendEtcd
+		dbBackend = node.BackendEtcd
 
 	case "postgres":
-		dbBackend = lntest.BackendPostgres
+		dbBackend = node.BackendPostgres
 
 	case "sqlite":
-		dbBackend = lntest.BackendSqlite
+		dbBackend = node.BackendSqlite
 
 	default:
 		require.Fail(t, "unknown db backend")

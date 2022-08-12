@@ -19,7 +19,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -100,7 +99,7 @@ type HarnessTest struct {
 // NewHarnessTest creates a new instance of a harnessTest from a regular
 // testing.T instance.
 func NewHarnessTest(t *testing.T, lndBinary string, feeService WebFeeService,
-	dbBackend lntest.DatabaseBackend) *HarnessTest {
+	dbBackend node.DatabaseBackend) *HarnessTest {
 
 	// Create the run context.
 	ctxt, cancel := context.WithCancel(context.Background())
@@ -636,7 +635,7 @@ func (h *HarnessTest) NewNodeEtcd(name string, etcdCfg *etcd.Config,
 	leaderSessionTTL int) *node.HarnessNode {
 
 	// We don't want to use the embedded etcd instance.
-	h.manager.dbBackend = lntest.BackendBbolt
+	h.manager.dbBackend = node.BackendBbolt
 
 	extraArgs := node.ExtraArgsEtcd(
 		etcdCfg, name, cluster, leaderSessionTTL,
@@ -659,7 +658,7 @@ func (h *HarnessTest) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
 	leaderSessionTTL int) (*node.HarnessNode, []string, []byte) {
 
 	// We don't want to use the embedded etcd instance.
-	h.manager.dbBackend = lntest.BackendBbolt
+	h.manager.dbBackend = node.BackendBbolt
 
 	// Create a request to generate a new aezeed. The new seed will have
 	// the same password as the internal wallet.
@@ -1402,7 +1401,7 @@ func (h *HarnessTest) CleanupForceClose(hn *node.HarnessNode,
 	//
 	// The commit sweep resolver is able to broadcast the sweep tx up to
 	// one block before the CSV elapses, so wait until defaulCSV-1.
-	h.MineBlocks(lntest.DefaultCSV - 1)
+	h.MineBlocks(node.DefaultCSV - 1)
 
 	// The node should now sweep the funds, clean up by mining the sweeping
 	// tx.

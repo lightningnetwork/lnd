@@ -15,7 +15,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
@@ -50,102 +49,6 @@ var commitWithZeroConf = []struct {
 		commitType: lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
 		zeroConf:   true,
 	},
-}
-
-// waitForInvoiceAccepted waits until the specified invoice moved to the
-// accepted state by the node.
-func waitForInvoiceAccepted(t *harnessTest, node *lntest.HarnessNode,
-	payHash lntypes.Hash) {
-
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	defer cancel()
-	invoiceUpdates, err := node.SubscribeSingleInvoice(ctx,
-		&invoicesrpc.SubscribeSingleInvoiceRequest{
-			RHash: payHash[:],
-		},
-	)
-	if err != nil {
-		t.Fatalf("subscribe single invoice: %v", err)
-	}
-
-	for {
-		update, err := invoiceUpdates.Recv()
-		if err != nil {
-			t.Fatalf("invoice update err: %v", err)
-		}
-		if update.State == lnrpc.Invoice_ACCEPTED {
-			break
-		}
-	}
-}
-
-// checkPaymentStatus asserts that the given node list a payment with the given
-// preimage has the expected status.
-func checkPaymentStatus(node *lntest.HarnessNode, preimage lntypes.Preimage,
-	status lnrpc.Payment_PaymentStatus) error {
-
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-
-	req := &lnrpc.ListPaymentsRequest{
-		IncludeIncomplete: true,
-	}
-	paymentsResp, err := node.ListPayments(ctxt, req)
-	if err != nil {
-		return fmt.Errorf("error when obtaining Alice payments: %v",
-			err)
-	}
-
-	payHash := preimage.Hash()
-	var found bool
-	for _, p := range paymentsResp.Payments {
-		if p.PaymentHash != payHash.String() {
-			continue
-		}
-
-		found = true
-		if p.Status != status {
-			return fmt.Errorf("expected payment status "+
-				"%v, got %v", status, p.Status)
-		}
-
-		switch status {
-		// If this expected status is SUCCEEDED, we expect the final preimage.
-		case lnrpc.Payment_SUCCEEDED:
-			if p.PaymentPreimage != preimage.String() {
-				return fmt.Errorf("preimage doesn't match: %v vs %v",
-					p.PaymentPreimage, preimage.String())
-			}
-
-		// Otherwise we expect an all-zero preimage.
-		default:
-			if p.PaymentPreimage != (lntypes.Preimage{}).String() {
-				return fmt.Errorf("expected zero preimage, got %v",
-					p.PaymentPreimage)
-			}
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("payment with payment hash %v not found "+
-			"in response", payHash)
-	}
-
-	return nil
-}
-
-// assertAllTxesSpendFrom asserts that all txes in the list spend from the given
-// tx.
-func assertAllTxesSpendFrom(t *harnessTest, txes []*wire.MsgTx,
-	prevTxid chainhash.Hash) {
-
-	for _, tx := range txes {
-		if tx.TxIn[0].PreviousOutPoint.Hash != prevTxid {
-			t.Fatalf("tx %v did not spend from %v",
-				tx.TxHash(), prevTxid)
-		}
-	}
 }
 
 // caseRunner defines a single test case runner.

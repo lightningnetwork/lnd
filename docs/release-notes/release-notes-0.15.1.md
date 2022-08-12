@@ -22,6 +22,11 @@
   binary digest to be different whether that folder exists or
   not](https://github.com/lightningnetwork/lnd/pull/6676).
 
+## MuSig2
+
+The experimental MuSig2 RPC interface has been updated to track version 0.4.0
+of the draft BIP.
+
 ## Taproot
 
 [`lnd` will now refuse to start if it detects the full node backend does not

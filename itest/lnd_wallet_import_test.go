@@ -16,8 +16,8 @@ import (
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 )
@@ -51,7 +51,7 @@ func walletToLNAddrType(t *testing.T,
 
 // newExternalAddr generates a new external address of an imported account for a
 // pair of nodes, where one acts as the funder and the other as the signer.
-func newExternalAddr(ht *lntemp.HarnessTest, funder, signer *node.HarnessNode,
+func newExternalAddr(ht *lntest.HarnessTest, funder, signer *node.HarnessNode,
 	importedAccount string, addrType walletrpc.AddressType) string {
 
 	// We'll generate a new address for Carol from Dave's node to receive
@@ -125,7 +125,7 @@ func assertOutputScriptType(t *testing.T, expType txscript.ScriptClass,
 
 // psbtSendFromImportedAccount attempts to fund a PSBT from the given imported
 // account, originating from the source node to the destination.
-func psbtSendFromImportedAccount(ht *lntemp.HarnessTest, srcNode, destNode,
+func psbtSendFromImportedAccount(ht *lntest.HarnessTest, srcNode, destNode,
 	signer *node.HarnessNode, account string,
 	accountAddrType walletrpc.AddressType) {
 
@@ -236,7 +236,7 @@ func psbtSendFromImportedAccount(ht *lntemp.HarnessTest, srcNode, destNode,
 // node. To ensure the channel is operational before closing it, a test payment
 // is made. Several balance assertions are made along the way for the sake of
 // correctness.
-func fundChanAndCloseFromImportedAccount(ht *lntemp.HarnessTest, srcNode,
+func fundChanAndCloseFromImportedAccount(ht *lntest.HarnessTest, srcNode,
 	destNode, signer *node.HarnessNode, account string,
 	accountAddrType walletrpc.AddressType, utxoAmt, chanSize int64) {
 
@@ -256,7 +256,7 @@ func fundChanAndCloseFromImportedAccount(ht *lntemp.HarnessTest, srcNode,
 	// The source node will then fund the channel through a PSBT shim.
 	pendingChanID := ht.Random32Bytes()
 	chanUpdates, rawPsbt := ht.OpenChannelPsbt(
-		srcNode, destNode, lntemp.OpenChannelParams{
+		srcNode, destNode, lntest.OpenChannelParams{
 			Amt: btcutil.Amount(chanSize),
 			FundingShim: &lnrpc.FundingShim{
 				Shim: &lnrpc.FundingShim_PsbtShim{
@@ -463,7 +463,7 @@ func fundChanAndCloseFromImportedAccount(ht *lntemp.HarnessTest, srcNode,
 // testWalletImportAccount tests that an imported account can fund transactions
 // and channels through PSBTs, by having one node (the one with the imported
 // account) craft the transactions and another node act as the signer.
-func testWalletImportAccount(ht *lntemp.HarnessTest) {
+func testWalletImportAccount(ht *lntest.HarnessTest) {
 	testCases := []struct {
 		name     string
 		addrType walletrpc.AddressType
@@ -491,7 +491,7 @@ func testWalletImportAccount(ht *lntemp.HarnessTest) {
 	for _, tc := range testCases {
 		tc := tc
 		success := ht.Run(tc.name, func(tt *testing.T) {
-			testFunc := func(ht *lntemp.HarnessTest) {
+			testFunc := func(ht *lntest.HarnessTest) {
 				testWalletImportAccountScenario(
 					ht, tc.addrType,
 				)
@@ -499,7 +499,7 @@ func testWalletImportAccount(ht *lntemp.HarnessTest) {
 
 			st := ht.Subtest(tt)
 
-			st.RunTestCase(&lntemp.TestCase{
+			st.RunTestCase(&lntest.TestCase{
 				Name:     tc.name,
 				TestFunc: testFunc,
 			})
@@ -515,7 +515,7 @@ func testWalletImportAccount(ht *lntemp.HarnessTest) {
 	}
 }
 
-func testWalletImportAccountScenario(ht *lntemp.HarnessTest,
+func testWalletImportAccountScenario(ht *lntest.HarnessTest,
 	addrType walletrpc.AddressType) {
 
 	// We'll start our test by having two nodes, Carol and Dave. Carol's
@@ -529,7 +529,7 @@ func testWalletImportAccountScenario(ht *lntemp.HarnessTest,
 	runWalletImportAccountScenario(ht, addrType, carol, dave)
 }
 
-func runWalletImportAccountScenario(ht *lntemp.HarnessTest,
+func runWalletImportAccountScenario(ht *lntest.HarnessTest,
 	addrType walletrpc.AddressType, carol, dave *node.HarnessNode) {
 
 	const utxoAmt int64 = btcutil.SatoshiPerBitcoin
@@ -619,7 +619,7 @@ func runWalletImportAccountScenario(ht *lntemp.HarnessTest,
 // testWalletImportPubKey tests that an imported public keys can fund
 // transactions and channels through PSBTs, by having one node (the one with the
 // imported account) craft the transactions and another node act as the signer.
-func testWalletImportPubKey(ht *lntemp.HarnessTest) {
+func testWalletImportPubKey(ht *lntest.HarnessTest) {
 	testCases := []struct {
 		name     string
 		addrType walletrpc.AddressType
@@ -642,7 +642,7 @@ func testWalletImportPubKey(ht *lntemp.HarnessTest) {
 	for _, tc := range testCases {
 		tc := tc
 		success := ht.Run(tc.name, func(tt *testing.T) {
-			testFunc := func(ht *lntemp.HarnessTest) {
+			testFunc := func(ht *lntest.HarnessTest) {
 				testWalletImportPubKeyScenario(
 					ht, tc.addrType,
 				)
@@ -650,7 +650,7 @@ func testWalletImportPubKey(ht *lntemp.HarnessTest) {
 
 			st := ht.Subtest(tt)
 
-			st.RunTestCase(&lntemp.TestCase{
+			st.RunTestCase(&lntest.TestCase{
 				Name:     tc.name,
 				TestFunc: testFunc,
 			})
@@ -666,7 +666,7 @@ func testWalletImportPubKey(ht *lntemp.HarnessTest) {
 	}
 }
 
-func testWalletImportPubKeyScenario(ht *lntemp.HarnessTest,
+func testWalletImportPubKeyScenario(ht *lntest.HarnessTest,
 	addrType walletrpc.AddressType) {
 
 	const utxoAmt int64 = btcutil.SatoshiPerBitcoin

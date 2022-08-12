@@ -10,9 +10,9 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntemp/rpc"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +20,7 @@ import (
 // testOpenChannelAfterReorg tests that in the case where we have an open
 // channel where the funding tx gets reorged out, the channel will no
 // longer be present in the node's routing table.
-func testOpenChannelAfterReorg(ht *lntemp.HarnessTest) {
+func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 	// Skip test for neutrino, as we cannot disconnect the miner at will.
 	// TODO(halseth): remove when either can disconnect at will, or restart
 	// node with connection to new miner.
@@ -33,7 +33,7 @@ func testOpenChannelAfterReorg(ht *lntemp.HarnessTest) {
 	// Set up a new miner that we can use to cause a reorg.
 	tempLogDir := ".tempminerlogs"
 	logFilename := "output-open_channel_reorg-temp_miner.log"
-	tempMiner := lntemp.NewTempMiner(
+	tempMiner := lntest.NewTempMiner(
 		ht.Context(), ht.T, tempLogDir, logFilename,
 	)
 	defer tempMiner.Stop()
@@ -68,7 +68,7 @@ func testOpenChannelAfterReorg(ht *lntemp.HarnessTest) {
 
 	// Create a new channel that requires 1 confs before it's considered
 	// open, then broadcast the funding transaction
-	params := lntemp.OpenChannelParams{
+	params := lntest.OpenChannelParams{
 		Amt:     funding.MaxBtcFundingAmount,
 		Private: true,
 	}
@@ -172,7 +172,7 @@ func testOpenChannelAfterReorg(ht *lntemp.HarnessTest) {
 // ChannelUpdate --> defaultBaseFee, provided FeeRate
 // 4.) baseFee and feeRate provided to OpenChannelRequest
 // ChannelUpdate --> provided baseFee, provided feeRate.
-func testOpenChannelUpdateFeePolicy(ht *lntemp.HarnessTest) {
+func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 	const (
 		defaultBaseFee       = 1000
 		defaultFeeRate       = 1
@@ -182,12 +182,12 @@ func testOpenChannelUpdateFeePolicy(ht *lntemp.HarnessTest) {
 		optionalFeeRate      = 1337
 	)
 
-	defaultMaxHtlc := lntemp.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
+	defaultMaxHtlc := lntest.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
 
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := chanAmt / 2
 
-	feeScenarios := []lntemp.OpenChannelParams{
+	feeScenarios := []lntest.OpenChannelParams{
 		{
 			Amt:        chanAmt,
 			PushAmt:    pushAmt,
@@ -259,8 +259,8 @@ func testOpenChannelUpdateFeePolicy(ht *lntemp.HarnessTest) {
 
 	alice, bob := ht.Alice, ht.Bob
 
-	runTestCase := func(ht *lntemp.HarnessTest,
-		fs lntemp.OpenChannelParams,
+	runTestCase := func(ht *lntest.HarnessTest,
+		fs lntest.OpenChannelParams,
 		alicePolicy, bobPolicy *lnrpc.RoutingPolicy) {
 
 		// Create a channel Alice->Bob.
@@ -305,14 +305,14 @@ func testOpenChannelUpdateFeePolicy(ht *lntemp.HarnessTest) {
 // testBasicChannelCreationAndUpdates tests multiple channel opening and
 // closing, and ensures that if a node is subscribed to channel updates they
 // will be received correctly for both cooperative and force closed channels.
-func testBasicChannelCreationAndUpdates(ht *lntemp.HarnessTest) {
+func testBasicChannelCreationAndUpdates(ht *lntest.HarnessTest) {
 	runBasicChannelCreationAndUpdates(ht, ht.Alice, ht.Bob)
 }
 
 // runBasicChannelCreationAndUpdates tests multiple channel opening and closing,
 // and ensures that if a node is subscribed to channel updates they will be
 // received correctly for both cooperative and force closed channels.
-func runBasicChannelCreationAndUpdates(ht *lntemp.HarnessTest,
+func runBasicChannelCreationAndUpdates(ht *lntest.HarnessTest,
 	alice, bob *node.HarnessNode) {
 
 	const (
@@ -329,7 +329,7 @@ func runBasicChannelCreationAndUpdates(ht *lntemp.HarnessTest,
 	chanPoints := make([]*lnrpc.ChannelPoint, numChannels)
 	for i := 0; i < numChannels; i++ {
 		chanPoints[i] = ht.OpenChannel(
-			alice, bob, lntemp.OpenChannelParams{
+			alice, bob, lntest.OpenChannelParams{
 				Amt: amount,
 			},
 		)
@@ -458,8 +458,8 @@ func runBasicChannelCreationAndUpdates(ht *lntemp.HarnessTest,
 
 // assertMinerBlockHeightDelta ensures that tempMiner is 'delta' blocks ahead
 // of miner.
-func assertMinerBlockHeightDelta(ht *lntemp.HarnessTest,
-	miner, tempMiner *lntemp.HarnessMiner, delta int32) {
+func assertMinerBlockHeightDelta(ht *lntest.HarnessTest,
+	miner, tempMiner *lntest.HarnessMiner, delta int32) {
 
 	// Ensure the chain lengths are what we expect.
 	err := wait.NoError(func() error {

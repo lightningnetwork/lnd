@@ -15,8 +15,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
@@ -24,7 +24,7 @@ import (
 
 // testGetRecoveryInfo checks whether lnd gives the right information about
 // the wallet recovery process.
-func testGetRecoveryInfo(ht *lntemp.HarnessTest) {
+func testGetRecoveryInfo(ht *lntest.HarnessTest) {
 	// First, create a new node with strong passphrase and grab the mnemonic
 	// used for key derivation. This will bring up Carol with an empty
 	// wallet, and such that she is synced up.
@@ -94,7 +94,7 @@ func testGetRecoveryInfo(ht *lntemp.HarnessTest) {
 // when providing a valid aezeed that owns outputs on the chain. This test
 // performs multiple restorations using the same seed and various recovery
 // windows to ensure we detect funds properly.
-func testOnchainFundRecovery(ht *lntemp.HarnessTest) {
+func testOnchainFundRecovery(ht *lntest.HarnessTest) {
 	// First, create a new node with strong passphrase and grab the mnemonic
 	// used for key derivation. This will bring up Carol with an empty
 	// wallet, and such that she is synced up.
@@ -321,7 +321,7 @@ func testOnchainFundRecovery(ht *lntemp.HarnessTest) {
 // The fix in the wallet is simple: In step 6, don't detect addresses from
 // internal scopes while re-scanning to be in line with the logic in other areas
 // of the wallet code.
-func testRescanAddressDetection(ht *lntemp.HarnessTest) {
+func testRescanAddressDetection(ht *lntest.HarnessTest) {
 	// We start off by creating a new node with the wallet re-scan flag
 	// enabled. This won't have any effect on the first startup but will
 	// come into effect after we re-start the node.

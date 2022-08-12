@@ -7,17 +7,17 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
 
 // testTrackPayments tests whether a client that calls the TrackPayments api
 // receives payment updates.
-func testTrackPayments(ht *lntemp.HarnessTest) {
+func testTrackPayments(ht *lntest.HarnessTest) {
 	// Open a channel between alice and bob.
 	alice, bob := ht.Alice, ht.Bob
 	channel := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt: btcutil.Amount(300000),
 		},
 	)

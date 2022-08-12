@@ -7,8 +7,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/rpc"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
@@ -17,7 +17,7 @@ import (
 // testHoldInvoicePersistence tests that a sender to a hold-invoice, can be
 // restarted before the payment gets settled, and still be able to receive the
 // preimage.
-func testHoldInvoicePersistence(ht *lntemp.HarnessTest) {
+func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 	const (
 		chanAmt     = btcutil.Amount(1000000)
 		numPayments = 10
@@ -34,7 +34,7 @@ func testHoldInvoicePersistence(ht *lntemp.HarnessTest) {
 	// Open a channel between Alice and Carol which is private so that we
 	// cover the addition of hop hints for hold invoices.
 	chanPointAlice := ht.OpenChannel(
-		alice, carol, lntemp.OpenChannelParams{
+		alice, carol, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			Private: true,
 		},
@@ -45,7 +45,7 @@ func testHoldInvoicePersistence(ht *lntemp.HarnessTest) {
 	// has at least one public channel in the graph. We open a public
 	// channel from Alice -> Bob and wait for Carol to see it.
 	chanPointBob := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)

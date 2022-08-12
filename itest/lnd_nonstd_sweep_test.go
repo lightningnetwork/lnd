@@ -5,11 +5,11 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
 
-func testNonstdSweep(ht *lntemp.HarnessTest) {
+func testNonstdSweep(ht *lntest.HarnessTest) {
 	p2shAddr, err := btcutil.NewAddressScriptHash(
 		make([]byte, 1), harnessNetParams,
 	)
@@ -74,7 +74,7 @@ func testNonstdSweep(ht *lntemp.HarnessTest) {
 	}
 }
 
-func testNonStdSweepInner(ht *lntemp.HarnessTest, address string) {
+func testNonStdSweepInner(ht *lntest.HarnessTest, address string) {
 	carol := ht.NewNode("carol", nil)
 
 	// Give Carol a UTXO so SendCoins will behave as expected.

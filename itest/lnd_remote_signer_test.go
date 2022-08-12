@@ -11,8 +11,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -55,24 +55,24 @@ var (
 
 // testRemoteSigner tests that a watch-only wallet can use a remote signing
 // wallet to perform any signing or ECDH operations.
-func testRemoteSigner(ht *lntemp.HarnessTest) {
+func testRemoteSigner(ht *lntest.HarnessTest) {
 	type testCase struct {
 		name       string
 		randomSeed bool
 		sendCoins  bool
-		fn         func(tt *lntemp.HarnessTest,
+		fn         func(tt *lntest.HarnessTest,
 			wo, carol *node.HarnessNode)
 	}
 
 	subTests := []testCase{{
 		name:       "random seed",
 		randomSeed: true,
-		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			// Nothing more to test here.
 		},
 	}, {
 		name: "account import",
-		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runWalletImportAccountScenario(
 				tt, walletrpc.AddressType_WITNESS_PUBKEY_HASH,
 				carol, wo,
@@ -81,36 +81,36 @@ func testRemoteSigner(ht *lntemp.HarnessTest) {
 	}, {
 		name:      "basic channel open close",
 		sendCoins: true,
-		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runBasicChannelCreationAndUpdates(tt, wo, carol)
 		},
 	}, {
 		name:      "channel funding input types",
 		sendCoins: false,
-		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runChannelFundingInputTypes(tt, carol, wo)
 		},
 	}, {
 		name:      "async payments",
 		sendCoins: true,
-		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runAsyncPayments(tt, wo, carol)
 		},
 	}, {
 		name: "shared key",
-		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runDeriveSharedKey(tt, wo)
 		},
 	}, {
 		name:      "cpfp",
 		sendCoins: true,
-		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runCPFP(tt, wo, carol)
 		},
 	}, {
 		name:       "psbt",
 		randomSeed: true,
-		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runPsbtChanFunding(tt, carol, wo)
 			runSignPsbtSegWitV0P2WKH(tt, wo)
 			runSignPsbtSegWitV1KeySpendBip86(tt, wo)
@@ -125,20 +125,20 @@ func testRemoteSigner(ht *lntemp.HarnessTest) {
 	}, {
 		name:      "sign output raw",
 		sendCoins: true,
-		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runSignOutputRaw(tt, wo)
 		},
 	}, {
 		name:      "sign verify msg",
 		sendCoins: true,
-		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runSignVerifyMessage(tt, wo)
 		},
 	}, {
 		name:       "taproot",
 		sendCoins:  true,
 		randomSeed: true,
-		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			testTaprootSendCoinsKeySpendBip86(tt, wo)
 			testTaprootComputeInputScriptKeySpendBip86(tt, wo)
 			testTaprootSignOutputRawScriptSpend(tt, wo)
@@ -162,7 +162,7 @@ func testRemoteSigner(ht *lntemp.HarnessTest) {
 		},
 	}}
 
-	prepareTest := func(st *lntemp.HarnessTest,
+	prepareTest := func(st *lntest.HarnessTest,
 		subTest testCase) (*node.HarnessNode,
 		*node.HarnessNode, *node.HarnessNode) {
 

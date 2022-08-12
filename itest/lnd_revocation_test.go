@@ -12,7 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +20,7 @@ import (
 // testRevokedCloseRetribution tests that Carol is able carry out
 // retribution in the event that she fails immediately after detecting Bob's
 // breach txn in the mempool.
-func testRevokedCloseRetribution(ht *lntemp.HarnessTest) {
+func testRevokedCloseRetribution(ht *lntest.HarnessTest) {
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
 		paymentAmt  = 10000
@@ -50,7 +50,7 @@ func testRevokedCloseRetribution(ht *lntemp.HarnessTest) {
 	// closure by Bob, we'll first open up a channel between them with a
 	// 0.5 BTC value.
 	chanPoint := ht.OpenChannel(
-		carol, bob, lntemp.OpenChannelParams{Amt: chanAmt},
+		carol, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// With the channel open, we'll create a few invoices for Bob that
@@ -165,7 +165,7 @@ func testRevokedCloseRetribution(ht *lntemp.HarnessTest) {
 // testRevokedCloseRetributionZeroValueRemoteOutput tests that Dave is able
 // carry out retribution in the event that he fails in state where the remote
 // commitment output has zero-value.
-func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntemp.HarnessTest) {
+func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntest.HarnessTest) {
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
 		paymentAmt  = 10000
@@ -198,7 +198,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntemp.HarnessTest) {
 	// closure by Carol, we'll first open up a channel between them with a
 	// 0.5 BTC value.
 	chanPoint := ht.OpenChannel(
-		dave, carol, lntemp.OpenChannelParams{Amt: chanAmt},
+		dave, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// With the channel open, we'll create a few invoices for Carol that
@@ -297,7 +297,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntemp.HarnessTest) {
 // testRevokedCloseRetributionRemoteHodl tests that Dave properly responds to a
 // channel breach made by the remote party, specifically in the case that the
 // remote party breaches before settling extended HTLCs.
-func testRevokedCloseRetributionRemoteHodl(ht *lntemp.HarnessTest) {
+func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
 		pushAmt     = 200000
@@ -332,7 +332,7 @@ func testRevokedCloseRetributionRemoteHodl(ht *lntemp.HarnessTest) {
 	// by Carol, we'll first open up a channel between them with a
 	// funding.MaxBtcFundingAmount (2^24) satoshis value.
 	chanPoint := ht.OpenChannel(
-		dave, carol, lntemp.OpenChannelParams{
+		dave, carol, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 		},
@@ -577,7 +577,7 @@ func testRevokedCloseRetributionRemoteHodl(ht *lntemp.HarnessTest) {
 // trigger a breach. Carol is kept offline throughout the process and the test
 // asserts that Willy responds by broadcasting the justice transaction on
 // Carol's behalf sweeping her funds without a reward.
-func testRevokedCloseRetributionAltruistWatchtower(ht *lntemp.HarnessTest) {
+func testRevokedCloseRetributionAltruistWatchtower(ht *lntest.HarnessTest) {
 	testCases := []struct {
 		name    string
 		anchors bool
@@ -591,7 +591,7 @@ func testRevokedCloseRetributionAltruistWatchtower(ht *lntemp.HarnessTest) {
 
 	for _, tc := range testCases {
 		tc := tc
-		testFunc := func(ht *lntemp.HarnessTest) {
+		testFunc := func(ht *lntest.HarnessTest) {
 			testRevokedCloseRetributionAltruistWatchtowerCase(
 				ht, tc.anchors,
 			)
@@ -600,7 +600,7 @@ func testRevokedCloseRetributionAltruistWatchtower(ht *lntemp.HarnessTest) {
 		success := ht.Run(tc.name, func(tt *testing.T) {
 			st := ht.Subtest(tt)
 
-			st.RunTestCase(&lntemp.TestCase{
+			st.RunTestCase(&lntest.TestCase{
 				Name:     tc.name,
 				TestFunc: testFunc,
 			})
@@ -618,7 +618,7 @@ func testRevokedCloseRetributionAltruistWatchtower(ht *lntemp.HarnessTest) {
 	}
 }
 
-func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntemp.HarnessTest,
+func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 	anchors bool) {
 
 	const (
@@ -695,7 +695,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntemp.HarnessTest,
 	// In order to test Dave's response to an uncooperative channel
 	// closure by Carol, we'll first open up a channel between them with a
 	// 0.5 BTC value.
-	params := lntemp.OpenChannelParams{
+	params := lntest.OpenChannelParams{
 		Amt:     3 * (chanAmt / 4),
 		PushAmt: chanAmt / 4,
 	}

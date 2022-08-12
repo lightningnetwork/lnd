@@ -6,12 +6,12 @@ import (
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
 
-func testHtlcErrorPropagation(ht *lntemp.HarnessTest) {
+func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 	// In this test we wish to exercise the daemon's correct parsing,
 	// handling, and propagation of errors that occur while processing a
 	// multi-hop payment.
@@ -39,7 +39,7 @@ func testHtlcErrorPropagation(ht *lntemp.HarnessTest) {
 	// and Bob.
 	chanPointAlice := ht.OpenChannel(
 		alice, bob,
-		lntemp.OpenChannelParams{Amt: chanAmt},
+		lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Next, we'll create a connection from Bob to Carol, and open a
@@ -48,14 +48,14 @@ func testHtlcErrorPropagation(ht *lntemp.HarnessTest) {
 	// above.
 	const bobChanAmt = funding.MaxBtcFundingAmount
 	chanPointBob := ht.OpenChannel(
-		bob, carol, lntemp.OpenChannelParams{Amt: chanAmt},
+		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Ensure that Alice has Carol in her routing table before proceeding.
 	ht.AssertTopologyChannelOpen(alice, chanPointBob)
 
 	cType := ht.GetChannelCommitType(alice, chanPointAlice)
-	commitFee := lntemp.CalcStaticFee(cType, 0)
+	commitFee := lntest.CalcStaticFee(cType, 0)
 
 	assertBaseBalance := func() {
 		// Alice has opened a channel with Bob with zero push amount,
@@ -153,24 +153,24 @@ func testHtlcErrorPropagation(ht *lntemp.HarnessTest) {
 	assertAliceAndBob := func() {
 		ht.AssertHtlcEventTypes(
 			aliceEvents, routerrpc.HtlcEvent_SEND,
-			lntemp.HtlcEventForward,
+			lntest.HtlcEventForward,
 		)
 		ht.AssertHtlcEventTypes(
 			aliceEvents, routerrpc.HtlcEvent_SEND,
-			lntemp.HtlcEventForwardFail,
+			lntest.HtlcEventForwardFail,
 		)
 
 		ht.AssertHtlcEventTypes(
 			bobEvents, routerrpc.HtlcEvent_FORWARD,
-			lntemp.HtlcEventForward,
+			lntest.HtlcEventForward,
 		)
 		ht.AssertHtlcEventTypes(
 			bobEvents, routerrpc.HtlcEvent_FORWARD,
-			lntemp.HtlcEventForwardFail,
+			lntest.HtlcEventForwardFail,
 		)
 		ht.AssertHtlcEventTypes(
 			bobEvents, routerrpc.HtlcEvent_UNKNOWN,
-			lntemp.HtlcEventFinal,
+			lntest.HtlcEventFinal,
 		)
 	}
 
@@ -188,7 +188,7 @@ func testHtlcErrorPropagation(ht *lntemp.HarnessTest) {
 	// There's also a final htlc event that gives the final outcome of the
 	// htlc.
 	ht.AssertHtlcEventTypes(
-		carolEvents, routerrpc.HtlcEvent_UNKNOWN, lntemp.HtlcEventFinal,
+		carolEvents, routerrpc.HtlcEvent_UNKNOWN, lntest.HtlcEventFinal,
 	)
 
 	// The balances of all parties should be the same as initially since
@@ -228,7 +228,7 @@ func testHtlcErrorPropagation(ht *lntemp.HarnessTest) {
 	// There's also a final htlc event that gives the final outcome of the
 	// htlc.
 	ht.AssertHtlcEventTypes(
-		carolEvents, routerrpc.HtlcEvent_UNKNOWN, lntemp.HtlcEventFinal,
+		carolEvents, routerrpc.HtlcEvent_UNKNOWN, lntest.HtlcEventFinal,
 	)
 
 	// The balances of all parties should be the same as initially since
@@ -273,19 +273,19 @@ func testHtlcErrorPropagation(ht *lntemp.HarnessTest) {
 		// settle event and a final htlc event for her receive.
 		ht.AssertHtlcEventTypes(
 			bobEvents, routerrpc.HtlcEvent_SEND,
-			lntemp.HtlcEventForward,
+			lntest.HtlcEventForward,
 		)
 		ht.AssertHtlcEventTypes(
 			bobEvents, routerrpc.HtlcEvent_SEND,
-			lntemp.HtlcEventSettle,
+			lntest.HtlcEventSettle,
 		)
 		ht.AssertHtlcEventTypes(
 			carolEvents, routerrpc.HtlcEvent_RECEIVE,
-			lntemp.HtlcEventSettle,
+			lntest.HtlcEventSettle,
 		)
 		ht.AssertHtlcEventTypes(
 			carolEvents, routerrpc.HtlcEvent_UNKNOWN,
-			lntemp.HtlcEventFinal,
+			lntest.HtlcEventFinal,
 		)
 
 		amtSent += toSend
@@ -316,11 +316,11 @@ func testHtlcErrorPropagation(ht *lntemp.HarnessTest) {
 	// Alice should have a forwarding event and a forwarding failure.
 	ht.AssertHtlcEventTypes(
 		aliceEvents, routerrpc.HtlcEvent_SEND,
-		lntemp.HtlcEventForward,
+		lntest.HtlcEventForward,
 	)
 	ht.AssertHtlcEventTypes(
 		aliceEvents, routerrpc.HtlcEvent_SEND,
-		lntemp.HtlcEventForwardFail,
+		lntest.HtlcEventForwardFail,
 	)
 
 	// Bob should have a link failure because the htlc failed on his
@@ -331,7 +331,7 @@ func testHtlcErrorPropagation(ht *lntemp.HarnessTest) {
 	// There's also a final htlc event that gives the final outcome of the
 	// htlc.
 	ht.AssertHtlcEventTypes(
-		bobEvents, routerrpc.HtlcEvent_UNKNOWN, lntemp.HtlcEventFinal,
+		bobEvents, routerrpc.HtlcEvent_UNKNOWN, lntest.HtlcEventFinal,
 	)
 
 	// Generate new invoice to not pay same invoice twice.
@@ -362,11 +362,11 @@ func testHtlcErrorPropagation(ht *lntemp.HarnessTest) {
 	// Alice should have a forwarding event and subsequent fail.
 	ht.AssertHtlcEventTypes(
 		aliceEvents, routerrpc.HtlcEvent_SEND,
-		lntemp.HtlcEventForward,
+		lntest.HtlcEventForward,
 	)
 	ht.AssertHtlcEventTypes(
 		aliceEvents, routerrpc.HtlcEvent_SEND,
-		lntemp.HtlcEventForwardFail,
+		lntest.HtlcEventForwardFail,
 	)
 
 	// Bob should have a link failure because he could not find the next
@@ -377,7 +377,7 @@ func testHtlcErrorPropagation(ht *lntemp.HarnessTest) {
 	// There's also a final htlc event that gives the final outcome of the
 	// htlc.
 	ht.AssertHtlcEventTypes(
-		bobEvents, routerrpc.HtlcEvent_UNKNOWN, lntemp.HtlcEventFinal,
+		bobEvents, routerrpc.HtlcEvent_UNKNOWN, lntest.HtlcEventFinal,
 	)
 
 	// Finally, immediately close the channel. This function will also

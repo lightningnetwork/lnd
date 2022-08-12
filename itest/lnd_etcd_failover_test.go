@@ -12,12 +12,12 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
 
-func assertLeader(ht *lntemp.HarnessTest, observer cluster.LeaderElector,
+func assertLeader(ht *lntest.HarnessTest, observer cluster.LeaderElector,
 	expected string) {
 
 	leader, err := observer.Leader(ht.Context())
@@ -29,7 +29,7 @@ func assertLeader(ht *lntemp.HarnessTest, observer cluster.LeaderElector,
 // testEtcdFailover tests that in a cluster setup where two LND nodes form a
 // single cluster (sharing the same identity) one can hand over the leader role
 // to the other (failing over after graceful shutdown or forceful abort).
-func testEtcdFailover(ht *lntemp.HarnessTest) {
+func testEtcdFailover(ht *lntest.HarnessTest) {
 	testCases := []struct {
 		name string
 		kill bool
@@ -54,7 +54,7 @@ func testEtcdFailover(ht *lntemp.HarnessTest) {
 	}
 }
 
-func testEtcdFailoverCase(ht *lntemp.HarnessTest, kill bool) {
+func testEtcdFailoverCase(ht *lntest.HarnessTest, kill bool) {
 	etcdCfg, cleanup, err := kvdb.StartEtcdTestBackend(
 		ht.T.TempDir(), uint16(node.NextAvailablePort()),
 		uint16(node.NextAvailablePort()), "",
@@ -91,7 +91,7 @@ func testEtcdFailoverCase(ht *lntemp.HarnessTest, kill bool) {
 	// Open a channel with 100k satoshis between Carol and Alice with Alice
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100_000)
-	ht.OpenChannel(alice, carol1, lntemp.OpenChannelParams{Amt: chanAmt})
+	ht.OpenChannel(alice, carol1, lntest.OpenChannelParams{Amt: chanAmt})
 
 	// At this point Carol-1 is the elected leader, while Carol-2 will wait
 	// to become the leader when Carol-1 stops.

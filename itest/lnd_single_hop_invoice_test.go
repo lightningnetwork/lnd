@@ -7,20 +7,20 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/stretchr/testify/require"
 )
 
-func testSingleHopInvoice(ht *lntemp.HarnessTest) {
+func testSingleHopInvoice(ht *lntest.HarnessTest) {
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
 	alice, bob := ht.Alice, ht.Bob
 	cp := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// assertAmountPaid is a helper closure that asserts the amount paid by

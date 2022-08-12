@@ -6,8 +6,8 @@ import (
 
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +15,7 @@ import (
 // testNetworkConnectionTimeout checks that the connectiontimeout is taking
 // effect. It creates a node with a small connection timeout value, and
 // connects it to a non-routable IP address.
-func testNetworkConnectionTimeout(ht *lntemp.HarnessTest) {
+func testNetworkConnectionTimeout(ht *lntest.HarnessTest) {
 	var (
 		// testPub is a random public key for testing only.
 		testPub = "0332bda7da70fefe4b6ab92f53b3c4f4ee7999" +
@@ -74,7 +74,7 @@ func testNetworkConnectionTimeout(ht *lntemp.HarnessTest) {
 
 // testReconnectAfterIPChange verifies that if a persistent inbound node changes
 // its listening address then it's peer will still be able to reconnect to it.
-func testReconnectAfterIPChange(ht *lntemp.HarnessTest) {
+func testReconnectAfterIPChange(ht *lntest.HarnessTest) {
 	// In this test, the following network will be set up. A single
 	// dash line represents a peer connection and a double dash line
 	// represents a channel.
@@ -126,7 +126,7 @@ func testReconnectAfterIPChange(ht *lntemp.HarnessTest) {
 	// ensures that Charlie receives the node announcement from Alice as
 	// part of the announcement broadcast.
 	chanPoint := ht.OpenChannel(
-		alice, dave, lntemp.OpenChannelParams{Amt: 1000000},
+		alice, dave, lntest.OpenChannelParams{Amt: 1000000},
 	)
 
 	// waitForNodeAnnouncement is a closure used to wait on the given graph
@@ -209,7 +209,7 @@ func testReconnectAfterIPChange(ht *lntemp.HarnessTest) {
 
 // testAddPeerConfig tests that the "--addpeer" config flag successfully adds
 // a new peer.
-func testAddPeerConfig(ht *lntemp.HarnessTest) {
+func testAddPeerConfig(ht *lntest.HarnessTest) {
 	alice := ht.Alice
 	info := alice.RPC.GetInfo()
 

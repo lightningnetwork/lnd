@@ -3,7 +3,7 @@ package itest
 import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/funding"
-	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -11,7 +11,7 @@ import (
 // acceptances will allow a wumbo channel to be created. Additionally, if a
 // node is running with mini channels only enabled, then they should reject any
 // inbound wumbo channel requests.
-func testWumboChannels(ht *lntemp.HarnessTest) {
+func testWumboChannels(ht *lntest.HarnessTest) {
 	// With all the channel types exercised, we'll now make sure the wumbo
 	// signalling support works properly.
 	//
@@ -33,7 +33,7 @@ func testWumboChannels(ht *lntemp.HarnessTest) {
 	// The test should indicate a failure due to the channel being too
 	// large.
 	ht.OpenChannelAssertErr(
-		wumboNode, miniNode, lntemp.OpenChannelParams{Amt: chanAmt},
+		wumboNode, miniNode, lntest.OpenChannelParams{Amt: chanAmt},
 		lnwallet.ErrChanTooLarge(chanAmt, funding.MaxBtcFundingAmount),
 	)
 
@@ -46,7 +46,7 @@ func testWumboChannels(ht *lntemp.HarnessTest) {
 	// Creating a wumbo channel between these two nodes should succeed.
 	ht.EnsureConnected(wumboNode, wumboNode2)
 	chanPoint := ht.OpenChannel(
-		wumboNode, wumboNode2, lntemp.OpenChannelParams{Amt: chanAmt},
+		wumboNode, wumboNode2, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 	ht.CloseChannel(wumboNode, chanPoint)
 }

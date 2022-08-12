@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -13,7 +13,7 @@ import (
 // testCustomMessage tests sending and receiving of overridden custom message
 // types (within the message type range usually reserved for protocol messages)
 // via the send and subscribe custom message APIs.
-func testCustomMessage(ht *lntemp.HarnessTest) {
+func testCustomMessage(ht *lntest.HarnessTest) {
 	alice, bob := ht.Alice, ht.Bob
 
 	var (
@@ -82,7 +82,7 @@ func testCustomMessage(ht *lntemp.HarnessTest) {
 		require.Equal(ht, bob.PubKey[:], msg.Peer, "first msg "+
 			"peer wrong")
 
-	case <-time.After(defaultTimeout):
+	case <-time.After(lntest.DefaultTimeout):
 		ht.Fatalf("alice did not receive first custom message: %v",
 			msgType)
 	}
@@ -151,7 +151,7 @@ func testCustomMessage(ht *lntemp.HarnessTest) {
 		require.Equal(ht, bob.PubKey[:], msg.Peer, "second "+
 			"message peer")
 
-	case <-time.After(defaultTimeout):
+	case <-time.After(lntest.DefaultTimeout):
 		ht.Fatalf("alice did not receive second custom message")
 	}
 }

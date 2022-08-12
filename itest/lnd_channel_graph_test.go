@@ -11,8 +11,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +40,7 @@ import (
 // take more than 5 seconds to finish, the channel will be marked as disabled,
 // thus a following operation will fail if it relies on the channel being
 // enabled.
-func testUpdateChanStatus(ht *lntemp.HarnessTest) {
+func testUpdateChanStatus(ht *lntest.HarnessTest) {
 	// Create two fresh nodes and open a channel between them.
 	alice, bob := ht.Alice, ht.Bob
 	args := []string{
@@ -57,7 +57,7 @@ func testUpdateChanStatus(ht *lntemp.HarnessTest) {
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
 	chanPoint := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 	defer ht.CloseChannel(alice, chanPoint)
 
@@ -141,7 +141,7 @@ func testUpdateChanStatus(ht *lntemp.HarnessTest) {
 		FeeRateMilliMsat: int64(chainreg.DefaultBitcoinFeeRate),
 		TimeLockDelta:    chainreg.DefaultBitcoinTimeLockDelta,
 		MinHtlc:          1000, // default value
-		MaxHtlcMsat:      lntemp.CalculateMaxHtlc(chanAmt),
+		MaxHtlcMsat:      lntest.CalculateMaxHtlc(chanAmt),
 	}
 
 	// Manually disable the channel and ensure that a "Disabled = true"
@@ -217,14 +217,14 @@ func testUpdateChanStatus(ht *lntemp.HarnessTest) {
 
 // testUnannouncedChannels checks unannounced channels are not returned by
 // describeGraph RPC request unless explicitly asked for.
-func testUnannouncedChannels(ht *lntemp.HarnessTest) {
+func testUnannouncedChannels(ht *lntest.HarnessTest) {
 	amount := funding.MaxBtcFundingAmount
 	alice, bob := ht.Alice, ht.Bob
 
 	// Open a channel between Alice and Bob, ensuring the
 	// channel has been opened properly.
 	chanOpenUpdate := ht.OpenChannelAssertStream(
-		alice, bob, lntemp.OpenChannelParams{Amt: amount},
+		alice, bob, lntest.OpenChannelParams{Amt: amount},
 	)
 
 	// Mine 2 blocks, and check that the channel is opened but not yet
@@ -252,7 +252,7 @@ func testUnannouncedChannels(ht *lntemp.HarnessTest) {
 	ht.CloseChannel(alice, fundingChanPoint)
 }
 
-func testGraphTopologyNotifications(ht *lntemp.HarnessTest) {
+func testGraphTopologyNotifications(ht *lntest.HarnessTest) {
 	ht.Run("pinned", func(t *testing.T) {
 		subT := ht.Subtest(t)
 		testGraphTopologyNtfns(subT, true)
@@ -263,7 +263,7 @@ func testGraphTopologyNotifications(ht *lntemp.HarnessTest) {
 	})
 }
 
-func testGraphTopologyNtfns(ht *lntemp.HarnessTest, pinned bool) {
+func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 	const chanAmt = funding.MaxBtcFundingAmount
 
 	// Spin up Bob first, since we will need to grab his pubkey when
@@ -305,7 +305,7 @@ func testGraphTopologyNtfns(ht *lntemp.HarnessTest, pinned bool) {
 
 	// Open a new channel between Alice and Bob.
 	chanPoint := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// The channel opening above should have triggered a few notifications
@@ -343,7 +343,7 @@ func testGraphTopologyNtfns(ht *lntemp.HarnessTest, pinned bool) {
 	carol := ht.NewNode("Carol", nil)
 	ht.ConnectNodes(bob, carol)
 	chanPoint = ht.OpenChannel(
-		bob, carol, lntemp.OpenChannelParams{Amt: chanAmt},
+		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Reconnect Alice and Bob. This should result in the nodes syncing up
@@ -366,7 +366,7 @@ func testGraphTopologyNtfns(ht *lntemp.HarnessTest, pinned bool) {
 // testNodeAnnouncement ensures that when a node is started with one or more
 // external IP addresses specified on the command line, that those addresses
 // announced to the network and reported in the network graph.
-func testNodeAnnouncement(ht *lntemp.HarnessTest) {
+func testNodeAnnouncement(ht *lntest.HarnessTest) {
 	alice, bob := ht.Alice, ht.Bob
 
 	advertisedAddrs := []string{
@@ -392,7 +392,7 @@ func testNodeAnnouncement(ht *lntemp.HarnessTest) {
 	// ensures that Alice receives the node announcement from Bob as part of
 	// the announcement broadcast.
 	chanPoint := ht.OpenChannel(
-		bob, dave, lntemp.OpenChannelParams{Amt: 1000000},
+		bob, dave, lntest.OpenChannelParams{Amt: 1000000},
 	)
 
 	assertAddrs := func(addrsFound []string, targetAddrs ...string) {
@@ -421,7 +421,7 @@ func testNodeAnnouncement(ht *lntemp.HarnessTest) {
 // testUpdateNodeAnnouncement ensures that the RPC endpoint validates
 // the requests correctly and that the new node announcement is brodcasted
 // with the right information after updating our node.
-func testUpdateNodeAnnouncement(ht *lntemp.HarnessTest) {
+func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 	alice, bob := ht.Alice, ht.Bob
 
 	var lndArgs []string
@@ -500,7 +500,7 @@ func testUpdateNodeAnnouncement(ht *lntemp.HarnessTest) {
 	// ensures that Alice receives the node announcement from Bob as part of
 	// the announcement broadcast.
 	chanPoint := ht.OpenChannel(
-		bob, dave, lntemp.OpenChannelParams{
+		bob, dave, lntest.OpenChannelParams{
 			Amt: 1000000,
 		},
 	)
@@ -637,7 +637,7 @@ func testUpdateNodeAnnouncement(ht *lntemp.HarnessTest) {
 // assertSyncType asserts that the peer has an expected syncType.
 //
 // NOTE: only made for tests in this file.
-func assertSyncType(ht *lntemp.HarnessTest, hn *node.HarnessNode,
+func assertSyncType(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	peer string, syncType lnrpc.Peer_SyncType) {
 
 	resp := hn.RPC.ListPeers()
@@ -693,7 +693,7 @@ func compareNodeAnns(n1, n2 *lnrpc.NodeUpdate) error {
 // the response expected values.
 //
 // NOTE: only used for tests in this file.
-func assertUpdateNodeAnnouncementResponse(ht *lntemp.HarnessTest,
+func assertUpdateNodeAnnouncementResponse(ht *lntest.HarnessTest,
 	response *peersrpc.NodeAnnouncementUpdateResponse,
 	expectedOps map[string]int) {
 

@@ -5,14 +5,14 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/funding"
-	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 // testMaxChannelSize tests that lnd handles --maxchansize parameter correctly.
 // Wumbo nodes should enforce a default soft limit of 10 BTC by default. This
 // limit can be adjusted with --maxchansize config option.
-func testMaxChannelSize(ht *lntemp.HarnessTest) {
+func testMaxChannelSize(ht *lntest.HarnessTest) {
 	// We'll make two new nodes, both wumbo but with the default limit on
 	// maximum channel size (10 BTC)
 	wumboNode := ht.NewNode(
@@ -39,7 +39,7 @@ func testMaxChannelSize(ht *lntemp.HarnessTest) {
 	)
 	ht.OpenChannelAssertErr(
 		wumboNode, wumboNode2,
-		lntemp.OpenChannelParams{Amt: chanAmt}, expectedErr,
+		lntest.OpenChannelParams{Amt: chanAmt}, expectedErr,
 	)
 
 	// We'll now make another wumbo node with appropriate maximum channel
@@ -57,7 +57,7 @@ func testMaxChannelSize(ht *lntemp.HarnessTest) {
 	// Creating a wumbo channel between these two nodes should succeed.
 	ht.EnsureConnected(wumboNode, wumboNode3)
 	chanPoint := ht.OpenChannel(
-		wumboNode, wumboNode3, lntemp.OpenChannelParams{Amt: chanAmt},
+		wumboNode, wumboNode3, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	ht.CloseChannel(wumboNode, chanPoint)

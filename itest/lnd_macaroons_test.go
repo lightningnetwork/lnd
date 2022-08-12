@@ -11,8 +11,8 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,7 +23,7 @@ import (
 // enabled on the gRPC interface, no requests with missing or invalid
 // macaroons are allowed. Further, the specific access rights (read/write,
 // entity based) and first-party caveats are tested as well.
-func testMacaroonAuthentication(ht *lntemp.HarnessTest) {
+func testMacaroonAuthentication(ht *lntest.HarnessTest) {
 	var (
 		infoReq    = &lnrpc.GetInfoRequest{}
 		newAddrReq = &lnrpc.NewAddressRequest{
@@ -294,7 +294,7 @@ func testMacaroonAuthentication(ht *lntemp.HarnessTest) {
 // testBakeMacaroon checks that when creating macaroons, the permissions param
 // in the request must be set correctly, and the baked macaroon has the intended
 // permissions.
-func testBakeMacaroon(ht *lntemp.HarnessTest) {
+func testBakeMacaroon(ht *lntest.HarnessTest) {
 	var testNode = ht.Alice
 
 	testCases := []struct {
@@ -518,7 +518,7 @@ func testBakeMacaroon(ht *lntemp.HarnessTest) {
 // specified ID and invalidates all macaroons derived from the key with that ID.
 // Also, it checks deleting the reserved marcaroon ID, DefaultRootKeyID or is
 // forbidden.
-func testDeleteMacaroonID(ht *lntemp.HarnessTest) {
+func testDeleteMacaroonID(ht *lntest.HarnessTest) {
 	var (
 		ctxb     = ht.Context()
 		testNode = ht.Alice
@@ -610,7 +610,7 @@ func testDeleteMacaroonID(ht *lntemp.HarnessTest) {
 // does not write any macaroon files to the daemon's file system and returns
 // the admin macaroon in the response. It then checks that the password
 // change of the wallet can also happen stateless.
-func testStatelessInit(ht *lntemp.HarnessTest) {
+func testStatelessInit(ht *lntest.HarnessTest) {
 	var (
 		initPw     = []byte("stateless")
 		newPw      = []byte("stateless-new")

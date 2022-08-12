@@ -13,8 +13,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,7 +22,7 @@ import (
 // DeriveSharedKey. It creates an ephemeral private key, performing an ECDH with
 // the node's pubkey and a customized public key to check the validity of the
 // result.
-func testDeriveSharedKey(ht *lntemp.HarnessTest) {
+func testDeriveSharedKey(ht *lntest.HarnessTest) {
 	runDeriveSharedKey(ht, ht.Alice)
 }
 
@@ -30,7 +30,7 @@ func testDeriveSharedKey(ht *lntemp.HarnessTest) {
 // DeriveSharedKey. It creates an ephemeral private key, performing an ECDH with
 // the node's pubkey and a customized public key to check the validity of the
 // result.
-func runDeriveSharedKey(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
+func runDeriveSharedKey(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	// Create an ephemeral key, extracts its public key, and make a
 	// PrivKeyECDH using the ephemeral key.
 	ephemeralPriv, err := btcec.NewPrivateKey()
@@ -194,13 +194,13 @@ func runDeriveSharedKey(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
 
 // testSignOutputRaw makes sure that the SignOutputRaw RPC can be used with all
 // custom ways of specifying the signing key in the key descriptor/locator.
-func testSignOutputRaw(ht *lntemp.HarnessTest) {
+func testSignOutputRaw(ht *lntest.HarnessTest) {
 	runSignOutputRaw(ht, ht.Alice)
 }
 
 // runSignOutputRaw makes sure that the SignOutputRaw RPC can be used with all
 // custom ways of specifying the signing key in the key descriptor/locator.
-func runSignOutputRaw(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
+func runSignOutputRaw(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	// For the next step, we need a public key. Let's use a special family
 	// for this. We want this to be an index of zero.
 	const testCustomKeyFamily = 44
@@ -272,7 +272,7 @@ func runSignOutputRaw(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
 // assertSignOutputRaw sends coins to a p2wkh address derived from the given
 // target public key and then tries to spend that output again by invoking the
 // SignOutputRaw RPC with the key descriptor provided.
-func assertSignOutputRaw(ht *lntemp.HarnessTest,
+func assertSignOutputRaw(ht *lntest.HarnessTest,
 	alice *node.HarnessNode, targetPubKey *btcec.PublicKey,
 	keyDesc *signrpc.KeyDescriptor,
 	sigHash txscript.SigHashType) {
@@ -373,14 +373,14 @@ func assertSignOutputRaw(ht *lntemp.HarnessTest,
 // testSignVerifyMessage makes sure that the SignMessage RPC can be used with
 // all custom flags by verifying with VerifyMessage. Tests both ECDSA and
 // Schnorr signatures.
-func testSignVerifyMessage(ht *lntemp.HarnessTest) {
+func testSignVerifyMessage(ht *lntest.HarnessTest) {
 	runSignVerifyMessage(ht, ht.Alice)
 }
 
 // runSignVerifyMessage makes sure that the SignMessage RPC can be used with
 // all custom flags by verifying with VerifyMessage. Tests both ECDSA and
 // Schnorr signatures.
-func runSignVerifyMessage(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
+func runSignVerifyMessage(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	aliceMsg := []byte("alice msg")
 	keyLoc := &signrpc.KeyLocator{
 		KeyFamily: int32(keychain.KeyFamilyNodeKey),

@@ -1,4 +1,4 @@
-package lntemp
+package lntest
 
 import (
 	"context"
@@ -6,8 +6,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/integration/rpctest"
-	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -85,7 +84,7 @@ func prepareMiner(ctxt context.Context, t *testing.T) *HarnessMiner {
 func prepareChainBackend(t *testing.T,
 	minerAddr string) (node.BackendConfig, func()) {
 
-	chainBackend, cleanUp, err := lntest.NewBackend(
+	chainBackend, cleanUp, err := NewBackend(
 		minerAddr, harnessNetParams,
 	)
 	require.NoError(t, err, "new backend")

@@ -9,8 +9,8 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -34,7 +34,7 @@ type interceptorTestCase struct {
 
 // testForwardInterceptorDedupHtlc tests that upon reconnection, duplicate
 // HTLCs aren't re-notified using the HTLC interceptor API.
-func testForwardInterceptorDedupHtlc(ht *lntemp.HarnessTest) {
+func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
 	// Initialize the test context with 3 connected nodes.
 	ts := newInterceptorTestScenario(ht)
 
@@ -42,8 +42,8 @@ func testForwardInterceptorDedupHtlc(ht *lntemp.HarnessTest) {
 
 	// Open and wait for channels.
 	const chanAmt = btcutil.Amount(300000)
-	p := lntemp.OpenChannelParams{Amt: chanAmt}
-	reqs := []*lntemp.OpenChannelRequest{
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
 		{Local: alice, Remote: bob, Param: p},
 		{Local: bob, Remote: carol, Param: p},
 	}
@@ -185,15 +185,15 @@ func testForwardInterceptorDedupHtlc(ht *lntemp.HarnessTest) {
 //  3. Intercepted held htlcs result in no payment (invoice is not settled).
 //  4. When Interceptor disconnects it resumes all held htlcs, which result in
 //     valid payment (invoice is settled).
-func testForwardInterceptorBasic(ht *lntemp.HarnessTest) {
+func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 	ts := newInterceptorTestScenario(ht)
 
 	alice, bob, carol := ts.alice, ts.bob, ts.carol
 
 	// Open and wait for channels.
 	const chanAmt = btcutil.Amount(300000)
-	p := lntemp.OpenChannelParams{Amt: chanAmt}
-	reqs := []*lntemp.OpenChannelRequest{
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
 		{Local: alice, Remote: bob, Param: p},
 		{Local: bob, Remote: carol, Param: p},
 	}
@@ -345,7 +345,7 @@ func testForwardInterceptorBasic(ht *lntemp.HarnessTest) {
 // interceptorTestScenario is a helper struct to hold the test context and
 // provide the needed functionality.
 type interceptorTestScenario struct {
-	ht                *lntemp.HarnessTest
+	ht                *lntest.HarnessTest
 	alice, bob, carol *node.HarnessNode
 }
 
@@ -356,7 +356,7 @@ type interceptorTestScenario struct {
 //
 // Among them, Alice and Bob are standby nodes and Carol is a new node.
 func newInterceptorTestScenario(
-	ht *lntemp.HarnessTest) *interceptorTestScenario {
+	ht *lntest.HarnessTest) *interceptorTestScenario {
 
 	alice, bob := ht.Alice, ht.Bob
 	carol := ht.NewNode("carol", nil)

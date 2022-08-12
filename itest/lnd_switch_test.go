@@ -3,8 +3,8 @@ package itest
 import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,11 +21,11 @@ const (
 //
 // The general flow of this test:
 //  1. Carol --> Dave --> Alice --> Bob  forward payment
-//  2. -------X       X         X   Bob  restart sender and intermediaries
+//  2. X        X         X  Bob  restart sender and intermediaries
 //  3. Carol <-- Dave <-- Alice <-- Bob  expect settle to propagate
 //
 //nolint:dupword
-func testSwitchCircuitPersistence(ht *lntemp.HarnessTest) {
+func testSwitchCircuitPersistence(ht *lntest.HarnessTest) {
 	// Setup our test scenario. We should now have four nodes running with
 	// three channels.
 	s := setupScenarioFourNodes(ht)
@@ -95,7 +95,7 @@ func testSwitchCircuitPersistence(ht *lntemp.HarnessTest) {
 //  2. Carol --- Dave  X  Alice --- Bob  disconnect intermediaries
 //  3. Carol --- Dave  X  Alice <-- Bob  settle last hop
 //  4. Carol <-- Dave <-- Alice --- Bob  reconnect, expect settle to propagate
-func testSwitchOfflineDelivery(ht *lntemp.HarnessTest) {
+func testSwitchOfflineDelivery(ht *lntest.HarnessTest) {
 	// Setup our test scenario. We should now have four nodes running with
 	// three channels.
 	s := setupScenarioFourNodes(ht)
@@ -174,7 +174,7 @@ func testSwitchOfflineDelivery(ht *lntemp.HarnessTest) {
 //  3. Carol --- Dave  X  Alice <-- Bob  settle last hop
 //  4. Carol --- Dave  X         X  Bob  restart Alice
 //  5. Carol <-- Dave <-- Alice --- Bob  expect settle to propagate
-func testSwitchOfflineDeliveryPersistence(ht *lntemp.HarnessTest) {
+func testSwitchOfflineDeliveryPersistence(ht *lntest.HarnessTest) {
 	// Setup our test scenario. We should now have four nodes running with
 	// three channels.
 	s := setupScenarioFourNodes(ht)
@@ -260,7 +260,7 @@ func testSwitchOfflineDeliveryPersistence(ht *lntemp.HarnessTest) {
 //  3. Carol --- Dave  X  Alice <-- Bob  settle last hop
 //  4. Carol --- Dave  X         X       shutdown Bob, restart Alice
 //  5. Carol <-- Dave <-- Alice  X       expect settle to propagate
-func testSwitchOfflineDeliveryOutgoingOffline(ht *lntemp.HarnessTest) {
+func testSwitchOfflineDeliveryOutgoingOffline(ht *lntest.HarnessTest) {
 	// Setup our test scenario. We should now have four nodes running with
 	// three channels. Note that we won't call the cleanUp function here as
 	// we will manually stop the node Carol and her channel.
@@ -371,13 +371,13 @@ type scenarioFourNodes struct {
 //
 // NOTE: caller needs to call cleanUp to clean the nodes and channels created
 // from this setup.
-func setupScenarioFourNodes(ht *lntemp.HarnessTest) *scenarioFourNodes {
+func setupScenarioFourNodes(ht *lntest.HarnessTest) *scenarioFourNodes {
 	const (
 		chanAmt = btcutil.Amount(1000000)
 		pushAmt = btcutil.Amount(900000)
 	)
 
-	params := lntemp.OpenChannelParams{
+	params := lntest.OpenChannelParams{
 		Amt:     chanAmt,
 		PushAmt: pushAmt,
 	}
@@ -404,7 +404,7 @@ func setupScenarioFourNodes(ht *lntemp.HarnessTest) *scenarioFourNodes {
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// Open channels in batch to save blocks mined.
-	reqs := []*lntemp.OpenChannelRequest{
+	reqs := []*lntest.OpenChannelRequest{
 		{Local: alice, Remote: bob, Param: params},
 		{Local: dave, Remote: alice, Param: params},
 		{Local: carol, Remote: dave, Param: params},
@@ -456,7 +456,7 @@ func setupScenarioFourNodes(ht *lntemp.HarnessTest) *scenarioFourNodes {
 
 // assertHTLCs is a helper function which asserts the desired num of
 // HTLCs has been seen in the nodes.
-func (s *scenarioFourNodes) assertHTLCs(ht *lntemp.HarnessTest, num int) {
+func (s *scenarioFourNodes) assertHTLCs(ht *lntest.HarnessTest, num int) {
 	// Alice should have both the same number of outgoing and
 	// incoming HTLCs.
 	ht.AssertNumActiveHtlcs(s.alice, num*2)
@@ -472,7 +472,7 @@ func (s *scenarioFourNodes) assertHTLCs(ht *lntemp.HarnessTest, num int) {
 // assertAmoutPaid is a helper method which takes a given paid amount
 // and number of payments and asserts the desired payments are made in
 // the four nodes.
-func (s *scenarioFourNodes) assertAmoutPaid(ht *lntemp.HarnessTest,
+func (s *scenarioFourNodes) assertAmoutPaid(ht *lntest.HarnessTest,
 	amt int64, num int64) {
 
 	ht.AssertAmountPaid(

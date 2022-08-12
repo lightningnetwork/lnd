@@ -2,13 +2,13 @@ package itest
 
 import (
 	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
-	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
 
 // testNeutrino checks that the neutrino sub-server can fetch compact
 // block filters, server status and connect to a connected peer.
-func testNeutrino(ht *lntemp.HarnessTest) {
+func testNeutrino(ht *lntest.HarnessTest) {
 	if !ht.IsNeutrinoBackend() {
 		ht.Skipf("skipping test for non neutrino backends")
 	}

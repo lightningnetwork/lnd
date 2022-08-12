@@ -6,13 +6,13 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
 
 // testSendMultiPathPayment tests that we are able to successfully route a
 // payment using multiple shards across different paths.
-func testSendMultiPathPayment(ht *lntemp.HarnessTest) {
+func testSendMultiPathPayment(ht *lntest.HarnessTest) {
 	mts := newMppTestScenario(ht)
 
 	const paymentAmt = btcutil.Amount(300000)

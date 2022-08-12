@@ -8,8 +8,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/require"
@@ -19,7 +19,7 @@ import (
 
 // testRPCMiddlewareInterceptor tests that the RPC middleware interceptor can
 // be used correctly and in a safe way.
-func testRPCMiddlewareInterceptor(ht *lntemp.HarnessTest) {
+func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 	// Let's first enable the middleware interceptor.
 	//
 	// NOTE: we cannot use standby nodes here as the test messes with
@@ -32,7 +32,7 @@ func testRPCMiddlewareInterceptor(ht *lntemp.HarnessTest) {
 	// data to inspect when doing RPC calls to Alice later.
 	ht.EnsureConnected(alice, bob)
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
-	ht.OpenChannel(alice, bob, lntemp.OpenChannelParams{Amt: 1_234_567})
+	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: 1_234_567})
 
 	// Load or bake the macaroons that the simulated users will use to
 	// access the RPC.
@@ -545,7 +545,7 @@ func middlewareRequestManipulationTest(t *testing.T, node *node.HarnessNode,
 
 // middlewareMandatoryTest tests that all RPC requests are blocked if there is
 // a mandatory middleware declared that's currently not registered.
-func middlewareMandatoryTest(ht *lntemp.HarnessTest, node *node.HarnessNode) {
+func middlewareMandatoryTest(ht *lntest.HarnessTest, node *node.HarnessNode) {
 	// Let's declare our itest interceptor as mandatory but don't register
 	// it just yet. That should cause all RPC requests to fail, except for
 	// the registration itself.

@@ -1,4 +1,4 @@
-package lntemp
+package lntest
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 )
 

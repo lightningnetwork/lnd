@@ -20,15 +20,15 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
 
 // testPsbtChanFunding makes sure a channel can be opened between carol and dave
 // by using a Partially Signed Bitcoin Transaction that funds the channel
 // multisig funding output.
-func testPsbtChanFunding(ht *lntemp.HarnessTest) {
+func testPsbtChanFunding(ht *lntest.HarnessTest) {
 	// First, we'll create two new nodes that we'll use to open channels
 	// between for this test. Dave gets some coins that will be used to
 	// fund the PSBT, just to make sure that Carol has an empty wallet.
@@ -41,7 +41,7 @@ func testPsbtChanFunding(ht *lntemp.HarnessTest) {
 // runPsbtChanFunding makes sure a channel can be opened between carol and dave
 // by using a Partially Signed Bitcoin Transaction that funds the channel
 // multisig funding output.
-func runPsbtChanFunding(ht *lntemp.HarnessTest, carol, dave *node.HarnessNode) {
+func runPsbtChanFunding(ht *lntest.HarnessTest, carol, dave *node.HarnessNode) {
 	const chanSize = funding.MaxBtcFundingAmount
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
 
@@ -63,7 +63,7 @@ func runPsbtChanFunding(ht *lntemp.HarnessTest, carol, dave *node.HarnessNode) {
 	// by specifying a PSBT shim. We use the NoPublish flag here to avoid
 	// publishing the whole batch TX too early.
 	chanUpdates, tempPsbt := ht.OpenChannelPsbt(
-		carol, dave, lntemp.OpenChannelParams{
+		carol, dave, lntest.OpenChannelParams{
 			Amt: chanSize,
 			FundingShim: &lnrpc.FundingShim{
 				Shim: &lnrpc.FundingShim_PsbtShim{
@@ -80,7 +80,7 @@ func runPsbtChanFunding(ht *lntemp.HarnessTest, carol, dave *node.HarnessNode) {
 	// Alice. We will publish the batch TX once this channel funding is
 	// complete.
 	chanUpdates2, psbtBytes2 := ht.OpenChannelPsbt(
-		carol, alice, lntemp.OpenChannelParams{
+		carol, alice, lntest.OpenChannelParams{
 			Amt: chanSize,
 			FundingShim: &lnrpc.FundingShim{
 				Shim: &lnrpc.FundingShim_PsbtShim{
@@ -230,7 +230,7 @@ func runPsbtChanFunding(ht *lntemp.HarnessTest, carol, dave *node.HarnessNode) {
 // and dave by using a Partially Signed Bitcoin Transaction that funds the
 // channel multisig funding output and is fully funded by an external third
 // party.
-func testPsbtChanFundingExternal(ht *lntemp.HarnessTest) {
+func testPsbtChanFundingExternal(ht *lntest.HarnessTest) {
 	const chanSize = funding.MaxBtcFundingAmount
 
 	// First, we'll create two new nodes that we'll use to open channels
@@ -257,7 +257,7 @@ func testPsbtChanFundingExternal(ht *lntemp.HarnessTest) {
 	// by specifying a PSBT shim. We use the NoPublish flag here to avoid
 	// publishing the whole batch TX too early.
 	chanUpdates, tempPsbt := ht.OpenChannelPsbt(
-		carol, dave, lntemp.OpenChannelParams{
+		carol, dave, lntest.OpenChannelParams{
 			Amt: chanSize,
 			FundingShim: &lnrpc.FundingShim{
 				Shim: &lnrpc.FundingShim_PsbtShim{
@@ -274,7 +274,7 @@ func testPsbtChanFundingExternal(ht *lntemp.HarnessTest) {
 	// Alice. We will publish the batch TX once this channel funding is
 	// complete.
 	chanUpdates2, psbtBytes2 := ht.OpenChannelPsbt(
-		carol, alice, lntemp.OpenChannelParams{
+		carol, alice, lntest.OpenChannelParams{
 			Amt: chanSize,
 			FundingShim: &lnrpc.FundingShim{
 				Shim: &lnrpc.FundingShim_PsbtShim{
@@ -412,10 +412,10 @@ func testPsbtChanFundingExternal(ht *lntemp.HarnessTest) {
 // the wallet of both nodes are empty and one of them uses PSBT and an external
 // wallet to fund the channel while creating reserve output in the same
 // transaction.
-func testPsbtChanFundingSingleStep(ht *lntemp.HarnessTest) {
+func testPsbtChanFundingSingleStep(ht *lntest.HarnessTest) {
 	const chanSize = funding.MaxBtcFundingAmount
 
-	args := lntemp.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 
 	// First, we'll create two new nodes that we'll use to open channels
 	// between for this test. But in this case both nodes have an empty
@@ -453,7 +453,7 @@ func testPsbtChanFundingSingleStep(ht *lntemp.HarnessTest) {
 	// Now that we have the pending channel ID, Carol will open the channel
 	// by specifying a PSBT shim.
 	chanUpdates, tempPsbt := ht.OpenChannelPsbt(
-		carol, dave, lntemp.OpenChannelParams{
+		carol, dave, lntest.OpenChannelParams{
 			Amt: chanSize,
 			FundingShim: &lnrpc.FundingShim{
 				Shim: &lnrpc.FundingShim_PsbtShim{
@@ -575,7 +575,7 @@ func testPsbtChanFundingSingleStep(ht *lntemp.HarnessTest) {
 }
 
 // testSignPsbt tests that the SignPsbt RPC works correctly.
-func testSignPsbt(ht *lntemp.HarnessTest) {
+func testSignPsbt(ht *lntest.HarnessTest) {
 	runSignPsbtSegWitV0P2WKH(ht, ht.Alice)
 	runSignPsbtSegWitV0NP2WKH(ht, ht.Alice)
 	runSignPsbtSegWitV1KeySpendBip86(ht, ht.Alice)
@@ -590,7 +590,7 @@ func testSignPsbt(ht *lntemp.HarnessTest) {
 
 // runSignPsbtSegWitV0P2WKH tests that the SignPsbt RPC works correctly for a
 // SegWit v0 p2wkh input.
-func runSignPsbtSegWitV0P2WKH(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
+func runSignPsbtSegWitV0P2WKH(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	// We test that we can sign a PSBT that spends funds from an input that
 	// the wallet doesn't know about. To set up that test case, we first
 	// derive an address manually that the wallet won't be watching on
@@ -669,7 +669,7 @@ func runSignPsbtSegWitV0P2WKH(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
 
 // runSignPsbtSegWitV0NP2WKH tests that the SignPsbt RPC works correctly for a
 // SegWit v0 np2wkh input.
-func runSignPsbtSegWitV0NP2WKH(ht *lntemp.HarnessTest,
+func runSignPsbtSegWitV0NP2WKH(ht *lntest.HarnessTest,
 	alice *node.HarnessNode) {
 
 	// We test that we can sign a PSBT that spends funds from an input that
@@ -758,7 +758,7 @@ func runSignPsbtSegWitV0NP2WKH(ht *lntemp.HarnessTest,
 
 // runSignPsbtSegWitV1KeySpendBip86 tests that the SignPsbt RPC works correctly
 // for a SegWit v1 p2tr key spend BIP-0086 input.
-func runSignPsbtSegWitV1KeySpendBip86(ht *lntemp.HarnessTest,
+func runSignPsbtSegWitV1KeySpendBip86(ht *lntest.HarnessTest,
 	alice *node.HarnessNode) {
 
 	// Derive a key we can use for signing.
@@ -802,7 +802,7 @@ func runSignPsbtSegWitV1KeySpendBip86(ht *lntemp.HarnessTest,
 // runSignPsbtSegWitV1KeySpendRootHash tests that the SignPsbt RPC works
 // correctly for a SegWit v1 p2tr key spend that also commits to a script tree
 // root hash.
-func runSignPsbtSegWitV1KeySpendRootHash(ht *lntemp.HarnessTest,
+func runSignPsbtSegWitV1KeySpendRootHash(ht *lntest.HarnessTest,
 	alice *node.HarnessNode) {
 
 	// Derive a key we can use for signing.
@@ -849,7 +849,7 @@ func runSignPsbtSegWitV1KeySpendRootHash(ht *lntemp.HarnessTest,
 
 // runSignPsbtSegWitV1ScriptSpend tests that the SignPsbt RPC works correctly
 // for a SegWit v1 p2tr script spend.
-func runSignPsbtSegWitV1ScriptSpend(ht *lntemp.HarnessTest,
+func runSignPsbtSegWitV1ScriptSpend(ht *lntest.HarnessTest,
 	alice *node.HarnessNode) {
 
 	// Derive a key we can use for signing.
@@ -910,7 +910,7 @@ func runSignPsbtSegWitV1ScriptSpend(ht *lntemp.HarnessTest,
 
 // runFundAndSignPsbt makes sure we can sign PSBTs that were funded by our
 // internal wallet.
-func runFundAndSignPsbt(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
+func runFundAndSignPsbt(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	alice.AddToLogf("================ runFundAndSignPsbt ===============")
 
 	// We'll be using a "main" address where we send the funds to and from
@@ -964,7 +964,7 @@ func runFundAndSignPsbt(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
 // assertPsbtSpend creates an output with the given pkScript on chain and then
 // attempts to create a sweep transaction that is signed using the SignPsbt RPC
 // that spends that output again.
-func assertPsbtSpend(ht *lntemp.HarnessTest, alice *node.HarnessNode,
+func assertPsbtSpend(ht *lntest.HarnessTest, alice *node.HarnessNode,
 	pkScript []byte, decorateUnsigned func(*psbt.Packet),
 	verifySigned func(*psbt.Packet)) {
 
@@ -1073,7 +1073,7 @@ func assertPsbtSpend(ht *lntemp.HarnessTest, alice *node.HarnessNode,
 
 // assertPsbtFundSignSpend funds a PSBT from the internal wallet and then
 // attempts to sign it by using the SignPsbt or FinalizePsbt method.
-func assertPsbtFundSignSpend(ht *lntemp.HarnessTest, alice *node.HarnessNode,
+func assertPsbtFundSignSpend(ht *lntest.HarnessTest, alice *node.HarnessNode,
 	fundOutputs map[string]uint64, changeType walletrpc.ChangeAddressType,
 	useFinalize bool) {
 
@@ -1148,7 +1148,7 @@ func assertPsbtFundSignSpend(ht *lntemp.HarnessTest, alice *node.HarnessNode,
 // assertChangeScriptType checks if the given script has the right type given
 // the change address type we used in FundPsbt. By default, the script should
 // be a P2WPKH one.
-func assertChangeScriptType(ht *lntemp.HarnessTest, script []byte,
+func assertChangeScriptType(ht *lntest.HarnessTest, script []byte,
 	fundChangeType walletrpc.ChangeAddressType) {
 
 	switch fundChangeType {
@@ -1162,7 +1162,7 @@ func assertChangeScriptType(ht *lntemp.HarnessTest, script []byte,
 
 // deriveInternalKey derives a signing key and returns its descriptor, full
 // derivation path and parsed public key.
-func deriveInternalKey(ht *lntemp.HarnessTest,
+func deriveInternalKey(ht *lntest.HarnessTest,
 	alice *node.HarnessNode) (*signrpc.KeyDescriptor, *btcec.PublicKey,
 	[]uint32) {
 
@@ -1221,7 +1221,7 @@ func receiveChanUpdate(ctx context.Context,
 
 // sendAllCoinsToAddrType sweeps all coins from the wallet and sends them to a
 // new address of the given type.
-func sendAllCoinsToAddrType(ht *lntemp.HarnessTest,
+func sendAllCoinsToAddrType(ht *lntest.HarnessTest,
 	hn *node.HarnessNode, addrType lnrpc.AddressType) {
 
 	resp := hn.RPC.NewAddress(&lnrpc.NewAddressRequest{

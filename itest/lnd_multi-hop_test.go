@@ -12,9 +12,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntemp/rpc"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
@@ -52,12 +52,12 @@ var commitWithZeroConf = []struct {
 }
 
 // caseRunner defines a single test case runner.
-type caseRunner func(ht *lntemp.HarnessTest, alice, bob *node.HarnessNode,
+type caseRunner func(ht *lntest.HarnessTest, alice, bob *node.HarnessNode,
 	c lnrpc.CommitmentType, zeroConf bool)
 
 // runMultiHopHtlcClaimTest is a helper method to build test cases based on
 // different commitment types and zero-conf config and run them.
-func runMultiHopHtlcClaimTest(ht *lntemp.HarnessTest, tester caseRunner) {
+func runMultiHopHtlcClaimTest(ht *lntest.HarnessTest, tester caseRunner) {
 	for _, typeAndConf := range commitWithZeroConf {
 		typeAndConf := typeAndConf
 		name := fmt.Sprintf("zeroconf=%v/committype=%v",
@@ -65,7 +65,7 @@ func runMultiHopHtlcClaimTest(ht *lntemp.HarnessTest, tester caseRunner) {
 
 		// Create the nodes here so that separate logs will be created
 		// for Alice and Bob.
-		args := lntemp.NodeArgsForCommitType(typeAndConf.commitType)
+		args := lntest.NodeArgsForCommitType(typeAndConf.commitType)
 		if typeAndConf.zeroConf {
 			args = append(
 				args, "--protocol.option-scid-alias",
@@ -103,11 +103,11 @@ func runMultiHopHtlcClaimTest(ht *lntemp.HarnessTest, tester caseRunner) {
 // it using the HTLC timeout transaction. Any dust HTLC's should be immediately
 // canceled backwards. Once the timeout has been reached, then we should sweep
 // it on-chain, and cancel the HTLC backwards.
-func testMultiHopHtlcLocalTimeout(ht *lntemp.HarnessTest) {
+func testMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest) {
 	runMultiHopHtlcClaimTest(ht, runMultiHopHtlcLocalTimeout)
 }
 
-func runMultiHopHtlcLocalTimeout(ht *lntemp.HarnessTest,
+func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 	alice, bob *node.HarnessNode, c lnrpc.CommitmentType, zeroConf bool) {
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
@@ -171,7 +171,7 @@ func runMultiHopHtlcLocalTimeout(ht *lntemp.HarnessTest,
 	// Bob's force close transaction should now be found in the mempool. If
 	// there are anchors, we also expect Bob's anchor sweep.
 	expectedTxes := 1
-	hasAnchors := lntemp.CommitTypeHasAnchors(c)
+	hasAnchors := lntest.CommitTypeHasAnchors(c)
 	if hasAnchors {
 		expectedTxes = 2
 	}
@@ -272,11 +272,11 @@ func runMultiHopHtlcLocalTimeout(ht *lntemp.HarnessTest,
 // transaction. In this scenario, the node that sent the outgoing HTLC should
 // extract the preimage from the sweep transaction, and finish settling the
 // HTLC backwards into the route.
-func testMultiHopReceiverChainClaim(ht *lntemp.HarnessTest) {
+func testMultiHopReceiverChainClaim(ht *lntest.HarnessTest) {
 	runMultiHopHtlcClaimTest(ht, runMultiHopReceiverChainClaim)
 }
 
-func runMultiHopReceiverChainClaim(ht *lntemp.HarnessTest,
+func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 	alice, bob *node.HarnessNode, c lnrpc.CommitmentType, zeroConf bool) {
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
@@ -348,7 +348,7 @@ func runMultiHopReceiverChainClaim(ht *lntemp.HarnessTest,
 	// transaction in order to go to the chain and sweep her HTLC. If there
 	// are anchors, Carol also sweeps hers.
 	expectedTxes := 1
-	hasAnchors := lntemp.CommitTypeHasAnchors(c)
+	hasAnchors := lntest.CommitTypeHasAnchors(c)
 	if hasAnchors {
 		expectedTxes = 2
 	}
@@ -470,13 +470,13 @@ func runMultiHopReceiverChainClaim(ht *lntemp.HarnessTest,
 // commitment on-chain early, then it eventually recognizes this HTLC as one
 // that's timed out. At this point, the node should timeout the HTLC using the
 // HTLC timeout transaction, then cancel it backwards as normal.
-func testMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest) {
+func testMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest) {
 	runMultiHopHtlcClaimTest(
 		ht, runMultiHopLocalForceCloseOnChainHtlcTimeout,
 	)
 }
 
-func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest,
+func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	alice, bob *node.HarnessNode, c lnrpc.CommitmentType, zeroConf bool) {
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
@@ -517,7 +517,7 @@ func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest,
 	// Now that all parties have the HTLC locked in, we'll immediately
 	// force close the Bob -> Carol channel. This should trigger contract
 	// resolution mode for both of them.
-	hasAnchors := lntemp.CommitTypeHasAnchors(c)
+	hasAnchors := lntest.CommitTypeHasAnchors(c)
 	stream, _ := ht.CloseChannelAssertPending(bob, bobChanPoint, true)
 	closeTx := ht.AssertStreamChannelForceClosed(
 		bob, bobChanPoint, hasAnchors, stream,
@@ -626,13 +626,13 @@ func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest,
 // channel, then we properly timeout the HTLC directly on *their* commitment
 // transaction once the timeout has expired. Once we sweep the transaction, we
 // should also cancel back the initial HTLC.
-func testMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest) {
+func testMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest) {
 	runMultiHopHtlcClaimTest(
 		ht, runMultiHopRemoteForceCloseOnChainHtlcTimeout,
 	)
 }
 
-func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest,
+func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	alice, bob *node.HarnessNode, c lnrpc.CommitmentType, zeroConf bool) {
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
@@ -682,7 +682,7 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest,
 	// transaction. This will let us exercise that Bob is able to sweep the
 	// expired HTLC on Carol's version of the commitment transaction. If
 	// Carol has an anchor, it will be swept too.
-	hasAnchors := lntemp.CommitTypeHasAnchors(c)
+	hasAnchors := lntest.CommitTypeHasAnchors(c)
 	closeStream, _ := ht.CloseChannelAssertPending(
 		carol, bobChanPoint, true,
 	)
@@ -782,11 +782,11 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest,
 // we force close a channel with an incoming HTLC, and later find out the
 // preimage via the witness beacon, we properly settle the HTLC on-chain using
 // the HTLC success transaction in order to ensure we don't lose any funds.
-func testMultiHopHtlcLocalChainClaim(ht *lntemp.HarnessTest) {
+func testMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest) {
 	runMultiHopHtlcClaimTest(ht, runMultiHopHtlcLocalChainClaim)
 }
 
-func runMultiHopHtlcLocalChainClaim(ht *lntemp.HarnessTest,
+func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	alice, bob *node.HarnessNode, c lnrpc.CommitmentType, zeroConf bool) {
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
@@ -840,7 +840,7 @@ func runMultiHopHtlcLocalChainClaim(ht *lntemp.HarnessTest,
 
 	// At this point, Bob decides that he wants to exit the channel
 	// immediately, so he force closes his commitment transaction.
-	hasAnchors := lntemp.CommitTypeHasAnchors(c)
+	hasAnchors := lntest.CommitTypeHasAnchors(c)
 	closeStream, _ := ht.CloseChannelAssertPending(
 		bob, aliceChanPoint, true,
 	)
@@ -888,7 +888,7 @@ func runMultiHopHtlcLocalChainClaim(ht *lntemp.HarnessTest,
 
 	// Carol's commitment transaction should now be in the mempool. If
 	// there is an anchor, Carol will sweep that too.
-	if lntemp.CommitTypeHasAnchors(c) {
+	if lntest.CommitTypeHasAnchors(c) {
 		expectedTxes = 2
 	}
 	ht.Miner.AssertNumTxsInMempool(expectedTxes)
@@ -1076,11 +1076,11 @@ func runMultiHopHtlcLocalChainClaim(ht *lntemp.HarnessTest,
 // we found out the preimage via the witness beacon, we properly settle the
 // HTLC directly on-chain using the preimage in order to ensure that we don't
 // lose any funds.
-func testMultiHopHtlcRemoteChainClaim(ht *lntemp.HarnessTest) {
+func testMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest) {
 	runMultiHopHtlcClaimTest(ht, runMultiHopHtlcRemoteChainClaim)
 }
 
-func runMultiHopHtlcRemoteChainClaim(ht *lntemp.HarnessTest,
+func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 	alice, bob *node.HarnessNode, c lnrpc.CommitmentType, zeroConf bool) {
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
@@ -1135,7 +1135,7 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntemp.HarnessTest,
 	// Next, Alice decides that she wants to exit the channel, so she'll
 	// immediately force close the channel by broadcast her commitment
 	// transaction.
-	hasAnchors := lntemp.CommitTypeHasAnchors(c)
+	hasAnchors := lntest.CommitTypeHasAnchors(c)
 	closeStream, _ := ht.CloseChannelAssertPending(
 		alice, aliceChanPoint, true,
 	)
@@ -1346,11 +1346,11 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntemp.HarnessTest,
 // resolve them using the second level timeout and success transactions. In
 // case of anchor channels, the second-level spends can also be aggregated and
 // properly feebumped, so we'll check that as well.
-func testMultiHopHtlcAggregation(ht *lntemp.HarnessTest) {
+func testMultiHopHtlcAggregation(ht *lntest.HarnessTest) {
 	runMultiHopHtlcClaimTest(ht, runMultiHopHtlcAggregation)
 }
 
-func runMultiHopHtlcAggregation(ht *lntemp.HarnessTest,
+func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	alice, bob *node.HarnessNode, c lnrpc.CommitmentType, zeroConf bool) {
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol.
@@ -1489,7 +1489,7 @@ func runMultiHopHtlcAggregation(ht *lntemp.HarnessTest,
 
 	// Bob's force close transaction should now be found in the mempool. If
 	// there are anchors, we also expect Bob's anchor sweep.
-	hasAnchors := lntemp.CommitTypeHasAnchors(c)
+	hasAnchors := lntest.CommitTypeHasAnchors(c)
 	expectedTxes := 1
 	if hasAnchors {
 		expectedTxes = 2
@@ -1728,7 +1728,7 @@ func runMultiHopHtlcAggregation(ht *lntemp.HarnessTest,
 }
 
 // createThreeHopNetwork creates a topology of `Alice -> Bob -> Carol`.
-func createThreeHopNetwork(ht *lntemp.HarnessTest,
+func createThreeHopNetwork(ht *lntest.HarnessTest,
 	alice, bob *node.HarnessNode, carolHodl bool, c lnrpc.CommitmentType,
 	zeroConf bool) (*lnrpc.ChannelPoint,
 	*lnrpc.ChannelPoint, *node.HarnessNode) {
@@ -1738,7 +1738,7 @@ func createThreeHopNetwork(ht *lntemp.HarnessTest,
 	// We'll create a new node "carol" and have Bob connect to her.
 	// If the carolHodl flag is set, we'll make carol always hold onto the
 	// HTLC, this way it'll force Bob to go to chain to resolve the HTLC.
-	carolFlags := lntemp.NodeArgsForCommitType(c)
+	carolFlags := lntest.NodeArgsForCommitType(c)
 	if carolHodl {
 		carolFlags = append(carolFlags, "--hodl.exit-settle")
 	}
@@ -1790,7 +1790,7 @@ func createThreeHopNetwork(ht *lntemp.HarnessTest,
 		go acceptChannel(ht.T, true, acceptStream)
 	}
 
-	aliceParams := lntemp.OpenChannelParams{
+	aliceParams := lntest.OpenChannelParams{
 		Amt:            chanAmt,
 		CommitmentType: c,
 		FundingShim:    aliceFundingShim,
@@ -1819,7 +1819,7 @@ func createThreeHopNetwork(ht *lntemp.HarnessTest,
 		go acceptChannel(ht.T, true, acceptStream)
 	}
 
-	bobParams := lntemp.OpenChannelParams{
+	bobParams := lntest.OpenChannelParams{
 		Amt:            chanAmt,
 		CommitmentType: c,
 		FundingShim:    bobFundingShim,

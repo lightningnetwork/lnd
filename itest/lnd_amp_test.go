@@ -11,15 +11,15 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
 )
 
 // testSendPaymentAMPInvoice tests that we can send an AMP payment to a
 // specified AMP invoice using SendPaymentV2.
-func testSendPaymentAMPInvoice(ht *lntemp.HarnessTest) {
+func testSendPaymentAMPInvoice(ht *lntest.HarnessTest) {
 	succeed := ht.Run("native payaddr", func(t *testing.T) {
 		tt := ht.Subtest(t)
 		testSendPaymentAMPInvoiceCase(tt, false)
@@ -36,7 +36,7 @@ func testSendPaymentAMPInvoice(ht *lntemp.HarnessTest) {
 	})
 }
 
-func testSendPaymentAMPInvoiceCase(ht *lntemp.HarnessTest,
+func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 	useExternalPayAddr bool) {
 
 	mts := newMppTestScenario(ht)
@@ -196,7 +196,7 @@ func testSendPaymentAMPInvoiceCase(ht *lntemp.HarnessTest,
 
 // testSendPaymentAMPInvoiceRepeat tests that it's possible to pay an AMP
 // invoice multiple times by having the client generate a new setID each time.
-func testSendPaymentAMPInvoiceRepeat(ht *lntemp.HarnessTest) {
+func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 	// In this basic test, we'll only need two nodes as we want to
 	// primarily test the recurring payment feature. So we'll re-use the
 	carol := ht.NewNode("Carol", nil)
@@ -218,7 +218,7 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntemp.HarnessTest) {
 	// Establish a channel between Carol and Dave.
 	chanAmt := btcutil.Amount(100_000)
 	ht.OpenChannel(
-		carol, dave, lntemp.OpenChannelParams{Amt: chanAmt},
+		carol, dave, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Create an AMP invoice of a trivial amount, that we'll pay repeatedly
@@ -353,7 +353,7 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntemp.HarnessTest) {
 
 // testSendPaymentAMP tests that we can send an AMP payment to a specified
 // destination using SendPaymentV2.
-func testSendPaymentAMP(ht *lntemp.HarnessTest) {
+func testSendPaymentAMP(ht *lntest.HarnessTest) {
 	mts := newMppTestScenario(ht)
 	const paymentAmt = btcutil.Amount(300000)
 
@@ -460,7 +460,7 @@ func testSendPaymentAMP(ht *lntemp.HarnessTest) {
 	mts.closeChannels()
 }
 
-func testSendToRouteAMP(ht *lntemp.HarnessTest) {
+func testSendToRouteAMP(ht *lntest.HarnessTest) {
 	mts := newMppTestScenario(ht)
 	const (
 		paymentAmt = btcutil.Amount(300000)

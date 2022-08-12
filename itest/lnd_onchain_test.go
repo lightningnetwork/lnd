@@ -11,8 +11,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -20,7 +20,7 @@ import (
 )
 
 // testChainKit tests ChainKit RPC endpoints.
-func testChainKit(ht *lntemp.HarnessTest) {
+func testChainKit(ht *lntest.HarnessTest) {
 	// Test functions registered as test cases spin up separate nodes
 	// during execution. By calling sub-test functions as seen below we
 	// avoid the need to start separate nodes.
@@ -30,7 +30,7 @@ func testChainKit(ht *lntemp.HarnessTest) {
 
 // testChainKitGetBlock ensures that given a block hash, the RPC endpoint
 // returns the correct target block.
-func testChainKitGetBlock(ht *lntemp.HarnessTest) {
+func testChainKitGetBlock(ht *lntest.HarnessTest) {
 	// Get best block hash.
 	bestBlockRes := ht.Alice.RPC.GetBestBlock(nil)
 
@@ -58,7 +58,7 @@ func testChainKitGetBlock(ht *lntemp.HarnessTest) {
 
 // testChainKitGetBlockHash ensures that given a block height, the RPC endpoint
 // returns the correct target block hash.
-func testChainKitGetBlockHash(ht *lntemp.HarnessTest) {
+func testChainKitGetBlockHash(ht *lntest.HarnessTest) {
 	// Get best block hash.
 	bestBlockRes := ht.Alice.RPC.GetBestBlock(nil)
 
@@ -78,13 +78,13 @@ func testChainKitGetBlockHash(ht *lntemp.HarnessTest) {
 // rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction.
 //
 // TODO(wilmer): Add RBF case once btcd supports it.
-func testCPFP(ht *lntemp.HarnessTest) {
+func testCPFP(ht *lntest.HarnessTest) {
 	runCPFP(ht, ht.Alice, ht.Bob)
 }
 
 // runCPFP ensures that the daemon can bump an unconfirmed  transaction's fee
 // rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction.
-func runCPFP(ht *lntemp.HarnessTest, alice, bob *node.HarnessNode) {
+func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 	// Skip this test for neutrino, as it's not aware of mempool
 	// transactions.
 	if ht.IsNeutrinoBackend() {
@@ -180,9 +180,9 @@ func runCPFP(ht *lntemp.HarnessTest, alice, bob *node.HarnessNode) {
 // testAnchorReservedValue tests that we won't allow sending transactions when
 // that would take the value we reserve for anchor fee bumping out of our
 // wallet.
-func testAnchorReservedValue(ht *lntemp.HarnessTest) {
+func testAnchorReservedValue(ht *lntest.HarnessTest) {
 	// Start two nodes supporting anchor channels.
-	args := lntemp.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 
 	// NOTE: we cannot reuse the standby node here as the test requires the
 	// node to start with no UTXOs.
@@ -203,7 +203,7 @@ func testAnchorReservedValue(ht *lntemp.HarnessTest) {
 
 	// wallet, without a change output. This should not be allowed.
 	ht.OpenChannelAssertErr(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		}, lnwallet.ErrReservedValueInvalidated,
 	)
@@ -211,13 +211,13 @@ func testAnchorReservedValue(ht *lntemp.HarnessTest) {
 	// Alice opens a smaller channel. This works since it will have a
 	// change output.
 	chanPoint1 := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt / 4},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt / 4},
 	)
 
 	// If Alice tries to open another anchor channel to Bob, Bob should not
 	// reject it as he is not contributing any funds.
 	chanPoint2 := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt / 4},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt / 4},
 	)
 
 	// Similarly, if Alice tries to open a legacy channel to Bob, Bob
@@ -229,7 +229,7 @@ func testAnchorReservedValue(ht *lntemp.HarnessTest) {
 	ht.EnsureConnected(alice, bob)
 
 	chanPoint3 := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt / 4},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt / 4},
 	)
 	chanPoints := []*lnrpc.ChannelPoint{chanPoint1, chanPoint2, chanPoint3}
 
@@ -347,13 +347,13 @@ func testAnchorReservedValue(ht *lntemp.HarnessTest) {
 // testAnchorThirdPartySpend tests that if we force close a channel, but then
 // don't sweep the anchor in time and a 3rd party spends it, that we remove any
 // transactions that are a descendent of that sweep.
-func testAnchorThirdPartySpend(ht *lntemp.HarnessTest) {
+func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// First, we'll create two new nodes that both default to anchor
 	// channels.
 	//
 	// NOTE: The itests differ here as anchors is default off vs the normal
 	// lnd binary.
-	args := lntemp.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 	alice := ht.NewNode("Alice", args)
 	defer ht.Shutdown(alice)
 
@@ -374,7 +374,7 @@ func testAnchorThirdPartySpend(ht *lntemp.HarnessTest) {
 	// Open the channel between the two nodes and wait for it to confirm
 	// fully.
 	aliceChanPoint1 := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt: firstChanSize,
 		},
 	)
@@ -493,7 +493,7 @@ func testAnchorThirdPartySpend(ht *lntemp.HarnessTest) {
 
 // assertAnchorOutputLost asserts that the anchor output for the given channel
 // has the state of being lost.
-func assertAnchorOutputLost(ht *lntemp.HarnessTest, hn *node.HarnessNode,
+func assertAnchorOutputLost(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	chanPoint *lnrpc.ChannelPoint) {
 
 	cp := ht.OutPointFromChannelPoint(chanPoint)
@@ -527,8 +527,8 @@ func assertAnchorOutputLost(ht *lntemp.HarnessTest, hn *node.HarnessNode,
 // genAnchorSweep generates a "3rd party" anchor sweeping from an existing one.
 // In practice, we just re-use the existing witness, and track on our own
 // output producing a 1-in-1-out transaction.
-func genAnchorSweep(ht *lntemp.HarnessTest,
-	aliceAnchor *lntemp.SweptOutput, anchorCsv uint32) *btcutil.Tx {
+func genAnchorSweep(ht *lntest.HarnessTest,
+	aliceAnchor *lntest.SweptOutput, anchorCsv uint32) *btcutil.Tx {
 
 	// At this point, we have the transaction that Alice used to try to
 	// sweep her anchor. As this is actually just something anyone can

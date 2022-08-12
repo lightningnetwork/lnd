@@ -13,8 +13,8 @@ import (
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +24,7 @@ import (
 // Bob, then immediately closes the channel after asserting some expected post
 // conditions. Finally, the chain itself is checked to ensure the closing
 // transaction was mined.
-func testBasicChannelFunding(ht *lntemp.HarnessTest) {
+func testBasicChannelFunding(ht *lntest.HarnessTest) {
 	// Run through the test with combinations of all the different
 	// commitment types.
 	allTypes := []lnrpc.CommitmentType{
@@ -35,20 +35,20 @@ func testBasicChannelFunding(ht *lntemp.HarnessTest) {
 
 	// testFunding is a function closure that takes Carol and Dave's
 	// commitment types and test the funding flow.
-	testFunding := func(ht *lntemp.HarnessTest, carolCommitType,
+	testFunding := func(ht *lntest.HarnessTest, carolCommitType,
 		daveCommitType lnrpc.CommitmentType) {
 
 		// Based on the current tweak variable for Carol, we'll
 		// preferentially signal the legacy commitment format.  We do
 		// the same for Dave shortly below.
-		carolArgs := lntemp.NodeArgsForCommitType(carolCommitType)
+		carolArgs := lntest.NodeArgsForCommitType(carolCommitType)
 		carol := ht.NewNode("Carol", carolArgs)
 
 		// Each time, we'll send Carol a new set of coins in order to
 		// fund the channel.
 		ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
-		daveArgs := lntemp.NodeArgsForCommitType(daveCommitType)
+		daveArgs := lntest.NodeArgsForCommitType(daveCommitType)
 		dave := ht.NewNode("Dave", daveArgs)
 
 		// Before we start the test, we'll ensure both sides are
@@ -140,7 +140,7 @@ test:
 // test. Given two nodes: Alice and Bob, it'll assert proper channel creation,
 // then return a function closure that should be called to assert proper
 // channel closure.
-func basicChannelFundingTest(ht *lntemp.HarnessTest,
+func basicChannelFundingTest(ht *lntest.HarnessTest,
 	alice, bob *node.HarnessNode,
 	fundingShim *lnrpc.FundingShim) (*lnrpc.Channel,
 	*lnrpc.Channel, func()) {
@@ -181,7 +181,7 @@ func basicChannelFundingTest(ht *lntemp.HarnessTest,
 	// assertions will be executed to ensure the funding process completed
 	// successfully.
 	chanPoint := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt:         chanAmt,
 			PushAmt:     pushAmt,
 			FundingShim: fundingShim,
@@ -193,7 +193,7 @@ func basicChannelFundingTest(ht *lntemp.HarnessTest,
 
 	// With the channel open, ensure that the amount specified above has
 	// properly been pushed to Bob.
-	aliceLocalBalance := chanAmt - pushAmt - lntemp.CalcStaticFee(cType, 0)
+	aliceLocalBalance := chanAmt - pushAmt - lntest.CalcStaticFee(cType, 0)
 	checkChannelBalance(
 		alice, aliceChannelBalance, aliceLocalBalance, pushAmt,
 	)
@@ -216,7 +216,7 @@ func basicChannelFundingTest(ht *lntemp.HarnessTest,
 
 // testUnconfirmedChannelFunding tests that our unconfirmed change outputs can
 // be used to fund channels.
-func testUnconfirmedChannelFunding(ht *lntemp.HarnessTest) {
+func testUnconfirmedChannelFunding(ht *lntest.HarnessTest) {
 	const (
 		chanAmt = funding.MaxBtcFundingAmount
 		pushAmt = btcutil.Amount(100000)
@@ -236,7 +236,7 @@ func testUnconfirmedChannelFunding(ht *lntemp.HarnessTest) {
 	ht.ConnectNodes(carol, alice)
 
 	chanOpenUpdate := ht.OpenChannelAssertStream(
-		carol, alice, lntemp.OpenChannelParams{
+		carol, alice, lntest.OpenChannelParams{
 			Amt:              chanAmt,
 			PushAmt:          pushAmt,
 			SpendUnconfirmed: true,
@@ -289,7 +289,7 @@ func testUnconfirmedChannelFunding(ht *lntemp.HarnessTest) {
 	// Note that atm we haven't obtained the chanPoint yet, so we use the
 	// type directly.
 	cType := lnrpc.CommitmentType_STATIC_REMOTE_KEY
-	carolLocalBalance := chanAmt - pushAmt - lntemp.CalcStaticFee(cType, 0)
+	carolLocalBalance := chanAmt - pushAmt - lntest.CalcStaticFee(cType, 0)
 	checkChannelBalance(carol, 0, 0, carolLocalBalance, pushAmt)
 
 	// For Alice, her local/remote balances should be zero, and the
@@ -329,7 +329,12 @@ func testUnconfirmedChannelFunding(ht *lntemp.HarnessTest) {
 
 // testChannelFundingInputTypes tests that any type of supported input type can
 // be used to fund channels.
-func testChannelFundingInputTypes(ht *lntemp.HarnessTest) {
+func testChannelFundingInputTypes(ht *lntest.HarnessTest) {
+	const (
+		chanAmt  = funding.MaxBtcFundingAmount
+		burnAddr = "bcrt1qxsnqpdc842lu8c0xlllgvejt6rhy49u6fmpgyz"
+	)
+
 	// We'll start off by creating a node for Carol.
 	carol := ht.NewNode("Carol", nil)
 
@@ -342,7 +347,7 @@ func testChannelFundingInputTypes(ht *lntemp.HarnessTest) {
 
 // runChannelFundingInputTypes tests that any type of supported input type can
 // be used to fund channels.
-func runChannelFundingInputTypes(ht *lntemp.HarnessTest, alice,
+func runChannelFundingInputTypes(ht *lntest.HarnessTest, alice,
 	carol *node.HarnessNode) {
 
 	const (
@@ -411,7 +416,7 @@ func runChannelFundingInputTypes(ht *lntemp.HarnessTest, alice,
 		funder((chanAmt*11)/10, carol)
 
 		chanOpenUpdate := ht.OpenChannelAssertStream(
-			carol, alice, lntemp.OpenChannelParams{
+			carol, alice, lntest.OpenChannelParams{
 				Amt: chanAmt,
 			},
 		)
@@ -423,7 +428,7 @@ func runChannelFundingInputTypes(ht *lntemp.HarnessTest, alice,
 		// Note that atm we haven't obtained the chanPoint yet, so we
 		// use the type directly.
 		cType := lnrpc.CommitmentType_STATIC_REMOTE_KEY
-		carolLocalBalance := chanAmt - lntemp.CalcStaticFee(cType, 0)
+		carolLocalBalance := chanAmt - lntest.CalcStaticFee(cType, 0)
 		checkChannelBalance(carol, 0, 0, carolLocalBalance, 0)
 
 		// For Alice, her local/remote balances should be zero, and the
@@ -463,7 +468,7 @@ func runChannelFundingInputTypes(ht *lntemp.HarnessTest, alice,
 
 // sendAllCoinsConfirm sends all coins of the node's wallet to the given address
 // and awaits one confirmation.
-func sendAllCoinsConfirm(ht *lntemp.HarnessTest, node *node.HarnessNode,
+func sendAllCoinsConfirm(ht *lntest.HarnessTest, node *node.HarnessNode,
 	addr string) {
 
 	sweepReq := &lnrpc.SendCoinsRequest{
@@ -477,7 +482,7 @@ func sendAllCoinsConfirm(ht *lntemp.HarnessTest, node *node.HarnessNode,
 // testExternalFundingChanPoint tests that we're able to carry out a normal
 // channel funding workflow given a channel point that was constructed outside
 // the main daemon.
-func testExternalFundingChanPoint(ht *lntemp.HarnessTest) {
+func testExternalFundingChanPoint(ht *lntest.HarnessTest) {
 	// First, we'll create two new nodes that we'll use to open channel
 	// between for this test.
 	carol := ht.NewNode("carol", nil)
@@ -500,7 +505,7 @@ func testExternalFundingChanPoint(ht *lntemp.HarnessTest) {
 		ht, carol, dave, chanSize, thawHeight, false,
 	)
 	ht.OpenChannelAssertPending(
-		carol, dave, lntemp.OpenChannelParams{
+		carol, dave, lntest.OpenChannelParams{
 			Amt:         chanSize,
 			FundingShim: fundingShim1,
 		},
@@ -591,7 +596,7 @@ func testExternalFundingChanPoint(ht *lntemp.HarnessTest) {
 // representation of channels if the system is restarted or disconnected.
 // testFundingPersistence mirrors testBasicChannelFunding, but adds restarts
 // and checks for the state of channels with unconfirmed funding transactions.
-func testChannelFundingPersistence(ht *lntemp.HarnessTest) {
+func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(0)
 
@@ -609,7 +614,7 @@ func testChannelFundingPersistence(ht *lntemp.HarnessTest) {
 
 	// Create a new channel that requires 5 confs before it's considered
 	// open, then broadcast the funding transaction
-	param := lntemp.OpenChannelParams{
+	param := lntest.OpenChannelParams{
 		Amt:     chanAmt,
 		PushAmt: pushAmt,
 	}
@@ -676,7 +681,7 @@ func testChannelFundingPersistence(ht *lntemp.HarnessTest) {
 
 	// The channel should be listed in the peer information returned by
 	// both peers.
-	chanPoint := lntemp.ChanPointFromPendingUpdate(update)
+	chanPoint := lntest.ChanPointFromPendingUpdate(update)
 
 	// Re-lookup our transaction in the block that it confirmed in.
 	tx = ht.AssertTxAtHeight(alice, height, fundingTxID)
@@ -699,7 +704,7 @@ func testChannelFundingPersistence(ht *lntemp.HarnessTest) {
 
 // testBatchChanFunding makes sure multiple channels can be opened in one batch
 // transaction in an atomic way.
-func testBatchChanFunding(ht *lntemp.HarnessTest) {
+func testBatchChanFunding(ht *lntest.HarnessTest) {
 	// First, we'll create two new nodes that we'll use to open channels
 	// to during this test. Carol has a high minimum funding amount that
 	// we'll use to trigger an error during the batch channel open.
@@ -793,7 +798,7 @@ func testBatchChanFunding(ht *lntemp.HarnessTest) {
 
 // deriveFundingShim creates a channel funding shim by deriving the necessary
 // keys on both sides.
-func deriveFundingShim(ht *lntemp.HarnessTest,
+func deriveFundingShim(ht *lntest.HarnessTest,
 	carol, dave *node.HarnessNode, chanSize btcutil.Amount,
 	thawHeight uint32, publish bool) (*lnrpc.FundingShim,
 	*lnrpc.ChannelPoint, *chainhash.Hash) {

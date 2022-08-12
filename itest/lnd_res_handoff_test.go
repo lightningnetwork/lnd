@@ -5,13 +5,13 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
 
 // testResHandoff tests that the contractcourt is able to properly hand-off
 // resolution messages to the switch.
-func testResHandoff(ht *lntemp.HarnessTest) {
+func testResHandoff(ht *lntest.HarnessTest) {
 	const (
 		chanAmt    = btcutil.Amount(1000000)
 		paymentAmt = 50000
@@ -22,7 +22,7 @@ func testResHandoff(ht *lntemp.HarnessTest) {
 	// First we'll create a channel between Alice and Bob.
 	ht.EnsureConnected(alice, bob)
 
-	params := lntemp.OpenChannelParams{Amt: chanAmt}
+	params := lntest.OpenChannelParams{Amt: chanAmt}
 	chanPointAlice := ht.OpenChannel(alice, bob, params)
 
 	// Create a new node Carol that will be in hodl mode. This is used to

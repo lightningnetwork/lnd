@@ -13,9 +13,9 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntemp/rpc"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -23,7 +23,7 @@ import (
 
 // testZeroConfChannelOpen tests that opening a zero-conf channel works and
 // sending payments also works.
-func testZeroConfChannelOpen(ht *lntemp.HarnessTest) {
+func testZeroConfChannelOpen(ht *lntest.HarnessTest) {
 	// Since option-scid-alias is opt-in, the provided harness nodes will
 	// not have the feature bit set. Also need to set anchors as those are
 	// default-off in itests.
@@ -39,7 +39,7 @@ func testZeroConfChannelOpen(ht *lntemp.HarnessTest) {
 
 	// We'll open a regular public channel between Bob and Carol here.
 	chanAmt := btcutil.Amount(1_000_000)
-	p := lntemp.OpenChannelParams{
+	p := lntest.OpenChannelParams{
 		Amt: chanAmt,
 	}
 	chanPoint := ht.OpenChannel(bob, carol, p)
@@ -58,7 +58,7 @@ func testZeroConfChannelOpen(ht *lntemp.HarnessTest) {
 	go acceptChannel(ht.T, true, acceptStream)
 
 	// Open a private zero-conf anchors channel of 1M satoshis.
-	params := lntemp.OpenChannelParams{
+	params := lntest.OpenChannelParams{
 		Amt:            chanAmt,
 		Private:        true,
 		CommitmentType: lnrpc.CommitmentType_ANCHORS,
@@ -191,7 +191,7 @@ func testZeroConfChannelOpen(ht *lntemp.HarnessTest) {
 
 // testOptionScidAlias checks that opening an option_scid_alias channel-type
 // channel or w/o the channel-type works properly.
-func testOptionScidAlias(ht *lntemp.HarnessTest) {
+func testOptionScidAlias(ht *lntest.HarnessTest) {
 	type scidTestCase struct {
 		name string
 
@@ -234,7 +234,7 @@ func testOptionScidAlias(ht *lntemp.HarnessTest) {
 	}
 }
 
-func optionScidAliasScenario(ht *lntemp.HarnessTest, chantype, private bool) {
+func optionScidAliasScenario(ht *lntest.HarnessTest, chantype, private bool) {
 	// Option-scid-alias is opt-in, as is anchors.
 	scidAliasArgs := []string{
 		"--protocol.option-scid-alias",
@@ -256,7 +256,7 @@ func optionScidAliasScenario(ht *lntemp.HarnessTest, chantype, private bool) {
 
 	chanAmt := btcutil.Amount(1_000_000)
 
-	params := lntemp.OpenChannelParams{
+	params := lntest.OpenChannelParams{
 		Amt:            chanAmt,
 		Private:        private,
 		CommitmentType: lnrpc.CommitmentType_ANCHORS,
@@ -282,7 +282,7 @@ func optionScidAliasScenario(ht *lntemp.HarnessTest, chantype, private bool) {
 	// We'll now open a regular public channel between Bob and Carol and
 	// assert that Bob can pay Dave. We'll also assert that the invoice
 	// Dave issues has the startingAlias as a hop hint.
-	p := lntemp.OpenChannelParams{
+	p := lntest.OpenChannelParams{
 		Amt: chanAmt,
 	}
 	fundingPoint2 := ht.OpenChannel(bob, carol, p)
@@ -409,7 +409,7 @@ func waitForZeroConfGraphChange(hn *node.HarnessNode,
 // testUpdateChannelPolicyScidAlias checks that option-scid-alias, zero-conf
 // channel-types, and option-scid-alias feature-bit-only channels have the
 // expected graph and that payments work when updating the channel policy.
-func testUpdateChannelPolicyScidAlias(ht *lntemp.HarnessTest) {
+func testUpdateChannelPolicyScidAlias(ht *lntest.HarnessTest) {
 	tests := []struct {
 		name string
 
@@ -461,7 +461,7 @@ func testUpdateChannelPolicyScidAlias(ht *lntemp.HarnessTest) {
 	}
 }
 
-func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
+func testPrivateUpdateAlias(ht *lntest.HarnessTest,
 	zeroConf, scidAliasType, private bool) {
 
 	// We'll create a new node Eve that will not have option-scid-alias
@@ -494,7 +494,7 @@ func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
 
 	chanAmt := btcutil.Amount(1_000_000)
 
-	p := lntemp.OpenChannelParams{
+	p := lntest.OpenChannelParams{
 		Amt:     chanAmt,
 		PushAmt: chanAmt / 2,
 	}
@@ -508,7 +508,7 @@ func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
 	go acceptChannel(ht.T, zeroConf, acceptStream)
 
 	// Open a private channel, optionally specifying a channel-type.
-	params := lntemp.OpenChannelParams{
+	params := lntest.OpenChannelParams{
 		Amt:            chanAmt,
 		Private:        private,
 		CommitmentType: lnrpc.CommitmentType_ANCHORS,
@@ -541,7 +541,7 @@ func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
 		FeeRateMilliMsat: testFeeBase * feeRate,
 		TimeLockDelta:    timeLockDelta,
 		MinHtlc:          1000, // default value
-		MaxHtlcMsat:      lntemp.CalculateMaxHtlc(chanAmt),
+		MaxHtlcMsat:      lntest.CalculateMaxHtlc(chanAmt),
 	}
 
 	// Assert that Dave receives Carol's policy update.
@@ -567,7 +567,7 @@ func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
 		FeeRateMilliMsat: testFeeBase * feeRate,
 		TimeLockDelta:    timeLockDelta,
 		MinHtlc:          1000,
-		MaxHtlcMsat:      lntemp.CalculateMaxHtlc(chanAmt),
+		MaxHtlcMsat:      lntest.CalculateMaxHtlc(chanAmt),
 	}
 
 	// Assert that Carol receives Dave's policy update.
@@ -654,7 +654,7 @@ func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
 		FeeRateMilliMsat: testFeeBase * feeRate,
 		TimeLockDelta:    timeLockDelta,
 		MinHtlc:          1000,
-		MaxHtlcMsat:      lntemp.CalculateMaxHtlc(chanAmt),
+		MaxHtlcMsat:      lntest.CalculateMaxHtlc(chanAmt),
 	}
 
 	// Assert Dave receives Carol's policy update.
@@ -743,7 +743,7 @@ func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
 		FeeRateMilliMsat: testFeeBase * feeRate,
 		TimeLockDelta:    timeLockDelta,
 		MinHtlc:          1000,
-		MaxHtlcMsat:      lntemp.CalculateMaxHtlc(chanAmt),
+		MaxHtlcMsat:      lntest.CalculateMaxHtlc(chanAmt),
 	}
 
 	// Assert Dave and optionally Eve receives Carol's update.
@@ -763,7 +763,7 @@ func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
 
 // testOptionScidUpgrade tests that toggling the option-scid-alias feature bit
 // correctly upgrades existing channels.
-func testOptionScidUpgrade(ht *lntemp.HarnessTest) {
+func testOptionScidUpgrade(ht *lntest.HarnessTest) {
 	bob := ht.Bob
 
 	// Start carol with anchors only.
@@ -787,7 +787,7 @@ func testOptionScidUpgrade(ht *lntemp.HarnessTest) {
 
 	chanAmt := btcutil.Amount(1_000_000)
 
-	p := lntemp.OpenChannelParams{
+	p := lntest.OpenChannelParams{
 		Amt:     chanAmt,
 		PushAmt: chanAmt / 2,
 		Private: true,
@@ -797,7 +797,7 @@ func testOptionScidUpgrade(ht *lntemp.HarnessTest) {
 	// Bob will open a channel to Carol now.
 	ht.EnsureConnected(bob, carol)
 
-	p = lntemp.OpenChannelParams{
+	p = lntest.OpenChannelParams{
 		Amt: chanAmt,
 	}
 	fundingPoint2 := ht.OpenChannel(bob, carol, p)
@@ -891,7 +891,7 @@ func acceptChannel(t *testing.T, zeroConf bool, stream rpc.AcceptorClient) {
 // testZeroConfReorg tests that a reorg does not cause a zero-conf channel to
 // be deleted from the channel graph. This was previously the case due to logic
 // in the function DisconnectBlockAtHeight.
-func testZeroConfReorg(ht *lntemp.HarnessTest) {
+func testZeroConfReorg(ht *lntest.HarnessTest) {
 	if ht.IsNeutrinoBackend() {
 		ht.Skipf("skipping zero-conf reorg test for neutrino backend")
 	}
@@ -925,7 +925,7 @@ func testZeroConfReorg(ht *lntemp.HarnessTest) {
 	go acceptChannel(ht.T, true, acceptStream)
 
 	// Open a private zero-conf anchors channel of 1M satoshis.
-	params := lntemp.OpenChannelParams{
+	params := lntest.OpenChannelParams{
 		Amt:            btcutil.Amount(1_000_000),
 		CommitmentType: lnrpc.CommitmentType_ANCHORS,
 		ZeroConf:       true,
@@ -959,7 +959,7 @@ func testZeroConfReorg(ht *lntemp.HarnessTest) {
 	// First, we'll setup a new miner that we can use to cause a reorg.
 	tempLogDir := ".tempminerlogs"
 	logFilename := "output-open_channel_reorg-temp_miner.log"
-	tempMiner := lntemp.NewTempMiner(
+	tempMiner := lntest.NewTempMiner(
 		ht.Context(), ht.T, tempLogDir, logFilename,
 	)
 	defer tempMiner.Stop()

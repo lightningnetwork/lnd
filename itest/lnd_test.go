@@ -15,8 +15,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/grpclog"
@@ -90,11 +90,11 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	node.ApplyPortOffset(uint32(trancheIndex) * 1000)
 
 	// Create a simple fee service.
-	feeService := lntemp.NewFeeService(t)
+	feeService := lntest.NewFeeService(t)
 
 	// Get the binary path and setup the harness test.
 	binary := getLndBinary(t)
-	harnessTest := lntemp.SetupHarness(
+	harnessTest := lntest.SetupHarness(
 		t, binary, *dbBackendFlag, feeService,
 	)
 	defer harnessTest.Stop()
@@ -156,7 +156,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 // getTestCaseSplitTranche returns the sub slice of the test cases that should
 // be run as the current split tranche as well as the index and slice offset of
 // the tranche.
-func getTestCaseSplitTranche() ([]*lntemp.TestCase, uint, uint) {
+func getTestCaseSplitTranche() ([]*lntest.TestCase, uint, uint) {
 	numTranches := defaultSplitTranches
 	if testCasesSplitTranches != nil {
 		numTranches = *testCasesSplitTranches

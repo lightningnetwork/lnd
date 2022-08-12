@@ -10,13 +10,13 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
-func testListPayments(ht *lntemp.HarnessTest) {
+func testListPayments(ht *lntest.HarnessTest) {
 	alice, bob := ht.Alice, ht.Bob
 
 	// Check that there are no payments before test.
@@ -26,7 +26,7 @@ func testListPayments(ht *lntemp.HarnessTest) {
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
 	chanPoint := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Get the number of invoices Bob already has.
@@ -169,13 +169,13 @@ func testListPayments(ht *lntemp.HarnessTest) {
 // subsystems trying to update the channel state in the db. We follow this
 // transition with a payment that updates the commitment state and verify that
 // the pending state is up to date.
-func testPaymentFollowingChannelOpen(ht *lntemp.HarnessTest) {
+func testPaymentFollowingChannelOpen(ht *lntest.HarnessTest) {
 	const paymentAmt = btcutil.Amount(100)
 	channelCapacity := paymentAmt * 1000
 
 	// We first establish a channel between Alice and Bob.
 	alice, bob := ht.Alice, ht.Bob
-	p := lntemp.OpenChannelParams{
+	p := lntest.OpenChannelParams{
 		Amt: channelCapacity,
 	}
 	pendingUpdate := ht.OpenChannelAssertPending(alice, bob, p)
@@ -196,7 +196,7 @@ func testPaymentFollowingChannelOpen(ht *lntemp.HarnessTest) {
 	ht.MineBlocksAndAssertNumTxes(6, 1)
 
 	// We verify that the channel is open from both nodes point of view.
-	chanPoint := lntemp.ChanPointFromPendingUpdate(pendingUpdate)
+	chanPoint := lntest.ChanPointFromPendingUpdate(pendingUpdate)
 	ht.AssertNodesNumPendingOpenChannels(alice, bob, 0)
 	ht.AssertChannelExists(alice, chanPoint)
 	ht.AssertChannelExists(bob, chanPoint)
@@ -224,7 +224,7 @@ func testPaymentFollowingChannelOpen(ht *lntemp.HarnessTest) {
 }
 
 // testAsyncPayments tests the performance of the async payments.
-func testAsyncPayments(ht *lntemp.HarnessTest) {
+func testAsyncPayments(ht *lntest.HarnessTest) {
 	// We use new nodes here as the benchmark test creates lots of data
 	// which can be costly to be carried on.
 	alice := ht.NewNode("Alice", []string{"--pending-commit-interval=3m"})
@@ -237,7 +237,7 @@ func testAsyncPayments(ht *lntemp.HarnessTest) {
 }
 
 // runAsyncPayments tests the performance of the async payments.
-func runAsyncPayments(ht *lntemp.HarnessTest, alice, bob *node.HarnessNode) {
+func runAsyncPayments(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 	const paymentAmt = 100
 
 	// First establish a channel with a capacity equals to the overall
@@ -245,7 +245,7 @@ func runAsyncPayments(ht *lntemp.HarnessTest, alice, bob *node.HarnessNode) {
 	// Alice should send all money from her side to Bob.
 	channelCapacity := btcutil.Amount(paymentAmt * 2000)
 	chanPoint := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: channelCapacity},
+		alice, bob, lntest.OpenChannelParams{Amt: channelCapacity},
 	)
 
 	info := ht.QueryChannelByChanPoint(alice, chanPoint)
@@ -322,7 +322,7 @@ func runAsyncPayments(ht *lntemp.HarnessTest, alice, bob *node.HarnessNode) {
 
 // testBidirectionalAsyncPayments tests that nodes are able to send the
 // payments to each other in async manner without blocking.
-func testBidirectionalAsyncPayments(ht *lntemp.HarnessTest) {
+func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 	const paymentAmt = 1000
 
 	// We use new nodes here as the benchmark test creates lots of data
@@ -337,7 +337,7 @@ func testBidirectionalAsyncPayments(ht *lntemp.HarnessTest) {
 	// amount of payments, between Alice and Bob, at the end of the test
 	// Alice should send all money from her side to Bob.
 	chanPoint := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt:     paymentAmt * 2000,
 			PushAmt: paymentAmt * 1000,
 		},
@@ -419,7 +419,7 @@ func testBidirectionalAsyncPayments(ht *lntemp.HarnessTest) {
 	ht.CloseChannel(alice, chanPoint)
 }
 
-func testInvoiceSubscriptions(ht *lntemp.HarnessTest) {
+func testInvoiceSubscriptions(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(500000)
 
 	alice, bob := ht.Alice, ht.Bob
@@ -432,7 +432,7 @@ func testInvoiceSubscriptions(ht *lntemp.HarnessTest) {
 	// Open a channel with 500k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	chanPoint := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Next create a new invoice for Bob requesting 1k satoshis.
@@ -549,7 +549,7 @@ func testInvoiceSubscriptions(ht *lntemp.HarnessTest) {
 
 // assertChannelState asserts the channel state by checking the values in
 // fields, LocalBalance, RemoteBalance and num of PendingHtlcs.
-func assertChannelState(ht *lntemp.HarnessTest, hn *node.HarnessNode,
+func assertChannelState(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	cp *lnrpc.ChannelPoint, localBalance, remoteBalance int64) {
 
 	// Get the funding point.
@@ -576,6 +576,6 @@ func assertChannelState(ht *lntemp.HarnessTest, hn *node.HarnessNode,
 		}
 
 		return nil
-	}, lntemp.DefaultTimeout)
+	}, lntest.DefaultTimeout)
 	require.NoError(ht, err, "timeout while chekcing for balance")
 }

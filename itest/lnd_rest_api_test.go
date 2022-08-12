@@ -23,8 +23,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,7 +56,7 @@ var (
 
 // testRestAPI tests that the most important features of the REST API work
 // correctly.
-func testRestAPI(ht *lntemp.HarnessTest) {
+func testRestAPI(ht *lntest.HarnessTest) {
 	testCases := []struct {
 		name string
 		run  func(*testing.T, *node.HarnessNode, *node.HarnessNode)
@@ -201,7 +201,7 @@ func testRestAPI(ht *lntemp.HarnessTest) {
 	}}
 	wsTestCases := []struct {
 		name string
-		run  func(ht *lntemp.HarnessTest)
+		run  func(ht *lntest.HarnessTest)
 	}{{
 		name: "websocket subscription",
 		run:  wsTestCaseSubscription,
@@ -243,7 +243,7 @@ func testRestAPI(ht *lntemp.HarnessTest) {
 	}
 }
 
-func wsTestCaseSubscription(ht *lntemp.HarnessTest) {
+func wsTestCaseSubscription(ht *lntest.HarnessTest) {
 	// Find out the current best block so we can subscribe to the next one.
 	hash, height := ht.Miner.GetBestBlock()
 
@@ -317,7 +317,7 @@ func wsTestCaseSubscription(ht *lntemp.HarnessTest) {
 	}
 }
 
-func wsTestCaseSubscriptionMacaroon(ht *lntemp.HarnessTest) {
+func wsTestCaseSubscriptionMacaroon(ht *lntest.HarnessTest) {
 	// Find out the current best block so we can subscribe to the next one.
 	hash, height := ht.Miner.GetBestBlock()
 
@@ -407,7 +407,7 @@ func wsTestCaseSubscriptionMacaroon(ht *lntemp.HarnessTest) {
 	}
 }
 
-func wsTestCaseBiDirectionalSubscription(ht *lntemp.HarnessTest) {
+func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 	initialRequest := &lnrpc.ChannelAcceptResponse{}
 	url := "/v1/channels/acceptor"
 
@@ -530,7 +530,7 @@ func wsTestCaseBiDirectionalSubscription(ht *lntemp.HarnessTest) {
 	const numChannels = 3
 	for i := 0; i < numChannels; i++ {
 		chanPoint := ht.OpenChannel(
-			bob, alice, lntemp.OpenChannelParams{Amt: 500000},
+			bob, alice, lntest.OpenChannelParams{Amt: 500000},
 		)
 		defer ht.CloseChannel(bob, chanPoint)
 
@@ -545,7 +545,7 @@ func wsTestCaseBiDirectionalSubscription(ht *lntemp.HarnessTest) {
 	}
 }
 
-func wsTestPingPongTimeout(ht *lntemp.HarnessTest) {
+func wsTestPingPongTimeout(ht *lntest.HarnessTest) {
 	initialRequest := &lnrpc.InvoiceSubscription{
 		AddIndex: 1, SettleIndex: 1,
 	}

@@ -7,8 +7,8 @@ import (
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -16,7 +16,7 @@ import (
 
 // testChannelBalance creates a new channel between Alice and Bob, then checks
 // channel balance to be equal amount specified while creation of channel.
-func testChannelBalance(ht *lntemp.HarnessTest) {
+func testChannelBalance(ht *lntest.HarnessTest) {
 	// Open a channel with 0.16 BTC between Alice and Bob, ensuring the
 	// channel has been opened properly.
 	amount := funding.MaxBtcFundingAmount
@@ -52,16 +52,16 @@ func testChannelBalance(ht *lntemp.HarnessTest) {
 	ht.EnsureConnected(alice, bob)
 
 	chanPoint := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: amount},
+		alice, bob, lntest.OpenChannelParams{Amt: amount},
 	)
 	cType := ht.GetChannelCommitType(alice, chanPoint)
 
 	// As this is a single funder channel, Alice's balance should be
 	// exactly 0.5 BTC since now state transitions have taken place yet.
-	checkChannelBalance(alice, amount-lntemp.CalcStaticFee(cType, 0), 0)
+	checkChannelBalance(alice, amount-lntest.CalcStaticFee(cType, 0), 0)
 
 	// Ensure Bob currently has no available balance within the channel.
-	checkChannelBalance(bob, 0, amount-lntemp.CalcStaticFee(cType, 0))
+	checkChannelBalance(bob, 0, amount-lntest.CalcStaticFee(cType, 0))
 
 	// Finally close the channel between Alice and Bob, asserting that the
 	// channel has been properly closed on-chain.
@@ -73,7 +73,7 @@ func testChannelBalance(ht *lntemp.HarnessTest) {
 // Alice will send Htlcs to Carol while she is in hodl mode. This will result
 // in a build of pending Htlcs. We expect the channels unsettled balance to
 // equal the sum of all the Pending Htlcs.
-func testChannelUnsettledBalance(ht *lntemp.HarnessTest) {
+func testChannelUnsettledBalance(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(1000000)
 
 	// Creates a helper closure to be used below which asserts the proper
@@ -123,20 +123,20 @@ func testChannelUnsettledBalance(ht *lntemp.HarnessTest) {
 
 	// Open a channel between Alice and Carol.
 	chanPointAlice := ht.OpenChannel(
-		alice, carol, lntemp.OpenChannelParams{Amt: chanAmt},
+		alice, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 	cType := ht.GetChannelCommitType(alice, chanPointAlice)
 
 	// Check alice's channel balance, which should have zero remote and zero
 	// pending balance.
 	checkChannelBalance(
-		alice, chanAmt-lntemp.CalcStaticFee(cType, 0), 0, 0, 0,
+		alice, chanAmt-lntest.CalcStaticFee(cType, 0), 0, 0, 0,
 	)
 
 	// Check carol's channel balance, which should have zero local and zero
 	// pending balance.
 	checkChannelBalance(
-		carol, 0, chanAmt-lntemp.CalcStaticFee(cType, 0), 0, 0,
+		carol, 0, chanAmt-lntest.CalcStaticFee(cType, 0), 0, 0,
 	)
 
 	// Channel should be ready for payments.
@@ -199,7 +199,7 @@ func testChannelUnsettledBalance(ht *lntemp.HarnessTest) {
 	// Check alice's channel balance, which should have a remote unsettled
 	// balance that equals to the amount of invoices * payAmt. The remote
 	// balance remains zero.
-	fee := lntemp.CalcStaticFee(cType, 0)
+	fee := lntest.CalcStaticFee(cType, 0)
 	aliceLocal := chanAmt - fee - numInvoices*payAmt
 	checkChannelBalance(alice, aliceLocal, 0, 0, numInvoices*payAmt)
 

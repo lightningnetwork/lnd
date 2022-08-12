@@ -5,12 +5,12 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
 
-func testMultiHopPayments(ht *lntemp.HarnessTest) {
+func testMultiHopPayments(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
 	// As preliminary setup, we'll create two new nodes: Carol and Dave,
@@ -43,21 +43,21 @@ func testMultiHopPayments(ht *lntemp.HarnessTest) {
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	chanPointAlice := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// We'll create Dave and establish a channel to Alice. Dave will be
 	// running an older node that requires the legacy onion payload.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
 	chanPointDave := ht.OpenChannel(
-		dave, alice, lntemp.OpenChannelParams{Amt: chanAmt},
+		dave, alice, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Next, we'll create Carol and establish a channel to from her to
 	// Dave.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 	chanPointCarol := ht.OpenChannel(
-		carol, dave, lntemp.OpenChannelParams{Amt: chanAmt},
+		carol, dave, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Create 5 invoices for Bob, which expect a payment from Carol for 1k
@@ -69,7 +69,7 @@ func testMultiHopPayments(ht *lntemp.HarnessTest) {
 	// Set the fee policies of the Alice -> Bob and the Dave -> Alice
 	// channel edges to relatively large non default values. This makes it
 	// possible to pick up more subtle fee calculation errors.
-	maxHtlc := lntemp.CalculateMaxHtlc(chanAmt)
+	maxHtlc := lntest.CalculateMaxHtlc(chanAmt)
 	const aliceBaseFeeSat = 1
 	const aliceFeeRatePPM = 100000
 	updateChannelPolicy(
@@ -222,7 +222,7 @@ func testMultiHopPayments(ht *lntemp.HarnessTest) {
 // policy update.
 //
 // NOTE: only used in current test.
-func updateChannelPolicy(ht *lntemp.HarnessTest, hn *node.HarnessNode,
+func updateChannelPolicy(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	chanPoint *lnrpc.ChannelPoint, baseFee int64,
 	feeRate int64, timeLockDelta uint32,
 	maxHtlc uint64, listenerNode *node.HarnessNode) {

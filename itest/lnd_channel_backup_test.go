@@ -18,8 +18,8 @@ import (
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +34,7 @@ type (
 	// that'll return the same node, but with its state restored via a
 	// custom method. We use this to abstract away _how_ a node is restored
 	// from our assertions once the node has been fully restored itself.
-	restoreMethodType func(ht *lntemp.HarnessTest,
+	restoreMethodType func(ht *lntest.HarnessTest,
 		oldNode *node.HarnessNode, backupFilePath string,
 		password []byte, mnemonic []string) nodeRestorer
 )
@@ -50,12 +50,12 @@ type chanRestoreScenario struct {
 	dave     *node.HarnessNode
 	password []byte
 	mnemonic []string
-	params   lntemp.OpenChannelParams
+	params   lntest.OpenChannelParams
 }
 
 // newChanRestoreScenario creates a new scenario that has two nodes, Carol and
 // Dave, connected and funded.
-func newChanRestoreScenario(ht *lntemp.HarnessTest, ct lnrpc.CommitmentType,
+func newChanRestoreScenario(ht *lntest.HarnessTest, ct lnrpc.CommitmentType,
 	zeroConf bool) *chanRestoreScenario {
 
 	const (
@@ -70,7 +70,7 @@ func newChanRestoreScenario(ht *lntemp.HarnessTest, ct lnrpc.CommitmentType,
 	}
 
 	if ct != lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE {
-		args := lntemp.NodeArgsForCommitType(ct)
+		args := lntest.NodeArgsForCommitType(ct)
 		nodeArgs = append(nodeArgs, args...)
 	}
 
@@ -99,7 +99,7 @@ func newChanRestoreScenario(ht *lntemp.HarnessTest, ct lnrpc.CommitmentType,
 
 	// For the anchor output case we need two UTXOs for Carol so she can
 	// sweep both the local and remote anchor.
-	if lntemp.CommitTypeHasAnchors(ct) {
+	if lntest.CommitTypeHasAnchors(ct) {
 		ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 	}
 
@@ -112,7 +112,7 @@ func newChanRestoreScenario(ht *lntemp.HarnessTest, ct lnrpc.CommitmentType,
 		dave:     dave,
 		mnemonic: mnemonic,
 		password: password,
-		params: lntemp.OpenChannelParams{
+		params: lntest.OpenChannelParams{
 			Amt:            chanAmt,
 			PushAmt:        pushAmt,
 			ZeroConf:       zeroConf,
@@ -123,7 +123,7 @@ func newChanRestoreScenario(ht *lntemp.HarnessTest, ct lnrpc.CommitmentType,
 
 // restoreDave will call the `nodeRestorer` and asserts Dave is restored by
 // checking his wallet balance against zero.
-func (c *chanRestoreScenario) restoreDave(ht *lntemp.HarnessTest,
+func (c *chanRestoreScenario) restoreDave(ht *lntest.HarnessTest,
 	restoredNodeFunc nodeRestorer) *node.HarnessNode {
 
 	// Next, we'll make a new Dave and start the bulk of our recovery
@@ -154,7 +154,7 @@ func (c *chanRestoreScenario) restoreDave(ht *lntemp.HarnessTest,
 //  4. validate pending channel state and check we cannot force close it.
 //  5. validate Carol's UTXOs.
 //  6. assert DLP is executed.
-func (c *chanRestoreScenario) testScenario(ht *lntemp.HarnessTest,
+func (c *chanRestoreScenario) testScenario(ht *lntest.HarnessTest,
 	restoredNodeFunc nodeRestorer) {
 
 	carol, dave := c.carol, c.dave
@@ -212,7 +212,7 @@ func (c *chanRestoreScenario) testScenario(ht *lntemp.HarnessTest,
 	// let's start up Carol again.
 	require.NoError(ht, restartCarol(), "restart carol failed")
 
-	if lntemp.CommitTypeHasAnchors(c.params.CommitmentType) {
+	if lntest.CommitTypeHasAnchors(c.params.CommitmentType) {
 		ht.AssertNumUTXOs(carol, 2)
 	} else {
 		ht.AssertNumUTXOs(carol, 1)
@@ -232,7 +232,7 @@ func (c *chanRestoreScenario) testScenario(ht *lntemp.HarnessTest,
 // restoring from initial wallet creation. We'll also alternate between
 // restoring form the on disk file, and restoring from the exported RPC command
 // as well.
-func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
+func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 	var testCases = []struct {
 		name          string
 		restoreMethod restoreMethodType
@@ -241,7 +241,7 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 		// was the initiator, of the non-advertised channel.
 		{
 			name: "restore from RPC backup",
-			restoreMethod: func(st *lntemp.HarnessTest,
+			restoreMethod: func(st *lntest.HarnessTest,
 				oldNode *node.HarnessNode,
 				backupFilePath string,
 				password []byte,
@@ -269,7 +269,7 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 		// interface.
 		{
 			name: "restore from backup file",
-			restoreMethod: func(st *lntemp.HarnessTest,
+			restoreMethod: func(st *lntest.HarnessTest,
 				oldNode *node.HarnessNode,
 				backupFilePath string,
 				password []byte,
@@ -293,7 +293,7 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 		// prior mnemonic and new backup seed.
 		{
 			name: "restore during creation",
-			restoreMethod: func(st *lntemp.HarnessTest,
+			restoreMethod: func(st *lntest.HarnessTest,
 				oldNode *node.HarnessNode,
 				backupFilePath string,
 				password []byte,
@@ -325,7 +325,7 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 		// re-created, using the Unlock call.
 		{
 			name: "restore during unlock",
-			restoreMethod: func(st *lntemp.HarnessTest,
+			restoreMethod: func(st *lntest.HarnessTest,
 				oldNode *node.HarnessNode,
 				backupFilePath string,
 				password []byte,
@@ -362,7 +362,7 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 		// make sure imports can be canceled and later resumed.
 		{
 			name: "restore from backup file twice",
-			restoreMethod: func(st *lntemp.HarnessTest,
+			restoreMethod: func(st *lntest.HarnessTest,
 				oldNode *node.HarnessNode,
 				backupFilePath string,
 				password []byte,
@@ -420,7 +420,7 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 // ensuring that after Dave restores his channel state according to the
 // testCase, the DLP protocol is executed properly and both nodes are made
 // whole.
-func runChanRestoreScenarioBasic(ht *lntemp.HarnessTest,
+func runChanRestoreScenarioBasic(ht *lntest.HarnessTest,
 	restoreMethod restoreMethodType) {
 
 	// Create a new retore scenario.
@@ -445,7 +445,7 @@ func runChanRestoreScenarioBasic(ht *lntemp.HarnessTest,
 
 // testChannelBackupRestoreUnconfirmed tests that we're able to restore from
 // disk file and the exported RPC command for unconfirmed channel.
-func testChannelBackupRestoreUnconfirmed(ht *lntemp.HarnessTest) {
+func testChannelBackupRestoreUnconfirmed(ht *lntest.HarnessTest) {
 	// Use the channel backup file that contains an unconfirmed channel and
 	// make sure recovery works as well.
 	ht.Run("restore unconfirmed channel file", func(t *testing.T) {
@@ -463,7 +463,7 @@ func testChannelBackupRestoreUnconfirmed(ht *lntemp.HarnessTest) {
 
 // runChanRestoreScenarioUnConfirmed checks that Dave is able to restore for an
 // unconfirmed channel.
-func runChanRestoreScenarioUnConfirmed(ht *lntemp.HarnessTest, useFile bool) {
+func runChanRestoreScenarioUnConfirmed(ht *lntest.HarnessTest, useFile bool) {
 	// Create a new retore scenario.
 	crs := newChanRestoreScenario(
 		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
@@ -527,7 +527,7 @@ func runChanRestoreScenarioUnConfirmed(ht *lntemp.HarnessTest, useFile bool) {
 // testChannelBackupRestoreCommitTypes tests that we're able to recover from,
 // and initiate the DLP protocol for different channel commitment types and
 // zero-conf channel.
-func testChannelBackupRestoreCommitTypes(ht *lntemp.HarnessTest) {
+func testChannelBackupRestoreCommitTypes(ht *lntest.HarnessTest) {
 	var testCases = []struct {
 		name     string
 		ct       lnrpc.CommitmentType
@@ -584,7 +584,7 @@ func testChannelBackupRestoreCommitTypes(ht *lntemp.HarnessTest) {
 
 // runChanRestoreScenarioCommitTypes tests that the DLP is applied for
 // different channel commitment types and zero-conf channel.
-func runChanRestoreScenarioCommitTypes(ht *lntemp.HarnessTest,
+func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 	ct lnrpc.CommitmentType, zeroConf bool) {
 
 	// Create a new retore scenario.
@@ -639,7 +639,7 @@ func runChanRestoreScenarioCommitTypes(ht *lntemp.HarnessTest,
 
 // testChannelBackupRestoreLegacy checks a channel with the legacy revocation
 // producer format and makes sure old SCBs can still be recovered.
-func testChannelBackupRestoreLegacy(ht *lntemp.HarnessTest) {
+func testChannelBackupRestoreLegacy(ht *lntest.HarnessTest) {
 	// Create a new retore scenario.
 	crs := newChanRestoreScenario(
 		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
@@ -668,7 +668,7 @@ func testChannelBackupRestoreLegacy(ht *lntemp.HarnessTest) {
 
 // testChannelBackupRestoreForceClose checks that Dave can restore from force
 // closed channels.
-func testChannelBackupRestoreForceClose(ht *lntemp.HarnessTest) {
+func testChannelBackupRestoreForceClose(ht *lntest.HarnessTest) {
 	// Restore a channel that was force closed by dave just before going
 	// offline.
 	success := ht.Run("from backup file anchors", func(t *testing.T) {
@@ -691,7 +691,7 @@ func testChannelBackupRestoreForceClose(ht *lntemp.HarnessTest) {
 
 // runChanRestoreScenarioForceClose creates anchor-enabled force close channels
 // and checks that Dave is able to restore from them.
-func runChanRestoreScenarioForceClose(ht *lntemp.HarnessTest, zeroConf bool) {
+func runChanRestoreScenarioForceClose(ht *lntest.HarnessTest, zeroConf bool) {
 	crs := newChanRestoreScenario(
 		ht, lnrpc.CommitmentType_ANCHORS, zeroConf,
 	)
@@ -792,7 +792,7 @@ func runChanRestoreScenarioForceClose(ht *lntemp.HarnessTest, zeroConf bool) {
 // testChannelBackupUpdates tests that both the streaming channel update RPC,
 // and the on-disk channel.backup are updated each time a channel is
 // opened/closed.
-func testChannelBackupUpdates(ht *lntemp.HarnessTest) {
+func testChannelBackupUpdates(ht *lntest.HarnessTest) {
 	alice := ht.Alice
 
 	// First, we'll make a temp directory that we'll use to store our
@@ -850,7 +850,7 @@ func testChannelBackupUpdates(ht *lntemp.HarnessTest) {
 	chanAmt := btcutil.Amount(1000000)
 	for i := 0; i < numChans; i++ {
 		chanPoint := ht.OpenChannel(
-			alice, carol, lntemp.OpenChannelParams{Amt: chanAmt},
+			alice, carol, lntest.OpenChannelParams{Amt: chanAmt},
 		)
 		chanPoints = append(chanPoints, chanPoint)
 	}
@@ -962,7 +962,7 @@ func testChannelBackupUpdates(ht *lntemp.HarnessTest) {
 // testExportChannelBackup tests that we're able to properly export either a
 // targeted channel's backup, or export backups of all the currents open
 // channels.
-func testExportChannelBackup(ht *lntemp.HarnessTest) {
+func testExportChannelBackup(ht *lntest.HarnessTest) {
 	// First, we'll create our primary test node: Carol. We'll use Carol to
 	// open channels and also export backups that we'll examine throughout
 	// the test.
@@ -979,7 +979,7 @@ func testExportChannelBackup(ht *lntemp.HarnessTest) {
 	chanAmt := btcutil.Amount(1000000)
 	for i := 0; i < numChans; i++ {
 		chanPoint := ht.OpenChannel(
-			alice, carol, lntemp.OpenChannelParams{Amt: chanAmt},
+			alice, carol, lntest.OpenChannelParams{Amt: chanAmt},
 		)
 		chanPoints = append(chanPoints, chanPoint)
 	}
@@ -1086,7 +1086,7 @@ func testExportChannelBackup(ht *lntemp.HarnessTest) {
 // relationship lost state, they will detect this during channel sync, and the
 // up-to-date party will force close the channel, giving the outdated party the
 // opportunity to sweep its output.
-func testDataLossProtection(ht *lntemp.HarnessTest) {
+func testDataLossProtection(ht *lntest.HarnessTest) {
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
 		paymentAmt  = 10000
@@ -1122,7 +1122,7 @@ func testDataLossProtection(ht *lntemp.HarnessTest) {
 		// We'll first open up a channel between them with a 0.5 BTC
 		// value.
 		chanPoint := ht.OpenChannel(
-			carol, node, lntemp.OpenChannelParams{
+			carol, node, lntest.OpenChannelParams{
 				Amt: chanAmt,
 			},
 		)
@@ -1255,7 +1255,7 @@ func testDataLossProtection(ht *lntemp.HarnessTest) {
 // createLegacyRevocationChannel creates a single channel using the legacy
 // revocation producer format by using PSBT to signal a special pending channel
 // ID.
-func createLegacyRevocationChannel(ht *lntemp.HarnessTest,
+func createLegacyRevocationChannel(ht *lntest.HarnessTest,
 	chanAmt, pushAmt btcutil.Amount, from, to *node.HarnessNode) {
 
 	// We'll signal to the wallet that we also want to create a channel
@@ -1277,7 +1277,7 @@ func createLegacyRevocationChannel(ht *lntemp.HarnessTest,
 			},
 		},
 	}
-	openChannelReq := lntemp.OpenChannelParams{
+	openChannelReq := lntest.OpenChannelParams{
 		Amt:         chanAmt,
 		PushAmt:     pushAmt,
 		FundingShim: shim,
@@ -1345,7 +1345,7 @@ func createLegacyRevocationChannel(ht *lntemp.HarnessTest,
 // chanRestoreViaRPC is a helper test method that returns a nodeRestorer
 // instance which will restore the target node from a password+seed, then
 // trigger a SCB restore using the RPC interface.
-func chanRestoreViaRPC(ht *lntemp.HarnessTest, password []byte,
+func chanRestoreViaRPC(ht *lntest.HarnessTest, password []byte,
 	mnemonic []string, multi []byte,
 	oldNode *node.HarnessNode) nodeRestorer {
 
@@ -1382,7 +1382,7 @@ func copyPorts(oldNode *node.HarnessNode) node.Option {
 //
 // Note: this function is only used in this test file and has been made
 // specifically for testChanRestoreScenario.
-func assertTimeLockSwept(ht *lntemp.HarnessTest, carol, dave *node.HarnessNode,
+func assertTimeLockSwept(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	carolStartingBalance, daveStartingBalance int64) {
 
 	// We expect Carol to sweep her funds and also the anchor tx.
@@ -1450,7 +1450,7 @@ func assertTimeLockSwept(ht *lntemp.HarnessTest, carol, dave *node.HarnessNode,
 // funds immediately, and Carol sweeping her fund after her CSV delay is up. If
 // the blankSlate value is true, then this means that Dave won't need to sweep
 // on chain as he has no funds in the channel.
-func assertDLPExecuted(ht *lntemp.HarnessTest,
+func assertDLPExecuted(ht *lntest.HarnessTest,
 	carol *node.HarnessNode, carolStartingBalance int64,
 	dave *node.HarnessNode, daveStartingBalance int64,
 	commitType lnrpc.CommitmentType) {
@@ -1467,7 +1467,7 @@ func assertDLPExecuted(ht *lntemp.HarnessTest,
 	// Upon reconnection, the nodes should detect that Dave is out of sync.
 	// Carol should force close the channel using her latest commitment.
 	expectedTxes := 1
-	if lntemp.CommitTypeHasAnchors(commitType) {
+	if lntest.CommitTypeHasAnchors(commitType) {
 		expectedTxes = 2
 	}
 	ht.Miner.AssertNumTxsInMempool(expectedTxes)

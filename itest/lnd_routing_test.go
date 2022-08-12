@@ -10,8 +10,8 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -65,7 +65,7 @@ var singleHopSendToRouteCases = []singleHopSendToRouteCase{
 // by feeding the route back into the various SendToRoute RPC methods. Here we
 // test all three SendToRoute endpoints, forcing each to perform both a regular
 // payment and an MPP payment.
-func testSingleHopSendToRoute(ht *lntemp.HarnessTest) {
+func testSingleHopSendToRoute(ht *lntest.HarnessTest) {
 	for _, test := range singleHopSendToRouteCases {
 		test := test
 
@@ -76,7 +76,7 @@ func testSingleHopSendToRoute(ht *lntemp.HarnessTest) {
 	}
 }
 
-func testSingleHopSendToRouteCase(ht *lntemp.HarnessTest,
+func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
 	test singleHopSendToRouteCase) {
 
 	const chanAmt = btcutil.Amount(100000)
@@ -97,7 +97,7 @@ func testSingleHopSendToRouteCase(ht *lntemp.HarnessTest,
 	// Open a channel with 100k satoshis between Carol and Dave with Carol
 	// being the sole funder of the channel.
 	chanPointCarol := ht.OpenChannel(
-		carol, dave, lntemp.OpenChannelParams{Amt: chanAmt},
+		carol, dave, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 	defer ht.CloseChannel(carol, chanPointCarol)
 
@@ -289,7 +289,7 @@ func testSingleHopSendToRouteCase(ht *lntemp.HarnessTest,
 //
 // We'll query the daemon for routes from Alice to Carol and then
 // send payments through the routes.
-func testMultiHopSendToRoute(ht *lntemp.HarnessTest) {
+func testMultiHopSendToRoute(ht *lntest.HarnessTest) {
 	ht.Run("with cache", func(tt *testing.T) {
 		st := ht.Subtest(tt)
 		runMultiHopSendToRoute(st, true)
@@ -309,7 +309,7 @@ func testMultiHopSendToRoute(ht *lntemp.HarnessTest) {
 //
 // We'll query the daemon for routes from Alice to Carol and then
 // send payments through the routes.
-func runMultiHopSendToRoute(ht *lntemp.HarnessTest, useGraphCache bool) {
+func runMultiHopSendToRoute(ht *lntest.HarnessTest, useGraphCache bool) {
 	var opts []string
 	if !useGraphCache {
 		opts = append(opts, "--db.no-graph-cache")
@@ -325,7 +325,7 @@ func runMultiHopSendToRoute(ht *lntemp.HarnessTest, useGraphCache bool) {
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	chanPointAlice := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 	defer ht.CloseChannel(alice, chanPointAlice)
 
@@ -337,7 +337,7 @@ func runMultiHopSendToRoute(ht *lntemp.HarnessTest, useGraphCache bool) {
 	ht.ConnectNodes(carol, bob)
 
 	chanPointBob := ht.OpenChannel(
-		bob, carol, lntemp.OpenChannelParams{Amt: chanAmt},
+		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 	defer ht.CloseChannel(carol, chanPointBob)
 
@@ -407,14 +407,14 @@ func runMultiHopSendToRoute(ht *lntemp.HarnessTest, useGraphCache bool) {
 
 // testSendToRouteErrorPropagation tests propagation of errors that occur
 // while processing a multi-hop payment through an unknown route.
-func testSendToRouteErrorPropagation(ht *lntemp.HarnessTest) {
+func testSendToRouteErrorPropagation(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	alice, bob := ht.Alice, ht.Bob
 	chanPointAlice := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Create a new nodes (Carol and Charlie), load her with some funds,
@@ -432,7 +432,7 @@ func testSendToRouteErrorPropagation(ht *lntemp.HarnessTest) {
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, charlie)
 
 	ht.ConnectNodes(carol, charlie)
-	ht.OpenChannel(carol, charlie, lntemp.OpenChannelParams{Amt: chanAmt})
+	ht.OpenChannel(carol, charlie, lntest.OpenChannelParams{Amt: chanAmt})
 
 	// Query routes from Carol to Charlie which will be an invalid route
 	// for Alice -> Bob.
@@ -476,7 +476,7 @@ func testSendToRouteErrorPropagation(ht *lntemp.HarnessTest) {
 // testPrivateChannels tests that a private channel can be used for
 // routing by the two endpoints of the channel, but is not known by
 // the rest of the nodes in the graph.
-func testPrivateChannels(ht *lntemp.HarnessTest) {
+func testPrivateChannels(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
 	// We create the following topology:
@@ -493,7 +493,7 @@ func testPrivateChannels(ht *lntemp.HarnessTest) {
 	// Open a channel with 200k satoshis between Alice and Bob.
 	alice, bob := ht.Alice, ht.Bob
 	chanPointAlice := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt * 2},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt * 2},
 	)
 
 	// Create Dave, and a channel to Alice of 100k.
@@ -502,7 +502,7 @@ func testPrivateChannels(ht *lntemp.HarnessTest) {
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
 
 	chanPointDave := ht.OpenChannel(
-		dave, alice, lntemp.OpenChannelParams{Amt: chanAmt},
+		dave, alice, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Next, we'll create Carol and establish a channel from her to
@@ -512,14 +512,14 @@ func testPrivateChannels(ht *lntemp.HarnessTest) {
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	chanPointCarol := ht.OpenChannel(
-		carol, dave, lntemp.OpenChannelParams{Amt: chanAmt},
+		carol, dave, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Now create a _private_ channel directly between Carol and
 	// Alice of 100k.
 	ht.ConnectNodes(carol, alice)
 	chanPointPrivate := ht.OpenChannel(
-		carol, alice, lntemp.OpenChannelParams{
+		carol, alice, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			Private: true,
 		},
@@ -602,7 +602,7 @@ func testPrivateChannels(ht *lntemp.HarnessTest) {
 
 // testInvoiceRoutingHints tests that the routing hints for an invoice are
 // created properly.
-func testInvoiceRoutingHints(ht *lntemp.HarnessTest) {
+func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
 	// Throughout this test, we'll be opening a channel between Alice and
@@ -615,7 +615,7 @@ func testInvoiceRoutingHints(ht *lntemp.HarnessTest) {
 	// invoice's payment.
 	alice, bob := ht.Alice, ht.Bob
 	chanPointBob := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: chanAmt / 2,
 			Private: true,
@@ -629,7 +629,7 @@ func testInvoiceRoutingHints(ht *lntemp.HarnessTest) {
 
 	ht.ConnectNodes(alice, carol)
 	chanPointCarol := ht.OpenChannel(
-		alice, carol, lntemp.OpenChannelParams{
+		alice, carol, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: chanAmt / 2,
 		},
@@ -642,7 +642,7 @@ func testInvoiceRoutingHints(ht *lntemp.HarnessTest) {
 	// that wish to stay unadvertised.
 	ht.ConnectNodes(bob, carol)
 	chanPointBobCarol := ht.OpenChannel(
-		bob, carol, lntemp.OpenChannelParams{
+		bob, carol, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: chanAmt / 2,
 		},
@@ -656,7 +656,7 @@ func testInvoiceRoutingHints(ht *lntemp.HarnessTest) {
 
 	ht.ConnectNodes(alice, dave)
 	chanPointDave := ht.OpenChannel(
-		alice, dave, lntemp.OpenChannelParams{
+		alice, dave, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			Private: true,
 		},
@@ -669,7 +669,7 @@ func testInvoiceRoutingHints(ht *lntemp.HarnessTest) {
 	eve := ht.NewNode("Eve", nil)
 	ht.ConnectNodes(alice, eve)
 	chanPointEve := ht.OpenChannel(
-		alice, eve, lntemp.OpenChannelParams{
+		alice, eve, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: chanAmt / 2,
 			Private: true,
@@ -744,7 +744,7 @@ func testInvoiceRoutingHints(ht *lntemp.HarnessTest) {
 
 // testMultiHopOverPrivateChannels tests that private channels can be used as
 // intermediate hops in a route for payments.
-func testMultiHopOverPrivateChannels(ht *lntemp.HarnessTest) {
+func testMultiHopOverPrivateChannels(ht *lntest.HarnessTest) {
 	// We'll test that multi-hop payments over private channels work as
 	// intended. To do so, we'll create the following topology:
 	//         private        public           private
@@ -755,7 +755,7 @@ func testMultiHopOverPrivateChannels(ht *lntemp.HarnessTest) {
 	// being the funder.
 	alice, bob := ht.Alice, ht.Bob
 	chanPointAlice := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			Private: true,
 		},
@@ -766,7 +766,7 @@ func testMultiHopOverPrivateChannels(ht *lntemp.HarnessTest) {
 	carol := ht.NewNode("Carol", nil)
 	ht.ConnectNodes(bob, carol)
 	chanPointBob := ht.OpenChannel(
-		bob, carol, lntemp.OpenChannelParams{
+		bob, carol, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -781,7 +781,7 @@ func testMultiHopOverPrivateChannels(ht *lntemp.HarnessTest) {
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	chanPointCarol := ht.OpenChannel(
-		carol, dave, lntemp.OpenChannelParams{
+		carol, dave, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			Private: true,
 		},
@@ -851,7 +851,7 @@ func testMultiHopOverPrivateChannels(ht *lntemp.HarnessTest) {
 //	Alice --> Bob --> Carol --> Dave
 //
 // and query the daemon for routes from Alice to Dave.
-func testQueryRoutes(ht *lntemp.HarnessTest) {
+func testQueryRoutes(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
 	// Grab Alice and Bob from the standby nodes.
@@ -869,8 +869,8 @@ func testQueryRoutes(ht *lntemp.HarnessTest) {
 
 	// We now proceed to open channels:
 	//   Alice=>Bob, Bob=>Carol and Carol=>Dave.
-	p := lntemp.OpenChannelParams{Amt: chanAmt}
-	reqs := []*lntemp.OpenChannelRequest{
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
 		{Local: alice, Remote: bob, Param: p},
 		{Local: bob, Remote: carol, Param: p},
 		{Local: carol, Remote: dave, Param: p},
@@ -1086,7 +1086,7 @@ func testMissionControlCfg(t *testing.T, hn *node.HarnessNode) {
 
 // testMissionControlImport tests import of mission control results from an
 // external source.
-func testMissionControlImport(ht *lntemp.HarnessTest, hn *node.HarnessNode,
+func testMissionControlImport(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	fromNode, toNode []byte) {
 
 	// Reset mission control so that our query will return the default
@@ -1138,7 +1138,7 @@ func testMissionControlImport(ht *lntemp.HarnessTest, hn *node.HarnessNode,
 
 // testRouteFeeCutoff tests that we are able to prevent querying routes and
 // sending payments that incur a fee higher than the fee limit.
-func testRouteFeeCutoff(ht *lntemp.HarnessTest) {
+func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 	// For this test, we'll create the following topology:
 	//
 	//              --- Bob ---
@@ -1155,7 +1155,7 @@ func testRouteFeeCutoff(ht *lntemp.HarnessTest) {
 	// Open a channel between Alice and Bob.
 	alice, bob := ht.Alice, ht.Bob
 	chanPointAliceBob := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Create Carol's node and open a channel between her and Alice with
@@ -1165,7 +1165,7 @@ func testRouteFeeCutoff(ht *lntemp.HarnessTest) {
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	chanPointAliceCarol := ht.OpenChannel(
-		alice, carol, lntemp.OpenChannelParams{Amt: chanAmt},
+		alice, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Create Dave's node and open a channel between him and Bob with Bob
@@ -1173,13 +1173,13 @@ func testRouteFeeCutoff(ht *lntemp.HarnessTest) {
 	dave := ht.NewNode("Dave", nil)
 	ht.ConnectNodes(dave, bob)
 	chanPointBobDave := ht.OpenChannel(
-		bob, dave, lntemp.OpenChannelParams{Amt: chanAmt},
+		bob, dave, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Open a channel between Carol and Dave.
 	ht.ConnectNodes(carol, dave)
 	chanPointCarolDave := ht.OpenChannel(
-		carol, dave, lntemp.OpenChannelParams{Amt: chanAmt},
+		carol, dave, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Now that all the channels were set up, we'll wait for all the nodes
@@ -1203,7 +1203,7 @@ func testRouteFeeCutoff(ht *lntemp.HarnessTest) {
 	baseFee := int64(10000)
 	feeRate := int64(5)
 	timeLockDelta := uint32(chainreg.DefaultBitcoinTimeLockDelta)
-	maxHtlc := lntemp.CalculateMaxHtlc(chanAmt)
+	maxHtlc := lntest.CalculateMaxHtlc(chanAmt)
 
 	expectedPolicy := &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      baseFee,

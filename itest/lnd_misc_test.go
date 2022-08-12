@@ -15,8 +15,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -28,7 +28,7 @@ import (
 // disconnect at any point.
 //
 // TODO(yy): move to lnd_network_test.
-func testDisconnectingTargetPeer(ht *lntemp.HarnessTest) {
+func testDisconnectingTargetPeer(ht *lntest.HarnessTest) {
 	// We'll start both nodes with a high backoff so that they don't
 	// reconnect automatically during our test.
 	args := []string{
@@ -49,7 +49,7 @@ func testDisconnectingTargetPeer(ht *lntemp.HarnessTest) {
 	// Create a new channel that requires 1 confs before it's considered
 	// open, then broadcast the funding transaction
 	const numConfs = 1
-	p := lntemp.OpenChannelParams{
+	p := lntest.OpenChannelParams{
 		Amt:     chanAmt,
 		PushAmt: pushAmt,
 	}
@@ -119,7 +119,7 @@ func testDisconnectingTargetPeer(ht *lntemp.HarnessTest) {
 // configuration arguments to force Carol to replay the same sphinx packet
 // after reconnecting to Dave, and compare the returned failure message with
 // what we expect for replayed onion packets.
-func testSphinxReplayPersistence(ht *lntemp.HarnessTest) {
+func testSphinxReplayPersistence(ht *lntest.HarnessTest) {
 	// Open a channel with 100k satoshis between Carol and Dave with Carol
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
@@ -135,7 +135,7 @@ func testSphinxReplayPersistence(ht *lntemp.HarnessTest) {
 
 	ht.ConnectNodes(carol, dave)
 	chanPoint := ht.OpenChannel(
-		carol, dave, lntemp.OpenChannelParams{
+		carol, dave, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -150,7 +150,7 @@ func testSphinxReplayPersistence(ht *lntemp.HarnessTest) {
 
 	ht.ConnectNodes(fred, carol)
 	chanPointFC := ht.OpenChannel(
-		fred, carol, lntemp.OpenChannelParams{
+		fred, carol, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -232,7 +232,7 @@ func testSphinxReplayPersistence(ht *lntemp.HarnessTest) {
 // tests the values in all ChannelConstraints are returned as expected. Once
 // ListChannels becomes mature, a test against all fields in ListChannels
 // should be performed.
-func testListChannels(ht *lntemp.HarnessTest) {
+func testListChannels(ht *lntest.HarnessTest) {
 	const aliceRemoteMaxHtlcs = 50
 	const bobRemoteMaxHtlcs = 100
 
@@ -255,7 +255,7 @@ func testListChannels(ht *lntemp.HarnessTest) {
 
 	chanAmt := btcutil.Amount(100000)
 	pushAmt := btcutil.Amount(1000)
-	p := lntemp.OpenChannelParams{
+	p := lntest.OpenChannelParams{
 		Amt:            chanAmt,
 		PushAmt:        pushAmt,
 		MinHtlc:        customizedMinHtlc,
@@ -337,7 +337,7 @@ func testListChannels(ht *lntemp.HarnessTest) {
 // testMaxPendingChannels checks that error is returned from remote peer if
 // max pending channel number was exceeded and that '--maxpendingchannels' flag
 // exists and works properly.
-func testMaxPendingChannels(ht *lntemp.HarnessTest) {
+func testMaxPendingChannels(ht *lntest.HarnessTest) {
 	maxPendingChannels := lncfg.DefaultMaxPendingChannels + 1
 	amount := funding.MaxBtcFundingAmount
 
@@ -362,7 +362,7 @@ func testMaxPendingChannels(ht *lntemp.HarnessTest) {
 	)
 	for i := 0; i < maxPendingChannels; i++ {
 		stream := ht.OpenChannelAssertStream(
-			alice, carol, lntemp.OpenChannelParams{
+			alice, carol, lntest.OpenChannelParams{
 				Amt: amount,
 			},
 		)
@@ -372,7 +372,7 @@ func testMaxPendingChannels(ht *lntemp.HarnessTest) {
 	// Carol exhausted available amount of pending channels, next open
 	// channel request should cause ErrorGeneric to be sent back to Alice.
 	ht.OpenChannelAssertErr(
-		alice, carol, lntemp.OpenChannelParams{
+		alice, carol, lntest.OpenChannelParams{
 			Amt: amount,
 		}, lnwire.ErrMaxPendingChannels,
 	)
@@ -415,7 +415,7 @@ func testMaxPendingChannels(ht *lntemp.HarnessTest) {
 // testGarbageCollectLinkNodes tests that we properly garbage collect link
 // nodes from the database and the set of persistent connections within the
 // server.
-func testGarbageCollectLinkNodes(ht *lntemp.HarnessTest) {
+func testGarbageCollectLinkNodes(ht *lntest.HarnessTest) {
 	const chanAmt = 1000000
 
 	alice, bob := ht.Alice, ht.Bob
@@ -423,7 +423,7 @@ func testGarbageCollectLinkNodes(ht *lntemp.HarnessTest) {
 	// Open a channel between Alice and Bob which will later be
 	// cooperatively closed.
 	coopChanPoint := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -435,7 +435,7 @@ func testGarbageCollectLinkNodes(ht *lntemp.HarnessTest) {
 	// Open a channel between Alice and Carol which will later be force
 	// closed.
 	forceCloseChanPoint := ht.OpenChannel(
-		alice, carol, lntemp.OpenChannelParams{
+		alice, carol, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -447,7 +447,7 @@ func testGarbageCollectLinkNodes(ht *lntemp.HarnessTest) {
 
 	ht.ConnectNodes(alice, dave)
 	persistentChanPoint := ht.OpenChannel(
-		alice, dave, lntemp.OpenChannelParams{
+		alice, dave, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -527,7 +527,7 @@ func testGarbageCollectLinkNodes(ht *lntemp.HarnessTest) {
 // testRejectHTLC tests that a node can be created with the flag --rejecthtlc.
 // This means that the node will reject all forwarded HTLCs but can still
 // accept direct HTLCs as well as send HTLCs.
-func testRejectHTLC(ht *lntemp.HarnessTest) {
+func testRejectHTLC(ht *lntest.HarnessTest) {
 	//             RejectHTLC
 	// Alice ------> Carol ------> Bob
 	//
@@ -548,14 +548,14 @@ func testRejectHTLC(ht *lntemp.HarnessTest) {
 
 	// Open a channel between Alice and Carol.
 	chanPointAlice := ht.OpenChannel(
-		alice, carol, lntemp.OpenChannelParams{
+		alice, carol, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
 
 	// Open a channel between Carol and Bob.
 	chanPointCarol := ht.OpenChannel(
-		carol, bob, lntemp.OpenChannelParams{
+		carol, bob, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -623,14 +623,14 @@ func testRejectHTLC(ht *lntemp.HarnessTest) {
 
 // testNodeSignVerify checks that only connected nodes are allowed to perform
 // signing and verifying messages.
-func testNodeSignVerify(ht *lntemp.HarnessTest) {
+func testNodeSignVerify(ht *lntest.HarnessTest) {
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
 	alice, bob := ht.Alice, ht.Bob
 
 	// Create a channel between alice and bob.
 	aliceBobCh := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 		},
@@ -670,11 +670,11 @@ func testNodeSignVerify(ht *lntemp.HarnessTest) {
 // testAbandonChannel abandons a channel and asserts that it is no longer open
 // and not in one of the pending closure states. It also verifies that the
 // abandoned channel is reported as closed with close type 'abandoned'.
-func testAbandonChannel(ht *lntemp.HarnessTest) {
+func testAbandonChannel(ht *lntest.HarnessTest) {
 	alice, bob := ht.Alice, ht.Bob
 
 	// First establish a channel between Alice and Bob.
-	channelParam := lntemp.OpenChannelParams{
+	channelParam := lntest.OpenChannelParams{
 		Amt:     funding.MaxBtcFundingAmount,
 		PushAmt: btcutil.Amount(100000),
 	}
@@ -741,7 +741,7 @@ func testAbandonChannel(ht *lntemp.HarnessTest) {
 // wallet into a single target address at the specified fee rate.
 //
 // TODO(yy): expand this test to also use P2TR.
-func testSweepAllCoins(ht *lntemp.HarnessTest) {
+func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// First, we'll make a new node, ainz who'll we'll use to test wallet
 	// sweeping.
 	//
@@ -917,7 +917,7 @@ func testSweepAllCoins(ht *lntemp.HarnessTest) {
 
 // testListAddresses tests that we get all the addresses and their
 // corresponding balance correctly.
-func testListAddresses(ht *lntemp.HarnessTest) {
+func testListAddresses(ht *lntest.HarnessTest) {
 	// First, we'll make a new node - Alice, which will be generating
 	// new addresses.
 	alice := ht.NewNode("Alice", nil)
@@ -985,7 +985,7 @@ func testListAddresses(ht *lntemp.HarnessTest) {
 	foundAddresses := 0
 	for _, addressList := range addressLists.AccountWithAddresses {
 		addresses := addressList.Addresses
-		derivationPath, err := lntemp.ParseDerivationPath(
+		derivationPath, err := lntest.ParseDerivationPath(
 			addressList.DerivationPath,
 		)
 		require.NoError(ht, err)
@@ -1023,7 +1023,7 @@ func testListAddresses(ht *lntemp.HarnessTest) {
 
 	for _, addressList := range addressLists.AccountWithAddresses {
 		addresses := addressList.Addresses
-		derivationPath, err := lntemp.ParseDerivationPath(
+		derivationPath, err := lntest.ParseDerivationPath(
 			addressList.DerivationPath,
 		)
 		require.NoError(ht, err)
@@ -1053,7 +1053,7 @@ func testListAddresses(ht *lntemp.HarnessTest) {
 	require.Equal(ht, len(generatedAddr), foundAddresses)
 }
 
-func assertChannelConstraintsEqual(ht *lntemp.HarnessTest,
+func assertChannelConstraintsEqual(ht *lntest.HarnessTest,
 	want, got *lnrpc.ChannelConstraints) {
 
 	require.Equal(ht, want.CsvDelay, got.CsvDelay, "CsvDelay mismatched")
@@ -1076,7 +1076,7 @@ func assertChannelConstraintsEqual(ht *lntemp.HarnessTest,
 
 // testSignVerifyMessageWithAddr tests signing and also verifying a signature
 // on a message with a provided address.
-func testSignVerifyMessageWithAddr(ht *lntemp.HarnessTest) {
+func testSignVerifyMessageWithAddr(ht *lntest.HarnessTest) {
 	// Using different nodes to sign the message and verify the signature.
 	alice, bob := ht.Alice, ht.Bob
 

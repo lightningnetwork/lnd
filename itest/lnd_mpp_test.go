@@ -7,8 +7,8 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -16,7 +16,7 @@ import (
 
 // testSendToRouteMultiPath tests that we are able to successfully route a
 // payment using multiple shards across different paths, by using SendToRoute.
-func testSendToRouteMultiPath(ht *lntemp.HarnessTest) {
+func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 	mts := newMppTestScenario(ht)
 
 	// To ensure the payment goes through separate paths, we'll set a
@@ -162,7 +162,7 @@ func testSendToRouteMultiPath(ht *lntemp.HarnessTest) {
 // It has two standby nodes, alice and bob, and three new nodes, carol, dave,
 // and eve.
 type mppTestScenario struct {
-	ht *lntemp.HarnessTest
+	ht *lntest.HarnessTest
 
 	alice, bob, carol, dave, eve *node.HarnessNode
 	nodes                        []*node.HarnessNode
@@ -179,7 +179,7 @@ type mppTestScenario struct {
 //	Alice -- Carol ---- Bob
 //	    \              /
 //	     \__ Dave ____/
-func newMppTestScenario(ht *lntemp.HarnessTest) *mppTestScenario {
+func newMppTestScenario(ht *lntest.HarnessTest) *mppTestScenario {
 	alice, bob := ht.Alice, ht.Bob
 	ht.RestartNodeWithExtraArgs(bob, []string{
 		"--maxpendingchannels=2",
@@ -256,36 +256,36 @@ type mppOpenChannelRequest struct {
 //
 // NOTE: all the channels are open together to save blocks mined.
 func (m *mppTestScenario) openChannels(r *mppOpenChannelRequest) {
-	reqs := []*lntemp.OpenChannelRequest{
+	reqs := []*lntest.OpenChannelRequest{
 		{
 			Local:  m.alice,
 			Remote: m.carol,
-			Param:  lntemp.OpenChannelParams{Amt: r.amtAliceCarol},
+			Param:  lntest.OpenChannelParams{Amt: r.amtAliceCarol},
 		},
 		{
 			Local:  m.alice,
 			Remote: m.dave,
-			Param:  lntemp.OpenChannelParams{Amt: r.amtAliceDave},
+			Param:  lntest.OpenChannelParams{Amt: r.amtAliceDave},
 		},
 		{
 			Local:  m.carol,
 			Remote: m.bob,
-			Param:  lntemp.OpenChannelParams{Amt: r.amtCarolBob},
+			Param:  lntest.OpenChannelParams{Amt: r.amtCarolBob},
 		},
 		{
 			Local:  m.carol,
 			Remote: m.eve,
-			Param:  lntemp.OpenChannelParams{Amt: r.amtCarolEve},
+			Param:  lntest.OpenChannelParams{Amt: r.amtCarolEve},
 		},
 		{
 			Local:  m.dave,
 			Remote: m.bob,
-			Param:  lntemp.OpenChannelParams{Amt: r.amtDaveBob},
+			Param:  lntest.OpenChannelParams{Amt: r.amtDaveBob},
 		},
 		{
 			Local:  m.eve,
 			Remote: m.bob,
-			Param:  lntemp.OpenChannelParams{Amt: r.amtEveBob},
+			Param:  lntest.OpenChannelParams{Amt: r.amtEveBob},
 		},
 	}
 

@@ -10,22 +10,22 @@ import (
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
 
 // testUpdateChannelPolicy tests that policy updates made to a channel
 // gets propagated to other nodes in the network.
-func testUpdateChannelPolicy(ht *lntemp.HarnessTest) {
+func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	const (
 		defaultFeeBase       = 1000
 		defaultFeeRate       = 1
 		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
 		defaultMinHtlc       = 1000
 	)
-	defaultMaxHtlc := lntemp.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
+	defaultMaxHtlc := lntest.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
 
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := chanAmt / 2
@@ -34,7 +34,7 @@ func testUpdateChannelPolicy(ht *lntemp.HarnessTest) {
 
 	// Create a channel Alice->Bob.
 	chanPoint := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 		},
@@ -87,7 +87,7 @@ func testUpdateChannelPolicy(ht *lntemp.HarnessTest) {
 	// part of his ChannelUpdate.
 	const customMinHtlc = 5000
 	chanPoint2 := ht.OpenChannel(
-		carol, bob, lntemp.OpenChannelParams{
+		carol, bob, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 			MinHtlc: customMinHtlc,
@@ -283,7 +283,7 @@ func testUpdateChannelPolicy(ht *lntemp.HarnessTest) {
 	// We'll now open a channel from Alice directly to Carol.
 	ht.ConnectNodes(alice, carol)
 	chanPoint3 := ht.OpenChannel(
-		alice, carol, lntemp.OpenChannelParams{
+		alice, carol, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 		},
@@ -424,7 +424,7 @@ func testUpdateChannelPolicy(ht *lntemp.HarnessTest) {
 // chan-disable-timeout flags here. For instance, if some operations take more
 // than 6 seconds to finish, the channel will be marked as disabled, thus a
 // following operation will fail if it relies on the channel being enabled.
-func testSendUpdateDisableChannel(ht *lntemp.HarnessTest) {
+func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
 	const chanAmt = 100000
 
 	alice, bob := ht.Alice, ht.Bob
@@ -467,8 +467,8 @@ func testSendUpdateDisableChannel(ht *lntemp.HarnessTest) {
 
 	// We now proceed to open channels: Alice=>Bob, Alice=>Carol and
 	// Eve=>Carol.
-	p := lntemp.OpenChannelParams{Amt: chanAmt}
-	reqs := []*lntemp.OpenChannelRequest{
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
 		{Local: alice, Remote: bob, Param: p},
 		{Local: alice, Remote: carol, Param: p},
 		{Local: eve, Remote: carol, Param: p},
@@ -513,7 +513,7 @@ func testSendUpdateDisableChannel(ht *lntemp.HarnessTest) {
 		FeeRateMilliMsat: int64(chainreg.DefaultBitcoinFeeRate),
 		TimeLockDelta:    chainreg.DefaultBitcoinTimeLockDelta,
 		MinHtlc:          1000, // default value
-		MaxHtlcMsat:      lntemp.CalculateMaxHtlc(chanAmt),
+		MaxHtlcMsat:      lntest.CalculateMaxHtlc(chanAmt),
 		Disabled:         true,
 	}
 
@@ -655,7 +655,7 @@ func testSendUpdateDisableChannel(ht *lntemp.HarnessTest) {
 // Bob will update the base fee via UpdateChannelPolicy, we will test that
 // Alice will not fail the payment and send it using the updated channel
 // policy.
-func testUpdateChannelPolicyForPrivateChannel(ht *lntemp.HarnessTest) {
+func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 	const (
 		chanAmt     = btcutil.Amount(100000)
 		paymentAmt  = 20000
@@ -668,7 +668,7 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntemp.HarnessTest) {
 
 	// Open a channel with 100k satoshis between Alice and Bob.
 	chanPointAliceBob := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -681,7 +681,7 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntemp.HarnessTest) {
 
 	// Open a channel with 100k satoshis between Bob and Carol.
 	chanPointBobCarol := ht.OpenChannel(
-		bob, carol, lntemp.OpenChannelParams{
+		bob, carol, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			Private: true,
 		},
@@ -755,14 +755,14 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntemp.HarnessTest) {
 // testUpdateChannelPolicyFeeRateAccuracy tests that updating the channel policy
 // rounds fee rate values correctly as well as setting fee rate with ppm works
 // as expected.
-func testUpdateChannelPolicyFeeRateAccuracy(ht *lntemp.HarnessTest) {
+func testUpdateChannelPolicyFeeRateAccuracy(ht *lntest.HarnessTest) {
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := chanAmt / 2
 
 	// Create a channel Alice -> Bob.
 	alice, bob := ht.Alice, ht.Bob
 	chanPoint := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 		},
@@ -826,7 +826,7 @@ func testUpdateChannelPolicyFeeRateAccuracy(ht *lntemp.HarnessTest) {
 
 // assertNodesPolicyUpdate checks that a given policy update has been received
 // by a list of given nodes.
-func assertNodesPolicyUpdate(ht *lntemp.HarnessTest, nodes []*node.HarnessNode,
+func assertNodesPolicyUpdate(ht *lntest.HarnessTest, nodes []*node.HarnessNode,
 	advertisingNode *node.HarnessNode, policy *lnrpc.RoutingPolicy,
 	chanPoint *lnrpc.ChannelPoint) {
 

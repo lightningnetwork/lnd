@@ -1,4 +1,4 @@
-package lntemp
+package lntest
 
 import (
 	"fmt"

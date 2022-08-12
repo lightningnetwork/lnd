@@ -20,8 +20,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
@@ -47,7 +47,7 @@ var (
 
 // testTaproot ensures that the daemon can send to and spend from taproot (p2tr)
 // outputs.
-func testTaproot(ht *lntemp.HarnessTest) {
+func testTaproot(ht *lntest.HarnessTest) {
 	testTaprootSendCoinsKeySpendBip86(ht, ht.Alice)
 	testTaprootComputeInputScriptKeySpendBip86(ht, ht.Alice)
 	testTaprootSignOutputRawScriptSpend(ht, ht.Alice)
@@ -81,7 +81,7 @@ func testTaproot(ht *lntemp.HarnessTest) {
 // testTaprootSendCoinsKeySpendBip86 tests sending to and spending from
 // p2tr key spend only (BIP-0086) addresses through the SendCoins RPC which
 // internally uses the ComputeInputScript method for signing.
-func testTaprootSendCoinsKeySpendBip86(ht *lntemp.HarnessTest,
+func testTaprootSendCoinsKeySpendBip86(ht *lntest.HarnessTest,
 	alice *node.HarnessNode) {
 
 	// We'll start the test by sending Alice some coins, which she'll use to
@@ -137,7 +137,7 @@ func testTaprootSendCoinsKeySpendBip86(ht *lntemp.HarnessTest,
 // testTaprootComputeInputScriptKeySpendBip86 tests sending to and spending from
 // p2tr key spend only (BIP-0086) addresses through the SendCoins RPC which
 // internally uses the ComputeInputScript method for signing.
-func testTaprootComputeInputScriptKeySpendBip86(ht *lntemp.HarnessTest,
+func testTaprootComputeInputScriptKeySpendBip86(ht *lntest.HarnessTest,
 	alice *node.HarnessNode) {
 
 	// We'll start the test by sending Alice some coins, which she'll use
@@ -234,7 +234,7 @@ func testTaprootComputeInputScriptKeySpendBip86(ht *lntemp.HarnessTest,
 
 // testTaprootSignOutputRawScriptSpend tests sending to and spending from p2tr
 // script addresses using the script path with the SignOutputRaw RPC.
-func testTaprootSignOutputRawScriptSpend(ht *lntemp.HarnessTest,
+func testTaprootSignOutputRawScriptSpend(ht *lntest.HarnessTest,
 	alice *node.HarnessNode, sigHashType ...txscript.SigHashType) {
 
 	// For the next step, we need a public key. Let's use a special family
@@ -392,7 +392,7 @@ func testTaprootSignOutputRawScriptSpend(ht *lntemp.HarnessTest,
 // testTaprootSignOutputRawKeySpendBip86 tests that a tapscript address can
 // also be spent using the key spend path through the SignOutputRaw RPC using a
 // BIP0086 key spend only commitment.
-func testTaprootSignOutputRawKeySpendBip86(ht *lntemp.HarnessTest,
+func testTaprootSignOutputRawKeySpendBip86(ht *lntest.HarnessTest,
 	alice *node.HarnessNode, sigHashType ...txscript.SigHashType) {
 
 	// For the next step, we need a public key. Let's use a special family
@@ -490,7 +490,7 @@ func testTaprootSignOutputRawKeySpendBip86(ht *lntemp.HarnessTest,
 // testTaprootSignOutputRawKeySpendRootHash tests that a tapscript address can
 // also be spent using the key spend path through the SignOutputRaw RPC using a
 // tapscript root hash.
-func testTaprootSignOutputRawKeySpendRootHash(ht *lntemp.HarnessTest,
+func testTaprootSignOutputRawKeySpendRootHash(ht *lntest.HarnessTest,
 	alice *node.HarnessNode) {
 
 	// For the next step, we need a public key. Let's use a special family
@@ -583,7 +583,7 @@ func testTaprootSignOutputRawKeySpendRootHash(ht *lntemp.HarnessTest,
 
 // testTaprootMuSig2KeySpendBip86 tests that a combined MuSig2 key can also be
 // used as a BIP-0086 key spend only key.
-func testTaprootMuSig2KeySpendBip86(ht *lntemp.HarnessTest,
+func testTaprootMuSig2KeySpendBip86(ht *lntest.HarnessTest,
 	alice *node.HarnessNode, version signrpc.MuSig2Version) {
 
 	// We're not going to commit to a script. So our taproot tweak will be
@@ -711,7 +711,7 @@ func testTaprootMuSig2KeySpendBip86(ht *lntemp.HarnessTest,
 
 // testTaprootMuSig2KeySpendRootHash tests that a tapscript address can also be
 // spent using a MuSig2 combined key.
-func testTaprootMuSig2KeySpendRootHash(ht *lntemp.HarnessTest,
+func testTaprootMuSig2KeySpendRootHash(ht *lntest.HarnessTest,
 	alice *node.HarnessNode, version signrpc.MuSig2Version) {
 
 	// We're going to commit to a script as well. This is a hash lock with a
@@ -843,7 +843,7 @@ func testTaprootMuSig2KeySpendRootHash(ht *lntemp.HarnessTest,
 
 // testTaprootMuSig2ScriptSpend tests that a tapscript address with an internal
 // key that is a MuSig2 combined key can also be spent using the script path.
-func testTaprootMuSig2ScriptSpend(ht *lntemp.HarnessTest,
+func testTaprootMuSig2ScriptSpend(ht *lntest.HarnessTest,
 	alice *node.HarnessNode, version signrpc.MuSig2Version) {
 
 	// We're going to commit to a script and spend the output using the
@@ -926,7 +926,7 @@ func testTaprootMuSig2ScriptSpend(ht *lntemp.HarnessTest,
 
 // testTaprootMuSig2CombinedLeafKeySpend tests that a MuSig2 combined key can be
 // used for an OP_CHECKSIG inside a tap script leaf spend.
-func testTaprootMuSig2CombinedLeafKeySpend(ht *lntemp.HarnessTest,
+func testTaprootMuSig2CombinedLeafKeySpend(ht *lntest.HarnessTest,
 	alice *node.HarnessNode, version signrpc.MuSig2Version) {
 
 	// We're using the combined MuSig2 key in a script leaf. So we need to
@@ -1102,7 +1102,7 @@ func testTaprootMuSig2CombinedLeafKeySpend(ht *lntemp.HarnessTest,
 
 // testTaprootImportTapscriptScriptSpend tests importing p2tr script addresses
 // using the script path with the full tree known.
-func testTaprootImportTapscriptFullTree(ht *lntemp.HarnessTest,
+func testTaprootImportTapscriptFullTree(ht *lntest.HarnessTest,
 	alice *node.HarnessNode) {
 
 	// For the next step, we need a public key. Let's use a special family
@@ -1176,7 +1176,7 @@ func testTaprootImportTapscriptFullTree(ht *lntemp.HarnessTest,
 
 // testTaprootImportTapscriptPartialReveal tests importing p2tr script addresses
 // for which we only know part of the tree.
-func testTaprootImportTapscriptPartialReveal(ht *lntemp.HarnessTest,
+func testTaprootImportTapscriptPartialReveal(ht *lntest.HarnessTest,
 	alice *node.HarnessNode) {
 
 	// For the next step, we need a public key. Let's use a special family
@@ -1247,7 +1247,7 @@ func testTaprootImportTapscriptPartialReveal(ht *lntemp.HarnessTest,
 
 // testTaprootImportTapscriptRootHashOnly tests importing p2tr script addresses
 // for which we only know the root hash.
-func testTaprootImportTapscriptRootHashOnly(ht *lntemp.HarnessTest,
+func testTaprootImportTapscriptRootHashOnly(ht *lntest.HarnessTest,
 	alice *node.HarnessNode) {
 
 	// For the next step, we need a public key. Let's use a special family
@@ -1306,7 +1306,7 @@ func testTaprootImportTapscriptRootHashOnly(ht *lntemp.HarnessTest,
 
 // testTaprootImportTapscriptFullKey tests importing p2tr script addresses for
 // which we only know the full Taproot key.
-func testTaprootImportTapscriptFullKey(ht *lntemp.HarnessTest,
+func testTaprootImportTapscriptFullKey(ht *lntest.HarnessTest,
 	alice *node.HarnessNode) {
 
 	// For the next step, we need a public key. Let's use a special family
@@ -1365,7 +1365,7 @@ func testTaprootImportTapscriptFullKey(ht *lntemp.HarnessTest,
 
 // clearWalletImportedTapscriptBalance manually assembles and then attempts to
 // sign a TX to sweep funds from an imported tapscript address.
-func clearWalletImportedTapscriptBalance(ht *lntemp.HarnessTest,
+func clearWalletImportedTapscriptBalance(ht *lntest.HarnessTest,
 	hn *node.HarnessNode, utxo *wire.TxOut, outPoint wire.OutPoint,
 	internalKey *btcec.PublicKey, derivationPath []uint32,
 	rootHash []byte) {
@@ -1460,7 +1460,7 @@ func testScriptSchnorrSig(t *testing.T,
 }
 
 // newAddrWithScript returns a new address and its pkScript.
-func newAddrWithScript(ht *lntemp.HarnessTest, node *node.HarnessNode,
+func newAddrWithScript(ht *lntest.HarnessTest, node *node.HarnessNode,
 	addrType lnrpc.AddressType) (btcutil.Address, []byte) {
 
 	p2wkhResp := node.RPC.NewAddress(&lnrpc.NewAddressRequest{
@@ -1479,7 +1479,7 @@ func newAddrWithScript(ht *lntemp.HarnessTest, node *node.HarnessNode,
 
 // sendToTaprootOutput sends coins to a p2tr output of the given taproot key and
 // mines a block to confirm the coins.
-func sendToTaprootOutput(ht *lntemp.HarnessTest, hn *node.HarnessNode,
+func sendToTaprootOutput(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	taprootKey *btcec.PublicKey, amt int64) (wire.OutPoint, []byte) {
 
 	tapScriptAddr, err := btcutil.NewAddressTaproot(
@@ -1542,7 +1542,7 @@ func sendToTaprootOutput(ht *lntemp.HarnessTest, hn *node.HarnessNode,
 // after checking its weight against an estimate. After asserting the given
 // spend request, the given sweep address' balance is verified to be seen as
 // funds belonging to the wallet.
-func publishTxAndConfirmSweep(ht *lntemp.HarnessTest, node *node.HarnessNode,
+func publishTxAndConfirmSweep(ht *lntest.HarnessTest, node *node.HarnessNode,
 	tx *wire.MsgTx, estimatedWeight int64,
 	spendRequest *chainrpc.SpendRequest, sweepAddr string) {
 
@@ -1604,7 +1604,7 @@ func publishTxAndConfirmSweep(ht *lntemp.HarnessTest, node *node.HarnessNode,
 // confirmAddress makes sure that a transaction in the mempool spends funds to
 // the given address. It also checks that a confirmation notification for the
 // address is triggered when the transaction is mined.
-func confirmAddress(ht *lntemp.HarnessTest, hn *node.HarnessNode,
+func confirmAddress(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	addrString string) {
 
 	// Wait until the tx that sends to the address is found.
@@ -1654,7 +1654,7 @@ func confirmAddress(ht *lntemp.HarnessTest, hn *node.HarnessNode,
 
 // deriveSigningKeys derives three signing keys and returns their descriptors,
 // as well as the public keys in the Schnorr serialized format.
-func deriveSigningKeys(ht *lntemp.HarnessTest, node *node.HarnessNode,
+func deriveSigningKeys(ht *lntest.HarnessTest, node *node.HarnessNode,
 	version signrpc.MuSig2Version) (*signrpc.KeyDescriptor,
 	*signrpc.KeyDescriptor, *signrpc.KeyDescriptor, [][]byte) {
 
@@ -1700,7 +1700,7 @@ func deriveSigningKeys(ht *lntemp.HarnessTest, node *node.HarnessNode,
 // combined into a single key. The same node is used for the three signing
 // participants but a separate key is generated for each session. So the result
 // should be the same as if it were three different nodes.
-func createMuSigSessions(ht *lntemp.HarnessTest, node *node.HarnessNode,
+func createMuSigSessions(ht *lntest.HarnessTest, node *node.HarnessNode,
 	taprootTweak *signrpc.TaprootTweakDesc,
 	keyDesc1, keyDesc2, keyDesc3 *signrpc.KeyDescriptor,
 	allPubKeys [][]byte, version signrpc.MuSig2Version) (*btcec.PublicKey,
@@ -1838,7 +1838,7 @@ func createMuSigSessions(ht *lntemp.HarnessTest, node *node.HarnessNode,
 // testTaprootCoopClose asserts that if both peers signal ShutdownAnySegwit,
 // then a taproot closing addr is used. Otherwise, we shouldn't expect one to
 // be used.
-func testTaprootCoopClose(ht *lntemp.HarnessTest) {
+func testTaprootCoopClose(ht *lntest.HarnessTest) {
 	// We'll start by making two new nodes, and funding a channel between
 	// them.
 	carol := ht.NewNode("Carol", nil)
@@ -1853,7 +1853,7 @@ func testTaprootCoopClose(ht *lntemp.HarnessTest) {
 
 	// We'll now open a channel between Carol and Dave.
 	chanPoint := ht.OpenChannel(
-		carol, dave, lntemp.OpenChannelParams{
+		carol, dave, lntest.OpenChannelParams{
 			Amt:         chanAmt,
 			PushAmt:     pushAmt,
 			SatPerVByte: satPerVbyte,
@@ -1888,7 +1888,7 @@ func testTaprootCoopClose(ht *lntemp.HarnessTest) {
 
 	// We'll now open up a chanel again between Carol and Eve.
 	chanPoint = ht.OpenChannel(
-		carol, eve, lntemp.OpenChannelParams{
+		carol, eve, lntest.OpenChannelParams{
 			Amt:         chanAmt,
 			PushAmt:     pushAmt,
 			SatPerVByte: satPerVbyte,
@@ -1904,7 +1904,7 @@ func testTaprootCoopClose(ht *lntemp.HarnessTest) {
 
 // testMuSig2CombineKey makes sure that combining a key with MuSig2 returns the
 // correct result according to the MuSig2 version specified.
-func testMuSig2CombineKey(ht *lntemp.HarnessTest, alice *node.HarnessNode,
+func testMuSig2CombineKey(ht *lntest.HarnessTest, alice *node.HarnessNode,
 	version signrpc.MuSig2Version) {
 
 	testVector040Key1 := hexDecode(

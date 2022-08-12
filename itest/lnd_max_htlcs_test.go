@@ -4,8 +4,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
 )
@@ -14,14 +14,14 @@ import (
 // channel where we have already reached the limit of the number of htlcs that
 // we may add to the remote party's commitment. This test asserts that we do
 // not attempt to use the full channel at all in our pathfinding.
-func testMaxHtlcPathfind(ht *lntemp.HarnessTest) {
+func testMaxHtlcPathfind(ht *lntest.HarnessTest) {
 	// Setup a channel between Alice and Bob where Alice will only allow
 	// Bob to add a maximum of 5 htlcs to her commitment.
 	maxHtlcs := 5
 
 	alice, bob := ht.Alice, ht.Bob
 	chanPoint := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt:            1000000,
 			PushAmt:        800000,
 			RemoteMaxHtlcs: uint16(maxHtlcs),
@@ -84,7 +84,7 @@ type holdSubscription struct {
 
 // cancel updates a hold invoice to cancel from the recipient and consumes
 // updates from the payer until it has reached a final, failed state.
-func (h *holdSubscription) cancel(ht *lntemp.HarnessTest) {
+func (h *holdSubscription) cancel(ht *lntest.HarnessTest) {
 	h.recipient.RPC.CancelInvoice(h.hash[:])
 
 	invUpdate := ht.ReceiveSingleInvoice(h.invSubscription)
@@ -110,7 +110,7 @@ func (h *holdSubscription) cancel(ht *lntemp.HarnessTest) {
 // acceptHoldInvoice adds a hold invoice to the recipient node, pays it from
 // the sender and asserts that we have reached the accepted state where htlcs
 // are locked in for the payment.
-func acceptHoldInvoice(ht *lntemp.HarnessTest, idx int, sender,
+func acceptHoldInvoice(ht *lntest.HarnessTest, idx int, sender,
 	receiver *node.HarnessNode) *holdSubscription {
 
 	hash := [lntypes.HashSize]byte{byte(idx + 1)}

@@ -5,7 +5,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,7 +21,7 @@ type pendingChan *lnrpc.PendingChannelsResponse_PendingChannel
 //     packages are wiped.
 //   - Bob coop closes the channel Bob->Carol, and checks from both Bob PoVs
 //     that the forwarding packages are wiped.
-func testWipeForwardingPackages(ht *lntemp.HarnessTest) {
+func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 	const (
 		chanAmt        = 10e6
 		paymentAmt     = 10e4
@@ -41,12 +41,12 @@ func testWipeForwardingPackages(ht *lntemp.HarnessTest) {
 
 	// Open a channel between Alice and Bob.
 	chanPointAB := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Open a channel between Bob and Carol.
 	chanPointBC := ht.OpenChannel(
-		bob, carol, lntemp.OpenChannelParams{Amt: chanAmt},
+		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Before we continue, make sure Alice has seen the channel between Bob

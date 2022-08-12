@@ -7,7 +7,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
@@ -15,11 +15,11 @@ import (
 
 // testHoldInvoiceForceClose tests cancellation of accepted hold invoices which
 // would otherwise trigger force closes when they expire.
-func testHoldInvoiceForceClose(ht *lntemp.HarnessTest) {
+func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	// Open a channel between alice and bob.
 	alice, bob := ht.Alice, ht.Bob
 	chanPoint := ht.OpenChannel(
-		alice, bob, lntemp.OpenChannelParams{Amt: 300000},
+		alice, bob, lntest.OpenChannelParams{Amt: 300000},
 	)
 
 	// Create a non-dust hold invoice for bob.

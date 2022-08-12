@@ -2,9 +2,9 @@
 
 package itest
 
-import "github.com/lightningnetwork/lnd/lntemp"
+import "github.com/lightningnetwork/lnd/lntest"
 
-var allTestCases = []*lntemp.TestCase{
+var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "update channel status",
 		TestFunc: testUpdateChanStatus,

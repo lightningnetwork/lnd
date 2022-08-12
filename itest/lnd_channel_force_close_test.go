@@ -13,8 +13,8 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -30,7 +30,7 @@ import (
 //
 // Note that whether the deadline is used or not is implicitly checked by its
 // corresponding fee rates.
-func testCommitmentTransactionDeadline(ht *lntemp.HarnessTest) {
+func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 	// Get the default max fee rate used in sweeping the commitment
 	// transaction.
 	defaultMax := lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte
@@ -72,7 +72,7 @@ func testCommitmentTransactionDeadline(ht *lntemp.HarnessTest) {
 	setupNode := func(name string) *node.HarnessNode {
 		// Create the node.
 		args := []string{"--hodl.exit-settle"}
-		args = append(args, lntemp.NodeArgsForCommitType(
+		args = append(args, lntest.NodeArgsForCommitType(
 			lnrpc.CommitmentType_ANCHORS)...,
 		)
 		node := ht.NewNode(name, args)
@@ -104,7 +104,7 @@ func testCommitmentTransactionDeadline(ht *lntemp.HarnessTest) {
 
 		// Open a channel between Alice and Bob.
 		chanPoint := ht.OpenChannel(
-			alice, bob, lntemp.OpenChannelParams{
+			alice, bob, lntest.OpenChannelParams{
 				Amt:     10e6,
 				PushAmt: 5e6,
 			},
@@ -194,7 +194,7 @@ func testCommitmentTransactionDeadline(ht *lntemp.HarnessTest) {
 // process.
 //
 // TODO(roasbeef): also add an unsettled HTLC before force closing.
-func testChannelForceClosure(ht *lntemp.HarnessTest) {
+func testChannelForceClosure(ht *lntest.HarnessTest) {
 	// We'll test the scenario for some of the commitment types, to ensure
 	// outputs can be swept.
 	commitTypes := []lnrpc.CommitmentType{
@@ -209,7 +209,7 @@ func testChannelForceClosure(ht *lntemp.HarnessTest) {
 		success := ht.Run(testName, func(t *testing.T) {
 			st := ht.Subtest(t)
 
-			args := lntemp.NodeArgsForCommitType(channelType)
+			args := lntest.NodeArgsForCommitType(channelType)
 			alice := st.NewNode("Alice", args)
 			defer st.Shutdown(alice)
 
@@ -237,7 +237,7 @@ func testChannelForceClosure(ht *lntemp.HarnessTest) {
 	}
 }
 
-func channelForceClosureTest(ht *lntemp.HarnessTest,
+func channelForceClosureTest(ht *lntest.HarnessTest,
 	alice, carol *node.HarnessNode, channelType lnrpc.CommitmentType) {
 
 	const (
@@ -268,7 +268,7 @@ func channelForceClosureTest(ht *lntemp.HarnessTest,
 	carolStartingBalance := carolBalResp.ConfirmedBalance
 
 	chanPoint := ht.OpenChannel(
-		alice, carol, lntemp.OpenChannelParams{
+		alice, carol, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 		},
@@ -600,6 +600,8 @@ func channelForceClosureTest(ht *lntemp.HarnessTest,
 	// Update current height
 	_, curHeight = ht.Miner.GetBestBlock()
 
+	// checkForceClosedChannelNumHtlcs verifies that a force closed channel
+	// has the proper number of htlcs.
 	err = wait.NoError(func() error {
 		// Now that the commit output has been fully swept, check to
 		// see that the channel remains open for the pending htlc
@@ -986,7 +988,7 @@ func padCLTV(cltv uint32) uint32 {
 // testFailingChannel tests that we will fail the channel by force closing it
 // in the case where a counterparty tries to settle an HTLC with the wrong
 // preimage.
-func testFailingChannel(ht *lntemp.HarnessTest) {
+func testFailingChannel(ht *lntest.HarnessTest) {
 	const paymentAmt = 10000
 
 	chanAmt := lnd.MaxFundingAmount
@@ -999,7 +1001,7 @@ func testFailingChannel(ht *lntemp.HarnessTest) {
 	ht.ConnectNodes(alice, carol)
 
 	// Let Alice connect and open a channel to Carol,
-	ht.OpenChannel(alice, carol, lntemp.OpenChannelParams{Amt: chanAmt})
+	ht.OpenChannel(alice, carol, lntest.OpenChannelParams{Amt: chanAmt})
 
 	// With the channel open, we'll create a invoice for Carol that Alice
 	// will attempt to pay.
@@ -1058,7 +1060,7 @@ func testFailingChannel(ht *lntemp.HarnessTest) {
 // type matches a set of expected resolutions.
 //
 // NOTE: only used in current test file.
-func assertReports(ht *lntemp.HarnessTest, hn *node.HarnessNode,
+func assertReports(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	chanPoint *lnrpc.ChannelPoint, expected map[string]*lnrpc.Resolution) {
 
 	op := ht.OutPointFromChannelPoint(chanPoint)
@@ -1092,7 +1094,7 @@ func assertReports(ht *lntemp.HarnessTest, hn *node.HarnessNode,
 // maturity height are as expected.
 //
 // NOTE: only used in current test file.
-func checkCommitmentMaturity(forceClose lntemp.PendingForceClose,
+func checkCommitmentMaturity(forceClose lntest.PendingForceClose,
 	maturityHeight uint32, blocksTilMaturity int32) error {
 
 	if forceClose.MaturityHeight != maturityHeight {

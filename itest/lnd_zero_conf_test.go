@@ -541,7 +541,7 @@ func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
 		FeeRateMilliMsat: testFeeBase * feeRate,
 		TimeLockDelta:    timeLockDelta,
 		MinHtlc:          1000, // default value
-		MaxHtlcMsat:      calculateMaxHtlc(chanAmt),
+		MaxHtlcMsat:      lntemp.CalculateMaxHtlc(chanAmt),
 	}
 
 	// Assert that Dave receives Carol's policy update.
@@ -567,7 +567,7 @@ func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
 		FeeRateMilliMsat: testFeeBase * feeRate,
 		TimeLockDelta:    timeLockDelta,
 		MinHtlc:          1000,
-		MaxHtlcMsat:      calculateMaxHtlc(chanAmt),
+		MaxHtlcMsat:      lntemp.CalculateMaxHtlc(chanAmt),
 	}
 
 	// Assert that Carol receives Dave's policy update.
@@ -654,7 +654,7 @@ func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
 		FeeRateMilliMsat: testFeeBase * feeRate,
 		TimeLockDelta:    timeLockDelta,
 		MinHtlc:          1000,
-		MaxHtlcMsat:      calculateMaxHtlc(chanAmt),
+		MaxHtlcMsat:      lntemp.CalculateMaxHtlc(chanAmt),
 	}
 
 	// Assert Dave receives Carol's policy update.
@@ -743,7 +743,7 @@ func testPrivateUpdateAlias(ht *lntemp.HarnessTest,
 		FeeRateMilliMsat: testFeeBase * feeRate,
 		TimeLockDelta:    timeLockDelta,
 		MinHtlc:          1000,
-		MaxHtlcMsat:      calculateMaxHtlc(chanAmt),
+		MaxHtlcMsat:      lntemp.CalculateMaxHtlc(chanAmt),
 	}
 
 	// Assert Dave and optionally Eve receives Carol's update.

@@ -25,7 +25,7 @@ func testUpdateChannelPolicy(ht *lntemp.HarnessTest) {
 		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
 		defaultMinHtlc       = 1000
 	)
-	defaultMaxHtlc := calculateMaxHtlc(funding.MaxBtcFundingAmount)
+	defaultMaxHtlc := lntemp.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
 
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := chanAmt / 2
@@ -513,7 +513,7 @@ func testSendUpdateDisableChannel(ht *lntemp.HarnessTest) {
 		FeeRateMilliMsat: int64(chainreg.DefaultBitcoinFeeRate),
 		TimeLockDelta:    chainreg.DefaultBitcoinTimeLockDelta,
 		MinHtlc:          1000, // default value
-		MaxHtlcMsat:      calculateMaxHtlc(chanAmt),
+		MaxHtlcMsat:      lntemp.CalculateMaxHtlc(chanAmt),
 		Disabled:         true,
 	}
 

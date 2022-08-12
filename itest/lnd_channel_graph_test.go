@@ -141,7 +141,7 @@ func testUpdateChanStatus(ht *lntemp.HarnessTest) {
 		FeeRateMilliMsat: int64(chainreg.DefaultBitcoinFeeRate),
 		TimeLockDelta:    chainreg.DefaultBitcoinTimeLockDelta,
 		MinHtlc:          1000, // default value
-		MaxHtlcMsat:      calculateMaxHtlc(chanAmt),
+		MaxHtlcMsat:      lntemp.CalculateMaxHtlc(chanAmt),
 	}
 
 	// Manually disable the channel and ensure that a "Disabled = true"

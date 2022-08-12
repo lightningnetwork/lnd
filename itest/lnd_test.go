@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,9 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/grpclog"
 )
@@ -26,9 +30,25 @@ const (
 	// defaultRunTranche is the default index of the test cases tranche that
 	// we run.
 	defaultRunTranche uint = 0
+
+	defaultTimeout = wait.DefaultTimeout
+	itestLndBinary = "../lnd-itest"
+
+	// TODO(yy): remove the following defined constants and put them in the
+	// specific tests where they are used?
+	testFeeBase    = 1e+6
+	anchorSize     = 330
+	defaultCSV     = node.DefaultCSV
+	noFeeLimitMsat = math.MaxInt64
+
+	AddrTypeWitnessPubkeyHash = lnrpc.AddressType_WITNESS_PUBKEY_HASH
+	AddrTypeNestedPubkeyHash  = lnrpc.AddressType_NESTED_PUBKEY_HASH
+	AddrTypeTaprootPubkey     = lnrpc.AddressType_TAPROOT_PUBKEY
 )
 
 var (
+	harnessNetParams = &chaincfg.RegressionNetParams
+
 	// testCasesSplitParts is the number of tranches the test cases should
 	// be split into. By default this is set to 1, so no splitting happens.
 	// If this value is increased, then the -runtranche flag must be
@@ -50,6 +70,11 @@ var (
 	// dbBackendFlag specifies the backend to use.
 	dbBackendFlag = flag.String("dbbackend", "bbolt", "Database backend "+
 		"(bbolt, etcd, postgres)")
+
+	// lndExecutable is the full path to the lnd binary.
+	lndExecutable = flag.String(
+		"lndexec", itestLndBinary, "full path to lnd binary",
+	)
 )
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a

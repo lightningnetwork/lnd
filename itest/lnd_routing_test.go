@@ -1203,7 +1203,7 @@ func testRouteFeeCutoff(ht *lntemp.HarnessTest) {
 	baseFee := int64(10000)
 	feeRate := int64(5)
 	timeLockDelta := uint32(chainreg.DefaultBitcoinTimeLockDelta)
-	maxHtlc := calculateMaxHtlc(chanAmt)
+	maxHtlc := lntemp.CalculateMaxHtlc(chanAmt)
 
 	expectedPolicy := &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      baseFee,

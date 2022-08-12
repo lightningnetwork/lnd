@@ -69,7 +69,7 @@ func testMultiHopPayments(ht *lntemp.HarnessTest) {
 	// Set the fee policies of the Alice -> Bob and the Dave -> Alice
 	// channel edges to relatively large non default values. This makes it
 	// possible to pick up more subtle fee calculation errors.
-	maxHtlc := calculateMaxHtlc(chanAmt)
+	maxHtlc := lntemp.CalculateMaxHtlc(chanAmt)
 	const aliceBaseFeeSat = 1
 	const aliceFeeRatePPM = 100000
 	updateChannelPolicy(

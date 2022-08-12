@@ -193,7 +193,7 @@ func basicChannelFundingTest(ht *lntemp.HarnessTest,
 
 	// With the channel open, ensure that the amount specified above has
 	// properly been pushed to Bob.
-	aliceLocalBalance := chanAmt - pushAmt - calcStaticFee(cType, 0)
+	aliceLocalBalance := chanAmt - pushAmt - lntemp.CalcStaticFee(cType, 0)
 	checkChannelBalance(
 		alice, aliceChannelBalance, aliceLocalBalance, pushAmt,
 	)
@@ -289,7 +289,7 @@ func testUnconfirmedChannelFunding(ht *lntemp.HarnessTest) {
 	// Note that atm we haven't obtained the chanPoint yet, so we use the
 	// type directly.
 	cType := lnrpc.CommitmentType_STATIC_REMOTE_KEY
-	carolLocalBalance := chanAmt - pushAmt - calcStaticFee(cType, 0)
+	carolLocalBalance := chanAmt - pushAmt - lntemp.CalcStaticFee(cType, 0)
 	checkChannelBalance(carol, 0, 0, carolLocalBalance, pushAmt)
 
 	// For Alice, her local/remote balances should be zero, and the
@@ -423,7 +423,7 @@ func runChannelFundingInputTypes(ht *lntemp.HarnessTest, alice,
 		// Note that atm we haven't obtained the chanPoint yet, so we
 		// use the type directly.
 		cType := lnrpc.CommitmentType_STATIC_REMOTE_KEY
-		carolLocalBalance := chanAmt - calcStaticFee(cType, 0)
+		carolLocalBalance := chanAmt - lntemp.CalcStaticFee(cType, 0)
 		checkChannelBalance(carol, 0, 0, carolLocalBalance, 0)
 
 		// For Alice, her local/remote balances should be zero, and the

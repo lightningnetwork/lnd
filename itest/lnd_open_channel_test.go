@@ -182,7 +182,7 @@ func testOpenChannelUpdateFeePolicy(ht *lntemp.HarnessTest) {
 		optionalFeeRate      = 1337
 	)
 
-	defaultMaxHtlc := calculateMaxHtlc(funding.MaxBtcFundingAmount)
+	defaultMaxHtlc := lntemp.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
 
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := chanAmt / 2

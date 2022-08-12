@@ -8,9 +8,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 const (
@@ -151,4 +156,45 @@ func NodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
 	}
 
 	return nil
+}
+
+// CalcStaticFee calculates appropriate fees for commitment transactions. This
+// function provides a simple way to allow test balance assertions to take fee
+// calculations into account.
+func CalcStaticFee(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
+	const (
+		htlcWeight         = input.HTLCWeight
+		anchorSize         = 330
+		defaultSatPerVByte = lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte
+	)
+
+	var (
+		anchors      = btcutil.Amount(0)
+		commitWeight = input.CommitWeight
+		feePerKw     = chainfee.SatPerKWeight(DefaultFeeRateSatPerKw)
+	)
+
+	// The anchor commitment type is slightly heavier, and we must also add
+	// the value of the two anchors to the resulting fee the initiator
+	// pays. In addition the fee rate is capped at 10 sat/vbyte for anchor
+	// channels.
+	if CommitTypeHasAnchors(c) {
+		feePerKw = chainfee.SatPerKVByte(
+			defaultSatPerVByte * 1000,
+		).FeePerKWeight()
+		commitWeight = input.AnchorCommitWeight
+		anchors = 2 * anchorSize
+	}
+
+	return feePerKw.FeeForWeight(int64(commitWeight+htlcWeight*numHTLCs)) +
+		anchors
+}
+
+// CalculateMaxHtlc re-implements the RequiredRemoteChannelReserve of the
+// funding manager's config, which corresponds to the maximum MaxHTLC value we
+// allow users to set when updating a channel policy.
+func CalculateMaxHtlc(chanCap btcutil.Amount) uint64 {
+	reserve := lnwire.NewMSatFromSatoshis(chanCap / 100)
+	max := lnwire.NewMSatFromSatoshis(chanCap) - reserve
+	return uint64(max)
 }

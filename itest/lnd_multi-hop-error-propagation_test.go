@@ -55,7 +55,7 @@ func testHtlcErrorPropagation(ht *lntemp.HarnessTest) {
 	ht.AssertTopologyChannelOpen(alice, chanPointBob)
 
 	cType := ht.GetChannelCommitType(alice, chanPointAlice)
-	commitFee := calcStaticFee(cType, 0)
+	commitFee := lntemp.CalcStaticFee(cType, 0)
 
 	assertBaseBalance := func() {
 		// Alice has opened a channel with Bob with zero push amount,

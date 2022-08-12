@@ -22,8 +22,8 @@ service Signer {
     /*
     ComputeInputScript generates a complete InputIndex for the passed
     transaction with the signature as defined within the passed SignDescriptor.
-    This method should be capable of generating the proper input script for
-    both regular p2wkh output and p2wkh outputs nested within a regular p2sh
+    This method should be capable of generating the proper input script for both
+    regular p2wkh/p2tr outputs and p2wkh outputs nested within a regular p2sh
     output.
 
     Note that when using this method to sign inputs belonging to the wallet,

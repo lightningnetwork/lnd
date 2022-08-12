@@ -26,19 +26,20 @@
 * [Fix P2TR support in
   `ComputeInputScript`](https://github.com/lightningnetwork/lnd/pull/6680).
 
-
 ## Bug Fixes
 
 * Fixed data race found in
   [`TestSerializeHTLCEntries`](https://github.com/lightningnetwork/lnd/pull/6673).
-
-## Bug Fixes
 
 * [Update the urfave/cli package](https://github.com/lightningnetwork/lnd/pull/6682) because
   of a flag parsing bug.
 
 * [DisconnectPeer no longer interferes with the peerTerminationWatcher. This previously caused
   force closes.](https://github.com/lightningnetwork/lnd/pull/6655)
+
+## RPC Server
+
+* [Add wallet reserve rpc & field in wallet balance](https://github.com/lightningnetwork/lnd/pull/6592)
 
 # Contributors (Alphabetical Order)
 

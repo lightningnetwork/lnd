@@ -136,6 +136,10 @@ var (
 			Entity: "onchain",
 			Action: "read",
 		}},
+		"/walletrpc.WalletKit/RequiredReserve": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
 		"/walletrpc.WalletKit/ImportAccount": {{
 			Entity: "onchain",
 			Action: "write",
@@ -1466,6 +1470,27 @@ func (w *WalletKit) ListAccounts(ctx context.Context,
 	}
 
 	return &ListAccountsResponse{Accounts: rpcAccounts}, nil
+}
+
+// RequiredReserve returns the minimum amount of satoshis that should be
+// kept in the wallet in order to fee bump anchor channels if necessary.
+// The value scales with the number of public anchor channels but is
+// capped at a maximum.
+func (w *WalletKit) RequiredReserve(ctx context.Context,
+	req *RequiredReserveRequest) (*RequiredReserveResponse, error) {
+
+	numAnchorChans, err := w.cfg.CurrentNumAnchorChans()
+	if err != nil {
+		return nil, err
+	}
+
+	additionalChans := req.AdditionalPublicChannels
+	totalChans := uint32(numAnchorChans) + additionalChans
+	reserved := w.cfg.Wallet.RequiredReserve(totalChans)
+
+	return &RequiredReserveResponse{
+		RequiredReserve: int64(reserved),
+	}, nil
 }
 
 // parseAddrType parses an address type from its RPC representation to a

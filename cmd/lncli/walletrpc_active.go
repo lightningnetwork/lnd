@@ -66,6 +66,7 @@ func walletCommands() []cli.Command {
 				listLeasesCommand,
 				psbtCommand,
 				accountsCommand,
+				requiredReserveCommand,
 			},
 		},
 	}
@@ -1074,6 +1075,53 @@ func listAccounts(ctx *cli.Context) error {
 		AddressType: addrType,
 	}
 	resp, err := walletClient.ListAccounts(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}
+
+var requiredReserveCommand = cli.Command{
+	Name:  "requiredreserve",
+	Usage: "Returns the wallet reserve.",
+	Description: `
+	Returns the minimum amount of satoshis that should be kept in the
+	wallet in order to fee bump anchor channels if necessary. The value
+	scales with the number of public anchor channels but is	capped at
+	a maximum.
+
+	Use the flag --additional_channels to get the reserve value based
+	on the additional channels you would like to open.
+	`,
+	Flags: []cli.Flag{
+		cli.Uint64Flag{
+			Name: "additional_channels",
+			Usage: "(optional) specify the additional public channels " +
+				"that you would like to open",
+		},
+	},
+	Action: actionDecorator(requiredReserve),
+}
+
+func requiredReserve(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() > 0 || ctx.NumFlags() > 1 {
+		return cli.ShowCommandHelp(ctx, "requiredreserve")
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	req := &walletrpc.RequiredReserveRequest{
+		AdditionalPublicChannels: uint32(ctx.Uint64("additional_channels")),
+	}
+	resp, err := walletClient.RequiredReserve(ctxc, req)
 	if err != nil {
 		return err
 	}

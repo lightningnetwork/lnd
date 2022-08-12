@@ -1360,6 +1360,11 @@ var buildRouteCommand = cli.Command{
 				"use for the first hop of the payment",
 			Value: 0,
 		},
+		cli.StringFlag{
+			Name: "payment_addr",
+			Usage: "hex encoded payment address to set in the " +
+				"last hop's mpp record",
+		},
 	},
 }
 
@@ -1394,12 +1399,24 @@ func buildRoute(ctx *cli.Context) error {
 		}
 	}
 
+	var (
+		payAddr []byte
+		err     error
+	)
+	if ctx.IsSet("payment_addr") {
+		payAddr, err = hex.DecodeString(ctx.String("payment_addr"))
+		if err != nil {
+			return fmt.Errorf("error parsing payment_addr: %v", err)
+		}
+	}
+
 	// Call BuildRoute rpc.
 	req := &routerrpc.BuildRouteRequest{
 		AmtMsat:        amtMsat,
 		FinalCltvDelta: int32(ctx.Int64("final_cltv_delta")),
 		HopPubkeys:     rpcHops,
 		OutgoingChanId: ctx.Uint64("outgoing_chan_id"),
+		PaymentAddr:    payAddr,
 	}
 
 	route, err := client.BuildRoute(ctxc, req)

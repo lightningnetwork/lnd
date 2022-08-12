@@ -38,6 +38,7 @@ func (h *HarnessTest) WaitForBlockchainSync(hn *node.HarnessNode) {
 		if resp.SyncedToChain {
 			return nil
 		}
+
 		return fmt.Errorf("%s is not synced to chain", hn.Name())
 	}, DefaultTimeout)
 
@@ -231,8 +232,10 @@ func (h *HarnessTest) AssertNumEdges(hn *node.HarnessNode,
 				// slice.
 				edges = chanGraph.Edges[old:]
 			}
+
 			return nil
 		}
+
 		return errNumNotMatched(hn.Name(), "num of channel edges",
 			expected, total-old, total, old)
 	}, DefaultTimeout)

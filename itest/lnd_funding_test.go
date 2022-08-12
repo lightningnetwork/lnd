@@ -501,7 +501,7 @@ func testExternalFundingChanPoint(ht *lntest.HarnessTest) {
 	// a transaction that will never be published.
 	const thawHeight uint32 = 10
 	const chanSize = funding.MaxBtcFundingAmount
-	fundingShim1, chanPoint1, _ := deriveFundingShim(
+	fundingShim1, chanPoint1 := deriveFundingShim(
 		ht, carol, dave, chanSize, thawHeight, false,
 	)
 	ht.OpenChannelAssertPending(
@@ -517,7 +517,7 @@ func testExternalFundingChanPoint(ht *lntest.HarnessTest) {
 	// externally funded, we should still be able to open another one. Let's
 	// do exactly that now. For this one we publish the transaction so we
 	// can mine it later.
-	fundingShim2, chanPoint2, _ := deriveFundingShim(
+	fundingShim2, chanPoint2 := deriveFundingShim(
 		ht, carol, dave, chanSize, thawHeight, true,
 	)
 
@@ -801,7 +801,7 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 func deriveFundingShim(ht *lntest.HarnessTest,
 	carol, dave *node.HarnessNode, chanSize btcutil.Amount,
 	thawHeight uint32, publish bool) (*lnrpc.FundingShim,
-	*lnrpc.ChannelPoint, *chainhash.Hash) {
+	*lnrpc.ChannelPoint) {
 
 	keyLoc := &signrpc.KeyLocator{KeyFamily: 9999}
 	carolFundingKey := carol.RPC.DeriveKey(keyLoc)
@@ -887,5 +887,5 @@ func deriveFundingShim(ht *lntest.HarnessTest,
 	}
 	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
 
-	return fundingShim, chanPoint, txid
+	return fundingShim, chanPoint
 }

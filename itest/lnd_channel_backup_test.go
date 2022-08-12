@@ -376,6 +376,8 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 				// Now that we have Dave's backup file, we'll
 				// create a new nodeRestorer that will restore
 				// using the on-disk channel.backup.
+				//
+				//nolint:lll
 				backup := &lnrpc.RestoreChanBackupRequest_MultiChanBackup{
 					MultiChanBackup: multi,
 				}
@@ -606,7 +608,7 @@ func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 		_, minerHeight := ht.Miner.GetBestBlock()
 		thawHeight := uint32(minerHeight + thawHeightDelta)
 
-		fundingShim, _, _ = deriveFundingShim(
+		fundingShim, _ = deriveFundingShim(
 			ht, dave, carol, crs.params.Amt, thawHeight, true,
 		)
 		crs.params.FundingShim = fundingShim
@@ -1022,17 +1024,20 @@ func testExportChannelBackup(ht *lntest.HarnessTest) {
 		require.NoError(ht, err, "timeout checking num single backup")
 	}
 
-	assertMultiBackupFound := func() func(bool, map[wire.OutPoint]struct{}) {
+	assertMultiBackupFound := func() func(bool,
+		map[wire.OutPoint]struct{}) {
+
 		chanSnapshot := carol.RPC.ExportAllChanBackups()
 
 		return func(found bool, chanPoints map[wire.OutPoint]struct{}) {
+			num := len(chanSnapshot.MultiChanBackup.MultiChanBackup)
+
 			switch {
 			case found && chanSnapshot.MultiChanBackup == nil:
 				require.Fail(ht, "multi-backup not present")
 
 			case !found && chanSnapshot.MultiChanBackup != nil &&
-				(len(chanSnapshot.MultiChanBackup.MultiChanBackup) !=
-					chanbackup.NilMultiSizePacked):
+				num != chanbackup.NilMultiSizePacked:
 
 				require.Fail(ht, "found multi-backup when "+
 					"non should be found")
@@ -1295,8 +1300,9 @@ func createLegacyRevocationChannel(ht *lntest.HarnessTest,
 	}
 	fundResp := from.RPC.FundPsbt(fundReq)
 
-	// We have a PSBT that has no witness data yet, which is exactly what we
-	// need for the next step of verifying the PSBT with the funding intents.
+	// We have a PSBT that has no witness data yet, which is exactly what
+	// we need for the next step of verifying the PSBT with the funding
+	// intents.
 	msg := &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
 			PsbtVerify: &lnrpc.FundingPsbtVerify{

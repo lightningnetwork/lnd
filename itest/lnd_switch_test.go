@@ -131,11 +131,6 @@ func testSwitchOfflineDelivery(ht *lntest.HarnessTest) {
 	// Wait until all outstanding htlcs in the network have been settled.
 	s.assertHTLCs(ht, 0)
 
-	// When asserting the amount of satoshis moved, we'll factor in the
-	// default base fee, as we didn't modify the fee structure when
-	// creating the seed nodes in the network.
-	const baseFee = 1
-
 	// At this point all the channels within our proto network should be
 	// shifted by 5k satoshis in the direction of Carol, the sink within the
 	// payment flow generated above. The order of asserts corresponds to
@@ -174,6 +169,8 @@ func testSwitchOfflineDelivery(ht *lntest.HarnessTest) {
 //  3. Carol --- Dave  X  Alice <-- Bob  settle last hop
 //  4. Carol --- Dave  X         X  Bob  restart Alice
 //  5. Carol <-- Dave <-- Alice --- Bob  expect settle to propagate
+//
+//nolint:dupword
 func testSwitchOfflineDeliveryPersistence(ht *lntest.HarnessTest) {
 	// Setup our test scenario. We should now have four nodes running with
 	// three channels.
@@ -260,6 +257,8 @@ func testSwitchOfflineDeliveryPersistence(ht *lntest.HarnessTest) {
 //  3. Carol --- Dave  X  Alice <-- Bob  settle last hop
 //  4. Carol --- Dave  X         X       shutdown Bob, restart Alice
 //  5. Carol <-- Dave <-- Alice  X       expect settle to propagate
+//
+//nolint:dupword
 func testSwitchOfflineDeliveryOutgoingOffline(ht *lntest.HarnessTest) {
 	// Setup our test scenario. We should now have four nodes running with
 	// three channels. Note that we won't call the cleanUp function here as

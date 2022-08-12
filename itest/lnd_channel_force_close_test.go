@@ -602,6 +602,18 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// checkForceClosedChannelNumHtlcs verifies that a force closed channel
 	// has the proper number of htlcs.
+	checkPendingChannelNumHtlcs := func(
+		forceClose lntest.PendingForceClose) error {
+
+		if len(forceClose.PendingHtlcs) != numInvoices {
+			return fmt.Errorf("expected force closed channel to "+
+				"have %d pending htlcs, found %d instead",
+				numInvoices, len(forceClose.PendingHtlcs))
+		}
+
+		return nil
+	}
+
 	err = wait.NoError(func() error {
 		// Now that the commit output has been fully swept, check to
 		// see that the channel remains open for the pending htlc
@@ -613,7 +625,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		// The commitment funds will have been recovered after the
 		// commit txn was included in the last block. The htlc funds
 		// will be shown in limbo.
-		err := checkPendingChannelNumHtlcs(forceClose, numInvoices)
+		err := checkPendingChannelNumHtlcs(forceClose)
 		if err != nil {
 			return err
 		}
@@ -661,7 +673,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 		// We should now be at the block just before the utxo nursery
 		// will attempt to broadcast the htlc timeout transactions.
-		err = checkPendingChannelNumHtlcs(forceClose, numInvoices)
+		err = checkPendingChannelNumHtlcs(forceClose)
 		if err != nil {
 			return err
 		}
@@ -704,9 +716,9 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Retrieve each htlc timeout txn from the mempool, and ensure it is
 	// well-formed. This entails verifying that each only spends from
-	// output, and that that output is from the commitment txn. In case
-	// this is an anchor channel, the transactions are aggregated by the
-	// sweeper into one.
+	// output, and that output is from the commitment txn. In case this is
+	// an anchor channel, the transactions are aggregated by the sweeper
+	// into one.
 	numInputs := 1
 	if channelType == lnrpc.CommitmentType_ANCHORS {
 		numInputs = numInvoices + 1
@@ -798,7 +810,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 		// We record the htlc amount less fees here, so that we know
 		// what value to expect for the second stage of our htlc
-		// htlc resolution.
+		// resolution.
 		htlcLessFees = uint64(outputs[0].Value)
 	}
 
@@ -840,7 +852,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 			return fmt.Errorf("htlc funds should still be in limbo")
 		}
 
-		return checkPendingChannelNumHtlcs(forceClose, numInvoices)
+		return checkPendingChannelNumHtlcs(forceClose)
 	}, defaultTimeout)
 	require.NoError(ht, err, "timeout while checking force closed channel")
 
@@ -915,7 +927,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		forceClose := ht.AssertChannelPendingForceClose(
 			alice, chanPoint,
 		)
-		err := checkPendingChannelNumHtlcs(forceClose, numInvoices)
+		err := checkPendingChannelNumHtlcs(forceClose)
 		if err != nil {
 			return err
 		}
@@ -1106,23 +1118,6 @@ func checkCommitmentMaturity(forceClose lntest.PendingForceClose,
 		return fmt.Errorf("expected commitment blocks til maturity to "+
 			"be %d, found %d instead", blocksTilMaturity,
 			forceClose.BlocksTilMaturity)
-	}
-
-	return nil
-}
-
-// checkForceClosedChannelNumHtlcs verifies that a force closed channel has the
-// proper number of htlcs.
-//
-// NOTE: only used in current test file.
-func checkPendingChannelNumHtlcs(
-	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel,
-	expectedNumHtlcs int) error {
-
-	if len(forceClose.PendingHtlcs) != expectedNumHtlcs {
-		return fmt.Errorf("expected force closed channel to have %d "+
-			"pending htlcs, found %d instead", expectedNumHtlcs,
-			len(forceClose.PendingHtlcs))
 	}
 
 	return nil

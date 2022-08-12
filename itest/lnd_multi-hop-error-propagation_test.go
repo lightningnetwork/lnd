@@ -46,7 +46,6 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 	// channel between them so we have the topology: Alice -> Bob -> Carol.
 	// The channel created will be of lower capacity that the one created
 	// above.
-	const bobChanAmt = funding.MaxBtcFundingAmount
 	chanPointBob := ht.OpenChannel(
 		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)

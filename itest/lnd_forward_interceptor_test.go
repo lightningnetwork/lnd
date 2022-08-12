@@ -416,6 +416,7 @@ func (c *interceptorTestScenario) prepareTestCases() []*interceptorTestCase {
 		t.invoice = invoice
 		t.payAddr = payReq.PaymentAddr
 	}
+
 	return cases
 }
 

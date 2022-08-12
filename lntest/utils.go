@@ -162,10 +162,12 @@ func NodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
 // function provides a simple way to allow test balance assertions to take fee
 // calculations into account.
 func CalcStaticFee(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
+	//nolint:lll
 	const (
 		htlcWeight         = input.HTLCWeight
-		anchorSize         = 330
+		anchorSize         = 330 * 2
 		defaultSatPerVByte = lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte
+		scale              = 1000
 	)
 
 	var (
@@ -180,10 +182,10 @@ func CalcStaticFee(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 	// channels.
 	if CommitTypeHasAnchors(c) {
 		feePerKw = chainfee.SatPerKVByte(
-			defaultSatPerVByte * 1000,
+			defaultSatPerVByte * scale,
 		).FeePerKWeight()
 		commitWeight = input.AnchorCommitWeight
-		anchors = 2 * anchorSize
+		anchors = anchorSize
 	}
 
 	return feePerKw.FeeForWeight(int64(commitWeight+htlcWeight*numHTLCs)) +
@@ -194,7 +196,9 @@ func CalcStaticFee(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 // funding manager's config, which corresponds to the maximum MaxHTLC value we
 // allow users to set when updating a channel policy.
 func CalculateMaxHtlc(chanCap btcutil.Amount) uint64 {
-	reserve := lnwire.NewMSatFromSatoshis(chanCap / 100)
+	const ratio = 100
+	reserve := lnwire.NewMSatFromSatoshis(chanCap / ratio)
 	max := lnwire.NewMSatFromSatoshis(chanCap) - reserve
+
 	return uint64(max)
 }

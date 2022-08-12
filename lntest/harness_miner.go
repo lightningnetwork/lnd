@@ -55,6 +55,7 @@ type HarnessMiner struct {
 // NewMiner creates a new miner using btcd backend with the default log file
 // dir and name.
 func NewMiner(ctxt context.Context, t *testing.T) *HarnessMiner {
+	t.Helper()
 	return newMiner(ctxt, t, minerLogDir, minerLogFilename)
 }
 
@@ -71,6 +72,8 @@ func NewTempMiner(ctxt context.Context, t *testing.T,
 // newMiner creates a new miner using btcd's rpctest.
 func newMiner(ctxb context.Context, t *testing.T, minerDirName,
 	logFilename string) *HarnessMiner {
+
+	t.Helper()
 
 	handler := &rpcclient.NotificationHandlers{}
 	btcdBinary := node.GetBtcdBinary()
@@ -92,6 +95,7 @@ func newMiner(ctxb context.Context, t *testing.T, minerDirName,
 	require.NoError(t, err, "unable to create mining node")
 
 	ctxt, cancel := context.WithCancel(ctxb)
+
 	return &HarnessMiner{
 		T:           t,
 		Harness:     miner,
@@ -137,6 +141,7 @@ func (h *HarnessMiner) Stop() {
 func (h *HarnessMiner) GetBestBlock() (*chainhash.Hash, int32) {
 	blockHash, height, err := h.Client.GetBestBlock()
 	require.NoError(h, err, "failed to GetBestBlock")
+
 	return blockHash, height
 }
 
@@ -145,6 +150,7 @@ func (h *HarnessMiner) GetBestBlock() (*chainhash.Hash, int32) {
 func (h *HarnessMiner) GetRawMempool() []*chainhash.Hash {
 	mempool, err := h.Client.GetRawMempool()
 	require.NoError(h, err, "unable to get mempool")
+
 	return mempool
 }
 
@@ -161,6 +167,7 @@ func (h *HarnessMiner) GenerateBlocks(num uint32) []*chainhash.Hash {
 func (h *HarnessMiner) GetBlock(blockHash *chainhash.Hash) *wire.MsgBlock {
 	block, err := h.Client.GetBlock(blockHash)
 	require.NoError(h, err, "unable to get block")
+
 	return block
 }
 
@@ -289,6 +296,7 @@ func (h *HarnessMiner) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
 	}, wait.MinerMempoolTimeout)
 
 	require.NoError(h, err, "timeout checking mempool")
+
 	return msgTx
 }
 

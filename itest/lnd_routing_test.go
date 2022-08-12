@@ -476,6 +476,8 @@ func testSendToRouteErrorPropagation(ht *lntest.HarnessTest) {
 // testPrivateChannels tests that a private channel can be used for
 // routing by the two endpoints of the channel, but is not known by
 // the rest of the nodes in the graph.
+//
+//nolint:dupword
 func testPrivateChannels(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
@@ -1285,7 +1287,8 @@ func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 		case *lnrpc.FeeLimit_Fixed:
 			sendReq.FeeLimitMsat = 1000 * limit.Fixed
 		case *lnrpc.FeeLimit_Percent:
-			sendReq.FeeLimitMsat = 1000 * paymentAmt * limit.Percent / 100
+			sendReq.FeeLimitMsat = 1000 * paymentAmt *
+				limit.Percent / 100
 		}
 
 		result := ht.SendPaymentAssertSettled(alice, sendReq)

@@ -312,6 +312,7 @@ func optionScidAliasScenario(ht *lntest.HarnessTest, chantype, private bool) {
 		require.Len(ht, decodedReq.RouteHints, 0)
 		payReq := daveInvoiceResp2.PaymentRequest
 		ht.CompletePaymentRequests(bob, []string{payReq})
+
 		return
 	}
 

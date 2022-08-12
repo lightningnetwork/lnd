@@ -964,7 +964,8 @@ func testListAddresses(ht *lntest.HarnessTest) {
 	})
 	generatedAddr[resp.Address] = addressDetails{
 		Balance: 400_000,
-		Type:    walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH,
+		Type: walletrpc.
+			AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH,
 	}
 
 	for addr, addressDetail := range generatedAddr {

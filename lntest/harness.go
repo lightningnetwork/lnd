@@ -37,6 +37,10 @@ const (
 	// numBlocksOpenChannel specifies the number of blocks mined when
 	// opening a channel.
 	numBlocksOpenChannel = 6
+
+	// lndErrorChanSize specifies the buffer size used to receive errors
+	// from lnd process.
+	lndErrorChanSize = 10
 )
 
 // TestCase defines a test case that's been used in the integration test.
@@ -84,7 +88,7 @@ type HarnessTest struct {
 	// runCtx is a context with cancel method. It's used to signal when the
 	// node needs to quit, and used as the parent context when spawning
 	// children contexts for RPC requests.
-	runCtx context.Context
+	runCtx context.Context //nolint:containedctx
 	cancel context.CancelFunc
 
 	// stopChainBackend points to the cleanup function returned by the
@@ -101,10 +105,13 @@ type HarnessTest struct {
 func NewHarnessTest(t *testing.T, lndBinary string, feeService WebFeeService,
 	dbBackend node.DatabaseBackend) *HarnessTest {
 
+	t.Helper()
+
 	// Create the run context.
 	ctxt, cancel := context.WithCancel(context.Background())
 
 	manager := newNodeManager(lndBinary, dbBackend)
+
 	return &HarnessTest{
 		T:          t,
 		manager:    manager,
@@ -113,7 +120,7 @@ func NewHarnessTest(t *testing.T, lndBinary string, feeService WebFeeService,
 		cancel:     cancel,
 		// We need to use buffered channel here as we don't want to
 		// block sending errors.
-		lndErrorChan: make(chan error, 10),
+		lndErrorChan: make(chan error, lndErrorChanSize),
 	}
 }
 
@@ -188,6 +195,8 @@ func (h *HarnessTest) SetupStandbyNodes() {
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}
 
+	const initialFund = 10 * btcutil.SatoshiPerBitcoin
+
 	// Load up the wallets of the seeder nodes with 10 outputs of 10 BTC
 	// each.
 	nodes := []*node.HarnessNode{h.Alice, h.Bob}
@@ -206,7 +215,7 @@ func (h *HarnessTest) SetupStandbyNodes() {
 
 			output := &wire.TxOut{
 				PkScript: addrScript,
-				Value:    10 * btcutil.SatoshiPerBitcoin,
+				Value:    initialFund,
 			}
 			h.Miner.SendOutput(output, defaultMinerFeeRate)
 		}
@@ -222,7 +231,7 @@ func (h *HarnessTest) SetupStandbyNodes() {
 	h.WaitForBlockchainSync(h.Bob)
 
 	// Now block until both wallets have fully synced up.
-	expectedBalance := int64(btcutil.SatoshiPerBitcoin * 100)
+	const expectedBalance = 10 * initialFund
 	err := wait.NoError(func() error {
 		aliceResp := h.Alice.RPC.WalletBalance()
 		bobResp := h.Bob.RPC.WalletBalance()
@@ -285,6 +294,8 @@ func (h *HarnessTest) RunTestCase(testCase *TestCase) {
 // resetStandbyNodes resets all standby nodes by attaching the new testing.T
 // and restarting them with the original config.
 func (h *HarnessTest) resetStandbyNodes(t *testing.T) {
+	t.Helper()
+
 	for _, hn := range h.manager.standbyNodes {
 		// Inherit the testing.T.
 		h.T = t
@@ -312,7 +323,7 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 		Miner:        h.Miner,
 		standbyNodes: h.standbyNodes,
 		feeService:   h.feeService,
-		lndErrorChan: make(chan error, 10),
+		lndErrorChan: make(chan error, lndErrorChanSize),
 	}
 
 	// Inherit context from the main test.

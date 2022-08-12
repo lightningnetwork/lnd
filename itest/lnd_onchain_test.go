@@ -172,6 +172,7 @@ func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 			return fmt.Errorf("expected 0 pending sweeps, found %d",
 				len(resp.PendingSweeps))
 		}
+
 		return nil
 	}, defaultTimeout)
 	require.NoError(ht, err, "timeout checking bob's pending sweeps")
@@ -276,6 +277,7 @@ func testAnchorReservedValue(ht *lntest.HarnessTest) {
 			}
 
 			balance = resp.TotalBalance
+
 			return nil
 		}, defaultTimeout)
 		require.NoError(ht, err, "timeout checking alice's balance")

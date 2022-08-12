@@ -260,9 +260,7 @@ func testTaprootSignOutputRawScriptSpend(ht *lntest.HarnessTest,
 	require.NoError(ht, err)
 
 	// Send some coins to the generated tapscript address.
-	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
-		ht, alice, taprootKey, testAmount,
-	)
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(ht, alice, taprootKey)
 
 	// Spend the output again, this time back to a p2wkh address.
 	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
@@ -413,9 +411,7 @@ func testTaprootSignOutputRawKeySpendBip86(ht *lntest.HarnessTest,
 	taprootKey := txscript.ComputeTaprootKeyNoScript(internalKey)
 
 	// Send some coins to the generated tapscript address.
-	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
-		ht, alice, taprootKey, testAmount,
-	)
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(ht, alice, taprootKey)
 
 	// Spend the output again, this time back to a p2wkh address.
 	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
@@ -514,9 +510,7 @@ func testTaprootSignOutputRawKeySpendRootHash(ht *lntest.HarnessTest,
 	taprootKey := txscript.ComputeTaprootOutputKey(internalKey, rootHash[:])
 
 	// Send some coins to the generated tapscript address.
-	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
-		ht, alice, taprootKey, testAmount,
-	)
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(ht, alice, taprootKey)
 
 	// Spend the output again, this time back to a p2wkh address.
 	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
@@ -601,9 +595,7 @@ func testTaprootMuSig2KeySpendBip86(ht *lntest.HarnessTest,
 	)
 
 	// Send some coins to the generated tapscript address.
-	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
-		ht, alice, taprootKey, testAmount,
-	)
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(ht, alice, taprootKey)
 
 	// Spend the output again, this time back to a p2wkh address.
 	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
@@ -733,9 +725,7 @@ func testTaprootMuSig2KeySpendRootHash(ht *lntest.HarnessTest,
 	)
 
 	// Send some coins to the generated tapscript address.
-	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
-		ht, alice, taprootKey, testAmount,
-	)
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(ht, alice, taprootKey)
 
 	// Spend the output again, this time back to a p2wkh address.
 	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
@@ -870,9 +860,7 @@ func testTaprootMuSig2ScriptSpend(ht *lntest.HarnessTest,
 	tapscript := input.TapscriptFullTree(internalKey, leaf1)
 
 	// Send some coins to the generated tapscript address.
-	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
-		ht, alice, taprootKey, testAmount,
-	)
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(ht, alice, taprootKey)
 
 	// Spend the output again, this time back to a p2wkh address.
 	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
@@ -951,9 +939,7 @@ func testTaprootMuSig2CombinedLeafKeySpend(ht *lntest.HarnessTest,
 	require.NoError(ht, err)
 
 	// Send some coins to the generated tapscript address.
-	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
-		ht, alice, taprootKey, testAmount,
-	)
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(ht, alice, taprootKey)
 
 	// Spend the output again, this time back to a p2wkh address.
 	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
@@ -1151,9 +1137,7 @@ func testTaprootImportTapscriptFullTree(ht *lntest.HarnessTest,
 	require.Equal(ht, calculatedAddr.String(), importResp.P2TrAddress)
 
 	// Send some coins to the generated tapscript address.
-	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
-		ht, alice, taprootKey, testAmount,
-	)
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(ht, alice, taprootKey)
 	p2trOutputRPC := &lnrpc.OutPoint{
 		TxidBytes:   p2trOutpoint.Hash[:],
 		OutputIndex: p2trOutpoint.Index,
@@ -1221,9 +1205,7 @@ func testTaprootImportTapscriptPartialReveal(ht *lntest.HarnessTest,
 	require.Equal(ht, calculatedAddr.String(), importResp.P2TrAddress)
 
 	// Send some coins to the generated tapscript address.
-	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
-		ht, alice, taprootKey, testAmount,
-	)
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(ht, alice, taprootKey)
 
 	p2trOutputRPC := &lnrpc.OutPoint{
 		TxidBytes:   p2trOutpoint.Hash[:],
@@ -1280,9 +1262,7 @@ func testTaprootImportTapscriptRootHashOnly(ht *lntest.HarnessTest,
 	require.Equal(ht, calculatedAddr.String(), importResp.P2TrAddress)
 
 	// Send some coins to the generated tapscript address.
-	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
-		ht, alice, taprootKey, testAmount,
-	)
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(ht, alice, taprootKey)
 
 	p2trOutputRPC := &lnrpc.OutPoint{
 		TxidBytes:   p2trOutpoint.Hash[:],
@@ -1339,9 +1319,7 @@ func testTaprootImportTapscriptFullKey(ht *lntest.HarnessTest,
 	require.Equal(ht, calculatedAddr.String(), importResp.P2TrAddress)
 
 	// Send some coins to the generated tapscript address.
-	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
-		ht, alice, taprootKey, testAmount,
-	)
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(ht, alice, taprootKey)
 
 	p2trOutputRPC := &lnrpc.OutPoint{
 		TxidBytes:   p2trOutpoint.Hash[:],
@@ -1480,7 +1458,7 @@ func newAddrWithScript(ht *lntest.HarnessTest, node *node.HarnessNode,
 // sendToTaprootOutput sends coins to a p2tr output of the given taproot key and
 // mines a block to confirm the coins.
 func sendToTaprootOutput(ht *lntest.HarnessTest, hn *node.HarnessNode,
-	taprootKey *btcec.PublicKey, amt int64) (wire.OutPoint, []byte) {
+	taprootKey *btcec.PublicKey) (wire.OutPoint, []byte) {
 
 	tapScriptAddr, err := btcutil.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey), harnessNetParams,
@@ -1492,7 +1470,7 @@ func sendToTaprootOutput(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	// Send some coins to the generated tapscript address.
 	req := &lnrpc.SendCoinsRequest{
 		Addr:   tapScriptAddr.String(),
-		Amount: amt,
+		Amount: testAmount,
 	}
 	hn.RPC.SendCoins(req)
 

@@ -61,6 +61,8 @@ var _ WebFeeService = (*FeeService)(nil)
 
 // Start spins up a go-routine to serve fee estimates.
 func NewFeeService(t *testing.T) *FeeService {
+	t.Helper()
+
 	port := node.NextAvailablePort()
 	f := FeeService{
 		T: t,
@@ -82,6 +84,7 @@ func NewFeeService(t *testing.T) *FeeService {
 		Addr:    listenAddr,
 		Handler: mux,
 	}
+
 	return &f
 }
 
@@ -123,6 +126,7 @@ func (f *FeeService) Stop() error {
 	require.NoError(f, err, "cannot stop fee api")
 
 	f.wg.Wait()
+
 	return nil
 }
 

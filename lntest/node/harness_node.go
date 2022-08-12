@@ -116,7 +116,7 @@ func NewHarnessNode(t *testing.T, cfg *BaseNodeConfig) (*HarnessNode, error) {
 
 	// Create temporary database.
 	var dbName string
-	if cfg.DbBackend == BackendPostgres {
+	if cfg.DBBackend == BackendPostgres {
 		var err error
 		dbName, err = createTempPgDb()
 		if err != nil {
@@ -374,7 +374,7 @@ func (hn *HarnessNode) StartLndCmd(ctxb context.Context) error {
 	hn.runCtx, hn.cancel = context.WithCancel(ctxb)
 
 	args := hn.Cfg.GenArgs()
-	hn.cmd = exec.Command(hn.Cfg.LndBinary, args...) //nolint:gosec
+	hn.cmd = exec.Command(hn.Cfg.LndBinary, args...)
 
 	// Redirect stderr output to buffer
 	var errb bytes.Buffer
@@ -649,9 +649,10 @@ func (hn *HarnessNode) waitForProcessExit() {
 		// Otherwise, we print the error, break the select and save
 		// logs.
 		hn.printErrf("wait process exit got err: %v", err)
+
 		break
 
-	case <-time.After(wait.DefaultTimeout * 2):
+	case <-time.After(wait.DefaultTimeout):
 		hn.printErrf("timeout waiting for process to exit")
 	}
 
@@ -783,7 +784,7 @@ func (hn *HarnessNode) Kill() error {
 
 // printErrf prints an error to the console.
 func (hn *HarnessNode) printErrf(format string, a ...interface{}) {
-	fmt.Printf("itest error from [%s:%s]: %s\n", // nolint:forbidigo
+	fmt.Printf("itest error from [%s:%s]: %s\n", //nolint:forbidigo
 		hn.Cfg.LogFilenamePrefix, hn.Cfg.Name,
 		fmt.Sprintf(format, a...))
 }
@@ -945,7 +946,7 @@ func finalizeLogfile(hn *HarnessNode) {
 // finalizeEtcdLog saves the etcd log files when test ends.
 func finalizeEtcdLog(hn *HarnessNode) {
 	// Exit early if this is not etcd backend.
-	if hn.Cfg.DbBackend != BackendEtcd {
+	if hn.Cfg.DBBackend != BackendEtcd {
 		return
 	}
 

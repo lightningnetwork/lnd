@@ -103,7 +103,7 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 		netParams, nil, args, node.GetBtcdBinary(),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to create btcd node: %v",
+		return nil, nil, fmt.Errorf("unable to create btcd node: %w",
 			err)
 	}
 
@@ -112,11 +112,16 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 	// are already blocks present, which will take a bit longer than the
 	// 1 second the default settings amount to. Doubling both values will
 	// give us retries up to 4 seconds.
-	chainBackend.MaxConnRetries = rpctest.DefaultMaxConnectionRetries * 2
-	chainBackend.ConnectionRetryTimeout = rpctest.DefaultConnectionRetryTimeout * 2
+	const (
+		maxConnRetries   = rpctest.DefaultMaxConnectionRetries * 2
+		connRetryTimeout = rpctest.DefaultConnectionRetryTimeout * 2
+	)
+
+	chainBackend.MaxConnRetries = maxConnRetries
+	chainBackend.ConnectionRetryTimeout = connRetryTimeout
 
 	if err := chainBackend.SetUp(false, 0); err != nil {
-		return nil, nil, fmt.Errorf("unable to set up btcd backend: %v",
+		return nil, nil, fmt.Errorf("unable to set up btcd backend: %w",
 			err)
 	}
 

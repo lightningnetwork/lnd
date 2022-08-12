@@ -116,7 +116,7 @@ type BaseNodeConfig struct {
 
 	FeeURL string
 
-	DbBackend   DatabaseBackend
+	DBBackend   DatabaseBackend
 	PostgresDsn string
 
 	// NodeID is a unique ID used to identify the node.
@@ -240,7 +240,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		args = append(args, "--noseedbackup")
 	}
 
-	switch cfg.DbBackend {
+	switch cfg.DBBackend {
 	case BackendEtcd:
 		args = append(args, "--db.backend=etcd")
 		args = append(args, "--db.etcd.embedded")
@@ -349,6 +349,7 @@ func GetLogDir() string {
 	if logSubDir != nil && *logSubDir != "" {
 		return *logSubDir
 	}
+
 	return "."
 }
 

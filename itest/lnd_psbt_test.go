@@ -2,8 +2,6 @@ package itest
 
 import (
 	"bytes"
-	"context"
-	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -1181,39 +1179,6 @@ func deriveInternalKey(ht *lntest.HarnessTest,
 	require.NoError(ht, err)
 
 	return keyDesc, parsedPubKey, fullDerivationPath
-}
-
-// receiveChanUpdate waits until a message is received on the stream or the
-// context is canceled. The context must have a timeout or must be canceled
-// in case no message is received, otherwise this function will block forever.
-func receiveChanUpdate(ctx context.Context,
-	stream lnrpc.Lightning_OpenChannelClient) (*lnrpc.OpenStatusUpdate,
-	error) {
-
-	chanMsg := make(chan *lnrpc.OpenStatusUpdate)
-	errChan := make(chan error)
-	go func() {
-		// Consume one message. This will block until the message is
-		// received.
-		resp, err := stream.Recv()
-		if err != nil {
-			errChan <- err
-			return
-		}
-		chanMsg <- resp
-	}()
-
-	select {
-	case <-ctx.Done():
-		return nil, fmt.Errorf("timeout reached before chan pending " +
-			"update sent")
-
-	case err := <-errChan:
-		return nil, err
-
-	case updateMsg := <-chanMsg:
-		return updateMsg, nil
-	}
 }
 
 // sendAllCoinsToAddrType sweeps all coins from the wallet and sends them to a

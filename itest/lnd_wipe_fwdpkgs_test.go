@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type pendingChan *lnrpc.PendingChannelsResponse_PendingChannel
-
 // testWipeForwardingPackagesLocal tests that when a channel is closed, either
 // through local force close, remote close, or coop close, all the forwarding
 // packages of that particular channel are deleted. The test creates a

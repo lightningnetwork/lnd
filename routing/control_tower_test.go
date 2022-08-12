@@ -48,7 +48,7 @@ var (
 func TestControlTowerSubscribeUnknown(t *testing.T) {
 	t.Parallel()
 
-	db, err := initDB()
+	db, err := initDB(false)
 	require.NoError(t, err, "unable to init db")
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
@@ -65,7 +65,7 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 func TestControlTowerSubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
-	db, err := initDB()
+	db, err := initDB(false)
 	require.NoError(t, err, "unable to init db")
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
@@ -165,16 +165,24 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 func TestPaymentControlSubscribeFail(t *testing.T) {
 	t.Parallel()
 
-	t.Run("register attempt", func(t *testing.T) {
-		testPaymentControlSubscribeFail(t, true)
+	t.Run("register attempt, keep failed payments", func(t *testing.T) {
+		testPaymentControlSubscribeFail(t, true, true)
 	})
-	t.Run("no register attempt", func(t *testing.T) {
-		testPaymentControlSubscribeFail(t, false)
+	t.Run("register attempt, delete failed payments", func(t *testing.T) {
+		testPaymentControlSubscribeFail(t, true, false)
+	})
+	t.Run("no register attempt, keep failed payments", func(t *testing.T) {
+		testPaymentControlSubscribeFail(t, false, true)
+	})
+	t.Run("no register attempt, delete failed payments", func(t *testing.T) {
+		testPaymentControlSubscribeFail(t, false, false)
 	})
 }
 
-func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
-	db, err := initDB()
+func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
+	keepFailedPaymentAttempts bool) {
+
+	db, err := initDB(keepFailedPaymentAttempts)
 	require.NoError(t, err, "unable to init db")
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
@@ -228,8 +236,8 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
 	subscriber2, err := pControl.SubscribePayment(info.PaymentIdentifier)
 	require.NoError(t, err, "expected subscribe to succeed, but got")
 
-	// We expect all subscribers to now report the final outcome followed by
-	// no other events.
+	// We expect both subscribers to now report the final outcome followed
+	// by no other events.
 	subscribers := []*ControlTowerSubscriber{
 		subscriber1, subscriber2,
 	}
@@ -286,13 +294,17 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
 	}
 }
 
-func initDB() (*channeldb.DB, error) {
+func initDB(keepFailedPaymentAttempts bool) (*channeldb.DB, error) {
 	tempPath, err := ioutil.TempDir("", "routingdb")
 	if err != nil {
 		return nil, err
 	}
 
-	db, err := channeldb.Open(tempPath)
+	db, err := channeldb.Open(
+		tempPath, channeldb.OptionKeepFailedPaymentAttempts(
+			keepFailedPaymentAttempts,
+		),
+	)
 	if err != nil {
 		return nil, err
 	}

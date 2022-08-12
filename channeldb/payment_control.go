@@ -223,6 +223,19 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 	return updateErr
 }
 
+// DeleteFailedAttempts deletes all failed htlcs for a payment if configured
+// by the PaymentControl db.
+func (p *PaymentControl) DeleteFailedAttempts(hash lntypes.Hash) error {
+	if !p.db.keepFailedPaymentAttempts {
+		const failedHtlcsOnly = true
+		err := p.db.DeletePayment(hash, failedHtlcsOnly)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // paymentIndexTypeHash is a payment index type which indicates that we have
 // created an index of payment sequence number to payment hash.
 type paymentIndexType uint8

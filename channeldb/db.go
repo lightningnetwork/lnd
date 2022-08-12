@@ -247,10 +247,11 @@ type DB struct {
 	// channelStateDB separates all DB operations on channel state.
 	channelStateDB *ChannelStateDB
 
-	dbPath string
-	graph  *ChannelGraph
-	clock  clock.Clock
-	dryRun bool
+	dbPath                    string
+	graph                     *ChannelGraph
+	clock                     clock.Clock
+	dryRun                    bool
+	keepFailedPaymentAttempts bool
 }
 
 // Open opens or creates channeldb. Any necessary schemas migrations due
@@ -303,8 +304,9 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, 
 			},
 			backend: backend,
 		},
-		clock:  opts.clock,
-		dryRun: opts.dryRun,
+		clock:                     opts.clock,
+		dryRun:                    opts.dryRun,
+		keepFailedPaymentAttempts: opts.keepFailedPaymentAttempts,
 	}
 
 	// Set the parent pointer (only used in tests).

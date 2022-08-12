@@ -45,11 +45,6 @@ var (
 	// logOutput is true.
 	logSubDir = flag.String("logdir", ".", "default dir to write logs to")
 
-	// goroutineDump is a flag that can be set to dump the active
-	// goroutines of test nodes on failure.
-	goroutineDump = flag.Bool("goroutinedump", false,
-		"write goroutine dump from node n to file pprof-n.log")
-
 	// btcdExecutable is the full path to the btcd binary.
 	btcdExecutable = flag.String(
 		"btcdexec", "", "full path to btcd binary",

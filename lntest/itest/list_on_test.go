@@ -485,4 +485,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "remote signer",
 		TestFunc: testRemoteSigner,
 	},
+	{
+		Name:     "taproot coop close",
+		TestFunc: testTaprootCoopClose,
+	},
 }

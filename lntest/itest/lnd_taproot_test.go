@@ -22,7 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
@@ -1763,47 +1762,25 @@ func createMuSigSessions(ht *lntemp.HarnessTest, node *node.HarnessNode,
 	return internalKey, combinedKey, sessResp1, sessResp2, sessResp3
 }
 
-// assertTaprootDeliveryUsed returns true if a Taproot addr was used in the
-// co-op close transaction.
-func assertTaprootDeliveryUsed(net *lntest.NetworkHarness,
-	t *harnessTest, closingTxid *chainhash.Hash) bool {
-
-	tx, err := net.Miner.Client.GetRawTransaction(closingTxid)
-	require.NoError(t.t, err, "unable to get closing tx")
-
-	for _, txOut := range tx.MsgTx().TxOut {
-		if !txscript.IsPayToTaproot(txOut.PkScript) {
-			return false
-		}
-	}
-
-	return true
-}
-
 // testTaprootCoopClose asserts that if both peers signal ShutdownAnySegwit,
 // then a taproot closing addr is used. Otherwise, we shouldn't expect one to
 // be used.
-func testTaprootCoopClose(net *lntest.NetworkHarness, t *harnessTest) {
+func testTaprootCoopClose(ht *lntemp.HarnessTest) {
 	// We'll start by making two new nodes, and funding a channel between
 	// them.
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("Carol", nil)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
-
-	dave := net.NewNode(t.t, "Dave", nil)
-	defer shutdownAndAssert(net, t, dave)
-
-	net.EnsureConnected(t.t, carol, dave)
+	dave := ht.NewNode("Dave", nil)
+	ht.EnsureConnected(carol, dave)
 
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
 	satPerVbyte := btcutil.Amount(1)
 
 	// We'll now open a channel between Carol and Dave.
-	chanPoint := openChannelAndAssert(
-		t, net, carol, dave,
-		lntest.OpenChannelParams{
+	chanPoint := ht.OpenChannel(
+		carol, dave, lntemp.OpenChannelParams{
 			Amt:         chanAmt,
 			PushAmt:     pushAmt,
 			SatPerVByte: satPerVbyte,
@@ -1811,24 +1788,34 @@ func testTaprootCoopClose(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// We'll now close out the channel and obtain the closing TXID.
-	closingTxid := closeChannelAndAssert(t, net, carol, chanPoint, false)
+	closingTxid := ht.CloseChannel(carol, chanPoint)
+
+	// assertTaprootDeliveryUsed returns true if a Taproot addr was used in
+	// the co-op close transaction.
+	assertTaprootDeliveryUsed := func(closingTxid *chainhash.Hash) bool {
+		tx := ht.Miner.GetRawTransaction(closingTxid)
+		for _, txOut := range tx.MsgTx().TxOut {
+			if !txscript.IsPayToTaproot(txOut.PkScript) {
+				return false
+			}
+		}
+
+		return true
+	}
 
 	// We expect that the closing transaction only has P2TR addresses.
-	require.True(t.t, assertTaprootDeliveryUsed(net, t, closingTxid),
+	require.True(ht, assertTaprootDeliveryUsed(closingTxid),
 		"taproot addr not used!")
 
 	// Now we'll bring Eve into the mix, Eve is running older software that
 	// doesn't understand Taproot.
 	eveArgs := []string{"--protocol.no-any-segwit"}
-	eve := net.NewNode(t.t, "Eve", eveArgs)
-	defer shutdownAndAssert(net, t, eve)
-
-	net.EnsureConnected(t.t, carol, eve)
+	eve := ht.NewNode("Eve", eveArgs)
+	ht.EnsureConnected(carol, eve)
 
 	// We'll now open up a chanel again between Carol and Eve.
-	chanPoint = openChannelAndAssert(
-		t, net, carol, eve,
-		lntest.OpenChannelParams{
+	chanPoint = ht.OpenChannel(
+		carol, eve, lntemp.OpenChannelParams{
 			Amt:         chanAmt,
 			PushAmt:     pushAmt,
 			SatPerVByte: satPerVbyte,
@@ -1837,7 +1824,7 @@ func testTaprootCoopClose(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll now close out this channel and expect that no Taproot
 	// addresses are used in the co-op close transaction.
-	closingTxid = closeChannelAndAssert(t, net, carol, chanPoint, false)
-	require.False(t.t, assertTaprootDeliveryUsed(net, t, closingTxid),
+	closingTxid = ht.CloseChannel(carol, chanPoint)
+	require.False(ht, assertTaprootDeliveryUsed(closingTxid),
 		"taproot addr shouldn't be used!")
 }

@@ -9,10 +9,6 @@ var allTestCases = []*testCase{
 		test: testBidirectionalAsyncPayments,
 	},
 	{
-		name: "taproot coop close",
-		test: testTaprootCoopClose,
-	},
-	{
 		name: "trackpayments",
 		test: testTrackPayments,
 	},

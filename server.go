@@ -4217,11 +4217,9 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	delete(s.persistentPeers, pubStr)
 	delete(s.persistentPeersBackoff, pubStr)
 
-	// Remove the current peer from the server's internal state and signal
-	// that the peer termination watcher does not need to execute for this
-	// peer.
-	s.removePeer(peer)
-	s.ignorePeerTermination[peer] = struct{}{}
+	// Remove the peer by calling Disconnect. Previously this was done with
+	// removePeer, which bypassed the peerTerminationWatcher.
+	peer.Disconnect(fmt.Errorf("server: DisconnectPeer called"))
 
 	return nil
 }

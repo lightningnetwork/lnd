@@ -87,5 +87,5 @@ func TestTickSignal(t *testing.T) {
 
 	// Once the ticker is registered, set the time to make it fire.
 	c.SetTime(testTime.Add(time.Second))
-	assert.NoError(t, <-err)
+	require.NoError(t, <-err)
 }

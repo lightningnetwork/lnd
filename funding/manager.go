@@ -1369,6 +1369,18 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		zeroConf = featureVec.IsSet(lnwire.ZeroConfRequired)
 		scid = featureVec.IsSet(lnwire.ScidAliasRequired)
 
+		// If the zero-conf channel type was negotiated, ensure that
+		// the acceptor allows it.
+		if zeroConf && !acceptorResp.ZeroConf {
+			// Fail the funding flow.
+			flowErr := fmt.Errorf("channel acceptor blocked " +
+				"zero-conf channel negotiation")
+			f.failFundingFlow(
+				peer, msg.PendingChannelID, flowErr,
+			)
+			return
+		}
+
 		// If the zero-conf channel type wasn't negotiated and the
 		// fundee still wants a zero-conf channel, perform more checks.
 		// Require that both sides have the scid-alias feature bit set.

@@ -19,6 +19,8 @@ import (
 // testZeroConfChannelOpen tests that opening a zero-conf channel works and
 // sending payments also works.
 func testZeroConfChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
 	// Since option-scid-alias is opt-in, the provided harness nodes will
 	// not have the feature bit set. Also need to set anchors as those are
 	// default-off in itests.
@@ -44,7 +46,6 @@ func testZeroConfChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// Wait for both Bob and Carol to view the channel as active.
-	ctxb := context.Background()
 	err := net.Bob.WaitForNetworkChannelOpen(fundingPoint)
 	require.NoError(t.t, err, "bob didn't report channel")
 	err = carol.WaitForNetworkChannelOpen(fundingPoint)
@@ -60,6 +61,12 @@ func testZeroConfChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
 	// Ensure that both Carol and Dave are connected.
 	net.EnsureConnected(t.t, carol, dave)
 
+	// Setup a ChannelAcceptor for Dave.
+	ctxc, cancel := context.WithCancel(ctxb)
+	acceptStream, err := dave.ChannelAcceptor(ctxc)
+	require.NoError(t.t, err)
+	go acceptChannel(t, true, acceptStream)
+
 	// Open a private zero-conf anchors channel of 1M satoshis.
 	params := lntest.OpenChannelParams{
 		Amt:            chanAmt,
@@ -68,6 +75,9 @@ func testZeroConfChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
 		ZeroConf:       true,
 	}
 	chanOpenUpdate := openChannelStream(t, net, carol, dave, params)
+
+	// Remove the ChannelAcceptor.
+	cancel()
 
 	// We should receive the OpenStatusUpdate_ChanOpen update without
 	// having to mine any blocks.
@@ -153,9 +163,18 @@ func testZeroConfChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
 	// Give Eve some coins to fund the channel.
 	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, eve)
 
+	// Setup a ChannelAcceptor.
+	ctxc, cancel = context.WithCancel(ctxb)
+	acceptStream, err = carol.ChannelAcceptor(ctxc)
+	require.NoError(t.t, err)
+	go acceptChannel(t, true, acceptStream)
+
 	// We'll open a public zero-conf anchors channel of 1M satoshis.
 	params.Private = false
 	chanOpenUpdate2 := openChannelStream(t, net, eve, carol, params)
+
+	// Remove the ChannelAcceptor.
+	cancel()
 
 	// Wait to receive the OpenStatusUpdate_ChanOpen update.
 	fundingPoint3, err := net.WaitForChannelOpen(chanOpenUpdate2)
@@ -581,6 +600,12 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 	err = dave.WaitForNetworkChannelOpen(fundingPoint)
 	require.NoError(t.t, err, "dave didn't report channel")
 
+	// Setup a ChannelAcceptor for Dave.
+	ctxc, cancel := context.WithCancel(ctxb)
+	acceptStream, err := dave.ChannelAcceptor(ctxc)
+	require.NoError(t.t, err)
+	go acceptChannel(t, zeroConf, acceptStream)
+
 	// Open a private channel, optionally specifying a channel-type.
 	params := lntest.OpenChannelParams{
 		Amt:            chanAmt,
@@ -591,6 +616,9 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 		PushAmt:        chanAmt / 2,
 	}
 	chanOpenUpdate := openChannelStream(t, net, carol, dave, params)
+
+	// Remove the ChannelAcceptor.
+	cancel()
 
 	if !zeroConf {
 		// If this is not a zero-conf channel, mine a single block to

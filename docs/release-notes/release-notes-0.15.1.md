@@ -13,6 +13,9 @@
   information. A new `listaliases` API has also been added that returns a data dump of all
   existing alias info.](https://github.com/lightningnetwork/lnd/pull/6734)
 
+* [Adds a `ZeroConfAcceptor` that rejects any zero-conf channel opens unless an RPC `ChannelAcceptor` is
+  active. This is a safety measure to avoid funds loss.](https://github.com/lightningnetwork/lnd/pull/6716)
+
 ## Build system
 
 * [Add the release build directory to the `.gitignore` file to avoid the release

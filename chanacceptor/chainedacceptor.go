@@ -23,6 +23,8 @@ func NewChainedAcceptor() *ChainedAcceptor {
 }
 
 // AddAcceptor adds a ChannelAcceptor to this ChainedAcceptor.
+//
+// NOTE: Part of the MultiplexAcceptor interface.
 func (c *ChainedAcceptor) AddAcceptor(acceptor ChannelAcceptor) uint64 {
 	id := atomic.AddUint64(&c.acceptorID, 1)
 
@@ -36,10 +38,20 @@ func (c *ChainedAcceptor) AddAcceptor(acceptor ChannelAcceptor) uint64 {
 
 // RemoveAcceptor removes a ChannelAcceptor from this ChainedAcceptor given
 // an ID.
+//
+// NOTE: Part of the MultiplexAcceptor interface.
 func (c *ChainedAcceptor) RemoveAcceptor(id uint64) {
 	c.acceptorsMtx.Lock()
 	delete(c.acceptors, id)
 	c.acceptorsMtx.Unlock()
+}
+
+// numAcceptors returns the number of acceptors contained in the
+// ChainedAcceptor.
+func (c *ChainedAcceptor) numAcceptors() int {
+	c.acceptorsMtx.RLock()
+	defer c.acceptorsMtx.RUnlock()
+	return len(c.acceptors)
 }
 
 // Accept evaluates the results of all ChannelAcceptors in the acceptors map
@@ -91,5 +103,5 @@ func (c *ChainedAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptRespon
 }
 
 // A compile-time constraint to ensure ChainedAcceptor implements the
-// ChannelAcceptor interface.
-var _ ChannelAcceptor = (*ChainedAcceptor)(nil)
+// MultiplexAcceptor interface.
+var _ MultiplexAcceptor = (*ChainedAcceptor)(nil)

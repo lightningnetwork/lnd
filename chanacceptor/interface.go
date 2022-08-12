@@ -118,3 +118,16 @@ func (c *ChannelAcceptResponse) RejectChannel() bool {
 type ChannelAcceptor interface {
 	Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse
 }
+
+// MultiplexAcceptor is an interface that abstracts the ability of a
+// ChannelAcceptor to contain sub-ChannelAcceptors.
+type MultiplexAcceptor interface {
+	// Embed the ChannelAcceptor.
+	ChannelAcceptor
+
+	// AddAcceptor nests a ChannelAcceptor inside the MultiplexAcceptor.
+	AddAcceptor(acceptor ChannelAcceptor) uint64
+
+	// Remove a sub-ChannelAcceptor.
+	RemoveAcceptor(id uint64)
+}

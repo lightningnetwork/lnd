@@ -69,6 +69,36 @@ type dustHandler interface {
 	getDustClosure() dustClosure
 }
 
+// scidAliasHandler is an interface that the ChannelLink implements so it can
+// properly handle option_scid_alias channels.
+type scidAliasHandler interface {
+	// attachFailAliasUpdate allows the link to properly fail incoming
+	// HTLCs on option_scid_alias channels.
+	attachFailAliasUpdate(failClosure func(
+		sid lnwire.ShortChannelID,
+		incoming bool) *lnwire.ChannelUpdate)
+
+	// getAliases fetches the link's underlying aliases. This is used by
+	// the Switch to determine whether to forward an HTLC and where to
+	// forward an HTLC.
+	getAliases() []lnwire.ShortChannelID
+
+	// isZeroConf returns whether or not the underlying channel is a
+	// zero-conf channel.
+	isZeroConf() bool
+
+	// negotiatedAliasFeature returns whether the option-scid-alias feature
+	// bit was negotiated.
+	negotiatedAliasFeature() bool
+
+	// confirmedScid returns the confirmed SCID for a zero-conf channel.
+	confirmedScid() lnwire.ShortChannelID
+
+	// zeroConfConfirmed returns whether or not the zero-conf channel has
+	// confirmed.
+	zeroConfConfirmed() bool
+}
+
 // ChannelUpdateHandler is an interface that provides methods that allow
 // sending lnwire.Message to the underlying link as well as querying state.
 type ChannelUpdateHandler interface {
@@ -138,6 +168,13 @@ type ChannelLink interface {
 	// Embed the dustHandler interface.
 	dustHandler
 
+	// Embed the scidAliasHandler interface.
+	scidAliasHandler
+
+	// IsUnadvertised returns true if the underlying channel is
+	// unadvertised.
+	IsUnadvertised() bool
+
 	// ChannelPoint returns the channel outpoint for the channel link.
 	ChannelPoint() *wire.OutPoint
 
@@ -165,7 +202,7 @@ type ChannelLink interface {
 	CheckHtlcForward(payHash [32]byte, incomingAmt lnwire.MilliSatoshi,
 		amtToForward lnwire.MilliSatoshi,
 		incomingTimeout, outgoingTimeout uint32,
-		heightNow uint32) *LinkError
+		heightNow uint32, scid lnwire.ShortChannelID) *LinkError
 
 	// CheckHtlcTransit should return a nil error if the passed HTLC details
 	// satisfy the current channel policy.  Otherwise, a LinkError with a

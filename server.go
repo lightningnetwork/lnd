@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/connmgr"
@@ -23,6 +24,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/cert"
@@ -242,6 +244,8 @@ type server struct {
 	// miscDB is the DB that contains all "other" databases within the main
 	// channel DB that haven't been separated out yet.
 	miscDB *channeldb.DB
+
+	aliasMgr *aliasmgr.Manager
 
 	htlcSwitch *htlcswitch.Switch
 
@@ -530,6 +534,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoWumbo:                  !cfg.ProtocolOptions.Wumbo(),
 		NoScriptEnforcementLease: cfg.ProtocolOptions.NoScriptEnforcementLease(),
 		NoKeysend:                !cfg.AcceptKeySend,
+		NoOptionScidAlias:        !cfg.ProtocolOptions.ScidAlias(),
+		NoZeroConf:               !cfg.ProtocolOptions.ZeroConf(),
 	})
 	if err != nil {
 		return nil, err
@@ -614,6 +620,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	thresholdSats := btcutil.Amount(cfg.DustThreshold)
 	thresholdMSats := lnwire.NewMSatFromSatoshis(thresholdSats)
 
+	s.aliasMgr, err = aliasmgr.NewManager(dbs.ChanStateDB)
+	if err != nil {
+		return nil, err
+	}
+
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
 		DB:                   dbs.ChanStateDB,
 		FetchAllOpenChannels: s.chanStateDB.FetchAllOpenChannels,
@@ -646,6 +657,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Clock:                  clock.NewDefaultClock(),
 		HTLCExpiry:             htlcswitch.DefaultHTLCExpiry,
 		DustThreshold:          thresholdMSats,
+		SignAliasUpdate:        s.signAliasUpdate,
+		IsAlias:                aliasmgr.IsAlias,
 	}, uint32(currentHeight))
 	if err != nil {
 		return nil, err
@@ -909,6 +922,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PathFindingConfig:   pathFindingConfig,
 		Clock:               clock.NewDefaultClock(),
 		StrictZombiePruning: strictPruning,
+		IsAlias:             aliasmgr.IsAlias,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %v", err)
@@ -951,6 +965,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PinnedSyncers:           cfg.Gossip.PinnedSyncers,
 		MaxChannelUpdateBurst:   cfg.Gossip.MaxChannelUpdateBurst,
 		ChannelUpdateInterval:   cfg.Gossip.ChannelUpdateInterval,
+		IsAlias:                 aliasmgr.IsAlias,
+		SignAliasUpdate:         s.signAliasUpdate,
+		FindBaseByAlias:         s.aliasMgr.FindBaseSCID,
+		GetAlias:                s.aliasMgr.GetPeerAlias,
 	}, nodeKeyDesc)
 
 	s.localChanMgr = &localchans.Manager{
@@ -1155,6 +1173,46 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
+	// Wrap the DeleteChannelEdges method so that the funding manager can
+	// use it without depending on several layers of indirection.
+	deleteAliasEdge := func(scid lnwire.ShortChannelID) (
+		*channeldb.ChannelEdgePolicy, error) {
+
+		info, e1, e2, err := s.graphDB.FetchChannelEdgesByID(
+			scid.ToUint64(),
+		)
+		if err == channeldb.ErrEdgeNotFound {
+			// This is unlikely but there is a slim chance of this
+			// being hit if lnd was killed via SIGKILL and the
+			// funding manager was stepping through the delete
+			// alias edge logic.
+			return nil, nil
+		} else if err != nil {
+			return nil, err
+		}
+
+		// Grab our key to find our policy.
+		var ourKey [33]byte
+		copy(ourKey[:], nodeKeyDesc.PubKey.SerializeCompressed())
+
+		var ourPolicy *channeldb.ChannelEdgePolicy
+		if info != nil && info.NodeKey1Bytes == ourKey {
+			ourPolicy = e1
+		} else {
+			ourPolicy = e2
+		}
+
+		if ourPolicy == nil {
+			// Something is wrong, so return an error.
+			return nil, fmt.Errorf("we don't have an edge")
+		}
+
+		err = s.graphDB.DeleteChannelEdges(
+			false, false, scid.ToUint64(),
+		)
+		return ourPolicy, err
+	}
+
 	s.fundingMgr, err = funding.NewFundingManager(funding.Config{
 		NoWumboChans:       !cfg.ProtocolOptions.Wumbo(),
 		IDKey:              nodeKeyDesc.PubKey,
@@ -1173,15 +1231,16 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		SendAnnouncement: s.authGossiper.ProcessLocalAnnouncement,
 		NotifyWhenOnline: s.NotifyWhenOnline,
 		TempChanIDSeed:   chanIDSeed,
-		FindChannel: func(chanID lnwire.ChannelID) (
-			*channeldb.OpenChannel, error) {
+		FindChannel: func(node *btcec.PublicKey,
+			chanID lnwire.ChannelID) (*channeldb.OpenChannel,
+			error) {
 
-			dbChannels, err := s.chanStateDB.FetchAllChannels()
+			nodeChans, err := s.chanStateDB.FetchOpenChannels(node)
 			if err != nil {
 				return nil, err
 			}
 
-			for _, channel := range dbChannels {
+			for _, channel := range nodeChans {
 				if chanID.IsChanPoint(&channel.FundingOutpoint) {
 					return channel, nil
 				}
@@ -1339,6 +1398,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		RegisteredChains:              cfg.registeredChains,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
+		DeleteAliasEdge: deleteAliasEdge,
+		AliasManager:    s.aliasMgr,
 	})
 	if err != nil {
 		return nil, err
@@ -1493,6 +1554,20 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s.connMgr = cmgr
 
 	return s, nil
+}
+
+// signAliasUpdate takes a ChannelUpdate and returns the signature. This is
+// used for option_scid_alias channels where the ChannelUpdate to be sent back
+// may differ from what is on disk.
+func (s *server) signAliasUpdate(u *lnwire.ChannelUpdate) (*ecdsa.Signature,
+	error) {
+
+	data, err := u.DataToSign()
+	if err != nil {
+		return nil, err
+	}
+
+	return s.cc.MsgSigner.SignMessage(s.identityKeyLoc, data, true)
 }
 
 // createLivenessMonitor creates a set of health checks using our configured
@@ -2063,7 +2138,9 @@ func (s *server) Stop() error {
 		s.connMgr.Stop()
 
 		// Shutdown the wallet, funding manager, and the rpc server.
-		s.chanStatusMgr.Stop()
+		if err := s.chanStatusMgr.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop chanStatusMgr: %v", err)
+		}
 		if err := s.htlcSwitch.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop htlcSwitch: %v", err)
 		}
@@ -3100,7 +3177,6 @@ func (s *server) NotifyWhenOnline(peerKey [33]byte,
 	peerChan chan<- lnpeer.Peer) {
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// Compute the target peer's identifier.
 	pubStr := string(peerKey[:])
@@ -3108,6 +3184,19 @@ func (s *server) NotifyWhenOnline(peerKey [33]byte,
 	// Check if peer is connected.
 	peer, ok := s.peersByPub[pubStr]
 	if ok {
+		// Unlock here so that the mutex isn't held while we are
+		// waiting for the peer to become active.
+		s.mu.Unlock()
+
+		// Wait until the peer signals that it is actually active
+		// rather than only in the server's maps.
+		select {
+		case <-peer.ActiveSignal():
+		case <-peer.QuitSignal():
+			// The peer quit so we'll just return.
+			return
+		}
+
 		// Connected, can return early.
 		srvrLog.Debugf("Notifying that peer %x is online", peerKey)
 
@@ -3124,6 +3213,7 @@ func (s *server) NotifyWhenOnline(peerKey [33]byte,
 	s.peerConnectedListeners[pubStr] = append(
 		s.peerConnectedListeners[pubStr], peerChan,
 	)
+	s.mu.Unlock()
 }
 
 // NotifyWhenOffline delivers a notification to the caller of when the peer with
@@ -3621,6 +3711,9 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		PendingCommitInterval:  s.cfg.PendingCommitInterval,
 		ChannelCommitBatchSize: s.cfg.ChannelCommitBatchSize,
 		HandleCustomMessage:    s.handleCustomMessage,
+		GetAliases:             s.aliasMgr.GetAliases,
+		RequestAlias:           s.aliasMgr.RequestAlias,
+		AddLocalAlias:          s.aliasMgr.AddLocalAlias,
 		Quit:                   s.quit,
 	}
 
@@ -4369,9 +4462,30 @@ func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
 }
 
 // applyChannelUpdate applies the channel update to the different sub-systems of
-// the server.
-func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate) error {
-	errChan := s.authGossiper.ProcessLocalAnnouncement(update)
+// the server. The useAlias boolean denotes whether or not to send an alias in
+// place of the real SCID.
+func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate,
+	op *wire.OutPoint, useAlias bool) error {
+
+	var (
+		peerAlias    *lnwire.ShortChannelID
+		defaultAlias lnwire.ShortChannelID
+	)
+
+	chanID := lnwire.NewChanIDFromOutPoint(op)
+
+	// Fetch the peer's alias from the lnwire.ChannelID so it can be used
+	// in the ChannelUpdate if it hasn't been announced yet.
+	if useAlias {
+		foundAlias, _ := s.aliasMgr.GetPeerAlias(chanID)
+		if foundAlias != defaultAlias {
+			peerAlias = &foundAlias
+		}
+	}
+
+	errChan := s.authGossiper.ProcessLocalAnnouncement(
+		update, discovery.RemoteAlias(peerAlias),
+	)
 	select {
 	case err := <-errChan:
 		return err

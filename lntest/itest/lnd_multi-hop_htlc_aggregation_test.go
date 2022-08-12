@@ -23,14 +23,15 @@ import (
 // case of anchor channels, the second-level spends can also be aggregated and
 // properly feebumped, so we'll check that as well.
 func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
-	alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType) {
+	alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType,
+	zeroConf bool) {
 
 	const finalCltvDelta = 40
 	ctxb := context.Background()
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
-		t, net, alice, bob, false, c,
+		t, net, alice, bob, false, c, zeroConf,
 	)
 	defer shutdownAndAssert(net, t, carol)
 

@@ -2,6 +2,15 @@ package lnwire
 
 import (
 	"fmt"
+	"io"
+
+	"github.com/lightningnetwork/lnd/tlv"
+)
+
+const (
+	// AliasScidRecordType is the type of the experimental record to denote
+	// the alias being used in an option_scid_alias channel.
+	AliasScidRecordType tlv.Type = 1
 )
 
 // ShortChannelID represents the set of data which is needed to retrieve all
@@ -45,4 +54,39 @@ func (c ShortChannelID) ToUint64() uint64 {
 // String generates a human-readable representation of the channel ID.
 func (c ShortChannelID) String() string {
 	return fmt.Sprintf("%d:%d:%d", c.BlockHeight, c.TxIndex, c.TxPosition)
+}
+
+// Record returns a TLV record that can be used to encode/decode a
+// ShortChannelID to/from a TLV stream.
+func (c *ShortChannelID) Record() tlv.Record {
+	return tlv.MakeStaticRecord(
+		AliasScidRecordType, c, 8, EShortChannelID, DShortChannelID,
+	)
+}
+
+// EShortChannelID is an encoder for ShortChannelID. It is exported so other
+// packages can use the encoding scheme.
+func EShortChannelID(w io.Writer, val interface{}, buf *[8]byte) error {
+	if v, ok := val.(*ShortChannelID); ok {
+		return tlv.EUint64T(w, v.ToUint64(), buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "lnwire.ShortChannelID")
+}
+
+// DShortChannelID is a decoder for ShortChannelID. It is exported so other
+// packages can use the decoding scheme.
+func DShortChannelID(r io.Reader, val interface{}, buf *[8]byte,
+	l uint64) error {
+
+	if v, ok := val.(*ShortChannelID); ok {
+		var scid uint64
+		err := tlv.DUint64(r, &scid, buf, 8)
+		if err != nil {
+			return err
+		}
+
+		*v = NewShortChanIDFromInt(scid)
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "lnwire.ShortChannelID", l, 8)
 }

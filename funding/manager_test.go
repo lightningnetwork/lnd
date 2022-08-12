@@ -115,7 +115,47 @@ var (
 	testKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
 
 	fundingNetParams = chainreg.BitcoinTestNetParams
+
+	alias = lnwire.ShortChannelID{
+		BlockHeight: 16_000_000,
+		TxIndex:     0,
+		TxPosition:  0,
+	}
 )
+
+type mockAliasMgr struct{}
+
+func (m *mockAliasMgr) RequestAlias() (lnwire.ShortChannelID, error) {
+	return alias, nil
+}
+
+func (m *mockAliasMgr) PutPeerAlias(lnwire.ChannelID,
+	lnwire.ShortChannelID) error {
+
+	return nil
+}
+
+func (m *mockAliasMgr) GetPeerAlias(lnwire.ChannelID) (lnwire.ShortChannelID,
+	error) {
+
+	return alias, nil
+}
+
+func (m *mockAliasMgr) AddLocalAlias(lnwire.ShortChannelID,
+	lnwire.ShortChannelID, bool) error {
+
+	return nil
+}
+
+func (m *mockAliasMgr) GetAliases(
+	lnwire.ShortChannelID) []lnwire.ShortChannelID {
+
+	return []lnwire.ShortChannelID{alias}
+}
+
+func (m *mockAliasMgr) DeleteSixConfs(lnwire.ShortChannelID) error {
+	return nil
+}
 
 type mockNotifier struct {
 	oneConfChannel chan *chainntnfs.TxConfirmation
@@ -199,6 +239,8 @@ type testNode struct {
 	mockChanEvent   *mockChanEvent
 	testDir         string
 	shutdownChannel chan struct{}
+	reportScidChan  chan struct{}
+	localFeatures   []lnwire.FeatureBit
 	remoteFeatures  []lnwire.FeatureBit
 
 	remotePeer  *testNode
@@ -234,7 +276,9 @@ func (n *testNode) QuitSignal() <-chan struct{} {
 }
 
 func (n *testNode) LocalFeatures() *lnwire.FeatureVector {
-	return lnwire.NewFeatureVector(nil, nil)
+	return lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(n.localFeatures...), nil,
+	)
 }
 
 func (n *testNode) RemoteFeatures() *lnwire.FeatureVector {
@@ -307,10 +351,13 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		epochChan:      make(chan *chainntnfs.BlockEpoch, 2),
 	}
 
+	aliasMgr := &mockAliasMgr{}
+
 	sentMessages := make(chan lnwire.Message)
 	sentAnnouncements := make(chan lnwire.Message)
 	publTxChan := make(chan *wire.MsgTx, 1)
 	shutdownChan := make(chan struct{})
+	reportScidChan := make(chan struct{})
 
 	wc := &mock.WalletController{
 		RootKey: alicePrivKey,
@@ -382,14 +429,16 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return lnwire.NodeAnnouncement{}, nil
 		},
 		TempChanIDSeed: chanIDSeed,
-		FindChannel: func(chanID lnwire.ChannelID) (
-			*channeldb.OpenChannel, error) {
-			dbChannels, err := cdb.FetchAllChannels()
+		FindChannel: func(node *btcec.PublicKey,
+			chanID lnwire.ChannelID) (*channeldb.OpenChannel,
+			error) {
+
+			nodeChans, err := cdb.FetchOpenChannels(node)
 			if err != nil {
 				return nil, err
 			}
 
-			for _, channel := range dbChannels {
+			for _, channel := range nodeChans {
 				if chanID.IsChanPoint(&channel.FundingOutpoint) {
 					return channel, nil
 				}
@@ -432,6 +481,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return nil
 		},
 		ReportShortChanID: func(wire.OutPoint) error {
+			reportScidChan <- struct{}{}
 			return nil
 		},
 		PublishTransaction: func(txn *wire.MsgTx, _ string) error {
@@ -450,6 +500,12 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		OpenChannelPredicate:          chainedAcceptor,
 		NotifyPendingOpenChannelEvent: evt.NotifyPendingOpenChannelEvent,
 		RegisteredChains:              chainreg.NewChainRegistry(),
+		DeleteAliasEdge: func(scid lnwire.ShortChannelID) (
+			*channeldb.ChannelEdgePolicy, error) {
+
+			return nil, nil
+		},
+		AliasManager: aliasMgr,
 	}
 
 	for _, op := range options {
@@ -473,6 +529,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		mockChanEvent:   evt,
 		testDir:         tempTestDir,
 		shutdownChannel: shutdownChan,
+		reportScidChan:  reportScidChan,
 		addr:            addr,
 	}
 
@@ -542,6 +599,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		},
 		DefaultMinHtlcIn:       5,
 		RequiredRemoteMaxValue: oldCfg.RequiredRemoteMaxValue,
+		ReportShortChanID:      oldCfg.ReportShortChanID,
 		PublishTransaction: func(txn *wire.MsgTx, _ string) error {
 			publishChan <- txn
 			return nil
@@ -552,6 +610,8 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		ZombieSweeperInterval: oldCfg.ZombieSweeperInterval,
 		ReservationTimeout:    oldCfg.ReservationTimeout,
 		OpenChannelPredicate:  chainedAcceptor,
+		DeleteAliasEdge:       oldCfg.DeleteAliasEdge,
+		AliasManager:          oldCfg.AliasManager,
 	})
 	require.NoError(t, err, "failed recreating aliceFundingManager")
 
@@ -639,7 +699,7 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 
 	publ := fundChannel(
 		t, alice, bob, localFundingAmt, pushAmt, false, numConfs,
-		updateChan, announceChan,
+		updateChan, announceChan, nil,
 	)
 	fundingOutPoint := &wire.OutPoint{
 		Hash:  publ.TxHash(),
@@ -652,7 +712,8 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 // transaction is confirmed on-chain. Returns the funding tx.
 func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	pushAmt btcutil.Amount, subtractFees bool, numConfs uint32,
-	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool) *wire.MsgTx {
+	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool,
+	chanType *lnwire.ChannelType) *wire.MsgTx {
 
 	// Create a funding request and start the workflow.
 	errChan := make(chan error, 1)
@@ -665,6 +726,7 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		PushAmt:         lnwire.NewMSatFromSatoshis(pushAmt),
 		FundingFeePerKw: 1000,
 		Private:         !announceChan,
+		ChannelType:     chanType,
 		Updates:         updateChan,
 		Err:             errChan,
 	}
@@ -3231,7 +3293,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 		pushAmt := btcutil.Amount(0)
 		fundingTx := fundChannel(
 			t, alice, bob, test.spendAmt, pushAmt, true, 1,
-			updateChan, true,
+			updateChan, true, nil,
 		)
 
 		// Check whether the expected change output is present.
@@ -3661,4 +3723,129 @@ func testUpfrontFailure(t *testing.T, pkscript []byte, expectErr bool) {
 		_, ok = aliceMsg.(*lnwire.AcceptChannel)
 		require.True(t, ok, "did not receive AcceptChannel")
 	}
+}
+
+// TestFundingManagerZeroConf tests that the fundingmanager properly handles
+// the whole flow for zero-conf channels.
+func TestFundingManagerZeroConf(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	defer tearDownFundingManagers(t, alice, bob)
+
+	// Alice and Bob will have the same set of feature bits in our test.
+	featureBits := []lnwire.FeatureBit{
+		lnwire.ZeroConfOptional,
+		lnwire.ScidAliasOptional,
+		lnwire.ExplicitChannelTypeOptional,
+		lnwire.StaticRemoteKeyOptional,
+		lnwire.AnchorsZeroFeeHtlcTxOptional,
+	}
+	alice.localFeatures = featureBits
+	alice.remoteFeatures = featureBits
+	bob.localFeatures = featureBits
+	bob.remoteFeatures = featureBits
+
+	fundingAmt := btcutil.Amount(500000)
+	pushAmt := btcutil.Amount(0)
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+
+	// Construct the zero-conf ChannelType for use in open_channel.
+	channelTypeBits := []lnwire.FeatureBit{
+		lnwire.ZeroConfRequired,
+		lnwire.StaticRemoteKeyRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+	}
+	channelType := lnwire.ChannelType(
+		*lnwire.NewRawFeatureVector(channelTypeBits...),
+	)
+
+	// Call fundChannel with the zero-conf ChannelType.
+	fundingTx := fundChannel(
+		t, alice, bob, fundingAmt, pushAmt, false, 1, updateChan, true,
+		&channelType,
+	)
+	fundingOp := &wire.OutPoint{
+		Hash:  fundingTx.TxHash(),
+		Index: 0,
+	}
+
+	// Assert that Bob's funding_locked message has an AliasScid.
+	bobFundingLocked := assertFundingMsgSent(
+		t, bob.msgChan, "FundingLocked",
+	).(*lnwire.FundingLocked)
+	require.NotNil(t, bobFundingLocked.AliasScid)
+	require.Equal(t, *bobFundingLocked.AliasScid, alias)
+
+	// Do the same for Alice as well.
+	aliceFundingLocked := assertFundingMsgSent(
+		t, alice.msgChan, "FundingLocked",
+	).(*lnwire.FundingLocked)
+	require.NotNil(t, aliceFundingLocked.AliasScid)
+	require.Equal(t, *aliceFundingLocked.AliasScid, alias)
+
+	// Exchange the funding_locked messages.
+	alice.fundingMgr.ProcessFundingMsg(bobFundingLocked, bob)
+	bob.fundingMgr.ProcessFundingMsg(aliceFundingLocked, alice)
+
+	// We'll assert that they both create new links.
+	assertHandleFundingLocked(t, alice, bob)
+
+	// We'll now assert that both sides send ChannelAnnouncement and
+	// ChannelUpdate messages.
+	assertChannelAnnouncements(t, alice, bob, fundingAmt, nil, nil)
+
+	// We'll now wait for the OpenStatusUpdate_ChanOpen update.
+	waitForOpenUpdate(t, updateChan)
+
+	// Assert that both Alice & Bob are in the addedToRouterGraph state.
+	assertAddedToRouterGraph(t, alice, bob, fundingOp)
+
+	// We'll now restart Alice's funding manager and assert that the tx
+	// is rebroadcast.
+	recreateAliceFundingManager(t, alice)
+
+	select {
+	case <-alice.publTxChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("timed out waiting for alice to rebroadcast tx")
+	}
+
+	// We'll now confirm the funding transaction.
+	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+
+	assertChannelAnnouncements(t, alice, bob, fundingAmt, nil, nil)
+
+	// Both Alice and Bob should send on reportScidChan.
+	select {
+	case <-alice.reportScidChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("did not call ReportShortChanID in time")
+	}
+
+	select {
+	case <-bob.reportScidChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("did not call ReportShortChanID in time")
+	}
+
+	// Send along the 6-confirmation channel so that announcement sigs can
+	// be exchanged.
+	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+
+	assertAnnouncementSignatures(t, alice, bob)
+
+	// Assert that the channel state is deleted from the fundingmanager's
+	// datastore.
+	assertNoChannelState(t, alice, bob, fundingOp)
 }

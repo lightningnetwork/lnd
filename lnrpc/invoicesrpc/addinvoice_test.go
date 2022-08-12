@@ -274,11 +274,11 @@ func TestSelectHopHints(t *testing.T) {
 				// hop hint.
 				h.Mock.On(
 					"FetchChannelEdgesByID",
-					private1ShortID,
+					mock.Anything,
 				).Return(
 					nil, nil, nil,
 					errors.New("no edge"),
-				)
+				).Times(4)
 			},
 			amount: 100,
 			channels: []*HopHintInfo{
@@ -536,6 +536,10 @@ func TestSelectHopHints(t *testing.T) {
 		},
 	}
 
+	getAlias := func(lnwire.ChannelID) (lnwire.ShortChannelID, error) {
+		return lnwire.ShortChannelID{}, nil
+	}
+
 	for _, test := range tests {
 		test := test
 
@@ -548,6 +552,7 @@ func TestSelectHopHints(t *testing.T) {
 			cfg := &SelectHopHintsCfg{
 				IsPublicNode:          mock.IsPublicNode,
 				FetchChannelEdgesByID: mock.FetchChannelEdgesByID,
+				GetAlias:              getAlias,
 			}
 
 			hints := SelectHopHints(

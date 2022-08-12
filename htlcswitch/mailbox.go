@@ -91,10 +91,6 @@ type mailBoxConfig struct {
 	// belongs to.
 	shortChanID lnwire.ShortChannelID
 
-	// fetchUpdate retrieves the most recent channel update for the channel
-	// this mailbox belongs to.
-	fetchUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
-
 	// forwardPackets send a varidic number of htlcPackets to the switch to
 	// be routed. A quit channel should be provided so that the call can
 	// properly exit during shutdown.
@@ -107,6 +103,11 @@ type mailBoxConfig struct {
 	// have not been yet been delivered. The computed deadline will expiry
 	// this long after the Adds are added via AddPacket.
 	expiry time.Duration
+
+	// failMailboxUpdate is used to fail an expired HTLC and use the
+	// correct SCID if the underlying channel uses aliases.
+	failMailboxUpdate func(outScid,
+		mailboxScid lnwire.ShortChannelID) lnwire.FailureMessage
 }
 
 // memoryMailBox is an implementation of the MailBox struct backed by purely
@@ -710,13 +711,9 @@ func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
 	// Create a temporary channel failure which we will send back to our
 	// peer if this is a forward, or report to the user if the failed
 	// payment was locally initiated.
-	var failure lnwire.FailureMessage
-	update, err := m.cfg.fetchUpdate(m.cfg.shortChanID)
-	if err != nil {
-		failure = &lnwire.FailTemporaryNodeFailure{}
-	} else {
-		failure = lnwire.NewTemporaryChannelFailure(update)
-	}
+	failure := m.cfg.failMailboxUpdate(
+		pkt.originalOutgoingChanID, m.cfg.shortChanID,
+	)
 
 	// If the payment was locally initiated (which is indicated by a nil
 	// obfuscator), we do not need to encrypt it back to the sender.
@@ -817,10 +814,6 @@ type mailOrchConfig struct {
 	// properly exit during shutdown.
 	forwardPackets func(chan struct{}, ...*htlcPacket) error
 
-	// fetchUpdate retrieves the most recent channel update for the channel
-	// this mailbox belongs to.
-	fetchUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
-
 	// clock is a time source for the generated mailboxes.
 	clock clock.Clock
 
@@ -828,6 +821,11 @@ type mailOrchConfig struct {
 	// have not been yet been delivered. The computed deadline will expiry
 	// this long after the Adds are added to a mailbox via AddPacket.
 	expiry time.Duration
+
+	// failMailboxUpdate is used to fail an expired HTLC and use the
+	// correct SCID if the underlying channel uses aliases.
+	failMailboxUpdate func(outScid,
+		mailboxScid lnwire.ShortChannelID) lnwire.FailureMessage
 }
 
 // newMailOrchestrator initializes a fresh mailOrchestrator.
@@ -881,11 +879,11 @@ func (mo *mailOrchestrator) exclusiveGetOrCreateMailBox(
 	mailbox, ok := mo.mailboxes[chanID]
 	if !ok {
 		mailbox = newMemoryMailBox(&mailBoxConfig{
-			shortChanID:    shortChanID,
-			fetchUpdate:    mo.cfg.fetchUpdate,
-			forwardPackets: mo.cfg.forwardPackets,
-			clock:          mo.cfg.clock,
-			expiry:         mo.cfg.expiry,
+			shortChanID:       shortChanID,
+			forwardPackets:    mo.cfg.forwardPackets,
+			clock:             mo.cfg.clock,
+			expiry:            mo.cfg.expiry,
+			failMailboxUpdate: mo.cfg.failMailboxUpdate,
 		})
 		mailbox.Start()
 		mo.mailboxes[chanID] = mailbox

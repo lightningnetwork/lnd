@@ -217,6 +217,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		"--nobootstrap",
 		"--debuglevel=debug",
 		"--bitcoin.defaultchanconfs=1",
+		"--keep-failed-payment-attempts",
 		fmt.Sprintf("--db.batch-commit-interval=%v", commitInterval),
 		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV),
 		fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()),

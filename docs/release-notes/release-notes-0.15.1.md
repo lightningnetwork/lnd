@@ -26,6 +26,10 @@
 * [Fix P2TR support in
   `ComputeInputScript`](https://github.com/lightningnetwork/lnd/pull/6680).
 
+## RPC Server
+
+* [Add wallet reserve rpc & field in wallet balance](https://github.com/lightningnetwork/lnd/pull/6592)
+
 ## Bug Fixes
 
 * Fixed data race found in
@@ -40,9 +44,8 @@
 * [DisconnectPeer no longer interferes with the peerTerminationWatcher. This previously caused
   force closes.](https://github.com/lightningnetwork/lnd/pull/6655)
 
-## RPC Server
-
-* [Add wallet reserve rpc & field in wallet balance](https://github.com/lightningnetwork/lnd/pull/6592)
+* [The HtlcSwitch now waits for a ChannelLink to stop before replacing it. This fixes a race
+  condition.](https://github.com/lightningnetwork/lnd/pull/6642)
 
 # Contributors (Alphabetical Order)
 

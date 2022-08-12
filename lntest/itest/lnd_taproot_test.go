@@ -11,8 +11,10 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
@@ -1497,4 +1499,83 @@ func createMuSigSessions(ctx context.Context, t *harnessTest,
 	require.Equal(t.t, true, nonceResp2.HaveAllNonces)
 
 	return internalKey, combinedKey, sessResp1, sessResp2, sessResp3
+}
+
+// assertTaprootDeliveryUsed returns true if a Taproot addr was used in the
+// co-op close transaction.
+func assertTaprootDeliveryUsed(net *lntest.NetworkHarness,
+	t *harnessTest, closingTxid *chainhash.Hash) bool {
+
+	tx, err := net.Miner.Client.GetRawTransaction(closingTxid)
+	require.NoError(t.t, err, "unable to get closing tx")
+
+	for _, txOut := range tx.MsgTx().TxOut {
+		if !txscript.IsPayToTaproot(txOut.PkScript) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// testTaprootCoopClose asserts that if both peers signal ShutdownAnySegwit,
+// then a taproot closing addr is used. Otherwise, we shouldn't expect one to
+// be used.
+func testTaprootCoopClose(net *lntest.NetworkHarness, t *harnessTest) {
+	// We'll start by making two new nodes, and funding a channel between
+	// them.
+	carol := net.NewNode(t.t, "Carol", nil)
+	defer shutdownAndAssert(net, t, carol)
+
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+
+	dave := net.NewNode(t.t, "Dave", nil)
+	defer shutdownAndAssert(net, t, dave)
+
+	net.EnsureConnected(t.t, carol, dave)
+
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := btcutil.Amount(100000)
+	satPerVbyte := btcutil.Amount(1)
+
+	// We'll now open a channel between Carol and Dave.
+	chanPoint := openChannelAndAssert(
+		t, net, carol, dave,
+		lntest.OpenChannelParams{
+			Amt:         chanAmt,
+			PushAmt:     pushAmt,
+			SatPerVByte: satPerVbyte,
+		},
+	)
+
+	// We'll now close out the channel and obtain the closing TXID.
+	closingTxid := closeChannelAndAssert(t, net, carol, chanPoint, false)
+
+	// We expect that the closing transaction only has P2TR addresses.
+	require.True(t.t, assertTaprootDeliveryUsed(net, t, closingTxid),
+		"taproot addr not used!")
+
+	// Now we'll bring Eve into the mix, Eve is running older software that
+	// doesn't understand Taproot.
+	eveArgs := []string{"--protocol.no-any-segwit"}
+	eve := net.NewNode(t.t, "Eve", eveArgs)
+	defer shutdownAndAssert(net, t, eve)
+
+	net.EnsureConnected(t.t, carol, eve)
+
+	// We'll now open up a chanel again between Carol and Eve.
+	chanPoint = openChannelAndAssert(
+		t, net, carol, eve,
+		lntest.OpenChannelParams{
+			Amt:         chanAmt,
+			PushAmt:     pushAmt,
+			SatPerVByte: satPerVbyte,
+		},
+	)
+
+	// We'll now close out this channel and expect that no Taproot
+	// addresses are used in the co-op close transaction.
+	closingTxid = closeChannelAndAssert(t, net, carol, chanPoint, false)
+	require.False(t.t, assertTaprootDeliveryUsed(net, t, closingTxid),
+		"taproot addr shouldn't be used!")
 }

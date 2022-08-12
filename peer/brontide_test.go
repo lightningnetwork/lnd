@@ -55,6 +55,8 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	mockLink := newMockUpdateHandler(chanID)
 	mockSwitch.links = append(mockSwitch.links, mockLink)
 
+	dummyDeliveryScript := genScript(t, p2wshAddress)
+
 	// We send a shutdown request to Alice. She will now be the responding
 	// node in this shutdown procedure. We first expect Alice to answer
 	// this shutdown request with a Shutdown message.
@@ -155,6 +157,8 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 	mockLink := newMockUpdateHandler(chanID)
 	mockSwitch.links = append(mockSwitch.links, mockLink)
+
+	dummyDeliveryScript := genScript(t, p2wshAddress)
 
 	// We make Alice send a shutdown request.
 	updateChan := make(chan interface{}, 1)
@@ -281,6 +285,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	// Bob sends a shutdown request to Alice. She will now be the responding
 	// node in this shutdown procedure. We first expect Alice to answer this
 	// Shutdown request with a Shutdown message.
+	dummyDeliveryScript := genScript(t, p2wshAddress)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: lnwire.NewShutdown(chanID,
@@ -492,6 +497,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	aliceDeliveryScript := shutdownMsg.Address
 
 	// Bob will answer the Shutdown message with his own Shutdown.
+	dummyDeliveryScript := genScript(t, p2wshAddress)
 	respShutdown := lnwire.NewShutdown(chanID, dummyDeliveryScript)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,

@@ -657,6 +657,13 @@ func (p *Brontide) initGossipSync() {
 	}
 }
 
+// taprootShutdownAllowed returns true if both parties have negotiated the
+// shutdown-any-segwit feature.
+func (p *Brontide) taprootShutdownAllowed() bool {
+	return p.RemoteFeatures().HasFeature(lnwire.ShutdownAnySegwitOptional) &&
+		p.LocalFeatures().HasFeature(lnwire.ShutdownAnySegwitOptional)
+}
+
 // QuitSignal is a method that should return a channel which will be sent upon
 // or closed once the backing peer exits. This allows callers using the
 // interface to cancel any processing in the event the backing implementation
@@ -2244,8 +2251,15 @@ func (p *Brontide) ChannelSnapshots() []*channeldb.ChannelSnapshot {
 // genDeliveryScript returns a new script to be used to send our funds to in
 // the case of a cooperative channel close negotiation.
 func (p *Brontide) genDeliveryScript() ([]byte, error) {
+	// We'll send a normal p2wkh address unless we've negotiated the
+	// shutdown-any-segwit feature.
+	addrType := lnwallet.WitnessPubKey
+	if p.taprootShutdownAllowed() {
+		addrType = lnwallet.TaprootPubkey
+	}
+
 	deliveryAddr, err := p.cfg.Wallet.NewAddress(
-		lnwallet.WitnessPubKey, false, lnwallet.DefaultAccountName,
+		addrType, false, lnwallet.DefaultAccountName,
 	)
 	if err != nil {
 		return nil, err
@@ -2716,7 +2730,8 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 			Disconnect: func() error {
 				return p.cfg.DisconnectPeer(p.IdentityKey())
 			},
-			Quit: p.quit,
+			ChainParams: &p.cfg.Wallet.Cfg.NetParams,
+			Quit:        p.quit,
 		},
 		deliveryScript,
 		fee,

@@ -536,6 +536,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoKeysend:                !cfg.AcceptKeySend,
 		NoOptionScidAlias:        !cfg.ProtocolOptions.ScidAlias(),
 		NoZeroConf:               !cfg.ProtocolOptions.ZeroConf(),
+		NoAnySegwit:              cfg.ProtocolOptions.NoAnySegwit(),
 	})
 	if err != nil {
 		return nil, err
@@ -1577,6 +1578,7 @@ func (s *server) signAliasUpdate(u *lnwire.ChannelUpdate) (*ecdsa.Signature,
 //   - diskCheck
 //   - tlsHealthCheck
 //   - torController, only created when tor is enabled.
+//
 // If a health check has been disabled by setting attempts to 0, our monitor
 // will not run it.
 func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl) {

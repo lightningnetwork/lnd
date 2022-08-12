@@ -25,6 +25,11 @@
   `updatechanstatus`](https://github.com/lightningnetwork/lnd/pull/6705)
   to offer a convenient way to specify the channel to be updated.
 
+* [Add `ignore_pair` flag to 
+  queryroutes](https://github.com/lightningnetwork/lnd/pull/6724) to allow a 
+  user to request that specific directional node pairs be ignored during the 
+  route search.
+
 ## Database
 
 * [Delete failed payment attempts](https://github.com/lightningnetwork/lnd/pull/6438)

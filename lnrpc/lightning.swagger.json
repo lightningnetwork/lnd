@@ -811,6 +811,14 @@
             "required": false,
             "type": "string",
             "format": "uint64"
+          },
+          {
+            "name": "max_fee_per_vbyte",
+            "description": "The maximum fee rate the closer is willing to pay.\n\nNOTE: This field is only respected if we're the initiator of the channel.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
           }
         ],
         "tags": [

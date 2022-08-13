@@ -34,7 +34,9 @@ of the draft BIP.
 ## Taproot
 
 [`lnd` will now refuse to start if it detects the full node backend does not
-support Tapoot](https://github.com/lightningnetwork/lnd/pull/6798).
+support Tapoot](https://github.com/lightningnetwork/lnd/pull/6798). [With this
+change](https://github.com/lightningnetwork/lnd/pull/6826), the officially
+supported versions of bitcoind are: 21, 22, and 23.
 
 [`lnd` will now use taproot addresses for co-op closes if the remote peer
 supports the feature.](https://github.com/lightningnetwork/lnd/pull/6633)

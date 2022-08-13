@@ -14,8 +14,19 @@ func backendSupportsTaproot(rpc *rpcclient.Client) bool {
 	if err == nil {
 		// If this call worked, then we'll check that the taproot
 		// deployment is defined.
-		if chainInfo.SoftForks != nil {
+		switch {
+		// Bitcoind versions before 0.19 and also btcd use the
+		// SoftForks fields.
+		case chainInfo.SoftForks != nil:
 			_, ok := chainInfo.SoftForks.Bip9SoftForks["taproot"]
+			if ok {
+				return ok
+			}
+
+		// Bitcoind versions after 0.19 will use the UnifiedSoftForks
+		// field that factors in the set of "buried" soft forks.
+		case chainInfo.UnifiedSoftForks != nil:
+			_, ok := chainInfo.UnifiedSoftForks.SoftForks["taproot"]
 			if ok {
 				return ok
 			}

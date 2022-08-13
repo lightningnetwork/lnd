@@ -160,3 +160,5 @@ http:
       body: "*"
     - selector: lnrpc.Lightning.SubscribeCustomMessages
       get: "/v1/custommessage/subscribe"      
+    - selector: lnrpc.Lightning.ListAliases
+      get: "/v1/aliases/list"

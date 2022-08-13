@@ -4534,7 +4534,8 @@ func newSweepPkScriptGen(
 
 	return func() ([]byte, error) {
 		sweepAddr, err := wallet.NewAddress(
-			lnwallet.WitnessPubKey, false, lnwallet.DefaultAccountName,
+			lnwallet.TaprootPubkey, false,
+			lnwallet.DefaultAccountName,
 		)
 		if err != nil {
 			return nil, err

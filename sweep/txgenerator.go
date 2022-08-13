@@ -111,8 +111,8 @@ func generateInputPartitionings(sweepableInputs []txInput,
 		// continuing with the remaining inputs will only lead to sets
 		// with an even lower output value.
 		if !txInputs.enoughInput() {
-			// The change output is always a p2wpkh here.
-			dl := lnwallet.DustLimitForSize(input.P2WPKHSize)
+			// The change output is always a p2tr here.
+			dl := lnwallet.DustLimitForSize(input.P2TRSize)
 			log.Debugf("Set value %v (r=%v, c=%v) below dust "+
 				"limit of %v", txInputs.totalOutput(),
 				txInputs.requiredOutput, txInputs.changeOutput,

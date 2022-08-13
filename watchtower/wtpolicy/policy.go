@@ -6,7 +6,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
@@ -156,7 +155,7 @@ func (p Policy) Validate() error {
 // of the justice transaction and subtracting an amount that satisfies the
 // policy's fee rate.
 func (p *Policy) ComputeAltruistOutput(totalAmt btcutil.Amount,
-	txWeight int64) (btcutil.Amount, error) {
+	txWeight int64, sweepScript []byte) (btcutil.Amount, error) {
 
 	txFee := p.SweepFeeRate.FeeForWeight(txWeight)
 	if txFee > totalAmt {
@@ -165,10 +164,9 @@ func (p *Policy) ComputeAltruistOutput(totalAmt btcutil.Amount,
 
 	sweepAmt := totalAmt - txFee
 
-	// TODO(conner): replace w/ configurable dust limit
-	// Check that the created outputs won't be dusty. The sweep pkscript is
-	// currently a p2wpkh, so we'll use that script's dust limit.
-	if sweepAmt < lnwallet.DustLimitForSize(input.P2WPKHSize) {
+	// Check that the created outputs won't be dusty. We'll base the dust
+	// computation on the type of the script itself.
+	if sweepAmt < lnwallet.DustLimitForSize(len(sweepScript)) {
 		return 0, ErrCreatesDust
 	}
 
@@ -180,7 +178,8 @@ func (p *Policy) ComputeAltruistOutput(totalAmt btcutil.Amount,
 // and reward rate. The reward to he tower is subtracted first, before
 // splitting the remaining balance amongst the victim and fees.
 func (p *Policy) ComputeRewardOutputs(totalAmt btcutil.Amount,
-	txWeight int64) (btcutil.Amount, btcutil.Amount, error) {
+	txWeight int64,
+	rewardScript []byte) (btcutil.Amount, btcutil.Amount, error) {
 
 	txFee := p.SweepFeeRate.FeeForWeight(txWeight)
 	if txFee > totalAmt {
@@ -198,10 +197,9 @@ func (p *Policy) ComputeRewardOutputs(totalAmt btcutil.Amount,
 	// input value.
 	sweepAmt := totalAmt - rewardAmt - txFee
 
-	// TODO(conner): replace w/ configurable dust limit
-	// Check that the created outputs won't be dusty. The sweep pkscript is
-	// currently a p2wpkh, so we'll use that script's dust limit.
-	if sweepAmt < lnwallet.DustLimitForSize(input.P2WPKHSize) {
+	// Check that the created outputs won't be dusty. We'll base the dust
+	// computation on the type of the script itself.
+	if sweepAmt < lnwallet.DustLimitForSize(len(rewardScript)) {
 		return 0, 0, ErrCreatesDust
 	}
 
@@ -231,15 +229,16 @@ func ComputeRewardAmount(total btcutil.Amount, base, rate uint32) btcutil.Amount
 	return rewardBase + proportional
 }
 
-// ComputeJusticeTxOuts constructs the justice transaction outputs for the given
-// policy. If the policy specifies a reward for the tower, there will be two
-// outputs paying to the victim and the tower. Otherwise there will be a single
-// output sweeping funds back to the victim. The totalAmt should be the sum of
-// any inputs used in the transaction. The passed txWeight should include the
-// weight of the outputs for the justice transaction, which is dependent on
-// whether the justice transaction has a reward. The sweepPkScript should be the
-// pkScript of the victim to which funds will be recovered. The rewardPkScript
-// is the pkScript of the tower where its reward will be deposited, and will be
+// ComputeJusticeTxOuts constructs the justice transaction outputs for the
+// given policy. If the policy specifies a reward for the tower, there will be
+// two outputs paying to the victim and the tower. Otherwise there will be a
+// single output sweeping funds back to the victim. The totalAmt should be the
+// sum of any inputs used in the transaction. The passed txWeight should
+// include the weight of the outputs for the justice transaction, which is
+// dependent on whether the justice transaction has a reward. The sweepPkScript
+// should be the pkScript of the victim to which funds will be recovered. The
+// rewardPkScript is the pkScript of the tower where its reward will be
+// deposited, and will be
 // ignored if the blob type does not specify a reward.
 func (p *Policy) ComputeJusticeTxOuts(totalAmt btcutil.Amount, txWeight int64,
 	sweepPkScript, rewardPkScript []byte) ([]*wire.TxOut, error) {
@@ -247,19 +246,19 @@ func (p *Policy) ComputeJusticeTxOuts(totalAmt btcutil.Amount, txWeight int64,
 	var outputs []*wire.TxOut
 
 	// If the policy specifies a reward for the tower, compute a split of
-	// the funds based on the policy's parameters. Otherwise, we will use an
-	// the altruist output computation and sweep as much of the funds back
-	// to the victim as possible.
+	// the funds based on the policy's parameters. Otherwise, we will use
+	// the altruist output computation and sweep as much of the funds
+	// back to the victim as possible.
 	if p.BlobType.Has(blob.FlagReward) {
 		// Using the total input amount and the transaction's weight,
-		// compute the sweep and reward amounts. This corresponds to the
-		// amount returned to the victim and the amount paid to the
+		// compute the sweep and reward amounts. This corresponds to
+		// the amount returned to the victim and the amount paid to the
 		// tower, respectively. To do so, the required transaction fee
 		// is subtracted from the total, and the remaining amount is
-		// divided according to the prenegotiated reward rate from the
+		// divided according to the pre negotiated reward rate from the
 		// client's session info.
 		sweepAmt, rewardAmt, err := p.ComputeRewardOutputs(
-			totalAmt, txWeight,
+			totalAmt, txWeight, rewardPkScript,
 		)
 		if err != nil {
 			return nil, err
@@ -280,7 +279,7 @@ func (p *Policy) ComputeJusticeTxOuts(totalAmt btcutil.Amount, txWeight int64,
 		// returned to the victim. To do so, the required transaction
 		// fee is subtracted from the total input amount.
 		sweepAmt, err := p.ComputeAltruistOutput(
-			totalAmt, txWeight,
+			totalAmt, txWeight, sweepPkScript,
 		)
 		if err != nil {
 			return nil, err

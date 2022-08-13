@@ -11,6 +11,12 @@
   binary digest to be different whether that folder exists or
   not](https://github.com/lightningnetwork/lnd/pull/6676).
 
+## Taproot
+
+[`lnd` will now refuse to start if it detects the full node backned does not
+support Tapoot](https://github.com/lightningnetwork/lnd/pull/6798).
+
+
 ## `lncli`
 
 * [Add `payment_addr` flag to

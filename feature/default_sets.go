@@ -79,4 +79,8 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
+	lnwire.ShutdownAnySegwitOptional: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+	},
 }

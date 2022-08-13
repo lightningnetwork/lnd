@@ -3423,6 +3423,14 @@
         "commitment_type": {
           "$ref": "#/definitions/lnrpcCommitmentType",
           "description": "The commitment type the initiator wishes to use for the proposed channel."
+        },
+        "wants_zero_conf": {
+          "type": "boolean",
+          "description": "Whether the initiator wants to open a zero-conf channel via the channel\ntype."
+        },
+        "wants_scid_alias": {
+          "type": "boolean",
+          "description": "Whether the initiator wants to use the scid-alias channel type. This is\nseparate from the feature bit."
         }
       }
     },

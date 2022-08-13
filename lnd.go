@@ -496,15 +496,22 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		}
 	}
 
-	// Initialize the ChainedAcceptor.
-	chainedAcceptor := chanacceptor.NewChainedAcceptor()
+	// Initialize the MultiplexAcceptor. If lnd was started with the
+	// zero-conf feature bit, then this will be a ZeroConfAcceptor.
+	// Otherwise, this will be a ChainedAcceptor.
+	var multiAcceptor chanacceptor.MultiplexAcceptor
+	if cfg.ProtocolOptions.ZeroConf() {
+		multiAcceptor = chanacceptor.NewZeroConfAcceptor()
+	} else {
+		multiAcceptor = chanacceptor.NewChainedAcceptor()
+	}
 
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(
 		cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
 		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
-		chainedAcceptor, torController,
+		multiAcceptor, torController,
 	)
 	if err != nil {
 		return mkErr("unable to create server: %v", err)
@@ -534,7 +541,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// start the RPC server.
 	err = rpcServer.addDeps(
 		server, interceptorChain.MacaroonService(), cfg.SubRPCServers,
-		atplManager, server.invoices, tower, chainedAcceptor,
+		atplManager, server.invoices, tower, multiAcceptor,
 	)
 	if err != nil {
 		return mkErr("unable to add deps to RPC server: %v", err)

@@ -5,7 +5,6 @@ package cluster
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"runtime/pprof"
 	"sync"
@@ -41,8 +40,7 @@ func TestEtcdElector(t *testing.T) {
 	guard := GuardTimeout(t, 5*time.Second)
 	defer guard()
 
-	tmpDir, err := ioutil.TempDir("", "etcd")
-	require.NoError(t, err, "unable to create temp dir")
+	tmpDir := t.TempDir()
 
 	etcdCfg, cleanup, err := etcd.NewEmbeddedEtcdInstance(tmpDir, 0, 0, "")
 	require.NoError(t, err)

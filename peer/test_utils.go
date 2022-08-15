@@ -359,6 +359,13 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 		ChainNet:    wire.SimNet,
 	}
 
+	interceptableSwitchNotifier := &mock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+	}
+	interceptableSwitchNotifier.EpochChan <- &chainntnfs.BlockEpoch{
+		Height: 1,
+	}
+
 	cfg := &Config{
 		Addr:              cfgAddr,
 		PubKeyBytes:       pubKey,
@@ -369,6 +376,7 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 		InterceptSwitch: htlcswitch.NewInterceptableSwitch(
 			&htlcswitch.InterceptableSwitchConfig{
 				CltvRejectDelta: testCltvRejectDelta,
+				Notifier:        interceptableSwitchNotifier,
 			},
 		),
 		ChannelDB:      dbAlice.ChannelStateDB(),

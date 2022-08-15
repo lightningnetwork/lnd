@@ -14,10 +14,12 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -3750,6 +3752,8 @@ func assertOutgoingLinkReceive(t *testing.T, targetLink *mockChannelLink,
 func assertOutgoingLinkReceiveIntercepted(t *testing.T,
 	targetLink *mockChannelLink) {
 
+	t.Helper()
+
 	select {
 	case <-targetLink.packets:
 	case <-time.After(time.Second):
@@ -3845,10 +3849,17 @@ func TestSwitchHoldForward(t *testing.T) {
 		t:               t,
 		interceptedChan: make(chan InterceptedPacket),
 	}
+
+	notifier := &mock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+	}
+	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: testStartingHeight}
+
 	switchForwardInterceptor := NewInterceptableSwitch(
 		&InterceptableSwitchConfig{
 			Switch:          s,
 			CltvRejectDelta: cltvRejectDelta,
+			Notifier:        notifier,
 		},
 	)
 	require.NoError(t, switchForwardInterceptor.Start())
@@ -4040,11 +4051,17 @@ func TestSwitchHoldForward(t *testing.T) {
 	require.NoError(t, switchForwardInterceptor.Stop())
 
 	// Test always-on interception.
+	notifier = &mock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+	}
+	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: testStartingHeight}
+
 	switchForwardInterceptor = NewInterceptableSwitch(
 		&InterceptableSwitchConfig{
 			Switch:             s,
 			CltvRejectDelta:    cltvRejectDelta,
 			RequireInterceptor: true,
+			Notifier:           notifier,
 		},
 	)
 	require.NoError(t, switchForwardInterceptor.Start())
@@ -5338,9 +5355,16 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 		t:               t,
 		interceptedChan: make(chan InterceptedPacket),
 	}
+
+	notifier := &mock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+	}
+	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: testStartingHeight}
+
 	interceptSwitch := NewInterceptableSwitch(
 		&InterceptableSwitchConfig{
-			Switch: s,
+			Switch:   s,
+			Notifier: notifier,
 		},
 	)
 	require.NoError(t, interceptSwitch.Start())

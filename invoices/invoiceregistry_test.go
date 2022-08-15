@@ -337,11 +337,10 @@ func TestCancelInvoice(t *testing.T) {
 func TestSettleHoldInvoice(t *testing.T) {
 	defer timeout()()
 
-	cdb, cleanup, err := newTestChannelDB(clock.NewTestClock(time.Time{}))
+	cdb, err := newTestChannelDB(t, clock.NewTestClock(time.Time{}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cleanup()
 
 	// Instantiate and start the invoice ctx.registry.
 	cfg := RegistryConfig{
@@ -510,11 +509,10 @@ func TestSettleHoldInvoice(t *testing.T) {
 func TestCancelHoldInvoice(t *testing.T) {
 	defer timeout()()
 
-	cdb, cleanup, err := newTestChannelDB(clock.NewTestClock(time.Time{}))
+	cdb, err := newTestChannelDB(t, clock.NewTestClock(time.Time{}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cleanup()
 
 	// Instantiate and start the invoice ctx.registry.
 	cfg := RegistryConfig{
@@ -935,9 +933,7 @@ func TestMppPayment(t *testing.T) {
 func TestInvoiceExpiryWithRegistry(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanup, err := newTestChannelDB(clock.NewTestClock(time.Time{}))
-	defer cleanup()
-
+	cdb, err := newTestChannelDB(t, clock.NewTestClock(time.Time{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1043,9 +1039,7 @@ func TestOldInvoiceRemovalOnStart(t *testing.T) {
 	t.Parallel()
 
 	testClock := clock.NewTestClock(testTime)
-	cdb, cleanup, err := newTestChannelDB(testClock)
-	defer cleanup()
-
+	cdb, err := newTestChannelDB(t, testClock)
 	require.NoError(t, err)
 
 	cfg := RegistryConfig{

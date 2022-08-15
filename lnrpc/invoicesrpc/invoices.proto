@@ -44,7 +44,8 @@ service Invoices {
 }
 
 message CancelInvoiceMsg {
-    // Hash corresponding to the (hold) invoice to cancel.
+    // Hash corresponding to the (hold) invoice to cancel. When using
+    // REST, this field must be encoded as base64.
     bytes payment_hash = 1;
 }
 message CancelInvoiceResp {
@@ -138,7 +139,8 @@ message SettleInvoiceResp {
 message SubscribeSingleInvoiceRequest {
     reserved 1;
 
-    // Hash corresponding to the (hold) invoice to subscribe to.
+    // Hash corresponding to the (hold) invoice to subscribe to. When using
+    // REST, this field must be encoded as base64url.
     bytes r_hash = 2;
 }
 
@@ -163,6 +165,7 @@ enum LookupModifier {
 
 message LookupInvoiceMsg {
     oneof invoice_ref {
+        // When using REST, this field must be encoded as base64.
         bytes payment_hash = 1;
         bytes payment_addr = 2;
         bytes set_id = 3;

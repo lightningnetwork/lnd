@@ -70,7 +70,7 @@ releases. Backward compatibility is not guaranteed!
 * A new [`constrainmacaroon` command was
   added](https://github.com/lightningnetwork/lnd/pull/6529) that allows
   caveats/restrictions to be added to an existing macaroon (instead of needing
-  to bake a new one). 
+  to bake a new one).
 
 ## Neutrino
 
@@ -454,3 +454,4 @@ gRPC performance metrics (latency to process `GetInfo`, etc)](https://github.com
 * Torkel Rogstad
 * Vsevolod Kaganovych
 * Yong Yu
+* Ziggie

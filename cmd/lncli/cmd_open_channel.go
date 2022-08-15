@@ -210,6 +210,16 @@ var openChannelCommand = cli.Command{
 				"propose to the remote peer (%q, %q)",
 				channelTypeTweakless, channelTypeAnchors),
 		},
+		cli.BoolFlag{
+			Name: "zero_conf",
+			Usage: "(optional) whether a zero-conf channel open " +
+				"should be attempted.",
+		},
+		cli.BoolFlag{
+			Name: "scid_alias",
+			Usage: "(optional) whether a scid-alias channel type" +
+				" should be negotiated.",
+		},
 	},
 	Action: actionDecorator(openChannel),
 }
@@ -249,6 +259,8 @@ func openChannel(ctx *cli.Context) error {
 		CloseAddress:               ctx.String("close_address"),
 		RemoteMaxValueInFlightMsat: ctx.Uint64("remote_max_value_in_flight_msat"),
 		MaxLocalCsv:                uint32(ctx.Uint64("max_local_csv")),
+		ZeroConf:                   ctx.Bool("zero_conf"),
+		ScidAlias:                  ctx.Bool("scid_alias"),
 	}
 
 	switch {
@@ -653,11 +665,11 @@ var batchOpenChannelCommand = cli.Command{
 	All nodes listed must already be connected peers, otherwise funding will
 	fail.
 
-	The channel will be initialized with local-amt satoshis local and
-	push-amt satoshis for the remote node. Note that specifying push-amt
-	means you give that amount to the remote node as part of the channel
-	opening. Once the channel is open, a channelPoint (txid:vout) of the
-	funding output is returned.
+	The channel will be initialized with local_funding_amount satoshis 
+	locally and push_sat satoshis for the remote node. Note that specifying 
+	push_sat means you give that amount to the remote node as part of the 
+	channel	opening. Once the channel is open, a channelPoint (txid:vout) of 
+	the funding output is returned.
 
 	If the remote peer supports the option upfront shutdown feature bit
 	(query listpeers to see their supported feature bits), an address to

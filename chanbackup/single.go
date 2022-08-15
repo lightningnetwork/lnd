@@ -177,7 +177,25 @@ func NewSingle(channel *channeldb.OpenChannel,
 	// to the channel ID so we can use that as height hint on restore.
 	chanID := channel.ShortChanID()
 	if chanID.BlockHeight == 0 {
-		chanID.BlockHeight = channel.FundingBroadcastHeight
+		chanID.BlockHeight = channel.BroadcastHeight()
+	}
+
+	// If this is a zero-conf channel, we'll need to have separate logic
+	// depending on whether it's confirmed or not. This is because the
+	// ShortChanID is an alias.
+	if channel.IsZeroConf() {
+		// If the channel is confirmed, we'll use the confirmed SCID.
+		if channel.ZeroConfConfirmed() {
+			chanID = channel.ZeroConfRealScid()
+		} else {
+			// Else if the zero-conf channel is unconfirmed, we'll
+			// need to use the broadcast height and zero out the
+			// TxIndex and TxPosition fields. This is so
+			// openChannelShell works properly.
+			chanID.BlockHeight = channel.BroadcastHeight()
+			chanID.TxIndex = 0
+			chanID.TxPosition = 0
+		}
 	}
 
 	single := Single{

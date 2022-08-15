@@ -873,6 +873,13 @@ var sendToRouteCommand = cli.Command{
 			Usage: "a json array string in the format of the response " +
 				"of queryroutes that denotes which routes to use",
 		},
+		cli.BoolFlag{
+			Name: "skip_temp_err",
+			Usage: "Whether the payment should be marked as " +
+				"failed when a temporary error occurred. Set " +
+				"it to true so the payment won't be failed " +
+				"unless a terminal error has occurred.",
+		},
 	},
 	Action: sendToRoute,
 }
@@ -966,6 +973,7 @@ func sendToRoute(ctx *cli.Context) error {
 	req := &routerrpc.SendToRouteRequest{
 		PaymentHash: rHash,
 		Route:       route,
+		SkipTempErr: ctx.Bool("skip_temp_err"),
 	}
 
 	return sendToRouteRequest(ctx, req)
@@ -1028,6 +1036,13 @@ var queryRoutesCommand = cli.Command{
 			Usage: "(optional) the channel id of the channel " +
 				"that must be taken to the first hop",
 		},
+		cli.StringSliceFlag{
+			Name: "ignore_pair",
+			Usage: "ignore directional node pair " +
+				"<node1>:<node2>. This flag can be specified " +
+				"multiple times if multiple node pairs are " +
+				"to be ignored",
+		},
 		timePrefFlag,
 		cltvLimitFlag,
 	},
@@ -1074,6 +1089,31 @@ func queryRoutes(ctx *cli.Context) error {
 		return err
 	}
 
+	pairs := ctx.StringSlice("ignore_pair")
+	ignoredPairs := make([]*lnrpc.NodePair, len(pairs))
+	for i, pair := range pairs {
+		nodes := strings.Split(pair, ":")
+		if len(nodes) != 2 {
+			return fmt.Errorf("invalid node pair format. " +
+				"Expected <node1 pub key>:<node2 pub key>")
+		}
+
+		node1, err := hex.DecodeString(nodes[0])
+		if err != nil {
+			return err
+		}
+
+		node2, err := hex.DecodeString(nodes[1])
+		if err != nil {
+			return err
+		}
+
+		ignoredPairs[i] = &lnrpc.NodePair{
+			From: node1,
+			To:   node2,
+		}
+	}
+
 	req := &lnrpc.QueryRoutesRequest{
 		PubKey:            dest,
 		Amt:               amt,
@@ -1083,6 +1123,7 @@ func queryRoutes(ctx *cli.Context) error {
 		CltvLimit:         uint32(ctx.Uint64(cltvLimitFlag.Name)),
 		OutgoingChanId:    ctx.Uint64("outgoing_chanid"),
 		TimePref:          ctx.Float64(timePrefFlag.Name),
+		IgnoredPairs:      ignoredPairs,
 	}
 
 	route, err := client.QueryRoutes(ctxc, req)
@@ -1360,6 +1401,11 @@ var buildRouteCommand = cli.Command{
 				"use for the first hop of the payment",
 			Value: 0,
 		},
+		cli.StringFlag{
+			Name: "payment_addr",
+			Usage: "hex encoded payment address to set in the " +
+				"last hop's mpp record",
+		},
 	},
 }
 
@@ -1394,12 +1440,24 @@ func buildRoute(ctx *cli.Context) error {
 		}
 	}
 
+	var (
+		payAddr []byte
+		err     error
+	)
+	if ctx.IsSet("payment_addr") {
+		payAddr, err = hex.DecodeString(ctx.String("payment_addr"))
+		if err != nil {
+			return fmt.Errorf("error parsing payment_addr: %v", err)
+		}
+	}
+
 	// Call BuildRoute rpc.
 	req := &routerrpc.BuildRouteRequest{
 		AmtMsat:        amtMsat,
 		FinalCltvDelta: int32(ctx.Int64("final_cltv_delta")),
 		HopPubkeys:     rpcHops,
 		OutgoingChanId: ctx.Uint64("outgoing_chan_id"),
+		PaymentAddr:    payAddr,
 	}
 
 	route, err := client.BuildRoute(ctxc, req)

@@ -170,6 +170,10 @@ var allTestCases = []*testCase{
 		test: testSignOutputRaw,
 	},
 	{
+		name: "sign verify message",
+		test: testSignVerifyMessage,
+	},
+	{
 		name: "async payments benchmark",
 		test: testAsyncPayments,
 	},
@@ -406,5 +410,29 @@ var allTestCases = []*testCase{
 	{
 		name: "resolution handoff",
 		test: testResHandoff,
+	},
+	{
+		name: "zero conf channel open",
+		test: testZeroConfChannelOpen,
+	},
+	{
+		name: "option scid alias",
+		test: testOptionScidAlias,
+	},
+	{
+		name: "scid alias channel update",
+		test: testUpdateChannelPolicyScidAlias,
+	},
+	{
+		name: "scid alias upgrade",
+		test: testOptionScidUpgrade,
+	},
+	{
+		name: "nonstd sweep",
+		test: testNonstdSweep,
+	},
+	{
+		name: "taproot coop close",
+		test: testTaprootCoopClose,
 	},
 }

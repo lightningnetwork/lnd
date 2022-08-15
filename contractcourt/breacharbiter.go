@@ -1347,9 +1347,9 @@ func (b *BreachArbiter) createSweepTx(inputs []input.Input) (*wire.MsgTx,
 	spendableOutputs = make([]input.Input, 0, len(inputs))
 
 	// The justice transaction we construct will be a segwit transaction
-	// that pays to a p2wkh output. Components such as the version,
+	// that pays to a p2tr output. Components such as the version,
 	// nLockTime, and output are already included in the TxWeightEstimator.
-	weightEstimate.AddP2WKHOutput()
+	weightEstimate.AddP2TROutput()
 
 	// Next, we iterate over the breached outputs contained in the
 	// retribution info.  For each, we switch over the witness type such

@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -151,6 +152,42 @@ func (t *backupTask) inputs() map[wire.OutPoint]input.Input {
 	return inputs
 }
 
+// addrType returns the type of an address after parsing it and matching it to
+// the set of known script templates.
+func addrType(pkScript []byte) txscript.ScriptClass {
+	// We pass in a set of dummy chain params here as they're only needed
+	// to make the address struct, which we're ignoring anyway (scripts are
+	// always the same, it's addresses that change across chains).
+	scriptClass, _, _, _ := txscript.ExtractPkScriptAddrs(
+		pkScript, &chaincfg.MainNetParams,
+	)
+
+	return scriptClass
+}
+
+// addScriptWeight parses the passed pkScript and adds the computed weight cost
+// were the script to be added to the justice transaction.
+func addScriptWeight(weightEstimate *input.TxWeightEstimator,
+	pkScript []byte) error {
+
+	switch addrType(pkScript) { //nolint: whitespace
+
+	case txscript.WitnessV0PubKeyHashTy:
+		weightEstimate.AddP2WKHOutput()
+
+	case txscript.WitnessV0ScriptHashTy:
+		weightEstimate.AddP2WSHOutput()
+
+	case txscript.WitnessV1TaprootTy:
+		weightEstimate.AddP2TROutput()
+
+	default:
+		return fmt.Errorf("invalid addr type: %v", addrType(pkScript))
+	}
+
+	return nil
+}
+
 // bindSession determines if the backupTask is compatible with the passed
 // SessionInfo's policy. If no error is returned, the task has been bound to the
 // session and can be queued to upload to the tower. Otherwise, the bind failed
@@ -192,13 +229,19 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody) error {
 		}
 	}
 
-	// All justice transactions have a p2wkh output paying to the victim.
-	weightEstimate.AddP2WKHOutput()
+	// All justice transactions will either use segwit v0 (p2wkh + p2wsh)
+	// or segwit v1 (p2tr).
+	if err := addScriptWeight(&weightEstimate, t.sweepPkScript); err != nil {
+		return err
+	}
 
 	// If the justice transaction has a reward output, add the output's
 	// contribution to the weight estimate.
 	if session.Policy.BlobType.Has(blob.FlagReward) {
-		weightEstimate.AddP2WKHOutput()
+		err := addScriptWeight(&weightEstimate, session.RewardPkScript)
+		if err != nil {
+			return err
+		}
 	}
 
 	if t.chanType.HasAnchors() != session.Policy.IsAnchorChannel() {

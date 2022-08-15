@@ -414,6 +414,7 @@ func main() {
 		sendCustomCommand,
 		subscribeCustomCommand,
 		fishCompletionCommand,
+		listAliasesCommand,
 	}
 
 	// Add any extra commands determined by build flags.

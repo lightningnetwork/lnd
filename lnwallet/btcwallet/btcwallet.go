@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/wallet"
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wallet/txrules"
@@ -67,6 +68,14 @@ var (
 	lightningAddrSchema = waddrmgr.ScopeAddrSchema{
 		ExternalAddrType: waddrmgr.WitnessPubKey,
 		InternalAddrType: waddrmgr.WitnessPubKey,
+	}
+
+	// LndDefaultKeyScopes is the list of default key scopes that lnd adds
+	// to its wallet.
+	LndDefaultKeyScopes = []waddrmgr.KeyScope{
+		waddrmgr.KeyScopeBIP0049Plus,
+		waddrmgr.KeyScopeBIP0084,
+		waddrmgr.KeyScopeBIP0086,
 	}
 
 	// errNoImportedAddrGen is an error returned when a new address is
@@ -332,7 +341,7 @@ func (b *BtcWallet) Start() error {
 	// Because we might add new "default" key scopes over time, they are
 	// created correctly for new wallets. Existing wallets don't
 	// automatically add them, we need to do that manually now.
-	for _, scope := range waddrmgr.DefaultKeyScopes {
+	for _, scope := range LndDefaultKeyScopes {
 		_, err := b.wallet.Manager.FetchScopedKeyManager(scope)
 		if waddrmgr.IsError(err, waddrmgr.ErrScopeNotFound) {
 			// The default scope wasn't found, that probably means
@@ -614,29 +623,16 @@ func (b *BtcWallet) ListAccounts(name string,
 		if name == lnwallet.DefaultAccountName ||
 			name == waddrmgr.ImportedAddrAccountName {
 
-			a1, err := b.wallet.AccountPropertiesByName(
-				waddrmgr.KeyScopeBIP0049Plus, name,
-			)
-			if err != nil {
-				return nil, err
+			for _, defaultScope := range LndDefaultKeyScopes {
+				a, err := b.wallet.AccountPropertiesByName(
+					defaultScope, name,
+				)
+				if err != nil {
+					return nil, err
+				}
+				res = append(res, a)
 			}
-			res = append(res, a1)
 
-			a2, err := b.wallet.AccountPropertiesByName(
-				waddrmgr.KeyScopeBIP0084, name,
-			)
-			if err != nil {
-				return nil, err
-			}
-			res = append(res, a2)
-
-			a3, err := b.wallet.AccountPropertiesByName(
-				waddrmgr.KeyScopeBIP0086, name,
-			)
-			if err != nil {
-				return nil, err
-			}
-			res = append(res, a3)
 			break
 		}
 
@@ -667,34 +663,18 @@ func (b *BtcWallet) ListAccounts(name string,
 	// Neither of the filters were provided, so return all accounts for our
 	// supported key scopes.
 	case name == "" && keyScope == nil:
-		accounts, err := b.wallet.Accounts(waddrmgr.KeyScopeBIP0049Plus)
-		if err != nil {
-			return nil, err
-		}
-		for _, account := range accounts.Accounts {
-			account := account
-			res = append(res, &account.AccountProperties)
-		}
-
-		accounts, err = b.wallet.Accounts(waddrmgr.KeyScopeBIP0084)
-		if err != nil {
-			return nil, err
-		}
-		for _, account := range accounts.Accounts {
-			account := account
-			res = append(res, &account.AccountProperties)
+		for _, defaultScope := range LndDefaultKeyScopes {
+			accounts, err := b.wallet.Accounts(defaultScope)
+			if err != nil {
+				return nil, err
+			}
+			for _, account := range accounts.Accounts {
+				account := account
+				res = append(res, &account.AccountProperties)
+			}
 		}
 
-		accounts, err = b.wallet.Accounts(waddrmgr.KeyScopeBIP0086)
-		if err != nil {
-			return nil, err
-		}
-		for _, account := range accounts.Accounts {
-			account := account
-			res = append(res, &account.AccountProperties)
-		}
-
-		accounts, err = b.wallet.Accounts(waddrmgr.KeyScope{
+		accounts, err := b.wallet.Accounts(waddrmgr.KeyScope{
 			Purpose: keychain.BIP0043Purpose,
 			Coin:    b.cfg.CoinType,
 		})
@@ -708,6 +688,22 @@ func (b *BtcWallet) ListAccounts(name string,
 	}
 
 	return res, nil
+}
+
+// RequiredReserve returns the minimum amount of satoshis that should be
+// kept in the wallet in order to fee bump anchor channels if necessary.
+// The value scales with the number of public anchor channels but is
+// capped at a maximum.
+func (b *BtcWallet) RequiredReserve(
+	numAnchorChans uint32) btcutil.Amount {
+
+	anchorChanReservedValue := lnwallet.AnchorChanReservedValue
+	reserved := btcutil.Amount(numAnchorChans) * anchorChanReservedValue
+	if reserved > lnwallet.MaxAnchorChanReservedValue {
+		reserved = lnwallet.MaxAnchorChanReservedValue
+	}
+
+	return reserved
 }
 
 // ImportAccount imports an account backed by an account extended public key.
@@ -1104,6 +1100,32 @@ func extractBalanceDelta(
 	return balanceDelta, nil
 }
 
+// getPreviousOutpoints is a helper function which gets the previous
+// outpoints of a transaction.
+func getPreviousOutpoints(wireTx *wire.MsgTx,
+	myInputs []wallet.TransactionSummaryInput) []lnwallet.PreviousOutPoint {
+
+	// isOurOutput is a map containing the output indices
+	// controlled by the wallet.
+	// Note: We make use of the information in `myInputs` provided
+	// by the `wallet.TransactionSummary` structure that holds
+	// information only if the input/previous_output is controlled by the wallet.
+	isOurOutput := make(map[uint32]bool, len(myInputs))
+	for _, myInput := range myInputs {
+		isOurOutput[myInput.Index] = true
+	}
+
+	previousOutpoints := make([]lnwallet.PreviousOutPoint, len(wireTx.TxIn))
+	for idx, txIn := range wireTx.TxIn {
+		previousOutpoints[idx] = lnwallet.PreviousOutPoint{
+			OutPoint:    txIn.PreviousOutPoint.String(),
+			IsOurOutput: isOurOutput[uint32(idx)],
+		}
+	}
+
+	return previousOutpoints
+}
+
 // minedTransactionsToDetails is a helper function which converts a summary
 // information about mined transactions to a TransactionDetail.
 func minedTransactionsToDetails(
@@ -1152,16 +1174,19 @@ func minedTransactionsToDetails(
 			})
 		}
 
+		previousOutpoints := getPreviousOutpoints(wireTx, tx.MyInputs)
+
 		txDetail := &lnwallet.TransactionDetail{
-			Hash:             *tx.Hash,
-			NumConfirmations: currentHeight - block.Height + 1,
-			BlockHash:        block.Hash,
-			BlockHeight:      block.Height,
-			Timestamp:        block.Timestamp,
-			TotalFees:        int64(tx.Fee),
-			OutputDetails:    outputDetails,
-			RawTx:            tx.Transaction,
-			Label:            tx.Label,
+			Hash:              *tx.Hash,
+			NumConfirmations:  currentHeight - block.Height + 1,
+			BlockHash:         block.Hash,
+			BlockHeight:       block.Height,
+			Timestamp:         block.Timestamp,
+			TotalFees:         int64(tx.Fee),
+			OutputDetails:     outputDetails,
+			RawTx:             tx.Transaction,
+			Label:             tx.Label,
+			PreviousOutpoints: previousOutpoints,
 		}
 
 		balanceDelta, err := extractBalanceDelta(tx, wireTx)
@@ -1221,13 +1246,16 @@ func unminedTransactionsToDetail(
 		})
 	}
 
+	previousOutpoints := getPreviousOutpoints(wireTx, summary.MyInputs)
+
 	txDetail := &lnwallet.TransactionDetail{
-		Hash:          *summary.Hash,
-		TotalFees:     int64(summary.Fee),
-		Timestamp:     summary.Timestamp,
-		OutputDetails: outputDetails,
-		RawTx:         summary.Transaction,
-		Label:         summary.Label,
+		Hash:              *summary.Hash,
+		TotalFees:         int64(summary.Fee),
+		Timestamp:         summary.Timestamp,
+		OutputDetails:     outputDetails,
+		RawTx:             summary.Transaction,
+		Label:             summary.Label,
+		PreviousOutpoints: previousOutpoints,
 	}
 
 	balanceDelta, err := extractBalanceDelta(summary, wireTx)

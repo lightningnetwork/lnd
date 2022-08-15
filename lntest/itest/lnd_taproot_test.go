@@ -11,8 +11,10 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
@@ -46,6 +48,7 @@ func testTaproot(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, cancel := context.WithTimeout(ctxb, 2*defaultTimeout)
 	defer cancel()
 
+	testTaprootSendCoinsKeySpendBip86(ctxt, t, net.Alice, net)
 	testTaprootComputeInputScriptKeySpendBip86(ctxt, t, net.Alice, net)
 	testTaprootSignOutputRawScriptSpend(ctxt, t, net.Alice, net)
 	testTaprootSignOutputRawKeySpendBip86(ctxt, t, net.Alice, net)
@@ -56,10 +59,10 @@ func testTaproot(net *lntest.NetworkHarness, t *harnessTest) {
 	testTaprootMuSig2CombinedLeafKeySpend(ctxt, t, net.Alice, net)
 }
 
-// testTaprootComputeInputScriptKeySpendBip86 tests sending to and spending from
+// testTaprootSendCoinsKeySpendBip86 tests sending to and spending from
 // p2tr key spend only (BIP-0086) addresses through the SendCoins RPC which
 // internally uses the ComputeInputScript method for signing.
-func testTaprootComputeInputScriptKeySpendBip86(ctxt context.Context,
+func testTaprootSendCoinsKeySpendBip86(ctxt context.Context,
 	t *harnessTest, alice *lntest.HarnessNode, net *lntest.NetworkHarness) {
 
 	// We'll start the test by sending Alice some coins, which she'll use to
@@ -115,6 +118,108 @@ func testTaprootComputeInputScriptKeySpendBip86(ctxt context.Context,
 	// Make sure the coins sent to the address are confirmed correctly,
 	// including the confirmation notification.
 	confirmAddress(ctxt, t, net, alice, p2trResp.Address)
+}
+
+// testTaprootComputeInputScriptKeySpendBip86 tests sending to and spending
+// from p2tr key spend only (BIP-0086) addresses through the ComputeInputScript
+// RPC.
+func testTaprootComputeInputScriptKeySpendBip86(ctxt context.Context,
+	t *harnessTest, alice *lntest.HarnessNode, net *lntest.NetworkHarness) {
+
+	// We'll start the test by sending Alice some coins, which she'll use to
+	// send to herself on a p2tr output.
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
+
+	// Let's create a p2tr address now.
+	p2trAddr, p2trPkScript := newAddrWithScript(
+		ctxt, t.t, alice, lnrpc.AddressType_TAPROOT_PUBKEY,
+	)
+
+	// Send the coins from Alice's wallet to her own, but to the new p2tr
+	// address.
+	_, err := alice.SendCoins(ctxt, &lnrpc.SendCoinsRequest{
+		Addr:   p2trAddr.String(),
+		Amount: testAmount,
+	})
+	require.NoError(t.t, err)
+
+	txid, err := waitForTxInMempool(net.Miner.Client, defaultTimeout)
+	require.NoError(t.t, err)
+
+	// Wait until bob has seen the tx and considers it as owned.
+	p2trOutputIndex := getOutputIndex(t, net.Miner, txid, p2trAddr.String())
+	op := &lnrpc.OutPoint{
+		TxidBytes:   txid[:],
+		OutputIndex: uint32(p2trOutputIndex),
+	}
+	assertWalletUnspent(t, alice, op)
+
+	p2trOutpoint := wire.OutPoint{
+		Hash:  *txid,
+		Index: uint32(p2trOutputIndex),
+	}
+
+	// Mine a block to clean up the mempool.
+	mineBlocks(t, net, 1, 1)
+
+	// We'll send the coins back to a p2wkh address.
+	p2wkhAddr, p2wkhPkScript := newAddrWithScript(
+		ctxt, t.t, alice, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	)
+
+	// Create fee estimation for a p2tr input and p2wkh output.
+	feeRate := chainfee.SatPerKWeight(12500)
+	estimator := input.TxWeightEstimator{}
+	estimator.AddTaprootKeySpendInput(txscript.SigHashDefault)
+	estimator.AddP2WKHOutput()
+	estimatedWeight := int64(estimator.Weight())
+	requiredFee := feeRate.FeeForWeight(estimatedWeight)
+
+	tx := wire.NewMsgTx(2)
+	tx.TxIn = []*wire.TxIn{{
+		PreviousOutPoint: p2trOutpoint,
+	}}
+	value := int64(testAmount - requiredFee)
+	tx.TxOut = []*wire.TxOut{{
+		PkScript: p2wkhPkScript,
+		Value:    value,
+	}}
+
+	var buf bytes.Buffer
+	require.NoError(t.t, tx.Serialize(&buf))
+
+	utxoInfo := []*signrpc.TxOut{{
+		PkScript: p2trPkScript,
+		Value:    testAmount,
+	}}
+	signResp, err := alice.SignerClient.ComputeInputScript(
+		ctxt, &signrpc.SignReq{
+			RawTxBytes: buf.Bytes(),
+			SignDescs: []*signrpc.SignDescriptor{{
+				Output:     utxoInfo[0],
+				InputIndex: 0,
+				Sighash:    uint32(txscript.SigHashDefault),
+			}},
+			PrevOutputs: utxoInfo,
+		},
+	)
+	require.NoError(t.t, err)
+
+	tx.TxIn[0].Witness = signResp.InputScripts[0].Witness
+
+	// Serialize, weigh and publish the TX now, then make sure the
+	// coins are sent and confirmed to the final sweep destination address.
+	publishTxAndConfirmSweep(
+		ctxt, t, net, alice, tx, estimatedWeight,
+		&chainrpc.SpendRequest{
+			Outpoint: &chainrpc.Outpoint{
+				Hash:  p2trOutpoint.Hash[:],
+				Index: p2trOutpoint.Index,
+			},
+			Script: p2trPkScript,
+		},
+		p2wkhAddr.String(),
+	)
 }
 
 // testTaprootSignOutputRawScriptSpend tests sending to and spending from p2tr
@@ -1043,20 +1148,20 @@ func newAddrWithScript(ctx context.Context, t *testing.T,
 	node *lntest.HarnessNode, addrType lnrpc.AddressType) (btcutil.Address,
 	[]byte) {
 
-	p2wkhResp, err := node.NewAddress(ctx, &lnrpc.NewAddressRequest{
+	newAddrResp, err := node.NewAddress(ctx, &lnrpc.NewAddressRequest{
 		Type: addrType,
 	})
 	require.NoError(t, err)
 
-	p2wkhAddr, err := btcutil.DecodeAddress(
-		p2wkhResp.Address, harnessNetParams,
+	addr, err := btcutil.DecodeAddress(
+		newAddrResp.Address, harnessNetParams,
 	)
 	require.NoError(t, err)
 
-	p2wkhPkScript, err := txscript.PayToAddrScript(p2wkhAddr)
+	pkScript, err := txscript.PayToAddrScript(addr)
 	require.NoError(t, err)
 
-	return p2wkhAddr, p2wkhPkScript
+	return addr, pkScript
 }
 
 // sendToTaprootOutput sends coins to a p2tr output of the given taproot key and
@@ -1384,4 +1489,83 @@ func createMuSigSessions(ctx context.Context, t *harnessTest,
 	require.Equal(t.t, true, nonceResp2.HaveAllNonces)
 
 	return internalKey, combinedKey, sessResp1, sessResp2, sessResp3
+}
+
+// assertTaprootDeliveryUsed returns true if a Taproot addr was used in the
+// co-op close transaction.
+func assertTaprootDeliveryUsed(net *lntest.NetworkHarness,
+	t *harnessTest, closingTxid *chainhash.Hash) bool {
+
+	tx, err := net.Miner.Client.GetRawTransaction(closingTxid)
+	require.NoError(t.t, err, "unable to get closing tx")
+
+	for _, txOut := range tx.MsgTx().TxOut {
+		if !txscript.IsPayToTaproot(txOut.PkScript) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// testTaprootCoopClose asserts that if both peers signal ShutdownAnySegwit,
+// then a taproot closing addr is used. Otherwise, we shouldn't expect one to
+// be used.
+func testTaprootCoopClose(net *lntest.NetworkHarness, t *harnessTest) {
+	// We'll start by making two new nodes, and funding a channel between
+	// them.
+	carol := net.NewNode(t.t, "Carol", nil)
+	defer shutdownAndAssert(net, t, carol)
+
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+
+	dave := net.NewNode(t.t, "Dave", nil)
+	defer shutdownAndAssert(net, t, dave)
+
+	net.EnsureConnected(t.t, carol, dave)
+
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := btcutil.Amount(100000)
+	satPerVbyte := btcutil.Amount(1)
+
+	// We'll now open a channel between Carol and Dave.
+	chanPoint := openChannelAndAssert(
+		t, net, carol, dave,
+		lntest.OpenChannelParams{
+			Amt:         chanAmt,
+			PushAmt:     pushAmt,
+			SatPerVByte: satPerVbyte,
+		},
+	)
+
+	// We'll now close out the channel and obtain the closing TXID.
+	closingTxid := closeChannelAndAssert(t, net, carol, chanPoint, false)
+
+	// We expect that the closing transaction only has P2TR addresses.
+	require.True(t.t, assertTaprootDeliveryUsed(net, t, closingTxid),
+		"taproot addr not used!")
+
+	// Now we'll bring Eve into the mix, Eve is running older software that
+	// doesn't understand Taproot.
+	eveArgs := []string{"--protocol.no-any-segwit"}
+	eve := net.NewNode(t.t, "Eve", eveArgs)
+	defer shutdownAndAssert(net, t, eve)
+
+	net.EnsureConnected(t.t, carol, eve)
+
+	// We'll now open up a chanel again between Carol and Eve.
+	chanPoint = openChannelAndAssert(
+		t, net, carol, eve,
+		lntest.OpenChannelParams{
+			Amt:         chanAmt,
+			PushAmt:     pushAmt,
+			SatPerVByte: satPerVbyte,
+		},
+	)
+
+	// We'll now close out this channel and expect that no Taproot
+	// addresses are used in the co-op close transaction.
+	closingTxid = closeChannelAndAssert(t, net, carol, chanPoint, false)
+	require.False(t.t, assertTaprootDeliveryUsed(net, t, closingTxid),
+		"taproot addr shouldn't be used!")
 }

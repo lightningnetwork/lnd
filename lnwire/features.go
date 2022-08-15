@@ -129,6 +129,18 @@ const (
 	// transactions, which also imply anchor commitments.
 	AnchorsZeroFeeHtlcTxOptional FeatureBit = 23
 
+	// ShutdownAnySegwitRequired is an required feature bit that signals
+	// that the sender is able to properly handle/parse segwit witness
+	// programs up to version 16. This enables utilization of Taproot
+	// addresses for cooperative closure addresses.
+	ShutdownAnySegwitRequired FeatureBit = 26
+
+	// ShutdownAnySegwitOptional is an optional feature bit that signals
+	// that the sender is able to properly handle/parse segwit witness
+	// programs up to version 16. This enables utilization of Taproot
+	// addresses for cooperative closure addresses.
+	ShutdownAnySegwitOptional FeatureBit = 27
+
 	// AMPRequired is a required feature bit that signals that the receiver
 	// of a payment supports accepts spontaneous payments, i.e.
 	// sender-generated preimages according to BOLT XX.
@@ -155,6 +167,16 @@ const (
 	// TODO: Decide on actual feature bit value.
 	ExplicitChannelTypeOptional = 45
 
+	// ScidAliasRequired is a required feature bit that signals that the
+	// node requires understanding of ShortChannelID aliases in the TLV
+	// segment of the funding_locked message.
+	ScidAliasRequired FeatureBit = 46
+
+	// ScidAliasOptional is an optional feature bit that signals that the
+	// node understands ShortChannelID aliases in the TLV segment of the
+	// funding_locked message.
+	ScidAliasOptional FeatureBit = 47
+
 	// PaymentMetadataRequired is a required bit that denotes that if an
 	// invoice contains metadata, it must be passed along with the payment
 	// htlc(s).
@@ -165,6 +187,14 @@ const (
 	// htlc(s).
 	PaymentMetadataOptional = 49
 
+	// ZeroConfRequired is a required feature bit that signals that the
+	// node requires understanding of the zero-conf channel_type.
+	ZeroConfRequired FeatureBit = 50
+
+	// ZeroConfOptional is an optional feature bit that signals that the
+	// node understands the zero-conf channel type.
+	ZeroConfOptional FeatureBit = 51
+
 	// KeysendRequired is a required bit that indicates that the node is
 	// able and willing to accept keysend payments.
 	KeysendRequired = 54
@@ -173,7 +203,7 @@ const (
 	// able and willing to accept keysend payments.
 	KeysendOptional = 55
 
-	// ScriptEnforcedLeaseRequired is a required feature bit that signals
+	// ScriptEnforcedLeaseOptional is an optional feature bit that signals
 	// that the node requires channels having zero-fee second-level HTLC
 	// transactions, which also imply anchor commitments, along with an
 	// additional CLTV constraint of a channel lease's expiration height
@@ -244,6 +274,12 @@ var Features = map[FeatureBit]string{
 	KeysendRequired:               "keysend",
 	ScriptEnforcedLeaseRequired:   "script-enforced-lease",
 	ScriptEnforcedLeaseOptional:   "script-enforced-lease",
+	ScidAliasRequired:             "scid-alias",
+	ScidAliasOptional:             "scid-alias",
+	ZeroConfRequired:              "zero-conf",
+	ZeroConfOptional:              "zero-conf",
+	ShutdownAnySegwitRequired:     "shutdown-any-segwit",
+	ShutdownAnySegwitOptional:     "shutdown-any-segwit",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

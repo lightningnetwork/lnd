@@ -45,6 +45,14 @@ func RPCTransaction(tx *lnwallet.TransactionDetail) *Transaction {
 		})
 	}
 
+	previousOutpoints := make([]*PreviousOutPoint, len(tx.PreviousOutpoints))
+	for idx, previousOutPoint := range tx.PreviousOutpoints {
+		previousOutpoints[idx] = &PreviousOutPoint{
+			Outpoint:    previousOutPoint.OutPoint,
+			IsOurOutput: previousOutPoint.IsOurOutput,
+		}
+	}
+
 	// We also get unconfirmed transactions, so BlockHash can be nil.
 	blockHash := ""
 	if tx.BlockHash != nil {
@@ -52,17 +60,18 @@ func RPCTransaction(tx *lnwallet.TransactionDetail) *Transaction {
 	}
 
 	return &Transaction{
-		TxHash:           tx.Hash.String(),
-		Amount:           int64(tx.Value),
-		NumConfirmations: tx.NumConfirmations,
-		BlockHash:        blockHash,
-		BlockHeight:      tx.BlockHeight,
-		TimeStamp:        tx.Timestamp,
-		TotalFees:        tx.TotalFees,
-		DestAddresses:    destAddresses,
-		OutputDetails:    outputDetails,
-		RawTxHex:         hex.EncodeToString(tx.RawTx),
-		Label:            tx.Label,
+		TxHash:            tx.Hash.String(),
+		Amount:            int64(tx.Value),
+		NumConfirmations:  tx.NumConfirmations,
+		BlockHash:         blockHash,
+		BlockHeight:       tx.BlockHeight,
+		TimeStamp:         tx.Timestamp,
+		TotalFees:         tx.TotalFees,
+		DestAddresses:     destAddresses,
+		OutputDetails:     outputDetails,
+		RawTxHex:          hex.EncodeToString(tx.RawTx),
+		Label:             tx.Label,
+		PreviousOutpoints: previousOutpoints,
 	}
 }
 

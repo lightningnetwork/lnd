@@ -1692,8 +1692,9 @@ func (c *ChannelGraph) PruneTip() (*chainhash.Hash, uint32, error) {
 // database, then ErrEdgeNotFound will be returned. If strictZombiePruning is
 // true, then when we mark these edges as zombies, we'll set up the keys such
 // that we require the node that failed to send the fresh update to be the one
-// that resurrects the channel from its zombie state.
-func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning bool,
+// that resurrects the channel from its zombie state. The markZombie bool
+// denotes whether or not to mark the channel as a zombie.
+func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 	chanIDs ...uint64) error {
 
 	// TODO(roasbeef): possibly delete from node bucket if node has no more
@@ -1730,7 +1731,7 @@ func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning bool,
 			byteOrder.PutUint64(rawChanID[:], chanID)
 			err := c.delChannelEdge(
 				edges, edgeIndex, chanIndex, zombieIndex, nodes,
-				rawChanID[:], true, strictZombiePruning,
+				rawChanID[:], markZombie, strictZombiePruning,
 			)
 			if err != nil {
 				return err
@@ -2167,8 +2168,18 @@ func (c *ChannelGraph) FilterChannelRange(startHeight,
 
 		// We'll now iterate through the database, and find each
 		// channel ID that resides within the specified range.
-		for k, _ := cursor.Seek(chanIDStart[:]); k != nil &&
-			bytes.Compare(k, chanIDEnd[:]) <= 0; k, _ = cursor.Next() {
+		for k, v := cursor.Seek(chanIDStart[:]); k != nil &&
+			bytes.Compare(k, chanIDEnd[:]) <= 0; k, v = cursor.Next() {
+			// Don't send alias SCIDs during gossip sync.
+			edgeReader := bytes.NewReader(v)
+			edgeInfo, err := deserializeChanEdgeInfo(edgeReader)
+			if err != nil {
+				return err
+			}
+
+			if edgeInfo.AuthProof == nil {
+				continue
+			}
 
 			// This channel ID rests within the target range, so
 			// we'll add it to our returned set.

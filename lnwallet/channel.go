@@ -5659,6 +5659,15 @@ func (lc *LightningChannel) RemoteUpfrontShutdownScript() lnwire.DeliveryAddress
 	return lc.channelState.RemoteShutdownScript
 }
 
+// AbsoluteThawHeight determines a frozen channel's absolute thaw height. If
+// the channel is not frozen, then 0 is returned.
+//
+// An error is returned if the channel is penidng, or is an unconfirmed zero
+// conf channel.
+func (lc *LightningChannel) AbsoluteThawHeight() (uint32, error) {
+	return lc.channelState.AbsoluteThawHeight()
+}
+
 // getSignedCommitTx function take the latest commitment transaction and
 // populate it with witness data.
 func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {

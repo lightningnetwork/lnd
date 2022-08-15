@@ -20,7 +20,8 @@ import (
 // canceled backwards. Once the timeout has been reached, then we should sweep
 // it on-chain, and cancel the HTLC backwards.
 func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
-	alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType) {
+	alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType,
+	zeroConf bool) {
 
 	ctxb := context.Background()
 
@@ -28,7 +29,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
-		t, net, alice, bob, true, c,
+		t, net, alice, bob, true, c, zeroConf,
 	)
 
 	// Clean up carol's node when the test finishes.

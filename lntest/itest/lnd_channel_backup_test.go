@@ -447,6 +447,97 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				)
 			},
 		},
+
+		// Restore the backup from the on-disk file, using the RPC
+		// interface, for zero-conf anchor channels.
+		{
+			name: "restore from backup file for zero-conf " +
+				"anchors channel",
+			initiator:      true,
+			private:        false,
+			commitmentType: lnrpc.CommitmentType_ANCHORS,
+			zeroConf:       true,
+			restoreMethod: func(oldNode *lntest.HarnessNode,
+				backupFilePath string,
+				mnemonic []string) (nodeRestorer, error) {
+
+				// Read the entire Multi backup stored within
+				// this node's channels.backup file.
+				multi, err := ioutil.ReadFile(backupFilePath)
+				if err != nil {
+					return nil, err
+				}
+
+				// Now that we have Dave's backup file, we'll
+				// create a new nodeRestorer that we'll restore
+				// using the on-disk channels.backup.
+				return chanRestoreViaRPC(
+					net, password, mnemonic, multi,
+					oldNode,
+				)
+			},
+		},
+
+		// Restore the backup from the on-disk file, using the RPC
+		// interface for a zero-conf script-enforced leased channel.
+		{
+			name: "restore from backup file zero-conf " +
+				"script-enforced leased channel",
+			initiator:      true,
+			private:        false,
+			commitmentType: lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
+			zeroConf:       true,
+			restoreMethod: func(oldNode *lntest.HarnessNode,
+				backupFilePath string,
+				mnemonic []string) (nodeRestorer, error) {
+
+				// Read the entire Multi backup stored within
+				// this node's channel.backup file.
+				multi, err := ioutil.ReadFile(backupFilePath)
+				if err != nil {
+					return nil, err
+				}
+
+				// Now that we have Dave's backup file, we'll
+				// create a new nodeRestorer that we'll restore
+				// using the on-disk channel backup.
+				return chanRestoreViaRPC(
+					net, password, mnemonic, multi,
+					oldNode,
+				)
+			},
+		},
+
+		// Restore a zero-conf anchors channel that was force closed by
+		// dave just before going offline.
+		{
+			name: "restore force closed from backup file " +
+				"anchors w/ zero-conf",
+			initiator:       true,
+			private:         false,
+			commitmentType:  lnrpc.CommitmentType_ANCHORS,
+			localForceClose: true,
+			zeroConf:        true,
+			restoreMethod: func(oldNode *lntest.HarnessNode,
+				backupFilePath string,
+				mnemonic []string) (nodeRestorer, error) {
+
+				// Read the entire Multi backup stored within
+				// this node's channel.backup file.
+				multi, err := ioutil.ReadFile(backupFilePath)
+				if err != nil {
+					return nil, err
+				}
+
+				// Now that we have Dave's backup file, we'll
+				// create a new nodeRestorer that we'll restore
+				// using the on-disk channel backup.
+				return chanRestoreViaRPC(
+					net, password, mnemonic, multi,
+					oldNode,
+				)
+			},
+		},
 	}
 
 	// TODO(roasbeef): online vs offline close?
@@ -861,6 +952,10 @@ type chanRestoreTestCase struct {
 	restoreMethod func(oldNode *lntest.HarnessNode,
 		backupFilePath string,
 		mnemonic []string) (nodeRestorer, error)
+
+	// zeroConf denotes whether the opened channel is a zero-conf channel
+	// or not.
+	zeroConf bool
 }
 
 // testChanRestoreScenario executes a chanRestoreTestCase from end to end,
@@ -884,6 +979,13 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	if testCase.commitmentType != lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE {
 		args := nodeArgsForCommitType(testCase.commitmentType)
 		nodeArgs = append(nodeArgs, args...)
+	}
+
+	if testCase.zeroConf {
+		nodeArgs = append(
+			nodeArgs, "--protocol.option-scid-alias",
+			"--protocol.zero-conf",
+		)
 	}
 
 	// First, we'll create a brand new node we'll use within the test. If
@@ -961,6 +1063,18 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		)
 
 	default:
+		// If we are testing zero-conf channels, setup a
+		// ChannelAcceptor for the fundee.
+		var cancel context.CancelFunc
+		if testCase.zeroConf {
+			// Setup a ChannelAcceptor.
+			var ctxc context.Context
+			ctxc, cancel = context.WithCancel(ctxb)
+			acceptStream, err := to.ChannelAcceptor(ctxc)
+			require.NoError(t.t, err)
+			go acceptChannel(t, true, acceptStream)
+		}
+
 		var fundingShim *lnrpc.FundingShim
 		if testCase.commitmentType == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
 			_, minerHeight, err := net.Miner.Client.GetBestBlock()
@@ -971,15 +1085,22 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 				net, t, from, to, chanAmt, thawHeight, true,
 			)
 		}
+		params := lntest.OpenChannelParams{
+			Amt:            chanAmt,
+			PushAmt:        pushAmt,
+			Private:        testCase.private,
+			FundingShim:    fundingShim,
+			CommitmentType: testCase.commitmentType,
+			ZeroConf:       testCase.zeroConf,
+		}
 		chanPoint = openChannelAndAssert(
-			t, net, from, to, lntest.OpenChannelParams{
-				Amt:            chanAmt,
-				PushAmt:        pushAmt,
-				Private:        testCase.private,
-				FundingShim:    fundingShim,
-				CommitmentType: testCase.commitmentType,
-			},
+			t, net, from, to, params,
 		)
+
+		// Remove the ChannelAcceptor.
+		if testCase.zeroConf {
+			cancel()
+		}
 
 		// Wait for both sides to see the opened channel.
 		err = dave.WaitForNetworkChannelOpen(chanPoint)

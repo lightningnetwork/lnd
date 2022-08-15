@@ -37,13 +37,18 @@ var updateChanStatusCommand = cli.Command{
 		},
 		cli.IntFlag{
 			Name: "output_index",
-			Usage: "the output index for the funding output of the funding " +
-				"transaction",
+			Usage: "the output index for the funding output of " +
+				"the funding transaction",
+		},
+		cli.StringFlag{
+			Name: "chan_point",
+			Usage: "the channel whose status should be updated. " +
+				"Takes the form of: txid:output_index",
 		},
 		cli.StringFlag{
 			Name: "action",
-			Usage: `the action to take: must be one of "enable", "disable", ` +
-				`or "auto"`,
+			Usage: `the action to take: must be one of "enable", ` +
+				`"disable", or "auto"`,
 		},
 	},
 	Action: actionDecorator(updateChanStatus),

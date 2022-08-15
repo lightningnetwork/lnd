@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
@@ -228,8 +229,8 @@ func (p *JusticeDescriptor) assembleJusticeTxn(txWeight int64,
 		i := inputIndex[inp.outPoint]
 		justiceTxn.TxIn[i].Witness = inp.witness
 
-		// Validate the reconstructed witnesses to ensure they are valid
-		// for the breached inputs.
+		// Validate the reconstructed witnesses to ensure they are
+		// valid for the breached inputs.
 		vm, err := txscript.NewEngine(
 			inp.txOut.PkScript, justiceTxn, i,
 			txscript.StandardVerifyFlags,
@@ -239,7 +240,9 @@ func (p *JusticeDescriptor) assembleJusticeTxn(txWeight int64,
 			return nil, err
 		}
 		if err := vm.Execute(); err != nil {
-			return nil, err
+			log.Debugf("Failed to validate justice transaction: %s",
+				spew.Sdump(justiceTxn))
+			return nil, fmt.Errorf("error validating TX: %v", err)
 		}
 	}
 
@@ -300,6 +303,9 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 
 	sweepInputs = append(sweepInputs, toLocalInput)
 
+	log.Debugf("Found to local witness output=%#v, stack=%v",
+		toLocalInput.txOut, toLocalInput.witness)
+
 	// If the justice kit specifies that we have to sweep the to-remote
 	// output, we'll also try to assemble the output and add it to weight
 	// estimate if successful.
@@ -309,6 +315,9 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 			return nil, err
 		}
 		sweepInputs = append(sweepInputs, toRemoteInput)
+
+		log.Debugf("Found to remote witness output=%#v, stack=%v",
+			toRemoteInput.txOut, toRemoteInput.witness)
 
 		if p.JusticeKit.BlobType.IsAnchorChannel() {
 			weightEstimate.AddWitnessInput(input.ToRemoteConfirmedWitnessSize)

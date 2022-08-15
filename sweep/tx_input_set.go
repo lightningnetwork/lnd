@@ -139,7 +139,7 @@ func newTxInputSet(wallet Wallet, feePerKW chainfee.SatPerKWeight,
 func (t *txInputSet) enoughInput() bool {
 	// If we have a change output above dust, then we certainly have enough
 	// inputs to the transaction.
-	if t.changeOutput >= lnwallet.DustLimitForSize(input.P2WPKHSize) {
+	if t.changeOutput >= lnwallet.DustLimitForSize(input.P2TRSize) {
 		return true
 	}
 

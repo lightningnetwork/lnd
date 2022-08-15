@@ -16,6 +16,29 @@
     "application/json"
   ],
   "paths": {
+    "/v1/aliases/list": {
+      "get": {
+        "summary": "lncli: `listaliases`\nListAliases returns the set of all aliases that have ever existed with\ntheir confirmed SCID (if it exists) and/or the base SCID (in the case of\nzero conf).",
+        "operationId": "Lightning_ListAliases",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListAliasesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/balance/blockchain": {
       "get": {
         "summary": "lncli: `walletbalance`\nWalletBalance returns total unspent outputs(confirmed and unconfirmed), all\nconfirmed unspent outputs and all unconfirmed unspent outputs under control\nof the wallet.",
@@ -807,6 +830,14 @@
           {
             "name": "sat_per_vbyte",
             "description": "A manual fee rate set in sat/vbyte that should be used when crafting the\nclosure transaction.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "max_fee_per_vbyte",
+            "description": "The maximum fee rate the closer is willing to pay.\n\nNOTE: This field is only respected if we're the initiator of the channel.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -2943,6 +2974,24 @@
       "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)\n- `p2tr`: Pay to taproot pubkey (`TAPROOT_PUBKEY` = 4)",
       "title": "`AddressType` has to be one of:"
     },
+    "lnrpcAliasMap": {
+      "type": "object",
+      "properties": {
+        "base_scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "For non-zero-conf channels, this is the confirmed SCID. Otherwise, this is\nthe first assigned \"base\" alias."
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The set of all aliases stored for the base SCID."
+        }
+      }
+    },
     "lnrpcAmount": {
       "type": "object",
       "properties": {
@@ -3283,6 +3332,23 @@
         "remote_constraints": {
           "$ref": "#/definitions/lnrpcChannelConstraints",
           "description": "List constraints for the remote node."
+        },
+        "alias_scids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "This lists out the set of alias short channel ids that exist for a channel.\nThis may be empty."
+        },
+        "zero_conf": {
+          "type": "boolean",
+          "description": "Whether or not this is a zero-conf channel."
+        },
+        "zero_conf_confirmed_scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "This is the confirmed / on-chain zero-conf SCID."
         }
       }
     },
@@ -3357,6 +3423,14 @@
         "commitment_type": {
           "$ref": "#/definitions/lnrpcCommitmentType",
           "description": "The commitment type the initiator wishes to use for the proposed channel."
+        },
+        "wants_zero_conf": {
+          "type": "boolean",
+          "description": "Whether the initiator wants to open a zero-conf channel via the channel\ntype."
+        },
+        "wants_scid_alias": {
+          "type": "boolean",
+          "description": "Whether the initiator wants to use the scid-alias channel type. This is\nseparate from the feature bit."
         }
       }
     },
@@ -3409,6 +3483,10 @@
           "type": "integer",
           "format": "int64",
           "description": "The number of confirmations we require before we consider the channel open."
+        },
+        "zero_conf": {
+          "type": "boolean",
+          "description": "Whether the responder wants this to be a zero-conf channel. This will fail\nif either side does not have the scid-alias feature bit set. The minimum\ndepth field must be zero if this is true."
         }
       }
     },
@@ -3538,6 +3616,19 @@
           "items": {
             "$ref": "#/definitions/lnrpcResolution"
           }
+        },
+        "alias_scids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "This lists out the set of alias short channel ids that existed for the\nclosed channel. This may be empty."
+        },
+        "zero_conf_confirmed_scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The confirmed SCID for a zero-conf channel."
         }
       }
     },
@@ -4678,12 +4769,12 @@
         },
         "replace_response": {
           "type": "boolean",
-          "description": "A boolean indicating that the gRPC response should be replaced/overwritten.\nAs its name suggests, this can only be used as a feedback to an intercepted\nresponse RPC message and is ignored for feedback on any other message. This\nboolean is needed because in protobuf an empty message is serialized as a\n0-length or nil byte slice and we wouldn't be able to distinguish between\nan empty replacement message and the \"don't replace anything\" case."
+          "description": "A boolean indicating that the gRPC message should be replaced/overwritten.\nThis boolean is needed because in protobuf an empty message is serialized as\na 0-length or nil byte slice and we wouldn't be able to distinguish between\nan empty replacement message and the \"don't replace anything\" case."
         },
         "replacement_serialized": {
           "type": "string",
           "format": "byte",
-          "description": "If the replace_response field is set to true, this field must contain the\nbinary serialized gRPC response message in the protobuf format."
+          "description": "If the replace_response field is set to true, this field must contain the\nbinary serialized gRPC message in the protobuf format."
         }
       }
     },
@@ -4718,6 +4809,7 @@
         },
         "settled": {
           "type": "boolean",
+          "description": "The field is deprecated. Use the state field instead (compare to SETTLED).",
           "title": "Whether this invoice has been fulfilled"
         },
         "creation_date": {
@@ -4973,6 +5065,17 @@
         }
       },
       "description": "An individual vertex/node within the channel graph. A node is\nconnected to other nodes by one or more channel edges emanating from it. As the\ngraph is directed, a node will also have an incoming edge attached to it for\neach outgoing edge."
+    },
+    "lnrpcListAliasesResponse": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
     },
     "lnrpcListChannelsResponse": {
       "type": "object",
@@ -5414,6 +5517,14 @@
         "commitment_type": {
           "$ref": "#/definitions/lnrpcCommitmentType",
           "description": "The explicit commitment type to use. Note this field will only be used if\nthe remote peer supports explicit channel negotiation."
+        },
+        "zero_conf": {
+          "type": "boolean",
+          "description": "If this is true, then a zero-conf channel open will be attempted."
+        },
+        "scid_alias": {
+          "type": "boolean",
+          "description": "If this is true, then an option-scid-alias channel-type open will be\nattempted."
         }
       }
     },
@@ -5879,6 +5990,19 @@
         }
       }
     },
+    "lnrpcPreviousOutPoint": {
+      "type": "object",
+      "properties": {
+        "outpoint": {
+          "type": "string",
+          "description": "The outpoint in format txid:n."
+        },
+        "is_our_output": {
+          "type": "boolean",
+          "description": "Denotes if the outpoint is controlled by the internal wallet.\nThe flag will only detect p2wkh, np2wkh and p2tr inputs as its own."
+        }
+      }
+    },
     "lnrpcPsbtShim": {
       "type": "object",
       "properties": {
@@ -5928,12 +6052,16 @@
         },
         "type_name": {
           "type": "string",
-          "description": "The full canonical gRPC name of the message type (in the format\n\u003crpcpackage\u003e.TypeName, for example lnrpc.GetInfoRequest)."
+          "description": "The full canonical gRPC name of the message type (in the format\n\u003crpcpackage\u003e.TypeName, for example lnrpc.GetInfoRequest). In case of an\nerror being returned from lnd, this simply contains the string \"error\"."
         },
         "serialized": {
           "type": "string",
           "format": "byte",
           "description": "The full content of the gRPC message, serialized in the binary protobuf\nformat."
+        },
+        "is_error": {
+          "type": "boolean",
+          "description": "Indicates that the response from lnd was an error, not a gRPC response. If\nthis is set to true then the type_name contains the string \"error\" and\nserialized contains the error string."
         }
       }
     },
@@ -5965,6 +6093,10 @@
         "response": {
           "$ref": "#/definitions/lnrpcRPCMessage",
           "description": "Intercept outgoing gRPC response message: all outgoing messages, both on\nstreaming and unary RPCs, are forwarded to the middleware for inspection\nand amendment. The response in this message is the original response as\nit was generated by the main RPC server. It can either be accepted\n(=forwarded to the client), replaced/overwritten with a new message of\nthe same type, or replaced by an error message."
+        },
+        "reg_complete": {
+          "type": "boolean",
+          "description": "This is used to indicate to the client that the server has successfully\nregistered the interceptor. This is only used in the very first message\nthat the server sends to the client after the client sends the server\nthe middleware registration message."
         },
         "msg_id": {
           "type": "string",
@@ -6501,6 +6633,13 @@
         "label": {
           "type": "string",
           "description": "A label that was optionally set on transaction broadcast."
+        },
+        "previous_outpoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcPreviousOutPoint"
+          },
+          "description": "PreviousOutpoints/Inputs of this transaction."
         }
       }
     },
@@ -6625,6 +6764,11 @@
           "type": "string",
           "format": "int64",
           "description": "The total amount of wallet UTXOs held in outputs that are locked for\nother usage."
+        },
+        "reserved_balance_anchor_chan": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount of reserve required."
         },
         "account_balance": {
           "type": "object",

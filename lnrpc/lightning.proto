@@ -570,6 +570,13 @@ service Lightning {
     */
     rpc SubscribeCustomMessages (SubscribeCustomMessagesRequest)
         returns (stream CustomMessage);
+
+    /* lncli: `listaliases`
+    ListAliases returns the set of all aliases that have ever existed with
+    their confirmed SCID (if it exists) and/or the base SCID (in the case of
+    zero conf).
+    */
+    rpc ListAliases (ListAliasesRequest) returns (ListAliasesResponse);
 }
 
 message SubscribeCustomMessagesRequest {
@@ -686,7 +693,11 @@ message Transaction {
 
     // A label that was optionally set on transaction broadcast.
     string label = 10;
+
+    // PreviousOutpoints/Inputs of this transaction.
+    repeated PreviousOutPoint previous_outpoints = 12;
 }
+
 message GetTransactionsRequest {
     /*
     The height from which to list transactions, inclusive. If this value is
@@ -915,6 +926,14 @@ message ChannelAcceptRequest {
 
     // The commitment type the initiator wishes to use for the proposed channel.
     CommitmentType commitment_type = 14;
+
+    // Whether the initiator wants to open a zero-conf channel via the channel
+    // type.
+    bool wants_zero_conf = 15;
+
+    // Whether the initiator wants to use the scid-alias channel type. This is
+    // separate from the feature bit.
+    bool wants_scid_alias = 16;
 }
 
 message ChannelAcceptResponse {
@@ -975,6 +994,13 @@ message ChannelAcceptResponse {
     The number of confirmations we require before we consider the channel open.
     */
     uint32 min_accept_depth = 10;
+
+    /*
+    Whether the responder wants this to be a zero-conf channel. This will fail
+    if either side does not have the scid-alias feature bit set. The minimum
+    depth field must be zero if this is true.
+    */
+    bool zero_conf = 11;
 }
 
 message ChannelPoint {
@@ -1005,6 +1031,15 @@ message OutPoint {
 
     // The index of the output on the transaction.
     uint32 output_index = 3;
+}
+
+message PreviousOutPoint {
+    // The outpoint in format txid:n.
+    string outpoint = 1;
+
+    // Denotes if the outpoint is controlled by the internal wallet.
+    // The flag will only detect p2wkh, np2wkh and p2tr inputs as its own.
+    bool is_our_output = 2;
 }
 
 message LightningAddress {
@@ -1462,6 +1497,18 @@ message Channel {
 
     // List constraints for the remote node.
     ChannelConstraints remote_constraints = 30;
+
+    /*
+    This lists out the set of alias short channel ids that exist for a channel.
+    This may be empty.
+    */
+    repeated uint64 alias_scids = 31;
+
+    // Whether or not this is a zero-conf channel.
+    bool zero_conf = 32;
+
+    // This is the confirmed / on-chain zero-conf SCID.
+    uint64 zero_conf_confirmed_scid = 33;
 }
 
 message ListChannelsRequest {
@@ -1479,6 +1526,22 @@ message ListChannelsRequest {
 message ListChannelsResponse {
     // The list of active channels
     repeated Channel channels = 11;
+}
+
+message AliasMap {
+    /*
+    For non-zero-conf channels, this is the confirmed SCID. Otherwise, this is
+    the first assigned "base" alias.
+    */
+    uint64 base_scid = 1;
+
+    // The set of all aliases stored for the base SCID.
+    repeated uint64 aliases = 2;
+}
+message ListAliasesRequest {
+}
+message ListAliasesResponse {
+    repeated AliasMap alias_maps = 1;
 }
 
 enum Initiator {
@@ -1545,6 +1608,15 @@ message ChannelCloseSummary {
     Initiator close_initiator = 12;
 
     repeated Resolution resolutions = 13;
+
+    /*
+    This lists out the set of alias short channel ids that existed for the
+    closed channel. This may be empty.
+    */
+    repeated uint64 alias_scids = 14;
+
+    //  The confirmed SCID for a zero-conf channel.
+    uint64 zero_conf_confirmed_scid = 15 [jstype = JS_STRING];
 }
 
 enum ResolutionType {
@@ -1890,6 +1962,11 @@ message CloseChannelRequest {
     // A manual fee rate set in sat/vbyte that should be used when crafting the
     // closure transaction.
     uint64 sat_per_vbyte = 6;
+
+    // The maximum fee rate the closer is willing to pay.
+    //
+    // NOTE: This field is only respected if we're the initiator of the channel.
+    uint64 max_fee_per_vbyte = 7;
 }
 
 message CloseStatusUpdate {
@@ -2101,6 +2178,17 @@ message OpenChannelRequest {
     the remote peer supports explicit channel negotiation.
     */
     CommitmentType commitment_type = 18;
+
+    /*
+    If this is true, then a zero-conf channel open will be attempted.
+    */
+    bool zero_conf = 19;
+
+    /*
+    If this is true, then an option-scid-alias channel-type open will be
+    attempted.
+    */
+    bool scid_alias = 20;
 }
 message OpenStatusUpdate {
     oneof update {
@@ -2553,6 +2641,9 @@ message WalletBalanceResponse {
     // The total amount of wallet UTXOs held in outputs that are locked for
     // other usage.
     int64 locked_balance = 5;
+
+    // The amount of reserve required.
+    int64 reserved_balance_anchor_chan = 6;
 
     // A mapping of each wallet account's name to its balance.
     map<string, WalletAccountBalance> account_balance = 4;
@@ -3193,7 +3284,11 @@ message Invoice {
     */
     int64 value_msat = 23;
 
-    // Whether this invoice has been fulfilled
+    /*
+    Whether this invoice has been fulfilled
+
+    The field is deprecated. Use the state field instead (compare to SETTLED).
+    */
     bool settled = 6 [deprecated = true];
 
     /*
@@ -4345,6 +4440,14 @@ message RPCMiddlewareRequest {
         the same type, or replaced by an error message.
         */
         RPCMessage response = 6;
+
+        /*
+        This is used to indicate to the client that the server has successfully
+        registered the interceptor. This is only used in the very first message
+        that the server sends to the client after the client sends the server
+        the middleware registration message.
+        */
+        bool reg_complete = 8;
     }
 
     /*
@@ -4382,7 +4485,8 @@ message RPCMessage {
 
     /*
     The full canonical gRPC name of the message type (in the format
-    <rpcpackage>.TypeName, for example lnrpc.GetInfoRequest).
+    <rpcpackage>.TypeName, for example lnrpc.GetInfoRequest). In case of an
+    error being returned from lnd, this simply contains the string "error".
     */
     string type_name = 3;
 
@@ -4391,6 +4495,13 @@ message RPCMessage {
     format.
     */
     bytes serialized = 4;
+
+    /*
+    Indicates that the response from lnd was an error, not a gRPC response. If
+    this is set to true then the type_name contains the string "error" and
+    serialized contains the error string.
+    */
+    bool is_error = 5;
 }
 
 message RPCMiddlewareResponse {
@@ -4467,18 +4578,16 @@ message InterceptFeedback {
     string error = 1;
 
     /*
-    A boolean indicating that the gRPC response should be replaced/overwritten.
-    As its name suggests, this can only be used as a feedback to an intercepted
-    response RPC message and is ignored for feedback on any other message. This
-    boolean is needed because in protobuf an empty message is serialized as a
-    0-length or nil byte slice and we wouldn't be able to distinguish between
+    A boolean indicating that the gRPC message should be replaced/overwritten.
+    This boolean is needed because in protobuf an empty message is serialized as
+    a 0-length or nil byte slice and we wouldn't be able to distinguish between
     an empty replacement message and the "don't replace anything" case.
     */
     bool replace_response = 2;
 
     /*
     If the replace_response field is set to true, this field must contain the
-    binary serialized gRPC response message in the protobuf format.
+    binary serialized gRPC message in the protobuf format.
     */
     bytes replacement_serialized = 3;
 }

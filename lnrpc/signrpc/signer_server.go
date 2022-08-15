@@ -489,7 +489,8 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 // ComputeInputScript generates a complete InputIndex for the passed
 // transaction with the signature as defined within the passed SignDescriptor.
 // This method should be capable of generating the proper input script for both
-// regular p2wkh output and p2wkh outputs nested within a regular p2sh output.
+// regular p2wkh/p2tr outputs and p2wkh outputs nested within a regular p2sh
+// output.
 //
 // Note that when using this method to sign inputs belonging to the wallet, the
 // only items of the SignDescriptor that need to be populated are pkScript in
@@ -519,7 +520,33 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 		return nil, fmt.Errorf("unable to decode tx: %v", err)
 	}
 
-	sigHashCache := input.NewTxSigHashesV0Only(&txToSign)
+	var (
+		sigHashCache      = input.NewTxSigHashesV0Only(&txToSign)
+		prevOutputFetcher = txscript.NewMultiPrevOutFetcher(nil)
+	)
+
+	// If we're spending one or more SegWit v1 (Taproot) inputs, then we
+	// need the full UTXO information available.
+	if len(in.PrevOutputs) > 0 {
+		if len(in.PrevOutputs) != len(txToSign.TxIn) {
+			return nil, fmt.Errorf("provided previous outputs " +
+				"doesn't match number of transaction inputs")
+		}
+
+		// Add all previous inputs to our sighash prev out fetcher so we
+		// can calculate the sighash correctly.
+		for idx, txIn := range txToSign.TxIn {
+			prevOutputFetcher.AddPrevOut(
+				txIn.PreviousOutPoint, &wire.TxOut{
+					Value:    in.PrevOutputs[idx].Value,
+					PkScript: in.PrevOutputs[idx].PkScript,
+				},
+			)
+		}
+		sigHashCache = txscript.NewTxSigHashes(
+			&txToSign, prevOutputFetcher,
+		)
+	}
 
 	signDescs := make([]*input.SignDescriptor, 0, len(in.SignDescs))
 	for _, signDesc := range in.SignDescs {
@@ -532,9 +559,10 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 				Value:    signDesc.Output.Value,
 				PkScript: signDesc.Output.PkScript,
 			},
-			HashType:   txscript.SigHashType(signDesc.Sighash),
-			SigHashes:  sigHashCache,
-			InputIndex: int(signDesc.InputIndex),
+			HashType:          txscript.SigHashType(signDesc.Sighash),
+			SigHashes:         sigHashCache,
+			PrevOutputFetcher: prevOutputFetcher,
+			InputIndex:        int(signDesc.InputIndex),
 		})
 	}
 
@@ -573,11 +601,36 @@ func (s *Server) SignMessage(_ context.Context,
 	if in.KeyLoc == nil {
 		return nil, fmt.Errorf("a key locator MUST be passed in")
 	}
+	if in.SchnorrSig && in.CompactSig {
+		return nil, fmt.Errorf("compact format can not be used for " +
+			"Schnorr signatures")
+	}
 
 	// Describe the private key we'll be using for signing.
 	keyLocator := keychain.KeyLocator{
 		Family: keychain.KeyFamily(in.KeyLoc.KeyFamily),
 		Index:  uint32(in.KeyLoc.KeyIndex),
+	}
+
+	// Use the schnorr signature algorithm to sign the message.
+	if in.SchnorrSig {
+		sig, err := s.cfg.KeyRing.SignMessageSchnorr(
+			keyLocator, in.Msg, in.DoubleHash,
+			in.SchnorrSigTapTweak,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("can't sign the hash: %v", err)
+		}
+
+		sigParsed, err := schnorr.ParseSignature(sig.Serialize())
+		if err != nil {
+			return nil, fmt.Errorf("can't parse Schnorr "+
+				"signature: %v", err)
+		}
+
+		return &SignMessageResp{
+			Signature: sigParsed.Serialize(),
+		}, nil
 	}
 
 	// To allow a watch-only wallet to forward the SignMessageCompact to an
@@ -616,7 +669,7 @@ func (s *Server) SignMessage(_ context.Context,
 
 // VerifyMessage verifies a signature over a message using the public key
 // provided. The signature must be fixed-size LN wire format encoded.
-func (s *Server) VerifyMessage(ctx context.Context,
+func (s *Server) VerifyMessage(_ context.Context,
 	in *VerifyMessageReq) (*VerifyMessageResp, error) {
 
 	if in.Msg == nil {
@@ -629,6 +682,31 @@ func (s *Server) VerifyMessage(ctx context.Context,
 	if in.Pubkey == nil {
 		return nil, fmt.Errorf("a pubkey to verify MUST be passed in")
 	}
+
+	// We allow for Schnorr signatures to be verified.
+	if in.IsSchnorrSig {
+		// We expect the public key to be in the BIP-340 32-byte format
+		// for Schnorr signatures.
+		pubkey, err := schnorr.ParsePubKey(in.Pubkey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse pubkey: %v",
+				err)
+		}
+
+		sigParsed, err := schnorr.ParseSignature(in.Signature)
+		if err != nil {
+			return nil, fmt.Errorf("can't parse Schnorr "+
+				"signature: %v", err)
+		}
+
+		digest := chainhash.HashB(in.Msg)
+		valid := sigParsed.Verify(digest, pubkey)
+
+		return &VerifyMessageResp{
+			Valid: valid,
+		}, nil
+	}
+
 	pubkey, err := btcec.ParsePubKey(in.Pubkey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse pubkey: %v", err)

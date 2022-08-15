@@ -488,6 +488,43 @@ func (r *RPCKeyRing) SignMessageCompact(keyLoc keychain.KeyLocator,
 	return resp.Signature, nil
 }
 
+// SignMessageSchnorr attempts to sign a target message with the private key
+// described in the key locator. If the target private key is unable to be
+// found, then an error will be returned. The actual digest signed is the
+// single or double SHA-256 of the passed message.
+//
+// NOTE: This method is part of the keychain.MessageSignerRing interface.
+func (r *RPCKeyRing) SignMessageSchnorr(keyLoc keychain.KeyLocator,
+	msg []byte, doubleHash bool, taprootTweak []byte) (*schnorr.Signature,
+	error) {
+
+	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
+	defer cancel()
+
+	resp, err := r.signerClient.SignMessage(ctxt, &signrpc.SignMessageReq{
+		Msg: msg,
+		KeyLoc: &signrpc.KeyLocator{
+			KeyFamily: int32(keyLoc.Family),
+			KeyIndex:  int32(keyLoc.Index),
+		},
+		DoubleHash:         doubleHash,
+		SchnorrSig:         true,
+		SchnorrSigTapTweak: taprootTweak,
+	})
+	if err != nil {
+		considerShutdown(err)
+		return nil, fmt.Errorf("error signing message in remote "+
+			"signer instance: %v", err)
+	}
+
+	sigParsed, err := schnorr.ParseSignature(resp.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("can't parse schnorr signature: %v",
+			err)
+	}
+	return sigParsed, nil
+}
+
 // DerivePrivKey attempts to derive the private key that corresponds to the
 // passed key descriptor.  If the public key is set, then this method will
 // perform an in-order scan over the key set, with a max of MaxKeyRangeScan

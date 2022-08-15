@@ -118,7 +118,7 @@ var (
 //      | Macaroon Interceptor             |
 //      +----------------------------------+--------> +---------------------+
 //      | RPC Macaroon Middleware Handler  |<-------- | External Middleware |
-//      +----------------------------------+          |   - approve request |
+//      +----------------------------------+          |   - modify request |
 //      | Prometheus Interceptor           |          +---------------------+
 //      +-+--------------------------------+
 //        | validated gRPC request from client
@@ -167,10 +167,19 @@ type InterceptorChain struct {
 	// rpcsLog is the logger used to log calls to the RPCs intercepted.
 	rpcsLog btclog.Logger
 
-	// registeredMiddleware is a map of all macaroon permission based RPC
-	// middleware clients that are currently registered. The map is keyed
-	// by the middleware's name.
-	registeredMiddleware map[string]*MiddlewareHandler
+	// registeredMiddleware is a slice of all macaroon permission based RPC
+	// middleware clients that are currently registered. The
+	// registeredMiddlewareNames can be used to find the index of a specific
+	// interceptor within the registeredMiddleware slide using the name of
+	// the interceptor as the key. The reason for using these two separate
+	// structures is so that the order in which interceptors are run is
+	// the same as the order in which they were registered.
+	registeredMiddleware []*MiddlewareHandler
+
+	// registeredMiddlewareNames is a map of registered middleware names
+	// to the index at which they are stored in the registeredMiddleware
+	// map.
+	registeredMiddlewareNames map[string]int
 
 	// mandatoryMiddleware is a list of all middleware that is considered to
 	// be mandatory. If any of them is not registered then all RPC requests
@@ -193,14 +202,14 @@ func NewInterceptorChain(log btclog.Logger, noMacaroons bool,
 	mandatoryMiddleware []string) *InterceptorChain {
 
 	return &InterceptorChain{
-		state:                waitingToStart,
-		ntfnServer:           subscribe.NewServer(),
-		noMacaroons:          noMacaroons,
-		permissionMap:        make(map[string][]bakery.Op),
-		rpcsLog:              log,
-		registeredMiddleware: make(map[string]*MiddlewareHandler),
-		mandatoryMiddleware:  mandatoryMiddleware,
-		quit:                 make(chan struct{}),
+		state:                     waitingToStart,
+		ntfnServer:                subscribe.NewServer(),
+		noMacaroons:               noMacaroons,
+		permissionMap:             make(map[string][]bakery.Op),
+		rpcsLog:                   log,
+		registeredMiddlewareNames: make(map[string]int),
+		mandatoryMiddleware:       mandatoryMiddleware,
+		quit:                      make(chan struct{}),
 	}
 }
 
@@ -442,25 +451,27 @@ func (r *InterceptorChain) RegisterMiddleware(mw *MiddlewareHandler) error {
 	defer r.Unlock()
 
 	// The name of the middleware is the unique identifier.
-	registered, ok := r.registeredMiddleware[mw.middlewareName]
+	_, ok := r.registeredMiddlewareNames[mw.middlewareName]
 	if ok {
 		return fmt.Errorf("a middleware with the name '%s' is already "+
-			"registered", registered.middlewareName)
+			"registered", mw.middlewareName)
 	}
 
 	// For now, we only want one middleware per custom caveat name. If we
 	// allowed multiple middlewares handling the same caveat there would be
 	// a need for extra call chaining logic, and they could overwrite each
 	// other's responses.
-	for name, middleware := range r.registeredMiddleware {
+	for _, middleware := range r.registeredMiddleware {
 		if middleware.customCaveatName == mw.customCaveatName {
 			return fmt.Errorf("a middleware is already registered "+
 				"for the custom caveat name '%s': %v",
-				mw.customCaveatName, name)
+				mw.customCaveatName, middleware.middlewareName)
 		}
 	}
 
-	r.registeredMiddleware[mw.middlewareName] = mw
+	r.registeredMiddleware = append(r.registeredMiddleware, mw)
+	index := len(r.registeredMiddleware) - 1
+	r.registeredMiddlewareNames[mw.middlewareName] = index
 
 	return nil
 }
@@ -473,7 +484,22 @@ func (r *InterceptorChain) RemoveMiddleware(middlewareName string) {
 
 	log.Debugf("Removing middleware %s", middlewareName)
 
-	delete(r.registeredMiddleware, middlewareName)
+	index, ok := r.registeredMiddlewareNames[middlewareName]
+	if !ok {
+		return
+	}
+	delete(r.registeredMiddlewareNames, middlewareName)
+
+	r.registeredMiddleware = append(
+		r.registeredMiddleware[:index],
+		r.registeredMiddleware[index+1:]...,
+	)
+
+	// Re-initialise the middleware look-up map with the updated indexes.
+	r.registeredMiddlewareNames = make(map[string]int)
+	for i, mw := range r.registeredMiddleware {
+		r.registeredMiddlewareNames[mw.middlewareName] = i
+	}
 }
 
 // CustomCaveatSupported makes sure a middleware that handles the given custom
@@ -789,26 +815,36 @@ func (r *InterceptorChain) middlewareUnaryServerInterceptor() grpc.UnaryServerIn
 			return handler(ctx, req)
 		}
 
-		msg, err := NewMessageInterceptionRequest(
-			ctx, TypeRequest, false, info.FullMethod, req,
+		requestID := atomic.AddUint64(&r.lastRequestID, 1)
+		req, err := r.interceptMessage(
+			ctx, TypeRequest, requestID, false, info.FullMethod,
+			req,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		requestID := atomic.AddUint64(&r.lastRequestID, 1)
-		err = r.acceptRequest(requestID, msg)
-		if err != nil {
-			return nil, err
+		// Call the handler, which executes the request against lnd.
+		lndResp, lndErr := handler(ctx, req)
+		if lndErr != nil {
+			// The call to lnd ended in an error and not a normal
+			// proto message response. Send the error to the
+			// interceptor as well to inform about the abnormal
+			// termination of the stream and to give the option to
+			// replace the error message with a custom one.
+			replacedErr, err := r.interceptMessage(
+				ctx, TypeResponse, requestID, false,
+				info.FullMethod, lndErr,
+			)
+			if err != nil {
+				return nil, err
+			}
+			return lndResp, replacedErr.(error)
 		}
 
-		resp, respErr := handler(ctx, req)
-		if respErr != nil {
-			return resp, respErr
-		}
-
-		return r.interceptResponse(
-			ctx, requestID, false, info.FullMethod, resp,
+		return r.interceptMessage(
+			ctx, TypeResponse, requestID, false, info.FullMethod,
+			lndResp,
 		)
 	}
 }
@@ -855,7 +891,7 @@ func (r *InterceptorChain) middlewareStreamServerInterceptor() grpc.StreamServer
 		}
 
 		requestID := atomic.AddUint64(&r.lastRequestID, 1)
-		err = r.acceptRequest(requestID, msg)
+		err = r.acceptStream(requestID, msg)
 		if err != nil {
 			return err
 		}
@@ -867,7 +903,27 @@ func (r *InterceptorChain) middlewareStreamServerInterceptor() grpc.StreamServer
 			interceptor:  r,
 		}
 
-		return handler(srv, wrappedSS)
+		// Call the stream handler, which will block as long as the
+		// stream is alive.
+		lndErr := handler(srv, wrappedSS)
+		if lndErr != nil {
+			// This is an error being returned from lnd. Send it to
+			// the interceptor as well to inform about the abnormal
+			// termination of the stream and to give the option to
+			// replace the error message with a custom one.
+			replacedErr, err := r.interceptMessage(
+				ss.Context(), TypeResponse, requestID,
+				true, info.FullMethod, lndErr,
+			)
+			if err != nil {
+				return err
+			}
+
+			return replacedErr.(error)
+		}
+
+		// Normal/successful termination of the stream.
+		return nil
 	}
 }
 
@@ -888,7 +944,7 @@ func (r *InterceptorChain) checkMandatoryMiddleware(fullMethod string) error {
 	// Not a white listed call so make sure every mandatory middleware is
 	// currently connected to lnd.
 	for _, name := range r.mandatoryMiddleware {
-		if _, ok := r.registeredMiddleware[name]; !ok {
+		if _, ok := r.registeredMiddlewareNames[name]; !ok {
 			return fmt.Errorf("mandatory middleware '%s' is "+
 				"currently not registered, not allowing any "+
 				"RPC calls", name)
@@ -907,11 +963,11 @@ func (r *InterceptorChain) middlewareRegistered() bool {
 	return len(r.registeredMiddleware) > 0
 }
 
-// acceptRequest sends an intercept request to all middlewares that have
+// acceptStream sends an intercept request to all middlewares that have
 // registered for it. This means either a middleware has requested read-only
 // access or the request actually has a macaroon with a caveat the middleware
 // registered for.
-func (r *InterceptorChain) acceptRequest(requestID uint64,
+func (r *InterceptorChain) acceptStream(requestID uint64,
 	msg *InterceptionRequest) error {
 
 	r.RLock()
@@ -948,13 +1004,13 @@ func (r *InterceptorChain) acceptRequest(requestID uint64,
 	return nil
 }
 
-// interceptResponse sends out an intercept request for an RPC response. Since
+// interceptMessage sends out an intercept request for an RPC response. Since
 // middleware that hasn't registered for the read-only mode has the option to
-// overwrite/replace the response, this needs to be handled differently than the
-// request/auth path above.
-func (r *InterceptorChain) interceptResponse(ctx context.Context,
-	requestID uint64, isStream bool, fullMethod string,
-	m interface{}) (interface{}, error) {
+// overwrite/replace the message, this needs to be handled differently than the
+// auth path above.
+func (r *InterceptorChain) interceptMessage(ctx context.Context,
+	interceptType InterceptType, requestID uint64, isStream bool,
+	fullMethod string, m interface{}) (interface{}, error) {
 
 	r.RLock()
 	defer r.RUnlock()
@@ -962,7 +1018,8 @@ func (r *InterceptorChain) interceptResponse(ctx context.Context,
 	currentMessage := m
 	for _, middleware := range r.registeredMiddleware {
 		msg, err := NewMessageInterceptionRequest(
-			ctx, TypeResponse, isStream, fullMethod, currentMessage,
+			ctx, interceptType, isStream, fullMethod,
+			currentMessage,
 		)
 		if err != nil {
 			return nil, err
@@ -1020,8 +1077,9 @@ type serverStreamWrapper struct {
 // SendMsg is called when lnd sends a message to the client. This is wrapped to
 // intercept streaming RPC responses.
 func (w *serverStreamWrapper) SendMsg(m interface{}) error {
-	newMsg, err := w.interceptor.interceptResponse(
-		w.ServerStream.Context(), w.requestID, true, w.fullMethod, m,
+	newMsg, err := w.interceptor.interceptMessage(
+		w.ServerStream.Context(), TypeResponse, w.requestID, true,
+		w.fullMethod, m,
 	)
 	if err != nil {
 		return err
@@ -1038,13 +1096,13 @@ func (w *serverStreamWrapper) RecvMsg(m interface{}) error {
 		return err
 	}
 
-	msg, err := NewMessageInterceptionRequest(
-		w.ServerStream.Context(), TypeRequest, true, w.fullMethod,
-		m,
+	req, err := w.interceptor.interceptMessage(
+		w.ServerStream.Context(), TypeRequest, w.requestID, true,
+		w.fullMethod, m,
 	)
 	if err != nil {
 		return err
 	}
 
-	return w.interceptor.acceptRequest(w.requestID, msg)
+	return replaceProtoMsg(m, req)
 }

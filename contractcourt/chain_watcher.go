@@ -266,10 +266,25 @@ func (c *chainWatcher) Start() error {
 
 	// As a height hint, we'll try to use the opening height, but if the
 	// channel isn't yet open, then we'll use the height it was broadcast
-	// at.
+	// at. This may be an unconfirmed zero-conf channel.
 	heightHint := c.cfg.chanState.ShortChanID().BlockHeight
 	if heightHint == 0 {
-		heightHint = chanState.FundingBroadcastHeight
+		heightHint = chanState.BroadcastHeight()
+	}
+
+	// Since no zero-conf state is stored in a channel backup, the below
+	// logic will not be triggered for restored, zero-conf channels. Set
+	// the height hint for zero-conf channels.
+	if chanState.IsZeroConf() {
+		if chanState.ZeroConfConfirmed() {
+			// If the zero-conf channel is confirmed, we'll use the
+			// confirmed SCID's block height.
+			heightHint = chanState.ZeroConfRealScid().BlockHeight
+		} else {
+			// The zero-conf channel is unconfirmed. We'll need to
+			// use the FundingBroadcastHeight.
+			heightHint = chanState.BroadcastHeight()
+		}
 	}
 
 	localKey := chanState.LocalChanCfg.MultiSigKey.PubKey.SerializeCompressed()

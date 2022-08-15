@@ -336,6 +336,14 @@ message SendToRouteRequest {
 
     // Route that should be used to attempt to complete the payment.
     lnrpc.Route route = 2;
+
+    /*
+    Whether the payment should be marked as failed when a temporary error is
+    returned from the given route. Set it to true so the payment won't be
+    failed unless a terminal error is occurred, such as payment timeout, no
+    routes, incorrect payment details, or insufficient funds.
+    */
+    bool skip_temp_err = 3;
 }
 
 message SendToRouteResponse {
@@ -689,7 +697,7 @@ enum PaymentState {
     FAILED_NO_ROUTE = 3;
 
     /*
-    A non-recoverable error has occured.
+    A non-recoverable error has occurred.
     */
     FAILED_ERROR = 4;
 

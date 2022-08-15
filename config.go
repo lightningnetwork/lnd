@@ -199,6 +199,10 @@ const (
 	// defaultCoinSelectionStrategy is the coin selection strategy that is
 	// used by default to fund transactions.
 	defaultCoinSelectionStrategy = "largest"
+
+	// defaultKeepFailedPaymentAttempts is the default setting for whether
+	// to keep failed payments in the database.
+	defaultKeepFailedPaymentAttempts = false
 )
 
 var (
@@ -361,6 +365,8 @@ type Config struct {
 	PendingCommitInterval time.Duration `long:"pending-commit-interval" description:"The maximum time that is allowed to pass while waiting for the remote party to revoke a locally initiated commitment state. Setting this to a longer duration if a slow response is expected from the remote party or large number of payments are attempted at the same time."`
 
 	ChannelCommitBatchSize uint32 `long:"channel-commit-batch-size" description:"The maximum number of channel state updates that is accumulated before signing a new commitment."`
+
+	KeepFailedPaymentAttempts bool `long:"keep-failed-payment-attempts" description:"Keeps persistent record of all failed payment attempts for successfully settled payments."`
 
 	DefaultRemoteMaxHtlcs uint16 `long:"default-remote-max-htlcs" description:"The default max_htlc applied when opening or accepting channels. This value limits the number of concurrent HTLCs that the remote party can add to the commitment. The maximum possible value is 483."`
 
@@ -611,20 +617,21 @@ func DefaultConfig() Config {
 		Invoices: &lncfg.Invoices{
 			HoldExpiryDelta: lncfg.DefaultHoldInvoiceExpiryDelta,
 		},
-		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,
-		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
-		MaxCommitFeeRateAnchors: lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
-		DustThreshold:           uint64(htlcswitch.DefaultDustThreshold.ToSatoshis()),
-		LogWriter:               build.NewRotatingLogWriter(),
-		DB:                      lncfg.DefaultDB(),
-		Cluster:                 lncfg.DefaultCluster(),
-		RPCMiddleware:           lncfg.DefaultRPCMiddleware(),
-		registeredChains:        chainreg.NewChainRegistry(),
-		ActiveNetParams:         chainreg.BitcoinTestNetParams,
-		ChannelCommitInterval:   defaultChannelCommitInterval,
-		PendingCommitInterval:   defaultPendingCommitInterval,
-		ChannelCommitBatchSize:  defaultChannelCommitBatchSize,
-		CoinSelectionStrategy:   defaultCoinSelectionStrategy,
+		MaxOutgoingCltvExpiry:     htlcswitch.DefaultMaxOutgoingCltvExpiry,
+		MaxChannelFeeAllocation:   htlcswitch.DefaultMaxLinkFeeAllocation,
+		MaxCommitFeeRateAnchors:   lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
+		DustThreshold:             uint64(htlcswitch.DefaultDustThreshold.ToSatoshis()),
+		LogWriter:                 build.NewRotatingLogWriter(),
+		DB:                        lncfg.DefaultDB(),
+		Cluster:                   lncfg.DefaultCluster(),
+		RPCMiddleware:             lncfg.DefaultRPCMiddleware(),
+		registeredChains:          chainreg.NewChainRegistry(),
+		ActiveNetParams:           chainreg.BitcoinTestNetParams,
+		ChannelCommitInterval:     defaultChannelCommitInterval,
+		PendingCommitInterval:     defaultPendingCommitInterval,
+		ChannelCommitBatchSize:    defaultChannelCommitBatchSize,
+		CoinSelectionStrategy:     defaultCoinSelectionStrategy,
+		KeepFailedPaymentAttempts: defaultKeepFailedPaymentAttempts,
 		RemoteSigner: &lncfg.RemoteSigner{
 			Timeout: lncfg.DefaultRemoteSignerRPCTimeout,
 		},
@@ -1787,6 +1794,47 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			}
 		}
 
+		// Get the daemon name for displaying proper errors.
+		switch net {
+		case chainreg.BitcoinChain:
+			daemonName = "bitcoind"
+			confDir = conf.Dir
+			confFile = conf.ConfigPath
+			confFileBase = "bitcoin"
+		case chainreg.LitecoinChain:
+			daemonName = "litecoind"
+			confDir = conf.Dir
+			confFile = conf.ConfigPath
+			confFileBase = "litecoin"
+		}
+
+		// Check that cookie and credentials don't contradict each
+		// other.
+		if (conf.RPCUser != "" || conf.RPCPass != "") &&
+			conf.RPCCookie != "" {
+
+			return fmt.Errorf("please only provide either "+
+				"%[1]v.rpccookie or %[1]v.rpcuser and "+
+				"%[1]v.rpcpass", daemonName)
+		}
+
+		// We convert the cookie into a user name and password.
+		if conf.RPCCookie != "" {
+			cookie, err := ioutil.ReadFile(conf.RPCCookie)
+			if err != nil {
+				return fmt.Errorf("cannot read cookie file: %w",
+					err)
+			}
+
+			splitCookie := strings.Split(string(cookie), ":")
+			if len(splitCookie) != 2 {
+				return fmt.Errorf("cookie file has a wrong " +
+					"format")
+			}
+			conf.RPCUser = splitCookie[0]
+			conf.RPCPass = splitCookie[1]
+		}
+
 		if conf.RPCUser != "" && conf.RPCPass != "" {
 			// If all of RPCUser, RPCPass, ZMQBlockHost, and
 			// ZMQTxHost are set, we assume those parameters are
@@ -1802,28 +1850,14 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			}
 		}
 
-		// Get the daemon name for displaying proper errors.
-		switch net {
-		case chainreg.BitcoinChain:
-			daemonName = "bitcoind"
-			confDir = conf.Dir
-			confFile = conf.ConfigPath
-			confFileBase = "bitcoin"
-		case chainreg.LitecoinChain:
-			daemonName = "litecoind"
-			confDir = conf.Dir
-			confFile = conf.ConfigPath
-			confFileBase = "litecoin"
-		}
-
 		// If not all of the parameters are set, we'll assume the user
 		// did this unintentionally.
 		if conf.RPCUser != "" || conf.RPCPass != "" ||
 			conf.ZMQPubRawBlock != "" || conf.ZMQPubRawTx != "" {
 
-			return fmt.Errorf("please set all or none of "+
-				"%[1]v.rpcuser, %[1]v.rpcpass, "+
-				"%[1]v.zmqpubrawblock, %[1]v.zmqpubrawtx",
+			return fmt.Errorf("please set %[1]v.rpcuser and "+
+				"%[1]v.rpcpass (or %[1]v.rpccookie) together "+
+				"with %[1]v.zmqpubrawblock, %[1]v.zmqpubrawtx",
 				daemonName)
 		}
 	}

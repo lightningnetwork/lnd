@@ -118,6 +118,12 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 			runSignOutputRaw(tt, net, wo)
 		},
 	}, {
+		name:      "sign verify msg",
+		sendCoins: true,
+		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
+			runSignVerifyMessage(tt, net, wo)
+		},
+	}, {
 		name:      "taproot",
 		sendCoins: true,
 		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
@@ -126,6 +132,7 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 			)
 			defer cancel()
 
+			testTaprootSendCoinsKeySpendBip86(ctxt, tt, wo, net)
 			testTaprootComputeInputScriptKeySpendBip86(
 				ctxt, tt, wo, net,
 			)

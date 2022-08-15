@@ -62,6 +62,10 @@ type ChannelAcceptResponse struct {
 	// MinAcceptDepth is the minimum depth that the initiator of the
 	// channel should wait before considering the channel open.
 	MinAcceptDepth uint16
+
+	// ZeroConf indicates that the fundee wishes to send min_depth = 0 and
+	// request a zero-conf channel with the counter-party.
+	ZeroConf bool
 }
 
 // NewChannelAcceptResponse is a constructor for a channel accept response,
@@ -72,7 +76,7 @@ type ChannelAcceptResponse struct {
 func NewChannelAcceptResponse(accept bool, acceptErr error,
 	upfrontShutdown lnwire.DeliveryAddress, csvDelay, htlcLimit,
 	minDepth uint16, reserve btcutil.Amount, inFlight,
-	minHtlcIn lnwire.MilliSatoshi) *ChannelAcceptResponse {
+	minHtlcIn lnwire.MilliSatoshi, zeroConf bool) *ChannelAcceptResponse {
 
 	resp := &ChannelAcceptResponse{
 		UpfrontShutdown: upfrontShutdown,
@@ -82,6 +86,7 @@ func NewChannelAcceptResponse(accept bool, acceptErr error,
 		HtlcLimit:       htlcLimit,
 		MinHtlcIn:       minHtlcIn,
 		MinAcceptDepth:  minDepth,
+		ZeroConf:        zeroConf,
 	}
 
 	// If we want to accept the channel, we return a response with a nil
@@ -112,4 +117,17 @@ func (c *ChannelAcceptResponse) RejectChannel() bool {
 // contained in ChannelAcceptRequest.
 type ChannelAcceptor interface {
 	Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse
+}
+
+// MultiplexAcceptor is an interface that abstracts the ability of a
+// ChannelAcceptor to contain sub-ChannelAcceptors.
+type MultiplexAcceptor interface {
+	// Embed the ChannelAcceptor.
+	ChannelAcceptor
+
+	// AddAcceptor nests a ChannelAcceptor inside the MultiplexAcceptor.
+	AddAcceptor(acceptor ChannelAcceptor) uint64
+
+	// Remove a sub-ChannelAcceptor.
+	RemoveAcceptor(id uint64)
 }

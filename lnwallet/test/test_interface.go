@@ -728,11 +728,17 @@ func testCancelNonExistentReservation(miner *rpctest.Harness,
 	feePerKw, err := alice.Cfg.FeeEstimator.EstimateFeePerKW(1)
 	require.NoError(t, err, "unable to query fee estimator")
 
+	req := &lnwallet.InitFundingReserveMsg{
+		CommitFeePerKw: feePerKw,
+		PushMSat:       10,
+		Flags:          lnwire.FFAnnounceChannel,
+		CommitType:     lnwallet.CommitmentTypeTweakless,
+		PendingChanID:  [32]byte{},
+	}
+
 	// Create our own reservation, give it some ID.
 	res, err := lnwallet.NewChannelReservation(
-		10000, 10000, feePerKw, alice, 22, 10, &testHdSeed,
-		lnwire.FFAnnounceChannel, lnwallet.CommitmentTypeTweakless,
-		nil, [32]byte{}, 0,
+		10000, 10000, alice, 22, &testHdSeed, 0, req,
 	)
 	require.NoError(t, err, "unable to create res")
 
@@ -2703,6 +2709,14 @@ var walletTests = []walletTestCase{
 		test: testChangeOutputSpendConfirmation,
 	},
 	{
+		// TODO(guggero): this test should remain second until dual
+		// funding can properly exchange full UTXO information and we
+		// can use P2TR change outputs as the funding inputs for a dual
+		// funded channel.
+		name: "dual funder workflow",
+		test: testDualFundingReservationWorkflow,
+	},
+	{
 		name: "spend unconfirmed outputs",
 		test: testSpendUnconfirmed,
 	},
@@ -2737,10 +2751,6 @@ var walletTests = []walletTestCase{
 	{
 		name: "single funding workflow external funding tx",
 		test: testSingleFunderExternalFundingTx,
-	},
-	{
-		name: "dual funder workflow",
-		test: testDualFundingReservationWorkflow,
 	},
 	{
 		name: "output locking",

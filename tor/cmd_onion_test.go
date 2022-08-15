@@ -3,7 +3,6 @@ package tor
 import (
 	"bytes"
 	"errors"
-	"io/ioutil"
 	"path/filepath"
 	"testing"
 
@@ -16,11 +15,8 @@ import (
 func TestOnionFile(t *testing.T) {
 	t.Parallel()
 
-	tempDir, err := ioutil.TempDir("", "onion_store")
-	require.NoError(t, err, "unable to create temp dir")
-
 	privateKey := []byte("hide_me_plz")
-	privateKeyPath := filepath.Join(tempDir, "secret")
+	privateKeyPath := filepath.Join(t.TempDir(), "secret")
 
 	// Create a new file-based onion store. A private key should not exist
 	// yet.

@@ -1,9 +1,7 @@
 package aliasmgr
 
 import (
-	"io/ioutil"
 	"math/rand"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -18,11 +16,7 @@ func TestAliasStorePeerAlias(t *testing.T) {
 	t.Parallel()
 
 	// Create the backend database and use this to create the aliasStore.
-	dbDir, err := ioutil.TempDir("", "aliasStore")
-	require.NoError(t, err)
-	defer os.RemoveAll(dbDir)
-
-	dbPath := filepath.Join(dbDir, "testdb")
+	dbPath := filepath.Join(t.TempDir(), "testdb")
 	db, err := kvdb.Create(
 		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
 	)
@@ -51,11 +45,7 @@ func TestAliasStoreRequest(t *testing.T) {
 	t.Parallel()
 
 	// Create the backend database and use this to create the aliasStore.
-	dbDir, err := ioutil.TempDir("", "aliasStore")
-	require.NoError(t, err)
-	defer os.RemoveAll(dbDir)
-
-	dbPath := filepath.Join(dbDir, "testdb")
+	dbPath := filepath.Join(t.TempDir(), "testdb")
 	db, err := kvdb.Create(
 		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
 	)

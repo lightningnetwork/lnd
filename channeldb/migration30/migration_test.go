@@ -164,8 +164,7 @@ func TestValidateMigration(t *testing.T) {
 		tc := tc
 
 		// Create a test db.
-		cdb, cleanUp, err := migtest.MakeDB()
-		defer cleanUp()
+		cdb, err := migtest.MakeDB(t)
 		require.NoError(t, err, "failed to create test db")
 
 		t.Run(tc.name, func(t *testing.T) {

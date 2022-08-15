@@ -2,9 +2,8 @@ package migration_01_to_11
 
 import (
 	"bytes"
-	"io/ioutil"
 	"math/rand"
-	"os"
+	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -63,29 +62,18 @@ var (
 	privKey, pubKey = btcec.PrivKeyFromBytes(key[:])
 )
 
-// makeTestDB creates a new instance of the ChannelDB for testing purposes. A
-// callback which cleans up the created temporary directories is also returned
-// and intended to be executed after the test completes.
-func makeTestDB() (*DB, func(), error) {
-	// First, create a temporary directory to be used for the duration of
-	// this test.
-	tempDirName, err := ioutil.TempDir("", "channeldb")
+// makeTestDB creates a new instance of the ChannelDB for testing purposes.
+func makeTestDB(t *testing.T) (*DB, error) {
+	// Create channeldb for the first time.
+	cdb, err := Open(t.TempDir())
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-
-	// Next, create channeldb for the first time.
-	cdb, err := Open(tempDirName)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	cleanUp := func() {
+	t.Cleanup(func() {
 		cdb.Close()
-		os.RemoveAll(tempDirName)
-	}
+	})
 
-	return cdb, cleanUp, nil
+	return cdb, nil
 }
 
 func createTestChannelState(cdb *DB) (*OpenChannel, error) {

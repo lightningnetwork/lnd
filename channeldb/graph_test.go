@@ -7,11 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
-	"io/ioutil"
 	"math"
 	prand "math/rand"
 	"net"
-	"os"
 	"reflect"
 	"runtime"
 	"sync"
@@ -53,27 +51,18 @@ var (
 	testPub = route.Vertex{2, 202, 4}
 )
 
-// MakeTestGraph creates a new instance of the ChannelGraph for testing
-// purposes. A callback which cleans up the created temporary directories is
-// also returned and intended to be executed after the test completes.
-func MakeTestGraph(modifiers ...OptionModifier) (*ChannelGraph, func(), error) {
-	// First, create a temporary directory to be used for the duration of
-	// this test.
-	tempDirName, err := ioutil.TempDir("", "channelgraph")
-	if err != nil {
-		return nil, nil, err
-	}
-
+// MakeTestGraph creates a new instance of the ChannelGraph for testing purposes.
+func MakeTestGraph(t testing.TB, modifiers ...OptionModifier) (*ChannelGraph, error) {
 	opts := DefaultOptions()
 	for _, modifier := range modifiers {
 		modifier(&opts)
 	}
 
 	// Next, create channelgraph for the first time.
-	backend, backendCleanup, err := kvdb.GetTestBackend(tempDirName, "cgr")
+	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
 	if err != nil {
 		backendCleanup()
-		return nil, nil, err
+		return nil, err
 	}
 
 	graph, err := NewChannelGraph(
@@ -83,17 +72,15 @@ func MakeTestGraph(modifiers ...OptionModifier) (*ChannelGraph, func(), error) {
 	)
 	if err != nil {
 		backendCleanup()
-		_ = os.RemoveAll(tempDirName)
-		return nil, nil, err
+		return nil, err
 	}
 
-	cleanUp := func() {
+	t.Cleanup(func() {
 		_ = backend.Close()
 		backendCleanup()
-		_ = os.RemoveAll(tempDirName)
-	}
+	})
 
-	return graph, cleanUp, nil
+	return graph, nil
 }
 
 func createLightningNode(db kvdb.Backend, priv *btcec.PrivateKey) (*LightningNode, error) {
@@ -127,8 +114,7 @@ func createTestVertex(db kvdb.Backend) (*LightningNode, error) {
 func TestNodeInsertionAndDeletion(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test basic insertion/deletion for vertexes from the
@@ -189,8 +175,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 func TestPartialNode(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// We want to be able to insert nodes into the graph that only has the
@@ -247,8 +232,7 @@ func TestPartialNode(t *testing.T) {
 func TestAliasLookup(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test the alias index within the database, so first
@@ -287,9 +271,8 @@ func TestAliasLookup(t *testing.T) {
 func TestSourceNode(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	// We'd like to test the setting/getting of the source node, so we
 	// first create a fake node to use within the test.
@@ -320,8 +303,7 @@ func TestSourceNode(t *testing.T) {
 func TestEdgeInsertionDeletion(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test the insertion/deletion of edges, so we create two
@@ -445,8 +427,7 @@ func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
 func TestDisconnectBlockAtHeight(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	sourceNode, err := createTestVertex(graph.db)
@@ -717,8 +698,7 @@ func createChannelEdge(db kvdb.Backend, node1, node2 *LightningNode) (*ChannelEd
 func TestEdgeInfoUpdates(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test the update of edges inserted into the database, so
@@ -1022,8 +1002,7 @@ func newEdgePolicy(chanID uint64, db kvdb.Backend,
 func TestGraphTraversal(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test some of the graph traversal capabilities within
@@ -1110,8 +1089,7 @@ func TestGraphTraversal(t *testing.T) {
 func TestGraphTraversalCacheable(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test some of the graph traversal capabilities within
@@ -1174,8 +1152,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 func TestGraphCacheTraversal(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err)
 
 	// We'd like to test some of the graph traversal capabilities within
@@ -1412,8 +1389,7 @@ func assertChanViewEqualChanPoints(t *testing.T, a []EdgePoint, b []*wire.OutPoi
 func TestGraphPruning(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	sourceNode, err := createTestVertex(graph.db)
@@ -1603,8 +1579,7 @@ func TestGraphPruning(t *testing.T) {
 func TestHighestChanID(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// If we don't yet have any channels in the database, then we should
@@ -1666,8 +1641,7 @@ func TestHighestChanID(t *testing.T) {
 func TestChanUpdatesInHorizon(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// If we issue an arbitrary query before any channel updates are
@@ -1826,8 +1800,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 func TestNodeUpdatesInHorizon(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	startTime := time.Unix(1234, 0)
@@ -1943,8 +1916,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 func TestFilterKnownChanIDs(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// If we try to filter out a set of channel ID's before we even know of
@@ -2050,8 +2022,7 @@ func TestFilterKnownChanIDs(t *testing.T) {
 func TestFilterChannelRange(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// We'll first populate our graph with two nodes. All channels created
@@ -2174,8 +2145,7 @@ func TestFilterChannelRange(t *testing.T) {
 func TestFetchChanInfos(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// We'll first populate our graph with two nodes. All channels created
@@ -2284,8 +2254,7 @@ func TestFetchChanInfos(t *testing.T) {
 func TestIncompleteChannelPolicies(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// Create two nodes.
@@ -2384,8 +2353,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	sourceNode, err := createTestVertex(graph.db)
@@ -2528,8 +2496,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 func TestPruneGraphNodes(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// We'll start off by inserting our source node, to ensure that it's
@@ -2601,8 +2568,7 @@ func TestPruneGraphNodes(t *testing.T) {
 func TestAddChannelEdgeShellNodes(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// To start, we'll create two nodes, and only add one of them to the
@@ -2643,8 +2609,7 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// We'll first populate our graph with a single node that will be
@@ -2703,8 +2668,7 @@ func TestNodeIsPublic(t *testing.T) {
 	// We'll need to create a separate database and channel graph for each
 	// participant to replicate real-world scenarios (private edges being in
 	// some graphs but not others, etc.).
-	aliceGraph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	aliceGraph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 	aliceNode, err := createTestVertex(aliceGraph.db)
 	require.NoError(t, err, "unable to create test node")
@@ -2712,8 +2676,7 @@ func TestNodeIsPublic(t *testing.T) {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
-	bobGraph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	bobGraph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 	bobNode, err := createTestVertex(bobGraph.db)
 	require.NoError(t, err, "unable to create test node")
@@ -2721,8 +2684,7 @@ func TestNodeIsPublic(t *testing.T) {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
-	carolGraph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	carolGraph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 	carolNode, err := createTestVertex(carolGraph.db)
 	require.NoError(t, err, "unable to create test node")
@@ -2841,9 +2803,8 @@ func TestNodeIsPublic(t *testing.T) {
 func TestDisabledChannelIDs(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	// Create first node and add it to the graph.
 	node1, err := createTestVertex(graph.db)
@@ -2925,8 +2886,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
 	// We'd like to test the update of edges inserted into the database, so
@@ -3087,8 +3047,7 @@ func TestGraphZombieIndex(t *testing.T) {
 	t.Parallel()
 
 	// We'll start by creating our test graph along with a test edge.
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to create test database")
 
 	node1, err := createTestVertex(graph.db)
@@ -3274,9 +3233,8 @@ func TestLightningNodeSigVerification(t *testing.T) {
 	}
 
 	// Create a LightningNode from the same private key.
-	graph, cleanUp, err := MakeTestGraph()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	node, err := createLightningNode(graph.db, priv)
 	require.NoError(t, err, "unable to create node")
@@ -3318,9 +3276,8 @@ func TestComputeFee(t *testing.T) {
 func TestBatchedAddChannelEdge(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
+	graph, err := MakeTestGraph(t)
 	require.Nil(t, err)
-	defer cleanUp()
 
 	sourceNode, err := createTestVertex(graph.db)
 	require.Nil(t, err)
@@ -3400,9 +3357,8 @@ func TestBatchedAddChannelEdge(t *testing.T) {
 func TestBatchedUpdateEdgePolicy(t *testing.T) {
 	t.Parallel()
 
-	graph, cleanUp, err := MakeTestGraph()
+	graph, err := MakeTestGraph(t)
 	require.Nil(t, err)
-	defer cleanUp()
 
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
@@ -3458,9 +3414,8 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 // BenchmarkForEachChannel is a benchmark test that measures the number of
 // allocations and the total memory consumed by the full graph traversal.
 func BenchmarkForEachChannel(b *testing.B) {
-	graph, cleanUp, err := MakeTestGraph()
+	graph, err := MakeTestGraph(b)
 	require.Nil(b, err)
-	defer cleanUp()
 
 	const numNodes = 100
 	const numChannels = 4
@@ -3518,8 +3473,7 @@ func BenchmarkForEachChannel(b *testing.B) {
 // TestGraphCacheForEachNodeChannel tests that the ForEachNodeChannel method
 // works as expected, and is able to handle nil self edges.
 func TestGraphCacheForEachNodeChannel(t *testing.T) {
-	graph, cleanUp, err := MakeTestGraph()
-	defer cleanUp()
+	graph, err := MakeTestGraph(t)
 	require.NoError(t, err)
 
 	// Unset the channel graph cache to simulate the user running with the
@@ -3559,9 +3513,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 func TestGraphLoading(t *testing.T) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
-	tempDirName, err := ioutil.TempDir("", "channelgraph")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDirName)
+	tempDirName := t.TempDir()
 
 	// Next, create the graph for the first time.
 	backend, backendCleanup, err := kvdb.GetTestBackend(tempDirName, "cgr")

@@ -52,8 +52,7 @@ func TestLocateChanBucket(t *testing.T) {
 	t.Parallel()
 
 	// Create test database.
-	cdb, cleanUp, err := migtest.MakeDB()
-	defer cleanUp()
+	cdb, err := migtest.MakeDB(t)
 	require.NoError(t, err)
 
 	// Create a test channel.
@@ -138,8 +137,7 @@ func TestFindNextMigrateHeight(t *testing.T) {
 	t.Parallel()
 
 	// Create test database.
-	cdb, cleanUp, err := migtest.MakeDB()
-	defer cleanUp()
+	cdb, err := migtest.MakeDB(t)
 	require.NoError(t, err)
 
 	// tester is a helper closure that finds the next migration height.
@@ -307,8 +305,7 @@ func TestIterator(t *testing.T) {
 	t.Parallel()
 
 	// Create test database.
-	cdb, cleanUp, err := migtest.MakeDB()
-	defer cleanUp()
+	cdb, err := migtest.MakeDB(t)
 	require.NoError(t, err)
 
 	// exitKey is used to signal exit when hitting this key.
@@ -383,8 +380,7 @@ func TestIterateBuckets(t *testing.T) {
 	t.Parallel()
 
 	// Create test database.
-	cdb, cleanUp, err := migtest.MakeDB()
-	defer cleanUp()
+	cdb, err := migtest.MakeDB(t)
 	require.NoError(t, err)
 
 	// Create three test channels.
@@ -659,8 +655,7 @@ func TestLocalNextUpdateNum(t *testing.T) {
 
 	for _, tc := range testCases {
 		// Create a test database.
-		cdb, cleanUp, err := migtest.MakeDB()
-		defer cleanUp()
+		cdb, err := migtest.MakeDB(t)
 		require.NoError(t, err)
 
 		tc := tc

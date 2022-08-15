@@ -1,11 +1,9 @@
 package channeldb
 
 import (
-	"io/ioutil"
 	"math"
 	"math/rand"
 	"net"
-	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -32,9 +30,7 @@ func TestOpenWithCreate(t *testing.T) {
 
 	// First, create a temporary directory to be used for the duration of
 	// this test.
-	tempDirName, err := ioutil.TempDir("", "channeldb")
-	require.NoError(t, err, "unable to create temp dir")
-	defer os.RemoveAll(tempDirName)
+	tempDirName := t.TempDir()
 
 	// Next, open thereby creating channeldb for the first time.
 	dbPath := filepath.Join(tempDirName, "cdb")
@@ -70,9 +66,7 @@ func TestWipe(t *testing.T) {
 
 	// First, create a temporary directory to be used for the duration of
 	// this test.
-	tempDirName, err := ioutil.TempDir("", "channeldb")
-	require.NoError(t, err, "unable to create temp dir")
-	defer os.RemoveAll(tempDirName)
+	tempDirName := t.TempDir()
 
 	// Next, open thereby creating channeldb for the first time.
 	dbPath := filepath.Join(tempDirName, "cdb")

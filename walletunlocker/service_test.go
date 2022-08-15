@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"testing"
@@ -148,11 +147,7 @@ func TestGenSeed(t *testing.T) {
 
 	// First, we'll create a new test directory and unlocker service for
 	// that directory.
-	testDir, err := ioutil.TempDir("", "testcreate")
-	require.NoError(t, err)
-	defer func() {
-		_ = os.RemoveAll(testDir)
-	}()
+	testDir := t.TempDir()
 
 	service := walletunlocker.New(
 		testNetParams, nil, false, testLoaderOpts(testDir),
@@ -186,11 +181,7 @@ func TestGenSeedGenerateEntropy(t *testing.T) {
 
 	// First, we'll create a new test directory and unlocker service for
 	// that directory.
-	testDir, err := ioutil.TempDir("", "testcreate")
-	require.NoError(t, err)
-	defer func() {
-		_ = os.RemoveAll(testDir)
-	}()
+	testDir := t.TempDir()
 	service := walletunlocker.New(
 		testNetParams, nil, false, testLoaderOpts(testDir),
 	)
@@ -222,11 +213,7 @@ func TestGenSeedInvalidEntropy(t *testing.T) {
 
 	// First, we'll create a new test directory and unlocker service for
 	// that directory.
-	testDir, err := ioutil.TempDir("", "testcreate")
-	require.NoError(t, err)
-	defer func() {
-		_ = os.RemoveAll(testDir)
-	}()
+	testDir := t.TempDir()
 	service := walletunlocker.New(
 		testNetParams, nil, false, testLoaderOpts(testDir),
 	)
@@ -242,7 +229,7 @@ func TestGenSeedInvalidEntropy(t *testing.T) {
 
 	// We should get an error now since the entropy source was invalid.
 	ctx := context.Background()
-	_, err = service.GenSeed(ctx, genSeedReq)
+	_, err := service.GenSeed(ctx, genSeedReq)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "incorrect entropy length")
 }
@@ -253,11 +240,7 @@ func TestInitWallet(t *testing.T) {
 	t.Parallel()
 
 	// testDir is empty, meaning wallet was not created from before.
-	testDir, err := ioutil.TempDir("", "testcreate")
-	require.NoError(t, err)
-	defer func() {
-		_ = os.RemoveAll(testDir)
-	}()
+	testDir := t.TempDir()
 
 	// Create new UnlockerService.
 	service := walletunlocker.New(
@@ -326,7 +309,7 @@ func TestInitWallet(t *testing.T) {
 
 	// Now calling InitWallet should fail, since a wallet already exists in
 	// the directory.
-	_, err = service.InitWallet(ctx, req)
+	_, err := service.InitWallet(ctx, req)
 	require.Error(t, err)
 
 	// Similarly, if we try to do GenSeed again, we should get an error as
@@ -341,11 +324,7 @@ func TestCreateWalletInvalidEntropy(t *testing.T) {
 	t.Parallel()
 
 	// testDir is empty, meaning wallet was not created from before.
-	testDir, err := ioutil.TempDir("", "testcreate")
-	require.NoError(t, err)
-	defer func() {
-		_ = os.RemoveAll(testDir)
-	}()
+	testDir := t.TempDir()
 
 	// Create new UnlockerService.
 	service := walletunlocker.New(
@@ -361,7 +340,7 @@ func TestCreateWalletInvalidEntropy(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, err = service.InitWallet(ctx, req)
+	_, err := service.InitWallet(ctx, req)
 	require.Error(t, err)
 }
 
@@ -372,11 +351,7 @@ func TestUnlockWallet(t *testing.T) {
 	t.Parallel()
 
 	// testDir is empty, meaning wallet was not created from before.
-	testDir, err := ioutil.TempDir("", "testunlock")
-	require.NoError(t, err)
-	defer func() {
-		_ = os.RemoveAll(testDir)
-	}()
+	testDir := t.TempDir()
 
 	// Create new UnlockerService that'll also drop the wallet's history on
 	// unlock.
@@ -392,7 +367,7 @@ func TestUnlockWallet(t *testing.T) {
 	}
 
 	// Should fail to unlock non-existing wallet.
-	_, err = service.UnlockWallet(ctx, req)
+	_, err := service.UnlockWallet(ctx, req)
 	require.Error(t, err)
 
 	// Create a wallet we can try to unlock.
@@ -442,11 +417,7 @@ func TestChangeWalletPasswordNewRootkey(t *testing.T) {
 	t.Parallel()
 
 	// testDir is empty, meaning wallet was not created from before.
-	testDir, err := ioutil.TempDir("", "testchangepassword")
-	require.NoError(t, err)
-	defer func() {
-		_ = os.RemoveAll(testDir)
-	}()
+	testDir := t.TempDir()
 
 	// Changing the password of the wallet will also try to change the
 	// password of the macaroon DB. We create a default DB here but close it
@@ -462,7 +433,7 @@ func TestChangeWalletPasswordNewRootkey(t *testing.T) {
 	// requested.
 	var tempFiles []string
 	for i := 0; i < 3; i++ {
-		file, err := ioutil.TempFile(testDir, "")
+		file, err := os.CreateTemp(testDir, "")
 		if err != nil {
 			t.Fatalf("unable to create temp file: %v", err)
 		}
@@ -539,7 +510,9 @@ func TestChangeWalletPasswordNewRootkey(t *testing.T) {
 
 	// The files should no longer exist.
 	for _, tempFile := range tempFiles {
-		if _, err := os.Open(tempFile); err == nil {
+		f, err := os.Open(tempFile)
+		if err == nil {
+			_ = f.Close()
 			t.Fatal("file exists but it shouldn't")
 		}
 	}
@@ -553,11 +526,7 @@ func TestChangeWalletPasswordStateless(t *testing.T) {
 	t.Parallel()
 
 	// testDir is empty, meaning wallet was not created from before.
-	testDir, err := ioutil.TempDir("", "testchangepasswordstateless")
-	require.NoError(t, err)
-	defer func() {
-		_ = os.RemoveAll(testDir)
-	}()
+	testDir := t.TempDir()
 
 	// Changing the password of the wallet will also try to change the
 	// password of the macaroon DB. We create a default DB here but close it
@@ -570,7 +539,7 @@ func TestChangeWalletPasswordStateless(t *testing.T) {
 
 	// Create a temp file that will act as the macaroon DB file that will
 	// be deleted by changing the password.
-	tmpFile, err := ioutil.TempFile(testDir, "")
+	tmpFile, err := os.CreateTemp(testDir, "")
 	require.NoError(t, err)
 	tempMacFile := tmpFile.Name()
 	err = tmpFile.Close()
@@ -636,6 +605,7 @@ func TestChangeWalletPasswordStateless(t *testing.T) {
 		// Send a fake macaroon that should be returned in the response
 		// in the async code above.
 		service.MacResponseChan <- testMac
+		require.NoError(t, unlockMsg.UnloadWallet())
 
 	case <-time.After(defaultTestTimeout):
 		t.Fatalf("password not received")
@@ -681,11 +651,6 @@ func doChangePassword(service *walletunlocker.UnlockerService, testDir string,
 	err = store.Close()
 	if err != nil {
 		errChan <- fmt.Errorf("could not close store: %v", err)
-		return
-	}
-	err = os.RemoveAll(testDir)
-	if err != nil {
-		errChan <- err
 		return
 	}
 }

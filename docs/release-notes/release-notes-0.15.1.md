@@ -89,7 +89,13 @@ default](https://github.com/lightningnetwork/lnd/pull/6810) in most cases.
 
 * [Add minor comment](https://github.com/lightningnetwork/lnd/pull/6559) on
   subscribe/cancel/lookup invoice parameter encoding.
+
 * [Log pubkey for peer related messages](https://github.com/lightningnetwork/lnd/pull/6588).
+
+## Neutrino
+
+* Add [getblockhash command](https://github.com/lightningnetwork/lnd/pull/6510) to
+  neutrino sub-server.
   
 ## RPC Server
 

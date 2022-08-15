@@ -332,6 +332,32 @@ func (r *RootKeyStorage) GenerateNewRootKey() error {
 	}, func() {})
 }
 
+// SetRootKey sets the default macaroon root key, replacing the previous root
+// key if it existed.
+func (r *RootKeyStorage) SetRootKey(rootKey []byte) error {
+	if r.encKey == nil {
+		return ErrStoreLocked
+	}
+	if len(rootKey) != RootKeyLen {
+		return fmt.Errorf("root key must be %v bytes",
+			RootKeyLen)
+	}
+
+	encryptedKey, err := r.encKey.Encrypt(rootKey)
+	if err != nil {
+		return err
+	}
+
+	return kvdb.Update(r.Backend, func(tx kvdb.RwTx) error {
+		bucket := tx.ReadWriteBucket(rootKeyBucketName)
+		if bucket == nil {
+			return ErrRootKeyBucketNotFound
+		}
+
+		return bucket.Put(DefaultRootKeyID, encryptedKey)
+	}, func() {})
+}
+
 // Close closes the underlying database and zeroes the encryption key stored
 // in memory.
 func (r *RootKeyStorage) Close() error {

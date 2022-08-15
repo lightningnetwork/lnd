@@ -426,6 +426,17 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 			return nil, nil, nil, err
 		}
 
+		// If we have a macaroon root key from the init wallet params,
+		// set the root key before baking any macaroons.
+		if len(walletInitParams.MacRootKey) > 0 {
+			err := macaroonService.SetRootKey(
+				walletInitParams.MacRootKey,
+			)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+		}
+
 		// Send an admin macaroon to all our listeners that requested
 		// one by setting a non-nil macaroon channel.
 		adminMacBytes, err := bakeMacaroon(
@@ -1065,6 +1076,7 @@ func waitForWalletPassword(cfg *Config,
 			UnloadWallet:    loader.UnloadWallet,
 			StatelessInit:   initMsg.StatelessInit,
 			MacResponseChan: pwService.MacResponseChan,
+			MacRootKey:      initMsg.MacRootKey,
 		}, nil
 
 	// The wallet has already been created in the past, and is simply being

@@ -313,6 +313,11 @@
         "watch_only": {
           "$ref": "#/definitions/lnrpcWatchOnly",
           "description": "watch_only is the third option of initializing a wallet: by importing\naccount xpubs only and therefore creating a watch-only wallet that does not\ncontain any private keys. That means the wallet won't be able to sign for\nany of the keys and _needs_ to be run with a remote signer that has the\ncorresponding private keys and can serve signing RPC requests."
+        },
+        "macaroon_root_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "macaroon_root_key is an optional 32 byte macaroon root key that can be\nprovided when initializing the wallet rather than letting lnd generate one\non its own."
         }
       }
     },

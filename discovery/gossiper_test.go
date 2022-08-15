@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	prand "math/rand"
 	"net"
-	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -72,29 +70,19 @@ var (
 	rebroadcastInterval = time.Hour * 1000000
 )
 
-// makeTestDB creates a new instance of the ChannelDB for testing purposes. A
-// callback which cleans up the created temporary directories is also returned
-// and intended to be executed after the test completes.
-func makeTestDB() (*channeldb.DB, func(), error) {
-	// First, create a temporary directory to be used for the duration of
-	// this test.
-	tempDirName, err := ioutil.TempDir("", "channeldb")
+// makeTestDB creates a new instance of the ChannelDB for testing purposes.
+func makeTestDB(t *testing.T) (*channeldb.DB, error) {
+	// Create channeldb for the first time.
+	cdb, err := channeldb.Open(t.TempDir())
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	// Next, create channeldb for the first time.
-	cdb, err := channeldb.Open(tempDirName)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	cleanUp := func() {
+	t.Cleanup(func() {
 		cdb.Close()
-		os.RemoveAll(tempDirName)
-	}
+	})
 
-	return cdb, cleanUp, nil
+	return cdb, nil
 }
 
 type mockGraphSource struct {
@@ -716,7 +704,7 @@ type testCtx struct {
 	broadcastedMessage chan msgWithSenders
 }
 
-func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
+func createTestCtx(t *testing.T, startHeight uint32) (*testCtx, error) {
 	// Next we'll initialize an instance of the channel router with mock
 	// versions of the chain and channel notifier. As we don't need to test
 	// any p2p functionality, the peer send and switch send,
@@ -724,15 +712,14 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 	notifier := newMockNotifier()
 	router := newMockRouter(startHeight)
 
-	db, cleanUpDb, err := makeTestDB()
+	db, err := makeTestDB(t)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	waitingProofStore, err := channeldb.NewWaitingProofStore(db)
 	if err != nil {
-		cleanUpDb()
-		return nil, nil, err
+		return nil, err
 	}
 
 	broadcastedMessage := make(chan msgWithSenders, 10)
@@ -808,25 +795,23 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 	}, selfKeyDesc)
 
 	if err := gossiper.Start(); err != nil {
-		cleanUpDb()
-		return nil, nil, fmt.Errorf("unable to start router: %v", err)
+		return nil, fmt.Errorf("unable to start router: %v", err)
 	}
 
 	// Mark the graph as synced in order to allow the announcements to be
 	// broadcast.
 	gossiper.syncMgr.markGraphSynced()
 
-	cleanUp := func() {
+	t.Cleanup(func() {
 		gossiper.Stop()
-		cleanUpDb()
-	}
+	})
 
 	return &testCtx{
 		router:             router,
 		notifier:           notifier,
 		gossiper:           gossiper,
 		broadcastedMessage: broadcastedMessage,
-	}, cleanUp, nil
+	}, nil
 }
 
 // TestProcessAnnouncement checks that mature announcements are propagated to
@@ -835,9 +820,8 @@ func TestProcessAnnouncement(t *testing.T) {
 	t.Parallel()
 
 	timestamp := testTimestamp
-	ctx, cleanup, err := createTestCtx(0)
+	ctx, err := createTestCtx(t, 0)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	assertSenderExistence := func(sender *btcec.PublicKey, msg msgWithSenders) {
 		if _, ok := msg.senders[route.NewVertex(sender)]; !ok {
@@ -929,9 +913,8 @@ func TestPrematureAnnouncement(t *testing.T) {
 
 	timestamp := testTimestamp
 
-	ctx, cleanup, err := createTestCtx(0)
+	ctx, err := createTestCtx(t, 0)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	_, err = createNodeAnnouncement(remoteKeyPriv1, timestamp)
 	require.NoError(t, err, "can't create node announcement")
@@ -961,9 +944,8 @@ func TestPrematureAnnouncement(t *testing.T) {
 func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	ctx, err := createTestCtx(t, proofMatureDelta)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	// Set up a channel that we can use to inspect the messages sent
 	// directly from the gossiper.
@@ -1134,9 +1116,8 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 func TestOrphanSignatureAnnouncement(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	ctx, err := createTestCtx(t, proofMatureDelta)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	// Set up a channel that we can use to inspect the messages sent
 	// directly from the gossiper.
@@ -1318,9 +1299,8 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	ctx, err := createTestCtx(t, proofMatureDelta)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	batch, err := createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
@@ -1550,9 +1530,8 @@ out:
 func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	ctx, err := createTestCtx(t, proofMatureDelta)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	batch, err := createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
@@ -1983,9 +1962,8 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 		timestamp      = 123456
 	)
 
-	ctx, cleanup, err := createTestCtx(startingHeight)
+	ctx, err := createTestCtx(t, startingHeight)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	// We'll start off by processing a channel announcement without a proof
 	// (i.e., an unadvertised channel), followed by a node announcement for
@@ -2083,9 +2061,8 @@ func TestRejectZombieEdge(t *testing.T) {
 
 	// We'll start by creating our test context with a batch of
 	// announcements.
-	ctx, cleanup, err := createTestCtx(0)
+	ctx, err := createTestCtx(t, 0)
 	require.NoError(t, err, "unable to create test context")
-	defer cleanup()
 
 	batch, err := createRemoteAnnouncements(0)
 	require.NoError(t, err, "unable to create announcements")
@@ -2185,9 +2162,8 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 
 	// We'll start by creating our test context with a batch of
 	// announcements.
-	ctx, cleanup, err := createTestCtx(0)
+	ctx, err := createTestCtx(t, 0)
 	require.NoError(t, err, "unable to create test context")
-	defer cleanup()
 
 	batch, err := createRemoteAnnouncements(0)
 	require.NoError(t, err, "unable to create announcements")
@@ -2343,9 +2319,8 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	ctx, err := createTestCtx(t, proofMatureDelta)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	batch, err := createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
@@ -2541,9 +2516,8 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 func TestExtraDataChannelAnnouncementValidation(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(0)
+	ctx, err := createTestCtx(t, 0)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	remotePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil}
 
@@ -2573,9 +2547,8 @@ func TestExtraDataChannelUpdateValidation(t *testing.T) {
 	t.Parallel()
 
 	timestamp := testTimestamp
-	ctx, cleanup, err := createTestCtx(0)
+	ctx, err := createTestCtx(t, 0)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	remotePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil}
 
@@ -2625,9 +2598,8 @@ func TestExtraDataChannelUpdateValidation(t *testing.T) {
 func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(0)
+	ctx, err := createTestCtx(t, 0)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	remotePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil}
 	timestamp := testTimestamp
@@ -2694,9 +2666,8 @@ func assertProcessAnnouncement(t *testing.T, result chan error) {
 func TestRetransmit(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(proofMatureDelta)
+	ctx, err := createTestCtx(t, proofMatureDelta)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	batch, err := createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
@@ -2801,9 +2772,8 @@ func TestRetransmit(t *testing.T) {
 func TestNodeAnnouncementNoChannels(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(0)
+	ctx, err := createTestCtx(t, 0)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	batch, err := createRemoteAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
@@ -2887,9 +2857,8 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(0)
+	ctx, err := createTestCtx(t, 0)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	chanUpdateHeight := uint32(0)
 	timestamp := uint32(123456)
@@ -2966,9 +2935,8 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 
 	// We'll start by creating our test context and a batch of
 	// announcements.
-	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	ctx, err := createTestCtx(t, proofMatureDelta)
 	require.NoError(t, err, "unable to create test context")
-	defer cleanup()
 
 	batch, err := createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
@@ -3319,9 +3287,8 @@ func TestPropagateChanPolicyUpdate(t *testing.T) {
 	// First, we'll make out test context and add 3 random channels to the
 	// graph.
 	startingHeight := uint32(10)
-	ctx, cleanup, err := createTestCtx(startingHeight)
+	ctx, err := createTestCtx(t, startingHeight)
 	require.NoError(t, err, "unable to create test context")
-	defer cleanup()
 
 	const numChannels = 3
 	channelsToAnnounce := make([]*annBatch, 0, numChannels)
@@ -3497,9 +3464,8 @@ func TestProcessChannelAnnouncementOptionalMsgFields(t *testing.T) {
 
 	// We'll start by creating our test context and a set of test channel
 	// announcements.
-	ctx, cleanup, err := createTestCtx(0)
+	ctx, err := createTestCtx(t, 0)
 	require.NoError(t, err, "unable to create test context")
-	defer cleanup()
 
 	chanAnn1 := createAnnouncementWithoutProof(
 		100, selfKeyDesc.PubKey, remoteKeyPub1,
@@ -3661,9 +3627,8 @@ func (m *SyncManager) markGraphSyncing() {
 func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(10)
+	ctx, err := createTestCtx(t, 10)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	// We'll mark the graph as not synced. This should prevent us from
 	// broadcasting any messages we've received as part of our initial
@@ -3735,9 +3700,8 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 
 	// Create our test harness.
 	const blockHeight = 100
-	ctx, cleanup, err := createTestCtx(blockHeight)
+	ctx, err := createTestCtx(t, blockHeight)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 	ctx.gossiper.cfg.RebroadcastInterval = time.Hour
 	ctx.gossiper.cfg.MaxChannelUpdateBurst = 5
 	ctx.gossiper.cfg.ChannelUpdateInterval = 5 * time.Second
@@ -3882,9 +3846,8 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 func TestIgnoreOwnAnnouncement(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(proofMatureDelta)
+	ctx, err := createTestCtx(t, proofMatureDelta)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	batch, err := createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
@@ -4027,9 +3990,8 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 func TestRejectCacheChannelAnn(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(proofMatureDelta)
+	ctx, err := createTestCtx(t, proofMatureDelta)
 	require.NoError(t, err, "can't create context")
-	defer cleanup()
 
 	// First, we create a channel announcement to send over to our test
 	// peer.

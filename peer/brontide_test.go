@@ -2,7 +2,6 @@ package peer
 
 import (
 	"bytes"
-	"io/ioutil"
 	"testing"
 	"time"
 
@@ -1003,10 +1002,7 @@ func TestPeerCustomMessage(t *testing.T) {
 	t.Parallel()
 
 	// Set up node Alice.
-	alicePath, err := ioutil.TempDir("", "alicedb")
-	require.NoError(t, err)
-
-	dbAlice, err := channeldb.Open(alicePath)
+	dbAlice, err := channeldb.Open(t.TempDir())
 	require.NoError(t, err)
 
 	aliceKey, err := btcec.NewPrivateKey()

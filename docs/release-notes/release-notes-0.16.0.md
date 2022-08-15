@@ -20,6 +20,12 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 * [The macaroon key store implementation was refactored to be more generally
   usable](https://github.com/lightningnetwork/lnd/pull/6509).
 
+## `lncli`
+* [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
+  flag](https://github.com/lightningnetwork/lnd/pull/6818) that allows the 
+  caller to specify key-value string pairs that should be appended to the 
+  outgoing context.
+
 ## Code Health
 
 ### Tooling and documentation
@@ -31,6 +37,7 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 
 * Carla Kirk-Cohen
 * Daniel McNally
+* Elle Mouton
 * ErikEk
 * Olaoluwa Osuntokun
 * Oliver Gugger

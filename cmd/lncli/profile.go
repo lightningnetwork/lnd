@@ -24,14 +24,16 @@ var (
 // profileEntry is a struct that represents all settings for one specific
 // profile.
 type profileEntry struct {
-	Name        string       `json:"name"`
-	RPCServer   string       `json:"rpcserver"`
-	LndDir      string       `json:"lnddir"`
-	Chain       string       `json:"chain"`
-	Network     string       `json:"network"`
-	NoMacaroons bool         `json:"no-macaroons,omitempty"` // nolint:tagliatelle
-	TLSCert     string       `json:"tlscert"`
-	Macaroons   *macaroonJar `json:"macaroons"`
+	Name        string            `json:"name"`
+	RPCServer   string            `json:"rpcserver"`
+	LndDir      string            `json:"lnddir"`
+	Chain       string            `json:"chain"`
+	Network     string            `json:"network"`
+	NoMacaroons bool              `json:"no-macaroons,omitempty"` // nolint:tagliatelle
+	TLSCert     string            `json:"tlscert"`
+	Macaroons   *macaroonJar      `json:"macaroons"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+	Insecure    bool              `json:"insecure,omitempty"`
 }
 
 // cert returns the profile's TLS certificate as a x509 certificate pool.
@@ -121,24 +123,42 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 		return nil, err
 	}
 
+	insecure := ctx.GlobalBool("insecure")
+
 	// Load the certificate file now, if specified. We store it as plain PEM
 	// directly.
 	var tlsCert []byte
-	if tlsCertPath != "" {
+	if tlsCertPath != "" && !insecure {
 		var err error
 		tlsCert, err = ioutil.ReadFile(tlsCertPath)
 		if err != nil {
-			return nil, fmt.Errorf("could not load TLS cert file: %v", err)
+			return nil, fmt.Errorf("could not load TLS cert "+
+				"file: %v", err)
 		}
 	}
 
+	metadata := make(map[string]string)
+	for _, m := range ctx.GlobalStringSlice("metadata") {
+		pair := strings.Split(m, ":")
+		if len(pair) != 2 {
+			return nil, fmt.Errorf("invalid format for metadata " +
+				"flag; expected \"key:value\"")
+		}
+
+		metadata[pair[0]] = pair[1]
+	}
+
 	entry := &profileEntry{
-		RPCServer:   ctx.GlobalString("rpcserver"),
-		LndDir:      lncfg.CleanAndExpandPath(ctx.GlobalString("lnddir")),
+		RPCServer: ctx.GlobalString("rpcserver"),
+		LndDir: lncfg.CleanAndExpandPath(
+			ctx.GlobalString("lnddir"),
+		),
 		Chain:       ctx.GlobalString("chain"),
 		Network:     ctx.GlobalString("network"),
 		NoMacaroons: ctx.GlobalBool("no-macaroons"),
 		TLSCert:     string(tlsCert),
+		Metadata:    metadata,
+		Insecure:    insecure,
 	}
 
 	// If we aren't using macaroons in general (flag --no-macaroons) or

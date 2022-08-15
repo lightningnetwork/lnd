@@ -2052,7 +2052,7 @@ func parseChanPoint(s string) (*lnrpc.ChannelPoint, error) {
 		return nil, errBadChanPoint
 	}
 
-	index, err := strconv.ParseInt(split[1], 10, 32)
+	index, err := strconv.ParseInt(split[1], 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode output index: %v", err)
 	}

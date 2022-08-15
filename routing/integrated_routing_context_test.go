@@ -2,7 +2,6 @@ package routing
 
 import (
 	"fmt"
-	"io/ioutil"
 	"math"
 	"os"
 	"testing"
@@ -122,13 +121,20 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 	)
 
 	// Create temporary database for mission control.
-	file, err := ioutil.TempFile("", "*.db")
+	file, err := os.CreateTemp("", "*.db")
 	if err != nil {
 		c.t.Fatal(err)
 	}
 
 	dbPath := file.Name()
-	defer os.Remove(dbPath)
+	c.t.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			c.t.Fatal(err)
+		}
+		if err := os.Remove(dbPath); err != nil {
+			c.t.Fatal(err)
+		}
+	})
 
 	db, err := kvdb.Open(
 		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
@@ -136,7 +142,11 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 	if err != nil {
 		c.t.Fatal(err)
 	}
-	defer db.Close()
+	c.t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			c.t.Fatal(err)
+		}
+	})
 
 	// Instantiate a new mission control with the current configuration
 	// values.

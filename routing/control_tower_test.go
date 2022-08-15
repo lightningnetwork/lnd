@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"reflect"
 	"testing"
 	"time"
@@ -48,7 +47,7 @@ var (
 func TestControlTowerSubscribeUnknown(t *testing.T) {
 	t.Parallel()
 
-	db, err := initDB(false)
+	db, err := initDB(t, false)
 	require.NoError(t, err, "unable to init db")
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
@@ -65,7 +64,7 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 func TestControlTowerSubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
-	db, err := initDB(false)
+	db, err := initDB(t, false)
 	require.NoError(t, err, "unable to init db")
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
@@ -182,7 +181,7 @@ func TestPaymentControlSubscribeFail(t *testing.T) {
 func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 	keepFailedPaymentAttempts bool) {
 
-	db, err := initDB(keepFailedPaymentAttempts)
+	db, err := initDB(t, keepFailedPaymentAttempts)
 	require.NoError(t, err, "unable to init db")
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
@@ -294,14 +293,9 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 	}
 }
 
-func initDB(keepFailedPaymentAttempts bool) (*channeldb.DB, error) {
-	tempPath, err := ioutil.TempDir("", "routingdb")
-	if err != nil {
-		return nil, err
-	}
-
+func initDB(t *testing.T, keepFailedPaymentAttempts bool) (*channeldb.DB, error) {
 	db, err := channeldb.Open(
-		tempPath, channeldb.OptionKeepFailedPaymentAttempts(
+		t.TempDir(), channeldb.OptionKeepFailedPaymentAttempts(
 			keepFailedPaymentAttempts,
 		),
 	)

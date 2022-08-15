@@ -3,9 +3,7 @@ package chainview
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"net"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -504,15 +502,10 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 	require.NoError(t, err, "error getting best block")
 
 	// Init a chain view that has this node as its block source.
-	cleanUpFunc, reorgView, err := chainViewInit(
-		reorgNode.RPCConfig(), reorgNode.P2PAddress(), bestHeight,
+	reorgView, err := chainViewInit(
+		t, reorgNode.RPCConfig(), reorgNode.P2PAddress(), bestHeight,
 	)
 	require.NoError(t, err, "unable to create chain view")
-	defer func() {
-		if cleanUpFunc != nil {
-			cleanUpFunc()
-		}
-	}()
 
 	if err = reorgView.Start(); err != nil {
 		t.Fatalf("unable to start btcd chain view: %v", err)
@@ -681,8 +674,8 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 	time.Sleep(time.Millisecond * 500)
 }
 
-type chainViewInitFunc func(rpcInfo rpcclient.ConnConfig,
-	p2pAddr string, bestHeight int32) (func(), FilteredChainView, error)
+type chainViewInitFunc func(t *testing.T, rpcInfo rpcclient.ConnConfig,
+	p2pAddr string, bestHeight int32) (FilteredChainView, error)
 
 type testCase struct {
 	name string
@@ -715,20 +708,14 @@ var interfaceImpls = []struct {
 }{
 	{
 		name: "bitcoind_zmq",
-		chainViewInit: func(_ rpcclient.ConnConfig,
-			p2pAddr string, bestHeight int32) (func(),
-			FilteredChainView, error) {
+		chainViewInit: func(t *testing.T, _ rpcclient.ConnConfig,
+			p2pAddr string, bestHeight int32) (FilteredChainView, error) {
 
 			// Start a bitcoind instance.
-			tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
-			if err != nil {
-				return nil, nil, err
-			}
+			tempBitcoindDir := t.TempDir()
 			zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
 			zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
-			cleanUp1 := func() {
-				os.RemoveAll(tempBitcoindDir)
-			}
+
 			rpcPort := getFreePort()
 			bitcoind := exec.Command(
 				"bitcoind",
@@ -744,25 +731,22 @@ var interfaceImpls = []struct {
 				"-zmqpubrawblock="+zmqBlockHost,
 				"-zmqpubrawtx="+zmqTxHost,
 			)
-			err = bitcoind.Start()
+			err := bitcoind.Start()
 			if err != nil {
-				cleanUp1()
-				return nil, nil, err
+				return nil, err
 			}
 
 			// Sanity check to ensure that the process did in fact
 			// start.
 			if bitcoind.Process == nil {
-				cleanUp1()
-				return nil, nil, fmt.Errorf("bitcoind cmd " +
+				return nil, fmt.Errorf("bitcoind cmd " +
 					"Process is not set after Start")
 			}
 
-			cleanUp2 := func() {
+			t.Cleanup(func() {
 				_ = bitcoind.Process.Kill()
 				_ = bitcoind.Wait()
-				cleanUp1()
-			}
+			})
 
 			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
 			cfg := &chain.BitcoindConfig{
@@ -806,14 +790,13 @@ var interfaceImpls = []struct {
 				return nil
 			}, 10*time.Second)
 			if err != nil {
-				return cleanUp2, nil, fmt.Errorf("unable to "+
+				return nil, fmt.Errorf("unable to "+
 					"establish connection to bitcoind: %v",
 					err)
 			}
-			cleanUp3 := func() {
+			t.Cleanup(func() {
 				chainConn.Stop()
-				cleanUp2()
-			}
+			})
 
 			blockCache := blockcache.NewBlockCache(10000)
 
@@ -821,23 +804,17 @@ var interfaceImpls = []struct {
 				chainConn, blockCache,
 			)
 
-			return cleanUp3, chainView, nil
+			return chainView, nil
 		},
 	},
 	{
 		name: "bitcoind_polling",
-		chainViewInit: func(_ rpcclient.ConnConfig,
-			p2pAddr string, bestHeight int32) (func(),
-			FilteredChainView, error) {
+		chainViewInit: func(t *testing.T, _ rpcclient.ConnConfig,
+			p2pAddr string, bestHeight int32) (FilteredChainView, error) {
 
 			// Start a bitcoind instance.
-			tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
-			if err != nil {
-				return nil, nil, err
-			}
-			cleanUp1 := func() {
-				os.RemoveAll(tempBitcoindDir)
-			}
+			tempBitcoindDir := t.TempDir()
+
 			rpcPort := getFreePort()
 			bitcoind := exec.Command(
 				"bitcoind",
@@ -851,25 +828,22 @@ var interfaceImpls = []struct {
 				fmt.Sprintf("-rpcport=%d", rpcPort),
 				"-disablewallet",
 			)
-			err = bitcoind.Start()
+			err := bitcoind.Start()
 			if err != nil {
-				cleanUp1()
-				return nil, nil, err
+				return nil, err
 			}
 
 			// Sanity check to ensure that the process did in fact
 			// start.
 			if bitcoind.Process == nil {
-				cleanUp1()
-				return nil, nil, fmt.Errorf("bitcoind cmd " +
+				return nil, fmt.Errorf("bitcoind cmd " +
 					"Process is not set after Start")
 			}
 
-			cleanUp2 := func() {
+			t.Cleanup(func() {
 				_ = bitcoind.Process.Kill()
 				_ = bitcoind.Wait()
-				cleanUp1()
-			}
+			})
 
 			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
 			cfg := &chain.BitcoindConfig{
@@ -913,14 +887,13 @@ var interfaceImpls = []struct {
 				return nil
 			}, 10*time.Second)
 			if err != nil {
-				return cleanUp2, nil, fmt.Errorf("unable to "+
+				return nil, fmt.Errorf("unable to "+
 					"establish connection to bitcoind: %v",
 					err)
 			}
-			cleanUp3 := func() {
+			t.Cleanup(func() {
 				chainConn.Stop()
-				cleanUp2()
-			}
+			})
 
 			blockCache := blockcache.NewBlockCache(10000)
 
@@ -928,26 +901,22 @@ var interfaceImpls = []struct {
 				chainConn, blockCache,
 			)
 
-			return cleanUp3, chainView, nil
+			return chainView, nil
 		},
 	},
 	{
 		name: "p2p_neutrino",
-		chainViewInit: func(_ rpcclient.ConnConfig,
-			p2pAddr string, bestHeight int32) (func(),
-			FilteredChainView, error) {
+		chainViewInit: func(t *testing.T, _ rpcclient.ConnConfig,
+			p2pAddr string, bestHeight int32) (FilteredChainView, error) {
 
-			spvDir, err := ioutil.TempDir("", "neutrino")
-			if err != nil {
-				return nil, nil, err
-			}
+			spvDir := t.TempDir()
 
 			dbName := filepath.Join(spvDir, "neutrino.db")
 			spvDatabase, err := walletdb.Create(
 				"bdb", dbName, true, kvdb.DefaultDBTimeout,
 			)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 
 			spvConfig := neutrino.Config{
@@ -959,7 +928,7 @@ var interfaceImpls = []struct {
 
 			spvNode, err := neutrino.NewChainService(spvConfig)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 
 			// Wait until the node has fully synced up to the local
@@ -982,16 +951,15 @@ var interfaceImpls = []struct {
 				return nil
 			}, 10*time.Second)
 			if err != nil {
-				return nil, nil, fmt.Errorf("unable to "+
+				return nil, fmt.Errorf("unable to "+
 					"establish connection to bitcoind: %v",
 					err)
 			}
 
-			cleanUp := func() {
+			t.Cleanup(func() {
 				spvDatabase.Close()
 				spvNode.Stop()
-				os.RemoveAll(spvDir)
-			}
+			})
 
 			blockCache := blockcache.NewBlockCache(10000)
 
@@ -999,27 +967,26 @@ var interfaceImpls = []struct {
 				spvNode, blockCache,
 			)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 
-			return cleanUp, chainView, nil
+			return chainView, nil
 		},
 	},
 	{
 		name: "btcd_websockets",
-		chainViewInit: func(config rpcclient.ConnConfig,
-			p2pAddr string, bestHeight int32) (func(),
-			FilteredChainView, error) {
+		chainViewInit: func(_ *testing.T, config rpcclient.ConnConfig,
+			p2pAddr string, bestHeight int32) (FilteredChainView, error) {
 
 			blockCache := blockcache.NewBlockCache(10000)
 			chainView, err := NewBtcdFilteredChainView(
 				config, blockCache,
 			)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 
-			return nil, chainView, err
+			return chainView, err
 		},
 	},
 }
@@ -1048,8 +1015,8 @@ func TestFilteredChainView(t *testing.T) {
 			t.Fatalf("error getting best block: %v", err)
 		}
 
-		cleanUpFunc, chainView, err := chainViewImpl.chainViewInit(
-			rpcConfig, p2pAddr, bestHeight,
+		chainView, err := chainViewImpl.chainViewInit(
+			t, rpcConfig, p2pAddr, bestHeight,
 		)
 		if err != nil {
 			t.Fatalf("unable to make chain view: %v", err)
@@ -1074,10 +1041,6 @@ func TestFilteredChainView(t *testing.T) {
 
 		if err := chainView.Stop(); err != nil {
 			t.Fatalf("unable to stop chain view: %v", err)
-		}
-
-		if cleanUpFunc != nil {
-			cleanUpFunc()
 		}
 	}
 }

@@ -196,7 +196,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 func createTestCtxSingleNode(t *testing.T,
 	startingHeight uint32) (*testCtx, func()) {
 
-	graph, graphBackend, cleanup, err := makeTestGraph(true)
+	graph, graphBackend, err := makeTestGraph(t, true)
 	require.NoError(t, err, "failed to make test graph")
 
 	sourceNode, err := createTestNode()
@@ -209,7 +209,6 @@ func createTestCtxSingleNode(t *testing.T,
 	graphInstance := &testGraphInstance{
 		graph:        graph,
 		graphBackend: graphBackend,
-		cleanUp:      cleanup,
 	}
 
 	return createTestCtxFromGraphInstance(
@@ -222,7 +221,7 @@ func createTestCtxFromFile(t *testing.T,
 
 	// We'll attempt to locate and parse out the file
 	// that encodes the graph that our tests should be run against.
-	graphInstance, err := parseTestGraph(true, testGraph)
+	graphInstance, err := parseTestGraph(t, true, testGraph)
 	require.NoError(t, err, "unable to create test graph")
 
 	return createTestCtxFromGraphInstance(
@@ -392,9 +391,8 @@ func TestChannelUpdateValidation(t *testing.T) {
 		}, 2),
 	}
 
-	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(t, true, testChannels, "a")
 	require.NoError(t, err, "unable to create graph")
-	defer testGraph.cleanUp()
 
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromGraphInstance(
@@ -1247,10 +1245,9 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 	// Setup an initially empty network.
 	testChannels := []*testChannel{}
 	testGraph, err := createTestGraphFromChannels(
-		true, testChannels, "roasbeef",
+		t, true, testChannels, "roasbeef",
 	)
 	require.NoError(t, err, "unable to create graph")
-	defer testGraph.cleanUp()
 
 	ctx, cleanUp := createTestCtxFromGraphInstance(
 		t, startingBlockHeight, testGraph, false,
@@ -2220,12 +2217,11 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 		// We'll create our test graph and router backed with these test
 		// channels we've created.
 		testGraph, err := createTestGraphFromChannels(
-			true, testChannels, "a",
+			t, true, testChannels, "a",
 		)
 		if err != nil {
 			t.Fatalf("unable to create test graph: %v", err)
 		}
-		defer testGraph.cleanUp()
 
 		const startingHeight = 100
 		ctx, cleanUp := createTestCtxFromGraphInstance(
@@ -2352,10 +2348,9 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 	// We'll create our test graph and router backed with these test
 	// channels we've created.
 	testGraph, err := createTestGraphFromChannels(
-		true, testChannels, "self",
+		t, true, testChannels, "self",
 	)
 	require.NoError(t, err, "unable to create test graph")
-	defer testGraph.cleanUp()
 
 	const startingHeight = 100
 	ctx, cleanUp := createTestCtxFromGraphInstanceAssumeValid(
@@ -2711,8 +2706,7 @@ func TestUnknownErrorSource(t *testing.T) {
 		}, 4),
 	}
 
-	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
-	defer testGraph.cleanUp()
+	testGraph, err := createTestGraphFromChannels(t, true, testChannels, "a")
 	require.NoError(t, err, "unable to create graph")
 
 	const startingBlockHeight = 101
@@ -2843,9 +2837,8 @@ func TestSendToRouteStructuredError(t *testing.T) {
 		}, 2),
 	}
 
-	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(t, true, testChannels, "a")
 	require.NoError(t, err, "unable to create graph")
-	defer testGraph.cleanUp()
 
 	const startingBlockHeight = 101
 	ctx, cleanUp := createTestCtxFromGraphInstance(
@@ -2959,9 +2952,8 @@ func TestSendToRouteMaxHops(t *testing.T) {
 		}, 1),
 	}
 
-	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(t, true, testChannels, "a")
 	require.NoError(t, err, "unable to create graph")
-	defer testGraph.cleanUp()
 
 	const startingBlockHeight = 101
 
@@ -3066,9 +3058,8 @@ func TestBuildRoute(t *testing.T) {
 		}, 4),
 	}
 
-	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(t, true, testChannels, "a")
 	require.NoError(t, err, "unable to create graph")
-	defer testGraph.cleanUp()
 
 	const startingBlockHeight = 101
 
@@ -3304,7 +3295,7 @@ func createDummyTestGraph(t *testing.T) *testGraphInstance {
 		}, 2),
 	}
 
-	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(t, true, testChannels, "a")
 	require.NoError(t, err, "failed to create graph")
 	return testGraph
 }

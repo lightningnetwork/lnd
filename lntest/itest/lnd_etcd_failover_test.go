@@ -5,7 +5,6 @@ package itest
 
 import (
 	"context"
-	"io/ioutil"
 	"testing"
 	"time"
 
@@ -68,12 +67,8 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 
 	ctxb := context.Background()
 
-	tmpDir, err := ioutil.TempDir("", "etcd")
-	if err != nil {
-		ht.Fatalf("Failed to create temp dir: %v", err)
-	}
 	etcdCfg, cleanup, err := kvdb.StartEtcdTestBackend(
-		tmpDir, uint16(lntest.NextAvailablePort()),
+		ht.t.TempDir(), uint16(lntest.NextAvailablePort()),
 		uint16(lntest.NextAvailablePort()), "",
 	)
 	if err != nil {

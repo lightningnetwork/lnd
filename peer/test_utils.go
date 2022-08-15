@@ -368,8 +368,9 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 
 	interceptableSwitch, err := htlcswitch.NewInterceptableSwitch(
 		&htlcswitch.InterceptableSwitchConfig{
-			CltvRejectDelta: testCltvRejectDelta,
-			Notifier:        interceptableSwitchNotifier,
+			CltvRejectDelta:    testCltvRejectDelta,
+			CltvInterceptDelta: testCltvRejectDelta + 3,
+			Notifier:           interceptableSwitchNotifier,
 		},
 	)
 	if err != nil {

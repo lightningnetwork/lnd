@@ -78,3 +78,49 @@ func TestHeldHtlcSet(t *testing.T) {
 	_, err = set.pop(key)
 	require.Error(t, err)
 }
+
+func TestHeldHtlcSetAutoFails(t *testing.T) {
+	set := newHeldHtlcSet()
+
+	key := channeldb.CircuitKey{
+		ChanID: lnwire.NewShortChanIDFromInt(1),
+		HtlcID: 2,
+	}
+
+	const autoFailHeight = 100
+	fwd := &interceptedForward{
+		packet:         &htlcPacket{},
+		htlc:           &lnwire.UpdateAddHTLC{},
+		autoFailHeight: autoFailHeight,
+	}
+	require.NoError(t, set.push(key, fwd))
+
+	// Test popping auto fails up to one block before the auto-fail height
+	// of our forward.
+	set.popAutoFails(
+		autoFailHeight-1,
+		func(_ InterceptedForward) {
+			require.Fail(t, "unexpected fwd")
+		},
+	)
+
+	// Popping succeeds at the auto-fail height.
+	cbCalled := false
+	set.popAutoFails(
+		autoFailHeight,
+		func(poppedFwd InterceptedForward) {
+			cbCalled = true
+
+			require.Equal(t, fwd, poppedFwd)
+		},
+	)
+	require.True(t, cbCalled)
+
+	// After this, there should be nothing more to pop.
+	set.popAutoFails(
+		autoFailHeight,
+		func(_ InterceptedForward) {
+			require.Fail(t, "unexpected fwd")
+		},
+	)
+}

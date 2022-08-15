@@ -28,7 +28,14 @@
   Similar to TrackPaymentV2, but for any inflight payment.
 
 * [Catch and throw an error](https://github.com/lightningnetwork/lnd/pull/6945)
-  during `openchannel` if the local funding amount given is zero. 
+  during `openchannel` if the local funding amount given is zero.
+
+* [Extend](https://github.com/lightningnetwork/lnd/pull/6831) the HTLC
+  interceptor server implementation with watchdog functionality to cancel back
+  HTLCs for which an interceptor client does not provide a resolution in time.
+  If an HTLC expires, the counterparty will claim it back on-chain and the
+  receiver will lose it. Therefore the receiver can just as well fail off-chain
+  a few blocks before so that the channel is saved.
 
 * [Make remote channel reserve amount configurable for 
   `openchannel`](https://github.com/lightningnetwork/lnd/pull/6956)
@@ -167,6 +174,7 @@ details.
 * Graham Krizek
 * hieblmi
 * Jesse de Wit
+* Joost Jager
 * Jordi Montes
 * Matt Morehouse
 * Michael Street

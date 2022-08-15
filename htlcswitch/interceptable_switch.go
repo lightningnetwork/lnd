@@ -64,6 +64,13 @@ type InterceptableSwitch struct {
 	// htlc where we no longer intercept it and instead cancel it back.
 	cltvRejectDelta uint32
 
+	// cltvInterceptDelta defines the number of blocks before the expiry of
+	// the htlc where we don't intercept anymore. This value must be greater
+	// than CltvRejectDelta, because we don't want to offer htlcs to the
+	// interceptor client for which there is no time left to resolve them
+	// anymore.
+	cltvInterceptDelta uint32
+
 	// notifier is an instance of a chain notifier that we'll use to signal
 	// the switch when a new block has arrived.
 	notifier chainntnfs.ChainNotifier
@@ -137,8 +144,16 @@ type InterceptableSwitchConfig struct {
 	Notifier chainntnfs.ChainNotifier
 
 	// CltvRejectDelta defines the number of blocks before the expiry of the
-	// htlc where we no longer intercept it and instead cancel it back.
+	// htlc where we auto-fail an intercepted htlc to prevent channel
+	// force-closure.
 	CltvRejectDelta uint32
+
+	// CltvInterceptDelta defines the number of blocks before the expiry of
+	// the htlc where we don't intercept anymore. This value must be greater
+	// than CltvRejectDelta, because we don't want to offer htlcs to the
+	// interceptor client for which there is no time left to resolve them
+	// anymore.
+	CltvInterceptDelta uint32
 
 	// RequireInterceptor indicates whether processing should block if no
 	// interceptor is connected.
@@ -149,6 +164,12 @@ type InterceptableSwitchConfig struct {
 func NewInterceptableSwitch(cfg *InterceptableSwitchConfig) (
 	*InterceptableSwitch, error) {
 
+	if cfg.CltvInterceptDelta <= cfg.CltvRejectDelta {
+		return nil, fmt.Errorf("cltv intercept delta %v not greater "+
+			"than cltv reject delta %v",
+			cfg.CltvInterceptDelta, cfg.CltvRejectDelta)
+	}
+
 	return &InterceptableSwitch{
 		htlcSwitch:              cfg.Switch,
 		intercepted:             make(chan *interceptedPackets),
@@ -158,6 +179,7 @@ func NewInterceptableSwitch(cfg *InterceptableSwitchConfig) (
 		resolutionChan:          make(chan *fwdResolution),
 		requireInterceptor:      cfg.RequireInterceptor,
 		cltvRejectDelta:         cfg.CltvRejectDelta,
+		cltvInterceptDelta:      cfg.CltvInterceptDelta,
 		notifier:                cfg.Notifier,
 
 		quit: make(chan struct{}),
@@ -275,11 +297,30 @@ func (s *InterceptableSwitch) run() error {
 
 			s.currentHeight = currentBlock.Height
 
+			// A new block is appended. Fail any held htlcs that
+			// expire at this height to prevent channel force-close.
+			s.failExpiredHtlcs()
+
 		case <-s.quit:
 			return nil
 		}
 	}
 }
+
+func (s *InterceptableSwitch) failExpiredHtlcs() {
+	s.heldHtlcSet.popAutoFails(
+		uint32(s.currentHeight),
+		func(fwd InterceptedForward) {
+			err := fwd.FailWithCode(
+				lnwire.CodeTemporaryChannelFailure,
+			)
+			if err != nil {
+				log.Errorf("Cannot fail packet: %v", err)
+			}
+		},
+	)
+}
+
 func (s *InterceptableSwitch) sendForward(fwd InterceptedForward) {
 	err := s.interceptor(fwd.Packet())
 	if err != nil {
@@ -426,6 +467,8 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 			htlc:       htlc,
 			packet:     packet,
 			htlcSwitch: s.htlcSwitch,
+			autoFailHeight: int32(packet.incomingTimeout -
+				s.cltvRejectDelta),
 		}
 
 		// Handle forwards that are too close to expiry.
@@ -516,7 +559,7 @@ func (s *InterceptableSwitch) handleExpired(fwd *interceptedForward) (
 	bool, error) {
 
 	height := uint32(s.currentHeight)
-	if fwd.packet.incomingTimeout >= height+s.cltvRejectDelta {
+	if fwd.packet.incomingTimeout >= height+s.cltvInterceptDelta {
 		return false, nil
 	}
 
@@ -540,9 +583,10 @@ func (s *InterceptableSwitch) handleExpired(fwd *interceptedForward) (
 // It is passed from the switch to external interceptors that are interested
 // in holding forwards and resolve them manually.
 type interceptedForward struct {
-	htlc       *lnwire.UpdateAddHTLC
-	packet     *htlcPacket
-	htlcSwitch *Switch
+	htlc           *lnwire.UpdateAddHTLC
+	packet         *htlcPacket
+	htlcSwitch     *Switch
+	autoFailHeight int32
 }
 
 // Packet returns the intercepted htlc packet.
@@ -560,6 +604,7 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 		IncomingExpiry: f.packet.incomingTimeout,
 		CustomRecords:  f.packet.customRecords,
 		OnionBlob:      f.htlc.OnionBlob,
+		AutoFailHeight: f.autoFailHeight,
 	}
 }
 

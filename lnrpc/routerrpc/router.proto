@@ -792,6 +792,10 @@ message ForwardHtlcInterceptRequest {
 
     // The onion blob for the next hop
     bytes onion_blob = 9;
+
+    // The block height at which this htlc will be auto-failed to prevent the
+    // channel from force-closing.
+    int32 auto_fail_height = 10;
 }
 
 /**

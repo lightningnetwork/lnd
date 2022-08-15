@@ -1229,6 +1229,11 @@
           "type": "string",
           "format": "byte",
           "title": "The onion blob for the next hop"
+        },
+        "auto_fail_height": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The block height at which this htlc will be auto-failed to prevent the\nchannel from force-closing."
         }
       }
     },

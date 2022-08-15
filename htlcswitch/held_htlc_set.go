@@ -37,6 +37,20 @@ func (h *heldHtlcSet) popAll(cb func(InterceptedForward)) {
 	h.set = make(map[channeldb.CircuitKey]InterceptedForward)
 }
 
+// popAutoFails calls the callback for each forward that has an auto-fail height
+// equal or less then the specified pop height and removes them from the set.
+func (h *heldHtlcSet) popAutoFails(height uint32, cb func(InterceptedForward)) {
+	for key, fwd := range h.set {
+		if uint32(fwd.Packet().AutoFailHeight) > height {
+			continue
+		}
+
+		cb(fwd)
+
+		delete(h.set, key)
+	}
+}
+
 // pop returns the specified forward and removes it from the set.
 func (h *heldHtlcSet) pop(key channeldb.CircuitKey) (InterceptedForward, error) {
 	intercepted, ok := h.set[key]

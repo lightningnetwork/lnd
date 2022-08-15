@@ -670,6 +670,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		&htlcswitch.InterceptableSwitchConfig{
 			Switch:             s.htlcSwitch,
 			CltvRejectDelta:    lncfg.DefaultFinalCltvRejectDelta,
+			CltvInterceptDelta: lncfg.DefaultCltvInterceptDelta,
 			RequireInterceptor: s.cfg.RequireInterceptor,
 			Notifier:           s.cc.ChainNotifier,
 		},

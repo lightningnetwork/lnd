@@ -3704,6 +3704,8 @@ func (m *mockForwardInterceptor) InterceptForwardHtlc(
 }
 
 func (m *mockForwardInterceptor) getIntercepted() InterceptedPacket {
+	m.t.Helper()
+
 	select {
 	case p := <-m.interceptedChan:
 		return p
@@ -3764,11 +3766,12 @@ func assertOutgoingLinkReceiveIntercepted(t *testing.T,
 type interceptableSwitchTestContext struct {
 	t *testing.T
 
-	preimage        [sha256.Size]byte
-	rhash           [32]byte
-	onionBlob       [1366]byte
-	incomingHtlcID  uint64
-	cltvRejectDelta uint32
+	preimage           [sha256.Size]byte
+	rhash              [32]byte
+	onionBlob          [1366]byte
+	incomingHtlcID     uint64
+	cltvRejectDelta    uint32
+	cltvInterceptDelta uint32
 
 	forwardInterceptor *mockForwardInterceptor
 	aliceChannelLink   *mockChannelLink
@@ -3820,12 +3823,13 @@ func newInterceptableSwitchTestContext(
 	preimage := [sha256.Size]byte{1}
 
 	ctx := &interceptableSwitchTestContext{
-		t:               t,
-		preimage:        preimage,
-		rhash:           sha256.Sum256(preimage[:]),
-		onionBlob:       [1366]byte{4, 5, 6},
-		incomingHtlcID:  uint64(0),
-		cltvRejectDelta: 13,
+		t:                  t,
+		preimage:           preimage,
+		rhash:              sha256.Sum256(preimage[:]),
+		onionBlob:          [1366]byte{4, 5, 6},
+		incomingHtlcID:     uint64(0),
+		cltvRejectDelta:    10,
+		cltvInterceptDelta: 13,
 		forwardInterceptor: &mockForwardInterceptor{
 			t:               t,
 			interceptedChan: make(chan InterceptedPacket),
@@ -3844,7 +3848,7 @@ func (c *interceptableSwitchTestContext) createTestPacket() *htlcPacket {
 	return &htlcPacket{
 		incomingChanID:  c.aliceChannelLink.ShortChanID(),
 		incomingHTLCID:  c.incomingHtlcID,
-		incomingTimeout: testStartingHeight + c.cltvRejectDelta + 1,
+		incomingTimeout: testStartingHeight + c.cltvInterceptDelta + 1,
 		outgoingChanID:  c.bobChannelLink.ShortChanID(),
 		obfuscator:      NewMockObfuscator(),
 		htlc: &lnwire.UpdateAddHTLC{
@@ -3887,9 +3891,10 @@ func TestSwitchHoldForward(t *testing.T) {
 
 	switchForwardInterceptor, err := NewInterceptableSwitch(
 		&InterceptableSwitchConfig{
-			Switch:          c.s,
-			CltvRejectDelta: c.cltvRejectDelta,
-			Notifier:        notifier,
+			Switch:             c.s,
+			CltvRejectDelta:    c.cltvRejectDelta,
+			CltvInterceptDelta: c.cltvInterceptDelta,
+			Notifier:           notifier,
 		},
 	)
 	require.NoError(t, err)
@@ -4091,6 +4096,7 @@ func TestSwitchHoldForward(t *testing.T) {
 		&InterceptableSwitchConfig{
 			Switch:             c.s,
 			CltvRejectDelta:    c.cltvRejectDelta,
+			CltvInterceptDelta: c.cltvInterceptDelta,
 			RequireInterceptor: true,
 			Notifier:           notifier,
 		},
@@ -4160,6 +4166,67 @@ func TestSwitchHoldForward(t *testing.T) {
 
 	default:
 	}
+}
+
+func TestInterceptableSwitchWatchDog(t *testing.T) {
+	t.Parallel()
+
+	c := newInterceptableSwitchTestContext(t)
+	defer c.finish()
+
+	// Start interceptable switch.
+	notifier := &mock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+	}
+	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: testStartingHeight}
+
+	switchForwardInterceptor, err := NewInterceptableSwitch(
+		&InterceptableSwitchConfig{
+			Switch:             c.s,
+			CltvRejectDelta:    c.cltvRejectDelta,
+			CltvInterceptDelta: c.cltvInterceptDelta,
+			Notifier:           notifier,
+		},
+	)
+	require.NoError(t, err)
+	require.NoError(t, switchForwardInterceptor.Start())
+
+	// Set interceptor.
+	switchForwardInterceptor.SetInterceptor(
+		c.forwardInterceptor.InterceptForwardHtlc,
+	)
+
+	// Receive a packet.
+	linkQuit := make(chan struct{})
+
+	packet := c.createTestPacket()
+
+	err = switchForwardInterceptor.ForwardPackets(linkQuit, false, packet)
+	require.NoError(t, err, "can't forward htlc packet")
+
+	// Intercept the packet.
+	intercepted := c.forwardInterceptor.getIntercepted()
+
+	require.Equal(t,
+		int32(packet.incomingTimeout-c.cltvRejectDelta),
+		intercepted.AutoFailHeight,
+	)
+
+	// Htlc expires before a resolution from the interceptor.
+	notifier.EpochChan <- &chainntnfs.BlockEpoch{
+		Height: int32(packet.incomingTimeout) -
+			int32(c.cltvRejectDelta),
+	}
+
+	// Expect the htlc to be failed back.
+	assertOutgoingLinkReceive(t, c.aliceChannelLink, true)
+
+	// It is too late now to resolve. Expect an error.
+	require.Error(t, switchForwardInterceptor.Resolve(&FwdResolution{
+		Action:   FwdActionSettle,
+		Key:      intercepted.IncomingCircuit,
+		Preimage: c.preimage,
+	}))
 }
 
 // TestSwitchDustForwarding tests that the switch properly fails HTLC's which
@@ -5395,8 +5462,10 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 
 	interceptSwitch, err := NewInterceptableSwitch(
 		&InterceptableSwitchConfig{
-			Switch:   s,
-			Notifier: notifier,
+			Switch:             s,
+			Notifier:           notifier,
+			CltvRejectDelta:    10,
+			CltvInterceptDelta: 13,
 		},
 	)
 	require.NoError(t, err)

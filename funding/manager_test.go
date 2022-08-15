@@ -8,9 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -644,19 +642,13 @@ type cfgOption func(*Config)
 func setupFundingManagers(t *testing.T,
 	options ...cfgOption) (*testNode, *testNode) {
 
-	aliceTestDir, err := ioutil.TempDir("", "alicelnwallet")
-	require.NoError(t, err, "unable to create temp directory")
-
 	alice, err := createTestFundingManager(
-		t, alicePrivKey, aliceAddr, aliceTestDir, options...,
+		t, alicePrivKey, aliceAddr, t.TempDir(), options...,
 	)
 	require.NoError(t, err, "failed creating fundingManager")
 
-	bobTestDir, err := ioutil.TempDir("", "boblnwallet")
-	require.NoError(t, err, "unable to create temp directory")
-
 	bob, err := createTestFundingManager(
-		t, bobPrivKey, bobAddr, bobTestDir, options...,
+		t, bobPrivKey, bobAddr, t.TempDir(), options...,
 	)
 	require.NoError(t, err, "failed creating fundingManager")
 
@@ -699,8 +691,6 @@ func tearDownFundingManagers(t *testing.T, a, b *testNode) {
 	if err := b.fundingMgr.Stop(); err != nil {
 		t.Fatalf("failed stop funding manager: %v", err)
 	}
-	os.RemoveAll(a.testDir)
-	os.RemoveAll(b.testDir)
 }
 
 // openChannel takes the funding process to the point where the funding

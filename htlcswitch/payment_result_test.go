@@ -2,7 +2,6 @@ package htlcswitch
 
 import (
 	"bytes"
-	"io/ioutil"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -103,12 +102,7 @@ func TestNetworkResultStore(t *testing.T) {
 
 	const numResults = 4
 
-	tempDir, err := ioutil.TempDir("", "testdb")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	db, err := channeldb.Open(tempDir)
+	db, err := channeldb.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

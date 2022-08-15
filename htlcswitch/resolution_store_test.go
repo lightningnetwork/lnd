@@ -1,8 +1,6 @@
 package htlcswitch
 
 import (
-	"io/ioutil"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -40,20 +38,14 @@ func TestInsertAndDelete(t *testing.T) {
 
 	// Create the backend database and use it to create the resolution
 	// store.
-	dbDir, err := ioutil.TempDir("", "resolutionStore")
-	require.NoError(t, err)
-
-	dbPath := filepath.Join(dbDir, "testdb")
+	dbPath := filepath.Join(t.TempDir(), "testdb")
 	db, err := kvdb.Create(
 		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
 	)
 	require.NoError(t, err)
-
-	cleanUp := func() {
+	t.Cleanup(func() {
 		db.Close()
-		os.RemoveAll(dbDir)
-	}
-	defer cleanUp()
+	})
 
 	resStore := newResolutionStore(db)
 

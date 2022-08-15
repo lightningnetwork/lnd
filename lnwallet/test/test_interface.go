@@ -5,9 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"net"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -3040,8 +3038,7 @@ func TestLightningWallet(t *testing.T, targetBackEnd string) {
 
 	rpcConfig := miningNode.RPCConfig()
 
-	tempDir, err := ioutil.TempDir("", "channeldb")
-	require.NoError(t, err, "unable to create temp dir")
+	tempDir := t.TempDir()
 	db, err := channeldb.Open(tempDir)
 	require.NoError(t, err, "unable to create db")
 	testCfg := chainntnfs.CacheConfig{
@@ -3093,15 +3090,12 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 
 		aliceWalletController lnwallet.WalletController
 		bobWalletController   lnwallet.WalletController
+
+		err error
 	)
 
-	tempTestDirAlice, err := ioutil.TempDir("", "lnwallet")
-	require.NoError(t, err, "unable to create temp directory")
-	defer os.RemoveAll(tempTestDirAlice)
-
-	tempTestDirBob, err := ioutil.TempDir("", "lnwallet")
-	require.NoError(t, err, "unable to create temp directory")
-	defer os.RemoveAll(tempTestDirBob)
+	tempTestDirAlice := t.TempDir()
+	tempTestDirBob := t.TempDir()
 
 	blockCache := blockcache.NewBlockCache(10000)
 
@@ -3191,13 +3185,9 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 
 		case "bitcoind":
 			// Start a bitcoind instance.
-			tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
-			if err != nil {
-				t.Fatalf("unable to create temp directory: %v", err)
-			}
+			tempBitcoindDir := t.TempDir()
 			zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
 			zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
-			defer os.RemoveAll(tempBitcoindDir)
 			rpcPort := getFreePort()
 			bitcoind := exec.Command(
 				"bitcoind",
@@ -3269,11 +3259,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 
 		case "bitcoind-rpc-polling":
 			// Start a bitcoind instance.
-			tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
-			if err != nil {
-				t.Fatalf("unable to create temp directory: %v", err)
-			}
-			defer os.RemoveAll(tempBitcoindDir)
+			tempBitcoindDir := t.TempDir()
 			rpcPort := getFreePort()
 			bitcoind := exec.Command(
 				"bitcoind",

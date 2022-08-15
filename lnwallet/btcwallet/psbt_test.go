@@ -252,8 +252,7 @@ func serializeTxWitness(txWitness wire.TxWitness) ([]byte, error) {
 
 // TestSignPsbt tests the PSBT signing functionality.
 func TestSignPsbt(t *testing.T) {
-	w, _, cleanup := newTestWallet(t, netParams, seedBytes)
-	defer cleanup()
+	w, _ := newTestWallet(t, netParams, seedBytes)
 
 	testCases := []struct {
 		name      string

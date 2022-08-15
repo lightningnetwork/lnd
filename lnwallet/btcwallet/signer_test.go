@@ -3,9 +3,7 @@ package btcwallet
 import (
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"math"
-	"os"
 	"testing"
 	"time"
 
@@ -164,8 +162,7 @@ var (
 // BIP32 key path correctly.
 func TestBip32KeyDerivation(t *testing.T) {
 	netParams := &chaincfg.RegressionNetParams
-	w, _, cleanup := newTestWallet(t, netParams, seedBytes)
-	defer cleanup()
+	w, _ := newTestWallet(t, netParams, seedBytes)
 
 	// This is just a sanity check that the wallet was initialized
 	// correctly. We make sure the first derived address is the expected
@@ -203,8 +200,7 @@ func TestBip32KeyDerivation(t *testing.T) {
 // with a proof to make sure the resulting addresses match up.
 func TestScriptImport(t *testing.T) {
 	netParams := &chaincfg.RegressionNetParams
-	w, miner, cleanup := newTestWallet(t, netParams, seedBytes)
-	defer cleanup()
+	w, miner := newTestWallet(t, netParams, seedBytes)
 
 	firstDerivedAddr, err := w.NewAddress(
 		lnwallet.TaprootPubkey, false, lnwallet.DefaultAccountName,
@@ -286,21 +282,12 @@ func TestScriptImport(t *testing.T) {
 }
 
 func newTestWallet(t *testing.T, netParams *chaincfg.Params,
-	seedBytes []byte) (*BtcWallet, *rpctest.Harness, func()) {
-
-	tempDir, err := ioutil.TempDir("", "lnwallet")
-	if err != nil {
-		_ = os.RemoveAll(tempDir)
-		t.Fatalf("creating temp dir failed: %v", err)
-	}
+	seedBytes []byte) (*BtcWallet, *rpctest.Harness) {
 
 	chainBackend, miner, backendCleanup := getChainBackend(t, netParams)
-	cleanup := func() {
-		_ = os.RemoveAll(tempDir)
-		backendCleanup()
-	}
+	t.Cleanup(backendCleanup)
 
-	loaderOpt := LoaderWithLocalWalletDB(tempDir, false, time.Minute)
+	loaderOpt := LoaderWithLocalWalletDB(t.TempDir(), false, time.Minute)
 	config := Config{
 		PrivatePass: []byte("some-pass"),
 		HdSeed:      seedBytes,
@@ -314,17 +301,15 @@ func newTestWallet(t *testing.T, netParams *chaincfg.Params,
 	blockCache := blockcache.NewBlockCache(10000)
 	w, err := New(config, blockCache)
 	if err != nil {
-		cleanup()
 		t.Fatalf("creating wallet failed: %v", err)
 	}
 
 	err = w.Start()
 	if err != nil {
-		cleanup()
 		t.Fatalf("starting wallet failed: %v", err)
 	}
 
-	return w, miner, cleanup
+	return w, miner
 }
 
 // getChainBackend returns a simple btcd based chain backend to back the wallet.

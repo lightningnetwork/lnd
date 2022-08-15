@@ -3,8 +3,6 @@ package contractcourt
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
-	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -406,11 +404,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 
 	var cleanUp func()
 	if log == nil {
-		dbDir, err := ioutil.TempDir("", "chanArb")
-		if err != nil {
-			return nil, err
-		}
-		dbPath := filepath.Join(dbDir, "testdb")
+		dbPath := filepath.Join(t.TempDir(), "testdb")
 		db, err := kvdb.Create(
 			kvdb.BoltBackendName, dbPath, true,
 			kvdb.DefaultDBTimeout,
@@ -427,7 +421,6 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		}
 		cleanUp = func() {
 			db.Close()
-			os.RemoveAll(dbDir)
 		}
 
 		log = &testArbLog{

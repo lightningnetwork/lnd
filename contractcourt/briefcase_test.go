@@ -2,9 +2,7 @@ package contractcourt
 
 import (
 	"crypto/rand"
-	"io/ioutil"
 	prand "math/rand"
-	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -146,36 +144,28 @@ var (
 	}
 )
 
-func makeTestDB() (kvdb.Backend, func(), error) {
-	// First, create a temporary directory to be used for the duration of
-	// this test.
-	tempDirName, err := ioutil.TempDir("", "arblog")
-	if err != nil {
-		return nil, nil, err
-	}
-
+func makeTestDB(t *testing.T) (kvdb.Backend, error) {
 	db, err := kvdb.Create(
-		kvdb.BoltBackendName, tempDirName+"/test.db", true,
+		kvdb.BoltBackendName, t.TempDir()+"/test.db", true,
 		kvdb.DefaultDBTimeout,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	cleanUp := func() {
+	t.Cleanup(func() {
 		db.Close()
-		os.RemoveAll(tempDirName)
-	}
+	})
 
-	return db, cleanUp, nil
+	return db, nil
 }
 
-func newTestBoltArbLog(chainhash chainhash.Hash,
-	op wire.OutPoint) (ArbitratorLog, func(), error) {
+func newTestBoltArbLog(t *testing.T, chainhash chainhash.Hash,
+	op wire.OutPoint) (ArbitratorLog, error) {
 
-	testDB, cleanUp, err := makeTestDB()
+	testDB, err := makeTestDB(t)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	testArbCfg := ChannelArbitratorConfig{
@@ -187,10 +177,10 @@ func newTestBoltArbLog(chainhash chainhash.Hash,
 	}
 	testLog, err := newBoltArbitratorLog(testDB, testArbCfg, chainhash, op)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return testLog, cleanUp, err
+	return testLog, err
 }
 
 func randOutPoint() wire.OutPoint {
@@ -304,11 +294,10 @@ func TestContractInsertionRetrieval(t *testing.T) {
 
 	// First, we'll create a test instance of the ArbitratorLog
 	// implementation backed by boltdb.
-	testLog, cleanUp, err := newTestBoltArbLog(
-		testChainHash, testChanPoint1,
+	testLog, err := newTestBoltArbLog(
+		t, testChainHash, testChanPoint1,
 	)
 	require.NoError(t, err, "unable to create test log")
-	defer cleanUp()
 
 	// The log created, we'll create a series of resolvers, each properly
 	// implementing the ContractResolver interface.
@@ -432,11 +421,10 @@ func TestContractResolution(t *testing.T) {
 
 	// First, we'll create a test instance of the ArbitratorLog
 	// implementation backed by boltdb.
-	testLog, cleanUp, err := newTestBoltArbLog(
-		testChainHash, testChanPoint1,
+	testLog, err := newTestBoltArbLog(
+		t, testChainHash, testChanPoint1,
 	)
 	require.NoError(t, err, "unable to create test log")
-	defer cleanUp()
 
 	// We'll now create a timeout resolver that we'll be using for the
 	// duration of this test.
@@ -486,11 +474,10 @@ func TestContractSwapping(t *testing.T) {
 
 	// First, we'll create a test instance of the ArbitratorLog
 	// implementation backed by boltdb.
-	testLog, cleanUp, err := newTestBoltArbLog(
-		testChainHash, testChanPoint1,
+	testLog, err := newTestBoltArbLog(
+		t, testChainHash, testChanPoint1,
 	)
 	require.NoError(t, err, "unable to create test log")
-	defer cleanUp()
 
 	// We'll create two resolvers, a regular timeout resolver, and the
 	// contest resolver that eventually turns into the timeout resolver.
@@ -543,11 +530,10 @@ func TestContractResolutionsStorage(t *testing.T) {
 
 	// First, we'll create a test instance of the ArbitratorLog
 	// implementation backed by boltdb.
-	testLog, cleanUp, err := newTestBoltArbLog(
-		testChainHash, testChanPoint1,
+	testLog, err := newTestBoltArbLog(
+		t, testChainHash, testChanPoint1,
 	)
 	require.NoError(t, err, "unable to create test log")
-	defer cleanUp()
 
 	// With the test log created, we'll now craft a contact resolution that
 	// will be using for the duration of this test.
@@ -659,11 +645,10 @@ func TestContractResolutionsStorage(t *testing.T) {
 func TestStateMutation(t *testing.T) {
 	t.Parallel()
 
-	testLog, cleanUp, err := newTestBoltArbLog(
-		testChainHash, testChanPoint1,
+	testLog, err := newTestBoltArbLog(
+		t, testChainHash, testChanPoint1,
 	)
 	require.NoError(t, err, "unable to create test log")
-	defer cleanUp()
 
 	// The default state of an arbitrator should be StateDefault.
 	arbState, err := testLog.CurrentState(nil)
@@ -707,17 +692,15 @@ func TestScopeIsolation(t *testing.T) {
 
 	// We'll create two distinct test logs. Each log will have a unique
 	// scope key, and therefore should be isolated from the other on disk.
-	testLog1, cleanUp1, err := newTestBoltArbLog(
-		testChainHash, testChanPoint1,
+	testLog1, err := newTestBoltArbLog(
+		t, testChainHash, testChanPoint1,
 	)
 	require.NoError(t, err, "unable to create test log")
-	defer cleanUp1()
 
-	testLog2, cleanUp2, err := newTestBoltArbLog(
-		testChainHash, testChanPoint2,
+	testLog2, err := newTestBoltArbLog(
+		t, testChainHash, testChanPoint2,
 	)
 	require.NoError(t, err, "unable to create test log")
-	defer cleanUp2()
 
 	// We'll now update the current state of both the logs to a unique
 	// state.
@@ -754,11 +737,10 @@ func TestScopeIsolation(t *testing.T) {
 func TestCommitSetStorage(t *testing.T) {
 	t.Parallel()
 
-	testLog, cleanUp, err := newTestBoltArbLog(
-		testChainHash, testChanPoint1,
+	testLog, err := newTestBoltArbLog(
+		t, testChainHash, testChanPoint1,
 	)
 	require.NoError(t, err, "unable to create test log")
-	defer cleanUp()
 
 	activeHTLCs := []channeldb.HTLC{
 		{

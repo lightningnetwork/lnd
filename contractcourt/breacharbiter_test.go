@@ -10,10 +10,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"net"
-	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -639,25 +637,13 @@ func TestMockRetributionStore(t *testing.T) {
 	}
 }
 
-func makeTestChannelDB() (*channeldb.DB, func(), error) {
-	// First, create a temporary directory to be used for the duration of
-	// this test.
-	tempDirName, err := ioutil.TempDir("", "channeldb")
+func makeTestChannelDB(t *testing.T) (*channeldb.DB, error) {
+	db, err := channeldb.Open(t.TempDir())
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	cleanUp := func() {
-		os.RemoveAll(tempDirName)
-	}
-
-	db, err := channeldb.Open(tempDirName)
-	if err != nil {
-		cleanUp()
-		return nil, nil, err
-	}
-
-	return db, cleanUp, nil
+	return db, nil
 }
 
 // TestChannelDBRetributionStore instantiates a retributionStore backed by a
@@ -670,12 +656,11 @@ func TestChannelDBRetributionStore(t *testing.T) {
 		t.Run(
 			"channeldbDBRetributionStore."+test.name,
 			func(tt *testing.T) {
-				db, cleanUp, err := makeTestChannelDB()
+				db, err := makeTestChannelDB(t)
 				if err != nil {
 					t.Fatalf("unable to open channeldb: %v", err)
 				}
 				defer db.Close()
-				defer cleanUp()
 
 				restartDb := func() RetributionStorer {
 					// Close and reopen channeldb
@@ -976,7 +961,7 @@ func initBreachedState(t *testing.T) (*BreachArbiter,
 	// Create a pair of channels using a notifier that allows us to signal
 	// a spend of the funding transaction. Alice's channel will be the on
 	// observing a breach.
-	alice, bob, cleanUpChans, err := createInitChannels(1)
+	alice, bob, cleanUpChans, err := createInitChannels(t, 1)
 	require.NoError(t, err, "unable to create test channels")
 
 	// Instantiate a breach arbiter to handle the breach of alice's channel.
@@ -2177,8 +2162,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 // createInitChannels creates two initialized test channels funded with 10 BTC,
 // with 5 BTC allocated to each side. Within the channel, Alice is the
 // initiator.
-func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(), error) {
-
+func createInitChannels(t *testing.T, revocationWindow int) (*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(), error) {
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
 		channels.AlicesPrivKey,
 	)
@@ -2285,22 +2269,12 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		return nil, nil, nil, err
 	}
 
-	alicePath, err := ioutil.TempDir("", "alicedb")
+	dbAlice, err := channeldb.Open(t.TempDir())
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	dbAlice, err := channeldb.Open(alicePath)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	bobPath, err := ioutil.TempDir("", "bobdb")
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	dbBob, err := channeldb.Open(bobPath)
+	dbBob, err := channeldb.Open(t.TempDir())
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -2418,8 +2392,6 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 	cleanUpFunc := func() {
 		dbBob.Close()
 		dbAlice.Close()
-		os.RemoveAll(bobPath)
-		os.RemoveAll(alicePath)
 	}
 
 	// Now that the channel are open, simulate the start of a session by

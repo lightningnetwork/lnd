@@ -1,9 +1,7 @@
 package contractcourt
 
 import (
-	"io/ioutil"
 	"net"
-	"os"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -22,13 +20,7 @@ import (
 func TestChainArbitratorRepublishCloses(t *testing.T) {
 	t.Parallel()
 
-	tempPath, err := ioutil.TempDir("", "testdb")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tempPath)
-
-	db, err := channeldb.Open(tempPath)
+	db, err := channeldb.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,12 +135,7 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 func TestResolveContract(t *testing.T) {
 	t.Parallel()
 
-	// To start with, we'll create a new temp DB for the duration of this
-	// test.
-	tempPath, err := ioutil.TempDir("", "testdb")
-	require.NoError(t, err, "unable to make temp dir")
-	defer os.RemoveAll(tempPath)
-	db, err := channeldb.Open(tempPath)
+	db, err := channeldb.Open(t.TempDir())
 	require.NoError(t, err, "unable to open db")
 	defer db.Close()
 

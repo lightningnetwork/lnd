@@ -3,7 +3,6 @@ package contractcourt
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime/pprof"
@@ -52,47 +51,35 @@ func copyFile(dest, src string) error {
 }
 
 // copyChannelState copies the OpenChannel state by copying the database and
-// creating a new struct from it. The copied state and a cleanup function are
-// returned.
-func copyChannelState(state *channeldb.OpenChannel) (
-	*channeldb.OpenChannel, func(), error) {
+// creating a new struct from it. The copied state is returned.
+func copyChannelState(t *testing.T, state *channeldb.OpenChannel) (
+	*channeldb.OpenChannel, error) {
 
 	// Make a copy of the DB.
 	dbFile := filepath.Join(state.Db.GetParentDB().Path(), "channel.db")
-	tempDbPath, err := ioutil.TempDir("", "past-state")
-	if err != nil {
-		return nil, nil, err
-	}
-
-	cleanup := func() {
-		os.RemoveAll(tempDbPath)
-	}
+	tempDbPath := t.TempDir()
 
 	tempDbFile := filepath.Join(tempDbPath, "channel.db")
-	err = copyFile(tempDbFile, dbFile)
+	err := copyFile(tempDbFile, dbFile)
 	if err != nil {
-		cleanup()
-		return nil, nil, err
+		return nil, err
 	}
 
 	newDb, err := channeldb.Open(tempDbPath)
 	if err != nil {
-		cleanup()
-		return nil, nil, err
+		return nil, err
 	}
 
 	chans, err := newDb.ChannelStateDB().FetchAllChannels()
 	if err != nil {
-		cleanup()
-		return nil, nil, err
+		return nil, err
 	}
 
 	// We only support DBs with a single channel, for now.
 	if len(chans) != 1 {
-		cleanup()
-		return nil, nil, fmt.Errorf("found %d chans in the db",
+		return nil, fmt.Errorf("found %d chans in the db",
 			len(chans))
 	}
 
-	return chans[0], cleanup, nil
+	return chans[0], nil
 }

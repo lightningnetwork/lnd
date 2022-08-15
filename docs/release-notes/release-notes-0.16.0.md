@@ -20,6 +20,10 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 * [The macaroon key store implementation was refactored to be more generally
   usable](https://github.com/lightningnetwork/lnd/pull/6509).
 
+* [Fixed a bug where cookie authentication with Tor would fail if the cookie
+  path contained spaces](https://github.com/lightningnetwork/lnd/pull/6829).
+  Now it parses Tor control port messages correctly.
+
 ## `lncli`
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
   flag](https://github.com/lightningnetwork/lnd/pull/6818) that allows the 
@@ -36,6 +40,7 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 # Contributors (Alphabetical Order)
 
 * Carla Kirk-Cohen
+* cutiful
 * Daniel McNally
 * Elle Mouton
 * ErikEk

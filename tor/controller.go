@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/textproto"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -77,6 +78,17 @@ var (
 	// errTCNotStarted is used when we require the tor controller to be
 	// not stopped while it is.
 	errTCStopped = errors.New("tor controller must not be stopped")
+
+	// replyFieldRegexp is the regular expression used to find fields in a
+	// reply.  Parameters within a reply should be of the form KEY=VALUE or
+	// KEY="VALUE", where quoted values might contain spaces, newlines and
+	// quoted pairs. If the parameter doesn't contain "=", then we can
+	// assume it doesn't provide any relevant information that isn't already
+	// known. Read more on this topic:
+	//   https://gitweb.torproject.org/torspec.git/tree/control-spec.txt#n188
+	replyFieldRegexp = regexp.MustCompile(
+		`[^" \r\n]+=(?:"(?:[^"\\]|\\[\0-\x7F])*"|[^" \r\n]*)`,
+	)
 )
 
 // Controller is an implementation of the Tor Control protocol. This is used in
@@ -367,29 +379,51 @@ func (c *Controller) readResponse(expected int) (int, string, error) {
 	return code, reply, nil
 }
 
+// unescapeValue removes escape codes from the value in the Tor reply. A
+// backslash followed by any character represents that character, so we remove
+// any backslash not preceded by another backslash.
+func unescapeValue(value string) string {
+	newString := ""
+	justRemovedBackslash := false
+
+	for _, char := range value {
+		if char == '\\' && !justRemovedBackslash {
+			justRemovedBackslash = true
+			continue
+		}
+
+		newString += string(char)
+		justRemovedBackslash = false
+	}
+
+	return newString
+}
+
 // parseTorReply parses the reply from the Tor server after receiving a command
 // from a controller. This will parse the relevant reply parameters into a map
 // of keys and values.
 func parseTorReply(reply string) map[string]string {
 	params := make(map[string]string)
 
-	// Replies can either span single or multiple lines, so we'll default
-	// to stripping whitespace and newlines in order to retrieve the
-	// individual contents of it. The -1 indicates that we want this to span
-	// across all instances of a newline.
-	contents := strings.Split(strings.Replace(reply, "\n", " ", -1), " ")
+	// Find all fields of a reply. The -1 indicates that we want this to
+	// find all instances of the regexp.
+	contents := replyFieldRegexp.FindAllString(reply, -1)
 	for _, content := range contents {
 		// Each parameter within the reply should be of the form
-		// "KEY=VALUE". If the parameter doesn't contain "=", then we
-		// can assume it does not provide any other relevant information
-		// already known.
+		// KEY=VALUE or KEY="VALUE".
 		keyValue := strings.SplitN(content, "=", 2)
-		if len(keyValue) != 2 {
-			continue
-		}
-
 		key := keyValue[0]
 		value := keyValue[1]
+
+		// Quoted strings need extra processing.
+		if strings.HasPrefix(value, `"`) {
+			// Remove quotes around the value.
+			value = value[1 : len(value)-1]
+
+			// Unescape the value.
+			value = unescapeValue(value)
+		}
+
 		params[key] = value
 	}
 

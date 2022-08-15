@@ -5,7 +5,6 @@ package bitcoindnotify
 
 import (
 	"bytes"
-	"io/ioutil"
 	"testing"
 	"time"
 
@@ -35,10 +34,12 @@ var (
 func initHintCache(t *testing.T) *chainntnfs.HeightHintCache {
 	t.Helper()
 
-	tempDir, err := ioutil.TempDir("", "kek")
-	require.NoError(t, err, "unable to create temp dir")
-	db, err := channeldb.Open(tempDir)
+	db, err := channeldb.Open(t.TempDir())
 	require.NoError(t, err, "unable to create db")
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
 	testCfg := chainntnfs.CacheConfig{
 		QueryDisable: false,
 	}

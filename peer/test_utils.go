@@ -367,7 +367,9 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 		Switch:            mockSwitch,
 		ChanActiveTimeout: chanActiveTimeout,
 		InterceptSwitch: htlcswitch.NewInterceptableSwitch(
-			nil, testCltvRejectDelta, false,
+			&htlcswitch.InterceptableSwitchConfig{
+				CltvRejectDelta: testCltvRejectDelta,
+			},
 		),
 		ChannelDB:      dbAlice.ChannelStateDB(),
 		FeeEstimator:   estimator,

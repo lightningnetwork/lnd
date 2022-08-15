@@ -111,19 +111,32 @@ type fwdResolution struct {
 	errChan    chan error
 }
 
-// NewInterceptableSwitch returns an instance of InterceptableSwitch.
-func NewInterceptableSwitch(s *Switch, cltvRejectDelta uint32,
-	requireInterceptor bool) *InterceptableSwitch {
+// InterceptableSwitchConfig contains the configuration of InterceptableSwitch.
+type InterceptableSwitchConfig struct {
+	// Switch is a reference to the actual switch implementation that
+	// packets get sent to on resume.
+	Switch *Switch
 
+	// CltvRejectDelta defines the number of blocks before the expiry of the
+	// htlc where we no longer intercept it and instead cancel it back.
+	CltvRejectDelta uint32
+
+	// RequireInterceptor indicates whether processing should block if no
+	// interceptor is connected.
+	RequireInterceptor bool
+}
+
+// NewInterceptableSwitch returns an instance of InterceptableSwitch.
+func NewInterceptableSwitch(cfg *InterceptableSwitchConfig) *InterceptableSwitch {
 	return &InterceptableSwitch{
-		htlcSwitch:              s,
+		htlcSwitch:              cfg.Switch,
 		intercepted:             make(chan *interceptedPackets),
 		onchainIntercepted:      make(chan InterceptedForward),
 		interceptorRegistration: make(chan ForwardInterceptor),
 		holdForwards:            make(map[channeldb.CircuitKey]InterceptedForward),
 		resolutionChan:          make(chan *fwdResolution),
-		requireInterceptor:      requireInterceptor,
-		cltvRejectDelta:         cltvRejectDelta,
+		requireInterceptor:      cfg.RequireInterceptor,
+		cltvRejectDelta:         cfg.CltvRejectDelta,
 
 		quit: make(chan struct{}),
 	}

@@ -5,8 +5,6 @@ package etcd
 
 import (
 	"context"
-	"io/ioutil"
-	"os"
 	"testing"
 	"time"
 
@@ -46,10 +44,7 @@ func NewTestEtcdInstance(t *testing.T, path string) (*Config, func()) {
 // NewTestEtcdTestFixture creates a new etcd-test fixture. This is helper
 // object to facilitate etcd tests and ensure pre and post conditions.
 func NewEtcdTestFixture(t *testing.T) *EtcdTestFixture {
-	tmpDir, err := ioutil.TempDir("", "etcd")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
+	tmpDir := t.TempDir()
 
 	config, etcdCleanup := NewTestEtcdInstance(t, tmpDir)
 
@@ -59,7 +54,6 @@ func NewEtcdTestFixture(t *testing.T) *EtcdTestFixture {
 		Password:  config.Pass,
 	})
 	if err != nil {
-		os.RemoveAll(tmpDir)
 		t.Fatalf("unable to create etcd test fixture: %v", err)
 	}
 
@@ -69,13 +63,10 @@ func NewEtcdTestFixture(t *testing.T) *EtcdTestFixture {
 	cli.Lease = namespace.NewLease(cli.Lease, defaultNamespace)
 
 	return &EtcdTestFixture{
-		t:      t,
-		cli:    cli,
-		config: config,
-		cleanup: func() {
-			etcdCleanup()
-			os.RemoveAll(tmpDir)
-		},
+		t:       t,
+		cli:     cli,
+		config:  config,
+		cleanup: etcdCleanup,
 	}
 }
 

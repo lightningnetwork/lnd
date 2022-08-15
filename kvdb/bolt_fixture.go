@@ -1,8 +1,6 @@
 package kvdb
 
 import (
-	"io/ioutil"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -16,17 +14,10 @@ type boltFixture struct {
 }
 
 func NewBoltFixture(t *testing.T) *boltFixture {
-	tempDir, err := ioutil.TempDir("", "test")
-	require.NoError(t, err)
-
 	return &boltFixture{
 		t:       t,
-		tempDir: tempDir,
+		tempDir: t.TempDir(),
 	}
-}
-
-func (b *boltFixture) Cleanup() {
-	os.RemoveAll(b.tempDir)
 }
 
 func (b *boltFixture) NewBackend() walletdb.DB {

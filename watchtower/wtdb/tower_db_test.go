@@ -3,8 +3,6 @@ package wtdb_test
 import (
 	"bytes"
 	"encoding/binary"
-	"io/ioutil"
-	"os"
 	"reflect"
 	"testing"
 
@@ -22,9 +20,8 @@ var (
 	testBlob = make([]byte, blob.Size(blob.TypeAltruistCommit))
 )
 
-// dbInit is a closure used to initialize a watchtower.DB instance and its
-// cleanup function.
-type dbInit func(*testing.T) (watchtower.DB, func())
+// dbInit is a closure used to initialize a watchtower.DB instance.
+type dbInit func(*testing.T) watchtower.DB
 
 // towerDBHarness holds the resources required to execute the tower db tests.
 type towerDBHarness struct {
@@ -34,15 +31,15 @@ type towerDBHarness struct {
 
 // newTowerDBHarness initializes a fresh test harness for testing watchtower.DB
 // implementations.
-func newTowerDBHarness(t *testing.T, init dbInit) (*towerDBHarness, func()) {
-	db, cleanup := init(t)
+func newTowerDBHarness(t *testing.T, init dbInit) *towerDBHarness {
+	db := init(t)
 
 	h := &towerDBHarness{
 		t:  t,
 		db: db,
 	}
 
-	return h, cleanup
+	return h
 }
 
 // insertSession attempts to isnert the passed session and asserts that the
@@ -637,55 +634,42 @@ func TestTowerDB(t *testing.T) {
 	}{
 		{
 			name: "fresh boltdb",
-			init: func(t *testing.T) (watchtower.DB, func()) {
-				path, err := ioutil.TempDir("", "towerdb")
-				if err != nil {
-					t.Fatalf("unable to make temp dir: %v",
-						err)
-				}
+			init: func(t *testing.T) watchtower.DB {
+				path := t.TempDir()
 
 				bdb, err := wtdb.NewBoltBackendCreator(
 					true, path, "watchtower.db",
 				)(dbCfg)
 				if err != nil {
-					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
 				}
 
 				db, err := wtdb.OpenTowerDB(bdb)
 				if err != nil {
-					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
 				}
 
-				cleanup := func() {
+				t.Cleanup(func() {
 					db.Close()
-					os.RemoveAll(path)
-				}
+				})
 
-				return db, cleanup
+				return db
 			},
 		},
 		{
 			name: "reopened boltdb",
-			init: func(t *testing.T) (watchtower.DB, func()) {
-				path, err := ioutil.TempDir("", "towerdb")
-				if err != nil {
-					t.Fatalf("unable to make temp dir: %v",
-						err)
-				}
+			init: func(t *testing.T) watchtower.DB {
+				path := t.TempDir()
 
 				bdb, err := wtdb.NewBoltBackendCreator(
 					true, path, "watchtower.db",
 				)(dbCfg)
 				if err != nil {
-					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
 				}
 
 				db, err := wtdb.OpenTowerDB(bdb)
 				if err != nil {
-					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
 				}
 				db.Close()
@@ -697,28 +681,25 @@ func TestTowerDB(t *testing.T) {
 					true, path, "watchtower.db",
 				)(dbCfg)
 				if err != nil {
-					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
 				}
 
 				db, err = wtdb.OpenTowerDB(bdb)
 				if err != nil {
-					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
 				}
 
-				cleanup := func() {
+				t.Cleanup(func() {
 					db.Close()
-					os.RemoveAll(path)
-				}
+				})
 
-				return db, cleanup
+				return db
 			},
 		},
 		{
 			name: "mock",
-			init: func(t *testing.T) (watchtower.DB, func()) {
-				return wtmock.NewTowerDB(), func() {}
+			init: func(t *testing.T) watchtower.DB {
+				return wtmock.NewTowerDB()
 			},
 		},
 	}
@@ -792,10 +773,7 @@ func TestTowerDB(t *testing.T) {
 
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
-					h, cleanup := newTowerDBHarness(
-						t, db.init,
-					)
-					defer cleanup()
+					h := newTowerDBHarness(t, db.init)
 
 					test.run(h)
 				})

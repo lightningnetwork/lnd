@@ -4,9 +4,7 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"io"
-	"io/ioutil"
 	"net"
-	"os"
 	"reflect"
 	"testing"
 
@@ -20,24 +18,23 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
-// clientDBInit is a closure used to initialize a wtclient.DB instance its
-// cleanup function.
-type clientDBInit func(t *testing.T) (wtclient.DB, func())
+// clientDBInit is a closure used to initialize a wtclient.DB instance.
+type clientDBInit func(t *testing.T) wtclient.DB
 
 type clientDBHarness struct {
 	t  *testing.T
 	db wtclient.DB
 }
 
-func newClientDBHarness(t *testing.T, init clientDBInit) (*clientDBHarness, func()) {
-	db, cleanup := init(t)
+func newClientDBHarness(t *testing.T, init clientDBInit) *clientDBHarness {
+	db := init(t)
 
 	h := &clientDBHarness{
 		t:  t,
 		db: db,
 	}
 
-	return h, cleanup
+	return h
 }
 
 func (h *clientDBHarness) insertSession(session *wtdb.ClientSession, expErr error) {
@@ -778,55 +775,40 @@ func TestClientDB(t *testing.T) {
 	}{
 		{
 			name: "fresh clientdb",
-			init: func(t *testing.T) (wtclient.DB, func()) {
-				path, err := ioutil.TempDir("", "clientdb")
-				if err != nil {
-					t.Fatalf("unable to make temp dir: %v",
-						err)
-				}
-
+			init: func(t *testing.T) wtclient.DB {
 				bdb, err := wtdb.NewBoltBackendCreator(
-					true, path, "wtclient.db",
+					true, t.TempDir(), "wtclient.db",
 				)(dbCfg)
 				if err != nil {
-					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
 				}
 
 				db, err := wtdb.OpenClientDB(bdb)
 				if err != nil {
-					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
 				}
 
-				cleanup := func() {
+				t.Cleanup(func() {
 					db.Close()
-					os.RemoveAll(path)
-				}
+				})
 
-				return db, cleanup
+				return db
 			},
 		},
 		{
 			name: "reopened clientdb",
-			init: func(t *testing.T) (wtclient.DB, func()) {
-				path, err := ioutil.TempDir("", "clientdb")
-				if err != nil {
-					t.Fatalf("unable to make temp dir: %v",
-						err)
-				}
+			init: func(t *testing.T) wtclient.DB {
+				path := t.TempDir()
 
 				bdb, err := wtdb.NewBoltBackendCreator(
 					true, path, "wtclient.db",
 				)(dbCfg)
 				if err != nil {
-					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
 				}
 
 				db, err := wtdb.OpenClientDB(bdb)
 				if err != nil {
-					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
 				}
 				db.Close()
@@ -835,28 +817,25 @@ func TestClientDB(t *testing.T) {
 					true, path, "wtclient.db",
 				)(dbCfg)
 				if err != nil {
-					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
 				}
 
 				db, err = wtdb.OpenClientDB(bdb)
 				if err != nil {
-					os.RemoveAll(path)
 					t.Fatalf("unable to reopen db: %v", err)
 				}
 
-				cleanup := func() {
+				t.Cleanup(func() {
 					db.Close()
-					os.RemoveAll(path)
-				}
+				})
 
-				return db, cleanup
+				return db
 			},
 		},
 		{
 			name: "mock",
-			init: func(t *testing.T) (wtclient.DB, func()) {
-				return wtmock.NewClientDB(), func() {}
+			init: func(t *testing.T) wtclient.DB {
+				return wtmock.NewClientDB()
 			},
 		},
 	}
@@ -902,10 +881,7 @@ func TestClientDB(t *testing.T) {
 
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
-					h, cleanup := newClientDBHarness(
-						t, db.init,
-					)
-					defer cleanup()
+					h := newClientDBHarness(t, db.init)
 
 					test.run(h)
 				})

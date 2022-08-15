@@ -15,7 +15,6 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net"
-	"os"
 	"testing"
 	"time"
 
@@ -27,11 +26,7 @@ import (
 // new TLS certificate pair is regenerated when the old pair expires. This is
 // necessary because the pair expires after a little over a year.
 func TestTLSAutoRegeneration(t *testing.T) {
-	tempDirPath, err := ioutil.TempDir("", ".testLnd")
-	if err != nil {
-		t.Fatalf("couldn't create temporary cert directory")
-	}
-	defer os.RemoveAll(tempDirPath)
+	tempDirPath := t.TempDir()
 
 	certPath := tempDirPath + "/tls.cert"
 	keyPath := tempDirPath + "/tls.key"

@@ -47,7 +47,7 @@ func TestSwitchAddDuplicateLink(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create alice server")
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
@@ -90,7 +90,7 @@ func TestSwitchHasActiveLink(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create alice server")
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
@@ -140,7 +140,7 @@ func TestSwitchSendPending(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create bob server")
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
@@ -464,7 +464,7 @@ func testSwitchForwardMapping(t *testing.T, alicePrivate, aliceZeroConf,
 	)
 	require.NoError(t, err)
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err)
 	err = s.Start()
 	require.NoError(t, err)
@@ -676,7 +676,7 @@ func testSwitchSendHtlcMapping(t *testing.T, zeroConf, useAlias bool, alias,
 	)
 	require.NoError(t, err)
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err)
 	err = s.Start()
 	require.NoError(t, err)
@@ -738,7 +738,7 @@ func TestSwitchUpdateScid(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create alice server")
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err)
 	err = s.Start()
 	require.NoError(t, err)
@@ -882,7 +882,7 @@ func TestSwitchForward(t *testing.T) {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -999,6 +999,7 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
+	t.Cleanup(func() { cdb.Close() })
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err, "unable to init switch")
@@ -1092,6 +1093,7 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 
 	cdb2, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to reopen channeldb")
+	t.Cleanup(func() { cdb2.Close() })
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	require.NoError(t, err, "unable reinit switch")
@@ -1187,6 +1189,7 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
+	t.Cleanup(func() { cdb.Close() })
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err, "unable to init switch")
@@ -1280,6 +1283,7 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 
 	cdb2, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to reopen channeldb")
+	t.Cleanup(func() { cdb2.Close() })
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	require.NoError(t, err, "unable reinit switch")
@@ -1378,6 +1382,7 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
+	t.Cleanup(func() { cdb.Close() })
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err, "unable to init switch")
@@ -1463,6 +1468,7 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 
 	cdb2, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to reopen channeldb")
+	t.Cleanup(func() { cdb2.Close() })
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	require.NoError(t, err, "unable reinit switch")
@@ -1532,6 +1538,7 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
+	t.Cleanup(func() { cdb.Close() })
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err, "unable to init switch")
@@ -1612,6 +1619,7 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 
 	cdb2, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to reopen channeldb")
+	t.Cleanup(func() { cdb2.Close() })
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	require.NoError(t, err, "unable reinit switch")
@@ -1687,6 +1695,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
+	t.Cleanup(func() { cdb.Close() })
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err, "unable to init switch")
@@ -1766,6 +1775,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 
 	cdb2, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to reopen channeldb")
+	t.Cleanup(func() { cdb2.Close() })
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	require.NoError(t, err, "unable reinit switch")
@@ -1857,6 +1867,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 
 	cdb3, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to reopen channeldb")
+	t.Cleanup(func() { cdb3.Close() })
 
 	s3, err := initSwitchWithDB(testStartingHeight, cdb3)
 	require.NoError(t, err, "unable reinit switch")
@@ -1937,7 +1948,7 @@ func TestCircularForwards(t *testing.T) {
 					err)
 			}
 
-			s, err := initSwitchWithDB(testStartingHeight, nil)
+			s, err := initSwitchWithTempDB(t, testStartingHeight)
 			if err != nil {
 				t.Fatalf("unable to init switch: %v", err)
 			}
@@ -2111,7 +2122,7 @@ func TestCheckCircularForward(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			s, err := initSwitchWithDB(testStartingHeight, nil)
+			s, err := initSwitchWithTempDB(t, testStartingHeight)
 			require.NoError(t, err)
 			err = s.Start()
 			require.NoError(t, err)
@@ -2216,7 +2227,7 @@ func testSkipIneligibleLinksMultiHopForward(t *testing.T,
 	)
 	require.NoError(t, err, "unable to create bob server")
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
@@ -2339,7 +2350,7 @@ func testSkipLinkLocalForward(t *testing.T, eligible bool,
 	)
 	require.NoError(t, err, "unable to create alice server")
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
@@ -2394,7 +2405,7 @@ func TestSwitchCancel(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create bob server")
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
@@ -2505,7 +2516,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create bob server")
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
@@ -2658,7 +2669,7 @@ func TestSwitchSendPayment(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create alice server")
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
@@ -3075,7 +3086,7 @@ func TestSwitchGetPaymentResult(t *testing.T) {
 	var preimg lntypes.Preimage
 	preimg[0] = 3
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
@@ -3178,7 +3189,7 @@ func TestInvalidFailure(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create alice server")
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
 		t.Fatalf("unable to start switch: %v", err)
@@ -3768,6 +3779,7 @@ func TestSwitchHoldForward(t *testing.T) {
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
+	t.Cleanup(func() { cdb.Close() })
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err, "unable to init switch")
@@ -4401,7 +4413,7 @@ func TestSwitchMailboxDust(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err)
 	err = s.Start()
 	require.NoError(t, err)
@@ -4525,8 +4537,13 @@ func TestSwitchResolution(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err)
+
+	// Even though we intend to Stop s later in the test, it is safe to
+	// defer this Stop since its execution it is protected by an atomic
+	// guard, guaranteeing it executes at most once.
+	t.Cleanup(func() { var _ = s.Stop() })
 
 	err = s.Start()
 	require.NoError(t, err)
@@ -4702,6 +4719,7 @@ func testSwitchForwardFailAlias(t *testing.T, zeroConf bool) {
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err)
+	t.Cleanup(func() { cdb.Close() })
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err)
@@ -4777,6 +4795,7 @@ func testSwitchForwardFailAlias(t *testing.T, zeroConf bool) {
 
 	cdb2, err := channeldb.Open(tempPath)
 	require.NoError(t, err)
+	t.Cleanup(func() { cdb2.Close() })
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	require.NoError(t, err)
@@ -4916,6 +4935,7 @@ func testSwitchAliasFailAdd(t *testing.T, zeroConf, private, useAlias bool) {
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err)
+	defer cdb.Close()
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err)
@@ -5099,7 +5119,7 @@ func testSwitchHandlePacketForward(t *testing.T, zeroConf, private,
 	require.NoError(t, err)
 	defer cleanUp()
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -5255,6 +5275,7 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err)
+	t.Cleanup(func() { cdb.Close() })
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err)

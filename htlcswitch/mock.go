@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -161,30 +162,7 @@ type mockServer struct {
 
 var _ lnpeer.Peer = (*mockServer)(nil)
 
-func initDB() (*channeldb.DB, error) {
-	tempPath, err := ioutil.TempDir("", "switchdb")
-	if err != nil {
-		return nil, err
-	}
-
-	db, err := channeldb.Open(tempPath)
-	if err != nil {
-		return nil, err
-	}
-
-	return db, err
-}
-
 func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) {
-	var err error
-
-	if db == nil {
-		db, err = initDB()
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	signAliasUpdate := func(u *lnwire.ChannelUpdate) (*ecdsa.Signature,
 		error) {
 
@@ -226,6 +204,24 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 	return New(cfg, startingHeight)
 }
 
+func initSwitchWithTempDB(t testing.TB, startingHeight uint32) (*Switch,
+	error) {
+
+	tempPath := filepath.Join(t.TempDir(), "switchdb")
+	db, err := channeldb.Open(tempPath)
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(func() { db.Close() })
+
+	s, err := initSwitchWithDB(startingHeight, db)
+	if err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
 func newMockServer(t testing.TB, name string, startingHeight uint32,
 	db *channeldb.DB, defaultDelta uint32) (*mockServer, error) {
 
@@ -235,12 +231,24 @@ func newMockServer(t testing.TB, name string, startingHeight uint32,
 
 	pCache := newMockPreimageCache()
 
-	htlcSwitch, err := initSwitchWithDB(startingHeight, db)
+	var (
+		htlcSwitch *Switch
+		err        error
+	)
+	if db == nil {
+		htlcSwitch, err = initSwitchWithTempDB(t, startingHeight)
+	} else {
+		htlcSwitch, err = initSwitchWithDB(startingHeight, db)
+	}
 	if err != nil {
 		return nil, err
 	}
 
+	t.Cleanup(func() { _ = htlcSwitch.Stop() })
+
 	registry := newMockRegistry(defaultDelta)
+
+	t.Cleanup(func() { registry.cleanup() })
 
 	return &mockServer{
 		t:                t,

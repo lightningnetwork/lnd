@@ -17,7 +17,9 @@ import (
 // 3. start a chain backend(btcd, bitcoind, or neutrino).
 // 4. connect the miner and the chain backend.
 // 5. start the HarnessTest.
-func SetupHarness(t *testing.T, binaryPath, dbBackendName string) *HarnessTest {
+func SetupHarness(t *testing.T, binaryPath, dbBackendName string,
+	feeService WebFeeService) *HarnessTest {
+
 	t.Log("Setting up HarnessTest...")
 
 	// Parse testing flags that influence our test execution.
@@ -28,7 +30,7 @@ func SetupHarness(t *testing.T, binaryPath, dbBackendName string) *HarnessTest {
 	dbBackend := prepareDbBackend(t, dbBackendName)
 
 	// Create a new HarnessTest.
-	ht := NewHarnessTest(t, binaryPath, dbBackend)
+	ht := NewHarnessTest(t, binaryPath, feeService, dbBackend)
 
 	// Init the miner.
 	t.Log("Prepare the miner and mine blocks to activate segwit...")

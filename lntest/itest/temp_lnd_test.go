@@ -68,9 +68,14 @@ func TestLightningNetworkDaemonTemp(t *testing.T) {
 	testCases, trancheIndex, trancheOffset := getTestCaseSplitTranche()
 	lntest.ApplyPortOffset(uint32(trancheIndex) * 1000)
 
+	// Create a simple fee service.
+	feeService := lntemp.NewFeeService(t)
+
 	// Get the binary path and setup the harness test.
 	binary := getLndBinary(t)
-	harnessTest := lntemp.SetupHarness(t, binary, *dbBackendFlag)
+	harnessTest := lntemp.SetupHarness(
+		t, binary, *dbBackendFlag, feeService,
+	)
 	defer harnessTest.Stop()
 
 	// Setup standby nodes, Alice and Bob, which will be alive and shared
@@ -105,9 +110,6 @@ func TestLightningNetworkDaemonTemp(t *testing.T) {
 			ht.Alice.AddToLogf(logLine)
 			ht.Bob.AddToLogf(logLine)
 
-			// Start every test with the default static fee
-			// estimate.
-			ht.SetFeeEstimate(12500)
 			ht.EnsureConnected(ht.Alice, ht.Bob)
 
 			ht.RunTestCase(testCase)

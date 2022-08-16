@@ -56,7 +56,7 @@ type HarnessTest struct {
 
 	// feeService is a web service that provides external fee estimates to
 	// lnd.
-	feeService *feeService
+	feeService WebFeeService
 
 	// Channel for transmitting stderr output from failed lightning node
 	// to main process.
@@ -79,7 +79,7 @@ type HarnessTest struct {
 
 // NewHarnessTest creates a new instance of a harnessTest from a regular
 // testing.T instance.
-func NewHarnessTest(t *testing.T, lndBinary string,
+func NewHarnessTest(t *testing.T, lndBinary string, feeService WebFeeService,
 	dbBackend lntest.DatabaseBackend) *HarnessTest {
 
 	// Create the run context.
@@ -87,10 +87,11 @@ func NewHarnessTest(t *testing.T, lndBinary string,
 
 	manager := newNodeManager(lndBinary, dbBackend)
 	return &HarnessTest{
-		T:       t,
-		manager: manager,
-		runCtx:  ctxt,
-		cancel:  cancel,
+		T:          t,
+		manager:    manager,
+		feeService: feeService,
+		runCtx:     ctxt,
+		cancel:     cancel,
 		// We need to use buffered channel here as we don't want to
 		// block sending errors.
 		lndErrorChan: make(chan error, 10),
@@ -118,11 +119,12 @@ func (h *HarnessTest) Start(chain node.BackendConfig, miner *HarnessMiner) {
 	}()
 
 	// Start the fee service.
-	h.feeService = startFeeService(h.T)
+	err := h.feeService.Start()
+	require.NoError(h, err, "failed to start fee service")
 
 	// Assemble the node manager with chainBackend and feeServiceURL.
 	h.manager.chainBackend = chain
-	h.manager.feeServiceURL = h.feeService.url
+	h.manager.feeServiceURL = h.feeService.URL()
 
 	// Assemble the miner.
 	h.Miner = miner
@@ -229,7 +231,8 @@ func (h *HarnessTest) Stop() {
 	close(h.lndErrorChan)
 
 	// Stop the fee service.
-	h.feeService.stop()
+	err := h.feeService.Stop()
+	require.NoError(h, err, "failed to stop fee service")
 
 	// Stop the chainBackend.
 	h.stopChainBackend()
@@ -436,8 +439,13 @@ func (h *HarnessTest) RestartNodeWithExtraArgs(hn *node.HarnessNode,
 }
 
 // SetFeeEstimate sets a fee rate to be returned from fee estimator.
+//
+// NOTE: this method will set the fee rate for a conf target of 1, which is the
+// fallback fee rate for a `WebAPIEstimator` if a higher conf target's fee rate
+// is not set. This means if the fee rate for conf target 6 is set, the fee
+// estimator will use that value instead.
 func (h *HarnessTest) SetFeeEstimate(fee chainfee.SatPerKWeight) {
-	h.feeService.setFee(fee)
+	h.feeService.SetFeeRate(fee, 1)
 }
 
 // validateNodeState checks that the node doesn't have any uncleaned states

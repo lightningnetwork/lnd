@@ -1,7 +1,7 @@
 //go:build dev
 // +build dev
 
-package devrpc
+package dev
 
 import (
 	"github.com/btcsuite/btcd/chaincfg"

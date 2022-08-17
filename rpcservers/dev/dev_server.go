@@ -1,7 +1,7 @@
 //go:build dev
 // +build dev
 
-package devrpc
+package dev
 
 import (
 	"context"
@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -46,7 +47,7 @@ var (
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
 type ServerShell struct {
-	DevServer
+	devrpc.DevServer
 }
 
 // Server is a sub-server of the main RPC server: the dev RPC. This sub
@@ -59,14 +60,14 @@ type Server struct {
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	// Must be after the atomically used variables to not break struct
 	// alignment.
-	UnimplementedDevServer
+	devrpc.UnimplementedDevServer
 
 	cfg *Config
 }
 
 // A compile time check to ensure that Server fully implements the
 // DevServer gRPC service.
-var _ DevServer = (*Server)(nil)
+var _ devrpc.DevServer = (*Server)(nil)
 
 // New returns a new instance of the devrpc Dev sub-server. We also return the
 // set of permissions for the macaroons that we may create within this method.
@@ -122,7 +123,7 @@ func (s *Server) Name() string {
 func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterDevServer(grpcServer, r)
+	devrpc.RegisterDevServer(grpcServer, r)
 
 	log.Debugf("DEV RPC server successfully register with root the " +
 		"gRPC server")
@@ -140,7 +141,7 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 
 	// We make sure that we register it with the main REST server to ensure
 	// all our methods are routed properly.
-	err := RegisterDevHandlerFromEndpoint(ctx, mux, dest, opts)
+	err := devrpc.RegisterDevHandlerFromEndpoint(ctx, mux, dest, opts)
 	if err != nil {
 		log.Errorf("Could not register DEV REST server with the root "+
 			"REST server: %v", err)
@@ -209,7 +210,7 @@ func parsePubKey(pubKeyStr string) ([33]byte, error) {
 //
 // NOTE: Part of the DevServer interface.
 func (s *Server) ImportGraph(ctx context.Context,
-	graph *lnrpc.ChannelGraph) (*ImportGraphResponse, error) {
+	graph *lnrpc.ChannelGraph) (*devrpc.ImportGraphResponse, error) {
 
 	// Obtain the pointer to the global singleton channel graph.
 	graphDB := s.cfg.GraphDB
@@ -338,5 +339,5 @@ func (s *Server) ImportGraph(ctx context.Context,
 		log.Debugf("Added edge: %v", rpcEdge.ChannelId)
 	}
 
-	return &ImportGraphResponse{}, nil
+	return &devrpc.ImportGraphResponse{}, nil
 }

@@ -1,4 +1,4 @@
-package devrpc
+package dev
 
 import (
 	"github.com/btcsuite/btclog"

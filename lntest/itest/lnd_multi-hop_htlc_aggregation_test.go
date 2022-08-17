@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/stretchr/testify/require"
 )
 
@@ -194,7 +195,7 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 		expectedTxes = 2
 	}
 
-	bobFundingTxid, err := lnrpc.GetChanPointFundingTxid(bobChanPoint)
+	bobFundingTxid, err := ln.GetChanPointFundingTxid(bobChanPoint)
 	require.NoError(t.t, err)
 	_, err = waitForNTxsInMempool(
 		net.Miner.Client, expectedTxes, minerMempoolTimeout,

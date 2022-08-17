@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -343,7 +344,7 @@ func wsTestCaseSubscriptionMacaroon(ht *harnessTest,
 	require.NoError(ht.t, err, "marshal admin mac")
 
 	customHeader := make(http.Header)
-	customHeader.Set(lnrpc.HeaderWebSocketProtocol, fmt.Sprintf(
+	customHeader.Set(ln.HeaderWebSocketProtocol, fmt.Sprintf(
 		"Grpc-Metadata-Macaroon+%s", hex.EncodeToString(macBytes),
 	))
 	c, err := openWebSocket(net.Alice, url, "POST", req, customHeader)
@@ -429,7 +430,7 @@ func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
 	require.NoError(ht.t, err, "marshal admin mac")
 
 	customHeader := make(http.Header)
-	customHeader.Set(lnrpc.HeaderWebSocketProtocol, fmt.Sprintf(
+	customHeader.Set(ln.HeaderWebSocketProtocol, fmt.Sprintf(
 		"Grpc-Metadata-Macaroon+%s", hex.EncodeToString(macBytes),
 	))
 	conn, err := openWebSocket(
@@ -567,7 +568,7 @@ func wsTestPingPongTimeout(ht *harnessTest, net *lntest.NetworkHarness) {
 	require.NoError(ht.t, err, "marshal admin mac")
 
 	customHeader := make(http.Header)
-	customHeader.Set(lnrpc.HeaderWebSocketProtocol, fmt.Sprintf(
+	customHeader.Set(ln.HeaderWebSocketProtocol, fmt.Sprintf(
 		"Grpc-Metadata-Macaroon+%s", hex.EncodeToString(macBytes),
 	))
 	conn, err := openWebSocket(

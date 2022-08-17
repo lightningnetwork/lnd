@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lncfg"
-	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
 	"gopkg.in/macaroon.v2"
@@ -220,7 +220,7 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 // loadProfileFile tries to load the file specified and JSON deserialize it into
 // the profile file struct.
 func loadProfileFile(file string) (*profileFile, error) {
-	if !lnrpc.FileExists(file) {
+	if !ln.FileExists(file) {
 		return nil, errNoProfileFile
 	}
 

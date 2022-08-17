@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -70,7 +71,7 @@ func openChannelAndAssert(t *harnessTest, net *lntest.NetworkHarness,
 	fundingChanPoint, err := net.WaitForChannelOpen(chanOpenUpdate)
 	require.NoError(t.t, err, "error while waiting for channel open")
 
-	fundingTxID, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
+	fundingTxID, err := ln.GetChanPointFundingTxid(fundingChanPoint)
 	require.NoError(t.t, err, "unable to get txid")
 
 	assertTxInBlock(t, block, fundingTxID)
@@ -196,7 +197,7 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 	fundingChanPoint *lnrpc.ChannelPoint, anchors bool,
 	closeUpdates lnrpc.Lightning_CloseChannelClient) *chainhash.Hash {
 
-	txid, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
+	txid, err := ln.GetChanPointFundingTxid(fundingChanPoint)
 	require.NoError(t.t, err, "unable to get txid")
 	chanPointStr := fmt.Sprintf("%v:%v", txid, fundingChanPoint.OutputIndex)
 
@@ -316,7 +317,7 @@ func waitForChannelPendingForceClose(node *lntest.HarnessNode,
 	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 
-	txid, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
+	txid, err := ln.GetChanPointFundingTxid(fundingChanPoint)
 	if err != nil {
 		return err
 	}
@@ -612,7 +613,7 @@ func getChannelBalance(t *harnessTest,
 
 // txStr returns the string representation of the channel's funding transaction.
 func txStr(chanPoint *lnrpc.ChannelPoint) string {
-	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+	fundingTxID, err := ln.GetChanPointFundingTxid(chanPoint)
 	if err != nil {
 		return ""
 	}

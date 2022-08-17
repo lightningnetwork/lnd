@@ -36,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/lightningnetwork/lnd/sweep"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -196,7 +197,7 @@ type WalletKit struct {
 var _ walletrpc.WalletKitServer = (*WalletKit)(nil)
 
 // New creates a new instance of the WalletKit sub-RPC server.
-func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
+func New(cfg *Config) (*WalletKit, ln.MacaroonPerms, error) {
 	// If the path of the wallet kit macaroon wasn't specified, then we'll
 	// assume that it's found at the default network directory.
 	if cfg.WalletKitMacPath == "" {
@@ -210,7 +211,7 @@ func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 	// then we don't write the macaroons.
 	macFilePath := cfg.WalletKitMacPath
 	if cfg.MacService != nil && !cfg.MacService.StatelessInit &&
-		!lnrpc.FileExists(macFilePath) {
+		!ln.FileExists(macFilePath) {
 
 		log.Infof("Baking macaroons for WalletKit RPC Server at: %v",
 			macFilePath)
@@ -311,8 +312,8 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 // methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
+func (r *ServerShell) CreateSubServer(configRegistry ln.SubServerConfigDispatcher) (
+	ln.SubServer, ln.MacaroonPerms, error) {
 
 	subServer, macPermissions, err := createNewSubServer(configRegistry)
 	if err != nil {
@@ -356,7 +357,7 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 	}
 
 	// Validate the confirmation arguments.
-	minConfs, maxConfs, err := lnrpc.ParseConfs(req.MinConfs, req.MaxConfs)
+	minConfs, maxConfs, err := ln.ParseConfs(req.MinConfs, req.MaxConfs)
 	if err != nil {
 		return nil, err
 	}
@@ -378,7 +379,7 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 		return nil, err
 	}
 
-	rpcUtxos, err := lnrpc.MarshalUtxos(utxos, w.cfg.ChainParams)
+	rpcUtxos, err := ln.MarshalUtxos(utxos, w.cfg.ChainParams)
 	if err != nil {
 		return nil, err
 	}
@@ -627,7 +628,7 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 
 	// Then, we'll extract the minimum number of confirmations that each
 	// output we use to fund the transaction should satisfy.
-	minConfs, err := lnrpc.ExtractMinConfs(req.MinConfs,
+	minConfs, err := ln.ExtractMinConfs(req.MinConfs,
 		req.SpendUnconfirmed)
 	if err != nil {
 		return nil, err
@@ -965,7 +966,7 @@ func (w *WalletKit) ListSweeps(ctx context.Context,
 	if in.Verbose {
 		return &walletrpc.ListSweepsResponse{
 			Sweeps: &walletrpc.ListSweepsResponse_TransactionDetails{
-				TransactionDetails: lnrpc.RPCTransactionDetails(
+				TransactionDetails: ln.RPCTransactionDetails(
 					txDetails,
 				),
 			},
@@ -1126,7 +1127,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 
 	// Then, we'll extract the minimum number of confirmations that each
 	// output we use to fund the transaction should satisfy.
-	minConfs, err := lnrpc.ExtractMinConfs(
+	minConfs, err := ln.ExtractMinConfs(
 		req.GetMinConfs(), req.GetSpendUnconfirmed(),
 	)
 	if err != nil {

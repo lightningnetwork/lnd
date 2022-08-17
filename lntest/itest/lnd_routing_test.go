@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -116,7 +117,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := ln.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -129,7 +130,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	nodes := []*lntest.HarnessNode{carol, dave}
 	for _, chanPoint := range networkChans {
 		for _, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+			txid, err := ln.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -478,7 +479,7 @@ func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := ln.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -503,7 +504,7 @@ func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
 		},
 	)
 	networkChans = append(networkChans, chanPointBob)
-	bobChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointBob)
+	bobChanTXID, err := ln.GetChanPointFundingTxid(chanPointBob)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -517,7 +518,7 @@ func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
 	nodeNames := []string{"Alice", "Bob", "Carol"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+			txid, err := ln.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -764,7 +765,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := ln.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -787,7 +788,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointDave)
+	daveChanTXID, err := ln.GetChanPointFundingTxid(chanPointDave)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -812,7 +813,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := ln.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -827,7 +828,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+			txid, err := ln.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -866,7 +867,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("error while waiting for channel open: %v", err)
 	}
-	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPointPrivate)
+	fundingTxID, err := ln.GetChanPointFundingTxid(chanPointPrivate)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -1267,7 +1268,7 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 	}
 
 	// Retrieve Alice's funding outpoint.
-	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := ln.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -1306,7 +1307,7 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 	}
 
 	// Retrieve Bob's funding outpoint.
-	bobChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointBob)
+	bobChanTXID, err := ln.GetChanPointFundingTxid(chanPointBob)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -1348,7 +1349,7 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 	}
 
 	// Retrieve Carol's funding point.
-	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := ln.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -1481,7 +1482,7 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+			txid, err := ln.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -1776,7 +1777,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+			txid, err := ln.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}

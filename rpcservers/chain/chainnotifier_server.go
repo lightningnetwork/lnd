@@ -16,9 +16,9 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -103,7 +103,7 @@ type Server struct {
 // this method. If the macaroons we need aren't found in the filepath, then
 // we'll create them on start up. If we're unable to locate, or create the
 // macaroons we need, then we'll return with an error.
-func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
+func New(cfg *Config) (*Server, ln.MacaroonPerms, error) {
 	// If the path of the chain notifier macaroon wasn't generated, then
 	// we'll assume that it's found at the default network directory.
 	if cfg.ChainNotifierMacPath == "" {
@@ -117,7 +117,7 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	// then we don't write the macaroons.
 	macFilePath := cfg.ChainNotifierMacPath
 	if cfg.MacService != nil && !cfg.MacService.StatelessInit &&
-		!lnrpc.FileExists(macFilePath) {
+		!ln.FileExists(macFilePath) {
 
 		log.Infof("Baking macaroons for ChainNotifier RPC Server at: %v",
 			macFilePath)
@@ -152,7 +152,7 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 // Compile-time checks to ensure that Server fully implements the
 // ChainNotifierServer gRPC service and lnrpc.SubServer interface.
 var _ chainrpc.ChainNotifierServer = (*Server)(nil)
-var _ lnrpc.SubServer = (*Server)(nil)
+var _ ln.SubServer = (*Server)(nil)
 
 // Start launches any helper goroutines required for the server to function.
 //
@@ -225,8 +225,8 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 // methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
+func (r *ServerShell) CreateSubServer(configRegistry ln.SubServerConfigDispatcher) (
+	ln.SubServer, ln.MacaroonPerms, error) {
 
 	subServer, macPermissions, err := createNewSubServer(configRegistry)
 	if err != nil {

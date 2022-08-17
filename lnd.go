@@ -33,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/rpcperms"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/walletunlocker"
@@ -268,7 +269,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	rpcServerOpts := interceptorChain.CreateServerOpts()
 	serverOpts = append(serverOpts, rpcServerOpts...)
 	serverOpts = append(
-		serverOpts, grpc.MaxRecvMsgSize(lnrpc.MaxGrpcMsgSize),
+		serverOpts, grpc.MaxRecvMsgSize(ln.MaxGrpcMsgSize),
 	)
 
 	grpcServer := grpc.NewServer(serverOpts...)
@@ -780,7 +781,7 @@ func getTLSConfig(cfg *Config) ([]grpc.ServerOption, []grpc.DialOption,
 	restDialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(restCreds),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(lnrpc.MaxGrpcMsgSize),
+			grpc.MaxCallRecvMsgSize(ln.MaxGrpcMsgSize),
 		),
 	}
 
@@ -1007,9 +1008,9 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer, restDialOpts []grpc.DialO
 	}
 
 	// Wrap the default grpc-gateway handler with the WebSocket handler.
-	restHandler := lnrpc.NewWebSocketProxy(
+	restHandler := ln.NewWebSocketProxy(
 		mux, rpcsLog, cfg.WSPingInterval, cfg.WSPongWait,
-		lnrpc.LndClientStreamingURIs,
+		ln.LndClientStreamingURIs,
 	)
 
 	// Use a WaitGroup so we can be sure the instructions on how to input the
@@ -1046,7 +1047,7 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer, restDialOpts []grpc.DialO
 
 			wg.Done()
 			err := http.Serve(lis, corsHandler)
-			if err != nil && !lnrpc.IsClosedConnError(err) {
+			if err != nil && !ln.IsClosedConnError(err) {
 				rpcsLog.Error(err)
 			}
 		}()

@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/stretchr/testify/require"
 )
 
@@ -498,11 +499,11 @@ out:
 					"expected %v, got %v", blockHeight+1,
 					closedChan.ClosedHeight)
 			}
-			chanPointTxid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+			chanPointTxid, err := ln.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
-			closedChanTxid, err := lnrpc.GetChanPointFundingTxid(
+			closedChanTxid, err := ln.GetChanPointFundingTxid(
 				closedChan.ChanPoint,
 			)
 			if err != nil {

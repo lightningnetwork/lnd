@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -68,7 +69,7 @@ var _ peersrpc.PeersServer = (*Server)(nil)
 // this method. If the macaroons we need aren't found in the filepath, then
 // we'll create them on start up. If we're unable to locate, or create the
 // macaroons we need, then we'll return with an error.
-func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
+func New(cfg *Config) (*Server, ln.MacaroonPerms, error) {
 	server := &Server{
 		cfg: cfg,
 	}
@@ -152,8 +153,8 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 // methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
+func (r *ServerShell) CreateSubServer(configRegistry ln.SubServerConfigDispatcher) (
+	ln.SubServer, ln.MacaroonPerms, error) {
 
 	subServer, macPermissions, err := createNewSubServer(configRegistry)
 	if err != nil {

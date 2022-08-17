@@ -1,4 +1,4 @@
-package lnrpc
+package ln
 
 import (
 	"encoding/hex"
@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -23,19 +24,19 @@ var (
 // CalculateFeeLimit returns the fee limit in millisatoshis. If a percentage
 // based fee limit has been requested, we'll factor in the ratio provided with
 // the amount of the payment.
-func CalculateFeeLimit(feeLimit *FeeLimit,
+func CalculateFeeLimit(feeLimit *lnrpc.FeeLimit,
 	amount lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
 	switch feeLimit.GetLimit().(type) {
-	case *FeeLimit_Fixed:
+	case *lnrpc.FeeLimit_Fixed:
 		return lnwire.NewMSatFromSatoshis(
 			btcutil.Amount(feeLimit.GetFixed()),
 		)
 
-	case *FeeLimit_FixedMsat:
+	case *lnrpc.FeeLimit_FixedMsat:
 		return lnwire.MilliSatoshi(feeLimit.GetFixedMsat())
 
-	case *FeeLimit_Percent:
+	case *lnrpc.FeeLimit_Percent:
 		return amount * lnwire.MilliSatoshi(feeLimit.GetPercent()) / 100
 
 	default:
@@ -80,22 +81,22 @@ func ParseConfs(min, max int32) (int32, int32, error) {
 
 // MarshalUtxos translates a []*lnwallet.Utxo into a []*lnrpc.Utxo.
 func MarshalUtxos(utxos []*lnwallet.Utxo, activeNetParams *chaincfg.Params) (
-	[]*Utxo, error) {
+	[]*lnrpc.Utxo, error) {
 
-	res := make([]*Utxo, 0, len(utxos))
+	res := make([]*lnrpc.Utxo, 0, len(utxos))
 	for _, utxo := range utxos {
 		// Translate lnwallet address type to the proper gRPC proto
 		// address type.
-		var addrType AddressType
+		var addrType lnrpc.AddressType
 		switch utxo.AddressType {
 		case lnwallet.WitnessPubKey:
-			addrType = AddressType_WITNESS_PUBKEY_HASH
+			addrType = lnrpc.AddressType_WITNESS_PUBKEY_HASH
 
 		case lnwallet.NestedWitnessPubKey:
-			addrType = AddressType_NESTED_PUBKEY_HASH
+			addrType = lnrpc.AddressType_NESTED_PUBKEY_HASH
 
 		case lnwallet.TaprootPubkey:
-			addrType = AddressType_TAPROOT_PUBKEY
+			addrType = lnrpc.AddressType_TAPROOT_PUBKEY
 
 		case lnwallet.UnknownAddressType:
 			continue
@@ -106,13 +107,13 @@ func MarshalUtxos(utxos []*lnwallet.Utxo, activeNetParams *chaincfg.Params) (
 
 		// Now that we know we have a proper mapping to an address,
 		// we'll convert the regular outpoint to an lnrpc variant.
-		outpoint := &OutPoint{
+		outpoint := &lnrpc.OutPoint{
 			TxidBytes:   utxo.OutPoint.Hash[:],
 			TxidStr:     utxo.OutPoint.Hash.String(),
 			OutputIndex: utxo.OutPoint.Index,
 		}
 
-		utxoResp := Utxo{
+		utxoResp := lnrpc.Utxo{
 			AddressType:   addrType,
 			AmountSat:     int64(utxo.Value),
 			PkScript:      hex.EncodeToString(utxo.PkScript),
@@ -147,27 +148,27 @@ func MarshalUtxos(utxos []*lnwallet.Utxo, activeNetParams *chaincfg.Params) (
 
 // MarshallOutputType translates a txscript.ScriptClass into a
 // lnrpc.OutputScriptType.
-func MarshallOutputType(o txscript.ScriptClass) OutputScriptType {
+func MarshallOutputType(o txscript.ScriptClass) lnrpc.OutputScriptType {
 	// Translate txscript ScriptClass type to the proper gRPC proto
 	// output script type.
 	switch o {
 	case txscript.ScriptHashTy:
-		return OutputScriptType_SCRIPT_TYPE_SCRIPT_HASH
+		return lnrpc.OutputScriptType_SCRIPT_TYPE_SCRIPT_HASH
 	case txscript.WitnessV0PubKeyHashTy:
-		return OutputScriptType_SCRIPT_TYPE_WITNESS_V0_PUBKEY_HASH
+		return lnrpc.OutputScriptType_SCRIPT_TYPE_WITNESS_V0_PUBKEY_HASH
 	case txscript.WitnessV0ScriptHashTy:
-		return OutputScriptType_SCRIPT_TYPE_WITNESS_V0_SCRIPT_HASH
+		return lnrpc.OutputScriptType_SCRIPT_TYPE_WITNESS_V0_SCRIPT_HASH
 	case txscript.PubKeyTy:
-		return OutputScriptType_SCRIPT_TYPE_PUBKEY
+		return lnrpc.OutputScriptType_SCRIPT_TYPE_PUBKEY
 	case txscript.MultiSigTy:
-		return OutputScriptType_SCRIPT_TYPE_MULTISIG
+		return lnrpc.OutputScriptType_SCRIPT_TYPE_MULTISIG
 	case txscript.NullDataTy:
-		return OutputScriptType_SCRIPT_TYPE_NULLDATA
+		return lnrpc.OutputScriptType_SCRIPT_TYPE_NULLDATA
 	case txscript.NonStandardTy:
-		return OutputScriptType_SCRIPT_TYPE_NON_STANDARD
+		return lnrpc.OutputScriptType_SCRIPT_TYPE_NON_STANDARD
 	case txscript.WitnessUnknownTy:
-		return OutputScriptType_SCRIPT_TYPE_WITNESS_UNKNOWN
+		return lnrpc.OutputScriptType_SCRIPT_TYPE_WITNESS_UNKNOWN
 	default:
-		return OutputScriptType_SCRIPT_TYPE_PUBKEY_HASH
+		return lnrpc.OutputScriptType_SCRIPT_TYPE_PUBKEY_HASH
 	}
 }

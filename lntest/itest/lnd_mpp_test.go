@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 )
 
 // testSendToRouteMultiPath tests that we are able to successfully route a
@@ -322,7 +323,7 @@ func (c *mppTestContext) waitForChannels() {
 	// Wait for all nodes to have seen all channels.
 	for _, chanPoint := range c.networkChans {
 		for _, node := range c.nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+			txid, err := ln.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				c.t.Fatalf("unable to get txid: %v", err)
 			}

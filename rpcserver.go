@@ -68,6 +68,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	invoicesrpc "github.com/lightningnetwork/lnd/rpcservers/invoices"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	routerrpc "github.com/lightningnetwork/lnd/rpcservers/router"
 	"github.com/lightningnetwork/lnd/rpcservers/wallet"
 	"github.com/lightningnetwork/lnd/signal"
@@ -565,7 +566,7 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "write",
 		}},
-		lnrpc.RegisterRPCMiddlewareURI: {{
+		ln.RegisterRPCMiddlewareURI: {{
 			Entity: "macaroon",
 			Action: "write",
 		}},
@@ -604,8 +605,8 @@ type rpcServer struct {
 	// own independent service. This allows us to expose a set of
 	// micro-service like abstractions to the outside world for users to
 	// consume.
-	subServers      []lnrpc.SubServer
-	subGrpcHandlers []lnrpc.GrpcHandler
+	subServers      []ln.SubServer
+	subGrpcHandlers []ln.GrpcHandler
 
 	// routerBackend contains the backend implementation of the router
 	// rpc sub server.
@@ -652,9 +653,9 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 	// We go trhough the list of registered sub-servers, and create a gRPC
 	// handler for each. These are used to register with the gRPC server
 	// before all dependencies are available.
-	registeredSubServers := lnrpc.RegisteredSubServers()
+	registeredSubServers := ln.RegisteredSubServers()
 
-	var subServerHandlers []lnrpc.GrpcHandler
+	var subServerHandlers []ln.GrpcHandler
 	for _, subServer := range registeredSubServers {
 		subServerHandlers = append(
 			subServerHandlers, subServer.NewGrpcHandler(),
@@ -744,8 +745,8 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 	}
 
 	var (
-		subServers     []lnrpc.SubServer
-		subServerPerms []lnrpc.MacaroonPerms
+		subServers     []ln.SubServer
+		subServerPerms []ln.MacaroonPerms
 	)
 
 	// Before we create any of the sub-servers, we need to ensure that all
@@ -1105,7 +1106,7 @@ func (r *rpcServer) ListUnspent(ctx context.Context,
 	in *lnrpc.ListUnspentRequest) (*lnrpc.ListUnspentResponse, error) {
 
 	// Validate the confirmation arguments.
-	minConfs, maxConfs, err := lnrpc.ParseConfs(in.MinConfs, in.MaxConfs)
+	minConfs, maxConfs, err := ln.ParseConfs(in.MinConfs, in.MaxConfs)
 	if err != nil {
 		return nil, err
 	}
@@ -1127,7 +1128,7 @@ func (r *rpcServer) ListUnspent(ctx context.Context,
 		return nil, err
 	}
 
-	rpcUtxos, err := lnrpc.MarshalUtxos(utxos, r.cfg.ActiveNetParams.Params)
+	rpcUtxos, err := ln.MarshalUtxos(utxos, r.cfg.ActiveNetParams.Params)
 	if err != nil {
 		return nil, err
 	}
@@ -1170,7 +1171,7 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 
 	// Then, we'll extract the minimum number of confirmations that each
 	// output we use to fund the transaction should satisfy.
-	minConfs, err := lnrpc.ExtractMinConfs(
+	minConfs, err := ln.ExtractMinConfs(
 		in.GetMinConfs(), in.GetSpendUnconfirmed(),
 	)
 	if err != nil {
@@ -1226,7 +1227,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 
 	// Then, we'll extract the minimum number of confirmations that each
 	// output we use to fund the transaction should satisfy.
-	minConfs, err := lnrpc.ExtractMinConfs(in.MinConfs, in.SpendUnconfirmed)
+	minConfs, err := ln.ExtractMinConfs(in.MinConfs, in.SpendUnconfirmed)
 	if err != nil {
 		return nil, err
 	}
@@ -1439,7 +1440,7 @@ func (r *rpcServer) SendMany(ctx context.Context,
 
 	// Then, we'll extract the minimum number of confirmations that each
 	// output we use to fund the transaction should satisfy.
-	minConfs, err := lnrpc.ExtractMinConfs(in.MinConfs, in.SpendUnconfirmed)
+	minConfs, err := ln.ExtractMinConfs(in.MinConfs, in.SpendUnconfirmed)
 	if err != nil {
 		return nil, err
 	}
@@ -1774,7 +1775,7 @@ func newFundingShimAssembler(chanPointShim *lnrpc.ChanPointShim, initiator bool,
 
 	// First, we'll map the RPC's channel point to one we can actually use.
 	index := chanPointShim.ChanPoint.OutputIndex
-	txid, err := lnrpc.GetChanPointFundingTxid(chanPointShim.ChanPoint)
+	txid, err := ln.GetChanPointFundingTxid(chanPointShim.ChanPoint)
 	if err != nil {
 		return nil, err
 	}
@@ -1950,7 +1951,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// Then, we'll extract the minimum number of confirmations that each
 	// output we use to fund the channel's funding transaction should
 	// satisfy.
-	minConfs, err := lnrpc.ExtractMinConfs(in.MinConfs, in.SpendUnconfirmed)
+	minConfs, err := ln.ExtractMinConfs(in.MinConfs, in.SpendUnconfirmed)
 	if err != nil {
 		return nil, err
 	}
@@ -2172,7 +2173,7 @@ out:
 			update, ok := fundingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanOpen)
 			if ok {
 				chanPoint := update.ChanOpen.ChannelPoint
-				txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+				txid, err := ln.GetChanPointFundingTxid(chanPoint)
 				if err != nil {
 					return err
 				}
@@ -2344,7 +2345,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	force := in.Force
 	index := in.ChannelPoint.OutputIndex
-	txid, err := lnrpc.GetChanPointFundingTxid(in.GetChannelPoint())
+	txid, err := ln.GetChanPointFundingTxid(in.GetChannelPoint())
 	if err != nil {
 		rpcsLog.Errorf("[closechannel] unable to get funding txid: %v", err)
 		return err
@@ -2670,7 +2671,7 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 
 	// We'll parse out the arguments to we can obtain the chanPoint of the
 	// target channel.
-	txid, err := lnrpc.GetChanPointFundingTxid(in.GetChannelPoint())
+	txid, err := ln.GetChanPointFundingTxid(in.GetChannelPoint())
 	if err != nil {
 		return nil, err
 	}
@@ -4795,7 +4796,7 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 		// We override the amount to pay with the amount provided from
 		// the payment request.
 		if payReq.MilliSat == nil {
-			amt, err := lnrpc.UnmarshallAmt(
+			amt, err := ln.UnmarshallAmt(
 				rpcPayReq.Amt, rpcPayReq.AmtMsat,
 			)
 			if err != nil {
@@ -4813,7 +4814,7 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 		}
 
 		// Calculate the fee limit that should be used for this payment.
-		payIntent.feeLimit = lnrpc.CalculateFeeLimit(
+		payIntent.feeLimit = ln.CalculateFeeLimit(
 			rpcPayReq.FeeLimit, payIntent.msat,
 		)
 
@@ -4881,7 +4882,7 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 	// Otherwise, If the payment request field was not specified
 	// (and a custom route wasn't specified), construct the payment
 	// from the other fields.
-	payIntent.msat, err = lnrpc.UnmarshallAmt(
+	payIntent.msat, err = ln.UnmarshallAmt(
 		rpcPayReq.Amt, rpcPayReq.AmtMsat,
 	)
 	if err != nil {
@@ -4889,7 +4890,7 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 	}
 
 	// Calculate the fee limit that should be used for this payment.
-	payIntent.feeLimit = lnrpc.CalculateFeeLimit(
+	payIntent.feeLimit = ln.CalculateFeeLimit(
 		rpcPayReq.FeeLimit, payIntent.msat,
 	)
 
@@ -5345,7 +5346,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		GetAlias: r.server.aliasMgr.GetPeerAlias,
 	}
 
-	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
+	value, err := ln.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
 	if err != nil {
 		return nil, err
 	}
@@ -5559,13 +5560,13 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 	for {
 		select {
 		case tx := <-txClient.ConfirmedTransactions():
-			detail := lnrpc.RPCTransaction(tx)
+			detail := ln.RPCTransaction(tx)
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
 
 		case tx := <-txClient.UnconfirmedTransactions():
-			detail := lnrpc.RPCTransaction(tx)
+			detail := ln.RPCTransaction(tx)
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
@@ -5608,7 +5609,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		return nil, err
 	}
 
-	return lnrpc.RPCTransactionDetails(transactions), nil
+	return ln.RPCTransactionDetails(transactions), nil
 }
 
 // DescribeGraph returns a description of the latest graph state from the PoV
@@ -6603,7 +6604,7 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	// Otherwise, we're targeting an individual channel by its channel
 	// point.
 	case *lnrpc.PolicyUpdateRequest_ChanPoint:
-		txid, err := lnrpc.GetChanPointFundingTxid(scope.ChanPoint)
+		txid, err := ln.GetChanPointFundingTxid(scope.ChanPoint)
 		if err != nil {
 			return nil, err
 		}
@@ -6806,7 +6807,7 @@ func (r *rpcServer) ExportChannelBackup(ctx context.Context,
 
 	// First, we'll convert the lnrpc channel point into a wire.OutPoint
 	// that we can manipulate.
-	txid, err := lnrpc.GetChanPointFundingTxid(in.ChanPoint)
+	txid, err := ln.GetChanPointFundingTxid(in.ChanPoint)
 	if err != nil {
 		return nil, err
 	}

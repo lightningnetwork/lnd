@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/stretchr/testify/require"
 )
 
@@ -442,7 +443,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Compute the outpoint of the channel, which we will use repeatedly to
 	// locate the pending channel information in the rpc responses.
-	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+	txid, err := ln.GetChanPointFundingTxid(chanPoint)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}

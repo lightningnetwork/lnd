@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/lnrpc"
+	lnrpc "github.com/lightningnetwork/lnd/rpcservers/ln"
 )
 
 // createNewSubServer is a helper method that will create the new sub server

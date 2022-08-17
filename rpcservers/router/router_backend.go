@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
@@ -176,13 +177,13 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// Currently, within the bootstrap phase of the network, we limit the
 	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
 	// satoshis.
-	amt, err := lnrpc.UnmarshallAmt(in.Amt, in.AmtMsat)
+	amt, err := ln.UnmarshallAmt(in.Amt, in.AmtMsat)
 	if err != nil {
 		return nil, err
 	}
 
 	// Unmarshall restrictions from request.
-	feeLimit := lnrpc.CalculateFeeLimit(in.FeeLimit, amt)
+	feeLimit := ln.CalculateFeeLimit(in.FeeLimit, amt)
 
 	ignoredNodes := make(map[route.Vertex]struct{})
 	for _, ignorePubKey := range in.IgnoredNodes {
@@ -623,7 +624,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	}
 
 	// Take fee limit from request.
-	payIntent.FeeLimit, err = lnrpc.UnmarshallAmt(
+	payIntent.FeeLimit, err = ln.UnmarshallAmt(
 		rpcPayReq.FeeLimitSat, rpcPayReq.FeeLimitMsat,
 	)
 	if err != nil {
@@ -654,7 +655,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	payIntent.RouteHints = routeHints
 
 	// Unmarshall either sat or msat amount from request.
-	reqAmt, err := lnrpc.UnmarshallAmt(
+	reqAmt, err := ln.UnmarshallAmt(
 		rpcPayReq.Amt, rpcPayReq.AmtMsat,
 	)
 	if err != nil {

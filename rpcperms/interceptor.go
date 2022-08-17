@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -861,7 +862,7 @@ func (r *InterceptorChain) middlewareStreamServerInterceptor() grpc.StreamServer
 		// Don't intercept the interceptor itself which is a streaming
 		// RPC too!
 		fullMethod := info.FullMethod
-		if fullMethod == lnrpc.RegisterRPCMiddlewareURI {
+		if fullMethod == ln.RegisterRPCMiddlewareURI {
 			return handler(srv, ss)
 		}
 

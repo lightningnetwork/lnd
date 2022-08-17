@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/stretchr/testify/require"
 )
 
@@ -558,7 +559,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 			t.Fatalf("error while waiting for channel open: %v", err)
 		}
 
-		fundingTxID, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
+		fundingTxID, err := ln.GetChanPointFundingTxid(fundingChanPoint)
 		if err != nil {
 			t.Fatalf("unable to get txid: %v", err)
 		}
@@ -1353,7 +1354,7 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	chanPoint := openChannelAndAssert(
 		t, net, net.Alice, net.Bob, channelParam,
 	)
-	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+	txid, err := ln.GetChanPointFundingTxid(chanPoint)
 	require.NoError(t.t, err, "alice bob get channel funding txid")
 	chanPointStr := fmt.Sprintf("%v:%v", txid, chanPoint.OutputIndex)
 

@@ -6,15 +6,15 @@ package chain
 import (
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 )
 
 // createNewSubServer is a helper method that will create the new chain notifier
 // sub server given the main config dispatcher method. If we're unable to find
 // the config that is meant for us in the config dispatcher, then we'll exit
 // with an error.
-func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	*Server, lnrpc.MacaroonPerms, error) {
+func createNewSubServer(configRegistry ln.SubServerConfigDispatcher) (*Server,
+	ln.MacaroonPerms, error) {
 
 	// We'll attempt to look up the config that we expect, according to our
 	// subServerName name. If we can't find this, then we'll exit with an
@@ -54,16 +54,16 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 }
 
 func init() {
-	subServer := &lnrpc.SubServerDriver{
+	subServer := &ln.SubServerDriver{
 		SubServerName: subServerName,
-		NewGrpcHandler: func() lnrpc.GrpcHandler {
+		NewGrpcHandler: func() ln.GrpcHandler {
 			return &ServerShell{}
 		},
 	}
 
 	// If the build tag is active, then we'll register ourselves as a
 	// sub-RPC server within the global lnrpc package namespace.
-	if err := lnrpc.RegisterSubServer(subServer); err != nil {
+	if err := ln.RegisterSubServer(subServer); err != nil {
 		panic(fmt.Sprintf("failed to register subserver driver %s: %v",
 			subServerName, err))
 	}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
+	lnrpc "github.com/lightningnetwork/lnd/rpcservers/ln"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
@@ -17,8 +18,6 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-
-	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
 const (

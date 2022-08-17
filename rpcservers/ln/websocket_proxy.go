@@ -1,7 +1,7 @@
 // The code in this file is a heavily modified version of
 // https://github.com/tmc/grpc-websocket-proxy/
 
-package lnrpc
+package ln
 
 import (
 	"bufio"

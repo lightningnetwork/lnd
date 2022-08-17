@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -536,7 +537,7 @@ func (c *interceptorTestContext) waitForChannels() {
 	// Wait for all nodes to have seen all channels.
 	for _, chanPoint := range c.networkChans {
 		for _, node := range c.nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+			txid, err := ln.GetChanPointFundingTxid(chanPoint)
 			require.NoError(c.t.t, err, "unable to get txid")
 
 			point := wire.OutPoint{

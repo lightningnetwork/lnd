@@ -6,7 +6,7 @@ package sign
 import (
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/lnrpc"
+	lnrpc "github.com/lightningnetwork/lnd/rpcservers/ln"
 )
 
 // createNewSubServer is a helper method that will create the new signer sub

@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/stretchr/testify/require"
 )
 
@@ -108,7 +109,7 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 	chanInfo, err := getChanInfo(net.Alice)
 	require.NoError(t.t, err)
 
-	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+	fundingTxID, err := ln.GetChanPointFundingTxid(chanPoint)
 	require.NoError(t.t, err)
 	chanStr := fmt.Sprintf("%v:%v", fundingTxID, chanPoint.OutputIndex)
 	require.Equal(t.t, chanStr, chanInfo.ChannelPoint)

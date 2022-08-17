@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/stretchr/testify/require"
 )
 
@@ -135,7 +136,7 @@ func testZeroConfChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
 	err = waitForZeroConfGraphChange(ctxb, dave, descReq, true)
 	require.NoError(t.t, err)
 
-	fundingTxID, err := lnrpc.GetChanPointFundingTxid(fundingPoint2)
+	fundingTxID, err := ln.GetChanPointFundingTxid(fundingPoint2)
 	require.NoError(t.t, err, "unable to get txid")
 
 	assertTxInBlock(t, block, fundingTxID)
@@ -207,7 +208,7 @@ func testZeroConfChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
 	// that sending is still possible.
 	block = mineBlocks(t, net, 6, 1)[0]
 
-	fundingTxID, err = lnrpc.GetChanPointFundingTxid(fundingPoint3)
+	fundingTxID, err = ln.GetChanPointFundingTxid(fundingPoint3)
 	require.NoError(t.t, err, "unable to get txid")
 
 	assertTxInBlock(t, block, fundingTxID)

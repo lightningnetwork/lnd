@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -166,7 +167,7 @@ var _ routerrpc.RouterServer = (*Server)(nil)
 // we're unable to create it, then an error will be returned. We also return
 // the set of permissions that we require as a server. At the time of writing
 // of this documentation, this is the same macaroon as as the admin macaroon.
-func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
+func New(cfg *Config) (*Server, ln.MacaroonPerms, error) {
 	// If the path of the router macaroon wasn't generated, then we'll
 	// assume that it's found at the default network directory.
 	if cfg.RouterMacPath == "" {
@@ -180,7 +181,7 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	// then we don't write the macaroons.
 	macFilePath := cfg.RouterMacPath
 	if cfg.MacService != nil && !cfg.MacService.StatelessInit &&
-		!lnrpc.FileExists(macFilePath) {
+		!ln.FileExists(macFilePath) {
 
 		log.Infof("Making macaroons for Router RPC Server at: %v",
 			macFilePath)
@@ -290,8 +291,8 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 // methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
+func (r *ServerShell) CreateSubServer(configRegistry ln.SubServerConfigDispatcher) (
+	ln.SubServer, ln.MacaroonPerms, error) {
 
 	subServer, macPermissions, err := createNewSubServer(configRegistry)
 	if err != nil {
@@ -911,7 +912,7 @@ func extractOutPoint(req *routerrpc.UpdateChanStatusRequest) (*wire.OutPoint,
 	error) {
 
 	chanPoint := req.GetChanPoint()
-	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+	txid, err := ln.GetChanPointFundingTxid(chanPoint)
 	if err != nil {
 		return nil, err
 	}

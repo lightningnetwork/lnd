@@ -1,4 +1,4 @@
-package lnrpc
+package ln
 
 import "regexp"
 

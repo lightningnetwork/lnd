@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,7 +40,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := ln.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -69,7 +70,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointDave)
+	daveChanTXID, err := ln.GetChanPointFundingTxid(chanPointDave)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -96,7 +97,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := ln.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -110,7 +111,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+			txid, err := ln.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -313,7 +314,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := ln.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -343,7 +344,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointDave)
+	daveChanTXID, err := ln.GetChanPointFundingTxid(chanPointDave)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -370,7 +371,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := ln.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -384,7 +385,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+			txid, err := ln.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -631,7 +632,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := ln.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -662,7 +663,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	)
 
 	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointDave)
+	daveChanTXID, err := ln.GetChanPointFundingTxid(chanPointDave)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -689,7 +690,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := ln.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -703,7 +704,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+			txid, err := ln.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -918,7 +919,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := ln.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -948,7 +949,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 		},
 	)
 	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointDave)
+	daveChanTXID, err := ln.GetChanPointFundingTxid(chanPointDave)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -973,7 +974,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := ln.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -987,7 +988,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+			txid, err := ln.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}

@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/stretchr/testify/require"
 )
@@ -526,7 +527,7 @@ func testAnchorThirdPartySpend(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Get the normal channel outpoint so we can track it in the set of
 	// channels that are waiting to be closed.
-	fundingTxID, err := lnrpc.GetChanPointFundingTxid(aliceChanPoint1)
+	fundingTxID, err := ln.GetChanPointFundingTxid(aliceChanPoint1)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}

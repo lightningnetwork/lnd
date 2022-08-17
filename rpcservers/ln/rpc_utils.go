@@ -1,4 +1,4 @@
-package lnrpc
+package ln
 
 import (
 	"encoding/hex"
@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -17,10 +18,10 @@ const (
 )
 
 // RPCTransaction returns a rpc transaction.
-func RPCTransaction(tx *lnwallet.TransactionDetail) *Transaction {
+func RPCTransaction(tx *lnwallet.TransactionDetail) *lnrpc.Transaction {
 	var destAddresses []string
 	// Re-package destination output information.
-	var outputDetails []*OutputDetail
+	var outputDetails []*lnrpc.OutputDetail
 	for _, o := range tx.OutputDetails {
 		// Note: DestAddresses is deprecated but we keep
 		// populating it with addresses for backwards
@@ -35,7 +36,7 @@ func RPCTransaction(tx *lnwallet.TransactionDetail) *Transaction {
 			address = o.Addresses[0].EncodeAddress()
 		}
 
-		outputDetails = append(outputDetails, &OutputDetail{
+		outputDetails = append(outputDetails, &lnrpc.OutputDetail{
 			OutputType:   MarshallOutputType(o.OutputType),
 			Address:      address,
 			PkScript:     hex.EncodeToString(o.PkScript),
@@ -45,9 +46,9 @@ func RPCTransaction(tx *lnwallet.TransactionDetail) *Transaction {
 		})
 	}
 
-	previousOutpoints := make([]*PreviousOutPoint, len(tx.PreviousOutpoints))
+	previousOutpoints := make([]*lnrpc.PreviousOutPoint, len(tx.PreviousOutpoints))
 	for idx, previousOutPoint := range tx.PreviousOutpoints {
-		previousOutpoints[idx] = &PreviousOutPoint{
+		previousOutpoints[idx] = &lnrpc.PreviousOutPoint{
 			Outpoint:    previousOutPoint.OutPoint,
 			IsOurOutput: previousOutPoint.IsOurOutput,
 		}
@@ -59,7 +60,7 @@ func RPCTransaction(tx *lnwallet.TransactionDetail) *Transaction {
 		blockHash = tx.BlockHash.String()
 	}
 
-	return &Transaction{
+	return &lnrpc.Transaction{
 		TxHash:            tx.Hash.String(),
 		Amount:            int64(tx.Value),
 		NumConfirmations:  tx.NumConfirmations,
@@ -76,9 +77,9 @@ func RPCTransaction(tx *lnwallet.TransactionDetail) *Transaction {
 }
 
 // RPCTransactionDetails returns a set of rpc transaction details.
-func RPCTransactionDetails(txns []*lnwallet.TransactionDetail) *TransactionDetails {
-	txDetails := &TransactionDetails{
-		Transactions: make([]*Transaction, len(txns)),
+func RPCTransactionDetails(txns []*lnwallet.TransactionDetail) *lnrpc.TransactionDetails {
+	txDetails := &lnrpc.TransactionDetails{
+		Transactions: make([]*lnrpc.Transaction, len(txns)),
 	}
 
 	for i, tx := range txns {
@@ -135,15 +136,17 @@ func ExtractMinConfs(minConfs int32, spendUnconfirmed bool) (int32, error) {
 
 // GetChanPointFundingTxid returns the given channel point's funding txid in
 // raw bytes.
-func GetChanPointFundingTxid(chanPoint *ChannelPoint) (*chainhash.Hash, error) {
+func GetChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) (*chainhash.Hash,
+	error) {
+
 	var txid []byte
 
 	// A channel point's funding txid can be get/set as a byte slice or a
 	// string. In the case it is a string, decode it.
 	switch chanPoint.GetFundingTxid().(type) {
-	case *ChannelPoint_FundingTxidBytes:
+	case *lnrpc.ChannelPoint_FundingTxidBytes:
 		txid = chanPoint.GetFundingTxidBytes()
-	case *ChannelPoint_FundingTxidStr:
+	case *lnrpc.ChannelPoint_FundingTxidStr:
 		s := chanPoint.GetFundingTxidStr()
 		h, err := chainhash.NewHashFromStr(s)
 		if err != nil {

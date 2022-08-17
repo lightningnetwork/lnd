@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 )
 
 const (
@@ -123,7 +124,7 @@ func GenerateBtcdListenerAddresses() (string, string) {
 
 // MakeOutpoint returns the outpoint of the channel's funding transaction.
 func MakeOutpoint(chanPoint *lnrpc.ChannelPoint) (wire.OutPoint, error) {
-	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+	fundingTxID, err := ln.GetChanPointFundingTxid(chanPoint)
 	if err != nil {
 		return wire.OutPoint{}, err
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -102,7 +103,7 @@ var _ invoicesrpc.InvoicesServer = (*Server)(nil)
 // this method. If the macaroons we need aren't found in the filepath, then
 // we'll create them on start up. If we're unable to locate, or create the
 // macaroons we need, then we'll return with an error.
-func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
+func New(cfg *Config) (*Server, ln.MacaroonPerms, error) {
 	// If the path of the invoices macaroon wasn't specified, then we'll
 	// assume that it's found at the default network directory.
 	macFilePath := filepath.Join(
@@ -113,7 +114,7 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	// check to see if we need to create it or not. If stateless_init is set
 	// then we don't write the macaroons.
 	if cfg.MacService != nil && !cfg.MacService.StatelessInit &&
-		!lnrpc.FileExists(macFilePath) {
+		!ln.FileExists(macFilePath) {
 
 		log.Infof("Baking macaroons for invoices RPC Server at: %v",
 			macFilePath)
@@ -216,8 +217,8 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 // methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
+func (r *ServerShell) CreateSubServer(configRegistry ln.SubServerConfigDispatcher) (
+	ln.SubServer, ln.MacaroonPerms, error) {
 
 	subServer, macPermissions, err := createNewSubServer(configRegistry)
 	if err != nil {
@@ -342,7 +343,7 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
+	value, err := ln.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
 	if err != nil {
 		return nil, err
 	}

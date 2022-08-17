@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/urfave/cli"
 	"golang.org/x/term"
@@ -42,7 +43,7 @@ var (
 
 	// maxMsgRecvSize is the largest message our client will receive. We
 	// set this to 200MiB atm.
-	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(lnrpc.MaxGrpcMsgSize)
+	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(ln.MaxGrpcMsgSize)
 )
 
 func fatal(err error) {

@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/rpcservers/ln"
 	"github.com/stretchr/testify/require"
 )
 
@@ -714,7 +715,7 @@ func testUpdateChannelPolicyForPrivateChannel(net *lntest.NetworkHarness,
 	defer closeChannelAndAssert(t, net, net.Alice, chanPointAliceBob, false)
 
 	// Get Alice's funding point.
-	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAliceBob)
+	aliceChanTXID, err := ln.GetChanPointFundingTxid(chanPointAliceBob)
 	require.NoError(t.t, err, "unable to get txid")
 	aliceFundPoint := wire.OutPoint{
 		Hash:  *aliceChanTXID,
@@ -739,7 +740,7 @@ func testUpdateChannelPolicyForPrivateChannel(net *lntest.NetworkHarness,
 	defer closeChannelAndAssert(t, net, net.Bob, chanPointBobCarol, false)
 
 	// Get Bob's funding point.
-	bobChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointBobCarol)
+	bobChanTXID, err := ln.GetChanPointFundingTxid(chanPointBobCarol)
 	require.NoError(t.t, err, "unable to get txid")
 	bobFundPoint := wire.OutPoint{
 		Hash:  *bobChanTXID,

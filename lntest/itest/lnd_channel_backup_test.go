@@ -25,25 +25,223 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type (
+	// nodeRestorer is a function closure that allows each test case to
+	// control exactly *how* the prior node is restored. This might be
+	// using an backup obtained over RPC, or the file system, etc.
+	nodeRestorer func() *node.HarnessNode
+
+	// restoreMethod takes an old node, then returns a function closure
+	// that'll return the same node, but with its state restored via a
+	// custom method. We use this to abstract away _how_ a node is restored
+	// from our assertions once the node has been fully restored itself.
+	restoreMethodType func(ht *lntemp.HarnessTest,
+		oldNode *node.HarnessNode, backupFilePath string,
+		password []byte, mnemonic []string) nodeRestorer
+)
+
+// chanRestoreScenario represents a test case used by testing the channel
+// restore methods.
+type chanRestoreScenario struct {
+	carol    *node.HarnessNode
+	dave     *node.HarnessNode
+	password []byte
+	mnemonic []string
+	params   lntemp.OpenChannelParams
+}
+
+// newChanRestoreScenario creates a new scenario that has two nodes, Carol and
+// Dave, connected and funded.
+func newChanRestoreScenario(ht *lntemp.HarnessTest, ct lnrpc.CommitmentType,
+	zeroConf bool) *chanRestoreScenario {
+
+	const (
+		chanAmt = btcutil.Amount(10000000)
+		pushAmt = btcutil.Amount(5000000)
+	)
+
+	password := []byte("El Psy Kongroo")
+	nodeArgs := []string{
+		"--minbackoff=50ms",
+		"--maxbackoff=1s",
+	}
+
+	if ct != lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE {
+		args := nodeArgsForCommitType(ct)
+		nodeArgs = append(nodeArgs, args...)
+	}
+
+	if zeroConf {
+		nodeArgs = append(
+			nodeArgs, "--protocol.option-scid-alias",
+			"--protocol.zero-conf",
+		)
+	}
+
+	// First, we'll create a brand new node we'll use within the test. If
+	// we have a custom backup file specified, then we'll also create that
+	// for use.
+	dave, mnemonic, _ := ht.NewNodeWithSeed(
+		"dave", nodeArgs, password, false,
+	)
+	carol := ht.NewNode("carol", nodeArgs)
+
+	// Now that our new nodes are created, we'll give them some coins for
+	// channel opening and anchor sweeping.
+	ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, carol)
+	ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, dave)
+
+	// Mine a block to confirm the funds.
+	ht.MineBlocksAssertNodesSync(1)
+
+	// For the anchor output case we need two UTXOs for Carol so she can
+	// sweep both the local and remote anchor.
+	if commitTypeHasAnchors(ct) {
+		ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+	}
+
+	// Next, we'll connect Dave to Carol, and open a new channel to her
+	// with a portion pushed.
+	ht.ConnectNodes(dave, carol)
+
+	return &chanRestoreScenario{
+		carol:    carol,
+		dave:     dave,
+		mnemonic: mnemonic,
+		password: password,
+		params: lntemp.OpenChannelParams{
+			Amt:            chanAmt,
+			PushAmt:        pushAmt,
+			ZeroConf:       zeroConf,
+			CommitmentType: ct,
+		},
+	}
+}
+
+// restoreDave will call the `nodeRestorer` and asserts Dave is restored by
+// checking his wallet balance against zero.
+func (c *chanRestoreScenario) restoreDave(ht *lntemp.HarnessTest,
+	restoredNodeFunc nodeRestorer) *node.HarnessNode {
+
+	// Next, we'll make a new Dave and start the bulk of our recovery
+	// workflow.
+	dave := restoredNodeFunc()
+
+	// First ensure that the on-chain balance is restored.
+	err := wait.NoError(func() error {
+		daveBalResp := dave.RPC.WalletBalance()
+		daveBal := daveBalResp.ConfirmedBalance
+		if daveBal <= 0 {
+			return fmt.Errorf("expected positive balance, had %v",
+				daveBal)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(ht, err, "On-chain balance not restored")
+
+	return dave
+}
+
+// testScenario runs a test case with a given setup and asserts the DLP is
+// executed as expected, in details, it will,
+//  1. shutdown Dave.
+//  2. suspend Carol.
+//  3. restore Dave.
+//  4. validate pending channel state and check we cannot force close it.
+//  5. validate Carol's UTXOs.
+//  6. assert DLP is executed.
+func (c *chanRestoreScenario) testScenario(ht *lntemp.HarnessTest,
+	restoredNodeFunc nodeRestorer) {
+
+	carol, dave := c.carol, c.dave
+
+	// Before we start the recovery, we'll record the balances of both
+	// Carol and Dave to ensure they both sweep their coins at the end.
+	carolBalResp := carol.RPC.WalletBalance()
+	carolStartingBalance := carolBalResp.ConfirmedBalance
+
+	daveBalance := dave.RPC.WalletBalance()
+	daveStartingBalance := daveBalance.ConfirmedBalance
+
+	// Now that we're able to make our restored now, we'll shutdown the old
+	// Dave node as we'll be storing it shortly below.
+	ht.Shutdown(dave)
+
+	// To make sure the channel state is advanced correctly if the channel
+	// peer is not online at first, we also shutdown Carol.
+	restartCarol := ht.SuspendNode(carol)
+
+	// We now restore Dave.
+	dave = c.restoreDave(ht, restoredNodeFunc)
+
+	// We now check that the restored channel is in the proper state. It
+	// should not yet be force closing as no connection with the remote
+	// peer was established yet. We should also not be able to close the
+	// channel.
+	channel := ht.AssertNumWaitingClose(dave, 1)[0]
+	chanPointStr := channel.Channel.ChannelPoint
+
+	// We also want to make sure we cannot force close in this state. That
+	// would get the state machine in a weird state.
+	chanPointParts := strings.Split(chanPointStr, ":")
+	chanPointIndex, _ := strconv.ParseUint(chanPointParts[1], 10, 32)
+
+	// We don't get an error directly but only when reading the first
+	// message of the stream.
+	err := ht.CloseChannelAssertErr(
+		dave, &lnrpc.ChannelPoint{
+			FundingTxid: &lnrpc.ChannelPoint_FundingTxidStr{
+				FundingTxidStr: chanPointParts[0],
+			},
+			OutputIndex: uint32(chanPointIndex),
+		}, true,
+	)
+	require.Contains(ht, err.Error(), "cannot close channel with state: ")
+	require.Contains(ht, err.Error(), "ChanStatusRestored")
+
+	// Increase the fee estimate so that the following force close tx will
+	// be cpfp'ed in case of anchor commitments.
+	ht.SetFeeEstimate(30000)
+
+	// Now that we have ensured that the channels restored by the backup
+	// are in the correct state even without the remote peer telling us so,
+	// let's start up Carol again.
+	require.NoError(ht, restartCarol(), "restart carol failed")
+
+	if commitTypeHasAnchors(c.params.CommitmentType) {
+		ht.AssertNumUTXOs(carol, 2)
+	} else {
+		ht.AssertNumUTXOs(carol, 1)
+	}
+
+	// Now we'll assert that both sides properly execute the DLP protocol.
+	// We grab their balances now to ensure that they're made whole at the
+	// end of the protocol.
+	assertDLPExecuted(
+		ht, carol, carolStartingBalance, dave,
+		daveStartingBalance, c.params.CommitmentType,
+	)
+}
+
 // testChannelBackupRestore tests that we're able to recover from, and initiate
 // the DLP protocol via: the RPC restore command, restoring on unlock, and
 // restoring from initial wallet creation. We'll also alternate between
 // restoring form the on disk file, and restoring from the exported RPC command
 // as well.
-func testChannelBackupRestore(ht *lntemp.HarnessTest) {
-	password := []byte("El Psy Kongroo")
-
-	var testCases = []chanRestoreTestCase{
+func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
+	var testCases = []struct {
+		name          string
+		restoreMethod restoreMethodType
+	}{
 		// Restore from backups obtained via the RPC interface. Dave
 		// was the initiator, of the non-advertised channel.
 		{
-			name:            "restore from RPC backup",
-			channelsUpdated: false,
-			initiator:       true,
-			private:         false,
+			name: "restore from RPC backup",
 			restoreMethod: func(st *lntemp.HarnessTest,
 				oldNode *node.HarnessNode,
 				backupFilePath string,
+				password []byte,
 				mnemonic []string) nodeRestorer {
 
 				// For this restoration method, we'll grab the
@@ -67,12 +265,11 @@ func testChannelBackupRestore(ht *lntemp.HarnessTest) {
 		// Restore the backup from the on-disk file, using the RPC
 		// interface.
 		{
-			name:      "restore from backup file",
-			initiator: true,
-			private:   false,
+			name: "restore from backup file",
 			restoreMethod: func(st *lntemp.HarnessTest,
 				oldNode *node.HarnessNode,
 				backupFilePath string,
+				password []byte,
 				mnemonic []string) nodeRestorer {
 
 				// Read the entire Multi backup stored within
@@ -92,12 +289,11 @@ func testChannelBackupRestore(ht *lntemp.HarnessTest) {
 		// Restore the backup as part of node initialization with the
 		// prior mnemonic and new backup seed.
 		{
-			name:      "restore during creation",
-			initiator: true,
-			private:   false,
+			name: "restore during creation",
 			restoreMethod: func(st *lntemp.HarnessTest,
 				oldNode *node.HarnessNode,
 				backupFilePath string,
+				password []byte,
 				mnemonic []string) nodeRestorer {
 
 				// First, fetch the current backup state as is,
@@ -124,12 +320,11 @@ func testChannelBackupRestore(ht *lntemp.HarnessTest) {
 		// Restore the backup once the node has already been
 		// re-created, using the Unlock call.
 		{
-			name:      "restore during unlock",
-			initiator: true,
-			private:   false,
+			name: "restore during unlock",
 			restoreMethod: func(st *lntemp.HarnessTest,
 				oldNode *node.HarnessNode,
 				backupFilePath string,
+				password []byte,
 				mnemonic []string) nodeRestorer {
 
 				// First, fetch the current backup state as is,
@@ -161,12 +356,11 @@ func testChannelBackupRestore(ht *lntemp.HarnessTest) {
 		// Restore the backup from the on-disk file a second time to
 		// make sure imports can be canceled and later resumed.
 		{
-			name:      "restore from backup file twice",
-			initiator: true,
-			private:   false,
+			name: "restore from backup file twice",
 			restoreMethod: func(st *lntemp.HarnessTest,
 				oldNode *node.HarnessNode,
 				backupFilePath string,
+				password []byte,
 				mnemonic []string) nodeRestorer {
 
 				// Read the entire Multi backup stored within
@@ -202,110 +396,146 @@ func testChannelBackupRestore(ht *lntemp.HarnessTest) {
 				}
 			},
 		},
+	}
 
-		// Use the channel backup file that contains an unconfirmed
-		// channel and make sure recovery works as well.
-		{
-			name:            "restore unconfirmed channel file",
-			channelsUpdated: false,
-			initiator:       true,
-			private:         false,
-			unconfirmed:     true,
-			restoreMethod: func(st *lntemp.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				mnemonic []string) nodeRestorer {
+	for _, testCase := range testCases {
+		tc := testCase
+		success := ht.Run(tc.name, func(t *testing.T) {
+			h, cleanup := ht.Subtest(t)
+			defer cleanup()
 
-				// Read the entire Multi backup stored within
-				// this node's channel.backup file.
-				multi, err := ioutil.ReadFile(backupFilePath)
-				require.NoError(st, err)
+			runChanRestoreScenarioBasic(h, tc.restoreMethod)
+		})
+		if !success {
+			break
+		}
+	}
+}
 
-				// Let's assume time passes, the channel
-				// confirms in the meantime but for some reason
-				// the backup we made while it was still
-				// unconfirmed is the only backup we have. We
-				// should still be able to restore it. To
-				// simulate time passing, we mine some blocks
-				// to get the channel confirmed _after_ we saved
-				// the backup.
-				st.Miner.MineBlocksAndAssertNumTxes(6, 1)
+// runChanRestoreScenarioBasic executes a given test case from end to end,
+// ensuring that after Dave restores his channel state according to the
+// testCase, the DLP protocol is executed properly and both nodes are made
+// whole.
+func runChanRestoreScenarioBasic(ht *lntemp.HarnessTest,
+	restoreMethod restoreMethodType) {
 
-				// In our nodeRestorer function, we'll restore
-				// the node from seed, then manually recover
-				// the channel backup.
-				return chanRestoreViaRPC(
-					st, password, mnemonic, multi, oldNode,
-				)
-			},
-		},
+	// Create a new retore scenario.
+	crs := newChanRestoreScenario(
+		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
+	)
+	carol, dave := crs.carol, crs.dave
 
-		// Create a backup using RPC that contains an unconfirmed
-		// channel and make sure recovery works as well.
-		{
-			name:            "restore unconfirmed channel RPC",
-			channelsUpdated: false,
-			initiator:       true,
-			private:         false,
-			unconfirmed:     true,
-			restoreMethod: func(st *lntemp.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				mnemonic []string) nodeRestorer {
+	// Open a channel from Dave to Carol.
+	ht.OpenChannel(dave, carol, crs.params)
 
-				// For this restoration method, we'll grab the
-				// current multi-channel backup from the old
-				// node. The channel should be included, even if
-				// it is not confirmed yet.
-				chanBackup := oldNode.RPC.ExportAllChanBackups()
-				chanPoints := chanBackup.MultiChanBackup.ChanPoints
-				require.NotEmpty(st, chanPoints,
-					"unconfirmed channel not found")
+	// At this point, we'll now execute the restore method to give us the
+	// new node we should attempt our assertions against.
+	backupFilePath := dave.Cfg.ChanBackupPath()
+	restoredNodeFunc := restoreMethod(
+		ht, dave, backupFilePath, crs.password, crs.mnemonic,
+	)
 
-				// Let's assume time passes, the channel
-				// confirms in the meantime but for some reason
-				// the backup we made while it was still
-				// unconfirmed is the only backup we have. We
-				// should still be able to restore it. To
-				// simulate time passing, we mine some blocks
-				// to get the channel confirmed _after_ we saved
-				// the backup.
-				st.Miner.MineBlocksAndAssertNumTxes(6, 1)
+	// Test the scenario.
+	crs.testScenario(ht, restoredNodeFunc)
+}
 
-				// In our nodeRestorer function, we'll restore
-				// the node from seed, then manually recover
-				// the channel backup.
-				multi := chanBackup.MultiChanBackup.MultiChanBackup
-				return chanRestoreViaRPC(
-					st, password, mnemonic, multi, oldNode,
-				)
-			},
-		},
+// testChannelBackupRestoreUnconfirmed tests that we're able to restore from
+// disk file and the exported RPC command for unconfirmed channel.
+func testChannelBackupRestoreUnconfirmed(ht *lntemp.HarnessTest) {
+	// Use the channel backup file that contains an unconfirmed channel and
+	// make sure recovery works as well.
+	ht.Run("restore unconfirmed channel file", func(t *testing.T) {
+		st, cleanup := ht.Subtest(t)
+		runChanRestoreScenarioUnConfirmed(st, true)
+		cleanup()
+	})
 
+	// Create a backup using RPC that contains an unconfirmed channel and
+	// make sure recovery works as well.
+	ht.Run("restore unconfirmed channel RPC", func(t *testing.T) {
+		st, cleanup := ht.Subtest(t)
+		runChanRestoreScenarioUnConfirmed(st, false)
+		cleanup()
+	})
+}
+
+// runChanRestoreScenarioUnConfirmed checks that Dave is able to restore for an
+// unconfirmed channel.
+func runChanRestoreScenarioUnConfirmed(ht *lntemp.HarnessTest, useFile bool) {
+	// Create a new retore scenario.
+	crs := newChanRestoreScenario(
+		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
+	)
+	carol, dave := crs.carol, crs.dave
+
+	// Open a pending channel.
+	ht.OpenChannelAssertPending(dave, carol, crs.params)
+
+	// Give the pubsub some time to update the channel backup.
+	err := wait.NoError(func() error {
+		fi, err := os.Stat(dave.Cfg.ChanBackupPath())
+		if err != nil {
+			return err
+		}
+		if fi.Size() <= chanbackup.NilMultiSizePacked {
+			return fmt.Errorf("backup file empty")
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(ht, err, "channel backup not updated in time")
+
+	// At this point, we'll now execute the restore method to give us the
+	// new node we should attempt our assertions against.
+	var multi []byte
+	if useFile {
+		backupFilePath := dave.Cfg.ChanBackupPath()
+		// Read the entire Multi backup stored within this node's
+		// channel.backup file.
+		multi, err = ioutil.ReadFile(backupFilePath)
+		require.NoError(ht, err)
+	} else {
+		// For this restoration method, we'll grab the current
+		// multi-channel backup from the old node. The channel should
+		// be included, even if it is not confirmed yet.
+		chanBackup := dave.RPC.ExportAllChanBackups()
+		chanPoints := chanBackup.MultiChanBackup.ChanPoints
+		require.NotEmpty(ht, chanPoints,
+			"unconfirmed channel not found")
+		multi = chanBackup.MultiChanBackup.MultiChanBackup
+	}
+
+	// Let's assume time passes, the channel confirms in the meantime but
+	// for some reason the backup we made while it was still unconfirmed is
+	// the only backup we have. We should still be able to restore it. To
+	// simulate time passing, we mine some blocks to get the channel
+	// confirmed _after_ we saved the backup.
+	ht.Miner.MineBlocksAndAssertNumTxes(6, 1)
+
+	// In our nodeRestorer function, we'll restore the node from seed, then
+	// manually recover the channel backup.
+	restoredNodeFunc := chanRestoreViaRPC(
+		ht, crs.password, crs.mnemonic, multi, dave,
+	)
+
+	// Test the scenario.
+	crs.testScenario(ht, restoredNodeFunc)
+}
+
+// testChannelBackupRestoreCommitTypes tests that we're able to recover from,
+// and initiate the DLP protocol for different channel commitment types and
+// zero-conf channel.
+func testChannelBackupRestoreCommitTypes(ht *lntemp.HarnessTest) {
+	var testCases = []struct {
+		name     string
+		ct       lnrpc.CommitmentType
+		zeroConf bool
+	}{
 		// Restore the backup from the on-disk file, using the RPC
 		// interface, for anchor commitment channels.
 		{
-			name:           "restore from backup file anchors",
-			initiator:      true,
-			private:        false,
-			commitmentType: lnrpc.CommitmentType_ANCHORS,
-			restoreMethod: func(st *lntemp.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				mnemonic []string) nodeRestorer {
-
-				// Read the entire Multi backup stored within
-				// this node's channels.backup file.
-				multi, err := ioutil.ReadFile(backupFilePath)
-				require.NoError(st, err)
-
-				// Now that we have Dave's backup file, we'll
-				// create a new nodeRestorer that will restore
-				// using the on-disk channels.backup.
-				return chanRestoreViaRPC(
-					st, password, mnemonic, multi, oldNode,
-				)
-			},
+			name: "restore from backup file anchors",
+			ct:   lnrpc.CommitmentType_ANCHORS,
 		},
 
 		// Restore the backup from the on-disk file, using the RPC
@@ -313,81 +543,7 @@ func testChannelBackupRestore(ht *lntemp.HarnessTest) {
 		{
 			name: "restore from backup file script " +
 				"enforced lease",
-			initiator:      true,
-			private:        false,
-			commitmentType: lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
-			restoreMethod: func(st *lntemp.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				mnemonic []string) nodeRestorer {
-
-				// Read the entire Multi backup stored within
-				// this node's channel.backup file.
-				multi, err := ioutil.ReadFile(backupFilePath)
-				require.NoError(st, err)
-
-				// Now that we have Dave's backup file, we'll
-				// create a new nodeRestorer that will restore
-				// using the on-disk channel.backup.
-				return chanRestoreViaRPC(
-					st, password, mnemonic, multi, oldNode,
-				)
-			},
-		},
-
-		// Restore by also creating a channel with the legacy revocation
-		// producer format to make sure old SCBs can still be recovered.
-		{
-			name:             "old revocation producer format",
-			initiator:        true,
-			legacyRevocation: true,
-			restoreMethod: func(st *lntemp.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				mnemonic []string) nodeRestorer {
-
-				// For this restoration method, we'll grab the
-				// current multi-channel backup from the old
-				// node, and use it to restore a new node
-				// within the closure.
-				chanBackup := oldNode.RPC.ExportAllChanBackups()
-				multi := chanBackup.MultiChanBackup.MultiChanBackup
-
-				// In our nodeRestorer function, we'll restore
-				// the node from seed, then manually recover the
-				// channel backup.
-				return chanRestoreViaRPC(
-					st, password, mnemonic, multi, oldNode,
-				)
-			},
-		},
-
-		// Restore a channel that was force closed by dave just before
-		// going offline.
-		{
-			name: "restore force closed from backup file " +
-				"anchors",
-			initiator:       true,
-			private:         false,
-			commitmentType:  lnrpc.CommitmentType_ANCHORS,
-			localForceClose: true,
-			restoreMethod: func(st *lntemp.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				mnemonic []string) nodeRestorer {
-
-				// Read the entire Multi backup stored within
-				// this node's channel.backup file.
-				multi, err := ioutil.ReadFile(backupFilePath)
-				require.NoError(st, err)
-
-				// Now that we have Dave's backup file, we'll
-				// create a new nodeRestorer that will restore
-				// using the on-disk channel.backup.
-				return chanRestoreViaRPC(
-					st, password, mnemonic, multi, oldNode,
-				)
-			},
+			ct: lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
 		},
 
 		// Restore the backup from the on-disk file, using the RPC
@@ -395,27 +551,8 @@ func testChannelBackupRestore(ht *lntemp.HarnessTest) {
 		{
 			name: "restore from backup file for zero-conf " +
 				"anchors channel",
-			initiator:      true,
-			private:        false,
-			commitmentType: lnrpc.CommitmentType_ANCHORS,
-			zeroConf:       true,
-			restoreMethod: func(st *lntemp.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				mnemonic []string) nodeRestorer {
-
-				// Read the entire Multi backup stored within
-				// this node's channels.backup file.
-				multi, err := ioutil.ReadFile(backupFilePath)
-				require.NoError(st, err)
-
-				// Now that we have Dave's backup file, we'll
-				// create a new nodeRestorer that we'll restore
-				// using the on-disk channels.backup.
-				return chanRestoreViaRPC(
-					st, password, mnemonic, multi, oldNode,
-				)
-			},
+			ct:       lnrpc.CommitmentType_ANCHORS,
+			zeroConf: true,
 		},
 
 		// Restore the backup from the on-disk file, using the RPC
@@ -423,76 +560,229 @@ func testChannelBackupRestore(ht *lntemp.HarnessTest) {
 		{
 			name: "restore from backup file zero-conf " +
 				"script-enforced leased channel",
-			initiator:      true,
-			private:        false,
-			commitmentType: lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
-			zeroConf:       true,
-			restoreMethod: func(st *lntemp.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				mnemonic []string) nodeRestorer {
-
-				// Read the entire Multi backup stored within
-				// this node's channel.backup file.
-				multi, err := ioutil.ReadFile(backupFilePath)
-				require.NoError(st, err)
-
-				// Now that we have Dave's backup file, we'll
-				// create a new nodeRestorer that we'll restore
-				// using the on-disk channel backup.
-				return chanRestoreViaRPC(
-					st, password, mnemonic, multi, oldNode,
-				)
-			},
-		},
-
-		// Restore a zero-conf anchors channel that was force closed by
-		// dave just before going offline.
-		{
-			name: "restore force closed from backup file " +
-				"anchors w/ zero-conf",
-			initiator:       true,
-			private:         false,
-			commitmentType:  lnrpc.CommitmentType_ANCHORS,
-			localForceClose: true,
-			zeroConf:        true,
-			restoreMethod: func(st *lntemp.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				mnemonic []string) nodeRestorer {
-
-				// Read the entire Multi backup stored within
-				// this node's channel.backup file.
-				multi, err := ioutil.ReadFile(backupFilePath)
-				require.NoError(st, err)
-
-				// Now that we have Dave's backup file, we'll
-				// create a new nodeRestorer that we'll restore
-				// using the on-disk channel backup.
-				return chanRestoreViaRPC(
-					st, password, mnemonic, multi, oldNode,
-				)
-			},
+			ct:       lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
+			zeroConf: true,
 		},
 	}
 
-	// TODO(roasbeef): online vs offline close?
-
-	// TODO(roasbeef): need to re-trigger the on-disk file once the node
-	// ann is updated?
-
 	for _, testCase := range testCases {
-		testCase := testCase
-		success := ht.Run(testCase.name, func(t *testing.T) {
+		tc := testCase
+		success := ht.Run(tc.name, func(t *testing.T) {
 			h, cleanup := ht.Subtest(t)
 			defer cleanup()
 
-			testChanRestoreScenario(h, &testCase, password)
+			runChanRestoreScenarioCommitTypes(
+				h, tc.ct, tc.zeroConf,
+			)
 		})
 		if !success {
 			break
 		}
 	}
+}
+
+// runChanRestoreScenarioCommitTypes tests that the DLP is applied for
+// different channel commitment types and zero-conf channel.
+func runChanRestoreScenarioCommitTypes(ht *lntemp.HarnessTest,
+	ct lnrpc.CommitmentType, zeroConf bool) {
+
+	// Create a new retore scenario.
+	crs := newChanRestoreScenario(ht, ct, zeroConf)
+	carol, dave := crs.carol, crs.dave
+
+	// If we are testing zero-conf channels, setup a ChannelAcceptor for
+	// the fundee.
+	var cancelAcceptor context.CancelFunc
+	if zeroConf {
+		// Setup a ChannelAcceptor.
+		acceptStream, cancel := carol.RPC.ChannelAcceptor()
+		cancelAcceptor = cancel
+		go acceptChannel(ht.T, true, acceptStream)
+	}
+
+	var fundingShim *lnrpc.FundingShim
+	if ct == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
+		_, minerHeight := ht.Miner.GetBestBlock()
+		thawHeight := uint32(minerHeight + thawHeightDelta)
+
+		fundingShim, _, _ = deriveFundingShim(
+			ht, dave, carol, crs.params.Amt, thawHeight, true,
+		)
+		crs.params.FundingShim = fundingShim
+	}
+	ht.OpenChannel(dave, carol, crs.params)
+
+	// Remove the ChannelAcceptor.
+	if zeroConf {
+		cancelAcceptor()
+	}
+
+	// At this point, we'll now execute the restore method to give us the
+	// new node we should attempt our assertions against.
+	backupFilePath := dave.Cfg.ChanBackupPath()
+
+	// Read the entire Multi backup stored within this node's
+	// channels.backup file.
+	multi, err := ioutil.ReadFile(backupFilePath)
+	require.NoError(ht, err)
+
+	// Now that we have Dave's backup file, we'll create a new nodeRestorer
+	// that we'll restore using the on-disk channels.backup.
+	restoredNodeFunc := chanRestoreViaRPC(
+		ht, crs.password, crs.mnemonic, multi, dave,
+	)
+
+	// Test the scenario.
+	crs.testScenario(ht, restoredNodeFunc)
+}
+
+// testChannelBackupRestoreLegacy checks a channel with the legacy revocation
+// producer format and makes sure old SCBs can still be recovered.
+func testChannelBackupRestoreLegacy(ht *lntemp.HarnessTest) {
+	// Create a new retore scenario.
+	crs := newChanRestoreScenario(
+		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
+	)
+	carol, dave := crs.carol, crs.dave
+
+	createLegacyRevocationChannel(
+		ht, crs.params.Amt, crs.params.PushAmt, dave, carol,
+	)
+
+	// For this restoration method, we'll grab the current multi-channel
+	// backup from the old node, and use it to restore a new node within
+	// the closure.
+	chanBackup := dave.RPC.ExportAllChanBackups()
+	multi := chanBackup.MultiChanBackup.MultiChanBackup
+
+	// In our nodeRestorer function, we'll restore the node from seed, then
+	// manually recover the channel backup.
+	restoredNodeFunc := chanRestoreViaRPC(
+		ht, crs.password, crs.mnemonic, multi, dave,
+	)
+
+	// Test the scenario.
+	crs.testScenario(ht, restoredNodeFunc)
+}
+
+// testChannelBackupRestoreForceClose checks that Dave can restore from force
+// closed channels.
+func testChannelBackupRestoreForceClose(ht *lntemp.HarnessTest) {
+	// Restore a channel that was force closed by dave just before going
+	// offline.
+	ht.Run("from backup file anchors", func(t *testing.T) {
+		st, cleanup := ht.Subtest(t)
+		runChanRestoreScenarioForceClose(st, false)
+		cleanup()
+	})
+
+	// Restore a zero-conf anchors channel that was force closed by dave
+	// just before going offline.
+	ht.Run("from backup file anchors w/ zero-conf", func(t *testing.T) {
+		st, cleanup := ht.Subtest(t)
+		runChanRestoreScenarioForceClose(st, true)
+		cleanup()
+	})
+}
+
+// runChanRestoreScenarioForceClose creates anchor-enabled force close channels
+// and checks that Dave is able to restore from them.
+func runChanRestoreScenarioForceClose(ht *lntemp.HarnessTest, zeroConf bool) {
+	crs := newChanRestoreScenario(
+		ht, lnrpc.CommitmentType_ANCHORS, zeroConf,
+	)
+	carol, dave := crs.carol, crs.dave
+
+	// For neutrino backend, we give Dave once more UTXO to fund the anchor
+	// sweep.
+	if ht.IsNeutrinoBackend() {
+		ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
+	}
+
+	// If we are testing zero-conf channels, setup a ChannelAcceptor for
+	// the fundee.
+	var cancelAcceptor context.CancelFunc
+	if zeroConf {
+		// Setup a ChannelAcceptor.
+		acceptStream, cancel := carol.RPC.ChannelAcceptor()
+		cancelAcceptor = cancel
+		go acceptChannel(ht.T, true, acceptStream)
+	}
+
+	chanPoint := ht.OpenChannel(dave, carol, crs.params)
+
+	// Remove the ChannelAcceptor.
+	if zeroConf {
+		cancelAcceptor()
+	}
+
+	// If we're testing that locally force closed channels can be restored
+	// then we issue the force close now.
+	ht.CloseChannelAssertPending(dave, chanPoint, true)
+
+	// Dave should see one waiting close channel.
+	ht.AssertNumWaitingClose(dave, 1)
+
+	// Now we need to make sure that the channel is still in the backup.
+	// Otherwise restoring won't work later.
+	dave.RPC.ExportChanBackup(chanPoint)
+
+	// Before we start the recovery, we'll record the balances of both
+	// Carol and Dave to ensure they both sweep their coins at the end.
+	carolBalResp := carol.RPC.WalletBalance()
+	carolStartingBalance := carolBalResp.ConfirmedBalance
+
+	daveBalance := dave.RPC.WalletBalance()
+	daveStartingBalance := daveBalance.ConfirmedBalance
+
+	// At this point, we'll now execute the restore method to give us the
+	// new node we should attempt our assertions against.
+	backupFilePath := dave.Cfg.ChanBackupPath()
+
+	// Read the entire Multi backup stored within this node's
+	// channel.backup file.
+	multi, err := ioutil.ReadFile(backupFilePath)
+	require.NoError(ht, err)
+
+	// Now that we have Dave's backup file, we'll create a new nodeRestorer
+	// that will restore using the on-disk channel.backup.
+	restoredNodeFunc := chanRestoreViaRPC(
+		ht, crs.password, crs.mnemonic, multi, dave,
+	)
+
+	// We now wait until both Dave's closing tx and sweep tx have shown in
+	// mempool.
+	ht.Miner.AssertNumTxsInMempool(2)
+
+	// Now that we're able to make our restored now, we'll shutdown the old
+	// Dave node as we'll be storing it shortly below.
+	ht.Shutdown(dave)
+
+	// Mine a block to confirm the closing tx from Dave.
+	ht.Miner.MineBlocksAndAssertNumTxes(1, 2)
+
+	// To make sure the channel state is advanced correctly if the channel
+	// peer is not online at first, we also shutdown Carol.
+	restartCarol := ht.SuspendNode(carol)
+
+	dave = crs.restoreDave(ht, restoredNodeFunc)
+
+	// For our force close scenario we don't need the channel to be closed
+	// by Carol since it was already force closed before we started the
+	// recovery. All we need is for Carol to send us over the commit height
+	// so we can sweep the time locked output with the correct commit
+	// point.
+	ht.AssertNumPendingForceClose(dave, 1)
+
+	require.NoError(ht, restartCarol(), "restart carol failed")
+
+	// Now that we have our new node up, we expect that it'll re-connect to
+	// Carol automatically based on the restored backup.
+	ht.EnsureConnected(dave, carol)
+
+	assertTimeLockSwept(
+		ht, carol, dave, carolStartingBalance, daveStartingBalance,
+	)
 }
 
 // testChannelBackupUpdates tests that both the streaming channel update RPC,
@@ -831,338 +1121,6 @@ func testExportChannelBackup(net *lntest.NetworkHarness, t *harnessTest) {
 	assertMultiBackupFound()(false, nil)
 }
 
-// nodeRestorer is a function closure that allows each chanRestoreTestCase to
-// control exactly *how* the prior node is restored. This might be using an
-// backup obtained over RPC, or the file system, etc.
-type nodeRestorer func() *node.HarnessNode
-
-// chanRestoreTestCase describes a test case for an end to end SCB restoration
-// work flow. One node will start from scratch using an existing SCB. At the
-// end of the est, both nodes should be made whole via the DLP protocol.
-type chanRestoreTestCase struct {
-	// name is the name of the target test case.
-	name string
-
-	// channelsUpdated is false then this means that no updates
-	// have taken place within the channel before restore.
-	// Otherwise, HTLCs will be settled between the two parties
-	// before restoration modifying the balance beyond the initial
-	// allocation.
-	channelsUpdated bool
-
-	// initiator signals if Dave should be the one that opens the
-	// channel to Alice, or if it should be the other way around.
-	initiator bool
-
-	// private signals if the channel from Dave to Carol should be
-	// private or not.
-	private bool
-
-	// unconfirmed signals if the channel from Dave to Carol should be
-	// confirmed or not.
-	unconfirmed bool
-
-	// commitmentType specifies the commitment type that should be used for
-	// the channel from Dave to Carol.
-	commitmentType lnrpc.CommitmentType
-
-	// legacyRevocation signals if a channel with the legacy revocation
-	// producer format should also be created before restoring.
-	legacyRevocation bool
-
-	// localForceClose signals if the channel should be force closed by the
-	// node that is going to recover.
-	localForceClose bool
-
-	// restoreMethod takes an old node, then returns a function
-	// closure that'll return the same node, but with its state
-	// restored via a custom method. We use this to abstract away
-	// _how_ a node is restored from our assertions once the node
-	// has been fully restored itself.
-	restoreMethod func(ht *lntemp.HarnessTest, oldNode *node.HarnessNode,
-		backupFilePath string, mnemonic []string) nodeRestorer
-
-	// zeroConf denotes whether the opened channel is a zero-conf channel
-	// or not.
-	zeroConf bool
-}
-
-// testChanRestoreScenario executes a chanRestoreTestCase from end to end,
-// ensuring that after Dave restores his channel state according to the
-// testCase, the DLP protocol is executed properly and both nodes are made
-// whole.
-func testChanRestoreScenario(ht *lntemp.HarnessTest,
-	testCase *chanRestoreTestCase, password []byte) {
-
-	const (
-		chanAmt = btcutil.Amount(10000000)
-		pushAmt = btcutil.Amount(5000000)
-	)
-
-	nodeArgs := []string{
-		"--minbackoff=50ms",
-		"--maxbackoff=1s",
-	}
-	if testCase.commitmentType != lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE {
-		args := nodeArgsForCommitType(testCase.commitmentType)
-		nodeArgs = append(nodeArgs, args...)
-	}
-
-	if testCase.zeroConf {
-		nodeArgs = append(
-			nodeArgs, "--protocol.option-scid-alias",
-			"--protocol.zero-conf",
-		)
-	}
-
-	// First, we'll create a brand new node we'll use within the test. If
-	// we have a custom backup file specified, then we'll also create that
-	// for use.
-	dave, mnemonic, _ := ht.NewNodeWithSeed(
-		"dave", nodeArgs, password, false,
-	)
-	carol := ht.NewNode("carol", nodeArgs)
-
-	// Now that our new nodes are created, we'll give them some coins for
-	// channel opening and anchor sweeping.
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-
-	// For the anchor output case we need two UTXOs for Carol so she can
-	// sweep both the local and remote anchor.
-	if commitTypeHasAnchors(testCase.commitmentType) {
-		ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-	}
-
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
-
-	var from, to *node.HarnessNode
-	if testCase.initiator {
-		from, to = dave, carol
-	} else {
-		from, to = carol, dave
-	}
-
-	// Next, we'll connect Dave to Carol, and open a new channel to her
-	// with a portion pushed.
-	ht.ConnectNodes(dave, carol)
-
-	// We will either open a confirmed or unconfirmed channel, depending on
-	// the requirements of the test case.
-	var chanPoint *lnrpc.ChannelPoint
-	switch {
-	case testCase.unconfirmed:
-		ht.OpenChannelAssertPending(
-			from, to, lntemp.OpenChannelParams{
-				Amt:     chanAmt,
-				PushAmt: pushAmt,
-			},
-		)
-
-		// Give the pubsub some time to update the channel backup.
-		err := wait.NoError(func() error {
-			fi, err := os.Stat(dave.Cfg.ChanBackupPath())
-			if err != nil {
-				return err
-			}
-			if fi.Size() <= chanbackup.NilMultiSizePacked {
-				return fmt.Errorf("backup file empty")
-			}
-			return nil
-		}, defaultTimeout)
-		require.NoError(ht, err, "channel backup not updated in time")
-
-	// Also create channels with the legacy revocation producer format if
-	// requested.
-	case testCase.legacyRevocation:
-		createLegacyRevocationChannel(ht, chanAmt, pushAmt, from, to)
-
-	default:
-		// If we are testing zero-conf channels, setup a
-		// ChannelAcceptor for the fundee.
-		var cancelAcceptor context.CancelFunc
-		if testCase.zeroConf {
-			// Setup a ChannelAcceptor.
-			acceptStream, cancel := to.RPC.ChannelAcceptor()
-			cancelAcceptor = cancel
-			go acceptChannel(ht.T, true, acceptStream)
-		}
-
-		var fundingShim *lnrpc.FundingShim
-		if testCase.commitmentType == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-			_, minerHeight := ht.Miner.GetBestBlock()
-			thawHeight := uint32(minerHeight + thawHeightDelta)
-
-			fundingShim, _, _ = deriveFundingShim(
-				ht, from, to, chanAmt, thawHeight, true,
-			)
-		}
-		chanPoint = ht.OpenChannel(
-			from, to, lntemp.OpenChannelParams{
-				Amt:            chanAmt,
-				PushAmt:        pushAmt,
-				Private:        testCase.private,
-				FundingShim:    fundingShim,
-				CommitmentType: testCase.commitmentType,
-				ZeroConf:       testCase.zeroConf,
-			},
-		)
-
-		// Remove the ChannelAcceptor.
-		if testCase.zeroConf {
-			cancelAcceptor()
-		}
-
-		// Wait for both sides to see the opened channel.
-		ht.AssertTopologyChannelOpen(dave, chanPoint)
-		ht.AssertTopologyChannelOpen(carol, chanPoint)
-	}
-
-	// If both parties should start with existing channel updates, then
-	// we'll send+settle an HTLC between 'from' and 'to' now.
-	if testCase.channelsUpdated {
-		invoice := &lnrpc.Invoice{
-			Memo:  "testing",
-			Value: 100000,
-		}
-		invoiceResp := to.RPC.AddInvoice(invoice)
-
-		requests := []string{invoiceResp.PaymentRequest}
-		ht.CompletePaymentRequests(from, requests)
-	}
-
-	// If we're testing that locally force closed channels can be restored
-	// then we issue the force close now.
-	if testCase.localForceClose && chanPoint != nil {
-		// Calls the rpc to close the channel.
-		ht.CloseChannelAssertPending(dave, chanPoint, true)
-
-		// After closing the channel we mine one transaction to make
-		// sure the commitment TX was confirmed.
-		ht.Miner.MineBlocksAndAssertNumTxes(1, 1)
-
-		// Now we need to make sure that the channel is still in the
-		// backup. Otherwise restoring won't work later.
-		dave.RPC.ExportChanBackup(chanPoint)
-	}
-
-	// Before we start the recovery, we'll record the balances of both
-	// Carol and Dave to ensure they both sweep their coins at the end.
-	carolBalResp := carol.RPC.WalletBalance()
-	carolStartingBalance := carolBalResp.ConfirmedBalance
-
-	daveBalance := dave.RPC.WalletBalance()
-	daveStartingBalance := daveBalance.ConfirmedBalance
-
-	// At this point, we'll now execute the restore method to give us the
-	// new node we should attempt our assertions against.
-	backupFilePath := dave.Cfg.ChanBackupPath()
-	restoredNodeFunc := testCase.restoreMethod(
-		ht, dave, backupFilePath, mnemonic,
-	)
-
-	// Now that we're able to make our restored now, we'll shutdown the old
-	// Dave node as we'll be storing it shortly below.
-	ht.Shutdown(dave)
-
-	// To make sure the channel state is advanced correctly if the channel
-	// peer is not online at first, we also shutdown Carol.
-	restartCarol := ht.SuspendNode(carol)
-
-	// Next, we'll make a new Dave and start the bulk of our recovery
-	// workflow.
-	dave = restoredNodeFunc()
-
-	// First ensure that the on-chain balance is restored.
-	err := wait.NoError(func() error {
-		daveBalResp := dave.RPC.WalletBalance()
-		daveBal := daveBalResp.ConfirmedBalance
-		if daveBal <= 0 {
-			return fmt.Errorf("expected positive balance, had %v",
-				daveBal)
-		}
-
-		return nil
-	}, defaultTimeout)
-	require.NoError(ht, err, "On-chain balance not restored")
-
-	// For our force close scenario we don't need the channel to be closed
-	// by Carol since it was already force closed before we started the
-	// recovery. All we need is for Carol to send us over the commit height
-	// so we can sweep the time locked output with the correct commit point.
-	if testCase.localForceClose {
-		ht.AssertNumPendingForceClose(dave, 1)
-
-		require.NoError(ht, restartCarol(), "restart carol failed")
-
-		// Now that we have our new node up, we expect that it'll
-		// re-connect to Carol automatically based on the restored
-		// backup.
-		ht.EnsureConnected(dave, carol)
-
-		assertTimeLockSwept(
-			ht, carol, carolStartingBalance, dave,
-			daveStartingBalance,
-			commitTypeHasAnchors(testCase.commitmentType),
-		)
-
-		return
-	}
-
-	// We now check that the restored channel is in the proper state. It
-	// should not yet be force closing as no connection with the remote
-	// peer was established yet. We should also not be able to close the
-	// channel.
-	channel := ht.AssertNumWaitingClose(dave, 1)[0]
-	chanPointStr := channel.Channel.ChannelPoint
-
-	// We also want to make sure we cannot force close in this state. That
-	// would get the state machine in a weird state.
-	chanPointParts := strings.Split(chanPointStr, ":")
-	chanPointIndex, _ := strconv.ParseUint(chanPointParts[1], 10, 32)
-
-	// We don't get an error directly but only when reading the first
-	// message of the stream.
-	err = ht.CloseChannelAssertErr(
-		dave, &lnrpc.ChannelPoint{
-			FundingTxid: &lnrpc.ChannelPoint_FundingTxidStr{
-				FundingTxidStr: chanPointParts[0],
-			},
-			OutputIndex: uint32(chanPointIndex),
-		}, true,
-	)
-	require.Contains(ht, err.Error(), "cannot close channel with state: ")
-	require.Contains(ht, err.Error(), "ChanStatusRestored")
-
-	// Increase the fee estimate so that the following force close tx will
-	// be cpfp'ed in case of anchor commitments.
-	ht.SetFeeEstimate(30000)
-
-	// Now that we have ensured that the channels restored by the backup are
-	// in the correct state even without the remote peer telling us so,
-	// let's start up Carol again.
-	require.NoError(ht, restartCarol(), "restart carol failed")
-
-	numUTXOs := 1
-	if commitTypeHasAnchors(testCase.commitmentType) {
-		numUTXOs = 2
-	}
-	ht.AssertNumUTXOs(carol, numUTXOs)
-
-	// Now that we have our new node up, we expect that it'll re-connect to
-	// Carol automatically based on the restored backup.
-	ht.EnsureConnected(dave, carol)
-
-	// TODO(roasbeef): move dave restarts?
-
-	// Now we'll assert that both sides properly execute the DLP protocol.
-	// We grab their balances now to ensure that they're made whole at the
-	// end of the protocol.
-	assertDLPExecuted(
-		ht, carol, carolStartingBalance, dave,
-		daveStartingBalance, testCase.commitmentType,
-	)
-}
-
 // testDataLossProtection tests that if one of the nodes in a channel
 // relationship lost state, they will detect this during channel sync, and the
 // up-to-date party will force close the channel, giving the outdated party the
@@ -1472,25 +1430,22 @@ func rpcPointToWirePoint(t *harnessTest,
 //
 // Note: this function is only used in this test file and has been made
 // specifically for testChanRestoreScenario.
-func assertTimeLockSwept(ht *lntemp.HarnessTest,
-	carol *node.HarnessNode, carolStartingBalance int64,
-	dave *node.HarnessNode, daveStartingBalance int64, anchors bool) {
+func assertTimeLockSwept(ht *lntemp.HarnessTest, carol, dave *node.HarnessNode,
+	carolStartingBalance, daveStartingBalance int64) {
 
+	// We expect Carol to sweep her funds and also the anchor tx.
 	expectedTxes := 2
-	if anchors {
-		expectedTxes = 3
-	}
 
-	// Carol should sweep her funds immediately, as they are not timelocked.
-	// We also expect Carol and Dave to sweep their anchor, if present.
+	// Carol should sweep her funds immediately, as they are not
+	// timelocked.
 	ht.Miner.AssertNumTxsInMempool(expectedTxes)
 
 	// Carol should consider the channel pending force close (since she is
 	// waiting for her sweep to confirm).
 	ht.AssertNumPendingForceClose(carol, 1)
 
-	// Dave is considering it "pending force close", as we must wait
-	// before he can sweep her outputs.
+	// Dave is considering it "pending force close", as we must wait before
+	// he can sweep her outputs.
 	ht.AssertNumPendingForceClose(dave, 1)
 
 	// Mine the sweep (and anchor) tx(ns).
@@ -1642,7 +1597,8 @@ func assertDLPExecuted(ht *lntemp.HarnessTest,
 		ht.Miner.MineBlocks(defaultCSV - 1 - 1)
 		ht.Miner.MineBlocksAndAssertNumTxes(1, 1)
 
-		// Now the channel should be fully closed also from Carol's POV.
+		// Now the channel should be fully closed also from Carol's
+		// POV.
 		ht.AssertNumPendingForceClose(carol, 0)
 	}
 

@@ -48,8 +48,24 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		TestFunc: testExternalFundingChanPoint,
 	},
 	{
-		Name:     "channel backup restore",
-		TestFunc: testChannelBackupRestore,
+		Name:     "channel backup restore basic",
+		TestFunc: testChannelBackupRestoreBasic,
+	},
+	{
+		Name:     "channel backup restore unconfirmed",
+		TestFunc: testChannelBackupRestoreUnconfirmed,
+	},
+	{
+		Name:     "channel backup restore commit types",
+		TestFunc: testChannelBackupRestoreCommitTypes,
+	},
+	{
+		Name:     "channel backup restore force close",
+		TestFunc: testChannelBackupRestoreForceClose,
+	},
+	{
+		Name:     "channel backup restore legacy",
+		TestFunc: testChannelBackupRestoreLegacy,
 	},
 	{
 		Name:     "data loss protection",

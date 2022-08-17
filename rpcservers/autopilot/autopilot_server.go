@@ -1,7 +1,7 @@
 //go:build autopilotrpc
 // +build autopilotrpc
 
-package autopilotrpc
+package autopilot
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -56,7 +57,7 @@ var (
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
 type ServerShell struct {
-	AutopilotServer
+	autopilotrpc.AutopilotServer
 }
 
 // Server is a sub-server of the main RPC server: the autopilot RPC. This sub
@@ -69,7 +70,7 @@ type Server struct {
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	// Must be after the atomically used variables to not break struct
 	// alignment.
-	UnimplementedAutopilotServer
+	autopilotrpc.UnimplementedAutopilotServer
 
 	cfg *Config
 
@@ -78,7 +79,7 @@ type Server struct {
 
 // A compile time check to ensure that Server fully implements the
 // AutopilotServer gRPC service.
-var _ AutopilotServer = (*Server)(nil)
+var _ autopilotrpc.AutopilotServer = (*Server)(nil)
 
 // New returns a new instance of the autopilotrpc Autopilot sub-server. We also
 // return the set of permissions for the macaroons that we may create within
@@ -135,7 +136,7 @@ func (s *Server) Name() string {
 func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterAutopilotServer(grpcServer, r)
+	autopilotrpc.RegisterAutopilotServer(grpcServer, r)
 
 	log.Debugf("Autopilot RPC server successfully register with root " +
 		"gRPC server")
@@ -153,7 +154,7 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 
 	// We make sure that we register it with the main REST server to ensure
 	// all our methods are routed properly.
-	err := RegisterAutopilotHandlerFromEndpoint(ctx, mux, dest, opts)
+	err := autopilotrpc.RegisterAutopilotHandlerFromEndpoint(ctx, mux, dest, opts)
 	if err != nil {
 		log.Errorf("Could not register Autopilot REST server "+
 			"with root REST server: %v", err)
@@ -188,9 +189,9 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 //
 // NOTE: Part of the AutopilotServer interface.
 func (s *Server) Status(ctx context.Context,
-	in *StatusRequest) (*StatusResponse, error) {
+	in *autopilotrpc.StatusRequest) (*autopilotrpc.StatusResponse, error) {
 
-	return &StatusResponse{
+	return &autopilotrpc.StatusResponse{
 		Active: s.manager.IsActive(),
 	}, nil
 }
@@ -199,7 +200,8 @@ func (s *Server) Status(ctx context.Context,
 //
 // NOTE: Part of the AutopilotServer interface.
 func (s *Server) ModifyStatus(ctx context.Context,
-	in *ModifyStatusRequest) (*ModifyStatusResponse, error) {
+	in *autopilotrpc.ModifyStatusRequest) (*autopilotrpc.ModifyStatusResponse,
+	error) {
 
 	log.Debugf("Setting agent enabled=%v", in.Enable)
 
@@ -209,7 +211,7 @@ func (s *Server) ModifyStatus(ctx context.Context,
 	} else {
 		err = s.manager.StopAgent()
 	}
-	return &ModifyStatusResponse{}, err
+	return &autopilotrpc.ModifyStatusResponse{}, err
 }
 
 // QueryScores queries all available autopilot heuristics, in addition to any
@@ -217,8 +219,9 @@ func (s *Server) ModifyStatus(ctx context.Context,
 // the given nodes.
 //
 // NOTE: Part of the AutopilotServer interface.
-func (s *Server) QueryScores(ctx context.Context, in *QueryScoresRequest) (
-	*QueryScoresResponse, error) {
+func (s *Server) QueryScores(ctx context.Context,
+	in *autopilotrpc.QueryScoresRequest) (*autopilotrpc.QueryScoresResponse,
+	error) {
 
 	var nodes []autopilot.NodeID
 	for _, pubStr := range in.Pubkeys {
@@ -242,9 +245,9 @@ func (s *Server) QueryScores(ctx context.Context, in *QueryScoresRequest) (
 		return nil, err
 	}
 
-	resp := &QueryScoresResponse{}
+	resp := &autopilotrpc.QueryScoresResponse{}
 	for heuristic, scores := range heuristicScores {
-		result := &QueryScoresResponse_HeuristicResult{
+		result := &autopilotrpc.QueryScoresResponse_HeuristicResult{
 			Heuristic: heuristic,
 			Scores:    make(map[string]float64),
 		}
@@ -275,7 +278,8 @@ func (s *Server) QueryScores(ctx context.Context, in *QueryScoresRequest) (
 //
 // NOTE: Part of the AutopilotServer interface.
 func (s *Server) SetScores(ctx context.Context,
-	in *SetScoresRequest) (*SetScoresResponse, error) {
+	in *autopilotrpc.SetScoresRequest) (*autopilotrpc.SetScoresResponse,
+	error) {
 
 	scores := make(map[autopilot.NodeID]float64)
 	for pubStr, score := range in.Scores {
@@ -295,5 +299,5 @@ func (s *Server) SetScores(ctx context.Context,
 		return nil, err
 	}
 
-	return &SetScoresResponse{}, nil
+	return &autopilotrpc.SetScoresResponse{}, nil
 }

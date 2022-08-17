@@ -1,7 +1,7 @@
 //go:build autopilotrpc
 // +build autopilotrpc
 
-package autopilotrpc
+package autopilot
 
 import (
 	"github.com/lightningnetwork/lnd/autopilot"

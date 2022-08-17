@@ -1,4 +1,4 @@
-package autopilotrpc
+package autopilot
 
 import (
 	"github.com/btcsuite/btclog"

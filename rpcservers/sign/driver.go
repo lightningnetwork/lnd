@@ -1,7 +1,7 @@
 //go:build signrpc
 // +build signrpc
 
-package signrpc
+package sign
 
 import (
 	"fmt"

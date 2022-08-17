@@ -1,7 +1,7 @@
 //go:build signrpc
 // +build signrpc
 
-package signrpc
+package sign
 
 import (
 	"bytes"
@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
@@ -108,7 +109,7 @@ var (
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
 type ServerShell struct {
-	SignerServer
+	signrpc.SignerServer
 }
 
 // Server is a sub-server of the main RPC server: the signer RPC. This sub RPC
@@ -117,14 +118,14 @@ type ServerShell struct {
 // backed by multiple distinct lnd across independent failure domains.
 type Server struct {
 	// Required by the grpc-gateway/v2 library for forward compatibility.
-	UnimplementedSignerServer
+	signrpc.UnimplementedSignerServer
 
 	cfg *Config
 }
 
 // A compile time check to ensure that Server fully implements the SignerServer
 // gRPC service.
-var _ SignerServer = (*Server)(nil)
+var _ signrpc.SignerServer = (*Server)(nil)
 
 // New returns a new instance of the signrpc Signer sub-server. We also return
 // the set of permissions for the macaroons that we may create within this
@@ -209,7 +210,7 @@ func (s *Server) Name() string {
 func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterSignerServer(grpcServer, r)
+	signrpc.RegisterSignerServer(grpcServer, r)
 
 	log.Debugf("Signer RPC server successfully register with root gRPC " +
 		"server")
@@ -227,7 +228,7 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 
 	// We make sure that we register it with the main REST server to ensure
 	// all our methods are routed properly.
-	err := RegisterSignerHandlerFromEndpoint(ctx, mux, dest, opts)
+	err := signrpc.RegisterSignerHandlerFromEndpoint(ctx, mux, dest, opts)
 	if err != nil {
 		log.Errorf("Could not register Signer REST server "+
 			"with root REST server: %v", err)
@@ -265,8 +266,8 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 // provides an invalid transaction, then we'll return with an error.
 //
 // NOTE: The resulting signature should be void of a sighash byte.
-func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
-	error) {
+func (s *Server) SignOutputRaw(_ context.Context,
+	in *signrpc.SignReq) (*signrpc.SignResp, error) {
 
 	switch {
 	// If the client doesn't specify a transaction, then there's nothing to
@@ -468,7 +469,7 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 	// request signatures for each of them, passing in the transaction to
 	// be signed.
 	numSigs := len(in.SignDescs)
-	resp := &SignResp{
+	resp := &signrpc.SignResp{
 		RawSigs: make([][]byte, numSigs),
 	}
 	for i, signDesc := range signDescs {
@@ -496,7 +497,7 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 // only items of the SignDescriptor that need to be populated are pkScript in
 // the TxOut field, the value in that same field, and finally the input index.
 func (s *Server) ComputeInputScript(ctx context.Context,
-	in *SignReq) (*InputScriptResp, error) {
+	in *signrpc.SignReq) (*signrpc.InputScriptResp, error) {
 
 	switch {
 	// If the client doesn't specify a transaction, then there's nothing to
@@ -570,8 +571,8 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 	// input script for each of them, and collate the responses to return
 	// back to the caller.
 	numWitnesses := len(in.SignDescs)
-	resp := &InputScriptResp{
-		InputScripts: make([]*InputScript, numWitnesses),
+	resp := &signrpc.InputScriptResp{
+		InputScripts: make([]*signrpc.InputScript, numWitnesses),
 	}
 	for i, signDesc := range signDescs {
 		inputScript, err := s.cfg.Signer.ComputeInputScript(
@@ -581,7 +582,7 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 			return nil, err
 		}
 
-		resp.InputScripts[i] = &InputScript{
+		resp.InputScripts[i] = &signrpc.InputScript{
 			Witness:   inputScript.Witness,
 			SigScript: inputScript.SigScript,
 		}
@@ -593,7 +594,7 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 // SignMessage signs a message with the key specified in the key locator. The
 // returned signature is fixed-size LN wire format encoded.
 func (s *Server) SignMessage(_ context.Context,
-	in *SignMessageReq) (*SignMessageResp, error) {
+	in *signrpc.SignMessageReq) (*signrpc.SignMessageResp, error) {
 
 	if in.Msg == nil {
 		return nil, fmt.Errorf("a message to sign MUST be passed in")
@@ -628,7 +629,7 @@ func (s *Server) SignMessage(_ context.Context,
 				"signature: %v", err)
 		}
 
-		return &SignMessageResp{
+		return &signrpc.SignMessageResp{
 			Signature: sigParsed.Serialize(),
 		}, nil
 	}
@@ -645,7 +646,7 @@ func (s *Server) SignMessage(_ context.Context,
 			return nil, fmt.Errorf("can't sign the hash: %v", err)
 		}
 
-		return &SignMessageResp{
+		return &signrpc.SignMessageResp{
 			Signature: sigBytes,
 		}, nil
 	}
@@ -662,7 +663,7 @@ func (s *Server) SignMessage(_ context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("can't convert to wire format: %v", err)
 	}
-	return &SignMessageResp{
+	return &signrpc.SignMessageResp{
 		Signature: wireSig.ToSignatureBytes(),
 	}, nil
 }
@@ -670,7 +671,7 @@ func (s *Server) SignMessage(_ context.Context,
 // VerifyMessage verifies a signature over a message using the public key
 // provided. The signature must be fixed-size LN wire format encoded.
 func (s *Server) VerifyMessage(_ context.Context,
-	in *VerifyMessageReq) (*VerifyMessageResp, error) {
+	in *signrpc.VerifyMessageReq) (*signrpc.VerifyMessageResp, error) {
 
 	if in.Msg == nil {
 		return nil, fmt.Errorf("a message to verify MUST be passed in")
@@ -702,7 +703,7 @@ func (s *Server) VerifyMessage(_ context.Context,
 		digest := chainhash.HashB(in.Msg)
 		valid := sigParsed.Verify(digest, pubkey)
 
-		return &VerifyMessageResp{
+		return &signrpc.VerifyMessageResp{
 			Valid: valid,
 		}, nil
 	}
@@ -726,7 +727,7 @@ func (s *Server) VerifyMessage(_ context.Context,
 	// The signature is over the sha256 hash of the message.
 	digest := chainhash.HashB(in.Msg)
 	valid := sig.Verify(digest, pubkey)
-	return &VerifyMessageResp{
+	return &signrpc.VerifyMessageResp{
 		Valid: valid,
 	}, nil
 }
@@ -739,8 +740,8 @@ func (s *Server) VerifyMessage(_ context.Context,
 // shouldn't be used anymore.
 // The resulting shared public key is serialized in the compressed format and
 // hashed with sha256, resulting in the final key length of 256bit.
-func (s *Server) DeriveSharedKey(_ context.Context, in *SharedKeyRequest) (
-	*SharedKeyResponse, error) {
+func (s *Server) DeriveSharedKey(_ context.Context,
+	in *signrpc.SharedKeyRequest) (*signrpc.SharedKeyResponse, error) {
 
 	// Check that EphemeralPubkey is valid.
 	ephemeralPubkey, err := parseRawKeyBytes(in.EphemeralPubkey)
@@ -776,7 +777,7 @@ func (s *Server) DeriveSharedKey(_ context.Context, in *SharedKeyRequest) (
 	// When no keyLoc is supplied, defaults to the node's identity private
 	// key.
 	if keyLoc == nil {
-		keyLoc = &KeyLocator{
+		keyLoc = &signrpc.KeyLocator{
 			KeyFamily: int32(keychain.KeyFamilyNodeKey),
 			KeyIndex:  0,
 		}
@@ -816,13 +817,14 @@ func (s *Server) DeriveSharedKey(_ context.Context, in *SharedKeyRequest) (
 		return nil, err
 	}
 
-	return &SharedKeyResponse{SharedKey: sharedKeyHash[:]}, nil
+	return &signrpc.SharedKeyResponse{SharedKey: sharedKeyHash[:]}, nil
 }
 
 // MuSig2CombineKeys combines the given set of public keys into a single
 // combined MuSig2 combined public key, applying the given tweaks.
 func (s *Server) MuSig2CombineKeys(_ context.Context,
-	in *MuSig2CombineKeysRequest) (*MuSig2CombineKeysResponse, error) {
+	in *signrpc.MuSig2CombineKeysRequest) (*signrpc.MuSig2CombineKeysResponse,
+	error) {
 
 	// Parse the public keys of all signing participants. This must also
 	// include our own, local key.
@@ -860,7 +862,7 @@ func (s *Server) MuSig2CombineKeys(_ context.Context,
 		)
 	}
 
-	return &MuSig2CombineKeysResponse{
+	return &signrpc.MuSig2CombineKeysResponse{
 		CombinedKey: schnorr.SerializePubKey(
 			combinedKey.FinalKey,
 		),
@@ -874,7 +876,8 @@ func (s *Server) MuSig2CombineKeys(_ context.Context,
 // signing key. If nonces of other parties are already known, they can be
 // submitted as well to reduce the number of RPC calls necessary later on.
 func (s *Server) MuSig2CreateSession(_ context.Context,
-	in *MuSig2SessionRequest) (*MuSig2SessionResponse, error) {
+	in *signrpc.MuSig2SessionRequest) (*signrpc.MuSig2SessionResponse,
+	error) {
 
 	// A key locator is always mandatory.
 	if in.KeyLoc == nil {
@@ -940,7 +943,7 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 		)
 	}
 
-	return &MuSig2SessionResponse{
+	return &signrpc.MuSig2SessionResponse{
 		SessionId: session.SessionID[:],
 		CombinedKey: schnorr.SerializePubKey(
 			session.CombinedKey,
@@ -954,7 +957,8 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 // MuSig2RegisterNonces registers one or more public nonces of other signing
 // participants for a session identified by its ID.
 func (s *Server) MuSig2RegisterNonces(_ context.Context,
-	in *MuSig2RegisterNoncesRequest) (*MuSig2RegisterNoncesResponse, error) {
+	in *signrpc.MuSig2RegisterNoncesRequest) (*signrpc.MuSig2RegisterNoncesResponse,
+	error) {
 
 	// Check session ID length.
 	sessionID, err := parseMuSig2SessionID(in.SessionId)
@@ -983,7 +987,8 @@ func (s *Server) MuSig2RegisterNonces(_ context.Context,
 		return nil, fmt.Errorf("error registering nonces: %v", err)
 	}
 
-	return &MuSig2RegisterNoncesResponse{HaveAllNonces: haveAllNonces}, nil
+	return &signrpc.MuSig2RegisterNoncesResponse{
+		HaveAllNonces: haveAllNonces}, nil
 }
 
 // MuSig2Sign creates a partial signature using the local signing key that was
@@ -993,7 +998,7 @@ func (s *Server) MuSig2RegisterNonces(_ context.Context,
 // signatures, then the cleanup flag should be set, indicating that the session
 // can be removed from memory once the signature was produced.
 func (s *Server) MuSig2Sign(_ context.Context,
-	in *MuSig2SignRequest) (*MuSig2SignResponse, error) {
+	in *signrpc.MuSig2SignRequest) (*signrpc.MuSig2SignResponse, error) {
 
 	// Check session ID length.
 	sessionID, err := parseMuSig2SessionID(in.SessionId)
@@ -1020,7 +1025,7 @@ func (s *Server) MuSig2Sign(_ context.Context,
 		return nil, fmt.Errorf("error serializing sig: %v", err)
 	}
 
-	return &MuSig2SignResponse{
+	return &signrpc.MuSig2SignResponse{
 		LocalPartialSignature: serializedPartialSig[:],
 	}, nil
 }
@@ -1029,7 +1034,8 @@ func (s *Server) MuSig2Sign(_ context.Context,
 // if it already exists. Once a partial signature of all participants is
 // registered, the final signature will be combined and returned.
 func (s *Server) MuSig2CombineSig(_ context.Context,
-	in *MuSig2CombineSigRequest) (*MuSig2CombineSigResponse, error) {
+	in *signrpc.MuSig2CombineSigRequest) (*signrpc.MuSig2CombineSigResponse,
+	error) {
 
 	// Check session ID length.
 	sessionID, err := parseMuSig2SessionID(in.SessionId)
@@ -1057,7 +1063,7 @@ func (s *Server) MuSig2CombineSig(_ context.Context,
 		return nil, fmt.Errorf("error combining signatures: %v", err)
 	}
 
-	resp := &MuSig2CombineSigResponse{
+	resp := &signrpc.MuSig2CombineSigResponse{
 		HaveAllSignatures: haveAllSigs,
 	}
 
@@ -1070,7 +1076,8 @@ func (s *Server) MuSig2CombineSig(_ context.Context,
 
 // MuSig2Cleanup removes a session from memory to free up resources.
 func (s *Server) MuSig2Cleanup(_ context.Context,
-	in *MuSig2CleanupRequest) (*MuSig2CleanupResponse, error) {
+	in *signrpc.MuSig2CleanupRequest) (*signrpc.MuSig2CleanupResponse,
+	error) {
 
 	// Check session ID length.
 	sessionID, err := parseMuSig2SessionID(in.SessionId)
@@ -1083,7 +1090,7 @@ func (s *Server) MuSig2Cleanup(_ context.Context,
 		return nil, fmt.Errorf("error cleaning up session: %v", err)
 	}
 
-	return &MuSig2CleanupResponse{}, nil
+	return &signrpc.MuSig2CleanupResponse{}, nil
 }
 
 // parseRawKeyBytes checks that the provided raw public key is valid and returns
@@ -1184,8 +1191,8 @@ func parseMuSig2PartialSignatures(
 
 // UnmarshalTweaks parses the RPC tweak descriptions into their native
 // counterpart.
-func UnmarshalTweaks(rpcTweaks []*TweakDesc,
-	taprootTweak *TaprootTweakDesc) (*input.MuSig2Tweaks, error) {
+func UnmarshalTweaks(rpcTweaks []*signrpc.TweakDesc,
+	taprootTweak *signrpc.TaprootTweakDesc) (*input.MuSig2Tweaks, error) {
 
 	// Parse the generic tweaks first.
 	tweaks := &input.MuSig2Tweaks{
@@ -1218,18 +1225,20 @@ func UnmarshalTweaks(rpcTweaks []*TweakDesc,
 }
 
 // UnmarshalSignMethod parses the RPC sign method into the native counterpart.
-func UnmarshalSignMethod(rpcSignMethod SignMethod) (input.SignMethod, error) {
+func UnmarshalSignMethod(rpcSignMethod signrpc.SignMethod) (input.SignMethod,
+	error) {
+
 	switch rpcSignMethod {
-	case SignMethod_SIGN_METHOD_WITNESS_V0:
+	case signrpc.SignMethod_SIGN_METHOD_WITNESS_V0:
 		return input.WitnessV0SignMethod, nil
 
-	case SignMethod_SIGN_METHOD_TAPROOT_KEY_SPEND_BIP0086:
+	case signrpc.SignMethod_SIGN_METHOD_TAPROOT_KEY_SPEND_BIP0086:
 		return input.TaprootKeySpendBIP0086SignMethod, nil
 
-	case SignMethod_SIGN_METHOD_TAPROOT_KEY_SPEND:
+	case signrpc.SignMethod_SIGN_METHOD_TAPROOT_KEY_SPEND:
 		return input.TaprootKeySpendSignMethod, nil
 
-	case SignMethod_SIGN_METHOD_TAPROOT_SCRIPT_SPEND:
+	case signrpc.SignMethod_SIGN_METHOD_TAPROOT_SCRIPT_SPEND:
 		return input.TaprootScriptSpendSignMethod, nil
 
 	default:

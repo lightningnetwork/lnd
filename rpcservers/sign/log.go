@@ -1,4 +1,4 @@
-package signrpc
+package sign
 
 import (
 	"github.com/btcsuite/btclog"

@@ -1,4 +1,4 @@
-package wtclientrpc
+package wtclient
 
 import (
 	"github.com/btcsuite/btclog"

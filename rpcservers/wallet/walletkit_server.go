@@ -1,7 +1,7 @@
 //go:build walletrpc
 // +build walletrpc
 
-package walletrpc
+package wallet
 
 import (
 	"bytes"
@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -176,22 +177,23 @@ var ErrZeroLabel = errors.New("cannot label transaction with empty label")
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
 type ServerShell struct {
-	WalletKitServer
+	walletrpc.WalletKitServer
 }
 
 // WalletKit is a sub-RPC server that exposes a tool kit which allows clients
 // to execute common wallet operations. This includes requesting new addresses,
 // keys (for contracts!), and publishing transactions.
+// nolint revive
 type WalletKit struct {
 	// Required by the grpc-gateway/v2 library for forward compatibility.
-	UnimplementedWalletKitServer
+	walletrpc.UnimplementedWalletKitServer
 
 	cfg *Config
 }
 
 // A compile time check to ensure that WalletKit fully implements the
 // WalletKitServer gRPC service.
-var _ WalletKitServer = (*WalletKit)(nil)
+var _ walletrpc.WalletKitServer = (*WalletKit)(nil)
 
 // New creates a new instance of the WalletKit sub-RPC server.
 func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
@@ -271,7 +273,7 @@ func (w *WalletKit) Name() string {
 func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterWalletKitServer(grpcServer, r)
+	walletrpc.RegisterWalletKitServer(grpcServer, r)
 
 	log.Debugf("WalletKit RPC server successfully registered with " +
 		"root gRPC server")
@@ -289,7 +291,8 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 
 	// We make sure that we register it with the main REST server to ensure
 	// all our methods are routed properly.
-	err := RegisterWalletKitHandlerFromEndpoint(ctx, mux, dest, opts)
+	err := walletrpc.RegisterWalletKitHandlerFromEndpoint(ctx, mux, dest,
+		opts)
 	if err != nil {
 		log.Errorf("Could not register WalletKit REST server "+
 			"with root REST server: %v", err)
@@ -335,7 +338,8 @@ func (w *WalletKit) internalScope() waddrmgr.KeyScope {
 // filtered to contain outputs whose number of confirmations is between a
 // minimum and maximum number of confirmations specified by the user.
 func (w *WalletKit) ListUnspent(ctx context.Context,
-	req *ListUnspentRequest) (*ListUnspentResponse, error) {
+	req *walletrpc.ListUnspentRequest) (*walletrpc.ListUnspentResponse,
+	error) {
 
 	// Force min_confs and max_confs to be zero if unconfirmed_only is
 	// true.
@@ -379,7 +383,7 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 		return nil, err
 	}
 
-	return &ListUnspentResponse{
+	return &walletrpc.ListUnspentResponse{
 		Utxos: rpcUtxos,
 	}, nil
 }
@@ -394,7 +398,8 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 // output has already been locked to a different ID, then
 // wtxmgr.ErrOutputAlreadyLocked is returned.
 func (w *WalletKit) LeaseOutput(ctx context.Context,
-	req *LeaseOutputRequest) (*LeaseOutputResponse, error) {
+	req *walletrpc.LeaseOutputRequest) (*walletrpc.LeaseOutputResponse,
+	error) {
 
 	if len(req.Id) != 32 {
 		return nil, errors.New("id must be 32 random bytes")
@@ -437,7 +442,7 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 		return nil, err
 	}
 
-	return &LeaseOutputResponse{
+	return &walletrpc.LeaseOutputResponse{
 		Expiration: uint64(expiration.Unix()),
 	}, nil
 }
@@ -446,7 +451,8 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 // selection if it remains unspent. The ID should match the one used to
 // originally lock the output.
 func (w *WalletKit) ReleaseOutput(ctx context.Context,
-	req *ReleaseOutputRequest) (*ReleaseOutputResponse, error) {
+	req *walletrpc.ReleaseOutputRequest) (*walletrpc.ReleaseOutputResponse,
+	error) {
 
 	if len(req.Id) != 32 {
 		return nil, errors.New("id must be 32 random bytes")
@@ -468,19 +474,20 @@ func (w *WalletKit) ReleaseOutput(ctx context.Context,
 		return nil, err
 	}
 
-	return &ReleaseOutputResponse{}, nil
+	return &walletrpc.ReleaseOutputResponse{}, nil
 }
 
 // ListLeases returns a list of all currently locked utxos.
 func (w *WalletKit) ListLeases(ctx context.Context,
-	req *ListLeasesRequest) (*ListLeasesResponse, error) {
+	req *walletrpc.ListLeasesRequest) (*walletrpc.ListLeasesResponse,
+	error) {
 
 	leases, err := w.cfg.Wallet.ListLeasedOutputs()
 	if err != nil {
 		return nil, err
 	}
 
-	return &ListLeasesResponse{
+	return &walletrpc.ListLeasesResponse{
 		LockedUtxos: marshallLeases(leases),
 	}, nil
 }
@@ -489,7 +496,7 @@ func (w *WalletKit) ListLeases(ctx context.Context,
 // (account in BIP43) specified. This method should return the next external
 // child within this branch.
 func (w *WalletKit) DeriveNextKey(ctx context.Context,
-	req *KeyReq) (*signrpc.KeyDescriptor, error) {
+	req *walletrpc.KeyReq) (*signrpc.KeyDescriptor, error) {
 
 	nextKeyDesc, err := w.cfg.KeyRing.DeriveNextKey(
 		keychain.KeyFamily(req.KeyFamily),
@@ -531,7 +538,7 @@ func (w *WalletKit) DeriveKey(ctx context.Context,
 
 // NextAddr returns the next unused address within the wallet.
 func (w *WalletKit) NextAddr(ctx context.Context,
-	req *AddrRequest) (*AddrResponse, error) {
+	req *walletrpc.AddrRequest) (*walletrpc.AddrResponse, error) {
 
 	account := lnwallet.DefaultAccountName
 	if req.Account != "" {
@@ -540,14 +547,14 @@ func (w *WalletKit) NextAddr(ctx context.Context,
 
 	addrType := lnwallet.WitnessPubKey
 	switch req.Type {
-	case AddressType_NESTED_WITNESS_PUBKEY_HASH:
+	case walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH:
 		addrType = lnwallet.NestedWitnessPubKey
 
-	case AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
+	case walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 		return nil, fmt.Errorf("invalid address type for next "+
 			"address: %v", req.Type)
 
-	case AddressType_TAPROOT_PUBKEY:
+	case walletrpc.AddressType_TAPROOT_PUBKEY:
 		addrType = lnwallet.TaprootPubkey
 	}
 
@@ -556,7 +563,7 @@ func (w *WalletKit) NextAddr(ctx context.Context,
 		return nil, err
 	}
 
-	return &AddrResponse{
+	return &walletrpc.AddrResponse{
 		Addr: addr.String(),
 	}, nil
 }
@@ -565,12 +572,11 @@ func (w *WalletKit) NextAddr(ctx context.Context,
 // without an error, the wallet will continually attempt to re-broadcast the
 // transaction on start up, until it enters the chain.
 func (w *WalletKit) PublishTransaction(ctx context.Context,
-	req *Transaction) (*PublishResponse, error) {
+	req *walletrpc.Transaction) (*walletrpc.PublishResponse, error) {
 
-	switch {
 	// If the client doesn't specify a transaction, then there's nothing to
 	// publish.
-	case len(req.TxHex) == 0:
+	if len(req.TxHex) == 0 {
 		return nil, fmt.Errorf("must provide a transaction to " +
 			"publish")
 	}
@@ -591,19 +597,19 @@ func (w *WalletKit) PublishTransaction(ctx context.Context,
 		return nil, err
 	}
 
-	return &PublishResponse{}, nil
+	return &walletrpc.PublishResponse{}, nil
 }
 
 // SendOutputs is similar to the existing sendmany call in Bitcoind, and allows
 // the caller to create a transaction that sends to several outputs at once.
 // This is ideal when wanting to batch create a set of transactions.
 func (w *WalletKit) SendOutputs(ctx context.Context,
-	req *SendOutputsRequest) (*SendOutputsResponse, error) {
+	req *walletrpc.SendOutputsRequest) (*walletrpc.SendOutputsResponse,
+	error) {
 
-	switch {
 	// If the client didn't specify any outputs to create, then  we can't
 	// proceed .
-	case len(req.Outputs) == 0:
+	if len(req.Outputs) == 0 {
 		return nil, fmt.Errorf("must specify at least one output " +
 			"to create")
 	}
@@ -621,7 +627,8 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 
 	// Then, we'll extract the minimum number of confirmations that each
 	// output we use to fund the transaction should satisfy.
-	minConfs, err := lnrpc.ExtractMinConfs(req.MinConfs, req.SpendUnconfirmed)
+	minConfs, err := lnrpc.ExtractMinConfs(req.MinConfs,
+		req.SpendUnconfirmed)
 	if err != nil {
 		return nil, err
 	}
@@ -634,7 +641,8 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 	// Now that we have the outputs mapped, we can request that the wallet
 	// attempt to create this transaction.
 	tx, err := w.cfg.Wallet.SendOutputs(
-		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw), minConfs, label,
+		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw), minConfs,
+		label,
 	)
 	if err != nil {
 		return nil, err
@@ -645,7 +653,7 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 		return nil, err
 	}
 
-	return &SendOutputsResponse{
+	return &walletrpc.SendOutputsResponse{
 		RawTx: b.Bytes(),
 	}, nil
 }
@@ -654,12 +662,12 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 // determine the fee (in sat/kw) to attach to a transaction in order to achieve
 // the confirmation target.
 func (w *WalletKit) EstimateFee(ctx context.Context,
-	req *EstimateFeeRequest) (*EstimateFeeResponse, error) {
+	req *walletrpc.EstimateFeeRequest) (*walletrpc.EstimateFeeResponse,
+	error) {
 
-	switch {
 	// A confirmation target of zero doesn't make any sense. Similarly, we
 	// reject confirmation targets of 1 as they're unreasonable.
-	case req.ConfTarget == 0 || req.ConfTarget == 1:
+	if req.ConfTarget == 0 || req.ConfTarget == 1 {
 		return nil, fmt.Errorf("confirmation target must be greater " +
 			"than 1")
 	}
@@ -671,7 +679,7 @@ func (w *WalletKit) EstimateFee(ctx context.Context,
 		return nil, err
 	}
 
-	return &EstimateFeeResponse{
+	return &walletrpc.EstimateFeeResponse{
 		SatPerKw: int64(satPerKw),
 	}, nil
 }
@@ -682,7 +690,8 @@ func (w *WalletKit) EstimateFee(ctx context.Context,
 // transaction. The fee rate of each sweeping transaction is determined by
 // taking the average fee rate of all the outputs it's trying to sweep.
 func (w *WalletKit) PendingSweeps(ctx context.Context,
-	in *PendingSweepsRequest) (*PendingSweepsResponse, error) {
+	in *walletrpc.PendingSweepsRequest) (*walletrpc.PendingSweepsResponse,
+	error) {
 
 	// Retrieve all of the outputs the UtxoSweeper is currently trying to
 	// sweep.
@@ -692,36 +701,37 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 	}
 
 	// Convert them into their respective RPC format.
-	rpcPendingSweeps := make([]*PendingSweep, 0, len(pendingInputs))
+	rpcPendingSweeps := make([]*walletrpc.PendingSweep, 0,
+		len(pendingInputs))
 	for _, pendingInput := range pendingInputs {
-		var witnessType WitnessType
+		var witnessType walletrpc.WitnessType
 		switch pendingInput.WitnessType {
 		case input.CommitmentTimeLock:
-			witnessType = WitnessType_COMMITMENT_TIME_LOCK
+			witnessType = walletrpc.WitnessType_COMMITMENT_TIME_LOCK
 		case input.CommitmentNoDelay:
-			witnessType = WitnessType_COMMITMENT_NO_DELAY
+			witnessType = walletrpc.WitnessType_COMMITMENT_NO_DELAY
 		case input.CommitmentRevoke:
-			witnessType = WitnessType_COMMITMENT_REVOKE
+			witnessType = walletrpc.WitnessType_COMMITMENT_REVOKE
 		case input.HtlcOfferedRevoke:
-			witnessType = WitnessType_HTLC_OFFERED_REVOKE
+			witnessType = walletrpc.WitnessType_HTLC_OFFERED_REVOKE
 		case input.HtlcAcceptedRevoke:
-			witnessType = WitnessType_HTLC_ACCEPTED_REVOKE
+			witnessType = walletrpc.WitnessType_HTLC_ACCEPTED_REVOKE
 		case input.HtlcOfferedTimeoutSecondLevel:
-			witnessType = WitnessType_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL
+			witnessType = walletrpc.WitnessType_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL
 		case input.HtlcAcceptedSuccessSecondLevel:
-			witnessType = WitnessType_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL
+			witnessType = walletrpc.WitnessType_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL
 		case input.HtlcOfferedRemoteTimeout:
-			witnessType = WitnessType_HTLC_OFFERED_REMOTE_TIMEOUT
+			witnessType = walletrpc.WitnessType_HTLC_OFFERED_REMOTE_TIMEOUT
 		case input.HtlcAcceptedRemoteSuccess:
-			witnessType = WitnessType_HTLC_ACCEPTED_REMOTE_SUCCESS
+			witnessType = walletrpc.WitnessType_HTLC_ACCEPTED_REMOTE_SUCCESS
 		case input.HtlcSecondLevelRevoke:
-			witnessType = WitnessType_HTLC_SECOND_LEVEL_REVOKE
+			witnessType = walletrpc.WitnessType_HTLC_SECOND_LEVEL_REVOKE
 		case input.WitnessKeyHash:
-			witnessType = WitnessType_WITNESS_KEY_HASH
+			witnessType = walletrpc.WitnessType_WITNESS_KEY_HASH
 		case input.NestedWitnessKeyHash:
-			witnessType = WitnessType_NESTED_WITNESS_KEY_HASH
+			witnessType = walletrpc.WitnessType_NESTED_WITNESS_KEY_HASH
 		case input.CommitmentAnchor:
-			witnessType = WitnessType_COMMITMENT_ANCHOR
+			witnessType = walletrpc.WitnessType_COMMITMENT_ANCHOR
 		default:
 			log.Warnf("Unhandled witness type %v for input %v",
 				pendingInput.WitnessType, pendingInput.OutPoint)
@@ -734,25 +744,26 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 		amountSat := uint32(pendingInput.Amount)
 		satPerVbyte := uint64(pendingInput.LastFeeRate.FeePerKVByte() / 1000)
 		broadcastAttempts := uint32(pendingInput.BroadcastAttempts)
-		nextBroadcastHeight := uint32(pendingInput.NextBroadcastHeight)
+		nextBroadcastHeight := pendingInput.NextBroadcastHeight
 
 		requestedFee := pendingInput.Params.Fee
 		requestedFeeRate := uint64(requestedFee.FeeRate.FeePerKVByte() / 1000)
 
-		rpcPendingSweeps = append(rpcPendingSweeps, &PendingSweep{
-			Outpoint:             op,
-			WitnessType:          witnessType,
-			AmountSat:            amountSat,
-			SatPerVbyte:          satPerVbyte,
-			BroadcastAttempts:    broadcastAttempts,
-			NextBroadcastHeight:  nextBroadcastHeight,
-			RequestedSatPerVbyte: requestedFeeRate,
-			RequestedConfTarget:  requestedFee.ConfTarget,
-			Force:                pendingInput.Params.Force,
-		})
+		rpcPendingSweeps = append(rpcPendingSweeps,
+			&walletrpc.PendingSweep{
+				Outpoint:             op,
+				WitnessType:          witnessType,
+				AmountSat:            amountSat,
+				SatPerVbyte:          satPerVbyte,
+				BroadcastAttempts:    broadcastAttempts,
+				NextBroadcastHeight:  nextBroadcastHeight,
+				RequestedSatPerVbyte: requestedFeeRate,
+				RequestedConfTarget:  requestedFee.ConfTarget,
+				Force:                pendingInput.Params.Force,
+			})
 	}
 
-	return &PendingSweepsResponse{
+	return &walletrpc.PendingSweepsResponse{
 		PendingSweeps: rpcPendingSweeps,
 	}, nil
 }
@@ -798,7 +809,7 @@ func unmarshallOutPoint(op *lnrpc.OutPoint) (*wire.OutPoint, error) {
 // explicitly specified, then an error is returned. The status of the input
 // sweep can be checked through the PendingSweeps RPC.
 func (w *WalletKit) BumpFee(ctx context.Context,
-	in *BumpFeeRequest) (*BumpFeeResponse, error) {
+	in *walletrpc.BumpFeeRequest) (*walletrpc.BumpFeeResponse, error) {
 
 	// Parse the outpoint from the request.
 	op, err := unmarshallOutPoint(in.Outpoint)
@@ -820,7 +831,7 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 		).FeePerKWeight()
 	}
 	feePreference := sweep.FeePreference{
-		ConfTarget: uint32(in.TargetConf),
+		ConfTarget: in.TargetConf,
 		FeeRate:    satPerKw,
 	}
 
@@ -837,7 +848,7 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	_, err = w.cfg.Sweeper.UpdateParams(*op, params)
 	switch err {
 	case nil:
-		return &BumpFeeResponse{}, nil
+		return &walletrpc.BumpFeeResponse{}, nil
 	case lnwallet.ErrNotMine:
 		break
 	default:
@@ -894,18 +905,20 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 			err)
 	}
 
-	inp := input.NewBaseInput(op, witnessType, signDesc, uint32(currentHeight))
+	inp := input.NewBaseInput(op, witnessType, signDesc,
+		uint32(currentHeight))
 	sweepParams := sweep.Params{Fee: feePreference}
 	if _, err = w.cfg.Sweeper.SweepInput(inp, sweepParams); err != nil {
 		return nil, err
 	}
 
-	return &BumpFeeResponse{}, nil
+	return &walletrpc.BumpFeeResponse{}, nil
 }
 
 // ListSweeps returns a list of the sweeps that our node has published.
 func (w *WalletKit) ListSweeps(ctx context.Context,
-	in *ListSweepsRequest) (*ListSweepsResponse, error) {
+	in *walletrpc.ListSweepsRequest) (*walletrpc.ListSweepsResponse,
+	error) {
 
 	sweeps, err := w.cfg.Sweeper.ListSweeps()
 	if err != nil {
@@ -950,8 +963,8 @@ func (w *WalletKit) ListSweeps(ctx context.Context,
 	}
 
 	if in.Verbose {
-		return &ListSweepsResponse{
-			Sweeps: &ListSweepsResponse_TransactionDetails{
+		return &walletrpc.ListSweepsResponse{
+			Sweeps: &walletrpc.ListSweepsResponse_TransactionDetails{
 				TransactionDetails: lnrpc.RPCTransactionDetails(
 					txDetails,
 				),
@@ -959,9 +972,9 @@ func (w *WalletKit) ListSweeps(ctx context.Context,
 		}, nil
 	}
 
-	return &ListSweepsResponse{
-		Sweeps: &ListSweepsResponse_TransactionIds{
-			TransactionIds: &ListSweepsResponse_TransactionIDs{
+	return &walletrpc.ListSweepsResponse{
+		Sweeps: &walletrpc.ListSweepsResponse_TransactionIds{
+			TransactionIds: &walletrpc.ListSweepsResponse_TransactionIDs{
 				TransactionIds: txids,
 			},
 		},
@@ -970,7 +983,8 @@ func (w *WalletKit) ListSweeps(ctx context.Context,
 
 // LabelTransaction adds a label to a transaction.
 func (w *WalletKit) LabelTransaction(ctx context.Context,
-	req *LabelTransactionRequest) (*LabelTransactionResponse, error) {
+	req *walletrpc.LabelTransactionRequest) (*walletrpc.LabelTransactionResponse,
+	error) {
 
 	// Check that the label provided in non-zero.
 	if len(req.Label) == 0 {
@@ -990,7 +1004,7 @@ func (w *WalletKit) LabelTransaction(ctx context.Context,
 	}
 
 	err = w.cfg.Wallet.LabelTransaction(*hash, req.Label, req.Overwrite)
-	return &LabelTransactionResponse{}, err
+	return &walletrpc.LabelTransactionResponse{}, err
 }
 
 // FundPsbt creates a fully populated PSBT that contains enough inputs to fund
@@ -1009,7 +1023,7 @@ func (w *WalletKit) LabelTransaction(ctx context.Context,
 // publishing the transaction) or to unlock/release the locked UTXOs in case of
 // an error on the caller's side.
 func (w *WalletKit) FundPsbt(_ context.Context,
-	req *FundPsbtRequest) (*FundPsbtResponse, error) {
+	req *walletrpc.FundPsbtRequest) (*walletrpc.FundPsbtResponse, error) {
 
 	var (
 		err         error
@@ -1193,7 +1207,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 	// Convert the lock leases to the RPC format.
 	rpcLocks := marshallLeases(locks)
 
-	return &FundPsbtResponse{
+	return &walletrpc.FundPsbtResponse{
 		FundedPsbt:        rawPsbt.Bytes(),
 		ChangeOutputIndex: changeIndex,
 		LockedUtxos:       rpcLocks,
@@ -1201,12 +1215,12 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 }
 
 // marshallLeases converts the lock leases to the RPC format.
-func marshallLeases(locks []*base.ListLeasedOutputResult) []*UtxoLease {
-	rpcLocks := make([]*UtxoLease, len(locks))
+func marshallLeases(locks []*base.ListLeasedOutputResult) []*walletrpc.UtxoLease {
+	rpcLocks := make([]*walletrpc.UtxoLease, len(locks))
 	for idx, lock := range locks {
 		lock := lock
 
-		rpcLocks[idx] = &UtxoLease{
+		rpcLocks[idx] = &walletrpc.UtxoLease{
 			Id: lock.LockID[:],
 			Outpoint: &lnrpc.OutPoint{
 				TxidBytes:   lock.Outpoint.Hash[:],
@@ -1233,8 +1247,8 @@ func marshallLeases(locks []*base.ListLeasedOutputResult) []*UtxoLease {
 // perform any other tasks (such as coin selection, UTXO locking or
 // input/output/fee value validation, PSBT finalization). Any input that is
 // incomplete will be skipped.
-func (w *WalletKit) SignPsbt(_ context.Context, req *SignPsbtRequest) (
-	*SignPsbtResponse, error) {
+func (w *WalletKit) SignPsbt(_ context.Context,
+	req *walletrpc.SignPsbtRequest) (*walletrpc.SignPsbtResponse, error) {
 
 	packet, err := psbt.NewFromRawBytes(
 		bytes.NewReader(req.FundedPsbt), false,
@@ -1273,7 +1287,7 @@ func (w *WalletKit) SignPsbt(_ context.Context, req *SignPsbtRequest) (
 		return nil, fmt.Errorf("error serializing PSBT: %v", err)
 	}
 
-	return &SignPsbtResponse{
+	return &walletrpc.SignPsbtResponse{
 		SignedPsbt: signedPsbtBytes.Bytes(),
 	}, nil
 }
@@ -1290,7 +1304,8 @@ func (w *WalletKit) SignPsbt(_ context.Context, req *SignPsbtRequest) (
 // caller's responsibility to either publish the transaction on success or
 // unlock/release any locked UTXOs in case of an error in this method.
 func (w *WalletKit) FinalizePsbt(_ context.Context,
-	req *FinalizePsbtRequest) (*FinalizePsbtResponse, error) {
+	req *walletrpc.FinalizePsbtRequest) (*walletrpc.FinalizePsbtResponse,
+	error) {
 
 	// We'll assume the PSBT was funded by the default account unless
 	// otherwise specified.
@@ -1340,7 +1355,7 @@ func (w *WalletKit) FinalizePsbt(_ context.Context,
 		return nil, fmt.Errorf("error serializing final TX: %v", err)
 	}
 
-	return &FinalizePsbtResponse{
+	return &walletrpc.FinalizePsbtResponse{
 		SignedPsbt: finalPsbtBytes.Bytes(),
 		RawFinalTx: finalTxBytes.Bytes(),
 	}, nil
@@ -1349,24 +1364,24 @@ func (w *WalletKit) FinalizePsbt(_ context.Context,
 // marshalWalletAccount converts the properties of an account into its RPC
 // representation.
 func marshalWalletAccount(internalScope waddrmgr.KeyScope,
-	account *waddrmgr.AccountProperties) (*Account, error) {
+	account *waddrmgr.AccountProperties) (*walletrpc.Account, error) {
 
-	var addrType AddressType
+	var addrType walletrpc.AddressType
 	switch account.KeyScope {
 	case waddrmgr.KeyScopeBIP0049Plus:
 		// No address schema present represents the traditional BIP-0049
 		// address derivation scheme.
 		if account.AddrSchema == nil {
-			addrType = AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH
+			addrType = walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH
 			break
 		}
 
 		switch *account.AddrSchema {
 		case waddrmgr.KeyScopeBIP0049AddrSchema:
-			addrType = AddressType_NESTED_WITNESS_PUBKEY_HASH
+			addrType = walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH
 
 		case waddrmgr.ScopeAddrMap[waddrmgr.KeyScopeBIP0049Plus]:
-			addrType = AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH
+			addrType = walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH
 
 		default:
 			return nil, fmt.Errorf("unsupported address schema %v",
@@ -1374,20 +1389,20 @@ func marshalWalletAccount(internalScope waddrmgr.KeyScope,
 		}
 
 	case waddrmgr.KeyScopeBIP0084:
-		addrType = AddressType_WITNESS_PUBKEY_HASH
+		addrType = walletrpc.AddressType_WITNESS_PUBKEY_HASH
 
 	case waddrmgr.KeyScopeBIP0086:
-		addrType = AddressType_TAPROOT_PUBKEY
+		addrType = walletrpc.AddressType_TAPROOT_PUBKEY
 
 	case internalScope:
-		addrType = AddressType_WITNESS_PUBKEY_HASH
+		addrType = walletrpc.AddressType_WITNESS_PUBKEY_HASH
 
 	default:
 		return nil, fmt.Errorf("account %v has unsupported "+
 			"key scope %v", account.AccountName, account.KeyScope)
 	}
 
-	rpcAccount := &Account{
+	rpcAccount := &walletrpc.Account{
 		Name:             account.AccountName,
 		AddressType:      addrType,
 		ExternalKeyCount: account.ExternalKeyCount,
@@ -1419,30 +1434,32 @@ func marshalWalletAccount(internalScope waddrmgr.KeyScope,
 // name and key scope filter can be provided to filter through all of the wallet
 // accounts and return only those matching.
 func (w *WalletKit) ListAccounts(ctx context.Context,
-	req *ListAccountsRequest) (*ListAccountsResponse, error) {
+	req *walletrpc.ListAccountsRequest) (*walletrpc.ListAccountsResponse,
+	error) {
 
 	// Map the supported address types into their corresponding key scope.
 	var keyScopeFilter *waddrmgr.KeyScope
 	switch req.AddressType {
-	case AddressType_UNKNOWN:
+	case walletrpc.AddressType_UNKNOWN:
 		break
 
-	case AddressType_WITNESS_PUBKEY_HASH:
+	case walletrpc.AddressType_WITNESS_PUBKEY_HASH:
 		keyScope := waddrmgr.KeyScopeBIP0084
 		keyScopeFilter = &keyScope
 
-	case AddressType_NESTED_WITNESS_PUBKEY_HASH,
-		AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
+	case walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH,
+		walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 
 		keyScope := waddrmgr.KeyScopeBIP0049Plus
 		keyScopeFilter = &keyScope
 
-	case AddressType_TAPROOT_PUBKEY:
+	case walletrpc.AddressType_TAPROOT_PUBKEY:
 		keyScope := waddrmgr.KeyScopeBIP0086
 		keyScopeFilter = &keyScope
 
 	default:
-		return nil, fmt.Errorf("unhandled address type %v", req.AddressType)
+		return nil, fmt.Errorf("unhandled address type %v",
+			req.AddressType)
 	}
 
 	accounts, err := w.cfg.Wallet.ListAccounts(req.Name, keyScopeFilter)
@@ -1450,7 +1467,7 @@ func (w *WalletKit) ListAccounts(ctx context.Context,
 		return nil, err
 	}
 
-	rpcAccounts := make([]*Account, 0, len(accounts))
+	rpcAccounts := make([]*walletrpc.Account, 0, len(accounts))
 	for _, account := range accounts {
 		// Don't include the default imported accounts created by the
 		// wallet in the response if they don't have any keys imported.
@@ -1469,7 +1486,7 @@ func (w *WalletKit) ListAccounts(ctx context.Context,
 		rpcAccounts = append(rpcAccounts, rpcAccount)
 	}
 
-	return &ListAccountsResponse{Accounts: rpcAccounts}, nil
+	return &walletrpc.ListAccountsResponse{Accounts: rpcAccounts}, nil
 }
 
 // RequiredReserve returns the minimum amount of satoshis that should be
@@ -1477,7 +1494,8 @@ func (w *WalletKit) ListAccounts(ctx context.Context,
 // The value scales with the number of public anchor channels but is
 // capped at a maximum.
 func (w *WalletKit) RequiredReserve(ctx context.Context,
-	req *RequiredReserveRequest) (*RequiredReserveResponse, error) {
+	req *walletrpc.RequiredReserveRequest) (*walletrpc.RequiredReserveResponse,
+	error) {
 
 	numAnchorChans, err := w.cfg.CurrentNumAnchorChans()
 	if err != nil {
@@ -1488,36 +1506,36 @@ func (w *WalletKit) RequiredReserve(ctx context.Context,
 	totalChans := uint32(numAnchorChans) + additionalChans
 	reserved := w.cfg.Wallet.RequiredReserve(totalChans)
 
-	return &RequiredReserveResponse{
+	return &walletrpc.RequiredReserveResponse{
 		RequiredReserve: int64(reserved),
 	}, nil
 }
 
 // parseAddrType parses an address type from its RPC representation to a
 // *waddrmgr.AddressType.
-func parseAddrType(addrType AddressType,
+func parseAddrType(addrType walletrpc.AddressType,
 	required bool) (*waddrmgr.AddressType, error) {
 
 	switch addrType {
-	case AddressType_UNKNOWN:
+	case walletrpc.AddressType_UNKNOWN:
 		if required {
 			return nil, errors.New("an address type must be specified")
 		}
 		return nil, nil
 
-	case AddressType_WITNESS_PUBKEY_HASH:
+	case walletrpc.AddressType_WITNESS_PUBKEY_HASH:
 		addrTyp := waddrmgr.WitnessPubKey
 		return &addrTyp, nil
 
-	case AddressType_NESTED_WITNESS_PUBKEY_HASH:
+	case walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH:
 		addrTyp := waddrmgr.NestedWitnessPubKey
 		return &addrTyp, nil
 
-	case AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
+	case walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 		addrTyp := waddrmgr.WitnessPubKey
 		return &addrTyp, nil
 
-	case AddressType_TAPROOT_PUBKEY:
+	case walletrpc.AddressType_TAPROOT_PUBKEY:
 		addrTyp := waddrmgr.TaprootPubKey
 		return &addrTyp, nil
 
@@ -1546,7 +1564,8 @@ func parseAddrType(addrType AddressType,
 // pubkeys everywhere) and our own BIP-0049Plus address schema (nested pubkeys
 // externally, witness pubkeys internally).
 func (w *WalletKit) ImportAccount(ctx context.Context,
-	req *ImportAccountRequest) (*ImportAccountResponse, error) {
+	req *walletrpc.ImportAccountRequest) (*walletrpc.ImportAccountResponse,
+	error) {
 
 	accountPubKey, err := hdkeychain.NewKeyFromString(req.ExtendedPublicKey)
 	if err != nil {
@@ -1583,7 +1602,7 @@ func (w *WalletKit) ImportAccount(ctx context.Context,
 		return nil, err
 	}
 
-	resp := &ImportAccountResponse{Account: rpcAccount}
+	resp := &walletrpc.ImportAccountResponse{Account: rpcAccount}
 	if !req.DryRun {
 		return resp, nil
 	}
@@ -1606,7 +1625,8 @@ func (w *WalletKit) ImportAccount(ctx context.Context,
 // intend to not support importing BIP-44 keys into the wallet using the legacy
 // pay-to-pubkey-hash (P2PKH) scheme.
 func (w *WalletKit) ImportPublicKey(ctx context.Context,
-	req *ImportPublicKeyRequest) (*ImportPublicKeyResponse, error) {
+	req *walletrpc.ImportPublicKeyRequest) (*walletrpc.ImportPublicKeyResponse,
+	error) {
 
 	pubKey, err := btcec.ParsePubKey(req.PublicKey)
 	if err != nil {
@@ -1621,5 +1641,5 @@ func (w *WalletKit) ImportPublicKey(ctx context.Context,
 		return nil, err
 	}
 
-	return &ImportPublicKeyResponse{}, nil
+	return &walletrpc.ImportPublicKeyResponse{}, nil
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/rpcservers/wallet"
 	"github.com/stretchr/testify/require"
 )
 
@@ -177,7 +178,7 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 			)
 			require.NoError(t.t, err)
 
-			watchOnlyAccounts, err = walletrpc.AccountsToWatchOnly(
+			watchOnlyAccounts, err = wallet.AccountsToWatchOnly(
 				rpcAccts.Accounts,
 			)
 			require.NoError(t.t, err)

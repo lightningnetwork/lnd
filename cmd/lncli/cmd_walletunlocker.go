@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/rpcservers/wallet"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
 )
@@ -733,7 +734,7 @@ func createWatchOnly(ctx *cli.Context) error {
 		return err
 	}
 
-	rpcAccounts, err := walletrpc.AccountsToWatchOnly(jsonAccts.Accounts)
+	rpcAccounts, err := wallet.AccountsToWatchOnly(jsonAccts.Accounts)
 	if err != nil {
 		return err
 	}

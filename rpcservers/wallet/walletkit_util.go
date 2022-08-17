@@ -1,4 +1,4 @@
-package walletrpc
+package wallet
 
 import (
 	"fmt"
@@ -6,12 +6,13 @@ import (
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 )
 
 // AccountsToWatchOnly converts the accounts returned by the walletkit's
 // ListAccounts RPC into a struct that can be used to create a watch-only
 // wallet.
-func AccountsToWatchOnly(exported []*Account) ([]*lnrpc.WatchOnlyAccount,
+func AccountsToWatchOnly(exported []*walletrpc.Account) ([]*lnrpc.WatchOnlyAccount,
 	error) {
 
 	result := make([]*lnrpc.WatchOnlyAccount, len(exported))

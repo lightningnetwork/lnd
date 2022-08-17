@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/rpcservers/wallet"
 	"github.com/stretchr/testify/require"
 )
 
@@ -674,7 +675,7 @@ func runSignPsbtSegWitV0P2WKH(t *harnessTest, net *lntest.NetworkHarness,
 
 	// We also need to parse the accounts, so we have easy access to the
 	// parsed derivation paths.
-	parsedAccounts, err := walletrpc.AccountsToWatchOnly(accounts.Accounts)
+	parsedAccounts, err := wallet.AccountsToWatchOnly(accounts.Accounts)
 	require.NoError(t.t, err)
 
 	account := parsedAccounts[0]
@@ -764,7 +765,7 @@ func runSignPsbtSegWitV0NP2WKH(t *harnessTest, net *lntest.NetworkHarness,
 
 	// We also need to parse the accounts, so we have easy access to the
 	// parsed derivation paths.
-	parsedAccounts, err := walletrpc.AccountsToWatchOnly(accounts.Accounts)
+	parsedAccounts, err := wallet.AccountsToWatchOnly(accounts.Accounts)
 	require.NoError(t.t, err)
 
 	account := parsedAccounts[0]

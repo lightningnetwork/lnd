@@ -69,6 +69,7 @@ import (
 	"github.com/lightningnetwork/lnd/rpcperms"
 	invoicesrpc "github.com/lightningnetwork/lnd/rpcservers/invoices"
 	routerrpc "github.com/lightningnetwork/lnd/rpcservers/router"
+	"github.com/lightningnetwork/lnd/rpcservers/wallet"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/watchtower"
@@ -2259,7 +2260,7 @@ func (r *rpcServer) BatchOpenChannel(ctx context.Context,
 	// make this functionality dependent on that server being active.
 	var walletKitServer walletrpc.WalletKitServer
 	for _, subServer := range r.subServers {
-		if subServer.Name() == walletrpc.SubServerName {
+		if subServer.Name() == wallet.SubServerName {
 			walletKitServer = subServer.(walletrpc.WalletKitServer)
 		}
 	}

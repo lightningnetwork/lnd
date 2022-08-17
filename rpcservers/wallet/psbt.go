@@ -1,7 +1,7 @@
 //go:build walletrpc
 // +build walletrpc
 
-package walletrpc
+package wallet
 
 import (
 	"fmt"

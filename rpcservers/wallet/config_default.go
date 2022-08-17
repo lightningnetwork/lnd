@@ -1,7 +1,7 @@
 //go:build !walletrpc
 // +build !walletrpc
 
-package walletrpc
+package wallet
 
 const (
 	// SubServerName is the name of the sub rpc server. We'll use this name

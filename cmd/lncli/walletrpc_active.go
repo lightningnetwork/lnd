@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/rpcservers/wallet"
 	"github.com/urfave/cli"
 )
 
@@ -980,7 +981,7 @@ func releaseOutput(ctx *cli.Context) error {
 		return fmt.Errorf("error parsing outpoint: %v", err)
 	}
 
-	lockID := walletrpc.LndInternalLockID[:]
+	lockID := wallet.LndInternalLockID[:]
 	lockIDStr := ctx.String("lockid")
 	if lockIDStr != "" {
 		var err error

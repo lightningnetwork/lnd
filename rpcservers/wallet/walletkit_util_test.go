@@ -1,4 +1,4 @@
-package walletrpc
+package wallet
 
 import (
 	"testing"

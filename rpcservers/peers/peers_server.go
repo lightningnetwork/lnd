@@ -1,7 +1,7 @@
 //go:build peersrpc
 // +build peersrpc
 
-package peersrpc
+package peers
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"google.golang.org/grpc"
@@ -41,7 +42,7 @@ var (
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
 type ServerShell struct {
-	PeersServer
+	peersrpc.PeersServer
 }
 
 // Server is a sub-server of the main RPC server: the peers RPC. This sub
@@ -53,14 +54,14 @@ type Server struct {
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	// Must be after the atomically used variables to not break struct
 	// alignment.
-	UnimplementedPeersServer
+	peersrpc.UnimplementedPeersServer
 
 	cfg *Config
 }
 
 // A compile time check to ensure that Server fully implements the PeersServer
 // gRPC service.
-var _ PeersServer = (*Server)(nil)
+var _ peersrpc.PeersServer = (*Server)(nil)
 
 // New returns a new instance of the peersrpc Peers sub-server. We also
 // return the set of permissions for the macaroons that we may create within
@@ -114,7 +115,7 @@ func (s *Server) Name() string {
 func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterPeersServer(grpcServer, r)
+	peersrpc.RegisterPeersServer(grpcServer, r)
 
 	log.Debugf("Peers RPC server successfully register with root " +
 		"gRPC server")
@@ -132,7 +133,7 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 
 	// We make sure that we register it with the main REST server to ensure
 	// all our methods are routed properly.
-	err := RegisterPeersHandlerFromEndpoint(ctx, mux, dest, opts)
+	err := peersrpc.RegisterPeersHandlerFromEndpoint(ctx, mux, dest, opts)
 	if err != nil {
 		log.Errorf("Could not register Peers REST server "+
 			"with root REST server: %v", err)
@@ -166,7 +167,8 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 // updateAddresses computes the new address set after executing the update
 // actions.
 func (s *Server) updateAddresses(currentAddresses []net.Addr,
-	updates []*UpdateAddressAction) ([]net.Addr, *lnrpc.Op, error) {
+	updates []*peersrpc.UpdateAddressAction) ([]net.Addr, *lnrpc.Op,
+	error) {
 
 	// net.Addr is not comparable so we cannot use the default map
 	// (map[net.Addr]struct{}) so we have to use arrays and a helping
@@ -195,9 +197,9 @@ func (s *Server) updateAddresses(currentAddresses []net.Addr,
 		}
 
 		switch update.Action {
-		case UpdateAction_ADD:
+		case peersrpc.UpdateAction_ADD:
 			addAddr = append(addAddr, addr)
-		case UpdateAction_REMOVE:
+		case peersrpc.UpdateAction_REMOVE:
 			removeAddr = append(removeAddr, addr)
 		default:
 			return nil, nil, fmt.Errorf("invalid address update "+
@@ -245,7 +247,7 @@ func (s *Server) updateAddresses(currentAddresses []net.Addr,
 // updateFeatures computes the new raw SetNodeAnn after executing the update
 // actions.
 func (s *Server) updateFeatures(currentfeatures *lnwire.RawFeatureVector,
-	updates []*UpdateFeatureAction) (*lnwire.RawFeatureVector,
+	updates []*peersrpc.UpdateFeatureAction) (*lnwire.RawFeatureVector,
 	*lnrpc.Op, error) {
 
 	ops := &lnrpc.Op{Entity: "features"}
@@ -255,7 +257,7 @@ func (s *Server) updateFeatures(currentfeatures *lnwire.RawFeatureVector,
 		bit := lnwire.FeatureBit(update.FeatureBit)
 
 		switch update.Action {
-		case UpdateAction_ADD:
+		case peersrpc.UpdateAction_ADD:
 			if raw.IsSet(bit) {
 				return nil, nil, fmt.Errorf(
 					"invalid add action for bit %v, "+
@@ -269,7 +271,7 @@ func (s *Server) updateFeatures(currentfeatures *lnwire.RawFeatureVector,
 				fmt.Sprintf("%s set", lnwire.Features[bit]),
 			)
 
-		case UpdateAction_REMOVE:
+		case peersrpc.UpdateAction_REMOVE:
 			if !raw.IsSet(bit) {
 				return nil, nil, fmt.Errorf(
 					"invalid remove action for bit %v, "+
@@ -307,10 +309,10 @@ func (s *Server) updateFeatures(currentfeatures *lnwire.RawFeatureVector,
 // UpdateNodeAnnouncement allows the caller to update the node parameters
 // and broadcasts a new version of the node announcement to its peers.
 func (s *Server) UpdateNodeAnnouncement(_ context.Context,
-	req *NodeAnnouncementUpdateRequest) (
-	*NodeAnnouncementUpdateResponse, error) {
+	req *peersrpc.NodeAnnouncementUpdateRequest) (*peersrpc.NodeAnnouncementUpdateResponse,
+	error) {
 
-	resp := &NodeAnnouncementUpdateResponse{}
+	resp := &peersrpc.NodeAnnouncementUpdateResponse{}
 	nodeModifiers := make([]netann.NodeAnnModifier, 0)
 
 	currentNodeAnn, err := s.cfg.GetNodeAnnouncement()

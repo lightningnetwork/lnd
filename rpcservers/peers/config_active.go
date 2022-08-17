@@ -1,7 +1,7 @@
 //go:build peersrpc
 // +build peersrpc
 
-package peersrpc
+package peers
 
 import (
 	"net"

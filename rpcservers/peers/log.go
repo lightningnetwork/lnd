@@ -1,4 +1,4 @@
-package peersrpc
+package peers
 
 import (
 	"github.com/btcsuite/btclog"

@@ -1,7 +1,7 @@
 //go:build chainrpc
 // +build chainrpc
 
-package chainrpc
+package chain
 
 import (
 	"github.com/lightningnetwork/lnd/chainntnfs"

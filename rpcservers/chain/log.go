@@ -1,4 +1,4 @@
-package chainrpc
+package chain
 
 import (
 	"github.com/btcsuite/btclog"

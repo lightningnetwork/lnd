@@ -10,6 +10,43 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
+const (
+	// capacityCutoffFraction and capacitySmearingFraction define how
+	// capacity-related probability reweighting works.
+	// capacityCutoffFraction defines the fraction of the channel capacity
+	// at which the effect roughly sets in and capacitySmearingFraction
+	// defines over which range the factor changes from 1 to 0.
+	//
+	// We may fall below the minimum required probability
+	// (DefaultMinRouteProbability) when the amount comes close to the
+	// available capacity of a single channel of the route in case of no
+	// prior knowledge about the channels. We want such routes still to be
+	// available and therefore a probability reduction should not completely
+	// drop the total probability below DefaultMinRouteProbability.
+	// For this to hold for a three-hop route we require:
+	// (DefaultAprioriHopProbability)^3 * minCapacityFactor >
+	//      DefaultMinRouteProbability
+	//
+	// For DefaultAprioriHopProbability = 0.6 and
+	// DefaultMinRouteProbability = 0.01 this results in
+	// minCapacityFactor ~ 0.05. The following combination of parameters
+	// fulfill the requirement with capacityFactor(cap, cap) ~ 0.076 (see
+	// tests).
+
+	// The capacityCutoffFraction is a trade-off between usage of the
+	// provided capacity and expected probability reduction when we send the
+	// full amount. The success probability in the random balance model can
+	// be approximated with P(a) = 1 - a/c, for amount a and capacity c. If
+	// we require a probability P(a) > 0.25, this translates into a value of
+	// 0.75 for a/c.
+	capacityCutoffFraction = 0.75
+
+	// We don't want to have a sharp drop of the capacity factor to zero at
+	// capacityCutoffFraction, but a smooth smearing such that some residual
+	// probability is left when spending the whole amount, see above.
+	capacitySmearingFraction = 0.1
+)
+
 var (
 	// ErrInvalidHalflife is returned when we get an invalid half life.
 	ErrInvalidHalflife = errors.New("penalty half life must be >= 0")
@@ -75,18 +112,23 @@ type probabilityEstimator struct {
 // that have not been tried before. The results parameter is a list of last
 // payment results for that node.
 func (p *probabilityEstimator) getNodeProbability(now time.Time,
-	results NodeResults, amt lnwire.MilliSatoshi) float64 {
+	results NodeResults, amt lnwire.MilliSatoshi,
+	capacity btcutil.Amount) float64 {
+
+	// We reduce the apriori hop probability if the amount comes close to
+	// the capacity.
+	apriori := p.AprioriHopProbability * capacityFactor(amt, capacity)
 
 	// If the channel history is not to be taken into account, we can return
 	// early here with the configured a priori probability.
 	if p.AprioriWeight == 1 {
-		return p.AprioriHopProbability
+		return apriori
 	}
 
 	// If there is no channel history, our best estimate is still the a
 	// priori probability.
 	if len(results) == 0 {
-		return p.AprioriHopProbability
+		return apriori
 	}
 
 	// The value of the apriori weight is in the range [0, 1]. Convert it to
@@ -114,7 +156,7 @@ func (p *probabilityEstimator) getNodeProbability(now time.Time,
 	// effectively prunes all channels of the node forever. This is the most
 	// aggressive way in which we can penalize nodes and unlikely to yield
 	// good results in a real network.
-	probabilitiesTotal := p.AprioriHopProbability * aprioriFactor
+	probabilitiesTotal := apriori * aprioriFactor
 	totalWeight := aprioriFactor
 
 	for _, result := range results {
@@ -147,6 +189,36 @@ func (p *probabilityEstimator) getWeight(age time.Duration) float64 {
 	return math.Pow(2, exp)
 }
 
+// capacityFactor is a multiplier that can be used to reduce the probability
+// depending on how much of the capacity is sent. The limits are 1 for amt == 0
+// and 0 for amt >> cutoffMsat. The function drops significantly when amt
+// reaches cutoffMsat. smearingMsat determines over which scale the reduction
+// takes place.
+func capacityFactor(amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
+	// If we don't have information about the capacity, which can be the
+	// case for hop hints or local channels, we return unity to not alter
+	// anything.
+	if capacity == 0 {
+		return 1.0
+	}
+
+	capMsat := float64(lnwire.NewMSatFromSatoshis(capacity))
+	amtMsat := float64(amt)
+
+	if amtMsat > capMsat {
+		return 0
+	}
+
+	cutoffMsat := capacityCutoffFraction * capMsat
+	smearingMsat := capacitySmearingFraction * capMsat
+
+	// We compute a logistic function mirrored around the y axis, centered
+	// at cutoffMsat, decaying over the smearingMsat scale.
+	denominator := 1 + math.Exp(-(amtMsat-cutoffMsat)/smearingMsat)
+
+	return 1 - 1/denominator
+}
+
 // getPairProbability estimates the probability of successfully traversing to
 // toNode based on historical payment outcomes for the from node. Those outcomes
 // are passed in via the results parameter.
@@ -154,7 +226,7 @@ func (p *probabilityEstimator) getPairProbability(
 	now time.Time, results NodeResults, toNode route.Vertex,
 	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
 
-	nodeProbability := p.getNodeProbability(now, results, amt)
+	nodeProbability := p.getNodeProbability(now, results, amt, capacity)
 
 	return p.calculateProbability(
 		now, results, nodeProbability, toNode, amt,

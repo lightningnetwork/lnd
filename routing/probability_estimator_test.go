@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -27,6 +28,10 @@ const (
 
 	// testCapacity is used to define a capacity for some channels.
 	testCapacity = btcutil.Amount(100_000)
+	testAmount   = lnwire.MilliSatoshi(50_000_000)
+
+	// Defines the capacityFactor for testAmount and testCapacity.
+	capFactor = 0.9241
 )
 
 type estimatorTestContext struct {
@@ -84,7 +89,16 @@ func (c *estimatorTestContext) assertPairProbability(now time.Time,
 func TestProbabilityEstimatorNoResults(t *testing.T) {
 	ctx := newEstimatorTestContext(t)
 
-	ctx.assertPairProbability(testTime, 0, 0, testCapacity, aprioriHopProb)
+	// A zero amount does not trigger capacity rescaling.
+	ctx.assertPairProbability(
+		testTime, 0, 0, testCapacity, aprioriHopProb,
+	)
+
+	// We expect a reduced probability when a higher amount is used.
+	expected := aprioriHopProb * capFactor
+	ctx.assertPairProbability(
+		testTime, 0, testAmount, testCapacity, expected,
+	)
 }
 
 // TestProbabilityEstimatorOneSuccess tests the probability estimation for nodes
@@ -94,7 +108,7 @@ func TestProbabilityEstimatorOneSuccess(t *testing.T) {
 
 	ctx.results = map[int]TimedPairResult{
 		node1: {
-			SuccessAmt: lnwire.MilliSatoshi(1000),
+			SuccessAmt: testAmount,
 		},
 	}
 
@@ -104,11 +118,26 @@ func TestProbabilityEstimatorOneSuccess(t *testing.T) {
 		testTime, node1, 100, testCapacity, aprioriPrevSucProb,
 	)
 
+	// The apriori success probability indicates that in the past we were
+	// able to send the full amount. We don't want to reduce this
+	// probability with the capacity factor, which is tested here.
+	ctx.assertPairProbability(
+		testTime, node1, testAmount, testCapacity, aprioriPrevSucProb,
+	)
+
 	// Untried channels are also influenced by the success. With a
 	// aprioriWeight of 0.75, the a priori probability is assigned weight 3.
 	expectedP := (3*aprioriHopProb + 1*aprioriPrevSucProb) / 4
 	ctx.assertPairProbability(
 		testTime, untriedNode, 100, testCapacity, expectedP,
+	)
+
+	// Check that the correct probability is computed for larger amounts.
+	apriori := aprioriHopProb * capFactor
+
+	expectedP = (3*apriori + 1*aprioriPrevSucProb) / 4
+	ctx.assertPairProbability(
+		testTime, untriedNode, testAmount, testCapacity, expectedP,
 	)
 }
 
@@ -179,4 +208,74 @@ func TestProbabilityEstimatorMix(t *testing.T) {
 	ctx.assertPairProbability(
 		testTime, node2, 100, testCapacity, expectedNodeProb*0.75,
 	)
+}
+
+// TestCapacityCutoff tests the mathematical expression and limits for the
+// capacity factor.
+func TestCapacityCutoff(t *testing.T) {
+	t.Parallel()
+
+	capacitySat := 1_000_000
+	capacityMSat := capacitySat * 1000
+
+	tests := []struct {
+		name           string
+		amountMsat     int
+		expectedFactor float64
+	}{
+		{
+			name:           "zero amount",
+			expectedFactor: 1,
+		},
+		{
+			name:           "low amount",
+			amountMsat:     capacityMSat / 10,
+			expectedFactor: 0.998,
+		},
+		{
+			name:           "half amount",
+			amountMsat:     capacityMSat / 2,
+			expectedFactor: 0.924,
+		},
+		{
+			name: "cutoff amount",
+			amountMsat: int(
+				capacityCutoffFraction * float64(capacityMSat),
+			),
+			expectedFactor: 0.5,
+		},
+		{
+			name:           "high amount",
+			amountMsat:     capacityMSat * 80 / 100,
+			expectedFactor: 0.377,
+		},
+		{
+			// Even when we spend the full capacity, we still want
+			// to have some residual probability to not throw away
+			// routes due to a min probability requirement of the
+			// whole path.
+			name:           "full amount",
+			amountMsat:     capacityMSat,
+			expectedFactor: 0.076,
+		},
+		{
+			name:           "more than capacity",
+			amountMsat:     capacityMSat + 1,
+			expectedFactor: 0.0,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := capacityFactor(
+				lnwire.MilliSatoshi(test.amountMsat),
+				btcutil.Amount(capacitySat),
+			)
+			require.InDelta(t, test.expectedFactor, got, 0.001)
+		})
+	}
 }

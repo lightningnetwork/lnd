@@ -113,9 +113,12 @@ func (ctx *mcTestContext) expectP(amt lnwire.MilliSatoshi, expected float64) {
 	ctx.t.Helper()
 
 	p := ctx.mc.GetProbability(mcTestNode1, mcTestNode2, amt, testCapacity)
-	if p != expected {
-		ctx.t.Fatalf("expected probability %v but got %v", expected, p)
-	}
+
+	// We relax the accuracy for the probability check because of the
+	// capacity cutoff factor.
+	require.InDelta(
+		ctx.t, expected, p, 0.001, "probability does not match",
+	)
 }
 
 // reportFailure reports a failure by using a test route.

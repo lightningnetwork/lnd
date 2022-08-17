@@ -1,4 +1,4 @@
-package verrpc
+package ver
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -23,14 +24,14 @@ var macPermissions = map[string][]bakery.Op{
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
 type ServerShell struct {
-	VersionerServer
+	verrpc.VersionerServer
 }
 
 // Server is an rpc server that supports querying for information about the
 // running binary.
 type Server struct {
 	// Required by the grpc-gateway/v2 library for forward compatibility.
-	UnimplementedVersionerServer
+	verrpc.UnimplementedVersionerServer
 }
 
 // Start launches any helper goroutines required for the rpcServer to function.
@@ -61,7 +62,7 @@ func (s *Server) Name() string {
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
 func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
-	RegisterVersionerServer(grpcServer, r)
+	verrpc.RegisterVersionerServer(grpcServer, r)
 
 	log.Debugf("Versioner RPC server successfully registered with root " +
 		"gRPC server")
@@ -79,7 +80,7 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 
 	// We make sure that we register it with the main REST server to ensure
 	// all our methods are routed properly.
-	err := RegisterVersionerHandlerFromEndpoint(ctx, mux, dest, opts)
+	err := verrpc.RegisterVersionerHandlerFromEndpoint(ctx, mux, dest, opts)
 	if err != nil {
 		log.Errorf("Could not register Versioner REST server "+
 			"with root REST server: %v", err)
@@ -108,9 +109,9 @@ func (r *ServerShell) CreateSubServer(_ lnrpc.SubServerConfigDispatcher) (
 
 // GetVersion returns information about the compiled binary.
 func (s *Server) GetVersion(_ context.Context,
-	_ *VersionRequest) (*Version, error) {
+	_ *verrpc.VersionRequest) (*verrpc.Version, error) {
 
-	return &Version{
+	return &verrpc.Version{
 		Commit:        build.Commit,
 		CommitHash:    build.CommitHash,
 		Version:       build.Version(),

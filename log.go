@@ -21,7 +21,6 @@ import (
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
-	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
@@ -42,6 +41,7 @@ import (
 	peersrpc "github.com/lightningnetwork/lnd/rpcservers/peers"
 	routerrpc "github.com/lightningnetwork/lnd/rpcservers/router"
 	signrpc "github.com/lightningnetwork/lnd/rpcservers/sign"
+	verrpc "github.com/lightningnetwork/lnd/rpcservers/ver"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/tor"
@@ -112,7 +112,9 @@ func genSubLogger(root *build.RotatingLogWriter,
 }
 
 // SetupLoggers initializes all package-global logger variables.
-func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor) {
+func SetupLoggers(root *build.RotatingLogWriter,
+	interceptor signal.Interceptor) {
+
 	genLogger := genSubLogger(root, interceptor)
 
 	// Now that we have the proper root logger, we can replace the
@@ -159,18 +161,24 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	AddSubLogger(root, "CHCL", interceptor, chancloser.UseLogger)
 
 	AddSubLogger(root, routing.Subsystem, interceptor, routing.UseLogger)
-	AddSubLogger(root, routerrpc.Subsystem, interceptor, routerrpc.UseLogger)
-	AddSubLogger(root, chanfitness.Subsystem, interceptor, chanfitness.UseLogger)
+	AddSubLogger(root, routerrpc.Subsystem, interceptor,
+		routerrpc.UseLogger)
+	AddSubLogger(root, chanfitness.Subsystem, interceptor,
+		chanfitness.UseLogger)
 	AddSubLogger(root, verrpc.Subsystem, interceptor, verrpc.UseLogger)
-	AddSubLogger(root, healthcheck.Subsystem, interceptor, healthcheck.UseLogger)
+	AddSubLogger(root, healthcheck.Subsystem, interceptor,
+		healthcheck.UseLogger)
 	AddSubLogger(root, chainreg.Subsystem, interceptor, chainreg.UseLogger)
-	AddSubLogger(root, chanacceptor.Subsystem, interceptor, chanacceptor.UseLogger)
+	AddSubLogger(root, chanacceptor.Subsystem, interceptor,
+		chanacceptor.UseLogger)
 	AddSubLogger(root, funding.Subsystem, interceptor, funding.UseLogger)
 	AddSubLogger(root, cluster.Subsystem, interceptor, cluster.UseLogger)
 	AddSubLogger(root, rpcperms.Subsystem, interceptor, rpcperms.UseLogger)
 	AddSubLogger(root, tor.Subsystem, interceptor, tor.UseLogger)
-	AddSubLogger(root, btcwallet.Subsystem, interceptor, btcwallet.UseLogger)
-	AddSubLogger(root, rpcwallet.Subsystem, interceptor, rpcwallet.UseLogger)
+	AddSubLogger(root, btcwallet.Subsystem, interceptor,
+		btcwallet.UseLogger)
+	AddSubLogger(root, rpcwallet.Subsystem, interceptor,
+		rpcwallet.UseLogger)
 	AddSubLogger(root, peersrpc.Subsystem, interceptor, peersrpc.UseLogger)
 }
 

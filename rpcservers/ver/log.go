@@ -1,4 +1,4 @@
-package verrpc
+package ver
 
 import (
 	"github.com/btcsuite/btclog"

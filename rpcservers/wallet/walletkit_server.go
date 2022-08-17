@@ -1276,7 +1276,7 @@ func (w *WalletKit) SignPsbt(_ context.Context,
 	// Let the wallet do the heavy lifting. This will sign all inputs that
 	// we have the UTXO for. If some inputs can't be signed and don't have
 	// witness data attached, they will just be skipped.
-	err = w.cfg.Wallet.SignPsbt(packet)
+	signedInputs, err := w.cfg.Wallet.SignPsbt(packet)
 	if err != nil {
 		return nil, fmt.Errorf("error signing PSBT: %v", err)
 	}
@@ -1289,7 +1289,8 @@ func (w *WalletKit) SignPsbt(_ context.Context,
 	}
 
 	return &walletrpc.SignPsbtResponse{
-		SignedPsbt: signedPsbtBytes.Bytes(),
+		SignedPsbt:   signedPsbtBytes.Bytes(),
+		SignedInputs: signedInputs,
 	}, nil
 }
 

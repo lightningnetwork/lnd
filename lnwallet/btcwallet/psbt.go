@@ -98,12 +98,16 @@ func (b *BtcWallet) FundPsbt(packet *psbt.Packet, minConfs int32,
 // perform any other tasks (such as coin selection, UTXO locking or
 // input/output/fee value validation, PSBT finalization). Any input that is
 // incomplete will be skipped.
-func (b *BtcWallet) SignPsbt(packet *psbt.Packet) error {
+func (b *BtcWallet) SignPsbt(packet *psbt.Packet) ([]uint32, error) {
+	// In signedInputs we return the indices of psbt inputs that were signed
+	// by our wallet. This way the caller can check if any inputs were signed.
+	var signedInputs []uint32
+
 	// Let's check that this is actually something we can and want to sign.
 	// We need at least one input and one output.
 	err := psbt.VerifyInputOutputLen(packet, true, true)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Go through each input that doesn't have final witness data attached
@@ -173,7 +177,7 @@ func (b *BtcWallet) SignPsbt(packet *psbt.Packet) error {
 		// information we need?
 		signMethod, err := validateSigningMethod(in)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		switch signMethod {
@@ -211,11 +215,11 @@ func (b *BtcWallet) SignPsbt(packet *psbt.Packet) error {
 				"PSBT signing: %v", signMethod)
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
+		signedInputs = append(signedInputs, uint32(idx))
 	}
-
-	return nil
+	return signedInputs, nil
 }
 
 // validateSigningMethod attempts to detect the signing method that is required

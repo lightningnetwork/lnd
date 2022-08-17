@@ -318,8 +318,12 @@ func TestSignPsbt(t *testing.T) {
 
 		// Let the wallet do its job. We expect to be the only signer
 		// for this PSBT, so we'll be able to finalize it later.
-		err = w.SignPsbt(packet)
+		signedInputs, err := w.SignPsbt(packet)
 		require.NoError(t, err)
+
+		// We expect one signed input at index 0.
+		require.Len(t, signedInputs, 1)
+		require.EqualValues(t, 0, signedInputs[0])
 
 		// If the witness stack needs to be assembled, give the caller
 		// the option to do that now.

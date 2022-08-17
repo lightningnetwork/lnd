@@ -1,7 +1,7 @@
 //go:build invoicesrpc
 // +build invoicesrpc
 
-package invoicesrpc
+package invoices
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
@@ -77,7 +78,7 @@ var (
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
 type ServerShell struct {
-	InvoicesServer
+	invoicesrpc.InvoicesServer
 }
 
 // Server is a sub-server of the main RPC server: the invoices RPC. This sub
@@ -85,7 +86,7 @@ type ServerShell struct {
 // currently active within lnd, as well as configuring it at runtime.
 type Server struct {
 	// Required by the grpc-gateway/v2 library for forward compatibility.
-	UnimplementedInvoicesServer
+	invoicesrpc.UnimplementedInvoicesServer
 
 	quit chan struct{}
 
@@ -94,7 +95,7 @@ type Server struct {
 
 // A compile time check to ensure that Server fully implements the
 // InvoicesServer gRPC service.
-var _ InvoicesServer = (*Server)(nil)
+var _ invoicesrpc.InvoicesServer = (*Server)(nil)
 
 // New returns a new instance of the invoicesrpc Invoices sub-server. We also
 // return the set of permissions for the macaroons that we may create within
@@ -178,7 +179,7 @@ func (s *Server) Name() string {
 func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterInvoicesServer(grpcServer, r)
+	invoicesrpc.RegisterInvoicesServer(grpcServer, r)
 
 	log.Debugf("Invoices RPC server successfully registered with root " +
 		"gRPC server")
@@ -196,7 +197,7 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 
 	// We make sure that we register it with the main REST server to ensure
 	// all our methods are routed properly.
-	err := RegisterInvoicesHandlerFromEndpoint(ctx, mux, dest, opts)
+	err := invoicesrpc.RegisterInvoicesHandlerFromEndpoint(ctx, mux, dest, opts)
 	if err != nil {
 		log.Errorf("Could not register Invoices REST server "+
 			"with root REST server: %v", err)
@@ -229,8 +230,8 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 
 // SubscribeSingleInvoice returns a uni-directional stream (server -> client)
 // for notifying the client of state changes for a specified invoice.
-func (s *Server) SubscribeSingleInvoice(req *SubscribeSingleInvoiceRequest,
-	updateStream Invoices_SubscribeSingleInvoiceServer) error {
+func (s *Server) SubscribeSingleInvoice(req *invoicesrpc.SubscribeSingleInvoiceRequest,
+	updateStream invoicesrpc.Invoices_SubscribeSingleInvoiceServer) error {
 
 	hash, err := lntypes.MakeHash(req.RHash)
 	if err != nil {
@@ -279,7 +280,8 @@ func (s *Server) SubscribeSingleInvoice(req *SubscribeSingleInvoiceRequest,
 // SettleInvoice settles an accepted invoice. If the invoice is already settled,
 // this call will succeed.
 func (s *Server) SettleInvoice(ctx context.Context,
-	in *SettleInvoiceMsg) (*SettleInvoiceResp, error) {
+	in *invoicesrpc.SettleInvoiceMsg) (*invoicesrpc.SettleInvoiceResp,
+	error) {
 
 	preimage, err := lntypes.MakePreimage(in.Preimage)
 	if err != nil {
@@ -291,14 +293,14 @@ func (s *Server) SettleInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	return &SettleInvoiceResp{}, nil
+	return &invoicesrpc.SettleInvoiceResp{}, nil
 }
 
 // CancelInvoice cancels a currently open invoice. If the invoice is already
 // canceled, this call will succeed. If the invoice is already settled, it will
 // fail.
 func (s *Server) CancelInvoice(ctx context.Context,
-	in *CancelInvoiceMsg) (*CancelInvoiceResp, error) {
+	in *invoicesrpc.CancelInvoiceMsg) (*invoicesrpc.CancelInvoiceResp, error) {
 
 	paymentHash, err := lntypes.MakeHash(in.PaymentHash)
 	if err != nil {
@@ -312,14 +314,15 @@ func (s *Server) CancelInvoice(ctx context.Context,
 
 	log.Infof("Canceled invoice %v", paymentHash)
 
-	return &CancelInvoiceResp{}, nil
+	return &invoicesrpc.CancelInvoiceResp{}, nil
 }
 
 // AddHoldInvoice attempts to add a new hold invoice to the invoice database.
 // Any duplicated invoices are rejected, therefore all invoices *must* have a
 // unique payment hash.
 func (s *Server) AddHoldInvoice(ctx context.Context,
-	invoice *AddHoldInvoiceRequest) (*AddHoldInvoiceResp, error) {
+	invoice *invoicesrpc.AddHoldInvoiceRequest) (*invoicesrpc.AddHoldInvoiceResp,
+	error) {
 
 	addInvoiceCfg := &AddInvoiceConfig{
 		AddInvoice:            s.cfg.InvoiceRegistry.AddInvoice,
@@ -368,7 +371,7 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	return &AddHoldInvoiceResp{
+	return &invoicesrpc.AddHoldInvoiceResp{
 		AddIndex:       dbInvoice.AddIndex,
 		PaymentRequest: string(dbInvoice.PaymentRequest),
 		PaymentAddr:    dbInvoice.Terms.PaymentAddr[:],
@@ -378,7 +381,7 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 // LookupInvoiceV2 attempts to look up at invoice. An invoice can be referenced
 // using either its payment hash, payment address, or set ID.
 func (s *Server) LookupInvoiceV2(ctx context.Context,
-	req *LookupInvoiceMsg) (*lnrpc.Invoice, error) {
+	req *invoicesrpc.LookupInvoiceMsg) (*lnrpc.Invoice, error) {
 
 	var invoiceRef channeldb.InvoiceRef
 
@@ -398,7 +401,7 @@ func (s *Server) LookupInvoiceV2(ctx context.Context,
 		invoiceRef = channeldb.InvoiceRefByHash(payHash)
 
 	case req.GetPaymentAddr() != nil &&
-		req.LookupModifier == LookupModifier_HTLC_SET_BLANK:
+		req.LookupModifier == invoicesrpc.LookupModifier_HTLC_SET_BLANK:
 
 		var payAddr [32]byte
 		copy(payAddr[:], req.GetPaymentAddr())
@@ -412,7 +415,7 @@ func (s *Server) LookupInvoiceV2(ctx context.Context,
 		invoiceRef = channeldb.InvoiceRefByAddr(payAddr)
 
 	case req.GetSetId() != nil &&
-		req.LookupModifier == LookupModifier_HTLC_SET_ONLY:
+		req.LookupModifier == invoicesrpc.LookupModifier_HTLC_SET_ONLY:
 
 		var setID [32]byte
 		copy(setID[:], req.GetSetId())

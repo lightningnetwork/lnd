@@ -1,7 +1,7 @@
 //go:build invoicesrpc
 // +build invoicesrpc
 
-package invoicesrpc
+package invoices
 
 import (
 	"github.com/btcsuite/btcd/chaincfg"

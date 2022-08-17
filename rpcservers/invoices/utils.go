@@ -1,4 +1,4 @@
-package invoicesrpc
+package invoices
 
 import (
 	"encoding/hex"

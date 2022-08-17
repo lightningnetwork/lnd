@@ -1,4 +1,4 @@
-package neutrinorpc
+package neutrino
 
 import (
 	"github.com/btcsuite/btclog"

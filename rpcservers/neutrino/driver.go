@@ -1,7 +1,7 @@
 //go:build neutrinorpc
 // +build neutrinorpc
 
-package neutrinorpc
+package neutrino
 
 import (
 	"fmt"

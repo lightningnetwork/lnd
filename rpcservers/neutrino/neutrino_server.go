@@ -1,13 +1,14 @@
 //go:build neutrinorpc
 // +build neutrinorpc
 
-package neutrinorpc
+package neutrino
 
 import (
 	"context"
 	"errors"
 	"fmt"
 
+	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
@@ -74,7 +75,7 @@ var (
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
 type ServerShell struct {
-	NeutrinoKitServer
+	neutrinorpc.NeutrinoKitServer
 }
 
 // Server is a sub-server of the main RPC server: the neutrino RPC. This sub
@@ -84,14 +85,14 @@ type Server struct {
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	// Must be after the atomically used variables to not break struct
 	// alignment.
-	UnimplementedNeutrinoKitServer
+	neutrinorpc.UnimplementedNeutrinoKitServer
 
 	cfg *Config
 }
 
 // A compile time check to ensure that NeutrinoKit fully implements the
 // NeutrinoServer gRPC service.
-var _ NeutrinoKitServer = (*Server)(nil)
+var _ neutrinorpc.NeutrinoKitServer = (*Server)(nil)
 
 // New returns a new instance of the neutrinorpc Neutrino sub-server. We also
 // return the set of permissions for the macaroons that we may create within
@@ -139,7 +140,7 @@ func (s *Server) Name() string {
 func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterNeutrinoKitServer(grpcServer, r)
+	neutrinorpc.RegisterNeutrinoKitServer(grpcServer, r)
 
 	log.Debugf("Neutrino RPC server successfully register with root " +
 		"gRPC server")
@@ -157,7 +158,7 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 
 	// We make sure that we register it with the main REST server to ensure
 	// all our methods are routed properly.
-	err := RegisterNeutrinoKitHandlerFromEndpoint(ctx, mux, dest, opts)
+	err := neutrinorpc.RegisterNeutrinoKitHandlerFromEndpoint(ctx, mux, dest, opts)
 	if err != nil {
 		log.Errorf("Could not register Neutrino REST server "+
 			"with root REST server: %v", err)
@@ -193,7 +194,7 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 //
 // NOTE: Part of the NeutrinoServer interface.
 func (s *Server) Status(ctx context.Context,
-	in *StatusRequest) (*StatusResponse, error) {
+	in *neutrinorpc.StatusRequest) (*neutrinorpc.StatusResponse, error) {
 
 	if s.cfg.NeutrinoCS == nil {
 		return nil, ErrNeutrinoNotActive
@@ -210,7 +211,7 @@ func (s *Server) Status(ctx context.Context,
 		Peers[i] = p.Addr()
 	}
 
-	return &StatusResponse{
+	return &neutrinorpc.StatusResponse{
 		Active:      s.cfg.NeutrinoCS != nil,
 		BlockHeight: bestBlock.Height,
 		BlockHash:   bestBlock.Hash.String(),
@@ -223,7 +224,7 @@ func (s *Server) Status(ctx context.Context,
 //
 // NOTE: Part of the NeutrinoKitServer interface.
 func (s *Server) AddPeer(ctx context.Context,
-	in *AddPeerRequest) (*AddPeerResponse, error) {
+	in *neutrinorpc.AddPeerRequest) (*neutrinorpc.AddPeerResponse, error) {
 
 	if s.cfg.NeutrinoCS == nil {
 		return nil, ErrNeutrinoNotActive
@@ -236,7 +237,7 @@ func (s *Server) AddPeer(ctx context.Context,
 	}
 	s.cfg.NeutrinoCS.AddPeer(peer)
 
-	return &AddPeerResponse{}, nil
+	return &neutrinorpc.AddPeerResponse{}, nil
 }
 
 // DisconnectPeer disconnects a peer by target address. Both outbound and
@@ -245,7 +246,8 @@ func (s *Server) AddPeer(ctx context.Context,
 //
 // NOTE: Part of the NeutrinoKitServer interface.
 func (s *Server) DisconnectPeer(ctx context.Context,
-	in *DisconnectPeerRequest) (*DisconnectPeerResponse, error) {
+	in *neutrinorpc.DisconnectPeerRequest) (*neutrinorpc.DisconnectPeerResponse,
+	error) {
 
 	if s.cfg.NeutrinoCS == nil {
 		return nil, ErrNeutrinoNotActive
@@ -262,20 +264,21 @@ func (s *Server) DisconnectPeer(ctx context.Context,
 		return nil, err
 	}
 
-	return &DisconnectPeerResponse{}, nil
+	return &neutrinorpc.DisconnectPeerResponse{}, nil
 }
 
 // IsBanned returns true if the peer is banned, otherwise false.
 //
 // NOTE: Part of the NeutrinoKitServer interface.
 func (s *Server) IsBanned(ctx context.Context,
-	in *IsBannedRequest) (*IsBannedResponse, error) {
+	in *neutrinorpc.IsBannedRequest) (*neutrinorpc.IsBannedResponse,
+	error) {
 
 	if s.cfg.NeutrinoCS == nil {
 		return nil, ErrNeutrinoNotActive
 	}
 
-	return &IsBannedResponse{
+	return &neutrinorpc.IsBannedResponse{
 		Banned: s.cfg.NeutrinoCS.IsBanned(in.PeerAddrs),
 	}, nil
 }
@@ -287,7 +290,8 @@ func (s *Server) IsBanned(ctx context.Context,
 //
 // NOTE: Part of the NeutrinoKitServer interface.
 func (s *Server) GetBlockHeader(ctx context.Context,
-	in *GetBlockHeaderRequest) (*GetBlockHeaderResponse, error) {
+	in *neutrinorpc.GetBlockHeaderRequest) (*neutrinorpc.GetBlockHeaderResponse,
+	error) {
 
 	if s.cfg.NeutrinoCS == nil {
 		return nil, ErrNeutrinoNotActive
@@ -303,7 +307,7 @@ func (s *Server) GetBlockHeader(ctx context.Context,
 		return nil, err
 	}
 
-	return &GetBlockHeaderResponse{
+	return &neutrinorpc.GetBlockHeaderResponse{
 		Hash:              resp.Hash,
 		Confirmations:     resp.Confirmations,
 		StrippedSize:      resp.StrippedSize,
@@ -328,7 +332,8 @@ func (s *Server) GetBlockHeader(ctx context.Context,
 //
 // NOTE: Part of the NeutrinoKitServer interface.
 func (s *Server) GetBlock(ctx context.Context,
-	in *GetBlockRequest) (*GetBlockResponse, error) {
+	in *neutrinorpc.GetBlockRequest) (*neutrinorpc.GetBlockResponse,
+	error) {
 
 	if s.cfg.NeutrinoCS == nil {
 		return nil, ErrNeutrinoNotActive
@@ -347,7 +352,8 @@ func (s *Server) GetBlock(ctx context.Context,
 //
 // NOTE: Part of the NeutrinoKitServer interface.
 func (s *Server) GetCFilter(ctx context.Context,
-	in *GetCFilterRequest) (*GetCFilterResponse, error) {
+	in *neutrinorpc.GetCFilterRequest) (*neutrinorpc.GetCFilterResponse,
+	error) {
 
 	if s.cfg.NeutrinoCS == nil {
 		return nil, ErrNeutrinoNotActive
@@ -370,10 +376,12 @@ func (s *Server) GetCFilter(ctx context.Context,
 		return nil, err
 	}
 
-	return &GetCFilterResponse{Filter: filterlBytes}, nil
+	return &neutrinorpc.GetCFilterResponse{Filter: filterlBytes}, nil
 }
 
-func (s *Server) getBlock(hash chainhash.Hash) (*GetBlockResponse, error) {
+func (s *Server) getBlock(hash chainhash.Hash) (*neutrinorpc.GetBlockResponse,
+	error) {
+
 	block, err := s.cfg.NeutrinoCS.GetBlock(hash)
 	if err != nil {
 		return nil, err
@@ -406,7 +414,7 @@ func (s *Server) getBlock(hash chainhash.Hash) (*GetBlockResponse, error) {
 		tx[i] = transactions[i].Hash().String()
 	}
 
-	return &GetBlockResponse{
+	return &neutrinorpc.GetBlockResponse{
 		Hash:          block.Hash().String(),
 		Confirmations: int64(1 + bestBlock.Height - block.Height()),
 		StrippedSize:  int64(len(strippedData)),
@@ -431,7 +439,8 @@ func (s *Server) getBlock(hash chainhash.Hash) (*GetBlockResponse, error) {
 //
 // NOTE: Part of the NeutrinoKitServer interface.
 func (s *Server) GetBlockHash(ctx context.Context,
-	in *GetBlockHashRequest) (*GetBlockHashResponse, error) {
+	in *neutrinorpc.GetBlockHashRequest) (*neutrinorpc.GetBlockHashResponse,
+	error) {
 
 	if s.cfg.NeutrinoCS == nil {
 		return nil, ErrNeutrinoNotActive
@@ -442,5 +451,5 @@ func (s *Server) GetBlockHash(ctx context.Context,
 		return nil, err
 	}
 
-	return &GetBlockHashResponse{Hash: hash.String()}, nil
+	return &neutrinorpc.GetBlockHashResponse{Hash: hash.String()}, nil
 }

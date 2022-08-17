@@ -1,4 +1,4 @@
-package routerrpc
+package router
 
 import (
 	"bytes"
@@ -145,14 +145,14 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		}
 
 		if restrictions.ProbabilitySource(route.Vertex{2},
-			route.Vertex{1}, 0,
-		) != 0 {
+			route.Vertex{1}, 0) != 0 {
+
 			t.Fatal("expecting 0% probability for ignored edge")
 		}
 
 		if restrictions.ProbabilitySource(ignoreNodeVertex,
-			route.Vertex{6}, 0,
-		) != 0 {
+			route.Vertex{6}, 0) != 0 {
+
 			t.Fatal("expecting 0% probability for ignored node")
 		}
 
@@ -181,8 +181,8 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 			expectedProb = testMissionControlProb
 		}
 		if restrictions.ProbabilitySource(route.Vertex{4},
-			route.Vertex{5}, 0,
-		) != expectedProb {
+			route.Vertex{5}, 0) != expectedProb {
+
 			t.Fatal("expecting 100% probability")
 		}
 

@@ -1,4 +1,4 @@
-package routerrpc
+package router
 
 import (
 	"errors"
@@ -6,6 +6,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"google.golang.org/grpc/codes"
@@ -27,14 +28,14 @@ var (
 // It is created when the stream opens and disconnects when the stream closes.
 type forwardInterceptor struct {
 	// stream is the bidirectional RPC stream
-	stream Router_HtlcInterceptorServer
+	stream routerrpc.Router_HtlcInterceptorServer
 
 	htlcSwitch htlcswitch.InterceptableHtlcForwarder
 }
 
 // newForwardInterceptor creates a new forwardInterceptor.
 func newForwardInterceptor(htlcSwitch htlcswitch.InterceptableHtlcForwarder,
-	stream Router_HtlcInterceptorServer) *forwardInterceptor {
+	stream routerrpc.Router_HtlcInterceptorServer) *forwardInterceptor {
 
 	return &forwardInterceptor{
 		htlcSwitch: htlcSwitch,
@@ -77,8 +78,8 @@ func (r *forwardInterceptor) onIntercept(
 	inKey := htlc.IncomingCircuit
 
 	// First hold the forward, then send to client.
-	interceptionRequest := &ForwardHtlcInterceptRequest{
-		IncomingCircuitKey: &CircuitKey{
+	interceptionRequest := &routerrpc.ForwardHtlcInterceptRequest{
+		IncomingCircuitKey: &routerrpc.CircuitKey{
 			ChanId: inKey.ChanID.ToUint64(),
 			HtlcId: inKey.HtlcID,
 		},
@@ -97,7 +98,7 @@ func (r *forwardInterceptor) onIntercept(
 
 // resolveFromClient handles a resolution arrived from the client.
 func (r *forwardInterceptor) resolveFromClient(
-	in *ForwardHtlcInterceptResponse) error {
+	in *routerrpc.ForwardHtlcInterceptResponse) error {
 
 	log.Tracef("Resolving intercepted packet %v", in)
 
@@ -107,13 +108,13 @@ func (r *forwardInterceptor) resolveFromClient(
 	}
 
 	switch in.Action {
-	case ResolveHoldForwardAction_RESUME:
+	case routerrpc.ResolveHoldForwardAction_RESUME:
 		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
 			Key:    circuitKey,
 			Action: htlcswitch.FwdActionResume,
 		})
 
-	case ResolveHoldForwardAction_FAIL:
+	case routerrpc.ResolveHoldForwardAction_FAIL:
 		// Fail with an encrypted reason.
 		if in.FailureMessage != nil {
 			if in.FailureCode != 0 {
@@ -171,7 +172,7 @@ func (r *forwardInterceptor) resolveFromClient(
 			FailureCode: code,
 		})
 
-	case ResolveHoldForwardAction_SETTLE:
+	case routerrpc.ResolveHoldForwardAction_SETTLE:
 		if in.Preimage == nil {
 			return ErrMissingPreimage
 		}

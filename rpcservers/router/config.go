@@ -1,4 +1,4 @@
-package routerrpc
+package router
 
 import (
 	"github.com/lightningnetwork/lnd/macaroons"

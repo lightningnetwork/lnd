@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/rpcservers/router"
 	"github.com/urfave/cli"
 )
 
@@ -66,7 +67,7 @@ var (
 		Name: "max_parts",
 		Usage: "the maximum number of partial payments that may be " +
 			"used",
-		Value: routerrpc.DefaultMaxParts,
+		Value: router.DefaultMaxParts,
 	}
 
 	jsonFlag = cli.BoolFlag{

@@ -1,4 +1,4 @@
-package routerrpc
+package router
 
 import (
 	"fmt"

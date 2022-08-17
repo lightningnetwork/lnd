@@ -1,4 +1,4 @@
-package routerrpc
+package router
 
 import (
 	"context"
@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -37,6 +38,7 @@ const (
 
 // RouterBackend contains the backend implementation of the router rpc sub
 // server calls.
+// nolint revive
 type RouterBackend struct {
 	// SelfNode is the vertex of the node sending the payment.
 	SelfNode route.Vertex
@@ -139,7 +141,7 @@ type MissionControl interface {
 // within the HTLC.
 //
 // TODO(roasbeef): should return a slice of routes in reality * create separate
-// PR to send based on well formatted route
+// PR to send based on well formatted route.
 func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
@@ -437,7 +439,7 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			AmtToForwardMsat: int64(hop.AmtToForward),
 			Fee:              int64(fee.ToSatoshis()),
 			FeeMsat:          int64(fee),
-			Expiry:           uint32(hop.OutgoingTimeLock),
+			Expiry:           hop.OutgoingTimeLock,
 			PubKey: hex.EncodeToString(
 				hop.PubKeyBytes[:],
 			),
@@ -557,7 +559,8 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 // required to dispatch a client from the information presented by an RPC
 // client.
 func (r *RouterBackend) extractIntentFromSendRequest(
-	rpcPayReq *SendPaymentRequest) (*routing.LightningPayment, error) {
+	rpcPayReq *routerrpc.SendPaymentRequest) (*routing.LightningPayment,
+	error) {
 
 	payIntent := &routing.LightningPayment{}
 
@@ -663,7 +666,6 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	// attempt to decode it, populating the payment accordingly.
 	if rpcPayReq.PaymentRequest != "" {
 		switch {
-
 		case len(rpcPayReq.Dest) > 0:
 			return nil, errors.New("dest and payment_request " +
 				"cannot appear together")

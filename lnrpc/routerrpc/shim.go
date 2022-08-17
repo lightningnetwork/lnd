@@ -1,0 +1,3 @@
+package routerrpc
+
+type IsHtlcEventEvent isHtlcEvent_Event

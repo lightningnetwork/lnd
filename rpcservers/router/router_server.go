@@ -1,4 +1,4 @@
-package routerrpc
+package router
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -29,7 +30,7 @@ import (
 const (
 	// subServerName is the name of the sub rpc server. We'll use this name
 	// to register ourselves, and we also require that the main
-	// SubServerConfigDispatcher instance recognize as the name of our
+	// SubServerConfigDispatcher instance recognize as the name of our.
 	subServerName = "RouterRPC"
 )
 
@@ -136,7 +137,7 @@ var (
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
 type ServerShell struct {
-	RouterServer
+	routerrpc.RouterServer
 }
 
 // Server is a stand alone sub RPC server which exposes functionality that
@@ -149,7 +150,7 @@ type Server struct {
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	// Must be after the atomically used variables to not break struct
 	// alignment.
-	UnimplementedRouterServer
+	routerrpc.UnimplementedRouterServer
 
 	cfg *Config
 
@@ -158,7 +159,7 @@ type Server struct {
 
 // A compile time check to ensure that Server fully implements the RouterServer
 // gRPC service.
-var _ RouterServer = (*Server)(nil)
+var _ routerrpc.RouterServer = (*Server)(nil)
 
 // New creates a new instance of the RouterServer given a configuration struct
 // that contains all external dependencies. If the target macaroon exists, and
@@ -252,7 +253,7 @@ func (s *Server) Name() string {
 func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterRouterServer(grpcServer, r)
+	routerrpc.RegisterRouterServer(grpcServer, r)
 
 	log.Debugf("Router RPC server successfully register with root gRPC " +
 		"server")
@@ -270,7 +271,7 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 
 	// We make sure that we register it with the main REST server to ensure
 	// all our methods are routed properly.
-	err := RegisterRouterHandlerFromEndpoint(ctx, mux, dest, opts)
+	err := routerrpc.RegisterRouterHandlerFromEndpoint(ctx, mux, dest, opts)
 	if err != nil {
 		log.Errorf("Could not register Router REST server "+
 			"with root REST server: %v", err)
@@ -306,8 +307,8 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 // payment, or cannot find a route that satisfies the constraints in the
 // PaymentRequest, then an error will be returned. Otherwise, the payment
 // pre-image, along with the final route will be returned.
-func (s *Server) SendPaymentV2(req *SendPaymentRequest,
-	stream Router_SendPaymentV2Server) error {
+func (s *Server) SendPaymentV2(req *routerrpc.SendPaymentRequest,
+	stream routerrpc.Router_SendPaymentV2Server) error {
 
 	payment, err := s.cfg.RouterBackend.extractIntentFromSendRequest(req)
 	if err != nil {
@@ -340,7 +341,7 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 // EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
 // may cost to send an HTLC to the target end destination.
 func (s *Server) EstimateRouteFee(ctx context.Context,
-	req *RouteFeeRequest) (*RouteFeeResponse, error) {
+	req *routerrpc.RouteFeeRequest) (*routerrpc.RouteFeeResponse, error) {
 
 	if len(req.Dest) != 33 {
 		return nil, errors.New("invalid length destination key")
@@ -374,7 +375,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 		return nil, err
 	}
 
-	return &RouteFeeResponse{
+	return &routerrpc.RouteFeeResponse{
 		RoutingFeeMsat: int64(route.TotalFees()),
 		TimeLockDelay:  int64(route.TotalTimeLock),
 	}, nil
@@ -383,7 +384,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 // SendToRouteV2 sends a payment through a predefined route. The response of this
 // call contains structured error information.
 func (s *Server) SendToRouteV2(ctx context.Context,
-	req *SendToRouteRequest) (*lnrpc.HTLCAttempt, error) {
+	req *routerrpc.SendToRouteRequest) (*lnrpc.HTLCAttempt, error) {
 
 	if req.Route == nil {
 		return nil, fmt.Errorf("unable to send, no routes provided")
@@ -435,24 +436,25 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 // ResetMissionControl clears all mission control state and starts with a clean
 // slate.
 func (s *Server) ResetMissionControl(ctx context.Context,
-	req *ResetMissionControlRequest) (*ResetMissionControlResponse, error) {
+	req *routerrpc.ResetMissionControlRequest) (*routerrpc.ResetMissionControlResponse,
+	error) {
 
 	err := s.cfg.RouterBackend.MissionControl.ResetHistory()
 	if err != nil {
 		return nil, err
 	}
 
-	return &ResetMissionControlResponse{}, nil
+	return &routerrpc.ResetMissionControlResponse{}, nil
 }
 
 // GetMissionControlConfig returns our current mission control config.
 func (s *Server) GetMissionControlConfig(ctx context.Context,
-	req *GetMissionControlConfigRequest) (*GetMissionControlConfigResponse,
+	req *routerrpc.GetMissionControlConfigRequest) (*routerrpc.GetMissionControlConfigResponse,
 	error) {
 
 	cfg := s.cfg.RouterBackend.MissionControl.GetConfig()
-	return &GetMissionControlConfigResponse{
-		Config: &MissionControlConfig{
+	return &routerrpc.GetMissionControlConfigResponse{
+		Config: &routerrpc.MissionControlConfig{
 			HalfLifeSeconds:             uint64(cfg.PenaltyHalfLife.Seconds()),
 			HopProbability:              float32(cfg.AprioriHopProbability),
 			Weight:                      float32(cfg.AprioriWeight),
@@ -464,7 +466,7 @@ func (s *Server) GetMissionControlConfig(ctx context.Context,
 
 // SetMissionControlConfig returns our current mission control config.
 func (s *Server) SetMissionControlConfig(ctx context.Context,
-	req *SetMissionControlConfigRequest) (*SetMissionControlConfigResponse,
+	req *routerrpc.SetMissionControlConfigRequest) (*routerrpc.SetMissionControlConfigResponse,
 	error) {
 
 	cfg := &routing.MissionControlConfig{
@@ -481,23 +483,24 @@ func (s *Server) SetMissionControlConfig(ctx context.Context,
 		) * time.Second,
 	}
 
-	return &SetMissionControlConfigResponse{},
+	return &routerrpc.SetMissionControlConfigResponse{},
 		s.cfg.RouterBackend.MissionControl.SetConfig(cfg)
 }
 
 // QueryMissionControl exposes the internal mission control state to callers. It
 // is a development feature.
 func (s *Server) QueryMissionControl(ctx context.Context,
-	req *QueryMissionControlRequest) (*QueryMissionControlResponse, error) {
+	req *routerrpc.QueryMissionControlRequest) (*routerrpc.QueryMissionControlResponse,
+	error) {
 
 	snapshot := s.cfg.RouterBackend.MissionControl.GetHistorySnapshot()
 
-	rpcPairs := make([]*PairHistory, 0, len(snapshot.Pairs))
+	rpcPairs := make([]*routerrpc.PairHistory, 0, len(snapshot.Pairs))
 	for _, p := range snapshot.Pairs {
 		// Prevent binding to loop variable.
 		pair := p
 
-		rpcPair := PairHistory{
+		rpcPair := routerrpc.PairHistory{
 			NodeFrom: pair.Pair.From[:],
 			NodeTo:   pair.Pair.To[:],
 			History:  toRPCPairData(&pair.TimedPairResult),
@@ -506,7 +509,7 @@ func (s *Server) QueryMissionControl(ctx context.Context,
 		rpcPairs = append(rpcPairs, &rpcPair)
 	}
 
-	response := QueryMissionControlResponse{
+	response := routerrpc.QueryMissionControlResponse{
 		Pairs: rpcPairs,
 	}
 
@@ -514,8 +517,8 @@ func (s *Server) QueryMissionControl(ctx context.Context,
 }
 
 // toRPCPairData marshalls mission control pair data to the rpc struct.
-func toRPCPairData(data *routing.TimedPairResult) *PairData {
-	rpcData := PairData{
+func toRPCPairData(data *routing.TimedPairResult) *routerrpc.PairData {
+	rpcData := routerrpc.PairData{
 		FailAmtSat:     int64(data.FailAmt.ToSatoshis()),
 		FailAmtMsat:    int64(data.FailAmt),
 		SuccessAmtSat:  int64(data.SuccessAmt.ToSatoshis()),
@@ -536,7 +539,7 @@ func toRPCPairData(data *routing.TimedPairResult) *PairData {
 // XImportMissionControl imports the state provided to our internal mission
 // control. Only entries that are fresher than our existing state will be used.
 func (s *Server) XImportMissionControl(ctx context.Context,
-	req *XImportMissionControlRequest) (*XImportMissionControlResponse,
+	req *routerrpc.XImportMissionControlRequest) (*routerrpc.XImportMissionControlResponse,
 	error) {
 
 	if len(req.Pairs) == 0 {
@@ -565,10 +568,10 @@ func (s *Server) XImportMissionControl(ctx context.Context,
 		return nil, err
 	}
 
-	return &XImportMissionControlResponse{}, nil
+	return &routerrpc.XImportMissionControlResponse{}, nil
 }
 
-func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapshot,
+func toPairSnapshot(pairResult *routerrpc.PairHistory) (*routing.MissionControlPairSnapshot,
 	error) {
 
 	from, err := route.NewVertexFromBytes(pairResult.NodeFrom)
@@ -691,7 +694,8 @@ func getMsatPairValue(msatValue lnwire.MilliSatoshi,
 // QueryProbability returns the current success probability estimate for a
 // given node pair and amount.
 func (s *Server) QueryProbability(ctx context.Context,
-	req *QueryProbabilityRequest) (*QueryProbabilityResponse, error) {
+	req *routerrpc.QueryProbabilityRequest) (*routerrpc.QueryProbabilityResponse,
+	error) {
 
 	fromNode, err := route.NewVertexFromBytes(req.FromNode)
 	if err != nil {
@@ -709,7 +713,7 @@ func (s *Server) QueryProbability(ctx context.Context,
 	prob := mc.GetProbability(fromNode, toNode, amt)
 	history := mc.GetPairHistorySnapshot(fromNode, toNode)
 
-	return &QueryProbabilityResponse{
+	return &routerrpc.QueryProbabilityResponse{
 		Probability: prob,
 		History:     toRPCPairData(&history),
 	}, nil
@@ -717,8 +721,8 @@ func (s *Server) QueryProbability(ctx context.Context,
 
 // TrackPaymentV2 returns a stream of payment state updates. The stream is
 // closed when the payment completes.
-func (s *Server) TrackPaymentV2(request *TrackPaymentRequest,
-	stream Router_TrackPaymentV2Server) error {
+func (s *Server) TrackPaymentV2(request *routerrpc.TrackPaymentRequest,
+	stream routerrpc.Router_TrackPaymentV2Server) error {
 
 	paymentHash, err := lntypes.MakeHash(request.PaymentHash)
 	if err != nil {
@@ -732,7 +736,8 @@ func (s *Server) TrackPaymentV2(request *TrackPaymentRequest,
 
 // trackPayment writes payment status updates to the provided stream.
 func (s *Server) trackPayment(identifier lntypes.Hash,
-	stream Router_TrackPaymentV2Server, noInflightUpdates bool) error {
+	stream routerrpc.Router_TrackPaymentV2Server,
+	noInflightUpdates bool) error {
 
 	router := s.cfg.RouterBackend
 
@@ -789,7 +794,8 @@ func (s *Server) trackPayment(identifier lntypes.Hash,
 
 // BuildRoute builds a route from a list of hop addresses.
 func (s *Server) BuildRoute(ctx context.Context,
-	req *BuildRouteRequest) (*BuildRouteResponse, error) {
+	req *routerrpc.BuildRouteRequest) (*routerrpc.BuildRouteResponse,
+	error) {
 
 	// Unmarshall hop list.
 	hops := make([]route.Vertex, len(req.HopPubkeys))
@@ -834,7 +840,7 @@ func (s *Server) BuildRoute(ctx context.Context,
 		return nil, err
 	}
 
-	routeResp := &BuildRouteResponse{
+	routeResp := &routerrpc.BuildRouteResponse{
 		Route: rpcRoute,
 	}
 
@@ -843,8 +849,8 @@ func (s *Server) BuildRoute(ctx context.Context,
 
 // SubscribeHtlcEvents creates a uni-directional stream from the server to
 // the client which delivers a stream of htlc events.
-func (s *Server) SubscribeHtlcEvents(req *SubscribeHtlcEventsRequest,
-	stream Router_SubscribeHtlcEventsServer) error {
+func (s *Server) SubscribeHtlcEvents(req *routerrpc.SubscribeHtlcEventsRequest,
+	stream routerrpc.Router_SubscribeHtlcEventsServer) error {
 
 	htlcClient, err := s.cfg.RouterBackend.SubscribeHtlcEvents()
 	if err != nil {
@@ -888,7 +894,7 @@ func (s *Server) SubscribeHtlcEvents(req *SubscribeHtlcEventsRequest,
 // 3. Delivers to the caller every √√ and detect his answer.
 // It uses a local implementation of holdForwardsStore to keep all the hold
 // forwards and find them when manual resolution is later needed.
-func (s *Server) HtlcInterceptor(stream Router_HtlcInterceptorServer) error {
+func (s *Server) HtlcInterceptor(stream routerrpc.Router_HtlcInterceptorServer) error {
 	// We ensure there is only one interceptor at a time.
 	if !atomic.CompareAndSwapInt32(&s.forwardInterceptorActive, 0, 1) {
 		return ErrInterceptorAlreadyExists
@@ -901,7 +907,9 @@ func (s *Server) HtlcInterceptor(stream Router_HtlcInterceptorServer) error {
 	).run()
 }
 
-func extractOutPoint(req *UpdateChanStatusRequest) (*wire.OutPoint, error) {
+func extractOutPoint(req *routerrpc.UpdateChanStatusRequest) (*wire.OutPoint,
+	error) {
+
 	chanPoint := req.GetChanPoint()
 	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 	if err != nil {
@@ -913,7 +921,8 @@ func extractOutPoint(req *UpdateChanStatusRequest) (*wire.OutPoint, error) {
 
 // UpdateChanStatus allows channel state to be set manually.
 func (s *Server) UpdateChanStatus(ctx context.Context,
-	req *UpdateChanStatusRequest) (*UpdateChanStatusResponse, error) {
+	req *routerrpc.UpdateChanStatusRequest) (*routerrpc.UpdateChanStatusResponse,
+	error) {
 
 	outPoint, err := extractOutPoint(req)
 	if err != nil {
@@ -926,11 +935,11 @@ func (s *Server) UpdateChanStatus(ctx context.Context,
 		"action %v", outPoint, action)
 
 	switch action {
-	case ChanStatusAction_ENABLE:
+	case routerrpc.ChanStatusAction_ENABLE:
 		err = s.cfg.RouterBackend.SetChannelEnabled(*outPoint)
-	case ChanStatusAction_DISABLE:
+	case routerrpc.ChanStatusAction_DISABLE:
 		err = s.cfg.RouterBackend.SetChannelDisabled(*outPoint)
-	case ChanStatusAction_AUTO:
+	case routerrpc.ChanStatusAction_AUTO:
 		err = s.cfg.RouterBackend.SetChannelAuto(*outPoint)
 	default:
 		err = fmt.Errorf("unrecognized ChannelStatusAction %v", action)
@@ -939,5 +948,5 @@ func (s *Server) UpdateChanStatus(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	return &UpdateChanStatusResponse{}, nil
+	return &routerrpc.UpdateChanStatusResponse{}, nil
 }

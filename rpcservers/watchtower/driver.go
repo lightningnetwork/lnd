@@ -1,7 +1,7 @@
 //go:build watchtowerrpc
 // +build watchtowerrpc
 
-package watchtowerrpc
+package watchtower
 
 import (
 	"fmt"

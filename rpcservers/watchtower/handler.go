@@ -1,7 +1,7 @@
 //go:build watchtowerrpc
 // +build watchtowerrpc
 
-package watchtowerrpc
+package watchtower
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -40,21 +41,21 @@ var (
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
 type ServerShell struct {
-	WatchtowerServer
+	watchtowerrpc.WatchtowerServer
 }
 
 // Handler is the RPC server we'll use to interact with the backing active
 // watchtower.
 type Handler struct {
 	// Required by the grpc-gateway/v2 library for forward compatibility.
-	UnimplementedWatchtowerServer
+	watchtowerrpc.UnimplementedWatchtowerServer
 
 	cfg Config
 }
 
 // A compile time check to ensure that Handler fully implements the Handler gRPC
 // service.
-var _ WatchtowerServer = (*Handler)(nil)
+var _ watchtowerrpc.WatchtowerServer = (*Handler)(nil)
 
 // New returns a new instance of the Watchtower sub-server. We also return the
 // set of permissions for the macaroons that we may create within this method.
@@ -95,7 +96,7 @@ func (c *Handler) Name() string {
 func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterWatchtowerServer(grpcServer, r)
+	watchtowerrpc.RegisterWatchtowerServer(grpcServer, r)
 
 	log.Debugf("Watchtower RPC server successfully register with root " +
 		"gRPC server")
@@ -113,7 +114,8 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 
 	// We make sure that we register it with the main REST server to ensure
 	// all our methods are routed properly.
-	err := RegisterWatchtowerHandlerFromEndpoint(ctx, mux, dest, opts)
+	err := watchtowerrpc.RegisterWatchtowerHandlerFromEndpoint(ctx, mux,
+		dest, opts)
 	if err != nil {
 		log.Errorf("Could not register Watchtower REST server "+
 			"with root REST server: %v", err)
@@ -149,7 +151,8 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 // included will be considered when dialing it for session negotiations and
 // backups.
 func (c *Handler) GetInfo(ctx context.Context,
-	req *GetInfoRequest) (*GetInfoResponse, error) {
+	req *watchtowerrpc.GetInfoRequest) (*watchtowerrpc.GetInfoResponse,
+	error) {
 
 	if err := c.isActive(); err != nil {
 		return nil, err
@@ -167,7 +170,7 @@ func (c *Handler) GetInfo(ctx context.Context,
 		uris = append(uris, fmt.Sprintf("%x@%v", pubkey, addr))
 	}
 
-	return &GetInfoResponse{
+	return &watchtowerrpc.GetInfoResponse{
 		Pubkey:    pubkey,
 		Listeners: listeners,
 		Uris:      uris,

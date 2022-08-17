@@ -1,4 +1,4 @@
-package watchtowerrpc
+package watchtower
 
 import (
 	"github.com/btcsuite/btclog"

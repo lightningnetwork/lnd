@@ -359,3 +359,64 @@ func TestReconnectSucceed(t *testing.T) {
 	// Check that the connection has been updated.
 	require.NotEqual(t, proxy.clientConn, c.conn)
 }
+
+// TestParseTorReply tests that Tor replies are parsed correctly.
+func TestParseTorReply(t *testing.T) {
+	testCase := []struct {
+		reply          string
+		expectedParams map[string]string
+	}{
+		{
+			// Test a regular reply.
+			reply: `VERSION Tor="0.4.7.8"`,
+			expectedParams: map[string]string{
+				"Tor": "0.4.7.8",
+			},
+		},
+		{
+			// Test a reply with multiple values, one of them
+			// containing spaces.
+			reply: `AUTH METHODS=COOKIE,SAFECOOKIE,HASHEDPASSWORD` +
+				` COOKIEFILE="/path/with/spaces/Tor Browser/c` +
+				`ontrol_auth_cookie"`,
+			expectedParams: map[string]string{
+				"METHODS": "COOKIE,SAFECOOKIE,HASHEDPASSWORD",
+				"COOKIEFILE": "/path/with/spaces/Tor Browser/" +
+					"control_auth_cookie",
+			},
+		},
+		{
+			// Test a multiline reply.
+			reply:          "ServiceID=id\r\nOK",
+			expectedParams: map[string]string{"ServiceID": "id"},
+		},
+		{
+			// Test a reply with invalid parameters.
+			reply:          "AUTH =invalid",
+			expectedParams: map[string]string{},
+		},
+		{
+			// Test escaping arbitrary characters.
+			reply: `PARAM="esca\ped \"doub\lequotes\""`,
+			expectedParams: map[string]string{
+				`PARAM`: `escaped "doublequotes"`,
+			},
+		},
+		{
+			// Test escaping backslashes. Each single backslash
+			// should be removed, each double backslash replaced
+			// with a single one. Note that the single backslash
+			// before the space escapes the space character, so
+			// there's two spaces in a row.
+			reply: `PARAM="escaped \\ \ \\\\"`,
+			expectedParams: map[string]string{
+				`PARAM`: `escaped \  \\`,
+			},
+		},
+	}
+
+	for _, tc := range testCase {
+		params := parseTorReply(tc.reply)
+		require.Equal(t, tc.expectedParams, params)
+	}
+}

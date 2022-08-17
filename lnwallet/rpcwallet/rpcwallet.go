@@ -188,13 +188,13 @@ func (r *RPCKeyRing) SendOutputs(outputs []*wire.TxOut,
 // perform any other tasks (such as coin selection, UTXO locking or
 // input/output/fee value validation, PSBT finalization). Any input that is
 // incomplete will be skipped.
-func (r *RPCKeyRing) SignPsbt(packet *psbt.Packet) error {
+func (r *RPCKeyRing) SignPsbt(packet *psbt.Packet) ([]uint32, error) {
 	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
 	defer cancel()
 
 	var buf bytes.Buffer
 	if err := packet.Serialize(&buf); err != nil {
-		return fmt.Errorf("error serializing PSBT: %v", err)
+		return nil, fmt.Errorf("error serializing PSBT: %v", err)
 	}
 
 	resp, err := r.walletClient.SignPsbt(ctxt, &walletrpc.SignPsbtRequest{
@@ -202,7 +202,7 @@ func (r *RPCKeyRing) SignPsbt(packet *psbt.Packet) error {
 	})
 	if err != nil {
 		considerShutdown(err)
-		return fmt.Errorf("error signing PSBT in remote signer "+
+		return nil, fmt.Errorf("error signing PSBT in remote signer "+
 			"instance: %v", err)
 	}
 
@@ -210,7 +210,7 @@ func (r *RPCKeyRing) SignPsbt(packet *psbt.Packet) error {
 		bytes.NewReader(resp.SignedPsbt), false,
 	)
 	if err != nil {
-		return fmt.Errorf("error parsing signed PSBT: %v", err)
+		return nil, fmt.Errorf("error parsing signed PSBT: %v", err)
 	}
 
 	// The caller expects the packet to be modified instead of a new
@@ -221,7 +221,7 @@ func (r *RPCKeyRing) SignPsbt(packet *psbt.Packet) error {
 	packet.Outputs = signedPacket.Outputs
 	packet.Unknowns = signedPacket.Unknowns
 
-	return nil
+	return resp.SignedInputs, nil
 }
 
 // FinalizePsbt expects a partial transaction with all inputs and outputs fully

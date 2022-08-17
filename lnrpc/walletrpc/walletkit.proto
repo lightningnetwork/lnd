@@ -885,6 +885,9 @@ message SignPsbtRequest {
 message SignPsbtResponse {
     // The signed transaction in PSBT format.
     bytes signed_psbt = 1;
+
+    // The indices of signed inputs.
+    repeated uint32 signed_inputs = 2;
 }
 
 message FinalizePsbtRequest {

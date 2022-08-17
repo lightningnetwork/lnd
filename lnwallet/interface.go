@@ -428,7 +428,7 @@ type WalletController interface {
 	// does not perform any other tasks (such as coin selection, UTXO
 	// locking or input/output/fee value validation, PSBT finalization). Any
 	// input that is incomplete will be skipped.
-	SignPsbt(packet *psbt.Packet) error
+	SignPsbt(packet *psbt.Packet) ([]uint32, error)
 
 	// FinalizePsbt expects a partial transaction with all inputs and
 	// outputs fully declared and tries to sign all inputs that belong to

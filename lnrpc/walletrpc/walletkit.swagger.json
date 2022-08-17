@@ -1567,6 +1567,14 @@
           "type": "string",
           "format": "byte",
           "description": "The signed transaction in PSBT format."
+        },
+        "signed_inputs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "description": "The indices of signed inputs."
         }
       }
     },

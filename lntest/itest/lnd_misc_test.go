@@ -989,16 +989,13 @@ func testSweepAllCoins(ht *lntemp.HarnessTest) {
 
 // testListAddresses tests that we get all the addresses and their
 // corresponding balance correctly.
-func testListAddresses(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testListAddresses(ht *lntemp.HarnessTest) {
 	// First, we'll make a new node - Alice, which will be generating
 	// new addresses.
-	alice := net.NewNode(t.t, "Alice", nil)
-	defer shutdownAndAssert(net, t, alice)
+	alice := ht.NewNode("Alice", nil)
 
 	// Next, we'll give Alice exactly 1 utxo of 1 BTC.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
 
 	type addressDetails struct {
 		Balance int64
@@ -1010,81 +1007,75 @@ func testListAddresses(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Create an address generated from internal keys.
 	keyLoc := &walletrpc.KeyReq{KeyFamily: 123}
-	keyDesc, err := alice.WalletKitClient.DeriveNextKey(ctxb, keyLoc)
-	require.NoError(t.t, err)
+	keyDesc := alice.RPC.DeriveNextKey(keyLoc)
 
 	// Hex Encode the public key.
 	pubkeyString := hex.EncodeToString(keyDesc.RawKeyBytes)
 
 	// Create a p2tr address.
-	resp, err := alice.NewAddress(ctxb, &lnrpc.NewAddressRequest{
+	resp := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
 	})
-	require.NoError(t.t, err)
 	generatedAddr[resp.Address] = addressDetails{
 		Balance: 200_000,
 		Type:    walletrpc.AddressType_TAPROOT_PUBKEY,
 	}
 
 	// Create a p2wkh address.
-	resp, err = alice.NewAddress(ctxb, &lnrpc.NewAddressRequest{
+	resp = alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	})
-	require.NoError(t.t, err)
 	generatedAddr[resp.Address] = addressDetails{
 		Balance: 300_000,
 		Type:    walletrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}
 
 	// Create a np2wkh address.
-	resp, err = alice.NewAddress(ctxb, &lnrpc.NewAddressRequest{
+	resp = alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_NESTED_PUBKEY_HASH,
 	})
-	require.NoError(t.t, err)
 	generatedAddr[resp.Address] = addressDetails{
 		Balance: 400_000,
 		Type:    walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH,
 	}
 
 	for addr, addressDetail := range generatedAddr {
-		_, err := alice.SendCoins(ctxb, &lnrpc.SendCoinsRequest{
+		alice.RPC.SendCoins(&lnrpc.SendCoinsRequest{
 			Addr:             addr,
 			Amount:           addressDetail.Balance,
 			SpendUnconfirmed: true,
 		})
-		require.NoError(t.t, err)
 	}
 
-	mineBlocks(t, net, 1, 3)
+	ht.MineBlocksAndAssertNumTxes(1, 3)
 
 	// Get all the accounts except LND's custom accounts.
-	addressLists, err := alice.WalletKitClient.ListAddresses(
-		ctxb, &walletrpc.ListAddressesRequest{},
+	addressLists := alice.RPC.ListAddresses(
+		&walletrpc.ListAddressesRequest{},
 	)
-	require.NoError(t.t, err)
 
 	foundAddresses := 0
 	for _, addressList := range addressLists.AccountWithAddresses {
 		addresses := addressList.Addresses
-		derivationPath, err := parseDerivationPath(
+		derivationPath, err := lntemp.ParseDerivationPath(
 			addressList.DerivationPath,
 		)
-		require.NoError(t.t, err)
+		require.NoError(ht, err)
 
 		// Should not get an account with KeyFamily - 123.
 		require.NotEqual(
-			t.t, uint32(keyLoc.KeyFamily), derivationPath[2],
+			ht, uint32(keyLoc.KeyFamily), derivationPath[2],
 		)
 
 		for _, address := range addresses {
 			if _, ok := generatedAddr[address.Address]; ok {
 				addrDetails := generatedAddr[address.Address]
 				require.Equal(
-					t.t, addrDetails.Balance,
+					ht, addrDetails.Balance,
 					address.Balance,
 				)
 				require.Equal(
-					t.t, addrDetails.Type,
+					ht, addrDetails.Type,
 					addressList.AddressType,
 				)
 				foundAddresses++
@@ -1092,23 +1083,22 @@ func testListAddresses(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	require.Equal(t.t, len(generatedAddr), foundAddresses)
+	require.Equal(ht, len(generatedAddr), foundAddresses)
 	foundAddresses = 0
 
 	// Get all the accounts (including LND's custom accounts).
-	addressLists, err = alice.WalletKitClient.ListAddresses(
-		ctxb, &walletrpc.ListAddressesRequest{
+	addressLists = alice.RPC.ListAddresses(
+		&walletrpc.ListAddressesRequest{
 			ShowCustomAccounts: true,
 		},
 	)
-	require.NoError(t.t, err)
 
 	for _, addressList := range addressLists.AccountWithAddresses {
 		addresses := addressList.Addresses
-		derivationPath, err := parseDerivationPath(
+		derivationPath, err := lntemp.ParseDerivationPath(
 			addressList.DerivationPath,
 		)
-		require.NoError(t.t, err)
+		require.NoError(ht, err)
 
 		for _, address := range addresses {
 			// Check if the KeyFamily in derivation path is 123.
@@ -1116,15 +1106,15 @@ func testListAddresses(net *lntest.NetworkHarness, t *harnessTest) {
 				// For LND's custom accounts, the address
 				// represents the public key.
 				pubkey := address.Address
-				require.Equal(t.t, pubkeyString, pubkey)
+				require.Equal(ht, pubkeyString, pubkey)
 			} else if _, ok := generatedAddr[address.Address]; ok {
 				addrDetails := generatedAddr[address.Address]
 				require.Equal(
-					t.t, addrDetails.Balance,
+					ht, addrDetails.Balance,
 					address.Balance,
 				)
 				require.Equal(
-					t.t, addrDetails.Type,
+					ht, addrDetails.Type,
 					addressList.AddressType,
 				)
 				foundAddresses++
@@ -1132,7 +1122,7 @@ func testListAddresses(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	require.Equal(t.t, len(generatedAddr), foundAddresses)
+	require.Equal(ht, len(generatedAddr), foundAddresses)
 }
 
 func assertChannelConstraintsEqual(ht *lntemp.HarnessTest,

@@ -98,3 +98,29 @@ func (h *HarnessRPC) LabelTransaction(req *walletrpc.LabelTransactionRequest) {
 	_, err := h.WalletKit.LabelTransaction(ctxt, req)
 	h.NoError(err, "LabelTransaction")
 }
+
+// DeriveNextKey makes a RPC call to the DeriveNextKey and asserts.
+func (h *HarnessRPC) DeriveNextKey(
+	req *walletrpc.KeyReq) *signrpc.KeyDescriptor {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	key, err := h.WalletKit.DeriveNextKey(ctxt, req)
+	h.NoError(err, "DeriveNextKey")
+
+	return key
+}
+
+// ListAddresses makes a RPC call to the ListAddresses and asserts.
+func (h *HarnessRPC) ListAddresses(
+	req *walletrpc.ListAddressesRequest) *walletrpc.ListAddressesResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	key, err := h.WalletKit.ListAddresses(ctxt, req)
+	h.NoError(err, "ListAddresses")
+
+	return key
+}

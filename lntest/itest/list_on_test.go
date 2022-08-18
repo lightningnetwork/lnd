@@ -103,4 +103,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "node sign verify",
 		TestFunc: testNodeSignVerify,
 	},
+	{
+		Name:     "list addresses",
+		TestFunc: testListAddresses,
+	},
 }

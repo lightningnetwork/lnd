@@ -23,7 +23,7 @@ func (h *HarnessRPC) UpdateNodeAnnouncement(req AnnReq) AnnResp {
 	defer cancel()
 
 	resp, err := h.Peer.UpdateNodeAnnouncement(ctxt, req)
-	require.NoErrorf(h, err, "failed to update announcement")
+	h.NoError(err, "UpdateNodeAnnouncement")
 
 	return resp
 }

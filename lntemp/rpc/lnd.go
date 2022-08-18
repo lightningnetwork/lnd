@@ -365,8 +365,7 @@ func (h *HarnessRPC) SendCoins(
 	defer cancel()
 
 	resp, err := h.LN.SendCoins(ctxt, req)
-	require.NoErrorf(h, err, "node %s failed to send coins to address %s",
-		h.Name, req.Addr)
+	h.NoError(err, "SendCoins")
 
 	return resp
 }
@@ -393,7 +392,7 @@ func (h *HarnessRPC) GetTransactions(
 	}
 
 	resp, err := h.LN.GetTransactions(ctxt, req)
-	require.NoErrorf(h, err, "failed to GetTransactions for %s", h.Name)
+	h.NoError(err, "GetTransactions")
 
 	return resp
 }
@@ -405,7 +404,7 @@ func (h *HarnessRPC) SignMessage(msg []byte) *lnrpc.SignMessageResponse {
 
 	req := &lnrpc.SignMessageRequest{Msg: msg}
 	resp, err := h.LN.SignMessage(ctxt, req)
-	require.NoErrorf(h, err, "SignMessage rpc call failed")
+	h.NoError(err, "SignMessage")
 
 	return resp
 }
@@ -419,7 +418,7 @@ func (h *HarnessRPC) VerifyMessage(msg []byte,
 
 	req := &lnrpc.VerifyMessageRequest{Msg: msg, Signature: sig}
 	resp, err := h.LN.VerifyMessage(ctxt, req)
-	require.NoErrorf(h, err, "VerifyMessage failed")
+	h.NoError(err, "VerifyMessage")
 
 	return resp
 }
@@ -437,7 +436,7 @@ func (h *HarnessRPC) GetRecoveryInfo(
 	}
 
 	resp, err := h.LN.GetRecoveryInfo(ctxt, req)
-	require.NoErrorf(h, err, "failed to GetRecoveryInfo")
+	h.NoError(err, "GetRecoveryInfo")
 
 	return resp
 }
@@ -450,7 +449,7 @@ func (h *HarnessRPC) BatchOpenChannel(
 	defer cancel()
 
 	resp, err := h.LN.BatchOpenChannel(ctxt, req)
-	require.NoErrorf(h, err, "failed to batch open channel")
+	h.NoError(err, "BatchOpenChannel")
 
 	return resp
 }
@@ -477,7 +476,7 @@ func (h *HarnessRPC) QueryRoutes(
 	defer cancel()
 
 	routes, err := h.LN.QueryRoutes(ctxt, req)
-	require.NoErrorf(h, err, "failed to query routes")
+	h.NoError(err, "QueryRoutes")
 
 	return routes
 }
@@ -501,7 +500,7 @@ func (h *HarnessRPC) SendToRouteSync(
 	defer cancel()
 
 	resp, err := h.LN.SendToRouteSync(ctxt, req)
-	require.NoErrorf(h, err, "unable to send to route for %s", h.Name)
+	h.NoError(err, "SendToRouteSync")
 
 	return resp
 }
@@ -514,7 +513,7 @@ func (h *HarnessRPC) UpdateChannelPolicy(
 	defer cancel()
 
 	resp, err := h.LN.UpdateChannelPolicy(ctxt, req)
-	require.NoErrorf(h, err, "failed to update policy")
+	h.NoError(err, "UpdateChannelPolicy")
 
 	return resp
 }
@@ -537,7 +536,7 @@ func (h *HarnessRPC) SubscribeInvoices(
 	// receive events stream. Thus we use runCtx here instead of a timeout
 	// context.
 	client, err := h.LN.SubscribeInvoices(h.runCtx, req)
-	require.NoError(h, err, "unable to create invoice subscription client")
+	h.NoError(err, "SubscribeInvoices")
 
 	return client
 }
@@ -551,7 +550,7 @@ func (h *HarnessRPC) SubscribeChannelBackups() BackupSubscriber {
 	backupStream, err := h.LN.SubscribeChannelBackups(
 		h.runCtx, &lnrpc.ChannelBackupSubscription{},
 	)
-	require.NoErrorf(h, err, "unable to create backup stream")
+	h.NoError(err, "SubscribeChannelBackups")
 
 	return backupStream
 }
@@ -564,7 +563,7 @@ func (h *HarnessRPC) VerifyChanBackup(
 	defer cancel()
 
 	resp, err := h.LN.VerifyChanBackup(ctxt, ss)
-	require.NoErrorf(h, err, "unable to verify backup")
+	h.NoError(err, "VerifyChanBackup")
 
 	return resp
 }

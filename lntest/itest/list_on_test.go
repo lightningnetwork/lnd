@@ -227,4 +227,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "chain kit",
 		TestFunc: testChainKit,
 	},
+	{
+		Name:     "neutrino kit",
+		TestFunc: testNeutrino,
+	},
 }

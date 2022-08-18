@@ -73,6 +73,13 @@ service WalletKit {
         returns (RequiredReserveResponse);
 
     /*
+    ListAddresses retrieves all the addresses along with their balance. An
+    account name filter can be provided to filter through all of the
+    wallet accounts and return the addresses of only those matching.
+    */
+    rpc ListAddresses (ListAddressesRequest) returns (ListAddressesResponse);
+
+    /*
     ImportAccount imports an account backed by an account extended public key.
     The master key fingerprint denotes the fingerprint of the root key
     corresponding to the account public key (also known as the key with
@@ -348,14 +355,7 @@ message Account {
     // The name used to identify the account.
     string name = 1;
 
-    /*
-    The type of addresses the account supports.
-    AddressType                       | External Branch | Internal Branch
-    ---------------------------------------------------------------------
-    WITNESS_PUBKEY_HASH               | P2WPKH          | P2WPKH
-    NESTED_WITNESS_PUBKEY_HASH        | NP2WPKH         | NP2WPKH
-    HYBRID_NESTED_WITNESS_PUBKEY_HASH | NP2WPKH         | P2WPKH
-    */
+    // The type of addresses the account supports.
     AddressType address_type = 2;
 
     /*
@@ -397,6 +397,50 @@ message Account {
     // Whether the wallet stores private keys for the account.
     bool watch_only = 8;
 }
+
+message AddressProperty {
+    /*
+    The address encoded using the appropriate format depending on the
+    address type (base58, bech32, bech32m).
+
+    Note that lnd's internal/custom keys for channels and other
+    functionality are derived from the same scope. Since they
+    aren't really used as addresses and will never have an
+    on-chain balance, we'll show the public key instead (only if
+    the show_custom_accounts flag is provided).
+    */
+    string address = 1;
+
+    // Denotes if the address is a change address.
+    bool is_internal = 2;
+
+    // The balance of the address.
+    int64 balance = 3;
+}
+
+message AccountWithAddresses {
+    // The name used to identify the account.
+    string name = 1;
+
+    // The type of addresses the account supports.
+    AddressType address_type = 2;
+
+    /*
+    The derivation path corresponding to the account public key. This will
+    always be empty for the default imported account in which single public keys
+    are imported into.
+    */
+    string derivation_path = 3;
+
+    /*
+    List of address, its type internal/external & balance.
+    Note that the order of addresses will be random and not according to the
+    derivation index, since that information is not stored by the underlying
+    wallet.
+    */
+    repeated AddressProperty addresses = 4;
+}
+
 message ListAccountsRequest {
     // An optional filter to only return accounts matching this name.
     string name = 1;
@@ -404,6 +448,7 @@ message ListAccountsRequest {
     // An optional filter to only return accounts matching this address type.
     AddressType address_type = 2;
 }
+
 message ListAccountsResponse {
     repeated Account accounts = 1;
 }
@@ -416,6 +461,20 @@ message RequiredReserveRequest {
 message RequiredReserveResponse {
     // The amount of reserve required.
     int64 required_reserve = 1;
+}
+
+message ListAddressesRequest {
+    // An optional filter to only return addresses matching this account.
+    string account_name = 1;
+
+    // An optional flag to return LND's custom accounts (Purpose=1017)
+    // public key along with other addresses.
+    bool show_custom_accounts = 2;
+}
+
+message ListAddressesResponse {
+    // A list of all the accounts and their addresses.
+    repeated AccountWithAddresses account_with_addresses = 1;
 }
 
 message ImportAccountRequest {

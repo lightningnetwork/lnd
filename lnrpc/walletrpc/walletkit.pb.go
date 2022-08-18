@@ -734,13 +734,7 @@ type Account struct {
 
 	// The name used to identify the account.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	//
-	//The type of addresses the account supports.
-	//AddressType                       | External Branch | Internal Branch
-	//---------------------------------------------------------------------
-	//WITNESS_PUBKEY_HASH               | P2WPKH          | P2WPKH
-	//NESTED_WITNESS_PUBKEY_HASH        | NP2WPKH         | NP2WPKH
-	//HYBRID_NESTED_WITNESS_PUBKEY_HASH | NP2WPKH         | P2WPKH
+	// The type of addresses the account supports.
 	AddressType AddressType `protobuf:"varint,2,opt,name=address_type,json=addressType,proto3,enum=walletrpc.AddressType" json:"address_type,omitempty"`
 	//
 	//The public key backing the account that all keys are derived from
@@ -860,6 +854,162 @@ func (x *Account) GetWatchOnly() bool {
 	return false
 }
 
+type AddressProperty struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	//
+	//The address encoded using the appropriate format depending on the
+	//address type (base58, bech32, bech32m).
+	//
+	//Note that lnd's internal/custom keys for channels and other
+	//functionality are derived from the same scope. Since they
+	//aren't really used as addresses and will never have an
+	//on-chain balance, we'll show the public key instead (only if
+	//the show_custom_accounts flag is provided).
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	// Denotes if the address is a change address.
+	IsInternal bool `protobuf:"varint,2,opt,name=is_internal,json=isInternal,proto3" json:"is_internal,omitempty"`
+	// The balance of the address.
+	Balance int64 `protobuf:"varint,3,opt,name=balance,proto3" json:"balance,omitempty"`
+}
+
+func (x *AddressProperty) Reset() {
+	*x = AddressProperty{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_walletrpc_walletkit_proto_msgTypes[10]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AddressProperty) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddressProperty) ProtoMessage() {}
+
+func (x *AddressProperty) ProtoReflect() protoreflect.Message {
+	mi := &file_walletrpc_walletkit_proto_msgTypes[10]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddressProperty.ProtoReflect.Descriptor instead.
+func (*AddressProperty) Descriptor() ([]byte, []int) {
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *AddressProperty) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *AddressProperty) GetIsInternal() bool {
+	if x != nil {
+		return x.IsInternal
+	}
+	return false
+}
+
+func (x *AddressProperty) GetBalance() int64 {
+	if x != nil {
+		return x.Balance
+	}
+	return 0
+}
+
+type AccountWithAddresses struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// The name used to identify the account.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// The type of addresses the account supports.
+	AddressType AddressType `protobuf:"varint,2,opt,name=address_type,json=addressType,proto3,enum=walletrpc.AddressType" json:"address_type,omitempty"`
+	//
+	//The derivation path corresponding to the account public key. This will
+	//always be empty for the default imported account in which single public keys
+	//are imported into.
+	DerivationPath string `protobuf:"bytes,3,opt,name=derivation_path,json=derivationPath,proto3" json:"derivation_path,omitempty"`
+	//
+	//List of address, its type internal/external & balance.
+	//Note that the order of addresses will be random and not according to the
+	//derivation index, since that information is not stored by the underlying
+	//wallet.
+	Addresses []*AddressProperty `protobuf:"bytes,4,rep,name=addresses,proto3" json:"addresses,omitempty"`
+}
+
+func (x *AccountWithAddresses) Reset() {
+	*x = AccountWithAddresses{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_walletrpc_walletkit_proto_msgTypes[11]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AccountWithAddresses) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountWithAddresses) ProtoMessage() {}
+
+func (x *AccountWithAddresses) ProtoReflect() protoreflect.Message {
+	mi := &file_walletrpc_walletkit_proto_msgTypes[11]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountWithAddresses.ProtoReflect.Descriptor instead.
+func (*AccountWithAddresses) Descriptor() ([]byte, []int) {
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *AccountWithAddresses) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AccountWithAddresses) GetAddressType() AddressType {
+	if x != nil {
+		return x.AddressType
+	}
+	return AddressType_UNKNOWN
+}
+
+func (x *AccountWithAddresses) GetDerivationPath() string {
+	if x != nil {
+		return x.DerivationPath
+	}
+	return ""
+}
+
+func (x *AccountWithAddresses) GetAddresses() []*AddressProperty {
+	if x != nil {
+		return x.Addresses
+	}
+	return nil
+}
+
 type ListAccountsRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -874,7 +1024,7 @@ type ListAccountsRequest struct {
 func (x *ListAccountsRequest) Reset() {
 	*x = ListAccountsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[10]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[12]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -887,7 +1037,7 @@ func (x *ListAccountsRequest) String() string {
 func (*ListAccountsRequest) ProtoMessage() {}
 
 func (x *ListAccountsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[10]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[12]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -900,7 +1050,7 @@ func (x *ListAccountsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAccountsRequest.ProtoReflect.Descriptor instead.
 func (*ListAccountsRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{10}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ListAccountsRequest) GetName() string {
@@ -928,7 +1078,7 @@ type ListAccountsResponse struct {
 func (x *ListAccountsResponse) Reset() {
 	*x = ListAccountsResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[11]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[13]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -941,7 +1091,7 @@ func (x *ListAccountsResponse) String() string {
 func (*ListAccountsResponse) ProtoMessage() {}
 
 func (x *ListAccountsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[11]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[13]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -954,7 +1104,7 @@ func (x *ListAccountsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAccountsResponse.ProtoReflect.Descriptor instead.
 func (*ListAccountsResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{11}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ListAccountsResponse) GetAccounts() []*Account {
@@ -976,7 +1126,7 @@ type RequiredReserveRequest struct {
 func (x *RequiredReserveRequest) Reset() {
 	*x = RequiredReserveRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[12]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[14]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -989,7 +1139,7 @@ func (x *RequiredReserveRequest) String() string {
 func (*RequiredReserveRequest) ProtoMessage() {}
 
 func (x *RequiredReserveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[12]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[14]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1002,7 +1152,7 @@ func (x *RequiredReserveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequiredReserveRequest.ProtoReflect.Descriptor instead.
 func (*RequiredReserveRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{12}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *RequiredReserveRequest) GetAdditionalPublicChannels() uint32 {
@@ -1024,7 +1174,7 @@ type RequiredReserveResponse struct {
 func (x *RequiredReserveResponse) Reset() {
 	*x = RequiredReserveResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[13]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[15]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1037,7 +1187,7 @@ func (x *RequiredReserveResponse) String() string {
 func (*RequiredReserveResponse) ProtoMessage() {}
 
 func (x *RequiredReserveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[13]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[15]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1050,7 +1200,7 @@ func (x *RequiredReserveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequiredReserveResponse.ProtoReflect.Descriptor instead.
 func (*RequiredReserveResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{13}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *RequiredReserveResponse) GetRequiredReserve() int64 {
@@ -1058,6 +1208,112 @@ func (x *RequiredReserveResponse) GetRequiredReserve() int64 {
 		return x.RequiredReserve
 	}
 	return 0
+}
+
+type ListAddressesRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// An optional filter to only return addresses matching this account.
+	AccountName string `protobuf:"bytes,1,opt,name=account_name,json=accountName,proto3" json:"account_name,omitempty"`
+	// An optional flag to return LND's custom accounts (Purpose=1017)
+	// public key along with other addresses.
+	ShowCustomAccounts bool `protobuf:"varint,2,opt,name=show_custom_accounts,json=showCustomAccounts,proto3" json:"show_custom_accounts,omitempty"`
+}
+
+func (x *ListAddressesRequest) Reset() {
+	*x = ListAddressesRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_walletrpc_walletkit_proto_msgTypes[16]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ListAddressesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAddressesRequest) ProtoMessage() {}
+
+func (x *ListAddressesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_walletrpc_walletkit_proto_msgTypes[16]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAddressesRequest.ProtoReflect.Descriptor instead.
+func (*ListAddressesRequest) Descriptor() ([]byte, []int) {
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ListAddressesRequest) GetAccountName() string {
+	if x != nil {
+		return x.AccountName
+	}
+	return ""
+}
+
+func (x *ListAddressesRequest) GetShowCustomAccounts() bool {
+	if x != nil {
+		return x.ShowCustomAccounts
+	}
+	return false
+}
+
+type ListAddressesResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// A list of all the accounts and their addresses.
+	AccountWithAddresses []*AccountWithAddresses `protobuf:"bytes,1,rep,name=account_with_addresses,json=accountWithAddresses,proto3" json:"account_with_addresses,omitempty"`
+}
+
+func (x *ListAddressesResponse) Reset() {
+	*x = ListAddressesResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_walletrpc_walletkit_proto_msgTypes[17]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ListAddressesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAddressesResponse) ProtoMessage() {}
+
+func (x *ListAddressesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_walletrpc_walletkit_proto_msgTypes[17]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAddressesResponse.ProtoReflect.Descriptor instead.
+func (*ListAddressesResponse) Descriptor() ([]byte, []int) {
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ListAddressesResponse) GetAccountWithAddresses() []*AccountWithAddresses {
+	if x != nil {
+		return x.AccountWithAddresses
+	}
+	return nil
 }
 
 type ImportAccountRequest struct {
@@ -1095,7 +1351,7 @@ type ImportAccountRequest struct {
 func (x *ImportAccountRequest) Reset() {
 	*x = ImportAccountRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[14]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[18]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1108,7 +1364,7 @@ func (x *ImportAccountRequest) String() string {
 func (*ImportAccountRequest) ProtoMessage() {}
 
 func (x *ImportAccountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[14]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[18]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1121,7 +1377,7 @@ func (x *ImportAccountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportAccountRequest.ProtoReflect.Descriptor instead.
 func (*ImportAccountRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{14}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ImportAccountRequest) GetName() string {
@@ -1181,7 +1437,7 @@ type ImportAccountResponse struct {
 func (x *ImportAccountResponse) Reset() {
 	*x = ImportAccountResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[15]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[19]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1194,7 +1450,7 @@ func (x *ImportAccountResponse) String() string {
 func (*ImportAccountResponse) ProtoMessage() {}
 
 func (x *ImportAccountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[15]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[19]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1207,7 +1463,7 @@ func (x *ImportAccountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportAccountResponse.ProtoReflect.Descriptor instead.
 func (*ImportAccountResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{15}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ImportAccountResponse) GetAccount() *Account {
@@ -1245,7 +1501,7 @@ type ImportPublicKeyRequest struct {
 func (x *ImportPublicKeyRequest) Reset() {
 	*x = ImportPublicKeyRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[16]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[20]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1258,7 +1514,7 @@ func (x *ImportPublicKeyRequest) String() string {
 func (*ImportPublicKeyRequest) ProtoMessage() {}
 
 func (x *ImportPublicKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[16]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[20]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1271,7 +1527,7 @@ func (x *ImportPublicKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportPublicKeyRequest.ProtoReflect.Descriptor instead.
 func (*ImportPublicKeyRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{16}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ImportPublicKeyRequest) GetPublicKey() []byte {
@@ -1297,7 +1553,7 @@ type ImportPublicKeyResponse struct {
 func (x *ImportPublicKeyResponse) Reset() {
 	*x = ImportPublicKeyResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[17]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[21]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1310,7 +1566,7 @@ func (x *ImportPublicKeyResponse) String() string {
 func (*ImportPublicKeyResponse) ProtoMessage() {}
 
 func (x *ImportPublicKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[17]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[21]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1323,7 +1579,7 @@ func (x *ImportPublicKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportPublicKeyResponse.ProtoReflect.Descriptor instead.
 func (*ImportPublicKeyResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{17}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{21}
 }
 
 type Transaction struct {
@@ -1342,7 +1598,7 @@ type Transaction struct {
 func (x *Transaction) Reset() {
 	*x = Transaction{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[18]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[22]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1355,7 +1611,7 @@ func (x *Transaction) String() string {
 func (*Transaction) ProtoMessage() {}
 
 func (x *Transaction) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[18]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[22]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1368,7 +1624,7 @@ func (x *Transaction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Transaction.ProtoReflect.Descriptor instead.
 func (*Transaction) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{18}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Transaction) GetTxHex() []byte {
@@ -1402,7 +1658,7 @@ type PublishResponse struct {
 func (x *PublishResponse) Reset() {
 	*x = PublishResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[19]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[23]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1415,7 +1671,7 @@ func (x *PublishResponse) String() string {
 func (*PublishResponse) ProtoMessage() {}
 
 func (x *PublishResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[19]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[23]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1428,7 +1684,7 @@ func (x *PublishResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishResponse.ProtoReflect.Descriptor instead.
 func (*PublishResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{19}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *PublishResponse) GetPublishError() string {
@@ -1462,7 +1718,7 @@ type SendOutputsRequest struct {
 func (x *SendOutputsRequest) Reset() {
 	*x = SendOutputsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[20]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[24]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1475,7 +1731,7 @@ func (x *SendOutputsRequest) String() string {
 func (*SendOutputsRequest) ProtoMessage() {}
 
 func (x *SendOutputsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[20]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[24]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1488,7 +1744,7 @@ func (x *SendOutputsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendOutputsRequest.ProtoReflect.Descriptor instead.
 func (*SendOutputsRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{20}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *SendOutputsRequest) GetSatPerKw() int64 {
@@ -1539,7 +1795,7 @@ type SendOutputsResponse struct {
 func (x *SendOutputsResponse) Reset() {
 	*x = SendOutputsResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[21]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[25]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1552,7 +1808,7 @@ func (x *SendOutputsResponse) String() string {
 func (*SendOutputsResponse) ProtoMessage() {}
 
 func (x *SendOutputsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[21]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[25]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1565,7 +1821,7 @@ func (x *SendOutputsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendOutputsResponse.ProtoReflect.Descriptor instead.
 func (*SendOutputsResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{21}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *SendOutputsResponse) GetRawTx() []byte {
@@ -1588,7 +1844,7 @@ type EstimateFeeRequest struct {
 func (x *EstimateFeeRequest) Reset() {
 	*x = EstimateFeeRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[22]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[26]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1601,7 +1857,7 @@ func (x *EstimateFeeRequest) String() string {
 func (*EstimateFeeRequest) ProtoMessage() {}
 
 func (x *EstimateFeeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[22]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[26]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1614,7 +1870,7 @@ func (x *EstimateFeeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EstimateFeeRequest.ProtoReflect.Descriptor instead.
 func (*EstimateFeeRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{22}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *EstimateFeeRequest) GetConfTarget() int32 {
@@ -1638,7 +1894,7 @@ type EstimateFeeResponse struct {
 func (x *EstimateFeeResponse) Reset() {
 	*x = EstimateFeeResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[23]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[27]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1651,7 +1907,7 @@ func (x *EstimateFeeResponse) String() string {
 func (*EstimateFeeResponse) ProtoMessage() {}
 
 func (x *EstimateFeeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[23]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[27]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1664,7 +1920,7 @@ func (x *EstimateFeeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EstimateFeeResponse.ProtoReflect.Descriptor instead.
 func (*EstimateFeeResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{23}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *EstimateFeeResponse) GetSatPerKw() int64 {
@@ -1722,7 +1978,7 @@ type PendingSweep struct {
 func (x *PendingSweep) Reset() {
 	*x = PendingSweep{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[24]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[28]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1735,7 +1991,7 @@ func (x *PendingSweep) String() string {
 func (*PendingSweep) ProtoMessage() {}
 
 func (x *PendingSweep) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[24]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[28]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1748,7 +2004,7 @@ func (x *PendingSweep) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PendingSweep.ProtoReflect.Descriptor instead.
 func (*PendingSweep) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{24}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *PendingSweep) GetOutpoint() *lnrpc.OutPoint {
@@ -1839,7 +2095,7 @@ type PendingSweepsRequest struct {
 func (x *PendingSweepsRequest) Reset() {
 	*x = PendingSweepsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[25]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[29]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1852,7 +2108,7 @@ func (x *PendingSweepsRequest) String() string {
 func (*PendingSweepsRequest) ProtoMessage() {}
 
 func (x *PendingSweepsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[25]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[29]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1865,7 +2121,7 @@ func (x *PendingSweepsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PendingSweepsRequest.ProtoReflect.Descriptor instead.
 func (*PendingSweepsRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{25}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{29}
 }
 
 type PendingSweepsResponse struct {
@@ -1881,7 +2137,7 @@ type PendingSweepsResponse struct {
 func (x *PendingSweepsResponse) Reset() {
 	*x = PendingSweepsResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[26]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[30]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1894,7 +2150,7 @@ func (x *PendingSweepsResponse) String() string {
 func (*PendingSweepsResponse) ProtoMessage() {}
 
 func (x *PendingSweepsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[26]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[30]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1907,7 +2163,7 @@ func (x *PendingSweepsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PendingSweepsResponse.ProtoReflect.Descriptor instead.
 func (*PendingSweepsResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{26}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *PendingSweepsResponse) GetPendingSweeps() []*PendingSweep {
@@ -1946,7 +2202,7 @@ type BumpFeeRequest struct {
 func (x *BumpFeeRequest) Reset() {
 	*x = BumpFeeRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[27]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[31]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1959,7 +2215,7 @@ func (x *BumpFeeRequest) String() string {
 func (*BumpFeeRequest) ProtoMessage() {}
 
 func (x *BumpFeeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[27]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[31]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1972,7 +2228,7 @@ func (x *BumpFeeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BumpFeeRequest.ProtoReflect.Descriptor instead.
 func (*BumpFeeRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{27}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *BumpFeeRequest) GetOutpoint() *lnrpc.OutPoint {
@@ -2020,7 +2276,7 @@ type BumpFeeResponse struct {
 func (x *BumpFeeResponse) Reset() {
 	*x = BumpFeeResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[28]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[32]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2033,7 +2289,7 @@ func (x *BumpFeeResponse) String() string {
 func (*BumpFeeResponse) ProtoMessage() {}
 
 func (x *BumpFeeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[28]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[32]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2046,7 +2302,7 @@ func (x *BumpFeeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BumpFeeResponse.ProtoReflect.Descriptor instead.
 func (*BumpFeeResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{28}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{32}
 }
 
 type ListSweepsRequest struct {
@@ -2064,7 +2320,7 @@ type ListSweepsRequest struct {
 func (x *ListSweepsRequest) Reset() {
 	*x = ListSweepsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[29]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[33]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2077,7 +2333,7 @@ func (x *ListSweepsRequest) String() string {
 func (*ListSweepsRequest) ProtoMessage() {}
 
 func (x *ListSweepsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[29]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[33]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2090,7 +2346,7 @@ func (x *ListSweepsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSweepsRequest.ProtoReflect.Descriptor instead.
 func (*ListSweepsRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{29}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ListSweepsRequest) GetVerbose() bool {
@@ -2114,7 +2370,7 @@ type ListSweepsResponse struct {
 func (x *ListSweepsResponse) Reset() {
 	*x = ListSweepsResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[30]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[34]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2127,7 +2383,7 @@ func (x *ListSweepsResponse) String() string {
 func (*ListSweepsResponse) ProtoMessage() {}
 
 func (x *ListSweepsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[30]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[34]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2140,7 +2396,7 @@ func (x *ListSweepsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSweepsResponse.ProtoReflect.Descriptor instead.
 func (*ListSweepsResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{30}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{34}
 }
 
 func (m *ListSweepsResponse) GetSweeps() isListSweepsResponse_Sweeps {
@@ -2196,7 +2452,7 @@ type LabelTransactionRequest struct {
 func (x *LabelTransactionRequest) Reset() {
 	*x = LabelTransactionRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[31]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[35]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2209,7 +2465,7 @@ func (x *LabelTransactionRequest) String() string {
 func (*LabelTransactionRequest) ProtoMessage() {}
 
 func (x *LabelTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[31]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[35]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2222,7 +2478,7 @@ func (x *LabelTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LabelTransactionRequest.ProtoReflect.Descriptor instead.
 func (*LabelTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{31}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *LabelTransactionRequest) GetTxid() []byte {
@@ -2255,7 +2511,7 @@ type LabelTransactionResponse struct {
 func (x *LabelTransactionResponse) Reset() {
 	*x = LabelTransactionResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[32]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[36]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2268,7 +2524,7 @@ func (x *LabelTransactionResponse) String() string {
 func (*LabelTransactionResponse) ProtoMessage() {}
 
 func (x *LabelTransactionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[32]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[36]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2281,7 +2537,7 @@ func (x *LabelTransactionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LabelTransactionResponse.ProtoReflect.Descriptor instead.
 func (*LabelTransactionResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{32}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{36}
 }
 
 type FundPsbtRequest struct {
@@ -2311,7 +2567,7 @@ type FundPsbtRequest struct {
 func (x *FundPsbtRequest) Reset() {
 	*x = FundPsbtRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[33]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[37]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2324,7 +2580,7 @@ func (x *FundPsbtRequest) String() string {
 func (*FundPsbtRequest) ProtoMessage() {}
 
 func (x *FundPsbtRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[33]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[37]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2337,7 +2593,7 @@ func (x *FundPsbtRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FundPsbtRequest.ProtoReflect.Descriptor instead.
 func (*FundPsbtRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{33}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{37}
 }
 
 func (m *FundPsbtRequest) GetTemplate() isFundPsbtRequest_Template {
@@ -2471,7 +2727,7 @@ type FundPsbtResponse struct {
 func (x *FundPsbtResponse) Reset() {
 	*x = FundPsbtResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[34]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[38]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2484,7 +2740,7 @@ func (x *FundPsbtResponse) String() string {
 func (*FundPsbtResponse) ProtoMessage() {}
 
 func (x *FundPsbtResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[34]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[38]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2497,7 +2753,7 @@ func (x *FundPsbtResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FundPsbtResponse.ProtoReflect.Descriptor instead.
 func (*FundPsbtResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{34}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *FundPsbtResponse) GetFundedPsbt() []byte {
@@ -2543,7 +2799,7 @@ type TxTemplate struct {
 func (x *TxTemplate) Reset() {
 	*x = TxTemplate{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[35]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[39]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2556,7 +2812,7 @@ func (x *TxTemplate) String() string {
 func (*TxTemplate) ProtoMessage() {}
 
 func (x *TxTemplate) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[35]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[39]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2569,7 +2825,7 @@ func (x *TxTemplate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TxTemplate.ProtoReflect.Descriptor instead.
 func (*TxTemplate) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{35}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *TxTemplate) GetInputs() []*lnrpc.OutPoint {
@@ -2610,7 +2866,7 @@ type UtxoLease struct {
 func (x *UtxoLease) Reset() {
 	*x = UtxoLease{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[36]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[40]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2623,7 +2879,7 @@ func (x *UtxoLease) String() string {
 func (*UtxoLease) ProtoMessage() {}
 
 func (x *UtxoLease) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[36]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[40]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2636,7 +2892,7 @@ func (x *UtxoLease) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UtxoLease.ProtoReflect.Descriptor instead.
 func (*UtxoLease) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{36}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *UtxoLease) GetId() []byte {
@@ -2688,7 +2944,7 @@ type SignPsbtRequest struct {
 func (x *SignPsbtRequest) Reset() {
 	*x = SignPsbtRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[37]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[41]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2701,7 +2957,7 @@ func (x *SignPsbtRequest) String() string {
 func (*SignPsbtRequest) ProtoMessage() {}
 
 func (x *SignPsbtRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[37]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[41]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2714,7 +2970,7 @@ func (x *SignPsbtRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignPsbtRequest.ProtoReflect.Descriptor instead.
 func (*SignPsbtRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{37}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *SignPsbtRequest) GetFundedPsbt() []byte {
@@ -2738,7 +2994,7 @@ type SignPsbtResponse struct {
 func (x *SignPsbtResponse) Reset() {
 	*x = SignPsbtResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[38]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[42]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2751,7 +3007,7 @@ func (x *SignPsbtResponse) String() string {
 func (*SignPsbtResponse) ProtoMessage() {}
 
 func (x *SignPsbtResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[38]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[42]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2764,7 +3020,7 @@ func (x *SignPsbtResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignPsbtResponse.ProtoReflect.Descriptor instead.
 func (*SignPsbtResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{38}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *SignPsbtResponse) GetSignedPsbt() []byte {
@@ -2800,7 +3056,7 @@ type FinalizePsbtRequest struct {
 func (x *FinalizePsbtRequest) Reset() {
 	*x = FinalizePsbtRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[39]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[43]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2813,7 +3069,7 @@ func (x *FinalizePsbtRequest) String() string {
 func (*FinalizePsbtRequest) ProtoMessage() {}
 
 func (x *FinalizePsbtRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[39]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[43]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2826,7 +3082,7 @@ func (x *FinalizePsbtRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizePsbtRequest.ProtoReflect.Descriptor instead.
 func (*FinalizePsbtRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{39}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *FinalizePsbtRequest) GetFundedPsbt() []byte {
@@ -2857,7 +3113,7 @@ type FinalizePsbtResponse struct {
 func (x *FinalizePsbtResponse) Reset() {
 	*x = FinalizePsbtResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[40]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[44]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2870,7 +3126,7 @@ func (x *FinalizePsbtResponse) String() string {
 func (*FinalizePsbtResponse) ProtoMessage() {}
 
 func (x *FinalizePsbtResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[40]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[44]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2883,7 +3139,7 @@ func (x *FinalizePsbtResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizePsbtResponse.ProtoReflect.Descriptor instead.
 func (*FinalizePsbtResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{40}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *FinalizePsbtResponse) GetSignedPsbt() []byte {
@@ -2909,7 +3165,7 @@ type ListLeasesRequest struct {
 func (x *ListLeasesRequest) Reset() {
 	*x = ListLeasesRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[41]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[45]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2922,7 +3178,7 @@ func (x *ListLeasesRequest) String() string {
 func (*ListLeasesRequest) ProtoMessage() {}
 
 func (x *ListLeasesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[41]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[45]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2935,7 +3191,7 @@ func (x *ListLeasesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLeasesRequest.ProtoReflect.Descriptor instead.
 func (*ListLeasesRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{41}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{45}
 }
 
 type ListLeasesResponse struct {
@@ -2950,7 +3206,7 @@ type ListLeasesResponse struct {
 func (x *ListLeasesResponse) Reset() {
 	*x = ListLeasesResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[42]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[46]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2963,7 +3219,7 @@ func (x *ListLeasesResponse) String() string {
 func (*ListLeasesResponse) ProtoMessage() {}
 
 func (x *ListLeasesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[42]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[46]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2976,7 +3232,7 @@ func (x *ListLeasesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLeasesResponse.ProtoReflect.Descriptor instead.
 func (*ListLeasesResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{42}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ListLeasesResponse) GetLockedUtxos() []*UtxoLease {
@@ -3001,7 +3257,7 @@ type ListSweepsResponse_TransactionIDs struct {
 func (x *ListSweepsResponse_TransactionIDs) Reset() {
 	*x = ListSweepsResponse_TransactionIDs{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_walletrpc_walletkit_proto_msgTypes[43]
+		mi := &file_walletrpc_walletkit_proto_msgTypes[47]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3014,7 +3270,7 @@ func (x *ListSweepsResponse_TransactionIDs) String() string {
 func (*ListSweepsResponse_TransactionIDs) ProtoMessage() {}
 
 func (x *ListSweepsResponse_TransactionIDs) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[43]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[47]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3027,7 +3283,7 @@ func (x *ListSweepsResponse_TransactionIDs) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ListSweepsResponse_TransactionIDs.ProtoReflect.Descriptor instead.
 func (*ListSweepsResponse_TransactionIDs) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{30, 0}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{34, 0}
 }
 
 func (x *ListSweepsResponse_TransactionIDs) GetTransactionIds() []string {
@@ -3112,28 +3368,61 @@ var file_walletrpc_walletkit_proto_rawDesc = []byte{
 	0x79, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x07, 0x20, 0x01, 0x28, 0x0d, 0x52, 0x10, 0x69,
 	0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x4b, 0x65, 0x79, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x12,
 	0x1d, 0x0a, 0x0a, 0x77, 0x61, 0x74, 0x63, 0x68, 0x5f, 0x6f, 0x6e, 0x6c, 0x79, 0x18, 0x08, 0x20,
-	0x01, 0x28, 0x08, 0x52, 0x09, 0x77, 0x61, 0x74, 0x63, 0x68, 0x4f, 0x6e, 0x6c, 0x79, 0x22, 0x64,
-	0x0a, 0x13, 0x4c, 0x69, 0x73, 0x74, 0x41, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73, 0x52, 0x65,
-	0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20,
-	0x01, 0x28, 0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x39, 0x0a, 0x0c, 0x61, 0x64, 0x64,
-	0x72, 0x65, 0x73, 0x73, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0e, 0x32,
-	0x16, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x64, 0x64, 0x72,
-	0x65, 0x73, 0x73, 0x54, 0x79, 0x70, 0x65, 0x52, 0x0b, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73,
-	0x54, 0x79, 0x70, 0x65, 0x22, 0x46, 0x0a, 0x14, 0x4c, 0x69, 0x73, 0x74, 0x41, 0x63, 0x63, 0x6f,
-	0x75, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x2e, 0x0a, 0x08,
-	0x61, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x12,
-	0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x63, 0x63, 0x6f, 0x75,
-	0x6e, 0x74, 0x52, 0x08, 0x61, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73, 0x22, 0x56, 0x0a, 0x16,
-	0x52, 0x65, 0x71, 0x75, 0x69, 0x72, 0x65, 0x64, 0x52, 0x65, 0x73, 0x65, 0x72, 0x76, 0x65, 0x52,
-	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x3c, 0x0a, 0x1a, 0x61, 0x64, 0x64, 0x69, 0x74, 0x69,
-	0x6f, 0x6e, 0x61, 0x6c, 0x5f, 0x70, 0x75, 0x62, 0x6c, 0x69, 0x63, 0x5f, 0x63, 0x68, 0x61, 0x6e,
-	0x6e, 0x65, 0x6c, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0d, 0x52, 0x18, 0x61, 0x64, 0x64, 0x69,
-	0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c, 0x50, 0x75, 0x62, 0x6c, 0x69, 0x63, 0x43, 0x68, 0x61, 0x6e,
-	0x6e, 0x65, 0x6c, 0x73, 0x22, 0x44, 0x0a, 0x17, 0x52, 0x65, 0x71, 0x75, 0x69, 0x72, 0x65, 0x64,
-	0x52, 0x65, 0x73, 0x65, 0x72, 0x76, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12,
-	0x29, 0x0a, 0x10, 0x72, 0x65, 0x71, 0x75, 0x69, 0x72, 0x65, 0x64, 0x5f, 0x72, 0x65, 0x73, 0x65,
-	0x72, 0x76, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x52, 0x0f, 0x72, 0x65, 0x71, 0x75, 0x69,
-	0x72, 0x65, 0x64, 0x52, 0x65, 0x73, 0x65, 0x72, 0x76, 0x65, 0x22, 0xe4, 0x01, 0x0a, 0x14, 0x49,
+	0x01, 0x28, 0x08, 0x52, 0x09, 0x77, 0x61, 0x74, 0x63, 0x68, 0x4f, 0x6e, 0x6c, 0x79, 0x22, 0x66,
+	0x0a, 0x0f, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74,
+	0x79, 0x12, 0x18, 0x0a, 0x07, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x18, 0x01, 0x20, 0x01,
+	0x28, 0x09, 0x52, 0x07, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x12, 0x1f, 0x0a, 0x0b, 0x69,
+	0x73, 0x5f, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x18, 0x02, 0x20, 0x01, 0x28, 0x08,
+	0x52, 0x0a, 0x69, 0x73, 0x49, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x12, 0x18, 0x0a, 0x07,
+	0x62, 0x61, 0x6c, 0x61, 0x6e, 0x63, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x03, 0x52, 0x07, 0x62,
+	0x61, 0x6c, 0x61, 0x6e, 0x63, 0x65, 0x22, 0xc8, 0x01, 0x0a, 0x14, 0x41, 0x63, 0x63, 0x6f, 0x75,
+	0x6e, 0x74, 0x57, 0x69, 0x74, 0x68, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x65, 0x73, 0x12,
+	0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e,
+	0x61, 0x6d, 0x65, 0x12, 0x39, 0x0a, 0x0c, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x5f, 0x74,
+	0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x16, 0x2e, 0x77, 0x61, 0x6c, 0x6c,
+	0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x54, 0x79, 0x70,
+	0x65, 0x52, 0x0b, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x54, 0x79, 0x70, 0x65, 0x12, 0x27,
+	0x0a, 0x0f, 0x64, 0x65, 0x72, 0x69, 0x76, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x70, 0x61, 0x74,
+	0x68, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0e, 0x64, 0x65, 0x72, 0x69, 0x76, 0x61, 0x74,
+	0x69, 0x6f, 0x6e, 0x50, 0x61, 0x74, 0x68, 0x12, 0x38, 0x0a, 0x09, 0x61, 0x64, 0x64, 0x72, 0x65,
+	0x73, 0x73, 0x65, 0x73, 0x18, 0x04, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x77, 0x61, 0x6c,
+	0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x50, 0x72,
+	0x6f, 0x70, 0x65, 0x72, 0x74, 0x79, 0x52, 0x09, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x65,
+	0x73, 0x22, 0x64, 0x0a, 0x13, 0x4c, 0x69, 0x73, 0x74, 0x41, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74,
+	0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x39, 0x0a, 0x0c,
+	0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01,
+	0x28, 0x0e, 0x32, 0x16, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x41,
+	0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x54, 0x79, 0x70, 0x65, 0x52, 0x0b, 0x61, 0x64, 0x64, 0x72,
+	0x65, 0x73, 0x73, 0x54, 0x79, 0x70, 0x65, 0x22, 0x46, 0x0a, 0x14, 0x4c, 0x69, 0x73, 0x74, 0x41,
+	0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12,
+	0x2e, 0x0a, 0x08, 0x61, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28,
+	0x0b, 0x32, 0x12, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x63,
+	0x63, 0x6f, 0x75, 0x6e, 0x74, 0x52, 0x08, 0x61, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73, 0x22,
+	0x56, 0x0a, 0x16, 0x52, 0x65, 0x71, 0x75, 0x69, 0x72, 0x65, 0x64, 0x52, 0x65, 0x73, 0x65, 0x72,
+	0x76, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x3c, 0x0a, 0x1a, 0x61, 0x64, 0x64,
+	0x69, 0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c, 0x5f, 0x70, 0x75, 0x62, 0x6c, 0x69, 0x63, 0x5f, 0x63,
+	0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0d, 0x52, 0x18, 0x61,
+	0x64, 0x64, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c, 0x50, 0x75, 0x62, 0x6c, 0x69, 0x63, 0x43,
+	0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x73, 0x22, 0x44, 0x0a, 0x17, 0x52, 0x65, 0x71, 0x75, 0x69,
+	0x72, 0x65, 0x64, 0x52, 0x65, 0x73, 0x65, 0x72, 0x76, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
+	0x73, 0x65, 0x12, 0x29, 0x0a, 0x10, 0x72, 0x65, 0x71, 0x75, 0x69, 0x72, 0x65, 0x64, 0x5f, 0x72,
+	0x65, 0x73, 0x65, 0x72, 0x76, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x52, 0x0f, 0x72, 0x65,
+	0x71, 0x75, 0x69, 0x72, 0x65, 0x64, 0x52, 0x65, 0x73, 0x65, 0x72, 0x76, 0x65, 0x22, 0x6b, 0x0a,
+	0x14, 0x4c, 0x69, 0x73, 0x74, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x65, 0x73, 0x52, 0x65,
+	0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x21, 0x0a, 0x0c, 0x61, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74,
+	0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x61, 0x63, 0x63,
+	0x6f, 0x75, 0x6e, 0x74, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x30, 0x0a, 0x14, 0x73, 0x68, 0x6f, 0x77,
+	0x5f, 0x63, 0x75, 0x73, 0x74, 0x6f, 0x6d, 0x5f, 0x61, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73,
+	0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52, 0x12, 0x73, 0x68, 0x6f, 0x77, 0x43, 0x75, 0x73, 0x74,
+	0x6f, 0x6d, 0x41, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73, 0x22, 0x6e, 0x0a, 0x15, 0x4c, 0x69,
+	0x73, 0x74, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x65, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f,
+	0x6e, 0x73, 0x65, 0x12, 0x55, 0x0a, 0x16, 0x61, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x5f, 0x77,
+	0x69, 0x74, 0x68, 0x5f, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x65, 0x73, 0x18, 0x01, 0x20,
+	0x03, 0x28, 0x0b, 0x32, 0x1f, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e,
+	0x41, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x57, 0x69, 0x74, 0x68, 0x41, 0x64, 0x64, 0x72, 0x65,
+	0x73, 0x73, 0x65, 0x73, 0x52, 0x14, 0x61, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x57, 0x69, 0x74,
+	0x68, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x65, 0x73, 0x22, 0xe4, 0x01, 0x0a, 0x14, 0x49,
 	0x6d, 0x70, 0x6f, 0x72, 0x74, 0x41, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x52, 0x65, 0x71, 0x75,
 	0x65, 0x73, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28,
 	0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x2e, 0x0a, 0x13, 0x65, 0x78, 0x74, 0x65, 0x6e,
@@ -3385,7 +3674,7 @@ var file_walletrpc_walletkit_proto_rawDesc = []byte{
 	0x0b, 0x12, 0x1b, 0x0a, 0x17, 0x4e, 0x45, 0x53, 0x54, 0x45, 0x44, 0x5f, 0x57, 0x49, 0x54, 0x4e,
 	0x45, 0x53, 0x53, 0x5f, 0x4b, 0x45, 0x59, 0x5f, 0x48, 0x41, 0x53, 0x48, 0x10, 0x0c, 0x12, 0x15,
 	0x0a, 0x11, 0x43, 0x4f, 0x4d, 0x4d, 0x49, 0x54, 0x4d, 0x45, 0x4e, 0x54, 0x5f, 0x41, 0x4e, 0x43,
-	0x48, 0x4f, 0x52, 0x10, 0x0d, 0x32, 0xd1, 0x0c, 0x0a, 0x09, 0x57, 0x61, 0x6c, 0x6c, 0x65, 0x74,
+	0x48, 0x4f, 0x52, 0x10, 0x0d, 0x32, 0xa5, 0x0d, 0x0a, 0x09, 0x57, 0x61, 0x6c, 0x6c, 0x65, 0x74,
 	0x4b, 0x69, 0x74, 0x12, 0x4c, 0x0a, 0x0b, 0x4c, 0x69, 0x73, 0x74, 0x55, 0x6e, 0x73, 0x70, 0x65,
 	0x6e, 0x74, 0x12, 0x1d, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x4c,
 	0x69, 0x73, 0x74, 0x55, 0x6e, 0x73, 0x70, 0x65, 0x6e, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
@@ -3428,69 +3717,74 @@ var file_walletrpc_walletkit_proto_rawDesc = []byte{
 	0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x22, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65,
 	0x74, 0x72, 0x70, 0x63, 0x2e, 0x52, 0x65, 0x71, 0x75, 0x69, 0x72, 0x65, 0x64, 0x52, 0x65, 0x73,
 	0x65, 0x72, 0x76, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x52, 0x0a, 0x0d,
-	0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x41, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x1f, 0x2e,
-	0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74,
-	0x41, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x20,
-	0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x49, 0x6d, 0x70, 0x6f, 0x72,
-	0x74, 0x41, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
-	0x12, 0x58, 0x0a, 0x0f, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x75, 0x62, 0x6c, 0x69, 0x63,
-	0x4b, 0x65, 0x79, 0x12, 0x21, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e,
-	0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x75, 0x62, 0x6c, 0x69, 0x63, 0x4b, 0x65, 0x79, 0x52,
-	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x22, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72,
-	0x70, 0x63, 0x2e, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x75, 0x62, 0x6c, 0x69, 0x63, 0x4b,
-	0x65, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x48, 0x0a, 0x12, 0x50, 0x75,
-	0x62, 0x6c, 0x69, 0x73, 0x68, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x61, 0x63, 0x74, 0x69, 0x6f, 0x6e,
-	0x12, 0x16, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x54, 0x72, 0x61,
-	0x6e, 0x73, 0x61, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x1a, 0x1a, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65,
-	0x74, 0x72, 0x70, 0x63, 0x2e, 0x50, 0x75, 0x62, 0x6c, 0x69, 0x73, 0x68, 0x52, 0x65, 0x73, 0x70,
-	0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4c, 0x0a, 0x0b, 0x53, 0x65, 0x6e, 0x64, 0x4f, 0x75, 0x74, 0x70,
-	0x75, 0x74, 0x73, 0x12, 0x1d, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e,
-	0x53, 0x65, 0x6e, 0x64, 0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x1a, 0x1e, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x53,
-	0x65, 0x6e, 0x64, 0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
-	0x73, 0x65, 0x12, 0x4c, 0x0a, 0x0b, 0x45, 0x73, 0x74, 0x69, 0x6d, 0x61, 0x74, 0x65, 0x46, 0x65,
-	0x65, 0x12, 0x1d, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x45, 0x73,
-	0x74, 0x69, 0x6d, 0x61, 0x74, 0x65, 0x46, 0x65, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
-	0x1a, 0x1e, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x45, 0x73, 0x74,
-	0x69, 0x6d, 0x61, 0x74, 0x65, 0x46, 0x65, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
-	0x12, 0x52, 0x0a, 0x0d, 0x50, 0x65, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x53, 0x77, 0x65, 0x65, 0x70,
-	0x73, 0x12, 0x1f, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x50, 0x65,
-	0x6e, 0x64, 0x69, 0x6e, 0x67, 0x53, 0x77, 0x65, 0x65, 0x70, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x1a, 0x20, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x50,
-	0x65, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x53, 0x77, 0x65, 0x65, 0x70, 0x73, 0x52, 0x65, 0x73, 0x70,
-	0x6f, 0x6e, 0x73, 0x65, 0x12, 0x40, 0x0a, 0x07, 0x42, 0x75, 0x6d, 0x70, 0x46, 0x65, 0x65, 0x12,
-	0x19, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x42, 0x75, 0x6d, 0x70,
-	0x46, 0x65, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1a, 0x2e, 0x77, 0x61, 0x6c,
-	0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x42, 0x75, 0x6d, 0x70, 0x46, 0x65, 0x65, 0x52, 0x65,
-	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x49, 0x0a, 0x0a, 0x4c, 0x69, 0x73, 0x74, 0x53, 0x77,
-	0x65, 0x65, 0x70, 0x73, 0x12, 0x1c, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63,
-	0x2e, 0x4c, 0x69, 0x73, 0x74, 0x53, 0x77, 0x65, 0x65, 0x70, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x1a, 0x1d, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x4c,
-	0x69, 0x73, 0x74, 0x53, 0x77, 0x65, 0x65, 0x70, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
-	0x65, 0x12, 0x5b, 0x0a, 0x10, 0x4c, 0x61, 0x62, 0x65, 0x6c, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x61,
-	0x63, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x22, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70,
-	0x63, 0x2e, 0x4c, 0x61, 0x62, 0x65, 0x6c, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x61, 0x63, 0x74, 0x69,
-	0x6f, 0x6e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x23, 0x2e, 0x77, 0x61, 0x6c, 0x6c,
+	0x4c, 0x69, 0x73, 0x74, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x65, 0x73, 0x12, 0x1f, 0x2e,
+	0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x41, 0x64,
+	0x64, 0x72, 0x65, 0x73, 0x73, 0x65, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x20,
+	0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x41,
+	0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x65, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x12, 0x52, 0x0a, 0x0d, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x41, 0x63, 0x63, 0x6f, 0x75, 0x6e,
+	0x74, 0x12, 0x1f, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x49, 0x6d,
+	0x70, 0x6f, 0x72, 0x74, 0x41, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65,
+	0x73, 0x74, 0x1a, 0x20, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x49,
+	0x6d, 0x70, 0x6f, 0x72, 0x74, 0x41, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x52, 0x65, 0x73, 0x70,
+	0x6f, 0x6e, 0x73, 0x65, 0x12, 0x58, 0x0a, 0x0f, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x75,
+	0x62, 0x6c, 0x69, 0x63, 0x4b, 0x65, 0x79, 0x12, 0x21, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74,
+	0x72, 0x70, 0x63, 0x2e, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x75, 0x62, 0x6c, 0x69, 0x63,
+	0x4b, 0x65, 0x79, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x22, 0x2e, 0x77, 0x61, 0x6c,
+	0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x75, 0x62,
+	0x6c, 0x69, 0x63, 0x4b, 0x65, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x48,
+	0x0a, 0x12, 0x50, 0x75, 0x62, 0x6c, 0x69, 0x73, 0x68, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x61, 0x63,
+	0x74, 0x69, 0x6f, 0x6e, 0x12, 0x16, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63,
+	0x2e, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x61, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x1a, 0x1a, 0x2e, 0x77,
+	0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x50, 0x75, 0x62, 0x6c, 0x69, 0x73, 0x68,
+	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4c, 0x0a, 0x0b, 0x53, 0x65, 0x6e, 0x64,
+	0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x73, 0x12, 0x1d, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74,
+	0x72, 0x70, 0x63, 0x2e, 0x53, 0x65, 0x6e, 0x64, 0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x73, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1e, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72,
+	0x70, 0x63, 0x2e, 0x53, 0x65, 0x6e, 0x64, 0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x73, 0x52, 0x65,
+	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4c, 0x0a, 0x0b, 0x45, 0x73, 0x74, 0x69, 0x6d, 0x61,
+	0x74, 0x65, 0x46, 0x65, 0x65, 0x12, 0x1d, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70,
+	0x63, 0x2e, 0x45, 0x73, 0x74, 0x69, 0x6d, 0x61, 0x74, 0x65, 0x46, 0x65, 0x65, 0x52, 0x65, 0x71,
+	0x75, 0x65, 0x73, 0x74, 0x1a, 0x1e, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63,
+	0x2e, 0x45, 0x73, 0x74, 0x69, 0x6d, 0x61, 0x74, 0x65, 0x46, 0x65, 0x65, 0x52, 0x65, 0x73, 0x70,
+	0x6f, 0x6e, 0x73, 0x65, 0x12, 0x52, 0x0a, 0x0d, 0x50, 0x65, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x53,
+	0x77, 0x65, 0x65, 0x70, 0x73, 0x12, 0x1f, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70,
+	0x63, 0x2e, 0x50, 0x65, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x53, 0x77, 0x65, 0x65, 0x70, 0x73, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x20, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72,
+	0x70, 0x63, 0x2e, 0x50, 0x65, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x53, 0x77, 0x65, 0x65, 0x70, 0x73,
+	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x40, 0x0a, 0x07, 0x42, 0x75, 0x6d, 0x70,
+	0x46, 0x65, 0x65, 0x12, 0x19, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e,
+	0x42, 0x75, 0x6d, 0x70, 0x46, 0x65, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1a,
+	0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x42, 0x75, 0x6d, 0x70, 0x46,
+	0x65, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x49, 0x0a, 0x0a, 0x4c, 0x69,
+	0x73, 0x74, 0x53, 0x77, 0x65, 0x65, 0x70, 0x73, 0x12, 0x1c, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65,
+	0x74, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x53, 0x77, 0x65, 0x65, 0x70, 0x73, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1d, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72,
+	0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x53, 0x77, 0x65, 0x65, 0x70, 0x73, 0x52, 0x65, 0x73,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x5b, 0x0a, 0x10, 0x4c, 0x61, 0x62, 0x65, 0x6c, 0x54, 0x72,
+	0x61, 0x6e, 0x73, 0x61, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x22, 0x2e, 0x77, 0x61, 0x6c, 0x6c,
 	0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x61, 0x62, 0x65, 0x6c, 0x54, 0x72, 0x61, 0x6e, 0x73,
-	0x61, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x43,
-	0x0a, 0x08, 0x46, 0x75, 0x6e, 0x64, 0x50, 0x73, 0x62, 0x74, 0x12, 0x1a, 0x2e, 0x77, 0x61, 0x6c,
+	0x61, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x23, 0x2e,
+	0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x61, 0x62, 0x65, 0x6c, 0x54,
+	0x72, 0x61, 0x6e, 0x73, 0x61, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
+	0x73, 0x65, 0x12, 0x43, 0x0a, 0x08, 0x46, 0x75, 0x6e, 0x64, 0x50, 0x73, 0x62, 0x74, 0x12, 0x1a,
+	0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x75, 0x6e, 0x64, 0x50,
+	0x73, 0x62, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1b, 0x2e, 0x77, 0x61, 0x6c,
 	0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x75, 0x6e, 0x64, 0x50, 0x73, 0x62, 0x74, 0x52,
-	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1b, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72,
-	0x70, 0x63, 0x2e, 0x46, 0x75, 0x6e, 0x64, 0x50, 0x73, 0x62, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f,
-	0x6e, 0x73, 0x65, 0x12, 0x43, 0x0a, 0x08, 0x53, 0x69, 0x67, 0x6e, 0x50, 0x73, 0x62, 0x74, 0x12,
-	0x1a, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x69, 0x67, 0x6e,
-	0x50, 0x73, 0x62, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1b, 0x2e, 0x77, 0x61,
-	0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x69, 0x67, 0x6e, 0x50, 0x73, 0x62, 0x74,
-	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4f, 0x0a, 0x0c, 0x46, 0x69, 0x6e, 0x61,
-	0x6c, 0x69, 0x7a, 0x65, 0x50, 0x73, 0x62, 0x74, 0x12, 0x1e, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65,
-	0x74, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x69, 0x6e, 0x61, 0x6c, 0x69, 0x7a, 0x65, 0x50, 0x73, 0x62,
-	0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1f, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65,
-	0x74, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x69, 0x6e, 0x61, 0x6c, 0x69, 0x7a, 0x65, 0x50, 0x73, 0x62,
-	0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0x31, 0x5a, 0x2f, 0x67, 0x69, 0x74,
-	0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x6e, 0x69, 0x6e,
-	0x67, 0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x2f, 0x6c, 0x6e, 0x64, 0x2f, 0x6c, 0x6e, 0x72,
-	0x70, 0x63, 0x2f, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x62, 0x06, 0x70, 0x72,
-	0x6f, 0x74, 0x6f, 0x33,
+	0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x43, 0x0a, 0x08, 0x53, 0x69, 0x67, 0x6e, 0x50,
+	0x73, 0x62, 0x74, 0x12, 0x1a, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e,
+	0x53, 0x69, 0x67, 0x6e, 0x50, 0x73, 0x62, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
+	0x1b, 0x2e, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x69, 0x67, 0x6e,
+	0x50, 0x73, 0x62, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4f, 0x0a, 0x0c,
+	0x46, 0x69, 0x6e, 0x61, 0x6c, 0x69, 0x7a, 0x65, 0x50, 0x73, 0x62, 0x74, 0x12, 0x1e, 0x2e, 0x77,
+	0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x69, 0x6e, 0x61, 0x6c, 0x69, 0x7a,
+	0x65, 0x50, 0x73, 0x62, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1f, 0x2e, 0x77,
+	0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x69, 0x6e, 0x61, 0x6c, 0x69, 0x7a,
+	0x65, 0x50, 0x73, 0x62, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0x31, 0x5a,
+	0x2f, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x6c, 0x69, 0x67, 0x68,
+	0x74, 0x6e, 0x69, 0x6e, 0x67, 0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x2f, 0x6c, 0x6e, 0x64,
+	0x2f, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2f, 0x77, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x72, 0x70, 0x63,
+	0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -3506,7 +3800,7 @@ func file_walletrpc_walletkit_proto_rawDescGZIP() []byte {
 }
 
 var file_walletrpc_walletkit_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_walletrpc_walletkit_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
+var file_walletrpc_walletkit_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_walletrpc_walletkit_proto_goTypes = []interface{}{
 	(AddressType)(0),                          // 0: walletrpc.AddressType
 	(WitnessType)(0),                          // 1: walletrpc.WitnessType
@@ -3520,119 +3814,128 @@ var file_walletrpc_walletkit_proto_goTypes = []interface{}{
 	(*AddrRequest)(nil),                       // 9: walletrpc.AddrRequest
 	(*AddrResponse)(nil),                      // 10: walletrpc.AddrResponse
 	(*Account)(nil),                           // 11: walletrpc.Account
-	(*ListAccountsRequest)(nil),               // 12: walletrpc.ListAccountsRequest
-	(*ListAccountsResponse)(nil),              // 13: walletrpc.ListAccountsResponse
-	(*RequiredReserveRequest)(nil),            // 14: walletrpc.RequiredReserveRequest
-	(*RequiredReserveResponse)(nil),           // 15: walletrpc.RequiredReserveResponse
-	(*ImportAccountRequest)(nil),              // 16: walletrpc.ImportAccountRequest
-	(*ImportAccountResponse)(nil),             // 17: walletrpc.ImportAccountResponse
-	(*ImportPublicKeyRequest)(nil),            // 18: walletrpc.ImportPublicKeyRequest
-	(*ImportPublicKeyResponse)(nil),           // 19: walletrpc.ImportPublicKeyResponse
-	(*Transaction)(nil),                       // 20: walletrpc.Transaction
-	(*PublishResponse)(nil),                   // 21: walletrpc.PublishResponse
-	(*SendOutputsRequest)(nil),                // 22: walletrpc.SendOutputsRequest
-	(*SendOutputsResponse)(nil),               // 23: walletrpc.SendOutputsResponse
-	(*EstimateFeeRequest)(nil),                // 24: walletrpc.EstimateFeeRequest
-	(*EstimateFeeResponse)(nil),               // 25: walletrpc.EstimateFeeResponse
-	(*PendingSweep)(nil),                      // 26: walletrpc.PendingSweep
-	(*PendingSweepsRequest)(nil),              // 27: walletrpc.PendingSweepsRequest
-	(*PendingSweepsResponse)(nil),             // 28: walletrpc.PendingSweepsResponse
-	(*BumpFeeRequest)(nil),                    // 29: walletrpc.BumpFeeRequest
-	(*BumpFeeResponse)(nil),                   // 30: walletrpc.BumpFeeResponse
-	(*ListSweepsRequest)(nil),                 // 31: walletrpc.ListSweepsRequest
-	(*ListSweepsResponse)(nil),                // 32: walletrpc.ListSweepsResponse
-	(*LabelTransactionRequest)(nil),           // 33: walletrpc.LabelTransactionRequest
-	(*LabelTransactionResponse)(nil),          // 34: walletrpc.LabelTransactionResponse
-	(*FundPsbtRequest)(nil),                   // 35: walletrpc.FundPsbtRequest
-	(*FundPsbtResponse)(nil),                  // 36: walletrpc.FundPsbtResponse
-	(*TxTemplate)(nil),                        // 37: walletrpc.TxTemplate
-	(*UtxoLease)(nil),                         // 38: walletrpc.UtxoLease
-	(*SignPsbtRequest)(nil),                   // 39: walletrpc.SignPsbtRequest
-	(*SignPsbtResponse)(nil),                  // 40: walletrpc.SignPsbtResponse
-	(*FinalizePsbtRequest)(nil),               // 41: walletrpc.FinalizePsbtRequest
-	(*FinalizePsbtResponse)(nil),              // 42: walletrpc.FinalizePsbtResponse
-	(*ListLeasesRequest)(nil),                 // 43: walletrpc.ListLeasesRequest
-	(*ListLeasesResponse)(nil),                // 44: walletrpc.ListLeasesResponse
-	(*ListSweepsResponse_TransactionIDs)(nil), // 45: walletrpc.ListSweepsResponse.TransactionIDs
-	nil,                              // 46: walletrpc.TxTemplate.OutputsEntry
-	(*lnrpc.Utxo)(nil),               // 47: lnrpc.Utxo
-	(*lnrpc.OutPoint)(nil),           // 48: lnrpc.OutPoint
-	(*signrpc.TxOut)(nil),            // 49: signrpc.TxOut
-	(*lnrpc.TransactionDetails)(nil), // 50: lnrpc.TransactionDetails
-	(*signrpc.KeyLocator)(nil),       // 51: signrpc.KeyLocator
-	(*signrpc.KeyDescriptor)(nil),    // 52: signrpc.KeyDescriptor
+	(*AddressProperty)(nil),                   // 12: walletrpc.AddressProperty
+	(*AccountWithAddresses)(nil),              // 13: walletrpc.AccountWithAddresses
+	(*ListAccountsRequest)(nil),               // 14: walletrpc.ListAccountsRequest
+	(*ListAccountsResponse)(nil),              // 15: walletrpc.ListAccountsResponse
+	(*RequiredReserveRequest)(nil),            // 16: walletrpc.RequiredReserveRequest
+	(*RequiredReserveResponse)(nil),           // 17: walletrpc.RequiredReserveResponse
+	(*ListAddressesRequest)(nil),              // 18: walletrpc.ListAddressesRequest
+	(*ListAddressesResponse)(nil),             // 19: walletrpc.ListAddressesResponse
+	(*ImportAccountRequest)(nil),              // 20: walletrpc.ImportAccountRequest
+	(*ImportAccountResponse)(nil),             // 21: walletrpc.ImportAccountResponse
+	(*ImportPublicKeyRequest)(nil),            // 22: walletrpc.ImportPublicKeyRequest
+	(*ImportPublicKeyResponse)(nil),           // 23: walletrpc.ImportPublicKeyResponse
+	(*Transaction)(nil),                       // 24: walletrpc.Transaction
+	(*PublishResponse)(nil),                   // 25: walletrpc.PublishResponse
+	(*SendOutputsRequest)(nil),                // 26: walletrpc.SendOutputsRequest
+	(*SendOutputsResponse)(nil),               // 27: walletrpc.SendOutputsResponse
+	(*EstimateFeeRequest)(nil),                // 28: walletrpc.EstimateFeeRequest
+	(*EstimateFeeResponse)(nil),               // 29: walletrpc.EstimateFeeResponse
+	(*PendingSweep)(nil),                      // 30: walletrpc.PendingSweep
+	(*PendingSweepsRequest)(nil),              // 31: walletrpc.PendingSweepsRequest
+	(*PendingSweepsResponse)(nil),             // 32: walletrpc.PendingSweepsResponse
+	(*BumpFeeRequest)(nil),                    // 33: walletrpc.BumpFeeRequest
+	(*BumpFeeResponse)(nil),                   // 34: walletrpc.BumpFeeResponse
+	(*ListSweepsRequest)(nil),                 // 35: walletrpc.ListSweepsRequest
+	(*ListSweepsResponse)(nil),                // 36: walletrpc.ListSweepsResponse
+	(*LabelTransactionRequest)(nil),           // 37: walletrpc.LabelTransactionRequest
+	(*LabelTransactionResponse)(nil),          // 38: walletrpc.LabelTransactionResponse
+	(*FundPsbtRequest)(nil),                   // 39: walletrpc.FundPsbtRequest
+	(*FundPsbtResponse)(nil),                  // 40: walletrpc.FundPsbtResponse
+	(*TxTemplate)(nil),                        // 41: walletrpc.TxTemplate
+	(*UtxoLease)(nil),                         // 42: walletrpc.UtxoLease
+	(*SignPsbtRequest)(nil),                   // 43: walletrpc.SignPsbtRequest
+	(*SignPsbtResponse)(nil),                  // 44: walletrpc.SignPsbtResponse
+	(*FinalizePsbtRequest)(nil),               // 45: walletrpc.FinalizePsbtRequest
+	(*FinalizePsbtResponse)(nil),              // 46: walletrpc.FinalizePsbtResponse
+	(*ListLeasesRequest)(nil),                 // 47: walletrpc.ListLeasesRequest
+	(*ListLeasesResponse)(nil),                // 48: walletrpc.ListLeasesResponse
+	(*ListSweepsResponse_TransactionIDs)(nil), // 49: walletrpc.ListSweepsResponse.TransactionIDs
+	nil,                              // 50: walletrpc.TxTemplate.OutputsEntry
+	(*lnrpc.Utxo)(nil),               // 51: lnrpc.Utxo
+	(*lnrpc.OutPoint)(nil),           // 52: lnrpc.OutPoint
+	(*signrpc.TxOut)(nil),            // 53: signrpc.TxOut
+	(*lnrpc.TransactionDetails)(nil), // 54: lnrpc.TransactionDetails
+	(*signrpc.KeyLocator)(nil),       // 55: signrpc.KeyLocator
+	(*signrpc.KeyDescriptor)(nil),    // 56: signrpc.KeyDescriptor
 }
 var file_walletrpc_walletkit_proto_depIdxs = []int32{
-	47, // 0: walletrpc.ListUnspentResponse.utxos:type_name -> lnrpc.Utxo
-	48, // 1: walletrpc.LeaseOutputRequest.outpoint:type_name -> lnrpc.OutPoint
-	48, // 2: walletrpc.ReleaseOutputRequest.outpoint:type_name -> lnrpc.OutPoint
+	51, // 0: walletrpc.ListUnspentResponse.utxos:type_name -> lnrpc.Utxo
+	52, // 1: walletrpc.LeaseOutputRequest.outpoint:type_name -> lnrpc.OutPoint
+	52, // 2: walletrpc.ReleaseOutputRequest.outpoint:type_name -> lnrpc.OutPoint
 	0,  // 3: walletrpc.AddrRequest.type:type_name -> walletrpc.AddressType
 	0,  // 4: walletrpc.Account.address_type:type_name -> walletrpc.AddressType
-	0,  // 5: walletrpc.ListAccountsRequest.address_type:type_name -> walletrpc.AddressType
-	11, // 6: walletrpc.ListAccountsResponse.accounts:type_name -> walletrpc.Account
-	0,  // 7: walletrpc.ImportAccountRequest.address_type:type_name -> walletrpc.AddressType
-	11, // 8: walletrpc.ImportAccountResponse.account:type_name -> walletrpc.Account
-	0,  // 9: walletrpc.ImportPublicKeyRequest.address_type:type_name -> walletrpc.AddressType
-	49, // 10: walletrpc.SendOutputsRequest.outputs:type_name -> signrpc.TxOut
-	48, // 11: walletrpc.PendingSweep.outpoint:type_name -> lnrpc.OutPoint
-	1,  // 12: walletrpc.PendingSweep.witness_type:type_name -> walletrpc.WitnessType
-	26, // 13: walletrpc.PendingSweepsResponse.pending_sweeps:type_name -> walletrpc.PendingSweep
-	48, // 14: walletrpc.BumpFeeRequest.outpoint:type_name -> lnrpc.OutPoint
-	50, // 15: walletrpc.ListSweepsResponse.transaction_details:type_name -> lnrpc.TransactionDetails
-	45, // 16: walletrpc.ListSweepsResponse.transaction_ids:type_name -> walletrpc.ListSweepsResponse.TransactionIDs
-	37, // 17: walletrpc.FundPsbtRequest.raw:type_name -> walletrpc.TxTemplate
-	38, // 18: walletrpc.FundPsbtResponse.locked_utxos:type_name -> walletrpc.UtxoLease
-	48, // 19: walletrpc.TxTemplate.inputs:type_name -> lnrpc.OutPoint
-	46, // 20: walletrpc.TxTemplate.outputs:type_name -> walletrpc.TxTemplate.OutputsEntry
-	48, // 21: walletrpc.UtxoLease.outpoint:type_name -> lnrpc.OutPoint
-	38, // 22: walletrpc.ListLeasesResponse.locked_utxos:type_name -> walletrpc.UtxoLease
-	2,  // 23: walletrpc.WalletKit.ListUnspent:input_type -> walletrpc.ListUnspentRequest
-	4,  // 24: walletrpc.WalletKit.LeaseOutput:input_type -> walletrpc.LeaseOutputRequest
-	6,  // 25: walletrpc.WalletKit.ReleaseOutput:input_type -> walletrpc.ReleaseOutputRequest
-	43, // 26: walletrpc.WalletKit.ListLeases:input_type -> walletrpc.ListLeasesRequest
-	8,  // 27: walletrpc.WalletKit.DeriveNextKey:input_type -> walletrpc.KeyReq
-	51, // 28: walletrpc.WalletKit.DeriveKey:input_type -> signrpc.KeyLocator
-	9,  // 29: walletrpc.WalletKit.NextAddr:input_type -> walletrpc.AddrRequest
-	12, // 30: walletrpc.WalletKit.ListAccounts:input_type -> walletrpc.ListAccountsRequest
-	14, // 31: walletrpc.WalletKit.RequiredReserve:input_type -> walletrpc.RequiredReserveRequest
-	16, // 32: walletrpc.WalletKit.ImportAccount:input_type -> walletrpc.ImportAccountRequest
-	18, // 33: walletrpc.WalletKit.ImportPublicKey:input_type -> walletrpc.ImportPublicKeyRequest
-	20, // 34: walletrpc.WalletKit.PublishTransaction:input_type -> walletrpc.Transaction
-	22, // 35: walletrpc.WalletKit.SendOutputs:input_type -> walletrpc.SendOutputsRequest
-	24, // 36: walletrpc.WalletKit.EstimateFee:input_type -> walletrpc.EstimateFeeRequest
-	27, // 37: walletrpc.WalletKit.PendingSweeps:input_type -> walletrpc.PendingSweepsRequest
-	29, // 38: walletrpc.WalletKit.BumpFee:input_type -> walletrpc.BumpFeeRequest
-	31, // 39: walletrpc.WalletKit.ListSweeps:input_type -> walletrpc.ListSweepsRequest
-	33, // 40: walletrpc.WalletKit.LabelTransaction:input_type -> walletrpc.LabelTransactionRequest
-	35, // 41: walletrpc.WalletKit.FundPsbt:input_type -> walletrpc.FundPsbtRequest
-	39, // 42: walletrpc.WalletKit.SignPsbt:input_type -> walletrpc.SignPsbtRequest
-	41, // 43: walletrpc.WalletKit.FinalizePsbt:input_type -> walletrpc.FinalizePsbtRequest
-	3,  // 44: walletrpc.WalletKit.ListUnspent:output_type -> walletrpc.ListUnspentResponse
-	5,  // 45: walletrpc.WalletKit.LeaseOutput:output_type -> walletrpc.LeaseOutputResponse
-	7,  // 46: walletrpc.WalletKit.ReleaseOutput:output_type -> walletrpc.ReleaseOutputResponse
-	44, // 47: walletrpc.WalletKit.ListLeases:output_type -> walletrpc.ListLeasesResponse
-	52, // 48: walletrpc.WalletKit.DeriveNextKey:output_type -> signrpc.KeyDescriptor
-	52, // 49: walletrpc.WalletKit.DeriveKey:output_type -> signrpc.KeyDescriptor
-	10, // 50: walletrpc.WalletKit.NextAddr:output_type -> walletrpc.AddrResponse
-	13, // 51: walletrpc.WalletKit.ListAccounts:output_type -> walletrpc.ListAccountsResponse
-	15, // 52: walletrpc.WalletKit.RequiredReserve:output_type -> walletrpc.RequiredReserveResponse
-	17, // 53: walletrpc.WalletKit.ImportAccount:output_type -> walletrpc.ImportAccountResponse
-	19, // 54: walletrpc.WalletKit.ImportPublicKey:output_type -> walletrpc.ImportPublicKeyResponse
-	21, // 55: walletrpc.WalletKit.PublishTransaction:output_type -> walletrpc.PublishResponse
-	23, // 56: walletrpc.WalletKit.SendOutputs:output_type -> walletrpc.SendOutputsResponse
-	25, // 57: walletrpc.WalletKit.EstimateFee:output_type -> walletrpc.EstimateFeeResponse
-	28, // 58: walletrpc.WalletKit.PendingSweeps:output_type -> walletrpc.PendingSweepsResponse
-	30, // 59: walletrpc.WalletKit.BumpFee:output_type -> walletrpc.BumpFeeResponse
-	32, // 60: walletrpc.WalletKit.ListSweeps:output_type -> walletrpc.ListSweepsResponse
-	34, // 61: walletrpc.WalletKit.LabelTransaction:output_type -> walletrpc.LabelTransactionResponse
-	36, // 62: walletrpc.WalletKit.FundPsbt:output_type -> walletrpc.FundPsbtResponse
-	40, // 63: walletrpc.WalletKit.SignPsbt:output_type -> walletrpc.SignPsbtResponse
-	42, // 64: walletrpc.WalletKit.FinalizePsbt:output_type -> walletrpc.FinalizePsbtResponse
-	44, // [44:65] is the sub-list for method output_type
-	23, // [23:44] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	0,  // 5: walletrpc.AccountWithAddresses.address_type:type_name -> walletrpc.AddressType
+	12, // 6: walletrpc.AccountWithAddresses.addresses:type_name -> walletrpc.AddressProperty
+	0,  // 7: walletrpc.ListAccountsRequest.address_type:type_name -> walletrpc.AddressType
+	11, // 8: walletrpc.ListAccountsResponse.accounts:type_name -> walletrpc.Account
+	13, // 9: walletrpc.ListAddressesResponse.account_with_addresses:type_name -> walletrpc.AccountWithAddresses
+	0,  // 10: walletrpc.ImportAccountRequest.address_type:type_name -> walletrpc.AddressType
+	11, // 11: walletrpc.ImportAccountResponse.account:type_name -> walletrpc.Account
+	0,  // 12: walletrpc.ImportPublicKeyRequest.address_type:type_name -> walletrpc.AddressType
+	53, // 13: walletrpc.SendOutputsRequest.outputs:type_name -> signrpc.TxOut
+	52, // 14: walletrpc.PendingSweep.outpoint:type_name -> lnrpc.OutPoint
+	1,  // 15: walletrpc.PendingSweep.witness_type:type_name -> walletrpc.WitnessType
+	30, // 16: walletrpc.PendingSweepsResponse.pending_sweeps:type_name -> walletrpc.PendingSweep
+	52, // 17: walletrpc.BumpFeeRequest.outpoint:type_name -> lnrpc.OutPoint
+	54, // 18: walletrpc.ListSweepsResponse.transaction_details:type_name -> lnrpc.TransactionDetails
+	49, // 19: walletrpc.ListSweepsResponse.transaction_ids:type_name -> walletrpc.ListSweepsResponse.TransactionIDs
+	41, // 20: walletrpc.FundPsbtRequest.raw:type_name -> walletrpc.TxTemplate
+	42, // 21: walletrpc.FundPsbtResponse.locked_utxos:type_name -> walletrpc.UtxoLease
+	52, // 22: walletrpc.TxTemplate.inputs:type_name -> lnrpc.OutPoint
+	50, // 23: walletrpc.TxTemplate.outputs:type_name -> walletrpc.TxTemplate.OutputsEntry
+	52, // 24: walletrpc.UtxoLease.outpoint:type_name -> lnrpc.OutPoint
+	42, // 25: walletrpc.ListLeasesResponse.locked_utxos:type_name -> walletrpc.UtxoLease
+	2,  // 26: walletrpc.WalletKit.ListUnspent:input_type -> walletrpc.ListUnspentRequest
+	4,  // 27: walletrpc.WalletKit.LeaseOutput:input_type -> walletrpc.LeaseOutputRequest
+	6,  // 28: walletrpc.WalletKit.ReleaseOutput:input_type -> walletrpc.ReleaseOutputRequest
+	47, // 29: walletrpc.WalletKit.ListLeases:input_type -> walletrpc.ListLeasesRequest
+	8,  // 30: walletrpc.WalletKit.DeriveNextKey:input_type -> walletrpc.KeyReq
+	55, // 31: walletrpc.WalletKit.DeriveKey:input_type -> signrpc.KeyLocator
+	9,  // 32: walletrpc.WalletKit.NextAddr:input_type -> walletrpc.AddrRequest
+	14, // 33: walletrpc.WalletKit.ListAccounts:input_type -> walletrpc.ListAccountsRequest
+	16, // 34: walletrpc.WalletKit.RequiredReserve:input_type -> walletrpc.RequiredReserveRequest
+	18, // 35: walletrpc.WalletKit.ListAddresses:input_type -> walletrpc.ListAddressesRequest
+	20, // 36: walletrpc.WalletKit.ImportAccount:input_type -> walletrpc.ImportAccountRequest
+	22, // 37: walletrpc.WalletKit.ImportPublicKey:input_type -> walletrpc.ImportPublicKeyRequest
+	24, // 38: walletrpc.WalletKit.PublishTransaction:input_type -> walletrpc.Transaction
+	26, // 39: walletrpc.WalletKit.SendOutputs:input_type -> walletrpc.SendOutputsRequest
+	28, // 40: walletrpc.WalletKit.EstimateFee:input_type -> walletrpc.EstimateFeeRequest
+	31, // 41: walletrpc.WalletKit.PendingSweeps:input_type -> walletrpc.PendingSweepsRequest
+	33, // 42: walletrpc.WalletKit.BumpFee:input_type -> walletrpc.BumpFeeRequest
+	35, // 43: walletrpc.WalletKit.ListSweeps:input_type -> walletrpc.ListSweepsRequest
+	37, // 44: walletrpc.WalletKit.LabelTransaction:input_type -> walletrpc.LabelTransactionRequest
+	39, // 45: walletrpc.WalletKit.FundPsbt:input_type -> walletrpc.FundPsbtRequest
+	43, // 46: walletrpc.WalletKit.SignPsbt:input_type -> walletrpc.SignPsbtRequest
+	45, // 47: walletrpc.WalletKit.FinalizePsbt:input_type -> walletrpc.FinalizePsbtRequest
+	3,  // 48: walletrpc.WalletKit.ListUnspent:output_type -> walletrpc.ListUnspentResponse
+	5,  // 49: walletrpc.WalletKit.LeaseOutput:output_type -> walletrpc.LeaseOutputResponse
+	7,  // 50: walletrpc.WalletKit.ReleaseOutput:output_type -> walletrpc.ReleaseOutputResponse
+	48, // 51: walletrpc.WalletKit.ListLeases:output_type -> walletrpc.ListLeasesResponse
+	56, // 52: walletrpc.WalletKit.DeriveNextKey:output_type -> signrpc.KeyDescriptor
+	56, // 53: walletrpc.WalletKit.DeriveKey:output_type -> signrpc.KeyDescriptor
+	10, // 54: walletrpc.WalletKit.NextAddr:output_type -> walletrpc.AddrResponse
+	15, // 55: walletrpc.WalletKit.ListAccounts:output_type -> walletrpc.ListAccountsResponse
+	17, // 56: walletrpc.WalletKit.RequiredReserve:output_type -> walletrpc.RequiredReserveResponse
+	19, // 57: walletrpc.WalletKit.ListAddresses:output_type -> walletrpc.ListAddressesResponse
+	21, // 58: walletrpc.WalletKit.ImportAccount:output_type -> walletrpc.ImportAccountResponse
+	23, // 59: walletrpc.WalletKit.ImportPublicKey:output_type -> walletrpc.ImportPublicKeyResponse
+	25, // 60: walletrpc.WalletKit.PublishTransaction:output_type -> walletrpc.PublishResponse
+	27, // 61: walletrpc.WalletKit.SendOutputs:output_type -> walletrpc.SendOutputsResponse
+	29, // 62: walletrpc.WalletKit.EstimateFee:output_type -> walletrpc.EstimateFeeResponse
+	32, // 63: walletrpc.WalletKit.PendingSweeps:output_type -> walletrpc.PendingSweepsResponse
+	34, // 64: walletrpc.WalletKit.BumpFee:output_type -> walletrpc.BumpFeeResponse
+	36, // 65: walletrpc.WalletKit.ListSweeps:output_type -> walletrpc.ListSweepsResponse
+	38, // 66: walletrpc.WalletKit.LabelTransaction:output_type -> walletrpc.LabelTransactionResponse
+	40, // 67: walletrpc.WalletKit.FundPsbt:output_type -> walletrpc.FundPsbtResponse
+	44, // 68: walletrpc.WalletKit.SignPsbt:output_type -> walletrpc.SignPsbtResponse
+	46, // 69: walletrpc.WalletKit.FinalizePsbt:output_type -> walletrpc.FinalizePsbtResponse
+	48, // [48:70] is the sub-list for method output_type
+	26, // [26:48] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_walletrpc_walletkit_proto_init() }
@@ -3762,7 +4065,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListAccountsRequest); i {
+			switch v := v.(*AddressProperty); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3774,7 +4077,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListAccountsResponse); i {
+			switch v := v.(*AccountWithAddresses); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3786,7 +4089,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RequiredReserveRequest); i {
+			switch v := v.(*ListAccountsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3798,7 +4101,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RequiredReserveResponse); i {
+			switch v := v.(*ListAccountsResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3810,7 +4113,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ImportAccountRequest); i {
+			switch v := v.(*RequiredReserveRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3822,7 +4125,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ImportAccountResponse); i {
+			switch v := v.(*RequiredReserveResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3834,7 +4137,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ImportPublicKeyRequest); i {
+			switch v := v.(*ListAddressesRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3846,7 +4149,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ImportPublicKeyResponse); i {
+			switch v := v.(*ListAddressesResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3858,7 +4161,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Transaction); i {
+			switch v := v.(*ImportAccountRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3870,7 +4173,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[19].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PublishResponse); i {
+			switch v := v.(*ImportAccountResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3882,7 +4185,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SendOutputsRequest); i {
+			switch v := v.(*ImportPublicKeyRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3894,7 +4197,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SendOutputsResponse); i {
+			switch v := v.(*ImportPublicKeyResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3906,7 +4209,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*EstimateFeeRequest); i {
+			switch v := v.(*Transaction); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3918,7 +4221,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*EstimateFeeResponse); i {
+			switch v := v.(*PublishResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3930,7 +4233,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PendingSweep); i {
+			switch v := v.(*SendOutputsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3942,7 +4245,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PendingSweepsRequest); i {
+			switch v := v.(*SendOutputsResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3954,7 +4257,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PendingSweepsResponse); i {
+			switch v := v.(*EstimateFeeRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3966,7 +4269,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BumpFeeRequest); i {
+			switch v := v.(*EstimateFeeResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3978,7 +4281,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[28].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BumpFeeResponse); i {
+			switch v := v.(*PendingSweep); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3990,7 +4293,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[29].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListSweepsRequest); i {
+			switch v := v.(*PendingSweepsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4002,7 +4305,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[30].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListSweepsResponse); i {
+			switch v := v.(*PendingSweepsResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4014,7 +4317,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[31].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*LabelTransactionRequest); i {
+			switch v := v.(*BumpFeeRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4026,7 +4329,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[32].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*LabelTransactionResponse); i {
+			switch v := v.(*BumpFeeResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4038,7 +4341,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[33].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FundPsbtRequest); i {
+			switch v := v.(*ListSweepsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4050,7 +4353,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[34].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FundPsbtResponse); i {
+			switch v := v.(*ListSweepsResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4062,7 +4365,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[35].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*TxTemplate); i {
+			switch v := v.(*LabelTransactionRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4074,7 +4377,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[36].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*UtxoLease); i {
+			switch v := v.(*LabelTransactionResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4086,7 +4389,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[37].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SignPsbtRequest); i {
+			switch v := v.(*FundPsbtRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4098,7 +4401,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[38].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SignPsbtResponse); i {
+			switch v := v.(*FundPsbtResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4110,7 +4413,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[39].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FinalizePsbtRequest); i {
+			switch v := v.(*TxTemplate); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4122,7 +4425,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[40].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FinalizePsbtResponse); i {
+			switch v := v.(*UtxoLease); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4134,7 +4437,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[41].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListLeasesRequest); i {
+			switch v := v.(*SignPsbtRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4146,7 +4449,7 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[42].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListLeasesResponse); i {
+			switch v := v.(*SignPsbtResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4158,6 +4461,54 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 		file_walletrpc_walletkit_proto_msgTypes[43].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*FinalizePsbtRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_walletrpc_walletkit_proto_msgTypes[44].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*FinalizePsbtResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_walletrpc_walletkit_proto_msgTypes[45].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ListLeasesRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_walletrpc_walletkit_proto_msgTypes[46].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ListLeasesResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_walletrpc_walletkit_proto_msgTypes[47].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ListSweepsResponse_TransactionIDs); i {
 			case 0:
 				return &v.state
@@ -4170,11 +4521,11 @@ func file_walletrpc_walletkit_proto_init() {
 			}
 		}
 	}
-	file_walletrpc_walletkit_proto_msgTypes[30].OneofWrappers = []interface{}{
+	file_walletrpc_walletkit_proto_msgTypes[34].OneofWrappers = []interface{}{
 		(*ListSweepsResponse_TransactionDetails)(nil),
 		(*ListSweepsResponse_TransactionIds)(nil),
 	}
-	file_walletrpc_walletkit_proto_msgTypes[33].OneofWrappers = []interface{}{
+	file_walletrpc_walletkit_proto_msgTypes[37].OneofWrappers = []interface{}{
 		(*FundPsbtRequest_Psbt)(nil),
 		(*FundPsbtRequest_Raw)(nil),
 		(*FundPsbtRequest_TargetConf)(nil),
@@ -4186,7 +4537,7 @@ func file_walletrpc_walletkit_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_walletrpc_walletkit_proto_rawDesc,
 			NumEnums:      2,
-			NumMessages:   45,
+			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

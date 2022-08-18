@@ -706,6 +706,112 @@ func (b *BtcWallet) RequiredReserve(
 	return reserved
 }
 
+// ListAddresses retrieves all the addresses along with their balance. An
+// account name filter can be provided to filter through all of the
+// wallet accounts and return the addresses of only those matching.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) ListAddresses(name string,
+	showCustomAccounts bool) (lnwallet.AccountAddressMap, error) {
+
+	accounts, err := b.ListAccounts(name, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	addresses := make(lnwallet.AccountAddressMap)
+	addressBalance := make(map[string]btcutil.Amount)
+
+	// Retrieve all the unspent ouputs.
+	outputs, err := b.wallet.ListUnspent(0, math.MaxInt32, "")
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate the total balance of each address.
+	for _, output := range outputs {
+		amount, err := btcutil.NewAmount(output.Amount)
+		if err != nil {
+			return nil, err
+		}
+
+		addressBalance[output.Address] += amount
+	}
+
+	for _, accntDetails := range accounts {
+		accntScope := accntDetails.KeyScope
+		scopedMgr, err := b.wallet.Manager.FetchScopedKeyManager(
+			accntScope,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		var managedAddrs []waddrmgr.ManagedAddress
+		err = walletdb.View(
+			b.wallet.Database(), func(tx walletdb.ReadTx) error {
+				managedAddrs = nil
+				addrmgrNs := tx.ReadBucket(waddrmgrNamespaceKey)
+				return scopedMgr.ForEachAccountAddress(
+					addrmgrNs, accntDetails.AccountNumber,
+					func(a waddrmgr.ManagedAddress) error {
+						managedAddrs = append(
+							managedAddrs, a,
+						)
+
+						return nil
+					},
+				)
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Only consider those accounts which have addresses.
+		if len(managedAddrs) == 0 {
+			continue
+		}
+
+		// All the lnd internal/custom keys for channels and other
+		// functionality are derived from the same scope. Since they
+		// aren't really used as addresses and will never have an
+		// on-chain balance, we'll want to show the public key instead.
+		isLndCustom := accntScope.Purpose == keychain.BIP0043Purpose
+		addressProperties := make(
+			[]lnwallet.AddressProperty, len(managedAddrs),
+		)
+
+		for idx, managedAddr := range managedAddrs {
+			addr := managedAddr.Address()
+			addressString := addr.String()
+
+			// Hex-encode the compressed public key for custom lnd
+			// keys, addresses don't make a lot of sense.
+			pubKey, ok := managedAddr.(waddrmgr.ManagedPubKeyAddress)
+			if ok && isLndCustom {
+				addressString = hex.EncodeToString(
+					pubKey.PubKey().SerializeCompressed(),
+				)
+			}
+
+			addressProperties[idx] = lnwallet.AddressProperty{
+				Address:  addressString,
+				Internal: managedAddr.Internal(),
+				Balance:  addressBalance[addressString],
+			}
+		}
+
+		if accntScope.Purpose != keychain.BIP0043Purpose ||
+			showCustomAccounts {
+
+			addresses[accntDetails] = addressProperties
+		}
+	}
+
+	return addresses, nil
+}
+
 // ImportAccount imports an account backed by an account extended public key.
 // The master key fingerprint denotes the fingerprint of the root key
 // corresponding to the account public key (also known as the key with

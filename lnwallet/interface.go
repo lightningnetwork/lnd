@@ -32,6 +32,10 @@ const (
 // WalletController supports.
 type AddressType uint8
 
+// AccountAddressMap maps the account properties to an array of
+// address properties.
+type AccountAddressMap map[*waddrmgr.AccountProperties][]AddressProperty
+
 const (
 	// UnknownAddressType represents an output with an unknown or non-standard
 	// script.
@@ -75,6 +79,31 @@ var ErrNoOutputs = errors.New("no outputs")
 // invalid minConfs value.
 var ErrInvalidMinconf = errors.New("minimum number of confirmations must " +
 	"be a non-negative number")
+
+// AddressProperty contains wallet related information of an address.
+type AddressProperty struct {
+	// Address is the address of an account.
+	Address string
+
+	// Internal denotes if the address is a change address.
+	Internal bool
+
+	// Balance returns the total balance of an address.
+	Balance btcutil.Amount
+}
+
+// AccountIdentifier contains information to uniquely identify an account.
+type AccountIdentifier struct {
+	// Name is the name of the account.
+	Name string
+
+	// AddressType is the type of addresses supported by the account.
+	AddressType AddressType
+
+	// DerivationPath is the derivation path corresponding to the account
+	// public key.
+	DerivationPath string
+}
 
 // Utxo is an unspent output denoted by its outpoint, and output value of the
 // original output.
@@ -249,6 +278,11 @@ type WalletController interface {
 	// The value scales with the number of public anchor channels but is
 	// capped at a maximum.
 	RequiredReserve(uint32) btcutil.Amount
+
+	// ListAddresses retrieves all the addresses along with their balance. An
+	// account name filter can be provided to filter through all of the
+	// wallet accounts and return the addresses of only those matching.
+	ListAddresses(string, bool) (AccountAddressMap, error)
 
 	// ImportAccount imports an account backed by an account extended public
 	// key. The master key fingerprint denotes the fingerprint of the root

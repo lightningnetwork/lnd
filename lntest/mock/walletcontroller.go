@@ -110,6 +110,13 @@ func (w *WalletController) RequiredReserve(uint32) btcutil.Amount {
 	return 0
 }
 
+// ListAddresses currently returns a dummy value.
+func (w *WalletController) ListAddresses(string,
+	bool) (lnwallet.AccountAddressMap, error) {
+
+	return nil, nil
+}
+
 // ImportAccount currently returns a dummy value.
 func (w *WalletController) ImportAccount(string, *hdkeychain.ExtendedKey,
 	uint32, *waddrmgr.AddressType, bool) (*waddrmgr.AccountProperties,

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"strings"
@@ -1672,4 +1673,152 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 	if err == nil {
 		t.Fatalf("sweep attempt should fail")
 	}
+}
+
+// testListAddresses tests that we get all the addresses and their
+// corresponding balance correctly.
+func testListAddresses(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	// First, we'll make a new node - Alice, which will be generating
+	// new addresses.
+	alice := net.NewNode(t.t, "Alice", nil)
+	defer shutdownAndAssert(net, t, alice)
+
+	// Next, we'll give Alice exactly 1 utxo of 1 BTC.
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
+
+	type addressDetails struct {
+		Balance int64
+		Type    walletrpc.AddressType
+	}
+
+	// A map of generated address and its balance.
+	generatedAddr := make(map[string]addressDetails)
+
+	// Create an address generated from internal keys.
+	keyLoc := &walletrpc.KeyReq{KeyFamily: 123}
+	keyDesc, err := alice.WalletKitClient.DeriveNextKey(ctxb, keyLoc)
+	require.NoError(t.t, err)
+
+	// Hex Encode the public key.
+	pubkeyString := hex.EncodeToString(keyDesc.RawKeyBytes)
+
+	// Create a p2tr address.
+	resp, err := alice.NewAddress(ctxb, &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
+	})
+	require.NoError(t.t, err)
+	generatedAddr[resp.Address] = addressDetails{
+		Balance: 200_000,
+		Type:    walletrpc.AddressType_TAPROOT_PUBKEY,
+	}
+
+	// Create a p2wkh address.
+	resp, err = alice.NewAddress(ctxb, &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	})
+	require.NoError(t.t, err)
+	generatedAddr[resp.Address] = addressDetails{
+		Balance: 300_000,
+		Type:    walletrpc.AddressType_WITNESS_PUBKEY_HASH,
+	}
+
+	// Create a np2wkh address.
+	resp, err = alice.NewAddress(ctxb, &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_NESTED_PUBKEY_HASH,
+	})
+	require.NoError(t.t, err)
+	generatedAddr[resp.Address] = addressDetails{
+		Balance: 400_000,
+		Type:    walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH,
+	}
+
+	for addr, addressDetail := range generatedAddr {
+		_, err := alice.SendCoins(ctxb, &lnrpc.SendCoinsRequest{
+			Addr:             addr,
+			Amount:           addressDetail.Balance,
+			SpendUnconfirmed: true,
+		})
+		require.NoError(t.t, err)
+	}
+
+	mineBlocks(t, net, 1, 3)
+
+	// Get all the accounts except LND's custom accounts.
+	addressLists, err := alice.WalletKitClient.ListAddresses(
+		ctxb, &walletrpc.ListAddressesRequest{},
+	)
+	require.NoError(t.t, err)
+
+	foundAddresses := 0
+	for _, addressList := range addressLists.AccountWithAddresses {
+		addresses := addressList.Addresses
+		derivationPath, err := parseDerivationPath(
+			addressList.DerivationPath,
+		)
+		require.NoError(t.t, err)
+
+		// Should not get an account with KeyFamily - 123.
+		require.NotEqual(
+			t.t, uint32(keyLoc.KeyFamily), derivationPath[2],
+		)
+
+		for _, address := range addresses {
+			if _, ok := generatedAddr[address.Address]; ok {
+				addrDetails := generatedAddr[address.Address]
+				require.Equal(
+					t.t, addrDetails.Balance,
+					address.Balance,
+				)
+				require.Equal(
+					t.t, addrDetails.Type,
+					addressList.AddressType,
+				)
+				foundAddresses++
+			}
+		}
+	}
+
+	require.Equal(t.t, len(generatedAddr), foundAddresses)
+	foundAddresses = 0
+
+	// Get all the accounts (including LND's custom accounts).
+	addressLists, err = alice.WalletKitClient.ListAddresses(
+		ctxb, &walletrpc.ListAddressesRequest{
+			ShowCustomAccounts: true,
+		},
+	)
+	require.NoError(t.t, err)
+
+	for _, addressList := range addressLists.AccountWithAddresses {
+		addresses := addressList.Addresses
+		derivationPath, err := parseDerivationPath(
+			addressList.DerivationPath,
+		)
+		require.NoError(t.t, err)
+
+		for _, address := range addresses {
+			// Check if the KeyFamily in derivation path is 123.
+			if uint32(keyLoc.KeyFamily) == derivationPath[2] {
+				// For LND's custom accounts, the address
+				// represents the public key.
+				pubkey := address.Address
+				require.Equal(t.t, pubkeyString, pubkey)
+			} else if _, ok := generatedAddr[address.Address]; ok {
+				addrDetails := generatedAddr[address.Address]
+				require.Equal(
+					t.t, addrDetails.Balance,
+					address.Balance,
+				)
+				require.Equal(
+					t.t, addrDetails.Type,
+					addressList.AddressType,
+				)
+				foundAddresses++
+			}
+		}
+	}
+
+	require.Equal(t.t, len(generatedAddr), foundAddresses)
 }

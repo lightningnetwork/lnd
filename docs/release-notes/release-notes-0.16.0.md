@@ -29,7 +29,8 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 
 * [Fixed a bug where cookie authentication with Tor would fail if the cookie
   path contained spaces](https://github.com/lightningnetwork/lnd/pull/6829).
-  Now it parses Tor control port messages correctly.
+  [With the module updated](https://github.com/lightningnetwork/lnd/pull/6836),
+  `lnd` now parses Tor control port messages correctly.
 
 ## `lncli`
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice

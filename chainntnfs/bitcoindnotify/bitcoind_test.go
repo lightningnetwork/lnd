@@ -5,12 +5,14 @@ package bitcoindnotify
 
 import (
 	"bytes"
+
 	"io/ioutil"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -243,13 +245,15 @@ func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
 	// ensured above.
 	outpoint, output, privKey := chainntnfs.CreateSpendableOutput(t, miner)
 	spendTx := chainntnfs.CreateSpendTx(t, outpoint, output, privKey)
+	const noOfBlocks = 100
 	spendTxHash, err := miner.Client.SendRawTransaction(spendTx, true)
 	require.NoError(t, err, "unable to broadcast tx")
+	broadcastHeight = syncNotifierWithMiner(t, notifier, miner)
 	if err := chainntnfs.WaitForMempoolTx(miner, spendTxHash); err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
-	if _, err := miner.Client.Generate(1); err != nil {
-		t.Fatalf("unable to generate block: %v", err)
+	if _, err := miner.Client.Generate(noOfBlocks); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
 	// Ensure the notifier and miner are synced to the same height to ensure
@@ -257,18 +261,108 @@ func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
 	confReq, err := chainntnfs.NewConfRequest(&outpoint.Hash, output.PkScript)
 	require.NoError(t, err, "unable to create conf request")
 	currentHeight := syncNotifierWithMiner(t, notifier, miner)
-	_, txStatus, err = notifier.historicalConfDetails(
+	txConfirmation, txStatus, err := notifier.historicalConfDetails(
 		confReq, uint32(broadcastHeight), uint32(currentHeight),
 	)
 	require.NoError(t, err, "unable to retrieve historical conf details")
+	blockHash, err := notifier.chainConn.GetBlockHash(int64(broadcastHeight))
+	require.NoError(t, err, "unable to get blockHash")
 
 	// Since the backend node's txindex is disabled and the transaction has
 	// confirmed, we should be able to find it by falling back to scanning
 	// the chain manually.
 	switch txStatus {
 	case chainntnfs.TxFoundManually:
+		require.Equal(
+			t, txConfirmation.BlockHash, blockHash, "blockhash mismatch",
+		)
+		require.Equal(
+			t, txConfirmation.BlockHeight, broadcastHeight, "height mismatch",
+		)
 	default:
 		t.Fatal("should have found the transaction by manually " +
 			"scanning the chain, but did not")
 	}
+}
+
+// TestHistoricalSpendDetailsNoTxIndex ensures that we correctly retrieve
+// historical spend details using the set of fallback methods when the
+// backend node's txindex is disabled.
+func TestHistoricalSpendDetailsNoTxIndex(t *testing.T) {
+	testHistoricalSpendDetailsNoTxIndex(t, true)
+	testHistoricalSpendDetailsNoTxIndex(t, false)
+}
+
+func testHistoricalSpendDetailsNoTxIndex(t *testing.T, rpcPolling bool) {
+	miner, tearDown := chainntnfs.NewMiner(t, nil, true, 25)
+	defer tearDown()
+
+	bitcoindConn, cleanUp := chainntnfs.NewBitcoindBackend(
+		t, miner.P2PAddress(), false, rpcPolling,
+	)
+	defer cleanUp()
+
+	hintCache := initHintCache(t)
+	blockCache := blockcache.NewBlockCache(10000)
+
+	notifier := setUpNotifier(
+		t, bitcoindConn, hintCache, hintCache, blockCache,
+	)
+	defer func() {
+		err := notifier.Stop()
+		require.NoError(t, err)
+	}()
+
+	// Since the node has its txindex disabled, we fall back to scanning the
+	// chain manually. A outpoint unknown to the network should not be
+	// notified.
+	var unknownHash chainhash.Hash
+	copy(unknownHash[:], bytes.Repeat([]byte{0x10}, 32))
+	invalidOutpoint := wire.NewOutPoint(&unknownHash, 0)
+	unknownSpendReq, err := chainntnfs.NewSpendRequest(invalidOutpoint, testScript)
+	require.NoError(t, err, "unable to create spend request")
+	broadcastHeight := syncNotifierWithMiner(t, notifier, miner)
+	spendDetails, errSpend := notifier.historicalSpendDetails(
+		unknownSpendReq, broadcastHeight, broadcastHeight,
+	)
+	require.NoError(t, errSpend, "unable to retrieve historical spend details")
+	require.Equal(t, spendDetails, (*chainntnfs.SpendDetail)(nil))
+
+	// Now, we'll create a test transaction and attempt to retrieve its
+	// spending details. In order to fall back to manually scanning the
+	// chain, the transaction must be in the chain and not contain any
+	// unspent outputs. To ensure this, we'll create a transaction with only
+	// one output, which we will manually spend. The backend node's
+	// transaction index should also be disabled, which we've already
+	// ensured above.
+	outpoint, output, privKey := chainntnfs.CreateSpendableOutput(t, miner)
+	spendTx := chainntnfs.CreateSpendTx(t, outpoint, output, privKey)
+	const noOfBlocks = 100
+	spendTxHash, err := miner.Client.SendRawTransaction(spendTx, true)
+	require.NoError(t, err, "unable to broadcast tx")
+	broadcastHeight = syncNotifierWithMiner(t, notifier, miner)
+	err = chainntnfs.WaitForMempoolTx(miner, spendTxHash)
+	require.NoError(t, err, "tx not relayed to miner")
+	_, err = miner.Client.Generate(noOfBlocks)
+	require.NoError(t, err, "unable to generate blocks")
+
+	// Ensure the notifier and miner are synced to the same height to ensure
+	// we can find the transaction spend details when manually scanning the
+	// chain.
+	spendReq, err := chainntnfs.NewSpendRequest(outpoint, output.PkScript)
+	require.NoError(t, err, "unable to create conf request")
+	currentHeight := syncNotifierWithMiner(t, notifier, miner)
+	validSpendDetails, err := notifier.historicalSpendDetails(
+		spendReq, broadcastHeight, currentHeight,
+	)
+	require.NoError(t, err, "unable to retrieve historical spend details")
+
+	// Since the backend node's txindex is disabled and the transaction has
+	// confirmed, we should be able to find it by falling back to scanning
+	// the chain manually.
+	require.NotNil(t, validSpendDetails)
+	require.Equal(t, validSpendDetails.SpentOutPoint, outpoint)
+	require.Equal(t, validSpendDetails.SpenderTxHash, spendTxHash)
+	require.Equal(t, validSpendDetails.SpendingTx, spendTx)
+	require.Equal(t, validSpendDetails.SpendingHeight, int32(broadcastHeight+1))
 }

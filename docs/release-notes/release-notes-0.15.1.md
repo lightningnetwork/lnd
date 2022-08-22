@@ -164,6 +164,9 @@ default](https://github.com/lightningnetwork/lnd/pull/6810) in most cases.
 * [Remove `ScidAliasOptional` dependency on 
 `ExplicitChannelTypeOptional`](https://github.com/lightningnetwork/lnd/pull/6809)
 
+* [Add a default case](https://github.com/lightningnetwork/lnd/pull/6847) to the
+  Address Type switch statement in the `NewAddress` rpc server method.
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes

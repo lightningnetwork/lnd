@@ -60,8 +60,8 @@ func (c *Child) String() string {
 // DeriveChild computes the child preimage and child hash for a given (root,
 // share, index) tuple. The derivation is defined as:
 //
-//   child_preimage = SHA256(root || share || be32(index)),
-//   child_hash     = SHA256(child_preimage).
+//	child_preimage = SHA256(root || share || be32(index)),
+//	child_hash     = SHA256(child_preimage).
 func DeriveChild(root Share, desc ChildDesc) *Child {
 	var (
 		indexBytes [4]byte

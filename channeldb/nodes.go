@@ -29,7 +29,7 @@ var (
 //
 // TODO(roasbeef): also add current OnionKey plus rotation schedule?
 // TODO(roasbeef): add bitfield for supported services
-//  * possibly add a wire.NetAddress type, type
+//   - possibly add a wire.NetAddress type, type
 type LinkNode struct {
 	// Network indicates the Bitcoin network that the LinkNode advertises
 	// for incoming channel creation.

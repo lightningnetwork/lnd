@@ -603,11 +603,11 @@ func (c *TowerClient) RegisterChannel(chanID lnwire.ChannelID) error {
 
 // BackupState initiates a request to back up a particular revoked state. If the
 // method returns nil, the backup is guaranteed to be successful unless the:
-//  - client is force quit,
-//  - justice transaction would create dust outputs when trying to abide by the
-//    negotiated policy, or
-//  - breached outputs contain too little value to sweep at the target sweep fee
-//    rate.
+//   - client is force quit,
+//   - justice transaction would create dust outputs when trying to abide by the
+//     negotiated policy, or
+//   - breached outputs contain too little value to sweep at the target sweep fee
+//     rate.
 func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
 	breachInfo *lnwallet.BreachRetribution,
 	chanType channeldb.ChannelType) error {

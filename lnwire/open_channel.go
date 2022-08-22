@@ -160,7 +160,6 @@ var _ Message = (*OpenChannel)(nil)
 // Encode serializes the target OpenChannel into the passed io.Writer
 // implementation. Serialization will observe the rules defined by the passed
 // protocol version.
-//
 func (o *OpenChannel) Encode(w *bytes.Buffer, pver uint32) error {
 	recordProducers := []tlv.RecordProducer{&o.UpfrontShutdownScript}
 	if o.ChannelType != nil {

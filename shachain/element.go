@@ -111,19 +111,18 @@ func newIndex(v uint64) index {
 // 6. 2(0b010) -> 2, 3
 // 7. 1(0b001) -> 1
 //
-//    ^ bucket number
-//    |
-//  3 |   x
-//    |   |
-//  2 |   |               x
-//    |   |               |
-//  1 |   |       x       |       x
-//    |   |       |       |       |
-//  0 |   |   x   |   x   |   x   |   x
-//    |   |   |   |   |   |   |   |   |
-//    +---|---|---|---|---|---|---|---|---> index
-//        0   1   2   3   4   5   6   7
-//
+//	  ^ bucket number
+//	  |
+//	3 |   x
+//	  |   |
+//	2 |   |               x
+//	  |   |               |
+//	1 |   |       x       |       x
+//	  |   |       |       |       |
+//	0 |   |   x   |   x   |   x   |   x
+//	  |   |   |   |   |   |   |   |   |
+//	  +---|---|---|---|---|---|---|---|---> index
+//	      0   1   2   3   4   5   6   7
 func (from index) deriveBitTransformations(to index) ([]uint8, error) {
 	var positions []uint8
 

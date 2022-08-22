@@ -383,8 +383,8 @@ func (r *RPCKeyRing) DeriveKey(
 // sha256 of the resulting shared point serialized in compressed format. If k is
 // our private key, and P is the public key, we perform the following operation:
 //
-//  sx := k*P
-//  s := sha256(sx.SerializeCompressed())
+//	sx := k*P
+//	s := sha256(sx.SerializeCompressed())
 //
 // NOTE: This method is part of the keychain.ECDHRing interface.
 func (r *RPCKeyRing) ECDH(keyDesc keychain.KeyDescriptor,

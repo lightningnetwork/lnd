@@ -186,6 +186,7 @@ func (c *Controller) prepareAddOnion(cfg AddOnionConfig) (string, error) {
 //   - the onion service is removed via `DEL_ONION`.
 //   - the Tor daemon terminates.
 //   - the controller connection that originated the `ADD_ONION` is closed.
+//
 // Each connection can only see its own ephemeral services. If a service needs
 // to survive beyond current controller connection, use the "Detach" flag when
 // creating new service via `ADD_ONION`.

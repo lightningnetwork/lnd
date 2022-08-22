@@ -711,10 +711,10 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 // the commitment transaction.
 //
 // The following spending cases are covered by this test:
-//   * Alice's spend from the delayed output on her commitment transaction.
-//   * Bob's spend from Alice's delayed output when she broadcasts a revoked
+//   - Alice's spend from the delayed output on her commitment transaction.
+//   - Bob's spend from Alice's delayed output when she broadcasts a revoked
 //     commitment transaction.
-//   * Bob's spend from his unencumbered output within Alice's commitment
+//   - Bob's spend from his unencumbered output within Alice's commitment
 //     transaction.
 func TestCommitmentSpendValidation(t *testing.T) {
 	t.Parallel()

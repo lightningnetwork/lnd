@@ -88,9 +88,9 @@ type SphinxErrorEncrypter struct {
 // should be used to deserialize an encoded SphinxErrorEncrypter. Since the
 // actual encrypter is not stored in plaintext while at rest, reconstructing the
 // error encrypter requires:
-//   1) Decode: to deserialize the ephemeral public key.
-//   2) Reextract: to "unlock" the actual error encrypter using an active
-//        OnionProcessor.
+//  1. Decode: to deserialize the ephemeral public key.
+//  2. Reextract: to "unlock" the actual error encrypter using an active
+//     OnionProcessor.
 func NewSphinxErrorEncrypter() *SphinxErrorEncrypter {
 	return &SphinxErrorEncrypter{
 		OnionErrorEncrypter: nil,

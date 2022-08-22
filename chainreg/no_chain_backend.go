@@ -40,9 +40,9 @@ var (
 )
 
 // NoChainBackend is a mock implementation of the following interfaces:
-//  - chainview.FilteredChainView
-//  - chainntnfs.ChainNotifier
-//  - chainfee.Estimator
+//   - chainview.FilteredChainView
+//   - chainntnfs.ChainNotifier
+//   - chainfee.Estimator
 type NoChainBackend struct {
 }
 

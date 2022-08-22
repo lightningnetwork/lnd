@@ -75,9 +75,10 @@ func MustNewStream(records ...Record) *Stream {
 //
 // The stream is constructed by concatenating the individual, serialized Records
 // where each record has the following format:
-//    [varint: type]
-//    [varint: length]
-//    [length: value]
+//
+//	[varint: type]
+//	[varint: length]
+//	[length: value]
 //
 // An error is returned if the io.Writer fails to accept bytes from the
 // encoding, and nothing else. The ordering of the Records is asserted upon the
@@ -117,15 +118,16 @@ func (s *Stream) Encode(w io.Writer) error {
 // record.
 //
 // Each record has the following format:
-//    [varint: type]
-//    [varint: length]
-//    [length: value]
+//
+//	[varint: type]
+//	[varint: length]
+//	[length: value]
 //
 // A series of (possibly zero) records are concatenated into a stream, this
 // example contains two records:
 //
-//    (t: 0x01, l: 0x04, v: 0xff, 0xff, 0xff, 0xff)
-//    (t: 0x02, l: 0x01, v: 0x01)
+//	(t: 0x01, l: 0x04, v: 0xff, 0xff, 0xff, 0xff)
+//	(t: 0x02, l: 0x01, v: 0x01)
 //
 // This method asserts that the byte stream is canonical, namely that each
 // record is unique and that all records are sorted in ascending order. An

@@ -203,8 +203,8 @@ func (s *Server) peerHandler() {
 
 // handleClient processes a series watchtower messages sent by a client. The
 // client may either send:
-//  * a single CreateSession message.
-//  * a series of StateUpdate messages.
+//   - a single CreateSession message.
+//   - a series of StateUpdate messages.
 //
 // This method uses the server's peer map to ensure at most one peer using the
 // same session id can enter the main event loop. The connection will be

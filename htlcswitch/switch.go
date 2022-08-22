@@ -1012,11 +1012,11 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 
 // parseFailedPayment determines the appropriate failure message to return to
 // a user initiated payment. The three cases handled are:
-// 1) An unencrypted failure, which should already plaintext.
-// 2) A resolution from the chain arbitrator, which possibly has no failure
-//    reason attached.
-// 3) A failure from the remote party, which will need to be decrypted using
-//    the payment deobfuscator.
+//  1. An unencrypted failure, which should already plaintext.
+//  2. A resolution from the chain arbitrator, which possibly has no failure
+//     reason attached.
+//  3. A failure from the remote party, which will need to be decrypted using
+//     the payment deobfuscator.
 func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 	attemptID uint64, paymentHash lntypes.Hash, unencrypted,
 	isResolution bool, htlc *lnwire.UpdateFailHTLC) error {

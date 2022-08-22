@@ -8,16 +8,13 @@ import (
 	"errors"
 	"fmt"
 
-	"google.golang.org/grpc"
-	"gopkg.in/macaroon-bakery.v2/bakery"
-
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"google.golang.org/grpc"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
 const (

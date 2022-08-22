@@ -99,9 +99,9 @@ var (
 // proceeding to send commands. Otherwise, the connection will be closed.
 //
 // TODO:
-//   * if adding support for more commands, extend this with a command queue?
-//   * place under sub-package?
-//   * support async replies from the server
+//   - if adding support for more commands, extend this with a command queue?
+//   - place under sub-package?
+//   - support async replies from the server
 type Controller struct {
 	// started is used atomically in order to prevent multiple calls to
 	// Start.
@@ -269,21 +269,22 @@ func (c *Controller) sendCommand(command string) (int, string, error) {
 // readResponse reads the replies from Tor to the controller. The reply has the
 // following format,
 //
-//   Reply = SyncReply / AsyncReply
-//   SyncReply = *(MidReplyLine / DataReplyLine) EndReplyLine
-//   AsyncReply = *(MidReplyLine / DataReplyLine) EndReplyLine
+//	Reply = SyncReply / AsyncReply
+//	SyncReply = *(MidReplyLine / DataReplyLine) EndReplyLine
+//	AsyncReply = *(MidReplyLine / DataReplyLine) EndReplyLine
 //
-//   MidReplyLine = StatusCode "-" ReplyLine
-//   DataReplyLine = StatusCode "+" ReplyLine CmdData
-//   EndReplyLine = StatusCode SP ReplyLine
-//   ReplyLine = [ReplyText] CRLF
-//   ReplyText = XXXX
-//   StatusCode = 3DIGIT
+//	MidReplyLine = StatusCode "-" ReplyLine
+//	DataReplyLine = StatusCode "+" ReplyLine CmdData
+//	EndReplyLine = StatusCode SP ReplyLine
+//	ReplyLine = [ReplyText] CRLF
+//	ReplyText = XXXX
+//	StatusCode = 3DIGIT
 //
 // Unless specified otherwise, multiple lines in a single reply from Tor daemon
 // to the controller are guaranteed to share the same status code. Read more on
 // this topic:
-//   https://gitweb.torproject.org/torspec.git/tree/control-spec.txt#n158
+//
+//	https://gitweb.torproject.org/torspec.git/tree/control-spec.txt#n158
 //
 // NOTE: this code is influenced by https://github.com/Yawning/bulb.
 func (c *Controller) readResponse(expected int) (int, string, error) {
@@ -618,6 +619,7 @@ func computeHMAC256(key, message []byte) []byte {
 // supportsV3 is a helper function that parses the current version of the Tor
 // server and determines whether it supports creating v3 onion services through
 // Tor's control port. The version string should be of the format:
+//
 //	major.minor.revision.build
 func supportsV3(version string) error {
 	// We'll split the minimum Tor version that's supported and the given

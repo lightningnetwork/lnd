@@ -133,7 +133,8 @@ type ChanStatusManager struct {
 // NewChanStatusManager initializes a new ChanStatusManager using the given
 // configuration. An error is returned if the timeouts and sample interval fail
 // to meet do not satisfy the equation:
-//   ChanEnableTimeout + ChanStatusSampleInterval > ChanDisableTimeout.
+//
+//	ChanEnableTimeout + ChanStatusSampleInterval > ChanDisableTimeout.
 func NewChanStatusManager(cfg *ChanStatusConfig) (*ChanStatusManager, error) {
 	// Assert that the config timeouts are properly formed. We require the
 	// enable_timeout + sample_interval to be less than or equal to the
@@ -260,16 +261,17 @@ func (m *ChanStatusManager) RequestEnable(outpoint wire.OutPoint,
 // ChanStatusManuallyDisabled, depending on the passed-in value of manual. In
 // particular, note the following state transitions:
 //
-//     current state    | manual | new state
-//     ---------------------------------------------------
-//     Disabled         | false  | Disabled
-//     ManuallyDisabled | false  | ManuallyDisabled (*)
-//     Disabled         | true   | ManuallyDisabled
-//     ManuallyDisabled | true   | ManuallyDisabled
+//	current state    | manual | new state
+//	---------------------------------------------------
+//	Disabled         | false  | Disabled
+//	ManuallyDisabled | false  | ManuallyDisabled (*)
+//	Disabled         | true   | ManuallyDisabled
+//	ManuallyDisabled | true   | ManuallyDisabled
 //
 // (*) If a channel was manually disabled, subsequent automatic / background
-//     requests to disable the channel do not change the fact that the channel
-//     was manually disabled.
+//
+//	requests to disable the channel do not change the fact that the channel
+//	was manually disabled.
 func (m *ChanStatusManager) RequestDisable(outpoint wire.OutPoint,
 	manual bool) error {
 
@@ -367,13 +369,13 @@ func (m *ChanStatusManager) statusManager() {
 
 // processEnableRequest attempts to enable the given outpoint.
 //
-// * If the channel is not active at the time of the request,
-//   ErrEnableInactiveChan will be returned.
-// * If the channel was in the ManuallyDisabled state and manual = false,
-//   the request will be ignored and ErrEnableManuallyDisabledChan will be
-//   returned.
-// * Otherwise, the status of the channel in chanStates will be
-//   ChanStatusEnabled and the method will return nil.
+//   - If the channel is not active at the time of the request,
+//     ErrEnableInactiveChan will be returned.
+//   - If the channel was in the ManuallyDisabled state and manual = false,
+//     the request will be ignored and ErrEnableManuallyDisabledChan will be
+//     returned.
+//   - Otherwise, the status of the channel in chanStates will be
+//     ChanStatusEnabled and the method will return nil.
 //
 // An update will be broadcast only if the channel is currently disabled,
 // otherwise no update will be sent on the network.

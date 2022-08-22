@@ -1,3 +1,4 @@
+//go:build !neutrinorpc
 // +build !neutrinorpc
 
 package main

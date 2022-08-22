@@ -168,11 +168,12 @@ func createInterceptorFunc(prefix, receiver string, messages []expectedMessage,
 // Specifically, this tests the following scenario:
 //
 // A               B
-//   <----add-----
-//   -----add---->
-//   <----sig-----
-//   -----rev----x
-//   -----sig----x
+//
+//	<----add-----
+//	-----add---->
+//	<----sig-----
+//	-----rev----x
+//	-----sig----x
 func TestChannelLinkRevThenSig(t *testing.T) {
 	t.Parallel()
 
@@ -301,11 +302,12 @@ func TestChannelLinkRevThenSig(t *testing.T) {
 // Specifically, this tests the following scenario:
 //
 // A               B
-//   <----add-----
-//   -----add---->
-//   -----sig----x
-//   <----sig-----
-//   -----rev----x
+//
+//	<----add-----
+//	-----add---->
+//	-----sig----x
+//	<----sig-----
+//	-----rev----x
 func TestChannelLinkSigThenRev(t *testing.T) {
 	t.Parallel()
 

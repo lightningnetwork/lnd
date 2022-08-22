@@ -288,17 +288,18 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 
 // policyUpdateMap defines a type to store channel policy updates. It has the
 // format,
-// {
-//  "chanPoint1": {
-//       "advertisingNode1": [
-//              policy1, policy2, ...
-//       ],
-//       "advertisingNode2": [
-//              policy1, policy2, ...
-//       ]
-//  },
-//  "chanPoint2": ...
-// }.
+//
+//	{
+//	 "chanPoint1": {
+//	      "advertisingNode1": [
+//	             policy1, policy2, ...
+//	      ],
+//	      "advertisingNode2": [
+//	             policy1, policy2, ...
+//	      ]
+//	 },
+//	 "chanPoint2": ...
+//	}.
 type policyUpdateMap map[string]map[string][]*lnrpc.RoutingPolicy
 
 // HarnessNode represents an instance of lnd running within our test network

@@ -53,13 +53,13 @@ func newIncomingContestResolver(
 // Resolve attempts to resolve this contract. As we don't yet know of the
 // preimage for the contract, we'll wait for one of two things to happen:
 //
-//   1. We learn of the preimage! In this case, we can sweep the HTLC incoming
-//      and ensure that if this was a multi-hop HTLC we are made whole. In this
-//      case, an additional ContractResolver will be returned to finish the
-//      job.
+//  1. We learn of the preimage! In this case, we can sweep the HTLC incoming
+//     and ensure that if this was a multi-hop HTLC we are made whole. In this
+//     case, an additional ContractResolver will be returned to finish the
+//     job.
 //
-//   2. The HTLC expires. If this happens, then the contract is fully resolved
-//      as we have no remaining actions left at our disposal.
+//  2. The HTLC expires. If this happens, then the contract is fully resolved
+//     as we have no remaining actions left at our disposal.
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {

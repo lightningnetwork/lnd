@@ -142,20 +142,19 @@ type ChannelUpdateHandler interface {
 // incoming htlc requests, applying the changes to the channel, and also
 // propagating/forwarding it to htlc switch.
 //
-//  abstraction level
-//       ^
-//       |
-//       | - - - - - - - - - - - - Lightning - - - - - - - - - - - - -
-//       |
-//       | (Switch)		     (Switch)		       (Switch)
-//       |  Alice <-- channel link --> Bob <-- channel link --> Carol
-//       |
-//       | - - - - - - - - - - - - - TCP - - - - - - - - - - - - - - -
-//       |
-//       |  (Peer) 		     (Peer)	                (Peer)
-//       |  Alice <----- tcp conn --> Bob <---- tcp conn -----> Carol
-//       |
-//
+//	abstraction level
+//	     ^
+//	     |
+//	     | - - - - - - - - - - - - Lightning - - - - - - - - - - - - -
+//	     |
+//	     | (Switch)		     (Switch)		       (Switch)
+//	     |  Alice <-- channel link --> Bob <-- channel link --> Carol
+//	     |
+//	     | - - - - - - - - - - - - - TCP - - - - - - - - - - - - - - -
+//	     |
+//	     |  (Peer) 		     (Peer)	                (Peer)
+//	     |  Alice <----- tcp conn --> Bob <---- tcp conn -----> Carol
+//	     |
 type ChannelLink interface {
 	// TODO(roasbeef): modify interface to embed mail boxes?
 

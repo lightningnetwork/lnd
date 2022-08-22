@@ -388,15 +388,16 @@ func openChannel(ctx *cli.Context) error {
 // protocol involves several steps between the RPC server and the CLI client:
 //
 // RPC server                           CLI client
-//     |                                    |
-//     |  |<------open channel (stream)-----|
-//     |  |-------ready for funding----->|  |
-//     |  |<------PSBT verify------------|  |
-//     |  |-------ready for signing----->|  |
-//     |  |<------PSBT finalize----------|  |
-//     |  |-------channel pending------->|  |
-//     |  |-------channel open------------->|
-//     |                                    |
+//
+//	|                                    |
+//	|  |<------open channel (stream)-----|
+//	|  |-------ready for funding----->|  |
+//	|  |<------PSBT verify------------|  |
+//	|  |-------ready for signing----->|  |
+//	|  |<------PSBT finalize----------|  |
+//	|  |-------channel pending------->|  |
+//	|  |-------channel open------------->|
+//	|                                    |
 func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 	client lnrpc.LightningClient,
 	req *lnrpc.OpenChannelRequest) error {

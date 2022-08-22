@@ -45,6 +45,9 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 * [The `golangci-lint` tool was updated to
   `v1.46.2`](https://github.com/lightningnetwork/lnd/pull/6731)
 
+* Updated the github actions to use `make fmt-check` in its [build
+  process](https://github.com/lightningnetwork/lnd/pull/6853).
+
 # Contributors (Alphabetical Order)
 
 * Carla Kirk-Cohen

@@ -33,6 +33,24 @@ env:
 
 jobs:
   ########################
+  # format code
+  ########################
+  fmt-check:
+    name: check code format
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v3
+
+      - name: setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v3
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+
+      - name: fmt
+        run: make fmt-check
+
+  ########################
   # RPC and mobile compilation check
   ########################
   rpc-check:

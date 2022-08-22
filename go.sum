@@ -43,6 +43,8 @@ github.com/NebulousLabs/fastrand v0.0.0-20181203155948-6fb6489aac4e/go.mod h1:Bd
 github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82 h1:MG93+PZYs9PyEsj/n5/haQu2gK0h4tUtSy9ejtMwWa0=
 github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82/go.mod h1:GbuBk21JqF+driLX3XtJYNZjGa45YDoa9IqCTzNSfEc=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
+github.com/Vib-UX/btcwallet v0.14.1-0.20220821160837-7f29aa81832b h1:I5eWrHvR05kLkQBHYe8BgU5DRwfMcAoU0PwG2frWZGc=
+github.com/Vib-UX/btcwallet v0.14.1-0.20220821160837-7f29aa81832b/go.mod h1:7OFsQ8ypiRwmr67hE0z98uXgJgXGAihE79jCib9x6ag=
 github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344 h1:cDVUiFo+npB0ZASqnw4q90ylaVAbnYyx0JYqK4YcGok=
 github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344/go.mod h1:9pIqrY6SXNL8vjRQE5Hd/OL5GyK/9MrGUWs87z/eFfk=
 github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da h1:KjTM2ks9d14ZYCvmHS9iAKVt9AyzRSqNU1qabPih5BY=
@@ -97,8 +99,6 @@ github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1/go.mod h1:7SFka0XMvUgj3hfZtyd
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f h1:bAs4lUbRJpnnkd9VhRV3jjAVU7DJVjMaK+IsvSeZvFo=
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f/go.mod h1:TdznJufoqS23FtqVCzL0ZqgP5MqXbb4fg/WgDys70nA=
 github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
-github.com/btcsuite/btcwallet v0.15.1 h1:SKfh/l2Bgz9sJwHZvfiVbZ8Pl3N/8fFcWWXzsAPz9GU=
-github.com/btcsuite/btcwallet v0.15.1/go.mod h1:7OFsQ8ypiRwmr67hE0z98uXgJgXGAihE79jCib9x6ag=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.2.3 h1:M2yr5UlULvpqtxUqpMxTME/pA92Z9cpqeyvAFk9lAg0=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.2.3/go.mod h1:T2xSiKGpUkSLCh68aF+FMXmKK9mFqNdHl9VaqOr+JjU=
 github.com/btcsuite/btcwallet/wallet/txrules v1.2.0 h1:BtEN5Empw62/RVnZ0VcJaVtVlBijnLlJY+dwjAye2Bg=

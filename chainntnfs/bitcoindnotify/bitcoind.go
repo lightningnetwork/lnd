@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
@@ -525,8 +526,24 @@ func (b *BitcoindNotifier) confDetailsManually(confRequest chainntnfs.ConfReques
 	heightHint, currentHeight uint32) (*chainntnfs.TxConfirmation,
 	chainntnfs.TxConfStatus, error) {
 
-	// Begin scanning blocks at every height to determine where the
-	// transaction was included in.
+	// batchRequest will store the scan requests at every height to determine
+	// where the transaction was included in.
+	batchRequest := make(
+		map[uint32]rpcclient.FutureGetBlockHashResult, currentHeight-heightHint,
+	)
+
+	for height := currentHeight; height >= heightHint && height > 0; height-- {
+		batchRequest[height] = b.chainConn.GetBlockHashAsync(int64(height))
+	}
+
+	// Sending the bulk request using the updated batchClient.
+	err := b.chainConn.SendAsyncQueue()
+	if err != nil {
+		return nil, chainntnfs.TxNotFoundManually, err
+	}
+
+	blockHashes := make([]*chainhash.Hash, 0, len(batchRequest))
+
 	for height := currentHeight; height >= heightHint && height > 0; height-- {
 		// Ensure we haven't been requested to shut down before
 		// processing the next height.
@@ -537,35 +554,67 @@ func (b *BitcoindNotifier) confDetailsManually(confRequest chainntnfs.ConfReques
 		default:
 		}
 
-		blockHash, err := b.chainConn.GetBlockHash(int64(height))
+		// Receive the next block hash from the async queue.
+		blockHash, err := batchRequest[height].Receive()
 		if err != nil {
 			return nil, chainntnfs.TxNotFoundManually,
-				fmt.Errorf("unable to get hash from block "+
-					"with height %d", height)
+				fmt.Errorf("unable to retrieve hash for block "+
+					"with height %d: %v", height, err)
 		}
 
-		block, err := b.GetBlock(blockHash)
-		if err != nil {
+		blockHashes = append(blockHashes, blockHash)
+	}
+
+	// Now we fetch blocks in interval of 15 to avoid out of memory
+	// errors in case of fetching too many blocks with GetBlocksBatch().
+	const batchSize = 15
+	total := len(blockHashes)
+
+	for i := 0; i < total; i += batchSize {
+		// Ensure we haven't been requested to shut down before
+		// processing next set of blocks.
+		select {
+		case <-b.quit:
 			return nil, chainntnfs.TxNotFoundManually,
-				fmt.Errorf("unable to get block with hash "+
-					"%v: %v", blockHash, err)
+				chainntnfs.ErrChainNotifierShuttingDown
+		default:
 		}
 
-		// For every transaction in the block, check which one matches
-		// our request. If we find one that does, we can dispatch its
-		// confirmation details.
-		for txIndex, tx := range block.Transactions {
-			if !confRequest.MatchesTx(tx) {
-				continue
+		start := i
+		end := i + batchSize
+
+		if end > total {
+			end = total
+		}
+
+		blocks, err := b.chainConn.GetBlocksBatch(
+			blockHashes[start:end],
+		)
+
+		if err != nil {
+			return nil, chainntnfs.TxNotFoundManually, err
+		}
+
+		// Note:- blockHashes are stored in reverse order
+		// currentHeight --> heightHint, so we maintain the same refs
+		// of currentHeight to return the correct BlockHeight.
+		height := int(currentHeight) - start
+
+		for j := range blocks {
+			// For every transaction in the block, check which one
+			// matches our request. If we find one that does, we can
+			// dispatch its confirmation details.
+			for txIndex, tx := range blocks[j].Transactions {
+				if confRequest.MatchesTx(tx) {
+					return &chainntnfs.TxConfirmation{
+						Tx:          tx,
+						BlockHash:   blockHashes[start+j],
+						BlockHeight: uint32(height - j),
+						TxIndex:     uint32(txIndex),
+						Block:       blocks[j],
+					}, chainntnfs.TxFoundManually, nil
+				}
 			}
-
-			return &chainntnfs.TxConfirmation{
-				Tx:          tx,
-				BlockHash:   blockHash,
-				BlockHeight: height,
-				TxIndex:     uint32(txIndex),
-				Block:       block,
-			}, chainntnfs.TxFoundManually, nil
 		}
 	}
 
@@ -786,8 +835,24 @@ func (b *BitcoindNotifier) historicalSpendDetails(
 	spendRequest chainntnfs.SpendRequest, startHeight, endHeight uint32) (
 	*chainntnfs.SpendDetail, error) {
 
-	// Begin scanning blocks at every height to determine if the outpoint
-	// was spent.
+	// batchRequest will store the scan requests at every height to determine
+	// if the output was spent.
+	batchRequest := make(
+		map[uint32]rpcclient.FutureGetBlockHashResult, endHeight-startHeight,
+	)
+
+	for height := endHeight; height >= startHeight && height > 0; height-- {
+		batchRequest[height] = b.chainConn.GetBlockHashAsync(int64(height))
+	}
+
+	// Sending the bulk request using updated batchClient.
+	err := b.chainConn.SendAsyncQueue()
+	if err != nil {
+		return nil, err
+	}
+
+	blockHashes := make([]*chainhash.Hash, 0, len(batchRequest))
+
 	for height := endHeight; height >= startHeight && height > 0; height-- {
 		// Ensure we haven't been requested to shut down before
 		// processing the next height.
@@ -797,38 +862,72 @@ func (b *BitcoindNotifier) historicalSpendDetails(
 		default:
 		}
 
-		// First, we'll fetch the block for the current height.
-		blockHash, err := b.chainConn.GetBlockHash(int64(height))
+		// Receive the next block hash from the async queue.
+		blockHash, err := batchRequest[height].Receive()
 		if err != nil {
 			return nil, fmt.Errorf("unable to retrieve hash for "+
 				"block with height %d: %v", height, err)
 		}
-		block, err := b.GetBlock(blockHash)
-		if err != nil {
-			return nil, fmt.Errorf("unable to retrieve block "+
-				"with hash %v: %v", blockHash, err)
+
+		blockHashes = append(blockHashes, blockHash)
+	}
+
+	// Now we fetch blocks in interval of 15 to avoid out of memory errors
+	// in case of fetching too many blocks with GetBlocksBatch().
+	const batchSize = 15
+	total := len(blockHashes)
+
+	for i := 0; i < total; i += batchSize {
+		// Ensure we haven't been requested to shut down before
+		// processing next set of blocks.
+		select {
+		case <-b.quit:
+			return nil, chainntnfs.ErrChainNotifierShuttingDown
+		default:
 		}
 
-		// Then, we'll manually go over every input in every transaction
-		// in it and determine whether it spends the request in
-		// question. If we find one, we'll dispatch the spend details.
-		for _, tx := range block.Transactions {
-			matches, inputIdx, err := spendRequest.MatchesTx(tx)
-			if err != nil {
-				return nil, err
-			}
-			if !matches {
-				continue
-			}
+		start := i
+		end := i + batchSize
 
-			txHash := tx.TxHash()
-			return &chainntnfs.SpendDetail{
-				SpentOutPoint:     &tx.TxIn[inputIdx].PreviousOutPoint,
-				SpenderTxHash:     &txHash,
-				SpendingTx:        tx,
-				SpenderInputIndex: inputIdx,
-				SpendingHeight:    int32(height),
-			}, nil
+		if end > total {
+			end = total
+		}
+
+		blocks, err := b.chainConn.GetBlocksBatch(
+			blockHashes[start:end],
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Note:- blockHashes are stored in reverse order
+		// endHeight --> startHeight, so we maintain the same refs
+		// of endHeight to return the correct SpendHeight.
+		height := int(endHeight) - start
+
+		for j := range blocks {
+			// Now we'll manually go over every input in every
+			// transaction in it and determine whether it spends the
+			// request in question. If we find one, we'll dispatch
+			// the spend details.
+			for _, tx := range blocks[j].Transactions {
+				matches, inputIdx, err := spendRequest.MatchesTx(tx)
+				if err != nil {
+					return nil, err
+				}
+				if !matches {
+					continue
+				}
+
+				txHash := tx.TxHash()
+				return &chainntnfs.SpendDetail{
+					SpentOutPoint:     &tx.TxIn[inputIdx].PreviousOutPoint,
+					SpenderTxHash:     &txHash,
+					SpendingTx:        tx,
+					SpenderInputIndex: inputIdx,
+					SpendingHeight:    int32(height - j),
+				}, nil
+			}
 		}
 	}
 

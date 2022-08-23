@@ -709,8 +709,22 @@ func (s *Server) QueryProbability(ctx context.Context,
 
 	amt := lnwire.MilliSatoshi(req.AmtMsat)
 
+	// Compute the probability.
+	var prob float64
 	mc := s.cfg.RouterBackend.MissionControl
-	prob := mc.GetProbability(fromNode, toNode, amt, 0)
+	capacity, err := s.cfg.RouterBackend.FetchAmountPairCapacity(
+		fromNode, toNode, amt,
+	)
+
+	// If we cannot query the capacity this means that either we don't have
+	// information available or that the channel fails min/maxHtlc
+	// constraints, so we return a zero probability.
+	if err != nil {
+		log.Errorf("Cannot fetch capacity: %v", err)
+	} else {
+		prob = mc.GetProbability(fromNode, toNode, amt, capacity)
+	}
+
 	history := mc.GetPairHistorySnapshot(fromNode, toNode)
 
 	return &QueryProbabilityResponse{

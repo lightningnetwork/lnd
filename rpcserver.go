@@ -689,6 +689,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		return err
 	}
 	graph := s.graphDB
+
 	routerBackend := &routerrpc.RouterBackend{
 		SelfNode: selfNode.PubKeyBytes,
 		FetchChannelCapacity: func(chanID uint64) (btcutil.Amount,
@@ -699,6 +700,28 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 				return 0, err
 			}
 			return info.Capacity, nil
+		},
+		FetchAmountPairCapacity: func(nodeFrom, nodeTo route.Vertex,
+			amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
+
+			routingGraph, err := routing.NewCachedGraph(
+				selfNode, graph,
+			)
+			if err != nil {
+				return 0, err
+			}
+			defer func() {
+				closeErr := routingGraph.Close()
+				if closeErr != nil {
+					rpcsLog.Errorf("not able to close "+
+						"routing graph tx: %v",
+						closeErr)
+				}
+			}()
+
+			return routingGraph.FetchAmountPairCapacity(
+				nodeFrom, nodeTo, amount,
+			)
 		},
 		FetchChannelEndpoints: func(chanID uint64) (route.Vertex,
 			route.Vertex, error) {

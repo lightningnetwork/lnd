@@ -51,7 +51,7 @@ func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
 		return nil, nil, err
 	}
 	return routingTx, func() {
-		err := routingTx.close()
+		err := routingTx.Close()
 		if err != nil {
 			log.Errorf("Error closing db tx: %v", err)
 		}

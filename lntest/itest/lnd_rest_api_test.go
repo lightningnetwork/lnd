@@ -111,7 +111,7 @@ func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
 			resp := &routerrpc.QueryProbabilityResponse{}
 			err := invokeGET(a, url, resp)
 			require.Nil(t, err, "query probability")
-			assert.Greater(t, resp.Probability, 0.5, "probability")
+			require.Zero(t, resp.Probability)
 		},
 	}, {
 		name: "GET with map type query param",

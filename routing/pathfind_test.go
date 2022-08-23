@@ -3112,7 +3112,7 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 	}
 
 	defer func() {
-		if err := routingGraph.close(); err != nil {
+		if err := routingGraph.Close(); err != nil {
 			log.Errorf("Error closing db tx: %v", err)
 		}
 	}()

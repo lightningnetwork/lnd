@@ -200,6 +200,11 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 
 			return 1, nil
 		},
+		FetchAmountPairCapacity: func(nodeFrom, nodeTo route.Vertex,
+			amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
+
+			return 1, nil
+		},
 		MissionControl: &mockMissionControl{},
 		FetchChannelEndpoints: func(chanID uint64) (route.Vertex,
 			route.Vertex, error) {

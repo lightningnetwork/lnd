@@ -45,6 +45,11 @@ type RouterBackend struct {
 	// capacity of a channel to populate in responses.
 	FetchChannelCapacity func(chanID uint64) (btcutil.Amount, error)
 
+	// FetchAmountPairCapacity determines the maximal channel capacity
+	// between two nodes given a certain amount.
+	FetchAmountPairCapacity func(nodeFrom, nodeTo route.Vertex,
+		amount lnwire.MilliSatoshi) (btcutil.Amount, error)
+
 	// FetchChannelEndpoints returns the pubkeys of both endpoints of the
 	// given channel id.
 	FetchChannelEndpoints func(chanID uint64) (route.Vertex,
@@ -325,7 +330,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
-	route, _, err := r.FindRoute(
+	route, successProb, err := r.FindRoute(
 		sourcePubKey, targetPubKey, amt, in.TimePref, restrictions,
 		customRecords, routeHintEdges, finalCLTVDelta,
 	)
@@ -340,39 +345,12 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		return nil, err
 	}
 
-	// Calculate route success probability. Do not rely on a probability
-	// that could have been returned from path finding, because mission
-	// control may have been disabled in the provided ProbabilitySource.
-	successProb := r.getSuccessProbability(route)
-
 	routeResp := &lnrpc.QueryRoutesResponse{
 		Routes:      []*lnrpc.Route{rpcRoute},
 		SuccessProb: successProb,
 	}
 
 	return routeResp, nil
-}
-
-// getSuccessProbability returns the success probability for the given route
-// based on the current state of mission control.
-func (r *RouterBackend) getSuccessProbability(rt *route.Route) float64 {
-	fromNode := rt.SourcePubKey
-	amtToFwd := rt.TotalAmount
-	successProb := 1.0
-	for _, hop := range rt.Hops {
-		toNode := hop.PubKeyBytes
-
-		probability := r.MissionControl.GetProbability(
-			fromNode, toNode, amtToFwd, 0,
-		)
-
-		successProb *= probability
-
-		amtToFwd = hop.AmtToForward
-		fromNode = toNode
-	}
-
-	return successProb
 }
 
 // rpcEdgeToPair looks up the provided channel and returns the channel endpoints

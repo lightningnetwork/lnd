@@ -676,10 +676,10 @@ func newSelectHopHintsCfg(invoicesCfg *AddInvoiceConfig) *SelectHopHintsCfg {
 
 // sufficientHints checks whether we have sufficient hop hints, based on the
 // following criteria:
-// - Hop hint count: limit to a set number of hop hints, regardless of whether
-//   we've reached our invoice amount or not.
-// - Total incoming capacity: limit to our invoice amount * scaling factor to
-//   allow for some of our links going offline.
+//   - Hop hint count: limit to a set number of hop hints, regardless of whether
+//     we've reached our invoice amount or not.
+//   - Total incoming capacity: limit to our invoice amount * scaling factor to
+//     allow for some of our links going offline.
 //
 // We limit our number of hop hints like this to keep our invoice size down,
 // and to avoid leaking all our private channels when we don't need to.

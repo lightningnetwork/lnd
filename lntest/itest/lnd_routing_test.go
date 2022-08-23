@@ -61,7 +61,9 @@ var singleHopSendToRouteCases = []singleHopSendToRouteCase{
 // testSingleHopSendToRoute tests that payments are properly processed through a
 // provided route with a single hop. We'll create the following network
 // topology:
-//      Carol --100k--> Dave
+//
+//	Carol --100k--> Dave
+//
 // We'll query the daemon for routes from Carol to Dave and then send payments
 // by feeding the route back into the various SendToRoute RPC methods. Here we
 // test all three SendToRoute endpoints, forcing each to perform both a regular
@@ -428,7 +430,9 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 
 // testMultiHopSendToRoute tests that payments are properly processed
 // through a provided route. We'll create the following network topology:
-//      Alice --100k--> Bob --100k--> Carol
+//
+//	Alice --100k--> Bob --100k--> Carol
+//
 // We'll query the daemon for routes from Alice to Carol and then
 // send payments through the routes.
 func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
@@ -446,7 +450,9 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 
 // runMultiHopSendToRoute tests that payments are properly processed
 // through a provided route. We'll create the following network topology:
-//      Alice --100k--> Bob --100k--> Carol
+//
+//	Alice --100k--> Bob --100k--> Carol
+//
 // We'll query the daemon for routes from Alice to Carol and then
 // send payments through the routes.
 func runMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest,
@@ -1429,7 +1435,9 @@ func computeFee(baseFee, feeRate, amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
 // testQueryRoutes checks the response of queryroutes.
 // We'll create the following network topology:
-//      Alice --> Bob --> Carol --> Dave
+//
+//	Alice --> Bob --> Carol --> Dave
+//
 // and query the daemon for routes from Alice to Dave.
 func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()

@@ -58,7 +58,7 @@ var (
 // use this cache to detect duplicate witnesses.
 //
 // TODO(roasbeef): need expiry policy?
-//  * encrypt?
+//   - encrypt?
 type WitnessCache struct {
 	db *DB
 }

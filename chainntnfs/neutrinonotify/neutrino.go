@@ -37,7 +37,7 @@ const (
 // running full node.
 //
 // TODO(roasbeef): heavily consolidate with NeutrinoNotifier code
-//  * maybe combine into single package?
+//   - maybe combine into single package?
 type NeutrinoNotifier struct {
 	epochClientCounter uint64 // To be used atomically.
 

@@ -250,8 +250,9 @@ func (svc *Service) CreateUnlock(password *[]byte) error {
 }
 
 // NewMacaroon wraps around the function Oven.NewMacaroon with the defaults,
-//  - version is always bakery.LatestVersion;
-//  - caveats is always nil.
+//   - version is always bakery.LatestVersion;
+//   - caveats is always nil.
+//
 // In addition, it takes a rootKeyID parameter, and puts it into the context.
 // The context is passed through Oven.NewMacaroon(), in which calls the function
 // RootKey(), that reads the context for rootKeyID.

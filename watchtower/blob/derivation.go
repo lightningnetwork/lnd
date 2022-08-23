@@ -52,8 +52,9 @@ func (k BreachKey) String() string {
 
 // NewBreachHintAndKeyFromHash derives a BreachHint and BreachKey from a given
 // txid in a single pass. The hint and key are computed as:
-//    hint = SHA256(txid)
-//    key = SHA256(txid || txid)
+//
+//	hint = SHA256(txid)
+//	key = SHA256(txid || txid)
 func NewBreachHintAndKeyFromHash(hash *chainhash.Hash) (BreachHint, BreachKey) {
 	var (
 		hint BreachHint

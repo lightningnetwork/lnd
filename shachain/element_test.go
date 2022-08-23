@@ -11,8 +11,9 @@ import (
 // bitsToIndex is a helper function which takes 'n' last bits as input and
 // create shachain index.
 // Example:
-//  Input: 0,1,1,0,0
-//  Output: 0b000000000000000000000000000000000000000[01100] == 12
+//
+//	Input: 0,1,1,0,0
+//	Output: 0b000000000000000000000000000000000000000[01100] == 12
 func bitsToIndex(bs ...uint64) (index, error) {
 	if len(bs) > 64 {
 		return 0, errors.New("number of elements should be lower then" +

@@ -1315,11 +1315,11 @@ func (c *OpenChannel) SecondCommitmentPoint() (*btcec.PublicKey, error) {
 // commitment chains in the case of a last or only partially processed message.
 // When the remote party receives this message one of three things may happen:
 //
-//   1. We're fully synced and no messages need to be sent.
-//   2. We didn't get the last CommitSig message they sent, so they'll re-send
-//      it.
-//   3. We didn't get the last RevokeAndAck message they sent, so they'll
-//      re-send it.
+//  1. We're fully synced and no messages need to be sent.
+//  2. We didn't get the last CommitSig message they sent, so they'll re-send
+//     it.
+//  3. We didn't get the last RevokeAndAck message they sent, so they'll
+//     re-send it.
 //
 // If this is a restored channel, having status ChanStatusRestored, then we'll
 // modify our typical chan sync message to ensure they force close even if

@@ -105,35 +105,35 @@ var (
 // client with a macaroon that contains a custom caveat that is supported by one
 // of the registered middlewares.
 //
-//        |
-//        | gRPC request from client
-//        |
-//    +---v--------------------------------+
-//    |   InterceptorChain                 |
-//    +-+----------------------------------+
-//      | Log Interceptor                  |
-//      +----------------------------------+
-//      | RPC State Interceptor            |
-//      +----------------------------------+
-//      | Macaroon Interceptor             |
-//      +----------------------------------+--------> +---------------------+
-//      | RPC Macaroon Middleware Handler  |<-------- | External Middleware |
-//      +----------------------------------+          |   - modify request |
-//      | Prometheus Interceptor           |          +---------------------+
-//      +-+--------------------------------+
-//        | validated gRPC request from client
-//    +---v--------------------------------+
-//    |   main gRPC server                 |
-//    +---+--------------------------------+
-//        |
-//        | original gRPC request to client
-//        |
-//    +---v--------------------------------+--------> +---------------------+
-//    |   RPC Macaroon Middleware Handler  |<-------- | External Middleware |
-//    +---+--------------------------------+          |   - modify response |
-//        |                                           +---------------------+
-//        | edited gRPC request to client
-//        v
+//	    |
+//	    | gRPC request from client
+//	    |
+//	+---v--------------------------------+
+//	|   InterceptorChain                 |
+//	+-+----------------------------------+
+//	  | Log Interceptor                  |
+//	  +----------------------------------+
+//	  | RPC State Interceptor            |
+//	  +----------------------------------+
+//	  | Macaroon Interceptor             |
+//	  +----------------------------------+--------> +---------------------+
+//	  | RPC Macaroon Middleware Handler  |<-------- | External Middleware |
+//	  +----------------------------------+          |   - modify request |
+//	  | Prometheus Interceptor           |          +---------------------+
+//	  +-+--------------------------------+
+//	    | validated gRPC request from client
+//	+---v--------------------------------+
+//	|   main gRPC server                 |
+//	+---+--------------------------------+
+//	    |
+//	    | original gRPC request to client
+//	    |
+//	+---v--------------------------------+--------> +---------------------+
+//	|   RPC Macaroon Middleware Handler  |<-------- | External Middleware |
+//	+---+--------------------------------+          |   - modify response |
+//	    |                                           +---------------------+
+//	    | edited gRPC request to client
+//	    v
 type InterceptorChain struct {
 	// lastRequestID is the ID of the last gRPC request or stream that was
 	// intercepted by the middleware interceptor.

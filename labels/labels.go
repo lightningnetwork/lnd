@@ -4,14 +4,14 @@
 //
 // Labels for transactions broadcast by lnd have two set fields followed by an
 // optional set labelled data values, all separated by colons.
-// - Label version: an integer that indicates the version lnd used
-// - Label type: the type of transaction we are labelling
-// - {field name}-{value}: a named field followed by its value, these items are
-//   optional, and there may be more than field present.
+//   - Label version: an integer that indicates the version lnd used
+//   - Label type: the type of transaction we are labelling
+//   - {field name}-{value}: a named field followed by its value, these items are
+//     optional, and there may be more than field present.
 //
 // For version 0 we have the following optional data fields defined:
-// - shortchanid: the short channel ID that a transaction is associated with,
-//   with its value set to the uint64 short channel id.
+//   - shortchanid: the short channel ID that a transaction is associated with,
+//     with its value set to the uint64 short channel id.
 package labels
 
 import (

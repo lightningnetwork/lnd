@@ -1608,13 +1608,15 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 // rate-limiting. The provided chanSeries should belong to syncer2.
 //
 // The state transition performed is the following:
-//   syncer1  -- QueryShortChanIDs -->   syncer2
-//                                       chanSeries.FetchChanAnns()
-//   syncer1 <-- ReplyShortChanIDsEnd -- syncer2
+//
+//	syncer1  -- QueryShortChanIDs -->   syncer2
+//	                                    chanSeries.FetchChanAnns()
+//	syncer1 <-- ReplyShortChanIDsEnd -- syncer2
 //
 // If expDelayResponse is true, this method will assert that the call the
 // FetchChanAnns happens between:
-//   [delayedQueryInterval-delayTolerance, delayedQueryInterval+delayTolerance].
+//
+//	[delayedQueryInterval-delayTolerance, delayedQueryInterval+delayTolerance].
 func queryBatch(t *testing.T,
 	msgChan1, msgChan2 chan []lnwire.Message,
 	syncer1, syncer2 *GossipSyncer,

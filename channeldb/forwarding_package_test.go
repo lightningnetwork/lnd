@@ -110,10 +110,10 @@ func checkPkgFilterRand(t *testing.T, b, p uint16) {
 }
 
 // checkPkgFilterEncodeDecode tests the serialization of a pkg filter by:
-//   1) writing it to a buffer
-//   2) verifying the number of bytes written matches the filter's Size()
-//   3) reconstructing the filter decoding the bytes
-//   4) checking that the two filters are the same according to Equal
+//  1. writing it to a buffer
+//  2. verifying the number of bytes written matches the filter's Size()
+//  3. reconstructing the filter decoding the bytes
+//  4. checking that the two filters are the same according to Equal
 func checkPkgFilterEncodeDecode(t *testing.T, i uint16, f *channeldb.PkgFilter) {
 	var b bytes.Buffer
 	if err := f.Encode(&b); err != nil {

@@ -47,10 +47,10 @@ var (
 // The actual size of each HTLCEntry varies based on its RHash and Amt(sat),
 // summarized as follows,
 //
-//   | RHash empty | Amt<=252 | Amt<=65,535 | Amt<=4,294,967,295 | otherwise |
-//   |:-----------:|:--------:|:-----------:|:------------------:|:---------:|
-//   |     true    |    19    |      21     |         23         |     26    |
-//   |     false   |    51    |      53     |         55         |     58    |
+//	| RHash empty | Amt<=252 | Amt<=65,535 | Amt<=4,294,967,295 | otherwise |
+//	|:-----------:|:--------:|:-----------:|:------------------:|:---------:|
+//	|     true    |    19    |      21     |         23         |     26    |
+//	|     false   |    51    |      53     |         55         |     58    |
 //
 // So the size varies from 19 bytes to 58 bytes, where most likely to be 23 or
 // 55 bytes.
@@ -454,11 +454,11 @@ func fetchOldRevocationLog(log kvdb.RBucket,
 // fetchRevocationLogCompatible finds the revocation log from both the
 // revocationLogBucket and revocationLogBucketDeprecated for compatibility
 // concern. It returns three values,
-// - RevocationLog, if this is non-nil, it means we've found the log in the
-//   new bucket.
-// - ChannelCommitment, if this is non-nil, it means we've found the log in the
-//   old bucket.
-// - error, this can happen if the log cannot be found in neither buckets.
+//   - RevocationLog, if this is non-nil, it means we've found the log in the
+//     new bucket.
+//   - ChannelCommitment, if this is non-nil, it means we've found the log in the
+//     old bucket.
+//   - error, this can happen if the log cannot be found in neither buckets.
 func fetchRevocationLogCompatible(chanBucket kvdb.RBucket,
 	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
 

@@ -1517,10 +1517,10 @@ func (s *UtxoSweeper) UpdateParams(input wire.OutPoint,
 // fee preference to ensure it will properly create a replacement transaction.
 //
 // TODO(wilmer):
-//   * Validate fee preference to ensure we'll create a valid replacement
+//   - Validate fee preference to ensure we'll create a valid replacement
 //     transaction to allow the new fee rate to propagate throughout the
 //     network.
-//   * Ensure we don't combine this input with any other unconfirmed inputs that
+//   - Ensure we don't combine this input with any other unconfirmed inputs that
 //     did not exist in the original sweep transaction, resulting in an invalid
 //     replacement transaction.
 func (s *UtxoSweeper) handleUpdateReq(req *updateReq, bestHeight int32) (

@@ -159,14 +159,14 @@ func makeWitnessTestCase(t *testing.T,
 //
 // The following cases are exercised by this test:
 // sender script:
-//  * receiver spends
-//    * revoke w/ sig
-//    * HTLC with invalid preimage size
-//    * HTLC with valid preimage size + sig
-//  * sender spends
-//    * invalid lock-time for CLTV
-//    * invalid sequence for CSV
-//    * valid lock-time+sequence, valid sig
+//   - receiver spends
+//   - revoke w/ sig
+//   - HTLC with invalid preimage size
+//   - HTLC with valid preimage size + sig
+//   - sender spends
+//   - invalid lock-time for CLTV
+//   - invalid sequence for CSV
+//   - valid lock-time+sequence, valid sig
 func TestHTLCSenderSpendValidation(t *testing.T) {
 	t.Parallel()
 
@@ -559,14 +559,14 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 // incoming HTLC.
 //
 // The following cases are exercised by this test:
-//  * receiver spends
-//     * HTLC redemption w/ invalid preimage size
-//     * HTLC redemption w/ invalid sequence
-//     * HTLC redemption w/ valid preimage size
-//  * sender spends
-//     * revoke w/ sig
-//     * refund w/ invalid lock time
-//     * refund w/ valid lock time
+//   - receiver spends
+//     1. HTLC redemption w/ invalid preimage size
+//     2. HTLC redemption w/ invalid sequence
+//     3. HTLC redemption w/ valid preimage size
+//   - sender spends
+//     1. revoke w/ sig
+//     2. refund w/ invalid lock time
+//     3. refund w/ valid lock time
 func TestHTLCReceiverSpendValidation(t *testing.T) {
 	t.Parallel()
 

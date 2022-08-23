@@ -150,10 +150,11 @@ func IsUnix(addr net.Addr) bool {
 }
 
 // IsPrivate returns true if the address is private. The definitions are,
-//   https://en.wikipedia.org/wiki/Link-local_address
-//   https://en.wikipedia.org/wiki/Multicast_address
-//   Local IPv4 addresses, https://tools.ietf.org/html/rfc1918
-//   Local IPv6 addresses, https://tools.ietf.org/html/rfc4193
+//
+//	https://en.wikipedia.org/wiki/Link-local_address
+//	https://en.wikipedia.org/wiki/Multicast_address
+//	Local IPv4 addresses, https://tools.ietf.org/html/rfc1918
+//	Local IPv6 addresses, https://tools.ietf.org/html/rfc4193
 func IsPrivate(addr net.Addr) bool {
 	switch addr := addr.(type) {
 	case *net.TCPAddr:

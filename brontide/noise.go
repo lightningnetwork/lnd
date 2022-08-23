@@ -346,19 +346,21 @@ func EphemeralGenerator(gen func() (*btcec.PrivateKey, error)) func(*Machine) {
 // itself.
 //
 // The acts proceeds the following order (initiator on the left):
-//  GenActOne()   ->
-//                    RecvActOne()
-//                <-  GenActTwo()
-//  RecvActTwo()
-//  GenActThree() ->
-//                    RecvActThree()
+//
+//	GenActOne()   ->
+//	                  RecvActOne()
+//	              <-  GenActTwo()
+//	RecvActTwo()
+//	GenActThree() ->
+//	                  RecvActThree()
 //
 // This exchange corresponds to the following Noise handshake:
-//   <- s
-//   ...
-//   -> e, es
-//   <- e, ee
-//   -> s, se
+//
+//	<- s
+//	...
+//	-> e, es
+//	<- e, ee
+//	-> s, se
 type Machine struct {
 	sendCipher cipherState
 	recvCipher cipherState
@@ -445,7 +447,7 @@ const (
 // and the responder's static key. Future payloads are encrypted with a key
 // derived from this result.
 //
-//    -> e, es
+//	-> e, es
 func (b *Machine) GenActOne() ([ActOneSize]byte, error) {
 	var actOne [ActOneSize]byte
 
@@ -524,7 +526,7 @@ func (b *Machine) RecvActOne(actOne [ActOneSize]byte) error {
 // act one, but then results in a different ECDH operation between the
 // initiator's and responder's ephemeral keys.
 //
-//    <- e, ee
+//	<- e, ee
 func (b *Machine) GenActTwo() ([ActTwoSize]byte, error) {
 	var actTwo [ActTwoSize]byte
 
@@ -601,7 +603,7 @@ func (b *Machine) RecvActTwo(actTwo [ActTwoSize]byte) error {
 // the responder. This act also includes the final ECDH operation which yields
 // the final session.
 //
-//    -> s, se
+//	-> s, se
 func (b *Machine) GenActThree() ([ActThreeSize]byte, error) {
 	var actThree [ActThreeSize]byte
 

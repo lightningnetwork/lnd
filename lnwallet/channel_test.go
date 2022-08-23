@@ -316,8 +316,8 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool) {
 //
 // TODO(roasbeef): write higher level framework to exercise various states of
 // the state machine
-//  * DSL language perhaps?
-//  * constructed via input/output files
+//   - DSL language perhaps?
+//   - constructed via input/output files
 func TestSimpleAddSettleWorkflow(t *testing.T) {
 	t.Parallel()
 
@@ -335,17 +335,18 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 // The full state transition of this test is:
 //
 // Alice                   Bob
-//        -----add------>
-//        -----sig------>
-//        <----rev-------
-//        <----sig-------
-//        -----rev------>
-//        <---settle-----
-//        <----sig-------
-//        -----rev------>
-//          *alice dies*
-//        <----add-------
-//        x----sig-------
+//
+//	-----add------>
+//	-----sig------>
+//	<----rev-------
+//	<----sig-------
+//	-----rev------>
+//	<---settle-----
+//	<----sig-------
+//	-----rev------>
+//	  *alice dies*
+//	<----add-------
+//	x----sig-------
 //
 // The last sig will be rejected if addCommitHeightLocal is not set for the
 // initial add that Alice sent. This test checks that this behavior does
@@ -5804,7 +5805,9 @@ func TestMaxAcceptedHTLCs(t *testing.T) {
 // fail) an HTLC from Alice when exchanging asynchronous payments. We want to
 // mimic the following case where Bob's commitment transaction is full before
 // starting:
-// 	Alice                    Bob
+//
+//	Alice                    Bob
+//
 // 1.         <---settle/fail---
 // 2.         <-------sig-------
 // 3.         --------sig------> (covers an add sent before step 1)
@@ -8799,20 +8802,21 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 // The full state transition of this test is:
 //
 // Alice                   Bob
-//         -----add----->
-//         -----sig----->
-//         <----rev------
-//         <----sig------
-//         -----rev----->
-//         <----fail-----
-//         <----sig------
-//         -----rev----->
-//         -----sig-----X (does not reach Bob! Alice dies!)
 //
-//         -----sig----->
-//         <----rev------
-//         <----add------
-//         <----sig------
+//	-----add----->
+//	-----sig----->
+//	<----rev------
+//	<----sig------
+//	-----rev----->
+//	<----fail-----
+//	<----sig------
+//	-----rev----->
+//	-----sig-----X (does not reach Bob! Alice dies!)
+//
+//	-----sig----->
+//	<----rev------
+//	<----add------
+//	<----sig------
 //
 // The last sig was rejected with the old behavior of deleting unsigned
 // acked updates from the database after signing for them. The current
@@ -8915,16 +8919,17 @@ func TestChannelUnsignedAckedFailure(t *testing.T) {
 // The full state transition is:
 //
 // Alice                Bob
-//       <----add-----
-//       <----sig-----
-//       -----rev---->
-//       -----sig---->
-//       <----rev-----
-//       ----fail---->
-//       -----sig---->
-//       <----rev-----
-//        *reconnect*
-//       <----sig-----
+//
+//	<----add-----
+//	<----sig-----
+//	-----rev---->
+//	-----sig---->
+//	<----rev-----
+//	----fail---->
+//	-----sig---->
+//	<----rev-----
+//	 *reconnect*
+//	<----sig-----
 //
 // Alice should reject the last signature since the settle is not restored
 // into the local update log and thus calculates Bob's signature as invalid.
@@ -9000,22 +9005,22 @@ func TestChannelLocalUnsignedUpdatesFailure(t *testing.T) {
 // The full state transition of this test is:
 //
 // Alice                   Bob
-//        <----add-------
-//        <----sig-------
-//        -----rev------>
-//        -----sig------>
-//        <----rev-------
-//        ----settle---->
-//        -----sig------>
-//        <----rev-------
-//        <----sig-------
-//        -----add------>
-//        -----sig------>
-//        <----rev-------
-//                        *restarts*
-//        -----rev------>
-//        <----sig-------
 //
+//	<----add-------
+//	<----sig-------
+//	-----rev------>
+//	-----sig------>
+//	<----rev-------
+//	----settle---->
+//	-----sig------>
+//	<----rev-------
+//	<----sig-------
+//	-----add------>
+//	-----sig------>
+//	<----rev-------
+//	                *restarts*
+//	-----rev------>
+//	<----sig-------
 func TestChannelSignedAckRegression(t *testing.T) {
 	t.Parallel()
 

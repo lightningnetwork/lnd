@@ -383,7 +383,7 @@ func (b *BtcWalletKeyRing) DerivePrivKey(keyDesc KeyDescriptor) (
 // k is our private key, and P is the public key, we perform the following
 // operation:
 //
-//  sx := k*P s := sha256(sx.SerializeCompressed())
+//	sx := k*P s := sha256(sx.SerializeCompressed())
 //
 // NOTE: This is part of the keychain.ECDHRing interface.
 func (b *BtcWalletKeyRing) ECDH(keyDesc KeyDescriptor,

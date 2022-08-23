@@ -165,12 +165,14 @@ func ReconstructChildren(descs ...ChildDesc) []*Child {
 
 // split splits a share into two random values, that when XOR'd reproduce the
 // original share. Given a share s, the two shares are derived as:
-//   left <-$- random
-//   right = parent ^ left.
+//
+//	left <-$- random
+//	right = parent ^ left.
 //
 // When reconstructed, we have that:
-//   left ^ right = left ^ parent ^ left
-//                = parent.
+//
+//	left ^ right = left ^ parent ^ left
+//	             = parent.
 func split(parent *Share) (Share, Share, error) {
 	// Generate a random share for the left child.
 	var left Share

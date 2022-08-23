@@ -1405,11 +1405,11 @@ func (n *TxNotifier) dispatchSpendDetails(ntfn *SpendNtfn, details *SpendDetail)
 // through every transaction and determine if it is relevant to any of its
 // clients. A transaction can be relevant in either of the following two ways:
 //
-//   1. One of the inputs in the transaction spends an outpoint/output script
-//   for which we currently have an active spend registration for.
+//  1. One of the inputs in the transaction spends an outpoint/output script
+//     for which we currently have an active spend registration for.
 //
-//   2. The transaction has a txid or output script for which we currently have
-//   an active confirmation registration for.
+//  2. The transaction has a txid or output script for which we currently have
+//     an active confirmation registration for.
 //
 // In the event that the transaction is relevant, a confirmation/spend
 // notification will be queued for dispatch to the relevant clients.

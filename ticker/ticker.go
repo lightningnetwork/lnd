@@ -7,23 +7,23 @@ import "time"
 //
 // Example of resuming ticker:
 //
-//   ticker.Resume() // can remove to keep inactive at first
-//   defer ticker.Stop()
-//   for {
-//     select {
-//       case <-ticker.Tick():
-//         if shouldGoInactive {
-//           ticker.Pause()
-//           continue
-//         }
-//         ...
+//	ticker.Resume() // can remove to keep inactive at first
+//	defer ticker.Stop()
+//	for {
+//	  select {
+//	    case <-ticker.Tick():
+//	      if shouldGoInactive {
+//	        ticker.Pause()
+//	        continue
+//	      }
+//	      ...
 //
-//       case <-otherEvent:
-//         ...
-//         if shouldGoActive {
-//           ticker.Resume()
-//         }
-//     }
+//	    case <-otherEvent:
+//	      ...
+//	      if shouldGoActive {
+//	        ticker.Resume()
+//	      }
+//	  }
 //
 // NOTE: ONE DOES NOT SIMPLY assume that Tickers are safe for concurrent access.
 type Ticker interface {

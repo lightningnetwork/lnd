@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	mig25 "github.com/lightningnetwork/lnd/channeldb/migration25"
-
 	"github.com/lightningnetwork/lnd/kvdb"
 )
 

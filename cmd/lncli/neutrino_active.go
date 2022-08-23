@@ -4,10 +4,10 @@
 package main
 
 import (
+	"strconv"
+
 	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
 	"github.com/urfave/cli"
-
-	"strconv"
 )
 
 func getNeutrinoKitClient(ctx *cli.Context) (neutrinorpc.NeutrinoKitClient, func()) {

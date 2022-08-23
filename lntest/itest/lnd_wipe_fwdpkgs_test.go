@@ -19,11 +19,11 @@ type pendingChan *lnrpc.PendingChannelsResponse_PendingChannel
 // packages of that particular channel are deleted. The test creates a
 // topology as Alice -> Bob -> Carol, and sends payments from Alice to Carol
 // through Bob. It then performs the test in two steps,
-// - Bob force closes the channel Alice->Bob, and checks from both Bob's
-//   PoV(local force close) and Alice's Pov(remote close) that the forwarding
-//   packages are wiped.
-// - Bob coop closes the channel Bob->Carol, and checks from both Bob PoVs that
-//   the forwarding packages are wiped.
+//   - Bob force closes the channel Alice->Bob, and checks from both Bob's
+//     PoV(local force close) and Alice's Pov(remote close) that the forwarding
+//     packages are wiped.
+//   - Bob coop closes the channel Bob->Carol, and checks from both Bob PoVs that
+//     the forwarding packages are wiped.
 func testWipeForwardingPackages(net *lntest.NetworkHarness,
 	t *harnessTest) {
 

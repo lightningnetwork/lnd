@@ -6,12 +6,11 @@ import (
 	"io"
 	"math"
 
+	"github.com/btcsuite/btcd/btcutil"
 	mig24 "github.com/lightningnetwork/lnd/channeldb/migration24"
 	mig25 "github.com/lightningnetwork/lnd/channeldb/migration25"
 	mig26 "github.com/lightningnetwork/lnd/channeldb/migration26"
 	mig "github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
-
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -60,10 +59,10 @@ var (
 // The actual size of each HTLCEntry varies based on its RHash and Amt(sat),
 // summarized as follows,
 //
-//   | RHash empty | Amt<=252 | Amt<=65,535 | Amt<=4,294,967,295 | otherwise |
-//   |:-----------:|:--------:|:-----------:|:------------------:|:---------:|
-//   |     true    |    19    |      21     |         23         |     26    |
-//   |     false   |    51    |      53     |         55         |     58    |
+//	| RHash empty | Amt<=252 | Amt<=65,535 | Amt<=4,294,967,295 | otherwise |
+//	|:-----------:|:--------:|:-----------:|:------------------:|:---------:|
+//	|     true    |    19    |      21     |         23         |     26    |
+//	|     false   |    51    |      53     |         55         |     58    |
 //
 // So the size varies from 19 bytes to 58 bytes, where most likely to be 23 or
 // 55 bytes.

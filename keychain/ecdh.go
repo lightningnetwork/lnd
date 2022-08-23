@@ -37,8 +37,8 @@ func (p *PubKeyECDH) PubKey() *btcec.PublicKey {
 // k is our private key, and P is the public key, we perform the following
 // operation:
 //
-//  sx := k*P
-//  s := sha256(sx.SerializeCompressed())
+//	sx := k*P
+//	s := sha256(sx.SerializeCompressed())
 //
 // NOTE: This is part of the SingleKeyECDH interface.
 func (p *PubKeyECDH) ECDH(pubKey *btcec.PublicKey) ([32]byte, error) {
@@ -67,8 +67,8 @@ func (p *PrivKeyECDH) PubKey() *btcec.PublicKey {
 // k is our private key, and P is the public key, we perform the following
 // operation:
 //
-//  sx := k*P
-//  s := sha256(sx.SerializeCompressed())
+//	sx := k*P
+//	s := sha256(sx.SerializeCompressed())
 //
 // NOTE: This is part of the SingleKeyECDH interface.
 func (p *PrivKeyECDH) ECDH(pub *btcec.PublicKey) ([32]byte, error) {

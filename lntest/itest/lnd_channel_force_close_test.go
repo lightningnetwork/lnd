@@ -25,8 +25,9 @@ import (
 // testCommitmentTransactionDeadline tests that the anchor sweep transaction is
 // taking account of the deadline of the commitment transaction. It tests two
 // scenarios:
-//   1) when the CPFP is skipped, checks that the deadline is not used.
-//   2) when the CPFP is used, checks that the deadline is applied.
+//  1. when the CPFP is skipped, checks that the deadline is not used.
+//  2. when the CPFP is used, checks that the deadline is applied.
+//
 // Note that whether the deadline is used or not is implicitly checked by its
 // corresponding fee rates.
 func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,

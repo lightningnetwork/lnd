@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -15,11 +15,11 @@ var (
 func TestNow(t *testing.T) {
 	c := NewTestClock(testTime)
 	now := c.Now()
-	assert.Equal(t, testTime, now)
+	require.Equal(t, testTime, now)
 
 	now = now.Add(time.Hour)
 	c.SetTime(now)
-	assert.Equal(t, now, c.Now())
+	require.Equal(t, now, c.Now())
 }
 
 func TestTickAfter(t *testing.T) {
@@ -44,7 +44,7 @@ func TestTickAfter(t *testing.T) {
 		case <-time.After(time.Millisecond):
 		}
 
-		assert.Equal(t, expectTick, tick)
+		require.Equal(t, expectTick, tick)
 	}
 
 	tickOrTimeOut(ticker0, true)
@@ -83,7 +83,7 @@ func TestTickSignal(t *testing.T) {
 
 	tick := <-ch
 	// Expect that the interval is correctly passed over the channel.
-	assert.Equal(t, interval, tick)
+	require.Equal(t, interval, tick)
 
 	// Once the ticker is registered, set the time to make it fire.
 	c.SetTime(testTime.Add(time.Second))

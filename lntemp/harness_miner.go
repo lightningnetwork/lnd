@@ -29,7 +29,8 @@ const (
 	// minerLogDir is the default log dir for the miner node.
 	minerLogDir = ".minerlogs"
 
-	slowMineDelay = 20 * time.Millisecond
+	// slowMineDelay defines a wait period between mining new blocks.
+	slowMineDelay = 100 * time.Millisecond
 )
 
 var harnessNetParams = &chaincfg.RegressionNetParams

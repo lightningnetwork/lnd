@@ -498,7 +498,7 @@ func (h *HarnessTest) AssertStreamChannelCoopClosed(hn *node.HarnessNode,
 	if anchors {
 		expectedTxes = 2
 	}
-	block := h.Miner.MineBlocksAndAssertNumTxes(1, expectedTxes)[0]
+	block := h.MineBlocksAndAssertNumTxes(1, expectedTxes)[0]
 
 	// Consume one close event and assert the closing txid can be found in
 	// the block.
@@ -542,7 +542,7 @@ func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
 	if anchors {
 		expectedTxes = 2
 	}
-	block := h.Miner.MineBlocksAndAssertNumTxes(1, expectedTxes)[0]
+	block := h.MineBlocksAndAssertNumTxes(1, expectedTxes)[0]
 
 	// Consume one close event and assert the closing txid can be found in
 	// the block.
@@ -1286,4 +1286,11 @@ func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
 	}
 
 	return target
+}
+
+// AssertActiveNodesSynced asserts all active nodes have synced to the chain.
+func (h *HarnessTest) AssertActiveNodesSynced() {
+	for _, node := range h.manager.activeNodes {
+		h.WaitForBlockchainSync(node)
+	}
 }

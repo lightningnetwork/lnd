@@ -194,7 +194,7 @@ func (h *HarnessTest) SetupStandbyNodes() {
 
 	// We generate several blocks in order to give the outputs created
 	// above a good number of confirmations.
-	h.Miner.MineBlocks(2)
+	h.MineBlocks(2)
 
 	// Now we want to wait for the nodes to catch up.
 	h.WaitForBlockchainSync(h.Alice)
@@ -749,7 +749,7 @@ func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
 	// channel has been opened. The funding transaction should be found
 	// within the first newly mined block. We mine 6 blocks so that in the
 	// case that the channel is public, it is announced to the network.
-	block := h.Miner.MineBlocksAndAssertNumTxes(6, 1)[0]
+	block := h.MineBlocksAndAssertNumTxes(6, 1)[0]
 
 	// Wait for the channel open event.
 	fundingChanPoint := h.WaitForChannelOpenEvent(chanOpenUpdate)
@@ -938,7 +938,7 @@ func (h *HarnessTest) fundCoins(amt btcutil.Amount, target *node.HarnessNode,
 	// Otherwise, we'll generate 1 new blocks to ensure the output gains a
 	// sufficient number of confirmations and wait for the balance to
 	// reflect what's expected.
-	h.Miner.MineBlocks(1)
+	h.MineBlocks(1)
 
 	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
 	h.WaitForBalanceConfirmed(target, expectedBalance)
@@ -1091,11 +1091,11 @@ func (h *HarnessTest) CleanupForceClose(hn *node.HarnessNode,
 	//
 	// The commit sweep resolver is able to broadcast the sweep tx up to
 	// one block before the CSV elapses, so wait until defaulCSV-1.
-	h.Miner.MineBlocks(lntest.DefaultCSV - 1)
+	h.MineBlocks(lntest.DefaultCSV - 1)
 
 	// The node should now sweep the funds, clean up by mining the sweeping
 	// tx.
-	h.Miner.MineBlocksAndAssertNumTxes(1, 1)
+	h.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Mine blocks to get any second level HTLC resolved. If there are no
 	// HTLCs, this will behave like h.AssertNumPendingCloseChannels.
@@ -1120,7 +1120,7 @@ func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
 		resp := hn.RPC.PendingChannels()
 		total := len(resp.PendingForceClosingChannels)
 		if total != 0 {
-			h.Miner.MineBlocksSlow(1)
+			h.MineBlocks(1)
 
 			return fmt.Errorf("expected num of pending force " +
 				"close channel to be zero")
@@ -1191,22 +1191,44 @@ func (h *HarnessTest) RestartNodeAndRestoreDB(hn *node.HarnessNode) {
 	h.WaitForBlockchainSync(hn)
 }
 
-// MineBlocksAssertNodesSync mines blocks and asserts all active nodes have
-// synced to the chain. Use this method when more than 3 blocks are mined to
-// make sure the nodes stay synced.
+// MineBlocks mines blocks and asserts all active nodes have synced to the
+// chain.
 //
-// TODO(yy): replace directly mining with this one.
-func (h *HarnessTest) MineBlocksAssertNodesSync(num uint32) {
-	// If we are mining more than 3 blocks, use the slow mining.
-	if num > 3 {
-		h.Miner.MineBlocksSlow(num)
-	} else {
-		// Mine the blocks.
-		h.Miner.MineBlocks(num)
-	}
+// NOTE: this differs from miner's `MineBlocks` as it requires the nodes to be
+// synced.
+func (h *HarnessTest) MineBlocks(num uint32) []*wire.MsgBlock {
+	// Mining the blocks slow to give `lnd` more time to sync.
+	blocks := h.Miner.MineBlocksSlow(num)
 
 	// Make sure all the active nodes are synced.
-	for _, node := range h.manager.activeNodes {
-		h.WaitForBlockchainSync(node)
+	h.AssertActiveNodesSynced()
+
+	return blocks
+}
+
+// MineBlocksAndAssertNumTxes mines blocks and asserts the number of
+// transactions are found in the first block. It also asserts all active nodes
+// have synced to the chain.
+//
+// NOTE: this differs from miner's `MineBlocks` as it requires the nodes to be
+// synced.
+func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
+	numTxs int) []*wire.MsgBlock {
+
+	// If we expect transactions to be included in the blocks we'll mine,
+	// we wait here until they are seen in the miner's mempool.
+	txids := h.Miner.AssertNumTxsInMempool(numTxs)
+
+	// Mine blocks.
+	blocks := h.Miner.MineBlocksSlow(num)
+
+	// Assert that all the transactions were included in the first block.
+	for _, txid := range txids {
+		h.Miner.AssertTxInBlock(blocks[0], txid)
 	}
+
+	// Finally, make sure all the active nodes are synced.
+	h.AssertActiveNodesSynced()
+
+	return blocks
 }

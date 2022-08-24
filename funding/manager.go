@@ -859,15 +859,23 @@ func (f *Manager) reservationCoordinator() {
 			switch msg := fmsg.msg.(type) {
 			case *lnwire.OpenChannel:
 				f.handleFundingOpen(fmsg.peer, msg)
+
 			case *lnwire.AcceptChannel:
 				f.handleFundingAccept(fmsg.peer, msg)
+
 			case *lnwire.FundingCreated:
 				f.handleFundingCreated(fmsg.peer, msg)
+
 			case *lnwire.FundingSigned:
 				f.handleFundingSigned(fmsg.peer, msg)
+
 			case *lnwire.FundingLocked:
 				f.wg.Add(1)
 				go f.handleFundingLocked(fmsg.peer, msg)
+
+			case *lnwire.Warning:
+				f.handleWarningMsg(fmsg.peer, msg)
+
 			case *lnwire.Error:
 				f.handleErrorMsg(fmsg.peer, msg)
 			}
@@ -4193,12 +4201,16 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	}
 }
 
+// handleWarningMsg processes the warning which was received from remote peer.
+func (f *Manager) handleWarningMsg(peer lnpeer.Peer, msg *lnwire.Warning) {
+	log.Warnf("received warning message from peer %x: %v",
+		peer.IdentityKey().SerializeCompressed(), msg.Warning())
+}
+
 // handleErrorMsg processes the error which was received from remote peer,
 // depending on the type of error we should do different clean up steps and
 // inform the user about it.
-func (f *Manager) handleErrorMsg(peer lnpeer.Peer,
-	msg *lnwire.Error) {
-
+func (f *Manager) handleErrorMsg(peer lnpeer.Peer, msg *lnwire.Error) {
 	chanID := msg.ChanID
 	peerKey := peer.IdentityKey()
 

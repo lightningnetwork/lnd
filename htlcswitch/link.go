@@ -2069,7 +2069,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	// although we "MAY" do so according to the specification.
 	case *lnwire.Warning:
 		l.log.Warnf("received warning message from peer: %v",
-			msg.Error.Error())
+			msg.Warning())
 
 	case *lnwire.Error:
 		// Error received from remote, MUST fail channel, but should

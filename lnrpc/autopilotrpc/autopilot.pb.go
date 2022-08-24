@@ -302,9 +302,8 @@ type SetScoresRequest struct {
 
 	// The name of the heuristic to provide scores to.
 	Heuristic string `protobuf:"bytes,1,opt,name=heuristic,proto3" json:"heuristic,omitempty"`
-	//
-	//A map from hex-encoded public keys to scores. Scores must be in the range
-	//[0.0, 1.0].
+	// A map from hex-encoded public keys to scores. Scores must be in the range
+	// [0.0, 1.0].
 	Scores map[string]float64 `protobuf:"bytes,2,rep,name=scores,proto3" json:"scores,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"fixed64,2,opt,name=value,proto3"`
 }
 

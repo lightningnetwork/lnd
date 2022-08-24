@@ -18,21 +18,17 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AutopilotClient interface {
-	//
-	//Status returns whether the daemon's autopilot agent is active.
+	// Status returns whether the daemon's autopilot agent is active.
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
-	//
-	//ModifyStatus is used to modify the status of the autopilot agent, like
-	//enabling or disabling it.
+	// ModifyStatus is used to modify the status of the autopilot agent, like
+	// enabling or disabling it.
 	ModifyStatus(ctx context.Context, in *ModifyStatusRequest, opts ...grpc.CallOption) (*ModifyStatusResponse, error)
-	//
-	//QueryScores queries all available autopilot heuristics, in addition to any
-	//active combination of these heruristics, for the scores they would give to
-	//the given nodes.
+	// QueryScores queries all available autopilot heuristics, in addition to any
+	// active combination of these heruristics, for the scores they would give to
+	// the given nodes.
 	QueryScores(ctx context.Context, in *QueryScoresRequest, opts ...grpc.CallOption) (*QueryScoresResponse, error)
-	//
-	//SetScores attempts to set the scores used by the running autopilot agent,
-	//if the external scoring heuristic is enabled.
+	// SetScores attempts to set the scores used by the running autopilot agent,
+	// if the external scoring heuristic is enabled.
 	SetScores(ctx context.Context, in *SetScoresRequest, opts ...grpc.CallOption) (*SetScoresResponse, error)
 }
 
@@ -84,21 +80,17 @@ func (c *autopilotClient) SetScores(ctx context.Context, in *SetScoresRequest, o
 // All implementations must embed UnimplementedAutopilotServer
 // for forward compatibility
 type AutopilotServer interface {
-	//
-	//Status returns whether the daemon's autopilot agent is active.
+	// Status returns whether the daemon's autopilot agent is active.
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
-	//
-	//ModifyStatus is used to modify the status of the autopilot agent, like
-	//enabling or disabling it.
+	// ModifyStatus is used to modify the status of the autopilot agent, like
+	// enabling or disabling it.
 	ModifyStatus(context.Context, *ModifyStatusRequest) (*ModifyStatusResponse, error)
-	//
-	//QueryScores queries all available autopilot heuristics, in addition to any
-	//active combination of these heruristics, for the scores they would give to
-	//the given nodes.
+	// QueryScores queries all available autopilot heuristics, in addition to any
+	// active combination of these heruristics, for the scores they would give to
+	// the given nodes.
 	QueryScores(context.Context, *QueryScoresRequest) (*QueryScoresResponse, error)
-	//
-	//SetScores attempts to set the scores used by the running autopilot agent,
-	//if the external scoring heuristic is enabled.
+	// SetScores attempts to set the scores used by the running autopilot agent,
+	// if the external scoring heuristic is enabled.
 	SetScores(context.Context, *SetScoresRequest) (*SetScoresResponse, error)
 	mustEmbedUnimplementedAutopilotServer()
 }

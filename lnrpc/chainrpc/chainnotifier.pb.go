@@ -25,29 +25,24 @@ type ConfRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The transaction hash for which we should request a confirmation notification
-	//for. If set to a hash of all zeros, then the confirmation notification will
-	//be requested for the script instead.
+	// The transaction hash for which we should request a confirmation notification
+	// for. If set to a hash of all zeros, then the confirmation notification will
+	// be requested for the script instead.
 	Txid []byte `protobuf:"bytes,1,opt,name=txid,proto3" json:"txid,omitempty"`
-	//
-	//An output script within a transaction with the hash above which will be used
-	//by light clients to match block filters. If the transaction hash is set to a
-	//hash of all zeros, then a confirmation notification will be requested for
-	//this script instead.
+	// An output script within a transaction with the hash above which will be used
+	// by light clients to match block filters. If the transaction hash is set to a
+	// hash of all zeros, then a confirmation notification will be requested for
+	// this script instead.
 	Script []byte `protobuf:"bytes,2,opt,name=script,proto3" json:"script,omitempty"`
-	//
-	//The number of desired confirmations the transaction/output script should
-	//reach before dispatching a confirmation notification.
+	// The number of desired confirmations the transaction/output script should
+	// reach before dispatching a confirmation notification.
 	NumConfs uint32 `protobuf:"varint,3,opt,name=num_confs,json=numConfs,proto3" json:"num_confs,omitempty"`
-	//
-	//The earliest height in the chain for which the transaction/output script
-	//could have been included in a block. This should in most cases be set to the
-	//broadcast height of the transaction/output script.
+	// The earliest height in the chain for which the transaction/output script
+	// could have been included in a block. This should in most cases be set to the
+	// broadcast height of the transaction/output script.
 	HeightHint uint32 `protobuf:"varint,4,opt,name=height_hint,json=heightHint,proto3" json:"height_hint,omitempty"`
-	//
-	//If true, then the block that mines the specified txid/script will be
-	//included in eventual the notification event.
+	// If true, then the block that mines the specified txid/script will be
+	// included in eventual the notification event.
 	IncludeBlock bool `protobuf:"varint,5,opt,name=include_block,json=includeBlock,proto3" json:"include_block,omitempty"`
 }
 
@@ -132,9 +127,8 @@ type ConfDetails struct {
 	BlockHeight uint32 `protobuf:"varint,3,opt,name=block_height,json=blockHeight,proto3" json:"block_height,omitempty"`
 	// The index of the confirmed transaction within the transaction.
 	TxIndex uint32 `protobuf:"varint,4,opt,name=tx_index,json=txIndex,proto3" json:"tx_index,omitempty"`
-	//
-	//The raw bytes of the block that mined the transaction. Only included if
-	//include_block was set in the request.
+	// The raw bytes of the block that mined the transaction. Only included if
+	// include_block was set in the request.
 	RawBlock []byte `protobuf:"bytes,5,opt,name=raw_block,json=rawBlock,proto3" json:"raw_block,omitempty"`
 }
 
@@ -249,6 +243,7 @@ type ConfEvent struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Event:
+	//
 	//	*ConfEvent_Conf
 	//	*ConfEvent_Reorg
 	Event isConfEvent_Event `protobuf_oneof:"event"`
@@ -312,16 +307,14 @@ type isConfEvent_Event interface {
 }
 
 type ConfEvent_Conf struct {
-	//
-	//An event that includes the confirmation details of the request
-	//(txid/ouput script).
+	// An event that includes the confirmation details of the request
+	// (txid/ouput script).
 	Conf *ConfDetails `protobuf:"bytes,1,opt,name=conf,proto3,oneof"`
 }
 
 type ConfEvent_Reorg struct {
-	//
-	//An event send when the transaction of the request is reorged out of the
-	//chain.
+	// An event send when the transaction of the request is reorged out of the
+	// chain.
 	Reorg *Reorg `protobuf:"bytes,2,opt,name=reorg,proto3,oneof"`
 }
 
@@ -391,24 +384,21 @@ type SpendRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The outpoint for which we should request a spend notification for. If set to
-	//a zero outpoint, then the spend notification will be requested for the
-	//script instead. A zero or nil outpoint is not supported for Taproot spends
-	//because the output script cannot reliably be computed from the witness alone
-	//and the spent output script is not always available in the rescan context.
-	//So an outpoint must _always_ be specified when registering a spend
-	//notification for a Taproot output.
+	// The outpoint for which we should request a spend notification for. If set to
+	// a zero outpoint, then the spend notification will be requested for the
+	// script instead. A zero or nil outpoint is not supported for Taproot spends
+	// because the output script cannot reliably be computed from the witness alone
+	// and the spent output script is not always available in the rescan context.
+	// So an outpoint must _always_ be specified when registering a spend
+	// notification for a Taproot output.
 	Outpoint *Outpoint `protobuf:"bytes,1,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
-	//
-	//The output script for the outpoint above. This will be used by light clients
-	//to match block filters. If the outpoint is set to a zero outpoint, then a
-	//spend notification will be requested for this script instead.
+	// The output script for the outpoint above. This will be used by light clients
+	// to match block filters. If the outpoint is set to a zero outpoint, then a
+	// spend notification will be requested for this script instead.
 	Script []byte `protobuf:"bytes,2,opt,name=script,proto3" json:"script,omitempty"`
-	//
-	//The earliest height in the chain for which the outpoint/output script could
-	//have been spent. This should in most cases be set to the broadcast height of
-	//the outpoint/output script.
+	// The earliest height in the chain for which the outpoint/output script could
+	// have been spent. This should in most cases be set to the broadcast height of
+	// the outpoint/output script.
 	HeightHint uint32 `protobuf:"varint,3,opt,name=height_hint,json=heightHint,proto3" json:"height_hint,omitempty"`
 }
 
@@ -555,6 +545,7 @@ type SpendEvent struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Event:
+	//
 	//	*SpendEvent_Spend
 	//	*SpendEvent_Reorg
 	Event isSpendEvent_Event `protobuf_oneof:"event"`
@@ -618,16 +609,14 @@ type isSpendEvent_Event interface {
 }
 
 type SpendEvent_Spend struct {
-	//
-	//An event that includes the details of the spending transaction of the
-	//request (outpoint/output script).
+	// An event that includes the details of the spending transaction of the
+	// request (outpoint/output script).
 	Spend *SpendDetails `protobuf:"bytes,1,opt,name=spend,proto3,oneof"`
 }
 
 type SpendEvent_Reorg struct {
-	//
-	//An event sent when the spending transaction of the request was
-	//reorged out of the chain.
+	// An event sent when the spending transaction of the request was
+	// reorged out of the chain.
 	Reorg *Reorg `protobuf:"bytes,2,opt,name=reorg,proto3,oneof"`
 }
 

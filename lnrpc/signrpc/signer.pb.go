@@ -23,21 +23,17 @@ const (
 type SignMethod int32
 
 const (
-	//
-	//Specifies that a SegWit v0 (p2wkh, np2wkh, p2wsh) input script should be
-	//signed.
+	// Specifies that a SegWit v0 (p2wkh, np2wkh, p2wsh) input script should be
+	// signed.
 	SignMethod_SIGN_METHOD_WITNESS_V0 SignMethod = 0
-	//
-	//Specifies that a SegWit v1 (p2tr) input should be signed by using the
-	//BIP0086 method (commit to internal key only).
+	// Specifies that a SegWit v1 (p2tr) input should be signed by using the
+	// BIP0086 method (commit to internal key only).
 	SignMethod_SIGN_METHOD_TAPROOT_KEY_SPEND_BIP0086 SignMethod = 1
-	//
-	//Specifies that a SegWit v1 (p2tr) input should be signed by using a given
-	//taproot hash to commit to in addition to the internal key.
+	// Specifies that a SegWit v1 (p2tr) input should be signed by using a given
+	// taproot hash to commit to in addition to the internal key.
 	SignMethod_SIGN_METHOD_TAPROOT_KEY_SPEND SignMethod = 2
-	//
-	//Specifies that a SegWit v1 (p2tr) input should be spent using the script
-	//path and that a specific leaf script should be signed for.
+	// Specifies that a SegWit v1 (p2tr) input should be spent using the script
+	// path and that a specific leaf script should be signed for.
 	SignMethod_SIGN_METHOD_TAPROOT_SCRIPT_SPEND SignMethod = 3
 )
 
@@ -146,13 +142,11 @@ type KeyDescriptor struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The raw bytes of the public key in the key pair being identified. Either
-	//this or the KeyLocator must be specified.
+	// The raw bytes of the public key in the key pair being identified. Either
+	// this or the KeyLocator must be specified.
 	RawKeyBytes []byte `protobuf:"bytes,1,opt,name=raw_key_bytes,json=rawKeyBytes,proto3" json:"raw_key_bytes,omitempty"`
-	//
-	//The key locator that identifies which private key to use for signing.
-	//Either this or the raw bytes of the target public key must be specified.
+	// The key locator that identifies which private key to use for signing.
+	// Either this or the raw bytes of the target public key must be specified.
 	KeyLoc *KeyLocator `protobuf:"bytes,2,opt,name=key_loc,json=keyLoc,proto3" json:"key_loc,omitempty"`
 }
 
@@ -264,65 +258,56 @@ type SignDescriptor struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// A descriptor that precisely describes *which* key to use for signing. This
+	// may provide the raw public key directly, or require the Signer to re-derive
+	// the key according to the populated derivation path.
 	//
-	//A descriptor that precisely describes *which* key to use for signing. This
-	//may provide the raw public key directly, or require the Signer to re-derive
-	//the key according to the populated derivation path.
-	//
-	//Note that if the key descriptor was obtained through walletrpc.DeriveKey,
-	//then the key locator MUST always be provided, since the derived keys are not
-	//persisted unlike with DeriveNextKey.
+	// Note that if the key descriptor was obtained through walletrpc.DeriveKey,
+	// then the key locator MUST always be provided, since the derived keys are not
+	// persisted unlike with DeriveNextKey.
 	KeyDesc *KeyDescriptor `protobuf:"bytes,1,opt,name=key_desc,json=keyDesc,proto3" json:"key_desc,omitempty"`
-	//
-	//A scalar value that will be added to the private key corresponding to the
-	//above public key to obtain the private key to be used to sign this input.
-	//This value is typically derived via the following computation:
+	// A scalar value that will be added to the private key corresponding to the
+	// above public key to obtain the private key to be used to sign this input.
+	// This value is typically derived via the following computation:
 	//
 	// derivedKey = privkey + sha256(perCommitmentPoint || pubKey) mod N
 	SingleTweak []byte `protobuf:"bytes,2,opt,name=single_tweak,json=singleTweak,proto3" json:"single_tweak,omitempty"`
-	//
-	//A private key that will be used in combination with its corresponding
-	//private key to derive the private key that is to be used to sign the target
-	//input. Within the Lightning protocol, this value is typically the
-	//commitment secret from a previously revoked commitment transaction. This
-	//value is in combination with two hash values, and the original private key
-	//to derive the private key to be used when signing.
+	// A private key that will be used in combination with its corresponding
+	// private key to derive the private key that is to be used to sign the target
+	// input. Within the Lightning protocol, this value is typically the
+	// commitment secret from a previously revoked commitment transaction. This
+	// value is in combination with two hash values, and the original private key
+	// to derive the private key to be used when signing.
 	//
 	// k = (privKey*sha256(pubKey || tweakPub) +
-	//tweakPriv*sha256(tweakPub || pubKey)) mod N
+	// tweakPriv*sha256(tweakPub || pubKey)) mod N
 	DoubleTweak []byte `protobuf:"bytes,3,opt,name=double_tweak,json=doubleTweak,proto3" json:"double_tweak,omitempty"`
+	// The 32 byte input to the taproot tweak derivation that is used to derive
+	// the output key from an internal key: outputKey = internalKey +
+	// tagged_hash("tapTweak", internalKey || tapTweak).
 	//
-	//The 32 byte input to the taproot tweak derivation that is used to derive
-	//the output key from an internal key: outputKey = internalKey +
-	//tagged_hash("tapTweak", internalKey || tapTweak).
+	// When doing a BIP 86 spend, this field can be an empty byte slice.
 	//
-	//When doing a BIP 86 spend, this field can be an empty byte slice.
-	//
-	//When doing a normal key path spend, with the output key committing to an
-	//actual script root, then this field should be: the tapscript root hash.
+	// When doing a normal key path spend, with the output key committing to an
+	// actual script root, then this field should be: the tapscript root hash.
 	TapTweak []byte `protobuf:"bytes,10,opt,name=tap_tweak,json=tapTweak,proto3" json:"tap_tweak,omitempty"`
-	//
-	//The full script required to properly redeem the output. This field will
-	//only be populated if a p2tr, p2wsh or a p2sh output is being signed. If a
-	//taproot script path spend is being attempted, then this should be the raw
-	//leaf script.
+	// The full script required to properly redeem the output. This field will
+	// only be populated if a p2tr, p2wsh or a p2sh output is being signed. If a
+	// taproot script path spend is being attempted, then this should be the raw
+	// leaf script.
 	WitnessScript []byte `protobuf:"bytes,4,opt,name=witness_script,json=witnessScript,proto3" json:"witness_script,omitempty"`
-	//
-	//A description of the output being spent. The value and script MUST be
-	//provided.
+	// A description of the output being spent. The value and script MUST be
+	// provided.
 	Output *TxOut `protobuf:"bytes,5,opt,name=output,proto3" json:"output,omitempty"`
-	//
-	//The target sighash type that should be used when generating the final
-	//sighash, and signature.
+	// The target sighash type that should be used when generating the final
+	// sighash, and signature.
 	Sighash uint32 `protobuf:"varint,7,opt,name=sighash,proto3" json:"sighash,omitempty"`
-	//
-	//The target input within the transaction that should be signed.
+	// The target input within the transaction that should be signed.
 	InputIndex int32 `protobuf:"varint,8,opt,name=input_index,json=inputIndex,proto3" json:"input_index,omitempty"`
-	//
-	//The sign method specifies how the input should be signed. Depending on the
-	//method, either the tap_tweak, witness_script or both need to be specified.
-	//Defaults to SegWit v0 signing to be backward compatible with older RPC
-	//clients.
+	// The sign method specifies how the input should be signed. Depending on the
+	// method, either the tap_tweak, witness_script or both need to be specified.
+	// Defaults to SegWit v0 signing to be backward compatible with older RPC
+	// clients.
 	SignMethod SignMethod `protobuf:"varint,9,opt,name=sign_method,json=signMethod,proto3,enum=signrpc.SignMethod" json:"sign_method,omitempty"`
 }
 
@@ -430,9 +415,8 @@ type SignReq struct {
 	RawTxBytes []byte `protobuf:"bytes,1,opt,name=raw_tx_bytes,json=rawTxBytes,proto3" json:"raw_tx_bytes,omitempty"`
 	// A set of sign descriptors, for each input to be signed.
 	SignDescs []*SignDescriptor `protobuf:"bytes,2,rep,name=sign_descs,json=signDescs,proto3" json:"sign_descs,omitempty"`
-	//
-	//The full list of UTXO information for each of the inputs being spent. This
-	//is required when spending one or more taproot (SegWit v1) outputs.
+	// The full list of UTXO information for each of the inputs being spent. This
+	// is required when spending one or more taproot (SegWit v1) outputs.
 	PrevOutputs []*TxOut `protobuf:"bytes,3,rep,name=prev_outputs,json=prevOutputs,proto3" json:"prev_outputs,omitempty"`
 }
 
@@ -494,9 +478,8 @@ type SignResp struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//A set of signatures realized in a fixed 64-byte format ordered in ascending
-	//input order.
+	// A set of signatures realized in a fixed 64-byte format ordered in ascending
+	// input order.
 	RawSigs [][]byte `protobuf:"bytes,1,rep,name=raw_sigs,json=rawSigs,proto3" json:"raw_sigs,omitempty"`
 }
 
@@ -546,9 +529,8 @@ type InputScript struct {
 
 	// The serializes witness stack for the specified input.
 	Witness [][]byte `protobuf:"bytes,1,rep,name=witness,proto3" json:"witness,omitempty"`
-	//
-	//The optional sig script for the specified witness that will only be set if
-	//the input specified is a nested p2sh witness program.
+	// The optional sig script for the specified witness that will only be set if
+	// the input specified is a nested p2sh witness program.
 	SigScript []byte `protobuf:"bytes,2,opt,name=sig_script,json=sigScript,proto3" json:"sig_script,omitempty"`
 }
 
@@ -651,25 +633,21 @@ type SignMessageReq struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The message to be signed. When using REST, this field must be encoded as
-	//base64.
+	// The message to be signed. When using REST, this field must be encoded as
+	// base64.
 	Msg []byte `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
 	// The key locator that identifies which key to use for signing.
 	KeyLoc *KeyLocator `protobuf:"bytes,2,opt,name=key_loc,json=keyLoc,proto3" json:"key_loc,omitempty"`
 	// Double-SHA256 hash instead of just the default single round.
 	DoubleHash bool `protobuf:"varint,3,opt,name=double_hash,json=doubleHash,proto3" json:"double_hash,omitempty"`
-	//
-	//Use the compact (pubkey recoverable) format instead of the raw lnwire
-	//format. This option cannot be used with Schnorr signatures.
+	// Use the compact (pubkey recoverable) format instead of the raw lnwire
+	// format. This option cannot be used with Schnorr signatures.
 	CompactSig bool `protobuf:"varint,4,opt,name=compact_sig,json=compactSig,proto3" json:"compact_sig,omitempty"`
-	//
-	//Use Schnorr signature. This option cannot be used with compact format.
+	// Use Schnorr signature. This option cannot be used with compact format.
 	SchnorrSig bool `protobuf:"varint,5,opt,name=schnorr_sig,json=schnorrSig,proto3" json:"schnorr_sig,omitempty"`
-	//
-	//The optional Taproot tweak bytes to apply to the private key before creating
-	//a Schnorr signature. The private key is tweaked as described in BIP-341:
-	//privKey + h_tapTweak(internalKey || tapTweak)
+	// The optional Taproot tweak bytes to apply to the private key before creating
+	// a Schnorr signature. The private key is tweaked as described in BIP-341:
+	// privKey + h_tapTweak(internalKey || tapTweak)
 	SchnorrSigTapTweak []byte `protobuf:"bytes,6,opt,name=schnorr_sig_tap_tweak,json=schnorrSigTapTweak,proto3" json:"schnorr_sig_tap_tweak,omitempty"`
 }
 
@@ -752,8 +730,7 @@ type SignMessageResp struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The signature for the given message in the fixed-size LN wire format.
+	// The signature for the given message in the fixed-size LN wire format.
 	Signature []byte `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
 }
 
@@ -804,18 +781,15 @@ type VerifyMessageReq struct {
 	// The message over which the signature is to be verified. When using
 	// REST, this field must be encoded as base64.
 	Msg []byte `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
-	//
-	//The fixed-size LN wire encoded signature to be verified over the given
-	//message. When using REST, this field must be encoded as base64.
+	// The fixed-size LN wire encoded signature to be verified over the given
+	// message. When using REST, this field must be encoded as base64.
 	Signature []byte `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
-	//
-	//The public key the signature has to be valid for. When using REST, this
-	//field must be encoded as base64. If the is_schnorr_sig option is true, then
-	//the public key is expected to be in the 32-byte x-only serialization
-	//according to BIP-340.
+	// The public key the signature has to be valid for. When using REST, this
+	// field must be encoded as base64. If the is_schnorr_sig option is true, then
+	// the public key is expected to be in the 32-byte x-only serialization
+	// according to BIP-340.
 	Pubkey []byte `protobuf:"bytes,3,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
-	//
-	//Specifies if the signature is a Schnorr signature.
+	// Specifies if the signature is a Schnorr signature.
 	IsSchnorrSig bool `protobuf:"varint,4,opt,name=is_schnorr_sig,json=isSchnorrSig,proto3" json:"is_schnorr_sig,omitempty"`
 }
 
@@ -934,17 +908,15 @@ type SharedKeyRequest struct {
 
 	// The ephemeral public key to use for the DH key derivation.
 	EphemeralPubkey []byte `protobuf:"bytes,1,opt,name=ephemeral_pubkey,json=ephemeralPubkey,proto3" json:"ephemeral_pubkey,omitempty"`
-	//
-	//Deprecated. The optional key locator of the local key that should be used.
-	//If this parameter is not set then the node's identity private key will be
-	//used.
+	// Deprecated. The optional key locator of the local key that should be used.
+	// If this parameter is not set then the node's identity private key will be
+	// used.
 	//
 	// Deprecated: Do not use.
 	KeyLoc *KeyLocator `protobuf:"bytes,2,opt,name=key_loc,json=keyLoc,proto3" json:"key_loc,omitempty"`
-	//
-	//A key descriptor describes the key used for performing ECDH. Either a key
-	//locator or a raw public key is expected, if neither is supplied, defaults to
-	//the node's identity private key.
+	// A key descriptor describes the key used for performing ECDH. Either a key
+	// locator or a raw public key is expected, if neither is supplied, defaults to
+	// the node's identity private key.
 	KeyDesc *KeyDescriptor `protobuf:"bytes,3,opt,name=key_desc,json=keyDesc,proto3" json:"key_desc,omitempty"`
 }
 
@@ -1055,13 +1027,11 @@ type TweakDesc struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//Tweak is the 32-byte value that will modify the public key.
+	// Tweak is the 32-byte value that will modify the public key.
 	Tweak []byte `protobuf:"bytes,1,opt,name=tweak,proto3" json:"tweak,omitempty"`
-	//
-	//Specifies if the target key should be converted to an x-only public key
-	//before tweaking. If true, then the public key will be mapped to an x-only
-	//key before the tweaking operation is applied.
+	// Specifies if the target key should be converted to an x-only public key
+	// before tweaking. If true, then the public key will be mapped to an x-only
+	// key before the tweaking operation is applied.
 	IsXOnly bool `protobuf:"varint,2,opt,name=is_x_only,json=isXOnly,proto3" json:"is_x_only,omitempty"`
 }
 
@@ -1116,18 +1086,16 @@ type TaprootTweakDesc struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The root hash of the tapscript tree if a script path is committed to. If
-	//the MuSig2 key put on chain doesn't also commit to a script path (BIP-0086
-	//key spend only), then this needs to be empty and the key_spend_only field
-	//below must be set to true. This is required because gRPC cannot
-	//differentiate between a zero-size byte slice and a nil byte slice (both
-	//would be serialized the same way). So the extra boolean is required.
+	// The root hash of the tapscript tree if a script path is committed to. If
+	// the MuSig2 key put on chain doesn't also commit to a script path (BIP-0086
+	// key spend only), then this needs to be empty and the key_spend_only field
+	// below must be set to true. This is required because gRPC cannot
+	// differentiate between a zero-size byte slice and a nil byte slice (both
+	// would be serialized the same way). So the extra boolean is required.
 	ScriptRoot []byte `protobuf:"bytes,1,opt,name=script_root,json=scriptRoot,proto3" json:"script_root,omitempty"`
-	//
-	//Indicates that the above script_root is expected to be empty because this
-	//is a BIP-0086 key spend only commitment where only the internal key is
-	//committed to instead of also including a script root hash.
+	// Indicates that the above script_root is expected to be empty because this
+	// is a BIP-0086 key spend only commitment where only the internal key is
+	// committed to instead of also including a script root hash.
 	KeySpendOnly bool `protobuf:"varint,2,opt,name=key_spend_only,json=keySpendOnly,proto3" json:"key_spend_only,omitempty"`
 }
 
@@ -1182,20 +1150,17 @@ type MuSig2CombineKeysRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//A list of all public keys (serialized in 32-byte x-only format!)
-	//participating in the signing session. The list will always be sorted
-	//lexicographically internally. This must include the local key which is
-	//described by the above key_loc.
+	// A list of all public keys (serialized in 32-byte x-only format!)
+	// participating in the signing session. The list will always be sorted
+	// lexicographically internally. This must include the local key which is
+	// described by the above key_loc.
 	AllSignerPubkeys [][]byte `protobuf:"bytes,1,rep,name=all_signer_pubkeys,json=allSignerPubkeys,proto3" json:"all_signer_pubkeys,omitempty"`
-	//
-	//A series of optional generic tweaks to be applied to the the aggregated
-	//public key.
+	// A series of optional generic tweaks to be applied to the the aggregated
+	// public key.
 	Tweaks []*TweakDesc `protobuf:"bytes,2,rep,name=tweaks,proto3" json:"tweaks,omitempty"`
-	//
-	//An optional taproot specific tweak that must be specified if the MuSig2
-	//combined key will be used as the main taproot key of a taproot output
-	//on-chain.
+	// An optional taproot specific tweak that must be specified if the MuSig2
+	// combined key will be used as the main taproot key of a taproot output
+	// on-chain.
 	TaprootTweak *TaprootTweakDesc `protobuf:"bytes,3,opt,name=taproot_tweak,json=taprootTweak,proto3" json:"taproot_tweak,omitempty"`
 }
 
@@ -1257,16 +1222,14 @@ type MuSig2CombineKeysResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The combined public key (in the 32-byte x-only format) with all tweaks
-	//applied to it. If a taproot tweak is specified, this corresponds to the
-	//taproot key that can be put into the on-chain output.
+	// The combined public key (in the 32-byte x-only format) with all tweaks
+	// applied to it. If a taproot tweak is specified, this corresponds to the
+	// taproot key that can be put into the on-chain output.
 	CombinedKey []byte `protobuf:"bytes,1,opt,name=combined_key,json=combinedKey,proto3" json:"combined_key,omitempty"`
-	//
-	//The raw combined public key (in the 32-byte x-only format) before any tweaks
-	//are applied to it. If a taproot tweak is specified, this corresponds to the
-	//internal key that needs to be put into the witness if the script spend path
-	//is used.
+	// The raw combined public key (in the 32-byte x-only format) before any tweaks
+	// are applied to it. If a taproot tweak is specified, this corresponds to the
+	// internal key that needs to be put into the witness if the script spend path
+	// is used.
 	TaprootInternalKey []byte `protobuf:"bytes,2,opt,name=taproot_internal_key,json=taprootInternalKey,proto3" json:"taproot_internal_key,omitempty"`
 }
 
@@ -1321,27 +1284,22 @@ type MuSig2SessionRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The key locator that identifies which key to use for signing.
+	// The key locator that identifies which key to use for signing.
 	KeyLoc *KeyLocator `protobuf:"bytes,1,opt,name=key_loc,json=keyLoc,proto3" json:"key_loc,omitempty"`
-	//
-	//A list of all public keys (serialized in 32-byte x-only format!)
-	//participating in the signing session. The list will always be sorted
-	//lexicographically internally. This must include the local key which is
-	//described by the above key_loc.
+	// A list of all public keys (serialized in 32-byte x-only format!)
+	// participating in the signing session. The list will always be sorted
+	// lexicographically internally. This must include the local key which is
+	// described by the above key_loc.
 	AllSignerPubkeys [][]byte `protobuf:"bytes,2,rep,name=all_signer_pubkeys,json=allSignerPubkeys,proto3" json:"all_signer_pubkeys,omitempty"`
-	//
-	//An optional list of all public nonces of other signing participants that
-	//might already be known.
+	// An optional list of all public nonces of other signing participants that
+	// might already be known.
 	OtherSignerPublicNonces [][]byte `protobuf:"bytes,3,rep,name=other_signer_public_nonces,json=otherSignerPublicNonces,proto3" json:"other_signer_public_nonces,omitempty"`
-	//
-	//A series of optional generic tweaks to be applied to the the aggregated
-	//public key.
+	// A series of optional generic tweaks to be applied to the the aggregated
+	// public key.
 	Tweaks []*TweakDesc `protobuf:"bytes,4,rep,name=tweaks,proto3" json:"tweaks,omitempty"`
-	//
-	//An optional taproot specific tweak that must be specified if the MuSig2
-	//combined key will be used as the main taproot key of a taproot output
-	//on-chain.
+	// An optional taproot specific tweak that must be specified if the MuSig2
+	// combined key will be used as the main taproot key of a taproot output
+	// on-chain.
 	TaprootTweak *TaprootTweakDesc `protobuf:"bytes,5,opt,name=taproot_tweak,json=taprootTweak,proto3" json:"taproot_tweak,omitempty"`
 }
 
@@ -1417,30 +1375,25 @@ type MuSig2SessionResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The unique ID that represents this signing session. A session can be used
-	//for producing a signature a single time. If the signing fails for any
-	//reason, a new session with the same participants needs to be created.
+	// The unique ID that represents this signing session. A session can be used
+	// for producing a signature a single time. If the signing fails for any
+	// reason, a new session with the same participants needs to be created.
 	SessionId []byte `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	//
-	//The combined public key (in the 32-byte x-only format) with all tweaks
-	//applied to it. If a taproot tweak is specified, this corresponds to the
-	//taproot key that can be put into the on-chain output.
+	// The combined public key (in the 32-byte x-only format) with all tweaks
+	// applied to it. If a taproot tweak is specified, this corresponds to the
+	// taproot key that can be put into the on-chain output.
 	CombinedKey []byte `protobuf:"bytes,2,opt,name=combined_key,json=combinedKey,proto3" json:"combined_key,omitempty"`
-	//
-	//The raw combined public key (in the 32-byte x-only format) before any tweaks
-	//are applied to it. If a taproot tweak is specified, this corresponds to the
-	//internal key that needs to be put into the witness if the script spend path
-	//is used.
+	// The raw combined public key (in the 32-byte x-only format) before any tweaks
+	// are applied to it. If a taproot tweak is specified, this corresponds to the
+	// internal key that needs to be put into the witness if the script spend path
+	// is used.
 	TaprootInternalKey []byte `protobuf:"bytes,3,opt,name=taproot_internal_key,json=taprootInternalKey,proto3" json:"taproot_internal_key,omitempty"`
-	//
-	//The two public nonces the local signer uses, combined into a single value
-	//of 66 bytes. Can be split into the two 33-byte points to get the individual
-	//nonces.
+	// The two public nonces the local signer uses, combined into a single value
+	// of 66 bytes. Can be split into the two 33-byte points to get the individual
+	// nonces.
 	LocalPublicNonces []byte `protobuf:"bytes,4,opt,name=local_public_nonces,json=localPublicNonces,proto3" json:"local_public_nonces,omitempty"`
-	//
-	//Indicates whether all nonces required to start the signing process are known
-	//now.
+	// Indicates whether all nonces required to start the signing process are known
+	// now.
 	HaveAllNonces bool `protobuf:"varint,5,opt,name=have_all_nonces,json=haveAllNonces,proto3" json:"have_all_nonces,omitempty"`
 }
 
@@ -1516,12 +1469,10 @@ type MuSig2RegisterNoncesRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The unique ID of the signing session those nonces should be registered with.
+	// The unique ID of the signing session those nonces should be registered with.
 	SessionId []byte `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	//
-	//A list of all public nonces of other signing participants that should be
-	//registered.
+	// A list of all public nonces of other signing participants that should be
+	// registered.
 	OtherSignerPublicNonces [][]byte `protobuf:"bytes,3,rep,name=other_signer_public_nonces,json=otherSignerPublicNonces,proto3" json:"other_signer_public_nonces,omitempty"`
 }
 
@@ -1576,9 +1527,8 @@ type MuSig2RegisterNoncesResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//Indicates whether all nonces required to start the signing process are known
-	//now.
+	// Indicates whether all nonces required to start the signing process are known
+	// now.
 	HaveAllNonces bool `protobuf:"varint,1,opt,name=have_all_nonces,json=haveAllNonces,proto3" json:"have_all_nonces,omitempty"`
 }
 
@@ -1626,16 +1576,13 @@ type MuSig2SignRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The unique ID of the signing session to use for signing.
+	// The unique ID of the signing session to use for signing.
 	SessionId []byte `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	//
-	//The 32-byte SHA256 digest of the message to sign.
+	// The 32-byte SHA256 digest of the message to sign.
 	MessageDigest []byte `protobuf:"bytes,2,opt,name=message_digest,json=messageDigest,proto3" json:"message_digest,omitempty"`
-	//
-	//Cleanup indicates that after signing, the session state can be cleaned up,
-	//since another participant is going to be responsible for combining the
-	//partial signatures.
+	// Cleanup indicates that after signing, the session state can be cleaned up,
+	// since another participant is going to be responsible for combining the
+	// partial signatures.
 	Cleanup bool `protobuf:"varint,3,opt,name=cleanup,proto3" json:"cleanup,omitempty"`
 }
 
@@ -1697,8 +1644,7 @@ type MuSig2SignResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The partial signature created by the local signer.
+	// The partial signature created by the local signer.
 	LocalPartialSignature []byte `protobuf:"bytes,1,opt,name=local_partial_signature,json=localPartialSignature,proto3" json:"local_partial_signature,omitempty"`
 }
 
@@ -1746,12 +1692,10 @@ type MuSig2CombineSigRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The unique ID of the signing session to combine the signatures for.
+	// The unique ID of the signing session to combine the signatures for.
 	SessionId []byte `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	//
-	//The list of all other participants' partial signatures to add to the current
-	//session.
+	// The list of all other participants' partial signatures to add to the current
+	// session.
 	OtherPartialSignatures [][]byte `protobuf:"bytes,2,rep,name=other_partial_signatures,json=otherPartialSignatures,proto3" json:"other_partial_signatures,omitempty"`
 }
 
@@ -1806,13 +1750,11 @@ type MuSig2CombineSigResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//Indicates whether all partial signatures required to create a final, full
-	//signature are known yet. If this is true, then the final_signature field is
-	//set, otherwise it is empty.
+	// Indicates whether all partial signatures required to create a final, full
+	// signature are known yet. If this is true, then the final_signature field is
+	// set, otherwise it is empty.
 	HaveAllSignatures bool `protobuf:"varint,1,opt,name=have_all_signatures,json=haveAllSignatures,proto3" json:"have_all_signatures,omitempty"`
-	//
-	//The final, full signature that is valid for the combined public key.
+	// The final, full signature that is valid for the combined public key.
 	FinalSignature []byte `protobuf:"bytes,2,opt,name=final_signature,json=finalSignature,proto3" json:"final_signature,omitempty"`
 }
 
@@ -1867,8 +1809,7 @@ type MuSig2CleanupRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The unique ID of the signing session that should be removed/cleaned up.
+	// The unique ID of the signing session that should be removed/cleaned up.
 	SessionId []byte `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 }
 

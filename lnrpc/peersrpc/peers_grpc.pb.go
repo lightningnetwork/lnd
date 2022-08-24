@@ -19,8 +19,8 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PeersClient interface {
 	// lncli: peers updatenodeannouncement
-	//UpdateNodeAnnouncement allows the caller to update the node parameters
-	//and broadcasts a new version of the node announcement to its peers.
+	// UpdateNodeAnnouncement allows the caller to update the node parameters
+	// and broadcasts a new version of the node announcement to its peers.
 	UpdateNodeAnnouncement(ctx context.Context, in *NodeAnnouncementUpdateRequest, opts ...grpc.CallOption) (*NodeAnnouncementUpdateResponse, error)
 }
 
@@ -46,8 +46,8 @@ func (c *peersClient) UpdateNodeAnnouncement(ctx context.Context, in *NodeAnnoun
 // for forward compatibility
 type PeersServer interface {
 	// lncli: peers updatenodeannouncement
-	//UpdateNodeAnnouncement allows the caller to update the node parameters
-	//and broadcasts a new version of the node announcement to its peers.
+	// UpdateNodeAnnouncement allows the caller to update the node parameters
+	// and broadcasts a new version of the node announcement to its peers.
 	UpdateNodeAnnouncement(context.Context, *NodeAnnouncementUpdateRequest) (*NodeAnnouncementUpdateResponse, error)
 	mustEmbedUnimplementedPeersServer()
 }

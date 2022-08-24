@@ -19,401 +19,384 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type LightningClient interface {
 	// lncli: `walletbalance`
-	//WalletBalance returns total unspent outputs(confirmed and unconfirmed), all
-	//confirmed unspent outputs and all unconfirmed unspent outputs under control
-	//of the wallet.
+	// WalletBalance returns total unspent outputs(confirmed and unconfirmed), all
+	// confirmed unspent outputs and all unconfirmed unspent outputs under control
+	// of the wallet.
 	WalletBalance(ctx context.Context, in *WalletBalanceRequest, opts ...grpc.CallOption) (*WalletBalanceResponse, error)
 	// lncli: `channelbalance`
-	//ChannelBalance returns a report on the total funds across all open channels,
-	//categorized in local/remote, pending local/remote and unsettled local/remote
-	//balances.
+	// ChannelBalance returns a report on the total funds across all open channels,
+	// categorized in local/remote, pending local/remote and unsettled local/remote
+	// balances.
 	ChannelBalance(ctx context.Context, in *ChannelBalanceRequest, opts ...grpc.CallOption) (*ChannelBalanceResponse, error)
 	// lncli: `listchaintxns`
-	//GetTransactions returns a list describing all the known transactions
-	//relevant to the wallet.
+	// GetTransactions returns a list describing all the known transactions
+	// relevant to the wallet.
 	GetTransactions(ctx context.Context, in *GetTransactionsRequest, opts ...grpc.CallOption) (*TransactionDetails, error)
 	// lncli: `estimatefee`
-	//EstimateFee asks the chain backend to estimate the fee rate and total fees
-	//for a transaction that pays to multiple specified outputs.
+	// EstimateFee asks the chain backend to estimate the fee rate and total fees
+	// for a transaction that pays to multiple specified outputs.
 	//
-	//When using REST, the `AddrToAmount` map type can be set by appending
-	//`&AddrToAmount[<address>]=<amount_to_send>` to the URL. Unfortunately this
-	//map type doesn't appear in the REST API documentation because of a bug in
-	//the grpc-gateway library.
+	// When using REST, the `AddrToAmount` map type can be set by appending
+	// `&AddrToAmount[<address>]=<amount_to_send>` to the URL. Unfortunately this
+	// map type doesn't appear in the REST API documentation because of a bug in
+	// the grpc-gateway library.
 	EstimateFee(ctx context.Context, in *EstimateFeeRequest, opts ...grpc.CallOption) (*EstimateFeeResponse, error)
 	// lncli: `sendcoins`
-	//SendCoins executes a request to send coins to a particular address. Unlike
-	//SendMany, this RPC call only allows creating a single output at a time. If
-	//neither target_conf, or sat_per_vbyte are set, then the internal wallet will
-	//consult its fee model to determine a fee for the default confirmation
-	//target.
+	// SendCoins executes a request to send coins to a particular address. Unlike
+	// SendMany, this RPC call only allows creating a single output at a time. If
+	// neither target_conf, or sat_per_vbyte are set, then the internal wallet will
+	// consult its fee model to determine a fee for the default confirmation
+	// target.
 	SendCoins(ctx context.Context, in *SendCoinsRequest, opts ...grpc.CallOption) (*SendCoinsResponse, error)
 	// lncli: `listunspent`
-	//Deprecated, use walletrpc.ListUnspent instead.
+	// Deprecated, use walletrpc.ListUnspent instead.
 	//
-	//ListUnspent returns a list of all utxos spendable by the wallet with a
-	//number of confirmations between the specified minimum and maximum.
+	// ListUnspent returns a list of all utxos spendable by the wallet with a
+	// number of confirmations between the specified minimum and maximum.
 	ListUnspent(ctx context.Context, in *ListUnspentRequest, opts ...grpc.CallOption) (*ListUnspentResponse, error)
-	//
-	//SubscribeTransactions creates a uni-directional stream from the server to
-	//the client in which any newly discovered transactions relevant to the
-	//wallet are sent over.
+	// SubscribeTransactions creates a uni-directional stream from the server to
+	// the client in which any newly discovered transactions relevant to the
+	// wallet are sent over.
 	SubscribeTransactions(ctx context.Context, in *GetTransactionsRequest, opts ...grpc.CallOption) (Lightning_SubscribeTransactionsClient, error)
 	// lncli: `sendmany`
-	//SendMany handles a request for a transaction that creates multiple specified
-	//outputs in parallel. If neither target_conf, or sat_per_vbyte are set, then
-	//the internal wallet will consult its fee model to determine a fee for the
-	//default confirmation target.
+	// SendMany handles a request for a transaction that creates multiple specified
+	// outputs in parallel. If neither target_conf, or sat_per_vbyte are set, then
+	// the internal wallet will consult its fee model to determine a fee for the
+	// default confirmation target.
 	SendMany(ctx context.Context, in *SendManyRequest, opts ...grpc.CallOption) (*SendManyResponse, error)
 	// lncli: `newaddress`
-	//NewAddress creates a new address under control of the local wallet.
+	// NewAddress creates a new address under control of the local wallet.
 	NewAddress(ctx context.Context, in *NewAddressRequest, opts ...grpc.CallOption) (*NewAddressResponse, error)
 	// lncli: `signmessage`
-	//SignMessage signs a message with this node's private key. The returned
-	//signature string is `zbase32` encoded and pubkey recoverable, meaning that
-	//only the message digest and signature are needed for verification.
+	// SignMessage signs a message with this node's private key. The returned
+	// signature string is `zbase32` encoded and pubkey recoverable, meaning that
+	// only the message digest and signature are needed for verification.
 	SignMessage(ctx context.Context, in *SignMessageRequest, opts ...grpc.CallOption) (*SignMessageResponse, error)
 	// lncli: `verifymessage`
-	//VerifyMessage verifies a signature over a msg. The signature must be
-	//zbase32 encoded and signed by an active node in the resident node's
-	//channel database. In addition to returning the validity of the signature,
-	//VerifyMessage also returns the recovered pubkey from the signature.
+	// VerifyMessage verifies a signature over a msg. The signature must be
+	// zbase32 encoded and signed by an active node in the resident node's
+	// channel database. In addition to returning the validity of the signature,
+	// VerifyMessage also returns the recovered pubkey from the signature.
 	VerifyMessage(ctx context.Context, in *VerifyMessageRequest, opts ...grpc.CallOption) (*VerifyMessageResponse, error)
 	// lncli: `connect`
-	//ConnectPeer attempts to establish a connection to a remote peer. This is at
-	//the networking level, and is used for communication between nodes. This is
-	//distinct from establishing a channel with a peer.
+	// ConnectPeer attempts to establish a connection to a remote peer. This is at
+	// the networking level, and is used for communication between nodes. This is
+	// distinct from establishing a channel with a peer.
 	ConnectPeer(ctx context.Context, in *ConnectPeerRequest, opts ...grpc.CallOption) (*ConnectPeerResponse, error)
 	// lncli: `disconnect`
-	//DisconnectPeer attempts to disconnect one peer from another identified by a
-	//given pubKey. In the case that we currently have a pending or active channel
-	//with the target peer, then this action will be not be allowed.
+	// DisconnectPeer attempts to disconnect one peer from another identified by a
+	// given pubKey. In the case that we currently have a pending or active channel
+	// with the target peer, then this action will be not be allowed.
 	DisconnectPeer(ctx context.Context, in *DisconnectPeerRequest, opts ...grpc.CallOption) (*DisconnectPeerResponse, error)
 	// lncli: `listpeers`
-	//ListPeers returns a verbose listing of all currently active peers.
+	// ListPeers returns a verbose listing of all currently active peers.
 	ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error)
-	//
-	//SubscribePeerEvents creates a uni-directional stream from the server to
-	//the client in which any events relevant to the state of peers are sent
-	//over. Events include peers going online and offline.
+	// SubscribePeerEvents creates a uni-directional stream from the server to
+	// the client in which any events relevant to the state of peers are sent
+	// over. Events include peers going online and offline.
 	SubscribePeerEvents(ctx context.Context, in *PeerEventSubscription, opts ...grpc.CallOption) (Lightning_SubscribePeerEventsClient, error)
 	// lncli: `getinfo`
-	//GetInfo returns general information concerning the lightning node including
-	//it's identity pubkey, alias, the chains it is connected to, and information
-	//concerning the number of open+pending channels.
+	// GetInfo returns general information concerning the lightning node including
+	// it's identity pubkey, alias, the chains it is connected to, and information
+	// concerning the number of open+pending channels.
 	GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*GetInfoResponse, error)
-	//* lncli: `getrecoveryinfo`
-	//GetRecoveryInfo returns information concerning the recovery mode including
-	//whether it's in a recovery mode, whether the recovery is finished, and the
-	//progress made so far.
+	// * lncli: `getrecoveryinfo`
+	// GetRecoveryInfo returns information concerning the recovery mode including
+	// whether it's in a recovery mode, whether the recovery is finished, and the
+	// progress made so far.
 	GetRecoveryInfo(ctx context.Context, in *GetRecoveryInfoRequest, opts ...grpc.CallOption) (*GetRecoveryInfoResponse, error)
 	// lncli: `pendingchannels`
-	//PendingChannels returns a list of all the channels that are currently
-	//considered "pending". A channel is pending if it has finished the funding
-	//workflow and is waiting for confirmations for the funding txn, or is in the
-	//process of closure, either initiated cooperatively or non-cooperatively.
+	// PendingChannels returns a list of all the channels that are currently
+	// considered "pending". A channel is pending if it has finished the funding
+	// workflow and is waiting for confirmations for the funding txn, or is in the
+	// process of closure, either initiated cooperatively or non-cooperatively.
 	PendingChannels(ctx context.Context, in *PendingChannelsRequest, opts ...grpc.CallOption) (*PendingChannelsResponse, error)
 	// lncli: `listchannels`
-	//ListChannels returns a description of all the open channels that this node
-	//is a participant in.
+	// ListChannels returns a description of all the open channels that this node
+	// is a participant in.
 	ListChannels(ctx context.Context, in *ListChannelsRequest, opts ...grpc.CallOption) (*ListChannelsResponse, error)
-	//
-	//SubscribeChannelEvents creates a uni-directional stream from the server to
-	//the client in which any updates relevant to the state of the channels are
-	//sent over. Events include new active channels, inactive channels, and closed
-	//channels.
+	// SubscribeChannelEvents creates a uni-directional stream from the server to
+	// the client in which any updates relevant to the state of the channels are
+	// sent over. Events include new active channels, inactive channels, and closed
+	// channels.
 	SubscribeChannelEvents(ctx context.Context, in *ChannelEventSubscription, opts ...grpc.CallOption) (Lightning_SubscribeChannelEventsClient, error)
 	// lncli: `closedchannels`
-	//ClosedChannels returns a description of all the closed channels that
-	//this node was a participant in.
+	// ClosedChannels returns a description of all the closed channels that
+	// this node was a participant in.
 	ClosedChannels(ctx context.Context, in *ClosedChannelsRequest, opts ...grpc.CallOption) (*ClosedChannelsResponse, error)
-	//
-	//OpenChannelSync is a synchronous version of the OpenChannel RPC call. This
-	//call is meant to be consumed by clients to the REST proxy. As with all
-	//other sync calls, all byte slices are intended to be populated as hex
-	//encoded strings.
+	// OpenChannelSync is a synchronous version of the OpenChannel RPC call. This
+	// call is meant to be consumed by clients to the REST proxy. As with all
+	// other sync calls, all byte slices are intended to be populated as hex
+	// encoded strings.
 	OpenChannelSync(ctx context.Context, in *OpenChannelRequest, opts ...grpc.CallOption) (*ChannelPoint, error)
 	// lncli: `openchannel`
-	//OpenChannel attempts to open a singly funded channel specified in the
-	//request to a remote peer. Users are able to specify a target number of
-	//blocks that the funding transaction should be confirmed in, or a manual fee
-	//rate to us for the funding transaction. If neither are specified, then a
-	//lax block confirmation target is used. Each OpenStatusUpdate will return
-	//the pending channel ID of the in-progress channel. Depending on the
-	//arguments specified in the OpenChannelRequest, this pending channel ID can
-	//then be used to manually progress the channel funding flow.
+	// OpenChannel attempts to open a singly funded channel specified in the
+	// request to a remote peer. Users are able to specify a target number of
+	// blocks that the funding transaction should be confirmed in, or a manual fee
+	// rate to us for the funding transaction. If neither are specified, then a
+	// lax block confirmation target is used. Each OpenStatusUpdate will return
+	// the pending channel ID of the in-progress channel. Depending on the
+	// arguments specified in the OpenChannelRequest, this pending channel ID can
+	// then be used to manually progress the channel funding flow.
 	OpenChannel(ctx context.Context, in *OpenChannelRequest, opts ...grpc.CallOption) (Lightning_OpenChannelClient, error)
 	// lncli: `batchopenchannel`
-	//BatchOpenChannel attempts to open multiple single-funded channels in a
-	//single transaction in an atomic way. This means either all channel open
-	//requests succeed at once or all attempts are aborted if any of them fail.
-	//This is the safer variant of using PSBTs to manually fund a batch of
-	//channels through the OpenChannel RPC.
+	// BatchOpenChannel attempts to open multiple single-funded channels in a
+	// single transaction in an atomic way. This means either all channel open
+	// requests succeed at once or all attempts are aborted if any of them fail.
+	// This is the safer variant of using PSBTs to manually fund a batch of
+	// channels through the OpenChannel RPC.
 	BatchOpenChannel(ctx context.Context, in *BatchOpenChannelRequest, opts ...grpc.CallOption) (*BatchOpenChannelResponse, error)
-	//
-	//FundingStateStep is an advanced funding related call that allows the caller
-	//to either execute some preparatory steps for a funding workflow, or
-	//manually progress a funding workflow. The primary way a funding flow is
-	//identified is via its pending channel ID. As an example, this method can be
-	//used to specify that we're expecting a funding flow for a particular
-	//pending channel ID, for which we need to use specific parameters.
-	//Alternatively, this can be used to interactively drive PSBT signing for
-	//funding for partially complete funding transactions.
+	// FundingStateStep is an advanced funding related call that allows the caller
+	// to either execute some preparatory steps for a funding workflow, or
+	// manually progress a funding workflow. The primary way a funding flow is
+	// identified is via its pending channel ID. As an example, this method can be
+	// used to specify that we're expecting a funding flow for a particular
+	// pending channel ID, for which we need to use specific parameters.
+	// Alternatively, this can be used to interactively drive PSBT signing for
+	// funding for partially complete funding transactions.
 	FundingStateStep(ctx context.Context, in *FundingTransitionMsg, opts ...grpc.CallOption) (*FundingStateStepResp, error)
-	//
-	//ChannelAcceptor dispatches a bi-directional streaming RPC in which
-	//OpenChannel requests are sent to the client and the client responds with
-	//a boolean that tells LND whether or not to accept the channel. This allows
-	//node operators to specify their own criteria for accepting inbound channels
-	//through a single persistent connection.
+	// ChannelAcceptor dispatches a bi-directional streaming RPC in which
+	// OpenChannel requests are sent to the client and the client responds with
+	// a boolean that tells LND whether or not to accept the channel. This allows
+	// node operators to specify their own criteria for accepting inbound channels
+	// through a single persistent connection.
 	ChannelAcceptor(ctx context.Context, opts ...grpc.CallOption) (Lightning_ChannelAcceptorClient, error)
 	// lncli: `closechannel`
-	//CloseChannel attempts to close an active channel identified by its channel
-	//outpoint (ChannelPoint). The actions of this method can additionally be
-	//augmented to attempt a force close after a timeout period in the case of an
-	//inactive peer. If a non-force close (cooperative closure) is requested,
-	//then the user can specify either a target number of blocks until the
-	//closure transaction is confirmed, or a manual fee rate. If neither are
-	//specified, then a default lax, block confirmation target is used.
+	// CloseChannel attempts to close an active channel identified by its channel
+	// outpoint (ChannelPoint). The actions of this method can additionally be
+	// augmented to attempt a force close after a timeout period in the case of an
+	// inactive peer. If a non-force close (cooperative closure) is requested,
+	// then the user can specify either a target number of blocks until the
+	// closure transaction is confirmed, or a manual fee rate. If neither are
+	// specified, then a default lax, block confirmation target is used.
 	CloseChannel(ctx context.Context, in *CloseChannelRequest, opts ...grpc.CallOption) (Lightning_CloseChannelClient, error)
 	// lncli: `abandonchannel`
-	//AbandonChannel removes all channel state from the database except for a
-	//close summary. This method can be used to get rid of permanently unusable
-	//channels due to bugs fixed in newer versions of lnd. This method can also be
-	//used to remove externally funded channels where the funding transaction was
-	//never broadcast. Only available for non-externally funded channels in dev
-	//build.
+	// AbandonChannel removes all channel state from the database except for a
+	// close summary. This method can be used to get rid of permanently unusable
+	// channels due to bugs fixed in newer versions of lnd. This method can also be
+	// used to remove externally funded channels where the funding transaction was
+	// never broadcast. Only available for non-externally funded channels in dev
+	// build.
 	AbandonChannel(ctx context.Context, in *AbandonChannelRequest, opts ...grpc.CallOption) (*AbandonChannelResponse, error)
 	// Deprecated: Do not use.
 	// lncli: `sendpayment`
-	//Deprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a
-	//bi-directional streaming RPC for sending payments through the Lightning
-	//Network. A single RPC invocation creates a persistent bi-directional
-	//stream allowing clients to rapidly send payments through the Lightning
-	//Network with a single persistent connection.
+	// Deprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a
+	// bi-directional streaming RPC for sending payments through the Lightning
+	// Network. A single RPC invocation creates a persistent bi-directional
+	// stream allowing clients to rapidly send payments through the Lightning
+	// Network with a single persistent connection.
 	SendPayment(ctx context.Context, opts ...grpc.CallOption) (Lightning_SendPaymentClient, error)
-	//
-	//SendPaymentSync is the synchronous non-streaming version of SendPayment.
-	//This RPC is intended to be consumed by clients of the REST proxy.
-	//Additionally, this RPC expects the destination's public key and the payment
-	//hash (if any) to be encoded as hex strings.
+	// SendPaymentSync is the synchronous non-streaming version of SendPayment.
+	// This RPC is intended to be consumed by clients of the REST proxy.
+	// Additionally, this RPC expects the destination's public key and the payment
+	// hash (if any) to be encoded as hex strings.
 	SendPaymentSync(ctx context.Context, in *SendRequest, opts ...grpc.CallOption) (*SendResponse, error)
 	// Deprecated: Do not use.
 	// lncli: `sendtoroute`
-	//Deprecated, use routerrpc.SendToRouteV2. SendToRoute is a bi-directional
-	//streaming RPC for sending payment through the Lightning Network. This
-	//method differs from SendPayment in that it allows users to specify a full
-	//route manually. This can be used for things like rebalancing, and atomic
-	//swaps.
+	// Deprecated, use routerrpc.SendToRouteV2. SendToRoute is a bi-directional
+	// streaming RPC for sending payment through the Lightning Network. This
+	// method differs from SendPayment in that it allows users to specify a full
+	// route manually. This can be used for things like rebalancing, and atomic
+	// swaps.
 	SendToRoute(ctx context.Context, opts ...grpc.CallOption) (Lightning_SendToRouteClient, error)
-	//
-	//SendToRouteSync is a synchronous version of SendToRoute. It Will block
-	//until the payment either fails or succeeds.
+	// SendToRouteSync is a synchronous version of SendToRoute. It Will block
+	// until the payment either fails or succeeds.
 	SendToRouteSync(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*SendResponse, error)
 	// lncli: `addinvoice`
-	//AddInvoice attempts to add a new invoice to the invoice database. Any
-	//duplicated invoices are rejected, therefore all invoices *must* have a
-	//unique payment preimage.
+	// AddInvoice attempts to add a new invoice to the invoice database. Any
+	// duplicated invoices are rejected, therefore all invoices *must* have a
+	// unique payment preimage.
 	AddInvoice(ctx context.Context, in *Invoice, opts ...grpc.CallOption) (*AddInvoiceResponse, error)
 	// lncli: `listinvoices`
-	//ListInvoices returns a list of all the invoices currently stored within the
-	//database. Any active debug invoices are ignored. It has full support for
-	//paginated responses, allowing users to query for specific invoices through
-	//their add_index. This can be done by using either the first_index_offset or
-	//last_index_offset fields included in the response as the index_offset of the
-	//next request. By default, the first 100 invoices created will be returned.
-	//Backwards pagination is also supported through the Reversed flag.
+	// ListInvoices returns a list of all the invoices currently stored within the
+	// database. Any active debug invoices are ignored. It has full support for
+	// paginated responses, allowing users to query for specific invoices through
+	// their add_index. This can be done by using either the first_index_offset or
+	// last_index_offset fields included in the response as the index_offset of the
+	// next request. By default, the first 100 invoices created will be returned.
+	// Backwards pagination is also supported through the Reversed flag.
 	ListInvoices(ctx context.Context, in *ListInvoiceRequest, opts ...grpc.CallOption) (*ListInvoiceResponse, error)
 	// lncli: `lookupinvoice`
-	//LookupInvoice attempts to look up an invoice according to its payment hash.
-	//The passed payment hash *must* be exactly 32 bytes, if not, an error is
-	//returned.
+	// LookupInvoice attempts to look up an invoice according to its payment hash.
+	// The passed payment hash *must* be exactly 32 bytes, if not, an error is
+	// returned.
 	LookupInvoice(ctx context.Context, in *PaymentHash, opts ...grpc.CallOption) (*Invoice, error)
-	//
-	//SubscribeInvoices returns a uni-directional stream (server -> client) for
-	//notifying the client of newly added/settled invoices. The caller can
-	//optionally specify the add_index and/or the settle_index. If the add_index
-	//is specified, then we'll first start by sending add invoice events for all
-	//invoices with an add_index greater than the specified value. If the
-	//settle_index is specified, the next, we'll send out all settle events for
-	//invoices with a settle_index greater than the specified value. One or both
-	//of these fields can be set. If no fields are set, then we'll only send out
-	//the latest add/settle events.
+	// SubscribeInvoices returns a uni-directional stream (server -> client) for
+	// notifying the client of newly added/settled invoices. The caller can
+	// optionally specify the add_index and/or the settle_index. If the add_index
+	// is specified, then we'll first start by sending add invoice events for all
+	// invoices with an add_index greater than the specified value. If the
+	// settle_index is specified, the next, we'll send out all settle events for
+	// invoices with a settle_index greater than the specified value. One or both
+	// of these fields can be set. If no fields are set, then we'll only send out
+	// the latest add/settle events.
 	SubscribeInvoices(ctx context.Context, in *InvoiceSubscription, opts ...grpc.CallOption) (Lightning_SubscribeInvoicesClient, error)
 	// lncli: `decodepayreq`
-	//DecodePayReq takes an encoded payment request string and attempts to decode
-	//it, returning a full description of the conditions encoded within the
-	//payment request.
+	// DecodePayReq takes an encoded payment request string and attempts to decode
+	// it, returning a full description of the conditions encoded within the
+	// payment request.
 	DecodePayReq(ctx context.Context, in *PayReqString, opts ...grpc.CallOption) (*PayReq, error)
 	// lncli: `listpayments`
-	//ListPayments returns a list of all outgoing payments.
+	// ListPayments returns a list of all outgoing payments.
 	ListPayments(ctx context.Context, in *ListPaymentsRequest, opts ...grpc.CallOption) (*ListPaymentsResponse, error)
-	//
-	//DeletePayment deletes an outgoing payment from DB. Note that it will not
-	//attempt to delete an In-Flight payment, since that would be unsafe.
+	// DeletePayment deletes an outgoing payment from DB. Note that it will not
+	// attempt to delete an In-Flight payment, since that would be unsafe.
 	DeletePayment(ctx context.Context, in *DeletePaymentRequest, opts ...grpc.CallOption) (*DeletePaymentResponse, error)
-	//
-	//DeleteAllPayments deletes all outgoing payments from DB. Note that it will
-	//not attempt to delete In-Flight payments, since that would be unsafe.
+	// DeleteAllPayments deletes all outgoing payments from DB. Note that it will
+	// not attempt to delete In-Flight payments, since that would be unsafe.
 	DeleteAllPayments(ctx context.Context, in *DeleteAllPaymentsRequest, opts ...grpc.CallOption) (*DeleteAllPaymentsResponse, error)
 	// lncli: `describegraph`
-	//DescribeGraph returns a description of the latest graph state from the
-	//point of view of the node. The graph information is partitioned into two
-	//components: all the nodes/vertexes, and all the edges that connect the
-	//vertexes themselves. As this is a directed graph, the edges also contain
-	//the node directional specific routing policy which includes: the time lock
-	//delta, fee information, etc.
+	// DescribeGraph returns a description of the latest graph state from the
+	// point of view of the node. The graph information is partitioned into two
+	// components: all the nodes/vertexes, and all the edges that connect the
+	// vertexes themselves. As this is a directed graph, the edges also contain
+	// the node directional specific routing policy which includes: the time lock
+	// delta, fee information, etc.
 	DescribeGraph(ctx context.Context, in *ChannelGraphRequest, opts ...grpc.CallOption) (*ChannelGraph, error)
 	// lncli: `getnodemetrics`
-	//GetNodeMetrics returns node metrics calculated from the graph. Currently
-	//the only supported metric is betweenness centrality of individual nodes.
+	// GetNodeMetrics returns node metrics calculated from the graph. Currently
+	// the only supported metric is betweenness centrality of individual nodes.
 	GetNodeMetrics(ctx context.Context, in *NodeMetricsRequest, opts ...grpc.CallOption) (*NodeMetricsResponse, error)
 	// lncli: `getchaninfo`
-	//GetChanInfo returns the latest authenticated network announcement for the
-	//given channel identified by its channel ID: an 8-byte integer which
-	//uniquely identifies the location of transaction's funding output within the
-	//blockchain.
+	// GetChanInfo returns the latest authenticated network announcement for the
+	// given channel identified by its channel ID: an 8-byte integer which
+	// uniquely identifies the location of transaction's funding output within the
+	// blockchain.
 	GetChanInfo(ctx context.Context, in *ChanInfoRequest, opts ...grpc.CallOption) (*ChannelEdge, error)
 	// lncli: `getnodeinfo`
-	//GetNodeInfo returns the latest advertised, aggregated, and authenticated
-	//channel information for the specified node identified by its public key.
+	// GetNodeInfo returns the latest advertised, aggregated, and authenticated
+	// channel information for the specified node identified by its public key.
 	GetNodeInfo(ctx context.Context, in *NodeInfoRequest, opts ...grpc.CallOption) (*NodeInfo, error)
 	// lncli: `queryroutes`
-	//QueryRoutes attempts to query the daemon's Channel Router for a possible
-	//route to a target destination capable of carrying a specific amount of
-	//satoshis. The returned route contains the full details required to craft and
-	//send an HTLC, also including the necessary information that should be
-	//present within the Sphinx packet encapsulated within the HTLC.
+	// QueryRoutes attempts to query the daemon's Channel Router for a possible
+	// route to a target destination capable of carrying a specific amount of
+	// satoshis. The returned route contains the full details required to craft and
+	// send an HTLC, also including the necessary information that should be
+	// present within the Sphinx packet encapsulated within the HTLC.
 	//
-	//When using REST, the `dest_custom_records` map type can be set by appending
-	//`&dest_custom_records[<record_number>]=<record_data_base64_url_encoded>`
-	//to the URL. Unfortunately this map type doesn't appear in the REST API
-	//documentation because of a bug in the grpc-gateway library.
+	// When using REST, the `dest_custom_records` map type can be set by appending
+	// `&dest_custom_records[<record_number>]=<record_data_base64_url_encoded>`
+	// to the URL. Unfortunately this map type doesn't appear in the REST API
+	// documentation because of a bug in the grpc-gateway library.
 	QueryRoutes(ctx context.Context, in *QueryRoutesRequest, opts ...grpc.CallOption) (*QueryRoutesResponse, error)
 	// lncli: `getnetworkinfo`
-	//GetNetworkInfo returns some basic stats about the known channel graph from
-	//the point of view of the node.
+	// GetNetworkInfo returns some basic stats about the known channel graph from
+	// the point of view of the node.
 	GetNetworkInfo(ctx context.Context, in *NetworkInfoRequest, opts ...grpc.CallOption) (*NetworkInfo, error)
 	// lncli: `stop`
-	//StopDaemon will send a shutdown request to the interrupt handler, triggering
-	//a graceful shutdown of the daemon.
+	// StopDaemon will send a shutdown request to the interrupt handler, triggering
+	// a graceful shutdown of the daemon.
 	StopDaemon(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error)
-	//
-	//SubscribeChannelGraph launches a streaming RPC that allows the caller to
-	//receive notifications upon any changes to the channel graph topology from
-	//the point of view of the responding node. Events notified include: new
-	//nodes coming online, nodes updating their authenticated attributes, new
-	//channels being advertised, updates in the routing policy for a directional
-	//channel edge, and when channels are closed on-chain.
+	// SubscribeChannelGraph launches a streaming RPC that allows the caller to
+	// receive notifications upon any changes to the channel graph topology from
+	// the point of view of the responding node. Events notified include: new
+	// nodes coming online, nodes updating their authenticated attributes, new
+	// channels being advertised, updates in the routing policy for a directional
+	// channel edge, and when channels are closed on-chain.
 	SubscribeChannelGraph(ctx context.Context, in *GraphTopologySubscription, opts ...grpc.CallOption) (Lightning_SubscribeChannelGraphClient, error)
 	// lncli: `debuglevel`
-	//DebugLevel allows a caller to programmatically set the logging verbosity of
-	//lnd. The logging can be targeted according to a coarse daemon-wide logging
-	//level, or in a granular fashion to specify the logging for a target
-	//sub-system.
+	// DebugLevel allows a caller to programmatically set the logging verbosity of
+	// lnd. The logging can be targeted according to a coarse daemon-wide logging
+	// level, or in a granular fashion to specify the logging for a target
+	// sub-system.
 	DebugLevel(ctx context.Context, in *DebugLevelRequest, opts ...grpc.CallOption) (*DebugLevelResponse, error)
 	// lncli: `feereport`
-	//FeeReport allows the caller to obtain a report detailing the current fee
-	//schedule enforced by the node globally for each channel.
+	// FeeReport allows the caller to obtain a report detailing the current fee
+	// schedule enforced by the node globally for each channel.
 	FeeReport(ctx context.Context, in *FeeReportRequest, opts ...grpc.CallOption) (*FeeReportResponse, error)
 	// lncli: `updatechanpolicy`
-	//UpdateChannelPolicy allows the caller to update the fee schedule and
-	//channel policies for all channels globally, or a particular channel.
+	// UpdateChannelPolicy allows the caller to update the fee schedule and
+	// channel policies for all channels globally, or a particular channel.
 	UpdateChannelPolicy(ctx context.Context, in *PolicyUpdateRequest, opts ...grpc.CallOption) (*PolicyUpdateResponse, error)
 	// lncli: `fwdinghistory`
-	//ForwardingHistory allows the caller to query the htlcswitch for a record of
-	//all HTLCs forwarded within the target time range, and integer offset
-	//within that time range, for a maximum number of events. If no maximum number
-	//of events is specified, up to 100 events will be returned. If no time-range
-	//is specified, then events will be returned in the order that they occured.
+	// ForwardingHistory allows the caller to query the htlcswitch for a record of
+	// all HTLCs forwarded within the target time range, and integer offset
+	// within that time range, for a maximum number of events. If no maximum number
+	// of events is specified, up to 100 events will be returned. If no time-range
+	// is specified, then events will be returned in the order that they occured.
 	//
-	//A list of forwarding events are returned. The size of each forwarding event
-	//is 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.
-	//As a result each message can only contain 50k entries. Each response has
-	//the index offset of the last entry. The index offset can be provided to the
-	//request to allow the caller to skip a series of records.
+	// A list of forwarding events are returned. The size of each forwarding event
+	// is 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.
+	// As a result each message can only contain 50k entries. Each response has
+	// the index offset of the last entry. The index offset can be provided to the
+	// request to allow the caller to skip a series of records.
 	ForwardingHistory(ctx context.Context, in *ForwardingHistoryRequest, opts ...grpc.CallOption) (*ForwardingHistoryResponse, error)
 	// lncli: `exportchanbackup`
-	//ExportChannelBackup attempts to return an encrypted static channel backup
-	//for the target channel identified by it channel point. The backup is
-	//encrypted with a key generated from the aezeed seed of the user. The
-	//returned backup can either be restored using the RestoreChannelBackup
-	//method once lnd is running, or via the InitWallet and UnlockWallet methods
-	//from the WalletUnlocker service.
+	// ExportChannelBackup attempts to return an encrypted static channel backup
+	// for the target channel identified by it channel point. The backup is
+	// encrypted with a key generated from the aezeed seed of the user. The
+	// returned backup can either be restored using the RestoreChannelBackup
+	// method once lnd is running, or via the InitWallet and UnlockWallet methods
+	// from the WalletUnlocker service.
 	ExportChannelBackup(ctx context.Context, in *ExportChannelBackupRequest, opts ...grpc.CallOption) (*ChannelBackup, error)
-	//
-	//ExportAllChannelBackups returns static channel backups for all existing
-	//channels known to lnd. A set of regular singular static channel backups for
-	//each channel are returned. Additionally, a multi-channel backup is returned
-	//as well, which contains a single encrypted blob containing the backups of
-	//each channel.
+	// ExportAllChannelBackups returns static channel backups for all existing
+	// channels known to lnd. A set of regular singular static channel backups for
+	// each channel are returned. Additionally, a multi-channel backup is returned
+	// as well, which contains a single encrypted blob containing the backups of
+	// each channel.
 	ExportAllChannelBackups(ctx context.Context, in *ChanBackupExportRequest, opts ...grpc.CallOption) (*ChanBackupSnapshot, error)
-	//
-	//VerifyChanBackup allows a caller to verify the integrity of a channel backup
-	//snapshot. This method will accept either a packed Single or a packed Multi.
-	//Specifying both will result in an error.
+	// VerifyChanBackup allows a caller to verify the integrity of a channel backup
+	// snapshot. This method will accept either a packed Single or a packed Multi.
+	// Specifying both will result in an error.
 	VerifyChanBackup(ctx context.Context, in *ChanBackupSnapshot, opts ...grpc.CallOption) (*VerifyChanBackupResponse, error)
 	// lncli: `restorechanbackup`
-	//RestoreChannelBackups accepts a set of singular channel backups, or a
-	//single encrypted multi-chan backup and attempts to recover any funds
-	//remaining within the channel. If we are able to unpack the backup, then the
-	//new channel will be shown under listchannels, as well as pending channels.
+	// RestoreChannelBackups accepts a set of singular channel backups, or a
+	// single encrypted multi-chan backup and attempts to recover any funds
+	// remaining within the channel. If we are able to unpack the backup, then the
+	// new channel will be shown under listchannels, as well as pending channels.
 	RestoreChannelBackups(ctx context.Context, in *RestoreChanBackupRequest, opts ...grpc.CallOption) (*RestoreBackupResponse, error)
-	//
-	//SubscribeChannelBackups allows a client to sub-subscribe to the most up to
-	//date information concerning the state of all channel backups. Each time a
-	//new channel is added, we return the new set of channels, along with a
-	//multi-chan backup containing the backup info for all channels. Each time a
-	//channel is closed, we send a new update, which contains new new chan back
-	//ups, but the updated set of encrypted multi-chan backups with the closed
-	//channel(s) removed.
+	// SubscribeChannelBackups allows a client to sub-subscribe to the most up to
+	// date information concerning the state of all channel backups. Each time a
+	// new channel is added, we return the new set of channels, along with a
+	// multi-chan backup containing the backup info for all channels. Each time a
+	// channel is closed, we send a new update, which contains new new chan back
+	// ups, but the updated set of encrypted multi-chan backups with the closed
+	// channel(s) removed.
 	SubscribeChannelBackups(ctx context.Context, in *ChannelBackupSubscription, opts ...grpc.CallOption) (Lightning_SubscribeChannelBackupsClient, error)
 	// lncli: `bakemacaroon`
-	//BakeMacaroon allows the creation of a new macaroon with custom read and
-	//write permissions. No first-party caveats are added since this can be done
-	//offline.
+	// BakeMacaroon allows the creation of a new macaroon with custom read and
+	// write permissions. No first-party caveats are added since this can be done
+	// offline.
 	BakeMacaroon(ctx context.Context, in *BakeMacaroonRequest, opts ...grpc.CallOption) (*BakeMacaroonResponse, error)
 	// lncli: `listmacaroonids`
-	//ListMacaroonIDs returns all root key IDs that are in use.
+	// ListMacaroonIDs returns all root key IDs that are in use.
 	ListMacaroonIDs(ctx context.Context, in *ListMacaroonIDsRequest, opts ...grpc.CallOption) (*ListMacaroonIDsResponse, error)
 	// lncli: `deletemacaroonid`
-	//DeleteMacaroonID deletes the specified macaroon ID and invalidates all
-	//macaroons derived from that ID.
+	// DeleteMacaroonID deletes the specified macaroon ID and invalidates all
+	// macaroons derived from that ID.
 	DeleteMacaroonID(ctx context.Context, in *DeleteMacaroonIDRequest, opts ...grpc.CallOption) (*DeleteMacaroonIDResponse, error)
 	// lncli: `listpermissions`
-	//ListPermissions lists all RPC method URIs and their required macaroon
-	//permissions to access them.
+	// ListPermissions lists all RPC method URIs and their required macaroon
+	// permissions to access them.
 	ListPermissions(ctx context.Context, in *ListPermissionsRequest, opts ...grpc.CallOption) (*ListPermissionsResponse, error)
-	//
-	//CheckMacaroonPermissions checks whether a request follows the constraints
-	//imposed on the macaroon and that the macaroon is authorized to follow the
-	//provided permissions.
+	// CheckMacaroonPermissions checks whether a request follows the constraints
+	// imposed on the macaroon and that the macaroon is authorized to follow the
+	// provided permissions.
 	CheckMacaroonPermissions(ctx context.Context, in *CheckMacPermRequest, opts ...grpc.CallOption) (*CheckMacPermResponse, error)
-	//
-	//RegisterRPCMiddleware adds a new gRPC middleware to the interceptor chain. A
-	//gRPC middleware is software component external to lnd that aims to add
-	//additional business logic to lnd by observing/intercepting/validating
-	//incoming gRPC client requests and (if needed) replacing/overwriting outgoing
-	//messages before they're sent to the client. When registering the middleware
-	//must identify itself and indicate what custom macaroon caveats it wants to
-	//be responsible for. Only requests that contain a macaroon with that specific
-	//custom caveat are then sent to the middleware for inspection. The other
-	//option is to register for the read-only mode in which all requests/responses
-	//are forwarded for interception to the middleware but the middleware is not
-	//allowed to modify any responses. As a security measure, _no_ middleware can
-	//modify responses for requests made with _unencumbered_ macaroons!
+	// RegisterRPCMiddleware adds a new gRPC middleware to the interceptor chain. A
+	// gRPC middleware is software component external to lnd that aims to add
+	// additional business logic to lnd by observing/intercepting/validating
+	// incoming gRPC client requests and (if needed) replacing/overwriting outgoing
+	// messages before they're sent to the client. When registering the middleware
+	// must identify itself and indicate what custom macaroon caveats it wants to
+	// be responsible for. Only requests that contain a macaroon with that specific
+	// custom caveat are then sent to the middleware for inspection. The other
+	// option is to register for the read-only mode in which all requests/responses
+	// are forwarded for interception to the middleware but the middleware is not
+	// allowed to modify any responses. As a security measure, _no_ middleware can
+	// modify responses for requests made with _unencumbered_ macaroons!
 	RegisterRPCMiddleware(ctx context.Context, opts ...grpc.CallOption) (Lightning_RegisterRPCMiddlewareClient, error)
 	// lncli: `sendcustom`
-	//SendCustomMessage sends a custom peer message.
+	// SendCustomMessage sends a custom peer message.
 	SendCustomMessage(ctx context.Context, in *SendCustomMessageRequest, opts ...grpc.CallOption) (*SendCustomMessageResponse, error)
 	// lncli: `subscribecustom`
-	//SubscribeCustomMessages subscribes to a stream of incoming custom peer
-	//messages.
+	// SubscribeCustomMessages subscribes to a stream of incoming custom peer
+	// messages.
 	SubscribeCustomMessages(ctx context.Context, in *SubscribeCustomMessagesRequest, opts ...grpc.CallOption) (Lightning_SubscribeCustomMessagesClient, error)
 	// lncli: `listaliases`
-	//ListAliases returns the set of all aliases that have ever existed with
-	//their confirmed SCID (if it exists) and/or the base SCID (in the case of
-	//zero conf).
+	// ListAliases returns the set of all aliases that have ever existed with
+	// their confirmed SCID (if it exists) and/or the base SCID (in the case of
+	// zero conf).
 	ListAliases(ctx context.Context, in *ListAliasesRequest, opts ...grpc.CallOption) (*ListAliasesResponse, error)
 }
 
@@ -1321,401 +1304,384 @@ func (c *lightningClient) ListAliases(ctx context.Context, in *ListAliasesReques
 // for forward compatibility
 type LightningServer interface {
 	// lncli: `walletbalance`
-	//WalletBalance returns total unspent outputs(confirmed and unconfirmed), all
-	//confirmed unspent outputs and all unconfirmed unspent outputs under control
-	//of the wallet.
+	// WalletBalance returns total unspent outputs(confirmed and unconfirmed), all
+	// confirmed unspent outputs and all unconfirmed unspent outputs under control
+	// of the wallet.
 	WalletBalance(context.Context, *WalletBalanceRequest) (*WalletBalanceResponse, error)
 	// lncli: `channelbalance`
-	//ChannelBalance returns a report on the total funds across all open channels,
-	//categorized in local/remote, pending local/remote and unsettled local/remote
-	//balances.
+	// ChannelBalance returns a report on the total funds across all open channels,
+	// categorized in local/remote, pending local/remote and unsettled local/remote
+	// balances.
 	ChannelBalance(context.Context, *ChannelBalanceRequest) (*ChannelBalanceResponse, error)
 	// lncli: `listchaintxns`
-	//GetTransactions returns a list describing all the known transactions
-	//relevant to the wallet.
+	// GetTransactions returns a list describing all the known transactions
+	// relevant to the wallet.
 	GetTransactions(context.Context, *GetTransactionsRequest) (*TransactionDetails, error)
 	// lncli: `estimatefee`
-	//EstimateFee asks the chain backend to estimate the fee rate and total fees
-	//for a transaction that pays to multiple specified outputs.
+	// EstimateFee asks the chain backend to estimate the fee rate and total fees
+	// for a transaction that pays to multiple specified outputs.
 	//
-	//When using REST, the `AddrToAmount` map type can be set by appending
-	//`&AddrToAmount[<address>]=<amount_to_send>` to the URL. Unfortunately this
-	//map type doesn't appear in the REST API documentation because of a bug in
-	//the grpc-gateway library.
+	// When using REST, the `AddrToAmount` map type can be set by appending
+	// `&AddrToAmount[<address>]=<amount_to_send>` to the URL. Unfortunately this
+	// map type doesn't appear in the REST API documentation because of a bug in
+	// the grpc-gateway library.
 	EstimateFee(context.Context, *EstimateFeeRequest) (*EstimateFeeResponse, error)
 	// lncli: `sendcoins`
-	//SendCoins executes a request to send coins to a particular address. Unlike
-	//SendMany, this RPC call only allows creating a single output at a time. If
-	//neither target_conf, or sat_per_vbyte are set, then the internal wallet will
-	//consult its fee model to determine a fee for the default confirmation
-	//target.
+	// SendCoins executes a request to send coins to a particular address. Unlike
+	// SendMany, this RPC call only allows creating a single output at a time. If
+	// neither target_conf, or sat_per_vbyte are set, then the internal wallet will
+	// consult its fee model to determine a fee for the default confirmation
+	// target.
 	SendCoins(context.Context, *SendCoinsRequest) (*SendCoinsResponse, error)
 	// lncli: `listunspent`
-	//Deprecated, use walletrpc.ListUnspent instead.
+	// Deprecated, use walletrpc.ListUnspent instead.
 	//
-	//ListUnspent returns a list of all utxos spendable by the wallet with a
-	//number of confirmations between the specified minimum and maximum.
+	// ListUnspent returns a list of all utxos spendable by the wallet with a
+	// number of confirmations between the specified minimum and maximum.
 	ListUnspent(context.Context, *ListUnspentRequest) (*ListUnspentResponse, error)
-	//
-	//SubscribeTransactions creates a uni-directional stream from the server to
-	//the client in which any newly discovered transactions relevant to the
-	//wallet are sent over.
+	// SubscribeTransactions creates a uni-directional stream from the server to
+	// the client in which any newly discovered transactions relevant to the
+	// wallet are sent over.
 	SubscribeTransactions(*GetTransactionsRequest, Lightning_SubscribeTransactionsServer) error
 	// lncli: `sendmany`
-	//SendMany handles a request for a transaction that creates multiple specified
-	//outputs in parallel. If neither target_conf, or sat_per_vbyte are set, then
-	//the internal wallet will consult its fee model to determine a fee for the
-	//default confirmation target.
+	// SendMany handles a request for a transaction that creates multiple specified
+	// outputs in parallel. If neither target_conf, or sat_per_vbyte are set, then
+	// the internal wallet will consult its fee model to determine a fee for the
+	// default confirmation target.
 	SendMany(context.Context, *SendManyRequest) (*SendManyResponse, error)
 	// lncli: `newaddress`
-	//NewAddress creates a new address under control of the local wallet.
+	// NewAddress creates a new address under control of the local wallet.
 	NewAddress(context.Context, *NewAddressRequest) (*NewAddressResponse, error)
 	// lncli: `signmessage`
-	//SignMessage signs a message with this node's private key. The returned
-	//signature string is `zbase32` encoded and pubkey recoverable, meaning that
-	//only the message digest and signature are needed for verification.
+	// SignMessage signs a message with this node's private key. The returned
+	// signature string is `zbase32` encoded and pubkey recoverable, meaning that
+	// only the message digest and signature are needed for verification.
 	SignMessage(context.Context, *SignMessageRequest) (*SignMessageResponse, error)
 	// lncli: `verifymessage`
-	//VerifyMessage verifies a signature over a msg. The signature must be
-	//zbase32 encoded and signed by an active node in the resident node's
-	//channel database. In addition to returning the validity of the signature,
-	//VerifyMessage also returns the recovered pubkey from the signature.
+	// VerifyMessage verifies a signature over a msg. The signature must be
+	// zbase32 encoded and signed by an active node in the resident node's
+	// channel database. In addition to returning the validity of the signature,
+	// VerifyMessage also returns the recovered pubkey from the signature.
 	VerifyMessage(context.Context, *VerifyMessageRequest) (*VerifyMessageResponse, error)
 	// lncli: `connect`
-	//ConnectPeer attempts to establish a connection to a remote peer. This is at
-	//the networking level, and is used for communication between nodes. This is
-	//distinct from establishing a channel with a peer.
+	// ConnectPeer attempts to establish a connection to a remote peer. This is at
+	// the networking level, and is used for communication between nodes. This is
+	// distinct from establishing a channel with a peer.
 	ConnectPeer(context.Context, *ConnectPeerRequest) (*ConnectPeerResponse, error)
 	// lncli: `disconnect`
-	//DisconnectPeer attempts to disconnect one peer from another identified by a
-	//given pubKey. In the case that we currently have a pending or active channel
-	//with the target peer, then this action will be not be allowed.
+	// DisconnectPeer attempts to disconnect one peer from another identified by a
+	// given pubKey. In the case that we currently have a pending or active channel
+	// with the target peer, then this action will be not be allowed.
 	DisconnectPeer(context.Context, *DisconnectPeerRequest) (*DisconnectPeerResponse, error)
 	// lncli: `listpeers`
-	//ListPeers returns a verbose listing of all currently active peers.
+	// ListPeers returns a verbose listing of all currently active peers.
 	ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error)
-	//
-	//SubscribePeerEvents creates a uni-directional stream from the server to
-	//the client in which any events relevant to the state of peers are sent
-	//over. Events include peers going online and offline.
+	// SubscribePeerEvents creates a uni-directional stream from the server to
+	// the client in which any events relevant to the state of peers are sent
+	// over. Events include peers going online and offline.
 	SubscribePeerEvents(*PeerEventSubscription, Lightning_SubscribePeerEventsServer) error
 	// lncli: `getinfo`
-	//GetInfo returns general information concerning the lightning node including
-	//it's identity pubkey, alias, the chains it is connected to, and information
-	//concerning the number of open+pending channels.
+	// GetInfo returns general information concerning the lightning node including
+	// it's identity pubkey, alias, the chains it is connected to, and information
+	// concerning the number of open+pending channels.
 	GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error)
-	//* lncli: `getrecoveryinfo`
-	//GetRecoveryInfo returns information concerning the recovery mode including
-	//whether it's in a recovery mode, whether the recovery is finished, and the
-	//progress made so far.
+	// * lncli: `getrecoveryinfo`
+	// GetRecoveryInfo returns information concerning the recovery mode including
+	// whether it's in a recovery mode, whether the recovery is finished, and the
+	// progress made so far.
 	GetRecoveryInfo(context.Context, *GetRecoveryInfoRequest) (*GetRecoveryInfoResponse, error)
 	// lncli: `pendingchannels`
-	//PendingChannels returns a list of all the channels that are currently
-	//considered "pending". A channel is pending if it has finished the funding
-	//workflow and is waiting for confirmations for the funding txn, or is in the
-	//process of closure, either initiated cooperatively or non-cooperatively.
+	// PendingChannels returns a list of all the channels that are currently
+	// considered "pending". A channel is pending if it has finished the funding
+	// workflow and is waiting for confirmations for the funding txn, or is in the
+	// process of closure, either initiated cooperatively or non-cooperatively.
 	PendingChannels(context.Context, *PendingChannelsRequest) (*PendingChannelsResponse, error)
 	// lncli: `listchannels`
-	//ListChannels returns a description of all the open channels that this node
-	//is a participant in.
+	// ListChannels returns a description of all the open channels that this node
+	// is a participant in.
 	ListChannels(context.Context, *ListChannelsRequest) (*ListChannelsResponse, error)
-	//
-	//SubscribeChannelEvents creates a uni-directional stream from the server to
-	//the client in which any updates relevant to the state of the channels are
-	//sent over. Events include new active channels, inactive channels, and closed
-	//channels.
+	// SubscribeChannelEvents creates a uni-directional stream from the server to
+	// the client in which any updates relevant to the state of the channels are
+	// sent over. Events include new active channels, inactive channels, and closed
+	// channels.
 	SubscribeChannelEvents(*ChannelEventSubscription, Lightning_SubscribeChannelEventsServer) error
 	// lncli: `closedchannels`
-	//ClosedChannels returns a description of all the closed channels that
-	//this node was a participant in.
+	// ClosedChannels returns a description of all the closed channels that
+	// this node was a participant in.
 	ClosedChannels(context.Context, *ClosedChannelsRequest) (*ClosedChannelsResponse, error)
-	//
-	//OpenChannelSync is a synchronous version of the OpenChannel RPC call. This
-	//call is meant to be consumed by clients to the REST proxy. As with all
-	//other sync calls, all byte slices are intended to be populated as hex
-	//encoded strings.
+	// OpenChannelSync is a synchronous version of the OpenChannel RPC call. This
+	// call is meant to be consumed by clients to the REST proxy. As with all
+	// other sync calls, all byte slices are intended to be populated as hex
+	// encoded strings.
 	OpenChannelSync(context.Context, *OpenChannelRequest) (*ChannelPoint, error)
 	// lncli: `openchannel`
-	//OpenChannel attempts to open a singly funded channel specified in the
-	//request to a remote peer. Users are able to specify a target number of
-	//blocks that the funding transaction should be confirmed in, or a manual fee
-	//rate to us for the funding transaction. If neither are specified, then a
-	//lax block confirmation target is used. Each OpenStatusUpdate will return
-	//the pending channel ID of the in-progress channel. Depending on the
-	//arguments specified in the OpenChannelRequest, this pending channel ID can
-	//then be used to manually progress the channel funding flow.
+	// OpenChannel attempts to open a singly funded channel specified in the
+	// request to a remote peer. Users are able to specify a target number of
+	// blocks that the funding transaction should be confirmed in, or a manual fee
+	// rate to us for the funding transaction. If neither are specified, then a
+	// lax block confirmation target is used. Each OpenStatusUpdate will return
+	// the pending channel ID of the in-progress channel. Depending on the
+	// arguments specified in the OpenChannelRequest, this pending channel ID can
+	// then be used to manually progress the channel funding flow.
 	OpenChannel(*OpenChannelRequest, Lightning_OpenChannelServer) error
 	// lncli: `batchopenchannel`
-	//BatchOpenChannel attempts to open multiple single-funded channels in a
-	//single transaction in an atomic way. This means either all channel open
-	//requests succeed at once or all attempts are aborted if any of them fail.
-	//This is the safer variant of using PSBTs to manually fund a batch of
-	//channels through the OpenChannel RPC.
+	// BatchOpenChannel attempts to open multiple single-funded channels in a
+	// single transaction in an atomic way. This means either all channel open
+	// requests succeed at once or all attempts are aborted if any of them fail.
+	// This is the safer variant of using PSBTs to manually fund a batch of
+	// channels through the OpenChannel RPC.
 	BatchOpenChannel(context.Context, *BatchOpenChannelRequest) (*BatchOpenChannelResponse, error)
-	//
-	//FundingStateStep is an advanced funding related call that allows the caller
-	//to either execute some preparatory steps for a funding workflow, or
-	//manually progress a funding workflow. The primary way a funding flow is
-	//identified is via its pending channel ID. As an example, this method can be
-	//used to specify that we're expecting a funding flow for a particular
-	//pending channel ID, for which we need to use specific parameters.
-	//Alternatively, this can be used to interactively drive PSBT signing for
-	//funding for partially complete funding transactions.
+	// FundingStateStep is an advanced funding related call that allows the caller
+	// to either execute some preparatory steps for a funding workflow, or
+	// manually progress a funding workflow. The primary way a funding flow is
+	// identified is via its pending channel ID. As an example, this method can be
+	// used to specify that we're expecting a funding flow for a particular
+	// pending channel ID, for which we need to use specific parameters.
+	// Alternatively, this can be used to interactively drive PSBT signing for
+	// funding for partially complete funding transactions.
 	FundingStateStep(context.Context, *FundingTransitionMsg) (*FundingStateStepResp, error)
-	//
-	//ChannelAcceptor dispatches a bi-directional streaming RPC in which
-	//OpenChannel requests are sent to the client and the client responds with
-	//a boolean that tells LND whether or not to accept the channel. This allows
-	//node operators to specify their own criteria for accepting inbound channels
-	//through a single persistent connection.
+	// ChannelAcceptor dispatches a bi-directional streaming RPC in which
+	// OpenChannel requests are sent to the client and the client responds with
+	// a boolean that tells LND whether or not to accept the channel. This allows
+	// node operators to specify their own criteria for accepting inbound channels
+	// through a single persistent connection.
 	ChannelAcceptor(Lightning_ChannelAcceptorServer) error
 	// lncli: `closechannel`
-	//CloseChannel attempts to close an active channel identified by its channel
-	//outpoint (ChannelPoint). The actions of this method can additionally be
-	//augmented to attempt a force close after a timeout period in the case of an
-	//inactive peer. If a non-force close (cooperative closure) is requested,
-	//then the user can specify either a target number of blocks until the
-	//closure transaction is confirmed, or a manual fee rate. If neither are
-	//specified, then a default lax, block confirmation target is used.
+	// CloseChannel attempts to close an active channel identified by its channel
+	// outpoint (ChannelPoint). The actions of this method can additionally be
+	// augmented to attempt a force close after a timeout period in the case of an
+	// inactive peer. If a non-force close (cooperative closure) is requested,
+	// then the user can specify either a target number of blocks until the
+	// closure transaction is confirmed, or a manual fee rate. If neither are
+	// specified, then a default lax, block confirmation target is used.
 	CloseChannel(*CloseChannelRequest, Lightning_CloseChannelServer) error
 	// lncli: `abandonchannel`
-	//AbandonChannel removes all channel state from the database except for a
-	//close summary. This method can be used to get rid of permanently unusable
-	//channels due to bugs fixed in newer versions of lnd. This method can also be
-	//used to remove externally funded channels where the funding transaction was
-	//never broadcast. Only available for non-externally funded channels in dev
-	//build.
+	// AbandonChannel removes all channel state from the database except for a
+	// close summary. This method can be used to get rid of permanently unusable
+	// channels due to bugs fixed in newer versions of lnd. This method can also be
+	// used to remove externally funded channels where the funding transaction was
+	// never broadcast. Only available for non-externally funded channels in dev
+	// build.
 	AbandonChannel(context.Context, *AbandonChannelRequest) (*AbandonChannelResponse, error)
 	// Deprecated: Do not use.
 	// lncli: `sendpayment`
-	//Deprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a
-	//bi-directional streaming RPC for sending payments through the Lightning
-	//Network. A single RPC invocation creates a persistent bi-directional
-	//stream allowing clients to rapidly send payments through the Lightning
-	//Network with a single persistent connection.
+	// Deprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a
+	// bi-directional streaming RPC for sending payments through the Lightning
+	// Network. A single RPC invocation creates a persistent bi-directional
+	// stream allowing clients to rapidly send payments through the Lightning
+	// Network with a single persistent connection.
 	SendPayment(Lightning_SendPaymentServer) error
-	//
-	//SendPaymentSync is the synchronous non-streaming version of SendPayment.
-	//This RPC is intended to be consumed by clients of the REST proxy.
-	//Additionally, this RPC expects the destination's public key and the payment
-	//hash (if any) to be encoded as hex strings.
+	// SendPaymentSync is the synchronous non-streaming version of SendPayment.
+	// This RPC is intended to be consumed by clients of the REST proxy.
+	// Additionally, this RPC expects the destination's public key and the payment
+	// hash (if any) to be encoded as hex strings.
 	SendPaymentSync(context.Context, *SendRequest) (*SendResponse, error)
 	// Deprecated: Do not use.
 	// lncli: `sendtoroute`
-	//Deprecated, use routerrpc.SendToRouteV2. SendToRoute is a bi-directional
-	//streaming RPC for sending payment through the Lightning Network. This
-	//method differs from SendPayment in that it allows users to specify a full
-	//route manually. This can be used for things like rebalancing, and atomic
-	//swaps.
+	// Deprecated, use routerrpc.SendToRouteV2. SendToRoute is a bi-directional
+	// streaming RPC for sending payment through the Lightning Network. This
+	// method differs from SendPayment in that it allows users to specify a full
+	// route manually. This can be used for things like rebalancing, and atomic
+	// swaps.
 	SendToRoute(Lightning_SendToRouteServer) error
-	//
-	//SendToRouteSync is a synchronous version of SendToRoute. It Will block
-	//until the payment either fails or succeeds.
+	// SendToRouteSync is a synchronous version of SendToRoute. It Will block
+	// until the payment either fails or succeeds.
 	SendToRouteSync(context.Context, *SendToRouteRequest) (*SendResponse, error)
 	// lncli: `addinvoice`
-	//AddInvoice attempts to add a new invoice to the invoice database. Any
-	//duplicated invoices are rejected, therefore all invoices *must* have a
-	//unique payment preimage.
+	// AddInvoice attempts to add a new invoice to the invoice database. Any
+	// duplicated invoices are rejected, therefore all invoices *must* have a
+	// unique payment preimage.
 	AddInvoice(context.Context, *Invoice) (*AddInvoiceResponse, error)
 	// lncli: `listinvoices`
-	//ListInvoices returns a list of all the invoices currently stored within the
-	//database. Any active debug invoices are ignored. It has full support for
-	//paginated responses, allowing users to query for specific invoices through
-	//their add_index. This can be done by using either the first_index_offset or
-	//last_index_offset fields included in the response as the index_offset of the
-	//next request. By default, the first 100 invoices created will be returned.
-	//Backwards pagination is also supported through the Reversed flag.
+	// ListInvoices returns a list of all the invoices currently stored within the
+	// database. Any active debug invoices are ignored. It has full support for
+	// paginated responses, allowing users to query for specific invoices through
+	// their add_index. This can be done by using either the first_index_offset or
+	// last_index_offset fields included in the response as the index_offset of the
+	// next request. By default, the first 100 invoices created will be returned.
+	// Backwards pagination is also supported through the Reversed flag.
 	ListInvoices(context.Context, *ListInvoiceRequest) (*ListInvoiceResponse, error)
 	// lncli: `lookupinvoice`
-	//LookupInvoice attempts to look up an invoice according to its payment hash.
-	//The passed payment hash *must* be exactly 32 bytes, if not, an error is
-	//returned.
+	// LookupInvoice attempts to look up an invoice according to its payment hash.
+	// The passed payment hash *must* be exactly 32 bytes, if not, an error is
+	// returned.
 	LookupInvoice(context.Context, *PaymentHash) (*Invoice, error)
-	//
-	//SubscribeInvoices returns a uni-directional stream (server -> client) for
-	//notifying the client of newly added/settled invoices. The caller can
-	//optionally specify the add_index and/or the settle_index. If the add_index
-	//is specified, then we'll first start by sending add invoice events for all
-	//invoices with an add_index greater than the specified value. If the
-	//settle_index is specified, the next, we'll send out all settle events for
-	//invoices with a settle_index greater than the specified value. One or both
-	//of these fields can be set. If no fields are set, then we'll only send out
-	//the latest add/settle events.
+	// SubscribeInvoices returns a uni-directional stream (server -> client) for
+	// notifying the client of newly added/settled invoices. The caller can
+	// optionally specify the add_index and/or the settle_index. If the add_index
+	// is specified, then we'll first start by sending add invoice events for all
+	// invoices with an add_index greater than the specified value. If the
+	// settle_index is specified, the next, we'll send out all settle events for
+	// invoices with a settle_index greater than the specified value. One or both
+	// of these fields can be set. If no fields are set, then we'll only send out
+	// the latest add/settle events.
 	SubscribeInvoices(*InvoiceSubscription, Lightning_SubscribeInvoicesServer) error
 	// lncli: `decodepayreq`
-	//DecodePayReq takes an encoded payment request string and attempts to decode
-	//it, returning a full description of the conditions encoded within the
-	//payment request.
+	// DecodePayReq takes an encoded payment request string and attempts to decode
+	// it, returning a full description of the conditions encoded within the
+	// payment request.
 	DecodePayReq(context.Context, *PayReqString) (*PayReq, error)
 	// lncli: `listpayments`
-	//ListPayments returns a list of all outgoing payments.
+	// ListPayments returns a list of all outgoing payments.
 	ListPayments(context.Context, *ListPaymentsRequest) (*ListPaymentsResponse, error)
-	//
-	//DeletePayment deletes an outgoing payment from DB. Note that it will not
-	//attempt to delete an In-Flight payment, since that would be unsafe.
+	// DeletePayment deletes an outgoing payment from DB. Note that it will not
+	// attempt to delete an In-Flight payment, since that would be unsafe.
 	DeletePayment(context.Context, *DeletePaymentRequest) (*DeletePaymentResponse, error)
-	//
-	//DeleteAllPayments deletes all outgoing payments from DB. Note that it will
-	//not attempt to delete In-Flight payments, since that would be unsafe.
+	// DeleteAllPayments deletes all outgoing payments from DB. Note that it will
+	// not attempt to delete In-Flight payments, since that would be unsafe.
 	DeleteAllPayments(context.Context, *DeleteAllPaymentsRequest) (*DeleteAllPaymentsResponse, error)
 	// lncli: `describegraph`
-	//DescribeGraph returns a description of the latest graph state from the
-	//point of view of the node. The graph information is partitioned into two
-	//components: all the nodes/vertexes, and all the edges that connect the
-	//vertexes themselves. As this is a directed graph, the edges also contain
-	//the node directional specific routing policy which includes: the time lock
-	//delta, fee information, etc.
+	// DescribeGraph returns a description of the latest graph state from the
+	// point of view of the node. The graph information is partitioned into two
+	// components: all the nodes/vertexes, and all the edges that connect the
+	// vertexes themselves. As this is a directed graph, the edges also contain
+	// the node directional specific routing policy which includes: the time lock
+	// delta, fee information, etc.
 	DescribeGraph(context.Context, *ChannelGraphRequest) (*ChannelGraph, error)
 	// lncli: `getnodemetrics`
-	//GetNodeMetrics returns node metrics calculated from the graph. Currently
-	//the only supported metric is betweenness centrality of individual nodes.
+	// GetNodeMetrics returns node metrics calculated from the graph. Currently
+	// the only supported metric is betweenness centrality of individual nodes.
 	GetNodeMetrics(context.Context, *NodeMetricsRequest) (*NodeMetricsResponse, error)
 	// lncli: `getchaninfo`
-	//GetChanInfo returns the latest authenticated network announcement for the
-	//given channel identified by its channel ID: an 8-byte integer which
-	//uniquely identifies the location of transaction's funding output within the
-	//blockchain.
+	// GetChanInfo returns the latest authenticated network announcement for the
+	// given channel identified by its channel ID: an 8-byte integer which
+	// uniquely identifies the location of transaction's funding output within the
+	// blockchain.
 	GetChanInfo(context.Context, *ChanInfoRequest) (*ChannelEdge, error)
 	// lncli: `getnodeinfo`
-	//GetNodeInfo returns the latest advertised, aggregated, and authenticated
-	//channel information for the specified node identified by its public key.
+	// GetNodeInfo returns the latest advertised, aggregated, and authenticated
+	// channel information for the specified node identified by its public key.
 	GetNodeInfo(context.Context, *NodeInfoRequest) (*NodeInfo, error)
 	// lncli: `queryroutes`
-	//QueryRoutes attempts to query the daemon's Channel Router for a possible
-	//route to a target destination capable of carrying a specific amount of
-	//satoshis. The returned route contains the full details required to craft and
-	//send an HTLC, also including the necessary information that should be
-	//present within the Sphinx packet encapsulated within the HTLC.
+	// QueryRoutes attempts to query the daemon's Channel Router for a possible
+	// route to a target destination capable of carrying a specific amount of
+	// satoshis. The returned route contains the full details required to craft and
+	// send an HTLC, also including the necessary information that should be
+	// present within the Sphinx packet encapsulated within the HTLC.
 	//
-	//When using REST, the `dest_custom_records` map type can be set by appending
-	//`&dest_custom_records[<record_number>]=<record_data_base64_url_encoded>`
-	//to the URL. Unfortunately this map type doesn't appear in the REST API
-	//documentation because of a bug in the grpc-gateway library.
+	// When using REST, the `dest_custom_records` map type can be set by appending
+	// `&dest_custom_records[<record_number>]=<record_data_base64_url_encoded>`
+	// to the URL. Unfortunately this map type doesn't appear in the REST API
+	// documentation because of a bug in the grpc-gateway library.
 	QueryRoutes(context.Context, *QueryRoutesRequest) (*QueryRoutesResponse, error)
 	// lncli: `getnetworkinfo`
-	//GetNetworkInfo returns some basic stats about the known channel graph from
-	//the point of view of the node.
+	// GetNetworkInfo returns some basic stats about the known channel graph from
+	// the point of view of the node.
 	GetNetworkInfo(context.Context, *NetworkInfoRequest) (*NetworkInfo, error)
 	// lncli: `stop`
-	//StopDaemon will send a shutdown request to the interrupt handler, triggering
-	//a graceful shutdown of the daemon.
+	// StopDaemon will send a shutdown request to the interrupt handler, triggering
+	// a graceful shutdown of the daemon.
 	StopDaemon(context.Context, *StopRequest) (*StopResponse, error)
-	//
-	//SubscribeChannelGraph launches a streaming RPC that allows the caller to
-	//receive notifications upon any changes to the channel graph topology from
-	//the point of view of the responding node. Events notified include: new
-	//nodes coming online, nodes updating their authenticated attributes, new
-	//channels being advertised, updates in the routing policy for a directional
-	//channel edge, and when channels are closed on-chain.
+	// SubscribeChannelGraph launches a streaming RPC that allows the caller to
+	// receive notifications upon any changes to the channel graph topology from
+	// the point of view of the responding node. Events notified include: new
+	// nodes coming online, nodes updating their authenticated attributes, new
+	// channels being advertised, updates in the routing policy for a directional
+	// channel edge, and when channels are closed on-chain.
 	SubscribeChannelGraph(*GraphTopologySubscription, Lightning_SubscribeChannelGraphServer) error
 	// lncli: `debuglevel`
-	//DebugLevel allows a caller to programmatically set the logging verbosity of
-	//lnd. The logging can be targeted according to a coarse daemon-wide logging
-	//level, or in a granular fashion to specify the logging for a target
-	//sub-system.
+	// DebugLevel allows a caller to programmatically set the logging verbosity of
+	// lnd. The logging can be targeted according to a coarse daemon-wide logging
+	// level, or in a granular fashion to specify the logging for a target
+	// sub-system.
 	DebugLevel(context.Context, *DebugLevelRequest) (*DebugLevelResponse, error)
 	// lncli: `feereport`
-	//FeeReport allows the caller to obtain a report detailing the current fee
-	//schedule enforced by the node globally for each channel.
+	// FeeReport allows the caller to obtain a report detailing the current fee
+	// schedule enforced by the node globally for each channel.
 	FeeReport(context.Context, *FeeReportRequest) (*FeeReportResponse, error)
 	// lncli: `updatechanpolicy`
-	//UpdateChannelPolicy allows the caller to update the fee schedule and
-	//channel policies for all channels globally, or a particular channel.
+	// UpdateChannelPolicy allows the caller to update the fee schedule and
+	// channel policies for all channels globally, or a particular channel.
 	UpdateChannelPolicy(context.Context, *PolicyUpdateRequest) (*PolicyUpdateResponse, error)
 	// lncli: `fwdinghistory`
-	//ForwardingHistory allows the caller to query the htlcswitch for a record of
-	//all HTLCs forwarded within the target time range, and integer offset
-	//within that time range, for a maximum number of events. If no maximum number
-	//of events is specified, up to 100 events will be returned. If no time-range
-	//is specified, then events will be returned in the order that they occured.
+	// ForwardingHistory allows the caller to query the htlcswitch for a record of
+	// all HTLCs forwarded within the target time range, and integer offset
+	// within that time range, for a maximum number of events. If no maximum number
+	// of events is specified, up to 100 events will be returned. If no time-range
+	// is specified, then events will be returned in the order that they occured.
 	//
-	//A list of forwarding events are returned. The size of each forwarding event
-	//is 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.
-	//As a result each message can only contain 50k entries. Each response has
-	//the index offset of the last entry. The index offset can be provided to the
-	//request to allow the caller to skip a series of records.
+	// A list of forwarding events are returned. The size of each forwarding event
+	// is 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.
+	// As a result each message can only contain 50k entries. Each response has
+	// the index offset of the last entry. The index offset can be provided to the
+	// request to allow the caller to skip a series of records.
 	ForwardingHistory(context.Context, *ForwardingHistoryRequest) (*ForwardingHistoryResponse, error)
 	// lncli: `exportchanbackup`
-	//ExportChannelBackup attempts to return an encrypted static channel backup
-	//for the target channel identified by it channel point. The backup is
-	//encrypted with a key generated from the aezeed seed of the user. The
-	//returned backup can either be restored using the RestoreChannelBackup
-	//method once lnd is running, or via the InitWallet and UnlockWallet methods
-	//from the WalletUnlocker service.
+	// ExportChannelBackup attempts to return an encrypted static channel backup
+	// for the target channel identified by it channel point. The backup is
+	// encrypted with a key generated from the aezeed seed of the user. The
+	// returned backup can either be restored using the RestoreChannelBackup
+	// method once lnd is running, or via the InitWallet and UnlockWallet methods
+	// from the WalletUnlocker service.
 	ExportChannelBackup(context.Context, *ExportChannelBackupRequest) (*ChannelBackup, error)
-	//
-	//ExportAllChannelBackups returns static channel backups for all existing
-	//channels known to lnd. A set of regular singular static channel backups for
-	//each channel are returned. Additionally, a multi-channel backup is returned
-	//as well, which contains a single encrypted blob containing the backups of
-	//each channel.
+	// ExportAllChannelBackups returns static channel backups for all existing
+	// channels known to lnd. A set of regular singular static channel backups for
+	// each channel are returned. Additionally, a multi-channel backup is returned
+	// as well, which contains a single encrypted blob containing the backups of
+	// each channel.
 	ExportAllChannelBackups(context.Context, *ChanBackupExportRequest) (*ChanBackupSnapshot, error)
-	//
-	//VerifyChanBackup allows a caller to verify the integrity of a channel backup
-	//snapshot. This method will accept either a packed Single or a packed Multi.
-	//Specifying both will result in an error.
+	// VerifyChanBackup allows a caller to verify the integrity of a channel backup
+	// snapshot. This method will accept either a packed Single or a packed Multi.
+	// Specifying both will result in an error.
 	VerifyChanBackup(context.Context, *ChanBackupSnapshot) (*VerifyChanBackupResponse, error)
 	// lncli: `restorechanbackup`
-	//RestoreChannelBackups accepts a set of singular channel backups, or a
-	//single encrypted multi-chan backup and attempts to recover any funds
-	//remaining within the channel. If we are able to unpack the backup, then the
-	//new channel will be shown under listchannels, as well as pending channels.
+	// RestoreChannelBackups accepts a set of singular channel backups, or a
+	// single encrypted multi-chan backup and attempts to recover any funds
+	// remaining within the channel. If we are able to unpack the backup, then the
+	// new channel will be shown under listchannels, as well as pending channels.
 	RestoreChannelBackups(context.Context, *RestoreChanBackupRequest) (*RestoreBackupResponse, error)
-	//
-	//SubscribeChannelBackups allows a client to sub-subscribe to the most up to
-	//date information concerning the state of all channel backups. Each time a
-	//new channel is added, we return the new set of channels, along with a
-	//multi-chan backup containing the backup info for all channels. Each time a
-	//channel is closed, we send a new update, which contains new new chan back
-	//ups, but the updated set of encrypted multi-chan backups with the closed
-	//channel(s) removed.
+	// SubscribeChannelBackups allows a client to sub-subscribe to the most up to
+	// date information concerning the state of all channel backups. Each time a
+	// new channel is added, we return the new set of channels, along with a
+	// multi-chan backup containing the backup info for all channels. Each time a
+	// channel is closed, we send a new update, which contains new new chan back
+	// ups, but the updated set of encrypted multi-chan backups with the closed
+	// channel(s) removed.
 	SubscribeChannelBackups(*ChannelBackupSubscription, Lightning_SubscribeChannelBackupsServer) error
 	// lncli: `bakemacaroon`
-	//BakeMacaroon allows the creation of a new macaroon with custom read and
-	//write permissions. No first-party caveats are added since this can be done
-	//offline.
+	// BakeMacaroon allows the creation of a new macaroon with custom read and
+	// write permissions. No first-party caveats are added since this can be done
+	// offline.
 	BakeMacaroon(context.Context, *BakeMacaroonRequest) (*BakeMacaroonResponse, error)
 	// lncli: `listmacaroonids`
-	//ListMacaroonIDs returns all root key IDs that are in use.
+	// ListMacaroonIDs returns all root key IDs that are in use.
 	ListMacaroonIDs(context.Context, *ListMacaroonIDsRequest) (*ListMacaroonIDsResponse, error)
 	// lncli: `deletemacaroonid`
-	//DeleteMacaroonID deletes the specified macaroon ID and invalidates all
-	//macaroons derived from that ID.
+	// DeleteMacaroonID deletes the specified macaroon ID and invalidates all
+	// macaroons derived from that ID.
 	DeleteMacaroonID(context.Context, *DeleteMacaroonIDRequest) (*DeleteMacaroonIDResponse, error)
 	// lncli: `listpermissions`
-	//ListPermissions lists all RPC method URIs and their required macaroon
-	//permissions to access them.
+	// ListPermissions lists all RPC method URIs and their required macaroon
+	// permissions to access them.
 	ListPermissions(context.Context, *ListPermissionsRequest) (*ListPermissionsResponse, error)
-	//
-	//CheckMacaroonPermissions checks whether a request follows the constraints
-	//imposed on the macaroon and that the macaroon is authorized to follow the
-	//provided permissions.
+	// CheckMacaroonPermissions checks whether a request follows the constraints
+	// imposed on the macaroon and that the macaroon is authorized to follow the
+	// provided permissions.
 	CheckMacaroonPermissions(context.Context, *CheckMacPermRequest) (*CheckMacPermResponse, error)
-	//
-	//RegisterRPCMiddleware adds a new gRPC middleware to the interceptor chain. A
-	//gRPC middleware is software component external to lnd that aims to add
-	//additional business logic to lnd by observing/intercepting/validating
-	//incoming gRPC client requests and (if needed) replacing/overwriting outgoing
-	//messages before they're sent to the client. When registering the middleware
-	//must identify itself and indicate what custom macaroon caveats it wants to
-	//be responsible for. Only requests that contain a macaroon with that specific
-	//custom caveat are then sent to the middleware for inspection. The other
-	//option is to register for the read-only mode in which all requests/responses
-	//are forwarded for interception to the middleware but the middleware is not
-	//allowed to modify any responses. As a security measure, _no_ middleware can
-	//modify responses for requests made with _unencumbered_ macaroons!
+	// RegisterRPCMiddleware adds a new gRPC middleware to the interceptor chain. A
+	// gRPC middleware is software component external to lnd that aims to add
+	// additional business logic to lnd by observing/intercepting/validating
+	// incoming gRPC client requests and (if needed) replacing/overwriting outgoing
+	// messages before they're sent to the client. When registering the middleware
+	// must identify itself and indicate what custom macaroon caveats it wants to
+	// be responsible for. Only requests that contain a macaroon with that specific
+	// custom caveat are then sent to the middleware for inspection. The other
+	// option is to register for the read-only mode in which all requests/responses
+	// are forwarded for interception to the middleware but the middleware is not
+	// allowed to modify any responses. As a security measure, _no_ middleware can
+	// modify responses for requests made with _unencumbered_ macaroons!
 	RegisterRPCMiddleware(Lightning_RegisterRPCMiddlewareServer) error
 	// lncli: `sendcustom`
-	//SendCustomMessage sends a custom peer message.
+	// SendCustomMessage sends a custom peer message.
 	SendCustomMessage(context.Context, *SendCustomMessageRequest) (*SendCustomMessageResponse, error)
 	// lncli: `subscribecustom`
-	//SubscribeCustomMessages subscribes to a stream of incoming custom peer
-	//messages.
+	// SubscribeCustomMessages subscribes to a stream of incoming custom peer
+	// messages.
 	SubscribeCustomMessages(*SubscribeCustomMessagesRequest, Lightning_SubscribeCustomMessagesServer) error
 	// lncli: `listaliases`
-	//ListAliases returns the set of all aliases that have ever existed with
-	//their confirmed SCID (if it exists) and/or the base SCID (in the case of
-	//zero conf).
+	// ListAliases returns the set of all aliases that have ever existed with
+	// their confirmed SCID (if it exists) and/or the base SCID (in the case of
+	// zero conf).
 	ListAliases(context.Context, *ListAliasesRequest) (*ListAliasesResponse, error)
 	mustEmbedUnimplementedLightningServer()
 }

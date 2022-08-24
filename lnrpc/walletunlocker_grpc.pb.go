@@ -18,37 +18,35 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type WalletUnlockerClient interface {
+	// GenSeed is the first method that should be used to instantiate a new lnd
+	// instance. This method allows a caller to generate a new aezeed cipher seed
+	// given an optional passphrase. If provided, the passphrase will be necessary
+	// to decrypt the cipherseed to expose the internal wallet seed.
 	//
-	//GenSeed is the first method that should be used to instantiate a new lnd
-	//instance. This method allows a caller to generate a new aezeed cipher seed
-	//given an optional passphrase. If provided, the passphrase will be necessary
-	//to decrypt the cipherseed to expose the internal wallet seed.
-	//
-	//Once the cipherseed is obtained and verified by the user, the InitWallet
-	//method should be used to commit the newly generated seed, and create the
-	//wallet.
+	// Once the cipherseed is obtained and verified by the user, the InitWallet
+	// method should be used to commit the newly generated seed, and create the
+	// wallet.
 	GenSeed(ctx context.Context, in *GenSeedRequest, opts ...grpc.CallOption) (*GenSeedResponse, error)
+	// InitWallet is used when lnd is starting up for the first time to fully
+	// initialize the daemon and its internal wallet. At the very least a wallet
+	// password must be provided. This will be used to encrypt sensitive material
+	// on disk.
 	//
-	//InitWallet is used when lnd is starting up for the first time to fully
-	//initialize the daemon and its internal wallet. At the very least a wallet
-	//password must be provided. This will be used to encrypt sensitive material
-	//on disk.
+	// In the case of a recovery scenario, the user can also specify their aezeed
+	// mnemonic and passphrase. If set, then the daemon will use this prior state
+	// to initialize its internal wallet.
 	//
-	//In the case of a recovery scenario, the user can also specify their aezeed
-	//mnemonic and passphrase. If set, then the daemon will use this prior state
-	//to initialize its internal wallet.
-	//
-	//Alternatively, this can be used along with the GenSeed RPC to obtain a
-	//seed, then present it to the user. Once it has been verified by the user,
-	//the seed can be fed into this RPC in order to commit the new wallet.
+	// Alternatively, this can be used along with the GenSeed RPC to obtain a
+	// seed, then present it to the user. Once it has been verified by the user,
+	// the seed can be fed into this RPC in order to commit the new wallet.
 	InitWallet(ctx context.Context, in *InitWalletRequest, opts ...grpc.CallOption) (*InitWalletResponse, error)
 	// lncli: `unlock`
-	//UnlockWallet is used at startup of lnd to provide a password to unlock
-	//the wallet database.
+	// UnlockWallet is used at startup of lnd to provide a password to unlock
+	// the wallet database.
 	UnlockWallet(ctx context.Context, in *UnlockWalletRequest, opts ...grpc.CallOption) (*UnlockWalletResponse, error)
 	// lncli: `changepassword`
-	//ChangePassword changes the password of the encrypted wallet. This will
-	//automatically unlock the wallet database if successful.
+	// ChangePassword changes the password of the encrypted wallet. This will
+	// automatically unlock the wallet database if successful.
 	ChangePassword(ctx context.Context, in *ChangePasswordRequest, opts ...grpc.CallOption) (*ChangePasswordResponse, error)
 }
 
@@ -100,37 +98,35 @@ func (c *walletUnlockerClient) ChangePassword(ctx context.Context, in *ChangePas
 // All implementations must embed UnimplementedWalletUnlockerServer
 // for forward compatibility
 type WalletUnlockerServer interface {
+	// GenSeed is the first method that should be used to instantiate a new lnd
+	// instance. This method allows a caller to generate a new aezeed cipher seed
+	// given an optional passphrase. If provided, the passphrase will be necessary
+	// to decrypt the cipherseed to expose the internal wallet seed.
 	//
-	//GenSeed is the first method that should be used to instantiate a new lnd
-	//instance. This method allows a caller to generate a new aezeed cipher seed
-	//given an optional passphrase. If provided, the passphrase will be necessary
-	//to decrypt the cipherseed to expose the internal wallet seed.
-	//
-	//Once the cipherseed is obtained and verified by the user, the InitWallet
-	//method should be used to commit the newly generated seed, and create the
-	//wallet.
+	// Once the cipherseed is obtained and verified by the user, the InitWallet
+	// method should be used to commit the newly generated seed, and create the
+	// wallet.
 	GenSeed(context.Context, *GenSeedRequest) (*GenSeedResponse, error)
+	// InitWallet is used when lnd is starting up for the first time to fully
+	// initialize the daemon and its internal wallet. At the very least a wallet
+	// password must be provided. This will be used to encrypt sensitive material
+	// on disk.
 	//
-	//InitWallet is used when lnd is starting up for the first time to fully
-	//initialize the daemon and its internal wallet. At the very least a wallet
-	//password must be provided. This will be used to encrypt sensitive material
-	//on disk.
+	// In the case of a recovery scenario, the user can also specify their aezeed
+	// mnemonic and passphrase. If set, then the daemon will use this prior state
+	// to initialize its internal wallet.
 	//
-	//In the case of a recovery scenario, the user can also specify their aezeed
-	//mnemonic and passphrase. If set, then the daemon will use this prior state
-	//to initialize its internal wallet.
-	//
-	//Alternatively, this can be used along with the GenSeed RPC to obtain a
-	//seed, then present it to the user. Once it has been verified by the user,
-	//the seed can be fed into this RPC in order to commit the new wallet.
+	// Alternatively, this can be used along with the GenSeed RPC to obtain a
+	// seed, then present it to the user. Once it has been verified by the user,
+	// the seed can be fed into this RPC in order to commit the new wallet.
 	InitWallet(context.Context, *InitWalletRequest) (*InitWalletResponse, error)
 	// lncli: `unlock`
-	//UnlockWallet is used at startup of lnd to provide a password to unlock
-	//the wallet database.
+	// UnlockWallet is used at startup of lnd to provide a password to unlock
+	// the wallet database.
 	UnlockWallet(context.Context, *UnlockWalletRequest) (*UnlockWalletResponse, error)
 	// lncli: `changepassword`
-	//ChangePassword changes the password of the encrypted wallet. This will
-	//automatically unlock the wallet database if successful.
+	// ChangePassword changes the password of the encrypted wallet. This will
+	// automatically unlock the wallet database if successful.
 	ChangePassword(context.Context, *ChangePasswordRequest) (*ChangePasswordResponse, error)
 	mustEmbedUnimplementedWalletUnlockerServer()
 }

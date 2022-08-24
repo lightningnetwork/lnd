@@ -18,35 +18,32 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ChainNotifierClient interface {
+	// RegisterConfirmationsNtfn is a synchronous response-streaming RPC that
+	// registers an intent for a client to be notified once a confirmation request
+	// has reached its required number of confirmations on-chain.
 	//
-	//RegisterConfirmationsNtfn is a synchronous response-streaming RPC that
-	//registers an intent for a client to be notified once a confirmation request
-	//has reached its required number of confirmations on-chain.
-	//
-	//A confirmation request must have a valid output script. It is also possible
-	//to give a transaction ID. If the transaction ID is not set, a notification
-	//is sent once the output script confirms. If the transaction ID is also set,
-	//a notification is sent once the output script confirms in the given
-	//transaction.
+	// A confirmation request must have a valid output script. It is also possible
+	// to give a transaction ID. If the transaction ID is not set, a notification
+	// is sent once the output script confirms. If the transaction ID is also set,
+	// a notification is sent once the output script confirms in the given
+	// transaction.
 	RegisterConfirmationsNtfn(ctx context.Context, in *ConfRequest, opts ...grpc.CallOption) (ChainNotifier_RegisterConfirmationsNtfnClient, error)
+	// RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
+	// intent for a client to be notification once a spend request has been spent
+	// by a transaction that has confirmed on-chain.
 	//
-	//RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
-	//intent for a client to be notification once a spend request has been spent
-	//by a transaction that has confirmed on-chain.
-	//
-	//A client can specify whether the spend request should be for a particular
-	//outpoint  or for an output script by specifying a zero outpoint.
+	// A client can specify whether the spend request should be for a particular
+	// outpoint  or for an output script by specifying a zero outpoint.
 	RegisterSpendNtfn(ctx context.Context, in *SpendRequest, opts ...grpc.CallOption) (ChainNotifier_RegisterSpendNtfnClient, error)
+	// RegisterBlockEpochNtfn is a synchronous response-streaming RPC that
+	// registers an intent for a client to be notified of blocks in the chain. The
+	// stream will return a hash and height tuple of a block for each new/stale
+	// block in the chain. It is the client's responsibility to determine whether
+	// the tuple returned is for a new or stale block in the chain.
 	//
-	//RegisterBlockEpochNtfn is a synchronous response-streaming RPC that
-	//registers an intent for a client to be notified of blocks in the chain. The
-	//stream will return a hash and height tuple of a block for each new/stale
-	//block in the chain. It is the client's responsibility to determine whether
-	//the tuple returned is for a new or stale block in the chain.
-	//
-	//A client can also request a historical backlog of blocks from a particular
-	//point. This allows clients to be idempotent by ensuring that they do not
-	//missing processing a single block within the chain.
+	// A client can also request a historical backlog of blocks from a particular
+	// point. This allows clients to be idempotent by ensuring that they do not
+	// missing processing a single block within the chain.
 	RegisterBlockEpochNtfn(ctx context.Context, in *BlockEpoch, opts ...grpc.CallOption) (ChainNotifier_RegisterBlockEpochNtfnClient, error)
 }
 
@@ -158,35 +155,32 @@ func (x *chainNotifierRegisterBlockEpochNtfnClient) Recv() (*BlockEpoch, error) 
 // All implementations must embed UnimplementedChainNotifierServer
 // for forward compatibility
 type ChainNotifierServer interface {
+	// RegisterConfirmationsNtfn is a synchronous response-streaming RPC that
+	// registers an intent for a client to be notified once a confirmation request
+	// has reached its required number of confirmations on-chain.
 	//
-	//RegisterConfirmationsNtfn is a synchronous response-streaming RPC that
-	//registers an intent for a client to be notified once a confirmation request
-	//has reached its required number of confirmations on-chain.
-	//
-	//A confirmation request must have a valid output script. It is also possible
-	//to give a transaction ID. If the transaction ID is not set, a notification
-	//is sent once the output script confirms. If the transaction ID is also set,
-	//a notification is sent once the output script confirms in the given
-	//transaction.
+	// A confirmation request must have a valid output script. It is also possible
+	// to give a transaction ID. If the transaction ID is not set, a notification
+	// is sent once the output script confirms. If the transaction ID is also set,
+	// a notification is sent once the output script confirms in the given
+	// transaction.
 	RegisterConfirmationsNtfn(*ConfRequest, ChainNotifier_RegisterConfirmationsNtfnServer) error
+	// RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
+	// intent for a client to be notification once a spend request has been spent
+	// by a transaction that has confirmed on-chain.
 	//
-	//RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
-	//intent for a client to be notification once a spend request has been spent
-	//by a transaction that has confirmed on-chain.
-	//
-	//A client can specify whether the spend request should be for a particular
-	//outpoint  or for an output script by specifying a zero outpoint.
+	// A client can specify whether the spend request should be for a particular
+	// outpoint  or for an output script by specifying a zero outpoint.
 	RegisterSpendNtfn(*SpendRequest, ChainNotifier_RegisterSpendNtfnServer) error
+	// RegisterBlockEpochNtfn is a synchronous response-streaming RPC that
+	// registers an intent for a client to be notified of blocks in the chain. The
+	// stream will return a hash and height tuple of a block for each new/stale
+	// block in the chain. It is the client's responsibility to determine whether
+	// the tuple returned is for a new or stale block in the chain.
 	//
-	//RegisterBlockEpochNtfn is a synchronous response-streaming RPC that
-	//registers an intent for a client to be notified of blocks in the chain. The
-	//stream will return a hash and height tuple of a block for each new/stale
-	//block in the chain. It is the client's responsibility to determine whether
-	//the tuple returned is for a new or stale block in the chain.
-	//
-	//A client can also request a historical backlog of blocks from a particular
-	//point. This allows clients to be idempotent by ensuring that they do not
-	//missing processing a single block within the chain.
+	// A client can also request a historical backlog of blocks from a particular
+	// point. This allows clients to be idempotent by ensuring that they do not
+	// missing processing a single block within the chain.
 	RegisterBlockEpochNtfn(*BlockEpoch, ChainNotifier_RegisterBlockEpochNtfnServer) error
 	mustEmbedUnimplementedChainNotifierServer()
 }

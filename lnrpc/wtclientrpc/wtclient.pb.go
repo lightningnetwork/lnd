@@ -170,10 +170,9 @@ type RemoveTowerRequest struct {
 
 	// The identifying public key of the watchtower to remove.
 	Pubkey []byte `protobuf:"bytes,1,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
-	//
-	//If set, then the record for this address will be removed, indicating that is
-	//is stale. Otherwise, the watchtower will no longer be used for future
-	//session negotiations and backups.
+	// If set, then the record for this address will be removed, indicating that is
+	// is stale. Otherwise, the watchtower will no longer be used for future
+	// session negotiations and backups.
 	Address string `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
 }
 
@@ -323,26 +322,22 @@ type TowerSession struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The total number of successful backups that have been made to the
-	//watchtower session.
+	// The total number of successful backups that have been made to the
+	// watchtower session.
 	NumBackups uint32 `protobuf:"varint,1,opt,name=num_backups,json=numBackups,proto3" json:"num_backups,omitempty"`
-	//
-	//The total number of backups in the session that are currently pending to be
-	//acknowledged by the watchtower.
+	// The total number of backups in the session that are currently pending to be
+	// acknowledged by the watchtower.
 	NumPendingBackups uint32 `protobuf:"varint,2,opt,name=num_pending_backups,json=numPendingBackups,proto3" json:"num_pending_backups,omitempty"`
 	// The maximum number of backups allowed by the watchtower session.
 	MaxBackups uint32 `protobuf:"varint,3,opt,name=max_backups,json=maxBackups,proto3" json:"max_backups,omitempty"`
-	//
-	//Deprecated, use sweep_sat_per_vbyte.
-	//The fee rate, in satoshis per vbyte, that will be used by the watchtower for
-	//the justice transaction in the event of a channel breach.
+	// Deprecated, use sweep_sat_per_vbyte.
+	// The fee rate, in satoshis per vbyte, that will be used by the watchtower for
+	// the justice transaction in the event of a channel breach.
 	//
 	// Deprecated: Do not use.
 	SweepSatPerByte uint32 `protobuf:"varint,4,opt,name=sweep_sat_per_byte,json=sweepSatPerByte,proto3" json:"sweep_sat_per_byte,omitempty"`
-	//
-	//The fee rate, in satoshis per vbyte, that will be used by the watchtower for
-	//the justice transaction in the event of a channel breach.
+	// The fee rate, in satoshis per vbyte, that will be used by the watchtower for
+	// the justice transaction in the event of a channel breach.
 	SweepSatPerVbyte uint32 `protobuf:"varint,5,opt,name=sweep_sat_per_vbyte,json=sweepSatPerVbyte,proto3" json:"sweep_sat_per_vbyte,omitempty"`
 }
 
@@ -637,17 +632,14 @@ type StatsResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The total number of backups made to all active and exhausted watchtower
-	//sessions.
+	// The total number of backups made to all active and exhausted watchtower
+	// sessions.
 	NumBackups uint32 `protobuf:"varint,1,opt,name=num_backups,json=numBackups,proto3" json:"num_backups,omitempty"`
-	//
-	//The total number of backups that are pending to be acknowledged by all
-	//active and exhausted watchtower sessions.
+	// The total number of backups that are pending to be acknowledged by all
+	// active and exhausted watchtower sessions.
 	NumPendingBackups uint32 `protobuf:"varint,2,opt,name=num_pending_backups,json=numPendingBackups,proto3" json:"num_pending_backups,omitempty"`
-	//
-	//The total number of backups that all active and exhausted watchtower
-	//sessions have failed to acknowledge.
+	// The total number of backups that all active and exhausted watchtower
+	// sessions have failed to acknowledge.
 	NumFailedBackups uint32 `protobuf:"varint,3,opt,name=num_failed_backups,json=numFailedBackups,proto3" json:"num_failed_backups,omitempty"`
 	// The total number of new sessions made to watchtowers.
 	NumSessionsAcquired uint32 `protobuf:"varint,4,opt,name=num_sessions_acquired,json=numSessionsAcquired,proto3" json:"num_sessions_acquired,omitempty"`
@@ -727,8 +719,7 @@ type PolicyRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The client type from which to retrieve the active offering policy.
+	// The client type from which to retrieve the active offering policy.
 	PolicyType PolicyType `protobuf:"varint,1,opt,name=policy_type,json=policyType,proto3,enum=wtclientrpc.PolicyType" json:"policy_type,omitempty"`
 }
 
@@ -776,20 +767,17 @@ type PolicyResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The maximum number of updates each session we negotiate with watchtowers
-	//should allow.
+	// The maximum number of updates each session we negotiate with watchtowers
+	// should allow.
 	MaxUpdates uint32 `protobuf:"varint,1,opt,name=max_updates,json=maxUpdates,proto3" json:"max_updates,omitempty"`
-	//
-	//Deprecated, use sweep_sat_per_vbyte.
-	//The fee rate, in satoshis per vbyte, that will be used by watchtowers for
-	//justice transactions in response to channel breaches.
+	// Deprecated, use sweep_sat_per_vbyte.
+	// The fee rate, in satoshis per vbyte, that will be used by watchtowers for
+	// justice transactions in response to channel breaches.
 	//
 	// Deprecated: Do not use.
 	SweepSatPerByte uint32 `protobuf:"varint,2,opt,name=sweep_sat_per_byte,json=sweepSatPerByte,proto3" json:"sweep_sat_per_byte,omitempty"`
-	//
-	//The fee rate, in satoshis per vbyte, that will be used by watchtowers for
-	//justice transactions in response to channel breaches.
+	// The fee rate, in satoshis per vbyte, that will be used by watchtowers for
+	// justice transactions in response to channel breaches.
 	SweepSatPerVbyte uint32 `protobuf:"varint,3,opt,name=sweep_sat_per_vbyte,json=sweepSatPerVbyte,proto3" json:"sweep_sat_per_vbyte,omitempty"`
 }
 

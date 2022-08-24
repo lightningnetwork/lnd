@@ -18,33 +18,25 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type NeutrinoKitClient interface {
-	//
-	//Status returns the status of the light client neutrino instance,
-	//along with height and hash of the best block, and a list of connected
-	//peers.
+	// Status returns the status of the light client neutrino instance,
+	// along with height and hash of the best block, and a list of connected
+	// peers.
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
-	//
-	//AddPeer adds a new peer that has already been connected to the server.
+	// AddPeer adds a new peer that has already been connected to the server.
 	AddPeer(ctx context.Context, in *AddPeerRequest, opts ...grpc.CallOption) (*AddPeerResponse, error)
-	//
-	//DisconnectPeer disconnects a peer by target address. Both outbound and
-	//inbound nodes will be searched for the target node. An error message will
-	//be returned if the peer was not found.
+	// DisconnectPeer disconnects a peer by target address. Both outbound and
+	// inbound nodes will be searched for the target node. An error message will
+	// be returned if the peer was not found.
 	DisconnectPeer(ctx context.Context, in *DisconnectPeerRequest, opts ...grpc.CallOption) (*DisconnectPeerResponse, error)
-	//
-	//IsBanned returns true if the peer is banned, otherwise false.
+	// IsBanned returns true if the peer is banned, otherwise false.
 	IsBanned(ctx context.Context, in *IsBannedRequest, opts ...grpc.CallOption) (*IsBannedResponse, error)
-	//
-	//GetBlockHeader returns a block header with a particular block hash.
+	// GetBlockHeader returns a block header with a particular block hash.
 	GetBlockHeader(ctx context.Context, in *GetBlockHeaderRequest, opts ...grpc.CallOption) (*GetBlockHeaderResponse, error)
-	//
-	//GetBlock returns a block with a particular block hash.
+	// GetBlock returns a block with a particular block hash.
 	GetBlock(ctx context.Context, in *GetBlockRequest, opts ...grpc.CallOption) (*GetBlockResponse, error)
-	//
-	//GetCFilter returns a compact filter from a block.
+	// GetCFilter returns a compact filter from a block.
 	GetCFilter(ctx context.Context, in *GetCFilterRequest, opts ...grpc.CallOption) (*GetCFilterResponse, error)
-	//
-	//GetBlockHash returns the header hash of a block at a given height.
+	// GetBlockHash returns the header hash of a block at a given height.
 	GetBlockHash(ctx context.Context, in *GetBlockHashRequest, opts ...grpc.CallOption) (*GetBlockHashResponse, error)
 }
 
@@ -132,33 +124,25 @@ func (c *neutrinoKitClient) GetBlockHash(ctx context.Context, in *GetBlockHashRe
 // All implementations must embed UnimplementedNeutrinoKitServer
 // for forward compatibility
 type NeutrinoKitServer interface {
-	//
-	//Status returns the status of the light client neutrino instance,
-	//along with height and hash of the best block, and a list of connected
-	//peers.
+	// Status returns the status of the light client neutrino instance,
+	// along with height and hash of the best block, and a list of connected
+	// peers.
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
-	//
-	//AddPeer adds a new peer that has already been connected to the server.
+	// AddPeer adds a new peer that has already been connected to the server.
 	AddPeer(context.Context, *AddPeerRequest) (*AddPeerResponse, error)
-	//
-	//DisconnectPeer disconnects a peer by target address. Both outbound and
-	//inbound nodes will be searched for the target node. An error message will
-	//be returned if the peer was not found.
+	// DisconnectPeer disconnects a peer by target address. Both outbound and
+	// inbound nodes will be searched for the target node. An error message will
+	// be returned if the peer was not found.
 	DisconnectPeer(context.Context, *DisconnectPeerRequest) (*DisconnectPeerResponse, error)
-	//
-	//IsBanned returns true if the peer is banned, otherwise false.
+	// IsBanned returns true if the peer is banned, otherwise false.
 	IsBanned(context.Context, *IsBannedRequest) (*IsBannedResponse, error)
-	//
-	//GetBlockHeader returns a block header with a particular block hash.
+	// GetBlockHeader returns a block header with a particular block hash.
 	GetBlockHeader(context.Context, *GetBlockHeaderRequest) (*GetBlockHeaderResponse, error)
-	//
-	//GetBlock returns a block with a particular block hash.
+	// GetBlock returns a block with a particular block hash.
 	GetBlock(context.Context, *GetBlockRequest) (*GetBlockResponse, error)
-	//
-	//GetCFilter returns a compact filter from a block.
+	// GetCFilter returns a compact filter from a block.
 	GetCFilter(context.Context, *GetCFilterRequest) (*GetCFilterResponse, error)
-	//
-	//GetBlockHash returns the header hash of a block at a given height.
+	// GetBlockHash returns the header hash of a block at a given height.
 	GetBlockHash(context.Context, *GetBlockHashRequest) (*GetBlockHashResponse, error)
 	mustEmbedUnimplementedNeutrinoKitServer()
 }

@@ -133,28 +133,21 @@ func (FailureDetail) EnumDescriptor() ([]byte, []int) {
 type PaymentState int32
 
 const (
-	//
-	//Payment is still in flight.
+	// Payment is still in flight.
 	PaymentState_IN_FLIGHT PaymentState = 0
-	//
-	//Payment completed successfully.
+	// Payment completed successfully.
 	PaymentState_SUCCEEDED PaymentState = 1
-	//
-	//There are more routes to try, but the payment timeout was exceeded.
+	// There are more routes to try, but the payment timeout was exceeded.
 	PaymentState_FAILED_TIMEOUT PaymentState = 2
-	//
-	//All possible routes were tried and failed permanently. Or were no
-	//routes to the destination at all.
+	// All possible routes were tried and failed permanently. Or were no
+	// routes to the destination at all.
 	PaymentState_FAILED_NO_ROUTE PaymentState = 3
-	//
-	//A non-recoverable error has occurred.
+	// A non-recoverable error has occurred.
 	PaymentState_FAILED_ERROR PaymentState = 4
-	//
-	//Payment details incorrect (unknown hash, invalid amt or
-	//invalid final cltv delta)
+	// Payment details incorrect (unknown hash, invalid amt or
+	// invalid final cltv delta)
 	PaymentState_FAILED_INCORRECT_PAYMENT_DETAILS PaymentState = 5
-	//
-	//Insufficient local balance.
+	// Insufficient local balance.
 	PaymentState_FAILED_INSUFFICIENT_BALANCE PaymentState = 6
 )
 
@@ -364,112 +357,93 @@ type SendPaymentRequest struct {
 
 	// The identity pubkey of the payment recipient
 	Dest []byte `protobuf:"bytes,1,opt,name=dest,proto3" json:"dest,omitempty"`
+	// Number of satoshis to send.
 	//
-	//Number of satoshis to send.
-	//
-	//The fields amt and amt_msat are mutually exclusive.
+	// The fields amt and amt_msat are mutually exclusive.
 	Amt int64 `protobuf:"varint,2,opt,name=amt,proto3" json:"amt,omitempty"`
+	// Number of millisatoshis to send.
 	//
-	//Number of millisatoshis to send.
-	//
-	//The fields amt and amt_msat are mutually exclusive.
+	// The fields amt and amt_msat are mutually exclusive.
 	AmtMsat int64 `protobuf:"varint,12,opt,name=amt_msat,json=amtMsat,proto3" json:"amt_msat,omitempty"`
 	// The hash to use within the payment's HTLC
 	PaymentHash []byte `protobuf:"bytes,3,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
-	//
-	//The CLTV delta from the current height that should be used to set the
-	//timelock for the final hop.
+	// The CLTV delta from the current height that should be used to set the
+	// timelock for the final hop.
 	FinalCltvDelta int32 `protobuf:"varint,4,opt,name=final_cltv_delta,json=finalCltvDelta,proto3" json:"final_cltv_delta,omitempty"`
 	// An optional payment addr to be included within the last hop of the route.
 	PaymentAddr []byte `protobuf:"bytes,20,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
-	//
-	//A bare-bones invoice for a payment within the Lightning Network.  With the
-	//details of the invoice, the sender has all the data necessary to send a
-	//payment to the recipient. The amount in the payment request may be zero. In
-	//that case it is required to set the amt field as well. If no payment request
-	//is specified, the following fields are required: dest, amt and payment_hash.
+	// A bare-bones invoice for a payment within the Lightning Network.  With the
+	// details of the invoice, the sender has all the data necessary to send a
+	// payment to the recipient. The amount in the payment request may be zero. In
+	// that case it is required to set the amt field as well. If no payment request
+	// is specified, the following fields are required: dest, amt and payment_hash.
 	PaymentRequest string `protobuf:"bytes,5,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
-	//
-	//An upper limit on the amount of time we should spend when attempting to
-	//fulfill the payment. This is expressed in seconds. If we cannot make a
-	//successful payment within this time frame, an error will be returned.
-	//This field must be non-zero.
+	// An upper limit on the amount of time we should spend when attempting to
+	// fulfill the payment. This is expressed in seconds. If we cannot make a
+	// successful payment within this time frame, an error will be returned.
+	// This field must be non-zero.
 	TimeoutSeconds int32 `protobuf:"varint,6,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
+	// The maximum number of satoshis that will be paid as a fee of the payment.
+	// If this field is left to the default value of 0, only zero-fee routes will
+	// be considered. This usually means single hop routes connecting directly to
+	// the destination. To send the payment without a fee limit, use max int here.
 	//
-	//The maximum number of satoshis that will be paid as a fee of the payment.
-	//If this field is left to the default value of 0, only zero-fee routes will
-	//be considered. This usually means single hop routes connecting directly to
-	//the destination. To send the payment without a fee limit, use max int here.
-	//
-	//The fields fee_limit_sat and fee_limit_msat are mutually exclusive.
+	// The fields fee_limit_sat and fee_limit_msat are mutually exclusive.
 	FeeLimitSat int64 `protobuf:"varint,7,opt,name=fee_limit_sat,json=feeLimitSat,proto3" json:"fee_limit_sat,omitempty"`
+	// The maximum number of millisatoshis that will be paid as a fee of the
+	// payment. If this field is left to the default value of 0, only zero-fee
+	// routes will be considered. This usually means single hop routes connecting
+	// directly to the destination. To send the payment without a fee limit, use
+	// max int here.
 	//
-	//The maximum number of millisatoshis that will be paid as a fee of the
-	//payment. If this field is left to the default value of 0, only zero-fee
-	//routes will be considered. This usually means single hop routes connecting
-	//directly to the destination. To send the payment without a fee limit, use
-	//max int here.
-	//
-	//The fields fee_limit_sat and fee_limit_msat are mutually exclusive.
+	// The fields fee_limit_sat and fee_limit_msat are mutually exclusive.
 	FeeLimitMsat int64 `protobuf:"varint,13,opt,name=fee_limit_msat,json=feeLimitMsat,proto3" json:"fee_limit_msat,omitempty"`
-	//
-	//Deprecated, use outgoing_chan_ids. The channel id of the channel that must
-	//be taken to the first hop. If zero, any channel may be used (unless
-	//outgoing_chan_ids are set).
+	// Deprecated, use outgoing_chan_ids. The channel id of the channel that must
+	// be taken to the first hop. If zero, any channel may be used (unless
+	// outgoing_chan_ids are set).
 	//
 	// Deprecated: Do not use.
 	OutgoingChanId uint64 `protobuf:"varint,8,opt,name=outgoing_chan_id,json=outgoingChanId,proto3" json:"outgoing_chan_id,omitempty"`
-	//
-	//The channel ids of the channels are allowed for the first hop. If empty,
-	//any channel may be used.
+	// The channel ids of the channels are allowed for the first hop. If empty,
+	// any channel may be used.
 	OutgoingChanIds []uint64 `protobuf:"varint,19,rep,packed,name=outgoing_chan_ids,json=outgoingChanIds,proto3" json:"outgoing_chan_ids,omitempty"`
-	//
-	//The pubkey of the last hop of the route. If empty, any hop may be used.
+	// The pubkey of the last hop of the route. If empty, any hop may be used.
 	LastHopPubkey []byte `protobuf:"bytes,14,opt,name=last_hop_pubkey,json=lastHopPubkey,proto3" json:"last_hop_pubkey,omitempty"`
-	//
-	//An optional maximum total time lock for the route. This should not exceed
-	//lnd's `--max-cltv-expiry` setting. If zero, then the value of
-	//`--max-cltv-expiry` is enforced.
+	// An optional maximum total time lock for the route. This should not exceed
+	// lnd's `--max-cltv-expiry` setting. If zero, then the value of
+	// `--max-cltv-expiry` is enforced.
 	CltvLimit int32 `protobuf:"varint,9,opt,name=cltv_limit,json=cltvLimit,proto3" json:"cltv_limit,omitempty"`
-	//
-	//Optional route hints to reach the destination through private channels.
+	// Optional route hints to reach the destination through private channels.
 	RouteHints []*lnrpc.RouteHint `protobuf:"bytes,10,rep,name=route_hints,json=routeHints,proto3" json:"route_hints,omitempty"`
-	//
-	//An optional field that can be used to pass an arbitrary set of TLV records
-	//to a peer which understands the new records. This can be used to pass
-	//application specific data during the payment attempt. Record types are
-	//required to be in the custom range >= 65536. When using REST, the values
-	//must be encoded as base64.
+	// An optional field that can be used to pass an arbitrary set of TLV records
+	// to a peer which understands the new records. This can be used to pass
+	// application specific data during the payment attempt. Record types are
+	// required to be in the custom range >= 65536. When using REST, the values
+	// must be encoded as base64.
 	DestCustomRecords map[uint64][]byte `protobuf:"bytes,11,rep,name=dest_custom_records,json=destCustomRecords,proto3" json:"dest_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// If set, circular payments to self are permitted.
 	AllowSelfPayment bool `protobuf:"varint,15,opt,name=allow_self_payment,json=allowSelfPayment,proto3" json:"allow_self_payment,omitempty"`
-	//
-	//Features assumed to be supported by the final node. All transitive feature
-	//dependencies must also be set properly. For a given feature bit pair, either
-	//optional or remote may be set, but not both. If this field is nil or empty,
-	//the router will try to load destination features from the graph as a
-	//fallback.
+	// Features assumed to be supported by the final node. All transitive feature
+	// dependencies must also be set properly. For a given feature bit pair, either
+	// optional or remote may be set, but not both. If this field is nil or empty,
+	// the router will try to load destination features from the graph as a
+	// fallback.
 	DestFeatures []lnrpc.FeatureBit `protobuf:"varint,16,rep,packed,name=dest_features,json=destFeatures,proto3,enum=lnrpc.FeatureBit" json:"dest_features,omitempty"`
-	//
-	//The maximum number of partial payments that may be use to complete the full
-	//amount.
+	// The maximum number of partial payments that may be use to complete the full
+	// amount.
 	MaxParts uint32 `protobuf:"varint,17,opt,name=max_parts,json=maxParts,proto3" json:"max_parts,omitempty"`
-	//
-	//If set, only the final payment update is streamed back. Intermediate updates
-	//that show which htlcs are still in flight are suppressed.
+	// If set, only the final payment update is streamed back. Intermediate updates
+	// that show which htlcs are still in flight are suppressed.
 	NoInflightUpdates bool `protobuf:"varint,18,opt,name=no_inflight_updates,json=noInflightUpdates,proto3" json:"no_inflight_updates,omitempty"`
-	//
-	//The largest payment split that should be attempted when making a payment if
-	//splitting is necessary. Setting this value will effectively cause lnd to
-	//split more aggressively, vs only when it thinks it needs to. Note that this
-	//value is in milli-satoshis.
+	// The largest payment split that should be attempted when making a payment if
+	// splitting is necessary. Setting this value will effectively cause lnd to
+	// split more aggressively, vs only when it thinks it needs to. Note that this
+	// value is in milli-satoshis.
 	MaxShardSizeMsat uint64 `protobuf:"varint,21,opt,name=max_shard_size_msat,json=maxShardSizeMsat,proto3" json:"max_shard_size_msat,omitempty"`
-	//
-	//If set, an AMP-payment will be attempted.
+	// If set, an AMP-payment will be attempted.
 	Amp bool `protobuf:"varint,22,opt,name=amp,proto3" json:"amp,omitempty"`
-	//
-	//The time preference for this payment. Set to -1 to optimize for fees
-	//only, to 1 to optimize for reliability only or a value inbetween for a mix.
+	// The time preference for this payment. Set to -1 to optimize for fees
+	// only, to 1 to optimize for reliability only or a value inbetween for a mix.
 	TimePref float64 `protobuf:"fixed64,23,opt,name=time_pref,json=timePref,proto3" json:"time_pref,omitempty"`
 }
 
@@ -674,9 +648,8 @@ type TrackPaymentRequest struct {
 
 	// The hash of the payment to look up.
 	PaymentHash []byte `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
-	//
-	//If set, only the final payment update is streamed back. Intermediate updates
-	//that show which htlcs are still in flight are suppressed.
+	// If set, only the final payment update is streamed back. Intermediate updates
+	// that show which htlcs are still in flight are suppressed.
 	NoInflightUpdates bool `protobuf:"varint,2,opt,name=no_inflight_updates,json=noInflightUpdates,proto3" json:"no_inflight_updates,omitempty"`
 }
 
@@ -731,11 +704,9 @@ type RouteFeeRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The destination once wishes to obtain a routing fee quote to.
+	// The destination once wishes to obtain a routing fee quote to.
 	Dest []byte `protobuf:"bytes,1,opt,name=dest,proto3" json:"dest,omitempty"`
-	//
-	//The amount one wishes to send to the target destination.
+	// The amount one wishes to send to the target destination.
 	AmtSat int64 `protobuf:"varint,2,opt,name=amt_sat,json=amtSat,proto3" json:"amt_sat,omitempty"`
 }
 
@@ -790,14 +761,12 @@ type RouteFeeResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//A lower bound of the estimated fee to the target destination within the
-	//network, expressed in milli-satoshis.
+	// A lower bound of the estimated fee to the target destination within the
+	// network, expressed in milli-satoshis.
 	RoutingFeeMsat int64 `protobuf:"varint,1,opt,name=routing_fee_msat,json=routingFeeMsat,proto3" json:"routing_fee_msat,omitempty"`
-	//
-	//An estimate of the worst case time delay that can occur. Note that callers
-	//will still need to factor in the final CLTV delta of the last hop into this
-	//value.
+	// An estimate of the worst case time delay that can occur. Note that callers
+	// will still need to factor in the final CLTV delta of the last hop into this
+	// value.
 	TimeLockDelay int64 `protobuf:"varint,2,opt,name=time_lock_delay,json=timeLockDelay,proto3" json:"time_lock_delay,omitempty"`
 }
 
@@ -856,11 +825,10 @@ type SendToRouteRequest struct {
 	PaymentHash []byte `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
 	// Route that should be used to attempt to complete the payment.
 	Route *lnrpc.Route `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
-	//
-	//Whether the payment should be marked as failed when a temporary error is
-	//returned from the given route. Set it to true so the payment won't be
-	//failed unless a terminal error is occurred, such as payment timeout, no
-	//routes, incorrect payment details, or insufficient funds.
+	// Whether the payment should be marked as failed when a temporary error is
+	// returned from the given route. Set it to true so the payment won't be
+	// failed unless a terminal error is occurred, such as payment timeout, no
+	// routes, incorrect payment details, or insufficient funds.
 	SkipTempErr bool `protobuf:"varint,3,opt,name=skip_temp_err,json=skipTempErr,proto3" json:"skip_temp_err,omitempty"`
 }
 
@@ -1307,13 +1275,11 @@ type PairData struct {
 
 	// Time of last failure.
 	FailTime int64 `protobuf:"varint,1,opt,name=fail_time,json=failTime,proto3" json:"fail_time,omitempty"`
-	//
-	//Lowest amount that failed to forward rounded to whole sats. This may be
-	//set to zero if the failure is independent of amount.
+	// Lowest amount that failed to forward rounded to whole sats. This may be
+	// set to zero if the failure is independent of amount.
 	FailAmtSat int64 `protobuf:"varint,2,opt,name=fail_amt_sat,json=failAmtSat,proto3" json:"fail_amt_sat,omitempty"`
-	//
-	//Lowest amount that failed to forward in millisats. This may be
-	//set to zero if the failure is independent of amount.
+	// Lowest amount that failed to forward in millisats. This may be
+	// set to zero if the failure is independent of amount.
 	FailAmtMsat int64 `protobuf:"varint,4,opt,name=fail_amt_msat,json=failAmtMsat,proto3" json:"fail_amt_msat,omitempty"`
 	// Time of last success.
 	SuccessTime int64 `protobuf:"varint,5,opt,name=success_time,json=successTime,proto3" json:"success_time,omitempty"`
@@ -1440,8 +1406,7 @@ type GetMissionControlConfigResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//Mission control's currently active config.
+	// Mission control's currently active config.
 	Config *MissionControlConfig `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
 }
 
@@ -1489,9 +1454,8 @@ type SetMissionControlConfigRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The config to set for mission control. Note that all values *must* be set,
-	//because the full config will be applied.
+	// The config to set for mission control. Note that all values *must* be set,
+	// because the full config will be applied.
 	Config *MissionControlConfig `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
 }
 
@@ -1577,33 +1541,28 @@ type MissionControlConfig struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The amount of time mission control will take to restore a penalized node
-	//or channel back to 50% success probability, expressed in seconds. Setting
-	//this value to a higher value will penalize failures for longer, making
-	//mission control less likely to route through nodes and channels that we
-	//have previously recorded failures for.
+	// The amount of time mission control will take to restore a penalized node
+	// or channel back to 50% success probability, expressed in seconds. Setting
+	// this value to a higher value will penalize failures for longer, making
+	// mission control less likely to route through nodes and channels that we
+	// have previously recorded failures for.
 	HalfLifeSeconds uint64 `protobuf:"varint,1,opt,name=half_life_seconds,json=halfLifeSeconds,proto3" json:"half_life_seconds,omitempty"`
-	//
-	//The probability of success mission control should assign to hop in a route
-	//where it has no other information available. Higher values will make mission
-	//control more willing to try hops that we have no information about, lower
-	//values will discourage trying these hops.
+	// The probability of success mission control should assign to hop in a route
+	// where it has no other information available. Higher values will make mission
+	// control more willing to try hops that we have no information about, lower
+	// values will discourage trying these hops.
 	HopProbability float32 `protobuf:"fixed32,2,opt,name=hop_probability,json=hopProbability,proto3" json:"hop_probability,omitempty"`
-	//
-	//The importance that mission control should place on historical results,
-	//expressed as a value in [0;1]. Setting this value to 1 will ignore all
-	//historical payments and just use the hop probability to assess the
-	//probability of success for each hop. A zero value ignores hop probability
-	//completely and relies entirely on historical results, unless none are
-	//available.
+	// The importance that mission control should place on historical results,
+	// expressed as a value in [0;1]. Setting this value to 1 will ignore all
+	// historical payments and just use the hop probability to assess the
+	// probability of success for each hop. A zero value ignores hop probability
+	// completely and relies entirely on historical results, unless none are
+	// available.
 	Weight float32 `protobuf:"fixed32,3,opt,name=weight,proto3" json:"weight,omitempty"`
-	//
-	//The maximum number of payment results that mission control will store.
+	// The maximum number of payment results that mission control will store.
 	MaximumPaymentResults uint32 `protobuf:"varint,4,opt,name=maximum_payment_results,json=maximumPaymentResults,proto3" json:"maximum_payment_results,omitempty"`
-	//
-	//The minimum time that must have passed since the previously recorded failure
-	//before we raise the failure amount.
+	// The minimum time that must have passed since the previously recorded failure
+	// before we raise the failure amount.
 	MinimumFailureRelaxInterval uint64 `protobuf:"varint,5,opt,name=minimum_failure_relax_interval,json=minimumFailureRelaxInterval,proto3" json:"minimum_failure_relax_interval,omitempty"`
 }
 
@@ -1802,21 +1761,17 @@ type BuildRouteRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The amount to send expressed in msat. If set to zero, the minimum routable
-	//amount is used.
+	// The amount to send expressed in msat. If set to zero, the minimum routable
+	// amount is used.
 	AmtMsat int64 `protobuf:"varint,1,opt,name=amt_msat,json=amtMsat,proto3" json:"amt_msat,omitempty"`
-	//
-	//CLTV delta from the current height that should be used for the timelock
-	//of the final hop
+	// CLTV delta from the current height that should be used for the timelock
+	// of the final hop
 	FinalCltvDelta int32 `protobuf:"varint,2,opt,name=final_cltv_delta,json=finalCltvDelta,proto3" json:"final_cltv_delta,omitempty"`
-	//
-	//The channel id of the channel that must be taken to the first hop. If zero,
-	//any channel may be used.
+	// The channel id of the channel that must be taken to the first hop. If zero,
+	// any channel may be used.
 	OutgoingChanId uint64 `protobuf:"varint,3,opt,name=outgoing_chan_id,json=outgoingChanId,proto3" json:"outgoing_chan_id,omitempty"`
-	//
-	//A list of hops that defines the route. This does not include the source hop
-	//pubkey.
+	// A list of hops that defines the route. This does not include the source hop
+	// pubkey.
 	HopPubkeys [][]byte `protobuf:"bytes,4,rep,name=hop_pubkeys,json=hopPubkeys,proto3" json:"hop_pubkeys,omitempty"`
 	// An optional payment addr to be included within the last hop of the route.
 	PaymentAddr []byte `protobuf:"bytes,5,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
@@ -1894,8 +1849,7 @@ type BuildRouteResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//Fully specified route that can be used to execute the payment.
+	// Fully specified route that can be used to execute the payment.
 	Route *lnrpc.Route `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
 }
 
@@ -1976,42 +1930,36 @@ func (*SubscribeHtlcEventsRequest) Descriptor() ([]byte, []int) {
 	return file_routerrpc_router_proto_rawDescGZIP(), []int{23}
 }
 
-//
-//HtlcEvent contains the htlc event that was processed. These are served on a
-//best-effort basis; events are not persisted, delivery is not guaranteed
-//(in the event of a crash in the switch, forward events may be lost) and
-//some events may be replayed upon restart. Events consumed from this package
-//should be de-duplicated by the htlc's unique combination of incoming and
-//outgoing channel id and htlc id. [EXPERIMENTAL]
+// HtlcEvent contains the htlc event that was processed. These are served on a
+// best-effort basis; events are not persisted, delivery is not guaranteed
+// (in the event of a crash in the switch, forward events may be lost) and
+// some events may be replayed upon restart. Events consumed from this package
+// should be de-duplicated by the htlc's unique combination of incoming and
+// outgoing channel id and htlc id. [EXPERIMENTAL]
 type HtlcEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The short channel id that the incoming htlc arrived at our node on. This
-	//value is zero for sends.
+	// The short channel id that the incoming htlc arrived at our node on. This
+	// value is zero for sends.
 	IncomingChannelId uint64 `protobuf:"varint,1,opt,name=incoming_channel_id,json=incomingChannelId,proto3" json:"incoming_channel_id,omitempty"`
-	//
-	//The short channel id that the outgoing htlc left our node on. This value
-	//is zero for receives.
+	// The short channel id that the outgoing htlc left our node on. This value
+	// is zero for receives.
 	OutgoingChannelId uint64 `protobuf:"varint,2,opt,name=outgoing_channel_id,json=outgoingChannelId,proto3" json:"outgoing_channel_id,omitempty"`
-	//
-	//Incoming id is the index of the incoming htlc in the incoming channel.
-	//This value is zero for sends.
+	// Incoming id is the index of the incoming htlc in the incoming channel.
+	// This value is zero for sends.
 	IncomingHtlcId uint64 `protobuf:"varint,3,opt,name=incoming_htlc_id,json=incomingHtlcId,proto3" json:"incoming_htlc_id,omitempty"`
-	//
-	//Outgoing id is the index of the outgoing htlc in the outgoing channel.
-	//This value is zero for receives.
+	// Outgoing id is the index of the outgoing htlc in the outgoing channel.
+	// This value is zero for receives.
 	OutgoingHtlcId uint64 `protobuf:"varint,4,opt,name=outgoing_htlc_id,json=outgoingHtlcId,proto3" json:"outgoing_htlc_id,omitempty"`
-	//
-	//The time in unix nanoseconds that the event occurred.
+	// The time in unix nanoseconds that the event occurred.
 	TimestampNs uint64 `protobuf:"varint,5,opt,name=timestamp_ns,json=timestampNs,proto3" json:"timestamp_ns,omitempty"`
-	//
-	//The event type indicates whether the htlc was part of a send, receive or
-	//forward.
+	// The event type indicates whether the htlc was part of a send, receive or
+	// forward.
 	EventType HtlcEvent_EventType `protobuf:"varint,6,opt,name=event_type,json=eventType,proto3,enum=routerrpc.HtlcEvent_EventType" json:"event_type,omitempty"`
 	// Types that are assignable to Event:
+	//
 	//	*HtlcEvent_ForwardEvent
 	//	*HtlcEvent_ForwardFailEvent
 	//	*HtlcEvent_SettleEvent
@@ -2374,10 +2322,9 @@ type LinkFailEvent struct {
 	Info *HtlcInfo `protobuf:"bytes,1,opt,name=info,proto3" json:"info,omitempty"`
 	// FailureCode is the BOLT error code for the failure.
 	WireFailure lnrpc.Failure_FailureCode `protobuf:"varint,2,opt,name=wire_failure,json=wireFailure,proto3,enum=lnrpc.Failure_FailureCode" json:"wire_failure,omitempty"`
-	//
-	//FailureDetail provides additional information about the reason for the
-	//failure. This detail enriches the information provided by the wire message
-	//and may be 'no detail' if the wire message requires no additional metadata.
+	// FailureDetail provides additional information about the reason for the
+	// failure. This detail enriches the information provided by the wire message
+	// and may be 'no detail' if the wire message requires no additional metadata.
 	FailureDetail FailureDetail `protobuf:"varint,3,opt,name=failure_detail,json=failureDetail,proto3,enum=routerrpc.FailureDetail" json:"failure_detail,omitempty"`
 	// A string representation of the link failure.
 	FailureString string `protobuf:"bytes,4,opt,name=failure_string,json=failureString,proto3" json:"failure_string,omitempty"`
@@ -2450,11 +2397,9 @@ type PaymentStatus struct {
 
 	// Current state the payment is in.
 	State PaymentState `protobuf:"varint,1,opt,name=state,proto3,enum=routerrpc.PaymentState" json:"state,omitempty"`
-	//
-	//The pre-image of the payment when state is SUCCEEDED.
+	// The pre-image of the payment when state is SUCCEEDED.
 	Preimage []byte `protobuf:"bytes,2,opt,name=preimage,proto3" json:"preimage,omitempty"`
-	//
-	//The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
+	// The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
 	Htlcs []*lnrpc.HTLCAttempt `protobuf:"bytes,4,rep,name=htlcs,proto3" json:"htlcs,omitempty"`
 }
 
@@ -2516,9 +2461,9 @@ type CircuitKey struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	/// The id of the channel that the is part of this circuit.
+	// / The id of the channel that the is part of this circuit.
 	ChanId uint64 `protobuf:"varint,1,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
-	/// The index of the incoming htlc in the incoming channel.
+	// / The index of the incoming htlc in the incoming channel.
 	HtlcId uint64 `protobuf:"varint,2,opt,name=htlc_id,json=htlcId,proto3" json:"htlc_id,omitempty"`
 }
 
@@ -2573,17 +2518,15 @@ type ForwardHtlcInterceptRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The key of this forwarded htlc. It defines the incoming channel id and
-	//the index in this channel.
+	// The key of this forwarded htlc. It defines the incoming channel id and
+	// the index in this channel.
 	IncomingCircuitKey *CircuitKey `protobuf:"bytes,1,opt,name=incoming_circuit_key,json=incomingCircuitKey,proto3" json:"incoming_circuit_key,omitempty"`
 	// The incoming htlc amount.
 	IncomingAmountMsat uint64 `protobuf:"varint,5,opt,name=incoming_amount_msat,json=incomingAmountMsat,proto3" json:"incoming_amount_msat,omitempty"`
 	// The incoming htlc expiry.
 	IncomingExpiry uint32 `protobuf:"varint,6,opt,name=incoming_expiry,json=incomingExpiry,proto3" json:"incoming_expiry,omitempty"`
-	//
-	//The htlc payment hash. This value is not guaranteed to be unique per
-	//request.
+	// The htlc payment hash. This value is not guaranteed to be unique per
+	// request.
 	PaymentHash []byte `protobuf:"bytes,2,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
 	// The requested outgoing channel id for this forwarded htlc. Because of
 	// non-strict forwarding, this isn't necessarily the channel over which the
@@ -2695,20 +2638,20 @@ func (x *ForwardHtlcInterceptRequest) GetOnionBlob() []byte {
 	return nil
 }
 
-//*
-//ForwardHtlcInterceptResponse enables the caller to resolve a previously hold
-//forward. The caller can choose either to:
-//- `Resume`: Execute the default behavior (usually forward).
-//- `Reject`: Fail the htlc backwards.
-//- `Settle`: Settle this htlc with a given preimage.
+// *
+// ForwardHtlcInterceptResponse enables the caller to resolve a previously hold
+// forward. The caller can choose either to:
+// - `Resume`: Execute the default behavior (usually forward).
+// - `Reject`: Fail the htlc backwards.
+// - `Settle`: Settle this htlc with a given preimage.
 type ForwardHtlcInterceptResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//*
-	//The key of this forwarded htlc. It defines the incoming channel id and
-	//the index in this channel.
+	// *
+	// The key of this forwarded htlc. It defines the incoming channel id and
+	// the index in this channel.
 	IncomingCircuitKey *CircuitKey `protobuf:"bytes,1,opt,name=incoming_circuit_key,json=incomingCircuitKey,proto3" json:"incoming_circuit_key,omitempty"`
 	// The resolve action for this intercepted htlc.
 	Action ResolveHoldForwardAction `protobuf:"varint,2,opt,name=action,proto3,enum=routerrpc.ResolveHoldForwardAction" json:"action,omitempty"`

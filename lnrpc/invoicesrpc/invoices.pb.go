@@ -26,15 +26,13 @@ type LookupModifier int32
 const (
 	// The default look up modifier, no look up behavior is changed.
 	LookupModifier_DEFAULT LookupModifier = 0
-	//
-	//Indicates that when a look up is done based on a set_id, then only that set
-	//of HTLCs related to that set ID should be returned.
+	// Indicates that when a look up is done based on a set_id, then only that set
+	// of HTLCs related to that set ID should be returned.
 	LookupModifier_HTLC_SET_ONLY LookupModifier = 1
-	//
-	//Indicates that when a look up is done using a payment_addr, then no HTLCs
-	//related to the payment_addr should be returned. This is useful when one
-	//wants to be able to obtain the set of associated setIDs with a given
-	//invoice, then look up the sub-invoices "projected" by that set ID.
+	// Indicates that when a look up is done using a payment_addr, then no HTLCs
+	// related to the payment_addr should be returned. This is useful when one
+	// wants to be able to obtain the set of associated setIDs with a given
+	// invoice, then look up the sub-invoices "projected" by that set ID.
 	LookupModifier_HTLC_SET_BLANK LookupModifier = 2
 )
 
@@ -171,28 +169,24 @@ type AddHoldInvoiceRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//An optional memo to attach along with the invoice. Used for record keeping
-	//purposes for the invoice's creator, and will also be set in the description
-	//field of the encoded payment request if the description_hash field is not
-	//being used.
+	// An optional memo to attach along with the invoice. Used for record keeping
+	// purposes for the invoice's creator, and will also be set in the description
+	// field of the encoded payment request if the description_hash field is not
+	// being used.
 	Memo string `protobuf:"bytes,1,opt,name=memo,proto3" json:"memo,omitempty"`
 	// The hash of the preimage
 	Hash []byte `protobuf:"bytes,2,opt,name=hash,proto3" json:"hash,omitempty"`
+	// The value of this invoice in satoshis
 	//
-	//The value of this invoice in satoshis
-	//
-	//The fields value and value_msat are mutually exclusive.
+	// The fields value and value_msat are mutually exclusive.
 	Value int64 `protobuf:"varint,3,opt,name=value,proto3" json:"value,omitempty"`
+	// The value of this invoice in millisatoshis
 	//
-	//The value of this invoice in millisatoshis
-	//
-	//The fields value and value_msat are mutually exclusive.
+	// The fields value and value_msat are mutually exclusive.
 	ValueMsat int64 `protobuf:"varint,10,opt,name=value_msat,json=valueMsat,proto3" json:"value_msat,omitempty"`
-	//
-	//Hash (SHA-256) of a description of the payment. Used if the description of
-	//payment (memo) is too long to naturally fit within the description field
-	//of an encoded payment request.
+	// Hash (SHA-256) of a description of the payment. Used if the description of
+	// payment (memo) is too long to naturally fit within the description field
+	// of an encoded payment request.
 	DescriptionHash []byte `protobuf:"bytes,4,opt,name=description_hash,json=descriptionHash,proto3" json:"description_hash,omitempty"`
 	// Payment request expiry time in seconds. Default is 3600 (1 hour).
 	Expiry int64 `protobuf:"varint,5,opt,name=expiry,proto3" json:"expiry,omitempty"`
@@ -200,9 +194,8 @@ type AddHoldInvoiceRequest struct {
 	FallbackAddr string `protobuf:"bytes,6,opt,name=fallback_addr,json=fallbackAddr,proto3" json:"fallback_addr,omitempty"`
 	// Delta to use for the time-lock of the CLTV extended to the final hop.
 	CltvExpiry uint64 `protobuf:"varint,7,opt,name=cltv_expiry,json=cltvExpiry,proto3" json:"cltv_expiry,omitempty"`
-	//
-	//Route hints that can each be individually used to assist in reaching the
-	//invoice's destination.
+	// Route hints that can each be individually used to assist in reaching the
+	// invoice's destination.
 	RouteHints []*lnrpc.RouteHint `protobuf:"bytes,8,rep,name=route_hints,json=routeHints,proto3" json:"route_hints,omitempty"`
 	// Whether this invoice should include routing hints for private channels.
 	Private bool `protobuf:"varint,9,opt,name=private,proto3" json:"private,omitempty"`
@@ -315,21 +308,18 @@ type AddHoldInvoiceResp struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//A bare-bones invoice for a payment within the Lightning Network. With the
-	//details of the invoice, the sender has all the data necessary to send a
-	//payment to the recipient.
+	// A bare-bones invoice for a payment within the Lightning Network. With the
+	// details of the invoice, the sender has all the data necessary to send a
+	// payment to the recipient.
 	PaymentRequest string `protobuf:"bytes,1,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
-	//
-	//The "add" index of this invoice. Each newly created invoice will increment
-	//this index making it monotonically increasing. Callers to the
-	//SubscribeInvoices call can use this to instantly get notified of all added
-	//invoices with an add_index greater than this one.
+	// The "add" index of this invoice. Each newly created invoice will increment
+	// this index making it monotonically increasing. Callers to the
+	// SubscribeInvoices call can use this to instantly get notified of all added
+	// invoices with an add_index greater than this one.
 	AddIndex uint64 `protobuf:"varint,2,opt,name=add_index,json=addIndex,proto3" json:"add_index,omitempty"`
-	//
-	//The payment address of the generated invoice. This value should be used
-	//in all payments for this invoice as we require it for end to end
-	//security.
+	// The payment address of the generated invoice. This value should be used
+	// in all payments for this invoice as we require it for end to end
+	// security.
 	PaymentAddr []byte `protobuf:"bytes,3,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
 }
 
@@ -528,6 +518,7 @@ type LookupInvoiceMsg struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to InvoiceRef:
+	//
 	//	*LookupInvoiceMsg_PaymentHash
 	//	*LookupInvoiceMsg_PaymentAddr
 	//	*LookupInvoiceMsg_SetId

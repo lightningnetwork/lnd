@@ -87,12 +87,11 @@ func (OutputScriptType) EnumDescriptor() ([]byte, []int) {
 	return file_lightning_proto_rawDescGZIP(), []int{0}
 }
 
+// `AddressType` has to be one of:
 //
-//`AddressType` has to be one of:
-//
-//- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)
-//- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)
-//- `p2tr`: Pay to taproot pubkey (`TAPROOT_PUBKEY` = 4)
+// - `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)
+// - `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)
+// - `p2tr`: Pay to taproot pubkey (`TAPROOT_PUBKEY` = 4)
 type AddressType int32
 
 const (
@@ -154,30 +153,25 @@ func (AddressType) EnumDescriptor() ([]byte, []int) {
 type CommitmentType int32
 
 const (
-	//
-	//Returned when the commitment type isn't known or unavailable.
+	// Returned when the commitment type isn't known or unavailable.
 	CommitmentType_UNKNOWN_COMMITMENT_TYPE CommitmentType = 0
-	//
-	//A channel using the legacy commitment format having tweaked to_remote
-	//keys.
+	// A channel using the legacy commitment format having tweaked to_remote
+	// keys.
 	CommitmentType_LEGACY CommitmentType = 1
-	//
-	//A channel that uses the modern commitment format where the key in the
-	//output of the remote party does not change each state. This makes back
-	//up and recovery easier as when the channel is closed, the funds go
-	//directly to that key.
+	// A channel that uses the modern commitment format where the key in the
+	// output of the remote party does not change each state. This makes back
+	// up and recovery easier as when the channel is closed, the funds go
+	// directly to that key.
 	CommitmentType_STATIC_REMOTE_KEY CommitmentType = 2
-	//
-	//A channel that uses a commitment format that has anchor outputs on the
-	//commitments, allowing fee bumping after a force close transaction has
-	//been broadcast.
+	// A channel that uses a commitment format that has anchor outputs on the
+	// commitments, allowing fee bumping after a force close transaction has
+	// been broadcast.
 	CommitmentType_ANCHORS CommitmentType = 3
-	//
-	//A channel that uses a commitment type that builds upon the anchors
-	//commitment format, but in addition requires a CLTV clause to spend outputs
-	//paying to the channel initiator. This is intended for use on leased channels
-	//to guarantee that the channel initiator has no incentives to close a leased
-	//channel before its maturity date.
+	// A channel that uses a commitment type that builds upon the anchors
+	// commitment format, but in addition requires a CLTV clause to spend outputs
+	// paying to the channel initiator. This is intended for use on leased channels
+	// to guarantee that the channel initiator has no incentives to close a leased
+	// channel before its maturity date.
 	CommitmentType_SCRIPT_ENFORCED_LEASE CommitmentType = 4
 )
 
@@ -284,15 +278,13 @@ const (
 	ResolutionType_TYPE_UNKNOWN ResolutionType = 0
 	// We resolved an anchor output.
 	ResolutionType_ANCHOR ResolutionType = 1
-	//
-	//We are resolving an incoming htlc on chain. This if this htlc is
-	//claimed, we swept the incoming htlc with the preimage. If it is timed
-	//out, our peer swept the timeout path.
+	// We are resolving an incoming htlc on chain. This if this htlc is
+	// claimed, we swept the incoming htlc with the preimage. If it is timed
+	// out, our peer swept the timeout path.
 	ResolutionType_INCOMING_HTLC ResolutionType = 2
-	//
-	//We are resolving an outgoing htlc on chain. If this htlc is claimed,
-	//the remote party swept the htlc with the preimage. If it is timed out,
-	//we swept it with the timeout path.
+	// We are resolving an outgoing htlc on chain. If this htlc is claimed,
+	// the remote party swept the htlc with the preimage. If it is timed out,
+	// we swept it with the timeout path.
 	ResolutionType_OUTGOING_HTLC ResolutionType = 3
 	// We force closed and need to sweep our time locked commitment output.
 	ResolutionType_COMMIT ResolutionType = 4
@@ -352,16 +344,14 @@ const (
 	ResolutionOutcome_CLAIMED ResolutionOutcome = 1
 	// An output was left unclaimed on chain.
 	ResolutionOutcome_UNCLAIMED ResolutionOutcome = 2
-	//
-	//ResolverOutcomeAbandoned indicates that an output that we did not
-	//claim on chain, for example an anchor that we did not sweep and a
-	//third party claimed on chain, or a htlc that we could not decode
-	//so left unclaimed.
+	// ResolverOutcomeAbandoned indicates that an output that we did not
+	// claim on chain, for example an anchor that we did not sweep and a
+	// third party claimed on chain, or a htlc that we could not decode
+	// so left unclaimed.
 	ResolutionOutcome_ABANDONED ResolutionOutcome = 3
-	//
-	//If we force closed our channel, our htlcs need to be claimed in two
-	//stages. This outcome represents the broadcast of a timeout or success
-	//transaction for this two stage htlc claim.
+	// If we force closed our channel, our htlcs need to be claimed in two
+	// stages. This outcome represents the broadcast of a timeout or success
+	// transaction for this two stage htlc claim.
 	ResolutionOutcome_FIRST_STAGE ResolutionOutcome = 4
 	// A htlc was timed out on chain.
 	ResolutionOutcome_TIMEOUT ResolutionOutcome = 5
@@ -512,25 +502,19 @@ func (InvoiceHTLCState) EnumDescriptor() ([]byte, []int) {
 type PaymentFailureReason int32
 
 const (
-	//
-	//Payment isn't failed (yet).
+	// Payment isn't failed (yet).
 	PaymentFailureReason_FAILURE_REASON_NONE PaymentFailureReason = 0
-	//
-	//There are more routes to try, but the payment timeout was exceeded.
+	// There are more routes to try, but the payment timeout was exceeded.
 	PaymentFailureReason_FAILURE_REASON_TIMEOUT PaymentFailureReason = 1
-	//
-	//All possible routes were tried and failed permanently. Or were no
-	//routes to the destination at all.
+	// All possible routes were tried and failed permanently. Or were no
+	// routes to the destination at all.
 	PaymentFailureReason_FAILURE_REASON_NO_ROUTE PaymentFailureReason = 2
-	//
-	//A non-recoverable error has occured.
+	// A non-recoverable error has occured.
 	PaymentFailureReason_FAILURE_REASON_ERROR PaymentFailureReason = 3
-	//
-	//Payment details incorrect (unknown hash, invalid amt or
-	//invalid final cltv delta)
+	// Payment details incorrect (unknown hash, invalid amt or
+	// invalid final cltv delta)
 	PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS PaymentFailureReason = 4
-	//
-	//Insufficient local balance.
+	// Insufficient local balance.
 	PaymentFailureReason_FAILURE_REASON_INSUFFICIENT_BALANCE PaymentFailureReason = 5
 )
 
@@ -812,17 +796,13 @@ func (ChannelCloseSummary_ClosureType) EnumDescriptor() ([]byte, []int) {
 type Peer_SyncType int32
 
 const (
-	//
-	//Denotes that we cannot determine the peer's current sync type.
+	// Denotes that we cannot determine the peer's current sync type.
 	Peer_UNKNOWN_SYNC Peer_SyncType = 0
-	//
-	//Denotes that we are actively receiving new graph updates from the peer.
+	// Denotes that we are actively receiving new graph updates from the peer.
 	Peer_ACTIVE_SYNC Peer_SyncType = 1
-	//
-	//Denotes that we are not receiving new graph updates from the peer.
+	// Denotes that we are not receiving new graph updates from the peer.
 	Peer_PASSIVE_SYNC Peer_SyncType = 2
-	//
-	//Denotes that this peer is pinned into an active sync.
+	// Denotes that this peer is pinned into an active sync.
 	Peer_PINNED_SYNC Peer_SyncType = 3
 )
 
@@ -1178,10 +1158,9 @@ func (HTLCAttempt_HTLCStatus) EnumDescriptor() ([]byte, []int) {
 type Failure_FailureCode int32
 
 const (
-	//
-	//The numbers assigned in this enumeration match the failure codes as
-	//defined in BOLT #4. Because protobuf 3 requires enums to start with 0,
-	//a RESERVED value is added.
+	// The numbers assigned in this enumeration match the failure codes as
+	// defined in BOLT #4. Because protobuf 3 requires enums to start with 0,
+	// a RESERVED value is added.
 	Failure_RESERVED                             Failure_FailureCode = 0
 	Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS Failure_FailureCode = 1
 	Failure_INCORRECT_PAYMENT_AMOUNT             Failure_FailureCode = 2
@@ -1207,15 +1186,12 @@ const (
 	Failure_EXPIRY_TOO_FAR                       Failure_FailureCode = 22
 	Failure_MPP_TIMEOUT                          Failure_FailureCode = 23
 	Failure_INVALID_ONION_PAYLOAD                Failure_FailureCode = 24
-	//
-	//An internal error occurred.
+	// An internal error occurred.
 	Failure_INTERNAL_FAILURE Failure_FailureCode = 997
-	//
-	//The error source is known, but the failure itself couldn't be decoded.
+	// The error source is known, but the failure itself couldn't be decoded.
 	Failure_UNKNOWN_FAILURE Failure_FailureCode = 998
-	//
-	//An unreadable failure result is returned if the received failure message
-	//cannot be decrypted. In that case the error source is unknown.
+	// An unreadable failure result is returned if the received failure message
+	// cannot be decrypted. In that case the error source is unknown.
 	Failure_UNREADABLE_FAILURE Failure_FailureCode = 999
 )
 
@@ -1860,16 +1836,14 @@ type GetTransactionsRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The height from which to list transactions, inclusive. If this value is
-	//greater than end_height, transactions will be read in reverse.
+	// The height from which to list transactions, inclusive. If this value is
+	// greater than end_height, transactions will be read in reverse.
 	StartHeight int32 `protobuf:"varint,1,opt,name=start_height,json=startHeight,proto3" json:"start_height,omitempty"`
-	//
-	//The height until which to list transactions, inclusive. To include
-	//unconfirmed transactions, this value should be set to -1, which will
-	//return transactions from start_height until the current chain tip and
-	//unconfirmed transactions. If no end_height is provided, the call will
-	//default to this option.
+	// The height until which to list transactions, inclusive. To include
+	// unconfirmed transactions, this value should be set to -1, which will
+	// return transactions from start_height until the current chain tip and
+	// unconfirmed transactions. If no end_height is provided, the call will
+	// default to this option.
 	EndHeight int32 `protobuf:"varint,2,opt,name=end_height,json=endHeight,proto3" json:"end_height,omitempty"`
 	// An optional filter to only include transactions relevant to an account.
 	Account string `protobuf:"bytes,3,opt,name=account,proto3" json:"account,omitempty"`
@@ -1982,6 +1956,7 @@ type FeeLimit struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Limit:
+	//
 	//	*FeeLimit_Fixed
 	//	*FeeLimit_FixedMsat
 	//	*FeeLimit_Percent
@@ -2053,18 +2028,16 @@ type isFeeLimit_Limit interface {
 }
 
 type FeeLimit_Fixed struct {
+	// The fee limit expressed as a fixed amount of satoshis.
 	//
-	//The fee limit expressed as a fixed amount of satoshis.
-	//
-	//The fields fixed and fixed_msat are mutually exclusive.
+	// The fields fixed and fixed_msat are mutually exclusive.
 	Fixed int64 `protobuf:"varint,1,opt,name=fixed,proto3,oneof"`
 }
 
 type FeeLimit_FixedMsat struct {
+	// The fee limit expressed as a fixed amount of millisatoshis.
 	//
-	//The fee limit expressed as a fixed amount of millisatoshis.
-	//
-	//The fields fixed and fixed_msat are mutually exclusive.
+	// The fields fixed and fixed_msat are mutually exclusive.
 	FixedMsat int64 `protobuf:"varint,3,opt,name=fixed_msat,json=fixedMsat,proto3,oneof"`
 }
 
@@ -2084,82 +2057,67 @@ type SendRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The identity pubkey of the payment recipient. When using REST, this field
-	//must be encoded as base64.
+	// The identity pubkey of the payment recipient. When using REST, this field
+	// must be encoded as base64.
 	Dest []byte `protobuf:"bytes,1,opt,name=dest,proto3" json:"dest,omitempty"`
-	//
-	//The hex-encoded identity pubkey of the payment recipient. Deprecated now
-	//that the REST gateway supports base64 encoding of bytes fields.
+	// The hex-encoded identity pubkey of the payment recipient. Deprecated now
+	// that the REST gateway supports base64 encoding of bytes fields.
 	//
 	// Deprecated: Do not use.
 	DestString string `protobuf:"bytes,2,opt,name=dest_string,json=destString,proto3" json:"dest_string,omitempty"`
+	// The amount to send expressed in satoshis.
 	//
-	//The amount to send expressed in satoshis.
-	//
-	//The fields amt and amt_msat are mutually exclusive.
+	// The fields amt and amt_msat are mutually exclusive.
 	Amt int64 `protobuf:"varint,3,opt,name=amt,proto3" json:"amt,omitempty"`
+	// The amount to send expressed in millisatoshis.
 	//
-	//The amount to send expressed in millisatoshis.
-	//
-	//The fields amt and amt_msat are mutually exclusive.
+	// The fields amt and amt_msat are mutually exclusive.
 	AmtMsat int64 `protobuf:"varint,12,opt,name=amt_msat,json=amtMsat,proto3" json:"amt_msat,omitempty"`
-	//
-	//The hash to use within the payment's HTLC. When using REST, this field
-	//must be encoded as base64.
+	// The hash to use within the payment's HTLC. When using REST, this field
+	// must be encoded as base64.
 	PaymentHash []byte `protobuf:"bytes,4,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
-	//
-	//The hex-encoded hash to use within the payment's HTLC. Deprecated now
-	//that the REST gateway supports base64 encoding of bytes fields.
+	// The hex-encoded hash to use within the payment's HTLC. Deprecated now
+	// that the REST gateway supports base64 encoding of bytes fields.
 	//
 	// Deprecated: Do not use.
 	PaymentHashString string `protobuf:"bytes,5,opt,name=payment_hash_string,json=paymentHashString,proto3" json:"payment_hash_string,omitempty"`
-	//
-	//A bare-bones invoice for a payment within the Lightning Network. With the
-	//details of the invoice, the sender has all the data necessary to send a
-	//payment to the recipient.
+	// A bare-bones invoice for a payment within the Lightning Network. With the
+	// details of the invoice, the sender has all the data necessary to send a
+	// payment to the recipient.
 	PaymentRequest string `protobuf:"bytes,6,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
-	//
-	//The CLTV delta from the current height that should be used to set the
-	//timelock for the final hop.
+	// The CLTV delta from the current height that should be used to set the
+	// timelock for the final hop.
 	FinalCltvDelta int32 `protobuf:"varint,7,opt,name=final_cltv_delta,json=finalCltvDelta,proto3" json:"final_cltv_delta,omitempty"`
-	//
-	//The maximum number of satoshis that will be paid as a fee of the payment.
-	//This value can be represented either as a percentage of the amount being
-	//sent, or as a fixed amount of the maximum fee the user is willing the pay to
-	//send the payment. If not specified, lnd will use a default value of 100%
-	//fees for small amounts (<=1k sat) or 5% fees for larger amounts.
+	// The maximum number of satoshis that will be paid as a fee of the payment.
+	// This value can be represented either as a percentage of the amount being
+	// sent, or as a fixed amount of the maximum fee the user is willing the pay to
+	// send the payment. If not specified, lnd will use a default value of 100%
+	// fees for small amounts (<=1k sat) or 5% fees for larger amounts.
 	FeeLimit *FeeLimit `protobuf:"bytes,8,opt,name=fee_limit,json=feeLimit,proto3" json:"fee_limit,omitempty"`
-	//
-	//The channel id of the channel that must be taken to the first hop. If zero,
-	//any channel may be used.
+	// The channel id of the channel that must be taken to the first hop. If zero,
+	// any channel may be used.
 	OutgoingChanId uint64 `protobuf:"varint,9,opt,name=outgoing_chan_id,json=outgoingChanId,proto3" json:"outgoing_chan_id,omitempty"`
-	//
-	//The pubkey of the last hop of the route. If empty, any hop may be used.
+	// The pubkey of the last hop of the route. If empty, any hop may be used.
 	LastHopPubkey []byte `protobuf:"bytes,13,opt,name=last_hop_pubkey,json=lastHopPubkey,proto3" json:"last_hop_pubkey,omitempty"`
-	//
-	//An optional maximum total time lock for the route. This should not exceed
-	//lnd's `--max-cltv-expiry` setting. If zero, then the value of
-	//`--max-cltv-expiry` is enforced.
+	// An optional maximum total time lock for the route. This should not exceed
+	// lnd's `--max-cltv-expiry` setting. If zero, then the value of
+	// `--max-cltv-expiry` is enforced.
 	CltvLimit uint32 `protobuf:"varint,10,opt,name=cltv_limit,json=cltvLimit,proto3" json:"cltv_limit,omitempty"`
-	//
-	//An optional field that can be used to pass an arbitrary set of TLV records
-	//to a peer which understands the new records. This can be used to pass
-	//application specific data during the payment attempt. Record types are
-	//required to be in the custom range >= 65536. When using REST, the values
-	//must be encoded as base64.
+	// An optional field that can be used to pass an arbitrary set of TLV records
+	// to a peer which understands the new records. This can be used to pass
+	// application specific data during the payment attempt. Record types are
+	// required to be in the custom range >= 65536. When using REST, the values
+	// must be encoded as base64.
 	DestCustomRecords map[uint64][]byte `protobuf:"bytes,11,rep,name=dest_custom_records,json=destCustomRecords,proto3" json:"dest_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// If set, circular payments to self are permitted.
 	AllowSelfPayment bool `protobuf:"varint,14,opt,name=allow_self_payment,json=allowSelfPayment,proto3" json:"allow_self_payment,omitempty"`
-	//
-	//Features assumed to be supported by the final node. All transitive feature
-	//dependencies must also be set properly. For a given feature bit pair, either
-	//optional or remote may be set, but not both. If this field is nil or empty,
-	//the router will try to load destination features from the graph as a
-	//fallback.
+	// Features assumed to be supported by the final node. All transitive feature
+	// dependencies must also be set properly. For a given feature bit pair, either
+	// optional or remote may be set, but not both. If this field is nil or empty,
+	// the router will try to load destination features from the graph as a
+	// fallback.
 	DestFeatures []FeatureBit `protobuf:"varint,15,rep,packed,name=dest_features,json=destFeatures,proto3,enum=lnrpc.FeatureBit" json:"dest_features,omitempty"`
-	//
-	//The payment address of the generated invoice.
+	// The payment address of the generated invoice.
 	PaymentAddr []byte `protobuf:"bytes,16,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
 }
 
@@ -2385,13 +2343,11 @@ type SendToRouteRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The payment hash to use for the HTLC. When using REST, this field must be
-	//encoded as base64.
+	// The payment hash to use for the HTLC. When using REST, this field must be
+	// encoded as base64.
 	PaymentHash []byte `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
-	//
-	//An optional hex-encoded payment hash to be used for the HTLC. Deprecated now
-	//that the REST gateway supports base64 encoding of bytes fields.
+	// An optional hex-encoded payment hash to be used for the HTLC. Deprecated now
+	// that the REST gateway supports base64 encoding of bytes fields.
 	//
 	// Deprecated: Do not use.
 	PaymentHashString string `protobuf:"bytes,2,opt,name=payment_hash_string,json=paymentHashString,proto3" json:"payment_hash_string,omitempty"`
@@ -2482,9 +2438,8 @@ type ChannelAcceptRequest struct {
 	// The initial fee rate that the initiator suggests for both commitment
 	// transactions.
 	FeePerKw uint64 `protobuf:"varint,10,opt,name=fee_per_kw,json=feePerKw,proto3" json:"fee_per_kw,omitempty"`
-	//
-	//The number of blocks to use for the relative time lock in the pay-to-self
-	//output of both commitment transactions.
+	// The number of blocks to use for the relative time lock in the pay-to-self
+	// output of both commitment transactions.
 	CsvDelay uint32 `protobuf:"varint,11,opt,name=csv_delay,json=csvDelay,proto3" json:"csv_delay,omitempty"`
 	// The total number of incoming HTLC's that the initiator will accept.
 	MaxAcceptedHtlcs uint32 `protobuf:"varint,12,opt,name=max_accepted_htlcs,json=maxAcceptedHtlcs,proto3" json:"max_accepted_htlcs,omitempty"`
@@ -2654,46 +2609,37 @@ type ChannelAcceptResponse struct {
 	Accept bool `protobuf:"varint,1,opt,name=accept,proto3" json:"accept,omitempty"`
 	// The pending channel id to which this response applies.
 	PendingChanId []byte `protobuf:"bytes,2,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
-	//
-	//An optional error to send the initiating party to indicate why the channel
-	//was rejected. This field *should not* contain sensitive information, it will
-	//be sent to the initiating party. This field should only be set if accept is
-	//false, the channel will be rejected if an error is set with accept=true
-	//because the meaning of this response is ambiguous. Limited to 500
-	//characters.
+	// An optional error to send the initiating party to indicate why the channel
+	// was rejected. This field *should not* contain sensitive information, it will
+	// be sent to the initiating party. This field should only be set if accept is
+	// false, the channel will be rejected if an error is set with accept=true
+	// because the meaning of this response is ambiguous. Limited to 500
+	// characters.
 	Error string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
-	//
-	//The upfront shutdown address to use if the initiating peer supports option
-	//upfront shutdown script (see ListPeers for the features supported). Note
-	//that the channel open will fail if this value is set for a peer that does
-	//not support this feature bit.
+	// The upfront shutdown address to use if the initiating peer supports option
+	// upfront shutdown script (see ListPeers for the features supported). Note
+	// that the channel open will fail if this value is set for a peer that does
+	// not support this feature bit.
 	UpfrontShutdown string `protobuf:"bytes,4,opt,name=upfront_shutdown,json=upfrontShutdown,proto3" json:"upfront_shutdown,omitempty"`
-	//
-	//The csv delay (in blocks) that we require for the remote party.
+	// The csv delay (in blocks) that we require for the remote party.
 	CsvDelay uint32 `protobuf:"varint,5,opt,name=csv_delay,json=csvDelay,proto3" json:"csv_delay,omitempty"`
-	//
-	//The reserve amount in satoshis that we require the remote peer to adhere to.
-	//We require that the remote peer always have some reserve amount allocated to
-	//them so that there is always a disincentive to broadcast old state (if they
-	//hold 0 sats on their side of the channel, there is nothing to lose).
+	// The reserve amount in satoshis that we require the remote peer to adhere to.
+	// We require that the remote peer always have some reserve amount allocated to
+	// them so that there is always a disincentive to broadcast old state (if they
+	// hold 0 sats on their side of the channel, there is nothing to lose).
 	ReserveSat uint64 `protobuf:"varint,6,opt,name=reserve_sat,json=reserveSat,proto3" json:"reserve_sat,omitempty"`
-	//
-	//The maximum amount of funds in millisatoshis that we allow the remote peer
-	//to have in outstanding htlcs.
+	// The maximum amount of funds in millisatoshis that we allow the remote peer
+	// to have in outstanding htlcs.
 	InFlightMaxMsat uint64 `protobuf:"varint,7,opt,name=in_flight_max_msat,json=inFlightMaxMsat,proto3" json:"in_flight_max_msat,omitempty"`
-	//
-	//The maximum number of htlcs that the remote peer can offer us.
+	// The maximum number of htlcs that the remote peer can offer us.
 	MaxHtlcCount uint32 `protobuf:"varint,8,opt,name=max_htlc_count,json=maxHtlcCount,proto3" json:"max_htlc_count,omitempty"`
-	//
-	//The minimum value in millisatoshis for incoming htlcs on the channel.
+	// The minimum value in millisatoshis for incoming htlcs on the channel.
 	MinHtlcIn uint64 `protobuf:"varint,9,opt,name=min_htlc_in,json=minHtlcIn,proto3" json:"min_htlc_in,omitempty"`
-	//
-	//The number of confirmations we require before we consider the channel open.
+	// The number of confirmations we require before we consider the channel open.
 	MinAcceptDepth uint32 `protobuf:"varint,10,opt,name=min_accept_depth,json=minAcceptDepth,proto3" json:"min_accept_depth,omitempty"`
-	//
-	//Whether the responder wants this to be a zero-conf channel. This will fail
-	//if either side does not have the scid-alias feature bit set. The minimum
-	//depth field must be zero if this is true.
+	// Whether the responder wants this to be a zero-conf channel. This will fail
+	// if either side does not have the scid-alias feature bit set. The minimum
+	// depth field must be zero if this is true.
 	ZeroConf bool `protobuf:"varint,11,opt,name=zero_conf,json=zeroConf,proto3" json:"zero_conf,omitempty"`
 }
 
@@ -2812,6 +2758,7 @@ type ChannelPoint struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to FundingTxid:
+	//
 	//	*ChannelPoint_FundingTxidBytes
 	//	*ChannelPoint_FundingTxidStr
 	FundingTxid isChannelPoint_FundingTxid `protobuf_oneof:"funding_txid"`
@@ -2884,16 +2831,14 @@ type isChannelPoint_FundingTxid interface {
 }
 
 type ChannelPoint_FundingTxidBytes struct {
-	//
-	//Txid of the funding transaction. When using REST, this field must be
-	//encoded as base64.
+	// Txid of the funding transaction. When using REST, this field must be
+	// encoded as base64.
 	FundingTxidBytes []byte `protobuf:"bytes,1,opt,name=funding_txid_bytes,json=fundingTxidBytes,proto3,oneof"`
 }
 
 type ChannelPoint_FundingTxidStr struct {
-	//
-	//Hex-encoded string representing the byte-reversed hash of the funding
-	//transaction.
+	// Hex-encoded string representing the byte-reversed hash of the funding
+	// transaction.
 	FundingTxidStr string `protobuf:"bytes,2,opt,name=funding_txid_str,json=fundingTxidStr,proto3,oneof"`
 }
 
@@ -3409,10 +3354,9 @@ type SendCoinsRequest struct {
 	//
 	// Deprecated: Do not use.
 	SatPerByte int64 `protobuf:"varint,5,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
-	//
-	//If set, then the amount field will be ignored, and lnd will attempt to
-	//send all the coins under control of the internal wallet to the specified
-	//address.
+	// If set, then the amount field will be ignored, and lnd will attempt to
+	// send all the coins under control of the internal wallet to the specified
+	// address.
 	SendAll bool `protobuf:"varint,6,opt,name=send_all,json=sendAll,proto3" json:"send_all,omitempty"`
 	// An optional label for the transaction, limited to 500 characters.
 	Label string `protobuf:"bytes,7,opt,name=label,proto3" json:"label,omitempty"`
@@ -3688,9 +3632,8 @@ type NewAddressRequest struct {
 
 	// The type of address to generate.
 	Type AddressType `protobuf:"varint,1,opt,name=type,proto3,enum=lnrpc.AddressType" json:"type,omitempty"`
-	//
-	//The name of the account to generate a new address for. If empty, the
-	//default wallet account is used.
+	// The name of the account to generate a new address for. If empty, the
+	// default wallet account is used.
 	Account string `protobuf:"bytes,2,opt,name=account,proto3" json:"account,omitempty"`
 }
 
@@ -3793,13 +3736,11 @@ type SignMessageRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The message to be signed. When using REST, this field must be encoded as
-	//base64.
+	// The message to be signed. When using REST, this field must be encoded as
+	// base64.
 	Msg []byte `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
-	//
-	//Instead of the default double-SHA256 hashing of the message before signing,
-	//only use one round of hashing instead.
+	// Instead of the default double-SHA256 hashing of the message before signing,
+	// only use one round of hashing instead.
 	SingleHash bool `protobuf:"varint,2,opt,name=single_hash,json=singleHash,proto3" json:"single_hash,omitempty"`
 }
 
@@ -3902,9 +3843,8 @@ type VerifyMessageRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The message over which the signature is to be verified. When using REST,
-	//this field must be encoded as base64.
+	// The message over which the signature is to be verified. When using REST,
+	// this field must be encoded as base64.
 	Msg []byte `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
 	// The signature to be verified over the given message
 	Signature string `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
@@ -4018,16 +3958,13 @@ type ConnectPeerRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//Lightning address of the peer to connect to.
+	// Lightning address of the peer to connect to.
 	Addr *LightningAddress `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
-	//
-	//If set, the daemon will attempt to persistently connect to the target
-	//peer. Otherwise, the call will be synchronous.
+	// If set, the daemon will attempt to persistently connect to the target
+	// peer. Otherwise, the call will be synchronous.
 	Perm bool `protobuf:"varint,2,opt,name=perm,proto3" json:"perm,omitempty"`
-	//
-	//The connection timeout value (in seconds) for this request. It won't affect
-	//other requests.
+	// The connection timeout value (in seconds) for this request. It won't affect
+	// other requests.
 	Timeout uint64 `protobuf:"varint,3,opt,name=timeout,proto3" json:"timeout,omitempty"`
 }
 
@@ -4317,9 +4254,8 @@ type ChannelConstraints struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The CSV delay expressed in relative blocks. If the channel is force closed,
-	//we will need to wait for this many blocks before we can regain our funds.
+	// The CSV delay expressed in relative blocks. If the channel is force closed,
+	// we will need to wait for this many blocks before we can regain our funds.
 	CsvDelay uint32 `protobuf:"varint,1,opt,name=csv_delay,json=csvDelay,proto3" json:"csv_delay,omitempty"`
 	// The minimum satoshis this node is required to reserve in its balance.
 	ChanReserveSat uint64 `protobuf:"varint,2,opt,name=chan_reserve_sat,json=chanReserveSat,proto3" json:"chan_reserve_sat,omitempty"`
@@ -4417,15 +4353,13 @@ type Channel struct {
 	Active bool `protobuf:"varint,1,opt,name=active,proto3" json:"active,omitempty"`
 	// The identity pubkey of the remote node
 	RemotePubkey string `protobuf:"bytes,2,opt,name=remote_pubkey,json=remotePubkey,proto3" json:"remote_pubkey,omitempty"`
-	//
-	//The outpoint (txid:index) of the funding transaction. With this value, Bob
-	//will be able to generate a signature for Alice's version of the commitment
-	//transaction.
+	// The outpoint (txid:index) of the funding transaction. With this value, Bob
+	// will be able to generate a signature for Alice's version of the commitment
+	// transaction.
 	ChannelPoint string `protobuf:"bytes,3,opt,name=channel_point,json=channelPoint,proto3" json:"channel_point,omitempty"`
-	//
-	//The unique channel ID for the channel. The first 3 bytes are the block
-	//height, the next 3 the index within the block, and the last 2 bytes are the
-	//output index for the channel.
+	// The unique channel ID for the channel. The first 3 bytes are the block
+	// height, the next 3 the index within the block, and the last 2 bytes are the
+	// output index for the channel.
 	ChanId uint64 `protobuf:"varint,4,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
 	// The total amount of funds held in this channel
 	Capacity int64 `protobuf:"varint,5,opt,name=capacity,proto3" json:"capacity,omitempty"`
@@ -4433,37 +4367,30 @@ type Channel struct {
 	LocalBalance int64 `protobuf:"varint,6,opt,name=local_balance,json=localBalance,proto3" json:"local_balance,omitempty"`
 	// The counterparty's current balance in this channel
 	RemoteBalance int64 `protobuf:"varint,7,opt,name=remote_balance,json=remoteBalance,proto3" json:"remote_balance,omitempty"`
-	//
-	//The amount calculated to be paid in fees for the current set of commitment
-	//transactions. The fee amount is persisted with the channel in order to
-	//allow the fee amount to be removed and recalculated with each channel state
-	//update, including updates that happen after a system restart.
+	// The amount calculated to be paid in fees for the current set of commitment
+	// transactions. The fee amount is persisted with the channel in order to
+	// allow the fee amount to be removed and recalculated with each channel state
+	// update, including updates that happen after a system restart.
 	CommitFee int64 `protobuf:"varint,8,opt,name=commit_fee,json=commitFee,proto3" json:"commit_fee,omitempty"`
 	// The weight of the commitment transaction
 	CommitWeight int64 `protobuf:"varint,9,opt,name=commit_weight,json=commitWeight,proto3" json:"commit_weight,omitempty"`
-	//
-	//The required number of satoshis per kilo-weight that the requester will pay
-	//at all times, for both the funding transaction and commitment transaction.
-	//This value can later be updated once the channel is open.
+	// The required number of satoshis per kilo-weight that the requester will pay
+	// at all times, for both the funding transaction and commitment transaction.
+	// This value can later be updated once the channel is open.
 	FeePerKw int64 `protobuf:"varint,10,opt,name=fee_per_kw,json=feePerKw,proto3" json:"fee_per_kw,omitempty"`
 	// The unsettled balance in this channel
 	UnsettledBalance int64 `protobuf:"varint,11,opt,name=unsettled_balance,json=unsettledBalance,proto3" json:"unsettled_balance,omitempty"`
-	//
-	//The total number of satoshis we've sent within this channel.
+	// The total number of satoshis we've sent within this channel.
 	TotalSatoshisSent int64 `protobuf:"varint,12,opt,name=total_satoshis_sent,json=totalSatoshisSent,proto3" json:"total_satoshis_sent,omitempty"`
-	//
-	//The total number of satoshis we've received within this channel.
+	// The total number of satoshis we've received within this channel.
 	TotalSatoshisReceived int64 `protobuf:"varint,13,opt,name=total_satoshis_received,json=totalSatoshisReceived,proto3" json:"total_satoshis_received,omitempty"`
-	//
-	//The total number of updates conducted within this channel.
+	// The total number of updates conducted within this channel.
 	NumUpdates uint64 `protobuf:"varint,14,opt,name=num_updates,json=numUpdates,proto3" json:"num_updates,omitempty"`
-	//
-	//The list of active, uncleared HTLCs currently pending within the channel.
+	// The list of active, uncleared HTLCs currently pending within the channel.
 	PendingHtlcs []*HTLC `protobuf:"bytes,15,rep,name=pending_htlcs,json=pendingHtlcs,proto3" json:"pending_htlcs,omitempty"`
-	//
-	//Deprecated. The CSV delay expressed in relative blocks. If the channel is
-	//force closed, we will need to wait for this many blocks before we can regain
-	//our funds.
+	// Deprecated. The CSV delay expressed in relative blocks. If the channel is
+	// force closed, we will need to wait for this many blocks before we can regain
+	// our funds.
 	//
 	// Deprecated: Do not use.
 	CsvDelay uint32 `protobuf:"varint,16,opt,name=csv_delay,json=csvDelay,proto3" json:"csv_delay,omitempty"`
@@ -4478,9 +4405,8 @@ type Channel struct {
 	//
 	// Deprecated: Do not use.
 	LocalChanReserveSat int64 `protobuf:"varint,20,opt,name=local_chan_reserve_sat,json=localChanReserveSat,proto3" json:"local_chan_reserve_sat,omitempty"`
-	//
-	//Deprecated. The minimum satoshis the other node is required to reserve in
-	//its balance.
+	// Deprecated. The minimum satoshis the other node is required to reserve in
+	// its balance.
 	//
 	// Deprecated: Do not use.
 	RemoteChanReserveSat int64 `protobuf:"varint,21,opt,name=remote_chan_reserve_sat,json=remoteChanReserveSat,proto3" json:"remote_chan_reserve_sat,omitempty"`
@@ -4490,46 +4416,40 @@ type Channel struct {
 	StaticRemoteKey bool `protobuf:"varint,22,opt,name=static_remote_key,json=staticRemoteKey,proto3" json:"static_remote_key,omitempty"`
 	// The commitment type used by this channel.
 	CommitmentType CommitmentType `protobuf:"varint,26,opt,name=commitment_type,json=commitmentType,proto3,enum=lnrpc.CommitmentType" json:"commitment_type,omitempty"`
-	//
-	//The number of seconds that the channel has been monitored by the channel
-	//scoring system. Scores are currently not persisted, so this value may be
-	//less than the lifetime of the channel [EXPERIMENTAL].
+	// The number of seconds that the channel has been monitored by the channel
+	// scoring system. Scores are currently not persisted, so this value may be
+	// less than the lifetime of the channel [EXPERIMENTAL].
 	Lifetime int64 `protobuf:"varint,23,opt,name=lifetime,proto3" json:"lifetime,omitempty"`
-	//
-	//The number of seconds that the remote peer has been observed as being online
-	//by the channel scoring system over the lifetime of the channel
-	//[EXPERIMENTAL].
+	// The number of seconds that the remote peer has been observed as being online
+	// by the channel scoring system over the lifetime of the channel
+	// [EXPERIMENTAL].
 	Uptime int64 `protobuf:"varint,24,opt,name=uptime,proto3" json:"uptime,omitempty"`
-	//
-	//Close address is the address that we will enforce payout to on cooperative
-	//close if the channel was opened utilizing option upfront shutdown. This
-	//value can be set on channel open by setting close_address in an open channel
-	//request. If this value is not set, you can still choose a payout address by
-	//cooperatively closing with the delivery_address field set.
+	// Close address is the address that we will enforce payout to on cooperative
+	// close if the channel was opened utilizing option upfront shutdown. This
+	// value can be set on channel open by setting close_address in an open channel
+	// request. If this value is not set, you can still choose a payout address by
+	// cooperatively closing with the delivery_address field set.
 	CloseAddress string `protobuf:"bytes,25,opt,name=close_address,json=closeAddress,proto3" json:"close_address,omitempty"`
-	//
-	//The amount that the initiator of the channel optionally pushed to the remote
-	//party on channel open. This amount will be zero if the channel initiator did
-	//not push any funds to the remote peer. If the initiator field is true, we
-	//pushed this amount to our peer, if it is false, the remote peer pushed this
-	//amount to us.
+	// The amount that the initiator of the channel optionally pushed to the remote
+	// party on channel open. This amount will be zero if the channel initiator did
+	// not push any funds to the remote peer. If the initiator field is true, we
+	// pushed this amount to our peer, if it is false, the remote peer pushed this
+	// amount to us.
 	PushAmountSat uint64 `protobuf:"varint,27,opt,name=push_amount_sat,json=pushAmountSat,proto3" json:"push_amount_sat,omitempty"`
-	//
-	//This uint32 indicates if this channel is to be considered 'frozen'. A
-	//frozen channel doest not allow a cooperative channel close by the
-	//initiator. The thaw_height is the height that this restriction stops
-	//applying to the channel. This field is optional, not setting it or using a
-	//value of zero will mean the channel has no additional restrictions. The
-	//height can be interpreted in two ways: as a relative height if the value is
-	//less than 500,000, or as an absolute height otherwise.
+	// This uint32 indicates if this channel is to be considered 'frozen'. A
+	// frozen channel doest not allow a cooperative channel close by the
+	// initiator. The thaw_height is the height that this restriction stops
+	// applying to the channel. This field is optional, not setting it or using a
+	// value of zero will mean the channel has no additional restrictions. The
+	// height can be interpreted in two ways: as a relative height if the value is
+	// less than 500,000, or as an absolute height otherwise.
 	ThawHeight uint32 `protobuf:"varint,28,opt,name=thaw_height,json=thawHeight,proto3" json:"thaw_height,omitempty"`
 	// List constraints for the local node.
 	LocalConstraints *ChannelConstraints `protobuf:"bytes,29,opt,name=local_constraints,json=localConstraints,proto3" json:"local_constraints,omitempty"`
 	// List constraints for the remote node.
 	RemoteConstraints *ChannelConstraints `protobuf:"bytes,30,opt,name=remote_constraints,json=remoteConstraints,proto3" json:"remote_constraints,omitempty"`
-	//
-	//This lists out the set of alias short channel ids that exist for a channel.
-	//This may be empty.
+	// This lists out the set of alias short channel ids that exist for a channel.
+	// This may be empty.
 	AliasScids []uint64 `protobuf:"varint,31,rep,packed,name=alias_scids,json=aliasScids,proto3" json:"alias_scids,omitempty"`
 	// Whether or not this is a zero-conf channel.
 	ZeroConf bool `protobuf:"varint,32,opt,name=zero_conf,json=zeroConf,proto3" json:"zero_conf,omitempty"`
@@ -4813,9 +4733,8 @@ type ListChannelsRequest struct {
 	InactiveOnly bool `protobuf:"varint,2,opt,name=inactive_only,json=inactiveOnly,proto3" json:"inactive_only,omitempty"`
 	PublicOnly   bool `protobuf:"varint,3,opt,name=public_only,json=publicOnly,proto3" json:"public_only,omitempty"`
 	PrivateOnly  bool `protobuf:"varint,4,opt,name=private_only,json=privateOnly,proto3" json:"private_only,omitempty"`
-	//
-	//Filters the response for channels with a target peer's pubkey. If peer is
-	//empty, all channels will be returned.
+	// Filters the response for channels with a target peer's pubkey. If peer is
+	// empty, all channels will be returned.
 	Peer []byte `protobuf:"bytes,5,opt,name=peer,proto3" json:"peer,omitempty"`
 }
 
@@ -4939,9 +4858,8 @@ type AliasMap struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//For non-zero-conf channels, this is the confirmed SCID. Otherwise, this is
-	//the first assigned "base" alias.
+	// For non-zero-conf channels, this is the confirmed SCID. Otherwise, this is
+	// the first assigned "base" alias.
 	BaseScid uint64 `protobuf:"varint,1,opt,name=base_scid,json=baseScid,proto3" json:"base_scid,omitempty"`
 	// The set of all aliases stored for the base SCID.
 	Aliases []uint64 `protobuf:"varint,2,rep,packed,name=aliases,proto3" json:"aliases,omitempty"`
@@ -5085,7 +5003,7 @@ type ChannelCloseSummary struct {
 
 	// The outpoint (txid:index) of the funding transaction.
 	ChannelPoint string `protobuf:"bytes,1,opt,name=channel_point,json=channelPoint,proto3" json:"channel_point,omitempty"`
-	//  The unique channel ID for the channel.
+	// The unique channel ID for the channel.
 	ChanId uint64 `protobuf:"varint,2,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
 	// The hash of the genesis block that this channel resides within.
 	ChainHash string `protobuf:"bytes,3,opt,name=chain_hash,json=chainHash,proto3" json:"chain_hash,omitempty"`
@@ -5103,24 +5021,21 @@ type ChannelCloseSummary struct {
 	TimeLockedBalance int64 `protobuf:"varint,9,opt,name=time_locked_balance,json=timeLockedBalance,proto3" json:"time_locked_balance,omitempty"`
 	// Details on how the channel was closed.
 	CloseType ChannelCloseSummary_ClosureType `protobuf:"varint,10,opt,name=close_type,json=closeType,proto3,enum=lnrpc.ChannelCloseSummary_ClosureType" json:"close_type,omitempty"`
-	//
-	//Open initiator is the party that initiated opening the channel. Note that
-	//this value may be unknown if the channel was closed before we migrated to
-	//store open channel information after close.
+	// Open initiator is the party that initiated opening the channel. Note that
+	// this value may be unknown if the channel was closed before we migrated to
+	// store open channel information after close.
 	OpenInitiator Initiator `protobuf:"varint,11,opt,name=open_initiator,json=openInitiator,proto3,enum=lnrpc.Initiator" json:"open_initiator,omitempty"`
-	//
-	//Close initiator indicates which party initiated the close. This value will
-	//be unknown for channels that were cooperatively closed before we started
-	//tracking cooperative close initiators. Note that this indicates which party
-	//initiated a close, and it is possible for both to initiate cooperative or
-	//force closes, although only one party's close will be confirmed on chain.
+	// Close initiator indicates which party initiated the close. This value will
+	// be unknown for channels that were cooperatively closed before we started
+	// tracking cooperative close initiators. Note that this indicates which party
+	// initiated a close, and it is possible for both to initiate cooperative or
+	// force closes, although only one party's close will be confirmed on chain.
 	CloseInitiator Initiator     `protobuf:"varint,12,opt,name=close_initiator,json=closeInitiator,proto3,enum=lnrpc.Initiator" json:"close_initiator,omitempty"`
 	Resolutions    []*Resolution `protobuf:"bytes,13,rep,name=resolutions,proto3" json:"resolutions,omitempty"`
-	//
-	//This lists out the set of alias short channel ids that existed for the
-	//closed channel. This may be empty.
+	// This lists out the set of alias short channel ids that existed for the
+	// closed channel. This may be empty.
 	AliasScids []uint64 `protobuf:"varint,14,rep,packed,name=alias_scids,json=aliasScids,proto3" json:"alias_scids,omitempty"`
-	//  The confirmed SCID for a zero-conf channel.
+	// The confirmed SCID for a zero-conf channel.
 	ZeroConfConfirmedScid uint64 `protobuf:"varint,15,opt,name=zero_conf_confirmed_scid,json=zeroConfConfirmedScid,proto3" json:"zero_conf_confirmed_scid,omitempty"`
 }
 
@@ -5505,25 +5420,21 @@ type Peer struct {
 	SyncType Peer_SyncType `protobuf:"varint,10,opt,name=sync_type,json=syncType,proto3,enum=lnrpc.Peer_SyncType" json:"sync_type,omitempty"`
 	// Features advertised by the remote peer in their init message.
 	Features map[uint32]*Feature `protobuf:"bytes,11,rep,name=features,proto3" json:"features,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	//
-	//The latest errors received from our peer with timestamps, limited to the 10
-	//most recent errors. These errors are tracked across peer connections, but
-	//are not persisted across lnd restarts. Note that these errors are only
-	//stored for peers that we have channels open with, to prevent peers from
-	//spamming us with errors at no cost.
+	// The latest errors received from our peer with timestamps, limited to the 10
+	// most recent errors. These errors are tracked across peer connections, but
+	// are not persisted across lnd restarts. Note that these errors are only
+	// stored for peers that we have channels open with, to prevent peers from
+	// spamming us with errors at no cost.
 	Errors []*TimestampedError `protobuf:"bytes,12,rep,name=errors,proto3" json:"errors,omitempty"`
-	//
-	//The number of times we have recorded this peer going offline or coming
-	//online, recorded across restarts. Note that this value is decreased over
-	//time if the peer has not recently flapped, so that we can forgive peers
-	//with historically high flap counts.
+	// The number of times we have recorded this peer going offline or coming
+	// online, recorded across restarts. Note that this value is decreased over
+	// time if the peer has not recently flapped, so that we can forgive peers
+	// with historically high flap counts.
 	FlapCount int32 `protobuf:"varint,13,opt,name=flap_count,json=flapCount,proto3" json:"flap_count,omitempty"`
-	//
-	//The timestamp of the last flap we observed for this peer. If this value is
-	//zero, we have not observed any flaps for this peer.
+	// The timestamp of the last flap we observed for this peer. If this value is
+	// zero, we have not observed any flaps for this peer.
 	LastFlapNs int64 `protobuf:"varint,14,opt,name=last_flap_ns,json=lastFlapNs,proto3" json:"last_flap_ns,omitempty"`
-	//
-	//The last ping payload the peer has sent to us.
+	// The last ping payload the peer has sent to us.
 	LastPingPayload []byte `protobuf:"bytes,15,opt,name=last_ping_payload,json=lastPingPayload,proto3" json:"last_ping_payload,omitempty"`
 }
 
@@ -5719,10 +5630,9 @@ type ListPeersRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//If true, only the last error that our peer sent us will be returned with
-	//the peer's information, rather than the full set of historic errors we have
-	//stored.
+	// If true, only the last error that our peer sent us will be returned with
+	// the peer's information, rather than the full set of historic errors we have
+	// stored.
 	LatestError bool `protobuf:"varint,1,opt,name=latest_error,json=latestError,proto3" json:"latest_error,omitempty"`
 }
 
@@ -5978,9 +5888,8 @@ type GetInfoResponse struct {
 	SyncedToChain bool `protobuf:"varint,9,opt,name=synced_to_chain,json=syncedToChain,proto3" json:"synced_to_chain,omitempty"`
 	// Whether we consider ourselves synced with the public channel graph.
 	SyncedToGraph bool `protobuf:"varint,18,opt,name=synced_to_graph,json=syncedToGraph,proto3" json:"synced_to_graph,omitempty"`
-	//
-	//Whether the current node is connected to testnet. This field is
-	//deprecated and the network field should be used instead
+	// Whether the current node is connected to testnet. This field is
+	// deprecated and the network field should be used instead
 	//
 	// Deprecated: Do not use.
 	Testnet bool `protobuf:"varint,10,opt,name=testnet,proto3" json:"testnet,omitempty"`
@@ -5988,12 +5897,10 @@ type GetInfoResponse struct {
 	Chains []*Chain `protobuf:"bytes,16,rep,name=chains,proto3" json:"chains,omitempty"`
 	// The URIs of the current node.
 	Uris []string `protobuf:"bytes,12,rep,name=uris,proto3" json:"uris,omitempty"`
-	//
-	//Features that our node has advertised in our init message, node
-	//announcements and invoices.
+	// Features that our node has advertised in our init message, node
+	// announcements and invoices.
 	Features map[uint32]*Feature `protobuf:"bytes,19,rep,name=features,proto3" json:"features,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	//
-	//Indicates whether the HTLC interceptor API is in always-on mode.
+	// Indicates whether the HTLC interceptor API is in always-on mode.
 	RequireHtlcInterceptor bool `protobuf:"varint,21,opt,name=require_htlc_interceptor,json=requireHtlcInterceptor,proto3" json:"require_htlc_interceptor,omitempty"`
 }
 
@@ -6494,10 +6401,9 @@ type CloseChannelRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The outpoint (txid:index) of the funding transaction. With this value, Bob
-	//will be able to generate a signature for Alice's version of the commitment
-	//transaction.
+	// The outpoint (txid:index) of the funding transaction. With this value, Bob
+	// will be able to generate a signature for Alice's version of the commitment
+	// transaction.
 	ChannelPoint *ChannelPoint `protobuf:"bytes,1,opt,name=channel_point,json=channelPoint,proto3" json:"channel_point,omitempty"`
 	// If true, then the channel will be closed forcibly. This means the
 	// current commitment transaction will be signed and broadcast.
@@ -6511,11 +6417,10 @@ type CloseChannelRequest struct {
 	//
 	// Deprecated: Do not use.
 	SatPerByte int64 `protobuf:"varint,4,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
-	//
-	//An optional address to send funds to in the case of a cooperative close.
-	//If the channel was opened with an upfront shutdown script and this field
-	//is set, the request to close will fail because the channel must pay out
-	//to the upfront shutdown addresss.
+	// An optional address to send funds to in the case of a cooperative close.
+	// If the channel was opened with an upfront shutdown script and this field
+	// is set, the request to close will fail because the channel must pay out
+	// to the upfront shutdown addresss.
 	DeliveryAddress string `protobuf:"bytes,5,opt,name=delivery_address,json=deliveryAddress,proto3" json:"delivery_address,omitempty"`
 	// A manual fee rate set in sat/vbyte that should be used when crafting the
 	// closure transaction.
@@ -6614,6 +6519,7 @@ type CloseStatusUpdate struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Update:
+	//
 	//	*CloseStatusUpdate_ClosePending
 	//	*CloseStatusUpdate_ChanClose
 	Update isCloseStatusUpdate_Update `protobuf_oneof:"update"`
@@ -6748,19 +6654,16 @@ type ReadyForPsbtFunding struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The P2WSH address of the channel funding multisig address that the below
-	//specified amount in satoshis needs to be sent to.
+	// The P2WSH address of the channel funding multisig address that the below
+	// specified amount in satoshis needs to be sent to.
 	FundingAddress string `protobuf:"bytes,1,opt,name=funding_address,json=fundingAddress,proto3" json:"funding_address,omitempty"`
-	//
-	//The exact amount in satoshis that needs to be sent to the above address to
-	//fund the pending channel.
+	// The exact amount in satoshis that needs to be sent to the above address to
+	// fund the pending channel.
 	FundingAmount int64 `protobuf:"varint,2,opt,name=funding_amount,json=fundingAmount,proto3" json:"funding_amount,omitempty"`
-	//
-	//A raw PSBT that contains the pending channel output. If a base PSBT was
-	//provided in the PsbtShim, this is the base PSBT with one additional output.
-	//If no base PSBT was specified, this is an otherwise empty PSBT with exactly
-	//one output.
+	// A raw PSBT that contains the pending channel output. If a base PSBT was
+	// provided in the PsbtShim, this is the base PSBT with one additional output.
+	// If no base PSBT was specified, this is an otherwise empty PSBT with exactly
+	// one output.
 	Psbt []byte `protobuf:"bytes,3,opt,name=psbt,proto3" json:"psbt,omitempty"`
 }
 
@@ -6936,24 +6839,21 @@ type BatchOpenChannel struct {
 	// The delay we require on the remote's commitment transaction. If this is
 	// not set, it will be scaled automatically with the channel size.
 	RemoteCsvDelay uint32 `protobuf:"varint,6,opt,name=remote_csv_delay,json=remoteCsvDelay,proto3" json:"remote_csv_delay,omitempty"`
+	// Close address is an optional address which specifies the address to which
+	// funds should be paid out to upon cooperative close. This field may only be
+	// set if the peer supports the option upfront feature bit (call listpeers
+	// to check). The remote peer will only accept cooperative closes to this
+	// address if it is set.
 	//
-	//Close address is an optional address which specifies the address to which
-	//funds should be paid out to upon cooperative close. This field may only be
-	//set if the peer supports the option upfront feature bit (call listpeers
-	//to check). The remote peer will only accept cooperative closes to this
-	//address if it is set.
-	//
-	//Note: If this value is set on channel creation, you will *not* be able to
-	//cooperatively close out to a different address.
+	// Note: If this value is set on channel creation, you will *not* be able to
+	// cooperatively close out to a different address.
 	CloseAddress string `protobuf:"bytes,7,opt,name=close_address,json=closeAddress,proto3" json:"close_address,omitempty"`
-	//
-	//An optional, unique identifier of 32 random bytes that will be used as the
-	//pending channel ID to identify the channel while it is in the pre-pending
-	//state.
+	// An optional, unique identifier of 32 random bytes that will be used as the
+	// pending channel ID to identify the channel while it is in the pre-pending
+	// state.
 	PendingChanId []byte `protobuf:"bytes,8,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
-	//
-	//The explicit commitment type to use. Note this field will only be used if
-	//the remote peer supports explicit channel negotiation.
+	// The explicit commitment type to use. Note this field will only be used if
+	// the remote peer supports explicit channel negotiation.
 	CommitmentType CommitmentType `protobuf:"varint,9,opt,name=commitment_type,json=commitmentType,proto3,enum=lnrpc.CommitmentType" json:"commitment_type,omitempty"`
 }
 
@@ -7107,13 +7007,11 @@ type OpenChannelRequest struct {
 	// A manual fee rate set in sat/vbyte that should be used when crafting the
 	// funding transaction.
 	SatPerVbyte uint64 `protobuf:"varint,1,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
-	//
-	//The pubkey of the node to open a channel with. When using REST, this field
-	//must be encoded as base64.
+	// The pubkey of the node to open a channel with. When using REST, this field
+	// must be encoded as base64.
 	NodePubkey []byte `protobuf:"bytes,2,opt,name=node_pubkey,json=nodePubkey,proto3" json:"node_pubkey,omitempty"`
-	//
-	//The hex encoded pubkey of the node to open a channel with. Deprecated now
-	//that the REST gateway supports base64 encoding of bytes fields.
+	// The hex encoded pubkey of the node to open a channel with. Deprecated now
+	// that the REST gateway supports base64 encoding of bytes fields.
 	//
 	// Deprecated: Do not use.
 	NodePubkeyString string `protobuf:"bytes,3,opt,name=node_pubkey_string,json=nodePubkeyString,proto3" json:"node_pubkey_string,omitempty"`
@@ -7146,45 +7044,37 @@ type OpenChannelRequest struct {
 	// Whether unconfirmed outputs should be used as inputs for the funding
 	// transaction.
 	SpendUnconfirmed bool `protobuf:"varint,12,opt,name=spend_unconfirmed,json=spendUnconfirmed,proto3" json:"spend_unconfirmed,omitempty"`
+	// Close address is an optional address which specifies the address to which
+	// funds should be paid out to upon cooperative close. This field may only be
+	// set if the peer supports the option upfront feature bit (call listpeers
+	// to check). The remote peer will only accept cooperative closes to this
+	// address if it is set.
 	//
-	//Close address is an optional address which specifies the address to which
-	//funds should be paid out to upon cooperative close. This field may only be
-	//set if the peer supports the option upfront feature bit (call listpeers
-	//to check). The remote peer will only accept cooperative closes to this
-	//address if it is set.
-	//
-	//Note: If this value is set on channel creation, you will *not* be able to
-	//cooperatively close out to a different address.
+	// Note: If this value is set on channel creation, you will *not* be able to
+	// cooperatively close out to a different address.
 	CloseAddress string `protobuf:"bytes,13,opt,name=close_address,json=closeAddress,proto3" json:"close_address,omitempty"`
-	//
-	//Funding shims are an optional argument that allow the caller to intercept
-	//certain funding functionality. For example, a shim can be provided to use a
-	//particular key for the commitment key (ideally cold) rather than use one
-	//that is generated by the wallet as normal, or signal that signing will be
-	//carried out in an interactive manner (PSBT based).
+	// Funding shims are an optional argument that allow the caller to intercept
+	// certain funding functionality. For example, a shim can be provided to use a
+	// particular key for the commitment key (ideally cold) rather than use one
+	// that is generated by the wallet as normal, or signal that signing will be
+	// carried out in an interactive manner (PSBT based).
 	FundingShim *FundingShim `protobuf:"bytes,14,opt,name=funding_shim,json=fundingShim,proto3" json:"funding_shim,omitempty"`
-	//
-	//The maximum amount of coins in millisatoshi that can be pending within
-	//the channel. It only applies to the remote party.
+	// The maximum amount of coins in millisatoshi that can be pending within
+	// the channel. It only applies to the remote party.
 	RemoteMaxValueInFlightMsat uint64 `protobuf:"varint,15,opt,name=remote_max_value_in_flight_msat,json=remoteMaxValueInFlightMsat,proto3" json:"remote_max_value_in_flight_msat,omitempty"`
-	//
-	//The maximum number of concurrent HTLCs we will allow the remote party to add
-	//to the commitment transaction.
+	// The maximum number of concurrent HTLCs we will allow the remote party to add
+	// to the commitment transaction.
 	RemoteMaxHtlcs uint32 `protobuf:"varint,16,opt,name=remote_max_htlcs,json=remoteMaxHtlcs,proto3" json:"remote_max_htlcs,omitempty"`
-	//
-	//Max local csv is the maximum csv delay we will allow for our own commitment
-	//transaction.
+	// Max local csv is the maximum csv delay we will allow for our own commitment
+	// transaction.
 	MaxLocalCsv uint32 `protobuf:"varint,17,opt,name=max_local_csv,json=maxLocalCsv,proto3" json:"max_local_csv,omitempty"`
-	//
-	//The explicit commitment type to use. Note this field will only be used if
-	//the remote peer supports explicit channel negotiation.
+	// The explicit commitment type to use. Note this field will only be used if
+	// the remote peer supports explicit channel negotiation.
 	CommitmentType CommitmentType `protobuf:"varint,18,opt,name=commitment_type,json=commitmentType,proto3,enum=lnrpc.CommitmentType" json:"commitment_type,omitempty"`
-	//
-	//If this is true, then a zero-conf channel open will be attempted.
+	// If this is true, then a zero-conf channel open will be attempted.
 	ZeroConf bool `protobuf:"varint,19,opt,name=zero_conf,json=zeroConf,proto3" json:"zero_conf,omitempty"`
-	//
-	//If this is true, then an option-scid-alias channel-type open will be
-	//attempted.
+	// If this is true, then an option-scid-alias channel-type open will be
+	// attempted.
 	ScidAlias bool `protobuf:"varint,20,opt,name=scid_alias,json=scidAlias,proto3" json:"scid_alias,omitempty"`
 }
 
@@ -7368,13 +7258,13 @@ type OpenStatusUpdate struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Update:
+	//
 	//	*OpenStatusUpdate_ChanPending
 	//	*OpenStatusUpdate_ChanOpen
 	//	*OpenStatusUpdate_PsbtFund
 	Update isOpenStatusUpdate_Update `protobuf_oneof:"update"`
-	//
-	//The pending channel ID of the created channel. This value may be used to
-	//further the funding flow manually via the FundingStateStep method.
+	// The pending channel ID of the created channel. This value may be used to
+	// further the funding flow manually via the FundingStateStep method.
 	PendingChanId []byte `protobuf:"bytes,4,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
 }
 
@@ -7450,23 +7340,20 @@ type isOpenStatusUpdate_Update interface {
 }
 
 type OpenStatusUpdate_ChanPending struct {
-	//
-	//Signals that the channel is now fully negotiated and the funding
-	//transaction published.
+	// Signals that the channel is now fully negotiated and the funding
+	// transaction published.
 	ChanPending *PendingUpdate `protobuf:"bytes,1,opt,name=chan_pending,json=chanPending,proto3,oneof"`
 }
 
 type OpenStatusUpdate_ChanOpen struct {
-	//
-	//Signals that the channel's funding transaction has now reached the
-	//required number of confirmations on chain and can be used.
+	// Signals that the channel's funding transaction has now reached the
+	// required number of confirmations on chain and can be used.
 	ChanOpen *ChannelOpenUpdate `protobuf:"bytes,3,opt,name=chan_open,json=chanOpen,proto3,oneof"`
 }
 
 type OpenStatusUpdate_PsbtFund struct {
-	//
-	//Signals that the funding process has been suspended and the construction
-	//of a PSBT that funds the channel PK script is now required.
+	// Signals that the funding process has been suspended and the construction
+	// of a PSBT that funds the channel PK script is now required.
 	PsbtFund *ReadyForPsbtFunding `protobuf:"bytes,5,opt,name=psbt_fund,json=psbtFund,proto3,oneof"`
 }
 
@@ -7538,11 +7425,9 @@ type KeyDescriptor struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The raw bytes of the key being identified.
+	// The raw bytes of the key being identified.
 	RawKeyBytes []byte `protobuf:"bytes,1,opt,name=raw_key_bytes,json=rawKeyBytes,proto3" json:"raw_key_bytes,omitempty"`
-	//
-	//The key locator that identifies which key to use for signing.
+	// The key locator that identifies which key to use for signing.
 	KeyLoc *KeyLocator `protobuf:"bytes,2,opt,name=key_loc,json=keyLoc,proto3" json:"key_loc,omitempty"`
 }
 
@@ -7597,9 +7482,8 @@ type ChanPointShim struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The size of the pre-crafted output to be used as the channel point for this
-	//channel funding.
+	// The size of the pre-crafted output to be used as the channel point for this
+	// channel funding.
 	Amt int64 `protobuf:"varint,1,opt,name=amt,proto3" json:"amt,omitempty"`
 	// The target channel point to refrence in created commitment transactions.
 	ChanPoint *ChannelPoint `protobuf:"bytes,2,opt,name=chan_point,json=chanPoint,proto3" json:"chan_point,omitempty"`
@@ -7607,18 +7491,16 @@ type ChanPointShim struct {
 	LocalKey *KeyDescriptor `protobuf:"bytes,3,opt,name=local_key,json=localKey,proto3" json:"local_key,omitempty"`
 	// The key of the remote party to use when creating the multi-sig output.
 	RemoteKey []byte `protobuf:"bytes,4,opt,name=remote_key,json=remoteKey,proto3" json:"remote_key,omitempty"`
-	//
-	//If non-zero, then this will be used as the pending channel ID on the wire
-	//protocol to initate the funding request. This is an optional field, and
-	//should only be set if the responder is already expecting a specific pending
-	//channel ID.
+	// If non-zero, then this will be used as the pending channel ID on the wire
+	// protocol to initate the funding request. This is an optional field, and
+	// should only be set if the responder is already expecting a specific pending
+	// channel ID.
 	PendingChanId []byte `protobuf:"bytes,5,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
-	//
-	//This uint32 indicates if this channel is to be considered 'frozen'. A frozen
-	//channel does not allow a cooperative channel close by the initiator. The
-	//thaw_height is the height that this restriction stops applying to the
-	//channel. The height can be interpreted in two ways: as a relative height if
-	//the value is less than 500,000, or as an absolute height otherwise.
+	// This uint32 indicates if this channel is to be considered 'frozen'. A frozen
+	// channel does not allow a cooperative channel close by the initiator. The
+	// thaw_height is the height that this restriction stops applying to the
+	// channel. The height can be interpreted in two ways: as a relative height if
+	// the value is less than 500,000, or as an absolute height otherwise.
 	ThawHeight uint32 `protobuf:"varint,6,opt,name=thaw_height,json=thawHeight,proto3" json:"thaw_height,omitempty"`
 }
 
@@ -7701,22 +7583,19 @@ type PsbtShim struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//A unique identifier of 32 random bytes that will be used as the pending
-	//channel ID to identify the PSBT state machine when interacting with it and
-	//on the wire protocol to initiate the funding request.
+	// A unique identifier of 32 random bytes that will be used as the pending
+	// channel ID to identify the PSBT state machine when interacting with it and
+	// on the wire protocol to initiate the funding request.
 	PendingChanId []byte `protobuf:"bytes,1,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
-	//
-	//An optional base PSBT the new channel output will be added to. If this is
-	//non-empty, it must be a binary serialized PSBT.
+	// An optional base PSBT the new channel output will be added to. If this is
+	// non-empty, it must be a binary serialized PSBT.
 	BasePsbt []byte `protobuf:"bytes,2,opt,name=base_psbt,json=basePsbt,proto3" json:"base_psbt,omitempty"`
-	//
-	//If a channel should be part of a batch (multiple channel openings in one
-	//transaction), it can be dangerous if the whole batch transaction is
-	//published too early before all channel opening negotiations are completed.
-	//This flag prevents this particular channel from broadcasting the transaction
-	//after the negotiation with the remote peer. In a batch of channel openings
-	//this flag should be set to true for every channel but the very last.
+	// If a channel should be part of a batch (multiple channel openings in one
+	// transaction), it can be dangerous if the whole batch transaction is
+	// published too early before all channel opening negotiations are completed.
+	// This flag prevents this particular channel from broadcasting the transaction
+	// after the negotiation with the remote peer. In a batch of channel openings
+	// this flag should be set to true for every channel but the very last.
 	NoPublish bool `protobuf:"varint,3,opt,name=no_publish,json=noPublish,proto3" json:"no_publish,omitempty"`
 }
 
@@ -7779,6 +7658,7 @@ type FundingShim struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Shim:
+	//
 	//	*FundingShim_ChanPointShim
 	//	*FundingShim_PsbtShim
 	Shim isFundingShim_Shim `protobuf_oneof:"shim"`
@@ -7842,16 +7722,14 @@ type isFundingShim_Shim interface {
 }
 
 type FundingShim_ChanPointShim struct {
-	//
-	//A channel shim where the channel point was fully constructed outside
-	//of lnd's wallet and the transaction might already be published.
+	// A channel shim where the channel point was fully constructed outside
+	// of lnd's wallet and the transaction might already be published.
 	ChanPointShim *ChanPointShim `protobuf:"bytes,1,opt,name=chan_point_shim,json=chanPointShim,proto3,oneof"`
 }
 
 type FundingShim_PsbtShim struct {
-	//
-	//A channel shim that uses a PSBT to fund and sign the channel funding
-	//transaction.
+	// A channel shim that uses a PSBT to fund and sign the channel funding
+	// transaction.
 	PsbtShim *PsbtShim `protobuf:"bytes,2,opt,name=psbt_shim,json=psbtShim,proto3,oneof"`
 }
 
@@ -7912,24 +7790,22 @@ type FundingPsbtVerify struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The funded but not yet signed PSBT that sends the exact channel capacity
-	//amount to the PK script returned in the open channel message in a previous
-	//step.
+	// The funded but not yet signed PSBT that sends the exact channel capacity
+	// amount to the PK script returned in the open channel message in a previous
+	// step.
 	FundedPsbt []byte `protobuf:"bytes,1,opt,name=funded_psbt,json=fundedPsbt,proto3" json:"funded_psbt,omitempty"`
 	// The pending channel ID of the channel to get the PSBT for.
 	PendingChanId []byte `protobuf:"bytes,2,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
-	//
-	//Can only be used if the no_publish flag was set to true in the OpenChannel
-	//call meaning that the caller is solely responsible for publishing the final
-	//funding transaction. If skip_finalize is set to true then lnd will not wait
-	//for a FundingPsbtFinalize state step and instead assumes that a transaction
-	//with the same TXID as the passed in PSBT will eventually confirm.
-	//IT IS ABSOLUTELY IMPERATIVE that the TXID of the transaction that is
-	//eventually published does have the _same TXID_ as the verified PSBT. That
-	//means no inputs or outputs can change, only signatures can be added. If the
-	//TXID changes between this call and the publish step then the channel will
-	//never be created and the funds will be in limbo.
+	// Can only be used if the no_publish flag was set to true in the OpenChannel
+	// call meaning that the caller is solely responsible for publishing the final
+	// funding transaction. If skip_finalize is set to true then lnd will not wait
+	// for a FundingPsbtFinalize state step and instead assumes that a transaction
+	// with the same TXID as the passed in PSBT will eventually confirm.
+	// IT IS ABSOLUTELY IMPERATIVE that the TXID of the transaction that is
+	// eventually published does have the _same TXID_ as the verified PSBT. That
+	// means no inputs or outputs can change, only signatures can be added. If the
+	// TXID changes between this call and the publish step then the channel will
+	// never be created and the funds will be in limbo.
 	SkipFinalize bool `protobuf:"varint,3,opt,name=skip_finalize,json=skipFinalize,proto3" json:"skip_finalize,omitempty"`
 }
 
@@ -7991,17 +7867,15 @@ type FundingPsbtFinalize struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The funded PSBT that contains all witness data to send the exact channel
-	//capacity amount to the PK script returned in the open channel message in a
-	//previous step. Cannot be set at the same time as final_raw_tx.
+	// The funded PSBT that contains all witness data to send the exact channel
+	// capacity amount to the PK script returned in the open channel message in a
+	// previous step. Cannot be set at the same time as final_raw_tx.
 	SignedPsbt []byte `protobuf:"bytes,1,opt,name=signed_psbt,json=signedPsbt,proto3" json:"signed_psbt,omitempty"`
 	// The pending channel ID of the channel to get the PSBT for.
 	PendingChanId []byte `protobuf:"bytes,2,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
-	//
-	//As an alternative to the signed PSBT with all witness data, the final raw
-	//wire format transaction can also be specified directly. Cannot be set at the
-	//same time as signed_psbt.
+	// As an alternative to the signed PSBT with all witness data, the final raw
+	// wire format transaction can also be specified directly. Cannot be set at the
+	// same time as signed_psbt.
 	FinalRawTx []byte `protobuf:"bytes,3,opt,name=final_raw_tx,json=finalRawTx,proto3" json:"final_raw_tx,omitempty"`
 }
 
@@ -8064,6 +7938,7 @@ type FundingTransitionMsg struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Trigger:
+	//
 	//	*FundingTransitionMsg_ShimRegister
 	//	*FundingTransitionMsg_ShimCancel
 	//	*FundingTransitionMsg_PsbtVerify
@@ -8143,10 +8018,9 @@ type isFundingTransitionMsg_Trigger interface {
 }
 
 type FundingTransitionMsg_ShimRegister struct {
-	//
-	//The funding shim to register. This should be used before any
-	//channel funding has began by the remote party, as it is intended as a
-	//preparatory step for the full channel funding.
+	// The funding shim to register. This should be used before any
+	// channel funding has began by the remote party, as it is intended as a
+	// preparatory step for the full channel funding.
 	ShimRegister *FundingShim `protobuf:"bytes,1,opt,name=shim_register,json=shimRegister,proto3,oneof"`
 }
 
@@ -8156,19 +8030,17 @@ type FundingTransitionMsg_ShimCancel struct {
 }
 
 type FundingTransitionMsg_PsbtVerify struct {
-	//
-	//Used to continue a funding flow that was initiated to be executed
-	//through a PSBT. This step verifies that the PSBT contains the correct
-	//outputs to fund the channel.
+	// Used to continue a funding flow that was initiated to be executed
+	// through a PSBT. This step verifies that the PSBT contains the correct
+	// outputs to fund the channel.
 	PsbtVerify *FundingPsbtVerify `protobuf:"bytes,3,opt,name=psbt_verify,json=psbtVerify,proto3,oneof"`
 }
 
 type FundingTransitionMsg_PsbtFinalize struct {
-	//
-	//Used to continue a funding flow that was initiated to be executed
-	//through a PSBT. This step finalizes the funded and signed PSBT, finishes
-	//negotiation with the peer and finally publishes the resulting funding
-	//transaction.
+	// Used to continue a funding flow that was initiated to be executed
+	// through a PSBT. This step finalizes the funded and signed PSBT, finishes
+	// negotiation with the peer and finally publishes the resulting funding
+	// transaction.
 	PsbtFinalize *FundingPsbtFinalize `protobuf:"bytes,4,opt,name=psbt_finalize,json=psbtFinalize,proto3,oneof"`
 }
 
@@ -8231,10 +8103,9 @@ type PendingHTLC struct {
 	Outpoint string `protobuf:"bytes,3,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
 	// The next block height at which we can spend the current stage
 	MaturityHeight uint32 `protobuf:"varint,4,opt,name=maturity_height,json=maturityHeight,proto3" json:"maturity_height,omitempty"`
-	//
-	//The number of blocks remaining until the current stage can be swept.
-	//Negative values indicate how many blocks have passed since becoming
-	//mature.
+	// The number of blocks remaining until the current stage can be swept.
+	// Negative values indicate how many blocks have passed since becoming
+	// mature.
 	BlocksTilMaturity int32 `protobuf:"varint,5,opt,name=blocks_til_maturity,json=blocksTilMaturity,proto3" json:"blocks_til_maturity,omitempty"`
 	// Indicates whether the htlc is in its first or second stage of recovery
 	Stage uint32 `protobuf:"varint,6,opt,name=stage,proto3" json:"stage,omitempty"`
@@ -8361,10 +8232,9 @@ type PendingChannelsResponse struct {
 	TotalLimboBalance int64 `protobuf:"varint,1,opt,name=total_limbo_balance,json=totalLimboBalance,proto3" json:"total_limbo_balance,omitempty"`
 	// Channels pending opening
 	PendingOpenChannels []*PendingChannelsResponse_PendingOpenChannel `protobuf:"bytes,2,rep,name=pending_open_channels,json=pendingOpenChannels,proto3" json:"pending_open_channels,omitempty"`
-	//
-	//Deprecated: Channels pending closing previously contained cooperatively
-	//closed channels with a single confirmation. These channels are now
-	//considered closed from the time we see them on chain.
+	// Deprecated: Channels pending closing previously contained cooperatively
+	// closed channels with a single confirmation. These channels are now
+	// considered closed from the time we see them on chain.
 	//
 	// Deprecated: Do not use.
 	PendingClosingChannels []*PendingChannelsResponse_ClosedChannel `protobuf:"bytes,3,rep,name=pending_closing_channels,json=pendingClosingChannels,proto3" json:"pending_closing_channels,omitempty"`
@@ -8486,6 +8356,7 @@ type ChannelEventUpdate struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Channel:
+	//
 	//	*ChannelEventUpdate_OpenChannel
 	//	*ChannelEventUpdate_ClosedChannel
 	//	*ChannelEventUpdate_ActiveChannel
@@ -9032,83 +8903,67 @@ type QueryRoutesRequest struct {
 
 	// The 33-byte hex-encoded public key for the payment destination
 	PubKey string `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
+	// The amount to send expressed in satoshis.
 	//
-	//The amount to send expressed in satoshis.
-	//
-	//The fields amt and amt_msat are mutually exclusive.
+	// The fields amt and amt_msat are mutually exclusive.
 	Amt int64 `protobuf:"varint,2,opt,name=amt,proto3" json:"amt,omitempty"`
+	// The amount to send expressed in millisatoshis.
 	//
-	//The amount to send expressed in millisatoshis.
-	//
-	//The fields amt and amt_msat are mutually exclusive.
+	// The fields amt and amt_msat are mutually exclusive.
 	AmtMsat int64 `protobuf:"varint,12,opt,name=amt_msat,json=amtMsat,proto3" json:"amt_msat,omitempty"`
-	//
-	//An optional CLTV delta from the current height that should be used for the
-	//timelock of the final hop. Note that unlike SendPayment, QueryRoutes does
-	//not add any additional block padding on top of final_ctlv_delta. This
-	//padding of a few blocks needs to be added manually or otherwise failures may
-	//happen when a block comes in while the payment is in flight.
+	// An optional CLTV delta from the current height that should be used for the
+	// timelock of the final hop. Note that unlike SendPayment, QueryRoutes does
+	// not add any additional block padding on top of final_ctlv_delta. This
+	// padding of a few blocks needs to be added manually or otherwise failures may
+	// happen when a block comes in while the payment is in flight.
 	FinalCltvDelta int32 `protobuf:"varint,4,opt,name=final_cltv_delta,json=finalCltvDelta,proto3" json:"final_cltv_delta,omitempty"`
-	//
-	//The maximum number of satoshis that will be paid as a fee of the payment.
-	//This value can be represented either as a percentage of the amount being
-	//sent, or as a fixed amount of the maximum fee the user is willing the pay to
-	//send the payment. If not specified, lnd will use a default value of 100%
-	//fees for small amounts (<=1k sat) or 5% fees for larger amounts.
+	// The maximum number of satoshis that will be paid as a fee of the payment.
+	// This value can be represented either as a percentage of the amount being
+	// sent, or as a fixed amount of the maximum fee the user is willing the pay to
+	// send the payment. If not specified, lnd will use a default value of 100%
+	// fees for small amounts (<=1k sat) or 5% fees for larger amounts.
 	FeeLimit *FeeLimit `protobuf:"bytes,5,opt,name=fee_limit,json=feeLimit,proto3" json:"fee_limit,omitempty"`
-	//
-	//A list of nodes to ignore during path finding. When using REST, these fields
-	//must be encoded as base64.
+	// A list of nodes to ignore during path finding. When using REST, these fields
+	// must be encoded as base64.
 	IgnoredNodes [][]byte `protobuf:"bytes,6,rep,name=ignored_nodes,json=ignoredNodes,proto3" json:"ignored_nodes,omitempty"`
-	//
-	//Deprecated. A list of edges to ignore during path finding.
+	// Deprecated. A list of edges to ignore during path finding.
 	//
 	// Deprecated: Do not use.
 	IgnoredEdges []*EdgeLocator `protobuf:"bytes,7,rep,name=ignored_edges,json=ignoredEdges,proto3" json:"ignored_edges,omitempty"`
-	//
-	//The source node where the request route should originated from. If empty,
-	//self is assumed.
+	// The source node where the request route should originated from. If empty,
+	// self is assumed.
 	SourcePubKey string `protobuf:"bytes,8,opt,name=source_pub_key,json=sourcePubKey,proto3" json:"source_pub_key,omitempty"`
-	//
-	//If set to true, edge probabilities from mission control will be used to get
-	//the optimal route.
+	// If set to true, edge probabilities from mission control will be used to get
+	// the optimal route.
 	UseMissionControl bool `protobuf:"varint,9,opt,name=use_mission_control,json=useMissionControl,proto3" json:"use_mission_control,omitempty"`
-	//
-	//A list of directed node pairs that will be ignored during path finding.
+	// A list of directed node pairs that will be ignored during path finding.
 	IgnoredPairs []*NodePair `protobuf:"bytes,10,rep,name=ignored_pairs,json=ignoredPairs,proto3" json:"ignored_pairs,omitempty"`
-	//
-	//An optional maximum total time lock for the route. If the source is empty or
-	//ourselves, this should not exceed lnd's `--max-cltv-expiry` setting. If
-	//zero, then the value of `--max-cltv-expiry` is used as the limit.
+	// An optional maximum total time lock for the route. If the source is empty or
+	// ourselves, this should not exceed lnd's `--max-cltv-expiry` setting. If
+	// zero, then the value of `--max-cltv-expiry` is used as the limit.
 	CltvLimit uint32 `protobuf:"varint,11,opt,name=cltv_limit,json=cltvLimit,proto3" json:"cltv_limit,omitempty"`
-	//
-	//An optional field that can be used to pass an arbitrary set of TLV records
-	//to a peer which understands the new records. This can be used to pass
-	//application specific data during the payment attempt. If the destination
-	//does not support the specified records, an error will be returned.
-	//Record types are required to be in the custom range >= 65536. When using
-	//REST, the values must be encoded as base64.
+	// An optional field that can be used to pass an arbitrary set of TLV records
+	// to a peer which understands the new records. This can be used to pass
+	// application specific data during the payment attempt. If the destination
+	// does not support the specified records, an error will be returned.
+	// Record types are required to be in the custom range >= 65536. When using
+	// REST, the values must be encoded as base64.
 	DestCustomRecords map[uint64][]byte `protobuf:"bytes,13,rep,name=dest_custom_records,json=destCustomRecords,proto3" json:"dest_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	//
-	//The channel id of the channel that must be taken to the first hop. If zero,
-	//any channel may be used.
+	// The channel id of the channel that must be taken to the first hop. If zero,
+	// any channel may be used.
 	OutgoingChanId uint64 `protobuf:"varint,14,opt,name=outgoing_chan_id,json=outgoingChanId,proto3" json:"outgoing_chan_id,omitempty"`
-	//
-	//The pubkey of the last hop of the route. If empty, any hop may be used.
+	// The pubkey of the last hop of the route. If empty, any hop may be used.
 	LastHopPubkey []byte `protobuf:"bytes,15,opt,name=last_hop_pubkey,json=lastHopPubkey,proto3" json:"last_hop_pubkey,omitempty"`
-	//
-	//Optional route hints to reach the destination through private channels.
+	// Optional route hints to reach the destination through private channels.
 	RouteHints []*RouteHint `protobuf:"bytes,16,rep,name=route_hints,json=routeHints,proto3" json:"route_hints,omitempty"`
-	//
-	//Features assumed to be supported by the final node. All transitive feature
-	//dependencies must also be set properly. For a given feature bit pair, either
-	//optional or remote may be set, but not both. If this field is nil or empty,
-	//the router will try to load destination features from the graph as a
-	//fallback.
+	// Features assumed to be supported by the final node. All transitive feature
+	// dependencies must also be set properly. For a given feature bit pair, either
+	// optional or remote may be set, but not both. If this field is nil or empty,
+	// the router will try to load destination features from the graph as a
+	// fallback.
 	DestFeatures []FeatureBit `protobuf:"varint,17,rep,packed,name=dest_features,json=destFeatures,proto3,enum=lnrpc.FeatureBit" json:"dest_features,omitempty"`
-	//
-	//The time preference for this payment. Set to -1 to optimize for fees
-	//only, to 1 to optimize for reliability only or a value inbetween for a mix.
+	// The time preference for this payment. Set to -1 to optimize for fees
+	// only, to 1 to optimize for reliability only or a value inbetween for a mix.
 	TimePref float64 `protobuf:"fixed64,18,opt,name=time_pref,json=timePref,proto3" json:"time_pref,omitempty"`
 }
 
@@ -9269,13 +9124,11 @@ type NodePair struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The sending node of the pair. When using REST, this field must be encoded as
-	//base64.
+	// The sending node of the pair. When using REST, this field must be encoded as
+	// base64.
 	From []byte `protobuf:"bytes,1,opt,name=from,proto3" json:"from,omitempty"`
-	//
-	//The receiving node of the pair. When using REST, this field must be encoded
-	//as base64.
+	// The receiving node of the pair. When using REST, this field must be encoded
+	// as base64.
 	To []byte `protobuf:"bytes,2,opt,name=to,proto3" json:"to,omitempty"`
 }
 
@@ -9332,11 +9185,10 @@ type EdgeLocator struct {
 
 	// The short channel id of this edge.
 	ChannelId uint64 `protobuf:"varint,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
-	//
-	//The direction of this edge. If direction_reverse is false, the direction
-	//of this edge is from the channel endpoint with the lexicographically smaller
-	//pub key to the endpoint with the larger pub key. If direction_reverse is
-	//is true, the edge goes the other way.
+	// The direction of this edge. If direction_reverse is false, the direction
+	// of this edge is from the channel endpoint with the lexicographically smaller
+	// pub key to the endpoint with the larger pub key. If direction_reverse is
+	// is true, the edge goes the other way.
 	DirectionReverse bool `protobuf:"varint,2,opt,name=direction_reverse,json=directionReverse,proto3" json:"direction_reverse,omitempty"`
 }
 
@@ -9391,13 +9243,11 @@ type QueryRoutesResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The route that results from the path finding operation. This is still a
-	//repeated field to retain backwards compatibility.
+	// The route that results from the path finding operation. This is still a
+	// repeated field to retain backwards compatibility.
 	Routes []*Route `protobuf:"bytes,1,rep,name=routes,proto3" json:"routes,omitempty"`
-	//
-	//The success probability of the returned route based on the current mission
-	//control state. [EXPERIMENTAL]
+	// The success probability of the returned route based on the current mission
+	// control state. [EXPERIMENTAL]
 	SuccessProb float64 `protobuf:"fixed64,2,opt,name=success_prob,json=successProb,proto3" json:"success_prob,omitempty"`
 }
 
@@ -9452,10 +9302,9 @@ type Hop struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The unique channel ID for the channel. The first 3 bytes are the block
-	//height, the next 3 the index within the block, and the last 2 bytes are the
-	//output index for the channel.
+	// The unique channel ID for the channel. The first 3 bytes are the block
+	// height, the next 3 the index within the block, and the last 2 bytes are the
+	// output index for the channel.
 	ChanId uint64 `protobuf:"varint,1,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
 	// Deprecated: Do not use.
 	ChanCapacity int64 `protobuf:"varint,2,opt,name=chan_capacity,json=chanCapacity,proto3" json:"chan_capacity,omitempty"`
@@ -9466,35 +9315,30 @@ type Hop struct {
 	Expiry           uint32 `protobuf:"varint,5,opt,name=expiry,proto3" json:"expiry,omitempty"`
 	AmtToForwardMsat int64  `protobuf:"varint,6,opt,name=amt_to_forward_msat,json=amtToForwardMsat,proto3" json:"amt_to_forward_msat,omitempty"`
 	FeeMsat          int64  `protobuf:"varint,7,opt,name=fee_msat,json=feeMsat,proto3" json:"fee_msat,omitempty"`
-	//
-	//An optional public key of the hop. If the public key is given, the payment
-	//can be executed without relying on a copy of the channel graph.
+	// An optional public key of the hop. If the public key is given, the payment
+	// can be executed without relying on a copy of the channel graph.
 	PubKey string `protobuf:"bytes,8,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
-	//
-	//If set to true, then this hop will be encoded using the new variable length
-	//TLV format. Note that if any custom tlv_records below are specified, then
-	//this field MUST be set to true for them to be encoded properly.
+	// If set to true, then this hop will be encoded using the new variable length
+	// TLV format. Note that if any custom tlv_records below are specified, then
+	// this field MUST be set to true for them to be encoded properly.
 	//
 	// Deprecated: Do not use.
 	TlvPayload bool `protobuf:"varint,9,opt,name=tlv_payload,json=tlvPayload,proto3" json:"tlv_payload,omitempty"`
-	//
-	//An optional TLV record that signals the use of an MPP payment. If present,
-	//the receiver will enforce that the same mpp_record is included in the final
-	//hop payload of all non-zero payments in the HTLC set. If empty, a regular
-	//single-shot payment is or was attempted.
+	// An optional TLV record that signals the use of an MPP payment. If present,
+	// the receiver will enforce that the same mpp_record is included in the final
+	// hop payload of all non-zero payments in the HTLC set. If empty, a regular
+	// single-shot payment is or was attempted.
 	MppRecord *MPPRecord `protobuf:"bytes,10,opt,name=mpp_record,json=mppRecord,proto3" json:"mpp_record,omitempty"`
-	//
-	//An optional TLV record that signals the use of an AMP payment. If present,
-	//the receiver will treat all received payments including the same
-	//(payment_addr, set_id) pair  as being part of one logical payment. The
-	//payment will be settled by XORing the root_share's together and deriving the
-	//child hashes and preimages according to BOLT XX. Must be used in conjunction
-	//with mpp_record.
+	// An optional TLV record that signals the use of an AMP payment. If present,
+	// the receiver will treat all received payments including the same
+	// (payment_addr, set_id) pair  as being part of one logical payment. The
+	// payment will be settled by XORing the root_share's together and deriving the
+	// child hashes and preimages according to BOLT XX. Must be used in conjunction
+	// with mpp_record.
 	AmpRecord *AMPRecord `protobuf:"bytes,12,opt,name=amp_record,json=ampRecord,proto3" json:"amp_record,omitempty"`
-	//
-	//An optional set of key-value TLV records. This is useful within the context
-	//of the SendToRoute call as it allows callers to specify arbitrary K-V pairs
-	//to drop off at each hop within the onion.
+	// An optional set of key-value TLV records. This is useful within the context
+	// of the SendToRoute call as it allows callers to specify arbitrary K-V pairs
+	// to drop off at each hop within the onion.
 	CustomRecords map[uint64][]byte `protobuf:"bytes,11,rep,name=custom_records,json=customRecords,proto3" json:"custom_records,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// The payment metadata to send along with the payment to the payee.
 	Metadata []byte `protobuf:"bytes,13,opt,name=metadata,proto3" json:"metadata,omitempty"`
@@ -9632,17 +9476,15 @@ type MPPRecord struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//A unique, random identifier used to authenticate the sender as the intended
-	//payer of a multi-path payment. The payment_addr must be the same for all
-	//subpayments, and match the payment_addr provided in the receiver's invoice.
-	//The same payment_addr must be used on all subpayments.
+	// A unique, random identifier used to authenticate the sender as the intended
+	// payer of a multi-path payment. The payment_addr must be the same for all
+	// subpayments, and match the payment_addr provided in the receiver's invoice.
+	// The same payment_addr must be used on all subpayments.
 	PaymentAddr []byte `protobuf:"bytes,11,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
-	//
-	//The total amount in milli-satoshis being sent as part of a larger multi-path
-	//payment. The caller is responsible for ensuring subpayments to the same node
-	//and payment_hash sum exactly to total_amt_msat. The same
-	//total_amt_msat must be used on all subpayments.
+	// The total amount in milli-satoshis being sent as part of a larger multi-path
+	// payment. The caller is responsible for ensuring subpayments to the same node
+	// and payment_hash sum exactly to total_amt_msat. The same
+	// total_amt_msat must be used on all subpayments.
 	TotalAmtMsat int64 `protobuf:"varint,10,opt,name=total_amt_msat,json=totalAmtMsat,proto3" json:"total_amt_msat,omitempty"`
 }
 
@@ -9755,47 +9597,40 @@ func (x *AMPRecord) GetChildIndex() uint32 {
 	return 0
 }
 
-//
-//A path through the channel graph which runs over one or more channels in
-//succession. This struct carries all the information required to craft the
-//Sphinx onion packet, and send the payment along the first hop in the path. A
-//route is only selected as valid if all the channels have sufficient capacity to
-//carry the initial payment amount after fees are accounted for.
+// A path through the channel graph which runs over one or more channels in
+// succession. This struct carries all the information required to craft the
+// Sphinx onion packet, and send the payment along the first hop in the path. A
+// route is only selected as valid if all the channels have sufficient capacity to
+// carry the initial payment amount after fees are accounted for.
 type Route struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The cumulative (final) time lock across the entire route. This is the CLTV
-	//value that should be extended to the first hop in the route. All other hops
-	//will decrement the time-lock as advertised, leaving enough time for all
-	//hops to wait for or present the payment preimage to complete the payment.
+	// The cumulative (final) time lock across the entire route. This is the CLTV
+	// value that should be extended to the first hop in the route. All other hops
+	// will decrement the time-lock as advertised, leaving enough time for all
+	// hops to wait for or present the payment preimage to complete the payment.
 	TotalTimeLock uint32 `protobuf:"varint,1,opt,name=total_time_lock,json=totalTimeLock,proto3" json:"total_time_lock,omitempty"`
-	//
-	//The sum of the fees paid at each hop within the final route. In the case
-	//of a one-hop payment, this value will be zero as we don't need to pay a fee
-	//to ourselves.
+	// The sum of the fees paid at each hop within the final route. In the case
+	// of a one-hop payment, this value will be zero as we don't need to pay a fee
+	// to ourselves.
 	//
 	// Deprecated: Do not use.
 	TotalFees int64 `protobuf:"varint,2,opt,name=total_fees,json=totalFees,proto3" json:"total_fees,omitempty"`
-	//
-	//The total amount of funds required to complete a payment over this route.
-	//This value includes the cumulative fees at each hop. As a result, the HTLC
-	//extended to the first-hop in the route will need to have at least this many
-	//satoshis, otherwise the route will fail at an intermediate node due to an
-	//insufficient amount of fees.
+	// The total amount of funds required to complete a payment over this route.
+	// This value includes the cumulative fees at each hop. As a result, the HTLC
+	// extended to the first-hop in the route will need to have at least this many
+	// satoshis, otherwise the route will fail at an intermediate node due to an
+	// insufficient amount of fees.
 	//
 	// Deprecated: Do not use.
 	TotalAmt int64 `protobuf:"varint,3,opt,name=total_amt,json=totalAmt,proto3" json:"total_amt,omitempty"`
-	//
-	//Contains details concerning the specific forwarding details at each hop.
+	// Contains details concerning the specific forwarding details at each hop.
 	Hops []*Hop `protobuf:"bytes,4,rep,name=hops,proto3" json:"hops,omitempty"`
-	//
-	//The total fees in millisatoshis.
+	// The total fees in millisatoshis.
 	TotalFeesMsat int64 `protobuf:"varint,5,opt,name=total_fees_msat,json=totalFeesMsat,proto3" json:"total_fees_msat,omitempty"`
-	//
-	//The total amount in millisatoshis.
+	// The total amount in millisatoshis.
 	TotalAmtMsat int64 `protobuf:"varint,6,opt,name=total_amt_msat,json=totalAmtMsat,proto3" json:"total_amt_msat,omitempty"`
 }
 
@@ -9937,11 +9772,10 @@ type NodeInfo struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//An individual vertex/node within the channel graph. A node is
-	//connected to other nodes by one or more channel edges emanating from it. As
-	//the graph is directed, a node will also have an incoming edge attached to
-	//it for each outgoing edge.
+	// An individual vertex/node within the channel graph. A node is
+	// connected to other nodes by one or more channel edges emanating from it. As
+	// the graph is directed, a node will also have an incoming edge attached to
+	// it for each outgoing edge.
 	Node *LightningNode `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
 	// The total number of channels for the node.
 	NumChannels uint32 `protobuf:"varint,2,opt,name=num_channels,json=numChannels,proto3" json:"num_channels,omitempty"`
@@ -10011,11 +9845,10 @@ func (x *NodeInfo) GetChannels() []*ChannelEdge {
 	return nil
 }
 
-//
-//An individual vertex/node within the channel graph. A node is
-//connected to other nodes by one or more channel edges emanating from it. As the
-//graph is directed, a node will also have an incoming edge attached to it for
-//each outgoing edge.
+// An individual vertex/node within the channel graph. A node is
+// connected to other nodes by one or more channel edges emanating from it. As the
+// graph is directed, a node will also have an incoming edge attached to it for
+// each outgoing edge.
 type LightningNode struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -10253,21 +10086,19 @@ func (x *RoutingPolicy) GetLastUpdate() uint32 {
 	return 0
 }
 
-//
-//A fully authenticated channel along with all its unique attributes.
-//Once an authenticated channel announcement has been processed on the network,
-//then an instance of ChannelEdgeInfo encapsulating the channels attributes is
-//stored. The other portions relevant to routing policy of a channel are stored
-//within a ChannelEdgePolicy for each direction of the channel.
+// A fully authenticated channel along with all its unique attributes.
+// Once an authenticated channel announcement has been processed on the network,
+// then an instance of ChannelEdgeInfo encapsulating the channels attributes is
+// stored. The other portions relevant to routing policy of a channel are stored
+// within a ChannelEdgePolicy for each direction of the channel.
 type ChannelEdge struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The unique channel ID for the channel. The first 3 bytes are the block
-	//height, the next 3 the index within the block, and the last 2 bytes are the
-	//output index for the channel.
+	// The unique channel ID for the channel. The first 3 bytes are the block
+	// height, the next 3 the index within the block, and the last 2 bytes are the
+	// output index for the channel.
 	ChannelId uint64 `protobuf:"varint,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
 	ChanPoint string `protobuf:"bytes,2,opt,name=chan_point,json=chanPoint,proto3" json:"chan_point,omitempty"`
 	// Deprecated: Do not use.
@@ -10373,10 +10204,9 @@ type ChannelGraphRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//Whether unannounced channels are included in the response or not. If set,
-	//unannounced channels are included. Unannounced channels are both private
-	//channels, and public channels that are not yet announced to the network.
+	// Whether unannounced channels are included in the response or not. If set,
+	// unannounced channels are included. Unannounced channels are both private
+	// channels, and public channels that are not yet announced to the network.
 	IncludeUnannounced bool `protobuf:"varint,1,opt,name=include_unannounced,json=includeUnannounced,proto3" json:"include_unannounced,omitempty"`
 }
 
@@ -10530,12 +10360,11 @@ type NodeMetricsResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//Betweenness centrality is the sum of the ratio of shortest paths that pass
-	//through the node for each pair of nodes in the graph (not counting paths
-	//starting or ending at this node).
-	//Map of node pubkey to betweenness centrality of the node. Normalized
-	//values are in the [0,1] closed interval.
+	// Betweenness centrality is the sum of the ratio of shortest paths that pass
+	// through the node for each pair of nodes in the graph (not counting paths
+	// starting or ending at this node).
+	// Map of node pubkey to betweenness centrality of the node. Normalized
+	// values are in the [0,1] closed interval.
 	BetweennessCentrality map[string]*FloatMetric `protobuf:"bytes,1,rep,name=betweenness_centrality,json=betweennessCentrality,proto3" json:"betweenness_centrality,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 }
 
@@ -10640,10 +10469,9 @@ type ChanInfoRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The unique channel ID for the channel. The first 3 bytes are the block
-	//height, the next 3 the index within the block, and the last 2 bytes are the
-	//output index for the channel.
+	// The unique channel ID for the channel. The first 3 bytes are the block
+	// height, the next 3 the index within the block, and the last 2 bytes are the
+	// output index for the channel.
 	ChanId uint64 `protobuf:"varint,1,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
 }
 
@@ -11034,23 +10862,20 @@ type NodeUpdate struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//Deprecated, use node_addresses.
+	// Deprecated, use node_addresses.
 	//
 	// Deprecated: Do not use.
 	Addresses   []string `protobuf:"bytes,1,rep,name=addresses,proto3" json:"addresses,omitempty"`
 	IdentityKey string   `protobuf:"bytes,2,opt,name=identity_key,json=identityKey,proto3" json:"identity_key,omitempty"`
-	//
-	//Deprecated, use features.
+	// Deprecated, use features.
 	//
 	// Deprecated: Do not use.
 	GlobalFeatures []byte         `protobuf:"bytes,3,opt,name=global_features,json=globalFeatures,proto3" json:"global_features,omitempty"`
 	Alias          string         `protobuf:"bytes,4,opt,name=alias,proto3" json:"alias,omitempty"`
 	Color          string         `protobuf:"bytes,5,opt,name=color,proto3" json:"color,omitempty"`
 	NodeAddresses  []*NodeAddress `protobuf:"bytes,7,rep,name=node_addresses,json=nodeAddresses,proto3" json:"node_addresses,omitempty"`
-	//
-	//Features that the node has advertised in the init message, node
-	//announcements and invoices.
+	// Features that the node has advertised in the init message, node
+	// announcements and invoices.
 	Features map[uint32]*Feature `protobuf:"bytes,6,rep,name=features,proto3" json:"features,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 }
 
@@ -11142,10 +10967,9 @@ type ChannelEdgeUpdate struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The unique channel ID for the channel. The first 3 bytes are the block
-	//height, the next 3 the index within the block, and the last 2 bytes are the
-	//output index for the channel.
+	// The unique channel ID for the channel. The first 3 bytes are the block
+	// height, the next 3 the index within the block, and the last 2 bytes are the
+	// output index for the channel.
 	ChanId          uint64         `protobuf:"varint,1,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
 	ChanPoint       *ChannelPoint  `protobuf:"bytes,2,opt,name=chan_point,json=chanPoint,proto3" json:"chan_point,omitempty"`
 	Capacity        int64          `protobuf:"varint,3,opt,name=capacity,proto3" json:"capacity,omitempty"`
@@ -11233,10 +11057,9 @@ type ClosedChannelUpdate struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The unique channel ID for the channel. The first 3 bytes are the block
-	//height, the next 3 the index within the block, and the last 2 bytes are the
-	//output index for the channel.
+	// The unique channel ID for the channel. The first 3 bytes are the block
+	// height, the next 3 the index within the block, and the last 2 bytes are the
+	// output index for the channel.
 	ChanId       uint64        `protobuf:"varint,1,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
 	Capacity     int64         `protobuf:"varint,2,opt,name=capacity,proto3" json:"capacity,omitempty"`
 	ClosedHeight uint32        `protobuf:"varint,3,opt,name=closed_height,json=closedHeight,proto3" json:"closed_height,omitempty"`
@@ -11314,9 +11137,8 @@ type HopHint struct {
 	ChanId uint64 `protobuf:"varint,2,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
 	// The base fee of the channel denominated in millisatoshis.
 	FeeBaseMsat uint32 `protobuf:"varint,3,opt,name=fee_base_msat,json=feeBaseMsat,proto3" json:"fee_base_msat,omitempty"`
-	//
-	//The fee rate of the channel for sending one satoshi across it denominated in
-	//millionths of a satoshi.
+	// The fee rate of the channel for sending one satoshi across it denominated in
+	// millionths of a satoshi.
 	FeeProportionalMillionths uint32 `protobuf:"varint,4,opt,name=fee_proportional_millionths,json=feeProportionalMillionths,proto3" json:"fee_proportional_millionths,omitempty"`
 	// The time-lock delta of the channel.
 	CltvExpiryDelta uint32 `protobuf:"varint,5,opt,name=cltv_expiry_delta,json=cltvExpiryDelta,proto3" json:"cltv_expiry_delta,omitempty"`
@@ -11441,9 +11263,8 @@ type RouteHint struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//A list of hop hints that when chained together can assist in reaching a
-	//specific destination.
+	// A list of hop hints that when chained together can assist in reaching a
+	// specific destination.
 	HopHints []*HopHint `protobuf:"bytes,1,rep,name=hop_hints,json=hopHints,proto3" json:"hop_hints,omitempty"`
 }
 
@@ -11566,58 +11387,48 @@ type Invoice struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//An optional memo to attach along with the invoice. Used for record keeping
-	//purposes for the invoice's creator, and will also be set in the description
-	//field of the encoded payment request if the description_hash field is not
-	//being used.
+	// An optional memo to attach along with the invoice. Used for record keeping
+	// purposes for the invoice's creator, and will also be set in the description
+	// field of the encoded payment request if the description_hash field is not
+	// being used.
 	Memo string `protobuf:"bytes,1,opt,name=memo,proto3" json:"memo,omitempty"`
-	//
-	//The hex-encoded preimage (32 byte) which will allow settling an incoming
-	//HTLC payable to this preimage. When using REST, this field must be encoded
-	//as base64.
+	// The hex-encoded preimage (32 byte) which will allow settling an incoming
+	// HTLC payable to this preimage. When using REST, this field must be encoded
+	// as base64.
 	RPreimage []byte `protobuf:"bytes,3,opt,name=r_preimage,json=rPreimage,proto3" json:"r_preimage,omitempty"`
-	//
-	//The hash of the preimage. When using REST, this field must be encoded as
-	//base64.
-	//Note: Output only, don't specify for creating an invoice.
+	// The hash of the preimage. When using REST, this field must be encoded as
+	// base64.
+	// Note: Output only, don't specify for creating an invoice.
 	RHash []byte `protobuf:"bytes,4,opt,name=r_hash,json=rHash,proto3" json:"r_hash,omitempty"`
+	// The value of this invoice in satoshis
 	//
-	//The value of this invoice in satoshis
-	//
-	//The fields value and value_msat are mutually exclusive.
+	// The fields value and value_msat are mutually exclusive.
 	Value int64 `protobuf:"varint,5,opt,name=value,proto3" json:"value,omitempty"`
+	// The value of this invoice in millisatoshis
 	//
-	//The value of this invoice in millisatoshis
-	//
-	//The fields value and value_msat are mutually exclusive.
+	// The fields value and value_msat are mutually exclusive.
 	ValueMsat int64 `protobuf:"varint,23,opt,name=value_msat,json=valueMsat,proto3" json:"value_msat,omitempty"`
+	// Whether this invoice has been fulfilled
 	//
-	//Whether this invoice has been fulfilled
-	//
-	//The field is deprecated. Use the state field instead (compare to SETTLED).
+	// The field is deprecated. Use the state field instead (compare to SETTLED).
 	//
 	// Deprecated: Do not use.
 	Settled bool `protobuf:"varint,6,opt,name=settled,proto3" json:"settled,omitempty"`
-	//
-	//When this invoice was created.
-	//Note: Output only, don't specify for creating an invoice.
+	// When this invoice was created.
+	// Note: Output only, don't specify for creating an invoice.
 	CreationDate int64 `protobuf:"varint,7,opt,name=creation_date,json=creationDate,proto3" json:"creation_date,omitempty"`
-	//
-	//When this invoice was settled.
-	//Note: Output only, don't specify for creating an invoice.
+	// When this invoice was settled.
+	// Note: Output only, don't specify for creating an invoice.
 	SettleDate int64 `protobuf:"varint,8,opt,name=settle_date,json=settleDate,proto3" json:"settle_date,omitempty"`
-	//
-	//A bare-bones invoice for a payment within the Lightning Network. With the
-	//details of the invoice, the sender has all the data necessary to send a
-	//payment to the recipient.
-	//Note: Output only, don't specify for creating an invoice.
+	// A bare-bones invoice for a payment within the Lightning Network. With the
+	// details of the invoice, the sender has all the data necessary to send a
+	// payment to the recipient.
+	// Note: Output only, don't specify for creating an invoice.
 	PaymentRequest string `protobuf:"bytes,9,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
-	//
-	//Hash (SHA-256) of a description of the payment. Used if the description of
-	//payment (memo) is too long to naturally fit within the description field
-	//of an encoded payment request. When using REST, this field must be encoded
-	//as base64.
+	// Hash (SHA-256) of a description of the payment. Used if the description of
+	// payment (memo) is too long to naturally fit within the description field
+	// of an encoded payment request. When using REST, this field must be encoded
+	// as base64.
 	DescriptionHash []byte `protobuf:"bytes,10,opt,name=description_hash,json=descriptionHash,proto3" json:"description_hash,omitempty"`
 	// Payment request expiry time in seconds. Default is 3600 (1 hour).
 	Expiry int64 `protobuf:"varint,11,opt,name=expiry,proto3" json:"expiry,omitempty"`
@@ -11625,82 +11436,70 @@ type Invoice struct {
 	FallbackAddr string `protobuf:"bytes,12,opt,name=fallback_addr,json=fallbackAddr,proto3" json:"fallback_addr,omitempty"`
 	// Delta to use for the time-lock of the CLTV extended to the final hop.
 	CltvExpiry uint64 `protobuf:"varint,13,opt,name=cltv_expiry,json=cltvExpiry,proto3" json:"cltv_expiry,omitempty"`
-	//
-	//Route hints that can each be individually used to assist in reaching the
-	//invoice's destination.
+	// Route hints that can each be individually used to assist in reaching the
+	// invoice's destination.
 	RouteHints []*RouteHint `protobuf:"bytes,14,rep,name=route_hints,json=routeHints,proto3" json:"route_hints,omitempty"`
 	// Whether this invoice should include routing hints for private channels.
 	Private bool `protobuf:"varint,15,opt,name=private,proto3" json:"private,omitempty"`
-	//
-	//The "add" index of this invoice. Each newly created invoice will increment
-	//this index making it monotonically increasing. Callers to the
-	//SubscribeInvoices call can use this to instantly get notified of all added
-	//invoices with an add_index greater than this one.
-	//Note: Output only, don't specify for creating an invoice.
+	// The "add" index of this invoice. Each newly created invoice will increment
+	// this index making it monotonically increasing. Callers to the
+	// SubscribeInvoices call can use this to instantly get notified of all added
+	// invoices with an add_index greater than this one.
+	// Note: Output only, don't specify for creating an invoice.
 	AddIndex uint64 `protobuf:"varint,16,opt,name=add_index,json=addIndex,proto3" json:"add_index,omitempty"`
-	//
-	//The "settle" index of this invoice. Each newly settled invoice will
-	//increment this index making it monotonically increasing. Callers to the
-	//SubscribeInvoices call can use this to instantly get notified of all
-	//settled invoices with an settle_index greater than this one.
-	//Note: Output only, don't specify for creating an invoice.
+	// The "settle" index of this invoice. Each newly settled invoice will
+	// increment this index making it monotonically increasing. Callers to the
+	// SubscribeInvoices call can use this to instantly get notified of all
+	// settled invoices with an settle_index greater than this one.
+	// Note: Output only, don't specify for creating an invoice.
 	SettleIndex uint64 `protobuf:"varint,17,opt,name=settle_index,json=settleIndex,proto3" json:"settle_index,omitempty"`
 	// Deprecated, use amt_paid_sat or amt_paid_msat.
 	//
 	// Deprecated: Do not use.
 	AmtPaid int64 `protobuf:"varint,18,opt,name=amt_paid,json=amtPaid,proto3" json:"amt_paid,omitempty"`
-	//
-	//The amount that was accepted for this invoice, in satoshis. This will ONLY
-	//be set if this invoice has been settled. We provide this field as if the
-	//invoice was created with a zero value, then we need to record what amount
-	//was ultimately accepted. Additionally, it's possible that the sender paid
-	//MORE that was specified in the original invoice. So we'll record that here
-	//as well.
-	//Note: Output only, don't specify for creating an invoice.
+	// The amount that was accepted for this invoice, in satoshis. This will ONLY
+	// be set if this invoice has been settled. We provide this field as if the
+	// invoice was created with a zero value, then we need to record what amount
+	// was ultimately accepted. Additionally, it's possible that the sender paid
+	// MORE that was specified in the original invoice. So we'll record that here
+	// as well.
+	// Note: Output only, don't specify for creating an invoice.
 	AmtPaidSat int64 `protobuf:"varint,19,opt,name=amt_paid_sat,json=amtPaidSat,proto3" json:"amt_paid_sat,omitempty"`
-	//
-	//The amount that was accepted for this invoice, in millisatoshis. This will
-	//ONLY be set if this invoice has been settled. We provide this field as if
-	//the invoice was created with a zero value, then we need to record what
-	//amount was ultimately accepted. Additionally, it's possible that the sender
-	//paid MORE that was specified in the original invoice. So we'll record that
-	//here as well.
-	//Note: Output only, don't specify for creating an invoice.
+	// The amount that was accepted for this invoice, in millisatoshis. This will
+	// ONLY be set if this invoice has been settled. We provide this field as if
+	// the invoice was created with a zero value, then we need to record what
+	// amount was ultimately accepted. Additionally, it's possible that the sender
+	// paid MORE that was specified in the original invoice. So we'll record that
+	// here as well.
+	// Note: Output only, don't specify for creating an invoice.
 	AmtPaidMsat int64 `protobuf:"varint,20,opt,name=amt_paid_msat,json=amtPaidMsat,proto3" json:"amt_paid_msat,omitempty"`
-	//
-	//The state the invoice is in.
-	//Note: Output only, don't specify for creating an invoice.
+	// The state the invoice is in.
+	// Note: Output only, don't specify for creating an invoice.
 	State Invoice_InvoiceState `protobuf:"varint,21,opt,name=state,proto3,enum=lnrpc.Invoice_InvoiceState" json:"state,omitempty"`
-	//
-	//List of HTLCs paying to this invoice [EXPERIMENTAL].
-	//Note: Output only, don't specify for creating an invoice.
+	// List of HTLCs paying to this invoice [EXPERIMENTAL].
+	// Note: Output only, don't specify for creating an invoice.
 	Htlcs []*InvoiceHTLC `protobuf:"bytes,22,rep,name=htlcs,proto3" json:"htlcs,omitempty"`
-	//
-	//List of features advertised on the invoice.
-	//Note: Output only, don't specify for creating an invoice.
+	// List of features advertised on the invoice.
+	// Note: Output only, don't specify for creating an invoice.
 	Features map[uint32]*Feature `protobuf:"bytes,24,rep,name=features,proto3" json:"features,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	//
-	//Indicates if this invoice was a spontaneous payment that arrived via keysend
-	//[EXPERIMENTAL].
-	//Note: Output only, don't specify for creating an invoice.
+	// Indicates if this invoice was a spontaneous payment that arrived via keysend
+	// [EXPERIMENTAL].
+	// Note: Output only, don't specify for creating an invoice.
 	IsKeysend bool `protobuf:"varint,25,opt,name=is_keysend,json=isKeysend,proto3" json:"is_keysend,omitempty"`
-	//
-	//The payment address of this invoice. This value will be used in MPP
-	//payments, and also for newer invoices that always require the MPP payload
-	//for added end-to-end security.
-	//Note: Output only, don't specify for creating an invoice.
+	// The payment address of this invoice. This value will be used in MPP
+	// payments, and also for newer invoices that always require the MPP payload
+	// for added end-to-end security.
+	// Note: Output only, don't specify for creating an invoice.
 	PaymentAddr []byte `protobuf:"bytes,26,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
-	//
-	//Signals whether or not this is an AMP invoice.
+	// Signals whether or not this is an AMP invoice.
 	IsAmp bool `protobuf:"varint,27,opt,name=is_amp,json=isAmp,proto3" json:"is_amp,omitempty"`
+	// [EXPERIMENTAL]:
 	//
-	//[EXPERIMENTAL]:
-	//
-	//Maps a 32-byte hex-encoded set ID to the sub-invoice AMP state for the
-	//given set ID. This field is always populated for AMP invoices, and can be
-	//used along side LookupInvoice to obtain the HTLC information related to a
-	//given sub-invoice.
-	//Note: Output only, don't specify for creating an invoice.
+	// Maps a 32-byte hex-encoded set ID to the sub-invoice AMP state for the
+	// given set ID. This field is always populated for AMP invoices, and can be
+	// used along side LookupInvoice to obtain the HTLC information related to a
+	// given sub-invoice.
+	// Note: Output only, don't specify for creating an invoice.
 	AmpInvoiceState map[string]*AMPInvoiceState `protobuf:"bytes,28,rep,name=amp_invoice_state,json=ampInvoiceState,proto3" json:"amp_invoice_state,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 }
 
@@ -12161,21 +11960,18 @@ type AddInvoiceResponse struct {
 	unknownFields protoimpl.UnknownFields
 
 	RHash []byte `protobuf:"bytes,1,opt,name=r_hash,json=rHash,proto3" json:"r_hash,omitempty"`
-	//
-	//A bare-bones invoice for a payment within the Lightning Network. With the
-	//details of the invoice, the sender has all the data necessary to send a
-	//payment to the recipient.
+	// A bare-bones invoice for a payment within the Lightning Network. With the
+	// details of the invoice, the sender has all the data necessary to send a
+	// payment to the recipient.
 	PaymentRequest string `protobuf:"bytes,2,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
-	//
-	//The "add" index of this invoice. Each newly created invoice will increment
-	//this index making it monotonically increasing. Callers to the
-	//SubscribeInvoices call can use this to instantly get notified of all added
-	//invoices with an add_index greater than this one.
+	// The "add" index of this invoice. Each newly created invoice will increment
+	// this index making it monotonically increasing. Callers to the
+	// SubscribeInvoices call can use this to instantly get notified of all added
+	// invoices with an add_index greater than this one.
 	AddIndex uint64 `protobuf:"varint,16,opt,name=add_index,json=addIndex,proto3" json:"add_index,omitempty"`
-	//
-	//The payment address of the generated invoice. This value should be used
-	//in all payments for this invoice as we require it for end to end
-	//security.
+	// The payment address of the generated invoice. This value should be used
+	// in all payments for this invoice as we require it for end to end
+	// security.
 	PaymentAddr []byte `protobuf:"bytes,17,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
 }
 
@@ -12244,17 +12040,15 @@ type PaymentHash struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The hex-encoded payment hash of the invoice to be looked up. The passed
-	//payment hash must be exactly 32 bytes, otherwise an error is returned.
-	//Deprecated now that the REST gateway supports base64 encoding of bytes
-	//fields.
+	// The hex-encoded payment hash of the invoice to be looked up. The passed
+	// payment hash must be exactly 32 bytes, otherwise an error is returned.
+	// Deprecated now that the REST gateway supports base64 encoding of bytes
+	// fields.
 	//
 	// Deprecated: Do not use.
 	RHashStr string `protobuf:"bytes,1,opt,name=r_hash_str,json=rHashStr,proto3" json:"r_hash_str,omitempty"`
-	//
-	//The payment hash of the invoice to be looked up. When using REST, this field
-	//must be encoded as base64.
+	// The payment hash of the invoice to be looked up. When using REST, this field
+	// must be encoded as base64.
 	RHash []byte `protobuf:"bytes,2,opt,name=r_hash,json=rHash,proto3" json:"r_hash,omitempty"`
 }
 
@@ -12310,19 +12104,16 @@ type ListInvoiceRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//If set, only invoices that are not settled and not canceled will be returned
-	//in the response.
+	// If set, only invoices that are not settled and not canceled will be returned
+	// in the response.
 	PendingOnly bool `protobuf:"varint,1,opt,name=pending_only,json=pendingOnly,proto3" json:"pending_only,omitempty"`
-	//
-	//The index of an invoice that will be used as either the start or end of a
-	//query to determine which invoices should be returned in the response.
+	// The index of an invoice that will be used as either the start or end of a
+	// query to determine which invoices should be returned in the response.
 	IndexOffset uint64 `protobuf:"varint,4,opt,name=index_offset,json=indexOffset,proto3" json:"index_offset,omitempty"`
 	// The max number of invoices to return in the response to this query.
 	NumMaxInvoices uint64 `protobuf:"varint,5,opt,name=num_max_invoices,json=numMaxInvoices,proto3" json:"num_max_invoices,omitempty"`
-	//
-	//If set, the invoices returned will result from seeking backwards from the
-	//specified index offset. This can be used to paginate backwards.
+	// If set, the invoices returned will result from seeking backwards from the
+	// specified index offset. This can be used to paginate backwards.
 	Reversed bool `protobuf:"varint,6,opt,name=reversed,proto3" json:"reversed,omitempty"`
 }
 
@@ -12391,17 +12182,14 @@ type ListInvoiceResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//A list of invoices from the time slice of the time series specified in the
-	//request.
+	// A list of invoices from the time slice of the time series specified in the
+	// request.
 	Invoices []*Invoice `protobuf:"bytes,1,rep,name=invoices,proto3" json:"invoices,omitempty"`
-	//
-	//The index of the last item in the set of returned invoices. This can be used
-	//to seek further, pagination style.
+	// The index of the last item in the set of returned invoices. This can be used
+	// to seek further, pagination style.
 	LastIndexOffset uint64 `protobuf:"varint,2,opt,name=last_index_offset,json=lastIndexOffset,proto3" json:"last_index_offset,omitempty"`
-	//
-	//The index of the last item in the set of returned invoices. This can be used
-	//to seek backwards, pagination style.
+	// The index of the last item in the set of returned invoices. This can be used
+	// to seek backwards, pagination style.
 	FirstIndexOffset uint64 `protobuf:"varint,3,opt,name=first_index_offset,json=firstIndexOffset,proto3" json:"first_index_offset,omitempty"`
 }
 
@@ -12463,17 +12251,15 @@ type InvoiceSubscription struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//If specified (non-zero), then we'll first start by sending out
-	//notifications for all added indexes with an add_index greater than this
-	//value. This allows callers to catch up on any events they missed while they
-	//weren't connected to the streaming RPC.
+	// If specified (non-zero), then we'll first start by sending out
+	// notifications for all added indexes with an add_index greater than this
+	// value. This allows callers to catch up on any events they missed while they
+	// weren't connected to the streaming RPC.
 	AddIndex uint64 `protobuf:"varint,1,opt,name=add_index,json=addIndex,proto3" json:"add_index,omitempty"`
-	//
-	//If specified (non-zero), then we'll first start by sending out
-	//notifications for all settled indexes with an settle_index greater than
-	//this value. This allows callers to catch up on any events they missed while
-	//they weren't connected to the streaming RPC.
+	// If specified (non-zero), then we'll first start by sending out
+	// notifications for all settled indexes with an settle_index greater than
+	// this value. This allows callers to catch up on any events they missed while
+	// they weren't connected to the streaming RPC.
 	SettleIndex uint64 `protobuf:"varint,2,opt,name=settle_index,json=settleIndex,proto3" json:"settle_index,omitempty"`
 }
 
@@ -12552,18 +12338,17 @@ type Payment struct {
 	PaymentRequest string `protobuf:"bytes,9,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
 	// The status of the payment.
 	Status Payment_PaymentStatus `protobuf:"varint,10,opt,name=status,proto3,enum=lnrpc.Payment_PaymentStatus" json:"status,omitempty"`
-	//  The fee paid for this payment in satoshis
+	// The fee paid for this payment in satoshis
 	FeeSat int64 `protobuf:"varint,11,opt,name=fee_sat,json=feeSat,proto3" json:"fee_sat,omitempty"`
-	//  The fee paid for this payment in milli-satoshis
+	// The fee paid for this payment in milli-satoshis
 	FeeMsat int64 `protobuf:"varint,12,opt,name=fee_msat,json=feeMsat,proto3" json:"fee_msat,omitempty"`
 	// The time in UNIX nanoseconds at which the payment was created.
 	CreationTimeNs int64 `protobuf:"varint,13,opt,name=creation_time_ns,json=creationTimeNs,proto3" json:"creation_time_ns,omitempty"`
 	// The HTLCs made in attempt to settle the payment.
 	Htlcs []*HTLCAttempt `protobuf:"bytes,14,rep,name=htlcs,proto3" json:"htlcs,omitempty"`
-	//
-	//The creation index of this payment. Each payment can be uniquely identified
-	//by this index, which may not strictly increment by 1 for payments made in
-	//older versions of lnd.
+	// The creation index of this payment. Each payment can be uniquely identified
+	// by this index, which may not strictly increment by 1 for payments made in
+	// older versions of lnd.
 	PaymentIndex  uint64               `protobuf:"varint,15,opt,name=payment_index,json=paymentIndex,proto3" json:"payment_index,omitempty"`
 	FailureReason PaymentFailureReason `protobuf:"varint,16,opt,name=failure_reason,json=failureReason,proto3,enum=lnrpc.PaymentFailureReason" json:"failure_reason,omitempty"`
 }
@@ -12721,9 +12506,8 @@ type HTLCAttempt struct {
 	Route *Route `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
 	// The time in UNIX nanoseconds at which this HTLC was sent.
 	AttemptTimeNs int64 `protobuf:"varint,3,opt,name=attempt_time_ns,json=attemptTimeNs,proto3" json:"attempt_time_ns,omitempty"`
-	//
-	//The time in UNIX nanoseconds at which this HTLC was settled or failed.
-	//This value will not be set if the HTLC is still IN_FLIGHT.
+	// The time in UNIX nanoseconds at which this HTLC was settled or failed.
+	// This value will not be set if the HTLC is still IN_FLIGHT.
 	ResolveTimeNs int64 `protobuf:"varint,4,opt,name=resolve_time_ns,json=resolveTimeNs,proto3" json:"resolve_time_ns,omitempty"`
 	// Detailed htlc failure info.
 	Failure *Failure `protobuf:"bytes,5,opt,name=failure,proto3" json:"failure,omitempty"`
@@ -12817,31 +12601,27 @@ type ListPaymentsRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//If true, then return payments that have not yet fully completed. This means
-	//that pending payments, as well as failed payments will show up if this
-	//field is set to true. This flag doesn't change the meaning of the indices,
-	//which are tied to individual payments.
+	// If true, then return payments that have not yet fully completed. This means
+	// that pending payments, as well as failed payments will show up if this
+	// field is set to true. This flag doesn't change the meaning of the indices,
+	// which are tied to individual payments.
 	IncludeIncomplete bool `protobuf:"varint,1,opt,name=include_incomplete,json=includeIncomplete,proto3" json:"include_incomplete,omitempty"`
-	//
-	//The index of a payment that will be used as either the start or end of a
-	//query to determine which payments should be returned in the response. The
-	//index_offset is exclusive. In the case of a zero index_offset, the query
-	//will start with the oldest payment when paginating forwards, or will end
-	//with the most recent payment when paginating backwards.
+	// The index of a payment that will be used as either the start or end of a
+	// query to determine which payments should be returned in the response. The
+	// index_offset is exclusive. In the case of a zero index_offset, the query
+	// will start with the oldest payment when paginating forwards, or will end
+	// with the most recent payment when paginating backwards.
 	IndexOffset uint64 `protobuf:"varint,2,opt,name=index_offset,json=indexOffset,proto3" json:"index_offset,omitempty"`
 	// The maximal number of payments returned in the response to this query.
 	MaxPayments uint64 `protobuf:"varint,3,opt,name=max_payments,json=maxPayments,proto3" json:"max_payments,omitempty"`
-	//
-	//If set, the payments returned will result from seeking backwards from the
-	//specified index offset. This can be used to paginate backwards. The order
-	//of the returned payments is always oldest first (ascending index order).
+	// If set, the payments returned will result from seeking backwards from the
+	// specified index offset. This can be used to paginate backwards. The order
+	// of the returned payments is always oldest first (ascending index order).
 	Reversed bool `protobuf:"varint,4,opt,name=reversed,proto3" json:"reversed,omitempty"`
-	//
-	//If set, all payments (complete and incomplete, independent of the
-	//max_payments parameter) will be counted. Note that setting this to true will
-	//increase the run time of the call significantly on systems that have a lot
-	//of payments, as all of them have to be iterated through to be counted.
+	// If set, all payments (complete and incomplete, independent of the
+	// max_payments parameter) will be counted. Note that setting this to true will
+	// increase the run time of the call significantly on systems that have a lot
+	// of payments, as all of them have to be iterated through to be counted.
 	CountTotalPayments bool `protobuf:"varint,5,opt,name=count_total_payments,json=countTotalPayments,proto3" json:"count_total_payments,omitempty"`
 }
 
@@ -12919,19 +12699,16 @@ type ListPaymentsResponse struct {
 
 	// The list of payments
 	Payments []*Payment `protobuf:"bytes,1,rep,name=payments,proto3" json:"payments,omitempty"`
-	//
-	//The index of the first item in the set of returned payments. This can be
-	//used as the index_offset to continue seeking backwards in the next request.
+	// The index of the first item in the set of returned payments. This can be
+	// used as the index_offset to continue seeking backwards in the next request.
 	FirstIndexOffset uint64 `protobuf:"varint,2,opt,name=first_index_offset,json=firstIndexOffset,proto3" json:"first_index_offset,omitempty"`
-	//
-	//The index of the last item in the set of returned payments. This can be used
-	//as the index_offset to continue seeking forwards in the next request.
+	// The index of the last item in the set of returned payments. This can be used
+	// as the index_offset to continue seeking forwards in the next request.
 	LastIndexOffset uint64 `protobuf:"varint,3,opt,name=last_index_offset,json=lastIndexOffset,proto3" json:"last_index_offset,omitempty"`
-	//
-	//Will only be set if count_total_payments in the request was set. Represents
-	//the total number of payments (complete and incomplete, independent of the
-	//number of payments requested in the query) currently present in the payments
-	//database.
+	// Will only be set if count_total_payments in the request was set. Represents
+	// the total number of payments (complete and incomplete, independent of the
+	// number of payments requested in the query) currently present in the payments
+	// database.
 	TotalNumPayments uint64 `protobuf:"varint,4,opt,name=total_num_payments,json=totalNumPayments,proto3" json:"total_num_payments,omitempty"`
 }
 
@@ -13002,8 +12779,7 @@ type DeletePaymentRequest struct {
 
 	// Payment hash to delete.
 	PaymentHash []byte `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
-	//
-	//Only delete failed HTLCs from the payment, not the payment itself.
+	// Only delete failed HTLCs from the payment, not the payment itself.
 	FailedHtlcsOnly bool `protobuf:"varint,2,opt,name=failed_htlcs_only,json=failedHtlcsOnly,proto3" json:"failed_htlcs_only,omitempty"`
 }
 
@@ -13060,8 +12836,7 @@ type DeleteAllPaymentsRequest struct {
 
 	// Only delete failed payments.
 	FailedPaymentsOnly bool `protobuf:"varint,1,opt,name=failed_payments_only,json=failedPaymentsOnly,proto3" json:"failed_payments_only,omitempty"`
-	//
-	//Only delete failed HTLCs from payments, not the payment itself.
+	// Only delete failed HTLCs from payments, not the payment itself.
 	FailedHtlcsOnly bool `protobuf:"varint,2,opt,name=failed_htlcs_only,json=failedHtlcsOnly,proto3" json:"failed_htlcs_only,omitempty"`
 }
 
@@ -13194,10 +12969,9 @@ type AbandonChannelRequest struct {
 
 	ChannelPoint           *ChannelPoint `protobuf:"bytes,1,opt,name=channel_point,json=channelPoint,proto3" json:"channel_point,omitempty"`
 	PendingFundingShimOnly bool          `protobuf:"varint,2,opt,name=pending_funding_shim_only,json=pendingFundingShimOnly,proto3" json:"pending_funding_shim_only,omitempty"`
-	//
-	//Override the requirement for being in dev mode by setting this to true and
-	//confirming the user knows what they are doing and this is a potential foot
-	//gun to lose funds if used on active channels.
+	// Override the requirement for being in dev mode by setting this to true and
+	// confirming the user knows what they are doing and this is a potential foot
+	// gun to lose funds if used on active channels.
 	IKnowWhatIAmDoing bool `protobuf:"varint,3,opt,name=i_know_what_i_am_doing,json=iKnowWhatIAmDoing,proto3" json:"i_know_what_i_am_doing,omitempty"`
 }
 
@@ -13857,6 +13631,7 @@ type PolicyUpdateRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Scope:
+	//
 	//	*PolicyUpdateRequest_Global
 	//	*PolicyUpdateRequest_ChanPoint
 	Scope isPolicyUpdateRequest_Scope `protobuf_oneof:"scope"`
@@ -14445,14 +14220,12 @@ type ChannelBackup struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//Identifies the channel that this backup belongs to.
+	// Identifies the channel that this backup belongs to.
 	ChanPoint *ChannelPoint `protobuf:"bytes,1,opt,name=chan_point,json=chanPoint,proto3" json:"chan_point,omitempty"`
-	//
-	//Is an encrypted single-chan backup. this can be passed to
-	//RestoreChannelBackups, or the WalletUnlocker Init and Unlock methods in
-	//order to trigger the recovery protocol. When using REST, this field must be
-	//encoded as base64.
+	// Is an encrypted single-chan backup. this can be passed to
+	// RestoreChannelBackups, or the WalletUnlocker Init and Unlock methods in
+	// order to trigger the recovery protocol. When using REST, this field must be
+	// encoded as base64.
 	ChanBackup []byte `protobuf:"bytes,2,opt,name=chan_backup,json=chanBackup,proto3" json:"chan_backup,omitempty"`
 }
 
@@ -14507,14 +14280,12 @@ type MultiChanBackup struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//Is the set of all channels that are included in this multi-channel backup.
+	// Is the set of all channels that are included in this multi-channel backup.
 	ChanPoints []*ChannelPoint `protobuf:"bytes,1,rep,name=chan_points,json=chanPoints,proto3" json:"chan_points,omitempty"`
-	//
-	//A single encrypted blob containing all the static channel backups of the
-	//channel listed above. This can be stored as a single file or blob, and
-	//safely be replaced with any prior/future versions. When using REST, this
-	//field must be encoded as base64.
+	// A single encrypted blob containing all the static channel backups of the
+	// channel listed above. This can be stored as a single file or blob, and
+	// safely be replaced with any prior/future versions. When using REST, this
+	// field must be encoded as base64.
 	MultiChanBackup []byte `protobuf:"bytes,2,opt,name=multi_chan_backup,json=multiChanBackup,proto3" json:"multi_chan_backup,omitempty"`
 }
 
@@ -14607,13 +14378,11 @@ type ChanBackupSnapshot struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The set of new channels that have been added since the last channel backup
-	//snapshot was requested.
+	// The set of new channels that have been added since the last channel backup
+	// snapshot was requested.
 	SingleChanBackups *ChannelBackups `protobuf:"bytes,1,opt,name=single_chan_backups,json=singleChanBackups,proto3" json:"single_chan_backups,omitempty"`
-	//
-	//A multi-channel backup that covers all open channels currently known to
-	//lnd.
+	// A multi-channel backup that covers all open channels currently known to
+	// lnd.
 	MultiChanBackup *MultiChanBackup `protobuf:"bytes,2,opt,name=multi_chan_backup,json=multiChanBackup,proto3" json:"multi_chan_backup,omitempty"`
 }
 
@@ -14668,8 +14437,7 @@ type ChannelBackups struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//A set of single-chan static channel backups.
+	// A set of single-chan static channel backups.
 	ChanBackups []*ChannelBackup `protobuf:"bytes,1,rep,name=chan_backups,json=chanBackups,proto3" json:"chan_backups,omitempty"`
 }
 
@@ -14718,6 +14486,7 @@ type RestoreChanBackupRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Backup:
+	//
 	//	*RestoreChanBackupRequest_ChanBackups
 	//	*RestoreChanBackupRequest_MultiChanBackup
 	Backup isRestoreChanBackupRequest_Backup `protobuf_oneof:"backup"`
@@ -14781,15 +14550,13 @@ type isRestoreChanBackupRequest_Backup interface {
 }
 
 type RestoreChanBackupRequest_ChanBackups struct {
-	//
-	//The channels to restore as a list of channel/backup pairs.
+	// The channels to restore as a list of channel/backup pairs.
 	ChanBackups *ChannelBackups `protobuf:"bytes,1,opt,name=chan_backups,json=chanBackups,proto3,oneof"`
 }
 
 type RestoreChanBackupRequest_MultiChanBackup struct {
-	//
-	//The channels to restore in the packed multi backup format. When using
-	//REST, this field must be encoded as base64.
+	// The channels to restore in the packed multi backup format. When using
+	// REST, this field must be encoded as base64.
 	MultiChanBackup []byte `protobuf:"bytes,2,opt,name=multi_chan_backup,json=multiChanBackup,proto3,oneof"`
 }
 
@@ -14977,9 +14744,8 @@ type BakeMacaroonRequest struct {
 	Permissions []*MacaroonPermission `protobuf:"bytes,1,rep,name=permissions,proto3" json:"permissions,omitempty"`
 	// The root key ID used to create the macaroon, must be a positive integer.
 	RootKeyId uint64 `protobuf:"varint,2,opt,name=root_key_id,json=rootKeyId,proto3" json:"root_key_id,omitempty"`
-	//
-	//Informs the RPC on whether to allow external permissions that LND is not
-	//aware of.
+	// Informs the RPC on whether to allow external permissions that LND is not
+	// aware of.
 	AllowExternalPermissions bool `protobuf:"varint,3,opt,name=allow_external_permissions,json=allowExternalPermissions,proto3" json:"allow_external_permissions,omitempty"`
 }
 
@@ -15357,9 +15123,8 @@ type ListPermissionsResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//A map between all RPC method URIs and their required macaroon permissions to
-	//access them.
+	// A map between all RPC method URIs and their required macaroon permissions to
+	// access them.
 	MethodPermissions map[string]*MacaroonPermissionList `protobuf:"bytes,1,rep,name=method_permissions,json=methodPermissions,proto3" json:"method_permissions,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 }
 
@@ -15419,9 +15184,8 @@ type Failure struct {
 	CltvExpiry uint32 `protobuf:"varint,6,opt,name=cltv_expiry,json=cltvExpiry,proto3" json:"cltv_expiry,omitempty"`
 	// A failure type-dependent flags value.
 	Flags uint32 `protobuf:"varint,7,opt,name=flags,proto3" json:"flags,omitempty"`
-	//
-	//The position in the path of the intermediate or final node that generated
-	//the failure message. Position zero is the sender node.
+	// The position in the path of the intermediate or final node that generated
+	// the failure message. Position zero is the sender node.
 	FailureSourceIndex uint32 `protobuf:"varint,8,opt,name=failure_source_index,json=failureSourceIndex,proto3" json:"failure_source_index,omitempty"`
 	// A failure type-dependent block height.
 	Height uint32 `protobuf:"varint,9,opt,name=height,proto3" json:"height,omitempty"`
@@ -15520,62 +15284,50 @@ type ChannelUpdate struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The signature that validates the announced data and proves the ownership
-	//of node id.
+	// The signature that validates the announced data and proves the ownership
+	// of node id.
 	Signature []byte `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
-	//
-	//The target chain that this channel was opened within. This value
-	//should be the genesis hash of the target chain. Along with the short
-	//channel ID, this uniquely identifies the channel globally in a
-	//blockchain.
+	// The target chain that this channel was opened within. This value
+	// should be the genesis hash of the target chain. Along with the short
+	// channel ID, this uniquely identifies the channel globally in a
+	// blockchain.
 	ChainHash []byte `protobuf:"bytes,2,opt,name=chain_hash,json=chainHash,proto3" json:"chain_hash,omitempty"`
-	//
-	//The unique description of the funding transaction.
+	// The unique description of the funding transaction.
 	ChanId uint64 `protobuf:"varint,3,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
-	//
-	//A timestamp that allows ordering in the case of multiple announcements.
-	//We should ignore the message if timestamp is not greater than the
-	//last-received.
+	// A timestamp that allows ordering in the case of multiple announcements.
+	// We should ignore the message if timestamp is not greater than the
+	// last-received.
 	Timestamp uint32 `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	//
-	//The bitfield that describes whether optional fields are present in this
-	//update. Currently, the least-significant bit must be set to 1 if the
-	//optional field MaxHtlc is present.
+	// The bitfield that describes whether optional fields are present in this
+	// update. Currently, the least-significant bit must be set to 1 if the
+	// optional field MaxHtlc is present.
 	MessageFlags uint32 `protobuf:"varint,10,opt,name=message_flags,json=messageFlags,proto3" json:"message_flags,omitempty"`
-	//
-	//The bitfield that describes additional meta-data concerning how the
-	//update is to be interpreted. Currently, the least-significant bit must be
-	//set to 0 if the creating node corresponds to the first node in the
-	//previously sent channel announcement and 1 otherwise. If the second bit
-	//is set, then the channel is set to be disabled.
+	// The bitfield that describes additional meta-data concerning how the
+	// update is to be interpreted. Currently, the least-significant bit must be
+	// set to 0 if the creating node corresponds to the first node in the
+	// previously sent channel announcement and 1 otherwise. If the second bit
+	// is set, then the channel is set to be disabled.
 	ChannelFlags uint32 `protobuf:"varint,5,opt,name=channel_flags,json=channelFlags,proto3" json:"channel_flags,omitempty"`
-	//
-	//The minimum number of blocks this node requires to be added to the expiry
-	//of HTLCs. This is a security parameter determined by the node operator.
-	//This value represents the required gap between the time locks of the
-	//incoming and outgoing HTLC's set to this node.
+	// The minimum number of blocks this node requires to be added to the expiry
+	// of HTLCs. This is a security parameter determined by the node operator.
+	// This value represents the required gap between the time locks of the
+	// incoming and outgoing HTLC's set to this node.
 	TimeLockDelta uint32 `protobuf:"varint,6,opt,name=time_lock_delta,json=timeLockDelta,proto3" json:"time_lock_delta,omitempty"`
-	//
-	//The minimum HTLC value which will be accepted.
+	// The minimum HTLC value which will be accepted.
 	HtlcMinimumMsat uint64 `protobuf:"varint,7,opt,name=htlc_minimum_msat,json=htlcMinimumMsat,proto3" json:"htlc_minimum_msat,omitempty"`
-	//
-	//The base fee that must be used for incoming HTLC's to this particular
-	//channel. This value will be tacked onto the required for a payment
-	//independent of the size of the payment.
+	// The base fee that must be used for incoming HTLC's to this particular
+	// channel. This value will be tacked onto the required for a payment
+	// independent of the size of the payment.
 	BaseFee uint32 `protobuf:"varint,8,opt,name=base_fee,json=baseFee,proto3" json:"base_fee,omitempty"`
-	//
-	//The fee rate that will be charged per millionth of a satoshi.
+	// The fee rate that will be charged per millionth of a satoshi.
 	FeeRate uint32 `protobuf:"varint,9,opt,name=fee_rate,json=feeRate,proto3" json:"fee_rate,omitempty"`
-	//
-	//The maximum HTLC value which will be accepted.
+	// The maximum HTLC value which will be accepted.
 	HtlcMaximumMsat uint64 `protobuf:"varint,11,opt,name=htlc_maximum_msat,json=htlcMaximumMsat,proto3" json:"htlc_maximum_msat,omitempty"`
-	//
-	//The set of data that was appended to this message, some of which we may
-	//not actually know how to iterate or parse. By holding onto this data, we
-	//ensure that we're able to properly validate the set of signatures that
-	//cover these new fields, and ensure we're able to make upgrades to the
-	//network in a forwards compatible manner.
+	// The set of data that was appended to this message, some of which we may
+	// not actually know how to iterate or parse. By holding onto this data, we
+	// ensure that we're able to properly validate the set of signatures that
+	// cover these new fields, and ensure we're able to make upgrades to the
+	// network in a forwards compatible manner.
 	ExtraOpaqueData []byte `protobuf:"bytes,12,opt,name=extra_opaque_data,json=extraOpaqueData,proto3" json:"extra_opaque_data,omitempty"`
 }
 
@@ -15928,43 +15680,39 @@ type RPCMiddlewareRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The unique ID of the intercepted original gRPC request. Useful for mapping
-	//request to response when implementing full duplex message interception. For
-	//streaming requests, this will be the same ID for all incoming and outgoing
-	//middleware intercept messages of the _same_ stream.
+	// The unique ID of the intercepted original gRPC request. Useful for mapping
+	// request to response when implementing full duplex message interception. For
+	// streaming requests, this will be the same ID for all incoming and outgoing
+	// middleware intercept messages of the _same_ stream.
 	RequestId uint64 `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	//
-	//The raw bytes of the complete macaroon as sent by the gRPC client in the
-	//original request. This might be empty for a request that doesn't require
-	//macaroons such as the wallet unlocker RPCs.
+	// The raw bytes of the complete macaroon as sent by the gRPC client in the
+	// original request. This might be empty for a request that doesn't require
+	// macaroons such as the wallet unlocker RPCs.
 	RawMacaroon []byte `protobuf:"bytes,2,opt,name=raw_macaroon,json=rawMacaroon,proto3" json:"raw_macaroon,omitempty"`
-	//
-	//The parsed condition of the macaroon's custom caveat for convenient access.
-	//This field only contains the value of the custom caveat that the handling
-	//middleware has registered itself for. The condition _must_ be validated for
-	//messages of intercept_type stream_auth and request!
+	// The parsed condition of the macaroon's custom caveat for convenient access.
+	// This field only contains the value of the custom caveat that the handling
+	// middleware has registered itself for. The condition _must_ be validated for
+	// messages of intercept_type stream_auth and request!
 	CustomCaveatCondition string `protobuf:"bytes,3,opt,name=custom_caveat_condition,json=customCaveatCondition,proto3" json:"custom_caveat_condition,omitempty"`
-	//
-	//There are three types of messages that will be sent to the middleware for
-	//inspection and approval: Stream authentication, request and response
-	//interception. The first two can only be accepted (=forward to main RPC
-	//server) or denied (=return error to client). Intercepted responses can also
-	//be replaced/overwritten.
+	// There are three types of messages that will be sent to the middleware for
+	// inspection and approval: Stream authentication, request and response
+	// interception. The first two can only be accepted (=forward to main RPC
+	// server) or denied (=return error to client). Intercepted responses can also
+	// be replaced/overwritten.
 	//
 	// Types that are assignable to InterceptType:
+	//
 	//	*RPCMiddlewareRequest_StreamAuth
 	//	*RPCMiddlewareRequest_Request
 	//	*RPCMiddlewareRequest_Response
 	//	*RPCMiddlewareRequest_RegComplete
 	InterceptType isRPCMiddlewareRequest_InterceptType `protobuf_oneof:"intercept_type"`
-	//
-	//The unique message ID of this middleware intercept message. There can be
-	//multiple middleware intercept messages per single gRPC request (one for the
-	//incoming request and one for the outgoing response) or gRPC stream (one for
-	//each incoming message and one for each outgoing response). This message ID
-	//must be referenced when responding (accepting/rejecting/modifying) to an
-	//intercept message.
+	// The unique message ID of this middleware intercept message. There can be
+	// multiple middleware intercept messages per single gRPC request (one for the
+	// incoming request and one for the outgoing response) or gRPC stream (one for
+	// each incoming message and one for each outgoing response). This message ID
+	// must be referenced when responding (accepting/rejecting/modifying) to an
+	// intercept message.
 	MsgId uint64 `protobuf:"varint,7,opt,name=msg_id,json=msgId,proto3" json:"msg_id,omitempty"`
 }
 
@@ -16068,42 +15816,38 @@ type isRPCMiddlewareRequest_InterceptType interface {
 }
 
 type RPCMiddlewareRequest_StreamAuth struct {
-	//
-	//Intercept stream authentication: each new streaming RPC call that is
-	//initiated against lnd and contains the middleware's custom macaroon
-	//caveat can be approved or denied based upon the macaroon in the stream
-	//header. This message will only be sent for streaming RPCs, unary RPCs
-	//must handle the macaroon authentication in the request interception to
-	//avoid an additional message round trip between lnd and the middleware.
+	// Intercept stream authentication: each new streaming RPC call that is
+	// initiated against lnd and contains the middleware's custom macaroon
+	// caveat can be approved or denied based upon the macaroon in the stream
+	// header. This message will only be sent for streaming RPCs, unary RPCs
+	// must handle the macaroon authentication in the request interception to
+	// avoid an additional message round trip between lnd and the middleware.
 	StreamAuth *StreamAuth `protobuf:"bytes,4,opt,name=stream_auth,json=streamAuth,proto3,oneof"`
 }
 
 type RPCMiddlewareRequest_Request struct {
-	//
-	//Intercept incoming gRPC client request message: all incoming messages,
-	//both on streaming and unary RPCs, are forwarded to the middleware for
-	//inspection. For unary RPC messages the middleware is also expected to
-	//validate the custom macaroon caveat of the request.
+	// Intercept incoming gRPC client request message: all incoming messages,
+	// both on streaming and unary RPCs, are forwarded to the middleware for
+	// inspection. For unary RPC messages the middleware is also expected to
+	// validate the custom macaroon caveat of the request.
 	Request *RPCMessage `protobuf:"bytes,5,opt,name=request,proto3,oneof"`
 }
 
 type RPCMiddlewareRequest_Response struct {
-	//
-	//Intercept outgoing gRPC response message: all outgoing messages, both on
-	//streaming and unary RPCs, are forwarded to the middleware for inspection
-	//and amendment. The response in this message is the original response as
-	//it was generated by the main RPC server. It can either be accepted
-	//(=forwarded to the client), replaced/overwritten with a new message of
-	//the same type, or replaced by an error message.
+	// Intercept outgoing gRPC response message: all outgoing messages, both on
+	// streaming and unary RPCs, are forwarded to the middleware for inspection
+	// and amendment. The response in this message is the original response as
+	// it was generated by the main RPC server. It can either be accepted
+	// (=forwarded to the client), replaced/overwritten with a new message of
+	// the same type, or replaced by an error message.
 	Response *RPCMessage `protobuf:"bytes,6,opt,name=response,proto3,oneof"`
 }
 
 type RPCMiddlewareRequest_RegComplete struct {
-	//
-	//This is used to indicate to the client that the server has successfully
-	//registered the interceptor. This is only used in the very first message
-	//that the server sends to the client after the client sends the server
-	//the middleware registration message.
+	// This is used to indicate to the client that the server has successfully
+	// registered the interceptor. This is only used in the very first message
+	// that the server sends to the client after the client sends the server
+	// the middleware registration message.
 	RegComplete bool `protobuf:"varint,8,opt,name=reg_complete,json=regComplete,proto3,oneof"`
 }
 
@@ -16120,10 +15864,9 @@ type StreamAuth struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The full URI (in the format /<rpcpackage>.<ServiceName>/MethodName, for
-	//example /lnrpc.Lightning/GetInfo) of the streaming RPC method that was just
-	//established.
+	// The full URI (in the format /<rpcpackage>.<ServiceName>/MethodName, for
+	// example /lnrpc.Lightning/GetInfo) of the streaming RPC method that was just
+	// established.
 	MethodFullUri string `protobuf:"bytes,1,opt,name=method_full_uri,json=methodFullUri,proto3" json:"method_full_uri,omitempty"`
 }
 
@@ -16171,27 +15914,22 @@ type RPCMessage struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The full URI (in the format /<rpcpackage>.<ServiceName>/MethodName, for
-	//example /lnrpc.Lightning/GetInfo) of the RPC method the message was sent
-	//to/from.
+	// The full URI (in the format /<rpcpackage>.<ServiceName>/MethodName, for
+	// example /lnrpc.Lightning/GetInfo) of the RPC method the message was sent
+	// to/from.
 	MethodFullUri string `protobuf:"bytes,1,opt,name=method_full_uri,json=methodFullUri,proto3" json:"method_full_uri,omitempty"`
-	//
-	//Indicates whether the message was sent over a streaming RPC method or not.
+	// Indicates whether the message was sent over a streaming RPC method or not.
 	StreamRpc bool `protobuf:"varint,2,opt,name=stream_rpc,json=streamRpc,proto3" json:"stream_rpc,omitempty"`
-	//
-	//The full canonical gRPC name of the message type (in the format
-	//<rpcpackage>.TypeName, for example lnrpc.GetInfoRequest). In case of an
-	//error being returned from lnd, this simply contains the string "error".
+	// The full canonical gRPC name of the message type (in the format
+	// <rpcpackage>.TypeName, for example lnrpc.GetInfoRequest). In case of an
+	// error being returned from lnd, this simply contains the string "error".
 	TypeName string `protobuf:"bytes,3,opt,name=type_name,json=typeName,proto3" json:"type_name,omitempty"`
-	//
-	//The full content of the gRPC message, serialized in the binary protobuf
-	//format.
+	// The full content of the gRPC message, serialized in the binary protobuf
+	// format.
 	Serialized []byte `protobuf:"bytes,4,opt,name=serialized,proto3" json:"serialized,omitempty"`
-	//
-	//Indicates that the response from lnd was an error, not a gRPC response. If
-	//this is set to true then the type_name contains the string "error" and
-	//serialized contains the error string.
+	// Indicates that the response from lnd was an error, not a gRPC response. If
+	// this is set to true then the type_name contains the string "error" and
+	// serialized contains the error string.
 	IsError bool `protobuf:"varint,5,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
 }
 
@@ -16267,17 +16005,16 @@ type RPCMiddlewareResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The request message ID this response refers to. Must always be set when
-	//giving feedback to an intercept but is ignored for the initial registration
-	//message.
+	// The request message ID this response refers to. Must always be set when
+	// giving feedback to an intercept but is ignored for the initial registration
+	// message.
 	RefMsgId uint64 `protobuf:"varint,1,opt,name=ref_msg_id,json=refMsgId,proto3" json:"ref_msg_id,omitempty"`
-	//
-	//The middleware can only send two types of messages to lnd: The initial
-	//registration message that identifies the middleware and after that only
-	//feedback messages to requests sent to the middleware.
+	// The middleware can only send two types of messages to lnd: The initial
+	// registration message that identifies the middleware and after that only
+	// feedback messages to requests sent to the middleware.
 	//
 	// Types that are assignable to MiddlewareMessage:
+	//
 	//	*RPCMiddlewareResponse_Register
 	//	*RPCMiddlewareResponse_Feedback
 	MiddlewareMessage isRPCMiddlewareResponse_MiddlewareMessage `protobuf_oneof:"middleware_message"`
@@ -16348,23 +16085,21 @@ type isRPCMiddlewareResponse_MiddlewareMessage interface {
 }
 
 type RPCMiddlewareResponse_Register struct {
-	//
-	//The registration message identifies the middleware that's being
-	//registered in lnd. The registration message must be sent immediately
-	//after initiating the RegisterRpcMiddleware stream, otherwise lnd will
-	//time out the attempt and terminate the request. NOTE: The middleware
-	//will only receive interception messages for requests that contain a
-	//macaroon with the custom caveat that the middleware declares it is
-	//responsible for handling in the registration message! As a security
-	//measure, _no_ middleware can intercept requests made with _unencumbered_
-	//macaroons!
+	// The registration message identifies the middleware that's being
+	// registered in lnd. The registration message must be sent immediately
+	// after initiating the RegisterRpcMiddleware stream, otherwise lnd will
+	// time out the attempt and terminate the request. NOTE: The middleware
+	// will only receive interception messages for requests that contain a
+	// macaroon with the custom caveat that the middleware declares it is
+	// responsible for handling in the registration message! As a security
+	// measure, _no_ middleware can intercept requests made with _unencumbered_
+	// macaroons!
 	Register *MiddlewareRegistration `protobuf:"bytes,2,opt,name=register,proto3,oneof"`
 }
 
 type RPCMiddlewareResponse_Feedback struct {
-	//
-	//The middleware received an interception request and gives feedback to
-	//it. The request_id indicates what message the feedback refers to.
+	// The middleware received an interception request and gives feedback to
+	// it. The request_id indicates what message the feedback refers to.
 	Feedback *InterceptFeedback `protobuf:"bytes,3,opt,name=feedback,proto3,oneof"`
 }
 
@@ -16377,26 +16112,23 @@ type MiddlewareRegistration struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The name of the middleware to register. The name should be as informative
-	//as possible and is logged on registration.
+	// The name of the middleware to register. The name should be as informative
+	// as possible and is logged on registration.
 	MiddlewareName string `protobuf:"bytes,1,opt,name=middleware_name,json=middlewareName,proto3" json:"middleware_name,omitempty"`
-	//
-	//The name of the custom macaroon caveat that this middleware is responsible
-	//for. Only requests/responses that contain a macaroon with the registered
-	//custom caveat are forwarded for interception to the middleware. The
-	//exception being the read-only mode: All requests/responses are forwarded to
-	//a middleware that requests read-only access but such a middleware won't be
-	//allowed to _alter_ responses. As a security measure, _no_ middleware can
-	//change responses to requests made with _unencumbered_ macaroons!
-	//NOTE: Cannot be used at the same time as read_only_mode.
+	// The name of the custom macaroon caveat that this middleware is responsible
+	// for. Only requests/responses that contain a macaroon with the registered
+	// custom caveat are forwarded for interception to the middleware. The
+	// exception being the read-only mode: All requests/responses are forwarded to
+	// a middleware that requests read-only access but such a middleware won't be
+	// allowed to _alter_ responses. As a security measure, _no_ middleware can
+	// change responses to requests made with _unencumbered_ macaroons!
+	// NOTE: Cannot be used at the same time as read_only_mode.
 	CustomMacaroonCaveatName string `protobuf:"bytes,2,opt,name=custom_macaroon_caveat_name,json=customMacaroonCaveatName,proto3" json:"custom_macaroon_caveat_name,omitempty"`
-	//
-	//Instead of defining a custom macaroon caveat name a middleware can register
-	//itself for read-only access only. In that mode all requests/responses are
-	//forwarded to the middleware but the middleware isn't allowed to alter any of
-	//the responses.
-	//NOTE: Cannot be used at the same time as custom_macaroon_caveat_name.
+	// Instead of defining a custom macaroon caveat name a middleware can register
+	// itself for read-only access only. In that mode all requests/responses are
+	// forwarded to the middleware but the middleware isn't allowed to alter any of
+	// the responses.
+	// NOTE: Cannot be used at the same time as custom_macaroon_caveat_name.
 	ReadOnlyMode bool `protobuf:"varint,3,opt,name=read_only_mode,json=readOnlyMode,proto3" json:"read_only_mode,omitempty"`
 }
 
@@ -16458,21 +16190,18 @@ type InterceptFeedback struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The error to return to the user. If this is non-empty, the incoming gRPC
-	//stream/request is aborted and the error is returned to the gRPC client. If
-	//this value is empty, it means the middleware accepts the stream/request/
-	//response and the processing of it can continue.
+	// The error to return to the user. If this is non-empty, the incoming gRPC
+	// stream/request is aborted and the error is returned to the gRPC client. If
+	// this value is empty, it means the middleware accepts the stream/request/
+	// response and the processing of it can continue.
 	Error string `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
-	//
-	//A boolean indicating that the gRPC message should be replaced/overwritten.
-	//This boolean is needed because in protobuf an empty message is serialized as
-	//a 0-length or nil byte slice and we wouldn't be able to distinguish between
-	//an empty replacement message and the "don't replace anything" case.
+	// A boolean indicating that the gRPC message should be replaced/overwritten.
+	// This boolean is needed because in protobuf an empty message is serialized as
+	// a 0-length or nil byte slice and we wouldn't be able to distinguish between
+	// an empty replacement message and the "don't replace anything" case.
 	ReplaceResponse bool `protobuf:"varint,2,opt,name=replace_response,json=replaceResponse,proto3" json:"replace_response,omitempty"`
-	//
-	//If the replace_response field is set to true, this field must contain the
-	//binary serialized gRPC message in the protobuf format.
+	// If the replace_response field is set to true, this field must contain the
+	// binary serialized gRPC message in the protobuf format.
 	ReplacementSerialized []byte `protobuf:"bytes,3,opt,name=replacement_serialized,json=replacementSerialized,proto3" json:"replacement_serialized,omitempty"`
 }
 
@@ -16542,9 +16271,8 @@ type PendingChannelsResponse_PendingChannel struct {
 	// The minimum satoshis this node is required to reserve in its
 	// balance.
 	LocalChanReserveSat int64 `protobuf:"varint,6,opt,name=local_chan_reserve_sat,json=localChanReserveSat,proto3" json:"local_chan_reserve_sat,omitempty"`
-	//
-	//The minimum satoshis the other node is required to reserve in its
-	//balance.
+	// The minimum satoshis the other node is required to reserve in its
+	// balance.
 	RemoteChanReserveSat int64 `protobuf:"varint,7,opt,name=remote_chan_reserve_sat,json=remoteChanReserveSat,proto3" json:"remote_chan_reserve_sat,omitempty"`
 	// The party that initiated opening the channel.
 	Initiator Initiator `protobuf:"varint,8,opt,name=initiator,proto3,enum=lnrpc.Initiator" json:"initiator,omitempty"`
@@ -16681,19 +16409,17 @@ type PendingChannelsResponse_PendingOpenChannel struct {
 
 	// The pending channel
 	Channel *PendingChannelsResponse_PendingChannel `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
-	//
-	//The amount calculated to be paid in fees for the current set of
-	//commitment transactions. The fee amount is persisted with the channel
-	//in order to allow the fee amount to be removed and recalculated with
-	//each channel state update, including updates that happen after a system
-	//restart.
+	// The amount calculated to be paid in fees for the current set of
+	// commitment transactions. The fee amount is persisted with the channel
+	// in order to allow the fee amount to be removed and recalculated with
+	// each channel state update, including updates that happen after a system
+	// restart.
 	CommitFee int64 `protobuf:"varint,4,opt,name=commit_fee,json=commitFee,proto3" json:"commit_fee,omitempty"`
 	// The weight of the commitment transaction
 	CommitWeight int64 `protobuf:"varint,5,opt,name=commit_weight,json=commitWeight,proto3" json:"commit_weight,omitempty"`
-	//
-	//The required number of satoshis per kilo-weight that the requester will
-	//pay at all times, for both the funding transaction and commitment
-	//transaction. This value can later be updated once the channel is open.
+	// The required number of satoshis per kilo-weight that the requester will
+	// pay at all times, for both the funding transaction and commitment
+	// transaction. This value can later be updated once the channel is open.
 	FeePerKw int64 `protobuf:"varint,6,opt,name=fee_per_kw,json=feePerKw,proto3" json:"fee_per_kw,omitempty"`
 }
 
@@ -16766,9 +16492,8 @@ type PendingChannelsResponse_WaitingCloseChannel struct {
 	Channel *PendingChannelsResponse_PendingChannel `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
 	// The balance in satoshis encumbered in this channel
 	LimboBalance int64 `protobuf:"varint,2,opt,name=limbo_balance,json=limboBalance,proto3" json:"limbo_balance,omitempty"`
-	//
-	//A list of valid commitment transactions. Any of these can confirm at
-	//this point.
+	// A list of valid commitment transactions. Any of these can confirm at
+	// this point.
 	Commitments *PendingChannelsResponse_Commitments `protobuf:"bytes,3,opt,name=commitments,proto3" json:"commitments,omitempty"`
 	// The transaction id of the closing transaction
 	ClosingTxid string `protobuf:"bytes,4,opt,name=closing_txid,json=closingTxid,proto3" json:"closing_txid,omitempty"`
@@ -16845,17 +16570,14 @@ type PendingChannelsResponse_Commitments struct {
 	RemoteTxid string `protobuf:"bytes,2,opt,name=remote_txid,json=remoteTxid,proto3" json:"remote_txid,omitempty"`
 	// Hash of the remote pending version of the commitment tx.
 	RemotePendingTxid string `protobuf:"bytes,3,opt,name=remote_pending_txid,json=remotePendingTxid,proto3" json:"remote_pending_txid,omitempty"`
-	//
-	//The amount in satoshis calculated to be paid in fees for the local
-	//commitment.
+	// The amount in satoshis calculated to be paid in fees for the local
+	// commitment.
 	LocalCommitFeeSat uint64 `protobuf:"varint,4,opt,name=local_commit_fee_sat,json=localCommitFeeSat,proto3" json:"local_commit_fee_sat,omitempty"`
-	//
-	//The amount in satoshis calculated to be paid in fees for the remote
-	//commitment.
+	// The amount in satoshis calculated to be paid in fees for the remote
+	// commitment.
 	RemoteCommitFeeSat uint64 `protobuf:"varint,5,opt,name=remote_commit_fee_sat,json=remoteCommitFeeSat,proto3" json:"remote_commit_fee_sat,omitempty"`
-	//
-	//The amount in satoshis calculated to be paid in fees for the remote
-	//pending commitment.
+	// The amount in satoshis calculated to be paid in fees for the remote
+	// pending commitment.
 	RemotePendingCommitFeeSat uint64 `protobuf:"varint,6,opt,name=remote_pending_commit_fee_sat,json=remotePendingCommitFeeSat,proto3" json:"remote_pending_commit_fee_sat,omitempty"`
 }
 
@@ -17003,10 +16725,9 @@ type PendingChannelsResponse_ForceClosedChannel struct {
 	LimboBalance int64 `protobuf:"varint,3,opt,name=limbo_balance,json=limboBalance,proto3" json:"limbo_balance,omitempty"`
 	// The height at which funds can be swept into the wallet
 	MaturityHeight uint32 `protobuf:"varint,4,opt,name=maturity_height,json=maturityHeight,proto3" json:"maturity_height,omitempty"`
-	//
-	//Remaining # of blocks until the commitment output can be swept.
-	//Negative values indicate how many blocks have passed since becoming
-	//mature.
+	// Remaining # of blocks until the commitment output can be swept.
+	// Negative values indicate how many blocks have passed since becoming
+	// mature.
 	BlocksTilMaturity int32 `protobuf:"varint,5,opt,name=blocks_til_maturity,json=blocksTilMaturity,proto3" json:"blocks_til_maturity,omitempty"`
 	// The total value of funds successfully recovered from this channel
 	RecoveredBalance int64                                                  `protobuf:"varint,6,opt,name=recovered_balance,json=recoveredBalance,proto3" json:"recovered_balance,omitempty"`

@@ -18,17 +18,15 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type WatchtowerClientClient interface {
-	//
-	//AddTower adds a new watchtower reachable at the given address and
-	//considers it for new sessions. If the watchtower already exists, then
-	//any new addresses included will be considered when dialing it for
-	//session negotiations and backups.
+	// AddTower adds a new watchtower reachable at the given address and
+	// considers it for new sessions. If the watchtower already exists, then
+	// any new addresses included will be considered when dialing it for
+	// session negotiations and backups.
 	AddTower(ctx context.Context, in *AddTowerRequest, opts ...grpc.CallOption) (*AddTowerResponse, error)
-	//
-	//RemoveTower removes a watchtower from being considered for future session
-	//negotiations and from being used for any subsequent backups until it's added
-	//again. If an address is provided, then this RPC only serves as a way of
-	//removing the address from the watchtower instead.
+	// RemoveTower removes a watchtower from being considered for future session
+	// negotiations and from being used for any subsequent backups until it's added
+	// again. If an address is provided, then this RPC only serves as a way of
+	// removing the address from the watchtower instead.
 	RemoveTower(ctx context.Context, in *RemoveTowerRequest, opts ...grpc.CallOption) (*RemoveTowerResponse, error)
 	// ListTowers returns the list of watchtowers registered with the client.
 	ListTowers(ctx context.Context, in *ListTowersRequest, opts ...grpc.CallOption) (*ListTowersResponse, error)
@@ -106,17 +104,15 @@ func (c *watchtowerClientClient) Policy(ctx context.Context, in *PolicyRequest, 
 // All implementations must embed UnimplementedWatchtowerClientServer
 // for forward compatibility
 type WatchtowerClientServer interface {
-	//
-	//AddTower adds a new watchtower reachable at the given address and
-	//considers it for new sessions. If the watchtower already exists, then
-	//any new addresses included will be considered when dialing it for
-	//session negotiations and backups.
+	// AddTower adds a new watchtower reachable at the given address and
+	// considers it for new sessions. If the watchtower already exists, then
+	// any new addresses included will be considered when dialing it for
+	// session negotiations and backups.
 	AddTower(context.Context, *AddTowerRequest) (*AddTowerResponse, error)
-	//
-	//RemoveTower removes a watchtower from being considered for future session
-	//negotiations and from being used for any subsequent backups until it's added
-	//again. If an address is provided, then this RPC only serves as a way of
-	//removing the address from the watchtower instead.
+	// RemoveTower removes a watchtower from being considered for future session
+	// negotiations and from being used for any subsequent backups until it's added
+	// again. If an address is provided, then this RPC only serves as a way of
+	// removing the address from the watchtower instead.
 	RemoveTower(context.Context, *RemoveTowerRequest) (*RemoveTowerResponse, error)
 	// ListTowers returns the list of watchtowers registered with the client.
 	ListTowers(context.Context, *ListTowersRequest) (*ListTowersResponse, error)

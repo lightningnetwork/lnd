@@ -1,5 +1,10 @@
 # Release Notes
 
+## BOLT Specs
+
+* Warning messages from peers are now recognized and
+  [logged](https://github.com/lightningnetwork/lnd/pull/6546) by lnd.
+
 ## RPC
 
 The `RegisterConfirmationsNtfn` call of the `chainnotifier` RPC sub-server [now
@@ -18,9 +23,13 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 
 * [Add list addresses RPC](https://github.com/lightningnetwork/lnd/pull/6596).
 
+## Build
+
+[The project has updated to Go
+1.19](https://github.com/lightningnetwork/lnd/pull/6795)! Go 1.18 is now the
+minimum version needed to build the project.
+
 ## Misc
-* Warning messages from peers are now recognized and
-  [logged](https://github.com/lightningnetwork/lnd/pull/6546) by lnd.
 
 * [Fixed error typo](https://github.com/lightningnetwork/lnd/pull/6659).
 

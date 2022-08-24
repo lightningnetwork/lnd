@@ -19,27 +19,22 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type InvoicesClient interface {
-	//
-	//SubscribeSingleInvoice returns a uni-directional stream (server -> client)
-	//to notify the client of state transitions of the specified invoice.
-	//Initially the current invoice state is always sent out.
+	// SubscribeSingleInvoice returns a uni-directional stream (server -> client)
+	// to notify the client of state transitions of the specified invoice.
+	// Initially the current invoice state is always sent out.
 	SubscribeSingleInvoice(ctx context.Context, in *SubscribeSingleInvoiceRequest, opts ...grpc.CallOption) (Invoices_SubscribeSingleInvoiceClient, error)
-	//
-	//CancelInvoice cancels a currently open invoice. If the invoice is already
-	//canceled, this call will succeed. If the invoice is already settled, it will
-	//fail.
+	// CancelInvoice cancels a currently open invoice. If the invoice is already
+	// canceled, this call will succeed. If the invoice is already settled, it will
+	// fail.
 	CancelInvoice(ctx context.Context, in *CancelInvoiceMsg, opts ...grpc.CallOption) (*CancelInvoiceResp, error)
-	//
-	//AddHoldInvoice creates a hold invoice. It ties the invoice to the hash
-	//supplied in the request.
+	// AddHoldInvoice creates a hold invoice. It ties the invoice to the hash
+	// supplied in the request.
 	AddHoldInvoice(ctx context.Context, in *AddHoldInvoiceRequest, opts ...grpc.CallOption) (*AddHoldInvoiceResp, error)
-	//
-	//SettleInvoice settles an accepted invoice. If the invoice is already
-	//settled, this call will succeed.
+	// SettleInvoice settles an accepted invoice. If the invoice is already
+	// settled, this call will succeed.
 	SettleInvoice(ctx context.Context, in *SettleInvoiceMsg, opts ...grpc.CallOption) (*SettleInvoiceResp, error)
-	//
-	//LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
-	//using either its payment hash, payment address, or set ID.
+	// LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
+	// using either its payment hash, payment address, or set ID.
 	LookupInvoiceV2(ctx context.Context, in *LookupInvoiceMsg, opts ...grpc.CallOption) (*lnrpc.Invoice, error)
 }
 
@@ -123,27 +118,22 @@ func (c *invoicesClient) LookupInvoiceV2(ctx context.Context, in *LookupInvoiceM
 // All implementations must embed UnimplementedInvoicesServer
 // for forward compatibility
 type InvoicesServer interface {
-	//
-	//SubscribeSingleInvoice returns a uni-directional stream (server -> client)
-	//to notify the client of state transitions of the specified invoice.
-	//Initially the current invoice state is always sent out.
+	// SubscribeSingleInvoice returns a uni-directional stream (server -> client)
+	// to notify the client of state transitions of the specified invoice.
+	// Initially the current invoice state is always sent out.
 	SubscribeSingleInvoice(*SubscribeSingleInvoiceRequest, Invoices_SubscribeSingleInvoiceServer) error
-	//
-	//CancelInvoice cancels a currently open invoice. If the invoice is already
-	//canceled, this call will succeed. If the invoice is already settled, it will
-	//fail.
+	// CancelInvoice cancels a currently open invoice. If the invoice is already
+	// canceled, this call will succeed. If the invoice is already settled, it will
+	// fail.
 	CancelInvoice(context.Context, *CancelInvoiceMsg) (*CancelInvoiceResp, error)
-	//
-	//AddHoldInvoice creates a hold invoice. It ties the invoice to the hash
-	//supplied in the request.
+	// AddHoldInvoice creates a hold invoice. It ties the invoice to the hash
+	// supplied in the request.
 	AddHoldInvoice(context.Context, *AddHoldInvoiceRequest) (*AddHoldInvoiceResp, error)
-	//
-	//SettleInvoice settles an accepted invoice. If the invoice is already
-	//settled, this call will succeed.
+	// SettleInvoice settles an accepted invoice. If the invoice is already
+	// settled, this call will succeed.
 	SettleInvoice(context.Context, *SettleInvoiceMsg) (*SettleInvoiceResp, error)
-	//
-	//LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
-	//using either its payment hash, payment address, or set ID.
+	// LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
+	// using either its payment hash, payment address, or set ID.
 	LookupInvoiceV2(context.Context, *LookupInvoiceMsg) (*lnrpc.Invoice, error)
 	mustEmbedUnimplementedInvoicesServer()
 }

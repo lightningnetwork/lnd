@@ -735,10 +735,9 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 
 		// Every edge should have a positive time lock delta. If we
-		// encounter a zero delta, log a warning line.
+		// encounter a zero delta, skip this route.
 		if edge.TimeLockDelta == 0 {
-			log.Warnf("Channel %v has zero cltv delta",
-				edge.ChannelID)
+			return
 		}
 
 		// Calculate the total routing info size if this hop were to be

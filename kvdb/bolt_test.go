@@ -76,7 +76,6 @@ func TestBolt(t *testing.T) {
 			t.Parallel()
 
 			f := NewBoltFixture(t)
-			defer f.Cleanup()
 
 			test.test(t, f.NewBackend())
 		})

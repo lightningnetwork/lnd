@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"io/ioutil"
 	"os"
 	"testing"
 	"time"
@@ -57,10 +56,14 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 		now: mcTestTime,
 	}
 
-	file, err := ioutil.TempFile("", "*.db")
+	file, err := os.CreateTemp("", "*.db")
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		require.NoError(t, file.Close())
+		require.NoError(t, os.Remove(file.Name()))
+	})
 
 	ctx.dbPath = file.Name()
 
@@ -70,6 +73,9 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		require.NoError(t, ctx.db.Close())
+	})
 
 	ctx.restartMc()
 
@@ -100,12 +106,6 @@ func (ctx *mcTestContext) restartMc() {
 
 	mc.now = func() time.Time { return ctx.now }
 	ctx.mc = mc
-}
-
-// cleanup closes the database and removes the temp file.
-func (ctx *mcTestContext) cleanup() {
-	ctx.db.Close()
-	os.Remove(ctx.dbPath)
 }
 
 // Assert that mission control returns a probability for an edge.
@@ -143,7 +143,6 @@ func (ctx *mcTestContext) reportSuccess() {
 // TestMissionControl tests mission control probability estimation.
 func TestMissionControl(t *testing.T) {
 	ctx := createMcTestContext(t)
-	defer ctx.cleanup()
 
 	ctx.now = testTime
 

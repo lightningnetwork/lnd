@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"io/ioutil"
 	"os"
 	"reflect"
 	"testing"
@@ -24,12 +23,16 @@ func TestMissionControlStore(t *testing.T) {
 	// Set time zone explicitly to keep test deterministic.
 	time.Local = time.UTC
 
-	file, err := ioutil.TempFile("", "*.db")
+	file, err := os.CreateTemp("", "*.db")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	dbPath := file.Name()
+	t.Cleanup(func() {
+		require.NoError(t, file.Close())
+		require.NoError(t, os.Remove(dbPath))
+	})
 
 	db, err := kvdb.Create(
 		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
@@ -37,8 +40,9 @@ func TestMissionControlStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	defer os.Remove(dbPath)
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
 
 	store, err := newMissionControlStore(db, testMaxRecords, time.Second)
 	if err != nil {

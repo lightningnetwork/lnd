@@ -569,11 +569,7 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// First, we'll make a temp directory that we'll use to store our
 	// backup file, so we can check in on it during the test easily.
-	backupDir, err := ioutil.TempDir("", "")
-	if err != nil {
-		t.Fatalf("unable to create backup dir: %v", err)
-	}
-	defer os.RemoveAll(backupDir)
+	backupDir := t.t.TempDir()
 
 	// First, we'll create a new node, Carol. We'll also create a temporary
 	// file that Carol will use to store her channel backups.

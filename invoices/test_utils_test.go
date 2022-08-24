@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"runtime/pprof"
 	"sync"
@@ -162,29 +161,20 @@ var (
 	}
 )
 
-func newTestChannelDB(clock clock.Clock) (*channeldb.DB, func(), error) {
-	// First, create a temporary directory to be used for the duration of
-	// this test.
-	tempDirName, err := ioutil.TempDir("", "channeldb")
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Next, create channeldb for the first time.
+func newTestChannelDB(t *testing.T, clock clock.Clock) (*channeldb.DB, error) {
+	// Create channeldb for the first time.
 	cdb, err := channeldb.Open(
-		tempDirName, channeldb.OptionClock(clock),
+		t.TempDir(), channeldb.OptionClock(clock),
 	)
 	if err != nil {
-		os.RemoveAll(tempDirName)
-		return nil, nil, err
+		return nil, err
 	}
 
-	cleanUp := func() {
+	t.Cleanup(func() {
 		cdb.Close()
-		os.RemoveAll(tempDirName)
-	}
+	})
 
-	return cdb, cleanUp, nil
+	return cdb, nil
 }
 
 type testContext struct {
@@ -200,7 +190,7 @@ type testContext struct {
 func newTestContext(t *testing.T) *testContext {
 	clock := clock.NewTestClock(testTime)
 
-	cdb, cleanup, err := newTestChannelDB(clock)
+	cdb, err := newTestChannelDB(t, clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +211,6 @@ func newTestContext(t *testing.T) *testContext {
 
 	err = registry.Start()
 	if err != nil {
-		cleanup()
 		t.Fatal(err)
 	}
 
@@ -235,7 +224,6 @@ func newTestContext(t *testing.T) *testContext {
 			if err = registry.Stop(); err != nil {
 				t.Fatalf("failed to stop invoice registry: %v", err)
 			}
-			cleanup()
 		},
 	}
 

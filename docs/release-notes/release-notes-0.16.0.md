@@ -40,6 +40,9 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 
 ## Code Health
 
+* [test: use `T.TempDir` to create temporary test 
+  directory](https://github.com/lightningnetwork/lnd/pull/6710)
+
 ### Tooling and documentation
 
 * [The `golangci-lint` tool was updated to

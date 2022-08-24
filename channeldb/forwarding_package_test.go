@@ -2,7 +2,6 @@ package channeldb_test
 
 import (
 	"bytes"
-	"io/ioutil"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -843,13 +842,7 @@ func loadFwdPkgs(t *testing.T, db kvdb.Backend,
 // provided path is an empty, it will create a temp dir/file to use.
 func makeFwdPkgDB(t *testing.T, path string) kvdb.Backend { // nolint:unparam
 	if path == "" {
-		var err error
-		path, err = ioutil.TempDir("", "fwdpkgdb")
-		if err != nil {
-			t.Fatalf("unable to create temp path: %v", err)
-		}
-
-		path = filepath.Join(path, "fwdpkg.db")
+		path = filepath.Join(t.TempDir(), "fwdpkg.db")
 	}
 
 	bdb, err := kvdb.Create(

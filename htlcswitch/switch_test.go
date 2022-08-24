@@ -6,9 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"io/ioutil"
 	mrand "math/rand"
-	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -997,8 +995,7 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create bob server")
 
-	tempPath, err := ioutil.TempDir("", "circuitdb")
-	require.NoError(t, err, "unable to temporary path")
+	tempPath := t.TempDir()
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
@@ -1186,8 +1183,7 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create bob server")
 
-	tempPath, err := ioutil.TempDir("", "circuitdb")
-	require.NoError(t, err, "unable to temporary path")
+	tempPath := t.TempDir()
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
@@ -1378,8 +1374,7 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create bob server")
 
-	tempPath, err := ioutil.TempDir("", "circuitdb")
-	require.NoError(t, err, "unable to temporary path")
+	tempPath := t.TempDir()
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
@@ -1533,8 +1528,7 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create bob server")
 
-	tempPath, err := ioutil.TempDir("", "circuitdb")
-	require.NoError(t, err, "unable to temporary path")
+	tempPath := t.TempDir()
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
@@ -1689,8 +1683,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create bob server")
 
-	tempPath, err := ioutil.TempDir("", "circuitdb")
-	require.NoError(t, err, "unable to temporary path")
+	tempPath := t.TempDir()
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
@@ -3771,8 +3764,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create bob server")
 
-	tempPath, err := ioutil.TempDir("", "circuitdb")
-	require.NoError(t, err, "unable to temporary path")
+	tempPath := t.TempDir()
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
@@ -4706,8 +4698,7 @@ func testSwitchForwardFailAlias(t *testing.T, zeroConf bool) {
 	)
 	require.NoError(t, err)
 
-	tempPath, err := ioutil.TempDir("", "circuitdb")
-	require.NoError(t, err)
+	tempPath := t.TempDir()
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err)
@@ -4795,7 +4786,6 @@ func testSwitchForwardFailAlias(t *testing.T, zeroConf bool) {
 
 	defer func() {
 		_ = s2.Stop()
-		_ = os.RemoveAll(tempPath)
 	}()
 
 	var aliceLink2 *mockChannelLink
@@ -4922,8 +4912,7 @@ func testSwitchAliasFailAdd(t *testing.T, zeroConf, private, useAlias bool) {
 	)
 	require.NoError(t, err)
 
-	tempPath, err := ioutil.TempDir("", "circuitdb")
-	require.NoError(t, err)
+	tempPath := t.TempDir()
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err)
@@ -4939,7 +4928,6 @@ func testSwitchAliasFailAdd(t *testing.T, zeroConf, private, useAlias bool) {
 
 	defer func() {
 		_ = s.Stop()
-		_ = os.RemoveAll(tempPath)
 	}()
 
 	// Make Alice's channel zero-conf or option-scid-alias (feature bit).
@@ -5263,8 +5251,7 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 	)
 	require.NoError(t, err)
 
-	tempPath, err := ioutil.TempDir("", "circuitdb")
-	require.NoError(t, err)
+	tempPath := t.TempDir()
 
 	cdb, err := channeldb.Open(tempPath)
 	require.NoError(t, err)
@@ -5277,7 +5264,6 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 
 	defer func() {
 		_ = s.Stop()
-		_ = os.RemoveAll(tempPath)
 	}()
 
 	// Make Alice's alias here.

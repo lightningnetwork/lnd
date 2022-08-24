@@ -12,8 +12,7 @@ import (
 func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 	migrationFunc migration, shouldFail bool) {
 
-	cdb, cleanUp, err := makeTestDB()
-	defer cleanUp()
+	cdb, err := makeTestDB(t)
 	if err != nil {
 		t.Fatal(err)
 	}

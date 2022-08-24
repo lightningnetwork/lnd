@@ -3,8 +3,6 @@ package htlcswitch
 import (
 	"crypto/rand"
 	"fmt"
-	"io/ioutil"
-	"os"
 	"testing"
 	"time"
 
@@ -18,15 +16,6 @@ import (
 const (
 	cltv uint32 = 100000
 )
-
-// tempDecayedLogPath creates a new temporary database path to back a single
-// decayed log instance.
-func tempDecayedLogPath(t *testing.T) string {
-	dir, err := ioutil.TempDir("", "decayedlog")
-	require.NoError(t, err, "unable to create temporary decayed log dir")
-
-	return dir
-}
 
 // startup sets up the DecayedLog and possibly the garbage collector.
 func startup(dbPath string, notifier bool) (sphinx.ReplayLog,
@@ -82,24 +71,19 @@ func startup(dbPath string, notifier bool) (sphinx.ReplayLog,
 	return log, chainNotifier, &hashedSecret, stop, nil
 }
 
-// shutdown deletes the temporary directory that the test database uses
-// and handles closing the database.
-func shutdown(dir string, d sphinx.ReplayLog) {
-	d.Stop()
-	os.RemoveAll(dir)
-}
-
 // TestDecayedLogGarbageCollector tests the ability of the garbage collector
 // to delete expired cltv values every time a block is received. Expired cltv
 // values are cltv values that are < current block height.
 func TestDecayedLogGarbageCollector(t *testing.T) {
 	t.Parallel()
 
-	dbPath := tempDecayedLogPath(t)
+	dbPath := t.TempDir()
 
 	d, notifier, hashedSecret, _, err := startup(dbPath, true)
 	require.NoError(t, err, "Unable to start up DecayedLog")
-	defer shutdown(dbPath, d)
+	t.Cleanup(func() {
+		require.NoError(t, d.Stop())
+	})
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket.
 	err = d.Put(hashedSecret, cltv)
@@ -150,11 +134,13 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 	t.Parallel()
 
-	dbPath := tempDecayedLogPath(t)
+	dbPath := t.TempDir()
 
 	d, _, hashedSecret, stop, err := startup(dbPath, true)
 	require.NoError(t, err, "Unable to start up DecayedLog")
-	defer shutdown(dbPath, d)
+	t.Cleanup(func() {
+		require.NoError(t, d.Stop())
+	})
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket
 	if err = d.Put(hashedSecret, cltv); err != nil {
@@ -172,7 +158,9 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 
 	d2, notifier2, _, _, err := startup(dbPath, true)
 	require.NoError(t, err, "Unable to restart DecayedLog")
-	defer shutdown(dbPath, d2)
+	t.Cleanup(func() {
+		require.NoError(t, d2.Stop())
+	})
 
 	// Check that the hash prefix still exists in the new db instance.
 	_, err = d2.Get(hashedSecret)
@@ -202,11 +190,13 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 func TestDecayedLogInsertionAndDeletion(t *testing.T) {
 	t.Parallel()
 
-	dbPath := tempDecayedLogPath(t)
+	dbPath := t.TempDir()
 
 	d, _, hashedSecret, _, err := startup(dbPath, false)
 	require.NoError(t, err, "Unable to start up DecayedLog")
-	defer shutdown(dbPath, d)
+	t.Cleanup(func() {
+		require.NoError(t, d.Stop())
+	})
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket.
 	err = d.Put(hashedSecret, cltv)
@@ -234,11 +224,13 @@ func TestDecayedLogInsertionAndDeletion(t *testing.T) {
 func TestDecayedLogStartAndStop(t *testing.T) {
 	t.Parallel()
 
-	dbPath := tempDecayedLogPath(t)
+	dbPath := t.TempDir()
 
 	d, _, hashedSecret, stop, err := startup(dbPath, false)
 	require.NoError(t, err, "Unable to start up DecayedLog")
-	defer shutdown(dbPath, d)
+	t.Cleanup(func() {
+		require.NoError(t, d.Stop())
+	})
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket.
 	err = d.Put(hashedSecret, cltv)
@@ -249,7 +241,9 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 
 	d2, _, hashedSecret2, stop, err := startup(dbPath, false)
 	require.NoError(t, err, "Unable to restart DecayedLog")
-	defer shutdown(dbPath, d2)
+	t.Cleanup(func() {
+		require.NoError(t, d2.Stop())
+	})
 
 	// Retrieve the stored cltv value given the hashedSecret key.
 	value, err := d2.Get(hashedSecret)
@@ -270,7 +264,9 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 
 	d3, _, hashedSecret3, _, err := startup(dbPath, false)
 	require.NoError(t, err, "Unable to restart DecayedLog")
-	defer shutdown(dbPath, d3)
+	t.Cleanup(func() {
+		require.NoError(t, d3.Stop())
+	})
 
 	// Assert that hashedSecret is not in the sharedHashBucket
 	_, err = d3.Get(hashedSecret3)
@@ -288,11 +284,13 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 func TestDecayedLogStorageAndRetrieval(t *testing.T) {
 	t.Parallel()
 
-	dbPath := tempDecayedLogPath(t)
+	dbPath := t.TempDir()
 
 	d, _, hashedSecret, _, err := startup(dbPath, false)
 	require.NoError(t, err, "Unable to start up DecayedLog")
-	defer shutdown(dbPath, d)
+	t.Cleanup(func() {
+		require.NoError(t, d.Stop())
+	})
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket
 	err = d.Put(hashedSecret, cltv)

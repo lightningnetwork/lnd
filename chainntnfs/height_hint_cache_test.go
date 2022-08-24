@@ -2,7 +2,6 @@ package chainntnfs
 
 import (
 	"bytes"
-	"io/ioutil"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -24,12 +23,14 @@ func initHintCache(t *testing.T) *HeightHintCache {
 func initHintCacheWithConfig(t *testing.T, cfg CacheConfig) *HeightHintCache {
 	t.Helper()
 
-	tempDir, err := ioutil.TempDir("", "kek")
-	require.NoError(t, err, "unable to create temp dir")
-	db, err := channeldb.Open(tempDir)
+	db, err := channeldb.Open(t.TempDir())
 	require.NoError(t, err, "unable to create db")
 	hintCache, err := NewHeightHintCache(cfg, db.Backend)
 	require.NoError(t, err, "unable to create hint cache")
+
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
 
 	return hintCache
 }

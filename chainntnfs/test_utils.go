@@ -6,9 +6,7 @@ package chainntnfs
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -196,8 +194,7 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 
 	t.Helper()
 
-	tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
-	require.NoError(t, err, "unable to create temp dir")
+	tempBitcoindDir := t.TempDir()
 
 	rpcPort := rand.Intn(65536-1024) + 1024
 	zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
@@ -220,7 +217,6 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 
 	bitcoind := exec.Command("bitcoind", args...)
 	if err := bitcoind.Start(); err != nil {
-		os.RemoveAll(tempBitcoindDir)
 		t.Fatalf("unable to start bitcoind: %v", err)
 	}
 
@@ -251,7 +247,8 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 	}
 
 	var conn *chain.BitcoindConn
-	err = wait.NoError(func() error {
+	err := wait.NoError(func() error {
+		var err error
 		conn, err = chain.NewBitcoindConn(cfg)
 		if err != nil {
 			return err
@@ -262,7 +259,6 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 	if err != nil {
 		bitcoind.Process.Kill()
 		bitcoind.Wait()
-		os.RemoveAll(tempBitcoindDir)
 		t.Fatalf("unable to establish connection to bitcoind: %v", err)
 	}
 
@@ -270,7 +266,6 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 		conn.Stop()
 		bitcoind.Process.Kill()
 		bitcoind.Wait()
-		os.RemoveAll(tempBitcoindDir)
 	}
 }
 
@@ -279,15 +274,13 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 func NewNeutrinoBackend(t *testing.T, minerAddr string) (*neutrino.ChainService, func()) {
 	t.Helper()
 
-	spvDir, err := ioutil.TempDir("", "neutrino")
-	require.NoError(t, err, "unable to create temp dir")
+	spvDir := t.TempDir()
 
 	dbName := filepath.Join(spvDir, "neutrino.db")
 	spvDatabase, err := walletdb.Create(
 		"bdb", dbName, true, kvdb.DefaultDBTimeout,
 	)
 	if err != nil {
-		os.RemoveAll(spvDir)
 		t.Fatalf("unable to create walletdb: %v", err)
 	}
 
@@ -301,7 +294,6 @@ func NewNeutrinoBackend(t *testing.T, minerAddr string) (*neutrino.ChainService,
 	}
 	spvNode, err := neutrino.NewChainService(spvConfig)
 	if err != nil {
-		os.RemoveAll(spvDir)
 		spvDatabase.Close()
 		t.Fatalf("unable to create neutrino: %v", err)
 	}
@@ -316,6 +308,5 @@ func NewNeutrinoBackend(t *testing.T, minerAddr string) (*neutrino.ChainService,
 	return spvNode, func() {
 		spvNode.Stop()
 		spvDatabase.Close()
-		os.RemoveAll(spvDir)
 	}
 }

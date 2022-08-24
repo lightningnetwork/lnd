@@ -2,37 +2,38 @@ package migtest
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/stretchr/testify/require"
 )
 
-// MakeDB creates a new instance of the ChannelDB for testing purposes. A
-// callback which cleans up the created temporary directories is also returned
-// and intended to be executed after the test completes.
-func MakeDB() (kvdb.Backend, func(), error) {
+// MakeDB creates a new instance of the ChannelDB for testing purposes.
+func MakeDB(t testing.TB) (kvdb.Backend, error) {
 	// Create temporary database for mission control.
-	file, err := ioutil.TempFile("", "*.db")
+	file, err := os.CreateTemp("", "*.db")
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	dbPath := file.Name()
+	t.Cleanup(func() {
+		require.NoError(t, file.Close())
+		require.NoError(t, os.Remove(dbPath))
+	})
+
 	db, err := kvdb.Open(
 		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
 
-	cleanUp := func() {
-		db.Close()
-		os.RemoveAll(dbPath)
-	}
-
-	return db, cleanUp, nil
+	return db, nil
 }
 
 // ApplyMigration is a helper test function that encapsulates the general steps
@@ -43,8 +44,7 @@ func ApplyMigration(t *testing.T,
 
 	t.Helper()
 
-	cdb, cleanUp, err := MakeDB()
-	defer cleanUp()
+	cdb, err := MakeDB(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,8 +94,7 @@ func ApplyMigrationWithDb(t testing.TB, beforeMigration, afterMigration,
 
 	t.Helper()
 
-	cdb, cleanUp, err := MakeDB()
-	defer cleanUp()
+	cdb, err := MakeDB(t)
 	if err != nil {
 		t.Fatal(err)
 	}

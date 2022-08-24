@@ -6,7 +6,6 @@ package chainntnfstest
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"sync"
 	"testing"
@@ -1833,10 +1832,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 		}
 
 		// Initialize a height hint cache for each notifier.
-		tempDir, err := ioutil.TempDir("", "channeldb")
-		if err != nil {
-			t.Fatalf("unable to create temp dir: %v", err)
-		}
+		tempDir := t.TempDir()
 		db, err := channeldb.Open(tempDir)
 		if err != nil {
 			t.Fatalf("unable to create db: %v", err)

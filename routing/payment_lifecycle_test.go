@@ -180,9 +180,8 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		}, 2),
 	}
 
-	testGraph, err := createTestGraphFromChannels(true, testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(t, true, testChannels, "a")
 	require.NoError(t, err, "unable to create graph")
-	defer testGraph.cleanUp()
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
 

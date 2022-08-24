@@ -2,8 +2,6 @@ package channeldb
 
 import (
 	"bytes"
-	"io/ioutil"
-	"os"
 	"testing"
 
 	"github.com/go-errors/errors"
@@ -422,11 +420,7 @@ func TestMigrationWithoutErrors(t *testing.T) {
 func TestMigrationReversion(t *testing.T) {
 	t.Parallel()
 
-	tempDirName, err := ioutil.TempDir("", "channeldb")
-	defer func() {
-		os.RemoveAll(tempDirName)
-	}()
-	require.NoError(t, err, "unable to create temp dir")
+	tempDirName := t.TempDir()
 
 	backend, cleanup, err := kvdb.GetTestBackend(tempDirName, "cdb")
 	require.NoError(t, err, "unable to get test db backend")

@@ -106,6 +106,8 @@ https://github.com/lightningnetwork/lnd/pull/6963/)
 * [Create a helper function to wait for peer to come
   online](https://github.com/lightningnetwork/lnd/pull/6931).
 
+* [Stop handling peer warning messages as errors](https://github.com/lightningnetwork/lnd/pull/6840)
+
 ## `lncli`
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
   flag](https://github.com/lightningnetwork/lnd/pull/6818) that allows the
@@ -200,6 +202,7 @@ details.
 * Jordi Montes
 * Matt Morehouse
 * Michael Street
+* Jordi Montes
 * Olaoluwa Osuntokun
 * Oliver Gugger
 * Priyansh Rastogi

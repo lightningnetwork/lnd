@@ -228,3 +228,16 @@ func (h *HarnessRPC) SignPsbt(
 
 	return resp
 }
+
+// ImportTapscript makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) ImportTapscript(
+	req *walletrpc.ImportTapscriptRequest) *walletrpc.ImportTapscriptResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.ImportTapscript(ctxt, req)
+	h.NoError(err, "ImportTapscript")
+
+	return resp
+}

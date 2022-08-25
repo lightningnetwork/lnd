@@ -734,6 +734,51 @@ func (h *HarnessTest) AssertNumUTXOs(hn *node.HarnessNode,
 	return h.AssertNumUTXOsWithConf(hn, num, math.MaxInt32, 0)
 }
 
+// getUTXOs gets the number of newly created UTOXs within the current test
+// scope.
+func (h *HarnessTest) getUTXOs(hn *node.HarnessNode, account string,
+	max, min int32) []*lnrpc.Utxo {
+
+	var unconfirmed bool
+
+	if max == 0 {
+		unconfirmed = true
+	}
+
+	req := &walletrpc.ListUnspentRequest{
+		Account:         account,
+		MaxConfs:        max,
+		MinConfs:        min,
+		UnconfirmedOnly: unconfirmed,
+	}
+	resp := hn.RPC.ListUnspent(req)
+
+	return resp.Utxos
+}
+
+// GetUTXOs returns all the UTXOs for the given node's account, including
+// confirmed and unconfirmed.
+func (h *HarnessTest) GetUTXOs(hn *node.HarnessNode,
+	account string) []*lnrpc.Utxo {
+
+	return h.getUTXOs(hn, account, math.MaxInt32, 0)
+}
+
+// GetUTXOsConfirmed returns the confirmed UTXOs for the given node's account.
+func (h *HarnessTest) GetUTXOsConfirmed(hn *node.HarnessNode,
+	account string) []*lnrpc.Utxo {
+
+	return h.getUTXOs(hn, account, math.MaxInt32, 1)
+}
+
+// GetUTXOsUnconfirmed returns the unconfirmed UTXOs for the given node's
+// account.
+func (h *HarnessTest) GetUTXOsUnconfirmed(hn *node.HarnessNode,
+	account string) []*lnrpc.Utxo {
+
+	return h.getUTXOs(hn, account, 0, 0)
+}
+
 // WaitForBalanceConfirmed waits until the node sees the expected confirmed
 // balance in its wallet.
 func (h *HarnessTest) WaitForBalanceConfirmed(hn *node.HarnessNode,
@@ -2141,13 +2186,10 @@ func (h *HarnessTest) AssertUTXOInWallet(hn *node.HarnessNode,
 	op *lnrpc.OutPoint, account string) {
 
 	err := wait.NoError(func() error {
-		req := &walletrpc.ListUnspentRequest{
-			Account: account,
-		}
-		resp := hn.RPC.ListUnspent(req)
+		utxos := h.GetUTXOs(hn, account)
 
 		err := fmt.Errorf("tx with hash %x not found", op.TxidBytes)
-		for _, utxo := range resp.Utxos {
+		for _, utxo := range utxos {
 			if !bytes.Equal(utxo.Outpoint.TxidBytes, op.TxidBytes) {
 				continue
 			}
@@ -2166,4 +2208,61 @@ func (h *HarnessTest) AssertUTXOInWallet(hn *node.HarnessNode,
 
 	require.NoErrorf(h, err, "outpoint %v not found in %s's wallet",
 		op, hn.Name())
+}
+
+// AssertWalletAccountBalance asserts that the unconfirmed and confirmed
+// balance for the given account is satisfied by the WalletBalance and
+// ListUnspent RPCs. The unconfirmed balance is not checked for neutrino nodes.
+func (h *HarnessTest) AssertWalletAccountBalance(hn *node.HarnessNode,
+	account string, confirmedBalance, unconfirmedBalance int64) {
+
+	err := wait.NoError(func() error {
+		balanceResp := hn.RPC.WalletBalance()
+		require.Contains(h, balanceResp.AccountBalance, account)
+		accountBalance := balanceResp.AccountBalance[account]
+
+		// Check confirmed balance.
+		if accountBalance.ConfirmedBalance != confirmedBalance {
+			return fmt.Errorf("expected confirmed balance %v, "+
+				"got %v", confirmedBalance,
+				accountBalance.ConfirmedBalance)
+		}
+
+		utxos := h.GetUTXOsConfirmed(hn, account)
+		var totalConfirmedVal int64
+		for _, utxo := range utxos {
+			totalConfirmedVal += utxo.AmountSat
+		}
+		if totalConfirmedVal != confirmedBalance {
+			return fmt.Errorf("expected total confirmed utxo "+
+				"balance %v, got %v", confirmedBalance,
+				totalConfirmedVal)
+		}
+
+		// Skip unconfirmed balance checks for neutrino nodes.
+		if h.IsNeutrinoBackend() {
+			return nil
+		}
+
+		// Check unconfirmed balance.
+		if accountBalance.UnconfirmedBalance != unconfirmedBalance {
+			return fmt.Errorf("expected unconfirmed balance %v, "+
+				"got %v", unconfirmedBalance,
+				accountBalance.UnconfirmedBalance)
+		}
+
+		utxos = h.GetUTXOsUnconfirmed(hn, account)
+		var totalUnconfirmedVal int64
+		for _, utxo := range utxos {
+			totalUnconfirmedVal += utxo.AmountSat
+		}
+		if totalUnconfirmedVal != unconfirmedBalance {
+			return fmt.Errorf("expected total unconfirmed utxo "+
+				"balance %v, got %v", unconfirmedBalance,
+				totalUnconfirmedVal)
+		}
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking wallet account balance")
 }

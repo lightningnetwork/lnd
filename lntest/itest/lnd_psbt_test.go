@@ -1128,34 +1128,6 @@ func assertPsbtFundSignSpend(ht *lntemp.HarnessTest, alice *node.HarnessNode,
 
 // deriveInternalKey derives a signing key and returns its descriptor, full
 // derivation path and parsed public key.
-func deriveInternalKeyOld(ctx context.Context, t *harnessTest,
-	alice *lntest.HarnessNode) (*signrpc.KeyDescriptor, *btcec.PublicKey,
-	[]uint32) {
-
-	// For the next step, we need a public key. Let's use a special family
-	// for this.
-	keyDesc, err := alice.WalletKitClient.DeriveNextKey(
-		ctx, &walletrpc.KeyReq{KeyFamily: testTaprootKeyFamily},
-	)
-	require.NoError(t.t, err)
-
-	// The DeriveNextKey returns a key from the internal 1017 scope.
-	fullDerivationPath := []uint32{
-		hdkeychain.HardenedKeyStart + keychain.BIP0043Purpose,
-		hdkeychain.HardenedKeyStart + harnessNetParams.HDCoinType,
-		hdkeychain.HardenedKeyStart + uint32(keyDesc.KeyLoc.KeyFamily),
-		0,
-		uint32(keyDesc.KeyLoc.KeyIndex),
-	}
-
-	parsedPubKey, err := btcec.ParsePubKey(keyDesc.RawKeyBytes)
-	require.NoError(t.t, err)
-
-	return keyDesc, parsedPubKey, fullDerivationPath
-}
-
-// deriveInternalKey derives a signing key and returns its descriptor, full
-// derivation path and parsed public key.
 func deriveInternalKey(ht *lntemp.HarnessTest,
 	alice *node.HarnessNode) (*signrpc.KeyDescriptor, *btcec.PublicKey,
 	[]uint32) {

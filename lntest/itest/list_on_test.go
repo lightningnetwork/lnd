@@ -465,4 +465,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "cpfp",
 		TestFunc: testCPFP,
 	},
+	{
+		Name:     "taproot",
+		TestFunc: testTaproot,
+	},
 }

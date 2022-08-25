@@ -25,10 +25,6 @@ var allTestCases = []*testCase{
 		test: testRemoteSigner,
 	},
 	{
-		name: "taproot",
-		test: testTaproot,
-	},
-	{
 		name: "taproot coop close",
 		test: testTaprootCoopClose,
 	},

@@ -177,3 +177,16 @@ func (h *HarnessRPC) VerifyMessageSigner(
 
 	return resp
 }
+
+// ComputeInputScript makes a RPC call to the node's SignerClient and asserts.
+func (h *HarnessRPC) ComputeInputScript(
+	req *signrpc.SignReq) *signrpc.InputScriptResp {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Signer.ComputeInputScript(ctxt, req)
+	h.NoError(err, "ComputeInputScript")
+
+	return resp
+}

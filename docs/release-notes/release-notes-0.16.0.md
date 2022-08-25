@@ -54,6 +54,9 @@ minimum version needed to build the project.
   caller to specify key-value string pairs that should be appended to the 
   outgoing context.
 
+* [Fix](https://github.com/lightningnetwork/lnd/pull/6858) command line argument
+  parsing for `lncli sendpayment`.
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test 

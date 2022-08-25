@@ -132,6 +132,13 @@ func (w *WalletController) ImportPublicKey(*btcec.PublicKey,
 	return nil
 }
 
+// ImportTaprootScript currently returns a dummy value.
+func (w *WalletController) ImportTaprootScript(waddrmgr.KeyScope,
+	*waddrmgr.Tapscript) (waddrmgr.ManagedAddress, error) {
+
+	return nil, nil
+}
+
 // SendOutputs currently returns dummy values.
 func (w *WalletController) SendOutputs([]*wire.TxOut,
 	chainfee.SatPerKWeight, int32, string) (*wire.MsgTx, error) {

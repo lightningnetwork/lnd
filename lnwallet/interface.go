@@ -316,6 +316,15 @@ type WalletController interface {
 	ImportPublicKey(pubKey *btcec.PublicKey,
 		addrType waddrmgr.AddressType) error
 
+	// ImportTaprootScript imports a user-provided taproot script into the
+	// wallet. The imported script will act as a pay-to-taproot address.
+	//
+	// NOTE: Taproot keys imported through this RPC currently _cannot_ be
+	// used for funding PSBTs. Only tracking the balance and UTXOs is
+	// currently supported.
+	ImportTaprootScript(scope waddrmgr.KeyScope,
+		tapscript *waddrmgr.Tapscript) (waddrmgr.ManagedAddress, error)
+
 	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying
 	// out to the specified outputs. In the case the wallet has insufficient
 	// funds, or the outputs are non-standard, an error should be returned.

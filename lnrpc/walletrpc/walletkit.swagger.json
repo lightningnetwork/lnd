@@ -271,7 +271,7 @@
     },
     "/v2/wallet/key/import": {
       "post": {
-        "summary": "ImportPublicKey imports a public key as watch-only into the wallet.",
+        "summary": "ImportPublicKey imports a public key as watch-only into the wallet. The\npublic key is converted into a simple address of the given type and that\naddress script is watched on chain. For Taproot keys, this will only watch\nthe BIP-0086 style output script. Use ImportTapscript for more advanced key\nspend or script spend outputs.",
         "description": "NOTE: Events (deposits/spends) for a key will only be detected by lnd if\nthey happen after the import. Rescans to detect past events will be\nsupported later on.",
         "operationId": "WalletKit_ImportPublicKey",
         "responses": {
@@ -560,6 +560,40 @@
         ]
       }
     },
+    "/v2/wallet/tapscript/import": {
+      "post": {
+        "summary": "ImportTapscript imports a Taproot script and internal key and adds the\nresulting Taproot output key as a watch-only output script into the wallet.\nFor BIP-0086 style Taproot keys (no root hash commitment and no script spend\npath) use ImportPublicKey.",
+        "description": "NOTE: Events (deposits/spends) for a key will only be detected by lnd if\nthey happen after the import. Rescans to detect past events will be\nsupported later on.\n\nNOTE: Taproot keys imported through this RPC currently _cannot_ be used for\nfunding PSBTs. Only tracking the balance and UTXOs is currently supported.",
+        "operationId": "WalletKit_ImportTapscript",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcImportTapscriptResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcImportTapscriptRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/tx": {
       "post": {
         "summary": "PublishTransaction attempts to publish the passed transaction to the\nnetwork. Once this returns without an error, the wallet will continually\nattempt to re-broadcast the transaction on start up, until it enters the\nchain.",
@@ -837,7 +871,8 @@
         "SCRIPT_TYPE_MULTISIG",
         "SCRIPT_TYPE_NULLDATA",
         "SCRIPT_TYPE_NON_STANDARD",
-        "SCRIPT_TYPE_WITNESS_UNKNOWN"
+        "SCRIPT_TYPE_WITNESS_UNKNOWN",
+        "SCRIPT_TYPE_WITNESS_V1_TAPROOT"
       ],
       "default": "SCRIPT_TYPE_PUBKEY_HASH"
     },
@@ -1352,6 +1387,42 @@
     "walletrpcImportPublicKeyResponse": {
       "type": "object"
     },
+    "walletrpcImportTapscriptRequest": {
+      "type": "object",
+      "properties": {
+        "internal_public_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The internal public key, serialized as 32-byte x-only public key."
+        },
+        "full_tree": {
+          "$ref": "#/definitions/walletrpcTapscriptFullTree",
+          "description": "The full script tree with all individual leaves is known and the root\nhash can be constructed from the full tree directly."
+        },
+        "partial_reveal": {
+          "$ref": "#/definitions/walletrpcTapscriptPartialReveal",
+          "description": "Only a single script leaf is known. To construct the root hash, the full\ninclusion proof must also be provided."
+        },
+        "root_hash_only": {
+          "type": "string",
+          "format": "byte",
+          "description": "Only the root hash of the Taproot script tree (or other form of Taproot\ncommitment) is known."
+        },
+        "full_key_only": {
+          "type": "boolean",
+          "description": "Only the final, tweaked Taproot key is known and no additional\ninformation about the internal key or type of tweak that was used to\nderive it. When this is set, the wallet treats the key in\ninternal_public_key as the Taproot key directly. This can be useful for\ntracking arbitrary Taproot outputs without the goal of ever being able\nto spend from them through the internal wallet."
+        }
+      }
+    },
+    "walletrpcImportTapscriptResponse": {
+      "type": "object",
+      "properties": {
+        "p2tr_address": {
+          "type": "string",
+          "description": "The resulting pay-to-Taproot address that represents the imported internal\nkey with the script committed to it."
+        }
+      }
+    },
     "walletrpcKeyReq": {
       "type": "object",
       "properties": {
@@ -1668,6 +1739,47 @@
             "format": "int64"
           },
           "description": "The indices of signed inputs."
+        }
+      }
+    },
+    "walletrpcTapLeaf": {
+      "type": "object",
+      "properties": {
+        "leaf_version": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The leaf version. Should be 0xc0 (192) in case of a SegWit v1 script."
+        },
+        "script": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script of the tap leaf."
+        }
+      }
+    },
+    "walletrpcTapscriptFullTree": {
+      "type": "object",
+      "properties": {
+        "all_leaves": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/walletrpcTapLeaf"
+          },
+          "description": "The complete, ordered list of all tap leaves of the tree."
+        }
+      }
+    },
+    "walletrpcTapscriptPartialReveal": {
+      "type": "object",
+      "properties": {
+        "revealed_leaf": {
+          "$ref": "#/definitions/walletrpcTapLeaf",
+          "description": "The tap leaf that is known and will be revealed."
+        },
+        "full_inclusion_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "The BIP-0341 serialized inclusion proof that is required to prove that\nthe revealed leaf is part of the tree. This contains 0..n blocks of 32\nbytes. If the tree only contained a single leaf (which is the revealed\nleaf), this can be empty."
         }
       }
     },

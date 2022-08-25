@@ -81,12 +81,28 @@ type WalletKitClient interface {
 	// detected by lnd if they happen after the import. Rescans to detect past
 	// events will be supported later on.
 	ImportAccount(ctx context.Context, in *ImportAccountRequest, opts ...grpc.CallOption) (*ImportAccountResponse, error)
-	// ImportPublicKey imports a public key as watch-only into the wallet.
+	// ImportPublicKey imports a public key as watch-only into the wallet. The
+	// public key is converted into a simple address of the given type and that
+	// address script is watched on chain. For Taproot keys, this will only watch
+	// the BIP-0086 style output script. Use ImportTapscript for more advanced key
+	// spend or script spend outputs.
 	//
 	// NOTE: Events (deposits/spends) for a key will only be detected by lnd if
 	// they happen after the import. Rescans to detect past events will be
 	// supported later on.
 	ImportPublicKey(ctx context.Context, in *ImportPublicKeyRequest, opts ...grpc.CallOption) (*ImportPublicKeyResponse, error)
+	// ImportTapscript imports a Taproot script and internal key and adds the
+	// resulting Taproot output key as a watch-only output script into the wallet.
+	// For BIP-0086 style Taproot keys (no root hash commitment and no script spend
+	// path) use ImportPublicKey.
+	//
+	// NOTE: Events (deposits/spends) for a key will only be detected by lnd if
+	// they happen after the import. Rescans to detect past events will be
+	// supported later on.
+	//
+	// NOTE: Taproot keys imported through this RPC currently _cannot_ be used for
+	// funding PSBTs. Only tracking the balance and UTXOs is currently supported.
+	ImportTapscript(ctx context.Context, in *ImportTapscriptRequest, opts ...grpc.CallOption) (*ImportTapscriptResponse, error)
 	// PublishTransaction attempts to publish the passed transaction to the
 	// network. Once this returns without an error, the wallet will continually
 	// attempt to re-broadcast the transaction on start up, until it enters the
@@ -305,6 +321,15 @@ func (c *walletKitClient) ImportPublicKey(ctx context.Context, in *ImportPublicK
 	return out, nil
 }
 
+func (c *walletKitClient) ImportTapscript(ctx context.Context, in *ImportTapscriptRequest, opts ...grpc.CallOption) (*ImportTapscriptResponse, error) {
+	out := new(ImportTapscriptResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/ImportTapscript", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *walletKitClient) PublishTransaction(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*PublishResponse, error) {
 	out := new(PublishResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/PublishTransaction", in, out, opts...)
@@ -461,12 +486,28 @@ type WalletKitServer interface {
 	// detected by lnd if they happen after the import. Rescans to detect past
 	// events will be supported later on.
 	ImportAccount(context.Context, *ImportAccountRequest) (*ImportAccountResponse, error)
-	// ImportPublicKey imports a public key as watch-only into the wallet.
+	// ImportPublicKey imports a public key as watch-only into the wallet. The
+	// public key is converted into a simple address of the given type and that
+	// address script is watched on chain. For Taproot keys, this will only watch
+	// the BIP-0086 style output script. Use ImportTapscript for more advanced key
+	// spend or script spend outputs.
 	//
 	// NOTE: Events (deposits/spends) for a key will only be detected by lnd if
 	// they happen after the import. Rescans to detect past events will be
 	// supported later on.
 	ImportPublicKey(context.Context, *ImportPublicKeyRequest) (*ImportPublicKeyResponse, error)
+	// ImportTapscript imports a Taproot script and internal key and adds the
+	// resulting Taproot output key as a watch-only output script into the wallet.
+	// For BIP-0086 style Taproot keys (no root hash commitment and no script spend
+	// path) use ImportPublicKey.
+	//
+	// NOTE: Events (deposits/spends) for a key will only be detected by lnd if
+	// they happen after the import. Rescans to detect past events will be
+	// supported later on.
+	//
+	// NOTE: Taproot keys imported through this RPC currently _cannot_ be used for
+	// funding PSBTs. Only tracking the balance and UTXOs is currently supported.
+	ImportTapscript(context.Context, *ImportTapscriptRequest) (*ImportTapscriptResponse, error)
 	// PublishTransaction attempts to publish the passed transaction to the
 	// network. Once this returns without an error, the wallet will continually
 	// attempt to re-broadcast the transaction on start up, until it enters the
@@ -609,6 +650,9 @@ func (UnimplementedWalletKitServer) ImportAccount(context.Context, *ImportAccoun
 }
 func (UnimplementedWalletKitServer) ImportPublicKey(context.Context, *ImportPublicKeyRequest) (*ImportPublicKeyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ImportPublicKey not implemented")
+}
+func (UnimplementedWalletKitServer) ImportTapscript(context.Context, *ImportTapscriptRequest) (*ImportTapscriptResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ImportTapscript not implemented")
 }
 func (UnimplementedWalletKitServer) PublishTransaction(context.Context, *Transaction) (*PublishResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PublishTransaction not implemented")
@@ -869,6 +913,24 @@ func _WalletKit_ImportPublicKey_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WalletKit_ImportTapscript_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImportTapscriptRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).ImportTapscript(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/ImportTapscript",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).ImportTapscript(ctx, req.(*ImportTapscriptRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _WalletKit_PublishTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Transaction)
 	if err := dec(in); err != nil {
@@ -1103,6 +1165,10 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ImportPublicKey",
 			Handler:    _WalletKit_ImportPublicKey_Handler,
+		},
+		{
+			MethodName: "ImportTapscript",
+			Handler:    _WalletKit_ImportTapscript_Handler,
 		},
 		{
 			MethodName: "PublishTransaction",

@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -57,6 +58,11 @@ func testTaproot(net *lntest.NetworkHarness, t *harnessTest) {
 	testTaprootMuSig2KeySpendRootHash(ctxt, t, net.Alice, net)
 	testTaprootMuSig2ScriptSpend(ctxt, t, net.Alice, net)
 	testTaprootMuSig2CombinedLeafKeySpend(ctxt, t, net.Alice, net)
+
+	testTaprootImportTapscriptFullTree(ctxt, t, net.Alice, net)
+	testTaprootImportTapscriptPartialReveal(ctxt, t, net.Alice, net)
+	testTaprootImportTapscriptRootHashOnly(ctxt, t, net.Alice, net)
+	testTaprootImportTapscriptFullKey(ctxt, t, net.Alice, net)
 }
 
 // testTaprootSendCoinsKeySpendBip86 tests sending to and spending from
@@ -97,7 +103,7 @@ func testTaprootSendCoinsKeySpendBip86(ctxt context.Context,
 		TxidBytes:   txid[:],
 		OutputIndex: uint32(p2trOutputIndex),
 	}
-	assertWalletUnspent(t, alice, op)
+	assertWalletUnspent(t, alice, op, "")
 
 	// Mine a block to clean up the mempool.
 	mineBlocks(t, net, 1, 1)
@@ -152,7 +158,7 @@ func testTaprootComputeInputScriptKeySpendBip86(ctxt context.Context,
 		TxidBytes:   txid[:],
 		OutputIndex: uint32(p2trOutputIndex),
 	}
-	assertWalletUnspent(t, alice, op)
+	assertWalletUnspent(t, alice, op, "")
 
 	p2trOutpoint := wire.OutPoint{
 		Hash:  *txid,
@@ -1117,6 +1123,354 @@ func testTaprootMuSig2CombinedLeafKeySpend(ctxt context.Context, t *harnessTest,
 	)
 }
 
+// testTaprootImportTapscriptScriptSpend tests importing p2tr script addresses
+// using the script path with the full tree known.
+func testTaprootImportTapscriptFullTree(ctxt context.Context, t *harnessTest,
+	alice *lntest.HarnessNode, net *lntest.NetworkHarness) {
+
+	// For the next step, we need a public key. Let's use a special family
+	// for this.
+	_, internalKey, derivationPath := deriveInternalKey(ctxt, t, alice)
+
+	// Let's create a taproot script output now. This is a hash lock with a
+	// simple preimage of "foobar".
+	leaf1 := testScriptHashLock(t.t, []byte("foobar"))
+
+	// Let's add a second script output as well to test the partial reveal.
+	leaf2 := testScriptSchnorrSig(t.t, internalKey)
+
+	tapscript := input.TapscriptFullTree(internalKey, leaf1, leaf2)
+	tree := txscript.AssembleTaprootScriptTree(leaf1, leaf2)
+	rootHash := tree.RootNode.TapHash()
+	taprootKey, err := tapscript.TaprootKey()
+	require.NoError(t.t, err)
+
+	// Import the scripts and make sure we get the same address back as we
+	// calculated ourselves.
+	importResp, err := alice.WalletKitClient.ImportTapscript(
+		ctxt, &walletrpc.ImportTapscriptRequest{
+			InternalPublicKey: schnorr.SerializePubKey(internalKey),
+			Script: &walletrpc.ImportTapscriptRequest_FullTree{
+				FullTree: &walletrpc.TapscriptFullTree{
+					AllLeaves: []*walletrpc.TapLeaf{{
+						LeafVersion: uint32(
+							leaf1.LeafVersion,
+						),
+						Script: leaf1.Script,
+					}, {
+						LeafVersion: uint32(
+							leaf2.LeafVersion,
+						),
+						Script: leaf2.Script,
+					}},
+				},
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	calculatedAddr, err := btcutil.NewAddressTaproot(
+		schnorr.SerializePubKey(taprootKey), harnessNetParams,
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, calculatedAddr.String(), importResp.P2TrAddress)
+
+	// Send some coins to the generated tapscript address.
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
+		ctxt, t, net, alice, taprootKey, testAmount,
+	)
+
+	p2trOutputRPC := &lnrpc.OutPoint{
+		TxidBytes:   p2trOutpoint.Hash[:],
+		OutputIndex: p2trOutpoint.Index,
+	}
+	assertWalletUnspent(t, alice, p2trOutputRPC, "imported")
+	assertAccountBalance(t.t, alice, "imported", testAmount, 0)
+
+	// Funding a PSBT from an imported script is not yet possible. So we
+	// basically need to add all information manually for the wallet to be
+	// able to sign for it.
+	utxo := &wire.TxOut{
+		Value:    testAmount,
+		PkScript: p2trPkScript,
+	}
+	clearWalletImportedTapscriptBalance(
+		ctxt, t, alice, utxo, p2trOutpoint, internalKey, derivationPath,
+		rootHash[:],
+	)
+}
+
+// testTaprootImportTapscriptPartialReveal tests importing p2tr script addresses
+// for which we only know part of the tree.
+func testTaprootImportTapscriptPartialReveal(ctxt context.Context,
+	t *harnessTest, alice *lntest.HarnessNode, net *lntest.NetworkHarness) {
+
+	// For the next step, we need a public key. Let's use a special family
+	// for this.
+	_, internalKey, derivationPath := deriveInternalKey(ctxt, t, alice)
+
+	// Let's create a taproot script output now. This is a hash lock with a
+	// simple preimage of "foobar".
+	leaf1 := testScriptHashLock(t.t, []byte("foobar"))
+
+	// Let's add a second script output as well to test the partial reveal.
+	leaf2 := testScriptSchnorrSig(t.t, internalKey)
+	leaf2Hash := leaf2.TapHash()
+
+	tapscript := input.TapscriptPartialReveal(
+		internalKey, leaf1, leaf2Hash[:],
+	)
+	rootHash := tapscript.ControlBlock.RootHash(leaf1.Script)
+	taprootKey, err := tapscript.TaprootKey()
+	require.NoError(t.t, err)
+
+	// Import the scripts and make sure we get the same address back as we
+	// calculated ourselves.
+	importResp, err := alice.WalletKitClient.ImportTapscript(
+		ctxt, &walletrpc.ImportTapscriptRequest{
+			InternalPublicKey: schnorr.SerializePubKey(internalKey),
+			Script: &walletrpc.ImportTapscriptRequest_PartialReveal{
+				PartialReveal: &walletrpc.TapscriptPartialReveal{
+					RevealedLeaf: &walletrpc.TapLeaf{
+						LeafVersion: uint32(leaf1.LeafVersion),
+						Script:      leaf1.Script,
+					},
+					FullInclusionProof: leaf2Hash[:],
+				},
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	calculatedAddr, err := btcutil.NewAddressTaproot(
+		schnorr.SerializePubKey(taprootKey), harnessNetParams,
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, calculatedAddr.String(), importResp.P2TrAddress)
+
+	// Send some coins to the generated tapscript address.
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
+		ctxt, t, net, alice, taprootKey, testAmount,
+	)
+
+	p2trOutputRPC := &lnrpc.OutPoint{
+		TxidBytes:   p2trOutpoint.Hash[:],
+		OutputIndex: p2trOutpoint.Index,
+	}
+	assertWalletUnspent(t, alice, p2trOutputRPC, "imported")
+	assertAccountBalance(t.t, alice, "imported", testAmount, 0)
+
+	// Funding a PSBT from an imported script is not yet possible. So we
+	// basically need to add all information manually for the wallet to be
+	// able to sign for it.
+	utxo := &wire.TxOut{
+		Value:    testAmount,
+		PkScript: p2trPkScript,
+	}
+	clearWalletImportedTapscriptBalance(
+		ctxt, t, alice, utxo, p2trOutpoint, internalKey, derivationPath,
+		rootHash,
+	)
+}
+
+// testTaprootImportTapscriptRootHashOnly tests importing p2tr script addresses
+// for which we only know the root hash.
+func testTaprootImportTapscriptRootHashOnly(ctxt context.Context,
+	t *harnessTest, alice *lntest.HarnessNode, net *lntest.NetworkHarness) {
+
+	// For the next step, we need a public key. Let's use a special family
+	// for this.
+	_, internalKey, derivationPath := deriveInternalKey(ctxt, t, alice)
+
+	// Let's create a taproot script output now. This is a hash lock with a
+	// simple preimage of "foobar".
+	leaf1 := testScriptHashLock(t.t, []byte("foobar"))
+	rootHash := leaf1.TapHash()
+
+	tapscript := input.TapscriptRootHashOnly(internalKey, rootHash[:])
+	taprootKey, err := tapscript.TaprootKey()
+	require.NoError(t.t, err)
+
+	// Import the scripts and make sure we get the same address back as we
+	// calculated ourselves.
+	importResp, err := alice.WalletKitClient.ImportTapscript(
+		ctxt, &walletrpc.ImportTapscriptRequest{
+			InternalPublicKey: schnorr.SerializePubKey(internalKey),
+			Script: &walletrpc.ImportTapscriptRequest_RootHashOnly{
+				RootHashOnly: rootHash[:],
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	calculatedAddr, err := btcutil.NewAddressTaproot(
+		schnorr.SerializePubKey(taprootKey), harnessNetParams,
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, calculatedAddr.String(), importResp.P2TrAddress)
+
+	// Send some coins to the generated tapscript address.
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
+		ctxt, t, net, alice, taprootKey, testAmount,
+	)
+
+	p2trOutputRPC := &lnrpc.OutPoint{
+		TxidBytes:   p2trOutpoint.Hash[:],
+		OutputIndex: p2trOutpoint.Index,
+	}
+	assertWalletUnspent(t, alice, p2trOutputRPC, "imported")
+	assertAccountBalance(t.t, alice, "imported", testAmount, 0)
+
+	// Funding a PSBT from an imported script is not yet possible. So we
+	// basically need to add all information manually for the wallet to be
+	// able to sign for it.
+	utxo := &wire.TxOut{
+		Value:    testAmount,
+		PkScript: p2trPkScript,
+	}
+	clearWalletImportedTapscriptBalance(
+		ctxt, t, alice, utxo, p2trOutpoint, internalKey, derivationPath,
+		rootHash[:],
+	)
+}
+
+// testTaprootImportTapscriptFullKey tests importing p2tr script addresses for
+// which we only know the full Taproot key.
+func testTaprootImportTapscriptFullKey(ctxt context.Context, t *harnessTest,
+	alice *lntest.HarnessNode, net *lntest.NetworkHarness) {
+
+	// For the next step, we need a public key. Let's use a special family
+	// for this.
+	_, internalKey, derivationPath := deriveInternalKey(ctxt, t, alice)
+
+	// Let's create a taproot script output now. This is a hash lock with a
+	// simple preimage of "foobar".
+	leaf1 := testScriptHashLock(t.t, []byte("foobar"))
+
+	tapscript := input.TapscriptFullTree(internalKey, leaf1)
+	rootHash := leaf1.TapHash()
+	taprootKey, err := tapscript.TaprootKey()
+	require.NoError(t.t, err)
+
+	// Import the scripts and make sure we get the same address back as we
+	// calculated ourselves.
+	importResp, err := alice.WalletKitClient.ImportTapscript(
+		ctxt, &walletrpc.ImportTapscriptRequest{
+			InternalPublicKey: schnorr.SerializePubKey(taprootKey),
+			Script: &walletrpc.ImportTapscriptRequest_FullKeyOnly{
+				FullKeyOnly: true,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	calculatedAddr, err := btcutil.NewAddressTaproot(
+		schnorr.SerializePubKey(taprootKey), harnessNetParams,
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, calculatedAddr.String(), importResp.P2TrAddress)
+
+	// Send some coins to the generated tapscript address.
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(
+		ctxt, t, net, alice, taprootKey, testAmount,
+	)
+
+	p2trOutputRPC := &lnrpc.OutPoint{
+		TxidBytes:   p2trOutpoint.Hash[:],
+		OutputIndex: p2trOutpoint.Index,
+	}
+	assertWalletUnspent(t, alice, p2trOutputRPC, "imported")
+	assertAccountBalance(t.t, alice, "imported", testAmount, 0)
+
+	// Funding a PSBT from an imported script is not yet possible. So we
+	// basically need to add all information manually for the wallet to be
+	// able to sign for it.
+	utxo := &wire.TxOut{
+		Value:    testAmount,
+		PkScript: p2trPkScript,
+	}
+	clearWalletImportedTapscriptBalance(
+		ctxt, t, alice, utxo, p2trOutpoint, internalKey, derivationPath,
+		rootHash[:],
+	)
+}
+
+// clearWalletImportedTapscriptBalance manually assembles and then attempts to
+// sign a TX to sweep funds from an imported tapscript address.
+func clearWalletImportedTapscriptBalance(ctx context.Context, t *harnessTest,
+	node *lntest.HarnessNode, utxo *wire.TxOut, outPoint wire.OutPoint,
+	internalKey *btcec.PublicKey, derivationPath []uint32,
+	rootHash []byte) {
+
+	_, sweepPkScript := newAddrWithScript(
+		ctx, t.t, node, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	)
+
+	output := &wire.TxOut{
+		PkScript: sweepPkScript,
+		Value:    utxo.Value - 1000,
+	}
+	packet, err := psbt.New(
+		[]*wire.OutPoint{&outPoint}, []*wire.TxOut{output}, 2, 0,
+		[]uint32{0},
+	)
+	require.NoError(t.t, err)
+
+	// We have everything we need to know to sign the PSBT.
+	in := &packet.Inputs[0]
+	in.Bip32Derivation = []*psbt.Bip32Derivation{{
+		PubKey:    internalKey.SerializeCompressed(),
+		Bip32Path: derivationPath,
+	}}
+	in.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{{
+		XOnlyPubKey: schnorr.SerializePubKey(internalKey),
+		Bip32Path:   derivationPath,
+	}}
+	in.SighashType = txscript.SigHashDefault
+	in.TaprootMerkleRoot = rootHash
+	in.WitnessUtxo = utxo
+
+	var buf bytes.Buffer
+	require.NoError(t.t, packet.Serialize(&buf))
+
+	// Sign the manually funded PSBT now.
+	signResp, err := node.WalletKitClient.SignPsbt(
+		ctx, &walletrpc.SignPsbtRequest{
+			FundedPsbt: buf.Bytes(),
+		},
+	)
+	require.NoError(t.t, err)
+
+	signedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(signResp.SignedPsbt), false,
+	)
+	require.NoError(t.t, err)
+
+	// We should be able to finalize the PSBT and extract the sweep TX now.
+	err = psbt.MaybeFinalizeAll(signedPacket)
+	require.NoError(t.t, err)
+
+	sweepTx, err := psbt.Extract(signedPacket)
+	require.NoError(t.t, err)
+
+	buf.Reset()
+	err = sweepTx.Serialize(&buf)
+	require.NoError(t.t, err)
+
+	// Publish the sweep transaction and then mine it as well.
+	_, err = node.WalletKitClient.PublishTransaction(
+		ctx, &walletrpc.Transaction{
+			TxHex: buf.Bytes(),
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Mine one block which should contain the sweep transaction.
+	block := mineBlocks(t, t.lndHarness, 1, 1)[0]
+	sweepTxHash := sweepTx.TxHash()
+	assertTxInBlock(t, block, &sweepTxHash)
+}
+
 // testScriptHashLock returns a simple bitcoin script that locks the funds to
 // a hash lock of the given preimage.
 func testScriptHashLock(t *testing.T, preimage []byte) txscript.TapLeaf {
@@ -1195,6 +1549,37 @@ func sendToTaprootOutput(ctx context.Context, t *harnessTest,
 		Hash:  *txid,
 		Index: uint32(p2trOutputIndex),
 	}
+
+	// Make sure the transaction is recognized by our wallet and has the
+	// correct output type.
+	var outputDetail *lnrpc.OutputDetail
+	walletTxns, err := node.GetTransactions(
+		ctx, &lnrpc.GetTransactionsRequest{
+			StartHeight: 0,
+			EndHeight:   -1,
+		},
+	)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, walletTxns.Transactions)
+	for _, tx := range walletTxns.Transactions {
+		if tx.TxHash != txid.String() {
+			continue
+		}
+
+		for outputIdx, out := range tx.OutputDetails {
+			if out.Address != tapScriptAddr.String() {
+				continue
+			}
+
+			outputDetail = tx.OutputDetails[outputIdx]
+			break
+		}
+	}
+	require.NotNil(t.t, outputDetail, "transaction not found in wallet")
+	require.Equal(
+		t.t, lnrpc.OutputScriptType_SCRIPT_TYPE_WITNESS_V1_TAPROOT,
+		outputDetail.OutputType,
+	)
 
 	// Clear the mempool.
 	mineBlocks(t, net, 1, 1)
@@ -1288,7 +1673,7 @@ func confirmAddress(ctx context.Context, t *harnessTest,
 		TxidBytes:   txid[:],
 		OutputIndex: uint32(addrOutputIndex),
 	}
-	assertWalletUnspent(t, node, op)
+	assertWalletUnspent(t, node, op, "")
 
 	// Before we confirm the transaction, let's register a confirmation
 	// listener for it, which we expect to fire after mining a block.

@@ -183,8 +183,7 @@ type testContext struct {
 	notifier *mockChainNotifier
 	clock    *clock.TestClock
 
-	cleanup func()
-	t       *testing.T
+	t *testing.T
 }
 
 func newTestContext(t *testing.T) *testContext {
@@ -213,6 +212,9 @@ func newTestContext(t *testing.T) *testContext {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		require.NoError(t, registry.Stop())
+	})
 
 	ctx := testContext{
 		cdb:      cdb,
@@ -220,11 +222,6 @@ func newTestContext(t *testing.T) *testContext {
 		notifier: notifier,
 		clock:    clock,
 		t:        t,
-		cleanup: func() {
-			if err = registry.Stop(); err != nil {
-				t.Fatalf("failed to stop invoice registry: %v", err)
-			}
-		},
 	}
 
 	return &ctx

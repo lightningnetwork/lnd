@@ -37,22 +37,18 @@ func TestBetweennessCentralityEmptyGraph(t *testing.T) {
 	)
 
 	for _, chanGraph := range chanGraphs {
-		graph, cleanup, err := chanGraph.genFunc()
 		success := t.Run(chanGraph.name, func(t1 *testing.T) {
-			require.NoError(t, err, "unable to create graph")
+			graph, err := chanGraph.genFunc(t1)
+			require.NoError(t1, err, "unable to create graph")
 
-			if cleanup != nil {
-				defer cleanup()
-			}
-
-			err := centralityMetric.Refresh(graph)
-			require.NoError(t, err)
+			err = centralityMetric.Refresh(graph)
+			require.NoError(t1, err)
 
 			centrality := centralityMetric.GetMetric(false)
-			require.Equal(t, 0, len(centrality))
+			require.Equal(t1, 0, len(centrality))
 
 			centrality = centralityMetric.GetMetric(true)
-			require.Equal(t, 0, len(centrality))
+			require.Equal(t1, 0, len(centrality))
 		})
 		if !success {
 			break
@@ -81,12 +77,8 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 	for _, numWorkers := range workers {
 		for _, chanGraph := range chanGraphs {
 			numWorkers := numWorkers
-			graph, cleanup, err := chanGraph.genFunc()
+			graph, err := chanGraph.genFunc(t)
 			require.NoError(t, err, "unable to create graph")
-
-			if cleanup != nil {
-				defer cleanup()
-			}
 
 			testName := fmt.Sprintf(
 				"%v %d workers", chanGraph.name, numWorkers,
@@ -97,7 +89,7 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 					numWorkers,
 				)
 				require.NoError(
-					t, err,
+					t1, err,
 					"construction must succeed with "+
 						"positive number of workers",
 				)
@@ -107,7 +99,7 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 				)
 
 				err = metric.Refresh(graph)
-				require.NoError(t, err)
+				require.NoError(t1, err)
 
 				for _, expected := range tests {
 					expected := expected
@@ -115,7 +107,7 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 						expected.normalize,
 					)
 
-					require.Equal(t,
+					require.Equal(t1,
 						centralityTestGraph.nodes,
 						len(centrality),
 					)
@@ -125,8 +117,8 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 							graphNodes[i],
 						)
 						result, ok := centrality[nodeID]
-						require.True(t, ok)
-						require.Equal(t, c, result)
+						require.True(t1, ok)
+						require.Equal(t1, c, result)
 					}
 				}
 			})

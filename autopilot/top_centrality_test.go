@@ -85,22 +85,19 @@ func TestTopCentrality(t *testing.T) {
 	for _, chanGraph := range chanGraphs {
 		chanGraph := chanGraph
 
-		success := t.Run(chanGraph.name, func(t *testing.T) {
-			t.Parallel()
+		success := t.Run(chanGraph.name, func(t1 *testing.T) {
+			t1.Parallel()
 
-			graph, cleanup, err := chanGraph.genFunc()
-			require.NoError(t, err, "unable to create graph")
-			if cleanup != nil {
-				defer cleanup()
-			}
+			graph, err := chanGraph.genFunc(t1)
+			require.NoError(t1, err, "unable to create graph")
 
 			// Build the test graph.
 			graphNodes := buildTestGraph(
-				t, graph, centralityTestGraph,
+				t1, graph, centralityTestGraph,
 			)
 
 			for _, chans := range channelsWith {
-				testTopCentrality(t, graph, graphNodes, chans)
+				testTopCentrality(t1, graph, graphNodes, chans)
 			}
 		})
 

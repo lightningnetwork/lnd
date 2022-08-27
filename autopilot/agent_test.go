@@ -155,7 +155,7 @@ type testContext struct {
 	sync.Mutex
 }
 
-func setup(t *testing.T, initialChans []LocalChannel) (*testContext, func()) {
+func setup(t *testing.T, initialChans []LocalChannel) *testContext {
 	t.Helper()
 
 	// First, we'll create all the dependencies that we'll need in order to
@@ -178,7 +178,7 @@ func setup(t *testing.T, initialChans []LocalChannel) (*testContext, func()) {
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent, 10),
 	}
-	memGraph, _, _ := newMemChanGraph()
+	memGraph, _ := newMemChanGraph(t)
 
 	// We'll keep track of the funds available to the agent, to make sure
 	// it correctly uses this value when querying the ChannelBudget.
@@ -224,14 +224,14 @@ func setup(t *testing.T, initialChans []LocalChannel) (*testContext, func()) {
 		t.Fatalf("unable to start agent: %v", err)
 	}
 
-	cleanup := func() {
+	t.Cleanup(func() {
 		// We must close quit before agent.Stop(), to make sure
 		// ChannelBudget won't block preventing the agent from exiting.
 		close(quit)
 		agent.Stop()
-	}
+	})
 
-	return ctx, cleanup
+	return ctx
 }
 
 // respondMoreChans consumes the moreChanArgs element and responds to the agent
@@ -279,8 +279,7 @@ func respondNodeScores(t *testing.T, testCtx *testContext,
 func TestAgentChannelOpenSignal(t *testing.T) {
 	t.Parallel()
 
-	testCtx, cleanup := setup(t, nil)
-	defer cleanup()
+	testCtx := setup(t, nil)
 
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
@@ -324,8 +323,7 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 func TestAgentHeuristicUpdateSignal(t *testing.T) {
 	t.Parallel()
 
-	testCtx, cleanup := setup(t, nil)
-	defer cleanup()
+	testCtx := setup(t, nil)
 
 	pub, err := testCtx.graph.addRandNode()
 	require.NoError(t, err, "unable to generate key")
@@ -386,8 +384,7 @@ var _ ChannelController = (*mockFailingChanController)(nil)
 func TestAgentChannelFailureSignal(t *testing.T) {
 	t.Parallel()
 
-	testCtx, cleanup := setup(t, nil)
-	defer cleanup()
+	testCtx := setup(t, nil)
 
 	testCtx.chanController = &mockFailingChanController{}
 
@@ -436,8 +433,7 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 		},
 	}
 
-	testCtx, cleanup := setup(t, initialChans)
-	defer cleanup()
+	testCtx := setup(t, initialChans)
 
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
@@ -478,8 +474,7 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 func TestAgentBalanceUpdate(t *testing.T) {
 	t.Parallel()
 
-	testCtx, cleanup := setup(t, nil)
-	defer cleanup()
+	testCtx := setup(t, nil)
 
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
@@ -525,8 +520,7 @@ func TestAgentBalanceUpdate(t *testing.T) {
 func TestAgentImmediateAttach(t *testing.T) {
 	t.Parallel()
 
-	testCtx, cleanup := setup(t, nil)
-	defer cleanup()
+	testCtx := setup(t, nil)
 
 	const numChans = 5
 
@@ -591,8 +585,7 @@ func TestAgentImmediateAttach(t *testing.T) {
 func TestAgentPrivateChannels(t *testing.T) {
 	t.Parallel()
 
-	testCtx, cleanup := setup(t, nil)
-	defer cleanup()
+	testCtx := setup(t, nil)
 
 	// The chanController should be initialized such that all of its open
 	// channel requests are for private channels.
@@ -652,8 +645,7 @@ func TestAgentPrivateChannels(t *testing.T) {
 func TestAgentPendingChannelState(t *testing.T) {
 	t.Parallel()
 
-	testCtx, cleanup := setup(t, nil)
-	defer cleanup()
+	testCtx := setup(t, nil)
 
 	// We'll only return a single directive for a pre-chosen node.
 	nodeKey, err := testCtx.graph.addRandNode()
@@ -764,8 +756,7 @@ func TestAgentPendingChannelState(t *testing.T) {
 func TestAgentPendingOpenChannel(t *testing.T) {
 	t.Parallel()
 
-	testCtx, cleanup := setup(t, nil)
-	defer cleanup()
+	testCtx := setup(t, nil)
 
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
@@ -796,8 +787,7 @@ func TestAgentPendingOpenChannel(t *testing.T) {
 func TestAgentOnNodeUpdates(t *testing.T) {
 	t.Parallel()
 
-	testCtx, cleanup := setup(t, nil)
-	defer cleanup()
+	testCtx := setup(t, nil)
 
 	// We'll send an initial "yes" response to advance the agent past its
 	// initial check. This will cause it to try to get directives from an
@@ -844,8 +834,7 @@ func TestAgentOnNodeUpdates(t *testing.T) {
 func TestAgentSkipPendingConns(t *testing.T) {
 	t.Parallel()
 
-	testCtx, cleanup := setup(t, nil)
-	defer cleanup()
+	testCtx := setup(t, nil)
 
 	connect := make(chan chan error)
 	testCtx.agent.cfg.ConnectToPeer = func(*btcec.PublicKey, []net.Addr) (bool, error) {
@@ -1025,8 +1014,7 @@ func TestAgentSkipPendingConns(t *testing.T) {
 func TestAgentQuitWhenPendingConns(t *testing.T) {
 	t.Parallel()
 
-	testCtx, cleanup := setup(t, nil)
-	defer cleanup()
+	testCtx := setup(t, nil)
 
 	connect := make(chan chan error)
 
@@ -1216,8 +1204,7 @@ func TestAgentChannelSizeAllocation(t *testing.T) {
 	// Total number of nodes in our mock graph.
 	const numNodes = 20
 
-	testCtx, cleanup := setup(t, nil)
-	defer cleanup()
+	testCtx := setup(t, nil)
 
 	nodeScores := make(map[NodeID]*NodeScore)
 	for i := 0; i < numNodes; i++ {

@@ -48,18 +48,20 @@ func makeListener() (*Listener, *lnwire.NetAddress, error) {
 	return listener, netAddr, nil
 }
 
-func establishTestConnection() (net.Conn, net.Conn, func(), error) {
+func establishTestConnection(t testing.TB) (net.Conn, net.Conn, error) {
 	listener, netAddr, err := makeListener()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	defer listener.Close()
+	t.Cleanup(func() {
+		listener.Close()
+	})
 
 	// Nos, generate the long-term private keys remote end of the connection
 	// within our test.
 	remotePriv, err := btcec.NewPrivateKey()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	remoteKeyECDH := &keychain.PrivKeyECDH{PrivKey: remotePriv}
 
@@ -83,29 +85,28 @@ func establishTestConnection() (net.Conn, net.Conn, func(), error) {
 
 	remote := <-remoteConnChan
 	if remote.err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	local := <-localConnChan
 	if local.err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	cleanUp := func() {
+	t.Cleanup(func() {
 		local.conn.Close()
 		remote.conn.Close()
-	}
+	})
 
-	return local.conn, remote.conn, cleanUp, nil
+	return local.conn, remote.conn, nil
 }
 
 func TestConnectionCorrectness(t *testing.T) {
 	// Create a test connection, grabbing either side of the connection
 	// into local variables. If the initial crypto handshake fails, then
 	// we'll get a non-nil error here.
-	localConn, remoteConn, cleanUp, err := establishTestConnection()
+	localConn, remoteConn, err := establishTestConnection(t)
 	require.NoError(t, err, "unable to establish test connection")
-	defer cleanUp()
 
 	// Test out some message full-message reads.
 	for i := 0; i < 10; i++ {
@@ -257,9 +258,8 @@ func TestWriteMessageChunking(t *testing.T) {
 	// Create a test connection, grabbing either side of the connection
 	// into local variables. If the initial crypto handshake fails, then
 	// we'll get a non-nil error here.
-	localConn, remoteConn, cleanUp, err := establishTestConnection()
+	localConn, remoteConn, err := establishTestConnection(t)
 	require.NoError(t, err, "unable to establish test connection")
-	defer cleanUp()
 
 	// Attempt to write a message which is over 3x the max allowed payload
 	// size.

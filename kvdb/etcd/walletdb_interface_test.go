@@ -14,7 +14,6 @@ import (
 // etcd database driver.
 func TestWalletDBInterface(t *testing.T) {
 	f := NewEtcdTestFixture(t)
-	defer f.Cleanup()
 	cfg := f.BackendConfig()
 	walletdbtest.TestInterface(t, dbType, context.TODO(), &cfg)
 }

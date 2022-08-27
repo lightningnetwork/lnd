@@ -26,11 +26,10 @@ func TestPutToEmpty(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	txQueue := NewCommitQueue(ctx)
-	defer func() {
+	t.Cleanup(func() {
 		cancel()
-		f.Cleanup()
 		txQueue.Stop()
-	}()
+	})
 
 	db, err := newEtcdBackend(ctx, f.BackendConfig())
 	require.NoError(t, err)
@@ -54,11 +53,10 @@ func TestGetPutDel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	txQueue := NewCommitQueue(ctx)
-	defer func() {
+	t.Cleanup(func() {
 		cancel()
-		f.Cleanup()
 		txQueue.Stop()
-	}()
+	})
 
 	testKeyValues := []KV{
 		{"a", "1"},
@@ -156,11 +154,10 @@ func testFirstLastNextPrev(t *testing.T, prefetchKeys []string,
 	ctx, cancel := context.WithCancel(context.Background())
 
 	txQueue := NewCommitQueue(ctx)
-	defer func() {
+	t.Cleanup(func() {
 		cancel()
-		f.Cleanup()
 		txQueue.Stop()
-	}()
+	})
 
 	testKeyValues := []KV{
 		{"kb", "1"},
@@ -331,11 +328,10 @@ func TestCommitError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	txQueue := NewCommitQueue(ctx)
-	defer func() {
+	t.Cleanup(func() {
 		cancel()
-		f.Cleanup()
 		txQueue.Stop()
-	}()
+	})
 
 	db, err := newEtcdBackend(ctx, f.BackendConfig())
 	require.NoError(t, err)
@@ -381,11 +377,10 @@ func TestManualTxError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	txQueue := NewCommitQueue(ctx)
-	defer func() {
+	t.Cleanup(func() {
 		cancel()
-		f.Cleanup()
 		txQueue.Stop()
-	}()
+	})
 
 	db, err := newEtcdBackend(ctx, f.BackendConfig())
 	require.NoError(t, err)

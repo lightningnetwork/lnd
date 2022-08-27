@@ -71,7 +71,9 @@ func testWorkerPool(t *testing.T, test workerPoolTest) {
 
 		p := test.newPool()
 		startGeneric(t, p)
-		defer stopGeneric(t, p)
+		t.Cleanup(func() {
+			stopGeneric(t, p)
+		})
 
 		submitNonblockingGeneric(t, p, test.numWorkers)
 	})
@@ -81,7 +83,9 @@ func testWorkerPool(t *testing.T, test workerPoolTest) {
 
 		p := test.newPool()
 		startGeneric(t, p)
-		defer stopGeneric(t, p)
+		t.Cleanup(func() {
+			stopGeneric(t, p)
+		})
 
 		submitBlockingGeneric(t, p, test.numWorkers)
 	})
@@ -91,7 +95,9 @@ func testWorkerPool(t *testing.T, test workerPoolTest) {
 
 		p := test.newPool()
 		startGeneric(t, p)
-		defer stopGeneric(t, p)
+		t.Cleanup(func() {
+			stopGeneric(t, p)
+		})
 
 		submitPartialBlockingGeneric(t, p, test.numWorkers)
 	})

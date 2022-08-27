@@ -44,7 +44,7 @@ func TestEtcdElector(t *testing.T) {
 
 	etcdCfg, cleanup, err := etcd.NewEmbeddedEtcdInstance(tmpDir, 0, 0, "")
 	require.NoError(t, err)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -14,7 +14,7 @@ func testQueueAddDrain(t *testing.T, size, numStart, numStop, numAdd, numDrain i
 		queue.Start()
 	}
 	for i := 0; i < numStop; i++ {
-		defer queue.Stop()
+		t.Cleanup(queue.Stop)
 	}
 
 	// Pushes should never block for long.

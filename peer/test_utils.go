@@ -5,10 +5,8 @@ import (
 	crand "crypto/rand"
 	"encoding/binary"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"net"
-	"os"
 	"testing"
 	"time"
 
@@ -56,10 +54,10 @@ var noUpdate = func(a, b *channeldb.OpenChannel) {}
 // one of the nodes, together with the channel seen from both nodes. It takes
 // an updateChan function which can be used to modify the default values on
 // the channel states for each peer.
-func createTestPeer(notifier chainntnfs.ChainNotifier,
+func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 	publTx chan *wire.MsgTx, updateChan func(a, b *channeldb.OpenChannel),
 	mockSwitch *mockMessageSwitch) (
-	*Brontide, *lnwallet.LightningChannel, func(), error) {
+	*Brontide, *lnwallet.LightningChannel, error) {
 
 	nodeKeyLocator := keychain.KeyLocator{
 		Family: keychain.KeyFamilyNodeKey,
@@ -141,23 +139,23 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 	bobRoot, err := chainhash.NewHash(bobKeyPriv.Serialize())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	bobPreimageProducer := shachain.NewRevocationProducer(*bobRoot)
 	bobFirstRevoke, err := bobPreimageProducer.AtIndex(0)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	bobCommitPoint := input.ComputeCommitmentPoint(bobFirstRevoke[:])
 
 	aliceRoot, err := chainhash.NewHash(aliceKeyPriv.Serialize())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	alicePreimageProducer := shachain.NewRevocationProducer(*aliceRoot)
 	aliceFirstRevoke, err := alicePreimageProducer.AtIndex(0)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
@@ -167,33 +165,29 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		isAliceInitiator, 0,
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	alicePath, err := ioutil.TempDir("", "alicedb")
+	dbAlice, err := channeldb.Open(t.TempDir())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
+	t.Cleanup(func() {
+		require.NoError(t, dbAlice.Close())
+	})
 
-	dbAlice, err := channeldb.Open(alicePath)
+	dbBob, err := channeldb.Open(t.TempDir())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-
-	bobPath, err := ioutil.TempDir("", "bobdb")
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	dbBob, err := channeldb.Open(bobPath)
-	if err != nil {
-		return nil, nil, nil, err
-	}
+	t.Cleanup(func() {
+		require.NoError(t, dbBob.Close())
+	})
 
 	estimator := chainfee.NewStaticEstimator(12500, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	// TODO(roasbeef): need to factor in commit fee?
@@ -218,7 +212,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 	var chanIDBytes [8]byte
 	if _, err := io.ReadFull(crand.Reader, chanIDBytes[:]); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	shortChanID := lnwire.NewShortChanIDFromInt(
@@ -269,7 +263,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	}
 
 	if err := aliceChannelState.SyncPending(aliceAddr, 0); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	bobAddr := &net.TCPAddr{
@@ -278,12 +272,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	}
 
 	if err := bobChannelState.SyncPending(bobAddr, 0); err != nil {
-		return nil, nil, nil, err
-	}
-
-	cleanUpFunc := func() {
-		os.RemoveAll(bobPath)
-		os.RemoveAll(alicePath)
+		return nil, nil, err
 	}
 
 	aliceSigner := &mock.SingleSigner{Privkey: aliceKeyPriv}
@@ -294,18 +283,24 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		aliceSigner, aliceChannelState, alicePool,
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	_ = alicePool.Start()
+	t.Cleanup(func() {
+		require.NoError(t, alicePool.Stop())
+	})
 
 	bobPool := lnwallet.NewSigPool(1, bobSigner)
 	channelBob, err := lnwallet.NewLightningChannel(
 		bobSigner, bobChannelState, bobPool,
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	_ = bobPool.Start()
+	t.Cleanup(func() {
+		require.NoError(t, bobPool.Stop())
+	})
 
 	chainIO := &mock.ChainIO{
 		BestHeight: broadcastHeight,
@@ -344,15 +339,15 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		},
 	})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	if err = chanStatusMgr.Start(); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	errBuffer, err := queue.NewCircularBuffer(ErrorBufferSize)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	var pubKey [33]byte
@@ -392,7 +387,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	alicePeer.wg.Add(1)
 	go alicePeer.channelManager()
 
-	return alicePeer, channelBob, cleanUpFunc, nil
+	return alicePeer, channelBob, nil
 }
 
 // mockMessageSwitch is a mock implementation of the messageSwitch interface

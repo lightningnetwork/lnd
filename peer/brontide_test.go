@@ -43,11 +43,10 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 
 	mockSwitch := &mockMessageSwitch{}
 
-	alicePeer, bobChan, cleanUp, err := createTestPeer(
-		notifier, broadcastTxChan, noUpdate, mockSwitch,
+	alicePeer, bobChan, err := createTestPeer(
+		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
 	require.NoError(t, err, "unable to create test channels")
-	defer cleanUp()
 
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 
@@ -147,11 +146,10 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 
 	mockSwitch := &mockMessageSwitch{}
 
-	alicePeer, bobChan, cleanUp, err := createTestPeer(
-		notifier, broadcastTxChan, noUpdate, mockSwitch,
+	alicePeer, bobChan, err := createTestPeer(
+		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
 	require.NoError(t, err, "unable to create test channels")
-	defer cleanUp()
 
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 	mockLink := newMockUpdateHandler(chanID)
@@ -270,11 +268,10 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 
 	mockSwitch := &mockMessageSwitch{}
 
-	alicePeer, bobChan, cleanUp, err := createTestPeer(
-		notifier, broadcastTxChan, noUpdate, mockSwitch,
+	alicePeer, bobChan, err := createTestPeer(
+		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
 	require.NoError(t, err, "unable to create test channels")
-	defer cleanUp()
 
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 
@@ -456,11 +453,10 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 
 	mockSwitch := &mockMessageSwitch{}
 
-	alicePeer, bobChan, cleanUp, err := createTestPeer(
-		notifier, broadcastTxChan, noUpdate, mockSwitch,
+	alicePeer, bobChan, err := createTestPeer(
+		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
 	require.NoError(t, err, "unable to create test channels")
-	defer cleanUp()
 
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 	mockLink := newMockUpdateHandler(chanID)
@@ -784,14 +780,13 @@ func TestCustomShutdownScript(t *testing.T) {
 			mockSwitch := &mockMessageSwitch{}
 
 			// Open a channel.
-			alicePeer, bobChan, cleanUp, err := createTestPeer(
-				notifier, broadcastTxChan, test.update,
+			alicePeer, bobChan, err := createTestPeer(
+				t, notifier, broadcastTxChan, test.update,
 				mockSwitch,
 			)
 			if err != nil {
 				t.Fatalf("unable to create test channels: %v", err)
 			}
-			defer cleanUp()
 
 			chanPoint := bobChan.ChannelPoint()
 			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)

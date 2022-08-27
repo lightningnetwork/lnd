@@ -25,7 +25,7 @@ func TestCheckOnionServiceSucceed(t *testing.T) {
 
 	// Create mock server and client connection.
 	proxy := createTestProxy(t)
-	defer proxy.cleanUp()
+	t.Cleanup(proxy.cleanUp)
 	server := proxy.serverConn
 
 	// Assign a fake service ID to the controller.
@@ -47,7 +47,7 @@ func TestCheckOnionServiceFailOnServiceIDNotMatch(t *testing.T) {
 
 	// Create mock server and client connection.
 	proxy := createTestProxy(t)
-	defer proxy.cleanUp()
+	t.Cleanup(proxy.cleanUp)
 	server := proxy.serverConn
 
 	// Assign a fake service ID to the controller.
@@ -69,7 +69,7 @@ func TestCheckOnionServiceSucceedOnMultipleServices(t *testing.T) {
 
 	// Create mock server and client connection.
 	proxy := createTestProxy(t)
-	defer proxy.cleanUp()
+	t.Cleanup(proxy.cleanUp)
 	server := proxy.serverConn
 
 	// Assign a fake service ID to the controller.
@@ -92,7 +92,7 @@ func TestCheckOnionServiceFailOnClosedConnection(t *testing.T) {
 
 	// Create mock server and client connection.
 	proxy := createTestProxy(t)
-	defer proxy.cleanUp()
+	t.Cleanup(proxy.cleanUp)
 	server := proxy.serverConn
 
 	// Assign a fake service ID to the controller.

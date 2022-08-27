@@ -153,7 +153,7 @@ func createTestProxy(t *testing.T) *testProxy {
 func TestReadResponse(t *testing.T) {
 	// Create mock server and client connection.
 	proxy := createTestProxy(t)
-	defer proxy.cleanUp()
+	t.Cleanup(proxy.cleanUp)
 	server := proxy.serverConn
 
 	// Create a dummy tor controller.
@@ -300,7 +300,7 @@ func TestReconnectTCMustBeRunning(t *testing.T) {
 func TestReconnectSucceed(t *testing.T) {
 	// Create mock server and client connection.
 	proxy := createTestProxy(t)
-	defer proxy.cleanUp()
+	t.Cleanup(proxy.cleanUp)
 
 	// Create a tor controller and mark the controller as started.
 	c := &Controller{

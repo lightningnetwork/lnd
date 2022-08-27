@@ -37,8 +37,7 @@ func TestWitnessBeaconIntercept(t *testing.T) {
 		[]byte{2},
 	)
 	require.NoError(t, err)
-
-	defer subscription.CancelSubscription()
+	t.Cleanup(subscription.CancelSubscription)
 
 	require.NoError(t, interceptedFwd.Settle(preimage))
 

@@ -53,9 +53,8 @@ func initIncubateTests() {
 // TestNurseryStoreInit verifies basic properties of the nursery store before
 // any modifying calls are made.
 func TestNurseryStoreInit(t *testing.T) {
-	cdb, cleanUp, err := channeldb.MakeTestDB()
+	cdb, err := channeldb.MakeTestDB(t)
 	require.NoError(t, err, "unable to open channel db")
-	defer cleanUp()
 
 	ns, err := NewNurseryStore(&chainHash, cdb)
 	require.NoError(t, err, "unable to open nursery store")
@@ -69,9 +68,8 @@ func TestNurseryStoreInit(t *testing.T) {
 // outputs through the nursery store, verifying the properties of the
 // intermediate states.
 func TestNurseryStoreIncubate(t *testing.T) {
-	cdb, cleanUp, err := channeldb.MakeTestDB()
+	cdb, err := channeldb.MakeTestDB(t)
 	require.NoError(t, err, "unable to open channel db")
-	defer cleanUp()
 
 	ns, err := NewNurseryStore(&chainHash, cdb)
 	require.NoError(t, err, "unable to open nursery store")
@@ -306,9 +304,8 @@ func TestNurseryStoreIncubate(t *testing.T) {
 // populated entries from the height index as it is purged, and that the last
 // purged height is set appropriately.
 func TestNurseryStoreGraduate(t *testing.T) {
-	cdb, cleanUp, err := channeldb.MakeTestDB()
+	cdb, err := channeldb.MakeTestDB(t)
 	require.NoError(t, err, "unable to open channel db")
-	defer cleanUp()
 
 	ns, err := NewNurseryStore(&chainHash, cdb)
 	require.NoError(t, err, "unable to open nursery store")

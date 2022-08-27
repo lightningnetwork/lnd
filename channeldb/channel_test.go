@@ -346,9 +346,8 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 func TestOpenChannelPutGetDelete(t *testing.T) {
 	t.Parallel()
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 
@@ -487,11 +486,10 @@ func TestOptionalShutdown(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			fullDB, cleanUp, err := MakeTestDB()
+			fullDB, err := MakeTestDB(t)
 			if err != nil {
 				t.Fatalf("unable to make test database: %v", err)
 			}
-			defer cleanUp()
 
 			cdb := fullDB.ChannelStateDB()
 
@@ -572,9 +570,8 @@ func assertRevocationLogEntryEqual(t *testing.T, c *ChannelCommitment,
 func TestChannelStateTransition(t *testing.T) {
 	t.Parallel()
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 
@@ -889,9 +886,8 @@ func TestChannelStateTransition(t *testing.T) {
 func TestFetchPendingChannels(t *testing.T) {
 	t.Parallel()
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 
@@ -960,9 +956,8 @@ func TestFetchPendingChannels(t *testing.T) {
 func TestFetchClosedChannels(t *testing.T) {
 	t.Parallel()
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 
@@ -1041,9 +1036,8 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 	// We'll start by creating two channels within our test database. One of
 	// them will have their funding transaction confirmed on-chain, while
 	// the other one will remain unconfirmed.
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 
@@ -1154,9 +1148,8 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 func TestRefresh(t *testing.T) {
 	t.Parallel()
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 
@@ -1298,12 +1291,11 @@ func TestCloseInitiator(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			fullDB, cleanUp, err := MakeTestDB()
+			fullDB, err := MakeTestDB(t)
 			if err != nil {
 				t.Fatalf("unable to make test database: %v",
 					err)
 			}
-			defer cleanUp()
 
 			cdb := fullDB.ChannelStateDB()
 
@@ -1345,12 +1337,11 @@ func TestCloseInitiator(t *testing.T) {
 // TestCloseChannelStatus tests setting of a channel status on the historical
 // channel on channel close.
 func TestCloseChannelStatus(t *testing.T) {
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	if err != nil {
 		t.Fatalf("unable to make test database: %v",
 			err)
 	}
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 

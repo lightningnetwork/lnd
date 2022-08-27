@@ -54,8 +54,7 @@ func genInfo() (*PaymentCreationInfo, *HTLCAttemptInfo,
 func TestPaymentControlSwitchFail(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup, err := MakeTestDB()
-	defer cleanup()
+	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
 	pControl := NewPaymentControl(db)
@@ -185,9 +184,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup, err := MakeTestDB()
-	defer cleanup()
-
+	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
 	pControl := NewPaymentControl(db)
@@ -258,9 +255,7 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 func TestPaymentControlSuccessesWithoutInFlight(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup, err := MakeTestDB()
-	defer cleanup()
-
+	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
 	pControl := NewPaymentControl(db)
@@ -287,9 +282,7 @@ func TestPaymentControlSuccessesWithoutInFlight(t *testing.T) {
 func TestPaymentControlFailsWithoutInFlight(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup, err := MakeTestDB()
-	defer cleanup()
-
+	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
 	pControl := NewPaymentControl(db)
@@ -311,9 +304,7 @@ func TestPaymentControlFailsWithoutInFlight(t *testing.T) {
 func TestPaymentControlDeleteNonInFlight(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup, err := MakeTestDB()
-	defer cleanup()
-
+	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
 	// Create a sequence number for duplicate payments that will not collide
@@ -520,8 +511,7 @@ func TestPaymentControlDeleteNonInFlight(t *testing.T) {
 func TestPaymentControlDeletePayments(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup, err := MakeTestDB()
-	defer cleanup()
+	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
 	pControl := NewPaymentControl(db)
@@ -574,8 +564,7 @@ func TestPaymentControlDeletePayments(t *testing.T) {
 func TestPaymentControlDeleteSinglePayment(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup, err := MakeTestDB()
-	defer cleanup()
+	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
 	pControl := NewPaymentControl(db)
@@ -678,9 +667,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 	}
 
 	runSubTest := func(t *testing.T, test testCase) {
-		db, cleanup, err := MakeTestDB()
-		defer cleanup()
-
+		db, err := MakeTestDB(t)
 		if err != nil {
 			t.Fatalf("unable to init db: %v", err)
 		}
@@ -924,9 +911,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 func TestPaymentControlMPPRecordValidation(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup, err := MakeTestDB()
-	defer cleanup()
-
+	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
 	pControl := NewPaymentControl(db)
@@ -1017,8 +1002,7 @@ func TestDeleteFailedAttempts(t *testing.T) {
 }
 
 func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
-	db, cleanup, err := MakeTestDB()
-	defer cleanup()
+	db, err := MakeTestDB(t)
 
 	require.NoError(t, err, "unable to init db")
 	db.keepFailedPaymentAttempts = keepFailedPaymentAttempts

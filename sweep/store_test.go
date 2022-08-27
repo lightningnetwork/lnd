@@ -15,14 +15,9 @@ func TestStore(t *testing.T) {
 	t.Run("bolt", func(t *testing.T) {
 
 		// Create new store.
-		cdb, cleanUp, err := channeldb.MakeTestDB()
+		cdb, err := channeldb.MakeTestDB(t)
 		if err != nil {
 			t.Fatalf("unable to open channel db: %v", err)
-		}
-		defer cleanUp()
-
-		if err != nil {
-			t.Fatal(err)
 		}
 
 		testStore(t, func() (SweeperStore, error) {

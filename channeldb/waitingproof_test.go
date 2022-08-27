@@ -15,9 +15,8 @@ import (
 func TestWaitingProofStore(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup, err := MakeTestDB()
+	db, err := MakeTestDB(t)
 	require.NoError(t, err, "failed to make test database")
-	defer cleanup()
 
 	proof1 := NewWaitingProof(true, &lnwire.AnnounceSignatures{
 		NodeSignature:    wireSig,

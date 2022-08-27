@@ -1286,7 +1286,7 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 func testHtlcTimeout(t *testing.T, resolution lnwallet.OutgoingHtlcResolution,
 	checkpoints []checkpoint) {
 
-	defer timeout(t)()
+	defer timeout()()
 
 	// We first run the resolver from start to finish, ensuring it gets
 	// checkpointed at every expected stage. We store the checkpointed data

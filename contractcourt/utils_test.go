@@ -13,7 +13,7 @@ import (
 )
 
 // timeout implements a test level timeout.
-func timeout(t *testing.T) func() {
+func timeout() func() {
 	done := make(chan struct{})
 	go func() {
 		select {

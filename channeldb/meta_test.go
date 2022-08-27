@@ -15,8 +15,7 @@ import (
 func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 	migrationFunc migration, shouldFail bool, dryRun bool) {
 
-	cdb, cleanUp, err := MakeTestDB()
-	defer cleanUp()
+	cdb, err := MakeTestDB(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,8 +85,7 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 func TestVersionFetchPut(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := MakeTestDB()
-	defer cleanUp()
+	db, err := MakeTestDB(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +448,7 @@ func TestMigrationReversion(t *testing.T) {
 
 	backend, cleanup, err = kvdb.GetTestBackend(tempDirName, "cdb")
 	require.NoError(t, err, "unable to get test db backend")
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	_, err = CreateWithBackend(backend)
 	if err != ErrDBReversion {
@@ -498,8 +496,7 @@ func TestMigrationDryRun(t *testing.T) {
 func TestOptionalMeta(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := MakeTestDB()
-	defer cleanUp()
+	db, err := MakeTestDB(t)
 	require.NoError(t, err)
 
 	// Test read an empty optional meta.
@@ -527,8 +524,7 @@ func TestOptionalMeta(t *testing.T) {
 func TestApplyOptionalVersions(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := MakeTestDB()
-	defer cleanUp()
+	db, err := MakeTestDB(t)
 	require.NoError(t, err)
 
 	// Overwrite the migration function so we can count how many times the
@@ -581,8 +577,7 @@ func TestApplyOptionalVersions(t *testing.T) {
 func TestFetchMeta(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := MakeTestDB()
-	defer cleanUp()
+	db, err := MakeTestDB(t)
 	require.NoError(t, err)
 
 	meta := &Meta{}
@@ -601,8 +596,7 @@ func TestFetchMeta(t *testing.T) {
 func TestMarkerAndTombstone(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := MakeTestDB()
-	defer cleanUp()
+	db, err := MakeTestDB(t)
 	require.NoError(t, err)
 
 	// Test that a generic marker is not present in a fresh DB.

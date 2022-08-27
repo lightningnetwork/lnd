@@ -14,9 +14,8 @@ import (
 func TestLinkNodeEncodeDecode(t *testing.T) {
 	t.Parallel()
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 
@@ -103,9 +102,8 @@ func TestLinkNodeEncodeDecode(t *testing.T) {
 func TestDeleteLinkNode(t *testing.T) {
 	t.Parallel()
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 

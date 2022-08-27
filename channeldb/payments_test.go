@@ -398,11 +398,10 @@ func TestQueryPayments(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			db, cleanup, err := MakeTestDB()
+			db, err := MakeTestDB(t)
 			if err != nil {
 				t.Fatalf("unable to init db: %v", err)
 			}
-			defer cleanup()
 
 			// Make a preliminary query to make sure it's ok to
 			// query when we have no payments.
@@ -514,10 +513,8 @@ func TestQueryPayments(t *testing.T) {
 // case where a specific duplicate is not found and the duplicates bucket is not
 // present when we expect it to be.
 func TestFetchPaymentWithSequenceNumber(t *testing.T) {
-	db, cleanup, err := MakeTestDB()
+	db, err := MakeTestDB(t)
 	require.NoError(t, err)
-
-	defer cleanup()
 
 	pControl := NewPaymentControl(db)
 

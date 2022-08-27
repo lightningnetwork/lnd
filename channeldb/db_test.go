@@ -36,7 +36,7 @@ func TestOpenWithCreate(t *testing.T) {
 	dbPath := filepath.Join(tempDirName, "cdb")
 	backend, cleanup, err := kvdb.GetTestBackend(dbPath, "cdb")
 	require.NoError(t, err, "unable to get test db backend")
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	cdb, err := CreateWithBackend(backend)
 	require.NoError(t, err, "unable to create channeldb")
@@ -72,7 +72,7 @@ func TestWipe(t *testing.T) {
 	dbPath := filepath.Join(tempDirName, "cdb")
 	backend, cleanup, err := kvdb.GetTestBackend(dbPath, "cdb")
 	require.NoError(t, err, "unable to get test db backend")
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	fullDB, err := CreateWithBackend(backend)
 	require.NoError(t, err, "unable to create channeldb")
@@ -101,9 +101,8 @@ func TestFetchClosedChannelForID(t *testing.T) {
 
 	const numChans = 101
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 
@@ -172,9 +171,8 @@ func TestFetchClosedChannelForID(t *testing.T) {
 func TestAddrsForNode(t *testing.T) {
 	t.Parallel()
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	graph := fullDB.ChannelGraph()
 
@@ -226,9 +224,8 @@ func TestAddrsForNode(t *testing.T) {
 func TestFetchChannel(t *testing.T) {
 	t.Parallel()
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 
@@ -324,9 +321,8 @@ func genRandomChannelShell() (*ChannelShell, error) {
 func TestRestoreChannelShells(t *testing.T) {
 	t.Parallel()
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 
@@ -414,9 +410,8 @@ func TestRestoreChannelShells(t *testing.T) {
 func TestAbandonChannel(t *testing.T) {
 	t.Parallel()
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 
@@ -581,12 +576,11 @@ func TestFetchChannels(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			fullDB, cleanUp, err := MakeTestDB()
+			fullDB, err := MakeTestDB(t)
 			if err != nil {
 				t.Fatalf("unable to make test "+
 					"database: %v", err)
 			}
-			defer cleanUp()
 
 			cdb := fullDB.ChannelStateDB()
 
@@ -652,9 +646,8 @@ func TestFetchChannels(t *testing.T) {
 
 // TestFetchHistoricalChannel tests lookup of historical channels.
 func TestFetchHistoricalChannel(t *testing.T) {
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	cdb := fullDB.ChannelStateDB()
 

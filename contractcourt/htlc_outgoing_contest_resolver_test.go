@@ -23,7 +23,7 @@ const (
 // timed out.
 func TestHtlcOutgoingResolverTimeout(t *testing.T) {
 	t.Parallel()
-	defer timeout(t)()
+	defer timeout()()
 
 	// Setup the resolver with our test resolution.
 	ctx := newOutgoingResolverTestContext(t)
@@ -44,7 +44,7 @@ func TestHtlcOutgoingResolverTimeout(t *testing.T) {
 // is claimed by the remote party.
 func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 	t.Parallel()
-	defer timeout(t)()
+	defer timeout()()
 
 	// Setup the resolver with our test resolution and start the resolution
 	// process.

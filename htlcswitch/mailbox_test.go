@@ -27,7 +27,6 @@ func TestMailBoxCouriers(t *testing.T) {
 	// First, we'll create new instance of the current default mailbox
 	// type.
 	ctx := newMailboxContext(t, time.Now(), testExpiry)
-	defer ctx.mailbox.Stop()
 
 	// We'll be adding 10 message of both types to the mailbox.
 	const numPackets = 10
@@ -215,6 +214,7 @@ func newMailboxContext(t *testing.T, startTime time.Time,
 		expiry:            expiry,
 	})
 	ctx.mailbox.Start()
+	t.Cleanup(ctx.mailbox.Stop)
 
 	return ctx
 }
@@ -311,7 +311,6 @@ func TestMailBoxFailAdd(t *testing.T) {
 		thirdBatchExpiry = thirdBatchStart.Add(expiry)
 	)
 	ctx := newMailboxContext(t, firstBatchStart, expiry)
-	defer ctx.mailbox.Stop()
 
 	failAdds := func(adds []*htlcPacket) {
 		for _, add := range adds {
@@ -377,7 +376,6 @@ func TestMailBoxPacketPrioritization(t *testing.T) {
 	// First, we'll create new instance of the current default mailbox
 	// type.
 	ctx := newMailboxContext(t, time.Now(), testExpiry)
-	defer ctx.mailbox.Stop()
 
 	const numPackets = 5
 
@@ -476,7 +474,6 @@ func TestMailBoxAddExpiry(t *testing.T) {
 	)
 
 	ctx := newMailboxContext(t, firstBatchStart, expiry)
-	defer ctx.mailbox.Stop()
 
 	// Each batch will consist of 10 messages.
 	const numBatchPackets = 10
@@ -503,7 +500,6 @@ func TestMailBoxDuplicateAddPacket(t *testing.T) {
 
 	ctx := newMailboxContext(t, time.Now(), testExpiry)
 	ctx.mailbox.Start()
-	defer ctx.mailbox.Stop()
 
 	addTwice := func(t *testing.T, pkt *htlcPacket) {
 		// The first add should succeed.
@@ -553,7 +549,6 @@ func testMailBoxDust(t *testing.T, chantype channeldb.ChannelType) {
 	t.Parallel()
 
 	ctx := newMailboxContext(t, time.Now(), testExpiry)
-	defer ctx.mailbox.Stop()
 
 	_, _, aliceID, bobID := genIDs()
 

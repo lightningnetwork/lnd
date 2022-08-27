@@ -68,6 +68,9 @@ func initServer(t *testing.T, db wtserver.DB,
 	if err = s.Start(); err != nil {
 		t.Fatalf("unable to start server: %v", err)
 	}
+	t.Cleanup(func() {
+		require.NoError(t, s.Stop())
+	})
 
 	return s
 }
@@ -83,7 +86,6 @@ func TestServerOnlyAcceptOnePeer(t *testing.T) {
 	const timeoutDuration = 500 * time.Millisecond
 
 	s := initServer(t, nil, timeoutDuration)
-	defer s.Stop()
 
 	localPub := randPubKey(t)
 
@@ -284,7 +286,6 @@ func testServerCreateSession(t *testing.T, i int, test createSessionTestCase) {
 	const timeoutDuration = 500 * time.Millisecond
 
 	s := initServer(t, nil, timeoutDuration)
-	defer s.Stop()
 
 	localPub := randPubKey(t)
 
@@ -639,7 +640,6 @@ func testServerStateUpdates(t *testing.T, test stateUpdateTestCase) {
 	const timeoutDuration = 100 * time.Millisecond
 
 	s := initServer(t, nil, timeoutDuration)
-	defer s.Stop()
 
 	localPub := randPubKey(t)
 
@@ -747,7 +747,6 @@ func TestServerDeleteSession(t *testing.T) {
 	const timeoutDuration = 100 * time.Millisecond
 
 	s := initServer(t, db, timeoutDuration)
-	defer s.Stop()
 
 	// Create a session for peer2 so that the server's db isn't completely
 	// empty.

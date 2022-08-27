@@ -1816,8 +1816,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set up
 	// this node with a chain length of 125, so we have plenty of BTC to
 	// play around with.
-	miner, tearDown := chainntnfs.NewMiner(t, nil, true, 25)
-	defer tearDown()
+	miner := chainntnfs.NewMiner(t, nil, true, 25)
 
 	rpcConfig := miner.RPCConfig()
 	p2pAddr := miner.P2PAddress()
@@ -1850,14 +1849,13 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 		blockCache := blockcache.NewBlockCache(10000)
 
 		var (
-			cleanUp     func()
 			newNotifier func() (chainntnfs.TestChainNotifier, error)
 		)
 
 		switch notifierType {
 		case "bitcoind":
 			var bitcoindConn *chain.BitcoindConn
-			bitcoindConn, cleanUp = chainntnfs.NewBitcoindBackend(
+			bitcoindConn = chainntnfs.NewBitcoindBackend(
 				t, p2pAddr, true, false,
 			)
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
@@ -1869,7 +1867,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 
 		case "bitcoind-rpc-polling":
 			var bitcoindConn *chain.BitcoindConn
-			bitcoindConn, cleanUp = chainntnfs.NewBitcoindBackend(
+			bitcoindConn = chainntnfs.NewBitcoindBackend(
 				t, p2pAddr, true, true,
 			)
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
@@ -1889,9 +1887,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 
 		case "neutrino":
 			var spvNode *neutrino.ChainService
-			spvNode, cleanUp = chainntnfs.NewNeutrinoBackend(
-				t, p2pAddr,
-			)
+			spvNode = chainntnfs.NewNeutrinoBackend(t, p2pAddr)
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return neutrinonotify.New(
 					spvNode, hintCache, hintCache,
@@ -1963,10 +1959,6 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 			if !success {
 				break
 			}
-		}
-
-		if cleanUp != nil {
-			cleanUp()
 		}
 	}
 }

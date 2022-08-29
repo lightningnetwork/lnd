@@ -279,7 +279,7 @@ func (h *HarnessTest) resetStandbyNodes(t *testing.T) {
 // stand by nodes created by the parent test. It will return a cleanup function
 // which resets  all the standby nodes' configs back to its original state and
 // create snapshots of each nodes' internal state.
-func (h *HarnessTest) Subtest(t *testing.T) (*HarnessTest, func()) {
+func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	st := &HarnessTest{
 		T:            t,
 		manager:      h.manager,
@@ -304,7 +304,7 @@ func (h *HarnessTest) Subtest(t *testing.T) (*HarnessTest, func()) {
 	// Record block height.
 	_, startHeight := h.Miner.GetBestBlock()
 
-	cleanup := func() {
+	st.Cleanup(func() {
 		_, endHeight := h.Miner.GetBestBlock()
 
 		st.Logf("finished test: %s, start height=%d, end height=%d, "+
@@ -350,9 +350,9 @@ func (h *HarnessTest) Subtest(t *testing.T) (*HarnessTest, func()) {
 		// running cleanup again since its internal state has been
 		// cleaned up by its child harness tests.
 		h.cleaned = true
-	}
+	})
 
-	return st, cleanup
+	return st
 }
 
 // shutdownNonStandbyNodes will shutdown any non-standby nodes.

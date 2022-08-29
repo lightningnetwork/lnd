@@ -171,8 +171,7 @@ func runMultiHopHtlcClaimTest(ht *lntemp.HarnessTest, tester caseRunner) {
 		}
 
 		s := ht.Run(name, func(t1 *testing.T) {
-			st, cleanup := ht.Subtest(t1)
-			defer cleanup()
+			st := ht.Subtest(t1)
 
 			alice := st.NewNode("Alice", args)
 			bob := st.NewNode("Bob", args)

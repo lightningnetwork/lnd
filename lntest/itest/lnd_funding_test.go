@@ -127,8 +127,7 @@ test:
 				"carol_commit=%v,dave_commit=%v", cc, dc,
 			)
 			success := ht.Run(testName, func(t *testing.T) {
-				st, cleanup := ht.Subtest(t)
-				defer cleanup()
+				st := ht.Subtest(t)
 				testFunding(st, cc, dc)
 			})
 

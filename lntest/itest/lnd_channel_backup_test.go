@@ -401,8 +401,7 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 	for _, testCase := range testCases {
 		tc := testCase
 		success := ht.Run(tc.name, func(t *testing.T) {
-			h, cleanup := ht.Subtest(t)
-			defer cleanup()
+			h := ht.Subtest(t)
 
 			runChanRestoreScenarioBasic(h, tc.restoreMethod)
 		})
@@ -445,17 +444,15 @@ func testChannelBackupRestoreUnconfirmed(ht *lntemp.HarnessTest) {
 	// Use the channel backup file that contains an unconfirmed channel and
 	// make sure recovery works as well.
 	ht.Run("restore unconfirmed channel file", func(t *testing.T) {
-		st, cleanup := ht.Subtest(t)
+		st := ht.Subtest(t)
 		runChanRestoreScenarioUnConfirmed(st, true)
-		cleanup()
 	})
 
 	// Create a backup using RPC that contains an unconfirmed channel and
 	// make sure recovery works as well.
 	ht.Run("restore unconfirmed channel RPC", func(t *testing.T) {
-		st, cleanup := ht.Subtest(t)
+		st := ht.Subtest(t)
 		runChanRestoreScenarioUnConfirmed(st, false)
-		cleanup()
 	})
 }
 
@@ -568,8 +565,7 @@ func testChannelBackupRestoreCommitTypes(ht *lntemp.HarnessTest) {
 	for _, testCase := range testCases {
 		tc := testCase
 		success := ht.Run(tc.name, func(t *testing.T) {
-			h, cleanup := ht.Subtest(t)
-			defer cleanup()
+			h := ht.Subtest(t)
 
 			runChanRestoreScenarioCommitTypes(
 				h, tc.ct, tc.zeroConf,
@@ -671,17 +667,15 @@ func testChannelBackupRestoreForceClose(ht *lntemp.HarnessTest) {
 	// Restore a channel that was force closed by dave just before going
 	// offline.
 	ht.Run("from backup file anchors", func(t *testing.T) {
-		st, cleanup := ht.Subtest(t)
+		st := ht.Subtest(t)
 		runChanRestoreScenarioForceClose(st, false)
-		cleanup()
 	})
 
 	// Restore a zero-conf anchors channel that was force closed by dave
 	// just before going offline.
 	ht.Run("from backup file anchors w/ zero-conf", func(t *testing.T) {
-		st, cleanup := ht.Subtest(t)
+		st := ht.Subtest(t)
 		runChanRestoreScenarioForceClose(st, true)
-		cleanup()
 	})
 }
 

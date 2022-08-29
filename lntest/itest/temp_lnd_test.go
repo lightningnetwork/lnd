@@ -94,8 +94,7 @@ func TestLightningNetworkDaemonTemp(t *testing.T) {
 			// Create a separate harness test for the testcase to
 			// avoid overwriting the external harness test that is
 			// tied to the parent test.
-			ht, cleanup := harnessTest.Subtest(t1)
-			defer cleanup()
+			ht := harnessTest.Subtest(t1)
 
 			// TODO(yy): split log files.
 			cleanTestCaseName := strings.ReplaceAll(

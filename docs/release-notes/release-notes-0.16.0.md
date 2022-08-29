@@ -60,6 +60,10 @@ minimum version needed to build the project.
 * [Fix](https://github.com/lightningnetwork/lnd/pull/6875) mapslice cap out of 
   range error that occurs if the number of profiles is zero.
 
+* [A new config option, `batchwindowduration` has been added to
+  `sweeper`](https://github.com/lightningnetwork/lnd/pull/6868) to allow
+  customize sweeper batch duration.
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test 

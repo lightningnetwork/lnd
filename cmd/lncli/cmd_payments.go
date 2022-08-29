@@ -171,7 +171,8 @@ var sendPaymentCommand = cli.Command{
 	For invoice with payment address:
 	    --dest=N --amt=A --payment_hash=H --final_cltv_delta=T --pay_addr=H
 	`,
-	ArgsUsage: "dest amt payment_hash final_cltv_delta pay_addr | --pay_req=[payment request]",
+	ArgsUsage: "dest amt payment_hash final_cltv_delta pay_addr | " +
+		"--pay_req=R [--pay_addr=H]",
 	Flags: append(paymentFlags(),
 		cli.StringFlag{
 			Name: "dest, d",
@@ -244,7 +245,7 @@ func confirmPayReq(resp *lnrpc.PayReq, amt, feeLimit int64) error {
 	return nil
 }
 
-func parsePayAddr(ctx *cli.Context) ([]byte, error) {
+func parsePayAddr(ctx *cli.Context, args cli.Args) ([]byte, error) {
 	var (
 		payAddr []byte
 		err     error
@@ -253,8 +254,8 @@ func parsePayAddr(ctx *cli.Context) ([]byte, error) {
 	case ctx.IsSet("pay_addr"):
 		payAddr, err = hex.DecodeString(ctx.String("pay_addr"))
 
-	case ctx.Args().Present():
-		payAddr, err = hex.DecodeString(ctx.Args().First())
+	case args.Present():
+		payAddr, err = hex.DecodeString(args.First())
 	}
 
 	if err != nil {
@@ -291,7 +292,10 @@ func sendPayment(ctx *cli.Context) error {
 		// We'll attempt to parse a payment address as well, given that
 		// if the user is using an AMP invoice, then they may be trying
 		// to specify that value manually.
-		payAddr, err := parsePayAddr(ctx)
+		//
+		// Don't parse unnamed arguments to prevent confusion with the main
+		// unnamed argument format for non-AMP payments.
+		payAddr, err := parsePayAddr(ctx, nil)
 		if err != nil {
 			return err
 		}
@@ -394,10 +398,11 @@ func sendPayment(ctx *cli.Context) error {
 		if err != nil {
 			return err
 		}
+		args = args.Tail()
 		req.FinalCltvDelta = int32(delta)
 	}
 
-	payAddr, err := parsePayAddr(ctx)
+	payAddr, err := parsePayAddr(ctx, args)
 	if err != nil {
 		return err
 	}

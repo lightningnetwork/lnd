@@ -41,6 +41,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
+	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/tor"
 )
 
@@ -439,6 +440,8 @@ type Config struct {
 
 	RemoteSigner *lncfg.RemoteSigner `group:"remotesigner" namespace:"remotesigner"`
 
+	Sweeper *lncfg.Sweeper `group:"sweeper" namespace:"sweeper"`
+
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
@@ -634,6 +637,9 @@ func DefaultConfig() Config {
 		KeepFailedPaymentAttempts: defaultKeepFailedPaymentAttempts,
 		RemoteSigner: &lncfg.RemoteSigner{
 			Timeout: lncfg.DefaultRemoteSignerRPCTimeout,
+		},
+		Sweeper: &lncfg.Sweeper{
+			BatchWindowDuration: sweep.DefaultBatchWindowDuration,
 		},
 	}
 }
@@ -1651,6 +1657,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.HealthChecks,
 		cfg.RPCMiddleware,
 		cfg.RemoteSigner,
+		cfg.Sweeper,
 	)
 	if err != nil {
 		return nil, err

@@ -294,6 +294,18 @@ type SettleEvent struct {
 	Timestamp time.Time
 }
 
+type FinalHtlcEvent struct {
+	CircuitKey
+
+	Settled bool
+
+	// Offchain is indicating whether the htlc was resolved off-chain.
+	Offchain bool
+
+	// Timestamp is the time when this htlc was settled.
+	Timestamp time.Time
+}
+
 // NotifyForwardingEvent notifies the HtlcNotifier than a htlc has been
 // forwarded.
 //
@@ -376,6 +388,27 @@ func (h *HtlcNotifier) NotifySettleEvent(key HtlcKey,
 	}
 
 	log.Tracef("Notifying settle event: %v over %v", eventType, key)
+
+	if err := h.ntfnServer.SendUpdate(event); err != nil {
+		log.Warnf("Unable to send settle event: %v", err)
+	}
+}
+
+// NotifyFinalHtlcEvent notifies the HtlcNotifier that the final outcome for an
+// htlc has been determined.
+//
+// Note this is part of the htlcNotifier interface.
+func (h *HtlcNotifier) NotifyFinalHtlcEvent(key channeldb.CircuitKey,
+	info channeldb.FinalHtlcInfo) {
+
+	event := &FinalHtlcEvent{
+		CircuitKey: key,
+		Settled:    info.Settled,
+		Offchain:   info.Offchain,
+		Timestamp:  h.now(),
+	}
+
+	log.Tracef("Notifying final settle event: %v", key)
 
 	if err := h.ntfnServer.SendUpdate(event); err != nil {
 		log.Warnf("Unable to send settle event: %v", err)

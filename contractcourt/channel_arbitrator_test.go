@@ -361,8 +361,9 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 			chanArbCtx.breachSubscribed <- struct{}{}
 			return false, nil
 		},
-		Clock:   clock.NewDefaultClock(),
-		Sweeper: mockSweeper,
+		Clock:        clock.NewDefaultClock(),
+		Sweeper:      mockSweeper,
+		HtlcNotifier: &mockHTLCNotifier{},
 		PutFinalHtlcOutcome: func(chanId lnwire.ShortChannelID,
 			htlcId uint64, settled bool) error {
 

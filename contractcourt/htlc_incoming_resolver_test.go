@@ -333,6 +333,8 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		t:              t,
 	}
 
+	htlcNotifier := &mockHTLCNotifier{}
+
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
 			Notifier:       notifier,
@@ -346,6 +348,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 
 				return nil
 			},
+			HtlcNotifier: htlcNotifier,
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {

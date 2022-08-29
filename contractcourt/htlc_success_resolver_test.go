@@ -53,6 +53,8 @@ func newHtlcResolverTestContext(t *testing.T,
 		t:              t,
 	}
 
+	htlcNotifier := &mockHTLCNotifier{}
+
 	witnessBeacon := newMockWitnessBeacon()
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
@@ -84,6 +86,7 @@ func newHtlcResolverTestContext(t *testing.T,
 
 				return nil
 			},
+			HtlcNotifier: htlcNotifier,
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			report *channeldb.ResolverReport) error {

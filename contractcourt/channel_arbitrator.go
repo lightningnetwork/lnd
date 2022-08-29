@@ -2243,6 +2243,15 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				if err != nil {
 					return nil, nil, err
 				}
+
+				// Send notification.
+				chainArbCfg.HtlcNotifier.NotifyFinalHtlcEvent(
+					key,
+					channeldb.FinalHtlcInfo{
+						Settled:  false,
+						Offchain: false,
+					},
+				)
 			}
 
 		// Finally, if this is an outgoing HTLC we've sent, then we'll

@@ -65,3 +65,11 @@ type UtxoSweeper interface {
 	UpdateParams(input wire.OutPoint, params sweep.ParamsUpdate) (
 		chan sweep.Result, error)
 }
+
+// HtlcNotifier defines the notification functions that contract court requires.
+type HtlcNotifier interface {
+	// NotifyFinalHtlcEvent notifies the HtlcNotifier that the final outcome
+	// for an htlc has been determined.
+	NotifyFinalHtlcEvent(key channeldb.CircuitKey,
+		info channeldb.FinalHtlcInfo)
+}

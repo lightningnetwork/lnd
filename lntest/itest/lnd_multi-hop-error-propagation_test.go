@@ -424,4 +424,14 @@ func assertLinkFailure(t *harnessTest,
 		t.Fatalf("expected: %v, got: %v", failureDetail,
 			linkFail.LinkFailEvent.FailureDetail)
 	}
+
+	event = assertEventAndType(t, routerrpc.HtlcEvent_UNKNOWN, client)
+	finalHtlc, ok := event.Event.(*routerrpc.HtlcEvent_FinalHtlcEvent)
+	if !ok {
+		t.Fatalf("expected final htlc, got: %T", event.Event)
+	}
+
+	if finalHtlc.FinalHtlcEvent.Settled {
+		t.Fatalf("expected final fail")
+	}
 }

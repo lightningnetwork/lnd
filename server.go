@@ -1166,6 +1166,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Clock:                         clock.NewDefaultClock(),
 		SubscribeBreachComplete:       s.breachArbiter.SubscribeBreachComplete,
 		PutFinalHtlcOutcome:           s.chanStateDB.PutOnchainFinalHtlcOutcome, // nolint: lll
+		HtlcNotifier:                  s.htlcNotifier,
 	}, dbs.ChanStateDB)
 
 	// Select the configuration and furnding parameters for Bitcoin or

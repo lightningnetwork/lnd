@@ -1077,7 +1077,9 @@ func (m *mockOnionErrorDecryptor) DecryptError(encryptedData []byte) (
 
 var _ htlcNotifier = (*mockHTLCNotifier)(nil)
 
-type mockHTLCNotifier struct{}
+type mockHTLCNotifier struct {
+	htlcNotifier
+}
 
 func (h *mockHTLCNotifier) NotifyForwardingEvent(key HtlcKey, info HtlcInfo,
 	eventType HtlcEventType) { // nolint:whitespace
@@ -1094,4 +1096,8 @@ func (h *mockHTLCNotifier) NotifyForwardingFailEvent(key HtlcKey,
 
 func (h *mockHTLCNotifier) NotifySettleEvent(key HtlcKey,
 	preimage lntypes.Preimage, eventType HtlcEventType) { // nolint:whitespace
+}
+
+func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key channeldb.CircuitKey,
+	info channeldb.FinalHtlcInfo) { // nolint:whitespace
 }

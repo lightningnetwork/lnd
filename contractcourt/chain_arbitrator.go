@@ -192,6 +192,9 @@ type ChainArbitratorConfig struct {
 	// database.
 	PutFinalHtlcOutcome func(chanId lnwire.ShortChannelID,
 		htlcId uint64, settled bool) error
+
+	// HtlcNotifier is an interface that htlc events are sent to.
+	HtlcNotifier HtlcNotifier
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all

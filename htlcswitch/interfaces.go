@@ -370,4 +370,9 @@ type htlcNotifier interface {
 	// settled.
 	NotifySettleEvent(key HtlcKey, preimage lntypes.Preimage,
 		eventType HtlcEventType)
+
+	// NotifyFinalHtlcEvent notifies the HtlcNotifier that the final outcome
+	// for an htlc has been determined.
+	NotifyFinalHtlcEvent(key channeldb.CircuitKey,
+		info channeldb.FinalHtlcInfo)
 }

@@ -59,6 +59,18 @@ func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
 		return err
 	}
 
+	// Send notification.
+	h.ChainArbitratorConfig.HtlcNotifier.NotifyFinalHtlcEvent(
+		channeldb.CircuitKey{
+			ChanID: h.ShortChanID,
+			HtlcID: h.htlc.HtlcIndex,
+		},
+		channeldb.FinalHtlcInfo{
+			Settled:  false,
+			Offchain: false,
+		},
+	)
+
 	return nil
 }
 

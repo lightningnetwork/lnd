@@ -1473,6 +1473,12 @@ func TestFinalHtlcs(t *testing.T) {
 		TxPosition:  3,
 	}
 
+	// Test unknown htlc lookup.
+	const unknownHtlcID = 999
+
+	_, err = cdb.LookupFinalHtlc(chanID, unknownHtlcID)
+	require.ErrorIs(t, err, ErrHtlcUnknown)
+
 	// Test offchain final htlcs.
 	const offchainHtlcID = 1
 
@@ -1489,9 +1495,23 @@ func TestFinalHtlcs(t *testing.T) {
 	}, func() {})
 	require.NoError(t, err)
 
+	info, err := cdb.LookupFinalHtlc(chanID, offchainHtlcID)
+	require.NoError(t, err)
+	require.True(t, info.Settled)
+	require.True(t, info.Offchain)
+
 	// Test onchain final htlcs.
 	const onchainHtlcID = 2
 
 	err = cdb.PutOnchainFinalHtlcOutcome(chanID, onchainHtlcID, true)
 	require.NoError(t, err)
+
+	info, err = cdb.LookupFinalHtlc(chanID, onchainHtlcID)
+	require.NoError(t, err)
+	require.True(t, info.Settled)
+	require.False(t, info.Offchain)
+
+	// Test unknown htlc lookup for existing channel.
+	_, err = cdb.LookupFinalHtlc(chanID, unknownHtlcID)
+	require.ErrorIs(t, err, ErrHtlcUnknown)
 }

@@ -39,6 +39,16 @@ var (
 	// ErrDryRunMigrationOK signals that a migration executed successful,
 	// but we intentionally did not commit the result.
 	ErrDryRunMigrationOK = errors.New("dry run migration successful")
+
+	// ErrFinalHtlcsBucketNotFound signals that the top-level final htlcs
+	// bucket does not exist.
+	ErrFinalHtlcsBucketNotFound = errors.New("final htlcs bucket not " +
+		"found")
+
+	// ErrFinalChannelBucketNotFound signals that the channel bucket for
+	// final htlc outcomes does not exist.
+	ErrFinalChannelBucketNotFound = errors.New("final htlcs channel " +
+		"bucket not found")
 )
 
 // migration is a function which takes a prior outdated version of the database
@@ -1650,6 +1660,80 @@ func (c *ChannelStateDB) FetchHistoricalChannel(outPoint *wire.OutPoint) (
 	}
 
 	return channel, nil
+}
+
+func fetchFinalHtlcsBucket(tx kvdb.RTx,
+	chanID lnwire.ShortChannelID) (kvdb.RBucket, error) {
+
+	finalHtlcsBucket := tx.ReadBucket(finalHtlcsBucket)
+	if finalHtlcsBucket == nil {
+		return nil, ErrFinalHtlcsBucketNotFound
+	}
+
+	var chanIDBytes [8]byte
+	byteOrder.PutUint64(chanIDBytes[:], chanID.ToUint64())
+
+	chanBucket := finalHtlcsBucket.NestedReadBucket(chanIDBytes[:])
+	if chanBucket == nil {
+		return nil, ErrFinalChannelBucketNotFound
+	}
+
+	return chanBucket, nil
+}
+
+var ErrHtlcUnknown = errors.New("htlc unknown")
+
+// LookupFinalHtlc retrieves a final htlc resolution from the database. If the
+// htlc has no final resolution yet, ErrHtlcUnknown is returned.
+func (c *ChannelStateDB) LookupFinalHtlc(chanID lnwire.ShortChannelID,
+	htlcIndex uint64) (*FinalHtlcInfo, error) {
+
+	var idBytes [8]byte
+	byteOrder.PutUint64(idBytes[:], htlcIndex)
+
+	var settledByte byte
+
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
+		finalHtlcsBucket, err := fetchFinalHtlcsBucket(
+			tx, chanID,
+		)
+		switch {
+		case errors.Is(err, ErrFinalHtlcsBucketNotFound):
+			fallthrough
+
+		case errors.Is(err, ErrFinalChannelBucketNotFound):
+			return ErrHtlcUnknown
+
+		case err != nil:
+			return fmt.Errorf("cannot fetch final htlcs bucket: %w",
+				err)
+		}
+
+		value := finalHtlcsBucket.Get(idBytes[:])
+		if value == nil {
+			return ErrHtlcUnknown
+		}
+
+		if len(value) != 1 {
+			return errors.New("unexpected final htlc value length")
+		}
+
+		settledByte = value[0]
+
+		return nil
+	}, func() {
+		settledByte = 0
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	info := FinalHtlcInfo{
+		Settled:  settledByte&byte(FinalHtlcSettledBit) != 0,
+		Offchain: settledByte&byte(FinalHtlcOffchainBit) != 0,
+	}
+
+	return &info, nil
 }
 
 // PutOnchainFinalHtlcOutcome stores the final on-chain outcome of an htlc in

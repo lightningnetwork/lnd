@@ -577,6 +577,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/LookupHtlc": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 		"/lnrpc.Lightning/ListAliases": {{
 			Entity: "offchain",
 			Action: "read",
@@ -3902,6 +3906,28 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 	}
 
 	return resp, nil
+}
+
+// LookupHtlc retrieves a final htlc resolution from the database. If the htlc
+// has no final resolution yet, a NotFound grpc status code is returned.
+func (r *rpcServer) LookupHtlc(ctx context.Context,
+	in *lnrpc.LookupHtlcRequest) (*lnrpc.LookupHtlcResponse, error) {
+
+	chanID := lnwire.NewShortChanIDFromInt(in.ChanId)
+
+	info, err := r.server.chanStateDB.LookupFinalHtlc(chanID, in.HtlcIndex)
+	switch {
+	case errors.Is(err, channeldb.ErrHtlcUnknown):
+		return nil, status.Error(codes.NotFound, err.Error())
+
+	case err != nil:
+		return nil, err
+	}
+
+	return &lnrpc.LookupHtlcResponse{
+		Settled:  info.Settled,
+		Offchain: info.Offchain,
+	}, nil
 }
 
 // ListChannels returns a description of all the open channels that this node

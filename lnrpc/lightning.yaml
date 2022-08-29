@@ -165,3 +165,5 @@ http:
       get: "/v1/custommessage/subscribe"      
     - selector: lnrpc.Lightning.ListAliases
       get: "/v1/aliases/list"
+    - selector: lnrpc.Lightning.LookupHtlc
+      get: "/v1/htlc/{chan_id}/{htlc_index}"

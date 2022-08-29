@@ -51,6 +51,16 @@
   [expose tlv data](https://github.com/lightningnetwork/lnd/pull/7085) that is
   broadcast over the gossip network.
 
+* [Add new HTLC notifier event and lookup
+  RPC](https://github.com/lightningnetwork/lnd/pull/6517) for the final
+  settlement of incoming HTLCs. This allows applications to wait for the HTLC to
+  actually disappear from all valid commitment transactions, rather than assume
+  that it will. With the new extensions, situations can be avoided where the
+  application considers an HTLC settled, but in reality the HTLC has timed out.
+
+  Final resolution data will only be available for htlcs that are resolved
+  after upgrading lnd.
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

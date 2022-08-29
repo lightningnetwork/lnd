@@ -577,6 +577,20 @@ service Lightning {
     zero conf).
     */
     rpc ListAliases (ListAliasesRequest) returns (ListAliasesResponse);
+
+    rpc LookupHtlc (LookupHtlcRequest) returns (LookupHtlcResponse);
+}
+
+message LookupHtlcRequest {
+    uint64 chan_id = 1;
+
+    uint64 htlc_index = 2;
+}
+
+message LookupHtlcResponse {
+    bool settled = 1;
+
+    bool offchain = 2;
 }
 
 message SubscribeCustomMessagesRequest {

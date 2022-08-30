@@ -58,8 +58,10 @@ minimum version needed to build the project.
   [With the module updated](https://github.com/lightningnetwork/lnd/pull/6836),
   `lnd` now parses Tor control port messages correctly.
 
-* [Update Tor module](https://github.com/lightningnetwork/lnd/pull/6526) to 
-  allow the option to encrypt the private key on disk.
+* [Add option to encrypt Tor private 
+  key](https://github.com/lightningnetwork/lnd/pull/6500), and [update the Tor
+  module](https://github.com/lightningnetwork/lnd/pull/6526) to pave the way for
+  this functionality.
 
 * [Fixed potential data race on funding manager
   restart](https://github.com/lightningnetwork/lnd/pull/6929).
@@ -110,6 +112,7 @@ minimum version needed to build the project.
 * Elle Mouton
 * ErikEk
 * Eugene Siegel
+* Graham Krizek
 * hieblmi
 * Jesse de Wit
 * Matt Morehouse

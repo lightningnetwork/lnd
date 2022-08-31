@@ -7327,10 +7327,22 @@ func (lc *LightningChannel) IdealCommitFeeRate(netFeeRate, minRelayFeeRate,
 	return absoluteMaxFee
 }
 
-// RemoteNextRevocation returns the channelState's RemoteNextRevocation.
+// RemoteNextRevocation returns the channelState's RemoteNextRevocation. For
+// musig2 channels, until a nonce pair is processed by the remote party, a nil
+// public key is returned.
+//
+// TODO(roasbeef): revisit, maybe just make a more general method instead?
 func (lc *LightningChannel) RemoteNextRevocation() *btcec.PublicKey {
 	lc.RLock()
 	defer lc.RUnlock()
+
+	if !lc.channelState.ChanType.IsTaproot() {
+		return lc.channelState.RemoteNextRevocation
+	}
+
+	if lc.musigSessions == nil {
+		return nil
+	}
 
 	return lc.channelState.RemoteNextRevocation
 }

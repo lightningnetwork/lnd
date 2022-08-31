@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // ClosingSigned is sent by both parties to a channel once the channel is clear
@@ -27,7 +28,13 @@ type ClosingSigned struct {
 	FeeSatoshis btcutil.Amount
 
 	// Signature is for the proposed channel close transaction.
+	//
+	// TODO(roasbeef): need another sig type?
 	Signature Sig
+
+	// Musig2Nonce is the nonce the sender will use to sign the first co-op
+	// sign offer.
+	Musig2Nonce *LocalMusig2Nonce
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -55,9 +62,33 @@ var _ Message = (*ClosingSigned)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(
-		r, &c.ChannelID, &c.FeeSatoshis, &c.Signature, &c.ExtraData,
+	err := ReadElements(
+		r, &c.ChannelID, &c.FeeSatoshis, &c.Signature,
 	)
+
+	var tlvRecords ExtraOpaqueData
+	if err := ReadElements(r, &tlvRecords); err != nil {
+		return err
+	}
+
+	var (
+		musigNonce LocalMusig2Nonce
+	)
+	typeMap, err := tlvRecords.ExtractRecords(&musigNonce)
+	if err != nil {
+		return err
+	}
+
+	// Set the corresponding TLV types if they were included in the stream.
+	if val, ok := typeMap[LocalNonceRecordType]; ok && val == nil {
+		c.Musig2Nonce = &musigNonce
+	}
+
+	if len(tlvRecords) != 0 {
+		c.ExtraData = tlvRecords
+	}
+
+	return nil
 }
 
 // Encode serializes the target ClosingSigned into the passed io.Writer
@@ -65,6 +96,15 @@ func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ClosingSigned) Encode(w *bytes.Buffer, pver uint32) error {
+	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	if c.Musig2Nonce != nil {
+		recordProducers = append(recordProducers, c.Musig2Nonce)
+	}
+	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
+	if err != nil {
+		return err
+	}
+
 	if err := WriteChannelID(w, c.ChannelID); err != nil {
 		return err
 	}

@@ -629,6 +629,10 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
+			if r.Int31()%2 == 0 {
+				req.Musig2Nonce = randLocalNonce(r)
+			}
+
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgCommitSig: func(v []reflect.Value, r *rand.Rand) {

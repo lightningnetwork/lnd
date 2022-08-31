@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -1384,12 +1386,14 @@ func TaprootCommitScriptToRemote(combinedFundingKey,
 // transaction. The money can only be spend after one confirmation.
 //
 // Possible Input Scripts:
-//     SWEEP: <sig>
+//
+//	SWEEP: <sig>
 //
 // Output Script:
-//	<key> OP_CHECKSIGVERIFY
-//      <lease maturity in blocks> OP_CHECKLOCKTIMEVERIFY OP_DROP
-//	1 OP_CHECKSEQUENCEVERIFY
+//
+//		<key> OP_CHECKSIGVERIFY
+//	     <lease maturity in blocks> OP_CHECKLOCKTIMEVERIFY OP_DROP
+//		1 OP_CHECKSEQUENCEVERIFY
 func LeaseCommitScriptToRemoteConfirmed(key *btcec.PublicKey,
 	leaseExpiry uint32) ([]byte, error) {
 
@@ -1444,10 +1448,12 @@ func CommitSpendToRemoteConfirmed(signer Signer, signDesc *SignDescriptor,
 // the given key immediately, or by anyone after 16 confirmations.
 //
 // Possible Input Scripts:
-//    By owner:				<sig>
-//    By anyone (after 16 conf):	<emptyvector>
+//
+//	By owner:				<sig>
+//	By anyone (after 16 conf):	<emptyvector>
 //
 // Output Script:
+//
 //	<funding_pubkey> OP_CHECKSIG OP_IFDUP
 //	OP_NOTIF
 //	  OP_16 OP_CSV
@@ -1469,6 +1475,41 @@ func CommitScriptAnchor(key *btcec.PublicKey) ([]byte, error) {
 	builder.AddOp(txscript.OP_ENDIF)
 
 	return builder.Script()
+}
+
+// TaprootOutputKeyAnchor returns the segwit v1 (taproot) witness program that
+// encodes the anchor output spending conditions: the passed key can be used
+// for keyspend, with the OP_CSV 16 clause living within an internal tapscript
+// leaf.
+//
+// Spend paths:
+//   - Key spend: <key_signature>
+//   - Script spend: OP_16 CSV <control_block>
+func TaprootOutputKeyAnchor(key *btcec.PublicKey) (*btcec.PublicKey, error) {
+	// The main script used is just a OP_16 CSV (anyone can sweep after 16
+	// blocks).
+	builder := txscript.NewScriptBuilder()
+	builder.AddOp(txscript.OP_16)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+
+	anchorScript, err := builder.Script()
+	if err != nil {
+		return nil, err
+	}
+
+	// With the script, we can make our sole leaf, then derive the root
+	// from that.
+	tapLeaf := txscript.NewBaseTapLeaf(anchorScript)
+	tapScriptTree := txscript.AssembleTaprootScriptTree(tapLeaf)
+	tapScriptRoot := tapScriptTree.RootNode.TapHash()
+
+	// Now that we have our root, we can arrive at the final output script
+	// by tweaking the internal key with this root.
+	anchorKey := txscript.ComputeTaprootOutputKey(
+		key, tapScriptRoot[:],
+	)
+
+	return anchorKey, nil
 }
 
 // CommitSpendAnchor constructs a valid witness allowing a node to spend their
@@ -1514,7 +1555,7 @@ func CommitSpendAnchorAnyone(script []byte) (wire.TxWitness, error) {
 // the pay/delay base point. The end end results is that the basePoint is
 // tweaked as follows:
 //
-//   * key = basePoint + sha256(commitPoint || basePoint)*G
+//   - key = basePoint + sha256(commitPoint || basePoint)*G
 func SingleTweakBytes(commitPoint, basePoint *btcec.PublicKey) []byte {
 	h := sha256.New()
 	h.Write(commitPoint.SerializeCompressed())
@@ -1529,15 +1570,15 @@ func SingleTweakBytes(commitPoint, basePoint *btcec.PublicKey) []byte {
 // The opposite applies for when tweaking remote keys. Precisely, the following
 // operation is used to "tweak" public keys:
 //
-//   tweakPub := basePoint + sha256(commitPoint || basePoint) * G
-//            := G*k + sha256(commitPoint || basePoint)*G
-//            := G*(k + sha256(commitPoint || basePoint))
+//	tweakPub := basePoint + sha256(commitPoint || basePoint) * G
+//	         := G*k + sha256(commitPoint || basePoint)*G
+//	         := G*(k + sha256(commitPoint || basePoint))
 //
 // Therefore, if a party possess the value k, the private key of the base
 // point, then they are able to derive the proper private key for the
 // revokeKey by computing:
 //
-//   revokePriv := k + sha256(commitPoint || basePoint) mod N
+//	revokePriv := k + sha256(commitPoint || basePoint) mod N
 //
 // Where N is the order of the sub-group.
 //
@@ -1581,7 +1622,7 @@ func TweakPubKeyWithTweak(pubKey *btcec.PublicKey,
 // revoked state. Precisely, the following operation is used to derive a
 // tweaked private key:
 //
-//  * tweakPriv := basePriv + sha256(commitment || basePub) mod N
+//   - tweakPriv := basePriv + sha256(commitment || basePub) mod N
 //
 // Where N is the order of the sub-group.
 func TweakPrivKey(basePriv *btcec.PrivateKey,
@@ -1602,24 +1643,24 @@ func TweakPrivKey(basePriv *btcec.PrivateKey,
 // revoked commitment transaction, then if the other party knows the revocation
 // preimage, then they'll be able to derive the corresponding private key to
 // this private key by exploiting the homomorphism in the elliptic curve group:
-//    * https://en.wikipedia.org/wiki/Group_homomorphism#Homomorphisms_of_abelian_groups
+//   - https://en.wikipedia.org/wiki/Group_homomorphism#Homomorphisms_of_abelian_groups
 //
 // The derivation is performed as follows:
 //
-//   revokeKey := revokeBase * sha256(revocationBase || commitPoint) +
-//                commitPoint * sha256(commitPoint || revocationBase)
+//	revokeKey := revokeBase * sha256(revocationBase || commitPoint) +
+//	             commitPoint * sha256(commitPoint || revocationBase)
 //
-//             := G*(revokeBasePriv * sha256(revocationBase || commitPoint)) +
-//                G*(commitSecret * sha256(commitPoint || revocationBase))
+//	          := G*(revokeBasePriv * sha256(revocationBase || commitPoint)) +
+//	             G*(commitSecret * sha256(commitPoint || revocationBase))
 //
-//             := G*(revokeBasePriv * sha256(revocationBase || commitPoint) +
-//                   commitSecret * sha256(commitPoint || revocationBase))
+//	          := G*(revokeBasePriv * sha256(revocationBase || commitPoint) +
+//	                commitSecret * sha256(commitPoint || revocationBase))
 //
 // Therefore, once we divulge the revocation secret, the remote peer is able to
 // compute the proper private key for the revokeKey by computing:
 //
-//   revokePriv := (revokeBasePriv * sha256(revocationBase || commitPoint)) +
-//                 (commitSecret * sha256(commitPoint || revocationBase)) mod N
+//	revokePriv := (revokeBasePriv * sha256(revocationBase || commitPoint)) +
+//	              (commitSecret * sha256(commitPoint || revocationBase)) mod N
 //
 // Where N is the order of the sub-group.
 func DeriveRevocationPubkey(revokeBase,
@@ -1671,8 +1712,9 @@ func DeriveRevocationPubkey(revokeBase,
 // a previously revoked commitment transaction.
 //
 // The private key is derived as follows:
-//   revokePriv := (revokeBasePriv * sha256(revocationBase || commitPoint)) +
-//                 (commitSecret * sha256(commitPoint || revocationBase)) mod N
+//
+//	revokePriv := (revokeBasePriv * sha256(revocationBase || commitPoint)) +
+//	              (commitSecret * sha256(commitPoint || revocationBase)) mod N
 //
 // Where N is the order of the sub-group.
 func DeriveRevocationPrivKey(revokeBasePriv *btcec.PrivateKey,

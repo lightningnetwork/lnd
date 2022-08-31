@@ -1312,6 +1312,15 @@ type LightningChannel struct {
 	// log is a channel-specific logging instance.
 	log btclog.Logger
 
+	// musigSessions...
+	musigSessions *MusigPairSession
+
+	// nextNoncePair...
+	nextNoncePair *MusigNoncePair
+
+	// fundingOutput...
+	fundingOutput wire.TxOut
+
 	sync.RWMutex
 }
 
@@ -1389,15 +1398,16 @@ func (lc *LightningChannel) createSignDesc() error {
 	if err != nil {
 		return err
 	}
+	lc.fundingOutput = wire.TxOut{
+		PkScript: fundingPkScript,
+		Value:    int64(lc.channelState.Capacity),
+	}
 	lc.signDesc = &input.SignDescriptor{
 		KeyDesc:       lc.channelState.LocalChanCfg.MultiSigKey,
 		WitnessScript: multiSigScript,
-		Output: &wire.TxOut{
-			PkScript: fundingPkScript,
-			Value:    int64(lc.channelState.Capacity),
-		},
-		HashType:   txscript.SigHashAll,
-		InputIndex: 0,
+		Output:        &lc.fundingOutput,
+		HashType:      txscript.SigHashAll,
+		InputIndex:    0,
 	}
 
 	return nil
@@ -2337,7 +2347,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	isRemoteInitiator := !chanState.IsInitiator
 	ourScript, ourDelay, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry,
+		leaseExpiry, keyRing.CombinedFundingKey,
 	)
 	if err != nil {
 		return nil, err
@@ -5812,7 +5822,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// transaction.
 	selfScript, maturityDelay, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry,
+		leaseExpiry, keyRing.CombinedFundingKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create self commit "+
@@ -6825,7 +6835,8 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 
 	// Derive our local anchor script.
 	localAnchor, _, err := CommitScriptAnchors(
-		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+		chanState.ChanType, &chanState.LocalChanCfg,
+		&chanState.RemoteChanCfg,
 	)
 	if err != nil {
 		return nil, err
@@ -7499,4 +7510,72 @@ func (lc *LightningChannel) unsignedLocalUpdates(remoteMessageIndex,
 	}
 
 	return localPeerUpdates
+}
+
+// GenMusigNonces generates the signing and verification nonces to start off a
+// new musig2 channel session.
+func (lc *LightningChannel) GenMusigNonces() (*MusigNoncePair, error) {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	verificationNonce, err := musig2.GenNonces()
+	if err != nil {
+		return nil, err
+	}
+
+	signingNonce, err := musig2.GenNonces()
+	if err != nil {
+		return nil, err
+	}
+
+	lc.nextNoncePair = &MusigNoncePair{
+		LocalNonce:  verificationNonce,
+		RemoteNonce: signingNonce,
+	}
+
+	return lc.nextNoncePair, nil
+}
+
+// InitRemoteMusigNonces processes the remote musig nonces sent by the remote
+// party. This should be called upon connection re-establishment, after we've
+// generated our own nonces. Once this method returns a nil error, then the
+// channel can be used to sign commitment states.
+func (lc *LightningChannel) InitRemoteMusigNonces(nonces *MusigNoncePair) error {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	// Now that we have the set of local and remote nonces, we can generate
+	// a new pair of musig sessions for our local commitment and the
+	// commitment of the remote party.
+	remoteNonces := nonces
+	localNonces := lc.nextNoncePair
+
+	localChanCfg := lc.channelState.LocalChanCfg
+	remoteChanCfg := lc.channelState.RemoteChanCfg
+
+	// TODO(roasbeef): propagate rename of signing and verification nonces
+
+	var err error
+	sessionCfg := &MusigSessionCfg{
+		LocalKey:  localChanCfg.MultiSigKey,
+		RemoteKey: remoteChanCfg.MultiSigKey,
+		LocalCommitNonces: MusigNoncePair{
+			LocalNonce:  localNonces.LocalNonce,
+			RemoteNonce: remoteNonces.RemoteNonce,
+		},
+		RemoteCommitNonces: MusigNoncePair{
+			LocalNonce:  remoteNonces.LocalNonce,
+			RemoteNonce: localNonces.RemoteNonce,
+		},
+		Signer:     lc.Signer,
+		InputTxOut: &lc.fundingOutput,
+	}
+	lc.musigSessions, err = NewMusigPairSession(
+		sessionCfg,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to gen musig session: %w", err)
+	}
+
+	return nil
 }

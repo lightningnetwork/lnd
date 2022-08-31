@@ -42,6 +42,11 @@ const (
 	// guarantee that the channel initiator has no incentives to close a
 	// leased channel before its maturity date.
 	CommitmentTypeScriptEnforcedLease
+
+	// CommitmentTypeSimpleTaproot is the base commitment type for the
+	// channels that use a musig2 funding output and the tapscript tree
+	// where relevant for the commitment transaciton pk scripts.
+	CommitmentTypeSimpleTaproot
 )
 
 // HasStaticRemoteKey returns whether the commitment type supports remote
@@ -50,7 +55,8 @@ func (c CommitmentType) HasStaticRemoteKey() bool {
 	switch c {
 	case CommitmentTypeTweakless,
 		CommitmentTypeAnchorsZeroFeeHtlcTx,
-		CommitmentTypeScriptEnforcedLease:
+		CommitmentTypeScriptEnforcedLease,
+		CommitmentTypeSimpleTaproot:
 		return true
 	default:
 		return false
@@ -61,11 +67,17 @@ func (c CommitmentType) HasStaticRemoteKey() bool {
 func (c CommitmentType) HasAnchors() bool {
 	switch c {
 	case CommitmentTypeAnchorsZeroFeeHtlcTx,
-		CommitmentTypeScriptEnforcedLease:
+		CommitmentTypeScriptEnforcedLease,
+		CommitmentTypeSimpleTaproot:
 		return true
 	default:
 		return false
 	}
+}
+
+// IsTaproot...
+func (c CommitmentType) IsTaproot() bool {
+	return c == CommitmentTypeSimpleTaproot
 }
 
 // String returns the name of the CommitmentType.
@@ -79,6 +91,8 @@ func (c CommitmentType) String() string {
 		return "anchors-zero-fee-second-level"
 	case CommitmentTypeScriptEnforcedLease:
 		return "script-enforced-lease"
+	case CommitmentTypeSimpleTaproot:
+		return "simple-taproot"
 	default:
 		return "invalid"
 	}
@@ -137,25 +151,25 @@ func (c *ChannelContribution) toChanConfig() channeldb.ChannelConfig {
 // The reservation workflow consists of the following three steps:
 //  1. lnwallet.InitChannelReservation
 //     * One requests the wallet to allocate the necessary resources for a
-//       channel reservation. These resources are put in limbo for the lifetime
-//       of a reservation.
+//     channel reservation. These resources are put in limbo for the lifetime
+//     of a reservation.
 //     * Once completed the reservation will have the wallet's contribution
-//       accessible via the .OurContribution() method. This contribution
-//       contains the necessary items to allow the remote party to build both
-//       the funding, and commitment transactions.
+//     accessible via the .OurContribution() method. This contribution
+//     contains the necessary items to allow the remote party to build both
+//     the funding, and commitment transactions.
 //  2. ChannelReservation.ProcessContribution/ChannelReservation.ProcessSingleContribution
 //     * The counterparty presents their contribution to the payment channel.
-//       This allows us to build the funding, and commitment transactions
-//       ourselves.
+//     This allows us to build the funding, and commitment transactions
+//     ourselves.
 //     * We're now able to sign our inputs to the funding transactions, and
-//       the counterparty's version of the commitment transaction.
+//     the counterparty's version of the commitment transaction.
 //     * All signatures crafted by us, are now available via .OurSignatures().
 //  3. ChannelReservation.CompleteReservation/ChannelReservation.CompleteReservationSingle
 //     * The final step in the workflow. The counterparty presents the
-//       signatures for all their inputs to the funding transaction, as well
-//       as a signature to our version of the commitment transaction.
+//     signatures for all their inputs to the funding transaction, as well
+//     as a signature to our version of the commitment transaction.
 //     * We then verify the validity of all signatures before considering the
-//       channel "open".
+//     channel "open".
 type ChannelReservation struct {
 	// This mutex MUST be held when either reading or modifying any of the
 	// fields below.
@@ -370,6 +384,10 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		chanType |= channeldb.LeaseExpirationBit
 	} else if thawHeight > 0 {
 		chanType |= channeldb.FrozenBit
+	}
+
+	if req.CommitType == CommitmentTypeSimpleTaproot {
+		chanType |= channeldb.SimpleTaprootFeatureBit
 	}
 
 	if req.ZeroConf {

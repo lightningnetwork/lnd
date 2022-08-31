@@ -778,6 +778,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 					TaprootPubkey, true, DefaultAccountName,
 				)
 			},
+			Musig2: req.CommitType == CommitmentTypeSimpleTaproot,
 		}
 		fundingIntent, err = req.ChanFunder.ProvisionChannel(
 			fundingReq,

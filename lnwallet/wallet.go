@@ -1206,6 +1206,20 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 	reservation.partialState.RevocationProducer = producer
 	reservation.ourContribution.ChannelConstraints = l.Cfg.DefaultConstraints
 
+	// If taproot channels are active, then we'll generate two sets of
+	// nonces: one for our local commitment, and one for their remote
+	// commitment.
+	if reservation.partialState.ChanType.IsTaproot() {
+		reservation.ourContribution.LocalNonce, err = musig2.GenNonces()
+		if err != nil {
+			return err
+		}
+		reservation.ourContribution.RemoteNonce, err = musig2.GenNonces()
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

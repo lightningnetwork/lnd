@@ -1659,6 +1659,21 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	log.Debugf("Remote party accepted commitment constraints: %v",
 		spew.Sdump(remoteContribution.ChannelConfig.ChannelConstraints))
 
+	ourContribution := reservation.OurContribution()
+
+	var (
+		localNonce  *lnwire.LocalMusig2Nonce
+		remoteNonce *lnwire.RemoteMusig2Nonce
+	)
+	if commitType == lnwallet.CommitmentTypeSimpleTaproot {
+		localNonce = &lnwire.LocalMusig2Nonce{
+			Musig2Nonce: ourContribution.LocalNonce.PubNonce,
+		}
+		remoteNonce = &lnwire.RemoteMusig2Nonce{
+			Musig2Nonce: ourContribution.RemoteNonce.PubNonce,
+		}
+	}
+
 	// With the initiator's contribution recorded, respond with our
 	// contribution in the next message of the workflow.
 	ourContribution := reservation.OurContribution()
@@ -1680,6 +1695,8 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		UpfrontShutdownScript: ourContribution.UpfrontShutdown,
 		ChannelType:           chanTypeFeatureBits,
 		LeaseExpiry:           msg.LeaseExpiry,
+		LocalNonce:            localNonce,
+		RemoteNonce:           remoteNonce,
 	}
 
 	if err := peer.SendMessage(true, &fundingAccept); err != nil {
@@ -4037,6 +4054,19 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	log.Infof("Starting funding workflow with %v for pending_id(%x), "+
 		"committype=%v", msg.Peer.Address(), chanID, commitType)
 
+	var (
+		localNonce  *lnwire.LocalMusig2Nonce
+		remoteNonce *lnwire.RemoteMusig2Nonce
+	)
+	if commitType == lnwallet.CommitmentTypeSimpleTaproot {
+		localNonce = &lnwire.LocalMusig2Nonce{
+			Musig2Nonce: ourContribution.LocalNonce.PubNonce,
+		}
+		remoteNonce = &lnwire.RemoteMusig2Nonce{
+			Musig2Nonce: ourContribution.RemoteNonce.PubNonce,
+		}
+	}
+
 	fundingOpen := lnwire.OpenChannel{
 		ChainHash:             *f.cfg.Wallet.Cfg.NetParams.GenesisHash,
 		PendingChannelID:      chanID,
@@ -4059,6 +4089,8 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		UpfrontShutdownScript: shutdown,
 		ChannelType:           chanType,
 		LeaseExpiry:           leaseExpiry,
+		LocalNonce:            localNonce,
+		RemoteNonce:           remoteNonce,
 	}
 	if err := msg.Peer.SendMessage(true, &fundingOpen); err != nil {
 		e := fmt.Errorf("unable to send funding request message: %v",

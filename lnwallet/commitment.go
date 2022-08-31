@@ -95,6 +95,13 @@ type CommitmentKeyRing struct {
 	// If this is our commitment, it means the remote node can sign for
 	// this key in case of a breach.
 	RevocationKey *btcec.PublicKey
+
+	// CombinedFundingKey is the taproot+musig2 funding key. This is the
+	// key _before_ the BIP 86 tweak is applied.
+	//
+	// NOTE: This will only be set if this is the KeyRing for a taproot
+	// channel.
+	CombinedFundingKey *btcec.PublicKey
 }
 
 // DeriveCommitmentKeys generates a new commitment key set using the base points
@@ -175,6 +182,21 @@ func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 		keyRing.ToRemoteKey = input.TweakPubKey(
 			toRemoteBasePoint, commitPoint,
 		)
+	}
+
+	// If this is a taproot commitment, then we'll use the funding keys to
+	// generate a combined funding key.
+	if chanType.IsTaproot() {
+		musigKey, _, _, _ := musig2.AggregateKeys(
+			[]*btcec.PublicKey{
+				localChanCfg.MultiSigKey.PubKey,
+				remoteChanCfg.MultiSigKey.PubKey,
+			},
+			true,
+			musig2.WithBIP86KeyTweak(),
+		)
+
+		keyRing.CombinedFundingKey = musigKey.PreTweakedKey
 	}
 
 	return keyRing

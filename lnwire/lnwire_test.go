@@ -689,6 +689,11 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
+			// 50/50 chance to attach a local nonce.
+			if r.Int31()%2 == 0 {
+				req.LocalNonce = randLocalNonce(r)
+			}
+
 			v[0] = reflect.ValueOf(*req)
 		},
 		MsgChannelAnnouncement: func(v []reflect.Value, r *rand.Rand) {

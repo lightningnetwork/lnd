@@ -237,35 +237,40 @@ func Ripemd160H(d []byte) []byte {
 // output payment for the sender's version of the commitment transaction. The
 // possible script paths from this output include:
 //
-//    * The sender timing out the HTLC using the second level HTLC timeout
-//      transaction.
-//    * The receiver of the HTLC claiming the output on-chain with the payment
-//      preimage.
-//    * The receiver of the HTLC sweeping all the funds in the case that a
-//      revoked commitment transaction bearing this HTLC was broadcast.
+//   - The sender timing out the HTLC using the second level HTLC timeout
+//     transaction.
+//   - The receiver of the HTLC claiming the output on-chain with the payment
+//     preimage.
+//   - The receiver of the HTLC sweeping all the funds in the case that a
+//     revoked commitment transaction bearing this HTLC was broadcast.
 //
 // If confirmedSpend=true, a 1 OP_CSV check will be added to the non-revocation
 // cases, to allow sweeping only after confirmation.
 //
 // Possible Input Scripts:
-//    SENDR: <0> <sendr sig>  <recvr sig> <0> (spend using HTLC timeout transaction)
-//    RECVR: <recvr sig>  <preimage>
-//    REVOK: <revoke sig> <revoke key>
-//     * receiver revoke
+//
+//	SENDR: <0> <sendr sig>  <recvr sig> <0> (spend using HTLC timeout transaction)
+//	RECVR: <recvr sig>  <preimage>
+//	REVOK: <revoke sig> <revoke key>
+//	 * receiver revoke
 //
 // OP_DUP OP_HASH160 <revocation key hash160> OP_EQUAL
 // OP_IF
-//     OP_CHECKSIG
+//
+//	OP_CHECKSIG
+//
 // OP_ELSE
-//     <recv htlc key>
-//     OP_SWAP OP_SIZE 32 OP_EQUAL
-//     OP_NOTIF
-//         OP_DROP 2 OP_SWAP <sender htlc key> 2 OP_CHECKMULTISIG
-//     OP_ELSE
-//         OP_HASH160 <ripemd160(payment hash)> OP_EQUALVERIFY
-//         OP_CHECKSIG
-//     OP_ENDIF
-//     [1 OP_CHECKSEQUENCEVERIFY OP_DROP] <- if allowing confirmed spend only.
+//
+//	<recv htlc key>
+//	OP_SWAP OP_SIZE 32 OP_EQUAL
+//	OP_NOTIF
+//	    OP_DROP 2 OP_SWAP <sender htlc key> 2 OP_CHECKMULTISIG
+//	OP_ELSE
+//	    OP_HASH160 <ripemd160(payment hash)> OP_EQUALVERIFY
+//	    OP_CHECKSIG
+//	OP_ENDIF
+//	[1 OP_CHECKSEQUENCEVERIFY OP_DROP] <- if allowing confirmed spend only.
+//
 // OP_ENDIF
 func SenderHTLCScript(senderHtlcKey, receiverHtlcKey,
 	revocationKey *btcec.PublicKey, paymentHash []byte,
@@ -476,36 +481,40 @@ func SenderHtlcSpendTimeout(receiverSig Signature,
 // ReceiverHTLCScript constructs the public key script for an incoming HTLC
 // output payment for the receiver's version of the commitment transaction. The
 // possible execution paths from this script include:
-//   * The receiver of the HTLC uses its second level HTLC transaction to
+//   - The receiver of the HTLC uses its second level HTLC transaction to
 //     advance the state of the HTLC into the delay+claim state.
-//   * The sender of the HTLC sweeps all the funds of the HTLC as a breached
+//   - The sender of the HTLC sweeps all the funds of the HTLC as a breached
 //     commitment was broadcast.
-//   * The sender of the HTLC sweeps the HTLC on-chain after the timeout period
+//   - The sender of the HTLC sweeps the HTLC on-chain after the timeout period
 //     of the HTLC has passed.
 //
 // If confirmedSpend=true, a 1 OP_CSV check will be added to the non-revocation
 // cases, to allow sweeping only after confirmation.
 //
 // Possible Input Scripts:
-//    RECVR: <0> <sender sig> <recvr sig> <preimage> (spend using HTLC success transaction)
-//    REVOK: <sig> <key>
-//    SENDR: <sig> 0
 //
+//	RECVR: <0> <sender sig> <recvr sig> <preimage> (spend using HTLC success transaction)
+//	REVOK: <sig> <key>
+//	SENDR: <sig> 0
 //
 // OP_DUP OP_HASH160 <revocation key hash160> OP_EQUAL
 // OP_IF
-//     OP_CHECKSIG
+//
+//	OP_CHECKSIG
+//
 // OP_ELSE
-//     <sendr htlc key>
-//     OP_SWAP OP_SIZE 32 OP_EQUAL
-//     OP_IF
-//         OP_HASH160 <ripemd160(payment hash)> OP_EQUALVERIFY
-//         2 OP_SWAP <recvr htlc key> 2 OP_CHECKMULTISIG
-//     OP_ELSE
-//         OP_DROP <cltv expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
-//         OP_CHECKSIG
-//     OP_ENDIF
-//     [1 OP_CHECKSEQUENCEVERIFY OP_DROP] <- if allowing confirmed spend only.
+//
+//	<sendr htlc key>
+//	OP_SWAP OP_SIZE 32 OP_EQUAL
+//	OP_IF
+//	    OP_HASH160 <ripemd160(payment hash)> OP_EQUALVERIFY
+//	    2 OP_SWAP <recvr htlc key> 2 OP_CHECKMULTISIG
+//	OP_ELSE
+//	    OP_DROP <cltv expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
+//	    OP_CHECKSIG
+//	OP_ENDIF
+//	[1 OP_CHECKSEQUENCEVERIFY OP_DROP] <- if allowing confirmed spend only.
+//
 // OP_ENDIF
 func ReceiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	receiverHtlcKey, revocationKey *btcec.PublicKey,
@@ -748,26 +757,33 @@ func ReceiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
 // spent in a particular way, and to a particular output.
 //
 // Possible Input Scripts:
-//  * To revoke an HTLC output that has been transitioned to the claim+delay
-//    state:
-//    * <revoke sig> 1
 //
-//  * To claim and HTLC output, either with a pre-image or due to a timeout:
-//    * <delay sig> 0
+//   - To revoke an HTLC output that has been transitioned to the claim+delay
+//     state:
+//
+//   - <revoke sig> 1
+//
+//   - To claim and HTLC output, either with a pre-image or due to a timeout:
+//
+//   - <delay sig> 0
 //
 // OP_IF
-//     <revoke key>
+//
+//	<revoke key>
+//
 // OP_ELSE
-//     <delay in blocks>
-//     OP_CHECKSEQUENCEVERIFY
-//     OP_DROP
-//     <delay key>
+//
+//	<delay in blocks>
+//	OP_CHECKSEQUENCEVERIFY
+//	OP_DROP
+//	<delay key>
+//
 // OP_ENDIF
 // OP_CHECKSIG
 //
 // TODO(roasbeef): possible renames for second-level
-//  * transition?
-//  * covenant output
+//   - transition?
+//   - covenant output
 func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	csvDelay uint32) ([]byte, error) {
 
@@ -814,23 +830,30 @@ func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 // spent in a particular way, and to a particular output.
 //
 // Possible Input Scripts:
-//  * To revoke an HTLC output that has been transitioned to the claim+delay
-//    state:
-//    * <revoke sig> 1
 //
-//  * To claim an HTLC output, either with a pre-image or due to a timeout:
-//    * <delay sig> 0
+//   - To revoke an HTLC output that has been transitioned to the claim+delay
+//     state:
+//
+//   - <revoke sig> 1
+//
+//   - To claim an HTLC output, either with a pre-image or due to a timeout:
+//
+//   - <delay sig> 0
 //
 // OP_IF
-//     <revoke key>
+//
+//	<revoke key>
+//
 // OP_ELSE
-//     <lease maturity in blocks>
-//     OP_CHECKLOCKTIMEVERIFY
-//     OP_DROP
-//     <delay in blocks>
-//     OP_CHECKSEQUENCEVERIFY
-//     OP_DROP
-//     <delay key>
+//
+//	<lease maturity in blocks>
+//	OP_CHECKLOCKTIMEVERIFY
+//	OP_DROP
+//	<delay in blocks>
+//	OP_CHECKSEQUENCEVERIFY
+//	OP_DROP
+//	<delay key>
+//
 // OP_ENDIF
 // OP_CHECKSIG.
 func LeaseSecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
@@ -978,7 +1001,7 @@ func HtlcSecondLevelSpend(signer Signer, signDesc *SignDescriptor,
 // LockTimeToSequence converts the passed relative locktime to a sequence
 // number in accordance to BIP-68.
 // See: https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki
-//  * (Compatibility)
+//   - (Compatibility)
 func LockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 	if !isSeconds {
 		// The locktime is to be expressed in confirmations.
@@ -998,17 +1021,19 @@ func LockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 // can claim all the settled funds in the channel, plus the unsettled funds.
 //
 // Possible Input Scripts:
-//     REVOKE:     <sig> 1
-//     SENDRSWEEP: <sig> <emptyvector>
+//
+//	REVOKE:     <sig> 1
+//	SENDRSWEEP: <sig> <emptyvector>
 //
 // Output Script:
-//     OP_IF
-//         <revokeKey>
-//     OP_ELSE
-//         <numRelativeBlocks> OP_CHECKSEQUENCEVERIFY OP_DROP
-//         <timeKey>
-//     OP_ENDIF
-//     OP_CHECKSIG
+//
+//	OP_IF
+//	    <revokeKey>
+//	OP_ELSE
+//	    <numRelativeBlocks> OP_CHECKSEQUENCEVERIFY OP_DROP
+//	    <timeKey>
+//	OP_ENDIF
+//	OP_CHECKSIG
 func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) ([]byte, error) {
 	// This script is spendable under two conditions: either the
 	// 'csvTimeout' has passed and we can redeem our funds, or they can
@@ -1041,6 +1066,61 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	builder.AddOp(txscript.OP_CHECKSIG)
 
 	return builder.Script()
+}
+
+// TaprootCommitScriptToSelf creates the taproot witness program that commits
+// to the revocation (keyspend) and delay path (script path) in a single
+// taproot output key.
+//
+// For the delay path we have the following tapscript leaf script:
+//
+//	<local_delayedpubkey> OP_CHECKSIG
+//	<to_self_delay> OP_CHECKSEQUENCEVERIFY OP_DROP
+//
+// This can then be spent with just:
+//
+//	<local_delayedsig> <to_delay_script> <delay_control_block>
+//
+// Where the to_delay_script is listed above, and the delay_control_block
+// computed as:
+//
+//	delay_control_block = (output_key_y_parity | 0xc0) || revocationpubkey
+//
+// The revocation key spend path will simply present a valid signature with the
+// witness being just:
+//
+//	<revocation_sig>
+func TaprootCommitScriptToSelf(csvTimeout uint32,
+	selfKey, revokeKey *btcec.PublicKey) (*btcec.PublicKey, error) {
+
+	// First, we'll need to construct the tapLeaf that'll be our delay CSV
+	// clause.
+	//
+	// TODO(roasbeef): extract into diff func
+	builder := txscript.NewScriptBuilder()
+	builder.AddData(schnorr.SerializePubKey(selfKey))
+	builder.AddOp(txscript.OP_CHECKSIG)
+	builder.AddInt64(int64(csvTimeout))
+	builder.AddOp(txscript.OP_DROP)
+
+	delayScript, err := builder.Script()
+	if err != nil {
+		return nil, err
+	}
+
+	// With the delay script computed, we'll now create a tapscript tree
+	// with a single leaf, and then obtain a root from that.
+	tapLeaf := txscript.NewBaseTapLeaf(delayScript)
+	tapScriptTree := txscript.AssembleTaprootScriptTree(tapLeaf)
+	tapScriptRoot := tapScriptTree.RootNode.TapHash()
+
+	// Now that we have our root, we can arrive at the final output script
+	// by tweaking the internal key with this root.
+	toLocalOutputKey := txscript.ComputeTaprootOutputKey(
+		revokeKey, tapScriptRoot[:],
+	)
+
+	return toLocalOutputKey, nil
 }
 
 // LeaseCommitScriptToSelf constructs the public key script for the output on the

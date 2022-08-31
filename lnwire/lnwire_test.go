@@ -612,6 +612,32 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(*req)
 		},
+		MsgShutdown: func(v []reflect.Value, r *rand.Rand) {
+			var c [32]byte
+			_, err := r.Read(c[:])
+			if err != nil {
+				t.Fatalf("unable to generate chan id: %v", err)
+				return
+			}
+
+			shutdownAddr, err := randDeliveryAddress(r)
+			if err != nil {
+				t.Fatalf("unable to generate delivery address: %v", err)
+				return
+			}
+
+			req := Shutdown{
+				ChannelID: ChannelID(c),
+				Address:   shutdownAddr,
+				ExtraData: make([]byte, 0),
+			}
+
+			if r.Int31()%2 == 0 {
+				req.Musig2Nonce = randLocalNonce(r)
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
 		MsgClosingSigned: func(v []reflect.Value, r *rand.Rand) {
 			req := ClosingSigned{
 				FeeSatoshis: btcutil.Amount(r.Int63()),

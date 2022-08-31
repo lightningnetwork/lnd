@@ -3,6 +3,8 @@ package lnwire
 import (
 	"bytes"
 	"io"
+
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // Shutdown is sent by either side in order to initiate the cooperative closure
@@ -16,6 +18,10 @@ type Shutdown struct {
 
 	// Address is the script to which the channel funds will be paid.
 	Address DeliveryAddress
+
+	// Musig2Nonce is the nonce the sender will use to sign the first co-op
+	// sign offer.
+	Musig2Nonce *LocalMusig2Nonce
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -40,7 +46,34 @@ var _ Message = (*Shutdown)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (s *Shutdown) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r, &s.ChannelID, &s.Address, &s.ExtraData)
+	err := ReadElements(r, &s.ChannelID, &s.Address)
+	if err != nil {
+		return err
+	}
+
+	var tlvRecords ExtraOpaqueData
+	if err := ReadElements(r, &tlvRecords); err != nil {
+		return err
+	}
+
+	var (
+		musigNonce LocalMusig2Nonce
+	)
+	typeMap, err := tlvRecords.ExtractRecords(&musigNonce)
+	if err != nil {
+		return err
+	}
+
+	// Set the corresponding TLV types if they were included in the stream.
+	if val, ok := typeMap[LocalNonceRecordType]; ok && val == nil {
+		s.Musig2Nonce = &musigNonce
+	}
+
+	if len(tlvRecords) != 0 {
+		s.ExtraData = tlvRecords
+	}
+
+	return nil
 }
 
 // Encode serializes the target Shutdown into the passed io.Writer observing
@@ -48,6 +81,15 @@ func (s *Shutdown) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (s *Shutdown) Encode(w *bytes.Buffer, pver uint32) error {
+	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	if s.Musig2Nonce != nil {
+		recordProducers = append(recordProducers, s.Musig2Nonce)
+	}
+	err := EncodeMessageExtraData(&s.ExtraData, recordProducers...)
+	if err != nil {
+		return err
+	}
+
 	if err := WriteChannelID(w, s.ChannelID); err != nil {
 		return err
 	}

@@ -478,10 +478,14 @@ type muSig2State struct {
 // all signing parties must be provided, including the public key of the local
 // signing key. If nonces of other parties are already known, they can be
 // submitted as well to reduce the number of method calls necessary later on.
+//
+// The set of sessionOpts are _optional_ and allow a caller to modify the
+// generated sessions. As an example the local nonce might already be generated
+// ahead of time.
 func (b *BtcWallet) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 	allSignerPubKeys []*btcec.PublicKey, tweaks *input.MuSig2Tweaks,
-	otherSignerNonces [][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo,
-	error) {
+	otherSignerNonces [][musig2.PubNonceSize]byte,
+	sessionOpts ...musig2.SessionOption) (*input.MuSig2SessionInfo, error) {
 
 	// We need to derive the private key for signing. In the remote signing
 	// setup, this whole RPC call will be forwarded to the signing
@@ -507,11 +511,14 @@ func (b *BtcWallet) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 	}
 
 	// The session keeps track of the own and other nonces.
-	musigSession, err := musigContext.NewSession()
+	musigSession, err := musigContext.NewSession(sessionOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("error creating MuSig2 signing "+
 			"session: %v", err)
 	}
+
+	// TODO(roasbeef): actually want to expose the context for channels so
+	// don't always need to re-create?
 
 	// Add all nonces we might've learned so far.
 	haveAllNonces := false

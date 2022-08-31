@@ -31,9 +31,16 @@ type MuSig2Signer interface {
 	// public key of the local signing key. If nonces of other parties are
 	// already known, they can be submitted as well to reduce the number of
 	// method calls necessary later on.
+	//
+	// The set of sessionOpts are _optional_ and allow a caller to modify the
+	// generated sessions. As an example the local nonce might already be generated
+	// ahead of time.
 	MuSig2CreateSession(keychain.KeyLocator, []*btcec.PublicKey,
-		*MuSig2Tweaks, [][musig2.PubNonceSize]byte) (*MuSig2SessionInfo,
-		error)
+		*MuSig2Tweaks, [][musig2.PubNonceSize]byte,
+		...musig2.SessionOption) (*MuSig2SessionInfo, error)
+
+	// TODO(roasbeef): need to make the sparse one here?
+	//  * don't have any info but want a session
 
 	// MuSig2RegisterNonces registers one or more public nonces of other
 	// signing participants for a session identified by its ID. This method
@@ -75,6 +82,8 @@ type MuSig2SessionInfo struct {
 
 	// CombinedKey is the combined public key with all tweaks applied to it.
 	CombinedKey *btcec.PublicKey
+
+	// TODO(roasbeef): also add combined nonce
 
 	// TaprootTweak indicates whether a taproot tweak (BIP-0086 or script
 	// path) was used. The TaprootInternalKey will only be set if this is

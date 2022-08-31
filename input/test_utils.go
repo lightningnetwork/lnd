@@ -141,7 +141,8 @@ func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 // submitted as well to reduce the number of method calls necessary later on.
 func (m *MockSigner) MuSig2CreateSession(keychain.KeyLocator,
 	[]*btcec.PublicKey, *MuSig2Tweaks,
-	[][musig2.PubNonceSize]byte) (*MuSig2SessionInfo, error) {
+	[][musig2.PubNonceSize]byte,
+	...musig2.SessionOption) (*MuSig2SessionInfo, error) {
 
 	return nil, nil
 }

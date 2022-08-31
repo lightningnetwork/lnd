@@ -15,6 +15,10 @@ type FundingSigned struct {
 
 	// CommitSig is Bob's signature for Alice's version of the commitment
 	// transaction.
+	//
+	// TODO(roasbeef): schnorr sigs have a diff encoding...
+	//  * need to make this a type param instead?
+	//  * or interface to wrap the structure?
 	CommitSig Sig
 
 	// ExtraData is the set of data that was appended to this message to

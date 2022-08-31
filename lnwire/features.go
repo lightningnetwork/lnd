@@ -221,6 +221,14 @@ const (
 	// TODO: Decide on actual feature bit value.
 	ScriptEnforcedLeaseOptional FeatureBit = 2023
 
+	// SimpleTaprootChannelsRequred is an required bit that indicates the
+	// node is able to create unadvertised taproot-native channels.
+	SimpleTaprootChannelsRequired = 80
+
+	// SimpleTaprootChannelsOptional is an optional bit that indicates the
+	// node is able to create unadvertised taproot-native channels.
+	SimpleTaprootChannelsOptional = 81
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -280,6 +288,8 @@ var Features = map[FeatureBit]string{
 	ZeroConfOptional:              "zero-conf",
 	ShutdownAnySegwitRequired:     "shutdown-any-segwit",
 	ShutdownAnySegwitOptional:     "shutdown-any-segwit",
+	SimpleTaprootChannelsRequired: "simple-taproot-chans",
+	SimpleTaprootChannelsOptional: "simple-taproot-chans",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

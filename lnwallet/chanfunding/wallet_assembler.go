@@ -354,6 +354,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 			ShimIntent: ShimIntent{
 				localFundingAmt:  localContributionAmt,
 				remoteFundingAmt: r.RemoteAmt,
+				musig2:           r.Musig2,
 			},
 			InputCoins: selectedCoins,
 			coinLocker: w.cfg.CoinLocker,

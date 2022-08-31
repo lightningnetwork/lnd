@@ -3,6 +3,8 @@ package lnwire
 import (
 	"bytes"
 	"io"
+
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // CommitSig is sent by either side to stage any pending HTLC's in the
@@ -36,6 +38,14 @@ type CommitSig struct {
 	// transaction should be signed.
 	HtlcSigs []Sig
 
+	// RemoteNnoce is the "remote" nonce of the sending party, which the
+	// sender will use to generate a new commitment party after a
+	// revocation message has been sent.
+	//
+	// NOTE: This field is only populated if simple taproot channels are in
+	// use.
+	RemoteNonce *RemoteMusig2Nonce
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -58,12 +68,38 @@ var _ Message = (*CommitSig)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+	err := ReadElements(r,
 		&c.ChanID,
 		&c.CommitSig,
 		&c.HtlcSigs,
-		&c.ExtraData,
 	)
+	if err != nil {
+		return err
+	}
+
+	var tlvRecords ExtraOpaqueData
+	if err := ReadElements(r, &tlvRecords); err != nil {
+		return err
+	}
+
+	var (
+		musigNonce RemoteMusig2Nonce
+	)
+	typeMap, err := tlvRecords.ExtractRecords(&musigNonce)
+	if err != nil {
+		return err
+	}
+
+	// Set the corresponding TLV types if they were included in the stream.
+	if val, ok := typeMap[RemoteNonceRecordType]; ok && val == nil {
+		c.RemoteNonce = &musigNonce
+	}
+
+	if len(tlvRecords) != 0 {
+		c.ExtraData = tlvRecords
+	}
+
+	return nil
 }
 
 // Encode serializes the target CommitSig into the passed io.Writer
@@ -71,6 +107,15 @@ func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) Encode(w *bytes.Buffer, pver uint32) error {
+	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	if c.RemoteNonce != nil {
+		recordProducers = append(recordProducers, c.RemoteNonce)
+	}
+	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
+	if err != nil {
+		return err
+	}
+
 	if err := WriteChannelID(w, c.ChanID); err != nil {
 		return err
 	}

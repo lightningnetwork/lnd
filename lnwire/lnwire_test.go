@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"image/color"
+	"io"
 	"math"
 	"math/rand"
 	"net"
@@ -38,6 +39,20 @@ var (
 )
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+func randLocalNonce(r *rand.Rand) *LocalMusig2Nonce {
+	var nonce LocalMusig2Nonce
+	_, _ = io.ReadFull(r, nonce.Musig2Nonce[:])
+
+	return &nonce
+}
+
+func randRemoteNonce(r *rand.Rand) *RemoteMusig2Nonce {
+	var nonce RemoteMusig2Nonce
+	_, _ = io.ReadFull(r, nonce.Musig2Nonce[:])
+
+	return &nonce
+}
 
 func randAlias(r *rand.Rand) NodeAlias {
 	var a NodeAlias
@@ -438,6 +453,9 @@ func TestLightningWireProtocol(t *testing.T) {
 
 				req.LeaseExpiry = new(LeaseExpiry)
 				*req.LeaseExpiry = LeaseExpiry(1337)
+
+				req.LocalNonce = randLocalNonce(r)
+				req.RemoteNonce = randRemoteNonce(r)
 			} else {
 				req.UpfrontShutdownScript = []byte{}
 			}

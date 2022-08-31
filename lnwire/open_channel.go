@@ -141,6 +141,16 @@ type OpenChannel struct {
 	// type.
 	LeaseExpiry *LeaseExpiry
 
+	// LocalNonce is an optional field that stores a local musig2 nonce.
+	// This will only be populated if the simple taproot channels type was
+	// negotiated.
+	LocalNonce *LocalMusig2Nonce
+
+	// RemoteNoncee is an optional field that stores a remote musig2 nonce.
+	// This will only be populated if the simple taproot channels type was
+	// negotiated.
+	RemoteNonce *RemoteMusig2Nonce
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -160,7 +170,6 @@ var _ Message = (*OpenChannel)(nil)
 // Encode serializes the target OpenChannel into the passed io.Writer
 // implementation. Serialization will observe the rules defined by the passed
 // protocol version.
-//
 func (o *OpenChannel) Encode(w *bytes.Buffer, pver uint32) error {
 	recordProducers := []tlv.RecordProducer{&o.UpfrontShutdownScript}
 	if o.ChannelType != nil {
@@ -168,6 +177,12 @@ func (o *OpenChannel) Encode(w *bytes.Buffer, pver uint32) error {
 	}
 	if o.LeaseExpiry != nil {
 		recordProducers = append(recordProducers, o.LeaseExpiry)
+	}
+	if o.LocalNonce != nil {
+		recordProducers = append(recordProducers, o.LocalNonce)
+	}
+	if o.RemoteNonce != nil {
+		recordProducers = append(recordProducers, o.RemoteNonce)
 	}
 	err := EncodeMessageExtraData(&o.ExtraData, recordProducers...)
 	if err != nil {
@@ -293,9 +308,12 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 	var (
 		chanType    ChannelType
 		leaseExpiry LeaseExpiry
+		localNonce  LocalMusig2Nonce
+		remoteNonce RemoteMusig2Nonce
 	)
 	typeMap, err := tlvRecords.ExtractRecords(
 		&o.UpfrontShutdownScript, &chanType, &leaseExpiry,
+		&localNonce, &remoteNonce,
 	)
 	if err != nil {
 		return err
@@ -307,6 +325,12 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 	}
 	if val, ok := typeMap[LeaseExpiryRecordType]; ok && val == nil {
 		o.LeaseExpiry = &leaseExpiry
+	}
+	if val, ok := typeMap[LocalNonceRecordType]; ok && val == nil {
+		o.LocalNonce = &localNonce
+	}
+	if val, ok := typeMap[RemoteNonceRecordType]; ok && val == nil {
+		o.RemoteNonce = &remoteNonce
 	}
 
 	o.ExtraData = tlvRecords

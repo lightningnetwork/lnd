@@ -27,6 +27,16 @@ type FundingLocked struct {
 	// ShortChannelID for forwarding.
 	AliasScid *ShortChannelID
 
+	// LocalNonce is an optional field that stores a local musig2 nonce.
+	// This will only be populated if the simple taproot channels type was
+	// negotiated.
+	LocalNonce *LocalMusig2Nonce
+
+	// RemoteNonce is an optional field that stores a remote musig2 nonce.
+	// This will only be populated if the simple taproot channels type was
+	// negotiated.
+	RemoteNonce *RemoteMusig2Nonce
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -39,7 +49,7 @@ func NewFundingLocked(cid ChannelID, npcp *btcec.PublicKey) *FundingLocked {
 	return &FundingLocked{
 		ChanID:                 cid,
 		NextPerCommitmentPoint: npcp,
-		ExtraData:              make([]byte, 0),
+		ExtraData:              nil,
 	}
 }
 
@@ -57,16 +67,26 @@ func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
 	err := ReadElements(r,
 		&c.ChanID,
 		&c.NextPerCommitmentPoint,
-		&c.ExtraData,
 	)
 	if err != nil {
 		return err
 	}
 
+	var tlvRecords ExtraOpaqueData
+	if err := ReadElements(r, &tlvRecords); err != nil {
+		return err
+	}
+
 	// Next we'll parse out the set of known records. For now, this is just
 	// the AliasScidRecordType.
-	var aliasScid ShortChannelID
-	typeMap, err := c.ExtraData.ExtractRecords(&aliasScid)
+	var (
+		aliasScid   ShortChannelID
+		localNonce  LocalMusig2Nonce
+		remoteNonce RemoteMusig2Nonce
+	)
+	typeMap, err := tlvRecords.ExtractRecords(
+		&aliasScid, &localNonce, &remoteNonce,
+	)
 	if err != nil {
 		return err
 	}
@@ -75,6 +95,16 @@ func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
 	// in the stream.
 	if val, ok := typeMap[AliasScidRecordType]; ok && val == nil {
 		c.AliasScid = &aliasScid
+	}
+	if val, ok := typeMap[LocalNonceRecordType]; ok && val == nil {
+		c.LocalNonce = &localNonce
+	}
+	if val, ok := typeMap[RemoteNonceRecordType]; ok && val == nil {
+		c.RemoteNonce = &remoteNonce
+	}
+
+	if len(tlvRecords) != 0 {
+		c.ExtraData = tlvRecords
 	}
 
 	return nil
@@ -95,12 +125,19 @@ func (c *FundingLocked) Encode(w *bytes.Buffer, pver uint32) error {
 	}
 
 	// We'll only encode the AliasScid in a TLV segment if it exists.
+	var recordProducers []tlv.RecordProducer
 	if c.AliasScid != nil {
-		recordProducers := []tlv.RecordProducer{c.AliasScid}
-		err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
-		if err != nil {
-			return err
-		}
+		recordProducers = append(recordProducers, c.AliasScid)
+	}
+	if c.LocalNonce != nil {
+		recordProducers = append(recordProducers, c.LocalNonce)
+	}
+	if c.RemoteNonce != nil {
+		recordProducers = append(recordProducers, c.RemoteNonce)
+	}
+	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
+	if err != nil {
+		return err
 	}
 
 	return WriteBytes(w, c.ExtraData)

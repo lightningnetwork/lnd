@@ -603,6 +603,13 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			req := NewFundingLocked(ChannelID(c), pubKey)
 
+			if r.Int31()%2 == 0 {
+				scid := NewShortChanIDFromInt(uint64(r.Int63()))
+				req.AliasScid = &scid
+				req.LocalNonce = randLocalNonce(r)
+				req.RemoteNonce = randRemoteNonce(r)
+			}
+
 			v[0] = reflect.ValueOf(*req)
 		},
 		MsgClosingSigned: func(v []reflect.Value, r *rand.Rand) {

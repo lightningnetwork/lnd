@@ -666,7 +666,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 	s.interceptableSwitch = htlcswitch.NewInterceptableSwitch(
 		s.htlcSwitch, lncfg.DefaultFinalCltvRejectDelta,
-		s.cfg.RequireInterceptor,
+		s.cfg.RequireInterceptor, s.cfg.HTLCInterceptorChannelFilter,
 	)
 
 	s.witnessBeacon = newPreimageBeacon(

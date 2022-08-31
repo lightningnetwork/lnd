@@ -383,6 +383,8 @@ type Config struct {
 	// registered regardless of whether the RPC is called or not.
 	RequireInterceptor bool `long:"requireinterceptor" description:"Whether to always intercept HTLCs, even if no stream is attached"`
 
+	HTLCInterceptorChannelFilter uint64 `long:"htlc-interceptor-channel-filter" description:"Only intercept htlcs for the specified outgoing channel"`
+
 	StaggerInitialReconnect bool `long:"stagger-initial-reconnect" description:"If true, will apply a randomized staggering between 0s and 30s when reconnecting to persistent peers on startup. The first 10 reconnections will be attempted instantly, regardless of the flag's value"`
 
 	MaxOutgoingCltvExpiry uint32 `long:"max-cltv-expiry" description:"The maximum number of blocks funds could be locked up for when forwarding payments."`

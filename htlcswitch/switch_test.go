@@ -3838,7 +3838,7 @@ func TestSwitchHoldForward(t *testing.T) {
 		interceptedChan: make(chan InterceptedPacket),
 	}
 	switchForwardInterceptor := NewInterceptableSwitch(
-		s, cltvRejectDelta, false,
+		s, cltvRejectDelta, false, 0,
 	)
 	require.NoError(t, switchForwardInterceptor.Start())
 
@@ -4029,7 +4029,9 @@ func TestSwitchHoldForward(t *testing.T) {
 	require.NoError(t, switchForwardInterceptor.Stop())
 
 	// Test always-on interception.
-	switchForwardInterceptor = NewInterceptableSwitch(s, cltvRejectDelta, true)
+	switchForwardInterceptor = NewInterceptableSwitch(
+		s, cltvRejectDelta, true, 0,
+	)
 	require.NoError(t, switchForwardInterceptor.Start())
 
 	// Forward a fresh packet. It is expected to be failed immediately,
@@ -5314,7 +5316,7 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 		t:               t,
 		interceptedChan: make(chan InterceptedPacket),
 	}
-	interceptSwitch := NewInterceptableSwitch(s, 0, false)
+	interceptSwitch := NewInterceptableSwitch(s, 0, false, 0)
 	require.NoError(t, interceptSwitch.Start())
 	interceptSwitch.SetInterceptor(forwardInterceptor.InterceptForwardHtlc)
 

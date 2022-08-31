@@ -291,3 +291,75 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 
 	return &nextVerificationNonce.PubNonce, nil
 }
+
+// MusigSessionCfg...
+type MusigSessionCfg struct {
+	// LocalKey...
+	LocalKey keychain.KeyDescriptor
+
+	// RemoteKey...
+	RemoteKey keychain.KeyDescriptor
+
+	// LocalCommitNonces...
+	LocalCommitNonces MusigNoncePair
+
+	// RemoteCommitNonces...
+	RemoteCommitNonces MusigNoncePair
+
+	// Signer...
+	Signer input.MuSig2Signer
+
+	// InputTxOut...
+	InputTxOut *wire.TxOut
+}
+
+// MusigPairSession...
+//
+// TODO(roasbeef): split this up into two sessions? then can just make one
+// later to be able to sign the txns
+//
+// TODO(roasbeef): chan session?
+type MusigPairSession struct {
+	// LocalSession...
+	LocalSession *MusigSession
+
+	// RemoteSession...
+	RemoteSession *MusigSession
+
+	// signer...
+	signer input.MuSig2Signer
+}
+
+// TODO(roasbeef): move sig here?
+
+// NewMusigPairSession....
+func NewMusigPairSession(cfg *MusigSessionCfg) (*MusigPairSession, error) {
+	// Given the config passed in, we'll now create our two sessions: one
+	// for the local commit, and one for the remote commit.
+	//
+	// The session for the local commit uses our local nonce and the remote
+	// party's remote nonce. The session for the remote commit uses our
+	// remote nonces, and the remote party's local nonce.
+	localSession, err := NewMusigSession(
+		cfg.LocalCommitNonces, cfg.LocalKey, cfg.RemoteKey,
+		cfg.Signer, cfg.InputTxOut, false,
+	)
+	if err != nil {
+		return nil, err
+	}
+	remoteSession, err := NewMusigSession(
+		cfg.RemoteCommitNonces, cfg.LocalKey, cfg.RemoteKey,
+		cfg.Signer, cfg.InputTxOut, true,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MusigPairSession{
+		LocalSession:  localSession,
+		RemoteSession: remoteSession,
+		signer:        cfg.Signer,
+	}, nil
+}
+
+// TODO(roasbeef): chan reest has a late nonce binding

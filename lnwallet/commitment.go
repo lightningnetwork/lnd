@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -212,6 +213,9 @@ type ScriptInfo struct {
 	// output is being signed. For p2wkh it should be set equal to the
 	// PkScript.
 	WitnessScript []byte
+
+	// TODO(roasbeef): embed the waddr taproot info?
+	//  * can list the leaves, etc, etc
 }
 
 // CommitScriptToSelf constructs the public key script for the output on the
@@ -300,8 +304,11 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 // owner of the commitment transaction which we are generating the to_remote
 // script for. The second return value is the CSV delay of the output script,
 // what must be satisfied in order to spend the output.
+//
+// NOTE: The combinedFundingKey MUST be set if chanType is a taproot variant.
 func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
-	key *btcec.PublicKey, leaseExpiry uint32) (*ScriptInfo, uint32, error) {
+	remoteKey *btcec.PublicKey, leaseExpiry uint32,
+	combinedFundingKey *btcec.PublicKey) (*ScriptInfo, uint32, error) {
 
 	switch {
 	// If we are not the initiator of a leased channel, then the remote
@@ -309,7 +316,7 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 	// CSV requirement.
 	case chanType.HasLeaseExpiration() && !initiator:
 		script, err := input.LeaseCommitScriptToRemoteConfirmed(
-			key, leaseExpiry,
+			remoteKey, leaseExpiry,
 		)
 		if err != nil {
 			return nil, 0, err
@@ -328,7 +335,7 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 	// If this channel type has anchors, we derive the delayed to_remote
 	// script.
 	case chanType.HasAnchors():
-		script, err := input.CommitScriptToRemoteConfirmed(key)
+		script, err := input.CommitScriptToRemoteConfirmed(remoteKey)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -343,9 +350,29 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 			WitnessScript: script,
 		}, 1, nil
 
+	// For taproot channels, we'll use a slightly different format, where
+	// the top-level key is the combined funding key (w/o the bip 86
+	// tweak), with the sole tap leaf enforcing the 1 CSV delay.
+	case chanType.IsTaproot():
+		toRemoteKey, err := input.TaprootCommitScriptToRemote(
+			combinedFundingKey, remoteKey,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		toRemotePkScript, err := input.PayToTaprootScript(toRemoteKey)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		return &ScriptInfo{
+			PkScript: toRemotePkScript,
+		}, 1, nil
+
 	default:
 		// Otherwise the to_remote will be a simple p2wkh.
-		p2wkh, err := input.CommitScriptUnencumbered(key)
+		p2wkh, err := input.CommitScriptUnencumbered(remoteKey)
 		if err != nil {
 			return nil, 0, err
 		}

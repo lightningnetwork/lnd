@@ -528,6 +528,9 @@ func TestLightningWireProtocol(t *testing.T) {
 
 				req.LeaseExpiry = new(LeaseExpiry)
 				*req.LeaseExpiry = LeaseExpiry(1337)
+
+				req.LocalNonce = randLocalNonce(r)
+				req.RemoteNonce = randRemoteNonce(r)
 			} else {
 				req.UpfrontShutdownScript = []byte{}
 			}

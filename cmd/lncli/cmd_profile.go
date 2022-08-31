@@ -199,6 +199,10 @@ func profileRemove(ctx *cli.Context) error {
 		return fmt.Errorf("name argument missing")
 	}
 
+	if len(f.Profiles) == 0 {
+		return fmt.Errorf("there are no existing profiles")
+	}
+
 	// Create a copy of all profiles but don't include the one to delete.
 	newProfiles := make([]*profileEntry, 0, len(f.Profiles)-1)
 	for _, p := range f.Profiles {

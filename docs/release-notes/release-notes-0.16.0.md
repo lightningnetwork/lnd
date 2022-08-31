@@ -57,6 +57,9 @@ minimum version needed to build the project.
 * [Fix](https://github.com/lightningnetwork/lnd/pull/6858) command line argument
   parsing for `lncli sendpayment`.
 
+* [Fix](https://github.com/lightningnetwork/lnd/pull/6875) mapslice cap out of 
+  range error that occurs if the number of profiles is zero.
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test 

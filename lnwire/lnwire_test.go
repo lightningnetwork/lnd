@@ -899,6 +899,9 @@ func TestLightningWireProtocol(t *testing.T) {
 					t.Fatalf("unable to generate key: %v", err)
 					return
 				}
+
+				req.LocalNonce = randLocalNonce(r)
+				req.RemoteNonce = randRemoteNonce(r)
 			}
 
 			v[0] = reflect.ValueOf(req)

@@ -798,6 +798,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			return
 		}
 
+		walletLog.Debugf("Registered funding intent for "+
+			"PendingChanID: %x", req.PendingChanID)
+
 		localFundingAmt = fundingIntent.LocalFundingAmt()
 		remoteFundingAmt = fundingIntent.RemoteFundingAmt()
 	}
@@ -891,6 +894,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// completed, or canceled.
 	req.resp <- reservation
 	req.err <- nil
+
+	walletLog.Debugf("Successfully handled funding reservation with "+
+		"pendingChanID: %x, reservationID: %v",
+		reservation.pendingChanID, reservation.reservationID)
 }
 
 // enforceReservedValue enforces that the wallet, upon a new channel being

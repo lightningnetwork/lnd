@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -229,7 +230,7 @@ func (u updateType) String() string {
 // the original added HTLC.
 //
 // TODO(roasbeef): LogEntry interface??
-//  * need to separate attrs for cancel/add/settle/feeupdate
+//   - need to separate attrs for cancel/add/settle/feeupdate
 type PaymentDescriptor struct {
 	// RHash is the payment hash for this HTLC. The HTLC can be settled iff
 	// the preimage to this hash is presented.
@@ -1038,8 +1039,8 @@ func (s *commitmentChain) hasUnackedCommitment() bool {
 //
 // TODO(roasbeef): create lightning package, move commitment and update to
 // package?
-//  * also move state machine, separate from lnwallet package
-//  * possible embed updateLog within commitmentChain.
+//   - also move state machine, separate from lnwallet package
+//   - possible embed updateLog within commitmentChain.
 type updateLog struct {
 	// logIndex is a monotonically increasing integer that tracks the total
 	// number of update entries ever applied to the log. When sending new
@@ -1235,18 +1236,18 @@ func compactLogs(ourLog, theirLog *updateLog,
 // preimages in order to populate their revocation window for the remote party.
 //
 // The state machine has for main methods:
-//  * .SignNextCommitment()
-//    * Called one one wishes to sign the next commitment, either initiating a
-//      new state update, or responding to a received commitment.
-//  * .ReceiveNewCommitment()
-//    * Called upon receipt of a new commitment from the remote party. If the
-//      new commitment is valid, then a revocation should immediately be
-//      generated and sent.
-//  * .RevokeCurrentCommitment()
-//    * Revokes the current commitment. Should be called directly after
-//      receiving a new commitment.
-//  * .ReceiveRevocation()
-//   * Processes a revocation from the remote party. If successful creates a
+//   - .SignNextCommitment()
+//   - Called one one wishes to sign the next commitment, either initiating a
+//     new state update, or responding to a received commitment.
+//   - .ReceiveNewCommitment()
+//   - Called upon receipt of a new commitment from the remote party. If the
+//     new commitment is valid, then a revocation should immediately be
+//     generated and sent.
+//   - .RevokeCurrentCommitment()
+//   - Revokes the current commitment. Should be called directly after
+//     receiving a new commitment.
+//   - .ReceiveRevocation()
+//   - Processes a revocation from the remote party. If successful creates a
 //     new defacto broadcastable state.
 //
 // See the individual comments within the above methods for further details.
@@ -3683,7 +3684,9 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 // HTLC's on the commitment transaction. Finally, the new set of pending HTLCs
 // for the remote party's commitment are also returned.
 func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
-	[]channeldb.HTLC, error) {
+	[]channeldb.HTLC, *lnwire.Musig2Nonce, error) {
+
+	// TODO(roasbeef): make return val into struct w/ all the new args
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -3710,7 +3713,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 	if unacked || commitPoint == nil {
 		lc.log.Tracef("waiting for remote ack=%v, nil "+
 			"RemoteNextRevocation: %v", unacked, commitPoint == nil)
-		return sig, htlcSigs, nil, ErrNoWindow
+		return sig, htlcSigs, nil, nil, ErrNoWindow
 	}
 
 	// Determine the last update on the remote log that has been locked in.
@@ -3725,7 +3728,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 		remoteACKedIndex, lc.localUpdateLog.logIndex, true, nil, nil,
 	)
 	if err != nil {
-		return sig, htlcSigs, nil, err
+		return sig, htlcSigs, nil, nil, err
 	}
 
 	// Grab the next commitment point for the remote party. This will be
@@ -3748,7 +3751,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 		remoteACKedIndex, remoteHtlcIndex, keyRing,
 	)
 	if err != nil {
-		return sig, htlcSigs, nil, err
+		return sig, htlcSigs, nil, nil, err
 	}
 
 	lc.log.Tracef("extending remote chain to height %v, "+
@@ -3765,6 +3768,8 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 		}),
 	)
 
+	// TODO(roasbeef): update HLTC batch jobs
+
 	// With the commitment view constructed, if there are any HTLC's, we'll
 	// need to generate signatures of each of them for the remote party's
 	// commitment state. We do so in two phases: first we generate and
@@ -3779,23 +3784,43 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 		&lc.channelState.RemoteChanCfg, newCommitView,
 	)
 	if err != nil {
-		return sig, htlcSigs, nil, err
+		return sig, htlcSigs, nil, nil, err
 	}
 	lc.sigPool.SubmitSignBatch(sigBatch)
 
 	// While the jobs are being carried out, we'll Sign their version of
 	// the new commitment transaction while we're waiting for the rest of
 	// the HTLC signatures to be processed.
-	lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(newCommitView.txn)
-	rawSig, err := lc.Signer.SignOutputRaw(newCommitView.txn, lc.signDesc)
-	if err != nil {
-		close(cancelChan)
-		return sig, htlcSigs, nil, err
-	}
-	sig, err = lnwire.NewSigFromSignature(rawSig)
-	if err != nil {
-		close(cancelChan)
-		return sig, htlcSigs, nil, err
+	var nextSigningNonce lnwire.Musig2Nonce
+	if !lc.channelState.ChanType.IsTaproot() {
+		localSession := lc.musigSessions.LocalSession
+		partialSig, nextNonce, err := localSession.SignCommit(
+			newCommitView.txn,
+		)
+		if err != nil {
+			close(cancelChan)
+			return sig, htlcSigs, nil, nil, err
+		}
+
+		nextSigningNonce = *nextNonce
+
+		copy(sig[:], partialSig.Serialize())
+	} else {
+		lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(
+			newCommitView.txn,
+		)
+		rawSig, err := lc.Signer.SignOutputRaw(
+			newCommitView.txn, lc.signDesc,
+		)
+		if err != nil {
+			close(cancelChan)
+			return sig, htlcSigs, nil, nil, err
+		}
+		sig, err = lnwire.NewSigFromSignature(rawSig)
+		if err != nil {
+			close(cancelChan)
+			return sig, htlcSigs, nil, nil, err
+		}
 	}
 
 	// We'll need to send over the signatures to the remote party in the
@@ -3815,7 +3840,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 		// jobs.
 		if jobResp.Err != nil {
 			close(cancelChan)
-			return sig, htlcSigs, nil, jobResp.Err
+			return sig, htlcSigs, nil, nil, jobResp.Err
 		}
 
 		htlcSigs = append(htlcSigs, jobResp.Sig)
@@ -3826,11 +3851,11 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 	// can retransmit it if necessary.
 	commitDiff, err := lc.createCommitDiff(newCommitView, sig, htlcSigs)
 	if err != nil {
-		return sig, htlcSigs, nil, err
+		return sig, htlcSigs, nil, nil, err
 	}
 	err = lc.channelState.AppendRemoteCommitChain(commitDiff)
 	if err != nil {
-		return sig, htlcSigs, nil, err
+		return sig, htlcSigs, nil, nil, err
 	}
 
 	// TODO(roasbeef): check that one eclair bug
@@ -3841,7 +3866,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 	// latest commitment update.
 	lc.remoteCommitChain.addCommitment(newCommitView)
 
-	return sig, htlcSigs, commitDiff.Commitment.Htlcs, nil
+	return sig, htlcSigs, commitDiff.Commitment.Htlcs, &nextSigningNonce, nil
 }
 
 // ProcessChanSyncMsg processes a ChannelReestablish message sent by the remote
@@ -3854,10 +3879,10 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 //
 // One of two message sets will be returned:
 //
-//  * CommitSig+Updates: if we have a pending remote commit which they claim to
-//    have not received
-//  * RevokeAndAck: if we sent a revocation message that they claim to have
-//    not received
+//   - CommitSig+Updates: if we have a pending remote commit which they claim to
+//     have not received
+//   - RevokeAndAck: if we sent a revocation message that they claim to have
+//     not received
 //
 // If we detect a scenario where we need to send a CommitSig+Updates, this
 // method also returns two sets channeldb.CircuitKeys identifying the circuits
@@ -3999,7 +4024,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// revocation, but also initiate a state transition to re-sync
 		// them.
 		if lc.OweCommitment() {
-			commitSig, htlcSigs, _, err := lc.SignNextCommitment()
+			commitSig, htlcSigs, _, nextNonce, err := lc.SignNextCommitment()
 			switch {
 
 			// If we signed this state, then we'll accumulate
@@ -4011,6 +4036,9 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 					),
 					CommitSig: commitSig,
 					HtlcSigs:  htlcSigs,
+					RemoteNonce: &lnwire.RemoteMusig2Nonce{
+						Musig2Nonce: *nextNonce,
+					},
 				})
 
 			// If we get a failure due to not knowing their next
@@ -4491,7 +4519,7 @@ var _ error = (*InvalidCommitSigError)(nil)
 // state, then this newly added commitment becomes our current accepted channel
 // state.
 func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
-	htlcSigs []lnwire.Sig) error {
+	htlcSigs []lnwire.Sig, nextSigningNonce lnwire.Musig2Nonce) error {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -4562,6 +4590,8 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 			return spew.Sdump(localCommitmentView.txn)
 		}),
 	)
+
+	// TODO(roasbeef): update verification below
 
 	// Construct the sighash of the commitment transaction corresponding to
 	// this newly proposed state update.
@@ -4661,7 +4691,10 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	localCommitmentView.sig = commitSig.ToSignatureBytes()
 	lc.localCommitChain.addCommitment(localCommitmentView)
 
-	return nil
+	// At this point, we now have their next signing nonce, so we can
+	// refresh our local session which allows us to verify more incoming
+	// commitments.
+	return lc.musigSessions.LocalSession.Refresh(nextSigningNonce)
 }
 
 // IsChannelClean returns true if neither side has pending commitments, neither
@@ -4835,6 +4868,17 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, []c
 		&lc.channelState.FundingOutpoint,
 	)
 
+	// TODO(roasbeef): refresh session here
+
+	// We've now accepted+revoked a new commitment, so we'll send the
+	// remote party another verification nonce they can use to generate new
+	// commitments.
+	musigSession := lc.musigSessions
+	nextVerificationNonce := musigSession.LocalSession.VerificationNonce()
+	revocationMsg.LocalNonce = &lnwire.LocalMusig2Nonce{
+		Musig2Nonce: nextVerificationNonce,
+	}
+
 	return revocationMsg, newCommitment.Htlcs, nil
 }
 
@@ -4846,14 +4890,14 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, []c
 // commitment, and a log compaction is attempted.
 //
 // The returned values correspond to:
-//   1. The forwarding package corresponding to the remote commitment height
-//      that was revoked.
-//   2. The PaymentDescriptor of any Add HTLCs that were locked in by this
-//      revocation.
-//   3. The PaymentDescriptor of any Settle/Fail HTLCs that were locked in by
-//      this revocation.
-//   4. The set of HTLCs present on the current valid commitment transaction
-//      for the remote party.
+//  1. The forwarding package corresponding to the remote commitment height
+//     that was revoked.
+//  2. The PaymentDescriptor of any Add HTLCs that were locked in by this
+//     revocation.
+//  3. The PaymentDescriptor of any Settle/Fail HTLCs that were locked in by
+//     this revocation.
+//  4. The set of HTLCs present on the current valid commitment transaction
+//     for the remote party.
 func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	*channeldb.FwdPkg, []*PaymentDescriptor, []*PaymentDescriptor,
 	[]channeldb.HTLC, error) {
@@ -5058,6 +5102,15 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// revoked remote commitment.
 	ourOutputIndex, theirOutputIndex, err := findOutputIndexesFromRemote(
 		revocation, lc.channelState,
+	)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	// Now that we have a new verification nonce from them, we can refresh
+	// our remote musig2 session which allows us to create another state.
+	err = lc.musigSessions.RemoteSession.Refresh(
+		revMsg.LocalNonce.Musig2Nonce,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -5387,20 +5440,21 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 // is invalid, an error is returned.
 //
 // The additional arguments correspond to:
-//  * sourceRef: specifies the location of the Add HTLC within a forwarding
-//      package that this HTLC is settling. Every Settle fails exactly one Add,
-//      so this should never be empty in practice.
 //
-//  * destRef: specifies the location of the Settle HTLC within another
-//      channel's forwarding package. This value can be nil if the corresponding
-//      Add HTLC was never locked into an outgoing commitment txn, or this
-//      HTLC does not originate as a response from the peer on the outgoing
-//      link, e.g. on-chain resolutions.
+//   - sourceRef: specifies the location of the Add HTLC within a forwarding
+//     package that this HTLC is settling. Every Settle fails exactly one Add,
+//     so this should never be empty in practice.
 //
-//  * closeKey: identifies the circuit that should be deleted after this Settle
-//      HTLC is included in a commitment txn. This value should only be nil if
-//      the HTLC was settled locally before committing a circuit to the circuit
-//      map.
+//   - destRef: specifies the location of the Settle HTLC within another
+//     channel's forwarding package. This value can be nil if the corresponding
+//     Add HTLC was never locked into an outgoing commitment txn, or this
+//     HTLC does not originate as a response from the peer on the outgoing
+//     link, e.g. on-chain resolutions.
+//
+//   - closeKey: identifies the circuit that should be deleted after this Settle
+//     HTLC is included in a commitment txn. This value should only be nil if
+//     the HTLC was settled locally before committing a circuit to the circuit
+//     map.
 //
 // NOTE: It is okay for sourceRef, destRef, and closeKey to be nil when unit
 // testing the wallet.
@@ -5497,20 +5551,21 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 // _incoming_ HTLC.
 //
 // The additional arguments correspond to:
-//  * sourceRef: specifies the location of the Add HTLC within a forwarding
-//      package that this HTLC is failing. Every Fail fails exactly one Add, so
-//      this should never be empty in practice.
 //
-//  * destRef: specifies the location of the Fail HTLC within another channel's
-//      forwarding package. This value can be nil if the corresponding Add HTLC
-//      was never locked into an outgoing commitment txn, or this HTLC does not
-//      originate as a response from the peer on the outgoing link, e.g.
-//      on-chain resolutions.
+//   - sourceRef: specifies the location of the Add HTLC within a forwarding
+//     package that this HTLC is failing. Every Fail fails exactly one Add, so
+//     this should never be empty in practice.
 //
-//  * closeKey: identifies the circuit that should be deleted after this Fail
-//      HTLC is included in a commitment txn. This value should only be nil if
-//      the HTLC was failed locally before committing a circuit to the circuit
-//      map.
+//   - destRef: specifies the location of the Fail HTLC within another channel's
+//     forwarding package. This value can be nil if the corresponding Add HTLC
+//     was never locked into an outgoing commitment txn, or this HTLC does not
+//     originate as a response from the peer on the outgoing link, e.g.
+//     on-chain resolutions.
+//
+//   - closeKey: identifies the circuit that should be deleted after this Fail
+//     HTLC is included in a commitment txn. This value should only be nil if
+//     the HTLC was failed locally before committing a circuit to the circuit
+//     map.
 //
 // NOTE: It is okay for sourceRef, destRef, and closeKey to be nil when unit
 // testing the wallet.
@@ -5672,7 +5727,7 @@ func (lc *LightningChannel) RemoteUpfrontShutdownScript() lnwire.DeliveryAddress
 // AbsoluteThawHeight determines a frozen channel's absolute thaw height. If
 // the channel is not frozen, then 0 is returned.
 //
-// An error is returned if the channel is penidng, or is an unconfirmed zero
+// An error is returned if the channel is pending, or is an unconfirmed zero
 // conf channel.
 func (lc *LightningChannel) AbsoluteThawHeight() (uint32, error) {
 	return lc.channelState.AbsoluteThawHeight()
@@ -5685,6 +5740,9 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 	// for the transaction.
 	localCommit := lc.channelState.LocalCommitment
 	commitTx := localCommit.CommitTx.Copy()
+
+	// TODO(roasbeef): parametrize...
+	//  * also want the full R sig as well
 
 	theirSig, err := ecdsa.ParseDERSignature(localCommit.CommitSig)
 	if err != nil {
@@ -7588,6 +7646,8 @@ func (lc *LightningChannel) InitRemoteMusigNonces(nonces *MusigNoncePair) error 
 	if err != nil {
 		return fmt.Errorf("unable to gen musig session: %w", err)
 	}
+
+	lc.nextNoncePair = nil
 
 	return nil
 }

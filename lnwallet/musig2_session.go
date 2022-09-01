@@ -109,7 +109,10 @@ type MusigSession struct {
 	signerKeys []*btcec.PublicKey
 
 	// remoteKey...
-	remoteKey *btcec.PublicKey
+	remoteKey keychain.KeyDescriptor
+
+	// localKey...
+	localKey keychain.KeyDescriptor
 
 	// signer...
 	signer input.MuSig2Signer
@@ -166,7 +169,8 @@ func NewMusigSession(noncePair MusigNoncePair,
 
 	return &MusigSession{
 		nonces:        noncePair,
-		remoteKey:     remoteKey.PubKey,
+		remoteKey:     remoteKey,
+		localKey:      localKey,
 		session:       session,
 		combinedNonce: combinedNonce,
 		inputTxOut:    inputTxOut,
@@ -235,9 +239,61 @@ func (m *MusigSession) SignCommit(tx *wire.MsgTx) (*MusigPartialSig, *[musig2.Pu
 
 	m.nextNonces = &nextNonces
 
+	// TODO(roasbeef): clean up prior session once new created?
+
 	return NewMusigPartialSig(
 		sig, m.session.PublicNonce, m.combinedNonce, m.signerKeys,
 	), &nextSigningNonce.PubNonce, nil
+}
+
+// Refresh...
+func (m *MusigSession) Refresh(nextNonce [musig2.PubNonceSize]byte) error {
+	// At this point we should have a next nonce, otherwise this operation
+	// is undefined as we haven't yet used our current nonce.
+	if m.nextNonces == nil {
+		// TODO(roasbeef): proper error
+		return fmt.Errorf("no next nonce")
+	}
+
+	// Now that we know we have the nonce we need, we can complete the
+	// nonce pair.
+	if m.remoteCommit {
+		m.nextNonces.LocalNonce = &musig2.Nonces{
+			PubNonce: nextNonce,
+		}
+	} else {
+		m.nextNonces.RemoteNonce = &musig2.Nonces{
+			PubNonce: nextNonce,
+		}
+	}
+
+	// Now we'll just re-create ourselves entirely given this new
+	// information. We'll also clean up the old session since we don't need
+	// it any longer.
+	//
+	// TODO(roasbeef): can't actually clean up here? but need the stateless
+	// signer thing?
+	defer m.signer.MuSig2Cleanup(m.session.SessionID)
+
+	var err error
+	m, err = NewMusigSession(
+		*m.nextNonces, m.localKey, m.remoteKey, m.signer, m.inputTxOut,
+		m.remoteCommit,
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// VerificationNonce...
+func (m *MusigSession) VerificationNonce() [musig2.PubNonceSize]byte {
+	if m.remoteCommit {
+		return m.nonces.RemoteNonce.PubNonce
+	} else {
+		return m.nonces.LocalNonce.PubNonce
+	}
 }
 
 // TODO(roasbeef): re hot signatures, maybe would re-use the state less signing
@@ -271,7 +327,7 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 		return nil, err
 	}
 
-	if !partialSig.Verify(sigHash, m.remoteKey) {
+	if !partialSig.Verify(sigHash, m.remoteKey.PubKey) {
 		return nil, fmt.Errorf("invalid partial commit sig")
 	}
 

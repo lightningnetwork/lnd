@@ -5366,6 +5366,8 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 		return 0, err
 	}
 
+	lc.log.Infof("DEBUG: receiving amount %v", htlc.Amount)
+
 	lc.remoteUpdateLog.appendHtlc(pd)
 
 	return pd.HtlcIndex, nil
@@ -5406,6 +5408,8 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
 	if htlc == nil {
 		return ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
 	}
+
+	lc.log.Infof("DEBUG: settling amount %v", htlc.Amount)
 
 	// Now that we know the HTLC exists, before checking to see if the
 	// preimage matches, we'll ensure that we haven't already attempted to

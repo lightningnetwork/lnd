@@ -399,6 +399,12 @@ type channelLink struct {
 	// log is a link-specific logging instance.
 	log btclog.Logger
 
+	ourInboundBaseFee int32
+	ourInboundFeeRate int32
+
+	theirInboundBaseFee int32
+	theirInboundFeeRate int32
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -1127,6 +1133,18 @@ func (l *channelLink) htlcManager() {
 		go l.fwdPkgGarbager()
 	}
 
+	l.ourInboundBaseFee = -10000
+	l.ourInboundFeeRate = -20000
+
+	err := l.cfg.Peer.SendMessage(false, &lnwire.UpdateInboundFee{
+		ChanID:  l.ChanID(),
+		BaseFee: l.ourInboundBaseFee,
+		FeeRate: l.ourInboundFeeRate,
+	})
+	if err != nil {
+		l.log.Warnf("unable to send UpdateInboundFee: %v", err)
+	}
+
 	for {
 		// We must always check if we failed at some point processing
 		// the last update before processing the next.
@@ -1415,6 +1433,14 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 	if !ok {
 		return errors.New("not an UpdateAddHTLC packet")
 	}
+
+	inboundFee := lnwire.MilliSatoshi(l.calculateInboundFee(int64(pkt.amount)))
+
+	l.log.Infof("Adding inbound fee to htlc amount: fee=%v, baseFee=%v, feeRate=%v",
+		int64(inboundFee), l.theirInboundBaseFee, l.theirInboundFeeRate)
+
+	htlc.Amount += inboundFee
+	pkt.amount += inboundFee
 
 	// If hodl.AddOutgoing mode is active, we exit early to simulate
 	// arbitrary delays between the switch adding an ADD to the
@@ -2090,6 +2116,14 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			"ChannelPoint(%v): received error from peer: %v",
 			l.channel.ChannelPoint(), msg.Error(),
 		)
+
+	case *lnwire.UpdateInboundFee:
+		l.log.Infof("Updating inbound fee to %v + %v ppm",
+			msg.BaseFee, msg.FeeRate)
+
+		l.theirInboundBaseFee = msg.BaseFee
+		l.theirInboundFeeRate = msg.FeeRate
+
 	default:
 		l.log.Warnf("received unknown message of type %T", msg)
 	}
@@ -2995,6 +3029,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		fwdInfo := pld.ForwardingInfo()
 
+		// Subtract inbound fee.
+		modifiedPd := *pd
+		inboundFee := lnwire.MilliSatoshi(l.calculateInboundFeeFromIncoming(int64(pd.Amount)))
+		modifiedPd.Amount -= inboundFee
+		pd = &modifiedPd
+
 		switch fwdInfo.NextHop {
 		case hop.Exit:
 			err := l.processExitHop(
@@ -3160,6 +3200,43 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 	// opened circuits, which violates assumptions made by the circuit
 	// trimming.
 	l.forwardBatch(replay, switchPackets...)
+}
+
+func calculateInboundFee(
+	amt int64, baseFee, feeRate int32) int64 {
+
+	return int64(baseFee) +
+		int64(feeRate)*amt/1e6
+}
+
+func (l *channelLink) calculateInboundFee(outgoingAmt int64) int64 {
+	return calculateInboundFee(
+		outgoingAmt, l.theirInboundBaseFee, l.theirInboundFeeRate,
+	)
+}
+
+// divideCeil divides dividend by factor and rounds the result up.
+func divideCeil(dividend, factor int64) int64 {
+	return (dividend + factor - 1) / factor
+}
+
+func calculateInboundFeeFromIncoming(
+	incomingAmt int64, baseFee, feeRate int32) int64 {
+
+	return incomingAmt - divideCeil(
+		1e6*(incomingAmt-int64(baseFee)),
+		1e6+int64(feeRate),
+	)
+}
+
+// ComputeFeeFromIncoming computes the fee to forward an HTLC given the incoming
+// amount.
+func (l *channelLink) calculateInboundFeeFromIncoming(
+	incomingAmt int64) int64 {
+
+	return calculateInboundFeeFromIncoming(
+		incomingAmt, l.ourInboundBaseFee, l.ourInboundFeeRate,
+	)
 }
 
 // processExitHop handles an htlc for which this link is the exit hop. It

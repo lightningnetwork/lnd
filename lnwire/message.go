@@ -42,6 +42,7 @@ const (
 	MsgUpdateFee                           = 134
 	MsgUpdateFailMalformedHTLC             = 135
 	MsgChannelReestablish                  = 136
+	MsgUpdateInboundFee                    = 32768
 	MsgChannelAnnouncement                 = 256
 	MsgNodeAnnouncement                    = 257
 	MsgChannelUpdate                       = 258
@@ -96,6 +97,8 @@ func (t MessageType) String() string {
 		return "ClosingSigned"
 	case MsgUpdateAddHTLC:
 		return "UpdateAddHTLC"
+	case MsgUpdateInboundFee:
+		return "UpdateInboundFee"
 	case MsgUpdateFailHTLC:
 		return "UpdateFailHTLC"
 	case MsgUpdateFulfillHTLC:
@@ -198,6 +201,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &ClosingSigned{}
 	case MsgUpdateAddHTLC:
 		msg = &UpdateAddHTLC{}
+	case MsgUpdateInboundFee:
+		msg = &UpdateInboundFee{}
 	case MsgUpdateFailHTLC:
 		msg = &UpdateFailHTLC{}
 	case MsgUpdateFulfillHTLC:

@@ -6649,3 +6649,17 @@ func assertFailureCode(t *testing.T, err error, code lnwire.FailCode) {
 			code, rtErr.WireMessage().Code())
 	}
 }
+
+func TestCalculateInboundFee(t *testing.T) {
+	const (
+		amt     = 10000000
+		feeBase = -10000
+		feeRate = -20000
+	)
+
+	fee := calculateInboundFee(amt, feeBase, feeRate)
+	require.Equal(t, -210000, int(fee))
+
+	fee = calculateInboundFeeFromIncoming(amt+fee, feeBase, feeRate)
+	require.Equal(t, -210000, int(fee))
+}

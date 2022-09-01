@@ -654,6 +654,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				params:           input.params,
 			}
 			s.pendingInputs[outpoint] = pendInput
+			log.Tracef("input %v added to pendingInputs", outpoint)
 
 			// Start watching for spend of this input, either by us
 			// or the remote party.
@@ -674,6 +675,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 			if err := s.scheduleSweep(bestHeight); err != nil {
 				log.Errorf("schedule sweep: %v", err)
 			}
+			log.Tracef("input %v scheduled", outpoint)
 
 		// A spend of one of our inputs is detected. Signal sweep
 		// results to the caller(s).
@@ -1145,7 +1147,7 @@ func (s *UtxoSweeper) scheduleSweep(currentHeight int32) error {
 	// The timer is already ticking, no action needed for the sweep to
 	// happen.
 	if s.timer != nil {
-		log.Debugf("Timer still ticking")
+		log.Debugf("Timer still ticking at height=%v", currentHeight)
 		return nil
 	}
 
@@ -1338,9 +1340,14 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 		return fmt.Errorf("publish tx: %v", err)
 	}
 
-	// Keep the output script in case of an error, so that it can be reused
-	// for the next transaction and causes no address inflation.
-	if err == nil {
+	// Otherwise log the error.
+	if err != nil {
+		log.Errorf("Publish sweep tx %v got error: %v", tx.TxHash(),
+			err)
+	} else {
+		// If there's no error, remove the output script. Otherwise
+		// keep it so that it can be reused for the next transaction
+		// and causes no address inflation.
 		s.currentOutputScript = nil
 	}
 
@@ -1375,6 +1382,11 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 			nextAttemptDelta)
 
 		if pi.publishAttempts >= s.cfg.MaxSweepAttempts {
+			log.Warnf("input %v: publishAttempts(%v) exceeds "+
+				"MaxSweepAttempts(%v), removed",
+				input.PreviousOutPoint, pi.publishAttempts,
+				s.cfg.MaxSweepAttempts)
+
 			// Signal result channels sweep result.
 			s.signalAndRemove(&input.PreviousOutPoint, Result{
 				Err: ErrTooManyAttempts,
@@ -1390,7 +1402,8 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 func (s *UtxoSweeper) waitForSpend(outpoint wire.OutPoint,
 	script []byte, heightHint uint32) (func(), error) {
 
-	log.Debugf("Wait for spend of %v", outpoint)
+	log.Tracef("Wait for spend of %v at heightHint=%v",
+		outpoint, heightHint)
 
 	spendEvent, err := s.cfg.Notifier.RegisterSpendNtfn(
 		&outpoint, script, heightHint,

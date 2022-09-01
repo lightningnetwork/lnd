@@ -1004,7 +1004,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Signer:         cc.Wallet.Cfg.Signer,
 		Wallet:         cc.Wallet,
 		NewBatchTimer: func() <-chan time.Time {
-			return time.NewTimer(sweep.DefaultBatchWindowDuration).C
+			return time.NewTimer(cfg.Sweeper.BatchWindowDuration).C
 		},
 		Notifier:             cc.ChainNotifier,
 		Store:                sweeperStore,

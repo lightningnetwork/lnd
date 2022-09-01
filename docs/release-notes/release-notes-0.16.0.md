@@ -30,6 +30,12 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
   wallet](https://github.com/lightningnetwork/lnd/pull/6775). NOTE that funding
   PSBTs from imported tap scripts is not currently possible.
 
+## Bug Fixes
+
+* [A nil-check](https://github.com/lightningnetwork/lnd/pull/6624) is added
+  when querying htlc entry from the remote update logs to avoid panic during
+  startup.
+
 ## Build
 
 [The project has updated to Go

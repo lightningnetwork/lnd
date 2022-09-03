@@ -39,11 +39,13 @@ func TestUnifiedPolicies(t *testing.T) {
 	u.addPolicy(fromNode, &p1, 7)
 	u.addPolicy(fromNode, &p2, 7)
 
-	checkPolicy := func(policy *channeldb.CachedEdgePolicy,
+	checkPolicy := func(unifiedPolicy *unifiedPolicyEdge,
 		feeBase lnwire.MilliSatoshi, feeRate lnwire.MilliSatoshi,
 		timeLockDelta uint16) {
 
 		t.Helper()
+
+		policy := unifiedPolicy.policy
 
 		if policy.FeeBaseMSat != feeBase {
 			t.Fatalf("expected fee base %v, got %v",

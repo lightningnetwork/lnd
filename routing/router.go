@@ -2803,10 +2803,10 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		// Add fee for this hop.
 		if !localChan {
-			runningAmt += policy.ComputeFee(runningAmt)
+			runningAmt += policy.policy.ComputeFee(runningAmt)
 		}
 
-		log.Tracef("Select channel %v at position %v", policy.ChannelID, i)
+		log.Tracef("Select channel %v at position %v", policy.policy.ChannelID, i)
 
 		edges[i] = unifiedPolicy
 	}
@@ -2815,7 +2815,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// total amount, we make a forward pass. Because the amount may have
 	// been increased in the backward pass, fees need to be recalculated and
 	// amount ranges re-checked.
-	var pathEdges []*channeldb.CachedEdgePolicy
+	var pathEdges []*unifiedPolicyEdge
 	receiverAmt := runningAmt
 	for i, edge := range edges {
 		policy := edge.getPolicy(receiverAmt, bandwidthHints)
@@ -2828,7 +2828,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		if i > 0 {
 			// Decrease the amount to send while going forward.
-			receiverAmt -= policy.ComputeFeeFromIncoming(
+			receiverAmt -= policy.policy.ComputeFeeFromIncoming(
 				receiverAmt,
 			)
 		}

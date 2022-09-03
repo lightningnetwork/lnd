@@ -1244,7 +1244,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	}
 
 	find := func(r *RestrictParams) (
-		[]*channeldb.CachedEdgePolicy, error) {
+		[]*unifiedPolicyEdge, error) {
 
 		return dbFindPath(
 			graph.graph, additionalEdges, &mockBandwidthHints{},
@@ -1572,8 +1572,17 @@ func TestNewRoute(t *testing.T) {
 		}
 
 		t.Run(testCase.name, func(t *testing.T) {
+			var unifiedHops []*unifiedPolicyEdge
+			for _, hop := range testCase.hops {
+				unifiedHops = append(unifiedHops,
+					&unifiedPolicyEdge{
+						policy: hop,
+					},
+				)
+			}
+
 			route, err := newRoute(
-				sourceVertex, testCase.hops, startingHeight,
+				sourceVertex, unifiedHops, startingHeight,
 				finalHopParams{
 					amt:         testCase.paymentAmount,
 					totalAmt:    testCase.paymentAmount,
@@ -1713,7 +1722,7 @@ func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 	require.NoError(t, err, "unable to fetch source node")
 
 	find := func(r *RestrictParams,
-		target route.Vertex) ([]*channeldb.CachedEdgePolicy, error) {
+		target route.Vertex) ([]*unifiedPolicyEdge, error) {
 
 		return dbFindPath(
 			ctx.graph, nil, &mockBandwidthHints{},
@@ -2365,16 +2374,17 @@ func TestPathFindSpecExample(t *testing.T) {
 }
 
 func assertExpectedPath(t *testing.T, aliasMap map[string]route.Vertex,
-	path []*channeldb.CachedEdgePolicy, nodeAliases ...string) {
+	path []*unifiedPolicyEdge, nodeAliases ...string) {
 
 	if len(path) != len(nodeAliases) {
 		t.Fatal("number of hops and number of aliases do not match")
 	}
 
 	for i, hop := range path {
-		if hop.ToNodePubKey() != aliasMap[nodeAliases[i]] {
+		if hop.policy.ToNodePubKey() != aliasMap[nodeAliases[i]] {
 			t.Fatalf("expected %v to be pos #%v in hop, instead "+
-				"%v was", nodeAliases[i], i, hop.ToNodePubKey())
+				"%v was", nodeAliases[i], i,
+				hop.policy.ToNodePubKey())
 		}
 	}
 }
@@ -2448,10 +2458,10 @@ func runRestrictOutgoingChannel(t *testing.T, useCache bool) {
 
 	// Assert that the route starts with channel chanSourceB1, in line with
 	// the specified restriction.
-	if path[0].ChannelID != chanSourceB1 {
+	if path[0].policy.ChannelID != chanSourceB1 {
 		t.Fatalf("expected route to pass through channel %v, "+
 			"but channel %v was selected instead", chanSourceB1,
-			path[0].ChannelID)
+			path[0].policy.ChannelID)
 	}
 
 	// If a direct channel to target is allowed as well, that channel is
@@ -2461,7 +2471,7 @@ func runRestrictOutgoingChannel(t *testing.T, useCache bool) {
 	}
 	path, err = ctx.findPath(target, paymentAmt)
 	require.NoError(t, err, "unable to find path")
-	if path[0].ChannelID != chanSourceTarget {
+	if path[0].policy.ChannelID != chanSourceTarget {
 		t.Fatalf("expected route to pass through channel %v",
 			chanSourceTarget)
 	}
@@ -2500,10 +2510,10 @@ func runRestrictLastHop(t *testing.T, useCache bool) {
 	ctx.restrictParams.LastHop = &lastHop
 	path, err := ctx.findPath(target, paymentAmt)
 	require.NoError(t, err, "unable to find path")
-	if path[0].ChannelID != 3 {
+	if path[0].policy.ChannelID != 3 {
 		t.Fatalf("expected route to pass through channel 3, "+
 			"but channel %v was selected instead",
-			path[0].ChannelID)
+			path[0].policy.ChannelID)
 	}
 }
 
@@ -2782,10 +2792,10 @@ func testProbabilityRouting(t *testing.T, useCache bool,
 	}
 
 	// Assert that the route passes through the expected channel.
-	if path[1].ChannelID != expectedChan {
+	if path[1].policy.ChannelID != expectedChan {
 		t.Fatalf("expected route to pass through channel %v, "+
 			"but channel %v was selected instead", expectedChan,
-			path[1].ChannelID)
+			path[1].policy.ChannelID)
 	}
 }
 
@@ -2845,10 +2855,10 @@ func runEqualCostRouteSelection(t *testing.T, useCache bool) {
 		t.Fatal(err)
 	}
 
-	if path[1].ChannelID != 2 {
+	if path[1].policy.ChannelID != 2 {
 		t.Fatalf("expected route to pass through channel %v, "+
 			"but channel %v was selected instead", 2,
-			path[1].ChannelID)
+			path[1].policy.ChannelID)
 	}
 }
 
@@ -3008,7 +3018,7 @@ func (c *pathFindingTestContext) aliasFromKey(pubKey route.Vertex) string {
 }
 
 func (c *pathFindingTestContext) findPath(target route.Vertex,
-	amt lnwire.MilliSatoshi) ([]*channeldb.CachedEdgePolicy,
+	amt lnwire.MilliSatoshi) ([]*unifiedPolicyEdge,
 	error) {
 
 	return dbFindPath(
@@ -3017,7 +3027,7 @@ func (c *pathFindingTestContext) findPath(target route.Vertex,
 	)
 }
 
-func (c *pathFindingTestContext) assertPath(path []*channeldb.CachedEdgePolicy,
+func (c *pathFindingTestContext) assertPath(path []*unifiedPolicyEdge,
 	expected []uint64) {
 
 	if len(path) != len(expected) {
@@ -3026,9 +3036,10 @@ func (c *pathFindingTestContext) assertPath(path []*channeldb.CachedEdgePolicy,
 	}
 
 	for i, edge := range path {
-		if edge.ChannelID != expected[i] {
+		if edge.policy.ChannelID != expected[i] {
 			c.t.Fatalf("expected hop %v to be channel %v, "+
-				"but got %v", i, expected[i], edge.ChannelID)
+				"but got %v", i, expected[i],
+				edge.policy.ChannelID)
 		}
 	}
 }
@@ -3040,7 +3051,7 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 	bandwidthHints bandwidthHints,
 	r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
-	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
+	finalHtlcExpiry int32) ([]*unifiedPolicyEdge, error) {
 
 	sourceNode, err := graph.SourceNode()
 	if err != nil {

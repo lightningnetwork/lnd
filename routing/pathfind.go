@@ -42,7 +42,7 @@ const (
 type pathFinder = func(g *graphParams, r *RestrictParams,
 	cfg *PathFindingConfig, source, target route.Vertex,
 	amt lnwire.MilliSatoshi, timePref float64, finalHtlcExpiry int32) (
-	[]*channeldb.CachedEdgePolicy, error)
+	[]*unifiedPolicyEdge, error)
 
 var (
 	// DefaultAttemptCost is the default fixed virtual cost in path finding
@@ -106,7 +106,7 @@ type finalHopParams struct {
 // any feature vectors on all hops have been validated for transitive
 // dependencies.
 func newRoute(sourceVertex route.Vertex,
-	pathEdges []*channeldb.CachedEdgePolicy, currentHeight uint32,
+	pathEdges []*unifiedPolicyEdge, currentHeight uint32,
 	finalHop finalHopParams) (*route.Route, error) {
 
 	var (
@@ -128,7 +128,7 @@ func newRoute(sourceVertex route.Vertex,
 	for i := pathLength - 1; i >= 0; i-- {
 		// Now we'll start to calculate the items within the per-hop
 		// payload for the hop this edge is leading to.
-		edge := pathEdges[i]
+		edge := pathEdges[i].policy
 
 		// We'll calculate the amounts, timelocks, and fees for each hop
 		// in the route. The base case is the final hop which includes
@@ -219,13 +219,15 @@ func newRoute(sourceVertex route.Vertex,
 			// and its policy for the outgoing channel. This policy
 			// is stored as part of the incoming channel of
 			// the next hop.
-			fee = pathEdges[i+1].ComputeFee(amtToForward)
+			fee = pathEdges[i+1].policy.ComputeFee(amtToForward)
 
 			// We'll take the total timelock of the preceding hop as
 			// the outgoing timelock or this hop. Then we'll
 			// increment the total timelock incurred by this hop.
 			outgoingTimeLock = totalTimeLock
-			totalTimeLock += uint32(pathEdges[i+1].TimeLockDelta)
+			totalTimeLock += uint32(
+				pathEdges[i+1].policy.TimeLockDelta,
+			)
 		}
 
 		// Since we're traversing the path backwards atm, we prepend
@@ -426,7 +428,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 // available bandwidth.
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
-	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
+	finalHtlcExpiry int32) ([]*unifiedPolicyEdge, error) {
 
 	// Pathfinding can be a significant portion of the total payment
 	// latency, especially on low-powered devices. Log several metrics to
@@ -620,7 +622,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// satisfy our specific requirements.
 	processEdge := func(fromVertex route.Vertex,
 		fromFeatures *lnwire.FeatureVector,
-		edge *channeldb.CachedEdgePolicy, toNodeDist *nodeWithDist) {
+		edge *unifiedPolicyEdge, toNodeDist *nodeWithDist) {
 
 		edgesExpanded++
 
@@ -658,8 +660,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		var fee lnwire.MilliSatoshi
 		var timeLockDelta uint16
 		if fromVertex != source {
-			fee = edge.ComputeFee(amountToSend)
-			timeLockDelta = edge.TimeLockDelta
+			fee = edge.policy.ComputeFee(amountToSend)
+			timeLockDelta = edge.policy.TimeLockDelta
 		}
 
 		incomingCltv := toNodeDist.incomingCltv + int32(timeLockDelta)
@@ -736,9 +738,9 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 		// Every edge should have a positive time lock delta. If we
 		// encounter a zero delta, log a warning line.
-		if edge.TimeLockDelta == 0 {
+		if edge.policy.TimeLockDelta == 0 {
 			log.Warnf("Channel %v has zero cltv delta",
-				edge.ChannelID)
+				edge.policy.ChannelID)
 		}
 
 		// Calculate the total routing info size if this hop were to be
@@ -759,7 +761,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				LegacyPayload: !supportsTlv,
 			}
 
-			payloadSize = hop.PayloadSize(edge.ChannelID)
+			payloadSize = hop.PayloadSize(edge.policy.ChannelID)
 		}
 
 		routingInfoSize := toNodeDist.routingInfoSize + payloadSize
@@ -916,7 +918,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// Use the distance map to unravel the forward path from source to
 	// target.
-	var pathEdges []*channeldb.CachedEdgePolicy
+	var pathEdges []*unifiedPolicyEdge
 	currentNode := source
 	for {
 		// Determine the next hop forward using the next map.
@@ -931,7 +933,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		pathEdges = append(pathEdges, currentNodeWithDist.nextHop)
 
 		// Advance current node.
-		currentNode = currentNodeWithDist.nextHop.ToNodePubKey()
+		currentNode = currentNodeWithDist.nextHop.policy.ToNodePubKey()
 
 		// Check stop condition at the end of this loop. This prevents
 		// breaking out too soon for self-payments that have target set
@@ -952,7 +954,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// route construction does not care where the features are actually
 	// taken from. In the future we may wish to do route construction within
 	// findPath, and avoid using ChannelEdgePolicy altogether.
-	pathEdges[len(pathEdges)-1].ToNodeFeatures = features
+	pathEdges[len(pathEdges)-1].policy.ToNodeFeatures = features
 
 	log.Debugf("Found route: probability=%v, hops=%v, fee=%v",
 		distance[source].probability, len(pathEdges),

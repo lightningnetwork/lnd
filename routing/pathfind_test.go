@@ -1225,7 +1225,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	}
 
 	find := func(r *RestrictParams) (
-		[]*models.CachedEdgePolicy, error) {
+		[]*unifiedEdge, error) {
 
 		return dbFindPath(
 			graph.graph, additionalEdges, &mockBandwidthHints{},
@@ -1437,7 +1437,7 @@ func runPathFindingWithRedundantAdditionalEdges(t *testing.T, useCache bool) {
 	require.NoError(t, err, "unable to find path to bob")
 	require.Len(t, path, 1)
 
-	require.Equal(t, realChannelID, path[0].ChannelID,
+	require.Equal(t, realChannelID, path[0].policy.ChannelID,
 		"additional edge for known edge wasn't ignored")
 }
 
@@ -1723,8 +1723,17 @@ func TestNewRoute(t *testing.T) {
 		}
 
 		t.Run(testCase.name, func(t *testing.T) {
+			var unifiedHops []*unifiedEdge
+			for _, hop := range testCase.hops {
+				unifiedHops = append(unifiedHops,
+					&unifiedEdge{
+						policy: hop,
+					},
+				)
+			}
+
 			route, err := newRoute(
-				sourceVertex, testCase.hops, startingHeight,
+				sourceVertex, unifiedHops, startingHeight,
 				finalHopParams{
 					amt:         testCase.paymentAmount,
 					totalAmt:    testCase.paymentAmount,
@@ -1864,7 +1873,7 @@ func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 	require.NoError(t, err, "unable to fetch source node")
 
 	find := func(r *RestrictParams,
-		target route.Vertex) ([]*models.CachedEdgePolicy, error) {
+		target route.Vertex) ([]*unifiedEdge, error) {
 
 		return dbFindPath(
 			ctx.graph, nil, &mockBandwidthHints{},
@@ -2522,7 +2531,7 @@ func TestPathFindSpecExample(t *testing.T) {
 }
 
 func assertExpectedPath(t *testing.T, aliasMap map[string]route.Vertex,
-	path []*models.CachedEdgePolicy, nodeAliases ...string) {
+	path []*unifiedEdge, nodeAliases ...string) {
 
 	if len(path) != len(nodeAliases) {
 		t.Fatalf("number of hops=(%v) and number of aliases=(%v) do "+
@@ -2530,9 +2539,10 @@ func assertExpectedPath(t *testing.T, aliasMap map[string]route.Vertex,
 	}
 
 	for i, hop := range path {
-		if hop.ToNodePubKey() != aliasMap[nodeAliases[i]] {
+		if hop.policy.ToNodePubKey() != aliasMap[nodeAliases[i]] {
 			t.Fatalf("expected %v to be pos #%v in hop, instead "+
-				"%v was", nodeAliases[i], i, hop.ToNodePubKey())
+				"%v was", nodeAliases[i], i,
+				hop.policy.ToNodePubKey())
 		}
 	}
 }
@@ -2606,10 +2616,10 @@ func runRestrictOutgoingChannel(t *testing.T, useCache bool) {
 
 	// Assert that the route starts with channel chanSourceB1, in line with
 	// the specified restriction.
-	if path[0].ChannelID != chanSourceB1 {
+	if path[0].policy.ChannelID != chanSourceB1 {
 		t.Fatalf("expected route to pass through channel %v, "+
 			"but channel %v was selected instead", chanSourceB1,
-			path[0].ChannelID)
+			path[0].policy.ChannelID)
 	}
 
 	// If a direct channel to target is allowed as well, that channel is
@@ -2619,7 +2629,7 @@ func runRestrictOutgoingChannel(t *testing.T, useCache bool) {
 	}
 	path, err = ctx.findPath(target, paymentAmt)
 	require.NoError(t, err, "unable to find path")
-	if path[0].ChannelID != chanSourceTarget {
+	if path[0].policy.ChannelID != chanSourceTarget {
 		t.Fatalf("expected route to pass through channel %v",
 			chanSourceTarget)
 	}
@@ -2658,10 +2668,10 @@ func runRestrictLastHop(t *testing.T, useCache bool) {
 	ctx.restrictParams.LastHop = &lastHop
 	path, err := ctx.findPath(target, paymentAmt)
 	require.NoError(t, err, "unable to find path")
-	if path[0].ChannelID != 3 {
+	if path[0].policy.ChannelID != 3 {
 		t.Fatalf("expected route to pass through channel 3, "+
 			"but channel %v was selected instead",
-			path[0].ChannelID)
+			path[0].policy.ChannelID)
 	}
 }
 
@@ -2941,10 +2951,10 @@ func testProbabilityRouting(t *testing.T, useCache bool,
 	}
 
 	// Assert that the route passes through the expected channel.
-	if path[1].ChannelID != expectedChan {
+	if path[1].policy.ChannelID != expectedChan {
 		t.Fatalf("expected route to pass through channel %v, "+
 			"but channel %v was selected instead", expectedChan,
-			path[1].ChannelID)
+			path[1].policy.ChannelID)
 	}
 }
 
@@ -3005,10 +3015,10 @@ func runEqualCostRouteSelection(t *testing.T, useCache bool) {
 		t.Fatal(err)
 	}
 
-	if path[1].ChannelID != 2 {
+	if path[1].policy.ChannelID != 2 {
 		t.Fatalf("expected route to pass through channel %v, "+
 			"but channel %v was selected instead", 2,
-			path[1].ChannelID)
+			path[1].policy.ChannelID)
 	}
 }
 
@@ -3168,7 +3178,7 @@ func (c *pathFindingTestContext) aliasFromKey(pubKey route.Vertex) string {
 }
 
 func (c *pathFindingTestContext) findPath(target route.Vertex,
-	amt lnwire.MilliSatoshi) ([]*models.CachedEdgePolicy,
+	amt lnwire.MilliSatoshi) ([]*unifiedEdge,
 	error) {
 
 	return dbFindPath(
@@ -3177,7 +3187,7 @@ func (c *pathFindingTestContext) findPath(target route.Vertex,
 	)
 }
 
-func (c *pathFindingTestContext) assertPath(path []*models.CachedEdgePolicy,
+func (c *pathFindingTestContext) assertPath(path []*unifiedEdge,
 	expected []uint64) {
 
 	if len(path) != len(expected) {
@@ -3186,9 +3196,10 @@ func (c *pathFindingTestContext) assertPath(path []*models.CachedEdgePolicy,
 	}
 
 	for i, edge := range path {
-		if edge.ChannelID != expected[i] {
+		if edge.policy.ChannelID != expected[i] {
 			c.t.Fatalf("expected hop %v to be channel %v, "+
-				"but got %v", i, expected[i], edge.ChannelID)
+				"but got %v", i, expected[i],
+				edge.policy.ChannelID)
 		}
 	}
 }
@@ -3200,7 +3211,7 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 	bandwidthHints bandwidthHints,
 	r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
-	finalHtlcExpiry int32) ([]*models.CachedEdgePolicy, error) {
+	finalHtlcExpiry int32) ([]*unifiedEdge, error) {
 
 	sourceNode, err := graph.SourceNode()
 	if err != nil {
@@ -3351,11 +3362,11 @@ func TestBlindedRouteConstruction(t *testing.T) {
 	carolDaveEdge := blindedEdges[carolVertex][0]
 	daveEveEdge := blindedEdges[daveBlindedVertex][0]
 
-	edges := []*models.CachedEdgePolicy{
-		aliceBobEdge,
-		bobCarolEdge,
-		carolDaveEdge.EdgePolicy(),
-		daveEveEdge.EdgePolicy(),
+	edges := []*unifiedEdge{
+		{policy: aliceBobEdge},
+		{policy: bobCarolEdge},
+		{policy: carolDaveEdge.EdgePolicy()},
+		{policy: daveEveEdge.EdgePolicy()},
 	}
 
 	// Total timelock for the route should include:

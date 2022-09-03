@@ -3218,14 +3218,14 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 // including fees, to send the payment.
 func getPathEdges(source route.Vertex, receiverAmt lnwire.MilliSatoshi,
 	unifiers []*edgeUnifier, bandwidthHints *bandwidthManager,
-	hops []route.Vertex) ([]*models.CachedEdgePolicy,
+	hops []route.Vertex) ([]*unifiedEdge,
 	lnwire.MilliSatoshi, error) {
 
 	// Now that we arrived at the start of the route and found out the route
 	// total amount, we make a forward pass. Because the amount may have
 	// been increased in the backward pass, fees need to be recalculated and
 	// amount ranges re-checked.
-	var pathEdges []*models.CachedEdgePolicy
+	var pathEdges []*unifiedEdge
 	for i, unifier := range unifiers {
 		edge := unifier.getEdge(receiverAmt, bandwidthHints)
 		if edge == nil {
@@ -3247,7 +3247,7 @@ func getPathEdges(source route.Vertex, receiverAmt lnwire.MilliSatoshi,
 			)
 		}
 
-		pathEdges = append(pathEdges, edge.policy)
+		pathEdges = append(pathEdges, edge)
 	}
 
 	return pathEdges, receiverAmt, nil

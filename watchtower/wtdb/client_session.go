@@ -41,7 +41,7 @@ type ClientSession struct {
 	// can be resent after a restart if the updates failed to send or
 	// receive an acknowledgment.
 	//
-	// NOTE: This list is serialized in it's own bucket, separate from the
+	// NOTE: This list is serialized in its own bucket, separate from the
 	// body of the ClientSession. The representation on disk is a key value
 	// map from sequence number to CommittedUpdateBody to allow efficient
 	// insertion and retrieval.
@@ -89,7 +89,7 @@ type ClientSessionBody struct {
 
 	// KeyIndex is the index of key locator used to derive the client's
 	// session key so that it can authenticate with the tower to update its
-	// session. In order to rederive the private key, the key locator should
+	// session. In order to re-derive the private key, the key locator should
 	// use the keychain.KeyFamilyTowerSession key family.
 	KeyIndex uint32
 

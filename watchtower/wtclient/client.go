@@ -421,12 +421,12 @@ func (c *TowerClient) buildHighestCommitHeights() {
 			}
 		}
 
-		// Take the heights commit height found in the session's acked
+		// Take the highest commit height found in the session's acked
 		// updates.
-		for _, bid := range s.AckedUpdates {
-			height, ok := chanCommitHeights[bid.ChanID]
-			if !ok || bid.CommitHeight > height {
-				chanCommitHeights[bid.ChanID] = bid.CommitHeight
+		for chanID, maxCommitHeight := range s.AckedUpdatesMaxCommitHeight {
+			height, ok := chanCommitHeights[chanID]
+			if !ok || maxCommitHeight > height {
+				chanCommitHeights[chanID] = maxCommitHeight
 			}
 		}
 	}

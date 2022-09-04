@@ -1043,19 +1043,20 @@ func getClientSession(sessions kvdb.RBucket,
 	}
 
 	// Fetch the committed updates for this session.
-	commitedUpdates, err := getClientSessionCommits(sessions, idBytes)
+	committedUpdates, err := getClientSessionCommits(sessions, idBytes)
 	if err != nil {
 		return nil, err
 	}
 
-	// Fetch the acked updates for this session.
-	ackedUpdates, err := getClientSessionAcks(sessions, idBytes)
+	// Fetch the number of acked updates and highest commit height for this session.
+	numberOfAckedUpdates, ackedUpdatesMaxCommitHeight, err := getClientSessionAcks(sessions, idBytes)
 	if err != nil {
 		return nil, err
 	}
 
-	session.CommittedUpdates = commitedUpdates
-	session.AckedUpdates = ackedUpdates
+	session.CommittedUpdates = committedUpdates
+	session.NumberOfAckedUpdates = numberOfAckedUpdates
+	session.AckedUpdatesMaxCommitHeight = ackedUpdatesMaxCommitHeight
 
 	return session, nil
 }
@@ -1096,41 +1097,41 @@ func getClientSessionCommits(sessions kvdb.RBucket,
 	return committedUpdates, nil
 }
 
-// getClientSessionAcks retrieves all acked updates for the session identified
-// by the serialized session id.
+// getClientSessionAcks retrieves the number of all acked updates and the highest commit height for the
+// session identified by the serialized session id.
 func getClientSessionAcks(sessions kvdb.RBucket,
-	idBytes []byte) (map[uint16]BackupID, error) {
+	idBytes []byte) (int, map[lnwire.ChannelID]uint64, error) {
 
 	// Can't fail because client session body has already been read.
 	sessionBkt := sessions.NestedReadBucket(idBytes)
 
-	// Initialize ackedUpdates so that we can return an initialized map if
-	// no acked updates exist.
-	ackedUpdates := make(map[uint16]BackupID)
-
 	sessionAcks := sessionBkt.NestedReadBucket(cSessionAcks)
 	if sessionAcks == nil {
-		return ackedUpdates, nil
+		return 0, make(map[lnwire.ChannelID]uint64), nil
 	}
 
+	ackedUpdates := 0
+	ackedUpdatesMaxCommitHeight := make(map[lnwire.ChannelID]uint64)
 	err := sessionAcks.ForEach(func(k, v []byte) error {
-		seqNum := byteOrder.Uint16(k)
-
 		var backupID BackupID
 		err := backupID.Decode(bytes.NewReader(v))
 		if err != nil {
 			return err
 		}
 
-		ackedUpdates[seqNum] = backupID
+		// store the highest commit height per channel
+		maxCommitHeightForChannel, ok := ackedUpdatesMaxCommitHeight[backupID.ChanID]
+		if !ok || backupID.CommitHeight > maxCommitHeightForChannel {
+			ackedUpdatesMaxCommitHeight[backupID.ChanID] = backupID.CommitHeight
+		}
 
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return 0, make(map[lnwire.ChannelID]uint64), err
 	}
 
-	return ackedUpdates, nil
+	return ackedUpdates, ackedUpdatesMaxCommitHeight, nil
 }
 
 // putClientSessionBody stores the body of the ClientSession (everything but the

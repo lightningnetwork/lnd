@@ -47,12 +47,16 @@ type ClientSession struct {
 	// insertion and retrieval.
 	CommittedUpdates []CommittedUpdate
 
-	// AckedUpdates is a map from sequence number to backup id to record
-	// which revoked states were uploaded via this session.
+	// NumberOfAckedUpdates is the number of revoked states which were
+	// uploaded via this session.
 	//
-	// NOTE: This map is serialized in it's own bucket, separate from the
+	// NOTE: This map is serialized in its own bucket, separate from the
 	// body of the ClientSession.
-	AckedUpdates map[uint16]BackupID
+	NumberOfAckedUpdates int
+
+	// AckedUpdatesMaxCommitHeight maps the channel ID to the maximum commit
+	// height for all acked updates for that channel (0 if no acked update exists).
+	AckedUpdatesMaxCommitHeight map[lnwire.ChannelID]uint64
 
 	// Tower holds the pubkey and address of the watchtower.
 	//

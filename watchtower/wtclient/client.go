@@ -399,7 +399,7 @@ func getClientSessions(db DB, keyRing ECDHKeyRing, forTower *wtdb.TowerID,
 // buildHighestCommitHeights inspects the full set of candidate client sessions
 // loaded from disk, and determines the highest known commit height for each
 // channel. This allows the client to reject backups that it has already
-// processed for it's active policy.
+// processed for its active policy.
 func (c *TowerClient) buildHighestCommitHeights() {
 	chanCommitHeights := make(map[lnwire.ChannelID]uint64)
 	for _, s := range c.candidateSessions {
@@ -407,6 +407,7 @@ func (c *TowerClient) buildHighestCommitHeights() {
 		// accepted under an identical policy to the client's current
 		// policy.
 		if s.Policy != c.cfg.Policy {
+			s.AckedUpdatesMaxCommitHeight = nil
 			continue
 		}
 
@@ -430,6 +431,7 @@ func (c *TowerClient) buildHighestCommitHeights() {
 				chanCommitHeights[chanID] = maxCommitHeight
 			}
 		}
+		s.AckedUpdatesMaxCommitHeight = nil
 	}
 
 	c.chanCommitHeights = chanCommitHeights

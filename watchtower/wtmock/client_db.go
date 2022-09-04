@@ -270,8 +270,9 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 			Policy:           session.Policy,
 			RewardPkScript:   cloneBytes(session.RewardPkScript),
 		},
-		CommittedUpdates: make([]wtdb.CommittedUpdate, 0),
-		AckedUpdates:     make(map[uint16]wtdb.BackupID),
+		CommittedUpdates:            make([]wtdb.CommittedUpdate, 0),
+		AckedUpdatesMaxCommitHeight: make(map[lnwire.ChannelID]uint64),
+		NumberOfAckedUpdates:        0,
 	}
 
 	return nil
@@ -399,7 +400,13 @@ func (m *ClientDB) AckUpdate(id *wtdb.SessionID, seqNum, lastApplied uint16) err
 		updates[len(updates)-1] = wtdb.CommittedUpdate{}
 		session.CommittedUpdates = updates[:len(updates)-1]
 
-		session.AckedUpdates[seqNum] = update.BackupID
+		session.NumberOfAckedUpdates++
+		chanID := update.BackupID.ChanID
+		height := update.BackupID.CommitHeight
+		maxHeight, ok := session.AckedUpdatesMaxCommitHeight[chanID]
+		if !ok || height > maxHeight {
+			session.AckedUpdatesMaxCommitHeight[chanID] = height
+		}
 		session.TowerLastApplied = lastApplied
 
 		m.activeSessions[*id] = session

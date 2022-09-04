@@ -424,6 +424,7 @@ func (c *TowerClient) buildHighestCommitHeights() {
 		// Take the highest commit height found in the session's acked
 		// updates.
 		for chanID, maxCommitHeight := range s.AckedUpdatesMaxCommitHeight {
+			delete(s.AckedUpdatesMaxCommitHeight, chanID)
 			height, ok := chanCommitHeights[chanID]
 			if !ok || maxCommitHeight > height {
 				chanCommitHeights[chanID] = maxCommitHeight

@@ -115,7 +115,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 
 	// We expect all subscribers to now report the final outcome followed by
 	// no other events.
-	subscribers := []*ControlTowerSubscriber{
+	subscribers := []ControlTowerSubscriber{
 		subscriber1, subscriber2, subscriber3,
 	}
 
@@ -123,7 +123,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 		var result *channeldb.MPPayment
 		for result == nil || result.Status == channeldb.StatusInFlight {
 			select {
-			case item := <-s.Updates:
+			case item := <-s.Updates():
 				result = item.(*channeldb.MPPayment)
 			case <-time.After(testTimeout):
 				t.Fatal("timeout waiting for payment result")
@@ -149,7 +149,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 
 		// After the final event, we expect the channel to be closed.
 		select {
-		case _, ok := <-s.Updates:
+		case _, ok := <-s.Updates():
 			if ok {
 				t.Fatal("expected channel to be closed")
 			}
@@ -248,7 +248,7 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 	// After exactly 5 updates both payments will/should have completed.
 	for i := 0; i < 5; i++ {
 		select {
-		case item := <-subscription.Updates:
+		case item := <-subscription.Updates():
 			id := item.(*channeldb.MPPayment).Info.PaymentIdentifier
 			results[id] = item.(*channeldb.MPPayment)
 		case <-time.After(testTimeout):
@@ -320,13 +320,13 @@ func TestPaymentControlSubscribeAllImmediate(t *testing.T) {
 
 	// Assert the new subscription receives the old update.
 	select {
-	case update := <-subscription.Updates:
+	case update := <-subscription.Updates():
 		require.NotNil(t, update)
 		require.Equal(
 			t, info.PaymentIdentifier,
 			update.(*channeldb.MPPayment).Info.PaymentIdentifier,
 		)
-		require.Len(t, subscription.Updates, 0)
+		require.Len(t, subscription.Updates(), 0)
 	case <-time.After(testTimeout):
 		require.Fail(t, "timeout waiting for payment result")
 	}
@@ -361,14 +361,14 @@ func TestPaymentControlUnsubscribeSuccess(t *testing.T) {
 
 	// Assert all subscriptions receive the update.
 	select {
-	case update1 := <-subscription1.Updates:
+	case update1 := <-subscription1.Updates():
 		require.NotNil(t, update1)
 	case <-time.After(testTimeout):
 		require.Fail(t, "timeout waiting for payment result")
 	}
 
 	select {
-	case update2 := <-subscription2.Updates:
+	case update2 := <-subscription2.Updates():
 		require.NotNil(t, update2)
 	case <-time.After(testTimeout):
 		require.Fail(t, "timeout waiting for payment result")
@@ -388,13 +388,13 @@ func TestPaymentControlUnsubscribeSuccess(t *testing.T) {
 
 	// Assert only subscription 2 receives the update.
 	select {
-	case update2 := <-subscription2.Updates:
+	case update2 := <-subscription2.Updates():
 		require.NotNil(t, update2)
 	case <-time.After(testTimeout):
 		require.Fail(t, "timeout waiting for payment result")
 	}
 
-	require.Len(t, subscription1.Updates, 0)
+	require.Len(t, subscription1.Updates(), 0)
 
 	// Close the second subscription.
 	subscription2.Close()
@@ -404,8 +404,8 @@ func TestPaymentControlUnsubscribeSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assert no subscriptions receive the update.
-	require.Len(t, subscription1.Updates, 0)
-	require.Len(t, subscription2.Updates, 0)
+	require.Len(t, subscription1.Updates(), 0)
+	require.Len(t, subscription2.Updates(), 0)
 }
 
 func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
@@ -467,7 +467,7 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 
 	// We expect both subscribers to now report the final outcome followed
 	// by no other events.
-	subscribers := []*ControlTowerSubscriber{
+	subscribers := []ControlTowerSubscriber{
 		subscriber1, subscriber2,
 	}
 
@@ -475,7 +475,7 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 		var result *channeldb.MPPayment
 		for result == nil || result.Status == channeldb.StatusInFlight {
 			select {
-			case item := <-s.Updates:
+			case item := <-s.Updates():
 				result = item.(*channeldb.MPPayment)
 			case <-time.After(testTimeout):
 				t.Fatal("timeout waiting for payment result")
@@ -513,7 +513,7 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 
 		// After the final event, we expect the channel to be closed.
 		select {
-		case _, ok := <-s.Updates:
+		case _, ok := <-s.Updates():
 			if ok {
 				t.Fatal("expected channel to be closed")
 			}

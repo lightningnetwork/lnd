@@ -552,13 +552,13 @@ func (m *mockControlTowerOld) FetchInFlightPayments() (
 }
 
 func (m *mockControlTowerOld) SubscribePayment(paymentHash lntypes.Hash) (
-	*ControlTowerSubscriber, error) {
+	ControlTowerSubscriber, error) {
 
 	return nil, errors.New("not implemented")
 }
 
 func (m *mockControlTowerOld) SubscribeAllPayments() (
-	*ControlTowerSubscriber, error) {
+	ControlTowerSubscriber, error) {
 
 	return nil, errors.New("not implemented")
 }
@@ -774,17 +774,17 @@ func (m *mockControlTower) FetchInFlightPayments() (
 }
 
 func (m *mockControlTower) SubscribePayment(paymentHash lntypes.Hash) (
-	*ControlTowerSubscriber, error) {
+	ControlTowerSubscriber, error) {
 
 	args := m.Called(paymentHash)
-	return args.Get(0).(*ControlTowerSubscriber), args.Error(1)
+	return args.Get(0).(ControlTowerSubscriber), args.Error(1)
 }
 
 func (m *mockControlTower) SubscribeAllPayments() (
-	*ControlTowerSubscriber, error) {
+	ControlTowerSubscriber, error) {
 
 	args := m.Called()
-	return args.Get(0).(*ControlTowerSubscriber), args.Error(1)
+	return args.Get(0).(ControlTowerSubscriber), args.Error(1)
 }
 
 type mockLink struct {

@@ -791,7 +791,7 @@ func (s *Server) TrackPayments(request *TrackPaymentsRequest,
 
 // trackPaymentStream streams payment updates to the client.
 func (s *Server) trackPaymentStream(context context.Context,
-	subscription *routing.ControlTowerSubscriber, noInflightUpdates bool,
+	subscription routing.ControlTowerSubscriber, noInflightUpdates bool,
 	send func(*lnrpc.Payment) error) error {
 
 	defer subscription.Close()
@@ -799,7 +799,7 @@ func (s *Server) trackPaymentStream(context context.Context,
 	// Stream updates back to the client.
 	for {
 		select {
-		case item, ok := <-subscription.Updates:
+		case item, ok := <-subscription.Updates():
 			if !ok {
 				// No more payment updates.
 				return nil

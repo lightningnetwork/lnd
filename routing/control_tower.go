@@ -60,46 +60,60 @@ type ControlTower interface {
 	// SubscribePayment subscribes to updates for the payment with the given
 	// hash. A first update with the current state of the payment is always
 	// sent out immediately.
-	SubscribePayment(paymentHash lntypes.Hash) (*ControlTowerSubscriber,
+	SubscribePayment(paymentHash lntypes.Hash) (ControlTowerSubscriber,
 		error)
 
 	// SubscribeAllPayments subscribes to updates for all payments. A first
 	// update with the current state of every inflight payment is always
 	// sent out immediately.
-	SubscribeAllPayments() (*ControlTowerSubscriber, error)
+	SubscribeAllPayments() (ControlTowerSubscriber, error)
 }
 
 // ControlTowerSubscriber contains the state for a payment update subscriber.
-type ControlTowerSubscriber struct {
+type ControlTowerSubscriber interface {
 	// Updates is the channel over which *channeldb.MPPayment updates can be
 	// received.
-	Updates <-chan interface{}
+	Updates() <-chan interface{}
 
-	queue *queue.ConcurrentQueue
-	quit  chan struct{}
+	// Close signals that the subscriber is no longer interested in updates.
+	Close()
+}
+
+// ControlTowerSubscriberImpl contains the state for a payment update
+// subscriber.
+type controlTowerSubscriberImpl struct {
+	updates <-chan interface{}
+	queue   *queue.ConcurrentQueue
+	quit    chan struct{}
 }
 
 // newControlTowerSubscriber instantiates a new subscriber state object.
-func newControlTowerSubscriber() *ControlTowerSubscriber {
+func newControlTowerSubscriber() *controlTowerSubscriberImpl {
 	// Create a queue for payment updates.
 	queue := queue.NewConcurrentQueue(20)
 	queue.Start()
 
-	return &ControlTowerSubscriber{
-		Updates: queue.ChanOut(),
+	return &controlTowerSubscriberImpl{
+		updates: queue.ChanOut(),
 		queue:   queue,
 		quit:    make(chan struct{}),
 	}
 }
 
 // Close signals that the subscriber is no longer interested in updates.
-func (s *ControlTowerSubscriber) Close() {
+func (s *controlTowerSubscriberImpl) Close() {
 	// Close quit channel so that any pending writes to the queue are
 	// cancelled.
 	close(s.quit)
 
 	// Stop the queue goroutine so that it won't leak.
 	s.queue.Stop()
+}
+
+// Updates is the channel over which *channeldb.MPPayment updates can be
+// received.
+func (s *controlTowerSubscriberImpl) Updates() <-chan interface{} {
+	return s.updates
 }
 
 // controlTower is persistent implementation of ControlTower to restrict
@@ -111,8 +125,8 @@ type controlTower struct {
 	// to all payments. This is used to easily remove the subscriber when
 	// necessary.
 	subscriberIndex        uint64
-	subscribersAllPayments map[uint64]*ControlTowerSubscriber
-	subscribers            map[lntypes.Hash][]*ControlTowerSubscriber
+	subscribersAllPayments map[uint64]*controlTowerSubscriberImpl
+	subscribers            map[lntypes.Hash][]*controlTowerSubscriberImpl
 	subscribersMtx         sync.Mutex
 
 	// paymentsMtx provides synchronization on the payment level to ensure
@@ -126,9 +140,9 @@ func NewControlTower(db *channeldb.PaymentControl) ControlTower {
 	return &controlTower{
 		db: db,
 		subscribersAllPayments: make(
-			map[uint64]*ControlTowerSubscriber,
+			map[uint64]*controlTowerSubscriberImpl,
 		),
-		subscribers: make(map[lntypes.Hash][]*ControlTowerSubscriber),
+		subscribers: make(map[lntypes.Hash][]*controlTowerSubscriberImpl),
 		paymentsMtx: multimutex.NewHashMutex(),
 	}
 }
@@ -245,7 +259,7 @@ func (p *controlTower) FetchInFlightPayments() ([]*channeldb.MPPayment, error) {
 // first update with the current state of the payment is always sent out
 // immediately.
 func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
-	*ControlTowerSubscriber, error) {
+	ControlTowerSubscriber, error) {
 
 	// Take lock before querying the db to prevent missing or duplicating an
 	// update.
@@ -286,7 +300,7 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 // of the payment stream could produce out-of-order and/or duplicate events. In
 // order to get updates for every in-flight payment attempt make sure to
 // subscribe to this method before initiating any payments.
-func (p *controlTower) SubscribeAllPayments() (*ControlTowerSubscriber, error) {
+func (p *controlTower) SubscribeAllPayments() (ControlTowerSubscriber, error) {
 	subscriber := newControlTowerSubscriber()
 
 	// Add the subscriber to the list before fetching in-flight payments, so
@@ -337,7 +351,7 @@ func (p *controlTower) notifySubscribers(paymentHash lntypes.Hash,
 
 	// Copy subscribers to all payments locally while holding the lock in
 	// order to avoid concurrency issues while reading/writing the map.
-	subscribersAllPayments := make(map[uint64]*ControlTowerSubscriber)
+	subscribersAllPayments := make(map[uint64]*controlTowerSubscriberImpl)
 	for k, v := range p.subscribersAllPayments {
 		subscribersAllPayments[k] = v
 	}

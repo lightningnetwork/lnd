@@ -13,21 +13,46 @@ import (
 	"google.golang.org/grpc"
 )
 
-func makeStreamMock() *StreamMock {
-	return &StreamMock{
-		ctx:            context.Background(),
-		sentFromServer: make(chan *lnrpc.Payment, 10),
-	}
-}
-
-type StreamMock struct {
+type streamMock struct {
 	grpc.ServerStream
 	ctx            context.Context
 	sentFromServer chan *lnrpc.Payment
 }
 
-func makeControlTowerMock() *ControlTowerMock {
-	towerMock := &ControlTowerMock{
+func makeStreamMock(ctx context.Context) *streamMock {
+	return &streamMock{
+		ctx:            ctx,
+		sentFromServer: make(chan *lnrpc.Payment, 10),
+	}
+}
+
+func (m *streamMock) Context() context.Context {
+	return m.ctx
+}
+
+func (m *streamMock) Send(p *lnrpc.Payment) error {
+	m.sentFromServer <- p
+	return nil
+}
+
+type controlTowerSubscriberMock struct {
+	updates <-chan interface{}
+}
+
+func (s controlTowerSubscriberMock) Updates() <-chan interface{} {
+	return s.updates
+}
+
+func (s controlTowerSubscriberMock) Close() {
+}
+
+type controlTowerMock struct {
+	queue *queue.ConcurrentQueue
+	routing.ControlTower
+}
+
+func makeControlTowerMock() *controlTowerMock {
+	towerMock := &controlTowerMock{
 		queue: queue.NewConcurrentQueue(20),
 	}
 	towerMock.queue.Start()
@@ -35,26 +60,40 @@ func makeControlTowerMock() *ControlTowerMock {
 	return towerMock
 }
 
-type ControlTowerMock struct {
-	queue *queue.ConcurrentQueue
-	routing.ControlTower
-}
+func (t *controlTowerMock) SubscribeAllPayments() (
+	routing.ControlTowerSubscriber, error) {
 
-func (t *ControlTowerMock) SubscribeAllPayments() (
-	*routing.ControlTowerSubscriber, error) {
-
-	return &routing.ControlTowerSubscriber{
-		Updates: t.queue.ChanOut(),
+	return &controlTowerSubscriberMock{
+		updates: t.queue.ChanOut(),
 	}, nil
 }
 
-func (m *StreamMock) Context() context.Context {
-	return m.ctx
-}
+// TestTrackPaymentsReturnsOnCancelContext tests whether TrackPayments returns
+// when the stream context is cancelled.
+func TestTrackPaymentsReturnsOnCancelContext(t *testing.T) {
+	// Setup mocks and request.
+	request := &TrackPaymentsRequest{
+		NoInflightUpdates: false,
+	}
+	towerMock := makeControlTowerMock()
 
-func (m *StreamMock) Send(p *lnrpc.Payment) error {
-	m.sentFromServer <- p
-	return nil
+	streamCtx, cancelStream := context.WithCancel(context.Background())
+	stream := makeStreamMock(streamCtx)
+
+	server := &Server{
+		cfg: &Config{
+			RouterBackend: &RouterBackend{
+				Tower: towerMock,
+			},
+		},
+	}
+
+	// Cancel stream immediately
+	cancelStream()
+
+	// Make sure the call returns.
+	err := server.TrackPayments(request, stream)
+	require.Equal(t, context.Canceled, err)
 }
 
 // TestTrackPaymentsInflightUpdate tests whether all updates from the control
@@ -65,7 +104,11 @@ func TestTrackPaymentsInflightUpdates(t *testing.T) {
 		NoInflightUpdates: false,
 	}
 	towerMock := makeControlTowerMock()
-	stream := makeStreamMock()
+
+	streamCtx, cancelStream := context.WithCancel(context.Background())
+	stream := makeStreamMock(streamCtx)
+	defer cancelStream()
+
 	server := &Server{
 		cfg: &Config{
 			RouterBackend: &RouterBackend{
@@ -77,7 +120,7 @@ func TestTrackPaymentsInflightUpdates(t *testing.T) {
 	// Listen to payment updates in a goroutine.
 	go func() {
 		err := server.TrackPayments(request, stream)
-		require.NoError(t, err)
+		require.Equal(t, context.Canceled, err)
 	}()
 
 	// Enqueue some payment updates on the mock.
@@ -119,11 +162,15 @@ func TestTrackPaymentsNoInflightUpdates(t *testing.T) {
 	request := &TrackPaymentsRequest{
 		NoInflightUpdates: true,
 	}
-	towerMock := &ControlTowerMock{
+	towerMock := &controlTowerMock{
 		queue: queue.NewConcurrentQueue(20),
 	}
 	towerMock.queue.Start()
-	stream := makeStreamMock()
+
+	streamCtx, cancelStream := context.WithCancel(context.Background())
+	stream := makeStreamMock(streamCtx)
+	defer cancelStream()
+
 	server := &Server{
 		cfg: &Config{
 			RouterBackend: &RouterBackend{
@@ -135,7 +182,7 @@ func TestTrackPaymentsNoInflightUpdates(t *testing.T) {
 	// Listen to payment updates in a goroutine.
 	go func() {
 		err := server.TrackPayments(request, stream)
-		require.NoError(t, err)
+		require.Equal(t, context.Canceled, err)
 	}()
 
 	// Enqueue some payment updates on the mock.

@@ -202,23 +202,3 @@ func TestMissionControl(t *testing.T) {
 	// Test reporting a success.
 	ctx.reportSuccess()
 }
-
-// TestMissionControlChannelUpdate tests that the first channel update is not
-// penalizing the channel yet.
-func TestMissionControlChannelUpdate(t *testing.T) {
-	ctx := createMcTestContext(t)
-
-	// Report a policy related failure. Because it is the first, we don't
-	// expect a penalty.
-	ctx.reportFailure(
-		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
-	)
-	ctx.expectP(100, testAprioriHopProbability)
-
-	// Report another failure for the same channel. We expect it to be
-	// pruned.
-	ctx.reportFailure(
-		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
-	)
-	ctx.expectP(100, 0)
-}

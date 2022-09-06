@@ -18,30 +18,6 @@ const (
 	// channel is back at 50% probability.
 	DefaultPenaltyHalfLife = time.Hour
 
-	// minSecondChanceInterval is the minimum time required between
-	// second-chance failures.
-	//
-	// If nodes return a channel policy related failure, they may get a
-	// second chance to forward the payment. It could be that the channel
-	// policy that we are aware of is not up to date. This is especially
-	// important in case of mobile apps that are mostly offline.
-	//
-	// However, we don't want to give nodes the option to endlessly return
-	// new channel updates so that we are kept busy trying to route through
-	// that node until the payment loop times out.
-	//
-	// Therefore we only grant a second chance to a node if the previous
-	// second chance is sufficiently long ago. This is what
-	// minSecondChanceInterval defines. If a second policy failure comes in
-	// within that interval, we will apply a penalty.
-	//
-	// Second chances granted are tracked on the level of node pairs. This
-	// means that if a node has multiple channels to the same peer, they
-	// will only get a single second chance to route to that peer again.
-	// Nodes forward non-strict, so it isn't necessary to apply a less
-	// restrictive channel level tracking scheme here.
-	minSecondChanceInterval = time.Minute
-
 	// DefaultMaxMcHistory is the default maximum history size.
 	DefaultMaxMcHistory = 1000
 
@@ -474,15 +450,6 @@ func (m *MissionControl) applyPaymentResult(
 		result.route, result.success, result.failureSourceIdx,
 		result.failure,
 	)
-
-	if i.policyFailure != nil {
-		if m.state.requestSecondChance(
-			result.timeReply,
-			i.policyFailure.From, i.policyFailure.To,
-		) {
-			return nil
-		}
-	}
 
 	// If there is a node-level failure, record a failure for every tried
 	// connection of that node. A node-level failure can be considered as a

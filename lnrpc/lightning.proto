@@ -1902,9 +1902,20 @@ message GetInfoResponse {
     map<uint32, Feature> features = 19;
 
     /*
-    Indicates whether the HTLC interceptor API is in always-on mode.
+    Deprecated. Indicates whether the HTLC interceptor API is in always-on mode.
     */
-    bool require_htlc_interceptor = 21;
+    bool require_htlc_interceptor = 21 [deprecated = true];
+
+    enum HTLCInterceptorMode {
+        // Auto-resumes htlcs if no interceptor is connected.
+        OPTIONAL = 0;
+
+        // Holds htlcs until a client connects, unless the htlc is new.
+        REQUIRED = 1;
+    }
+
+    // The mode in which htlc interceptor clients are served.
+    HTLCInterceptorMode htlc_interceptor_mode = 22;
 }
 
 message GetRecoveryInfoRequest {

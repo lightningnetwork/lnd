@@ -2863,6 +2863,24 @@ func (r *rpcServer) GetInfo(_ context.Context,
 		}
 	}
 
+	// Marshall the HTLC interceptor mode.
+	interceptorMode := r.server.interceptableSwitch.Mode()
+	requireInterceptor := interceptorMode !=
+		htlcswitch.HtlcInterceptorModeOptional
+
+	var rpcInterceptorMode lnrpc.GetInfoResponse_HTLCInterceptorMode
+	switch interceptorMode {
+	case htlcswitch.HtlcInterceptorModeOptional:
+		rpcInterceptorMode = lnrpc.GetInfoResponse_OPTIONAL
+
+	case htlcswitch.HtlcInterceptorModeRequired:
+		rpcInterceptorMode = lnrpc.GetInfoResponse_REQUIRED
+
+	default:
+		return nil, fmt.Errorf("unknown htlc interceptor mode %v",
+			interceptorMode)
+	}
+
 	// TODO(roasbeef): add synced height n stuff
 	return &lnrpc.GetInfoResponse{
 		IdentityPubkey:         encodedIDPub,
@@ -2883,7 +2901,8 @@ func (r *rpcServer) GetInfo(_ context.Context,
 		CommitHash:             build.CommitHash,
 		SyncedToGraph:          isGraphSynced,
 		Features:               features,
-		RequireHtlcInterceptor: r.cfg.RequireInterceptor,
+		RequireHtlcInterceptor: requireInterceptor,
+		HtlcInterceptorMode:    rpcInterceptorMode,
 	}, nil
 }
 

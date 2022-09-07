@@ -25,6 +25,30 @@ var (
 	errBlockStreamStopped = errors.New("block epoch stream stopped")
 )
 
+type HtlcInterceptorMode int
+
+const (
+	// HtlcInterceptorModeOptional auto-resumes htlcs if no interceptor is
+	// connected.
+	HtlcInterceptorModeOptional HtlcInterceptorMode = iota
+
+	// HtlcInterceptorModeRequired holds htlcs until a client connects,
+	// unless the htlc is new.
+	HtlcInterceptorModeRequired
+)
+
+func (h HtlcInterceptorMode) String() string {
+	switch h {
+	case HtlcInterceptorModeOptional:
+		return "optional"
+
+	case HtlcInterceptorModeRequired:
+		return "required"
+	}
+
+	return "unknown"
+}
+
 // InterceptableSwitch is an implementation of ForwardingSwitch interface.
 // This implementation is used like a proxy that wraps the switch and
 // intercepts forward requests. A reference to the Switch is held in order
@@ -50,9 +74,8 @@ type InterceptableSwitch struct {
 	// client connect and disconnect.
 	interceptorRegistration chan ForwardInterceptor
 
-	// requireInterceptor indicates whether processing should block if no
-	// interceptor is connected.
-	requireInterceptor bool
+	// mode indicates the mode the interceptor is running in.
+	mode HtlcInterceptorMode
 
 	// interceptor is the handler for intercepted packets.
 	interceptor ForwardInterceptor
@@ -155,9 +178,8 @@ type InterceptableSwitchConfig struct {
 	// anymore.
 	CltvInterceptDelta uint32
 
-	// RequireInterceptor indicates whether processing should block if no
-	// interceptor is connected.
-	RequireInterceptor bool
+	// Mode is the mode in which to serve htlc interceptor clients.
+	Mode HtlcInterceptorMode
 }
 
 // NewInterceptableSwitch returns an instance of InterceptableSwitch.
@@ -177,13 +199,18 @@ func NewInterceptableSwitch(cfg *InterceptableSwitchConfig) (
 		interceptorRegistration: make(chan ForwardInterceptor),
 		heldHtlcSet:             newHeldHtlcSet(),
 		resolutionChan:          make(chan *fwdResolution),
-		requireInterceptor:      cfg.RequireInterceptor,
+		mode:                    cfg.Mode,
 		cltvRejectDelta:         cfg.CltvRejectDelta,
 		cltvInterceptDelta:      cfg.CltvInterceptDelta,
 		notifier:                cfg.Notifier,
 
 		quit: make(chan struct{}),
 	}, nil
+}
+
+// Mode returns the mode that the interceptor is currently running in.
+func (s *InterceptableSwitch) Mode() HtlcInterceptorMode {
+	return s.mode
 }
 
 // SetInterceptor sets the ForwardInterceptor to be used. A nil argument
@@ -244,7 +271,7 @@ func (s *InterceptableSwitch) run() error {
 	}
 
 	log.Debugf("InterceptableSwitch running: height=%v, "+
-		"requireInterceptor=%v", s.currentHeight, s.requireInterceptor)
+		"mode=%v", s.currentHeight, s.mode)
 
 	for {
 		select {
@@ -346,7 +373,7 @@ func (s *InterceptableSwitch) setInterceptor(interceptor ForwardInterceptor) {
 
 	// The interceptor disconnects. If an interceptor is required, keep the
 	// held htlcs.
-	if s.requireInterceptor {
+	if s.mode != HtlcInterceptorModeOptional {
 		log.Infof("Interceptor disconnected, retaining held packets")
 
 		return
@@ -514,7 +541,7 @@ func (s *InterceptableSwitch) forward(
 	// replay status determine how the packet is handled.
 	if s.interceptor == nil {
 		// Process normally if an interceptor is not required.
-		if !s.requireInterceptor {
+		if s.mode == HtlcInterceptorModeOptional {
 			return false, nil
 		}
 

@@ -3922,6 +3922,7 @@ func TestSwitchHoldForward(t *testing.T) {
 			CltvRejectDelta:    c.cltvRejectDelta,
 			CltvInterceptDelta: c.cltvInterceptDelta,
 			Notifier:           notifier,
+			Mode:               HtlcInterceptorModeOptional,
 		},
 	)
 	require.NoError(t, err)
@@ -4124,8 +4125,8 @@ func TestSwitchHoldForward(t *testing.T) {
 			Switch:             c.s,
 			CltvRejectDelta:    c.cltvRejectDelta,
 			CltvInterceptDelta: c.cltvInterceptDelta,
-			RequireInterceptor: true,
 			Notifier:           notifier,
+			Mode:               HtlcInterceptorModeRequired,
 		},
 	)
 	require.NoError(t, err)
@@ -5493,6 +5494,7 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 			Notifier:           notifier,
 			CltvRejectDelta:    10,
 			CltvInterceptDelta: 13,
+			Mode:               HtlcInterceptorModeOptional,
 		},
 	)
 	require.NoError(t, err)

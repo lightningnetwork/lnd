@@ -204,6 +204,10 @@ const (
 	// defaultKeepFailedPaymentAttempts is the default setting for whether
 	// to keep failed payments in the database.
 	defaultKeepFailedPaymentAttempts = false
+
+	// defaultHtlcInterceptorMode is the default setting for the htlc
+	// interceptor.
+	defaultHtlcInterceptorMode = "optional"
 )
 
 var (
@@ -384,7 +388,11 @@ type Config struct {
 
 	// RequireInterceptor determines whether the HTLC interceptor is
 	// registered regardless of whether the RPC is called or not.
-	RequireInterceptor bool `long:"requireinterceptor" description:"Whether to always intercept HTLCs, even if no stream is attached"`
+	RequireInterceptor bool `long:"requireinterceptor" description:"DEPRECATED: Whether to always intercept HTLCs, even if no stream is attached. THIS FLAG WILL BE REMOVED IN 0.17.0"`
+
+	RawHTLCInterceptorMode string `long:"htlc-interceptor-mode" description:"The mode in which to serve htlc interceptor clients." choice:"optional" choice:"required"`
+
+	HTLCInterceptorMode htlcswitch.HtlcInterceptorMode
 
 	StaggerInitialReconnect bool `long:"stagger-initial-reconnect" description:"If true, will apply a randomized staggering between 0s and 30s when reconnecting to persistent peers on startup. The first 10 reconnections will be attempted instantly, regardless of the flag's value"`
 
@@ -650,6 +658,7 @@ func DefaultConfig() Config {
 		Htlcswitch: &lncfg.Htlcswitch{
 			MailboxDeliveryTimeout: htlcswitch.DefaultMailboxDeliveryTimeout,
 		},
+		RawHTLCInterceptorMode: defaultHtlcInterceptorMode,
 	}
 }
 
@@ -1656,6 +1665,13 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			lncfg.DefaultIncomingBroadcastDelta)
 	}
 
+	// Parse HTLC interceptor mode.
+	cfg.HTLCInterceptorMode, err = cfg.parseHtlcInterceptorMode()
+	if err != nil {
+		return nil, mkErr("error parsing htlc interceptor mode: %v",
+			err)
+	}
+
 	// Validate the subconfigs for workers, caches, and the tower client.
 	err = lncfg.Validate(
 		cfg.Workers,
@@ -1683,6 +1699,26 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 
 	// All good, return the sanitized result.
 	return &cfg, nil
+}
+
+func (c *Config) parseHtlcInterceptorMode() (htlcswitch.HtlcInterceptorMode,
+	error) {
+
+	switch c.RawHTLCInterceptorMode {
+	case "optional":
+		// Examine deprecated flag for backwards compatibility.
+		if c.RequireInterceptor {
+			return htlcswitch.HtlcInterceptorModeRequired, nil
+		}
+
+		return htlcswitch.HtlcInterceptorModeOptional, nil
+
+	case "required":
+		return htlcswitch.HtlcInterceptorModeRequired, nil
+	}
+
+	return 0, fmt.Errorf("unknown htlc interceptor mode %v",
+		c.RawHTLCInterceptorMode)
 }
 
 // graphDatabaseDir returns the default directory where the local bolt graph db

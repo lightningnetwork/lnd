@@ -666,12 +666,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	if err != nil {
 		return nil, err
 	}
+
 	s.interceptableSwitch, err = htlcswitch.NewInterceptableSwitch(
 		&htlcswitch.InterceptableSwitchConfig{
 			Switch:             s.htlcSwitch,
 			CltvRejectDelta:    lncfg.DefaultFinalCltvRejectDelta,
 			CltvInterceptDelta: lncfg.DefaultCltvInterceptDelta,
-			RequireInterceptor: s.cfg.RequireInterceptor,
+			Mode:               s.cfg.HTLCInterceptorMode,
 			Notifier:           s.cc.ChainNotifier,
 		},
 	)

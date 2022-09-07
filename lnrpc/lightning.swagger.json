@@ -2801,6 +2801,15 @@
       "default": "LIMBO",
       "description": "There are three resolution states for the anchor:\nlimbo, lost and recovered. Derive the current state\nfrom the limbo and recovered balances.\n\n - LIMBO: The recovered_balance is zero and limbo_balance is non-zero.\n - RECOVERED: The recovered_balance is non-zero.\n - LOST: A state that is neither LIMBO nor RECOVERED."
     },
+    "GetInfoResponseHTLCInterceptorMode": {
+      "type": "string",
+      "enum": [
+        "OPTIONAL",
+        "REQUIRED"
+      ],
+      "default": "OPTIONAL",
+      "description": " - OPTIONAL: Auto-resumes htlcs if no interceptor is connected.\n - REQUIRED: Holds htlcs until a client connects, unless the htlc is new."
+    },
     "HTLCAttemptHTLCStatus": {
       "type": "string",
       "enum": [
@@ -4735,7 +4744,11 @@
         },
         "require_htlc_interceptor": {
           "type": "boolean",
-          "description": "Indicates whether the HTLC interceptor API is in always-on mode."
+          "description": "Deprecated. Indicates whether the HTLC interceptor API is in always-on mode."
+        },
+        "htlc_interceptor_mode": {
+          "$ref": "#/definitions/GetInfoResponseHTLCInterceptorMode",
+          "description": "The mode in which htlc interceptor clients are served."
         }
       }
     },

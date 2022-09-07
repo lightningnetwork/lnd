@@ -2876,6 +2876,9 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	case htlcswitch.HtlcInterceptorModeRequired:
 		rpcInterceptorMode = lnrpc.GetInfoResponse_REQUIRED
 
+	case htlcswitch.HtlcInterceptorModeAlwaysRequired:
+		rpcInterceptorMode = lnrpc.GetInfoResponse_ALWAYS_REQUIRED
+
 	default:
 		return nil, fmt.Errorf("unknown htlc interceptor mode %v",
 			interceptorMode)

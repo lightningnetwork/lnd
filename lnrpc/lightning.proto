@@ -1912,6 +1912,10 @@ message GetInfoResponse {
 
         // Holds htlcs until a client connects, unless the htlc is new.
         REQUIRED = 1;
+
+        // Holds htlcs until a client connects regardless of whether the htlc is
+        // new or a replay or.
+        ALWAYS_REQUIRED = 2;
     }
 
     // The mode in which htlc interceptor clients are served.

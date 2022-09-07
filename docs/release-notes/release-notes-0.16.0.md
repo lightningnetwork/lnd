@@ -39,6 +39,10 @@
 
 * [Make remote channel reserve amount configurable for 
   `openchannel`](https://github.com/lightningnetwork/lnd/pull/6956)
+  
+* [Add new HTLC interceptor mode](https://github.com/lightningnetwork/lnd/pull/6896)
+  to allow interception of every htlc. This change deprecates the
+  `--requireinterceptor` command line flag in favor of `--htlc-interceptor-mode`.
 
 * [`ForwardingHistory` ](https://github.com/lightningnetwork/lnd/pull/7001) now
   enriches each forwarding event with inbound and outbound peer alias names if

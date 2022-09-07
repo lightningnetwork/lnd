@@ -35,6 +35,10 @@ const (
 	// HtlcInterceptorModeRequired holds htlcs until a client connects,
 	// unless the htlc is new.
 	HtlcInterceptorModeRequired
+
+	// HtlcInterceptorModeAlwaysRequired holds htlcs until a client connects
+	// regardless of whether the htlc is new or a replay or.
+	HtlcInterceptorModeAlwaysRequired
 )
 
 func (h HtlcInterceptorMode) String() string {
@@ -44,6 +48,9 @@ func (h HtlcInterceptorMode) String() string {
 
 	case HtlcInterceptorModeRequired:
 		return "required"
+
+	case HtlcInterceptorModeAlwaysRequired:
+		return "always-required"
 	}
 
 	return "unknown"
@@ -548,7 +555,7 @@ func (s *InterceptableSwitch) forward(
 		// We are in interceptor-required mode. If this is a new packet, it is
 		// still safe to fail back. The interceptor has never seen this packet
 		// yet. This limits the backlog of htlcs when the interceptor is down.
-		if !isReplay {
+		if !isReplay && s.mode == HtlcInterceptorModeRequired {
 			err := fwd.FailWithCode(
 				lnwire.CodeTemporaryChannelFailure,
 			)
@@ -559,9 +566,10 @@ func (s *InterceptableSwitch) forward(
 			return true, nil
 		}
 
-		// This packet is a replay. It is not safe to fail back, because the
-		// interceptor may still signal otherwise upon reconnect. Keep the
-		// packet in the queue until then.
+		// This packet is a replay or we are in 'always required' mode.
+		// It is not safe to fail back, because the interceptor may
+		// still signal otherwise upon reconnect. Keep the packet in the
+		// queue until then.
 		if err := s.heldHtlcSet.push(inKey, fwd); err != nil {
 			return false, err
 		}

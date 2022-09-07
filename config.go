@@ -390,7 +390,7 @@ type Config struct {
 	// registered regardless of whether the RPC is called or not.
 	RequireInterceptor bool `long:"requireinterceptor" description:"DEPRECATED: Whether to always intercept HTLCs, even if no stream is attached. THIS FLAG WILL BE REMOVED IN 0.17.0"`
 
-	RawHTLCInterceptorMode string `long:"htlc-interceptor-mode" description:"The mode in which to serve htlc interceptor clients." choice:"optional" choice:"required"`
+	RawHTLCInterceptorMode string `long:"htlc-interceptor-mode" description:"The mode in which to serve htlc interceptor clients." choice:"optional" choice:"required" choice:"always-required"`
 
 	HTLCInterceptorMode htlcswitch.HtlcInterceptorMode
 
@@ -1715,6 +1715,15 @@ func (c *Config) parseHtlcInterceptorMode() (htlcswitch.HtlcInterceptorMode,
 
 	case "required":
 		return htlcswitch.HtlcInterceptorModeRequired, nil
+
+	case "always-required":
+		if c.RequireInterceptor {
+			return 0, errors.New("conflicting configuration " +
+				"between requireinterceptor and " +
+				"htlc-interceptor-mode")
+		}
+
+		return htlcswitch.HtlcInterceptorModeAlwaysRequired, nil
 	}
 
 	return 0, fmt.Errorf("unknown htlc interceptor mode %v",

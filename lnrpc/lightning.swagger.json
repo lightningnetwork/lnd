@@ -2805,10 +2805,11 @@
       "type": "string",
       "enum": [
         "OPTIONAL",
-        "REQUIRED"
+        "REQUIRED",
+        "ALWAYS_REQUIRED"
       ],
       "default": "OPTIONAL",
-      "description": " - OPTIONAL: Auto-resumes htlcs if no interceptor is connected.\n - REQUIRED: Holds htlcs until a client connects, unless the htlc is new."
+      "description": " - OPTIONAL: Auto-resumes htlcs if no interceptor is connected.\n - REQUIRED: Holds htlcs until a client connects, unless the htlc is new.\n - ALWAYS_REQUIRED: Holds htlcs until a client connects regardless of whether the htlc is\nnew or a replay or."
     },
     "HTLCAttemptHTLCStatus": {
       "type": "string",

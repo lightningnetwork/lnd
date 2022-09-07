@@ -4186,6 +4186,58 @@ func TestSwitchHoldForward(t *testing.T) {
 	assertOutgoingLinkReceive(t, c.aliceChannelLink, true)
 	assertNumCircuits(t, c.s, 0, 0)
 
+	// Test always-required interception.
+	notifier = &mock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+	}
+	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: testStartingHeight}
+
+	switchForwardInterceptor, err = NewInterceptableSwitch(
+		&InterceptableSwitchConfig{
+			Switch:             c.s,
+			CltvRejectDelta:    c.cltvRejectDelta,
+			CltvInterceptDelta: c.cltvInterceptDelta,
+			Notifier:           notifier,
+			Mode:               HtlcInterceptorModeAlwaysRequired,
+		},
+	)
+	require.NoError(t, err)
+	require.NoError(t, switchForwardInterceptor.Start())
+
+	// Forward a fresh packet. It is expected to be held until an
+	// interceptor registers.
+	errChan = make(chan error)
+	go func() {
+		errChan <- switchForwardInterceptor.ForwardPackets(
+			linkQuit, true, c.createTestPacket(),
+		)
+	}()
+
+	// Assert that nothing is forwarded to the switch.
+	assertOutgoingLinkReceive(t, c.bobChannelLink, false)
+	assertNumCircuits(t, c.s, 0, 0)
+
+	// Register an interceptor.
+	switchForwardInterceptor.SetInterceptor(
+		c.forwardInterceptor.InterceptForwardHtlc,
+	)
+
+	// Expect the ForwardPackets call to unblock.
+	require.NoError(t, <-errChan)
+
+	// Now expect the queued packet to come through.
+	intercepted = c.forwardInterceptor.getIntercepted()
+
+	// Settle the packet.
+	require.NoError(t, switchForwardInterceptor.Resolve(&FwdResolution{
+		Key:      intercepted.IncomingCircuit,
+		Action:   FwdActionSettle,
+		Preimage: c.preimage,
+	}))
+	assertOutgoingLinkReceive(t, c.bobChannelLink, false)
+	assertOutgoingLinkReceive(t, c.aliceChannelLink, true)
+	assertNumCircuits(t, c.s, 0, 0)
+
 	require.NoError(t, switchForwardInterceptor.Stop())
 
 	select {

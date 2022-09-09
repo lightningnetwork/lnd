@@ -126,8 +126,8 @@ type AddInvoiceData struct {
 	// NOTE: Preimage should always be set to nil when this value is true.
 	Amp bool
 
-	// RouteHints are optional route hints that can each be individually used
-	// to assist in reaching the invoice's destination.
+	// RouteHints are optional route hints that can each be individually
+	// used to assist in reaching the invoice's destination.
 	RouteHints [][]zpay32.HopHint
 }
 
@@ -159,7 +159,9 @@ func (d *AddInvoiceData) paymentHashAndPreimage() (
 
 // ampPaymentHashAndPreimage returns the payment hash to use for an AMP invoice.
 // The preimage will always be nil.
-func (d *AddInvoiceData) ampPaymentHashAndPreimage() (*lntypes.Preimage, lntypes.Hash, error) {
+func (d *AddInvoiceData) ampPaymentHashAndPreimage() (*lntypes.Preimage,
+	lntypes.Hash, error) {
+
 	switch {
 	// Preimages cannot be set on AMP invoice.
 	case d.Preimage != nil:
@@ -184,7 +186,9 @@ func (d *AddInvoiceData) ampPaymentHashAndPreimage() (*lntypes.Preimage, lntypes
 
 // mppPaymentHashAndPreimage returns the payment hash and preimage to use for an
 // MPP invoice.
-func (d *AddInvoiceData) mppPaymentHashAndPreimage() (*lntypes.Preimage, lntypes.Hash, error) {
+func (d *AddInvoiceData) mppPaymentHashAndPreimage() (*lntypes.Preimage,
+	lntypes.Hash, error) {
+
 	var (
 		paymentPreimage *lntypes.Preimage
 		paymentHash     lntypes.Hash
@@ -235,11 +239,14 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	// exceed the maximum values for either of the fields.
 	if len(invoice.Memo) > channeldb.MaxMemoSize {
 		return nil, nil, fmt.Errorf("memo too large: %v bytes "+
-			"(maxsize=%v)", len(invoice.Memo), channeldb.MaxMemoSize)
+			"(maxsize=%v)", len(invoice.Memo),
+			channeldb.MaxMemoSize)
 	}
-	if len(invoice.DescriptionHash) > 0 && len(invoice.DescriptionHash) != 32 {
-		return nil, nil, fmt.Errorf("description hash is %v bytes, must be 32",
-			len(invoice.DescriptionHash))
+	if len(invoice.DescriptionHash) > 0 &&
+		len(invoice.DescriptionHash) != 32 {
+
+		return nil, nil, fmt.Errorf("description hash is %v bytes, "+
+			"must be 32", len(invoice.DescriptionHash))
 	}
 
 	// We set the max invoice amount to 100k BTC, which itself is several
@@ -281,8 +288,8 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		addr, err := btcutil.DecodeAddress(invoice.FallbackAddr,
 			cfg.ChainParams)
 		if err != nil {
-			return nil, nil, fmt.Errorf("invalid fallback address: %v",
-				err)
+			return nil, nil, fmt.Errorf("invalid fallback "+
+				"address: %v", err)
 		}
 		options = append(options, zpay32.FallbackAddr(addr))
 	}
@@ -314,7 +321,8 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	// Otherwise, use the default AMP expiry.
 	default:
-		options = append(options, zpay32.Expiry(DefaultAMPInvoiceExpiry))
+		defaultExpiry := zpay32.Expiry(DefaultAMPInvoiceExpiry)
+		options = append(options, defaultExpiry)
 	}
 
 	// If the description hash is set, then we add it do the list of options.
@@ -333,8 +341,10 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	// an option on the command line when creating an invoice.
 	switch {
 	case invoice.CltvExpiry > math.MaxUint16:
-		return nil, nil, fmt.Errorf("CLTV delta of %v is too large, max "+
-			"accepted is: %v", invoice.CltvExpiry, math.MaxUint16)
+		return nil, nil, fmt.Errorf("CLTV delta of %v is too large, "+
+			"max accepted is: %v", invoice.CltvExpiry,
+			math.MaxUint16)
+
 	case invoice.CltvExpiry != 0:
 		// Disallow user-chosen final CLTV deltas below the required
 		// minimum.
@@ -346,17 +356,18 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 		options = append(options,
 			zpay32.CLTVExpiry(invoice.CltvExpiry))
+
 	default:
 		// TODO(roasbeef): assumes set delta between versions
-		defaultDelta := cfg.DefaultCLTVExpiry
-		options = append(options, zpay32.CLTVExpiry(uint64(defaultDelta)))
+		defaultCLTVExpiry := uint64(cfg.DefaultCLTVExpiry)
+		options = append(options, zpay32.CLTVExpiry(defaultCLTVExpiry))
 	}
 
-	// We make sure that the given invoice routing hints number is within the
-	// valid range
+	// We make sure that the given invoice routing hints number is within
+	// the valid range
 	if len(invoice.RouteHints) > 20 {
-		return nil, nil, fmt.Errorf("number of routing hints must not exceed " +
-			"maximum of 20")
+		return nil, nil, fmt.Errorf("number of routing hints must " +
+			"not exceed maximum of 20")
 	}
 
 	// We continue by populating the requested routing hints indexing their
@@ -364,8 +375,8 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	forcedHints := make(map[uint64]struct{})
 	for _, h := range invoice.RouteHints {
 		if len(h) == 0 {
-			return nil, nil, fmt.Errorf("number of hop hint within a route must " +
-				"be positive")
+			return nil, nil, fmt.Errorf("number of hop hint " +
+				"within a route must be positive")
 		}
 		options = append(options, zpay32.RouteHint(h))
 
@@ -379,23 +390,25 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	if invoice.Private {
 		openChannels, err := cfg.ChanDB.FetchAllChannels()
 		if err != nil {
-			return nil, nil, fmt.Errorf("could not fetch all channels")
+			return nil, nil, fmt.Errorf("could not fetch all " +
+				"channels")
 		}
 
 		if len(openChannels) > 0 {
-			// We filter the channels by excluding the ones that were specified by
-			// the caller and were already added.
+			// We filter the channels by excluding the ones that
+			// were specified by the caller and were already added.
 			var filteredChannels []*HopHintInfo
 			for _, c := range openChannels {
-				if _, ok := forcedHints[c.ShortChanID().ToUint64()]; ok {
+				scid := c.ShortChanID().ToUint64()
+				if _, ok := forcedHints[scid]; ok {
 					continue
 				}
 
 				// If this is a zero-conf channel, check if the
 				// confirmed SCID was used in forcedHints.
-				realScid := c.ZeroConfRealScid().ToUint64()
 				if c.IsZeroConf() {
-					if _, ok := forcedHints[realScid]; ok {
+					scid := c.ZeroConfRealScid().ToUint64()
+					if _, ok := forcedHints[scid]; ok {
 						continue
 					}
 				}

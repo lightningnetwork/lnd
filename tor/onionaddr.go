@@ -45,6 +45,9 @@ type OnionAddr struct {
 
 	// Port is the port of the onion address.
 	Port int
+
+	// PrivateKey is the onion address' private key.
+	PrivateKey string
 }
 
 // A compile-time check to ensure that OnionAddr implements the net.Addr

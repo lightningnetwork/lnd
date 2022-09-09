@@ -48,6 +48,9 @@ minimum version needed to build the project.
   [With the module updated](https://github.com/lightningnetwork/lnd/pull/6836),
   `lnd` now parses Tor control port messages correctly.
 
+* [Update Tor module](https://github.com/lightningnetwork/lnd/pull/6526) to 
+  allow the option to encrypt the private key on disk.
+
 ## `lncli`
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
   flag](https://github.com/lightningnetwork/lnd/pull/6818) that allows the 

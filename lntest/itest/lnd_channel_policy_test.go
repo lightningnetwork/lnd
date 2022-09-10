@@ -30,7 +30,7 @@ func assertPolicyUpdate(t *harnessTest, nodes []*lntest.HarnessNode,
 }
 
 // testUpdateChannelPolicy tests that policy updates made to a channel
-// gets propagated to other nodes in the network.
+// get propagated to other nodes in the network.
 func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
@@ -466,7 +466,8 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 			t, []*lntest.HarnessNode{net.Alice, net.Bob},
 			net.Alice.PubKeyStr, expectedPolicy, chanPoint3,
 		)
-		// Check that all nodes remembers the policy update
+
+		// Check that all nodes remember the policy update
 		// they received.
 		assertChannelPolicy(
 			t, net.Alice, net.Alice.PubKeyStr,

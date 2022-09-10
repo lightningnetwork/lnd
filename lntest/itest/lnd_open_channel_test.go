@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -226,13 +227,15 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 		chanGraph, err = net.Alice.DescribeGraph(ctxt, req)
 		if err != nil {
-			predErr = fmt.Errorf("unable to query for alice's routing table: %v", err)
+			predErr = fmt.Errorf("unable to query for "+
+				"alice's routing table: %v", err)
 			return false
 		}
 
 		numEdges = len(chanGraph.Edges)
 		if numEdges != 0 {
-			predErr = fmt.Errorf("expected to find no edge in the graph, found %d",
+			predErr = fmt.Errorf("expected to find "+
+				"no edge in the graph, found %d",
 				numEdges)
 			return false
 		}
@@ -249,10 +252,161 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	closeReorgedChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }
 
-// testBasicChannelCreationAndUpdates tests multiple channel opening and closing,
-// and ensures that if a node is subscribed to channel updates they will be
-// received correctly for both cooperative and force closed channels.
-func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTest) {
+// testOpenChannelFeePolicy checks if different channel fee scenarios
+// are correctly handled when the optional channel fee parameters
+// baseFee and feeRate are provided. If the OpenChannelRequest is not
+// provided with a value for baseFee/feeRate the expectation is that the
+// default baseFee/feeRate is applied.
+// 1.) no params provided to OpenChannelRequest
+// ChannelUpdate --> defaultBaseFee, defaultFeeRate
+// 2.) only baseFee provided to OpenChannelRequest
+// ChannelUpdate --> provided baseFee, defaultFeeRate
+// 3.) only feeRate provided to OpenChannelRequest
+// ChannelUpdate --> defaultBaseFee, provided FeeRate
+// 4.) baseFee and feeRate provided to OpenChannelRequest
+// ChannelUpdate --> provided baseFee, provided feeRate.
+func testOpenChannelUpdateFeePolicy(net *lntest.NetworkHarness,
+	t *harnessTest) {
+
+	const (
+		defaultBaseFee       = 1000
+		defaultFeeRate       = 1
+		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
+		defaultMinHtlc       = 1000
+		optionalBaseFee      = 1337
+		optionalFeeRate      = 1337
+	)
+
+	defaultMaxHtlc := calculateMaxHtlc(funding.MaxBtcFundingAmount)
+
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := chanAmt / 2
+
+	feeScenarios := []lntest.OpenChannelParams{
+		{
+			Amt:        chanAmt,
+			PushAmt:    pushAmt,
+			UseBaseFee: false,
+			UseFeeRate: false,
+		},
+		{
+			Amt:        chanAmt,
+			PushAmt:    pushAmt,
+			BaseFee:    optionalBaseFee,
+			UseBaseFee: true,
+			UseFeeRate: false,
+		},
+		{
+			Amt:        chanAmt,
+			PushAmt:    pushAmt,
+			FeeRate:    optionalFeeRate,
+			UseBaseFee: false,
+			UseFeeRate: true,
+		},
+		{
+			Amt:        chanAmt,
+			PushAmt:    pushAmt,
+			BaseFee:    optionalBaseFee,
+			FeeRate:    optionalFeeRate,
+			UseBaseFee: true,
+			UseFeeRate: true,
+		},
+	}
+
+	expectedPolicies := []lnrpc.RoutingPolicy{
+		{
+			FeeBaseMsat:      defaultBaseFee,
+			FeeRateMilliMsat: defaultFeeRate,
+			TimeLockDelta:    defaultTimeLockDelta,
+			MinHtlc:          defaultMinHtlc,
+			MaxHtlcMsat:      defaultMaxHtlc,
+		},
+		{
+			FeeBaseMsat:      optionalBaseFee,
+			FeeRateMilliMsat: defaultFeeRate,
+			TimeLockDelta:    defaultTimeLockDelta,
+			MinHtlc:          defaultMinHtlc,
+			MaxHtlcMsat:      defaultMaxHtlc,
+		},
+		{
+			FeeBaseMsat:      defaultBaseFee,
+			FeeRateMilliMsat: optionalFeeRate,
+			TimeLockDelta:    defaultTimeLockDelta,
+			MinHtlc:          defaultMinHtlc,
+			MaxHtlcMsat:      defaultMaxHtlc,
+		},
+		{
+			FeeBaseMsat:      optionalBaseFee,
+			FeeRateMilliMsat: optionalFeeRate,
+			TimeLockDelta:    defaultTimeLockDelta,
+			MinHtlc:          defaultMinHtlc,
+			MaxHtlcMsat:      defaultMaxHtlc,
+		},
+	}
+
+	bobExpectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultBaseFee,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	for i, feeScenario := range feeScenarios {
+		// Create a channel Alice->Bob.
+		chanPoint := openChannelAndAssert(
+			t, net, net.Alice, net.Bob,
+			feeScenario,
+		)
+
+		defer closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+
+		// We add all the nodes' update channels to a slice, such that we can
+		// make sure they all receive the expected updates.
+		nodes := []*lntest.HarnessNode{net.Alice, net.Bob}
+
+		// Alice and Bob should see each other's ChannelUpdates, advertising
+		// the preferred routing policies.
+		assertPolicyUpdate(
+			t, nodes, net.Alice.PubKeyStr,
+			&expectedPolicies[i], chanPoint,
+		)
+		assertPolicyUpdate(
+			t, nodes, net.Bob.PubKeyStr,
+			&bobExpectedPolicy, chanPoint,
+		)
+
+		// They should now know about the default policies.
+		for _, node := range nodes {
+			assertChannelPolicy(
+				t, node, net.Alice.PubKeyStr,
+				&expectedPolicies[i], chanPoint,
+			)
+			assertChannelPolicy(
+				t, node, net.Bob.PubKeyStr,
+				&bobExpectedPolicy, chanPoint,
+			)
+		}
+
+		require.NoError(
+			t.t, net.Alice.WaitForNetworkChannelOpen(chanPoint),
+			"alice reports channel opening",
+		)
+
+		require.NoError(
+			t.t, net.Bob.WaitForNetworkChannelOpen(chanPoint),
+			"bob reports channel opening",
+		)
+	}
+}
+
+// testBasicChannelCreationAndUpdates tests multiple channel opening and
+// closing, and ensures that if a node is subscribed to channel updates
+// they will be received correctly for both cooperative and force closed
+// channels.
+func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness,
+	t *harnessTest) {
+
 	runBasicChannelCreationAndUpdates(net, t, net.Alice, net.Bob)
 }
 

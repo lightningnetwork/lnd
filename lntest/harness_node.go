@@ -1330,7 +1330,7 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 
 // WaitForNetworkChannelOpen will block until a channel with the target
 // outpoint is seen as being fully advertised within the network. A channel is
-// considered "fully advertised" once both of its directional edges has been
+// considered "fully advertised" once both of its directional edges have been
 // advertised within the test Lightning Network.
 func (hn *HarnessNode) WaitForNetworkChannelOpen(
 	chanPoint *lnrpc.ChannelPoint) error {

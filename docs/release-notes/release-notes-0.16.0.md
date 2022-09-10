@@ -80,6 +80,11 @@ minimum version needed to build the project.
   `sweeper`](https://github.com/lightningnetwork/lnd/pull/6868) to allow
   customize sweeper batch duration.
 
+* [Add `base_fee_msat` and `fee_rate_ppm` flags to
+  `openchannel`](https://github.com/lightningnetwork/lnd/pull/6753) requests 
+  so that the user can specify fees during channel creation time in addition
+  to the default configuration.
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test 

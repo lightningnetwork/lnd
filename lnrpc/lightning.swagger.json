@@ -5661,6 +5661,24 @@
         "scid_alias": {
           "type": "boolean",
           "description": "If this is true, then an option-scid-alias channel-type open will be\nattempted."
+        },
+        "base_fee": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The base fee charged regardless of the number of milli-satoshis sent."
+        },
+        "fee_rate": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The fee rate in ppm (parts per million) that will be charged in\nproportion of the value of each forwarded HTLC."
+        },
+        "use_base_fee": {
+          "type": "boolean",
+          "description": "If use_base_fee is true the open channel announcement will update the\nchannel base fee with the value specified in base_fee. In the case of\na base_fee of 0 use_base_fee is needed downstream to distinguish whether\nto use the default base fee value specified in the config or 0."
+        },
+        "use_fee_rate": {
+          "type": "boolean",
+          "description": "If use_fee_rate is true the open channel announcement will update the\nchannel fee rate with the value specified in fee_rate. In the case of\na fee_rate of 0 use_fee_rate is needed downstream to distinguish whether\nto use the default fee rate value specified in the config or 0."
         }
       }
     },

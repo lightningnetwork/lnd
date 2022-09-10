@@ -1922,10 +1922,19 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// satoshis) does not exceed the amount the local party has requested
 	// for funding.
 	//
-	// TODO(roasbeef): incorporate base fee?
 	if remoteInitialBalance >= localFundingAmt {
 		return nil, fmt.Errorf("amount pushed to remote peer for " +
 			"initial state must be below the local funding amount")
+	}
+
+	// Determine if the user provided channel fees
+	// and if so pass them on to the funding workflow.
+	var channelBaseFee, channelFeeRate *uint64
+	if in.UseBaseFee {
+		channelBaseFee = &in.BaseFee
+	}
+	if in.UseFeeRate {
+		channelFeeRate = &in.FeeRate
 	}
 
 	// Ensure that the user doesn't exceed the current soft-limit for
@@ -2086,6 +2095,8 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		TargetPubkey:     nodePubKey,
 		ChainHash:        *r.cfg.ActiveNetParams.GenesisHash,
 		LocalFundingAmt:  localFundingAmt,
+		BaseFee:          channelBaseFee,
+		FeeRate:          channelFeeRate,
 		PushAmt:          lnwire.NewMSatFromSatoshis(remoteInitialBalance),
 		MinHtlcIn:        minHtlcIn,
 		FundingFeePerKw:  feeRate,

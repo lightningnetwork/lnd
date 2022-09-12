@@ -361,6 +361,79 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	)
 }
 
+// TestSendPaymentRouteInfiniteLoopWithBadHopHint tests that when sending
+// a payment with a malformed hop hint in the first hop, the hint is ignored
+// and the payment succeeds without an infinite loop of retries.
+func TestSendPaymentRouteInfiniteLoopWithBadHopHint(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
+
+	source := ctx.aliases["roasbeef"]
+	sourceNodeID, err := btcec.ParsePubKey(source[:])
+	require.NoError(t, err)
+
+	actualChannelID := ctx.getChannelIDFromAlias(t, "roasbeef", "songoku")
+	badChannelID := uint64(66666)
+
+	// Craft a LightningPayment struct that'll send a payment from roasbeef
+	// to songoku for 1000 satoshis.
+	var payHash lntypes.Hash
+	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
+	payment := LightningPayment{
+		Target:      ctx.aliases["songoku"],
+		Amount:      paymentAmt,
+		FeeLimit:    noFeeLimit,
+		paymentHash: &payHash,
+		RouteHints: [][]zpay32.HopHint{{
+			zpay32.HopHint{
+				NodeID:          sourceNodeID,
+				ChannelID:       badChannelID,
+				FeeBaseMSat:     uint32(50),
+				CLTVExpiryDelta: uint16(200),
+			},
+		}},
+	}
+
+	var preImage [32]byte
+	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
+
+	// Mock a payment result that always fails with FailUnknownNextPeer when
+	// the bad channel is the first hop.
+	badShortChanID := lnwire.NewShortChanIDFromInt(badChannelID)
+	newFwdError := htlcswitch.NewForwardingError(
+		&lnwire.FailUnknownNextPeer{}, 0,
+	)
+
+	payer, ok := ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld)
+	require.Equal(t, ok, true, "failed Payer cast")
+
+	payer.setPaymentResult(
+		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
+			// Returns a FailUnknownNextPeer if it's trying
+			// to pay an invalid channel.
+			if firstHop == badShortChanID {
+				return [32]byte{}, newFwdError
+			}
+
+			return preImage, nil
+		})
+
+	// Send off the payment request to the router, should succeed
+	// ignoring the bad channel id hint.
+	paymentPreImage, route, paymentErr := ctx.router.SendPayment(&payment)
+	require.NoError(t, paymentErr, "payment returned an error")
+
+	// The preimage should match up with the one created above.
+	require.Equal(t, preImage[:], paymentPreImage[:], "incorrect preimage")
+
+	// The route should have songoku as the first hop.
+	require.Equal(t, actualChannelID, route.Hops[0].ChannelID,
+		"route should go through the correct channel id",
+	)
+}
+
 // TestChannelUpdateValidation tests that a failed payment with an associated
 // channel update will only be applied to the graph when the update contains a
 // valid signature.

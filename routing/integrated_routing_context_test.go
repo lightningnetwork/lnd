@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 const (
@@ -47,6 +48,7 @@ type integratedRoutingContext struct {
 
 	mcCfg          MissionControlConfig
 	pathFindingCfg PathFindingConfig
+	routeHints     [][]zpay32.HopHint
 }
 
 // newIntegratedRoutingContext instantiates a new integrated routing test
@@ -177,6 +179,7 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 		Amount:         c.amt,
 		CltvLimit:      math.MaxUint32,
 		MaxParts:       maxParts,
+		RouteHints:     c.routeHints,
 	}
 
 	var paymentHash [32]byte

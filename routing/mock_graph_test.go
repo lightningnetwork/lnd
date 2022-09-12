@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -13,7 +14,12 @@ import (
 
 // createPubkey return a new test pubkey.
 func createPubkey(id byte) route.Vertex {
-	pubkey := route.Vertex{id}
+	_, secpPub := btcec.PrivKeyFromBytes([]byte{id})
+
+	var bytes [33]byte
+	copy(bytes[:], secpPub.SerializeCompressed()[:33])
+
+	pubkey := route.Vertex(bytes)
 	return pubkey
 }
 

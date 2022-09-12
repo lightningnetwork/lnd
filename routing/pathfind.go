@@ -538,10 +538,18 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	additionalEdgesWithSrc := make(map[route.Vertex][]*edgePolicyWithSource)
 	for vertex, outgoingEdgePolicies := range g.additionalEdges {
+		// Edges connected to self are always included in the graph,
+		// therefore can be skipped. This prevents us from trying
+		// routes to malformed hop hints.
+		if vertex == self {
+			continue
+		}
+
 		// Build reverse lookup to find incoming edges. Needed because
 		// search is taken place from target to source.
 		for _, outgoingEdgePolicy := range outgoingEdgePolicies {
 			toVertex := outgoingEdgePolicy.ToNodePubKey()
+
 			incomingEdgePolicy := &edgePolicyWithSource{
 				sourceNode: vertex,
 				edge:       outgoingEdgePolicy,

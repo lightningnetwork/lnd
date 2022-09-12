@@ -22,6 +22,13 @@ var (
 	testShare      = [32]byte{0x03, 0x04}
 	testSetID      = [32]byte{0x05, 0x06}
 	testChildIndex = uint32(17)
+
+	testBaseFee    uint32 = 100
+	testFeeRate    uint32 = 100
+	testCltvExpiry uint16 = 100
+
+	testMinimumHtlc   uint64 = 1
+	testMaxCltvExpiry uint32 = uint32(testCltvExpiry)
 )
 
 var recordEncDecTests = []recordEncDecTest{
@@ -64,6 +71,56 @@ var recordEncDecTests = []recordEncDecTest{
 			if amp.ChildIndex() != testChildIndex {
 				t.Fatal("incorrect child index")
 			}
+		},
+	},
+	{
+		name: "route blinding payment relay",
+		encRecord: func() tlv.RecordProducer {
+			return &record.PaymentRelay{
+				BaseFee:         testBaseFee,
+				FeeRate:         testFeeRate,
+				CltvExpiryDelta: testCltvExpiry,
+			}
+		},
+		decRecord: func() tlv.RecordProducer {
+			return new(record.PaymentRelay)
+		},
+		assert: func(t *testing.T, r interface{}) {
+			paymentRelay := r.(*record.PaymentRelay)
+			if paymentRelay.BaseFee != testBaseFee {
+				t.Fatal("incorrect base fee")
+			}
+			if paymentRelay.FeeRate != testFeeRate {
+				t.Fatal("incorrect fee rate")
+			}
+			if paymentRelay.CltvExpiryDelta != testCltvExpiry {
+				t.Fatal("incorrect cltv expiry")
+			}
+		},
+	},
+	{
+		name: "route blinding payment constraints",
+		encRecord: func() tlv.RecordProducer {
+			return &record.PaymentConstraints{
+				MaxCltvExpiryDelta: testMaxCltvExpiry,
+				HtlcMinimumMsat:    testMinimumHtlc,
+				// AllowedFeatures:    []byte{},
+			}
+		},
+		decRecord: func() tlv.RecordProducer {
+			return new(record.PaymentConstraints)
+		},
+		assert: func(t *testing.T, r interface{}) {
+			payConstraints := r.(*record.PaymentConstraints)
+			if payConstraints.MaxCltvExpiryDelta != testMaxCltvExpiry {
+				t.Fatal("incorrect blinded route expiry")
+			}
+			if payConstraints.HtlcMinimumMsat != testMinimumHtlc {
+				t.Fatal("incorrect minimum htlc")
+			}
+			// if bytes.Equal(payConstraints.AllowedFeatures, []byte{}) {
+			// 	t.Fatal("incorrect allowed features: ", payConstraints.AllowedFeatures)
+			// }
 		},
 	},
 }

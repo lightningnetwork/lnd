@@ -932,7 +932,7 @@ func (p *shardHandler) handleFailureMessage(rt *route.Route,
 	}
 
 	// Apply channel update to the channel edge policy in our db.
-	if !p.router.applyChannelUpdate(update, errSource) {
+	if !p.router.applyChannelUpdate(update) {
 		log.Debugf("Invalid channel update received: node=%v",
 			errVertex)
 	}

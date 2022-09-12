@@ -2393,16 +2393,32 @@ func (r *ChannelRouter) extractChannelUpdate(
 
 // applyChannelUpdate validates a channel update and if valid, applies it to the
 // database. It returns a bool indicating whether the updates were successful.
-func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
-	pubKey *btcec.PublicKey) bool {
-
+func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate) bool {
 	ch, _, _, err := r.GetChannelByID(msg.ShortChannelID)
 	if err != nil {
 		log.Errorf("Unable to retrieve channel by id: %v", err)
 		return false
 	}
 
-	if err := ValidateChannelUpdateAnn(pubKey, ch.Capacity, msg); err != nil {
+	var pubKey *btcec.PublicKey
+
+	switch msg.ChannelFlags & lnwire.ChanUpdateDirection {
+	case 0:
+		pubKey, _ = ch.NodeKey1()
+
+	case 1:
+		pubKey, _ = ch.NodeKey2()
+	}
+
+	// Exit early if the pubkey cannot be decided.
+	if pubKey == nil {
+		log.Errorf("Unable to decide pubkey with ChannelFlags=%v",
+			msg.ChannelFlags)
+		return false
+	}
+
+	err = ValidateChannelUpdateAnn(pubKey, ch.Capacity, msg)
+	if err != nil {
 		log.Errorf("Unable to validate channel update: %v", err)
 		return false
 	}

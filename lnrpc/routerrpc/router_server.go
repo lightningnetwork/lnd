@@ -72,6 +72,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/routerrpc.Router/TrackPayments": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 		"/routerrpc.Router/EstimateRouteFee": {{
 			Entity: "offchain",
 			Action: "read",
@@ -737,22 +741,65 @@ func (s *Server) trackPayment(identifier lntypes.Hash,
 	router := s.cfg.RouterBackend
 
 	// Subscribe to the outcome of this payment.
-	subscription, err := router.Tower.SubscribePayment(
-		identifier,
-	)
+	subscription, err := router.Tower.SubscribePayment(identifier)
+
 	switch {
 	case err == channeldb.ErrPaymentNotInitiated:
 		return status.Error(codes.NotFound, err.Error())
 	case err != nil:
 		return err
 	}
+
+	// Stream updates to the client.
+	err = s.trackPaymentStream(
+		stream.Context(), subscription, noInflightUpdates, stream.Send,
+	)
+
+	if errors.Is(err, context.Canceled) {
+		log.Debugf("Payment stream %v canceled", identifier)
+	}
+
+	return err
+}
+
+// TrackPayments returns a stream of payment state updates.
+func (s *Server) TrackPayments(request *TrackPaymentsRequest,
+	stream Router_TrackPaymentsServer) error {
+
+	log.Debug("TrackPayments called")
+
+	router := s.cfg.RouterBackend
+
+	// Subscribe to payments.
+	subscription, err := router.Tower.SubscribeAllPayments()
+	if err != nil {
+		return err
+	}
+
+	// Stream updates to the client.
+	err = s.trackPaymentStream(
+		stream.Context(), subscription, request.NoInflightUpdates,
+		stream.Send,
+	)
+
+	if errors.Is(err, context.Canceled) {
+		log.Debugf("TrackPayments payment stream canceled.")
+	}
+
+	return err
+}
+
+// trackPaymentStream streams payment updates to the client.
+func (s *Server) trackPaymentStream(context context.Context,
+	subscription routing.ControlTowerSubscriber, noInflightUpdates bool,
+	send func(*lnrpc.Payment) error) error {
+
 	defer subscription.Close()
 
-	// Stream updates back to the client. The first update is always the
-	// current state of the payment.
+	// Stream updates back to the client.
 	for {
 		select {
-		case item, ok := <-subscription.Updates:
+		case item, ok := <-subscription.Updates():
 			if !ok {
 				// No more payment updates.
 				return nil
@@ -766,13 +813,15 @@ func (s *Server) trackPayment(identifier lntypes.Hash,
 				continue
 			}
 
-			rpcPayment, err := router.MarshallPayment(result)
+			rpcPayment, err := s.cfg.RouterBackend.MarshallPayment(
+				result,
+			)
 			if err != nil {
 				return err
 			}
 
 			// Send event to the client.
-			err = stream.Send(rpcPayment)
+			err = send(rpcPayment)
 			if err != nil {
 				return err
 			}
@@ -780,9 +829,8 @@ func (s *Server) trackPayment(identifier lntypes.Hash,
 		case <-s.quit:
 			return errServerShuttingDown
 
-		case <-stream.Context().Done():
-			log.Debugf("Payment status stream %v canceled", identifier)
-			return stream.Context().Err()
+		case <-context.Done():
+			return context.Err()
 		}
 	}
 }

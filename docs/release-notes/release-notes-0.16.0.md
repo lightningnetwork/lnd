@@ -23,6 +23,10 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 
 * [Add list addresses RPC](https://github.com/lightningnetwork/lnd/pull/6596).
 
+* Add [TrackPayments](https://github.com/lightningnetwork/lnd/pull/6335)
+  method to the RPC to allow subscribing to updates from any inflight payment.
+  Similar to TrackPaymentV2, but for any inflight payment.
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only
@@ -88,6 +92,7 @@ minimum version needed to build the project.
 * Elle Mouton
 * ErikEk
 * hieblmi
+* Jesse de Wit
 * Olaoluwa Osuntokun
 * Oliver Gugger
 * Priyansh Rastogi

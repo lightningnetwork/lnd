@@ -26,6 +26,13 @@ type RouterClient interface {
 	// TrackPaymentV2 returns an update stream for the payment identified by the
 	// payment hash.
 	TrackPaymentV2(ctx context.Context, in *TrackPaymentRequest, opts ...grpc.CallOption) (Router_TrackPaymentV2Client, error)
+	// TrackPayments returns an update stream for every payment that is not in a
+	// terminal state. Note that if payments are in-flight while starting a new
+	// subscription, the start of the payment stream could produce out-of-order
+	// and/or duplicate events. In order to get updates for every in-flight
+	// payment attempt make sure to subscribe to this method before initiating any
+	// payments.
+	TrackPayments(ctx context.Context, in *TrackPaymentsRequest, opts ...grpc.CallOption) (Router_TrackPaymentsClient, error)
 	// EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
 	// may cost to send an HTLC to the target end destination.
 	EstimateRouteFee(ctx context.Context, in *RouteFeeRequest, opts ...grpc.CallOption) (*RouteFeeResponse, error)
@@ -165,6 +172,38 @@ func (x *routerTrackPaymentV2Client) Recv() (*lnrpc.Payment, error) {
 	return m, nil
 }
 
+func (c *routerClient) TrackPayments(ctx context.Context, in *TrackPaymentsRequest, opts ...grpc.CallOption) (Router_TrackPaymentsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Router_ServiceDesc.Streams[2], "/routerrpc.Router/TrackPayments", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &routerTrackPaymentsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Router_TrackPaymentsClient interface {
+	Recv() (*lnrpc.Payment, error)
+	grpc.ClientStream
+}
+
+type routerTrackPaymentsClient struct {
+	grpc.ClientStream
+}
+
+func (x *routerTrackPaymentsClient) Recv() (*lnrpc.Payment, error) {
+	m := new(lnrpc.Payment)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func (c *routerClient) EstimateRouteFee(ctx context.Context, in *RouteFeeRequest, opts ...grpc.CallOption) (*RouteFeeResponse, error) {
 	out := new(RouteFeeResponse)
 	err := c.cc.Invoke(ctx, "/routerrpc.Router/EstimateRouteFee", in, out, opts...)
@@ -257,7 +296,7 @@ func (c *routerClient) BuildRoute(ctx context.Context, in *BuildRouteRequest, op
 }
 
 func (c *routerClient) SubscribeHtlcEvents(ctx context.Context, in *SubscribeHtlcEventsRequest, opts ...grpc.CallOption) (Router_SubscribeHtlcEventsClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Router_ServiceDesc.Streams[2], "/routerrpc.Router/SubscribeHtlcEvents", opts...)
+	stream, err := c.cc.NewStream(ctx, &Router_ServiceDesc.Streams[3], "/routerrpc.Router/SubscribeHtlcEvents", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +329,7 @@ func (x *routerSubscribeHtlcEventsClient) Recv() (*HtlcEvent, error) {
 
 // Deprecated: Do not use.
 func (c *routerClient) SendPayment(ctx context.Context, in *SendPaymentRequest, opts ...grpc.CallOption) (Router_SendPaymentClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Router_ServiceDesc.Streams[3], "/routerrpc.Router/SendPayment", opts...)
+	stream, err := c.cc.NewStream(ctx, &Router_ServiceDesc.Streams[4], "/routerrpc.Router/SendPayment", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +362,7 @@ func (x *routerSendPaymentClient) Recv() (*PaymentStatus, error) {
 
 // Deprecated: Do not use.
 func (c *routerClient) TrackPayment(ctx context.Context, in *TrackPaymentRequest, opts ...grpc.CallOption) (Router_TrackPaymentClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Router_ServiceDesc.Streams[4], "/routerrpc.Router/TrackPayment", opts...)
+	stream, err := c.cc.NewStream(ctx, &Router_ServiceDesc.Streams[5], "/routerrpc.Router/TrackPayment", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +394,7 @@ func (x *routerTrackPaymentClient) Recv() (*PaymentStatus, error) {
 }
 
 func (c *routerClient) HtlcInterceptor(ctx context.Context, opts ...grpc.CallOption) (Router_HtlcInterceptorClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Router_ServiceDesc.Streams[5], "/routerrpc.Router/HtlcInterceptor", opts...)
+	stream, err := c.cc.NewStream(ctx, &Router_ServiceDesc.Streams[6], "/routerrpc.Router/HtlcInterceptor", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -405,6 +444,13 @@ type RouterServer interface {
 	// TrackPaymentV2 returns an update stream for the payment identified by the
 	// payment hash.
 	TrackPaymentV2(*TrackPaymentRequest, Router_TrackPaymentV2Server) error
+	// TrackPayments returns an update stream for every payment that is not in a
+	// terminal state. Note that if payments are in-flight while starting a new
+	// subscription, the start of the payment stream could produce out-of-order
+	// and/or duplicate events. In order to get updates for every in-flight
+	// payment attempt make sure to subscribe to this method before initiating any
+	// payments.
+	TrackPayments(*TrackPaymentsRequest, Router_TrackPaymentsServer) error
 	// EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
 	// may cost to send an HTLC to the target end destination.
 	EstimateRouteFee(context.Context, *RouteFeeRequest) (*RouteFeeResponse, error)
@@ -482,6 +528,9 @@ func (UnimplementedRouterServer) SendPaymentV2(*SendPaymentRequest, Router_SendP
 }
 func (UnimplementedRouterServer) TrackPaymentV2(*TrackPaymentRequest, Router_TrackPaymentV2Server) error {
 	return status.Errorf(codes.Unimplemented, "method TrackPaymentV2 not implemented")
+}
+func (UnimplementedRouterServer) TrackPayments(*TrackPaymentsRequest, Router_TrackPaymentsServer) error {
+	return status.Errorf(codes.Unimplemented, "method TrackPayments not implemented")
 }
 func (UnimplementedRouterServer) EstimateRouteFee(context.Context, *RouteFeeRequest) (*RouteFeeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method EstimateRouteFee not implemented")
@@ -580,6 +629,27 @@ type routerTrackPaymentV2Server struct {
 }
 
 func (x *routerTrackPaymentV2Server) Send(m *lnrpc.Payment) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _Router_TrackPayments_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(TrackPaymentsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(RouterServer).TrackPayments(m, &routerTrackPaymentsServer{stream})
+}
+
+type Router_TrackPaymentsServer interface {
+	Send(*lnrpc.Payment) error
+	grpc.ServerStream
+}
+
+type routerTrackPaymentsServer struct {
+	grpc.ServerStream
+}
+
+func (x *routerTrackPaymentsServer) Send(m *lnrpc.Payment) error {
 	return x.ServerStream.SendMsg(m)
 }
 
@@ -931,6 +1001,11 @@ var Router_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "TrackPaymentV2",
 			Handler:       _Router_TrackPaymentV2_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "TrackPayments",
+			Handler:       _Router_TrackPayments_Handler,
 			ServerStreams: true,
 		},
 		{

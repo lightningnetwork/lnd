@@ -259,6 +259,13 @@ func newRoute(sourceVertex route.Vertex,
 		}
 
 		hops = append([]*route.Hop{currentHop}, hops...)
+
+		// Fail route building if max htlc is exceeded.
+		if edge.MessageFlags.HasMaxHtlc() &&
+			nextIncomingAmount > edge.MaxHTLC {
+
+			return nil, route.ErrMaxHtlcExceeded
+		}
 	}
 
 	// With the base routing data expressed as hops, build the full route

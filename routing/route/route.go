@@ -30,6 +30,10 @@ var (
 	// construct a new sphinx packet, but provides too many hops.
 	ErrMaxRouteHopsExceeded = fmt.Errorf("route has too many hops")
 
+	// ErrMaxHtlcExceeded is returned when a channel policy's max htlc is
+	// exceeded.
+	ErrMaxHtlcExceeded = fmt.Errorf("route exceeds max htlc policy")
+
 	// ErrIntermediateMPPHop is returned when a hop tries to deliver an MPP
 	// record to an intermediate hop, only final hops can receive MPP
 	// records.

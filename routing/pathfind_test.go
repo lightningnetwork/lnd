@@ -1533,6 +1533,21 @@ func TestNewRoute(t *testing.T) {
 				0,
 			},
 		},
+		{
+			name:          "max htlc",
+			paymentAmount: 4000,
+			hops: []*channeldb.CachedEdgePolicy{
+				createHop(
+					0, 0, 10,
+					withHtlcAmtRange(0, 8000),
+				),
+				createHop(
+					3000, 10000, 10,
+					withHtlcAmtRange(5000, 10000),
+				),
+			},
+			expectedError: route.ErrMaxHtlcExceeded,
+		},
 	}
 
 	for _, testCase := range testCases {

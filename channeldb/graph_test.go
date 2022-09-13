@@ -3264,11 +3264,6 @@ func TestComputeFee(t *testing.T) {
 	if fee != expectedFee {
 		t.Fatalf("expected fee %v, got %v", expectedFee, fee)
 	}
-
-	fwdFee := policy.ComputeFeeFromIncoming(outgoingAmt + fee)
-	if fwdFee != expectedFee {
-		t.Fatalf("expected fee %v, but got %v", fee, fwdFee)
-	}
 }
 
 // TestBatchedAddChannelEdge asserts that BatchedAddChannelEdge properly

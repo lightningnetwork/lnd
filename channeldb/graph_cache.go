@@ -92,17 +92,6 @@ func (c *CachedEdgePolicy) ComputeFee(
 	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
 }
 
-// ComputeFeeFromIncoming computes the fee to forward an HTLC given the incoming
-// amount.
-func (c *CachedEdgePolicy) ComputeFeeFromIncoming(
-	incomingAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
-
-	return incomingAmt - divideCeil(
-		feeRateParts*(incomingAmt-c.FeeBaseMSat),
-		feeRateParts+c.FeeProportionalMillionths,
-	)
-}
-
 // NewCachedPolicy turns a full policy into a minimal one that can be cached.
 func NewCachedPolicy(policy *ChannelEdgePolicy) *CachedEdgePolicy {
 	return &CachedEdgePolicy{

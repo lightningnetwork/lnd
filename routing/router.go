@@ -2731,22 +2731,23 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 	// Allocate a list that will contain the unified policies for this
 	// route.
-	edges := make([]*unifiedPolicy, len(hops))
+	edges := make([]*channeldb.CachedEdgePolicy, len(hops))
 
-	var runningAmt lnwire.MilliSatoshi
+	var paymentAmt lnwire.MilliSatoshi
 	if useMinAmt {
 		// For minimum amount routes, aim to deliver at least 1 msat to
 		// the destination. There are nodes in the wild that have a
 		// min_htlc channel policy of zero, which could lead to a zero
 		// amount payment being made.
-		runningAmt = 1
+		paymentAmt = 1
 	} else {
 		// If an amount is specified, we need to build a route that
 		// delivers exactly this amount to the final destination.
-		runningAmt = *amt
+		paymentAmt = *amt
 	}
 
 	// Traverse hops backwards to accumulate fees in the running amounts.
+	runningAmt := paymentAmt
 	source := r.selfNode.PubKeyBytes
 	for i := len(hops) - 1; i >= 0; i-- {
 		toNode := hops[i]
@@ -2778,12 +2779,10 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 			}
 		}
 
-		// If using min amt, increase amt if needed.
-		if useMinAmt {
-			min := unifiedPolicy.minAmt()
-			if min > runningAmt {
-				runningAmt = min
-			}
+		// Increase amount if needed to satisfy minimum htlc size.
+		min := unifiedPolicy.minAmt()
+		if min > runningAmt {
+			runningAmt = min
 		}
 
 		// Get a forwarding policy for the specific amount that we want
@@ -2803,40 +2802,15 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		log.Tracef("Select channel %v at position %v", policy.ChannelID, i)
 
-		edges[i] = unifiedPolicy
-	}
-
-	// Now that we arrived at the start of the route and found out the route
-	// total amount, we make a forward pass. Because the amount may have
-	// been increased in the backward pass, fees need to be recalculated and
-	// amount ranges re-checked.
-	var pathEdges []*channeldb.CachedEdgePolicy
-	receiverAmt := runningAmt
-	for i, edge := range edges {
-		policy := edge.getPolicy(receiverAmt, bandwidthHints)
-		if policy == nil {
-			return nil, ErrNoChannel{
-				fromNode: hops[i-1],
-				position: i,
-			}
-		}
-
-		if i > 0 {
-			// Decrease the amount to send while going forward.
-			receiverAmt -= policy.ComputeFeeFromIncoming(
-				receiverAmt,
-			)
-		}
-
-		pathEdges = append(pathEdges, policy)
+		edges[i] = policy
 	}
 
 	// Build and return the final route.
 	return newRoute(
-		source, pathEdges, uint32(height),
+		source, edges, uint32(height),
 		finalHopParams{
-			amt:         receiverAmt,
-			totalAmt:    receiverAmt,
+			amt:         paymentAmt,
+			totalAmt:    paymentAmt,
 			cltvDelta:   uint16(finalCltvDelta),
 			records:     nil,
 			paymentAddr: payAddr,

@@ -51,7 +51,8 @@ Retrieving information about your tower’s configurations can be done using
         "listeners": [
                 "[::]:9911"
         ],
-        "uris": null,
+        "uris": [
+        ],
 }
 ```
 
@@ -59,7 +60,7 @@ The entire set of watchtower configuration options can be found using
 `lnd -h`:
 
 ```shell
-⛰  lncli -h
+⛰  lnd -h
 ...
 watchtower:
       --watchtower.active                                     If the watchtower should be active or not

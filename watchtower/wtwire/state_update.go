@@ -4,7 +4,7 @@ import "io"
 
 // StateUpdate transmits an encrypted state update from the client to the
 // watchtower. Each state update is tied to particular session, identified by
-// the client's brontine key used to make the request.
+// the client's brontide key used to make the request.
 type StateUpdate struct {
 	// SeqNum is a 1-indexed, monotonically incrementing sequence number.
 	// This number represents to the client's expected sequence number when

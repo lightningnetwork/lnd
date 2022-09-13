@@ -64,6 +64,12 @@ func (c *ShortChannelID) Record() tlv.Record {
 	)
 }
 
+// IsDefault returns true if the ShortChannelID represents the zero value for
+// its type.
+func (c ShortChannelID) IsDefault() bool {
+	return c == ShortChannelID{}
+}
+
 // EShortChannelID is an encoder for ShortChannelID. It is exported so other
 // packages can use the encoding scheme.
 func EShortChannelID(w io.Writer, val interface{}, buf *[8]byte) error {

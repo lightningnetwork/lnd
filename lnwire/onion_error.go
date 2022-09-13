@@ -1235,10 +1235,6 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	if err := ReadElement(r, &failureLength); err != nil {
 		return nil, fmt.Errorf("unable to read error len: %v", err)
 	}
-	if failureLength > FailureMessageLength {
-		return nil, fmt.Errorf("failure message is too "+
-			"long: %v", failureLength)
-	}
 	failureData := make([]byte, failureLength)
 	if _, err := io.ReadFull(r, failureData); err != nil {
 		return nil, fmt.Errorf("unable to full read payload of "+

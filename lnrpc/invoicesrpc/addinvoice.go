@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	mathRand "math/rand"
+	"sort"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -35,6 +37,10 @@ const (
 	// inbound capacity we want our hop hints to represent, allowing us to
 	// have some leeway if peers go offline.
 	hopHintFactor = 2
+
+	// maxHopHints is the maximum number of hint paths that will be included
+	// in an invoice.
+	maxHopHints = 20
 )
 
 // AddInvoiceConfig contains dependencies for invoice creation.
@@ -325,8 +331,9 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		options = append(options, defaultExpiry)
 	}
 
-	// If the description hash is set, then we add it do the list of options.
-	// If not, use the memo field as the payment request description.
+	// If the description hash is set, then we add it do the list of
+	// options. If not, use the memo field as the payment request
+	// description.
 	if len(invoice.DescriptionHash) > 0 {
 		var descHash [32]byte
 		copy(descHash[:], invoice.DescriptionHash[:])
@@ -365,93 +372,43 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	// We make sure that the given invoice routing hints number is within
 	// the valid range
-	if len(invoice.RouteHints) > 20 {
-		return nil, nil, fmt.Errorf("number of routing hints must " +
-			"not exceed maximum of 20")
+	if len(invoice.RouteHints) > maxHopHints {
+		return nil, nil, fmt.Errorf("number of routing hints must "+
+			"not exceed maximum of %v", maxHopHints)
 	}
 
-	// We continue by populating the requested routing hints indexing their
-	// corresponding channels so we won't duplicate them.
-	forcedHints := make(map[uint64]struct{})
-	for _, h := range invoice.RouteHints {
-		if len(h) == 0 {
-			return nil, nil, fmt.Errorf("number of hop hint " +
-				"within a route must be positive")
+	// Include route hints if needed.
+	if len(invoice.RouteHints) > 0 || invoice.Private {
+		// Validate provided hop hints.
+		for _, hint := range invoice.RouteHints {
+			if len(hint) == 0 {
+				return nil, nil, fmt.Errorf("number of hop " +
+					"hint within a route must be positive")
+			}
 		}
-		options = append(options, zpay32.RouteHint(h))
 
-		// Only this first hop is our direct channel.
-		forcedHints[h[0].ChannelID] = struct{}{}
-	}
+		totalHopHints := len(invoice.RouteHints)
+		if invoice.Private {
+			totalHopHints = maxHopHints
+		}
 
-	// If we were requested to include routing hints in the invoice, then
-	// we'll fetch all of our available private channels and create routing
-	// hints for them.
-	if invoice.Private {
-		openChannels, err := cfg.ChanDB.FetchAllChannels()
+		hopHintsCfg := newSelectHopHintsCfg(cfg, totalHopHints)
+		hopHints, err := PopulateHopHints(
+			hopHintsCfg, amtMSat, invoice.RouteHints,
+		)
 		if err != nil {
-			return nil, nil, fmt.Errorf("could not fetch all " +
-				"channels")
+			return nil, nil, fmt.Errorf("unable to populate hop "+
+				"hints: %v", err)
 		}
 
-		if len(openChannels) > 0 {
-			// We filter the channels by excluding the ones that
-			// were specified by the caller and were already added.
-			var filteredChannels []*HopHintInfo
-			for _, c := range openChannels {
-				scid := c.ShortChanID().ToUint64()
-				if _, ok := forcedHints[scid]; ok {
-					continue
-				}
+		// Convert our set of selected hop hints into route
+		// hints and add to our invoice options.
+		for _, hopHint := range hopHints {
+			routeHint := zpay32.RouteHint(hopHint)
 
-				// If this is a zero-conf channel, check if the
-				// confirmed SCID was used in forcedHints.
-				if c.IsZeroConf() {
-					scid := c.ZeroConfRealScid().ToUint64()
-					if _, ok := forcedHints[scid]; ok {
-						continue
-					}
-				}
-
-				chanID := lnwire.NewChanIDFromOutPoint(
-					&c.FundingOutpoint,
-				)
-
-				// Check whether the the peer's alias was
-				// provided in forcedHints.
-				peerAlias, _ := cfg.GetAlias(chanID)
-				peerScid := peerAlias.ToUint64()
-				if _, ok := forcedHints[peerScid]; ok {
-					continue
-				}
-
-				isActive := cfg.IsChannelActive(chanID)
-
-				hopHintInfo := newHopHintInfo(c, isActive)
-				filteredChannels = append(
-					filteredChannels, hopHintInfo,
-				)
-			}
-
-			// We'll restrict the number of individual route hints
-			// to 20 to avoid creating overly large invoices.
-			numMaxHophints := 20 - len(forcedHints)
-
-			hopHintsCfg := newSelectHopHintsCfg(cfg)
-			hopHints := SelectHopHints(
-				amtMSat, hopHintsCfg, filteredChannels,
-				numMaxHophints,
+			options = append(
+				options, routeHint,
 			)
-
-			// Convert our set of selected hop hints into route
-			// hints and add to our invoice options.
-			for _, hopHint := range hopHints {
-				routeHint := zpay32.RouteHint(hopHint)
-
-				options = append(
-					options, routeHint,
-				)
-			}
 		}
 	}
 
@@ -589,30 +546,6 @@ func chanCanBeHopHint(channel *HopHintInfo, cfg *SelectHopHintsCfg) (
 	return remotePolicy, true
 }
 
-// addHopHint creates a hop hint out of the passed channel and channel policy.
-// The new hop hint is appended to the passed slice.
-func addHopHint(hopHints *[][]zpay32.HopHint,
-	channel *HopHintInfo, chanPolicy *channeldb.ChannelEdgePolicy,
-	aliasScid lnwire.ShortChannelID) {
-
-	hopHint := zpay32.HopHint{
-		NodeID:      channel.RemotePubkey,
-		ChannelID:   channel.ShortChannelID,
-		FeeBaseMSat: uint32(chanPolicy.FeeBaseMSat),
-		FeeProportionalMillionths: uint32(
-			chanPolicy.FeeProportionalMillionths,
-		),
-		CLTVExpiryDelta: chanPolicy.TimeLockDelta,
-	}
-
-	var defaultScid lnwire.ShortChannelID
-	if aliasScid != defaultScid {
-		hopHint.ChannelID = aliasScid.ToUint64()
-	}
-
-	*hopHints = append(*hopHints, []zpay32.HopHint{hopHint})
-}
-
 // HopHintInfo contains the channel information required to create a hop hint.
 type HopHintInfo struct {
 	// IsPublic indicates whether a channel is advertised to the network.
@@ -660,6 +593,22 @@ func newHopHintInfo(c *channeldb.OpenChannel, isActive bool) *HopHintInfo {
 	}
 }
 
+// newHopHint returns a new hop hint using the relevant data from a hopHintInfo
+// and a ChannelEdgePolicy.
+func newHopHint(hopHintInfo *HopHintInfo,
+	chanPolicy *channeldb.ChannelEdgePolicy) zpay32.HopHint {
+
+	return zpay32.HopHint{
+		NodeID:      hopHintInfo.RemotePubkey,
+		ChannelID:   hopHintInfo.ShortChannelID,
+		FeeBaseMSat: uint32(chanPolicy.FeeBaseMSat),
+		FeeProportionalMillionths: uint32(
+			chanPolicy.FeeProportionalMillionths,
+		),
+		CLTVExpiryDelta: chanPolicy.TimeLockDelta,
+	}
+}
+
 // SelectHopHintsCfg contains the dependencies required to obtain hop hints
 // for an invoice.
 type SelectHopHintsCfg struct {
@@ -677,169 +626,208 @@ type SelectHopHintsCfg struct {
 	// GetAlias allows the peer's alias SCID to be retrieved for private
 	// option_scid_alias channels.
 	GetAlias func(lnwire.ChannelID) (lnwire.ShortChannelID, error)
+
+	// FetchAllChannels retrieves all open channels currently stored
+	// within the database.
+	FetchAllChannels func() ([]*channeldb.OpenChannel, error)
+
+	// IsChannelActive checks whether the channel identified by the provided
+	// ChannelID is considered active.
+	IsChannelActive func(chanID lnwire.ChannelID) bool
+
+	// MaxHopHints is the maximum number of hop hints we are interested in.
+	MaxHopHints int
 }
 
-func newSelectHopHintsCfg(invoicesCfg *AddInvoiceConfig) *SelectHopHintsCfg {
+func newSelectHopHintsCfg(invoicesCfg *AddInvoiceConfig,
+	maxHopHints int) *SelectHopHintsCfg {
+
 	return &SelectHopHintsCfg{
+		FetchAllChannels:      invoicesCfg.ChanDB.FetchAllChannels,
+		IsChannelActive:       invoicesCfg.IsChannelActive,
 		IsPublicNode:          invoicesCfg.Graph.IsPublicNode,
 		FetchChannelEdgesByID: invoicesCfg.Graph.FetchChannelEdgesByID,
 		GetAlias:              invoicesCfg.GetAlias,
+		MaxHopHints:           maxHopHints,
 	}
 }
 
 // sufficientHints checks whether we have sufficient hop hints, based on the
-// following criteria:
-//   - Hop hint count: limit to a set number of hop hints, regardless of whether
-//     we've reached our invoice amount or not.
-//   - Total incoming capacity: limit to our invoice amount * scaling factor to
-//     allow for some of our links going offline.
+// any of the following criteria:
+//   - Hop hint count: the number of hints have reach our max target.
+//   - Total incoming capacity: the sum of the remote balance amount in the
+//     hints is bigger of equal than our target (currently twice the invoice
+//     amount)
 //
 // We limit our number of hop hints like this to keep our invoice size down,
 // and to avoid leaking all our private channels when we don't need to.
-func sufficientHints(numHints, maxHints, scalingFactor int, amount,
-	totalHintAmount lnwire.MilliSatoshi) bool {
+func sufficientHints(nHintsLeft int, currentAmount,
+	targetAmount lnwire.MilliSatoshi) bool {
 
-	if numHints >= maxHints {
-		log.Debug("Reached maximum number of hop hints")
+	if nHintsLeft <= 0 {
+		log.Debugf("Reached targeted number of hop hints")
 		return true
 	}
 
-	requiredAmount := amount * lnwire.MilliSatoshi(scalingFactor)
-	if totalHintAmount >= requiredAmount {
+	if currentAmount >= targetAmount {
 		log.Debugf("Total hint amount: %v has reached target hint "+
-			"bandwidth: %v (invoice amount: %v * factor: %v)",
-			totalHintAmount, requiredAmount, amount,
-			scalingFactor)
-
+			"bandwidth: %v", currentAmount, targetAmount)
 		return true
 	}
 
 	return false
 }
 
-// SelectHopHints will select up to numMaxHophints from the set of passed open
+// getPotentialHints returns a slice of open channels that should be considered
+// for the hopHint list in an invoice. The slice is sorted in descending order
+// based on the remote balance.
+func getPotentialHints(cfg *SelectHopHintsCfg) ([]*channeldb.OpenChannel,
+	error) {
+
+	// TODO(positiveblue): get the channels slice already filtered by
+	// private == true and sorted by RemoteBalance?
+	openChannels, err := cfg.FetchAllChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	privateChannels := make([]*channeldb.OpenChannel, 0, len(openChannels))
+	for _, oc := range openChannels {
+		isPublic := oc.ChannelFlags&lnwire.FFAnnounceChannel != 0
+		if !isPublic {
+			privateChannels = append(privateChannels, oc)
+		}
+	}
+
+	// Sort the channels in descending remote balance.
+	compareRemoteBalance := func(i, j int) bool {
+		iBalance := privateChannels[i].LocalCommitment.RemoteBalance
+		jBalance := privateChannels[j].LocalCommitment.RemoteBalance
+		return iBalance > jBalance
+	}
+	sort.Slice(privateChannels, compareRemoteBalance)
+
+	return privateChannels, nil
+}
+
+// shouldIncludeChannel returns true if the channel passes all the checks to
+// be a hopHint in a given invoice.
+func shouldIncludeChannel(cfg *SelectHopHintsCfg,
+	channel *channeldb.OpenChannel,
+	alreadyIncluded map[uint64]bool) (zpay32.HopHint, lnwire.MilliSatoshi,
+	bool) {
+
+	if _, ok := alreadyIncluded[channel.ShortChannelID.ToUint64()]; ok {
+		return zpay32.HopHint{}, 0, false
+	}
+
+	chanID := lnwire.NewChanIDFromOutPoint(
+		&channel.FundingOutpoint,
+	)
+
+	hopHintInfo := newHopHintInfo(channel, cfg.IsChannelActive(chanID))
+
+	// If this channel can't be a hop hint, then skip it.
+	edgePolicy, canBeHopHint := chanCanBeHopHint(hopHintInfo, cfg)
+	if edgePolicy == nil || !canBeHopHint {
+		return zpay32.HopHint{}, 0, false
+	}
+
+	if hopHintInfo.ScidAliasFeature {
+		alias, err := cfg.GetAlias(chanID)
+		if err != nil {
+			return zpay32.HopHint{}, 0, false
+		}
+
+		if alias.IsDefault() || alreadyIncluded[alias.ToUint64()] {
+			return zpay32.HopHint{}, 0, false
+		}
+
+		hopHintInfo.ShortChannelID = alias.ToUint64()
+	}
+
+	// Now that we know this channel use usable, add it as a hop hint and
+	// the indexes we'll use later.
+	hopHint := newHopHint(hopHintInfo, edgePolicy)
+	return hopHint, hopHintInfo.RemoteBalance, true
+}
+
+// selectHopHints iterates a list of potential hints selecting the valid hop
+// hints until we have enough hints or run out of channels.
+//
+// NOTE: selectHopHints expects potentialHints to be already sorted in
+// descending priority.
+func selectHopHints(cfg *SelectHopHintsCfg, nHintsLeft int,
+	targetBandwidth lnwire.MilliSatoshi,
+	potentialHints []*channeldb.OpenChannel,
+	alreadyIncluded map[uint64]bool) [][]zpay32.HopHint {
+
+	currentBandwidth := lnwire.MilliSatoshi(0)
+	hopHints := make([][]zpay32.HopHint, 0, nHintsLeft)
+	for _, channel := range potentialHints {
+		enoughHopHints := sufficientHints(
+			nHintsLeft, currentBandwidth, targetBandwidth,
+		)
+		if enoughHopHints {
+			return hopHints
+		}
+
+		hopHint, remoteBalance, include := shouldIncludeChannel(
+			cfg, channel, alreadyIncluded,
+		)
+
+		if include {
+			// Now that we now this channel use usable, add it as a hop
+			// hint and the indexes we'll use later.
+			hopHints = append(hopHints, []zpay32.HopHint{hopHint})
+			currentBandwidth += remoteBalance
+			nHintsLeft--
+		}
+	}
+
+	// We do not want to leak information about how our remote balance is
+	// distributed in our private channels. We shuffle the selected ones
+	// here so they do not appear in order in the invoice.
+	mathRand.Shuffle(
+		len(hopHints), func(i, j int) {
+			hopHints[i], hopHints[j] = hopHints[j], hopHints[i]
+		},
+	)
+	return hopHints
+}
+
+// PopulateHopHints will select up to cfg.MaxHophints from the current open
 // channels. The set of hop hints will be returned as a slice of functional
 // options that'll append the route hint to the set of all route hints.
 //
 // TODO(roasbeef): do proper sub-set sum max hints usually << numChans.
-func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *SelectHopHintsCfg,
-	openChannels []*HopHintInfo,
-	numMaxHophints int) [][]zpay32.HopHint {
+func PopulateHopHints(cfg *SelectHopHintsCfg, amtMSat lnwire.MilliSatoshi,
+	forcedHints [][]zpay32.HopHint) ([][]zpay32.HopHint, error) {
 
-	// We'll add our hop hints in two passes, first we'll add all channels
-	// that are eligible to be hop hints, and also have a local balance
-	// above the payment amount.
-	var totalHintBandwidth lnwire.MilliSatoshi
-	hopHintChans := make(map[wire.OutPoint]struct{})
-	hopHints := make([][]zpay32.HopHint, 0, numMaxHophints)
-	for _, channel := range openChannels {
-		enoughHopHints := sufficientHints(
-			len(hopHints), numMaxHophints, hopHintFactor, amtMSat,
-			totalHintBandwidth,
-		)
-		if enoughHopHints {
-			log.Debugf("First pass of hop selection has " +
-				"sufficient hints")
+	hopHints := forcedHints
 
-			return hopHints
-		}
-
-		// If this channel can't be a hop hint, then skip it.
-		edgePolicy, canBeHopHint := chanCanBeHopHint(channel, cfg)
-		if edgePolicy == nil || !canBeHopHint {
-			continue
-		}
-
-		// Similarly, in this first pass, we'll ignore all channels in
-		// isolation can't satisfy this payment.
-		if channel.RemoteBalance < amtMSat {
-			continue
-		}
-
-		// Lookup and see if there is an alias SCID that exists.
-		chanID := lnwire.NewChanIDFromOutPoint(
-			&channel.FundingOutpoint,
-		)
-		alias, _ := cfg.GetAlias(chanID)
-
-		// If this is a channel where the option-scid-alias feature bit
-		// was negotiated and the alias is not yet assigned, we cannot
-		// issue an invoice. Doing so might expose the confirmed SCID
-		// of a private channel.
-		if channel.ScidAliasFeature {
-			var defaultScid lnwire.ShortChannelID
-			if alias == defaultScid {
-				continue
-			}
-		}
-
-		// Now that we now this channel use usable, add it as a hop
-		// hint and the indexes we'll use later.
-		addHopHint(&hopHints, channel, edgePolicy, alias)
-
-		hopHintChans[channel.FundingOutpoint] = struct{}{}
-		totalHintBandwidth += channel.RemoteBalance
+	// If we already have enough hints we don't need to add any more.
+	nHintsLeft := cfg.MaxHopHints - len(hopHints)
+	if nHintsLeft <= 0 {
+		return hopHints, nil
 	}
 
-	// In this second pass we'll add channels, and we'll either stop when
-	// we have 20 hop hints, we've run through all the available channels,
-	// or if the sum of available bandwidth in the routing hints exceeds 2x
-	// the payment amount. We do 2x here to account for a margin of error
-	// if some of the selected channels no longer become operable.
-	for i := 0; i < len(openChannels); i++ {
-		enoughHopHints := sufficientHints(
-			len(hopHints), numMaxHophints, hopHintFactor, amtMSat,
-			totalHintBandwidth,
-		)
-		if enoughHopHints {
-			log.Debugf("Second pass of hop selection has " +
-				"sufficient hints")
-
-			return hopHints
-		}
-
-		channel := openChannels[i]
-
-		// Skip the channel if we already selected it.
-		if _, ok := hopHintChans[channel.FundingOutpoint]; ok {
-			continue
-		}
-
-		// If the channel can't be a hop hint, then we'll skip it.
-		// Otherwise, we'll use the policy information to populate the
-		// hop hint.
-		remotePolicy, canBeHopHint := chanCanBeHopHint(channel, cfg)
-		if !canBeHopHint || remotePolicy == nil {
-			continue
-		}
-
-		// Lookup and see if there's an alias SCID that exists.
-		chanID := lnwire.NewChanIDFromOutPoint(
-			&channel.FundingOutpoint,
-		)
-		alias, _ := cfg.GetAlias(chanID)
-
-		// If this is a channel where the option-scid-alias feature bit
-		// was negotiated and the alias is not yet assigned, we cannot
-		// issue an invoice. Doing so might expose the confirmed SCID
-		// of a private channel.
-		if channel.ScidAliasFeature {
-			var defaultScid lnwire.ShortChannelID
-			if alias == defaultScid {
-				continue
-			}
-		}
-
-		// Include the route hint in our set of options that will be
-		// used when creating the invoice.
-		addHopHint(&hopHints, channel, remotePolicy, alias)
-
-		// As we've just added a new hop hint, we'll accumulate it's
-		// available balance now to update our tally.
-		//
-		// TODO(roasbeef): have a cut off based on min bandwidth?
-		totalHintBandwidth += channel.RemoteBalance
+	alreadyIncluded := make(map[uint64]bool)
+	for _, hopHint := range hopHints {
+		alreadyIncluded[hopHint[0].ChannelID] = true
 	}
 
-	return hopHints
+	potentialHints, err := getPotentialHints(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	targetBandwidth := amtMSat * hopHintFactor
+	selectedHints := selectHopHints(
+		cfg, nHintsLeft, targetBandwidth, potentialHints,
+		alreadyIncluded,
+	)
+
+	hopHints = append(hopHints, selectedHints...)
+	return hopHints, nil
 }

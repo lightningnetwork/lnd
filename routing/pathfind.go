@@ -137,7 +137,6 @@ func newRoute(sourceVertex route.Vertex,
 		// we compute the route in reverse.
 		var (
 			amtToForward     lnwire.MilliSatoshi
-			fee              lnwire.MilliSatoshi
 			outgoingTimeLock uint32
 			tlvPayload       bool
 			customRecords    record.CustomSet
@@ -172,9 +171,15 @@ func newRoute(sourceVertex route.Vertex,
 			// detailed.
 			amtToForward = finalHop.amt
 
-			// Fee is not part of the hop payload, but only used for
-			// reporting through RPC. Set to zero for the final hop.
-			fee = lnwire.MilliSatoshi(0)
+			// If this amount is however below the edge's min htlc
+			// constraint, then raise the amount to that minimum. A
+			// difference between the amount in the onion payload
+			// and the actual htlc amount is not tolerated.
+			if amtToForward < edge.MinHTLC {
+				amtToForward = edge.MinHTLC
+			}
+
+			nextIncomingAmount = amtToForward
 
 			// As this is the last hop, we'll use the specified
 			// final CLTV delta value instead of the value from the
@@ -219,7 +224,18 @@ func newRoute(sourceVertex route.Vertex,
 			// and its policy for the outgoing channel. This policy
 			// is stored as part of the incoming channel of
 			// the next hop.
-			fee = pathEdges[i+1].ComputeFee(amtToForward)
+			fee := pathEdges[i+1].ComputeFee(amtToForward)
+
+			// We update the amount that needs to flow into the
+			// *next* hop, which is the amount this hop needs to
+			// forward, accounting for the fee that it takes.
+			nextIncomingAmount = amtToForward + fee
+
+			// If this amount is below the edge's min htlc
+			// constraint, then raise the amount to that minimum.
+			if nextIncomingAmount < edge.MinHTLC {
+				nextIncomingAmount = edge.MinHTLC
+			}
 
 			// We'll take the total timelock of the preceding hop as
 			// the outgoing timelock or this hop. Then we'll
@@ -243,11 +259,6 @@ func newRoute(sourceVertex route.Vertex,
 		}
 
 		hops = append([]*route.Hop{currentHop}, hops...)
-
-		// Finally, we update the amount that needs to flow into the
-		// *next* hop, which is the amount this hop needs to forward,
-		// accounting for the fee that it takes.
-		nextIncomingAmount = amtToForward + fee
 	}
 
 	// With the base routing data expressed as hops, build the full route

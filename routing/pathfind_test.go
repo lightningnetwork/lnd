@@ -1304,11 +1304,21 @@ func TestNewRoute(t *testing.T) {
 		finalHopCLTV   = 1
 	)
 
+	type createOpt func(*channeldb.CachedEdgePolicy)
+
+	withHtlcAmtRange := func(min, max lnwire.MilliSatoshi) createOpt {
+		return func(o *channeldb.CachedEdgePolicy) {
+			o.MinHTLC = min
+			o.MaxHTLC = max
+			o.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
+		}
+	}
+
 	createHop := func(baseFee lnwire.MilliSatoshi,
 		feeRate lnwire.MilliSatoshi,
-		timeLockDelta uint16) *channeldb.CachedEdgePolicy {
+		timeLockDelta uint16, opts ...createOpt) *channeldb.CachedEdgePolicy {
 
-		return &channeldb.CachedEdgePolicy{
+		policy := &channeldb.CachedEdgePolicy{
 			ToNodePubKey: func() route.Vertex {
 				return route.Vertex{}
 			},
@@ -1317,6 +1327,12 @@ func TestNewRoute(t *testing.T) {
 			FeeBaseMSat:               baseFee,
 			TimeLockDelta:             timeLockDelta,
 		}
+
+		for _, o := range opts {
+			o(policy)
+		}
+
+		return policy
 	}
 
 	testCases := []struct {
@@ -1488,7 +1504,40 @@ func TestNewRoute(t *testing.T) {
 			expectedTotalAmount:   101101,
 			expectedTimeLocks:     []uint32{4, 1, 1},
 			expectedTotalTimeLock: 9,
-		}}
+		},
+		{
+			name:          "min htlc",
+			paymentAmount: 4000,
+			hops: []*channeldb.CachedEdgePolicy{
+				createHop(
+					0, 0, 10,
+				),
+				createHop(
+					4000, 20000, 10,
+					withHtlcAmtRange(10000, 50000),
+				),
+				createHop(
+					3000, 10000, 10,
+					withHtlcAmtRange(5000, 50000),
+				),
+			},
+			expectedTotalAmount:   14200,
+			expectedTotalTimeLock: 21,
+			expectedFees: []lnwire.MilliSatoshi{
+				// First hop fee is based on min htlc of
+				// outgoing channel.
+				4200,
+
+				// Second hop gets overpaid fee because of min
+				// htlc.
+				5000,
+
+				// Final hop gets paid no fee, but is overpaid
+				// the payment.
+				0,
+			},
+		},
+	}
 
 	for _, testCase := range testCases {
 		testCase := testCase

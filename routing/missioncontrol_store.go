@@ -5,6 +5,7 @@ import (
 	"container/list"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -245,7 +246,7 @@ func deserializeResult(k, v []byte) (*paymentResult, error) {
 
 	// Read failure.
 	failureBytes, err := wire.ReadVarBytes(
-		r, 0, lnwire.FailureMessageLength, "failure",
+		r, 0, math.MaxUint16, "failure",
 	)
 	if err != nil {
 		return nil, err

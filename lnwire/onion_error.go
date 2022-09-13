@@ -1264,9 +1264,9 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 
 	// Check the total length. Convert to 32 bits to prevent overflow.
 	totalLength := uint32(padLength) + uint32(failureLength)
-	if totalLength != FailureMessageLength {
-		return nil, fmt.Errorf("failure message length is "+
-			"incorrect: msg=%v, pad=%v, total=%v",
+	if totalLength < FailureMessageLength {
+		return nil, fmt.Errorf("failure message too short: "+
+			"msg=%v, pad=%v, total=%v",
 			failureLength, padLength, totalLength)
 	}
 

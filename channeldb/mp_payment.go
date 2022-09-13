@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"math"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -298,7 +299,7 @@ func deserializeHTLCFailInfo(r io.Reader) (*HTLCFailInfo, error) {
 
 	// Read failure.
 	failureBytes, err := wire.ReadVarBytes(
-		r, 0, lnwire.FailureMessageLength, "failure",
+		r, 0, math.MaxUint16, "failure",
 	)
 	if err != nil {
 		return nil, err

@@ -1306,7 +1306,6 @@ func TestNewRoute(t *testing.T) {
 
 	createHop := func(baseFee lnwire.MilliSatoshi,
 		feeRate lnwire.MilliSatoshi,
-		bandwidth lnwire.MilliSatoshi,
 		timeLockDelta uint16) *channeldb.CachedEdgePolicy {
 
 		return &channeldb.CachedEdgePolicy{
@@ -1379,7 +1378,7 @@ func TestNewRoute(t *testing.T) {
 			name:          "single hop",
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(100, 1000, 1000000, 10),
+				createHop(100, 1000, 10),
 			},
 			metadata:              []byte{1, 2, 3},
 			expectedFees:          []lnwire.MilliSatoshi{0},
@@ -1393,8 +1392,8 @@ func TestNewRoute(t *testing.T) {
 			name:          "two hop",
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 1000, 1000000, 10),
-				createHop(30, 1000, 1000000, 5),
+				createHop(0, 1000, 10),
+				createHop(30, 1000, 5),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{130, 0},
 			expectedTimeLocks:     []uint32{1, 1},
@@ -1408,8 +1407,8 @@ func TestNewRoute(t *testing.T) {
 			destFeatures:  tlvFeatures,
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 1000, 1000000, 10),
-				createHop(30, 1000, 1000000, 5),
+				createHop(0, 1000, 10),
+				createHop(30, 1000, 5),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{130, 0},
 			expectedTimeLocks:     []uint32{1, 1},
@@ -1425,8 +1424,8 @@ func TestNewRoute(t *testing.T) {
 			paymentAddr:   &testPaymentAddr,
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 1000, 1000000, 10),
-				createHop(30, 1000, 1000000, 5),
+				createHop(0, 1000, 10),
+				createHop(30, 1000, 5),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{130, 0},
 			expectedTimeLocks:     []uint32{1, 1},
@@ -1445,9 +1444,9 @@ func TestNewRoute(t *testing.T) {
 			name:          "three hop",
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 10, 1000000, 10),
-				createHop(0, 10, 1000000, 5),
-				createHop(0, 10, 1000000, 3),
+				createHop(0, 10, 10),
+				createHop(0, 10, 5),
+				createHop(0, 10, 3),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{1, 1, 0},
 			expectedTotalAmount:   100002,
@@ -1460,9 +1459,9 @@ func TestNewRoute(t *testing.T) {
 			name:          "three hop with fee carry over",
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 10000, 1000000, 10),
-				createHop(0, 10000, 1000000, 5),
-				createHop(0, 10000, 1000000, 3),
+				createHop(0, 10000, 10),
+				createHop(0, 10000, 5),
+				createHop(0, 10000, 3),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{1010, 1000, 0},
 			expectedTotalAmount:   102010,
@@ -1475,15 +1474,15 @@ func TestNewRoute(t *testing.T) {
 			name:          "three hop with minimal fees for carry over",
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 10000, 1000000, 10),
+				createHop(0, 10000, 10),
 
 				// First hop charges 0.1% so the second hop fee
 				// should show up in the first hop fee as 1 msat
 				// extra.
-				createHop(0, 1000, 1000000, 5),
+				createHop(0, 1000, 5),
 
 				// Second hop charges a fixed 1000 msat.
-				createHop(1000, 0, 1000000, 3),
+				createHop(1000, 0, 3),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{101, 1000, 0},
 			expectedTotalAmount:   101101,

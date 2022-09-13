@@ -207,6 +207,7 @@ func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 		bestPolicy  *channeldb.CachedEdgePolicy
 		maxFee      lnwire.MilliSatoshi
 		maxTimelock uint16
+		maxCapMsat  lnwire.MilliSatoshi
 	)
 
 	for _, edge := range u.edges {
@@ -221,6 +222,18 @@ func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 		if isDisabled {
 			continue
 		}
+
+		// Track the maximal capacity for usable channels. If we don't
+		// know the capacity, we fall back to MaxHTLC.
+		capMsat := lnwire.NewMSatFromSatoshis(edge.capacity)
+		if capMsat == 0 && edge.policy.MessageFlags.HasMaxHtlc() {
+			log.Tracef("No capacity available for channel %v, "+
+				"using MaxHtlcMsat (%v) as a fallback.",
+				edge.policy.ChannelID, edge.policy.MaxHTLC)
+
+			capMsat = edge.policy.MaxHTLC
+		}
+		maxCapMsat = lntypes.Max(capMsat, maxCapMsat)
 
 		// Track the maximum time lock of all channels that are
 		// candidate for non-strict forwarding at the routing node.
@@ -257,6 +270,7 @@ func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 	policyCopy := *bestPolicy
 	modifiedEdge := unifiedEdge{policy: &policyCopy}
 	modifiedEdge.policy.TimeLockDelta = maxTimelock
+	modifiedEdge.capacity = maxCapMsat.ToSatoshis()
 
 	return &modifiedEdge
 }

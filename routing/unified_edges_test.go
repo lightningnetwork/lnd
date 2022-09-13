@@ -26,7 +26,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		FeeBaseMSat:               30,
 		TimeLockDelta:             60,
 		MessageFlags:              lnwire.ChanUpdateOptionMaxHtlc,
-		MaxHTLC:                   500,
+		MaxHTLC:                   5000,
 		MinHTLC:                   100,
 	}
 	p2 := channeldb.CachedEdgePolicy{
@@ -34,7 +34,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		FeeBaseMSat:               10,
 		TimeLockDelta:             40,
 		MessageFlags:              lnwire.ChanUpdateOptionMaxHtlc,
-		MaxHTLC:                   400,
+		MaxHTLC:                   4000,
 		MinHTLC:                   100,
 	}
 	c1 := btcutil.Amount(7)
@@ -44,6 +44,13 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	unifierFilled.addPolicy(fromNode, &p1, c1)
 	unifierFilled.addPolicy(fromNode, &p2, c2)
 
+	unifierNoCapacity := newNodeEdgeUnifier(source, toNode, nil)
+	unifierNoCapacity.addPolicy(fromNode, &p1, 0)
+	unifierNoCapacity.addPolicy(fromNode, &p2, 0)
+
+	unifierNoInfo := newNodeEdgeUnifier(source, toNode, nil)
+	unifierNoInfo.addPolicy(fromNode, &channeldb.CachedEdgePolicy{}, 0)
+
 	tests := []struct {
 		name             string
 		unifier          *nodeEdgeUnifier
@@ -52,6 +59,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		expectedFeeRate  lnwire.MilliSatoshi
 		expectedTimeLock uint16
 		expectNoPolicy   bool
+		expectedCapacity btcutil.Amount
 	}{
 		{
 			name:           "amount below min htlc",
@@ -62,7 +70,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		{
 			name:           "amount above max htlc",
 			unifier:        unifierFilled,
-			amount:         550,
+			amount:         5500,
 			expectNoPolicy: true,
 		},
 		// For 200 msat, p1 yields the highest fee. Use that policy to
@@ -75,6 +83,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 			expectedFeeBase:  p1.FeeBaseMSat,
 			expectedFeeRate:  p1.FeeProportionalMillionths,
 			expectedTimeLock: p1.TimeLockDelta,
+			expectedCapacity: c2,
 		},
 		// For 400 sat, p2 yields the highest fee. Use that policy to
 		// forward, because it will also match p1 in case p2 does not
@@ -87,6 +96,23 @@ func TestNodeEdgeUnifier(t *testing.T) {
 			expectedFeeBase:  p2.FeeBaseMSat,
 			expectedFeeRate:  p2.FeeProportionalMillionths,
 			expectedTimeLock: p1.TimeLockDelta,
+			expectedCapacity: c2,
+		},
+		// If there's no capacity info present, we fall back to the max
+		// maxHTLC value.
+		{
+			name:             "no capacity info",
+			unifier:          unifierNoCapacity,
+			amount:           400,
+			expectedFeeBase:  p2.FeeBaseMSat,
+			expectedFeeRate:  p2.FeeProportionalMillionths,
+			expectedTimeLock: p1.TimeLockDelta,
+			expectedCapacity: p1.MaxHTLC.ToSatoshis(),
+		},
+		{
+			name:             "no info",
+			unifier:          unifierNoInfo,
+			expectedCapacity: 0,
 		},
 	}
 
@@ -113,6 +139,8 @@ func TestNodeEdgeUnifier(t *testing.T) {
 				policy.FeeProportionalMillionths, "fee rate")
 			require.Equal(t, test.expectedTimeLock,
 				policy.TimeLockDelta, "timelock")
+			require.Equal(t, test.expectedCapacity, edge.capacity,
+				"capacity")
 		})
 	}
 }

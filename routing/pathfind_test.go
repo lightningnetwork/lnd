@@ -1377,13 +1377,9 @@ func TestNewRoute(t *testing.T) {
 		// expectedTotalTimeLock is relative to the current block height.
 		expectedTotalTimeLock uint32
 
-		// expectError indicates whether the newRoute call is expected
+		// expectedError indicates whether the newRoute call is expected
 		// to fail or succeed.
-		expectError bool
-
-		// expectedErrorCode indicates the expected error code when
-		// expectError is true.
-		expectedErrorCode errorCode
+		expectedError error
 
 		expectedTLVPayload bool
 
@@ -1632,20 +1628,9 @@ func TestNewRoute(t *testing.T) {
 				},
 			)
 
-			if testCase.expectError {
-				expectedCode := testCase.expectedErrorCode
-				if err == nil || !IsError(err, expectedCode) {
-					t.Fatalf("expected newRoute to fail "+
-						"with error code %v but got "+
-						"%v instead",
-						expectedCode, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("unable to create path: %v", err)
-					return
-				}
+			require.ErrorIs(t, err, testCase.expectedError)
 
+			if testCase.expectedError == nil {
 				assertRoute(t, route)
 			}
 		})

@@ -1856,7 +1856,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	case *lnwire.UpdateFailHTLC:
 		// Verify that the failure reason is at least 256 bytes plus
 		// overhead.
-		const minimumFailReasonLength = lnwire.FailureMessageLength +
+		const minimumFailReasonLength = lnwire.MinFailureMessageLength +
 			2 + 2 + 32
 
 		if len(msg.Reason) < minimumFailReasonLength {
@@ -2901,7 +2901,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// that we need to convert this error within the switch
 			// to an actual error, by encrypting it as if we were
 			// the originating hop.
-			convertedErrorSize := lnwire.FailureMessageLength + 4
+			convertedErrorSize := lnwire.MinFailureMessageLength + 4
 			if len(pd.FailReason) == convertedErrorSize {
 				failPacket.convertedError = true
 			}

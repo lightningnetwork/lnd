@@ -129,7 +129,7 @@ func (r *forwardInterceptor) resolveFromClient(
 			// message size + hmac + two uint16 lengths. See BOLT
 			// #4.
 			if len(in.FailureMessage) !=
-				lnwire.FailureMessageLength+32+2+2 {
+				lnwire.MinFailureMessageLength+32+2+2 {
 
 				return status.Errorf(
 					codes.InvalidArgument,

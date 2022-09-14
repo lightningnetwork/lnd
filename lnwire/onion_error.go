@@ -345,6 +345,9 @@ type FailIncorrectDetails struct {
 
 	// height is the block height when the htlc was received.
 	height uint32
+
+	// extraOpaqueData contains additional failure message tlv data.
+	extraOpaqueData ExtraOpaqueData
 }
 
 // NewFailIncorrectDetails makes a new instance of the FailIncorrectDetails
@@ -353,8 +356,9 @@ func NewFailIncorrectDetails(amt MilliSatoshi,
 	height uint32) *FailIncorrectDetails {
 
 	return &FailIncorrectDetails{
-		amount: amt,
-		height: height,
+		amount:          amt,
+		height:          height,
+		extraOpaqueData: []byte{},
 	}
 }
 
@@ -366,6 +370,11 @@ func (f *FailIncorrectDetails) Amount() MilliSatoshi {
 // Height is the block height when the htlc was received.
 func (f *FailIncorrectDetails) Height() uint32 {
 	return f.height
+}
+
+// ExtraOpaqueData returns additional failure message tlv data.
+func (f *FailIncorrectDetails) ExtraOpaqueData() ExtraOpaqueData {
+	return f.extraOpaqueData
 }
 
 // Code returns the failure unique code.
@@ -413,7 +422,7 @@ func (f *FailIncorrectDetails) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	return nil
+	return f.extraOpaqueData.Decode(r)
 }
 
 // Encode writes the failure in bytes stream.
@@ -424,7 +433,11 @@ func (f *FailIncorrectDetails) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	return WriteUint32(w, f.height)
+	if err := WriteUint32(w, f.height); err != nil {
+		return err
+	}
+
+	return f.extraOpaqueData.Encode(w)
 }
 
 // FailFinalExpiryTooSoon is returned if the cltv_expiry is too low, the final

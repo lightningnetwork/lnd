@@ -23,12 +23,20 @@ const (
 type WalletState int32
 
 const (
+	// NON_EXISTING means that the wallet has not yet been initialized.
 	WalletState_NON_EXISTING WalletState = 0
-	WalletState_LOCKED       WalletState = 1
-	WalletState_UNLOCKED     WalletState = 2
-	WalletState_RPC_ACTIVE   WalletState = 3
+	// LOCKED means that the wallet is locked and requires a password to unlock.
+	WalletState_LOCKED WalletState = 1
+	// UNLOCKED means that the wallet was unlocked successfully, but RPC server
+	// isn't ready.
+	WalletState_UNLOCKED WalletState = 2
+	// RPC_ACTIVE means that the lnd server is active but not fully ready for
+	// calls.
+	WalletState_RPC_ACTIVE WalletState = 3
 	// SERVER_ACTIVE means that the lnd server is ready to accept calls.
-	WalletState_SERVER_ACTIVE    WalletState = 4
+	WalletState_SERVER_ACTIVE WalletState = 4
+	// WAITING_TO_START means that node is waiting to become the leader in a
+	// cluster and is not started yet.
 	WalletState_WAITING_TO_START WalletState = 255
 )
 

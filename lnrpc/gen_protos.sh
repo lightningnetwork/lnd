@@ -41,7 +41,7 @@ function generate() {
   # Generate the JSON/WASM client stubs.
   falafel=$(which falafel)
   pkg="lnrpc"
-  opts="package_name=$pkg,js_stubs=1,build_tags=// +build js"
+  opts="package_name=$pkg,js_stubs=1"
   protoc -I/usr/local/include -I. -I.. \
     --plugin=protoc-gen-custom=$falafel\
     --custom_out=. \
@@ -61,7 +61,7 @@ function generate() {
         manual_import="github.com/lightningnetwork/lnd/lnrpc"
     fi
 
-    opts="package_name=$package,manual_import=$manual_import,js_stubs=1,build_tags=// +build js"
+    opts="package_name=$package,manual_import=$manual_import,js_stubs=1"
     pushd $package
     protoc -I/usr/local/include -I. -I.. \
       --plugin=protoc-gen-custom=$falafel\

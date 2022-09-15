@@ -4,6 +4,7 @@ import (
 	"bytes"
 	goErrors "errors"
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 	"sync"
@@ -2700,147 +2701,40 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	hops []route.Vertex, outgoingChan *uint64,
 	finalCltvDelta int32, payAddr *[32]byte) (*route.Route, error) {
 
-	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v",
-		len(hops), amt)
-
-	var outgoingChans map[uint64]struct{}
-	if outgoingChan != nil {
-		outgoingChans = map[uint64]struct{}{
-			*outgoingChan: {},
-		}
+	// TODO: Allow min amount route building via path finding.
+	if amt == nil {
+		return nil, errors.New("Not implemented")
 	}
 
-	// If no amount is specified, we need to build a route for the minimum
-	// amount that this route can carry.
-	useMinAmt := amt == nil
-
-	// We'll attempt to obtain a set of bandwidth hints that helps us select
-	// the best outgoing channel to use in case no outgoing channel is set.
-	bandwidthHints, err := newBandwidthManager(
-		r.cachedGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
-	)
-	if err != nil {
-		return nil, err
+	// Build last hops restriction all the way back to the source.
+	var lastHops []route.Vertex
+	target := hops[len(hops)-1]
+	for i := len(hops) - 2; i >= 0; i-- {
+		lastHops = append(lastHops, hops[i])
 	}
+	lastHops = append(lastHops, r.selfNode.PubKeyBytes)
 
-	// Fetch the current block height outside the routing transaction, to
-	// prevent the rpc call blocking the database.
-	_, height, err := r.cfg.Chain.GetBestBlock()
-	if err != nil {
-		return nil, err
-	}
+	restrictions := &RestrictParams{
+		ProbabilitySource: func(fromNode, toNode route.Vertex,
+			amt lnwire.MilliSatoshi) float64 {
 
-	// Allocate a list that will contain the unified policies for this
-	// route.
-	edges := make([]*unifiedPolicy, len(hops))
-
-	var runningAmt lnwire.MilliSatoshi
-	if useMinAmt {
-		// For minimum amount routes, aim to deliver at least 1 msat to
-		// the destination. There are nodes in the wild that have a
-		// min_htlc channel policy of zero, which could lead to a zero
-		// amount payment being made.
-		runningAmt = 1
-	} else {
-		// If an amount is specified, we need to build a route that
-		// delivers exactly this amount to the final destination.
-		runningAmt = *amt
-	}
-
-	// Traverse hops backwards to accumulate fees in the running amounts.
-	source := r.selfNode.PubKeyBytes
-	for i := len(hops) - 1; i >= 0; i-- {
-		toNode := hops[i]
-
-		var fromNode route.Vertex
-		if i == 0 {
-			fromNode = source
-		} else {
-			fromNode = hops[i-1]
-		}
-
-		localChan := i == 0
-
-		// Build unified policies for this hop based on the channels
-		// known in the graph.
-		u := newUnifiedPolicies(source, toNode, outgoingChans)
-
-		err := u.addGraphPolicies(r.cachedGraph)
-		if err != nil {
-			return nil, err
-		}
-
-		// Exit if there are no channels.
-		unifiedPolicy, ok := u.policies[fromNode]
-		if !ok {
-			return nil, ErrNoChannel{
-				fromNode: fromNode,
-				position: i,
-			}
-		}
-
-		// If using min amt, increase amt if needed.
-		if useMinAmt {
-			min := unifiedPolicy.minAmt()
-			if min > runningAmt {
-				runningAmt = min
-			}
-		}
-
-		// Get a forwarding policy for the specific amount that we want
-		// to forward.
-		policy := unifiedPolicy.getPolicy(runningAmt, bandwidthHints)
-		if policy == nil {
-			return nil, ErrNoChannel{
-				fromNode: fromNode,
-				position: i,
-			}
-		}
-
-		// Add fee for this hop.
-		if !localChan {
-			runningAmt += policy.ComputeFee(runningAmt)
-		}
-
-		log.Tracef("Select channel %v at position %v", policy.ChannelID, i)
-
-		edges[i] = unifiedPolicy
-	}
-
-	// Now that we arrived at the start of the route and found out the route
-	// total amount, we make a forward pass. Because the amount may have
-	// been increased in the backward pass, fees need to be recalculated and
-	// amount ranges re-checked.
-	var pathEdges []*channeldb.CachedEdgePolicy
-	receiverAmt := runningAmt
-	for i, edge := range edges {
-		policy := edge.getPolicy(receiverAmt, bandwidthHints)
-		if policy == nil {
-			return nil, ErrNoChannel{
-				fromNode: hops[i-1],
-				position: i,
-			}
-		}
-
-		if i > 0 {
-			// Decrease the amount to send while going forward.
-			receiverAmt -= policy.ComputeFeeFromIncoming(
-				receiverAmt,
-			)
-		}
-
-		pathEdges = append(pathEdges, policy)
-	}
-
-	// Build and return the final route.
-	return newRoute(
-		source, pathEdges, uint32(height),
-		finalHopParams{
-			amt:         receiverAmt,
-			totalAmt:    receiverAmt,
-			cltvDelta:   uint16(finalCltvDelta),
-			records:     nil,
-			paymentAddr: payAddr,
+			return 1
 		},
+		FeeLimit:    lnwire.MaxMilliSatoshi,
+		CltvLimit:   math.MaxUint32,
+		PaymentAddr: payAddr,
+		LastHops:    lastHops,
+	}
+
+	if outgoingChan != nil {
+		restrictions.OutgoingChannelIDs = []uint64{*outgoingChan}
+	}
+
+	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v, target=%v",
+		len(hops), amt, target)
+
+	return r.FindRoute(
+		r.selfNode.PubKeyBytes, target, *amt, 0,
+		restrictions, nil, nil, uint16(finalCltvDelta),
 	)
 }

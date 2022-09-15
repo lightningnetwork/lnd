@@ -316,9 +316,10 @@ type RestrictParams struct {
 	// first hop. If nil, any channel may be used.
 	OutgoingChannelIDs []uint64
 
-	// LastHop is the pubkey of the last node before the final destination
-	// is reached. If nil, any node may be used.
-	LastHop *route.Vertex
+	// LastHops are the pubkeys of the last nodes before the final
+	// destination is reached. If empty, any node may be used. The ordering
+	// is from the final node backwards.
+	LastHops []route.Vertex
 
 	// CltvLimit is the maximum time lock of the route excluding the final
 	// ctlv. After path finding is complete, the caller needs to increase
@@ -774,14 +775,15 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// The new better distance is recorded, and also our "next hop"
 		// map is populated with this edge.
 		withDist := &nodeWithDist{
-			dist:            tempDist,
-			weight:          tempWeight,
-			node:            fromVertex,
-			amountToReceive: amountToReceive,
-			incomingCltv:    incomingCltv,
-			probability:     probability,
-			nextHop:         edge,
-			routingInfoSize: routingInfoSize,
+			dist:                tempDist,
+			weight:              tempWeight,
+			node:                fromVertex,
+			amountToReceive:     amountToReceive,
+			incomingCltv:        incomingCltv,
+			probability:         probability,
+			nextHop:             edge,
+			routingInfoSize:     routingInfoSize,
+			destinationDistance: toNodeDist.destinationDistance + 1,
 		}
 		distance[fromVertex] = withDist
 
@@ -868,8 +870,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			}
 
 			// Apply last hop restriction if set.
-			if r.LastHop != nil &&
-				pivot == target && fromNode != *r.LastHop {
+			if partialPath.destinationDistance < len(r.LastHops) &&
+				fromNode != r.LastHops[partialPath.destinationDistance] {
 
 				continue
 			}

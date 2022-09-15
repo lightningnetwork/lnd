@@ -248,11 +248,16 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// MissionControl.
+	var lastHops []route.Vertex
+	if p.payment.LastHop != nil {
+		lastHops = []route.Vertex{*p.payment.LastHop}
+	}
+
 	restrictions := &RestrictParams{
 		ProbabilitySource:  p.missionControl.GetProbability,
 		FeeLimit:           feeLimit,
 		OutgoingChannelIDs: p.payment.OutgoingChannelIDs,
-		LastHop:            p.payment.LastHop,
+		LastHops:           lastHops,
 		CltvLimit:          cltvLimit,
 		DestCustomRecords:  p.payment.DestCustomRecords,
 		DestFeatures:       p.payment.DestFeatures,

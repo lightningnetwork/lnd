@@ -2500,7 +2500,7 @@ func runRestrictLastHop(t *testing.T, useCache bool) {
 
 	// Find the best path given the restriction to use b as the last hop.
 	// This should force pathfinding to not take the lowest cost option.
-	ctx.restrictParams.LastHop = &lastHop
+	ctx.restrictParams.LastHops = []route.Vertex{lastHop}
 	path, err := ctx.findPath(target, paymentAmt)
 	require.NoError(t, err, "unable to find path")
 	if path[0].ChannelID != 3 {
@@ -2953,8 +2953,7 @@ func runRouteToSelf(t *testing.T, useCache bool) {
 	outgoingChanID := uint64(1)
 	lastHop := ctx.keyFromAlias("b")
 	ctx.restrictParams.OutgoingChannelIDs = []uint64{outgoingChanID}
-	ctx.restrictParams.LastHop = &lastHop
-
+	ctx.restrictParams.LastHops = []route.Vertex{lastHop}
 	// Find the best path to self given that we want to go out via channel 1
 	// and return through node b.
 	path, err = ctx.findPath(target, paymentAmt)

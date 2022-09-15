@@ -1793,10 +1793,11 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	route, err := newRoute(
 		source, path, uint32(currentHeight),
 		finalHopParams{
-			amt:       amt,
-			totalAmt:  amt,
-			cltvDelta: finalExpiry,
-			records:   destCustomRecords,
+			amt:         amt,
+			totalAmt:    amt,
+			cltvDelta:   finalExpiry,
+			records:     destCustomRecords,
+			paymentAddr: restrictions.PaymentAddr,
 		},
 	)
 	if err != nil {

@@ -248,3 +248,64 @@ func makeBigSizeFormatTlvStream(t *testing.T, vUint32 *uint32,
 
 	return ts
 }
+
+// TestDecodeP2P tests that the p2p variants of the stream decode functions
+// work with small records and fail with large records.
+func TestDecodeP2P(t *testing.T) {
+	t.Parallel()
+
+	const (
+		smallType tlv.Type = 8
+		largeType tlv.Type = 10
+	)
+
+	var (
+		smallBytes = []byte{
+			0x08, // tlv type = 8
+			0x10, // length = 16
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+		}
+
+		largeBytes = []byte{
+			0x0a,                         // tlv type = 10
+			0xfe, 0x00, 0x01, 0x00, 0x00, // length = 65536
+		}
+	)
+
+	// Verify the expected behavior for the large type.
+	s, err := tlv.NewStream(tlv.MakePrimitiveRecord(largeType, &[]byte{}))
+	require.NoError(t, err)
+
+	// Decoding with either of the p2p stream decoders should fail with the
+	// record too large error.
+	buf := bytes.NewBuffer(largeBytes)
+	require.Equal(t, s.DecodeP2P(buf), tlv.ErrRecordTooLarge)
+
+	buf2 := bytes.NewBuffer(largeBytes)
+	_, err = s.DecodeWithParsedTypesP2P(buf2)
+	require.Equal(t, err, tlv.ErrRecordTooLarge)
+
+	// Extend largeBytes with a payload of 65536 bytes so that the non-p2p
+	// decoders can successfully decode it.
+	largeSlice := make([]byte, 65542)
+	copy(largeSlice[:6], largeBytes)
+	buf3 := bytes.NewBuffer(largeSlice)
+	require.NoError(t, s.Decode(buf3))
+
+	buf4 := bytes.NewBuffer(largeSlice)
+	_, err = s.DecodeWithParsedTypes(buf4)
+	require.NoError(t, err)
+
+	// Now create a new stream and assert that the p2p-variants can decode
+	// small types.
+	s2, err := tlv.NewStream(tlv.MakePrimitiveRecord(smallType, &[]byte{}))
+	require.NoError(t, err)
+
+	buf5 := bytes.NewBuffer(smallBytes)
+	require.NoError(t, s2.DecodeP2P(buf5))
+
+	buf6 := bytes.NewBuffer(smallBytes)
+	_, err = s2.DecodeWithParsedTypesP2P(buf6)
+	require.NoError(t, err)
+}

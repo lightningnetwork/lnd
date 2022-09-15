@@ -76,6 +76,10 @@ minimum version needed to build the project.
 * [test: use `T.TempDir` to create temporary test 
   directory](https://github.com/lightningnetwork/lnd/pull/6710)
 
+* [The `tlv` package now allows decoding records larger than 65535 bytes. The
+  caller is expected to know that doing so with untrusted input is
+  unsafe.](https://github.com/lightningnetwork/lnd/pull/6779)
+
 ### Tooling and documentation
 
 * [The `golangci-lint` tool was updated to

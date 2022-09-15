@@ -370,12 +370,6 @@ var tlvDecodingFailureTests = []struct {
 		bytes:  []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00},
 		expErr: tlv.ErrStreamNotCanonical,
 	},
-	{
-		name:   "absurd record length",
-		bytes:  []byte{0xfd, 0x01, 0x91, 0xfe, 0xff, 0xff, 0xff, 0xff},
-		expErr: tlv.ErrRecordTooLarge,
-		skipN2: true,
-	},
 }
 
 // TestTLVDecodingSuccess asserts that the TLV parser fails to decode invalid

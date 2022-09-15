@@ -42,7 +42,7 @@ const (
 type pathFinder = func(g *graphParams, r *RestrictParams,
 	cfg *PathFindingConfig, source, target route.Vertex,
 	amt lnwire.MilliSatoshi, timePref float64, finalHtlcExpiry int32) (
-	[]*channeldb.CachedEdgePolicy, error)
+	*route.Route, error)
 
 var (
 	// DefaultAttemptCost is the default fixed virtual cost in path finding
@@ -426,7 +426,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 // available bandwidth.
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
-	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
+	finalHtlcExpiry int32) (*route.Route, error) {
 
 	// Pathfinding can be a significant portion of the total payment
 	// latency, especially on low-powered devices. Log several metrics to
@@ -567,8 +567,9 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		LegacyPayload: !features.HasFeature(
 			lnwire.TLVOnionPayloadOptional,
 		),
-		MPP:      mpp,
-		Metadata: r.Metadata,
+		MPP:         mpp,
+		Metadata:    r.Metadata,
+		PubKeyBytes: target,
 	}
 
 	// We can't always assume that the end destination is publicly
@@ -916,7 +917,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// Use the distance map to unravel the forward path from source to
 	// target.
-	var pathEdges []*channeldb.CachedEdgePolicy
+	var pathEdges []*nodeWithDist
 	currentNode := source
 	for {
 		// Determine the next hop forward using the next map.
@@ -928,7 +929,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 
 		// Add the next hop to the list of path edges.
-		pathEdges = append(pathEdges, currentNodeWithDist.nextHop)
+		pathEdges = append(pathEdges, currentNodeWithDist)
 
 		// Advance current node.
 		currentNode = currentNodeWithDist.nextHop.ToNodePubKey()
@@ -941,24 +942,74 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 	}
 
-	// For the final hop, we'll set the node features to those determined
-	// above. These are either taken from the destination features, e.g.
-	// virtual or invoice features, or loaded as a fallback from the graph.
-	// The transitive dependencies were already validated above, so no need
-	// to do so now.
-	//
-	// NOTE: This may overwrite features loaded from the graph if
-	// destination features were provided. This is fine though, since our
-	// route construction does not care where the features are actually
-	// taken from. In the future we may wish to do route construction within
-	// findPath, and avoid using ChannelEdgePolicy altogether.
-	pathEdges[len(pathEdges)-1].ToNodeFeatures = features
-
 	log.Debugf("Found route: probability=%v, hops=%v, fee=%v",
 		distance[source].probability, len(pathEdges),
 		distance[source].amountToReceive-amt)
 
-	return pathEdges, nil
+	var (
+		hops = make([]*route.Hop, len(pathEdges))
+
+		totalTimeLock int32
+		totalAmt      lnwire.MilliSatoshi
+	)
+
+	for nodeIdx := len(pathEdges) - 1; nodeIdx >= 0; nodeIdx-- {
+		var (
+			currentNodeWithDist = pathEdges[nodeIdx]
+			edge                = currentNodeWithDist.nextHop
+			nextNode            = edge.ToNodePubKey()
+		)
+
+		// For the final hop, use the previously constructed hop
+		// instance.
+		if nextNode == target {
+			finalHop.ChannelID = edge.ChannelID
+
+			hops[nodeIdx] = &finalHop
+
+			// Set the amount and timelock for the hop paying to the
+			// final hop.
+			totalTimeLock = int32(finalHop.OutgoingTimeLock)
+			totalAmt = finalHop.AmtToForward
+
+			continue
+		}
+
+		// Determine tlv payload support.
+		tlvPayload := edge.ToNodeFeatures != nil &&
+			edge.ToNodeFeatures.HasFeature(
+				lnwire.TLVOnionPayloadOptional,
+			)
+
+		// Build hop structure for the intermediate hop.
+		intermediateHop := &route.Hop{
+			PubKeyBytes:      nextNode,
+			ChannelID:        edge.ChannelID,
+			AmtToForward:     totalAmt,
+			OutgoingTimeLock: uint32(totalTimeLock),
+			LegacyPayload:    !tlvPayload,
+		}
+
+		hops[nodeIdx] = intermediateHop
+
+		// Update the amount and timelock for the hop paying to this
+		// hop.
+		next := pathEdges[nodeIdx+1]
+
+		totalTimeLock = next.incomingCltv
+		totalAmt = next.amountToReceive
+	}
+
+	// Construct the full route structure.
+	route, err := route.NewRouteFromHops(
+		totalAmt, uint32(totalTimeLock), route.Vertex(source),
+		hops,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return route, nil
 }
 
 // getProbabilityBasedDist converts a weight into a distance that takes into

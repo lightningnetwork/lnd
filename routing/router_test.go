@@ -2412,7 +2412,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	// We'll now attempt a path finding attempt using this set up. Due to
 	// the edge weighting, we should select the direct path over the 2 hop
 	// path even though the direct path has a higher potential time lock.
-	path, err := dbFindPath(
+	route, err := dbFindPath(
 		ctx.graph, nil, &mockBandwidthHints{},
 		noRestrictions,
 		testPathFindingConfig,
@@ -2420,13 +2420,15 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to find path")
 
+	path := route.Hops
+
 	// The route that was chosen should be exactly one hop, and should be
 	// directly to luoji.
 	if len(path) != 1 {
 		t.Fatalf("expected path length of 1, instead was: %v", len(path))
 	}
-	if path[0].ToNodePubKey() != ctx.aliases["luoji"] {
-		t.Fatalf("wrong node: %v", path[0].ToNodePubKey())
+	if path[0].PubKeyBytes != ctx.aliases["luoji"] {
+		t.Fatalf("wrong node: %v", path[0].PubKeyBytes)
 	}
 }
 

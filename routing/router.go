@@ -1775,7 +1775,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		return nil, errors.New("time preference out of range")
 	}
 
-	path, err := findPath(
+	route, err := findPath(
 		&graphParams{
 			additionalEdges: routeHints,
 			bandwidthHints:  bandwidthHints,
@@ -1784,20 +1784,6 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		restrictions,
 		&r.cfg.PathFindingConfig,
 		source, target, amt, timePref, finalHtlcExpiry,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create the route with absolute time lock values.
-	route, err := newRoute(
-		source, path, uint32(currentHeight),
-		finalHopParams{
-			amt:       amt,
-			totalAmt:  amt,
-			cltvDelta: finalExpiry,
-			records:   destCustomRecords,
-		},
 	)
 	if err != nil {
 		return nil, err

@@ -108,6 +108,40 @@ type unifiedPolicyEdge struct {
 	inboundFees htlcswitch.InboundFee
 }
 
+// ComputeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
+// the passed active payment channel. This value is currently computed as
+// specified in BOLT07, but will likely change in the near future.
+func (u *unifiedPolicyEdge) ComputeFee(
+	amtToForward lnwire.MilliSatoshi) int64 {
+
+	inboundFee := u.inboundFees.CalcFee(amtToForward)
+	outboundFee := int64(
+		u.policy.ComputeFee(
+			amtToForward + lnwire.MilliSatoshi(inboundFee),
+		),
+	)
+
+	return inboundFee + outboundFee
+}
+
+func (u *unifiedPolicyEdge) ComputeInboundFeeFromIncoming(
+	htlcAmt lnwire.MilliSatoshi) int64 {
+
+	return int64(htlcAmt) - divideCeil(
+		1e6*(int64(htlcAmt)-int64(u.inboundFees.Base)),
+		1e6+int64(u.inboundFees.Rate),
+	)
+}
+
+// divideCeil divides dividend by factor and rounds the result up.
+func divideCeil(dividend, factor int64) int64 {
+	return (dividend + factor - 1) / factor
+}
+
+func calcFee(amt int64, feeBase, feeRate int32) int64 {
+	return int64(feeBase) + amt*int64(feeRate)/1e6
+}
+
 // amtInRange checks whether an amount falls within the valid range for a
 // channel.
 func (u *unifiedPolicyEdge) amtInRange(amt lnwire.MilliSatoshi) bool {
@@ -292,8 +326,20 @@ func (u *unifiedPolicy) getPolicyNetwork(
 func (u *unifiedPolicy) minAmt() lnwire.MilliSatoshi {
 	min := lnwire.MaxMilliSatoshi
 	for _, edge := range u.edges {
-		if edge.policy.MinHTLC < min {
-			min = edge.policy.MinHTLC
+		edgeMin := edge.policy.MinHTLC
+
+		// Calculate inbound fee that is charged for sending this
+		// minimum amount.
+		inboundFee := edge.inboundFees.CalcFee(edgeMin) // TODO: Fix buildroute
+		if inboundFee < 0 {
+			// If fee is negative, add the discount to the minimum
+			// that can be sent to obtain what the node can
+			// minimally receive.
+			edgeMin += lnwire.MilliSatoshi(-inboundFee)
+		}
+
+		if edgeMin < min {
+			min = edgeMin
 		}
 	}
 

@@ -7,6 +7,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 // TestUnifiedPolicies tests the composition of unified policies for nodes that
@@ -92,3 +93,34 @@ func TestUnifiedPolicies(t *testing.T) {
 		p1.TimeLockDelta,
 	)
 }
+
+func TestCalcFeeNegative(t *testing.T) {
+	const (
+		baseFee     = 10000
+		feeRate     = 20000
+		amtReceived = 1000000
+	)
+
+	fee := calcFee(amtReceived, baseFee, feeRate)
+	negativeFee := calcFee(amtReceived, -baseFee, -feeRate)
+
+	require.Equal(t, -fee, negativeFee)
+}
+
+/*
+
+amtSent - fee = amtRecv
+amtSent - base - amtSent * rate = amtRecv
+amtSent = (amtRecv + base) / (1 - rate)
+
+fee = amtSent - amtRecv
+fee = (amtRecv + base) / (1 - rate) - amtRecv
+
+
+amtSent - floor(amtSent * rate / 1e6) - base = amtRecv
+floor((1-rate / 1e6) * amtSent) = amtRecv + base
+amtSent = (amtRecv+base)/(1-rate)
+
+
+980000
+*/

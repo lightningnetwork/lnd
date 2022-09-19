@@ -3108,6 +3108,117 @@ func TestBuildRoute(t *testing.T) {
 	}
 }
 
+// TestBuildRouteInboundFee tests whether correct routes are built when inbound
+// fees apply.
+func TestBuildRouteInboundFee(t *testing.T) {
+	// Setup a test network.
+	chanCapSat := btcutil.Amount(100000)
+	features := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.PaymentAddrOptional,
+			lnwire.TLVOnionPayloadRequired,
+		),
+		lnwire.Features,
+	)
+
+	testChannels := []*testChannel{
+		asymmetricTestChannel("a", "b", chanCapSat,
+			&testChannelPolicy{
+				MinHTLC:  lnwire.NewMSatFromSatoshis(2),
+				Features: features,
+			},
+			&testChannelPolicy{
+				Features:           features,
+				InboundFeeRate:     000,
+				InboundFeeBaseMsat: 5000,
+			}, 10,
+		),
+		asymmetricTestChannel("b", "c", chanCapSat,
+			&testChannelPolicy{
+				Expiry:      20,
+				FeeRate:     50000,
+				FeeBaseMsat: 0,
+				MinHTLC:     lnwire.NewMSatFromSatoshis(2),
+				Features:    features,
+			},
+			&testChannelPolicy{
+				Features:           features,
+				InboundFeeRate:     -200000,
+				InboundFeeBaseMsat: -8000,
+			}, 11,
+		),
+		asymmetricTestChannel("c", "d", chanCapSat,
+			&testChannelPolicy{
+				Expiry:      20,
+				FeeRate:     100000,
+				FeeBaseMsat: 9000,
+				MinHTLC:     lnwire.NewMSatFromSatoshis(2),
+				Features:    features,
+			},
+			&testChannelPolicy{
+				Features:           features,
+				InboundFeeRate:     80000,
+				InboundFeeBaseMsat: 2000,
+			}, 12,
+		),
+	}
+
+	testGraph, err := createTestGraphFromChannels(t, true, testChannels, "a")
+	require.NoError(t, err, "unable to create graph")
+
+	const startingBlockHeight = 1000
+
+	ctx, cleanUp := createTestCtxFromGraphInstance(
+		t, startingBlockHeight, testGraph, false,
+	)
+	defer cleanUp()
+
+	// Use all-zeroes payment addreess.
+	var payAddr [32]byte
+
+	// Create hop list from the route node pubkeys.
+	hops := []route.Vertex{
+		ctx.aliases["b"], ctx.aliases["c"], ctx.aliases["d"],
+	}
+
+	amt := lnwire.NewMSatFromSatoshis(100)
+
+	//Build the route for the given amount.
+	rt, err := ctx.router.BuildRoute(
+		&amt, hops, nil, 40, &payAddr,
+	)
+	require.NoError(t, err)
+
+	expectedRt := &route.Route{
+		TotalAmount:   110_000,
+		TotalTimeLock: 1080,
+		SourcePubKey:  ctx.aliases["a"],
+		Hops: []*route.Hop{
+			{
+				PubKeyBytes:      ctx.aliases["b"],
+				ChannelID:        10,
+				AmtToForward:     100_000,
+				OutgoingTimeLock: 1060,
+			},
+			{
+				PubKeyBytes:      ctx.aliases["c"],
+				ChannelID:        11,
+				AmtToForward:     110_000,
+				OutgoingTimeLock: 1040,
+			},
+			{
+				PubKeyBytes:      ctx.aliases["d"],
+				ChannelID:        12,
+				AmtToForward:     100_000,
+				OutgoingTimeLock: 1040,
+				MPP:              record.NewMPP(100_000, payAddr),
+			},
+		},
+	}
+	require.Equal(t, expectedRt, rt)
+
+}
+
 // edgeCreationModifier is an enum-like type used to modify steps that are
 // skipped when creating a channel in the test context.
 type edgeCreationModifier uint8

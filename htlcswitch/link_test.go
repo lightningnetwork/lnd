@@ -626,6 +626,147 @@ func testChannelLinkMultiHopPayment(t *testing.T,
 	}
 }
 
+func TestChannelLinkInboundFee(t *testing.T) {
+	t.Parallel()
+
+	t.Run("negative", func(t *testing.T) {
+		t.Parallel()
+
+		bobInboundFee := InboundFee{
+			Base: -1_000,
+			Rate: -100_000,
+		}
+
+		const expectedBobInFee = -101_100
+
+		testChannelLinkInboundFee(t, bobInboundFee, expectedBobInFee)
+	})
+
+	t.Run("positive", func(t *testing.T) {
+		t.Parallel()
+
+		bobInboundFee := InboundFee{
+			Base: 1_000,
+			Rate: 100_000,
+		}
+
+		const expectedBobInFee = 101_100
+
+		testChannelLinkInboundFee(t, bobInboundFee, expectedBobInFee)
+	})
+}
+
+func testChannelLinkInboundFee(t *testing.T, //nolint:thelper
+	bobInboundFee InboundFee, expectedBobInFee int64) {
+
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
+	require.NoError(t, err, "unable to create channel")
+
+	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+
+	require.NoError(t, n.start())
+	defer n.stop()
+
+	bobPolicy := n.globalPolicy
+	bobPolicy.InboundFee = bobInboundFee
+	n.firstBobChannelLink.UpdateForwardingPolicy(bobPolicy)
+
+	// Set an inbound fee for Carol. Because Carol is the payee, the fee
+	// should not be applied.
+	carolPolicy := n.globalPolicy
+	carolPolicy.InboundFee = InboundFee{
+		Base: -2_000,
+		Rate: -200_000,
+	}
+	n.carolChannelLink.UpdateForwardingPolicy(carolPolicy)
+
+	carolBandwidthBefore := n.carolChannelLink.Bandwidth()
+	firstBobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
+	secondBobBandwidthBefore := n.secondBobChannelLink.Bandwidth()
+	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
+
+	const (
+		expectedCarolInboundFee = 0
+		expectedBobOutboundFee  = 1_000
+	)
+
+	amount := lnwire.MilliSatoshi(1_000_000)
+	htlcAmt := lnwire.MilliSatoshi(1_000_000 +
+		expectedCarolInboundFee + expectedBobOutboundFee +
+		expectedBobInFee,
+	)
+	totalTimelock := uint32(112)
+
+	hops := []*hop.Payload{
+		{
+			FwdInfo: hop.ForwardingInfo{
+				NextHop:         n.carolChannelLink.shortChanID,
+				AmountToForward: 1_000_000,
+				OutgoingCTLV:    106,
+			},
+		},
+		{
+			FwdInfo: hop.ForwardingInfo{
+				AmountToForward: 1_000_000,
+				OutgoingCTLV:    106,
+			},
+		},
+	}
+
+	receiver := n.carolServer
+	firstHop := n.firstBobChannelLink.ShortChanID()
+	rhash, err := makePayment(
+		n.aliceServer, n.carolServer, firstHop, hops, amount, htlcAmt,
+		totalTimelock,
+	).Wait(30 * time.Second)
+	require.NoError(t, err, "unable to send payment")
+
+	// Wait for Alice and Bob's second link to receive the revocation.
+	time.Sleep(2 * time.Second)
+
+	// Check that Carol invoice was settled and bandwidth of HTLC
+	// links were changed.
+	invoice, err := receiver.registry.LookupInvoice(rhash)
+	require.NoError(t, err, "unable to get invoice")
+	require.Equal(t, channeldb.ContractSettled, invoice.State,
+		"carol invoice haven't been settled")
+
+	expectedAliceBandwidth := aliceBandwidthBefore - htlcAmt
+	require.Equalf(t,
+		expectedAliceBandwidth, n.aliceChannelLink.Bandwidth(),
+		"channel bandwidth incorrect: expected %v, got %v",
+		expectedAliceBandwidth, n.aliceChannelLink.Bandwidth(),
+	)
+
+	expectedBobBandwidth1 := firstBobBandwidthBefore + htlcAmt
+	require.Equalf(t,
+		expectedBobBandwidth1, n.firstBobChannelLink.Bandwidth(),
+		"channel bandwidth incorrect: expected %v, got %v",
+		expectedBobBandwidth1, n.firstBobChannelLink.Bandwidth(),
+	)
+
+	bobCarolDelta := lnwire.MilliSatoshi(
+		int64(amount) + expectedCarolInboundFee,
+	)
+
+	expectedBobBandwidth2 := secondBobBandwidthBefore - bobCarolDelta
+	require.Equalf(t,
+		expectedBobBandwidth2, n.secondBobChannelLink.Bandwidth(),
+		"channel bandwidth incorrect: expected %v, got %v",
+		expectedBobBandwidth2, n.secondBobChannelLink.Bandwidth(),
+	)
+
+	expectedCarolBandwidth := carolBandwidthBefore + bobCarolDelta
+	require.Equalf(t,
+		expectedCarolBandwidth, n.carolChannelLink.Bandwidth(),
+		"channel bandwidth incorrect: expected %v, got %v",
+		expectedCarolBandwidth, n.carolChannelLink.Bandwidth(),
+	)
+}
+
 // TestChannelLinkCancelFullCommitment tests the ability for links to cancel
 // forwarded HTLCs once all of their commitment slots are full.
 func TestChannelLinkCancelFullCommitment(t *testing.T) {
@@ -5610,7 +5751,7 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("satisfied", func(t *testing.T) {
 		result := link.CheckHtlcForward(hash, 1500, 1000,
-			200, 150, 0, lnwire.ShortChannelID{})
+			200, 150, InboundFee{}, 0, lnwire.ShortChannelID{})
 		if result != nil {
 			t.Fatalf("expected policy to be satisfied")
 		}
@@ -5618,7 +5759,7 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("below minhtlc", func(t *testing.T) {
 		result := link.CheckHtlcForward(hash, 100, 50,
-			200, 150, 0, lnwire.ShortChannelID{})
+			200, 150, InboundFee{}, 0, lnwire.ShortChannelID{})
 		if _, ok := result.WireMessage().(*lnwire.FailAmountBelowMinimum); !ok {
 			t.Fatalf("expected FailAmountBelowMinimum failure code")
 		}
@@ -5626,7 +5767,7 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("above maxhtlc", func(t *testing.T) {
 		result := link.CheckHtlcForward(hash, 1500, 1200,
-			200, 150, 0, lnwire.ShortChannelID{})
+			200, 150, InboundFee{}, 0, lnwire.ShortChannelID{})
 		if _, ok := result.WireMessage().(*lnwire.FailTemporaryChannelFailure); !ok {
 			t.Fatalf("expected FailTemporaryChannelFailure failure code")
 		}
@@ -5634,7 +5775,7 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("insufficient fee", func(t *testing.T) {
 		result := link.CheckHtlcForward(hash, 1005, 1000,
-			200, 150, 0, lnwire.ShortChannelID{})
+			200, 150, InboundFee{}, 0, lnwire.ShortChannelID{})
 		if _, ok := result.WireMessage().(*lnwire.FailFeeInsufficient); !ok {
 			t.Fatalf("expected FailFeeInsufficient failure code")
 		}
@@ -5642,7 +5783,7 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("expiry too soon", func(t *testing.T) {
 		result := link.CheckHtlcForward(hash, 1500, 1000,
-			200, 150, 190, lnwire.ShortChannelID{})
+			200, 150, InboundFee{}, 190, lnwire.ShortChannelID{})
 		if _, ok := result.WireMessage().(*lnwire.FailExpiryTooSoon); !ok {
 			t.Fatalf("expected FailExpiryTooSoon failure code")
 		}
@@ -5650,7 +5791,7 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("incorrect cltv expiry", func(t *testing.T) {
 		result := link.CheckHtlcForward(hash, 1500, 1000,
-			200, 190, 0, lnwire.ShortChannelID{})
+			200, 190, InboundFee{}, 0, lnwire.ShortChannelID{})
 		if _, ok := result.WireMessage().(*lnwire.FailIncorrectCltvExpiry); !ok {
 			t.Fatalf("expected FailIncorrectCltvExpiry failure code")
 		}
@@ -5660,9 +5801,33 @@ func TestCheckHtlcForward(t *testing.T) {
 	t.Run("cltv expiry too far in the future", func(t *testing.T) {
 		// Check that expiry isn't too far in the future.
 		result := link.CheckHtlcForward(hash, 1500, 1000,
-			10200, 10100, 0, lnwire.ShortChannelID{})
+			10200, 10100, InboundFee{}, 0, lnwire.ShortChannelID{})
 		if _, ok := result.WireMessage().(*lnwire.FailExpiryTooFar); !ok {
 			t.Fatalf("expected FailExpiryTooFar failure code")
+		}
+	})
+
+	t.Run("inbound fee satisfied", func(t *testing.T) {
+		t.Parallel()
+
+		result := link.CheckHtlcForward(hash, 1000+10-10-101, 1000,
+			200, 150, InboundFee{Base: -10, Rate: -100_000},
+			0, lnwire.ShortChannelID{})
+		if result != nil {
+			t.Fatalf("expected policy to be satisfied")
+		}
+	})
+
+	t.Run("inbound fee insufficient", func(t *testing.T) {
+		t.Parallel()
+
+		result := link.CheckHtlcForward(hash, 1000+10-10-101-1, 1000,
+			200, 150, InboundFee{Base: -10, Rate: -100_000},
+			0, lnwire.ShortChannelID{})
+
+		msg := result.WireMessage()
+		if _, ok := msg.(*lnwire.FailFeeInsufficient); !ok {
+			t.Fatalf("expected FailFeeInsufficient failure code")
 		}
 	})
 }

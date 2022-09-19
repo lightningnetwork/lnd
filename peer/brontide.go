@@ -838,12 +838,25 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// routing policy into a forwarding policy.
 		var forwardingPolicy *htlcswitch.ForwardingPolicy
 		if selfPolicy != nil {
+			var inboundWireFee lnwire.Fee
+			_, err := selfPolicy.ExtraOpaqueData.ExtractRecords(
+				&inboundWireFee,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			inboundFee := htlcswitch.NewInboundFeeFromWire(
+				inboundWireFee,
+			)
+
 			forwardingPolicy = &htlcswitch.ForwardingPolicy{
 				MinHTLCOut:    selfPolicy.MinHTLC,
 				MaxHTLC:       selfPolicy.MaxHTLC,
 				BaseFee:       selfPolicy.FeeBaseMSat,
 				FeeRate:       selfPolicy.FeeProportionalMillionths,
 				TimeLockDelta: uint32(selfPolicy.TimeLockDelta),
+				InboundFee:    inboundFee,
 			}
 		} else {
 			p.log.Warnf("Unable to find our forwarding policy "+

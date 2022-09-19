@@ -86,6 +86,9 @@ type ForwardingPolicy struct {
 	// used to compute the required fee for a given HTLC.
 	FeeRate lnwire.MilliSatoshi
 
+	// InboundFee is the fee that must be paid for incoming HTLCs.
+	InboundFee InboundFee
+
 	// TimeLockDelta is the absolute time-lock value, expressed in blocks,
 	// that will be subtracted from an incoming HTLC's timelock value to
 	// create the time-lock value for the forwarded outgoing HTLC. The
@@ -2491,6 +2494,7 @@ func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi,
 	incomingTimeout, outgoingTimeout uint32,
+	inboundFee InboundFee,
 	heightNow uint32, originalScid lnwire.ShortChannelID) *LinkError {
 
 	l.RLock()
@@ -2506,21 +2510,35 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 		return err
 	}
 
-	// Next, using the amount of the incoming HTLC, we'll calculate the
-	// expected fee this incoming HTLC must carry in order to satisfy the
-	// constraints of the outgoing link.
-	expectedFee := ExpectedFee(policy, amtToForward)
+	// Next, using the outgoing HTLC amount, we'll calculate the outgoing
+	// fee this incoming HTLC must carry in order to satisfy the constraints
+	// of the outgoing link.
+	outFee := ExpectedFee(policy, amtToForward)
+
+	// Then calculate the inbound fee that we charge based on the sum of
+	// outgoing HTLC amount and outgoing fee.
+	inFee := inboundFee.CalcFee(amtToForward + outFee)
+
+	// Add up both fee components. It is important to calculate both fees
+	// separately. An alternative way of calculating is to first determine
+	// an aggregate fee and apply that to the outgoing HTLC amount. However,
+	// rounding may cause the result to be slightly higher than in the case
+	// of separately rounded fee components. This potentially causes failed
+	// forwards for senders and is something to be avoided.
+	expectedFee := inFee + int64(outFee)
 
 	// If the actual fee is less than our expected fee, then we'll reject
 	// this HTLC as it didn't provide a sufficient amount of fees, or the
 	// values have been tampered with, or the send used incorrect/dated
 	// information to construct the forwarding information for this hop. In
 	// any case, we'll cancel this HTLC.
-	actualFee := incomingHtlcAmt - amtToForward
-	if incomingHtlcAmt < amtToForward || actualFee < expectedFee {
+	actualFee := int64(incomingHtlcAmt) - int64(amtToForward)
+	if actualFee < expectedFee {
 		l.log.Warnf("outgoing htlc(%x) has insufficient fee: "+
-			"expected %v, got %v",
-			payHash[:], int64(expectedFee), int64(actualFee))
+			"expected %v, got %v: incoming=%v, outgoing=%v, inboundFee=%v",
+			payHash[:], expectedFee, actualFee,
+			incomingHtlcAmt, amtToForward, inboundFee,
+		)
 
 		// As part of the returned error, we'll send our latest routing
 		// policy so the sending node obtains the most up to date data.
@@ -3049,6 +3067,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				// round of processing.
 				chanIterator.EncodeNextHop(buf)
 
+				inboundFee := l.cfg.FwrdingPolicy.InboundFee
+
 				updatePacket := &htlcPacket{
 					incomingChanID:  l.ShortChanID(),
 					incomingHTLCID:  pd.HtlcIndex,
@@ -3061,6 +3081,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					incomingTimeout: pd.Timeout,
 					outgoingTimeout: fwdInfo.OutgoingCTLV,
 					customRecords:   pld.CustomRecords(),
+					inboundFee:      inboundFee,
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -3113,6 +3134,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// have been added to switchPackets at the top of this
 			// section.
 			if fwdPkg.State == channeldb.FwdStateLockedIn {
+				inboundFee := l.cfg.FwrdingPolicy.InboundFee
+
 				updatePacket := &htlcPacket{
 					incomingChanID:  l.ShortChanID(),
 					incomingHTLCID:  pd.HtlcIndex,
@@ -3125,6 +3148,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					incomingTimeout: pd.Timeout,
 					outgoingTimeout: fwdInfo.OutgoingCTLV,
 					customRecords:   pld.CustomRecords(),
+					inboundFee:      inboundFee,
 				}
 
 				fwdPkg.FwdFilter.Set(idx)
@@ -3180,11 +3204,21 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// As we're the exit hop, we'll double check the hop-payload included in
 	// the HTLC to ensure that it was crafted correctly by the sender and
 	// matches the HTLC we were extended.
-	if pd.Amount != fwdInfo.AmountToForward {
+	//
+	// An inbound fee may be required for receiving payments. Calculate the
+	// minimally required inbound fee and check to see if the htlc amount
+	// covers that.
+	inboundFee := l.cfg.FwrdingPolicy.InboundFee.CalcFee(
+		fwdInfo.AmountToForward,
+	)
 
+	expectedHtlcAmt := fwdInfo.AmountToForward +
+		lnwire.MilliSatoshi(inboundFee)
+
+	if pd.Amount < expectedHtlcAmt {
 		l.log.Errorf("onion payload of incoming htlc(%x) has incorrect "+
-			"value: expected %v, got %v", pd.RHash,
-			pd.Amount, fwdInfo.AmountToForward)
+			"value: expected at least %v, got %v", pd.RHash,
+			expectedHtlcAmt, pd.Amount)
 
 		failure := NewLinkError(
 			lnwire.NewFinalIncorrectHtlcAmount(pd.Amount),
@@ -3220,8 +3254,8 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	}
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
-		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
-		circuitKey, l.hodlQueue.ChanIn(), payload,
+		invoiceHash, fwdInfo.AmountToForward, pd.Timeout,
+		int32(heightNow), circuitKey, l.hodlQueue.ChanIn(), payload,
 	)
 	if err != nil {
 		return err

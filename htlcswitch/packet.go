@@ -103,6 +103,9 @@ type htlcPacket struct {
 	// but receives a channel_update with the alias SCID. Instead, the
 	// payer should receive a channel_update with the public SCID.
 	originalOutgoingChanID lnwire.ShortChannelID
+
+	// inboundFee is the fee schedule of the incoming channel.
+	inboundFee InboundFee
 }
 
 // inKey returns the circuit key used to identify the incoming htlc.

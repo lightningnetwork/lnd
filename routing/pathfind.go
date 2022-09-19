@@ -445,6 +445,17 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// out.
 		amountToSend := toNodeDist.amountToReceive
 
+		// Increase amount to receive if min htlc threshold is not
+		// reached.
+		if amountToSend < edge.MinHTLC {
+			overPayment := edge.MinHTLC - amountToSend
+
+			amountToSend += overPayment
+
+			log.Debugf("Channel %v has min_htlc of %v, increasing amountToSend to %v",
+				edge.ChannelID, edge.MinHTLC, amountToSend)
+		}
+
 		// Request the success probability for this edge.
 		edgeProbability := r.ProbabilitySource(
 			fromVertex, toNodeDist.node, amountToSend,

@@ -634,7 +634,9 @@ func (f *Manager) start() error {
 			f.newChanBarriers[chanID] = make(chan struct{})
 			f.barrierMtx.Unlock()
 
+			f.localDiscoveryMtx.Lock()
 			f.localDiscoverySignals[chanID] = make(chan struct{})
+			f.localDiscoveryMtx.Unlock()
 
 			// Rebroadcast the funding transaction for any pending
 			// channel that we initiated. No error will be returned

@@ -177,3 +177,15 @@ func (h *HarnessRPC) HtlcInterceptor() (InterceptorClient, context.CancelFunc) {
 
 	return resp, cancel
 }
+
+type TrackPaymentsClient routerrpc.Router_TrackPaymentsClient
+
+// TrackPayments makes a RPC call to the node's RouterClient and asserts.
+func (h *HarnessRPC) TrackPayments(
+	req *routerrpc.TrackPaymentsRequest) TrackPaymentsClient {
+
+	resp, err := h.Router.TrackPayments(h.runCtx, req)
+	h.NoError(err, "TrackPayments")
+
+	return resp
+}

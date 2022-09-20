@@ -9,10 +9,6 @@ var allTestCases = []*testCase{
 		test: testBidirectionalAsyncPayments,
 	},
 	{
-		name: "trackpayments",
-		test: testTrackPayments,
-	},
-	{
 		name: "open channel fee policy",
 		test: testOpenChannelUpdateFeePolicy,
 	},

@@ -489,4 +489,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "taproot coop close",
 		TestFunc: testTaprootCoopClose,
 	},
+	{
+		Name:     "trackpayments",
+		TestFunc: testTrackPayments,
+	},
 }

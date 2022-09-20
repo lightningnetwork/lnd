@@ -2458,18 +2458,22 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 	go func() {
 		defer f.wg.Done()
 
-		peerChan := make(chan lnpeer.Peer, 1)
-		var peerKey [33]byte
-		copy(peerKey[:], c.IdentityPub.SerializeCompressed())
-
-		f.cfg.NotifyWhenOnline(peerKey, peerChan)
-
-		var peer lnpeer.Peer
-		select {
-		case peer = <-peerChan:
-		case <-f.quit:
+		peer, err := f.waitForPeerOnline(c.IdentityPub)
+		switch err {
+		// We're already shutting down, so we can just return.
+		case ErrFundingManagerShuttingDown:
 			return
+
+		// nil error means we continue on.
+		case nil:
+
+		// For unexpected errors, we print the error and still try to
+		// fail the funding flow.
+		default:
+			log.Errorf("Unexpected error while waiting for peer "+
+				"to come online: %v", err)
 		}
+
 		// TODO(halseth): should this send be made
 		// reliable?
 
@@ -2860,14 +2864,9 @@ func (f *Manager) sendFundingLocked(completeChan *channeldb.OpenChannel,
 	// send fundingLocked until we succeed, or the fundingManager is shut
 	// down.
 	for {
-		connected := make(chan lnpeer.Peer, 1)
-		f.cfg.NotifyWhenOnline(peerKey, connected)
-
-		var peer lnpeer.Peer
-		select {
-		case peer = <-connected:
-		case <-f.quit:
-			return ErrFundingManagerShuttingDown
+		peer, err := f.waitForPeerOnline(completeChan.IdentityPub)
+		if err != nil {
+			return err
 		}
 
 		localAlias := peer.LocalFeatures().HasFeature(
@@ -2943,18 +2942,9 @@ func (f *Manager) receivedFundingLocked(node *btcec.PublicKey,
 	default:
 	}
 
-	// Check whether the peer is online. If it's not, we'll wait for them
-	// to come online before proceeding. This is to avoid a tight loop if
-	// they're offline.
-	connected := make(chan lnpeer.Peer, 1)
-	var peerKey [33]byte
-	copy(peerKey[:], node.SerializeCompressed())
-	f.cfg.NotifyWhenOnline(peerKey, connected)
-
-	select {
-	case <-connected:
-	case <-f.quit:
-		return false, ErrFundingManagerShuttingDown
+	// Avoid a tight loop if peer is offline.
+	if _, err := f.waitForPeerOnline(node); err != nil {
+		return false, err
 	}
 
 	channel, err := f.cfg.FindChannel(node, chanID)
@@ -3088,18 +3078,9 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		log.Debugf("Will not announce private channel %v.",
 			shortChanID.ToUint64())
 
-		peerChan := make(chan lnpeer.Peer, 1)
-
-		var peerKey [33]byte
-		copy(peerKey[:], completeChan.IdentityPub.SerializeCompressed())
-
-		f.cfg.NotifyWhenOnline(peerKey, peerChan)
-
-		var peer lnpeer.Peer
-		select {
-		case peer = <-peerChan:
-		case <-f.quit:
-			return ErrFundingManagerShuttingDown
+		peer, err := f.waitForPeerOnline(completeChan.IdentityPub)
+		if err != nil {
+			return err
 		}
 
 		nodeAnn, err := f.cfg.CurrentNodeAnnouncement()
@@ -4511,4 +4492,25 @@ func (f *Manager) selectShutdownScript(taprootOK bool,
 	}
 
 	return txscript.PayToAddrScript(addr)
+}
+
+// waitForPeerOnline blocks until the peer specified by peerPubkey comes online
+// and then returns the online peer.
+func (f *Manager) waitForPeerOnline(peerPubkey *btcec.PublicKey) (lnpeer.Peer,
+	error) {
+
+	peerChan := make(chan lnpeer.Peer, 1)
+
+	var peerKey [33]byte
+	copy(peerKey[:], peerPubkey.SerializeCompressed())
+
+	f.cfg.NotifyWhenOnline(peerKey, peerChan)
+
+	var peer lnpeer.Peer
+	select {
+	case peer = <-peerChan:
+	case <-f.quit:
+		return peer, ErrFundingManagerShuttingDown
+	}
+	return peer, nil
 }

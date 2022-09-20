@@ -55,6 +55,9 @@ minimum version needed to build the project.
 * [Update Tor module](https://github.com/lightningnetwork/lnd/pull/6526) to 
   allow the option to encrypt the private key on disk.
 
+* [Fixed potential data race on funding manager
+  restart](https://github.com/lightningnetwork/lnd/pull/6929).
+
 ## `lncli`
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
   flag](https://github.com/lightningnetwork/lnd/pull/6818) that allows the 
@@ -97,6 +100,7 @@ minimum version needed to build the project.
 * ErikEk
 * hieblmi
 * Jesse de Wit
+* Matt Morehouse
 * Olaoluwa Osuntokun
 * Oliver Gugger
 * Priyansh Rastogi

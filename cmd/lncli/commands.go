@@ -2020,6 +2020,12 @@ var updateChannelPolicyCommand = cli.Command{
 				"be set at the same time as fee_rate.",
 		},
 		cli.Int64Flag{
+			Name: "inbound_base_fee_msat",
+		},
+		cli.Int64Flag{
+			Name: "inbound_fee_rate_ppm",
+		},
+		cli.Int64Flag{
 			Name: "time_lock_delta",
 			Usage: "the CLTV delta that will be applied to all " +
 				"forwarded HTLCs",
@@ -2076,9 +2082,10 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	defer cleanUp()
 
 	var (
-		baseFee       int64
-		feeRate       float64
-		feeRatePpm    uint64
+		baseFee    int64
+		feeRate    float64
+		feeRatePpm uint64
+
 		timeLockDelta int64
 		err           error
 	)
@@ -2150,9 +2157,11 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.PolicyUpdateRequest{
-		BaseFeeMsat:   baseFee,
-		TimeLockDelta: uint32(timeLockDelta),
-		MaxHtlcMsat:   ctx.Uint64("max_htlc_msat"),
+		BaseFeeMsat:        baseFee,
+		TimeLockDelta:      uint32(timeLockDelta),
+		MaxHtlcMsat:        ctx.Uint64("max_htlc_msat"),
+		InboundBaseFeeMsat: int32(ctx.Int64("inbound_base_fee_msat")),
+		InboundFeeRatePpm:  int32(ctx.Int64("inbound_fee_rate_ppm")),
 	}
 
 	if ctx.IsSet("min_htlc_msat") {

@@ -2166,6 +2166,31 @@ var updateChannelPolicyCommand = cli.Command{
 				"0.000001 (millionths). Can not be set at " +
 				"the same time as fee_rate",
 		},
+		cli.Int64Flag{
+			Name: "inbound_base_fee_msat",
+			Usage: "the base inbound fee in milli-satoshis that " +
+				"will be charged for each forwarded HTLC, " +
+				"regardless of payment size. Its value must " +
+				"be zero or negative - it is a discount " +
+				"for using a particular incoming channel. " +
+				"Note that forwards will be rejected if the " +
+				"discount exceeds the outbound fee " +
+				"(forward at a loss), and lead to " +
+				"penalization by the sender",
+		},
+		cli.Int64Flag{
+			Name: "inbound_fee_rate_ppm",
+			Usage: "the inbound fee rate that will be charged " +
+				"proportionally based on the value of each " +
+				"forwarded HTLC and the outbound fee. Fee " +
+				"rate is expressed in parts per million and " +
+				"must be zero or negative - it is a discount " +
+				"for using a particular incoming channel." +
+				"Note that forwards will be rejected if the " +
+				"discount exceeds the outbound fee " +
+				"(forward at a loss), and lead to " +
+				"penalization by the sender",
+		},
 		cli.Uint64Flag{
 			Name: "time_lock_delta",
 			Usage: "the CLTV delta that will be applied to all " +
@@ -2318,10 +2343,26 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		}
 	}
 
+	inboundBaseFeeMsat := ctx.Int64("inbound_base_fee_msat")
+	if inboundBaseFeeMsat < math.MinInt32 ||
+		inboundBaseFeeMsat > 0 {
+
+		return errors.New("inbound_base_fee_msat out of range")
+	}
+
+	inboundFeeRatePpm := ctx.Int64("inbound_fee_rate_ppm")
+	if inboundFeeRatePpm < math.MinInt32 ||
+		inboundFeeRatePpm > 0 {
+
+		return errors.New("inbound_fee_rate_ppm out of range")
+	}
+
 	req := &lnrpc.PolicyUpdateRequest{
-		BaseFeeMsat:   baseFee,
-		TimeLockDelta: uint32(timeLockDelta),
-		MaxHtlcMsat:   ctx.Uint64("max_htlc_msat"),
+		BaseFeeMsat:        baseFee,
+		TimeLockDelta:      uint32(timeLockDelta),
+		MaxHtlcMsat:        ctx.Uint64("max_htlc_msat"),
+		InboundBaseFeeMsat: int32(inboundBaseFeeMsat),
+		InboundFeeRatePpm:  int32(inboundFeeRatePpm),
 	}
 
 	if ctx.IsSet("min_htlc_msat") {

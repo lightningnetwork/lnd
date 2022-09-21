@@ -6877,6 +6877,15 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 				edgePolicy.FeeProportionalMillionths
 			feeRate := float64(feeRateFixedPoint) / feeBase
 
+			// Decode inbound fee from extra data.
+			var inboundFee lnwire.Fee
+			_, err := edgePolicy.ExtraOpaqueData.ExtractRecords(
+				&inboundFee,
+			)
+			if err != nil {
+				return err
+			}
+
 			// TODO(roasbeef): also add stats for revenue for each
 			// channel
 			feeReports = append(feeReports, &lnrpc.ChannelFeeReport{
@@ -6885,6 +6894,9 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 				BaseFeeMsat:  int64(edgePolicy.FeeBaseMSat),
 				FeePerMil:    int64(feeRateFixedPoint),
 				FeeRate:      feeRate,
+
+				InboundBaseFeeMsat: inboundFee.BaseFee,
+				InboundFeePerMil:   inboundFee.FeeRate,
 			})
 
 			return nil
@@ -7071,6 +7083,10 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	feeSchema := routing.FeeSchema{
 		BaseFee: baseFeeMsat,
 		FeeRate: feeRateFixed,
+		InboundFee: models.InboundFee{
+			Base: req.InboundBaseFeeMsat,
+			Rate: req.InboundFeeRatePpm,
+		},
 	}
 
 	maxHtlc := lnwire.MilliSatoshi(req.MaxHtlcMsat)

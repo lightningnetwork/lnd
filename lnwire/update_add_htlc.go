@@ -3,6 +3,9 @@ package lnwire
 import (
 	"bytes"
 	"io"
+
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // OnionPacketSize is the size of the serialized Sphinx onion packet included
@@ -54,6 +57,18 @@ type UpdateAddHTLC struct {
 	// used in the subsequent UpdateAddHTLC message.
 	OnionBlob [OnionPacketSize]byte
 
+	// BlindingPoint is an ephemeral public key used for route blinding to
+	// establish a shared secret between a processing node in the
+	// blinded portion of a route and the node which built the blinded
+	// route (usually the recipient). The shared secret can then be used
+	// to derive a blinded version of our persistent node ID key pair
+	// necessary to decrypt the onion or to decrypt the route blinding payload.
+	// When received via TLV extension to UpdateAddHTLC, the blinding point/
+	// shared secret should be used to decrypt the onion as the onion
+	// encryptor is expected to have encrypted the onion to a blinded form
+	// of our node ID, rather than to our persistent node ID.
+	BlindingPoint *btcec.PublicKey
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -74,7 +89,8 @@ var _ Message = (*UpdateAddHTLC)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+	// Read all the mandatory fields in the UpdateAddHTLC message.
+	err := ReadElements(r,
 		&c.ChanID,
 		&c.ID,
 		&c.Amount,
@@ -83,6 +99,27 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 		c.OnionBlob[:],
 		&c.ExtraData,
 	)
+	if err != nil {
+		return err
+	}
+
+	// Attempt to parse ephemeral (route) blinding point record.
+	var blindingPoint BlindingPoint
+	typeMap, err := c.ExtraData.ExtractRecords(
+		&blindingPoint,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Set the corresponding TLV types if they were included in the stream.
+	if val, ok := typeMap[BlindingPointRecordType]; ok && val == nil {
+		point := new(btcec.PublicKey)
+		*point = btcec.PublicKey(blindingPoint)
+		c.BlindingPoint = point
+	}
+
+	return nil
 }
 
 // Encode serializes the target UpdateAddHTLC into the passed io.Writer
@@ -90,6 +127,7 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateAddHTLC) Encode(w *bytes.Buffer, pver uint32) error {
+
 	if err := WriteChannelID(w, c.ChanID); err != nil {
 		return err
 	}
@@ -111,6 +149,20 @@ func (c *UpdateAddHTLC) Encode(w *bytes.Buffer, pver uint32) error {
 	}
 
 	if err := WriteBytes(w, c.OnionBlob[:]); err != nil {
+		return err
+	}
+
+	// If present, write the the ephemeral (route) blinding
+	// point as a TLV extension.
+	recordProducers := []tlv.RecordProducer{}
+	if c.BlindingPoint != nil {
+		point := new(BlindingPoint)
+		*point = BlindingPoint(*c.BlindingPoint)
+		recordProducers = append(recordProducers, point)
+	}
+
+	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
+	if err != nil {
 		return err
 	}
 

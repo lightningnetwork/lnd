@@ -376,6 +376,12 @@ type PaymentDescriptor struct {
 	// isForwarded denotes if an incoming HTLC has been forwarded to any
 	// possible upstream peers in the route.
 	isForwarded bool
+
+	// BlindingPoint is an ephemeral public key used to derive a blinded
+	// version of our persistent node ID key pair for decrypting the onion
+	// when forwarding in the blinded portion of a route. Our upstream peer
+	// is expected to include this as a TLV extension to UpdateAddHTLC.
+	BlindingPoint *btcec.PublicKey
 }
 
 // PayDescsFromRemoteLogUpdates converts a slice of LogUpdates received from the
@@ -5300,6 +5306,13 @@ func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
 		HtlcIndex:      lc.localUpdateLog.htlcCounter,
 		OnionBlob:      htlc.OnionBlob[:],
 		OpenCircuitKey: openKey,
+		// IMPORTANT NOTE(11/18/22):
+		// If an HTLC contains an ephemeral (route) blinding
+		// point, then we must store a reference to it inside
+		// the update log. Later, if the Add is failed, we
+		// may be able to use it to determine how to forward the
+		// error back towards the sender.
+		BlindingPoint: htlc.BlindingPoint,
 	}
 }
 
@@ -5355,6 +5368,19 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 		LogIndex:  lc.remoteUpdateLog.logIndex,
 		HtlcIndex: lc.remoteUpdateLog.htlcCounter,
 		OnionBlob: htlc.OnionBlob[:],
+		// NOTE(11/21/22): We batch process HTLC updates in an asynchronous
+		// manner. The incoming link for an HTLC Add update received a
+		// blinding point. We'll make sure to include it in the payment
+		// descriptor we store (in-memory) on our update log so that it
+		// is available to decrypt the onion with when we begin batch
+		// processing this HTLC.
+		//
+		// KEY QUESTION(11/21/22): When an HTLC update is added to our
+		// LN channel state machine, how is it represented and where
+		// does it go (ie: live so that we can recover it later)?
+		// I am not sure that PaymenDescriptors in our in-memory
+		// update log or LogUpdate is the full story here!!
+		BlindingPoint: htlc.BlindingPoint,
 	}
 
 	localACKedIndex := lc.remoteCommitChain.tail().ourMessageIndex
@@ -5625,6 +5651,18 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 		LogIndex:    lc.remoteUpdateLog.logIndex,
 		EntryType:   Fail,
 		FailReason:  reason,
+		// IMPORTANT NOTE(11/17/22):
+		// Where we need the blinding point in channel state machine's
+		// update log depends on how errors are to be processed and
+		// possibly on how HTLC retransmission is handled.
+		//
+		// The LN state machine stores the blinding point
+		// associated with an Add if the ADD was associated
+		// with a blinded route. If that Add is now being
+		// failed, we may want a reference to its ephemeral
+		// blinding point so we can use it to determine which
+		// error will be forwarded back towards the sender.
+		BlindingPoint: htlc.BlindingPoint,
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)

@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -294,6 +295,10 @@ type ChannelLinkConfig struct {
 	// HtlcNotifier is an instance of a htlcNotifier which we will pipe htlc
 	// events through.
 	HtlcNotifier htlcNotifier
+
+	// NodeKeyECDH provides access to our persistent node ID private key
+	// which is needed to process onions for hops in a blinded route.
+	NodeKeyECDH keychain.SingleKeyECDH
 
 	// FailAliasUpdate is a function used to fail an HTLC for an
 	// option_scid_alias channel.

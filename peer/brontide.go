@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -308,6 +309,13 @@ type Config struct {
 	// It is used to determine which policy (channel edge) to pass to the
 	// ChannelLink.
 	ServerPubKey [33]byte
+
+	// NodeKeyECDH is the the ECDH capable wrapper of our persistent node
+	// ID private key. This key is needed in order to process onions for
+	// hops in a blinded route. NOTE(9/20/22): With a library change it
+	// could be had via the sphinx.Router. Does this make the above
+	// 'ServerPubKey' redundant?
+	NodeKeyECDH keychain.SingleKeyECDH
 
 	// ChannelCommitInterval is the maximum time that is allowed to pass between
 	// receiving a channel state update and signing the next commitment.
@@ -978,6 +986,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		NotifyInactiveChannel:   p.cfg.ChannelNotifier.NotifyInactiveChannelEvent,
 		HtlcNotifier:            p.cfg.HtlcNotifier,
 		GetAliases:              p.cfg.GetAliases,
+		NodeKeyECDH:             p.cfg.NodeKeyECDH,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live

@@ -506,6 +506,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	replayLog := htlcswitch.NewDecayedLog(
 		dbs.DecayedLogDB, cc.ChainNotifier,
 	)
+
+	// Configure our sphinx onion packet router with
+	// our node's key pair (p, P).
 	sphinxRouter := sphinx.NewRouter(
 		nodeKeyECDH, cfg.ActiveNetParams.Params, replayLog,
 	)
@@ -3697,6 +3700,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		WritePool:               s.writePool,
 		ReadPool:                s.readPool,
 		Switch:                  s.htlcSwitch,
+		NodeKeyECDH:             s.identityECDH, // Need access to nodeID private key (either directly or via abstraction) in order to process onions for hops in a blinded route.
 		InterceptSwitch:         s.interceptableSwitch,
 		ChannelDB:               s.chanStateDB,
 		ChannelGraph:            s.graphDB,

@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
@@ -283,6 +284,10 @@ type FeeSchema struct {
 	// the effective fee rate charged per mSAT will be: (amount *
 	// FeeRate/1,000,000).
 	FeeRate uint32
+
+	// InboundFee is the inbound fee schedule that applies to forwards
+	// coming in through a channel to which this FeeSchema pertains.
+	InboundFee models.InboundFee
 }
 
 // ChannelPolicy holds the parameters that determine the policy we enforce

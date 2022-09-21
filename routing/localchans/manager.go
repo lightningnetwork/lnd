@@ -87,6 +87,22 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		// will be used to report invalid channels later on.
 		delete(unprocessedChans, info.ChannelPoint)
 
+		nonZeroInboundFees := newSchema.InboundFee.Base != 0 ||
+			newSchema.InboundFee.Rate != 0
+
+		// Prevent setting inbound fees on private channels, because
+		// this fee can't be communicated through bolt11 invoice route
+		// hints.
+		if info.AuthProof == nil && nonZeroInboundFees {
+			failure := makeFailureItem(info.ChannelPoint,
+				lnrpc.UpdateFailure_UPDATE_FAILURE_INVALID_PARAMETER, //nolint:lll
+				"cannot set inbound fee on private channel",
+			)
+			failedUpdates = append(failedUpdates, failure)
+
+			return nil
+		}
+
 		// Apply the new policy to the edge.
 		err := r.updateEdge(tx, info.ChannelPoint, edge, newSchema)
 		if err != nil {
@@ -112,6 +128,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 			TimeLockDelta: uint32(edge.TimeLockDelta),
 			MinHTLCOut:    edge.MinHTLC,
 			MaxHTLC:       edge.MaxHTLC,
+			InboundFee:    newSchema.InboundFee,
 		}
 
 		return nil
@@ -180,6 +197,12 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	edge.FeeProportionalMillionths = lnwire.MilliSatoshi(
 		newSchema.FeeRate,
 	)
+
+	inboundFee := newSchema.InboundFee.ToWire()
+	if err := edge.ExtraOpaqueData.PackRecords(&inboundFee); err != nil {
+		return err
+	}
+
 	edge.TimeLockDelta = uint16(newSchema.TimeLockDelta)
 
 	// Retrieve negotiated channel htlc amt limits.

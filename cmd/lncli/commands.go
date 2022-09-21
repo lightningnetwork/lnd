@@ -2075,6 +2075,12 @@ var updateChannelPolicyCommand = cli.Command{
 				"0.000001 (millionths). Can not be set at " +
 				"the same time as fee_rate",
 		},
+		cli.Int64Flag{
+			Name: "inbound_base_fee_msat",
+		},
+		cli.Int64Flag{
+			Name: "inbound_fee_rate_ppm",
+		},
 		cli.Uint64Flag{
 			Name: "time_lock_delta",
 			Usage: "the CLTV delta that will be applied to all " +
@@ -2226,10 +2232,26 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		}
 	}
 
+	inboundBaseFeeMsat := ctx.Int64("inbound_base_fee_msat")
+	if inboundBaseFeeMsat < math.MinInt32 ||
+		inboundBaseFeeMsat > math.MaxInt32 {
+
+		return errors.New("inbound_base_fee_msat out of range")
+	}
+
+	inboundFeeRatePpm := ctx.Int64("inbound_fee_rate_ppm")
+	if inboundFeeRatePpm < math.MinInt32 ||
+		inboundFeeRatePpm > math.MaxInt32 {
+
+		return errors.New("inbound_fee_rate_ppm out of range")
+	}
+
 	req := &lnrpc.PolicyUpdateRequest{
-		BaseFeeMsat:   baseFee,
-		TimeLockDelta: uint32(timeLockDelta),
-		MaxHtlcMsat:   ctx.Uint64("max_htlc_msat"),
+		BaseFeeMsat:        baseFee,
+		TimeLockDelta:      uint32(timeLockDelta),
+		MaxHtlcMsat:        ctx.Uint64("max_htlc_msat"),
+		InboundBaseFeeMsat: int32(inboundBaseFeeMsat),
+		InboundFeeRatePpm:  int32(inboundFeeRatePpm),
 	}
 
 	if ctx.IsSet("min_htlc_msat") {

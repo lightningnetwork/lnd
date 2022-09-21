@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
@@ -6801,13 +6802,18 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 		feeRateFixedPoint := edgePolicy.FeeProportionalMillionths
 		feeRate := float64(feeRateFixedPoint) / feeBase
 
+		// Decode inbound fee from extra data.
+		inboundFee := extractInboundFeeSafe(edgePolicy.ExtraOpaqueData)
+
 		// TODO(roasbeef): also add stats for revenue for each channel
 		feeReports = append(feeReports, &lnrpc.ChannelFeeReport{
-			ChanId:       chanInfo.ChannelID,
-			ChannelPoint: chanInfo.ChannelPoint.String(),
-			BaseFeeMsat:  int64(edgePolicy.FeeBaseMSat),
-			FeePerMil:    int64(feeRateFixedPoint),
-			FeeRate:      feeRate,
+			ChanId:             chanInfo.ChannelID,
+			ChannelPoint:       chanInfo.ChannelPoint.String(),
+			BaseFeeMsat:        int64(edgePolicy.FeeBaseMSat),
+			FeePerMil:          int64(feeRateFixedPoint),
+			FeeRate:            feeRate,
+			InboundBaseFeeMsat: inboundFee.BaseFee,
+			InboundFeePerMil:   inboundFee.FeeRate,
 		})
 
 		return nil
@@ -6993,6 +6999,10 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	feeSchema := routing.FeeSchema{
 		BaseFee: baseFeeMsat,
 		FeeRate: feeRateFixed,
+		InboundFee: models.InboundFee{
+			Base: req.InboundBaseFeeMsat,
+			Rate: req.InboundFeeRatePpm,
+		},
 	}
 
 	maxHtlc := lnwire.MilliSatoshi(req.MaxHtlcMsat)

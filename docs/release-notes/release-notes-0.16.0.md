@@ -42,6 +42,9 @@ minimum version needed to build the project.
 
 ## Misc
 
+* [Fixed a flake in the TestChannelLinkCancelFullCommitment unit
+  test](https://github.com/lightningnetwork/lnd/pull/6792).
+
 * [Fixed error typo](https://github.com/lightningnetwork/lnd/pull/6659).
 
 * [The macaroon key store implementation was refactored to be more generally
@@ -98,6 +101,7 @@ minimum version needed to build the project.
 * Daniel McNally
 * Elle Mouton
 * ErikEk
+* Eugene Siegel
 * hieblmi
 * Jesse de Wit
 * Matt Morehouse

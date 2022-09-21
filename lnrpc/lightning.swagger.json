@@ -3927,6 +3927,16 @@
           "type": "number",
           "format": "double",
           "description": "The effective fee rate in milli-satoshis. Computed by dividing the\nfee_per_mil value by 1 million."
+        },
+        "inbound_base_fee_msat": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The base fee charged regardless of the number of milli-satoshis sent."
+        },
+        "inbound_fee_per_mil": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The amount charged per milli-satoshis transferred expressed in\nmillionths of a satoshi."
         }
       }
     },
@@ -6155,6 +6165,14 @@
         "min_htlc_msat_specified": {
           "type": "boolean",
           "description": "If true, min_htlc_msat is applied."
+        },
+        "inbound_base_fee_msat": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "inbound_fee_rate_ppm": {
+          "type": "integer",
+          "format": "int32"
         }
       }
     },

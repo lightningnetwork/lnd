@@ -244,6 +244,10 @@ type FeeSchema struct {
 	// the effective fee rate charged per mSAT will be: (amount *
 	// FeeRate/1,000,000).
 	FeeRate uint32
+
+	// InboundFee is the inbound fee schedule that applies to forwards
+	// coming in through a channel to which this FeeSchema pertains.
+	InboundFee htlcswitch.InboundFee
 }
 
 // ChannelPolicy holds the parameters that determine the policy we enforce

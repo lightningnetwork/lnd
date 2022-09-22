@@ -170,7 +170,7 @@ func (p *OnionProcessor) DecodeHopIterator(r io.Reader, rHash []byte,
 	// case of a replay, an attacker is *forced* to use the same payment
 	// hash twice, thereby losing their money entirely.
 	sphinxPacket, err := p.router.ProcessOnionPacket(
-		onionPkt, rHash, incomingCltv,
+		onionPkt, rHash, incomingCltv, nil,
 	)
 	if err != nil {
 		switch err {
@@ -205,7 +205,7 @@ func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte) (
 	// associated data in order to thwart attempts a replay attacks. In the
 	// case of a replay, an attacker is *forced* to use the same payment
 	// hash twice, thereby losing their money entirely.
-	sphinxPacket, err := p.router.ReconstructOnionPacket(onionPkt, rHash)
+	sphinxPacket, err := p.router.ReconstructOnionPacket(onionPkt, rHash, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 		}
 
 		err = tx.ProcessOnionPacket(
-			seqNum, onionPkt, req.RHash, req.IncomingCltv,
+			seqNum, onionPkt, req.RHash, req.IncomingCltv, nil,
 		)
 		switch err {
 		case nil:
@@ -383,6 +383,8 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 func (p *OnionProcessor) ExtractErrorEncrypter(ephemeralKey *btcec.PublicKey) (
 	ErrorEncrypter, lnwire.FailCode) {
 
+	// TODO(9/21/22): Figure how this changes when handling
+	// errors for a blinded hop.
 	onionObfuscator, err := sphinx.NewOnionErrorEncrypter(
 		p.router, ephemeralKey,
 	)

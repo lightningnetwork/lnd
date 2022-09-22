@@ -4463,3 +4463,35 @@ func TestFundingManagerZeroConf(t *testing.T) {
 	// have been deleted from the database, as the channel is announced.
 	assertNoFwdingPolicy(t, alice, bob, fundingOp)
 }
+
+// TestCommitmentTypeFundmaxSanityCheck was introduced as a way of reminding
+// developers of new channel commitment types to also consider the channel
+// opening behavior with a specified fundmax flag. To give a hypothetical
+// example, if ANCHOR types had been introduced after the fundmax flag had been
+// activated, the developer would have had to code for the anchor reserve in the
+// funding manager in the context of public and private channels. Otherwise
+// inconsistent bahvior would have resulted when specifying fundmax for
+// different types of channel openings.
+// To ensure consistency this test compares a map of locally defined channel
+// commitment types to the list of channel types that are defined in the proto
+// files. It fails if the proto files contain additional commitment types. Once
+// the developer considered the new channel type behavior it can be added in
+// this test to the map `allCommitmentTypes`.
+func TestCommitmentTypeFundmaxSanityCheck(t *testing.T) {
+	t.Parallel()
+	allCommitmentTypes := map[string]int{
+		"UNKNOWN_COMMITMENT_TYPE": 0,
+		"LEGACY":                  1,
+		"STATIC_REMOTE_KEY":       2,
+		"ANCHORS":                 3,
+		"SCRIPT_ENFORCED_LEASE":   4,
+	}
+
+	for commitmentType := range lnrpc.CommitmentType_value {
+		if _, ok := allCommitmentTypes[commitmentType]; !ok {
+			t.Fatalf("Commitment type %s hasn't been considered "+
+				"in the context of the --fundmax flag for "+
+				"channel openings.", commitmentType)
+		}
+	}
+}

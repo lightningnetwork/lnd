@@ -3330,6 +3330,9 @@ message RoutingPolicy {
 
     // Custom channel update tlv records.
     map<uint64, bytes> custom_records = 8;
+
+    int32 inbound_fee_base_msat = 9;
+    int32 inbound_fee_rate_milli_msat = 10;
 }
 
 /*

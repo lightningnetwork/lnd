@@ -6548,9 +6548,8 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 
 	// computeFeeSum is a helper function that computes the total fees for
 	// a particular time slice described by a forwarding event query.
-	computeFeeSum := func(query channeldb.ForwardingEventQuery) (lnwire.MilliSatoshi, error) {
-
-		var totalFees lnwire.MilliSatoshi
+	computeFeeSum := func(query channeldb.ForwardingEventQuery) (int64, error) {
+		var totalFeesMsat int64
 
 		// We'll continue to fetch the next query and accumulate the
 		// fees until the next query returns no events.
@@ -6569,8 +6568,8 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 			// Otherwise, we'll tally up an accumulate the total
 			// fees for this time slice.
 			for _, event := range timeSlice.ForwardingEvents {
-				fee := event.AmtIn - event.AmtOut
-				totalFees += fee
+				fee := int64(event.AmtIn) - int64(event.AmtOut)
+				totalFeesMsat += fee
 			}
 
 			// We'll now take the last offset index returned as
@@ -6581,7 +6580,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 			query.IndexOffset = timeSlice.LastIndexOffset
 		}
 
-		return totalFees, nil
+		return totalFeesMsat, nil
 	}
 
 	now := time.Now()
@@ -6627,11 +6626,26 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 		return nil, fmt.Errorf("unable to retrieve day fees: %v", err)
 	}
 
+	// Get unsigned representations of the fees. Report zero if negative.
+	var unsignedDayFees, unsignedWeekFees, unsignedMonthFees uint64
+	if dayFees > 0 {
+		unsignedDayFees = uint64(dayFees) / 1000
+	}
+	if weekFees > 0 {
+		unsignedWeekFees = uint64(weekFees) / 1000
+	}
+	if monthFees > 0 {
+		unsignedMonthFees = uint64(monthFees) / 1000
+	}
+
 	return &lnrpc.FeeReportResponse{
-		ChannelFees: feeReports,
-		DayFeeSum:   uint64(dayFees.ToSatoshis()),
-		WeekFeeSum:  uint64(weekFees.ToSatoshis()),
-		MonthFeeSum: uint64(monthFees.ToSatoshis()),
+		ChannelFees:     feeReports,
+		DayFeeSum:       unsignedDayFees,
+		WeekFeeSum:      unsignedWeekFees,
+		MonthFeeSum:     unsignedMonthFees,
+		DayFeeSumMsat:   dayFees,
+		WeekFeeSumMsat:  weekFees,
+		MonthFeeSumMsat: monthFees,
 	}, nil
 }
 
@@ -6828,19 +6842,27 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 	for i, event := range timeSlice.ForwardingEvents {
 		amtInMsat := event.AmtIn
 		amtOutMsat := event.AmtOut
-		feeMsat := event.AmtIn - event.AmtOut
+		feeMsat := int64(event.AmtIn) - int64(event.AmtOut)
+
+		// Get unsigned representation of the fee. Report zero if
+		// negative.
+		var unsignedFeeMsat uint64
+		if feeMsat > 0 {
+			unsignedFeeMsat = uint64(feeMsat)
+		}
 
 		resp.ForwardingEvents[i] = &lnrpc.ForwardingEvent{
-			Timestamp:   uint64(event.Timestamp.Unix()),
-			TimestampNs: uint64(event.Timestamp.UnixNano()),
-			ChanIdIn:    event.IncomingChanID.ToUint64(),
-			ChanIdOut:   event.OutgoingChanID.ToUint64(),
-			AmtIn:       uint64(amtInMsat.ToSatoshis()),
-			AmtOut:      uint64(amtOutMsat.ToSatoshis()),
-			Fee:         uint64(feeMsat.ToSatoshis()),
-			FeeMsat:     uint64(feeMsat),
-			AmtInMsat:   uint64(amtInMsat),
-			AmtOutMsat:  uint64(amtOutMsat),
+			Timestamp:     uint64(event.Timestamp.Unix()),
+			TimestampNs:   uint64(event.Timestamp.UnixNano()),
+			ChanIdIn:      event.IncomingChanID.ToUint64(),
+			ChanIdOut:     event.OutgoingChanID.ToUint64(),
+			AmtIn:         uint64(amtInMsat.ToSatoshis()),
+			AmtOut:        uint64(amtOutMsat.ToSatoshis()),
+			Fee:           unsignedFeeMsat / 1000,
+			FeeMsat:       unsignedFeeMsat,
+			FeeSignedMsat: feeMsat,
+			AmtInMsat:     uint64(amtInMsat),
+			AmtOutMsat:    uint64(amtOutMsat),
 		}
 	}
 

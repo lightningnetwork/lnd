@@ -3965,16 +3965,31 @@ message FeeReportResponse {
     repeated ChannelFeeReport channel_fees = 1;
 
     // The total amount of fee revenue (in satoshis) the switch has collected
-    // over the past 24 hrs.
-    uint64 day_fee_sum = 2;
+    // over the past 24 hrs. A negative amount is reported as zero. Deprecated,
+    // use day_fee_sum_msat.
+    uint64 day_fee_sum = 2 [deprecated = true];
 
     // The total amount of fee revenue (in satoshis) the switch has collected
-    // over the past 1 week.
-    uint64 week_fee_sum = 3;
+    // over the past 1 week. A negative amount is reported as zero. Deprecated,
+    // use week_fee_sum_msat.
+    uint64 week_fee_sum = 3 [deprecated = true];
 
     // The total amount of fee revenue (in satoshis) the switch has collected
-    // over the past 1 month.
-    uint64 month_fee_sum = 4;
+    // over the past 1 month. A negative amount is reported as zero. Deprecated,
+    // use month_fee_sum_msat.
+    uint64 month_fee_sum = 4 [deprecated = true];
+
+    // The total amount of fee revenue (in millisatoshis) the switch has
+    // collected over the past 24 hrs. This value may be negative.
+    int64 day_fee_sum_msat = 5;
+
+    // The total amount of fee revenue (in millisatoshis) the switch has
+    // collected over the past 1 week. This value may be negative.
+    int64 week_fee_sum_msat = 6;
+
+    // The total amount of fee revenue (in millisatoshis) the switch has
+    // collected over the past 1 month. This value may be negative.
+    int64 month_fee_sum_msat = 7;
 }
 
 message PolicyUpdateRequest {
@@ -4073,11 +4088,17 @@ message ForwardingEvent {
     // second half of the circuit.
     uint64 amt_out = 6;
 
-    // The total fee (in satoshis) that this payment circuit carried.
-    uint64 fee = 7;
+    // The total fee (in satoshis) that this payment circuit carried. A negative
+    // amount is reported as zero. Deprecated, use fee_signed_msat.
+    uint64 fee = 7 [deprecated = true];
 
-    // The total fee (in milli-satoshis) that this payment circuit carried.
-    uint64 fee_msat = 8;
+    // The total fee (in milli-satoshis) that this payment circuit carried. A
+    // negative amount is reported as zero. Deprecated, use fee_signed_msat.
+    uint64 fee_msat = 8 [deprecated = true];
+
+    // The total fee (in milli-satoshis) that this payment circuit carried. This
+    // value may be negative.
+    int64 fee_signed_msat = 12;
 
     // The total amount (in milli-satoshis) of the incoming HTLC that created
     // half the circuit.

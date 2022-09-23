@@ -6431,6 +6431,14 @@
         "last_update": {
           "type": "integer",
           "format": "int64"
+        },
+        "inbound_fee_base_msat": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "inbound_fee_rate_milli_msat": {
+          "type": "integer",
+          "format": "int32"
         }
       }
     },

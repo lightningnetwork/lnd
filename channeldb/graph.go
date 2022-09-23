@@ -3443,7 +3443,7 @@ type ChannelEdgePolicy struct {
 	// properly validate the set of signatures that cover these new fields,
 	// and ensure we're able to make upgrades to the network in a forwards
 	// compatible manner.
-	ExtraOpaqueData []byte
+	ExtraOpaqueData lnwire.ExtraOpaqueData
 
 	db kvdb.Backend
 }

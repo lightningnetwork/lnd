@@ -5732,6 +5732,23 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	return resp, nil
 }
 
+// extractInboundFeeSafe tries to extract the inbound fee from the given extra
+// opaque data tlv block. If parsing fails, a zero inbound fee is returned. This
+// function is typically used on unvalidated data coming stored in the database.
+// There is not much we can do other than ignoring errors here.
+func extractInboundFeeSafe(data lnwire.ExtraOpaqueData) lnwire.Fee {
+	var inboundFee lnwire.Fee
+
+	_, err := data.ExtractRecords(&inboundFee)
+	if err != nil {
+		// Return zero fee. Do not return the inboundFee variable
+		// because it may be undefined.
+		return lnwire.Fee{}
+	}
+
+	return inboundFee
+}
+
 func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 	c1, c2 *channeldb.ChannelEdgePolicy) *lnrpc.ChannelEdge {
 
@@ -5762,26 +5779,34 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 	}
 
 	if c1 != nil {
+		inboundFee := extractInboundFeeSafe(c1.ExtraOpaqueData)
+
 		edge.Node1Policy = &lnrpc.RoutingPolicy{
-			TimeLockDelta:    uint32(c1.TimeLockDelta),
-			MinHtlc:          int64(c1.MinHTLC),
-			MaxHtlcMsat:      uint64(c1.MaxHTLC),
-			FeeBaseMsat:      int64(c1.FeeBaseMSat),
-			FeeRateMilliMsat: int64(c1.FeeProportionalMillionths),
-			Disabled:         c1.ChannelFlags&lnwire.ChanUpdateDisabled != 0,
-			LastUpdate:       uint32(c1.LastUpdate.Unix()),
+			TimeLockDelta:           uint32(c1.TimeLockDelta),
+			MinHtlc:                 int64(c1.MinHTLC),
+			MaxHtlcMsat:             uint64(c1.MaxHTLC),
+			FeeBaseMsat:             int64(c1.FeeBaseMSat),
+			FeeRateMilliMsat:        int64(c1.FeeProportionalMillionths),
+			Disabled:                c1.ChannelFlags&lnwire.ChanUpdateDisabled != 0,
+			LastUpdate:              uint32(c1.LastUpdate.Unix()),
+			InboundFeeBaseMsat:      inboundFee.BaseFee,
+			InboundFeeRateMilliMsat: inboundFee.FeeRate,
 		}
 	}
 
 	if c2 != nil {
+		inboundFee := extractInboundFeeSafe(c2.ExtraOpaqueData)
+
 		edge.Node2Policy = &lnrpc.RoutingPolicy{
-			TimeLockDelta:    uint32(c2.TimeLockDelta),
-			MinHtlc:          int64(c2.MinHTLC),
-			MaxHtlcMsat:      uint64(c2.MaxHTLC),
-			FeeBaseMsat:      int64(c2.FeeBaseMSat),
-			FeeRateMilliMsat: int64(c2.FeeProportionalMillionths),
-			Disabled:         c2.ChannelFlags&lnwire.ChanUpdateDisabled != 0,
-			LastUpdate:       uint32(c2.LastUpdate.Unix()),
+			TimeLockDelta:           uint32(c2.TimeLockDelta),
+			MinHtlc:                 int64(c2.MinHTLC),
+			MaxHtlcMsat:             uint64(c2.MaxHTLC),
+			FeeBaseMsat:             int64(c2.FeeBaseMSat),
+			FeeRateMilliMsat:        int64(c2.FeeProportionalMillionths),
+			Disabled:                c2.ChannelFlags&lnwire.ChanUpdateDisabled != 0,
+			LastUpdate:              uint32(c2.LastUpdate.Unix()),
+			InboundFeeBaseMsat:      inboundFee.BaseFee,
+			InboundFeeRateMilliMsat: inboundFee.FeeRate,
 		}
 	}
 

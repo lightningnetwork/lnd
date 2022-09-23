@@ -3069,6 +3069,9 @@ message RoutingPolicy {
     bool disabled = 5;
     uint64 max_htlc_msat = 6;
     uint32 last_update = 7;
+
+    int32 inbound_fee_base_msat = 8;
+    int32 inbound_fee_rate_milli_msat = 9;
 }
 
 /*

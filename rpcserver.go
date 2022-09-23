@@ -5977,6 +5977,23 @@ func marshalExtraOpaqueData(data []byte) map[uint64][]byte {
 	return records
 }
 
+// extractInboundFeeSafe tries to extract the inbound fee from the given extra
+// opaque data tlv block. If parsing fails, a zero inbound fee is returned. This
+// function is typically used on unvalidated data coming stored in the database.
+// There is not much we can do other than ignoring errors here.
+func extractInboundFeeSafe(data lnwire.ExtraOpaqueData) lnwire.Fee {
+	var inboundFee lnwire.Fee
+
+	_, err := data.ExtractRecords(&inboundFee)
+	if err != nil {
+		// Return zero fee. Do not return the inboundFee variable
+		// because it may be undefined.
+		return lnwire.Fee{}
+	}
+
+	return inboundFee
+}
+
 func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 	c1, c2 *channeldb.ChannelEdgePolicy) *lnrpc.ChannelEdge {
 
@@ -6026,6 +6043,7 @@ func marshalDBRoutingPolicy(
 	disabled := policy.ChannelFlags&lnwire.ChanUpdateDisabled != 0
 
 	customRecords := marshalExtraOpaqueData(policy.ExtraOpaqueData)
+	inboundFee := extractInboundFeeSafe(policy.ExtraOpaqueData)
 
 	return &lnrpc.RoutingPolicy{
 		TimeLockDelta:    uint32(policy.TimeLockDelta),
@@ -6036,6 +6054,9 @@ func marshalDBRoutingPolicy(
 		Disabled:         disabled,
 		LastUpdate:       uint32(policy.LastUpdate.Unix()),
 		CustomRecords:    customRecords,
+
+		InboundFeeBaseMsat:      inboundFee.BaseFee,
+		InboundFeeRateMilliMsat: inboundFee.FeeRate,
 	}
 }
 

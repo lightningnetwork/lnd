@@ -11,6 +11,9 @@
 * [A bug where LND wouldn't send a ChannelUpdate during a channel open has
   been fixed.](https://github.com/lightningnetwork/lnd/pull/6892)
 
+* [A bug has been fixed that caused fee estimation to be incorrect for taproot
+  inputs when using the `SendOutputs` call.](https://github.com/lightningnetwork/lnd/pull/6941)
+
 # Contributors (Alphabetical Order)
 
 * Eugene Siegel

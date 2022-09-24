@@ -297,14 +297,14 @@ func psbtSendFromImportedAccount(t *harnessTest, srcNode, destNode,
 
 	case walletrpc.AddressType_TAPROOT_PUBKEY:
 		if account != defaultImportedAccount {
-			expTxFee = 190
+			expTxFee = 143
 			expChangeScriptType = txscript.WitnessV1TaprootTy
 			break
 		}
 
 		// Spends from the default imported account fall back to a P2WKH
 		// change. We'll want to change that, but in a separate PR.
-		expTxFee = 221
+		expTxFee = 131
 		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
 
 	default:
@@ -464,14 +464,14 @@ func fundChanAndCloseFromImportedAccount(t *harnessTest, srcNode, destNode,
 
 	case walletrpc.AddressType_TAPROOT_PUBKEY:
 		if account != defaultImportedAccount {
-			expChanTxFee = 202
+			expChanTxFee = 155
 			expChangeScriptType = txscript.WitnessV1TaprootTy
 			break
 		}
 
 		// Spends from the default imported account fall back to a P2WKH
 		// change. We'll want to change that, but in a separate PR.
-		expChanTxFee = 233
+		expChanTxFee = 143
 		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
 
 	default:

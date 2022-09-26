@@ -2564,9 +2564,17 @@ message PendingChannelsResponse {
 
         repeated PendingHTLC pending_htlcs = 8;
 
+        /*
+          There are three resolution states for the anchor:
+          limbo, lost and recovered. Derive the current state
+          from the limbo and recovered balances.
+        */
         enum AnchorState {
+            // The recovered_balance is zero and limbo_balance is non-zero.
             LIMBO = 0;
+            // The recovered_balance is non-zero.
             RECOVERED = 1;
+            // A state that is neither LIMBO nor RECOVERED.
             LOST = 2;
         }
 

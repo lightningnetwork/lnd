@@ -898,12 +898,18 @@ func (PeerEvent_EventType) EnumDescriptor() ([]byte, []int) {
 	return file_lightning_proto_rawDescGZIP(), []int{54, 0}
 }
 
+// There are three resolution states for the anchor:
+// limbo, lost and recovered. Derive the current state
+// from the limbo and recovered balances.
 type PendingChannelsResponse_ForceClosedChannel_AnchorState int32
 
 const (
-	PendingChannelsResponse_ForceClosedChannel_LIMBO     PendingChannelsResponse_ForceClosedChannel_AnchorState = 0
+	// The recovered_balance is zero and limbo_balance is non-zero.
+	PendingChannelsResponse_ForceClosedChannel_LIMBO PendingChannelsResponse_ForceClosedChannel_AnchorState = 0
+	// The recovered_balance is non-zero.
 	PendingChannelsResponse_ForceClosedChannel_RECOVERED PendingChannelsResponse_ForceClosedChannel_AnchorState = 1
-	PendingChannelsResponse_ForceClosedChannel_LOST      PendingChannelsResponse_ForceClosedChannel_AnchorState = 2
+	// A state that is neither LIMBO nor RECOVERED.
+	PendingChannelsResponse_ForceClosedChannel_LOST PendingChannelsResponse_ForceClosedChannel_AnchorState = 2
 )
 
 // Enum value maps for PendingChannelsResponse_ForceClosedChannel_AnchorState.

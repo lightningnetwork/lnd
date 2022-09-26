@@ -2760,7 +2760,8 @@
         "RECOVERED",
         "LOST"
       ],
-      "default": "LIMBO"
+      "default": "LIMBO",
+      "description": "There are three resolution states for the anchor:\nlimbo, lost and recovered. Derive the current state\nfrom the limbo and recovered balances.\n\n - LIMBO: The recovered_balance is zero and limbo_balance is non-zero.\n - RECOVERED: The recovered_balance is non-zero.\n - LOST: A state that is neither LIMBO nor RECOVERED."
     },
     "HTLCAttemptHTLCStatus": {
       "type": "string",

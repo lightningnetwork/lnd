@@ -1913,6 +1913,11 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 	globalFeatureSet := r.server.featureMgr.Get(feature.SetNodeAnn)
 
+	// Ensure that a local funding amount has been specified.
+	if localFundingAmt == 0 {
+		return nil, fmt.Errorf("local funding amount must be non-zero")
+	}
+
 	// Ensure that the initial balance of the remote party (if pushing
 	// satoshis) does not exceed the amount the local party has requested
 	// for funding.

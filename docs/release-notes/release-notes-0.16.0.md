@@ -27,6 +27,9 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
   method to the RPC to allow subscribing to updates from any inflight payment.
   Similar to TrackPaymentV2, but for any inflight payment.
 
+* [Catch and throw an error](https://github.com/lightningnetwork/lnd/pull/6945)
+  during `openchannel` if the local funding amount given is zero. 
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

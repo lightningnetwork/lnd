@@ -276,6 +276,11 @@ var (
 	// channelOpeningState for each channel that is currently in the process
 	// of being opened.
 	channelOpeningStateBucket = []byte("channelOpeningState")
+
+	// initialChannelFwdingPolicyBucket is the database bucket used to store
+	// the forwarding policy for each permanent channel that is currently
+	// in the process of being opened.
+	initialChannelFwdingPolicyBucket = []byte("initialChannelFwdingPolicy")
 )
 
 // DB is the primary datastore for the lnd daemon. The database stores
@@ -324,7 +329,9 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 
 // CreateWithBackend creates channeldb instance using the passed kvdb.Backend.
 // Any necessary schemas migrations due to updates will take place as necessary.
-func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, error) {
+func CreateWithBackend(backend kvdb.Backend,
+	modifiers ...OptionModifier) (*DB, error) {
+
 	opts := DefaultOptions()
 	for _, modifier := range modifiers {
 		modifier(&opts)
@@ -656,7 +663,9 @@ func (c *ChannelStateDB) FetchChannel(tx kvdb.RTx, chanPoint wire.OutPoint) (
 
 			// The next layer down is all the chains that this node
 			// has channels on with us.
-			return nodeChanBucket.ForEach(func(chainHash, v []byte) error {
+			return nodeChanBucket.ForEach(func(chainHash,
+				v []byte) error {
+
 				// If there's a value, it's not a bucket so
 				// ignore it.
 				if v != nil {
@@ -1108,8 +1117,8 @@ func (c *ChannelStateDB) pruneLinkNode(openChannels []*OpenChannel,
 	return c.linkNodeDB.DeleteLinkNode(remotePub)
 }
 
-// PruneLinkNodes attempts to prune all link nodes found within the database with
-// whom we no longer have any open channels with.
+// PruneLinkNodes attempts to prune all link nodes found within the database
+// with whom we no longer have any open channels with.
 func (c *ChannelStateDB) PruneLinkNodes() error {
 	allLinkNodes, err := c.linkNodeDB.FetchAllLinkNodes()
 	if err != nil {
@@ -1290,6 +1299,64 @@ func (c *ChannelStateDB) AbandonChannel(chanPoint *wire.OutPoint,
 	return dbChan.CloseChannel(summary, ChanStatusLocalCloseInitiator)
 }
 
+// SaveInitialFwdingPolicy saves the serialized forwarding policy for the
+// provided permanent channel id to the initialChannelFwdingPolicyBucket.
+func (c *ChannelStateDB) SaveInitialFwdingPolicy(chanID,
+	forwardingPolicy []byte) error {
+
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		bucket, err := tx.CreateTopLevelBucket(
+			initialChannelFwdingPolicyBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		return bucket.Put(chanID, forwardingPolicy)
+	}, func() {})
+}
+
+// GetInitialFwdingPolicy fetches the serialized forwarding policy for the
+// provided channel id from the database, or returns ErrChannelNotFound if
+// a forwarding policy for this channel id is not found.
+func (c *ChannelStateDB) GetInitialFwdingPolicy(chanID []byte) ([]byte, error) {
+	var serializedState []byte
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
+		bucket := tx.ReadBucket(initialChannelFwdingPolicyBucket)
+		if bucket == nil {
+			// If the bucket does not exist, it means we
+			// never added a channel fees to the db, so
+			// return ErrChannelNotFound.
+			return ErrChannelNotFound
+		}
+
+		stateBytes := bucket.Get(chanID)
+		if stateBytes == nil {
+			return ErrChannelNotFound
+		}
+
+		serializedState = append(serializedState, stateBytes...)
+
+		return nil
+	}, func() {
+		serializedState = nil
+	})
+	return serializedState, err
+}
+
+// DeleteInitialFwdingPolicy removes the forwarding policy for a given channel
+// from the database.
+func (c *ChannelStateDB) DeleteInitialFwdingPolicy(chanID []byte) error {
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		bucket := tx.ReadWriteBucket(initialChannelFwdingPolicyBucket)
+		if bucket == nil {
+			return ErrChannelNotFound
+		}
+
+		return bucket.Delete(chanID)
+	}, func() {})
+}
+
 // SaveChannelOpeningState saves the serialized channel state for the provided
 // chanPoint to the channelOpeningStateBucket.
 func (c *ChannelStateDB) SaveChannelOpeningState(outPoint,
@@ -1308,7 +1375,9 @@ func (c *ChannelStateDB) SaveChannelOpeningState(outPoint,
 // GetChannelOpeningState fetches the serialized channel state for the provided
 // outPoint from the database, or returns ErrChannelNotFound if the channel
 // is not found.
-func (c *ChannelStateDB) GetChannelOpeningState(outPoint []byte) ([]byte, error) {
+func (c *ChannelStateDB) GetChannelOpeningState(outPoint []byte) ([]byte,
+	error) {
+
 	var serializedState []byte
 	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		bucket := tx.ReadBucket(channelOpeningStateBucket)
@@ -1392,7 +1461,8 @@ func (d *DB) syncVersions(versions []mandatoryVersion) error {
 				continue
 			}
 
-			log.Infof("Applying migration #%v", migrationVersions[i])
+			log.Infof("Applying migration #%v",
+				migrationVersions[i])
 
 			if err := migration(tx); err != nil {
 				log.Infof("Unable to apply migration #%v",
@@ -1532,7 +1602,9 @@ func fetchHistoricalChanBucket(tx kvdb.RTx,
 	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
 		return nil, err
 	}
-	chanBucket := historicalChanBucket.NestedReadBucket(chanPointBuf.Bytes())
+	chanBucket := historicalChanBucket.NestedReadBucket(
+		chanPointBuf.Bytes(),
+	)
 	if chanBucket == nil {
 		return nil, ErrChannelNotFound
 	}

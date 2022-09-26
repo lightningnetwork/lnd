@@ -138,6 +138,9 @@ type reservationWithCtx struct {
 
 	chanAmt btcutil.Amount
 
+	// forwardingPolicy is the policy provided by the initFundingMsg.
+	forwardingPolicy htlcswitch.ForwardingPolicy
+
 	// Constraints we require for the remote.
 	remoteCsvDelay uint16
 	remoteMinHtlc  lnwire.MilliSatoshi
@@ -196,6 +199,15 @@ type InitFundingMsg struct {
 
 	// LocalFundingAmt is the size of the channel.
 	LocalFundingAmt btcutil.Amount
+
+	// BaseFee is the base fee charged for routing payments regardless of the
+	// number of milli-satoshis sent.
+	BaseFee *uint64
+
+	// FeeRate is the fee rate in ppm (parts per million) that will be charged
+	// proportionally based on the value of each forwarded HTLC, the lowest
+	// possible rate is 0 with a granularity of 0.000001 (millionths).
+	FeeRate *uint64
 
 	// PushAmt is the amount pushed to the counterparty.
 	PushAmt lnwire.MilliSatoshi
@@ -1592,6 +1604,14 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		minHtlc = acceptorResp.MinHtlcIn
 	}
 
+	// If we are handling a FundingOpen request then we need to
+	// specify the default channel fees since they are not provided
+	// by the responder interactively.
+	forwardingPolicy := htlcswitch.ForwardingPolicy{
+		BaseFee: f.cfg.DefaultRoutingPolicy.BaseFee,
+		FeeRate: f.cfg.DefaultRoutingPolicy.FeeRate,
+	}
+
 	// Once the reservation has been created successfully, we add it to
 	// this peer's map of pending reservations to track this particular
 	// reservation until either abort or completion.
@@ -1600,16 +1620,17 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		f.activeReservations[peerIDKey] = make(pendingChannels)
 	}
 	resCtx := &reservationWithCtx{
-		reservation:    reservation,
-		chanAmt:        amt,
-		remoteCsvDelay: remoteCsvDelay,
-		remoteMinHtlc:  minHtlc,
-		remoteMaxValue: remoteMaxValue,
-		remoteMaxHtlcs: maxHtlcs,
-		maxLocalCsv:    f.cfg.MaxLocalCSVDelay,
-		channelType:    msg.ChannelType,
-		err:            make(chan error, 1),
-		peer:           peer,
+		reservation:      reservation,
+		chanAmt:          amt,
+		forwardingPolicy: forwardingPolicy,
+		remoteCsvDelay:   remoteCsvDelay,
+		remoteMinHtlc:    minHtlc,
+		remoteMaxValue:   remoteMaxValue,
+		remoteMaxHtlcs:   maxHtlcs,
+		maxLocalCsv:      f.cfg.MaxLocalCSVDelay,
+		channelType:      msg.ChannelType,
+		err:              make(chan error, 1),
+		peer:             peer,
 	}
 	f.activeReservations[peerIDKey][msg.PendingChannelID] = resCtx
 	f.resMtx.Unlock()
@@ -2110,6 +2131,9 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 		return
 	}
 
+	// Get forwarding policy before deleting the reservation context.
+	forwardingPolicy := resCtx.forwardingPolicy
+
 	// The channel is marked IsPending in the database, and can be removed
 	// from the set of active reservations.
 	f.deleteReservationCtx(peerKey, msg.PendingChannelID)
@@ -2174,6 +2198,14 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 		f.failFundingFlow(peer, pendingChanID, err)
 		deleteFromDatabase()
 		return
+	}
+
+	// With a permanent channel id established we can save the respective
+	// forwarding policy in the database. In the channel announcement phase
+	// this forwarding policy is retrieved and applied.
+	err = f.saveInitialFwdingPolicy(channelID, &forwardingPolicy)
+	if err != nil {
+		log.Errorf("Unable to store the forwarding policy: %v", err)
 	}
 
 	// Now that we've sent over our final signature for this channel, we'll
@@ -2256,6 +2288,14 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 	f.localDiscoveryMtx.Lock()
 	f.localDiscoverySignals[permChanID] = make(chan struct{})
 	f.localDiscoveryMtx.Unlock()
+
+	// We have to store the forwardingPolicy before the reservation context
+	// is deleted. The policy will then be read and applied in
+	// newChanAnnouncement.
+	err = f.saveInitialFwdingPolicy(permChanID, &resCtx.forwardingPolicy)
+	if err != nil {
+		log.Errorf("Unable to store the forwarding policy: %v", err)
+	}
 
 	// The remote peer has responded with a signature for our commitment
 	// transaction. We'll verify the signature for validity, then commit
@@ -3082,6 +3122,15 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			return fmt.Errorf("unable to send node announcement "+
 				"to peer %x: %v", pubKey, err)
 		}
+
+		// For private channels we do not announce the channel policy
+		// to the network but still need to delete them from the
+		// database.
+		err = f.deleteInitialFwdingPolicy(chanID)
+		if err != nil {
+			log.Infof("Could not delete channel fees "+
+				"for chanId %x.", chanID)
+		}
 	} else {
 		// Otherwise, we'll wait until the funding transaction has
 		// reached 6 confirmations before announcing it.
@@ -3523,8 +3572,14 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	if bytes.Compare(selfBytes, remoteBytes) == -1 {
 		copy(chanAnn.NodeID1[:], localPubKey.SerializeCompressed())
 		copy(chanAnn.NodeID2[:], remotePubKey.SerializeCompressed())
-		copy(chanAnn.BitcoinKey1[:], localFundingKey.PubKey.SerializeCompressed())
-		copy(chanAnn.BitcoinKey2[:], remoteFundingKey.SerializeCompressed())
+		copy(
+			chanAnn.BitcoinKey1[:],
+			localFundingKey.PubKey.SerializeCompressed(),
+		)
+		copy(
+			chanAnn.BitcoinKey2[:],
+			remoteFundingKey.SerializeCompressed(),
+		)
 
 		// If we're the first node then update the chanFlags to
 		// indicate the "direction" of the update.
@@ -3532,8 +3587,14 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	} else {
 		copy(chanAnn.NodeID1[:], remotePubKey.SerializeCompressed())
 		copy(chanAnn.NodeID2[:], localPubKey.SerializeCompressed())
-		copy(chanAnn.BitcoinKey1[:], remoteFundingKey.SerializeCompressed())
-		copy(chanAnn.BitcoinKey2[:], localFundingKey.PubKey.SerializeCompressed())
+		copy(
+			chanAnn.BitcoinKey1[:],
+			remoteFundingKey.SerializeCompressed(),
+		)
+		copy(
+			chanAnn.BitcoinKey2[:],
+			localFundingKey.PubKey.SerializeCompressed(),
+		)
 
 		// If we're the second node then update the chanFlags to
 		// indicate the "direction" of the update.
@@ -3552,19 +3613,24 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 		Timestamp:      uint32(time.Now().Unix()),
 		MessageFlags:   msgFlags,
 		ChannelFlags:   chanFlags,
-		TimeLockDelta:  uint16(f.cfg.DefaultRoutingPolicy.TimeLockDelta),
-
-		// We use the HtlcMinimumMsat that the remote party required us
-		// to use, as our ChannelUpdate will be used to carry HTLCs
-		// towards them.
+		TimeLockDelta: uint16(
+			f.cfg.DefaultRoutingPolicy.TimeLockDelta,
+		),
 		HtlcMinimumMsat: fwdMinHTLC,
 		HtlcMaximumMsat: fwdMaxHTLC,
-
-		BaseFee: uint32(f.cfg.DefaultRoutingPolicy.BaseFee),
-		FeeRate: uint32(f.cfg.DefaultRoutingPolicy.FeeRate),
 	}
 
-	if ourPolicy != nil {
+	// The caller of newChanAnnouncement is expected to provide the initial
+	// forwarding policy to be announced. We abort the channel announcement
+	// if they are not provided.
+	storedFwdingPolicy, err := f.getInitialFwdingPolicy(chanID)
+	if err != nil {
+		return nil, errors.Errorf("unable to generate channel "+
+			"update announcement: %v", err)
+	}
+
+	switch {
+	case ourPolicy != nil:
 		// If ourPolicy is non-nil, modify the default parameters of the
 		// ChannelUpdate.
 		chanUpdateAnn.MessageFlags = ourPolicy.MessageFlags
@@ -3575,6 +3641,21 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 		chanUpdateAnn.BaseFee = uint32(ourPolicy.FeeBaseMSat)
 		chanUpdateAnn.FeeRate = uint32(
 			ourPolicy.FeeProportionalMillionths,
+		)
+
+	case storedFwdingPolicy != nil:
+		chanUpdateAnn.BaseFee = uint32(storedFwdingPolicy.BaseFee)
+		chanUpdateAnn.FeeRate = uint32(storedFwdingPolicy.FeeRate)
+
+	default:
+		log.Infof("No channel forwaring policy specified for channel "+
+			"announcement of ChannelID(%v). "+
+			"Assuming default fee parameters.", chanID)
+		chanUpdateAnn.BaseFee = uint32(
+			f.cfg.DefaultRoutingPolicy.BaseFee,
+		)
+		chanUpdateAnn.FeeRate = uint32(
+			f.cfg.DefaultRoutingPolicy.FeeRate,
 		)
 	}
 
@@ -3670,6 +3751,14 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	if err != nil {
 		log.Errorf("can't generate channel announcement: %v", err)
 		return err
+	}
+
+	// After the fee parameters have been stored in the announcement
+	// we can delete them from the database.
+	err = f.deleteInitialFwdingPolicy(chanID)
+	if err != nil {
+		log.Infof("Could not delete channel fees for chanId %x.",
+			chanID)
 	}
 
 	// We only send the channel proof announcement and the node announcement
@@ -3792,6 +3881,8 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	var (
 		peerKey        = msg.Peer.IdentityKey()
 		localAmt       = msg.LocalFundingAmt
+		baseFee        = msg.BaseFee
+		feeRate        = msg.FeeRate
 		minHtlcIn      = msg.MinHtlcIn
 		remoteCsvDelay = msg.RemoteCsvDelay
 		maxValue       = msg.MaxValueInFlight
@@ -3985,6 +4076,22 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		maxHtlcs = f.cfg.RequiredRemoteMaxHTLCs(capacity)
 	}
 
+	// Prepare the optional channel fee values from the initFundingMsg.
+	// If useBaseFee or useFeeRate are false the client did not
+	// provide fee values hence we assume default fee settings from
+	// the config.
+	forwardingPolicy := htlcswitch.ForwardingPolicy{
+		BaseFee: f.cfg.DefaultRoutingPolicy.BaseFee,
+		FeeRate: f.cfg.DefaultRoutingPolicy.FeeRate,
+	}
+	if baseFee != nil {
+		forwardingPolicy.BaseFee = lnwire.MilliSatoshi(*baseFee)
+	}
+
+	if feeRate != nil {
+		forwardingPolicy.FeeRate = lnwire.MilliSatoshi(*feeRate)
+	}
+
 	// If a pending channel map for this peer isn't already created, then
 	// we create one, ultimately allowing us to track this pending
 	// reservation within the target peer.
@@ -3995,17 +4102,18 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	}
 
 	resCtx := &reservationWithCtx{
-		chanAmt:        capacity,
-		remoteCsvDelay: remoteCsvDelay,
-		remoteMinHtlc:  minHtlcIn,
-		remoteMaxValue: maxValue,
-		remoteMaxHtlcs: maxHtlcs,
-		maxLocalCsv:    maxCSV,
-		channelType:    msg.ChannelType,
-		reservation:    reservation,
-		peer:           msg.Peer,
-		updates:        msg.Updates,
-		err:            msg.Err,
+		chanAmt:          capacity,
+		forwardingPolicy: forwardingPolicy,
+		remoteCsvDelay:   remoteCsvDelay,
+		remoteMinHtlc:    minHtlcIn,
+		remoteMaxValue:   maxValue,
+		remoteMaxHtlcs:   maxHtlcs,
+		maxLocalCsv:      maxCSV,
+		channelType:      msg.ChannelType,
+		reservation:      reservation,
+		peer:             msg.Peer,
+		updates:          msg.Updates,
+		err:              msg.Err,
 	}
 	f.activeReservations[peerIDKey][chanID] = resCtx
 	f.resMtx.Unlock()
@@ -4265,6 +4373,70 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 	pub.AsJacobian(&tmp)
 	tmp.ToAffine()
 	return btcec.NewPublicKey(&tmp.X, &tmp.Y)
+}
+
+// saveInitialFwdingPolicy saves the forwarding policy for the provided
+// chanPoint in the channelOpeningStateBucket.
+func (f *Manager) saveInitialFwdingPolicy(permChanID lnwire.ChannelID,
+	forwardingPolicy *htlcswitch.ForwardingPolicy) error {
+
+	chanID := make([]byte, 32)
+	copy(chanID, permChanID[:])
+
+	scratch := make([]byte, 36)
+	byteOrder.PutUint64(scratch[:8], uint64(forwardingPolicy.MinHTLCOut))
+	byteOrder.PutUint64(scratch[8:16], uint64(forwardingPolicy.MaxHTLC))
+	byteOrder.PutUint64(scratch[16:24], uint64(forwardingPolicy.BaseFee))
+	byteOrder.PutUint64(scratch[24:32], uint64(forwardingPolicy.FeeRate))
+	byteOrder.PutUint32(scratch[32:], forwardingPolicy.TimeLockDelta)
+
+	return f.cfg.Wallet.Cfg.Database.SaveInitialFwdingPolicy(
+		chanID, scratch,
+	)
+}
+
+// getInitialFwdingPolicy fetches the initial forwarding policy for a given
+// channel id from the database which will be applied during the channel
+// announcement phase.
+func (f *Manager) getInitialFwdingPolicy(permChanID lnwire.ChannelID) (
+	*htlcswitch.ForwardingPolicy, error) {
+
+	chanID := make([]byte, 32)
+	copy(chanID, permChanID[:])
+
+	value, err := f.cfg.Wallet.Cfg.Database.GetInitialFwdingPolicy(
+		chanID,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var fwdingPolicy htlcswitch.ForwardingPolicy
+	fwdingPolicy.MinHTLCOut = lnwire.MilliSatoshi(
+		byteOrder.Uint64(value[:8]),
+	)
+	fwdingPolicy.MaxHTLC = lnwire.MilliSatoshi(
+		byteOrder.Uint64(value[8:16]),
+	)
+	fwdingPolicy.BaseFee = lnwire.MilliSatoshi(
+		byteOrder.Uint64(value[16:24]),
+	)
+	fwdingPolicy.FeeRate = lnwire.MilliSatoshi(
+		byteOrder.Uint64(value[24:32]),
+	)
+	fwdingPolicy.TimeLockDelta = byteOrder.Uint32(value[32:36])
+
+	return &fwdingPolicy, nil
+}
+
+// deleteInitialFwdingPolicy removes channel fees for this chanID from
+// the database.
+func (f *Manager) deleteInitialFwdingPolicy(permChanID lnwire.ChannelID) error {
+	chanID := make([]byte, 32)
+	copy(chanID, permChanID[:])
+
+	return f.cfg.Wallet.Cfg.Database.DeleteInitialFwdingPolicy(chanID)
 }
 
 // saveChannelOpeningState saves the channelOpeningState for the provided

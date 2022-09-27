@@ -184,7 +184,7 @@ Next, we choose these two inputs and create the PSBT:
 ```
 
 Inspecting this PSBT, we notice that the two inputs were chosen and a large
-change change output was added at index 1:
+change output was added at index 1:
 
 ```shell
 ⛰  bitcoin-cli  decodepsbt cHNidP8BAJoCAAAAAkiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8Vv9RtJc1AQAAAAAAAAAA4lBjZUtG260qBBgVRqMQqmMV+XRTKubrHbc66YOl7/gBAAAAAAAAAAACgPD6AgAAAAAWABSQ2zhVNBOsxRfzPoPwCg8qiNolGtIkCAcAAAAAFgAUuvRP5r7qAvj0egDxyX9/FH+vukgAAAAAAAEA3gIAAAAAAQEr9IZcho/gV/6fH8C8P+yhNRZP+l3YuxsyatdYcS0S6AEAAAAA/v///wLI/8+yAAAAABYAFDXoRFwgXNO5VVtVq2WpaENh6blAAOH1BQAAAAAWABTcAR0NeNdDHb96kMnH5EVUcr1YwwJHMEQCIDqugtYLp4ebJAZvOdieshLi1lLuPl2tHQG4jM4ybwEGAiBeMpCkbHBmzYvljxb1JBQyVAMuoco0xIfi+5OQdHuXaAEhAnH96NhTW09X0npE983YBsHUoMPI4U4xBtHenpZVTEqpVwAAAAEBHwDh9QUAAAAAFgAU3AEdDXjXQx2/epDJx+RFVHK9WMMBAwQBAAAAAAEA6wIAAAAAAQFvGpeAR/0OXNyqo0zrXSzmkvVfbnytrr4onbZ61vscBwEAAAAAAAAAAAIAJPQAAAAAACIAILtTVbSIkaFDqjsJ7EOHmTfpXq/fbnrGkD3/GYHYHJtMVl0NBAAAAAAWABQqnZOHOGzDIzZAeXK+YwHq1AHtXQJIMEUCIQDgx3xEhlioV1Q+yAPKiaXMwkv1snoejbckZOKFe0R6WAIgB41dEvK3zxI665YVWfcih0IThTkPoOiMgd6xGaKQXbwBIQMdgXMwQDF+Z+r3x5JKdm1TBvXDuYC0cbrnLyqJEU2ciQAAAAABAR9WXQ0EAAAAABYAFCqdk4c4bMMjNkB5cr5jAerUAe1dAQMEAQAAAAAAAA==
@@ -305,7 +305,7 @@ everything should work fine.**
 ### Safety warning
 
 **DO NOT PUBLISH** the finished transaction by yourself or with another tool.
-lnd MUST publish it in the proper funding flow order **OR THE FUNDS CAN BE
+`lnd` MUST publish it in the proper funding flow order **OR THE FUNDS CAN BE
 LOST**!
 
 This is very important to remember when using wallets like `Wasabi` for

@@ -239,3 +239,5 @@ into the code base as well.
 
 Other editors (for example Atom, Nodepad++, Vim, Emacs and so on) might install
 a plugin to understand the rules in the `.editorconfig` file.
+
+In Vim you might want to use `set colorcolumn=80`.

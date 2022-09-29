@@ -2765,6 +2765,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	const minHtlcIn = 1234
 	const maxValueInFlight = 50000
 	const fundingAmt = 5000000
+	const chanReserve = 100000
 
 	// Use custom channel fees.
 	// These will show up in the channel reservation context
@@ -2785,19 +2786,20 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// workflow.
 	errChan := make(chan error, 1)
 	initReq := &InitFundingMsg{
-		Peer:             bob,
-		TargetPubkey:     bob.privKey.PubKey(),
-		ChainHash:        *fundingNetParams.GenesisHash,
-		LocalFundingAmt:  localAmt,
-		PushAmt:          lnwire.NewMSatFromSatoshis(pushAmt),
-		Private:          false,
-		MaxValueInFlight: maxValueInFlight,
-		MinHtlcIn:        minHtlcIn,
-		RemoteCsvDelay:   csvDelay,
-		Updates:          updateChan,
-		Err:              errChan,
-		BaseFee:          &baseFee,
-		FeeRate:          &feeRate,
+		Peer:              bob,
+		TargetPubkey:      bob.privKey.PubKey(),
+		ChainHash:         *fundingNetParams.GenesisHash,
+		LocalFundingAmt:   localAmt,
+		PushAmt:           lnwire.NewMSatFromSatoshis(pushAmt),
+		Private:           false,
+		MaxValueInFlight:  maxValueInFlight,
+		MinHtlcIn:         minHtlcIn,
+		RemoteCsvDelay:    csvDelay,
+		RemoteChanReserve: chanReserve,
+		Updates:           updateChan,
+		Err:               errChan,
+		BaseFee:           &baseFee,
+		FeeRate:           &feeRate,
 	}
 
 	alice.fundingMgr.InitFundingWorkflow(initReq)
@@ -2840,6 +2842,12 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	if openChannelReq.MaxValueInFlight != maxValueInFlight {
 		t.Fatalf("expected OpenChannel to have MaxValueInFlight %v, got %v",
 			maxValueInFlight, openChannelReq.MaxValueInFlight)
+	}
+
+	// Check that the custom remoteChanReserve value is sent.
+	if openChannelReq.ChannelReserve != chanReserve {
+		t.Fatalf("expected OpenChannel to have chanReserve %v, got %v",
+			chanReserve, openChannelReq.ChannelReserve)
 	}
 
 	chanID := openChannelReq.PendingChannelID
@@ -3130,6 +3138,88 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		err = fmt.Errorf("channel fees were expected to be deleted" +
 			" but were not")
 		t.Fatal(err)
+	}
+}
+
+// TestFundingManagerInvalidChanReserve ensures proper validation is done on
+// remoteChanReserve parameter sent to open channel.
+func TestFundingManagerInvalidChanReserve(t *testing.T) {
+	t.Parallel()
+
+	var (
+		fundingAmt  = btcutil.Amount(500000)
+		pushAmt     = lnwire.NewMSatFromSatoshis(10)
+		genesisHash = *fundingNetParams.GenesisHash
+	)
+
+	tests := []struct {
+		name          string
+		chanReserve   btcutil.Amount
+		expectErr     bool
+		errorContains string
+	}{
+		{
+			name:        "Use default chan reserve",
+			chanReserve: 0,
+		},
+		{
+			name:        "Above dust but below 1% of the capacity",
+			chanReserve: 400,
+		},
+		{
+			name:        "Channel reserve below dust",
+			chanReserve: 300,
+			expectErr:   true,
+			errorContains: "channel reserve of 300 sat is too " +
+				"small",
+		},
+		{
+			name: "Channel reserve more than 20% of the " +
+				"channel capacity",
+			chanReserve:   fundingAmt,
+			expectErr:     true,
+			errorContains: "channel reserve is too large",
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			alice, bob := setupFundingManagers(t)
+			defer tearDownFundingManagers(t, alice, bob)
+
+			// Create a funding request and start the workflow.
+			updateChan := make(chan *lnrpc.OpenStatusUpdate)
+			errChan := make(chan error, 1)
+			initReq := &InitFundingMsg{
+				Peer:              bob,
+				TargetPubkey:      bob.privKey.PubKey(),
+				ChainHash:         genesisHash,
+				LocalFundingAmt:   fundingAmt,
+				PushAmt:           pushAmt,
+				Updates:           updateChan,
+				RemoteChanReserve: test.chanReserve,
+				Err:               errChan,
+			}
+
+			alice.fundingMgr.InitFundingWorkflow(initReq)
+
+			var err error
+			select {
+			case <-alice.msgChan:
+			case err = <-initReq.Err:
+			case <-time.After(time.Second * 5):
+				t.Fatalf("no message or error received")
+			}
+
+			if !test.expectErr {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, test.errorContains)
+		})
 	}
 }
 

@@ -466,60 +466,10 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
 	r.Lock()
 	defer r.Unlock()
 
-	// Fail if the csv delay for our funds exceeds our maximum.
-	if c.CsvDelay > maxLocalCSVDelay {
-		return ErrCsvDelayTooLarge(c.CsvDelay, maxLocalCSVDelay)
-	}
-
-	// The channel reserve should always be greater or equal to the dust
-	// limit. The reservation request should be denied if otherwise.
-	if c.DustLimit > c.ChanReserve {
-		return ErrChanReserveTooSmall(c.ChanReserve, c.DustLimit)
-	}
-
-	// Validate against the maximum-sized witness script dust limit, and
-	// also ensure that the DustLimit is not too large.
-	maxWitnessLimit := DustLimitForSize(input.UnknownWitnessSize)
-	if c.DustLimit < maxWitnessLimit || c.DustLimit > 3*maxWitnessLimit {
-		return ErrInvalidDustLimit(c.DustLimit)
-	}
-
-	// Fail if we consider the channel reserve to be too large.  We
-	// currently fail if it is greater than 20% of the channel capacity.
-	maxChanReserve := r.partialState.Capacity / 5
-	if c.ChanReserve > maxChanReserve {
-		return ErrChanReserveTooLarge(c.ChanReserve, maxChanReserve)
-	}
-
-	// Fail if the minimum HTLC value is too large. If this is too large,
-	// the channel won't be useful for sending small payments. This limit
-	// is currently set to maxValueInFlight, effectively letting the remote
-	// setting this as large as it wants.
-	if c.MinHTLC > c.MaxPendingAmount {
-		return ErrMinHtlcTooLarge(c.MinHTLC, c.MaxPendingAmount)
-	}
-
-	// Fail if maxHtlcs is above the maximum allowed number of 483.  This
-	// number is specified in BOLT-02.
-	if c.MaxAcceptedHtlcs > uint16(input.MaxHTLCNumber/2) {
-		return ErrMaxHtlcNumTooLarge(
-			c.MaxAcceptedHtlcs, uint16(input.MaxHTLCNumber/2),
-		)
-	}
-
-	// Fail if we consider maxHtlcs too small. If this is too small we
-	// cannot offer many HTLCs to the remote.
-	const minNumHtlc = 5
-	if c.MaxAcceptedHtlcs < minNumHtlc {
-		return ErrMaxHtlcNumTooSmall(c.MaxAcceptedHtlcs, minNumHtlc)
-	}
-
-	// Fail if we consider maxValueInFlight too small. We currently require
-	// the remote to at least allow minNumHtlc * minHtlc in flight.
-	if c.MaxPendingAmount < minNumHtlc*c.MinHTLC {
-		return ErrMaxValueInFlightTooSmall(
-			c.MaxPendingAmount, minNumHtlc*c.MinHTLC,
-		)
+	// First, verify the sanity of the channel constraints.
+	err := VerifyConstraints(c, maxLocalCSVDelay, r.partialState.Capacity)
+	if err != nil {
+		return err
 	}
 
 	// Our dust limit should always be less than or equal to our proposed
@@ -810,6 +760,70 @@ func (r *ChannelReservation) Cancel() error {
 	}
 
 	return <-errChan
+}
+
+// VerifyConstraints is a helper function that can be used to check the sanity
+// of various channel constraints.
+func VerifyConstraints(c *channeldb.ChannelConstraints,
+	maxLocalCSVDelay uint16, channelCapacity btcutil.Amount) error {
+
+	// Fail if the csv delay for our funds exceeds our maximum.
+	if c.CsvDelay > maxLocalCSVDelay {
+		return ErrCsvDelayTooLarge(c.CsvDelay, maxLocalCSVDelay)
+	}
+
+	// The channel reserve should always be greater or equal to the dust
+	// limit. The reservation request should be denied if otherwise.
+	if c.DustLimit > c.ChanReserve {
+		return ErrChanReserveTooSmall(c.ChanReserve, c.DustLimit)
+	}
+
+	// Validate against the maximum-sized witness script dust limit, and
+	// also ensure that the DustLimit is not too large.
+	maxWitnessLimit := DustLimitForSize(input.UnknownWitnessSize)
+	if c.DustLimit < maxWitnessLimit || c.DustLimit > 3*maxWitnessLimit {
+		return ErrInvalidDustLimit(c.DustLimit)
+	}
+
+	// Fail if we consider the channel reserve to be too large.  We
+	// currently fail if it is greater than 20% of the channel capacity.
+	maxChanReserve := channelCapacity / 5
+	if c.ChanReserve > maxChanReserve {
+		return ErrChanReserveTooLarge(c.ChanReserve, maxChanReserve)
+	}
+
+	// Fail if the minimum HTLC value is too large. If this is too large,
+	// the channel won't be useful for sending small payments. This limit
+	// is currently set to maxValueInFlight, effectively letting the remote
+	// setting this as large as it wants.
+	if c.MinHTLC > c.MaxPendingAmount {
+		return ErrMinHtlcTooLarge(c.MinHTLC, c.MaxPendingAmount)
+	}
+
+	// Fail if maxHtlcs is above the maximum allowed number of 483.  This
+	// number is specified in BOLT-02.
+	if c.MaxAcceptedHtlcs > uint16(input.MaxHTLCNumber/2) {
+		return ErrMaxHtlcNumTooLarge(
+			c.MaxAcceptedHtlcs, uint16(input.MaxHTLCNumber/2),
+		)
+	}
+
+	// Fail if we consider maxHtlcs too small. If this is too small we
+	// cannot offer many HTLCs to the remote.
+	const minNumHtlc = 5
+	if c.MaxAcceptedHtlcs < minNumHtlc {
+		return ErrMaxHtlcNumTooSmall(c.MaxAcceptedHtlcs, minNumHtlc)
+	}
+
+	// Fail if we consider maxValueInFlight too small. We currently require
+	// the remote to at least allow minNumHtlc * minHtlc in flight.
+	if c.MaxPendingAmount < minNumHtlc*c.MinHTLC {
+		return ErrMaxValueInFlightTooSmall(
+			c.MaxPendingAmount, minNumHtlc*c.MinHTLC,
+		)
+	}
+
+	return nil
 }
 
 // OpenChannelDetails wraps the finalized fully confirmed channel which

@@ -233,6 +233,13 @@ var openChannelCommand = cli.Command{
 			Usage: "(optional) whether a scid-alias channel type" +
 				" should be negotiated.",
 		},
+		cli.Uint64Flag{
+			Name: "remote_reserve_sats",
+			Usage: "(optional) the minimum number of satoshis we " +
+				"require the remote node to keep as a direct " +
+				"payment. If not specified, a default of 1% " +
+				"of the channel capacity will be used.",
+		},
 	},
 	Action: actionDecorator(openChannel),
 }
@@ -274,6 +281,7 @@ func openChannel(ctx *cli.Context) error {
 		MaxLocalCsv:                uint32(ctx.Uint64("max_local_csv")),
 		ZeroConf:                   ctx.Bool("zero_conf"),
 		ScidAlias:                  ctx.Bool("scid_alias"),
+		RemoteChanReserveSat:       ctx.Uint64("remote_reserve_sats"),
 	}
 
 	switch {

@@ -92,7 +92,7 @@ type NetworkHarness struct {
 // NewNetworkHarness creates a new network test harness.
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This will save developers from having to manually `go install`
-// within the repo each time before changes
+// within the repo each time before changes.
 func NewNetworkHarness(m *HarnessMiner, b BackendConfig, lndBinary string,
 	dbBackend DatabaseBackend) (*NetworkHarness, error) {
 
@@ -240,6 +240,7 @@ out:
 
 			if aliceResp.ConfirmedBalance == expectedBalance &&
 				bobResp.ConfirmedBalance == expectedBalance {
+
 				break out
 			}
 		case <-balanceTimeout:
@@ -764,7 +765,7 @@ func (n *NetworkHarness) connectNodes(t *testing.T, a, b *HarnessNode,
 }
 
 // DisconnectNodes disconnects node a from node b by sending RPC message
-// from a node to b node
+// from a node to b node.
 func (n *NetworkHarness) DisconnectNodes(a, b *HarnessNode) error {
 	ctx, cancel := context.WithTimeout(n.runCtx, DefaultTimeout)
 	defer cancel()
@@ -998,6 +999,26 @@ type OpenChannelParams struct {
 	// ScidAlias denotes whether the channel will be an option-scid-alias
 	// channel type negotiation.
 	ScidAlias bool
+
+	// BaseFee is the channel base fee applied during the channel
+	// announcement phase.
+	BaseFee uint64
+
+	// FeeRate is the channel fee rate in ppm applied during the channel
+	// announcement phase.
+	FeeRate uint64
+
+	// UseBaseFee, if set, instructs the downstream logic to apply the
+	// user-specified channel base fee to the channel update announcement.
+	// If set to false it avoids applying a base fee of 0 and instead
+	// activates the default configured base fee.
+	UseBaseFee bool
+
+	// UseFeeRate, if set, instructs the downstream logic to apply the
+	// user-specified channel fee rate to the channel update announcement.
+	// If set to false it avoids applying a fee rate of 0 and instead
+	// activates the default configured fee rate.
+	UseFeeRate bool
 }
 
 // OpenChannel attempts to open a channel between srcNode and destNode with the
@@ -1038,6 +1059,10 @@ func (n *NetworkHarness) OpenChannel(srcNode, destNode *HarnessNode,
 		CommitmentType:     p.CommitmentType,
 		ZeroConf:           p.ZeroConf,
 		ScidAlias:          p.ScidAlias,
+		BaseFee:            p.BaseFee,
+		FeeRate:            p.FeeRate,
+		UseBaseFee:         p.UseBaseFee,
+		UseFeeRate:         p.UseFeeRate,
 	}
 
 	// We need to use n.runCtx here to keep the response stream alive after
@@ -1223,6 +1248,7 @@ func (n *NetworkHarness) CloseChannel(lnNode *HarnessNode,
 		// not.
 		filterChannel := func(node *HarnessNode,
 			op wire.OutPoint) (*lnrpc.Channel, error) {
+
 			listResp, err := node.ListChannels(ctxt, listReq)
 			if err != nil {
 				return nil, err

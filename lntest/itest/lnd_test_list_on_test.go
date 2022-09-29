@@ -443,4 +443,8 @@ var allTestCases = []*testCase{
 		name: "trackpayments",
 		test: testTrackPayments,
 	},
+	{
+		name: "open channel fee policy",
+		test: testOpenChannelUpdateFeePolicy,
+	},
 }

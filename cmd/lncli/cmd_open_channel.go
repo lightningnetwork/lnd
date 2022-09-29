@@ -104,6 +104,19 @@ var openChannelCommand = cli.Command{
 			Name:  "local_amt",
 			Usage: "the number of satoshis the wallet should commit to the channel",
 		},
+		cli.Uint64Flag{
+			Name: "base_fee_msat",
+			Usage: "the base fee in milli-satoshis that will " +
+				"be charged for each forwarded HTLC, regardless " +
+				"of payment size",
+		},
+		cli.Uint64Flag{
+			Name: "fee_rate_ppm",
+			Usage: "the fee rate ppm (parts per million) that " +
+				"will be charged proportionally based on the value of each " +
+				"forwarded HTLC, the lowest possible rate is 0 " +
+				"with a granularity of 0.000001 (millionths)",
+		},
 		cli.IntFlag{
 			Name: "push_amt",
 			Usage: "the number of satoshis to give the remote side " +
@@ -326,6 +339,16 @@ func openChannel(ctx *cli.Context) error {
 		if err != nil {
 			return fmt.Errorf("unable to decode push amt: %v", err)
 		}
+	}
+
+	if ctx.IsSet("base_fee_msat") {
+		req.BaseFee = ctx.Uint64("base_fee_msat")
+		req.UseBaseFee = true
+	}
+
+	if ctx.IsSet("fee_rate_ppm") {
+		req.FeeRate = ctx.Uint64("fee_rate_ppm")
+		req.UseFeeRate = true
 	}
 
 	req.Private = ctx.Bool("private")

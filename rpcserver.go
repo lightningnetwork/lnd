@@ -1910,6 +1910,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	remoteCsvDelay := uint16(in.RemoteCsvDelay)
 	maxValue := lnwire.MilliSatoshi(in.RemoteMaxValueInFlightMsat)
 	maxHtlcs := uint16(in.RemoteMaxHtlcs)
+	remoteChanReserve := btcutil.Amount(in.RemoteChanReserveSat)
 
 	globalFeatureSet := r.server.featureMgr.Get(feature.SetNodeAnn)
 
@@ -1935,6 +1936,13 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	}
 	if in.UseFeeRate {
 		channelFeeRate = &in.FeeRate
+	}
+
+	// Ensure that the remote channel reserve does not exceed 20% of the
+	// channel capacity.
+	if remoteChanReserve >= localFundingAmt/5 {
+		return nil, fmt.Errorf("remote channel reserve must be less " +
+			"than the %%20 of the channel capacity")
 	}
 
 	// Ensure that the user doesn't exceed the current soft-limit for
@@ -2092,22 +2100,23 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
 	return &funding.InitFundingMsg{
-		TargetPubkey:     nodePubKey,
-		ChainHash:        *r.cfg.ActiveNetParams.GenesisHash,
-		LocalFundingAmt:  localFundingAmt,
-		BaseFee:          channelBaseFee,
-		FeeRate:          channelFeeRate,
-		PushAmt:          lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		MinHtlcIn:        minHtlcIn,
-		FundingFeePerKw:  feeRate,
-		Private:          in.Private,
-		RemoteCsvDelay:   remoteCsvDelay,
-		MinConfs:         minConfs,
-		ShutdownScript:   script,
-		MaxValueInFlight: maxValue,
-		MaxHtlcs:         maxHtlcs,
-		MaxLocalCsv:      uint16(in.MaxLocalCsv),
-		ChannelType:      channelType,
+		TargetPubkey:      nodePubKey,
+		ChainHash:         *r.cfg.ActiveNetParams.GenesisHash,
+		LocalFundingAmt:   localFundingAmt,
+		BaseFee:           channelBaseFee,
+		FeeRate:           channelFeeRate,
+		PushAmt:           lnwire.NewMSatFromSatoshis(remoteInitialBalance),
+		MinHtlcIn:         minHtlcIn,
+		FundingFeePerKw:   feeRate,
+		Private:           in.Private,
+		RemoteCsvDelay:    remoteCsvDelay,
+		RemoteChanReserve: remoteChanReserve,
+		MinConfs:          minConfs,
+		ShutdownScript:    script,
+		MaxValueInFlight:  maxValue,
+		MaxHtlcs:          maxHtlcs,
+		MaxLocalCsv:       uint16(in.MaxLocalCsv),
+		ChannelType:       channelType,
 	}, nil
 }
 

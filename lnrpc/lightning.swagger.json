@@ -5679,6 +5679,11 @@
         "use_fee_rate": {
           "type": "boolean",
           "description": "If use_fee_rate is true the open channel announcement will update the\nchannel fee rate with the value specified in fee_rate. In the case of\na fee_rate of 0 use_fee_rate is needed downstream to distinguish whether\nto use the default fee rate value specified in the config or 0."
+        },
+        "remote_chan_reserve_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The number of satoshis we require the remote peer to reserve. This value,\nif specified, must be above the dust limit and below 20% of the channel\ncapacity."
         }
       }
     },

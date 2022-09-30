@@ -489,7 +489,7 @@ func getClientSessions(db DB, keyRing ECDHKeyRing, forTower *wtdb.TowerID,
 // Start initializes the watchtower client by loading or negotiating an active
 // session and then begins processing backup tasks from the request pipeline.
 func (c *TowerClient) Start() error {
-	var err error
+	var returnErr error
 	c.started.Do(func() {
 		c.log.Infof("Watchtower client starting")
 
@@ -498,19 +498,27 @@ func (c *TowerClient) Start() error {
 		// sessions will be able to flush the committed updates after a
 		// restart.
 		for _, session := range c.candidateSessions {
-			if len(session.CommittedUpdates) > 0 {
+			committedUpdates, err := c.cfg.DB.FetchSessionCommittedUpdates(&session.ID)
+			if err != nil {
+				returnErr = err
+				return
+			}
+
+			if len(committedUpdates) > 0 {
 				c.log.Infof("Starting session=%s to process "+
 					"%d committed backups", session.ID,
-					len(session.CommittedUpdates))
-				c.initActiveQueue(session)
+					len(committedUpdates))
+
+				c.initActiveQueue(session, committedUpdates)
 			}
 		}
 
 		// Now start the session negotiator, which will allow us to
 		// request new session as soon as the backupDispatcher starts
 		// up.
-		err = c.negotiator.Start()
+		err := c.negotiator.Start()
 		if err != nil {
+			returnErr = err
 			return
 		}
 
@@ -523,7 +531,7 @@ func (c *TowerClient) Start() error {
 
 		c.log.Infof("Watchtower client started successfully")
 	})
-	return err
+	return returnErr
 }
 
 // Stop idempotently initiates a graceful shutdown of the watchtower client.
@@ -699,7 +707,7 @@ func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
 // active client's advertised policy will be ignored, but may be resumed if the
 // client is restarted with a matching policy. If no candidates were found, nil
 // is returned to signal that we need to request a new policy.
-func (c *TowerClient) nextSessionQueue() *sessionQueue {
+func (c *TowerClient) nextSessionQueue() (*sessionQueue, error) {
 	// Select any candidate session at random, and remove it from the set of
 	// candidate sessions.
 	var candidateSession *wtdb.ClientSession
@@ -721,13 +729,20 @@ func (c *TowerClient) nextSessionQueue() *sessionQueue {
 	// If none of the sessions could be used or none were found, we'll
 	// return nil to signal that we need another session to be negotiated.
 	if candidateSession == nil {
-		return nil
+		return nil, nil
+	}
+
+	updates, err := c.cfg.DB.FetchSessionCommittedUpdates(
+		&candidateSession.ID,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	// Initialize the session queue and spin it up so it can begin handling
 	// updates. If the queue was already made active on startup, this will
 	// simply return the existing session queue from the set.
-	return c.getOrInitActiveQueue(candidateSession)
+	return c.getOrInitActiveQueue(candidateSession, updates), nil
 }
 
 // backupDispatcher processes events coming from the taskPipeline and is
@@ -800,7 +815,13 @@ func (c *TowerClient) backupDispatcher() {
 			// We've exhausted the prior session, we'll pop another
 			// from the remaining sessions and continue processing
 			// backup tasks.
-			c.sessionQueue = c.nextSessionQueue()
+			var err error
+			c.sessionQueue, err = c.nextSessionQueue()
+			if err != nil {
+				c.log.Errorf("error fetching next session "+
+					"queue: %v", err)
+			}
+
 			if c.sessionQueue != nil {
 				c.log.Debugf("Loaded next candidate session "+
 					"queue id=%s", c.sessionQueue.ID())
@@ -1048,7 +1069,9 @@ func (c *TowerClient) sendMessage(peer wtserver.Peer, msg wtwire.Message) error 
 
 // newSessionQueue creates a sessionQueue from a ClientSession loaded from the
 // database and supplying it with the resources needed by the client.
-func (c *TowerClient) newSessionQueue(s *wtdb.ClientSession) *sessionQueue {
+func (c *TowerClient) newSessionQueue(s *wtdb.ClientSession,
+	updates []wtdb.CommittedUpdate) *sessionQueue {
+
 	return newSessionQueue(&sessionQueueConfig{
 		ClientSession: s,
 		ChainHash:     c.cfg.ChainHash,
@@ -1060,28 +1083,32 @@ func (c *TowerClient) newSessionQueue(s *wtdb.ClientSession) *sessionQueue {
 		MinBackoff:    c.cfg.MinBackoff,
 		MaxBackoff:    c.cfg.MaxBackoff,
 		Log:           c.log,
-	})
+	}, updates)
 }
 
 // getOrInitActiveQueue checks the activeSessions set for a sessionQueue for the
 // passed ClientSession. If it exists, the active sessionQueue is returned.
 // Otherwise a new sessionQueue is initialized and added to the set.
-func (c *TowerClient) getOrInitActiveQueue(s *wtdb.ClientSession) *sessionQueue {
+func (c *TowerClient) getOrInitActiveQueue(s *wtdb.ClientSession,
+	updates []wtdb.CommittedUpdate) *sessionQueue {
+
 	if sq, ok := c.activeSessions[s.ID]; ok {
 		return sq
 	}
 
-	return c.initActiveQueue(s)
+	return c.initActiveQueue(s, updates)
 }
 
 // initActiveQueue creates a new sessionQueue from the passed ClientSession,
 // adds the sessionQueue to the activeSessions set, and starts the sessionQueue
 // so that it can deliver any committed updates or begin accepting newly
 // assigned tasks.
-func (c *TowerClient) initActiveQueue(s *wtdb.ClientSession) *sessionQueue {
+func (c *TowerClient) initActiveQueue(s *wtdb.ClientSession,
+	updates []wtdb.CommittedUpdate) *sessionQueue {
+
 	// Initialize the session queue, providing it with all of the resources
 	// it requires from the client instance.
-	sq := c.newSessionQueue(s)
+	sq := c.newSessionQueue(s, updates)
 
 	// Add the session queue as an active session so that we remember to
 	// stop it on shutdown.

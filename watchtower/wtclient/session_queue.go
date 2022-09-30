@@ -109,7 +109,9 @@ type sessionQueue struct {
 }
 
 // newSessionQueue intiializes a fresh sessionQueue.
-func newSessionQueue(cfg *sessionQueueConfig) *sessionQueue {
+func newSessionQueue(cfg *sessionQueueConfig,
+	updates []wtdb.CommittedUpdate) *sessionQueue {
+
 	localInit := wtwire.NewInitMessage(
 		lnwire.NewRawFeatureVector(wtwire.AltruistSessionsRequired),
 		cfg.ChainHash,
@@ -137,7 +139,7 @@ func newSessionQueue(cfg *sessionQueueConfig) *sessionQueue {
 
 	// The database should return them in sorted order, and session queue's
 	// sequence number will be equal to that of the last committed update.
-	for _, update := range sq.cfg.ClientSession.CommittedUpdates {
+	for _, update := range updates {
 		sq.commitQueue.PushBack(update)
 	}
 

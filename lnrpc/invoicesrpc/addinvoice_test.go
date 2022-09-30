@@ -2,7 +2,7 @@ package invoicesrpc
 
 import (
 	"encoding/hex"
-	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -24,7 +24,32 @@ func (h *hopHintsConfigMock) IsPublicNode(pubKey [33]byte) (bool, error) {
 	return args.Bool(0), args.Error(1)
 }
 
-// FetchChannelEdgesByID mocks channel edge lookup.
+// IsChannelActive is used to generate valid hop hints.
+func (h *hopHintsConfigMock) IsChannelActive(chanID lnwire.ChannelID) bool {
+	args := h.Mock.Called(chanID)
+	return args.Bool(0)
+}
+
+// GetAlias allows the peer's alias SCID to be retrieved for private
+// option_scid_alias channels.
+func (h *hopHintsConfigMock) GetAlias(
+	chanID lnwire.ChannelID) (lnwire.ShortChannelID, error) {
+
+	args := h.Mock.Called(chanID)
+	return args.Get(0).(lnwire.ShortChannelID), args.Error(1)
+}
+
+// FetchAllChannels retrieves all open channels currently stored
+// within the database.
+func (h *hopHintsConfigMock) FetchAllChannels() ([]*channeldb.OpenChannel,
+	error) {
+
+	args := h.Mock.Called()
+	return args.Get(0).([]*channeldb.OpenChannel), args.Error(1)
+}
+
+// FetchChannelEdgesByID attempts to lookup the two directed edges for
+// the channel identified by the channel ID.
 func (h *hopHintsConfigMock) FetchChannelEdgesByID(chanID uint64) (
 	*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy,
 	*channeldb.ChannelEdgePolicy, error) {
@@ -46,584 +71,716 @@ func (h *hopHintsConfigMock) FetchChannelEdgesByID(chanID uint64) (
 	return edgeInfo, policy1, policy2, err
 }
 
-// TestSelectHopHints tests selection of hop hints for a node with private
-// channels.
-func TestSelectHopHints(t *testing.T) {
-	var (
-		// We need to serialize our pubkey in SelectHopHints so it
-		// needs to be valid.
-		pubkeyBytes, _ = hex.DecodeString(
-			"598ec453728e0ffe0ae2f5e174243cf58f2" +
-				"a3f2c83d2457b43036db568b11093",
-		)
-		pubKeyY = new(btcec.FieldVal)
-		_       = pubKeyY.SetByteSlice(pubkeyBytes)
-		pubkey  = btcec.NewPublicKey(
-			new(btcec.FieldVal).SetInt(4),
-			pubKeyY,
-		)
-		compressed = pubkey.SerializeCompressed()
-
-		publicChannel = &HopHintInfo{
-			IsPublic: true,
-			IsActive: true,
-			FundingOutpoint: wire.OutPoint{
-				Index: 0,
-			},
-			RemoteBalance:  10,
-			ShortChannelID: 0,
-		}
-
-		inactiveChannel = &HopHintInfo{
-			IsPublic: false,
-			IsActive: false,
-		}
-
-		// Create a private channel that we'll generate hints from.
-		private1ShortID uint64 = 1
-		privateChannel1        = &HopHintInfo{
-			IsPublic: false,
-			IsActive: true,
-			FundingOutpoint: wire.OutPoint{
-				Index: 1,
-			},
-			RemotePubkey:   pubkey,
-			RemoteBalance:  100,
-			ShortChannelID: private1ShortID,
-		}
-
-		// Create a edge policy for private channel 1.
-		privateChan1Policy = &channeldb.ChannelEdgePolicy{
-			FeeBaseMSat:               10,
-			FeeProportionalMillionths: 100,
-			TimeLockDelta:             1000,
-		}
-
-		// Create an edge policy different to ours which we'll use for
-		// the other direction
-		otherChanPolicy = &channeldb.ChannelEdgePolicy{
-			FeeBaseMSat:               90,
-			FeeProportionalMillionths: 900,
-			TimeLockDelta:             9000,
-		}
-
-		// Create a hop hint based on privateChan1Policy.
-		privateChannel1Hint = zpay32.HopHint{
-			NodeID:      privateChannel1.RemotePubkey,
-			ChannelID:   private1ShortID,
-			FeeBaseMSat: uint32(privateChan1Policy.FeeBaseMSat),
-			FeeProportionalMillionths: uint32(
-				privateChan1Policy.FeeProportionalMillionths,
-			),
-			CLTVExpiryDelta: privateChan1Policy.TimeLockDelta,
-		}
-
-		// Create a second private channel that we'll use for hints.
-		private2ShortID uint64 = 2
-		privateChannel2        = &HopHintInfo{
-			IsPublic: false,
-			IsActive: true,
-			FundingOutpoint: wire.OutPoint{
-				Index: 2,
-			},
-			RemotePubkey:   pubkey,
-			RemoteBalance:  100,
-			ShortChannelID: private2ShortID,
-		}
-
-		// Create a edge policy for private channel 1.
-		privateChan2Policy = &channeldb.ChannelEdgePolicy{
-			FeeBaseMSat:               20,
-			FeeProportionalMillionths: 200,
-			TimeLockDelta:             2000,
-		}
-
-		// Create a hop hint based on privateChan2Policy.
-		privateChannel2Hint = zpay32.HopHint{
-			NodeID:      privateChannel2.RemotePubkey,
-			ChannelID:   private2ShortID,
-			FeeBaseMSat: uint32(privateChan2Policy.FeeBaseMSat),
-			FeeProportionalMillionths: uint32(
-				privateChan2Policy.FeeProportionalMillionths,
-			),
-			CLTVExpiryDelta: privateChan2Policy.TimeLockDelta,
-		}
-
-		// Create a third private channel that we'll use for hints.
-		private3ShortID uint64 = 3
-		privateChannel3        = &HopHintInfo{
-			IsPublic: false,
-			IsActive: true,
-			FundingOutpoint: wire.OutPoint{
-				Index: 3,
-			},
-			RemotePubkey:   pubkey,
-			RemoteBalance:  100,
-			ShortChannelID: private3ShortID,
-		}
-
-		// Create a edge policy for private channel 1.
-		privateChan3Policy = &channeldb.ChannelEdgePolicy{
-			FeeBaseMSat:               30,
-			FeeProportionalMillionths: 300,
-			TimeLockDelta:             3000,
-		}
-
-		// Create a hop hint based on privateChan2Policy.
-		privateChannel3Hint = zpay32.HopHint{
-			NodeID:      privateChannel3.RemotePubkey,
-			ChannelID:   private3ShortID,
-			FeeBaseMSat: uint32(privateChan3Policy.FeeBaseMSat),
-			FeeProportionalMillionths: uint32(
-				privateChan3Policy.FeeProportionalMillionths,
-			),
-			CLTVExpiryDelta: privateChan3Policy.TimeLockDelta,
-		}
+// getTestPubKey returns a valid parsed pub key to be used in our tests.
+func getTestPubKey() *btcec.PublicKey {
+	pubkeyBytes, _ := hex.DecodeString(
+		"598ec453728e0ffe0ae2f5e174243cf58f2" +
+			"a3f2c83d2457b43036db568b11093",
 	)
-
-	// We can't copy in the above var decls, so we copy in our pubkey here.
-	var peer [33]byte
-	copy(peer[:], compressed)
-
-	var (
-		// We pick our policy based on which node (1 or 2) the remote
-		// peer is. Here we create two different sets of edge
-		// information. One where our peer is node 1, the other where
-		// our peer is edge 2. This ensures that we always pick the
-		// right edge policy for our hint.
-		infoNode1 = &channeldb.ChannelEdgeInfo{
-			NodeKey1Bytes: peer,
-		}
-
-		infoNode2 = &channeldb.ChannelEdgeInfo{
-			NodeKey1Bytes: [33]byte{9, 9, 9},
-			NodeKey2Bytes: peer,
-		}
-
-		// setMockChannelUsed preps our mock for the case where we
-		// want our private channel to be used for a hop hint.
-		setMockChannelUsed = func(h *hopHintsConfigMock,
-			shortID uint64,
-			policy *channeldb.ChannelEdgePolicy) {
-
-			// Return public node = true so that we'll consider
-			// this node for our hop hints.
-			h.Mock.On(
-				"IsPublicNode", peer,
-			).Once().Return(true, nil)
-
-			// When it gets time to find an edge policy for this
-			// node, fail it. We won't use it as a hop hint.
-			h.Mock.On(
-				"FetchChannelEdgesByID",
-				shortID,
-			).Once().Return(
-				infoNode1, policy, otherChanPolicy, nil,
-			)
-		}
+	pubKeyY := new(btcec.FieldVal)
+	_ = pubKeyY.SetByteSlice(pubkeyBytes)
+	pubkey := btcec.NewPublicKey(
+		new(btcec.FieldVal).SetInt(4),
+		pubKeyY,
 	)
+	return pubkey
+}
 
-	tests := []struct {
-		name      string
-		setupMock func(*hopHintsConfigMock)
-		amount    lnwire.MilliSatoshi
-		channels  []*HopHintInfo
-		numHints  int
-
-		// expectedHints is the set of hop hints that we expect. We
-		// initialize this slice with our max hop hints length, so this
-		// value won't be nil even if its empty.
-		expectedHints [][]zpay32.HopHint
-	}{
-		{
-			// We don't need hop hints for public channels.
-			name: "channel is public",
-			// When a channel is public, we exit before we make any
-			// calls.
-			setupMock: func(h *hopHintsConfigMock) {
-			},
-			amount: 100,
-			channels: []*HopHintInfo{
-				publicChannel,
-			},
-			numHints:      2,
-			expectedHints: nil,
+var shouldIncludeChannelTestCases = []struct {
+	name            string
+	setupMock       func(*hopHintsConfigMock)
+	channel         *channeldb.OpenChannel
+	alreadyIncluded map[uint64]bool
+	cfg             *SelectHopHintsCfg
+	hopHint         zpay32.HopHint
+	remoteBalance   lnwire.MilliSatoshi
+	include         bool
+}{{
+	name: "already included channels should not be included " +
+		"again",
+	alreadyIncluded: map[uint64]bool{1: true},
+	channel: &channeldb.OpenChannel{
+		ShortChannelID: lnwire.NewShortChanIDFromInt(1),
+	},
+	include: false,
+}, {
+	name: "public channels should not be included",
+	setupMock: func(h *hopHintsConfigMock) {
+		fundingOutpoint := wire.OutPoint{
+			Index: 0,
+		}
+		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		h.Mock.On(
+			"IsChannelActive", chanID,
+		).Once().Return(true)
+	},
+	channel: &channeldb.OpenChannel{
+		FundingOutpoint: wire.OutPoint{
+			Index: 0,
 		},
-		{
-			name:      "channel is inactive",
-			setupMock: func(h *hopHintsConfigMock) {},
-			amount:    100,
-			channels: []*HopHintInfo{
-				inactiveChannel,
-			},
-			numHints:      2,
-			expectedHints: nil,
+		ChannelFlags: lnwire.FFAnnounceChannel,
+	},
+}, {
+	name: "not active channels should not be included",
+	setupMock: func(h *hopHintsConfigMock) {
+		fundingOutpoint := wire.OutPoint{
+			Index: 0,
+		}
+		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		h.Mock.On(
+			"IsChannelActive", chanID,
+		).Once().Return(false)
+	},
+	channel: &channeldb.OpenChannel{
+		FundingOutpoint: wire.OutPoint{
+			Index: 0,
 		},
-		{
-			// If we can't lookup an edge policy, we skip channels.
-			name: "no edge policy",
-			setupMock: func(h *hopHintsConfigMock) {
-				// Return public node = true so that we'll
-				// consider this node for our hop hints.
-				h.Mock.On(
-					"IsPublicNode", peer,
-				).Return(true, nil)
+	},
+	include: false,
+}, {
+	name: "a channel with a not public peer should not be included",
+	setupMock: func(h *hopHintsConfigMock) {
+		fundingOutpoint := wire.OutPoint{
+			Index: 0,
+		}
+		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
 
-				// When it gets time to find an edge policy for
-				// this node, fail it. We won't use it as a
-				// hop hint.
-				h.Mock.On(
-					"FetchChannelEdgesByID",
-					mock.Anything,
-				).Return(
-					nil, nil, nil,
-					errors.New("no edge"),
-				).Times(4)
-			},
-			amount: 100,
-			channels: []*HopHintInfo{
-				privateChannel1,
-			},
-			numHints:      3,
-			expectedHints: nil,
+		h.Mock.On(
+			"IsChannelActive", chanID,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(false, nil)
+	},
+	channel: &channeldb.OpenChannel{
+		FundingOutpoint: wire.OutPoint{
+			Index: 0,
 		},
-		{
-			// If one of our private channels belongs to a node
-			// that is otherwise not announced to the network, we're
-			// polite and don't include them (they can't be routed
-			// through anyway).
-			name: "node is private",
-			setupMock: func(h *hopHintsConfigMock) {
-				// Return public node = false so that we'll
-				// give up on this node.
-				h.Mock.On(
-					"IsPublicNode", peer,
-				).Return(false, nil)
-			},
-			amount: 100,
-			channels: []*HopHintInfo{
-				privateChannel1,
-			},
-			numHints:      1,
-			expectedHints: nil,
+		IdentityPub: getTestPubKey(),
+	},
+	include: false,
+}, {
+	name: "if we are unable to fetch the edge policy for the channel it " +
+		"should not be included",
+	setupMock: func(h *hopHintsConfigMock) {
+		fundingOutpoint := wire.OutPoint{
+			Index: 0,
+		}
+		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+
+		h.Mock.On(
+			"IsChannelActive", chanID,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(nil, nil, nil, fmt.Errorf("no edge"))
+
+		// TODO(positiveblue): check that the func is called with the
+		// right scid when we have access to the `confirmedscid` form
+		// here.
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(nil, nil, nil, fmt.Errorf("no edge"))
+	},
+	channel: &channeldb.OpenChannel{
+		FundingOutpoint: wire.OutPoint{
+			Index: 0,
 		},
-		{
-			// This test case asserts that we limit our hop hints
-			// when we've reached our maximum number of hints.
-			name: "too many hints",
-			setupMock: func(h *hopHintsConfigMock) {
-				setMockChannelUsed(
-					h, private1ShortID, privateChan1Policy,
-				)
-			},
-			// Set our amount to less than our channel balance of
-			// 100.
-			amount: 30,
-			channels: []*HopHintInfo{
-				privateChannel1, privateChannel2,
-			},
-			numHints: 1,
-			expectedHints: [][]zpay32.HopHint{
-				{
-					privateChannel1Hint,
-				},
-			},
+		IdentityPub: getTestPubKey(),
+	},
+	include: false,
+}, {
+	name: "channels with the option-scid-alias but not assigned alias " +
+		"yet should not be included",
+	setupMock: func(h *hopHintsConfigMock) {
+		fundingOutpoint := wire.OutPoint{
+			Index: 0,
+		}
+		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+
+		h.Mock.On(
+			"IsChannelActive", chanID,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(
+			&channeldb.ChannelEdgeInfo{},
+			&channeldb.ChannelEdgePolicy{},
+			&channeldb.ChannelEdgePolicy{}, nil,
+		)
+
+		h.Mock.On(
+			"GetAlias", mock.Anything,
+		).Once().Return(lnwire.ShortChannelID{}, nil)
+	},
+	channel: &channeldb.OpenChannel{
+		FundingOutpoint: wire.OutPoint{
+			Index: 0,
 		},
-		{
-			// If a channel has more balance than the amount we're
-			// looking for, it'll be added in our first pass. We
-			// can be sure we're adding it in our first pass because
-			// we assert that there are no additional calls to our
-			// mock (which would happen if we ran a second pass).
-			//
-			// We set our peer to be node 1 in our policy ordering.
-			name: "balance > total amount, node 1",
-			setupMock: func(h *hopHintsConfigMock) {
-				setMockChannelUsed(
-					h, private1ShortID, privateChan1Policy,
-				)
-			},
-			// Our channel has balance of 100 (> 50).
-			amount: 50,
-			channels: []*HopHintInfo{
-				privateChannel1,
-			},
-			numHints: 2,
-			expectedHints: [][]zpay32.HopHint{
-				{
-					privateChannel1Hint,
-				},
-			},
+		IdentityPub: getTestPubKey(),
+		ChanType:    channeldb.ScidAliasFeatureBit,
+	},
+	include: false,
+}, {
+	name: "channels with the option-scid-alias and an alias that has " +
+		"already been included should not be included again",
+	alreadyIncluded: map[uint64]bool{5: true},
+	setupMock: func(h *hopHintsConfigMock) {
+		fundingOutpoint := wire.OutPoint{
+			Index: 0,
+		}
+		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+
+		h.Mock.On(
+			"IsChannelActive", chanID,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(
+			&channeldb.ChannelEdgeInfo{},
+			&channeldb.ChannelEdgePolicy{},
+			&channeldb.ChannelEdgePolicy{}, nil,
+		)
+		alias := lnwire.ShortChannelID{TxPosition: 5}
+		h.Mock.On(
+			"GetAlias", mock.Anything,
+		).Once().Return(alias, nil)
+	},
+	channel: &channeldb.OpenChannel{
+		FundingOutpoint: wire.OutPoint{
+			Index: 0,
 		},
-		{
-			// As above, but we set our peer to be node 2 in our
-			// policy ordering.
-			name: "balance > total amount, node 2",
-			setupMock: func(h *hopHintsConfigMock) {
-				// Return public node = true so that we'll
-				// consider this node for our hop hints.
-				h.Mock.On(
-					"IsPublicNode", peer,
-				).Return(true, nil)
+		IdentityPub: getTestPubKey(),
+		ChanType:    channeldb.ScidAliasFeatureBit,
+	},
+	include: false,
+}, {
+	name: "channels that pass all the checks should be " +
+		"included, using policy 1",
+	alreadyIncluded: map[uint64]bool{5: true},
+	setupMock: func(h *hopHintsConfigMock) {
+		fundingOutpoint := wire.OutPoint{
+			Index: 1,
+		}
+		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
 
-				// When it gets time to find an edge policy for
-				// this node, fail it. We won't use it as a
-				// hop hint.
-				h.Mock.On(
-					"FetchChannelEdgesByID",
-					private1ShortID,
-				).Return(
-					infoNode2, otherChanPolicy,
-					privateChan1Policy, nil,
-				)
+		h.Mock.On(
+			"IsChannelActive", chanID,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		var selectedPolicy [33]byte
+		copy(selectedPolicy[:], getTestPubKey().SerializeCompressed())
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(
+			&channeldb.ChannelEdgeInfo{
+				NodeKey1Bytes: selectedPolicy,
 			},
-			// Our channel has balance of 100 (> 50).
-			amount: 50,
-			channels: []*HopHintInfo{
-				privateChannel1,
+			&channeldb.ChannelEdgePolicy{
+				FeeBaseMSat:               1000,
+				FeeProportionalMillionths: 20,
+				TimeLockDelta:             13,
 			},
-			numHints: 2,
-			expectedHints: [][]zpay32.HopHint{
-				{
-					privateChannel1Hint,
-				},
-			},
+			&channeldb.ChannelEdgePolicy{},
+			nil,
+		)
+	},
+	channel: &channeldb.OpenChannel{
+		FundingOutpoint: wire.OutPoint{
+			Index: 1,
 		},
-		{
-			// Since our balance is less than the amount we're
-			// looking to route, we expect this hint to be picked
-			// up in our second pass on the channel set.
-			name: "balance < total amount",
-			setupMock: func(h *hopHintsConfigMock) {
-				// We expect to call all our checks twice
-				// because we pick up this channel in the
-				// second round.
-				setMockChannelUsed(
-					h, private1ShortID, privateChan1Policy,
-				)
-				setMockChannelUsed(
-					h, private1ShortID, privateChan1Policy,
-				)
-			},
-			// Our channel has balance of 100 (< 150).
-			amount: 150,
-			channels: []*HopHintInfo{
-				privateChannel1,
-			},
-			numHints: 2,
-			expectedHints: [][]zpay32.HopHint{
-				{
-					privateChannel1Hint,
-				},
-			},
+		IdentityPub:    getTestPubKey(),
+		ShortChannelID: lnwire.NewShortChanIDFromInt(12),
+	},
+	hopHint: zpay32.HopHint{
+		NodeID:                    getTestPubKey(),
+		FeeBaseMSat:               1000,
+		FeeProportionalMillionths: 20,
+		ChannelID:                 12,
+		CLTVExpiryDelta:           13,
+	},
+	include: true,
+}, {
+	name: "channels that pass all the checks should be " +
+		"included, using policy 2",
+	alreadyIncluded: map[uint64]bool{5: true},
+	setupMock: func(h *hopHintsConfigMock) {
+		fundingOutpoint := wire.OutPoint{
+			Index: 1,
+		}
+		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+
+		h.Mock.On(
+			"IsChannelActive", chanID,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(
+			&channeldb.ChannelEdgeInfo{},
+			&channeldb.ChannelEdgePolicy{},
+			&channeldb.ChannelEdgePolicy{
+				FeeBaseMSat:               1000,
+				FeeProportionalMillionths: 20,
+				TimeLockDelta:             13,
+			}, nil,
+		)
+	},
+	channel: &channeldb.OpenChannel{
+		FundingOutpoint: wire.OutPoint{
+			Index: 1,
 		},
-		{
-			// Test the case where we hit our total amount of
-			// required liquidity in our first pass.
-			name: "first pass sufficient balance",
-			setupMock: func(h *hopHintsConfigMock) {
-				setMockChannelUsed(
-					h, private1ShortID, privateChan1Policy,
-				)
-			},
-			// Divide our balance by hop hint factor so that the
-			// channel balance will always reach our factored up
-			// amount, even if we change this value.
-			amount: privateChannel1.RemoteBalance / hopHintFactor,
-			channels: []*HopHintInfo{
-				privateChannel1,
-			},
-			numHints: 2,
-			expectedHints: [][]zpay32.HopHint{
-				{
-					privateChannel1Hint,
-				},
-			},
+		IdentityPub:    getTestPubKey(),
+		ShortChannelID: lnwire.NewShortChanIDFromInt(12),
+	},
+	hopHint: zpay32.HopHint{
+		NodeID:                    getTestPubKey(),
+		FeeBaseMSat:               1000,
+		FeeProportionalMillionths: 20,
+		ChannelID:                 12,
+		CLTVExpiryDelta:           13,
+	},
+	include: true,
+}, {
+	name: "channels that pass all the checks and have an alias " +
+		"should be included with the alias",
+	alreadyIncluded: map[uint64]bool{5: true},
+	setupMock: func(h *hopHintsConfigMock) {
+		fundingOutpoint := wire.OutPoint{
+			Index: 1,
+		}
+		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+
+		h.Mock.On(
+			"IsChannelActive", chanID,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(
+			&channeldb.ChannelEdgeInfo{},
+			&channeldb.ChannelEdgePolicy{},
+			&channeldb.ChannelEdgePolicy{
+				FeeBaseMSat:               1000,
+				FeeProportionalMillionths: 20,
+				TimeLockDelta:             13,
+			}, nil,
+		)
+
+		aliasSCID := lnwire.NewShortChanIDFromInt(15)
+
+		h.Mock.On(
+			"GetAlias", mock.Anything,
+		).Once().Return(aliasSCID, nil)
+	},
+	channel: &channeldb.OpenChannel{
+		FundingOutpoint: wire.OutPoint{
+			Index: 1,
 		},
-		{
-			// Setup our amount so that we don't have enough
-			// inbound total for our amount, but we hit our
-			// desired hint limit.
-			name: "second pass sufficient hint count",
-			setupMock: func(h *hopHintsConfigMock) {
-				// We expect all of our channels to be passed
-				// on in the first pass.
-				setMockChannelUsed(
-					h, private1ShortID, privateChan1Policy,
-				)
+		IdentityPub:    getTestPubKey(),
+		ShortChannelID: lnwire.NewShortChanIDFromInt(12),
+		ChanType:       channeldb.ScidAliasFeatureBit,
+	},
+	hopHint: zpay32.HopHint{
+		NodeID:                    getTestPubKey(),
+		FeeBaseMSat:               1000,
+		FeeProportionalMillionths: 20,
+		ChannelID:                 15,
+		CLTVExpiryDelta:           13,
+	},
+	include: true,
+}}
 
-				setMockChannelUsed(
-					h, private2ShortID, privateChan2Policy,
-				)
+func TestShouldIncludeChannel(t *testing.T) {
+	for _, tc := range shouldIncludeChannelTestCases {
+		tc := tc
 
-				// In the second pass, our first two channels
-				// should be added before we hit our hint count.
-				setMockChannelUsed(
-					h, private1ShortID, privateChan1Policy,
-				)
-			},
-			// Add two channels that we'd want to use, but the
-			// second one will be cut off due to our hop hint count
-			// limit.
-			channels: []*HopHintInfo{
-				privateChannel1, privateChannel2,
-			},
-			// Set the amount we need to more than our two channels
-			// can provide us.
-			amount: privateChannel1.RemoteBalance +
-				privateChannel2.RemoteBalance,
-			numHints: 1,
-			expectedHints: [][]zpay32.HopHint{
-				{
-					privateChannel1Hint,
-				},
-			},
-		},
-		{
-			// Add three channels that are all less than the amount
-			// we wish to receive, but collectively will reach the
-			// total amount that we need.
-			name: "second pass reaches bandwidth requirement",
-			setupMock: func(h *hopHintsConfigMock) {
-				// In the first round, all channels should be
-				// passed on.
-				setMockChannelUsed(
-					h, private1ShortID, privateChan1Policy,
-				)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-				setMockChannelUsed(
-					h, private2ShortID, privateChan2Policy,
-				)
-
-				setMockChannelUsed(
-					h, private3ShortID, privateChan3Policy,
-				)
-
-				// In the second round, we'll pick up all of
-				// our hop hints.
-				setMockChannelUsed(
-					h, private1ShortID, privateChan1Policy,
-				)
-
-				setMockChannelUsed(
-					h, private2ShortID, privateChan2Policy,
-				)
-
-				setMockChannelUsed(
-					h, private3ShortID, privateChan3Policy,
-				)
-			},
-			channels: []*HopHintInfo{
-				privateChannel1, privateChannel2,
-				privateChannel3,
-			},
-
-			// All of our channels have 100 inbound, so none will
-			// be picked up in the first round.
-			amount:   110,
-			numHints: 5,
-			expectedHints: [][]zpay32.HopHint{
-				{
-					privateChannel1Hint,
-				},
-				{
-					privateChannel2Hint,
-				},
-				{
-					privateChannel3Hint,
-				},
-			},
-		},
-	}
-
-	getAlias := func(lnwire.ChannelID) (lnwire.ShortChannelID, error) {
-		return lnwire.ShortChannelID{}, nil
-	}
-
-	for _, test := range tests {
-		test := test
-
-		t.Run(test.name, func(t *testing.T) {
 			// Create mock and prime it for the test case.
 			mock := &hopHintsConfigMock{}
-			test.setupMock(mock)
+			if tc.setupMock != nil {
+				tc.setupMock(mock)
+			}
 			defer mock.AssertExpectations(t)
 
 			cfg := &SelectHopHintsCfg{
 				IsPublicNode:          mock.IsPublicNode,
+				IsChannelActive:       mock.IsChannelActive,
 				FetchChannelEdgesByID: mock.FetchChannelEdgesByID,
-				GetAlias:              getAlias,
+				GetAlias:              mock.GetAlias,
 			}
 
-			hints := SelectHopHints(
-				test.amount, cfg, test.channels, test.numHints,
+			hopHint, remoteBalance, include := shouldIncludeChannel(
+				cfg, tc.channel, tc.alreadyIncluded,
 			)
 
-			// SelectHopHints preallocates its hop hint slice, so
-			// we check that it is empty if we don't expect any
-			// hints, and otherwise assert that the two slices are
-			// equal. This allows tests to set their expected value
-			// to nil, rather than providing a preallocated empty
-			// slice.
-			if len(test.expectedHints) == 0 {
-				require.Zero(t, len(hints))
-			} else {
-				require.Equal(t, test.expectedHints, hints)
+			require.Equal(t, tc.include, include)
+			if include {
+				require.Equal(t, tc.hopHint, hopHint)
+				require.Equal(
+					t, tc.remoteBalance, remoteBalance,
+				)
 			}
 		})
 	}
 }
 
-// TestSufficientHopHints tests limiting our hops to a set number of hints or
-// scaled amount of capacity.
-func TestSufficientHopHints(t *testing.T) {
-	t.Parallel()
+var sufficientHintsTestCases = []struct {
+	name          string
+	nHintsLeft    int
+	currentAmount lnwire.MilliSatoshi
+	targetAmount  lnwire.MilliSatoshi
+	done          bool
+}{{
+	name:          "not enoguh hints neither bandwidth",
+	nHintsLeft:    3,
+	currentAmount: 100,
+	targetAmount:  200,
+	done:          false,
+}, {
+	name:       "enough hints",
+	nHintsLeft: 0,
+	done:       true,
+}, {
+	name:          "enoguh bandwidth",
+	nHintsLeft:    1,
+	currentAmount: 200,
+	targetAmount:  200,
+	done:          true,
+}}
 
-	tests := []struct {
-		name            string
-		numHints        int
-		maxHints        int
-		scalingFactor   int
-		amount          lnwire.MilliSatoshi
-		totalHintAmount lnwire.MilliSatoshi
-		sufficient      bool
-	}{
-		{
-			name:     "not enough hints or amount",
-			numHints: 3,
-			maxHints: 10,
-			// We want to have at least 200, and we currently have
-			// 10.
-			scalingFactor:   2,
-			amount:          100,
-			totalHintAmount: 10,
-			sufficient:      false,
-		},
-		{
-			name:       "enough hints",
-			numHints:   3,
-			maxHints:   3,
-			sufficient: true,
-		},
-		{
-			name:     "not enough hints, insufficient bandwidth",
-			numHints: 1,
-			maxHints: 3,
-			// We want at least 200, and we have enough.
-			scalingFactor:   2,
-			amount:          100,
-			totalHintAmount: 700,
-			sufficient:      true,
-		},
+func TestSufficientHints(t *testing.T) {
+	for _, tc := range sufficientHintsTestCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			enoughHints := sufficientHints(
+				tc.nHintsLeft, tc.currentAmount,
+				tc.targetAmount,
+			)
+			require.Equal(t, tc.done, enoughHints)
+		})
 	}
+}
 
-	for _, testCase := range tests {
-		sufficient := sufficientHints(
-			testCase.numHints, testCase.maxHints,
-			testCase.scalingFactor, testCase.amount,
-			testCase.totalHintAmount,
+var populateHopHintsTestCases = []struct {
+	name             string
+	setupMock        func(*hopHintsConfigMock)
+	amount           lnwire.MilliSatoshi
+	maxHopHints      int
+	forcedHints      [][]zpay32.HopHint
+	expectedHopHints [][]zpay32.HopHint
+}{{
+	name:        "populate hop hints with forced hints",
+	maxHopHints: 1,
+	forcedHints: [][]zpay32.HopHint{
+		{
+			{ChannelID: 12},
+		},
+	},
+	expectedHopHints: [][]zpay32.HopHint{
+		{
+			{ChannelID: 12},
+		},
+	},
+}, {
+	name: "populate hop hints stops when we reached the max number of " +
+		"hop hints allowed",
+	setupMock: func(h *hopHintsConfigMock) {
+		fundingOutpoint := wire.OutPoint{Index: 9}
+		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		allChannels := []*channeldb.OpenChannel{
+			{
+				FundingOutpoint: fundingOutpoint,
+				ShortChannelID:  lnwire.NewShortChanIDFromInt(9),
+				IdentityPub:     getTestPubKey(),
+			},
+			// Have one empty channel that we should not process
+			// because we have already finished.
+			{},
+		}
+
+		h.Mock.On(
+			"FetchAllChannels",
+		).Once().Return(allChannels, nil)
+
+		h.Mock.On(
+			"IsChannelActive", chanID,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(
+			&channeldb.ChannelEdgeInfo{},
+			&channeldb.ChannelEdgePolicy{},
+			&channeldb.ChannelEdgePolicy{}, nil,
+		)
+	},
+	maxHopHints: 1,
+	amount:      1_000_000,
+	expectedHopHints: [][]zpay32.HopHint{
+		{
+			{
+				NodeID:    getTestPubKey(),
+				ChannelID: 9,
+			},
+		},
+	},
+}, {
+	name: "populate hop hints stops when we reached the targeted bandwidth",
+	setupMock: func(h *hopHintsConfigMock) {
+		fundingOutpoint := wire.OutPoint{Index: 9}
+		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		remoteBalance := lnwire.MilliSatoshi(10_000_000)
+		allChannels := []*channeldb.OpenChannel{
+			{
+				LocalCommitment: channeldb.ChannelCommitment{
+					RemoteBalance: remoteBalance,
+				},
+				FundingOutpoint: fundingOutpoint,
+				ShortChannelID:  lnwire.NewShortChanIDFromInt(9),
+				IdentityPub:     getTestPubKey(),
+			},
+			// Have one empty channel that we should not process
+			// because we have already finished.
+			{},
+		}
+
+		h.Mock.On(
+			"FetchAllChannels",
+		).Once().Return(allChannels, nil)
+
+		h.Mock.On(
+			"IsChannelActive", chanID,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(
+			&channeldb.ChannelEdgeInfo{},
+			&channeldb.ChannelEdgePolicy{},
+			&channeldb.ChannelEdgePolicy{}, nil,
+		)
+	},
+	maxHopHints: 10,
+	amount:      1_000_000,
+	expectedHopHints: [][]zpay32.HopHint{
+		{
+			{
+				NodeID:    getTestPubKey(),
+				ChannelID: 9,
+			},
+		},
+	},
+}, {
+	name: "populate hop hints tries to use the channels with higher " +
+		"remote balance frist",
+	setupMock: func(h *hopHintsConfigMock) {
+		fundingOutpoint := wire.OutPoint{Index: 9}
+		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		remoteBalance := lnwire.MilliSatoshi(10_000_000)
+		allChannels := []*channeldb.OpenChannel{
+			// Because the channels with higher remote balance have
+			// enough bandwidth we should never use this one.
+			{},
+			{
+				LocalCommitment: channeldb.ChannelCommitment{
+					RemoteBalance: remoteBalance,
+				},
+				FundingOutpoint: fundingOutpoint,
+				ShortChannelID:  lnwire.NewShortChanIDFromInt(9),
+				IdentityPub:     getTestPubKey(),
+			},
+		}
+
+		h.Mock.On(
+			"FetchAllChannels",
+		).Once().Return(allChannels, nil)
+
+		h.Mock.On(
+			"IsChannelActive", chanID,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(
+			&channeldb.ChannelEdgeInfo{},
+			&channeldb.ChannelEdgePolicy{},
+			&channeldb.ChannelEdgePolicy{}, nil,
+		)
+	},
+	maxHopHints: 1,
+	amount:      1_000_000,
+	expectedHopHints: [][]zpay32.HopHint{
+		{
+			{
+				NodeID:    getTestPubKey(),
+				ChannelID: 9,
+			},
+		},
+	},
+}, {
+	name: "populate hop hints stops after having considered all the open " +
+		"channels",
+	setupMock: func(h *hopHintsConfigMock) {
+		fundingOutpoint1 := wire.OutPoint{Index: 9}
+		chanID1 := lnwire.NewChanIDFromOutPoint(&fundingOutpoint1)
+		remoteBalance1 := lnwire.MilliSatoshi(10_000_000)
+
+		fundingOutpoint2 := wire.OutPoint{Index: 2}
+		chanID2 := lnwire.NewChanIDFromOutPoint(&fundingOutpoint2)
+		remoteBalance2 := lnwire.MilliSatoshi(1_000_000)
+
+		allChannels := []*channeldb.OpenChannel{
+			// After sorting we will first process chanID1 and then
+			// chanID2.
+			{
+				LocalCommitment: channeldb.ChannelCommitment{
+					RemoteBalance: remoteBalance2,
+				},
+				FundingOutpoint: fundingOutpoint2,
+				ShortChannelID:  lnwire.NewShortChanIDFromInt(2),
+				IdentityPub:     getTestPubKey(),
+			},
+			{
+				LocalCommitment: channeldb.ChannelCommitment{
+					RemoteBalance: remoteBalance1,
+				},
+				FundingOutpoint: fundingOutpoint1,
+				ShortChannelID:  lnwire.NewShortChanIDFromInt(9),
+				IdentityPub:     getTestPubKey(),
+			},
+		}
+
+		h.Mock.On(
+			"FetchAllChannels",
+		).Once().Return(allChannels, nil)
+
+		// Prepare the mock for the first channel.
+		h.Mock.On(
+			"IsChannelActive", chanID1,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(
+			&channeldb.ChannelEdgeInfo{},
+			&channeldb.ChannelEdgePolicy{},
+			&channeldb.ChannelEdgePolicy{}, nil,
 		)
 
-		require.Equal(t, testCase.sufficient, sufficient)
+		// Prepare the mock for the second channel.
+		h.Mock.On(
+			"IsChannelActive", chanID2,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(
+			&channeldb.ChannelEdgeInfo{},
+			&channeldb.ChannelEdgePolicy{},
+			&channeldb.ChannelEdgePolicy{}, nil,
+		)
+	},
+	maxHopHints: 10,
+	amount:      100_000_000,
+	expectedHopHints: [][]zpay32.HopHint{
+		{
+			{
+				NodeID:    getTestPubKey(),
+				ChannelID: 9,
+			},
+		}, {
+			{
+				NodeID:    getTestPubKey(),
+				ChannelID: 2,
+			},
+		},
+	},
+}}
+
+func TestPopulateHopHints(t *testing.T) {
+	for _, tc := range populateHopHintsTestCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create mock and prime it for the test case.
+			mock := &hopHintsConfigMock{}
+			if tc.setupMock != nil {
+				tc.setupMock(mock)
+			}
+			defer mock.AssertExpectations(t)
+
+			cfg := &SelectHopHintsCfg{
+				IsPublicNode:          mock.IsPublicNode,
+				IsChannelActive:       mock.IsChannelActive,
+				FetchChannelEdgesByID: mock.FetchChannelEdgesByID,
+				GetAlias:              mock.GetAlias,
+				FetchAllChannels:      mock.FetchAllChannels,
+				MaxHopHints:           tc.maxHopHints,
+			}
+			hopHints, err := PopulateHopHints(
+				cfg, tc.amount, tc.forcedHints,
+			)
+			require.NoError(t, err)
+			// We shuffle the elements in the hop hint list so we
+			// need to compare the elements here.
+			require.ElementsMatch(t, tc.expectedHopHints, hopHints)
+		})
 	}
 }

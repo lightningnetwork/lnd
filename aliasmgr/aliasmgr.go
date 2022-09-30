@@ -87,18 +87,22 @@ type Manager struct {
 	// negotiated option-scid-alias feature bit.
 	aliasToBase map[lnwire.ShortChannelID]lnwire.ShortChannelID
 
+	// peerAlias is a cache for the alias SCIDs that our peers send us in
+	// the funding_locked TLV. The keys are the ChannelID generated from
+	// the FundingOutpoint and the values are the remote peer's alias SCID.
+	// The values should match the ones stored in the "invoice-alias-bucket"
+	// bucket.
+	peerAlias map[lnwire.ChannelID]lnwire.ShortChannelID
+
 	sync.RWMutex
 }
 
 // NewManager initializes an alias Manager from the passed database backend.
 func NewManager(db kvdb.Backend) (*Manager, error) {
 	m := &Manager{backend: db}
-	m.baseToSet = make(
-		map[lnwire.ShortChannelID][]lnwire.ShortChannelID,
-	)
-	m.aliasToBase = make(
-		map[lnwire.ShortChannelID]lnwire.ShortChannelID,
-	)
+	m.baseToSet = make(map[lnwire.ShortChannelID][]lnwire.ShortChannelID)
+	m.aliasToBase = make(map[lnwire.ShortChannelID]lnwire.ShortChannelID)
+	m.peerAlias = make(map[lnwire.ChannelID]lnwire.ShortChannelID)
 
 	err := m.populateMaps()
 	return m, err
@@ -114,6 +118,10 @@ func (m *Manager) populateMaps() error {
 	// This map caches what is found in the database and is used to
 	// populate the Manager's actual maps.
 	aliasMap := make(map[lnwire.ShortChannelID]lnwire.ShortChannelID)
+
+	// This map caches the ChannelID/alias SCIDs stored in the database and
+	// is used to populate the Manager's cache.
+	peerAliasMap := make(map[lnwire.ChannelID]lnwire.ShortChannelID)
 
 	err := kvdb.Update(m.backend, func(tx kvdb.RwTx) error {
 		baseConfBucket, err := tx.CreateTopLevelBucket(confirmedBucket)
@@ -152,12 +160,34 @@ func (m *Manager) populateMaps() error {
 			aliasMap[aliasScid] = baseScid
 			return nil
 		})
+		if err != nil {
+			return err
+		}
+
+		invAliasBucket, err := tx.CreateTopLevelBucket(
+			invoiceAliasBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		err = invAliasBucket.ForEach(func(k, v []byte) error {
+			var chanID lnwire.ChannelID
+			copy(chanID[:], k)
+			alias := lnwire.NewShortChanIDFromInt(
+				byteOrder.Uint64(v),
+			)
+
+			peerAliasMap[chanID] = alias
+
+			return nil
+		})
+
 		return err
 	}, func() {
 		baseConfMap = make(map[lnwire.ShortChannelID]struct{})
-		aliasMap = make(
-			map[lnwire.ShortChannelID]lnwire.ShortChannelID,
-		)
+		aliasMap = make(map[lnwire.ShortChannelID]lnwire.ShortChannelID)
+		peerAliasMap = make(map[lnwire.ChannelID]lnwire.ShortChannelID)
 	})
 	if err != nil {
 		return err
@@ -175,6 +205,9 @@ func (m *Manager) populateMaps() error {
 
 		m.aliasToBase[aliasSCID] = baseSCID
 	}
+
+	// Populate the peer alias cache.
+	m.peerAlias = peerAliasMap
 
 	return nil
 }
@@ -242,7 +275,9 @@ func (m *Manager) AddLocalAlias(alias, baseScid lnwire.ShortChannelID,
 
 // GetAliases fetches the set of aliases stored under a given base SCID from
 // write-through caches.
-func (m *Manager) GetAliases(base lnwire.ShortChannelID) []lnwire.ShortChannelID {
+func (m *Manager) GetAliases(
+	base lnwire.ShortChannelID) []lnwire.ShortChannelID {
+
 	m.RLock()
 	defer m.RUnlock()
 
@@ -310,7 +345,10 @@ func (m *Manager) DeleteSixConfs(baseScid lnwire.ShortChannelID) error {
 func (m *Manager) PutPeerAlias(chanID lnwire.ChannelID,
 	alias lnwire.ShortChannelID) error {
 
-	return kvdb.Update(m.backend, func(tx kvdb.RwTx) error {
+	m.Lock()
+	defer m.Unlock()
+
+	err := kvdb.Update(m.backend, func(tx kvdb.RwTx) error {
 		bucket, err := tx.CreateTopLevelBucket(invoiceAliasBucket)
 		if err != nil {
 			return err
@@ -320,36 +358,30 @@ func (m *Manager) PutPeerAlias(chanID lnwire.ChannelID,
 		byteOrder.PutUint64(scratch[:], alias.ToUint64())
 		return bucket.Put(chanID[:], scratch[:])
 	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	// Now that the database state has been updated, we can update it in
+	// our cache.
+	m.peerAlias[chanID] = alias
+
+	return nil
 }
 
 // GetPeerAlias retrieves a peer's alias SCID by the channel's ChanID.
-func (m *Manager) GetPeerAlias(chanID lnwire.ChannelID) (
-	lnwire.ShortChannelID, error) {
+func (m *Manager) GetPeerAlias(chanID lnwire.ChannelID) (lnwire.ShortChannelID,
+	error) {
 
-	var alias lnwire.ShortChannelID
+	m.RLock()
+	defer m.RUnlock()
 
-	err := kvdb.Update(m.backend, func(tx kvdb.RwTx) error {
-		bucket, err := tx.CreateTopLevelBucket(invoiceAliasBucket)
-		if err != nil {
-			return err
-		}
-
-		aliasBytes := bucket.Get(chanID[:])
-		if aliasBytes == nil {
-			return nil
-		}
-
-		alias = lnwire.NewShortChanIDFromInt(
-			byteOrder.Uint64(aliasBytes),
-		)
-		return nil
-	}, func() {})
-
-	if alias == hop.Source {
-		return alias, errNoPeerAlias
+	alias, ok := m.peerAlias[chanID]
+	if !ok || alias == hop.Source {
+		return lnwire.ShortChannelID{}, errNoPeerAlias
 	}
 
-	return alias, err
+	return alias, nil
 }
 
 // RequestAlias returns a new ALIAS ShortChannelID to the caller by allocating

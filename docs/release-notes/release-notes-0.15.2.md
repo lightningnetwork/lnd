@@ -16,5 +16,16 @@
 
 # Contributors (Alphabetical Order)
 
+
+## Performance improvements
+
+* [Refactor hop hint selection
+  algorithm](https://github.com/lightningnetwork/lnd/pull/6914)
+
+
+# Contributors (Alphabetical Order)
+
 * Eugene Siegel
+* Jordi Montes
 * Oliver Gugger
+

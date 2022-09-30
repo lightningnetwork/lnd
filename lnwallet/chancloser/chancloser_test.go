@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -131,14 +132,9 @@ func TestMaybeMatchScript(t *testing.T) {
 }
 
 type mockChannel struct {
-	absoluteFee btcutil.Amount
-	chanPoint   wire.OutPoint
-	initiator   bool
-	scid        lnwire.ShortChannelID
-}
-
-func (m *mockChannel) CalcFee(chainfee.SatPerKWeight) btcutil.Amount {
-	return m.absoluteFee
+	chanPoint wire.OutPoint
+	initiator bool
+	scid      lnwire.ShortChannelID
 }
 
 func (m *mockChannel) ChannelPoint() *wire.OutPoint {
@@ -179,12 +175,34 @@ func (m *mockChannel) CompleteCooperativeClose(localSig,
 	return nil, 0, nil
 }
 
+func (m *mockChannel) LocalBalanceDust() bool {
+	return false
+}
+
+func (m *mockChannel) RemoteBalanceDust() bool {
+	return false
+}
+
+type mockCoopFeeEstimator struct {
+	targetFee btcutil.Amount
+}
+
+func (m *mockCoopFeeEstimator) EstimateFee(chanType channeldb.ChannelType,
+	localTxOut, remoteTxOut *wire.TxOut,
+	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
+
+	return m.targetFee
+}
+
 // TestMaxFeeClamp tests that if a max fee is specified, then it's used instead
 // of the default max fee multiplier.
 func TestMaxFeeClamp(t *testing.T) {
 	t.Parallel()
 
-	const absoluteFee = btcutil.Amount(1000)
+	const (
+		absoluteFeeOneSatByte = 126
+		absoluteFeeTenSatByte = 1265
+	)
 
 	tests := []struct {
 		name string
@@ -199,32 +217,39 @@ func TestMaxFeeClamp(t *testing.T) {
 			name: "no max fee",
 
 			idealFee: chainfee.SatPerKWeight(253),
-			maxFee:   absoluteFee * defaultMaxFeeMultiplier,
-		}, {
+			maxFee:   absoluteFeeOneSatByte * defaultMaxFeeMultiplier,
+		},
+		{
 			// Max fee specified, this should be used in place.
 			name: "max fee clamp",
 
 			idealFee:    chainfee.SatPerKWeight(253),
 			inputMaxFee: chainfee.SatPerKWeight(2530),
 
-			// Our mock just returns the canned absolute fee here.
-			maxFee: absoluteFee,
+			// We should get the resulting absolute fee based on a
+			// factor of 10 sat/byte (our new max fee).
+			maxFee: absoluteFeeTenSatByte,
 		},
 	}
 	for _, test := range tests {
+		test := test
+
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			channel := mockChannel{
-				absoluteFee: absoluteFee,
-			}
+			channel := mockChannel{}
 
 			chanCloser := NewChanCloser(
 				ChanCloseCfg{
-					Channel: &channel,
-					MaxFee:  test.inputMaxFee,
+					Channel:      &channel,
+					MaxFee:       test.inputMaxFee,
+					FeeEstimator: &SimpleCoopFeeEstimator{},
 				}, nil, test.idealFee, 0, nil, false,
 			)
+
+			// We'll call initFeeBaseline early here since we need
+			// the populate these internal variables.
+			chanCloser.initFeeBaseline()
 
 			require.Equal(t, test.maxFee, chanCloser.maxFee)
 		})
@@ -250,8 +275,10 @@ func TestMaxFeeBailOut(t *testing.T) {
 			// instantiate our channel closer.
 			closeCfg := ChanCloseCfg{
 				Channel: &mockChannel{
-					absoluteFee: absoluteFee,
-					initiator:   isInitiator,
+					initiator: isInitiator,
+				},
+				FeeEstimator: &mockCoopFeeEstimator{
+					targetFee: absoluteFee,
 				},
 				MaxFee: idealFee * 2,
 			}

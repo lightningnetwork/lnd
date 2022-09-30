@@ -1417,7 +1417,7 @@ func (c *ChannelStateDB) DeleteChannelOpeningState(outPoint []byte) error {
 // applies migration functions to the current database and recovers the
 // previous state of db if at least one error/panic appeared during migration.
 func (d *DB) syncVersions(versions []mandatoryVersion) error {
-	meta, err := d.FetchMeta(nil)
+	meta, err := d.FetchMeta()
 	if err != nil {
 		if err == ErrMetaNotFound {
 			meta = &Meta{}

@@ -91,7 +91,7 @@ func TestVersionFetchPut(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	meta, err := db.FetchMeta(nil)
+	meta, err := db.FetchMeta()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestVersionFetchPut(t *testing.T) {
 		t.Fatalf("update of meta failed %v", err)
 	}
 
-	meta, err = db.FetchMeta(nil)
+	meta, err = db.FetchMeta()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestMigrationWithPanic(t *testing.T) {
 
 	// Check that version of database and data wasn't changed.
 	afterMigrationFunc := func(d *DB) {
-		meta, err := d.FetchMeta(nil)
+		meta, err := d.FetchMeta()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -303,7 +303,7 @@ func TestMigrationWithFatal(t *testing.T) {
 
 	// Check that version of database and initial data wasn't changed.
 	afterMigrationFunc := func(d *DB) {
-		meta, err := d.FetchMeta(nil)
+		meta, err := d.FetchMeta()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -377,7 +377,7 @@ func TestMigrationWithoutErrors(t *testing.T) {
 
 	// Check that version of database and data was properly changed.
 	afterMigrationFunc := func(d *DB) {
-		meta, err := d.FetchMeta(nil)
+		meta, err := d.FetchMeta()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -469,7 +469,7 @@ func TestMigrationDryRun(t *testing.T) {
 	// Check that version of database version is not modified.
 	afterMigrationFunc := func(d *DB) {
 		err := kvdb.View(d, func(tx kvdb.RTx) error {
-			meta, err := d.FetchMeta(nil)
+			meta, err := d.FetchMeta()
 			if err != nil {
 				t.Fatal(err)
 			}

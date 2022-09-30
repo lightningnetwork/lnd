@@ -28,9 +28,8 @@ type Meta struct {
 	DbVersionNumber uint32
 }
 
-// FetchMeta fetches the meta data from boltdb and returns filled meta
-// structure.
-func (d *DB) FetchMeta(tx kvdb.RTx) (*Meta, error) {
+// FetchMeta fetches the metadata from boltdb and returns filled meta structure.
+func (d *DB) FetchMeta() (*Meta, error) {
 	var meta *Meta
 
 	err := kvdb.View(d, func(tx kvdb.RTx) error {

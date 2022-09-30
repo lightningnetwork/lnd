@@ -116,6 +116,10 @@ crash](https://github.com/lightningnetwork/lnd/pull/7019).
 * Updated the github actions to use `make fmt-check` in its [build
   process](https://github.com/lightningnetwork/lnd/pull/6853).
 
+* Database related code was refactored to [allow external tools to use it more
+  easily](https://github.com/lightningnetwork/lnd/pull/5561), in preparation for
+  adding a data migration functionality to `lndinit`.
+
 # Contributors (Alphabetical Order)
 
 * Carla Kirk-Cohen

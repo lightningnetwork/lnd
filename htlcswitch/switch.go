@@ -145,6 +145,10 @@ type Config struct {
 	// channels from the channel database.
 	FetchAllOpenChannels func() ([]*channeldb.OpenChannel, error)
 
+	// FetchAllChannels is a function that fetches all pending open, open,
+	// and waiting close channels from the database.
+	FetchAllChannels func() ([]*channeldb.OpenChannel, error)
+
 	// FetchClosedChannels is a function that fetches all closed channels
 	// from the channel database.
 	FetchClosedChannels func(
@@ -2083,9 +2087,11 @@ func (s *Switch) reforwardResolutions() error {
 
 // reforwardResponses for every known, non-pending channel, loads all associated
 // forwarding packages and reforwards any Settle or Fail HTLCs found. This is
-// used to resurrect the switch's mailboxes after a restart.
+// used to resurrect the switch's mailboxes after a restart. This also runs for
+// waiting close channels since there may be settles or fails that need to be
+// reforwarded before they completely close.
 func (s *Switch) reforwardResponses() error {
-	openChannels, err := s.cfg.FetchAllOpenChannels()
+	openChannels, err := s.cfg.FetchAllChannels()
 	if err != nil {
 		return err
 	}

@@ -628,7 +628,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// satisfy our specific requirements.
 	processEdge := func(fromVertex route.Vertex,
 		fromFeatures *lnwire.FeatureVector,
-		edge *channeldb.CachedEdgePolicy, toNodeDist *nodeWithDist) {
+		edge *unifiedPolicyEdge, toNodeDist *nodeWithDist) {
 
 		edgesExpanded++
 
@@ -666,8 +666,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		var fee lnwire.MilliSatoshi
 		var timeLockDelta uint16
 		if fromVertex != source {
-			fee = edge.ComputeFee(amountToSend)
-			timeLockDelta = edge.TimeLockDelta
+			fee = edge.policy.ComputeFee(amountToSend)
+			timeLockDelta = edge.policy.TimeLockDelta
 		}
 
 		incomingCltv := toNodeDist.incomingCltv + int32(timeLockDelta)
@@ -744,9 +744,9 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 		// Every edge should have a positive time lock delta. If we
 		// encounter a zero delta, log a warning line.
-		if edge.TimeLockDelta == 0 {
+		if edge.policy.TimeLockDelta == 0 {
 			log.Warnf("Channel %v has zero cltv delta",
-				edge.ChannelID)
+				edge.policy.ChannelID)
 		}
 
 		// Calculate the total routing info size if this hop were to be
@@ -767,7 +767,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				LegacyPayload: !supportsTlv,
 			}
 
-			payloadSize = hop.PayloadSize(edge.ChannelID)
+			payloadSize = hop.PayloadSize(edge.policy.ChannelID)
 		}
 
 		routingInfoSize := toNodeDist.routingInfoSize + payloadSize
@@ -788,7 +788,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			amountToReceive: amountToReceive,
 			incomingCltv:    incomingCltv,
 			probability:     probability,
-			nextHop:         edge,
+			nextHop:         edge.policy,
 			routingInfoSize: routingInfoSize,
 		}
 		distance[fromVertex] = withDist

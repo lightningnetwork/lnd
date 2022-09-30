@@ -133,7 +133,7 @@ type unifiedPolicy struct {
 // specific amount to send. It differentiates between local and network
 // channels.
 func (u *unifiedPolicy) getPolicy(amt lnwire.MilliSatoshi,
-	bandwidthHints bandwidthHints) *channeldb.CachedEdgePolicy {
+	bandwidthHints bandwidthHints) *unifiedPolicyEdge {
 
 	if u.localChan {
 		return u.getPolicyLocal(amt, bandwidthHints)
@@ -145,10 +145,10 @@ func (u *unifiedPolicy) getPolicy(amt lnwire.MilliSatoshi,
 // getPolicyLocal returns the optimal policy to use for this local connection
 // given a specific amount to send.
 func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
-	bandwidthHints bandwidthHints) *channeldb.CachedEdgePolicy {
+	bandwidthHints bandwidthHints) *unifiedPolicyEdge {
 
 	var (
-		bestPolicy   *channeldb.CachedEdgePolicy
+		bestPolicy   *unifiedPolicyEdge
 		maxBandwidth lnwire.MilliSatoshi
 	)
 
@@ -192,7 +192,7 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 		maxBandwidth = bandwidth
 
 		// Update best policy.
-		bestPolicy = edge.policy
+		bestPolicy = &unifiedPolicyEdge{policy: edge.policy}
 	}
 
 	return bestPolicy
@@ -202,7 +202,7 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 // a specific amount to send. The goal is to return a policy that maximizes the
 // probability of a successful forward in a non-strict forwarding context.
 func (u *unifiedPolicy) getPolicyNetwork(
-	amt lnwire.MilliSatoshi) *channeldb.CachedEdgePolicy {
+	amt lnwire.MilliSatoshi) *unifiedPolicyEdge {
 
 	var (
 		bestPolicy  *channeldb.CachedEdgePolicy
@@ -255,8 +255,9 @@ func (u *unifiedPolicy) getPolicyNetwork(
 	// get forwarded. Because we penalize pair-wise, there won't be a second
 	// chance for this node pair. But this is all only needed for nodes that
 	// have distinct policies for channels to the same peer.
-	modifiedPolicy := *bestPolicy
-	modifiedPolicy.TimeLockDelta = maxTimelock
+	policyCopy := *bestPolicy
+	modifiedPolicy := unifiedPolicyEdge{policy: &policyCopy}
+	modifiedPolicy.policy.TimeLockDelta = maxTimelock
 
 	return &modifiedPolicy
 }

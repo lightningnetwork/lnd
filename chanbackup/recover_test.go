@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,7 +50,7 @@ func (m *mockPeerConnector) ConnectPeer(node *btcec.PublicKey,
 func TestUnpackAndRecoverSingles(t *testing.T) {
 	t.Parallel()
 
-	keyRing := &mockKeyRing{}
+	keyRing := &lnencrypt.MockKeyRing{}
 
 	// First, we'll create a number of single chan backups that we'll
 	// shortly back to so we can begin our recovery attempt.
@@ -123,7 +124,7 @@ func TestUnpackAndRecoverSingles(t *testing.T) {
 	}
 
 	// If we modify the keyRing, then unpacking should fail.
-	keyRing.fail = true
+	keyRing.Fail = true
 	err = UnpackAndRecoverSingles(
 		packedBackups, keyRing, &chanRestorer, &peerConnector,
 	)
@@ -139,7 +140,7 @@ func TestUnpackAndRecoverSingles(t *testing.T) {
 func TestUnpackAndRecoverMulti(t *testing.T) {
 	t.Parallel()
 
-	keyRing := &mockKeyRing{}
+	keyRing := &lnencrypt.MockKeyRing{}
 
 	// First, we'll create a number of single chan backups that we'll
 	// shortly back to so we can begin our recovery attempt.
@@ -217,7 +218,7 @@ func TestUnpackAndRecoverMulti(t *testing.T) {
 	}
 
 	// If we modify the keyRing, then unpacking should fail.
-	keyRing.fail = true
+	keyRing.Fail = true
 	err = UnpackAndRecoverMulti(
 		packedMulti, keyRing, &chanRestorer, &peerConnector,
 	)

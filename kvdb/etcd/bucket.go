@@ -130,3 +130,10 @@ func ValueKey(key string, buckets ...string) string {
 
 	return string(makeValueKey(bucket, []byte(key)))
 }
+
+// SequenceKey is a helper function used in tests or external tools to create a
+// sequence key from the passed bucket list.
+func SequenceKey(buckets ...string) string {
+	id := makeBucketID([]byte(BucketKey(buckets...)))
+	return string(makeSequenceKey(id[:]))
+}

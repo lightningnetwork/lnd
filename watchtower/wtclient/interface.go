@@ -65,6 +65,11 @@ type DB interface {
 	ListClientSessions(*wtdb.TowerID, ...wtdb.ClientSessionListOption) (
 		map[wtdb.SessionID]*wtdb.ClientSession, error)
 
+	// FetchSessionCommittedUpdates retrieves the current set of un-acked
+	// updates of the given session.
+	FetchSessionCommittedUpdates(id *wtdb.SessionID) (
+		[]wtdb.CommittedUpdate, error)
+
 	// FetchChanSummaries loads a mapping from all registered channels to
 	// their channel summaries.
 	FetchChanSummaries() (wtdb.ChannelSummaries, error)

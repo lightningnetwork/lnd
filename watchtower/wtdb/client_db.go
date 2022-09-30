@@ -842,6 +842,36 @@ func listTowerSessions(id TowerID, sessionsBkt, towersBkt,
 	return clientSessions, nil
 }
 
+// FetchSessionCommittedUpdates retrieves the current set of un-acked updates
+// of the given session.
+func (c *ClientDB) FetchSessionCommittedUpdates(id *SessionID) (
+	[]CommittedUpdate, error) {
+
+	var committedUpdates []CommittedUpdate
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+		sessions := tx.ReadBucket(cSessionBkt)
+		if sessions == nil {
+			return ErrUninitializedDB
+		}
+
+		sessionBkt := sessions.NestedReadBucket(id[:])
+		if sessionBkt == nil {
+			return ErrClientSessionNotFound
+		}
+
+		var err error
+		committedUpdates, err = getClientSessionCommits(
+			sessionBkt, nil, nil,
+		)
+		return err
+	}, func() {})
+	if err != nil {
+		return nil, err
+	}
+
+	return committedUpdates, nil
+}
+
 // FetchChanSummaries loads a mapping from all registered channels to their
 // channel summaries.
 func (c *ClientDB) FetchChanSummaries() (ChannelSummaries, error) {

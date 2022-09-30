@@ -242,6 +242,22 @@ func (m *ClientDB) listClientSessions(tower *wtdb.TowerID,
 	return sessions, nil
 }
 
+// FetchSessionCommittedUpdates retrieves the current set of un-acked updates
+// of the given session.
+func (m *ClientDB) FetchSessionCommittedUpdates(id *wtdb.SessionID) (
+	[]wtdb.CommittedUpdate, error) {
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	sess, ok := m.activeSessions[*id]
+	if !ok {
+		return nil, wtdb.ErrClientSessionNotFound
+	}
+
+	return sess.CommittedUpdates, nil
+}
+
 // CreateClientSession records a newly negotiated client session in the set of
 // active sessions. The session can be identified by its SessionID.
 func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {

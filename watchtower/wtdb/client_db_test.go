@@ -207,6 +207,20 @@ func (h *clientDBHarness) newTower() *wtdb.Tower {
 	}, nil)
 }
 
+func (h *clientDBHarness) fetchSessionCommittedUpdates(id *wtdb.SessionID,
+	expErr error) []wtdb.CommittedUpdate {
+
+	h.t.Helper()
+
+	updates, err := h.db.FetchSessionCommittedUpdates(id)
+	if err != expErr {
+		h.t.Fatalf("expected fetch session committed updates error: "+
+			"%v, got: %v", expErr, err)
+	}
+
+	return updates
+}
+
 // testCreateClientSession asserts various conditions regarding the creation of
 // a new ClientSession. The test asserts:
 //   - client sessions can only be created if a session key index is reserved.
@@ -506,6 +520,9 @@ func testCommitUpdate(h *clientDBHarness) {
 	// session, which should fail.
 	update1 := randCommittedUpdate(h.t, 1)
 	h.commitUpdate(&session.ID, update1, wtdb.ErrClientSessionNotFound)
+	h.fetchSessionCommittedUpdates(
+		&session.ID, wtdb.ErrClientSessionNotFound,
+	)
 
 	// Reserve a session key index and insert the session.
 	session.KeyIndex = h.nextKeyIndex(session.TowerID, blobType)
@@ -665,14 +682,14 @@ func (h *clientDBHarness) assertUpdates(id wtdb.SessionID,
 	_ = h.listSessions(
 		nil, wtdb.WithPerAckedUpdate(perAckedUpdate(ackedUpdates)),
 	)
-	dbSession := h.listSessions(nil)[id]
-	checkCommittedUpdates(h.t, dbSession, expectedPending)
+	committedUpates := h.fetchSessionCommittedUpdates(&id, nil)
+	checkCommittedUpdates(h.t, committedUpates, expectedPending)
 	checkAckedUpdates(h.t, ackedUpdates, expectedAcked)
 }
 
 // checkCommittedUpdates asserts that the CommittedUpdates on session match the
 // expUpdates provided.
-func checkCommittedUpdates(t *testing.T, session *wtdb.ClientSession,
+func checkCommittedUpdates(t *testing.T, actualUpdates,
 	expUpdates []wtdb.CommittedUpdate) {
 
 	t.Helper()
@@ -684,7 +701,7 @@ func checkCommittedUpdates(t *testing.T, session *wtdb.ClientSession,
 		expUpdates = make([]wtdb.CommittedUpdate, 0)
 	}
 
-	require.Equal(t, expUpdates, session.CommittedUpdates)
+	require.Equal(t, expUpdates, actualUpdates)
 }
 
 // checkAckedUpdates asserts that the AckedUpdates on a session match the

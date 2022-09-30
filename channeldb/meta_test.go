@@ -681,4 +681,9 @@ func TestMarkerAndTombstone(t *testing.T) {
 	// cannot be used anymore.
 	err = db.View(EnsureNoTombstone, func() {})
 	require.ErrorContains(t, err, string(tombstoneText))
+
+	// Now that the DB has a tombstone, we should no longer be able to open
+	// it once we close it.
+	_, err = CreateWithBackend(db.Backend)
+	require.ErrorContains(t, err, string(tombstoneText))
 }

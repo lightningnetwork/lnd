@@ -436,6 +436,11 @@ func (d *DB) Wipe() error {
 // the database are created.
 func initChannelDB(db kvdb.Backend) error {
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		// Check if DB was marked as inactive with a tomb stone.
+		if err := EnsureNoTombstone(tx); err != nil {
+			return err
+		}
+
 		meta := &Meta{}
 		// Check if DB is already initialized.
 		err := FetchMeta(meta, tx)

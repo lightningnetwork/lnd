@@ -45,6 +45,9 @@ minimum version needed to build the project.
 
 ## Misc
 
+* [Fixed a bug where the Switch did not reforward settles or fails for
+  waiting-close channels](https://github.com/lightningnetwork/lnd/pull/6789)
+
 * [Fixed a flake in the TestChannelLinkCancelFullCommitment unit
   test](https://github.com/lightningnetwork/lnd/pull/6792).
 

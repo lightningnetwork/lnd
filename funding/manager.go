@@ -201,13 +201,14 @@ type InitFundingMsg struct {
 	// LocalFundingAmt is the size of the channel.
 	LocalFundingAmt btcutil.Amount
 
-	// BaseFee is the base fee charged for routing payments regardless of the
-	// number of milli-satoshis sent.
+	// BaseFee is the base fee charged for routing payments regardless of
+	// the number of milli-satoshis sent.
 	BaseFee *uint64
 
-	// FeeRate is the fee rate in ppm (parts per million) that will be charged
-	// proportionally based on the value of each forwarded HTLC, the lowest
-	// possible rate is 0 with a granularity of 0.000001 (millionths).
+	// FeeRate is the fee rate in ppm (parts per million) that will be
+	// charged proportionally based on the value of each forwarded HTLC, the
+	// lowest possible rate is 0 with a granularity of 0.000001
+	// (millionths).
 	FeeRate *uint64
 
 	// PushAmt is the amount pushed to the counterparty.
@@ -266,8 +267,8 @@ type InitFundingMsg struct {
 	// support explicit channel type negotiation.
 	ChannelType *lnwire.ChannelType
 
-	// Updates is a channel which updates to the opening status of the channel
-	// are sent on.
+	// Updates is a channel which updates to the opening status of the
+	// channel are sent on.
 	Updates chan *lnrpc.OpenStatusUpdate
 
 	// Err is a channel which errors encountered during the funding flow are

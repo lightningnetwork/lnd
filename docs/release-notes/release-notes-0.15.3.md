@@ -17,6 +17,12 @@
 * [A bug has been fixed that caused fee estimation to be incorrect for taproot
   inputs when using the `SendOutputs` call.](https://github.com/lightningnetwork/lnd/pull/6941)
 
+
+* [A bug has been fixed that could cause lnd to underpay for co-op close
+  transaction when or both of the outputs used a P2TR
+  addresss.](https://github.com/lightningnetwork/lnd/pull/6957)
+
+
 ## Taproot
 
 * [Add `p2tr` address type to account

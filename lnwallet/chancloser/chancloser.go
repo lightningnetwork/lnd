@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
@@ -97,9 +98,6 @@ const (
 // interface that requires only the methods we need to carry out the channel
 // closing process.
 type Channel interface {
-	// CalcFee returns the absolute fee for the given fee rate.
-	CalcFee(chainfee.SatPerKWeight) btcutil.Amount
-
 	// ChannelPoint returns the channel point of the target channel.
 	ChannelPoint() *wire.OutPoint
 
@@ -118,6 +116,16 @@ type Channel interface {
 	// an error should be returned.
 	AbsoluteThawHeight() (uint32, error)
 
+	// LocalBalanceDust returns true if when creating a co-op close
+	// transaction, the balance of the local party will be dust after
+	// accounting for any anchor outputs.
+	LocalBalanceDust() bool
+
+	// RemoteBalanceDust returns true if when creating a co-op close
+	// transaction, the balance of the remote party will be dust after
+	// accounting for any anchor outputs.
+	RemoteBalanceDust() bool
+
 	// RemoteUpfrontShutdownScript returns the upfront shutdown script of
 	// the remote party. If the remote party didn't specify such a script,
 	// an empty delivery address should be returned.
@@ -135,6 +143,18 @@ type Channel interface {
 	CompleteCooperativeClose(localSig, remoteSig input.Signature,
 		localDeliveryScript, remoteDeliveryScript []byte,
 		proposedFee btcutil.Amount) (*wire.MsgTx, btcutil.Amount, error)
+}
+
+// CoopFeeEstimator is used to estimate the fee of a co-op close transaction.
+type CoopFeeEstimator interface {
+	// EstimateFee estimates an _absolute_ fee for a co-op close transaction
+	// given the local+remote tx outs (for the co-op close transaction),
+	// channel type, and ideal fee rate. If a passed TxOut is nil, then
+	// that indicates that an output is dust on the co-op close transaction
+	// _before_ fees are accounted for.
+	EstimateFee(chanType channeldb.ChannelType,
+		localTxOut, remoteTxOut *wire.TxOut,
+		idealFeeRate chainfee.SatPerKWeight) btcutil.Amount
 }
 
 // ChanCloseCfg holds all the items that a ChanCloser requires to carry out its
@@ -163,6 +183,10 @@ type ChanCloseCfg struct {
 	// Quit is a channel that should be sent upon in the occasion the state
 	// machine should cease all progress and shutdown.
 	Quit chan struct{}
+
+	// FeeEstimator is used to estimate the absolute starting co-op close
+	// fee.
+	FeeEstimator CoopFeeEstimator
 }
 
 // ChanCloser is a state machine that handles the cooperative channel closure
@@ -198,6 +222,9 @@ type ChanCloser struct {
 	// multiplier based of the initial starting ideal fee.
 	maxFee btcutil.Amount
 
+	// idealFeeRate is our ideal fee rate.
+	idealFeeRate chainfee.SatPerKWeight
+
 	// lastFeeProposal is the last fee that we proposed to the remote party.
 	// We'll use this as a pivot point to ratchet our next offer up, down, or
 	// simply accept the remote party's prior offer.
@@ -231,27 +258,51 @@ type ChanCloser struct {
 	locallyInitiated bool
 }
 
+// calcCoopCloseFee computes an "ideal" absolute co-op close fee given the
+// delivery scripts of both parties and our ideal fee rate.
+func calcCoopCloseFee(localOutput, remoteOutput *wire.TxOut,
+	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
+
+	var weightEstimator input.TxWeightEstimator
+
+	weightEstimator.AddWitnessInput(input.MultiSigWitnessSize)
+
+	// One of these outputs might be dust, so we'll skip adding it to our
+	// mock transaction, so the fees are more accurate.
+	if localOutput != nil {
+		weightEstimator.AddTxOutput(localOutput)
+	}
+	if remoteOutput != nil {
+		weightEstimator.AddTxOutput(remoteOutput)
+	}
+
+	totalWeight := int64(weightEstimator.Weight())
+
+	return idealFeeRate.FeeForWeight(totalWeight)
+}
+
+// SimpleCoopFeeEstimator is the default co-op close fee estimator. It assumes
+// a normal segwit v0 channel, and that no outputs on the closing transaction
+// are dust.
+type SimpleCoopFeeEstimator struct {
+}
+
+// EstimateFee estimates an _absolute_ fee for a co-op close transaction given
+// the local+remote tx outs (for the co-op close transaction), channel type,
+// and ideal fee rate.
+func (d *SimpleCoopFeeEstimator) EstimateFee(chanType channeldb.ChannelType,
+	localTxOut, remoteTxOut *wire.TxOut,
+	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
+
+	return calcCoopCloseFee(localTxOut, remoteTxOut, idealFeeRate)
+}
+
 // NewChanCloser creates a new instance of the channel closure given the passed
 // configuration, and delivery+fee preference. The final argument should only
 // be populated iff, we're the initiator of this closing request.
 func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 	idealFeePerKw chainfee.SatPerKWeight, negotiationHeight uint32,
 	closeReq *htlcswitch.ChanClose, locallyInitiated bool) *ChanCloser {
-
-	// Given the target fee-per-kw, we'll compute what our ideal _total_
-	// fee will be starting at for this fee negotiation.
-	idealFeeSat := cfg.Channel.CalcFee(idealFeePerKw)
-
-	// When we're the initiator, we'll want to also factor in the highest
-	// fee we want to pay. This'll either be 3x the ideal fee, or the
-	// specified explicit max fee.
-	maxFee := idealFeeSat * defaultMaxFeeMultiplier
-	if cfg.MaxFee > 0 {
-		maxFee = cfg.Channel.CalcFee(cfg.MaxFee)
-	}
-
-	chancloserLog.Infof("Ideal fee for closure of ChannelPoint(%v) is: %v sat",
-		cfg.Channel.ChannelPoint(), int64(idealFeeSat))
 
 	cid := lnwire.NewChanIDFromOutPoint(cfg.Channel.ChannelPoint())
 	return &ChanCloser{
@@ -261,12 +312,51 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 		cid:                 cid,
 		cfg:                 cfg,
 		negotiationHeight:   negotiationHeight,
-		idealFeeSat:         idealFeeSat,
-		maxFee:              maxFee,
+		idealFeeRate:        idealFeePerKw,
 		localDeliveryScript: deliveryScript,
 		priorFeeOffers:      make(map[btcutil.Amount]*lnwire.ClosingSigned),
 		locallyInitiated:    locallyInitiated,
 	}
+}
+
+// initFeeBaseline computes our ideal fee rate, and also the largest fee we'll
+// accept given information about the delivery script of the remote party.
+func (c *ChanCloser) initFeeBaseline() {
+	// Depending on if a balance ends up being dust or not, we'll pass a
+	// nil TxOut into the EstimateFee call which can handle it.
+	var localTxOut, remoteTxOut *wire.TxOut
+	if !c.cfg.Channel.LocalBalanceDust() {
+		localTxOut = &wire.TxOut{
+			PkScript: c.localDeliveryScript,
+			Value:    0,
+		}
+	}
+	if !c.cfg.Channel.RemoteBalanceDust() {
+		remoteTxOut = &wire.TxOut{
+			PkScript: c.remoteDeliveryScript,
+			Value:    0,
+		}
+	}
+
+	// Given the target fee-per-kw, we'll compute what our ideal _total_
+	// fee will be starting at for this fee negotiation.
+	c.idealFeeSat = c.cfg.FeeEstimator.EstimateFee(
+		0, localTxOut, remoteTxOut, c.idealFeeRate,
+	)
+
+	// When we're the initiator, we'll want to also factor in the highest
+	// fee we want to pay. This'll either be 3x the ideal fee, or the
+	// specified explicit max fee.
+	c.maxFee = c.idealFeeSat * defaultMaxFeeMultiplier
+	if c.cfg.MaxFee > 0 {
+		c.maxFee = c.cfg.FeeEstimator.EstimateFee(
+			0, localTxOut, remoteTxOut, c.cfg.MaxFee,
+		)
+	}
+
+	chancloserLog.Infof("Ideal fee for closure of ChannelPoint(%v) "+
+		"is: %v sat (max_fee=%v sat)", c.cfg.Channel.ChannelPoint(),
+		int64(c.idealFeeSat), int64(c.maxFee))
 }
 
 // initChanShutdown begins the shutdown process by un-registering the channel,
@@ -470,6 +560,10 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// use this when we craft the closure transaction.
 		c.remoteDeliveryScript = shutdownMsg.Address
 
+		// Now that we know their desried delivery script, we can
+		// compute what our max/ideal fee will be.
+		c.initFeeBaseline()
+
 		// We'll generate a shutdown message of our own to send across the
 		// wire.
 		localShutdown, err := c.initChanShutdown()
@@ -533,6 +627,10 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// constructing and sending our initial signature for what we think the
 		// closing transaction should look like.
 		c.state = closeFeeNegotiation
+
+		// Now that we know their desried delivery script, we can
+		// compute what our max/ideal fee will be.
+		c.initFeeBaseline()
 
 		chancloserLog.Infof("ChannelPoint(%v): shutdown response received, "+
 			"entering fee negotiation", c.chanPoint)

@@ -438,7 +438,7 @@ func initChannelDB(db kvdb.Backend) error {
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		meta := &Meta{}
 		// Check if DB is already initialized.
-		err := fetchMeta(meta, tx)
+		err := FetchMeta(meta, tx)
 		if err == nil {
 			return nil
 		}
@@ -1559,6 +1559,12 @@ func (d *DB) ChannelGraph() *ChannelGraph {
 // state.
 func (d *DB) ChannelStateDB() *ChannelStateDB {
 	return d.channelStateDB
+}
+
+// LatestDBVersion returns the number of the latest database version currently
+// known to the channel DB.
+func LatestDBVersion() uint32 {
+	return getLatestDBVersion(dbVersions)
 }
 
 func getLatestDBVersion(versions []mandatoryVersion) uint32 {

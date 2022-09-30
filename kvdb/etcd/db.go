@@ -22,7 +22,7 @@ const (
 	// the etcd instance.
 	etcdConnectionTimeout = 10 * time.Second
 
-	// etcdLongTimeout is a timeout for longer taking etcd operatons.
+	// etcdLongTimeout is a timeout for longer taking etcd operations.
 	etcdLongTimeout = 30 * time.Second
 
 	// etcdDefaultRootBucketId is used as the root bucket key. Note that
@@ -52,8 +52,8 @@ type commitStatsCollector struct {
 	fail map[string]*callerStats
 }
 
-// newCommitStatsColletor creates a new commitStatsCollector instance.
-func newCommitStatsColletor() *commitStatsCollector {
+// newCommitStatsCollector creates a new commitStatsCollector instance.
+func newCommitStatsCollector() *commitStatsCollector {
 	return &commitStatsCollector{
 		succ: make(map[string]*callerStats),
 		fail: make(map[string]*callerStats),
@@ -181,7 +181,7 @@ func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
 	}
 
 	if cfg.CollectStats {
-		backend.commitStatsCollector = newCommitStatsColletor()
+		backend.commitStatsCollector = newCommitStatsCollector()
 	}
 
 	return backend, nil

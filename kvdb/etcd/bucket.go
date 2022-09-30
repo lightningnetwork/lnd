@@ -92,7 +92,7 @@ func getKeyVal(kv *KV) ([]byte, []byte) {
 	return getKey(kv.key), val
 }
 
-// BucketKey is a helper functon used in tests to create a bucket key from
+// BucketKey is a helper function used in tests to create a bucket key from
 // passed bucket list.
 func BucketKey(buckets ...string) string {
 	var bucketKey []byte

@@ -50,6 +50,9 @@ minimum version needed to build the project.
 1.19.1 contained a bug that affected lnd and resulted in a
 crash](https://github.com/lightningnetwork/lnd/pull/7019).
 
+[Use Go's `runtime/debug` package to get information about the build](
+https://github.com/lightningnetwork/lnd/pull/6963/)
+
 ## Misc
 
 * [Fixed a bug where the Switch did not reforward settles or fails for
@@ -155,6 +158,7 @@ crash](https://github.com/lightningnetwork/lnd/pull/7019).
 * Graham Krizek
 * hieblmi
 * Jesse de Wit
+* Jordi Montes
 * Matt Morehouse
 * Michael Street
 * Olaoluwa Osuntokun

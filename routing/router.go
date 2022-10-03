@@ -2383,8 +2383,10 @@ func (r *ChannelRouter) sendPayment(feeLimit lnwire.MilliSatoshi,
 }
 
 // extractChannelUpdate examines the error and extracts the channel update.
-func (r *ChannelRouter) extractChannelUpdate(
-	failure lnwire.FailureMessage) *lnwire.ChannelUpdate {
+func (r *ChannelRouter) extractChannelUpdates(
+	failure lnwire.FailureMessage) []*lnwire.ChannelUpdate {
+
+	var updates []*lnwire.ChannelUpdate
 
 	var update *lnwire.ChannelUpdate
 	switch onionErr := failure.(type) {
@@ -2394,15 +2396,28 @@ func (r *ChannelRouter) extractChannelUpdate(
 		update = &onionErr.Update
 	case *lnwire.FailFeeInsufficient:
 		update = &onionErr.Update
+
+		if onionErr.IncomingUpdate != nil {
+			updates = append(updates, onionErr.IncomingUpdate)
+		}
 	case *lnwire.FailIncorrectCltvExpiry:
 		update = &onionErr.Update
 	case *lnwire.FailChannelDisabled:
 		update = &onionErr.Update
 	case *lnwire.FailTemporaryChannelFailure:
+		if onionErr.Update == nil {
+			return nil
+		}
+
 		update = onionErr.Update
+
+	default:
+		return nil
 	}
 
-	return update
+	updates = append(updates, update)
+
+	return updates
 }
 
 // applyChannelUpdate validates a channel update and if valid, applies it to the

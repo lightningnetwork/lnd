@@ -881,60 +881,59 @@ func (p *shardHandler) handleFailureMessage(rt *route.Route,
 		return nil
 	}
 
-	// Extract channel update if the error contains one.
-	update := p.router.extractChannelUpdate(failure)
-	if update == nil {
-		return nil
-	}
+	// Extract channel updates if the error contains any.
+	updates := p.router.extractChannelUpdates(failure)
+	for _, update := range updates {
+		// Parse pubkey to allow validation of the channel update. This should
+		// always succeed, otherwise there is something wrong in our
+		// implementation. Therefore return an error.
+		errVertex := rt.Hops[errorSourceIdx-1].PubKeyBytes
+		errSource, err := btcec.ParsePubKey(errVertex[:])
+		if err != nil {
+			log.Errorf("Cannot parse pubkey: idx=%v, pubkey=%v",
+				errorSourceIdx, errVertex)
 
-	// Parse pubkey to allow validation of the channel update. This should
-	// always succeed, otherwise there is something wrong in our
-	// implementation. Therefore return an error.
-	errVertex := rt.Hops[errorSourceIdx-1].PubKeyBytes
-	errSource, err := btcec.ParsePubKey(errVertex[:])
-	if err != nil {
-		log.Errorf("Cannot parse pubkey: idx=%v, pubkey=%v",
-			errorSourceIdx, errVertex)
-
-		return err
-	}
-
-	var (
-		isAdditionalEdge bool
-		policy           *channeldb.CachedEdgePolicy
-	)
-
-	// Before we apply the channel update, we need to decide whether the
-	// update is for additional (ephemeral) edge or normal edge stored in
-	// db.
-	//
-	// Note: the p.paySession might be nil here if it's called inside
-	// SendToRoute where there's no payment lifecycle.
-	if p.paySession != nil {
-		policy = p.paySession.GetAdditionalEdgePolicy(
-			errSource, update.ShortChannelID.ToUint64(),
-		)
-		if policy != nil {
-			isAdditionalEdge = true
+			return err
 		}
-	}
 
-	// Apply channel update to additional edge policy.
-	if isAdditionalEdge {
-		if !p.paySession.UpdateAdditionalEdge(
-			update, errSource, policy) {
+		var (
+			isAdditionalEdge bool
+			policy           *channeldb.CachedEdgePolicy
+		)
 
+		// Before we apply the channel update, we need to decide whether the
+		// update is for additional (ephemeral) edge or normal edge stored in
+		// db.
+		//
+		// Note: the p.paySession might be nil here if it's called inside
+		// SendToRoute where there's no payment lifecycle.
+		if p.paySession != nil {
+			policy = p.paySession.GetAdditionalEdgePolicy(
+				errSource, update.ShortChannelID.ToUint64(),
+			)
+			if policy != nil {
+				isAdditionalEdge = true
+			}
+		}
+
+		// Apply channel update to additional edge policy.
+		if isAdditionalEdge {
+			if !p.paySession.UpdateAdditionalEdge(
+				update, errSource, policy) {
+
+				log.Debugf("Invalid channel update received: node=%v",
+					errVertex)
+			}
+			return nil
+		}
+
+		// Apply channel update to the channel edge policy in our db.
+		if !p.router.applyChannelUpdate(update) {
 			log.Debugf("Invalid channel update received: node=%v",
 				errVertex)
 		}
-		return nil
 	}
 
-	// Apply channel update to the channel edge policy in our db.
-	if !p.router.applyChannelUpdate(update) {
-		log.Debugf("Invalid channel update received: node=%v",
-			errVertex)
-	}
 	return nil
 }
 

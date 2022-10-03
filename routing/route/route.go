@@ -38,6 +38,10 @@ var (
 	// ErrAMPMissingMPP is returned when the caller tries to attach an AMP
 	// record but no MPP record is presented for the final hop.
 	ErrAMPMissingMPP = errors.New("cannot send AMP without MPP record")
+
+	// supportedFailureMessageVersion is the failure message format version
+	// that we support.
+	supportedFailureMessageVersion byte = 1
 )
 
 // Vertex is a simple alias for the serialization of a compressed Bitcoin
@@ -174,6 +178,7 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 	records = append(records,
 		record.NewAmtToFwdRecord(&amt),
 		record.NewLockTimeRecord(&h.OutgoingTimeLock),
+		record.NewOnionFailureMessageVersion(&supportedFailureMessageVersion),
 	)
 
 	// BOLT 04 says the next_hop_id should be omitted for the final hop,

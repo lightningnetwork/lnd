@@ -153,6 +153,28 @@ To migrate an existing node, follow these steps:
    a watch-only one (by purging all private key material from it) by adding the
   `remotesigner.migrate-wallet-to-watch-only=true` configuration entry.
 
+## Migrating a remote signing setup from 0.14.x to 0.15.x
+
+If you were running a remote signing setup with `lnd v0.14.x-beta` and want to
+upgrade to `lnd v0.15.x-beta`, you need to manually import the newly added
+Taproot account to the watch-only node, otherwise you will encounter errors such
+as `account 0 not found` when doing on-chain operations that require creating
+(change) P2TR addresses.
+
+**NOTE**: For this to work, you need to upgrade to at least `lnd v0.15.2-beta`
+or later!
+
+The upgrade process should look like this:
+1. Upgrade the "signer" node to `lnd v0.15.x-beta` and unlock it.
+2. Run `lncli wallet accounts list | grep -A5 TAPROOT` on the **"signer"** node
+   and copy the `xpub...` value from `extended_public_key`.
+3. Upgrade the "watch-only" node to `lnd v0.15.x-beta` and unlock it.
+4. Run `lncli wallet accounts import --address_type p2tr <xpub...> default` on
+   the **"watch-only"** node (notice the `default` account name at the end,
+   that's important).
+5. Run `lncli newaddress p2tr` on the "watch-only" node to test that everything
+   works as expected.
+
 ## Example initialization script
 
 This section shows an example script that initializes the watch-only wallet of

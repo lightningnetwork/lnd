@@ -106,6 +106,10 @@ type htlcPacket struct {
 
 	// inboundFee is the fee schedule of the incoming channel.
 	inboundFee InboundFee
+
+	// senderFailureMessageVersion is the failure message format version
+	// that the sender supports.
+	senderFailureMessageVersion byte
 }
 
 // inKey returns the circuit key used to identify the incoming htlc.

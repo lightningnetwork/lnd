@@ -795,14 +795,22 @@ type FailFeeInsufficient struct {
 	// Update is used to update information about state of the channel
 	// which caused the failure.
 	Update ChannelUpdate
+
+	// IncomingUpdate is used to update information about state of the
+	// incoming channel which was part of the failure. This field is
+	// optional and should only be returned in case the sender supports the
+	// new failure message format.
+	IncomingUpdate *ChannelUpdate
 }
 
 // NewFeeInsufficient creates new instance of the FailFeeInsufficient.
 func NewFeeInsufficient(htlcMsat MilliSatoshi,
-	update ChannelUpdate) *FailFeeInsufficient {
+	update ChannelUpdate, incomingUpdate *ChannelUpdate) *FailFeeInsufficient {
+
 	return &FailFeeInsufficient{
-		HtlcMsat: htlcMsat,
-		Update:   update,
+		HtlcMsat:       htlcMsat,
+		Update:         update,
+		IncomingUpdate: incomingUpdate,
 	}
 }
 
@@ -817,8 +825,8 @@ func (f *FailFeeInsufficient) Code() FailCode {
 //
 // NOTE: Implements the error interface.
 func (f *FailFeeInsufficient) Error() string {
-	return fmt.Sprintf("FeeInsufficient(htlc_amt==%v, update=%v", f.HtlcMsat,
-		spew.Sdump(f.Update))
+	return fmt.Sprintf("FeeInsufficient(htlc_amt==%v, update=%v, in_update=%v", f.HtlcMsat,
+		spew.Sdump(f.Update), spew.Sdump(f.IncomingUpdate))
 }
 
 // Decode decodes the failure from bytes stream.
@@ -835,9 +843,33 @@ func (f *FailFeeInsufficient) Decode(r io.Reader, pver uint32) error {
 	}
 
 	f.Update = ChannelUpdate{}
-	return parseChannelUpdateCompatabilityMode(
+	err := parseChannelUpdateCompatabilityMode(
 		r, length, &f.Update, pver,
 	)
+	if err != nil {
+		return err
+	}
+
+	// Decode tlv extension and set incoming update if present and valid.
+	var incomingUpdate ChannelUpdate
+	incomingUpdateRecord := incomingUpdate.Record()
+
+	tlvStream, err := tlv.NewStream(incomingUpdateRecord)
+	if err != nil {
+		return err
+	}
+
+	types, err := tlvStream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return err
+	}
+
+	value, ok := types[ChannelUpdateTlvType]
+	if ok && value == nil {
+		f.IncomingUpdate = &incomingUpdate
+	}
+
+	return nil
 }
 
 // Encode writes the failure in bytes stream.
@@ -848,7 +880,29 @@ func (f *FailFeeInsufficient) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	return writeOnionErrorChanUpdate(w, &f.Update, pver)
+	if err := writeOnionErrorChanUpdate(w, &f.Update, pver); err != nil {
+		return err
+	}
+
+	// If there is no incoming update, we can exit here. There is no need to
+	// add a tlv extension.
+	if f.IncomingUpdate == nil {
+		return nil
+	}
+
+	var b bytes.Buffer
+	if err := f.IncomingUpdate.Encode(&b, pver); err != nil {
+		return err
+	}
+
+	incomingUpdateRecord := f.IncomingUpdate.Record()
+
+	tlvStream, err := tlv.NewStream(incomingUpdateRecord)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
 }
 
 // FailIncorrectCltvExpiry is returned if outgoing cltv value does not match

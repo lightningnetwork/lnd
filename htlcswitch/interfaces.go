@@ -201,7 +201,8 @@ type ChannelLink interface {
 	CheckHtlcForward(payHash [32]byte, incomingAmt lnwire.MilliSatoshi,
 		amtToForward lnwire.MilliSatoshi,
 		incomingTimeout, outgoingTimeout uint32,
-		inboundFee InboundFee,
+		incomingScid lnwire.ShortChannelID, inboundFee InboundFee,
+		senderFailureMessageVersion byte,
 		heightNow uint32, scid lnwire.ShortChannelID) *LinkError
 
 	// CheckHtlcTransit should return a nil error if the passed HTLC details

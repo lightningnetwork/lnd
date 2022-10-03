@@ -680,6 +680,52 @@ func (l *channelLink) createFailureWithUpdate(incoming bool,
 	return cb(update)
 }
 
+// creteFeeInsufficientFailure creates a ChannelUpdate when failing a forward
+// because the attached fee is insufficient. If incomingScid is not nil, a
+// channel update for the incoming channel is also attached. This requires the
+// sender of the payment to understand the new failure message format.
+func (l *channelLink) creteFeeInsufficientFailure(
+	amtToForward lnwire.MilliSatoshi,
+	incomingScid *lnwire.ShortChannelID,
+	outgoingScid lnwire.ShortChannelID) lnwire.FailureMessage {
+
+	// Try using the FailAliasUpdate function. If it returns nil, fallback
+	// to the non-alias behavior.
+	var incomingUpdate *lnwire.ChannelUpdate
+	if incomingScid != nil {
+		incomingUpdate = l.cfg.FailAliasUpdate(
+			*incomingScid, true,
+		)
+		if incomingUpdate == nil {
+			// Fallback to the non-alias behavior.
+			var err error
+			incomingUpdate, err = l.cfg.FetchLastChannelUpdate(
+				*incomingScid,
+			)
+			if err != nil {
+				return &lnwire.FailTemporaryNodeFailure{}
+			}
+		}
+
+	}
+
+	// Try using the FailAliasUpdate function. If it returns nil, fallback
+	// to the non-alias behavior.
+	outgoingUpdate := l.cfg.FailAliasUpdate(outgoingScid, false)
+	if outgoingUpdate == nil {
+		// Fallback to the non-alias behavior.
+		var err error
+		outgoingUpdate, err = l.cfg.FetchLastChannelUpdate(l.ShortChanID())
+		if err != nil {
+			return &lnwire.FailTemporaryNodeFailure{}
+		}
+	}
+
+	return lnwire.NewFeeInsufficient(
+		amtToForward, *outgoingUpdate, incomingUpdate,
+	)
+}
+
 // syncChanState attempts to synchronize channel states with the remote party.
 // This method is to be called upon reconnection after the initial funding
 // flow. We'll compare out commitment chains with the remote party, and re-send
@@ -2540,7 +2586,8 @@ func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi,
 	incomingTimeout, outgoingTimeout uint32,
-	inboundFee InboundFee,
+	incomingScid lnwire.ShortChannelID, inboundFee InboundFee,
+	senderFailureMessageVersion byte,
 	heightNow uint32, originalScid lnwire.ShortChannelID) *LinkError {
 
 	l.RLock()
@@ -2589,10 +2636,17 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 
 		// As part of the returned error, we'll send our latest routing
 		// policy so the sending node obtains the most up to date data.
-		cb := func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
-			return lnwire.NewFeeInsufficient(amtToForward, *upd)
+		//
+		// If the sending node supports the new failure message format,
+		// we'll also return an update of the incoming channel.
+		var incomingUpdateScid *lnwire.ShortChannelID
+		if senderFailureMessageVersion == 1 {
+			incomingUpdateScid = &incomingScid
 		}
-		failure := l.createFailureWithUpdate(false, originalScid, cb)
+
+		failure := l.creteFeeInsufficientFailure(
+			amtToForward, incomingUpdateScid, originalScid,
+		)
 		return NewLinkError(failure)
 	}
 
@@ -3117,18 +3171,19 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				inboundFee := l.cfg.FwrdingPolicy.InboundFee
 
 				updatePacket := &htlcPacket{
-					incomingChanID:  l.ShortChanID(),
-					incomingHTLCID:  pd.HtlcIndex,
-					outgoingChanID:  fwdInfo.NextHop,
-					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.Amount,
-					amount:          addMsg.Amount,
-					htlc:            addMsg,
-					obfuscator:      obfuscator,
-					incomingTimeout: pd.Timeout,
-					outgoingTimeout: fwdInfo.OutgoingCTLV,
-					customRecords:   pld.CustomRecords(),
-					inboundFee:      inboundFee,
+					incomingChanID:              l.ShortChanID(),
+					incomingHTLCID:              pd.HtlcIndex,
+					outgoingChanID:              fwdInfo.NextHop,
+					sourceRef:                   pd.SourceRef,
+					incomingAmount:              pd.Amount,
+					amount:                      addMsg.Amount,
+					htlc:                        addMsg,
+					obfuscator:                  obfuscator,
+					incomingTimeout:             pd.Timeout,
+					outgoingTimeout:             fwdInfo.OutgoingCTLV,
+					customRecords:               pld.CustomRecords(),
+					inboundFee:                  inboundFee,
+					senderFailureMessageVersion: pld.FailureMessageVersion,
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -3184,18 +3239,19 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				inboundFee := l.cfg.FwrdingPolicy.InboundFee
 
 				updatePacket := &htlcPacket{
-					incomingChanID:  l.ShortChanID(),
-					incomingHTLCID:  pd.HtlcIndex,
-					outgoingChanID:  fwdInfo.NextHop,
-					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.Amount,
-					amount:          addMsg.Amount,
-					htlc:            addMsg,
-					obfuscator:      obfuscator,
-					incomingTimeout: pd.Timeout,
-					outgoingTimeout: fwdInfo.OutgoingCTLV,
-					customRecords:   pld.CustomRecords(),
-					inboundFee:      inboundFee,
+					incomingChanID:              l.ShortChanID(),
+					incomingHTLCID:              pd.HtlcIndex,
+					outgoingChanID:              fwdInfo.NextHop,
+					sourceRef:                   pd.SourceRef,
+					incomingAmount:              pd.Amount,
+					amount:                      addMsg.Amount,
+					htlc:                        addMsg,
+					obfuscator:                  obfuscator,
+					incomingTimeout:             pd.Timeout,
+					outgoingTimeout:             fwdInfo.OutgoingCTLV,
+					customRecords:               pld.CustomRecords(),
+					inboundFee:                  inboundFee,
+					senderFailureMessageVersion: pld.FailureMessageVersion,
 				}
 
 				fwdPkg.FwdFilter.Set(idx)

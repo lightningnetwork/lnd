@@ -93,9 +93,11 @@ func parseAddrType(addrTypeStr string) (walletrpc.AddressType, error) {
 		return walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH, nil
 	case "np2wkh-p2wkh":
 		return walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH, nil
+	case "p2tr":
+		return walletrpc.AddressType_TAPROOT_PUBKEY, nil
 	default:
 		return 0, errors.New("invalid address type, supported address " +
-			"types are: p2wkh, np2wkh, and np2wkh-p2wkh")
+			"types are: p2wkh, p2tr, np2wkh, and np2wkh-p2wkh")
 	}
 }
 

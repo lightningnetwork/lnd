@@ -574,6 +574,11 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 			return ErrUninitializedDB
 		}
 
+		towers := tx.ReadBucket(cTowerBkt)
+		if towers == nil {
+			return ErrUninitializedDB
+		}
+
 		// Check that  client session with this session id doesn't
 		// already exist.
 		existingSessionBytes := sessions.NestedReadWriteBucket(
@@ -583,7 +588,13 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 			return ErrClientSessionAlreadyExists
 		}
 
+		// Ensure that a tower with the given ID actually exists in the
+		// DB.
 		towerID := session.TowerID
+		if _, err := getTower(towers, towerID.Bytes()); err != nil {
+			return err
+		}
+
 		blobType := session.Policy.BlobType
 
 		// Check that this tower has a reserved key index.

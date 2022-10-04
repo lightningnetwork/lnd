@@ -3,6 +3,7 @@ package wtdb
 import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration1"
 )
 
 // migration is a function which takes a prior outdated version of the database
@@ -24,7 +25,11 @@ var towerDBVersions = []version{}
 // clientDBVersions stores all versions and migrations of the client database.
 // This list will be used when opening the database to determine if any
 // migrations must be applied.
-var clientDBVersions = []version{}
+var clientDBVersions = []version{
+	{
+		migration: migration1.MigrateTowerToSessionIndex,
+	},
+}
 
 // getLatestDBVersion returns the last known database version.
 func getLatestDBVersion(versions []version) uint32 {

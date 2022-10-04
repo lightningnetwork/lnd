@@ -48,6 +48,12 @@ var (
 	//    tower-pubkey -> tower-id.
 	cTowerIndexBkt = []byte("client-tower-index-bucket")
 
+	// cTowerToSessionIndexBkt is a top-level bucket storing:
+	// 	tower-id -> session-id -> 1
+	cTowerToSessionIndexBkt = []byte(
+		"client-tower-to-session-index-bucket",
+	)
+
 	// ErrTowerNotFound signals that the target tower was not found in the
 	// database.
 	ErrTowerNotFound = errors.New("tower not found")
@@ -196,6 +202,7 @@ func initClientDBBuckets(tx kvdb.RwTx) error {
 		cSessionBkt,
 		cTowerBkt,
 		cTowerIndexBkt,
+		cTowerToSessionIndexBkt,
 	}
 
 	for _, bucket := range buckets {
@@ -260,6 +267,13 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 			return ErrUninitializedDB
 		}
 
+		towerToSessionIndex := tx.ReadWriteBucket(
+			cTowerToSessionIndexBkt,
+		)
+		if towerToSessionIndex == nil {
+			return ErrUninitializedDB
+		}
+
 		// Check if the tower index already knows of this pubkey.
 		towerIDBytes := towerIndex.Get(towerPubKey[:])
 		if len(towerIDBytes) == 8 {
@@ -321,6 +335,13 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 			if err != nil {
 				return err
 			}
+
+			// Create a new bucket for this tower in the
+			// tower-to-sessions index.
+			_, err = towerToSessionIndex.CreateBucket(towerIDBytes)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Store the new or updated tower under its tower id.
@@ -349,8 +370,16 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 		if towers == nil {
 			return ErrUninitializedDB
 		}
+
 		towerIndex := tx.ReadWriteBucket(cTowerIndexBkt)
 		if towerIndex == nil {
+			return ErrUninitializedDB
+		}
+
+		towersToSessionsIndex := tx.ReadWriteBucket(
+			cTowerToSessionIndexBkt,
+		)
+		if towersToSessionsIndex == nil {
 			return ErrUninitializedDB
 		}
 
@@ -402,7 +431,14 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 			if err := towerIndex.Delete(pubKeyBytes); err != nil {
 				return err
 			}
-			return towers.Delete(towerIDBytes)
+
+			if err := towers.Delete(towerIDBytes); err != nil {
+				return err
+			}
+
+			return towersToSessionsIndex.DeleteNestedBucket(
+				towerIDBytes,
+			)
 		}
 
 		// We'll mark its sessions as inactive as long as they don't
@@ -581,6 +617,13 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 			return ErrUninitializedDB
 		}
 
+		towerToSessionIndex := tx.ReadWriteBucket(
+			cTowerToSessionIndexBkt,
+		)
+		if towerToSessionIndex == nil {
+			return ErrUninitializedDB
+		}
+
 		// Check that  client session with this session id doesn't
 		// already exist.
 		existingSessionBytes := sessions.NestedReadWriteBucket(
@@ -623,6 +666,19 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 			if err != nil {
 				return err
 			}
+		}
+
+		// Add the new entry to the towerID-to-SessionID index.
+		indexBkt := towerToSessionIndex.NestedReadWriteBucket(
+			towerID.Bytes(),
+		)
+		if indexBkt == nil {
+			return ErrTowerNotFound
+		}
+
+		err = indexBkt.Put(session.ID[:], []byte{1})
+		if err != nil {
+			return err
 		}
 
 		// Finally, write the client session's body in the sessions

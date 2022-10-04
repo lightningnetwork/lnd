@@ -354,8 +354,8 @@ func New(config *Config) (*TowerClient, error) {
 // optional filter can be provided to filter out any undesired client sessions.
 //
 // NOTE: This method should only be used when deserialization of a
-// ClientSession's Tower and SessionPrivKey fields is desired, otherwise, the
-// existing ListClientSessions method should be used.
+// ClientSession's SessionPrivKey field is desired, otherwise, the existing
+// ListClientSessions method should be used.
 func getClientSessions(db DB, keyRing ECDHKeyRing, forTower *wtdb.TowerID,
 	passesFilter func(*wtdb.ClientSession) bool) (
 	map[wtdb.SessionID]*wtdb.ClientSession, error) {
@@ -371,12 +371,6 @@ func getClientSessions(db DB, keyRing ECDHKeyRing, forTower *wtdb.TowerID,
 	// requests. This prevents us from having to store the private keys on
 	// disk.
 	for _, s := range sessions {
-		tower, err := db.LoadTowerByID(s.TowerID)
-		if err != nil {
-			return nil, err
-		}
-		s.Tower = tower
-
 		towerKeyDesc, err := keyRing.DeriveKey(keychain.KeyLocator{
 			Family: keychain.KeyFamilyTowerSession,
 			Index:  s.KeyIndex,

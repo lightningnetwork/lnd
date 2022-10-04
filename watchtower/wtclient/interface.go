@@ -62,7 +62,8 @@ type DB interface {
 	// still be able to accept state updates. An optional tower ID can be
 	// used to filter out any client sessions in the response that do not
 	// correspond to this tower.
-	ListClientSessions(*wtdb.TowerID) (map[wtdb.SessionID]*wtdb.ClientSession, error)
+	ListClientSessions(*wtdb.TowerID) (
+		map[wtdb.SessionID]*wtdb.ClientSession, error)
 
 	// FetchChanSummaries loads a mapping from all registered channels to
 	// their channel summaries.
@@ -96,8 +97,8 @@ type DB interface {
 	AckUpdate(id *wtdb.SessionID, seqNum, lastApplied uint16) error
 }
 
-// AuthDialer connects to a remote node using an authenticated transport, such as
-// brontide. The dialer argument is used to specify a resolver, which allows
+// AuthDialer connects to a remote node using an authenticated transport, such
+// as brontide. The dialer argument is used to specify a resolver, which allows
 // this method to be used over Tor or clear net connections.
 type AuthDialer func(localKey keychain.SingleKeyECDH,
 	netAddr *lnwire.NetAddress,

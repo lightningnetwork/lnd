@@ -37,7 +37,9 @@ func newClientDBHarness(t *testing.T, init clientDBInit) *clientDBHarness {
 	return h
 }
 
-func (h *clientDBHarness) insertSession(session *wtdb.ClientSession, expErr error) {
+func (h *clientDBHarness) insertSession(session *wtdb.ClientSession,
+	expErr error) {
+
 	h.t.Helper()
 
 	err := h.db.CreateClientSession(session)
@@ -47,7 +49,9 @@ func (h *clientDBHarness) insertSession(session *wtdb.ClientSession, expErr erro
 	}
 }
 
-func (h *clientDBHarness) listSessions(id *wtdb.TowerID) map[wtdb.SessionID]*wtdb.ClientSession {
+func (h *clientDBHarness) listSessions(
+	id *wtdb.TowerID) map[wtdb.SessionID]*wtdb.ClientSession {
+
 	h.t.Helper()
 
 	sessions, err := h.db.ListClientSessions(id)
@@ -82,7 +86,8 @@ func (h *clientDBHarness) createTower(lnAddr *lnwire.NetAddress,
 
 	tower, err := h.db.CreateTower(lnAddr)
 	if err != expErr {
-		h.t.Fatalf("expected create tower error: %v, got: %v", expErr, err)
+		h.t.Fatalf("expected create tower error: %v, got: %v", expErr,
+			err)
 	}
 
 	if tower.ID == 0 {
@@ -106,35 +111,38 @@ func (h *clientDBHarness) removeTower(pubKey *btcec.PublicKey, addr net.Addr,
 	h.t.Helper()
 
 	if err := h.db.RemoveTower(pubKey, addr); err != expErr {
-		h.t.Fatalf("expected remove tower error: %v, got %v", expErr, err)
+		h.t.Fatalf("expected remove tower error: %v, got %v", expErr,
+			err)
 	}
 	if expErr != nil {
 		return
 	}
 
+	pubKeyStr := pubKey.SerializeCompressed()
+
 	if addr != nil {
 		tower, err := h.db.LoadTower(pubKey)
 		if err != nil {
 			h.t.Fatalf("expected tower %x to still exist",
-				pubKey.SerializeCompressed())
+				pubKeyStr)
 		}
 
 		removedAddr := addr.String()
 		for _, towerAddr := range tower.Addresses {
 			if towerAddr.String() == removedAddr {
-				h.t.Fatalf("address %v not removed for tower %x",
-					removedAddr, pubKey.SerializeCompressed())
+				h.t.Fatalf("address %v not removed for tower "+
+					"%x", removedAddr, pubKeyStr)
 			}
 		}
 	} else {
 		tower, err := h.db.LoadTower(pubKey)
 		if hasSessions && err != nil {
 			h.t.Fatalf("expected tower %x with sessions to still "+
-				"exist", pubKey.SerializeCompressed())
+				"exist", pubKeyStr)
 		}
 		if !hasSessions && err == nil {
 			h.t.Fatalf("expected tower %x with no sessions to not "+
-				"exist", pubKey.SerializeCompressed())
+				"exist", pubKeyStr)
 		}
 		if !hasSessions {
 			return
@@ -149,23 +157,29 @@ func (h *clientDBHarness) removeTower(pubKey *btcec.PublicKey, addr net.Addr,
 	}
 }
 
-func (h *clientDBHarness) loadTower(pubKey *btcec.PublicKey, expErr error) *wtdb.Tower {
+func (h *clientDBHarness) loadTower(pubKey *btcec.PublicKey,
+	expErr error) *wtdb.Tower {
+
 	h.t.Helper()
 
 	tower, err := h.db.LoadTower(pubKey)
 	if err != expErr {
-		h.t.Fatalf("expected load tower error: %v, got: %v", expErr, err)
+		h.t.Fatalf("expected load tower error: %v, got: %v", expErr,
+			err)
 	}
 
 	return tower
 }
 
-func (h *clientDBHarness) loadTowerByID(id wtdb.TowerID, expErr error) *wtdb.Tower {
+func (h *clientDBHarness) loadTowerByID(id wtdb.TowerID,
+	expErr error) *wtdb.Tower {
+
 	h.t.Helper()
 
 	tower, err := h.db.LoadTowerByID(id)
 	if err != expErr {
-		h.t.Fatalf("expected load tower error: %v, got: %v", expErr, err)
+		h.t.Fatalf("expected load tower error: %v, got: %v", expErr,
+			err)
 	}
 
 	return tower
@@ -320,7 +334,9 @@ func testFilterClientSessions(h *clientDBHarness) {
 			},
 			ID: sessionID,
 		}, nil)
-		towerSessions[towerID] = append(towerSessions[towerID], sessionID)
+		towerSessions[towerID] = append(
+			towerSessions[towerID], sessionID,
+		)
 	}
 
 	// We should see the expected sessions for each tower when filtering

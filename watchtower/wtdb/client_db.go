@@ -113,7 +113,8 @@ var (
 // NewBoltBackendCreator returns a function that creates a new bbolt backend for
 // the watchtower database.
 func NewBoltBackendCreator(active bool, dbPath,
-	dbFileName string) func(boltCfg *kvdb.BoltConfig) (kvdb.Backend, error) {
+	dbFileName string) func(boltCfg *kvdb.BoltConfig) (kvdb.Backend,
+	error) {
 
 	// If the watchtower client isn't active, we return a function that
 	// always returns a nil DB to make sure we don't create empty database
@@ -575,7 +576,9 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 
 		// Check that  client session with this session id doesn't
 		// already exist.
-		existingSessionBytes := sessions.NestedReadWriteBucket(session.ID[:])
+		existingSessionBytes := sessions.NestedReadWriteBucket(
+			session.ID[:],
+		)
 		if existingSessionBytes != nil {
 			return ErrClientSessionAlreadyExists
 		}
@@ -662,7 +665,9 @@ func getSessionKeyIndex(keyIndexes kvdb.RwBucket, towerID TowerID,
 // ListClientSessions returns the set of all client sessions known to the db. An
 // optional tower ID can be used to filter out any client sessions in the
 // response that do not correspond to this tower.
-func (c *ClientDB) ListClientSessions(id *TowerID) (map[SessionID]*ClientSession, error) {
+func (c *ClientDB) ListClientSessions(id *TowerID) (
+	map[SessionID]*ClientSession, error) {
+
 	var clientSessions map[SessionID]*ClientSession
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		sessions := tx.ReadBucket(cSessionBkt)
@@ -951,7 +956,9 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 
 		// If the commits sub-bucket doesn't exist, there can't possibly
 		// be a corresponding committed update to remove.
-		sessionCommits := sessionBkt.NestedReadWriteBucket(cSessionCommits)
+		sessionCommits := sessionBkt.NestedReadWriteBucket(
+			cSessionCommits,
+		)
 		if sessionCommits == nil {
 			return ErrCommittedUpdateNotFound
 		}

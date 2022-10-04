@@ -1,3 +1,11 @@
+---
+name: Bug report
+about: Create a bug report. Please use the discussions section for general or troubleshooting questions.
+title: '[bug]: '
+labels: ["bug", "needs triage"]
+assignees: ''
+---
+
 ### Background
 
 Describe your issue here.

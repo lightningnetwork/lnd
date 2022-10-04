@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions
+    url: https://github.com/lightningnetwork/lnd/discussions
+    about: For general or troubleshooting questions or if you're not sure what issue type to pick.
+  - name: Documentation for lnd and lightning-terminal
+    url: https://docs.lightning.engineering/
+    about: Please make sure the documentation cannot answer your question first.
+  - name: Lightning Community Slack
+    url: https://lightning.engineering/slack.html
+    about: Please ask and answer questions here.
+  - name: Security issue disclosure policy
+    url: https://github.com/lightningnetwork/lnd#security
+    about: Please refer to this document when reporting security related issues.

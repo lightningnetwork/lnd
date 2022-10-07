@@ -1,0 +1,17 @@
+name: Pull Request Stats
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  stats:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Run pull request stats
+        uses: flowwer-dev/pull-request-stats@v2.5.0
+        with:
+          period: 30 # 30 days of review stats
+          charts: true

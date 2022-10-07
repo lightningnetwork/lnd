@@ -8,6 +8,9 @@
 
 ## Bug Fixes
 
+* [A bug has been fixed where the responder of a zero-conf channel could forget
+  about the channel after a hard-coded 2016 blocks.](https://github.com/lightningnetwork/lnd/pull/6998)
+
 * [A bug where LND wouldn't send a ChannelUpdate during a channel open has
   been fixed.](https://github.com/lightningnetwork/lnd/pull/6892)
 

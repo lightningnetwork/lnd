@@ -2499,7 +2499,7 @@ func (f *Manager) waitForFundingWithTimeout(
 	// If we are not the initiator, we have no money at stake and will
 	// timeout waiting for the funding transaction to confirm after a
 	// while.
-	if !ch.IsInitiator {
+	if !ch.IsInitiator && !ch.IsZeroConf() {
 		f.wg.Add(1)
 		go f.waitForTimeout(ch, cancelChan, timeoutChan)
 	}
@@ -3251,9 +3251,7 @@ func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel,
 	// is already confirmed, the chainntnfs subsystem will return with the
 	// confirmed tx. Otherwise, we'll wait here until confirmation occurs.
 	confChan, err := f.waitForFundingWithTimeout(c)
-	if err == ErrConfirmationTimeout {
-		return f.fundingTimeout(c, pendingID)
-	} else if err != nil {
+	if err != nil {
 		return fmt.Errorf("error waiting for zero-conf funding "+
 			"confirmation for ChannelPoint(%v): %v",
 			c.FundingOutpoint, err)

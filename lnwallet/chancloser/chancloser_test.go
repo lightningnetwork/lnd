@@ -268,6 +268,8 @@ func TestMaxFeeBailOut(t *testing.T) {
 	)
 
 	for _, isInitiator := range []bool{true, false} {
+		isInitiator := isInitiator
+
 		t.Run(fmt.Sprintf("initiator=%v", isInitiator), func(t *testing.T) {
 			t.Parallel()
 

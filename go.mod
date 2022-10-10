@@ -3,7 +3,7 @@ module github.com/lightningnetwork/lnd
 require (
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
-	github.com/btcsuite/btcd v0.23.1
+	github.com/btcsuite/btcd v0.23.2
 	github.com/btcsuite/btcd/btcec/v2 v2.2.1
 	github.com/btcsuite/btcd/btcutil v1.1.2
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.5

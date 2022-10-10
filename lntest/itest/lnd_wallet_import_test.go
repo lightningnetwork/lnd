@@ -561,7 +561,7 @@ func fundChanAndCloseFromImportedAccount(t *harnessTest, srcNode, destNode,
 	// they must've been redeemed after the close. Without a pre-negotiated
 	// close address, the funds will go into the source node's wallet
 	// instead of the imported account.
-	const chanCloseTxFee = 9050
+	const chanCloseTxFee = 9650
 	balanceFromClosedChan := chanSize - invoiceAmt - chanCloseTxFee
 
 	if account == defaultImportedAccount {

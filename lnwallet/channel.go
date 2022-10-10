@@ -7214,8 +7214,48 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 	return closeTx
 }
 
-// CalcFee returns the commitment fee to use for the given
-// fee rate (fee-per-kw).
+// LocalBalanceDust returns true if when creating a co-op close transaction,
+// the balance of the local party will be dust after accounting for any anchor
+// outputs.
+func (lc *LightningChannel) LocalBalanceDust() bool {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	chanState := lc.channelState
+	localBalance := chanState.LocalCommitment.LocalBalance.ToSatoshis()
+
+	// If this is an anchor channel, and we're the initiator, then we'll
+	// regain the stats allocated to the anchor outputs with the co-op
+	// close transaction.
+	if chanState.ChanType.HasAnchors() && chanState.IsInitiator {
+		localBalance += 2 * anchorSize
+	}
+
+	return localBalance <= chanState.LocalChanCfg.DustLimit
+}
+
+// RemoteBalanceDust returns true if when creating a co-op close transaction,
+// the balance of the remote party will be dust after accounting for any anchor
+// outputs.
+func (lc *LightningChannel) RemoteBalanceDust() bool {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	chanState := lc.channelState
+	remoteBalance := chanState.RemoteCommitment.RemoteBalance.ToSatoshis()
+
+	// If this is an anchor channel, and they're the initiator, then we'll
+	// regain the stats allocated to the anchor outputs with the co-op
+	// close transaction.
+	if chanState.ChanType.HasAnchors() && !chanState.IsInitiator {
+		remoteBalance += 2 * anchorSize
+	}
+
+	return remoteBalance <= chanState.RemoteChanCfg.DustLimit
+}
+
+// CalcFee returns the commitment fee to use for the given fee rate
+// (fee-per-kw).
 func (lc *LightningChannel) CalcFee(feeRate chainfee.SatPerKWeight) btcutil.Amount {
 	return feeRate.FeeForWeight(CommitWeight(lc.channelState.ChanType))
 }

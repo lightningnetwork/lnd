@@ -3,7 +3,6 @@ package wtdb_test
 import (
 	"bytes"
 	"encoding/binary"
-	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -14,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtmock"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -48,10 +48,7 @@ func (h *towerDBHarness) insertSession(s *wtdb.SessionInfo, expErr error) {
 	h.t.Helper()
 
 	err := h.db.InsertSessionInfo(s)
-	if err != expErr {
-		h.t.Fatalf("expected insert session error: %v, got : %v",
-			expErr, err)
-	}
+	require.ErrorIs(h.t, err, expErr)
 }
 
 // getSession retrieves the session identified by id, asserting that the call
@@ -62,10 +59,7 @@ func (h *towerDBHarness) getSession(id *wtdb.SessionID,
 	h.t.Helper()
 
 	session, err := h.db.GetSessionInfo(id)
-	if err != expErr {
-		h.t.Fatalf("expected get session error: %v, got: %v",
-			expErr, err)
-	}
+	require.ErrorIs(h.t, err, expErr)
 
 	return session
 }
@@ -79,10 +73,7 @@ func (h *towerDBHarness) insertUpdate(s *wtdb.SessionStateUpdate,
 	h.t.Helper()
 
 	lastApplied, err := h.db.InsertStateUpdate(s)
-	if err != expErr {
-		h.t.Fatalf("expected insert update error: %v, got: %v",
-			expErr, err)
-	}
+	require.ErrorIs(h.t, err, expErr)
 
 	return lastApplied
 }
@@ -93,10 +84,7 @@ func (h *towerDBHarness) deleteSession(id wtdb.SessionID, expErr error) {
 	h.t.Helper()
 
 	err := h.db.DeleteSession(id)
-	if err != expErr {
-		h.t.Fatalf("expected deletion error: %v, got: %v",
-			expErr, err)
-	}
+	require.ErrorIs(h.t, err, expErr)
 }
 
 // queryMatches queries that database for the passed breach hint, returning all
@@ -105,9 +93,7 @@ func (h *towerDBHarness) queryMatches(hint blob.BreachHint) []wtdb.Match {
 	h.t.Helper()
 
 	matches, err := h.db.QueryMatches([]blob.BreachHint{hint})
-	if err != nil {
-		h.t.Fatalf("unable to query matches: %v", err)
-	}
+	require.NoError(h.t, err)
 
 	return matches
 }
@@ -119,14 +105,10 @@ func (h *towerDBHarness) hasUpdate(hint blob.BreachHint) wtdb.Match {
 	h.t.Helper()
 
 	matches := h.queryMatches(hint)
-	if len(matches) != 1 {
-		h.t.Fatalf("expected 1 match, found: %d", len(matches))
-	}
+	require.Len(h.t, matches, 1)
 
 	match := matches[0]
-	if match.Hint != hint {
-		h.t.Fatalf("expected hint: %x, got: %x", hint, match.Hint)
-	}
+	require.Equal(h.t, hint, match.Hint)
 
 	return match
 }
@@ -158,11 +140,7 @@ func testInsertSession(h *towerDBHarness) {
 	h.insertSession(session, nil)
 
 	session2 := h.getSession(&id, nil)
-
-	if !reflect.DeepEqual(session, session2) {
-		h.t.Fatalf("expected session: %v, got %v",
-			session, session2)
-	}
+	require.Equal(h.t, session, session2)
 
 	h.insertSession(session, nil)
 
@@ -211,28 +189,21 @@ func testMultipleMatches(h *towerDBHarness) {
 
 	// Query the db for matches on the chosen hint.
 	matches := h.queryMatches(hint)
-	if len(matches) != numUpdates {
-		h.t.Fatalf("num updates mismatch, want: %d, got: %d",
-			numUpdates, len(matches))
-	}
+	require.Len(h.t, matches, numUpdates)
 
 	// Assert that the hints are what we asked for, and compute the set of
 	// sessions returned.
 	sessions := make(map[wtdb.SessionID]struct{})
 	for _, match := range matches {
-		if match.Hint != hint {
-			h.t.Fatalf("hint mismatch, want: %v, got: %v",
-				hint, match.Hint)
-		}
+		require.Equal(h.t, hint, match.Hint)
 		sessions[match.ID] = struct{}{}
 	}
 
 	// Assert that the sessions returned match the session ids of the
 	// sessions we initially created.
 	for i := 0; i < numUpdates; i++ {
-		if _, ok := sessions[*id(i)]; !ok {
-			h.t.Fatalf("match for session %v not found", *id(i))
-		}
+		_, ok := sessions[*id(i)]
+		require.Truef(h.t, ok, "match for session %v not found", *id(i))
 	}
 }
 
@@ -242,33 +213,22 @@ func testMultipleMatches(h *towerDBHarness) {
 func testLookoutTip(h *towerDBHarness) {
 	// Retrieve lookout tip on fresh db.
 	epoch, err := h.db.GetLookoutTip()
-	if err != nil {
-		h.t.Fatalf("unable to fetch lookout tip: %v", err)
-	}
+	require.NoError(h.t, err)
 
 	// Assert that the epoch is nil.
-	if epoch != nil {
-		h.t.Fatalf("lookout tip should not be set, found: %v", epoch)
-	}
+	require.Nil(h.t, epoch)
 
 	// Create a closure that inserts an epoch, retrieves it, and asserts
 	// that the returned epoch matches what was inserted.
 	setAndCheck := func(i int) {
 		expEpoch := epochFromInt(1)
 		err = h.db.SetLookoutTip(expEpoch)
-		if err != nil {
-			h.t.Fatalf("unable to set lookout tip: %v", err)
-		}
+		require.NoError(h.t, err)
 
 		epoch, err = h.db.GetLookoutTip()
-		if err != nil {
-			h.t.Fatalf("unable to fetch lookout tip: %v", err)
-		}
+		require.NoError(h.t, err)
 
-		if !reflect.DeepEqual(epoch, expEpoch) {
-			h.t.Fatalf("lookout tip mismatch, want: %v, got: %v",
-				expEpoch, epoch)
-		}
+		require.Equal(h.t, expEpoch, epoch)
 	}
 
 	// Set and assert the lookout tip.
@@ -348,15 +308,10 @@ func testDeleteSession(h *towerDBHarness) {
 
 	// Assert that only one update is still present.
 	matches := h.queryMatches(hint)
-	if len(matches) != 1 {
-		h.t.Fatalf("expected one update, found: %d", len(matches))
-	}
+	require.Len(h.t, matches, 1)
 
 	// Assert that the update belongs to the first session.
-	if matches[0].ID != *id0 {
-		h.t.Fatalf("expected match for %v, instead is for: %v",
-			*id0, matches[0].ID)
-	}
+	require.Equal(h.t, *id0, matches[0].ID)
 
 	// Finally, remove the first session added.
 	h.deleteSession(*id0, nil)
@@ -366,9 +321,7 @@ func testDeleteSession(h *towerDBHarness) {
 
 	// No matches should exist for this hint.
 	matches = h.queryMatches(hint)
-	if len(matches) != 0 {
-		h.t.Fatalf("expected zero updates, found: %d", len(matches))
-	}
+	require.Zero(h.t, len(matches))
 }
 
 type stateUpdateTest struct {
@@ -403,10 +356,9 @@ func runStateUpdateTest(test stateUpdateTest) func(*towerDBHarness) {
 			*expSession = *test.session
 		}
 
-		if len(test.updates) != len(test.updateErrs) {
-			h.t.Fatalf("malformed test case, num updates " +
-				"should match num errors")
-		}
+		require.Lenf(h.t, test.updates, len(test.updateErrs),
+			"malformed test case, num updates should match num "+
+				"errors")
 
 		// Send any updates provided in the test.
 		for i, update := range test.updates {
@@ -430,10 +382,7 @@ func runStateUpdateTest(test stateUpdateTest) func(*towerDBHarness) {
 			expSession.ClientLastApplied = update.LastApplied
 
 			match := h.hasUpdate(update.Hint)
-			if !reflect.DeepEqual(match.SessionInfo, expSession) {
-				h.t.Fatalf("expected session: %v, got: %v",
-					expSession, match.SessionInfo)
-			}
+			require.Equal(h.t, expSession, match.SessionInfo)
 		}
 	}
 }
@@ -640,14 +589,10 @@ func TestTowerDB(t *testing.T) {
 				bdb, err := wtdb.NewBoltBackendCreator(
 					true, path, "watchtower.db",
 				)(dbCfg)
-				if err != nil {
-					t.Fatalf("unable to open db: %v", err)
-				}
+				require.NoError(t, err)
 
 				db, err := wtdb.OpenTowerDB(bdb)
-				if err != nil {
-					t.Fatalf("unable to open db: %v", err)
-				}
+				require.NoError(t, err)
 
 				t.Cleanup(func() {
 					db.Close()
@@ -664,14 +609,10 @@ func TestTowerDB(t *testing.T) {
 				bdb, err := wtdb.NewBoltBackendCreator(
 					true, path, "watchtower.db",
 				)(dbCfg)
-				if err != nil {
-					t.Fatalf("unable to open db: %v", err)
-				}
+				require.NoError(t, err)
 
 				db, err := wtdb.OpenTowerDB(bdb)
-				if err != nil {
-					t.Fatalf("unable to open db: %v", err)
-				}
+				require.NoError(t, err)
 				db.Close()
 
 				// Open the db again, ensuring we test a
@@ -680,14 +621,10 @@ func TestTowerDB(t *testing.T) {
 				bdb, err = wtdb.NewBoltBackendCreator(
 					true, path, "watchtower.db",
 				)(dbCfg)
-				if err != nil {
-					t.Fatalf("unable to open db: %v", err)
-				}
+				require.NoError(t, err)
 
 				db, err = wtdb.OpenTowerDB(bdb)
-				if err != nil {
-					t.Fatalf("unable to open db: %v", err)
-				}
+				require.NoError(t, err)
 
 				t.Cleanup(func() {
 					db.Close()

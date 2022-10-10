@@ -822,6 +822,26 @@ type OpenChannelParams struct {
 	// ScidAlias denotes whether the channel will be an option-scid-alias
 	// channel type negotiation.
 	ScidAlias bool
+
+	// BaseFee is the channel base fee applied during the channel
+	// announcement phase.
+	BaseFee uint64
+
+	// FeeRate is the channel fee rate in ppm applied during the channel
+	// announcement phase.
+	FeeRate uint64
+
+	// UseBaseFee, if set, instructs the downstream logic to apply the
+	// user-specified channel base fee to the channel update announcement.
+	// If set to false it avoids applying a base fee of 0 and instead
+	// activates the default configured base fee.
+	UseBaseFee bool
+
+	// UseFeeRate, if set, instructs the downstream logic to apply the
+	// user-specified channel fee rate to the channel update announcement.
+	// If set to false it avoids applying a fee rate of 0 and instead
+	// activates the default configured fee rate.
+	UseFeeRate bool
 }
 
 // prepareOpenChannel waits for both nodes to be synced to chain and returns an
@@ -858,6 +878,10 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		CommitmentType:     p.CommitmentType,
 		ZeroConf:           p.ZeroConf,
 		ScidAlias:          p.ScidAlias,
+		BaseFee:            p.BaseFee,
+		FeeRate:            p.FeeRate,
+		UseBaseFee:         p.UseBaseFee,
+		UseFeeRate:         p.UseFeeRate,
 	}
 }
 

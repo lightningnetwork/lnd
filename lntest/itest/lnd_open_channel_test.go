@@ -2,6 +2,7 @@ package itest
 
 import (
 	"fmt"
+	"testing"
 
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -12,7 +13,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -172,9 +172,7 @@ func testOpenChannelAfterReorg(ht *lntemp.HarnessTest) {
 // ChannelUpdate --> defaultBaseFee, provided FeeRate
 // 4.) baseFee and feeRate provided to OpenChannelRequest
 // ChannelUpdate --> provided baseFee, provided feeRate.
-func testOpenChannelUpdateFeePolicy(net *lntest.NetworkHarness,
-	t *harnessTest) {
-
+func testOpenChannelUpdateFeePolicy(ht *lntemp.HarnessTest) {
 	const (
 		defaultBaseFee       = 1000
 		defaultFeeRate       = 1
@@ -189,7 +187,7 @@ func testOpenChannelUpdateFeePolicy(net *lntest.NetworkHarness,
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := chanAmt / 2
 
-	feeScenarios := []lntest.OpenChannelParams{
+	feeScenarios := []lntemp.OpenChannelParams{
 		{
 			Amt:        chanAmt,
 			PushAmt:    pushAmt,
@@ -259,51 +257,48 @@ func testOpenChannelUpdateFeePolicy(net *lntest.NetworkHarness,
 		MaxHtlcMsat:      defaultMaxHtlc,
 	}
 
-	for i, feeScenario := range feeScenarios {
+	alice, bob := ht.Alice, ht.Bob
+
+	runTestCase := func(ht *lntemp.HarnessTest,
+		fs lntemp.OpenChannelParams,
+		alicePolicy, bobPolicy *lnrpc.RoutingPolicy) {
+
 		// Create a channel Alice->Bob.
-		chanPoint := openChannelAndAssert(
-			t, net, net.Alice, net.Bob,
-			feeScenario,
-		)
+		chanPoint := ht.OpenChannel(alice, bob, fs)
+		defer ht.CloseChannel(alice, chanPoint)
 
-		defer closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+		// We add all the nodes' update channels to a slice, such that
+		// we can make sure they all receive the expected updates.
+		nodes := []*node.HarnessNode{alice, bob}
 
-		// We add all the nodes' update channels to a slice, such that we can
-		// make sure they all receive the expected updates.
-		nodes := []*lntest.HarnessNode{net.Alice, net.Bob}
-
-		// Alice and Bob should see each other's ChannelUpdates, advertising
-		// the preferred routing policies.
-		assertPolicyUpdate(
-			t, nodes, net.Alice.PubKeyStr,
-			&expectedPolicies[i], chanPoint,
+		// Alice and Bob should see each other's ChannelUpdates,
+		// advertising the preferred routing policies.
+		assertNodesPolicyUpdate(
+			ht, nodes, alice, alicePolicy, chanPoint,
 		)
-		assertPolicyUpdate(
-			t, nodes, net.Bob.PubKeyStr,
-			&bobExpectedPolicy, chanPoint,
-		)
+		assertNodesPolicyUpdate(ht, nodes, bob, bobPolicy, chanPoint)
 
 		// They should now know about the default policies.
 		for _, node := range nodes {
-			assertChannelPolicy(
-				t, node, net.Alice.PubKeyStr,
-				&expectedPolicies[i], chanPoint,
+			ht.AssertChannelPolicy(
+				node, alice.PubKeyStr, alicePolicy, chanPoint,
 			)
-			assertChannelPolicy(
-				t, node, net.Bob.PubKeyStr,
-				&bobExpectedPolicy, chanPoint,
+			ht.AssertChannelPolicy(
+				node, bob.PubKeyStr, bobPolicy, chanPoint,
 			)
 		}
+	}
 
-		require.NoError(
-			t.t, net.Alice.WaitForNetworkChannelOpen(chanPoint),
-			"alice reports channel opening",
-		)
+	for i, feeScenario := range feeScenarios {
+		ht.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			st := ht.Subtest(t)
+			ht.EnsureConnected(alice, bob)
 
-		require.NoError(
-			t.t, net.Bob.WaitForNetworkChannelOpen(chanPoint),
-			"bob reports channel opening",
-		)
+			runTestCase(
+				st, feeScenario,
+				&expectedPolicies[i], &bobExpectedPolicy,
+			)
+		})
 	}
 }
 

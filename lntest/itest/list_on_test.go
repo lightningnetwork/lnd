@@ -493,4 +493,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "trackpayments",
 		TestFunc: testTrackPayments,
 	},
+	{
+		Name:     "open channel fee policy",
+		TestFunc: testOpenChannelUpdateFeePolicy,
+	},
 }

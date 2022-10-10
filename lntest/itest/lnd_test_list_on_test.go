@@ -9,10 +9,6 @@ var allTestCases = []*testCase{
 		test: testBidirectionalAsyncPayments,
 	},
 	{
-		name: "open channel fee policy",
-		test: testOpenChannelUpdateFeePolicy,
-	},
-	{
 		name: "custom messaging",
 		test: testCustomMessage,
 	},

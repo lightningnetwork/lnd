@@ -16,7 +16,7 @@ env:
   # /dev.Dockerfile
   # /make/builder.Dockerfile
   # /.github/workflows/main.yml
-  GO_VERSION: 1.19.0
+  GO_VERSION: 1.19.2
 
 jobs:
   main:

@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
@@ -170,19 +170,18 @@ type State struct {
 
 	// openChans records each opened channel and how many times it has
 	// heard the announcements from its graph subscription.
-	// openChans map[wire.OutPoint][]*OpenChannelUpdate
-	openChans *sync.Map
+	openChans *SyncMap[wire.OutPoint, []*OpenChannelUpdate]
 
 	// closedChans records each closed channel and its close channel update
 	// message received from its graph subscription.
-	closedChans *sync.Map
+	closedChans *SyncMap[wire.OutPoint, *lnrpc.ClosedChannelUpdate]
 
 	// numChanUpdates records the number of channel updates seen by each
 	// channel.
-	numChanUpdates *sync.Map
+	numChanUpdates *SyncMap[wire.OutPoint, int]
 
 	// nodeUpdates records the node announcements seen by each node.
-	nodeUpdates *sync.Map
+	nodeUpdates *SyncMap[string, []*lnrpc.NodeUpdate]
 
 	// policyUpdates defines a type to store channel policy updates. It has
 	// the format,
@@ -197,19 +196,21 @@ type State struct {
 	//  },
 	//  "chanPoint2": ...
 	// }
-	policyUpdates *sync.Map
+	policyUpdates *SyncMap[wire.OutPoint, PolicyUpdate]
 }
 
 // newState initialize a new state with every field being set to its zero
 // value.
 func newState(rpc *rpc.HarnessRPC) *State {
 	return &State{
-		rpc:            rpc,
-		openChans:      &sync.Map{},
-		closedChans:    &sync.Map{},
-		numChanUpdates: &sync.Map{},
-		nodeUpdates:    &sync.Map{},
-		policyUpdates:  &sync.Map{},
+		rpc:       rpc,
+		openChans: &SyncMap[wire.OutPoint, []*OpenChannelUpdate]{},
+		closedChans: &SyncMap[
+			wire.OutPoint, *lnrpc.ClosedChannelUpdate,
+		]{},
+		numChanUpdates: &SyncMap[wire.OutPoint, int]{},
+		nodeUpdates:    &SyncMap[string, []*lnrpc.NodeUpdate]{},
+		policyUpdates:  &SyncMap[wire.OutPoint, PolicyUpdate]{},
 	}
 }
 

@@ -35,9 +35,9 @@ const (
 	DefaultTimeout = lntest.DefaultTimeout
 )
 
-// closeChanWatchRequest is a request to the lightningNetworkWatcher to be
-// notified once it's detected within the test Lightning Network, that a
-// channel has either been added or closed.
+// chanWatchRequest is a request to the lightningNetworkWatcher to be notified
+// once it's detected within the test Lightning Network, that a channel has
+// either been added or closed.
 type chanWatchRequest struct {
 	chanPoint wire.OutPoint
 
@@ -68,11 +68,8 @@ type nodeWatcher struct {
 	// of edges seen for that channel within the network. When this number
 	// reaches 2, then it means that both edge advertisements has
 	// propagated through the network.
-	// openChanWatchers  map[wire.OutPoint][]chan struct{}
-	openChanWatchers *sync.Map
-
-	// closeChanWatchers map[wire.OutPoint][]chan struct{}
-	closeChanWatchers *sync.Map
+	openChanWatchers  *SyncMap[wire.OutPoint, []chan struct{}]
+	closeChanWatchers *SyncMap[wire.OutPoint, []chan struct{}]
 
 	wg sync.WaitGroup
 }
@@ -82,37 +79,28 @@ func newNodeWatcher(rpc *rpc.HarnessRPC, state *State) *nodeWatcher {
 		rpc:               rpc,
 		state:             state,
 		chanWatchRequests: make(chan *chanWatchRequest, 100),
-		openChanWatchers:  &sync.Map{},
-		closeChanWatchers: &sync.Map{},
+		openChanWatchers:  &SyncMap[wire.OutPoint, []chan struct{}]{},
+		closeChanWatchers: &SyncMap[wire.OutPoint, []chan struct{}]{},
 	}
 }
 
 // GetNumChannelUpdates reads the num of channel updates inside a lock and
 // returns the value.
 func (nw *nodeWatcher) GetNumChannelUpdates(op wire.OutPoint) int {
-	result, ok := nw.state.numChanUpdates.Load(op)
-	if ok {
-		return result.(int)
-	}
-	return 0
+	result, _ := nw.state.numChanUpdates.Load(op)
+	return result
 }
 
 // GetPolicyUpdates returns the node's policyUpdates state.
 func (nw *nodeWatcher) GetPolicyUpdates(op wire.OutPoint) PolicyUpdate {
-	result, ok := nw.state.policyUpdates.Load(op)
-	if ok {
-		return result.(PolicyUpdate)
-	}
-	return nil
+	result, _ := nw.state.policyUpdates.Load(op)
+	return result
 }
 
 // GetNodeUpdates reads the node updates inside a lock and returns the value.
 func (nw *nodeWatcher) GetNodeUpdates(pubkey string) []*lnrpc.NodeUpdate {
-	result, ok := nw.state.nodeUpdates.Load(pubkey)
-	if ok {
-		return result.([]*lnrpc.NodeUpdate)
-	}
-	return nil
+	result, _ := nw.state.nodeUpdates.Load(pubkey)
+	return result
 }
 
 // WaitForNumChannelUpdates will block until a given number of updates has been
@@ -170,7 +158,7 @@ func (nw *nodeWatcher) WaitForChannelOpen(chanPoint *lnrpc.ChannelPoint) error {
 		return nil
 
 	case <-timer:
-		updates, err := syncMapToJSON(nw.state.openChans)
+		updates, err := syncMapToJSON(&nw.state.openChans.Map)
 		if err != nil {
 			return err
 		}
@@ -204,7 +192,7 @@ func (nw *nodeWatcher) WaitForChannelClose(
 				"a closed channel in node's state:%s", op,
 				nw.state)
 		}
-		return closedChan.(*lnrpc.ClosedChannelUpdate), nil
+		return closedChan, nil
 
 	case <-timer:
 		return nil, fmt.Errorf("channel:%s not closed before timeout: "+
@@ -329,23 +317,14 @@ func (nw *nodeWatcher) handleChannelEdgeUpdates(
 // updateNodeStateNumChanUpdates updates the internal state of the node
 // regarding the num of channel update seen.
 func (nw *nodeWatcher) updateNodeStateNumChanUpdates(op wire.OutPoint) {
-	var oldNum int
-	result, ok := nw.state.numChanUpdates.Load(op)
-	if ok {
-		oldNum = result.(int)
-	}
+	oldNum, _ := nw.state.numChanUpdates.Load(op)
 	nw.state.numChanUpdates.Store(op, oldNum+1)
 }
 
 // updateNodeStateNodeUpdates updates the internal state of the node regarding
 // the node updates seen.
 func (nw *nodeWatcher) updateNodeStateNodeUpdates(update *lnrpc.NodeUpdate) {
-	var oldUpdates []*lnrpc.NodeUpdate
-
-	result, ok := nw.state.nodeUpdates.Load(update.IdentityKey)
-	if ok {
-		oldUpdates = result.([]*lnrpc.NodeUpdate)
-	}
+	oldUpdates, _ := nw.state.nodeUpdates.Load(update.IdentityKey)
 	nw.state.nodeUpdates.Store(
 		update.IdentityKey, append(oldUpdates, update),
 	)
@@ -357,11 +336,7 @@ func (nw *nodeWatcher) updateNodeStateOpenChannel(op wire.OutPoint,
 	newChan *lnrpc.ChannelEdgeUpdate) {
 
 	// Load the old updates the node has heard so far.
-	updates := make([]*OpenChannelUpdate, 0)
-	result, ok := nw.state.openChans.Load(op)
-	if ok {
-		updates = result.([]*OpenChannelUpdate)
-	}
+	updates, _ := nw.state.openChans.Load(op)
 
 	// Create a new update based on this newChan.
 	newUpdate := &OpenChannelUpdate{
@@ -386,8 +361,8 @@ func (nw *nodeWatcher) updateNodeStateOpenChannel(op wire.OutPoint,
 	if !loaded {
 		return
 	}
-	events := watcherResult.([]chan struct{})
-	for _, eventChan := range events {
+
+	for _, eventChan := range watcherResult {
 		close(eventChan)
 	}
 }
@@ -399,10 +374,9 @@ func (nw *nodeWatcher) updateNodeStatePolicy(op wire.OutPoint,
 
 	// Init an empty policy map and overwrite it if the channel point can
 	// be found in the node's policyUpdates.
-	policies := make(PolicyUpdate)
-	result, ok := nw.state.policyUpdates.Load(op)
-	if ok {
-		policies = result.(PolicyUpdate)
+	policies, ok := nw.state.policyUpdates.Load(op)
+	if !ok {
+		policies = make(PolicyUpdate)
 	}
 
 	node := newChan.AdvertisingNode
@@ -426,21 +400,17 @@ func (nw *nodeWatcher) handleOpenChannelWatchRequest(req *chanWatchRequest) {
 
 	// If this is an open request, then it can be dispatched if the number
 	// of edges seen for the channel is at least two.
-	result, ok := nw.state.openChans.Load(targetChan)
-	if ok && len(result.([]*OpenChannelUpdate)) >= 2 {
+	result, _ := nw.state.openChans.Load(targetChan)
+	if len(result) >= 2 {
 		close(req.eventChan)
 		return
 	}
 
 	// Otherwise, we'll add this to the list of open channel watchers for
 	// this out point.
-	oldWatchers := make([]chan struct{}, 0)
-	watchers, ok := nw.openChanWatchers.Load(targetChan)
-	if ok {
-		oldWatchers = watchers.([]chan struct{})
-	}
+	watchers, _ := nw.openChanWatchers.Load(targetChan)
 	nw.openChanWatchers.Store(
-		targetChan, append(oldWatchers, req.eventChan),
+		targetChan, append(watchers, req.eventChan),
 	)
 }
 
@@ -459,12 +429,11 @@ func (nw *nodeWatcher) handleClosedChannelUpdate(
 
 		// As the channel has been closed, we'll notify all register
 		// watchers.
-		result, loaded := nw.closeChanWatchers.LoadAndDelete(op)
+		watchers, loaded := nw.closeChanWatchers.LoadAndDelete(op)
 		if !loaded {
 			continue
 		}
 
-		watchers := result.([]chan struct{})
 		for _, eventChan := range watchers {
 			close(eventChan)
 		}
@@ -487,12 +456,7 @@ func (nw *nodeWatcher) handleCloseChannelWatchRequest(req *chanWatchRequest) {
 
 	// Otherwise, we'll add this to the list of close channel watchers for
 	// this out point.
-	oldWatchers := make([]chan struct{}, 0)
-	result, ok := nw.closeChanWatchers.Load(targetChan)
-	if ok {
-		oldWatchers = result.([]chan struct{})
-	}
-
+	oldWatchers, _ := nw.closeChanWatchers.Load(targetChan)
 	nw.closeChanWatchers.Store(
 		targetChan, append(oldWatchers, req.eventChan),
 	)
@@ -509,9 +473,8 @@ func (nw *nodeWatcher) handlePolicyUpdateWatchRequest(req *chanWatchRequest) {
 
 	// Get a list of known policies for this chanPoint+advertisingNode
 	// combination. Start searching in the node state first.
-	result, ok := nw.state.policyUpdates.Load(op)
+	policyMap, ok := nw.state.policyUpdates.Load(op)
 	if ok {
-		policyMap := result.(PolicyUpdate)
 		policies, ok = policyMap[req.advertisingNode]
 		if !ok {
 			return

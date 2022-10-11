@@ -4,12 +4,10 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"net"
-	"reflect"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/stretchr/testify/require"
 )
@@ -19,15 +17,16 @@ func init() {
 }
 
 func randAddr(t *testing.T) net.Addr {
-	var ip [4]byte
-	if _, err := rand.Read(ip[:]); err != nil {
-		t.Fatal(err)
-	}
-	var port [2]byte
-	if _, err := rand.Read(port[:]); err != nil {
-		t.Fatal(err)
+	t.Helper()
 
-	}
+	var ip [4]byte
+	_, err := rand.Read(ip[:])
+	require.NoError(t, err)
+
+	var port [2]byte
+	_, err = rand.Read(port[:])
+	require.NoError(t, err)
+
 	return &net.TCPAddr{
 		IP:   net.IP(ip[:]),
 		Port: int(binary.BigEndian.Uint16(port[:])),
@@ -35,6 +34,8 @@ func randAddr(t *testing.T) net.Addr {
 }
 
 func randTower(t *testing.T) *wtdb.Tower {
+	t.Helper()
+
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err, "unable to create private key")
 	pubKey := priv.PubKey()
@@ -58,27 +59,24 @@ func copyTower(tower *wtdb.Tower) *wtdb.Tower {
 func assertActiveCandidate(t *testing.T, i TowerCandidateIterator,
 	c *wtdb.Tower, active bool) {
 
+	t.Helper()
+
 	isCandidate := i.IsActive(c.ID)
-	if isCandidate && !active {
-		t.Fatalf("expected tower %v to no longer be an active candidate",
-			c.ID)
+	if isCandidate {
+		require.Truef(t, active, "expected tower %v to no longer be "+
+			"an active candidate", c.ID)
+		return
 	}
-	if !isCandidate && active {
-		t.Fatalf("expected tower %v to be an active candidate", c.ID)
-	}
+	require.Falsef(t, active, "expected tower %v to be an active candidate",
+		c.ID)
 }
 
 func assertNextCandidate(t *testing.T, i TowerCandidateIterator, c *wtdb.Tower) {
 	t.Helper()
 
 	tower, err := i.Next()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(tower, c) {
-		t.Fatalf("expected tower: %v\ngot: %v", spew.Sdump(c),
-			spew.Sdump(tower))
-	}
+	require.NoError(t, err)
+	require.Equal(t, c, tower)
 }
 
 // TestTowerCandidateIterator asserts the internal state of a
@@ -104,18 +102,13 @@ func TestTowerCandidateIterator(t *testing.T) {
 	// were added.
 	for _, expTower := range towers {
 		tower, err := towerIterator.Next()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !reflect.DeepEqual(tower, expTower) {
-			t.Fatalf("expected tower: %v\ngot: %v",
-				spew.Sdump(expTower), spew.Sdump(tower))
-		}
+		require.NoError(t, err)
+		require.Equal(t, expTower, tower)
 	}
 
-	if _, err := towerIterator.Next(); err != ErrTowerCandidatesExhausted {
-		t.Fatalf("expected ErrTowerCandidatesExhausted, got %v", err)
-	}
+	_, err := towerIterator.Next()
+	require.ErrorIs(t, err, ErrTowerCandidatesExhausted)
+
 	towerIterator.Reset()
 
 	// We'll then attempt to test the RemoveCandidate behavior of the

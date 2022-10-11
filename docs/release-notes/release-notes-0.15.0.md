@@ -34,6 +34,12 @@ were created after introducing the Taproot key
 derivation](https://github.com/lightningnetwork/lnd/pull/6524) to simplify
 detecting Taproot compatibility of a seed.
 
+**NOTE** for users running a remote signing setup: A manual account import is
+necessary when upgrading from `lnd v0.14.x-beta` to `lnd v0.15.x-beta`, see [the
+remote signing documentation for more
+details](../remote-signing.md#migrating-a-remote-signing-setup-from-014x-to-015x).
+Please upgrade to `lnd v0.15.2-beta` or later directly!
+
 ## MuSig2
 
 The [`signrpc.Signer` RPC service now supports EXPERIMENTAL MuSig2

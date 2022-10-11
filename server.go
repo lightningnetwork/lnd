@@ -3195,7 +3195,13 @@ func (s *server) NotifyWhenOnline(peerKey [33]byte,
 		select {
 		case <-peer.ActiveSignal():
 		case <-peer.QuitSignal():
-			// The peer quit so we'll just return.
+			// The peer quit, so we'll add the channel to the slice
+			// and return.
+			s.mu.Lock()
+			s.peerConnectedListeners[pubStr] = append(
+				s.peerConnectedListeners[pubStr], peerChan,
+			)
+			s.mu.Unlock()
 			return
 		}
 

@@ -14,8 +14,14 @@
 * [A bug has been fixed that caused fee estimation to be incorrect for taproot
   inputs when using the `SendOutputs` call.](https://github.com/lightningnetwork/lnd/pull/6941)
 
+## Performance improvements
+
+* [Refactor hop hint selection
+  algorithm](https://github.com/lightningnetwork/lnd/pull/6914)
+
 # Contributors (Alphabetical Order)
 
 * Eugene Siegel
+* Jordi Montes
 * Olaoluwa Osuntokun
 * Oliver Gugger

@@ -149,14 +149,31 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	const aliceFeeRatePPM = 100000
 	updateChannelPolicy(
 		t, net.Alice, chanPointAlice, aliceBaseFeeSat*1000,
-		aliceFeeRatePPM, chainreg.DefaultBitcoinTimeLockDelta, maxHtlc,
+		aliceFeeRatePPM,
+		0, 0,
+		chainreg.DefaultBitcoinTimeLockDelta, maxHtlc,
 		carol,
+	)
+
+	// Define a negative inbound fee for Alice, to verify that this is
+	// backwards compatible with an older sender ignoring the discount.
+	const (
+		aliceInboundBaseFeeMsat = -1
+		aliceInboundFeeRate     = -10000
+	)
+
+	updateChannelPolicy(
+		t, net.Alice, chanPointDave, 0, 0,
+		aliceInboundBaseFeeMsat, aliceInboundFeeRate,
+		chainreg.DefaultBitcoinTimeLockDelta, maxHtlc,
+		dave,
 	)
 
 	const daveBaseFeeSat = 5
 	const daveFeeRatePPM = 150000
 	updateChannelPolicy(
 		t, dave, chanPointDave, daveBaseFeeSat*1000, daveFeeRatePPM,
+		0, 0,
 		chainreg.DefaultBitcoinTimeLockDelta, maxHtlc, carol,
 	)
 
@@ -215,8 +232,9 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Alice,
 		aliceFundPoint, expectedAmountPaidAtoB, int64(0))
 
-	// To forward a payment of 1000 sat, Alice is charging a fee of
-	// 1 sat + 10% = 101 sat.
+	// To forward a payment of 1000 sat, Alice is charging a fee of 1 sat +
+	// 10% = 101 sat. Note that this does not include the inbound fee
+	// (discount) because there is no sender support yet.
 	const aliceFeePerPayment = aliceBaseFeeSat +
 		(paymentAmt * aliceFeeRatePPM / 1_000_000)
 	const expectedFeeAlice = numPayments * aliceFeePerPayment
@@ -388,16 +406,19 @@ func assertEventAndType(t *harnessTest, eventType routerrpc.HtlcEvent_EventType,
 // listenerNode has received the policy update.
 func updateChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 	chanPoint *lnrpc.ChannelPoint, baseFee int64, feeRate int64,
+	inboundBaseFee, inboundFeeRate int32,
 	timeLockDelta uint32, maxHtlc uint64, listenerNode *lntest.HarnessNode) {
 
 	ctxb := context.Background()
 
 	expectedPolicy := &lnrpc.RoutingPolicy{
-		FeeBaseMsat:      baseFee,
-		FeeRateMilliMsat: feeRate,
-		TimeLockDelta:    timeLockDelta,
-		MinHtlc:          1000, // default value
-		MaxHtlcMsat:      maxHtlc,
+		FeeBaseMsat:             baseFee,
+		FeeRateMilliMsat:        feeRate,
+		TimeLockDelta:           timeLockDelta,
+		MinHtlc:                 1000, // default value
+		MaxHtlcMsat:             maxHtlc,
+		InboundFeeBaseMsat:      inboundBaseFee,
+		InboundFeeRateMilliMsat: inboundFeeRate,
 	}
 
 	updateFeeReq := &lnrpc.PolicyUpdateRequest{
@@ -407,7 +428,9 @@ func updateChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
 			ChanPoint: chanPoint,
 		},
-		MaxHtlcMsat: maxHtlc,
+		MaxHtlcMsat:        maxHtlc,
+		InboundBaseFeeMsat: inboundBaseFee,
+		InboundFeeRatePpm:  inboundFeeRate,
 	}
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)

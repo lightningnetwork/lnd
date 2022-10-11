@@ -16,9 +16,9 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
   allow specifying a root key for macaroons during wallet init rather than
   having lnd randomly generate one for you.
 
-* [A new `SignedInputs`](https://github.com/lightningnetwork/lnd/pull/6771) 
-  field is added to `SignPsbtResponse` that returns the indices of inputs 
-  that were signed by our wallet. Prior to this change `SignPsbt` didn't 
+* [A new `SignedInputs`](https://github.com/lightningnetwork/lnd/pull/6771)
+  field is added to `SignPsbtResponse` that returns the indices of inputs
+  that were signed by our wallet. Prior to this change `SignPsbt` didn't
   indicate whether the Psbt held any inputs for our wallet to sign.
 
 * [Add list addresses RPC](https://github.com/lightningnetwork/lnd/pull/6596).
@@ -75,8 +75,8 @@ crash](https://github.com/lightningnetwork/lnd/pull/7019).
 
 ## `lncli`
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
-  flag](https://github.com/lightningnetwork/lnd/pull/6818) that allows the 
-  caller to specify key-value string pairs that should be appended to the 
+  flag](https://github.com/lightningnetwork/lnd/pull/6818) that allows the
+  caller to specify key-value string pairs that should be appended to the
   outgoing context.
 
 * [Fix](https://github.com/lightningnetwork/lnd/pull/6858) command line argument
@@ -96,7 +96,7 @@ crash](https://github.com/lightningnetwork/lnd/pull/7019).
 
 ## Code Health
 
-* [test: use `T.TempDir` to create temporary test 
+* [test: use `T.TempDir` to create temporary test
   directory](https://github.com/lightningnetwork/lnd/pull/6710)
 
 * [The `tlv` package now allows decoding records larger than 65535 bytes. The
@@ -107,6 +107,8 @@ crash](https://github.com/lightningnetwork/lnd/pull/7019).
 
 * [The `golangci-lint` tool was updated to
   `v1.46.2`](https://github.com/lightningnetwork/lnd/pull/6731)
+
+* [Tests in `htlcswitch` will now clean up the temporary resources they create](https://github.com/lightningnetwork/lnd/pull/6832).
 
 * Updated the github actions to use `make fmt-check` in its [build
   process](https://github.com/lightningnetwork/lnd/pull/6853).

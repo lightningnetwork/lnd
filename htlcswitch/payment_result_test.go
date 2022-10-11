@@ -106,6 +106,7 @@ func TestNetworkResultStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { db.Close() })
 
 	store := newNetworkResultStore(db)
 

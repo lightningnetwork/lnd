@@ -48,7 +48,7 @@ default](https://github.com/lightningnetwork/lnd/pull/6810) in most cases.
 necessary when upgrading from `lnd v0.14.x-beta` to `lnd v0.15.x-beta`, see [the
 remote signing documentation for more
 details](../remote-signing.md#migrating-a-remote-signing-setup-from-014x-to-015x).
-Please upgrade to `lnd v0.15.2-beta` or later directly!
+Please upgrade to `lnd v0.15.3-beta` or later directly!
 
 ## `lncli`
 

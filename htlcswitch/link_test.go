@@ -2008,6 +2008,7 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt, chanReserve btcutil.Amount)
 		NotifyInactiveChannel: func(wire.OutPoint) {},
 		HtlcNotifier:          aliceSwitch.cfg.HtlcNotifier,
 		GetAliases:            getAliases,
+		FwdingLog:             aliceSwitch.cfg.FwdingLog,
 	}
 
 	aliceLink := NewChannelLink(aliceCfg, aliceLc.channel)
@@ -4446,6 +4447,7 @@ func (h *persistentLinkHarness) restartLink(
 		HtlcNotifier:          aliceSwitch.cfg.HtlcNotifier,
 		SyncStates:            syncStates,
 		GetAliases:            getAliases,
+		FwdingLog:             aliceSwitch.cfg.FwdingLog,
 	}
 
 	aliceLink := NewChannelLink(aliceCfg, aliceChannel)

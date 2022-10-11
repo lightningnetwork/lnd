@@ -306,6 +306,10 @@ type ChannelLinkConfig struct {
 	// GetAliases is used by the link and switch to fetch the set of
 	// aliases for a given link.
 	GetAliases func(base lnwire.ShortChannelID) []lnwire.ShortChannelID
+
+	// FwdingLog is an interface that will be used by the link to log
+	// final hop inbound fees collected.
+	FwdingLog ForwardingLog
 }
 
 // shutdownReq contains an error channel that will be used by the channelLink
@@ -410,6 +414,7 @@ type channelLink struct {
 type hodlHtlc struct {
 	pd         *lnwallet.PaymentDescriptor
 	obfuscator hop.ErrorEncrypter
+	inboundFee int64
 }
 
 // NewChannelLink creates a new instance of a ChannelLink given a configuration
@@ -1353,7 +1358,29 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 		l.log.Debugf("received settle resolution for %v "+
 			"with outcome: %v", circuitKey, res.Outcome)
 
-		return l.settleHTLC(res.Preimage, htlc.pd)
+		err := l.settleHTLC(res.Preimage, htlc.pd)
+		if err != nil {
+			return err
+		}
+
+		// If an inbound fee was earned, make it part of the forwarding
+		// history.
+		if htlc.inboundFee == 0 {
+			return nil
+		}
+
+		event := channeldb.ForwardingEvent{
+			Timestamp:      time.Now(),
+			IncomingChanID: l.shortChanID,
+			AmtIn:          htlc.pd.Amount,
+			AmtOut: lnwire.MilliSatoshi(
+				int64(htlc.pd.Amount) - htlc.inboundFee,
+			),
+		}
+
+		return l.cfg.FwdingLog.AddForwardingEvents(
+			[]channeldb.ForwardingEvent{event},
+		)
 
 	// For htlc failures, we get the relevant failure message based
 	// on the failure resolution and then fail the htlc.
@@ -3261,10 +3288,15 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return err
 	}
 
+	// Determine the actually paid inbound fee which may be higher than the
+	// minimum required.
+	actualInboundFee := int64(pd.Amount) - int64(fwdInfo.AmountToForward)
+
 	// Create a hodlHtlc struct and decide either resolved now or later.
 	htlc := hodlHtlc{
 		pd:         pd,
 		obfuscator: obfuscator,
+		inboundFee: actualInboundFee,
 	}
 
 	// If the event is nil, the invoice is being held, so we save payment

@@ -161,7 +161,7 @@ Taproot account to the watch-only node, otherwise you will encounter errors such
 as `account 0 not found` when doing on-chain operations that require creating
 (change) P2TR addresses.
 
-**NOTE**: For this to work, you need to upgrade to at least `lnd v0.15.2-beta`
+**NOTE**: For this to work, you need to upgrade to at least `lnd v0.15.3-beta`
 or later!
 
 The upgrade process should look like this:

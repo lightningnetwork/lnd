@@ -1,4 +1,5 @@
 # Release Notes
+- [Release Notes](#release-notes)
 - [Bug Fixes](#bug-fixes)
 - [New Features](#new-features)
   - [Functional Enhancements](#functional-enhancements)
@@ -6,6 +7,7 @@
   - [lncli Additions](#lncli-additions)
 - [Improvements](#improvements)
   - [Functional Updates](#functional-updates)
+    - [Tlv](#tlv)
   - [RPC Updates](#rpc-updates)
   - [lncli Updates](#lncli-updates)
   - [Code Health](#code-health)
@@ -34,6 +36,15 @@
 
 # New Features
 ## Functional Enhancements
+
+* Experimental support for [inbound routing
+  fees](https://github.com/lightningnetwork/lnd/pull/6703) is added. This allows
+  node operators to require senders to pay an inbound fee for forwards and
+  payments. It is recommended to only use negative fees (an inbound "discount")
+  initially to keep the channels open for senders that do not recognize inbound
+  fees. In this release, no send support for pathfinding and route building is
+  added yet. We first want to learn more about the impact that inbound fees have
+  on the routing economy.
 
 * A new config value,
   [sweeper.maxfeerate](https://github.com/lightningnetwork/lnd/pull/7823), is
@@ -101,6 +112,7 @@
 * Andras Banki-Horvath
 * Carla Kirk-Cohen
 * Elle Mouton
+* Joost Jager
 * Keagan McClelland
 * Ononiwu Maureen Chiamaka
 * Yong Yu

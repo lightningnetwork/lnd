@@ -43,6 +43,10 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 1.19](https://github.com/lightningnetwork/lnd/pull/6795)! Go 1.18 is now the
 minimum version needed to build the project.
 
+[The minimum recommended version of the Go 1.19.x series is 1.19.2 because
+1.19.1 contained a bug that affected lnd and resulted in a
+crash](https://github.com/lightningnetwork/lnd/pull/7019).
+
 ## Misc
 
 * [Fixed a bug where the Switch did not reforward settles or fails for

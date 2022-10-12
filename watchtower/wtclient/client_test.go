@@ -32,7 +32,8 @@ import (
 const (
 	csvDelay uint32 = 144
 
-	towerAddrStr = "18.28.243.2:9911"
+	towerAddrStr  = "18.28.243.2:9911"
+	towerAddr2Str = "19.29.244.3:9912"
 )
 
 var (
@@ -64,6 +65,8 @@ var (
 	)
 
 	addrScript, _ = txscript.PayToAddrScript(addr)
+
+	waitTime = 5 * time.Second
 )
 
 // randPrivKey generates a new secp keypair, and returns the public key.
@@ -1034,7 +1037,7 @@ var clientTests = []clientTest{
 
 			// Wait for all of the updates to be populated in the
 			// server's database.
-			h.waitServerUpdates(hints, 5*time.Second)
+			h.waitServerUpdates(hints, waitTime)
 		},
 	},
 	{
@@ -1185,7 +1188,7 @@ var clientTests = []clientTest{
 
 			// Wait for all of the updates to be populated in the
 			// server's database.
-			h.waitServerUpdates(hints, 5*time.Second)
+			h.waitServerUpdates(hints, waitTime)
 
 			// Assert that the server has updates for the clients
 			// most recent policy.
@@ -1242,7 +1245,7 @@ var clientTests = []clientTest{
 
 			// Wait for all of the updates to be populated in the
 			// server's database.
-			h.waitServerUpdates(hints, 5*time.Second)
+			h.waitServerUpdates(hints, waitTime)
 
 			// Assert that the server has updates for the clients
 			// most recent policy.
@@ -1302,7 +1305,7 @@ var clientTests = []clientTest{
 
 			// Wait for all of the updates to be populated in the
 			// server's database.
-			h.waitServerUpdates(hints, 5*time.Second)
+			h.waitServerUpdates(hints, waitTime)
 
 			// Assert that the server has updates for the client's
 			// original policy.
@@ -1343,7 +1346,7 @@ var clientTests = []clientTest{
 
 			// Wait for the first half of the updates to be
 			// populated in the server's database.
-			h.waitServerUpdates(hints[:len(hints)/2], 5*time.Second)
+			h.waitServerUpdates(hints[:len(hints)/2], waitTime)
 
 			// Restart the client, so we can ensure the deduping is
 			// maintained across restarts.
@@ -1356,7 +1359,7 @@ var clientTests = []clientTest{
 
 			// Wait for all of the updates to be populated in the
 			// server's database.
-			h.waitServerUpdates(hints, 5*time.Second)
+			h.waitServerUpdates(hints, waitTime)
 		},
 	},
 	{
@@ -1384,7 +1387,7 @@ var clientTests = []clientTest{
 			// first two.
 			hints := h.advanceChannelN(chanID, numUpdates)
 			h.backupStates(chanID, 0, numUpdates/2, nil)
-			h.waitServerUpdates(hints[:numUpdates/2], 5*time.Second)
+			h.waitServerUpdates(hints[:numUpdates/2], waitTime)
 
 			// Fully remove the tower, causing its existing sessions
 			// to be marked inactive.
@@ -1410,7 +1413,7 @@ var clientTests = []clientTest{
 			h.stopServer()
 			h.serverCfg.NoAckCreateSession = false
 			h.startServer()
-			h.waitServerUpdates(hints[numUpdates/2:], 5*time.Second)
+			h.waitServerUpdates(hints[numUpdates/2:], waitTime)
 		},
 	},
 	{
@@ -1441,7 +1444,7 @@ var clientTests = []clientTest{
 
 			// Back up 4 of the 5 states for the negotiated session.
 			h.backupStates(chanID, 0, maxUpdates-1, nil)
-			h.waitServerUpdates(hints[:maxUpdates-1], 5*time.Second)
+			h.waitServerUpdates(hints[:maxUpdates-1], waitTime)
 
 			// Now, restart the tower and prevent it from acking any
 			// new sessions. We do this here as once the last slot
@@ -1456,7 +1459,7 @@ var clientTests = []clientTest{
 			// the final state. We'll only wait for the first five
 			// states to arrive at the tower.
 			h.backupStates(chanID, maxUpdates-1, numUpdates, nil)
-			h.waitServerUpdates(hints[:maxUpdates], 5*time.Second)
+			h.waitServerUpdates(hints[:maxUpdates], waitTime)
 
 			// Finally, stop the client which will continue to
 			// attempt session negotiation since it has one more
@@ -1464,6 +1467,85 @@ var clientTests = []clientTest{
 			// expires, the client should force quite itself and
 			// allow the test to complete.
 			h.stopServer()
+		},
+	},
+	{
+		// Assert that if a client changes the address for a server and
+		// then tries to back up updates then the client will not switch
+		// to the new address. The client will only use the server's new
+		// address after a restart. This is a bug that will be fixed in
+		// a future commit.
+		name: "change address of existing session",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeAltruistCommit,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+				},
+				MaxUpdates: 5,
+			},
+		},
+		fn: func(h *testHarness) {
+			const (
+				chanID     = 0
+				numUpdates = 6
+				maxUpdates = 5
+			)
+
+			// Advance the channel to create all states.
+			hints := h.advanceChannelN(chanID, numUpdates)
+
+			h.backupStates(chanID, 0, numUpdates/2, nil)
+
+			// Wait for the first half of the updates to be
+			// populated in the server's database.
+			h.waitServerUpdates(hints[:len(hints)/2], waitTime)
+
+			// Stop the server.
+			h.stopServer()
+
+			// Change the address of the server.
+			towerTCPAddr, err := net.ResolveTCPAddr(
+				"tcp", towerAddr2Str,
+			)
+			require.NoError(h.t, err)
+
+			oldAddr := h.serverAddr.Address
+			towerAddr := &lnwire.NetAddress{
+				IdentityKey: h.serverAddr.IdentityKey,
+				Address:     towerTCPAddr,
+			}
+			h.serverAddr = towerAddr
+
+			// Add the new tower address to the client.
+			err = h.client.AddTower(towerAddr)
+			require.NoError(h.t, err)
+
+			// Remove the old tower address from the client.
+			err = h.client.RemoveTower(
+				towerAddr.IdentityKey, oldAddr,
+			)
+			require.NoError(h.t, err)
+
+			// Restart the server.
+			h.startServer()
+
+			// Now attempt to back up the rest of the updates.
+			h.backupStates(chanID, numUpdates/2, maxUpdates, nil)
+
+			// Assert that the server does not receive the updates.
+			h.waitServerUpdates(nil, waitTime)
+
+			// Restart the client and attempt to back up the updates
+			// again.
+			h.client.Stop()
+			h.startClient()
+			h.backupStates(chanID, numUpdates/2, maxUpdates, nil)
+
+			// The server should now receive the updates.
+			h.waitServerUpdates(hints[:maxUpdates], waitTime)
 		},
 	},
 }

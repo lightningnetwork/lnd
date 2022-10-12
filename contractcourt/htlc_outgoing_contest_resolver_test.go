@@ -33,7 +33,7 @@ func TestHtlcOutgoingResolverTimeout(t *testing.T) {
 
 	// Notify arrival of the block after which the timeout path of the htlc
 	// unlocks.
-	ctx.notifyEpoch(outgoingContestHtlcExpiry - 1)
+	ctx.notifyEpoch(outgoingContestHtlcExpiry)
 
 	// Assert that the resolver finishes without error and transforms in a
 	// timeout resolver.

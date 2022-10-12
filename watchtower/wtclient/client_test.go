@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
@@ -401,6 +402,7 @@ type harnessCfg struct {
 	policy             wtpolicy.Policy
 	noRegisterChan0    bool
 	noAckCreateSession bool
+	noServerStart      bool
 }
 
 func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
@@ -467,8 +469,10 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		channels:   make(map[lnwire.ChannelID]*mockChannel),
 	}
 
-	h.startServer()
-	t.Cleanup(h.stopServer)
+	if !cfg.noServerStart {
+		h.startServer()
+		t.Cleanup(h.stopServer)
+	}
 
 	h.startClient()
 	t.Cleanup(h.client.ForceQuit)
@@ -1535,6 +1539,39 @@ var clientTests = []clientTest{
 
 			// Assert that the server does receive the updates.
 			h.waitServerUpdates(hints[:maxUpdates], waitTime)
+		},
+	},
+	{
+		// Assert that an error is returned if a user tries to remove
+		// a tower from the client while a session negotiation is in
+		// progress. This is a bug that will be fixed in a future
+		// commit.
+		name: "cant remove tower while session negotiation in progress",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeAltruistCommit,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+				},
+				MaxUpdates: 5,
+			},
+			noServerStart: true,
+		},
+		fn: func(h *testHarness) {
+			var err error
+			waitErr := wait.Predicate(func() bool {
+				err = h.client.RemoveTower(
+					h.serverAddr.IdentityKey, nil,
+				)
+				return err != nil
+			}, time.Second*5)
+			require.NoError(h.t, waitErr)
+
+			require.ErrorContains(h.t, err, "removing towers is "+
+				"disallowed while a new session negotiation "+
+				"is in progress")
 		},
 	},
 }

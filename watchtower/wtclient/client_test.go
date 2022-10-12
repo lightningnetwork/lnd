@@ -449,8 +449,6 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		MaxBackoff:     time.Second,
 		ForceQuitDelay: 10 * time.Second,
 	}
-	client, err := wtclient.New(clientCfg)
-	require.NoError(t, err, "Unable to create wtclient")
 
 	h := &testHarness{
 		t:          t,
@@ -459,7 +457,6 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		capacity:   cfg.localBalance + cfg.remoteBalance,
 		clientDB:   clientDB,
 		clientCfg:  clientCfg,
-		client:     client,
 		serverAddr: towerAddr,
 		serverDB:   serverDB,
 		serverCfg:  serverCfg,
@@ -470,12 +467,8 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	h.startServer()
 	t.Cleanup(h.stopServer)
 
-	err = client.Start()
-	require.NoError(t, err)
-	t.Cleanup(client.ForceQuit)
-
-	err = client.AddTower(towerAddr)
-	require.NoError(t, err)
+	h.startClient()
+	t.Cleanup(h.client.ForceQuit)
 
 	h.makeChannel(0, h.cfg.localBalance, h.cfg.remoteBalance)
 	if !cfg.noRegisterChan0 {

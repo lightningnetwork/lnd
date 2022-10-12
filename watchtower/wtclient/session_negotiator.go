@@ -25,7 +25,7 @@ type SessionNegotiator interface {
 
 	// NewSessions is a read-only channel where newly negotiated sessions
 	// will be delivered.
-	NewSessions() <-chan *wtdb.ClientSession
+	NewSessions() <-chan *ClientSession
 
 	// Start safely initializes the session negotiator.
 	Start() error
@@ -105,8 +105,8 @@ type sessionNegotiator struct {
 	log btclog.Logger
 
 	dispatcher             chan struct{}
-	newSessions            chan *wtdb.ClientSession
-	successfulNegotiations chan *wtdb.ClientSession
+	newSessions            chan *ClientSession
+	successfulNegotiations chan *ClientSession
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -139,8 +139,8 @@ func newSessionNegotiator(cfg *NegotiatorConfig) *sessionNegotiator {
 		log:                    cfg.Log,
 		localInit:              localInit,
 		dispatcher:             make(chan struct{}, 1),
-		newSessions:            make(chan *wtdb.ClientSession),
-		successfulNegotiations: make(chan *wtdb.ClientSession),
+		newSessions:            make(chan *ClientSession),
+		successfulNegotiations: make(chan *ClientSession),
 		quit:                   make(chan struct{}),
 	}
 }
@@ -171,7 +171,7 @@ func (n *sessionNegotiator) Stop() error {
 
 // NewSessions returns a receive-only channel from which newly negotiated
 // sessions will be returned.
-func (n *sessionNegotiator) NewSessions() <-chan *wtdb.ClientSession {
+func (n *sessionNegotiator) NewSessions() <-chan *ClientSession {
 	return n.newSessions
 }
 
@@ -333,18 +333,10 @@ retryWithBackoff:
 	}
 }
 
-// createSession takes a tower an attempts to negotiate a session using any of
+// createSession takes a tower and attempts to negotiate a session using any of
 // its stored addresses. This method returns after the first successful
-// negotiation, or after all addresses have failed with ErrFailedNegotiation. If
-// the tower has no addresses, ErrNoTowerAddrs is returned.
-func (n *sessionNegotiator) createSession(tower *wtdb.Tower,
-	keyIndex uint32) error {
-
-	// If the tower has no addresses, there's nothing we can do.
-	if len(tower.Addresses) == 0 {
-		return ErrNoTowerAddrs
-	}
-
+// negotiation, or after all addresses have failed with ErrFailedNegotiation.
+func (n *sessionNegotiator) createSession(tower *Tower, keyIndex uint32) error {
 	sessionKeyDesc, err := n.cfg.SecretKeyRing.DeriveKey(
 		keychain.KeyLocator{
 			Family: keychain.KeyFamilyTowerSession,
@@ -358,8 +350,14 @@ func (n *sessionNegotiator) createSession(tower *wtdb.Tower,
 		sessionKeyDesc, n.cfg.SecretKeyRing,
 	)
 
-	for _, lnAddr := range tower.LNAddrs() {
-		err := n.tryAddress(sessionKey, keyIndex, tower, lnAddr)
+	addr := tower.Addresses.Peek()
+	for {
+		lnAddr := &lnwire.NetAddress{
+			IdentityKey: tower.IdentityKey,
+			Address:     addr,
+		}
+
+		err = n.tryAddress(sessionKey, keyIndex, tower, lnAddr)
 		switch {
 		case err == ErrPermanentTowerFailure:
 			// TODO(conner): report to iterator? can then be reset
@@ -370,6 +368,15 @@ func (n *sessionNegotiator) createSession(tower *wtdb.Tower,
 			n.log.Debugf("Request for session negotiation with "+
 				"tower=%s failed, trying again -- reason: "+
 				"%v", lnAddr, err)
+
+			// Get the next tower address if there is one.
+			addr, err = tower.Addresses.Next()
+			if err == ErrAddressesExhausted {
+				tower.Addresses.Reset()
+
+				return ErrFailedNegotiation
+			}
+
 			continue
 
 		default:
@@ -385,7 +392,7 @@ func (n *sessionNegotiator) createSession(tower *wtdb.Tower,
 // returns true if all steps succeed and the new session has been persisted, and
 // fails otherwise.
 func (n *sessionNegotiator) tryAddress(sessionKey keychain.SingleKeyECDH,
-	keyIndex uint32, tower *wtdb.Tower, lnAddr *lnwire.NetAddress) error {
+	keyIndex uint32, tower *Tower, lnAddr *lnwire.NetAddress) error {
 
 	// Connect to the tower address using our generated session key.
 	conn, err := n.cfg.Dial(sessionKey, lnAddr)
@@ -456,26 +463,31 @@ func (n *sessionNegotiator) tryAddress(sessionKey keychain.SingleKeyECDH,
 		rewardPkScript := createSessionReply.Data
 
 		sessionID := wtdb.NewSessionIDFromPubKey(sessionKey.PubKey())
-		clientSession := &wtdb.ClientSession{
+		dbClientSession := &wtdb.ClientSession{
 			ClientSessionBody: wtdb.ClientSessionBody{
 				TowerID:        tower.ID,
 				KeyIndex:       keyIndex,
 				Policy:         n.cfg.Policy,
 				RewardPkScript: rewardPkScript,
 			},
-			Tower:          tower,
-			SessionKeyECDH: sessionKey,
-			ID:             sessionID,
+			ID: sessionID,
 		}
 
-		err = n.cfg.DB.CreateClientSession(clientSession)
+		err = n.cfg.DB.CreateClientSession(dbClientSession)
 		if err != nil {
 			return fmt.Errorf("unable to persist ClientSession: %v",
 				err)
 		}
 
 		n.log.Debugf("New session negotiated with %s, policy: %s",
-			lnAddr, clientSession.Policy)
+			lnAddr, dbClientSession.Policy)
+
+		clientSession := &ClientSession{
+			ID:                sessionID,
+			ClientSessionBody: dbClientSession.ClientSessionBody,
+			Tower:             tower,
+			SessionKeyECDH:    sessionKey,
+		}
 
 		// We have a newly negotiated session, return it to the
 		// dispatcher so that it can update how many outstanding

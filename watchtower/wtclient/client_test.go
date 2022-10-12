@@ -1471,10 +1471,8 @@ var clientTests = []clientTest{
 	},
 	{
 		// Assert that if a client changes the address for a server and
-		// then tries to back up updates then the client will not switch
-		// to the new address. The client will only use the server's new
-		// address after a restart. This is a bug that will be fixed in
-		// a future commit.
+		// then tries to back up updates then the client will switch to
+		// the new address.
 		name: "change address of existing session",
 		cfg: harnessCfg{
 			localBalance:  localBalance,
@@ -1535,16 +1533,7 @@ var clientTests = []clientTest{
 			// Now attempt to back up the rest of the updates.
 			h.backupStates(chanID, numUpdates/2, maxUpdates, nil)
 
-			// Assert that the server does not receive the updates.
-			h.waitServerUpdates(nil, waitTime)
-
-			// Restart the client and attempt to back up the updates
-			// again.
-			h.client.Stop()
-			h.startClient()
-			h.backupStates(chanID, numUpdates/2, maxUpdates, nil)
-
-			// The server should now receive the updates.
+			// Assert that the server does receive the updates.
 			h.waitServerUpdates(hints[:maxUpdates], waitTime)
 		},
 	},

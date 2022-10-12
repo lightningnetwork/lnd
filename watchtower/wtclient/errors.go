@@ -20,10 +20,6 @@ var (
 	// down.
 	ErrNegotiatorExiting = errors.New("negotiator exiting")
 
-	// ErrNoTowerAddrs signals that the client could not be created because
-	// we have no addresses with which we can reach a tower.
-	ErrNoTowerAddrs = errors.New("no tower addresses")
-
 	// ErrFailedNegotiation signals that the session negotiator could not
 	// acquire a new session as requested.
 	ErrFailedNegotiation = errors.New("session negotiation unsuccessful")

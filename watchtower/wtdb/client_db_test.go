@@ -343,8 +343,11 @@ func testCreateTower(h *clientDBHarness) {
 	h.loadTowerByID(20, wtdb.ErrTowerNotFound)
 
 	tower := h.newTower()
-	require.Len(h.t, tower.LNAddrs(), 1)
-	towerAddr := tower.LNAddrs()[0]
+	require.Len(h.t, tower.Addresses, 1)
+	towerAddr := &lnwire.NetAddress{
+		IdentityKey: tower.IdentityKey,
+		Address:     tower.Addresses[0],
+	}
 
 	// Load the tower from the database and assert that it matches the tower
 	// we created.

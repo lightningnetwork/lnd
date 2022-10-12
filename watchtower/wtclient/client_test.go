@@ -449,13 +449,16 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	if err := server.Start(); err != nil {
 		t.Fatalf("Unable to start wtserver: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = server.Stop()
+	})
 
 	if err = client.Start(); err != nil {
-		server.Stop()
 		t.Fatalf("Unable to start wtclient: %v", err)
 	}
+	t.Cleanup(client.ForceQuit)
+
 	if err := client.AddTower(towerAddr); err != nil {
-		server.Stop()
 		t.Fatalf("Unable to add tower to wtclient: %v", err)
 	}
 
@@ -979,7 +982,6 @@ var clientTests = []clientTest{
 			h.server.Stop()
 			h.serverCfg.NoAckUpdates = true
 			h.startServer()
-			defer h.server.Stop()
 
 			// Send the next state update to the tower. Since the
 			// tower isn't acking state updates, we expect this
@@ -1000,12 +1002,10 @@ var clientTests = []clientTest{
 			h.server.Stop()
 			h.serverCfg.NoAckUpdates = false
 			h.startServer()
-			defer h.server.Stop()
 
 			// Restart the client and allow it to process the
 			// committed update.
 			h.startClient()
-			defer h.client.ForceQuit()
 
 			// Wait for the committed update to be accepted by the
 			// tower.
@@ -1052,7 +1052,6 @@ var clientTests = []clientTest{
 			h.server.Stop()
 			h.serverCfg.NoAckUpdates = true
 			h.startServer()
-			defer h.server.Stop()
 
 			// Now, queue the retributions for backup.
 			h.backupStates(chanID, 0, numUpdates, nil)
@@ -1071,7 +1070,6 @@ var clientTests = []clientTest{
 			h.server.Stop()
 			h.serverCfg.NoAckUpdates = false
 			h.startServer()
-			defer h.server.Stop()
 
 			// Wait for all of the updates to be populated in the
 			// server's database.
@@ -1215,13 +1213,11 @@ var clientTests = []clientTest{
 			h.server.Stop()
 			h.serverCfg.NoAckCreateSession = false
 			h.startServer()
-			defer h.server.Stop()
 
 			// Restart the client with the same policy, which will
 			// immediately try to overwrite the old session with an
 			// identical one.
 			h.startClient()
-			defer h.client.ForceQuit()
 
 			// Now, queue the retributions for backup.
 			h.backupStates(chanID, 0, numUpdates, nil)
@@ -1273,14 +1269,12 @@ var clientTests = []clientTest{
 			h.server.Stop()
 			h.serverCfg.NoAckCreateSession = false
 			h.startServer()
-			defer h.server.Stop()
 
 			// Restart the client with a new policy, which will
 			// immediately try to overwrite the prior session with
 			// the old policy.
 			h.clientCfg.Policy.SweepFeeRate *= 2
 			h.startClient()
-			defer h.client.ForceQuit()
 
 			// Now, queue the retributions for backup.
 			h.backupStates(chanID, 0, numUpdates, nil)
@@ -1341,7 +1335,6 @@ var clientTests = []clientTest{
 			// Restart the client with a new policy.
 			h.clientCfg.Policy.MaxUpdates = 20
 			h.startClient()
-			defer h.client.ForceQuit()
 
 			// Now, queue the second half of the retributions.
 			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
@@ -1395,7 +1388,6 @@ var clientTests = []clientTest{
 			// maintained across restarts.
 			h.client.Stop()
 			h.startClient()
-			defer h.client.ForceQuit()
 
 			// Try to back up the full range of retributions. Only
 			// the second half should actually be sent.
@@ -1528,10 +1520,6 @@ func TestClient(t *testing.T) {
 			t.Parallel()
 
 			h := newHarness(t, tc.cfg)
-			t.Cleanup(func() {
-				require.NoError(t, h.server.Stop())
-				h.client.ForceQuit()
-			})
 
 			tc.fn(h)
 		})

@@ -1510,6 +1510,9 @@ message Channel {
 
     // This is the confirmed / on-chain zero-conf SCID.
     uint64 zero_conf_confirmed_scid = 33;
+
+    // The channel alias of the remote node
+    string alias = 34;
 }
 
 message ListChannelsRequest {

@@ -3485,6 +3485,10 @@
           "type": "string",
           "format": "uint64",
           "description": "This is the confirmed / on-chain zero-conf SCID."
+        },
+        "alias": {
+          "type": "string",
+          "title": "The channel alias of the remote node"
         }
       }
     },

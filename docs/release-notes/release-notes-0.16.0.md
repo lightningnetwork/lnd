@@ -30,6 +30,11 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 * [Catch and throw an error](https://github.com/lightningnetwork/lnd/pull/6945)
   during `openchannel` if the local funding amount given is zero. 
 
+* [Add node alias to
+  `ListChannels`](https://github.com/lightningnetwork/lnd/pull/7006) to allow an 
+  application to display the node's alias along side the set of the displayed
+  channels.
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

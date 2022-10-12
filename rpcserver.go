@@ -3964,6 +3964,13 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			continue
 		}
 
+		info, err := r.GetNodeInfo(ctx, &lnrpc.NodeInfoRequest{})
+		if err != nil {
+			return nil, err
+		}
+
+		channel.Alias = info.Node.Alias
+
 		resp.Channels = append(resp.Channels, channel)
 	}
 

@@ -346,7 +346,7 @@ func (h *htlcTimeoutResolver) spendHtlcOutput() (*chainntnfs.SpendDetail, error)
 	// If we have no SignDetails, and we haven't already sent the output to
 	// the utxo nursery, then we'll do so now.
 	case h.htlcResolution.SignDetails == nil && !h.outputIncubating:
-		log.Tracef("%T(%v): incubating htlc output", h,
+		log.Debugf("%T(%v): incubating htlc output", h,
 			h.htlcResolution.ClaimOutpoint)
 
 		err := h.IncubateOutputs(
@@ -374,7 +374,7 @@ func (h *htlcTimeoutResolver) spendHtlcOutput() (*chainntnfs.SpendDetail, error)
 		return nil, err
 	}
 
-	log.Infof("%T(%v): waiting for HTLC output %v to be spent"+
+	log.Infof("%T(%v): waiting for spent of HTLC output %v to be "+
 		"fully confirmed", h, h.htlcResolution.ClaimOutpoint,
 		outpointToWatch)
 

@@ -155,6 +155,10 @@ func (t *towerListIterator) RemoveCandidate(candidate wtdb.TowerID,
 			return err
 		}
 	} else {
+		if tower.Addresses.HasLocked() {
+			return ErrAddrInUse
+		}
+
 		delete(t.candidates, candidate)
 	}
 

@@ -2,6 +2,7 @@ package wtclient_test
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -394,6 +395,8 @@ type testHarness struct {
 
 	mu       sync.Mutex
 	channels map[lnwire.ChannelID]*mockChannel
+
+	quit chan struct{}
 }
 
 type harnessCfg struct {
@@ -467,7 +470,11 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		serverCfg:  serverCfg,
 		net:        mockNet,
 		channels:   make(map[lnwire.ChannelID]*mockChannel),
+		quit:       make(chan struct{}),
 	}
+	t.Cleanup(func() {
+		close(h.quit)
+	})
 
 	if !cfg.noServerStart {
 		h.startServer()
@@ -1542,11 +1549,10 @@ var clientTests = []clientTest{
 		},
 	},
 	{
-		// Assert that an error is returned if a user tries to remove
-		// a tower from the client while a session negotiation is in
-		// progress. This is a bug that will be fixed in a future
-		// commit.
-		name: "cant remove tower while session negotiation in progress",
+		// Assert that a user is able to remove a tower address during
+		// session negotiation as long as the address in question is not
+		// currently being used.
+		name: "removing a tower during session negotiation",
 		cfg: harnessCfg{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
@@ -1560,18 +1566,93 @@ var clientTests = []clientTest{
 			noServerStart: true,
 		},
 		fn: func(h *testHarness) {
-			var err error
-			waitErr := wait.Predicate(func() bool {
-				err = h.client.RemoveTower(
+			// The server has not started yet and so no session
+			// negotiation with the server will be in progress, so
+			// the client should be able to remove the server.
+			err := wait.NoError(func() error {
+				return h.client.RemoveTower(
 					h.serverAddr.IdentityKey, nil,
 				)
-				return err != nil
-			}, time.Second*5)
-			require.NoError(h.t, waitErr)
+			}, waitTime)
+			require.NoError(h.t, err)
 
-			require.ErrorContains(h.t, err, "removing towers is "+
-				"disallowed while a new session negotiation "+
-				"is in progress")
+			// Set the server up so that its Dial function hangs
+			// when the client calls it. This will force the client
+			// to remain in the state where it has locked the
+			// address of the server.
+			h.server, err = wtserver.New(h.serverCfg)
+			require.NoError(h.t, err)
+
+			cancel := make(chan struct{})
+			h.net.registerConnCallback(
+				h.serverAddr, func(peer wtserver.Peer) {
+					select {
+					case <-h.quit:
+					case <-cancel:
+					}
+				},
+			)
+
+			// Also add a new tower address.
+			towerTCPAddr, err := net.ResolveTCPAddr(
+				"tcp", towerAddr2Str,
+			)
+			require.NoError(h.t, err)
+
+			towerAddr := &lnwire.NetAddress{
+				IdentityKey: h.serverAddr.IdentityKey,
+				Address:     towerTCPAddr,
+			}
+
+			// Register the new address in the mock-net.
+			h.net.registerConnCallback(
+				towerAddr, h.server.InboundPeerConnected,
+			)
+
+			// Now start the server.
+			require.NoError(h.t, h.server.Start())
+
+			// Re-add the server to the client
+			err = h.client.AddTower(h.serverAddr)
+			require.NoError(h.t, err)
+
+			// Also add the new tower address.
+			err = h.client.AddTower(towerAddr)
+			require.NoError(h.t, err)
+
+			// Assert that if the client attempts to remove the
+			// tower's first address, then it will error due to
+			// address currently being locked for session
+			// negotiation.
+			err = wait.Predicate(func() bool {
+				err = h.client.RemoveTower(
+					h.serverAddr.IdentityKey,
+					h.serverAddr.Address,
+				)
+				return errors.Is(err, wtclient.ErrAddrInUse)
+			}, waitTime)
+			require.NoError(h.t, err)
+
+			// Assert that the second address can be removed since
+			// it is not being used for session negotiation.
+			err = wait.NoError(func() error {
+				return h.client.RemoveTower(
+					h.serverAddr.IdentityKey, towerTCPAddr,
+				)
+			}, waitTime)
+			require.NoError(h.t, err)
+
+			// Allow the dial to the first address to stop hanging.
+			close(cancel)
+
+			// Assert that the client can now remove the first
+			// address.
+			err = wait.NoError(func() error {
+				return h.client.RemoveTower(
+					h.serverAddr.IdentityKey, nil,
+				)
+			}, waitTime)
+			require.NoError(h.t, err)
 		},
 	},
 }

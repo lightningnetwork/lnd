@@ -2,7 +2,6 @@ package wtclient
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -826,13 +825,10 @@ func (c *TowerClient) backupDispatcher() {
 				msg.errChan <- c.handleNewTower(msg)
 
 			// A tower has been requested to be removed. We'll
-			// immediately return an error as we want to avoid the
-			// possibility of a new session being negotiated with
-			// this request's tower.
+			// only allow removal of it if the address in question
+			// is not currently being used for session negotiation.
 			case msg := <-c.staleTowers:
-				msg.errChan <- errors.New("removing towers " +
-					"is disallowed while a new session " +
-					"negotiation is in progress")
+				msg.errChan <- c.handleStaleTower(msg)
 
 			case <-c.forceQuit:
 				return
@@ -1254,18 +1250,31 @@ func (c *TowerClient) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error 
 func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 	// We'll load the tower before potentially removing it in order to
 	// retrieve its ID within the database.
-	tower, err := c.cfg.DB.LoadTower(msg.pubKey)
+	dbTower, err := c.cfg.DB.LoadTower(msg.pubKey)
 	if err != nil {
 		return err
 	}
 
-	// We'll update our persisted state, followed by our in-memory state,
-	// with the stale tower.
-	if err := c.cfg.DB.RemoveTower(msg.pubKey, msg.addr); err != nil {
+	// We'll first update our in-memory state followed by our persisted
+	// state, with the stale tower. The removal of the tower address from
+	// the in-memory state will fail if the address is currently being used
+	// for a session negotiation.
+	err = c.candidateTowers.RemoveCandidate(dbTower.ID, msg.addr)
+	if err != nil {
 		return err
 	}
-	err = c.candidateTowers.RemoveCandidate(tower.ID, msg.addr)
-	if err != nil {
+
+	if err := c.cfg.DB.RemoveTower(msg.pubKey, msg.addr); err != nil {
+		// If the persisted state update fails, re-add the address to
+		// our in-memory state.
+		tower, newTowerErr := NewTowerFromDBTower(dbTower)
+		if newTowerErr != nil {
+			log.Errorf("could not create new in-memory tower: %v",
+				newTowerErr)
+		} else {
+			c.candidateTowers.AddCandidate(tower)
+		}
+
 		return err
 	}
 
@@ -1278,7 +1287,7 @@ func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 	// Otherwise, the tower should no longer be used for future session
 	// negotiations and backups.
 	pubKey := msg.pubKey.SerializeCompressed()
-	sessions, err := c.cfg.DB.ListClientSessions(&tower.ID)
+	sessions, err := c.cfg.DB.ListClientSessions(&dbTower.ID)
 	if err != nil {
 		return fmt.Errorf("unable to retrieve sessions for tower %x: "+
 			"%v", pubKey, err)

@@ -115,7 +115,10 @@ crash](https://github.com/lightningnetwork/lnd/pull/7019).
   online](https://github.com/lightningnetwork/lnd/pull/6931).
 
 * [test: replace defer cleanup with
-  `t.Cleanup`](https://github.com/lightningnetwork/lnd/pull/6864)
+  `t.Cleanup`](https://github.com/lightningnetwork/lnd/pull/6864).
+
+* [test: fix loop variables being accessed in
+  closures](https://github.com/lightningnetwork/lnd/pull/7032).
 
 ### Tooling and documentation
 

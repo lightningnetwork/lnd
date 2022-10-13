@@ -83,10 +83,12 @@ type Client interface {
 
 	// RegisteredTowers retrieves the list of watchtowers registered with
 	// the client.
-	RegisteredTowers() ([]*RegisteredTower, error)
+	RegisteredTowers(...wtdb.ClientSessionListOption) ([]*RegisteredTower,
+		error)
 
 	// LookupTower retrieves a registered watchtower through its public key.
-	LookupTower(*btcec.PublicKey) (*RegisteredTower, error)
+	LookupTower(*btcec.PublicKey,
+		...wtdb.ClientSessionListOption) (*RegisteredTower, error)
 
 	// Stats returns the in-memory statistics of the client since startup.
 	Stats() ClientStats
@@ -363,7 +365,8 @@ func New(config *Config) (*TowerClient, error) {
 // tower.
 func getTowerAndSessionCandidates(db DB, keyRing ECDHKeyRing,
 	sessionFilter func(*wtdb.ClientSession) bool,
-	perActiveTower func(tower *wtdb.Tower)) (
+	perActiveTower func(tower *wtdb.Tower),
+	opts ...wtdb.ClientSessionListOption) (
 	map[wtdb.SessionID]*wtdb.ClientSession, error) {
 
 	towers, err := db.ListTowers()
@@ -373,7 +376,7 @@ func getTowerAndSessionCandidates(db DB, keyRing ECDHKeyRing,
 
 	candidateSessions := make(map[wtdb.SessionID]*wtdb.ClientSession)
 	for _, tower := range towers {
-		sessions, err := db.ListClientSessions(&tower.ID)
+		sessions, err := db.ListClientSessions(&tower.ID, opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -413,10 +416,11 @@ func getTowerAndSessionCandidates(db DB, keyRing ECDHKeyRing,
 // ClientSession's SessionPrivKey field is desired, otherwise, the existing
 // ListClientSessions method should be used.
 func getClientSessions(db DB, keyRing ECDHKeyRing, forTower *wtdb.TowerID,
-	passesFilter func(*wtdb.ClientSession) bool) (
+	passesFilter func(*wtdb.ClientSession) bool,
+	opts ...wtdb.ClientSessionListOption) (
 	map[wtdb.SessionID]*wtdb.ClientSession, error) {
 
-	sessions, err := db.ListClientSessions(forTower)
+	sessions, err := db.ListClientSessions(forTower, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1233,13 +1237,15 @@ func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 
 // RegisteredTowers retrieves the list of watchtowers registered with the
 // client.
-func (c *TowerClient) RegisteredTowers() ([]*RegisteredTower, error) {
+func (c *TowerClient) RegisteredTowers(opts ...wtdb.ClientSessionListOption) (
+	[]*RegisteredTower, error) {
+
 	// Retrieve all of our towers along with all of our sessions.
 	towers, err := c.cfg.DB.ListTowers()
 	if err != nil {
 		return nil, err
 	}
-	clientSessions, err := c.cfg.DB.ListClientSessions(nil)
+	clientSessions, err := c.cfg.DB.ListClientSessions(nil, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1272,13 +1278,15 @@ func (c *TowerClient) RegisteredTowers() ([]*RegisteredTower, error) {
 }
 
 // LookupTower retrieves a registered watchtower through its public key.
-func (c *TowerClient) LookupTower(pubKey *btcec.PublicKey) (*RegisteredTower, error) {
+func (c *TowerClient) LookupTower(pubKey *btcec.PublicKey,
+	opts ...wtdb.ClientSessionListOption) (*RegisteredTower, error) {
+
 	tower, err := c.cfg.DB.LoadTower(pubKey)
 	if err != nil {
 		return nil, err
 	}
 
-	towerSessions, err := c.cfg.DB.ListClientSessions(&tower.ID)
+	towerSessions, err := c.cfg.DB.ListClientSessions(&tower.ID, opts...)
 	if err != nil {
 		return nil, err
 	}

@@ -37,23 +37,6 @@ type ClientSession struct {
 
 	ClientSessionBody
 
-	// CommittedUpdates is a sorted list of unacked updates. These updates
-	// can be resent after a restart if the updates failed to send or
-	// receive an acknowledgment.
-	//
-	// NOTE: This list is serialized in it's own bucket, separate from the
-	// body of the ClientSession. The representation on disk is a key value
-	// map from sequence number to CommittedUpdateBody to allow efficient
-	// insertion and retrieval.
-	CommittedUpdates []CommittedUpdate
-
-	// AckedUpdates is a map from sequence number to backup id to record
-	// which revoked states were uploaded via this session.
-	//
-	// NOTE: This map is serialized in it's own bucket, separate from the
-	// body of the ClientSession.
-	AckedUpdates map[uint16]BackupID
-
 	// Tower holds the pubkey and address of the watchtower.
 	//
 	// NOTE: This value is not serialized. It is recovered by looking up the

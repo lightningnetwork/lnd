@@ -265,12 +265,16 @@ func (c *WatchtowerClient) ListTowers(ctx context.Context,
 		return nil, err
 	}
 
-	anchorTowers, err := c.cfg.AnchorClient.RegisteredTowers()
+	opts, ackCounts, committedUpdateCounts := constructFunctionalOptions(
+		req.IncludeSessions,
+	)
+
+	anchorTowers, err := c.cfg.AnchorClient.RegisteredTowers(opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	legacyTowers, err := c.cfg.Client.RegisteredTowers()
+	legacyTowers, err := c.cfg.Client.RegisteredTowers(opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +290,10 @@ func (c *WatchtowerClient) ListTowers(ctx context.Context,
 
 	rpcTowers := make([]*Tower, 0, len(towers))
 	for _, tower := range towers {
-		rpcTower := marshallTower(tower, req.IncludeSessions)
+		rpcTower := marshallTower(
+			tower, req.IncludeSessions, ackCounts,
+			committedUpdateCounts,
+		)
 		rpcTowers = append(rpcTowers, rpcTower)
 	}
 
@@ -306,16 +313,59 @@ func (c *WatchtowerClient) GetTowerInfo(ctx context.Context,
 		return nil, err
 	}
 
+	opts, ackCounts, committedUpdateCounts := constructFunctionalOptions(
+		req.IncludeSessions,
+	)
+
 	var tower *wtclient.RegisteredTower
-	tower, err = c.cfg.Client.LookupTower(pubKey)
+	tower, err = c.cfg.Client.LookupTower(pubKey, opts...)
 	if err == wtdb.ErrTowerNotFound {
-		tower, err = c.cfg.AnchorClient.LookupTower(pubKey)
+		tower, err = c.cfg.AnchorClient.LookupTower(pubKey, opts...)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	return marshallTower(tower, req.IncludeSessions), nil
+	return marshallTower(
+		tower, req.IncludeSessions, ackCounts, committedUpdateCounts,
+	), nil
+}
+
+// constructFunctionalOptions is a helper function that constructs a list of
+// functional options to be used when fetching a tower from the DB. It also
+// returns a map of acked-update counts and one for un-acked-update counts that
+// will be populated once the db call has been made.
+func constructFunctionalOptions(includeSessions bool) (
+	[]wtdb.ClientSessionListOption, map[wtdb.SessionID]uint16,
+	map[wtdb.SessionID]uint16) {
+
+	var (
+		opts                  []wtdb.ClientSessionListOption
+		ackCounts             = make(map[wtdb.SessionID]uint16)
+		committedUpdateCounts = make(map[wtdb.SessionID]uint16)
+	)
+	if !includeSessions {
+		return opts, ackCounts, committedUpdateCounts
+	}
+
+	perAckedUpdate := func(s *wtdb.ClientSession, _ uint16,
+		_ wtdb.BackupID) {
+
+		ackCounts[s.ID]++
+	}
+
+	perCommittedUpdate := func(s *wtdb.ClientSession,
+		_ *wtdb.CommittedUpdate) {
+
+		committedUpdateCounts[s.ID]++
+	}
+
+	opts = []wtdb.ClientSessionListOption{
+		wtdb.WithPerAckedUpdate(perAckedUpdate),
+		wtdb.WithPerCommittedUpdate(perCommittedUpdate),
+	}
+
+	return opts, ackCounts, committedUpdateCounts
 }
 
 // Stats returns the in-memory statistics of the client since startup.
@@ -387,7 +437,9 @@ func (c *WatchtowerClient) Policy(ctx context.Context,
 
 // marshallTower converts a client registered watchtower into its corresponding
 // RPC type.
-func marshallTower(tower *wtclient.RegisteredTower, includeSessions bool) *Tower {
+func marshallTower(tower *wtclient.RegisteredTower, includeSessions bool,
+	ackCounts, pendingCounts map[wtdb.SessionID]uint16) *Tower {
+
 	rpcAddrs := make([]string, 0, len(tower.Addresses))
 	for _, addr := range tower.Addresses {
 		rpcAddrs = append(rpcAddrs, addr.String())
@@ -399,8 +451,8 @@ func marshallTower(tower *wtclient.RegisteredTower, includeSessions bool) *Tower
 		for _, session := range tower.Sessions {
 			satPerVByte := session.Policy.SweepFeeRate.FeePerKVByte() / 1000
 			rpcSessions = append(rpcSessions, &TowerSession{
-				NumBackups:        uint32(len(session.AckedUpdates)),
-				NumPendingBackups: uint32(len(session.CommittedUpdates)),
+				NumBackups:        uint32(ackCounts[session.ID]),
+				NumPendingBackups: uint32(pendingCounts[session.ID]),
 				MaxBackups:        uint32(session.Policy.MaxUpdates),
 				SweepSatPerVbyte:  uint32(satPerVByte),
 

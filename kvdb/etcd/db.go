@@ -22,7 +22,7 @@ const (
 	// the etcd instance.
 	etcdConnectionTimeout = 10 * time.Second
 
-	// etcdLongTimeout is a timeout for longer taking etcd operatons.
+	// etcdLongTimeout is a timeout for longer taking etcd operations.
 	etcdLongTimeout = 30 * time.Second
 
 	// etcdDefaultRootBucketId is used as the root bucket key. Note that
@@ -52,8 +52,8 @@ type commitStatsCollector struct {
 	fail map[string]*callerStats
 }
 
-// newCommitStatsColletor creates a new commitStatsCollector instance.
-func newCommitStatsColletor() *commitStatsCollector {
+// newCommitStatsCollector creates a new commitStatsCollector instance.
+func newCommitStatsCollector() *commitStatsCollector {
 	return &commitStatsCollector{
 		succ: make(map[string]*callerStats),
 		fail: make(map[string]*callerStats),
@@ -133,9 +133,10 @@ type db struct {
 // Enforce db implements the walletdb.DB interface.
 var _ walletdb.DB = (*db)(nil)
 
-// newEtcdBackend returns a db object initialized with the passed backend
-// config. If etcd connection cannot be established, then returns error.
-func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
+// NewEtcdClient creates a new etcd v3 API client.
+func NewEtcdClient(ctx context.Context, cfg Config) (*clientv3.Client,
+	context.Context, func(), error) {
+
 	clientCfg := clientv3.Config{
 		Endpoints:          []string{cfg.Host},
 		DialTimeout:        etcdConnectionTimeout,
@@ -153,7 +154,7 @@ func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
 
 		tlsConfig, err := tlsInfo.ClientConfig()
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 
 		clientCfg.TLS = tlsConfig
@@ -164,13 +165,24 @@ func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
 	cli, err := clientv3.New(clientCfg)
 	if err != nil {
 		cancel()
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	// Apply the namespace.
 	cli.KV = namespace.NewKV(cli.KV, cfg.Namespace)
 	cli.Watcher = namespace.NewWatcher(cli.Watcher, cfg.Namespace)
 	cli.Lease = namespace.NewLease(cli.Lease, cfg.Namespace)
+
+	return cli, ctx, cancel, nil
+}
+
+// newEtcdBackend returns a db object initialized with the passed backend
+// config. If etcd connection cannot be established, then returns error.
+func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
+	cli, ctx, cancel, err := NewEtcdClient(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	backend := &db{
 		cfg:     cfg,
@@ -181,7 +193,7 @@ func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
 	}
 
 	if cfg.CollectStats {
-		backend.commitStatsCollector = newCommitStatsColletor()
+		backend.commitStatsCollector = newCommitStatsCollector()
 	}
 
 	return backend, nil

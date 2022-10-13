@@ -92,7 +92,7 @@ func getKeyVal(kv *KV) ([]byte, []byte) {
 	return getKey(kv.key), val
 }
 
-// BucketKey is a helper functon used in tests to create a bucket key from
+// BucketKey is a helper function used in tests to create a bucket key from
 // passed bucket list.
 func BucketKey(buckets ...string) string {
 	var bucketKey []byte
@@ -129,4 +129,11 @@ func ValueKey(key string, buckets ...string) string {
 	}
 
 	return string(makeValueKey(bucket, []byte(key)))
+}
+
+// SequenceKey is a helper function used in tests or external tools to create a
+// sequence key from the passed bucket list.
+func SequenceKey(buckets ...string) string {
+	id := makeBucketID([]byte(BucketKey(buckets...)))
+	return string(makeSequenceKey(id[:]))
 }

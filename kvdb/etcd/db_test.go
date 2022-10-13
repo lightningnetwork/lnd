@@ -12,7 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCopy(t *testing.T) {
+// TestDump tests that the Dump() method creates a one-to-one copy of the
+// database content.
+func TestDump(t *testing.T) {
 	t.Parallel()
 
 	f := NewEtcdTestFixture(t)
@@ -45,6 +47,8 @@ func TestCopy(t *testing.T) {
 	require.Equal(t, expected, f.Dump())
 }
 
+// TestAbortContext tests that an update on the database is aborted if the
+// database's main context in cancelled.
 func TestAbortContext(t *testing.T) {
 	t.Parallel()
 
@@ -72,4 +76,27 @@ func TestAbortContext(t *testing.T) {
 
 	// No changes in the DB.
 	require.Equal(t, map[string]string{}, f.Dump())
+}
+
+// TestNewEtcdClient tests that an etcd v3 client can be created correctly.
+func TestNewEtcdClient(t *testing.T) {
+	t.Parallel()
+
+	f := NewEtcdTestFixture(t)
+	defer f.Cleanup()
+
+	client, ctx, cancel, err := NewEtcdClient(
+		context.Background(), f.BackendConfig(),
+	)
+	require.NoError(t, err)
+	t.Cleanup(cancel)
+
+	_, err = client.Put(ctx, "foo/bar", "baz")
+	require.NoError(t, err)
+
+	resp, err := client.Get(ctx, "foo/bar")
+	require.NoError(t, err)
+
+	require.Len(t, resp.Kvs, 1)
+	require.Equal(t, "baz", string(resp.Kvs[0].Value))
 }

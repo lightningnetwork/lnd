@@ -436,9 +436,14 @@ func (d *DB) Wipe() error {
 // the database are created.
 func initChannelDB(db kvdb.Backend) error {
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		// Check if DB was marked as inactive with a tomb stone.
+		if err := EnsureNoTombstone(tx); err != nil {
+			return err
+		}
+
 		meta := &Meta{}
 		// Check if DB is already initialized.
-		err := fetchMeta(meta, tx)
+		err := FetchMeta(meta, tx)
 		if err == nil {
 			return nil
 		}
@@ -1417,7 +1422,7 @@ func (c *ChannelStateDB) DeleteChannelOpeningState(outPoint []byte) error {
 // applies migration functions to the current database and recovers the
 // previous state of db if at least one error/panic appeared during migration.
 func (d *DB) syncVersions(versions []mandatoryVersion) error {
-	meta, err := d.FetchMeta(nil)
+	meta, err := d.FetchMeta()
 	if err != nil {
 		if err == ErrMetaNotFound {
 			meta = &Meta{}
@@ -1559,6 +1564,12 @@ func (d *DB) ChannelGraph() *ChannelGraph {
 // state.
 func (d *DB) ChannelStateDB() *ChannelStateDB {
 	return d.channelStateDB
+}
+
+// LatestDBVersion returns the number of the latest database version currently
+// known to the channel DB.
+func LatestDBVersion() uint32 {
+	return getLatestDBVersion(dbVersions)
 }
 
 func getLatestDBVersion(versions []mandatoryVersion) uint32 {

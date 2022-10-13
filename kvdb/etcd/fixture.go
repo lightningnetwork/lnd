@@ -41,8 +41,8 @@ func NewTestEtcdInstance(t *testing.T, path string) (*Config, func()) {
 	return config, cleanup
 }
 
-// NewTestEtcdTestFixture creates a new etcd-test fixture. This is helper
-// object to facilitate etcd tests and ensure pre and post conditions.
+// NewEtcdTestFixture creates a new etcd-test fixture. This is helper
+// object to facilitate etcd tests and ensure pre- and post-conditions.
 func NewEtcdTestFixture(t *testing.T) *EtcdTestFixture {
 	tmpDir := t.TempDir()
 
@@ -128,7 +128,7 @@ func (f *EtcdTestFixture) Dump() map[string]string {
 	return result
 }
 
-// BackendConfig returns the backend config for connecting to theembedded
+// BackendConfig returns the backend config for connecting to the embedded
 // etcd instance.
 func (f *EtcdTestFixture) BackendConfig() Config {
 	return *f.config

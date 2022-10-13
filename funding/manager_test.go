@@ -156,6 +156,7 @@ func (m *mockAliasMgr) DeleteSixConfs(lnwire.ShortChannelID) error {
 }
 
 type mockNotifier struct {
+	spentChan      chan *chainntnfs.SpendDetail
 	oneConfChannel chan *chainntnfs.TxConfirmation
 	sixConfChannel chan *chainntnfs.TxConfirmation
 	epochChan      chan *chainntnfs.BlockEpoch
@@ -197,7 +198,7 @@ func (m *mockNotifier) Stop() error {
 func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
 	heightHint uint32) (*chainntnfs.SpendEvent, error) {
 	return &chainntnfs.SpendEvent{
-		Spend:  make(chan *chainntnfs.SpendDetail),
+		Spend:  m.spentChan,
 		Cancel: func() {},
 	}, nil
 }
@@ -357,6 +358,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	estimator := chainfee.NewStaticEstimator(62500, 0)
 
 	chainNotifier := &mockNotifier{
+		spentChan:      make(chan *chainntnfs.SpendDetail, 1),
 		oneConfChannel: make(chan *chainntnfs.TxConfirmation, 1),
 		sixConfChannel: make(chan *chainntnfs.TxConfirmation, 1),
 		epochChan:      make(chan *chainntnfs.BlockEpoch, 2),
@@ -1368,6 +1370,11 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 	assertErrorNotSent(t, alice.msgChan)
 	assertErrorNotSent(t, bob.msgChan)
 
+	// Notify that the funding transaction spends its own inputs.
+	alice.mockNotifier.spentChan <- &chainntnfs.SpendDetail{
+		SpenderTxHash: &fundingOutPoint.Hash,
+	}
+
 	// Notify that transaction was mined.
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -1627,6 +1634,11 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	}
 	alice.fundingMgr.cfg.NotifyWhenOnline = notifyWhenOnline
 
+	// Notify that the funding transaction spends its own inputs.
+	alice.mockNotifier.spentChan <- &chainntnfs.SpendDetail{
+		SpenderTxHash: &fundingOutPoint.Hash,
+	}
+
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -1781,6 +1793,11 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 
 		peerChan <- peer
 		conChan <- connected
+	}
+
+	// Notify that the funding transaction spends its own inputs.
+	alice.mockNotifier.spentChan <- &chainntnfs.SpendDetail{
+		SpenderTxHash: &fundingOutPoint.Hash,
 	}
 
 	// Notify that transaction was mined
@@ -2259,6 +2276,11 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
 	)
 
+	// Notify that the funding transaction has spent the funding inputs.
+	alice.mockNotifier.spentChan <- &chainntnfs.SpendDetail{
+		SpenderTxHash: &fundingOutPoint.Hash,
+	}
+
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -2368,6 +2390,12 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
 	)
 
+	// Notify that the funding transaction spends the inputs to the funding
+	// transaction.
+	alice.mockNotifier.spentChan <- &chainntnfs.SpendDetail{
+		SpenderTxHash: &fundingOutPoint.Hash,
+	}
+
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -2462,6 +2490,12 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
 	)
 
+	// Notify that the funding transaction spends the inputs to the funding
+	// transaction.
+	alice.mockNotifier.spentChan <- &chainntnfs.SpendDetail{
+		SpenderTxHash: &fundingOutPoint.Hash,
+	}
+
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -2551,6 +2585,11 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, false,
 	)
+
+	// Notify that the funding transaction spends its own inputs.
+	alice.mockNotifier.spentChan <- &chainntnfs.SpendDetail{
+		SpenderTxHash: &fundingOutPoint.Hash,
+	}
 
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
@@ -2670,6 +2709,11 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, false,
 	)
+
+	// Notify that the funding transaction spends its own inputs.
+	alice.mockNotifier.spentChan <- &chainntnfs.SpendDetail{
+		SpenderTxHash: &fundingOutPoint.Hash,
+	}
 
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
@@ -3100,6 +3144,12 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		t.Fatalf("alice did not publish funding tx")
 	}
 
+	// Notify that the funding transaction spends its inputs.
+	txHash := fundingTx.TxHash()
+	alice.mockNotifier.spentChan <- &chainntnfs.SpendDetail{
+		SpenderTxHash: &txHash,
+	}
+
 	// Notify that transaction was mined.
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -3408,6 +3458,11 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 
 	// Notify that the transactions were mined.
 	for i := 0; i < maxPending; i++ {
+		txHash := txs[i].TxHash()
+		alice.mockNotifier.spentChan <- &chainntnfs.SpendDetail{
+			SpenderTxHash: &txHash,
+		}
+
 		alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 			Tx: txs[i],
 		}
@@ -4167,6 +4222,11 @@ func TestFundingManagerZeroConf(t *testing.T) {
 	case <-alice.publTxChan:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("timed out waiting for alice to rebroadcast tx")
+	}
+
+	// Notify that the funding transaction spends the inputs.
+	alice.mockNotifier.spentChan <- &chainntnfs.SpendDetail{
+		SpenderTxHash: &fundingOp.Hash,
 	}
 
 	// We'll now confirm the funding transaction.

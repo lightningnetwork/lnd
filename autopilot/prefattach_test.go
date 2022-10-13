@@ -73,29 +73,23 @@ func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 		NewNodeID(pub): {},
 	}
 
-	for _, graph := range chanGraphs {
-		success := t.Run(graph.name, func(t1 *testing.T) {
-			graph, err := graph.genFunc(t1)
-			if err != nil {
-				t1.Fatalf("unable to create graph: %v", err)
-			}
+	for _, chanGraph := range chanGraphs {
+		chanGraph := chanGraph
+		graph, err := chanGraph.genFunc(t)
+		require.NoError(t, err, "unable to create graph")
 
+		success := t.Run(chanGraph.name, func(t1 *testing.T) {
 			// With the necessary state initialized, we'll now
 			// attempt to get the score for this one node.
 			const walletFunds = btcutil.SatoshiPerBitcoin
-			scores, err := prefAttach.NodeScores(graph, nil,
-				walletFunds, nodes)
-			if err != nil {
-				t1.Fatalf("unable to select attachment "+
-					"directives: %v", err)
-			}
+			scores, err := prefAttach.NodeScores(
+				graph, nil, walletFunds, nodes,
+			)
+			require.NoError(t1, err)
 
 			// Since the graph is empty, we expect the score to be
 			// 0, giving an empty return map.
-			if len(scores) != 0 {
-				t1.Fatalf("expected empty score map, "+
-					"instead got %v ", len(scores))
-			}
+			require.Empty(t1, scores)
 		})
 		if !success {
 			break
@@ -115,59 +109,48 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
 	)
 
-	for _, graph := range chanGraphs {
-		success := t.Run(graph.name, func(t1 *testing.T) {
-			graph, err := graph.genFunc(t1)
-			if err != nil {
-				t1.Fatalf("unable to create graph: %v", err)
-			}
+	for _, chanGraph := range chanGraphs {
+		chanGraph := chanGraph
+		graph, err := chanGraph.genFunc(t)
+		require.NoError(t, err, "unable to create graph")
 
+		success := t.Run(chanGraph.name, func(t1 *testing.T) {
 			prefAttach := NewPrefAttachment()
 
 			// For this set, we'll load the memory graph with two
 			// nodes, and a random channel connecting them.
 			const chanCapacity = btcutil.SatoshiPerBitcoin
-			edge1, edge2, err := graph.addRandChannel(nil, nil, chanCapacity)
-			if err != nil {
-				t1.Fatalf("unable to generate channel: %v", err)
-			}
+			edge1, edge2, err := graph.addRandChannel(
+				nil, nil, chanCapacity,
+			)
+			require.NoError(t1, err)
 
 			// We also add a third, non-connected node to the graph.
 			_, err = graph.addRandNode()
-			if err != nil {
-				t1.Fatalf("unable to add random node: %v", err)
-			}
+			require.NoError(t1, err)
 
 			// Get the score for all nodes found in the graph at
 			// this point.
 			nodes := make(map[NodeID]struct{})
-			if err := graph.ForEachNode(func(n Node) error {
+			err = graph.ForEachNode(func(n Node) error {
 				nodes[n.PubKey()] = struct{}{}
 				return nil
-			}); err != nil {
-				t1.Fatalf("unable to traverse graph: %v", err)
-			}
+			})
+			require.NoError(t1, err)
 
-			if len(nodes) != 3 {
-				t1.Fatalf("expected 2 nodes, found %d", len(nodes))
-			}
+			require.Len(t1, nodes, 3)
 
 			// With the necessary state initialized, we'll now
 			// attempt to get our candidates channel score given
 			// the current state of the graph.
-			candidates, err := prefAttach.NodeScores(graph, nil,
-				maxChanSize, nodes)
-			if err != nil {
-				t1.Fatalf("unable to select attachment "+
-					"directives: %v", err)
-			}
+			candidates, err := prefAttach.NodeScores(
+				graph, nil, maxChanSize, nodes,
+			)
+			require.NoError(t1, err)
 
 			// We expect two candidates, since one of the nodes
 			// doesn't have any channels.
-			if len(candidates) != 2 {
-				t1.Fatalf("2 nodes should be scored, "+
-					"instead %v were", len(candidates))
-			}
+			require.Len(t1, candidates, 2)
 
 			// The candidates should be amongst the two edges
 			// created above.
@@ -186,12 +169,7 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 				// Since each of the nodes has 1 channel, out
 				// of only one channel in the graph, we expect
 				// their score to be 1.0.
-				expScore := float64(1.0)
-				if candidate.Score != expScore {
-					t1.Fatalf("expected candidate score "+
-						"to be %v, instead was %v",
-						expScore, candidate.Score)
-				}
+				require.EqualValues(t1, 1, candidate.Score)
 			}
 		})
 		if !success {
@@ -212,42 +190,38 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
 	)
 
-	for _, graph := range chanGraphs {
-		success := t.Run(graph.name, func(t1 *testing.T) {
-			graph, err := graph.genFunc(t1)
-			if err != nil {
-				t1.Fatalf("unable to create graph: %v", err)
-			}
+	for _, chanGraph := range chanGraphs {
+		chanGraph := chanGraph
+		graph, err := chanGraph.genFunc(t)
+		require.NoError(t, err, "unable to create graph")
 
+		success := t.Run(chanGraph.name, func(t1 *testing.T) {
 			prefAttach := NewPrefAttachment()
 
 			const chanCapacity = btcutil.SatoshiPerBitcoin
 
 			// Next, we'll add 3 nodes to the graph, creating an
 			// "open triangle topology".
-			edge1, _, err := graph.addRandChannel(nil, nil,
-				chanCapacity)
-			if err != nil {
-				t1.Fatalf("unable to create channel: %v", err)
-			}
+			edge1, _, err := graph.addRandChannel(
+				nil, nil, chanCapacity,
+			)
+			require.NoError(t1, err)
+
 			peerPubBytes := edge1.Peer.PubKey()
 			peerPub, err := btcec.ParsePubKey(peerPubBytes[:])
-			if err != nil {
-				t.Fatalf("unable to parse pubkey: %v", err)
-			}
+			require.NoError(t1, err)
+
 			_, _, err = graph.addRandChannel(
 				peerPub, nil, chanCapacity,
 			)
-			if err != nil {
-				t1.Fatalf("unable to create channel: %v", err)
-			}
+			require.NoError(t1, err)
 
 			// At this point, there should be three nodes in the
-			// graph, with node node having two edges.
+			// graph, with node having two edges.
 			numNodes := 0
 			twoChans := false
 			nodes := make(map[NodeID]struct{})
-			if err := graph.ForEachNode(func(n Node) error {
+			err = graph.ForEachNode(func(n Node) error {
 				numNodes++
 				nodes[n.PubKey()] = struct{}{}
 				numChans := 0
@@ -262,65 +236,46 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 				twoChans = twoChans || (numChans == 2)
 
 				return nil
-			}); err != nil {
-				t1.Fatalf("unable to traverse graph: %v", err)
-			}
-			if numNodes != 3 {
-				t1.Fatalf("expected 3 nodes, instead have: %v",
-					numNodes)
-			}
-			if !twoChans {
-				t1.Fatalf("expected node to have two channels")
-			}
+			})
+			require.NoError(t1, err)
+
+			require.EqualValues(t1, 3, numNodes)
+			require.True(t1, twoChans, "have two chans")
 
 			// We'll now begin our test, modeling the available
 			// wallet balance to be 5.5 BTC. We're shooting for a
 			// 50/50 allocation, and have 3 BTC in channels. As a
 			// result, the heuristic should try to greedily
 			// allocate funds to channels.
-			scores, err := prefAttach.NodeScores(graph, nil,
-				maxChanSize, nodes)
-			if err != nil {
-				t1.Fatalf("unable to select attachment "+
-					"directives: %v", err)
-			}
+			scores, err := prefAttach.NodeScores(
+				graph, nil, maxChanSize, nodes,
+			)
+			require.NoError(t1, err)
 
-			if len(scores) != len(nodes) {
-				t1.Fatalf("all nodes should be scored, "+
-					"instead %v were", len(scores))
-			}
+			require.Equal(t1, len(nodes), len(scores))
 
 			// The candidates should have a non-zero score, and
 			// have the max chan size funds recommended channel
 			// size.
 			for _, candidate := range scores {
-				if candidate.Score == 0 {
-					t1.Fatalf("Expected non-zero score")
-				}
+				require.NotZero(t1, candidate.Score)
 			}
 
 			// Imagine a few channels are being opened, and there's
 			// only 0.5 BTC left. That should leave us with channel
 			// candidates of that size.
 			const remBalance = btcutil.SatoshiPerBitcoin * 0.5
-			scores, err = prefAttach.NodeScores(graph, nil,
-				remBalance, nodes)
-			if err != nil {
-				t1.Fatalf("unable to select attachment "+
-					"directives: %v", err)
-			}
+			scores, err = prefAttach.NodeScores(
+				graph, nil, remBalance, nodes,
+			)
+			require.NoError(t1, err)
 
-			if len(scores) != len(nodes) {
-				t1.Fatalf("all nodes should be scored, "+
-					"instead %v were", len(scores))
-			}
+			require.Equal(t1, len(nodes), len(scores))
 
 			// Check that the recommended channel sizes are now the
 			// remaining channel balance.
 			for _, candidate := range scores {
-				if candidate.Score == 0 {
-					t1.Fatalf("Expected non-zero score")
-				}
+				require.NotZero(t1, candidate.Score)
 			}
 		})
 		if !success {
@@ -341,56 +296,42 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
 	)
 
-	for _, graph := range chanGraphs {
-		success := t.Run(graph.name, func(t1 *testing.T) {
-			graph, err := graph.genFunc(t1)
-			if err != nil {
-				t1.Fatalf("unable to create graph: %v", err)
-			}
+	for _, chanGraph := range chanGraphs {
+		chanGraph := chanGraph
+		graph, err := chanGraph.genFunc(t)
+		require.NoError(t, err, "unable to create graph")
 
+		success := t.Run(chanGraph.name, func(t1 *testing.T) {
 			prefAttach := NewPrefAttachment()
 
 			// Next, we'll create a simple topology of two nodes,
 			// with a single channel connecting them.
 			const chanCapacity = btcutil.SatoshiPerBitcoin
-			_, _, err = graph.addRandChannel(nil, nil,
-				chanCapacity)
-			if err != nil {
-				t1.Fatalf("unable to create channel: %v", err)
-			}
+			_, _, err = graph.addRandChannel(nil, nil, chanCapacity)
+			require.NoError(t1, err)
 
 			nodes := make(map[NodeID]struct{})
-			if err := graph.ForEachNode(func(n Node) error {
+			err = graph.ForEachNode(func(n Node) error {
 				nodes[n.PubKey()] = struct{}{}
 				return nil
-			}); err != nil {
-				t1.Fatalf("unable to traverse graph: %v", err)
-			}
+			})
+			require.NoError(t1, err)
 
-			if len(nodes) != 2 {
-				t1.Fatalf("expected 2 nodes, found %d", len(nodes))
-			}
+			require.Len(t1, nodes, 2)
 
 			// With our graph created, we'll now get the scores for
 			// all nodes in the graph.
-			scores, err := prefAttach.NodeScores(graph, nil,
-				maxChanSize, nodes)
-			if err != nil {
-				t1.Fatalf("unable to select attachment "+
-					"directives: %v", err)
-			}
+			scores, err := prefAttach.NodeScores(
+				graph, nil, maxChanSize, nodes,
+			)
+			require.NoError(t1, err)
 
-			if len(scores) != len(nodes) {
-				t1.Fatalf("all nodes should be scored, "+
-					"instead %v were", len(scores))
-			}
+			require.Equal(t1, len(nodes), len(scores))
 
 			// THey should all have a score, and a maxChanSize
 			// channel size recommendation.
 			for _, candidate := range scores {
-				if candidate.Score == 0 {
-					t1.Fatalf("Expected non-zero score")
-				}
+				require.NotZero(t1, candidate.Score)
 			}
 
 			// We'll simulate a channel update by adding the nodes
@@ -408,19 +349,14 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 			// function, without providing any new information,
 			// then all nodes should have a score of zero, since we
 			// already got channels to them.
-			scores, err = prefAttach.NodeScores(graph, chans,
-				maxChanSize, nodes)
-			if err != nil {
-				t1.Fatalf("unable to select attachment "+
-					"directives: %v", err)
-			}
+			scores, err = prefAttach.NodeScores(
+				graph, chans, maxChanSize, nodes,
+			)
+			require.NoError(t1, err)
 
 			// Since all should be given a score of 0, the map
 			// should be empty.
-			if len(scores) != 0 {
-				t1.Fatalf("expected empty score map, "+
-					"instead got %v ", len(scores))
-			}
+			require.Empty(t1, scores)
 		})
 		if !success {
 			break

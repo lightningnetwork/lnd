@@ -511,11 +511,9 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 	}
 
 	router, sendResult, getPaymentResult := setupRouter()
-	defer func() {
-		if err := router.Stop(); err != nil {
-			t.Fatal(err)
-		}
-	}()
+	t.Cleanup(func() {
+		require.NoError(t, router.Stop())
+	})
 
 	// Craft a LightningPayment struct.
 	var preImage lntypes.Preimage

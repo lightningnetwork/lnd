@@ -392,8 +392,7 @@ func (m *mockChainView) Stop() error {
 func TestEdgeUpdateNotification(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanUp := createTestCtxSingleNode(t, 0)
-	defer cleanUp()
+	ctx := createTestCtxSingleNode(t, 0)
 
 	// First we'll create the utxo for the channel to be "closed"
 	const chanValue = 10000
@@ -571,8 +570,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxSingleNode(t, startingBlockHeight)
-	defer cleanUp()
+	ctx := createTestCtxSingleNode(t, startingBlockHeight)
 
 	// We only accept node announcements from nodes having a known channel,
 	// so create one now.
@@ -753,8 +751,7 @@ func TestNotificationCancellation(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxSingleNode(t, startingBlockHeight)
-	defer cleanUp()
+	ctx := createTestCtxSingleNode(t, startingBlockHeight)
 
 	// Create a new client to receive notifications.
 	ntfnClient, err := ctx.router.SubscribeTopology()
@@ -834,8 +831,7 @@ func TestChannelCloseNotification(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxSingleNode(t, startingBlockHeight)
-	defer cleanUp()
+	ctx := createTestCtxSingleNode(t, startingBlockHeight)
 
 	// First we'll create the utxo for the channel to be "closed"
 	const chanValue = 10000

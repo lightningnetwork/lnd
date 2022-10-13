@@ -1528,8 +1528,10 @@ func TestClient(t *testing.T) {
 			t.Parallel()
 
 			h := newHarness(t, tc.cfg)
-			defer h.server.Stop()
-			defer h.client.ForceQuit()
+			t.Cleanup(func() {
+				require.NoError(t, h.server.Stop())
+				h.client.ForceQuit()
+			})
 
 			tc.fn(h)
 		})

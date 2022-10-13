@@ -1340,7 +1340,9 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// We will consume the channel updates as we go, so no buffering is needed.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -1443,7 +1445,9 @@ func testLocalCSVLimit(t *testing.T, aliceMaxCSV, bobRequiredCSV uint16) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// Set a maximum local delay in alice's config to aliceMaxCSV and overwrite
 	// bob's required remote delay function to return bobRequiredCSV.
@@ -1583,7 +1587,9 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
@@ -1736,7 +1742,9 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
@@ -1894,7 +1902,9 @@ func TestFundingManagerPeerTimeoutAfterInitFunding(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// We will consume the channel updates as we go, so no buffering is needed.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -1957,7 +1967,9 @@ func TestFundingManagerPeerTimeoutAfterFundingOpen(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// We will consume the channel updates as we go, so no buffering is needed.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -2029,7 +2041,9 @@ func TestFundingManagerPeerTimeoutAfterFundingAccept(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// We will consume the channel updates as we go, so no buffering is needed.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -2106,7 +2120,9 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// We will consume the channel updates as we go, so no buffering is needed.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -2150,7 +2166,9 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// We will consume the channel updates as we go, so no buffering is needed.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -2217,7 +2235,9 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// We will consume the channel updates as we go, so no buffering is needed.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -2324,7 +2344,9 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// We will consume the channel updates as we go, so no buffering is needed.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -2416,7 +2438,9 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// We will consume the channel updates as we go, so no buffering is needed.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -2504,7 +2528,9 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// We will consume the channel updates as we go, so no buffering is needed.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -2621,7 +2647,9 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// We will consume the channel updates as we go, so no buffering is needed.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -2758,7 +2786,9 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// This is the custom parameters we'll use.
 	const csvDelay = 67
@@ -3143,7 +3173,9 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 			cfg.MaxPendingChannels = maxPending
 		},
 	)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// Create InitFundingMsg structs for maxPending+1 channels.
 	var initReqs []*InitFundingMsg
@@ -3316,7 +3348,9 @@ func TestFundingManagerRejectPush(t *testing.T) {
 			cfg.RejectPush = true
 		},
 	)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// Create a funding request and start the workflow.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -3374,7 +3408,9 @@ func TestFundingManagerMaxConfs(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// Create a funding request and start the workflow.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -3494,7 +3530,9 @@ func TestFundingManagerFundAll(t *testing.T) {
 
 	for _, test := range tests {
 		alice, bob := setupFundingManagers(t)
-		defer tearDownFundingManagers(t, alice, bob)
+		t.Cleanup(func() {
+			tearDownFundingManagers(t, alice, bob)
+		})
 
 		alice.fundingMgr.cfg.Wallet.WalletController.(*mock.WalletController).Utxos = allCoins
 
@@ -3878,7 +3916,9 @@ func TestFundingManagerUpfrontShutdown(t *testing.T) {
 
 func testUpfrontFailure(t *testing.T, pkscript []byte, expectErr bool) {
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	errChan := make(chan error, 1)
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
@@ -3944,7 +3984,9 @@ func TestFundingManagerZeroConf(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
-	defer tearDownFundingManagers(t, alice, bob)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
 
 	// Alice and Bob will have the same set of feature bits in our test.
 	featureBits := []lnwire.FeatureBit{

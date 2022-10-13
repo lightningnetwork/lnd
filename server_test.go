@@ -75,7 +75,7 @@ func TestTLSAutoRegeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("couldn't retrieve TLS config")
 	}
-	defer cleanUp()
+	t.Cleanup(cleanUp)
 
 	// Grab the certificate to test that getTLSConfig did its job correctly
 	// and generated a new cert.

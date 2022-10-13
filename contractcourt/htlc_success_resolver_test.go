@@ -477,7 +477,7 @@ type checkpoint struct {
 func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
 	checkpoints []checkpoint) {
 
-	defer timeout(t)()
+	defer timeout()()
 
 	// We first run the resolver from start to finish, ensuring it gets
 	// checkpointed at every expected stage. We store the checkpointed data
@@ -521,7 +521,7 @@ func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
 func runFromCheckpoint(t *testing.T, ctx *htlcResolverTestContext,
 	expectedCheckpoints []checkpoint) [][]byte {
 
-	defer timeout(t)()
+	defer timeout()()
 
 	var checkpointedState [][]byte
 

@@ -24,19 +24,20 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
 
 	// Create 10 test channels and sync them to the database.
 	const numChans = 10
 	var channels []*channeldb.OpenChannel
 	for i := 0; i < numChans; i++ {
-		lChannel, _, cleanup, err := lnwallet.CreateTestChannels(
-			channeldb.SingleFunderTweaklessBit,
+		lChannel, _, err := lnwallet.CreateTestChannels(
+			t, channeldb.SingleFunderTweaklessBit,
 		)
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer cleanup()
 
 		channel := lChannel.State()
 
@@ -94,11 +95,9 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 	if err := chainArb.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := chainArb.Stop(); err != nil {
-			t.Fatal(err)
-		}
-	}()
+	t.Cleanup(func() {
+		require.NoError(t, chainArb.Stop())
+	})
 
 	// Half of the channels should have had their closing tx re-published.
 	if len(published) != numChans/2 {
@@ -137,15 +136,16 @@ func TestResolveContract(t *testing.T) {
 
 	db, err := channeldb.Open(t.TempDir())
 	require.NoError(t, err, "unable to open db")
-	defer db.Close()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
 
 	// With the DB created, we'll make a new channel, and mark it as
 	// pending open within the database.
-	newChannel, _, cleanup, err := lnwallet.CreateTestChannels(
-		channeldb.SingleFunderTweaklessBit,
+	newChannel, _, err := lnwallet.CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to make new test channel")
-	defer cleanup()
 	channel := newChannel.State()
 	channel.Db = db.ChannelStateDB()
 	addr := &net.TCPAddr{
@@ -177,11 +177,9 @@ func TestResolveContract(t *testing.T) {
 	if err := chainArb.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := chainArb.Stop(); err != nil {
-			t.Fatal(err)
-		}
-	}()
+	t.Cleanup(func() {
+		require.NoError(t, chainArb.Stop())
+	})
 
 	channelArb := chainArb.activeChannels[channel.FundingOutpoint]
 

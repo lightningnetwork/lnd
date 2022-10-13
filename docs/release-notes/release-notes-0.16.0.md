@@ -106,6 +106,9 @@ crash](https://github.com/lightningnetwork/lnd/pull/7019).
 * [Create a helper function to wait for peer to come
   online](https://github.com/lightningnetwork/lnd/pull/6931).
 
+* [test: replace defer cleanup with
+  `t.Cleanup`](https://github.com/lightningnetwork/lnd/pull/6864)
+
 ### Tooling and documentation
 
 * [The `golangci-lint` tool was updated to

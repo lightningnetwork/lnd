@@ -956,18 +956,18 @@ restartCheck:
 
 func initBreachedState(t *testing.T) (*BreachArbiter,
 	*lnwallet.LightningChannel, *lnwallet.LightningChannel,
-	*lnwallet.LocalForceCloseSummary, chan *ContractBreachEvent,
-	func(), func()) {
+	*lnwallet.LocalForceCloseSummary, chan *ContractBreachEvent) {
+
 	// Create a pair of channels using a notifier that allows us to signal
 	// a spend of the funding transaction. Alice's channel will be the on
 	// observing a breach.
-	alice, bob, cleanUpChans, err := createInitChannels(t, 1)
+	alice, bob, err := createInitChannels(t, 1)
 	require.NoError(t, err, "unable to create test channels")
 
 	// Instantiate a breach arbiter to handle the breach of alice's channel.
 	contractBreaches := make(chan *ContractBreachEvent)
 
-	brar, cleanUpArb, err := createTestArbiter(
+	brar, err := createTestArbiter(
 		t, contractBreaches, alice.State().Db.GetParentDB(),
 	)
 	require.NoError(t, err, "unable to initialize test breach arbiter")
@@ -1003,8 +1003,7 @@ func initBreachedState(t *testing.T) (*BreachArbiter,
 		t.Fatalf("Can't update the channel state: %v", err)
 	}
 
-	return brar, alice, bob, bobClose, contractBreaches, cleanUpChans,
-		cleanUpArb
+	return brar, alice, bob, bobClose, contractBreaches
 }
 
 // TestBreachHandoffSuccess tests that a channel's close observer properly
@@ -1012,10 +1011,7 @@ func initBreachedState(t *testing.T) (*BreachArbiter,
 // breach close. This test verifies correctness in the event that the handoff
 // experiences no interruptions.
 func TestBreachHandoffSuccess(t *testing.T) {
-	brar, alice, _, bobClose, contractBreaches,
-		cleanUpChans, cleanUpArb := initBreachedState(t)
-	defer cleanUpChans()
-	defer cleanUpArb()
+	brar, alice, _, bobClose, contractBreaches := initBreachedState(t)
 
 	chanPoint := alice.ChanPoint
 
@@ -1093,10 +1089,7 @@ func TestBreachHandoffSuccess(t *testing.T) {
 // arbiter fails to write the information to disk, and that a subsequent attempt
 // at the handoff succeeds.
 func TestBreachHandoffFail(t *testing.T) {
-	brar, alice, _, bobClose, contractBreaches,
-		cleanUpChans, cleanUpArb := initBreachedState(t)
-	defer cleanUpChans()
-	defer cleanUpArb()
+	brar, alice, _, bobClose, contractBreaches := initBreachedState(t)
 
 	// Before alerting Alice of the breach, instruct our failing retribution
 	// store to fail the next database operation, which we expect to write
@@ -1140,11 +1133,10 @@ func TestBreachHandoffFail(t *testing.T) {
 	assertNoArbiterBreach(t, brar, chanPoint)
 	assertNotPendingClosed(t, alice)
 
-	brar, cleanUpArb, err := createTestArbiter(
+	brar, err := createTestArbiter(
 		t, contractBreaches, alice.State().Db.GetParentDB(),
 	)
 	require.NoError(t, err, "unable to initialize test breach arbiter")
-	defer cleanUpArb()
 
 	// Signal a spend of the funding transaction and wait for the close
 	// observer to exit. This time we are allowing the handoff to succeed.
@@ -1183,9 +1175,7 @@ func TestBreachHandoffFail(t *testing.T) {
 // TestBreachCreateJusticeTx tests that we create three different variants of
 // the justice tx.
 func TestBreachCreateJusticeTx(t *testing.T) {
-	brar, _, _, _, _, cleanUpChans, cleanUpArb := initBreachedState(t)
-	defer cleanUpChans()
-	defer cleanUpArb()
+	brar, _, _, _, _ := initBreachedState(t)
 
 	// In this test we just want to check that the correct inputs are added
 	// to the justice tx, not that we create a valid spend, so we just set
@@ -1564,10 +1554,7 @@ func TestBreachSpends(t *testing.T) {
 }
 
 func testBreachSpends(t *testing.T, test breachTest) {
-	brar, alice, _, bobClose, contractBreaches,
-		cleanUpChans, cleanUpArb := initBreachedState(t)
-	defer cleanUpChans()
-	defer cleanUpArb()
+	brar, alice, _, bobClose, contractBreaches := initBreachedState(t)
 
 	var (
 		height       = bobClose.ChanSnapshot.CommitHeight
@@ -1783,10 +1770,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 // "split" the justice tx in case the first justice tx doesn't confirm within
 // a reasonable time.
 func TestBreachDelayedJusticeConfirmation(t *testing.T) {
-	brar, alice, _, bobClose, contractBreaches,
-		cleanUpChans, cleanUpArb := initBreachedState(t)
-	defer cleanUpChans()
-	defer cleanUpArb()
+	brar, alice, _, bobClose, contractBreaches := initBreachedState(t)
 
 	var (
 		height       = bobClose.ChanSnapshot.CommitHeight
@@ -2123,7 +2107,7 @@ func assertNotPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 // createTestArbiter instantiates a breach arbiter with a failing retribution
 // store, so that controlled failures can be tested.
 func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
-	db *channeldb.DB) (*BreachArbiter, func(), error) {
+	db *channeldb.DB) (*BreachArbiter, error) {
 
 	// Create a failing retribution store, that wraps a normal one.
 	store := newFailingRetributionStore(func() RetributionStorer {
@@ -2148,21 +2132,21 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 	})
 
 	if err := ba.Start(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
+	t.Cleanup(func() {
+		require.NoError(t, ba.Stop())
+	})
 
-	// The caller is responsible for closing the database.
-	cleanUp := func() {
-		ba.Stop()
-	}
-
-	return ba, cleanUp, nil
+	return ba, nil
 }
 
 // createInitChannels creates two initialized test channels funded with 10 BTC,
 // with 5 BTC allocated to each side. Within the channel, Alice is the
 // initiator.
-func createInitChannels(t *testing.T, revocationWindow int) (*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(), error) {
+func createInitChannels(t *testing.T, revocationWindow int) (
+	*lnwallet.LightningChannel, *lnwallet.LightningChannel, error) {
+
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
 		channels.AlicesPrivKey,
 	)
@@ -2172,7 +2156,7 @@ func createInitChannels(t *testing.T, revocationWindow int) (*lnwallet.Lightning
 
 	channelCapacity, err := btcutil.NewAmount(10)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	channelBal := channelCapacity / 2
@@ -2240,23 +2224,23 @@ func createInitChannels(t *testing.T, revocationWindow int) (*lnwallet.Lightning
 
 	bobRoot, err := chainhash.NewHash(bobKeyPriv.Serialize())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	bobPreimageProducer := shachain.NewRevocationProducer(*bobRoot)
 	bobFirstRevoke, err := bobPreimageProducer.AtIndex(0)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	bobCommitPoint := input.ComputeCommitmentPoint(bobFirstRevoke[:])
 
 	aliceRoot, err := chainhash.NewHash(aliceKeyPriv.Serialize())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	alicePreimageProducer := shachain.NewRevocationProducer(*aliceRoot)
 	aliceFirstRevoke, err := alicePreimageProducer.AtIndex(0)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
@@ -2266,23 +2250,29 @@ func createInitChannels(t *testing.T, revocationWindow int) (*lnwallet.Lightning
 		false, 0,
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	dbAlice, err := channeldb.Open(t.TempDir())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
+	t.Cleanup(func() {
+		require.NoError(t, dbAlice.Close())
+	})
 
 	dbBob, err := channeldb.Open(t.TempDir())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
+	t.Cleanup(func() {
+		require.NoError(t, dbBob.Close())
+	})
 
 	estimator := chainfee.NewStaticEstimator(12500, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	commitFee := feePerKw.FeeForWeight(input.CommitWeight)
@@ -2309,7 +2299,7 @@ func createInitChannels(t *testing.T, revocationWindow int) (*lnwallet.Lightning
 
 	var chanIDBytes [8]byte
 	if _, err := io.ReadFull(crand.Reader, chanIDBytes[:]); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	shortChanID := lnwire.NewShortChanIDFromInt(
@@ -2360,25 +2350,31 @@ func createInitChannels(t *testing.T, revocationWindow int) (*lnwallet.Lightning
 		aliceSigner, aliceChannelState, alicePool,
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	alicePool.Start()
+	t.Cleanup(func() {
+		require.NoError(t, alicePool.Stop())
+	})
 
 	bobPool := lnwallet.NewSigPool(1, bobSigner)
 	channelBob, err := lnwallet.NewLightningChannel(
 		bobSigner, bobChannelState, bobPool,
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	bobPool.Start()
+	t.Cleanup(func() {
+		require.NoError(t, bobPool.Stop())
+	})
 
 	addr := &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,
 	}
 	if err := channelAlice.State().SyncPending(addr, 101); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	addr = &net.TCPAddr{
@@ -2386,22 +2382,17 @@ func createInitChannels(t *testing.T, revocationWindow int) (*lnwallet.Lightning
 		Port: 18555,
 	}
 	if err := channelBob.State().SyncPending(addr, 101); err != nil {
-		return nil, nil, nil, err
-	}
-
-	cleanUpFunc := func() {
-		dbBob.Close()
-		dbAlice.Close()
+		return nil, nil, err
 	}
 
 	// Now that the channel are open, simulate the start of a session by
 	// having Alice and Bob extend their revocation windows to each other.
 	err = initRevocationWindows(channelAlice, channelBob, revocationWindow)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	return channelAlice, channelBob, cleanUpFunc, nil
+	return channelAlice, channelBob, nil
 }
 
 // initRevocationWindows simulates a new channel being opened within the p2p

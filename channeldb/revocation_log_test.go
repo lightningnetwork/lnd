@@ -291,9 +291,8 @@ func TestDerializeRevocationLog(t *testing.T) {
 func TestFetchLogBucket(t *testing.T) {
 	t.Parallel()
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err)
-	defer cleanUp()
 
 	backend := fullDB.ChannelStateDB().backend
 
@@ -326,9 +325,8 @@ func TestFetchLogBucket(t *testing.T) {
 func TestDeleteLogBucket(t *testing.T) {
 	t.Parallel()
 
-	fullDB, cleanUp, err := MakeTestDB()
+	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err)
-	defer cleanUp()
 
 	backend := fullDB.ChannelStateDB().backend
 
@@ -423,9 +421,8 @@ func TestPutRevocationLog(t *testing.T) {
 	for _, tc := range testCases {
 		tc := tc
 
-		fullDB, cleanUp, err := MakeTestDB()
+		fullDB, err := MakeTestDB(t)
 		require.NoError(t, err)
-		defer cleanUp()
 
 		backend := fullDB.ChannelStateDB().backend
 
@@ -523,9 +520,8 @@ func TestFetchRevocationLogCompatible(t *testing.T) {
 	for _, tc := range testCases {
 		tc := tc
 
-		fullDB, cleanUp, err := MakeTestDB()
+		fullDB, err := MakeTestDB(t)
 		require.NoError(t, err)
-		defer cleanUp()
 
 		backend := fullDB.ChannelStateDB().backend
 

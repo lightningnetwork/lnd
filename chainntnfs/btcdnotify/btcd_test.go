@@ -61,6 +61,9 @@ func setUpNotifier(t *testing.T, h *rpctest.Harness) *BtcdNotifier {
 	if err := notifier.Start(); err != nil {
 		t.Fatalf("unable to start notifier: %v", err)
 	}
+	t.Cleanup(func() {
+		require.NoError(t, notifier.Stop())
+	})
 
 	return notifier
 }
@@ -70,13 +73,11 @@ func setUpNotifier(t *testing.T, h *rpctest.Harness) *BtcdNotifier {
 func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 	t.Parallel()
 
-	harness, tearDown := chainntnfs.NewMiner(
+	harness := chainntnfs.NewMiner(
 		t, []string{"--txindex"}, true, 25,
 	)
-	defer tearDown()
 
 	notifier := setUpNotifier(t, harness)
-	defer notifier.Stop()
 
 	// A transaction unknown to the node should not be found within the
 	// txindex even if it is enabled, so we should not proceed with any
@@ -144,11 +145,9 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 	t.Parallel()
 
-	harness, tearDown := chainntnfs.NewMiner(t, nil, true, 25)
-	defer tearDown()
+	harness := chainntnfs.NewMiner(t, nil, true, 25)
 
 	notifier := setUpNotifier(t, harness)
-	defer notifier.Stop()
 
 	// Since the node has its txindex disabled, we fall back to scanning the
 	// chain manually. A transaction unknown to the network should not be

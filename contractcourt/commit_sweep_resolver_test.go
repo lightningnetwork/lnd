@@ -170,7 +170,7 @@ var _ UtxoSweeper = &mockSweeper{}
 // unencumbered by a time lock.
 func TestCommitSweepResolverNoDelay(t *testing.T) {
 	t.Parallel()
-	defer timeout(t)()
+	defer timeout()()
 
 	res := lnwallet.CommitOutputResolution{
 		SelfOutputSignDesc: input.SignDescriptor{
@@ -227,7 +227,7 @@ func TestCommitSweepResolverNoDelay(t *testing.T) {
 // that is encumbered by a time lock. sweepErr indicates whether the local node
 // fails to sweep the output.
 func testCommitSweepResolverDelay(t *testing.T, sweepErr error) {
-	defer timeout(t)()
+	defer timeout()()
 
 	const sweepProcessInterval = 100 * time.Millisecond
 	amt := int64(100)

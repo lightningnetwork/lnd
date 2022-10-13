@@ -179,10 +179,9 @@ func TestChannelLinkRevThenSig(t *testing.T) {
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, batchTicker, start, cleanUp, restore, err :=
-		newSingleLinkTestHarness(chanAmt, chanReserve)
+	aliceLink, bobChannel, batchTicker, start, restore, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
 	require.NoError(t, err)
-	defer cleanUp()
 
 	err = start()
 	require.NoError(t, err)
@@ -252,8 +251,7 @@ func TestChannelLinkRevThenSig(t *testing.T) {
 	}
 
 	// Restart Alice so she sends and accepts ChannelReestablish.
-	cleanUp = alice.restart(false, true)
-	defer cleanUp()
+	alice.restart(false, true)
 
 	ctx.aliceLink = alice.link
 	ctx.aliceMsgs = alice.msgs
@@ -313,10 +311,9 @@ func TestChannelLinkSigThenRev(t *testing.T) {
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, batchTicker, start, cleanUp, restore, err :=
-		newSingleLinkTestHarness(chanAmt, chanReserve)
+	aliceLink, bobChannel, batchTicker, start, restore, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
 	require.NoError(t, err)
-	defer cleanUp()
 
 	err = start()
 	require.NoError(t, err)
@@ -386,8 +383,7 @@ func TestChannelLinkSigThenRev(t *testing.T) {
 	require.True(t, ok)
 
 	// Restart Alice so she sends and accepts ChannelReestablish.
-	cleanUp = alice.restart(false, true)
-	defer cleanUp()
+	alice.restart(false, true)
 
 	ctx.aliceLink = alice.link
 	ctx.aliceMsgs = alice.msgs
@@ -435,19 +431,12 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	t.Parallel()
 
 	// Setup a alice-bob network.
-	alice, bob, cleanUp, err := createTwoClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
-	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
-
-	n := newTwoHopNetwork(
-		t, alice.channel, bob.channel, testStartingHeight,
+	alice, bob, err := createTwoClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
 	)
-	if err := n.start(); err != nil {
-		t.Fatal(err)
-	}
-	defer n.stop()
+	require.NoError(t, err, "unable to create channel")
+
+	n := newTwoHopNetwork(t, alice.channel, bob.channel, testStartingHeight)
 
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 	bobBandwidthBefore := n.bobChannelLink.Bandwidth()
@@ -535,11 +524,10 @@ func testChannelLinkMultiHopPayment(t *testing.T,
 
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
@@ -553,7 +541,7 @@ func testChannelLinkMultiHopPayment(t *testing.T,
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	carolBandwidthBefore := n.carolChannelLink.Bandwidth()
 	firstBobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
@@ -643,19 +631,14 @@ func testChannelLinkMultiHopPayment(t *testing.T,
 func TestChannelLinkCancelFullCommitment(t *testing.T) {
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newTwoHopNetwork(
 		t, channels.aliceToBob, channels.bobToAlice, testStartingHeight,
 	)
-	if err := n.start(); err != nil {
-		t.Fatal(err)
-	}
-	defer n.stop()
 
 	// Fill up the commitment from Alice's side with 20 sat payments.
 	count := (input.MaxHTLCNumber / 2)
@@ -744,18 +727,17 @@ func TestChannelLinkCancelFullCommitment(t *testing.T) {
 func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*5,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*5, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	const amount = btcutil.SatoshiPerBitcoin
 	htlcAmt, htlcExpiry, hops := generateHops(amount,
@@ -795,18 +777,17 @@ func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
 func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*5,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*5, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	const amount = btcutil.SatoshiPerBitcoin
 	htlcAmt, htlcExpiry, hops := generateHops(amount, testStartingHeight,
@@ -834,18 +815,17 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*5,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*5, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	// We'll be sending 1 BTC over a 2-hop (3 vertex) route.
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
@@ -890,18 +870,17 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	// We'll be sending 1 BTC over a 2-hop (3 vertex) route. Given the
 	// current default fee of 1 SAT, if we just send a single BTC over in
@@ -946,18 +925,17 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*5,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*5, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	// The current default global min HTLC policy set in the default config
 	// for the three-hop-network is 5 SAT. So in order to trigger this
@@ -1002,11 +980,10 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 func TestLinkForwardMaxHTLCPolicyMismatch(t *testing.T) {
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*5, btcutil.SatoshiPerBitcoin*5,
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*5, btcutil.SatoshiPerBitcoin*5,
 	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(
 		t, channels.aliceToBob, channels.bobToAlice, channels.bobToCarol,
@@ -1015,7 +992,7 @@ func TestLinkForwardMaxHTLCPolicyMismatch(t *testing.T) {
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	// In order to trigger this failure mode, we'll update our policy to have
 	// a new max HTLC of 10 satoshis.
@@ -1068,18 +1045,17 @@ func TestLinkForwardMaxHTLCPolicyMismatch(t *testing.T) {
 func TestUpdateForwardingPolicy(t *testing.T) {
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*5,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*5, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	carolBandwidthBefore := n.carolChannelLink.Bandwidth()
 	firstBobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
@@ -1207,18 +1183,17 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	carolBandwidthBefore := n.carolChannelLink.Bandwidth()
 	firstBobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
@@ -1289,18 +1264,17 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*5,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*5, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	carolBandwidthBefore := n.carolChannelLink.Bandwidth()
 	firstBobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
@@ -1382,18 +1356,17 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*5,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*5, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	carolBandwidthBefore := n.carolChannelLink.Bandwidth()
 	firstBobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
@@ -1492,18 +1465,17 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	// Replace decode function with another which throws an error.
 	n.carolChannelLink.cfg.ExtractErrorEncrypter = func(
@@ -1581,11 +1553,10 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 
 	// The starting height for this test will be 200. So we'll base all
 	// HTLC starting points off of that.
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	const startingHeight = 200
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
@@ -1593,7 +1564,7 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
@@ -1640,11 +1611,10 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 
 	// The starting height for this test will be 200. So we'll base all
 	// HTLC starting points off of that.
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	const startingHeight = 200
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
@@ -1652,7 +1622,7 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
@@ -1699,11 +1669,10 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	t.Parallel()
 
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
@@ -1752,7 +1721,7 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
@@ -1821,24 +1790,24 @@ func (m *mockPeer) RemoteFeatures() *lnwire.FeatureVector {
 	return nil
 }
 
-func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
+func newSingleLinkTestHarness(t *testing.T, chanAmt, chanReserve btcutil.Amount) (
 	ChannelLink, *lnwallet.LightningChannel, chan time.Time, func() error,
-	func(), func() (*lnwallet.LightningChannel, error), error) {
+	func() (*lnwallet.LightningChannel, error), error) {
 
 	var chanIDBytes [8]byte
 	if _, err := io.ReadFull(rand.Reader, chanIDBytes[:]); err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	chanID := lnwire.NewShortChanIDFromInt(
 		binary.BigEndian.Uint64(chanIDBytes[:]))
 
-	aliceLc, bobLc, fCleanUp, err := createTestChannel(
-		alicePrivKey, bobPrivKey, chanAmt, chanAmt,
+	aliceLc, bobLc, err := createTestChannel(
+		t, alicePrivKey, bobPrivKey, chanAmt, chanAmt,
 		chanReserve, chanReserve, chanID,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	var (
@@ -1862,7 +1831,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	aliceDb := aliceLc.channel.State().Db.GetParentDB()
 	aliceSwitch, err := initSwitchWithDB(testStartingHeight, aliceDb)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	notifyUpdateChan := make(chan *contractcourt.ContractUpdate)
@@ -1943,13 +1912,12 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		}
 	}()
 
-	cleanUp := func() {
+	t.Cleanup(func() {
 		close(alicePeer.quit)
 		invoiceRegistry.cleanup()
-		fCleanUp()
-	}
+	})
 
-	return aliceLink, bobLc.channel, bticker.Force, start, cleanUp,
+	return aliceLink, bobLc.channel, bticker.Force, start,
 		aliceLc.restore, nil
 }
 
@@ -2125,10 +2093,9 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// We'll start the test by creating a single instance of
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 
-	aliceLink, bobChannel, tmr, start, cleanUp, _, err :=
-		newSingleLinkTestHarness(chanAmt, 0)
+	aliceLink, bobChannel, tmr, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, 0)
 	require.NoError(t, err, "unable to create link")
-	defer cleanUp()
 
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
@@ -2538,10 +2505,9 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// We'll start by creating a new link with our chanAmt (5 BTC). We will
 	// only be testing Alice's behavior, so the reference to Bob's channel
 	// state is unnecessary.
-	aliceLink, _, batchTicker, start, cleanUp, restore, err :=
-		newSingleLinkTestHarness(chanAmt, 0)
+	aliceLink, _, batchTicker, start, restore, err :=
+		newSingleLinkTestHarness(t, chanAmt, 0)
 	require.NoError(t, err, "unable to create link")
-	defer cleanUp()
 
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
@@ -2621,8 +2587,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 
 	// Restart Alice's link, which simulates a disconnection with the remote
 	// peer.
-	cleanUp = alice.restart(false, false)
-	defer cleanUp()
+	alice.restart(false, false)
 
 	alice.assertNumPendingNumOpenCircuits(2, 2)
 
@@ -2650,8 +2615,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// that entire circuit map is reloaded from disk, and we can now test
 	// against the behavioral differences of committing circuits that
 	// conflict with duplicate circuits after a restart.
-	cleanUp = alice.restart(true, false)
-	defer cleanUp()
+	alice.restart(true, false)
 
 	alice.assertNumPendingNumOpenCircuits(2, 2)
 
@@ -2709,8 +2673,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// Restart Alice's link to simulate a disconnect. Since the switch
 	// remains up throughout, the two latter HTLCs will remain in the link's
 	// mailbox, and will reprocessed upon being reattached to the link.
-	cleanUp = alice.restart(false, false)
-	defer cleanUp()
+	alice.restart(false, false)
 
 	alice.assertNumPendingNumOpenCircuits(4, 2)
 
@@ -2750,8 +2713,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// As a final persistence check, we will restart the link and switch,
 	// wiping the latter two HTLCs from memory, and forcing their circuits
 	// to be reloaded from disk.
-	cleanUp = alice.restart(true, false)
-	defer cleanUp()
+	alice.restart(true, false)
 
 	alice.assertNumPendingNumOpenCircuits(4, 2)
 
@@ -2808,10 +2770,9 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// We'll start by creating a new link with our chanAmt (5 BTC). We will
 	// only be testing Alice's behavior, so the reference to Bob's channel
 	// state is unnecessary.
-	aliceLink, _, batchTicker, start, cleanUp, restore, err :=
-		newSingleLinkTestHarness(chanAmt, 0)
+	aliceLink, _, batchTicker, start, restore, err :=
+		newSingleLinkTestHarness(t, chanAmt, 0)
 	require.NoError(t, err, "unable to create link")
-	defer cleanUp()
 
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
@@ -2899,8 +2860,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// Restart Alice's link, which simulates a disconnection with the remote
 	// peer. Alice's link and switch should trim the circuits that were
 	// opened but not committed.
-	cleanUp = alice.restart(false, false, hodl.Commit)
-	defer cleanUp()
+	alice.restart(false, false, hodl.Commit)
 
 	alice.assertNumPendingNumOpenCircuits(2, 0)
 
@@ -2933,8 +2893,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// Alice again in hodl.Commit mode. Since none of the HTLCs were
 	// actually committed, the previously opened circuits should be trimmed
 	// by both the link and switch.
-	cleanUp = alice.restart(true, false, hodl.Commit)
-	defer cleanUp()
+	alice.restart(true, false, hodl.Commit)
 
 	alice.assertNumPendingNumOpenCircuits(2, 0)
 
@@ -2990,8 +2949,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// Restart Alice's link, and place her back in hodl.Commit mode. On
 	// restart, all previously opened circuits should be trimmed by both the
 	// link and the switch.
-	cleanUp = alice.restart(false, false, hodl.Commit)
-	defer cleanUp()
+	alice.restart(false, false, hodl.Commit)
 
 	alice.assertNumPendingNumOpenCircuits(4, 0)
 
@@ -3029,8 +2987,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// Finally, do one last restart of both the link and switch. This will
 	// flush the HTLCs from the mailbox. The circuits should now be trimmed
 	// for all of the HTLCs.
-	cleanUp = alice.restart(true, false, hodl.Commit)
-	defer cleanUp()
+	alice.restart(true, false, hodl.Commit)
 
 	alice.assertNumPendingNumOpenCircuits(4, 0)
 
@@ -3066,14 +3023,13 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 	)
 
 	// We'll start by creating a new link with our chanAmt (5 BTC).
-	aliceLink, bobChan, batchTicker, start, cleanUp, restore, err :=
-		newSingleLinkTestHarness(chanAmt, 0)
+	aliceLink, bobChan, batchTicker, start, restore, err :=
+		newSingleLinkTestHarness(t, chanAmt, 0)
 	require.NoError(t, err, "unable to create link")
 
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
 	}
-	defer cleanUp()
 
 	alice := newPersistentLinkHarness(
 		t, aliceLink, batchTicker, restore,
@@ -3186,15 +3142,13 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 
 	// Restart Alice's link, which simulates a disconnection with the remote
 	// peer.
-	cleanUp = alice.restart(false, false)
-	defer cleanUp()
+	alice.restart(false, false)
 
 	alice.assertNumPendingNumOpenCircuits(2, 2)
 
 	// Restart the link + switch and check that the number of open circuits
 	// doesn't change.
-	cleanUp = alice.restart(true, false)
-	defer cleanUp()
+	alice.restart(true, false)
 
 	alice.assertNumPendingNumOpenCircuits(2, 2)
 }
@@ -3209,10 +3163,9 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 	// channel reserve.
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, batchTimer, start, cleanUp, _, err :=
-		newSingleLinkTestHarness(chanAmt, chanReserve)
+	aliceLink, bobChannel, batchTimer, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
 	require.NoError(t, err, "unable to create link")
-	defer cleanUp()
 
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
@@ -3313,10 +3266,9 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 	// should therefore be 0.
 	const bobChanAmt = btcutil.SatoshiPerBitcoin * 1
 	const bobChanReserve = btcutil.SatoshiPerBitcoin * 1.5
-	bobLink, _, _, start, bobCleanUp, _, err :=
-		newSingleLinkTestHarness(bobChanAmt, bobChanReserve)
+	bobLink, _, _, start, _, err :=
+		newSingleLinkTestHarness(t, bobChanAmt, bobChanReserve)
 	require.NoError(t, err, "unable to create link")
-	defer bobCleanUp()
 
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
@@ -3462,13 +3414,12 @@ func TestChannelRetransmission(t *testing.T) {
 		},
 	}
 	paymentWithRestart := func(t *testing.T, messages []expectedMessage) {
-		channels, cleanUp, restoreChannelsFromDb, err := createClusterChannels(
-			btcutil.SatoshiPerBitcoin*5,
-			btcutil.SatoshiPerBitcoin*5)
+		channels, restoreChannelsFromDb, err := createClusterChannels(
+			t, btcutil.SatoshiPerBitcoin*5, btcutil.SatoshiPerBitcoin*5,
+		)
 		if err != nil {
 			t.Fatalf("unable to create channel: %v", err)
 		}
-		defer cleanUp()
 
 		chanID := lnwire.NewChanIDFromOutPoint(channels.aliceToBob.ChannelPoint())
 		serverErr := make(chan error, 4)
@@ -3492,7 +3443,7 @@ func TestChannelRetransmission(t *testing.T) {
 		if err := n.start(); err != nil {
 			ct.Fatalf("unable to start three hop network: %v", err)
 		}
-		defer n.stop()
+		t.Cleanup(n.stop)
 
 		bobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
 		aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
@@ -3537,7 +3488,7 @@ func TestChannelRetransmission(t *testing.T) {
 		if err := n.start(); err != nil {
 			ct.Fatalf("unable to start three hop network: %v", err)
 		}
-		defer n.stop()
+		t.Cleanup(n.stop)
 
 		// Wait for reestablishment to be proceeded and invoice to be settled.
 		// TODO(andrew.shvv) Will be removed if we move the notification center
@@ -3721,11 +3672,10 @@ func TestChannelLinkShutdownDuringForward(t *testing.T) {
 	// synchronously forwarding to the switch, which happens when an
 	// incoming link forwards Adds. Thus, the test will be performed
 	// against Bob's first link.
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
@@ -3733,7 +3683,7 @@ func TestChannelLinkShutdownDuringForward(t *testing.T) {
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 	defer n.feeEstimator.Stop()
 
 	// Define a helper method that strobes the switch's log ticker, and
@@ -3845,11 +3795,10 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	// interacting with and asserting the state of two of the end points
 	// for this test.
 	const aliceInitialBalance = btcutil.SatoshiPerBitcoin * 3
-	channels, cleanUp, _, err := createClusterChannels(
-		aliceInitialBalance, btcutil.SatoshiPerBitcoin*5,
+	channels, _, err := createClusterChannels(
+		t, aliceInitialBalance, btcutil.SatoshiPerBitcoin*5,
 	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
@@ -3893,7 +3842,7 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 	defer n.feeEstimator.Stop()
 
 	startingFeeRate := channels.aliceToBob.CommitFeeRate()
@@ -3987,18 +3936,17 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 	// First, we'll create our traditional three hop network. We'll only be
 	// interacting with and asserting the state of two of the end points
 	// for this test.
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
@@ -4065,18 +4013,17 @@ func TestChannelLinkAcceptOverpay(t *testing.T) {
 	// First, we'll create our traditional three hop network. We'll only be
 	// interacting with and asserting the state of two of the end points
 	// for this test.
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	carolBandwidthBefore := n.carolChannelLink.Bandwidth()
 	firstBobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
@@ -4191,7 +4138,7 @@ func newPersistentLinkHarness(t *testing.T, link ChannelLink,
 // Any number of hodl flags can be passed as additional arguments to this
 // method. If none are provided, the mask will be extracted as hodl.MaskNone.
 func (h *persistentLinkHarness) restart(restartSwitch, syncStates bool,
-	hodlFlags ...hodl.Flag) func() {
+	hodlFlags ...hodl.Flag) {
 
 	// First, remove the link from the switch.
 	h.coreLink.cfg.Switch.RemoveLink(h.link.ChanID())
@@ -4214,9 +4161,8 @@ func (h *persistentLinkHarness) restart(restartSwitch, syncStates bool,
 	// Now, restart the link using the channel state. This will take care of
 	// adding the link to an existing switch, or creating a new one using
 	// the database owned by the link.
-	var cleanUp func()
-	h.link, h.batchTicker, cleanUp, err = h.restartLink(
-		h.channel, restartSwitch, syncStates, hodlFlags,
+	h.link, h.batchTicker, err = h.restartLink(
+		h.t, h.channel, restartSwitch, syncStates, hodlFlags,
 	)
 	if err != nil {
 		h.t.Fatalf("unable to restart alicelink: %v", err)
@@ -4225,8 +4171,6 @@ func (h *persistentLinkHarness) restart(restartSwitch, syncStates bool,
 	// Repopulate the remaining fields in the harness.
 	h.coreLink = h.link.(*channelLink)
 	h.msgs = h.coreLink.cfg.Peer.(*mockPeer).sentMsgs
-
-	return cleanUp
 }
 
 // checkSent reads the links message stream and verify that the messages are
@@ -4293,9 +4237,9 @@ func (h *persistentLinkHarness) trySignNextCommitment() {
 // to an htlcswitch. If none is provided by the caller, a new one will be
 // created using Alice's database.
 func (h *persistentLinkHarness) restartLink(
-	aliceChannel *lnwallet.LightningChannel, restartSwitch, syncStates bool,
-	hodlFlags []hodl.Flag) (
-	ChannelLink, chan time.Time, func(), error) {
+	t *testing.T, aliceChannel *lnwallet.LightningChannel, restartSwitch,
+	syncStates bool, hodlFlags []hodl.Flag) (
+	ChannelLink, chan time.Time, error) {
 
 	var (
 		decoder    = newMockIteratorDecoder()
@@ -4320,7 +4264,7 @@ func (h *persistentLinkHarness) restartLink(
 		var err error
 		aliceSwitch, err = initSwitchWithDB(testStartingHeight, aliceDb)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -4356,12 +4300,13 @@ func (h *persistentLinkHarness) restartLink(
 		DecodeHopIterators: decoder.DecodeHopIterators,
 		ExtractErrorEncrypter: func(*btcec.PublicKey) (
 			hop.ErrorEncrypter, lnwire.FailCode) {
+
 			return obfuscator, lnwire.CodeNone
 		},
 		FetchLastChannelUpdate: mockGetChanUpdateMessage,
 		PreimageCache:          pCache,
 		OnChannelFailure: func(lnwire.ChannelID,
-			lnwire.ShortChannelID, LinkFailureError) {
+			lnwire.ShortChannelID, LinkFailureError) { // nolint:whitespace
 		},
 		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 			return nil
@@ -4392,7 +4337,7 @@ func (h *persistentLinkHarness) restartLink(
 
 	aliceLink := NewChannelLink(aliceCfg, aliceChannel)
 	if err := aliceSwitch.AddLink(aliceLink); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	go func() {
 		for {
@@ -4405,12 +4350,12 @@ func (h *persistentLinkHarness) restartLink(
 		}
 	}()
 
-	cleanUp := func() {
+	t.Cleanup(func() {
 		close(alicePeer.quit)
-		defer aliceLink.Stop()
-	}
+		aliceLink.Stop()
+	})
 
-	return aliceLink, bticker.Force, cleanUp, nil
+	return aliceLink, bticker.Force, nil
 }
 
 // gnerateHtlc generates a simple payment from Bob to Alice.
@@ -4468,10 +4413,9 @@ func TestChannelLinkNoMoreUpdates(t *testing.T) {
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, _, start, cleanUp, _, err :=
-		newSingleLinkTestHarness(chanAmt, chanReserve)
+	aliceLink, bobChannel, _, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
 	require.NoError(t, err, "unable to create link")
-	defer cleanUp()
 
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
@@ -4592,10 +4536,9 @@ func TestChannelLinkWaitForRevocation(t *testing.T) {
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, _, start, cleanUp, _, err :=
-		newSingleLinkTestHarness(chanAmt, chanReserve)
+	aliceLink, bobChannel, _, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
 	require.NoError(t, err, "unable to create link")
-	defer cleanUp()
 
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
@@ -4711,15 +4654,14 @@ func TestChannelLinkNoEmptySig(t *testing.T) {
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
-		newSingleLinkTestHarness(chanAmt, chanReserve)
+	aliceLink, bobChannel, batchTicker, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
 	require.NoError(t, err, "unable to create link")
-	defer cleanUp()
 
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
 	}
-	defer aliceLink.Stop()
+	t.Cleanup(aliceLink.Stop)
 
 	var (
 		coreLink  = aliceLink.(*channelLink)
@@ -4816,10 +4758,9 @@ func TestChannelLinkBatchPreimageWrite(t *testing.T) {
 func testChannelLinkBatchPreimageWrite(t *testing.T, disconnect bool) {
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, batchTicker, startUp, cleanUp, _, err :=
-		newSingleLinkTestHarness(chanAmt, chanReserve)
+	aliceLink, bobChannel, batchTicker, startUp, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
 	require.NoError(t, err, "unable to create link")
-	defer cleanUp()
 
 	if err := startUp(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
@@ -4925,10 +4866,9 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, _, start, cleanUp, _, err :=
-		newSingleLinkTestHarness(chanAmt, chanReserve)
+	aliceLink, bobChannel, _, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
 	require.NoError(t, err, "unable to create link")
-	defer cleanUp()
 
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
@@ -5422,8 +5362,8 @@ func TestChannelLinkFail(t *testing.T) {
 
 	// Execute each test case.
 	for i, test := range testCases {
-		link, remoteChannel, _, start, cleanUp, _, err :=
-			newSingleLinkTestHarness(chanAmt, 0)
+		link, remoteChannel, _, start, _, err :=
+			newSingleLinkTestHarness(t, chanAmt, 0)
 		if err != nil {
 			t.Fatalf("unable to create link: %v", err)
 		}
@@ -5470,9 +5410,6 @@ func TestChannelLinkFail(t *testing.T) {
 				"instead got(%v)", i, test.permanentFailure,
 				linkErr.PermanentFailure)
 		}
-
-		// Clean up before starting next test case.
-		cleanUp()
 	}
 }
 
@@ -5539,12 +5476,10 @@ func TestForwardingAsymmetricTimeLockPolicies(t *testing.T) {
 	// First, we'll create our traditional three hop network. Bob
 	// interacting with and asserting the state of two of the end points
 	// for this test.
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5,
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
 	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(
 		t, channels.aliceToBob, channels.bobToAlice, channels.bobToCarol,
@@ -5553,7 +5488,7 @@ func TestForwardingAsymmetricTimeLockPolicies(t *testing.T) {
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	// Now that each of the links are up, we'll modify the link from Alice
 	// -> Bob to have a greater time lock delta than that of the link of
@@ -5594,14 +5529,13 @@ func TestCheckHtlcForward(t *testing.T) {
 		return nil
 	}
 
-	testChannel, _, fCleanUp, err := createTestChannel(
-		alicePrivKey, bobPrivKey, 100000, 100000,
+	testChannel, _, err := createTestChannel(
+		t, alicePrivKey, bobPrivKey, 100000, 100000,
 		1000, 1000, lnwire.ShortChannelID{},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer fCleanUp()
 
 	link := channelLink{
 		cfg: ChannelLinkConfig{
@@ -5688,17 +5622,12 @@ func TestChannelLinkCanceledInvoice(t *testing.T) {
 	t.Parallel()
 
 	// Setup a alice-bob network.
-	alice, bob, cleanUp, err := createTwoClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	alice, bob, err := createTwoClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newTwoHopNetwork(t, alice.channel, bob.channel, testStartingHeight)
-	if err := n.start(); err != nil {
-		t.Fatal(err)
-	}
-	defer n.stop()
 
 	// Prepare an alice -> bob payment.
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
@@ -5745,22 +5674,16 @@ type hodlInvoiceTestCtx struct {
 	errChan             chan error
 
 	restoreBob func() (*lnwallet.LightningChannel, error)
-
-	cleanUp func()
 }
 
 func newHodlInvoiceTestCtx(t *testing.T) (*hodlInvoiceTestCtx, error) {
 	// Setup a alice-bob network.
-	alice, bob, cleanUp, err := createTwoClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5,
+	alice, bob, err := createTwoClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
 	)
 	require.NoError(t, err, "unable to create channel")
 
 	n := newTwoHopNetwork(t, alice.channel, bob.channel, testStartingHeight)
-	if err := n.start(); err != nil {
-		t.Fatal(err)
-	}
 
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 	bobBandwidthBefore := n.bobChannelLink.Bandwidth()
@@ -5824,11 +5747,6 @@ func newHodlInvoiceTestCtx(t *testing.T) (*hodlInvoiceTestCtx, error) {
 		amount:              amount,
 		errChan:             errChan,
 		restoreBob:          bob.restore,
-
-		cleanUp: func() {
-			cleanUp()
-			n.stop()
-		},
 	}, nil
 }
 
@@ -5836,13 +5754,12 @@ func newHodlInvoiceTestCtx(t *testing.T) (*hodlInvoiceTestCtx, error) {
 func TestChannelLinkHoldInvoiceSettle(t *testing.T) {
 	t.Parallel()
 
-	defer timeout(t)()
+	defer timeout()()
 
 	ctx, err := newHodlInvoiceTestCtx(t)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ctx.cleanUp()
 
 	err = ctx.n.bobServer.registry.SettleHodlInvoice(ctx.preimage)
 	if err != nil {
@@ -5881,13 +5798,12 @@ func TestChannelLinkHoldInvoiceSettle(t *testing.T) {
 func TestChannelLinkHoldInvoiceCancel(t *testing.T) {
 	t.Parallel()
 
-	defer timeout(t)()
+	defer timeout()()
 
 	ctx, err := newHodlInvoiceTestCtx(t)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ctx.cleanUp()
 
 	err = ctx.n.bobServer.registry.CancelInvoice(ctx.hash)
 	if err != nil {
@@ -5905,7 +5821,7 @@ func TestChannelLinkHoldInvoiceCancel(t *testing.T) {
 func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
 	t.Parallel()
 
-	defer timeout(t)()
+	defer timeout()()
 
 	const (
 		chanAmt = btcutil.SatoshiPerBitcoin * 5
@@ -5914,10 +5830,9 @@ func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
 	// We'll start by creating a new link with our chanAmt (5 BTC). We will
 	// only be testing Alice's behavior, so the reference to Bob's channel
 	// state is unnecessary.
-	aliceLink, bobChannel, _, start, cleanUp, restore, err :=
-		newSingleLinkTestHarness(chanAmt, 0)
+	aliceLink, bobChannel, _, start, restore, err :=
+		newSingleLinkTestHarness(t, chanAmt, 0)
 	require.NoError(t, err, "unable to create link")
-	defer cleanUp()
 
 	alice := newPersistentLinkHarness(
 		t, aliceLink, nil, restore,
@@ -6009,15 +5924,14 @@ func TestChannelLinkRevocationWindowRegular(t *testing.T) {
 	// We'll start by creating a new link with our chanAmt (5 BTC). We will
 	// only be testing Alice's behavior, so the reference to Bob's channel
 	// state is unnecessary.
-	aliceLink, bobChannel, _, start, cleanUp, _, err :=
-		newSingleLinkTestHarness(chanAmt, 0)
+	aliceLink, bobChannel, _, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, 0)
 	require.NoError(t, err, "unable to create link")
-	defer cleanUp()
 
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
 	}
-	defer aliceLink.Stop()
+	t.Cleanup(aliceLink.Stop)
 
 	var (
 		coreLink  = aliceLink.(*channelLink)
@@ -6092,10 +6006,9 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 	// We'll start by creating a new link with our chanAmt (5 BTC). We will
 	// only be testing Alice's behavior, so the reference to Bob's channel
 	// state is unnecessary.
-	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
-		newSingleLinkTestHarness(chanAmt, 0)
+	aliceLink, bobChannel, batchTicker, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, 0)
 	require.NoError(t, err, "unable to create link")
-	defer cleanUp()
 
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
@@ -6231,10 +6144,9 @@ func TestChannelLinkReceiveEmptySig(t *testing.T) {
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
-		newSingleLinkTestHarness(chanAmt, chanReserve)
+	aliceLink, bobChannel, batchTicker, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
 	require.NoError(t, err, "unable to create link")
-	defer cleanUp()
 
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
@@ -6299,8 +6211,8 @@ func TestPendingCommitTicker(t *testing.T) {
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
-		newSingleLinkTestHarness(chanAmt, chanReserve)
+	aliceLink, bobChannel, batchTicker, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
 	require.NoError(t, err, "unable to create link")
 
 	var (
@@ -6320,7 +6232,6 @@ func TestPendingCommitTicker(t *testing.T) {
 	if err := start(); err != nil {
 		t.Fatalf("unable to start test harness: %v", err)
 	}
-	defer cleanUp()
 
 	ctx := linkTestContext{
 		t:          t,
@@ -6382,8 +6293,8 @@ func TestShutdownIfChannelClean(t *testing.T) {
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
-		newSingleLinkTestHarness(chanAmt, chanReserve)
+	aliceLink, bobChannel, batchTicker, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
 	require.NoError(t, err)
 
 	var (
@@ -6402,7 +6313,6 @@ func TestShutdownIfChannelClean(t *testing.T) {
 
 	err = start()
 	require.NoError(t, err)
-	defer cleanUp()
 
 	ctx := linkTestContext{
 		t:          t,
@@ -6471,10 +6381,9 @@ func TestPipelineSettle(t *testing.T) {
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, _, start, cleanUp, restore, err :=
-		newSingleLinkTestHarness(chanAmt, chanReserve)
+	aliceLink, bobChannel, _, start, restore, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
 	require.NoError(t, err)
-	defer cleanUp()
 
 	alice := newPersistentLinkHarness(
 		t, aliceLink, nil, restore,

@@ -2798,11 +2798,10 @@ func TestLocalPaymentNoForwardingEvents(t *testing.T) {
 	// First, we'll create our traditional three hop network. We'll only be
 	// interacting with and asserting the state of the first end point for
 	// this test.
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
@@ -2856,11 +2855,10 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 	t.Parallel()
 
 	// First, we'll create our traditional three hop network.
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
@@ -3011,11 +3009,10 @@ func TestUpdateFailMalformedHTLCErrorConversion(t *testing.T) {
 	t.Parallel()
 
 	// First, we'll create our traditional three hop network.
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
 	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	n := newThreeHopNetwork(
 		t, channels.aliceToBob, channels.bobToAlice,
@@ -3411,11 +3408,10 @@ func testHtcNotifier(t *testing.T, testOpts []serverOption, iterations int,
 
 	// First, we'll create our traditional three hop
 	// network.
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
 	require.NoError(t, err, "unable to create channel")
-	defer cleanUp()
 
 	// Mock time so that all events are reported with a static timestamp.
 	now := time.Now()
@@ -3429,31 +3425,31 @@ func testHtcNotifier(t *testing.T, testOpts []serverOption, iterations int,
 	if err := aliceNotifier.Start(); err != nil {
 		t.Fatalf("could not start alice notifier")
 	}
-	defer func() {
+	t.Cleanup(func() {
 		if err := aliceNotifier.Stop(); err != nil {
 			t.Fatalf("failed to stop alice notifier: %v", err)
 		}
-	}()
+	})
 
 	bobNotifier := NewHtlcNotifier(mockTime)
 	if err := bobNotifier.Start(); err != nil {
 		t.Fatalf("could not start bob notifier")
 	}
-	defer func() {
+	t.Cleanup(func() {
 		if err := bobNotifier.Stop(); err != nil {
 			t.Fatalf("failed to stop bob notifier: %v", err)
 		}
-	}()
+	})
 
 	carolNotifier := NewHtlcNotifier(mockTime)
 	if err := carolNotifier.Start(); err != nil {
 		t.Fatalf("could not start carol notifier")
 	}
-	defer func() {
+	t.Cleanup(func() {
 		if err := carolNotifier.Stop(); err != nil {
 			t.Fatalf("failed to stop carol notifier: %v", err)
 		}
-	}()
+	})
 
 	// Create a notifier server option which will set our htlc notifiers
 	// for the three hop network.
@@ -3475,7 +3471,7 @@ func testHtcNotifier(t *testing.T, testOpts []serverOption, iterations int,
 		t.Fatalf("unable to start three hop "+
 			"network: %v", err)
 	}
-	defer n.stop()
+	t.Cleanup(n.stop)
 
 	// Before we forward anything, subscribe to htlc events
 	// from each notifier.
@@ -3484,21 +3480,21 @@ func testHtcNotifier(t *testing.T, testOpts []serverOption, iterations int,
 		t.Fatalf("could not subscribe to alice's"+
 			" events: %v", err)
 	}
-	defer aliceEvents.Cancel()
+	t.Cleanup(aliceEvents.Cancel)
 
 	bobEvents, err := bobNotifier.SubscribeHtlcEvents()
 	if err != nil {
 		t.Fatalf("could not subscribe to bob's"+
 			" events: %v", err)
 	}
-	defer bobEvents.Cancel()
+	t.Cleanup(bobEvents.Cancel)
 
 	carolEvents, err := carolNotifier.SubscribeHtlcEvents()
 	if err != nil {
 		t.Fatalf("could not subscribe to carol's"+
 			" events: %v", err)
 	}
-	defer carolEvents.Cancel()
+	t.Cleanup(carolEvents.Cancel)
 
 	// Send multiple payments, as specified by the test to test incrementing
 	// of htlc ids.
@@ -4118,11 +4114,10 @@ func TestSwitchDustForwarding(t *testing.T) {
 	// - Bob has a dust limit of 800sats with Alice
 	// - Bob has a dust limit of 200sats with Carol
 	// - Carol has a dust limit of 800sats with Bob
-	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin, btcutil.SatoshiPerBitcoin,
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin, btcutil.SatoshiPerBitcoin,
 	)
 	require.NoError(t, err)
-	defer cleanUp()
 
 	n := newThreeHopNetwork(
 		t, channels.aliceToBob, channels.bobToAlice,
@@ -5114,10 +5109,9 @@ func testSwitchHandlePacketForward(t *testing.T, zeroConf, private,
 	t.Parallel()
 
 	// Create a link for Alice that we'll add to the switch.
-	aliceLink, _, _, _, cleanUp, _, err :=
-		newSingleLinkTestHarness(btcutil.SatoshiPerBitcoin, 0)
+	aliceLink, _, _, _, _, err :=
+		newSingleLinkTestHarness(t, btcutil.SatoshiPerBitcoin, 0)
 	require.NoError(t, err)
-	defer cleanUp()
 
 	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	if err != nil {

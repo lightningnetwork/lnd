@@ -2,9 +2,7 @@ package autopilot
 
 import (
 	"bytes"
-	"io/ioutil"
 	prand "math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -14,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type genGraphFunc func() (testGraph, func(), error)
+type genGraphFunc func(t *testing.T) (testGraph, error)
 
 type testGraph interface {
 	ChannelGraph
@@ -25,34 +23,25 @@ type testGraph interface {
 	addRandNode() (*btcec.PublicKey, error)
 }
 
-func newDiskChanGraph() (testGraph, func(), error) {
-	// First, create a temporary directory to be used for the duration of
-	// this test.
-	tempDirName, err := ioutil.TempDir("", "channeldb")
-	if err != nil {
-		return nil, nil, err
-	}
-
+func newDiskChanGraph(t *testing.T) (testGraph, error) {
 	// Next, create channeldb for the first time.
-	cdb, err := channeldb.Open(tempDirName)
+	cdb, err := channeldb.Open(t.TempDir())
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-
-	cleanUp := func() {
-		cdb.Close()
-		os.RemoveAll(tempDirName)
-	}
+	t.Cleanup(func() {
+		require.NoError(t, cdb.Close())
+	})
 
 	return &databaseChannelGraph{
 		db: cdb.ChannelGraph(),
-	}, cleanUp, nil
+	}, nil
 }
 
 var _ testGraph = (*databaseChannelGraph)(nil)
 
-func newMemChanGraph() (testGraph, func(), error) {
-	return newMemChannelGraph(), nil, nil
+func newMemChanGraph(_ *testing.T) (testGraph, error) {
+	return newMemChannelGraph(), nil
 }
 
 var _ testGraph = (*memChannelGraph)(nil)
@@ -86,12 +75,9 @@ func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
-			graph, cleanup, err := graph.genFunc()
+			graph, err := graph.genFunc(t1)
 			if err != nil {
 				t1.Fatalf("unable to create graph: %v", err)
-			}
-			if cleanup != nil {
-				defer cleanup()
 			}
 
 			// With the necessary state initialized, we'll now
@@ -131,12 +117,9 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
-			graph, cleanup, err := graph.genFunc()
+			graph, err := graph.genFunc(t1)
 			if err != nil {
 				t1.Fatalf("unable to create graph: %v", err)
-			}
-			if cleanup != nil {
-				defer cleanup()
 			}
 
 			prefAttach := NewPrefAttachment()
@@ -231,12 +214,9 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
-			graph, cleanup, err := graph.genFunc()
+			graph, err := graph.genFunc(t1)
 			if err != nil {
 				t1.Fatalf("unable to create graph: %v", err)
-			}
-			if cleanup != nil {
-				defer cleanup()
 			}
 
 			prefAttach := NewPrefAttachment()
@@ -363,12 +343,9 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
-			graph, cleanup, err := graph.genFunc()
+			graph, err := graph.genFunc(t1)
 			if err != nil {
 				t1.Fatalf("unable to create graph: %v", err)
-			}
-			if cleanup != nil {
-				defer cleanup()
 			}
 
 			prefAttach := NewPrefAttachment()

@@ -95,11 +95,6 @@ func TestUpdateAndSwap(t *testing.T) {
 		},
 	}
 	for i, testCase := range testCases {
-		// Ensure that all created files are removed at the end of the
-		// test case.
-		defer os.Remove(testCase.fileName)
-		defer os.Remove(testCase.tempFileName)
-
 		backupFile := NewMultiFile(testCase.fileName)
 
 		// To start with, we'll make a random byte slice that'll pose
@@ -112,10 +107,11 @@ func TestUpdateAndSwap(t *testing.T) {
 		// If the old temporary file is meant to exist, then we'll
 		// create it now as an empty file.
 		if testCase.oldTempExists {
-			_, err := os.Create(testCase.tempFileName)
+			f, err := os.Create(testCase.tempFileName)
 			if err != nil {
 				t.Fatalf("unable to create temp file: %v", err)
 			}
+			require.NoError(t, f.Close())
 
 			// TODO(roasbeef): mock out fs calls?
 		}

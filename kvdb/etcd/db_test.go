@@ -18,7 +18,6 @@ func TestDump(t *testing.T) {
 	t.Parallel()
 
 	f := NewEtcdTestFixture(t)
-	defer f.Cleanup()
 
 	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
 	require.NoError(t, err)
@@ -53,7 +52,6 @@ func TestAbortContext(t *testing.T) {
 	t.Parallel()
 
 	f := NewEtcdTestFixture(t)
-	defer f.Cleanup()
 
 	ctx, cancel := context.WithCancel(context.Background())
 

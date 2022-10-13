@@ -25,11 +25,10 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 
 	// First, we'll create two channels which already have established a
 	// commitment contract between themselves.
-	aliceChannel, bobChannel, cleanUp, err := lnwallet.CreateTestChannels(
-		channeldb.SingleFunderTweaklessBit,
+	aliceChannel, bobChannel, err := lnwallet.CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
-	defer cleanUp()
 
 	// With the channels created, we'll now create a chain watcher instance
 	// which will be watching for any closes of Alice's channel.
@@ -110,11 +109,10 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 
 	// First, we'll create two channels which already have established a
 	// commitment contract between themselves.
-	aliceChannel, bobChannel, cleanUp, err := lnwallet.CreateTestChannels(
-		channeldb.SingleFunderTweaklessBit,
+	aliceChannel, bobChannel, err := lnwallet.CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
-	defer cleanUp()
 
 	// With the channels created, we'll now create a chain watcher instance
 	// which will be watching for any closes of Alice's channel.
@@ -255,13 +253,12 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 	dlpScenario := func(t *testing.T, testCase dlpTestCase) bool {
 		// First, we'll create two channels which already have
 		// established a commitment contract between themselves.
-		aliceChannel, bobChannel, cleanUp, err := lnwallet.CreateTestChannels(
-			channeldb.SingleFunderBit,
+		aliceChannel, bobChannel, err := lnwallet.CreateTestChannels(
+			t, channeldb.SingleFunderBit,
 		)
 		if err != nil {
 			t.Fatalf("unable to create test channels: %v", err)
 		}
-		defer cleanUp()
 
 		// Based on the number of random updates for this state, make a
 		// new HTLC to add to the commitment, and then lock in a state
@@ -430,13 +427,12 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 
 		// First, we'll create two channels which already have
 		// established a commitment contract between themselves.
-		aliceChannel, bobChannel, cleanUp, err := lnwallet.CreateTestChannels(
-			channeldb.SingleFunderBit,
+		aliceChannel, bobChannel, err := lnwallet.CreateTestChannels(
+			t, channeldb.SingleFunderBit,
 		)
 		if err != nil {
 			t.Fatalf("unable to create test channels: %v", err)
 		}
-		defer cleanUp()
 
 		// We'll execute a number of state transitions based on the
 		// randomly selected number from testing/quick. We do this to

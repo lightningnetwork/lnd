@@ -2219,10 +2219,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// we'll pass that in to ensure that the router uses 100 as the current
 	// height.
 	const startingHeight = 100
-	ctx, cleanUp := createTestCtxFromFile(
-		t, startingHeight, specExampleFilePath,
-	)
-	defer cleanUp()
+	ctx := createTestCtxFromFile(t, startingHeight, specExampleFilePath)
 
 	// We'll first exercise the scenario of a direct payment from Bob to
 	// Carol, so we set "B" as the source node so path finding starts from

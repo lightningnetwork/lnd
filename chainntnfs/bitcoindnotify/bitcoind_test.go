@@ -65,6 +65,9 @@ func setUpNotifier(t *testing.T, bitcoindConn *chain.BitcoindConn,
 	if err := notifier.Start(); err != nil {
 		t.Fatalf("unable to start notifier: %v", err)
 	}
+	t.Cleanup(func() {
+		require.NoError(t, notifier.Stop())
+	})
 
 	return notifier
 }
@@ -107,15 +110,13 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 }
 
 func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
-	miner, tearDown := chainntnfs.NewMiner(
+	miner := chainntnfs.NewMiner(
 		t, []string{"--txindex"}, true, 25,
 	)
-	defer tearDown()
 
-	bitcoindConn, cleanUp := chainntnfs.NewBitcoindBackend(
+	bitcoindConn := chainntnfs.NewBitcoindBackend(
 		t, miner.P2PAddress(), true, rpcPolling,
 	)
-	defer cleanUp()
 
 	hintCache := initHintCache(t)
 	blockCache := blockcache.NewBlockCache(10000)
@@ -123,7 +124,6 @@ func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
 	notifier := setUpNotifier(
 		t, bitcoindConn, hintCache, hintCache, blockCache,
 	)
-	defer notifier.Stop()
 
 	syncNotifierWithMiner(t, notifier, miner)
 
@@ -198,21 +198,16 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 }
 
 func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
-	miner, tearDown := chainntnfs.NewMiner(t, nil, true, 25)
-	defer tearDown()
+	miner := chainntnfs.NewMiner(t, nil, true, 25)
 
-	bitcoindConn, cleanUp := chainntnfs.NewBitcoindBackend(
+	bitcoindConn := chainntnfs.NewBitcoindBackend(
 		t, miner.P2PAddress(), false, rpcpolling,
 	)
-	defer cleanUp()
 
 	hintCache := initHintCache(t)
 	blockCache := blockcache.NewBlockCache(10000)
 
-	notifier := setUpNotifier(
-		t, bitcoindConn, hintCache, hintCache, blockCache,
-	)
-	defer notifier.Stop()
+	notifier := setUpNotifier(t, bitcoindConn, hintCache, hintCache, blockCache)
 
 	// Since the node has its txindex disabled, we fall back to scanning the
 	// chain manually. A transaction unknown to the network should not be

@@ -96,7 +96,7 @@ func (c *testCtx) RestartRouter(t *testing.T) {
 
 func createTestCtxFromGraphInstance(t *testing.T,
 	startingHeight uint32, graphInstance *testGraphInstance,
-	strictPruning bool) (*testCtx, func()) {
+	strictPruning bool) *testCtx {
 
 	return createTestCtxFromGraphInstanceAssumeValid(
 		t, startingHeight, graphInstance, false, strictPruning,
@@ -105,7 +105,7 @@ func createTestCtxFromGraphInstance(t *testing.T,
 
 func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	startingHeight uint32, graphInstance *testGraphInstance,
-	assumeValid bool, strictPruning bool) (*testCtx, func()) {
+	assumeValid bool, strictPruning bool) *testCtx {
 
 	// We'll initialize an instance of the channel router with mock
 	// versions of the chain and channel notifier. As we don't need to test
@@ -186,15 +186,15 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		notifier:   notifier,
 	}
 
-	cleanUp := func() {
+	t.Cleanup(func() {
 		ctx.router.Stop()
-	}
+	})
 
-	return ctx, cleanUp
+	return ctx
 }
 
 func createTestCtxSingleNode(t *testing.T,
-	startingHeight uint32) (*testCtx, func()) {
+	startingHeight uint32) *testCtx {
 
 	graph, graphBackend, err := makeTestGraph(t, true)
 	require.NoError(t, err, "failed to make test graph")
@@ -217,7 +217,7 @@ func createTestCtxSingleNode(t *testing.T,
 }
 
 func createTestCtxFromFile(t *testing.T,
-	startingHeight uint32, testGraph string) (*testCtx, func()) {
+	startingHeight uint32, testGraph string) *testCtx {
 
 	// We'll attempt to locate and parse out the file
 	// that encodes the graph that our tests should be run against.
@@ -251,10 +251,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
-	)
-	defer cleanUp()
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	// This test will attempt to find routes from roasbeef to sophon for 100
 	// satoshis with a fee limit of 10 satoshis. There are two routes from
@@ -301,10 +298,7 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
-	)
-	defer cleanUp()
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
@@ -395,10 +389,9 @@ func TestChannelUpdateValidation(t *testing.T) {
 	require.NoError(t, err, "unable to create graph")
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromGraphInstance(
+	ctx := createTestCtxFromGraphInstance(
 		t, startingBlockHeight, testGraph, true,
 	)
-	defer cleanUp()
 
 	// Assert that the initially configured fee is retrieved correctly.
 	_, policy, _, err := ctx.router.GetChannelByID(
@@ -503,10 +496,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
-	)
-	defer cleanUp()
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	// Get the channel ID.
 	roasbeefSongokuChanID := ctx.getChannelIDFromAlias(
@@ -613,10 +603,7 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
-	)
-	defer cleanUp()
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	// Get the channel ID.
 	roasbeefSongoku := lnwire.NewShortChanIDFromInt(
@@ -746,10 +733,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
-	)
-	defer cleanUp()
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	// Get the channel ID.
 	roasbeefSongoku := lnwire.NewShortChanIDFromInt(
@@ -868,10 +852,9 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromFile(
+	ctx := createTestCtxFromFile(
 		t, startingBlockHeight, basicGraphFilePath,
 	)
-	defer cleanUp()
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to sophon for 1k satoshis.
@@ -992,10 +975,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
-	)
-	defer cleanUp()
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
@@ -1153,8 +1133,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 func TestAddProof(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup := createTestCtxSingleNode(t, 0)
-	defer cleanup()
+	ctx := createTestCtxSingleNode(t, 0)
 
 	// Before creating out edge, we'll create two new nodes within the
 	// network that the channel will connect.
@@ -1212,10 +1191,7 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
-	)
-	defer cleanUp()
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	pub := priv1.PubKey()
 	node := &channeldb.LightningNode{
@@ -1249,10 +1225,9 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create graph")
 
-	ctx, cleanUp := createTestCtxFromGraphInstance(
+	ctx := createTestCtxFromGraphInstance(
 		t, startingBlockHeight, testGraph, false,
 	)
-	defer cleanUp()
 
 	var pub1 [33]byte
 	copy(pub1[:], priv1.PubKey().SerializeCompressed())
@@ -1317,10 +1292,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
-	)
-	defer cleanUp()
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	var pub1 [33]byte
 	copy(pub1[:], priv1.PubKey().SerializeCompressed())
@@ -1577,8 +1549,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxSingleNode(t, startingBlockHeight)
-	defer cleanUp()
+	ctx := createTestCtxSingleNode(t, startingBlockHeight)
 
 	const chanValue = 10000
 
@@ -1787,8 +1758,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxSingleNode(t, startingBlockHeight)
-	defer cleanUp()
+	ctx := createTestCtxSingleNode(t, startingBlockHeight)
 
 	const chanValue = 10000
 
@@ -1985,8 +1955,7 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxSingleNode(t, startingBlockHeight)
-	defer cleanUp()
+	ctx := createTestCtxSingleNode(t, startingBlockHeight)
 
 	const chanValue = 10000
 
@@ -2224,10 +2193,9 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 		}
 
 		const startingHeight = 100
-		ctx, cleanUp := createTestCtxFromGraphInstance(
+		ctx := createTestCtxFromGraphInstance(
 			t, startingHeight, testGraph, strictPruning,
 		)
-		defer cleanUp()
 
 		// All of the channels should exist before pruning them.
 		assertChannelsPruned(t, ctx.graph, testChannels)
@@ -2353,10 +2321,9 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 	require.NoError(t, err, "unable to create test graph")
 
 	const startingHeight = 100
-	ctx, cleanUp := createTestCtxFromGraphInstanceAssumeValid(
+	ctx := createTestCtxFromGraphInstanceAssumeValid(
 		t, startingHeight, testGraph, assumeValid, false,
 	)
-	defer cleanUp()
 
 	// All the channels should exist within the graph before pruning them
 	// when not using AssumeChannelValid, otherwise we should have pruned
@@ -2394,10 +2361,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
-	)
-	defer cleanUp()
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
@@ -2436,8 +2400,7 @@ func TestIsStaleNode(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxSingleNode(t, startingBlockHeight)
-	defer cleanUp()
+	ctx := createTestCtxSingleNode(t, startingBlockHeight)
 
 	// Before we can insert a node in to the database, we need to create a
 	// channel that it's linked to.
@@ -2513,8 +2476,7 @@ func TestIsKnownEdge(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxSingleNode(t, startingBlockHeight)
-	defer cleanUp()
+	ctx := createTestCtxSingleNode(t, startingBlockHeight)
 
 	// First, we'll create a new channel edge (just the info) and insert it
 	// into the database.
@@ -2560,10 +2522,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromFile(
-		t, startingBlockHeight, basicGraphFilePath,
-	)
-	defer cleanUp()
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	// First, we'll create a new channel edge (just the info) and insert it
 	// into the database.
@@ -2710,10 +2669,9 @@ func TestUnknownErrorSource(t *testing.T) {
 	require.NoError(t, err, "unable to create graph")
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromGraphInstance(
+	ctx := createTestCtxFromGraphInstance(
 		t, startingBlockHeight, testGraph, false,
 	)
-	defer cleanUp()
 
 	// Create a payment to node c.
 	var payHash lntypes.Hash
@@ -2841,10 +2799,9 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	require.NoError(t, err, "unable to create graph")
 
 	const startingBlockHeight = 101
-	ctx, cleanUp := createTestCtxFromGraphInstance(
+	ctx := createTestCtxFromGraphInstance(
 		t, startingBlockHeight, testGraph, false,
 	)
-	defer cleanUp()
 
 	// Set up an init channel for the control tower, such that we can make
 	// sure the payment is initiated correctly.
@@ -2957,10 +2914,9 @@ func TestSendToRouteMaxHops(t *testing.T) {
 
 	const startingBlockHeight = 101
 
-	ctx, cleanUp := createTestCtxFromGraphInstance(
+	ctx := createTestCtxFromGraphInstance(
 		t, startingBlockHeight, testGraph, false,
 	)
-	defer cleanUp()
 
 	// Create a 30 hop route that exceeds the maximum hop limit.
 	const payAmt = lnwire.MilliSatoshi(10000)
@@ -3063,10 +3019,9 @@ func TestBuildRoute(t *testing.T) {
 
 	const startingBlockHeight = 101
 
-	ctx, cleanUp := createTestCtxFromGraphInstance(
+	ctx := createTestCtxFromGraphInstance(
 		t, startingBlockHeight, testGraph, false,
 	)
-	defer cleanUp()
 
 	checkHops := func(rt *route.Route, expected []uint64,
 		payAddr [32]byte) {
@@ -3247,8 +3202,7 @@ func assertChanChainRejection(t *testing.T, ctx *testCtx,
 func TestChannelOnChainRejectionZombie(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup := createTestCtxSingleNode(t, 0)
-	defer cleanup()
+	ctx := createTestCtxSingleNode(t, 0)
 
 	// To start,  we'll make an edge for the channel, but we won't add the
 	// funding transaction to the mock blockchain, which should cause the
@@ -3368,9 +3322,9 @@ func TestSendMPPaymentSucceed(t *testing.T) {
 
 	// Make sure the router can start and stop without error.
 	require.NoError(t, router.Start(), "router failed to start")
-	defer func() {
+	t.Cleanup(func() {
 		require.NoError(t, router.Stop(), "router failed to stop")
-	}()
+	})
 
 	// Once the router is started, check that the mocked methods are called
 	// as expected.
@@ -3535,9 +3489,9 @@ func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
 
 	// Make sure the router can start and stop without error.
 	require.NoError(t, router.Start(), "router failed to start")
-	defer func() {
+	t.Cleanup(func() {
 		require.NoError(t, router.Stop(), "router failed to stop")
-	}()
+	})
 
 	// Once the router is started, check that the mocked methods are called
 	// as expected.
@@ -3747,9 +3701,9 @@ func TestSendMPPaymentFailed(t *testing.T) {
 
 	// Make sure the router can start and stop without error.
 	require.NoError(t, router.Start(), "router failed to start")
-	defer func() {
+	t.Cleanup(func() {
 		require.NoError(t, router.Stop(), "router failed to stop")
-	}()
+	})
 
 	// Once the router is started, check that the mocked methods are called
 	// as expected.
@@ -3951,9 +3905,9 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 
 	// Make sure the router can start and stop without error.
 	require.NoError(t, router.Start(), "router failed to start")
-	defer func() {
+	t.Cleanup(func() {
 		require.NoError(t, router.Stop(), "router failed to stop")
-	}()
+	})
 
 	// Once the router is started, check that the mocked methods are called
 	// as expected.
@@ -4107,8 +4061,7 @@ func TestBlockDifferenceFix(t *testing.T) {
 	initialBlockHeight := uint32(0)
 
 	// Starting height here is set to 0, which is behind where we want to be.
-	ctx, cleanup := createTestCtxSingleNode(t, initialBlockHeight)
-	defer cleanup()
+	ctx := createTestCtxSingleNode(t, initialBlockHeight)
 
 	// Add initial block to our mini blockchain.
 	block := &wire.MsgBlock{

@@ -37,14 +37,17 @@ func setupTestRootKeyStorage(t *testing.T) kvdb.Backend {
 		kvdb.DefaultDBTimeout,
 	)
 	require.NoError(t, err, "Error opening store DB")
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
 	store, err := macaroons.NewRootKeyStorage(db)
-	if err != nil {
-		db.Close()
-		t.Fatalf("Error creating root key store: %v", err)
-	}
-	defer store.Close()
+	require.NoError(t, err, "Error creating root key store")
+
 	err = store.CreateUnlock(&defaultPw)
+	require.NoError(t, store.Close())
 	require.NoError(t, err, "error creating unlock")
+
 	return db
 }
 

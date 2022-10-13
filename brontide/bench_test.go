@@ -14,9 +14,8 @@ func BenchmarkReadHeaderAndBody(t *testing.B) {
 	// Create a test connection, grabbing either side of the connection
 	// into local variables. If the initial crypto handshake fails, then
 	// we'll get a non-nil error here.
-	localConn, remoteConn, cleanUp, err := establishTestConnection()
+	localConn, remoteConn, err := establishTestConnection(t)
 	require.NoError(t, err, "unable to establish test connection: %v", err)
-	defer cleanUp()
 
 	rand.Seed(time.Now().Unix())
 

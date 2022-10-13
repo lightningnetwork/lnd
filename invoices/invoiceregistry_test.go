@@ -19,7 +19,6 @@ import (
 // TestSettleInvoice tests settling of an invoice and related notifications.
 func TestSettleInvoice(t *testing.T) {
 	ctx := newTestContext(t)
-	defer ctx.cleanup()
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
 	require.Nil(t, err)
@@ -190,7 +189,6 @@ func TestSettleInvoice(t *testing.T) {
 
 func testCancelInvoice(t *testing.T, gc bool) {
 	ctx := newTestContext(t)
-	defer ctx.cleanup()
 
 	// If set to true, then also delete the invoice from the DB after
 	// cancellation.
@@ -528,11 +526,9 @@ func TestCancelHoldInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := registry.Stop(); err != nil {
-			t.Fatalf("failed to stop invoice registry: %v", err)
-		}
-	}()
+	t.Cleanup(func() {
+		require.NoError(t, registry.Stop())
+	})
 
 	// Add the invoice.
 	_, err = registry.AddInvoice(testHodlInvoice, testInvoicePaymentHash)
@@ -590,7 +586,6 @@ func TestCancelHoldInvoice(t *testing.T) {
 // forwarded htlc hashes as well.
 func TestUnknownInvoice(t *testing.T) {
 	ctx := newTestContext(t)
-	defer ctx.cleanup()
 
 	// Notify arrival of a new htlc paying to this invoice. This should
 	// succeed.
@@ -624,7 +619,6 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 	defer timeout()()
 
 	ctx := newTestContext(t)
-	defer ctx.cleanup()
 
 	ctx.registry.cfg.AcceptKeySend = keySendEnabled
 
@@ -751,7 +745,6 @@ func testHoldKeysend(t *testing.T, timeoutKeysend bool) {
 	const holdDuration = time.Minute
 
 	ctx := newTestContext(t)
-	defer ctx.cleanup()
 
 	ctx.registry.cfg.AcceptKeySend = true
 	ctx.registry.cfg.KeysendHoldTime = holdDuration
@@ -840,7 +833,6 @@ func TestMppPayment(t *testing.T) {
 	defer timeout()()
 
 	ctx := newTestContext(t)
-	defer ctx.cleanup()
 
 	// Add the invoice.
 	_, err := ctx.registry.AddInvoice(testInvoice, testInvoicePaymentHash)
@@ -1135,7 +1127,6 @@ func testHeightExpiryWithRegistry(t *testing.T, numParts int, settle bool) {
 	defer timeout()()
 
 	ctx := newTestContext(t)
-	defer ctx.cleanup()
 
 	require.Greater(t, numParts, 0, "test requires at least one part")
 
@@ -1242,7 +1233,6 @@ func TestMultipleSetHeightExpiry(t *testing.T) {
 	defer timeout()()
 
 	ctx := newTestContext(t)
-	defer ctx.cleanup()
 
 	// Add a hold invoice.
 	invoice := *testInvoice
@@ -1331,7 +1321,6 @@ func TestSettleInvoicePaymentAddrRequired(t *testing.T) {
 	t.Parallel()
 
 	ctx := newTestContext(t)
-	defer ctx.cleanup()
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
 	require.Nil(t, err)
@@ -1407,7 +1396,6 @@ func TestSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T) {
 	t.Parallel()
 
 	ctx := newTestContext(t)
-	defer ctx.cleanup()
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
 	require.Nil(t, err)
@@ -1505,7 +1493,6 @@ func TestAMPWithoutMPPPayload(t *testing.T) {
 	defer timeout()()
 
 	ctx := newTestContext(t)
-	defer ctx.cleanup()
 
 	ctx.registry.cfg.AcceptAMP = true
 
@@ -1591,7 +1578,6 @@ func testSpontaneousAmpPayment(
 	defer timeout()()
 
 	ctx := newTestContext(t)
-	defer ctx.cleanup()
 
 	ctx.registry.cfg.AcceptAMP = ampEnabled
 

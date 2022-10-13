@@ -36,7 +36,7 @@ var (
 // for which the preimage is already known initially.
 func TestHtlcIncomingResolverFwdPreimageKnown(t *testing.T) {
 	t.Parallel()
-	defer timeout(t)()
+	defer timeout()()
 
 	ctx := newIncomingResolverTestContext(t, false)
 	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
@@ -49,7 +49,7 @@ func TestHtlcIncomingResolverFwdPreimageKnown(t *testing.T) {
 // started.
 func TestHtlcIncomingResolverFwdContestedSuccess(t *testing.T) {
 	t.Parallel()
-	defer timeout(t)()
+	defer timeout()()
 
 	ctx := newIncomingResolverTestContext(t, false)
 	ctx.resolve()
@@ -65,7 +65,7 @@ func TestHtlcIncomingResolverFwdContestedSuccess(t *testing.T) {
 // htlc that times out after the resolver has been started.
 func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 	t.Parallel()
-	defer timeout(t)()
+	defer timeout()()
 
 	ctx := newIncomingResolverTestContext(t, false)
 
@@ -104,7 +104,7 @@ func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 // has already expired when the resolver starts.
 func TestHtlcIncomingResolverFwdTimeout(t *testing.T) {
 	t.Parallel()
-	defer timeout(t)()
+	defer timeout()()
 
 	ctx := newIncomingResolverTestContext(t, true)
 	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
@@ -117,7 +117,7 @@ func TestHtlcIncomingResolverFwdTimeout(t *testing.T) {
 // which the invoice has already been settled when the resolver starts.
 func TestHtlcIncomingResolverExitSettle(t *testing.T) {
 	t.Parallel()
-	defer timeout(t)()
+	defer timeout()()
 
 	ctx := newIncomingResolverTestContext(t, true)
 	ctx.registry.notifyResolution = invoices.NewSettleResolution(
@@ -149,7 +149,7 @@ func TestHtlcIncomingResolverExitSettle(t *testing.T) {
 // an invoice that is already canceled when the resolver starts.
 func TestHtlcIncomingResolverExitCancel(t *testing.T) {
 	t.Parallel()
-	defer timeout(t)()
+	defer timeout()()
 
 	ctx := newIncomingResolverTestContext(t, true)
 	ctx.registry.notifyResolution = invoices.NewFailResolution(
@@ -165,7 +165,7 @@ func TestHtlcIncomingResolverExitCancel(t *testing.T) {
 // for a hodl invoice that is settled after the resolver has started.
 func TestHtlcIncomingResolverExitSettleHodl(t *testing.T) {
 	t.Parallel()
-	defer timeout(t)()
+	defer timeout()()
 
 	ctx := newIncomingResolverTestContext(t, true)
 	ctx.resolve()
@@ -183,7 +183,7 @@ func TestHtlcIncomingResolverExitSettleHodl(t *testing.T) {
 // for a hodl invoice that times out.
 func TestHtlcIncomingResolverExitTimeoutHodl(t *testing.T) {
 	t.Parallel()
-	defer timeout(t)()
+	defer timeout()()
 
 	ctx := newIncomingResolverTestContext(t, true)
 
@@ -220,7 +220,7 @@ func TestHtlcIncomingResolverExitTimeoutHodl(t *testing.T) {
 // for a hodl invoice that is canceled after the resolver has started.
 func TestHtlcIncomingResolverExitCancelHodl(t *testing.T) {
 	t.Parallel()
-	defer timeout(t)()
+	defer timeout()()
 
 	ctx := newIncomingResolverTestContext(t, true)
 

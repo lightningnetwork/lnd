@@ -13,9 +13,8 @@ import (
 func TestWitnessCacheSha256Retrieval(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanUp, err := MakeTestDB()
+	cdb, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	wCache := cdb.NewWitnessCache()
 
@@ -54,9 +53,8 @@ func TestWitnessCacheSha256Retrieval(t *testing.T) {
 func TestWitnessCacheSha256Deletion(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanUp, err := MakeTestDB()
+	cdb, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	wCache := cdb.NewWitnessCache()
 
@@ -101,9 +99,8 @@ func TestWitnessCacheSha256Deletion(t *testing.T) {
 func TestWitnessCacheUnknownWitness(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanUp, err := MakeTestDB()
+	cdb, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	wCache := cdb.NewWitnessCache()
 
@@ -118,9 +115,8 @@ func TestWitnessCacheUnknownWitness(t *testing.T) {
 // TestAddSha256Witnesses tests that insertion using AddSha256Witnesses behaves
 // identically to the insertion via the generalized interface.
 func TestAddSha256Witnesses(t *testing.T) {
-	cdb, cleanUp, err := MakeTestDB()
+	cdb, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
-	defer cleanUp()
 
 	wCache := cdb.NewWitnessCache()
 

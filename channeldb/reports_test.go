@@ -48,9 +48,8 @@ func TestPersistReport(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			db, cleanup, err := MakeTestDB()
+			db, err := MakeTestDB(t)
 			require.NoError(t, err)
-			defer cleanup()
 
 			channelOutpoint := testChanPoint1
 
@@ -85,9 +84,8 @@ func TestPersistReport(t *testing.T) {
 // channel, testing that the appropriate error is returned based on the state
 // of the existing bucket.
 func TestFetchChannelReadBucket(t *testing.T) {
-	db, cleanup, err := MakeTestDB()
+	db, err := MakeTestDB(t)
 	require.NoError(t, err)
-	defer cleanup()
 
 	channelOutpoint := testChanPoint1
 
@@ -197,9 +195,8 @@ func TestFetchChannelWriteBucket(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			db, cleanup, err := MakeTestDB()
+			db, err := MakeTestDB(t)
 			require.NoError(t, err)
-			defer cleanup()
 
 			// Update our db to the starting state we expect.
 			err = kvdb.Update(db, test.setup, func() {})

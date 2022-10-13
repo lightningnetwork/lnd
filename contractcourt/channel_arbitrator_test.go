@@ -460,11 +460,9 @@ func TestChannelArbitratorCooperativeClose(t *testing.T) {
 	if err := chanArbCtx.chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
-	defer func() {
-		if err := chanArbCtx.chanArb.Stop(); err != nil {
-			t.Fatalf("unable to stop chan arb: %v", err)
-		}
-	}()
+	t.Cleanup(func() {
+		require.NoError(t, chanArbCtx.chanArb.Stop())
+	})
 
 	// It should start out in the default state.
 	chanArbCtx.AssertState(StateDefault)
@@ -681,11 +679,9 @@ func TestChannelArbitratorBreachClose(t *testing.T) {
 	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
-	defer func() {
-		if err := chanArb.Stop(); err != nil {
-			t.Fatal(err)
-		}
-	}()
+	t.Cleanup(func() {
+		require.NoError(t, chanArb.Stop())
+	})
 
 	// It should start out in the default state.
 	chanArbCtx.AssertState(StateDefault)
@@ -1990,11 +1986,9 @@ func TestChannelArbitratorPendingExpiredHTLC(t *testing.T) {
 	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
-	defer func() {
-		if err := chanArb.Stop(); err != nil {
-			t.Fatalf("unable to stop chan arb: %v", err)
-		}
-	}()
+	t.Cleanup(func() {
+		require.NoError(t, chanArb.Stop())
+	})
 
 	// Now that our channel arb has started, we'll set up
 	// its contract signals channel so we can send it
@@ -2098,14 +2092,13 @@ func TestRemoteCloseInitiator(t *testing.T) {
 			t.Parallel()
 
 			// First, create alice's channel.
-			alice, _, cleanUp, err := lnwallet.CreateTestChannels(
-				channeldb.SingleFunderTweaklessBit,
+			alice, _, err := lnwallet.CreateTestChannels(
+				t, channeldb.SingleFunderTweaklessBit,
 			)
 			if err != nil {
 				t.Fatalf("unable to create test channels: %v",
 					err)
 			}
-			defer cleanUp()
 
 			// Create a mock log which will not block the test's
 			// expected number of transitions transitions, and has
@@ -2148,11 +2141,9 @@ func TestRemoteCloseInitiator(t *testing.T) {
 				t.Fatalf("unable to start "+
 					"ChannelArbitrator: %v", err)
 			}
-			defer func() {
-				if err := chanArb.Stop(); err != nil {
-					t.Fatal(err)
-				}
-			}()
+			t.Cleanup(func() {
+				require.NoError(t, chanArb.Stop())
+			})
 
 			// It should start out in the default state.
 			chanArbCtx.AssertState(StateDefault)
@@ -2501,11 +2492,9 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
-	defer func() {
-		if err := chanArb.Stop(); err != nil {
-			t.Fatal(err)
-		}
-	}()
+	t.Cleanup(func() {
+		require.NoError(t, chanArb.Stop())
+	})
 
 	signals := &ContractSignals{
 		ShortChanID: lnwire.ShortChannelID{},

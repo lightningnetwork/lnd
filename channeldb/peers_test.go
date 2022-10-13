@@ -10,9 +10,8 @@ import (
 
 // TestFlapCount tests lookup and writing of flap count to disk.
 func TestFlapCount(t *testing.T) {
-	db, cleanup, err := MakeTestDB()
+	db, err := MakeTestDB(t)
 	require.NoError(t, err)
-	defer cleanup()
 
 	// Try to read flap count for a peer that we have no records for.
 	_, err = db.ReadFlapCount(testPub)

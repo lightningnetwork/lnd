@@ -289,12 +289,67 @@ func New(config *Config) (*TowerClient, error) {
 	}
 	plog := build.NewPrefixLog(prefix, log)
 
-	// Next, load all candidate towers and sessions from the database into
-	// the client. We will use any of these sessions if their policies match
-	// the current policy of the client, otherwise they will be ignored and
-	// new sessions will be requested.
+	// Load the sweep pkscripts that have been generated for all previously
+	// registered channels.
+	chanSummaries, err := cfg.DB.FetchChanSummaries()
+	if err != nil {
+		return nil, err
+	}
+
+	c := &TowerClient{
+		cfg:               cfg,
+		log:               plog,
+		pipeline:          newTaskPipeline(plog),
+		chanCommitHeights: make(map[lnwire.ChannelID]uint64),
+		activeSessions:    make(sessionQueueSet),
+		summaries:         chanSummaries,
+		statTicker:        time.NewTicker(DefaultStatInterval),
+		stats:             new(ClientStats),
+		newTowers:         make(chan *newTowerMsg),
+		staleTowers:       make(chan *staleTowerMsg),
+		forceQuit:         make(chan struct{}),
+	}
+
+	// perUpdate is a callback function that will be used to inspect the
+	// full set of candidate client sessions loaded from disk, and to
+	// determine the highest known commit height for each channel. This
+	// allows the client to reject backups that it has already processed for
+	// its active policy.
+	perUpdate := func(policy wtpolicy.Policy, id wtdb.BackupID) {
+		// We only want to consider accepted updates that have been
+		// accepted under an identical policy to the client's current
+		// policy.
+		if policy != c.cfg.Policy {
+			return
+		}
+
+		// Take the highest commit height found in the session's acked
+		// updates.
+		height, ok := c.chanCommitHeights[id.ChanID]
+		if !ok || id.CommitHeight > height {
+			c.chanCommitHeights[id.ChanID] = id.CommitHeight
+		}
+	}
+
+	perAckedUpdate := func(s *wtdb.ClientSession, _ uint16,
+		id wtdb.BackupID) {
+
+		perUpdate(s.Policy, id)
+	}
+
+	perCommittedUpdate := func(s *wtdb.ClientSession,
+		u *wtdb.CommittedUpdate) {
+
+		perUpdate(s.Policy, u.BackupID)
+	}
+
+	// Load all candidate sessions and towers from the database into the
+	// client. We will use any of these sessions if their policies match the
+	// current policy of the client, otherwise they will be ignored and new
+	// sessions will be requested.
 	isAnchorClient := cfg.Policy.IsAnchorChannel()
 	activeSessionFilter := genActiveSessionFilter(isAnchorClient)
+
 	candidateTowers := newTowerListIterator()
 	perActiveTower := func(tower *wtdb.Tower) {
 		// If the tower has already been marked as active, then there is
@@ -309,34 +364,19 @@ func New(config *Config) (*TowerClient, error) {
 		// Add the tower to the set of candidate towers.
 		candidateTowers.AddCandidate(tower)
 	}
+
 	candidateSessions, err := getTowerAndSessionCandidates(
 		cfg.DB, cfg.SecretKeyRing, activeSessionFilter, perActiveTower,
+		wtdb.WithPerAckedUpdate(perAckedUpdate),
+		wtdb.WithPerCommittedUpdate(perCommittedUpdate),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Load the sweep pkscripts that have been generated for all previously
-	// registered channels.
-	chanSummaries, err := cfg.DB.FetchChanSummaries()
-	if err != nil {
-		return nil, err
-	}
+	c.candidateTowers = candidateTowers
+	c.candidateSessions = candidateSessions
 
-	c := &TowerClient{
-		cfg:               cfg,
-		log:               plog,
-		pipeline:          newTaskPipeline(plog),
-		candidateTowers:   candidateTowers,
-		candidateSessions: candidateSessions,
-		activeSessions:    make(sessionQueueSet),
-		summaries:         chanSummaries,
-		statTicker:        time.NewTicker(DefaultStatInterval),
-		stats:             new(ClientStats),
-		newTowers:         make(chan *newTowerMsg),
-		staleTowers:       make(chan *staleTowerMsg),
-		forceQuit:         make(chan struct{}),
-	}
 	c.negotiator = newSessionNegotiator(&NegotiatorConfig{
 		DB:            cfg.DB,
 		SecretKeyRing: cfg.SecretKeyRing,
@@ -350,10 +390,6 @@ func New(config *Config) (*TowerClient, error) {
 		MaxBackoff:    cfg.MaxBackoff,
 		Log:           plog,
 	})
-
-	// Reconstruct the highest commit height processed for each channel
-	// under the client's current policy.
-	c.buildHighestCommitHeights()
 
 	return c, nil
 }
@@ -448,44 +484,6 @@ func getClientSessions(db DB, keyRing ECDHKeyRing, forTower *wtdb.TowerID,
 	}
 
 	return sessions, nil
-}
-
-// buildHighestCommitHeights inspects the full set of candidate client sessions
-// loaded from disk, and determines the highest known commit height for each
-// channel. This allows the client to reject backups that it has already
-// processed for it's active policy.
-func (c *TowerClient) buildHighestCommitHeights() {
-	chanCommitHeights := make(map[lnwire.ChannelID]uint64)
-	for _, s := range c.candidateSessions {
-		// We only want to consider accepted updates that have been
-		// accepted under an identical policy to the client's current
-		// policy.
-		if s.Policy != c.cfg.Policy {
-			continue
-		}
-
-		// Take the highest commit height found in the session's
-		// committed updates.
-		for _, committedUpdate := range s.CommittedUpdates {
-			bid := committedUpdate.BackupID
-
-			height, ok := chanCommitHeights[bid.ChanID]
-			if !ok || bid.CommitHeight > height {
-				chanCommitHeights[bid.ChanID] = bid.CommitHeight
-			}
-		}
-
-		// Take the heights commit height found in the session's acked
-		// updates.
-		for _, bid := range s.AckedUpdates {
-			height, ok := chanCommitHeights[bid.ChanID]
-			if !ok || bid.CommitHeight > height {
-				chanCommitHeights[bid.ChanID] = bid.CommitHeight
-			}
-		}
-	}
-
-	c.chanCommitHeights = chanCommitHeights
 }
 
 // Start initializes the watchtower client by loading or negotiating an active

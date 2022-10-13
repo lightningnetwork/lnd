@@ -48,12 +48,12 @@ func (h *clientDBHarness) insertSession(session *wtdb.ClientSession,
 	require.ErrorIs(h.t, err, expErr)
 }
 
-func (h *clientDBHarness) listSessions(
-	id *wtdb.TowerID) map[wtdb.SessionID]*wtdb.ClientSession {
+func (h *clientDBHarness) listSessions(id *wtdb.TowerID,
+	opts ...wtdb.ClientSessionListOption) map[wtdb.SessionID]*wtdb.ClientSession {
 
 	h.t.Helper()
 
-	sessions, err := h.db.ListClientSessions(id)
+	sessions, err := h.db.ListClientSessions(id, opts...)
 	require.NoError(h.t, err, "unable to list client sessions")
 
 	return sessions
@@ -520,11 +520,7 @@ func testCommitUpdate(h *clientDBHarness) {
 	// Assert that the committed update appears in the client session's
 	// CommittedUpdates map when loaded from disk and that there are no
 	// AckedUpdates.
-	dbSession := h.listSessions(nil)[session.ID]
-	checkCommittedUpdates(h.t, dbSession, []wtdb.CommittedUpdate{
-		*update1,
-	})
-	checkAckedUpdates(h.t, dbSession, nil)
+	h.assertUpdates(session.ID, []wtdb.CommittedUpdate{*update1}, nil)
 
 	// Try to commit the same update, which should succeed due to
 	// idempotency (which is preserved when the breach hint is identical to
@@ -534,11 +530,7 @@ func testCommitUpdate(h *clientDBHarness) {
 	require.Equal(h.t, lastApplied, lastApplied2)
 
 	// Assert that the loaded ClientSession is the same as before.
-	dbSession = h.listSessions(nil)[session.ID]
-	checkCommittedUpdates(h.t, dbSession, []wtdb.CommittedUpdate{
-		*update1,
-	})
-	checkAckedUpdates(h.t, dbSession, nil)
+	h.assertUpdates(session.ID, []wtdb.CommittedUpdate{*update1}, nil)
 
 	// Generate another random update and try to commit it at the identical
 	// sequence number. Since the breach hint has changed, this should fail.
@@ -553,12 +545,10 @@ func testCommitUpdate(h *clientDBHarness) {
 
 	// Check that both updates now appear as committed on the ClientSession
 	// loaded from disk.
-	dbSession = h.listSessions(nil)[session.ID]
-	checkCommittedUpdates(h.t, dbSession, []wtdb.CommittedUpdate{
+	h.assertUpdates(session.ID, []wtdb.CommittedUpdate{
 		*update1,
 		*update2,
-	})
-	checkAckedUpdates(h.t, dbSession, nil)
+	}, nil)
 
 	// Finally, create one more random update and try to commit it at index
 	// 4, which should be rejected since 3 is the next slot the database
@@ -567,12 +557,20 @@ func testCommitUpdate(h *clientDBHarness) {
 	h.commitUpdate(&session.ID, update4, wtdb.ErrCommitUnorderedUpdate)
 
 	// Assert that the ClientSession loaded from disk remains unchanged.
-	dbSession = h.listSessions(nil)[session.ID]
-	checkCommittedUpdates(h.t, dbSession, []wtdb.CommittedUpdate{
+	h.assertUpdates(session.ID, []wtdb.CommittedUpdate{
 		*update1,
 		*update2,
-	})
-	checkAckedUpdates(h.t, dbSession, nil)
+	}, nil)
+}
+
+func perAckedUpdate(updates map[uint16]wtdb.BackupID) func(
+	_ *wtdb.ClientSession, seq uint16, id wtdb.BackupID) {
+
+	return func(_ *wtdb.ClientSession, seq uint16,
+		id wtdb.BackupID) {
+
+		updates[seq] = id
+	}
 }
 
 // testAckUpdate asserts the behavior of AckUpdate.
@@ -628,9 +626,7 @@ func testAckUpdate(h *clientDBHarness) {
 
 	// Assert that the ClientSession loaded from disk has one update in it's
 	// AckedUpdates map, and that the committed update has been removed.
-	dbSession := h.listSessions(nil)[session.ID]
-	checkCommittedUpdates(h.t, dbSession, nil)
-	checkAckedUpdates(h.t, dbSession, map[uint16]wtdb.BackupID{
+	h.assertUpdates(session.ID, nil, map[uint16]wtdb.BackupID{
 		1: update1.BackupID,
 	})
 
@@ -645,9 +641,7 @@ func testAckUpdate(h *clientDBHarness) {
 	h.ackUpdate(&session.ID, 2, 2, nil)
 
 	// Assert that both updates exist as AckedUpdates when loaded from disk.
-	dbSession = h.listSessions(nil)[session.ID]
-	checkCommittedUpdates(h.t, dbSession, nil)
-	checkAckedUpdates(h.t, dbSession, map[uint16]wtdb.BackupID{
+	h.assertUpdates(session.ID, nil, map[uint16]wtdb.BackupID{
 		1: update1.BackupID,
 		2: update2.BackupID,
 	})
@@ -661,6 +655,19 @@ func testAckUpdate(h *clientDBHarness) {
 	// Acking with a last applied greater than any allocated seqnum should
 	// fail.
 	h.ackUpdate(&session.ID, 4, 3, wtdb.ErrUnallocatedLastApplied)
+}
+
+func (h *clientDBHarness) assertUpdates(id wtdb.SessionID,
+	expectedPending []wtdb.CommittedUpdate,
+	expectedAcked map[uint16]wtdb.BackupID) {
+
+	ackedUpdates := make(map[uint16]wtdb.BackupID)
+	_ = h.listSessions(
+		nil, wtdb.WithPerAckedUpdate(perAckedUpdate(ackedUpdates)),
+	)
+	dbSession := h.listSessions(nil)[id]
+	checkCommittedUpdates(h.t, dbSession, expectedPending)
+	checkAckedUpdates(h.t, ackedUpdates, expectedAcked)
 }
 
 // checkCommittedUpdates asserts that the CommittedUpdates on session match the
@@ -682,7 +689,7 @@ func checkCommittedUpdates(t *testing.T, session *wtdb.ClientSession,
 
 // checkAckedUpdates asserts that the AckedUpdates on a session match the
 // expUpdates provided.
-func checkAckedUpdates(t *testing.T, session *wtdb.ClientSession,
+func checkAckedUpdates(t *testing.T, actualUpdates,
 	expUpdates map[uint16]wtdb.BackupID) {
 
 	// We promote nil expUpdates to an initialized map since the database
@@ -692,7 +699,7 @@ func checkAckedUpdates(t *testing.T, session *wtdb.ClientSession,
 		expUpdates = make(map[uint16]wtdb.BackupID)
 	}
 
-	require.Equal(t, expUpdates, session.AckedUpdates)
+	require.Equal(t, expUpdates, actualUpdates)
 }
 
 // TestClientDB asserts the behavior of a fresh client db, a reopened client db,

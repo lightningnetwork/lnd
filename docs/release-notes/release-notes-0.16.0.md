@@ -73,6 +73,9 @@ crash](https://github.com/lightningnetwork/lnd/pull/7019).
 * [Fixed potential data race on funding manager
   restart](https://github.com/lightningnetwork/lnd/pull/6929).
 
+* [Fixed a flake in the TestBlockCacheMutexes unit
+  test](https://github.com/lightningnetwork/lnd/pull/7029).
+
 ## `lncli`
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
   flag](https://github.com/lightningnetwork/lnd/pull/6818) that allows the
@@ -125,6 +128,7 @@ crash](https://github.com/lightningnetwork/lnd/pull/7019).
 * hieblmi
 * Jesse de Wit
 * Matt Morehouse
+* Michael Street
 * Olaoluwa Osuntokun
 * Oliver Gugger
 * Priyansh Rastogi

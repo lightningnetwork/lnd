@@ -2217,6 +2217,13 @@ message OpenChannelRequest {
     to use the default fee rate value specified in the config or 0.
     */
     bool use_fee_rate = 24;
+
+    /*
+    The number of satoshis we require the remote peer to reserve. This value,
+    if specified, must be above the dust limit and below 20% of the channel
+    capacity.
+    */
+    uint64 remote_chan_reserve_sat = 25;
 }
 message OpenStatusUpdate {
     oneof update {

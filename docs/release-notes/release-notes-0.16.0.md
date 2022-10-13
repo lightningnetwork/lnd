@@ -7,9 +7,9 @@
 
 ## RPC
 
-The `RegisterConfirmationsNtfn` call of the `chainnotifier` RPC sub-server [now
-optionally supports returning the entire block that confirmed the
-transaction](https://github.com/lightningnetwork/lnd/pull/6730).
+* The `RegisterConfirmationsNtfn` call of the `chainnotifier` RPC sub-server 
+ [now optionally supports returning the entire block that confirmed the 
+ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 
 * [Add `macaroon_root_key` field to
   `InitWalletRequest`](https://github.com/lightningnetwork/lnd/pull/6457) to
@@ -29,6 +29,9 @@ transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 
 * [Catch and throw an error](https://github.com/lightningnetwork/lnd/pull/6945)
   during `openchannel` if the local funding amount given is zero. 
+
+* [Make remote channel reserve amount configurable for 
+  `openchannel`](https://github.com/lightningnetwork/lnd/pull/6956)
 
 ## Wallet
 
@@ -153,3 +156,4 @@ crash](https://github.com/lightningnetwork/lnd/pull/7019).
 * Olaoluwa Osuntokun
 * Oliver Gugger
 * Priyansh Rastogi
+* Roei Erez

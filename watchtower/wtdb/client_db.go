@@ -48,6 +48,12 @@ var (
 	//    tower-pubkey -> tower-id.
 	cTowerIndexBkt = []byte("client-tower-index-bucket")
 
+	// cTowerToSessionIndexBkt is a top-level bucket storing:
+	// 	tower-id -> session-id -> 1
+	cTowerToSessionIndexBkt = []byte(
+		"client-tower-to-session-index-bucket",
+	)
+
 	// ErrTowerNotFound signals that the target tower was not found in the
 	// database.
 	ErrTowerNotFound = errors.New("tower not found")
@@ -113,7 +119,8 @@ var (
 // NewBoltBackendCreator returns a function that creates a new bbolt backend for
 // the watchtower database.
 func NewBoltBackendCreator(active bool, dbPath,
-	dbFileName string) func(boltCfg *kvdb.BoltConfig) (kvdb.Backend, error) {
+	dbFileName string) func(boltCfg *kvdb.BoltConfig) (kvdb.Backend,
+	error) {
 
 	// If the watchtower client isn't active, we return a function that
 	// always returns a nil DB to make sure we don't create empty database
@@ -195,6 +202,7 @@ func initClientDBBuckets(tx kvdb.RwTx) error {
 		cSessionBkt,
 		cTowerBkt,
 		cTowerIndexBkt,
+		cTowerToSessionIndexBkt,
 	}
 
 	for _, bucket := range buckets {
@@ -259,6 +267,13 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 			return ErrUninitializedDB
 		}
 
+		towerToSessionIndex := tx.ReadWriteBucket(
+			cTowerToSessionIndexBkt,
+		)
+		if towerToSessionIndex == nil {
+			return ErrUninitializedDB
+		}
+
 		// Check if the tower index already knows of this pubkey.
 		towerIDBytes := towerIndex.Get(towerPubKey[:])
 		if len(towerIDBytes) == 8 {
@@ -278,27 +293,32 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 			// If there are any client sessions that correspond to
 			// this tower, we'll mark them as active to ensure we
 			// load them upon restarts.
-			//
-			// TODO(wilmer): with an index of tower -> sessions we
-			// can avoid the linear lookup.
+			towerSessIndex := towerToSessionIndex.NestedReadBucket(
+				tower.ID.Bytes(),
+			)
+			if towerSessIndex == nil {
+				return ErrTowerNotFound
+			}
+
 			sessions := tx.ReadWriteBucket(cSessionBkt)
 			if sessions == nil {
 				return ErrUninitializedDB
 			}
-			towerID := TowerIDFromBytes(towerIDBytes)
-			towerSessions, err := listClientSessions(
-				sessions, &towerID,
-			)
-			if err != nil {
-				return err
-			}
-			for _, session := range towerSessions {
-				err := markSessionStatus(
-					sessions, session, CSessionActive,
+
+			err = towerSessIndex.ForEach(func(k, _ []byte) error {
+				session, err := getClientSessionBody(
+					sessions, k,
 				)
 				if err != nil {
 					return err
 				}
+
+				return markSessionStatus(
+					sessions, session, CSessionActive,
+				)
+			})
+			if err != nil {
+				return err
 			}
 		} else {
 			// No such tower exists, create a new tower id for our
@@ -317,6 +337,13 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 			// Since this tower is new, record the mapping from
 			// tower pubkey to tower id in the tower index.
 			err := towerIndex.Put(towerPubKey[:], towerIDBytes)
+			if err != nil {
+				return err
+			}
+
+			// Create a new bucket for this tower in the
+			// tower-to-sessions index.
+			_, err = towerToSessionIndex.CreateBucket(towerIDBytes)
 			if err != nil {
 				return err
 			}
@@ -348,8 +375,16 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 		if towers == nil {
 			return ErrUninitializedDB
 		}
+
 		towerIndex := tx.ReadWriteBucket(cTowerIndexBkt)
 		if towerIndex == nil {
+			return ErrUninitializedDB
+		}
+
+		towersToSessionsIndex := tx.ReadWriteBucket(
+			cTowerToSessionIndexBkt,
+		)
+		if towersToSessionsIndex == nil {
 			return ErrUninitializedDB
 		}
 
@@ -380,15 +415,14 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 
 		// Otherwise, we should attempt to mark the tower's sessions as
 		// inactive.
-		//
-		// TODO(wilmer): with an index of tower -> sessions we can avoid
-		// the linear lookup.
 		sessions := tx.ReadWriteBucket(cSessionBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
 		}
 		towerID := TowerIDFromBytes(towerIDBytes)
-		towerSessions, err := listClientSessions(sessions, &towerID)
+		towerSessions, err := listTowerSessions(
+			towerID, sessions, towers, towersToSessionsIndex,
+		)
 		if err != nil {
 			return err
 		}
@@ -399,7 +433,14 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 			if err := towerIndex.Delete(pubKeyBytes); err != nil {
 				return err
 			}
-			return towers.Delete(towerIDBytes)
+
+			if err := towers.Delete(towerIDBytes); err != nil {
+				return err
+			}
+
+			return towersToSessionsIndex.DeleteNestedBucket(
+				towerIDBytes,
+			)
 		}
 
 		// We'll mark its sessions as inactive as long as they don't
@@ -573,14 +614,34 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 			return ErrUninitializedDB
 		}
 
+		towers := tx.ReadBucket(cTowerBkt)
+		if towers == nil {
+			return ErrUninitializedDB
+		}
+
+		towerToSessionIndex := tx.ReadWriteBucket(
+			cTowerToSessionIndexBkt,
+		)
+		if towerToSessionIndex == nil {
+			return ErrUninitializedDB
+		}
+
 		// Check that  client session with this session id doesn't
 		// already exist.
-		existingSessionBytes := sessions.NestedReadWriteBucket(session.ID[:])
+		existingSessionBytes := sessions.NestedReadWriteBucket(
+			session.ID[:],
+		)
 		if existingSessionBytes != nil {
 			return ErrClientSessionAlreadyExists
 		}
 
+		// Ensure that a tower with the given ID actually exists in the
+		// DB.
 		towerID := session.TowerID
+		if _, err := getTower(towers, towerID.Bytes()); err != nil {
+			return err
+		}
+
 		blobType := session.Policy.BlobType
 
 		// Check that this tower has a reserved key index.
@@ -607,6 +668,19 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 			if err != nil {
 				return err
 			}
+		}
+
+		// Add the new entry to the towerID-to-SessionID index.
+		indexBkt := towerToSessionIndex.NestedReadWriteBucket(
+			towerID.Bytes(),
+		)
+		if indexBkt == nil {
+			return ErrTowerNotFound
+		}
+
+		err = indexBkt.Put(session.ID[:], []byte{1})
+		if err != nil {
+			return err
 		}
 
 		// Finally, write the client session's body in the sessions
@@ -662,15 +736,41 @@ func getSessionKeyIndex(keyIndexes kvdb.RwBucket, towerID TowerID,
 // ListClientSessions returns the set of all client sessions known to the db. An
 // optional tower ID can be used to filter out any client sessions in the
 // response that do not correspond to this tower.
-func (c *ClientDB) ListClientSessions(id *TowerID) (map[SessionID]*ClientSession, error) {
+func (c *ClientDB) ListClientSessions(id *TowerID) (
+	map[SessionID]*ClientSession, error) {
+
 	var clientSessions map[SessionID]*ClientSession
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		sessions := tx.ReadBucket(cSessionBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
 		}
+
+		towers := tx.ReadBucket(cTowerBkt)
+		if towers == nil {
+			return ErrUninitializedDB
+		}
+
 		var err error
-		clientSessions, err = listClientSessions(sessions, id)
+
+		// If no tower ID is specified, then fetch all the sessions
+		// known to the db.
+		if id == nil {
+			clientSessions, err = listClientAllSessions(
+				sessions, towers,
+			)
+			return err
+		}
+
+		// Otherwise, fetch the sessions for the given tower.
+		towerToSessionIndex := tx.ReadBucket(cTowerToSessionIndexBkt)
+		if towerToSessionIndex == nil {
+			return ErrUninitializedDB
+		}
+
+		clientSessions, err = listTowerSessions(
+			*id, sessions, towers, towerToSessionIndex,
+		)
 		return err
 	}, func() {
 		clientSessions = nil
@@ -682,11 +782,9 @@ func (c *ClientDB) ListClientSessions(id *TowerID) (map[SessionID]*ClientSession
 	return clientSessions, nil
 }
 
-// listClientSessions returns the set of all client sessions known to the db. An
-// optional tower ID can be used to filter out any client sessions in the
-// response that do not correspond to this tower.
-func listClientSessions(sessions kvdb.RBucket,
-	id *TowerID) (map[SessionID]*ClientSession, error) {
+// listClientAllSessions returns the set of all client sessions known to the db.
+func listClientAllSessions(sessions,
+	towers kvdb.RBucket) (map[SessionID]*ClientSession, error) {
 
 	clientSessions := make(map[SessionID]*ClientSession)
 	err := sessions.ForEach(func(k, _ []byte) error {
@@ -694,19 +792,45 @@ func listClientSessions(sessions kvdb.RBucket,
 		// the CommittedUpdates and AckedUpdates on startup to resume
 		// committed updates and compute the highest known commit height
 		// for each channel.
-		session, err := getClientSession(sessions, k)
+		session, err := getClientSession(sessions, towers, k)
 		if err != nil {
 			return err
 		}
 
-		// Filter out any sessions that don't correspond to the given
-		// tower if one was set.
-		if id != nil && session.TowerID != *id {
-			return nil
+		clientSessions[session.ID] = session
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return clientSessions, nil
+}
+
+// listTowerSessions returns the set of all client sessions known to the db
+// that are associated with the given tower id.
+func listTowerSessions(id TowerID, sessionsBkt, towersBkt,
+	towerToSessionIndex kvdb.RBucket) (map[SessionID]*ClientSession,
+	error) {
+
+	towerIndexBkt := towerToSessionIndex.NestedReadBucket(id.Bytes())
+	if towerIndexBkt == nil {
+		return nil, ErrTowerNotFound
+	}
+
+	clientSessions := make(map[SessionID]*ClientSession)
+	err := towerIndexBkt.ForEach(func(k, _ []byte) error {
+		// We'll load the full client session since the client will need
+		// the CommittedUpdates and AckedUpdates on startup to resume
+		// committed updates and compute the highest known commit height
+		// for each channel.
+		session, err := getClientSession(sessionsBkt, towersBkt, k)
+		if err != nil {
+			return err
 		}
 
 		clientSessions[session.ID] = session
-
 		return nil
 	})
 	if err != nil {
@@ -951,7 +1075,9 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 
 		// If the commits sub-bucket doesn't exist, there can't possibly
 		// be a corresponding committed update to remove.
-		sessionCommits := sessionBkt.NestedReadWriteBucket(cSessionCommits)
+		sessionCommits := sessionBkt.NestedReadWriteBucket(
+			cSessionCommits,
+		)
 		if sessionCommits == nil {
 			return ErrCommittedUpdateNotFound
 		}
@@ -1004,8 +1130,8 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 
 // getClientSessionBody loads the body of a ClientSession from the sessions
 // bucket corresponding to the serialized session id. This does not deserialize
-// the CommittedUpdates or AckUpdates associated with the session. If the caller
-// requires this info, use getClientSession.
+// the CommittedUpdates, AckUpdates or the Tower associated with the session.
+// If the caller requires this info, use getClientSession.
 func getClientSessionBody(sessions kvdb.RBucket,
 	idBytes []byte) (*ClientSession, error) {
 
@@ -1032,12 +1158,18 @@ func getClientSessionBody(sessions kvdb.RBucket,
 }
 
 // getClientSession loads the full ClientSession associated with the serialized
-// session id. This method populates the CommittedUpdates and AckUpdates in
-// addition to the ClientSession's body.
-func getClientSession(sessions kvdb.RBucket,
+// session id. This method populates the CommittedUpdates, AckUpdates and Tower
+// in addition to the ClientSession's body.
+func getClientSession(sessions, towers kvdb.RBucket,
 	idBytes []byte) (*ClientSession, error) {
 
 	session, err := getClientSessionBody(sessions, idBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch the tower associated with this session.
+	tower, err := getTower(towers, session.TowerID.Bytes())
 	if err != nil {
 		return nil, err
 	}
@@ -1054,6 +1186,7 @@ func getClientSession(sessions kvdb.RBucket,
 		return nil, err
 	}
 
+	session.Tower = tower
 	session.CommittedUpdates = commitedUpdates
 	session.AckedUpdates = ackedUpdates
 

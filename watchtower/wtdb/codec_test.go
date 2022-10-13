@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
+	"github.com/stretchr/testify/require"
 )
 
 func randPubKey() (*btcec.PublicKey, error) {
@@ -134,10 +135,7 @@ func TestCodec(tt *testing.T) {
 		// Ensure encoding the object succeeds.
 		var b bytes.Buffer
 		err := obj.Encode(&b)
-		if err != nil {
-			t.Fatalf("unable to encode: %v", err)
-			return false
-		}
+		require.NoError(t, err)
 
 		var obj2 dbObject
 		switch obj.(type) {
@@ -162,17 +160,10 @@ func TestCodec(tt *testing.T) {
 
 		// Ensure decoding the object succeeds.
 		err = obj2.Decode(bytes.NewReader(b.Bytes()))
-		if err != nil {
-			t.Fatalf("unable to decode: %v", err)
-			return false
-		}
+		require.NoError(t, err)
 
 		// Assert the original and decoded object match.
-		if !reflect.DeepEqual(obj, obj2) {
-			t.Fatalf("encode/decode mismatch, want: %v, "+
-				"got: %v", obj, obj2)
-			return false
-		}
+		require.Equal(t, obj, obj2)
 
 		return true
 	}
@@ -180,16 +171,10 @@ func TestCodec(tt *testing.T) {
 	customTypeGen := map[string]func([]reflect.Value, *rand.Rand){
 		"Tower": func(v []reflect.Value, r *rand.Rand) {
 			pk, err := randPubKey()
-			if err != nil {
-				t.Fatalf("unable to generate pubkey: %v", err)
-				return
-			}
+			require.NoError(t, err)
 
 			addrs, err := randAddrs(r)
-			if err != nil {
-				t.Fatalf("unable to generate addrs: %v", err)
-				return
-			}
+			require.NoError(t, err)
 
 			obj := wtdb.Tower{
 				IdentityKey: pk,
@@ -260,10 +245,7 @@ func TestCodec(tt *testing.T) {
 			}
 
 			err := quick.Check(test.scenario, config)
-			if err != nil {
-				t.Fatalf("fuzz checks for msg=%s failed: %v",
-					test.name, err)
-			}
+			require.NoError(h, err)
 		})
 	}
 }

@@ -220,6 +220,7 @@ func (m *ClientDB) listClientSessions(
 		if tower != nil && *tower != session.TowerID {
 			continue
 		}
+		session.Tower = m.towers[session.TowerID]
 		sessions[session.ID] = &session
 	}
 

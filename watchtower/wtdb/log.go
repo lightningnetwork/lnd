@@ -3,6 +3,7 @@ package wtdb
 import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration1"
 )
 
 // log is a logger that is initialized with no output filters.  This
@@ -26,6 +27,7 @@ func DisableLog() {
 // using btclog.
 func UseLogger(logger btclog.Logger) {
 	log = logger
+	migration1.UseLogger(logger)
 }
 
 // logClosure is used to provide a closure over expensive logging operations so

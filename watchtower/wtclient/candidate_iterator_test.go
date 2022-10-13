@@ -100,6 +100,12 @@ func TestTowerCandidateIterator(t *testing.T) {
 	}
 	towerIterator := newTowerListIterator(towerCopies...)
 
+	// The iterator has towers and should report as non-empty.
+	empty := towerIterator.IsEmpty()
+	if empty {
+		t.Fatal("iterator with towers incorrectly reports as empty")
+	}
+
 	// We should expect to see all of our candidates in the order that they
 	// were added.
 	for _, expTower := range towers {
@@ -152,4 +158,11 @@ func TestTowerCandidateIterator(t *testing.T) {
 	towerIterator.AddCandidate(secondTower)
 	assertActiveCandidate(t, towerIterator, secondTower, true)
 	assertNextCandidate(t, towerIterator, secondTower)
+
+	// An empty iterator should correctly report so.
+	emptyIterator := newTowerListIterator()
+	empty = emptyIterator.IsEmpty()
+	if !empty {
+		t.Fatal("empty iterator incorrectly reports as non-empty")
+	}
 }

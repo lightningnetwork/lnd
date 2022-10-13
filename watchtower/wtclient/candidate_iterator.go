@@ -25,6 +25,10 @@ type TowerCandidateIterator interface {
 	// iterator.
 	IsActive(wtdb.TowerID) bool
 
+	// IsEmpty determines whether the iterator has any candidate towers
+	// with which we could potentially establish a session.
+	IsEmpty() bool
+
 	// Reset clears any internal iterator state, making previously taken
 	// candidates available as long as they remain in the set.
 	Reset() error
@@ -160,6 +164,15 @@ func (t *towerListIterator) IsActive(tower wtdb.TowerID) bool {
 
 	_, ok := t.candidates[tower]
 	return ok
+}
+
+// IsEmpty indicates whether the iterator has any candidate towers
+// with which we could potentially establish a session.
+func (t *towerListIterator) IsEmpty() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return len(t.candidates) == 0
 }
 
 // TODO(conner): implement graph-backed candidate iterator for public towers.

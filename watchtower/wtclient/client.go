@@ -760,8 +760,52 @@ func (c *TowerClient) backupDispatcher() {
 	for {
 		switch {
 
-		// No active session queue and no additional sessions.
+		// No active session queue and no additional sessions,
+		// so we'll need to request a new one.
 		case c.sessionQueue == nil && len(c.candidateSessions) == 0:
+
+			// Wait until we have at least one candidate tower.
+			// with which to request a session.
+			if c.candidateTowers.IsEmpty() {
+				c.log.Debug("No candidate towers. Waiting " +
+					"for tower before requesting session.")
+
+				var towerID []byte
+
+			awaitTower:
+				select {
+				// A candidate tower has been added.
+				case msg := <-c.newTowers:
+					msg.errChan <- c.handleNewTower(msg)
+
+					towerID = msg.addr.IdentityKey.
+						SerializeCompressed()[:10]
+
+				case msg := <-c.staleTowers:
+					msg.errChan <- errors.New("there are " +
+						"no towers to remove")
+					goto awaitTower
+
+				case <-c.statTicker.C:
+					c.log.Infof("Client stats: %s", c.stats)
+					goto awaitTower
+
+				case <-c.forceQuit:
+					return
+				}
+
+				// If we have any sessions from previous
+				// negotiations with this tower then
+				// we'll use those.
+				if len(c.candidateSessions) != 0 {
+					c.log.Debugf("Using previously "+
+						"negotiated session(s) for "+
+						"tower: %x", towerID)
+
+					continue
+				}
+			}
+
 			c.log.Infof("Requesting new session.")
 
 			// Immediately request a new session.

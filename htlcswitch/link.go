@@ -60,6 +60,11 @@ const (
 	// a channel's commitment fee to be of its balance. This only applies to
 	// the initiator of the channel.
 	DefaultMaxLinkFeeAllocation float64 = 0.5
+
+	// varLenFailureMarkerLen defines the number of padding bytes
+	// that is prepended to a failure message to signal that it is variable
+	// length.
+	varLenFailureMarkerLen = 300
 )
 
 // ForwardingPolicy describes the set of constraints that a given ChannelLink
@@ -1850,6 +1855,16 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 	case *lnwire.UpdateFailHTLC:
+		// Prepend reason with extra bytes to signal that the failure
+		// message is variable length. We can't just use the reason as
+		// is, because if it is exactly the size of a malformed failure
+		// reason (260 bytes), it will be misinterpreted when the fail
+		// is processed later on. It can't be the size of a regular
+		// fixed length failure reason either (292 bytes) for the same
+		// reason.
+		reason := make([]byte, len(msg.Reason)+varLenFailureMarkerLen)
+		copy(reason[varLenFailureMarkerLen:], msg.Reason)
+
 		idx := msg.ID
 		err := l.channel.ReceiveFailHTLC(idx, msg.Reason[:])
 		if err != nil {
@@ -2812,6 +2827,25 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 				continue
 			}
 
+			// If the failure message lacks an HMAC (but includes
+			// the 4 bytes for encoding the message and padding
+			// lengths, then this means that we received it as an
+			// UpdateFailMalformedHTLC. As a result, we'll signal
+			// that we need to convert this error within the switch
+			// to an actual error, by encrypting it as if we were
+			// the originating hop.
+			convertedErrorSize := lnwire.FailureMessageLength + 4
+			convertedError := len(pd.FailReason) ==
+				convertedErrorSize
+
+			// If the fail reason length is at least the length of
+			// the variable length marker, clip off the marker
+			// bytes.
+			failReason := pd.FailReason
+			if len(pd.FailReason) >= varLenFailureMarkerLen {
+				failReason = failReason[varLenFailureMarkerLen:]
+			}
+
 			// Fetch the reason the HTLC was canceled so we can
 			// continue to propagate it. This failure originated
 			// from another node, so the linkFailure field is not
@@ -2822,24 +2856,13 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 				destRef:        pd.DestRef,
 				htlc: &lnwire.UpdateFailHTLC{
 					Reason: lnwire.OpaqueReason(
-						pd.FailReason,
+						failReason,
 					),
 				},
+				convertedError: convertedError,
 			}
 
 			l.log.Debugf("Failed to send %s", pd.Amount)
-
-			// If the failure message lacks an HMAC (but includes
-			// the 4 bytes for encoding the message and padding
-			// lengths, then this means that we received it as an
-			// UpdateFailMalformedHTLC. As a result, we'll signal
-			// that we need to convert this error within the switch
-			// to an actual error, by encrypting it as if we were
-			// the originating hop.
-			convertedErrorSize := lnwire.FailureMessageLength + 4
-			if len(pd.FailReason) == convertedErrorSize {
-				failPacket.convertedError = true
-			}
 
 			// Add the packet to the batch to be forwarded, and
 			// notify the overflow queue that a spare spot has been

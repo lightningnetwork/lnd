@@ -37,10 +37,11 @@ func TestBetweennessCentralityEmptyGraph(t *testing.T) {
 	)
 
 	for _, chanGraph := range chanGraphs {
-		success := t.Run(chanGraph.name, func(t1 *testing.T) {
-			graph, err := chanGraph.genFunc(t1)
-			require.NoError(t1, err, "unable to create graph")
+		chanGraph := chanGraph
+		graph, err := chanGraph.genFunc(t)
+		require.NoError(t, err, "unable to create graph")
 
+		success := t.Run(chanGraph.name, func(t1 *testing.T) {
 			err = centralityMetric.Refresh(graph)
 			require.NoError(t1, err)
 
@@ -76,6 +77,7 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 
 	for _, numWorkers := range workers {
 		for _, chanGraph := range chanGraphs {
+			chanGraph := chanGraph
 			numWorkers := numWorkers
 			graph, err := chanGraph.genFunc(t)
 			require.NoError(t, err, "unable to create graph")
@@ -107,8 +109,8 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 						expected.normalize,
 					)
 
-					require.Equal(t1,
-						centralityTestGraph.nodes,
+					require.Equal(
+						t1, centralityTestGraph.nodes,
 						len(centrality),
 					)
 

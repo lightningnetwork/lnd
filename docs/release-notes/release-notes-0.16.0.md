@@ -111,6 +111,10 @@ crash](https://github.com/lightningnetwork/lnd/pull/7019).
   closer coupling of Towers and Sessions and ensures that a session cannot be
   added if the tower it is referring to does not exist.
 
+* [Remove `AckedUpdates` & `CommittedUpdates` from the `ClientSession`
+  struct](https://github.com/lightningnetwork/lnd/pull/6928) in order to
+  improve the performance of fetching a `ClientSession` from the DB.
+
 * [Create a helper function to wait for peer to come
   online](https://github.com/lightningnetwork/lnd/pull/6931).
 

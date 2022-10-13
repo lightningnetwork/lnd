@@ -1,12 +1,15 @@
 package itest
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
@@ -15,6 +18,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -862,4 +867,196 @@ func deriveFundingShim(ht *lntemp.HarnessTest,
 	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
 
 	return fundingShim, chanPoint, txid
+}
+
+// testFundingConflict ensures that the funding manager can clean itself up if
+// another transaction spends its inputs.
+func testFundingConflict(net *lntest.NetworkHarness, t *harnessTest) {
+	testCases := []struct {
+		name     string
+		zeroConf bool
+	}{
+		{
+			name: "regular funding conflict",
+		},
+		{
+			name:     "zero-conf funding conflict",
+			zeroConf: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		success := t.t.Run(testCase.name, func(t *testing.T) {
+			ht := newHarnessTest(t, net)
+
+			testFundingConflictInner(net, ht, testCase.zeroConf)
+		})
+		if !success {
+			return
+		}
+	}
+}
+
+func testFundingConflictInner(net *lntest.NetworkHarness, t *harnessTest,
+	zeroConf bool) {
+
+	ctxb := context.Background()
+	args := []string{}
+
+	if zeroConf {
+		args = []string{
+			"--protocol.anchors",
+			"--protocol.option-scid-alias",
+			"--protocol.zero-conf",
+		}
+	}
+
+	alice := net.NewNode(t.t, "Alice", args)
+	defer shutdownAndAssert(net, t, alice)
+
+	bob := net.NewNode(t.t, "Bob", args)
+	defer shutdownAndAssert(net, t, bob)
+
+	// Ensure alice and bob are connected and have enough funds.
+	net.EnsureConnected(t.t, alice, bob)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, bob)
+
+	var (
+		chanAmt = btcutil.Amount(1_000_000)
+		pushAmt = btcutil.Amount(0)
+	)
+
+	// Make Bob accept the zero-conf channel if one is being opened.
+	ctxc, cancel := context.WithCancel(ctxb)
+	acceptStream, err := bob.ChannelAcceptor(ctxc)
+	require.NoError(t.t, err)
+	go acceptChannel(t.t, zeroConf, acceptStream)
+
+	// Open a pending channel between Alice and Bob so that the funding
+	// inputs can be spent by a different transaction.
+	openReq := &lnrpc.OpenChannelRequest{
+		LocalFundingAmount: int64(chanAmt),
+		PushSat:            int64(pushAmt),
+		ZeroConf:           zeroConf,
+	}
+
+	if zeroConf {
+		openReq.CommitmentType = lnrpc.CommitmentType_ANCHORS
+	}
+
+	pendingUpdate, err := net.OpenPendingChannel(alice, bob, openReq)
+	require.NoError(t.t, err)
+
+	if !zeroConf {
+		assertNumOpenChannelsPending(t, alice, bob, 1)
+	}
+
+	// Remove the ChannelAcceptor.
+	cancel()
+
+	// Wait for the funding transaction to hit the mempool.
+	_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
+	require.NoError(t.t, err)
+
+	fundingTxHash, _ := chainhash.NewHash(pendingUpdate.Txid)
+	fundingTx, err := net.Miner.Client.GetRawTransaction(fundingTxHash)
+	require.NoError(t.t, err)
+
+	// Fetch the input so it can be spent by a different transaction.
+	inputHash := &fundingTx.MsgTx().TxIn[0].PreviousOutPoint.Hash
+	inputTx, err := net.Miner.Client.GetRawTransaction(inputHash)
+	require.NoError(t.t, err)
+
+	// Create the conflict transaction.
+	conflictTx := wire.NewMsgTx(2)
+	conflictTx.AddTxIn(fundingTx.MsgTx().TxIn[0])
+
+	// Create the output the conflict address will pay out to.
+	addrReq := &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	}
+
+	addrResp, err := alice.NewAddress(ctxb, addrReq)
+	require.NoError(t.t, err)
+
+	addr, err := btcutil.DecodeAddress(
+		addrResp.Address, net.Miner.ActiveNet,
+	)
+	require.NoError(t.t, err)
+
+	addrScript, err := txscript.PayToAddrScript(addr)
+	require.NoError(t.t, err)
+
+	output := &wire.TxOut{
+		PkScript: addrScript,
+		Value:    int64(2_000),
+	}
+	conflictTx.AddTxOut(output)
+
+	var conflictTxBytes bytes.Buffer
+	err = conflictTx.Serialize(&conflictTxBytes)
+	require.NoError(t.t, err)
+
+	// Sign the conflict transaction.
+	signDesc := signrpc.SignDescriptor{
+		Output: &signrpc.TxOut{
+			Value:    inputTx.MsgTx().TxOut[0].Value,
+			PkScript: inputTx.MsgTx().TxOut[0].PkScript,
+		},
+		InputIndex: 0,
+	}
+
+	signResp, err := alice.SignerClient.ComputeInputScript(
+		ctxb, &signrpc.SignReq{
+			SignDescs:  []*signrpc.SignDescriptor{&signDesc},
+			RawTxBytes: conflictTxBytes.Bytes(),
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Populate the witness and confirm the transaction.
+	conflictTx.TxIn[0].Witness = signResp.InputScripts[0].Witness
+
+	_, err = net.Miner.GenerateAndSubmitBlock(
+		[]*btcutil.Tx{btcutil.NewTx(conflictTx)}, -1, time.Time{},
+	)
+	require.NoError(t.t, err)
+
+	// Mine 143 more blocks so that the conflict tx is considered safe from
+	// reorgs since it will have 144 confirmations.
+	_, err = net.Miner.Client.Generate(143)
+	require.NoError(t.t, err)
+
+	// Alice should no longer see the channel as pending.
+	err = wait.NoError(func() error {
+		aliceNumChans, err := numOpenChannelsPending(ctxb, alice)
+		if err != nil {
+			return err
+		}
+
+		if aliceNumChans != 0 {
+			return fmt.Errorf("expected alice to have no pending " +
+				"channels")
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t.t, err)
+
+	// Alice's ListChannels output should be empty.
+	err = wait.NoError(func() error {
+		req := &lnrpc.ListChannelsRequest{}
+		resp, err := alice.ListChannels(ctxb, req)
+		if err != nil {
+			return err
+		}
+
+		if len(resp.Channels) != 0 {
+			return fmt.Errorf("expected alice to have no channels")
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t.t, err)
 }

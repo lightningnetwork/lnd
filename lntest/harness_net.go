@@ -1110,8 +1110,7 @@ func (n *NetworkHarness) OpenChannel(srcNode, destNode *HarnessNode,
 // timeout, then if the timeout is reached before the channel pending
 // notification is received, an error is returned.
 func (n *NetworkHarness) OpenPendingChannel(srcNode, destNode *HarnessNode,
-	amt btcutil.Amount,
-	pushAmt btcutil.Amount) (*lnrpc.PendingUpdate, error) {
+	openReq *lnrpc.OpenChannelRequest) (*lnrpc.PendingUpdate, error) {
 
 	// Wait until srcNode and destNode have blockchain synced
 	if err := srcNode.WaitForBlockchainSync(); err != nil {
@@ -1121,12 +1120,7 @@ func (n *NetworkHarness) OpenPendingChannel(srcNode, destNode *HarnessNode,
 		return nil, fmt.Errorf("unable to sync destNode chain: %v", err)
 	}
 
-	openReq := &lnrpc.OpenChannelRequest{
-		NodePubkey:         destNode.PubKey[:],
-		LocalFundingAmount: int64(amt),
-		PushSat:            int64(pushAmt),
-		Private:            false,
-	}
+	openReq.NodePubkey = destNode.PubKey[:]
 
 	// We need to use n.runCtx here to keep the response stream alive after
 	// the function is returned.

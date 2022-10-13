@@ -79,8 +79,12 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	// open, then broadcast the funding transaction
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(0)
+	openReq := &lnrpc.OpenChannelRequest{
+		LocalFundingAmount: int64(chanAmt),
+		PushSat:            int64(pushAmt),
+	}
 	pendingUpdate, err := net.OpenPendingChannel(
-		net.Alice, net.Bob, chanAmt, pushAmt,
+		net.Alice, net.Bob, openReq,
 	)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)

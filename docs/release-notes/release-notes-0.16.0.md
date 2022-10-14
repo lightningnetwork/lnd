@@ -130,6 +130,8 @@ crash](https://github.com/lightningnetwork/lnd/pull/7019).
 * [test: fix loop variables being accessed in
   closures](https://github.com/lightningnetwork/lnd/pull/7032).
 
+* [Do not delay session negotiation with first candidate tower]()
+
 ### Tooling and documentation
 
 * [The `golangci-lint` tool was updated to

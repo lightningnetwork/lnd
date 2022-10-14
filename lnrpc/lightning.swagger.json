@@ -1424,6 +1424,141 @@
         "tags": [
           "Lightning"
         ]
+      },
+      "post": {
+        "summary": "lncli: `queryroutes`\nQueryRoutes attempts to query the daemon's Channel Router for a possible\nroute to a target destination capable of carrying a specific amount of\nsatoshis. The returned route contains the full details required to craft and\nsend an HTLC, also including the necessary information that should be\npresent within the Sphinx packet encapsulated within the HTLC.",
+        "description": "When using REST, the `dest_custom_records` map type can be set by appending\n`\u0026dest_custom_records[\u003crecord_number\u003e]=\u003crecord_data_base64_url_encoded\u003e`\nto the URL. Unfortunately this map type doesn't appear in the REST API\ndocumentation because of a bug in the grpc-gateway library.",
+        "operationId": "Lightning_QueryRoutes2",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcQueryRoutesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pub_key",
+            "description": "The 33-byte hex-encoded public key for the payment destination",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "amt",
+            "description": "The amount to send expressed in satoshis.\n\nThe fields amt and amt_msat are mutually exclusive.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "amt_msat": {
+                  "type": "string",
+                  "format": "int64",
+                  "description": "The amount to send expressed in millisatoshis.\n\nThe fields amt and amt_msat are mutually exclusive."
+                },
+                "final_cltv_delta": {
+                  "type": "integer",
+                  "format": "int32",
+                  "description": "An optional CLTV delta from the current height that should be used for the\ntimelock of the final hop. Note that unlike SendPayment, QueryRoutes does\nnot add any additional block padding on top of final_ctlv_delta. This\npadding of a few blocks needs to be added manually or otherwise failures may\nhappen when a block comes in while the payment is in flight."
+                },
+                "fee_limit": {
+                  "$ref": "#/definitions/lnrpcFeeLimit",
+                  "description": "The maximum number of satoshis that will be paid as a fee of the payment.\nThis value can be represented either as a percentage of the amount being\nsent, or as a fixed amount of the maximum fee the user is willing the pay to\nsend the payment. If not specified, lnd will use a default value of 100%\nfees for small amounts (\u003c=1k sat) or 5% fees for larger amounts."
+                },
+                "ignored_nodes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "byte"
+                  },
+                  "description": "A list of nodes to ignore during path finding. When using REST, these fields\nmust be encoded as base64."
+                },
+                "ignored_edges": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/lnrpcEdgeLocator"
+                  },
+                  "description": "Deprecated. A list of edges to ignore during path finding."
+                },
+                "source_pub_key": {
+                  "type": "string",
+                  "description": "The source node where the request route should originated from. If empty,\nself is assumed."
+                },
+                "use_mission_control": {
+                  "type": "boolean",
+                  "description": "If set to true, edge probabilities from mission control will be used to get\nthe optimal route."
+                },
+                "ignored_pairs": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/lnrpcNodePair"
+                  },
+                  "description": "A list of directed node pairs that will be ignored during path finding."
+                },
+                "cltv_limit": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "An optional maximum total time lock for the route. If the source is empty or\nourselves, this should not exceed lnd's `--max-cltv-expiry` setting. If\nzero, then the value of `--max-cltv-expiry` is used as the limit."
+                },
+                "dest_custom_records": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "format": "byte"
+                  },
+                  "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto a peer which understands the new records. This can be used to pass\napplication specific data during the payment attempt. If the destination\ndoes not support the specified records, an error will be returned.\nRecord types are required to be in the custom range \u003e= 65536. When using\nREST, the values must be encoded as base64."
+                },
+                "outgoing_chan_id": {
+                  "type": "string",
+                  "format": "uint64",
+                  "description": "The channel id of the channel that must be taken to the first hop. If zero,\nany channel may be used."
+                },
+                "last_hop_pubkey": {
+                  "type": "string",
+                  "format": "byte",
+                  "description": "The pubkey of the last hop of the route. If empty, any hop may be used."
+                },
+                "route_hints": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/lnrpcRouteHint"
+                  },
+                  "description": "Optional route hints to reach the destination through private channels."
+                },
+                "dest_features": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/lnrpcFeatureBit"
+                  },
+                  "description": "Features assumed to be supported by the final node. All transitive feature\ndependencies must also be set properly. For a given feature bit pair, either\noptional or remote may be set, but not both. If this field is nil or empty,\nthe router will try to load destination features from the graph as a\nfallback."
+                },
+                "time_pref": {
+                  "type": "number",
+                  "format": "double",
+                  "description": "The time preference for this payment. Set to -1 to optimize for fees\nonly, to 1 to optimize for reliability only or a value inbetween for a mix."
+                }
+              }
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
       }
     },
     "/v1/graph/subscribe": {

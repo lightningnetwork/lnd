@@ -2737,10 +2737,7 @@ func TestAddHTLCNegativeBalance(t *testing.T) {
 	htlcAmt = lnwire.NewMSatFromSatoshis(2 * btcutil.SatoshiPerBitcoin)
 	htlc, _ := createHTLC(numHTLCs+1, htlcAmt)
 	_, err = aliceChannel.AddHTLC(htlc, nil)
-	if err != ErrBelowChanReserve {
-		t.Fatalf("expected balance below channel reserve, instead "+
-			"got: %v", err)
-	}
+	require.ErrorIs(t, err, ErrBelowChanReserve)
 }
 
 // assertNoChanSyncNeeded is a helper function that asserts that upon restart,
@@ -5642,10 +5639,8 @@ func TestDesyncHTLCs(t *testing.T) {
 	// balance is unavailable.
 	htlcAmt = lnwire.NewMSatFromSatoshis(1 * btcutil.SatoshiPerBitcoin)
 	htlc, _ = createHTLC(1, htlcAmt)
-	if _, err = aliceChannel.AddHTLC(htlc, nil); err != ErrBelowChanReserve {
-		t.Fatalf("expected ErrInsufficientBalance, instead received: %v",
-			err)
-	}
+	_, err = aliceChannel.AddHTLC(htlc, nil)
+	require.ErrorIs(t, err, ErrBelowChanReserve)
 
 	// Now do a state transition, which will ACK the FailHTLC, making Alice
 	// able to add the new HTLC.
@@ -6063,14 +6058,11 @@ func TestChanReserve(t *testing.T) {
 	htlc, _ = createHTLC(bobIndex, htlcAmt)
 	bobIndex++
 	_, err := bobChannel.AddHTLC(htlc, nil)
-	if err != ErrBelowChanReserve {
-		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
-	}
+	require.ErrorIs(t, err, ErrBelowChanReserve)
 
 	// Alice will reject this htlc upon receiving the htlc.
-	if _, err := aliceChannel.ReceiveHTLC(htlc); err != ErrBelowChanReserve {
-		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
-	}
+	_, err = aliceChannel.ReceiveHTLC(htlc)
+	require.ErrorIs(t, err, ErrBelowChanReserve)
 
 	// We must setup the channels again, since a violation of the channel
 	// constraints leads to channel shutdown.
@@ -6105,14 +6097,11 @@ func TestChanReserve(t *testing.T) {
 	htlc, _ = createHTLC(aliceIndex, htlcAmt)
 	aliceIndex++
 	_, err = aliceChannel.AddHTLC(htlc, nil)
-	if err != ErrBelowChanReserve {
-		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
-	}
+	require.ErrorIs(t, err, ErrBelowChanReserve)
 
 	// Likewise, Bob will reject receiving the htlc because of the same reason.
-	if _, err := bobChannel.ReceiveHTLC(htlc); err != ErrBelowChanReserve {
-		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
-	}
+	_, err = bobChannel.ReceiveHTLC(htlc)
+	require.ErrorIs(t, err, ErrBelowChanReserve)
 
 	// We must setup the channels again, since a violation of the channel
 	// constraints leads to channel shutdown.
@@ -6218,22 +6207,15 @@ func TestChanReserveRemoteInitiator(t *testing.T) {
 	// Bob should refuse to add this HTLC, since he realizes it will create
 	// an invalid commitment.
 	_, err = bobChannel.AddHTLC(htlc, nil)
-	if err != ErrBelowChanReserve {
-		t.Fatalf("expected ErrBelowChanReserve, instead received: %v",
-			err)
-	}
+	require.ErrorIs(t, err, ErrBelowChanReserve)
 
 	// Of course Alice will also not have enough balance to add it herself.
 	_, err = aliceChannel.AddHTLC(htlc, nil)
-	if err != ErrBelowChanReserve {
-		t.Fatalf("expected ErrBelowChanReserve, instead received: %v",
-			err)
-	}
+	require.ErrorIs(t, err, ErrBelowChanReserve)
 
 	// Same for Alice, she should refuse to accept this second HTLC.
-	if _, err := aliceChannel.ReceiveHTLC(htlc); err != ErrBelowChanReserve {
-		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
-	}
+	_, err = aliceChannel.ReceiveHTLC(htlc)
+	require.ErrorIs(t, err, ErrBelowChanReserve)
 }
 
 // TestChanReserveLocalInitiatorDustHtlc tests that fee the initiator must pay
@@ -6276,9 +6258,7 @@ func TestChanReserveLocalInitiatorDustHtlc(t *testing.T) {
 	// Alice should realize that the fee she must pay to add this HTLC to
 	// the local commitment would take her below the channel reserve.
 	_, err = aliceChannel.AddHTLC(htlc, nil)
-	if err != ErrBelowChanReserve {
-		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
-	}
+	require.ErrorIs(t, err, ErrBelowChanReserve)
 }
 
 // TestMinHTLC tests that the ErrBelowMinHTLC error is thrown if an HTLC is added

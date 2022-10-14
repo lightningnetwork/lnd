@@ -3566,9 +3566,12 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// balance to satisfy the final evaluated HTLC's.
 	switch {
 	case int64(ourBalance) < 0:
-		return ErrBelowChanReserve
+		return fmt.Errorf("%w: negative local balance",
+			ErrBelowChanReserve)
+
 	case int64(theirBalance) < 0:
-		return ErrBelowChanReserve
+		return fmt.Errorf("%w: negative remote balance",
+			ErrBelowChanReserve)
 	}
 
 	// Ensure that the fee being applied is enough to be relayed across the
@@ -3580,17 +3583,25 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 
 	// If the added HTLCs will decrease the balance, make sure they won't
 	// dip the local and remote balances below the channel reserves.
+	ourReserve := lnwire.NewMSatFromSatoshis(
+		lc.channelState.LocalChanCfg.ChanReserve,
+	)
+	theirReserve := lnwire.NewMSatFromSatoshis(
+		lc.channelState.RemoteChanCfg.ChanReserve,
+	)
+
 	switch {
-	case ourBalance < ourInitialBalance &&
-		ourBalance < lnwire.NewMSatFromSatoshis(
-			lc.channelState.LocalChanCfg.ChanReserve):
+	case ourBalance < ourInitialBalance && ourBalance < ourReserve:
+		lc.log.Debugf("Funds below chan reserve: ourBalance=%v, "+
+			"ourReserve=%v", ourBalance, ourReserve)
+		return fmt.Errorf("%w: our balance below chan reserve",
+			ErrBelowChanReserve)
 
-		return ErrBelowChanReserve
-	case theirBalance < theirInitialBalance &&
-		theirBalance < lnwire.NewMSatFromSatoshis(
-			lc.channelState.RemoteChanCfg.ChanReserve):
-
-		return ErrBelowChanReserve
+	case theirBalance < theirInitialBalance && theirBalance < theirReserve:
+		lc.log.Debugf("Funds below chan reserve: theirBalance=%v, "+
+			"theirReserve=%v", theirBalance, theirReserve)
+		return fmt.Errorf("%w: their balance below chan reserve",
+			ErrBelowChanReserve)
 	}
 
 	// validateUpdates take a set of updates, and validates them against

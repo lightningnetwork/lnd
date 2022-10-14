@@ -3885,13 +3885,14 @@ func TestSwitchHoldForward(t *testing.T) {
 	}
 	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: testStartingHeight}
 
-	switchForwardInterceptor := NewInterceptableSwitch(
+	switchForwardInterceptor, err := NewInterceptableSwitch(
 		&InterceptableSwitchConfig{
 			Switch:          c.s,
 			CltvRejectDelta: c.cltvRejectDelta,
 			Notifier:        notifier,
 		},
 	)
+	require.NoError(t, err)
 	require.NoError(t, switchForwardInterceptor.Start())
 
 	switchForwardInterceptor.SetInterceptor(c.forwardInterceptor.InterceptForwardHtlc)
@@ -3901,7 +3902,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	packet := c.createTestPacket()
 	packet.incomingTimeout = testStartingHeight + c.cltvRejectDelta - 1
 
-	err := switchForwardInterceptor.ForwardPackets(linkQuit, false, packet)
+	err = switchForwardInterceptor.ForwardPackets(linkQuit, false, packet)
 	require.NoError(t, err, "can't forward htlc packet")
 	assertOutgoingLinkReceive(t, c.bobChannelLink, false)
 	assertOutgoingLinkReceiveIntercepted(t, c.aliceChannelLink)
@@ -4086,7 +4087,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	}
 	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: testStartingHeight}
 
-	switchForwardInterceptor = NewInterceptableSwitch(
+	switchForwardInterceptor, err = NewInterceptableSwitch(
 		&InterceptableSwitchConfig{
 			Switch:             c.s,
 			CltvRejectDelta:    c.cltvRejectDelta,
@@ -4094,6 +4095,7 @@ func TestSwitchHoldForward(t *testing.T) {
 			Notifier:           notifier,
 		},
 	)
+	require.NoError(t, err)
 	require.NoError(t, switchForwardInterceptor.Start())
 
 	// Forward a fresh packet. It is expected to be failed immediately,
@@ -5391,12 +5393,13 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 	}
 	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: testStartingHeight}
 
-	interceptSwitch := NewInterceptableSwitch(
+	interceptSwitch, err := NewInterceptableSwitch(
 		&InterceptableSwitchConfig{
 			Switch:   s,
 			Notifier: notifier,
 		},
 	)
+	require.NoError(t, err)
 	require.NoError(t, interceptSwitch.Start())
 	interceptSwitch.SetInterceptor(forwardInterceptor.InterceptForwardHtlc)
 

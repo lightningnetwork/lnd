@@ -146,7 +146,9 @@ type InterceptableSwitchConfig struct {
 }
 
 // NewInterceptableSwitch returns an instance of InterceptableSwitch.
-func NewInterceptableSwitch(cfg *InterceptableSwitchConfig) *InterceptableSwitch {
+func NewInterceptableSwitch(cfg *InterceptableSwitchConfig) (
+	*InterceptableSwitch, error) {
+
 	return &InterceptableSwitch{
 		htlcSwitch:              cfg.Switch,
 		intercepted:             make(chan *interceptedPackets),
@@ -159,7 +161,7 @@ func NewInterceptableSwitch(cfg *InterceptableSwitchConfig) *InterceptableSwitch
 		notifier:                cfg.Notifier,
 
 		quit: make(chan struct{}),
-	}
+	}, nil
 }
 
 // SetInterceptor sets the ForwardInterceptor to be used. A nil argument

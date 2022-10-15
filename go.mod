@@ -1,5 +1,7 @@
 module github.com/lightningnetwork/lnd
 
+replace github.com/btcsuite/btcwallet v0.16.1 => ../btcwallet
+
 require (
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344

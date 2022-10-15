@@ -119,9 +119,9 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Create 5 invoices for Bob, which expect a payment from Carol for 1k
 	// satoshis with a different preimage each time.
 	const numPayments = 5
-	const paymentAmt = 1000
+	const paymentAmtMsat = 1000
 	payReqs, _, _, err := createPayReqs(
-		net.Bob, paymentAmt, numPayments,
+		net.Bob, paymentAmtMsat/1000, numPayments,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -145,10 +145,10 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// channel edges to relatively large non default values. This makes it
 	// possible to pick up more subtle fee calculation errors.
 	maxHtlc := calculateMaxHtlc(chanAmt)
-	const aliceBaseFeeSat = 1
+	const aliceBaseFeeMsat = 1000
 	const aliceFeeRatePPM = 100000
 	updateChannelPolicy(
-		t, net.Alice, chanPointAlice, aliceBaseFeeSat*1000,
+		t, net.Alice, chanPointAlice, aliceBaseFeeMsat,
 		aliceFeeRatePPM,
 		0, 0,
 		chainreg.DefaultBitcoinTimeLockDelta, maxHtlc,
@@ -169,10 +169,10 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		dave,
 	)
 
-	const daveBaseFeeSat = 5
+	const daveBaseFeeMsat = 5
 	const daveFeeRatePPM = 150000
 	updateChannelPolicy(
-		t, dave, chanPointDave, daveBaseFeeSat*1000, daveFeeRatePPM,
+		t, dave, chanPointDave, daveBaseFeeMsat, daveFeeRatePPM,
 		0, 0,
 		chainreg.DefaultBitcoinTimeLockDelta, maxHtlc, carol,
 	)
@@ -225,42 +225,44 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Alice, David, Carol.
 
 	// The final node bob expects to get paid five times 1000 sat.
-	expectedAmountPaidAtoB := int64(numPayments * paymentAmt)
+	expectedAmountPaidAtoBMsat := int64(numPayments * paymentAmtMsat)
 
 	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Bob,
-		aliceFundPoint, int64(0), expectedAmountPaidAtoB)
+		aliceFundPoint, int64(0), expectedAmountPaidAtoBMsat/1000)
 	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Alice,
-		aliceFundPoint, expectedAmountPaidAtoB, int64(0))
+		aliceFundPoint, expectedAmountPaidAtoBMsat/1000, int64(0))
 
 	// To forward a payment of 1000 sat, Alice is charging a fee of 1 sat +
 	// 10% = 101 sat. Note that this does not include the inbound fee
 	// (discount) because there is no sender support yet.
-	const aliceFeePerPayment = aliceBaseFeeSat +
-		(paymentAmt * aliceFeeRatePPM / 1_000_000)
-	const expectedFeeAlice = numPayments * aliceFeePerPayment
+	const aliceFeePerPaymentMsat = aliceBaseFeeMsat +
+		(paymentAmtMsat * aliceFeeRatePPM / 1_000_000)
+	const expectedFeeAliceMsat = numPayments * aliceFeePerPaymentMsat
 
 	// Dave needs to pay what Alice pays plus Alice's fee.
-	expectedAmountPaidDtoA := expectedAmountPaidAtoB + expectedFeeAlice
+	expectedAmountPaidDtoAMsat := expectedAmountPaidAtoBMsat +
+		expectedFeeAliceMsat
 
 	assertAmountPaid(t, "Dave(local) => Alice(remote)", net.Alice,
-		daveFundPoint, int64(0), expectedAmountPaidDtoA)
+		daveFundPoint, int64(0), expectedAmountPaidDtoAMsat/1000)
 	assertAmountPaid(t, "Dave(local) => Alice(remote)", dave,
-		daveFundPoint, expectedAmountPaidDtoA, int64(0))
+		daveFundPoint, expectedAmountPaidDtoAMsat/1000, int64(0))
 
 	// To forward a payment of 1101 sat, Dave is charging a fee of
 	// 5 sat + 15% = 170.15 sat. This is rounded down in rpcserver to 170.
-	const davePaymentAmt = paymentAmt + aliceFeePerPayment
-	const daveFeePerPayment = daveBaseFeeSat +
-		(davePaymentAmt * daveFeeRatePPM / 1_000_000)
-	const expectedFeeDave = numPayments * daveFeePerPayment
+	const davePaymentAmtMsat = paymentAmtMsat + aliceFeePerPaymentMsat
+	const daveFeePerPaymentMsat = daveBaseFeeMsat +
+		(davePaymentAmtMsat * daveFeeRatePPM / 1_000_000)
+	const expectedFeeDaveMsat = numPayments * daveFeePerPaymentMsat
 
 	// Carol needs to pay what Dave pays plus Dave's fee.
-	expectedAmountPaidCtoD := expectedAmountPaidDtoA + expectedFeeDave
+	expectedAmountPaidCtoDMsat := expectedAmountPaidDtoAMsat +
+		expectedFeeDaveMsat
 
 	assertAmountPaid(t, "Carol(local) => Dave(remote)", dave,
-		carolFundPoint, int64(0), expectedAmountPaidCtoD)
+		carolFundPoint, int64(0), expectedAmountPaidCtoDMsat/1000)
 	assertAmountPaid(t, "Carol(local) => Dave(remote)", carol,
-		carolFundPoint, expectedAmountPaidCtoD, int64(0))
+		carolFundPoint, expectedAmountPaidCtoDMsat/1000, int64(0))
 
 	// Now that we know all the balances have been settled out properly,
 	// we'll ensure that our internal record keeping for completed circuits
@@ -275,17 +277,17 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to query for fee report: %v", err)
 	}
 
-	if feeReport.DayFeeSum != uint64(expectedFeeDave) {
-		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDave,
-			feeReport.DayFeeSum)
+	if feeReport.DayFeeSumMsat != expectedFeeDaveMsat {
+		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDaveMsat,
+			feeReport.DayFeeSumMsat)
 	}
-	if feeReport.WeekFeeSum != uint64(expectedFeeDave) {
-		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDave,
-			feeReport.WeekFeeSum)
+	if feeReport.WeekFeeSumMsat != expectedFeeDaveMsat {
+		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDaveMsat,
+			feeReport.WeekFeeSumMsat)
 	}
-	if feeReport.MonthFeeSum != uint64(expectedFeeDave) {
-		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDave,
-			feeReport.MonthFeeSum)
+	if feeReport.MonthFeeSumMsat != expectedFeeDaveMsat {
+		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDaveMsat,
+			feeReport.MonthFeeSumMsat)
 	}
 
 	// Next, ensure that if we issue the vanilla query for the forwarding
@@ -302,12 +304,12 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 			"got %v", numPayments,
 			len(fwdingHistory.ForwardingEvents))
 	}
-	expectedForwardingFee := uint64(expectedFeeDave / numPayments)
+	expectedForwardingFeeMsat := expectedFeeDaveMsat / numPayments
 	for _, event := range fwdingHistory.ForwardingEvents {
 		// Each event should show a fee of 170 satoshi.
-		if event.Fee != expectedForwardingFee {
+		if int(event.FeeSignedMsat) != expectedForwardingFeeMsat {
 			t.Fatalf("fee mismatch:  expected %v, got %v",
-				expectedForwardingFee, event.Fee)
+				expectedForwardingFeeMsat, event.FeeSignedMsat)
 		}
 	}
 

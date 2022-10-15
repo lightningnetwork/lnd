@@ -5,6 +5,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration1"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration2"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration3"
 )
 
 // migration is a function which takes a prior outdated version of the database
@@ -32,6 +33,9 @@ var clientDBVersions = []version{
 	},
 	{
 		migration: migration2.MigrateClientChannelDetails,
+	},
+	{
+		migration: migration3.MigrateChannelIDIndex,
 	},
 }
 

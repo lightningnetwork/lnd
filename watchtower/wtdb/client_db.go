@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
 
@@ -20,6 +21,7 @@ var (
 
 	// cChanDetailsBkt is a top-level bucket storing:
 	//   channel-id => cChannelSummary -> encoded ClientChanSummary.
+	//  		=> cChanDBID -> db-assigned-id
 	cChanDetailsBkt = []byte("client-channel-detail-bucket")
 
 	// cChanDBID is a key used in the cChanDetailsBkt to store the
@@ -47,6 +49,10 @@ var (
 	// cSessionAcks is a sub-bucket of cSessionBkt storing:
 	//    seqnum -> encoded BackupID.
 	cSessionAcks = []byte("client-session-acks")
+
+	// cChanIDIndexBkt is a top-level bucket storing:
+	//    db-assigned-id -> channel-ID
+	cChanIDIndexBkt = []byte("client-channel-id-index")
 
 	// cTowerBkt is a top-level bucket storing:
 	//    tower-id -> encoded Tower.
@@ -215,6 +221,7 @@ func initClientDBBuckets(tx kvdb.RwTx) error {
 		cTowerBkt,
 		cTowerIndexBkt,
 		cTowerToSessionIndexBkt,
+		cChanIDIndexBkt,
 	}
 
 	for _, bucket := range buckets {
@@ -955,6 +962,37 @@ func (c *ClientDB) RegisterChannel(chanID lnwire.ChannelID,
 			return err
 		}
 
+		// Get the channel-id-index bucket.
+		indexBkt := tx.ReadWriteBucket(cChanIDIndexBkt)
+		if indexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		// Request the next unique id from the bucket.
+		nextSeq, err := indexBkt.NextSequence()
+		if err != nil {
+			return err
+		}
+
+		// Use BigSize encoding to encode the db-assigned index.
+		newIndex, err := writeBigSize(nextSeq)
+		if err != nil {
+			return err
+		}
+
+		// Add the new db-assigned ID to channel-ID pair.
+		err = indexBkt.Put(newIndex, chanID[:])
+		if err != nil {
+			return err
+		}
+
+		// Add the db-assigned ID to the channel's channel details
+		// bucket under the cChanDBID key.
+		err = chanDetails.Put(cChanDBID, newIndex)
+		if err != nil {
+			return err
+		}
+
 		summary := ClientChanSummary{
 			SweepPkScript: sweepPkScript,
 		}
@@ -1483,4 +1521,51 @@ func putTower(towers kvdb.RwBucket, tower *Tower) error {
 	}
 
 	return towers.Put(tower.ID.Bytes(), b.Bytes())
+}
+
+// getDBChanID returns the db-assigned channel ID for the given real channel ID.
+// It returns both the uint64 and byte representation.
+func getDBChanID(chanDetailsBkt kvdb.RBucket, chanID lnwire.ChannelID) (uint64,
+	[]byte, error) {
+
+	chanDetails := chanDetailsBkt.NestedReadBucket(chanID[:])
+	if chanDetails == nil {
+		return 0, nil, ErrChannelNotRegistered
+	}
+
+	idBytes := chanDetails.Get(cChanDBID)
+	if len(idBytes) == 0 {
+		return 0, nil, fmt.Errorf("no db-assigned ID found for "+
+			"channel ID %s", chanID)
+	}
+
+	id, err := readBigSize(idBytes)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return id, idBytes, nil
+}
+
+// writeBigSize will encode the given uint64 as a BigSize byte slice.
+func writeBigSize(i uint64) ([]byte, error) {
+	var b bytes.Buffer
+	err := tlv.WriteVarInt(&b, i, &[8]byte{})
+	if err != nil {
+		return nil, err
+	}
+
+	return b.Bytes(), nil
+}
+
+// readBigSize converts the given byte slice into a uint64 and assumes that the
+// bytes slice is using BigSize encoding.
+func readBigSize(b []byte) (uint64, error) {
+	r := bytes.NewReader(b)
+	i, err := tlv.ReadVarInt(r, &[8]byte{})
+	if err != nil {
+		return 0, err
+	}
+
+	return i, nil
 }

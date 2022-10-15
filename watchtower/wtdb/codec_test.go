@@ -125,9 +125,9 @@ type dbObject interface {
 	Decode(io.Reader) error
 }
 
-// TestCodec serializes and deserializes wtdb objects in order to test that that
-// the codec understands all of the required field types. The test also asserts
-// that decoding an object into another results in an equivalent object.
+// TestCodec serializes and deserializes wtdb objects in order to test that the
+// codec understands all of the required field types. The test also asserts that
+// decoding an object into another results in an equivalent object.
 func TestCodec(tt *testing.T) {
 
 	var t *testing.T

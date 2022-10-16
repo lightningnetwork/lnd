@@ -31,7 +31,7 @@ type ClientStats struct {
 	NumSessionsExhausted int
 }
 
-// taskReceived increments the number to backup requests the client has received
+// taskReceived increments the number of backup requests the client has received
 // from active channels.
 func (s *ClientStats) taskReceived() {
 	s.mu.Lock()
@@ -74,7 +74,7 @@ func (s *ClientStats) sessionExhausted() {
 	s.NumSessionsExhausted++
 }
 
-// String returns a human readable summary of the client's metrics.
+// String returns a human-readable summary of the client's metrics.
 func (s *ClientStats) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

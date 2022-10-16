@@ -1147,7 +1147,7 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 			return err
 		}
 
-		// Ensure that the session acks sub-bucket is initialized so we
+		// Ensure that the session acks sub-bucket is initialized, so we
 		// can insert an entry.
 		sessionAcks, err := sessionBkt.CreateBucketIfNotExists(
 			cSessionAcks,

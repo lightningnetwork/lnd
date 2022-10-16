@@ -266,9 +266,9 @@ type TowerClient struct {
 var _ Client = (*TowerClient)(nil)
 
 // New initializes a new TowerClient from the provide Config. An error is
-// returned if the client could not initialized.
+// returned if the client could not be initialized.
 func New(config *Config) (*TowerClient, error) {
-	// Copy the config to prevent side-effects from modifying both the
+	// Copy the config to prevent side effects from modifying both the
 	// internal and external version of the Config.
 	cfg := new(Config)
 	*cfg = *config
@@ -739,7 +739,7 @@ func (c *TowerClient) nextSessionQueue() (*sessionQueue, error) {
 		return nil, err
 	}
 
-	// Initialize the session queue and spin it up so it can begin handling
+	// Initialize the session queue and spin it up, so it can begin handling
 	// updates. If the queue was already made active on startup, this will
 	// simply return the existing session queue from the set.
 	return c.getOrInitActiveQueue(candidateSession, updates), nil
@@ -891,7 +891,7 @@ func (c *TowerClient) backupDispatcher() {
 }
 
 // processTask attempts to schedule the given backupTask on the active
-// sessionQueue. The task will either be accepted or rejected, afterwhich the
+// sessionQueue. The task will either be accepted or rejected, after which the
 // appropriate modifications to the client's state machine will be made. After
 // every invocation of processTask, the caller should ensure that the
 // sessionQueue hasn't been exhausted before proceeding to the next task. Tasks
@@ -934,7 +934,7 @@ func (c *TowerClient) taskAccepted(task *backupTask, newStatus reserveStatus) {
 		c.log.Debugf("Session %s exhausted", c.sessionQueue.ID())
 
 		// This task left the session exhausted, set it to nil and
-		// proceed to the next loop so we can consume another
+		// proceed to the next loop, so we can consume another
 		// pre-negotiated session or request another.
 		c.sessionQueue = nil
 	}
@@ -942,7 +942,7 @@ func (c *TowerClient) taskAccepted(task *backupTask, newStatus reserveStatus) {
 
 // taskRejected process the rejection of a task by a sessionQueue depending on
 // the state the was in *before* the task was rejected. The client's prevTask
-// will cache the task if the sessionQueue was exhausted before hand, and nil
+// will cache the task if the sessionQueue was exhausted beforehand, and nil
 // the sessionQueue to find a new session. If the sessionQueue was not
 // exhausted, the client marks the task as ineligible, as this implies we
 // couldn't construct a valid justice transaction given the session's policy.
@@ -1088,7 +1088,7 @@ func (c *TowerClient) newSessionQueue(s *wtdb.ClientSession,
 
 // getOrInitActiveQueue checks the activeSessions set for a sessionQueue for the
 // passed ClientSession. If it exists, the active sessionQueue is returned.
-// Otherwise a new sessionQueue is initialized and added to the set.
+// Otherwise, a new sessionQueue is initialized and added to the set.
 func (c *TowerClient) getOrInitActiveQueue(s *wtdb.ClientSession,
 	updates []wtdb.CommittedUpdate) *sessionQueue {
 
@@ -1106,8 +1106,8 @@ func (c *TowerClient) getOrInitActiveQueue(s *wtdb.ClientSession,
 func (c *TowerClient) initActiveQueue(s *wtdb.ClientSession,
 	updates []wtdb.CommittedUpdate) *sessionQueue {
 
-	// Initialize the session queue, providing it with all of the resources
-	// it requires from the client instance.
+	// Initialize the session queue, providing it with all the resources it
+	// requires from the client instance.
 	sq := c.newSessionQueue(s, updates)
 
 	// Add the session queue as an active session so that we remember to

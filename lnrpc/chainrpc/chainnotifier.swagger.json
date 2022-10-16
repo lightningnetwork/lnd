@@ -183,7 +183,7 @@
         "tx_index": {
           "type": "integer",
           "format": "int64",
-          "description": "The index of the confirmed transaction within the transaction."
+          "description": "The index of the confirmed transaction within the block."
         },
         "raw_block": {
           "type": "string",

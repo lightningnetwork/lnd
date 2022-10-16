@@ -125,7 +125,7 @@ type ConfDetails struct {
 	// The height of the block in which the confirmed transaction was included
 	// in.
 	BlockHeight uint32 `protobuf:"varint,3,opt,name=block_height,json=blockHeight,proto3" json:"block_height,omitempty"`
-	// The index of the confirmed transaction within the transaction.
+	// The index of the confirmed transaction within the block.
 	TxIndex uint32 `protobuf:"varint,4,opt,name=tx_index,json=txIndex,proto3" json:"tx_index,omitempty"`
 	// The raw bytes of the block that mined the transaction. Only included if
 	// include_block was set in the request.

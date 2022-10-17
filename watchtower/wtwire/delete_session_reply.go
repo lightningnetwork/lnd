@@ -15,8 +15,7 @@ const (
 )
 
 // DeleteSessionReply is a message sent in response to a client's DeleteSession
-// request. The message indicates whether or not the deletion was a success or
-// failure.
+// request. The message indicates whether the deletion was a success or failure.
 type DeleteSessionReply struct {
 	// Code will be non-zero if the watchtower was not able to delete the
 	// requested session.

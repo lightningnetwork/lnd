@@ -81,7 +81,7 @@ type sessionQueueConfig struct {
 // backups to the watchtower specified in the config's ClientSession. Calling
 // Quit will attempt to perform a clean shutdown by receiving an ACK from the
 // tower for all pending backups before exiting. The clean shutdown can be
-// aborted by using ForceQuit, which will attempt to shutdown the queue
+// aborted by using ForceQuit, which will attempt to shut down the queue
 // immediately.
 type sessionQueue struct {
 	started sync.Once
@@ -108,7 +108,7 @@ type sessionQueue struct {
 	shutdown  chan struct{}
 }
 
-// newSessionQueue intiializes a fresh sessionQueue.
+// newSessionQueue initializes a fresh sessionQueue.
 func newSessionQueue(cfg *sessionQueueConfig,
 	updates []wtdb.CommittedUpdate) *sessionQueue {
 
@@ -275,7 +275,7 @@ func (q *sessionQueue) sessionManager() {
 		}
 		q.queueCond.L.Unlock()
 
-		// Exit immediately if a force quit has been requested.  If the
+		// Exit immediately if a force quit has been requested.  If
 		// either of the queues still has state updates to send to the
 		// tower, we may never exit in the above case if we are unable
 		// to reach the tower for some reason.
@@ -314,7 +314,7 @@ func (q *sessionQueue) drainBackups() {
 	// Init.
 	for sendInit := true; ; sendInit = false {
 		// Generate the next state update to upload to the tower. This
-		// method will first proceed in dequeueing committed updates
+		// method will first proceed in dequeuing committed updates
 		// before attempting to dequeue any pending updates.
 		stateUpdate, isPending, backupID, err := q.nextStateUpdate()
 		if err != nil {
@@ -480,8 +480,8 @@ func (q *sessionQueue) nextStateUpdate() (*wtwire.StateUpdate, bool,
 // the ACK before returning. If sendInit is true, this method will first send
 // the localInit message and verify that the tower supports our required feature
 // bits. And error is returned if any part of the send fails. The boolean return
-// variable indicates whether or not we should back off before attempting to
-// send the next state update.
+// variable indicates whether we should back off before attempting to send the
+// next state update.
 func (q *sessionQueue) sendStateUpdate(conn wtserver.Peer,
 	stateUpdate *wtwire.StateUpdate, localInit *wtwire.Init,
 	sendInit, isPending bool) error {
@@ -598,10 +598,10 @@ func (q *sessionQueue) sendStateUpdate(conn wtserver.Peer,
 	return nil
 }
 
-// reserveStatus returns a reserveStatus indicating whether or not the
-// sessionQueue can accept another task. reserveAvailable is returned when a
-// task can be accepted, and reserveExhausted is returned if the all slots in
-// the session have been allocated.
+// reserveStatus returns a reserveStatus indicating whether the sessionQueue can
+// accept another task. reserveAvailable is returned when a task can be
+// accepted, and reserveExhausted is returned if the all slots in the session
+// have been allocated.
 //
 // NOTE: This method MUST be called with queueCond's exclusive lock held.
 func (q *sessionQueue) reserveStatus() reserveStatus {

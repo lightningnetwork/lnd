@@ -57,11 +57,9 @@ type DB interface {
 	// restarts.
 	CreateClientSession(*wtdb.ClientSession) error
 
-	// ListClientSessions returns all sessions that have not yet been
-	// exhausted. This is used on startup to find any sessions which may
-	// still be able to accept state updates. An optional tower ID can be
-	// used to filter out any client sessions in the response that do not
-	// correspond to this tower.
+	// ListClientSessions returns the set of all client sessions known to
+	// the db. An optional tower ID can be used to filter out any client
+	// sessions in the response that do not correspond to this tower.
 	ListClientSessions(*wtdb.TowerID, ...wtdb.ClientSessionListOption) (
 		map[wtdb.SessionID]*wtdb.ClientSession, error)
 

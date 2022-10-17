@@ -601,6 +601,14 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
+			// With a 50% chance, add the FeeRange TLV record.
+			if r.Intn(2) == 0 {
+				req.FeeRange = &FeeRange{
+					MinFeeSats: btcutil.Amount(uint64(r.Int63())),
+					MaxFeeSats: btcutil.Amount(uint64(r.Int63())),
+				}
+			}
+
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgCommitSig: func(v []reflect.Value, r *rand.Rand) {

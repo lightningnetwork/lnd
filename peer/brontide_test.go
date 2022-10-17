@@ -102,7 +102,9 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
 	require.NoError(t, err, "error parsing signature")
-	closingSigned := lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
+	closingSigned := lnwire.NewClosingSigned(
+		chanID, aliceFee, parsedSig, nil,
+	)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
@@ -204,8 +206,9 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
 	require.NoError(t, err, "unable to parse signature")
 
-	closingSigned := lnwire.NewClosingSigned(chanID,
-		bobFee, parsedSig)
+	closingSigned := lnwire.NewClosingSigned(
+		chanID, bobFee, parsedSig, nil,
+	)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
@@ -318,7 +321,9 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
 	require.NoError(t, err, "error parsing signature")
-	closingSigned := lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
+	closingSigned := lnwire.NewClosingSigned(
+		chanID, increasedFee, parsedSig, nil,
+	)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
@@ -358,7 +363,9 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 
 	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
 	require.NoError(t, err, "error parsing signature")
-	closingSigned = lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
+	closingSigned = lnwire.NewClosingSigned(
+		chanID, increasedFee, parsedSig, nil,
+	)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
@@ -400,7 +407,9 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 
 	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
 	require.NoError(t, err, "error parsing signature")
-	closingSigned = lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
+	closingSigned = lnwire.NewClosingSigned(
+		chanID, aliceFee, parsedSig, nil,
+	)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
@@ -508,7 +517,9 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
 	require.NoError(t, err, "unable to parse signature")
 
-	closingSigned := lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
+	closingSigned := lnwire.NewClosingSigned(
+		chanID, increasedFee, parsedSig, nil,
+	)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
@@ -551,7 +562,9 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
 	require.NoError(t, err, "error parsing signature")
 
-	closingSigned = lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
+	closingSigned = lnwire.NewClosingSigned(
+		chanID, increasedFee, parsedSig, nil,
+	)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
@@ -590,7 +603,9 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 
 	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
 	require.NoError(t, err, "error parsing signature")
-	closingSigned = lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
+	closingSigned = lnwire.NewClosingSigned(
+		chanID, aliceFee, parsedSig, nil,
+	)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,

@@ -828,7 +828,7 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSign
 	// We'll assemble a ClosingSigned message using this information and return
 	// it to the caller so we can kick off the final stage of the channel
 	// closure process.
-	closeSignedMsg := lnwire.NewClosingSigned(c.cid, fee, parsedSig)
+	closeSignedMsg := lnwire.NewClosingSigned(c.cid, fee, parsedSig, nil)
 
 	// We'll also save this close signed, in the case that the remote party
 	// accepts our offer. This way, we don't have to re-sign.

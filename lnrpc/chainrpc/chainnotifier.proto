@@ -91,7 +91,7 @@ message ConfDetails {
     // in.
     uint32 block_height = 3;
 
-    // The index of the confirmed transaction within the transaction.
+    // The index of the confirmed transaction within the block.
     uint32 tx_index = 4;
 
     /*

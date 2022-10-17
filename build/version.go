@@ -7,6 +7,7 @@ package build
 
 import (
 	"fmt"
+	"runtime/debug"
 	"strings"
 )
 
@@ -17,16 +18,14 @@ var (
 	// -ldflags during compilation.
 	Commit string
 
-	// CommitHash stores the current commit hash of this build, this should
-	// be set using the -ldflags during compilation.
+	// CommitHash stores the current commit hash of this build.
 	CommitHash string
 
-	// RawTags contains the raw set of build tags, separated by commas. This
-	// should be set using -ldflags during compilation.
+	// RawTags contains the raw set of build tags, separated by commas.
 	RawTags string
 
 	// GoVersion stores the go version that the executable was compiled
-	// with. This should be set using -ldflags during compilation.
+	// with.
 	GoVersion string
 )
 
@@ -60,6 +59,20 @@ func init() {
 		if !strings.ContainsRune(semanticAlphabet, r) {
 			panic(fmt.Errorf("rune: %v is not in the semantic "+
 				"alphabet", r))
+		}
+	}
+
+	// Get build information from the runtime.
+	if info, ok := debug.ReadBuildInfo(); ok {
+		GoVersion = info.GoVersion
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				CommitHash = setting.Value
+
+			case "-tags":
+				RawTags = setting.Value
+			}
 		}
 	}
 }

@@ -61,6 +61,10 @@ type InterceptableSwitch struct {
 	// htlc where we no longer intercept it and instead cancel it back.
 	cltvRejectDelta uint32
 
+	// channelFilter limits interception to a single outgoing channel. If
+	// zero, all htlcs are intercepted.
+	channelFilter uint64
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -113,7 +117,7 @@ type fwdResolution struct {
 
 // NewInterceptableSwitch returns an instance of InterceptableSwitch.
 func NewInterceptableSwitch(s *Switch, cltvRejectDelta uint32,
-	requireInterceptor bool) *InterceptableSwitch {
+	requireInterceptor bool, channelFilter uint64) *InterceptableSwitch {
 
 	return &InterceptableSwitch{
 		htlcSwitch:              s,
@@ -124,6 +128,7 @@ func NewInterceptableSwitch(s *Switch, cltvRejectDelta uint32,
 		resolutionChan:          make(chan *fwdResolution),
 		requireInterceptor:      requireInterceptor,
 		cltvRejectDelta:         cltvRejectDelta,
+		channelFilter:           channelFilter,
 
 		quit: make(chan struct{}),
 	}
@@ -344,6 +349,13 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 	case *lnwire.UpdateAddHTLC:
 		// We are not interested in intercepting initiated payments.
 		if packet.incomingChanID == hop.Source {
+			return false
+		}
+
+		// Skip interception if a channel filter is specified.
+		if s.channelFilter != 0 &&
+			packet.outgoingChanID.ToUint64() != s.channelFilter {
+
 			return false
 		}
 

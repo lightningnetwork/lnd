@@ -1018,7 +1018,7 @@ func waitForWalletPassword(cfg *Config,
 					"signer config disabled")
 			}
 
-			birthday = initMsg.ExtendedKeyBirthday
+			birthday = initMsg.WatchOnlyBirthday
 			newWallet, err = loader.CreateNewWatchingOnlyWallet(
 				password, birthday,
 			)

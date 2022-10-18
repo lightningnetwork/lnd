@@ -40,6 +40,10 @@
   wallet](https://github.com/lightningnetwork/lnd/pull/6775). NOTE that funding
   PSBTs from imported tap scripts is not currently possible.
 
+* [The wallet birthday is now used properly when creating a watch-only wallet
+  to avoid scanning the whole
+  chain](https://github.com/lightningnetwork/lnd/pull/7056).
+
 ## Build
 
 [The project has updated to Go

@@ -40,6 +40,13 @@ const (
 	// push us in the broadcast window.
 	DefaultFinalCltvRejectDelta = DefaultIncomingBroadcastDelta + 3
 
+	// DefaultCltvInterceptDelta defines the number of blocks before the
+	// expiry of the htlc where we don't intercept anymore. This value must
+	// be greater than CltvRejectDelta, because we don't want to offer htlcs
+	// to the interceptor client for which there is no time left to resolve
+	// them anymore.
+	DefaultCltvInterceptDelta = DefaultFinalCltvRejectDelta + 3
+
 	// DefaultOutgoingBroadcastDelta defines the number of blocks before the
 	// expiry of an outgoing htlc at which we force close the channel. We
 	// are not in a hurry to force close, because there is nothing to claim

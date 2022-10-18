@@ -359,6 +359,24 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 		ChainNet:    wire.SimNet,
 	}
 
+	interceptableSwitchNotifier := &mock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+	}
+	interceptableSwitchNotifier.EpochChan <- &chainntnfs.BlockEpoch{
+		Height: 1,
+	}
+
+	interceptableSwitch, err := htlcswitch.NewInterceptableSwitch(
+		&htlcswitch.InterceptableSwitchConfig{
+			CltvRejectDelta:    testCltvRejectDelta,
+			CltvInterceptDelta: testCltvRejectDelta + 3,
+			Notifier:           interceptableSwitchNotifier,
+		},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	cfg := &Config{
 		Addr:              cfgAddr,
 		PubKeyBytes:       pubKey,
@@ -366,16 +384,14 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 		ChainIO:           chainIO,
 		Switch:            mockSwitch,
 		ChanActiveTimeout: chanActiveTimeout,
-		InterceptSwitch: htlcswitch.NewInterceptableSwitch(
-			nil, testCltvRejectDelta, false,
-		),
-		ChannelDB:      dbAlice.ChannelStateDB(),
-		FeeEstimator:   estimator,
-		Wallet:         wallet,
-		ChainNotifier:  notifier,
-		ChanStatusMgr:  chanStatusMgr,
-		Features:       lnwire.NewFeatureVector(nil, lnwire.Features),
-		DisconnectPeer: func(b *btcec.PublicKey) error { return nil },
+		InterceptSwitch:   interceptableSwitch,
+		ChannelDB:         dbAlice.ChannelStateDB(),
+		FeeEstimator:      estimator,
+		Wallet:            wallet,
+		ChainNotifier:     notifier,
+		ChanStatusMgr:     chanStatusMgr,
+		Features:          lnwire.NewFeatureVector(nil, lnwire.Features),
+		DisconnectPeer:    func(b *btcec.PublicKey) error { return nil },
 	}
 
 	alicePeer := NewBrontide(*cfg)

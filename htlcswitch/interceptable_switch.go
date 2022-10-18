@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -20,6 +21,8 @@ var (
 	// ErrUnsupportedFailureCode when processing of an unsupported failure
 	// code is attempted.
 	ErrUnsupportedFailureCode = errors.New("unsupported failure code")
+
+	errBlockStreamStopped = errors.New("block epoch stream stopped")
 )
 
 // InterceptableSwitch is an implementation of ForwardingSwitch interface.
@@ -54,12 +57,31 @@ type InterceptableSwitch struct {
 	// interceptor is the handler for intercepted packets.
 	interceptor ForwardInterceptor
 
-	// holdForwards keeps track of outstanding intercepted forwards.
-	holdForwards map[channeldb.CircuitKey]InterceptedForward
+	// heldHtlcSet keeps track of outstanding intercepted forwards.
+	heldHtlcSet *heldHtlcSet
 
 	// cltvRejectDelta defines the number of blocks before the expiry of the
 	// htlc where we no longer intercept it and instead cancel it back.
 	cltvRejectDelta uint32
+
+	// cltvInterceptDelta defines the number of blocks before the expiry of
+	// the htlc where we don't intercept anymore. This value must be greater
+	// than CltvRejectDelta, because we don't want to offer htlcs to the
+	// interceptor client for which there is no time left to resolve them
+	// anymore.
+	cltvInterceptDelta uint32
+
+	// notifier is an instance of a chain notifier that we'll use to signal
+	// the switch when a new block has arrived.
+	notifier chainntnfs.ChainNotifier
+
+	// blockEpochStream is an active block epoch event stream backed by an
+	// active ChainNotifier instance. This will be used to retrieve the
+	// latest height of the chain.
+	blockEpochStream *chainntnfs.BlockEpochEvent
+
+	// currentHeight is the currently best known height.
+	currentHeight int32
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -111,22 +133,57 @@ type fwdResolution struct {
 	errChan    chan error
 }
 
+// InterceptableSwitchConfig contains the configuration of InterceptableSwitch.
+type InterceptableSwitchConfig struct {
+	// Switch is a reference to the actual switch implementation that
+	// packets get sent to on resume.
+	Switch *Switch
+
+	// Notifier is an instance of a chain notifier that we'll use to signal
+	// the switch when a new block has arrived.
+	Notifier chainntnfs.ChainNotifier
+
+	// CltvRejectDelta defines the number of blocks before the expiry of the
+	// htlc where we auto-fail an intercepted htlc to prevent channel
+	// force-closure.
+	CltvRejectDelta uint32
+
+	// CltvInterceptDelta defines the number of blocks before the expiry of
+	// the htlc where we don't intercept anymore. This value must be greater
+	// than CltvRejectDelta, because we don't want to offer htlcs to the
+	// interceptor client for which there is no time left to resolve them
+	// anymore.
+	CltvInterceptDelta uint32
+
+	// RequireInterceptor indicates whether processing should block if no
+	// interceptor is connected.
+	RequireInterceptor bool
+}
+
 // NewInterceptableSwitch returns an instance of InterceptableSwitch.
-func NewInterceptableSwitch(s *Switch, cltvRejectDelta uint32,
-	requireInterceptor bool) *InterceptableSwitch {
+func NewInterceptableSwitch(cfg *InterceptableSwitchConfig) (
+	*InterceptableSwitch, error) {
+
+	if cfg.CltvInterceptDelta <= cfg.CltvRejectDelta {
+		return nil, fmt.Errorf("cltv intercept delta %v not greater "+
+			"than cltv reject delta %v",
+			cfg.CltvInterceptDelta, cfg.CltvRejectDelta)
+	}
 
 	return &InterceptableSwitch{
-		htlcSwitch:              s,
+		htlcSwitch:              cfg.Switch,
 		intercepted:             make(chan *interceptedPackets),
 		onchainIntercepted:      make(chan InterceptedForward),
 		interceptorRegistration: make(chan ForwardInterceptor),
-		holdForwards:            make(map[channeldb.CircuitKey]InterceptedForward),
+		heldHtlcSet:             newHeldHtlcSet(),
 		resolutionChan:          make(chan *fwdResolution),
-		requireInterceptor:      requireInterceptor,
-		cltvRejectDelta:         cltvRejectDelta,
+		requireInterceptor:      cfg.RequireInterceptor,
+		cltvRejectDelta:         cfg.CltvRejectDelta,
+		cltvInterceptDelta:      cfg.CltvInterceptDelta,
+		notifier:                cfg.Notifier,
 
 		quit: make(chan struct{}),
-	}
+	}, nil
 }
 
 // SetInterceptor sets the ForwardInterceptor to be used. A nil argument
@@ -144,11 +201,20 @@ func (s *InterceptableSwitch) SetInterceptor(
 }
 
 func (s *InterceptableSwitch) Start() error {
+	blockEpochStream, err := s.notifier.RegisterBlockEpochNtfn(nil)
+	if err != nil {
+		return err
+	}
+	s.blockEpochStream = blockEpochStream
+
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 
-		s.run()
+		err := s.run()
+		if err != nil {
+			log.Errorf("InterceptableSwitch stopped: %v", err)
+		}
 	}()
 
 	return nil
@@ -158,10 +224,28 @@ func (s *InterceptableSwitch) Stop() error {
 	close(s.quit)
 	s.wg.Wait()
 
+	s.blockEpochStream.Cancel()
+
 	return nil
 }
 
-func (s *InterceptableSwitch) run() {
+func (s *InterceptableSwitch) run() error {
+	// The block epoch stream will immediately stream the current height.
+	// Read it out here.
+	select {
+	case currentBlock, ok := <-s.blockEpochStream.Epochs:
+		if !ok {
+			return errBlockStreamStopped
+		}
+		s.currentHeight = currentBlock.Height
+
+	case <-s.quit:
+		return nil
+	}
+
+	log.Debugf("InterceptableSwitch running: height=%v, "+
+		"requireInterceptor=%v", s.currentHeight, s.requireInterceptor)
+
 	for {
 		select {
 		// An interceptor registration or de-registration came in.
@@ -171,7 +255,14 @@ func (s *InterceptableSwitch) run() {
 		case packets := <-s.intercepted:
 			var notIntercepted []*htlcPacket
 			for _, p := range packets.packets {
-				if !s.interceptForward(p, packets.isReplay) {
+				intercepted, err := s.interceptForward(
+					p, packets.isReplay,
+				)
+				if err != nil {
+					return err
+				}
+
+				if !intercepted {
 					notIntercepted = append(
 						notIntercepted, p,
 					)
@@ -192,16 +283,44 @@ func (s *InterceptableSwitch) run() {
 			// already intercepted in the off-chain flow. And even
 			// if not, it is safe to signal replay so that we won't
 			// unexpectedly skip over this htlc.
-			s.forward(fwd, true)
+			if _, err := s.forward(fwd, true); err != nil {
+				return err
+			}
 
 		case res := <-s.resolutionChan:
 			res.errChan <- s.resolve(res.resolution)
 
+		case currentBlock, ok := <-s.blockEpochStream.Epochs:
+			if !ok {
+				return errBlockStreamStopped
+			}
+
+			s.currentHeight = currentBlock.Height
+
+			// A new block is appended. Fail any held htlcs that
+			// expire at this height to prevent channel force-close.
+			s.failExpiredHtlcs()
+
 		case <-s.quit:
-			return
+			return nil
 		}
 	}
 }
+
+func (s *InterceptableSwitch) failExpiredHtlcs() {
+	s.heldHtlcSet.popAutoFails(
+		uint32(s.currentHeight),
+		func(fwd InterceptedForward) {
+			err := fwd.FailWithCode(
+				lnwire.CodeTemporaryChannelFailure,
+			)
+			if err != nil {
+				log.Errorf("Cannot fail packet: %v", err)
+			}
+		},
+	)
+}
+
 func (s *InterceptableSwitch) sendForward(fwd InterceptedForward) {
 	err := s.interceptor(fwd.Packet())
 	if err != nil {
@@ -220,9 +339,7 @@ func (s *InterceptableSwitch) setInterceptor(interceptor ForwardInterceptor) {
 	if interceptor != nil {
 		log.Debugf("Interceptor connected")
 
-		for _, fwd := range s.holdForwards {
-			s.sendForward(fwd)
-		}
+		s.heldHtlcSet.forEach(s.sendForward)
 
 		return
 	}
@@ -238,20 +355,19 @@ func (s *InterceptableSwitch) setInterceptor(interceptor ForwardInterceptor) {
 	// Interceptor is not required. Release held forwards.
 	log.Infof("Interceptor disconnected, resolving held packets")
 
-	for _, fwd := range s.holdForwards {
-		if err := fwd.Resume(); err != nil {
+	s.heldHtlcSet.popAll(func(fwd InterceptedForward) {
+		err := fwd.Resume()
+		if err != nil {
 			log.Errorf("Failed to resume hold forward %v", err)
 		}
-	}
-	s.holdForwards = make(map[channeldb.CircuitKey]InterceptedForward)
+	})
 }
 
 func (s *InterceptableSwitch) resolve(res *FwdResolution) error {
-	intercepted, ok := s.holdForwards[res.Key]
-	if !ok {
-		return fmt.Errorf("fwd %v not found", res.Key)
+	intercepted, err := s.heldHtlcSet.pop(res.Key)
+	if err != nil {
+		return err
 	}
-	delete(s.holdForwards, res.Key)
 
 	switch res.Action {
 	case FwdActionResume:
@@ -338,19 +454,21 @@ func (s *InterceptableSwitch) ForwardPacket(
 // interceptForward forwards the packet to the external interceptor after
 // checking the interception criteria.
 func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
-	isReplay bool) bool {
+	isReplay bool) (bool, error) {
 
 	switch htlc := packet.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
 		// We are not interested in intercepting initiated payments.
 		if packet.incomingChanID == hop.Source {
-			return false
+			return false, nil
 		}
 
 		intercepted := &interceptedForward{
 			htlc:       htlc,
 			packet:     packet,
 			htlcSwitch: s.htlcSwitch,
+			autoFailHeight: int32(packet.incomingTimeout -
+				s.cltvRejectDelta),
 		}
 
 		// Handle forwards that are too close to expiry.
@@ -368,28 +486,28 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 			// will remain stuck and potentially force-close the
 			// channel. But in the end, we should never get here, so
 			// the actual return value doesn't matter that much.
-			return false
+			return false, nil
 		}
 		if handled {
-			return true
+			return true, nil
 		}
 
 		return s.forward(intercepted, isReplay)
 
 	default:
-		return false
+		return false, nil
 	}
 }
 
 // forward records the intercepted htlc and forwards it to the interceptor.
 func (s *InterceptableSwitch) forward(
-	fwd InterceptedForward, isReplay bool) bool {
+	fwd InterceptedForward, isReplay bool) (bool, error) {
 
 	inKey := fwd.Packet().IncomingCircuit
 
 	// Ignore already held htlcs.
-	if _, ok := s.holdForwards[inKey]; ok {
-		return true
+	if s.heldHtlcSet.exists(inKey) {
+		return true, nil
 	}
 
 	// If there is no interceptor currently registered, configuration and packet
@@ -397,7 +515,7 @@ func (s *InterceptableSwitch) forward(
 	if s.interceptor == nil {
 		// Process normally if an interceptor is not required.
 		if !s.requireInterceptor {
-			return false
+			return false, nil
 		}
 
 		// We are in interceptor-required mode. If this is a new packet, it is
@@ -411,23 +529,28 @@ func (s *InterceptableSwitch) forward(
 				log.Errorf("Cannot fail packet: %v", err)
 			}
 
-			return true
+			return true, nil
 		}
 
 		// This packet is a replay. It is not safe to fail back, because the
 		// interceptor may still signal otherwise upon reconnect. Keep the
 		// packet in the queue until then.
-		s.holdForwards[inKey] = fwd
+		if err := s.heldHtlcSet.push(inKey, fwd); err != nil {
+			return false, err
+		}
 
-		return true
+		return true, nil
 	}
 
 	// There is an interceptor registered. We can forward the packet right now.
 	// Hold it in the queue too to track what is outstanding.
-	s.holdForwards[inKey] = fwd
+	if err := s.heldHtlcSet.push(inKey, fwd); err != nil {
+		return false, err
+	}
+
 	s.sendForward(fwd)
 
-	return true
+	return true, nil
 }
 
 // handleExpired checks that the htlc isn't too close to the channel
@@ -435,8 +558,8 @@ func (s *InterceptableSwitch) forward(
 func (s *InterceptableSwitch) handleExpired(fwd *interceptedForward) (
 	bool, error) {
 
-	height := s.htlcSwitch.BestHeight()
-	if fwd.packet.incomingTimeout >= height+s.cltvRejectDelta {
+	height := uint32(s.currentHeight)
+	if fwd.packet.incomingTimeout >= height+s.cltvInterceptDelta {
 		return false, nil
 	}
 
@@ -460,9 +583,10 @@ func (s *InterceptableSwitch) handleExpired(fwd *interceptedForward) (
 // It is passed from the switch to external interceptors that are interested
 // in holding forwards and resolve them manually.
 type interceptedForward struct {
-	htlc       *lnwire.UpdateAddHTLC
-	packet     *htlcPacket
-	htlcSwitch *Switch
+	htlc           *lnwire.UpdateAddHTLC
+	packet         *htlcPacket
+	htlcSwitch     *Switch
+	autoFailHeight int32
 }
 
 // Packet returns the intercepted htlc packet.
@@ -480,6 +604,7 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 		IncomingExpiry: f.packet.incomingTimeout,
 		CustomRecords:  f.packet.customRecords,
 		OnionBlob:      f.htlc.OnionBlob,
+		AutoFailHeight: f.autoFailHeight,
 	}
 }
 

@@ -138,6 +138,10 @@ var (
 	// range-index found for the given session ID to channel ID pair.
 	ErrNoRangeIndexFound = errors.New("no range index found for the " +
 		"given session-channel pair")
+
+	// ErrSessionFailedFilterFn indicates that a particular session did
+	// not pass the filter func provided by the caller.
+	ErrSessionFailedFilterFn = errors.New("session failed filter func")
 )
 
 // NewBoltBackendCreator returns a function that creates a new bbolt backend for
@@ -469,7 +473,7 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 
 		towerSessions, err := c.listTowerSessions(
 			towerID, sessions, chanIDIndexBkt,
-			towersToSessionsIndex,
+			towersToSessionsIndex, nil,
 			WithPerCommittedUpdate(perCommittedUpdate),
 		)
 		if err != nil {
@@ -960,7 +964,8 @@ func getSessionKeyIndex(keyIndexes kvdb.RwBucket, towerID TowerID,
 // optional tower ID can be used to filter out any client sessions in the
 // response that do not correspond to this tower.
 func (c *ClientDB) ListClientSessions(id *TowerID,
-	opts ...ClientSessionListOption) (map[SessionID]*ClientSession, error) {
+	filterFn ClientSessionFilterFn, opts ...ClientSessionListOption) (
+	map[SessionID]*ClientSession, error) {
 
 	var clientSessions map[SessionID]*ClientSession
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
@@ -985,7 +990,7 @@ func (c *ClientDB) ListClientSessions(id *TowerID,
 		// known to the db.
 		if id == nil {
 			clientSessions, err = c.listClientAllSessions(
-				sessions, chanIDIndexBkt, opts...,
+				sessions, chanIDIndexBkt, filterFn, opts...,
 			)
 			return err
 		}
@@ -998,7 +1003,7 @@ func (c *ClientDB) ListClientSessions(id *TowerID,
 
 		clientSessions, err = c.listTowerSessions(
 			*id, sessions, chanIDIndexBkt, towerToSessionIndex,
-			opts...,
+			filterFn, opts...,
 		)
 		return err
 	}, func() {
@@ -1013,7 +1018,8 @@ func (c *ClientDB) ListClientSessions(id *TowerID,
 
 // listClientAllSessions returns the set of all client sessions known to the db.
 func (c *ClientDB) listClientAllSessions(sessions, chanIDIndexBkt kvdb.RBucket,
-	opts ...ClientSessionListOption) (map[SessionID]*ClientSession, error) {
+	filterFn ClientSessionFilterFn, opts ...ClientSessionListOption) (
+	map[SessionID]*ClientSession, error) {
 
 	clientSessions := make(map[SessionID]*ClientSession)
 	err := sessions.ForEach(func(k, _ []byte) error {
@@ -1022,9 +1028,11 @@ func (c *ClientDB) listClientAllSessions(sessions, chanIDIndexBkt kvdb.RBucket,
 		// committed updates and compute the highest known commit height
 		// for each channel.
 		session, err := c.getClientSession(
-			sessions, chanIDIndexBkt, k, opts...,
+			sessions, chanIDIndexBkt, k, filterFn, opts...,
 		)
-		if err != nil {
+		if errors.Is(err, ErrSessionFailedFilterFn) {
+			return nil
+		} else if err != nil {
 			return err
 		}
 
@@ -1042,8 +1050,8 @@ func (c *ClientDB) listClientAllSessions(sessions, chanIDIndexBkt kvdb.RBucket,
 // listTowerSessions returns the set of all client sessions known to the db
 // that are associated with the given tower id.
 func (c *ClientDB) listTowerSessions(id TowerID, sessionsBkt, chanIDIndexBkt,
-	towerToSessionIndex kvdb.RBucket, opts ...ClientSessionListOption) (
-	map[SessionID]*ClientSession, error) {
+	towerToSessionIndex kvdb.RBucket, filterFn ClientSessionFilterFn,
+	opts ...ClientSessionListOption) (map[SessionID]*ClientSession, error) {
 
 	towerIndexBkt := towerToSessionIndex.NestedReadBucket(id.Bytes())
 	if towerIndexBkt == nil {
@@ -1057,9 +1065,11 @@ func (c *ClientDB) listTowerSessions(id TowerID, sessionsBkt, chanIDIndexBkt,
 		// committed updates and compute the highest known commit height
 		// for each channel.
 		session, err := c.getClientSession(
-			sessionsBkt, chanIDIndexBkt, k, opts...,
+			sessionsBkt, chanIDIndexBkt, k, filterFn, opts...,
 		)
-		if err != nil {
+		if errors.Is(err, ErrSessionFailedFilterFn) {
+			return nil
+		} else if err != nil {
 			return err
 		}
 
@@ -1523,6 +1533,11 @@ func getClientSessionBody(sessions kvdb.RBucket,
 	return &session, nil
 }
 
+// ClientSessionFilterFn describes the signature of a callback function that can
+// be used to filter the sessions that are returned in any of the DB methods
+// that read sessions from the DB.
+type ClientSessionFilterFn func(*ClientSession) bool
+
 // PerMaxHeightCB describes the signature of a callback function that can be
 // called for each channel that a session has updates for to communicate the
 // maximum commitment height that the session has backed up for the channel.
@@ -1532,6 +1547,10 @@ type PerMaxHeightCB func(*ClientSession, lnwire.ChannelID, uint64)
 // be called for each channel that a session has updates for to communicate the
 // number of updates that the session has for the channel.
 type PerNumAckedUpdatesCB func(*ClientSession, lnwire.ChannelID, uint16)
+
+// PerAckedUpdateCB describes the signature of a callback function that can be
+// called for each of a session's acked updates.
+type PerAckedUpdateCB func(*ClientSession, uint16, BackupID)
 
 // PerCommittedUpdateCB describes the signature of a callback function that can
 // be called for each of a session's committed updates (updates that the client
@@ -1597,8 +1616,8 @@ func WithPerCommittedUpdate(cb PerCommittedUpdateCB) ClientSessionListOption {
 // session id. This method populates the CommittedUpdates, AckUpdates and Tower
 // in addition to the ClientSession's body.
 func (c *ClientDB) getClientSession(sessionsBkt, chanIDIndexBkt kvdb.RBucket,
-	idBytes []byte, opts ...ClientSessionListOption) (*ClientSession,
-	error) {
+	idBytes []byte, filterFn ClientSessionFilterFn,
+	opts ...ClientSessionListOption) (*ClientSession, error) {
 
 	cfg := NewClientSessionCfg()
 	for _, o := range opts {
@@ -1608,6 +1627,10 @@ func (c *ClientDB) getClientSession(sessionsBkt, chanIDIndexBkt kvdb.RBucket,
 	session, err := getClientSessionBody(sessionsBkt, idBytes)
 	if err != nil {
 		return nil, err
+	}
+
+	if filterFn != nil && !filterFn(session) {
+		return nil, ErrSessionFailedFilterFn
 	}
 
 	// Can't fail because client session body has already been read.

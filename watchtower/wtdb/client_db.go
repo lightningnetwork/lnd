@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -132,6 +133,11 @@ var (
 	// ErrLastTowerAddr is an error returned when the last address of a
 	// watchtower is attempted to be removed.
 	ErrLastTowerAddr = errors.New("cannot remove last tower address")
+
+	// ErrNoRangeIndexFound is returned when there is no persisted
+	// range-index found for the given session ID to channel ID pair.
+	ErrNoRangeIndexFound = errors.New("no range index found for the " +
+		"given session-channel pair")
 )
 
 // NewBoltBackendCreator returns a function that creates a new bbolt backend for
@@ -172,6 +178,12 @@ func NewBoltBackendCreator(active bool, dbPath,
 // wtclient.
 type ClientDB struct {
 	db kvdb.Backend
+
+	// ackedRangeIndex is a map from session ID to channel ID to a
+	// RangeIndex which represents the backups that have been acked for that
+	// channel using that session.
+	ackedRangeIndex   map[SessionID]map[lnwire.ChannelID]*RangeIndex
+	ackedRangeIndexMu sync.Mutex
 }
 
 // OpenClientDB opens the client database given the path to the database's
@@ -189,6 +201,9 @@ func OpenClientDB(db kvdb.Backend) (*ClientDB, error) {
 
 	clientDB := &ClientDB{
 		db: db,
+		ackedRangeIndex: make(
+			map[SessionID]map[lnwire.ChannelID]*RangeIndex,
+		),
 	}
 
 	err = initOrSyncVersions(clientDB, firstInit, clientDBVersions)
@@ -720,6 +735,32 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 		// bucket.
 		return putClientSessionBody(sessionBkt, session)
 	}, func() {})
+}
+
+// readRangeIndex reads a persisted RangeIndex from the passed bucket and into
+// a new in-memory RangeIndex.
+func readRangeIndex(rangesBkt kvdb.RBucket) (*RangeIndex, error) {
+	ranges := make(map[uint64]uint64)
+	err := rangesBkt.ForEach(func(k, v []byte) error {
+		start, err := readBigSize(k)
+		if err != nil {
+			return err
+		}
+
+		end, err := readBigSize(v)
+		if err != nil {
+			return err
+		}
+
+		ranges[start] = end
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return NewRangeIndex(ranges, WithSerializeUint64Fn(writeBigSize))
 }
 
 // createSessionKeyIndexKey returns the identifier used in the

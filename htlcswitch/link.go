@@ -160,6 +160,10 @@ type ChannelLinkConfig struct {
 	// the channel link to process hops as part of a blinded route.
 	BlindHopProcessor
 
+	// RouteBlindingEnabled indicates whether the link should process blind hops.
+	// NOTE(10/1/22): Use this instead of function.
+	RouteBlindingEnabled bool
+
 	// ExtractErrorEncrypter function is responsible for decoding HTLC
 	// Sphinx onion blob, and creating onion failure obfuscator.
 	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
@@ -3098,6 +3102,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				//   introduction node.
 				// - Go over error handling with a microscope as
 				//   apparently it is fraught with danger.
+				// - Should whether we currently support
+				//   processing blind hops affect the error we
+				//   return to senders?
 				l.sendMalformedHTLCError(pd.HtlcIndex, failure.Code(),
 					onionBlob[:], pd.SourceRef)
 
@@ -3615,6 +3622,20 @@ func ValidateRouteBlindingPaymentConstraints(p *hop.BlindHopPayload,
 func (l *channelLink) processBlindHop(pd *lnwallet.PaymentDescriptor,
 	payload *hop.Payload,
 	isFinalHop bool) (*hop.BlindHopPayload, *btcec.PublicKey, error) {
+
+	// NOTE(9/30/22): Do not assume other network participant's will
+	// respect our feature vector. Enforce that it be respected.
+	// Only process blinded hops if we support doing so. Right now
+	// the link will reference a nil pointer if not supported.
+	// Ensure that our node has signaled support for route blinding
+	// before going any further. If not, return some generic/specific error?
+	// if l.cfg.BlindHopProcessor == nil {
+	if !l.cfg.RouteBlindingEnabled {
+		l.log.Debug("unable to process blind hop, we have not " +
+			"signaled support for route blinding")
+
+		return nil, nil, fmt.Errorf("unable to process blind hop")
+	}
 
 	// Validate that top level onion TLV payload adheres to the
 	// route blinding specification.

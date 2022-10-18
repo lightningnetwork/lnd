@@ -540,6 +540,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoKeysend:                !cfg.AcceptKeySend,
 		NoOptionScidAlias:        !cfg.ProtocolOptions.ScidAlias(),
 		NoZeroConf:               !cfg.ProtocolOptions.ZeroConf(),
+		RouteBlinding:            cfg.ProtocolOptions.RouteBlinding(),
 		NoAnySegwit:              cfg.ProtocolOptions.NoAnySegwit(),
 	})
 	if err != nil {
@@ -665,6 +666,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		DustThreshold:          thresholdMSats,
 		SignAliasUpdate:        s.signAliasUpdate,
 		IsAlias:                aliasmgr.IsAlias,
+		// If route blinding is enabled, we'll configure the htlcswitch
+		// so the links we create are ready to process blinded hops.
+		RouteBlindingEnabled: cfg.ProtocolOptions.RouteBlinding(),
 	}, uint32(currentHeight))
 	if err != nil {
 		return nil, err

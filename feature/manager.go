@@ -41,6 +41,9 @@ type Config struct {
 	// keep option-scid-alias support.
 	NoZeroConf bool
 
+	// RouteBlinding sets bit to signal support for route blinding.
+	RouteBlinding bool
+
 	// NoAnySegwit unsets any bits that signal support for using other
 	// segwit witness versions for co-op closes.
 	NoAnySegwit bool
@@ -89,7 +92,7 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		}
 	}
 
-	// Now, remove any features as directed by the config.
+	// Now, add or remove any features as directed by the config.
 	for set, raw := range fsets {
 		if cfg.NoTLVOnion {
 			raw.Unset(lnwire.TLVOnionPayloadOptional)
@@ -145,6 +148,9 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoZeroConf {
 			raw.Unset(lnwire.ZeroConfOptional)
 			raw.Unset(lnwire.ZeroConfRequired)
+		}
+		if cfg.RouteBlinding {
+			raw.Set(lnwire.RouteBlindingOptional)
 		}
 		if cfg.NoAnySegwit {
 			raw.Unset(lnwire.ShutdownAnySegwitOptional)

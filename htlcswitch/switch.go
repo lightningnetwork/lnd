@@ -141,6 +141,10 @@ type Config struct {
 	// persistent circuit map.
 	DB kvdb.Backend
 
+	// RouteBlindingEnabled signals that our switch should configure its
+	// links to support the route blinding protocol.
+	RouteBlindingEnabled bool
+
 	// FetchAllOpenChannels is a function that fetches all currently open
 	// channels from the channel database.
 	FetchAllOpenChannels func() ([]*channeldb.OpenChannel, error)
@@ -2260,6 +2264,15 @@ func (s *Switch) Stop() error {
 // when given a ChannelLinkConfig and LightningChannel.
 func (s *Switch) CreateAndAddLink(linkCfg ChannelLinkConfig,
 	lnChan *lnwallet.LightningChannel) error {
+
+	// Passthrough any Link level configuration from our Switch.
+	if s.cfg.RouteBlindingEnabled {
+		log.Debug("configuring switch to support route blinding, " +
+			"adding blind hop processor to link")
+
+		linkCfg.RouteBlindingEnabled = true
+		linkCfg.BlindHopProcessor = hop.NewBlindHopProcessor()
+	}
 
 	link := NewChannelLink(linkCfg, lnChan)
 	return s.AddLink(link)

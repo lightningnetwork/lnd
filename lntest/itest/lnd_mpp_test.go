@@ -256,12 +256,24 @@ func newMppTestContext(t *harnessTest,
 	net *lntest.NetworkHarness) *mppTestContext {
 
 	alice := net.NewNode(t.t, "alice", nil)
-	bob := net.NewNode(t.t, "bob", []string{"--accept-amp"})
+
+	// NOTE(8/7/22): For simplicity of blinded route testing setup each node in route
+	// to charge 10 sat (10,000 msat) base forwarding fee and zero proportional fee.
+	bob := net.NewNode(t.t, "bob", []string{
+		"--accept-amp", "--bitcoin.basefee=10000",
+		"--bitcoin.feerate=0", "--protocol.route-blinding",
+	})
 
 	// Create a five-node context consisting of Alice, Bob and three new
 	// nodes.
-	carol := net.NewNode(t.t, "carol", nil)
-	dave := net.NewNode(t.t, "dave", nil)
+	carol := net.NewNode(t.t, "carol", []string{
+		"--bitcoin.basefee=10000",
+		"--bitcoin.feerate=0", "--protocol.route-blinding",
+	})
+	dave := net.NewNode(t.t, "dave", []string{
+		"--bitcoin.basefee=10000",
+		"--bitcoin.feerate=0", "--protocol.route-blinding",
+	})
 	eve := net.NewNode(t.t, "eve", nil)
 
 	// Connect nodes to ensure propagation of channels.

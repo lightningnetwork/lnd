@@ -42,6 +42,10 @@ type ProtocolOptions struct {
 	// feature bit.
 	OptionZeroConf bool `long:"zero-conf" description:"enable support for zero-conf channels, must have option-scid-alias set also"`
 
+	// OptionRouteBlinding should be set if we want to signal support
+	// for route blinding.
+	OptionRouteBlinding bool `long:"route-blinding" description:"enable support for route blinding"`
+
 	// NoOptionAnySegwit should be set to true if we don't want to use any
 	// Taproot (and beyond) addresses for co-op closing.
 	NoOptionAnySegwit bool `long:"no-any-segwit" description:"disallow using any segiwt witness version as a co-op close address"`
@@ -73,6 +77,11 @@ func (l *ProtocolOptions) ScidAlias() bool {
 // ZeroConf returns true if we have enabled the zero-conf feature bit.
 func (l *ProtocolOptions) ZeroConf() bool {
 	return l.OptionZeroConf
+}
+
+// RouteBlinding returns true if we have enabled the route blinding feature bit.
+func (l *ProtocolOptions) RouteBlinding() bool {
+	return l.OptionRouteBlinding
 }
 
 // NoAnySegwit returns true if we don't signal that we understand other newer

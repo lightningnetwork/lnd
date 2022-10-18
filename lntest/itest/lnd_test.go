@@ -13,44 +13,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	// defaultSplitTranches is the default number of tranches we split the
-	// test cases into.
-	defaultSplitTranches uint = 1
-
-	// defaultRunTranche is the default index of the test cases tranche that
-	// we run.
-	defaultRunTranche uint = 0
-)
-
 var (
-	// testCasesSplitParts is the number of tranches the test cases should
-	// be split into. By default this is set to 1, so no splitting happens.
-	// If this value is increased, then the -runtranche flag must be
-	// specified as well to indicate which part should be run in the current
-	// invocation.
-	testCasesSplitTranches = flag.Uint(
-		"splittranches", defaultSplitTranches, "split the test cases "+
-			"in this many tranches and run the tranche at "+
-			"0-based index specified by the -runtranche flag",
-	)
-
-	// testCasesRunTranche is the 0-based index of the split test cases
-	// tranche to run in the current invocation.
-	testCasesRunTranche = flag.Uint(
-		"runtranche", defaultRunTranche, "run the tranche of the "+
-			"split test cases with the given (0-based) index",
-	)
-
-	// dbBackendFlag specifies the backend to use.
-	dbBackendFlag = flag.String("dbbackend", "bbolt", "Database backend "+
-		"(bbolt, etcd, postgres)")
+	// tempTest is a flag used to mark whether we should run the old or the
+	// new test cases. Used here so we can transit smoothly during our new
+	// itest construction.
+	//
+	// TODO(yy): remove temp flag.
+	tempTest = flag.Bool("temptest", false, "run the new tests(temp)")
 )
 
 // getTestCaseSplitTranche returns the sub slice of the test cases that should
 // be run as the current split tranche as well as the index and slice offset of
 // the tranche.
-func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
+func getTestCaseSplitTrancheOld() ([]*testCase, uint, uint) {
 	numTranches := defaultSplitTranches
 	if testCasesSplitTranches != nil {
 		numTranches = *testCasesSplitTranches
@@ -83,6 +58,10 @@ func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
 // TestLightningNetworkDaemon performs a series of integration tests amongst a
 // programmatically driven network of lnd nodes.
 func TestLightningNetworkDaemon(t *testing.T) {
+	if *tempTest {
+		t.Skip("Running new tests, old tests are skipped")
+	}
+
 	// If no tests are registered, then we can exit early.
 	if len(allTestCases) == 0 {
 		t.Skip("integration tests not selected with flag 'rpctest'")
@@ -91,7 +70,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// Parse testing flags that influence our test execution.
 	logDir := lntest.GetLogDir()
 	require.NoError(t, os.MkdirAll(logDir, 0700))
-	testCases, trancheIndex, trancheOffset := getTestCaseSplitTranche()
+	testCases, trancheIndex, trancheOffset := getTestCaseSplitTrancheOld()
 	lntest.ApplyPortOffset(uint32(trancheIndex) * 1000)
 
 	// Before we start any node, we need to make sure that any btcd node

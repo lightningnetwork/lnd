@@ -147,6 +147,15 @@ https://github.com/lightningnetwork/lnd/pull/6963/)
   easily](https://github.com/lightningnetwork/lnd/pull/5561), in preparation for
   adding a data migration functionality to `lndinit`.
 
+### Integration test
+
+The `lntest` has been
+[refactored](https://github.com/lightningnetwork/lnd/pull/6759) to provide a
+better testing suite for writing integration tests. A new defined structure is
+implemented, please refer to
+[README](https://github.com/lightningnetwork/lnd/tree/master/lntemp) for more
+details.
+
 # Contributors (Alphabetical Order)
 
 * Carla Kirk-Cohen
@@ -165,3 +174,4 @@ https://github.com/lightningnetwork/lnd/pull/6963/)
 * Oliver Gugger
 * Priyansh Rastogi
 * Roei Erez
+* Yong Yu

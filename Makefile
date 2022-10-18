@@ -126,8 +126,8 @@ build-itest-race:
 
 install:
 	@$(call print, "Installing lnd and lncli.")
-	$(GOINSTALL) -tags="${tags}" $(RELEASE_LDFLAGS) $(PKG)/cmd/lnd
-	$(GOINSTALL) -tags="${tags}" $(RELEASE_LDFLAGS) $(PKG)/cmd/lncli
+	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/lnd
+	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/lncli
 
 release-install:
 	@$(call print, "Installing release lnd and lncli.")

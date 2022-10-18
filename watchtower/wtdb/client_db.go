@@ -893,13 +893,12 @@ func (c *ClientDB) FetchChanSummaries() (ChannelSummaries, error) {
 			var chanID lnwire.ChannelID
 			copy(chanID[:], k)
 
-			var summary ClientChanSummary
-			err := summary.Decode(bytes.NewReader(v))
+			summary, err := getChanSummary(chanSummaries, chanID)
 			if err != nil {
 				return err
 			}
 
-			summaries[chanID] = summary
+			summaries[chanID] = *summary
 
 			return nil
 		})
@@ -927,19 +926,10 @@ func (c *ClientDB) RegisterChannel(chanID lnwire.ChannelID,
 			return ErrUninitializedDB
 		}
 
-		_, err := getChanSummary(chanSummaries, chanID)
-		switch {
-
-		// Summary already exists.
-		case err == nil:
+		chanSummaryBytes := chanSummaries.Get(chanID[:])
+		if chanSummaryBytes != nil {
+			// Channel is already registered.
 			return ErrChannelAlreadyRegistered
-
-		// Channel is not registered, proceed with registration.
-		case err == ErrChannelNotRegistered:
-
-		// Unexpected error.
-		default:
-			return err
 		}
 
 		summary := ClientChanSummary{

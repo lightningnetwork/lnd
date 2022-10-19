@@ -4,8 +4,10 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 // TestUnifiedPolicies tests the composition of unified policies for nodes that
@@ -36,14 +38,16 @@ func TestUnifiedPolicies(t *testing.T) {
 		MaxHTLC:                   400,
 		MinHTLC:                   100,
 	}
-	u.addPolicy(fromNode, &p1, 7)
-	u.addPolicy(fromNode, &p2, 7)
+	u.addPolicy(fromNode, &p1, htlcswitch.InboundFee{}, 7)
+	u.addPolicy(fromNode, &p2, htlcswitch.InboundFee{}, 7)
 
-	checkPolicy := func(policy *channeldb.CachedEdgePolicy,
+	checkPolicy := func(unifiedPolicy *unifiedPolicyEdge,
 		feeBase lnwire.MilliSatoshi, feeRate lnwire.MilliSatoshi,
 		timeLockDelta uint16) {
 
 		t.Helper()
+
+		policy := unifiedPolicy.policy
 
 		if policy.FeeBaseMSat != feeBase {
 			t.Fatalf("expected fee base %v, got %v",
@@ -89,3 +93,34 @@ func TestUnifiedPolicies(t *testing.T) {
 		p1.TimeLockDelta,
 	)
 }
+
+func TestCalcFeeNegative(t *testing.T) {
+	const (
+		baseFee     = 10000
+		feeRate     = 20000
+		amtReceived = 1000000
+	)
+
+	fee := calcFee(amtReceived, baseFee, feeRate)
+	negativeFee := calcFee(amtReceived, -baseFee, -feeRate)
+
+	require.Equal(t, -fee, negativeFee)
+}
+
+/*
+
+amtSent - fee = amtRecv
+amtSent - base - amtSent * rate = amtRecv
+amtSent = (amtRecv + base) / (1 - rate)
+
+fee = amtSent - amtRecv
+fee = (amtRecv + base) / (1 - rate) - amtRecv
+
+
+amtSent - floor(amtSent * rate / 1e6) - base = amtRecv
+floor((1-rate / 1e6) * amtSent) = amtRecv + base
+amtSent = (amtRecv+base)/(1-rate)
+
+
+980000
+*/

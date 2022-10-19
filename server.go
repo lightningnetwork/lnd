@@ -3740,6 +3740,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		GetAliases:             s.aliasMgr.GetAliases,
 		RequestAlias:           s.aliasMgr.RequestAlias,
 		AddLocalAlias:          s.aliasMgr.AddLocalAlias,
+		FwdingLog:              s.miscDB.ForwardingLog(),
 		Quit:                   s.quit,
 	}
 

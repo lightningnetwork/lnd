@@ -244,6 +244,10 @@ type FeeSchema struct {
 	// the effective fee rate charged per mSAT will be: (amount *
 	// FeeRate/1,000,000).
 	FeeRate uint32
+
+	// InboundFee is the inbound fee schedule that applies to forwards
+	// coming in through a channel to which this FeeSchema pertains.
+	InboundFee htlcswitch.InboundFee
 }
 
 // ChannelPolicy holds the parameters that determine the policy we enforce
@@ -2418,6 +2422,7 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
 		MaxHTLC:                   msg.HtlcMaximumMsat,
 		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
+		ExtraOpaqueData:           msg.ExtraOpaqueData,
 	})
 	if err != nil && !IsError(err, ErrIgnored, ErrOutdated) {
 		log.Errorf("Unable to apply channel update: %v", err)
@@ -2733,7 +2738,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// route.
 	edges := make([]*unifiedPolicy, len(hops))
 
-	var runningAmt lnwire.MilliSatoshi
+	var runningAmt int64
 	if useMinAmt {
 		// For minimum amount routes, aim to deliver at least 1 msat to
 		// the destination. There are nodes in the wild that have a
@@ -2743,7 +2748,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	} else {
 		// If an amount is specified, we need to build a route that
 		// delivers exactly this amount to the final destination.
-		runningAmt = *amt
+		runningAmt = int64(*amt)
 	}
 
 	// Traverse hops backwards to accumulate fees in the running amounts.
@@ -2780,7 +2785,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		// If using min amt, increase amt if needed.
 		if useMinAmt {
-			min := unifiedPolicy.minAmt()
+			min := int64(unifiedPolicy.minAmt())
 			if min > runningAmt {
 				runningAmt = min
 			}
@@ -2788,7 +2793,10 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		// Get a forwarding policy for the specific amount that we want
 		// to forward.
-		policy := unifiedPolicy.getPolicy(runningAmt, bandwidthHints)
+		policy := unifiedPolicy.getPolicy(
+			lnwire.MilliSatoshi(runningAmt),
+			bandwidthHints,
+		)
 		if policy == nil {
 			return nil, ErrNoChannel{
 				fromNode: fromNode,
@@ -2798,10 +2806,17 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		// Add fee for this hop.
 		if !localChan {
-			runningAmt += policy.ComputeFee(runningAmt)
+			runningAmt += policy.ComputeFee(
+				lnwire.MilliSatoshi(runningAmt),
+			)
+
+			// Minimize at 1 msat, in case the fee was negative.
+			if runningAmt < 1 {
+				runningAmt = 1
+			}
 		}
 
-		log.Tracef("Select channel %v at position %v", policy.ChannelID, i)
+		log.Tracef("Select channel %v at position %v", policy.policy.ChannelID, i)
 
 		edges[i] = unifiedPolicy
 	}
@@ -2810,10 +2825,12 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// total amount, we make a forward pass. Because the amount may have
 	// been increased in the backward pass, fees need to be recalculated and
 	// amount ranges re-checked.
-	var pathEdges []*channeldb.CachedEdgePolicy
+	var pathEdges []*unifiedPolicyEdge
 	receiverAmt := runningAmt
 	for i, edge := range edges {
-		policy := edge.getPolicy(receiverAmt, bandwidthHints)
+		policy := edge.getPolicy(
+			lnwire.MilliSatoshi(receiverAmt), bandwidthHints,
+		)
 		if policy == nil {
 			return nil, ErrNoChannel{
 				fromNode: hops[i-1],
@@ -2822,9 +2839,15 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		}
 
 		if i > 0 {
-			// Decrease the amount to send while going forward.
-			receiverAmt -= policy.ComputeFeeFromIncoming(
-				receiverAmt,
+			// Decreased received amount by the outbound fee
+			// charged.
+			receiverAmt -= int64(policy.policy.ComputeFeeFromIncoming(
+				lnwire.MilliSatoshi(receiverAmt),
+			))
+
+			// Decrease received amount by the inbound fee charged.
+			receiverAmt -= policy.ComputeInboundFeeFromIncoming(
+				lnwire.MilliSatoshi(receiverAmt),
 			)
 		}
 
@@ -2835,8 +2858,8 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	return newRoute(
 		source, pathEdges, uint32(height),
 		finalHopParams{
-			amt:         receiverAmt,
-			totalAmt:    receiverAmt,
+			amt:         lnwire.MilliSatoshi(receiverAmt),
+			totalAmt:    lnwire.MilliSatoshi(receiverAmt),
 			cltvDelta:   uint16(finalCltvDelta),
 			records:     nil,
 			paymentAddr: payAddr,

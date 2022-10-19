@@ -1,8 +1,11 @@
 package routing
 
 import (
+	"math"
+
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -38,9 +41,11 @@ func newUnifiedPolicies(sourceNode, toNode route.Vertex,
 }
 
 // addPolicy adds a single channel policy. Capacity may be zero if unknown
-// (light clients).
+// (light clients). Inbound fee is the fee that is charged by the node on the
+// receiving end of the channel.
 func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
-	edge *channeldb.CachedEdgePolicy, capacity btcutil.Amount) {
+	edge *channeldb.CachedEdgePolicy, inboundFee htlcswitch.InboundFee,
+	capacity btcutil.Amount) {
 
 	localChan := fromNode == u.sourceNode
 
@@ -61,8 +66,9 @@ func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
 	}
 
 	policy.edges = append(policy.edges, &unifiedPolicyEdge{
-		policy:   edge,
-		capacity: capacity,
+		policy:      edge,
+		capacity:    capacity,
+		inboundFees: inboundFee,
 	})
 }
 
@@ -78,8 +84,13 @@ func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
 		}
 
 		// Add this policy to the unified policies map.
+		inboundFee := htlcswitch.NewInboundFeeFromWire(
+			channel.InboundFee,
+		)
+
 		u.addPolicy(
-			channel.OtherNode, channel.InPolicy, channel.Capacity,
+			channel.OtherNode, channel.InPolicy, inboundFee,
+			channel.Capacity,
 		)
 
 		return nil
@@ -92,8 +103,43 @@ func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
 // unifiedPolicyEdge is the individual channel data that is kept inside an
 // unifiedPolicy object.
 type unifiedPolicyEdge struct {
-	policy   *channeldb.CachedEdgePolicy
-	capacity btcutil.Amount
+	policy      *channeldb.CachedEdgePolicy
+	capacity    btcutil.Amount
+	inboundFees htlcswitch.InboundFee
+}
+
+// ComputeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
+// the passed active payment channel. This value is currently computed as
+// specified in BOLT07, but will likely change in the near future.
+func (u *unifiedPolicyEdge) ComputeFee(
+	amtToForward lnwire.MilliSatoshi) int64 {
+
+	inboundFee := u.inboundFees.CalcFee(amtToForward)
+	outboundFee := int64(
+		u.policy.ComputeFee(
+			amtToForward + lnwire.MilliSatoshi(inboundFee),
+		),
+	)
+
+	return inboundFee + outboundFee
+}
+
+func (u *unifiedPolicyEdge) ComputeInboundFeeFromIncoming(
+	htlcAmt lnwire.MilliSatoshi) int64 {
+
+	return int64(htlcAmt) - divideCeil(
+		1e6*(int64(htlcAmt)-int64(u.inboundFees.Base)),
+		1e6+int64(u.inboundFees.Rate),
+	)
+}
+
+// divideCeil divides dividend by factor and rounds the result up.
+func divideCeil(dividend, factor int64) int64 {
+	return (dividend + factor - 1) / factor
+}
+
+func calcFee(amt int64, feeBase, feeRate int32) int64 {
+	return int64(feeBase) + amt*int64(feeRate)/1e6
 }
 
 // amtInRange checks whether an amount falls within the valid range for a
@@ -133,7 +179,7 @@ type unifiedPolicy struct {
 // specific amount to send. It differentiates between local and network
 // channels.
 func (u *unifiedPolicy) getPolicy(amt lnwire.MilliSatoshi,
-	bandwidthHints bandwidthHints) *channeldb.CachedEdgePolicy {
+	bandwidthHints bandwidthHints) *unifiedPolicyEdge {
 
 	if u.localChan {
 		return u.getPolicyLocal(amt, bandwidthHints)
@@ -145,16 +191,21 @@ func (u *unifiedPolicy) getPolicy(amt lnwire.MilliSatoshi,
 // getPolicyLocal returns the optimal policy to use for this local connection
 // given a specific amount to send.
 func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
-	bandwidthHints bandwidthHints) *channeldb.CachedEdgePolicy {
+	bandwidthHints bandwidthHints) *unifiedPolicyEdge {
 
 	var (
-		bestPolicy   *channeldb.CachedEdgePolicy
+		bestPolicy   *unifiedPolicyEdge
 		maxBandwidth lnwire.MilliSatoshi
 	)
 
 	for _, edge := range u.edges {
+		// Add inbound fee to the amount that is sent over the local
+		// channel.
+		amtWithInboundFee := amt +
+			lnwire.MilliSatoshi(edge.inboundFees.CalcFee(amt))
+
 		// Check valid amount range for the channel.
-		if !edge.amtInRange(amt) {
+		if !edge.amtInRange(amtWithInboundFee) {
 			continue
 		}
 
@@ -177,7 +228,7 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 		}
 
 		// Skip channels that can't carry the payment.
-		if amt > bandwidth {
+		if amtWithInboundFee > bandwidth {
 			continue
 		}
 
@@ -192,7 +243,10 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 		maxBandwidth = bandwidth
 
 		// Update best policy.
-		bestPolicy = edge.policy
+		bestPolicy = &unifiedPolicyEdge{
+			policy:      edge.policy,
+			inboundFees: edge.inboundFees,
+		}
 	}
 
 	return bestPolicy
@@ -202,17 +256,21 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 // a specific amount to send. The goal is to return a policy that maximizes the
 // probability of a successful forward in a non-strict forwarding context.
 func (u *unifiedPolicy) getPolicyNetwork(
-	amt lnwire.MilliSatoshi) *channeldb.CachedEdgePolicy {
+	amt lnwire.MilliSatoshi) *unifiedPolicyEdge {
 
 	var (
-		bestPolicy  *channeldb.CachedEdgePolicy
-		maxFee      lnwire.MilliSatoshi
+		bestPolicy  *unifiedPolicyEdge
+		maxFee      int64 = math.MinInt64
 		maxTimelock uint16
 	)
 
 	for _, edge := range u.edges {
+		// Add inbound fee to the amount that is sent over the channel.
+		amtWithInboundFee := amt +
+			lnwire.MilliSatoshi(edge.inboundFees.CalcFee(amt))
+
 		// Check valid amount range for the channel.
-		if !edge.amtInRange(amt) {
+		if !edge.amtInRange(amtWithInboundFee) {
 			continue
 		}
 
@@ -231,13 +289,16 @@ func (u *unifiedPolicy) getPolicyNetwork(
 
 		// Use the policy that results in the highest fee for this
 		// specific amount.
-		fee := edge.policy.ComputeFee(amt)
+		fee := int64(edge.policy.ComputeFee(amtWithInboundFee))
 		if fee < maxFee {
 			continue
 		}
 		maxFee = fee
 
-		bestPolicy = edge.policy
+		bestPolicy = &unifiedPolicyEdge{
+			policy:      edge.policy,
+			inboundFees: edge.inboundFees,
+		}
 	}
 
 	// Return early if no channel matches.
@@ -256,7 +317,7 @@ func (u *unifiedPolicy) getPolicyNetwork(
 	// chance for this node pair. But this is all only needed for nodes that
 	// have distinct policies for channels to the same peer.
 	modifiedPolicy := *bestPolicy
-	modifiedPolicy.TimeLockDelta = maxTimelock
+	modifiedPolicy.policy.TimeLockDelta = maxTimelock
 
 	return &modifiedPolicy
 }
@@ -265,8 +326,20 @@ func (u *unifiedPolicy) getPolicyNetwork(
 func (u *unifiedPolicy) minAmt() lnwire.MilliSatoshi {
 	min := lnwire.MaxMilliSatoshi
 	for _, edge := range u.edges {
-		if edge.policy.MinHTLC < min {
-			min = edge.policy.MinHTLC
+		edgeMin := edge.policy.MinHTLC
+
+		// Calculate inbound fee that is charged for sending this
+		// minimum amount.
+		inboundFee := edge.inboundFees.CalcFee(edgeMin) // TODO: Fix buildroute
+		if inboundFee < 0 {
+			// If fee is negative, add the discount to the minimum
+			// that can be sent to obtain what the node can
+			// minimally receive.
+			edgeMin += lnwire.MilliSatoshi(-inboundFee)
+		}
+
+		if edgeMin < min {
+			min = edgeMin
 		}
 	}
 

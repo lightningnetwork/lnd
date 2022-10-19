@@ -673,7 +673,7 @@ func createChannelEdge(db kvdb.Backend, node1, node2 *LightningNode) (*ChannelEd
 		FeeBaseMSat:               4352345,
 		FeeProportionalMillionths: 3452352,
 		Node:                      secondNode,
-		ExtraOpaqueData:           []byte("new unknown feature2"),
+		ExtraOpaqueData:           []byte{1, 0},
 		db:                        db,
 	}
 	edge2 := &ChannelEdgePolicy{
@@ -688,7 +688,7 @@ func createChannelEdge(db kvdb.Backend, node1, node2 *LightningNode) (*ChannelEd
 		FeeBaseMSat:               4352345,
 		FeeProportionalMillionths: 90392423,
 		Node:                      firstNode,
-		ExtraOpaqueData:           []byte("new unknown feature1"),
+		ExtraOpaqueData:           []byte{1, 0},
 		db:                        db,
 	}
 

@@ -342,6 +342,10 @@ type Config struct {
 	AddLocalAlias func(alias, base lnwire.ShortChannelID,
 		gossip bool) error
 
+	// FwdingLog is an interface that will be used by the link to log final
+	// hop inbound fees collected.
+	FwdingLog htlcswitch.ForwardingLog
+
 	// PongBuf is a slice we'll reuse instead of allocating memory on the
 	// heap. Since only reads will occur and no writes, there is no need
 	// for any synchronization primitives. As a result, it's safe to share
@@ -838,12 +842,25 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// routing policy into a forwarding policy.
 		var forwardingPolicy *htlcswitch.ForwardingPolicy
 		if selfPolicy != nil {
+			var inboundWireFee lnwire.Fee
+			_, err := selfPolicy.ExtraOpaqueData.ExtractRecords(
+				&inboundWireFee,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			inboundFee := htlcswitch.NewInboundFeeFromWire(
+				inboundWireFee,
+			)
+
 			forwardingPolicy = &htlcswitch.ForwardingPolicy{
 				MinHTLCOut:    selfPolicy.MinHTLC,
 				MaxHTLC:       selfPolicy.MaxHTLC,
 				BaseFee:       selfPolicy.FeeBaseMSat,
 				FeeRate:       selfPolicy.FeeProportionalMillionths,
 				TimeLockDelta: uint32(selfPolicy.TimeLockDelta),
+				InboundFee:    inboundFee,
 			}
 		} else {
 			p.log.Warnf("Unable to find our forwarding policy "+
@@ -978,6 +995,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		NotifyInactiveChannel:   p.cfg.ChannelNotifier.NotifyInactiveChannelEvent,
 		HtlcNotifier:            p.cfg.HtlcNotifier,
 		GetAliases:              p.cfg.GetAliases,
+		FwdingLog:               p.cfg.FwdingLog,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live

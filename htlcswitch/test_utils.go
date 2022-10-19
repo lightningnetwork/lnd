@@ -1160,6 +1160,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			NotifyInactiveChannel:   func(wire.OutPoint) {},
 			HtlcNotifier:            server.htlcSwitch.cfg.HtlcNotifier,
 			GetAliases:              getAliases,
+			FwdingLog:               server.htlcSwitch.cfg.FwdingLog,
 		},
 		channel,
 	)

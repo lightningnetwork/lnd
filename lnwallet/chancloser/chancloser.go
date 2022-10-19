@@ -43,6 +43,23 @@ var (
 	// ErrInvalidShutdownScript is returned when we receive an address from
 	// a peer that isn't either a p2wsh or p2tr address.
 	ErrInvalidShutdownScript = fmt.Errorf("invalid shutdown script")
+
+	// ErrCloseTypeChanged is returned when the counterparty attempts to
+	// change the negotiation type from fee-range to legacy or vice versa.
+	ErrCloseTypeChanged = fmt.Errorf("close type changed")
+
+	// ErrNoRangeOverlap is returned when there is no overlap between our
+	// and our counterparty's fee_range.
+	ErrNoRangeOverlap = fmt.Errorf("no range overlap")
+
+	// ErrFeeNotInOverlap is returned when the counterparty sends a fee that
+	// is not in the overlapping fee_range.
+	ErrFeeNotInOverlap = fmt.Errorf("fee not in overlap")
+
+	// ErrFeeRangeViolation is returned when the fundee receives a bad
+	// FeeRange from the funder after the fundee has sent their one and
+	// only FeeRange to the funder.
+	ErrFeeRangeViolation = fmt.Errorf("fee range violation")
 )
 
 // closeState represents all the possible states the channel closer state
@@ -219,6 +236,9 @@ type ChanCloser struct {
 	// idealFeeRate is our ideal fee rate.
 	idealFeeRate chainfee.SatPerKWeight
 
+	// idealFeeRange is our ideal fee range.
+	idealFeeRange *lnwire.FeeRange
+
 	// lastFeeProposal is the last fee that we proposed to the remote party.
 	// We'll use this as a pivot point to ratchet our next offer up, down, or
 	// simply accept the remote party's prior offer.
@@ -271,6 +291,16 @@ type ChanCloser struct {
 	// waiting for the peer's Shutdown and will call ChannelClean when we
 	// receive it. This is only used when we restart the connection.
 	cleanOnRecv bool
+
+	// legacyNegotiation means that legacy negotiation has been initiated.
+	// This is used so that the remote can't change from legacy to range
+	// based negotiation.
+	legacyNegotiation bool
+
+	// rangeNegotiation means that range-based negotiation has been
+	// initiated. This is used so the remote can't change from range-based
+	// to legacy negotiation.
+	rangeNegotiation bool
 }
 
 // calcCoopCloseFee computes an "ideal" absolute co-op close fee given the
@@ -369,6 +399,24 @@ func (c *ChanCloser) initFeeBaseline() {
 		c.maxFee = c.cfg.FeeEstimator.EstimateFee(
 			0, localTxOut, remoteTxOut, c.cfg.MaxFee,
 		)
+	}
+
+	// Calculate the minimum fee we'll accept for the fee range.
+	minFeeSats := c.cfg.FeeEstimator.EstimateFee(
+		0, localTxOut, remoteTxOut, chainfee.FeePerKwFloor,
+	)
+
+	// Populate the fee range. If minFeeSats is greater than idealFeeSat,
+	// use idealFeeSat as the minimum. This may happen since FeePerKwFloor
+	// uses 253 sat/kw instead of 250 sat/kw.
+	c.idealFeeRange = &lnwire.FeeRange{
+		MaxFeeSats: c.maxFee,
+	}
+
+	if minFeeSats > c.idealFeeSat {
+		c.idealFeeRange.MinFeeSats = c.idealFeeSat
+	} else {
+		c.idealFeeRange.MinFeeSats = minFeeSats
 	}
 
 	chancloserLog.Infof("Ideal fee for closure of ChannelPoint(%v) "+
@@ -695,34 +743,20 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message, remote bool) (
 		// we'll attempt to ratchet the fee closer to
 		remoteProposedFee := closeSignedMsg.FeeSatoshis
 		if _, ok := c.priorFeeOffers[remoteProposedFee]; !ok {
-			// We'll now attempt to ratchet towards a fee deemed acceptable by
-			// both parties, factoring in our ideal fee rate, and the last
-			// proposed fee by both sides.
-			feeProposal := calcCompromiseFee(c.chanPoint, c.idealFeeSat,
-				c.lastFeeProposal, remoteProposedFee,
-			)
-			if c.cfg.Channel.IsInitiator() && feeProposal > c.maxFee {
-				return nil, false, fmt.Errorf("%w: %v > %v",
-					ErrProposalExeceedsMaxFee, feeProposal,
-					c.maxFee)
-			}
-
-			// With our new fee proposal calculated, we'll craft a new close
-			// signed signature to send to the other party so we can continue
-			// the fee negotiation process.
-			closeSigned, err := c.proposeCloseSigned(feeProposal)
+			response, err := c.handleRemoteProposal(closeSignedMsg)
 			if err != nil {
+				// If an error was returned, no message was
+				// returned. Bubble up the error.
 				return nil, false, err
 			}
 
-			// If the compromise fee doesn't match what the peer proposed, then
-			// we'll return this latest close signed message so we can continue
-			// negotiation.
-			if feeProposal != remoteProposedFee {
-				chancloserLog.Debugf("ChannelPoint(%v): close tx fee "+
-					"disagreement, continuing negotiation", c.chanPoint)
-				return []lnwire.Message{closeSigned}, false, nil
+			// If a response was returned, bubble up the response.
+			if response != nil {
+				return []lnwire.Message{response}, false, nil
 			}
+
+			// Else, no response or error was returned so we can
+			// finish up negotiation.
 		}
 
 		chancloserLog.Infof("ChannelPoint(%v) fee of %v accepted, ending "+
@@ -828,13 +862,184 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSign
 	// We'll assemble a ClosingSigned message using this information and return
 	// it to the caller so we can kick off the final stage of the channel
 	// closure process.
-	closeSignedMsg := lnwire.NewClosingSigned(c.cid, fee, parsedSig, nil)
+	closeSignedMsg := lnwire.NewClosingSigned(
+		c.cid, fee, parsedSig, c.idealFeeRange,
+	)
 
 	// We'll also save this close signed, in the case that the remote party
 	// accepts our offer. This way, we don't have to re-sign.
 	c.priorFeeOffers[fee] = closeSignedMsg
 
 	return closeSignedMsg, nil
+}
+
+// handleRemoteProposal sanity checks the remote's ClosingSigned message and
+// tries to determine an acceptable fee to reply with. It may return:
+// - a message and no error (continue negotiation)
+// - no message and an error (negotiation failed)
+// - no message and no error (indicating we agree with the remote's fee)
+func (c *ChanCloser) handleRemoteProposal(
+	remoteMsg *lnwire.ClosingSigned) (lnwire.Message, error) {
+
+	isFunder := c.cfg.Channel.IsInitiator()
+
+	// If FeeRange is set, perform FeeRange-specific checks.
+	if remoteMsg.FeeRange != nil {
+		// If legacyNegotiation is already set, fail outright.
+		if c.legacyNegotiation {
+			return nil, ErrCloseTypeChanged
+		}
+
+		// Set rangeNegotiation to true.
+		c.rangeNegotiation = true
+
+		// Get the intersection of our two FeeRanges if one exists.
+		overlap := c.idealFeeRange.GetOverlap(remoteMsg.FeeRange)
+
+		if isFunder {
+			// If the fundee replies with a FeeRange, there must be
+			// overlap with our FeeRange.
+			//
+			// BOLT#02:
+			// - otherwise (it is not the funder)
+			//   - ...
+			//   - otherwise
+			//     - MUST propose a fee_satoshis in the overlap
+			//	 between received and (about-to-be) sent
+			//       fee_range.
+			if overlap == nil {
+				return nil, ErrNoRangeOverlap
+			}
+
+			// This is included in the above requirement.
+			if !overlap.InRange(remoteMsg.FeeSatoshis) {
+				return nil, ErrFeeNotInOverlap
+			}
+
+			// If the above checks pass, the funder must reply with
+			// the same fee_satoshis.
+			//
+			// BOLT#02:
+			// - if it is the funder:
+			//   - ...
+			//   - otherwise:
+			//     - MUST reply with the same fee_satoshis.
+			_, err := c.proposeCloseSigned(remoteMsg.FeeSatoshis)
+			if err != nil {
+				return nil, err
+			}
+
+			// Return nil values to indicate we are done with
+			// negotiation.
+			return nil, nil
+		}
+
+		// If we are the fundee and we have already sent a ClosingSigned
+		// to the funder, we should not be calling this function.
+		//
+		// BOLT#02:
+		// - if it is the funder:
+		//   - ...
+		//   - otherwise:
+		//     - MUST reply with the same fee_satoshis.
+		//
+		// Since the funder must reply with the same fee_satoshis, the
+		// calling function should not call into this negotiation
+		// function.
+		if c.lastFeeProposal != 0 {
+			return nil, ErrFeeRangeViolation
+		}
+
+		// If we are the fundee and there is no overlap between their
+		// fee_range and our yet-to-be-sent fee_range, send a warning.
+		//
+		// BOLT#02:
+		// - if there is no overlap between that and its own fee_range
+		//   - SHOULD send a warning.
+		//
+		// NOTE: The above SHOULD will probably be changed to MUST.
+		if overlap == nil {
+			warning := lnwire.NewWarning()
+			warning.ChanID = remoteMsg.ChannelID
+			warning.Data = lnwire.WarningData("ClosingSigned: no " +
+				"fee_range overlap")
+			return warning, nil
+		}
+
+		// If we've reached this point, then we have to propose a fee
+		// in the overlap.
+		//
+		// BOLT#02:
+		// - otherwise (it is not the funder)
+		//   - ...
+		//   - otherwise
+		//     - MUST propose a fee_satoshis in the overlap between
+		//       received and (about-to-be) sent fee_range.
+		//
+		// If our ideal fee is in the overlap, use that. If it's not in
+		// the overlap, use the upper bound of the overlap.
+		var feeProposal btcutil.Amount
+		if overlap.InRange(c.idealFeeSat) {
+			feeProposal = c.idealFeeSat
+		} else {
+			feeProposal = overlap.MaxFeeSats
+		}
+
+		closeSigned, err := c.proposeCloseSigned(feeProposal)
+		if err != nil {
+			return nil, err
+		}
+
+		// If the feeProposal is not equal to the remote's FeeSatoshis,
+		// negotiation isn't done.
+		if feeProposal != remoteMsg.FeeSatoshis {
+			return closeSigned, nil
+		}
+
+		// Otherwise, negotiation is done.
+		return nil, nil
+	}
+
+	// Else, do the legacy negotiation. If rangeNegotiation is already set,
+	// fail outright.
+	if c.rangeNegotiation {
+		return nil, ErrCloseTypeChanged
+	}
+
+	// Set legacyNegotiation to true.
+	c.legacyNegotiation = true
+
+	// We'll now attempt to ratchet towards a fee deemed acceptable by both
+	// parties, factoring in our ideal fee rate, and the last proposed fee
+	// by both sides.
+	feeProposal := calcCompromiseFee(
+		c.chanPoint, c.idealFeeSat, c.lastFeeProposal,
+		remoteMsg.FeeSatoshis,
+	)
+	if isFunder && feeProposal > c.maxFee {
+		return nil, fmt.Errorf("%w: %v > %v", ErrProposalExeceedsMaxFee,
+			feeProposal, c.maxFee)
+	}
+
+	// With our new fee proposal calculated, we'll craft a new close signed
+	// signature to send to the other party so we can continue the fee
+	// negotiation process.
+	closeSigned, err := c.proposeCloseSigned(feeProposal)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the compromise fee doesn't match what the peer proposed, then
+	// we'll return this latest close signed message so we can continue
+	// negotiation.
+	if feeProposal != remoteMsg.FeeSatoshis {
+		chancloserLog.Debugf("ChannelPoint(%v): close tx fee "+
+			"disagreement, continuing negotiation", c.chanPoint)
+		return closeSigned, nil
+	}
+
+	// We are done with negotiation.
+	return nil, nil
 }
 
 // feeInAcceptableRange returns true if the passed remote fee is deemed to be

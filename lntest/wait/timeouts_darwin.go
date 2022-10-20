@@ -25,7 +25,7 @@ const (
 	// AsyncBenchmarkTimeout is the timeout used when running the async
 	// payments benchmark. This timeout takes considerably longer on darwin
 	// after go1.12 corrected its use of fsync.
-	AsyncBenchmarkTimeout = time.Minute * 3
+	AsyncBenchmarkTimeout = time.Minute * 5
 
 	// NodeStartTimeout is the timeout value when waiting for a node to
 	// become fully started.

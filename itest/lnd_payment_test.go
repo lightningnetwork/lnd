@@ -271,7 +271,7 @@ func runAsyncPayments(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 	settled := make(chan struct{})
 	defer close(settled)
 
-	timeout := wait.AsyncBenchmarkTimeout * 2
+	timeout := wait.AsyncBenchmarkTimeout
 	for i := 0; i < numInvoices; i++ {
 		payReq := bobPayReqs[i]
 		go func() {
@@ -327,8 +327,21 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 
 	// We use new nodes here as the benchmark test creates lots of data
 	// which can be costly to be carried on.
-	alice := ht.NewNode("Alice", []string{"--pending-commit-interval=3m"})
-	bob := ht.NewNode("Bob", []string{"--pending-commit-interval=3m"})
+	args := []string{
+		// Increase the dust threshold to avoid the payments fail due
+		// to threshold limit reached.
+		"--dust-threshold=5000000",
+
+		// Increase the pending commit interval since there are lots of
+		// commitment dances.
+		"--pending-commit-interval=5m",
+
+		// Increase the mailbox delivery timeout as there are lots of
+		// ADDs going on.
+		"--htlcswitch.mailboxdeliverytimeout=2m",
+	}
+	alice := ht.NewNode("Alice", args)
+	bob := ht.NewNode("Bob", args)
 
 	ht.EnsureConnected(alice, bob)
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
@@ -375,7 +388,7 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 	settled := make(chan struct{})
 	defer close(settled)
 
-	timeout := wait.AsyncBenchmarkTimeout * 4
+	timeout := wait.AsyncBenchmarkTimeout * 2
 	send := func(node *node.HarnessNode, payReq string) {
 		req := &routerrpc.SendPaymentRequest{
 			PaymentRequest: payReq,

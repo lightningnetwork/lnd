@@ -47,15 +47,17 @@ linters-settings:
     go: "1.18"
     checks: ["-SA1019"]
 
+  lll:
+    # Max line length, lines longer will be reported.
+    line-length: 80
+    # Tab width in spaces.
+    tab-width: 8
+
 linters:
   enable-all: true
   disable:
   # Global variables are used in many places throughout the code base.
   - gochecknoglobals
-
-  # Some lines are over 80 characters on purpose and we don't want to make them
-  # even longer by marking them as 'nolint'.
-  - lll
 
   # We want to allow short variable names.
   - varnamelen
@@ -124,7 +126,7 @@ linters:
 
 issues:
   # Only show newly introduced problems.
-  new-from-rev: 01f696afce2f9c0d4ed854edefa3846891d01d8a
+  new-from-rev: 8c66353e4c02329abdacb5a8df29998035ec2e24
 
   exclude-rules:
     # Exclude gosec from running for tests so that tests with weak randomness

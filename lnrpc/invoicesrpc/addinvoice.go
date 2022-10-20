@@ -578,21 +578,6 @@ type HopHintInfo struct {
 	ScidAliasFeature bool
 }
 
-func newHopHintInfo(c *channeldb.OpenChannel, isActive bool) *HopHintInfo {
-	isPublic := c.ChannelFlags&lnwire.FFAnnounceChannel != 0
-
-	return &HopHintInfo{
-		IsPublic:         isPublic,
-		IsActive:         isActive,
-		FundingOutpoint:  c.FundingOutpoint,
-		RemotePubkey:     c.IdentityPub,
-		RemoteBalance:    c.LocalCommitment.RemoteBalance,
-		ShortChannelID:   c.ShortChannelID.ToUint64(),
-		ConfirmedScidZC:  c.ZeroConfRealScid().ToUint64(),
-		ScidAliasFeature: c.ChanType.HasScidAliasFeature(),
-	}
-}
-
 // newHopHint returns a new hop hint using the relevant data from a hopHintInfo
 // and a ChannelEdgePolicy.
 func newHopHint(hopHintInfo *HopHintInfo,
@@ -627,13 +612,9 @@ type SelectHopHintsCfg struct {
 	// option_scid_alias channels.
 	GetAlias func(lnwire.ChannelID) (lnwire.ShortChannelID, error)
 
-	// FetchAllChannels retrieves all open channels currently stored
-	// within the database.
-	FetchAllChannels func() ([]*channeldb.OpenChannel, error)
-
-	// IsChannelActive checks whether the channel identified by the provided
-	// ChannelID is considered active.
-	IsChannelActive func(chanID lnwire.ChannelID) bool
+	// FetchHopHintsInfo retrieves all hop hints that should be considered
+	// for selection.
+	FetchHopHintsInfo func() ([]*HopHintInfo, error)
 
 	// MaxHopHints is the maximum number of hop hints we are interested in.
 	MaxHopHints int
@@ -643,8 +624,12 @@ func newSelectHopHintsCfg(invoicesCfg *AddInvoiceConfig,
 	maxHopHints int) *SelectHopHintsCfg {
 
 	return &SelectHopHintsCfg{
-		FetchAllChannels:      invoicesCfg.ChanDB.FetchAllChannels,
-		IsChannelActive:       invoicesCfg.IsChannelActive,
+		FetchHopHintsInfo: func() ([]*HopHintInfo, error) {
+			return fetchHopHintInfosFromChannelDb(
+				invoicesCfg.ChanDB.FetchAllOpenChannels,
+				invoicesCfg.IsChannelActive,
+			)
+		},
 		IsPublicNode:          invoicesCfg.Graph.IsPublicNode,
 		FetchChannelEdgesByID: invoicesCfg.Graph.FetchChannelEdgesByID,
 		GetAlias:              invoicesCfg.GetAlias,
@@ -681,28 +666,27 @@ func sufficientHints(nHintsLeft int, currentAmount,
 // getPotentialHints returns a slice of open channels that should be considered
 // for the hopHint list in an invoice. The slice is sorted in descending order
 // based on the remote balance.
-func getPotentialHints(cfg *SelectHopHintsCfg) ([]*channeldb.OpenChannel,
+func getPotentialHints(cfg *SelectHopHintsCfg) ([]*HopHintInfo,
 	error) {
 
 	// TODO(positiveblue): get the channels slice already filtered by
 	// private == true and sorted by RemoteBalance?
-	openChannels, err := cfg.FetchAllChannels()
+	openChannels, err := cfg.FetchHopHintsInfo()
 	if err != nil {
 		return nil, err
 	}
 
-	privateChannels := make([]*channeldb.OpenChannel, 0, len(openChannels))
+	privateChannels := make([]*HopHintInfo, 0, len(openChannels))
 	for _, oc := range openChannels {
-		isPublic := oc.ChannelFlags&lnwire.FFAnnounceChannel != 0
-		if !isPublic {
+		if !oc.IsPublic && oc.IsActive {
 			privateChannels = append(privateChannels, oc)
 		}
 	}
 
 	// Sort the channels in descending remote balance.
 	compareRemoteBalance := func(i, j int) bool {
-		iBalance := privateChannels[i].LocalCommitment.RemoteBalance
-		jBalance := privateChannels[j].LocalCommitment.RemoteBalance
+		iBalance := privateChannels[i].RemoteBalance
+		jBalance := privateChannels[j].RemoteBalance
 		return iBalance > jBalance
 	}
 	sort.Slice(privateChannels, compareRemoteBalance)
@@ -710,22 +694,20 @@ func getPotentialHints(cfg *SelectHopHintsCfg) ([]*channeldb.OpenChannel,
 	return privateChannels, nil
 }
 
-// shouldIncludeChannel returns true if the channel passes all the checks to
+// shouldIncludeHopHint returns true if the channel passes all the checks to
 // be a hopHint in a given invoice.
-func shouldIncludeChannel(cfg *SelectHopHintsCfg,
-	channel *channeldb.OpenChannel,
+func shouldIncludeHopHint(cfg *SelectHopHintsCfg,
+	hopHintInfo *HopHintInfo,
 	alreadyIncluded map[uint64]bool) (zpay32.HopHint, lnwire.MilliSatoshi,
 	bool) {
 
-	if _, ok := alreadyIncluded[channel.ShortChannelID.ToUint64()]; ok {
+	if _, ok := alreadyIncluded[hopHintInfo.ShortChannelID]; ok {
 		return zpay32.HopHint{}, 0, false
 	}
 
 	chanID := lnwire.NewChanIDFromOutPoint(
-		&channel.FundingOutpoint,
+		&hopHintInfo.FundingOutpoint,
 	)
-
-	hopHintInfo := newHopHintInfo(channel, cfg.IsChannelActive(chanID))
 
 	// If this channel can't be a hop hint, then skip it.
 	edgePolicy, canBeHopHint := chanCanBeHopHint(hopHintInfo, cfg)
@@ -759,7 +741,7 @@ func shouldIncludeChannel(cfg *SelectHopHintsCfg,
 // descending priority.
 func selectHopHints(cfg *SelectHopHintsCfg, nHintsLeft int,
 	targetBandwidth lnwire.MilliSatoshi,
-	potentialHints []*channeldb.OpenChannel,
+	potentialHints []*HopHintInfo,
 	alreadyIncluded map[uint64]bool) [][]zpay32.HopHint {
 
 	currentBandwidth := lnwire.MilliSatoshi(0)
@@ -772,7 +754,7 @@ func selectHopHints(cfg *SelectHopHintsCfg, nHintsLeft int,
 			return hopHints
 		}
 
-		hopHint, remoteBalance, include := shouldIncludeChannel(
+		hopHint, remoteBalance, include := shouldIncludeHopHint(
 			cfg, channel, alreadyIncluded,
 		)
 
@@ -830,4 +812,48 @@ func PopulateHopHints(cfg *SelectHopHintsCfg, amtMSat lnwire.MilliSatoshi,
 
 	hopHints = append(hopHints, selectedHints...)
 	return hopHints, nil
+}
+
+// fetchHopHintInfosFromChannelDb uses the provided funcs to return a slice
+// of HopHintInfos.
+func fetchHopHintInfosFromChannelDb(
+	fetchOpenChannels func() ([]*channeldb.OpenChannel, error),
+	isChannelActive func(chanID lnwire.ChannelID) bool,
+) ([]*HopHintInfo, error) {
+
+	dbChannels, err := fetchOpenChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	hopHints := make([]*HopHintInfo, len(dbChannels))
+
+	for i, dbChannel := range dbChannels {
+		channelActive := isChannelActive(
+			lnwire.NewChanIDFromOutPoint(&dbChannel.FundingOutpoint),
+		)
+		hopHint := newHopHintInfoFromDbChannel(dbChannel, channelActive)
+		hopHints[i] = hopHint
+	}
+
+	return hopHints, nil
+}
+
+// newHopHintInfoFromDbChannel creates a new HopHintInfo from the provided
+// channeldb.OpenChannel.
+func newHopHintInfoFromDbChannel(c *channeldb.OpenChannel,
+	isActive bool) *HopHintInfo {
+
+	isPublic := c.ChannelFlags&lnwire.FFAnnounceChannel != 0
+
+	return &HopHintInfo{
+		IsPublic:         isPublic,
+		IsActive:         isActive,
+		FundingOutpoint:  c.FundingOutpoint,
+		RemotePubkey:     c.IdentityPub,
+		RemoteBalance:    c.LocalCommitment.RemoteBalance,
+		ShortChannelID:   c.ShortChannelID.ToUint64(),
+		ConfirmedScidZC:  c.ZeroConfRealScid().ToUint64(),
+		ScidAliasFeature: c.ChanType.HasScidAliasFeature(),
+	}
 }

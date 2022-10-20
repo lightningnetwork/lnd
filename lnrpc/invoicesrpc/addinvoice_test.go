@@ -24,12 +24,6 @@ func (h *hopHintsConfigMock) IsPublicNode(pubKey [33]byte) (bool, error) {
 	return args.Bool(0), args.Error(1)
 }
 
-// IsChannelActive is used to generate valid hop hints.
-func (h *hopHintsConfigMock) IsChannelActive(chanID lnwire.ChannelID) bool {
-	args := h.Mock.Called(chanID)
-	return args.Bool(0)
-}
-
 // GetAlias allows the peer's alias SCID to be retrieved for private
 // option_scid_alias channels.
 func (h *hopHintsConfigMock) GetAlias(
@@ -39,13 +33,13 @@ func (h *hopHintsConfigMock) GetAlias(
 	return args.Get(0).(lnwire.ShortChannelID), args.Error(1)
 }
 
-// FetchAllChannels retrieves all open channels currently stored
+// FetchHopHintsInfo retrieves all open channels currently stored
 // within the database.
-func (h *hopHintsConfigMock) FetchAllChannels() ([]*channeldb.OpenChannel,
+func (h *hopHintsConfigMock) FetchHopHintsInfo() ([]*HopHintInfo,
 	error) {
 
 	args := h.Mock.Called()
-	return args.Get(0).([]*channeldb.OpenChannel), args.Error(1)
+	return args.Get(0).([]*HopHintInfo), args.Error(1)
 }
 
 // FetchChannelEdgesByID attempts to lookup the two directed edges for
@@ -89,7 +83,7 @@ func getTestPubKey() *btcec.PublicKey {
 var shouldIncludeChannelTestCases = []struct {
 	name            string
 	setupMock       func(*hopHintsConfigMock)
-	channel         *channeldb.OpenChannel
+	channel         *HopHintInfo
 	alreadyIncluded map[uint64]bool
 	cfg             *SelectHopHintsCfg
 	hopHint         zpay32.HopHint
@@ -99,79 +93,56 @@ var shouldIncludeChannelTestCases = []struct {
 	name: "already included channels should not be included " +
 		"again",
 	alreadyIncluded: map[uint64]bool{1: true},
-	channel: &channeldb.OpenChannel{
-		ShortChannelID: lnwire.NewShortChanIDFromInt(1),
+	channel: &HopHintInfo{
+		ShortChannelID: lnwire.NewShortChanIDFromInt(1).ToUint64(),
 	},
 	include: false,
 }, {
 	name: "public channels should not be included",
 	setupMock: func(h *hopHintsConfigMock) {
-		fundingOutpoint := wire.OutPoint{
-			Index: 0,
-		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
-		h.Mock.On(
-			"IsChannelActive", chanID,
-		).Once().Return(true)
+
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &HopHintInfo{
 		FundingOutpoint: wire.OutPoint{
 			Index: 0,
 		},
-		ChannelFlags: lnwire.FFAnnounceChannel,
+		IsPublic: lnwire.FFAnnounceChannel != 0,
+		IsActive: true,
 	},
 }, {
 	name: "not active channels should not be included",
 	setupMock: func(h *hopHintsConfigMock) {
-		fundingOutpoint := wire.OutPoint{
-			Index: 0,
-		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
-		h.Mock.On(
-			"IsChannelActive", chanID,
-		).Once().Return(false)
+
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &HopHintInfo{
 		FundingOutpoint: wire.OutPoint{
 			Index: 0,
 		},
+
+		IsActive: false,
 	},
 	include: false,
 }, {
 	name: "a channel with a not public peer should not be included",
 	setupMock: func(h *hopHintsConfigMock) {
-		fundingOutpoint := wire.OutPoint{
-			Index: 0,
-		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
-
-		h.Mock.On(
-			"IsChannelActive", chanID,
-		).Once().Return(true)
 
 		h.Mock.On(
 			"IsPublicNode", mock.Anything,
 		).Once().Return(false, nil)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &HopHintInfo{
 		FundingOutpoint: wire.OutPoint{
 			Index: 0,
 		},
-		IdentityPub: getTestPubKey(),
+		RemotePubkey: getTestPubKey(),
+
+		IsActive: true,
 	},
 	include: false,
 }, {
 	name: "if we are unable to fetch the edge policy for the channel it " +
 		"should not be included",
 	setupMock: func(h *hopHintsConfigMock) {
-		fundingOutpoint := wire.OutPoint{
-			Index: 0,
-		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
-
-		h.Mock.On(
-			"IsChannelActive", chanID,
-		).Once().Return(true)
 
 		h.Mock.On(
 			"IsPublicNode", mock.Anything,
@@ -188,25 +159,19 @@ var shouldIncludeChannelTestCases = []struct {
 			"FetchChannelEdgesByID", mock.Anything,
 		).Once().Return(nil, nil, nil, fmt.Errorf("no edge"))
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &HopHintInfo{
 		FundingOutpoint: wire.OutPoint{
 			Index: 0,
 		},
-		IdentityPub: getTestPubKey(),
+		RemotePubkey: getTestPubKey(),
+
+		IsActive: true,
 	},
 	include: false,
 }, {
 	name: "channels with the option-scid-alias but not assigned alias " +
 		"yet should not be included",
 	setupMock: func(h *hopHintsConfigMock) {
-		fundingOutpoint := wire.OutPoint{
-			Index: 0,
-		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
-
-		h.Mock.On(
-			"IsChannelActive", chanID,
-		).Once().Return(true)
 
 		h.Mock.On(
 			"IsPublicNode", mock.Anything,
@@ -224,12 +189,14 @@ var shouldIncludeChannelTestCases = []struct {
 			"GetAlias", mock.Anything,
 		).Once().Return(lnwire.ShortChannelID{}, nil)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &HopHintInfo{
 		FundingOutpoint: wire.OutPoint{
 			Index: 0,
 		},
-		IdentityPub: getTestPubKey(),
-		ChanType:    channeldb.ScidAliasFeatureBit,
+		RemotePubkey:     getTestPubKey(),
+		ScidAliasFeature: true,
+
+		IsActive: true,
 	},
 	include: false,
 }, {
@@ -237,14 +204,6 @@ var shouldIncludeChannelTestCases = []struct {
 		"already been included should not be included again",
 	alreadyIncluded: map[uint64]bool{5: true},
 	setupMock: func(h *hopHintsConfigMock) {
-		fundingOutpoint := wire.OutPoint{
-			Index: 0,
-		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
-
-		h.Mock.On(
-			"IsChannelActive", chanID,
-		).Once().Return(true)
 
 		h.Mock.On(
 			"IsPublicNode", mock.Anything,
@@ -262,12 +221,14 @@ var shouldIncludeChannelTestCases = []struct {
 			"GetAlias", mock.Anything,
 		).Once().Return(alias, nil)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &HopHintInfo{
 		FundingOutpoint: wire.OutPoint{
 			Index: 0,
 		},
-		IdentityPub: getTestPubKey(),
-		ChanType:    channeldb.ScidAliasFeatureBit,
+		RemotePubkey:     getTestPubKey(),
+		ScidAliasFeature: true,
+
+		IsActive: true,
 	},
 	include: false,
 }, {
@@ -275,14 +236,6 @@ var shouldIncludeChannelTestCases = []struct {
 		"included, using policy 1",
 	alreadyIncluded: map[uint64]bool{5: true},
 	setupMock: func(h *hopHintsConfigMock) {
-		fundingOutpoint := wire.OutPoint{
-			Index: 1,
-		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
-
-		h.Mock.On(
-			"IsChannelActive", chanID,
-		).Once().Return(true)
 
 		h.Mock.On(
 			"IsPublicNode", mock.Anything,
@@ -306,12 +259,14 @@ var shouldIncludeChannelTestCases = []struct {
 			nil,
 		)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &HopHintInfo{
 		FundingOutpoint: wire.OutPoint{
-			Index: 1,
+			Index: 0,
 		},
-		IdentityPub:    getTestPubKey(),
-		ShortChannelID: lnwire.NewShortChanIDFromInt(12),
+		RemotePubkey:   getTestPubKey(),
+		ShortChannelID: lnwire.NewShortChanIDFromInt(12).ToUint64(),
+
+		IsActive: true,
 	},
 	hopHint: zpay32.HopHint{
 		NodeID:                    getTestPubKey(),
@@ -326,14 +281,6 @@ var shouldIncludeChannelTestCases = []struct {
 		"included, using policy 2",
 	alreadyIncluded: map[uint64]bool{5: true},
 	setupMock: func(h *hopHintsConfigMock) {
-		fundingOutpoint := wire.OutPoint{
-			Index: 1,
-		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
-
-		h.Mock.On(
-			"IsChannelActive", chanID,
-		).Once().Return(true)
 
 		h.Mock.On(
 			"IsPublicNode", mock.Anything,
@@ -351,12 +298,14 @@ var shouldIncludeChannelTestCases = []struct {
 			}, nil,
 		)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &HopHintInfo{
 		FundingOutpoint: wire.OutPoint{
-			Index: 1,
+			Index: 0,
 		},
-		IdentityPub:    getTestPubKey(),
-		ShortChannelID: lnwire.NewShortChanIDFromInt(12),
+		RemotePubkey:   getTestPubKey(),
+		ShortChannelID: lnwire.NewShortChanIDFromInt(12).ToUint64(),
+
+		IsActive: true,
 	},
 	hopHint: zpay32.HopHint{
 		NodeID:                    getTestPubKey(),
@@ -371,14 +320,6 @@ var shouldIncludeChannelTestCases = []struct {
 		"should be included with the alias",
 	alreadyIncluded: map[uint64]bool{5: true},
 	setupMock: func(h *hopHintsConfigMock) {
-		fundingOutpoint := wire.OutPoint{
-			Index: 1,
-		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
-
-		h.Mock.On(
-			"IsChannelActive", chanID,
-		).Once().Return(true)
 
 		h.Mock.On(
 			"IsPublicNode", mock.Anything,
@@ -402,13 +343,15 @@ var shouldIncludeChannelTestCases = []struct {
 			"GetAlias", mock.Anything,
 		).Once().Return(aliasSCID, nil)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &HopHintInfo{
 		FundingOutpoint: wire.OutPoint{
-			Index: 1,
+			Index: 0,
 		},
-		IdentityPub:    getTestPubKey(),
-		ShortChannelID: lnwire.NewShortChanIDFromInt(12),
-		ChanType:       channeldb.ScidAliasFeatureBit,
+		RemotePubkey:     getTestPubKey(),
+		ShortChannelID:   lnwire.NewShortChanIDFromInt(12).ToUint64(),
+		ScidAliasFeature: true,
+
+		IsActive: true,
 	},
 	hopHint: zpay32.HopHint{
 		NodeID:                    getTestPubKey(),
@@ -436,12 +379,11 @@ func TestShouldIncludeChannel(t *testing.T) {
 
 			cfg := &SelectHopHintsCfg{
 				IsPublicNode:          mock.IsPublicNode,
-				IsChannelActive:       mock.IsChannelActive,
 				FetchChannelEdgesByID: mock.FetchChannelEdgesByID,
 				GetAlias:              mock.GetAlias,
 			}
 
-			hopHint, remoteBalance, include := shouldIncludeChannel(
+			hopHint, remoteBalance, include := shouldIncludeHopHint(
 				cfg, tc.channel, tc.alreadyIncluded,
 			)
 
@@ -521,12 +463,14 @@ var populateHopHintsTestCases = []struct {
 		"hop hints allowed",
 	setupMock: func(h *hopHintsConfigMock) {
 		fundingOutpoint := wire.OutPoint{Index: 9}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
-		allChannels := []*channeldb.OpenChannel{
+		allChannels := []*HopHintInfo{
 			{
 				FundingOutpoint: fundingOutpoint,
-				ShortChannelID:  lnwire.NewShortChanIDFromInt(9),
-				IdentityPub:     getTestPubKey(),
+				ShortChannelID: lnwire.NewShortChanIDFromInt(9).
+					ToUint64(),
+				RemotePubkey: getTestPubKey(),
+
+				IsActive: true,
 			},
 			// Have one empty channel that we should not process
 			// because we have already finished.
@@ -534,12 +478,8 @@ var populateHopHintsTestCases = []struct {
 		}
 
 		h.Mock.On(
-			"FetchAllChannels",
+			"FetchHopHintsInfo",
 		).Once().Return(allChannels, nil)
-
-		h.Mock.On(
-			"IsChannelActive", chanID,
-		).Once().Return(true)
 
 		h.Mock.On(
 			"IsPublicNode", mock.Anything,
@@ -567,16 +507,16 @@ var populateHopHintsTestCases = []struct {
 	name: "populate hop hints stops when we reached the targeted bandwidth",
 	setupMock: func(h *hopHintsConfigMock) {
 		fundingOutpoint := wire.OutPoint{Index: 9}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
 		remoteBalance := lnwire.MilliSatoshi(10_000_000)
-		allChannels := []*channeldb.OpenChannel{
+		allChannels := []*HopHintInfo{
 			{
-				LocalCommitment: channeldb.ChannelCommitment{
-					RemoteBalance: remoteBalance,
-				},
+				RemoteBalance:   remoteBalance,
 				FundingOutpoint: fundingOutpoint,
-				ShortChannelID:  lnwire.NewShortChanIDFromInt(9),
-				IdentityPub:     getTestPubKey(),
+				ShortChannelID: lnwire.NewShortChanIDFromInt(9).
+					ToUint64(),
+				RemotePubkey: getTestPubKey(),
+
+				IsActive: true,
 			},
 			// Have one empty channel that we should not process
 			// because we have already finished.
@@ -584,12 +524,8 @@ var populateHopHintsTestCases = []struct {
 		}
 
 		h.Mock.On(
-			"FetchAllChannels",
+			"FetchHopHintsInfo",
 		).Once().Return(allChannels, nil)
-
-		h.Mock.On(
-			"IsChannelActive", chanID,
-		).Once().Return(true)
 
 		h.Mock.On(
 			"IsPublicNode", mock.Anything,
@@ -618,29 +554,24 @@ var populateHopHintsTestCases = []struct {
 		"remote balance frist",
 	setupMock: func(h *hopHintsConfigMock) {
 		fundingOutpoint := wire.OutPoint{Index: 9}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
 		remoteBalance := lnwire.MilliSatoshi(10_000_000)
-		allChannels := []*channeldb.OpenChannel{
+		allChannels := []*HopHintInfo{
 			// Because the channels with higher remote balance have
 			// enough bandwidth we should never use this one.
 			{},
 			{
-				LocalCommitment: channeldb.ChannelCommitment{
-					RemoteBalance: remoteBalance,
-				},
+				RemoteBalance:   remoteBalance,
 				FundingOutpoint: fundingOutpoint,
-				ShortChannelID:  lnwire.NewShortChanIDFromInt(9),
-				IdentityPub:     getTestPubKey(),
+				ShortChannelID: lnwire.NewShortChanIDFromInt(9).
+					ToUint64(),
+				RemotePubkey: getTestPubKey(),
+				IsActive:     true,
 			},
 		}
 
 		h.Mock.On(
-			"FetchAllChannels",
+			"FetchHopHintsInfo",
 		).Once().Return(allChannels, nil)
-
-		h.Mock.On(
-			"IsChannelActive", chanID,
-		).Once().Return(true)
 
 		h.Mock.On(
 			"IsPublicNode", mock.Anything,
@@ -669,42 +600,38 @@ var populateHopHintsTestCases = []struct {
 		"channels",
 	setupMock: func(h *hopHintsConfigMock) {
 		fundingOutpoint1 := wire.OutPoint{Index: 9}
-		chanID1 := lnwire.NewChanIDFromOutPoint(&fundingOutpoint1)
 		remoteBalance1 := lnwire.MilliSatoshi(10_000_000)
 
 		fundingOutpoint2 := wire.OutPoint{Index: 2}
-		chanID2 := lnwire.NewChanIDFromOutPoint(&fundingOutpoint2)
 		remoteBalance2 := lnwire.MilliSatoshi(1_000_000)
 
-		allChannels := []*channeldb.OpenChannel{
+		allChannels := []*HopHintInfo{
 			// After sorting we will first process chanID1 and then
 			// chanID2.
 			{
-				LocalCommitment: channeldb.ChannelCommitment{
-					RemoteBalance: remoteBalance2,
-				},
+
+				RemoteBalance:   remoteBalance2,
 				FundingOutpoint: fundingOutpoint2,
-				ShortChannelID:  lnwire.NewShortChanIDFromInt(2),
-				IdentityPub:     getTestPubKey(),
+				ShortChannelID: lnwire.NewShortChanIDFromInt(2).
+					ToUint64(),
+				RemotePubkey: getTestPubKey(),
+
+				IsActive: true,
 			},
 			{
-				LocalCommitment: channeldb.ChannelCommitment{
-					RemoteBalance: remoteBalance1,
-				},
+				RemoteBalance:   remoteBalance1,
 				FundingOutpoint: fundingOutpoint1,
-				ShortChannelID:  lnwire.NewShortChanIDFromInt(9),
-				IdentityPub:     getTestPubKey(),
+				ShortChannelID: lnwire.NewShortChanIDFromInt(9).
+					ToUint64(),
+				RemotePubkey: getTestPubKey(),
+
+				IsActive: true,
 			},
 		}
 
 		h.Mock.On(
-			"FetchAllChannels",
+			"FetchHopHintsInfo",
 		).Once().Return(allChannels, nil)
-
-		// Prepare the mock for the first channel.
-		h.Mock.On(
-			"IsChannelActive", chanID1,
-		).Once().Return(true)
 
 		h.Mock.On(
 			"IsPublicNode", mock.Anything,
@@ -717,11 +644,6 @@ var populateHopHintsTestCases = []struct {
 			&channeldb.ChannelEdgePolicy{},
 			&channeldb.ChannelEdgePolicy{}, nil,
 		)
-
-		// Prepare the mock for the second channel.
-		h.Mock.On(
-			"IsChannelActive", chanID2,
-		).Once().Return(true)
 
 		h.Mock.On(
 			"IsPublicNode", mock.Anything,
@@ -768,10 +690,9 @@ func TestPopulateHopHints(t *testing.T) {
 
 			cfg := &SelectHopHintsCfg{
 				IsPublicNode:          mock.IsPublicNode,
-				IsChannelActive:       mock.IsChannelActive,
 				FetchChannelEdgesByID: mock.FetchChannelEdgesByID,
 				GetAlias:              mock.GetAlias,
-				FetchAllChannels:      mock.FetchAllChannels,
+				FetchHopHintsInfo:     mock.FetchHopHintsInfo,
 				MaxHopHints:           tc.maxHopHints,
 			}
 			hopHints, err := PopulateHopHints(

@@ -3,6 +3,8 @@ package lncfg
 import "fmt"
 
 // WtClient holds the configuration options for the daemon's watchtower client.
+//
+// nolint:lll
 type WtClient struct {
 	// Active determines whether a watchtower client should be created to
 	// back up channel states with registered watchtowers.

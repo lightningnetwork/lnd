@@ -3,6 +3,8 @@ package etcd
 import "fmt"
 
 // Config holds etcd configuration alongside with configuration related to our higher level interface.
+//
+// nolint:lll
 type Config struct {
 	Embedded bool `long:"embedded" description:"Use embedded etcd instance instead of the external one. Note: use for testing only."`
 

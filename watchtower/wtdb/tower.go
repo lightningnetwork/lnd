@@ -7,7 +7,6 @@ import (
 	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // TowerID is a unique 64-bit identifier allocated to each unique watchtower.
@@ -75,23 +74,6 @@ func (t *Tower) RemoveAddress(addr net.Addr) {
 		t.Addresses = append(t.Addresses[:i], t.Addresses[i+1:]...)
 		return
 	}
-}
-
-// LNAddrs generates a list of lnwire.NetAddress from a Tower instance's
-// addresses. This can be used to have a client try multiple addresses for the
-// same Tower.
-//
-// NOTE: This method is NOT safe for concurrent use.
-func (t *Tower) LNAddrs() []*lnwire.NetAddress {
-	addrs := make([]*lnwire.NetAddress, 0, len(t.Addresses))
-	for _, addr := range t.Addresses {
-		addrs = append(addrs, &lnwire.NetAddress{
-			IdentityKey: t.IdentityKey,
-			Address:     addr,
-		})
-	}
-
-	return addrs
 }
 
 // String returns a user-friendly identifier of the tower.

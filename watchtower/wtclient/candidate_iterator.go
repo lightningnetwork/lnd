@@ -13,7 +13,7 @@ import (
 type TowerCandidateIterator interface {
 	// AddCandidate adds a new candidate tower to the iterator. If the
 	// candidate already exists, then any new addresses are added to it.
-	AddCandidate(*wtdb.Tower)
+	AddCandidate(*Tower)
 
 	// RemoveCandidate removes an existing candidate tower from the
 	// iterator. An optional address can be provided to indicate a stale
@@ -32,7 +32,7 @@ type TowerCandidateIterator interface {
 	// Next returns the next candidate tower. The iterator is not required
 	// to return results in any particular order.  If no more candidates are
 	// available, ErrTowerCandidatesExhausted is returned.
-	Next() (*wtdb.Tower, error)
+	Next() (*Tower, error)
 }
 
 // towerListIterator is a linked-list backed TowerCandidateIterator.
@@ -40,7 +40,7 @@ type towerListIterator struct {
 	mu            sync.Mutex
 	queue         *list.List
 	nextCandidate *list.Element
-	candidates    map[wtdb.TowerID]*wtdb.Tower
+	candidates    map[wtdb.TowerID]*Tower
 }
 
 // Compile-time constraint to ensure *towerListIterator implements the
@@ -49,10 +49,10 @@ var _ TowerCandidateIterator = (*towerListIterator)(nil)
 
 // newTowerListIterator initializes a new towerListIterator from a variadic list
 // of lnwire.NetAddresses.
-func newTowerListIterator(candidates ...*wtdb.Tower) *towerListIterator {
+func newTowerListIterator(candidates ...*Tower) *towerListIterator {
 	iter := &towerListIterator{
 		queue:      list.New(),
-		candidates: make(map[wtdb.TowerID]*wtdb.Tower),
+		candidates: make(map[wtdb.TowerID]*Tower),
 	}
 
 	for _, candidate := range candidates {
@@ -79,7 +79,7 @@ func (t *towerListIterator) Reset() error {
 // Next returns the next candidate tower. This iterator will always return
 // candidates in the order given when the iterator was instantiated.  If no more
 // candidates are available, ErrTowerCandidatesExhausted is returned.
-func (t *towerListIterator) Next() (*wtdb.Tower, error) {
+func (t *towerListIterator) Next() (*Tower, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -107,7 +107,7 @@ func (t *towerListIterator) Next() (*wtdb.Tower, error) {
 
 // AddCandidate adds a new candidate tower to the iterator. If the candidate
 // already exists, then any new addresses are added to it.
-func (t *towerListIterator) AddCandidate(candidate *wtdb.Tower) {
+func (t *towerListIterator) AddCandidate(candidate *Tower) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -121,8 +121,16 @@ func (t *towerListIterator) AddCandidate(candidate *wtdb.Tower) {
 			t.nextCandidate = t.queue.Back()
 		}
 	} else {
-		for _, addr := range candidate.Addresses {
-			tower.AddAddress(addr)
+		candidate.Addresses.Reset()
+		firstAddr := candidate.Addresses.Peek()
+		tower.Addresses.Add(firstAddr)
+		for {
+			next, err := candidate.Addresses.Next()
+			if err != nil {
+				break
+			}
+
+			tower.Addresses.Add(next)
 		}
 	}
 }
@@ -142,11 +150,15 @@ func (t *towerListIterator) RemoveCandidate(candidate wtdb.TowerID,
 		return nil
 	}
 	if addr != nil {
-		tower.RemoveAddress(addr)
-		if len(tower.Addresses) == 0 {
-			return wtdb.ErrLastTowerAddr
+		err := tower.Addresses.Remove(addr)
+		if err != nil {
+			return err
 		}
 	} else {
+		if tower.Addresses.HasLocked() {
+			return ErrAddrInUse
+		}
+
 		delete(t.candidates, candidate)
 	}
 

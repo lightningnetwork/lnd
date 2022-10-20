@@ -231,7 +231,6 @@ func (m *ClientDB) listClientSessions(tower *wtdb.TowerID,
 		if tower != nil && *tower != session.TowerID {
 			continue
 		}
-		session.Tower = m.towers[session.TowerID]
 		sessions[session.ID] = &session
 
 		if cfg.PerAckedUpdate != nil {

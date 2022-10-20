@@ -4,12 +4,10 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"net"
-	"reflect"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/stretchr/testify/require"
 )
@@ -19,66 +17,75 @@ func init() {
 }
 
 func randAddr(t *testing.T) net.Addr {
-	var ip [4]byte
-	if _, err := rand.Read(ip[:]); err != nil {
-		t.Fatal(err)
-	}
-	var port [2]byte
-	if _, err := rand.Read(port[:]); err != nil {
-		t.Fatal(err)
+	t.Helper()
 
-	}
+	var ip [4]byte
+	_, err := rand.Read(ip[:])
+	require.NoError(t, err)
+
+	var port [2]byte
+	_, err = rand.Read(port[:])
+	require.NoError(t, err)
+
 	return &net.TCPAddr{
 		IP:   net.IP(ip[:]),
 		Port: int(binary.BigEndian.Uint16(port[:])),
 	}
 }
 
-func randTower(t *testing.T) *wtdb.Tower {
+func randTower(t *testing.T) *Tower {
+	t.Helper()
+
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err, "unable to create private key")
 	pubKey := priv.PubKey()
-	return &wtdb.Tower{
+	addrs, err := newAddressIterator(randAddr(t))
+	require.NoError(t, err)
+
+	return &Tower{
 		ID:          wtdb.TowerID(rand.Uint64()),
 		IdentityKey: pubKey,
-		Addresses:   []net.Addr{randAddr(t)},
+		Addresses:   addrs,
 	}
 }
 
-func copyTower(tower *wtdb.Tower) *wtdb.Tower {
-	t := &wtdb.Tower{
+func copyTower(t *testing.T, tower *Tower) *Tower {
+	t.Helper()
+
+	addrs := tower.Addresses.GetAll()
+	addrIterator, err := newAddressIterator(addrs...)
+	require.NoError(t, err)
+
+	return &Tower{
 		ID:          tower.ID,
 		IdentityKey: tower.IdentityKey,
-		Addresses:   make([]net.Addr, len(tower.Addresses)),
+		Addresses:   addrIterator,
 	}
-	copy(t.Addresses, tower.Addresses)
-	return t
 }
 
-func assertActiveCandidate(t *testing.T, i TowerCandidateIterator,
-	c *wtdb.Tower, active bool) {
+func assertActiveCandidate(t *testing.T, i TowerCandidateIterator, c *Tower,
+	active bool) {
+
+	t.Helper()
 
 	isCandidate := i.IsActive(c.ID)
-	if isCandidate && !active {
-		t.Fatalf("expected tower %v to no longer be an active candidate",
-			c.ID)
+	if isCandidate {
+		require.Truef(t, active, "expected tower %v to no longer be "+
+			"an active candidate", c.ID)
+		return
 	}
-	if !isCandidate && active {
-		t.Fatalf("expected tower %v to be an active candidate", c.ID)
-	}
+	require.Falsef(t, active, "expected tower %v to be an active candidate",
+		c.ID)
 }
 
-func assertNextCandidate(t *testing.T, i TowerCandidateIterator, c *wtdb.Tower) {
+func assertNextCandidate(t *testing.T, i TowerCandidateIterator, c *Tower) {
 	t.Helper()
 
 	tower, err := i.Next()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(tower, c) {
-		t.Fatalf("expected tower: %v\ngot: %v", spew.Sdump(c),
-			spew.Sdump(tower))
-	}
+	require.NoError(t, err)
+	require.True(t, tower.IdentityKey.IsEqual(c.IdentityKey))
+	require.Equal(t, tower.ID, c.ID)
+	require.Equal(t, tower.Addresses.GetAll(), c.Addresses.GetAll())
 }
 
 // TestTowerCandidateIterator asserts the internal state of a
@@ -90,13 +97,13 @@ func TestTowerCandidateIterator(t *testing.T) {
 	// towers. We'll use copies of these towers within the iterator to
 	// ensure the iterator properly updates the state of its candidates.
 	const numTowers = 4
-	towers := make([]*wtdb.Tower, 0, numTowers)
+	towers := make([]*Tower, 0, numTowers)
 	for i := 0; i < numTowers; i++ {
 		towers = append(towers, randTower(t))
 	}
-	towerCopies := make([]*wtdb.Tower, 0, numTowers)
+	towerCopies := make([]*Tower, 0, numTowers)
 	for _, tower := range towers {
-		towerCopies = append(towerCopies, copyTower(tower))
+		towerCopies = append(towerCopies, copyTower(t, tower))
 	}
 	towerIterator := newTowerListIterator(towerCopies...)
 
@@ -104,28 +111,23 @@ func TestTowerCandidateIterator(t *testing.T) {
 	// were added.
 	for _, expTower := range towers {
 		tower, err := towerIterator.Next()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !reflect.DeepEqual(tower, expTower) {
-			t.Fatalf("expected tower: %v\ngot: %v",
-				spew.Sdump(expTower), spew.Sdump(tower))
-		}
+		require.NoError(t, err)
+		require.Equal(t, expTower, tower)
 	}
 
-	if _, err := towerIterator.Next(); err != ErrTowerCandidatesExhausted {
-		t.Fatalf("expected ErrTowerCandidatesExhausted, got %v", err)
-	}
+	_, err := towerIterator.Next()
+	require.ErrorIs(t, err, ErrTowerCandidatesExhausted)
+
 	towerIterator.Reset()
 
 	// We'll then attempt to test the RemoveCandidate behavior of the
-	// iterator. We'll remove the address of the first tower, which should
-	// result in it not having any addresses left, but still being an active
-	// candidate.
+	// iterator. We'll attempt to remove the address of the first tower,
+	// which should result in an error due to it being the last address of
+	// the tower.
 	firstTower := towers[0]
-	firstTowerAddr := firstTower.Addresses[0]
-	firstTower.RemoveAddress(firstTowerAddr)
-	towerIterator.RemoveCandidate(firstTower.ID, firstTowerAddr)
+	firstTowerAddr := firstTower.Addresses.Peek()
+	err = towerIterator.RemoveCandidate(firstTower.ID, firstTowerAddr)
+	require.ErrorIs(t, err, wtdb.ErrLastTowerAddr)
 	assertActiveCandidate(t, towerIterator, firstTower, true)
 	assertNextCandidate(t, towerIterator, firstTower)
 
@@ -133,7 +135,8 @@ func TestTowerCandidateIterator(t *testing.T) {
 	// not providing the optional address. Since it's been removed, we
 	// should expect to see the third tower next.
 	secondTower, thirdTower := towers[1], towers[2]
-	towerIterator.RemoveCandidate(secondTower.ID, nil)
+	err = towerIterator.RemoveCandidate(secondTower.ID, nil)
+	require.NoError(t, err)
 	assertActiveCandidate(t, towerIterator, secondTower, false)
 	assertNextCandidate(t, towerIterator, thirdTower)
 
@@ -142,7 +145,7 @@ func TestTowerCandidateIterator(t *testing.T) {
 	// iterator, but the new address should be.
 	fourthTower := towers[3]
 	assertActiveCandidate(t, towerIterator, fourthTower, true)
-	fourthTower.AddAddress(randAddr(t))
+	fourthTower.Addresses.Add(randAddr(t))
 	towerIterator.AddCandidate(fourthTower)
 	assertNextCandidate(t, towerIterator, fourthTower)
 

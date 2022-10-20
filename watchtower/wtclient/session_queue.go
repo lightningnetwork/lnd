@@ -34,7 +34,7 @@ const (
 type sessionQueueConfig struct {
 	// ClientSession provides access to the negotiated session parameters
 	// and updating its persistent storage.
-	ClientSession *wtdb.ClientSession
+	ClientSession *ClientSession
 
 	// ChainHash identifies the chain for which the session's justice
 	// transactions are targeted.
@@ -97,7 +97,7 @@ type sessionQueue struct {
 	queueCond    *sync.Cond
 
 	localInit *wtwire.Init
-	towerAddr *lnwire.NetAddress
+	tower     *Tower
 
 	seqNum uint16
 
@@ -117,18 +117,13 @@ func newSessionQueue(cfg *sessionQueueConfig,
 		cfg.ChainHash,
 	)
 
-	towerAddr := &lnwire.NetAddress{
-		IdentityKey: cfg.ClientSession.Tower.IdentityKey,
-		Address:     cfg.ClientSession.Tower.Addresses[0],
-	}
-
 	sq := &sessionQueue{
 		cfg:          cfg,
 		log:          cfg.Log,
 		commitQueue:  list.New(),
 		pendingQueue: list.New(),
 		localInit:    localInit,
-		towerAddr:    towerAddr,
+		tower:        cfg.ClientSession.Tower,
 		seqNum:       cfg.ClientSession.SeqNum,
 		retryBackoff: cfg.MinBackoff,
 		quit:         make(chan struct{}),
@@ -293,18 +288,48 @@ func (q *sessionQueue) sessionManager() {
 
 // drainBackups attempts to send all pending updates in the queue to the tower.
 func (q *sessionQueue) drainBackups() {
-	// First, check that we are able to dial this session's tower.
-	conn, err := q.cfg.Dial(q.cfg.ClientSession.SessionKeyECDH, q.towerAddr)
-	if err != nil {
-		q.log.Errorf("SessionQueue(%s) unable to dial tower at %v: %v",
-			q.ID(), q.towerAddr, err)
+	var (
+		conn      wtserver.Peer
+		err       error
+		towerAddr = q.tower.Addresses.Peek()
+	)
 
-		q.increaseBackoff()
-		select {
-		case <-time.After(q.retryBackoff):
-		case <-q.forceQuit:
+	for {
+		q.log.Infof("SessionQueue(%s) attempting to dial tower at %v",
+			q.ID(), towerAddr)
+
+		// First, check that we are able to dial this session's tower.
+		conn, err = q.cfg.Dial(
+			q.cfg.ClientSession.SessionKeyECDH, &lnwire.NetAddress{
+				IdentityKey: q.tower.IdentityKey,
+				Address:     towerAddr,
+			},
+		)
+		if err != nil {
+			// If there are more addrs available, immediately try
+			// those.
+			nextAddr, iteratorErr := q.tower.Addresses.Next()
+			if iteratorErr == nil {
+				towerAddr = nextAddr
+				continue
+			}
+
+			// Otherwise, if we have exhausted the address list,
+			// back off and try again later.
+			q.tower.Addresses.Reset()
+
+			q.log.Errorf("SessionQueue(%s) unable to dial tower "+
+				"at any available Addresses: %v", q.ID(), err)
+
+			q.increaseBackoff()
+			select {
+			case <-time.After(q.retryBackoff):
+			case <-q.forceQuit:
+			}
+			return
 		}
-		return
+
+		break
 	}
 	defer conn.Close()
 
@@ -324,9 +349,7 @@ func (q *sessionQueue) drainBackups() {
 		}
 
 		// Now, send the state update to the tower and wait for a reply.
-		err = q.sendStateUpdate(
-			conn, stateUpdate, q.localInit, sendInit, isPending,
-		)
+		err = q.sendStateUpdate(conn, stateUpdate, sendInit, isPending)
 		if err != nil {
 			q.log.Errorf("SessionQueue(%s) unable to send state "+
 				"update: %v", q.ID(), err)
@@ -483,8 +506,12 @@ func (q *sessionQueue) nextStateUpdate() (*wtwire.StateUpdate, bool,
 // variable indicates whether we should back off before attempting to send the
 // next state update.
 func (q *sessionQueue) sendStateUpdate(conn wtserver.Peer,
-	stateUpdate *wtwire.StateUpdate, localInit *wtwire.Init,
-	sendInit, isPending bool) error {
+	stateUpdate *wtwire.StateUpdate, sendInit, isPending bool) error {
+
+	towerAddr := &lnwire.NetAddress{
+		IdentityKey: conn.RemotePub(),
+		Address:     conn.RemoteAddr(),
+	}
 
 	// If this is the first message being sent to the tower, we must send an
 	// Init message to establish that server supports the features we
@@ -505,7 +532,7 @@ func (q *sessionQueue) sendStateUpdate(conn wtserver.Peer,
 		remoteInit, ok := remoteMsg.(*wtwire.Init)
 		if !ok {
 			return fmt.Errorf("watchtower %s responded with %T "+
-				"to Init", q.towerAddr, remoteMsg)
+				"to Init", towerAddr, remoteMsg)
 		}
 
 		// Validate Init.
@@ -532,7 +559,7 @@ func (q *sessionQueue) sendStateUpdate(conn wtserver.Peer,
 	stateUpdateReply, ok := remoteMsg.(*wtwire.StateUpdateReply)
 	if !ok {
 		return fmt.Errorf("watchtower %s responded with %T to "+
-			"StateUpdate", q.towerAddr, remoteMsg)
+			"StateUpdate", towerAddr, remoteMsg)
 	}
 
 	// Process the reply from the tower.
@@ -547,8 +574,8 @@ func (q *sessionQueue) sendStateUpdate(conn wtserver.Peer,
 		err := fmt.Errorf("received error code %v in "+
 			"StateUpdateReply for seqnum=%d",
 			stateUpdateReply.Code, stateUpdate.SeqNum)
-		q.log.Warnf("SessionQueue(%s) unable to upload state update to "+
-			"tower=%s: %v", q.ID(), q.towerAddr, err)
+		q.log.Warnf("SessionQueue(%s) unable to upload state update "+
+			"to tower=%s: %v", q.ID(), towerAddr, err)
 		return err
 	}
 
@@ -559,7 +586,8 @@ func (q *sessionQueue) sendStateUpdate(conn wtserver.Peer,
 		// TODO(conner): borked watchtower
 		err = fmt.Errorf("unable to ack seqnum=%d: %v",
 			stateUpdate.SeqNum, err)
-		q.log.Errorf("SessionQueue(%v) failed to ack update: %v", q.ID(), err)
+		q.log.Errorf("SessionQueue(%v) failed to ack update: %v",
+			q.ID(), err)
 		return err
 
 	case err == wtdb.ErrLastAppliedReversion:

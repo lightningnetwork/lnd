@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
@@ -36,19 +35,6 @@ type ClientSession struct {
 	ID SessionID
 
 	ClientSessionBody
-
-	// Tower holds the pubkey and address of the watchtower.
-	//
-	// NOTE: This value is not serialized. It is recovered by looking up the
-	// tower with TowerID.
-	Tower *Tower
-
-	// SessionKeyECDH is the ECDH capable wrapper of the ephemeral secret
-	// key used to connect to the watchtower.
-	//
-	// NOTE: This value is not serialized. It is derived using the KeyIndex
-	// on startup to avoid storing private keys on disk.
-	SessionKeyECDH keychain.SingleKeyECDH
 }
 
 // ClientSessionBody represents the primary components of a ClientSession that

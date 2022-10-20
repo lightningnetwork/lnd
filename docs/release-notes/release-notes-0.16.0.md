@@ -165,6 +165,9 @@ https://github.com/lightningnetwork/lnd/pull/6963/)
   easily](https://github.com/lightningnetwork/lnd/pull/5561), in preparation for
   adding a data migration functionality to `lndinit`.
 
+* [`golangci-lint` will now check new code using additional
+  linters.](https://github.com/lightningnetwork/lnd/pull/7064)
+
 ### Integration test
 
 The `lntest` has been

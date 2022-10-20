@@ -39,9 +39,9 @@ const (
 	// fails in a forwarding package.
 	DefaultAckInterval = 15 * time.Second
 
-	// DefaultHTLCExpiry is the duration after which Adds will be cancelled
-	// if they could not get added to an outgoing commitment.
-	DefaultHTLCExpiry = time.Minute
+	// DefaultMailboxDeliveryTimeout is the duration after which Adds will
+	// be cancelled if they could not get added to an outgoing commitment.
+	DefaultMailboxDeliveryTimeout = time.Minute
 )
 
 var (
@@ -202,11 +202,11 @@ type Config struct {
 	// Clock is a time source for the switch.
 	Clock clock.Clock
 
-	// HTLCExpiry is the interval after which Adds will be cancelled if they
-	// have not been yet been delivered to a link. The computed deadline
-	// will expiry this long after the Adds are added to a mailbox via
-	// AddPacket.
-	HTLCExpiry time.Duration
+	// MailboxDeliveryTimeout is the interval after which Adds will be
+	// cancelled if they have not been yet been delivered to a link. The
+	// computed deadline will expiry this long after the Adds are added to
+	// a mailbox via AddPacket.
+	MailboxDeliveryTimeout time.Duration
 
 	// DustThreshold is the threshold in milli-satoshis after which we'll
 	// fail incoming or outgoing dust payments for a particular channel.
@@ -386,7 +386,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 	s.mailOrchestrator = newMailOrchestrator(&mailOrchConfig{
 		forwardPackets:    s.ForwardPackets,
 		clock:             s.cfg.Clock,
-		expiry:            s.cfg.HTLCExpiry,
+		expiry:            s.cfg.MailboxDeliveryTimeout,
 		failMailboxUpdate: s.failMailboxUpdate,
 	})
 

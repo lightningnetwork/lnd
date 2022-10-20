@@ -190,15 +190,17 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 			EpochChan: make(chan *chainntnfs.BlockEpoch),
 			ConfChan:  make(chan *chainntnfs.TxConfirmation),
 		},
-		FwdEventTicker:  ticker.NewForce(DefaultFwdEventInterval),
-		LogEventTicker:  ticker.NewForce(DefaultLogInterval),
-		AckEventTicker:  ticker.NewForce(DefaultAckInterval),
-		HtlcNotifier:    &mockHTLCNotifier{},
-		Clock:           clock.NewDefaultClock(),
-		HTLCExpiry:      time.Hour,
-		DustThreshold:   DefaultDustThreshold,
-		SignAliasUpdate: signAliasUpdate,
-		IsAlias:         isAlias,
+		FwdEventTicker: ticker.NewForce(
+			DefaultFwdEventInterval,
+		),
+		LogEventTicker:         ticker.NewForce(DefaultLogInterval),
+		AckEventTicker:         ticker.NewForce(DefaultAckInterval),
+		HtlcNotifier:           &mockHTLCNotifier{},
+		Clock:                  clock.NewDefaultClock(),
+		MailboxDeliveryTimeout: time.Hour,
+		DustThreshold:          DefaultDustThreshold,
+		SignAliasUpdate:        signAliasUpdate,
+		IsAlias:                isAlias,
 	}
 
 	return New(cfg, startingHeight)

@@ -6740,7 +6740,8 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 // offset can be provided to the request to allow the caller to skip a series
 // of records.
 func (r *rpcServer) ForwardingHistory(ctx context.Context,
-	req *lnrpc.ForwardingHistoryRequest) (*lnrpc.ForwardingHistoryResponse, error) {
+	req *lnrpc.ForwardingHistoryRequest) (*lnrpc.ForwardingHistoryResponse,
+	error) {
 
 	rpcsLog.Debugf("[forwardinghistory]")
 
@@ -6758,7 +6759,8 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		numEvents uint32
 	)
 
-	// startTime defaults to the Unix epoch (0 unixtime, or midnight 01-01-1970).
+	// startTime defaults to the Unix epoch (0 unixtime, or
+	// midnight 01-01-1970).
 	startTime = time.Unix(int64(req.StartTime), 0)
 
 	// If the end time wasn't specified, assume a default end time of now.
@@ -6786,7 +6788,48 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 	}
 	timeSlice, err := r.server.miscDB.ForwardingLog().Query(eventQuery)
 	if err != nil {
-		return nil, fmt.Errorf("unable to query forwarding log: %v", err)
+		return nil, fmt.Errorf("unable to query forwarding log: %v",
+			err)
+	}
+
+	// chanToPeerAlias caches previously looked up channel information.
+	chanToPeerAlias := make(map[lnwire.ShortChannelID]string)
+
+	// Helper function to extract a peer's node alias given its SCID.
+	getRemoteAlias := func(chanID lnwire.ShortChannelID) (string, error) {
+		// If we'd previously seen this chanID then return the cached
+		// peer alias.
+		if peerAlias, ok := chanToPeerAlias[chanID]; ok {
+			return peerAlias, nil
+		}
+
+		// Else call the server to look up the peer alias.
+		edge, err := r.GetChanInfo(ctx, &lnrpc.ChanInfoRequest{
+			ChanId: chanID.ToUint64(),
+		})
+		if err != nil {
+			return "", err
+		}
+
+		remotePub := edge.Node1Pub
+		if r.selfNode.String() == edge.Node1Pub {
+			remotePub = edge.Node2Pub
+		}
+
+		vertex, err := route.NewVertexFromStr(remotePub)
+		if err != nil {
+			return "", err
+		}
+
+		peer, err := r.server.graphDB.FetchLightningNode(vertex)
+		if err != nil {
+			return "", err
+		}
+
+		// Cache the peer alias.
+		chanToPeerAlias[chanID] = peer.Alias
+
+		return peer.Alias, nil
 	}
 
 	// TODO(roasbeef): add settlement latency?
@@ -6796,8 +6839,11 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 	// response.
 	//
 	// TODO(roasbeef): show in ns for the outside?
+	fwdingEvents := make(
+		[]*lnrpc.ForwardingEvent, len(timeSlice.ForwardingEvents),
+	)
 	resp := &lnrpc.ForwardingHistoryResponse{
-		ForwardingEvents: make([]*lnrpc.ForwardingEvent, len(timeSlice.ForwardingEvents)),
+		ForwardingEvents: fwdingEvents,
 		LastOffsetIndex:  timeSlice.LastIndexOffset,
 	}
 	for i, event := range timeSlice.ForwardingEvents {
@@ -6816,6 +6862,22 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			FeeMsat:     uint64(feeMsat),
 			AmtInMsat:   uint64(amtInMsat),
 			AmtOutMsat:  uint64(amtOutMsat),
+		}
+
+		if !req.SkipPeerAliasLookup {
+			aliasIn, err := getRemoteAlias(event.IncomingChanID)
+			if err != nil {
+				return nil, fmt.Errorf("unable to lookup peer "+
+					"alias: %v", err)
+			}
+			resp.ForwardingEvents[i].PeerAliasIn = aliasIn
+
+			aliasOut, err := getRemoteAlias(event.OutgoingChanID)
+			if err != nil {
+				return nil, fmt.Errorf("unable to lookup peer "+
+					"alias: %v", err)
+			}
+			resp.ForwardingEvents[i].PeerAliasOut = aliasOut
 		}
 	}
 

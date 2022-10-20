@@ -40,6 +40,12 @@
 * [Make remote channel reserve amount configurable for 
   `openchannel`](https://github.com/lightningnetwork/lnd/pull/6956)
 
+* [`ForwardingHistory` ](https://github.com/lightningnetwork/lnd/pull/7001) now
+  enriches each forwarding event with inbound and outbound peer alias names. In
+  order for UIs to preserve the performance of this RPC the alias lookup can be 
+  skipped by specifying `skip_peer_alias_lookup`. `lncli fwdinghistory` also 
+  adds a flag `skip_peer_alias_lookup` to skip the lookup.
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/stretchr/testify/require"
 )
 
 func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
@@ -253,44 +254,41 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// each of the forwarded payments.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	feeReport, err := dave.FeeReport(ctxt, &lnrpc.FeeReportRequest{})
-	if err != nil {
-		t.Fatalf("unable to query for fee report: %v", err)
-	}
-
-	if feeReport.DayFeeSum != uint64(expectedFeeDave) {
-		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDave,
-			feeReport.DayFeeSum)
-	}
-	if feeReport.WeekFeeSum != uint64(expectedFeeDave) {
-		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDave,
-			feeReport.WeekFeeSum)
-	}
-	if feeReport.MonthFeeSum != uint64(expectedFeeDave) {
-		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDave,
-			feeReport.MonthFeeSum)
-	}
+	require.NoError(t.t, err)
+	require.EqualValues(t.t, expectedFeeDave, feeReport.DayFeeSum)
+	require.EqualValues(t.t, expectedFeeDave, feeReport.WeekFeeSum)
+	require.EqualValues(t.t, expectedFeeDave, feeReport.MonthFeeSum)
 
 	// Next, ensure that if we issue the vanilla query for the forwarding
 	// history, it returns 5 values, and each entry is formatted properly.
+	// From David's perspective he receives a payement from Carol and
+	// forwards it to Alice. So let's ensure that the forwarding history
+	// returns Carol's peer alias as inbound and Alice's alias as outbound.
+	info, err := carol.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+	require.NoError(t.t, err)
+	carolAlias := info.Alias
+
+	info, err = net.Alice.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+	require.NoError(t.t, err)
+	aliceAlias := info.Alias
+
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	fwdingHistory, err := dave.ForwardingHistory(
 		ctxt, &lnrpc.ForwardingHistoryRequest{},
 	)
-	if err != nil {
-		t.Fatalf("unable to query for fee report: %v", err)
-	}
-	if len(fwdingHistory.ForwardingEvents) != numPayments {
-		t.Fatalf("wrong number of forwarding event: expected %v, "+
-			"got %v", numPayments,
-			len(fwdingHistory.ForwardingEvents))
-	}
+	require.NoError(t.t, err)
+	require.EqualValues(
+		t.t, numPayments, len(fwdingHistory.ForwardingEvents),
+	)
 	expectedForwardingFee := uint64(expectedFeeDave / numPayments)
 	for _, event := range fwdingHistory.ForwardingEvents {
 		// Each event should show a fee of 170 satoshi.
-		if event.Fee != expectedForwardingFee {
-			t.Fatalf("fee mismatch:  expected %v, got %v",
-				expectedForwardingFee, event.Fee)
-		}
+		require.Equal(t.t, expectedForwardingFee, event.Fee)
+
+		// Check that peer aliases adhere to payment flow, namely
+		// Carol->Dave->Alice.
+		require.Equal(t.t, carolAlias, event.PeerAliasIn)
+		require.Equal(t.t, aliceAlias, event.PeerAliasOut)
 	}
 
 	// We expect Carol to have successful forwards and settles for

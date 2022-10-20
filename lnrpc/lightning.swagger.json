@@ -4454,6 +4454,14 @@
           "type": "string",
           "format": "uint64",
           "description": "The number of nanoseconds elapsed since January 1, 1970 UTC when this\ncircuit was completed."
+        },
+        "peer_alias_in": {
+          "type": "string",
+          "description": "The peer alias of the incoming channel."
+        },
+        "peer_alias_out": {
+          "type": "string",
+          "description": "The peer alias of the outgoing channel."
         }
       }
     },
@@ -4479,6 +4487,10 @@
           "type": "integer",
           "format": "int64",
           "description": "The max number of events to return in the response to this query."
+        },
+        "skip_peer_alias_lookup": {
+          "type": "boolean",
+          "description": "Informs the server if the peer alias lookup per forwarding event\nshould be skipped in order to improve performance."
         }
       }
     },

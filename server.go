@@ -997,8 +997,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	srvrLog.Tracef("Sweeper batch window duration: %v",
-		sweep.DefaultBatchWindowDuration)
+	srvrLog.Debugf("Sweeper batch window duration: %v",
+		cfg.Sweeper.BatchWindowDuration)
 
 	sweeperStore, err := sweep.NewSweeperStore(
 		dbs.ChanStateDB, s.cfg.ActiveNetParams.GenesisHash,

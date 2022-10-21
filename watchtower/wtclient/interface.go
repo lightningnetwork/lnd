@@ -95,6 +95,10 @@ type DB interface {
 	MarkChannelClosed(chanID lnwire.ChannelID, blockHeight uint32) (
 		[]wtdb.SessionID, error)
 
+	// ListClosableSessions fetches and returns the IDs for all sessions
+	// marked as closable.
+	ListClosableSessions() (map[wtdb.SessionID]uint32, error)
+
 	// RegisterChannel registers a channel for use within the client
 	// database. For now, all that is stored in the channel summary is the
 	// sweep pkscript that we'd like any tower sweeps to pay into. In the

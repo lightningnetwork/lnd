@@ -207,6 +207,17 @@ func (h *clientDBHarness) markChannelClosed(id lnwire.ChannelID,
 	return closableSessions
 }
 
+func (h *clientDBHarness) listClosableSessions(
+	expErr error) map[wtdb.SessionID]uint32 {
+
+	h.t.Helper()
+
+	closableSessions, err := h.db.ListClosableSessions()
+	require.ErrorIs(h.t, err, expErr)
+
+	return closableSessions
+}
+
 // newTower is a helper function that creates a new tower with a randomly
 // generated public key and inserts it into the client DB.
 func (h *clientDBHarness) newTower() *wtdb.Tower {
@@ -711,11 +722,16 @@ func testMarkChannelClosed(h *clientDBHarness) {
 	// since it has an update for channel 6 which is still open.
 	sl = h.markChannelClosed(chanID5, 1, nil)
 	require.Empty(h.t, sl)
+	require.Empty(h.t, h.listClosableSessions(nil))
 
 	// Finally, if we close channel 6, session 1 _should_ be in the closable
 	// list.
-	sl = h.markChannelClosed(chanID6, 1, nil)
+	sl = h.markChannelClosed(chanID6, 100, nil)
 	require.ElementsMatch(h.t, sl, []wtdb.SessionID{session1.ID})
+	slMap := h.listClosableSessions(nil)
+	require.InDeltaMapValues(h.t, slMap, map[wtdb.SessionID]uint32{
+		session1.ID: 100,
+	}, 0)
 }
 
 // testAckUpdate asserts the behavior of AckUpdate.

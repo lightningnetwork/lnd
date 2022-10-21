@@ -198,3 +198,30 @@ type ClientSession struct {
 	// key used to connect to the watchtower.
 	SessionKeyECDH keychain.SingleKeyECDH
 }
+
+// NewClientSessionFromDBSession converts a wtdb.ClientSession to a
+// ClientSession.
+func NewClientSessionFromDBSession(s *wtdb.ClientSession, tower *Tower,
+	keyRing ECDHKeyRing) (*ClientSession, error) {
+
+	towerKeyDesc, err := keyRing.DeriveKey(
+		keychain.KeyLocator{
+			Family: keychain.KeyFamilyTowerSession,
+			Index:  s.KeyIndex,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionKeyECDH := keychain.NewPubKeyECDH(
+		towerKeyDesc, keyRing,
+	)
+
+	return &ClientSession{
+		ID:                s.ID,
+		ClientSessionBody: s.ClientSessionBody,
+		Tower:             tower,
+		SessionKeyECDH:    sessionKeyECDH,
+	}, nil
+}

@@ -435,27 +435,19 @@ func getTowerAndSessionCandidates(db DB, keyRing ECDHKeyRing,
 		}
 
 		for _, s := range sessions {
-			towerKeyDesc, err := keyRing.DeriveKey(
-				keychain.KeyLocator{
-					Family: keychain.KeyFamilyTowerSession,
-					Index:  s.KeyIndex,
-				},
+			if !sessionFilter(s) {
+				continue
+			}
+
+			cs, err := NewClientSessionFromDBSession(
+				s, tower, keyRing,
 			)
 			if err != nil {
 				return nil, err
 			}
 
-			sessionKeyECDH := keychain.NewPubKeyECDH(
-				towerKeyDesc, keyRing,
-			)
-
 			// Add the session to the set of candidate sessions.
-			candidateSessions[s.ID] = &ClientSession{
-				ID:                s.ID,
-				ClientSessionBody: s.ClientSessionBody,
-				Tower:             tower,
-				SessionKeyECDH:    sessionKeyECDH,
-			}
+			candidateSessions[s.ID] = cs
 
 			perActiveTower(tower)
 		}

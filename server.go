@@ -143,7 +143,11 @@ func (e *errPeerAlreadyConnected) Error() string {
 
 // PeerConnManager is responsible for managing peer connections.
 type PeerConnManager struct {
-	mu         sync.RWMutex
+	mu sync.RWMutex
+
+	// PubKey is our public key.
+	PubKey *btcec.PublicKey
+
 	peersByPub map[string]*peer.Brontide
 
 	inboundPeers  map[string]*peer.Brontide
@@ -567,6 +571,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	pcm := &PeerConnManager{
+		PubKey:                  nodeKeyECDH.PubKey(),
 		persistentPeers:         make(map[string]bool),
 		persistentPeersBackoff:  make(map[string]time.Duration),
 		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
@@ -2573,31 +2578,33 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 	return bootStrappers, nil
 }
 
-// createBootstrapIgnorePeers creates a map of peers that the bootstrap process
+type IgnoredPeers map[autopilot.NodeID]struct{}
+
+// CreateBootstrapIgnorePeers creates a map of peers that the bootstrap process
 // needs to ignore, which is made of three parts,
 //   - the node itself needs to be skipped as it doesn't make sense to connect
 //     to itself.
 //   - the peers that already have connections with, as in s.peersByPub.
 //   - the peers that we are attempting to connect, as in s.persistentPeers.
-func (s *server) createBootstrapIgnorePeers() map[autopilot.NodeID]struct{} {
-	s.pcm.mu.RLock()
-	defer s.pcm.mu.RUnlock()
+func (p *PeerConnManager) CreateBootstrapIgnorePeers() IgnoredPeers {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
 	ignore := make(map[autopilot.NodeID]struct{})
 
 	// We should ignore ourselves from bootstrapping.
-	selfKey := autopilot.NewNodeID(s.identityECDH.PubKey())
+	selfKey := autopilot.NewNodeID(p.PubKey)
 	ignore[selfKey] = struct{}{}
 
 	// Ignore all connected peers.
-	for _, peer := range s.pcm.peersByPub {
+	for _, peer := range p.peersByPub {
 		nID := autopilot.NewNodeID(peer.IdentityKey())
 		ignore[nID] = struct{}{}
 	}
 
 	// Ignore all persistent peers as they have a dedicated reconnecting
 	// process.
-	for pubKeyStr := range s.pcm.persistentPeers {
+	for pubKeyStr := range p.persistentPeers {
 		var nID autopilot.NodeID
 		copy(nID[:], []byte(pubKeyStr))
 		ignore[nID] = struct{}{}
@@ -2617,7 +2624,7 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 	defer s.wg.Done()
 
 	// Before we continue, init the ignore peers map.
-	ignoreList := s.createBootstrapIgnorePeers()
+	ignoreList := s.pcm.CreateBootstrapIgnorePeers()
 
 	// We'll start off by aggressively attempting connections to peers in
 	// order to be a part of the network as soon as possible.
@@ -2696,7 +2703,7 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 			//
 			// Before we continue, get a copy of the ignore peers
 			// map.
-			ignoreList = s.createBootstrapIgnorePeers()
+			ignoreList = s.pcm.CreateBootstrapIgnorePeers()
 
 			peerAddrs, err := discovery.MultiSourceBootstrap(
 				ignoreList, numNeeded*2, bootstrappers...,

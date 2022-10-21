@@ -554,6 +554,36 @@ func (m *ClientDB) FetchChanSummaries() (wtdb.ChannelSummaries, error) {
 	return summaries, nil
 }
 
+// GetClientSession loads the ClientSession with the given ID from the DB.
+func (m *ClientDB) GetClientSession(id wtdb.SessionID,
+	opts ...wtdb.ClientSessionListOption) (*wtdb.ClientSession, error) {
+
+	cfg := wtdb.NewClientSessionCfg()
+	for _, o := range opts {
+		o(cfg)
+	}
+
+	session, ok := m.activeSessions[id]
+	if !ok {
+		return nil, wtdb.ErrClientSessionNotFound
+	}
+
+	if cfg.PerMaxHeight != nil {
+		for chanID, index := range m.ackedUpdates[session.ID] {
+			cfg.PerMaxHeight(&session, chanID, index.MaxHeight())
+		}
+	}
+
+	if cfg.PerCommittedUpdate != nil {
+		for _, update := range m.committedUpdates[session.ID] {
+			update := update
+			cfg.PerCommittedUpdate(&session, &update)
+		}
+	}
+
+	return &session, nil
+}
+
 // RegisterChannel registers a channel for use within the client database. For
 // now, all that is stored in the channel summary is the sweep pkscript that
 // we'd like any tower sweeps to pay into. In the future, this will be extended

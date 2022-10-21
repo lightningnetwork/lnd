@@ -99,6 +99,12 @@ type DB interface {
 	// marked as closable.
 	ListClosableSessions() (map[wtdb.SessionID]uint32, error)
 
+	// DeleteSession can be called when a session should be deleted from the
+	// DB. All references to the session will also be deleted from the DB.
+	// A session will only be deleted if it was previously marked as
+	// closable.
+	DeleteSession(id wtdb.SessionID) error
+
 	// RegisterChannel registers a channel for use within the client
 	// database. For now, all that is stored in the channel summary is the
 	// sweep pkscript that we'd like any tower sweeps to pay into. In the

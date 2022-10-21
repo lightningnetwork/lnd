@@ -703,6 +703,34 @@ func (m *ClientDB) GetClientSession(id wtdb.SessionID,
 	return &session, nil
 }
 
+// DeleteSession can be called when a session should be deleted from the DB.
+// All references to the session will also be deleted from the DB. Note that a
+// session will only be deleted if it is considered closable.
+func (m *ClientDB) DeleteSession(id wtdb.SessionID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	_, ok := m.closableSessions[id]
+	if !ok {
+		return wtdb.ErrSessionNotClosable
+	}
+
+	// For each of the channels, delete the session ID entry.
+	for chanID := range m.ackedUpdates[id] {
+		c, ok := m.channels[chanID]
+		if !ok {
+			return wtdb.ErrChannelNotRegistered
+		}
+
+		delete(c.sessions, id)
+	}
+
+	delete(m.closableSessions, id)
+	delete(m.activeSessions, id)
+
+	return nil
+}
+
 // RegisterChannel registers a channel for use within the client database. For
 // now, all that is stored in the channel summary is the sweep pkscript that
 // we'd like any tower sweeps to pay into. In the future, this will be extended

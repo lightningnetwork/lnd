@@ -218,6 +218,13 @@ func (h *clientDBHarness) listClosableSessions(
 	return closableSessions
 }
 
+func (h *clientDBHarness) deleteSession(id wtdb.SessionID, expErr error) {
+	h.t.Helper()
+
+	err := h.db.DeleteSession(id)
+	require.ErrorIs(h.t, err, expErr)
+}
+
 // newTower is a helper function that creates a new tower with a randomly
 // generated public key and inserts it into the client DB.
 func (h *clientDBHarness) newTower() *wtdb.Tower {
@@ -724,6 +731,10 @@ func testMarkChannelClosed(h *clientDBHarness) {
 	require.Empty(h.t, sl)
 	require.Empty(h.t, h.listClosableSessions(nil))
 
+	// Also check that attempting to delete the session will fail since it
+	// is not yet considered closable.
+	h.deleteSession(session1.ID, wtdb.ErrSessionNotClosable)
+
 	// Finally, if we close channel 6, session 1 _should_ be in the closable
 	// list.
 	sl = h.markChannelClosed(chanID6, 100, nil)
@@ -732,6 +743,10 @@ func testMarkChannelClosed(h *clientDBHarness) {
 	require.InDeltaMapValues(h.t, slMap, map[wtdb.SessionID]uint32{
 		session1.ID: 100,
 	}, 0)
+
+	// Assert that we now can delete the session.
+	h.deleteSession(session1.ID, nil)
+	require.Empty(h.t, h.listClosableSessions(nil))
 }
 
 // testAckUpdate asserts the behavior of AckUpdate.

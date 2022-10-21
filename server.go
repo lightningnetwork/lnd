@@ -1512,7 +1512,16 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			)
 		}
 
+		fetchClosedChannel := s.chanStateDB.FetchClosedChannelForID
+
 		s.towerClient, err = wtclient.New(&wtclient.Config{
+			FetchClosedChannel: fetchClosedChannel,
+			SubscribeChannelEvents: func() (subscribe.Subscription,
+				error) {
+
+				return s.channelNotifier.
+					SubscribeChannelEvents()
+			},
 			Signer:         cc.Wallet.Cfg.Signer,
 			NewAddress:     newSweepPkScriptGen(cc.Wallet),
 			SecretKeyRing:  s.cc.KeyRing,
@@ -1536,6 +1545,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			blob.Type(blob.FlagAnchorChannel)
 
 		s.anchorTowerClient, err = wtclient.New(&wtclient.Config{
+			FetchClosedChannel: fetchClosedChannel,
+			SubscribeChannelEvents: func() (subscribe.Subscription,
+				error) {
+
+				return s.channelNotifier.
+					SubscribeChannelEvents()
+			},
 			Signer:         cc.Wallet.Cfg.Signer,
 			NewAddress:     newSweepPkScriptGen(cc.Wallet),
 			SecretKeyRing:  s.cc.KeyRing,

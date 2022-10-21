@@ -1385,6 +1385,46 @@ func (c *ClientDB) MarkBackupIneligible(chanID lnwire.ChannelID,
 	return nil
 }
 
+// ListClosableSessions fetches and returns the IDs for all sessions marked as
+// closable.
+func (c *ClientDB) ListClosableSessions() (map[SessionID]uint32, error) {
+	sessions := make(map[SessionID]uint32)
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+		csBkt := tx.ReadBucket(cClosableSessionsBkt)
+		if csBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		sessIDIndexBkt := tx.ReadBucket(cSessionIDIndexBkt)
+		if sessIDIndexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		return csBkt.ForEach(func(dbIDBytes, heightBytes []byte) error {
+			dbID, err := readBigSize(dbIDBytes)
+			if err != nil {
+				return err
+			}
+
+			sessID, err := getRealSessionID(sessIDIndexBkt, dbID)
+			if err != nil {
+				return err
+			}
+
+			sessions[*sessID] = byteOrder.Uint32(heightBytes)
+
+			return nil
+		})
+	}, func() {
+		sessions = make(map[SessionID]uint32)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return sessions, nil
+}
+
 // MarkChannelClosed will mark a registered channel as closed by setting its
 // closed-height as the given block height. It returns a list of session IDs for
 // sessions that are now considered closable due to the close of this channel.

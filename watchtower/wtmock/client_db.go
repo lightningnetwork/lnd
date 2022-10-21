@@ -551,6 +551,20 @@ func (m *ClientDB) AckUpdate(id *wtdb.SessionID, seqNum,
 	return wtdb.ErrCommittedUpdateNotFound
 }
 
+// ListClosableSessions fetches and returns the IDs for all sessions marked as
+// closable.
+func (m *ClientDB) ListClosableSessions() (map[wtdb.SessionID]uint32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cs := make(map[wtdb.SessionID]uint32, len(m.closableSessions))
+	for id, height := range m.closableSessions {
+		cs[id] = height
+	}
+
+	return cs, nil
+}
+
 // FetchChanSummaries loads a mapping from all registered channels to their
 // channel summaries.
 func (m *ClientDB) FetchChanSummaries() (wtdb.ChannelSummaries, error) {

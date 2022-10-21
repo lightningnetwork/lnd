@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
@@ -4250,6 +4251,52 @@ func TestInterceptableSwitchWatchDog(t *testing.T) {
 		Key:      intercepted.IncomingCircuit,
 		Preimage: c.preimage,
 	}))
+}
+
+func TestInterceptableSwitchUnencryptedFailure(t *testing.T) {
+	t.Parallel()
+
+	c := newInterceptableSwitchTestContext(t, false)
+	defer c.finish()
+
+	require.NoError(t, c.interceptableSwitch.Start())
+	c.interceptableSwitch.SetInterceptor(
+		c.forwardInterceptor.InterceptForwardHtlc,
+	)
+
+	// Receive a packet.
+	linkQuit := make(chan struct{})
+
+	packet := c.createTestPacket()
+
+	err := c.interceptableSwitch.ForwardPackets(linkQuit, false, packet)
+	require.NoError(t, err, "can't forward htlc packet")
+
+	// Intercept the packet.
+	intercepted := c.forwardInterceptor.getIntercepted()
+
+	// Fail the htlc with an unencrypted failure message.
+	msg := lnwire.NewFeeInsufficient(10, lnwire.ChannelUpdate{})
+	var msgBuffer bytes.Buffer
+	require.NoError(t, lnwire.EncodeFailureMessage(&msgBuffer, msg, 0))
+
+	require.NoError(t, c.interceptableSwitch.Resolve(&FwdResolution{
+		Action:         FwdActionFail,
+		Key:            intercepted.IncomingCircuit,
+		FailureMessage: msg,
+	}))
+	assertOutgoingLinkReceive(t, c.bobChannelLink, false)
+	recvPkt := assertOutgoingLinkReceive(t, c.aliceChannelLink, true)
+	assertNumCircuits(t, c.s, 0, 0)
+
+	// Assert that the sender receives the expected failure message type.
+	deobfuscator := newMockDeobfuscator()
+
+	fwdErr, err := deobfuscator.DecryptError(
+		recvPkt.htlc.(*lnwire.UpdateFailHTLC).Reason,
+	)
+	require.NoError(t, err)
+	require.IsType(t, &lnwire.FailFeeInsufficient{}, fwdErr.msg)
 }
 
 // TestSwitchDustForwarding tests that the switch properly fails HTLC's which

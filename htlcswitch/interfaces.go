@@ -332,9 +332,10 @@ type InterceptedForward interface {
 	// forward with a given preimage.
 	Settle(lntypes.Preimage) error
 
-	// Fail notifies the intention to fail an existing hold forward with an
-	// encrypted failure reason.
-	Fail(reason []byte) error
+	// Fail notifies the intention to fail an existing hold forward with a
+	// failure reason. The encryptFirstHop bool indicates whether the
+	// failure reason still needs to be encrypted for the first hop.
+	Fail(reason []byte, encryptFirstHop bool) error
 
 	// FailWithCode notifies the intention to fail an existing hold forward
 	// with the specified failure code.

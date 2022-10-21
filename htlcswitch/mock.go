@@ -436,6 +436,21 @@ func (o *mockObfuscator) EncryptFirstHop(failure lnwire.FailureMessage) (
 	return b.Bytes(), nil
 }
 
+func (o *mockObfuscator) EncryptEncodedFirstHop(
+	reason []byte) (lnwire.OpaqueReason, error) {
+
+	var b bytes.Buffer
+	if _, err := b.Write(fakeHmac); err != nil {
+		return nil, err
+	}
+
+	if err := lnwire.EncodeFailureHeader(&b, reason, 0); err != nil {
+		return nil, err
+	}
+
+	return b.Bytes(), nil
+}
+
 func (o *mockObfuscator) IntermediateEncrypt(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
 	return reason
 }

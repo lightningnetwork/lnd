@@ -1,6 +1,7 @@
 package routerrpc
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"errors"
 
@@ -171,20 +172,35 @@ func unmarshallFailureResolution(in *ForwardHtlcInterceptResponse,
 			)
 		}
 
-		// Verify that the size is equal to the fixed failure
-		// message size + hmac + two uint16 lengths. See BOLT
-		// #4.
-		if len(in.FailureMessage) !=
-			lnwire.FailureMessageLength+sha256.Size+2+2 {
+		switch {
+		// Verify that for encrypted messages the size is equal to the
+		// fixed failure message size + hmac + two uint16 lengths. See
+		// BOLT #4.
+		case !in.FailureMessageUnencrypted:
+			if len(in.FailureMessage) !=
+				lnwire.FailureMessageLength+sha256.Size+2+2 {
 
-			return status.Errorf(
-				codes.InvalidArgument,
-				"failure message length invalid",
-			)
+				return status.Errorf(
+					codes.InvalidArgument,
+					"failure message length invalid",
+				)
+			}
+
+			fwdRes.EncryptedFailureMessage = in.FailureMessage
+
+		// For unencrypted messages, verify that they are parseable.
+		case in.FailureMessageUnencrypted:
+			r := bytes.NewReader(in.FailureMessage)
+			msg, err := lnwire.DecodeFailureMessage(r, 0)
+			if err != nil {
+				return status.Errorf(
+					codes.InvalidArgument,
+					"failure message unparseable",
+				)
+			}
+
+			fwdRes.FailureMessage = msg
 		}
-
-		// Fail with an encrypted reason.
-		fwdRes.EncryptedFailureMessage = in.FailureMessage
 	} else {
 		code, err := unmarshalFailCode(in.FailureCode)
 		if err != nil {

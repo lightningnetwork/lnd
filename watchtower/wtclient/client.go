@@ -2,6 +2,7 @@ package wtclient
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -12,10 +13,12 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
@@ -146,6 +149,16 @@ type Config struct {
 	// transaction.
 	Signer input.Signer
 
+	// SubscribeChannelEvents can be used to subscribe to channel event
+	// notifications.
+	SubscribeChannelEvents func() (subscribe.Subscription, error)
+
+	// FetchClosedChannel can be used to fetch the info about a closed
+	// channel. If the channel is not found or not yet closed then
+	// channeldb.ErrClosedChannelNotFound will be returned.
+	FetchClosedChannel func(cid lnwire.ChannelID) (
+		*channeldb.ChannelCloseSummary, error)
+
 	// NewAddress generates a new on-chain sweep pkscript.
 	NewAddress func() ([]byte, error)
 
@@ -269,6 +282,7 @@ type TowerClient struct {
 	staleTowers chan *staleTowerMsg
 
 	wg        sync.WaitGroup
+	quit      chan struct{}
 	forceQuit chan struct{}
 }
 
@@ -319,6 +333,7 @@ func New(config *Config) (*TowerClient, error) {
 		newTowers:         make(chan *newTowerMsg),
 		staleTowers:       make(chan *staleTowerMsg),
 		forceQuit:         make(chan struct{}),
+		quit:              make(chan struct{}),
 	}
 
 	// perUpdate is a callback function that will be used to inspect the
@@ -364,7 +379,7 @@ func New(config *Config) (*TowerClient, error) {
 			return
 		}
 
-		log.Infof("Using private watchtower %s, offering policy %s",
+		c.log.Infof("Using private watchtower %s, offering policy %s",
 			tower, cfg.Policy)
 
 		// Add the tower to the set of candidate towers.
@@ -540,10 +555,45 @@ func (c *TowerClient) Start() error {
 			}
 		}
 
+		chanSub, err := c.cfg.SubscribeChannelEvents()
+		if err != nil {
+			returnErr = err
+			return
+		}
+
+		// Iterate over the list of registered channels and check if
+		// any of them can be marked as closed.
+		for id := range c.summaries {
+			isClosed, closedHeight, err := c.isChannelClosed(id)
+			if err != nil {
+				returnErr = err
+				return
+			}
+
+			if !isClosed {
+				continue
+			}
+
+			_, err = c.cfg.DB.MarkChannelClosed(id, closedHeight)
+			if err != nil {
+				c.log.Errorf("could not mark channel(%s) as "+
+					"closed: %v", id, err)
+
+				continue
+			}
+
+			// Since the channel has been marked as closed, we can
+			// also remove it from the channel summaries map.
+			delete(c.summaries, id)
+		}
+
+		c.wg.Add(1)
+		go c.handleChannelCloses(chanSub)
+
 		// Now start the session negotiator, which will allow us to
 		// request new session as soon as the backupDispatcher starts
 		// up.
-		err := c.negotiator.Start()
+		err = c.negotiator.Start()
 		if err != nil {
 			returnErr = err
 			return
@@ -591,6 +641,7 @@ func (c *TowerClient) Stop() error {
 		// dispatcher to exit. The backup queue will signal it's
 		// completion to the dispatcher, which releases the wait group
 		// after all tasks have been assigned to session queues.
+		close(c.quit)
 		c.wg.Wait()
 
 		// 4. Since all valid tasks have been assigned to session
@@ -770,6 +821,82 @@ func (c *TowerClient) nextSessionQueue() (*sessionQueue, error) {
 	// updates. If the queue was already made active on startup, this will
 	// simply return the existing session queue from the set.
 	return c.getOrInitActiveQueue(candidateSession, updates), nil
+}
+
+// handleChannelCloses listens for channel close events and marks channels as
+// closed in the DB.
+//
+// NOTE: This method MUST be run as a goroutine.
+func (c *TowerClient) handleChannelCloses(chanSub subscribe.Subscription) {
+	defer c.wg.Done()
+
+	c.log.Debugf("Starting channel close handler")
+	defer c.log.Debugf("Stopping channel close handler")
+
+	for {
+		select {
+		case update, ok := <-chanSub.Updates():
+			if !ok {
+				c.log.Debugf("Channel notifier has exited")
+				return
+			}
+
+			// We only care about channel-close events.
+			event, ok := update.(channelnotifier.ClosedChannelEvent)
+			if !ok {
+				continue
+			}
+
+			chanID := lnwire.NewChanIDFromOutPoint(
+				&event.CloseSummary.ChanPoint,
+			)
+
+			c.log.Debugf("Received ClosedChannelEvent for "+
+				"channel: %s", chanID)
+
+			err := c.handleClosedChannel(
+				chanID, event.CloseSummary.CloseHeight,
+			)
+			if err != nil {
+				c.log.Errorf("Could not handle channel close "+
+					"event for channel(%s): %v", chanID,
+					err)
+			}
+
+		case <-c.forceQuit:
+			return
+
+		case <-c.quit:
+			return
+		}
+	}
+}
+
+// handleClosedChannel handles the closure of a single channel. It will mark the
+// channel as closed in the DB.
+func (c *TowerClient) handleClosedChannel(chanID lnwire.ChannelID,
+	closeHeight uint32) error {
+
+	c.backupMu.Lock()
+	defer c.backupMu.Unlock()
+
+	// We only care about channels registered with the tower client.
+	if _, ok := c.summaries[chanID]; !ok {
+		return nil
+	}
+
+	c.log.Debugf("Marking channel(%s) as closed", chanID)
+
+	_, err := c.cfg.DB.MarkChannelClosed(chanID, closeHeight)
+	if err != nil {
+		return fmt.Errorf("could not mark channel(%s) as closed: %w",
+			chanID, err)
+	}
+
+	delete(c.summaries, chanID)
+	delete(c.chanCommitHeights, chanID)
+
+	return nil
 }
 
 // backupDispatcher processes events coming from the taskPipeline and is
@@ -1143,6 +1270,22 @@ func (c *TowerClient) initActiveQueue(s *ClientSession,
 	sq.Start()
 
 	return sq
+}
+
+// isChanClosed can be used to check if the channel with the given ID has been
+// closed. If it has been, the block height in which its closing transaction was
+// mined will also be returned.
+func (c *TowerClient) isChannelClosed(id lnwire.ChannelID) (bool, uint32,
+	error) {
+
+	chanSum, err := c.cfg.FetchClosedChannel(id)
+	if errors.Is(err, channeldb.ErrClosedChannelNotFound) {
+		return false, 0, nil
+	} else if err != nil {
+		return false, 0, err
+	}
+
+	return true, chanSum.CloseHeight, nil
 }
 
 // AddTower adds a new watchtower reachable at the given address and considers

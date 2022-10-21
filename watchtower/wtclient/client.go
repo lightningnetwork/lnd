@@ -271,6 +271,8 @@ type TowerClient struct {
 	sessionQueue *sessionQueue
 	prevTask     *backupTask
 
+	closableSessionQueue *sessionCloseMinHeap
+
 	backupMu          sync.Mutex
 	summaries         wtdb.ChannelSummaries
 	chanCommitHeights map[lnwire.ChannelID]uint64
@@ -322,18 +324,19 @@ func New(config *Config) (*TowerClient, error) {
 	}
 
 	c := &TowerClient{
-		cfg:               cfg,
-		log:               plog,
-		pipeline:          newTaskPipeline(plog),
-		chanCommitHeights: make(map[lnwire.ChannelID]uint64),
-		activeSessions:    make(sessionQueueSet),
-		summaries:         chanSummaries,
-		statTicker:        time.NewTicker(DefaultStatInterval),
-		stats:             new(ClientStats),
-		newTowers:         make(chan *newTowerMsg),
-		staleTowers:       make(chan *staleTowerMsg),
-		forceQuit:         make(chan struct{}),
-		quit:              make(chan struct{}),
+		cfg:                  cfg,
+		log:                  plog,
+		pipeline:             newTaskPipeline(plog),
+		chanCommitHeights:    make(map[lnwire.ChannelID]uint64),
+		activeSessions:       make(sessionQueueSet),
+		summaries:            chanSummaries,
+		closableSessionQueue: newSessionCloseMinHeap(),
+		statTicker:           time.NewTicker(DefaultStatInterval),
+		stats:                new(ClientStats),
+		newTowers:            make(chan *newTowerMsg),
+		staleTowers:          make(chan *staleTowerMsg),
+		forceQuit:            make(chan struct{}),
+		quit:                 make(chan struct{}),
 	}
 
 	// perUpdate is a callback function that will be used to inspect the

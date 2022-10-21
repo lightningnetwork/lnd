@@ -29,7 +29,6 @@ func testResHandoff(ht *lntest.HarnessTest) {
 	// trigger the behavior of checkRemoteDanglingActions in the
 	// contractcourt. This will cause Bob to fail the HTLC back to Alice.
 	carol := ht.NewNode("Carol", []string{"--hodl.commit"})
-	defer ht.Shutdown(carol)
 
 	// Connect Bob to Carol.
 	ht.ConnectNodes(bob, carol)

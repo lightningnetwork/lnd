@@ -355,10 +355,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// lnd binary.
 	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 	alice := ht.NewNode("Alice", args)
-	defer ht.Shutdown(alice)
-
 	bob := ht.NewNode("Bob", args)
-	defer ht.Shutdown(bob)
 
 	ht.EnsureConnected(alice, bob)
 

@@ -421,10 +421,7 @@ func testPsbtChanFundingSingleStep(ht *lntest.HarnessTest) {
 	// between for this test. But in this case both nodes have an empty
 	// wallet.
 	carol := ht.NewNode("carol", args)
-	defer ht.Shutdown(carol)
-
 	dave := ht.NewNode("dave", args)
-	defer ht.Shutdown(dave)
 
 	alice := ht.Alice
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)

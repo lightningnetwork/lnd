@@ -1009,6 +1009,36 @@ func getSessionKeyIndex(keyIndexes kvdb.RwBucket, towerID TowerID,
 	return byteOrder.Uint32(keyIndexBytes), nil
 }
 
+// GetClientSession loads the ClientSession with the given ID from the DB.
+func (c *ClientDB) GetClientSession(id SessionID,
+	opts ...ClientSessionListOption) (*ClientSession, error) {
+
+	var sess *ClientSession
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+		sessionsBkt := tx.ReadBucket(cSessionBkt)
+		if sessionsBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		chanIDIndexBkt := tx.ReadBucket(cChanIDIndexBkt)
+		if chanIDIndexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		session, err := c.getClientSession(
+			sessionsBkt, chanIDIndexBkt, id[:], nil, opts...,
+		)
+		if err != nil {
+			return err
+		}
+
+		sess = session
+		return nil
+	}, func() {})
+
+	return sess, err
+}
+
 // ListClientSessions returns the set of all client sessions known to the db. An
 // optional tower ID can be used to filter out any client sessions in the
 // response that do not correspond to this tower.

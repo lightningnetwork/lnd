@@ -289,6 +289,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   using the address in question](
   https://github.com/lightningnetwork/lnd/pull/7025)
 
+* [Store AckedUpdates in a more compact
+  way](https://github.com/lightningnetwork/lnd/pull/7055)
+
 ## Pathfinding
 
 * [Pathfinding takes capacity of edges into account to improve success

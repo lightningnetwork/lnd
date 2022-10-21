@@ -3263,7 +3263,7 @@ func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
 		delete(s.pcm.persistentPeers, pubKeyStr)
 		delete(s.pcm.persistentPeersBackoff, pubKeyStr)
 		delete(s.pcm.persistentPeerAddrs, pubKeyStr)
-		s.cancelConnReqs(pubKeyStr, nil)
+		s.pcm.cancelConnReqs(pubKeyStr, nil)
 		s.pcm.mu.Unlock()
 
 		srvrLog.Infof("Pruned peer %x from persistent connections, "+
@@ -3418,7 +3418,7 @@ func (s *server) FindPeer(peerKey *btcec.PublicKey) (*peer.Brontide, error) {
 
 	pubStr := string(peerKey.SerializeCompressed())
 
-	return s.findPeerByPubStr(pubStr)
+	return s.pcm.findPeerByPubStr(pubStr)
 }
 
 // FindPeerByPubStr will return the peer that corresponds to the passed peerID,
@@ -3430,13 +3430,13 @@ func (s *server) FindPeerByPubStr(pubStr string) (*peer.Brontide, error) {
 	s.pcm.mu.RLock()
 	defer s.pcm.mu.RUnlock()
 
-	return s.findPeerByPubStr(pubStr)
+	return s.pcm.findPeerByPubStr(pubStr)
 }
 
 // findPeerByPubStr is an internal method that retrieves the specified peer from
 // the server's internal state using.
-func (s *server) findPeerByPubStr(pubStr string) (*peer.Brontide, error) {
-	peer, ok := s.pcm.peersByPub[pubStr]
+func (p *PeerConnManager) findPeerByPubStr(pubStr string) (*peer.Brontide, error) {
+	peer, ok := p.peersByPub[pubStr]
 	if !ok {
 		return nil, ErrPeerNotConnected
 	}
@@ -3550,12 +3550,12 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	// having duplicate connections to the same peer. We forgo adding a
 	// default case as we expect these to be the only error values returned
 	// from findPeerByPubStr.
-	connectedPeer, err := s.findPeerByPubStr(pubStr)
+	connectedPeer, err := s.pcm.findPeerByPubStr(pubStr)
 	switch err {
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		s.cancelConnReqs(pubStr, nil)
+		s.pcm.cancelConnReqs(pubStr, nil)
 		s.peerConnected(conn, nil, true)
 
 	case nil:
@@ -3580,7 +3580,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		srvrLog.Debugf("Disconnecting stale connection to %v",
 			connectedPeer)
 
-		s.cancelConnReqs(pubStr, nil)
+		s.pcm.cancelConnReqs(pubStr, nil)
 
 		// Remove the current peer from the server's internal state and
 		// signal that the peer termination watcher does not need to
@@ -3651,18 +3651,18 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// Immediately cancel all pending requests, excluding the
 		// outbound connection we just established.
 		ignore := connReq.ID()
-		s.cancelConnReqs(pubStr, &ignore)
+		s.pcm.cancelConnReqs(pubStr, &ignore)
 	} else {
 		// This was a successful connection made by some other
 		// subsystem. Remove all requests being managed by the connmgr.
-		s.cancelConnReqs(pubStr, nil)
+		s.pcm.cancelConnReqs(pubStr, nil)
 	}
 
 	// If we already have a connection with this peer, decide whether or not
 	// we need to drop the stale connection. We forgo adding a default case
 	// as we expect these to be the only error values returned from
 	// findPeerByPubStr.
-	connectedPeer, err := s.findPeerByPubStr(pubStr)
+	connectedPeer, err := s.pcm.findPeerByPubStr(pubStr)
 	switch err {
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
@@ -3718,18 +3718,18 @@ const UnassignedConnID uint64 = 0
 // optionally specify a connection ID to ignore, which prevents us from
 // canceling a successful request. All persistent connreqs for the provided
 // pubkey are discarded after the operationjw.
-func (s *server) cancelConnReqs(pubStr string, skip *uint64) {
+func (p *PeerConnManager) cancelConnReqs(pubStr string, skip *uint64) {
 	// First, cancel any lingering persistent retry attempts, which will
 	// prevent retries for any with backoffs that are still maturing.
-	if cancelChan, ok := s.pcm.persistentRetryCancels[pubStr]; ok {
+	if cancelChan, ok := p.persistentRetryCancels[pubStr]; ok {
 		close(cancelChan)
-		delete(s.pcm.persistentRetryCancels, pubStr)
+		delete(p.persistentRetryCancels, pubStr)
 	}
 
 	// Next, check to see if we have any outstanding persistent connection
 	// requests to this peer. If so, then we'll remove all of these
 	// connection requests, and also delete the entry from the map.
-	connReqs, ok := s.pcm.persistentConnReqs[pubStr]
+	connReqs, ok := p.persistentConnReqs[pubStr]
 	if !ok {
 		return
 	}
@@ -3751,10 +3751,10 @@ func (s *server) cancelConnReqs(pubStr string, skip *uint64) {
 			continue
 		}
 
-		s.pcm.connMgr.Remove(connID)
+		p.connMgr.Remove(connID)
 	}
 
-	delete(s.pcm.persistentConnReqs, pubStr)
+	delete(p.persistentConnReqs, pubStr)
 }
 
 // handleCustomMessage dispatches an incoming custom peers message to
@@ -4366,7 +4366,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 	s.pcm.mu.Lock()
 
 	// Ensure we're not already connected to this peer.
-	peer, err := s.findPeerByPubStr(targetPub)
+	peer, err := s.pcm.findPeerByPubStr(targetPub)
 	if err == nil {
 		s.pcm.mu.Unlock()
 		return &errPeerAlreadyConnected{peer: peer}
@@ -4466,14 +4466,14 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	// Check that were actually connected to this peer. If not, then we'll
 	// exit in an error as we can't disconnect from a peer that we're not
 	// currently connected to.
-	peer, err := s.findPeerByPubStr(pubStr)
+	peer, err := s.pcm.findPeerByPubStr(pubStr)
 	if err == ErrPeerNotConnected {
 		return fmt.Errorf("peer %x is not connected", pubBytes)
 	}
 
 	srvrLog.Infof("Disconnecting from %v", peer)
 
-	s.cancelConnReqs(pubStr, nil)
+	s.pcm.cancelConnReqs(pubStr, nil)
 
 	// If this peer was formerly a persistent connection, then we'll remove
 	// them from this map so we don't attempt to re-connect after we

@@ -25,19 +25,26 @@ type rangeIndexArrayMap map[wtdb.SessionID]map[lnwire.ChannelID]*wtdb.RangeIndex
 
 type rangeIndexKVStore map[wtdb.SessionID]map[lnwire.ChannelID]*mockKVStore
 
+type channel struct {
+	summary      *wtdb.ClientChanSummary
+	closedHeight uint32
+	sessions     map[wtdb.SessionID]bool
+}
+
 // ClientDB is a mock, in-memory database or testing the watchtower client
 // behavior.
 type ClientDB struct {
 	nextTowerID uint64 // to be used atomically
 
 	mu                    sync.Mutex
-	summaries             map[lnwire.ChannelID]wtdb.ClientChanSummary
+	channels              map[lnwire.ChannelID]*channel
 	activeSessions        map[wtdb.SessionID]wtdb.ClientSession
 	ackedUpdates          rangeIndexArrayMap
 	persistedAckedUpdates rangeIndexKVStore
 	committedUpdates      map[wtdb.SessionID][]wtdb.CommittedUpdate
 	towerIndex            map[towerPK]wtdb.TowerID
 	towers                map[wtdb.TowerID]*wtdb.Tower
+	closableSessions      map[wtdb.SessionID]uint32
 
 	nextIndex     uint32
 	indexes       map[keyIndexKey]uint32
@@ -47,9 +54,7 @@ type ClientDB struct {
 // NewClientDB initializes a new mock ClientDB.
 func NewClientDB() *ClientDB {
 	return &ClientDB{
-		summaries: make(
-			map[lnwire.ChannelID]wtdb.ClientChanSummary,
-		),
+		channels: make(map[lnwire.ChannelID]*channel),
 		activeSessions: make(
 			map[wtdb.SessionID]wtdb.ClientSession,
 		),
@@ -58,10 +63,11 @@ func NewClientDB() *ClientDB {
 		committedUpdates: make(
 			map[wtdb.SessionID][]wtdb.CommittedUpdate,
 		),
-		towerIndex:    make(map[towerPK]wtdb.TowerID),
-		towers:        make(map[wtdb.TowerID]*wtdb.Tower),
-		indexes:       make(map[keyIndexKey]uint32),
-		legacyIndexes: make(map[wtdb.TowerID]uint32),
+		towerIndex:       make(map[towerPK]wtdb.TowerID),
+		towers:           make(map[wtdb.TowerID]*wtdb.Tower),
+		indexes:          make(map[keyIndexKey]uint32),
+		legacyIndexes:    make(map[wtdb.TowerID]uint32),
+		closableSessions: make(map[wtdb.SessionID]uint32),
 	}
 }
 
@@ -503,6 +509,13 @@ func (m *ClientDB) AckUpdate(id *wtdb.SessionID, seqNum,
 			continue
 		}
 
+		// Add sessionID to channel.
+		channel, ok := m.channels[update.BackupID.ChanID]
+		if !ok {
+			return wtdb.ErrChannelNotRegistered
+		}
+		channel.sessions[*id] = true
+
 		// Remove the committed update from disk and mark the update as
 		// acked. The tower last applied value is also recorded to send
 		// along with the next update.
@@ -545,13 +558,105 @@ func (m *ClientDB) FetchChanSummaries() (wtdb.ChannelSummaries, error) {
 	defer m.mu.Unlock()
 
 	summaries := make(map[lnwire.ChannelID]wtdb.ClientChanSummary)
-	for chanID, summary := range m.summaries {
+	for chanID, channel := range m.channels {
 		summaries[chanID] = wtdb.ClientChanSummary{
-			SweepPkScript: cloneBytes(summary.SweepPkScript),
+			SweepPkScript: cloneBytes(
+				channel.summary.SweepPkScript,
+			),
 		}
 	}
 
 	return summaries, nil
+}
+
+// MarkChannelClosed will mark a registered channel as closed by setting
+// its closed-height as the given block height. It returns a list of
+// session IDs for sessions that are now considered closable due to the
+// close of this channel.
+func (m *ClientDB) MarkChannelClosed(chanID lnwire.ChannelID,
+	blockHeight uint32) ([]wtdb.SessionID, error) {
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	channel, ok := m.channels[chanID]
+	if !ok {
+		return nil, wtdb.ErrChannelNotRegistered
+	}
+
+	// If there are no sessions for this channel, the channel details can be
+	// deleted.
+	if len(channel.sessions) == 0 {
+		delete(m.channels, chanID)
+		return nil, nil
+	}
+
+	// Mark the channel as closed.
+	channel.closedHeight = blockHeight
+
+	// Now iterate through all the sessions of the channel to check if any
+	// of them are closeable.
+	var closableSessions []wtdb.SessionID
+	for sessID := range channel.sessions {
+		isClosable, err := m.isSessionClosable(sessID)
+		if err != nil {
+			return nil, err
+		}
+
+		if !isClosable {
+			continue
+		}
+
+		closableSessions = append(closableSessions, sessID)
+
+		// Add session to "closableSessions" list and add the block
+		// height that this last channel was closed in. This will be
+		// used in future to determine when we should delete the
+		// session.
+		m.closableSessions[sessID] = blockHeight
+	}
+
+	return closableSessions, nil
+}
+
+// isSessionClosable returns true if a session is considered closable. A session
+// is considered closable only if:
+// 1) It has no un-acked updates
+// 2) It is exhausted (ie it cant accept any more updates)
+// 3) All the channels that it has acked-updates for are closed.
+func (m *ClientDB) isSessionClosable(id wtdb.SessionID) (bool, error) {
+	// The session is not closable if it has un-acked updates.
+	if len(m.committedUpdates[id]) > 0 {
+		return false, nil
+	}
+
+	sess, ok := m.activeSessions[id]
+	if !ok {
+		return false, wtdb.ErrClientSessionNotFound
+	}
+
+	// The session is not closable if it is not yet exhausted.
+	if sess.SeqNum != sess.Policy.MaxUpdates {
+		return false, nil
+	}
+
+	// Iterate over each of the channels that the session has acked-updates
+	// for. If any of those channels are not closed, then the session is
+	// not yet closable.
+	for chanID := range m.ackedUpdates[id] {
+		channel, ok := m.channels[chanID]
+		if !ok {
+			continue
+		}
+
+		// Channel is not yet closed, and so we can not yet delete the
+		// session.
+		if channel.closedHeight == 0 {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // GetClientSession loads the ClientSession with the given ID from the DB.
@@ -595,12 +700,15 @@ func (m *ClientDB) RegisterChannel(chanID lnwire.ChannelID,
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := m.summaries[chanID]; ok {
+	if _, ok := m.channels[chanID]; ok {
 		return wtdb.ErrChannelAlreadyRegistered
 	}
 
-	m.summaries[chanID] = wtdb.ClientChanSummary{
-		SweepPkScript: cloneBytes(sweepPkScript),
+	m.channels[chanID] = &channel{
+		summary: &wtdb.ClientChanSummary{
+			SweepPkScript: cloneBytes(sweepPkScript),
+		},
+		sessions: make(map[wtdb.SessionID]bool),
 	}
 
 	return nil

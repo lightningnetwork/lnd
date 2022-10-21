@@ -86,6 +86,15 @@ type DB interface {
 	// their channel summaries.
 	FetchChanSummaries() (wtdb.ChannelSummaries, error)
 
+	// MarkChannelClosed will mark a registered channel as closed by setting
+	// its closed-height as the given block height. It returns a list of
+	// session IDs for sessions that are now considered closable due to the
+	// close of this channel. The details for this channel will be deleted
+	// from the DB if there are no more sessions in the DB that contain
+	// updates for this channel.
+	MarkChannelClosed(chanID lnwire.ChannelID, blockHeight uint32) (
+		[]wtdb.SessionID, error)
+
 	// RegisterChannel registers a channel for use within the client
 	// database. For now, all that is stored in the channel summary is the
 	// sweep pkscript that we'd like any tower sweeps to pay into. In the

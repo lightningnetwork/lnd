@@ -24,6 +24,7 @@ var (
 	//   channel-id => cChannelSummary -> encoded ClientChanSummary.
 	//  		=> cChanDBID -> db-assigned-id
 	// 		=> cChanSessions => db-session-id -> 1
+	// 		=> cChanClosedHeight -> block-height
 	cChanDetailsBkt = []byte("client-channel-detail-bucket")
 
 	// cChanSessions is a sub-bucket of cChanDetailsBkt which stores:
@@ -33,6 +34,12 @@ var (
 	// cChanDBID is a key used in the cChanDetailsBkt to store the
 	// db-assigned-id of a channel.
 	cChanDBID = []byte("client-channel-db-id")
+
+	// cChanClosedHeight is a key used in the cChanDetailsBkt to store the
+	// block height at which the channel's closing transaction was mined in.
+	// If this there is no associated value for this key, then the channel
+	// has not yet been marked as closed.
+	cChanClosedHeight = []byte("client-channel-closed-height")
 
 	// cChannelSummary is a key used in cChanDetailsBkt to store the encoded
 	// body of ClientChanSummary.
@@ -82,6 +89,10 @@ var (
 	cTowerToSessionIndexBkt = []byte(
 		"client-tower-to-session-index-bucket",
 	)
+
+	// cClosableSessionsBkt is a top-level bucket storing:
+	// 	db-session-id -> last-channel-close-height
+	cClosableSessionsBkt = []byte("client-closable-sessions-bucket")
 
 	// ErrTowerNotFound signals that the target tower was not found in the
 	// database.
@@ -156,6 +167,14 @@ var (
 	// ErrSessionFailedFilterFn indicates that a particular session did
 	// not pass the filter func provided by the caller.
 	ErrSessionFailedFilterFn = errors.New("session failed filter func")
+
+	// errSessionHasOpenChannels is an error used to indicate that a
+	// session has updates for channels that are still open.
+	errSessionHasOpenChannels = errors.New("session has open channels")
+
+	// errSessionHasUnackedUpdates is an error used to indicate that a
+	// session has un-acked updates.
+	errSessionHasUnackedUpdates = errors.New("session has un-acked updates")
 )
 
 // NewBoltBackendCreator returns a function that creates a new bbolt backend for
@@ -256,6 +275,7 @@ func initClientDBBuckets(tx kvdb.RwTx) error {
 		cTowerToSessionIndexBkt,
 		cChanIDIndexBkt,
 		cSessionIDIndexBkt,
+		cClosableSessionsBkt,
 	}
 
 	for _, bucket := range buckets {
@@ -1365,6 +1385,209 @@ func (c *ClientDB) MarkBackupIneligible(chanID lnwire.ChannelID,
 	return nil
 }
 
+// MarkChannelClosed will mark a registered channel as closed by setting its
+// closed-height as the given block height. It returns a list of session IDs for
+// sessions that are now considered closable due to the close of this channel.
+// The details for this channel will be deleted from the DB if there are no more
+// sessions in the DB that contain updates for this channel.
+func (c *ClientDB) MarkChannelClosed(chanID lnwire.ChannelID,
+	blockHeight uint32) ([]SessionID, error) {
+
+	var closableSessions []SessionID
+	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+		sessionsBkt := tx.ReadBucket(cSessionBkt)
+		if sessionsBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		chanDetailsBkt := tx.ReadWriteBucket(cChanDetailsBkt)
+		if chanDetailsBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		closableSessBkt := tx.ReadWriteBucket(cClosableSessionsBkt)
+		if closableSessBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		chanIDIndexBkt := tx.ReadBucket(cChanIDIndexBkt)
+		if chanIDIndexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		sessIDIndexBkt := tx.ReadBucket(cSessionIDIndexBkt)
+		if sessIDIndexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		chanDetails := chanDetailsBkt.NestedReadWriteBucket(chanID[:])
+		if chanDetails == nil {
+			return ErrChannelNotRegistered
+		}
+
+		// If there are no sessions for this channel, the channel
+		// details can be deleted.
+		chanSessIDsBkt := chanDetails.NestedReadBucket(cChanSessions)
+		if chanSessIDsBkt == nil {
+			return chanDetailsBkt.DeleteNestedBucket(chanID[:])
+		}
+
+		// Otherwise, mark the channel as closed.
+		var height [4]byte
+		byteOrder.PutUint32(height[:], blockHeight)
+
+		err := chanDetails.Put(cChanClosedHeight, height[:])
+		if err != nil {
+			return err
+		}
+
+		// Now iterate through all the sessions of the channel to check
+		// if any of them are closeable.
+		return chanSessIDsBkt.ForEach(func(sessDBID, _ []byte) error {
+			sessDBIDInt, err := readBigSize(sessDBID)
+			if err != nil {
+				return err
+			}
+
+			// Use the session-ID index to get the real session ID.
+			sID, err := getRealSessionID(
+				sessIDIndexBkt, sessDBIDInt,
+			)
+			if err != nil {
+				return err
+			}
+
+			isClosable, err := isSessionClosable(
+				sessionsBkt, chanDetailsBkt, chanIDIndexBkt,
+				sID,
+			)
+			if err != nil {
+				return err
+			}
+
+			if !isClosable {
+				return nil
+			}
+
+			// Add session to "closableSessions" list and add the
+			// block height that this last channel was closed in.
+			// This will be used in future to determine when we
+			// should delete the session.
+			var height [4]byte
+			byteOrder.PutUint32(height[:], blockHeight)
+			err = closableSessBkt.Put(sessDBID, height[:])
+			if err != nil {
+				return err
+			}
+
+			closableSessions = append(closableSessions, *sID)
+
+			return nil
+		})
+	}, func() {
+		closableSessions = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return closableSessions, nil
+}
+
+// isSessionClosable returns true if a session is considered closable. A session
+// is considered closable only if all the following points are true:
+// 1) It has no un-acked updates.
+// 2) It is exhausted (ie it can't accept any more updates)
+// 3) All the channels that it has acked updates for are closed.
+func isSessionClosable(sessionsBkt, chanDetailsBkt, chanIDIndexBkt kvdb.RBucket,
+	id *SessionID) (bool, error) {
+
+	sessBkt := sessionsBkt.NestedReadBucket(id[:])
+	if sessBkt == nil {
+		return false, ErrSessionNotFound
+	}
+
+	commitsBkt := sessBkt.NestedReadBucket(cSessionCommits)
+	if commitsBkt == nil {
+		// If the session has no cSessionCommits bucket then we can be
+		// sure that no updates have ever been committed to the session
+		// and so it is not yet exhausted.
+		return false, nil
+	}
+
+	// If the session has any un-acked updates, then it is not yet closable.
+	err := commitsBkt.ForEach(func(_, _ []byte) error {
+		return errSessionHasUnackedUpdates
+	})
+	if errors.Is(err, errSessionHasUnackedUpdates) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	session, err := getClientSessionBody(sessionsBkt, id[:])
+	if err != nil {
+		return false, err
+	}
+
+	// We have already checked that the session has no more committed
+	// updates. So now we can check if the session is exhausted.
+	if session.SeqNum < session.Policy.MaxUpdates {
+		// If the session is not yet exhausted, it is not yet closable.
+		return false, nil
+	}
+
+	// If the session has no acked-updates, then something is wrong since
+	// the above check ensures that this session has been exhausted meaning
+	// that it should have MaxUpdates acked updates.
+	ackedRangeBkt := sessBkt.NestedReadBucket(cSessionAckRangeIndex)
+	if ackedRangeBkt == nil {
+		return false, fmt.Errorf("no acked-updates found for "+
+			"exhausted session %s", id)
+	}
+
+	// Iterate over each of the channels that the session has acked-updates
+	// for. If any of those channels are not closed, then the session is
+	// not yet closable.
+	err = ackedRangeBkt.ForEach(func(dbChanID, _ []byte) error {
+		dbChanIDInt, err := readBigSize(dbChanID)
+		if err != nil {
+			return err
+		}
+
+		chanID, err := getRealChannelID(chanIDIndexBkt, dbChanIDInt)
+		if err != nil {
+			return err
+		}
+
+		// Get the channel details bucket for the channel.
+		chanDetails := chanDetailsBkt.NestedReadBucket(chanID[:])
+		if chanDetails == nil {
+			return fmt.Errorf("no channel details found for "+
+				"channel %s referenced by session %s", chanID,
+				id)
+		}
+
+		// If a closed height has been set, then the channel is closed.
+		closedHeight := chanDetails.Get(cChanClosedHeight)
+		if len(closedHeight) > 0 {
+			return nil
+		}
+
+		// Otherwise, the channel is not yet closed meaning that the
+		// session is not yet closable. We break the ForEach by
+		// returning an error to indicate this.
+		return errSessionHasOpenChannels
+	})
+	if errors.Is(err, errSessionHasOpenChannels) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
 // CommitUpdate persists the CommittedUpdate provided in the slot for (session,
 // seqNum). This allows the client to retransmit this update on startup.
 func (c *ClientDB) CommitUpdate(id *SessionID,
@@ -2014,6 +2237,44 @@ func getDBSessionID(sessionsBkt kvdb.RBucket, sessionID SessionID) (uint64,
 	}
 
 	return id, idBytes, nil
+}
+
+func getRealSessionID(sessIDIndexBkt kvdb.RBucket, dbID uint64) (*SessionID,
+	error) {
+
+	dbIDBytes, err := writeBigSize(dbID)
+	if err != nil {
+		return nil, err
+	}
+
+	sessIDBytes := sessIDIndexBkt.Get(dbIDBytes)
+	if len(sessIDBytes) != SessionIDSize {
+		return nil, fmt.Errorf("session ID not found")
+	}
+
+	var sessID SessionID
+	copy(sessID[:], sessIDBytes)
+
+	return &sessID, nil
+}
+
+func getRealChannelID(chanIDIndexBkt kvdb.RBucket,
+	dbID uint64) (*lnwire.ChannelID, error) {
+
+	dbIDBytes, err := writeBigSize(dbID)
+	if err != nil {
+		return nil, err
+	}
+
+	chanIDBytes := chanIDIndexBkt.Get(dbIDBytes)
+	if len(chanIDBytes) != 32 { //nolint:gomnd
+		return nil, fmt.Errorf("channel ID not found")
+	}
+
+	var chanIDS lnwire.ChannelID
+	copy(chanIDS[:], chanIDBytes)
+
+	return &chanIDS, nil
 }
 
 // writeBigSize will encode the given uint64 as a BigSize byte slice.

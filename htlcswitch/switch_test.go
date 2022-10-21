@@ -4049,7 +4049,8 @@ func TestSwitchHoldForward(t *testing.T) {
 	assertNumCircuits(t, c.s, 0, 0)
 	assertOutgoingLinkReceive(t, c.bobChannelLink, false)
 
-	reason := lnwire.OpaqueReason([]byte{1, 2, 3})
+	reason := lnwire.OpaqueReason(make([]byte, 292))
+	copy(reason, []byte{1, 2, 3})
 	require.NoError(t, switchForwardInterceptor.Resolve(&FwdResolution{
 		Action:         FwdActionFail,
 		Key:            c.forwardInterceptor.getIntercepted().IncomingCircuit,

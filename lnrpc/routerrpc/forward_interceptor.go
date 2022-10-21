@@ -121,45 +121,18 @@ func (r *forwardInterceptor) resolveFromClient(
 		})
 
 	case ResolveHoldForwardAction_FAIL:
-		// Fail with an encrypted reason.
-		if in.FailureMessage != nil {
-			if in.FailureCode != 0 {
-				return status.Errorf(
-					codes.InvalidArgument,
-					"failure message and failure code "+
-						"are mutually exclusive",
-				)
-			}
-
-			// Verify that the size is equal to the fixed failure
-			// message size + hmac + two uint16 lengths. See BOLT
-			// #4.
-			if len(in.FailureMessage) !=
-				lnwire.FailureMessageLength+sha256.Size+2+2 {
-
-				return status.Errorf(
-					codes.InvalidArgument,
-					"failure message length invalid",
-				)
-			}
-
-			return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
-				Key:            circuitKey,
-				Action:         htlcswitch.FwdActionFail,
-				FailureMessage: in.FailureMessage,
-			})
+		// Instantiate the fwdRes with base fields set.
+		fwdRes := &htlcswitch.FwdResolution{
+			Key:    circuitKey,
+			Action: htlcswitch.FwdActionFail,
 		}
 
-		code, err := unmarshalFailCode(in.FailureCode)
+		err := unmarshallFailureResolution(in, fwdRes)
 		if err != nil {
 			return err
 		}
 
-		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
-			Key:         circuitKey,
-			Action:      htlcswitch.FwdActionFail,
-			FailureCode: code,
-		})
+		return r.htlcSwitch.Resolve(fwdRes)
 
 	case ResolveHoldForwardAction_SETTLE:
 		if in.Preimage == nil {
@@ -182,6 +155,46 @@ func (r *forwardInterceptor) resolveFromClient(
 			"unrecognized resolve action %v", in.Action,
 		)
 	}
+}
+
+// unmarshallFailureResolution unmarshalls the rpc failure code and message into
+// a resolution struct.
+func unmarshallFailureResolution(in *ForwardHtlcInterceptResponse,
+	fwdRes *htlcswitch.FwdResolution) error {
+
+	if in.FailureMessage != nil {
+		if in.FailureCode != 0 {
+			return status.Errorf(
+				codes.InvalidArgument,
+				"failure message and failure code "+
+					"are mutually exclusive",
+			)
+		}
+
+		// Verify that the size is equal to the fixed failure
+		// message size + hmac + two uint16 lengths. See BOLT
+		// #4.
+		if len(in.FailureMessage) !=
+			lnwire.FailureMessageLength+sha256.Size+2+2 {
+
+			return status.Errorf(
+				codes.InvalidArgument,
+				"failure message length invalid",
+			)
+		}
+
+		// Fail with an encrypted reason.
+		fwdRes.FailureMessage = in.FailureMessage
+	} else {
+		code, err := unmarshalFailCode(in.FailureCode)
+		if err != nil {
+			return err
+		}
+
+		fwdRes.FailureCode = code
+	}
+
+	return nil
 }
 
 func unmarshalFailCode(failureCode lnrpc.Failure_FailureCode) (lnwire.FailCode,

@@ -185,7 +185,29 @@ type PeerConnManager struct {
 	// intended to replace it.
 	scheduledPeerConnection map[string]func()
 
+	// PeerNotifier is responsible for providing clients with subscriptions
+	// to peer online and offline events.
+	PeerNotifier *peernotifier.PeerNotifier
+
 	connMgr *connmgr.ConnManager
+}
+
+// Start will start the peer conn manager.
+func (p *PeerConnManager) Start() error {
+	if err := p.PeerNotifier.Start(); err != nil {
+		return fmt.Errorf("PeerNotifier failed to start %w", err)
+	}
+
+	return nil
+}
+
+// Stop will stop the peer conn manager.
+func (p *PeerConnManager) Stop() error {
+	if err := p.PeerNotifier.Stop(); err != nil {
+		return fmt.Errorf("PeerNotifier failed to stop", err)
+	}
+
+	return nil
 }
 
 // server is the main server of the Lightning Network Daemon. The server houses
@@ -265,8 +287,6 @@ type server struct {
 	invoices *invoices.InvoiceRegistry
 
 	channelNotifier *channelnotifier.ChannelNotifier
-
-	peerNotifier *peernotifier.PeerNotifier
 
 	htlcNotifier *htlcswitch.HtlcNotifier
 
@@ -586,6 +606,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		outboundPeers:             make(map[string]*peer.Brontide),
 		peerConnectedListeners:    make(map[string][]chan<- lnpeer.Peer),
 		peerDisconnectedListeners: make(map[string][]chan<- struct{}),
+
+		// Assemble a peer notifier which will provide clients with
+		// subscriptions to peer online and offline events.
+		PeerNotifier: peernotifier.New(),
 	}
 
 	s := &server{
@@ -1492,17 +1516,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	// Assemble a peer notifier which will provide clients with subscriptions
-	// to peer online and offline events.
-	s.peerNotifier = peernotifier.New()
-
 	// Create a channel event store which monitors all open channels.
 	s.chanEventStore = chanfitness.NewChannelEventStore(&chanfitness.Config{
 		SubscribeChannelEvents: func() (subscribe.Subscription, error) {
 			return s.channelNotifier.SubscribeChannelEvents()
 		},
 		SubscribePeerEvents: func() (subscribe.Subscription, error) {
-			return s.peerNotifier.SubscribePeerEvents()
+			return s.pcm.PeerNotifier.SubscribePeerEvents()
 		},
 		GetOpenChannels: s.chanStateDB.FetchAllOpenChannels,
 		Clock:           clock.NewDefaultClock(),
@@ -1922,12 +1942,12 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.channelNotifier.Stop)
 
-		if err := s.peerNotifier.Start(); err != nil {
+		if err := s.pcm.Start(); err != nil {
 			startErr = err
 			return
 		}
 		cleanup = cleanup.add(func() error {
-			return s.peerNotifier.Stop()
+			return s.pcm.Stop()
 		})
 		if err := s.htlcNotifier.Start(); err != nil {
 			startErr = err
@@ -2285,8 +2305,8 @@ func (s *server) Stop() error {
 		if err := s.channelNotifier.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop channelNotifier: %v", err)
 		}
-		if err := s.peerNotifier.Stop(); err != nil {
-			srvrLog.Warnf("failed to stop peerNotifier: %v", err)
+		if err := s.pcm.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop PeerConnManager: %v", err)
 		}
 		if err := s.htlcNotifier.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop htlcNotifier: %v", err)
@@ -3940,7 +3960,7 @@ func (s *server) addPeer(p *peer.Brontide) {
 	var pubKey [33]byte
 	copy(pubKey[:], pubSer)
 
-	s.peerNotifier.NotifyPeerOnline(pubKey)
+	s.pcm.PeerNotifier.NotifyPeerOnline(pubKey)
 }
 
 // peerInitializer asynchronously starts a newly connected peer after it has
@@ -4346,7 +4366,7 @@ func (s *server) removePeer(p *peer.Brontide) {
 	var pubKey [33]byte
 	copy(pubKey[:], pubSer)
 
-	s.peerNotifier.NotifyPeerOffline(pubKey)
+	s.pcm.PeerNotifier.NotifyPeerOffline(pubKey)
 }
 
 // ConnectToPeer requests that the server connect to a Lightning Network peer

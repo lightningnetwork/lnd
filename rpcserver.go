@@ -3178,7 +3178,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 func (r *rpcServer) SubscribePeerEvents(req *lnrpc.PeerEventSubscription,
 	eventStream lnrpc.Lightning_SubscribePeerEventsServer) error {
 
-	peerEventSub, err := r.server.peerNotifier.SubscribePeerEvents()
+	peerEventSub, err := r.server.pcm.PeerNotifier.SubscribePeerEvents()
 	if err != nil {
 		return err
 	}

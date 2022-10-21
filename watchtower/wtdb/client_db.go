@@ -1023,20 +1023,14 @@ func (c *ClientDB) ListClientSessions(id *TowerID,
 			return ErrUninitializedDB
 		}
 
-		towers := tx.ReadBucket(cTowerBkt)
-		if towers == nil {
-			return ErrUninitializedDB
-		}
-
 		chanIDIndexBkt := tx.ReadBucket(cChanIDIndexBkt)
 		if chanIDIndexBkt == nil {
 			return ErrUninitializedDB
 		}
 
-		var err error
-
 		// If no tower ID is specified, then fetch all the sessions
 		// known to the db.
+		var err error
 		if id == nil {
 			clientSessions, err = c.listClientAllSessions(
 				sessions, chanIDIndexBkt, filterFn, opts...,

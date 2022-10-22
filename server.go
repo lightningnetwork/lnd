@@ -196,6 +196,14 @@ type PeerConnManager struct {
 	start    sync.Once
 	stop     sync.Once
 	quit     chan struct{}
+
+	wg sync.WaitGroup
+
+	// SubscribeTopology is used to get a subscription for topology changes
+	// on the network.
+	SubscribeTopology func() (*routing.TopologyClient, error)
+
+	NetParams wire.BitcoinNet
 }
 
 // Start will start the peer conn manager.
@@ -222,6 +230,7 @@ func (p *PeerConnManager) Stop() error {
 
 		atomic.StoreInt32(&p.stopping, 1)
 		close(p.quit)
+		p.wg.Wait()
 
 		if err := p.PeerNotifier.Stop(); err != nil {
 			err = fmt.Errorf("PeerNotifier failed to stop: %w", err)
@@ -387,24 +396,24 @@ type server struct {
 	pcm *PeerConnManager
 }
 
-// updatePersistentPeerAddrs subscribes to topology changes and stores
+// UpdatePersistentPeerAddrs subscribes to topology changes and stores
 // advertised addresses for any NodeAnnouncements from our persisted peers.
-func (s *server) updatePersistentPeerAddrs() error {
-	graphSub, err := s.chanRouter.SubscribeTopology()
+func (p *PeerConnManager) UpdatePersistentPeerAddrs() error {
+	graphSub, err := p.SubscribeTopology()
 	if err != nil {
 		return err
 	}
 
-	s.wg.Add(1)
+	p.wg.Add(1)
 	go func() {
 		defer func() {
 			graphSub.Cancel()
-			s.wg.Done()
+			p.wg.Done()
 		}()
 
 		for {
 			select {
-			case <-s.quit:
+			case <-p.quit:
 				return
 
 			case topChange, ok := <-graphSub.TopologyChanges:
@@ -422,9 +431,9 @@ func (s *server) updatePersistentPeerAddrs() error {
 
 					// We only care about updates from
 					// our persistentPeers.
-					s.pcm.mu.RLock()
-					_, ok := s.pcm.persistentPeers[pubKeyStr]
-					s.pcm.mu.RUnlock()
+					p.mu.RLock()
+					_, ok := p.persistentPeers[pubKeyStr]
+					p.mu.RUnlock()
 					if !ok {
 						continue
 					}
@@ -437,30 +446,30 @@ func (s *server) updatePersistentPeerAddrs() error {
 							&lnwire.NetAddress{
 								IdentityKey: update.IdentityKey,
 								Address:     addr,
-								ChainNet:    s.cfg.ActiveNetParams.Net,
+								ChainNet:    p.NetParams,
 							},
 						)
 					}
 
-					s.pcm.mu.Lock()
+					p.mu.Lock()
 
 					// Update the stored addresses for this
 					// to peer to reflect the new set.
-					s.pcm.persistentPeerAddrs[pubKeyStr] = addrs
+					p.persistentPeerAddrs[pubKeyStr] = addrs
 
 					// If there are no outstanding
 					// connection requests for this peer
 					// then our work is done since we are
 					// not currently trying to connect to
 					// them.
-					if len(s.pcm.persistentConnReqs[pubKeyStr]) == 0 {
-						s.pcm.mu.Unlock()
+					if len(p.persistentConnReqs[pubKeyStr]) == 0 {
+						p.mu.Unlock()
 						continue
 					}
 
-					s.pcm.mu.Unlock()
+					p.mu.Unlock()
 
-					s.pcm.connectToPersistentPeer(pubKeyStr)
+					p.connectToPersistentPeer(pubKeyStr)
 				}
 			}
 		}
@@ -617,28 +626,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		KeysendHoldTime:             cfg.KeysendHoldTime,
 	}
 
-	pcm := &PeerConnManager{
-		PubKey:                  nodeKeyECDH.PubKey(),
-		persistentPeers:         make(map[string]bool),
-		persistentPeersBackoff:  make(map[string]time.Duration),
-		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
-		persistentPeerAddrs:     make(map[string][]*lnwire.NetAddress),
-		persistentRetryCancels:  make(map[string]chan struct{}),
-		peerErrors:              make(map[string]*queue.CircularBuffer),
-		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
-		scheduledPeerConnection: make(map[string]func()),
-
-		peersByPub:                make(map[string]*peer.Brontide),
-		inboundPeers:              make(map[string]*peer.Brontide),
-		outboundPeers:             make(map[string]*peer.Brontide),
-		peerConnectedListeners:    make(map[string][]chan<- lnpeer.Peer),
-		peerDisconnectedListeners: make(map[string][]chan<- struct{}),
-
-		// Assemble a peer notifier which will provide clients with
-		// subscriptions to peer online and offline events.
-		PeerNotifier: peernotifier.New(),
-	}
-
 	s := &server{
 		cfg:            cfg,
 		graphDB:        dbs.GraphDB.ChannelGraph(),
@@ -672,7 +659,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		tlsManager: tlsManager,
 
 		pongBuf: make([]byte, lnwire.MaxPongBytes),
-		pcm:     pcm,
 
 		featureMgr: featureMgr,
 		quit:       make(chan struct{}),
@@ -1060,6 +1046,30 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	waitingProofStore, err := channeldb.NewWaitingProofStore(dbs.ChanStateDB)
 	if err != nil {
 		return nil, err
+	}
+
+	s.pcm = &PeerConnManager{
+		PubKey:                  nodeKeyECDH.PubKey(),
+		persistentPeers:         make(map[string]bool),
+		persistentPeersBackoff:  make(map[string]time.Duration),
+		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
+		persistentPeerAddrs:     make(map[string][]*lnwire.NetAddress),
+		persistentRetryCancels:  make(map[string]chan struct{}),
+		peerErrors:              make(map[string]*queue.CircularBuffer),
+		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
+		scheduledPeerConnection: make(map[string]func()),
+
+		peersByPub:                make(map[string]*peer.Brontide),
+		inboundPeers:              make(map[string]*peer.Brontide),
+		outboundPeers:             make(map[string]*peer.Brontide),
+		peerConnectedListeners:    make(map[string][]chan<- lnpeer.Peer),
+		peerDisconnectedListeners: make(map[string][]chan<- struct{}),
+
+		// Assemble a peer notifier which will provide clients with
+		// subscriptions to peer online and offline events.
+		PeerNotifier:      peernotifier.New(),
+		SubscribeTopology: s.chanRouter.SubscribeTopology,
+		NetParams:         s.cfg.ActiveNetParams.Net,
 	}
 
 	s.authGossiper = discovery.New(discovery.Config{
@@ -2184,7 +2194,7 @@ func (s *server) Start() error {
 
 		// Subscribe to NodeAnnouncements that advertise new addresses
 		// our persistent peers.
-		if err := s.updatePersistentPeerAddrs(); err != nil {
+		if err := s.pcm.UpdatePersistentPeerAddrs(); err != nil {
 			startErr = err
 			return
 		}

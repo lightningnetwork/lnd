@@ -460,7 +460,7 @@ func (s *server) updatePersistentPeerAddrs() error {
 
 					s.pcm.mu.Unlock()
 
-					s.connectToPersistentPeer(pubKeyStr)
+					s.pcm.connectToPersistentPeer(pubKeyStr)
 				}
 			}
 		}
@@ -3275,7 +3275,7 @@ func (s *server) establishPersistentConnections() error {
 		if numOutboundConns < numInstantInitReconnect ||
 			!s.cfg.StaggerInitialReconnect {
 
-			go s.connectToPersistentPeer(pubStr)
+			go s.pcm.connectToPersistentPeer(pubStr)
 		} else {
 			go s.delayInitialReconnect(pubStr)
 		}
@@ -3294,7 +3294,7 @@ func (s *server) delayInitialReconnect(pubStr string) {
 	delay := time.Duration(prand.Intn(maxInitReconnectDelay)) * time.Second
 	select {
 	case <-time.After(delay):
-		s.connectToPersistentPeer(pubStr)
+		s.pcm.connectToPersistentPeer(pubStr)
 	case <-s.quit:
 	}
 }
@@ -4246,7 +4246,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 			"connection to peer %x",
 			p.IdentityKey().SerializeCompressed())
 
-		s.connectToPersistentPeer(pubStr)
+		s.pcm.connectToPersistentPeer(pubStr)
 	}()
 }
 
@@ -4255,9 +4255,9 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 // currently none for a given address and it removes old connection requests
 // if the associated address is no longer in the latest address list for the
 // peer.
-func (s *server) connectToPersistentPeer(pubKeyStr string) {
-	s.pcm.mu.Lock()
-	defer s.pcm.mu.Unlock()
+func (p *PeerConnManager) connectToPersistentPeer(pubKeyStr string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	// Create an easy lookup map of the addresses we have stored for the
 	// peer. We will remove entries from this map if we have existing
@@ -4265,7 +4265,7 @@ func (s *server) connectToPersistentPeer(pubKeyStr string) {
 	// entries will indicate which addresses we should create new
 	// connection requests for.
 	addrMap := make(map[string]*lnwire.NetAddress)
-	for _, addr := range s.pcm.persistentPeerAddrs[pubKeyStr] {
+	for _, addr := range p.persistentPeerAddrs[pubKeyStr] {
 		addrMap[addr.String()] = addr
 	}
 
@@ -4274,7 +4274,7 @@ func (s *server) connectToPersistentPeer(pubKeyStr string) {
 	// there is a connection requests that does not use one of the latest
 	// advertised addresses then remove that connection request.
 	var updatedConnReqs []*connmgr.ConnReq
-	for _, connReq := range s.pcm.persistentConnReqs[pubKeyStr] {
+	for _, connReq := range p.persistentConnReqs[pubKeyStr] {
 		lnAddr := connReq.Addr.(*lnwire.NetAddress).Address.String()
 
 		switch _, ok := addrMap[lnAddr]; ok {
@@ -4296,16 +4296,16 @@ func (s *server) connectToPersistentPeer(pubKeyStr string) {
 			srvrLog.Info(
 				"Removing conn req:", connReq.Addr.String(),
 			)
-			s.pcm.connMgr.Remove(connReq.ID())
+			p.connMgr.Remove(connReq.ID())
 		}
 	}
 
-	s.pcm.persistentConnReqs[pubKeyStr] = updatedConnReqs
+	p.persistentConnReqs[pubKeyStr] = updatedConnReqs
 
-	cancelChan, ok := s.pcm.persistentRetryCancels[pubKeyStr]
+	cancelChan, ok := p.persistentRetryCancels[pubKeyStr]
 	if !ok {
 		cancelChan = make(chan struct{})
-		s.pcm.persistentRetryCancels[pubKeyStr] = cancelChan
+		p.persistentRetryCancels[pubKeyStr] = cancelChan
 	}
 
 	// Any addresses left in addrMap are new ones that we have not made
@@ -4325,19 +4325,19 @@ func (s *server) connectToPersistentPeer(pubKeyStr string) {
 				Permanent: true,
 			}
 
-			s.pcm.mu.Lock()
-			s.pcm.persistentConnReqs[pubKeyStr] = append(
-				s.pcm.persistentConnReqs[pubKeyStr], connReq,
+			p.mu.Lock()
+			p.persistentConnReqs[pubKeyStr] = append(
+				p.persistentConnReqs[pubKeyStr], connReq,
 			)
-			s.pcm.mu.Unlock()
+			p.mu.Unlock()
 
 			srvrLog.Debugf("Attempting persistent connection to "+
 				"channel peer %v", addr)
 
-			go s.pcm.connMgr.Connect(connReq)
+			go p.connMgr.Connect(connReq)
 
 			select {
-			case <-s.quit:
+			case <-p.quit:
 				return
 			case <-cancelChan:
 				return

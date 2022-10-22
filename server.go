@@ -3642,7 +3642,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// Remove the current peer from the server's internal state and
 		// signal that the peer termination watcher does not need to
 		// execute for this peer.
-		s.removePeer(connectedPeer)
+		s.pcm.removePeer(connectedPeer)
 		s.pcm.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.pcm.scheduledPeerConnection[pubStr] = func() {
 			s.peerConnected(conn, nil, true)
@@ -3755,7 +3755,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// Remove the current peer from the server's internal state and
 		// signal that the peer termination watcher does not need to
 		// execute for this peer.
-		s.removePeer(connectedPeer)
+		s.pcm.removePeer(connectedPeer)
 		s.pcm.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.pcm.scheduledPeerConnection[pubStr] = func() {
 			s.peerConnected(conn, connReq, false)
@@ -3944,12 +3944,12 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())
 	copy(pCfg.ServerPubKey[:], s.identityECDH.PubKey().SerializeCompressed())
 
-	p := peer.NewBrontide(pCfg)
+	peer := peer.NewBrontide(pCfg)
 
 	// TODO(roasbeef): update IP address for link-node
 	//  * also mark last-seen, do it one single transaction?
 
-	s.addPeer(p)
+	s.pcm.addPeer(peer)
 
 	// Once we have successfully added the peer to the server, we can
 	// delete the previous error buffer from the server's map of error
@@ -3960,19 +3960,19 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// includes sending and receiving Init messages, which would be a DOS
 	// vector if we held the server's mutex throughout the procedure.
 	s.wg.Add(1)
-	go s.peerInitializer(p)
+	go s.peerInitializer(peer)
 }
 
 // addPeer adds the passed peer to the server's global state of all active
 // peers.
-func (s *server) addPeer(p *peer.Brontide) {
-	if p == nil {
+func (p *PeerConnManager) addPeer(peer *peer.Brontide) {
+	if peer == nil {
 		return
 	}
 
 	// Ignore new peers if we're shutting down.
-	if s.Stopped() {
-		p.Disconnect(ErrServerShuttingDown)
+	if p.Stopped() {
+		peer.Disconnect(ErrServerShuttingDown)
 		return
 	}
 
@@ -3981,23 +3981,23 @@ func (s *server) addPeer(p *peer.Brontide) {
 	// TODO(roasbeef): pipe all requests through to the
 	// queryHandler/peerManager
 
-	pubSer := p.IdentityKey().SerializeCompressed()
+	pubSer := peer.IdentityKey().SerializeCompressed()
 	pubStr := string(pubSer)
 
-	s.pcm.peersByPub[pubStr] = p
+	p.peersByPub[pubStr] = peer
 
-	if p.Inbound() {
-		s.pcm.inboundPeers[pubStr] = p
+	if peer.Inbound() {
+		p.inboundPeers[pubStr] = peer
 	} else {
-		s.pcm.outboundPeers[pubStr] = p
+		p.outboundPeers[pubStr] = peer
 	}
 
-	// Inform the peer notifier of a peer online event so that it can be reported
-	// to clients listening for peer events.
+	// Inform the peer notifier of a peer online event so that it can be
+	// reported to clients listening for peer events.
 	var pubKey [33]byte
 	copy(pubKey[:], pubSer)
 
-	s.pcm.PeerNotifier.NotifyPeerOnline(pubKey)
+	p.PeerNotifier.NotifyPeerOnline(pubKey)
 }
 
 // peerInitializer asynchronously starts a newly connected peer after it has
@@ -4148,7 +4148,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 
 	// First, cleanup any remaining state the server has regarding the peer
 	// in question.
-	s.removePeer(p)
+	s.pcm.removePeer(p)
 
 	// Next, check to see if this is a persistent peer or not.
 	if _, ok := s.pcm.persistentPeers[pubStr]; !ok {
@@ -4359,43 +4359,43 @@ func (p *PeerConnManager) connectToPersistentPeer(pubKeyStr string) {
 
 // removePeer removes the passed peer from the server's state of all active
 // peers.
-func (s *server) removePeer(p *peer.Brontide) {
-	if p == nil {
+func (p *PeerConnManager) removePeer(peer *peer.Brontide) {
+	if peer == nil {
 		return
 	}
 
-	srvrLog.Debugf("removing peer %v", p)
+	srvrLog.Debugf("removing peer %v", peer)
 
 	// As the peer is now finished, ensure that the TCP connection is
 	// closed and all of its related goroutines have exited.
-	p.Disconnect(fmt.Errorf("server: disconnecting peer %v", p))
+	peer.Disconnect(fmt.Errorf("server: disconnecting peer %v", peer))
 
 	// If this peer had an active persistent connection request, remove it.
-	if p.ConnReq() != nil {
-		s.pcm.connMgr.Remove(p.ConnReq().ID())
+	if peer.ConnReq() != nil {
+		p.connMgr.Remove(peer.ConnReq().ID())
 	}
 
 	// Ignore deleting peers if we're shutting down.
-	if s.Stopped() {
+	if p.Stopped() {
 		return
 	}
 
-	pKey := p.PubKey()
+	pKey := peer.PubKey()
 	pubSer := pKey[:]
 	pubStr := string(pubSer)
 
-	delete(s.pcm.peersByPub, pubStr)
+	delete(p.peersByPub, pubStr)
 
-	if p.Inbound() {
-		delete(s.pcm.inboundPeers, pubStr)
+	if peer.Inbound() {
+		delete(p.inboundPeers, pubStr)
 	} else {
-		delete(s.pcm.outboundPeers, pubStr)
+		delete(p.outboundPeers, pubStr)
 	}
 
 	// Copy the peer's error buffer across to the server if it has any items
 	// in it so that we can restore peer errors across connections.
-	if p.ErrorBuffer().Total() > 0 {
-		s.pcm.peerErrors[pubStr] = p.ErrorBuffer()
+	if peer.ErrorBuffer().Total() > 0 {
+		p.peerErrors[pubStr] = peer.ErrorBuffer()
 	}
 
 	// Inform the peer notifier of a peer offline event so that it can be
@@ -4403,7 +4403,7 @@ func (s *server) removePeer(p *peer.Brontide) {
 	var pubKey [33]byte
 	copy(pubKey[:], pubSer)
 
-	s.pcm.PeerNotifier.NotifyPeerOffline(pubKey)
+	p.PeerNotifier.NotifyPeerOffline(pubKey)
 }
 
 // ConnectToPeer requests that the server connect to a Lightning Network peer

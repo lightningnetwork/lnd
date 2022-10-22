@@ -203,7 +203,38 @@ type PeerConnManager struct {
 	// on the network.
 	SubscribeTopology func() (*routing.TopologyClient, error)
 
+	// CancelPeerReservations mounts the method from funding manager which
+	// cancels all active reservations associated with the passed node.
+	CancelPeerReservations func(nodePub [33]byte)
+
+	// PruneSyncState mounts the method from auth gossiper and is called
+	// once a peer that we were previously connected to has been
+	// disconnected. In this case we can stop the existing GossipSyncer
+	// assigned to the peer and free up resources.
+	PruneSyncState func(peer route.Vertex)
+
+	htlcSwitch peer.MessageSwitch
+
+	// TODO(yy: interface?
+	graphDB *channeldb.ChannelGraph
+
+	// torController is a client that will communicate with a locally
+	// running Tor server. This client will handle initiating and
+	// authenticating the connection to the Tor server, automatically
+	// creating and setting up onion services, etc.
+	torController *tor.Controller
+
+	// TODO(yy): make a config to hold these info.
 	NetParams wire.BitcoinNet
+	// MinBackoff defines the initial backoff applied to connections with
+	// watchtowers. Subsequent backoff durations will grow exponentially up
+	// until MaxBackoff.
+	MinBackoff time.Duration
+
+	// MaxBackoff defines the maximum backoff applied to connections with
+	// watchtowers. If the exponential backoff produces a timeout greater
+	// than this value, the backoff will be clamped to MaxBackoff.
+	MaxBackoff time.Duration
 }
 
 // Start will start the peer conn manager.
@@ -1070,6 +1101,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PeerNotifier:      peernotifier.New(),
 		SubscribeTopology: s.chanRouter.SubscribeTopology,
 		NetParams:         s.cfg.ActiveNetParams.Net,
+		MinBackoff:        s.cfg.MinBackoff,
+		MaxBackoff:        s.cfg.MaxBackoff,
+
+		torController: s.torController,
 	}
 
 	s.authGossiper = discovery.New(discovery.Config{
@@ -3504,21 +3539,21 @@ func (p *PeerConnManager) findPeerByPubStr(pubStr string) (*peer.Brontide, error
 // nextPeerBackoff computes the next backoff duration for a peer's pubkey using
 // exponential backoff. If no previous backoff was known, the default is
 // returned.
-func (s *server) nextPeerBackoff(pubStr string,
+func (p *PeerConnManager) nextPeerBackoff(pubStr string,
 	startTime time.Time) time.Duration {
 
 	// Now, determine the appropriate backoff to use for the retry.
-	backoff, ok := s.pcm.persistentPeersBackoff[pubStr]
+	backoff, ok := p.persistentPeersBackoff[pubStr]
 	if !ok {
 		// If an existing backoff was unknown, use the default.
-		return s.cfg.MinBackoff
+		return p.MinBackoff
 	}
 
 	// If the peer failed to start properly, we'll just use the previous
 	// backoff to compute the subsequent randomized exponential backoff
 	// duration. This will roughly double on average.
 	if startTime.IsZero() {
-		return computeNextBackoff(backoff, s.cfg.MaxBackoff)
+		return computeNextBackoff(backoff, p.MaxBackoff)
 	}
 
 	// The peer succeeded in starting. If the connection didn't last long
@@ -3526,7 +3561,7 @@ func (s *server) nextPeerBackoff(pubStr string,
 	// with this peer.
 	connDuration := time.Since(startTime)
 	if connDuration < defaultStableConnDuration {
-		return computeNextBackoff(backoff, s.cfg.MaxBackoff)
+		return computeNextBackoff(backoff, p.MaxBackoff)
 	}
 
 	// The peer succeed in starting and this was stable peer, so we'll
@@ -3534,8 +3569,9 @@ func (s *server) nextPeerBackoff(pubStr string,
 	// applying randomized exponential backoff. We'll only apply this in the
 	// case that:
 	//   reb(curBackoff) - connDuration > cfg.MinBackoff
-	relaxedBackoff := computeNextBackoff(backoff, s.cfg.MaxBackoff) - connDuration
-	if relaxedBackoff > s.cfg.MinBackoff {
+	relaxedBackoff := computeNextBackoff(backoff, p.MaxBackoff) -
+		connDuration
+	if relaxedBackoff > p.MinBackoff {
 		return relaxedBackoff
 	}
 
@@ -3543,7 +3579,7 @@ func (s *server) nextPeerBackoff(pubStr string,
 	// the stable connection lasted much longer than our previous backoff.
 	// To reward such good behavior, we'll reconnect after the default
 	// timeout.
-	return s.cfg.MinBackoff
+	return p.MinBackoff
 }
 
 // shouldDropConnection determines if our local connection to a remote peer
@@ -4029,7 +4065,7 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 	// the peer is ever added to the ignorePeerTermination map, indicating
 	// that the server has already handled the removal of this peer.
 	s.wg.Add(1)
-	go s.peerTerminationWatcher(p, ready)
+	go s.pcm.peerTerminationWatcher(p, ready)
 
 	// Start the peer! If an error occurs, we Disconnect the peer, which
 	// will unblock the peerTerminationWatcher.
@@ -4073,17 +4109,19 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 // successfully, otherwise the peer should be disconnected instead.
 //
 // NOTE: This MUST be launched as a goroutine.
-func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
-	defer s.wg.Done()
+func (p *PeerConnManager) peerTerminationWatcher(peer *peer.Brontide,
+	ready chan struct{}) {
 
-	p.WaitForDisconnect(ready)
+	defer p.wg.Done()
 
-	srvrLog.Debugf("Peer %v has been disconnected", p)
+	peer.WaitForDisconnect(ready)
+
+	srvrLog.Debugf("Peer %v has been disconnected", peer)
 
 	// If the server is exiting then we can bail out early ourselves as all
 	// the other sub-systems will already be shutting down.
-	if s.Stopped() {
-		srvrLog.Debugf("Server quitting, exit early for peer %v", p)
+	if p.Stopped() {
+		srvrLog.Debugf("Server quitting, exit early for peer %v", peer)
 		return
 	}
 
@@ -4091,46 +4129,46 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	// If we tried to initiate any funding flows that haven't yet finished,
 	// then we need to unlock those committed outputs so they're still
 	// available for use.
-	s.fundingMgr.CancelPeerReservations(p.PubKey())
+	p.CancelPeerReservations(peer.PubKey())
 
-	pubKey := p.IdentityKey()
+	pubKey := peer.IdentityKey()
 
 	// We'll also inform the gossiper that this peer is no longer active,
 	// so we don't need to maintain sync state for it any longer.
-	s.authGossiper.PruneSyncState(p.PubKey())
+	p.PruneSyncState(peer.PubKey())
 
 	// Tell the switch to remove all links associated with this peer.
 	// Passing nil as the target link indicates that all links associated
 	// with this interface should be closed.
 	//
 	// TODO(roasbeef): instead add a PurgeInterfaceLinks function?
-	links, err := s.htlcSwitch.GetLinksByInterface(p.PubKey())
+	links, err := p.htlcSwitch.GetLinksByInterface(peer.PubKey())
 	if err != nil && err != htlcswitch.ErrNoLinksFound {
-		srvrLog.Errorf("Unable to get channel links for %v: %v", p, err)
+		srvrLog.Errorf("Unable to get channel links for %v: %v", peer, err)
 	}
 
 	for _, link := range links {
-		s.htlcSwitch.RemoveLink(link.ChanID())
+		p.htlcSwitch.RemoveLink(link.ChanID())
 	}
 
-	s.pcm.mu.Lock()
-	defer s.pcm.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	// If there were any notification requests for when this peer
 	// disconnected, we can trigger them now.
-	srvrLog.Debugf("Notifying that peer %v is offline", p)
+	srvrLog.Debugf("Notifying that peer %v is offline", peer)
 	pubStr := string(pubKey.SerializeCompressed())
-	for _, offlineChan := range s.pcm.peerDisconnectedListeners[pubStr] {
+	for _, offlineChan := range p.peerDisconnectedListeners[pubStr] {
 		close(offlineChan)
 	}
-	delete(s.pcm.peerDisconnectedListeners, pubStr)
+	delete(p.peerDisconnectedListeners, pubStr)
 
 	// If the server has already removed this peer, we can short circuit the
 	// peer termination watcher and skip cleanup.
-	if _, ok := s.pcm.ignorePeerTermination[p]; ok {
-		delete(s.pcm.ignorePeerTermination, p)
+	if _, ok := p.ignorePeerTermination[peer]; ok {
+		delete(p.ignorePeerTermination, peer)
 
-		pubKey := p.PubKey()
+		pubKey := peer.PubKey()
 		pubStr := string(pubKey[:])
 
 		// If a connection callback is present, we'll go ahead and
@@ -4138,9 +4176,9 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 		// the callback is not present, this likely implies the peer was
 		// purposefully disconnected via RPC, and that no reconnect
 		// should be attempted.
-		connCallback, ok := s.pcm.scheduledPeerConnection[pubStr]
+		connCallback, ok := p.scheduledPeerConnection[pubStr]
 		if ok {
-			delete(s.pcm.scheduledPeerConnection, pubStr)
+			delete(p.scheduledPeerConnection, pubStr)
 			connCallback()
 		}
 		return
@@ -4148,21 +4186,21 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 
 	// First, cleanup any remaining state the server has regarding the peer
 	// in question.
-	s.pcm.removePeer(p)
+	p.removePeer(peer)
 
 	// Next, check to see if this is a persistent peer or not.
-	if _, ok := s.pcm.persistentPeers[pubStr]; !ok {
+	if _, ok := p.persistentPeers[pubStr]; !ok {
 		return
 	}
 
 	// Get the last address that we used to connect to the peer.
 	addrs := []net.Addr{
-		p.NetAddress().Address,
+		peer.NetAddress().Address,
 	}
 
 	// We'll ensure that we locate all the peers advertised addresses for
 	// reconnection purposes.
-	advertisedAddrs, err := s.fetchNodeAdvertisedAddrs(pubKey)
+	advertisedAddrs, err := p.fetchNodeAdvertisedAddrs(pubKey)
 	switch {
 	// We found advertised addresses, so use them.
 	case err == nil:
@@ -4172,13 +4210,13 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	case err == errNoAdvertisedAddr:
 		// If it is an outbound peer then we fall back to the existing
 		// peer address.
-		if !p.Inbound() {
+		if !peer.Inbound() {
 			break
 		}
 
 		// Fall back to the existing peer address if
 		// we're not accepting connections over Tor.
-		if s.torController == nil {
+		if p.torController == nil {
 			break
 		}
 
@@ -4189,7 +4227,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 		// to attempt a reconnect.
 		srvrLog.Debugf("Ignoring reconnection attempt "+
 			"to inbound peer %v without "+
-			"advertised address", p)
+			"advertised address", peer)
 		return
 
 	// We came across an error retrieving an advertised
@@ -4197,14 +4235,14 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	// address.
 	default:
 		srvrLog.Errorf("Unable to retrieve advertised "+
-			"address for node %x: %v", p.PubKey(),
+			"address for node %x: %v", peer.PubKey(),
 			err)
 	}
 
 	// Make an easy lookup map so that we can check if an address
 	// is already in the address list that we have stored for this peer.
 	existingAddrs := make(map[string]bool)
-	for _, addr := range s.pcm.persistentPeerAddrs[pubStr] {
+	for _, addr := range p.persistentPeerAddrs[pubStr] {
 		existingAddrs[addr.String()] = true
 	}
 
@@ -4214,26 +4252,26 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 			continue
 		}
 
-		s.pcm.persistentPeerAddrs[pubStr] = append(
-			s.pcm.persistentPeerAddrs[pubStr],
+		p.persistentPeerAddrs[pubStr] = append(
+			p.persistentPeerAddrs[pubStr],
 			&lnwire.NetAddress{
-				IdentityKey: p.IdentityKey(),
+				IdentityKey: peer.IdentityKey(),
 				Address:     addr,
-				ChainNet:    p.NetAddress().ChainNet,
+				ChainNet:    peer.NetAddress().ChainNet,
 			},
 		)
 	}
 
 	// Record the computed backoff in the backoff map.
-	backoff := s.nextPeerBackoff(pubStr, p.StartTime())
-	s.pcm.persistentPeersBackoff[pubStr] = backoff
+	backoff := p.nextPeerBackoff(pubStr, peer.StartTime())
+	p.persistentPeersBackoff[pubStr] = backoff
 
 	// Initialize a retry canceller for this peer if one does not
 	// exist.
-	cancelChan, ok := s.pcm.persistentRetryCancels[pubStr]
+	cancelChan, ok := p.persistentRetryCancels[pubStr]
 	if !ok {
 		cancelChan = make(chan struct{})
-		s.pcm.persistentRetryCancels[pubStr] = cancelChan
+		p.persistentRetryCancels[pubStr] = cancelChan
 	}
 
 	// We choose not to wait group this go routine since the Connect
@@ -4242,21 +4280,21 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	go func() {
 		srvrLog.Debugf("Scheduling connection re-establishment to "+
 			"persistent peer %x in %s",
-			p.IdentityKey().SerializeCompressed(), backoff)
+			peer.IdentityKey().SerializeCompressed(), backoff)
 
 		select {
 		case <-time.After(backoff):
 		case <-cancelChan:
 			return
-		case <-s.quit:
+		case <-p.quit:
 			return
 		}
 
 		srvrLog.Debugf("Attempting to re-establish persistent "+
 			"connection to peer %x",
-			p.IdentityKey().SerializeCompressed())
+			peer.IdentityKey().SerializeCompressed())
 
-		s.pcm.connectToPersistentPeer(pubStr)
+		p.connectToPersistentPeer(pubStr)
 	}()
 }
 
@@ -4652,14 +4690,17 @@ func computeNextBackoff(currBackoff, maxBackoff time.Duration) time.Duration {
 // advertised address of a node, but they don't have one.
 var errNoAdvertisedAddr = errors.New("no advertised address found")
 
-// fetchNodeAdvertisedAddrs attempts to fetch the advertised addresses of a node.
-func (s *server) fetchNodeAdvertisedAddrs(pub *btcec.PublicKey) ([]net.Addr, error) {
+// fetchNodeAdvertisedAddrs attempts to fetch the advertised addresses of a
+// node.
+func (p *PeerConnManager) fetchNodeAdvertisedAddrs(
+	pub *btcec.PublicKey) ([]net.Addr, error) {
+
 	vertex, err := route.NewVertexFromBytes(pub.SerializeCompressed())
 	if err != nil {
 		return nil, err
 	}
 
-	node, err := s.graphDB.FetchLightningNode(vertex)
+	node, err := p.graphDB.FetchLightningNode(vertex)
 	if err != nil {
 		return nil, err
 	}

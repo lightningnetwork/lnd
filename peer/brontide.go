@@ -186,7 +186,7 @@ type Config struct {
 
 	// Switch is a pointer to the htlcswitch. It is used to setup, get, and
 	// tear-down ChannelLinks.
-	Switch messageSwitch
+	Switch MessageSwitch
 
 	// InterceptSwitch is a pointer to the InterceptableSwitch, a wrapper around
 	// the regular Switch. We only export it here to pass ForwardPackets to the

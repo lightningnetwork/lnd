@@ -190,24 +190,51 @@ type PeerConnManager struct {
 	PeerNotifier *peernotifier.PeerNotifier
 
 	connMgr *connmgr.ConnManager
+
+	active   int32
+	stopping int32
+	start    sync.Once
+	stop     sync.Once
+	quit     chan struct{}
 }
 
 // Start will start the peer conn manager.
 func (p *PeerConnManager) Start() error {
-	if err := p.PeerNotifier.Start(); err != nil {
-		return fmt.Errorf("PeerNotifier failed to start %w", err)
-	}
+	var err error
+	p.start.Do(func() {
+		srvrLog.Info("PeerConnManager starting...")
 
-	return nil
+		if err := p.PeerNotifier.Start(); err != nil {
+			err = fmt.Errorf("PeerNotifier failed to start %w", err)
+		}
+
+		atomic.StoreInt32(&p.active, 1)
+	})
+
+	return err
 }
 
 // Stop will stop the peer conn manager.
 func (p *PeerConnManager) Stop() error {
-	if err := p.PeerNotifier.Stop(); err != nil {
-		return fmt.Errorf("PeerNotifier failed to stop", err)
-	}
+	var err error
+	p.stop.Do(func() {
+		srvrLog.Info("PeerConnManager shutting down")
 
-	return nil
+		atomic.StoreInt32(&p.stopping, 1)
+		close(p.quit)
+
+		if err := p.PeerNotifier.Stop(); err != nil {
+			err = fmt.Errorf("PeerNotifier failed to stop: %w", err)
+		}
+	})
+
+	return err
+}
+
+// Stopped returns true if the peer conn manager has been instructed to
+// shutdown.
+func (p *PeerConnManager) Stopped() bool {
+	return atomic.LoadInt32(&p.stopping) != 0
 }
 
 // server is the main server of the Lightning Network Daemon. The server houses

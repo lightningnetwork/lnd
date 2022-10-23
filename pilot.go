@@ -246,7 +246,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 
 			return false, nil
 		},
-		DisconnectPeer: svr.DisconnectPeer,
+		DisconnectPeer: svr.pcm.DisconnectPeer,
 	}
 
 	// Create and return the autopilot.ManagerCfg that administrates this

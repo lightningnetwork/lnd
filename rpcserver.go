@@ -1739,7 +1739,7 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 
 	// With all initial validation complete, we'll now request that the
 	// server disconnects from the peer.
-	if err := r.server.DisconnectPeer(peerPubKey); err != nil {
+	if err := r.server.pcm.DisconnectPeer(peerPubKey); err != nil {
 		return nil, fmt.Errorf("unable to disconnect peer: %v", err)
 	}
 

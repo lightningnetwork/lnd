@@ -2395,7 +2395,7 @@ func (s *server) Stop() error {
 		// Disconnect from each active peers to ensure that
 		// peerTerminationWatchers signal completion to each peer.
 		for _, peer := range s.Peers() {
-			err := s.DisconnectPeer(peer.IdentityKey())
+			err := s.pcm.DisconnectPeer(peer.IdentityKey())
 			if err != nil {
 				srvrLog.Warnf("could not disconnect peer: %v"+
 					"received error: %v", peer.IdentityKey(),
@@ -3947,7 +3947,6 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		HtlcNotifier:            s.htlcNotifier,
 		TowerClient:             s.towerClient,
 		AnchorTowerClient:       s.anchorTowerClient,
-		DisconnectPeer:          s.DisconnectPeer,
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
 			lnwire.NodeAnnouncement, error) {
 
@@ -3956,6 +3955,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 
 		PongBuf: s.pongBuf,
 
+		DisconnectPeer: s.pcm.DisconnectPeer,
 		PrunePersistentPeerConnection: s.pcm.
 			PrunePersistentPeerConnection,
 
@@ -4554,30 +4554,30 @@ func (s *server) connectToPeer(addr *lnwire.NetAddress,
 // identified by public key.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
+func (p *PeerConnManager) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	pubBytes := pubKey.SerializeCompressed()
 	pubStr := string(pubBytes)
 
-	s.pcm.mu.Lock()
-	defer s.pcm.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	// Check that were actually connected to this peer. If not, then we'll
 	// exit in an error as we can't disconnect from a peer that we're not
 	// currently connected to.
-	peer, err := s.pcm.findPeerByPubStr(pubStr)
+	peer, err := p.findPeerByPubStr(pubStr)
 	if err == ErrPeerNotConnected {
 		return fmt.Errorf("peer %x is not connected", pubBytes)
 	}
 
 	srvrLog.Infof("Disconnecting from %v", peer)
 
-	s.pcm.cancelConnReqs(pubStr, nil)
+	p.cancelConnReqs(pubStr, nil)
 
 	// If this peer was formerly a persistent connection, then we'll remove
 	// them from this map so we don't attempt to re-connect after we
 	// disconnect.
-	delete(s.pcm.persistentPeers, pubStr)
-	delete(s.pcm.persistentPeersBackoff, pubStr)
+	delete(p.persistentPeers, pubStr)
+	delete(p.persistentPeersBackoff, pubStr)
 
 	// Remove the peer by calling Disconnect. Previously this was done with
 	// removePeer, which bypassed the peerTerminationWatcher.

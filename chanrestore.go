@@ -304,7 +304,7 @@ func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
 	// Before we connect to the remote peer, we'll remove any connections
 	// to ensure the new connection is created after this new link/channel
 	// is known.
-	if err := s.DisconnectPeer(nodePub); err != nil {
+	if err := s.pcm.DisconnectPeer(nodePub); err != nil {
 		ltndLog.Infof("Peer(%v) is already connected, proceeding "+
 			"with chan restore", nodePub.SerializeCompressed())
 	}

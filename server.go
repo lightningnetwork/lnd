@@ -3626,22 +3626,22 @@ func shouldDropLocalConnection(local, remote *btcec.PublicKey) bool {
 // connection.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) InboundPeerConnected(conn net.Conn) {
+func (p *PeerConnManager) InboundPeerConnected(conn net.Conn) {
 	// Exit early if we have already been instructed to shutdown, this
 	// prevents any delayed callbacks from accidentally registering peers.
-	if s.Stopped() {
+	if p.Stopped() {
 		return
 	}
 
 	nodePub := conn.(*brontide.Conn).RemotePub()
 	pubStr := string(nodePub.SerializeCompressed())
 
-	s.pcm.mu.Lock()
-	defer s.pcm.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	// If we already have an outbound connection to this peer, then ignore
 	// this new connection.
-	if p, ok := s.pcm.outboundPeers[pubStr]; ok {
+	if p, ok := p.outboundPeers[pubStr]; ok {
 		srvrLog.Debugf("Already have outbound connection for %v, "+
 			"ignoring inbound connection from local=%v, remote=%v",
 			p, conn.LocalAddr(), conn.RemoteAddr())
@@ -3653,7 +3653,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	// If we already have a valid connection that is scheduled to take
 	// precedence once the prior peer has finished disconnecting, we'll
 	// ignore this connection.
-	if p, ok := s.pcm.scheduledPeerConnection[pubStr]; ok {
+	if p, ok := p.scheduledPeerConnection[pubStr]; ok {
 		srvrLog.Debugf("Ignoring connection from %v, peer %v already "+
 			"scheduled", conn.RemoteAddr(), p)
 		conn.Close()
@@ -3667,13 +3667,13 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	// having duplicate connections to the same peer. We forgo adding a
 	// default case as we expect these to be the only error values returned
 	// from findPeerByPubStr.
-	connectedPeer, err := s.pcm.findPeerByPubStr(pubStr)
+	connectedPeer, err := p.findPeerByPubStr(pubStr)
 	switch err {
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		s.pcm.cancelConnReqs(pubStr, nil)
-		s.pcm.peerConnected(conn, nil, true)
+		p.cancelConnReqs(pubStr, nil)
+		p.peerConnected(conn, nil, true)
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
@@ -3681,7 +3681,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// not of the same type of the new connection (inbound), then
 		// we'll close out the new connection s.t there's only a single
 		// connection between us.
-		localPub := s.identityECDH.PubKey()
+		localPub := p.IdentityECDH.PubKey()
 		if !connectedPeer.Inbound() &&
 			!shouldDropLocalConnection(localPub, nodePub) {
 
@@ -3697,15 +3697,15 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		srvrLog.Debugf("Disconnecting stale connection to %v",
 			connectedPeer)
 
-		s.pcm.cancelConnReqs(pubStr, nil)
+		p.cancelConnReqs(pubStr, nil)
 
 		// Remove the current peer from the server's internal state and
 		// signal that the peer termination watcher does not need to
 		// execute for this peer.
-		s.pcm.removePeer(connectedPeer)
-		s.pcm.ignorePeerTermination[connectedPeer] = struct{}{}
-		s.pcm.scheduledPeerConnection[pubStr] = func() {
-			s.pcm.peerConnected(conn, nil, true)
+		p.removePeer(connectedPeer)
+		p.ignorePeerTermination[connectedPeer] = struct{}{}
+		p.scheduledPeerConnection[pubStr] = func() {
+			p.peerConnected(conn, nil, true)
 		}
 	}
 }

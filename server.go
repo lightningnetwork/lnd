@@ -3344,26 +3344,28 @@ func (s *server) delayInitialReconnect(pubStr string) {
 	}
 }
 
-// prunePersistentPeerConnection removes all internal state related to
+// PrunePersistentPeerConnection removes all internal state related to
 // persistent connections to a peer within the server. This is used to avoid
 // persistent connection retries to peers we do not have any open channels with.
-func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
+func (p *PeerConnManager) PrunePersistentPeerConnection(
+	compressedPubKey [33]byte) {
+
 	pubKeyStr := string(compressedPubKey[:])
 
-	s.pcm.mu.Lock()
-	if perm, ok := s.pcm.persistentPeers[pubKeyStr]; ok && !perm {
-		delete(s.pcm.persistentPeers, pubKeyStr)
-		delete(s.pcm.persistentPeersBackoff, pubKeyStr)
-		delete(s.pcm.persistentPeerAddrs, pubKeyStr)
-		s.pcm.cancelConnReqs(pubKeyStr, nil)
-		s.pcm.mu.Unlock()
+	p.mu.Lock()
+	if perm, ok := p.persistentPeers[pubKeyStr]; ok && !perm {
+		delete(p.persistentPeers, pubKeyStr)
+		delete(p.persistentPeersBackoff, pubKeyStr)
+		delete(p.persistentPeerAddrs, pubKeyStr)
+		p.cancelConnReqs(pubKeyStr, nil)
+		p.mu.Unlock()
 
 		srvrLog.Infof("Pruned peer %x from persistent connections, "+
 			"peer has no open channels", compressedPubKey)
 
 		return
 	}
-	s.pcm.mu.Unlock()
+	p.mu.Unlock()
 }
 
 // BroadcastMessage sends a request to the server to broadcast a set of
@@ -3954,7 +3956,8 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 
 		PongBuf: s.pongBuf,
 
-		PrunePersistentPeerConnection: s.prunePersistentPeerConnection,
+		PrunePersistentPeerConnection: s.pcm.
+			PrunePersistentPeerConnection,
 
 		FetchLastChanUpdate: s.fetchLastChanUpdate(),
 
@@ -3996,7 +3999,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// includes sending and receiving Init messages, which would be a DOS
 	// vector if we held the server's mutex throughout the procedure.
 	s.wg.Add(1)
-	go s.peerInitializer(peer)
+	go s.pcm.peerInitializer(peer)
 }
 
 // addPeer adds the passed peer to the server's global state of all active
@@ -4045,11 +4048,11 @@ func (p *PeerConnManager) addPeer(peer *peer.Brontide) {
 // be signaled of the new peer once the method returns.
 //
 // NOTE: This MUST be launched as a goroutine.
-func (s *server) peerInitializer(p *peer.Brontide) {
-	defer s.wg.Done()
+func (p *PeerConnManager) peerInitializer(peer *peer.Brontide) {
+	defer p.wg.Done()
 
 	// Avoid initializing peers while the server is exiting.
-	if s.Stopped() {
+	if p.Stopped() {
 		return
 	}
 
@@ -4064,16 +4067,16 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 	// necessary. The peer termination watcher will be short circuited if
 	// the peer is ever added to the ignorePeerTermination map, indicating
 	// that the server has already handled the removal of this peer.
-	s.wg.Add(1)
-	go s.pcm.peerTerminationWatcher(p, ready)
+	p.wg.Add(1)
+	go p.peerTerminationWatcher(peer, ready)
 
 	// Start the peer! If an error occurs, we Disconnect the peer, which
 	// will unblock the peerTerminationWatcher.
-	if err := p.Start(); err != nil {
+	if err := peer.Start(); err != nil {
 		srvrLog.Warnf("Starting peer=%v got error: %v",
-			p.IdentityKey(), err)
+			peer.IdentityKey(), err)
 
-		p.Disconnect(fmt.Errorf("unable to start peer: %v", err))
+		peer.Disconnect(fmt.Errorf("unable to start peer: %v", err))
 		return
 	}
 
@@ -4081,21 +4084,21 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 	// was successful, and to begin watching the peer's wait group.
 	close(ready)
 
-	pubStr := string(p.IdentityKey().SerializeCompressed())
+	pubStr := string(peer.IdentityKey().SerializeCompressed())
 
-	s.pcm.mu.Lock()
-	defer s.pcm.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	// Check if there are listeners waiting for this peer to come online.
-	srvrLog.Debugf("Notifying that peer %v is online", p)
-	for _, peerChan := range s.pcm.peerConnectedListeners[pubStr] {
+	srvrLog.Debugf("Notifying that peer %v is online", peer)
+	for _, peerChan := range p.peerConnectedListeners[pubStr] {
 		select {
-		case peerChan <- p:
-		case <-s.quit:
+		case peerChan <- peer:
+		case <-p.quit:
 			return
 		}
 	}
-	delete(s.pcm.peerConnectedListeners, pubStr)
+	delete(p.peerConnectedListeners, pubStr)
 }
 
 // peerTerminationWatcher waits until a peer has been disconnected unexpectedly,

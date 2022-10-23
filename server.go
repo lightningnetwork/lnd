@@ -1771,7 +1771,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Dial: noiseDial(
 			nodeKeyECDH, s.cfg.net, s.cfg.ConnectionTimeout,
 		),
-		OnConnection: s.OutboundPeerConnected,
+		OnConnection: s.pcm.OutboundPeerConnected,
 	})
 	if err != nil {
 		return nil, err
@@ -3708,35 +3708,37 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 // OutboundPeerConnected initializes a new peer in response to a new outbound
 // connection.
 // NOTE: This function is safe for concurrent access.
-func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) {
+func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
+	conn net.Conn) {
+
 	// Exit early if we have already been instructed to shutdown, this
 	// prevents any delayed callbacks from accidentally registering peers.
-	if s.Stopped() {
+	if p.Stopped() {
 		return
 	}
 
 	nodePub := conn.(*brontide.Conn).RemotePub()
 	pubStr := string(nodePub.SerializeCompressed())
 
-	s.pcm.mu.Lock()
-	defer s.pcm.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	// If we already have an inbound connection to this peer, then ignore
 	// this new connection.
-	if p, ok := s.pcm.inboundPeers[pubStr]; ok {
+	if peer, ok := p.inboundPeers[pubStr]; ok {
 		srvrLog.Debugf("Already have inbound connection for %v, "+
 			"ignoring outbound connection from local=%v, remote=%v",
-			p, conn.LocalAddr(), conn.RemoteAddr())
+			peer, conn.LocalAddr(), conn.RemoteAddr())
 
 		if connReq != nil {
-			s.pcm.connMgr.Remove(connReq.ID())
+			p.connMgr.Remove(connReq.ID())
 		}
 		conn.Close()
 		return
 	}
-	if _, ok := s.pcm.persistentConnReqs[pubStr]; !ok && connReq != nil {
+	if _, ok := p.persistentConnReqs[pubStr]; !ok && connReq != nil {
 		srvrLog.Debugf("Ignoring canceled outbound connection")
-		s.pcm.connMgr.Remove(connReq.ID())
+		p.connMgr.Remove(connReq.ID())
 		conn.Close()
 		return
 	}
@@ -3744,11 +3746,11 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	// If we already have a valid connection that is scheduled to take
 	// precedence once the prior peer has finished disconnecting, we'll
 	// ignore this connection.
-	if _, ok := s.pcm.scheduledPeerConnection[pubStr]; ok {
+	if _, ok := p.scheduledPeerConnection[pubStr]; ok {
 		srvrLog.Debugf("Ignoring connection, peer already scheduled")
 
 		if connReq != nil {
-			s.pcm.connMgr.Remove(connReq.ID())
+			p.connMgr.Remove(connReq.ID())
 		}
 
 		conn.Close()
@@ -3763,23 +3765,23 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// Immediately cancel all pending requests, excluding the
 		// outbound connection we just established.
 		ignore := connReq.ID()
-		s.pcm.cancelConnReqs(pubStr, &ignore)
+		p.cancelConnReqs(pubStr, &ignore)
 	} else {
 		// This was a successful connection made by some other
 		// subsystem. Remove all requests being managed by the connmgr.
-		s.pcm.cancelConnReqs(pubStr, nil)
+		p.cancelConnReqs(pubStr, nil)
 	}
 
 	// If we already have a connection with this peer, decide whether or not
 	// we need to drop the stale connection. We forgo adding a default case
 	// as we expect these to be the only error values returned from
 	// findPeerByPubStr.
-	connectedPeer, err := s.pcm.findPeerByPubStr(pubStr)
+	connectedPeer, err := p.findPeerByPubStr(pubStr)
 	switch err {
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		s.pcm.peerConnected(conn, connReq, false)
+		p.peerConnected(conn, connReq, false)
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
@@ -3787,7 +3789,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// not of the same type of the new connection (outbound), then
 		// we'll close out the new connection s.t there's only a single
 		// connection between us.
-		localPub := s.identityECDH.PubKey()
+		localPub := p.PubKey
 		if connectedPeer.Inbound() &&
 			shouldDropLocalConnection(localPub, nodePub) {
 
@@ -3795,7 +3797,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 				"peer %v, but already have inbound "+
 				"connection, dropping conn", connectedPeer)
 			if connReq != nil {
-				s.pcm.connMgr.Remove(connReq.ID())
+				p.connMgr.Remove(connReq.ID())
 			}
 			conn.Close()
 			return
@@ -3810,10 +3812,10 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// Remove the current peer from the server's internal state and
 		// signal that the peer termination watcher does not need to
 		// execute for this peer.
-		s.pcm.removePeer(connectedPeer)
-		s.pcm.ignorePeerTermination[connectedPeer] = struct{}{}
-		s.pcm.scheduledPeerConnection[pubStr] = func() {
-			s.pcm.peerConnected(conn, connReq, false)
+		p.removePeer(connectedPeer)
+		p.ignorePeerTermination[connectedPeer] = struct{}{}
+		p.scheduledPeerConnection[pubStr] = func() {
+			p.peerConnected(conn, connReq, false)
 		}
 	}
 }
@@ -4576,7 +4578,7 @@ func (s *server) connectToPeer(addr *lnwire.NetAddress,
 	srvrLog.Tracef("Brontide dialer made local=%v, remote=%v",
 		conn.LocalAddr(), conn.RemoteAddr())
 
-	s.OutboundPeerConnected(nil, conn)
+	s.pcm.OutboundPeerConnected(nil, conn)
 }
 
 // DisconnectPeer sends the request to server to close the connection with peer

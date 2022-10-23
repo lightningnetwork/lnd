@@ -162,6 +162,9 @@ type PeerConnManagerConfig struct {
 	// on startup. The first 10 reconnections will be attempted instantly,
 	// regardless of the flag's value
 	StaggerInitialReconnect bool
+
+	//The timeout value for network connections.
+	ConnectionTimeout time.Duration
 }
 
 // PeerConnManager is responsible for managing peer connections.
@@ -1796,6 +1799,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Net:                     s.cfg.net,
 		TorActive:               s.cfg.Tor.Active,
 		StaggerInitialReconnect: s.cfg.StaggerInitialReconnect,
+		ConnectionTimeout:       s.cfg.ConnectionTimeout,
 	}
 
 	return s, nil
@@ -2344,7 +2348,9 @@ func (s *server) Start() error {
 			}
 
 			s.wg.Add(1)
-			go s.peerBootstrapper(defaultMinPeers, bootstrappers)
+			go s.pcm.PeerBootstrapper(
+				defaultMinPeers, bootstrappers,
+			)
 		} else {
 			srvrLog.Infof("Auto peer bootstrapping is disabled")
 		}
@@ -2738,22 +2744,22 @@ func (p *PeerConnManager) CreateBootstrapIgnorePeers() IgnoredPeers {
 	return ignore
 }
 
-// peerBootstrapper is a goroutine which is tasked with attempting to establish
+// PeerBootstrapper is a goroutine which is tasked with attempting to establish
 // and maintain a target minimum number of outbound connections. With this
 // invariant, we ensure that our node is connected to a diverse set of peers
 // and that nodes newly joining the network receive an up to date network view
 // as soon as possible.
-func (s *server) peerBootstrapper(numTargetPeers uint32,
+func (p *PeerConnManager) PeerBootstrapper(numTargetPeers uint32,
 	bootstrappers []discovery.NetworkPeerBootstrapper) {
 
-	defer s.wg.Done()
+	defer p.wg.Done()
 
 	// Before we continue, init the ignore peers map.
-	ignoreList := s.pcm.CreateBootstrapIgnorePeers()
+	ignoreList := p.CreateBootstrapIgnorePeers()
 
 	// We'll start off by aggressively attempting connections to peers in
 	// order to be a part of the network as soon as possible.
-	s.initialPeerBootstrap(ignoreList, numTargetPeers, bootstrappers)
+	p.initialPeerBootstrap(ignoreList, numTargetPeers, bootstrappers)
 
 	// Once done, we'll attempt to maintain our target minimum number of
 	// peers.
@@ -2779,9 +2785,9 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 		case <-sampleTicker.C:
 			// Obtain the current number of peers, so we can gauge
 			// if we need to sample more peers or not.
-			s.pcm.mu.RLock()
-			numActivePeers := uint32(len(s.pcm.peersByPub))
-			s.pcm.mu.RUnlock()
+			p.mu.RLock()
+			numActivePeers := uint32(len(p.peersByPub))
+			p.mu.RUnlock()
 
 			// If we have enough peers, then we can loop back
 			// around to the next round as we're done here.
@@ -2828,7 +2834,7 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 			//
 			// Before we continue, get a copy of the ignore peers
 			// map.
-			ignoreList = s.pcm.CreateBootstrapIgnorePeers()
+			ignoreList = p.CreateBootstrapIgnorePeers()
 
 			peerAddrs, err := discovery.MultiSourceBootstrap(
 				ignoreList, numNeeded*2, bootstrappers...,
@@ -2848,9 +2854,9 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 					// TODO(roasbeef): can do AS, subnet,
 					// country diversity, etc
 					errChan := make(chan error, 1)
-					s.pcm.connectToPeer(
+					p.connectToPeer(
 						a, errChan,
-						s.cfg.ConnectionTimeout,
+						p.Config.ConnectionTimeout,
 					)
 					select {
 					case err := <-errChan:
@@ -2862,11 +2868,11 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 							"connect to %v: %v",
 							a, err)
 						atomic.AddUint32(&epochErrors, 1)
-					case <-s.quit:
+					case <-p.quit:
 					}
 				}(addr)
 			}
-		case <-s.quit:
+		case <-p.quit:
 			return
 		}
 	}
@@ -2880,7 +2886,7 @@ const bootstrapBackOffCeiling = time.Minute * 5
 // initialPeerBootstrap attempts to continuously connect to peers on startup
 // until the target number of peers has been reached. This ensures that nodes
 // receive an up to date network view as soon as possible.
-func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
+func (p *PeerConnManager) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 	numTargetPeers uint32,
 	bootstrappers []discovery.NetworkPeerBootstrapper) {
 
@@ -2899,15 +2905,15 @@ func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 	for attempts := 0; ; attempts++ {
 		// Check if the server has been requested to shut down in order
 		// to prevent blocking.
-		if s.Stopped() {
+		if p.Stopped() {
 			return
 		}
 
 		// We can exit our aggressive initial peer bootstrapping stage
 		// if we've reached out target number of peers.
-		s.pcm.mu.RLock()
-		numActivePeers := uint32(len(s.pcm.peersByPub))
-		s.pcm.mu.RUnlock()
+		p.mu.RLock()
+		numActivePeers := uint32(len(p.peersByPub))
+		p.mu.RUnlock()
 
 		if numActivePeers >= numTargetPeers {
 			return
@@ -2924,7 +2930,7 @@ func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 			delaySignal = time.After(delayTime)
 			select {
 			case <-delaySignal:
-			case <-s.quit:
+			case <-p.quit:
 				return
 			}
 
@@ -2957,8 +2963,9 @@ func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 				defer wg.Done()
 
 				errChan := make(chan error, 1)
-				go s.pcm.connectToPeer(
-					addr, errChan, s.cfg.ConnectionTimeout,
+				go p.connectToPeer(
+					addr, errChan,
+					p.Config.ConnectionTimeout,
 				)
 
 				// We'll only allow this connection attempt to
@@ -2979,7 +2986,7 @@ func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 						"to not establishing a "+
 						"connection within 3 seconds",
 						addr)
-				case <-s.quit:
+				case <-p.quit:
 				}
 			}(bootstrapAddr)
 		}

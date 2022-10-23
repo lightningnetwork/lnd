@@ -150,16 +150,20 @@ type PeerConnManagerConfig struct {
 	// featureMgr dispatches feature vectors for various contexts within
 	// the daemon.
 	FeatureMgr *feature.Manager
+
+	// Dial connects to the address on the named network. It cannot be nil.
+	Dial tor.DialFunc
 }
 
 // PeerConnManager is responsible for managing peer connections.
 type PeerConnManager struct {
 	Config *PeerConnManagerConfig
 
-	mu sync.RWMutex
+	// IdentityECDH is an ECDH capable wrapper for the private key used
+	// to authenticate any incoming connections.
+	IdentityECDH keychain.SingleKeyECDH
 
-	// PubKey is our public key.
-	PubKey *btcec.PublicKey
+	mu sync.RWMutex
 
 	peersByPub map[string]*peer.Brontide
 
@@ -1093,7 +1097,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.pcm = &PeerConnManager{
-		PubKey:                  nodeKeyECDH.PubKey(),
+		IdentityECDH:            nodeKeyECDH,
 		persistentPeers:         make(map[string]bool),
 		persistentPeersBackoff:  make(map[string]time.Duration),
 		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
@@ -1780,6 +1784,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s.pcm.Config = &PeerConnManagerConfig{
 		PartialPeerConfig: s.createPartialPeerConfig(),
 		FeatureMgr:        s.featureMgr,
+		Dial:              s.cfg.net.Dial,
 	}
 
 	return s, nil
@@ -2702,7 +2707,7 @@ func (p *PeerConnManager) CreateBootstrapIgnorePeers() IgnoredPeers {
 	ignore := make(map[autopilot.NodeID]struct{})
 
 	// We should ignore ourselves from bootstrapping.
-	selfKey := autopilot.NewNodeID(p.PubKey)
+	selfKey := autopilot.NewNodeID(p.IdentityECDH.PubKey())
 	ignore[selfKey] = struct{}{}
 
 	// Ignore all connected peers.
@@ -2832,7 +2837,7 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 					// TODO(roasbeef): can do AS, subnet,
 					// country diversity, etc
 					errChan := make(chan error, 1)
-					s.connectToPeer(
+					s.pcm.connectToPeer(
 						a, errChan,
 						s.cfg.ConnectionTimeout,
 					)
@@ -2941,7 +2946,7 @@ func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 				defer wg.Done()
 
 				errChan := make(chan error, 1)
-				go s.connectToPeer(
+				go s.pcm.connectToPeer(
 					addr, errChan, s.cfg.ConnectionTimeout,
 				)
 
@@ -3339,7 +3344,7 @@ func (s *server) establishPersistentConnections() error {
 
 			go s.pcm.connectToPersistentPeer(pubStr)
 		} else {
-			go s.delayInitialReconnect(pubStr)
+			go s.pcm.delayInitialReconnect(pubStr)
 		}
 
 		numOutboundConns++
@@ -3352,12 +3357,12 @@ func (s *server) establishPersistentConnections() error {
 // sampling a value for the delay between 0s and the maxInitReconnectDelay.
 //
 // NOTE: This method MUST be run as a goroutine.
-func (s *server) delayInitialReconnect(pubStr string) {
+func (p *PeerConnManager) delayInitialReconnect(pubStr string) {
 	delay := time.Duration(prand.Intn(maxInitReconnectDelay)) * time.Second
 	select {
 	case <-time.After(delay):
-		s.pcm.connectToPersistentPeer(pubStr)
-	case <-s.quit:
+		p.connectToPersistentPeer(pubStr)
+	case <-p.quit:
 	}
 }
 
@@ -3789,7 +3794,7 @@ func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
 		// not of the same type of the new connection (outbound), then
 		// we'll close out the new connection s.t there's only a single
 		// connection between us.
-		localPub := p.PubKey
+		localPub := p.IdentityECDH.PubKey()
 		if connectedPeer.Inbound() &&
 			shouldDropLocalConnection(localPub, nodePub) {
 
@@ -4012,7 +4017,8 @@ func (p *PeerConnManager) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	pCfg.Quit = p.quit
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())
-	copy(pCfg.ServerPubKey[:], p.PubKey.SerializeCompressed())
+	selfPub := p.IdentityECDH.PubKey().SerializeCompressed()
+	copy(pCfg.ServerPubKey[:], selfPub)
 
 	peer := peer.NewBrontide(pCfg)
 
@@ -4545,7 +4551,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 	// the crypto negotiation breaks down, then return an error to the
 	// caller.
 	errChan := make(chan error, 1)
-	s.connectToPeer(addr, errChan, timeout)
+	s.pcm.connectToPeer(addr, errChan, timeout)
 
 	select {
 	case err := <-errChan:
@@ -4558,17 +4564,17 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 // connectToPeer establishes a connection to a remote peer. errChan is used to
 // notify the caller if the connection attempt has failed. Otherwise, it will be
 // closed.
-func (s *server) connectToPeer(addr *lnwire.NetAddress,
+func (p *PeerConnManager) connectToPeer(addr *lnwire.NetAddress,
 	errChan chan<- error, timeout time.Duration) {
 
 	conn, err := brontide.Dial(
-		s.identityECDH, addr, timeout, s.cfg.net.Dial,
+		p.IdentityECDH, addr, timeout, p.Config.Dial,
 	)
 	if err != nil {
 		srvrLog.Errorf("Unable to connect to %v: %v", addr, err)
 		select {
 		case errChan <- err:
-		case <-s.quit:
+		case <-p.quit:
 		}
 		return
 	}
@@ -4578,7 +4584,7 @@ func (s *server) connectToPeer(addr *lnwire.NetAddress,
 	srvrLog.Tracef("Brontide dialer made local=%v, remote=%v",
 		conn.LocalAddr(), conn.RemoteAddr())
 
-	s.pcm.OutboundPeerConnected(nil, conn)
+	p.OutboundPeerConnected(nil, conn)
 }
 
 // DisconnectPeer sends the request to server to close the connection with peer

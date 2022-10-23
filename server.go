@@ -151,8 +151,17 @@ type PeerConnManagerConfig struct {
 	// the daemon.
 	FeatureMgr *feature.Manager
 
-	// Dial connects to the address on the named network. It cannot be nil.
-	Dial tor.DialFunc
+	// Net is the named network specified during the startup of lnd.
+	Net tor.Net
+
+	// TorActive specifies whether we are using tor.
+	TorActive bool
+
+	// StaggerInitialReconnect specify whether we will apply a randomized
+	// staggering between 0s and 30s when reconnecting to persistent peers
+	// on startup. The first 10 reconnections will be attempted instantly,
+	// regardless of the flag's value
+	StaggerInitialReconnect bool
 }
 
 // PeerConnManager is responsible for managing peer connections.
@@ -1769,7 +1778,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// incoming connections
 	cmgr, err := connmgr.New(&connmgr.Config{
 		Listeners:      listeners,
-		OnAccept:       s.InboundPeerConnected,
+		OnAccept:       s.pcm.InboundPeerConnected,
 		RetryDuration:  time.Second * 5,
 		TargetOutbound: 100,
 		Dial: noiseDial(
@@ -1782,9 +1791,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 	s.pcm.connMgr = cmgr
 	s.pcm.Config = &PeerConnManagerConfig{
-		PartialPeerConfig: s.createPartialPeerConfig(),
-		FeatureMgr:        s.featureMgr,
-		Dial:              s.cfg.net.Dial,
+		PartialPeerConfig:       s.createPartialPeerConfig(),
+		FeatureMgr:              s.featureMgr,
+		Net:                     s.cfg.net,
+		TorActive:               s.cfg.Tor.Active,
+		StaggerInitialReconnect: s.cfg.StaggerInitialReconnect,
 	}
 
 	return s, nil
@@ -2237,7 +2248,7 @@ func (s *server) Start() error {
 				ChainNet:    s.cfg.ActiveNetParams.Net,
 			}
 
-			err = s.ConnectToPeer(
+			err = s.pcm.ConnectToPeer(
 				peerAddr, true,
 				s.cfg.ConnectionTimeout,
 			)
@@ -2266,7 +2277,7 @@ func (s *server) Start() error {
 			startErr = err
 			return
 		}
-		if err := s.establishPersistentConnections(); err != nil {
+		if err := s.pcm.EstablishPersistentConnections(); err != nil {
 			startErr = err
 			return
 		}
@@ -3178,11 +3189,11 @@ type nodeAddresses struct {
 	addresses []net.Addr
 }
 
-// establishPersistentConnections attempts to establish persistent connections
+// EstablishPersistentConnections attempts to establish persistent connections
 // to all our direct channel collaborators. In order to promote liveness of our
 // active channels, we instruct the connection manager to attempt to establish
 // and maintain persistent connections to all our direct channel counterparties.
-func (s *server) establishPersistentConnections() error {
+func (p *PeerConnManager) EstablishPersistentConnections() error {
 	// nodeAddrsMap stores the combination of node public keys and addresses
 	// that we'll attempt to reconnect to. PubKey strings are used as keys
 	// since other PubKey forms can't be compared.
@@ -3191,7 +3202,8 @@ func (s *server) establishPersistentConnections() error {
 	// Iterate through the list of LinkNodes to find addresses we should
 	// attempt to connect to based on our set of previous connections. Set
 	// the reconnection port to the default peer port.
-	linkNodes, err := s.chanStateDB.LinkNodeDB().FetchAllLinkNodes()
+	linkNodes, err := p.Config.PartialPeerConfig.ChannelDB.LinkNodeDB().
+		FetchAllLinkNodes()
 	if err != nil && err != channeldb.ErrLinkNodesNotFound {
 		return err
 	}
@@ -3207,14 +3219,14 @@ func (s *server) establishPersistentConnections() error {
 	// After checking our previous connections for addresses to connect to,
 	// iterate through the nodes in our channel graph to find addresses
 	// that have been added via NodeAnnouncement messages.
-	sourceNode, err := s.graphDB.SourceNode()
+	sourceNode, err := p.graphDB.SourceNode()
 	if err != nil {
 		return err
 	}
 
 	// TODO(roasbeef): instead iterate over link nodes and query graph for
 	// each of the nodes.
-	selfPub := s.identityECDH.PubKey().SerializeCompressed()
+	selfPub := p.IdentityECDH.PubKey().SerializeCompressed()
 	err = sourceNode.ForEachChannel(nil, func(
 		tx kvdb.RTx,
 		chanInfo *channeldb.ChannelEdgeInfo,
@@ -3251,7 +3263,7 @@ func (s *server) establishPersistentConnections() error {
 			// We'll only attempt to connect to Tor addresses if Tor
 			// outbound support is enabled.
 			case *tor.OnionAddr:
-				if s.cfg.Tor.Active {
+				if p.Config.TorActive {
 					addrSet[addr.String()] = addr
 				}
 			}
@@ -3269,7 +3281,7 @@ func (s *server) establishPersistentConnections() error {
 				// We'll only attempt to connect to Tor
 				// addresses if Tor outbound support is enabled.
 				case *tor.OnionAddr:
-					if s.cfg.Tor.Active {
+					if p.Config.TorActive {
 						addrSet[lnAddress.String()] = lnAddress
 					}
 				}
@@ -3302,8 +3314,8 @@ func (s *server) establishPersistentConnections() error {
 
 	// Acquire and hold server lock until all persistent connection requests
 	// have been recorded and sent to the connection manager.
-	s.pcm.mu.Lock()
-	defer s.pcm.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	// Iterate through the combined list of addresses from prior links and
 	// node announcements and attempt to reconnect to each node.
@@ -3314,9 +3326,9 @@ func (s *server) establishPersistentConnections() error {
 		// indicate that we should not continue to reconnect if the
 		// number of channels returns to zero, since this peer has not
 		// been requested as perm by the user.
-		s.pcm.persistentPeers[pubStr] = false
-		if _, ok := s.pcm.persistentPeersBackoff[pubStr]; !ok {
-			s.pcm.persistentPeersBackoff[pubStr] = s.cfg.MinBackoff
+		p.persistentPeers[pubStr] = false
+		if _, ok := p.persistentPeersBackoff[pubStr]; !ok {
+			p.persistentPeersBackoff[pubStr] = p.MinBackoff
 		}
 
 		for _, address := range nodeAddr.addresses {
@@ -3328,8 +3340,8 @@ func (s *server) establishPersistentConnections() error {
 				Address:     address,
 			}
 
-			s.pcm.persistentPeerAddrs[pubStr] = append(
-				s.pcm.persistentPeerAddrs[pubStr], lnAddr)
+			p.persistentPeerAddrs[pubStr] = append(
+				p.persistentPeerAddrs[pubStr], lnAddr)
 		}
 
 		// We'll connect to the first 10 peers immediately, then
@@ -3340,11 +3352,11 @@ func (s *server) establishPersistentConnections() error {
 		// nodes are able to disperse the costs of connecting to
 		// all peers at once.
 		if numOutboundConns < numInstantInitReconnect ||
-			!s.cfg.StaggerInitialReconnect {
+			!p.Config.StaggerInitialReconnect {
 
-			go s.pcm.connectToPersistentPeer(pubStr)
+			go p.connectToPersistentPeer(pubStr)
 		} else {
-			go s.pcm.delayInitialReconnect(pubStr)
+			go p.delayInitialReconnect(pubStr)
 		}
 
 		numOutboundConns++
@@ -4489,7 +4501,7 @@ func (p *PeerConnManager) removePeer(peer *peer.Brontide) {
 // connection is established, or the initial handshake process fails.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
+func (p *PeerConnManager) ConnectToPeer(addr *lnwire.NetAddress,
 	perm bool, timeout time.Duration) error {
 
 	targetPub := string(addr.IdentityKey.SerializeCompressed())
@@ -4498,12 +4510,12 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 	// better granularity.  In certain conditions, this method requires
 	// making an outbound connection to a remote peer, which requires the
 	// lock to be released, and subsequently reacquired.
-	s.pcm.mu.Lock()
+	p.mu.Lock()
 
 	// Ensure we're not already connected to this peer.
-	peer, err := s.pcm.findPeerByPubStr(targetPub)
+	peer, err := p.findPeerByPubStr(targetPub)
 	if err == nil {
-		s.pcm.mu.Unlock()
+		p.mu.Unlock()
 		return &errPeerAlreadyConnected{peer: peer}
 	}
 
@@ -4512,7 +4524,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 	// If there's already a pending connection request for this pubkey,
 	// then we ignore this request to ensure we don't create a redundant
 	// connection.
-	if reqs, ok := s.pcm.persistentConnReqs[targetPub]; ok {
+	if reqs, ok := p.persistentConnReqs[targetPub]; ok {
 		srvrLog.Warnf("Already have %d persistent connection "+
 			"requests for %v, connecting anyway.", len(reqs), addr)
 	}
@@ -4531,32 +4543,32 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 		// the entry to true which will tell the server to continue
 		// reconnecting even if the number of channels with this peer is
 		// zero.
-		s.pcm.persistentPeers[targetPub] = true
-		if _, ok := s.pcm.persistentPeersBackoff[targetPub]; !ok {
-			s.pcm.persistentPeersBackoff[targetPub] = s.cfg.MinBackoff
+		p.persistentPeers[targetPub] = true
+		if _, ok := p.persistentPeersBackoff[targetPub]; !ok {
+			p.persistentPeersBackoff[targetPub] = p.MinBackoff
 		}
-		s.pcm.persistentConnReqs[targetPub] = append(
-			s.pcm.persistentConnReqs[targetPub], connReq,
+		p.persistentConnReqs[targetPub] = append(
+			p.persistentConnReqs[targetPub], connReq,
 		)
-		s.pcm.mu.Unlock()
+		p.mu.Unlock()
 
-		go s.pcm.connMgr.Connect(connReq)
+		go p.connMgr.Connect(connReq)
 
 		return nil
 	}
-	s.pcm.mu.Unlock()
+	p.mu.Unlock()
 
 	// If we're not making a persistent connection, then we'll attempt to
 	// connect to the target peer. If the we can't make the connection, or
 	// the crypto negotiation breaks down, then return an error to the
 	// caller.
 	errChan := make(chan error, 1)
-	s.pcm.connectToPeer(addr, errChan, timeout)
+	p.connectToPeer(addr, errChan, timeout)
 
 	select {
 	case err := <-errChan:
 		return err
-	case <-s.quit:
+	case <-p.quit:
 		return ErrServerShuttingDown
 	}
 }
@@ -4568,7 +4580,7 @@ func (p *PeerConnManager) connectToPeer(addr *lnwire.NetAddress,
 	errChan chan<- error, timeout time.Duration) {
 
 	conn, err := brontide.Dial(
-		p.IdentityECDH, addr, timeout, p.Config.Dial,
+		p.IdentityECDH, addr, timeout, p.Config.Net.Dial,
 	)
 	if err != nil {
 		srvrLog.Errorf("Unable to connect to %v: %v", addr, err)

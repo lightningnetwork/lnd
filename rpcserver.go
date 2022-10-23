@@ -1684,7 +1684,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		)
 	}
 
-	if err := r.server.ConnectToPeer(
+	if err := r.server.pcm.ConnectToPeer(
 		peerAddr, in.Perm, timeout,
 	); err != nil {
 		rpcsLog.Errorf(

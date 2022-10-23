@@ -223,7 +223,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 						"address type %T", addr)
 				}
 
-				err := svr.ConnectToPeer(
+				err := svr.pcm.ConnectToPeer(
 					lnAddr, false, svr.cfg.ConnectionTimeout,
 				)
 				if err != nil {

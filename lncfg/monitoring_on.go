@@ -5,6 +5,8 @@ package lncfg
 
 // Prometheus is the set of configuration data that specifies the listening
 // address of the Prometheus exporter.
+//
+// nolint:lll
 type Prometheus struct {
 	// Listen is the listening address that we should use to allow the main
 	// Prometheus server to scrape our metrics.

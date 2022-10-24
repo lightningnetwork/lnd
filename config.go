@@ -253,6 +253,8 @@ var (
 //
 // See LoadConfig for further details regarding the configuration
 // loading+parsing process.
+//
+// nolint:lll
 type Config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 

@@ -1,6 +1,8 @@
 package lncfg
 
 // AutoPilot holds the configuration options for the daemon's autopilot.
+//
+// nolint:lll
 type AutoPilot struct {
 	Active         bool               `long:"active" description:"If the autopilot agent should be active or not."`
 	Heuristic      map[string]float64 `long:"heuristic" description:"Heuristic to activate, and the weight to give it during scoring."`

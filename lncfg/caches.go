@@ -20,6 +20,8 @@ const (
 )
 
 // Caches holds the configuration for various caches within lnd.
+//
+// nolint:lll
 type Caches struct {
 	// RejectCacheSize is the maximum number of entries stored in lnd's
 	// reject cache, which is used for efficiently rejecting gossip updates.

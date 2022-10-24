@@ -29,21 +29,26 @@ linters-settings:
   govet:
     # Don't report about shadowed variables
     check-shadowing: false
+
   gofmt:
     # simplify code: gofmt with `-s` option, true by default
     simplify: true
+
   tagliatelle:
     case:
       rules:
         json: snake
+
   whitespace:
     multi-func: true
     multi-if: true
+
   gosec:
     excludes:
       - G402 # Look for bad TLS connection settings.
       - G306 # Poor file permissions used when writing to a new file.
-  staticcheck: 
+
+  staticcheck:
     go: "1.18"
     checks: ["-SA1019"]
 
@@ -57,7 +62,7 @@ linters-settings:
     # Checks the number of lines in a function.
     # If lower than 0, disable the check.
     # Default: 60
-    lines: 60 
+    lines: 60
     # Checks the number of statements in a function.
     # Default: 40
     statements: 40
@@ -66,39 +71,88 @@ linters-settings:
 linters:
   enable-all: true
   disable:
-  # Global variables are used in many places throughout the code base.
-  - gochecknoglobals
+    # Global variables are used in many places throughout the code base.
+    - gochecknoglobals
 
-  # We want to allow short variable names.
-  - varnamelen
+    # We want to allow short variable names.
+    - varnamelen
 
-  # We want to allow TODOs.
-  - godox
+    # We want to allow TODOs.
+    - godox
 
-  # Instances of table driven tests that don't pre-allocate shouldn't trigger
-  # the linter.
-  - prealloc
+    # Instances of table driven tests that don't pre-allocate shouldn't trigger
+    # the linter.
+    - prealloc
 
-  # Init functions are used by loggers throughout the codebase.
-  - gochecknoinits
-  
-  # Deprecated linters. See https://golangci-lint.run/usage/linters/.
-  - interfacer
-  - golint
-  - maligned
-  - scopelint
-  - exhaustivestruct
-  - bodyclose
-  - contextcheck
-  - nilerr
-  - noctx
-  - rowserrcheck
-  - sqlclosecheck
-  - structcheck
-  - tparallel
-  - unparam
-  - wastedassign
-  
+    # Init functions are used by loggers throughout the codebase.
+    - gochecknoinits
+
+    # Deprecated linters. See https://golangci-lint.run/usage/linters/.
+    - interfacer
+    - golint
+    - maligned
+    - scopelint
+    - exhaustivestruct
+    - bodyclose
+    - contextcheck
+    - nilerr
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - structcheck
+    - tparallel
+    - unparam
+    - wastedassign
+    - ifshort
+    - varcheck
+    - deadcode
+
+    # Disable gofumpt as it has weird behavior regarding formatting multiple
+    # lines for a function which is in conflict with our contribution
+    # guidelines. See https://github.com/mvdan/gofumpt/issues/235.
+    - gofumpt
+
+    # Disable whitespace linter as it has conflict rules against our
+    # contribution guidelines. See https://github.com/bombsimon/wsl/issues/109.
+    #
+    # TODO(yy): bring it back when the above issue is fixed.
+    - wsl
+
+    # Allow using default empty values.
+    - exhaustruct
+
+    # Allow exiting case select faster by putting everything in default.
+    - exhaustive
+
+    # Allow tests to be put in the same package.
+    - testpackage
+
+    # Don't run the cognitive related linters.
+    - gocognit
+    - gocyclo
+    - maintidx
+    - cyclop
+
+    # Allow customized interfaces to be returned from functions.
+    - ireturn
+
+    # Disable too many blank identifiers check. We won't be able to run this
+    # unless a large refactor has been applied to old code.
+    - dogsled
+
+    # We don't wrap errors.
+    - wrapcheck
+
+    # Allow dynamic errors.
+    - goerr113
+
+    # We use ErrXXX instead.
+    - errname
+
+    # Disable nil check to allow returning multiple nil values.
+    - nilnil
+
+
 issues:
   # Only show newly introduced problems.
   new-from-rev: 8c66353e4c02329abdacb5a8df29998035ec2e24
@@ -110,6 +164,7 @@ issues:
       linters:
         - gosec
         - funlen
+
     - path: test*
       linters:
         - gosec
@@ -146,7 +201,6 @@ issues:
     - path: lntest/itest/.*
       linters:
         - unused
-        - deadcode
         - unparam
         - govet
         # itest case can be very long so we disable long function check.

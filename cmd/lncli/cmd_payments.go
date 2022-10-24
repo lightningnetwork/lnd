@@ -803,9 +803,12 @@ func formatPayment(ctxc context.Context, payment *lnrpc.Payment,
 }
 
 var payInvoiceCommand = cli.Command{
-	Name:      "payinvoice",
-	Category:  "Payments",
-	Usage:     "Pay an invoice over lightning.",
+	Name:     "payinvoice",
+	Category: "Payments",
+	Usage:    "Pay an invoice over lightning.",
+	Description: `
+	This command is a shortcut for 'sendpayment --pay_req='.
+	`,
 	ArgsUsage: "pay_req",
 	Flags: append(paymentFlags(),
 		cli.Int64Flag{

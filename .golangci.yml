@@ -61,11 +61,22 @@ linters-settings:
   funlen:
     # Checks the number of lines in a function.
     # If lower than 0, disable the check.
-    # Default: 60
-    lines: 60
+    lines: 200
     # Checks the number of statements in a function.
-    # Default: 40
-    statements: 40
+    statements: 80
+
+  dupl:
+    # Tokens count to trigger issue.
+    threshold: 200
+
+  nestif:
+    # Minimal complexity of if statements to report.
+    min-complexity: 10
+
+  nlreturn:
+    # Size of the block (including return statement that is still "OK")
+    # so no return split required.
+    block-size: 3
 
 
 linters:

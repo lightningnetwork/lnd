@@ -5762,30 +5762,30 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 	}
 
 	if c1 != nil {
-		edge.Node1Policy = &lnrpc.RoutingPolicy{
-			TimeLockDelta:    uint32(c1.TimeLockDelta),
-			MinHtlc:          int64(c1.MinHTLC),
-			MaxHtlcMsat:      uint64(c1.MaxHTLC),
-			FeeBaseMsat:      int64(c1.FeeBaseMSat),
-			FeeRateMilliMsat: int64(c1.FeeProportionalMillionths),
-			Disabled:         c1.ChannelFlags&lnwire.ChanUpdateDisabled != 0,
-			LastUpdate:       uint32(c1.LastUpdate.Unix()),
-		}
+		edge.Node1Policy = marshalDBRoutingPolicy(c1)
 	}
 
 	if c2 != nil {
-		edge.Node2Policy = &lnrpc.RoutingPolicy{
-			TimeLockDelta:    uint32(c2.TimeLockDelta),
-			MinHtlc:          int64(c2.MinHTLC),
-			MaxHtlcMsat:      uint64(c2.MaxHTLC),
-			FeeBaseMsat:      int64(c2.FeeBaseMSat),
-			FeeRateMilliMsat: int64(c2.FeeProportionalMillionths),
-			Disabled:         c2.ChannelFlags&lnwire.ChanUpdateDisabled != 0,
-			LastUpdate:       uint32(c2.LastUpdate.Unix()),
-		}
+		edge.Node2Policy = marshalDBRoutingPolicy(c2)
 	}
 
 	return edge
+}
+
+func marshalDBRoutingPolicy(
+	policy *channeldb.ChannelEdgePolicy) *lnrpc.RoutingPolicy {
+
+	disabled := policy.ChannelFlags&lnwire.ChanUpdateDisabled != 0
+
+	return &lnrpc.RoutingPolicy{
+		TimeLockDelta:    uint32(policy.TimeLockDelta),
+		MinHtlc:          int64(policy.MinHTLC),
+		MaxHtlcMsat:      uint64(policy.MaxHTLC),
+		FeeBaseMsat:      int64(policy.FeeBaseMSat),
+		FeeRateMilliMsat: int64(policy.FeeProportionalMillionths),
+		Disabled:         disabled,
+		LastUpdate:       uint32(policy.LastUpdate.Unix()),
+	}
 }
 
 // GetNodeMetrics returns all available node metrics calculated from the

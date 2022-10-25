@@ -814,8 +814,10 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest,
 	}
 
 	// We'll now mine enough blocks for the HTLC to expire. After this, Bob
-	// should hand off the now expired HTLC output to the utxo nursery.
-	numBlocks := padCLTV(finalCltvDelta)
+	// should hand off the now expired HTLC output to the utxo nursery. We
+	// mine finalCltvDelta-1 blocks here as we've already mined 1 block
+	// while confirming the closing tx.
+	numBlocks := padCLTV(finalCltvDelta - 1)
 	if c != lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
 		// Subtract the number of blocks already mined to confirm Bob's
 		// commit sweep.
@@ -838,7 +840,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntemp.HarnessTest,
 
 	// With the second layer timeout transaction confirmed, Bob should have
 	// canceled backwards the HTLC that carol sent.
-	ht.AssertNumActiveHtlcs(alice, 0)
+	ht.AssertNumActiveHtlcs(bob, 0)
 
 	// Additionally, Bob should now show that HTLC as being advanced to the
 	// second stage.

@@ -14,6 +14,8 @@ import (
 
 // UpdateChanStatus makes a UpdateChanStatus RPC call to node's RouterClient
 // and asserts.
+//
+//nolint:lll
 func (h *HarnessRPC) UpdateChanStatus(
 	req *routerrpc.UpdateChanStatusRequest) *routerrpc.UpdateChanStatusResponse {
 

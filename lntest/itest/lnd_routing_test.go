@@ -901,73 +901,86 @@ func testQueryRoutes(ht *lntemp.HarnessTest) {
 	for i, route := range routesRes.Routes {
 		expectedTotalFeesMSat :=
 			lnwire.MilliSatoshi(len(route.Hops)-1) * feePerHopMSat
-		expectedTotalAmtMSat := (paymentAmt * mSat) + expectedTotalFeesMSat
 
-		if route.TotalFees != route.TotalFeesMsat/mSat { // nolint:staticcheck
+		expectedTotalAmtMSat :=
+			(paymentAmt * mSat) + expectedTotalFeesMSat
+
+		if route.TotalFees != route.TotalFeesMsat/mSat {
 			ht.Fatalf("route %v: total fees %v (msat) does not "+
 				"round down to %v (sat)",
-				i, route.TotalFeesMsat, route.TotalFees) // nolint:staticcheck
+				i, route.TotalFeesMsat, route.TotalFees)
 		}
 		if route.TotalFeesMsat != int64(expectedTotalFeesMSat) {
-			ht.Fatalf("route %v: total fees in msat expected %v got %v",
-				i, expectedTotalFeesMSat, route.TotalFeesMsat)
+			ht.Fatalf("route %v: total fees in msat expected %v "+
+				"got %v", i, expectedTotalFeesMSat,
+				route.TotalFeesMsat)
 		}
 
-		if route.TotalAmt != route.TotalAmtMsat/mSat { // nolint:staticcheck
+		if route.TotalAmt != route.TotalAmtMsat/mSat {
 			ht.Fatalf("route %v: total amt %v (msat) does not "+
 				"round down to %v (sat)",
-				i, route.TotalAmtMsat, route.TotalAmt) // nolint:staticcheck
+				i, route.TotalAmtMsat, route.TotalAmt)
 		}
 		if route.TotalAmtMsat != int64(expectedTotalAmtMSat) {
-			ht.Fatalf("route %v: total amt in msat expected %v got %v",
-				i, expectedTotalAmtMSat, route.TotalAmtMsat)
+			ht.Fatalf("route %v: total amt in msat expected %v "+
+				"got %v", i, expectedTotalAmtMSat,
+				route.TotalAmtMsat)
 		}
 
-		// For all hops except the last, we check that fee equals feePerHop
-		// and amount to forward deducts feePerHop on each hop.
+		// For all hops except the last, we check that fee equals
+		// feePerHop and amount to forward deducts feePerHop on each
+		// hop.
 		expectedAmtToForwardMSat := expectedTotalAmtMSat
 		for j, hop := range route.Hops[:len(route.Hops)-1] {
 			expectedAmtToForwardMSat -= feePerHopMSat
 
-			if hop.Fee != hop.FeeMsat/mSat { // nolint:staticcheck
-				ht.Fatalf("route %v hop %v: fee %v (msat) does not "+
-					"round down to %v (sat)",
-					i, j, hop.FeeMsat, hop.Fee) // nolint:staticcheck
+			if hop.Fee != hop.FeeMsat/mSat {
+				ht.Fatalf("route %v hop %v: fee %v (msat) "+
+					"does not round down to %v (sat)",
+					i, j, hop.FeeMsat, hop.Fee)
 			}
 			if hop.FeeMsat != int64(feePerHopMSat) {
-				ht.Fatalf("route %v hop %v: fee in msat expected %v got %v",
+				ht.Fatalf("route %v hop %v: fee in msat "+
+					"expected %v got %v",
 					i, j, feePerHopMSat, hop.FeeMsat)
 			}
 
-			if hop.AmtToForward != hop.AmtToForwardMsat/mSat { // nolint:staticcheck
-				ht.Fatalf("route %v hop %v: amt to forward %v (msat) does not "+
-					"round down to %v (sat)",
-					i, j, hop.AmtToForwardMsat, hop.AmtToForward) // nolint:staticcheck
+			if hop.AmtToForward != hop.AmtToForwardMsat/mSat {
+				ht.Fatalf("route %v hop %v: amt to forward %v"+
+					"(msat) does not round down to %v(sat)",
+					i, j, hop.AmtToForwardMsat,
+					hop.AmtToForward)
 			}
-			if hop.AmtToForwardMsat != int64(expectedAmtToForwardMSat) {
-				ht.Fatalf("route %v hop %v: amt to forward in msat "+
-					"expected %v got %v",
-					i, j, expectedAmtToForwardMSat, hop.AmtToForwardMsat)
+			if hop.AmtToForwardMsat !=
+				int64(expectedAmtToForwardMSat) {
+
+				ht.Fatalf("route %v hop %v: amt to forward "+
+					"in msat expected %v got %v",
+					i, j, expectedAmtToForwardMSat,
+					hop.AmtToForwardMsat)
 			}
 		}
-		// Last hop should have zero fee and amount to forward should equal
-		// payment amount.
+
+		// Last hop should have zero fee and amount to forward should
+		// equal payment amount.
 		hop := route.Hops[len(route.Hops)-1]
 
-		if hop.Fee != 0 || hop.FeeMsat != 0 { // nolint:staticcheck
-			ht.Fatalf("route %v hop %v: fee expected 0 got %v (sat) %v (msat)",
-				i, len(route.Hops)-1, hop.Fee, hop.FeeMsat) // nolint:staticcheck
+		if hop.Fee != 0 || hop.FeeMsat != 0 {
+			ht.Fatalf("route %v hop %v: fee expected 0 got %v "+
+				"(sat) %v (msat)", i, len(route.Hops)-1,
+				hop.Fee, hop.FeeMsat)
 		}
 
-		if hop.AmtToForward != hop.AmtToForwardMsat/mSat { // nolint:staticcheck
-			ht.Fatalf("route %v hop %v: amt to forward %v (msat) does not "+
-				"round down to %v (sat)",
-				i, len(route.Hops)-1, hop.AmtToForwardMsat, hop.AmtToForward) // nolint:staticcheck
+		if hop.AmtToForward != hop.AmtToForwardMsat/mSat {
+			ht.Fatalf("route %v hop %v: amt to forward %v (msat) "+
+				"does not round down to %v (sat)", i,
+				len(route.Hops)-1, hop.AmtToForwardMsat,
+				hop.AmtToForward)
 		}
 		if hop.AmtToForwardMsat != paymentAmt*mSat {
 			ht.Fatalf("route %v hop %v: amt to forward in msat "+
-				"expected %v got %v",
-				i, len(route.Hops)-1, paymentAmt*mSat, hop.AmtToForwardMsat)
+				"expected %v got %v", i, len(route.Hops)-1,
+				paymentAmt*mSat, hop.AmtToForwardMsat)
 		}
 	}
 

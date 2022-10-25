@@ -6892,7 +6892,7 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			AmtOutMsat:  uint64(amtOutMsat),
 		}
 
-		if !req.SkipPeerAliasLookup {
+		if req.PeerAliasLookup {
 			aliasIn, err := getRemoteAlias(event.IncomingChanID)
 			if err != nil {
 				return nil, fmt.Errorf("unable to lookup peer "+

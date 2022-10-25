@@ -1371,12 +1371,16 @@ func forwardingHistory(ctx *cli.Context) error {
 		maxEvents = uint32(m)
 	}
 
+	// By default we will look up the peers' alias information unless the
+	// skip_peer_alias_lookup flag is specified.
+	lookupPeerAlias := !ctx.Bool("skip_peer_alias_lookup")
+
 	req := &lnrpc.ForwardingHistoryRequest{
-		StartTime:           startTime,
-		EndTime:             endTime,
-		IndexOffset:         indexOffset,
-		NumMaxEvents:        maxEvents,
-		SkipPeerAliasLookup: ctx.Bool("skip_peer_alias_lookup"),
+		StartTime:       startTime,
+		EndTime:         endTime,
+		IndexOffset:     indexOffset,
+		NumMaxEvents:    maxEvents,
+		PeerAliasLookup: lookupPeerAlias,
 	}
 	resp, err := client.ForwardingHistory(ctxc, req)
 	if err != nil {

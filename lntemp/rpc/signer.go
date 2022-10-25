@@ -32,6 +32,7 @@ func (h *HarnessRPC) DeriveSharedKeyErr(req *signrpc.SharedKeyRequest) error {
 
 	_, err := h.Signer.DeriveSharedKey(ctxt, req)
 	require.Error(h, err, "expected error from calling DeriveSharedKey")
+
 	return err
 }
 
@@ -72,6 +73,8 @@ func (h *HarnessRPC) MuSig2CreateSession(
 }
 
 // MuSig2CombineKeys makes a RPC call to the node's SignerClient and asserts.
+//
+//nolint:lll
 func (h *HarnessRPC) MuSig2CombineKeys(
 	req *signrpc.MuSig2CombineKeysRequest) *signrpc.MuSig2CombineKeysResponse {
 
@@ -85,6 +88,8 @@ func (h *HarnessRPC) MuSig2CombineKeys(
 }
 
 // MuSig2RegisterNonces makes a RPC call to the node's SignerClient and asserts.
+//
+//nolint:lll
 func (h *HarnessRPC) MuSig2RegisterNonces(
 	req *signrpc.MuSig2RegisterNoncesRequest) *signrpc.MuSig2RegisterNoncesResponse {
 
@@ -124,12 +129,12 @@ func (h *HarnessRPC) MuSig2SignErr(req *signrpc.MuSig2SignRequest) error {
 
 // MuSig2CombineSig makes a RPC call to the node's SignerClient and asserts.
 func (h *HarnessRPC) MuSig2CombineSig(
-	req *signrpc.MuSig2CombineSigRequest) *signrpc.MuSig2CombineSigResponse {
+	r *signrpc.MuSig2CombineSigRequest) *signrpc.MuSig2CombineSigResponse {
 
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
-	resp, err := h.Signer.MuSig2CombineSig(ctxt, req)
+	resp, err := h.Signer.MuSig2CombineSig(ctxt, r)
 	h.NoError(err, "MuSig2CombineSig")
 
 	return resp

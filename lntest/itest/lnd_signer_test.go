@@ -389,6 +389,7 @@ func runSignVerifyMessage(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
 		resp := alice.RPC.DeriveKey(keyLoc)
 		pub, err := btcec.ParsePubKey(resp.RawKeyBytes)
 		require.NoError(ht, err, "failed to parse node pubkey")
+
 		return pub
 	}
 

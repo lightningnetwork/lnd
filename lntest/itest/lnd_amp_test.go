@@ -80,7 +80,7 @@ func testSendPaymentAMPInvoiceCase(ht *lntemp.HarnessTest,
 	// Ensure we get a notification of the invoice being added by Bob.
 	rpcInvoice := ht.ReceiveInvoiceUpdate(bobInvoiceSubscription)
 
-	require.False(ht, rpcInvoice.Settled) // nolint:staticcheck
+	require.False(ht, rpcInvoice.Settled)
 	require.Equal(ht, lnrpc.Invoice_OPEN, rpcInvoice.State)
 	require.Equal(ht, int64(0), rpcInvoice.AmtPaidSat)
 	require.Equal(ht, int64(0), rpcInvoice.AmtPaidMsat)
@@ -156,7 +156,7 @@ func testSendPaymentAMPInvoiceCase(ht *lntemp.HarnessTest,
 
 	// Assert that the invoice is settled for the total payment amount and
 	// has the correct payment address.
-	require.True(ht, rpcInvoice.Settled) // nolint:staticcheck
+	require.True(ht, rpcInvoice.Settled)
 	require.Equal(ht, lnrpc.Invoice_SETTLED, rpcInvoice.State)
 	require.Equal(ht, int64(paymentAmt), rpcInvoice.AmtPaidSat)
 	require.Equal(ht, int64(paymentAmt*1000), rpcInvoice.AmtPaidMsat)
@@ -232,7 +232,7 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntemp.HarnessTest) {
 
 	// We should get an initial notification that the HTLC has been added.
 	rpcInvoice := ht.ReceiveInvoiceUpdate(invSubscription)
-	require.False(ht, rpcInvoice.Settled) // nolint:staticcheck
+	require.False(ht, rpcInvoice.Settled)
 	require.Equal(ht, lnrpc.Invoice_OPEN, rpcInvoice.State)
 	require.Equal(ht, int64(0), rpcInvoice.AmtPaidSat)
 	require.Equal(ht, int64(0), rpcInvoice.AmtPaidMsat)
@@ -248,7 +248,7 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntemp.HarnessTest) {
 
 	// The notification should signal that the invoice is now settled, and
 	// should also include the set ID, and show the proper amount paid.
-	require.True(ht, invoiceNtfn.Settled) // nolint:staticcheck
+	require.True(ht, invoiceNtfn.Settled)
 	require.Equal(ht, lnrpc.Invoice_SETTLED, invoiceNtfn.State)
 	require.Equal(ht, paymentAmt, int(invoiceNtfn.AmtPaidSat))
 	require.Equal(ht, 1, len(invoiceNtfn.AmpInvoiceState))
@@ -271,7 +271,7 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntemp.HarnessTest) {
 	// The invoice should still be shown as settled, and also include the
 	// information about this newly generated setID, showing 2x the amount
 	// paid.
-	require.True(ht, invoiceNtfn.Settled) // nolint:staticcheck
+	require.True(ht, invoiceNtfn.Settled)
 	require.Equal(ht, paymentAmt*2, int(invoiceNtfn.AmtPaidSat))
 
 	var secondSetID []byte
@@ -347,7 +347,7 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntemp.HarnessTest) {
 	backlogInv := ht.ReceiveInvoiceUpdate(invSub2)
 	require.Equal(ht, 1, len(backlogInv.Htlcs))
 	require.Equal(ht, 2, len(backlogInv.AmpInvoiceState))
-	require.True(ht, backlogInv.Settled) // nolint:staticcheck
+	require.True(ht, backlogInv.Settled)
 	require.Equal(ht, paymentAmt*2, int(backlogInv.AmtPaidSat))
 }
 
@@ -422,7 +422,7 @@ func testSendPaymentAMP(ht *lntemp.HarnessTest) {
 
 	// Assert that the invoice is settled for the total payment amount and
 	// has the correct payment address.
-	require.True(ht, rpcInvoice.Settled) // nolint:staticcheck
+	require.True(ht, rpcInvoice.Settled)
 	require.Equal(ht, lnrpc.Invoice_SETTLED, rpcInvoice.State)
 	require.Equal(ht, int64(paymentAmt), rpcInvoice.AmtPaidSat)
 	require.Equal(ht, int64(paymentAmt*1000), rpcInvoice.AmtPaidMsat)
@@ -561,7 +561,7 @@ func testSendToRouteAMP(ht *lntemp.HarnessTest) {
 	rpcInvoice, err := bobInvoiceSubscription.Recv()
 	require.NoError(ht, err)
 
-	require.False(ht, rpcInvoice.Settled) // nolint:staticcheck
+	require.False(ht, rpcInvoice.Settled)
 	require.Equal(ht, lnrpc.Invoice_OPEN, rpcInvoice.State)
 	require.Equal(ht, int64(0), rpcInvoice.AmtPaidSat)
 	require.Equal(ht, int64(0), rpcInvoice.AmtPaidMsat)
@@ -619,7 +619,7 @@ func testSendToRouteAMP(ht *lntemp.HarnessTest) {
 
 	// Assert that the invoice is settled for the total payment amount and
 	// has the correct payment address.
-	require.True(ht, rpcInvoice.Settled) // nolint:staticcheck
+	require.True(ht, rpcInvoice.Settled)
 	require.Equal(ht, lnrpc.Invoice_SETTLED, rpcInvoice.State)
 	require.Equal(ht, int64(paymentAmt), rpcInvoice.AmtPaidSat)
 	require.Equal(ht, int64(paymentAmt*1000), rpcInvoice.AmtPaidMsat)

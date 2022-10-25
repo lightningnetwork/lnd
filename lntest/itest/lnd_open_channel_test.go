@@ -347,6 +347,7 @@ func runBasicChannelCreationAndUpdates(ht *lntemp.HarnessTest,
 				if i%3 == 0 {
 					continue
 				}
+
 				return fmt.Errorf("expected open or active" +
 					"channel ntfn, got pending open " +
 					"channel ntfn instead")
@@ -355,6 +356,7 @@ func runBasicChannelCreationAndUpdates(ht *lntemp.HarnessTest,
 				if i%3 == 1 {
 					continue
 				}
+
 				return fmt.Errorf("expected pending open or " +
 					"active channel ntfn, got open" +
 					"channel ntfn instead")
@@ -494,8 +496,11 @@ func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
 	// for each channel.
 	switch update := chanUpdate.Channel.(type) {
 	case *lnrpc.ChannelEventUpdate_InactiveChannel:
-		if chanUpdate.Type != lnrpc.ChannelEventUpdate_INACTIVE_CHANNEL {
-			return fmt.Errorf("update type mismatch: expected %v, got %v",
+		if chanUpdate.Type !=
+			lnrpc.ChannelEventUpdate_INACTIVE_CHANNEL {
+
+			return fmt.Errorf("update type mismatch: "+
+				"expected %v, got %v",
 				lnrpc.ChannelEventUpdate_INACTIVE_CHANNEL,
 				chanUpdate.Type)
 		}
@@ -504,7 +509,8 @@ func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
 		if chanUpdate.Type !=
 			lnrpc.ChannelEventUpdate_CLOSED_CHANNEL {
 
-			return fmt.Errorf("update type mismatch: expected %v, got %v",
+			return fmt.Errorf("update type mismatch: "+
+				"expected %v, got %v",
 				lnrpc.ChannelEventUpdate_CLOSED_CHANNEL,
 				chanUpdate.Type)
 		}
@@ -517,14 +523,17 @@ func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
 		}
 
 		if update.ClosedChannel.CloseInitiator != closeInitiator {
-			return fmt.Errorf("expected close intiator: %v, got: %v",
-				closeInitiator,
+			return fmt.Errorf("expected close intiator: %v, "+
+				"got: %v", closeInitiator,
 				update.ClosedChannel.CloseInitiator)
 		}
 
 	case *lnrpc.ChannelEventUpdate_FullyResolvedChannel:
-		if chanUpdate.Type != lnrpc.ChannelEventUpdate_FULLY_RESOLVED_CHANNEL {
-			return fmt.Errorf("update type mismatch: expected %v, got %v",
+		if chanUpdate.Type !=
+			lnrpc.ChannelEventUpdate_FULLY_RESOLVED_CHANNEL {
+
+			return fmt.Errorf("update type mismatch: "+
+				"expected %v, got %v",
 				lnrpc.ChannelEventUpdate_FULLY_RESOLVED_CHANNEL,
 				chanUpdate.Type)
 		}

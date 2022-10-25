@@ -670,7 +670,9 @@ func runSignPsbtSegWitV0P2WKH(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
 
 // runSignPsbtSegWitV0NP2WKH tests that the SignPsbt RPC works correctly for a
 // SegWit v0 np2wkh input.
-func runSignPsbtSegWitV0NP2WKH(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
+func runSignPsbtSegWitV0NP2WKH(ht *lntemp.HarnessTest,
+	alice *node.HarnessNode) {
+
 	// We test that we can sign a PSBT that spends funds from an input that
 	// the wallet doesn't know about. To set up that test case, we first
 	// derive an address manually that the wallet won't be watching on

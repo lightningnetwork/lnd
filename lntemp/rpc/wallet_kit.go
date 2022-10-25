@@ -204,6 +204,8 @@ func (h *HarnessRPC) ImportAccount(
 }
 
 // ImportPublicKey makes a RPC call to the node's WalletKitClient and asserts.
+//
+//nolint:lll
 func (h *HarnessRPC) ImportPublicKey(
 	req *walletrpc.ImportPublicKeyRequest) *walletrpc.ImportPublicKeyResponse {
 
@@ -230,6 +232,8 @@ func (h *HarnessRPC) SignPsbt(
 }
 
 // ImportTapscript makes a RPC call to the node's WalletKitClient and asserts.
+//
+//nolint:lll
 func (h *HarnessRPC) ImportTapscript(
 	req *walletrpc.ImportTapscriptRequest) *walletrpc.ImportTapscriptResponse {
 

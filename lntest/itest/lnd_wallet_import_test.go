@@ -461,12 +461,14 @@ func testWalletImportAccount(ht *lntemp.HarnessTest) {
 		addrType walletrpc.AddressType
 	}{
 		{
-			name:     "standard BIP-0049",
-			addrType: walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH,
+			name: "standard BIP-0049",
+			addrType: walletrpc.
+				AddressType_NESTED_WITNESS_PUBKEY_HASH,
 		},
 		{
-			name:     "lnd BIP-0049 variant",
-			addrType: walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH,
+			name: "lnd BIP-0049 variant",
+			addrType: walletrpc.
+				AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH,
 		},
 		{
 			name:     "standard BIP-0084",
@@ -577,7 +579,8 @@ func runWalletImportAccountScenario(ht *lntemp.HarnessTest,
 	// some assertions we'll make later on.
 	balanceResp := dave.RPC.WalletBalance()
 	require.Contains(ht, balanceResp.AccountBalance, importedAccount)
-	confBalance := balanceResp.AccountBalance[importedAccount].ConfirmedBalance
+	confBalance := balanceResp.AccountBalance[importedAccount].
+		ConfirmedBalance
 
 	// Send coins to Carol's address and confirm them, making sure the
 	// balance updates accordingly.
@@ -588,9 +591,13 @@ func runWalletImportAccountScenario(ht *lntemp.HarnessTest,
 	}
 	alice.RPC.SendCoins(req)
 
-	ht.AssertWalletAccountBalance(dave, importedAccount, confBalance, utxoAmt)
+	ht.AssertWalletAccountBalance(
+		dave, importedAccount, confBalance, utxoAmt,
+	)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
-	ht.AssertWalletAccountBalance(dave, importedAccount, confBalance+utxoAmt, 0)
+	ht.AssertWalletAccountBalance(
+		dave, importedAccount, confBalance+utxoAmt, 0,
+	)
 
 	// Now that we have enough funds, it's time to fund the channel, make a
 	// test payment, and close it. This contains several balance assertions
@@ -610,8 +617,9 @@ func testWalletImportPubKey(ht *lntemp.HarnessTest) {
 		addrType walletrpc.AddressType
 	}{
 		{
-			name:     "BIP-0049",
-			addrType: walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH,
+			name: "BIP-0049",
+			addrType: walletrpc.
+				AddressType_NESTED_WITNESS_PUBKEY_HASH,
 		},
 		{
 			name:     "BIP-0084",
@@ -686,7 +694,9 @@ func testWalletImportPubKeyScenario(ht *lntemp.HarnessTest,
 		require.NoError(ht, err)
 		externalAccountExtKey, err := accountPubKey.Derive(0)
 		require.NoError(ht, err)
-		externalAddrExtKey, err := externalAccountExtKey.Derive(keyIndex)
+		externalAddrExtKey, err := externalAccountExtKey.Derive(
+			keyIndex,
+		)
 		require.NoError(ht, err)
 		externalAddrPubKey, err := externalAddrExtKey.ECPubKey()
 		require.NoError(ht, err)

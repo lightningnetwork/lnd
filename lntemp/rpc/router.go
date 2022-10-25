@@ -160,6 +160,7 @@ func (h *HarnessRPC) BuildRoute(
 
 	resp, err := h.Router.BuildRoute(ctxt, req)
 	h.NoError(err, "BuildRoute")
+
 	return resp
 }
 

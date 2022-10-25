@@ -363,6 +363,7 @@ func newInterceptorTestScenario(
 
 	ht.EnsureConnected(alice, bob)
 	ht.EnsureConnected(bob, carol)
+
 	return &interceptorTestScenario{
 		ht:    ht,
 		alice: alice,
@@ -377,22 +378,28 @@ func newInterceptorTestScenario(
 // 3. settling htlc externally.
 // 4. held htlc that is resumed later.
 func (c *interceptorTestScenario) prepareTestCases() []*interceptorTestCase {
+	var (
+		actionFail   = routerrpc.ResolveHoldForwardAction_FAIL
+		actionResume = routerrpc.ResolveHoldForwardAction_RESUME
+		actionSettle = routerrpc.ResolveHoldForwardAction_SETTLE
+	)
+
 	cases := []*interceptorTestCase{
 		{
 			amountMsat: 1000, shouldHold: false,
-			interceptorAction: routerrpc.ResolveHoldForwardAction_FAIL,
+			interceptorAction: actionFail,
 		},
 		{
 			amountMsat: 1000, shouldHold: false,
-			interceptorAction: routerrpc.ResolveHoldForwardAction_RESUME,
+			interceptorAction: actionResume,
 		},
 		{
 			amountMsat: 1000, shouldHold: false,
-			interceptorAction: routerrpc.ResolveHoldForwardAction_SETTLE,
+			interceptorAction: actionSettle,
 		},
 		{
 			amountMsat: 1000, shouldHold: true,
-			interceptorAction: routerrpc.ResolveHoldForwardAction_RESUME,
+			interceptorAction: actionResume,
 		},
 	}
 
@@ -432,6 +439,7 @@ func (c *interceptorTestScenario) sendPaymentAndAssertAction(
 		PaymentHash: tc.invoice.RHash,
 		Route:       route,
 	}
+
 	return c.alice.RPC.SendToRouteV2(sendReq)
 }
 
@@ -483,5 +491,6 @@ func (c *interceptorTestScenario) buildRoute(amtMsat int64,
 	}
 
 	routeResp := c.alice.RPC.BuildRoute(req)
+
 	return routeResp.Route
 }

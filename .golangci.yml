@@ -78,6 +78,22 @@ linters-settings:
     # so no return split required.
     block-size: 3
 
+  gomnd:
+    # List of numbers to exclude from analysis.
+    # The numbers should be written as string.
+    # Values always ignored: "1", "1.0", "0" and "0.0"
+    # Default: []
+    ignored-numbers:
+      - '0666'
+      - '0755'
+
+    # List of function patterns to exclude from analysis.
+    # Values always ignored: `time.Date`
+    # Default: []
+    ignored-functions:
+      - 'math.*'
+      - 'strconv.ParseInt'
+
 
 linters:
   enable-all: true

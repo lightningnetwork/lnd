@@ -554,8 +554,8 @@ func channelForceClosureTest(ht *lntemp.HarnessTest,
 	// the commitment transaction which was broadcast on-chain.
 	sweepTx := ht.Miner.GetRawTransaction(sweepingTXID)
 	for _, txIn := range sweepTx.MsgTx().TxIn {
-		require.Equal(ht, &txIn.PreviousOutPoint.Hash,
-			closingTxID, "sweep transaction not spending from commit")
+		require.Equal(ht, &txIn.PreviousOutPoint.Hash, closingTxID,
+			"sweep transaction not spending from commit")
 	}
 
 	// We expect a resolution which spends our commit output.

@@ -1439,7 +1439,7 @@ func testMultiHopHtlcRemoteChainClaim(ht *lntemp.HarnessTest,
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.
 	numBlocks := padCLTV(uint32(
-		invoiceReq.CltvExpiry - lncfg.DefaultIncomingBroadcastDelta,
+		invoiceReq.CltvExpiry - lncfg.DefaultIncomingBroadcastDelta - 1,
 	))
 	if c != lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
 		numBlocks -= defaultCSV
@@ -1836,11 +1836,13 @@ func testMultiHopHtlcAggregation(ht *lntemp.HarnessTest,
 			prevOp := tx.TxIn[i].PreviousOutPoint
 			if _, ok := successOuts[prevOp]; ok {
 				successTxs = append(successTxs, &txid)
+
 				break
 			}
 
 			if _, ok := timeoutOuts[prevOp]; ok {
 				timeoutTxs = append(timeoutTxs, &txid)
+
 				break
 			}
 		}

@@ -541,6 +541,8 @@ func parseDerivationPath(path string) ([]uint32, error) {
 // should be run in a goroutine and is used to test nodes with the zero-conf
 // feature bit.
 func acceptChannel(t *testing.T, zeroConf bool, stream rpc.AcceptorClient) {
+	t.Helper()
+
 	req, err := stream.Recv()
 	require.NoError(t, err)
 

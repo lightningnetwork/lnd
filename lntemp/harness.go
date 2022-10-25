@@ -27,6 +27,14 @@ const (
 	// defaultMinerFeeRate specifies the fee rate in sats when sending
 	// outputs from the miner.
 	defaultMinerFeeRate = 7500
+
+	// numBlocksSendOutput specifies the number of blocks to mine after
+	// sending outputs from the miner.
+	numBlocksSendOutput = 2
+
+	// numBlocksOpenChannel specifies the number of blocks mined when
+	// opening a channel.
+	numBlocksOpenChannel = 6
 )
 
 // TestCase defines a test case that's been used in the integration test.
@@ -188,13 +196,13 @@ func (h *HarnessTest) SetupStandbyNodes() {
 				PkScript: addrScript,
 				Value:    10 * btcutil.SatoshiPerBitcoin,
 			}
-			h.Miner.SendOutput(output, 7500)
+			h.Miner.SendOutput(output, defaultMinerFeeRate)
 		}
 	}
 
 	// We generate several blocks in order to give the outputs created
 	// above a good number of confirmations.
-	h.MineBlocks(2)
+	h.MineBlocks(numBlocksSendOutput)
 
 	// Now we want to wait for the nodes to catch up.
 	h.WaitForBlockchainSync(h.Alice)
@@ -280,6 +288,8 @@ func (h *HarnessTest) resetStandbyNodes(t *testing.T) {
 // which resets  all the standby nodes' configs back to its original state and
 // create snapshots of each nodes' internal state.
 func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
+	t.Helper()
+
 	st := &HarnessTest{
 		T:            t,
 		manager:      h.manager,
@@ -440,6 +450,7 @@ func (h *HarnessTest) Shutdown(node *node.HarnessNode) {
 	err := wait.NoError(func() error {
 		return h.manager.shutdownNode(node)
 	}, DefaultTimeout)
+
 	require.NoErrorf(h, err, "unable to shutdown %v", node.Name())
 }
 
@@ -749,7 +760,7 @@ func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
 	// channel has been opened. The funding transaction should be found
 	// within the first newly mined block. We mine 6 blocks so that in the
 	// case that the channel is public, it is announced to the network.
-	block := h.MineBlocksAndAssertNumTxes(6, 1)[0]
+	block := h.MineBlocksAndAssertNumTxes(numBlocksOpenChannel, 1)[0]
 
 	// Wait for the channel open event.
 	fundingChanPoint := h.WaitForChannelOpenEvent(chanOpenUpdate)

@@ -500,7 +500,7 @@ func (hn *HarnessNode) waitTillServerState(
 func (hn *HarnessNode) initLightningClient() error {
 	// Wait until the server is fully started.
 	if err := hn.WaitUntilServerActive(); err != nil {
-		return fmt.Errorf("waiting for server active: %v", err)
+		return fmt.Errorf("waiting for server active: %w", err)
 	}
 
 	// Set the harness node's pubkey to what the node claims in GetInfo.

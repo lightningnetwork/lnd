@@ -325,6 +325,7 @@ func (h *HarnessTest) ReceiveCloseChannelUpdate(
 	case <-time.After(DefaultTimeout):
 		require.Fail(h, "timeout", "timeout waiting for close channel "+
 			"update sent")
+
 		return nil, nil
 
 	case err := <-errChan:

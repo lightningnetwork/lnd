@@ -71,6 +71,7 @@ import (
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/watchtower"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/tv42/zbase32"
@@ -5716,6 +5717,30 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	return resp, nil
 }
 
+// marshalExtraOpaqueData marshals the given tlv data. If the tlv stream is
+// malformed or empty, an empty map is returned. This makes the method safe to
+// use on unvalidated data.
+func marshalExtraOpaqueData(data []byte) map[uint64][]byte {
+	r := bytes.NewReader(data)
+
+	tlvStream, err := tlv.NewStream()
+	if err != nil {
+		return nil
+	}
+
+	parsedTypes, err := tlvStream.DecodeWithParsedTypes(r)
+	if err != nil || len(parsedTypes) == 0 {
+		return nil
+	}
+
+	records := make(map[uint64][]byte)
+	for k, v := range parsedTypes {
+		records[uint64(k)] = v
+	}
+
+	return records
+}
+
 func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 	c1, c2 *channeldb.ChannelEdgePolicy) *lnrpc.ChannelEdge {
 
@@ -5735,14 +5760,17 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 		lastUpdate = c2.LastUpdate.Unix()
 	}
 
+	customRecords := marshalExtraOpaqueData(edgeInfo.ExtraOpaqueData)
+
 	edge := &lnrpc.ChannelEdge{
 		ChannelId: edgeInfo.ChannelID,
 		ChanPoint: edgeInfo.ChannelPoint.String(),
 		// TODO(roasbeef): update should be on edge info itself
-		LastUpdate: uint32(lastUpdate),
-		Node1Pub:   hex.EncodeToString(edgeInfo.NodeKey1Bytes[:]),
-		Node2Pub:   hex.EncodeToString(edgeInfo.NodeKey2Bytes[:]),
-		Capacity:   int64(edgeInfo.Capacity),
+		LastUpdate:    uint32(lastUpdate),
+		Node1Pub:      hex.EncodeToString(edgeInfo.NodeKey1Bytes[:]),
+		Node2Pub:      hex.EncodeToString(edgeInfo.NodeKey2Bytes[:]),
+		Capacity:      int64(edgeInfo.Capacity),
+		CustomRecords: customRecords,
 	}
 
 	if c1 != nil {
@@ -5761,6 +5789,8 @@ func marshalDBRoutingPolicy(
 
 	disabled := policy.ChannelFlags&lnwire.ChanUpdateDisabled != 0
 
+	customRecords := marshalExtraOpaqueData(policy.ExtraOpaqueData)
+
 	return &lnrpc.RoutingPolicy{
 		TimeLockDelta:    uint32(policy.TimeLockDelta),
 		MinHtlc:          int64(policy.MinHTLC),
@@ -5769,6 +5799,7 @@ func marshalDBRoutingPolicy(
 		FeeRateMilliMsat: int64(policy.FeeProportionalMillionths),
 		Disabled:         disabled,
 		LastUpdate:       uint32(policy.LastUpdate.Unix()),
+		CustomRecords:    customRecords,
 	}
 }
 
@@ -5931,13 +5962,16 @@ func marshalNode(node *channeldb.LightningNode) *lnrpc.LightningNode {
 
 	features := invoicesrpc.CreateRPCFeatures(node.Features)
 
+	customRecords := marshalExtraOpaqueData(node.ExtraOpaqueData)
+
 	return &lnrpc.LightningNode{
-		LastUpdate: uint32(node.LastUpdate.Unix()),
-		PubKey:     hex.EncodeToString(node.PubKeyBytes[:]),
-		Addresses:  nodeAddrs,
-		Alias:      node.Alias,
-		Color:      routing.EncodeHexColor(node.Color),
-		Features:   features,
+		LastUpdate:    uint32(node.LastUpdate.Unix()),
+		PubKey:        hex.EncodeToString(node.PubKeyBytes[:]),
+		Addresses:     nodeAddrs,
+		Alias:         node.Alias,
+		Color:         routing.EncodeHexColor(node.Color),
+		Features:      features,
+		CustomRecords: customRecords,
 	}
 }
 

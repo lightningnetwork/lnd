@@ -84,6 +84,14 @@
         },
         "node2_policy": {
           "$ref": "#/definitions/lnrpcRoutingPolicy"
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Custom channel announcement tlv records."
         }
       },
       "description": "A fully authenticated channel along with all its unique attributes.\nOnce an authenticated channel announcement has been processed on the network,\nthen an instance of ChannelEdgeInfo encapsulating the channels attributes is\nstored. The other portions relevant to routing policy of a channel are stored\nwithin a ChannelEdgePolicy for each direction of the channel."
@@ -149,6 +157,14 @@
           "additionalProperties": {
             "$ref": "#/definitions/lnrpcFeature"
           }
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Custom node announcement tlv records."
         }
       },
       "description": "An individual vertex/node within the channel graph. A node is\nconnected to other nodes by one or more channel edges emanating from it. As the\ngraph is directed, a node will also have an incoming edge attached to it for\neach outgoing edge."
@@ -193,6 +209,14 @@
         "last_update": {
           "type": "integer",
           "format": "int64"
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Custom channel update tlv records."
         }
       }
     },

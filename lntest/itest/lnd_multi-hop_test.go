@@ -1146,8 +1146,8 @@ func testMultiHopHtlcLocalChainClaim(ht *lntemp.HarnessTest,
 
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.
-	numBlocks := padCLTV(uint32(invoiceReq.CltvExpiry -
-		lncfg.DefaultIncomingBroadcastDelta))
+	numBlocks := padCLTV(uint32(invoiceReq.CltvExpiry-
+		lncfg.DefaultIncomingBroadcastDelta) - 1)
 	ht.MineBlocksAssertNodesSync(numBlocks)
 
 	// Carol's commitment transaction should now be in the mempool. If
@@ -1185,10 +1185,10 @@ func testMultiHopHtlcLocalChainClaim(ht *lntemp.HarnessTest,
 	case lnrpc.CommitmentType_ANCHORS:
 		expectedTxes = 3
 
-	// Carol will broadcast her second level HTLC transaction and anchor
-	// sweep, and Bob will sweep his anchor output. Bob can't sweep his
-	// commitment output yet as it has incurred an additional CLTV due to
-	// being the initiator of a script-enforced leased channel.
+	// Carol will broadcast her second level HTLC transaction, and Bob will
+	// sweep his anchor output. Bob can't sweep his commitment output yet
+	// as it has incurred an additional CLTV due to being the initiator of
+	// a script-enforced leased channel.
 	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
 		expectedTxes = 2
 
@@ -1235,12 +1235,17 @@ func testMultiHopHtlcLocalChainClaim(ht *lntemp.HarnessTest,
 
 	// At this point, Bob should have broadcast his second layer success
 	// transaction, and should have sent it to the nursery for incubation.
-	numPendingChans := 1
-	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		numPendingChans++
-	}
-	ht.AssertNumPendingForceClose(bob, numPendingChans)
 	ht.AssertNumHTLCsAndStage(bob, aliceChanPoint, 1, 1)
+
+	// The channel between Bob and Carol will still be pending force close
+	// if this is a leased channel. In that case, we'd also check the HTLC
+	// stages are correct in that channel.
+	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
+		ht.AssertNumPendingForceClose(bob, 2)
+		ht.AssertNumHTLCsAndStage(bob, bobChanPoint, 1, 1)
+	} else {
+		ht.AssertNumPendingForceClose(bob, 1)
+	}
 
 	// We'll now mine a block which should confirm Bob's second layer
 	// transaction.

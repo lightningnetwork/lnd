@@ -478,6 +478,12 @@ var sufficientHintsTestCases = []struct {
 	currentAmount: 200,
 	targetAmount:  200,
 	done:          true,
+}, {
+	name:          "no amount provided",
+	nHintsLeft:    1,
+	currentAmount: 100,
+	targetAmount:  0,
+	done:          false,
 }}
 
 func TestSufficientHints(t *testing.T) {
@@ -716,6 +722,93 @@ var populateHopHintsTestCases = []struct {
 			{
 				NodeID:    getTestPubKey(),
 				ChannelID: 2,
+			},
+		},
+	},
+}, {
+	name: "consider all the open channels when amount is zero",
+	setupMock: func(h *hopHintsConfigMock) {
+		chanID1, chanID2 := setupMockTwoChannels(h)
+
+		// Prepare the mock for the first channel.
+		h.Mock.On(
+			"IsChannelActive", chanID1,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(
+			&channeldb.ChannelEdgeInfo{},
+			&channeldb.ChannelEdgePolicy{},
+			&channeldb.ChannelEdgePolicy{}, nil,
+		)
+
+		// Prepare the mock for the second channel.
+		h.Mock.On(
+			"IsChannelActive", chanID2,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(
+			&channeldb.ChannelEdgeInfo{},
+			&channeldb.ChannelEdgePolicy{},
+			&channeldb.ChannelEdgePolicy{}, nil,
+		)
+	},
+	maxHopHints: 10,
+	amount:      0,
+	expectedHopHints: [][]zpay32.HopHint{
+		{
+			{
+				NodeID:    getTestPubKey(),
+				ChannelID: 9,
+			},
+		}, {
+			{
+				NodeID:    getTestPubKey(),
+				ChannelID: 2,
+			},
+		},
+	},
+}, {
+	name: "consider all the open channels when amount is zero" +
+		" up to maxHopHints",
+	setupMock: func(h *hopHintsConfigMock) {
+		chanID1, _ := setupMockTwoChannels(h)
+
+		// Prepare the mock for the first channel.
+		h.Mock.On(
+			"IsChannelActive", chanID1,
+		).Once().Return(true)
+
+		h.Mock.On(
+			"IsPublicNode", mock.Anything,
+		).Once().Return(true, nil)
+
+		h.Mock.On(
+			"FetchChannelEdgesByID", mock.Anything,
+		).Once().Return(
+			&channeldb.ChannelEdgeInfo{},
+			&channeldb.ChannelEdgePolicy{},
+			&channeldb.ChannelEdgePolicy{}, nil,
+		)
+	},
+	maxHopHints: 1,
+	amount:      0,
+	expectedHopHints: [][]zpay32.HopHint{
+		{
+			{
+				NodeID:    getTestPubKey(),
+				ChannelID: 9,
 			},
 		},
 	},

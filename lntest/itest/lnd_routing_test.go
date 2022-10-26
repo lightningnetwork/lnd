@@ -1233,6 +1233,15 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	checkInvoiceHints(invoice)
 
+	// Create another invoice for Alice with no value and ensure it still
+	// populates routing hints.
+	invoice = &lnrpc.Invoice{
+		Memo:    "routing hints with no amount",
+		Value:   0,
+		Private: true,
+	}
+	checkInvoiceHints(invoice)
+
 	// Now that we've confirmed the routing hints were added correctly, we
 	// can close all the channels and shut down all the nodes created.
 	closeChannelAndAssert(t, net, net.Alice, chanPointBob, false)

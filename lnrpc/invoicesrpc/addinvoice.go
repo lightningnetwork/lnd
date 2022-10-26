@@ -655,9 +655,9 @@ func newSelectHopHintsCfg(invoicesCfg *AddInvoiceConfig,
 // sufficientHints checks whether we have sufficient hop hints, based on the
 // any of the following criteria:
 //   - Hop hint count: the number of hints have reach our max target.
-//   - Total incoming capacity: the sum of the remote balance amount in the
-//     hints is bigger of equal than our target (currently twice the invoice
-//     amount)
+//   - Total incoming capacity (for non-zero invoice amounts): the sum of the
+//     remote balance amount in the hints is bigger of equal than our target
+//     (currently twice the invoice amount)
 //
 // We limit our number of hop hints like this to keep our invoice size down,
 // and to avoid leaking all our private channels when we don't need to.
@@ -669,7 +669,7 @@ func sufficientHints(nHintsLeft int, currentAmount,
 		return true
 	}
 
-	if currentAmount >= targetAmount {
+	if targetAmount != 0 && currentAmount >= targetAmount {
 		log.Debugf("Total hint amount: %v has reached target hint "+
 			"bandwidth: %v", currentAmount, targetAmount)
 		return true

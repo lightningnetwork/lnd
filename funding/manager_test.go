@@ -774,6 +774,14 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	// Forward the response to Alice.
 	alice.fundingMgr.ProcessFundingMsg(acceptChannelResponse, bob)
 
+	// Check that sending warning messages does not abort the funding
+	// process.
+	warningMsg := &lnwire.Warning{
+		Data: []byte("random warning"),
+	}
+	alice.fundingMgr.ProcessFundingMsg(warningMsg, bob)
+	bob.fundingMgr.ProcessFundingMsg(warningMsg, alice)
+
 	// Alice responds with a FundingCreated message.
 	fundingCreated := assertFundingMsgSent(
 		t, alice.msgChan, "FundingCreated",

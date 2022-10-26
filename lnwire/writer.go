@@ -241,6 +241,11 @@ func WritePongPayload(buf *bytes.Buffer, payload PongPayload) error {
 	return writeDataWithLength(buf, payload)
 }
 
+// WriteWarningData appends the data to the provided buffer.
+func WriteWarningData(buf *bytes.Buffer, data WarningData) error {
+	return writeDataWithLength(buf, data)
+}
+
 // WriteErrorData appends the data to the provided buffer.
 func WriteErrorData(buf *bytes.Buffer, data ErrorData) error {
 	return writeDataWithLength(buf, data)

@@ -1539,7 +1539,7 @@ out:
 
 		case *lnwire.Warning:
 			targetChan = msg.ChanID
-			isLinkUpdate = p.handleError(&msg.Error)
+			isLinkUpdate = p.handleWarning(msg)
 
 		case *lnwire.Error:
 			targetChan = msg.ChanID
@@ -1675,6 +1675,38 @@ func (p *Brontide) storeError(err error) {
 	)
 }
 
+// handleWarning processes a warning message read from the remote peer. The
+// boolean return indicates whether the message should be delivered to a
+// targeted peer or not. The message gets stored in memory as an error if we
+// have open channels with the peer we received it from.
+//
+// NOTE: This method should only be called from within the readHandler.
+func (p *Brontide) handleWarning(msg *lnwire.Warning) bool {
+	switch {
+	// Connection wide messages should be forward the warning to all the
+	// channels with this peer.
+	case msg.ChanID == lnwire.ConnectionWideID:
+		for _, chanStream := range p.activeMsgStreams {
+			chanStream.AddMsg(msg)
+		}
+
+		return false
+
+	// If the channel ID for the warning message corresponds to a pending
+	// channel, then the funding manager will handle the warning.
+	case p.cfg.FundingManager.IsPendingChannel(msg.ChanID, p):
+		p.cfg.FundingManager.ProcessFundingMsg(msg, p)
+		return false
+
+	// If not we hand the warning to the channel link for this channel.
+	case p.isActiveChannel(msg.ChanID):
+		return true
+
+	default:
+		return false
+	}
+}
+
 // handleError processes an error message read from the remote peer. The boolean
 // returns indicates whether the message should be delivered to a targeted peer.
 // It stores the error we received from the peer in memory if we have a channel
@@ -1775,7 +1807,7 @@ func messageSummary(msg lnwire.Message) string {
 			msg.ChanID, msg.ID, msg.FailureCode)
 
 	case *lnwire.Warning:
-		return fmt.Sprintf("%v", msg.Error.Error())
+		return fmt.Sprintf("%v", msg.Warning())
 
 	case *lnwire.Error:
 		return fmt.Sprintf("%v", msg.Error())

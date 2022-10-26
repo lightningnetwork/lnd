@@ -11,4 +11,64 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "update channel status",
 		TestFunc: testUpdateChanStatus,
 	},
+	{
+		Name:     "basic funding flow",
+		TestFunc: testBasicChannelFunding,
+	},
+	{
+		Name:     "multi hop htlc local timeout",
+		TestFunc: testMultiHopHtlcLocalTimeout,
+	},
+	{
+		Name:     "multi hop receiver chain claim",
+		TestFunc: testMultiHopReceiverChainClaim,
+	},
+	{
+		Name:     "multi hop local force close on-chain htlc timeout",
+		TestFunc: testMultiHopLocalForceCloseOnChainHtlcTimeout,
+	},
+	{
+		Name:     "multi hop remote force close on-chain htlc timeout",
+		TestFunc: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
+	},
+	{
+		Name:     "multi hop htlc local chain claim",
+		TestFunc: testMultiHopHtlcLocalChainClaim,
+	},
+	{
+		Name:     "multi hop htlc remote chain claim",
+		TestFunc: testMultiHopHtlcRemoteChainClaim,
+	},
+	{
+		Name:     "multi hop htlc aggregation",
+		TestFunc: testMultiHopHtlcAggregation,
+	},
+	{
+		Name:     "external channel funding",
+		TestFunc: testExternalFundingChanPoint,
+	},
+	{
+		Name:     "channel backup restore basic",
+		TestFunc: testChannelBackupRestoreBasic,
+	},
+	{
+		Name:     "channel backup restore unconfirmed",
+		TestFunc: testChannelBackupRestoreUnconfirmed,
+	},
+	{
+		Name:     "channel backup restore commit types",
+		TestFunc: testChannelBackupRestoreCommitTypes,
+	},
+	{
+		Name:     "channel backup restore force close",
+		TestFunc: testChannelBackupRestoreForceClose,
+	},
+	{
+		Name:     "channel backup restore legacy",
+		TestFunc: testChannelBackupRestoreLegacy,
+	},
+	{
+		Name:     "data loss protection",
+		TestFunc: testDataLossProtection,
+	},
 }

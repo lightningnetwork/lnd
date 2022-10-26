@@ -31,8 +31,7 @@ func TestFoo(t *testing.T) {
 			// Create a separate harness test for the testcase to
 			// avoid overwriting the external harness test that is
 			// tied to the parent test.
-			ht, cleanup := harnessTest.Subtest(st)
-			defer cleanup()
+			ht := harnessTest.Subtest(st)
 
 			// Run the test cases.
 			ht.RunTestCase(tc)

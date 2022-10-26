@@ -5,10 +5,6 @@ package itest
 
 var allTestCases = []*testCase{
 	{
-		name: "test multi-hop htlc",
-		test: testMultiHopHtlcClaims,
-	},
-	{
 		name: "sweep coins",
 		test: testSweepAllCoins,
 	},
@@ -23,10 +19,6 @@ var allTestCases = []*testCase{
 	{
 		name: "onchain fund recovery",
 		test: testOnchainFundRecovery,
-	},
-	{
-		name: "basic funding flow",
-		test: testBasicChannelFunding,
 	},
 	{
 		name: "basic funding flow with all input types",
@@ -228,10 +220,6 @@ var allTestCases = []*testCase{
 		test: testRevokedCloseRetributionAltruistWatchtower,
 	},
 	{
-		name: "data loss protection",
-		test: testDataLossProtection,
-	},
-	{
 		name: "query routes",
 		test: testQueryRoutes,
 	},
@@ -250,10 +238,6 @@ var allTestCases = []*testCase{
 	{
 		name: "export channel backup",
 		test: testExportChannelBackup,
-	},
-	{
-		name: "channel backup restore",
-		test: testChannelBackupRestore,
 	},
 	{
 		name: "hold invoice sender persistence",
@@ -290,10 +274,6 @@ var allTestCases = []*testCase{
 	{
 		name: "immediate payment after channel opened",
 		test: testPaymentFollowingChannelOpen,
-	},
-	{
-		name: "external channel funding",
-		test: testExternalFundingChanPoint,
 	},
 	{
 		name: "psbt channel funding",

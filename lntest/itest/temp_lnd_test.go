@@ -94,9 +94,9 @@ func TestLightningNetworkDaemonTemp(t *testing.T) {
 			// Create a separate harness test for the testcase to
 			// avoid overwriting the external harness test that is
 			// tied to the parent test.
-			ht, cleanup := harnessTest.Subtest(t1)
-			defer cleanup()
+			ht := harnessTest.Subtest(t1)
 
+			// TODO(yy): split log files.
 			cleanTestCaseName := strings.ReplaceAll(
 				testCase.Name, " ", "_",
 			)
@@ -126,10 +126,6 @@ func TestLightningNetworkDaemonTemp(t *testing.T) {
 			break
 		}
 	}
-
-	_, height := harnessTest.Miner.GetBestBlock()
-	t.Logf("=========> tests finished for tranche: %v, tested %d "+
-		"cases, end height: %d\n", trancheIndex, len(testCases), height)
 }
 
 // getTestCaseSplitTranche returns the sub slice of the test cases that should

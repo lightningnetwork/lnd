@@ -65,7 +65,7 @@ func testZeroConfChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxc, cancel := context.WithCancel(ctxb)
 	acceptStream, err := dave.ChannelAcceptor(ctxc)
 	require.NoError(t.t, err)
-	go acceptChannel(t, true, acceptStream)
+	go acceptChannel(t.t, true, acceptStream)
 
 	// Open a private zero-conf anchors channel of 1M satoshis.
 	params := lntest.OpenChannelParams{
@@ -167,7 +167,7 @@ func testZeroConfChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxc, cancel = context.WithCancel(ctxb)
 	acceptStream, err = carol.ChannelAcceptor(ctxc)
 	require.NoError(t.t, err)
-	go acceptChannel(t, true, acceptStream)
+	go acceptChannel(t.t, true, acceptStream)
 
 	// We'll open a public zero-conf anchors channel of 1M satoshis.
 	params.Private = false
@@ -604,7 +604,7 @@ func testPrivateUpdateAlias(net *lntest.NetworkHarness, t *harnessTest,
 	ctxc, cancel := context.WithCancel(ctxb)
 	acceptStream, err := dave.ChannelAcceptor(ctxc)
 	require.NoError(t.t, err)
-	go acceptChannel(t, zeroConf, acceptStream)
+	go acceptChannel(t.t, zeroConf, acceptStream)
 
 	// Open a private channel, optionally specifying a channel-type.
 	params := lntest.OpenChannelParams{

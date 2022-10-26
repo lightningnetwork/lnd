@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -27,6 +28,9 @@ const (
 
 	// minerLogDir is the default log dir for the miner node.
 	minerLogDir = ".minerlogs"
+
+	// slowMineDelay defines a wait period between mining new blocks.
+	slowMineDelay = 100 * time.Millisecond
 )
 
 var harnessNetParams = &chaincfg.RegressionNetParams
@@ -265,4 +269,110 @@ func (h *HarnessMiner) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
 
 	require.NoError(h, err, "timeout checking mempool")
 	return msgTx
+}
+
+// SendOutputsWithoutChange uses the miner to send the given outputs using the
+// specified fee rate and returns the txid.
+func (h *HarnessMiner) SendOutputsWithoutChange(outputs []*wire.TxOut,
+	feeRate btcutil.Amount) *chainhash.Hash {
+
+	txid, err := h.Harness.SendOutputsWithoutChange(
+		outputs, feeRate,
+	)
+	require.NoErrorf(h, err, "failed to send output")
+
+	return txid
+}
+
+// CreateTransaction uses the miner to create a transaction using the given
+// outputs using the specified fee rate and returns the transaction.
+func (h *HarnessMiner) CreateTransaction(outputs []*wire.TxOut,
+	feeRate btcutil.Amount) *wire.MsgTx {
+
+	tx, err := h.Harness.CreateTransaction(outputs, feeRate, false)
+	require.NoErrorf(h, err, "failed to create transaction")
+
+	return tx
+}
+
+// SendOutput creates, signs, and finally broadcasts a transaction spending
+// the harness' available mature coinbase outputs to create the new output.
+func (h *HarnessMiner) SendOutput(newOutput *wire.TxOut,
+	feeRate btcutil.Amount) *chainhash.Hash {
+
+	hash, err := h.Harness.SendOutputs([]*wire.TxOut{newOutput}, feeRate)
+	require.NoErrorf(h, err, "failed to send outputs")
+
+	return hash
+}
+
+// MineBlocksSlow mines 'num' of blocks. Between each mined block an artificial
+// delay is introduced to give all network participants time to catch up.
+func (h *HarnessMiner) MineBlocksSlow(num uint32) []*wire.MsgBlock {
+	blocks := make([]*wire.MsgBlock, num)
+	blockHashes := make([]*chainhash.Hash, 0, num)
+
+	for i := uint32(0); i < num; i++ {
+		generatedHashes := h.GenerateBlocks(1)
+		blockHashes = append(blockHashes, generatedHashes...)
+
+		time.Sleep(slowMineDelay)
+	}
+
+	for i, blockHash := range blockHashes {
+		block, err := h.Client.GetBlock(blockHash)
+		require.NoError(h, err, "get blocks")
+
+		blocks[i] = block
+	}
+
+	return blocks
+}
+
+// AssertOutpointInMempool asserts a given outpoint can be found in the mempool.
+func (h *HarnessMiner) AssertOutpointInMempool(op wire.OutPoint) *wire.MsgTx {
+	var msgTx *wire.MsgTx
+
+	err := wait.NoError(func() error {
+		// We require the RPC call to be succeeded and won't wait for
+		// it as it's an unexpected behavior.
+		mempool := h.GetRawMempool()
+
+		if len(mempool) == 0 {
+			return fmt.Errorf("empty mempool")
+		}
+
+		for _, txid := range mempool {
+			// We require the RPC call to be succeeded and won't
+			// wait for it as it's an unexpected behavior.
+			tx := h.GetRawTransaction(txid)
+
+			msgTx = tx.MsgTx()
+			for _, txIn := range msgTx.TxIn {
+				if txIn.PreviousOutPoint == op {
+					return nil
+				}
+			}
+		}
+
+		return fmt.Errorf("outpoint %v not found in mempool", op)
+	}, lntest.MinerMempoolTimeout)
+
+	require.NoError(h, err, "timeout checking mempool")
+
+	return msgTx
+}
+
+// GetNumTxsFromMempool polls until finding the desired number of transactions
+// in the miner's mempool and returns the full transactions to the caller.
+func (h *HarnessMiner) GetNumTxsFromMempool(n int) []*wire.MsgTx {
+	txids := h.AssertNumTxsInMempool(n)
+
+	var txes []*wire.MsgTx
+	for _, txid := range txids {
+		tx := h.GetRawTransaction(txid)
+		txes = append(txes, tx.MsgTx())
+	}
+
+	return txes
 }

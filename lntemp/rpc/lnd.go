@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/stretchr/testify/require"
 )
 
 // =====================
@@ -213,4 +214,108 @@ func (h *HarnessRPC) CloseChannel(
 	h.NoError(err, "CloseChannel")
 
 	return stream
+}
+
+// FundingStateStep makes a RPC call to FundingStateStep and asserts.
+func (h *HarnessRPC) FundingStateStep(
+	msg *lnrpc.FundingTransitionMsg) *lnrpc.FundingStateStepResp {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.FundingStateStep(ctxt, msg)
+	h.NoError(err, "FundingStateStep")
+
+	return resp
+}
+
+// FundingStateStepAssertErr makes a RPC call to FundingStateStep and asserts
+// there's an error.
+func (h *HarnessRPC) FundingStateStepAssertErr(m *lnrpc.FundingTransitionMsg) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.FundingStateStep(ctxt, m)
+	require.Error(h, err, "expected an error from FundingStateStep")
+}
+
+// AddInvoice adds a invoice for the given node and asserts.
+func (h *HarnessRPC) AddInvoice(req *lnrpc.Invoice) *lnrpc.AddInvoiceResponse {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	invoice, err := h.LN.AddInvoice(ctxt, req)
+	h.NoError(err, "AddInvoice")
+
+	return invoice
+}
+
+// AbandonChannel makes a RPC call to AbandonChannel and asserts.
+func (h *HarnessRPC) AbandonChannel(
+	req *lnrpc.AbandonChannelRequest) *lnrpc.AbandonChannelResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.AbandonChannel(ctxt, req)
+	h.NoError(err, "AbandonChannel")
+
+	return resp
+}
+
+// ExportAllChanBackups makes a RPC call to the node's ExportAllChannelBackups
+// and asserts.
+func (h *HarnessRPC) ExportAllChanBackups() *lnrpc.ChanBackupSnapshot {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.ChanBackupExportRequest{}
+	chanBackup, err := h.LN.ExportAllChannelBackups(ctxt, req)
+	h.NoError(err, "ExportAllChannelBackups")
+
+	return chanBackup
+}
+
+// ExportChanBackup makes a RPC call to the node's ExportChannelBackup
+// and asserts.
+func (h *HarnessRPC) ExportChanBackup(
+	chanPoint *lnrpc.ChannelPoint) *lnrpc.ChannelBackup {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.ExportChannelBackupRequest{
+		ChanPoint: chanPoint,
+	}
+	chanBackup, err := h.LN.ExportChannelBackup(ctxt, req)
+	h.NoError(err, "ExportChannelBackup")
+
+	return chanBackup
+}
+
+// RestoreChanBackups makes a RPC call to the node's RestoreChannelBackups and
+// asserts.
+func (h *HarnessRPC) RestoreChanBackups(
+	req *lnrpc.RestoreChanBackupRequest) *lnrpc.RestoreBackupResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.RestoreChannelBackups(ctxt, req)
+	h.NoError(err, "RestoreChannelBackups")
+
+	return resp
+}
+
+type AcceptorClient lnrpc.Lightning_ChannelAcceptorClient
+
+// ChannelAcceptor makes a RPC call to the node's ChannelAcceptor and asserts.
+func (h *HarnessRPC) ChannelAcceptor() (AcceptorClient, context.CancelFunc) {
+	// Use runCtx here instead of a timeout context to keep the client
+	// alive for the entire test case.
+	ctxt, cancel := context.WithCancel(h.runCtx)
+	resp, err := h.LN.ChannelAcceptor(ctxt)
+	h.NoError(err, "ChannelAcceptor")
+
+	return resp, cancel
 }

@@ -2,7 +2,6 @@ package itest
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"testing"
 	"time"
@@ -14,7 +13,9 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -25,7 +26,7 @@ import (
 // Bob, then immediately closes the channel after asserting some expected post
 // conditions. Finally, the chain itself is checked to ensure the closing
 // transaction was mined.
-func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
+func testBasicChannelFunding(ht *lntemp.HarnessTest) {
 	// Run through the test with combinations of all the different
 	// commitment types.
 	allTypes := []lnrpc.CommitmentType{
@@ -36,70 +37,62 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// testFunding is a function closure that takes Carol and Dave's
 	// commitment types and test the funding flow.
-	testFunding := func(carolCommitType, daveCommitType lnrpc.CommitmentType) {
+	testFunding := func(ht *lntemp.HarnessTest, carolCommitType,
+		daveCommitType lnrpc.CommitmentType) {
+
 		// Based on the current tweak variable for Carol, we'll
 		// preferentially signal the legacy commitment format.  We do
 		// the same for Dave shortly below.
 		carolArgs := nodeArgsForCommitType(carolCommitType)
-		carol := net.NewNode(t.t, "Carol", carolArgs)
-		defer shutdownAndAssert(net, t, carol)
+		carol := ht.NewNode("Carol", carolArgs)
 
 		// Each time, we'll send Carol a new set of coins in order to
 		// fund the channel.
-		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+		ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 		daveArgs := nodeArgsForCommitType(daveCommitType)
-		dave := net.NewNode(t.t, "Dave", daveArgs)
-		defer shutdownAndAssert(net, t, dave)
+		dave := ht.NewNode("Dave", daveArgs)
 
 		// Before we start the test, we'll ensure both sides are
 		// connected to the funding flow can properly be executed.
-		net.EnsureConnected(t.t, carol, dave)
+		ht.EnsureConnected(carol, dave)
 
-		carolChan, daveChan, closeChan, err := basicChannelFundingTest(
-			t, net, carol, dave, nil,
+		carolChan, daveChan, closeChan := basicChannelFundingTest(
+			ht, carol, dave, nil,
 		)
-		require.NoError(t.t, err, "failed funding flow")
 
 		// Both nodes should report the same commitment
 		// type.
 		chansCommitType := carolChan.CommitmentType
-		require.Equal(
-			t.t, chansCommitType,
-			daveChan.CommitmentType,
-			"commit types don't match",
-		)
+		require.Equal(ht, chansCommitType, daveChan.CommitmentType,
+			"commit types don't match")
 
-		// Now check that the commitment type reported
-		// by both nodes is what we expect. It will be
-		// the minimum of the two nodes' preference, in
-		// the order Legacy, Tweakless, Anchors.
+		// Now check that the commitment type reported by both nodes is
+		// what we expect. It will be the minimum of the two nodes'
+		// preference, in the order Legacy, Tweakless, Anchors.
 		expType := carolCommitType
 
 		switch daveCommitType {
-		// Dave supports anchors, type will be what
-		// Carol supports.
+		// Dave supports anchors, type will be what Carol supports.
 		case lnrpc.CommitmentType_ANCHORS:
 
-		// Dave only supports tweakless, channel will
-		// be downgraded to this type if Carol supports
-		// anchors.
+		// Dave only supports tweakless, channel will be downgraded to
+		// this type if Carol supports anchors.
 		case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
 			if expType == lnrpc.CommitmentType_ANCHORS {
 				expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
 			}
 
-		// Dave only supoprts legacy type, channel will
-		// be downgraded to this type.
+		// Dave only supoprts legacy type, channel will be downgraded
+		// to this type.
 		case lnrpc.CommitmentType_LEGACY:
 			expType = lnrpc.CommitmentType_LEGACY
 
 		default:
-			t.Fatalf("invalid commit type %v", daveCommitType)
+			ht.Fatalf("invalid commit type %v", daveCommitType)
 		}
 
-		// Check that the signalled type matches what we
-		// expect.
+		// Check that the signalled type matches what we expect.
 		switch {
 		case expType == lnrpc.CommitmentType_ANCHORS &&
 			chansCommitType == lnrpc.CommitmentType_ANCHORS:
@@ -111,13 +104,13 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 			chansCommitType == lnrpc.CommitmentType_LEGACY:
 
 		default:
-			t.Fatalf("expected nodes to signal "+
+			ht.Fatalf("expected nodes to signal "+
 				"commit type %v, instead got "+
 				"%v", expType, chansCommitType)
 		}
 
-		// As we've concluded this sub-test case we'll
-		// now close out the channel for both sides.
+		// As we've concluded this sub-test case we'll now close out
+		// the channel for both sides.
 		closeChan()
 	}
 
@@ -133,15 +126,9 @@ test:
 			testName := fmt.Sprintf(
 				"carol_commit=%v,dave_commit=%v", cc, dc,
 			)
-
-			logLine := fmt.Sprintf(
-				"---- basic channel funding subtest %s ----\n",
-				testName,
-			)
-			net.Alice.AddToLogf(logLine)
-
-			success := t.t.Run(testName, func(t *testing.T) {
-				testFunding(cc, dc)
+			success := ht.Run(testName, func(t *testing.T) {
+				st := ht.Subtest(t)
+				testFunding(st, cc, dc)
 			})
 
 			if !success {
@@ -155,22 +142,22 @@ test:
 // test. Given two nodes: Alice and Bob, it'll assert proper channel creation,
 // then return a function closure that should be called to assert proper
 // channel closure.
-func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
-	alice *lntest.HarnessNode, bob *lntest.HarnessNode,
-	fundingShim *lnrpc.FundingShim) (*lnrpc.Channel, *lnrpc.Channel,
-	func(), error) {
+func basicChannelFundingTest(ht *lntemp.HarnessTest,
+	alice, bob *node.HarnessNode,
+	fundingShim *lnrpc.FundingShim) (*lnrpc.Channel,
+	*lnrpc.Channel, func()) {
 
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
 	satPerVbyte := btcutil.Amount(1)
 
 	// Record nodes' channel balance before testing.
-	aliceChannelBalance := getChannelBalance(t, alice)
-	bobChannelBalance := getChannelBalance(t, bob)
+	aliceChannelBalance := alice.RPC.ChannelBalance()
+	bobChannelBalance := bob.RPC.ChannelBalance()
 
 	// Creates a helper closure to be used below which asserts the proper
 	// response to a channel balance RPC.
-	checkChannelBalance := func(node *lntest.HarnessNode,
+	checkChannelBalance := func(node *node.HarnessNode,
 		oldChannelBalance *lnrpc.ChannelBalanceResponse,
 		local, remote btcutil.Amount) {
 
@@ -186,7 +173,7 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 		)
 		// Deprecated fields.
 		newResp.Balance += int64(local) // nolint:staticcheck
-		assertChannelBalanceResp(t, node, newResp)
+		ht.AssertChannelBalanceResp(node, newResp)
 	}
 
 	// First establish a channel with a capacity of 0.5 BTC between Alice
@@ -195,9 +182,8 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 	// open or an error occurs in the funding process. A series of
 	// assertions will be executed to ensure the funding process completed
 	// successfully.
-	chanPoint := openChannelAndAssert(
-		t, net, alice, bob,
-		lntest.OpenChannelParams{
+	chanPoint := ht.OpenChannel(
+		alice, bob, lntemp.OpenChannelParams{
 			Amt:         chanAmt,
 			PushAmt:     pushAmt,
 			FundingShim: fundingShim,
@@ -205,14 +191,7 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 		},
 	)
 
-	err := alice.WaitForNetworkChannelOpen(chanPoint)
-	require.NoError(t.t, err, "alice didn't report channel")
-
-	err = bob.WaitForNetworkChannelOpen(chanPoint)
-	require.NoError(t.t, err, "bob didn't report channel")
-
-	cType, err := channelCommitType(alice, chanPoint)
-	require.NoError(t.t, err, "unable to get channel type")
+	cType := ht.GetChannelCommitType(alice, chanPoint)
 
 	// With the channel open, ensure that the amount specified above has
 	// properly been pushed to Bob.
@@ -224,21 +203,17 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 		bob, bobChannelBalance, pushAmt, aliceLocalBalance,
 	)
 
-	req := &lnrpc.ListChannelsRequest{}
-	aliceChannel, err := alice.ListChannels(context.Background(), req)
-	require.NoError(t.t, err, "unable to obtain chan")
-
-	bobChannel, err := bob.ListChannels(context.Background(), req)
-	require.NoError(t.t, err, "unable to obtain chan")
+	aliceChannel := ht.GetChannelByChanPoint(alice, chanPoint)
+	bobChannel := ht.GetChannelByChanPoint(bob, chanPoint)
 
 	closeChan := func() {
 		// Finally, immediately close the channel. This function will
 		// also block until the channel is closed and will additionally
 		// assert the relevant channel closing post conditions.
-		closeChannelAndAssert(t, net, alice, chanPoint, false)
+		ht.CloseChannel(alice, chanPoint)
 	}
 
-	return aliceChannel.Channels[0], bobChannel.Channels[0], closeChan, nil
+	return aliceChannel, bobChannel, closeChan
 }
 
 // testUnconfirmedChannelFunding tests that our unconfirmed change outputs can
@@ -481,24 +456,19 @@ func sendAllCoinsConfirm(net *lntest.NetworkHarness, node *lntest.HarnessNode,
 // testExternalFundingChanPoint tests that we're able to carry out a normal
 // channel funding workflow given a channel point that was constructed outside
 // the main daemon.
-func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testExternalFundingChanPoint(ht *lntemp.HarnessTest) {
 	// First, we'll create two new nodes that we'll use to open channel
 	// between for this test.
-	carol := net.NewNode(t.t, "carol", nil)
-	defer shutdownAndAssert(net, t, carol)
-
-	dave := net.NewNode(t.t, "dave", nil)
-	defer shutdownAndAssert(net, t, dave)
+	carol := ht.NewNode("carol", nil)
+	dave := ht.NewNode("dave", nil)
 
 	// Carol will be funding the channel, so we'll send some coins over to
 	// her and ensure they have enough confirmations before we proceed.
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// Before we start the test, we'll ensure both sides are connected to
 	// the funding flow can properly be executed.
-	net.EnsureConnected(t.t, carol, dave)
+	ht.EnsureConnected(carol, dave)
 
 	// At this point, we're ready to simulate our external channel funding
 	// flow. To start with, we'll create a pending channel with a shim for
@@ -506,15 +476,15 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	const thawHeight uint32 = 10
 	const chanSize = funding.MaxBtcFundingAmount
 	fundingShim1, chanPoint1, _ := deriveFundingShim(
-		net, t, carol, dave, chanSize, thawHeight, false,
+		ht, carol, dave, chanSize, thawHeight, false,
 	)
-	_ = openChannelStream(
-		t, net, carol, dave, lntest.OpenChannelParams{
+	ht.OpenChannelAssertPending(
+		carol, dave, lntemp.OpenChannelParams{
 			Amt:         chanSize,
 			FundingShim: fundingShim1,
 		},
 	)
-	assertNumOpenChannelsPending(t, carol, dave, 1)
+	ht.AssertNodesNumPendingOpenChannels(carol, dave, 1)
 
 	// That channel is now pending forever and normally would saturate the
 	// max pending channel limit for both nodes. But because the channel is
@@ -522,25 +492,22 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	// do exactly that now. For this one we publish the transaction so we
 	// can mine it later.
 	fundingShim2, chanPoint2, _ := deriveFundingShim(
-		net, t, carol, dave, chanSize, thawHeight, true,
+		ht, carol, dave, chanSize, thawHeight, true,
 	)
 
 	// At this point, we'll now carry out the normal basic channel funding
 	// test as everything should now proceed as normal (a regular channel
 	// funding flow).
-	carolChan, daveChan, _, err := basicChannelFundingTest(
-		t, net, carol, dave, fundingShim2,
+	carolChan, daveChan, _ := basicChannelFundingTest(
+		ht, carol, dave, fundingShim2,
 	)
-	require.NoError(t.t, err)
 
 	// Both channels should be marked as frozen with the proper thaw
 	// height.
-	require.Equal(
-		t.t, thawHeight, carolChan.ThawHeight, "thaw height unmatched",
-	)
-	require.Equal(
-		t.t, thawHeight, daveChan.ThawHeight, "thaw height unmatched",
-	)
+	require.Equal(ht, thawHeight, carolChan.ThawHeight,
+		"thaw height unmatched")
+	require.Equal(ht, thawHeight, daveChan.ThawHeight,
+		"thaw height unmatched")
 
 	// Next, to make sure the channel functions as normal, we'll make some
 	// payments within the channel.
@@ -549,13 +516,8 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 		Memo:  "new chans",
 		Value: int64(payAmt),
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := dave.AddInvoice(ctxt, invoice)
-	require.NoError(t.t, err)
-	err = completePaymentRequests(
-		carol, carol.RouterClient, []string{resp.PaymentRequest}, true,
-	)
-	require.NoError(t.t, err)
+	resp := dave.RPC.AddInvoice(invoice)
+	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
 
 	// Now that the channels are open, and we've confirmed that they're
 	// operational, we'll now ensure that the channels are frozen as
@@ -564,36 +526,42 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	// First, we'll try to close the channel as Carol, the initiator. This
 	// should fail as a frozen channel only allows the responder to
 	// initiate a channel close.
-	_, _, err = net.CloseChannel(carol, chanPoint2, false)
-	require.Error(t.t, err,
-		"carol wasn't denied a co-op close attempt "+
-			"for a frozen channel",
-	)
+	err := ht.CloseChannelAssertErr(carol, chanPoint2, false)
+	require.Contains(ht, err.Error(), "cannot co-op close frozen channel")
+
+	// Before Dave closes the channel, he needs to check the invoice is
+	// settled to avoid an error saying cannot close channel due to active
+	// HTLCs.
+	ht.AssertInvoiceSettled(dave, resp.PaymentAddr)
+
+	// TODO(yy): remove the sleep once the following bug is fixed.
+	// When the invoice is reported settled, the commitment dance is not
+	// yet finished, which can cause an error when closing the channel,
+	// saying there's active HTLCs. We need to investigate this issue and
+	// reverse the order to, first finish the commitment dance, then report
+	// the invoice as settled.
+	time.Sleep(2 * time.Second)
 
 	// Next we'll try but this time with Dave (the responder) as the
 	// initiator. This time the channel should be closed as normal.
-	closeChannelAndAssert(t, net, dave, chanPoint2, false)
+	ht.CloseChannel(dave, chanPoint2)
 
-	// As a last step, we check if we still have the pending channel hanging
-	// around because we never published the funding TX.
-	assertNumOpenChannelsPending(t, carol, dave, 1)
+	// As a last step, we check if we still have the pending channel
+	// hanging around because we never published the funding TX.
+	ht.AssertNodesNumPendingOpenChannels(carol, dave, 1)
 
 	// Let's make sure we can abandon it.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = carol.AbandonChannel(ctxt, &lnrpc.AbandonChannelRequest{
+	carol.RPC.AbandonChannel(&lnrpc.AbandonChannelRequest{
 		ChannelPoint:           chanPoint1,
 		PendingFundingShimOnly: true,
 	})
-	require.NoError(t.t, err)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = dave.AbandonChannel(ctxt, &lnrpc.AbandonChannelRequest{
+	dave.RPC.AbandonChannel(&lnrpc.AbandonChannelRequest{
 		ChannelPoint:           chanPoint1,
 		PendingFundingShimOnly: true,
 	})
-	require.NoError(t.t, err)
 
 	// It should now not appear in the pending channels anymore.
-	assertNumOpenChannelsPending(t, carol, dave, 0)
+	ht.AssertNodesNumPendingOpenChannels(carol, dave, 0)
 }
 
 // testFundingPersistence is intended to ensure that the Funding Manager
@@ -746,114 +714,6 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }
 
-// deriveFundingShim creates a channel funding shim by deriving the necessary
-// keys on both sides.
-func deriveFundingShim(net *lntest.NetworkHarness, t *harnessTest,
-	carol, dave *lntest.HarnessNode, chanSize btcutil.Amount,
-	thawHeight uint32, publish bool) (*lnrpc.FundingShim,
-	*lnrpc.ChannelPoint, *chainhash.Hash) {
-
-	ctxb := context.Background()
-	keyLoc := &walletrpc.KeyReq{KeyFamily: 9999}
-	carolFundingKey, err := carol.WalletKitClient.DeriveNextKey(ctxb, keyLoc)
-	require.NoError(t.t, err)
-	daveFundingKey, err := dave.WalletKitClient.DeriveNextKey(ctxb, keyLoc)
-	require.NoError(t.t, err)
-
-	// Now that we have the multi-sig keys for each party, we can manually
-	// construct the funding transaction. We'll instruct the backend to
-	// immediately create and broadcast a transaction paying out an exact
-	// amount. Normally this would reside in the mempool, but we just
-	// confirm it now for simplicity.
-	_, fundingOutput, err := input.GenFundingPkScript(
-		carolFundingKey.RawKeyBytes, daveFundingKey.RawKeyBytes,
-		int64(chanSize),
-	)
-	require.NoError(t.t, err)
-
-	var txid *chainhash.Hash
-	targetOutputs := []*wire.TxOut{fundingOutput}
-	if publish {
-		txid, err = net.Miner.SendOutputsWithoutChange(
-			targetOutputs, 5,
-		)
-		require.NoError(t.t, err)
-	} else {
-		tx, err := net.Miner.CreateTransaction(targetOutputs, 5, false)
-		require.NoError(t.t, err)
-
-		txHash := tx.TxHash()
-		txid = &txHash
-	}
-
-	// At this point, we can being our external channel funding workflow.
-	// We'll start by generating a pending channel ID externally that will
-	// be used to track this new funding type.
-	var pendingChanID [32]byte
-	_, err = rand.Read(pendingChanID[:])
-	require.NoError(t.t, err)
-
-	// Now that we have the pending channel ID, Dave (our responder) will
-	// register the intent to receive a new channel funding workflow using
-	// the pending channel ID.
-	chanPoint := &lnrpc.ChannelPoint{
-		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-			FundingTxidBytes: txid[:],
-		},
-	}
-	chanPointShim := &lnrpc.ChanPointShim{
-		Amt:       int64(chanSize),
-		ChanPoint: chanPoint,
-		LocalKey: &lnrpc.KeyDescriptor{
-			RawKeyBytes: daveFundingKey.RawKeyBytes,
-			KeyLoc: &lnrpc.KeyLocator{
-				KeyFamily: daveFundingKey.KeyLoc.KeyFamily,
-				KeyIndex:  daveFundingKey.KeyLoc.KeyIndex,
-			},
-		},
-		RemoteKey:     carolFundingKey.RawKeyBytes,
-		PendingChanId: pendingChanID[:],
-		ThawHeight:    thawHeight,
-	}
-	fundingShim := &lnrpc.FundingShim{
-		Shim: &lnrpc.FundingShim_ChanPointShim{
-			ChanPointShim: chanPointShim,
-		},
-	}
-	_, err = dave.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
-		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
-			ShimRegister: fundingShim,
-		},
-	})
-	require.NoError(t.t, err)
-
-	// If we attempt to register the same shim (has the same pending chan
-	// ID), then we should get an error.
-	_, err = dave.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
-		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
-			ShimRegister: fundingShim,
-		},
-	})
-	if err == nil {
-		t.Fatalf("duplicate pending channel ID funding shim " +
-			"registration should trigger an error")
-	}
-
-	// We'll take the chan point shim we just registered for Dave (the
-	// responder), and swap the local/remote keys before we feed it in as
-	// Carol's funding shim as the initiator.
-	fundingShim.GetChanPointShim().LocalKey = &lnrpc.KeyDescriptor{
-		RawKeyBytes: carolFundingKey.RawKeyBytes,
-		KeyLoc: &lnrpc.KeyLocator{
-			KeyFamily: carolFundingKey.KeyLoc.KeyFamily,
-			KeyIndex:  carolFundingKey.KeyLoc.KeyIndex,
-		},
-	}
-	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
-
-	return fundingShim, chanPoint, txid
-}
-
 // testBatchChanFunding makes sure multiple channels can be opened in one batch
 // transaction in an atomic way.
 func testBatchChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
@@ -969,4 +829,98 @@ func testBatchChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(t, net, net.Alice, chanPoint1, false)
 	closeChannelAndAssert(t, net, net.Alice, chanPoint2, false)
 	closeChannelAndAssert(t, net, net.Alice, chanPoint3, false)
+}
+
+// deriveFundingShim creates a channel funding shim by deriving the necessary
+// keys on both sides.
+func deriveFundingShim(ht *lntemp.HarnessTest,
+	carol, dave *node.HarnessNode, chanSize btcutil.Amount,
+	thawHeight uint32, publish bool) (*lnrpc.FundingShim,
+	*lnrpc.ChannelPoint, *chainhash.Hash) {
+
+	keyLoc := &signrpc.KeyLocator{KeyFamily: 9999}
+	carolFundingKey := carol.RPC.DeriveKey(keyLoc)
+	daveFundingKey := dave.RPC.DeriveKey(keyLoc)
+
+	// Now that we have the multi-sig keys for each party, we can manually
+	// construct the funding transaction. We'll instruct the backend to
+	// immediately create and broadcast a transaction paying out an exact
+	// amount. Normally this would reside in the mempool, but we just
+	// confirm it now for simplicity.
+	_, fundingOutput, err := input.GenFundingPkScript(
+		carolFundingKey.RawKeyBytes, daveFundingKey.RawKeyBytes,
+		int64(chanSize),
+	)
+	require.NoError(ht, err)
+
+	var txid *chainhash.Hash
+	targetOutputs := []*wire.TxOut{fundingOutput}
+	if publish {
+		txid = ht.Miner.SendOutputsWithoutChange(targetOutputs, 5)
+	} else {
+		tx := ht.Miner.CreateTransaction(targetOutputs, 5)
+
+		txHash := tx.TxHash()
+		txid = &txHash
+	}
+
+	// At this point, we can being our external channel funding workflow.
+	// We'll start by generating a pending channel ID externally that will
+	// be used to track this new funding type.
+	pendingChanID := ht.Random32Bytes()
+
+	// Now that we have the pending channel ID, Dave (our responder) will
+	// register the intent to receive a new channel funding workflow using
+	// the pending channel ID.
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: txid[:],
+		},
+	}
+	chanPointShim := &lnrpc.ChanPointShim{
+		Amt:       int64(chanSize),
+		ChanPoint: chanPoint,
+		LocalKey: &lnrpc.KeyDescriptor{
+			RawKeyBytes: daveFundingKey.RawKeyBytes,
+			KeyLoc: &lnrpc.KeyLocator{
+				KeyFamily: daveFundingKey.KeyLoc.KeyFamily,
+				KeyIndex:  daveFundingKey.KeyLoc.KeyIndex,
+			},
+		},
+		RemoteKey:     carolFundingKey.RawKeyBytes,
+		PendingChanId: pendingChanID,
+		ThawHeight:    thawHeight,
+	}
+	fundingShim := &lnrpc.FundingShim{
+		Shim: &lnrpc.FundingShim_ChanPointShim{
+			ChanPointShim: chanPointShim,
+		},
+	}
+	dave.RPC.FundingStateStep(&lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
+			ShimRegister: fundingShim,
+		},
+	})
+
+	// If we attempt to register the same shim (has the same pending chan
+	// ID), then we should get an error.
+	dave.RPC.FundingStateStepAssertErr(&lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
+			ShimRegister: fundingShim,
+		},
+	})
+
+	// We'll take the chan point shim we just registered for Dave (the
+	// responder), and swap the local/remote keys before we feed it in as
+	// Carol's funding shim as the initiator.
+	fundingShim.GetChanPointShim().LocalKey = &lnrpc.KeyDescriptor{
+		RawKeyBytes: carolFundingKey.RawKeyBytes,
+		KeyLoc: &lnrpc.KeyLocator{
+			KeyFamily: carolFundingKey.KeyLoc.KeyFamily,
+			KeyIndex:  carolFundingKey.KeyLoc.KeyIndex,
+		},
+	}
+	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
+
+	return fundingShim, chanPoint, txid
 }

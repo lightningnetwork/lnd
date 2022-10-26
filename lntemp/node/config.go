@@ -181,6 +181,10 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		fmt.Sprintf("--trickledelay=%v", trickleDelay),
 		fmt.Sprintf("--profile=%d", cfg.ProfilePort),
 		fmt.Sprintf("--caches.rpc-graph-cache-duration=%d", 0),
+
+		// Use a small batch window so we can broadcast our sweep
+		// transactions faster.
+		"--sweeper.batchwindowduration=5s",
 	}
 	args = append(args, nodeArgs...)
 

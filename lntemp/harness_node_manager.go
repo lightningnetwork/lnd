@@ -1,6 +1,7 @@
 package lntemp
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -33,11 +34,11 @@ type nodeManager struct {
 
 	// activeNodes is a map of all running nodes, format:
 	// {pubkey: *HarnessNode}.
-	activeNodes map[string]*node.HarnessNode
+	activeNodes map[uint32]*node.HarnessNode
 
 	// standbyNodes is a map of all the standby nodes, format:
 	// {pubkey: *HarnessNode}.
-	standbyNodes map[string]*node.HarnessNode
+	standbyNodes map[uint32]*node.HarnessNode
 
 	// nodeCounter is a monotonically increasing counter that's used as the
 	// node's unique ID.
@@ -54,8 +55,8 @@ func newNodeManager(lndBinary string,
 	return &nodeManager{
 		lndBinary:    lndBinary,
 		dbBackend:    dbBackend,
-		activeNodes:  make(map[string]*node.HarnessNode),
-		standbyNodes: make(map[string]*node.HarnessNode),
+		activeNodes:  make(map[uint32]*node.HarnessNode),
+		standbyNodes: make(map[uint32]*node.HarnessNode),
 	}
 }
 
@@ -70,7 +71,7 @@ func (nm *nodeManager) nextNodeID() uint32 {
 // node can be used immediately. Otherwise, the node will require an additional
 // initialization phase where the wallet is either created or restored.
 func (nm *nodeManager) newNode(t *testing.T, name string, extraArgs []string,
-	useSeed bool, password []byte, cmdOnly bool,
+	password []byte, useSeed bool,
 	opts ...node.Option) (*node.HarnessNode, error) {
 
 	cfg := &node.BaseNodeConfig{
@@ -84,6 +85,7 @@ func (nm *nodeManager) newNode(t *testing.T, name string, extraArgs []string,
 		NodeID:            nm.nextNodeID(),
 		LndBinary:         nm.lndBinary,
 		NetParams:         harnessNetParams,
+		HasSeed:           useSeed,
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -96,27 +98,7 @@ func (nm *nodeManager) newNode(t *testing.T, name string, extraArgs []string,
 
 	// Put node in activeNodes to ensure Shutdown is called even if start
 	// returns an error.
-	defer nm.registerNode(node)
-
-	switch {
-	// If the node uses seed to start, we'll need to create the wallet and
-	// unlock the wallet later.
-	case useSeed:
-		err = node.StartWithSeed()
-
-	// Start the node only with the lnd process without creating the grpc
-	// connection, which is used in testing etcd leader selection.
-	case cmdOnly:
-		err = node.StartLndCmd()
-
-	// By default, we'll create a node with wallet being unlocked.
-	default:
-		err = node.Start()
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to start: %w", err)
-	}
+	nm.registerNode(node)
 
 	return node, nil
 }
@@ -126,7 +108,7 @@ func (nm *nodeManager) newNode(t *testing.T, name string, extraArgs []string,
 // retrieved their public keys via FetchNodeInfo.
 func (nm *nodeManager) registerNode(node *node.HarnessNode) {
 	nm.Lock()
-	nm.activeNodes[node.PubKeyStr] = node
+	nm.activeNodes[node.Cfg.NodeID] = node
 	nm.Unlock()
 }
 
@@ -137,7 +119,7 @@ func (nm *nodeManager) shutdownNode(node *node.HarnessNode) error {
 		return err
 	}
 
-	delete(nm.activeNodes, node.PubKeyStr)
+	delete(nm.activeNodes, node.Cfg.NodeID)
 	return nil
 }
 
@@ -153,10 +135,10 @@ func (nm *nodeManager) shutdownNode(node *node.HarnessNode) error {
 // crashes, etc. Additionally, each time the node is restarted, the caller can
 // pass a set of SCBs to pass in via the Unlock method allowing them to restore
 // channels during restart.
-func (nm *nodeManager) restartNode(node *node.HarnessNode,
+func (nm *nodeManager) restartNode(ctxt context.Context, node *node.HarnessNode,
 	callback func() error, chanBackups ...*lnrpc.ChanBackupSnapshot) error {
 
-	err := nm.restartNodeNoUnlock(node, callback)
+	err := nm.restartNodeNoUnlock(ctxt, node, callback)
 	if err != nil {
 		return err
 	}
@@ -193,8 +175,8 @@ func (nm *nodeManager) restartNode(node *node.HarnessNode,
 // blocking. If the callback parameter is non-nil, then the function will be
 // executed after the node shuts down, but *before* the process has been
 // started up again.
-func (nm *nodeManager) restartNodeNoUnlock(node *node.HarnessNode,
-	callback func() error) error {
+func (nm *nodeManager) restartNodeNoUnlock(ctxt context.Context,
+	node *node.HarnessNode, callback func() error) error {
 
 	if err := node.Stop(); err != nil {
 		return fmt.Errorf("restart node got error: %w", err)
@@ -206,5 +188,34 @@ func (nm *nodeManager) restartNodeNoUnlock(node *node.HarnessNode,
 		}
 	}
 
-	return node.Start()
+	if node.Cfg.HasSeed {
+		return node.StartWithSeed(ctxt)
+	}
+
+	return node.Start(ctxt)
+}
+
+// initWalletAndNode will unlock the node's wallet and finish setting up the
+// node so it's ready to take RPC requests.
+func (nm *nodeManager) initWalletAndNode(hn *node.HarnessNode,
+	req *lnrpc.InitWalletRequest) ([]byte, error) {
+
+	// Pass the init request via rpc to finish unlocking the node.
+	resp := hn.RPC.InitWallet(req)
+
+	// Now that the wallet is unlocked, before creating an authed
+	// connection we will close the old unauthed connection.
+	if err := hn.CloseConn(); err != nil {
+		return nil, fmt.Errorf("close unauthed conn failed")
+	}
+
+	// Init the node, which will create the authed grpc conn and all its
+	// rpc clients.
+	err := hn.InitNode(resp.AdminMacaroon)
+
+	// In stateless initialization mode we get a macaroon back that we have
+	// to return to the test, otherwise gRPC calls won't be possible since
+	// there are no macaroon files created in that mode.
+	// In stateful init the admin macaroon will just be nil.
+	return resp.AdminMacaroon, err
 }

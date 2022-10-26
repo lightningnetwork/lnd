@@ -3054,6 +3054,9 @@ message LightningNode {
     repeated NodeAddress addresses = 4;
     string color = 5;
     map<uint32, Feature> features = 6;
+
+    // Custom node announcement tlv records.
+    map<uint64, bytes> custom_records = 7;
 }
 
 message NodeAddress {
@@ -3069,6 +3072,9 @@ message RoutingPolicy {
     bool disabled = 5;
     uint64 max_htlc_msat = 6;
     uint32 last_update = 7;
+
+    // Custom channel update tlv records.
+    map<uint64, bytes> custom_records = 8;
 }
 
 /*
@@ -3096,6 +3102,9 @@ message ChannelEdge {
 
     RoutingPolicy node1_policy = 7;
     RoutingPolicy node2_policy = 8;
+
+    // Custom channel announcement tlv records.
+    map<uint64, bytes> custom_records = 9;
 }
 
 message ChannelGraphRequest {

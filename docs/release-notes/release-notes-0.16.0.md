@@ -46,6 +46,10 @@
   skipped by specifying `skip_peer_alias_lookup`. `lncli fwdinghistory` also 
   adds a flag `skip_peer_alias_lookup` to skip the lookup.
 
+* The graph lookups method `DescribeGraph`, `GetNodeInfo` and `GetChanInfo` now
+  [expose tlv data](https://github.com/lightningnetwork/lnd/pull/7085) that is
+  broadcast over the gossip network.
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

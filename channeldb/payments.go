@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -1143,8 +1144,28 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 		records = append(records, h.MPP.Record())
 	}
 
+	// Add blinding point and encrypted data if present.
+	if h.EncryptedData != nil {
+		records = append(records, record.NewEncryptedDataRecord(
+			&h.EncryptedData,
+		))
+	}
+
+	if h.BlindingPoint != nil {
+		records = append(records, record.NewBlindingPointRecord(
+			&h.BlindingPoint,
+		))
+	}
+
 	if h.Metadata != nil {
 		records = append(records, record.NewMetadataRecord(&h.Metadata))
+	}
+
+	if h.TotalAmtMsat != 0 {
+		totalMsatInt := uint64(h.TotalAmtMsat)
+		records = append(
+			records, record.NewTotalAmtMsatBlinded(&totalMsatInt),
+		)
 	}
 
 	// Final sanity check to absolutely rule out custom records that are not
@@ -1261,11 +1282,52 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 		h.MPP = mpp
 	}
 
+	// If encrypted data or blinding key are present, remove them from
+	// the TLV map and parse into proper types.
+	encryptedDataType := uint64(record.EncryptedDataOnionType)
+	if data, ok := tlvMap[encryptedDataType]; ok {
+		delete(tlvMap, encryptedDataType)
+		h.EncryptedData = data
+	}
+
+	blindingType := uint64(record.BlindingPointOnionType)
+	if blindingPoint, ok := tlvMap[blindingType]; ok {
+		delete(tlvMap, blindingType)
+
+		h.BlindingPoint, err = btcec.ParsePubKey(blindingPoint)
+		if err != nil {
+			return nil, fmt.Errorf("invalid blinding point: %w",
+				err)
+		}
+	}
+
+	// If the metatdata type is present, remove it from the tlv map and
+	// populate directly on the hop.
 	metadataType := uint64(record.MetadataOnionType)
 	if metadata, ok := tlvMap[metadataType]; ok {
 		delete(tlvMap, metadataType)
 
 		h.Metadata = metadata
+	}
+
+	totalAmtMsatType := uint64(record.TotalAmtMsatBlindedType)
+	if totalAmtMsat, ok := tlvMap[totalAmtMsatType]; ok {
+		delete(tlvMap, totalAmtMsatType)
+
+		var (
+			totalAmtMsatInt uint64
+			buf             [8]byte
+		)
+		if err := tlv.DTUint64(
+			bytes.NewReader(totalAmtMsat),
+			&totalAmtMsatInt,
+			&buf,
+			uint64(len(totalAmtMsat)),
+		); err != nil {
+			return nil, err
+		}
+
+		h.TotalAmtMsat = lnwire.MilliSatoshi(totalAmtMsatInt)
 	}
 
 	h.CustomRecords = tlvMap

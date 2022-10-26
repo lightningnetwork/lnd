@@ -1151,63 +1151,12 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now that the channels are open, we'll take down Eve's node.
 	shutdownAndAssert(net, t, eve)
 
-	// Create an invoice for Alice that will populate the routing hints.
-	invoice := &lnrpc.Invoice{
-		Memo:    "routing hints",
-		Value:   int64(chanAmt / 4),
-		Private: true,
-	}
-
-	// Due to the way the channels were set up above, the channel between
-	// Alice and Bob should be the only channel used as a routing hint.
-	var predErr error
-	var decoded *lnrpc.PayReq
-	err := wait.Predicate(func() bool {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		resp, err := net.Alice.AddInvoice(ctxt, invoice)
-		if err != nil {
-			predErr = fmt.Errorf("unable to add invoice: %v", err)
-			return false
-		}
-
-		// We'll decode the invoice's payment request to determine which
-		// channels were used as routing hints.
-		payReq := &lnrpc.PayReqString{
-			PayReq: resp.PaymentRequest,
-		}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		decoded, err = net.Alice.DecodePayReq(ctxt, payReq)
-		if err != nil {
-			predErr = fmt.Errorf("unable to decode payment "+
-				"request: %v", err)
-			return false
-		}
-
-		if len(decoded.RouteHints) != 1 {
-			predErr = fmt.Errorf("expected one route hint, got %d",
-				len(decoded.RouteHints))
-			return false
-		}
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf(predErr.Error())
-	}
-
-	hops := decoded.RouteHints[0].HopHints
-	if len(hops) != 1 {
-		t.Fatalf("expected one hop in route hint, got %d", len(hops))
-	}
-	chanID := hops[0].ChanId
-
 	// We'll need the short channel ID of the channel between Alice and Bob
 	// to make sure the routing hint is for this channel.
 	listReq := &lnrpc.ListChannelsRequest{}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	listResp, err := net.Alice.ListChannels(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("unable to retrieve alice's channels: %v", err)
-	}
+	require.NoError(t.t, err, "unable to retrieve alice's channels")
 
 	var aliceBobChanID uint64
 	for _, channel := range listResp.Channels {
@@ -1216,14 +1165,73 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	if aliceBobChanID == 0 {
-		t.Fatalf("channel between alice and bob not found")
+	require.NotZero(t.t, aliceBobChanID,
+		"channel between alice and bob not found")
+
+	checkInvoiceHints := func(invoice *lnrpc.Invoice) {
+		// Due to the way the channels were set up above, the channel
+		// between Alice and Bob should be the only channel used as a
+		// routing hint.
+		var predErr error
+		var decoded *lnrpc.PayReq
+		err := wait.Predicate(func() bool {
+			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+			resp, err := net.Alice.AddInvoice(ctxt, invoice)
+			if err != nil {
+				predErr = fmt.Errorf(
+					"unable to add invoice: %w", err)
+				return false
+			}
+
+			// We'll decode the invoice's payment request to
+			// determine which channels were used as routing hints.
+			payReq := &lnrpc.PayReqString{
+				PayReq: resp.PaymentRequest,
+			}
+			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+			decoded, err = net.Alice.DecodePayReq(ctxt, payReq)
+			if err != nil {
+				predErr = fmt.Errorf(
+					"unable to decode payment "+
+						"request: %w", err)
+
+				return false
+			}
+
+			if len(decoded.RouteHints) != 1 {
+				predErr = fmt.Errorf(
+					"expected one route hint, got %d",
+					len(decoded.RouteHints))
+
+				return false
+			}
+
+			return true
+		}, defaultTimeout)
+		if err != nil {
+			t.t.Fatalf(predErr.Error())
+		}
+
+		hops := decoded.RouteHints[0].HopHints
+		if len(hops) != 1 {
+			t.t.Fatalf("expected one hop in route hint, got %d",
+				len(hops))
+		}
+		chanID := hops[0].ChanId
+
+		if chanID != aliceBobChanID {
+			t.t.Fatalf("expected channel ID %d, got %d",
+				aliceBobChanID, chanID)
+		}
 	}
 
-	if chanID != aliceBobChanID {
-		t.Fatalf("expected channel ID %d, got %d", aliceBobChanID,
-			chanID)
+	// Create an invoice for Alice that will populate the routing hints.
+	invoice := &lnrpc.Invoice{
+		Memo:    "routing hints",
+		Value:   int64(chanAmt / 4),
+		Private: true,
 	}
+	checkInvoiceHints(invoice)
 
 	// Now that we've confirmed the routing hints were added correctly, we
 	// can close all the channels and shut down all the nodes created.

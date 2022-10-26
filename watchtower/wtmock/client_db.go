@@ -566,13 +566,19 @@ func (m *ClientDB) ListClosableSessions() (map[wtdb.SessionID]uint32, error) {
 }
 
 // FetchChanSummaries loads a mapping from all registered channels to their
-// channel summaries.
+// channel summaries. Only the channels that have not yet been marked as closed
+// will be loaded.
 func (m *ClientDB) FetchChanSummaries() (wtdb.ChannelSummaries, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	summaries := make(map[lnwire.ChannelID]wtdb.ClientChanSummary)
 	for chanID, channel := range m.channels {
+		// Don't load the channel if it has been marked as closed.
+		if channel.closedHeight > 0 {
+			continue
+		}
+
 		summaries[chanID] = wtdb.ClientChanSummary{
 			SweepPkScript: cloneBytes(
 				channel.summary.SweepPkScript,

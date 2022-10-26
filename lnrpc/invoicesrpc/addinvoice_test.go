@@ -668,38 +668,7 @@ var populateHopHintsTestCases = []struct {
 	name: "populate hop hints stops after having considered all the open " +
 		"channels",
 	setupMock: func(h *hopHintsConfigMock) {
-		fundingOutpoint1 := wire.OutPoint{Index: 9}
-		chanID1 := lnwire.NewChanIDFromOutPoint(&fundingOutpoint1)
-		remoteBalance1 := lnwire.MilliSatoshi(10_000_000)
-
-		fundingOutpoint2 := wire.OutPoint{Index: 2}
-		chanID2 := lnwire.NewChanIDFromOutPoint(&fundingOutpoint2)
-		remoteBalance2 := lnwire.MilliSatoshi(1_000_000)
-
-		allChannels := []*channeldb.OpenChannel{
-			// After sorting we will first process chanID1 and then
-			// chanID2.
-			{
-				LocalCommitment: channeldb.ChannelCommitment{
-					RemoteBalance: remoteBalance2,
-				},
-				FundingOutpoint: fundingOutpoint2,
-				ShortChannelID:  lnwire.NewShortChanIDFromInt(2),
-				IdentityPub:     getTestPubKey(),
-			},
-			{
-				LocalCommitment: channeldb.ChannelCommitment{
-					RemoteBalance: remoteBalance1,
-				},
-				FundingOutpoint: fundingOutpoint1,
-				ShortChannelID:  lnwire.NewShortChanIDFromInt(9),
-				IdentityPub:     getTestPubKey(),
-			},
-		}
-
-		h.Mock.On(
-			"FetchAllChannels",
-		).Once().Return(allChannels, nil)
+		chanID1, chanID2 := setupMockTwoChannels(h)
 
 		// Prepare the mock for the first channel.
 		h.Mock.On(
@@ -751,6 +720,45 @@ var populateHopHintsTestCases = []struct {
 		},
 	},
 }}
+
+func setupMockTwoChannels(h *hopHintsConfigMock) (lnwire.ChannelID,
+	lnwire.ChannelID) {
+
+	fundingOutpoint1 := wire.OutPoint{Index: 9}
+	chanID1 := lnwire.NewChanIDFromOutPoint(&fundingOutpoint1)
+	remoteBalance1 := lnwire.MilliSatoshi(10_000_000)
+
+	fundingOutpoint2 := wire.OutPoint{Index: 2}
+	chanID2 := lnwire.NewChanIDFromOutPoint(&fundingOutpoint2)
+	remoteBalance2 := lnwire.MilliSatoshi(1_000_000)
+
+	allChannels := []*channeldb.OpenChannel{
+		// After sorting we will first process chanID1 and then
+		// chanID2.
+		{
+			LocalCommitment: channeldb.ChannelCommitment{
+				RemoteBalance: remoteBalance2,
+			},
+			FundingOutpoint: fundingOutpoint2,
+			ShortChannelID:  lnwire.NewShortChanIDFromInt(2),
+			IdentityPub:     getTestPubKey(),
+		},
+		{
+			LocalCommitment: channeldb.ChannelCommitment{
+				RemoteBalance: remoteBalance1,
+			},
+			FundingOutpoint: fundingOutpoint1,
+			ShortChannelID:  lnwire.NewShortChanIDFromInt(9),
+			IdentityPub:     getTestPubKey(),
+		},
+	}
+
+	h.Mock.On(
+		"FetchAllChannels",
+	).Once().Return(allChannels, nil)
+
+	return chanID1, chanID2
+}
 
 func TestPopulateHopHints(t *testing.T) {
 	for _, tc := range populateHopHintsTestCases {

@@ -21,9 +21,10 @@ import (
 var (
 	priv, _ = btcec.NewPrivateKey()
 	pub     = priv.PubKey()
+	vertex  = route.NewVertex(pub)
 
 	testHop1 = &route.Hop{
-		PubKeyBytes:      route.NewVertex(pub),
+		PubKeyBytes:      vertex,
 		ChannelID:        12345,
 		OutgoingTimeLock: 111,
 		AmtToForward:     555,
@@ -36,7 +37,7 @@ var (
 	}
 
 	testHop2 = &route.Hop{
-		PubKeyBytes:      route.NewVertex(pub),
+		PubKeyBytes:      vertex,
 		ChannelID:        12345,
 		OutgoingTimeLock: 111,
 		AmtToForward:     555,
@@ -46,10 +47,37 @@ var (
 	testRoute = route.Route{
 		TotalTimeLock: 123,
 		TotalAmount:   1234567,
-		SourcePubKey:  route.NewVertex(pub),
+		SourcePubKey:  vertex,
 		Hops: []*route.Hop{
 			testHop2,
 			testHop1,
+		},
+	}
+
+	testBlindedRoute = route.Route{
+		TotalTimeLock: 150,
+		TotalAmount:   1000,
+		SourcePubKey:  vertex,
+		Hops: []*route.Hop{
+			{
+				PubKeyBytes:      vertex,
+				ChannelID:        9876,
+				OutgoingTimeLock: 120,
+				AmtToForward:     900,
+				EncryptedData:    []byte{1, 3, 3},
+				BlindingPoint:    pub,
+			},
+			{
+				PubKeyBytes:   vertex,
+				EncryptedData: []byte{3, 2, 1},
+			},
+			{
+				PubKeyBytes:      vertex,
+				Metadata:         []byte{4, 5, 6},
+				AmtToForward:     500,
+				OutgoingTimeLock: 100,
+				TotalAmtMsat:     500,
+			},
 		},
 	}
 )
@@ -140,27 +168,24 @@ func assertRouteEqual(a, b *route.Route) error {
 	return nil
 }
 
+// TestRouteSerialization tests serialization of a regular and blinded route.
 func TestRouteSerialization(t *testing.T) {
 	t.Parallel()
 
+	testSerializeRoute(t, testRoute)
+	testSerializeRoute(t, testBlindedRoute)
+}
+
+func testSerializeRoute(t *testing.T, route route.Route) {
 	var b bytes.Buffer
-	if err := SerializeRoute(&b, testRoute); err != nil {
-		t.Fatal(err)
-	}
+	err := SerializeRoute(&b, route)
+	require.NoError(t, err)
 
 	r := bytes.NewReader(b.Bytes())
 	route2, err := DeserializeRoute(r)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	// First we verify all the records match up porperly, as they aren't
-	// able to be properly compared using reflect.DeepEqual.
-	err = assertRouteEqual(&testRoute, &route2)
-	if err != nil {
-		t.Fatalf("routes not equal: \n%v vs \n%v",
-			spew.Sdump(testRoute), spew.Sdump(route2))
-	}
+	reflect.DeepEqual(route, route2)
 }
 
 // deletePayment removes a payment with paymentHash from the payments database.

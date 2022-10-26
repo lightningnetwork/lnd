@@ -463,7 +463,7 @@ var sufficientHintsTestCases = []struct {
 	targetAmount  lnwire.MilliSatoshi
 	done          bool
 }{{
-	name:          "not enoguh hints neither bandwidth",
+	name:          "not enough hints neither bandwidth",
 	nHintsLeft:    3,
 	currentAmount: 100,
 	targetAmount:  200,
@@ -473,7 +473,7 @@ var sufficientHintsTestCases = []struct {
 	nHintsLeft: 0,
 	done:       true,
 }, {
-	name:          "enoguh bandwidth",
+	name:          "enough bandwidth",
 	nHintsLeft:    1,
 	currentAmount: 200,
 	targetAmount:  200,

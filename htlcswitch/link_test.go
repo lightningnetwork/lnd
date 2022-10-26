@@ -2255,11 +2255,14 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// With that processed, we'll now generate an HTLC fail (sent by the
 	// remote peer) to cancel the HTLC we just added. This should return us
 	// back to the bandwidth of the link right before the HTLC was sent.
-	err = bobChannel.FailHTLC(bobIndex, []byte("nop"), nil, nil, nil)
+	reason := make([]byte, 292)
+	copy(reason, []byte("nop"))
+
+	err = bobChannel.FailHTLC(bobIndex, reason, nil, nil, nil)
 	require.NoError(t, err, "unable to fail htlc")
 	failMsg := &lnwire.UpdateFailHTLC{
 		ID:     1,
-		Reason: lnwire.OpaqueReason([]byte("nop")),
+		Reason: lnwire.OpaqueReason(reason),
 	}
 
 	aliceLink.HandleChannelUpdate(failMsg)
@@ -2431,7 +2434,8 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		outgoingChanID: addPkt.outgoingChanID,
 		outgoingHTLCID: addPkt.outgoingHTLCID,
 		htlc: &lnwire.UpdateFailHTLC{
-			ID: 1,
+			ID:     1,
+			Reason: reason,
 		},
 		obfuscator: NewMockObfuscator(),
 	}
@@ -6604,5 +6608,106 @@ func assertFailureCode(t *testing.T, err error, code lnwire.FailCode) {
 	if rtErr.WireMessage().Code() != code {
 		t.Fatalf("expected %v but got %v",
 			code, rtErr.WireMessage().Code())
+	}
+}
+
+// TestChannelLinkShortFailureRelay tests that failure reasons that are too
+// short are replaced by a spec-compliant length failure message and relayed
+// back.
+func TestChannelLinkShortFailureRelay(t *testing.T) {
+	t.Parallel()
+
+	defer timeout()()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+
+	aliceLink, bobChannel, batchTicker, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, 0)
+	require.NoError(t, err, "unable to create link")
+
+	require.NoError(t, start())
+
+	coreLink, ok := aliceLink.(*channelLink)
+	require.True(t, ok)
+
+	mockPeer, ok := coreLink.cfg.Peer.(*mockPeer)
+	require.True(t, ok)
+
+	aliceMsgs := mockPeer.sentMsgs
+	switchChan := make(chan *htlcPacket)
+
+	coreLink.cfg.ForwardPackets = func(linkQuit chan struct{}, _ bool,
+		packets ...*htlcPacket) error {
+
+		for _, p := range packets {
+			switchChan <- p
+		}
+
+		return nil
+	}
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
+	// Send and lock in htlc from Alice to Bob.
+	const htlcID = 0
+
+	htlc, _ := generateHtlcAndInvoice(t, htlcID)
+	ctx.sendHtlcAliceToBob(htlcID, htlc)
+	ctx.receiveHtlcAliceToBob()
+
+	batchTicker <- time.Now()
+
+	ctx.receiveCommitSigAliceToBob(1)
+	ctx.sendRevAndAckBobToAlice()
+
+	ctx.sendCommitSigBobToAlice(1)
+	ctx.receiveRevAndAckAliceToBob()
+
+	// Return a short htlc failure from Bob to Alice and lock in.
+	shortReason := make([]byte, 260)
+
+	err = bobChannel.FailHTLC(0, shortReason, nil, nil, nil)
+	require.NoError(t, err)
+
+	aliceLink.HandleChannelUpdate(&lnwire.UpdateFailHTLC{
+		ID:     htlcID,
+		Reason: shortReason,
+	})
+
+	ctx.sendCommitSigBobToAlice(0)
+	ctx.receiveRevAndAckAliceToBob()
+	ctx.receiveCommitSigAliceToBob(0)
+	ctx.sendRevAndAckBobToAlice()
+
+	// Assert that switch gets the fail message.
+	msg := <-switchChan
+
+	htlcFailMsg, ok := msg.htlc.(*lnwire.UpdateFailHTLC)
+	require.True(t, ok)
+
+	// Assert that it is not a converted error.
+	require.False(t, msg.convertedError)
+
+	// Assert that the length is corrected to the spec-compliant length of
+	// 256 bytes plus overhead.
+	require.Len(t, htlcFailMsg.Reason, 292)
+
+	// Stop the link
+	aliceLink.Stop()
+
+	// Check that no unexpected messages were sent.
+	select {
+	case msg := <-aliceMsgs:
+		require.Fail(t, "did not expect message %T", msg)
+
+	case msg := <-switchChan:
+		require.Fail(t, "did not expect switch message %T", msg)
+
+	default:
 	}
 }
